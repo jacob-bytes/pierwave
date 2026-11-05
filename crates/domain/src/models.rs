@@ -149,6 +149,12 @@ pub struct Package {
     /// 实际可见节点数：未设范围时 = 全部节点数；显式空范围时 = 0。
     #[sqlx(skip)]
     pub node_count: usize,
+    /// `all` = 未设范围（含以后新增的节点）；`custom` = 显式设过范围。
+    ///
+    /// 只靠 `node_ids`/`node_count` 在「系统里一个节点都没有」时无法区分
+    /// 「全部」和「一个都不给」，这个字段把意图直接暴露出来。
+    #[sqlx(skip)]
+    pub node_scope: String,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize)]

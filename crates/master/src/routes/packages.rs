@@ -886,4 +886,44 @@ mod tests {
         let restored = wait_version_after(&state, &server_id, empty.config_version).await;
         assert_eq!(restored.granted_user_ids().unwrap(), vec![user_id]);
     }
+
+    /// 系统里没有节点时，`node_ids`/`node_count` 无法区分「全部」和「一个都不给」，
+    /// 所以 API 额外暴露 `node_scope`。
+    #[tokio::test]
+    async fn node_scope_distinguishes_all_from_empty_when_no_nodes_exist() {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+
+        let all = repo::packages::create(
+            &db.pool,
+            repo::packages::NewPackage {
+                name: "全部".into(),
+                quota_bytes: None,
+                period_days: None,
+                direction: "both".into(),
+                node_ratio: 1.0,
+                node_ids: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(all.node_scope, "all");
+        assert_eq!(all.node_count, 0);
+
+        let none = repo::packages::create(
+            &db.pool,
+            repo::packages::NewPackage {
+                name: "不给".into(),
+                quota_bytes: None,
+                period_days: None,
+                direction: "both".into(),
+                node_ratio: 1.0,
+                node_ids: Some(Vec::new()),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(none.node_scope, "custom");
+        assert_eq!(none.node_count, 0);
+    }
 }

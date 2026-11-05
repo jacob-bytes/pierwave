@@ -1015,6 +1015,7 @@ pub mod packages {
             } else {
                 total_nodes
             };
+            package.node_scope = if explicit { "custom" } else { "all" }.to_string();
             package.node_ids = node_ids;
         }
         Ok(())
