@@ -20,6 +20,17 @@ fix: 一句话说清修了什么
 - **不写任何可能敏感的信息**（部署地址、服务器 IP、用户数据、内部排查过程、安全问题细节）。
   拿不准就先讨论，不要直接写进 tag。
 
+## 打 tag 前
+
+先把 `Cargo.toml` 的 `[workspace.package].version` 改成要发布的版本号——
+它在 `/api/v1/health` 里返回，面板左下角和设置页都读它，不 bump 会出现
+「发布 v0.1.1、面板显示 v0.1.0」。
+
+```bash
+sed -i '' 's/^version = "0\.1\.1"/version = "0.1.2"/' Cargo.toml   # macOS
+cargo check --workspace   # 让 Cargo.lock 跟上
+```
+
 ## 打 tag
 
 ```bash
