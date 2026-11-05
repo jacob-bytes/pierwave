@@ -9,10 +9,12 @@ import {
   CalendarIcon,
   CopyIcon,
   InfoIcon,
+  KeyRoundIcon,
   Link2Icon,
   PackageIcon,
   QrCodeIcon,
   RefreshCwIcon,
+  ShieldCheckIcon,
   TriangleAlertIcon,
 } from "lucide-react";
 import type { UseQueryResult } from "@tanstack/react-query";
@@ -21,6 +23,7 @@ import {
   statusToneClasses,
   type PackageStatusTone,
 } from "@/components/packages/packageTone";
+import { ChangePasswordDialog } from "@/components/settings/ChangePasswordDialog";
 import { SubscriptionQrDialog } from "@/components/subscriptions/SubscriptionQrDialog";
 import { UsageBar } from "@/components/UsageBar";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -465,6 +468,7 @@ export default function MePage() {
   const traffic = useMeTraffic(TRAFFIC_DAYS);
   const { pathname } = useLocation();
   const subscriptionRef = useRef<HTMLDivElement>(null);
+  const [passwordOpen, setPasswordOpen] = useState(false);
 
   // 侧边栏「订阅」指向 /me/subscription，同一页滚动到订阅区。
   useEffect(() => {
@@ -614,6 +618,41 @@ export default function MePage() {
       <section id="traffic" className="scroll-mt-6">
         <TrafficSection traffic={traffic} />
       </section>
+
+      <section id="account" className="scroll-mt-6">
+        <Card className="gap-4">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm font-medium">
+              <ShieldCheckIcon className="size-4 text-muted-foreground" />
+              账号安全
+            </CardTitle>
+            <CardDescription className="text-xs">
+              定期更换密码；修改后其它设备上的登录会立即下线，当前设备保持登录。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              当前账号{" "}
+              <span className="font-mono text-foreground/80">
+                {data.user.username}
+              </span>
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPasswordOpen(true)}
+            >
+              <KeyRoundIcon className="size-3.5" />
+              修改密码
+            </Button>
+          </CardContent>
+        </Card>
+      </section>
+
+      <ChangePasswordDialog
+        open={passwordOpen}
+        onOpenChange={setPasswordOpen}
+      />
     </div>
   );
 }

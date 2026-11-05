@@ -1,4 +1,4 @@
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useState } from "react";
 import {
   Link,
   NavLink,
@@ -9,8 +9,10 @@ import {
 import type { LucideIcon } from "lucide-react";
 import {
   ChevronRightIcon,
+  ChevronsUpDownIcon,
   FileKeyIcon,
   HistoryIcon,
+  KeyRoundIcon,
   LayoutDashboardIcon,
   Link2Icon,
   Loader2Icon,
@@ -23,13 +25,17 @@ import {
   UserRoundIcon,
   UsersIcon,
 } from "lucide-react";
+import { ChangePasswordDialog } from "@/components/settings/ChangePasswordDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { SessionUser } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useHealth, useLogout } from "@/lib/queries";
@@ -39,7 +45,6 @@ type NavItem = {
   label: string;
   icon: LucideIcon;
   end?: boolean;
-  disabled?: boolean;
   sub?: boolean;
   /** 多入口页面（例如 /servers/:id/nodes）需要自定义点亮规则。 */
   activeWhen?: (pathname: string) => boolean;
@@ -77,7 +82,7 @@ const systemNav: NavItem[] = [
   },
   { to: "/events", label: "事件", icon: HistoryIcon },
   { to: "/certificates", label: "证书", icon: FileKeyIcon },
-  { to: "/settings", label: "设置", icon: SettingsIcon, disabled: true },
+  { to: "/settings", label: "设置", icon: SettingsIcon },
 ];
 
 /** 普通用户只有两个入口：概览式「我的」和订阅锚点。 */
@@ -133,22 +138,6 @@ function NavEntry({
   const Icon = item.icon;
   const active = isItemActive(item, pathname);
 
-  if (item.disabled) {
-    return (
-      <span title="待实现" className="block">
-        <Button
-          variant="ghost"
-          size="default"
-          disabled
-          className="w-full justify-start gap-2 px-2.5 font-normal text-muted-foreground/40"
-        >
-          <Icon className="size-4" />
-          {item.label}
-        </Button>
-      </span>
-    );
-  }
-
   return (
     <NavLink
       to={item.to}
@@ -174,6 +163,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
   const logout = useLogout();
   const health = useHealth();
   const version = health.data?.version ?? "dev";
+  const [passwordOpen, setPasswordOpen] = useState(false);
 
   const navGroups = user.role === "admin" ? adminNavGroups : userNavGroups;
   const homePath = user.role === "admin" ? "/" : "/me";
@@ -231,37 +221,44 @@ export default function AppShell({ user }: { user: SessionUser }) {
         </nav>
 
         <div className="border-t border-sidebar-border p-3">
-          <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5">
-            <div className="grid size-7 shrink-0 place-items-center rounded-full bg-primary/15 text-[11px] font-semibold text-primary">
-              {initial}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] font-medium">
-                {user.username}
-              </div>
-              <div className="truncate text-[11px] text-muted-foreground">
-                {roleLabel(user.role)}
-              </div>
-            </div>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="退出登录"
-                  onClick={handleLogout}
-                  disabled={logout.isPending}
-                >
-                  {logout.isPending ? (
-                    <Loader2Icon className="animate-spin" />
-                  ) : (
-                    <LogOutIcon />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>退出登录</TooltipContent>
-            </Tooltip>
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                className="h-auto w-full justify-start gap-2.5 px-2 py-1.5 font-normal"
+                aria-label={`${user.username} 的账号菜单`}
+              >
+                <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary/15 text-[11px] font-semibold text-primary">
+                  {initial}
+                </span>
+                <span className="min-w-0 flex-1 text-left">
+                  <span className="block truncate text-[13px] font-medium">
+                    {user.username}
+                  </span>
+                  <span className="block truncate text-[11px] text-muted-foreground">
+                    {roleLabel(user.role)}
+                  </span>
+                </span>
+                <ChevronsUpDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="start" className="w-56">
+              <DropdownMenuLabel>{user.username}</DropdownMenuLabel>
+              <DropdownMenuItem onSelect={() => setPasswordOpen(true)}>
+                <KeyRoundIcon className="size-3.5" />
+                修改密码
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                disabled={logout.isPending}
+                onSelect={() => void handleLogout()}
+              >
+                <LogOutIcon className="size-3.5" />
+                退出登录
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </aside>
 
@@ -300,6 +297,11 @@ export default function AppShell({ user }: { user: SessionUser }) {
       <div className="pointer-events-none fixed right-4 bottom-3 z-20 font-mono text-[11px] text-muted-foreground/50">
         {version === "dev" ? "dev" : `v${version}`}
       </div>
+
+      <ChangePasswordDialog
+        open={passwordOpen}
+        onOpenChange={setPasswordOpen}
+      />
     </div>
   );
 }

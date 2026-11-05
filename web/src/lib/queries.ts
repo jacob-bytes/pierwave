@@ -10,6 +10,7 @@ import {
   type ApplyResult,
   type BindUserPackageInput,
   type Certificate,
+  type ChangePasswordInput,
   type CreateCertificateInput,
   type CreateNodeInput,
   type CreatePackageInput,
@@ -25,9 +26,11 @@ import {
   type Package,
   type Server,
   type SessionUser,
+  type Settings,
   type TrafficStats,
   type UpdateNodeInput,
   type UpdatePackageInput,
+  type UpdateSettingsInput,
   type UpdateUserInput,
   type UpdateUserPackageInput,
   type UserPackageView,
@@ -51,6 +54,7 @@ export const queryKeys = {
   users: (q: string) => ["users", { q }] as const,
   packages: ["packages"] as const,
   userPackages: (userId: string) => ["user", userId, "packages"] as const,
+  settings: ["settings"] as const,
 };
 
 /** 401 统一由 QueryCache / MutationCache 的全局 onError 处理。 */
@@ -113,6 +117,54 @@ export function useMeTraffic(days: number) {
     enabled: days > 0,
     placeholderData: keepPreviousData,
     staleTime: 60_000,
+  });
+}
+
+/**
+ * 面板设置（管理员）。
+ *
+ * 后端接口可能尚未上线：不重试，由设置页把 404 兜底成中文并给「重试」按钮。
+ */
+export function useSettings() {
+  return useQuery<Settings>({
+    queryKey: queryKeys.settings,
+    queryFn: async () => (await api.settings.get()).items,
+    retry: false,
+    staleTime: 60_000,
+  });
+}
+
+export function useUpdateSettings() {
+  const queryClient = useQueryClient();
+
+  return useMutation<Settings, Error, UpdateSettingsInput>({
+    mutationFn: async (input) => (await api.settings.patch(input)).items,
+    onSuccess: (items) => {
+      // PATCH 的返回值就是权威值：直接覆盖缓存，页面再用它 reset 表单。
+      queryClient.setQueryData(queryKeys.settings, items);
+    },
+  });
+}
+
+/**
+ * 修改当前登录用户的密码。
+ *
+ * 后端会吊销该用户的其它会话、保留当前这条；所以成功后不跳登录，
+ * 但缓存里属于旧密码时期的业务数据一律作废（保留 `me`，避免整屏闪回验证会话）。
+ */
+export function useChangePassword() {
+  const queryClient = useQueryClient();
+
+  return useMutation<{ ok: true }, Error, ChangePasswordInput>({
+    mutationFn: (input) => api.me.changePassword(input),
+    onSuccess: () => {
+      // 旧密码时期的业务缓存一律作废；保留 `me` 命名空间（会话与本人自助数据），
+      // 避免清空后整屏闪回「正在验证会话」。
+      queryClient.removeQueries({
+        predicate: (query) => query.queryKey[0] !== queryKeys.me[0],
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    },
   });
 }
 

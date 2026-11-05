@@ -24,6 +24,15 @@ function optionalIntField(min: number, max: number, message: string) {
   }, message);
 }
 
+function requiredIntField(min: number, max: number, message: string) {
+  return z.string().refine((value) => {
+    const trimmed = value.trim();
+    if (!/^\d+$/.test(trimmed)) return false;
+    const parsed = Number(trimmed);
+    return parsed >= min && parsed <= max;
+  }, message);
+}
+
 const optionalDateField = z
   .string()
   .refine(
@@ -73,6 +82,57 @@ export const resetPasswordSchema = z.object({
 });
 
 export type ResetPasswordValues = z.infer<typeof resetPasswordSchema>;
+
+/** 当前登录用户修改自己的密码；成功后其它设备的会话会立即失效。 */
+export const changePasswordSchema = z
+  .object({
+    old_password: z.string().min(1, "请输入当前密码"),
+    new_password: z.string().min(8, "新密码至少 8 位"),
+    confirm_password: z.string().min(1, "请再次输入新密码"),
+  })
+  .superRefine((values, ctx) => {
+    if (values.confirm_password !== values.new_password) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["confirm_password"],
+        message: "两次输入的新密码不一致",
+      });
+    }
+    if (values.new_password && values.new_password === values.old_password) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["new_password"],
+        message: "新密码不能与当前密码相同",
+      });
+    }
+  });
+
+export type ChangePasswordValues = z.infer<typeof changePasswordSchema>;
+
+/**
+ * 设置页表单：数值字段先用字符串承接，提交时再转数字。
+ * 范围与后端白名单一致：次数 1–20、锁定 60–86400 秒、会话 1–720 小时。
+ */
+export const settingsFormSchema = z.object({
+  panel_name: z
+    .string()
+    .trim()
+    .min(1, "请输入面板名称")
+    .max(64, "面板名称最多 64 个字符"),
+  login_max_attempts: requiredIntField(1, 20, "失败次数需为 1–20 的整数"),
+  login_lock_secs: requiredIntField(
+    60,
+    86400,
+    "锁定时长需为 60–86400 秒（1 分钟–24 小时）",
+  ),
+  session_ttl_hours: requiredIntField(
+    1,
+    720,
+    "会话有效期需为 1–720 小时",
+  ),
+});
+
+export type SettingsFormValues = z.infer<typeof settingsFormSchema>;
 
 /** 套餐节点范围的三态：全部 / 指定 / 一个都不给。 */
 export const PACKAGE_NODE_SCOPES = ["all", "selected", "none"] as const;

@@ -331,6 +331,25 @@ export interface MeSummary {
 
 export type MeTraffic = TrafficStats;
 
+/** P1：运维基础设置，见 docs/PLAN.md「P1：运维基础」。 */
+export interface Settings {
+  /** 面板名称；后端缺失该键时会回落到默认值。 */
+  panel_name: string;
+  /** 限流窗口内允许的连续失败次数，1–20。 */
+  login_max_attempts: number;
+  /** 触发限流后的锁定时长（秒），60–86400。 */
+  login_lock_secs: number;
+  /** 登录会话有效期（小时），1–720。 */
+  session_ttl_hours: number;
+}
+
+export type UpdateSettingsInput = Partial<Settings>;
+
+export interface ChangePasswordInput {
+  old_password: string;
+  new_password: string;
+}
+
 export const api = {
   health: () => request<Health>("/api/v1/health"),
   stats: {
@@ -349,6 +368,11 @@ export const api = {
         request<MeTraffic>(
           `/api/v1/me/traffic?days=${encodeURIComponent(String(days))}`,
         ),
+      changePassword: (input: ChangePasswordInput) =>
+        request<{ ok: true }>("/api/v1/me/password", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
     },
   ),
   login: (username: string, password: string) =>
@@ -370,6 +394,16 @@ export const api = {
       request<{ items: EnforcementEvent[] }>(
         `/api/v1/enforcement/events?limit=${encodeURIComponent(String(limit))}`,
       ),
+  },
+
+  /** 面板设置：仅管理员可读写；后端可能尚未上线，页面按 404 兜底。 */
+  settings: {
+    get: () => request<{ items: Settings }>("/api/v1/settings"),
+    patch: (input: UpdateSettingsInput) =>
+      request<{ items: Settings }>("/api/v1/settings", {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
   },
 
   // 节点按服务器归属管理；`listAll` 是跨服务器的全局列表（套餐范围选择器用）。

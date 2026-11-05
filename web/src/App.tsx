@@ -15,6 +15,7 @@ const SubscriptionsPage = lazy(() => import("@/pages/Subscriptions"));
 const PackagesPage = lazy(() => import("@/pages/Packages"));
 const CertificatesPage = lazy(() => import("@/pages/Certificates"));
 const EventsPage = lazy(() => import("@/pages/Events"));
+const SettingsPage = lazy(() => import("@/pages/Settings"));
 const NodesPage = lazy(() => import("@/pages/Nodes"));
 const NodesIndexPage = lazy(() => import("@/pages/NodesIndex"));
 const MePage = lazy(() => import("@/pages/Me"));
@@ -123,6 +124,7 @@ export default function App() {
             <Route path="packages" element={<PackagesPage />} />
             <Route path="certificates" element={<CertificatesPage />} />
             <Route path="events" element={<EventsPage />} />
+            <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         ) : (
