@@ -87,3 +87,55 @@ Surge / sing-box 等第二轮补——它们的差异主要在配置文件骨架
   匹配不到进 `其他`
 
 规则集第一版只做「国内直连 + 其余走 PROXY」，复杂的路由留给后面的「覆写管理」。
+
+## 7. 闭环：服务端也要有同一份凭据（下一轮）
+
+派生凭据只解决了「发给客户端的那一份」。**服务器 inbound 里必须有匹配的 client，否则用户连不上。**
+`build_config()` 现在原样透传 `settings.clients`（通常是空数组），这就是当前最大的断点。
+
+### 7.1 授权模型（MVP）
+
+用户能拿到哪些节点，按套餐实例判定：
+
+```
+可见节点 = 该服务器上 enabled=1 的节点
+受众     = status='active' 且至少有一个未过期 user_package 的用户
+```
+
+没有套餐的用户 → 订阅返回 200 + 空 `proxies`（客户端显示「无节点」，与「是否绑定套餐」的 FAQ 语义一致）。
+包级的节点白名单（`packages.node_tags`）留到下一轮，本轮不做。
+
+### 7.2 生成 client
+
+对每个 (用户, 节点) 注入一条 client，`email` 固定为 `{user_id}@{node_tag}`（流量归因靠它）：
+
+| 协议 | 字段 |
+|---|---|
+| vless | `id` = sub_uuid，`flow` 沿用片段，`email` |
+| vmess | `id` = sub_uuid，`alterId` = 0，`email` |
+| trojan | `password` = sub_uuid，`email` |
+| shadowsocks | `password` = sub_uuid（多用户模式），`email` |
+
+`build_config(server, nodes, users)` 的签名变化会波及 `nodes::apply` 与 agent 侧（不需要改协议，只改配置内容）。
+
+**代价要写在明处**：生成复杂度是 O(用户 × 节点)，200 用户 × 10 节点 = 2000 条 client。
+这是这类面板的固有形态（离线算一次，Xray 启动时加载），但 apply 会变慢，后续要做增量与缓存。
+
+### 7.3 REALITY 的 publicKey：用 x25519 反推
+
+现行片段只有 `privateKey`，客户端要 `publicKey`。两种解法里选**反推**：
+
+```
+publicKey = base64( X25519(privateKey_bytes, basepoint) )
+```
+
+理由：面板不该要求管理员手填一对数学上绑定的密钥；手填错了要等用户连不上才发现。
+片段里若已显式给了 `publicKey`（导入的配置），以显式值为准。
+
+依赖 `x25519-dalek`，用 RFC 7748 §6.1 的官方测试向量做单测：
+`a = 77076d0a...2c2a` → `pub = 8520f009...4e6a`。
+
+### 7.4 顺带修掉
+
+- `?target=singbox|surge` 目前静默回落成 clash，等于把 YAML 塞给 sing-box 用户 → 改成 400 + 支持列表。
+- 节点名跨服务器重名已在端点做 `(2)` 后缀，要求**按 server_id 排序生成**，保证每次订阅顺序稳定，否则客户端每次刷新都重命名节点。
