@@ -48,6 +48,14 @@ CARGO_HOME=$PWD/.cargo-home cargo test -p mmrust-domain
 - 列表页四态（loading / empty / error / 正常）是硬要求，不是可选优化。
 - 不写死颜色，全部走 `--background` 这类 CSS 变量。
 
+## 并行协作（多 lane 同时开工时）
+
+1. **同一时刻只有一条 lane 改共享 crate**（`crates/domain`、`crates/master`）；其它 lane 改自己的 crate 或 `web/`。
+2. 新增 `mod xxx;` 引用时，**必须在同一次改动里创建文件**，否则整棵树编不过，别人全部阻塞。
+3. lane 自查用 `cargo check -p <自己的 crate>`；`make check` / `make e2e` 这种全量验证由主控在合流后统一跑。
+4. 发现工作区被别的 lane 改坏：不要 revert、不要注释别人的代码、不要 `git checkout`，直接汇报并停下。
+5. 卡住超过一个回合就上报，不要反复重试同一个失败命令。
+
 ## 当前已通的链路
 
 登录（Cookie 会话）→ 建服务器并一次性返回 token → Agent 用 token 反连 `/api/agent/ws` →
