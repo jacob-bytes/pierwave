@@ -52,6 +52,50 @@ pub fn business_date(ts: i64) -> String {
         .unwrap_or_else(|| "1970-01-01".to_string())
 }
 
+/// `ts` 所属 UTC+8 自然日的 `(年, 月, 日)`。
+///
+/// 月度重置日需要「当月第几天 / 当月最后一天」，字符串比较做不了，
+/// 所以在这里统一换算成本地日历字段。
+pub fn business_ymd(ts: i64) -> (i32, u32, u32) {
+    use chrono::Datelike;
+
+    let offset =
+        chrono::FixedOffset::east_opt(BUSINESS_UTC_OFFSET_SECS as i32).expect("UTC+8 偏移固定合法");
+    chrono::DateTime::from_timestamp(ts, 0)
+        .map(|utc| {
+            let local = utc.with_timezone(&offset);
+            (local.year(), local.month(), local.day())
+        })
+        .unwrap_or((1970, 1, 1))
+}
+
+/// `ts` 所属 UTC+8 自然月的天数（28/29/30/31）。
+///
+/// `reset_day = 29/30/31` 遇到小月要压到当月最后一天，判定就靠它。
+pub fn business_days_in_month(ts: i64) -> u32 {
+    let (year, month, _) = business_ymd(ts);
+    let (next_year, next_month) = if month == 12 {
+        (year + 1, 1)
+    } else {
+        (year, month + 1)
+    };
+    let first = chrono::NaiveDate::from_ymd_opt(year, month, 1)
+        .unwrap_or_else(|| chrono::NaiveDate::from_ymd_opt(1970, 1, 1).expect("回退日期合法"));
+    let next = chrono::NaiveDate::from_ymd_opt(next_year, next_month, 1)
+        .unwrap_or_else(|| chrono::NaiveDate::from_ymd_opt(1970, 2, 1).expect("回退日期合法"));
+    (next - first).num_days() as u32
+}
+
+/// `ts` 所属 UTC+8 自然月的首日与末日，格式 `YYYY-MM-DD`。
+pub fn business_month_bounds(ts: i64) -> (String, String) {
+    let (year, month, _) = business_ymd(ts);
+    let last = business_days_in_month(ts);
+    (
+        format!("{year:04}-{month:02}-01"),
+        format!("{year:04}-{month:02}-{last:02}"),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,5 +144,30 @@ mod tests {
         // 2024-01-01 16:00:00 UTC = 2024-01-02 00:00:00 UTC+8
         assert_eq!(business_date(1_704_067_200 + 16 * 3600), "2024-01-02");
         assert_eq!(business_date(0), "1970-01-01");
+    }
+
+    #[test]
+    fn business_calendar_fields_follow_utc_plus_eight() {
+        // 2024-01-01 00:00:00 UTC = 2024-01-01 08:00:00 UTC+8
+        assert_eq!(business_ymd(1_704_067_200), (2024, 1, 1));
+        assert_eq!(business_days_in_month(1_704_067_200), 31);
+        assert_eq!(
+            business_month_bounds(1_704_067_200),
+            ("2024-01-01".to_string(), "2024-01-31".to_string())
+        );
+
+        // 闰年 2 月与平年 2 月。
+        let leap_feb = 1_709_164_800; // 2024-02-29 00:00:00 UTC
+        assert_eq!(business_ymd(leap_feb), (2024, 2, 29));
+        assert_eq!(business_days_in_month(leap_feb), 29);
+        let feb_2023 = 1_677_542_400; // 2023-02-28 00:00:00 UTC
+        assert_eq!(business_ymd(feb_2023), (2023, 2, 28));
+        assert_eq!(business_days_in_month(feb_2023), 28);
+
+        // 跨年 12 月的下一个月要回到 1 月。
+        let dec = 1_704_067_200 + 360 * 86_400; // 2024-12-26 00:00:00 UTC 附近
+        let (year, month, _) = business_ymd(dec);
+        assert_eq!((year, month), (2024, 12));
+        assert_eq!(business_days_in_month(dec), 31);
     }
 }

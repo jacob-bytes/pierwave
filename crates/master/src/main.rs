@@ -2,6 +2,7 @@ mod app;
 mod auth;
 mod error;
 mod routes;
+mod scheduler;
 mod state;
 
 use std::net::SocketAddr;
@@ -39,6 +40,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let state = AppState::new(db, &web_dir);
+    // 每日重置：每小时检查一次，启动后立即跑第一轮。
+    let _reset_task = scheduler::spawn_daily_reset(state.db.clone());
     let app = app::router(state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("listening on http://{addr}, web dir = {web_dir}");

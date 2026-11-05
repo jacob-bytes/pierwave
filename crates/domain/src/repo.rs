@@ -1023,6 +1023,131 @@ pub mod user_packages {
         Ok(res.rows_affected() > 0)
     }
 
+    /// 日重置候选：`reset_day` 命中今天、且今天还没重置过的 active 实例。
+    ///
+    /// `reset_days` 是「今天该触发的 reset_day 集合」——29/30/31 在小月会压到
+    /// 当月最后一天，所以月末最后一天可能同时命中多个值；这段日历换算留在
+    /// 领域层（[`crate::reset`]），这里只按集合过滤。
+    ///
+    /// 「今天还没重置过」= `last_reset_at` 为空，或落在今天（UTC+8）之外。
+    #[derive(Debug, Clone, sqlx::FromRow)]
+    pub struct ResetCandidate {
+        pub id: String,
+        pub user_id: String,
+    }
+
+    pub async fn list_reset_candidates(
+        pool: &SqlitePool,
+        reset_days: &[i64],
+        day_start: i64,
+        day_end: i64,
+    ) -> anyhow::Result<Vec<ResetCandidate>> {
+        if reset_days.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut builder = QueryBuilder::new(
+            "SELECT id, user_id FROM user_packages
+             WHERE status = 'active' AND reset_day IN (",
+        );
+        {
+            let mut separated = builder.separated(", ");
+            for day in reset_days {
+                separated.push_bind(*day);
+            }
+        }
+        builder
+            .push(") AND (last_reset_at IS NULL OR last_reset_at < ")
+            .push_bind(day_start)
+            .push(" OR last_reset_at >= ")
+            .push_bind(day_end)
+            .push(") ORDER BY created_at ASC, rowid ASC");
+
+        Ok(builder
+            .build_query_as::<ResetCandidate>()
+            .fetch_all(pool)
+            .await?)
+    }
+
+    /// 对候选实例执行日重置：清零、写 `last_reset_at`、从用户总量饱和扣减。
+    ///
+    /// 返回 `(实际重置的实例数, 扣减的总字节数)`。整批在一个事务里完成；
+    /// `UPDATE` 里重复带上「今天还没重置」的条件，所以即使两个调度器/测试同时
+    /// 调用，同一天也只有一次能清零（`rows_affected == 0` 的会被跳过）。
+    pub async fn apply_daily_reset(
+        pool: &SqlitePool,
+        candidates: &[ResetCandidate],
+        now: i64,
+        day_start: i64,
+        day_end: i64,
+    ) -> anyhow::Result<(i64, i64)> {
+        let mut tx = pool.begin().await?;
+        let mut instances = 0i64;
+        let mut deducted_bytes = 0i64;
+
+        for candidate in candidates {
+            // 事务内重读旧用量：扣减的必须是这次真正清零的那部分。
+            let used: Option<i64> = sqlx::query_scalar(
+                "SELECT used_bytes FROM user_packages
+                 WHERE id = ? AND status = 'active'
+                   AND (last_reset_at IS NULL OR last_reset_at < ? OR last_reset_at >= ?)",
+            )
+            .bind(&candidate.id)
+            .bind(day_start)
+            .bind(day_end)
+            .fetch_optional(&mut *tx)
+            .await?;
+            let Some(used) = used else {
+                continue;
+            };
+
+            let reset = sqlx::query(
+                "UPDATE user_packages SET used_bytes = 0, last_reset_at = ?
+                 WHERE id = ? AND status = 'active'
+                   AND (last_reset_at IS NULL OR last_reset_at < ? OR last_reset_at >= ?)",
+            )
+            .bind(now)
+            .bind(&candidate.id)
+            .bind(day_start)
+            .bind(day_end)
+            .execute(&mut *tx)
+            .await?;
+            if reset.rows_affected() == 0 {
+                continue;
+            }
+
+            let deduction = used.max(0);
+            if deduction > 0 {
+                // MAX(..., 0) 就是 saturating_sub：用户总量不够扣时只扣到 0，不出负数。
+                sqlx::query(
+                    "UPDATE users SET used_bytes = MAX(used_bytes - ?, 0), updated_at = ?
+                     WHERE id = ?",
+                )
+                .bind(deduction)
+                .bind(now)
+                .bind(&candidate.user_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+
+            instances += 1;
+            deducted_bytes = deducted_bytes.saturating_add(deduction);
+        }
+
+        tx.commit().await?;
+        Ok((instances, deducted_bytes))
+    }
+
+    /// 读取实例的重置水位（测试与运维排查用）。
+    pub async fn last_reset_at(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<i64>> {
+        let row: Option<Option<i64>> =
+            sqlx::query_scalar("SELECT last_reset_at FROM user_packages WHERE id = ?")
+                .bind(id)
+                .fetch_optional(pool)
+                .await?;
+        Ok(row.flatten())
+    }
+
     /// 返回是否真的删掉了一行。
     pub async fn delete(pool: &SqlitePool, id: &str) -> anyhow::Result<bool> {
         let res = sqlx::query("DELETE FROM user_packages WHERE id = ?")
@@ -1124,5 +1249,167 @@ pub mod authorization {
         let packages = super::user_packages::list_views_by_user(pool, user_id).await?;
         let now = super::now();
         Ok(packages.iter().any(|item| item.is_usable_at(now)))
+    }
+}
+
+/// 管理端概览与趋势：全部走聚合 SQL，不把明细行拉进内存。
+///
+/// 每个数字一条聚合查询（`COUNT` / `SUM`），避免 N+1；趋势只取请求窗口内的
+/// 日聚合，再在内存里给缺失日期补 0（窗口最大 90 行，不构成全表扫描）。
+pub mod stats {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    /// 概览一次查齐所有卡片数字。`now` 由调用方传入，测试可以固定时间。
+    pub async fn overview(pool: &SqlitePool, now: i64) -> anyhow::Result<Overview> {
+        let (servers_total, servers_online): (i64, i64) = sqlx::query_as(
+            "SELECT COUNT(*),
+                    COALESCE(SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END), 0)
+             FROM servers",
+        )
+        .fetch_one(pool)
+        .await?;
+
+        let (users_total, users_active): (i64, i64) = sqlx::query_as(
+            "SELECT COUNT(*),
+                    COALESCE(SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END), 0)
+             FROM users",
+        )
+        .fetch_one(pool)
+        .await?;
+
+        let packages_total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM packages")
+            .fetch_one(pool)
+            .await?;
+        let package_instances: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM user_packages")
+            .fetch_one(pool)
+            .await?;
+
+        let today = crate::time::business_date(now);
+        let (month_start, month_end) = crate::time::business_month_bounds(now);
+        let today_bytes: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily WHERE day = ?",
+        )
+        .bind(&today)
+        .fetch_one(pool)
+        .await?;
+        let month_bytes: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily
+             WHERE day >= ? AND day <= ?",
+        )
+        .bind(&month_start)
+        .bind(&month_end)
+        .fetch_one(pool)
+        .await?;
+
+        // 告警口径与 UserPackageView.status 一致：disabled 不算过期/用尽；
+        // 已过期的实例只计入 expired，不重复计入 exhausted。
+        let expired_instances: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM user_packages up
+             JOIN packages p ON p.id = up.package_id
+             WHERE up.status = 'active'
+               AND up.expires_at IS NOT NULL AND up.expires_at <= ?",
+        )
+        .bind(now)
+        .fetch_one(pool)
+        .await?;
+        let exhausted_instances: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM user_packages up
+             JOIN packages p ON p.id = up.package_id
+             WHERE up.status = 'active'
+               AND (up.expires_at IS NULL OR up.expires_at > ?)
+               AND COALESCE(up.quota_override, p.quota_bytes) > 0
+               AND up.used_bytes >= COALESCE(up.quota_override, p.quota_bytes)",
+        )
+        .bind(now)
+        .fetch_one(pool)
+        .await?;
+        let offline_servers: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM servers WHERE status <> 'online'")
+                .fetch_one(pool)
+                .await?;
+
+        Ok(Overview {
+            servers: ServerStats {
+                total: servers_total,
+                online: servers_online,
+            },
+            users: UserStats {
+                total: users_total,
+                active: users_active,
+            },
+            packages: PackageStats {
+                total: packages_total,
+                instances: package_instances,
+            },
+            traffic: TrafficStats {
+                today_bytes,
+                month_bytes,
+            },
+            alerts: AlertStats {
+                expired_instances,
+                exhausted_instances,
+                offline_servers,
+            },
+        })
+    }
+
+    /// 最近 `days` 天（含今天）的日趋势，升序返回。
+    ///
+    /// SQL 只做 `GROUP BY day`；缺失日期在内存里补 0，保证前端拿到连续的
+    /// `days` 个点。`days` 在这里再夹一次，防止调用方绕过校验。
+    pub async fn traffic_trend(
+        pool: &SqlitePool,
+        now: i64,
+        days: i64,
+    ) -> anyhow::Result<Vec<TrafficDay>> {
+        let days = days.clamp(1, 90);
+        let today = crate::time::business_day(now);
+        let first = today - (days - 1);
+        let start_date = crate::time::business_date(crate::time::business_day_start(first));
+        let end_date = crate::time::business_date(crate::time::business_day_start(today));
+
+        #[derive(sqlx::FromRow)]
+        struct DayRow {
+            day: String,
+            uplink: i64,
+            downlink: i64,
+            weighted: i64,
+        }
+
+        let rows = sqlx::query_as::<_, DayRow>(
+            "SELECT day,
+                    COALESCE(SUM(uplink), 0) AS uplink,
+                    COALESCE(SUM(downlink), 0) AS downlink,
+                    COALESCE(SUM(weighted), 0) AS weighted
+             FROM traffic_daily
+             WHERE day >= ? AND day <= ?
+             GROUP BY day",
+        )
+        .bind(&start_date)
+        .bind(&end_date)
+        .fetch_all(pool)
+        .await?;
+
+        let mut by_day: HashMap<String, (i64, i64, i64)> = rows
+            .into_iter()
+            .map(|row| (row.day, (row.uplink, row.downlink, row.weighted)))
+            .collect();
+
+        let mut points = Vec::with_capacity(days as usize);
+        for offset in 0..days {
+            let date = crate::time::business_date(crate::time::business_day_start(first + offset));
+            let (uplink, downlink, weighted) = by_day.remove(&date).unwrap_or((0, 0, 0));
+            points.push(TrafficDay {
+                date,
+                uplink,
+                downlink,
+                weighted,
+            });
+        }
+        Ok(points)
     }
 }

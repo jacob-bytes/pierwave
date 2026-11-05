@@ -4,6 +4,7 @@ pub mod desired;
 pub mod nodes;
 pub mod packages;
 pub mod servers;
+pub mod stats;
 pub mod subscribe;
 pub mod system;
 pub mod users;

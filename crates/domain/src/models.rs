@@ -279,3 +279,57 @@ pub struct SessionUser {
     pub role: String,
     pub short_code: String,
 }
+
+/// 管理端概览：只放聚合后的计数，不携带任何明细行。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct Overview {
+    pub servers: ServerStats,
+    pub users: UserStats,
+    pub packages: PackageStats,
+    pub traffic: TrafficStats,
+    pub alerts: AlertStats,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ServerStats {
+    pub total: i64,
+    pub online: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct UserStats {
+    pub total: i64,
+    pub active: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct PackageStats {
+    /// 套餐模板数。
+    pub total: i64,
+    /// 已售出的套餐实例数（user_packages 行数）。
+    pub instances: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct TrafficStats {
+    /// 今天（UTC+8）的加权流量。
+    pub today_bytes: i64,
+    /// 本月（UTC+8）的加权流量。
+    pub month_bytes: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct AlertStats {
+    pub expired_instances: i64,
+    pub exhausted_instances: i64,
+    pub offline_servers: i64,
+}
+
+/// 趋势图的一天：`date` 是 UTC+8 自然日，缺数据的天由仓储补 0。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct TrafficDay {
+    pub date: String,
+    pub uplink: i64,
+    pub downlink: i64,
+    pub weighted: i64,
+}
