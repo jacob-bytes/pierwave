@@ -1765,6 +1765,47 @@ pub mod stats {
         now: i64,
         days: i64,
     ) -> anyhow::Result<Vec<TrafficDay>> {
+        traffic_trend_scoped(pool, now, days, None).await
+    }
+
+    /// 单个用户（`traffic_daily.subject == user_id`）的日趋势，形状与全局一致。
+    pub async fn traffic_trend_for_subject(
+        pool: &SqlitePool,
+        now: i64,
+        days: i64,
+        subject: &str,
+    ) -> anyhow::Result<Vec<TrafficDay>> {
+        traffic_trend_scoped(pool, now, days, Some(subject)).await
+    }
+
+    /// 单用户今日/本月计费流量（`weighted` 之和）。
+    pub async fn subject_totals(
+        pool: &SqlitePool,
+        subject: &str,
+        now: i64,
+    ) -> anyhow::Result<(i64, i64)> {
+        let today = crate::time::business_date(now);
+        let (month_start, month_end) = crate::time::business_month_bounds(now);
+        let row: (i64, i64) = sqlx::query_as(
+            "SELECT COALESCE(SUM(CASE WHEN day = ? THEN weighted ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN day >= ? AND day <= ? THEN weighted ELSE 0 END), 0)
+             FROM traffic_daily WHERE subject = ?",
+        )
+        .bind(&today)
+        .bind(&month_start)
+        .bind(&month_end)
+        .bind(subject)
+        .fetch_one(pool)
+        .await?;
+        Ok(row)
+    }
+
+    async fn traffic_trend_scoped(
+        pool: &SqlitePool,
+        now: i64,
+        days: i64,
+        subject: Option<&str>,
+    ) -> anyhow::Result<Vec<TrafficDay>> {
         let days = days.clamp(1, 90);
         let today = crate::time::business_day(now);
         let first = today - (days - 1);
@@ -1779,19 +1820,30 @@ pub mod stats {
             weighted: i64,
         }
 
-        let rows = sqlx::query_as::<_, DayRow>(
+        let sql = if subject.is_some() {
+            "SELECT day,
+                    COALESCE(SUM(uplink), 0) AS uplink,
+                    COALESCE(SUM(downlink), 0) AS downlink,
+                    COALESCE(SUM(weighted), 0) AS weighted
+             FROM traffic_daily
+             WHERE day >= ? AND day <= ? AND subject = ?
+             GROUP BY day"
+        } else {
             "SELECT day,
                     COALESCE(SUM(uplink), 0) AS uplink,
                     COALESCE(SUM(downlink), 0) AS downlink,
                     COALESCE(SUM(weighted), 0) AS weighted
              FROM traffic_daily
              WHERE day >= ? AND day <= ?
-             GROUP BY day",
-        )
-        .bind(&start_date)
-        .bind(&end_date)
-        .fetch_all(pool)
-        .await?;
+             GROUP BY day"
+        };
+        let mut query = sqlx::query_as::<_, DayRow>(sql)
+            .bind(&start_date)
+            .bind(&end_date);
+        if let Some(subject) = subject {
+            query = query.bind(subject);
+        }
+        let rows = query.fetch_all(pool).await?;
 
         let mut by_day: HashMap<String, (i64, i64, i64)> = rows
             .into_iter()

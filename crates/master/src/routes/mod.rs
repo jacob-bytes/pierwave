@@ -3,6 +3,7 @@ pub mod auth;
 pub mod certificates;
 pub mod desired;
 pub mod enforcement;
+pub mod me;
 pub mod nodes;
 pub mod packages;
 pub mod servers;

@@ -68,6 +68,8 @@ pub fn router(state: AppState) -> Router {
         )
         // 公开订阅入口：不加鉴权，短码即凭证。
         .route("/api/v1/sub/{short_code}", get(routes::subscribe::get))
+        .route("/api/v1/me/summary", get(routes::me::summary))
+        .route("/api/v1/me/traffic", get(routes::me::traffic))
         .route("/api/agent/ws", get(routes::agent::ws))
         .with_state(state)
         .fallback_service(static_files)
