@@ -195,6 +195,24 @@ pub async fn create(
     let scope = repo::packages::node_scope(&state.db.pool, &package.id).await?;
     mark_dirty_if_scope_changed(&state, &package.id, None, scope).await;
 
+    crate::audit::record(
+        &state,
+        &user.0,
+        "package.create",
+        &package.id,
+        json!({
+            "name": &package.name,
+            "quota_bytes": package.quota_bytes,
+            "period_days": package.period_days,
+            "direction": &package.direction,
+            "node_ratio": package.node_ratio,
+            "node_scope": &package.node_scope,
+            "node_count": package.node_count,
+            "node_ids": &package.node_ids,
+        }),
+    )
+    .await;
+
     Ok(Json(json!({ "package": package })))
 }
 
@@ -253,7 +271,14 @@ pub async fn update(
         validate_node_id_list(&state, node_ids).await?;
     }
 
-    let before = repo::packages::node_scope(&state.db.pool, &id).await?;
+    // 审计与「范围是否变化」都要变更前快照：一次查询同时拿到 node_scope/node_count。
+    let before_package = repo::packages::find_by_id(&state.db.pool, &id).await?;
+    let before_scope = before_package
+        .as_ref()
+        .map(|package| repo::packages::NodeScope {
+            explicit: package.node_scope == "custom",
+            node_ids: package.node_ids.clone(),
+        });
     let package = repo::packages::update(
         &state.db.pool,
         &id,
@@ -270,7 +295,63 @@ pub async fn update(
     .ok_or(AppError::NotFound)?;
 
     let after = repo::packages::node_scope(&state.db.pool, &id).await?;
-    mark_dirty_if_scope_changed(&state, &id, before, after).await;
+    mark_dirty_if_scope_changed(&state, &id, before_scope, after).await;
+
+    let changes = crate::audit::diff(vec![
+        (
+            "name",
+            json!(before_package.as_ref().map(|package| &package.name)),
+            json!(&package.name),
+        ),
+        (
+            "quota_bytes",
+            json!(before_package
+                .as_ref()
+                .and_then(|package| package.quota_bytes)),
+            json!(package.quota_bytes),
+        ),
+        (
+            "period_days",
+            json!(before_package
+                .as_ref()
+                .and_then(|package| package.period_days)),
+            json!(package.period_days),
+        ),
+        (
+            "direction",
+            json!(before_package.as_ref().map(|package| &package.direction)),
+            json!(&package.direction),
+        ),
+        (
+            "node_ratio",
+            json!(before_package.as_ref().map(|package| package.node_ratio)),
+            json!(package.node_ratio),
+        ),
+    ]);
+    crate::audit::record(
+        &state,
+        &user.0,
+        "package.update",
+        &id,
+        json!({
+            "name": &package.name,
+            "changes": changes,
+            // 节点范围单独摊平：这是删除节点/换范围时最需要回查的字段。
+            "node_scope": {
+                "from": before_package.as_ref().map(|package| package.node_scope.as_str()),
+                "to": &package.node_scope,
+            },
+            "node_count": {
+                "from": before_package.as_ref().map(|package| package.node_count),
+                "to": package.node_count,
+            },
+            "node_ids": {
+                "from": before_package.as_ref().map(|package| package.node_ids.clone()),
+                "to": &package.node_ids,
+            },
+        }),
+    )
+    .await;
 
     Ok(Json(json!({ "package": package })))
 }
@@ -289,8 +370,24 @@ pub async fn delete(
             "该套餐还有 {references} 个用户在用，无法删除"
         )));
     }
+    let removed = repo::packages::find_by_id(&state.db.pool, &id).await?;
     if !repo::packages::delete(&state.db.pool, &id).await? {
         return Err(AppError::NotFound);
+    }
+    if let Some(removed) = removed {
+        crate::audit::record(
+            &state,
+            &user.0,
+            "package.delete",
+            &id,
+            json!({
+                "name": &removed.name,
+                "node_scope": &removed.node_scope,
+                "node_count": removed.node_count,
+                "node_ids": &removed.node_ids,
+            }),
+        )
+        .await;
     }
     Ok(Json(json!({ "ok": true })))
 }

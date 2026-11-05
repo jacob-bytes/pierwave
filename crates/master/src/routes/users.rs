@@ -123,6 +123,19 @@ pub async fn create(
     )
     .await?;
 
+    crate::audit::record(
+        &state,
+        &user.0,
+        "user.create",
+        &created.id,
+        json!({
+            "username": &created.username,
+            "role": &created.role,
+            "quota_bytes": created.quota_bytes,
+        }),
+    )
+    .await;
+
     Ok(Json(user_view(&state, &created.id).await?))
 }
 
@@ -176,7 +189,10 @@ pub async fn update(
         ));
     }
 
-    repo::users::update(
+    // 审计要给出「改了什么」，先取一份变更前的快照。
+    let before = load_user(&state, &id).await?;
+
+    let updated = repo::users::update(
         &state.db.pool,
         &id,
         repo::users::UpdateUser {
@@ -194,6 +210,26 @@ pub async fn update(
         }
     }
 
+    // 只记字段级变更摘要；密码只记「是否改过」，绝不记内容。
+    let changes = crate::audit::diff(vec![
+        ("role", json!(before.role), json!(updated.role)),
+        ("status", json!(before.status), json!(updated.status)),
+        (
+            "quota_bytes",
+            json!(before.quota_bytes),
+            json!(updated.quota_bytes),
+        ),
+        ("password", json!(false), json!(req.password.is_some())),
+    ]);
+    crate::audit::record(
+        &state,
+        &user.0,
+        "user.update",
+        &id,
+        json!({ "username": &updated.username, "changes": changes }),
+    )
+    .await;
+
     Ok(Json(user_view(&state, &id).await?))
 }
 
@@ -207,9 +243,22 @@ pub async fn delete(
     if id == user.0.id {
         return Err(AppError::BadRequest("不能删除自己".into()));
     }
+    let removed = load_user(&state, &id).await?;
     if !repo::users::delete(&state.db.pool, &id).await? {
         return Err(AppError::NotFound);
     }
+    crate::audit::record(
+        &state,
+        &user.0,
+        "user.delete",
+        &id,
+        json!({
+            "username": &removed.username,
+            "role": &removed.role,
+            "status": &removed.status,
+        }),
+    )
+    .await;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -281,6 +330,23 @@ pub async fn create_user_package(
         tracing::error!(%user_id, error = %error, "绑卡后标记期望态失败");
     }
 
+    crate::audit::record(
+        &state,
+        &user.0,
+        "user_package.bind",
+        &item.id,
+        json!({
+            "user_id": &user_id,
+            "package_id": &item.package_id,
+            "package_name": &item.package_name,
+            "quota_override": item.quota_override,
+            "quota_bytes": item.quota_bytes,
+            "expires_at": item.expires_at,
+            "reset_day": item.reset_day,
+        }),
+    )
+    .await;
+
     Ok(Json(json!({ "item": item })))
 }
 
@@ -322,6 +388,10 @@ pub async fn update_user_package(
         None => None,
     };
 
+    let before = repo::user_packages::find_view_by_id(&state.db.pool, &id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+
     let item = repo::user_packages::update(
         &state.db.pool,
         &id,
@@ -341,6 +411,39 @@ pub async fn update_user_package(
         tracing::error!(user_id = %item.user_id, error = %error, "改套餐后标记期望态失败");
     }
 
+    let changes = crate::audit::diff(vec![
+        (
+            "quota_override",
+            json!(before.quota_override),
+            json!(item.quota_override),
+        ),
+        (
+            "quota_bytes",
+            json!(before.quota_bytes),
+            json!(item.quota_bytes),
+        ),
+        (
+            "expires_at",
+            json!(before.expires_at),
+            json!(item.expires_at),
+        ),
+        ("reset_day", json!(before.reset_day), json!(item.reset_day)),
+        ("status", json!(before.raw_status), json!(item.raw_status)),
+    ]);
+    crate::audit::record(
+        &state,
+        &user.0,
+        "user_package.update",
+        &item.id,
+        json!({
+            "user_id": &item.user_id,
+            "package_id": &item.package_id,
+            "package_name": &item.package_name,
+            "changes": changes,
+        }),
+    )
+    .await;
+
     Ok(Json(json!({ "item": item })))
 }
 
@@ -350,8 +453,23 @@ pub async fn delete_user_package(
     Path(id): Path<String>,
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
+    let removed = repo::user_packages::find_view_by_id(&state.db.pool, &id).await?;
     if !repo::user_packages::delete(&state.db.pool, &id).await? {
         return Err(AppError::NotFound);
+    }
+    if let Some(removed) = removed {
+        crate::audit::record(
+            &state,
+            &user.0,
+            "user_package.unbind",
+            &id,
+            json!({
+                "user_id": &removed.user_id,
+                "package_id": &removed.package_id,
+                "package_name": &removed.package_name,
+            }),
+        )
+        .await;
     }
     Ok(Json(json!({ "ok": true })))
 }

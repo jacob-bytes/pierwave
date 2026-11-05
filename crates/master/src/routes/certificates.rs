@@ -63,6 +63,22 @@ pub async fn create(
     let view = repo::certificates::view_by_id(&state.db.pool, &cert.id, repo::now())
         .await?
         .ok_or(AppError::NotFound)?;
+
+    // 只记元数据：证书正文和私钥永远不进审计。
+    crate::audit::record(
+        &state,
+        &user.0,
+        "certificate.upload",
+        &view.id,
+        json!({
+            "name": &view.name,
+            "domains": &view.domains,
+            "not_before": view.not_before,
+            "not_after": view.not_after,
+        }),
+    )
+    .await;
+
     Ok(Json(json!({ "certificate": view })))
 }
 
@@ -80,8 +96,22 @@ pub async fn delete(
             "该证书被 {references} 个节点引用，无法删除"
         )));
     }
+    let removed = repo::certificates::view_by_id(&state.db.pool, &id, repo::now()).await?;
     if !repo::certificates::delete(&state.db.pool, &id).await? {
         return Err(AppError::NotFound);
+    }
+    if let Some(removed) = removed {
+        crate::audit::record(
+            &state,
+            &user.0,
+            "certificate.delete",
+            &id,
+            json!({
+                "name": &removed.name,
+                "domains": &removed.domains,
+            }),
+        )
+        .await;
     }
     Ok(Json(json!({ "ok": true })))
 }

@@ -50,6 +50,19 @@ pub async fn create(
     }
     let (server, token) =
         repo::servers::create(&state.db.pool, name, address, &req.xray_mode).await?;
+    // 明文 token 不落审计：它只该在创建响应里出现一次。
+    crate::audit::record(
+        &state,
+        &user.0,
+        "server.create",
+        &server.id,
+        json!({
+            "name": &server.name,
+            "address": &server.address,
+            "xray_mode": &server.xray_mode,
+        }),
+    )
+    .await;
     // 明文 token 只在这里出现一次
     Ok(Json(json!({
         "server": server,
@@ -99,10 +112,38 @@ pub async fn update(
         ));
     }
 
+    let before = repo::servers::find_by_id(&state.db.pool, &id).await.ok();
     let server =
         repo::servers::update(&state.db.pool, &id, name, address, req.xray_mode.as_deref())
             .await?
             .ok_or(AppError::NotFound)?;
+
+    let changes = crate::audit::diff(vec![
+        (
+            "name",
+            json!(before.as_ref().map(|server| &server.name)),
+            json!(&server.name),
+        ),
+        (
+            "address",
+            json!(before.as_ref().map(|server| &server.address)),
+            json!(&server.address),
+        ),
+        (
+            "xray_mode",
+            json!(before.as_ref().map(|server| &server.xray_mode)),
+            json!(&server.xray_mode),
+        ),
+    ]);
+    crate::audit::record(
+        &state,
+        &user.0,
+        "server.update",
+        &id,
+        json!({ "name": &server.name, "changes": changes }),
+    )
+    .await;
+
     Ok(Json(json!({ "server": server })))
 }
 
@@ -112,8 +153,23 @@ pub async fn delete(
     Path(id): Path<String>,
 ) -> AppResult<Json<serde_json::Value>> {
     user.require_admin()?;
+    let removed = repo::servers::find_by_id(&state.db.pool, &id).await.ok();
     if !repo::servers::delete(&state.db.pool, &id).await? {
         return Err(AppError::NotFound);
+    }
+    if let Some(removed) = removed {
+        crate::audit::record(
+            &state,
+            &user.0,
+            "server.delete",
+            &id,
+            json!({
+                "name": &removed.name,
+                "address": &removed.address,
+                "xray_mode": &removed.xray_mode,
+            }),
+        )
+        .await;
     }
     Ok(Json(json!({ "ok": true })))
 }

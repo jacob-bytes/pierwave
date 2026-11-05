@@ -91,6 +91,16 @@ pub async fn change_password(
     let revoked = repo::sessions::delete_others(&state.db.pool, &user.0.id, &token).await?;
     tracing::info!(user_id = %user.0.id, revoked, "密码已更新，其它会话已吊销");
 
+    // 只记「改过密码」这件事，detail 里绝不出现新/旧密码。
+    crate::audit::record(
+        &state,
+        &user.0,
+        "password.change",
+        &user.0.id,
+        json!({ "revoked_sessions": revoked }),
+    )
+    .await;
+
     Ok(Json(json!({ "ok": true })))
 }
 

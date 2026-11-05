@@ -195,6 +195,26 @@ pub async fn create(
     )
     .await?;
 
+    // config 里可能含 REALITY 私钥等敏感内容，审计只记元数据，不记 config 正文。
+    crate::audit::record(
+        &state,
+        &user.0,
+        "node.create",
+        &node.id,
+        json!({
+            "server_id": &node.server_id,
+            "tag": &node.tag,
+            "name": &node.name,
+            "protocol": &node.protocol,
+            "transport": &node.transport,
+            "security": &node.security,
+            "port": node.port,
+            "enabled": node.enabled != 0,
+            "cert_id": &node.cert_id,
+        }),
+    )
+    .await;
+
     Ok(Json(json!({ "node": node })))
 }
 
@@ -278,6 +298,7 @@ pub async fn update(
         Patch::Missing
     };
 
+    let config_changed = req.config.is_some();
     let update = repo::nodes::UpdateNode {
         enabled: req.enabled,
         config_json: req.config.map(|config| config.to_string()),
@@ -290,6 +311,31 @@ pub async fn update(
         .await?
         .ok_or(AppError::NotFound)?;
 
+    // config 可能含私钥，只记「改过」；启用/端口/名称/证书按前后值记。
+    let changes = crate::audit::diff(vec![
+        (
+            "enabled",
+            json!(existing.enabled != 0),
+            json!(node.enabled != 0),
+        ),
+        ("port", json!(existing.port), json!(node.port)),
+        ("name", json!(existing.name), json!(node.name)),
+        ("cert_id", json!(existing.cert_id), json!(node.cert_id)),
+        ("config", json!(false), json!(config_changed)),
+    ]);
+    crate::audit::record(
+        &state,
+        &user.0,
+        "node.update",
+        &id,
+        json!({
+            "server_id": &node.server_id,
+            "tag": &node.tag,
+            "changes": changes,
+        }),
+    )
+    .await;
+
     Ok(Json(json!({ "node": node })))
 }
 
@@ -299,8 +345,24 @@ pub async fn delete(
     Path(id): Path<String>,
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
+    let removed = repo::nodes::find_by_id(&state.db.pool, &id).await?;
     if !repo::nodes::delete(&state.db.pool, &id).await? {
         return Err(AppError::NotFound);
+    }
+    if let Some(removed) = removed {
+        crate::audit::record(
+            &state,
+            &user.0,
+            "node.delete",
+            &id,
+            json!({
+                "server_id": &removed.server_id,
+                "tag": &removed.tag,
+                "name": &removed.name,
+                "port": removed.port,
+            }),
+        )
+        .await;
     }
     Ok(Json(json!({ "ok": true })))
 }
@@ -318,6 +380,18 @@ pub async fn apply(
     let server = load_server(&state, &server_id).await?;
 
     let outcome = super::desired::apply(&state, &server).await?;
+    let warning_count = outcome.warnings.len();
+    crate::audit::record(
+        &state,
+        &user.0,
+        "config.apply",
+        &server_id,
+        json!({
+            "version": outcome.version,
+            "warnings": warning_count,
+        }),
+    )
+    .await;
     Ok(Json(
         json!({ "config_version": outcome.version, "warnings": outcome.warnings }),
     ))

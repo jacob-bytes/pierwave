@@ -1,4 +1,5 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::Value;
 use sqlx::FromRow;
 
 #[derive(Debug, Clone, FromRow, Serialize)]
@@ -96,6 +97,49 @@ pub struct CertificateView {
     pub days_left: i64,
     pub has_key: bool,
     pub created_at: i64,
+}
+
+/// 审计日志的原始行：`detail` 是库里存的 JSON 文本，`actor_name` 靠 LEFT JOIN 带出。
+///
+/// 单独拆一行模型是因为 `detail` 需要在读出后解析成 JSON 对象再对外，
+/// 而 sqlx 不会替我们做这层转换。
+#[derive(Debug, Clone, FromRow)]
+pub struct AuditRow {
+    pub id: String,
+    pub actor_id: Option<String>,
+    pub actor_name: Option<String>,
+    pub action: String,
+    pub target: Option<String>,
+    pub detail: Option<String>,
+    pub created_at: i64,
+}
+
+/// 审计日志对外视图：`detail` 已解析成 JSON 对象（解析失败时保留原始字符串）。
+#[derive(Debug, Clone, Serialize)]
+pub struct AuditEntry {
+    pub id: String,
+    pub actor_id: Option<String>,
+    pub actor_name: Option<String>,
+    pub action: String,
+    pub target: Option<String>,
+    pub detail: Option<Value>,
+    pub created_at: i64,
+}
+
+impl From<AuditRow> for AuditEntry {
+    fn from(row: AuditRow) -> Self {
+        Self {
+            id: row.id,
+            actor_id: row.actor_id,
+            actor_name: row.actor_name,
+            action: row.action,
+            target: row.target,
+            detail: row
+                .detail
+                .map(|raw| serde_json::from_str(&raw).unwrap_or(Value::String(raw))),
+            created_at: row.created_at,
+        }
+    }
 }
 
 /// 管理员视角的全局节点列表项：节点 + 所属服务器名（选择器要按服务器分组）。

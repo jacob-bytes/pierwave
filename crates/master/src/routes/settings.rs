@@ -172,9 +172,20 @@ pub async fn update(
         }
     }
 
+    // 审计只记「改了哪些键」；值里可能有面板名等业务信息，一律不落 detail。
+    let changed_keys: Vec<&str> = updates.iter().map(|(key, _)| *key).collect();
     for (key, value) in updates {
         repo::settings::set(&state.db.pool, key, &value).await?;
     }
+
+    crate::audit::record(
+        &state,
+        &user.0,
+        "settings.update",
+        "settings",
+        json!({ "keys": changed_keys }),
+    )
+    .await;
 
     let settings = load(&state.db.pool).await;
     Ok(Json(json!({ "items": settings.as_json() })))

@@ -2247,3 +2247,56 @@ pub mod stats {
         Ok(points)
     }
 }
+
+/// 审计日志：所有管理端写操作的留痕。表在 `0001_init.sql` 里就已存在。
+pub mod audit {
+    use serde_json::Value;
+
+    use super::*;
+    use crate::models::{AuditEntry, AuditRow};
+
+    /// 写一条审计记录。
+    ///
+    /// 调用方负责把这里的失败降级成日志：审计是旁路，**不能**回滚或阻断主操作。
+    /// `target` 是被操作对象的 id（设置类操作用固定名，如 `settings`）。
+    pub async fn record(
+        pool: &SqlitePool,
+        actor_id: Option<&str>,
+        action: &str,
+        target: Option<&str>,
+        detail: &Value,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO audit_log (id, actor_id, action, target, detail, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(actor_id)
+        .bind(action)
+        .bind(target)
+        .bind(detail.to_string())
+        .bind(now())
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// 最近 `limit` 条，按时间倒序。
+    ///
+    /// `actor_name` 用 LEFT JOIN：操作者后来被删了，这条历史记录仍然要能看到。
+    /// 时间戳只到秒，同秒记录用 `rowid` 兜底保证顺序稳定。
+    pub async fn list(pool: &SqlitePool, limit: i64) -> anyhow::Result<Vec<AuditEntry>> {
+        let rows = sqlx::query_as::<_, AuditRow>(
+            "SELECT a.id, a.actor_id, u.username AS actor_name, a.action, a.target,
+                    a.detail, a.created_at
+             FROM audit_log a
+             LEFT JOIN users u ON u.id = a.actor_id
+             ORDER BY a.created_at DESC, a.rowid DESC
+             LIMIT ?",
+        )
+        .bind(limit.clamp(1, 500))
+        .fetch_all(pool)
+        .await?;
+        Ok(rows.into_iter().map(AuditEntry::from).collect())
+    }
+}
