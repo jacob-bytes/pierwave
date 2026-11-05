@@ -38,7 +38,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { SessionUser } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { useHealth, useLogout } from "@/lib/queries";
+import { useHealth, useLogout, usePanelName } from "@/lib/queries";
 
 type NavItem = {
   to: string;
@@ -171,10 +171,11 @@ export default function AppShell({ user }: { user: SessionUser }) {
   const current =
     allNav.find((item) => isItemActive(item, pathname)) ?? allNav[0];
   const pageLabel = current?.label ?? "概览";
+  const panelName = usePanelName();
 
   useEffect(() => {
-    document.title = `${pageLabel} · mmrust`;
-  }, [pageLabel]);
+    document.title = `${pageLabel} · ${panelName}`;
+  }, [pageLabel, panelName]);
 
   const initial = user.username.slice(0, 1).toUpperCase();
 
@@ -197,7 +198,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
           <div className="grid size-6 place-items-center rounded-md bg-primary/15 text-primary">
             <TerminalIcon className="size-3.5" />
           </div>
-          <span className="text-sm font-semibold tracking-wide">mmrust</span>
+          <span className="text-sm font-semibold tracking-wide">{panelName}</span>
         </Link>
 
         <nav className="flex-1 overflow-y-auto p-3">

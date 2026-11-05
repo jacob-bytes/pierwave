@@ -7,11 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useLogin } from "@/lib/queries";
+import { useLogin, usePanelName } from "@/lib/queries";
 import { errorText } from "@/lib/errors";
 import { safeNextPath } from "@/lib/auth";
 
 export default function LoginPage() {
+  const panelName = usePanelName();
+
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
@@ -49,7 +51,7 @@ export default function LoginPage() {
           </div>
           <div>
             <h1 className="text-lg font-semibold tracking-tight">
-              登录 mmrust
+              登录 {panelName}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
               使用账号登录，管理员与普通用户共用入口

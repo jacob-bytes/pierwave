@@ -31,6 +31,8 @@ export interface SessionUser {
 export interface Health {
   status: string;
   version: string;
+  /** 面板名称（公开接口，登录页在未鉴权时也要显示）。 */
+  panel_name?: string;
 }
 
 export interface Server {
