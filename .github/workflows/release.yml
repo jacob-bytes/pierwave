@@ -46,8 +46,21 @@ jobs:
           for bin in pierwave-master pierwave-agent; do
             cp "target/${{ matrix.target }}/release/$bin" "dist/$bin-${{ matrix.target }}"
           done
-          (cd dist && shasum -a 256 ./* > "SHA256SUMS-${{ matrix.target }}")
+          (cd dist && sha256sum ./* > "SHA256SUMS-${{ matrix.target }}")
           ls -l dist
+
+      # 上一次 v0.1.0 的 Linux 产物只有 5KB（链接参数是 macOS 专有的），
+      # 发布出去却没人报错。加一道尺寸断言，宁可让 workflow 红。
+      - name: Verify artifacts
+        run: |
+          for f in dist/pierwave-*; do
+            size=$(stat -c%s "$f")
+            file "$f" || true
+            if [ "$size" -lt 500000 ]; then
+              echo "::error::$f 只有 $size 字节，构建产物明显不完整"
+              exit 1
+            fi
+          done
 
       - uses: softprops/action-gh-release@v2
         with:
