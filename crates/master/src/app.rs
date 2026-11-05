@@ -52,6 +52,14 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/packages/{id}",
             patch(routes::packages::update).delete(routes::packages::delete),
         )
+        .route(
+            "/api/v1/certificates",
+            get(routes::certificates::list).post(routes::certificates::create),
+        )
+        .route(
+            "/api/v1/certificates/{id}",
+            axum::routing::delete(routes::certificates::delete),
+        )
         .route("/api/v1/stats/overview", get(routes::stats::overview))
         .route("/api/v1/stats/traffic", get(routes::stats::traffic))
         .route(

@@ -240,7 +240,8 @@ mod tests {
                 "alerts": {
                     "expired_instances": 1,
                     "exhausted_instances": 1,
-                    "offline_servers": 1
+                    "offline_servers": 1,
+                    "expiring_certs": 0
                 }
             })
         );

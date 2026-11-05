@@ -1,6 +1,7 @@
 //! 领域层：数据模型、仓储与不依赖 HTTP 的业务规则。
 //! 这里不允许出现 axum / 请求上下文，方便被 master、CLI、测试共用。
 
+pub mod certificate;
 pub mod credentials;
 pub mod enforcement;
 pub mod metering;

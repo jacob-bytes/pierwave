@@ -49,9 +49,9 @@ json.dump({
     },
 }, open(f"{work}/node1.json", "w"))
 json.dump({
-    "name": "日本-WS-TLS", "protocol": "trojan", "transport": "ws", "security": "tls", "port": 8443,
+    "name": "日本-WS", "protocol": "trojan", "transport": "ws", "security": "none", "port": 8443,
     "config": {"settings": {"clients": [{"password": "manual-client"}]},
-               "stream": {"network": "ws", "security": "tls", "wsSettings": {"path": "/ws"}}},
+               "stream": {"network": "ws", "security": "none", "wsSettings": {"path": "/ws"}}},
 }, open(f"{work}/node2.json", "w"))
 PY
 

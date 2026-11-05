@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod auth;
+pub mod certificates;
 pub mod desired;
 pub mod enforcement;
 pub mod nodes;

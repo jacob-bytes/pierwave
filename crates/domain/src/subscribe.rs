@@ -1396,6 +1396,7 @@ mod tests {
             config_json: config.to_string(),
             enabled: 1,
             created_at: 1,
+            cert_id: None,
         }
     }
 }

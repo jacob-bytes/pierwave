@@ -3,12 +3,14 @@
 //! 几处如果各写一遍（尤其是授权集合 + 凭据派生），重连补发就会和上次 apply
 //! 不一致，用户会看到「订阅里有 uuid、服务器配置里没有」。所以收敛到这里。
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use serde_json::Value;
 
+use mmrust_domain::certificate;
 use mmrust_domain::models::Server;
 use mmrust_domain::{credentials, repo, time, xray};
+use mmrust_proto::ManagedFile;
 
 use crate::error::AppResult;
 use crate::state::AppState;
@@ -21,6 +23,8 @@ pub struct DesiredConfig {
     pub granted_user_ids: Vec<String>,
     /// 生成配置时被跳过的节点，每个节点一条中文说明。
     pub warnings: Vec<String>,
+    /// 本次要随配置落盘的证书/私钥文件（按证书 id 去重，路径稳定）。
+    pub files: Vec<ManagedFile>,
 }
 
 /// 一次成功下发的产物。
@@ -51,7 +55,53 @@ pub async fn render(state: &AppState, server: &Server) -> AppResult<DesiredConfi
         .map(|pair| xray::Grant::new(&secret, &pair.user_id, &pair.node_id))
         .collect();
 
-    let (xray, warnings) = xray::build_config_checked(&server.name, &nodes, &grants);
+    // 证书按 id 去重：同一张证书被多个节点引用时只写一份文件。
+    let cert_ids: Vec<String> = {
+        let mut ids: Vec<String> = nodes
+            .iter()
+            .filter_map(|node| node.cert_id.as_deref())
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+            .collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    };
+    let certificates = repo::certificates::find_by_ids(&state.db.pool, &cert_ids).await?;
+
+    let by_id: BTreeMap<&str, &mmrust_domain::models::Certificate> = certificates
+        .iter()
+        .map(|cert| (cert.id.as_str(), cert))
+        .collect();
+    let node_certs: Vec<xray::NodeCertificate> = nodes
+        .iter()
+        .filter_map(|node| {
+            let cert = by_id.get(node.cert_id.as_deref()?.trim())?;
+            Some(xray::NodeCertificate {
+                node_id: node.id.clone(),
+                cert_path: certificate::cert_file_path(&cert.id),
+                key_path: certificate::key_file_path(&cert.id),
+            })
+        })
+        .collect();
+
+    let mut files = Vec::with_capacity(certificates.len() * 2);
+    for cert in &certificates {
+        files.push(ManagedFile {
+            path: certificate::cert_file_path(&cert.id),
+            content: cert.cert_pem.clone(),
+            mode: certificate::CERT_FILE_MODE,
+        });
+        files.push(ManagedFile {
+            path: certificate::key_file_path(&cert.id),
+            content: cert.key_pem.clone(),
+            mode: certificate::KEY_FILE_MODE,
+        });
+    }
+
+    let (xray, warnings) =
+        xray::build_config_checked_with_certs(&server.name, &nodes, &grants, &node_certs);
 
     Ok(DesiredConfig {
         xray,
@@ -59,6 +109,7 @@ pub async fn render(state: &AppState, server: &Server) -> AppResult<DesiredConfi
         grant_count: grants.len(),
         granted_user_ids,
         warnings,
+        files,
     })
 }
 
@@ -85,7 +136,7 @@ pub async fn publish(
         mmrust_proto::MasterMessage::Desired(mmrust_proto::DesiredState {
             version,
             xray: desired.xray,
-            files: Vec::new(),
+            files: desired.files,
         }),
     );
 

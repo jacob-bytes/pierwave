@@ -42,10 +42,32 @@ impl Grant {
 ///   `clients`（保持历史行为）；
 /// * 只生成调用方传入的节点，是否过滤 disabled 由调用方决定。
 pub fn build_config(server_name: &str, nodes: &[Node], grants: &[Grant]) -> Value {
+    build_config_with_certs(server_name, nodes, grants, &[])
+}
+
+/// 节点绑定到的证书文件路径。
+///
+/// `render` 先按证书 id 去重，再把「节点 → 路径」传进来；配置生成保持纯函数，
+/// 不关心路径背后是哪个上传的证书。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeCertificate {
+    pub node_id: String,
+    pub cert_path: String,
+    pub key_path: String,
+}
+
+/// 与 [`build_config`] 相同，但会给绑定了证书的 TLS 节点补
+/// `stream.tlsSettings.certificates`（片段里已显式给路径时不覆盖）。
+pub fn build_config_with_certs(
+    server_name: &str,
+    nodes: &[Node],
+    grants: &[Grant],
+    certs: &[NodeCertificate],
+) -> Value {
     let mut inbounds: Vec<Value> = nodes
         .iter()
         .enumerate()
-        .map(|(index, node)| build_inbound(server_name, index, node, grants))
+        .map(|(index, node)| build_inbound(server_name, index, node, grants, certs))
         .collect();
     inbounds.push(api_inbound());
 
@@ -180,10 +202,36 @@ pub fn build_config_checked(
     nodes: &[Node],
     grants: &[Grant],
 ) -> (Value, Vec<String>) {
+    build_config_checked_impl(server_name, nodes, grants, &[], false)
+}
+
+/// 下发用的校验版：除了 REALITY 私钥，还会把「TLS 节点缺证书」的节点跳过并
+/// 给出中文 warning。API 层已拦住新建这类节点，这里兜住迁移前的历史数据。
+pub fn build_config_checked_with_certs(
+    server_name: &str,
+    nodes: &[Node],
+    grants: &[Grant],
+    certs: &[NodeCertificate],
+) -> (Value, Vec<String>) {
+    build_config_checked_impl(server_name, nodes, grants, certs, true)
+}
+
+fn build_config_checked_impl(
+    server_name: &str,
+    nodes: &[Node],
+    grants: &[Grant],
+    certs: &[NodeCertificate],
+    require_tls_certs: bool,
+) -> (Value, Vec<String>) {
     let mut usable = Vec::with_capacity(nodes.len());
     let mut warnings = Vec::new();
     for node in nodes {
-        match node_problem(node) {
+        let problem = node_problem(node).or_else(|| {
+            require_tls_certs
+                .then(|| node_tls_cert_problem(node, certs))
+                .flatten()
+        });
+        match problem {
             Some(reason) => {
                 let name = node_display_name(node);
                 let skipped = SkippedNode {
@@ -202,7 +250,49 @@ pub fn build_config_checked(
             None => usable.push(node.clone()),
         }
     }
-    (build_config(server_name, &usable, grants), warnings)
+    (
+        build_config_with_certs(server_name, &usable, grants, certs),
+        warnings,
+    )
+}
+
+/// TLS 节点必须能落出证书文件：要么片段里已显式写了 `certificates`，要么
+/// 绑定了一张本次下发里真实存在的证书。
+fn node_tls_cert_problem(node: &Node, certs: &[NodeCertificate]) -> Option<String> {
+    let fragment = parse_fragment(&node.config_json);
+    let stream = fragment.get("stream").and_then(Value::as_object);
+    let security = stream
+        .and_then(|stream| stream.get("security"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_else(|| node.security.trim().to_ascii_lowercase());
+    if !matches!(security.as_str(), "tls" | "xtls") {
+        return None;
+    }
+    let explicit = stream
+        .and_then(|stream| stream.get("tlsSettings"))
+        .and_then(Value::as_object)
+        .and_then(|tls| tls.get("certificates"))
+        .and_then(Value::as_array)
+        .is_some_and(|certificates| !certificates.is_empty());
+    if explicit {
+        return None;
+    }
+    if node
+        .cert_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .is_none()
+    {
+        return Some("TLS 节点未绑定证书".into());
+    }
+    if !certs.iter().any(|cert| cert.node_id == node.id) {
+        return Some("绑定的证书不存在".into());
+    }
+    None
 }
 
 fn node_display_name(node: &Node) -> &str {
@@ -217,7 +307,13 @@ fn node_display_name(node: &Node) -> &str {
     &node.id
 }
 
-fn build_inbound(server_name: &str, index: usize, node: &Node, grants: &[Grant]) -> Value {
+fn build_inbound(
+    server_name: &str,
+    index: usize,
+    node: &Node,
+    grants: &[Grant],
+    certs: &[NodeCertificate],
+) -> Value {
     let mut inbound = parse_fragment(&node.config_json);
 
     // tag/port/protocol 的唯一事实来源是数据库字段，片段里的旧值一律丢弃。
@@ -231,6 +327,8 @@ fn build_inbound(server_name: &str, index: usize, node: &Node, grants: &[Grant])
     if !matches!(inbound.get("stream"), Some(Value::Object(_))) {
         inbound.insert("stream".into(), default_stream(node));
     }
+
+    apply_tls_certificate(&mut inbound, node, certs);
 
     let tag = effective_tag(server_name, index, node);
     inject_clients(&mut inbound, node, &tag, grants);
@@ -349,6 +447,47 @@ fn inject_clients(inbound: &mut Map<String, Value>, node: &Node, tag: &str, gran
     }
 }
 
+/// 把节点绑定证书的路径写进 `stream.tlsSettings.certificates`。
+///
+/// 片段里已经有非空 `certificates` 时保持原样（导入配置以片段为准）。
+fn apply_tls_certificate(inbound: &mut Map<String, Value>, node: &Node, certs: &[NodeCertificate]) {
+    let Some(cert) = certs.iter().find(|cert| cert.node_id == node.id) else {
+        return;
+    };
+    let Some(stream) = inbound.get_mut("stream").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let security = stream
+        .get("security")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if !matches!(security.as_str(), "tls" | "xtls") {
+        return;
+    }
+    let tls = stream
+        .entry("tlsSettings")
+        .or_insert_with(|| Value::Object(Map::new()));
+    let Some(tls) = tls.as_object_mut() else {
+        return;
+    };
+    let explicit = tls
+        .get("certificates")
+        .and_then(Value::as_array)
+        .is_some_and(|certificates| !certificates.is_empty());
+    if explicit {
+        return;
+    }
+    tls.insert(
+        "certificates".into(),
+        json!([{
+            "certificateFile": cert.cert_path,
+            "keyFile": cert.key_path
+        }]),
+    );
+}
+
 fn parse_fragment(raw: &str) -> Map<String, Value> {
     match serde_json::from_str::<Value>(raw) {
         Ok(Value::Object(map)) => map,
@@ -428,6 +567,7 @@ mod tests {
             config_json: config_json.into(),
             enabled: 1,
             created_at: 1,
+            cert_id: None,
         }
     }
 

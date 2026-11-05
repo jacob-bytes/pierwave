@@ -82,7 +82,7 @@ async fn handle(mut socket: WebSocket, state: AppState) {
                 let desired = MasterMessage::Desired(DesiredState {
                     version: server.config_version,
                     xray: rendered.xray,
-                    files: Vec::new(),
+                    files: rendered.files,
                 });
                 if !send_json(&mut socket, &desired).await {
                     return;
@@ -708,6 +708,7 @@ mod enforcement_tests {
                 })
                 .to_string(),
                 enabled: true,
+                cert_id: None,
             },
         )
         .await

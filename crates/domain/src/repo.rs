@@ -603,6 +603,7 @@ pub mod nodes {
         pub port: i64,
         pub config_json: String,
         pub enabled: bool,
+        pub cert_id: Option<String>,
     }
 
     #[derive(Default)]
@@ -615,6 +616,8 @@ pub mod nodes {
         pub port: Option<i64>,
         pub config_json: Option<String>,
         pub enabled: Option<bool>,
+        /// 三态：缺失 = 不改，`Null` = 解绑，`Value` = 绑定指定证书。
+        pub cert_id: Patch<String>,
     }
 
     pub async fn create(
@@ -632,8 +635,8 @@ pub mod nodes {
         };
         sqlx::query(
             "INSERT INTO nodes
-                (id, server_id, tag, name, protocol, transport, security, port, config_json, enabled, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (id, server_id, tag, name, protocol, transport, security, port, config_json, enabled, cert_id, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(server_id)
@@ -645,6 +648,7 @@ pub mod nodes {
         .bind(input.port)
         .bind(&input.config_json)
         .bind(i64::from(input.enabled))
+        .bind(&input.cert_id)
         .bind(now())
         .execute(pool)
         .await?;
@@ -716,7 +720,8 @@ pub mod nodes {
                 security = COALESCE(?, security),
                 port = COALESCE(?, port),
                 config_json = COALESCE(?, config_json),
-                enabled = COALESCE(?, enabled)
+                enabled = COALESCE(?, enabled),
+                cert_id = CASE WHEN ? THEN ? ELSE cert_id END
              WHERE id = ?",
         )
         .bind(input.tag)
@@ -727,6 +732,8 @@ pub mod nodes {
         .bind(input.port)
         .bind(input.config_json)
         .bind(input.enabled.map(i64::from))
+        .bind(i64::from(input.cert_id.is_set()))
+        .bind(input.cert_id.value())
         .bind(id)
         .execute(pool)
         .await?;
@@ -1501,6 +1508,151 @@ pub mod enforcement {
 ///
 /// 每个数字一条聚合查询（`COUNT` / `SUM`），避免 N+1；趋势只取请求窗口内的
 /// 日聚合，再在内存里给缺失日期补 0（窗口最大 90 行，不构成全表扫描）。
+pub mod certificates {
+    use sqlx::{QueryBuilder, Sqlite};
+
+    use super::*;
+
+    pub struct NewCertificate {
+        pub name: String,
+        pub domains: Vec<String>,
+        pub cert_pem: String,
+        pub key_pem: String,
+        pub not_before: i64,
+        pub not_after: i64,
+    }
+
+    pub async fn create(pool: &SqlitePool, input: NewCertificate) -> anyhow::Result<Certificate> {
+        let id = Uuid::new_v4().to_string();
+        let domains = serde_json::to_string(&input.domains)?;
+        sqlx::query(
+            "INSERT INTO certificates
+                (id, name, domains, cert_pem, key_pem, not_before, not_after, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(&input.name)
+        .bind(&domains)
+        .bind(&input.cert_pem)
+        .bind(&input.key_pem)
+        .bind(input.not_before)
+        .bind(input.not_after)
+        .bind(now())
+        .execute(pool)
+        .await?;
+        find_by_id(pool, &id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("证书创建后读取失败"))
+    }
+
+    pub async fn find_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<Certificate>> {
+        Ok(
+            sqlx::query_as::<_, Certificate>("SELECT * FROM certificates WHERE id = ?")
+                .bind(id)
+                .fetch_optional(pool)
+                .await?,
+        )
+    }
+
+    /// 一次取回多张证书（下发时按 id 去重后调用，避免 N+1）。
+    pub async fn find_by_ids(
+        pool: &SqlitePool,
+        ids: &[String],
+    ) -> anyhow::Result<Vec<Certificate>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut builder = QueryBuilder::<Sqlite>::new("SELECT * FROM certificates WHERE id IN (");
+        let mut separated = builder.separated(", ");
+        for id in ids {
+            separated.push_bind(id);
+        }
+        separated.push_unseparated(") ORDER BY id ASC");
+        Ok(builder
+            .build_query_as::<Certificate>()
+            .fetch_all(pool)
+            .await?)
+    }
+
+    #[derive(sqlx::FromRow)]
+    struct ViewRow {
+        id: String,
+        name: String,
+        domains: String,
+        not_before: i64,
+        not_after: i64,
+        created_at: i64,
+    }
+
+    impl ViewRow {
+        fn into_view(self, now: i64) -> CertificateView {
+            CertificateView {
+                id: self.id,
+                name: self.name,
+                domains: serde_json::from_str(&self.domains).unwrap_or_default(),
+                not_before: self.not_before,
+                not_after: self.not_after,
+                days_left: crate::certificate::days_left(self.not_after, now),
+                has_key: true,
+                created_at: self.created_at,
+            }
+        }
+    }
+
+    const VIEW_COLUMNS: &str =
+        "SELECT id, name, domains, not_before, not_after, created_at FROM certificates";
+
+    /// 列表只取元数据列：私钥与证书正文永远不离开仓储。
+    pub async fn list_views(pool: &SqlitePool, now: i64) -> anyhow::Result<Vec<CertificateView>> {
+        let rows = sqlx::query_as::<_, ViewRow>(&format!(
+            "{VIEW_COLUMNS} ORDER BY created_at ASC, rowid ASC"
+        ))
+        .fetch_all(pool)
+        .await?;
+        Ok(rows.into_iter().map(|row| row.into_view(now)).collect())
+    }
+
+    pub async fn view_by_id(
+        pool: &SqlitePool,
+        id: &str,
+        now: i64,
+    ) -> anyhow::Result<Option<CertificateView>> {
+        let row = sqlx::query_as::<_, ViewRow>(&format!("{VIEW_COLUMNS} WHERE id = ?"))
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
+        Ok(row.map(|row| row.into_view(now)))
+    }
+
+    pub async fn count_node_references(pool: &SqlitePool, id: &str) -> anyhow::Result<i64> {
+        Ok(
+            sqlx::query_scalar("SELECT COUNT(*) FROM nodes WHERE cert_id = ?")
+                .bind(id)
+                .fetch_one(pool)
+                .await?,
+        )
+    }
+
+    /// 概览告警口径：`not_after - now <= 30 天`（含已过期）。
+    pub async fn count_expiring(pool: &SqlitePool, now: i64) -> anyhow::Result<i64> {
+        let deadline = now + crate::certificate::EXPIRING_DAYS * 86_400;
+        Ok(
+            sqlx::query_scalar("SELECT COUNT(*) FROM certificates WHERE not_after <= ?")
+                .bind(deadline)
+                .fetch_one(pool)
+                .await?,
+        )
+    }
+
+    pub async fn delete(pool: &SqlitePool, id: &str) -> anyhow::Result<bool> {
+        let res = sqlx::query("DELETE FROM certificates WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(res.rows_affected() > 0)
+    }
+}
+
 pub mod stats {
     use std::collections::HashMap;
 
@@ -1576,6 +1728,7 @@ pub mod stats {
             sqlx::query_scalar("SELECT COUNT(*) FROM servers WHERE status <> 'online'")
                 .fetch_one(pool)
                 .await?;
+        let expiring_certs = super::certificates::count_expiring(pool, now).await?;
 
         Ok(Overview {
             servers: ServerStats {
@@ -1598,6 +1751,7 @@ pub mod stats {
                 expired_instances,
                 exhausted_instances,
                 offline_servers,
+                expiring_certs,
             },
         })
     }

@@ -54,6 +54,37 @@ pub struct Node {
     pub config_json: String,
     pub enabled: i64,
     pub created_at: i64,
+    /// 绑定的证书 id；`security = tls` 的节点必须非空（接口层校验）。
+    pub cert_id: Option<String>,
+}
+
+/// 上传的证书：私钥只落库，任何列表/详情视图都不带出去。
+#[derive(Debug, Clone, FromRow)]
+pub struct Certificate {
+    pub id: String,
+    pub name: String,
+    /// JSON 数组文本，对外由 [`CertificateView`] 展开。
+    pub domains: String,
+    pub cert_pem: String,
+    pub key_pem: String,
+    pub not_before: i64,
+    pub not_after: i64,
+    pub created_at: i64,
+}
+
+/// 证书元数据视图：**没有** `cert_pem` / `key_pem`。
+///
+/// `days_left` 由仓储按调用时刻算好，口径见 `certificate::days_left`。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CertificateView {
+    pub id: String,
+    pub name: String,
+    pub domains: Vec<String>,
+    pub not_before: i64,
+    pub not_after: i64,
+    pub days_left: i64,
+    pub has_key: bool,
+    pub created_at: i64,
 }
 
 /// 订阅装配用：节点 + 所属服务器地址。
@@ -323,6 +354,8 @@ pub struct AlertStats {
     pub expired_instances: i64,
     pub exhausted_instances: i64,
     pub offline_servers: i64,
+    /// 30 天内到期（含已过期）的证书数；没有证书时恒为 0。
+    pub expiring_certs: i64,
 }
 
 /// 趋势图的一天：`date` 是 UTC+8 自然日，缺数据的天由仓储补 0。

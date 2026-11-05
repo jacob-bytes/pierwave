@@ -3,7 +3,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use mmrust_domain::models::Server;
+use mmrust_domain::models::{Patch, Server};
 use mmrust_domain::repo;
 
 use crate::auth::CurrentUser;
@@ -53,6 +53,38 @@ fn validate_port(port: i64) -> AppResult<()> {
     }
 }
 
+/// 校验节点与证书的绑定关系：TLS 必须有且证书存在，非 TLS 不允许携带证书。
+async fn validate_cert_binding(
+    state: &AppState,
+    security: &str,
+    cert_id: Option<&str>,
+) -> AppResult<()> {
+    if security == "tls" {
+        let Some(cert_id) = cert_id else {
+            return Err(AppError::BadRequest("TLS 节点必须绑定证书".into()));
+        };
+        if repo::certificates::find_by_id(&state.db.pool, cert_id)
+            .await?
+            .is_none()
+        {
+            return Err(AppError::BadRequest("绑定的证书不存在".into()));
+        }
+        return Ok(());
+    }
+    if cert_id.is_some() {
+        return Err(AppError::BadRequest("只有 TLS 节点才能绑定证书".into()));
+    }
+    Ok(())
+}
+
+fn normalize_cert_id(raw: Option<&str>) -> AppResult<Option<String>> {
+    match raw.map(str::trim) {
+        None | Some("") => Ok(None),
+        Some(id) if id.chars().count() > 64 => Err(AppError::BadRequest("证书 id 不合法".into())),
+        Some(id) => Ok(Some(id.to_string())),
+    }
+}
+
 fn ensure_object(config: &Value) -> AppResult<()> {
     if config.is_object() {
         Ok(())
@@ -88,6 +120,9 @@ pub struct CreateNode {
     pub config: Value,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    /// `security = tls` 时必填。
+    #[serde(default)]
+    pub cert_id: Option<String>,
 }
 
 fn default_transport() -> String {
@@ -124,6 +159,8 @@ pub async fn create(
     let security = normalize_enum("安全类型", &req.security, SECURITIES)?;
     validate_port(req.port)?;
     ensure_object(&req.config)?;
+    let cert_id = normalize_cert_id(req.cert_id.as_deref())?;
+    validate_cert_binding(&state, &security, cert_id.as_deref()).await?;
 
     let tag = req
         .tag
@@ -153,6 +190,7 @@ pub async fn create(
             port: req.port,
             config_json: req.config.to_string(),
             enabled: req.enabled,
+            cert_id,
         },
     )
     .await?;
@@ -168,6 +206,9 @@ pub struct PatchNode {
     pub name: Option<String>,
     /// 允许改端口：改完不 apply 不生效，前端会提示
     pub port: Option<i64>,
+    /// 三态：不传 = 不改，`null` = 解绑，字符串 = 绑定证书。
+    #[serde(default)]
+    pub cert_id: Patch<String>,
 }
 
 pub async fn update(
@@ -177,9 +218,14 @@ pub async fn update(
     Json(req): Json<PatchNode>,
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
-    if req.enabled.is_none() && req.config.is_none() && req.name.is_none() && req.port.is_none() {
+    if req.enabled.is_none()
+        && req.config.is_none()
+        && req.name.is_none()
+        && req.port.is_none()
+        && !req.cert_id.is_set()
+    {
         return Err(AppError::BadRequest(
-            "至少需要提供 enabled / config / name / port 之一".into(),
+            "至少需要提供 enabled / config / name / port / cert_id 之一".into(),
         ));
     }
     if let Some(config) = &req.config {
@@ -196,11 +242,48 @@ pub async fn update(
         other => other.map(str::to_string),
     };
 
+    let existing = repo::nodes::find_by_id(&state.db.pool, &id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+
+    // PATCH 的 cert_id 是三态：没传就沿用原绑定；传 null 表示解绑。
+    let cert_id = if req.cert_id.is_set() {
+        let normalized = match req.cert_id.clone() {
+            Patch::Value(value) => normalize_cert_id(Some(&value))?,
+            Patch::Null | Patch::Missing => None,
+        };
+        if normalized.is_some() && existing.security != "tls" {
+            return Err(AppError::BadRequest("只有 TLS 节点才能绑定证书".into()));
+        }
+        if normalized.is_none() && existing.security == "tls" {
+            return Err(AppError::BadRequest("TLS 节点必须绑定证书".into()));
+        }
+        if let Some(cert_id) = &normalized {
+            if repo::certificates::find_by_id(&state.db.pool, cert_id)
+                .await?
+                .is_none()
+            {
+                return Err(AppError::BadRequest("绑定的证书不存在".into()));
+            }
+        }
+        match normalized {
+            Some(id) => Patch::Value(id),
+            None => Patch::Null,
+        }
+    } else {
+        // 没传就保持原样；但历史 TLS 节点若本来就没证书，不能继续让它空着。
+        if existing.security == "tls" && existing.cert_id.is_none() {
+            return Err(AppError::BadRequest("TLS 节点必须绑定证书".into()));
+        }
+        Patch::Missing
+    };
+
     let update = repo::nodes::UpdateNode {
         enabled: req.enabled,
         config_json: req.config.map(|config| config.to_string()),
         name,
         port: req.port,
+        cert_id,
         ..Default::default()
     };
     let node = repo::nodes::update(&state.db.pool, &id, update)
@@ -332,11 +415,11 @@ mod tests {
             "name": "trojan-ws",
             "protocol": "trojan",
             "transport": "ws",
-            "security": "tls",
+            "security": "none",
             "port": 8443,
             "config": {
                 "settings": {"clients": []},
-                "stream": {"network": "ws", "security": "tls"}
+                "stream": {"network": "ws", "security": "none"}
             }
         })
     }

@@ -220,6 +220,7 @@ mod tests {
                 })
                 .to_string(),
                 enabled: true,
+                cert_id: None,
             },
         )
         .await
@@ -246,6 +247,7 @@ mod tests {
                 })
                 .to_string(),
                 enabled: true,
+                cert_id: None,
             },
         )
         .await
@@ -264,6 +266,7 @@ mod tests {
                 port: 9443,
                 config_json: json!({}).to_string(),
                 enabled: false,
+                cert_id: None,
             },
         )
         .await
@@ -543,6 +546,7 @@ mod tests {
                 })
                 .to_string(),
                 enabled: true,
+                cert_id: None,
             },
         )
         .await
