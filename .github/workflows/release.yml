@@ -71,6 +71,9 @@ jobs:
       #   fix: ...
       - name: Release notes from tag
         run: |
+          # checkout 默认不拉 tag，浅克隆还会把 annotated tag 退化成轻量 tag，
+          # 显式取一次 tag 对象，%(contents) 才是发布说明而不是 commit message。
+          git fetch --tags --force origin "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
           git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > release-notes.md
           cat release-notes.md
           if ! grep -qE '^(feat|fix): ' release-notes.md; then
