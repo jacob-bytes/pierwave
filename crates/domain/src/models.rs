@@ -333,3 +333,19 @@ pub struct TrafficDay {
     pub downlink: i64,
     pub weighted: i64,
 }
+
+/// 一条断流事件：某用户因套餐不可用，被从某台服务器的下发配置中移除。
+///
+/// `message` 是落库时定稿的中文说明，前端直接展示即可；`reason` 保留机器可读的
+/// 原因码（`exhausted` / `expired` / `disabled`，多因逗号分隔）供筛选/统计使用。
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct EnforcementEvent {
+    pub id: String,
+    pub user_id: String,
+    pub username: String,
+    pub server_id: String,
+    pub server_name: String,
+    pub reason: String,
+    pub message: String,
+    pub created_at: i64,
+}

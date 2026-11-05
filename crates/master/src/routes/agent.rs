@@ -3,13 +3,16 @@ use axum::extract::State;
 use axum::response::Response;
 use tokio::sync::broadcast;
 
+use mmrust_domain::enforcement as enforcement_rules;
 use mmrust_domain::metering;
+use mmrust_domain::models::{package_status_at, UserPackageView};
 use mmrust_domain::repo;
 use mmrust_domain::time;
 use mmrust_proto::{
     AgentMessage, DesiredState, MasterMessage, ServerAck, TrafficReport, PROTOCOL_VERSION,
 };
 
+use crate::enforcement::RemovalCandidate;
 use crate::state::AppState;
 
 pub async fn ws(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
@@ -214,8 +217,9 @@ async fn record_traffic(
     }
 
     let day = time::business_date(received_at);
+    let mut removals = Vec::new();
     for delta in &report.deltas {
-        record_delta(
+        if let Some(candidate) = record_delta(
             state,
             server_id,
             &day,
@@ -223,7 +227,14 @@ async fn record_traffic(
             delta.uplink,
             delta.downlink,
         )
-        .await?;
+        .await?
+        {
+            removals.push(candidate);
+        }
+    }
+    // 整份报告处理完再统一标记：同一用户的多条 delta 只触发一次去抖。
+    if !removals.is_empty() {
+        crate::enforcement::mark_removal_candidates(state, removals).await?;
     }
     Ok(())
 }
@@ -239,7 +250,7 @@ async fn record_delta(
     email: &str,
     uplink: u64,
     downlink: u64,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<RemovalCandidate>> {
     // 按最后一个 `@` 切分：用户 ID 是 UUID（无 @），node_tag 里可能有 @。
     let user = match email.rsplit_once('@') {
         Some((user_id, node_tag)) if !user_id.is_empty() && !node_tag.is_empty() => {
@@ -261,7 +272,14 @@ async fn record_delta(
             weighted,
         )
         .await?;
-        return Ok(());
+        return Ok(None);
+    };
+
+    // 断流开启时才额外读一次视图：需要「扣费前」的可用状态来识别跨边界。
+    let before_views = if state.enforcement.enabled() {
+        Some(repo::user_packages::list_views_by_user(&state.db.pool, &user.id).await?)
+    } else {
+        None
     };
 
     let instances = repo::user_packages::list_billable(&state.db.pool, &user.id).await?;
@@ -290,11 +308,69 @@ async fn record_delta(
     repo::users::add_used_bytes(&state.db.pool, &user.id, saturating_i64(weighted)).await?;
 
     // 瀑布分配：多张卡按 created_at 顺序填，先填满第一张再下一张。
-    for (instance_id, amount) in metering::waterfall(weighted, &instances) {
-        repo::user_packages::add_used_bytes(&state.db.pool, &instance_id, saturating_i64(amount))
+    let allocations = metering::waterfall(weighted, &instances);
+    for (instance_id, amount) in &allocations {
+        repo::user_packages::add_used_bytes(&state.db.pool, instance_id, saturating_i64(*amount))
             .await?;
     }
-    Ok(())
+
+    let Some(views) = before_views else {
+        return Ok(None);
+    };
+    let Some(reason) = crossing_reason(&views, &allocations, time::now()) else {
+        return Ok(None);
+    };
+    tracing::info!(
+        user = %user.id,
+        username = %user.username,
+        reason = %reason,
+        "套餐实例从可用跨到不可用，待去抖后从下发配置移除"
+    );
+    Ok(Some(RemovalCandidate {
+        user_id: user.id,
+        username: user.username,
+        reason,
+        confident: true,
+    }))
+}
+
+/// 本次瀑布分配是否让某张实例从「可用」跨到「不可用」。
+///
+/// 只比较**这次真的分到字节**的实例：没被扣费的实例不可能因为本次上报跨越边界。
+/// `before` 是扣费前的视图（含生效额度与到期时间），`now` 与状态判定共用同一时刻。
+fn crossing_reason(
+    before: &[UserPackageView],
+    allocations: &[(String, u64)],
+    now: i64,
+) -> Option<String> {
+    let mut reasons: Vec<&'static str> = Vec::new();
+    for (instance_id, amount) in allocations {
+        let Some(view) = before.iter().find(|view| view.id == *instance_id) else {
+            continue;
+        };
+        // 扣费前就不可用的实例，本次上报不会让它「跨过」边界。
+        if !view.is_usable_at(now) {
+            continue;
+        }
+        let used_after = view
+            .used_bytes
+            .saturating_add(i64::try_from(*amount).unwrap_or(i64::MAX));
+        let status = package_status_at(
+            &view.raw_status,
+            view.expires_at,
+            view.quota_bytes,
+            used_after,
+            now,
+        );
+        if status != "active" && !reasons.contains(&status) {
+            reasons.push(status);
+        }
+    }
+    if reasons.is_empty() {
+        None
+    } else {
+        Some(enforcement_rules::merge_reasons(reasons))
+    }
 }
 
 /// u64 → SQLite 的 i64：正常流量远小于 i64::MAX，超出时饱和而不是回绕成负数。
@@ -586,5 +662,434 @@ mod tests {
                 .is_none()
         );
         assert_eq!(used_bytes(&fixture.state, &fixture.user_id).await, 0);
+    }
+}
+
+/// 断流（enforcement）集成测试：流量上报 → 跨边界 → 去抖 apply → 配置里没有该用户。
+#[cfg(test)]
+mod enforcement_tests {
+    use std::time::Duration;
+
+    use serde_json::json;
+    use tokio::sync::broadcast;
+
+    use mmrust_domain::models::{Patch, Server};
+    use mmrust_domain::repo;
+    use mmrust_domain::Db;
+    use mmrust_proto::{MasterMessage, TrafficDelta, TrafficReport};
+
+    use super::*;
+
+    struct Fixture {
+        state: AppState,
+        server: Server,
+        node_tag: String,
+    }
+
+    async fn fixture(window: Duration) -> Fixture {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let (server, _token) = repo::servers::create(&db.pool, "hk-1", "1.2.3.4", "external")
+            .await
+            .unwrap();
+        let node = repo::nodes::create(
+            &db.pool,
+            &server.id,
+            repo::nodes::NewNode {
+                tag: Some("vless-1".into()),
+                name: "香港-1".into(),
+                protocol: "vless".into(),
+                transport: "tcp".into(),
+                security: "none".into(),
+                port: 443,
+                config_json: json!({
+                    "settings": {"clients": [], "decryption": "none"},
+                    "stream": {"network": "tcp", "security": "none"}
+                })
+                .to_string(),
+                enabled: true,
+            },
+        )
+        .await
+        .unwrap();
+        Fixture {
+            state: AppState::new(db, "web/dist").with_enforcement(true, window),
+            server,
+            node_tag: node.tag,
+        }
+    }
+
+    async fn add_user(state: &AppState, username: &str) -> String {
+        repo::users::create(
+            &state.db.pool,
+            repo::users::NewUser {
+                username: username.into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+            },
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    /// 建一张卡；返回实例 id。
+    async fn add_package(
+        state: &AppState,
+        user_id: &str,
+        quota_bytes: Option<i64>,
+        expires_at: Option<i64>,
+    ) -> String {
+        let package = repo::packages::create(
+            &state.db.pool,
+            repo::packages::NewPackage {
+                name: "测试卡".into(),
+                quota_bytes,
+                period_days: None,
+                direction: "both".into(),
+                node_ratio: 1.0,
+            },
+        )
+        .await
+        .unwrap();
+        repo::user_packages::create(
+            &state.db.pool,
+            user_id,
+            repo::user_packages::NewUserPackage {
+                package_id: package.id.clone(),
+                quota_override: None,
+                expires_at,
+                reset_day: None,
+            },
+            &package,
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    fn traffic(seq: u64, email: &str, bytes: u64) -> TrafficReport {
+        TrafficReport {
+            seq,
+            boot_id: "boot-1".into(),
+            deltas: vec![TrafficDelta {
+                email: email.into(),
+                uplink: bytes,
+                downlink: 0,
+            }],
+        }
+    }
+
+    async fn init_desired(fixture: &Fixture) {
+        let outcome = crate::routes::desired::apply(&fixture.state, &fixture.server)
+            .await
+            .unwrap();
+        assert_eq!(outcome.version, 1, "初始 apply 应为 v1");
+        assert_eq!(outcome.delivered, 0, "测试里没有在线 Agent");
+    }
+
+    async fn next_desired(receiver: &mut broadcast::Receiver<MasterMessage>) -> MasterMessage {
+        tokio::time::timeout(Duration::from_secs(3), receiver.recv())
+            .await
+            .expect("断流 apply 应在 3s 内下发")
+            .expect("hub 不应关闭")
+    }
+
+    /// 事件是在广播之后落库的，测试里给一点收敛时间（生产无影响）。
+    async fn wait_event_count(state: &AppState, expected: i64) {
+        for _ in 0..200 {
+            let count = repo::enforcement::count_events(&state.db.pool)
+                .await
+                .unwrap();
+            if count == expected {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let count = repo::enforcement::count_events(&state.db.pool)
+            .await
+            .unwrap();
+        panic!("等待断流事件超时：期望 {expected} 条，实际 {count} 条");
+    }
+
+    async fn assert_no_more_desired(
+        receiver: &mut broadcast::Receiver<MasterMessage>,
+        wait: Duration,
+    ) {
+        tokio::time::sleep(wait).await;
+        match receiver.try_recv() {
+            Err(broadcast::error::TryRecvError::Empty) => {}
+            Ok(_) => panic!("不应再产生 apply"),
+            Err(error) => panic!("意外的 hub 状态：{error}"),
+        }
+    }
+
+    fn clients_of(desired: &mmrust_proto::DesiredState) -> Vec<serde_json::Value> {
+        desired.xray["inbounds"][0]["settings"]["clients"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn has_client(desired: &mmrust_proto::DesiredState, user_id: &str, node_tag: &str) -> bool {
+        let email = format!("{user_id}@{node_tag}");
+        clients_of(desired)
+            .iter()
+            .any(|client| client["email"] == email)
+    }
+
+    #[tokio::test]
+    async fn exhausting_quota_triggers_one_apply_without_the_client() {
+        let fixture = fixture(Duration::from_millis(80)).await;
+        let user_id = add_user(&fixture.state, "alice").await;
+        add_package(&fixture.state, &user_id, Some(1000), None).await;
+        init_desired(&fixture).await;
+
+        let mut subscription = fixture.state.hub.subscribe(&fixture.server.id);
+        let _worker = crate::enforcement::spawn_worker(fixture.state.clone());
+
+        record_traffic(
+            &fixture.state,
+            &fixture.server.id,
+            &traffic(1, &format!("{user_id}@{}", fixture.node_tag), 2000),
+        )
+        .await
+        .unwrap();
+
+        let desired = next_desired(&mut subscription.receiver).await;
+        let MasterMessage::Desired(desired) = &desired else {
+            panic!("expected desired state");
+        };
+        assert_eq!(desired.version, 2, "跨边界后应 apply 一次并 bump 版本");
+        assert!(
+            !has_client(desired, &user_id, &fixture.node_tag),
+            "超额用户的 client 必须从下发配置里消失"
+        );
+        // 版本再确认一次：worker 只 apply 了一次。
+        assert_no_more_desired(&mut subscription.receiver, Duration::from_millis(250)).await;
+
+        let server = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.server.id)
+            .await
+            .unwrap();
+        assert_eq!(server.config_version, 2);
+
+        wait_event_count(&fixture.state, 1).await;
+        let events = repo::enforcement::list_events(&fixture.state.db.pool, 10)
+            .await
+            .unwrap();
+        assert_eq!(events.len(), 1, "只应写一条断流事件");
+        assert_eq!(events[0].user_id, user_id);
+        assert_eq!(events[0].reason, "exhausted");
+        assert_eq!(events[0].server_id, fixture.server.id);
+        assert!(
+            events[0].message.contains("额度用尽"),
+            "{}",
+            events[0].message
+        );
+        assert!(
+            events[0].message.contains("已从服务器 hk-1 的配置中移除"),
+            "{}",
+            events[0].message
+        );
+
+        // 已经不可用之后再上报：不得重复触发 apply / 事件。
+        record_traffic(
+            &fixture.state,
+            &fixture.server.id,
+            &traffic(2, &format!("{user_id}@{}", fixture.node_tag), 500),
+        )
+        .await
+        .unwrap();
+        assert_no_more_desired(&mut subscription.receiver, Duration::from_millis(250)).await;
+        assert_eq!(
+            repo::enforcement::count_events(&fixture.state.db.pool)
+                .await
+                .unwrap(),
+            1,
+            "同一用户只应移除一次"
+        );
+    }
+
+    #[tokio::test]
+    async fn three_crossings_on_one_server_coalesce_into_one_apply() {
+        let fixture = fixture(Duration::from_millis(300)).await;
+        let mut users = Vec::new();
+        for name in ["alice", "bob", "carol"] {
+            let user_id = add_user(&fixture.state, name).await;
+            add_package(&fixture.state, &user_id, Some(1000), None).await;
+            users.push(user_id);
+        }
+        init_desired(&fixture).await;
+
+        let mut subscription = fixture.state.hub.subscribe(&fixture.server.id);
+        let _worker = crate::enforcement::spawn_worker(fixture.state.clone());
+
+        for (index, user_id) in users.iter().enumerate() {
+            record_traffic(
+                &fixture.state,
+                &fixture.server.id,
+                &traffic(
+                    index as u64 + 1,
+                    &format!("{user_id}@{}", fixture.node_tag),
+                    2000,
+                ),
+            )
+            .await
+            .unwrap();
+        }
+
+        let desired = next_desired(&mut subscription.receiver).await;
+        let MasterMessage::Desired(desired) = desired else {
+            panic!("expected desired state");
+        };
+        assert_eq!(desired.version, 2, "三次触发应合并成一次 apply");
+        let clients = desired.xray["inbounds"][0]["settings"]["clients"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert!(clients.is_empty(), "三个用户都应被移除：{clients:?}");
+
+        // 窗口过后也不能补跑：批次已经合并并消费掉了。
+        assert_no_more_desired(&mut subscription.receiver, Duration::from_millis(600)).await;
+        wait_event_count(&fixture.state, 3).await;
+    }
+
+    #[tokio::test]
+    async fn normal_report_does_not_trigger_any_apply() {
+        let fixture = fixture(Duration::from_millis(50)).await;
+        let user_id = add_user(&fixture.state, "alice").await;
+        add_package(&fixture.state, &user_id, Some(1_000_000), None).await;
+        init_desired(&fixture).await;
+
+        let mut subscription = fixture.state.hub.subscribe(&fixture.server.id);
+        let _worker = crate::enforcement::spawn_worker(fixture.state.clone());
+
+        record_traffic(
+            &fixture.state,
+            &fixture.server.id,
+            &traffic(1, &format!("{user_id}@{}", fixture.node_tag), 1000),
+        )
+        .await
+        .unwrap();
+
+        assert_no_more_desired(&mut subscription.receiver, Duration::from_millis(250)).await;
+        let server = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.server.id)
+            .await
+            .unwrap();
+        assert_eq!(server.config_version, 1, "未超额不得 bump 版本");
+        assert_eq!(
+            repo::enforcement::count_events(&fixture.state.db.pool)
+                .await
+                .unwrap(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn reconciliation_removes_expired_user_and_stays_idempotent() {
+        let fixture = fixture(Duration::from_millis(50)).await;
+        let user_id = add_user(&fixture.state, "alice").await;
+        let instance_id = add_package(
+            &fixture.state,
+            &user_id,
+            Some(10_000),
+            Some(mmrust_domain::time::now() + 3600),
+        )
+        .await;
+        // 先让用户进入下发配置。
+        init_desired(&fixture).await;
+
+        // 时间流逝 → 到期。没有流量上报能触发它，只能靠 5 分钟对账。
+        repo::user_packages::update(
+            &fixture.state.db.pool,
+            &instance_id,
+            repo::user_packages::UpdateUserPackage {
+                expires_at: Patch::Value(mmrust_domain::time::now() - 1),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let mut subscription = fixture.state.hub.subscribe(&fixture.server.id);
+        let _worker = crate::enforcement::spawn_worker(fixture.state.clone());
+
+        let users = crate::enforcement::reconcile_once(&fixture.state)
+            .await
+            .unwrap();
+        assert_eq!(users, 1, "应扫出这个过期用户");
+
+        let desired = next_desired(&mut subscription.receiver).await;
+        let MasterMessage::Desired(desired) = desired else {
+            panic!("expected desired state");
+        };
+        assert_eq!(desired.version, 2);
+        let clients = desired.xray["inbounds"][0]["settings"]["clients"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert!(clients.is_empty(), "过期用户应被移除：{clients:?}");
+
+        wait_event_count(&fixture.state, 1).await;
+        let events = repo::enforcement::list_events(&fixture.state.db.pool, 10)
+            .await
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].reason, "expired");
+        assert!(
+            events[0].message.contains("套餐已到期"),
+            "{}",
+            events[0].message
+        );
+
+        // 再对账一轮：用户仍然不可用，但期望态没变 → 不 bump、不重复写事件。
+        let users = crate::enforcement::reconcile_once(&fixture.state)
+            .await
+            .unwrap();
+        assert_eq!(users, 1);
+        assert_no_more_desired(&mut subscription.receiver, Duration::from_millis(300)).await;
+        let server = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.server.id)
+            .await
+            .unwrap();
+        assert_eq!(server.config_version, 2, "期望态没变时不得空转 bump");
+        assert_eq!(
+            repo::enforcement::count_events(&fixture.state.db.pool)
+                .await
+                .unwrap(),
+            1,
+            "不得重复写事件"
+        );
+    }
+
+    #[tokio::test]
+    async fn enforcement_can_be_disabled() {
+        let fixture = fixture(Duration::from_millis(20)).await;
+        // 覆盖开关：模拟 MMRUST_ENFORCE=0。
+        let state = fixture
+            .state
+            .clone()
+            .with_enforcement(false, Duration::from_millis(20));
+        let user_id = add_user(&state, "alice").await;
+        add_package(&state, &user_id, Some(1000), None).await;
+
+        let mut subscription = state.hub.subscribe(&fixture.server.id);
+        let _worker = crate::enforcement::spawn_worker(state.clone());
+
+        record_traffic(
+            &state,
+            &fixture.server.id,
+            &traffic(1, &format!("{user_id}@{}", fixture.node_tag), 2000),
+        )
+        .await
+        .unwrap();
+
+        assert_no_more_desired(&mut subscription.receiver, Duration::from_millis(200)).await;
+        assert_eq!(
+            repo::enforcement::count_events(&state.db.pool)
+                .await
+                .unwrap(),
+            0
+        );
     }
 }

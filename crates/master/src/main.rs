@@ -1,5 +1,6 @@
 mod app;
 mod auth;
+mod enforcement;
 mod error;
 mod routes;
 mod scheduler;
@@ -42,6 +43,9 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState::new(db, &web_dir);
     // 每日重置：每小时检查一次，启动后立即跑第一轮。
     let _reset_task = scheduler::spawn_daily_reset(state.db.clone());
+    // 断流：流量上报实时标记 + 每 5 分钟过期对账，统一交给去抖 worker 收敛。
+    let _enforce_worker = enforcement::spawn_worker(state.clone());
+    let _enforce_reconcile = scheduler::spawn_enforcement_reconcile(state.clone());
     let app = app::router(state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("listening on http://{addr}, web dir = {web_dir}");

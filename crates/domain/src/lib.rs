@@ -2,6 +2,7 @@
 //! 这里不允许出现 axum / 请求上下文，方便被 master、CLI、测试共用。
 
 pub mod credentials;
+pub mod enforcement;
 pub mod metering;
 pub mod models;
 pub mod password;

@@ -5,7 +5,6 @@ use serde_json::{json, Value};
 
 use mmrust_domain::models::Server;
 use mmrust_domain::repo;
-use mmrust_proto::{DesiredState, MasterMessage};
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -226,6 +225,7 @@ pub async fn delete(
 /// 生成完整配置并把新版本广播给该服务器上已连接的 Agent。
 ///
 /// 广播是「期望态」：Agent 只负责幂等收敛，失败通过 ApplyResult 回传。
+/// 装配与推送收敛在 `routes::desired`，断流 worker 复用同一条路径。
 pub async fn apply(
     State(state): State<AppState>,
     user: CurrentUser,
@@ -234,32 +234,9 @@ pub async fn apply(
     user.require_admin()?;
     let server = load_server(&state, &server_id).await?;
 
-    let desired = super::desired::render(&state, &server).await?;
-    let version = repo::servers::bump_config_version(&state.db.pool, &server.id).await?;
-
-    let delivered = state.hub.publish(
-        &server.id,
-        MasterMessage::Desired(DesiredState {
-            version,
-            xray: desired.xray,
-            files: Vec::new(),
-        }),
-    );
-    for warning in &desired.warnings {
-        tracing::warn!(server = %server.name, "{warning}");
-    }
-    tracing::info!(
-        server = %server.name,
-        version,
-        nodes = desired.node_count,
-        grants = desired.grant_count,
-        skipped = desired.warnings.len(),
-        delivered,
-        "desired state published"
-    );
-
+    let outcome = super::desired::apply(&state, &server).await?;
     Ok(Json(
-        json!({ "config_version": version, "warnings": desired.warnings }),
+        json!({ "config_version": outcome.version, "warnings": outcome.warnings }),
     ))
 }
 
@@ -273,6 +250,7 @@ mod tests {
     use tower::ServiceExt;
 
     use mmrust_domain::Db;
+    use mmrust_proto::MasterMessage;
 
     async fn setup() -> (Router, AppState, String) {
         let db = Db::connect("sqlite::memory:").await.unwrap();

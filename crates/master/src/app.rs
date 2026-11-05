@@ -54,6 +54,10 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/stats/overview", get(routes::stats::overview))
         .route("/api/v1/stats/traffic", get(routes::stats::traffic))
+        .route(
+            "/api/v1/enforcement/events",
+            get(routes::enforcement::events),
+        )
         // 公开订阅入口：不加鉴权，短码即凭证。
         .route("/api/v1/sub/{short_code}", get(routes::subscribe::get))
         .route("/api/agent/ws", get(routes::agent::ws))

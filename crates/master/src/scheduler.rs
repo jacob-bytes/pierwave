@@ -1,16 +1,25 @@
-//! 后台调度：目前只有每日流量重置。
+//! 后台调度：每日流量重置 + 断流过期对账。
 //!
-//! 每小时唤醒一次，启动后立刻先跑一轮（tokio `interval` 的第一次 tick 立即完成）。
-//! 判定与幂等都在 `mmrust_domain::reset` / `repo::user_packages` 里，这里只负责
-//! 触发和记日志，定时器不参与业务逻辑。
+//! 两个任务都用 `tokio::time::interval`，启动后立刻先跑一轮（第一次 tick 立即完成）。
+//! 判定与幂等都在领域层/`crate::enforcement` 里，这里只负责触发和记日志，
+//! 定时器不参与业务逻辑。
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use mmrust_domain::{reset, time, Db};
 
+use crate::enforcement;
+use crate::state::AppState;
+
 /// 每小时一轮。`reset_day` 只精确到天，每小时检查一次足够。
 const RESET_INTERVAL: Duration = Duration::from_secs(60 * 60);
+
+/// 断流对账：每 5 分钟扫一次「有 active 实例但全部不可用」的用户。
+///
+/// 流量上报能实时发现「刚跑满」，但「到期」没有事件源，只能靠对账兜底；
+/// 对账只标记脏，真正的 apply 由去抖 worker 合并执行。
+const ENFORCEMENT_RECONCILE_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 /// 启动每日重置任务；句柄由调用方持有到进程退出即可（drop 不会停止任务）。
 pub fn spawn_daily_reset(db: Arc<Db>) -> tokio::task::JoinHandle<()> {
@@ -30,6 +39,28 @@ pub fn spawn_daily_reset(db: Arc<Db>) -> tokio::task::JoinHandle<()> {
                 }
                 Ok(_) => tracing::debug!("每日重置检查：今天没有待重置的套餐实例"),
                 Err(error) => tracing::error!(error = %error, "每日重置失败"),
+            }
+        }
+    })
+}
+
+/// 启动断流过期对账；`MMRUST_ENFORCE=0` 时直接退出。
+pub fn spawn_enforcement_reconcile(state: AppState) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        if !state.enforcement.enabled() {
+            tracing::info!("MMRUST_ENFORCE=0：断流触发已关闭，对账任务不启动");
+            return;
+        }
+        let mut ticker = tokio::time::interval(ENFORCEMENT_RECONCILE_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            ticker.tick().await;
+            match enforcement::reconcile_once(&state).await {
+                Ok(users) if users > 0 => {
+                    tracing::info!(users, "断流对账完成，已标记待收敛的服务器");
+                }
+                Ok(_) => tracing::debug!("断流对账：没有发现需要移除的用户"),
+                Err(error) => tracing::error!(error = %error, "断流对账失败"),
             }
         }
     })

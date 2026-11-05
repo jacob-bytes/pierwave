@@ -1,9 +1,13 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+#[cfg(test)]
+use std::time::Duration;
 
 use mmrust_domain::Db;
 use mmrust_proto::MasterMessage;
 use tokio::sync::broadcast;
+
+use crate::enforcement::Enforcer;
 
 /// 每个服务器一条广播通道；没有 Agent 在线时发送方仍在，消息自然丢弃。
 const AGENT_CHANNEL_CAPACITY: usize = 64;
@@ -79,6 +83,8 @@ pub struct AppState {
     pub db: Arc<Db>,
     pub web_dir: Arc<std::path::PathBuf>,
     pub hub: AgentHub,
+    /// 断流去抖状态；由 `crate::enforcement::spawn_worker` 消费。
+    pub enforcement: Enforcer,
 }
 
 impl AppState {
@@ -87,7 +93,15 @@ impl AppState {
             db: Arc::new(db),
             web_dir: Arc::new(web_dir.into()),
             hub: AgentHub::default(),
+            enforcement: Enforcer::from_env(),
         }
+    }
+
+    /// 测试：显式设置断流开关与去抖窗口，不受环境变量影响。
+    #[cfg(test)]
+    pub fn with_enforcement(mut self, enabled: bool, window: Duration) -> Self {
+        self.enforcement = Enforcer::new(enabled, window);
+        self
     }
 }
 

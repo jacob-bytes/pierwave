@@ -368,6 +368,21 @@ pub mod servers {
         )
     }
 
+    /// 有启用节点的服务器：只有这些服务器的下发配置里可能出现用户 client。
+    ///
+    /// 断流标记用它决定「这次不可用要通知哪些服务器」，顺序稳定（创建时间）。
+    pub async fn list_ids_with_enabled_nodes(pool: &SqlitePool) -> anyhow::Result<Vec<String>> {
+        Ok(sqlx::query_scalar(
+            "SELECT DISTINCT s.id
+             FROM servers s
+             JOIN nodes n ON n.server_id = s.id
+             WHERE n.enabled = 1
+             ORDER BY s.created_at ASC, s.rowid ASC",
+        )
+        .fetch_all(pool)
+        .await?)
+    }
+
     pub async fn mark_online(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
         sqlx::query("UPDATE servers SET status = 'online', last_seen_at = ? WHERE id = ?")
             .bind(now())
@@ -405,6 +420,55 @@ pub mod servers {
         .fetch_one(pool)
         .await?;
         Ok(version)
+    }
+}
+
+/// 最近一次成功下发的期望态快照：断流对账靠它判断「配置有没有真的变化」。
+pub mod desired {
+    use super::*;
+
+    #[derive(Debug, Clone, sqlx::FromRow)]
+    pub struct Snapshot {
+        pub server_id: String,
+        /// 渲染结果（`xray` JSON）的稳定指纹，见 master 的 `routes::desired::fingerprint`。
+        pub fingerprint: String,
+        pub config_version: i64,
+        pub updated_at: i64,
+    }
+
+    pub async fn get(pool: &SqlitePool, server_id: &str) -> anyhow::Result<Option<Snapshot>> {
+        Ok(sqlx::query_as::<_, Snapshot>(
+            "SELECT server_id, fingerprint, config_version, updated_at
+             FROM desired_snapshots WHERE server_id = ?",
+        )
+        .bind(server_id)
+        .fetch_optional(pool)
+        .await?)
+    }
+
+    /// 每次 push 成功后覆盖快照；`server_id` 是主键，天然幂等。
+    pub async fn save(
+        pool: &SqlitePool,
+        server_id: &str,
+        fingerprint: &str,
+        config_version: i64,
+        updated_at: i64,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO desired_snapshots (server_id, fingerprint, config_version, updated_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(server_id) DO UPDATE SET
+                fingerprint = excluded.fingerprint,
+                config_version = excluded.config_version,
+                updated_at = excluded.updated_at",
+        )
+        .bind(server_id)
+        .bind(fingerprint)
+        .bind(config_version)
+        .bind(updated_at)
+        .execute(pool)
+        .await?;
+        Ok(())
     }
 }
 
@@ -1249,6 +1313,165 @@ pub mod authorization {
         let packages = super::user_packages::list_views_by_user(pool, user_id).await?;
         let now = super::now();
         Ok(packages.iter().any(|item| item.is_usable_at(now)))
+    }
+}
+
+/// 断流事件与过期对账。
+///
+/// 「谁已经不可用」的口径复用 [`crate::models::package_status_at`]，和订阅/apply
+/// 注入完全一致；这里只负责把候选用户捞出来、把事件落库。
+pub mod enforcement {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    /// 一条待写库的断流事件；`message` 由调用方用 [`crate::enforcement`] 生成。
+    pub struct NewEvent<'a> {
+        pub user_id: &'a str,
+        pub username: &'a str,
+        pub server_id: &'a str,
+        pub server_name: &'a str,
+        pub reason: &'a str,
+        pub message: &'a str,
+    }
+
+    pub async fn insert_event(
+        pool: &SqlitePool,
+        input: NewEvent<'_>,
+    ) -> anyhow::Result<EnforcementEvent> {
+        let id = Uuid::new_v4().to_string();
+        let created_at = now();
+        sqlx::query(
+            "INSERT INTO enforcement_events
+                (id, user_id, username, server_id, server_name, reason, message, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(input.user_id)
+        .bind(input.username)
+        .bind(input.server_id)
+        .bind(input.server_name)
+        .bind(input.reason)
+        .bind(input.message)
+        .bind(created_at)
+        .execute(pool)
+        .await?;
+
+        Ok(EnforcementEvent {
+            id,
+            user_id: input.user_id.to_string(),
+            username: input.username.to_string(),
+            server_id: input.server_id.to_string(),
+            server_name: input.server_name.to_string(),
+            reason: input.reason.to_string(),
+            message: input.message.to_string(),
+            created_at,
+        })
+    }
+
+    pub async fn list_events(
+        pool: &SqlitePool,
+        limit: i64,
+    ) -> anyhow::Result<Vec<EnforcementEvent>> {
+        Ok(sqlx::query_as::<_, EnforcementEvent>(
+            "SELECT id, user_id, username, server_id, server_name, reason, message, created_at
+             FROM enforcement_events
+             ORDER BY created_at DESC, rowid DESC
+             LIMIT ?",
+        )
+        .bind(limit.clamp(1, 200))
+        .fetch_all(pool)
+        .await?)
+    }
+
+    pub async fn count_events(pool: &SqlitePool) -> anyhow::Result<i64> {
+        Ok(
+            sqlx::query_scalar("SELECT COUNT(*) FROM enforcement_events")
+                .fetch_one(pool)
+                .await?,
+        )
+    }
+
+    /// 对账候选：有原始 active 实例、但全部不可用的用户。
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct UnusableUser {
+        pub user_id: String,
+        pub username: String,
+        /// 逗号分隔的原因码，例如 `expired,exhausted`。
+        pub reason: String,
+    }
+
+    #[derive(sqlx::FromRow)]
+    struct CandidateRow {
+        user_id: String,
+        username: String,
+        package_status: String,
+        expires_at: Option<i64>,
+        quota_bytes: Option<i64>,
+        used_bytes: i64,
+    }
+
+    /// 扫出「有 active 实例但全部不可用」的 active 用户。
+    ///
+    /// 只扫原始状态为 `active` 的实例：被管理员停用的实例不属于「跑满/过期」，
+    /// 这类用户本来就不会被注入。判断是否可用统一走 [`crate::models::package_status_at`]。
+    pub async fn list_unusable_users(
+        pool: &SqlitePool,
+        now: i64,
+    ) -> anyhow::Result<Vec<UnusableUser>> {
+        let rows = sqlx::query_as::<_, CandidateRow>(
+            "SELECT u.id AS user_id, u.username,
+                    up.status AS package_status, up.expires_at,
+                    COALESCE(up.quota_override, p.quota_bytes) AS quota_bytes,
+                    up.used_bytes
+             FROM users u
+             JOIN user_packages up ON up.user_id = u.id
+             JOIN packages p ON p.id = up.package_id
+             WHERE u.status = 'active' AND up.status = 'active'
+             ORDER BY u.created_at ASC, u.rowid ASC,
+                      up.created_at ASC, up.rowid ASC",
+        )
+        .fetch_all(pool)
+        .await?;
+
+        // 按用户分组；顺序保持 SQL 的稳定顺序，方便日志与测试断言。
+        let mut order: Vec<String> = Vec::new();
+        let mut grouped: HashMap<String, (String, bool, Vec<&'static str>)> = HashMap::new();
+        for row in rows {
+            let status = crate::models::package_status_at(
+                &row.package_status,
+                row.expires_at,
+                row.quota_bytes,
+                row.used_bytes,
+                now,
+            );
+            let entry = grouped.entry(row.user_id.clone()).or_insert_with(|| {
+                order.push(row.user_id.clone());
+                (row.username.clone(), false, Vec::new())
+            });
+            if status == "active" {
+                entry.1 = true;
+            } else if !entry.2.contains(&status) {
+                entry.2.push(status);
+            }
+        }
+
+        let mut candidates = Vec::new();
+        for user_id in order {
+            let Some((username, any_usable, reasons)) = grouped.remove(&user_id) else {
+                continue;
+            };
+            // 只要还有一张可用卡就保留；reasons 为空说明没有可判断的实例。
+            if any_usable || reasons.is_empty() {
+                continue;
+            }
+            candidates.push(UnusableUser {
+                user_id,
+                username,
+                reason: crate::enforcement::merge_reasons(reasons),
+            });
+        }
+        Ok(candidates)
     }
 }
 
