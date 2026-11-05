@@ -174,6 +174,8 @@ mod tests {
                 period_days: Some(30),
                 direction: "both".into(),
                 node_ratio: 1.0,
+
+                node_ids: None,
             },
         )
         .await

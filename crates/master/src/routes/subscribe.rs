@@ -41,16 +41,17 @@ pub async fn get(
 
     let secret = credentials::master_secret(&state.db.pool).await?;
     let mut nodes = Vec::new();
-    // 没有可用套餐的用户仍然 200，但 proxies 为空（与「未绑定套餐」的 FAQ 语义一致）。
-    // 判定口径与 apply 注入 client 时完全一致，见 repo::authorization。
-    if repo::authorization::is_eligible(&state.db.pool, &user.id).await? {
-        for row in repo::nodes::list_enabled_with_server(&state.db.pool).await? {
-            // 缺字段/脏片段的节点在这里被跳过并记 warn，订阅本身照常渲染。
-            if let Some(node) =
-                SubNode::from_node(&row.node, &row.server_address, &user.id, &secret)
-            {
-                nodes.push(node);
-            }
+    // 没有可用套餐、或套餐范围里一个节点都没有的用户仍然 200，但 proxies 为空
+    // （与「未绑定套餐」的 FAQ 语义一致）。可见节点集合直接复用下发配置的
+    // `authorization::eligible_pairs`，套餐节点范围不会在订阅端再写一遍。
+    let allowed = repo::authorization::eligible_node_ids_for_user(&state.db.pool, &user.id).await?;
+    for row in repo::nodes::list_enabled_with_server(&state.db.pool).await? {
+        if !allowed.contains(&row.node.id) {
+            continue;
+        }
+        // 缺字段/脏片段的节点在这里被跳过并记 warn，订阅本身照常渲染。
+        if let Some(node) = SubNode::from_node(&row.node, &row.server_address, &user.id, &secret) {
+            nodes.push(node);
         }
     }
     dedupe_names(&mut nodes);
@@ -174,6 +175,8 @@ mod tests {
                 period_days: Some(30),
                 direction: "both".into(),
                 node_ratio: 1.0,
+
+                node_ids: None,
             },
         )
         .await
@@ -555,5 +558,58 @@ mod tests {
         let (status, _headers, body) = get(&app, &format!("/api/v1/sub/{short_code}"), None).await;
         assert_eq!(status, StatusCode::OK);
         assert!(body.contains("\"香港-REALITY (2)\""));
+    }
+
+    #[tokio::test]
+    async fn package_node_scope_filters_subscription_nodes() {
+        let (app, state, short_code) = setup().await;
+
+        // 未设范围 → 两个启用节点都导出。
+        let (status, _headers, body) = get(&app, &format!("/api/v1/sub/{short_code}"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("香港-REALITY"));
+        assert!(body.contains("日本-WS-TLS"));
+
+        let package = packages::list(&state.db.pool).await.unwrap().remove(0);
+        let server = servers::list(&state.db.pool).await.unwrap().remove(0);
+        let nodes = repo::nodes::list_enabled_by_server(&state.db.pool, &server.id)
+            .await
+            .unwrap();
+        let first = nodes[0].id.clone();
+
+        // 只绑第一个节点 → 订阅里不再出现第二个。
+        packages::update(
+            &state.db.pool,
+            &package.id,
+            packages::UpdatePackage {
+                node_ids: Some(vec![first]),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let (status, _headers, body) = get(&app, &format!("/api/v1/sub/{short_code}"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("香港-REALITY"));
+        assert!(!body.contains("日本-WS-TLS"), "范围外节点不应导出：{body}");
+
+        // 范围改成空数组 → 有可用套餐也返回空 proxies。
+        packages::update(
+            &state.db.pool,
+            &package.id,
+            packages::UpdatePackage {
+                node_ids: Some(Vec::new()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let (status, _headers, body) = get(&app, &format!("/api/v1/sub/{short_code}"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("proxies: []"),
+            "空范围应返回空 proxies：{body}"
+        );
+        assert!(!body.contains("香港-REALITY"));
     }
 }

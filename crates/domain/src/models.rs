@@ -131,6 +131,15 @@ pub struct Package {
     ///
     /// `packages::list` / `find_by_id` 用一条聚合查询带出，前端删除前据此提前禁用按钮。
     pub user_count: i64,
+    /// 显式绑定的节点 id（升序）；未设范围时为空，此时该套餐可见全部节点。
+    ///
+    /// 与 [`Self::node_count`] 搭配才能区分「未设范围」和「显式一个都不给」：
+    /// 前者 `node_ids` 为空但 `node_count` 是全部节点数，后者两者都为 0。
+    #[sqlx(skip)]
+    pub node_ids: Vec<String>,
+    /// 实际可见节点数：未设范围时 = 全部节点数；显式空范围时 = 0。
+    #[sqlx(skip)]
+    pub node_count: usize,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize)]

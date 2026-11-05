@@ -8,6 +8,7 @@ import {
   ClockIcon,
   FileKeyIcon,
   GaugeIcon,
+  HistoryIcon,
   PackageIcon,
   PlusIcon,
   RefreshCwIcon,
@@ -30,7 +31,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
-import { useOverview, useTraffic } from "@/lib/queries";
+import {
+  useEnforcementEvents,
+  useOverview,
+  useTraffic,
+} from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 /** recharts 只在概览页内部按需加载，避免拖大主 chunk。 */
@@ -257,6 +262,9 @@ function AlertRow({
 export default function OverviewPage() {
   const overview = useOverview();
   const traffic = useTraffic(TRAFFIC_DAYS);
+  const events = useEnforcementEvents(50);
+  const recentRemoved =
+    events.data?.filter((event) => event.kind === "removed").length ?? 0;
   const refreshing = overview.isFetching || traffic.isFetching;
 
   function refreshAll() {
@@ -473,6 +481,21 @@ export default function OverviewPage() {
                     hint={`${expiringCerts} 张证书 30 天内到期，点击去更换`}
                     tone="warning"
                   />
+                ) : null}
+                {recentRemoved > 0 ? (
+                  <Link
+                    to="/events"
+                    className="mt-1 flex items-center justify-between rounded-md px-2.5 py-2 text-xs text-muted-foreground transition-colors duration-150 hover:bg-muted/40 hover:text-foreground"
+                  >
+                    <span className="flex items-center gap-2">
+                      <HistoryIcon className="size-3.5" />
+                      最近断流 {recentRemoved} 条
+                    </span>
+                    <span className="flex items-center gap-1">
+                      查看记录
+                      <ChevronRightIcon className="size-3.5" />
+                    </span>
+                  </Link>
                 ) : null}
               </CardContent>
             </Card>

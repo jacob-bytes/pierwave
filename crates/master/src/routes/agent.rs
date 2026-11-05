@@ -441,6 +441,8 @@ mod tests {
                 period_days: None,
                 direction: direction.into(),
                 node_ratio,
+
+                node_ids: None,
             },
         )
         .await
@@ -765,6 +767,8 @@ mod enforcement_tests {
                 period_days: None,
                 direction: "both".into(),
                 node_ratio: 1.0,
+
+                node_ids: None,
             },
         )
         .await
@@ -1194,6 +1198,8 @@ mod enforcement_tests {
                 period_days: None,
                 direction: "both".into(),
                 node_ratio: 1.0,
+
+                node_ids: None,
             },
         )
         .await
@@ -1215,6 +1221,8 @@ mod enforcement_tests {
                 period_days: None,
                 direction: "both".into(),
                 node_ratio: 1.0,
+
+                node_ids: None,
             },
         )
         .await

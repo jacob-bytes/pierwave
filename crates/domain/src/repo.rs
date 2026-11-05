@@ -684,6 +684,10 @@ fn saturating_i64(value: u64) -> i64 {
 }
 
 pub mod nodes {
+    use std::collections::HashSet;
+
+    use sqlx::QueryBuilder;
+
     use super::*;
 
     pub struct NewNode {
@@ -837,6 +841,28 @@ pub mod nodes {
         find_by_id(pool, id).await
     }
 
+    /// 这批 id 里哪些在库里不存在；套餐节点范围校验用。
+    ///
+    /// 外键会在写入时报错，但业务层需要的是「400 + 中文提示」，所以先查一次。
+    pub async fn missing_ids(pool: &SqlitePool, ids: &[String]) -> anyhow::Result<Vec<String>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut builder = QueryBuilder::new("SELECT id FROM nodes WHERE id IN (");
+        let mut separated = builder.separated(", ");
+        for id in ids {
+            separated.push_bind(id.clone());
+        }
+        separated.push_unseparated(")");
+        let found: Vec<String> = builder.build_query_scalar().fetch_all(pool).await?;
+        let found: HashSet<&str> = found.iter().map(String::as_str).collect();
+        Ok(ids
+            .iter()
+            .filter(|id| !found.contains(id.as_str()))
+            .cloned()
+            .collect())
+    }
+
     /// 返回是否真的删掉了一行。
     pub async fn delete(pool: &SqlitePool, id: &str) -> anyhow::Result<bool> {
         let res = sqlx::query("DELETE FROM nodes WHERE id = ?")
@@ -848,6 +874,10 @@ pub mod nodes {
 }
 
 pub mod packages {
+    use std::collections::HashMap;
+
+    use sqlx::QueryBuilder;
+
     use super::*;
 
     pub struct NewPackage {
@@ -856,6 +886,8 @@ pub mod packages {
         pub period_days: Option<i64>,
         pub direction: String,
         pub node_ratio: f64,
+        /// `None` = 未设范围（可见全部节点）；`Some([])` = 显式一个都不给。
+        pub node_ids: Option<Vec<String>>,
     }
 
     #[derive(Debug, Default)]
@@ -867,14 +899,18 @@ pub mod packages {
         pub period_days: Patch<i64>,
         pub direction: Option<String>,
         pub node_ratio: Option<f64>,
+        /// `None` = 不改动范围；`Some([])` = 清空为「一个都不给」。
+        pub node_ids: Option<Vec<String>>,
     }
 
     pub async fn create(pool: &SqlitePool, input: NewPackage) -> anyhow::Result<Package> {
         let id = Uuid::new_v4().to_string();
+        let mut tx = pool.begin().await?;
         sqlx::query(
             "INSERT INTO packages
-                (id, name, quota_bytes, period_days, direction, node_ratio, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (id, name, quota_bytes, period_days, direction, node_ratio, created_at,
+                 node_scope_explicit)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&input.name)
@@ -883,15 +919,96 @@ pub mod packages {
         .bind(&input.direction)
         .bind(input.node_ratio)
         .bind(now())
-        .execute(pool)
+        .bind(i64::from(input.node_ids.is_some()))
+        .execute(&mut *tx)
         .await?;
+        if let Some(node_ids) = &input.node_ids {
+            insert_scope(&mut tx, &id, node_ids).await?;
+        }
+        tx.commit().await?;
         find_by_id(pool, &id)
             .await?
             .ok_or_else(|| anyhow::anyhow!("套餐创建后读取失败"))
     }
 
+    /// 覆盖写 `package_nodes`；调用方负责先用 [`super::nodes::missing_ids`] 校验。
+    async fn insert_scope(
+        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+        package_id: &str,
+        node_ids: &[String],
+    ) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM package_nodes WHERE package_id = ?")
+            .bind(package_id)
+            .execute(&mut **tx)
+            .await?;
+        for node_id in node_ids {
+            sqlx::query("INSERT INTO package_nodes (package_id, node_id) VALUES (?, ?)")
+                .bind(package_id)
+                .bind(node_id)
+                .execute(&mut **tx)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// 批量补齐 `node_ids` / `node_count`，避免列表页每个套餐各查一遍。
+    ///
+    /// `node_count` 是「实际可见节点数」：未设范围时算上全部节点（含 disabled，
+    /// 范围本身与启用状态无关），显式空范围时是 0。两个字段搭配即可区分三种语义。
+    async fn fill_scope(pool: &SqlitePool, packages: &mut [Package]) -> anyhow::Result<()> {
+        if packages.is_empty() {
+            return Ok(());
+        }
+        let mut builder = QueryBuilder::new(
+            "SELECT p.id, p.node_scope_explicit, pn.node_id
+             FROM packages p
+             LEFT JOIN package_nodes pn ON pn.package_id = p.id
+             WHERE p.id IN (",
+        );
+        let mut separated = builder.separated(", ");
+        for package in packages.iter() {
+            separated.push_bind(package.id.clone());
+        }
+        separated.push_unseparated(") ORDER BY p.id ASC, pn.node_id ASC");
+        let rows = builder
+            .build_query_as::<(String, i64, Option<String>)>()
+            .fetch_all(pool)
+            .await?;
+
+        let mut by_id: HashMap<String, (bool, Vec<String>)> = HashMap::new();
+        for (id, explicit, node_id) in rows {
+            let entry = by_id.entry(id).or_insert((explicit != 0, Vec::new()));
+            if let Some(node_id) = node_id {
+                entry.1.push(node_id);
+            }
+        }
+
+        let total_nodes = if packages
+            .iter()
+            .any(|package| by_id.get(&package.id).is_none_or(|(explicit, _)| !explicit))
+        {
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM nodes")
+                .fetch_one(pool)
+                .await?
+                .max(0) as usize
+        } else {
+            0
+        };
+
+        for package in packages.iter_mut() {
+            let (explicit, node_ids) = by_id.remove(&package.id).unwrap_or((false, Vec::new()));
+            package.node_count = if explicit {
+                node_ids.len()
+            } else {
+                total_nodes
+            };
+            package.node_ids = node_ids;
+        }
+        Ok(())
+    }
+
     pub async fn find_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<Package>> {
-        Ok(sqlx::query_as::<_, Package>(
+        let package = sqlx::query_as::<_, Package>(
             "SELECT p.*,
                     (SELECT COUNT(*) FROM user_packages up WHERE up.package_id = p.id) AS user_count
              FROM packages p
@@ -899,12 +1016,18 @@ pub mod packages {
         )
         .bind(id)
         .fetch_optional(pool)
-        .await?)
+        .await?;
+        let Some(package) = package else {
+            return Ok(None);
+        };
+        let mut packages = vec![package];
+        fill_scope(pool, &mut packages).await?;
+        Ok(packages.pop())
     }
 
     /// 列表用一次 LEFT JOIN 聚合出引用数，避免前端/后端各来一轮 N+1。
     pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<Package>> {
-        Ok(sqlx::query_as::<_, Package>(
+        let mut items = sqlx::query_as::<_, Package>(
             "SELECT p.id, p.name, p.quota_bytes, p.period_days, p.direction, p.node_ratio,
                     p.created_at, COUNT(up.id) AS user_count
              FROM packages p
@@ -913,7 +1036,9 @@ pub mod packages {
              ORDER BY p.created_at DESC, p.rowid DESC",
         )
         .fetch_all(pool)
-        .await?)
+        .await?;
+        fill_scope(pool, &mut items).await?;
+        Ok(items)
     }
 
     pub async fn update(
@@ -925,13 +1050,16 @@ pub mod packages {
         let quota = input.quota_bytes.value();
         let period_set = input.period_days.is_set();
         let period = input.period_days.value();
+        let scope_set = input.node_ids.is_some();
+        let mut tx = pool.begin().await?;
         let res = sqlx::query(
             "UPDATE packages SET
                 name = COALESCE(?, name),
                 quota_bytes = CASE WHEN ? THEN ? ELSE quota_bytes END,
                 period_days = CASE WHEN ? THEN ? ELSE period_days END,
                 direction = COALESCE(?, direction),
-                node_ratio = COALESCE(?, node_ratio)
+                node_ratio = COALESCE(?, node_ratio),
+                node_scope_explicit = CASE WHEN ? THEN 1 ELSE node_scope_explicit END
              WHERE id = ?",
         )
         .bind(input.name)
@@ -941,13 +1069,18 @@ pub mod packages {
         .bind(period)
         .bind(input.direction)
         .bind(input.node_ratio)
+        .bind(scope_set)
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
 
         if res.rows_affected() == 0 {
             return Ok(None);
         }
+        if let Some(node_ids) = &input.node_ids {
+            insert_scope(&mut tx, id, node_ids).await?;
+        }
+        tx.commit().await?;
         find_by_id(pool, id).await
     }
 
@@ -1377,6 +1510,25 @@ pub mod authorization {
         pool: &SqlitePool,
         server_id: &str,
     ) -> anyhow::Result<Vec<EligiblePair>> {
+        eligible_pairs_matching(pool, server_id, None).await
+    }
+
+    /// 单用户的授权对：与 [`eligible_pairs`] 同一条 SQL，只是多一个用户过滤。
+    ///
+    /// 订阅端只需要一个人的节点，不能把全站授权都拉出来再筛。
+    pub async fn eligible_pairs_for_user(
+        pool: &SqlitePool,
+        server_id: &str,
+        user_id: &str,
+    ) -> anyhow::Result<Vec<EligiblePair>> {
+        eligible_pairs_matching(pool, server_id, Some(user_id)).await
+    }
+
+    async fn eligible_pairs_matching(
+        pool: &SqlitePool,
+        server_id: &str,
+        user_id: Option<&str>,
+    ) -> anyhow::Result<Vec<EligiblePair>> {
         let rows = sqlx::query_as::<_, Candidate>(
             "SELECT u.id AS user_id, n.id AS node_id,
                     up.status AS package_status,
@@ -1389,11 +1541,17 @@ pub mod authorization {
              JOIN packages p ON p.id = up.package_id
              WHERE n.server_id = ? AND n.enabled = 1
                AND u.status = 'active'
+               AND (? IS NULL OR u.id = ?)
+               AND (p.node_scope_explicit = 0
+                    OR EXISTS (SELECT 1 FROM package_nodes pn
+                               WHERE pn.package_id = p.id AND pn.node_id = n.id))
              ORDER BY u.created_at ASC, u.rowid ASC,
                       n.created_at ASC, n.rowid ASC,
                       up.created_at ASC, up.rowid ASC",
         )
         .bind(server_id)
+        .bind(user_id)
+        .bind(user_id)
         .fetch_all(pool)
         .await?;
 
@@ -1420,7 +1578,27 @@ pub mod authorization {
         Ok(pairs)
     }
 
-    /// 单个用户是否有任何可用套餐（订阅端点用它决定是否导出节点）。
+    /// 单个用户在所有服务器上的可见节点 id（订阅导出用）。
+    ///
+    /// 这里不另写过滤条件，复用 [`eligible_pairs_for_user`]：下发配置
+    /// （`desired::render`）和订阅导出走同一套 SQL，套餐节点范围不会两处漂移。
+    pub async fn eligible_node_ids_for_user(
+        pool: &SqlitePool,
+        user_id: &str,
+    ) -> anyhow::Result<HashSet<String>> {
+        let mut node_ids = HashSet::new();
+        for server_id in super::servers::list_ids_with_enabled_nodes(pool).await? {
+            for pair in eligible_pairs_for_user(pool, &server_id, user_id).await? {
+                node_ids.insert(pair.node_id);
+            }
+        }
+        Ok(node_ids)
+    }
+
+    /// 单个用户是否有任何可用套餐实例（不涉及节点范围）。
+    ///
+    /// 订阅导出现在按 [`eligible_node_ids_for_user`] 的节点集合判断，本函数保留
+    /// 给只需要「套餐是否可用」的调用方。
     pub async fn is_eligible(pool: &SqlitePool, user_id: &str) -> anyhow::Result<bool> {
         let Some(user) = super::users::find_by_id_opt(pool, user_id).await? else {
             return Ok(false);

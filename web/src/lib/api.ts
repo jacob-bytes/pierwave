@@ -42,12 +42,44 @@ export interface Server {
   last_seen_at: number | null;
   config_version: number;
   created_at: number;
+
+  /* 以下字段来自 Agent 心跳；从未连过的服务器整组为 null。 */
+  agent_version: string | null;
+  xray_running: boolean | null;
+  nginx_running: boolean | null;
+  /** 1 分钟平均负载。 */
+  load1: number | null;
+  mem_used: number | null;
+  mem_total: number | null;
+  disk_used: number | null;
+  disk_total: number | null;
+  uptime_secs: number | null;
+  /** 最后一次心跳的 Unix 秒。 */
+  health_at: number | null;
 }
 
 export interface CreateServerResponse {
   server: Server;
   token: string;
   install_command: string;
+}
+
+/** 断流 / 恢复事件；管理员接口，按时间倒序返回。 */
+export type EnforcementEventKind = "removed" | "restored";
+
+export interface EnforcementEvent {
+  id: string;
+  kind: EnforcementEventKind;
+  user_id: string;
+  username: string;
+  server_id: string;
+  server_name: string;
+  /** exhausted / expired / disabled / recovered，未知值原样展示。 */
+  reason: string;
+  /** 后端生成的中文句子，直接展示。 */
+  message: string;
+  /** Unix 秒。 */
+  created_at: number;
 }
 
 /** 节点：config 是后端直接返回的 JSON 对象，不需要前端再 parse。 */
@@ -293,6 +325,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+
+  /** 管理员可见的断流 / 恢复事件流。 */
+  enforcement: {
+    events: (limit: number) =>
+      request<{ items: EnforcementEvent[] }>(
+        `/api/v1/enforcement/events?limit=${encodeURIComponent(String(limit))}`,
+      ),
+  },
 
   nodes: (serverId: string) =>
     request<{ items: Node[] }>(

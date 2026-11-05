@@ -15,6 +15,7 @@ import {
   type CreatePackageInput,
   type CreateServerResponse,
   type CreateUserInput,
+  type EnforcementEvent,
   type Health,
   type MeSummary,
   type MeTraffic,
@@ -40,6 +41,8 @@ export const queryKeys = {
   statsOverview: ["stats", "overview"] as const,
   statsTraffic: (days: number) => ["stats", "traffic", days] as const,
   servers: ["servers"] as const,
+  enforcementEvents: (limit: number) =>
+    ["enforcement", "events", limit] as const,
   nodes: (serverId: string) => ["nodes", serverId] as const,
   certificates: ["certificates"] as const,
   users: (q: string) => ["users", { q }] as const,
@@ -132,6 +135,17 @@ export function useCreateServer() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.servers });
     },
+  });
+}
+
+/** 断流 / 恢复事件，按条数取最新记录；筛选在页面内完成。 */
+export function useEnforcementEvents(limit: number) {
+  return useQuery<EnforcementEvent[]>({
+    queryKey: queryKeys.enforcementEvents(limit),
+    queryFn: async () => (await api.enforcement.events(limit)).items,
+    enabled: limit > 0,
+    placeholderData: keepPreviousData,
+    staleTime: 15_000,
   });
 }
 
