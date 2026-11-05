@@ -48,8 +48,18 @@ jobs:
       - name: Frontend deps
         run: make web-install
 
-      - name: Check
-        run: make check
+      # 拆成独立 step：CI 上失败时能一眼看出是哪一环，不用翻日志
+      - name: Format
+        run: make fmt-check
+
+      - name: Clippy
+        run: make clippy
+
+      - name: Tests
+        run: make test
+
+      - name: Web build
+        run: make web-build
 
   e2e:
     name: end-to-end

@@ -132,14 +132,34 @@ PY
 echo "--- 闭环断言：订阅凭据 == 服务器 inbound 凭据 ---"
 curl -sf "$BASE/api/v1/sub/$ALICE_CODE" -o "$WORK/sub.yaml"
 python3 - "$WORK/sub.yaml" "$WORK/xray/config.json" <<'PY'
-import json, sys, yaml
+import json, sys
 
-sub = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+# 订阅是 YAML，但这里只需要 proxies / proxy-groups 两个列表，
+# 用一个极小的行解析器替代 PyYAML——CI 上不一定装了它。
+def parse(text):
+    proxies, groups, section, cur = [], [], None, None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if raw.startswith("proxies:"):
+            section, cur = "proxies", None
+        elif raw.startswith("proxy-groups:"):
+            section, cur = "groups", None
+        elif raw.startswith("rules:"):
+            section, cur = None, None
+        elif section and line.startswith("- name:"):
+            cur = {"name": line[len("- name:"):].strip().strip('"')}
+            (proxies if section == "proxies" else groups).append(cur)
+        elif section == "proxies" and cur is not None:
+            for key in ("uuid", "password"):
+                if line.startswith(key + ":"):
+                    cur[key] = line[len(key) + 1:].strip().strip('"')
+    return proxies, groups
+
+
 cfg = json.load(open(sys.argv[2], encoding="utf-8"))
+proxies, groups = parse(open(sys.argv[1], encoding="utf-8").read())
 
-proxies = sub.get("proxies") or []
 assert len(proxies) == 2, f"订阅应有 2 个节点，实际 {len(proxies)}"
-
 clients = {c.get("id") or c.get("password"): c
            for i in cfg["inbounds"] for c in i["settings"].get("clients", [])}
 for p in proxies:
@@ -148,9 +168,9 @@ for p in proxies:
     assert "@" in clients[cred].get("email", ""), clients[cred]
 print("ok 订阅凭据与服务器一致:", [p["name"] for p in proxies])
 
-groups = {g["name"] for g in sub["proxy-groups"]}
-assert {"PROXY", "AUTO"} <= groups, groups
-print("ok 分组:", sorted(groups))
+names = {g["name"] for g in groups}
+assert {"PROXY", "AUTO"} <= names, names
+print("ok 分组:", sorted(names))
 PY
 
 echo "--- 流量计量：假 stats → Agent 增量 → 主控按倍率落库 ---"
