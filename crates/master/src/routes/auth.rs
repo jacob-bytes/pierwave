@@ -1,5 +1,5 @@
 use std::convert::Infallible;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use axum::extract::{ConnectInfo, FromRequestParts, State};
 use axum::http::request::Parts;
@@ -44,7 +44,29 @@ impl FromRequestParts<AppState> for ClientIp {
     }
 }
 
+/// 只有直连方是回环/内网时，才相信它转发的 `X-Forwarded-For`。
+///
+/// 主控可能被直接暴露在公网（IP:port 直连部署），此时任何人都能伪造 XFF，
+/// 无条件采信会让「单 IP 撞多账号」这条限流形同虚设。
+fn is_trusted_proxy(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+        // IPv6 唯一本地地址 fc00::/7
+        IpAddr::V6(v6) => v6.is_loopback() || (v6.segments()[0] & 0xfe00) == 0xfc00,
+    }
+}
+
 fn client_ip(headers: &HeaderMap, extensions: &Extensions) -> String {
+    let peer = extensions
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(addr)| addr.ip());
+
+    if let Some(peer) = peer {
+        if !is_trusted_proxy(peer) {
+            return peer.to_string();
+        }
+    }
+
     if let Some(first) = headers
         .get("x-forwarded-for")
         .and_then(|value| value.to_str().ok())
@@ -54,9 +76,8 @@ fn client_ip(headers: &HeaderMap, extensions: &Extensions) -> String {
     {
         return first.to_string();
     }
-    extensions
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|ConnectInfo(addr)| addr.ip().to_string())
+
+    peer.map(|ip| ip.to_string())
         .unwrap_or_else(|| "unknown".to_string())
 }
 
@@ -291,5 +312,30 @@ mod tests {
 
         // 两者都没有时用固定占位符，保证限流仍有 key。
         assert_eq!(client_ip(&HeaderMap::new(), &Extensions::new()), "unknown");
+    }
+
+    /// 直连方是公网 IP 时，XFF 一律不采信——否则 IP 维度的限流可以被伪造头绕过。
+    #[test]
+    fn xff_is_ignored_for_public_peers() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "203.0.113.9".parse().unwrap());
+        let mut extensions = Extensions::new();
+        let peer: SocketAddr = "198.51.100.7:44321".parse().unwrap();
+        extensions.insert(ConnectInfo(peer));
+        assert_eq!(client_ip(&headers, &extensions), "198.51.100.7");
+
+        // 没有 peer 信息时（单测里直接构造请求）仍按 XFF 走，便于测试。
+        assert_eq!(client_ip(&headers, &Extensions::new()), "203.0.113.9");
+    }
+
+    /// 本机/内网反代转发的 XFF 才被采信。
+    #[test]
+    fn xff_is_honored_behind_loopback_proxy() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "203.0.113.9, 10.0.0.1".parse().unwrap());
+        let mut extensions = Extensions::new();
+        let peer: SocketAddr = "127.0.0.1:5555".parse().unwrap();
+        extensions.insert(ConnectInfo(peer));
+        assert_eq!(client_ip(&headers, &extensions), "203.0.113.9");
     }
 }
