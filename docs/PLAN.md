@@ -218,3 +218,32 @@ GET /api/v1/me/traffic?days=7 -> { "days": [ TrafficDay ] }   // 只统计该用
 - 未登录 401；管理员调用也返回自己的数据（不特殊处理）。
 - 断流中的用户仍返回 200 与真实状态（`packages[].status` 为 `exhausted`/`expired`），不返回 403。
 - 前端据此区分三种提示：**正常 / 已用尽 (exhausted) / 已过期 (expired)**，并给「续费联系管理员」的引导文案，不要只显示「无节点」。
+
+## P0-2：用户级总额度（本轮落地）
+
+`users.quota_bytes` 之前只是展示字段：能设、能显示，但资格判定从不读它。
+
+### 语义
+
+- `NULL` = 不限（唯一表示「不限」的方式；`0` 在 API 层已被 400 拒绝，避免歧义）。
+- 非空 = 跨套餐的**总闸**：`users.used_bytes >= users.quota_bytes` 时，该用户在所有服务器上都失去资格。
+- 与套餐实例额度**同时生效**（交集）：实例用尽会断，总额度用尽也会断。
+- 重置：实例月度重置会把 `used_bytes` 扣减，总额度随之回落；管理员调大 `quota_bytes` 亦可恢复。
+
+### 落点
+
+1. `authorization::eligible_pairs` 的 SQL 增加：
+   ```sql
+   AND (u.quota_bytes IS NULL OR u.used_bytes < u.quota_bytes)
+   ```
+   与节点范围条件并列，仍是一处判定。
+2. 断流触发：`record_traffic` 更新 `users.used_bytes` 后，若该用户跨过总额度边界 → 走既有的「标记脏 + 30s 去抖」路径，不新增机制。
+3. 可见性：
+   - `UserView` 增加 `quota_exceeded: bool`（后端算，前端不猜）；
+   - 用户列表/详情显示「已超出总额度」；
+   - `/me/summary` 的 `user` 也带这个字段，用户端横幅提示。
+4. 恢复：依赖既有的双向对账（5 分钟）+ 管理端动作触发的脏标记。
+
+### 不做
+
+- 不做「按比例分摊到各套餐实例」：总额度是用户级闸门，实例计费仍按瀑布分配，两者语义不同，不强行对齐。
