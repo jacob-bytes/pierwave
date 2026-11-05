@@ -10,6 +10,7 @@ import AppShell from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { isUnauthorized, useMe } from "@/lib/queries";
+import { errorText } from "@/lib/errors";
 import LoginPage from "@/pages/Login";
 import ServersPage from "@/pages/Servers";
 
@@ -69,8 +70,10 @@ export default function App() {
       );
     }
 
-    const message =
-      me.error instanceof Error ? me.error.message : "无法连接主控";
+    const message = errorText(
+      me.error,
+      "无法连接主控，请检查网络或主控是否已启动",
+    );
 
     return (
       <Centered>

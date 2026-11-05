@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useLogin } from "@/lib/queries";
+import { errorText } from "@/lib/errors";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("admin");
@@ -24,14 +25,14 @@ export default function LoginPage() {
           navigate("/", { replace: true });
         },
         onError: (error) => {
-          toast.error(error.message || "登录失败，请稍后重试");
+          toast.error(errorText(error, "登录失败，请检查网络后重试"));
         },
       },
     );
   }
 
   const errorMessage = login.isError
-    ? login.error.message || "登录失败，请稍后重试"
+    ? errorText(login.error, "登录失败，请检查网络后重试")
     : null;
 
   return (

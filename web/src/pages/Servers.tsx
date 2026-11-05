@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/table";
 import type { CreateServerResponse, Server } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
+import { errorText } from "@/lib/errors";
 import { useCreateServer, useServers } from "@/lib/queries";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -194,12 +195,12 @@ export default function ServersPage() {
   const items = servers.data ?? [];
   const onlineCount = items.filter((server) => server.status === "online").length;
   const showError = servers.isError && !servers.data;
-  const errorMessage =
-    servers.error instanceof Error
-      ? servers.error.message
-      : "加载服务器列表失败，请检查网络后重试";
+  const errorMessage = errorText(
+    servers.error,
+    "加载服务器列表失败，请检查网络后重试",
+  );
   const createError = create.isError
-    ? create.error.message || "创建服务器失败，请稍后重试"
+    ? errorText(create.error, "创建服务器失败，请稍后重试")
     : null;
 
   function openCreateDialog() {
@@ -232,7 +233,7 @@ export default function ServersPage() {
           toast.success(`服务器「${data.server.name}」已创建`);
         },
         onError: (error) => {
-          toast.error(error.message || "创建服务器失败，请稍后重试");
+          toast.error(errorText(error, "创建服务器失败，请稍后重试"));
         },
       },
     );
