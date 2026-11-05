@@ -53,7 +53,19 @@ jobs:
         run: make fmt-check
 
       - name: Clippy
-        run: make clippy
+        run: |
+          set -o pipefail
+          cargo clippy --workspace --all-targets --quiet --message-format=short -- -D warnings 2>&1 | tee clippy.log
+
+      # GitHub 的 job 日志要仓库权限才能下载，但 annotation 是公开的。
+      # 把失败输出打成 annotation，主控（或任何没有权限的人）也能看到具体错误。
+      - name: Clippy errors as annotations
+        if: failure()
+        run: |
+          head -20 clippy.log | while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error::$line"
+          done
+          exit 0
 
       - name: Tests
         run: make test
@@ -79,4 +91,14 @@ jobs:
           restore-keys: cargo-${{ runner.os }}-
 
       - name: End-to-end smoke
-        run: make e2e
+        run: |
+          set -o pipefail
+          ./scripts/e2e.sh 2>&1 | tee e2e.log
+
+      - name: E2E errors as annotations
+        if: failure()
+        run: |
+          tail -30 e2e.log | while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error::$line"
+          done
+          exit 0
