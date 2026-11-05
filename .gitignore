@@ -8,3 +8,4 @@
 *.db-shm
 *.db-wal
 .DS_Store
+/preview-ui
