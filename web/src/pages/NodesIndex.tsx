@@ -21,6 +21,7 @@ import { errorText } from "@/lib/errors";
 import { useServers } from "@/lib/queries";
 import { formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { t, useI18n } from "@/i18n";
 
 function LoadingCards() {
   return (
@@ -73,7 +74,7 @@ function ServerCard({ server }: { server: Server }) {
               online ? "bg-primary" : "bg-muted-foreground/40",
             )}
           />
-          {online ? "在线" : "离线"}
+          {online ? t("nodes.index.online") : t("nodes.index.offline")}
         </Badge>
       </div>
       <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
@@ -81,7 +82,7 @@ function ServerCard({ server }: { server: Server }) {
           v{server.config_version} · {formatRelativeTime(server.last_seen_at)}
         </span>
         <span className="inline-flex items-center gap-1 text-primary opacity-80 transition-opacity duration-150 group-hover:opacity-100">
-          管理节点
+          {t("nodes.index.manage")}
           <ArrowRightIcon className="size-3" />
         </span>
       </div>
@@ -90,6 +91,7 @@ function ServerCard({ server }: { server: Server }) {
 }
 
 export default function NodesIndexPage() {
+  useI18n();
   const [searchParams] = useSearchParams();
   const serverParam = searchParams.get("server");
   const servers = useServers();
@@ -108,16 +110,16 @@ export default function NodesIndexPage() {
   const showError = servers.isError && !servers.data;
   const errorMessage = errorText(
     servers.error,
-    "加载服务器列表失败，请检查网络后重试",
+    t("nodes.index.loadError"),
   );
 
   return (
     <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">节点</h1>
+          <h1 className="text-xl font-semibold tracking-tight">{t("nodes.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            节点属于具体服务器。先选择服务器，再管理它的入站节点。
+            {t("nodes.index.subtitle")}
           </p>
         </div>
         <Button
@@ -129,15 +131,17 @@ export default function NodesIndexPage() {
           <RefreshCwIcon
             className={cn("size-3.5", servers.isFetching && "animate-spin")}
           />
-          刷新
+          {t("common.refresh")}
         </Button>
       </div>
 
       <Card className="gap-0">
         <CardHeader className="border-b border-border">
-          <CardTitle className="text-sm font-medium">选择服务器</CardTitle>
+          <CardTitle className="text-sm font-medium">
+            {t("nodes.index.selectServer")}
+          </CardTitle>
           <CardDescription className="text-xs">
-            进入服务器后可以新建节点、切换启用状态并应用配置。
+            {t("nodes.index.selectServerDesc")}
           </CardDescription>
         </CardHeader>
         <CardContent className="p-4">
@@ -149,7 +153,7 @@ export default function NodesIndexPage() {
                 <TriangleAlertIcon className="size-5" />
               </div>
               <div>
-                <p className="text-sm font-medium">服务器列表加载失败</p>
+                <p className="text-sm font-medium">{t("nodes.index.loadFailed")}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {errorMessage}
                 </p>
@@ -166,7 +170,7 @@ export default function NodesIndexPage() {
                     servers.isFetching && "animate-spin",
                   )}
                 />
-                重试
+                {t("common.retry")}
               </Button>
             </div>
           ) : items.length === 0 ? (
@@ -175,13 +179,13 @@ export default function NodesIndexPage() {
                 <ServerOffIcon className="size-5" />
               </div>
               <div>
-                <p className="text-sm font-medium">还没有服务器</p>
+                <p className="text-sm font-medium">{t("nodes.index.emptyTitle")}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  节点必须挂在一台服务器下，先添加服务器再回来。
+                  {t("nodes.index.emptyDesc")}
                 </p>
               </div>
               <Button variant="outline" size="sm" asChild>
-                <Link to="/servers">去添加服务器</Link>
+                <Link to="/servers">{t("nodes.index.goAdd")}</Link>
               </Button>
             </div>
           ) : (

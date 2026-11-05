@@ -12,6 +12,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { isUnauthorized } from "@/lib/queries";
 import { loginUrlFor } from "@/lib/auth";
+import "@/i18n";
 import "./index.css";
 
 /**

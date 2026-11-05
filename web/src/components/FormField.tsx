@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { t } from "@/i18n";
 
 interface FormFieldProps {
   label: ReactNode;
@@ -51,7 +52,7 @@ export function FormRootError({ message }: { message?: string }) {
   return (
     <Alert variant="destructive">
       <TriangleAlertIcon />
-      <AlertTitle>操作失败</AlertTitle>
+      <AlertTitle>{t("form.operationFailed")}</AlertTitle>
       <AlertDescription>{message}</AlertDescription>
     </Alert>
   );

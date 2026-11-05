@@ -20,6 +20,7 @@ import {
 import type { Certificate } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { useDeleteCertificate } from "@/lib/queries";
+import { t } from "@/i18n";
 
 interface DeleteCertificateDialogProps {
   certificate: Certificate;
@@ -48,24 +49,23 @@ export function DeleteCertificateDialog({
           <AlertDialogMedia className="bg-destructive/10 text-destructive">
             <Trash2Icon className="size-5" />
           </AlertDialogMedia>
-          <AlertDialogTitle>删除证书</AlertDialogTitle>
+          <AlertDialogTitle>{t("certificates.delete.title")}</AlertDialogTitle>
           <AlertDialogDescription>
-            确定删除「{certificate.name}」？删除后不可恢复；如果还有 TLS
-            节点在引用，需要先删除或重建这些节点。
+            {t("certificates.delete.desc", { name: certificate.name })}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
         {error ? (
           <Alert variant="destructive">
             <TriangleAlertIcon />
-            <AlertTitle>无法删除</AlertTitle>
+            <AlertTitle>{t("certificates.delete.errorTitle")}</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}
 
         <AlertDialogFooter>
           <AlertDialogCancel disabled={deleteCertificate.isPending}>
-            取消
+            {t("common.cancel")}
           </AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
@@ -75,17 +75,17 @@ export function DeleteCertificateDialog({
               setError(null);
               deleteCertificate.mutate(certificate.id, {
                 onSuccess: () => {
-                  toast.success(`证书「${certificate.name}」已删除`);
+                  toast.success(t("certificates.delete.success", { name: certificate.name }));
                   onOpenChange(false);
                 },
                 onError: (err) => {
                   // 被节点引用时后端返回 400 的中文说明，原样展示在对话框里。
-                  setError(errorText(err, "删除证书失败，请稍后重试"));
+                  setError(errorText(err, t("certificates.delete.error")));
                 },
               });
             }}
           >
-            删除
+            {t("certificates.delete.action")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

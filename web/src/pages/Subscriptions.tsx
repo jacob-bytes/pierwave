@@ -46,6 +46,7 @@ import { copyText } from "@/lib/clipboard";
 import { errorText } from "@/lib/errors";
 import { useUsers } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import { t, useI18n } from "@/i18n";
 
 const COLUMN_COUNT = 5;
 
@@ -61,11 +62,21 @@ function packageLabel(user: UserView): string {
     .map((item) => item.package_name)
     .filter(Boolean);
   if (names.length === 0) {
-    return user.package_count > 0 ? `${user.package_count} 个套餐` : "未绑定套餐";
+    return user.package_count > 0
+      ? t(
+          user.package_count === 1
+            ? "subscriptions.packageCountOne"
+            : "subscriptions.packageCount",
+          { n: user.package_count },
+        )
+      : t("subscriptions.noPackage");
   }
-  const joined = names.join("、");
+  const joined = names.join(t("common.listSeparator"));
   return user.package_count > names.length
-    ? `${joined} 等 ${user.package_count} 个`
+    ? t("subscriptions.packageMore", {
+        names: joined,
+        count: user.package_count,
+      })
     : joined;
 }
 
@@ -156,7 +167,7 @@ function ErrorRow({
             <TriangleAlertIcon className="size-5" />
           </div>
           <div>
-            <p className="text-sm font-medium">订阅列表加载失败</p>
+            <p className="text-sm font-medium">{t("subscriptions.loadFailed")}</p>
             <p className="mt-1 text-xs text-muted-foreground">{message}</p>
           </div>
           <Button
@@ -168,7 +179,7 @@ function ErrorRow({
             <RefreshCwIcon
               className={cn("size-3.5", retrying && "animate-spin")}
             />
-            重试
+            {t("common.retry")}
           </Button>
         </div>
       </TableCell>
@@ -177,6 +188,7 @@ function ErrorRow({
 }
 
 export default function SubscriptionsPage() {
+  useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const q = (searchParams.get("q") ?? "").trim();
@@ -230,9 +242,9 @@ export default function SubscriptionsPage() {
   async function copySubscription(user: UserView) {
     const ok = await copyText(subscriptionUrl(user.short_code));
     if (ok) {
-      toast.success(`已复制「${user.username}」的订阅链接`);
+      toast.success(t("subscriptions.copied", { username: user.username }));
     } else {
-      toast.error("复制失败，请打开链接后手动复制");
+      toast.error(t("subscriptions.copyError"));
     }
   }
 
@@ -245,22 +257,22 @@ export default function SubscriptionsPage() {
 
   const hasUsers = items.length > 0;
   const emptyTitle = q
-    ? "没有找到匹配的用户"
+    ? t("subscriptions.empty.search")
     : !hasUsers
-      ? "还没有用户"
+      ? t("subscriptions.empty.noUsers")
       : filter === "with"
-        ? "没有绑定套餐的用户"
-        : "所有用户都已绑定套餐";
+        ? t("subscriptions.empty.with")
+        : t("subscriptions.empty.none");
   const emptyDescription = q
-    ? "换个用户名再试，或者清空搜索。"
+    ? t("subscriptions.empty.searchDesc")
     : !hasUsers
-      ? "创建用户后，订阅链接会自动生成，这里就能复制或展示二维码。"
-      : "当前筛选下没有用户，切回「全部」看看。";
+      ? t("subscriptions.empty.noUsersDesc")
+      : t("subscriptions.empty.filterDesc");
   const emptyActionLabel = q
-    ? "清空搜索"
+    ? t("subscriptions.empty.clearSearch")
     : !hasUsers
-      ? "去用户页创建"
-      : "查看全部";
+      ? t("subscriptions.empty.goCreate")
+      : t("subscriptions.empty.viewAll");
 
   function handleEmptyAction() {
     if (q) {
@@ -277,9 +289,9 @@ export default function SubscriptionsPage() {
   return (
     <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">订阅</h1>
+        <h1 className="text-xl font-semibold tracking-tight">{t("subscriptions.title")}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          每个用户的订阅链接与二维码，按短码生成。
+          {t("subscriptions.subtitle")}
         </p>
       </div>
 
@@ -287,7 +299,7 @@ export default function SubscriptionsPage() {
         <CardHeader className="border-b border-border">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle className="flex items-center gap-2 text-sm font-medium">
-              订阅列表
+              {t("subscriptions.list")}
               {users.data && !users.isError ? (
                 <Badge
                   variant="secondary"
@@ -306,9 +318,9 @@ export default function SubscriptionsPage() {
                 }
               >
                 <TabsList>
-                  <TabsTrigger value="all">全部</TabsTrigger>
-                  <TabsTrigger value="with">有套餐</TabsTrigger>
-                  <TabsTrigger value="none">无套餐</TabsTrigger>
+                  <TabsTrigger value="all">{t("subscriptions.filter.all")}</TabsTrigger>
+                  <TabsTrigger value="with">{t("subscriptions.filter.with")}</TabsTrigger>
+                  <TabsTrigger value="none">{t("subscriptions.filter.none")}</TabsTrigger>
                 </TabsList>
               </Tabs>
 
@@ -318,8 +330,8 @@ export default function SubscriptionsPage() {
                   value={searchInput}
                   onChange={(event) => setSearchInput(event.target.value)}
                   onKeyDown={handleSearchKeyDown}
-                  placeholder="搜索用户名"
-                  aria-label="搜索订阅用户"
+                  placeholder={t("subscriptions.searchPlaceholder")}
+                  aria-label={t("subscriptions.searchAria")}
                   className="pr-8 pl-8"
                 />
                 {searchInput ? (
@@ -327,7 +339,7 @@ export default function SubscriptionsPage() {
                     type="button"
                     variant="ghost"
                     size="icon-xs"
-                    aria-label="清空搜索"
+                    aria-label={t("subscriptions.clearSearch")}
                     className="absolute top-1/2 right-1 -translate-y-1/2"
                     onClick={clearSearch}
                   >
@@ -348,22 +360,27 @@ export default function SubscriptionsPage() {
                     users.isFetching && "animate-spin",
                   )}
                 />
-                刷新
+                {t("common.refresh")}
               </Button>
             </div>
           </div>
           <CardDescription className="text-xs">
-            搜索会写入地址栏的 q 参数；「有套餐 / 无套餐」只过滤当前结果。
+            {t("subscriptions.desc")}
           </CardDescription>
         </CardHeader>
 
         <CardContent className="p-0">
           <Table className="min-w-[880px]" aria-busy={users.isPending}>
-            <TableCaption className="sr-only">订阅管理列表</TableCaption>
+            <TableCaption className="sr-only">{t("subscriptions.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
-                {["用户", "套餐", "已用 / 额度", "订阅链接", "操作"].map(
-                  (label) => (
+                {[
+                  t("subscriptions.columns.user"),
+                  t("subscriptions.columns.packages"),
+                  t("subscriptions.columns.used"),
+                  t("subscriptions.columns.link"),
+                  t("subscriptions.columns.actions"),
+                ].map((label) => (
                     <TableHead
                       key={label}
                       className="h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground"
@@ -381,7 +398,7 @@ export default function SubscriptionsPage() {
                 <ErrorRow
                   message={errorText(
                     users.error,
-                    "加载用户列表失败，请检查网络后重试",
+                    t("subscriptions.loadError"),
                   )}
                   retrying={users.isFetching}
                   onRetry={() => void users.refetch()}
@@ -455,8 +472,10 @@ export default function SubscriptionsPage() {
                           <Button
                             variant="ghost"
                             size="icon-sm"
-                            title="复制订阅链接"
-                            aria-label={`复制 ${user.username} 的订阅链接`}
+                            title={t("subscriptions.copyTitle")}
+                            aria-label={t("subscriptions.copyAria", {
+                              username: user.username,
+                            })}
                             onClick={() => void copySubscription(user)}
                           >
                             <CopyIcon className="size-3.5" />
@@ -464,8 +483,10 @@ export default function SubscriptionsPage() {
                           <Button
                             variant="ghost"
                             size="icon-sm"
-                            title="查看二维码"
-                            aria-label={`查看 ${user.username} 的订阅二维码`}
+                            title={t("subscriptions.qrTitle")}
+                            aria-label={t("subscriptions.qrAria", {
+                              username: user.username,
+                            })}
                             onClick={() => setQrUser(user)}
                           >
                             <QrCodeIcon className="size-3.5" />
@@ -474,13 +495,15 @@ export default function SubscriptionsPage() {
                             asChild
                             variant="ghost"
                             size="icon-sm"
-                            title="在新标签页打开"
+                            title={t("subscriptions.openTitle")}
                           >
                             <a
                               href={url}
                               target="_blank"
                               rel="noreferrer"
-                              aria-label={`打开 ${user.username} 的订阅链接`}
+                              aria-label={t("subscriptions.openAria", {
+                                username: user.username,
+                              })}
                             >
                               <ExternalLinkIcon className="size-3.5" />
                             </a>

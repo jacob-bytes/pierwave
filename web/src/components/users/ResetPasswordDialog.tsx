@@ -1,3 +1,4 @@
+import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2Icon } from "lucide-react";
@@ -20,6 +21,7 @@ import {
   resetPasswordSchema,
   type ResetPasswordValues,
 } from "@/lib/schemas";
+import { t, useI18n } from "@/i18n";
 
 interface ResetPasswordDialogProps {
   open: boolean;
@@ -32,11 +34,18 @@ export function ResetPasswordDialog({
   onOpenChange,
   user,
 }: ResetPasswordDialogProps) {
+  const { t: translate } = useI18n();
   const updateUser = useUpdateUser();
+  const schema = useMemo(() => resetPasswordSchema(translate), [translate]);
   const form = useForm<ResetPasswordValues>({
-    resolver: zodResolver(resetPasswordSchema),
+    resolver: zodResolver(schema),
     defaultValues: { password: "" },
   });
+
+  // 切换语言后重新校验，让已显示的错误跟着换语言。
+  useEffect(() => {
+    if (form.formState.isSubmitted) void form.trigger();
+  }, [translate, form]);
 
   const onSubmit = form.handleSubmit(async (values) => {
     form.clearErrors("root");
@@ -45,10 +54,10 @@ export function ResetPasswordDialog({
         id: user.id,
         input: { password: values.password },
       });
-      toast.success(`已重置「${user.username}」的密码`);
+      toast.success(t("users.resetPassword.success", { username: user.username }));
       onOpenChange(false);
     } catch (error) {
-      const message = errorText(error, "重置密码失败，请稍后重试");
+      const message = errorText(error, t("users.resetPassword.error"));
       form.setError("root", { message });
       toast.error(message);
     }
@@ -58,18 +67,18 @@ export function ResetPasswordDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>重置密码</DialogTitle>
+          <DialogTitle>{t("users.resetPassword.title")}</DialogTitle>
           <DialogDescription>
-            为「{user.username}」设置新密码。重置后旧会话不会被立即踢下线。
+            {t("users.resetPassword.desc", { username: user.username })}
           </DialogDescription>
         </DialogHeader>
 
         <form id="reset-password-form" className="space-y-4" onSubmit={onSubmit}>
           <FormField
-            label="新密码"
+            label={t("users.resetPassword.password")}
             htmlFor="reset-password"
             required
-            hint="至少 8 位"
+            hint={t("users.resetPassword.passwordHint")}
             error={form.formState.errors.password?.message}
           >
             <Input
@@ -92,7 +101,7 @@ export function ResetPasswordDialog({
             onClick={() => onOpenChange(false)}
             disabled={updateUser.isPending}
           >
-            取消
+            {t("common.cancel")}
           </Button>
           <Button
             type="submit"
@@ -102,7 +111,9 @@ export function ResetPasswordDialog({
             {updateUser.isPending ? (
               <Loader2Icon className="animate-spin" />
             ) : null}
-            {updateUser.isPending ? "重置中…" : "重置密码"}
+            {updateUser.isPending
+              ? t("users.resetPassword.submitting")
+              : t("users.resetPassword.submit")}
           </Button>
         </DialogFooter>
       </DialogContent>

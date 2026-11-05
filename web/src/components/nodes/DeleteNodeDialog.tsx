@@ -14,6 +14,7 @@ import {
 import type { Node } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { useDeleteNode } from "@/lib/queries";
+import { t } from "@/i18n";
 
 interface DeleteNodeDialogProps {
   serverId: string;
@@ -43,14 +44,14 @@ export function DeleteNodeDialog({
           <AlertDialogMedia className="bg-destructive/10 text-destructive">
             <Trash2Icon className="size-5" />
           </AlertDialogMedia>
-          <AlertDialogTitle>删除节点</AlertDialogTitle>
+          <AlertDialogTitle>{t("nodes.deleteDialog.title")}</AlertDialogTitle>
           <AlertDialogDescription>
-            确定删除「{node.name}」？删除后需要重新应用配置才对服务器生效。
+            {t("nodes.deleteDialog.desc", { name: node.name })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={deleteNode.isPending}>
-            取消
+            {t("common.cancel")}
           </AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
@@ -59,18 +60,18 @@ export function DeleteNodeDialog({
               event.preventDefault();
               deleteNode.mutate(node.id, {
                 onSuccess: () => {
-                  toast.success("节点已删除，记得重新应用配置");
+                  toast.success(t("nodes.deleteDialog.success"));
                   onOpenChange(false);
                 },
                 onError: (error) => {
                   toast.error(
-                    errorText(error, "删除节点失败，请稍后重试"),
+                    errorText(error, t("nodes.deleteDialog.error")),
                   );
                 },
               });
             }}
           >
-            删除
+            {t("nodes.deleteDialog.action")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

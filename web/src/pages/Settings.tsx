@@ -1,3 +1,4 @@
+import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import type { ReactNode } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -30,15 +31,16 @@ import {
   type SettingsFormValues,
 } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
+import { t, useI18n } from "@/i18n";
 
 /** 设置接口与后端并行开发：404/403 给中文说明，不写 mock 数据。 */
 function settingsErrorText(error: unknown, fallback: string): string {
   if (error instanceof ApiError) {
     if (error.status === 404) {
-      return "设置接口尚未就绪（后端可能还在部署），请稍后重试";
+      return t("settings.notReady404");
     }
     if (error.status === 403) {
-      return "只有管理员可以查看或修改设置";
+      return t("settings.forbidden");
     }
   }
   return errorText(error, fallback);
@@ -66,26 +68,40 @@ function parseIntInRange(value: string, min: number, max: number) {
 
 /** 秒 → 人话：整小时说小时，整分钟说分钟，否则保留秒。 */
 function lockDurationText(secs: number): string {
-  if (secs % 3600 === 0) return `${secs / 3600} 小时`;
-  if (secs % 60 === 0) return `${secs / 60} 分钟`;
-  return `${secs} 秒`;
+  if (secs % 3600 === 0)
+    return t("settings.duration.hours", { n: secs / 3600 });
+  if (secs % 60 === 0) return t("settings.duration.minutes", { n: secs / 60 });
+  return t("settings.duration.seconds", { n: secs });
 }
 
 /** 锁定时长说明：能换算时补原始秒数，本身就按秒展示时不重复。 */
 function lockHintText(secs: number | null): string {
-  if (secs === null) return "触发限流后的锁定时长，范围 60–86400 秒。";
+  if (secs === null) return t("settings.security.lockHintDefault");
   const human = lockDurationText(secs);
-  const detail = human === `${secs} 秒` ? human : `${human}（${secs} 秒）`;
-  return `锁定 ${detail}；期间该账号与来源 IP 都无法登录。`;
+  const secondsText = t("settings.duration.seconds", { n: secs });
+  const detail =
+    human === secondsText
+      ? human
+      : t("settings.security.lockDetail", {
+          human,
+          seconds: secondsText,
+        });
+  return t("settings.security.lockHintWith", { detail });
 }
 
 /** 小时 → 人话：超过一天时补上「天」，让 720 小时不再难读。 */
 function sessionDurationText(hours: number): string {
   const days = Math.floor(hours / 24);
   const rest = hours % 24;
-  if (days === 0) return `${hours} 小时`;
-  if (rest === 0) return `${hours} 小时（${days} 天）`;
-  return `${hours} 小时（${days} 天 ${rest} 小时）`;
+  if (days === 0) return t("settings.duration.hours", { n: hours });
+  if (rest === 0)
+    return t(
+      days === 1
+        ? "settings.duration.hoursWithOneDay"
+        : "settings.duration.hoursWithDays",
+      { hours, days },
+    );
+  return t("settings.duration.hoursWithDaysRest", { hours, days, rest });
 }
 
 function SettingsSkeleton() {
@@ -160,11 +176,18 @@ function StateCard({
 }
 
 function SettingsForm({ initial }: { initial: Settings }) {
+  const { t: translate } = useI18n();
   const updateSettings = useUpdateSettings();
+  const schema = useMemo(() => settingsFormSchema(translate), [translate]);
   const form = useForm<SettingsFormValues>({
-    resolver: zodResolver(settingsFormSchema),
+    resolver: zodResolver(schema),
     defaultValues: toFormValues(initial),
   });
+
+  // 切换语言后重新校验，让已经显示的错误跟着换语言。
+  useEffect(() => {
+    if (form.formState.isSubmitted) void form.trigger();
+  }, [translate, form]);
 
   const attempts = parseIntInRange(form.watch("login_max_attempts"), 1, 20);
   const lockSecs = parseIntInRange(form.watch("login_lock_secs"), 60, 86400);
@@ -181,9 +204,9 @@ function SettingsForm({ initial }: { initial: Settings }) {
       });
       // PATCH 返回的 items 是权威值：回填表单（同时清掉脏标记），缓存已由 hook 更新。
       form.reset(toFormValues(items));
-      toast.success("已保存");
+      toast.success(t("settings.saved"));
     } catch (error) {
-      const message = settingsErrorText(error, "保存设置失败，请稍后重试");
+      const message = settingsErrorText(error, t("settings.saveError"));
       form.setError("root", { message });
       toast.error(message);
     }
@@ -191,14 +214,19 @@ function SettingsForm({ initial }: { initial: Settings }) {
 
   const attemptsHint =
     attempts && lockSecs
-      ? `连续失败 ${attempts} 次后锁定 ${lockDurationText(lockSecs)}。`
-      : "触发限流前允许的连续失败次数，范围 1–20。";
+      ? t("settings.security.attemptsHintWith", {
+          n: attempts,
+          duration: lockDurationText(lockSecs),
+        })
+      : t("settings.security.attemptsHint");
 
   const lockHint = lockHintText(lockSecs);
 
   const sessionHint = ttlHours
-    ? `会话有效期 ${sessionDurationText(ttlHours)}，过期后需要重新登录。`
-    : "登录会话的有效期，范围 1–720 小时。";
+    ? t("settings.security.sessionHintWith", {
+        duration: sessionDurationText(ttlHours),
+      })
+    : t("settings.security.sessionHintDefault");
 
   return (
     <form className="space-y-6" onSubmit={onSubmit}>
@@ -206,25 +234,25 @@ function SettingsForm({ initial }: { initial: Settings }) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-sm font-medium">
             <SlidersHorizontalIcon className="size-4 text-muted-foreground" />
-            面板
+            {t("settings.panel.title")}
           </CardTitle>
           <CardDescription className="text-xs">
-            显示在登录页与页面标题中的面板名称。
+            {t("settings.panel.desc")}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <FormField
-            label="面板名称"
+            label={t("settings.panel.name")}
             htmlFor="settings-panel-name"
             required
-            hint="最多 64 个字符；保存后刷新页面即可看到新名称。"
+            hint={t("settings.panel.nameHint")}
             error={form.formState.errors.panel_name?.message}
             className="max-w-md"
           >
             <Input
               id="settings-panel-name"
               autoComplete="off"
-              placeholder="pierwave"
+              placeholder={t("settings.panel.namePlaceholder")}
               disabled={updateSettings.isPending}
               aria-invalid={Boolean(form.formState.errors.panel_name)}
               {...form.register("panel_name")}
@@ -237,15 +265,15 @@ function SettingsForm({ initial }: { initial: Settings }) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-sm font-medium">
             <ShieldCheckIcon className="size-4 text-muted-foreground" />
-            安全
+            {t("settings.security.title")}
           </CardTitle>
           <CardDescription className="text-xs">
-            登录限流与会话过期策略，保存后对新的登录立即生效。
+            {t("settings.security.desc")}
           </CardDescription>
         </CardHeader>
         <CardContent className="max-w-2xl space-y-5">
           <FormField
-            label="失败次数上限"
+            label={t("settings.security.attempts")}
             htmlFor="settings-login-max-attempts"
             required
             hint={attemptsHint}
@@ -264,7 +292,7 @@ function SettingsForm({ initial }: { initial: Settings }) {
           </FormField>
 
           <FormField
-            label="锁定时长（秒）"
+            label={t("settings.security.lock")}
             htmlFor="settings-login-lock-secs"
             required
             hint={lockHint}
@@ -281,7 +309,7 @@ function SettingsForm({ initial }: { initial: Settings }) {
           </FormField>
 
           <FormField
-            label="会话有效期（小时）"
+            label={t("settings.security.session")}
             htmlFor="settings-session-ttl-hours"
             required
             hint={sessionHint}
@@ -303,7 +331,7 @@ function SettingsForm({ initial }: { initial: Settings }) {
 
       <div className="flex flex-wrap items-center justify-end gap-3">
         <p className="text-xs text-muted-foreground">
-          修改后点击保存才会生效。
+          {t("settings.saveHint")}
         </p>
         <Button type="submit" disabled={updateSettings.isPending}>
           {updateSettings.isPending ? (
@@ -311,7 +339,9 @@ function SettingsForm({ initial }: { initial: Settings }) {
           ) : (
             <SaveIcon />
           )}
-          {updateSettings.isPending ? "保存中…" : "保存"}
+          {updateSettings.isPending
+            ? t("settings.saving")
+            : t("common.save")}
         </Button>
       </div>
     </form>
@@ -319,14 +349,15 @@ function SettingsForm({ initial }: { initial: Settings }) {
 }
 
 export default function SettingsPage() {
+  useI18n();
   const settings = useSettings();
 
   return (
     <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">设置</h1>
+        <h1 className="text-xl font-semibold tracking-tight">{t("settings.title")}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          面板名称、登录限流与会话有效期；只有管理员可以修改。
+          {t("settings.subtitle")}
         </p>
       </div>
 
@@ -336,10 +367,10 @@ export default function SettingsPage() {
         <StateCard
           icon={TriangleAlertIcon}
           tone="destructive"
-          title="设置加载失败"
+          title={t("settings.loadFailed")}
           description={settingsErrorText(
             settings.error,
-            "无法加载设置，请检查网络或主控是否已启动",
+            t("settings.loadError"),
           )}
           action={
             <Button
@@ -354,15 +385,15 @@ export default function SettingsPage() {
                   settings.isFetching && "animate-spin",
                 )}
               />
-              重试
+              {t("common.retry")}
             </Button>
           }
         />
       ) : !settings.data || Object.keys(settings.data).length === 0 ? (
         <StateCard
           icon={SlidersHorizontalIcon}
-          title="还没有可显示的设置项"
-          description="后端暂时没有返回任何设置键。稍后重试，或确认主控版本是否包含设置接口。"
+          title={t("settings.emptyTitle")}
+          description={t("settings.emptyDesc")}
           action={
             <Button
               variant="outline"
@@ -376,7 +407,7 @@ export default function SettingsPage() {
                   settings.isFetching && "animate-spin",
                 )}
               />
-              重试
+              {t("common.retry")}
             </Button>
           }
         />

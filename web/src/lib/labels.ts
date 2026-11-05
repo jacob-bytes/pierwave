@@ -1,25 +1,30 @@
+import { t } from "@/i18n";
 import type { PackageDirection } from "@/lib/api";
 
-const directionLabels: Record<PackageDirection, string> = {
-  both: "双向",
-  upload: "上行",
-  download: "下行",
-};
-
+/** 方向与套餐状态在各页面共用，统一从词典取词。 */
 export function directionLabel(value: string): string {
-  return directionLabels[value as PackageDirection] ?? value;
+  switch (value as PackageDirection) {
+    case "both":
+      return t("direction.both");
+    case "upload":
+      return t("direction.upload");
+    case "download":
+      return t("direction.download");
+    default:
+      return value;
+  }
 }
 
 export function packageStatusLabel(status: string): string {
   switch (status) {
     case "active":
-      return "生效中";
+      return t("status.active");
     case "expired":
-      return "已过期";
+      return t("status.expired");
     case "disabled":
-      return "已停用";
+      return t("status.disabled");
     case "exhausted":
-      return "已用尽";
+      return t("status.exhausted");
     default:
       return status;
   }

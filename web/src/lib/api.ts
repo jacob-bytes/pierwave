@@ -1,3 +1,5 @@
+import { t } from "@/i18n";
+
 export class ApiError extends Error {
   readonly status: number;
 
@@ -16,7 +18,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const text = await res.text();
   const body = text ? JSON.parse(text) : null;
   if (!res.ok) {
-    throw new ApiError(body?.error ?? `请求失败 (${res.status})`, res.status);
+    throw new ApiError(
+      body?.error ?? t("errors.requestFailed", { status: res.status }),
+      res.status,
+    );
   }
   return body as T;
 }

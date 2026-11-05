@@ -10,9 +10,13 @@ import { Label } from "@/components/ui/label";
 import { useLogin, usePanelName } from "@/lib/queries";
 import { errorText } from "@/lib/errors";
 import { safeNextPath } from "@/lib/auth";
+import { useDocumentTitle, useI18n } from "@/i18n";
 
 export default function LoginPage() {
+  const { t } = useI18n();
   const panelName = usePanelName();
+
+  useDocumentTitle(`${t("login.pageTitle")} · ${panelName}`);
 
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
@@ -32,14 +36,14 @@ export default function LoginPage() {
           navigate(nextPath === "/" ? landing : nextPath, { replace: true });
         },
         onError: (error) => {
-          toast.error(errorText(error, "登录失败，请检查网络后重试"));
+          toast.error(errorText(error, t("login.failed")));
         },
       },
     );
   }
 
   const errorMessage = login.isError
-    ? errorText(login.error, "登录失败，请检查网络后重试")
+    ? errorText(login.error, t("login.failed"))
     : null;
 
   return (
@@ -51,10 +55,10 @@ export default function LoginPage() {
           </div>
           <div>
             <h1 className="text-lg font-semibold tracking-tight">
-              登录 {panelName}
+              {t("login.title", { panelName })}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              使用账号登录，管理员与普通用户共用入口
+              {t("login.subtitle")}
             </p>
           </div>
         </div>
@@ -63,7 +67,7 @@ export default function LoginPage() {
           <CardContent>
             <form className="space-y-4" onSubmit={handleSubmit}>
               <div className="space-y-2">
-                <Label htmlFor="login-username">用户名</Label>
+                <Label htmlFor="login-username">{t("login.username")}</Label>
                 <Input
                   id="login-username"
                   value={username}
@@ -75,14 +79,14 @@ export default function LoginPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="login-password">密码</Label>
+                <Label htmlFor="login-password">{t("login.password")}</Label>
                 <Input
                   id="login-password"
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   autoComplete="current-password"
-                  placeholder="请输入密码"
+                  placeholder={t("login.passwordPlaceholder")}
                 />
               </div>
 
@@ -104,14 +108,14 @@ export default function LoginPage() {
                 {login.isPending ? (
                   <Loader2Icon className="animate-spin" />
                 ) : null}
-                {login.isPending ? "登录中…" : "登录"}
+                {login.isPending ? t("login.submitting") : t("login.submit")}
               </Button>
             </form>
           </CardContent>
         </Card>
 
         <p className="mt-4 text-center text-xs text-muted-foreground">
-          首次启动的管理员密码见服务端日志
+          {t("login.hint")}
         </p>
       </div>
     </div>

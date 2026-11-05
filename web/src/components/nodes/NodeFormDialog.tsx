@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Link } from "react-router-dom";
@@ -53,6 +53,7 @@ import {
   useUpdateNode,
 } from "@/lib/queries";
 import { nodeFormSchema, type NodeFormValues } from "@/lib/schemas";
+import { t, useI18n } from "@/i18n";
 
 interface NodeFormDialogProps {
   open: boolean;
@@ -90,6 +91,7 @@ export function NodeFormDialog({
   mode,
   node,
 }: NodeFormDialogProps) {
+  const { t: translate } = useI18n();
   const isEdit = mode === "edit";
   const createNode = useCreateNode(serverId);
   const updateNode = useUpdateNode(serverId);
@@ -97,8 +99,9 @@ export function NodeFormDialog({
   const certificates = useCertificates();
 
   const initial = initialCombo(node);
+  const schema = useMemo(() => nodeFormSchema(translate), [translate]);
   const form = useForm<NodeFormValues>({
-    resolver: zodResolver(nodeFormSchema),
+    resolver: zodResolver(schema),
     defaultValues: {
       name: node?.name ?? "",
       protocol: initial.protocol,
@@ -109,6 +112,11 @@ export function NodeFormDialog({
       enabled: node ? Boolean(node.enabled) : true,
     },
   });
+
+  // 切换语言后重新校验，让已显示的错误跟着换语言。
+  useEffect(() => {
+    if (form.formState.isSubmitted) void form.trigger();
+  }, [translate, form]);
 
   const [configText, setConfigText] = useState(() =>
     isEdit && node
@@ -124,7 +132,10 @@ export function NodeFormDialog({
   // 编辑态永远保留用户已有 config；新建态只有在用户手改后才停止自动跟随联动。
   const [configDirty, setConfigDirty] = useState(isEdit);
 
-  const parsed = useMemo(() => parseJsonConfig(configText), [configText]);
+  const parsed = useMemo(
+    () => parseJsonConfig(configText, translate),
+    [configText, translate],
+  );
   const configError = parsed.ok ? undefined : parsed.issue.message;
 
   const protocol = form.watch("protocol");
@@ -204,7 +215,7 @@ export function NodeFormDialog({
 
   const onSubmit = form.handleSubmit(async (values) => {
     form.clearErrors("root");
-    const check = parseJsonConfig(configText);
+    const check = parseJsonConfig(configText, translate);
     if (!check.ok) {
       toast.error(check.issue.message);
       return;
@@ -227,7 +238,7 @@ export function NodeFormDialog({
             ...certBinding,
           },
         });
-        toast.success("节点已更新");
+        toast.success(t("nodes.form.updated"));
       } else {
         const created = await createNode.mutateAsync({
           name: values.name,
@@ -239,12 +250,12 @@ export function NodeFormDialog({
           enabled: values.enabled,
           ...certBinding,
         });
-        toast.success(`节点「${created.name}」已创建`);
+        toast.success(t("nodes.form.created", { name: created.name }));
       }
 
       onOpenChange(false);
     } catch (error) {
-      const message = errorText(error, "保存节点失败，请稍后重试");
+      const message = errorText(error, t("nodes.form.error"));
       form.setError("root", { message });
       toast.error(message);
     }
@@ -260,11 +271,13 @@ export function NodeFormDialog({
     >
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "编辑节点" : "新建节点"}</DialogTitle>
+          <DialogTitle>
+            {isEdit ? t("nodes.form.editTitle") : t("nodes.form.createTitle")}
+          </DialogTitle>
           <DialogDescription>
             {isEdit
-              ? "协议、传输、安全层创建后不可修改；名称、端口、启用状态与 config 可以调整。"
-              : "协议、传输、安全层决定订阅链接的形态，创建后不可修改。"}
+              ? t("nodes.form.editDesc")
+              : t("nodes.form.createDesc")}
           </DialogDescription>
         </DialogHeader>
 
@@ -272,7 +285,7 @@ export function NodeFormDialog({
           <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
             <div className="space-y-4">
               <FormField
-                label="名称"
+                label={t("nodes.form.name")}
                 htmlFor="node-name"
                 required
                 error={form.formState.errors.name?.message}
@@ -280,7 +293,7 @@ export function NodeFormDialog({
                 <Input
                   id="node-name"
                   autoComplete="off"
-                  placeholder="hk-reality"
+                  placeholder={t("nodes.form.namePlaceholder")}
                   disabled={pending}
                   aria-invalid={Boolean(form.formState.errors.name)}
                   {...form.register("name")}
@@ -289,10 +302,10 @@ export function NodeFormDialog({
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <FormField
-                  label="协议"
+                  label={t("nodes.form.protocol")}
                   htmlFor="node-protocol"
                   error={form.formState.errors.protocol?.message}
-                  hint={isEdit ? "创建后只读" : undefined}
+                  hint={isEdit ? t("nodes.form.readOnly") : undefined}
                 >
                   <Controller
                     control={form.control}
@@ -312,7 +325,7 @@ export function NodeFormDialog({
                             form.formState.errors.protocol,
                           )}
                         >
-                          <SelectValue placeholder="选择协议" />
+                          <SelectValue placeholder={t("nodes.form.protocolPlaceholder")} />
                         </SelectTrigger>
                         <SelectContent>
                           {NODE_PROTOCOLS.map((item) => (
@@ -327,7 +340,7 @@ export function NodeFormDialog({
                 </FormField>
 
                 <FormField
-                  label="端口"
+                  label={t("nodes.form.port")}
                   htmlFor="node-port"
                   required
                   error={form.formState.errors.port?.message}
@@ -345,10 +358,10 @@ export function NodeFormDialog({
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <FormField
-                  label="传输方式"
+                  label={t("nodes.form.transport")}
                   htmlFor="node-transport"
                   error={form.formState.errors.transport?.message}
-                  hint={isEdit ? "创建后只读" : undefined}
+                  hint={isEdit ? t("nodes.form.readOnly") : undefined}
                 >
                   <Controller
                     control={form.control}
@@ -368,7 +381,7 @@ export function NodeFormDialog({
                             form.formState.errors.transport,
                           )}
                         >
-                          <SelectValue placeholder="选择传输方式" />
+                          <SelectValue placeholder={t("nodes.form.transportPlaceholder")} />
                         </SelectTrigger>
                         <SelectContent>
                           {transportOptions.map((item) => (
@@ -383,12 +396,12 @@ export function NodeFormDialog({
                 </FormField>
 
                 <FormField
-                  label="安全层"
+                  label={t("nodes.form.security")}
                   htmlFor="node-security"
                   error={form.formState.errors.security?.message}
                   hint={
                     isEdit
-                      ? "创建后只读；改安全层需要重新应用配置"
+                      ? t("nodes.form.securityReadOnlyHint")
                       : undefined
                   }
                 >
@@ -410,7 +423,7 @@ export function NodeFormDialog({
                             form.formState.errors.security,
                           )}
                         >
-                          <SelectValue placeholder="选择安全层" />
+                          <SelectValue placeholder={t("nodes.form.securityPlaceholder")} />
                         </SelectTrigger>
                         <SelectContent>
                           {securityOptions.map((item) => (
@@ -427,21 +440,21 @@ export function NodeFormDialog({
 
               {!comboValid ? (
                 <p role="alert" className="text-xs text-destructive">
-                  当前协议不支持这个组合，请调整传输方式或安全层。
+                  {t("nodes.form.comboInvalid")}
                 </p>
               ) : null}
 
               {security === "tls" ? (
                 <FormField
-                  label="证书"
+                  label={t("nodes.form.cert")}
                   htmlFor="node-cert"
                   required
                   error={form.formState.errors.cert_id?.message}
                   hint={
                     certificates.isError
-                      ? "证书列表加载失败，请确认主控可用后重试"
+                      ? t("nodes.form.certLoadError")
                       : isEdit
-                        ? "更换证书后需要重新应用配置才会下发"
+                        ? t("nodes.form.certChangeHint")
                         : undefined
                   }
                 >
@@ -469,10 +482,10 @@ export function NodeFormDialog({
                             <SelectValue
                               placeholder={
                                 certificates.isPending
-                                  ? "正在加载证书…"
+                                  ? t("nodes.form.certLoading")
                                   : noCertificates
-                                    ? "还没有证书"
-                                    : "选择证书"
+                                    ? t("nodes.form.certEmpty")
+                                    : t("nodes.form.certPlaceholder")
                               }
                             />
                           </SelectTrigger>
@@ -481,9 +494,9 @@ export function NodeFormDialog({
                               <SelectItem key={cert.id} value={cert.id}>
                                 {cert.name}
                                 {cert.days_left < 0
-                                  ? "（已过期）"
+                                  ? t("nodes.form.certExpired")
                                   : cert.days_left <= 30
-                                    ? `（${cert.days_left} 天后到期）`
+                                    ? t("nodes.form.certExpiring", { n: cert.days_left })
                                     : ""}
                               </SelectItem>
                             ))}
@@ -493,14 +506,14 @@ export function NodeFormDialog({
                     />
                     {noCertificates ? (
                       <p className="text-xs text-muted-foreground">
-                        还没有证书，
+                        {t("nodes.form.certEmptyPrefix")}
                         <Link
                           to="/certificates"
                           className="font-medium text-primary underline-offset-4 hover:underline"
                         >
-                          去证书页上传
+                          {t("nodes.form.certEmptyLink")}
                         </Link>
-                        后再回来绑定。
+                        {t("nodes.form.certEmptySuffix")}
                       </p>
                     ) : null}
                   </div>
@@ -512,15 +525,16 @@ export function NodeFormDialog({
                   role="status"
                   className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-warning"
                 >
-                  安全层已从 TLS 改成 {securityLabel(security)}，证书绑定已清除；
-                  改安全层需要重新应用配置。
+                  {t("nodes.form.securityChanged", {
+                    security: securityLabel(security),
+                  })}
                 </p>
               ) : null}
 
               <FormField
-                label="启用"
+                label={t("nodes.form.enabled")}
                 htmlFor="node-enabled"
-                hint="停用后节点仍保留，但不会写入下发的配置。"
+                hint={t("nodes.form.enabledHint")}
               >
                 <div className="flex items-center gap-2.5">
                   <Controller
@@ -536,7 +550,9 @@ export function NodeFormDialog({
                     )}
                   />
                   <span className="text-xs text-muted-foreground">
-                    {form.watch("enabled") ? "保存后立即启用" : "保存为停用"}
+                    {form.watch("enabled")
+                      ? t("nodes.form.enabledOn")
+                      : t("nodes.form.enabledOff")}
                   </span>
                 </div>
               </FormField>
@@ -546,8 +562,7 @@ export function NodeFormDialog({
                   {nodeSummary(protocol, transport, security)}
                 </p>
                 <p className="mt-1">
-                  传输/安全层只能从当前协议允许的组合里选择，避免提交后 Xray
-                  启动失败。
+                  {t("nodes.form.comboNote")}
                 </p>
               </div>
             </div>
@@ -555,13 +570,13 @@ export function NodeFormDialog({
             <FormField
               label={
                 <span className="flex items-center gap-2">
-                  config 预览（JSON）
+                  {t("nodes.form.configLabel")}
                   {!isEdit && configDirty ? (
                     <Badge
                       variant="secondary"
                       className="font-normal text-muted-foreground"
                     >
-                      已手改
+                      {t("nodes.form.configDirty")}
                     </Badge>
                   ) : null}
                 </span>
@@ -570,7 +585,9 @@ export function NodeFormDialog({
               error={configError}
               hint={
                 parsed.ok
-                  ? `JSON 合法 · ${configText.split("\n").length} 行`
+                  ? t("nodes.form.configValid", {
+                      n: configText.split("\n").length,
+                    })
                   : undefined
               }
             >
@@ -590,10 +607,10 @@ export function NodeFormDialog({
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-[11px] text-muted-foreground">
                     {isEdit
-                      ? "这是该节点已保存的 config；修改后需重新应用配置。"
+                      ? t("nodes.form.configEditHint")
                       : configDirty
-                        ? "配置已手动修改，切换协议/安全层不会覆盖；可重新生成骨架。"
-                        : "按协议与安全层实时生成最小骨架，可直接手改。"}
+                        ? t("nodes.form.configDirtyHint")
+                        : t("nodes.form.configAutoHint")}
                   </p>
                   {isEdit ? null : (
                     <Button
@@ -604,7 +621,7 @@ export function NodeFormDialog({
                       disabled={pending || !configDirty}
                     >
                       <RotateCcwIcon />
-                      重新生成
+                      {t("nodes.form.regenerate")}
                     </Button>
                   )}
                 </div>
@@ -621,7 +638,7 @@ export function NodeFormDialog({
             onClick={() => onOpenChange(false)}
             disabled={pending}
           >
-            取消
+            {t("common.cancel")}
           </Button>
           <Button
             type="submit"
@@ -630,10 +647,10 @@ export function NodeFormDialog({
           >
             {pending ? <Loader2Icon className="animate-spin" /> : null}
             {pending
-              ? "保存中…"
+              ? t("nodes.form.saving")
               : isEdit
-                ? "保存修改"
-                : "创建节点"}
+                ? t("nodes.form.submitSave")
+                : t("nodes.form.submitCreate")}
           </Button>
         </DialogFooter>
       </DialogContent>

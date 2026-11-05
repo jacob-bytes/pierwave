@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { copyText } from "@/lib/clipboard";
+import { t } from "@/i18n";
 
 interface SubscriptionQrDialogProps {
   open: boolean;
@@ -31,9 +32,9 @@ export function SubscriptionQrDialog({
 }: SubscriptionQrDialogProps) {
   async function handleCopy() {
     if (await copyText(url)) {
-      toast.success("订阅链接已复制");
+      toast.success(t("subscriptions.qr.copied"));
     } else {
-      toast.error("复制失败，请手动选择链接复制");
+      toast.error(t("subscriptions.qr.copyError"));
     }
   }
 
@@ -41,9 +42,9 @@ export function SubscriptionQrDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>订阅二维码</DialogTitle>
+          <DialogTitle>{t("subscriptions.qr.title")}</DialogTitle>
           <DialogDescription>
-            扫码导入「{username}」的订阅，或复制下方链接。
+            {t("subscriptions.qr.desc", { username })}
           </DialogDescription>
         </DialogHeader>
 
@@ -56,7 +57,7 @@ export function SubscriptionQrDialog({
               marginSize={4}
               bgColor="var(--qr-background)"
               fgColor="var(--qr-foreground)"
-              title={`${username} 的订阅二维码`}
+              title={t("subscriptions.qr.imageTitle", { username })}
             />
           </div>
           <code
@@ -70,7 +71,7 @@ export function SubscriptionQrDialog({
         <DialogFooter showCloseButton>
           <Button variant="outline" onClick={() => void handleCopy()}>
             <CopyIcon className="size-3.5" />
-            复制链接
+            {t("subscriptions.qr.copyLink")}
           </Button>
         </DialogFooter>
       </DialogContent>

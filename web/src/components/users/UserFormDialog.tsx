@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2Icon } from "lucide-react";
@@ -30,6 +30,7 @@ import {
   type UserFormMode,
   type UserFormValues,
 } from "@/lib/schemas";
+import { t, useI18n } from "@/i18n";
 
 interface UserFormDialogProps {
   open: boolean;
@@ -44,6 +45,7 @@ export function UserFormDialog({
   mode,
   user,
 }: UserFormDialogProps) {
+  const { t: translate } = useI18n();
   const me = useMe();
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
@@ -51,7 +53,7 @@ export function UserFormDialog({
     mode === "create" ? createUser.isPending : updateUser.isPending;
   const isSelf = mode === "edit" && Boolean(user) && user?.id === me.data?.id;
 
-  const schema = useMemo(() => userFormSchema(mode), [mode]);
+  const schema = useMemo(() => userFormSchema(translate, mode), [translate, mode]);
   const form = useForm<UserFormValues>({
     resolver: zodResolver(schema),
     defaultValues:
@@ -70,6 +72,11 @@ export function UserFormDialog({
           },
   });
 
+  // 切换语言后重新校验，让已显示的错误跟着换语言。
+  useEffect(() => {
+    if (form.formState.isSubmitted) void form.trigger();
+  }, [translate, form]);
+
   const onSubmit = form.handleSubmit(async (values) => {
     form.clearErrors("root");
     try {
@@ -82,7 +89,7 @@ export function UserFormDialog({
           role: values.role,
           quota_bytes: quotaBytes,
         });
-        toast.success(`用户「${values.username}」已创建`);
+        toast.success(t("users.form.created", { name: values.username }));
       } else if (user) {
         const input: UpdateUserInput = {
           role: values.role,
@@ -90,12 +97,12 @@ export function UserFormDialog({
         };
         if (values.password) input.password = values.password;
         await updateUser.mutateAsync({ id: user.id, input });
-        toast.success("用户已更新");
+        toast.success(t("users.form.updated"));
       }
 
       onOpenChange(false);
     } catch (error) {
-      const message = errorText(error, "保存用户失败，请稍后重试");
+      const message = errorText(error, t("users.form.error"));
       form.setError("root", { message });
       toast.error(message);
     }
@@ -111,17 +118,19 @@ export function UserFormDialog({
     >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{mode === "create" ? "新建用户" : "编辑用户"}</DialogTitle>
+          <DialogTitle>
+            {mode === "create" ? t("users.form.createTitle") : t("users.form.editTitle")}
+          </DialogTitle>
           <DialogDescription>
             {mode === "create"
-              ? "创建后可在「管理套餐」里绑定流量卡。"
-              : "用户名创建后不可修改；密码留空表示不修改。"}
+              ? t("users.form.createDesc")
+              : t("users.form.editDesc")}
           </DialogDescription>
         </DialogHeader>
 
         <form id="user-form" className="space-y-4" onSubmit={onSubmit}>
           <FormField
-            label="用户名"
+            label={t("users.form.username")}
             htmlFor="user-username"
             required
             error={form.formState.errors.username?.message}
@@ -136,13 +145,13 @@ export function UserFormDialog({
           </FormField>
 
           <FormField
-            label="密码"
+            label={t("users.form.password")}
             htmlFor="user-password"
             required={mode === "create"}
             hint={
               mode === "create"
-                ? "至少 8 位"
-                : "留空表示不修改；填写时至少 8 位"
+                ? t("users.form.passwordHintCreate")
+                : t("users.form.passwordHintEdit")
             }
             error={form.formState.errors.password?.message}
           >
@@ -157,11 +166,11 @@ export function UserFormDialog({
           </FormField>
 
           <FormField
-            label="角色"
+            label={t("users.form.role")}
             htmlFor="user-role"
             error={form.formState.errors.role?.message}
             hint={
-              isSelf ? "不能把自己的角色降级，避免锁死后台。" : undefined
+              isSelf ? t("users.form.roleSelfHint") : undefined
             }
           >
             <Controller
@@ -178,11 +187,11 @@ export function UserFormDialog({
                     className="w-full"
                     aria-invalid={Boolean(form.formState.errors.role)}
                   >
-                    <SelectValue placeholder="选择角色" />
+                    <SelectValue placeholder={t("users.form.rolePlaceholder")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="user">普通用户</SelectItem>
-                    <SelectItem value="admin">管理员</SelectItem>
+                    <SelectItem value="user">{t("roles.user")}</SelectItem>
+                    <SelectItem value="admin">{t("roles.admin")}</SelectItem>
                   </SelectContent>
                 </Select>
               )}
@@ -190,15 +199,15 @@ export function UserFormDialog({
           </FormField>
 
           <FormField
-            label="总额度（GB）"
+            label={t("users.form.quota")}
             htmlFor="user-quota"
-            hint="留空表示不限；按 1024³ 换算。"
+            hint={t("users.form.quotaHint")}
             error={form.formState.errors.quota_gb?.message}
           >
             <Input
               id="user-quota"
               inputMode="decimal"
-              placeholder="例如 100"
+              placeholder={t("users.form.quotaPlaceholder")}
               disabled={pending}
               aria-invalid={Boolean(form.formState.errors.quota_gb)}
               {...form.register("quota_gb")}
@@ -215,15 +224,15 @@ export function UserFormDialog({
             onClick={() => onOpenChange(false)}
             disabled={pending}
           >
-            取消
+            {t("common.cancel")}
           </Button>
           <Button type="submit" form="user-form" disabled={pending}>
             {pending ? <Loader2Icon className="animate-spin" /> : null}
             {pending
-              ? "保存中…"
+              ? t("common.saving")
               : mode === "create"
-                ? "创建用户"
-                : "保存修改"}
+                ? t("users.form.submitCreate")
+                : t("users.form.submitSave")}
           </Button>
         </DialogFooter>
       </DialogContent>

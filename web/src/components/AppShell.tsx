@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useState } from "react";
 import {
   Link,
   NavLink,
@@ -6,19 +6,23 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
+import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
 import {
+  CheckIcon,
   ChevronRightIcon,
   ChevronsUpDownIcon,
   FileKeyIcon,
   HistoryIcon,
   KeyRoundIcon,
+  LanguagesIcon,
   LayoutDashboardIcon,
   Link2Icon,
   Loader2Icon,
   LogOutIcon,
   NetworkIcon,
   PackageIcon,
+  RefreshCwIcon,
   ServerIcon,
   SettingsIcon,
   TerminalIcon,
@@ -26,7 +30,6 @@ import {
   UsersIcon,
 } from "lucide-react";
 import { ChangePasswordDialog } from "@/components/settings/ChangePasswordDialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -34,15 +37,20 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useDocumentTitle, useI18n } from "@/i18n";
 import type { SessionUser } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useHealth, useLogout, usePanelName } from "@/lib/queries";
 
 type NavItem = {
   to: string;
-  label: string;
+  /** 词典键；具体文案在渲染时由 `t()` 取，切换语言即生效。 */
+  labelKey: string;
   icon: LucideIcon;
   end?: boolean;
   sub?: boolean;
@@ -51,68 +59,66 @@ type NavItem = {
 };
 
 type NavGroup = {
-  title: string;
+  titleKey: string;
   items: NavItem[];
 };
 
 const consoleNav: NavItem[] = [
-  { to: "/", label: "概览", icon: LayoutDashboardIcon, end: true },
+  { to: "/", labelKey: "nav.overview", icon: LayoutDashboardIcon, end: true },
   {
     to: "/servers",
-    label: "服务器",
+    labelKey: "nav.servers",
     icon: ServerIcon,
     activeWhen: (pathname) => pathname === "/servers",
   },
 ];
 
 const managementNav: NavItem[] = [
-  { to: "/users", label: "用户", icon: UsersIcon },
-  { to: "/subscriptions", label: "订阅", icon: Link2Icon },
-  { to: "/packages", label: "套餐", icon: PackageIcon },
+  { to: "/users", labelKey: "nav.users", icon: UsersIcon },
+  { to: "/subscriptions", labelKey: "nav.subscriptions", icon: Link2Icon },
+  { to: "/packages", labelKey: "nav.packages", icon: PackageIcon },
 ];
 
 const systemNav: NavItem[] = [
   {
     to: "/nodes",
-    label: "节点",
+    labelKey: "nav.nodes",
     icon: NetworkIcon,
     activeWhen: (pathname) =>
       pathname === "/nodes" ||
       /^\/servers\/[^/]+\/nodes(?:\/|$)/.test(pathname),
   },
-  { to: "/events", label: "事件", icon: HistoryIcon },
-  { to: "/certificates", label: "证书", icon: FileKeyIcon },
-  { to: "/settings", label: "设置", icon: SettingsIcon },
+  { to: "/events", labelKey: "nav.events", icon: HistoryIcon },
+  { to: "/certificates", labelKey: "nav.certificates", icon: FileKeyIcon },
+  { to: "/settings", labelKey: "nav.settings", icon: SettingsIcon },
 ];
 
 /** 普通用户只有两个入口：概览式「我的」和订阅锚点。 */
 const userNav: NavItem[] = [
   {
     to: "/me",
-    label: "我的",
+    labelKey: "nav.me",
     icon: UserRoundIcon,
     end: true,
     activeWhen: (pathname) => pathname === "/me",
   },
   {
     to: "/me/subscription",
-    label: "订阅",
+    labelKey: "nav.subscriptions",
     icon: Link2Icon,
     activeWhen: (pathname) => pathname.startsWith("/me/subscription"),
   },
 ];
 
 const adminNavGroups: NavGroup[] = [
-  { title: "控制台", items: consoleNav },
-  { title: "管理", items: managementNav },
-  { title: "系统", items: systemNav },
+  { titleKey: "nav.groups.console", items: consoleNav },
+  { titleKey: "nav.groups.management", items: managementNav },
+  { titleKey: "nav.groups.system", items: systemNav },
 ];
 
-const userNavGroups: NavGroup[] = [{ title: "自助", items: userNav }];
-
-function roleLabel(role: SessionUser["role"]) {
-  return role === "admin" ? "管理员" : "普通用户";
-}
+const userNavGroups: NavGroup[] = [
+  { titleKey: "nav.groups.selfService", items: userNav },
+];
 
 function isItemActive(item: NavItem, pathname: string): boolean {
   if (item.activeWhen) return item.activeWhen(pathname);
@@ -120,21 +126,17 @@ function isItemActive(item: NavItem, pathname: string): boolean {
 }
 
 function PageLoading() {
+  const { t } = useI18n();
   return (
     <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
       <Loader2Icon className="size-4 animate-spin" />
-      正在加载页面…
+      {t("app.loadingPage")}
     </div>
   );
 }
 
-function NavEntry({
-  item,
-  pathname,
-}: {
-  item: NavItem;
-  pathname: string;
-}) {
+function NavEntry({ item, pathname }: { item: NavItem; pathname: string }) {
+  const { t } = useI18n();
   const Icon = item.icon;
   const active = isItemActive(item, pathname);
 
@@ -152,17 +154,20 @@ function NavEntry({
       )}
     >
       <Icon className={item.sub ? "size-3.5" : "size-4"} />
-      {item.label}
+      {t(item.labelKey)}
     </NavLink>
   );
 }
 
 export default function AppShell({ user }: { user: SessionUser }) {
+  const { t, locale, setLocale } = useI18n();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const logout = useLogout();
   const health = useHealth();
-  const version = health.data?.version ?? "dev";
+  const panelName = usePanelName();
+  const queryClient = useQueryClient();
+  const fetching = useIsFetching() > 0;
   const [passwordOpen, setPasswordOpen] = useState(false);
 
   const navGroups = user.role === "admin" ? adminNavGroups : userNavGroups;
@@ -170,12 +175,16 @@ export default function AppShell({ user }: { user: SessionUser }) {
   const allNav = navGroups.flatMap((group) => group.items);
   const current =
     allNav.find((item) => isItemActive(item, pathname)) ?? allNav[0];
-  const pageLabel = current?.label ?? "概览";
-  const panelName = usePanelName();
+  const pageLabel = current ? t(current.labelKey) : t("app.defaultPage");
+  const roleText = user.role === "admin" ? t("roles.admin") : t("roles.user");
+  const rawVersion = health.data?.version?.trim();
+  const versionLabel = rawVersion
+    ? rawVersion.toLowerCase().startsWith("v")
+      ? rawVersion
+      : `v${rawVersion}`
+    : "v—";
 
-  useEffect(() => {
-    document.title = `${pageLabel} · ${panelName}`;
-  }, [pageLabel, panelName]);
+  useDocumentTitle(`${pageLabel} · ${panelName}`);
 
   const initial = user.username.slice(0, 1).toUpperCase();
 
@@ -186,6 +195,10 @@ export default function AppShell({ user }: { user: SessionUser }) {
       // 网络失败时 useLogout 仍会清空本地缓存，照常回登录页。
     }
     navigate("/login", { replace: true });
+  }
+
+  function refreshActiveQueries() {
+    void queryClient.refetchQueries({ type: "active" });
   }
 
   return (
@@ -203,14 +216,14 @@ export default function AppShell({ user }: { user: SessionUser }) {
 
         <nav className="flex-1 overflow-y-auto p-3">
           {navGroups.map((group, index) => (
-            <div key={group.title}>
+            <div key={group.titleKey}>
               <p
                 className={cn(
                   "px-2.5 pb-1.5 text-[11px] font-medium tracking-wider text-muted-foreground/50",
                   index > 0 && "pt-5",
                 )}
               >
-                {group.title}
+                {t(group.titleKey)}
               </p>
               <div className="space-y-0.5">
                 {group.items.map((item) => (
@@ -221,34 +234,97 @@ export default function AppShell({ user }: { user: SessionUser }) {
           ))}
         </nav>
 
-        <div className="border-t border-sidebar-border p-3">
+        {/* 侧边栏底部只保留版本号；账号入口已移到右上角 header。 */}
+        <div className="border-t border-sidebar-border px-4 py-3">
+          <p className="font-mono text-[11px] text-muted-foreground/60">
+            PierWave {versionLabel}
+          </p>
+        </div>
+      </aside>
+
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-6 backdrop-blur">
+          <nav
+            aria-label={t("app.breadcrumb")}
+            className="flex min-w-0 items-center gap-1.5 text-sm"
+          >
+            <Link
+              to={homePath}
+              className="shrink-0 text-muted-foreground transition-colors duration-150 hover:text-foreground"
+            >
+              {panelName}
+            </Link>
+            <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/40" />
+            <span className="truncate font-medium" aria-current="page">
+              {pageLabel}
+            </span>
+          </nav>
+
+          {/* 中间留空，把页面动作与账号菜单推到最右侧。 */}
+          <div className="flex-1" />
+
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={refreshActiveQueries}
+            disabled={fetching}
+            title={t("common.refresh")}
+            aria-label={t("common.refresh")}
+          >
+            <RefreshCwIcon
+              className={cn("size-4", fetching && "animate-spin")}
+            />
+          </Button>
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
-                className="h-auto w-full justify-start gap-2.5 px-2 py-1.5 font-normal"
-                aria-label={`${user.username} 的账号菜单`}
+                className="gap-2 px-1.5 font-normal"
+                aria-label={t("app.accountMenu", { username: user.username })}
               >
                 <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary/15 text-[11px] font-semibold text-primary">
                   {initial}
                 </span>
-                <span className="min-w-0 flex-1 text-left">
-                  <span className="block truncate text-[13px] font-medium">
-                    {user.username}
-                  </span>
-                  <span className="block truncate text-[11px] text-muted-foreground">
-                    {roleLabel(user.role)}
-                  </span>
+                <span className="hidden max-w-32 truncate text-[13px] font-medium sm:inline">
+                  {user.username}
                 </span>
-                <ChevronsUpDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                <ChevronsUpDownIcon className="hidden size-3.5 shrink-0 text-muted-foreground sm:inline" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="start" className="w-56">
-              <DropdownMenuLabel>{user.username}</DropdownMenuLabel>
+            <DropdownMenuContent side="bottom" align="end" className="w-56">
+              <DropdownMenuLabel className="flex flex-col gap-0.5">
+                <span className="text-sm font-medium text-foreground">
+                  {user.username}
+                </span>
+                <span className="text-[11px] font-normal text-muted-foreground">
+                  {roleText}
+                </span>
+              </DropdownMenuLabel>
               <DropdownMenuItem onSelect={() => setPasswordOpen(true)}>
                 <KeyRoundIcon className="size-3.5" />
-                修改密码
+                {t("userMenu.changePassword")}
               </DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <LanguagesIcon className="size-3.5" />
+                  {t("userMenu.language")}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  <DropdownMenuItem onSelect={() => setLocale("zh-CN")}>
+                    <span className="flex-1">{t("userMenu.chinese")}</span>
+                    {locale === "zh-CN" ? (
+                      <CheckIcon className="size-3.5 text-primary" />
+                    ) : null}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setLocale("en")}>
+                    <span className="flex-1">{t("userMenu.english")}</span>
+                    {locale === "en" ? (
+                      <CheckIcon className="size-3.5 text-primary" />
+                    ) : null}
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 variant="destructive"
@@ -256,36 +332,10 @@ export default function AppShell({ user }: { user: SessionUser }) {
                 onSelect={() => void handleLogout()}
               >
                 <LogOutIcon className="size-3.5" />
-                退出登录
+                {t("userMenu.logout")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
-      </aside>
-
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border bg-background/80 px-6 backdrop-blur">
-          <nav
-            aria-label="面包屑"
-            className="flex min-w-0 items-center gap-1.5 text-sm"
-          >
-            <Link
-              to={homePath}
-              className="shrink-0 text-muted-foreground transition-colors duration-150 hover:text-foreground"
-            >
-              pierwave
-            </Link>
-            <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/40" />
-            <span className="truncate font-medium" aria-current="page">
-              {pageLabel}
-            </span>
-          </nav>
-          <Badge
-            variant="outline"
-            className="hidden font-normal text-muted-foreground sm:inline-flex"
-          >
-            {roleLabel(user.role)}
-          </Badge>
         </header>
 
         <main className="min-h-0 flex-1 overflow-y-auto p-6">
@@ -293,10 +343,6 @@ export default function AppShell({ user }: { user: SessionUser }) {
             <Outlet />
           </Suspense>
         </main>
-      </div>
-
-      <div className="pointer-events-none fixed right-4 bottom-3 z-20 font-mono text-[11px] text-muted-foreground/50">
-        {version === "dev" ? "dev" : `v${version}`}
       </div>
 
       <ChangePasswordDialog

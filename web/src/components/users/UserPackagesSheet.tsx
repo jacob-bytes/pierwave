@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Link } from "react-router-dom";
@@ -87,6 +87,7 @@ import {
   toDateInputValue,
 } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { t, useI18n } from "@/i18n";
 
 interface UserPackagesSheetProps {
   open: boolean;
@@ -95,10 +96,12 @@ interface UserPackagesSheetProps {
 }
 
 function BindPackageForm({ userId }: { userId: string }) {
+  const { t: translate } = useI18n();
   const packages = usePackages();
   const bind = useBindUserPackage(userId);
+  const schema = useMemo(() => bindUserPackageSchema(translate), [translate]);
   const form = useForm<BindUserPackageValues>({
-    resolver: zodResolver(bindUserPackageSchema),
+    resolver: zodResolver(schema),
     defaultValues: {
       package_id: "",
       expires_at: "",
@@ -106,6 +109,11 @@ function BindPackageForm({ userId }: { userId: string }) {
       reset_day: "",
     },
   });
+
+  // 切换语言后重新校验，让已显示的错误跟着换语言。
+  useEffect(() => {
+    if (form.formState.isSubmitted) void form.trigger();
+  }, [translate, form]);
 
   const onSubmit = form.handleSubmit(async (values) => {
     form.clearErrors("root");
@@ -116,10 +124,10 @@ function BindPackageForm({ userId }: { userId: string }) {
         quota_override: parseGbInput(values.quota_override_gb),
         reset_day: values.reset_day ? Number(values.reset_day) : null,
       });
-      toast.success("套餐已绑定");
+      toast.success(t("users.packagesSheet.bind.success"));
       form.reset();
     } catch (error) {
-      const message = errorText(error, "绑定套餐失败，请稍后重试");
+      const message = errorText(error, t("users.packagesSheet.bind.error"));
       form.setError("root", { message });
       toast.error(message);
     }
@@ -139,7 +147,7 @@ function BindPackageForm({ userId }: { userId: string }) {
     return (
       <Card className="flex flex-row items-center justify-between gap-3 p-4">
         <div className="text-sm text-destructive">
-          {errorText(packages.error, "套餐模板加载失败，请稍后重试")}
+          {errorText(packages.error, t("users.packagesSheet.bind.loadError"))}
         </div>
         <Button
           variant="outline"
@@ -150,7 +158,7 @@ function BindPackageForm({ userId }: { userId: string }) {
           <RefreshCwIcon
             className={cn("size-3.5", packages.isFetching && "animate-spin")}
           />
-          重试
+          {t("common.retry")}
         </Button>
       </Card>
     );
@@ -163,13 +171,15 @@ function BindPackageForm({ userId }: { userId: string }) {
           <PackageIcon className="size-4" />
         </div>
         <div>
-          <p className="text-sm font-medium">还没有套餐模板</p>
+          <p className="text-sm font-medium">
+            {t("users.packagesSheet.bind.noTemplates")}
+          </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            先创建套餐模板，才能给用户绑定流量卡。
+            {t("users.packagesSheet.bind.noTemplatesDesc")}
           </p>
         </div>
         <Button variant="outline" size="sm" asChild>
-          <Link to="/packages">去创建套餐</Link>
+          <Link to="/packages">{t("users.packagesSheet.bind.goCreate")}</Link>
         </Button>
       </Card>
     );
@@ -178,15 +188,17 @@ function BindPackageForm({ userId }: { userId: string }) {
   return (
     <Card className="gap-4 p-4">
       <div>
-        <h3 className="text-sm font-medium">绑定新套餐</h3>
+        <h3 className="text-sm font-medium">
+          {t("users.packagesSheet.bind.title")}
+        </h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          一个用户可以同时绑定多张卡，额度、到期日与重置日相互独立。
+          {t("users.packagesSheet.bind.desc")}
         </p>
       </div>
 
       <form className="space-y-4" onSubmit={onSubmit}>
         <FormField
-          label="套餐模板"
+          label={t("users.packagesSheet.bind.template")}
           htmlFor="bind-package"
           required
           error={form.formState.errors.package_id?.message}
@@ -205,7 +217,7 @@ function BindPackageForm({ userId }: { userId: string }) {
                   className="w-full"
                   aria-invalid={Boolean(form.formState.errors.package_id)}
                 >
-                  <SelectValue placeholder="选择套餐模板" />
+                  <SelectValue placeholder={t("users.packagesSheet.bind.templatePlaceholder")} />
                 </SelectTrigger>
                 <SelectContent>
                   {packages.data.map((item) => (
@@ -220,9 +232,9 @@ function BindPackageForm({ userId }: { userId: string }) {
         </FormField>
 
         <FormField
-          label="到期日期"
+          label={t("users.packagesSheet.bind.expireDate")}
           htmlFor="bind-expires"
-          hint="留空表示长期有效；按所选日期当天结束计算。"
+          hint={t("users.packagesSheet.bind.expireHint")}
           error={form.formState.errors.expires_at?.message}
         >
           <div className="flex flex-wrap items-center gap-2">
@@ -248,7 +260,7 @@ function BindPackageForm({ userId }: { userId: string }) {
                   })
                 }
               >
-                {days} 天
+                {t("common.days", { n: days })}
               </Button>
             ))}
           </div>
@@ -256,15 +268,15 @@ function BindPackageForm({ userId }: { userId: string }) {
 
         <div className="grid gap-4 sm:grid-cols-2">
           <FormField
-            label="流量覆写（GB）"
+            label={t("users.packagesSheet.bind.quota")}
             htmlFor="bind-quota"
-            hint="留空 = 继承套餐额度；填 0 = 不限"
+            hint={t("users.packagesSheet.bind.quotaHint")}
             error={form.formState.errors.quota_override_gb?.message}
           >
             <Input
               id="bind-quota"
               inputMode="decimal"
-              placeholder="留空沿用"
+              placeholder={t("users.packagesSheet.bind.quotaPlaceholder")}
               disabled={bind.isPending}
               aria-invalid={Boolean(
                 form.formState.errors.quota_override_gb,
@@ -274,15 +286,15 @@ function BindPackageForm({ userId }: { userId: string }) {
           </FormField>
 
           <FormField
-            label="月度重置日"
+            label={t("users.packagesSheet.bind.resetDay")}
             htmlFor="bind-reset-day"
-            hint="1–31，留空表示不重置。"
+            hint={t("users.packagesSheet.bind.resetDayHint")}
             error={form.formState.errors.reset_day?.message}
           >
             <Input
               id="bind-reset-day"
               inputMode="numeric"
-              placeholder="例如 1"
+              placeholder={t("users.packagesSheet.bind.resetDayPlaceholder")}
               disabled={bind.isPending}
               aria-invalid={Boolean(form.formState.errors.reset_day)}
               {...form.register("reset_day")}
@@ -298,7 +310,9 @@ function BindPackageForm({ userId }: { userId: string }) {
           ) : (
             <PlusIcon className="size-4" />
           )}
-          {bind.isPending ? "绑定中…" : "绑定套餐"}
+          {bind.isPending
+            ? t("users.packagesSheet.bind.submitting")
+            : t("users.packagesSheet.bind.submit")}
         </Button>
       </form>
     </Card>
@@ -318,15 +332,22 @@ function EditUserPackageDialog({
   userId,
   item,
 }: EditUserPackageDialogProps) {
+  const { t: translate } = useI18n();
   const update = useUpdateUserPackage(userId);
+  const schema = useMemo(() => editUserPackageSchema(translate), [translate]);
   const form = useForm<EditUserPackageValues>({
-    resolver: zodResolver(editUserPackageSchema),
+    resolver: zodResolver(schema),
     defaultValues: {
       expires_at: toDateInputValue(item.expires_at),
       quota_override_gb: bytesToGbInput(item.quota_override),
       reset_day: item.reset_day ? String(item.reset_day) : "",
     },
   });
+
+  // 切换语言后重新校验，让已显示的错误跟着换语言。
+  useEffect(() => {
+    if (form.formState.isSubmitted) void form.trigger();
+  }, [translate, form]);
 
   const onSubmit = form.handleSubmit(async (values) => {
     form.clearErrors("root");
@@ -338,10 +359,10 @@ function EditUserPackageDialog({
         quota_override: parseGbInput(values.quota_override_gb),
       };
       await update.mutateAsync({ id: item.id, input });
-      toast.success("套餐已更新");
+      toast.success(t("users.packagesSheet.edit.success"));
       onOpenChange(false);
     } catch (error) {
-      const message = errorText(error, "更新套餐失败，请稍后重试");
+      const message = errorText(error, t("users.packagesSheet.edit.error"));
       form.setError("root", { message });
       toast.error(message);
     }
@@ -351,17 +372,17 @@ function EditUserPackageDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>编辑套餐</DialogTitle>
+          <DialogTitle>{t("users.packagesSheet.edit.title")}</DialogTitle>
           <DialogDescription>
-            {item.package_name} · 只修改这张卡，不影响套餐模板。
+            {t("users.packagesSheet.edit.desc", { name: item.package_name })}
           </DialogDescription>
         </DialogHeader>
 
         <form id="edit-user-package-form" className="space-y-4" onSubmit={onSubmit}>
           <FormField
-            label="到期日期"
+            label={t("users.packagesSheet.bind.expireDate")}
             htmlFor="edit-package-expires"
-            hint="留空表示长期有效。"
+            hint={t("users.packagesSheet.edit.expireHint")}
             error={form.formState.errors.expires_at?.message}
           >
             <Input
@@ -374,14 +395,14 @@ function EditUserPackageDialog({
           </FormField>
 
           <FormField
-            label="流量覆写（GB）"
+            label={t("users.packagesSheet.bind.quota")}
             htmlFor="edit-package-quota"
             error={form.formState.errors.quota_override_gb?.message}
           >
             <Input
               id="edit-package-quota"
               inputMode="decimal"
-              placeholder="留空继承"
+              placeholder={t("users.packagesSheet.edit.quotaPlaceholder")}
               disabled={update.isPending}
               aria-invalid={Boolean(
                 form.formState.errors.quota_override_gb,
@@ -391,9 +412,9 @@ function EditUserPackageDialog({
           </FormField>
 
           <FormField
-            label="月度重置日"
+            label={t("users.packagesSheet.bind.resetDay")}
             htmlFor="edit-package-reset-day"
-            hint="1–31，留空表示不重置。"
+            hint={t("users.packagesSheet.bind.resetDayHint")}
             error={form.formState.errors.reset_day?.message}
           >
             <Input
@@ -406,7 +427,7 @@ function EditUserPackageDialog({
           </FormField>
 
           <p className="text-xs text-muted-foreground">
-            留空 = 继承套餐额度；填 0 = 不限
+            {t("users.packagesSheet.edit.quotaHint")}
           </p>
 
           <FormRootError message={form.formState.errors.root?.message} />
@@ -419,7 +440,7 @@ function EditUserPackageDialog({
             onClick={() => onOpenChange(false)}
             disabled={update.isPending}
           >
-            取消
+            {t("common.cancel")}
           </Button>
           <Button
             type="submit"
@@ -427,7 +448,9 @@ function EditUserPackageDialog({
             disabled={update.isPending}
           >
             {update.isPending ? <Loader2Icon className="animate-spin" /> : null}
-            {update.isPending ? "保存中…" : "保存修改"}
+            {update.isPending
+              ? t("common.saving")
+              : t("users.packagesSheet.edit.submit")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -440,6 +463,7 @@ export function UserPackagesSheet({
   onOpenChange,
   user,
 }: UserPackagesSheetProps) {
+  useI18n();
   const bindings = useUserPackages(user.id);
   const unbind = useUnbindUserPackage(user.id);
   const [editTarget, setEditTarget] = useState<UserPackageView | null>(null);
@@ -449,7 +473,7 @@ export function UserPackagesSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full gap-0 sm:max-w-2xl">
         <SheetHeader className="border-b border-border pr-12">
-          <SheetTitle>管理套餐</SheetTitle>
+          <SheetTitle>{t("users.packagesSheet.title")}</SheetTitle>
           <SheetDescription>
             {user.username} · {user.short_code}
           </SheetDescription>
@@ -462,10 +486,9 @@ export function UserPackagesSheet({
               className="border-destructive/25 bg-destructive/10"
             >
               <TriangleAlertIcon />
-              <AlertTitle>已超出账户总额度</AlertTitle>
+              <AlertTitle>{t("users.packagesSheet.quotaExceededTitle")}</AlertTitle>
               <AlertDescription className="text-destructive/90">
-                该用户已超出账户总额度，所有节点已停用；调大总额度或重置后约
-                30 秒恢复。
+                {t("users.packagesSheet.quotaExceededDesc")}
               </AlertDescription>
             </Alert>
           ) : null}
@@ -473,7 +496,9 @@ export function UserPackagesSheet({
           <section className="space-y-3">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-medium">已绑套餐</h3>
+                <h3 className="text-sm font-medium">
+                  {t("users.packagesSheet.bound")}
+                </h3>
                 {bindings.data ? (
                   <Badge
                     variant="secondary"
@@ -495,7 +520,7 @@ export function UserPackagesSheet({
                     bindings.isFetching && "animate-spin",
                   )}
                 />
-                刷新
+                {t("common.refresh")}
               </Button>
             </div>
 
@@ -515,7 +540,7 @@ export function UserPackagesSheet({
                   <TriangleAlertIcon className="size-4" />
                 </div>
                 <p className="text-sm text-destructive">
-                  {errorText(bindings.error, "套餐加载失败，请稍后重试")}
+                  {errorText(bindings.error, t("users.packagesSheet.loadError"))}
                 </p>
                 <Button
                   variant="outline"
@@ -529,7 +554,7 @@ export function UserPackagesSheet({
                       bindings.isFetching && "animate-spin",
                     )}
                   />
-                  重试
+                  {t("common.retry")}
                 </Button>
               </Card>
             ) : bindings.data && bindings.data.length === 0 ? (
@@ -537,9 +562,11 @@ export function UserPackagesSheet({
                 <div className="grid size-9 place-items-center rounded-full bg-muted text-muted-foreground">
                   <PackageIcon className="size-4" />
                 </div>
-                <p className="text-sm font-medium">还没有绑定套餐</p>
+                <p className="text-sm font-medium">
+                  {t("users.packagesSheet.emptyBound")}
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  在下方选择一个套餐模板开始绑定。
+                  {t("users.packagesSheet.emptyBoundDesc")}
                 </p>
               </Card>
             ) : (
@@ -555,16 +582,18 @@ export function UserPackagesSheet({
                           <PackageStatusBadge status={item.status} />
                         </div>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {directionLabel(item.direction)} · 节点倍率 ×
-                          {item.node_ratio}
+                          {directionLabel(item.direction)} ·{" "}
+                          {t("users.packagesSheet.ratio", {
+                            ratio: item.node_ratio,
+                          })}
                         </p>
                       </div>
                       <div className="flex shrink-0 gap-1">
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          aria-label="编辑套餐"
-                          title="编辑套餐"
+                          aria-label={t("users.packagesSheet.editAria")}
+                          title={t("users.packagesSheet.editAria")}
                           onClick={() => setEditTarget(item)}
                         >
                           <PencilIcon className="size-3.5" />
@@ -572,8 +601,8 @@ export function UserPackagesSheet({
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          aria-label="解绑套餐"
-                          title="解绑套餐"
+                          aria-label={t("users.packagesSheet.unbindAria")}
+                          title={t("users.packagesSheet.unbindAria")}
                           className="text-muted-foreground hover:text-destructive"
                           onClick={() => setUnbindTarget(item)}
                         >
@@ -591,20 +620,22 @@ export function UserPackagesSheet({
                     <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1.5">
                         <CalendarIcon className="size-3.5" />
-                        到期
+                        {t("users.packagesSheet.expire")}
                         <span className="text-foreground/80">
                           {item.expires_at
                             ? formatDate(item.expires_at)
-                            : "长期"}
+                            : t("users.packagesSheet.longTerm")}
                         </span>
                       </span>
                       <span className="flex items-center gap-1.5">
                         <RefreshCwIcon className="size-3.5" />
-                        重置
+                        {t("users.packagesSheet.reset")}
                         <span className="text-foreground/80">
                           {item.reset_day
-                            ? `每月 ${item.reset_day} 日`
-                            : "不重置"}
+                            ? t("users.packagesSheet.resetMonthly", {
+                                day: item.reset_day,
+                              })
+                            : t("users.packagesSheet.noReset")}
                         </span>
                       </span>
                     </div>
@@ -643,15 +674,16 @@ export function UserPackagesSheet({
             <AlertDialogMedia className="bg-destructive/10 text-destructive">
               <UnlinkIcon className="size-5" />
             </AlertDialogMedia>
-            <AlertDialogTitle>解绑套餐</AlertDialogTitle>
+            <AlertDialogTitle>{t("users.packagesSheet.unbind.title")}</AlertDialogTitle>
             <AlertDialogDescription>
-              确定解绑「{unbindTarget?.package_name}
-              」？解绑后该用户不再享有此套餐额度，历史用量保留。
+              {t("users.packagesSheet.unbind.desc", {
+                name: unbindTarget?.package_name ?? "",
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={unbind.isPending}>
-              取消
+              {t("common.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
@@ -661,18 +693,18 @@ export function UserPackagesSheet({
                 if (!unbindTarget) return;
                 unbind.mutate(unbindTarget.id, {
                   onSuccess: () => {
-                    toast.success("已解绑套餐");
+                    toast.success(t("users.packagesSheet.unbind.success"));
                     setUnbindTarget(null);
                   },
                   onError: (error) => {
                     toast.error(
-                      errorText(error, "解绑失败，请稍后重试"),
+                      errorText(error, t("users.packagesSheet.unbind.error")),
                     );
                   },
                 });
               }}
             >
-              解绑
+              {t("users.packagesSheet.unbind.action")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

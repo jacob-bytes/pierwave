@@ -10,6 +10,7 @@ import {
 import { ChartColumnIcon } from "lucide-react";
 import type { TrafficDay } from "@/lib/api";
 import { formatBytes } from "@/lib/format";
+import { t } from "@/i18n";
 
 interface TooltipItem {
   payload?: TrafficDay;
@@ -74,17 +75,17 @@ function TrafficTooltip({ active, payload }: TrafficTooltipProps) {
       <p className="mb-2 font-medium text-foreground">{day.date}</p>
       <div className="flex flex-col gap-1">
         <TooltipValue
-          label="下行"
+          label={t("trafficChart.downlink")}
           value={day.downlink}
           color="var(--primary)"
         />
         <TooltipValue
-          label="上行"
+          label={t("trafficChart.uplink")}
           value={day.uplink}
           color="var(--muted-foreground)"
         />
         <div className="my-1 h-px bg-border" />
-        <TooltipValue label="计费流量" value={day.weighted} />
+        <TooltipValue label={t("trafficChart.weighted")} value={day.weighted} />
       </div>
     </div>
   );
@@ -102,9 +103,9 @@ export default function TrafficChart({ days }: { days: TrafficDay[] }) {
     return (
       <div className="flex h-[248px] flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border px-6 text-center">
         <ChartColumnIcon className="size-5 text-muted-foreground" />
-        <p className="text-sm font-medium">近 7 天还没有流量记录</p>
+        <p className="text-sm font-medium">{t("trafficChart.emptyTitle")}</p>
         <p className="text-xs text-muted-foreground">
-          节点产生流量后，这里会自动出现趋势。
+          {t("trafficChart.emptyDesc")}
         </p>
       </div>
     );
@@ -113,14 +114,14 @@ export default function TrafficChart({ days }: { days: TrafficDay[] }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-4">
-        <LegendDot color="var(--primary)" label="下行" />
-        <LegendDot color="var(--muted-foreground)" label="上行" />
+        <LegendDot color="var(--primary)" label={t("trafficChart.downlink")} />
+        <LegendDot color="var(--muted-foreground)" label={t("trafficChart.uplink")} />
       </div>
 
       <div
         className="h-[220px] w-full"
         role="img"
-        aria-label="近 7 天上下行流量柱状图"
+        aria-label={t("trafficChart.aria")}
       >
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
@@ -154,14 +155,14 @@ export default function TrafficChart({ days }: { days: TrafficDay[] }) {
             />
             <Bar
               dataKey="downlink"
-              name="下行"
+              name={t("trafficChart.downlink")}
               stackId="traffic"
               fill="var(--primary)"
               isAnimationActive={false}
             />
             <Bar
               dataKey="uplink"
-              name="上行"
+              name={t("trafficChart.uplink")}
               stackId="traffic"
               fill="var(--muted-foreground)"
               radius={[2, 2, 0, 0]}

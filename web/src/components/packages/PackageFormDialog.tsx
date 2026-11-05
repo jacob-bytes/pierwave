@@ -1,3 +1,4 @@
+import { useEffect, useMemo } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2Icon } from "lucide-react";
@@ -30,6 +31,7 @@ import {
   type PackageFormValues,
   type PackageNodeScope,
 } from "@/lib/schemas";
+import { t, useI18n } from "@/i18n";
 
 interface PackageFormDialogProps {
   open: boolean;
@@ -54,6 +56,7 @@ export function PackageFormDialog({
   onOpenChange,
   packageItem,
 }: PackageFormDialogProps) {
+  const { t: translate } = useI18n();
   const createPackage = useCreatePackage();
   const updatePackage = useUpdatePackage();
   const editing = Boolean(packageItem);
@@ -61,8 +64,9 @@ export function PackageFormDialog({
     ? updatePackage.isPending
     : createPackage.isPending;
 
+  const schema = useMemo(() => packageFormSchema(translate), [translate]);
   const form = useForm<PackageFormValues>({
-    resolver: zodResolver(packageFormSchema),
+    resolver: zodResolver(schema),
     defaultValues: packageItem
       ? {
           name: packageItem.name,
@@ -85,6 +89,11 @@ export function PackageFormDialog({
           node_ids: [],
         },
   });
+
+  // 切换语言后重新校验，让已显示的错误跟着换语言。
+  useEffect(() => {
+    if (form.formState.isSubmitted) void form.trigger();
+  }, [translate, form]);
 
   const nodeScope = form.watch("node_scope");
   const selectedNodeIds = form.watch("node_ids");
@@ -123,14 +132,14 @@ export function PackageFormDialog({
               ? { ...input, node_ids: null }
               : input,
         });
-        toast.success("套餐模板已更新");
+        toast.success(t("packages.form.updated"));
       } else {
         await createPackage.mutateAsync(input);
-        toast.success(`套餐模板「${values.name}」已创建`);
+        toast.success(t("packages.form.created", { name: values.name }));
       }
       onOpenChange(false);
     } catch (error) {
-      const message = errorText(error, "保存套餐模板失败，请稍后重试");
+      const message = errorText(error, t("packages.form.error"));
       form.setError("root", { message });
       toast.error(message);
     }
@@ -147,23 +156,23 @@ export function PackageFormDialog({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
-            {editing ? "编辑套餐模板" : "新建套餐模板"}
+            {editing ? t("packages.form.editTitle") : t("packages.form.createTitle")}
           </DialogTitle>
           <DialogDescription>
-            模板定义额度、周期、倍率与节点范围；用户绑定后生成独立的套餐实例。
+            {t("packages.form.desc")}
           </DialogDescription>
         </DialogHeader>
 
         <form id="package-form" className="space-y-4" onSubmit={onSubmit}>
           <FormField
-            label="名称"
+            label={t("packages.form.name")}
             htmlFor="package-name"
             required
             error={form.formState.errors.name?.message}
           >
             <Input
               id="package-name"
-              placeholder="例如 100G 月卡"
+              placeholder={t("packages.form.namePlaceholder")}
               autoComplete="off"
               disabled={pending}
               aria-invalid={Boolean(form.formState.errors.name)}
@@ -173,15 +182,15 @@ export function PackageFormDialog({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <FormField
-              label="额度（GB）"
+              label={t("packages.form.quota")}
               htmlFor="package-quota"
-              hint="留空表示不限。"
+              hint={t("packages.form.quotaHint")}
               error={form.formState.errors.quota_gb?.message}
             >
               <Input
                 id="package-quota"
                 inputMode="decimal"
-                placeholder="例如 100"
+                placeholder={t("packages.form.quotaPlaceholder")}
                 disabled={pending}
                 aria-invalid={Boolean(form.formState.errors.quota_gb)}
                 {...form.register("quota_gb")}
@@ -189,15 +198,15 @@ export function PackageFormDialog({
             </FormField>
 
             <FormField
-              label="周期（天）"
+              label={t("packages.form.period")}
               htmlFor="package-period"
-              hint="留空表示长期。"
+              hint={t("packages.form.periodHint")}
               error={form.formState.errors.period_days?.message}
             >
               <Input
                 id="package-period"
                 inputMode="numeric"
-                placeholder="例如 30"
+                placeholder={t("packages.form.periodPlaceholder")}
                 disabled={pending}
                 aria-invalid={Boolean(form.formState.errors.period_days)}
                 {...form.register("period_days")}
@@ -207,7 +216,7 @@ export function PackageFormDialog({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <FormField
-              label="方向"
+              label={t("packages.form.direction")}
               htmlFor="package-direction"
               error={form.formState.errors.direction?.message}
             >
@@ -221,12 +230,14 @@ export function PackageFormDialog({
                     disabled={pending}
                   >
                     <SelectTrigger id="package-direction" className="w-full">
-                      <SelectValue placeholder="选择方向" />
+                      <SelectValue placeholder={t("packages.form.directionPlaceholder")} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="both">双向</SelectItem>
-                      <SelectItem value="upload">上行</SelectItem>
-                      <SelectItem value="download">下行</SelectItem>
+                      <SelectItem value="both">{t("direction.both")}</SelectItem>
+                      <SelectItem value="upload">{t("direction.upload")}</SelectItem>
+                      <SelectItem value="download">
+                        {t("direction.download")}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 )}
@@ -234,9 +245,9 @@ export function PackageFormDialog({
             </FormField>
 
             <FormField
-              label="节点倍率"
+              label={t("packages.form.ratio")}
               htmlFor="package-ratio"
-              hint="大于 0 且不超过 10。"
+              hint={t("packages.form.ratioHint")}
               error={form.formState.errors.node_ratio?.message}
             >
               <Input
@@ -251,11 +262,11 @@ export function PackageFormDialog({
 
           <div className="border-t border-border pt-4">
             <FormField
-              label="节点范围"
+              label={t("packages.form.scope")}
               hint={
                 nodeScope === "selected"
-                  ? "用户订阅只包含勾选的节点。"
-                  : "决定该套餐的用户订阅里会出现哪些节点。"
+                  ? t("packages.form.scopeSelectedHint")
+                  : t("packages.form.scopeHint")
               }
               error={nodeScopeError}
             >
@@ -297,15 +308,15 @@ export function PackageFormDialog({
             onClick={() => onOpenChange(false)}
             disabled={pending}
           >
-            取消
+            {t("common.cancel")}
           </Button>
           <Button type="submit" form="package-form" disabled={pending}>
             {pending ? <Loader2Icon className="animate-spin" /> : null}
             {pending
-              ? "保存中…"
+              ? t("common.saving")
               : editing
-                ? "保存修改"
-                : "创建套餐"}
+                ? t("packages.form.submitSave")
+                : t("packages.form.submitCreate")}
           </Button>
         </DialogFooter>
       </DialogContent>

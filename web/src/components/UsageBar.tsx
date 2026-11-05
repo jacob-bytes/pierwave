@@ -1,5 +1,6 @@
 import { formatBytes, usagePercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { t } from "@/i18n";
 
 interface UsageBarProps {
   usedBytes: number;
@@ -15,7 +16,7 @@ export function UsageBar({
   usedBytes,
   quotaBytes,
   zeroAsUnlimited = false,
-  label = "流量",
+  label = t("usage.label"),
   className,
 }: UsageBarProps) {
   const quota =

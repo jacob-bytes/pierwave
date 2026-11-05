@@ -1,3 +1,5 @@
+import { t, type TFunction } from "@/i18n";
+
 /**
  * config 文本框的 JSON 校验。
  *
@@ -18,14 +20,15 @@ export type JsonParseResult =
 function atLineColumn(
   text: string,
   offset: number,
-  prefix = "JSON 语法错误",
+  translate: TFunction,
+  prefix = translate("json.syntax"),
 ): JsonIssue {
   const clamped = Math.max(0, Math.min(offset, text.length));
   const before = text.slice(0, clamped);
   const line = before.split("\n").length;
   const column = clamped - before.lastIndexOf("\n");
   return {
-    message: `${prefix}：第 ${line} 行第 ${column} 列附近，请检查括号、引号与逗号`,
+    message: translate("json.atPosition", { prefix, line, column }),
     line,
     column,
   };
@@ -37,7 +40,11 @@ function atLineColumn(
  * 这里把能拿到的位置都翻成行号，拿不到时用 token / 文本末尾兜底，
  * 保证用户至少能定位到出错的行。
  */
-function locateError(text: string, error: unknown): JsonIssue {
+function locateError(
+  text: string,
+  error: unknown,
+  translate: TFunction,
+): JsonIssue {
   const raw = error instanceof Error ? error.message : String(error);
 
   const lineColumn = /line (\d+) column (\d+)/i.exec(raw);
@@ -45,16 +52,22 @@ function locateError(text: string, error: unknown): JsonIssue {
     return atLineColumn(
       text,
       offsetAtLineColumn(text, Number(lineColumn[1]), Number(lineColumn[2])),
+      translate,
     );
   }
 
   const position = /position (\d+)/i.exec(raw);
   if (position) {
-    return atLineColumn(text, Number(position[1]));
+    return atLineColumn(text, Number(position[1]), translate);
   }
 
   if (/unexpected end of json input/i.test(raw)) {
-    return atLineColumn(text, text.length, "JSON 在这里意外结束");
+    return atLineColumn(
+      text,
+      text.length,
+      translate,
+      translate("json.unexpectedEnd"),
+    );
   }
 
   const token = /unexpected token '(.+?)'/i.exec(raw);
@@ -62,11 +75,16 @@ function locateError(text: string, error: unknown): JsonIssue {
     const needle = token[1].replace(/\\\\/g, "\\");
     const offset = text.indexOf(needle);
     if (offset >= 0) {
-      return atLineColumn(text, offset, `JSON 中出现了不该出现的「${needle}」`);
+      return atLineColumn(
+        text,
+        offset,
+        translate,
+        translate("json.unexpectedToken", { token: needle }),
+      );
     }
   }
 
-  return atLineColumn(text, text.length);
+  return atLineColumn(text, text.length, translate);
 }
 
 function offsetAtLineColumn(
@@ -83,13 +101,16 @@ function offsetAtLineColumn(
   return offset + Math.max(1, column) - 1;
 }
 
-export function parseJsonConfig(text: string): JsonParseResult {
+export function parseJsonConfig(
+  text: string,
+  translate: TFunction = t,
+): JsonParseResult {
   const trimmed = text.trim();
 
   if (!trimmed) {
     return {
       ok: false,
-      issue: { message: "config 不能为空，至少需要包含一个 { } 对象" },
+      issue: { message: translate("json.empty") },
     };
   }
 
@@ -97,13 +118,13 @@ export function parseJsonConfig(text: string): JsonParseResult {
   try {
     value = JSON.parse(trimmed);
   } catch (error) {
-    return { ok: false, issue: locateError(text, error) };
+    return { ok: false, issue: locateError(text, error, translate) };
   }
 
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return {
       ok: false,
-      issue: { message: "config 必须是 JSON 对象（以 { 开头、} 结尾）" },
+      issue: { message: translate("json.notObject") },
     };
   }
 

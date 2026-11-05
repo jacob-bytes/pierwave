@@ -78,11 +78,12 @@ import { useDeleteUser, useMe, useUpdateUser, useUsers } from "@/lib/queries";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { UserFormMode } from "@/lib/schemas";
+import { t, useI18n } from "@/i18n";
 
 const COLUMN_COUNT = 7;
 
 function roleLabel(role: UserView["role"]) {
-  return role === "admin" ? "管理员" : "普通用户";
+  return role === "admin" ? t("roles.admin") : t("roles.user");
 }
 
 /** 账号维度：只说账号本身能不能登录，套餐是否断流由旁边单独展示。 */
@@ -93,8 +94,8 @@ function UserStatusBadge({ status }: { status: UserView["status"] }) {
       variant="outline"
       title={
         active
-          ? "账号状态：正常，可以登录并获取订阅"
-          : "账号状态：已禁用，无法登录和获取订阅"
+          ? t("users.status.activeTitle")
+          : t("users.status.disabledTitle")
       }
       className={cn(
         "gap-1.5 border-transparent font-normal",
@@ -112,7 +113,7 @@ function UserStatusBadge({ status }: { status: UserView["status"] }) {
             : "bg-muted-foreground/40",
         )}
       />
-      {active ? "正常" : "已禁用"}
+      {active ? t("users.status.active") : t("users.status.disabled")}
     </Badge>
   );
 }
@@ -122,10 +123,10 @@ const PACKAGE_WORST_TITLES: Record<
   Exclude<UserView["package_worst_status"], "active">,
   string
 > = {
-  exhausted: "套餐状态：至少一张套餐已用尽，该用户已被断流",
-  expired: "套餐状态：至少一张套餐已过期，需要续期",
-  disabled: "套餐状态：名下套餐均已停用",
-  none: "套餐状态：名下还没有绑定任何套餐",
+  exhausted: "users.packageWorst.exhausted",
+  expired: "users.packageWorst.expired",
+  disabled: "users.packageWorst.disabled",
+  none: "users.packageWorst.none",
 };
 
 function PackageWorstStatusBadge({
@@ -139,13 +140,13 @@ function PackageWorstStatusBadge({
   return (
     <Badge
       variant="outline"
-      title={PACKAGE_WORST_TITLES[status]}
+      title={t(PACKAGE_WORST_TITLES[status])}
       className={cn(
         "border-transparent font-normal",
         statusToneClasses[none ? "muted" : packageStatusTone(status)],
       )}
     >
-      {none ? "无套餐" : packageStatusLabel(status)}
+      {none ? t("users.packageWorst.noPackage") : packageStatusLabel(status)}
     </Badge>
   );
 }
@@ -159,10 +160,10 @@ function QuotaExceededBadge() {
     <Badge
       variant="destructive"
       className="gap-1 font-normal"
-      title="账户总额度已用尽，该用户在所有节点上失去资格"
+      title={t("users.quotaExceededTitle")}
     >
       <TriangleAlertIcon className="size-3" />
-      超出总额度
+      {t("users.quotaExceeded")}
     </Badge>
   );
 }
@@ -177,9 +178,9 @@ function PackageBreakdownPopover({ user }: { user: UserView }) {
       <Badge
         variant="outline"
         className="font-normal text-muted-foreground"
-        title="还没有绑定任何套餐"
+        title={t("users.noPackagesTitle")}
       >
-        0 张
+        {t("users.packageCount", { n: 0 })}
       </Badge>
     );
   }
@@ -191,17 +192,20 @@ function PackageBreakdownPopover({ user }: { user: UserView }) {
           variant="outline"
           size="sm"
           className="h-6 rounded-full px-2 text-xs font-normal text-muted-foreground"
-          aria-label={`查看 ${user.username} 的 ${count} 张套餐明细`}
-          title={`${count} 张套餐，点击查看明细`}
+          aria-label={t("users.packageBreakdown.aria", {
+            username: user.username,
+            count,
+          })}
+          title={t("users.packageBreakdown.triggerTitle", { count })}
         >
-          {count} 张
+          {t("users.packageCount", { n: count })}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80">
         <PopoverHeader>
-          <PopoverTitle className="text-sm">套餐明细</PopoverTitle>
+          <PopoverTitle className="text-sm">{t("users.packageBreakdown.title")}</PopoverTitle>
           <PopoverDescription className="text-xs">
-            名下 {count} 张套餐实例，额度与状态按当前时刻计算。
+            {t("users.packageBreakdown.desc", { count })}
           </PopoverDescription>
         </PopoverHeader>
         <ul className="flex flex-col divide-y divide-border">
@@ -225,7 +229,9 @@ function PackageBreakdownPopover({ user }: { user: UserView }) {
         </ul>
         {count > packages.length ? (
           <p className="text-[11px] text-muted-foreground">
-            仅显示前 {packages.length} 张，完整明细请到「管理套餐」查看。
+            {t("users.packageBreakdown.onlyFirst", {
+              shown: packages.length,
+            })}
           </p>
         ) : null}
       </PopoverContent>
@@ -289,23 +295,23 @@ function EmptyRow({
           </div>
           <div>
             <p className="text-sm font-medium">
-              {searching ? "没有找到匹配的用户" : "还没有用户"}
+              {searching ? t("users.emptySearch") : t("users.emptyNoUsers")}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
               {searching
-                ? "换个用户名或短码再试，或者清空搜索。"
-                : "创建用户后，可以在「管理套餐」里给他绑定流量卡。"}
+                ? t("users.emptySearchDesc")
+                : t("users.emptyDesc")}
             </p>
           </div>
           {searching ? (
             <Button variant="outline" size="sm" onClick={onClearSearch}>
               <XIcon className="size-3.5" />
-              清空搜索
+              {t("users.clearSearch")}
             </Button>
           ) : (
             <Button variant="outline" size="sm" onClick={onCreate}>
               <PlusIcon className="size-3.5" />
-              新建用户
+              {t("users.create")}
             </Button>
           )}
         </div>
@@ -331,14 +337,14 @@ function ErrorRow({
             <TriangleAlertIcon className="size-5" />
           </div>
           <div>
-            <p className="text-sm font-medium">用户列表加载失败</p>
+            <p className="text-sm font-medium">{t("users.loadFailed")}</p>
             <p className="mt-1 text-xs text-muted-foreground">{message}</p>
           </div>
           <Button variant="outline" size="sm" onClick={onRetry} disabled={retrying}>
             <RefreshCwIcon
               className={cn("size-3.5", retrying && "animate-spin")}
             />
-            重试
+            {t("common.retry")}
           </Button>
         </div>
       </TableCell>
@@ -370,15 +376,17 @@ function DeleteUserDialog({
           <AlertDialogMedia className="bg-destructive/10 text-destructive">
             <Trash2Icon className="size-5" />
           </AlertDialogMedia>
-          <AlertDialogTitle>删除用户</AlertDialogTitle>
+          <AlertDialogTitle>{t("users.delete.title")}</AlertDialogTitle>
           <AlertDialogDescription>
-            确定删除「{user.username}」？删除后将同时解绑{" "}
-            {user.package_count} 个套餐，且不可恢复。
+            {t("users.delete.desc", {
+              username: user.username,
+              count: user.package_count,
+            })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={deleteUser.isPending}>
-            取消
+            {t("common.cancel")}
           </AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
@@ -387,18 +395,18 @@ function DeleteUserDialog({
               event.preventDefault();
               deleteUser.mutate(user.id, {
                 onSuccess: () => {
-                  toast.success("用户已删除");
+                  toast.success(t("users.delete.success"));
                   onOpenChange(false);
                 },
                 onError: (error) => {
                   toast.error(
-                    errorText(error, "删除用户失败，请稍后重试"),
+                    errorText(error, t("users.delete.error")),
                   );
                 },
               });
             }}
           >
-            删除
+            {t("common.delete")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -407,6 +415,7 @@ function DeleteUserDialog({
 }
 
 export default function UsersPage() {
+  useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const q = (searchParams.get("q") ?? "").trim();
   const [searchInput, setSearchInput] = useState(q);
@@ -472,13 +481,13 @@ export default function UsersPage() {
         onSuccess: () => {
           toast.success(
             nextStatus === "disabled"
-              ? `已禁用「${user.username}」`
-              : `已启用「${user.username}」`,
+              ? t("users.toggle.disabledToast", { username: user.username })
+              : t("users.toggle.enabledToast", { username: user.username }),
           );
         },
         onError: (error) => {
           toast.error(
-            errorText(error, "更新用户状态失败，请稍后重试"),
+            errorText(error, t("users.toggle.error")),
           );
         },
       },
@@ -489,21 +498,21 @@ export default function UsersPage() {
   const showError = users.isError;
   const errorMessage = errorText(
     users.error,
-    "加载用户列表失败，请检查网络后重试",
+    t("users.loadError"),
   );
 
   return (
     <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">用户</h1>
+          <h1 className="text-xl font-semibold tracking-tight">{t("users.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            管理账号、角色与流量套餐。
+            {t("users.subtitle")}
           </p>
         </div>
         <Button onClick={() => setFormState({ mode: "create" })}>
           <PlusIcon className="size-4" />
-          新建用户
+          {t("users.create")}
         </Button>
       </div>
 
@@ -511,7 +520,7 @@ export default function UsersPage() {
         <CardHeader className="border-b border-border">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle className="flex items-center gap-2 text-sm font-medium">
-              用户列表
+              {t("users.list")}
               {users.data && !users.isError ? (
                 <Badge
                   variant="secondary"
@@ -529,8 +538,8 @@ export default function UsersPage() {
                   value={searchInput}
                   onChange={(event) => setSearchInput(event.target.value)}
                   onKeyDown={handleSearchKeyDown}
-                  placeholder="搜索用户名或短码"
-                  aria-label="搜索用户"
+                  placeholder={t("users.searchPlaceholder")}
+                  aria-label={t("users.searchAria")}
                   className="pr-8 pl-8"
                 />
                 {searchInput ? (
@@ -538,7 +547,7 @@ export default function UsersPage() {
                     type="button"
                     variant="ghost"
                     size="icon-xs"
-                    aria-label="清空搜索"
+                    aria-label={t("users.clearSearch")}
                     className="absolute top-1/2 right-1 -translate-y-1/2"
                     onClick={clearSearch}
                   >
@@ -558,39 +567,38 @@ export default function UsersPage() {
                     users.isFetching && "animate-spin",
                   )}
                 />
-                刷新
+                {t("common.refresh")}
               </Button>
             </div>
           </div>
           <CardDescription className="text-xs">
-            输入后 300ms 自动搜索，回车立即触发；搜索参数会写入地址栏。
+            {t("users.desc")}
           </CardDescription>
         </CardHeader>
 
         <CardContent className="p-0">
           <Table className="min-w-[980px]" aria-busy={users.isPending}>
-            <TableCaption className="sr-only">用户列表</TableCaption>
+            <TableCaption className="sr-only">{t("users.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
                 {[
-                  { label: "用户" },
-                  { label: "角色" },
+                  { label: t("users.columns.user") },
+                  { label: t("users.columns.role") },
                   {
-                    label: "状态",
-                    title: "账号状态在前、套餐状态在后，两个维度独立",
+                    label: t("users.columns.status"),
+                    title: t("users.columnTitles.status"),
                   },
                   {
-                    label: "套餐",
-                    title: "点开「N 张」可查看每张套餐的已用 / 额度 / 状态",
+                    label: t("users.columns.packages"),
+                    title: t("users.columnTitles.packages"),
                   },
                   {
-                    label: "套餐流量",
-                    hint: "名下所有套餐实例合计",
-                    title:
-                      "名下所有套餐实例的已用 / 额度合计；任一卡不限量时显示「不限」",
+                    label: t("users.columns.packageTraffic"),
+                    hint: t("users.columnTitles.trafficHint"),
+                    title: t("users.columnTitles.traffic"),
                   },
-                  { label: "创建时间" },
-                  { label: "操作" },
+                  { label: t("users.columns.createdAt") },
+                  { label: t("users.columns.actions") },
                 ].map(({ label, hint, title }) => (
                   <TableHead
                     key={label}
@@ -678,7 +686,7 @@ export default function UsersPage() {
                           {user.package_count === 0 ? (
                             <p
                               className="w-48 text-xs text-muted-foreground"
-                              title="名下还没有绑定套餐"
+                              title={t("users.noPackagesTitle")}
                             >
                               —
                             </p>
@@ -693,9 +701,12 @@ export default function UsersPage() {
                           {user.quota_exceeded ? (
                             <p
                               className="text-[11px] text-destructive"
-                              title={`账户已用 ${formatBytes(user.used_bytes)} / 总额度 ${formatBytes(user.quota_bytes)}`}
+                              title={t("users.quotaUsedTitle", {
+                                used: formatBytes(user.used_bytes),
+                                quota: formatBytes(user.quota_bytes),
+                              })}
                             >
-                              账户总额度已用满
+                              {t("users.quotaUsedFull")}
                             </p>
                           ) : null}
                         </div>
@@ -711,7 +722,9 @@ export default function UsersPage() {
                             <Button
                               variant="ghost"
                               size="icon-sm"
-                              aria-label={`操作 ${user.username}`}
+                              aria-label={t("users.actions.aria", {
+                                username: user.username,
+                              })}
                             >
                               <MoreHorizontalIcon className="size-4" />
                             </Button>
@@ -723,31 +736,33 @@ export default function UsersPage() {
                               }
                             >
                               <PencilIcon className="size-3.5" />
-                              编辑
+                              {t("users.actions.edit")}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onSelect={() => setResetUser(user)}
                             >
                               <KeyRoundIcon className="size-3.5" />
-                              重置密码
+                              {t("users.actions.resetPassword")}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               disabled={isSelf || updateUser.isPending}
                               title={
                                 isSelf
-                                  ? "不能禁用当前登录账号"
+                                  ? t("users.actions.cannotDisableSelf")
                                   : undefined
                               }
                               onSelect={() => toggleStatus(user)}
                             >
                               <PowerIcon className="size-3.5" />
-                              {user.status === "active" ? "禁用" : "启用"}
+                              {user.status === "active"
+                                ? t("users.actions.disable")
+                                : t("users.actions.enable")}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onSelect={() => setPackagesUser(user)}
                             >
                               <PackageIcon className="size-3.5" />
-                              管理套餐
+                              {t("users.actions.managePackages")}
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
@@ -755,13 +770,13 @@ export default function UsersPage() {
                               disabled={isSelf}
                               title={
                                 isSelf
-                                  ? "不能删除当前登录账号"
+                                  ? t("users.actions.cannotDeleteSelf")
                                   : undefined
                               }
                               onSelect={() => setDeleteTarget(user)}
                             >
                               <Trash2Icon className="size-3.5" />
-                              删除
+                              {t("common.delete")}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>

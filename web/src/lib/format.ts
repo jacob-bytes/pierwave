@@ -1,3 +1,5 @@
+import { t } from "@/i18n";
+
 export const BYTES_PER_GB = 1024 ** 3;
 
 const UNITS = ["B", "KB", "MB", "GB", "TB", "PB"];
@@ -14,7 +16,7 @@ export function formatBytes(
   value: number | null | undefined,
   options: FormatBytesOptions = {},
 ): string {
-  const { unlimitedLabel = "不限", zeroAsUnlimited = false } = options;
+  const { unlimitedLabel = t("format.unlimited"), zeroAsUnlimited = false } = options;
 
   if (value === null || value === undefined) return unlimitedLabel;
   if (!Number.isFinite(value)) return "—";

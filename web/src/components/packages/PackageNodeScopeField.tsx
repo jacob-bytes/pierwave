@@ -23,6 +23,7 @@ import { nodeSummary } from "@/lib/protocols";
 import { useAllNodes } from "@/lib/queries";
 import type { PackageNodeScope } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
+import { t } from "@/i18n";
 
 interface PackageNodeScopeFieldProps {
   value: PackageNodeScope;
@@ -35,20 +36,20 @@ interface PackageNodeScopeFieldProps {
 const SCOPE_OPTIONS = [
   {
     value: "all",
-    title: "全部节点",
-    hint: "用户订阅包含现有的和以后新增的全部节点",
+    titleKey: "packages.nodeScope.all",
+    hintKey: "packages.nodeScope.allHint",
     Icon: GlobeIcon,
   },
   {
     value: "selected",
-    title: "指定节点",
-    hint: "只下发勾选的节点",
+    titleKey: "packages.nodeScope.selected",
+    hintKey: "packages.nodeScope.selectedHint",
     Icon: ListChecksIcon,
   },
   {
     value: "none",
-    title: "不给任何节点",
-    hint: "用户订阅为空，不会下发任何节点",
+    titleKey: "packages.nodeScope.none",
+    hintKey: "packages.nodeScope.noneHint",
     Icon: BanIcon,
   },
 ] as const;
@@ -56,9 +57,9 @@ const SCOPE_OPTIONS = [
 /** 全局节点接口可能还没上线：404 单独给一句可操作的中文兜底。 */
 function nodesErrorText(error: unknown): string {
   if (error instanceof ApiError && error.status === 404) {
-    return "全局节点接口暂不可用。可以先保存为「全部节点」，稍后再回来选择。";
+    return t("packages.nodeScope.error404");
   }
-  return errorText(error, "节点列表加载失败，请检查网络后重试");
+  return errorText(error, t("packages.nodeScope.loadError"));
 }
 
 export function PackageNodeScopeField({
@@ -118,7 +119,7 @@ export function PackageNodeScopeField({
   return (
     <div className="space-y-3">
       <RadioGroup
-        aria-label="节点范围"
+        aria-label={t("packages.nodeScope.aria")}
         value={value}
         onValueChange={(next) => onChange(next as PackageNodeScope)}
         disabled={disabled}
@@ -149,12 +150,12 @@ export function PackageNodeScopeField({
               <span className="min-w-0 space-y-1">
                 <span className="flex items-center gap-1.5">
                   <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="text-sm font-medium">{option.title}</span>
+                  <span className="text-sm font-medium">{t(option.titleKey)}</span>
                 </span>
                 <span className="block text-[11px] leading-snug text-muted-foreground">
                   {option.value === "selected" && noNodes
-                    ? "系统里还没有节点"
-                    : option.hint}
+                    ? t("packages.nodeScope.noNodesHint")
+                    : t(option.hintKey)}
                 </span>
               </span>
             </Label>
@@ -165,16 +166,16 @@ export function PackageNodeScopeField({
       {noNodes ? (
         <Alert>
           <NetworkIcon />
-          <AlertTitle>系统里还没有节点</AlertTitle>
+          <AlertTitle>{t("packages.nodeScope.noNodesTitle")}</AlertTitle>
           <AlertDescription>
-            先去{" "}
+            {t("packages.nodeScope.noNodesDescPrefix")}{" "}
             <Link
               to="/nodes"
               className="font-medium text-foreground underline underline-offset-3"
             >
-              「节点」页
+              {t("packages.nodeScope.noNodesLink")}
             </Link>{" "}
-            给服务器添加节点，再回来设置节点范围。
+            {t("packages.nodeScope.noNodesDescSuffix")}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -197,7 +198,7 @@ export function PackageNodeScopeField({
           ) : nodesQuery.isError ? (
             <Alert variant="destructive">
               <TriangleAlertIcon />
-              <AlertTitle>节点列表加载失败</AlertTitle>
+              <AlertTitle>{t("packages.nodeScope.loadFailedTitle")}</AlertTitle>
               <AlertDescription>
                 {nodesErrorText(nodesQuery.error)}
                 <Button
@@ -214,13 +215,13 @@ export function PackageNodeScopeField({
                       nodesQuery.isFetching && "animate-spin",
                     )}
                   />
-                  重试
+                  {t("common.retry")}
                 </Button>
               </AlertDescription>
             </Alert>
           ) : nodes.length === 0 ? (
             <p className="py-2 text-center text-xs text-muted-foreground">
-              系统里还没有节点，无法选择指定节点。
+              {t("packages.nodeScope.empty")}
             </p>
           ) : (
             <>
@@ -232,9 +233,9 @@ export function PackageNodeScopeField({
                     size="sm"
                     onClick={selectVisible}
                     disabled={disabled}
-                    title="选中当前筛选结果中的全部节点"
+                    title={t("packages.nodeScope.selectAllTitle")}
                   >
-                    全选
+                    {t("packages.nodeScope.selectAll")}
                   </Button>
                   <Button
                     type="button"
@@ -243,7 +244,7 @@ export function PackageNodeScopeField({
                     onClick={() => onSelectedChange([])}
                     disabled={disabled || selectedIds.length === 0}
                   >
-                    清空
+                    {t("packages.nodeScope.clear")}
                   </Button>
                   <Button
                     type="button"
@@ -254,20 +255,23 @@ export function PackageNodeScopeField({
                     disabled={disabled}
                   >
                     <FilterIcon className="size-3.5" />
-                    只看已启用
+                    {t("packages.nodeScope.enabledOnly")}
                   </Button>
                 </div>
                 <span
                   aria-live="polite"
                   className="font-mono text-xs text-muted-foreground"
                 >
-                  已选 {selectedIds.length} / {nodes.length}
+                  {t("packages.nodeScope.selectedCount", {
+                    selected: selectedIds.length,
+                    total: nodes.length,
+                  })}
                 </span>
               </div>
 
               {visibleNodes.length === 0 ? (
                 <p className="py-6 text-center text-xs text-muted-foreground">
-                  当前筛选下没有节点，关闭「只看已启用」可查看全部。
+                  {t("packages.nodeScope.filterEmpty")}
                 </p>
               ) : (
                 <ScrollArea className="h-64">
@@ -325,7 +329,7 @@ export function PackageNodeScopeField({
                                         variant="outline"
                                         className="border-transparent bg-muted text-[10px] font-normal text-muted-foreground"
                                       >
-                                        已停用
+                                        {t("packages.nodeScope.disabled")}
                                       </Badge>
                                     ) : null}
                                   </span>
@@ -354,9 +358,9 @@ export function PackageNodeScopeField({
       {value === "none" ? (
         <Alert variant="destructive">
           <TriangleAlertIcon />
-          <AlertTitle>节点范围为空</AlertTitle>
+          <AlertTitle>{t("packages.nodeScope.noneTitle")}</AlertTitle>
           <AlertDescription>
-            该套餐的用户不会拿到任何节点，订阅为空
+            {t("packages.nodeScope.noneDesc")}
           </AlertDescription>
         </Alert>
       ) : null}

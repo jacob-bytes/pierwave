@@ -1,3 +1,4 @@
+import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { KeyRoundIcon, Loader2Icon } from "lucide-react";
@@ -20,6 +21,7 @@ import {
   changePasswordSchema,
   type ChangePasswordValues,
 } from "@/lib/schemas";
+import { t, useI18n } from "@/i18n";
 
 interface ChangePasswordDialogProps {
   open: boolean;
@@ -29,7 +31,7 @@ interface ChangePasswordDialogProps {
 /** 接口与后端并行开发：404 兜底成中文，其余错误优先透出后端文案。 */
 function changePasswordErrorText(error: unknown, fallback: string): string {
   if (error instanceof ApiError && error.status === 404) {
-    return "修改密码接口尚未就绪（后端可能还在部署），请稍后重试";
+    return t("changePassword.notReady404");
   }
   return errorText(error, fallback);
 }
@@ -44,15 +46,22 @@ export function ChangePasswordDialog({
   open,
   onOpenChange,
 }: ChangePasswordDialogProps) {
+  const { t: translate } = useI18n();
   const changePassword = useChangePassword();
+  const schema = useMemo(() => changePasswordSchema(translate), [translate]);
   const form = useForm<ChangePasswordValues>({
-    resolver: zodResolver(changePasswordSchema),
+    resolver: zodResolver(schema),
     defaultValues: {
       old_password: "",
       new_password: "",
       confirm_password: "",
     },
   });
+
+  // 切换语言后重新校验，让已显示的错误跟着换语言。
+  useEffect(() => {
+    if (form.formState.isSubmitted) void form.trigger();
+  }, [translate, form]);
 
   const onSubmit = form.handleSubmit(async (values) => {
     form.clearErrors("root");
@@ -62,15 +71,15 @@ export function ChangePasswordDialog({
         new_password: values.new_password,
       });
       form.reset();
-      toast.success("密码已修改，其它设备已下线", {
-        description: "当前设备的会话仍然有效，无需重新登录。",
+      toast.success(t("changePassword.success"), {
+        description: t("changePassword.successDesc"),
         duration: 6000,
       });
       onOpenChange(false);
     } catch (error) {
       const message = changePasswordErrorText(
         error,
-        "修改密码失败，请稍后重试",
+        t("changePassword.error"),
       );
       form.setError("root", { message });
       toast.error(message);
@@ -92,10 +101,10 @@ export function ChangePasswordDialog({
             <span className="grid size-7 place-items-center rounded-md bg-primary/10 text-primary">
               <KeyRoundIcon className="size-3.5" />
             </span>
-            修改密码
+            {t("changePassword.title")}
           </DialogTitle>
           <DialogDescription>
-            修改成功后，除当前设备外的其它登录会话会立即下线；当前会话保持有效。
+            {t("changePassword.desc")}
           </DialogDescription>
         </DialogHeader>
 
@@ -105,7 +114,7 @@ export function ChangePasswordDialog({
           onSubmit={onSubmit}
         >
           <FormField
-            label="当前密码"
+            label={t("changePassword.current")}
             htmlFor="change-password-old"
             required
             error={form.formState.errors.old_password?.message}
@@ -121,10 +130,10 @@ export function ChangePasswordDialog({
           </FormField>
 
           <FormField
-            label="新密码"
+            label={t("changePassword.next")}
             htmlFor="change-password-new"
             required
-            hint="至少 8 位，且不能与当前密码相同"
+            hint={t("changePassword.nextHint")}
             error={form.formState.errors.new_password?.message}
           >
             <Input
@@ -138,7 +147,7 @@ export function ChangePasswordDialog({
           </FormField>
 
           <FormField
-            label="确认新密码"
+            label={t("changePassword.confirm")}
             htmlFor="change-password-confirm"
             required
             error={form.formState.errors.confirm_password?.message}
@@ -163,7 +172,7 @@ export function ChangePasswordDialog({
             onClick={() => onOpenChange(false)}
             disabled={changePassword.isPending}
           >
-            取消
+            {t("common.cancel")}
           </Button>
           <Button
             type="submit"
@@ -173,7 +182,9 @@ export function ChangePasswordDialog({
             {changePassword.isPending ? (
               <Loader2Icon className="animate-spin" />
             ) : null}
-            {changePassword.isPending ? "提交中…" : "确认修改"}
+            {changePassword.isPending
+              ? t("changePassword.submitting")
+              : t("changePassword.submit")}
           </Button>
         </DialogFooter>
       </DialogContent>

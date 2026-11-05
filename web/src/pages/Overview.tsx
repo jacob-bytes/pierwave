@@ -37,6 +37,7 @@ import {
   useTraffic,
 } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import { t, useI18n } from "@/i18n";
 
 /** recharts 只在概览页内部按需加载，避免拖大主 chunk。 */
 const TrafficChart = lazy(
@@ -48,9 +49,9 @@ const TRAFFIC_DAYS = 7;
 /** 后端接口可能尚未上线，404 单独给一句可理解的中文。 */
 function statsErrorText(error: unknown): string {
   if (error instanceof ApiError && error.status === 404) {
-    return "统计接口暂未就绪，后端上线后刷新即可";
+    return t("overview.statsNotReady");
   }
-  return errorText(error, "无法加载统计数据，请检查网络后重试");
+  return errorText(error, t("overview.statsError"));
 }
 
 function KpiCard({
@@ -156,7 +157,7 @@ function OverviewError({
           <TriangleAlertIcon className="size-5" />
         </div>
         <div>
-          <p className="text-sm font-medium">概览加载失败</p>
+          <p className="text-sm font-medium">{t("overview.loadFailed")}</p>
           <p className="mt-1 text-xs text-muted-foreground">{message}</p>
         </div>
         <Button
@@ -168,7 +169,7 @@ function OverviewError({
           <RefreshCwIcon
             className={cn("size-3.5", retrying && "animate-spin")}
           />
-          重试
+          {t("common.retry")}
         </Button>
       </CardContent>
     </Card>
@@ -183,16 +184,15 @@ function EmptyOverview() {
           <ServerIcon className="size-6" />
         </div>
         <div>
-          <p className="text-base font-medium">先添加服务器</p>
+          <p className="text-base font-medium">{t("overview.emptyTitle")}</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-            添加服务器并安装 Agent
-            后，这里会显示在线状态、用户、流量趋势与告警。
+            {t("overview.emptyDesc")}
           </p>
         </div>
         <Button asChild>
           <Link to="/servers">
             <PlusIcon className="size-4" />
-            去添加服务器
+            {t("overview.emptyAction")}
           </Link>
         </Button>
       </CardContent>
@@ -243,7 +243,7 @@ function AlertRow({
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm">{label}</p>
         <p className="truncate text-xs text-muted-foreground">
-          {active ? hint : "暂无"}
+          {active ? hint : t("common.none")}
         </p>
       </div>
       <span
@@ -260,6 +260,7 @@ function AlertRow({
 }
 
 export default function OverviewPage() {
+  useI18n();
   const overview = useOverview();
   const traffic = useTraffic(TRAFFIC_DAYS);
   const events = useEnforcementEvents(50);
@@ -290,9 +291,9 @@ export default function OverviewPage() {
     <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">概览</h1>
+          <h1 className="text-xl font-semibold tracking-tight">{t("overview.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            主控、服务器与订阅的实时概况。
+            {t("overview.subtitle")}
           </p>
         </div>
         <Button
@@ -304,7 +305,7 @@ export default function OverviewPage() {
           <RefreshCwIcon
             className={cn("size-3.5", refreshing && "animate-spin")}
           />
-          刷新
+          {t("common.refresh")}
         </Button>
       </div>
 
@@ -322,11 +323,11 @@ export default function OverviewPage() {
         <>
           <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <KpiCard
-              label="在线服务器"
+              label={t("overview.onlineServers")}
               icon={ServerIcon}
               value={
                 <>
-                  {stats.servers.online}
+                  {stats.servers.online}{" "}
                   <span className="ml-1 text-sm font-normal text-muted-foreground">
                     / {stats.servers.total}
                   </span>
@@ -334,34 +335,41 @@ export default function OverviewPage() {
               }
               hint={
                 stats.alerts.offline_servers > 0
-                  ? `${stats.alerts.offline_servers} 台离线`
-                  : "全部在线"
+                  ? t("overview.offlineCount", { n: stats.alerts.offline_servers })
+                  : t("overview.allOnline")
               }
             />
             <KpiCard
-              label="用户"
+              label={t("overview.users")}
               icon={UsersIcon}
               value={
                 <>
-                  {stats.users.active}
+                  {stats.users.active}{" "}
                   <span className="ml-1 text-sm font-normal text-muted-foreground">
                     / {stats.users.total}
                   </span>
                 </>
               }
-              hint={`共 ${stats.users.total} 个用户`}
+              hint={t(
+                stats.users.total === 1
+                  ? "overview.usersTotalHintOne"
+                  : "overview.usersTotalHint",
+                { n: stats.users.total },
+              )}
             />
             <KpiCard
-              label="套餐实例"
+              label={t("overview.packageInstances")}
               icon={PackageIcon}
               value={stats.packages.instances}
-              hint={`共 ${stats.packages.total} 个套餐模板`}
+              hint={t("overview.packagesTotalHint", { n: stats.packages.total })}
             />
             <KpiCard
-              label="今日流量"
+              label={t("overview.todayTraffic")}
               icon={ActivityIcon}
               value={formatBytes(stats.traffic.today_bytes)}
-              hint={`本月 ${formatBytes(stats.traffic.month_bytes)}`}
+              hint={t("overview.monthTrafficHint", {
+                value: formatBytes(stats.traffic.month_bytes),
+              })}
             />
           </section>
 
@@ -369,10 +377,10 @@ export default function OverviewPage() {
             <Card className="gap-4 xl:col-span-2">
               <CardHeader>
                 <CardTitle className="text-sm font-medium">
-                  近 7 天流量趋势
+                  {t("overview.trafficTrend")}
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  按 UTC+8 自然日统计，缺少数据的日期按 0 计。
+                  {t("overview.trafficTrendDesc")}
                 </CardDescription>
                 <CardAction>
                   <Badge
@@ -381,7 +389,9 @@ export default function OverviewPage() {
                   >
                     {trafficTotal === null
                       ? "—"
-                      : `7 天 ${formatBytes(trafficTotal)}`}
+                      : t("overview.trafficTotal", {
+                          value: formatBytes(trafficTotal),
+                        })}
                   </Badge>
                 </CardAction>
               </CardHeader>
@@ -394,7 +404,7 @@ export default function OverviewPage() {
                       <TriangleAlertIcon className="size-5" />
                     </div>
                     <div>
-                      <p className="text-sm font-medium">流量趋势加载失败</p>
+                      <p className="text-sm font-medium">{t("overview.trafficLoadFailed")}</p>
                       <p className="mt-1 text-xs text-muted-foreground">
                         {statsErrorText(traffic.error)}
                       </p>
@@ -411,7 +421,7 @@ export default function OverviewPage() {
                           traffic.isFetching && "animate-spin",
                         )}
                       />
-                      重试
+                      {t("common.retry")}
                     </Button>
                   </div>
                 ) : (
@@ -424,9 +434,9 @@ export default function OverviewPage() {
 
             <Card className="gap-0">
               <CardHeader className="border-b border-border pb-4">
-                <CardTitle className="text-sm font-medium">告警</CardTitle>
+                <CardTitle className="text-sm font-medium">{t("overview.alerts")}</CardTitle>
                 <CardDescription className="text-xs">
-                  需要你处理的事项，点击可跳转。
+                  {t("overview.alertsDesc")}
                 </CardDescription>
                 <CardAction>
                   {alertTotal > 0 ? (
@@ -434,7 +444,7 @@ export default function OverviewPage() {
                       variant="outline"
                       className="border-transparent bg-warning/10 font-normal text-warning"
                     >
-                      {alertTotal} 项待处理
+                      {t("overview.pendingCount", { n: alertTotal })}
                     </Badge>
                   ) : (
                     <Badge
@@ -442,7 +452,7 @@ export default function OverviewPage() {
                       className="gap-1 border-transparent bg-primary/10 font-normal text-primary"
                     >
                       <CheckCircle2Icon className="size-3" />
-                      全部正常
+                      {t("overview.allNormal")}
                     </Badge>
                   )}
                 </CardAction>
@@ -451,34 +461,34 @@ export default function OverviewPage() {
                 <AlertRow
                   to="/users"
                   icon={ClockIcon}
-                  label="过期套餐实例"
+                  label={t("overview.expiredInstances")}
                   count={stats.alerts.expired_instances}
-                  hint="去用户页续期"
+                  hint={t("overview.expiredHint")}
                   tone="warning"
                 />
                 <AlertRow
                   to="/users"
                   icon={GaugeIcon}
-                  label="流量用尽实例"
+                  label={t("overview.exhaustedInstances")}
                   count={stats.alerts.exhausted_instances}
-                  hint="去用户页调整额度"
+                  hint={t("overview.exhaustedHint")}
                   tone="destructive"
                 />
                 <AlertRow
                   to="/servers"
                   icon={ServerOffIcon}
-                  label="离线服务器"
+                  label={t("overview.offlineServers")}
                   count={stats.alerts.offline_servers}
-                  hint="去服务器页检查 Agent"
+                  hint={t("overview.offlineHint")}
                   tone="destructive"
                 />
                 {expiringCerts > 0 ? (
                   <AlertRow
                     to="/certificates"
                     icon={FileKeyIcon}
-                    label="即将到期的证书"
+                    label={t("overview.expiringCerts")}
                     count={expiringCerts}
-                    hint={`${expiringCerts} 张证书 30 天内到期，点击去更换`}
+                    hint={t("overview.expiringHint", { n: expiringCerts })}
                     tone="warning"
                   />
                 ) : null}
@@ -489,10 +499,15 @@ export default function OverviewPage() {
                   >
                     <span className="flex items-center gap-2">
                       <HistoryIcon className="size-3.5" />
-                      最近断流 {recentRemoved} 条
+                      {t(
+                        recentRemoved === 1
+                          ? "overview.recentRemovedOne"
+                          : "overview.recentRemoved",
+                        { n: recentRemoved },
+                      )}
                     </span>
                     <span className="flex items-center gap-1">
-                      查看记录
+                      {t("overview.viewRecords")}
                       <ChevronRightIcon className="size-3.5" />
                     </span>
                   </Link>

@@ -1,3 +1,5 @@
+import { t } from "@/i18n";
+
 const MINUTE_MS = 60_000;
 const UTC8_OFFSET_MS = 8 * 60 * 60 * 1_000;
 const UTC8_OFFSET_SECONDS = 8 * 60 * 60;
@@ -31,19 +33,25 @@ export function formatRelativeTime(
   unixSeconds: number | null | undefined,
   now = Date.now(),
 ): string {
-  if (unixSeconds === null || unixSeconds === undefined) return "从未在线";
+  if (unixSeconds === null || unixSeconds === undefined)
+    return t("time.neverOnline");
 
   const diff = now - unixSeconds * 1_000;
-  if (diff < MINUTE_MS) return "刚刚";
+  if (diff < MINUTE_MS) return t("time.justNow");
 
   const minutes = Math.floor(diff / MINUTE_MS);
-  if (minutes < 60) return `${minutes} 分钟前`;
+  if (minutes < 60)
+    return t(minutes === 1 ? "time.minuteAgo" : "time.minutesAgo", {
+      n: minutes,
+    });
 
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
+  if (hours < 24)
+    return t(hours === 1 ? "time.hourAgo" : "time.hoursAgo", { n: hours });
 
   const days = Math.floor(hours / 24);
-  if (days < 30) return `${days} 天前`;
+  if (days < 30)
+    return t(days === 1 ? "time.dayAgo" : "time.daysAgo", { n: days });
 
   return toDateInputValue(unixSeconds);
 }
@@ -52,7 +60,8 @@ export function formatRelativeTime(
 export function formatAbsoluteTime(
   unixSeconds: number | null | undefined,
 ): string {
-  if (unixSeconds === null || unixSeconds === undefined) return "从未在线";
+  if (unixSeconds === null || unixSeconds === undefined)
+    return t("time.neverOnline");
   const date = toUtc8WallClock(unixSeconds * 1_000);
   if (Number.isNaN(date.getTime())) return "—";
   return formatUtc8DateTime(date);

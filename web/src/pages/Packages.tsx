@@ -53,6 +53,7 @@ import { formatBytes } from "@/lib/format";
 import { directionLabel } from "@/lib/labels";
 import { useDeletePackage, usePackages } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import { t, useI18n } from "@/i18n";
 
 const COLUMN_COUNT = 8;
 
@@ -63,9 +64,9 @@ function NodeScopeBadge({ item }: { item: Package }) {
       <Badge
         variant="secondary"
         className="font-normal text-muted-foreground"
-        title="用户订阅包含全部节点（含以后新增的节点）"
+        title={t("packages.scope.allTitle")}
       >
-        全部（{item.node_count}）
+        {t("packages.scope.all", { n: item.node_count })}
       </Badge>
     );
   }
@@ -75,9 +76,9 @@ function NodeScopeBadge({ item }: { item: Package }) {
       <Badge
         variant="destructive"
         className="font-normal"
-        title="用户订阅为空"
+        title={t("packages.scope.emptyTitle")}
       >
-        无节点
+        {t("packages.scope.empty")}
       </Badge>
     );
   }
@@ -86,9 +87,9 @@ function NodeScopeBadge({ item }: { item: Package }) {
     <Badge
       variant="outline"
       className="font-normal text-muted-foreground"
-      title="用户订阅只包含勾选的节点"
+      title={t("packages.scope.selectedTitle")}
     >
-      指定 {item.node_count} 个
+      {t("packages.scope.selected", { n: item.node_count })}
     </Badge>
   );
 }
@@ -137,14 +138,14 @@ function EmptyRow({ onCreate }: { onCreate: () => void }) {
             <PackageIcon className="size-5" />
           </div>
           <div>
-            <p className="text-sm font-medium">还没有套餐模板</p>
+            <p className="text-sm font-medium">{t("packages.emptyTitle")}</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              创建模板后，可以在用户抽屉里给用户绑定多张套餐实例。
+              {t("packages.emptyDesc")}
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={onCreate}>
             <PlusIcon className="size-3.5" />
-            新建套餐
+            {t("packages.emptyAction")}
           </Button>
         </div>
       </TableCell>
@@ -169,14 +170,14 @@ function ErrorRow({
             <TriangleAlertIcon className="size-5" />
           </div>
           <div>
-            <p className="text-sm font-medium">套餐模板加载失败</p>
+            <p className="text-sm font-medium">{t("packages.loadFailed")}</p>
             <p className="mt-1 text-xs text-muted-foreground">{message}</p>
           </div>
           <Button variant="outline" size="sm" onClick={onRetry} disabled={retrying}>
             <RefreshCwIcon
               className={cn("size-3.5", retrying && "animate-spin")}
             />
-            重试
+            {t("common.retry")}
           </Button>
         </div>
       </TableCell>
@@ -208,14 +209,14 @@ function DeletePackageDialog({
           <AlertDialogMedia className="bg-destructive/10 text-destructive">
             <Trash2Icon className="size-5" />
           </AlertDialogMedia>
-          <AlertDialogTitle>删除套餐模板</AlertDialogTitle>
+          <AlertDialogTitle>{t("packages.delete.title")}</AlertDialogTitle>
           <AlertDialogDescription>
-            确定删除「{packageItem.name}」？删除后不可恢复；如果还有用户绑定，需要先解绑。
+            {t("packages.delete.desc", { name: packageItem.name })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={deletePackage.isPending}>
-            取消
+            {t("common.cancel")}
           </AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
@@ -224,19 +225,19 @@ function DeletePackageDialog({
               event.preventDefault();
               deletePackage.mutate(packageItem.id, {
                 onSuccess: () => {
-                  toast.success("套餐模板已删除");
+                  toast.success(t("packages.delete.success"));
                   onOpenChange(false);
                 },
                 onError: (error) => {
                   // 契约要求直接透出后端中文 error，例如「该套餐还有 N 个用户在用」
                   toast.error(
-                    errorText(error, "删除套餐模板失败，请稍后重试"),
+                    errorText(error, t("packages.delete.error")),
                   );
                 },
               });
             }}
           >
-            删除
+            {t("common.delete")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -245,6 +246,7 @@ function DeletePackageDialog({
 }
 
 export default function PackagesPage() {
+  useI18n();
   const packages = usePackages();
   const [formState, setFormState] = useState<{
     mode: "create" | "edit";
@@ -256,21 +258,21 @@ export default function PackagesPage() {
   const showError = packages.isError;
   const errorMessage = errorText(
     packages.error,
-    "加载套餐模板失败，请检查网络后重试",
+    t("packages.loadError"),
   );
 
   return (
     <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">套餐模板</h1>
+          <h1 className="text-xl font-semibold tracking-tight">{t("packages.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            定义额度、周期、方向、倍率与节点范围，用户绑定后生成独立实例。
+            {t("packages.subtitle")}
           </p>
         </div>
         <Button onClick={() => setFormState({ mode: "create" })}>
           <PlusIcon className="size-4" />
-          新建套餐
+          {t("packages.create")}
         </Button>
       </div>
 
@@ -278,7 +280,7 @@ export default function PackagesPage() {
         <CardHeader className="border-b border-border">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle className="flex items-center gap-2 text-sm font-medium">
-              套餐列表
+              {t("packages.list")}
               {packages.data && !packages.isError ? (
                 <Badge
                   variant="secondary"
@@ -300,28 +302,28 @@ export default function PackagesPage() {
                   packages.isFetching && "animate-spin",
                 )}
               />
-              刷新
+              {t("common.refresh")}
             </Button>
           </div>
           <CardDescription className="text-xs">
-            用户绑定后生成独立套餐实例；删除前请先确认没有用户在用。
+            {t("packages.desc")}
           </CardDescription>
         </CardHeader>
 
         <CardContent className="p-0">
           <Table className="min-w-[880px]" aria-busy={packages.isPending}>
-            <TableCaption className="sr-only">套餐模板列表</TableCaption>
+            <TableCaption className="sr-only">{t("packages.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
                 {[
-                  "名称",
-                  "额度",
-                  "周期",
-                  "方向",
-                  "节点倍率",
-                  "节点范围",
-                  "在用人数",
-                  "操作",
+                  t("packages.columns.name"),
+                  t("packages.columns.quota"),
+                  t("packages.columns.period"),
+                  t("packages.columns.direction"),
+                  t("packages.columns.ratio"),
+                  t("packages.columns.scope"),
+                  t("packages.columns.userCount"),
+                  t("packages.columns.actions"),
                 ].map((label) => (
                   <TableHead
                     key={label}
@@ -356,7 +358,14 @@ export default function PackagesPage() {
                       {formatBytes(item.quota_bytes)}
                     </TableCell>
                     <TableCell className="px-4 py-2.5 text-xs text-muted-foreground">
-                      {item.period_days ? `${item.period_days} 天` : "长期"}
+                      {item.period_days
+                        ? t(
+                            item.period_days === 1
+                              ? "packages.period.day"
+                              : "packages.period.days",
+                            { n: item.period_days },
+                          )
+                        : t("packages.period.longTerm")}
                     </TableCell>
                     <TableCell className="px-4 py-2.5">
                       <Badge
@@ -377,7 +386,12 @@ export default function PackagesPage() {
                         variant="secondary"
                         className="font-mono text-[11px] font-normal text-muted-foreground"
                       >
-                        {item.user_count} 人
+                        {t(
+                        item.user_count === 1
+                          ? "packages.userCountOne"
+                          : "packages.userCount",
+                        { n: item.user_count },
+                      )}
                       </Badge>
                     </TableCell>
                     <TableCell className="px-4 py-2.5">
@@ -386,7 +400,7 @@ export default function PackagesPage() {
                           <Button
                             variant="ghost"
                             size="icon-sm"
-                            aria-label={`操作 ${item.name}`}
+                            aria-label={t("packages.actionsAria", { name: item.name })}
                           >
                             <MoreHorizontalIcon className="size-4" />
                           </Button>
@@ -398,7 +412,7 @@ export default function PackagesPage() {
                             }
                           >
                             <PencilIcon className="size-3.5" />
-                            编辑
+                            {t("common.edit")}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
@@ -406,13 +420,15 @@ export default function PackagesPage() {
                             disabled={item.user_count > 0}
                             title={
                               item.user_count > 0
-                                ? `还有 ${item.user_count} 个用户在用，需先解绑`
+                                ? t("packages.delete.disabledTitle", {
+                                  n: item.user_count,
+                                })
                                 : undefined
                             }
                             onSelect={() => setDeleteTarget(item)}
                           >
                             <Trash2Icon className="size-3.5" />
-                            删除
+                            {t("common.delete")}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

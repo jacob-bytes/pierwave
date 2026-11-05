@@ -37,6 +37,7 @@ import { errorText } from "@/lib/errors";
 import { useEnforcementEvents } from "@/lib/queries";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { t, useI18n } from "@/i18n";
 
 const COLUMN_COUNT = 6;
 const LIMIT_OPTIONS = [50, 200] as const;
@@ -47,26 +48,26 @@ type KindFilter = "all" | EnforcementEventKind;
 
 const kindMeta: Record<
   EnforcementEventKind,
-  { label: string; badge: string; dot: string }
+  { labelKey: string; badge: string; dot: string }
 > = {
   removed: {
-    label: "移除",
+    labelKey: "events.kind.removed",
     badge: "bg-destructive/10 text-destructive",
     dot: "bg-destructive",
   },
   restored: {
-    label: "恢复",
+    labelKey: "events.kind.restored",
     badge: "bg-primary/10 text-primary",
     dot: "bg-primary",
   },
 };
 
-const reasonLabels: Record<string, string> = {
-  exhausted: "额度用尽",
-  expired: "套餐已到期",
-  disabled: "套餐已停用",
-  inactive: "账号或套餐不可用",
-  recovered: "套餐恢复可用",
+const reasonLabelKeys: Record<string, string> = {
+  exhausted: "events.reason.exhausted",
+  expired: "events.reason.expired",
+  disabled: "events.reason.disabled",
+  inactive: "events.reason.inactive",
+  recovered: "events.reason.recovered",
 };
 
 /** 后端可能返回逗号分隔的多原因；按固定顺序由后端排好，这里只负责翻译。 */
@@ -75,8 +76,12 @@ function reasonLabel(reason: string): string {
     .split(",")
     .map((code) => code.trim())
     .filter(Boolean)
-    .map((code) => reasonLabels[code] ?? code);
-  return labels.length > 0 ? labels.join("、") : "—";
+    .map((code) =>
+      reasonLabelKeys[code] ? t(reasonLabelKeys[code]) : code,
+    );
+  return labels.length > 0
+    ? labels.join(t("common.listSeparator"))
+    : "—";
 }
 
 function EventTypeBadge({ kind }: { kind: EnforcementEventKind }) {
@@ -94,7 +99,7 @@ function EventTypeBadge({ kind }: { kind: EnforcementEventKind }) {
         aria-hidden="true"
         className={cn("size-1.5 rounded-full", meta.dot)}
       />
-      {meta.label}
+      {t(meta.labelKey)}
     </Badge>
   );
 }
@@ -136,7 +141,10 @@ function EmptyRow({
   onReset: () => void;
 }) {
   const filtered = filter !== "all";
-  const label = filter === "removed" ? "移除" : "恢复";
+  const label =
+    filter === "removed"
+      ? t("events.kind.removed")
+      : t("events.kind.restored");
 
   return (
     <TableRow className="hover:bg-transparent">
@@ -147,17 +155,19 @@ function EmptyRow({
           </div>
           <div>
             <p className="text-sm font-medium">
-              {filtered ? `还没有「${label}」记录` : "还没有断流记录"}
+              {filtered
+                ? t("events.empty.filtered", { label })
+                : t("events.empty.all")}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
               {filtered
-                ? "当前条数范围内没有这类事件，换个筛选条件看看。"
-                : "用户流量用尽、套餐过期或被停用时，主控会在这里记录断流与恢复。"}
+                ? t("events.empty.filteredDesc")
+                : t("events.empty.allDesc")}
             </p>
           </div>
           {filtered ? (
             <Button variant="outline" size="sm" onClick={onReset}>
-              查看全部
+              {t("common.viewAll")}
             </Button>
           ) : null}
         </div>
@@ -183,7 +193,7 @@ function ErrorRow({
             <TriangleAlertIcon className="size-5" />
           </div>
           <div>
-            <p className="text-sm font-medium">事件记录加载失败</p>
+            <p className="text-sm font-medium">{t("events.loadFailed")}</p>
             <p className="mt-1 text-xs text-muted-foreground">{message}</p>
           </div>
           <Button
@@ -195,7 +205,7 @@ function ErrorRow({
             <RefreshCwIcon
               className={cn("size-3.5", retrying && "animate-spin")}
             />
-            重试
+            {t("common.retry")}
           </Button>
         </div>
       </TableCell>
@@ -204,6 +214,7 @@ function ErrorRow({
 }
 
 export default function EventsPage() {
+  useI18n();
   const [filter, setFilter] = useState<KindFilter>("all");
   const [limit, setLimit] = useState<number>(LIMIT_OPTIONS[0]);
   const events = useEnforcementEvents(limit);
@@ -215,15 +226,15 @@ export default function EventsPage() {
   const showError = events.isError && !events.data;
   const errorMessage = errorText(
     events.error,
-    "加载事件记录失败，请检查网络后重试",
+    t("events.loadError"),
   );
 
   return (
     <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">事件</h1>
+        <h1 className="text-xl font-semibold tracking-tight">{t("events.title")}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          查看用户断流与恢复的记录，按时间倒序排列。
+          {t("events.subtitle")}
         </p>
       </div>
 
@@ -231,7 +242,7 @@ export default function EventsPage() {
         <CardHeader className="border-b border-border">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle className="flex items-center gap-2 text-sm font-medium">
-              事件记录
+              {t("events.list")}
               {events.data ? (
                 <Badge
                   variant="secondary"
@@ -253,11 +264,11 @@ export default function EventsPage() {
                   events.isFetching && "animate-spin",
                 )}
               />
-              刷新
+              {t("common.refresh")}
             </Button>
           </div>
           <CardDescription className="text-xs">
-            断流与恢复由主控自动记录；按时间倒序展示，筛选在已加载的记录内生效。
+            {t("events.desc")}
           </CardDescription>
         </CardHeader>
 
@@ -267,14 +278,16 @@ export default function EventsPage() {
             onValueChange={(value) => setFilter(value as KindFilter)}
           >
             <TabsList>
-              <TabsTrigger value="all">全部</TabsTrigger>
-              <TabsTrigger value="removed">移除</TabsTrigger>
-              <TabsTrigger value="restored">恢复</TabsTrigger>
+              <TabsTrigger value="all">{t("events.filter.all")}</TabsTrigger>
+              <TabsTrigger value="removed">{t("events.filter.removed")}</TabsTrigger>
+              <TabsTrigger value="restored">{t("events.filter.restored")}</TabsTrigger>
             </TabsList>
           </Tabs>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">条数</span>
+            <span className="text-xs text-muted-foreground">
+              {t("events.limitLabel")}
+            </span>
             <Select
               value={String(limit)}
               onValueChange={(value) => setLimit(Number(value))}
@@ -286,7 +299,7 @@ export default function EventsPage() {
                 <SelectGroup>
                   {LIMIT_OPTIONS.map((option) => (
                     <SelectItem key={option} value={String(option)}>
-                      最近 {option} 条
+                      {t("events.limitOption", { n: option })}
                     </SelectItem>
                   ))}
                 </SelectGroup>
@@ -297,15 +310,15 @@ export default function EventsPage() {
 
         <CardContent className="p-0">
           <Table className="min-w-[760px]" aria-busy={events.isPending}>
-            <TableCaption className="sr-only">断流与恢复事件</TableCaption>
+            <TableCaption className="sr-only">{t("events.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
-                <TableHead className={HEAD_CLASS}>时间</TableHead>
-                <TableHead className={HEAD_CLASS}>类型</TableHead>
-                <TableHead className={HEAD_CLASS}>用户</TableHead>
-                <TableHead className={HEAD_CLASS}>服务器</TableHead>
-                <TableHead className={HEAD_CLASS}>原因</TableHead>
-                <TableHead className={HEAD_CLASS}>说明</TableHead>
+                <TableHead className={HEAD_CLASS}>{t("events.columns.time")}</TableHead>
+                <TableHead className={HEAD_CLASS}>{t("events.columns.type")}</TableHead>
+                <TableHead className={HEAD_CLASS}>{t("events.columns.user")}</TableHead>
+                <TableHead className={HEAD_CLASS}>{t("events.columns.server")}</TableHead>
+                <TableHead className={HEAD_CLASS}>{t("events.columns.reason")}</TableHead>
+                <TableHead className={HEAD_CLASS}>{t("events.columns.message")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

@@ -32,6 +32,7 @@ import { errorText } from "@/lib/errors";
 import { useCertificates } from "@/lib/queries";
 import { formatAbsoluteTime, formatDate } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { t, useI18n } from "@/i18n";
 
 const COLUMN_COUNT = 5;
 
@@ -70,14 +71,14 @@ function EmptyRow({ onUpload }: { onUpload: () => void }) {
             <FileKeyIcon className="size-5" />
           </div>
           <div>
-            <p className="text-sm font-medium">还没有证书</p>
+            <p className="text-sm font-medium">{t("certificates.emptyTitle")}</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              TLS 节点必须绑定证书；上传第一张证书后即可在节点表单里选用。
+              {t("certificates.emptyDesc")}
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={onUpload}>
             <PlusIcon className="size-3.5" />
-            上传第一张证书
+            {t("certificates.emptyAction")}
           </Button>
         </div>
       </TableCell>
@@ -102,14 +103,14 @@ function ErrorRow({
             <TriangleAlertIcon className="size-5" />
           </div>
           <div>
-            <p className="text-sm font-medium">证书列表加载失败</p>
+            <p className="text-sm font-medium">{t("certificates.loadFailed")}</p>
             <p className="mt-1 text-xs text-muted-foreground">{message}</p>
           </div>
           <Button variant="outline" size="sm" onClick={onRetry} disabled={retrying}>
             <RefreshCwIcon
               className={cn("size-3.5", retrying && "animate-spin")}
             />
-            重试
+            {t("common.retry")}
           </Button>
         </div>
       </TableCell>
@@ -123,9 +124,9 @@ function DaysLeft({ days }: { days: number }) {
     return (
       <span
         className="text-xs font-medium text-destructive"
-        title={`已过期 ${Math.abs(days)} 天`}
+        title={t("certificates.expiredTitle", { n: Math.abs(days) })}
       >
-        已过期
+        {t("certificates.expired")}
       </span>
     );
   }
@@ -137,7 +138,9 @@ function DaysLeft({ days }: { days: number }) {
         days <= 30 ? "text-warning" : "text-muted-foreground",
       )}
     >
-      {days} 天
+      {t(days === 1 ? "certificates.daysLeftOne" : "certificates.daysLeft", {
+        n: days,
+      })}
     </span>
   );
 }
@@ -159,6 +162,7 @@ function DomainsCell({ domains }: { domains: string[] }) {
 }
 
 export default function CertificatesPage() {
+  useI18n();
   const certificates = useCertificates();
   const [uploadOpen, setUploadOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Certificate | null>(null);
@@ -167,21 +171,21 @@ export default function CertificatesPage() {
   const showError = certificates.isError && !certificates.data;
   const errorMessage = errorText(
     certificates.error,
-    "加载证书列表失败，请检查网络后重试",
+    t("certificates.loadError"),
   );
 
   return (
     <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">证书</h1>
+          <h1 className="text-xl font-semibold tracking-tight">{t("certificates.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            管理 TLS 节点使用的证书；上传后可在节点表单里绑定。
+            {t("certificates.subtitle")}
           </p>
         </div>
         <Button onClick={() => setUploadOpen(true)}>
           <PlusIcon className="size-4" />
-          上传证书
+          {t("certificates.upload")}
         </Button>
       </div>
 
@@ -189,7 +193,7 @@ export default function CertificatesPage() {
         <CardHeader className="border-b border-border">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle className="flex items-center gap-2 text-sm font-medium">
-              证书列表
+              {t("certificates.list")}
               {certificates.data && !certificates.isError ? (
                 <Badge
                   variant="secondary"
@@ -211,20 +215,26 @@ export default function CertificatesPage() {
                   certificates.isFetching && "animate-spin",
                 )}
               />
-              刷新
+              {t("common.refresh")}
             </Button>
           </div>
           <CardDescription className="text-xs">
-            证书与私钥只在上传时提交，列表不回显私钥；30 天内到期的会在概览里告警。
+            {t("certificates.desc")}
           </CardDescription>
         </CardHeader>
 
         <CardContent className="p-0">
           <Table className="min-w-[820px]" aria-busy={certificates.isPending}>
-            <TableCaption className="sr-only">证书列表</TableCaption>
+            <TableCaption className="sr-only">{t("certificates.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
-                {["名称", "域名", "到期日", "剩余天数", "操作"].map((label) => (
+                {[
+                  t("certificates.columns.name"),
+                  t("certificates.columns.domains"),
+                  t("certificates.columns.notAfter"),
+                  t("certificates.columns.daysLeft"),
+                  t("certificates.columns.actions"),
+                ].map((label) => (
                   <TableHead
                     key={label}
                     className="h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground"
@@ -269,8 +279,10 @@ export default function CertificatesPage() {
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        title="删除"
-                        aria-label={`删除证书 ${certificate.name}`}
+                        title={t("common.delete")}
+                        aria-label={t("certificates.deleteAria", {
+                          name: certificate.name,
+                        })}
                         onClick={() => setDeleteTarget(certificate)}
                       >
                         <Trash2Icon className="size-4" />

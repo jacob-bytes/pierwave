@@ -2,6 +2,7 @@
 
 import type { CSSProperties } from "react"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
+import { useI18n } from "@/i18n"
 import {
   CircleCheckIcon,
   InfoIcon,
@@ -11,10 +12,13 @@ import {
 } from "lucide-react"
 
 const Toaster = ({ ...props }: ToasterProps) => {
+  const { t } = useI18n()
+
   return (
     <Sonner
       theme="dark"
       position="top-right"
+      containerAriaLabel={t("app.notifications")}
       duration={3000}
       gap={8}
       className="toaster group"

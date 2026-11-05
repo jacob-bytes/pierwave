@@ -66,6 +66,7 @@ import { formatBytes } from "@/lib/format";
 import { useCreateServer, useServers } from "@/lib/queries";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { t, useI18n } from "@/i18n";
 
 const COLUMN_COUNT = 10;
 /** 心跳超过这个时长没有更新就不该再当作实时数据。 */
@@ -73,10 +74,11 @@ const HEARTBEAT_STALE_MS = 90_000;
 const HEAD_CLASS =
   "h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground";
 
-const xrayModeLabels: Record<string, string> = {
-  external: "外置",
-  embedded: "内联",
-};
+function xrayModeLabel(mode: string): string {
+  if (mode === "external") return t("servers.mode.external");
+  if (mode === "embedded") return t("servers.mode.embedded");
+  return mode;
+}
 
 function isServiceDown(server: Server): boolean {
   return server.status === "online" && server.xray_running === false;
@@ -86,22 +88,22 @@ type XrayState = "running" | "stopped" | "unknown";
 
 const xrayMeta: Record<
   XrayState,
-  { label: string; dot: string; text: string; tone: DetailTone }
+  { labelKey: string; dot: string; text: string; tone: DetailTone }
 > = {
   running: {
-    label: "运行中",
+    labelKey: "servers.xray.running",
     dot: "bg-primary",
     text: "text-primary",
     tone: "primary",
   },
   stopped: {
-    label: "已停止",
+    labelKey: "servers.xray.stopped",
     dot: "bg-destructive",
     text: "text-destructive",
     tone: "destructive",
   },
   unknown: {
-    label: "未知",
+    labelKey: "servers.xray.unknown",
     dot: "bg-muted-foreground/40",
     text: "text-muted-foreground",
     tone: "muted",
@@ -116,9 +118,11 @@ function xrayState(server: Server): XrayState {
 }
 
 function xrayTitle(server: Server, state: XrayState): string {
-  if (server.status !== "online") return "服务器离线，无法获取实时 Xray 状态";
-  if (state === "unknown") return "Agent 尚未上报 Xray 状态";
-  return state === "running" ? "Xray 正在运行" : "Agent 在线，但 Xray 已停止";
+  if (server.status !== "online") return t("servers.xray.offlineTitle");
+  if (state === "unknown") return t("servers.xray.unknownTitle");
+  return state === "running"
+    ? t("servers.xray.runningTitle")
+    : t("servers.xray.stoppedTitle");
 }
 
 function StatusBadge({ server }: { server: Server }) {
@@ -128,7 +132,7 @@ function StatusBadge({ server }: { server: Server }) {
   return (
     <Badge
       variant="outline"
-      title={serviceDown ? "Agent 在线，但 Xray 服务已停止" : undefined}
+      title={serviceDown ? t("servers.serviceAbnormalTitle") : undefined}
       className={cn(
         "gap-1.5 border-transparent font-normal",
         serviceDown
@@ -151,7 +155,11 @@ function StatusBadge({ server }: { server: Server }) {
           )}
         />
       )}
-      {serviceDown ? "服务异常" : online ? "在线" : "离线"}
+      {serviceDown
+        ? t("servers.statusServiceDown")
+        : online
+          ? t("servers.statusOnline")
+          : t("servers.statusOffline")}
     </Badge>
   );
 }
@@ -173,7 +181,7 @@ function XrayStatus({ server }: { server: Server }) {
           state === "running" && "motion-safe:animate-pulse",
         )}
       />
-      {meta.label}
+      {t(meta.labelKey)}
     </span>
   );
 }
@@ -200,9 +208,9 @@ type HeartbeatInfo = { text: string; stale: boolean; title: string };
 function heartbeatInfo(healthAt: number | null): HeartbeatInfo {
   if (healthAt === null) {
     return {
-      text: "暂无心跳",
+      text: t("servers.heartbeatNone"),
       stale: false,
-      title: "Agent 尚未上报心跳",
+      title: t("servers.heartbeatNoneTitle"),
     };
   }
 
@@ -212,8 +220,8 @@ function heartbeatInfo(healthAt: number | null): HeartbeatInfo {
     text: formatRelativeTime(healthAt),
     stale,
     title: stale
-      ? `最后心跳：${absolute}（超过 90 秒未更新）`
-      : `最后心跳：${absolute}`,
+      ? t("servers.heartbeatStale", { time: absolute })
+      : t("servers.heartbeatLast", { time: absolute }),
   };
 }
 
@@ -240,7 +248,7 @@ function MemoryCell({ server }: { server: Server }) {
     return (
       <span
         className="text-xs text-muted-foreground"
-        title="Agent 尚未上报内存"
+        title={t("servers.memoryNotReported")}
       >
         —
       </span>
@@ -254,7 +262,9 @@ function MemoryCell({ server }: { server: Server }) {
     >
       <Progress
         value={percent}
-        aria-label={`内存占用 ${Math.round(percent)}%`}
+        aria-label={t("servers.memoryAria", {
+          percent: Math.round(percent),
+        })}
         className="h-1.5 w-20"
       />
       <span className="font-mono text-xs tabular-nums text-muted-foreground">
@@ -274,12 +284,12 @@ function VersionCell({ server }: { server: Server }) {
           "font-mono text-xs",
           !version && "text-muted-foreground",
         )}
-        title={version ? "Agent 版本" : "Agent 尚未上报版本"}
+        title={version ? t("servers.agentVersion") : t("servers.agentVersionMissing")}
       >
         {agentVersionLabel(server)}
       </span>
       <span className="font-mono text-[11px] text-muted-foreground">
-        配置 v{server.config_version}
+        {t("servers.configVersion", { version: server.config_version })}
       </span>
     </div>
   );
@@ -329,10 +339,10 @@ function ServerDetailsPopover({ server }: { server: Server }) {
           variant="ghost"
           size="sm"
           className="xl:hidden"
-          aria-label={`查看 ${server.name} 的详情`}
+          aria-label={t("servers.detailsAria", { name: server.name })}
         >
           <InfoIcon className="size-3.5" />
-          详情
+          {t("common.details")}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72">
@@ -344,42 +354,55 @@ function ServerDetailsPopover({ server }: { server: Server }) {
         </PopoverHeader>
         <dl className="flex flex-col gap-2 text-xs">
           <DetailRow
-            label="Agent 版本"
+            label={t("servers.agentVersion")}
             value={agentVersionLabel(server)}
             tone={server.agent_version ? "default" : "muted"}
           />
-          <DetailRow label="配置版本" value={`v${server.config_version}`} />
           <DetailRow
-            label="状态"
-            value={serviceDown ? "服务异常" : online ? "在线" : "离线"}
+            label={t("servers.detail.configVersion")}
+            value={`v${server.config_version}`}
+          />
+          <DetailRow
+            label={t("servers.detail.status")}
+            value={
+              serviceDown
+                ? t("servers.statusServiceDown")
+                : online
+                  ? t("servers.statusOnline")
+                  : t("servers.statusOffline")
+            }
             tone={serviceDown ? "destructive" : online ? "primary" : "muted"}
           />
           <DetailRow
             label="Xray"
-            value={xrayMeta[state].label}
+            value={t(xrayMeta[state].labelKey)}
             tone={xrayMeta[state].tone}
           />
           <DetailRow
-            label="负载（1 分钟）"
-            value={server.load1 === null ? "未上报" : server.load1.toFixed(2)}
+            label={t("servers.detail.load")}
+            value={
+              server.load1 === null
+                ? t("common.notReported")
+                : server.load1.toFixed(2)
+            }
             tone={server.load1 === null ? "muted" : "default"}
           />
           <DetailRow
-            label="内存"
+            label={t("servers.detail.memory")}
             value={
               percent === null
-                ? "未上报"
+                ? t("common.notReported")
                 : `${Math.round(percent)}% · ${formatBytes(server.mem_used)} / ${formatBytes(server.mem_total)}`
             }
             tone={percent === null ? "muted" : "default"}
           />
           <DetailRow
-            label="最后心跳"
+            label={t("servers.detail.lastHeartbeat")}
             value={heartbeat.text}
             tone={heartbeat.stale ? "warning" : "default"}
           />
           <DetailRow
-            label="最后在线"
+            label={t("servers.detail.lastSeen")}
             value={formatRelativeTime(server.last_seen_at)}
           />
         </dl>
@@ -438,14 +461,14 @@ function EmptyRow({ onCreate }: { onCreate: () => void }) {
             <ServerOffIcon className="size-5" />
           </div>
           <div>
-            <p className="text-sm font-medium">还没有服务器</p>
+            <p className="text-sm font-medium">{t("servers.emptyTitle")}</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              添加第一台服务器后，Agent 会自动连入主控。
+              {t("servers.emptyDesc")}
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={onCreate}>
             <PlusIcon className="size-3.5" />
-            添加服务器
+            {t("servers.emptyAction")}
           </Button>
         </div>
       </TableCell>
@@ -470,14 +493,14 @@ function ErrorRow({
             <TriangleAlertIcon className="size-5" />
           </div>
           <div>
-            <p className="text-sm font-medium">服务器列表加载失败</p>
+            <p className="text-sm font-medium">{t("servers.loadFailed")}</p>
             <p className="mt-1 text-xs text-muted-foreground">{message}</p>
           </div>
           <Button variant="outline" size="sm" onClick={onRetry} disabled={retrying}>
             <RefreshCwIcon
               className={cn("size-3.5", retrying && "animate-spin")}
             />
-            重试
+            {t("common.retry")}
           </Button>
         </div>
       </TableCell>
@@ -486,6 +509,7 @@ function ErrorRow({
 }
 
 export default function ServersPage() {
+  useI18n();
   const servers = useServers();
   const create = useCreateServer();
 
@@ -510,10 +534,10 @@ export default function ServersPage() {
   const showError = servers.isError && !servers.data;
   const errorMessage = errorText(
     servers.error,
-    "加载服务器列表失败，请检查网络后重试",
+    t("servers.loadError"),
   );
   const createError = create.isError
-    ? errorText(create.error, "创建服务器失败，请稍后重试")
+    ? errorText(create.error, t("servers.createError"))
     : null;
 
   function openCreateDialog() {
@@ -543,10 +567,10 @@ export default function ServersPage() {
           setAddress("");
           setCreated(data);
           setTokenOpen(true);
-          toast.success(`服务器「${data.server.name}」已创建`);
+          toast.success(t("servers.createdToast", { name: data.server.name }));
         },
         onError: (error) => {
-          toast.error(errorText(error, "创建服务器失败，请稍后重试"));
+          toast.error(errorText(error, t("servers.createError")));
         },
       },
     );
@@ -564,12 +588,12 @@ export default function ServersPage() {
   ) {
     const ok = await copyText(text);
     if (!ok) {
-      toast.error(`${label}复制失败，请手动选择文本复制`);
+      toast.error(t("servers.tokenDialog.copyFailed", { label }));
       return;
     }
 
     setCopied(field);
-    toast.success(`${label}已复制`);
+    toast.success(t("servers.tokenDialog.copiedLabel", { label }));
     if (copyTimer.current) clearTimeout(copyTimer.current);
     copyTimer.current = setTimeout(() => setCopied(null), 1_500);
   }
@@ -578,14 +602,14 @@ export default function ServersPage() {
     <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">服务器</h1>
+          <h1 className="text-xl font-semibold tracking-tight">{t("servers.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            管理接入主控的 Agent 节点。
+            {t("servers.subtitle")}
           </p>
         </div>
         <Button onClick={openCreateDialog}>
           <PlusIcon className="size-4" />
-          添加服务器
+          {t("servers.add")}
         </Button>
       </div>
 
@@ -593,7 +617,7 @@ export default function ServersPage() {
         <CardHeader className="border-b border-border">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle className="flex items-center gap-2 text-sm font-medium">
-              服务器列表
+              {t("servers.list")}
               {servers.data ? (
                 <Badge
                   variant="secondary"
@@ -606,17 +630,20 @@ export default function ServersPage() {
             <div className="flex flex-wrap items-center gap-3">
               {servers.data ? (
                 <span className="text-xs text-muted-foreground">
-                  在线 {onlineCount} / {items.length}
+                  {t("servers.onlineCount", {
+                    online: onlineCount,
+                    total: items.length,
+                  })}
                 </span>
               ) : null}
               {serviceDownCount > 0 ? (
                 <Badge
                   variant="outline"
-                  title="Agent 在线，但 Xray 服务已停止"
+                  title={t("servers.serviceAbnormalTitle")}
                   className="gap-1 border-transparent bg-destructive/10 font-normal text-destructive"
                 >
                   <TriangleAlertIcon className="size-3" />
-                  服务异常 {serviceDownCount}
+                  {t("servers.serviceAbnormal", { n: serviceDownCount })}
                 </Badge>
               ) : null}
               <Button
@@ -631,12 +658,12 @@ export default function ServersPage() {
                     servers.isFetching && "animate-spin",
                   )}
                 />
-                刷新
+                {t("common.refresh")}
               </Button>
             </div>
           </div>
           <CardDescription className="text-xs">
-            Agent 主动连入主控，无需开放入站端口；列表每 15 秒自动刷新。在线但 Xray 停止会标红，窄屏可在「详情」查看负载与内存。
+            {t("servers.desc")}
           </CardDescription>
         </CardHeader>
 
@@ -645,32 +672,32 @@ export default function ServersPage() {
             className="min-w-[760px] xl:min-w-[980px]"
             aria-busy={servers.isPending}
           >
-            <TableCaption className="sr-only">服务器列表</TableCaption>
+            <TableCaption className="sr-only">{t("servers.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
-                <TableHead className={HEAD_CLASS}>名称</TableHead>
+                <TableHead className={HEAD_CLASS}>{t("common.name")}</TableHead>
                 <TableHead className={cn(HEAD_CLASS, "hidden lg:table-cell")}>
-                  地址
+                  {t("common.address")}
                 </TableHead>
                 <TableHead className={cn(HEAD_CLASS, "hidden lg:table-cell")}>
-                  模式
+                  {t("servers.mode.column")}
                 </TableHead>
-                <TableHead className={HEAD_CLASS}>状态</TableHead>
+                <TableHead className={HEAD_CLASS}>{t("common.status")}</TableHead>
                 <TableHead className={HEAD_CLASS}>Xray</TableHead>
-                <TableHead className={HEAD_CLASS}>最后心跳</TableHead>
+                <TableHead className={HEAD_CLASS}>{t("servers.detail.lastHeartbeat")}</TableHead>
                 <TableHead
                   className={cn(HEAD_CLASS, "hidden xl:table-cell")}
-                  title="Agent 版本 / 配置版本"
+                  title={`${t("servers.agentVersion")} / ${t("servers.detail.configVersion")}`}
                 >
-                  版本
+                  {t("common.version")}
                 </TableHead>
                 <TableHead className={cn(HEAD_CLASS, "hidden xl:table-cell")}>
-                  负载
+                  {t("servers.detail.load")}
                 </TableHead>
                 <TableHead className={cn(HEAD_CLASS, "hidden xl:table-cell")}>
-                  内存
+                  {t("servers.detail.memory")}
                 </TableHead>
-                <TableHead className={HEAD_CLASS}>操作</TableHead>
+                <TableHead className={HEAD_CLASS}>{t("common.actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -714,7 +741,7 @@ export default function ServersPage() {
                         {server.address}
                       </TableCell>
                       <TableCell className="hidden px-4 py-2.5 text-xs text-muted-foreground lg:table-cell">
-                        {xrayModeLabels[server.xray_mode] ?? server.xray_mode}
+                        {xrayModeLabel(server.xray_mode)}
                       </TableCell>
                       <TableCell className="px-4 py-2.5">
                         <StatusBadge server={server} />
@@ -730,7 +757,7 @@ export default function ServersPage() {
                       </TableCell>
                       <TableCell
                         className="hidden px-4 py-2.5 font-mono text-xs tabular-nums xl:table-cell"
-                        title="1 分钟平均负载"
+                        title={t("servers.loadTitle")}
                       >
                         {server.load1 === null ? (
                           <span className="text-muted-foreground">—</span>
@@ -747,10 +774,10 @@ export default function ServersPage() {
                           <Button variant="ghost" size="sm" asChild>
                             <Link
                               to={`/servers/${server.id}/nodes`}
-                              aria-label={`管理 ${server.name} 的节点`}
+                              aria-label={t("servers.manageNodesAria", { name: server.name })}
                             >
                               <NetworkIcon className="size-3.5" />
-                              节点
+                              {t("servers.nodes")}
                             </Link>
                           </Button>
                         </div>
@@ -767,9 +794,9 @@ export default function ServersPage() {
       <Dialog open={createOpen} onOpenChange={handleCreateOpenChange}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>添加服务器</DialogTitle>
+            <DialogTitle>{t("servers.createDialog.title")}</DialogTitle>
             <DialogDescription>
-              创建后会生成一次性配对 token，Agent 用它反向连入主控。
+              {t("servers.createDialog.desc")}
             </DialogDescription>
           </DialogHeader>
 
@@ -779,7 +806,7 @@ export default function ServersPage() {
             onSubmit={handleCreate}
           >
             <div className="space-y-2">
-              <Label htmlFor="server-name">名称</Label>
+              <Label htmlFor="server-name">{t("servers.createDialog.name")}</Label>
               <Input
                 id="server-name"
                 value={name}
@@ -791,34 +818,38 @@ export default function ServersPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="server-address">地址</Label>
+              <Label htmlFor="server-address">{t("servers.createDialog.address")}</Label>
               <Input
                 id="server-address"
                 value={address}
                 onChange={(event) => setAddress(event.target.value)}
-                placeholder="1.2.3.4 或 node.example.com"
+                placeholder={t("servers.createDialog.addressPlaceholder")}
                 autoComplete="off"
                 disabled={create.isPending}
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="server-mode">Xray 模式</Label>
+              <Label htmlFor="server-mode">{t("servers.createDialog.mode")}</Label>
               <Select
                 value={xrayMode}
                 onValueChange={setXrayMode}
                 disabled={create.isPending}
               >
                 <SelectTrigger id="server-mode" className="w-full">
-                  <SelectValue placeholder="选择模式" />
+                  <SelectValue placeholder={t("servers.mode.placeholder")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="external">外置（external）</SelectItem>
-                  <SelectItem value="embedded">内联（embedded）</SelectItem>
+                  <SelectItem value="external">
+                    {t("servers.mode.externalOption")}
+                  </SelectItem>
+                  <SelectItem value="embedded">
+                    {t("servers.mode.embeddedOption")}
+                  </SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                外置模式要求服务器已自行安装并运行 Xray；内联模式由 Agent 托管。
+                {t("servers.mode.hint")}
               </p>
             </div>
 
@@ -839,7 +870,7 @@ export default function ServersPage() {
               onClick={() => setCreateOpen(false)}
               disabled={create.isPending}
             >
-              取消
+              {t("common.cancel")}
             </Button>
             <Button
               type="submit"
@@ -851,7 +882,9 @@ export default function ServersPage() {
               {create.isPending ? (
                 <Loader2Icon className="animate-spin" />
               ) : null}
-              {create.isPending ? "创建中…" : "创建服务器"}
+              {create.isPending
+                ? t("servers.createDialog.submitting")
+                : t("servers.createDialog.submit")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -862,12 +895,12 @@ export default function ServersPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <KeyRoundIcon className="size-4 text-primary" />
-              服务器已创建
+              {t("servers.tokenDialog.title")}
             </DialogTitle>
             <DialogDescription>
               {created
-                ? `「${created.server.name}」的配对凭据如下。token 只显示这一次，请立即保存。`
-                : "token 只显示这一次，请立即保存。"}
+                ? t("servers.tokenDialog.desc", { name: created.server.name })
+                : t("servers.tokenDialog.descNoName")}
             </DialogDescription>
           </DialogHeader>
 
@@ -876,7 +909,7 @@ export default function ServersPage() {
               <div className="rounded-lg border border-border bg-muted/30 p-3">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-xs text-muted-foreground">
-                    配对 token
+                    {t("servers.tokenDialog.token")}
                   </span>
                   <Button
                     variant="ghost"
@@ -890,7 +923,7 @@ export default function ServersPage() {
                     ) : (
                       <CopyIcon />
                     )}
-                    {copied === "token" ? "已复制" : "复制"}
+                    {copied === "token" ? t("common.copied") : t("common.copy")}
                   </Button>
                 </div>
                 <code className="mt-2 block font-mono text-xs break-all">
@@ -900,7 +933,7 @@ export default function ServersPage() {
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-3">
-                  <Label>安装命令</Label>
+                  <Label>{t("servers.tokenDialog.installCommand")}</Label>
                   <Button
                     variant="ghost"
                     size="xs"
@@ -908,7 +941,7 @@ export default function ServersPage() {
                       void handleCopy(
                         "command",
                         created.install_command,
-                        "安装命令",
+                        t("servers.tokenDialog.installCommand"),
                       )
                     }
                   >
@@ -917,7 +950,7 @@ export default function ServersPage() {
                     ) : (
                       <CopyIcon />
                     )}
-                    {copied === "command" ? "已复制" : "复制"}
+                    {copied === "command" ? t("common.copied") : t("common.copy")}
                   </Button>
                 </div>
                 <pre className="max-h-40 overflow-auto rounded-lg border border-border bg-muted/30 p-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap">
@@ -928,8 +961,7 @@ export default function ServersPage() {
               <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
                 <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
                 <p>
-                  请在 Agent 主机上以 root 执行安装命令。token
-                  泄露后请删除服务器并重新创建。
+                  {t("servers.tokenDialog.rootWarning")}
                 </p>
               </div>
             </div>
@@ -940,14 +972,20 @@ export default function ServersPage() {
               variant="outline"
               onClick={() => {
                 if (created) {
-                  void handleCopy("command", created.install_command, "安装命令");
+                  void handleCopy(
+                    "command",
+                    created.install_command,
+                    t("servers.tokenDialog.installCommand"),
+                  );
                 }
               }}
             >
               <CopyIcon className="size-3.5" />
-              复制安装命令
+              {t("servers.tokenDialog.copyCommand")}
             </Button>
-            <Button onClick={() => setTokenOpen(false)}>我已保存</Button>
+            <Button onClick={() => setTokenOpen(false)}>
+              {t("servers.tokenDialog.saved")}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

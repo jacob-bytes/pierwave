@@ -1,3 +1,4 @@
+import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2Icon } from "lucide-react";
@@ -20,6 +21,7 @@ import {
   certificateFormSchema,
   type CertificateFormValues,
 } from "@/lib/schemas";
+import { t, useI18n } from "@/i18n";
 
 interface CertificateFormDialogProps {
   open: boolean;
@@ -38,17 +40,24 @@ export function CertificateFormDialog({
   open,
   onOpenChange,
 }: CertificateFormDialogProps) {
+  const { t: translate } = useI18n();
   const createCertificate = useCreateCertificate();
   const pending = createCertificate.isPending;
 
+  const schema = useMemo(() => certificateFormSchema(translate), [translate]);
   const form = useForm<CertificateFormValues>({
-    resolver: zodResolver(certificateFormSchema),
+    resolver: zodResolver(schema),
     defaultValues: {
       name: "",
       cert_pem: "",
       key_pem: "",
     },
   });
+
+  // 切换语言后重新校验，让已显示的错误跟着换语言。
+  useEffect(() => {
+    if (form.formState.isSubmitted) void form.trigger();
+  }, [translate, form]);
 
   const onSubmit = form.handleSubmit(async (values) => {
     form.clearErrors("root");
@@ -59,11 +68,11 @@ export function CertificateFormDialog({
         cert_pem: values.cert_pem,
         key_pem: values.key_pem,
       });
-      toast.success(`证书「${certificate.name}」已上传`);
+      toast.success(t("certificates.form.uploaded", { name: certificate.name }));
       onOpenChange(false);
     } catch (error) {
       // 解析失败、证书与私钥不匹配等都由后端判定，这里原样透出中文错误。
-      const message = errorText(error, "上传证书失败，请稍后重试");
+      const message = errorText(error, t("certificates.form.error"));
       form.setError("root", { message });
       toast.error(message);
     }
@@ -79,15 +88,15 @@ export function CertificateFormDialog({
     >
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>上传证书</DialogTitle>
+          <DialogTitle>{t("certificates.form.title")}</DialogTitle>
           <DialogDescription>
-            粘贴证书与私钥的 PEM 内容；域名与有效期由后端解析，私钥上传后不再回显。
+            {t("certificates.form.desc")}
           </DialogDescription>
         </DialogHeader>
 
         <form id="certificate-form" className="space-y-4" onSubmit={onSubmit}>
           <FormField
-            label="名称"
+            label={t("certificates.form.name")}
             htmlFor="certificate-name"
             required
             error={form.formState.errors.name?.message}
@@ -95,7 +104,7 @@ export function CertificateFormDialog({
             <Input
               id="certificate-name"
               autoComplete="off"
-              placeholder="例如 example.com 泛域名"
+              placeholder={t("certificates.form.namePlaceholder")}
               disabled={pending}
               aria-invalid={Boolean(form.formState.errors.name)}
               {...form.register("name")}
@@ -103,11 +112,11 @@ export function CertificateFormDialog({
           </FormField>
 
           <FormField
-            label="证书 PEM"
+            label={t("certificates.form.certPem")}
             htmlFor="certificate-cert-pem"
             required
             error={form.formState.errors.cert_pem?.message}
-            hint="支持证书链；-----BEGIN CERTIFICATE----- 之后的内容原样提交。"
+            hint={t("certificates.form.certPemHint")}
           >
             <Textarea
               id="certificate-cert-pem"
@@ -121,11 +130,11 @@ export function CertificateFormDialog({
           </FormField>
 
           <FormField
-            label="私钥 PEM"
+            label={t("certificates.form.keyPem")}
             htmlFor="certificate-key-pem"
             required
             error={form.formState.errors.key_pem?.message}
-            hint="必须是未加密的私钥，且与上面的证书匹配。"
+            hint={t("certificates.form.keyPemHint")}
           >
             <Textarea
               id="certificate-key-pem"
@@ -148,11 +157,13 @@ export function CertificateFormDialog({
             onClick={() => onOpenChange(false)}
             disabled={pending}
           >
-            取消
+            {t("common.cancel")}
           </Button>
           <Button type="submit" form="certificate-form" disabled={pending}>
             {pending ? <Loader2Icon className="animate-spin" /> : null}
-            {pending ? "上传中…" : "上传证书"}
+            {pending
+              ? t("certificates.form.submitting")
+              : t("certificates.form.submit")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { isUnauthorized, useMe } from "@/lib/queries";
 import { safeNextPath } from "@/lib/auth";
 import { errorText } from "@/lib/errors";
+import { useI18n } from "@/i18n";
 const LoginPage = lazy(() => import("@/pages/Login"));
 const OverviewPage = lazy(() => import("@/pages/Overview"));
 const ServersPage = lazy(() => import("@/pages/Servers"));
@@ -48,6 +49,7 @@ function LoginRedirect({ landing }: { landing: string }) {
 }
 
 export default function App() {
+  const { t } = useI18n();
   const me = useMe();
 
   if (me.isPending) {
@@ -55,7 +57,7 @@ export default function App() {
       <Centered>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2Icon className="size-4 animate-spin" />
-          正在验证会话…
+          {t("app.verifyingSession")}
         </div>
       </Centered>
     );
@@ -64,7 +66,7 @@ export default function App() {
   if (me.isError) {
     if (isUnauthorized(me.error)) {
       return (
-        <Suspense fallback={<RouteFallback label="正在加载登录页…" />}>
+        <Suspense fallback={<RouteFallback label={t("app.loadingLogin")} />}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="*" element={<Navigate to="/login" replace />} />
@@ -73,10 +75,7 @@ export default function App() {
       );
     }
 
-    const message = errorText(
-      me.error,
-      "无法连接主控，请检查网络或主控是否已启动",
-    );
+    const message = errorText(me.error, t("app.cannotConnectFallback"));
 
     return (
       <Centered>
@@ -86,7 +85,7 @@ export default function App() {
               <TriangleAlertIcon className="size-5" />
             </div>
             <div>
-              <p className="text-sm font-medium">无法连接主控</p>
+              <p className="text-sm font-medium">{t("app.cannotConnectTitle")}</p>
               <p className="mt-1 text-xs text-muted-foreground">{message}</p>
             </div>
             <Button
@@ -95,7 +94,7 @@ export default function App() {
               onClick={() => void me.refetch()}
             >
               <RefreshCwIcon className="size-3.5" />
-              重试
+              {t("app.retry")}
             </Button>
           </CardContent>
         </Card>
@@ -110,7 +109,7 @@ export default function App() {
   const landing = isAdmin ? "/" : "/me";
 
   return (
-    <Suspense fallback={<RouteFallback label="正在加载页面…" />}>
+    <Suspense fallback={<RouteFallback label={t("app.loadingPage")} />}>
       <Routes>
         <Route path="/login" element={<LoginRedirect landing={landing} />} />
         {isAdmin ? (

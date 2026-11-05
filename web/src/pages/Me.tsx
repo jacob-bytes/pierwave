@@ -53,6 +53,7 @@ import { directionLabel, packageStatusTone } from "@/lib/labels";
 import { useMeSummary, useMeTraffic } from "@/lib/queries";
 import { formatDate } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { t, useI18n } from "@/i18n";
 
 /** recharts 仍然只通过 lazy() 加载，不会进入主 chunk。 */
 const TrafficChart = lazy(() => import("@/components/overview/TrafficChart"));
@@ -62,7 +63,7 @@ const TRAFFIC_DAYS = 7;
 /** 自助接口与后端并行开发，404 给一句能看懂的中文，不写 mock。 */
 function meErrorText(error: unknown, fallback: string): string {
   if (error instanceof ApiError && error.status === 404) {
-    return "自助接口暂未就绪，后端上线后刷新即可";
+    return t("me.apiNotReady");
   }
   return errorText(error, fallback);
 }
@@ -71,15 +72,15 @@ type MeStatus = UserPackageStatus | "none" | "quota_exceeded";
 
 const statusMeta: Record<
   MeStatus,
-  { label: string; tone: PackageStatusTone }
+  { labelKey: string; tone: PackageStatusTone }
 > = {
-  active: { label: "正常", tone: "primary" },
-  exhausted: { label: "已用尽", tone: "destructive" },
-  expired: { label: "已过期", tone: "warning" },
-  disabled: { label: "已停用", tone: "muted" },
-  none: { label: "未绑定套餐", tone: "muted" },
+  active: { labelKey: "me.status.active", tone: "primary" },
+  exhausted: { labelKey: "me.status.exhausted", tone: "destructive" },
+  expired: { labelKey: "me.status.expired", tone: "warning" },
+  disabled: { labelKey: "me.status.disabled", tone: "muted" },
+  none: { labelKey: "me.status.none", tone: "muted" },
   /** 账户级总闸命中；与单卡「已用尽」用不同文案区分。 */
-  quota_exceeded: { label: "超出总额度", tone: "destructive" },
+  quota_exceeded: { labelKey: "me.status.quotaExceeded", tone: "destructive" },
 };
 
 /** 多张卡取最严重者：用尽 > 过期 > 生效中 > 全部停用 > 无套餐。 */
@@ -101,7 +102,7 @@ function MeStatusBadge({ status }: { status: MeStatus }) {
         statusToneClasses[meta.tone],
       )}
     >
-      {meta.label}
+      {t(meta.labelKey)}
     </Badge>
   );
 }
@@ -128,9 +129,9 @@ function StatusAlerts({
         className="border-destructive/25 bg-destructive/10"
       >
         <TriangleAlertIcon />
-        <AlertTitle>账户额度已用尽</AlertTitle>
+        <AlertTitle>{t("me.alerts.quotaExceededTitle")}</AlertTitle>
         <AlertDescription className="text-destructive/90">
-          节点暂时不可用；请联系管理员调大总额度或重置用量。
+          {t("me.alerts.quotaExceededDesc")}
         </AlertDescription>
       </Alert>
     );
@@ -148,18 +149,18 @@ function StatusAlerts({
           className="border-destructive/25 bg-destructive/10"
         >
           <TriangleAlertIcon />
-          <AlertTitle>额度已用尽</AlertTitle>
+          <AlertTitle>{t("me.alerts.exhaustedTitle")}</AlertTitle>
           <AlertDescription className="text-destructive/90">
-            节点暂时不可用；请联系管理员续费或调整额度。
+            {t("me.alerts.exhaustedDesc")}
           </AlertDescription>
         </Alert>
       ) : null}
       {expired ? (
         <Alert className="border-warning/25 bg-warning/10 text-warning">
           <CalendarClockIcon />
-          <AlertTitle>套餐已过期</AlertTitle>
+          <AlertTitle>{t("me.alerts.expiredTitle")}</AlertTitle>
           <AlertDescription className="text-warning/90">
-            节点暂时不可用；请联系管理员续费或调整套餐。
+            {t("me.alerts.expiredDesc")}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -208,7 +209,8 @@ function PackageCard({ item }: { item: UserPackageView }) {
               {item.package_name}
             </CardTitle>
             <CardDescription className="mt-1 text-xs">
-              {directionLabel(item.direction)} · 节点倍率 ×{item.node_ratio}
+              {directionLabel(item.direction)} ·{" "}
+              {t("me.package.ratio", { ratio: item.node_ratio })}
             </CardDescription>
           </div>
           <PackageStatusBadge status={item.status} />
@@ -224,16 +226,20 @@ function PackageCard({ item }: { item: UserPackageView }) {
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
             <CalendarIcon className="size-3.5" />
-            到期
+            {t("me.package.expires")}
             <span className="text-foreground/80">
-              {item.expires_at ? formatDate(item.expires_at) : "长期有效"}
+              {item.expires_at
+                ? formatDate(item.expires_at)
+                : t("common.longTermValid")}
             </span>
           </span>
           <span className="flex items-center gap-1.5">
             <RefreshCwIcon className="size-3.5" />
-            重置
+            {t("me.package.reset")}
             <span className="text-foreground/80">
-              {item.reset_day ? `每月 ${item.reset_day} 日` : "不重置"}
+              {item.reset_day
+                ? t("me.package.resetMonthly", { day: item.reset_day })
+                : t("me.package.noReset")}
             </span>
           </span>
         </div>
@@ -301,7 +307,7 @@ function MeError({
           <TriangleAlertIcon className="size-5" />
         </div>
         <div>
-          <p className="text-sm font-medium">个人中心加载失败</p>
+          <p className="text-sm font-medium">{t("me.loadFailed")}</p>
           <p className="mt-1 text-xs text-muted-foreground">{message}</p>
         </div>
         <Button
@@ -313,7 +319,7 @@ function MeError({
           <RefreshCwIcon
             className={cn("size-3.5", retrying && "animate-spin")}
           />
-          重试
+          {t("common.retry")}
         </Button>
       </CardContent>
     </Card>
@@ -342,9 +348,9 @@ function SubscriptionSection({ summary }: { summary: MeSummary }) {
 
   async function handleCopy() {
     if (await copyText(url)) {
-      toast.success("订阅链接已复制");
+      toast.success(t("me.subscription.copied"));
     } else {
-      toast.error("复制失败，请手动选择链接复制");
+      toast.error(t("me.subscription.copyError"));
     }
   }
 
@@ -353,10 +359,10 @@ function SubscriptionSection({ summary }: { summary: MeSummary }) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm font-medium">
           <Link2Icon className="size-4 text-muted-foreground" />
-          订阅
+          {t("me.subscription.title")}
         </CardTitle>
         <CardDescription className="text-xs">
-          导入订阅后，节点与套餐变化会自动同步，无需重复配置。
+          {t("me.subscription.desc")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -370,7 +376,7 @@ function SubscriptionSection({ summary }: { summary: MeSummary }) {
           <div className="flex shrink-0 items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => void handleCopy()}>
               <CopyIcon className="size-3.5" />
-              复制
+              {t("me.subscription.copy")}
             </Button>
             <Button
               variant="outline"
@@ -378,13 +384,13 @@ function SubscriptionSection({ summary }: { summary: MeSummary }) {
               onClick={() => setQrOpen(true)}
             >
               <QrCodeIcon className="size-3.5" />
-              二维码
+              {t("me.subscription.qr")}
             </Button>
           </div>
         </div>
         <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
           <InfoIcon className="mt-0.5 size-3.5 shrink-0" />
-          修改套餐请联系管理员，调整后这里的额度与状态会自动更新。
+          {t("me.subscription.hint")}
         </p>
       </CardContent>
 
@@ -411,16 +417,18 @@ function TrafficSection({
   return (
     <Card className="gap-4">
       <CardHeader>
-        <CardTitle className="text-sm font-medium">近 7 天用量</CardTitle>
+        <CardTitle className="text-sm font-medium">{t("me.traffic.title")}</CardTitle>
         <CardDescription className="text-xs">
-          按 UTC+8 自然日统计，只包含你自己的流量。
+          {t("me.traffic.desc")}
         </CardDescription>
         <CardAction>
           <Badge
             variant="outline"
             className="font-mono text-[11px] font-normal text-muted-foreground"
           >
-            {total === null ? "—" : `7 天 ${formatBytes(total)}`}
+            {total === null
+              ? "—"
+              : t("me.traffic.total", { value: formatBytes(total) })}
           </Badge>
         </CardAction>
       </CardHeader>
@@ -433,9 +441,9 @@ function TrafficSection({
               <TriangleAlertIcon className="size-5" />
             </div>
             <div>
-              <p className="text-sm font-medium">用量趋势加载失败</p>
+              <p className="text-sm font-medium">{t("me.traffic.loadFailed")}</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {meErrorText(traffic.error, "无法加载用量趋势，请检查网络后重试")}
+                {meErrorText(traffic.error, t("me.traffic.loadError"))}
               </p>
             </div>
             <Button
@@ -450,7 +458,7 @@ function TrafficSection({
                   traffic.isFetching && "animate-spin",
                 )}
               />
-              重试
+              {t("common.retry")}
             </Button>
           </div>
         ) : (
@@ -464,6 +472,7 @@ function TrafficSection({
 }
 
 export default function MePage() {
+  useI18n();
   const summary = useMeSummary();
   const traffic = useMeTraffic(TRAFFIC_DAYS);
   const { pathname } = useLocation();
@@ -486,7 +495,7 @@ export default function MePage() {
       <MeError
         message={meErrorText(
           summary.error,
-          "无法加载个人数据，请检查网络后重试",
+          t("me.loadError"),
         )}
         retrying={summary.isFetching}
         onRetry={() => void summary.refetch()}
@@ -526,11 +535,11 @@ export default function MePage() {
               <MeStatusBadge status={status} />
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              短码{" "}
+              {t("me.shortCode")}{" "}
               <span className="font-mono text-foreground/80">
                 {data.user.short_code}
               </span>{" "}
-              · 这里只显示你自己的数据
+              · {t("me.onlyOwnData")}
             </p>
           </div>
         </div>
@@ -543,7 +552,7 @@ export default function MePage() {
           <RefreshCwIcon
             className={cn("size-3.5", refreshing && "animate-spin")}
           />
-          刷新
+          {t("common.refresh")}
         </Button>
       </div>
 
@@ -554,28 +563,28 @@ export default function MePage() {
 
       <section className="grid gap-4 sm:grid-cols-3">
         <MetricCard
-          label="今日流量"
+          label={t("me.todayTraffic")}
           icon={ActivityIcon}
           value={formatBytes(data.traffic.today_bytes)}
-          hint="今天 0:00 起累计"
+          hint={t("me.todayHint")}
         />
         <MetricCard
-          label="本月流量"
+          label={t("me.monthTraffic")}
           icon={CalendarIcon}
           value={formatBytes(data.traffic.month_bytes)}
-          hint="本月 1 日起累计"
+          hint={t("me.monthHint")}
         />
         <MetricCard
-          label="套餐"
+          label={t("me.packages")}
           icon={PackageIcon}
-          value={`${packages.length} 张`}
-          hint="含生效中与已结束的套餐"
+          value={t("me.packagesValue", { n: packages.length })}
+          hint={t("me.packagesHint")}
         />
       </section>
 
       <section id="packages" className="scroll-mt-6 space-y-3">
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-medium">我的套餐</h2>
+          <h2 className="text-sm font-medium">{t("me.myPackages")}</h2>
           {packages.length > 0 ? (
             <Badge
               variant="secondary"
@@ -592,9 +601,9 @@ export default function MePage() {
               <PackageIcon className="size-5" />
             </div>
             <div>
-              <p className="text-sm font-medium">还没有套餐</p>
+              <p className="text-sm font-medium">{t("me.emptyPackages")}</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                请联系管理员开通套餐，开通后额度与订阅会自动显示在这里。
+                {t("me.emptyPackagesDesc")}
               </p>
             </div>
           </div>
@@ -624,15 +633,15 @@ export default function MePage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-sm font-medium">
               <ShieldCheckIcon className="size-4 text-muted-foreground" />
-              账号安全
+              {t("me.accountSecurity")}
             </CardTitle>
             <CardDescription className="text-xs">
-              定期更换密码；修改后其它设备上的登录会立即下线，当前设备保持登录。
+              {t("me.accountSecurityDesc")}
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground">
-              当前账号{" "}
+              {t("me.currentAccount")}{" "}
               <span className="font-mono text-foreground/80">
                 {data.user.username}
               </span>
@@ -643,7 +652,7 @@ export default function MePage() {
               onClick={() => setPasswordOpen(true)}
             >
               <KeyRoundIcon className="size-3.5" />
-              修改密码
+              {t("me.changePassword")}
             </Button>
           </CardContent>
         </Card>
