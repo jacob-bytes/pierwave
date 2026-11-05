@@ -36,6 +36,8 @@ async fn handle(mut socket: WebSocket, state: AppState) {
         return;
     };
 
+    // 心跳会带上 agent 版本一起落库，后续重连以最新 hello 为准。
+    let agent_version = hello.agent_version.clone();
     let server = match repo::servers::find_by_token(&state.db.pool, &hello.token).await {
         Ok(Some(server)) => server,
         _ => {
@@ -103,7 +105,7 @@ async fn handle(mut socket: WebSocket, state: AppState) {
             frame = socket.recv() => {
                 match frame {
                     Some(Ok(Message::Text(text))) => {
-                        handle_agent_message(&state, &server.id, &text).await;
+                        handle_agent_message(&state, &server.id, &agent_version, &text).await;
                     }
                     Some(Ok(Message::Close(_))) | None => break,
                     Some(Ok(_)) => {}
@@ -154,13 +156,26 @@ async fn send_json(socket: &mut WebSocket, message: &MasterMessage) -> bool {
     }
 }
 
-async fn handle_agent_message(state: &AppState, server_id: &str, text: &str) {
+async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: &str, text: &str) {
     match serde_json::from_str::<AgentMessage>(text) {
         Ok(AgentMessage::Heartbeat(hb)) => {
-            if let Err(e) = repo::servers::heartbeat(&state.db.pool, server_id).await {
+            let health = repo::servers::HealthSnapshot {
+                xray_running: hb.xray_running,
+                nginx_running: hb.nginx_running,
+                load1: hb.load1 as f64,
+                mem_used: hb.mem_used as i64,
+                mem_total: hb.mem_total as i64,
+                disk_used: hb.disk_used as i64,
+                disk_total: hb.disk_total as i64,
+                uptime_secs: hb.uptime_secs as i64,
+            };
+            if let Err(e) =
+                repo::servers::update_health(&state.db.pool, server_id, agent_version, &health)
+                    .await
+            {
                 tracing::error!(error = %e, "heartbeat write failed");
             }
-            tracing::debug!(seq = hb.seq, load1 = hb.load1, "heartbeat");
+            tracing::debug!(seq = hb.seq, xray = hb.xray_running, "heartbeat");
         }
         Ok(AgentMessage::ApplyResult(result)) => {
             if result.ok {
@@ -1420,5 +1435,41 @@ mod enforcement_tests {
             "关闭时恢复对账也必须停"
         );
         assert_no_more_desired(&mut subscription.receiver, Duration::from_millis(200)).await;
+    }
+
+    /// 心跳必须把健康指标和 agent 版本落库，否则面板只能看到「在线」，
+    /// 而「agent 活着但 xray 崩了」会完全不可见。
+    #[tokio::test]
+    async fn heartbeat_persists_health_and_version() {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let state = AppState::new(db, "web/dist");
+        let (server, _token) = repo::servers::create(&state.db.pool, "hk-1", "1.2.3.4", "external")
+            .await
+            .unwrap();
+
+        let health = repo::servers::HealthSnapshot {
+            xray_running: false,
+            nginx_running: true,
+            load1: 1.25,
+            mem_used: 512,
+            mem_total: 1024,
+            disk_used: 10,
+            disk_total: 100,
+            uptime_secs: 3600,
+        };
+        repo::servers::update_health(&state.db.pool, &server.id, "0.1.0", &health)
+            .await
+            .unwrap();
+
+        let listed = repo::servers::list(&state.db.pool).await.unwrap();
+        let row = &listed[0];
+        assert_eq!(row.agent_version.as_deref(), Some("0.1.0"));
+        assert_eq!(row.xray_running, Some(false), "xray 挂了必须能看出来");
+        assert_eq!(row.load1, Some(1.25));
+        assert_eq!(row.mem_total, Some(1024));
+        assert_eq!(row.uptime_secs, Some(3600));
+        assert!(row.health_at.is_some());
+        assert_eq!(row.status, "online");
     }
 }

@@ -37,6 +37,17 @@ pub struct Server {
     pub last_seen_at: Option<i64>,
     pub config_version: i64,
     pub created_at: i64,
+    /// 以下是 Agent 心跳带来的健康数据；没连过的服务器全是 None。
+    pub agent_version: Option<String>,
+    pub xray_running: Option<bool>,
+    pub nginx_running: Option<bool>,
+    pub load1: Option<f64>,
+    pub mem_used: Option<i64>,
+    pub mem_total: Option<i64>,
+    pub disk_used: Option<i64>,
+    pub disk_total: Option<i64>,
+    pub uptime_secs: Option<i64>,
+    pub health_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize)]

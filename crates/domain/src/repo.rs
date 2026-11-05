@@ -315,6 +315,19 @@ pub mod sessions {
 pub mod servers {
     use super::*;
 
+    /// Agent 心跳里与本项目相关的健康指标。
+    #[derive(Debug, Clone, Default)]
+    pub struct HealthSnapshot {
+        pub xray_running: bool,
+        pub nginx_running: bool,
+        pub load1: f64,
+        pub mem_used: i64,
+        pub mem_total: i64,
+        pub disk_used: i64,
+        pub disk_total: i64,
+        pub uptime_secs: i64,
+    }
+
     /// 返回 (服务器, 明文配对 token)。token 只在创建时可见一次。
     pub async fn create(
         pool: &SqlitePool,
@@ -437,6 +450,47 @@ pub mod servers {
             .bind(id)
             .execute(pool)
             .await?;
+        Ok(())
+    }
+
+    /// 落库一次心跳：健康指标 + agent 版本。`last_seen_at` 由这里一并推进，
+    /// 避免心跳和状态写入分成两次事务。
+    pub async fn update_health(
+        pool: &SqlitePool,
+        id: &str,
+        agent_version: &str,
+        health: &HealthSnapshot,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE servers SET
+                status = 'online',
+                last_seen_at = ?,
+                health_at = ?,
+                agent_version = ?,
+                xray_running = ?,
+                nginx_running = ?,
+                load1 = ?,
+                mem_used = ?,
+                mem_total = ?,
+                disk_used = ?,
+                disk_total = ?,
+                uptime_secs = ?
+             WHERE id = ?",
+        )
+        .bind(now())
+        .bind(now())
+        .bind(agent_version)
+        .bind(health.xray_running)
+        .bind(health.nginx_running)
+        .bind(health.load1)
+        .bind(health.mem_used)
+        .bind(health.mem_total)
+        .bind(health.disk_used)
+        .bind(health.disk_total)
+        .bind(health.uptime_secs)
+        .bind(id)
+        .execute(pool)
+        .await?;
         Ok(())
     }
 
