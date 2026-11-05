@@ -98,6 +98,15 @@ pub struct CertificateView {
     pub created_at: i64,
 }
 
+/// 管理员视角的全局节点列表项：节点 + 所属服务器名（选择器要按服务器分组）。
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct NodeListItem {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub node: Node,
+    pub server_name: String,
+}
+
 /// 订阅装配用：节点 + 所属服务器地址。
 ///
 /// 订阅端点要跨服务器取节点，地址不在 `nodes` 表里，靠 JOIN 一次带出，
@@ -265,6 +274,9 @@ pub struct UserView {
     /// 名下套餐实例数；与 `packages.len()` 一致，方便前端分页/汇总时少算一次。
     pub package_count: i64,
     pub packages: Vec<UserPackageView>,
+    /// 是否已超出账户总额度（`users.quota_bytes` 非空且 `used_bytes >= quota_bytes`）。
+    /// 由后端算，前端不要自己拿 used/quota 去比。
+    pub quota_exceeded: bool,
 }
 
 impl From<(User, Vec<UserPackageView>)> for UserView {
@@ -280,6 +292,9 @@ impl From<(User, Vec<UserPackageView>)> for UserView {
             created_at: user.created_at,
             package_count: packages.len() as i64,
             packages,
+            quota_exceeded: user
+                .quota_bytes
+                .is_some_and(|quota| user.used_bytes >= quota),
         }
     }
 }

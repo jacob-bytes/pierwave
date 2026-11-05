@@ -788,6 +788,19 @@ pub mod nodes {
     /// 订阅用：所有服务器下启用的节点，并带出服务器地址。
     ///
     /// JOIN 天然满足「所属服务器必须存在」；否则节点在库里就是孤儿，不该出现在订阅里。
+    /// 全局节点列表（跨服务器），供管理端的选择器使用。
+    pub async fn list_all(pool: &SqlitePool) -> anyhow::Result<Vec<crate::models::NodeListItem>> {
+        Ok(sqlx::query_as::<_, crate::models::NodeListItem>(
+            "SELECT n.*, s.name AS server_name
+             FROM nodes n
+             JOIN servers s ON s.id = n.server_id
+             ORDER BY s.created_at ASC, s.rowid ASC,
+                      n.created_at ASC, n.rowid ASC",
+        )
+        .fetch_all(pool)
+        .await?)
+    }
+
     pub async fn list_enabled_with_server(
         pool: &SqlitePool,
     ) -> anyhow::Result<Vec<NodeWithServer>> {
@@ -1589,6 +1602,8 @@ pub mod authorization {
              JOIN packages p ON p.id = up.package_id
              WHERE n.server_id = ? AND n.enabled = 1
                AND u.status = 'active'
+               -- 账户总额度：NULL = 不限；达到或超过即全站失去资格
+               AND (u.quota_bytes IS NULL OR u.used_bytes < u.quota_bytes)
                AND (? IS NULL OR u.id = ?)
                AND (p.node_scope_explicit = 0
                     OR EXISTS (SELECT 1 FROM package_nodes pn

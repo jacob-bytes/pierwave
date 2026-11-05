@@ -27,6 +27,7 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/servers/{id}/nodes",
             get(routes::nodes::list).post(routes::nodes::create),
         )
+        .route("/api/v1/nodes", get(routes::nodes::list_all))
         .route(
             "/api/v1/nodes/{id}",
             patch(routes::nodes::update).delete(routes::nodes::delete),

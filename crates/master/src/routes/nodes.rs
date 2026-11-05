@@ -323,6 +323,13 @@ pub async fn apply(
     ))
 }
 
+/// 全局节点列表：跨服务器，供套餐范围选择器用。
+pub async fn list_all(State(state): State<AppState>, user: CurrentUser) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+    let items = repo::nodes::list_all(&state.db.pool).await?;
+    Ok(Json(json!({ "items": items })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -818,5 +825,37 @@ mod tests {
         assert_eq!(inbounds.len(), 2);
         assert_eq!(inbounds[0]["tag"], good_tag.as_str());
         assert_eq!(inbounds[1]["tag"], "api");
+    }
+
+    #[tokio::test]
+    async fn global_node_list_includes_server_name() {
+        let (app, state, cookie) = setup().await;
+        let (server, _token) = repo::servers::create(&state.db.pool, "hk-1", "1.2.3.4", "external")
+            .await
+            .unwrap();
+        repo::nodes::create(
+            &state.db.pool,
+            &server.id,
+            repo::nodes::NewNode {
+                tag: Some("vless-1".into()),
+                name: "香港-01".into(),
+                protocol: "vless".into(),
+                transport: "tcp".into(),
+                security: "none".into(),
+                port: 443,
+                config_json: "{}".into(),
+                enabled: true,
+                cert_id: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let (status, body) = request(&app, Some(&cookie), Method::GET, "/api/v1/nodes", None).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let items = body["items"].as_array().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["server_name"], "hk-1");
+        assert_eq!(items[0]["name"], "香港-01");
     }
 }

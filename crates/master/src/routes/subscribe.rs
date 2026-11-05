@@ -612,4 +612,33 @@ mod tests {
         );
         assert!(!body.contains("香港-REALITY"));
     }
+
+    /// 账户总额度用尽后，即使套餐实例还有额度，订阅也必须为空。
+    #[tokio::test]
+    async fn total_quota_exhaustion_empties_subscription() {
+        let (app, state, short_code) = setup().await;
+
+        let (status, _, body) = get(&app, &format!("/api/v1/sub/{short_code}"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            !body.contains("proxies: []"),
+            "总额度充足时应导出节点：{body}"
+        );
+
+        // 把用户推到总额度上限（setup 里 quota_bytes = 10_000）
+        let user = repo::users::find_by_username(&state.db.pool, "alice")
+            .await
+            .unwrap()
+            .unwrap();
+        repo::users::add_used_bytes(&state.db.pool, &user.id, 10_000)
+            .await
+            .unwrap();
+
+        let (status, _, body) = get(&app, &format!("/api/v1/sub/{short_code}"), None).await;
+        assert_eq!(status, StatusCode::OK, "断流不是错误态");
+        assert!(
+            body.contains("proxies: []"),
+            "超出总额度后订阅应为空：{body}"
+        );
+    }
 }

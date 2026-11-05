@@ -54,7 +54,44 @@ import { directionLabel } from "@/lib/labels";
 import { useDeletePackage, usePackages } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-const COLUMN_COUNT = 7;
+const COLUMN_COUNT = 8;
+
+/** 节点范围三态：全部（N）/ 指定 N 个 / 无节点。 */
+function NodeScopeBadge({ item }: { item: Package }) {
+  if (item.node_ids.length > 0) {
+    return (
+      <Badge
+        variant="outline"
+        className="font-normal text-muted-foreground"
+        title="用户订阅只包含勾选的节点"
+      >
+        指定 {item.node_count} 个
+      </Badge>
+    );
+  }
+
+  if (item.node_count > 0) {
+    return (
+      <Badge
+        variant="secondary"
+        className="font-normal text-muted-foreground"
+        title="用户订阅包含全部节点（含以后新增的节点）"
+      >
+        全部（{item.node_count}）
+      </Badge>
+    );
+  }
+
+  return (
+    <Badge
+      variant="destructive"
+      className="font-normal"
+      title="用户订阅为空"
+    >
+      无节点
+    </Badge>
+  );
+}
 
 function LoadingRows() {
   return (
@@ -75,6 +112,9 @@ function LoadingRows() {
           </TableCell>
           <TableCell className="px-4 py-3">
             <Skeleton className="h-3.5 w-10" />
+          </TableCell>
+          <TableCell className="px-4 py-3">
+            <Skeleton className="h-5 w-16 rounded-full" />
           </TableCell>
           <TableCell className="px-4 py-3">
             <Skeleton className="h-5 w-12 rounded-full" />
@@ -225,7 +265,7 @@ export default function PackagesPage() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">套餐模板</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            定义额度、周期、方向与倍率，用户绑定后生成独立实例。
+            定义额度、周期、方向、倍率与节点范围，用户绑定后生成独立实例。
           </p>
         </div>
         <Button onClick={() => setFormState({ mode: "create" })}>
@@ -269,7 +309,7 @@ export default function PackagesPage() {
         </CardHeader>
 
         <CardContent className="p-0">
-          <Table className="min-w-[760px]" aria-busy={packages.isPending}>
+          <Table className="min-w-[880px]" aria-busy={packages.isPending}>
             <TableCaption className="sr-only">套餐模板列表</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
@@ -279,6 +319,7 @@ export default function PackagesPage() {
                   "周期",
                   "方向",
                   "节点倍率",
+                  "节点范围",
                   "在用人数",
                   "操作",
                 ].map((label) => (
@@ -327,6 +368,9 @@ export default function PackagesPage() {
                     </TableCell>
                     <TableCell className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
                       ×{item.node_ratio}
+                    </TableCell>
+                    <TableCell className="px-4 py-2.5">
+                      <NodeScopeBadge item={item} />
                     </TableCell>
                     <TableCell className="px-4 py-2.5">
                       <Badge

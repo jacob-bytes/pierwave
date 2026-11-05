@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PackageNodeScopeField } from "@/components/packages/PackageNodeScopeField";
 import type { CreatePackageInput, Package } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { bytesToGbInput, parseGbInput } from "@/lib/format";
@@ -27,12 +28,20 @@ import { useCreatePackage, useUpdatePackage } from "@/lib/queries";
 import {
   packageFormSchema,
   type PackageFormValues,
+  type PackageNodeScope,
 } from "@/lib/schemas";
 
 interface PackageFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   packageItem?: Package;
+}
+
+/** 回填三态：有 id 列表 = 指定；空列表但 node_count > 0 = 全部；两者皆空 = 不给。 */
+function packageNodeScope(item: Package): PackageNodeScope {
+  if (item.node_ids.length > 0) return "selected";
+  if (item.node_count > 0) return "all";
+  return "none";
 }
 
 export function PackageFormDialog({
@@ -58,6 +67,8 @@ export function PackageFormDialog({
             : "",
           direction: packageItem.direction,
           node_ratio: String(packageItem.node_ratio),
+          node_scope: packageNodeScope(packageItem),
+          node_ids: packageItem.node_ids,
         }
       : {
           name: "",
@@ -65,11 +76,28 @@ export function PackageFormDialog({
           period_days: "",
           direction: "both",
           node_ratio: "1",
+          node_scope: "all",
+          node_ids: [],
         },
   });
 
+  const nodeScope = form.watch("node_scope");
+  const selectedNodeIds = form.watch("node_ids");
+  const nodeScopeError =
+    form.formState.errors.node_scope?.message ??
+    form.formState.errors.node_ids?.message;
+
   const onSubmit = form.handleSubmit(async (values) => {
     form.clearErrors("root");
+
+    // 三态转换：全部 → 新建省略 / 编辑传 null；指定 → 数组；不给 → 空数组。
+    const scopeFields: Pick<CreatePackageInput, "node_ids"> =
+      values.node_scope === "selected"
+        ? { node_ids: values.node_ids }
+        : values.node_scope === "none"
+          ? { node_ids: [] }
+          : {};
+
     const input: CreatePackageInput = {
       name: values.name,
       quota_bytes: parseGbInput(values.quota_gb),
@@ -78,13 +106,17 @@ export function PackageFormDialog({
         : null,
       direction: values.direction,
       node_ratio: Number(values.node_ratio),
+      ...scopeFields,
     };
 
     try {
       if (packageItem) {
         await updatePackage.mutateAsync({
           id: packageItem.id,
-          input,
+          input:
+            values.node_scope === "all"
+              ? { ...input, node_ids: null }
+              : input,
         });
         toast.success("套餐模板已更新");
       } else {
@@ -107,13 +139,13 @@ export function PackageFormDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
             {editing ? "编辑套餐模板" : "新建套餐模板"}
           </DialogTitle>
           <DialogDescription>
-            模板只定义额度、周期与倍率；用户绑定后生成独立的套餐实例。
+            模板定义额度、周期、倍率与节点范围；用户绑定后生成独立的套餐实例。
           </DialogDescription>
         </DialogHeader>
 
@@ -208,6 +240,44 @@ export function PackageFormDialog({
                 disabled={pending}
                 aria-invalid={Boolean(form.formState.errors.node_ratio)}
                 {...form.register("node_ratio")}
+              />
+            </FormField>
+          </div>
+
+          <div className="border-t border-border pt-4">
+            <FormField
+              label="节点范围"
+              hint={
+                nodeScope === "selected"
+                  ? "用户订阅只包含勾选的节点。"
+                  : "决定该套餐的用户订阅里会出现哪些节点。"
+              }
+              error={nodeScopeError}
+            >
+              <Controller
+                control={form.control}
+                name="node_scope"
+                render={({ field }) => (
+                  <PackageNodeScopeField
+                    value={field.value}
+                    disabled={pending}
+                    onChange={(next) => {
+                      field.onChange(next);
+                      if (next !== "selected") {
+                        form.clearErrors("node_ids");
+                      }
+                    }}
+                    selectedIds={selectedNodeIds}
+                    onSelectedChange={(ids) => {
+                      form.setValue("node_ids", ids, {
+                        shouldDirty: true,
+                        shouldValidate: Boolean(
+                          form.formState.errors.node_ids,
+                        ),
+                      });
+                    }}
+                  />
+                )}
               />
             </FormField>
           </div>

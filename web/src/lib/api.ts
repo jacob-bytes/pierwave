@@ -102,6 +102,14 @@ export interface Node {
   updated_at?: number;
 }
 
+/**
+ * 全局节点（跨服务器）：在 `Node` 之上补 `server_name`，供套餐范围选择器分组。
+ * 接口 `GET /api/v1/nodes` 是管理员接口，后端可能尚未上线。
+ */
+export interface NodeSummary extends Node {
+  server_name: string;
+}
+
 export interface CreateNodeInput {
   name: string;
   protocol: string;
@@ -203,6 +211,13 @@ export interface Package {
   direction: PackageDirection;
   node_ratio: number;
   created_at?: number;
+  /**
+   * 显式绑定的节点 id；为空时还要看 `node_count`：
+   * 空数组 + `node_count > 0` = 全部节点；两者皆空 = 一个都不给。
+   */
+  node_ids: string[];
+  /** 实际可见节点数；未设范围时等于全部节点数。 */
+  node_count: number;
   /** 当前仍引用该模板的套餐实例数，删除前用于禁用按钮。 */
   user_count: number;
 }
@@ -227,6 +242,13 @@ export interface CreatePackageInput {
   period_days?: number | null;
   direction?: PackageDirection;
   node_ratio?: number;
+  /**
+   * 三态节点范围：
+   * - 省略（新建）/ `null`（编辑）= 全部节点；
+   * - `[]` = 一个都不给（订阅为空）；
+   * - 非空数组 = 只给这些节点。
+   */
+  node_ids?: string[] | null;
 }
 
 export type UpdatePackageInput = Partial<CreatePackageInput>;
@@ -334,10 +356,16 @@ export const api = {
       ),
   },
 
-  nodes: (serverId: string) =>
-    request<{ items: Node[] }>(
-      `/api/v1/servers/${encodeURIComponent(serverId)}/nodes`,
-    ),
+  // 节点按服务器归属管理；`listAll` 是跨服务器的全局列表（套餐范围选择器用）。
+  nodes: Object.assign(
+    (serverId: string) =>
+      request<{ items: Node[] }>(
+        `/api/v1/servers/${encodeURIComponent(serverId)}/nodes`,
+      ),
+    {
+      listAll: () => request<{ items: NodeSummary[] }>("/api/v1/nodes"),
+    },
+  ),
   createNode: (serverId: string, input: CreateNodeInput) =>
     request<{ node: Node }>(
       `/api/v1/servers/${encodeURIComponent(serverId)}/nodes`,

@@ -27,6 +27,7 @@ pub async fn summary(State(state): State<AppState>, user: CurrentUser) -> AppRes
             "short_code": view.short_code,
             "used_bytes": view.used_bytes,
             "quota_bytes": view.quota_bytes,
+            "quota_exceeded": view.quota_exceeded,
         },
         "packages": view.packages,
         "traffic": { "today_bytes": today_bytes, "month_bytes": month_bytes },

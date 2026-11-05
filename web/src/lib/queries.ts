@@ -20,6 +20,7 @@ import {
   type MeSummary,
   type MeTraffic,
   type Node,
+  type NodeSummary,
   type OverviewStats,
   type Package,
   type Server,
@@ -44,6 +45,8 @@ export const queryKeys = {
   enforcementEvents: (limit: number) =>
     ["enforcement", "events", limit] as const,
   nodes: (serverId: string) => ["nodes", serverId] as const,
+  /** 全局节点列表：不属于任何单台服务器，单独一个 key。 */
+  allNodes: ["nodes", "all"] as const,
   certificates: ["certificates"] as const,
   users: (q: string) => ["users", { q }] as const,
   packages: ["packages"] as const,
@@ -158,6 +161,21 @@ export function useNodes(serverId: string) {
   });
 }
 
+/**
+ * 全局节点列表（管理员），套餐的节点范围选择器用。
+ *
+ * 后端接口可能暂时 404：这里不重试，由调用方展示中文错误与「重试」，
+ * 并保证「全部节点」这类不依赖该列表的范围仍然可以保存。
+ */
+export function useAllNodes() {
+  return useQuery<NodeSummary[]>({
+    queryKey: queryKeys.allNodes,
+    queryFn: async () => (await api.nodes.listAll()).items,
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
 export function useCreateNode(serverId: string) {
   const queryClient = useQueryClient();
 
@@ -168,6 +186,8 @@ export function useCreateNode(serverId: string) {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.nodes(serverId),
       });
+      // 套餐范围选择器读的是跨服务器的全局列表。
+      void queryClient.invalidateQueries({ queryKey: queryKeys.allNodes });
       // 证书的引用数变了（删除被引用的证书会被后端拒绝），保持列表新鲜。
       void queryClient.invalidateQueries({
         queryKey: queryKeys.certificates,
@@ -229,6 +249,8 @@ export function useUpdateNode(serverId: string) {
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey });
+      // 全局节点列表里的名称/启用状态也跟着变。
+      void queryClient.invalidateQueries({ queryKey: queryKeys.allNodes });
       // 增删节点会改变证书的引用关系。
       void queryClient.invalidateQueries({
         queryKey: queryKeys.certificates,
@@ -246,6 +268,7 @@ export function useDeleteNode(serverId: string) {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.nodes(serverId),
       });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.allNodes });
       void queryClient.invalidateQueries({
         queryKey: queryKeys.certificates,
       });

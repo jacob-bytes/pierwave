@@ -329,10 +329,20 @@ async fn record_delta(
             .await?;
     }
 
+    // 账户总额度：跨过 users.quota_bytes 这条线时，该用户全站失去资格，
+    // 与「某张卡被扣满」走同一套标脏/去抖路径。
+    let quota_crossed = enforcement_rules::crosses_total_quota(
+        user.used_bytes,
+        saturating_i64(weighted),
+        user.quota_bytes,
+    );
+
     let Some(views) = before_views else {
         return Ok(None);
     };
-    let Some(reason) = crossing_reason(&views, &allocations, time::now()) else {
+    let reason = crossing_reason(&views, &allocations, time::now())
+        .or_else(|| quota_crossed.then(|| enforcement_rules::REASON_OVER_TOTAL_QUOTA.to_string()));
+    let Some(reason) = reason else {
         return Ok(None);
     };
     tracing::info!(

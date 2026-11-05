@@ -74,22 +74,40 @@ export const resetPasswordSchema = z.object({
 
 export type ResetPasswordValues = z.infer<typeof resetPasswordSchema>;
 
-export const packageFormSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(1, "请输入套餐名称")
-    .max(64, "套餐名称最多 64 个字符"),
-  quota_gb: gbField,
-  period_days: optionalIntField(1, 3650, "周期需在 1–3650 天之间"),
-  direction: z.enum(["both", "upload", "download"]),
-  node_ratio: z.string().refine((value) => {
-    const trimmed = value.trim();
-    if (!trimmed) return false;
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) && parsed > 0 && parsed <= 10;
-  }, "节点倍率需在 0–10 之间"),
-});
+/** 套餐节点范围的三态：全部 / 指定 / 一个都不给。 */
+export const PACKAGE_NODE_SCOPES = ["all", "selected", "none"] as const;
+
+export type PackageNodeScope = (typeof PACKAGE_NODE_SCOPES)[number];
+
+export const packageFormSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(1, "请输入套餐名称")
+      .max(64, "套餐名称最多 64 个字符"),
+    quota_gb: gbField,
+    period_days: optionalIntField(1, 3650, "周期需在 1–3650 天之间"),
+    direction: z.enum(["both", "upload", "download"]),
+    node_ratio: z.string().refine((value) => {
+      const trimmed = value.trim();
+      if (!trimmed) return false;
+      const parsed = Number(trimmed);
+      return Number.isFinite(parsed) && parsed > 0 && parsed <= 10;
+    }, "节点倍率需在 0–10 之间"),
+    node_scope: z.enum(PACKAGE_NODE_SCOPES),
+    node_ids: z.array(z.string()),
+  })
+  .superRefine((values, ctx) => {
+    // 「一个都不给」用空数组表达，是合法状态；只有「指定」才要求至少一个。
+    if (values.node_scope === "selected" && values.node_ids.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["node_ids"],
+        message: "请至少选择一个节点",
+      });
+    }
+  });
 
 export type PackageFormValues = z.infer<typeof packageFormSchema>;
 
