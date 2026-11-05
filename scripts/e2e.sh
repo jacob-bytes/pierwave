@@ -56,6 +56,7 @@ token = "$TOKEN"
 connection_mode = "websocket"
 xray_mode = "external"
 xray_config_path = "$WORK/xray/config.json"
+xray_test_command = "true"
 restart_command = "true"
 TOML
 ./target/debug/mmrust-agent -c "$WORK/agent.toml" > "$WORK/agent.log" 2>&1 &
@@ -63,6 +64,7 @@ AGENT_PID=$!
 
 for _ in $(seq 1 60); do [ -f "$WORK/xray/config.json" ] && break; sleep 0.2; done
 [ -f "$WORK/xray/config.json" ] || { echo "FAIL: Agent 没有落盘 xray 配置"; tail -20 "$WORK/agent.log"; exit 1; }
+[ ! -f "$WORK/xray/config.json.new" ] || { echo "FAIL: 校验后残留了 .new 临时文件"; exit 1; }
 echo "ok Agent 重连后补发了期望态并落盘"
 
 python3 - "$WORK/xray/config.json" <<'PY'
@@ -92,6 +94,14 @@ import json, sys
 cfg = json.load(open(sys.argv[1]))
 assert len(cfg["inbounds"]) == 3, f"期望 3 个入站，实际 {len(cfg['inbounds'])}"
 print("ok 在线热更新到版本", sys.argv[2])
+PY
+
+[ ! -f "$WORK/xray/config.json.new" ] || { echo "FAIL: 热更新后残留了 .new 临时文件"; exit 1; }
+python3 - "$WORK/xray/config.json.bak" <<'PY'
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+assert len(cfg["inbounds"]) == 2, f"备份应为上一版 2 个入站，实际 {len(cfg['inbounds'])}"
+print("ok 热更新前已备份上一版配置")
 PY
 
 echo "PASS 全部通过（日志：$WORK/master.log, $WORK/agent.log）"

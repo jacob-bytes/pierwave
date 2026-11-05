@@ -24,6 +24,12 @@ pub struct Config {
     /// 重启命令；测试里给 `true` 就能跳过真实 systemd
     #[serde(default = "default_restart_command")]
     pub restart_command: String,
+    /// xray 配置校验命令；配置路径会作为独立 argv 追加，不经过 shell
+    #[serde(default = "default_xray_test_command")]
+    pub xray_test_command: String,
+    /// 线上配置的备份后缀；省略时用 `.bak`
+    #[serde(default = "default_backup_suffix")]
+    pub backup_suffix: Option<String>,
 }
 
 fn default_mode() -> String {
@@ -43,6 +49,12 @@ fn default_xray_config() -> String {
 }
 fn default_restart_command() -> String {
     "systemctl restart xray".into()
+}
+fn default_xray_test_command() -> String {
+    "xray run -test -config".into()
+}
+fn default_backup_suffix() -> Option<String> {
+    Some(".bak".into())
 }
 
 impl Config {
@@ -82,6 +94,8 @@ mod tests {
             master_public_key: None,
             xray_config_path: default_xray_config(),
             restart_command: default_restart_command(),
+            xray_test_command: default_xray_test_command(),
+            backup_suffix: default_backup_suffix(),
         }
     }
 
@@ -95,5 +109,28 @@ mod tests {
             cfg("http://127.0.0.1:8787").ws_url(),
             "ws://127.0.0.1:8787/api/agent/ws"
         );
+    }
+
+    #[test]
+    fn xray_test_and_backup_defaults() {
+        let parsed: Config =
+            toml::from_str("master_url = \"http://127.0.0.1:8787\"\ntoken = \"t\"\n").unwrap();
+        assert_eq!(parsed.xray_test_command, "xray run -test -config");
+        assert_eq!(parsed.backup_suffix.as_deref(), Some(".bak"));
+    }
+
+    #[test]
+    fn xray_test_and_backup_can_be_overridden() {
+        let parsed: Config = toml::from_str(
+            "master_url = \"http://127.0.0.1:8787\"\ntoken = \"t\"\n\
+             xray_test_command = \"/usr/local/bin/xray run -test -config\"\n\
+             backup_suffix = \".old\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            parsed.xray_test_command,
+            "/usr/local/bin/xray run -test -config"
+        );
+        assert_eq!(parsed.backup_suffix.as_deref(), Some(".old"));
     }
 }
