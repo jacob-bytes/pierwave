@@ -189,7 +189,7 @@ export function NodeFormDialog({
 
     try {
       if (isEdit && node) {
-        const updated = await updateNode.mutateAsync({
+        await updateNode.mutateAsync({
           id: node.id,
           input: {
             name: values.name,
@@ -198,15 +198,7 @@ export function NodeFormDialog({
             config: check.value,
           },
         });
-
-        // 主控当前只 PATCH enabled/config；如果后端已支持 name/port，这里也能正常通过。
-        if (updated.name !== values.name || updated.port !== port) {
-          toast.warning("已保存启用状态与 config，但主控未接受名称/端口修改", {
-            description: "当前主控版本只支持修改 enabled 与 config。",
-          });
-        } else {
-          toast.success("节点已更新");
-        }
+        toast.success("节点已更新");
       } else {
         const created = await createNode.mutateAsync({
           name: values.name,

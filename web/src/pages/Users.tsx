@@ -239,7 +239,7 @@ function DeleteUserDialog({
           <AlertDialogTitle>删除用户</AlertDialogTitle>
           <AlertDialogDescription>
             确定删除「{user.username}」？删除后将同时解绑{" "}
-            {user.packages?.length ?? 0} 个套餐，且不可恢复。
+            {user.package_count} 个套餐，且不可恢复。
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -474,9 +474,13 @@ export default function UsersPage() {
               ) : (
                 items.map((user) => {
                   const isSelf = user.id === me.data?.id;
-                  const packageNames = (user.packages ?? [])
-                    .map((item) => item.package_name)
-                    .join("、");
+                  const packageNames =
+                    (user.packages ?? [])
+                      .map((item) => item.package_name)
+                      .join("、") ||
+                    (user.package_count > 0
+                      ? `${user.package_count} 个套餐`
+                      : "未绑定套餐");
 
                   return (
                     <TableRow key={user.id}>
@@ -517,9 +521,9 @@ export default function UsersPage() {
                         <Badge
                           variant="outline"
                           className="font-normal text-muted-foreground"
-                          title={packageNames || "未绑定套餐"}
+                          title={packageNames}
                         >
-                          {user.packages?.length ?? 0} 张
+                          {user.package_count} 张
                         </Badge>
                       </TableCell>
                       <TableCell className="px-4 py-2.5">

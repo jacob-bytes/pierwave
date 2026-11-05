@@ -27,8 +27,15 @@ export function packageStatusLabel(status: string): string {
 
 export function packageStatusTone(
   status: string,
-): "primary" | "warning" | "muted" {
-  if (status === "active") return "primary";
-  if (status === "expired" || status === "exhausted") return "warning";
-  return "muted";
+): "primary" | "warning" | "destructive" | "muted" {
+  switch (status) {
+    case "active":
+      return "primary";
+    case "expired":
+      return "warning";
+    case "exhausted":
+      return "destructive";
+    default:
+      return "muted";
+  }
 }

@@ -95,16 +95,24 @@ export interface ApplyResult {
 export type UserRole = "admin" | "user";
 export type UserStatus = "active" | "disabled";
 export type PackageDirection = "both" | "upload" | "download";
+export type UserPackageStatus =
+  | "active"
+  | "expired"
+  | "exhausted"
+  | "disabled";
 
 export interface UserPackageView {
   id: string;
   package_id: string;
   package_name: string;
+  /** 原始覆写值：null = 继承套餐额度，0 = 显式不限，N = 覆写额度。 */
+  quota_override: number | null;
+  /** 生效额度：继承/覆写计算后的结果，0 表示显式不限。 */
   quota_bytes: number | null;
   used_bytes: number;
   expires_at: number | null;
   reset_day: number | null;
-  status: string;
+  status: UserPackageStatus;
   direction: PackageDirection;
   node_ratio: number;
 }
@@ -118,6 +126,8 @@ export interface UserView {
   quota_bytes: number | null;
   used_bytes: number;
   created_at: number;
+  /** 套餐实例数；分页时 packages 可能不是全量，汇总用这个字段。 */
+  package_count: number;
   packages: UserPackageView[];
 }
 
@@ -129,6 +139,8 @@ export interface Package {
   direction: PackageDirection;
   node_ratio: number;
   created_at?: number;
+  /** 当前仍引用该模板的套餐实例数，删除前用于禁用按钮。 */
+  user_count: number;
 }
 
 export interface CreateUserInput {

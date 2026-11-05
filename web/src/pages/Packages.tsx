@@ -54,7 +54,7 @@ import { directionLabel } from "@/lib/labels";
 import { useDeletePackage, usePackages } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-const COLUMN_COUNT = 6;
+const COLUMN_COUNT = 7;
 
 function LoadingRows() {
   return (
@@ -75,6 +75,9 @@ function LoadingRows() {
           </TableCell>
           <TableCell className="px-4 py-3">
             <Skeleton className="h-3.5 w-10" />
+          </TableCell>
+          <TableCell className="px-4 py-3">
+            <Skeleton className="h-5 w-12 rounded-full" />
           </TableCell>
           <TableCell className="px-4 py-3">
             <Skeleton className="size-7 rounded-md" />
@@ -276,6 +279,7 @@ export default function PackagesPage() {
                   "周期",
                   "方向",
                   "节点倍率",
+                  "在用人数",
                   "操作",
                 ].map((label) => (
                   <TableHead
@@ -325,6 +329,14 @@ export default function PackagesPage() {
                       ×{item.node_ratio}
                     </TableCell>
                     <TableCell className="px-4 py-2.5">
+                      <Badge
+                        variant="secondary"
+                        className="font-mono text-[11px] font-normal text-muted-foreground"
+                      >
+                        {item.user_count} 人
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="px-4 py-2.5">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
@@ -347,6 +359,12 @@ export default function PackagesPage() {
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             variant="destructive"
+                            disabled={item.user_count > 0}
+                            title={
+                              item.user_count > 0
+                                ? `还有 ${item.user_count} 个用户在用，需先解绑`
+                                : undefined
+                            }
                             onSelect={() => setDeleteTarget(item)}
                           >
                             <Trash2Icon className="size-3.5" />

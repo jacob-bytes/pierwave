@@ -59,7 +59,7 @@ import type {
   UserView,
 } from "@/lib/api";
 import { errorText } from "@/lib/errors";
-import { formatBytes, parseGbInput } from "@/lib/format";
+import { bytesToGbInput, formatBytes, parseGbInput } from "@/lib/format";
 import {
   directionLabel,
   packageStatusLabel,
@@ -101,6 +101,7 @@ function PackageStatusBadge({ status }: { status: string }) {
         "shrink-0 border-transparent font-normal",
         tone === "primary" && "bg-primary/10 text-primary",
         tone === "warning" && "bg-warning/10 text-warning",
+        tone === "destructive" && "bg-destructive/10 text-destructive",
         tone === "muted" && "bg-muted text-muted-foreground",
       )}
     >
@@ -273,7 +274,7 @@ function BindPackageForm({ userId }: { userId: string }) {
           <FormField
             label="流量覆写（GB）"
             htmlFor="bind-quota"
-            hint="留空=沿用套餐额度；0=显式不限。"
+            hint="留空 = 继承套餐额度；填 0 = 不限"
             error={form.formState.errors.quota_override_gb?.message}
           >
             <Input
@@ -338,7 +339,7 @@ function EditUserPackageDialog({
     resolver: zodResolver(editUserPackageSchema),
     defaultValues: {
       expires_at: toDateInputValue(item.expires_at),
-      quota_override_gb: "",
+      quota_override_gb: bytesToGbInput(item.quota_override),
       reset_day: item.reset_day ? String(item.reset_day) : "",
     },
   });
@@ -349,11 +350,9 @@ function EditUserPackageDialog({
       const input: UpdateUserPackageInput = {
         expires_at: dateInputToUnixEndOfDay(values.expires_at),
         reset_day: values.reset_day ? Number(values.reset_day) : null,
+        // 空串必须显式发 null（清空覆写 = 改回继承）；省略字段会保留旧覆写。
+        quota_override: parseGbInput(values.quota_override_gb),
       };
-      // 视图没有回显 quota_override，留空时不要发 null，避免把已有覆写清掉。
-      if (values.quota_override_gb.trim() !== "") {
-        input.quota_override = parseGbInput(values.quota_override_gb);
-      }
       await update.mutateAsync({ id: item.id, input });
       toast.success("套餐已更新");
       onOpenChange(false);
@@ -393,13 +392,12 @@ function EditUserPackageDialog({
           <FormField
             label="流量覆写（GB）"
             htmlFor="edit-package-quota"
-            hint="留空表示不修改当前覆写；0=显式不限。"
             error={form.formState.errors.quota_override_gb?.message}
           >
             <Input
               id="edit-package-quota"
               inputMode="decimal"
-              placeholder="留空不修改"
+              placeholder="留空继承"
               disabled={update.isPending}
               aria-invalid={Boolean(
                 form.formState.errors.quota_override_gb,
@@ -422,6 +420,10 @@ function EditUserPackageDialog({
               {...form.register("reset_day")}
             />
           </FormField>
+
+          <p className="text-xs text-muted-foreground">
+            留空 = 继承套餐额度；填 0 = 不限
+          </p>
 
           <FormRootError message={form.formState.errors.root?.message} />
         </form>
