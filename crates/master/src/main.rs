@@ -5,6 +5,7 @@ mod error;
 mod routes;
 mod scheduler;
 mod state;
+mod throttle;
 
 use std::net::SocketAddr;
 
@@ -43,12 +44,19 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState::new(db, &web_dir);
     // 每日重置：每小时检查一次，启动后立即跑第一轮。
     let _reset_task = scheduler::spawn_daily_reset(state.clone());
+    // 过期会话清理：每小时一轮，启动时先跑一次。
+    let _session_purge = scheduler::spawn_session_purge(state.clone());
     // 断流：流量上报实时标记 + 每 5 分钟过期对账，统一交给去抖 worker 收敛。
     let _enforce_worker = enforcement::spawn_worker(state.clone());
     let _enforce_reconcile = scheduler::spawn_enforcement_reconcile(state.clone());
     let app = app::router(state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("listening on http://{addr}, web dir = {web_dir}");
-    axum::serve(listener, app).await?;
+    // 开启 ConnectInfo，登录限流在拿不到 X-Forwarded-For 时回落到真实对端 IP。
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }

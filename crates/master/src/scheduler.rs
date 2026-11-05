@@ -1,12 +1,12 @@
-//! 后台调度：每日流量重置 + 断流过期对账。
+//! 后台调度：每日流量重置 + 断流过期对账 + 过期会话清理。
 //!
-//! 两个任务都用 `tokio::time::interval`，启动后立刻先跑一轮（第一次 tick 立即完成）。
+//! 三个任务都用 `tokio::time::interval`，启动后立刻先跑一轮（第一次 tick 立即完成）。
 //! 判定与幂等都在领域层/`crate::enforcement` 里，这里只负责触发和记日志，
 //! 定时器不参与业务逻辑。
 
 use std::time::Duration;
 
-use mmrust_domain::{reset, time};
+use mmrust_domain::{repo, reset, time};
 
 use crate::enforcement;
 use crate::state::AppState;
@@ -19,6 +19,9 @@ const RESET_INTERVAL: Duration = Duration::from_secs(60 * 60);
 /// 流量上报能实时发现「刚跑满」，但「到期」没有事件源，只能靠对账兜底；
 /// 对账只标记脏，真正的 apply 由去抖 worker 合并执行。
 const ENFORCEMENT_RECONCILE_INTERVAL: Duration = Duration::from_secs(5 * 60);
+
+/// 过期会话清理：每小时扫一次库即可，清理量与登录量成正比、单次很轻。
+const SESSION_PURGE_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
 /// 执行一轮每日重置；有实例被清零时立刻标记所有服务器。
 ///
@@ -33,6 +36,34 @@ pub async fn run_reset_round(state: &AppState) -> anyhow::Result<reset::ResetRep
         }
     }
     Ok(report)
+}
+
+/// 执行一轮过期会话清理，返回删除条数。
+///
+/// 会话过期后 `user_for_token` 已经不会认它，这里只是把死行清出库，
+/// 避免 `sessions` 表随登录次数无限增长。
+pub async fn run_session_purge(state: &AppState) -> anyhow::Result<u64> {
+    let purged = repo::sessions::purge_expired(&state.db.pool).await?;
+    if purged > 0 {
+        tracing::info!(purged, "已清理过期会话");
+    } else {
+        tracing::debug!("会话清理：没有过期会话");
+    }
+    Ok(purged)
+}
+
+/// 启动过期会话清理任务；第一次 tick 立即执行，所以启动时就会先扫一遍。
+pub fn spawn_session_purge(state: AppState) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(SESSION_PURGE_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            ticker.tick().await;
+            if let Err(error) = run_session_purge(&state).await {
+                tracing::error!(error = %error, "过期会话清理失败");
+            }
+        }
+    })
 }
 
 /// 启动每日重置任务；句柄由调用方持有到进程退出即可（drop 不会停止任务）。
@@ -78,4 +109,65 @@ pub fn spawn_enforcement_reconcile(state: AppState) -> tokio::task::JoinHandle<(
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use mmrust_domain::Db;
+
+    async fn setup_with_expired_session(valid_session: bool) -> AppState {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let user = repo::users::create(
+            &db.pool,
+            repo::users::NewUser {
+                username: "alice".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+            },
+        )
+        .await
+        .unwrap();
+        repo::sessions::create(&db.pool, &user.id, -60, None)
+            .await
+            .unwrap();
+        if valid_session {
+            repo::sessions::create(&db.pool, &user.id, 3600, None)
+                .await
+                .unwrap();
+        }
+        AppState::new(db, "web/dist")
+    }
+
+    #[tokio::test]
+    async fn session_purge_empties_a_table_with_only_expired_rows() {
+        let state = setup_with_expired_session(false).await;
+        assert_eq!(repo::sessions::count(&state.db.pool).await.unwrap(), 1);
+
+        assert_eq!(run_session_purge(&state).await.unwrap(), 1);
+        assert_eq!(
+            repo::sessions::count(&state.db.pool).await.unwrap(),
+            0,
+            "过期会话必须清空"
+        );
+
+        // 再跑一轮没有可清理的，保持幂等。
+        assert_eq!(run_session_purge(&state).await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn session_purge_keeps_valid_rows() {
+        let state = setup_with_expired_session(true).await;
+        assert_eq!(repo::sessions::count(&state.db.pool).await.unwrap(), 2);
+
+        assert_eq!(run_session_purge(&state).await.unwrap(), 1);
+        assert_eq!(
+            repo::sessions::count(&state.db.pool).await.unwrap(),
+            1,
+            "有效会话不能被误删"
+        );
+    }
 }

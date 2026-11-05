@@ -41,12 +41,17 @@ impl FromRequestParts<AppState> for CurrentUser {
     }
 }
 
-pub fn session_cookie(token: String) -> axum_extra::extract::cookie::Cookie<'static> {
+/// 会话 Cookie 的 `Max-Age` 必须与服务端 `sessions.expires_at` 一致，
+/// 否则会出现「服务端已过期、浏览器还留着 Cookie」的假登录态。
+pub fn session_cookie(
+    token: String,
+    ttl_secs: i64,
+) -> axum_extra::extract::cookie::Cookie<'static> {
     axum_extra::extract::cookie::Cookie::build((SESSION_COOKIE, token))
         .http_only(true)
         .same_site(axum_extra::extract::cookie::SameSite::Lax)
         .path("/")
-        .max_age(time::Duration::days(30))
+        .max_age(time::Duration::seconds(ttl_secs.max(0)))
         .build()
 }
 

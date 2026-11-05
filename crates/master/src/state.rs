@@ -8,6 +8,7 @@ use mmrust_proto::MasterMessage;
 use tokio::sync::broadcast;
 
 use crate::enforcement::Enforcer;
+use crate::throttle::LoginThrottle;
 
 /// 每个服务器一条广播通道；没有 Agent 在线时发送方仍在，消息自然丢弃。
 const AGENT_CHANNEL_CAPACITY: usize = 64;
@@ -85,6 +86,8 @@ pub struct AppState {
     pub hub: AgentHub,
     /// 断流去抖状态；由 `crate::enforcement::spawn_worker` 消费。
     pub enforcement: Enforcer,
+    /// 登录失败限流；阈值每次登录时从设置表刷新。
+    pub login_throttle: Arc<LoginThrottle>,
 }
 
 impl AppState {
@@ -94,6 +97,7 @@ impl AppState {
             web_dir: Arc::new(web_dir.into()),
             hub: AgentHub::default(),
             enforcement: Enforcer::from_env(),
+            login_throttle: Arc::new(LoginThrottle::default()),
         }
     }
 

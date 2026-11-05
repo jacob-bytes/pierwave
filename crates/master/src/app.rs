@@ -71,10 +71,15 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/enforcement/events",
             get(routes::enforcement::events),
         )
+        .route(
+            "/api/v1/settings",
+            get(routes::settings::get).patch(routes::settings::update),
+        )
         // 公开订阅入口：不加鉴权，短码即凭证。
         .route("/api/v1/sub/{short_code}", get(routes::subscribe::get))
         .route("/api/v1/me/summary", get(routes::me::summary))
         .route("/api/v1/me/traffic", get(routes::me::traffic))
+        .route("/api/v1/me/password", post(routes::me::change_password))
         .route("/api/agent/install.sh", get(routes::install::script))
         .route("/api/agent/download/{file}", get(routes::install::download))
         .route("/api/agent/ws", get(routes::agent::ws))

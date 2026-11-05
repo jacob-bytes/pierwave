@@ -8,6 +8,7 @@ pub mod me;
 pub mod nodes;
 pub mod packages;
 pub mod servers;
+pub mod settings;
 pub mod stats;
 pub mod subscribe;
 pub mod system;

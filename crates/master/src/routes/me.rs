@@ -2,12 +2,13 @@
 
 use axum::extract::{Query, State};
 use axum::Json;
+use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use mmrust_domain::repo;
+use mmrust_domain::{password, repo};
 
-use crate::auth::CurrentUser;
+use crate::auth::{CurrentUser, SESSION_COOKIE};
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
@@ -57,6 +58,40 @@ pub async fn traffic(
         repo::stats::traffic_trend_for_subject(&state.db.pool, repo::now(), query.days, &user.0.id)
             .await?;
     Ok(Json(json!({ "days": days })))
+}
+
+#[derive(Deserialize)]
+pub struct ChangePassword {
+    pub old_password: String,
+    pub new_password: String,
+}
+
+/// 修改自己的密码：校验旧密码 → 更新 hash → 吊销其它会话（保留当前 token）。
+pub async fn change_password(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    jar: CookieJar,
+    Json(req): Json<ChangePassword>,
+) -> AppResult<Json<Value>> {
+    if !password::verify(&req.old_password, &user.0.password_hash) {
+        return Err(AppError::WrongPassword);
+    }
+    if req.new_password.chars().count() < 8 {
+        return Err(AppError::BadRequest("新密码至少 8 位".into()));
+    }
+
+    if !repo::users::set_password(&state.db.pool, &user.0.id, &req.new_password).await? {
+        return Err(AppError::NotFound);
+    }
+
+    let token = jar
+        .get(SESSION_COOKIE)
+        .map(|cookie| cookie.value().to_string())
+        .ok_or(AppError::Unauthorized)?;
+    let revoked = repo::sessions::delete_others(&state.db.pool, &user.0.id, &token).await?;
+    tracing::info!(user_id = %user.0.id, revoked, "密码已更新，其它会话已吊销");
+
+    Ok(Json(json!({ "ok": true })))
 }
 
 #[cfg(test)]
@@ -116,6 +151,42 @@ mod tests {
         (status, value)
     }
 
+    async fn post(
+        app: &Router,
+        cookie: Option<&str>,
+        uri: &str,
+        body: Value,
+    ) -> (StatusCode, Value) {
+        let mut builder = Request::builder()
+            .method(Method::POST)
+            .uri(uri)
+            .header("content-type", "application/json");
+        if let Some(cookie) = cookie {
+            builder = builder.header("cookie", cookie);
+        }
+        let response = app
+            .clone()
+            .oneshot(builder.body(Body::from(body.to_string())).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+        (status, value)
+    }
+
+    async fn login(app: &Router, username: &str, password: &str) -> (StatusCode, Value) {
+        post(
+            app,
+            None,
+            "/api/v1/auth/login",
+            json!({"username": username, "password": password}),
+        )
+        .await
+    }
+
     #[tokio::test]
     async fn summary_is_scoped_to_the_session_user() {
         let (app, state, cookie, alice_id) = setup().await;
@@ -165,5 +236,73 @@ mod tests {
         let (app, _, _, _) = setup().await;
         let (status, _) = get(&app, None, "/api/v1/me/summary").await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn changing_password_revokes_other_sessions_and_keeps_current_one() {
+        let (app, state, current_cookie, alice_id) = setup().await;
+        let (other_token, _) = repo::sessions::create(&state.db.pool, &alice_id, 3600, None)
+            .await
+            .unwrap();
+        let other_cookie = format!("{}={other_token}", crate::auth::SESSION_COOKIE);
+
+        // 未登录 → 401。
+        let (status, _) = post(
+            &app,
+            None,
+            "/api/v1/me/password",
+            json!({"old_password": "password123", "new_password": "newpassword123"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        // 旧密码错 → 401，密码不变。
+        let (status, body) = post(
+            &app,
+            Some(&current_cookie),
+            "/api/v1/me/password",
+            json!({"old_password": "wrong-password", "new_password": "newpassword123"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(body["error"], "旧密码错误");
+        let (status, _) = login(&app, "alice", "password123").await;
+        assert_eq!(status, StatusCode::OK, "旧密码仍应可用");
+
+        // 新密码太短 → 400。
+        let (status, body) = post(
+            &app,
+            Some(&current_cookie),
+            "/api/v1/me/password",
+            json!({"old_password": "password123", "new_password": "short"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body["error"].as_str().unwrap().contains("至少 8 位"));
+
+        // 成功改密码。
+        let (status, body) = post(
+            &app,
+            Some(&current_cookie),
+            "/api/v1/me/password",
+            json!({"old_password": "password123", "new_password": "newpassword123"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["ok"], true);
+
+        // 当前会话仍可用；其它会话已被吊销。
+        let (status, _) = get(&app, Some(&current_cookie), "/api/v1/me/summary").await;
+        assert_eq!(status, StatusCode::OK, "当前 token 必须保留");
+        let (status, _) = get(&app, Some(&other_cookie), "/api/v1/me/summary").await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "其它会话必须被吊销");
+
+        // 旧密码登录失败，新密码登录成功。
+        let (status, body) = login(&app, "alice", "password123").await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(body["error"], "用户名或密码错误");
+        let (status, body) = login(&app, "alice", "newpassword123").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["user"]["username"], "alice");
     }
 }

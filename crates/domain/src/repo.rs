@@ -22,6 +22,19 @@ pub mod settings {
         )
     }
 
+    /// 覆盖写入（设置页用）。
+    pub async fn set(pool: &SqlitePool, key: &str, value: &str) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO settings (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
     /// 不存在则写入，返回最终生效值。
     ///
     /// 首启时两个请求可能同时生成 secret，用 `ON CONFLICT DO NOTHING` 让先写入者胜出，
@@ -309,6 +322,41 @@ pub mod sessions {
             .execute(pool)
             .await?;
         Ok(res.rows_affected())
+    }
+
+    /// 改密码后吊销该用户的其它会话，保留当前 token 对应的那条。
+    ///
+    /// 按 token 哈希比对而不是 token 明文，库里本来也不存明文。
+    pub async fn delete_others(
+        pool: &SqlitePool,
+        user_id: &str,
+        keep_token: &str,
+    ) -> anyhow::Result<u64> {
+        let keep_hash = crate::password::sha256_hex(keep_token);
+        let res = sqlx::query("DELETE FROM sessions WHERE user_id = ? AND token_hash <> ?")
+            .bind(user_id)
+            .bind(keep_hash)
+            .execute(pool)
+            .await?;
+        Ok(res.rows_affected())
+    }
+
+    /// 某用户的全部会话，按创建时间正序（最新一条在最后）。
+    pub async fn list_for_user(pool: &SqlitePool, user_id: &str) -> anyhow::Result<Vec<Session>> {
+        Ok(sqlx::query_as::<_, Session>(
+            "SELECT id, user_id, token_hash, expires_at, created_at
+             FROM sessions WHERE user_id = ? ORDER BY created_at ASC, rowid ASC",
+        )
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?)
+    }
+
+    /// 会话总行数（调度器清理的测试用）。
+    pub async fn count(pool: &SqlitePool) -> anyhow::Result<i64> {
+        Ok(sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
+            .fetch_one(pool)
+            .await?)
     }
 }
 
