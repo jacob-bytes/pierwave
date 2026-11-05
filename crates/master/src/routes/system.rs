@@ -16,7 +16,7 @@ pub async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {
         .ok()
         .flatten()
         .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| "pierwave 面板".to_string());
+        .unwrap_or_else(|| "PierWave 面板".to_string());
 
     Json(json!({
         "status": "ok",
