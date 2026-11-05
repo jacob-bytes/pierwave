@@ -229,36 +229,87 @@ PY
 
 echo "--- 幂等：重放已上报的 (boot_id, seq) 不应让数字翻倍 ---"
 python3 - "$WORK/db.sqlite" "$BASE" "$TOKEN" "$ALICE_ID" "$NODE_TAG" <<'PY'
-import asyncio, json, sqlite3, sys
+import base64, json, os, socket, sqlite3, struct, sys, time
 
-import websockets
-
+# 用一个极小的裸 WebSocket 客户端重放上报，避免依赖第三方 `websockets` 包
+# （CI 的 python 环境里没有它，本地 anaconda 里恰好有——这种差异最难发现）。
 db, base, token, alice, tag = sys.argv[1:6]
 conn = sqlite3.connect(db)
 boot_id, seq = conn.execute(
     "SELECT boot_id, seq FROM traffic_reports ORDER BY seq ASC LIMIT 1"
 ).fetchone()
-payload = {
+
+host, port = base.split("//", 1)[1].split(":", 1)
+port = int(port)
+
+
+def send_text(sock, text):
+    data = text.encode()
+    header = bytearray([0x81])
+    n = len(data)
+    if n < 126:
+        header.append(0x80 | n)
+    elif n < 65536:
+        header.append(0x80 | 126)
+        header += struct.pack(">H", n)
+    else:
+        header.append(0x80 | 127)
+        header += struct.pack(">Q", n)
+    mask = os.urandom(4)
+    header += mask
+    sock.sendall(bytes(header) + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+
+
+def recv_frame(sock):
+    header = sock.recv(2)
+    if len(header) < 2:
+        return ""
+    length = header[1] & 0x7F
+    if length == 126:
+        length = struct.unpack(">H", sock.recv(2))[0]
+    elif length == 127:
+        length = struct.unpack(">Q", sock.recv(8))[0]
+    chunks, remaining = [], length
+    while remaining > 0:
+        chunk = sock.recv(remaining)
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks).decode("utf-8", "replace")
+
+
+sock = socket.create_connection((host, port), timeout=10)
+key = base64.b64encode(os.urandom(16)).decode()
+sock.sendall(
+    (
+        f"GET /api/agent/ws HTTP/1.1\r\nHost: {host}:{port}\r\n"
+        "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+        f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
+    ).encode()
+)
+buf = b""
+while b"\r\n\r\n" not in buf:
+    chunk = sock.recv(4096)
+    if not chunk:
+        raise SystemExit("WebSocket 握手失败")
+    buf += chunk
+
+send_text(sock, json.dumps({
+    "type": "hello", "token": token, "hostname": "e2e-replay",
+    "agent_version": "0.1.0", "xray_mode": "external", "capabilities": [],
+}))
+recv_frame(sock)  # ack
+
+# 用同一个 (boot_id, seq) 重放一条明显更大的上报，主控应把它丢弃。
+send_text(sock, json.dumps({
     "type": "traffic",
     "seq": seq,
     "boot_id": boot_id,
     "deltas": [{"email": f"{alice}@{tag}", "uplink": 999999, "downlink": 999999}],
-}
-
-
-async def main():
-    url = base.replace("http://", "ws://", 1) + "/api/agent/ws"
-    async with websockets.connect(url, open_timeout=10) as ws:
-        await ws.send(json.dumps({
-            "type": "hello", "token": token, "hostname": "e2e-replay",
-            "agent_version": "0.1.0", "xray_mode": "external", "capabilities": [],
-        }))
-        # 用同一个 (boot_id, seq) 重放一条明显更大的上报。
-        await ws.send(json.dumps(payload))
-        await asyncio.sleep(0.8)
-
-
-asyncio.run(main())
+}))
+time.sleep(0.8)
+sock.close()
 print(f"ok 重放 boot_id={boot_id[:8]}… seq={seq}")
 PY
 
