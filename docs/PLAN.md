@@ -247,3 +247,26 @@ GET /api/v1/me/traffic?days=7 -> { "days": [ TrafficDay ] }   // 只统计该用
 ### 不做
 
 - 不做「按比例分摊到各套餐实例」：总额度是用户级闸门，实例计费仍按瀑布分配，两者语义不同，不强行对齐。
+
+## 待实现接口：全局节点列表（套餐范围选择器需要）
+
+```
+GET /api/v1/nodes  -> { "items": [ {
+  id, server_id, server_name, tag, name, protocol, transport, security,
+  port, enabled, cert_id, config, created_at
+} ] }
+```
+
+管理员接口。存在的理由：套餐的节点范围要跨服务器选，而现有接口只提供
+`GET /api/v1/servers/:id/nodes`，前端只能按服务器逐个拉（N+1 且无法在一个选择器里呈现）。
+
+### 套餐范围的 API 表达（与 P0-1 实现保持一致）
+
+```
+POST  /api/v1/packages        { name, ..., node_ids?: string[] }   // 不传 = 全部节点
+PATCH /api/v1/packages/:id    { ..., node_ids?: string[] | null }  // 缺失=不动, null=恢复全部, []=一个不给
+GET   /api/v1/packages        items[] 含 node_ids / node_count
+```
+
+前端回填规则（在后端补 `node_scope` 字段之前先用这个推导）：
+`node_ids.length > 0` → 指定；`node_ids` 空且 `node_count > 0` → 全部；两者皆空 → 不给。
