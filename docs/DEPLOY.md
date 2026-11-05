@@ -18,7 +18,13 @@ MMRUST_ADMIN_PASSWORD='换成强密码' ./mmrust-master
 | `MMRUST_AGENT_DIST` | 未设置 | agent 二进制目录；设置后 `/api/agent/download/*` 才可用 |
 | `MMRUST_ENFORCE` | 开 | 设为 `0` 关闭超额断流 |
 
+登录限流的阈值、锁定时长、会话有效期、面板名称都在「设置」页里改（存 `settings` 表），不用重启。
+
 **反代要点**：`/api/agent/ws` 必须支持 WebSocket 升级；`X-Forwarded-Proto` 要透传——主控靠它生成安装命令里的 `https://`。
+
+**关于 `X-Forwarded-For`**：主控只在直连方是回环/内网地址时才采信它（用于登录限流的 IP 维度）。
+- 走 Nginx/Caddy 反代（master 监听 127.0.0.1）→ XFF 生效，建议用 `$remote_addr` 覆盖而不是透传客户端值；
+- 直接 `IP:port` 暴露 → XFF 被忽略，一律按真实对端 IP 计数，避免伪造头绕过限流。
 
 ## Agent 一键安装
 
