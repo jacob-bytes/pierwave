@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod auth;
+pub mod desired;
 pub mod nodes;
 pub mod packages;
 pub mod servers;

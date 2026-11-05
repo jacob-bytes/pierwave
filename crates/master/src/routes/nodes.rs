@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use mmrust_domain::models::Server;
-use mmrust_domain::{repo, xray};
+use mmrust_domain::repo;
 use mmrust_proto::{DesiredState, MasterMessage};
 
 use crate::auth::CurrentUser;
@@ -218,22 +218,22 @@ pub async fn apply(
     user.require_admin()?;
     let server = load_server(&state, &server_id).await?;
 
-    let nodes = repo::nodes::list_enabled_by_server(&state.db.pool, &server.id).await?;
-    let xray = xray::build_config(&server.name, &nodes);
+    let desired = super::desired::render(&state, &server).await?;
     let version = repo::servers::bump_config_version(&state.db.pool, &server.id).await?;
 
     let delivered = state.hub.publish(
         &server.id,
         MasterMessage::Desired(DesiredState {
             version,
-            xray,
+            xray: desired.xray,
             files: Vec::new(),
         }),
     );
     tracing::info!(
         server = %server.name,
         version,
-        nodes = nodes.len(),
+        nodes = desired.node_count,
+        grants = desired.grant_count,
         delivered,
         "desired state published"
     );
@@ -458,6 +458,110 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn apply_injects_clients_for_users_with_active_packages() {
+        let (app, state, cookie) = setup().await;
+
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/servers",
+            Some(json!({"name": "hk-1", "address": "1.2.3.4"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let server_id = body["server"]["id"].as_str().unwrap().to_string();
+
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &format!("/api/v1/servers/{server_id}/nodes"),
+            Some(vless_node()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let node_id = body["node"]["id"].as_str().unwrap().to_string();
+        let node_tag = body["node"]["tag"].as_str().unwrap().to_string();
+
+        let eligible = repo::users::create(
+            &state.db.pool,
+            repo::users::NewUser {
+                username: "alice".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+            },
+        )
+        .await
+        .unwrap();
+        let package = repo::packages::create(
+            &state.db.pool,
+            repo::packages::NewPackage {
+                name: "月卡".into(),
+                quota_bytes: Some(10_000),
+                period_days: Some(30),
+                direction: "both".into(),
+                node_ratio: 1.0,
+            },
+        )
+        .await
+        .unwrap();
+        repo::user_packages::create(
+            &state.db.pool,
+            &eligible.id,
+            repo::user_packages::NewUserPackage {
+                package_id: package.id.clone(),
+                quota_override: None,
+                expires_at: None,
+                reset_day: None,
+            },
+            &package,
+        )
+        .await
+        .unwrap();
+        // 没有套餐的用户不能拿到 client。
+        repo::users::create(
+            &state.db.pool,
+            repo::users::NewUser {
+                username: "bob".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let mut subscription = state.hub.subscribe(&server_id);
+        let (status, _) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &format!("/api/v1/servers/{server_id}/apply"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let MasterMessage::Desired(desired) = subscription.receiver.recv().await.unwrap() else {
+            panic!("expected desired state");
+        };
+        let clients = desired.xray["inbounds"][0]["settings"]["clients"]
+            .as_array()
+            .unwrap();
+        assert_eq!(clients.len(), 1, "只有有套餐的用户被注入");
+        let secret = mmrust_domain::credentials::master_secret(&state.db.pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            clients[0]["id"],
+            mmrust_domain::credentials::sub_uuid(&secret, &eligible.id, &node_id)
+        );
+        assert_eq!(clients[0]["email"], format!("{}@{node_tag}", eligible.id));
     }
 
     #[tokio::test]

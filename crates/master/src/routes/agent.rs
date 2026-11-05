@@ -68,12 +68,13 @@ async fn handle(mut socket: WebSocket, state: AppState) {
     }
 
     // 重连补发：Agent 按版本号幂等，只有比本地已应用版本新才会真正重启 xray。
+    // 配置装配与 apply 共用 routes::desired，保证补发的 client 凭据和上次下发的完全一致。
     if server.config_version > 0 {
-        match repo::nodes::list_enabled_by_server(&state.db.pool, &server.id).await {
-            Ok(nodes) => {
+        match super::desired::render(&state, &server).await {
+            Ok(rendered) => {
                 let desired = MasterMessage::Desired(DesiredState {
                     version: server.config_version,
-                    xray: mmrust_domain::xray::build_config(&server.name, &nodes),
+                    xray: rendered.xray,
                     files: Vec::new(),
                 });
                 if !send_json(&mut socket, &desired).await {

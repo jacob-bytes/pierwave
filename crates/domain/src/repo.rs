@@ -838,3 +838,68 @@ pub mod user_packages {
         Ok(res.rows_affected() > 0)
     }
 }
+
+/// 订阅授权：谁有资格用哪些节点（`docs/SUBSCRIBE.md` §7.1）。
+///
+/// 「有资格」的口径只有一处，apply（服务端注入 client）和公开订阅端点共用：
+/// 用户 `status='active'`，且至少有一张 `status='active'` 且未过期
+/// （`expires_at IS NULL OR expires_at > now`）的套餐实例。
+pub mod authorization {
+    use super::*;
+
+    /// 一条「用户 × 节点」授权对。跨服务器/跨用户一次算好，避免 master 里写 SQL。
+    #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+    pub struct EligiblePair {
+        pub user_id: String,
+        pub node_id: String,
+    }
+
+    /// 给定服务器：enabled 节点 × 有资格用户的笛卡尔集，顺序稳定。
+    ///
+    /// 返回的 pair 只是「谁可以用谁」；凭据仍由调用方用 master secret 派生，
+    /// 保证这一层不接触任何密钥材料。
+    pub async fn eligible_pairs(
+        pool: &SqlitePool,
+        server_id: &str,
+    ) -> anyhow::Result<Vec<EligiblePair>> {
+        Ok(sqlx::query_as::<_, EligiblePair>(
+            "SELECT u.id AS user_id, n.id AS node_id
+             FROM users u
+             CROSS JOIN nodes n
+             WHERE n.server_id = ? AND n.enabled = 1
+               AND u.status = 'active'
+               AND EXISTS (
+                   SELECT 1 FROM user_packages up
+                   WHERE up.user_id = u.id
+                     AND up.status = 'active'
+                     AND (up.expires_at IS NULL OR up.expires_at > ?)
+               )
+             ORDER BY u.created_at ASC, u.rowid ASC, n.created_at ASC, n.rowid ASC",
+        )
+        .bind(server_id)
+        .bind(now())
+        .fetch_all(pool)
+        .await?)
+    }
+
+    /// 单个用户是否有任何可用套餐（订阅端点用它决定是否导出节点）。
+    pub async fn is_eligible(pool: &SqlitePool, user_id: &str) -> anyhow::Result<bool> {
+        let eligible: i64 = sqlx::query_scalar(
+            "SELECT EXISTS(
+                 SELECT 1 FROM users u
+                 WHERE u.id = ? AND u.status = 'active'
+                   AND EXISTS (
+                       SELECT 1 FROM user_packages up
+                       WHERE up.user_id = u.id
+                         AND up.status = 'active'
+                         AND (up.expires_at IS NULL OR up.expires_at > ?)
+                   )
+             )",
+        )
+        .bind(user_id)
+        .bind(now())
+        .fetch_one(pool)
+        .await?;
+        Ok(eligible != 0)
+    }
+}

@@ -4,6 +4,7 @@
 pub mod credentials;
 pub mod models;
 pub mod password;
+pub mod reality;
 pub mod repo;
 pub mod subscribe;
 pub mod xray;

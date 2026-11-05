@@ -170,6 +170,11 @@ pub async fn update(
     if id == user.0.id && role.as_deref() == Some("user") {
         return Err(AppError::BadRequest("不能把自己降级为普通用户".into()));
     }
+    if id == user.0.id && status.as_deref() == Some("disabled") {
+        return Err(AppError::BadRequest(
+            "不能禁用自己的账号（否则将无法登录后台）".into(),
+        ));
+    }
 
     repo::users::update(
         &state.db.pool,
@@ -692,6 +697,18 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(body["error"].as_str().unwrap().contains("降级"));
+
+        // 也不能把自己禁用（等于把后台锁死）。
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            &format!("/api/v1/users/{admin_id}"),
+            Some(json!({"status": "disabled"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body["error"].as_str().unwrap().contains("禁用自己"));
 
         // 用户字段校验。
         for bad in [

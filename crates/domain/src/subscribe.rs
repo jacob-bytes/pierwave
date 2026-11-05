@@ -20,6 +20,7 @@ use serde_json::{json, Value};
 
 use crate::credentials;
 use crate::models::Node;
+use crate::reality;
 
 // ---------------------------------------------------------------------------
 // 视图模型
@@ -199,12 +200,14 @@ impl SubNode {
                     get_first_str(reality, "serverNames").map(str::to_string),
                 );
                 // Xray 入站只存 privateKey，客户端需要的是 publicKey。
-                // 面板在片段里显式带 publicKey（Xray 会忽略这个多余字段），这里只做搬运。
-                set(
-                    &mut params,
-                    "public_key",
-                    get_str(reality, "publicKey").map(str::to_string),
-                );
+                // 显式给了 publicKey（导入的配置）就用显式值，否则用 X25519 反推。
+                let explicit = get_str(reality, "publicKey").map(str::to_string);
+                let derived = if explicit.is_none() {
+                    get_str(reality, "privateKey").and_then(reality::public_key_from_private)
+                } else {
+                    None
+                };
+                set(&mut params, "public_key", explicit.or(derived));
                 set(
                     &mut params,
                     "short_id",
@@ -220,7 +223,7 @@ impl SubNode {
                 tracing::warn!(
                     node = %node.id,
                     tag = %node.tag,
-                    "reality 节点缺少 publicKey（入站片段只有 privateKey），订阅跳过该节点"
+                    "reality 节点缺少可用的 publicKey（私钥缺失或非法），订阅跳过该节点"
                 );
                 return None;
             }
@@ -342,23 +345,31 @@ pub fn find_exporter(id: &str) -> Option<&'static dyn Exporter> {
         .find(|exporter| exporter.id().eq_ignore_ascii_case(id))
 }
 
+/// 已注册渲染器的 id 列表，用于 400 错误里告诉用户当前支持什么。
+pub fn exporter_ids() -> Vec<&'static str> {
+    EXPORTERS.iter().map(|exporter| exporter.id()).collect()
+}
+
 /// `?target=` → UA 嗅探 → 回落 clash。
 ///
-/// 还没实现的格式（surge / sing-box）先回落到 clash：宁可给一份能看的配置，
-/// 也不要 4xx 把用户挡在门外。
-pub fn select_exporter(target: Option<&str>, user_agent: Option<&str>) -> &'static dyn Exporter {
-    if let Some(exporter) = target.and_then(find_exporter) {
-        return exporter;
+/// 显式给了 `target` 就只认已注册的渲染器；未知目标返回 `None`，由调用方转成 400，
+/// 而不是把 clash YAML 塞给 sing-box 用户。没给 `target` 时才按 UA 嗅探并回落 clash。
+pub fn select_exporter(
+    target: Option<&str>,
+    user_agent: Option<&str>,
+) -> Option<&'static dyn Exporter> {
+    if let Some(target) = target.map(str::trim).filter(|target| !target.is_empty()) {
+        return find_exporter(target);
     }
     if let Some(user_agent) = user_agent {
         let user_agent = user_agent.to_ascii_lowercase();
         if user_agent.contains("shadowrocket") || user_agent.contains("v2rayng") {
             if let Some(exporter) = find_exporter("uri") {
-                return exporter;
+                return Some(exporter);
             }
         }
     }
-    find_exporter("clash").expect("clash 渲染器必须注册")
+    find_exporter("clash")
 }
 
 // ---------------------------------------------------------------------------
@@ -1227,6 +1238,47 @@ mod tests {
     }
 
     #[test]
+    fn from_node_derives_reality_public_key_from_private_key() {
+        // RFC 7748 §6.1 的私钥；Xray 实际输出的是 URL-safe 无填充，这里两种都覆盖。
+        let private_hex = "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a";
+        let private_bytes = hex::decode(private_hex).unwrap();
+        let private_key = URL_SAFE_NO_PAD.encode(private_bytes);
+        let node = fragment_node(
+            "node-rfc",
+            "香港 REALITY",
+            "vless",
+            "tcp",
+            "reality",
+            443,
+            json!({
+                "settings": {"clients": [], "decryption": "none"},
+                "stream": {
+                    "network": "tcp",
+                    "security": "reality",
+                    "realitySettings": {
+                        "serverNames": ["www.example.com"],
+                        "privateKey": private_key,
+                        "shortIds": ["abcd1234"]
+                    }
+                }
+            }),
+        );
+
+        let sub = SubNode::from_node(&node, "1.2.3.4", "user-1", "secret").unwrap();
+        let public = STANDARD
+            .decode(
+                sub.param("public_key")
+                    .expect("应从 privateKey 反推出 publicKey"),
+            )
+            .unwrap();
+
+        assert_eq!(
+            hex::encode(public),
+            "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a"
+        );
+    }
+
+    #[test]
     fn from_node_parses_trojan_ws_tls_fragment() {
         let node = fragment_node(
             "node-2",
@@ -1305,17 +1357,22 @@ mod tests {
 
     #[test]
     fn selector_prefers_target_then_user_agent_then_clash() {
-        assert_eq!(select_exporter(Some("uri"), Some("clash")).id(), "uri");
         assert_eq!(
-            select_exporter(None, Some("Shadowrocket/2.2.0")).id(),
-            "uri"
+            select_exporter(Some("uri"), Some("clash")).map(|e| e.id()),
+            Some("uri")
         );
         assert_eq!(
-            select_exporter(None, Some("clash-verge/1.5 mihomo")).id(),
-            "clash"
+            select_exporter(None, Some("Shadowrocket/2.2.0")).map(|e| e.id()),
+            Some("uri")
         );
-        assert_eq!(select_exporter(None, None).id(), "clash");
-        assert_eq!(select_exporter(Some("singbox"), None).id(), "clash");
+        assert_eq!(
+            select_exporter(None, Some("clash-verge/1.5 mihomo")).map(|e| e.id()),
+            Some("clash")
+        );
+        assert_eq!(select_exporter(None, None).map(|e| e.id()), Some("clash"));
+        // 未实现的格式不再静默回落，交给调用方转 400。
+        assert!(select_exporter(Some("singbox"), None).is_none());
+        assert!(select_exporter(Some("surge"), None).is_none());
     }
 
     fn fragment_node(

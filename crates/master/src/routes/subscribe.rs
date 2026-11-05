@@ -41,10 +41,16 @@ pub async fn get(
 
     let secret = credentials::master_secret(&state.db.pool).await?;
     let mut nodes = Vec::new();
-    for row in repo::nodes::list_enabled_with_server(&state.db.pool).await? {
-        // 缺字段/脏片段的节点在这里被跳过并记 warn，订阅本身照常渲染。
-        if let Some(node) = SubNode::from_node(&row.node, &row.server_address, &user.id, &secret) {
-            nodes.push(node);
+    // 没有可用套餐的用户仍然 200，但 proxies 为空（与「未绑定套餐」的 FAQ 语义一致）。
+    // 判定口径与 apply 注入 client 时完全一致，见 repo::authorization。
+    if repo::authorization::is_eligible(&state.db.pool, &user.id).await? {
+        for row in repo::nodes::list_enabled_with_server(&state.db.pool).await? {
+            // 缺字段/脏片段的节点在这里被跳过并记 warn，订阅本身照常渲染。
+            if let Some(node) =
+                SubNode::from_node(&row.node, &row.server_address, &user.id, &secret)
+            {
+                nodes.push(node);
+            }
         }
     }
     dedupe_names(&mut nodes);
@@ -59,7 +65,14 @@ pub async fn get(
     let user_agent = headers
         .get(USER_AGENT)
         .and_then(|value| value.to_str().ok());
-    let exporter = subscribe::select_exporter(query.target.as_deref(), user_agent);
+    let exporter =
+        subscribe::select_exporter(query.target.as_deref(), user_agent).ok_or_else(|| {
+            AppError::BadRequest(format!(
+                "不支持的订阅格式：{}（当前支持：{}）",
+                query.target.as_deref().unwrap_or_default().trim(),
+                subscribe::exporter_ids().join(" / ")
+            ))
+        })?;
     let body = exporter.render(&ctx)?;
 
     let mut response = body.into_response();
@@ -131,7 +144,7 @@ mod tests {
 
     use mmrust_domain::models::Patch;
     use mmrust_domain::repo::users::NewUser;
-    use mmrust_domain::repo::{nodes::NewNode, servers};
+    use mmrust_domain::repo::{nodes::NewNode, packages, servers, user_packages};
     use mmrust_domain::Db;
 
     const ADDRESS: &str = "203.0.113.10";
@@ -151,6 +164,34 @@ mod tests {
         )
         .await
         .unwrap();
+
+        // 有套餐实例的用户才会导出节点。
+        let package = packages::create(
+            &db.pool,
+            packages::NewPackage {
+                name: "月卡".into(),
+                quota_bytes: Some(10_000),
+                period_days: Some(30),
+                direction: "both".into(),
+                node_ratio: 1.0,
+            },
+        )
+        .await
+        .unwrap();
+        user_packages::create(
+            &db.pool,
+            &user.id,
+            user_packages::NewUserPackage {
+                package_id: package.id.clone(),
+                quota_override: None,
+                expires_at: None,
+                reset_day: None,
+            },
+            &package,
+        )
+        .await
+        .unwrap();
+
         let (server, _token) = servers::create(&db.pool, "hk-1", ADDRESS, "external")
             .await
             .unwrap();
@@ -288,6 +329,88 @@ mod tests {
         assert!(body.contains("ws-opts:"), "缺少 ws 配置");
         assert!(body.contains("GEOIP,CN,DIRECT"));
         assert!(!body.contains("禁用节点"), "禁用节点不应导出");
+    }
+
+    #[tokio::test]
+    async fn user_without_active_package_gets_empty_proxies() {
+        let (app, state, _short_code) = setup().await;
+
+        let no_package = repo::users::create(
+            &state.db.pool,
+            NewUser {
+                username: "bob".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let (status, headers, body) = get(
+            &app,
+            &format!("/api/v1/sub/{}", no_package.short_code),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::OK, "无套餐不是错误：{body}");
+        assert!(header_str(&headers, "content-type")
+            .unwrap()
+            .contains("yaml"));
+        assert!(body.contains("proxies: []"), "应返回空 proxies：{body}");
+        assert!(!body.contains("香港-REALITY"));
+        assert!(!body.contains("日本-WS-TLS"));
+
+        // 有套餐实例但已过期 → 同样无资格。
+        let expired = repo::users::create(
+            &state.db.pool,
+            NewUser {
+                username: "carol".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+            },
+        )
+        .await
+        .unwrap();
+        let package = packages::list(&state.db.pool).await.unwrap().remove(0);
+        user_packages::create(
+            &state.db.pool,
+            &expired.id,
+            user_packages::NewUserPackage {
+                package_id: package.id.clone(),
+                quota_override: None,
+                expires_at: Some(1),
+                reset_day: None,
+            },
+            &package,
+        )
+        .await
+        .unwrap();
+
+        let (status, _headers, body) =
+            get(&app, &format!("/api/v1/sub/{}", expired.short_code), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("proxies: []"), "过期套餐不应导出节点：{body}");
+    }
+
+    #[tokio::test]
+    async fn unsupported_target_is_400_with_supported_formats() {
+        let (app, _state, short_code) = setup().await;
+
+        let (status, _headers, body) = get(
+            &app,
+            &format!("/api/v1/sub/{short_code}?target=singbox"),
+            None,
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let error = body.as_str();
+        assert!(error.contains("singbox"), "unexpected: {error}");
+        assert!(error.contains("clash"), "unexpected: {error}");
+        assert!(error.contains("uri"), "unexpected: {error}");
     }
 
     #[tokio::test]

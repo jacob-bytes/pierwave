@@ -5,7 +5,30 @@
 
 use serde_json::{json, Map, Value};
 
+use crate::credentials;
 use crate::models::Node;
+
+/// 一条授权：某个用户有资格使用某个节点。
+///
+/// `uuid` 是 `(master_secret, user_id, node_id)` 的 HMAC 派生凭据，必须在进入
+/// `build_config` 之前算好（用 [`Grant::new`]），这样配置生成保持纯函数、不碰数据库。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Grant {
+    pub user_id: String,
+    pub node_id: String,
+    pub uuid: String,
+}
+
+impl Grant {
+    /// 派生一个 (user, node) 子账户；同一个三元组永远得到同一份凭据。
+    pub fn new(secret: &str, user_id: &str, node_id: &str) -> Self {
+        Self {
+            user_id: user_id.to_string(),
+            node_id: node_id.to_string(),
+            uuid: credentials::sub_uuid(secret, user_id, node_id),
+        }
+    }
+}
 
 /// 生成可直接落盘的完整 Xray 配置。
 ///
@@ -13,12 +36,16 @@ use crate::models::Node;
 /// * 每个节点的 `config_json` 是「入站对象去掉 tag/port/protocol」的片段。
 ///   片段里即便混入这三个字段也会被节点自身字段覆盖，避免双写不一致；
 /// * 片段缺 `settings` / `stream` 时按协议补安全默认值；
+/// * `grants` 是「有资格的用户 × 节点」的授权集合：每个 (用户, 节点) 生成一条
+///   client 追加到该 inbound 的 `settings.clients`，`email = {user_id}@{node_tag}`。
+///   片段里手工导入的 client 原样保留、排在派生 client 前面；`grants` 为空时不改
+///   `clients`（保持历史行为）；
 /// * 只生成调用方传入的节点，是否过滤 disabled 由调用方决定。
-pub fn build_config(server_name: &str, nodes: &[Node]) -> Value {
+pub fn build_config(server_name: &str, nodes: &[Node], grants: &[Grant]) -> Value {
     let inbounds: Vec<Value> = nodes
         .iter()
         .enumerate()
-        .map(|(index, node)| build_inbound(server_name, index, node))
+        .map(|(index, node)| build_inbound(server_name, index, node, grants))
         .collect();
 
     json!({
@@ -45,7 +72,7 @@ pub fn build_config(server_name: &str, nodes: &[Node]) -> Value {
     })
 }
 
-fn build_inbound(server_name: &str, index: usize, node: &Node) -> Value {
+fn build_inbound(server_name: &str, index: usize, node: &Node, grants: &[Grant]) -> Value {
     let mut inbound = parse_fragment(&node.config_json);
 
     // tag/port/protocol 的唯一事实来源是数据库字段，片段里的旧值一律丢弃。
@@ -60,10 +87,10 @@ fn build_inbound(server_name: &str, index: usize, node: &Node) -> Value {
         inbound.insert("stream".into(), default_stream(node));
     }
 
-    inbound.insert(
-        "tag".into(),
-        Value::String(effective_tag(server_name, index, node)),
-    );
+    let tag = effective_tag(server_name, index, node);
+    inject_clients(&mut inbound, node, &tag, grants);
+
+    inbound.insert("tag".into(), Value::String(tag));
     inbound.insert("port".into(), Value::from(node.port));
     inbound.insert(
         "protocol".into(),
@@ -71,6 +98,110 @@ fn build_inbound(server_name: &str, index: usize, node: &Node) -> Value {
     );
 
     Value::Object(inbound)
+}
+
+/// 把派生 client 追加到 `settings.clients`，手工 client 排在前、不被覆盖。
+///
+/// 只在协议支持「按用户建 client」时生效；`grants` 里没有该节点的授权时完全不动
+/// `settings`，保证没有套餐/没有用户时生成的配置与历史版本一致。
+fn inject_clients(inbound: &mut Map<String, Value>, node: &Node, tag: &str, grants: &[Grant]) {
+    let protocol = node.protocol.trim().to_ascii_lowercase();
+    if !matches!(
+        protocol.as_str(),
+        "vless" | "vmess" | "trojan" | "shadowsocks" | "ss"
+    ) {
+        return;
+    }
+
+    let node_grants: Vec<&Grant> = grants
+        .iter()
+        .filter(|grant| grant.node_id == node.id)
+        .collect();
+    if node_grants.is_empty() {
+        return;
+    }
+
+    let security = inbound
+        .get("stream")
+        .and_then(Value::as_object)
+        .and_then(|stream| stream.get("security"))
+        .and_then(Value::as_str)
+        .map(|security| security.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+    // vless 的 flow 优先沿用片段里第一条 client 的写法，其次按安全层给默认值。
+    let stream_flow = if protocol == "vless" && matches!(security.as_str(), "reality" | "xtls") {
+        Some("xtls-rprx-vision".to_string())
+    } else {
+        None
+    };
+
+    let settings = inbound
+        .get_mut("settings")
+        .and_then(Value::as_object_mut)
+        .expect("build_inbound 已保证 settings 是对象");
+    if !matches!(settings.get("clients"), Some(Value::Array(_))) {
+        settings.insert("clients".into(), Value::Array(Vec::new()));
+    }
+
+    // 先读片段里的手工 client（只看第一条的 flow，作为该 inbound 的默认值）。
+    let manual = settings
+        .get("clients")
+        .and_then(Value::as_array)
+        .expect("上一行已保证 clients 是数组");
+    let fragment_flow = manual
+        .first()
+        .and_then(|client| client.get("flow"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|flow| !flow.is_empty())
+        .map(str::to_string);
+    let vless_flow = fragment_flow.or(stream_flow);
+
+    // Shadowsocks 非 2022 的多用户模式要求每个用户带自己的 method；2022 则必须留空。
+    let ss_method = settings
+        .get("method")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|method| !method.is_empty())
+        .unwrap_or("aes-256-gcm")
+        .to_string();
+    let ss_per_user_method = !ss_method.to_ascii_lowercase().starts_with("2022-");
+
+    let clients = settings
+        .get_mut("clients")
+        .and_then(Value::as_array_mut)
+        .expect("上面已保证 clients 是数组");
+
+    for grant in node_grants {
+        let mut client = Map::new();
+        match protocol.as_str() {
+            "vless" => {
+                client.insert("id".into(), Value::String(grant.uuid.clone()));
+                if let Some(flow) = &vless_flow {
+                    client.insert("flow".into(), Value::String(flow.clone()));
+                }
+            }
+            "vmess" => {
+                client.insert("id".into(), Value::String(grant.uuid.clone()));
+                client.insert("alterId".into(), Value::from(0));
+            }
+            "trojan" => {
+                client.insert("password".into(), Value::String(grant.uuid.clone()));
+            }
+            "shadowsocks" | "ss" => {
+                client.insert("password".into(), Value::String(grant.uuid.clone()));
+                if ss_per_user_method {
+                    client.insert("method".into(), Value::String(ss_method.clone()));
+                }
+            }
+            _ => unreachable!("上面已过滤协议白名单"),
+        }
+        client.insert(
+            "email".into(),
+            Value::String(credentials::sub_email(&grant.user_id, tag)),
+        );
+        clients.push(Value::Object(client));
+    }
 }
 
 fn parse_fragment(raw: &str) -> Map<String, Value> {
@@ -157,7 +288,7 @@ mod tests {
 
     #[test]
     fn empty_server_still_gets_a_valid_skeleton() {
-        let config = build_config("hk-1", &[]);
+        let config = build_config("hk-1", &[], &[]);
 
         assert_eq!(config["log"]["loglevel"], "warning");
         assert_eq!(config["inbounds"], json!([]));
@@ -198,7 +329,7 @@ mod tests {
             }"#,
         );
 
-        let config = build_config("hk-1", &[n]);
+        let config = build_config("hk-1", &[n], &[]);
         let inbound = &config["inbounds"][0];
 
         assert_eq!(config["inbounds"].as_array().unwrap().len(), 1);
@@ -225,7 +356,7 @@ mod tests {
         );
         let trojan = node("trojan-default", "trojan", "tcp", "tls", 10002, "{}");
 
-        let config = build_config("hk-1", &[vless, trojan]);
+        let config = build_config("hk-1", &[vless, trojan], &[]);
         let inbounds = config["inbounds"].as_array().unwrap();
 
         assert_eq!(inbounds.len(), 2);
@@ -251,7 +382,7 @@ mod tests {
             r#"{"tag": "evil", "port": 1, "protocol": "vmess", "settings": {}}"#,
         );
 
-        let config = build_config("hk-1", &[n]);
+        let config = build_config("hk-1", &[n], &[]);
         let inbound = &config["inbounds"][0];
 
         assert_eq!(inbound["tag"], "authoritative-tag");
@@ -263,7 +394,7 @@ mod tests {
     fn invalid_fragment_falls_back_to_defaults() {
         let n = node("broken", "vless", "tcp", "none", 443, "not-json");
 
-        let config = build_config("hk-1", &[n]);
+        let config = build_config("hk-1", &[n], &[]);
         let inbound = &config["inbounds"][0];
 
         assert_eq!(inbound["settings"]["decryption"], "none");
@@ -276,8 +407,8 @@ mod tests {
         let n = node("", "vless", "tcp", "none", 443, "{}");
         let nodes = [n];
 
-        let first = build_config("HK 1", &nodes);
-        let second = build_config("HK 1", &nodes);
+        let first = build_config("HK 1", &nodes, &[]);
+        let second = build_config("HK 1", &nodes, &[]);
 
         assert_eq!(first["inbounds"][0]["tag"], "hk-1-443-0");
         assert_eq!(first, second);
@@ -285,5 +416,171 @@ mod tests {
             serde_json::to_string(&first).unwrap(),
             serde_json::to_string(&second).unwrap()
         );
+    }
+
+    const SECRET: &str = "0123456789abcdef0123456789abcdef";
+
+    fn grants_for(secret: &str, users: &[&str], nodes: &[&Node]) -> Vec<Grant> {
+        let mut grants = Vec::new();
+        for user_id in users {
+            for node in nodes {
+                grants.push(Grant::new(secret, user_id, &node.id));
+            }
+        }
+        grants
+    }
+
+    #[test]
+    fn injects_one_client_per_user_per_node() {
+        let vless = node(
+            "vless-reality",
+            "vless",
+            "tcp",
+            "reality",
+            443,
+            r#"{"settings": {"clients": [], "decryption": "none"},
+                "stream": {"network": "tcp", "security": "reality"}}"#,
+        );
+        let vmess = node(
+            "vmess-ws",
+            "vmess",
+            "ws",
+            "tls",
+            8443,
+            r#"{"settings": {"clients": []},
+                "stream": {"network": "ws", "security": "tls"}}"#,
+        );
+        let nodes = [vless, vmess];
+        let grants = grants_for(SECRET, &["user-1", "user-2"], &[&nodes[0], &nodes[1]]);
+
+        let config = build_config("hk-1", &nodes, &grants);
+        let inbounds = config["inbounds"].as_array().unwrap();
+
+        assert_eq!(inbounds.len(), 2);
+        for (index, node) in nodes.iter().enumerate() {
+            let clients = inbounds[index]["settings"]["clients"].as_array().unwrap();
+            assert_eq!(clients.len(), 2, "每个节点每个用户一条 client");
+
+            for (user_index, user_id) in ["user-1", "user-2"].iter().enumerate() {
+                let client = &clients[user_index];
+                assert_eq!(client["email"], format!("{user_id}@{}", node.tag));
+            }
+        }
+
+        // vless：id 就是订阅里那把 sub_uuid，reality 默认 flow = xtls-rprx-vision。
+        assert_eq!(
+            inbounds[0]["settings"]["clients"][0]["id"],
+            credentials::sub_uuid(SECRET, "user-1", &nodes[0].id)
+        );
+        assert_eq!(
+            inbounds[0]["settings"]["clients"][1]["id"],
+            credentials::sub_uuid(SECRET, "user-2", &nodes[0].id)
+        );
+        assert_eq!(
+            inbounds[0]["settings"]["clients"][0]["flow"],
+            "xtls-rprx-vision"
+        );
+
+        // vmess：id = sub_uuid，alterId 固定 0。
+        assert_eq!(
+            inbounds[1]["settings"]["clients"][0]["id"],
+            credentials::sub_uuid(SECRET, "user-1", &nodes[1].id)
+        );
+        assert_eq!(inbounds[1]["settings"]["clients"][0]["alterId"], 0);
+    }
+
+    #[test]
+    fn derived_clients_are_appended_after_manual_clients() {
+        let vless = node(
+            "vless-manual",
+            "vless",
+            "tcp",
+            "tls",
+            443,
+            r#"{"settings": {
+                    "clients": [{"id": "manual-id", "flow": "xtls-rprx-vision", "email": "hand@import"}],
+                    "decryption": "none"
+                },
+                "stream": {"network": "tcp", "security": "tls"}}"#,
+        );
+        let nodes = [vless];
+        let grants = grants_for(SECRET, &["user-1", "user-2"], &[&nodes[0]]);
+
+        let config = build_config("hk-1", &nodes, &grants);
+        let clients = config["inbounds"][0]["settings"]["clients"]
+            .as_array()
+            .unwrap();
+
+        assert_eq!(clients.len(), 3, "手工 client 保留，派生 client 追加在后");
+        assert_eq!(clients[0]["id"], "manual-id");
+        assert_eq!(clients[0]["email"], "hand@import");
+        assert_eq!(
+            clients[1]["id"],
+            credentials::sub_uuid(SECRET, "user-1", &nodes[0].id)
+        );
+        // 片段的 flow 优先于安全层默认值。
+        assert_eq!(clients[1]["flow"], "xtls-rprx-vision");
+        assert_eq!(clients[1]["email"], "user-1@vless-manual");
+    }
+
+    #[test]
+    fn no_grants_keeps_fragment_clients_untouched() {
+        let vless = node(
+            "vless-manual",
+            "vless",
+            "tcp",
+            "tls",
+            443,
+            r#"{"settings": {"clients": [{"id": "manual-id"}]},
+                "stream": {"network": "tcp", "security": "tls"}}"#,
+        );
+        let empty = node(
+            "vless-empty",
+            "vless",
+            "tcp",
+            "none",
+            8443,
+            r#"{"settings": {"clients": []}, "stream": {"network": "tcp", "security": "none"}}"#,
+        );
+        let nodes = [vless, empty];
+
+        let config = build_config("hk-1", &nodes, &[]);
+        let inbounds = config["inbounds"].as_array().unwrap();
+
+        assert_eq!(
+            inbounds[0]["settings"]["clients"].as_array().unwrap().len(),
+            1
+        );
+        assert_eq!(inbounds[1]["settings"]["clients"], json!([]));
+    }
+
+    #[test]
+    fn shadowsocks_multiuser_clients_get_method_and_password() {
+        let ss = node(
+            "ss-1",
+            "shadowsocks",
+            "tcp",
+            "none",
+            9000,
+            r#"{"settings": {"method": "aes-256-gcm", "password": "legacy"},
+                "stream": {"network": "tcp", "security": "none"}}"#,
+        );
+        let nodes = [ss];
+        let grants = grants_for(SECRET, &["user-1"], &[&nodes[0]]);
+
+        let config = build_config("hk-1", &nodes, &grants);
+        let clients = config["inbounds"][0]["settings"]["clients"]
+            .as_array()
+            .unwrap();
+
+        assert_eq!(clients.len(), 1);
+        assert_eq!(
+            clients[0]["password"],
+            credentials::sub_uuid(SECRET, "user-1", &nodes[0].id)
+        );
+        assert_eq!(clients[0]["method"], "aes-256-gcm");
+        assert_eq!(clients[0]["email"], "user-1@ss-1");
+        // 单用户 password 字段保留：Xray 在多用户模式下会忽略它。
+        assert_eq!(config["inbounds"][0]["settings"]["password"], "legacy");
     }
 }
