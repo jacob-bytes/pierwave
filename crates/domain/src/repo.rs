@@ -9,6 +9,38 @@ pub fn now() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
+/// 键值配置：订阅凭据派生的 master secret 等。
+pub mod settings {
+    use super::*;
+
+    pub async fn get(pool: &SqlitePool, key: &str) -> anyhow::Result<Option<String>> {
+        Ok(
+            sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+                .bind(key)
+                .fetch_optional(pool)
+                .await?,
+        )
+    }
+
+    /// 不存在则写入，返回最终生效值。
+    ///
+    /// 首启时两个请求可能同时生成 secret，用 `ON CONFLICT DO NOTHING` 让先写入者胜出，
+    /// 再统一读回，保证所有进程/连接看到的都是同一份。
+    pub async fn get_or_init(pool: &SqlitePool, key: &str, value: &str) -> anyhow::Result<String> {
+        sqlx::query(
+            "INSERT INTO settings (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO NOTHING",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(pool)
+        .await?;
+        get(pool, key)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("settings 写入后读取失败：{key}"))
+    }
+}
+
 pub mod users {
     use super::*;
 
@@ -72,6 +104,19 @@ pub mod users {
         Ok(
             sqlx::query_as::<_, User>("SELECT * FROM users WHERE username = ?")
                 .bind(username)
+                .fetch_optional(pool)
+                .await?,
+        )
+    }
+
+    /// 订阅入口：短码不是密钥，但泄漏等于送人流量，所以查询只按短码精确匹配。
+    pub async fn find_by_short_code(
+        pool: &SqlitePool,
+        short_code: &str,
+    ) -> anyhow::Result<Option<User>> {
+        Ok(
+            sqlx::query_as::<_, User>("SELECT * FROM users WHERE short_code = ?")
+                .bind(short_code)
                 .fetch_optional(pool)
                 .await?,
         )
@@ -442,6 +487,23 @@ pub mod nodes {
              ORDER BY created_at ASC, rowid ASC",
         )
         .bind(server_id)
+        .fetch_all(pool)
+        .await?)
+    }
+
+    /// 订阅用：所有服务器下启用的节点，并带出服务器地址。
+    ///
+    /// JOIN 天然满足「所属服务器必须存在」；否则节点在库里就是孤儿，不该出现在订阅里。
+    pub async fn list_enabled_with_server(
+        pool: &SqlitePool,
+    ) -> anyhow::Result<Vec<NodeWithServer>> {
+        Ok(sqlx::query_as::<_, NodeWithServer>(
+            "SELECT n.*, s.address AS server_address
+             FROM nodes n
+             JOIN servers s ON s.id = n.server_id
+             WHERE n.enabled = 1
+             ORDER BY n.created_at ASC, n.rowid ASC",
+        )
         .fetch_all(pool)
         .await?)
     }

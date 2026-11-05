@@ -52,6 +52,8 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/packages/{id}",
             patch(routes::packages::update).delete(routes::packages::delete),
         )
+        // 公开订阅入口：不加鉴权，短码即凭证。
+        .route("/api/v1/sub/{short_code}", get(routes::subscribe::get))
         .route("/api/agent/ws", get(routes::agent::ws))
         .with_state(state)
         .fallback_service(static_files)

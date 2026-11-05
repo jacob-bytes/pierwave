@@ -56,6 +56,17 @@ pub struct Node {
     pub created_at: i64,
 }
 
+/// 订阅装配用：节点 + 所属服务器地址。
+///
+/// 订阅端点要跨服务器取节点，地址不在 `nodes` 表里，靠 JOIN 一次带出，
+/// 避免 master 里出现 N+1 或直接写 SQL。
+#[derive(Debug, Clone, FromRow)]
+pub struct NodeWithServer {
+    #[sqlx(flatten)]
+    pub node: Node,
+    pub server_address: String,
+}
+
 fn config_json_as_value<S>(raw: &str, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,

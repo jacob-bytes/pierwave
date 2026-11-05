@@ -24,8 +24,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 thiserror = "2"
 anyhow = "1"
 sha2 = "0.10"
+hmac = "0.12"
 hex = "0.4"
 base64 = "0.22"
+serde_yaml = "0.9"
 tokio-tungstenite = "0.24"
 toml = "0.8"
 
