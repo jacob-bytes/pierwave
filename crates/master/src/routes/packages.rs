@@ -14,11 +14,8 @@ use crate::state::AppState;
 
 const DIRECTIONS: &[&str] = &["both", "upload", "download"];
 
-/// 去空白、去重；`None` 与 `Some([])` 语义不同，不能合并。
-fn normalize_node_ids(raw: Option<Vec<String>>) -> AppResult<Option<Vec<String>>> {
-    let Some(ids) = raw else {
-        return Ok(None);
-    };
+/// 去空白、去重。
+fn normalize_node_id_list(ids: Vec<String>) -> AppResult<Vec<String>> {
     let mut seen = HashSet::new();
     let mut out = Vec::with_capacity(ids.len());
     for id in ids {
@@ -30,14 +27,25 @@ fn normalize_node_ids(raw: Option<Vec<String>>) -> AppResult<Option<Vec<String>>
             out.push(id.to_string());
         }
     }
-    Ok(Some(out))
+    Ok(out)
+}
+
+/// 新建：`None` 与 `Some([])` 语义不同（全部 vs 一个都不给），不能合并。
+fn normalize_create_node_ids(raw: Option<Vec<String>>) -> AppResult<Option<Vec<String>>> {
+    raw.map(normalize_node_id_list).transpose()
+}
+
+/// 更新：缺失 / null / 数组 三态原样保留，只清洗 Value 里的 id。
+fn normalize_patch_node_ids(raw: Patch<Vec<String>>) -> AppResult<Patch<Vec<String>>> {
+    match raw {
+        Patch::Missing => Ok(Patch::Missing),
+        Patch::Null => Ok(Patch::Null),
+        Patch::Value(ids) => Ok(Patch::Value(normalize_node_id_list(ids)?)),
+    }
 }
 
 /// 显式指定范围时，所有节点必须真实存在；否则 400 而不是等外键报 500。
-async fn validate_node_ids(state: &AppState, node_ids: Option<&[String]>) -> AppResult<()> {
-    let Some(node_ids) = node_ids else {
-        return Ok(());
-    };
+async fn validate_node_id_list(state: &AppState, node_ids: &[String]) -> AppResult<()> {
     let missing = repo::nodes::missing_ids(&state.db.pool, node_ids).await?;
     if !missing.is_empty() {
         return Err(AppError::BadRequest(format!(
@@ -46,6 +54,31 @@ async fn validate_node_ids(state: &AppState, node_ids: Option<&[String]>) -> App
         )));
     }
     Ok(())
+}
+
+/// 范围真的变化时触发下发。
+///
+/// 订阅是即时生效的，而服务器配置要等 apply；这里走现有断流去抖队列
+/// （[`crate::enforcement::mark_all_servers_dirty`]，30s 合并），避免出现
+/// 「订阅里有节点、服务器上没 client」的窗口。失败只记日志，5 分钟对账仍兜底。
+async fn mark_dirty_if_scope_changed(
+    state: &AppState,
+    package_id: &str,
+    before: Option<repo::packages::NodeScope>,
+    after: Option<repo::packages::NodeScope>,
+) {
+    let changed = match (before.as_ref(), after.as_ref()) {
+        // 新建：未设范围（全部）是默认态，不算变化；显式设了范围才触发。
+        (None, Some(after)) => after.explicit,
+        (Some(before), Some(after)) => before != after,
+        _ => false,
+    };
+    if !changed {
+        return;
+    }
+    if let Err(error) = crate::enforcement::mark_all_servers_dirty(state).await {
+        tracing::error!(%package_id, error = %error, "改套餐节点范围后标记期望态失败");
+    }
 }
 
 fn normalize_enum(field: &str, value: &str, allowed: &[&str]) -> AppResult<String> {
@@ -141,8 +174,10 @@ pub async fn create(
     let direction = validate_direction(&req.direction)?;
     validate_node_ratio(req.node_ratio)?;
 
-    let node_ids = normalize_node_ids(req.node_ids)?;
-    validate_node_ids(&state, node_ids.as_deref()).await?;
+    let node_ids = normalize_create_node_ids(req.node_ids)?;
+    if let Some(node_ids) = &node_ids {
+        validate_node_id_list(&state, node_ids).await?;
+    }
 
     let package = repo::packages::create(
         &state.db.pool,
@@ -157,6 +192,9 @@ pub async fn create(
     )
     .await?;
 
+    let scope = repo::packages::node_scope(&state.db.pool, &package.id).await?;
+    mark_dirty_if_scope_changed(&state, &package.id, None, scope).await;
+
     Ok(Json(json!({ "package": package })))
 }
 
@@ -169,9 +207,9 @@ pub struct UpdatePackage {
     pub period_days: Patch<i64>,
     pub direction: Option<String>,
     pub node_ratio: Option<f64>,
-    /// `null` / 缺省 = 不改动范围；`[]` = 清空为「一个都不给」；数组 = 只给这些节点。
+    /// 三态：缺失 = 不动；`null` = 恢复全部；`[]` = 一个都不给；数组 = 指定。
     #[serde(default)]
-    pub node_ids: Option<Vec<String>>,
+    pub node_ids: Patch<Vec<String>>,
 }
 
 pub async fn update(
@@ -187,7 +225,7 @@ pub async fn update(
         && !req.period_days.is_set()
         && req.direction.is_none()
         && req.node_ratio.is_none()
-        && req.node_ids.is_none()
+        && !req.node_ids.is_set()
     {
         return Err(AppError::BadRequest("至少需要提供一个可更新字段".into()));
     }
@@ -210,9 +248,12 @@ pub async fn update(
         validate_node_ratio(node_ratio)?;
     }
 
-    let node_ids = normalize_node_ids(req.node_ids)?;
-    validate_node_ids(&state, node_ids.as_deref()).await?;
+    let node_ids = normalize_patch_node_ids(req.node_ids)?;
+    if let Patch::Value(node_ids) = &node_ids {
+        validate_node_id_list(&state, node_ids).await?;
+    }
 
+    let before = repo::packages::node_scope(&state.db.pool, &id).await?;
     let package = repo::packages::update(
         &state.db.pool,
         &id,
@@ -227,6 +268,9 @@ pub async fn update(
     )
     .await?
     .ok_or(AppError::NotFound)?;
+
+    let after = repo::packages::node_scope(&state.db.pool, &id).await?;
+    mark_dirty_if_scope_changed(&state, &id, before, after).await;
 
     Ok(Json(json!({ "package": package })))
 }
@@ -254,6 +298,8 @@ pub async fn delete(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::time::Duration;
 
     use axum::body::Body;
     use axum::http::{header, Method, Request, StatusCode};
@@ -286,6 +332,14 @@ mod tests {
     }
 
     async fn setup() -> (Router, AppState, String, String, Vec<Node>) {
+        setup_with(None).await
+    }
+
+    /// `enforcement_window = Some(w)` 时启用断流去抖（测试里用极小窗口），
+    /// 默认关闭，避免没起 worker 的用例受环境变量影响。
+    async fn setup_with(
+        enforcement_window: Option<Duration>,
+    ) -> (Router, AppState, String, String, Vec<Node>) {
         let db = Db::connect("sqlite::memory:").await.unwrap();
         db.migrate().await.unwrap();
         let admin = users::create(
@@ -313,7 +367,10 @@ mod tests {
                     .unwrap(),
             );
         }
-        let state = AppState::new(db, "web/dist");
+        let state = match enforcement_window {
+            Some(window) => AppState::new(db, "web/dist").with_enforcement(true, window),
+            None => AppState::new(db, "web/dist").with_enforcement(false, Duration::ZERO),
+        };
         let app = crate::app::router(state.clone());
         (
             app,
@@ -486,8 +543,9 @@ mod tests {
         assert!(error.contains("does-not-exist"), "unexpected: {error}");
     }
 
+    /// 三态转换：指定 → 全部（null）、全部 → 指定（数组）、指定 → 空（[]）→ 全部（null）。
     #[tokio::test]
-    async fn patch_scope_changes_eligible_pairs() {
+    async fn patch_scope_tri_state_changes_eligible_pairs() {
         let (app, state, cookie, server_id, nodes) = setup().await;
         let a = nodes[0].id.clone();
         let b = nodes[1].id.clone();
@@ -507,25 +565,47 @@ mod tests {
         assert_eq!(pairs[0].user_id, user_id);
         assert_eq!(pairs[0].node_id, a);
 
-        // PATCH 成 B：资格集合立即跟着变。
+        // 指定 → 全部：`node_ids: null` 恢复为不限制。
         let (status, body) = request(
             &app,
             Some(&cookie),
             Method::PATCH,
             &format!("/api/v1/packages/{package_id}"),
-            Some(json!({"node_ids": [b.clone()]})),
+            Some(json!({"node_ids": null})),
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["package"]["node_ids"], json!([b.clone()]));
+        assert_eq!(body["package"]["node_ids"], json!([]));
+        assert_eq!(
+            body["package"]["node_count"], 2,
+            "恢复到全部之后应返回当前全部节点数"
+        );
+        let pairs = repo::authorization::eligible_pairs(&state.db.pool, &server_id)
+            .await
+            .unwrap();
+        assert_eq!(pairs.len(), 2, "恢复全部后 A、B 都应可授权");
+        assert!(pairs.iter().any(|pair| pair.node_id == a));
+        assert!(pairs.iter().any(|pair| pair.node_id == b));
+
+        // 全部 → 指定：只给 A。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &format!("/api/v1/packages/{package_id}"),
+            Some(json!({"node_ids": [a.clone()]})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["package"]["node_ids"], json!([a.clone()]));
         assert_eq!(body["package"]["node_count"], 1);
         let pairs = repo::authorization::eligible_pairs(&state.db.pool, &server_id)
             .await
             .unwrap();
         assert_eq!(pairs.len(), 1);
-        assert_eq!(pairs[0].node_id, b);
+        assert_eq!(pairs[0].node_id, a);
 
-        // PATCH []：清空范围 = 谁都看不到。
+        // 指定 → 空：一个都不给。
         let (status, body) = request(
             &app,
             Some(&cookie),
@@ -545,13 +625,13 @@ mod tests {
             "空范围不应产生任何授权"
         );
 
-        // node_ids: null 与不传都表示「不动」：范围保持为空。
+        // 不传 node_ids = 不动：仍是空范围。
         let (status, body) = request(
             &app,
             Some(&cookie),
             Method::PATCH,
             &format!("/api/v1/packages/{package_id}"),
-            Some(json!({"name": "改名", "node_ids": null})),
+            Some(json!({"name": "改名"})),
         )
         .await;
         assert_eq!(status, StatusCode::OK);
@@ -561,8 +641,28 @@ mod tests {
             repo::authorization::eligible_pairs(&state.db.pool, &server_id)
                 .await
                 .unwrap()
-                .is_empty()
+                .is_empty(),
+            "不传 node_ids 不应改范围"
         );
+
+        // 空 → 全部：回到不限制。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &format!("/api/v1/packages/{package_id}"),
+            Some(json!({"node_ids": null})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["package"]["node_ids"], json!([]));
+        assert_eq!(body["package"]["node_count"], 2);
+        let pairs = repo::authorization::eligible_pairs(&state.db.pool, &server_id)
+            .await
+            .unwrap();
+        assert_eq!(pairs.len(), 2);
+        assert!(pairs.iter().any(|pair| pair.node_id == a));
+        assert!(pairs.iter().any(|pair| pair.node_id == b));
     }
 
     #[tokio::test]
@@ -679,5 +779,111 @@ mod tests {
             0,
             "节点 B 不应有 client"
         );
+    }
+
+    async fn wait_snapshot(state: &AppState, server_id: &str) -> repo::desired::Snapshot {
+        for _ in 0..100 {
+            if let Some(snapshot) = repo::desired::get(&state.db.pool, server_id).await.unwrap() {
+                return snapshot;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("等待 desired_snapshots 超时");
+    }
+
+    async fn wait_version_after(
+        state: &AppState,
+        server_id: &str,
+        version: i64,
+    ) -> repo::desired::Snapshot {
+        for _ in 0..100 {
+            if let Some(snapshot) = repo::desired::get(&state.db.pool, server_id).await.unwrap() {
+                if snapshot.config_version > version {
+                    return snapshot;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("等待配置版本推进超时");
+    }
+
+    #[tokio::test]
+    async fn scope_change_triggers_apply_and_unchanged_scope_does_not() {
+        let (app, state, cookie, server_id, nodes) =
+            setup_with(Some(Duration::from_millis(20))).await;
+        let a = nodes[0].id.clone();
+
+        // 新建时就指定范围：POST 也应标脏。绑卡后再起 worker，首个 apply 应带该用户。
+        let package_id = create_package(
+            &app,
+            &cookie,
+            json!({"name": "指定", "node_ids": [a.clone()]}),
+        )
+        .await;
+        let user_id = bind_user(&state, &package_id).await;
+        let _worker = crate::enforcement::spawn_worker(state.clone());
+
+        // 去抖 worker apply 一次，快照里出现该用户。
+        let (status, _) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &format!("/api/v1/packages/{package_id}"),
+            Some(json!({"node_ids": [a.clone()]})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let first = wait_snapshot(&state, &server_id).await;
+        assert!(first.config_version >= 1, "范围变化应触发一次 apply");
+        assert_eq!(first.granted_user_ids().unwrap(), vec![user_id.clone()]);
+
+        // 范围没变（同一个数组）→ 不标脏，版本不再推进。
+        let (status, _) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &format!("/api/v1/packages/{package_id}"),
+            Some(json!({"node_ids": [a.clone()]})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let unchanged = repo::desired::get(&state.db.pool, &server_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            unchanged.config_version, first.config_version,
+            "范围没变不应重复 apply"
+        );
+
+        // 改成空范围 → 再 apply 一次，用户从快照里消失。
+        let (status, _) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &format!("/api/v1/packages/{package_id}"),
+            Some(json!({"node_ids": []})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let empty = wait_version_after(&state, &server_id, first.config_version).await;
+        assert!(
+            empty.granted_user_ids().unwrap().is_empty(),
+            "空范围后用户应被移出下发配置"
+        );
+
+        // 恢复全部 → 再 apply 一次，用户回来。
+        let (status, _) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &format!("/api/v1/packages/{package_id}"),
+            Some(json!({"node_ids": null})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let restored = wait_version_after(&state, &server_id, empty.config_version).await;
+        assert_eq!(restored.granted_user_ids().unwrap(), vec![user_id]);
     }
 }

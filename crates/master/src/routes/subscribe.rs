@@ -582,7 +582,7 @@ mod tests {
             &state.db.pool,
             &package.id,
             packages::UpdatePackage {
-                node_ids: Some(vec![first]),
+                node_ids: Patch::Value(vec![first]),
                 ..Default::default()
             },
         )
@@ -598,7 +598,7 @@ mod tests {
             &state.db.pool,
             &package.id,
             packages::UpdatePackage {
-                node_ids: Some(Vec::new()),
+                node_ids: Patch::Value(Vec::new()),
                 ..Default::default()
             },
         )

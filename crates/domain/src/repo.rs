@@ -899,8 +899,8 @@ pub mod packages {
         pub period_days: Patch<i64>,
         pub direction: Option<String>,
         pub node_ratio: Option<f64>,
-        /// `None` = 不改动范围；`Some([])` = 清空为「一个都不给」。
-        pub node_ids: Option<Vec<String>>,
+        /// 节点范围三态：缺失 = 不动；`Null` = 恢复全部；`Value([])` = 一个都不给。
+        pub node_ids: Patch<Vec<String>>,
     }
 
     pub async fn create(pool: &SqlitePool, input: NewPackage) -> anyhow::Result<Package> {
@@ -1041,6 +1041,41 @@ pub mod packages {
         Ok(items)
     }
 
+    /// 套餐节点范围的原始状态；用于判断一次更新是否真的改了范围。
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct NodeScope {
+        /// `false` = 未设范围（可见全部节点）。
+        pub explicit: bool,
+        /// 升序。
+        pub node_ids: Vec<String>,
+    }
+
+    /// 读范围快照（`None` = 套餐不存在）。调用方用它和更新后的结果比较，
+    /// 只有范围真的变了才触发下发，避免无意义 apply。
+    pub async fn node_scope(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<NodeScope>> {
+        let rows = sqlx::query_as::<_, (i64, Option<String>)>(
+            "SELECT p.node_scope_explicit, pn.node_id
+             FROM packages p
+             LEFT JOIN package_nodes pn ON pn.package_id = p.id
+             WHERE p.id = ?
+             ORDER BY pn.node_id ASC",
+        )
+        .bind(id)
+        .fetch_all(pool)
+        .await?;
+        let Some((explicit, _)) = rows.first() else {
+            return Ok(None);
+        };
+        let explicit = *explicit != 0;
+        let mut node_ids = Vec::new();
+        for (_, node_id) in rows {
+            if let Some(node_id) = node_id {
+                node_ids.push(node_id);
+            }
+        }
+        Ok(Some(NodeScope { explicit, node_ids }))
+    }
+
     pub async fn update(
         pool: &SqlitePool,
         id: &str,
@@ -1050,7 +1085,12 @@ pub mod packages {
         let quota = input.quota_bytes.value();
         let period_set = input.period_days.is_set();
         let period = input.period_days.value();
-        let scope_set = input.node_ids.is_some();
+        // Missing = 不动；Null = 恢复全部（explicit=0，清行）；Value = 显式范围（explicit=1）。
+        let (scope_set, scope_explicit) = match &input.node_ids {
+            Patch::Missing => (false, 0),
+            Patch::Null => (true, 0),
+            Patch::Value(_) => (true, 1),
+        };
         let mut tx = pool.begin().await?;
         let res = sqlx::query(
             "UPDATE packages SET
@@ -1059,7 +1099,7 @@ pub mod packages {
                 period_days = CASE WHEN ? THEN ? ELSE period_days END,
                 direction = COALESCE(?, direction),
                 node_ratio = COALESCE(?, node_ratio),
-                node_scope_explicit = CASE WHEN ? THEN 1 ELSE node_scope_explicit END
+                node_scope_explicit = CASE WHEN ? THEN ? ELSE node_scope_explicit END
              WHERE id = ?",
         )
         .bind(input.name)
@@ -1070,6 +1110,7 @@ pub mod packages {
         .bind(input.direction)
         .bind(input.node_ratio)
         .bind(scope_set)
+        .bind(scope_explicit)
         .bind(id)
         .execute(&mut *tx)
         .await?;
@@ -1077,8 +1118,15 @@ pub mod packages {
         if res.rows_affected() == 0 {
             return Ok(None);
         }
-        if let Some(node_ids) = &input.node_ids {
-            insert_scope(&mut tx, id, node_ids).await?;
+        match &input.node_ids {
+            Patch::Missing => {}
+            Patch::Null => {
+                sqlx::query("DELETE FROM package_nodes WHERE package_id = ?")
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            Patch::Value(node_ids) => insert_scope(&mut tx, id, node_ids).await?,
         }
         tx.commit().await?;
         find_by_id(pool, id).await
