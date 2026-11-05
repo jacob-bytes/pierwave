@@ -283,6 +283,14 @@ pub struct UserView {
     /// 是否已超出账户总额度（`users.quota_bytes` 非空且 `used_bytes >= quota_bytes`）。
     /// 由后端算，前端不要自己拿 used/quota 去比。
     pub quota_exceeded: bool,
+    /// 名下套餐实例的额度合计；`null` 表示其中至少一张不限量（合计也就无上限）。
+    pub package_quota_bytes: Option<i64>,
+    /// 名下套餐实例的已用合计。
+    pub package_used_bytes: i64,
+    /// 名下实例里最严重的状态：`exhausted > expired > disabled > active`；无实例为 `none`。
+    ///
+    /// 用户被断流时 `users.status` 仍是 `active`，只看账号状态会漏掉真正的问题。
+    pub package_worst_status: String,
 }
 
 impl From<(User, Vec<UserPackageView>)> for UserView {
@@ -297,10 +305,13 @@ impl From<(User, Vec<UserPackageView>)> for UserView {
             used_bytes: user.used_bytes,
             created_at: user.created_at,
             package_count: packages.len() as i64,
-            packages,
             quota_exceeded: user
                 .quota_bytes
                 .is_some_and(|quota| user.used_bytes >= quota),
+            package_quota_bytes: aggregate_quota(&packages),
+            package_used_bytes: packages.iter().map(|p| p.used_bytes).sum(),
+            package_worst_status: worst_status(&packages).to_string(),
+            packages,
         }
     }
 }
@@ -425,4 +436,114 @@ pub struct EnforcementEvent {
     pub reason: String,
     pub message: String,
     pub created_at: i64,
+}
+
+/// 套餐实例额度合计：任意一张不限量（生效额度为 `None` 或 `0`）则整体不限。
+fn aggregate_quota(packages: &[UserPackageView]) -> Option<i64> {
+    let mut total: i64 = 0;
+    for package in packages {
+        match package.quota_bytes {
+            Some(quota) if quota > 0 => total = total.saturating_add(quota),
+            _ => return None,
+        }
+    }
+    Some(total)
+}
+
+/// 取最严重状态；顺序与「影响用户的程度」一致。
+fn worst_status(packages: &[UserPackageView]) -> &'static str {
+    if packages.is_empty() {
+        return "none";
+    }
+    let has = |status: &str| packages.iter().any(|p| p.status == status);
+    if has("exhausted") {
+        "exhausted"
+    } else if has("expired") {
+        "expired"
+    } else if has("disabled") {
+        "disabled"
+    } else {
+        "active"
+    }
+}
+
+#[cfg(test)]
+mod view_tests {
+    use super::*;
+
+    fn package(id: &str, quota: Option<i64>, used: i64, status: &str) -> UserPackageView {
+        UserPackageView {
+            id: id.into(),
+            user_id: "u1".into(),
+            package_id: "p1".into(),
+            package_name: "月卡".into(),
+            quota_override: None,
+            quota_bytes: quota,
+            used_bytes: used,
+            expires_at: None,
+            reset_day: None,
+            raw_status: "active".into(),
+            status: status.into(),
+            direction: "both".into(),
+            node_ratio: 1.0,
+        }
+    }
+
+    fn user(packages: Vec<UserPackageView>) -> UserView {
+        UserView::from((
+            User {
+                id: "u1".into(),
+                username: "alice".into(),
+                password_hash: String::new(),
+                role: "user".into(),
+                status: "active".into(),
+                short_code: "abc".into(),
+                quota_bytes: None,
+                used_bytes: 0,
+                created_at: 0,
+                updated_at: 0,
+            },
+            packages,
+        ))
+    }
+
+    #[test]
+    fn aggregates_package_quota_and_usage() {
+        let view = user(vec![
+            package("a", Some(100), 40, "active"),
+            package("b", Some(200), 10, "active"),
+        ]);
+        assert_eq!(view.package_quota_bytes, Some(300));
+        assert_eq!(view.package_used_bytes, 50);
+        assert_eq!(view.package_worst_status, "active");
+    }
+
+    #[test]
+    fn unlimited_instance_makes_total_unlimited() {
+        let view = user(vec![
+            package("a", Some(100), 40, "active"),
+            package("b", Some(0), 10, "active"),
+        ]);
+        assert_eq!(view.package_quota_bytes, None, "0 表示显式不限");
+    }
+
+    #[test]
+    fn worst_status_is_visible_even_when_account_is_active() {
+        let view = user(vec![
+            package("a", Some(100), 100, "exhausted"),
+            package("b", Some(200), 10, "active"),
+        ]);
+        assert_eq!(
+            view.package_worst_status, "exhausted",
+            "账号是 active，但用户已被断流"
+        );
+        assert!(!view.quota_exceeded, "账户级额度未设，不算超额");
+    }
+
+    #[test]
+    fn no_packages_is_none() {
+        let view = user(vec![]);
+        assert_eq!(view.package_worst_status, "none");
+        assert_eq!(view.package_quota_bytes, Some(0));
+    }
 }
