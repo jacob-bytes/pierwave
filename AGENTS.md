@@ -55,6 +55,8 @@ CARGO_HOME=$PWD/.cargo-home cargo test -p mmrust-domain
 3. lane 自查用 `cargo check -p <自己的 crate>`；`make check` / `make e2e` 这种全量验证由主控在合流后统一跑。
 4. 发现工作区被别的 lane 改坏：不要 revert、不要注释别人的代码、不要 `git checkout`，直接汇报并停下。
 5. 卡住超过一个回合就上报，不要反复重试同一个失败命令。
+6. shell 脚本里变量后面紧跟中文标点时必须写 `${VAR}`：本机 locale 会把全角字符吞进变量名，
+   报错长得像 `V（: unbound variable`，极难定位。
 
 ## 当前已通的链路
 
