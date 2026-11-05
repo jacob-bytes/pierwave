@@ -206,9 +206,22 @@ export interface UserView {
    */
   quota_exceeded: boolean;
   created_at: number;
-  /** 套餐实例数；分页时 packages 可能不是全量，汇总用这个字段。 */
+  /** 套餐实例数；分页时 packages 可能不是全量，计数以这个字段为准。 */
   package_count: number;
+  /** 套餐明细；分页时可能只含前若干张。 */
   packages: UserPackageView[];
+  /**
+   * 名下套餐实例的额度合计；`null` = 其中至少一张不限量（合计也就无上限）。
+   * 列表里的「套餐流量」只看这个，不看账户级 `quota_bytes`。
+   */
+  package_quota_bytes: number | null;
+  /** 名下套餐实例的已用合计。 */
+  package_used_bytes: number;
+  /**
+   * 名下实例里最严重的状态：`exhausted > expired > disabled > active`，无实例为 `none`。
+   * 账号仍是 `active` 时也可能断流，列表状态列必须单独展示它。
+   */
+  package_worst_status: UserPackageStatus | "none";
 }
 
 /** 后端返回的节点范围意图；UI 的三态见 `lib/schemas.ts` 的 `PackageNodeScope`。 */

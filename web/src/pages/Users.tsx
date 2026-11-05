@@ -20,6 +20,8 @@ import {
 import { UserFormDialog } from "@/components/users/UserFormDialog";
 import { ResetPasswordDialog } from "@/components/users/ResetPasswordDialog";
 import { UserPackagesSheet } from "@/components/users/UserPackagesSheet";
+import { statusToneClasses } from "@/components/packages/packageTone";
+import { PackageStatusBadge } from "@/components/packages/PackageStatusBadge";
 import { UsageBar } from "@/components/UsageBar";
 import {
   AlertDialog,
@@ -50,6 +52,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -63,6 +73,7 @@ import {
 import type { UserView } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
+import { packageStatusLabel, packageStatusTone } from "@/lib/labels";
 import { useDeleteUser, useMe, useUpdateUser, useUsers } from "@/lib/queries";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -74,11 +85,17 @@ function roleLabel(role: UserView["role"]) {
   return role === "admin" ? "管理员" : "普通用户";
 }
 
+/** 账号维度：只说账号本身能不能登录，套餐是否断流由旁边单独展示。 */
 function UserStatusBadge({ status }: { status: UserView["status"] }) {
   const active = status === "active";
   return (
     <Badge
       variant="outline"
+      title={
+        active
+          ? "账号状态：正常，可以登录并获取订阅"
+          : "账号状态：已禁用，无法登录和获取订阅"
+      }
       className={cn(
         "gap-1.5 border-transparent font-normal",
         active
@@ -100,6 +117,39 @@ function UserStatusBadge({ status }: { status: UserView["status"] }) {
   );
 }
 
+/** 套餐维度：`active` 不占位，其余取名下最严重的一张，避免「断了流还显示正常」。 */
+const PACKAGE_WORST_TITLES: Record<
+  Exclude<UserView["package_worst_status"], "active">,
+  string
+> = {
+  exhausted: "套餐状态：至少一张套餐已用尽，该用户已被断流",
+  expired: "套餐状态：至少一张套餐已过期，需要续期",
+  disabled: "套餐状态：名下套餐均已停用",
+  none: "套餐状态：名下还没有绑定任何套餐",
+};
+
+function PackageWorstStatusBadge({
+  status,
+}: {
+  status: UserView["package_worst_status"];
+}) {
+  if (status === "active") return null;
+
+  const none = status === "none";
+  return (
+    <Badge
+      variant="outline"
+      title={PACKAGE_WORST_TITLES[status]}
+      className={cn(
+        "border-transparent font-normal",
+        statusToneClasses[none ? "muted" : packageStatusTone(status)],
+      )}
+    >
+      {none ? "无套餐" : packageStatusLabel(status)}
+    </Badge>
+  );
+}
+
 /**
  * 账户级「超出总额度」：与套餐实例的「已用尽」区分。
  * 后者只看单张卡，前者是 users.quota_bytes 这道跨套餐总闸，命中后全站节点都停用。
@@ -114,6 +164,72 @@ function QuotaExceededBadge() {
       <TriangleAlertIcon className="size-3" />
       超出总额度
     </Badge>
+  );
+}
+
+/** 套餐列的「N 张」入口：点开就能看到每张卡的 套餐名 · 已用/额度 · 状态。 */
+function PackageBreakdownPopover({ user }: { user: UserView }) {
+  const packages = user.packages ?? [];
+  const count = user.package_count;
+
+  if (count === 0) {
+    return (
+      <Badge
+        variant="outline"
+        className="font-normal text-muted-foreground"
+        title="还没有绑定任何套餐"
+      >
+        0 张
+      </Badge>
+    );
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-6 rounded-full px-2 text-xs font-normal text-muted-foreground"
+          aria-label={`查看 ${user.username} 的 ${count} 张套餐明细`}
+          title={`${count} 张套餐，点击查看明细`}
+        >
+          {count} 张
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80">
+        <PopoverHeader>
+          <PopoverTitle className="text-sm">套餐明细</PopoverTitle>
+          <PopoverDescription className="text-xs">
+            名下 {count} 张套餐实例，额度与状态按当前时刻计算。
+          </PopoverDescription>
+        </PopoverHeader>
+        <ul className="flex flex-col divide-y divide-border">
+          {packages.map((item) => (
+            <li
+              key={item.id}
+              className="flex items-start justify-between gap-3 py-2 first:pt-0 last:pb-0"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-xs font-medium">
+                  {item.package_name}
+                </p>
+                <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+                  {formatBytes(item.used_bytes)} /{" "}
+                  {formatBytes(item.quota_bytes, { zeroAsUnlimited: true })}
+                </p>
+              </div>
+              <PackageStatusBadge status={item.status} />
+            </li>
+          ))}
+        </ul>
+        {count > packages.length ? (
+          <p className="text-[11px] text-muted-foreground">
+            仅显示前 {packages.length} 张，完整明细请到「管理套餐」查看。
+          </p>
+        ) : null}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -457,19 +573,39 @@ export default function UsersPage() {
             <TableHeader className="bg-muted/30">
               <TableRow>
                 {[
-                  "用户",
-                  "角色",
-                  "状态",
-                  "套餐",
-                  "流量",
-                  "创建时间",
-                  "操作",
-                ].map((label) => (
+                  { label: "用户" },
+                  { label: "角色" },
+                  {
+                    label: "状态",
+                    title: "账号状态在前、套餐状态在后，两个维度独立",
+                  },
+                  {
+                    label: "套餐",
+                    title: "点开「N 张」可查看每张套餐的已用 / 额度 / 状态",
+                  },
+                  {
+                    label: "套餐流量",
+                    hint: "名下所有套餐实例合计",
+                    title:
+                      "名下所有套餐实例的已用 / 额度合计；任一卡不限量时显示「不限」",
+                  },
+                  { label: "创建时间" },
+                  { label: "操作" },
+                ].map(({ label, hint, title }) => (
                   <TableHead
                     key={label}
-                    className="h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground"
+                    title={title}
+                    className={cn(
+                      "px-4 text-xs font-medium tracking-wide text-muted-foreground",
+                      hint ? "h-auto py-2" : "h-9",
+                    )}
                   >
-                    {label}
+                    <span className="block">{label}</span>
+                    {hint ? (
+                      <span className="mt-0.5 block text-[10px] font-normal tracking-normal whitespace-nowrap text-muted-foreground/70">
+                        {hint}
+                      </span>
+                    ) : null}
                   </TableHead>
                 ))}
               </TableRow>
@@ -492,13 +628,6 @@ export default function UsersPage() {
               ) : (
                 items.map((user) => {
                   const isSelf = user.id === me.data?.id;
-                  const packageNames =
-                    (user.packages ?? [])
-                      .map((item) => item.package_name)
-                      .join("、") ||
-                    (user.package_count > 0
-                      ? `${user.package_count} 个套餐`
-                      : "未绑定套餐");
 
                   return (
                     <TableRow key={user.id}>
@@ -535,30 +664,38 @@ export default function UsersPage() {
                       <TableCell className="px-4 py-2.5">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <UserStatusBadge status={user.status} />
+                          <PackageWorstStatusBadge
+                            status={user.package_worst_status}
+                          />
                           {user.quota_exceeded ? <QuotaExceededBadge /> : null}
                         </div>
                       </TableCell>
                       <TableCell className="px-4 py-2.5">
-                        <Badge
-                          variant="outline"
-                          className="font-normal text-muted-foreground"
-                          title={packageNames}
-                        >
-                          {user.package_count} 张
-                        </Badge>
+                        <PackageBreakdownPopover user={user} />
                       </TableCell>
                       <TableCell className="px-4 py-2.5">
                         <div className="space-y-1">
-                          <UsageBar
-                            usedBytes={user.used_bytes}
-                            quotaBytes={user.quota_bytes}
-                            label={null}
-                            className="w-48"
-                          />
+                          {user.package_count === 0 ? (
+                            <p
+                              className="w-48 text-xs text-muted-foreground"
+                              title="名下还没有绑定套餐"
+                            >
+                              —
+                            </p>
+                          ) : (
+                            <UsageBar
+                              usedBytes={user.package_used_bytes}
+                              quotaBytes={user.package_quota_bytes}
+                              label={null}
+                              className="w-48"
+                            />
+                          )}
                           {user.quota_exceeded ? (
-                            <p className="text-[11px] text-destructive">
-                              已用 {formatBytes(user.used_bytes)} / 总额度{" "}
-                              {formatBytes(user.quota_bytes)}
+                            <p
+                              className="text-[11px] text-destructive"
+                              title={`账户已用 ${formatBytes(user.used_bytes)} / 总额度 ${formatBytes(user.quota_bytes)}`}
+                            >
+                              账户总额度已用满
                             </p>
                           ) : null}
                         </div>
