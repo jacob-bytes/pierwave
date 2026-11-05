@@ -72,6 +72,102 @@ pub fn build_config(server_name: &str, nodes: &[Node], grants: &[Grant]) -> Valu
     })
 }
 
+/// 生成配置时被跳过的节点。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkippedNode {
+    pub node_id: String,
+    pub node_name: String,
+    pub reason: String,
+}
+
+impl SkippedNode {
+    /// 面向管理员的单行中文说明。
+    pub fn warning(&self) -> String {
+        format!("节点 {} 被跳过：{}", self.node_name, self.reason)
+    }
+}
+
+/// 校验节点能否生成 Xray 可接受的 inbound；不能时返回中文原因。
+///
+/// 只拦「一定会让 `xray -test` 失败」的硬错误。片段缺 `stream` / `settings`
+/// 仍由 [`build_config`] 补默认值，不在这里判死。
+pub fn node_problem(node: &Node) -> Option<String> {
+    if !(1..=65_535).contains(&node.port) {
+        return Some(format!("端口 {} 不合法（应为 1-65535）", node.port));
+    }
+
+    let fragment = parse_fragment(&node.config_json);
+    let stream = fragment.get("stream").and_then(Value::as_object);
+    // 片段是安全层的事实来源，缺省才回落到节点表里的冗余列（与 build_inbound 一致）。
+    let security = stream
+        .and_then(|stream| stream.get("security"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_else(|| node.security.trim().to_ascii_lowercase());
+    if security != "reality" {
+        return None;
+    }
+
+    // 没有 realitySettings 时保持历史行为（导入配置可能把安全层完整写在别处）；
+    // 一旦给了 realitySettings，入站就必须有一把能解析的 privateKey。
+    let reality = stream
+        .and_then(|stream| stream.get("realitySettings"))
+        .and_then(Value::as_object)?;
+    match reality.get("privateKey").and_then(Value::as_str) {
+        Some(key) if crate::reality::public_key_from_private(key).is_some() => None,
+        Some(_) => Some("REALITY 私钥无法解析".into()),
+        None => Some("REALITY 缺少 privateKey".into()),
+    }
+}
+
+/// [`build_config`] 的校验版：跳过无法生成合法 inbound 的节点，并返回每个节点的中文警告。
+///
+/// apply 用它把「被跳过的节点」回报给管理员；纯函数本身仍保持
+/// [`build_config`] 的历史行为，避免调用方（如单元测试/导入工具）被静默改变语义。
+pub fn build_config_checked(
+    server_name: &str,
+    nodes: &[Node],
+    grants: &[Grant],
+) -> (Value, Vec<String>) {
+    let mut usable = Vec::with_capacity(nodes.len());
+    let mut warnings = Vec::new();
+    for node in nodes {
+        match node_problem(node) {
+            Some(reason) => {
+                let name = node_display_name(node);
+                let skipped = SkippedNode {
+                    node_id: node.id.clone(),
+                    node_name: name.to_string(),
+                    reason,
+                };
+                tracing::warn!(
+                    node = %skipped.node_id,
+                    name = %skipped.node_name,
+                    reason = %skipped.reason,
+                    "生成配置时跳过节点"
+                );
+                warnings.push(skipped.warning());
+            }
+            None => usable.push(node.clone()),
+        }
+    }
+    (build_config(server_name, &usable, grants), warnings)
+}
+
+fn node_display_name(node: &Node) -> &str {
+    let name = node.name.trim();
+    if !name.is_empty() {
+        return name;
+    }
+    let tag = node.tag.trim();
+    if !tag.is_empty() {
+        return tag;
+    }
+    &node.id
+}
+
 fn build_inbound(server_name: &str, index: usize, node: &Node, grants: &[Grant]) -> Value {
     let mut inbound = parse_fragment(&node.config_json);
 

@@ -229,16 +229,22 @@ pub async fn apply(
             files: Vec::new(),
         }),
     );
+    for warning in &desired.warnings {
+        tracing::warn!(server = %server.name, "{warning}");
+    }
     tracing::info!(
         server = %server.name,
         version,
         nodes = desired.node_count,
         grants = desired.grant_count,
+        skipped = desired.warnings.len(),
         delivered,
         "desired state published"
     );
 
-    Ok(Json(json!({ "config_version": version })))
+    Ok(Json(
+        json!({ "config_version": version, "warnings": desired.warnings }),
+    ))
 }
 
 #[cfg(test)]
@@ -393,6 +399,10 @@ mod tests {
         let (status, body) = request(&app, Some(&cookie), Method::POST, &apply_uri, None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["config_version"], 1);
+        assert!(
+            body["warnings"].as_array().unwrap().is_empty(),
+            "没有坏节点时 warnings 应为空数组：{body}"
+        );
 
         let desired = subscription.receiver.recv().await.unwrap();
         match desired {
@@ -642,5 +652,87 @@ mod tests {
             request(&app, Some(&cookie), Method::GET, "/api/v1/servers", None).await;
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(body["error"], "权限不足");
+    }
+
+    #[tokio::test]
+    async fn apply_reports_skipped_nodes_in_warnings() {
+        let (app, state, cookie) = setup().await;
+
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/servers",
+            Some(json!({"name": "hk-1", "address": "1.2.3.4"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let server_id = body["server"]["id"].as_str().unwrap().to_string();
+        let nodes_uri = format!("/api/v1/servers/{server_id}/nodes");
+
+        // 一个好节点：没有 REALITY 安全层，保持原样进入配置。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &nodes_uri,
+            Some(trojan_node()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let good_tag = body["node"]["tag"].as_str().unwrap().to_string();
+
+        // 一个坏节点：REALITY 私钥不是合法的 32 字节，apply 时必须跳过并给出中文说明。
+        let (status, _) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &nodes_uri,
+            Some(json!({
+                "name": "香港-01",
+                "protocol": "vless",
+                "transport": "tcp",
+                "security": "reality",
+                "port": 8443,
+                "config": {
+                    "settings": {"clients": [], "decryption": "none"},
+                    "stream": {
+                        "network": "tcp",
+                        "security": "reality",
+                        "realitySettings": {
+                            "serverNames": ["www.example.com"],
+                            "privateKey": "not-a-valid-reality-key",
+                            "shortIds": ["abcd1234"]
+                        }
+                    }
+                }
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let mut subscription = state.hub.subscribe(&server_id);
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &format!("/api/v1/servers/{server_id}/apply"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["config_version"], 1, "跳过的节点不改变版本语义");
+
+        let warnings = body["warnings"].as_array().unwrap();
+        assert_eq!(warnings.len(), 1, "每个被跳过的节点一条说明：{body}");
+        assert_eq!(warnings[0], "节点 香港-01 被跳过：REALITY 私钥无法解析");
+
+        // 下发的配置里只剩好节点。
+        let MasterMessage::Desired(desired) = subscription.receiver.recv().await.unwrap() else {
+            panic!("expected desired state");
+        };
+        let inbounds = desired.xray["inbounds"].as_array().unwrap();
+        assert_eq!(inbounds.len(), 1);
+        assert_eq!(inbounds[0]["tag"], good_tag.as_str());
     }
 }

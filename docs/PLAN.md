@@ -54,7 +54,7 @@ GET    /api/v1/servers/:id/nodes   -> {items:[Node]}
 POST   /api/v1/servers/:id/nodes   {name,protocol,transport,security,port,config} -> {node}
 PATCH  /api/v1/nodes/:id           {enabled?,config?} -> {node}
 DELETE /api/v1/nodes/:id           -> {ok:true}
-POST   /api/v1/servers/:id/apply   -> {config_version}
+POST   /api/v1/servers/:id/apply   -> {config_version, warnings:[string]}
 ```
 
 ## 每轮验收
@@ -79,11 +79,30 @@ POST   /api/v1/servers/:id/apply   -> {config_version}
 ```jsonc
 // UserView
 { "id","username","role","status","short_code","quota_bytes","used_bytes","created_at",
-  "packages": [ { "id","package_id","package_name","quota_bytes","used_bytes",
-                  "expires_at","reset_day","status","direction","node_ratio" } ] }
+  "package_count",
+  "packages": [ { "id","package_id","package_name",
+                  "quota_override",   // 原始覆写值：null=继承，0=显式不限，N=覆写
+                  "quota_bytes",      // 生效额度（已把覆写与套餐兜底合并）
+                  "used_bytes","expires_at","reset_day",
+                  "status",           // active | expired | exhausted | disabled（后端计算）
+                  "direction","node_ratio" } ] }
+
+// Package
+{ "id","name","quota_bytes","period_days","direction","node_ratio","created_at",
+  "user_count" }                  // 引用该套餐模板的实例数
 ```
 
-`quota_bytes` 为 `null` 表示不限；`expires_at` / `reset_day` 可为 `null`。
+- `quota_bytes` 为 `null` 表示不限；`expires_at` / `reset_day` 可为 `null`。
+- `quota_override` 必须原样回显，前端才能表达「改回继承」：`PATCH` 传 `{"quota_override": null}`
+  即清空覆写，随后 `quota_bytes` 回落到套餐额度；传 `0` 是显式不限（`quota_bytes = 0`），两者语义不同。
+- `UserPackageView.status` 由后端计算，库里仍存原始 `status`：
+  1. `disabled`：原始状态不是 `active`；
+  2. `expired`：`expires_at` 非空且 `<= now`；
+  3. `exhausted`：生效额度非空且 `> 0`，且 `used_bytes >= 生效额度`（0 = 不限，不算用尽）；
+  4. 其余为 `active`。
+  「该实例是否还能用」统一走领域层的 `is_usable()`，订阅资格与 apply 注入复用同一口径。
+- `Package.user_count` 由一条聚合查询带出（不要 N+1），前端删除前用它提前禁用按钮；
+  `UserView.package_count` 与 `packages.len()` 一致，供分页/汇总使用。
 
 ### 接口（全部要求管理员）
 
@@ -110,6 +129,25 @@ DELETE /api/v1/user-packages/:id                  -> {ok:true}
 - `direction` ∈ {both,upload,download}；`node_ratio` ∈ (0,10]；`period_days` ∈ [1,3650] 或 null。
 - `reset_day` ∈ [1,31] 或 null；`quota_override` 为 null 表示沿用套餐额度，0 表示显式不限。
 - 删除仍被实例引用的套餐 → 400，提示"该套餐还有 N 个用户在用"。
+
+### apply 的 warnings
+
+`POST /api/v1/servers/:id/apply` 返回 `{config_version, warnings:[string]}`。
+`warnings` 一定存在（没有跳过时是空数组），每个被跳过的节点一条中文说明，例如：
+
+```json
+{ "config_version": 7, "warnings": ["节点 香港-01 被跳过：REALITY 私钥无法解析"] }
+```
+
+节点是否可用的校验在 `mmrust_domain::xray::build_config_checked` 里；`config_version` 的语义不变
+（每次 apply 仍原子 +1），跳过的节点只是不进入本次下发的 `inbounds`。
+
+### 时间语义
+
+- 所有时间戳一律以 **UTC Unix 秒**存储与传输；ID 为 UUID 字符串。
+- 「本月流量重置日」与「到期判定」按 **UTC+8** 计算自然日：用固定偏移 `UTC+8`（28800 秒），不引入 `chrono-tz`。
+  按 `period_days` 自动算出的到期时间落在 UTC+8 当天的 `23:59:59`。
+- 日账本 `traffic_daily.day` 也用 UTC+8 的日期（`YYYY-MM-DD`），不要用 UTC 日期。
 
 ### 安全
 

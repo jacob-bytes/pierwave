@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::models::*;
 
 pub fn now() -> i64 {
-    chrono::Utc::now().timestamp()
+    crate::time::now()
 }
 
 /// 键值配置：订阅凭据派生的 master secret 等。
@@ -598,17 +598,26 @@ pub mod packages {
     }
 
     pub async fn find_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<Package>> {
-        Ok(
-            sqlx::query_as::<_, Package>("SELECT * FROM packages WHERE id = ?")
-                .bind(id)
-                .fetch_optional(pool)
-                .await?,
+        Ok(sqlx::query_as::<_, Package>(
+            "SELECT p.*,
+                    (SELECT COUNT(*) FROM user_packages up WHERE up.package_id = p.id) AS user_count
+             FROM packages p
+             WHERE p.id = ?",
         )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?)
     }
 
+    /// 列表用一次 LEFT JOIN 聚合出引用数，避免前端/后端各来一轮 N+1。
     pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<Package>> {
         Ok(sqlx::query_as::<_, Package>(
-            "SELECT * FROM packages ORDER BY created_at DESC, rowid DESC",
+            "SELECT p.id, p.name, p.quota_bytes, p.period_days, p.direction, p.node_ratio,
+                    p.created_at, COUNT(up.id) AS user_count
+             FROM packages p
+             LEFT JOIN user_packages up ON up.package_id = p.id
+             GROUP BY p.id
+             ORDER BY p.created_at DESC, p.rowid DESC",
         )
         .fetch_all(pool)
         .await?)
@@ -721,41 +730,50 @@ pub mod user_packages {
             .ok_or_else(|| anyhow::anyhow!("套餐实例创建后读取失败"))
     }
 
+    /// 视图查询的公共列：原样带出 `quota_override`，同时给出生效额度与原始状态。
+    const VIEW_COLUMNS: &str = "up.id, up.user_id, up.package_id, p.name AS package_name,
+         up.quota_override,
+         COALESCE(up.quota_override, p.quota_bytes) AS quota_bytes,
+         up.used_bytes, up.expires_at, up.reset_day,
+         up.status AS raw_status,
+         up.direction, up.node_ratio";
+
     pub async fn find_view_by_id(
         pool: &SqlitePool,
         id: &str,
     ) -> anyhow::Result<Option<UserPackageView>> {
-        Ok(sqlx::query_as::<_, UserPackageView>(
-            "SELECT up.id, up.user_id, up.package_id, p.name AS package_name,
-                    COALESCE(up.quota_override, p.quota_bytes) AS quota_bytes,
-                    up.used_bytes, up.expires_at, up.reset_day, up.status,
-                    up.direction, up.node_ratio
+        let now = super::now();
+        Ok(sqlx::query_as::<_, UserPackageView>(&format!(
+            "SELECT {VIEW_COLUMNS}
              FROM user_packages up
              JOIN packages p ON p.id = up.package_id
-             WHERE up.id = ?",
-        )
+             WHERE up.id = ?"
+        ))
         .bind(id)
         .fetch_optional(pool)
-        .await?)
+        .await?
+        .map(|view| view.resolve_status(now)))
     }
 
     pub async fn list_views_by_user(
         pool: &SqlitePool,
         user_id: &str,
     ) -> anyhow::Result<Vec<UserPackageView>> {
-        Ok(sqlx::query_as::<_, UserPackageView>(
-            "SELECT up.id, up.user_id, up.package_id, p.name AS package_name,
-                    COALESCE(up.quota_override, p.quota_bytes) AS quota_bytes,
-                    up.used_bytes, up.expires_at, up.reset_day, up.status,
-                    up.direction, up.node_ratio
+        let now = super::now();
+        let rows = sqlx::query_as::<_, UserPackageView>(&format!(
+            "SELECT {VIEW_COLUMNS}
              FROM user_packages up
              JOIN packages p ON p.id = up.package_id
              WHERE up.user_id = ?
-             ORDER BY up.created_at ASC, up.rowid ASC",
-        )
+             ORDER BY up.created_at ASC, up.rowid ASC"
+        ))
         .bind(user_id)
         .fetch_all(pool)
-        .await?)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|view| view.resolve_status(now))
+            .collect())
     }
 
     /// 一次查询取出一页用户的所有套餐实例，再按 user_id 分组（避免 N+1）。
@@ -768,26 +786,25 @@ pub mod user_packages {
             return Ok(grouped);
         }
 
-        let mut builder = QueryBuilder::new(
-            "SELECT up.id, up.user_id, up.package_id, p.name AS package_name,
-                    COALESCE(up.quota_override, p.quota_bytes) AS quota_bytes,
-                    up.used_bytes, up.expires_at, up.reset_day, up.status,
-                    up.direction, up.node_ratio
+        let mut builder = QueryBuilder::new(format!(
+            "SELECT {VIEW_COLUMNS}
              FROM user_packages up
              JOIN packages p ON p.id = up.package_id
-             WHERE up.user_id IN (",
-        );
+             WHERE up.user_id IN ("
+        ));
         let mut separated = builder.separated(", ");
         for user_id in user_ids {
             separated.push_bind(user_id.clone());
         }
         separated.push_unseparated(") ORDER BY up.created_at ASC, up.rowid ASC");
 
+        let now = super::now();
         let rows = builder
             .build_query_as::<UserPackageView>()
             .fetch_all(pool)
             .await?;
         for row in rows {
+            let row = row.resolve_status(now);
             grouped.entry(row.user_id.clone()).or_default().push(row);
         }
         Ok(grouped)
@@ -829,6 +846,20 @@ pub mod user_packages {
         find_view_by_id(pool, id).await
     }
 
+    /// 流量采集落库后更新实例用量；`exhausted` 判定与订阅授权都依赖它。
+    pub async fn set_used_bytes(
+        pool: &SqlitePool,
+        id: &str,
+        used_bytes: i64,
+    ) -> anyhow::Result<bool> {
+        let res = sqlx::query("UPDATE user_packages SET used_bytes = ? WHERE id = ?")
+            .bind(used_bytes.max(0))
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
     /// 返回是否真的删掉了一行。
     pub async fn delete(pool: &SqlitePool, id: &str) -> anyhow::Result<bool> {
         let res = sqlx::query("DELETE FROM user_packages WHERE id = ?")
@@ -841,10 +872,13 @@ pub mod user_packages {
 
 /// 订阅授权：谁有资格用哪些节点（`docs/SUBSCRIBE.md` §7.1）。
 ///
-/// 「有资格」的口径只有一处，apply（服务端注入 client）和公开订阅端点共用：
-/// 用户 `status='active'`，且至少有一张 `status='active'` 且未过期
-/// （`expires_at IS NULL OR expires_at > now`）的套餐实例。
+/// 「有资格」的口径只有一处：用户 `status='active'`，且至少有一张
+/// [`crate::models::package_is_usable_at`] 判定可用的套餐实例。
+/// apply（服务端注入 client）和公开订阅端点共用它，避免两处各自写一套
+/// 「未过期 / 没用尽」条件后慢慢漂移。
 pub mod authorization {
+    use std::collections::HashSet;
+
     use super::*;
 
     /// 一条「用户 × 节点」授权对。跨服务器/跨用户一次算好，避免 master 里写 SQL。
@@ -852,6 +886,17 @@ pub mod authorization {
     pub struct EligiblePair {
         pub user_id: String,
         pub node_id: String,
+    }
+
+    /// 候选行的扁平形态：同一个人可能有多张卡，只要有一张可用就保留。
+    #[derive(Debug, Clone, sqlx::FromRow)]
+    struct Candidate {
+        user_id: String,
+        node_id: String,
+        package_status: String,
+        expires_at: Option<i64>,
+        quota_bytes: Option<i64>,
+        used_bytes: i64,
     }
 
     /// 给定服务器：enabled 节点 × 有资格用户的笛卡尔集，顺序稳定。
@@ -862,44 +907,59 @@ pub mod authorization {
         pool: &SqlitePool,
         server_id: &str,
     ) -> anyhow::Result<Vec<EligiblePair>> {
-        Ok(sqlx::query_as::<_, EligiblePair>(
-            "SELECT u.id AS user_id, n.id AS node_id
+        let rows = sqlx::query_as::<_, Candidate>(
+            "SELECT u.id AS user_id, n.id AS node_id,
+                    up.status AS package_status,
+                    up.expires_at,
+                    COALESCE(up.quota_override, p.quota_bytes) AS quota_bytes,
+                    up.used_bytes
              FROM users u
              CROSS JOIN nodes n
+             JOIN user_packages up ON up.user_id = u.id
+             JOIN packages p ON p.id = up.package_id
              WHERE n.server_id = ? AND n.enabled = 1
                AND u.status = 'active'
-               AND EXISTS (
-                   SELECT 1 FROM user_packages up
-                   WHERE up.user_id = u.id
-                     AND up.status = 'active'
-                     AND (up.expires_at IS NULL OR up.expires_at > ?)
-               )
-             ORDER BY u.created_at ASC, u.rowid ASC, n.created_at ASC, n.rowid ASC",
+             ORDER BY u.created_at ASC, u.rowid ASC,
+                      n.created_at ASC, n.rowid ASC,
+                      up.created_at ASC, up.rowid ASC",
         )
         .bind(server_id)
-        .bind(now())
         .fetch_all(pool)
-        .await?)
+        .await?;
+
+        let now = super::now();
+        let mut seen = HashSet::new();
+        let mut pairs = Vec::new();
+        for row in rows {
+            if !crate::models::package_is_usable_at(
+                &row.package_status,
+                row.expires_at,
+                row.quota_bytes,
+                row.used_bytes,
+                now,
+            ) {
+                continue;
+            }
+            if seen.insert((row.user_id.clone(), row.node_id.clone())) {
+                pairs.push(EligiblePair {
+                    user_id: row.user_id,
+                    node_id: row.node_id,
+                });
+            }
+        }
+        Ok(pairs)
     }
 
     /// 单个用户是否有任何可用套餐（订阅端点用它决定是否导出节点）。
     pub async fn is_eligible(pool: &SqlitePool, user_id: &str) -> anyhow::Result<bool> {
-        let eligible: i64 = sqlx::query_scalar(
-            "SELECT EXISTS(
-                 SELECT 1 FROM users u
-                 WHERE u.id = ? AND u.status = 'active'
-                   AND EXISTS (
-                       SELECT 1 FROM user_packages up
-                       WHERE up.user_id = u.id
-                         AND up.status = 'active'
-                         AND (up.expires_at IS NULL OR up.expires_at > ?)
-                   )
-             )",
-        )
-        .bind(user_id)
-        .bind(now())
-        .fetch_one(pool)
-        .await?;
-        Ok(eligible != 0)
+        let Some(user) = super::users::find_by_id_opt(pool, user_id).await? else {
+            return Ok(false);
+        };
+        if user.status != "active" {
+            return Ok(false);
+        }
+        let packages = super::user_packages::list_views_by_user(pool, user_id).await?;
+        let now = super::now();
+        Ok(packages.iter().any(|item| item.is_usable_at(now)))
     }
 }

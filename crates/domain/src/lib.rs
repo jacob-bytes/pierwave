@@ -7,6 +7,7 @@ pub mod password;
 pub mod reality;
 pub mod repo;
 pub mod subscribe;
+pub mod time;
 pub mod xray;
 
 use anyhow::Context;

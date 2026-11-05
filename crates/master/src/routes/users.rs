@@ -256,9 +256,10 @@ pub async fn create_user_package(
     let expires_at = match req.expires_at {
         Patch::Value(ts) => Some(ts),
         Patch::Null => None,
+        // 按周期算的到期日落在 UTC+8 自然日的 23:59:59，而不是「绑定时刻 + N×86400」。
         Patch::Missing => package
             .period_days
-            .map(|days| repo::now() + days.saturating_mul(86_400)),
+            .map(|days| mmrust_domain::time::end_of_business_day_after(repo::now(), days)),
     };
 
     let item = repo::user_packages::create(
@@ -436,6 +437,7 @@ mod tests {
         assert_eq!(body["user"]["role"], "user");
         assert_eq!(body["user"]["status"], "active");
         assert_eq!(body["user"]["packages"].as_array().unwrap().len(), 0);
+        assert_eq!(body["user"]["package_count"], 0);
 
         // 列表可见，同样不回显密码哈希。
         let (status, body) =
@@ -542,6 +544,7 @@ mod tests {
             .unwrap();
         let packages = alice["packages"].as_array().unwrap();
         assert_eq!(packages.len(), 2);
+        assert_eq!(alice["package_count"], 2, "package_count 与 packages 一致");
         let quota_of = |package_id: &str| {
             packages
                 .iter()
@@ -813,5 +816,269 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(body["error"].as_str().unwrap().contains("状态"));
+    }
+
+    #[tokio::test]
+    async fn clearing_quota_override_falls_back_to_package_quota() {
+        let (app, _state, admin) = setup().await;
+
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::POST,
+            "/api/v1/packages",
+            Some(json!({"name": "月卡", "quota_bytes": 1000})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["package"]["user_count"], 0, "新建套餐没有引用");
+        let package_id = body["package"]["id"].as_str().unwrap().to_string();
+
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::POST,
+            "/api/v1/users",
+            Some(json!({"username": "alice", "password": "password123"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let user_id = body["user"]["id"].as_str().unwrap().to_string();
+
+        let bind_uri = format!("/api/v1/users/{user_id}/packages");
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::POST,
+            &bind_uri,
+            Some(json!({"package_id": &package_id, "quota_override": 100})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["item"]["quota_override"], 100);
+        assert_eq!(body["item"]["quota_bytes"], 100);
+        let binding_id = body["item"]["id"].as_str().unwrap().to_string();
+
+        // 核心验收点：显式 null 把覆写清回继承，生效额度回落到套餐值。
+        let item_uri = format!("/api/v1/user-packages/{binding_id}");
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            &item_uri,
+            Some(json!({"quota_override": null})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body["item"]["quota_override"].is_null(),
+            "PATCH 后视图必须回显 null：{body}"
+        );
+        assert_eq!(body["item"]["quota_bytes"], 1000);
+
+        // GET 再确认一次（不是只在 PATCH 响应里正确）。
+        let (status, body) = request(&app, Some(&admin), Method::GET, &bind_uri, None).await;
+        assert_eq!(status, StatusCode::OK);
+        let item = &body["items"][0];
+        assert!(item["quota_override"].is_null());
+        assert_eq!(item["quota_bytes"], 1000);
+
+        // 显式 0 与 null 语义不同：0 = 不限，且原样回显。
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            &item_uri,
+            Some(json!({"quota_override": 0})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["item"]["quota_override"], 0);
+        assert_eq!(body["item"]["quota_bytes"], 0);
+
+        // 再清回继承一次，证明两个方向都可逆。
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            &item_uri,
+            Some(json!({"quota_override": null})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["item"]["quota_override"].is_null());
+        assert_eq!(body["item"]["quota_bytes"], 1000);
+    }
+
+    #[tokio::test]
+    async fn package_instance_status_is_computed_by_view() {
+        let (app, state, admin) = setup().await;
+
+        let alice = repo::users::create(
+            &state.db.pool,
+            repo::users::NewUser {
+                username: "alice".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+            },
+        )
+        .await
+        .unwrap();
+        let package = repo::packages::create(
+            &state.db.pool,
+            repo::packages::NewPackage {
+                name: "月卡".into(),
+                quota_bytes: Some(1000),
+                period_days: None,
+                direction: "both".into(),
+                node_ratio: 1.0,
+            },
+        )
+        .await
+        .unwrap();
+        let bind_uri = format!("/api/v1/users/{}/packages", alice.id);
+
+        let bind = |body: Value| {
+            let app = app.clone();
+            let admin = admin.clone();
+            let bind_uri = bind_uri.clone();
+            async move {
+                let (status, body) =
+                    request(&app, Some(&admin), Method::POST, &bind_uri, Some(body)).await;
+                assert_eq!(status, StatusCode::OK, "绑卡失败：{body}");
+                body["item"]["id"].as_str().unwrap().to_string()
+            }
+        };
+
+        let active_id = bind(json!({"package_id": &package.id})).await;
+        let expired_id = bind(json!({
+            "package_id": &package.id,
+            "expires_at": repo::now() - 3600
+        }))
+        .await;
+        let exhausted_id = bind(json!({"package_id": &package.id})).await;
+        let disabled_id = bind(json!({
+            "package_id": &package.id,
+            "expires_at": repo::now() - 3600
+        }))
+        .await;
+        let unlimited_id = bind(json!({"package_id": &package.id, "quota_override": 0})).await;
+
+        // 已用满 1000/1000 → exhausted；显式不限（0）即使 used 很大也仍是 active。
+        assert!(
+            repo::user_packages::set_used_bytes(&state.db.pool, &exhausted_id, 1000)
+                .await
+                .unwrap()
+        );
+        assert!(
+            repo::user_packages::set_used_bytes(&state.db.pool, &unlimited_id, 999_999)
+                .await
+                .unwrap()
+        );
+
+        // disabled 覆盖 expired：原始状态不是 active 时优先显示 disabled。
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            &format!("/api/v1/user-packages/{disabled_id}"),
+            Some(json!({"status": "disabled"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["item"]["status"], "disabled");
+
+        let (status, body) = request(&app, Some(&admin), Method::GET, &bind_uri, None).await;
+        assert_eq!(status, StatusCode::OK);
+        let status_of = |id: &str| {
+            body["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["id"] == id)
+                .unwrap()["status"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+
+        assert_eq!(status_of(&active_id), "active");
+        assert_eq!(status_of(&expired_id), "expired");
+        assert_eq!(status_of(&exhausted_id), "exhausted");
+        assert_eq!(status_of(&disabled_id), "disabled");
+        assert_eq!(status_of(&unlimited_id), "active", "0 = 显式不限，不算用尽");
+    }
+
+    #[tokio::test]
+    async fn package_user_count_tracks_references() {
+        let (app, state, admin) = setup().await;
+
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::POST,
+            "/api/v1/packages",
+            Some(json!({"name": "月卡", "quota_bytes": 1000})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let package_id = body["package"]["id"].as_str().unwrap().to_string();
+
+        let mut bindings = Vec::new();
+        for username in ["alice", "bob"] {
+            let user = repo::users::create(
+                &state.db.pool,
+                repo::users::NewUser {
+                    username: username.into(),
+                    password: "password123".into(),
+                    role: "user".into(),
+                    quota_bytes: None,
+                },
+            )
+            .await
+            .unwrap();
+            let (status, body) = request(
+                &app,
+                Some(&admin),
+                Method::POST,
+                &format!("/api/v1/users/{}/packages", user.id),
+                Some(json!({"package_id": &package_id})),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            bindings.push(body["item"]["id"].as_str().unwrap().to_string());
+        }
+
+        let user_count = |body: &Value| {
+            body["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|item| item["id"] == package_id.as_str())
+                .unwrap()["user_count"]
+                .as_i64()
+                .unwrap()
+        };
+
+        let (status, body) =
+            request(&app, Some(&admin), Method::GET, "/api/v1/packages", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(user_count(&body), 2, "绑 2 个用户 → user_count = 2");
+
+        let (status, _) = request(
+            &app,
+            Some(&admin),
+            Method::DELETE,
+            &format!("/api/v1/user-packages/{}", bindings[0]),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, body) =
+            request(&app, Some(&admin), Method::GET, "/api/v1/packages", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(user_count(&body), 1, "解绑一个 → user_count = 1");
     }
 }

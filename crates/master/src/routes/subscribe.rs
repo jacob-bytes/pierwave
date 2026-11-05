@@ -396,6 +396,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn exhausted_package_is_not_eligible_for_subscription() {
+        let (app, state, _short_code) = setup().await;
+
+        let user = repo::users::create(
+            &state.db.pool,
+            NewUser {
+                username: "exhausted-user".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+            },
+        )
+        .await
+        .unwrap();
+        let package = packages::list(&state.db.pool).await.unwrap().remove(0);
+        let item = user_packages::create(
+            &state.db.pool,
+            &user.id,
+            user_packages::NewUserPackage {
+                package_id: package.id.clone(),
+                quota_override: None,
+                expires_at: None,
+                reset_day: None,
+            },
+            &package,
+        )
+        .await
+        .unwrap();
+        repo::user_packages::set_used_bytes(&state.db.pool, &item.id, package.quota_bytes.unwrap())
+            .await
+            .unwrap();
+
+        // 用尽与过期、禁用共用同一套 is_usable 口径，订阅端不应再导出节点。
+        let (status, _headers, body) =
+            get(&app, &format!("/api/v1/sub/{}", user.short_code), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("proxies: []"), "用尽套餐不应导出节点：{body}");
+    }
+
+    #[tokio::test]
     async fn unsupported_target_is_400_with_supported_formats() {
         let (app, _state, short_code) = setup().await;
 

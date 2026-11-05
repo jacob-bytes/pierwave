@@ -15,6 +15,8 @@ pub struct DesiredConfig {
     pub xray: Value,
     pub node_count: usize,
     pub grant_count: usize,
+    /// 生成配置时被跳过的节点，每个节点一条中文说明。
+    pub warnings: Vec<String>,
 }
 
 /// 按「服务器 enabled 节点 × 有资格用户」装配完整 Xray 配置。
@@ -29,9 +31,12 @@ pub async fn render(state: &AppState, server: &Server) -> AppResult<DesiredConfi
         .map(|pair| xray::Grant::new(&secret, &pair.user_id, &pair.node_id))
         .collect();
 
+    let (xray, warnings) = xray::build_config_checked(&server.name, &nodes, &grants);
+
     Ok(DesiredConfig {
-        xray: xray::build_config(&server.name, &nodes, &grants),
-        node_count: nodes.len(),
+        xray,
+        node_count: nodes.len() - warnings.len(),
         grant_count: grants.len(),
+        warnings,
     })
 }

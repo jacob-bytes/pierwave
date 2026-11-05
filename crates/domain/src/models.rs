@@ -85,6 +85,10 @@ pub struct Package {
     pub direction: String,
     pub node_ratio: f64,
     pub created_at: i64,
+    /// 当前仍引用该套餐模板的实例数。
+    ///
+    /// `packages::list` / `find_by_id` 用一条聚合查询带出，前端删除前据此提前禁用按钮。
+    pub user_count: i64,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize)]
@@ -106,6 +110,10 @@ pub struct UserPackage {
 ///
 /// `quota_bytes` 是生效值：`quota_override` 为空时沿用套餐额度；
 /// 显式写 0 原样返回 0，由展示层按「显式不限」处理（区别于 null 的继承语义）。
+/// `quota_override` 同时原样回显，前端才能把「改回继承」表达成显式 `null`。
+///
+/// `status` 是**计算值**（`active | expired | exhausted | disabled`），库里存的
+/// 原始状态在 `raw_status` 里，不对外暴露。
 #[derive(Debug, Clone, FromRow, Serialize)]
 pub struct UserPackageView {
     pub id: String,
@@ -114,13 +122,82 @@ pub struct UserPackageView {
     pub user_id: String,
     pub package_id: String,
     pub package_name: String,
+    /// 原始覆写值：null = 继承套餐额度，0 = 显式不限，N = 覆写。
+    pub quota_override: Option<i64>,
     pub quota_bytes: Option<i64>,
     pub used_bytes: i64,
     pub expires_at: Option<i64>,
     pub reset_day: Option<i64>,
+    /// 库里存的原始状态，只用于计算 `status`。
+    #[serde(skip)]
+    pub raw_status: String,
+    /// 视图层计算后的状态，见 [`UserPackageView::status_at`]。
+    #[sqlx(default)]
     pub status: String,
     pub direction: String,
     pub node_ratio: f64,
+}
+
+/// 计算套餐实例状态所需的最小事实；视图与订阅授权共用同一套口径。
+///
+/// 顺序即优先级：`disabled` > `expired` > `exhausted` > `active`。
+pub fn package_status_at(
+    raw_status: &str,
+    expires_at: Option<i64>,
+    quota_bytes: Option<i64>,
+    used_bytes: i64,
+    now: i64,
+) -> &'static str {
+    if raw_status != "active" {
+        return "disabled";
+    }
+    if expires_at.is_some_and(|expires_at| expires_at <= now) {
+        return "expired";
+    }
+    // 0 表示显式不限，不算用尽；只有正额度且已用 >= 额度才算 exhausted。
+    if quota_bytes.is_some_and(|quota| quota > 0 && used_bytes >= quota) {
+        return "exhausted";
+    }
+    "active"
+}
+
+/// 套餐实例是否还能用（订阅资格/下发的唯一口径）。
+pub fn package_is_usable_at(
+    raw_status: &str,
+    expires_at: Option<i64>,
+    quota_bytes: Option<i64>,
+    used_bytes: i64,
+    now: i64,
+) -> bool {
+    package_status_at(raw_status, expires_at, quota_bytes, used_bytes, now) == "active"
+}
+
+impl UserPackageView {
+    /// 按给定时刻计算状态。
+    pub fn status_at(&self, now: i64) -> &'static str {
+        package_status_at(
+            &self.raw_status,
+            self.expires_at,
+            self.quota_bytes,
+            self.used_bytes,
+            now,
+        )
+    }
+
+    /// 用给定时刻的状态覆盖 `status` 字段；仓储在读出原始行后统一调用。
+    pub fn resolve_status(mut self, now: i64) -> Self {
+        self.status = self.status_at(now).to_string();
+        self
+    }
+
+    /// 该实例当前是否还能用（订阅资格判定复用它）。
+    pub fn is_usable(&self) -> bool {
+        self.is_usable_at(crate::time::now())
+    }
+
+    pub fn is_usable_at(&self, now: i64) -> bool {
+        self.status_at(now) == "active"
+    }
 }
 
 /// 用户列表/详情视图：用户本体 + 名下所有套餐实例（一次查询装配）。
@@ -134,6 +211,8 @@ pub struct UserView {
     pub quota_bytes: Option<i64>,
     pub used_bytes: i64,
     pub created_at: i64,
+    /// 名下套餐实例数；与 `packages.len()` 一致，方便前端分页/汇总时少算一次。
+    pub package_count: i64,
     pub packages: Vec<UserPackageView>,
 }
 
@@ -148,6 +227,7 @@ impl From<(User, Vec<UserPackageView>)> for UserView {
             quota_bytes: user.quota_bytes,
             used_bytes: user.used_bytes,
             created_at: user.created_at,
+            package_count: packages.len() as i64,
             packages,
         }
     }
