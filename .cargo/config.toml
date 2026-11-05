@@ -1,3 +1,5 @@
-# 所有 cargo 命令都必须带工作区内的 CARGO_HOME（沙箱不允许写 ~/.cargo）
-[build]
-rustflags = ["-C", "link-arg=-Wl,-dead_strip"]
+# 注意：不要在这里放平台专有的链接参数。
+# 早期这里有过 `-C link-arg=-Wl,-dead_strip`（macOS ld64 的开关），
+# 本地一切正常，但 Linux CI 上 lld 直接报 `unknown argument '-dead_strip'`，
+# 连 proc-macro 的 build script 都链接不出来。
+# 需要平台专有参数时用 `[target.'cfg(target_os = "macos")']` 分区。
