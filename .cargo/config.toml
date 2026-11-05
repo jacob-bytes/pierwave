@@ -1,0 +1,3 @@
+# 所有 cargo 命令都必须带工作区内的 CARGO_HOME（沙箱不允许写 ~/.cargo）
+[build]
+rustflags = ["-C", "link-arg=-Wl,-dead_strip"]

@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: oklch(0.16 0.01 260);
+  --color-surface: oklch(0.21 0.012 260);
+  --color-border: oklch(0.30 0.012 260);
+  --color-fg: oklch(0.96 0.005 260);
+  --color-muted: oklch(0.70 0.01 260);
+  --color-accent: oklch(0.72 0.14 165);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}

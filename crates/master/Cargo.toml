@@ -1,0 +1,29 @@
+[package]
+name = "mmrust-master"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "mmrust-master"
+path = "src/main.rs"
+
+[dependencies]
+mmrust-domain = { path = "../domain" }
+mmrust-proto = { path = "../proto" }
+anyhow = { workspace = true }
+axum = { workspace = true }
+axum-extra = { workspace = true }
+chrono = { workspace = true }
+futures-util = "0.3"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+time = "0.3"
