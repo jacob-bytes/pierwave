@@ -37,11 +37,16 @@ interface PackageFormDialogProps {
   packageItem?: Package;
 }
 
-/** 回填三态：有 id 列表 = 指定；空列表但 node_count > 0 = 全部；两者皆空 = 不给。 */
+/**
+ * 回填三态：直接看后端给的 `node_scope`。
+ *
+ * 不再从 `node_ids` / `node_count` 反推：系统里一个节点都没有时，
+ * 「全部」与「一个都不给」会得到同样的空数组和 0，无法区分。
+ * `all` → 全部；`custom` 且 node_ids 非空 → 指定；`custom` 且为空 → 不给。
+ */
 function packageNodeScope(item: Package): PackageNodeScope {
-  if (item.node_ids.length > 0) return "selected";
-  if (item.node_count > 0) return "all";
-  return "none";
+  if (item.node_scope === "all") return "all";
+  return item.node_ids.length > 0 ? "selected" : "none";
 }
 
 export function PackageFormDialog({

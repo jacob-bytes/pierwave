@@ -64,7 +64,7 @@ function meErrorText(error: unknown, fallback: string): string {
   return errorText(error, fallback);
 }
 
-type MeStatus = UserPackageStatus | "none";
+type MeStatus = UserPackageStatus | "none" | "quota_exceeded";
 
 const statusMeta: Record<
   MeStatus,
@@ -75,6 +75,8 @@ const statusMeta: Record<
   expired: { label: "已过期", tone: "warning" },
   disabled: { label: "已停用", tone: "muted" },
   none: { label: "未绑定套餐", tone: "muted" },
+  /** 账户级总闸命中；与单卡「已用尽」用不同文案区分。 */
+  quota_exceeded: { label: "超出总额度", tone: "destructive" },
 };
 
 /** 多张卡取最严重者：用尽 > 过期 > 生效中 > 全部停用 > 无套餐。 */
@@ -108,7 +110,29 @@ const packageCardTone: Record<PackageStatusTone, string> = {
   muted: "ring-border",
 };
 
-function StatusAlerts({ packages }: { packages: UserPackageView[] }) {
+function StatusAlerts({
+  packages,
+  quotaExceeded,
+}: {
+  packages: UserPackageView[];
+  quotaExceeded: boolean;
+}) {
+  // 账户级总额度是总闸：命中时全站停用，只留这一条，不再叠单卡提示。
+  if (quotaExceeded) {
+    return (
+      <Alert
+        variant="destructive"
+        className="border-destructive/25 bg-destructive/10"
+      >
+        <TriangleAlertIcon />
+        <AlertTitle>账户额度已用尽</AlertTitle>
+        <AlertDescription className="text-destructive/90">
+          节点暂时不可用；请联系管理员调大总额度或重置用量。
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
   const exhausted = packages.some((item) => item.status === "exhausted");
   const expired = packages.some((item) => item.status === "expired");
   if (!exhausted && !expired) return null;
@@ -470,7 +494,9 @@ export default function MePage() {
 
   const data = summary.data;
   const packages = data.packages ?? [];
-  const status = overallStatus(packages);
+  const status: MeStatus = data.user.quota_exceeded
+    ? "quota_exceeded"
+    : overallStatus(packages);
   const initial = data.user.username.slice(0, 1).toUpperCase();
   const refreshing = summary.isFetching || traffic.isFetching;
 
@@ -517,7 +543,10 @@ export default function MePage() {
         </Button>
       </div>
 
-      <StatusAlerts packages={packages} />
+      <StatusAlerts
+        packages={packages}
+        quotaExceeded={data.user.quota_exceeded}
+      />
 
       <section className="grid gap-4 sm:grid-cols-3">
         <MetricCard

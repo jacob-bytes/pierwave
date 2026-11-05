@@ -58,19 +58,7 @@ const COLUMN_COUNT = 8;
 
 /** 节点范围三态：全部（N）/ 指定 N 个 / 无节点。 */
 function NodeScopeBadge({ item }: { item: Package }) {
-  if (item.node_ids.length > 0) {
-    return (
-      <Badge
-        variant="outline"
-        className="font-normal text-muted-foreground"
-        title="用户订阅只包含勾选的节点"
-      >
-        指定 {item.node_count} 个
-      </Badge>
-    );
-  }
-
-  if (item.node_count > 0) {
+  if (item.node_scope === "all") {
     return (
       <Badge
         variant="secondary"
@@ -82,13 +70,25 @@ function NodeScopeBadge({ item }: { item: Package }) {
     );
   }
 
+  if (item.node_ids.length === 0) {
+    return (
+      <Badge
+        variant="destructive"
+        className="font-normal"
+        title="用户订阅为空"
+      >
+        无节点
+      </Badge>
+    );
+  }
+
   return (
     <Badge
-      variant="destructive"
-      className="font-normal"
-      title="用户订阅为空"
+      variant="outline"
+      className="font-normal text-muted-foreground"
+      title="用户订阅只包含勾选的节点"
     >
-      无节点
+      指定 {item.node_count} 个
     </Badge>
   );
 }

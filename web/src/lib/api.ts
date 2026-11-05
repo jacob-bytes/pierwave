@@ -195,13 +195,22 @@ export interface UserView {
   role: UserRole;
   status: UserStatus;
   short_code: string;
+  /** 账户级总额度；null = 不限，非空时是跨套餐的总闸。 */
   quota_bytes: number | null;
   used_bytes: number;
+  /**
+   * 是否已超出账户总额度（后端算好，前端不要自己拿 used/quota 比）。
+   * 为真时该用户在所有节点上都失去资格，和单张套餐实例的「已用尽」是两回事。
+   */
+  quota_exceeded: boolean;
   created_at: number;
   /** 套餐实例数；分页时 packages 可能不是全量，汇总用这个字段。 */
   package_count: number;
   packages: UserPackageView[];
 }
+
+/** 后端返回的节点范围意图；UI 的三态见 `lib/schemas.ts` 的 `PackageNodeScope`。 */
+export type PackageNodeScopeKind = "all" | "custom";
 
 export interface Package {
   id: string;
@@ -212,8 +221,13 @@ export interface Package {
   node_ratio: number;
   created_at?: number;
   /**
-   * 显式绑定的节点 id；为空时还要看 `node_count`：
-   * 空数组 + `node_count > 0` = 全部节点；两者皆空 = 一个都不给。
+   * 范围意图：`all` = 未设范围（含以后新增的节点）；`custom` = 显式设过范围。
+   * 系统里一个节点都没有时，只能靠这个字段区分「全部」和「一个都不给」。
+   */
+  node_scope: PackageNodeScopeKind;
+  /**
+   * 显式绑定的节点 id；只在 `node_scope = "custom"` 时有意义：
+   * 非空 = 指定这些节点；空数组 = 一个都不给。
    */
   node_ids: string[];
   /** 实际可见节点数；未设范围时等于全部节点数。 */
@@ -302,6 +316,8 @@ export interface MeSummaryUser {
   short_code: string;
   used_bytes: number;
   quota_bytes: number | null;
+  /** 是否已超出账户总额度；后端算好，用于自助页的账户级横幅。 */
+  quota_exceeded: boolean;
 }
 
 export interface MeSummary {

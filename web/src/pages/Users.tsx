@@ -62,6 +62,7 @@ import {
 } from "@/components/ui/table";
 import type { UserView } from "@/lib/api";
 import { errorText } from "@/lib/errors";
+import { formatBytes } from "@/lib/format";
 import { useDeleteUser, useMe, useUpdateUser, useUsers } from "@/lib/queries";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -95,6 +96,23 @@ function UserStatusBadge({ status }: { status: UserView["status"] }) {
         )}
       />
       {active ? "正常" : "已禁用"}
+    </Badge>
+  );
+}
+
+/**
+ * 账户级「超出总额度」：与套餐实例的「已用尽」区分。
+ * 后者只看单张卡，前者是 users.quota_bytes 这道跨套餐总闸，命中后全站节点都停用。
+ */
+function QuotaExceededBadge() {
+  return (
+    <Badge
+      variant="destructive"
+      className="gap-1 font-normal"
+      title="账户总额度已用尽，该用户在所有节点上失去资格"
+    >
+      <TriangleAlertIcon className="size-3" />
+      超出总额度
     </Badge>
   );
 }
@@ -515,7 +533,10 @@ export default function UsersPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="px-4 py-2.5">
-                        <UserStatusBadge status={user.status} />
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <UserStatusBadge status={user.status} />
+                          {user.quota_exceeded ? <QuotaExceededBadge /> : null}
+                        </div>
                       </TableCell>
                       <TableCell className="px-4 py-2.5">
                         <Badge
@@ -527,12 +548,20 @@ export default function UsersPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="px-4 py-2.5">
-                        <UsageBar
-                          usedBytes={user.used_bytes}
-                          quotaBytes={user.quota_bytes}
-                          label={null}
-                          className="w-48"
-                        />
+                        <div className="space-y-1">
+                          <UsageBar
+                            usedBytes={user.used_bytes}
+                            quotaBytes={user.quota_bytes}
+                            label={null}
+                            className="w-48"
+                          />
+                          {user.quota_exceeded ? (
+                            <p className="text-[11px] text-destructive">
+                              已用 {formatBytes(user.used_bytes)} / 总额度{" "}
+                              {formatBytes(user.quota_bytes)}
+                            </p>
+                          ) : null}
+                        </div>
                       </TableCell>
                       <TableCell className="px-4 py-2.5 text-xs text-muted-foreground">
                         <span title={formatAbsoluteTime(user.created_at)}>

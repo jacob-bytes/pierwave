@@ -17,6 +17,11 @@ import { FormField, FormRootError } from "@/components/FormField";
 import { PackageStatusBadge } from "@/components/packages/PackageStatusBadge";
 import { UsageBar } from "@/components/UsageBar";
 import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -451,6 +456,20 @@ export function UserPackagesSheet({
         </SheetHeader>
 
         <div className="flex-1 space-y-6 overflow-y-auto p-4">
+          {user.quota_exceeded ? (
+            <Alert
+              variant="destructive"
+              className="border-destructive/25 bg-destructive/10"
+            >
+              <TriangleAlertIcon />
+              <AlertTitle>已超出账户总额度</AlertTitle>
+              <AlertDescription className="text-destructive/90">
+                该用户已超出账户总额度，所有节点已停用；调大总额度或重置后约
+                30 秒恢复。
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
           <section className="space-y-3">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
