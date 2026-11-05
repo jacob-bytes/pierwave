@@ -1,5 +1,6 @@
 mod config;
 
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -13,6 +14,13 @@ use tokio_tungstenite::tungstenite::Message;
 use crate::config::Config;
 
 const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// 本进程已成功应用的配置版本；跨重连保留，重启后归零（会重新收敛一次）。
+static APPLIED_VERSION: AtomicI64 = AtomicI64::new(0);
+
+fn should_apply(incoming: i64, applied: i64) -> bool {
+    incoming > applied
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -79,7 +87,21 @@ async fn run_once(cfg: &Config) -> Result<()> {
                             protocol = ack.protocol_version, "registered");
                     }
                     Ok(MasterMessage::Desired(state)) => {
-                        let result = apply_state(&state).await;
+                        let applied = APPLIED_VERSION.load(Ordering::Relaxed);
+                        let result = if should_apply(state.version, applied) {
+                            let result = apply_state(&state, cfg).await;
+                            if result.ok {
+                                APPLIED_VERSION.store(state.version, Ordering::Relaxed);
+                            }
+                            result
+                        } else {
+                            tracing::info!(
+                                version = state.version,
+                                applied,
+                                "desired state already applied, skipping restart"
+                            );
+                            ApplyResult { version: state.version, ok: true, error: None }
+                        };
                         let msg = AgentMessage::ApplyResult(result);
                         ws.send(Message::Text(serde_json::to_string(&msg)?)).await?;
                     }
@@ -108,10 +130,10 @@ async fn run_once(cfg: &Config) -> Result<()> {
 }
 
 /// 收敛到期望态：先落文件，再重启 xray，失败返回错误让主控标记。
-async fn apply_state(state: &DesiredState) -> ApplyResult {
+async fn apply_state(state: &DesiredState, cfg: &Config) -> ApplyResult {
     let result = apply_files(state)
-        .and_then(|_| write_xray_config(state))
-        .and_then(|_| restart_xray());
+        .and_then(|_| write_xray_config(state, &cfg.xray_config_path))
+        .and_then(|_| restart_xray(&cfg.restart_command));
     match result {
         Ok(()) => {
             tracing::info!(version = state.version, "desired state applied");
@@ -145,8 +167,8 @@ fn apply_files(state: &DesiredState) -> Result<()> {
     Ok(())
 }
 
-fn write_xray_config(state: &DesiredState) -> Result<()> {
-    let path = std::path::Path::new("/usr/local/etc/xray/config.json");
+fn write_xray_config(state: &DesiredState, path: &str) -> Result<()> {
+    let path = std::path::Path::new(path);
     let tmp = path.with_extension("json.tmp");
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).ok();
@@ -156,14 +178,19 @@ fn write_xray_config(state: &DesiredState) -> Result<()> {
     Ok(())
 }
 
-fn restart_xray() -> Result<()> {
-    let status = std::process::Command::new("systemctl")
-        .args(["restart", "xray"])
-        .status();
-    match status {
-        Ok(s) if s.success() => Ok(()),
-        Ok(s) => anyhow::bail!("systemctl restart xray 失败: {s}"),
-        Err(e) => anyhow::bail!("无法调用 systemctl: {e}"),
+fn restart_xray(command: &str) -> Result<()> {
+    let mut parts = command.split_whitespace();
+    let Some(program) = parts.next() else {
+        return Ok(());
+    };
+    match std::process::Command::new(program).args(parts).output() {
+        Ok(out) if out.status.success() => Ok(()),
+        Ok(out) => anyhow::bail!(
+            "`{command}` 执行失败（{}）：{}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr).trim()
+        ),
+        Err(e) => anyhow::bail!("无法执行 `{command}`: {e}"),
     }
 }
 
@@ -222,4 +249,16 @@ fn hostname() -> String {
 #[allow(dead_code)]
 fn _protocol_version() -> u32 {
     PROTOCOL_VERSION
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_apply;
+
+    #[test]
+    fn only_newer_versions_are_applied() {
+        assert!(should_apply(2, 1));
+        assert!(!should_apply(1, 1), "同一版本重放不应重启 xray");
+        assert!(!should_apply(0, 1), "旧版本不能被接受");
+    }
 }

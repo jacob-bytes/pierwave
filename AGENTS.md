@@ -27,7 +27,7 @@ CARGO_HOME=$PWD/.cargo-home cargo test -p mmrust-domain
 | `crates/domain` | 数据模型、SQL、业务规则 | 引入 axum、读 HTTP 上下文 |
 | `crates/master` | axum 路由、鉴权、静态资源 | 直接写 SQL（走 repo） |
 | `crates/agent` | 收敛器、进程监督、上报 | 依赖 master 的代码 |
-| `web/` | SPA（React 19 + TS + Tailwind 4） | 手改 `dist/` |
+| `web/` | SPA（React 19 + TS + Tailwind 4 + **shadcn/ui**） | 手改 `dist/`、手写 Button/Dialog/Toast |
 
 所有 SQL 只能在 `crates/domain/src/repo.rs` 里出现。
 
@@ -40,6 +40,13 @@ CARGO_HOME=$PWD/.cargo-home cargo test -p mmrust-domain
 5. **测试**：纯逻辑（配置生成、订阅渲染、计费换算）必须有单元测试；涉及 HTTP 的用 `#[tokio::test]` + 内存 SQLite。
 6. **不碰参考目录**：`miaomiaowux-docs/` 是抓下来的参考手册，只读。
 7. 提交前 `make check` 必须全绿；不许 `#[allow(dead_code)]` 掩盖没写完的东西（临时标注需在 PR 说明里写清）。
+
+## 前端
+
+- 组件层是 **shadcn/ui（new-york）**：组件放 `web/src/components/ui/`，用 `npx shadcn@latest add <name>` 拉取，不自己重写。
+- 视觉与动效规范见 `docs/DESIGN.md`（深色 zinc 基底 + 单一强调色，动效 150–220ms）。
+- 列表页四态（loading / empty / error / 正常）是硬要求，不是可选优化。
+- 不写死颜色，全部走 `--background` 这类 CSS 变量。
 
 ## 当前已通的链路
 

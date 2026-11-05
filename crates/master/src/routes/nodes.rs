@@ -1,0 +1,540 @@
+use axum::extract::{Path, State};
+use axum::Json;
+use serde::Deserialize;
+use serde_json::{json, Value};
+
+use mmrust_domain::models::Server;
+use mmrust_domain::{repo, xray};
+use mmrust_proto::{DesiredState, MasterMessage};
+
+use crate::auth::CurrentUser;
+use crate::error::{AppError, AppResult};
+use crate::state::AppState;
+
+const PROTOCOLS: &[&str] = &["vless", "vmess", "trojan", "shadowsocks", "socks", "http"];
+const TRANSPORTS: &[&str] = &[
+    "tcp",
+    "ws",
+    "grpc",
+    "http",
+    "h2",
+    "quic",
+    "kcp",
+    "httpupgrade",
+    "xhttp",
+];
+const SECURITIES: &[&str] = &["none", "tls", "reality"];
+
+async fn load_server(state: &AppState, id: &str) -> AppResult<Server> {
+    repo::servers::find_by_id(&state.db.pool, id)
+        .await
+        .map_err(|e| match e.downcast_ref::<sqlx::Error>() {
+            Some(sqlx::Error::RowNotFound) => AppError::NotFound,
+            _ => AppError::Internal(e),
+        })
+}
+
+fn normalize_enum(field: &str, value: &str, allowed: &[&str]) -> AppResult<String> {
+    let value = value.trim().to_ascii_lowercase();
+    if allowed.contains(&value.as_str()) {
+        Ok(value)
+    } else {
+        Err(AppError::BadRequest(format!(
+            "不支持的{field}：{value}（可选：{}）",
+            allowed.join(" / ")
+        )))
+    }
+}
+
+fn validate_port(port: i64) -> AppResult<()> {
+    if (1..=65535).contains(&port) {
+        Ok(())
+    } else {
+        Err(AppError::BadRequest("端口必须在 1-65535 之间".into()))
+    }
+}
+
+fn ensure_object(config: &Value) -> AppResult<()> {
+    if config.is_object() {
+        Ok(())
+    } else {
+        Err(AppError::BadRequest("config 必须是 JSON 对象".into()))
+    }
+}
+
+pub async fn list(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(server_id): Path<String>,
+) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+    load_server(&state, &server_id).await?;
+    let items = repo::nodes::list_by_server(&state.db.pool, &server_id).await?;
+    Ok(Json(json!({ "items": items })))
+}
+
+#[derive(Deserialize)]
+pub struct CreateNode {
+    /// 可选；留空自动生成 `<protocol>-<随机后缀>`。
+    #[serde(default)]
+    pub tag: Option<String>,
+    pub name: String,
+    pub protocol: String,
+    #[serde(default = "default_transport")]
+    pub transport: String,
+    #[serde(default = "default_security")]
+    pub security: String,
+    pub port: i64,
+    #[serde(default = "default_config")]
+    pub config: Value,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
+fn default_transport() -> String {
+    "tcp".into()
+}
+
+fn default_security() -> String {
+    "none".into()
+}
+
+fn default_config() -> Value {
+    json!({})
+}
+
+fn default_enabled() -> bool {
+    true
+}
+
+pub async fn create(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(server_id): Path<String>,
+    Json(req): Json<CreateNode>,
+) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+    load_server(&state, &server_id).await?;
+
+    let name = req.name.trim();
+    if name.is_empty() {
+        return Err(AppError::BadRequest("节点名称不能为空".into()));
+    }
+    let protocol = normalize_enum("协议", &req.protocol, PROTOCOLS)?;
+    let transport = normalize_enum("传输方式", &req.transport, TRANSPORTS)?;
+    let security = normalize_enum("安全类型", &req.security, SECURITIES)?;
+    validate_port(req.port)?;
+    ensure_object(&req.config)?;
+
+    let tag = req
+        .tag
+        .as_deref()
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+        .map(str::to_string);
+    if let Some(tag) = &tag {
+        if tag.chars().count() > 64 {
+            return Err(AppError::BadRequest("tag 不能超过 64 个字符".into()));
+        }
+        let nodes = repo::nodes::list_by_server(&state.db.pool, &server_id).await?;
+        if nodes.iter().any(|node| node.tag == *tag) {
+            return Err(AppError::BadRequest("该服务器下已存在相同的 tag".into()));
+        }
+    }
+
+    let node = repo::nodes::create(
+        &state.db.pool,
+        &server_id,
+        repo::nodes::NewNode {
+            tag,
+            name: name.to_string(),
+            protocol,
+            transport,
+            security,
+            port: req.port,
+            config_json: req.config.to_string(),
+            enabled: req.enabled,
+        },
+    )
+    .await?;
+
+    Ok(Json(json!({ "node": node })))
+}
+
+#[derive(Deserialize)]
+pub struct PatchNode {
+    pub enabled: Option<bool>,
+    pub config: Option<Value>,
+}
+
+pub async fn update(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<String>,
+    Json(req): Json<PatchNode>,
+) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+    if req.enabled.is_none() && req.config.is_none() {
+        return Err(AppError::BadRequest(
+            "至少需要提供 enabled 或 config".into(),
+        ));
+    }
+    if let Some(config) = &req.config {
+        ensure_object(config)?;
+    }
+
+    let update = repo::nodes::UpdateNode {
+        enabled: req.enabled,
+        config_json: req.config.map(|config| config.to_string()),
+        ..Default::default()
+    };
+    let node = repo::nodes::update(&state.db.pool, &id, update)
+        .await?
+        .ok_or(AppError::NotFound)?;
+
+    Ok(Json(json!({ "node": node })))
+}
+
+pub async fn delete(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<String>,
+) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+    if !repo::nodes::delete(&state.db.pool, &id).await? {
+        return Err(AppError::NotFound);
+    }
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// 生成完整配置并把新版本广播给该服务器上已连接的 Agent。
+///
+/// 广播是「期望态」：Agent 只负责幂等收敛，失败通过 ApplyResult 回传。
+pub async fn apply(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(server_id): Path<String>,
+) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+    let server = load_server(&state, &server_id).await?;
+
+    let nodes = repo::nodes::list_enabled_by_server(&state.db.pool, &server.id).await?;
+    let xray = xray::build_config(&server.name, &nodes);
+    let version = repo::servers::bump_config_version(&state.db.pool, &server.id).await?;
+
+    let delivered = state.hub.publish(
+        &server.id,
+        MasterMessage::Desired(DesiredState {
+            version,
+            xray,
+            files: Vec::new(),
+        }),
+    );
+    tracing::info!(
+        server = %server.name,
+        version,
+        nodes = nodes.len(),
+        delivered,
+        "desired state published"
+    );
+
+    Ok(Json(json!({ "config_version": version })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use axum::body::Body;
+    use axum::http::{header, Method, Request, StatusCode};
+    use axum::Router;
+    use tower::ServiceExt;
+
+    use mmrust_domain::Db;
+
+    async fn setup() -> (Router, AppState, String) {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let user = repo::users::create(
+            &db.pool,
+            repo::users::NewUser {
+                username: "admin".into(),
+                password: "devpass".into(),
+                role: "admin".into(),
+            },
+        )
+        .await
+        .unwrap();
+        let (token, _) = repo::sessions::create(&db.pool, &user.id, 3600, None)
+            .await
+            .unwrap();
+        let state = AppState::new(db, "web/dist");
+        let app = crate::app::router(state.clone());
+        (
+            app,
+            state,
+            format!("{}={token}", crate::auth::SESSION_COOKIE),
+        )
+    }
+
+    async fn request(
+        app: &Router,
+        cookie: Option<&str>,
+        method: Method,
+        uri: &str,
+        body: Option<Value>,
+    ) -> (StatusCode, Value) {
+        let mut builder = Request::builder().method(method).uri(uri);
+        if let Some(cookie) = cookie {
+            builder = builder.header(header::COOKIE, cookie);
+        }
+        let body = match body {
+            Some(body) => {
+                builder = builder.header(header::CONTENT_TYPE, "application/json");
+                Body::from(body.to_string())
+            }
+            None => Body::empty(),
+        };
+        let response = app
+            .clone()
+            .oneshot(builder.body(body).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let value = if bytes.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_slice(&bytes).unwrap()
+        };
+        (status, value)
+    }
+
+    fn vless_node() -> Value {
+        json!({
+            "name": "vless-reality",
+            "protocol": "vless",
+            "transport": "tcp",
+            "security": "reality",
+            "port": 443,
+            "config": {
+                "settings": {"clients": [], "decryption": "none"},
+                "stream": {"network": "tcp", "security": "reality"}
+            }
+        })
+    }
+
+    fn trojan_node() -> Value {
+        json!({
+            "name": "trojan-ws",
+            "protocol": "trojan",
+            "transport": "ws",
+            "security": "tls",
+            "port": 8443,
+            "config": {
+                "settings": {"clients": []},
+                "stream": {"network": "ws", "security": "tls"}
+            }
+        })
+    }
+
+    #[tokio::test]
+    async fn node_crud_and_apply_flow() {
+        let (app, state, cookie) = setup().await;
+
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/servers",
+            Some(json!({"name": "hk-1", "address": "1.2.3.4"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let server_id = body["server"]["id"].as_str().unwrap().to_string();
+
+        let nodes_uri = format!("/api/v1/servers/{server_id}/nodes");
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &nodes_uri,
+            Some(vless_node()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let vless_id = body["node"]["id"].as_str().unwrap().to_string();
+        assert_eq!(body["node"]["config"]["settings"]["decryption"], "none");
+        assert!(body["node"]["tag"].as_str().unwrap().starts_with("vless-"));
+
+        let (status, _) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &nodes_uri,
+            Some(trojan_node()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        let (status, body) = request(&app, Some(&cookie), Method::GET, &nodes_uri, None).await;
+        assert_eq!(status, StatusCode::OK);
+        let items = body["items"].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["name"], "vless-reality");
+        assert_eq!(items[1]["name"], "trojan-ws");
+
+        // 订阅广播后再 apply，验证下发的是完整配置且顺序与库一致。
+        let mut subscription = state.hub.subscribe(&server_id);
+        let apply_uri = format!("/api/v1/servers/{server_id}/apply");
+        let (status, body) = request(&app, Some(&cookie), Method::POST, &apply_uri, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["config_version"], 1);
+
+        let desired = subscription.receiver.recv().await.unwrap();
+        match desired {
+            MasterMessage::Desired(desired) => {
+                assert_eq!(desired.version, 1);
+                let inbounds = desired.xray["inbounds"].as_array().unwrap();
+                assert_eq!(inbounds.len(), 2);
+                assert_eq!(inbounds[0]["name"], Value::Null);
+                assert_eq!(inbounds[0]["tag"], items[0]["tag"]);
+                assert_eq!(inbounds[0]["port"], 443);
+                assert_eq!(inbounds[1]["tag"], items[1]["tag"]);
+                assert_eq!(desired.xray["outbounds"][0]["protocol"], json!("freedom"));
+            }
+            _ => panic!("expected desired state"),
+        }
+
+        let (status, body) =
+            request(&app, Some(&cookie), Method::GET, "/api/v1/servers", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["items"][0]["config_version"], 1);
+
+        let node_uri = format!("/api/v1/nodes/{vless_id}");
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &node_uri,
+            Some(json!({"enabled": false})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["node"]["enabled"], 0);
+
+        // disabled 节点不再进入期望态。
+        let (status, body) = request(&app, Some(&cookie), Method::POST, &apply_uri, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["config_version"], 2);
+        match subscription.receiver.recv().await.unwrap() {
+            MasterMessage::Desired(desired) => {
+                assert_eq!(desired.xray["inbounds"].as_array().unwrap().len(), 1);
+            }
+            _ => panic!("expected desired state"),
+        }
+
+        let trojan_id = items[1]["id"].as_str().unwrap().to_string();
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::DELETE,
+            &format!("/api/v1/nodes/{trojan_id}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["ok"], true);
+
+        let (status, _) = request(
+            &app,
+            Some(&cookie),
+            Method::DELETE,
+            &format!("/api/v1/nodes/{trojan_id}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn invalid_input_returns_chinese_errors() {
+        let (app, _state, cookie) = setup().await;
+        let (_, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/servers",
+            Some(json!({"name": "hk-1", "address": "1.2.3.4"})),
+        )
+        .await;
+        let server_id = body["server"]["id"].as_str().unwrap();
+        let uri = format!("/api/v1/servers/{server_id}/nodes");
+
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &uri,
+            Some(json!({
+                "name": "bad",
+                "protocol": "vless",
+                "transport": "tcp",
+                "security": "none",
+                "port": 70000,
+                "config": {}
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body["error"].as_str().unwrap().contains("端口"));
+
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &uri,
+            Some(json!({
+                "name": "bad",
+                "protocol": "vless",
+                "transport": "tcp",
+                "security": "none",
+                "port": 443,
+                "config": "not-an-object"
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body["error"].as_str().unwrap().contains("JSON"));
+    }
+
+    #[tokio::test]
+    async fn node_apis_require_admin() {
+        let (app, state, _admin_cookie) = setup().await;
+        let user = repo::users::create(
+            &state.db.pool,
+            repo::users::NewUser {
+                username: "bob".into(),
+                password: "pw".into(),
+                role: "user".into(),
+            },
+        )
+        .await
+        .unwrap();
+        let (token, _) = repo::sessions::create(&state.db.pool, &user.id, 3600, None)
+            .await
+            .unwrap();
+        let cookie = format!("{}={token}", crate::auth::SESSION_COOKIE);
+
+        let (status, body) = request(&app, None, Method::GET, "/api/v1/servers", None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(body["error"], "未登录");
+
+        let (status, body) =
+            request(&app, Some(&cookie), Method::GET, "/api/v1/servers", None).await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(body["error"], "权限不足");
+    }
+}

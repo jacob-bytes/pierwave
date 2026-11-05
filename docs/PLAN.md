@@ -18,10 +18,18 @@
 | 3 | 服务器 CRUD + 一次性 token | ✅ | 主控 |
 | 4 | Agent WS 握手 + 心跳 + 上下线 | ✅ | 主控 |
 | 5 | SPA 基座（登录、布局、服务器页） | ✅ | 主控 |
-| 6 | 节点/入站 CRUD + Xray 配置生成 + 期望态下发 | 🚧 | 后端 lane |
+| 6 | 节点/入站 CRUD + Xray 配置生成 + 期望态下发 | ✅ | 后端 lane |
 | 7 | Xray 配置校验/回滚（`xray -test`） | ⬜ | 后端 lane |
 | 8 | UI 组件基座（表格/表单/对话框/Toast） | 🚧 | 前端 lane |
 | 9 | 用户管理页 + 用户 API | ⬜ | 下一轮 |
+
+### 已定的实现细节（后端 lane 落地的）
+
+- 节点在库里只存「入站片段」（`config_json`），完整配置由 `mmrust_domain::xray::build_config` 纯函数拼装，输出确定性。
+- 节点 API 返回的字段是 `config`（JSON 对象），前端不需要二次 parse。
+- 主控用 `AgentHub`（tokio broadcast）按 server 广播期望态；`apply` 时 `config_version` 原子 +1。
+- **重连补发 + 版本幂等**：Agent 连上就补发当前期望态；Agent 侧只有 `incoming > applied` 才真正重启 xray，
+  所以补发不会造成重启风暴（旧版本消息被静默跳过）。
 
 ## API 契约（前端与后端共同遵守）
 

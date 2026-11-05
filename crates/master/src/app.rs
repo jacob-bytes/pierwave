@@ -1,4 +1,4 @@
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::Router;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
@@ -19,6 +19,15 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/servers",
             get(routes::servers::list).post(routes::servers::create),
         )
+        .route(
+            "/api/v1/servers/{id}/nodes",
+            get(routes::nodes::list).post(routes::nodes::create),
+        )
+        .route(
+            "/api/v1/nodes/{id}",
+            patch(routes::nodes::update).delete(routes::nodes::delete),
+        )
+        .route("/api/v1/servers/{id}/apply", post(routes::nodes::apply))
         .route("/api/agent/ws", get(routes::agent::ws))
         .with_state(state)
         .fallback_service(static_files)

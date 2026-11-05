@@ -4,6 +4,7 @@
 pub mod models;
 pub mod password;
 pub mod repo;
+pub mod xray;
 
 use anyhow::Context;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};

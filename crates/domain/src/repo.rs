@@ -217,4 +217,157 @@ pub mod servers {
             .await?;
         Ok(())
     }
+
+    /// 配置版本原子 +1，返回新版本。apply 时调用。
+    pub async fn bump_config_version(pool: &SqlitePool, id: &str) -> anyhow::Result<i64> {
+        let version = sqlx::query_scalar::<_, i64>(
+            "UPDATE servers SET config_version = config_version + 1
+             WHERE id = ?
+             RETURNING config_version",
+        )
+        .bind(id)
+        .fetch_one(pool)
+        .await?;
+        Ok(version)
+    }
+}
+
+pub mod nodes {
+    use super::*;
+
+    pub struct NewNode {
+        /// 留空时自动生成 `<protocol>-<随机后缀>`。
+        pub tag: Option<String>,
+        pub name: String,
+        pub protocol: String,
+        pub transport: String,
+        pub security: String,
+        pub port: i64,
+        pub config_json: String,
+        pub enabled: bool,
+    }
+
+    #[derive(Default)]
+    pub struct UpdateNode {
+        pub tag: Option<String>,
+        pub name: Option<String>,
+        pub protocol: Option<String>,
+        pub transport: Option<String>,
+        pub security: Option<String>,
+        pub port: Option<i64>,
+        pub config_json: Option<String>,
+        pub enabled: Option<bool>,
+    }
+
+    pub async fn create(
+        pool: &SqlitePool,
+        server_id: &str,
+        input: NewNode,
+    ) -> anyhow::Result<Node> {
+        let id = Uuid::new_v4().to_string();
+        let tag = match input.tag.as_deref().map(str::trim) {
+            Some(tag) if !tag.is_empty() => tag.to_string(),
+            _ => {
+                let suffix = &Uuid::new_v4().simple().to_string()[..8];
+                format!("{}-{suffix}", input.protocol.trim().to_ascii_lowercase())
+            }
+        };
+        sqlx::query(
+            "INSERT INTO nodes
+                (id, server_id, tag, name, protocol, transport, security, port, config_json, enabled, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(server_id)
+        .bind(&tag)
+        .bind(&input.name)
+        .bind(input.protocol.trim().to_ascii_lowercase())
+        .bind(input.transport.trim().to_ascii_lowercase())
+        .bind(input.security.trim().to_ascii_lowercase())
+        .bind(input.port)
+        .bind(&input.config_json)
+        .bind(i64::from(input.enabled))
+        .bind(now())
+        .execute(pool)
+        .await?;
+        find_by_id(pool, &id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("节点创建后读取失败"))
+    }
+
+    pub async fn find_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<Node>> {
+        Ok(
+            sqlx::query_as::<_, Node>("SELECT * FROM nodes WHERE id = ?")
+                .bind(id)
+                .fetch_optional(pool)
+                .await?,
+        )
+    }
+
+    pub async fn list_by_server(pool: &SqlitePool, server_id: &str) -> anyhow::Result<Vec<Node>> {
+        Ok(sqlx::query_as::<_, Node>(
+            "SELECT * FROM nodes WHERE server_id = ? ORDER BY created_at ASC, rowid ASC",
+        )
+        .bind(server_id)
+        .fetch_all(pool)
+        .await?)
+    }
+
+    pub async fn list_enabled_by_server(
+        pool: &SqlitePool,
+        server_id: &str,
+    ) -> anyhow::Result<Vec<Node>> {
+        Ok(sqlx::query_as::<_, Node>(
+            "SELECT * FROM nodes WHERE server_id = ? AND enabled = 1
+             ORDER BY created_at ASC, rowid ASC",
+        )
+        .bind(server_id)
+        .fetch_all(pool)
+        .await?)
+    }
+
+    /// 只更新传入的字段；返回更新后的节点，不存在返回 `None`。
+    pub async fn update(
+        pool: &SqlitePool,
+        id: &str,
+        input: UpdateNode,
+    ) -> anyhow::Result<Option<Node>> {
+        let res = sqlx::query(
+            "UPDATE nodes SET
+                tag = COALESCE(?, tag),
+                name = COALESCE(?, name),
+                protocol = COALESCE(?, protocol),
+                transport = COALESCE(?, transport),
+                security = COALESCE(?, security),
+                port = COALESCE(?, port),
+                config_json = COALESCE(?, config_json),
+                enabled = COALESCE(?, enabled)
+             WHERE id = ?",
+        )
+        .bind(input.tag)
+        .bind(input.name)
+        .bind(input.protocol)
+        .bind(input.transport)
+        .bind(input.security)
+        .bind(input.port)
+        .bind(input.config_json)
+        .bind(input.enabled.map(i64::from))
+        .bind(id)
+        .execute(pool)
+        .await?;
+
+        if res.rows_affected() == 0 {
+            return Ok(None);
+        }
+        find_by_id(pool, id).await
+    }
+
+    /// 返回是否真的删掉了一行。
+    pub async fn delete(pool: &SqlitePool, id: &str) -> anyhow::Result<bool> {
+        let res = sqlx::query("DELETE FROM nodes WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(res.rows_affected() > 0)
+    }
 }

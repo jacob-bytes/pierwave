@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 use sqlx::FromRow;
 
 #[derive(Debug, Clone, FromRow, Serialize)]
@@ -49,9 +49,20 @@ pub struct Node {
     pub transport: String,
     pub security: String,
     pub port: i64,
+    /// 库里存的是 JSON 文本；对外直接暴露成 JSON 对象，前端不用二次 parse。
+    #[serde(rename = "config", serialize_with = "config_json_as_value")]
     pub config_json: String,
     pub enabled: i64,
     pub created_at: i64,
+}
+
+fn config_json_as_value<S>(raw: &str, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let value =
+        serde_json::from_str::<serde_json::Value>(raw).unwrap_or_else(|_| serde_json::json!({}));
+    value.serialize(serializer)
 }
 
 #[derive(Debug, Clone, FromRow, Serialize)]

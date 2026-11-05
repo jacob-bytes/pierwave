@@ -1,9 +1,10 @@
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::response::Response;
+use tokio::sync::broadcast;
 
 use mmrust_domain::repo;
-use mmrust_proto::{AgentMessage, MasterMessage, ServerAck, PROTOCOL_VERSION};
+use mmrust_proto::{AgentMessage, DesiredState, MasterMessage, ServerAck, PROTOCOL_VERSION};
 
 use crate::state::AppState;
 
@@ -12,7 +13,8 @@ pub async fn ws(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response
 }
 
 /// Agent 反向连入：第一条消息必须是 Hello(token)。
-/// token 校验通过后下发 Ack，之后只处理心跳/上报。
+/// token 校验通过后下发 Ack；之后 socket 与广播通道并行处理：
+/// 一边收心跳/上报，一边把主控 apply 产生的期望态推下去。
 async fn handle(mut socket: WebSocket, state: AppState) {
     let Some(Ok(Message::Text(first))) = socket.recv().await else {
         return;
@@ -41,6 +43,10 @@ async fn handle(mut socket: WebSocket, state: AppState) {
         }
     };
 
+    // 先注册再发 Ack：避免 Ack 与进入循环之间漏掉 apply 广播。
+    // subscription 在 Drop 时自动注销。
+    let mut subscription = state.hub.subscribe(&server.id);
+
     if let Err(e) = repo::servers::mark_online(&state.db.pool, &server.id).await {
         tracing::error!(error = %e, "mark_online failed");
     }
@@ -57,50 +63,116 @@ async fn handle(mut socket: WebSocket, state: AppState) {
         config_version: server.config_version,
         heartbeat_secs: 15,
     });
-    if let Ok(payload) = serde_json::to_string(&ack) {
-        if socket.send(Message::Text(payload.into())).await.is_err() {
-            return;
+    if !send_json(&mut socket, &ack).await {
+        return;
+    }
+
+    // 重连补发：Agent 按版本号幂等，只有比本地已应用版本新才会真正重启 xray。
+    if server.config_version > 0 {
+        match repo::nodes::list_enabled_by_server(&state.db.pool, &server.id).await {
+            Ok(nodes) => {
+                let desired = MasterMessage::Desired(DesiredState {
+                    version: server.config_version,
+                    xray: mmrust_domain::xray::build_config(&server.name, &nodes),
+                    files: Vec::new(),
+                });
+                if !send_json(&mut socket, &desired).await {
+                    return;
+                }
+                tracing::info!(
+                    server = %server.name,
+                    version = server.config_version,
+                    "resynced desired state on connect"
+                );
+            }
+            Err(e) => tracing::error!(error = %e, "load nodes for resync failed"),
         }
     }
 
-    // TODO(P1): 若 server.config_version > 0，这里主动下发 DesiredState
-
-    while let Some(frame) = socket.recv().await {
-        let Ok(Message::Text(text)) = frame else {
-            break;
-        };
-        match serde_json::from_str::<AgentMessage>(&text) {
-            Ok(AgentMessage::Heartbeat(hb)) => {
-                if let Err(e) = repo::servers::heartbeat(&state.db.pool, &server.id).await {
-                    tracing::error!(error = %e, "heartbeat write failed");
-                }
-                tracing::debug!(seq = hb.seq, load1 = hb.load1, "heartbeat");
-            }
-            Ok(AgentMessage::ApplyResult(result)) => {
-                if result.ok {
-                    tracing::info!(version = result.version, "agent applied desired state");
-                } else {
-                    tracing::error!(
-                        version = result.version,
-                        error = result.error.unwrap_or_default(),
-                        "agent failed to apply"
-                    );
+    let mut hub_open = true;
+    loop {
+        tokio::select! {
+            frame = socket.recv() => {
+                match frame {
+                    Some(Ok(Message::Text(text))) => {
+                        handle_agent_message(&state, &server.id, &text).await;
+                    }
+                    Some(Ok(Message::Close(_))) | None => break,
+                    Some(Ok(_)) => {}
+                    Some(Err(e)) => {
+                        tracing::warn!(error = %e, "agent socket error");
+                        break;
+                    }
                 }
             }
-            Ok(AgentMessage::Traffic(report)) => {
-                if let Err(e) = record_traffic(&state, &server.id, &report).await {
-                    tracing::error!(error = %e, "traffic report failed");
+            message = subscription.receiver.recv(), if hub_open => {
+                match message {
+                    Ok(message) => {
+                        if !send_json(&mut socket, &message).await {
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        tracing::warn!(
+                            server = %server.name,
+                            skipped,
+                            "desired state broadcast lagged"
+                        );
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        // 同一服务器被新连接替换时旧通道会关闭；此时继续读上报即可。
+                        hub_open = false;
+                        tracing::warn!(server = %server.name, "agent hub channel closed");
+                    }
                 }
             }
-            Ok(AgentMessage::Hello(_)) => {}
-            Err(e) => tracing::warn!(error = %e, "unparsable agent message"),
         }
     }
+    drop(subscription);
 
     if let Err(e) = repo::servers::mark_offline(&state.db.pool, &server.id).await {
         tracing::error!(error = %e, "mark_offline failed");
     }
     tracing::info!(server = %server.name, "agent disconnected");
+}
+
+async fn send_json(socket: &mut WebSocket, message: &MasterMessage) -> bool {
+    match serde_json::to_string(message) {
+        Ok(payload) => socket.send(Message::Text(payload.into())).await.is_ok(),
+        Err(e) => {
+            tracing::error!(error = %e, "serialize master message failed");
+            false
+        }
+    }
+}
+
+async fn handle_agent_message(state: &AppState, server_id: &str, text: &str) {
+    match serde_json::from_str::<AgentMessage>(text) {
+        Ok(AgentMessage::Heartbeat(hb)) => {
+            if let Err(e) = repo::servers::heartbeat(&state.db.pool, server_id).await {
+                tracing::error!(error = %e, "heartbeat write failed");
+            }
+            tracing::debug!(seq = hb.seq, load1 = hb.load1, "heartbeat");
+        }
+        Ok(AgentMessage::ApplyResult(result)) => {
+            if result.ok {
+                tracing::info!(version = result.version, "agent applied desired state");
+            } else {
+                tracing::error!(
+                    version = result.version,
+                    error = result.error.unwrap_or_default(),
+                    "agent failed to apply"
+                );
+            }
+        }
+        Ok(AgentMessage::Traffic(report)) => {
+            if let Err(e) = record_traffic(state, server_id, &report).await {
+                tracing::error!(error = %e, "traffic report failed");
+            }
+        }
+        Ok(AgentMessage::Hello(_)) => {}
+        Err(e) => tracing::warn!(error = %e, "unparsable agent message"),
+    }
 }
 
 async fn record_traffic(

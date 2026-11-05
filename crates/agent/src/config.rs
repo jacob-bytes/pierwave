@@ -18,6 +18,12 @@ pub struct Config {
     pub listen_port: String,
     #[serde(default)]
     pub master_public_key: Option<String>,
+    /// xray 配置落盘位置；测试时可指向临时目录
+    #[serde(default = "default_xray_config")]
+    pub xray_config_path: String,
+    /// 重启命令；测试里给 `true` 就能跳过真实 systemd
+    #[serde(default = "default_restart_command")]
+    pub restart_command: String,
 }
 
 fn default_mode() -> String {
@@ -31,6 +37,12 @@ fn default_xray_mode() -> String {
 }
 fn default_listen_port() -> String {
     "23889".into()
+}
+fn default_xray_config() -> String {
+    "/usr/local/etc/xray/config.json".into()
+}
+fn default_restart_command() -> String {
+    "systemctl restart xray".into()
 }
 
 impl Config {
@@ -68,6 +80,8 @@ mod tests {
             xray_mode: "external".into(),
             listen_port: "23889".into(),
             master_public_key: None,
+            xray_config_path: default_xray_config(),
+            restart_command: default_restart_command(),
         }
     }
 
