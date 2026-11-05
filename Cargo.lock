@@ -1130,6 +1130,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "thiserror 2.0.21",
+ "tokio",
  "tracing",
  "uuid",
  "x25519-dalek",
