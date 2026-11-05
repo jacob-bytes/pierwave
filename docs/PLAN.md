@@ -270,3 +270,33 @@ GET   /api/v1/packages        items[] 含 node_ids / node_count
 
 前端回填规则（在后端补 `node_scope` 字段之前先用这个推导）：
 `node_ids.length > 0` → 指定；`node_ids` 空且 `node_count > 0` → 全部；两者皆空 → 不给。
+
+## P1：运维基础（登录限流 / 会话清理 / 设置页）
+
+### 1. 登录限流
+
+- 维度：`(username, 客户端 IP)`，两者任一命中即限流（防单 IP 撞多账号、也防单账号被多 IP 撞）。
+- 默认：15 分钟窗口内失败 5 次 → 锁定 15 分钟；可用设置页调整。
+- 命中时返回 `429` + `Retry-After: <秒>`，body `{"error":"尝试过于频繁，请 N 分钟后再试"}`。
+- **不泄露账号是否存在**：未知用户名与密码错误的行为完全一致（都计数、都返回同样的 401）。
+- 登录成功清零该 key 的计数。
+- 存储放内存（单主控），重启即清空——可接受，并在文档里写明。
+
+客户端 IP：优先 `X-Forwarded-For` 第一段，其次 `ConnectInfo<SocketAddr>`（需要在 `axum::serve` 上开启 `into_make_service_with_connect_info`）。
+
+### 2. 会话清理
+
+`repo::sessions::purge_expired` 已存在但无人调用。在主控调度器里每小时跑一次，日志记清理条数。
+
+### 3. 设置页
+
+```
+GET   /api/v1/settings   -> { items: { panel_name, login_max_attempts, login_lock_secs, session_ttl_hours } }
+PATCH /api/v1/settings   { ...部分字段 } -> { items }
+POST  /api/v1/me/password { old_password, new_password } -> { ok: true }
+```
+
+- 全部走已有的 `settings` 表（key/value TEXT），缺失时回落到默认值。
+- `PATCH` 只接受白名单键，未知键 400；数值做范围校验（如 `login_max_attempts` 1–20）。
+- 改密码后**吊销该用户的其它会话**（保留当前这条），避免旧设备一直在线。
+- 断流总开关仍由环境变量 `MMRUST_ENFORCE` 控制，本轮不做运行时可切（会牵扯 Enforcer 生命周期）。
