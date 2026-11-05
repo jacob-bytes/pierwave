@@ -40,6 +40,18 @@ pub fn end_of_business_day_after(ts: i64, days: i64) -> i64 {
     business_day_start(business_day(ts) + days.max(0) + 1) - 1
 }
 
+/// `ts` 所属的 UTC+8 自然日，格式 `YYYY-MM-DD`。
+///
+/// 日账本 `traffic_daily.day` 用它；不要用 UTC 日期，否则东八区凌晨 0-8 点
+/// 的流量会记到前一天。
+pub fn business_date(ts: i64) -> String {
+    let offset =
+        chrono::FixedOffset::east_opt(BUSINESS_UTC_OFFSET_SECS as i32).expect("UTC+8 偏移固定合法");
+    chrono::DateTime::from_timestamp(ts, 0)
+        .map(|utc| utc.with_timezone(&offset).format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| "1970-01-01".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,5 +89,16 @@ mod tests {
             end % SECONDS_PER_DAY,
             SECONDS_PER_DAY - 1 - BUSINESS_UTC_OFFSET_SECS
         );
+    }
+
+    #[test]
+    fn business_date_uses_utc_plus_eight() {
+        // 2024-01-01 00:00:00 UTC = 2024-01-01 08:00:00 UTC+8
+        assert_eq!(business_date(1_704_067_200), "2024-01-01");
+        // 2024-01-01 15:59:59 UTC 仍是 2024-01-01 23:59:59 UTC+8
+        assert_eq!(business_date(1_704_067_200 + 16 * 3600 - 1), "2024-01-01");
+        // 2024-01-01 16:00:00 UTC = 2024-01-02 00:00:00 UTC+8
+        assert_eq!(business_date(1_704_067_200 + 16 * 3600), "2024-01-02");
+        assert_eq!(business_date(0), "1970-01-01");
     }
 }

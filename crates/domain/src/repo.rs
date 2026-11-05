@@ -185,6 +185,17 @@ pub mod users {
         find_by_id_opt(pool, id).await
     }
 
+    /// 流量落库后累加用户总用量。用 SQL 自增而不是先读后写，避免并发上报互相覆盖。
+    pub async fn add_used_bytes(pool: &SqlitePool, id: &str, delta: i64) -> anyhow::Result<()> {
+        sqlx::query("UPDATE users SET used_bytes = used_bytes + ?, updated_at = ? WHERE id = ?")
+            .bind(delta.max(0))
+            .bind(now())
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
     /// 返回是否真的改到了行。
     pub async fn set_password(pool: &SqlitePool, id: &str, password: &str) -> anyhow::Result<bool> {
         let hash = crate::password::hash(password)?;
@@ -395,6 +406,106 @@ pub mod servers {
         .await?;
         Ok(version)
     }
+}
+
+pub mod traffic {
+    use super::*;
+
+    /// 日账本的一行，供落库后自检与测试断言使用。
+    #[derive(Debug, Clone, sqlx::FromRow)]
+    pub struct DailyRow {
+        pub day: String,
+        pub server_id: String,
+        pub subject: String,
+        pub uplink: i64,
+        pub downlink: i64,
+        pub weighted: i64,
+    }
+
+    /// 幂等占位：首次见到 `(server_id, boot_id, seq)` 返回 `true`。
+    ///
+    /// 重复上报直接返回 `false`，调用方必须原样丢弃，不能再次累加账本。
+    pub async fn claim_report(
+        pool: &SqlitePool,
+        server_id: &str,
+        boot_id: &str,
+        seq: u64,
+        received_at: i64,
+    ) -> anyhow::Result<bool> {
+        let inserted = sqlx::query(
+            "INSERT OR IGNORE INTO traffic_reports (server_id, boot_id, seq, received_at)
+             VALUES (?, ?, ?, ?)",
+        )
+        .bind(server_id)
+        .bind(boot_id)
+        .bind(seq as i64)
+        .bind(received_at)
+        .execute(pool)
+        .await?
+        .rows_affected();
+        Ok(inserted > 0)
+    }
+
+    /// 按 (day, server_id, subject) 累加原始值与加权值。
+    pub async fn accumulate_daily(
+        pool: &SqlitePool,
+        day: &str,
+        server_id: &str,
+        subject: &str,
+        uplink: u64,
+        downlink: u64,
+        weighted: u64,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO traffic_daily (day, server_id, subject, uplink, downlink, weighted)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(day, server_id, subject) DO UPDATE SET
+                uplink = uplink + excluded.uplink,
+                downlink = downlink + excluded.downlink,
+                weighted = weighted + excluded.weighted",
+        )
+        .bind(day)
+        .bind(server_id)
+        .bind(subject)
+        .bind(saturating_i64(uplink))
+        .bind(saturating_i64(downlink))
+        .bind(saturating_i64(weighted))
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn find_daily(
+        pool: &SqlitePool,
+        day: &str,
+        server_id: &str,
+        subject: &str,
+    ) -> anyhow::Result<Option<DailyRow>> {
+        Ok(sqlx::query_as::<_, DailyRow>(
+            "SELECT day, server_id, subject, uplink, downlink, weighted
+             FROM traffic_daily WHERE day = ? AND server_id = ? AND subject = ?",
+        )
+        .bind(day)
+        .bind(server_id)
+        .bind(subject)
+        .fetch_optional(pool)
+        .await?)
+    }
+
+    /// 某台服务器上的上报条数；测试幂等与 e2e 对账用。
+    pub async fn count_reports(pool: &SqlitePool, server_id: &str) -> anyhow::Result<i64> {
+        Ok(
+            sqlx::query_scalar("SELECT COUNT(*) FROM traffic_reports WHERE server_id = ?")
+                .bind(server_id)
+                .fetch_one(pool)
+                .await?,
+        )
+    }
+}
+
+/// u64 → SQLite 的 i64：正常流量远小于 i64::MAX，超出时饱和而不是回绕成负数。
+fn saturating_i64(value: u64) -> i64 {
+    value.min(i64::MAX as u64) as i64
 }
 
 pub mod nodes {
@@ -854,6 +965,58 @@ pub mod user_packages {
     ) -> anyhow::Result<bool> {
         let res = sqlx::query("UPDATE user_packages SET used_bytes = ? WHERE id = ?")
             .bind(used_bytes.max(0))
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    /// 瀑布分配用：按创建顺序列出用户所有「原始状态 active」的实例。
+    ///
+    /// `quota_bytes` 是生效额度（实例覆写优先，其次模板兜底）；`0`/NULL 由
+    /// [`crate::metering::BillableInstance::remaining`] 解释为不限。
+    pub async fn list_billable(
+        pool: &SqlitePool,
+        user_id: &str,
+    ) -> anyhow::Result<Vec<crate::metering::BillableInstance>> {
+        #[derive(sqlx::FromRow)]
+        struct BillableRow {
+            id: String,
+            used_bytes: i64,
+            quota_bytes: Option<i64>,
+            direction: String,
+            node_ratio: f64,
+        }
+
+        let rows = sqlx::query_as::<_, BillableRow>(
+            "SELECT up.id, up.used_bytes,
+                    COALESCE(up.quota_override, p.quota_bytes) AS quota_bytes,
+                    up.direction, up.node_ratio
+             FROM user_packages up
+             JOIN packages p ON p.id = up.package_id
+             WHERE up.user_id = ? AND up.status = 'active'
+             ORDER BY up.created_at ASC, up.rowid ASC",
+        )
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| crate::metering::BillableInstance {
+                id: row.id,
+                used_bytes: row.used_bytes,
+                quota_bytes: row.quota_bytes,
+                direction: row.direction,
+                node_ratio: row.node_ratio,
+            })
+            .collect())
+    }
+
+    /// 瀑布分配后按增量累加，避免覆盖同报告里多张实例的连续扣费。
+    pub async fn add_used_bytes(pool: &SqlitePool, id: &str, delta: i64) -> anyhow::Result<bool> {
+        let res = sqlx::query("UPDATE user_packages SET used_bytes = used_bytes + ? WHERE id = ?")
+            .bind(delta.max(0))
             .bind(id)
             .execute(pool)
             .await?;

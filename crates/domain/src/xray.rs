@@ -42,15 +42,37 @@ impl Grant {
 ///   `clients`（保持历史行为）；
 /// * 只生成调用方传入的节点，是否过滤 disabled 由调用方决定。
 pub fn build_config(server_name: &str, nodes: &[Node], grants: &[Grant]) -> Value {
-    let inbounds: Vec<Value> = nodes
+    let mut inbounds: Vec<Value> = nodes
         .iter()
         .enumerate()
         .map(|(index, node)| build_inbound(server_name, index, node, grants))
         .collect();
+    inbounds.push(api_inbound());
 
     json!({
         "log": {
             "loglevel": "warning"
+        },
+        // Xray 进程内计数器：email 维度是计费口径，inbound 维度留给节点视图对账。
+        "stats": {},
+        "policy": {
+            "system": {
+                "statsInboundUplink": true,
+                "statsInboundDownlink": true,
+                "statsUserUplink": true,
+                "statsUserDownlink": true
+            }
+        },
+        // gRPC API：Agent 用 `xray api statsquery` 连 127.0.0.1:10085 取数。
+        // 只监听回环，绝不能暴露公网。
+        "api": {
+            "tag": "api",
+            "services": [
+                "HandlerService",
+                "LoggerService",
+                "StatsService",
+                "RoutingService"
+            ]
         },
         "inbounds": inbounds,
         "outbounds": [
@@ -63,11 +85,38 @@ pub fn build_config(server_name: &str, nodes: &[Node], grants: &[Grant]) -> Valu
                 "tag": "blocked",
                 "protocol": "blackhole",
                 "settings": {}
+            },
+            // Xray 会为 api tag 自动注册 API handler；显式占位 outbound 与官方
+            // 示例一致，旧版本也能把 api 入站路由到它而不是真实外网。
+            {
+                "tag": "api",
+                "protocol": "freedom",
+                "settings": {}
             }
         ],
         "routing": {
             "domainStrategy": "AsIs",
-            "rules": []
+            "rules": [
+                {
+                    "type": "field",
+                    "inboundTag": ["api"],
+                    "outboundTag": "api"
+                }
+            ]
+        }
+    })
+}
+
+/// 本机 gRPC API 入站：`xray api statsquery` 通过它读取计数器。
+fn api_inbound() -> Value {
+    json!({
+        "tag": "api",
+        "listen": "127.0.0.1",
+        "port": 10085,
+        "protocol": "dokodemo-door",
+        "settings": {
+            "address": "127.0.0.1",
+            "network": "tcp"
         }
     })
 }
@@ -387,13 +436,49 @@ mod tests {
         let config = build_config("hk-1", &[], &[]);
 
         assert_eq!(config["log"]["loglevel"], "warning");
-        assert_eq!(config["inbounds"], json!([]));
+        // 没有业务节点时仍要有 API 入站，Agent 才能查流量。
+        let inbounds = config["inbounds"].as_array().unwrap();
+        assert_eq!(inbounds.len(), 1);
+        let api = &inbounds[0];
+        assert_eq!(api["tag"], "api");
+        assert_eq!(api["listen"], "127.0.0.1");
+        assert_eq!(api["port"], 10085);
+        assert_eq!(api["protocol"], "dokodemo-door");
+        assert_eq!(api["settings"]["address"], "127.0.0.1");
+
         assert_eq!(config["outbounds"][0]["tag"], "direct");
         assert_eq!(config["outbounds"][0]["protocol"], "freedom");
         assert_eq!(config["outbounds"][1]["tag"], "blocked");
         assert_eq!(config["outbounds"][1]["protocol"], "blackhole");
+        assert_eq!(config["outbounds"][2]["tag"], "api");
         assert_eq!(config["routing"]["domainStrategy"], "AsIs");
-        assert_eq!(config["routing"]["rules"], json!([]));
+        assert_eq!(
+            config["routing"]["rules"],
+            json!([{"type": "field", "inboundTag": ["api"], "outboundTag": "api"}])
+        );
+    }
+
+    #[test]
+    fn enables_stats_and_local_api() {
+        let config = build_config("hk-1", &[], &[]);
+
+        assert_eq!(config["stats"], json!({}));
+        let system = &config["policy"]["system"];
+        assert_eq!(system["statsInboundUplink"], true);
+        assert_eq!(system["statsInboundDownlink"], true);
+        assert_eq!(system["statsUserUplink"], true);
+        assert_eq!(system["statsUserDownlink"], true);
+        assert_eq!(config["api"]["tag"], "api");
+        let services = config["api"]["services"].as_array().unwrap();
+        assert!(services.iter().any(|s| s == "StatsService"));
+        // API 端口只绑定回环，避免把 gRPC 管理面带进公网。
+        let api = config["inbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|inbound| inbound["tag"] == "api")
+            .unwrap();
+        assert_eq!(api["listen"], "127.0.0.1");
     }
 
     #[test]
@@ -428,7 +513,9 @@ mod tests {
         let config = build_config("hk-1", &[n], &[]);
         let inbound = &config["inbounds"][0];
 
-        assert_eq!(config["inbounds"].as_array().unwrap().len(), 1);
+        // 业务节点在前，API 入站固定追加在最后。
+        assert_eq!(config["inbounds"].as_array().unwrap().len(), 2);
+        assert_eq!(config["inbounds"][1]["tag"], "api");
         assert_eq!(inbound["tag"], "vless-reality");
         assert_eq!(inbound["port"], 443);
         assert_eq!(inbound["protocol"], "vless");
@@ -455,9 +542,10 @@ mod tests {
         let config = build_config("hk-1", &[vless, trojan], &[]);
         let inbounds = config["inbounds"].as_array().unwrap();
 
-        assert_eq!(inbounds.len(), 2);
+        assert_eq!(inbounds.len(), 3);
         assert_eq!(inbounds[0]["tag"], "vless-default");
         assert_eq!(inbounds[1]["tag"], "trojan-default");
+        assert_eq!(inbounds[2]["tag"], "api");
         // vless 片段只给了 stream，settings 应补默认值
         assert_eq!(inbounds[0]["settings"]["decryption"], "none");
         assert_eq!(inbounds[0]["settings"]["clients"], json!([]));
@@ -552,7 +640,8 @@ mod tests {
         let config = build_config("hk-1", &nodes, &grants);
         let inbounds = config["inbounds"].as_array().unwrap();
 
-        assert_eq!(inbounds.len(), 2);
+        assert_eq!(inbounds.len(), 3);
+        assert_eq!(inbounds[2]["tag"], "api");
         for (index, node) in nodes.iter().enumerate() {
             let clients = inbounds[index]["settings"]["clients"].as_array().unwrap();
             assert_eq!(clients.len(), 2, "每个节点每个用户一条 client");

@@ -425,11 +425,13 @@ mod tests {
             MasterMessage::Desired(desired) => {
                 assert_eq!(desired.version, 1);
                 let inbounds = desired.xray["inbounds"].as_array().unwrap();
-                assert_eq!(inbounds.len(), 2);
+                // 两个业务节点 + 固定追加在最后的 api 入站。
+                assert_eq!(inbounds.len(), 3);
                 assert_eq!(inbounds[0]["name"], Value::Null);
                 assert_eq!(inbounds[0]["tag"], items[0]["tag"]);
                 assert_eq!(inbounds[0]["port"], 443);
                 assert_eq!(inbounds[1]["tag"], items[1]["tag"]);
+                assert_eq!(inbounds[2]["tag"], "api");
                 assert_eq!(desired.xray["outbounds"][0]["protocol"], json!("freedom"));
             }
             _ => panic!("expected desired state"),
@@ -458,7 +460,9 @@ mod tests {
         assert_eq!(body["config_version"], 2);
         match subscription.receiver.recv().await.unwrap() {
             MasterMessage::Desired(desired) => {
-                assert_eq!(desired.xray["inbounds"].as_array().unwrap().len(), 1);
+                let inbounds = desired.xray["inbounds"].as_array().unwrap();
+                assert_eq!(inbounds.len(), 2, "剩一个业务节点 + api");
+                assert_eq!(inbounds[1]["tag"], "api");
             }
             _ => panic!("expected desired state"),
         }
@@ -748,7 +752,8 @@ mod tests {
             panic!("expected desired state");
         };
         let inbounds = desired.xray["inbounds"].as_array().unwrap();
-        assert_eq!(inbounds.len(), 1);
+        assert_eq!(inbounds.len(), 2);
         assert_eq!(inbounds[0]["tag"], good_tag.as_str());
+        assert_eq!(inbounds[1]["tag"], "api");
     }
 }

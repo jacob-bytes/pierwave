@@ -1,4 +1,5 @@
 mod config;
+mod traffic;
 
 use std::path::{Path, PathBuf};
 use std::process::Output;
@@ -14,6 +15,7 @@ use mmrust_proto::{
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::config::Config;
+use crate::traffic::TrafficSampler;
 
 const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -46,10 +48,15 @@ async fn main() -> Result<()> {
     let cfg = Config::load(std::path::Path::new(&path))?;
     tracing::info!(%path, master = %cfg.master_url, "agent starting");
 
-    // 断线重连：指数退避，上限 60s
+    // 断线重连：指数退避，上限 60s。
+    // boot_id / 流量 seq / 采样基线都放在重连循环外：进程级身份不变，
+    // 重连后既不会换 id，也不会把已经上报过的累计流量再报一遍。
+    let boot_id = uuid::Uuid::new_v4().to_string();
+    let mut sampler = TrafficSampler::new();
+    let mut traffic_seq = 0u64;
     let mut backoff = 1u64;
     loop {
-        match run_once(&cfg).await {
+        match run_once(&cfg, &boot_id, &mut sampler, &mut traffic_seq).await {
             Ok(()) => backoff = 1,
             Err(e) => {
                 tracing::warn!(error = %e, backoff, "connection dropped");
@@ -60,7 +67,12 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn run_once(cfg: &Config) -> Result<()> {
+async fn run_once(
+    cfg: &Config,
+    boot_id: &str,
+    sampler: &mut TrafficSampler,
+    traffic_seq: &mut u64,
+) -> Result<()> {
     let url = cfg.ws_url();
     let (mut ws, _) = tokio_tungstenite::connect_async(&url)
         .await
@@ -77,10 +89,10 @@ async fn run_once(cfg: &Config) -> Result<()> {
         .await?;
 
     let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
-    let mut traffic = tokio::time::interval(Duration::from_secs(60));
+    let traffic_interval = cfg.stats_interval_secs.max(1);
+    let mut traffic = tokio::time::interval(Duration::from_secs(traffic_interval));
     let uptime_start = std::time::Instant::now();
     let mut seq = 0u64;
-    let boot_id = uuid::Uuid::new_v4().to_string();
 
     loop {
         tokio::select! {
@@ -128,9 +140,39 @@ async fn run_once(cfg: &Config) -> Result<()> {
                 ws.send(Message::Text(serde_json::to_string(&hb)?)).await?;
             }
             _ = traffic.tick() => {
-                // TODO(P1): 读 xray StatsService，按 email 算增量后再发
-                let report = TrafficReport { seq, boot_id: boot_id.clone(), deltas: Vec::new() };
-                ws.send(Message::Text(serde_json::to_string(&AgentMessage::Traffic(report))?)).await?;
+                match sampler.sample(&cfg.stats_query_command) {
+                    Ok(sample) => {
+                        if sample.reset {
+                            tracing::warn!(
+                                "Xray 计数器归零（可能已重启），本轮按当前计数全量上报"
+                            );
+                        }
+                        if !sample.deltas.is_empty() {
+                            *traffic_seq += 1;
+                            let uplink: u64 = sample.deltas.iter().map(|delta| delta.uplink).sum();
+                            let downlink: u64 =
+                                sample.deltas.iter().map(|delta| delta.downlink).sum();
+                            tracing::debug!(
+                                seq = *traffic_seq,
+                                users = sample.deltas.len(),
+                                uplink,
+                                downlink,
+                                "上报流量增量"
+                            );
+                            let report = TrafficReport {
+                                seq: *traffic_seq,
+                                boot_id: boot_id.to_string(),
+                                deltas: sample.deltas,
+                            };
+                            ws.send(Message::Text(serde_json::to_string(
+                                &AgentMessage::Traffic(report),
+                            )?))
+                            .await?;
+                        }
+                    }
+                    // 失败不 panic、也不回滚基线：下一轮从上一份成功快照继续算增量。
+                    Err(e) => tracing::warn!(error = %e, "采集 Xray 流量失败，跳过本轮"),
+                }
             }
         }
     }
@@ -285,7 +327,7 @@ fn restart_xray(command: &str) -> Result<()> {
 }
 
 /// 按空白切分命令后直接 exec（不经过 shell），可追加一个独立参数。
-fn run_program(command: &str, extra_arg: Option<&Path>) -> Result<Output> {
+pub(crate) fn run_program(command: &str, extra_arg: Option<&Path>) -> Result<Output> {
     let mut parts = command.split_whitespace();
     let Some(program) = parts.next() else {
         anyhow::bail!("命令为空");
@@ -300,7 +342,7 @@ fn run_program(command: &str, extra_arg: Option<&Path>) -> Result<Output> {
 }
 
 /// 合并 stdout/stderr，去 ANSI 后截断到 2KB。
-fn command_output(out: &Output) -> String {
+pub(crate) fn command_output(out: &Output) -> String {
     let mut parts = Vec::new();
     let stdout = strip_ansi(&String::from_utf8_lossy(&out.stdout));
     if !stdout.trim().is_empty() {

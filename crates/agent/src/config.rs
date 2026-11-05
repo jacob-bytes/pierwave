@@ -30,6 +30,12 @@ pub struct Config {
     /// 线上配置的备份后缀；省略时用 `.bak`
     #[serde(default = "default_backup_suffix")]
     pub backup_suffix: Option<String>,
+    /// 采样 Xray 计数器的命令；测试/本地可指向假脚本
+    #[serde(default = "default_stats_query_command")]
+    pub stats_query_command: String,
+    /// 流量采样间隔（秒）；生产默认 60，e2e 会调到 1
+    #[serde(default = "default_stats_interval_secs")]
+    pub stats_interval_secs: u64,
 }
 
 fn default_mode() -> String {
@@ -55,6 +61,12 @@ fn default_xray_test_command() -> String {
 }
 fn default_backup_suffix() -> Option<String> {
     Some(".bak".into())
+}
+fn default_stats_query_command() -> String {
+    "xray api statsquery --server=127.0.0.1:10085 -pattern user>>>".into()
+}
+fn default_stats_interval_secs() -> u64 {
+    60
 }
 
 impl Config {
@@ -96,6 +108,8 @@ mod tests {
             restart_command: default_restart_command(),
             xray_test_command: default_xray_test_command(),
             backup_suffix: default_backup_suffix(),
+            stats_query_command: default_stats_query_command(),
+            stats_interval_secs: default_stats_interval_secs(),
         }
     }
 
@@ -132,5 +146,28 @@ mod tests {
             "/usr/local/bin/xray run -test -config"
         );
         assert_eq!(parsed.backup_suffix.as_deref(), Some(".old"));
+    }
+
+    #[test]
+    fn stats_settings_have_sane_defaults() {
+        let parsed: Config =
+            toml::from_str("master_url = \"http://127.0.0.1:8787\"\ntoken = \"t\"\n").unwrap();
+        assert_eq!(
+            parsed.stats_query_command,
+            "xray api statsquery --server=127.0.0.1:10085 -pattern user>>>"
+        );
+        assert_eq!(parsed.stats_interval_secs, 60);
+    }
+
+    #[test]
+    fn stats_settings_can_be_overridden() {
+        let parsed: Config = toml::from_str(
+            "master_url = \"http://127.0.0.1:8787\"\ntoken = \"t\"\n\
+             stats_query_command = \"/tmp/fake-stats.sh\"\n\
+             stats_interval_secs = 5\n",
+        )
+        .unwrap();
+        assert_eq!(parsed.stats_query_command, "/tmp/fake-stats.sh");
+        assert_eq!(parsed.stats_interval_secs, 5);
     }
 }

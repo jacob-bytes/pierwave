@@ -59,17 +59,33 @@ for f in node1 node2; do
   curl -sf -b "$WORK/cookie" -X POST "$BASE/api/v1/servers/$SERVER_ID/nodes" \
     -H 'Content-Type: application/json' -d @"$WORK/$f.json" >/dev/null
 done
-echo "ok 建 2 个节点"
+NODE_TAG=$(curl -sf -b "$WORK/cookie" "$BASE/api/v1/servers/$SERVER_ID/nodes" | jget '["items"][0]["tag"]')
+echo "ok 建 2 个节点（首个 tag：${NODE_TAG}）"
 
 ALICE=$(curl -sf -b "$WORK/cookie" -X POST "$BASE/api/v1/users" -H 'Content-Type: application/json' \
   -d '{"username":"alice","password":"password123"}')
 ALICE_ID=$(echo "$ALICE" | jget '["user"]["id"]')
 ALICE_CODE=$(echo "$ALICE" | jget '["user"]["short_code"]')
 PKG_ID=$(curl -sf -b "$WORK/cookie" -X POST "$BASE/api/v1/packages" -H 'Content-Type: application/json' \
-  -d '{"name":"月卡","quota_bytes":107374182400,"period_days":30}' | jget '["package"]["id"]')
+  -d '{"name":"月卡","quota_bytes":107374182400,"period_days":30,"node_ratio":2.0}' | jget '["package"]["id"]')
 curl -sf -b "$WORK/cookie" -X POST "$BASE/api/v1/users/$ALICE_ID/packages" \
   -H 'Content-Type: application/json' -d "{\"package_id\":\"$PKG_ID\"}" >/dev/null
-echo "ok alice 绑定套餐"
+echo "ok alice 绑定套餐（node_ratio=2.0）"
+
+# 假 stats 命令：第一次 1000/500，之后 3000/1500（模拟 Xray 计数只增不减）。
+# 真实 Xray 的 statsquery 输出就是这个结构，Agent 侧解析逻辑完全一致。
+cat > "$WORK/fake-stats.sh" <<SH
+#!/bin/sh
+count=\$(cat "$WORK/stats.count" 2>/dev/null || echo 0)
+count=\$((count + 1))
+echo "\$count" > "$WORK/stats.count"
+if [ "\$count" -le 1 ]; then
+  echo '{"stat":[{"name":"user>>>$ALICE_ID@$NODE_TAG>>>traffic>>>uplink","value":"1000"},{"name":"user>>>$ALICE_ID@$NODE_TAG>>>traffic>>>downlink","value":"500"}]}'
+else
+  echo '{"stat":[{"name":"user>>>$ALICE_ID@$NODE_TAG>>>traffic>>>uplink","value":"3000"},{"name":"user>>>$ALICE_ID@$NODE_TAG>>>traffic>>>downlink","value":"1500"}]}'
+fi
+SH
+chmod 755 "$WORK/fake-stats.sh"
 
 V=$(curl -sf -b "$WORK/cookie" -X POST "$BASE/api/v1/servers/$SERVER_ID/apply" | jget '["config_version"]')
 [ "$V" = "1" ] || { echo "FAIL: apply 后版本应为 1，实际 $V"; exit 1; }
@@ -84,6 +100,8 @@ xray_mode = "external"
 xray_config_path = "$WORK/xray/config.json"
 restart_command = "true"
 xray_test_command = "true"
+stats_query_command = "$WORK/fake-stats.sh"
+stats_interval_secs = 1
 TOML
 ./target/debug/mmrust-agent -c "$WORK/agent.toml" > "$WORK/agent.log" 2>&1 &
 AGENT_PID=$!
@@ -96,10 +114,19 @@ python3 - "$WORK/xray/config.json" <<'PY'
 import json, sys
 cfg = json.load(open(sys.argv[1]))
 tags = [i["tag"] for i in cfg["inbounds"]]
-assert len(cfg["inbounds"]) == 2, f"inbounds={len(cfg['inbounds'])}"
+assert len(cfg["inbounds"]) == 3, f"inbounds={len(cfg['inbounds'])}（2 个业务节点 + api）"
+assert tags[-1] == "api", tags
 assert cfg["inbounds"][0]["port"] == 443 and cfg["inbounds"][0]["protocol"] == "vless"
 assert any(o["protocol"] == "freedom" for o in cfg["outbounds"])
-print("ok 配置结构:", tags)
+# 流量计量依赖这三块：stats、policy.system 与只监听回环的 api 入站。
+assert cfg["stats"] == {}, cfg.get("stats")
+for flag in ("statsInboundUplink", "statsInboundDownlink", "statsUserUplink", "statsUserDownlink"):
+    assert cfg["policy"]["system"][flag] is True, flag
+api = next(i for i in cfg["inbounds"] if i["tag"] == "api")
+assert api["listen"] == "127.0.0.1" and api["port"] == 10085, api
+assert "StatsService" in cfg["api"]["services"], cfg["api"]
+assert {"type": "field", "inboundTag": ["api"], "outboundTag": "api"} in cfg["routing"]["rules"]
+print("ok 配置结构:", tags, "stats/API 已开")
 PY
 
 echo "--- 闭环断言：订阅凭据 == 服务器 inbound 凭据 ---"
@@ -126,6 +153,39 @@ assert {"PROXY", "AUTO"} <= groups, groups
 print("ok 分组:", sorted(groups))
 PY
 
+echo "--- 流量计量：假 stats → Agent 增量 → 主控按倍率落库 ---"
+# 第一次 1000/500、第二次 3000/1500 → 两轮增量 1000/500 + 2000/1000；
+# alice 的套餐 node_ratio=2.0、direction=both，期望 used = (3000+1500)×2 = 9000。
+ALICE_USED=0
+for _ in $(seq 1 100); do
+  ALICE_USED=$(curl -sf -b "$WORK/cookie" "$BASE/api/v1/users?q=alice" 2>/dev/null | jget '["items"][0]["used_bytes"]' 2>/dev/null || echo 0)
+  [ "$ALICE_USED" = "9000" ] && break
+  sleep 0.2
+done
+[ "$ALICE_USED" = "9000" ] || { echo "FAIL: alice.used_bytes 期望 9000（(3000+1500)×2.0），实际 $ALICE_USED"; tail -20 "$WORK/agent.log"; exit 1; }
+echo "ok alice.used_bytes = 9000（加权后）"
+
+PACKAGE_USED=$(curl -sf -b "$WORK/cookie" "$BASE/api/v1/users?q=alice" | jget '["items"][0]["packages"][0]["used_bytes"]')
+[ "$PACKAGE_USED" = "9000" ] || { echo "FAIL: 套餐实例 used_bytes 应为 9000，实际 $PACKAGE_USED"; exit 1; }
+
+python3 - "$WORK/db.sqlite" "$ALICE_ID" <<'PY'
+import sqlite3, sys
+
+conn = sqlite3.connect(sys.argv[1])
+alice = sys.argv[2]
+
+reports = conn.execute("SELECT COUNT(*) FROM traffic_reports").fetchone()[0]
+assert reports == 2, f"期望 2 条 traffic_reports，实际 {reports}"
+
+rows = conn.execute(
+    "SELECT uplink, downlink, weighted FROM traffic_daily WHERE subject = ? ORDER BY day",
+    (alice,),
+).fetchall()
+assert rows == [(3000, 1500, 9000)], f"traffic_daily 原始/加权值不对：{rows}"
+weighted = conn.execute("SELECT weighted FROM traffic_daily WHERE subject = ?", (alice,)).fetchone()[0]
+print(f"ok traffic_reports={reports}，traffic_daily=uplink 3000 / downlink 1500 / weighted {weighted}")
+PY
+
 grep -q "resynced desired state" "$WORK/master.log" || { echo "FAIL: 主控没有补发日志"; exit 1; }
 grep -q "agent applied desired state" "$WORK/master.log" || { echo "FAIL: 主控没收到 ApplyResult"; exit 1; }
 
@@ -142,8 +202,57 @@ sleep 1
 python3 - "$WORK/xray/config.json" <<'PY'
 import json, sys
 cfg = json.load(open(sys.argv[1]))
-assert len(cfg["inbounds"]) == 3, f"期望 3 个入站，实际 {len(cfg['inbounds'])}"
-print("ok 在线热更新到 3 个入站")
+assert len(cfg["inbounds"]) == 4, f"期望 4 个入站（3 业务 + api），实际 {len(cfg['inbounds'])}"
+assert cfg["inbounds"][-1]["tag"] == "api"
+print("ok 在线热更新到 3 个业务入站（+ api）")
+PY
+
+echo "--- 幂等：重放已上报的 (boot_id, seq) 不应让数字翻倍 ---"
+python3 - "$WORK/db.sqlite" "$BASE" "$TOKEN" "$ALICE_ID" "$NODE_TAG" <<'PY'
+import asyncio, json, sqlite3, sys
+
+import websockets
+
+db, base, token, alice, tag = sys.argv[1:6]
+conn = sqlite3.connect(db)
+boot_id, seq = conn.execute(
+    "SELECT boot_id, seq FROM traffic_reports ORDER BY seq ASC LIMIT 1"
+).fetchone()
+payload = {
+    "type": "traffic",
+    "seq": seq,
+    "boot_id": boot_id,
+    "deltas": [{"email": f"{alice}@{tag}", "uplink": 999999, "downlink": 999999}],
+}
+
+
+async def main():
+    url = base.replace("http://", "ws://", 1) + "/api/agent/ws"
+    async with websockets.connect(url, open_timeout=10) as ws:
+        await ws.send(json.dumps({
+            "type": "hello", "token": token, "hostname": "e2e-replay",
+            "agent_version": "0.1.0", "xray_mode": "external", "capabilities": [],
+        }))
+        # 用同一个 (boot_id, seq) 重放一条明显更大的上报。
+        await ws.send(json.dumps(payload))
+        await asyncio.sleep(0.8)
+
+
+asyncio.run(main())
+print(f"ok 重放 boot_id={boot_id[:8]}… seq={seq}")
+PY
+
+REPLAYED_USED=$(curl -sf -b "$WORK/cookie" "$BASE/api/v1/users?q=alice" | jget '["items"][0]["used_bytes"]')
+[ "$REPLAYED_USED" = "9000" ] || { echo "FAIL: 重放后 used_bytes 翻倍了（${REPLAYED_USED}）"; exit 1; }
+python3 - "$WORK/db.sqlite" <<'PY'
+import sqlite3, sys
+
+conn = sqlite3.connect(sys.argv[1])
+reports = conn.execute("SELECT COUNT(*) FROM traffic_reports").fetchone()[0]
+assert reports == 2, f"重放不应新增 traffic_reports，实际 {reports}"
+weighted = conn.execute("SELECT SUM(weighted) FROM traffic_daily").fetchone()[0]
+assert weighted == 9000, f"重放不应改动日账本，实际 weighted={weighted}"
+print(f"ok 重放被幂等丢弃：reports={reports}, weighted={weighted}")
 PY
 
 echo "PASS 全部通过（日志：$WORK/master.log, $WORK/agent.log）"

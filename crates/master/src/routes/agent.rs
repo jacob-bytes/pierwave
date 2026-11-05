@@ -3,8 +3,12 @@ use axum::extract::State;
 use axum::response::Response;
 use tokio::sync::broadcast;
 
+use mmrust_domain::metering;
 use mmrust_domain::repo;
-use mmrust_proto::{AgentMessage, DesiredState, MasterMessage, ServerAck, PROTOCOL_VERSION};
+use mmrust_domain::time;
+use mmrust_proto::{
+    AgentMessage, DesiredState, MasterMessage, ServerAck, TrafficReport, PROTOCOL_VERSION,
+};
 
 use crate::state::AppState;
 
@@ -167,6 +171,12 @@ async fn handle_agent_message(state: &AppState, server_id: &str, text: &str) {
             }
         }
         Ok(AgentMessage::Traffic(report)) => {
+            tracing::debug!(
+                server_id,
+                seq = report.seq,
+                deltas = report.deltas.len(),
+                "收到流量上报"
+            );
             if let Err(e) = record_traffic(state, server_id, &report).await {
                 tracing::error!(error = %e, "traffic report failed");
             }
@@ -176,46 +186,405 @@ async fn handle_agent_message(state: &AppState, server_id: &str, text: &str) {
     }
 }
 
+/// 流量上报落库：归因 → 加权 → 日账本 / 用户总量 / 实例瀑布分配。
+///
+/// 幂等键是 `(server_id, boot_id, seq)`：重复上报在这里直接丢弃，绝不二次累加。
 async fn record_traffic(
     state: &AppState,
     server_id: &str,
-    report: &mmrust_proto::TrafficReport,
+    report: &TrafficReport,
 ) -> anyhow::Result<()> {
-    // 幂等键 (server_id, boot_id, seq)：重复上报直接丢弃
-    let inserted = sqlx::query(
-        "INSERT OR IGNORE INTO traffic_reports (server_id, boot_id, seq, received_at)
-         VALUES (?, ?, ?, ?)",
+    let received_at = time::now();
+    let claimed = repo::traffic::claim_report(
+        &state.db.pool,
+        server_id,
+        &report.boot_id,
+        report.seq,
+        received_at,
     )
-    .bind(server_id)
-    .bind(&report.boot_id)
-    .bind(report.seq as i64)
-    .bind(chrono::Utc::now().timestamp())
-    .execute(&state.db.pool)
-    .await?
-    .rows_affected();
-
-    if inserted == 0 {
+    .await?;
+    if !claimed {
+        tracing::debug!(
+            server_id,
+            boot_id = %report.boot_id,
+            seq = report.seq,
+            "重复的流量上报，已丢弃"
+        );
         return Ok(());
     }
 
-    let day = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let day = time::business_date(received_at);
     for delta in &report.deltas {
-        sqlx::query(
-            "INSERT INTO traffic_daily (day, server_id, subject, uplink, downlink, weighted)
-             VALUES (?, ?, ?, ?, ?, ?)
-             ON CONFLICT(day, server_id, subject) DO UPDATE SET
-                uplink = uplink + excluded.uplink,
-                downlink = downlink + excluded.downlink,
-                weighted = weighted + excluded.weighted",
+        record_delta(
+            state,
+            server_id,
+            &day,
+            &delta.email,
+            delta.uplink,
+            delta.downlink,
         )
-        .bind(&day)
-        .bind(server_id)
-        .bind(&delta.email)
-        .bind(delta.uplink as i64)
-        .bind(delta.downlink as i64)
-        .bind((delta.uplink + delta.downlink) as i64)
-        .execute(&state.db.pool)
         .await?;
     }
     Ok(())
+}
+
+/// 处理单个 email 的增量。
+///
+/// 归因失败（切不出用户 / 用户不存在）只 warn 并用原始 email 记账，不中断整份报告；
+/// 这样一台服务器上的脏数据不会让别人也漏计。
+async fn record_delta(
+    state: &AppState,
+    server_id: &str,
+    day: &str,
+    email: &str,
+    uplink: u64,
+    downlink: u64,
+) -> anyhow::Result<()> {
+    // 按最后一个 `@` 切分：用户 ID 是 UUID（无 @），node_tag 里可能有 @。
+    let user = match email.rsplit_once('@') {
+        Some((user_id, node_tag)) if !user_id.is_empty() && !node_tag.is_empty() => {
+            repo::users::find_by_id_opt(&state.db.pool, user_id).await?
+        }
+        _ => None,
+    };
+
+    let Some(user) = user else {
+        tracing::warn!(email, "流量上报无法归因到用户，按原始 email 记账");
+        let weighted = metering::weighted_bytes(uplink, downlink, "both", 1.0);
+        repo::traffic::accumulate_daily(
+            &state.db.pool,
+            day,
+            server_id,
+            email,
+            uplink,
+            downlink,
+            weighted,
+        )
+        .await?;
+        return Ok(());
+    };
+
+    let instances = repo::user_packages::list_billable(&state.db.pool, &user.id).await?;
+    let (direction, node_ratio) = metering::billing_terms(&instances);
+    if instances.is_empty() {
+        tracing::warn!(
+            user = %user.id,
+            email,
+            "用户没有可用的套餐实例，按 1 倍双向计费且不分配到实例"
+        );
+    }
+    let weighted = metering::weighted_bytes(uplink, downlink, direction, node_ratio);
+
+    // 日账本的 subject 用 user_id：同一用户跨节点、跨邮件都归到同一行；
+    // 归因失败时才回落到原始 email。
+    repo::traffic::accumulate_daily(
+        &state.db.pool,
+        day,
+        server_id,
+        &user.id,
+        uplink,
+        downlink,
+        weighted,
+    )
+    .await?;
+    repo::users::add_used_bytes(&state.db.pool, &user.id, saturating_i64(weighted)).await?;
+
+    // 瀑布分配：多张卡按 created_at 顺序填，先填满第一张再下一张。
+    for (instance_id, amount) in metering::waterfall(weighted, &instances) {
+        repo::user_packages::add_used_bytes(&state.db.pool, &instance_id, saturating_i64(amount))
+            .await?;
+    }
+    Ok(())
+}
+
+/// u64 → SQLite 的 i64：正常流量远小于 i64::MAX，超出时饱和而不是回绕成负数。
+fn saturating_i64(value: u64) -> i64 {
+    value.min(i64::MAX as u64) as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use mmrust_domain::models::UserPackageView;
+    use mmrust_domain::Db;
+
+    use super::*;
+    use mmrust_proto::TrafficDelta;
+
+    struct Fixture {
+        state: AppState,
+        user_id: String,
+    }
+
+    async fn fixture() -> Fixture {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let user = repo::users::create(
+            &db.pool,
+            repo::users::NewUser {
+                username: "alice".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+            },
+        )
+        .await
+        .unwrap();
+        Fixture {
+            state: AppState::new(db, "web/dist"),
+            user_id: user.id,
+        }
+    }
+
+    async fn add_package(
+        state: &AppState,
+        user_id: &str,
+        quota_bytes: Option<i64>,
+        direction: &str,
+        node_ratio: f64,
+    ) -> UserPackageView {
+        let package = repo::packages::create(
+            &state.db.pool,
+            repo::packages::NewPackage {
+                name: "测试卡".into(),
+                quota_bytes,
+                period_days: None,
+                direction: direction.into(),
+                node_ratio,
+            },
+        )
+        .await
+        .unwrap();
+        repo::user_packages::create(
+            &state.db.pool,
+            user_id,
+            repo::user_packages::NewUserPackage {
+                package_id: package.id.clone(),
+                quota_override: None,
+                expires_at: None,
+                reset_day: None,
+            },
+            &package,
+        )
+        .await
+        .unwrap()
+    }
+
+    fn report(seq: u64, email: &str, uplink: u64, downlink: u64) -> TrafficReport {
+        TrafficReport {
+            seq,
+            boot_id: "boot-1".into(),
+            deltas: vec![TrafficDelta {
+                email: email.into(),
+                uplink,
+                downlink,
+            }],
+        }
+    }
+
+    fn instance_used(view: &UserPackageView) -> i64 {
+        view.used_bytes
+    }
+
+    async fn used_bytes(state: &AppState, user_id: &str) -> i64 {
+        repo::users::find_by_id(&state.db.pool, user_id)
+            .await
+            .unwrap()
+            .used_bytes
+    }
+
+    #[tokio::test]
+    async fn records_weighted_daily_and_user_usage() {
+        let fixture = fixture().await;
+        let package = add_package(&fixture.state, &fixture.user_id, None, "both", 2.0).await;
+        let email = format!("{}@hk-1", fixture.user_id);
+
+        record_traffic(&fixture.state, "server-1", &report(1, &email, 1000, 500))
+            .await
+            .unwrap();
+
+        let user = repo::users::find_by_id(&fixture.state.db.pool, &fixture.user_id)
+            .await
+            .unwrap();
+        assert_eq!(user.used_bytes, 3000, "(1000+500)×2.0");
+        assert_eq!(instance_used(&package), 0, "旧视图只是快照");
+        let view = repo::user_packages::find_view_by_id(&fixture.state.db.pool, &package.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(view.used_bytes, 3000);
+
+        let day = time::business_date(time::now());
+        let daily =
+            repo::traffic::find_daily(&fixture.state.db.pool, &day, "server-1", &fixture.user_id)
+                .await
+                .unwrap()
+                .expect("应有日账本");
+        assert_eq!(daily.uplink, 1000);
+        assert_eq!(daily.downlink, 500);
+        assert_eq!(daily.weighted, 3000);
+    }
+
+    #[tokio::test]
+    async fn duplicate_report_is_dropped() {
+        let fixture = fixture().await;
+        add_package(&fixture.state, &fixture.user_id, None, "both", 2.0).await;
+        let email = format!("{}@hk-1", fixture.user_id);
+
+        record_traffic(&fixture.state, "server-1", &report(1, &email, 1000, 500))
+            .await
+            .unwrap();
+        // 同 seq 重放，即使金额更大也不能翻倍。
+        record_traffic(
+            &fixture.state,
+            "server-1",
+            &report(1, &email, 999_999, 999_999),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(used_bytes(&fixture.state, &fixture.user_id).await, 3000);
+        assert_eq!(
+            repo::traffic::count_reports(&fixture.state.db.pool, "server-1")
+                .await
+                .unwrap(),
+            1
+        );
+
+        // 换 seq 才是真的新增。
+        record_traffic(&fixture.state, "server-1", &report(2, &email, 2000, 1000))
+            .await
+            .unwrap();
+        assert_eq!(
+            used_bytes(&fixture.state, &fixture.user_id).await,
+            9000,
+            "第二轮 (2000+1000)×2.0 累加"
+        );
+        assert_eq!(
+            repo::traffic::count_reports(&fixture.state.db.pool, "server-1")
+                .await
+                .unwrap(),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn direction_is_respected() {
+        let fixture = fixture().await;
+        add_package(&fixture.state, &fixture.user_id, None, "upload", 1.0).await;
+        let email = format!("{}@hk-1", fixture.user_id);
+
+        record_traffic(&fixture.state, "server-1", &report(1, &email, 1000, 500))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            used_bytes(&fixture.state, &fixture.user_id).await,
+            1000,
+            "upload 方向只算上行"
+        );
+        let day = time::business_date(time::now());
+        let daily =
+            repo::traffic::find_daily(&fixture.state.db.pool, &day, "server-1", &fixture.user_id)
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(
+            (daily.uplink, daily.downlink, daily.weighted),
+            (1000, 500, 1000)
+        );
+    }
+
+    #[tokio::test]
+    async fn waterfall_fills_first_instance_then_spills_over() {
+        let fixture = fixture().await;
+        let first = add_package(&fixture.state, &fixture.user_id, Some(1000), "both", 2.0).await;
+        let second = add_package(&fixture.state, &fixture.user_id, Some(10_000), "both", 3.0).await;
+        let email = format!("{}@hk-1", fixture.user_id);
+
+        // (300+200)×2.0 = 1000 加权 → 第一张刚好填满。
+        record_traffic(&fixture.state, "server-1", &report(1, &email, 300, 200))
+            .await
+            .unwrap();
+        let first_after = repo::user_packages::find_view_by_id(&fixture.state.db.pool, &first.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let second_after = repo::user_packages::find_view_by_id(&fixture.state.db.pool, &second.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(first_after.used_bytes, 1000);
+        assert_eq!(second_after.used_bytes, 0);
+
+        // 第二张还有容量 → 换用第二张的 3.0 倍率算权重（500×3=1500），填进第二张。
+        record_traffic(&fixture.state, "server-1", &report(2, &email, 500, 0))
+            .await
+            .unwrap();
+        let first_after = repo::user_packages::find_view_by_id(&fixture.state.db.pool, &first.id)
+            .await
+            .unwrap()
+            .unwrap();
+        let second_after = repo::user_packages::find_view_by_id(&fixture.state.db.pool, &second.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(first_after.used_bytes, 1000, "第一张已满，不再加");
+        assert_eq!(second_after.used_bytes, 1500, "第二轮按第二张倍率计费");
+        assert_eq!(
+            used_bytes(&fixture.state, &fixture.user_id).await,
+            2500,
+            "1000 + 1500"
+        );
+    }
+
+    #[tokio::test]
+    async fn unattributed_email_is_recorded_under_raw_subject() {
+        let fixture = fixture().await;
+        let day = time::business_date(time::now());
+
+        // 切不出 user：没有 @。
+        record_traffic(
+            &fixture.state,
+            "server-1",
+            &report(1, "not-an-email", 100, 50),
+        )
+        .await
+        .unwrap();
+        // 切得出但用户不存在。
+        record_traffic(
+            &fixture.state,
+            "server-1",
+            &report(2, "ghost@hk-1", 200, 100),
+        )
+        .await
+        .unwrap();
+
+        let first =
+            repo::traffic::find_daily(&fixture.state.db.pool, &day, "server-1", "not-an-email")
+                .await
+                .unwrap()
+                .expect("原始的不可解析 email 也要记账");
+        assert_eq!(
+            (first.uplink, first.downlink, first.weighted),
+            (100, 50, 150)
+        );
+
+        let second =
+            repo::traffic::find_daily(&fixture.state.db.pool, &day, "server-1", "ghost@hk-1")
+                .await
+                .unwrap()
+                .expect("找不到用户时 subject 用原字符串");
+        assert_eq!(
+            (second.uplink, second.downlink, second.weighted),
+            (200, 100, 300)
+        );
+        // 不存在的用户不能被凭空创建，也没有用户用量可加。
+        assert!(
+            repo::users::find_by_username(&fixture.state.db.pool, "ghost")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(used_bytes(&fixture.state, &fixture.user_id).await, 0);
+    }
 }
