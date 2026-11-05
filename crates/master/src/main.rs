@@ -24,8 +24,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let db_url =
-        std::env::var("PIERWAVE_DB").unwrap_or_else(|_| "sqlite://data/pierwave.db?mode=rwc".into());
+    let db_url = std::env::var("PIERWAVE_DB")
+        .unwrap_or_else(|_| "sqlite://data/pierwave.db?mode=rwc".into());
     let addr: SocketAddr = std::env::var("PIERWAVE_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:8787".into())
         .parse()
