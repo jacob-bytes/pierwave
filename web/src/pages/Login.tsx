@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Loader2Icon, TerminalIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,11 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useLogin } from "@/lib/queries";
 import { errorText } from "@/lib/errors";
+import { safeNextPath } from "@/lib/auth";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const nextPath = safeNextPath(searchParams.get("next"));
   const login = useLogin();
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -22,7 +25,7 @@ export default function LoginPage() {
       { username: username.trim(), password },
       {
         onSuccess: () => {
-          navigate("/", { replace: true });
+          navigate(nextPath, { replace: true });
         },
         onError: (error) => {
           toast.error(errorText(error, "登录失败，请检查网络后重试"));

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import {
   Link,
   NavLink,
@@ -13,6 +13,7 @@ import {
   Loader2Icon,
   LogOutIcon,
   NetworkIcon,
+  PackageIcon,
   ServerIcon,
   SettingsIcon,
   TerminalIcon,
@@ -27,8 +28,7 @@ import {
 } from "@/components/ui/tooltip";
 import type { SessionUser } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { useLogout } from "@/lib/queries";
-import { APP_VERSION } from "@/lib/version";
+import { useHealth, useLogout } from "@/lib/queries";
 
 type NavItem = {
   to: string;
@@ -36,6 +36,7 @@ type NavItem = {
   icon: LucideIcon;
   end?: boolean;
   disabled?: boolean;
+  sub?: boolean;
 };
 
 const consoleNav: NavItem[] = [
@@ -43,16 +44,29 @@ const consoleNav: NavItem[] = [
   { to: "/servers", label: "服务器", icon: ServerIcon },
 ];
 
-const pendingNav: NavItem[] = [
+const managementNav: NavItem[] = [
+  { to: "/users", label: "用户", icon: UsersIcon },
+  { to: "/packages", label: "套餐", icon: PackageIcon, sub: true },
+];
+
+const systemNav: NavItem[] = [
   { to: "/nodes", label: "节点", icon: NetworkIcon, disabled: true },
-  { to: "/users", label: "用户", icon: UsersIcon, disabled: true },
   { to: "/settings", label: "设置", icon: SettingsIcon, disabled: true },
 ];
 
-const allNav = [...consoleNav, ...pendingNav];
+const allNav = [...consoleNav, ...managementNav, ...systemNav];
 
 function roleLabel(role: SessionUser["role"]) {
   return role === "admin" ? "管理员" : "普通用户";
+}
+
+function PageLoading() {
+  return (
+    <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+      <Loader2Icon className="size-4 animate-spin" />
+      正在加载页面…
+    </div>
+  );
 }
 
 function NavEntry({ item }: { item: NavItem }) {
@@ -81,13 +95,14 @@ function NavEntry({ item }: { item: NavItem }) {
       className={({ isActive }) =>
         cn(
           "flex h-8 items-center gap-2 rounded-md px-2.5 text-[13px] transition-colors duration-150",
+          item.sub && "ml-3 h-7 pl-2 text-xs",
           isActive
             ? "bg-sidebar-accent font-medium text-foreground"
             : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
         )
       }
     >
-      <Icon className="size-4" />
+      <Icon className={item.sub ? "size-3.5" : "size-4"} />
       {item.label}
     </NavLink>
   );
@@ -97,6 +112,8 @@ export default function AppShell({ user }: { user: SessionUser }) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const logout = useLogout();
+  const health = useHealth();
+  const version = health.data?.version ?? "dev";
 
   const current =
     allNav.find((item) =>
@@ -146,7 +163,16 @@ export default function AppShell({ user }: { user: SessionUser }) {
             管理
           </p>
           <div className="space-y-0.5">
-            {pendingNav.map((item) => (
+            {managementNav.map((item) => (
+              <NavEntry key={item.to} item={item} />
+            ))}
+          </div>
+
+          <p className="px-2.5 pt-5 pb-1.5 text-[11px] font-medium tracking-wider text-muted-foreground/50">
+            系统
+          </p>
+          <div className="space-y-0.5">
+            {systemNav.map((item) => (
               <NavEntry key={item.to} item={item} />
             ))}
           </div>
@@ -213,12 +239,14 @@ export default function AppShell({ user }: { user: SessionUser }) {
         </header>
 
         <main className="min-h-0 flex-1 overflow-y-auto p-6">
-          <Outlet />
+          <Suspense fallback={<PageLoading />}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
 
       <div className="pointer-events-none fixed right-4 bottom-3 z-20 font-mono text-[11px] text-muted-foreground/50">
-        v{APP_VERSION}
+        {version === "dev" ? "dev" : `v${version}`}
       </div>
     </div>
   );

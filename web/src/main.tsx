@@ -11,6 +11,7 @@ import App from "./App";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { isUnauthorized } from "@/lib/queries";
+import { loginUrlFor } from "@/lib/auth";
 import "./index.css";
 
 /**
@@ -19,8 +20,9 @@ import "./index.css";
  */
 function handleAuthError(error: unknown) {
   if (!isUnauthorized(error)) return;
-  if (window.location.pathname === "/login") return;
-  window.location.replace("/login");
+  const { pathname, search, hash } = window.location;
+  if (pathname === "/login") return;
+  window.location.replace(loginUrlFor(pathname, search, hash));
 }
 
 const queryClient = new QueryClient({

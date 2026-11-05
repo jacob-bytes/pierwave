@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { lazy, Suspense, type ReactNode } from "react";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import {
   LayoutDashboardIcon,
   Loader2Icon,
@@ -10,9 +10,12 @@ import AppShell from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { isUnauthorized, useMe } from "@/lib/queries";
+import { safeNextPath } from "@/lib/auth";
 import { errorText } from "@/lib/errors";
-import LoginPage from "@/pages/Login";
-import ServersPage from "@/pages/Servers";
+const LoginPage = lazy(() => import("@/pages/Login"));
+const ServersPage = lazy(() => import("@/pages/Servers"));
+const UsersPage = lazy(() => import("@/pages/Users"));
+const PackagesPage = lazy(() => import("@/pages/Packages"));
 
 function Centered({ children }: { children: ReactNode }) {
   return (
@@ -20,6 +23,25 @@ function Centered({ children }: { children: ReactNode }) {
       {children}
     </div>
   );
+}
+
+function RouteFallback({ label }: { label: string }) {
+  return (
+    <Centered>
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2Icon className="size-4 animate-spin" />
+        {label}
+      </div>
+    </Centered>
+  );
+}
+
+function LoginRedirect() {
+  const location = useLocation();
+  const next = safeNextPath(
+    new URLSearchParams(location.search).get("next"),
+  );
+  return <Navigate to={next} replace />;
 }
 
 function OverviewPlaceholder() {
@@ -63,10 +85,12 @@ export default function App() {
   if (me.isError) {
     if (isUnauthorized(me.error)) {
       return (
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
-        </Routes>
+        <Suspense fallback={<RouteFallback label="正在加载登录页…" />}>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </Routes>
+        </Suspense>
       );
     }
 
@@ -104,13 +128,17 @@ export default function App() {
   if (!user) return null;
 
   return (
-    <Routes>
-      <Route path="/login" element={<Navigate to="/" replace />} />
-      <Route element={<AppShell user={user} />}>
-        <Route index element={<OverviewPlaceholder />} />
-        <Route path="servers" element={<ServersPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Route>
-    </Routes>
+    <Suspense fallback={<RouteFallback label="正在加载页面…" />}>
+      <Routes>
+        <Route path="/login" element={<LoginRedirect />} />
+        <Route element={<AppShell user={user} />}>
+          <Route index element={<OverviewPlaceholder />} />
+          <Route path="servers" element={<ServersPage />} />
+          <Route path="users" element={<UsersPage />} />
+          <Route path="packages" element={<PackagesPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </Suspense>
   );
 }
