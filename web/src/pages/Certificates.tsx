@@ -1,0 +1,308 @@
+import { useState } from "react";
+import {
+  FileKeyIcon,
+  PlusIcon,
+  RefreshCwIcon,
+  Trash2Icon,
+  TriangleAlertIcon,
+} from "lucide-react";
+import { CertificateFormDialog } from "@/components/certificates/CertificateFormDialog";
+import { DeleteCertificateDialog } from "@/components/certificates/DeleteCertificateDialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import type { Certificate } from "@/lib/api";
+import { errorText } from "@/lib/errors";
+import { useCertificates } from "@/lib/queries";
+import { formatAbsoluteTime, formatDate } from "@/lib/time";
+import { cn } from "@/lib/utils";
+
+const COLUMN_COUNT = 5;
+
+function LoadingRows() {
+  return (
+    <>
+      {Array.from({ length: 4 }).map((_, index) => (
+        <TableRow key={index} className="hover:bg-transparent">
+          <TableCell className="px-4 py-3">
+            <Skeleton className="h-3.5 w-32" />
+          </TableCell>
+          <TableCell className="px-4 py-3">
+            <Skeleton className="h-3.5 w-48" />
+          </TableCell>
+          <TableCell className="px-4 py-3">
+            <Skeleton className="h-3.5 w-20" />
+          </TableCell>
+          <TableCell className="px-4 py-3">
+            <Skeleton className="h-3.5 w-12" />
+          </TableCell>
+          <TableCell className="px-4 py-3">
+            <Skeleton className="size-7 rounded-md" />
+          </TableCell>
+        </TableRow>
+      ))}
+    </>
+  );
+}
+
+function EmptyRow({ onUpload }: { onUpload: () => void }) {
+  return (
+    <TableRow className="hover:bg-transparent">
+      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
+        <div className="mx-auto flex max-w-sm flex-col items-center gap-3 text-center">
+          <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
+            <FileKeyIcon className="size-5" />
+          </div>
+          <div>
+            <p className="text-sm font-medium">还没有证书</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              TLS 节点必须绑定证书；上传第一张证书后即可在节点表单里选用。
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={onUpload}>
+            <PlusIcon className="size-3.5" />
+            上传第一张证书
+          </Button>
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function ErrorRow({
+  message,
+  onRetry,
+  retrying,
+}: {
+  message: string;
+  onRetry: () => void;
+  retrying: boolean;
+}) {
+  return (
+    <TableRow className="hover:bg-transparent">
+      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
+        <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
+          <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
+            <TriangleAlertIcon className="size-5" />
+          </div>
+          <div>
+            <p className="text-sm font-medium">证书列表加载失败</p>
+            <p className="mt-1 text-xs text-muted-foreground">{message}</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={onRetry} disabled={retrying}>
+            <RefreshCwIcon
+              className={cn("size-3.5", retrying && "animate-spin")}
+            />
+            重试
+          </Button>
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+}
+
+/** 剩余天数：<= 30 天走 warning，已过期走 destructive，文案固定为「已过期」。 */
+function DaysLeft({ days }: { days: number }) {
+  if (days < 0) {
+    return (
+      <span
+        className="text-xs font-medium text-destructive"
+        title={`已过期 ${Math.abs(days)} 天`}
+      >
+        已过期
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={cn(
+        "font-mono text-xs tabular-nums",
+        days <= 30 ? "text-warning" : "text-muted-foreground",
+      )}
+    >
+      {days} 天
+    </span>
+  );
+}
+
+function DomainsCell({ domains }: { domains: string[] }) {
+  if (domains.length === 0) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+
+  const label = domains.join(", ");
+  return (
+    <span
+      className="block max-w-[260px] truncate text-xs text-muted-foreground"
+      title={label}
+    >
+      {label}
+    </span>
+  );
+}
+
+export default function CertificatesPage() {
+  const certificates = useCertificates();
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Certificate | null>(null);
+
+  const items = certificates.data ?? [];
+  const showError = certificates.isError && !certificates.data;
+  const errorMessage = errorText(
+    certificates.error,
+    "加载证书列表失败，请检查网络后重试",
+  );
+
+  return (
+    <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">证书</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            管理 TLS 节点使用的证书；上传后可在节点表单里绑定。
+          </p>
+        </div>
+        <Button onClick={() => setUploadOpen(true)}>
+          <PlusIcon className="size-4" />
+          上传证书
+        </Button>
+      </div>
+
+      <Card className="gap-0 overflow-hidden">
+        <CardHeader className="border-b border-border">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="flex items-center gap-2 text-sm font-medium">
+              证书列表
+              {certificates.data && !certificates.isError ? (
+                <Badge
+                  variant="secondary"
+                  className="font-mono text-[11px] font-normal text-muted-foreground"
+                >
+                  {items.length}
+                </Badge>
+              ) : null}
+            </CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void certificates.refetch()}
+              disabled={certificates.isFetching}
+            >
+              <RefreshCwIcon
+                className={cn(
+                  "size-3.5",
+                  certificates.isFetching && "animate-spin",
+                )}
+              />
+              刷新
+            </Button>
+          </div>
+          <CardDescription className="text-xs">
+            证书与私钥只在上传时提交，列表不回显私钥；30 天内到期的会在概览里告警。
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent className="p-0">
+          <Table className="min-w-[820px]" aria-busy={certificates.isPending}>
+            <TableCaption className="sr-only">证书列表</TableCaption>
+            <TableHeader className="bg-muted/30">
+              <TableRow>
+                {["名称", "域名", "到期日", "剩余天数", "操作"].map((label) => (
+                  <TableHead
+                    key={label}
+                    className="h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground"
+                  >
+                    {label}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {certificates.isPending ? (
+                <LoadingRows />
+              ) : showError ? (
+                <ErrorRow
+                  message={errorMessage}
+                  retrying={certificates.isFetching}
+                  onRetry={() => void certificates.refetch()}
+                />
+              ) : items.length === 0 ? (
+                <EmptyRow onUpload={() => setUploadOpen(true)} />
+              ) : (
+                items.map((certificate) => (
+                  <TableRow key={certificate.id}>
+                    <TableCell className="px-4 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <FileKeyIcon className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="font-medium">{certificate.name}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="px-4 py-2.5">
+                      <DomainsCell domains={certificate.domains} />
+                    </TableCell>
+                    <TableCell className="px-4 py-2.5 text-xs text-muted-foreground">
+                      <span title={formatAbsoluteTime(certificate.not_after)}>
+                        {formatDate(certificate.not_after)}
+                      </span>
+                    </TableCell>
+                    <TableCell className="px-4 py-2.5">
+                      <DaysLeft days={certificate.days_left} />
+                    </TableCell>
+                    <TableCell className="px-4 py-2.5">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        title="删除"
+                        aria-label={`删除证书 ${certificate.name}`}
+                        onClick={() => setDeleteTarget(certificate)}
+                      >
+                        <Trash2Icon className="size-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {uploadOpen ? (
+        <CertificateFormDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setUploadOpen(false);
+          }}
+        />
+      ) : null}
+
+      {deleteTarget ? (
+        <DeleteCertificateDialog
+          key={deleteTarget.id}
+          open
+          certificate={deleteTarget}
+          onOpenChange={(open) => {
+            if (!open) setDeleteTarget(null);
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}

@@ -120,6 +120,8 @@ export const nodeFormSchema = z
     protocol: z.enum(NODE_PROTOCOLS),
     transport: z.enum(NODE_TRANSPORTS),
     security: z.enum(NODE_SECURITIES),
+    /** 只有 `security = "tls"` 时才有意义；其它安全层提交时必须省略。 */
+    cert_id: z.string(),
     port: z.string().refine((value) => {
       const trimmed = value.trim();
       if (!/^\d+$/.test(trimmed)) return false;
@@ -138,6 +140,43 @@ export const nodeFormSchema = z
         message: "当前协议不支持这个传输方式与安全层的组合",
       });
     }
+    if (values.security === "tls" && !values.cert_id.trim()) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["cert_id"],
+        message: "TLS 节点必须绑定证书",
+      });
+    }
   });
 
 export type NodeFormValues = z.infer<typeof nodeFormSchema>;
+
+/**
+ * 证书上传的前端基础校验：只看 PEM 头，真正的解析（含私钥匹配）以后端为准。
+ * 后端 400 的中文错误会原样透出到表单。
+ */
+export const certificateFormSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, "请输入证书名称")
+    .max(64, "证书名称最多 64 个字符"),
+  cert_pem: z
+    .string()
+    .trim()
+    .min(1, "请粘贴证书 PEM")
+    .refine(
+      (value) => value.includes("-----BEGIN CERTIFICATE-----"),
+      "证书 PEM 里找不到 -----BEGIN CERTIFICATE-----",
+    ),
+  key_pem: z
+    .string()
+    .trim()
+    .min(1, "请粘贴私钥 PEM")
+    .refine(
+      (value) => value.includes("-----BEGIN"),
+      "私钥 PEM 里找不到 -----BEGIN",
+    ),
+});
+
+export type CertificateFormValues = z.infer<typeof certificateFormSchema>;

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { Link } from "react-router-dom";
 import { Loader2Icon, RotateCcwIcon } from "lucide-react";
 import { toast } from "sonner";
 import { FormField, FormRootError } from "@/components/FormField";
@@ -46,7 +47,11 @@ import {
   type NodeSecurity,
   type NodeTransport,
 } from "@/lib/protocols";
-import { useCreateNode, useUpdateNode } from "@/lib/queries";
+import {
+  useCertificates,
+  useCreateNode,
+  useUpdateNode,
+} from "@/lib/queries";
 import { nodeFormSchema, type NodeFormValues } from "@/lib/schemas";
 
 interface NodeFormDialogProps {
@@ -89,6 +94,7 @@ export function NodeFormDialog({
   const createNode = useCreateNode(serverId);
   const updateNode = useUpdateNode(serverId);
   const pending = isEdit ? updateNode.isPending : createNode.isPending;
+  const certificates = useCertificates();
 
   const initial = initialCombo(node);
   const form = useForm<NodeFormValues>({
@@ -98,6 +104,7 @@ export function NodeFormDialog({
       protocol: initial.protocol,
       transport: initial.transport,
       security: initial.security,
+      cert_id: node?.cert_id ?? "",
       port: node ? String(node.port) : "443",
       enabled: node ? Boolean(node.enabled) : true,
     },
@@ -124,9 +131,24 @@ export function NodeFormDialog({
   const transport = form.watch("transport");
   const security = form.watch("security");
 
+  const certItems = certificates.data ?? [];
+  const noCertificates = certificates.isSuccess && certItems.length === 0;
+  // 只有「曾经选过 TLS，又改成别的安全层」时才提示，避免一打开表单就吓人。
+  const [securityChangeNotice, setSecurityChangeNotice] = useState(false);
+
   const transportOptions = allowedTransports(protocol);
   const securityOptions = allowedSecurities(protocol, transport);
   const comboValid = isCombinationAllowed(protocol, transport, security);
+
+  /** 安全层离开 TLS 时清空证书绑定；TLS 与非 TLS 之间切换都要提示重新应用。 */
+  function noteSecurityChange(previous: NodeSecurity, next: NodeSecurity) {
+    if (next === "tls") {
+      setSecurityChangeNotice(false);
+      return;
+    }
+    form.setValue("cert_id", "", { shouldValidate: true });
+    if (previous === "tls") setSecurityChangeNotice(true);
+  }
 
   function regenerate(
     nextProtocol: NodeProtocol,
@@ -147,6 +169,7 @@ export function NodeFormDialog({
     form.setValue("protocol", next, { shouldValidate: true });
     form.setValue("transport", nextTransport, { shouldValidate: true });
     form.setValue("security", nextSecurity, { shouldValidate: true });
+    noteSecurityChange(security, nextSecurity);
     regenerate(next, nextTransport, nextSecurity);
   }
 
@@ -157,6 +180,7 @@ export function NodeFormDialog({
       : (transports[0] ?? "tcp");
     form.setValue("security", next, { shouldValidate: true });
     form.setValue("transport", nextTransport, { shouldValidate: true });
+    noteSecurityChange(security, next);
     regenerate(protocol, nextTransport, next);
   }
 
@@ -167,6 +191,7 @@ export function NodeFormDialog({
       : (securities[0] ?? "none");
     form.setValue("transport", next, { shouldValidate: true });
     form.setValue("security", nextSecurity, { shouldValidate: true });
+    noteSecurityChange(security, nextSecurity);
     regenerate(protocol, next, nextSecurity);
   }
 
@@ -186,6 +211,9 @@ export function NodeFormDialog({
     }
 
     const port = Number(values.port);
+    // 只有 TLS 节点才带 cert_id；其余安全层必须完全省略，否则后端会 400。
+    const certId = values.security === "tls" ? values.cert_id.trim() : "";
+    const certBinding = certId ? { cert_id: certId } : {};
 
     try {
       if (isEdit && node) {
@@ -196,6 +224,7 @@ export function NodeFormDialog({
             port,
             enabled: values.enabled,
             config: check.value,
+            ...certBinding,
           },
         });
         toast.success("节点已更新");
@@ -208,6 +237,7 @@ export function NodeFormDialog({
           port,
           config: check.value,
           enabled: values.enabled,
+          ...certBinding,
         });
         toast.success(`节点「${created.name}」已创建`);
       }
@@ -356,7 +386,11 @@ export function NodeFormDialog({
                   label="安全层"
                   htmlFor="node-security"
                   error={form.formState.errors.security?.message}
-                  hint={isEdit ? "创建后只读" : undefined}
+                  hint={
+                    isEdit
+                      ? "创建后只读；改安全层需要重新应用配置"
+                      : undefined
+                  }
                 >
                   <Controller
                     control={form.control}
@@ -394,6 +428,92 @@ export function NodeFormDialog({
               {!comboValid ? (
                 <p role="alert" className="text-xs text-destructive">
                   当前协议不支持这个组合，请调整传输方式或安全层。
+                </p>
+              ) : null}
+
+              {security === "tls" ? (
+                <FormField
+                  label="证书"
+                  htmlFor="node-cert"
+                  required
+                  error={form.formState.errors.cert_id?.message}
+                  hint={
+                    certificates.isError
+                      ? "证书列表加载失败，请确认主控可用后重试"
+                      : isEdit
+                        ? "更换证书后需要重新应用配置才会下发"
+                        : undefined
+                  }
+                >
+                  <div className="space-y-2">
+                    <Controller
+                      control={form.control}
+                      name="cert_id"
+                      render={({ field }) => (
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                          disabled={
+                            pending ||
+                            certificates.isPending ||
+                            certItems.length === 0
+                          }
+                        >
+                          <SelectTrigger
+                            id="node-cert"
+                            className="w-full"
+                            aria-invalid={Boolean(
+                              form.formState.errors.cert_id,
+                            )}
+                          >
+                            <SelectValue
+                              placeholder={
+                                certificates.isPending
+                                  ? "正在加载证书…"
+                                  : noCertificates
+                                    ? "还没有证书"
+                                    : "选择证书"
+                              }
+                            />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {certItems.map((cert) => (
+                              <SelectItem key={cert.id} value={cert.id}>
+                                {cert.name}
+                                {cert.days_left < 0
+                                  ? "（已过期）"
+                                  : cert.days_left <= 30
+                                    ? `（${cert.days_left} 天后到期）`
+                                    : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                    {noCertificates ? (
+                      <p className="text-xs text-muted-foreground">
+                        还没有证书，
+                        <Link
+                          to="/certificates"
+                          className="font-medium text-primary underline-offset-4 hover:underline"
+                        >
+                          去证书页上传
+                        </Link>
+                        后再回来绑定。
+                      </p>
+                    ) : null}
+                  </div>
+                </FormField>
+              ) : null}
+
+              {securityChangeNotice ? (
+                <p
+                  role="status"
+                  className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-warning"
+                >
+                  安全层已从 TLS 改成 {securityLabel(security)}，证书绑定已清除；
+                  改安全层需要重新应用配置。
                 </p>
               ) : null}
 

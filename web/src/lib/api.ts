@@ -63,6 +63,8 @@ export interface Node {
   config: Record<string, unknown>;
   /** 后端目前序列化为 0/1，统一在展示层用 Boolean() 归一。 */
   enabled: boolean | number;
+  /** 只有 `security = "tls"` 的节点才有值，其余为 null。 */
+  cert_id?: string | null;
   created_at: number;
   /** 后端暂时只回 created_at；保留字段以便主控补充更新时间后零改动接入。 */
   updated_at?: number;
@@ -76,6 +78,8 @@ export interface CreateNodeInput {
   port: number;
   config: Record<string, unknown>;
   enabled?: boolean;
+  /** TLS 节点必填；其它安全层必须省略。 */
+  cert_id?: string | null;
 }
 
 export interface UpdateNodeInput {
@@ -83,12 +87,40 @@ export interface UpdateNodeInput {
   port?: number;
   enabled?: boolean;
   config?: Record<string, unknown>;
+  /**
+   * 三态：省略 = 不改，null = 解绑，字符串 = 绑定。
+   * 但后端只接受「TLS 节点绑定 / 非 TLS 节点不携带」，解绑得先改安全层。
+   */
+  cert_id?: string | null;
 }
 
 export interface ApplyResult {
   config_version: number;
   /** 后端正在加；暂时没有时按空数组处理。 */
   warnings?: string[] | null;
+}
+
+/**
+ * 证书元数据，契约见 docs/CERTS.md。
+ *
+ * 私钥与证书正文永不出现在任何 GET 响应里，列表只回 `has_key`；
+ * `days_left` 由后端按 UTC 秒向下取整，可能为负（已过期）。
+ */
+export interface Certificate {
+  id: string;
+  name: string;
+  domains: string[];
+  not_before: number;
+  not_after: number;
+  days_left: number;
+  has_key: boolean;
+  created_at: number;
+}
+
+export interface CreateCertificateInput {
+  name: string;
+  cert_pem: string;
+  key_pem: string;
 }
 
 /** P1：用户与套餐契约，见 docs/PLAN.md「P1：用户与套餐（本轮契约）」。 */
@@ -191,6 +223,8 @@ export interface OverviewStats {
     expired_instances: number;
     exhausted_instances: number;
     offline_servers: number;
+    /** 30 天内到期（含已过期）的证书数量。 */
+    expiring_certs: number;
   };
 }
 
@@ -286,6 +320,19 @@ export const api = {
       `/api/v1/servers/${encodeURIComponent(serverId)}/apply`,
       { method: "POST" },
     ),
+
+  certificates: {
+    list: () => request<{ items: Certificate[] }>("/api/v1/certificates"),
+    create: (input: CreateCertificateInput) =>
+      request<{ certificate: Certificate }>("/api/v1/certificates", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    remove: (id: string) =>
+      request<{ ok: true }>(`/api/v1/certificates/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
+  },
 
   users: (q: string) => {
     const params = new URLSearchParams({ limit: "200" });

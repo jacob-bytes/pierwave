@@ -9,6 +9,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import {
   ChevronRightIcon,
+  FileKeyIcon,
   LayoutDashboardIcon,
   Link2Icon,
   Loader2Icon,
@@ -73,6 +74,7 @@ const systemNav: NavItem[] = [
       pathname === "/nodes" ||
       /^\/servers\/[^/]+\/nodes(?:\/|$)/.test(pathname),
   },
+  { to: "/certificates", label: "证书", icon: FileKeyIcon },
   { to: "/settings", label: "设置", icon: SettingsIcon, disabled: true },
 ];
 

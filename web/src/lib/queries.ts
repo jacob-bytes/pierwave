@@ -9,6 +9,8 @@ import {
   ApiError,
   type ApplyResult,
   type BindUserPackageInput,
+  type Certificate,
+  type CreateCertificateInput,
   type CreateNodeInput,
   type CreatePackageInput,
   type CreateServerResponse,
@@ -39,6 +41,7 @@ export const queryKeys = {
   statsTraffic: (days: number) => ["stats", "traffic", days] as const,
   servers: ["servers"] as const,
   nodes: (serverId: string) => ["nodes", serverId] as const,
+  certificates: ["certificates"] as const,
   users: (q: string) => ["users", { q }] as const,
   packages: ["packages"] as const,
   userPackages: (userId: string) => ["user", userId, "packages"] as const,
@@ -151,6 +154,10 @@ export function useCreateNode(serverId: string) {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.nodes(serverId),
       });
+      // 证书的引用数变了（删除被引用的证书会被后端拒绝），保持列表新鲜。
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.certificates,
+      });
     },
   });
 }
@@ -185,6 +192,9 @@ export function useUpdateNode(serverId: string) {
                   ...(input.config !== undefined
                     ? { config: input.config }
                     : {}),
+                  ...(input.cert_id !== undefined
+                    ? { cert_id: input.cert_id }
+                    : {}),
                 }
               : node,
           ),
@@ -205,6 +215,10 @@ export function useUpdateNode(serverId: string) {
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey });
+      // 增删节点会改变证书的引用关系。
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.certificates,
+      });
     },
   });
 }
@@ -217,6 +231,9 @@ export function useDeleteNode(serverId: string) {
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.nodes(serverId),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.certificates,
       });
     },
   });
@@ -241,6 +258,42 @@ export function useApplyServer(serverId: string) {
         ),
       );
     },
+  });
+}
+
+/** 证书元数据列表；私钥不会下发到前端。 */
+export function useCertificates() {
+  return useQuery<Certificate[]>({
+    queryKey: queryKeys.certificates,
+    queryFn: async () => (await api.certificates.list()).items,
+    staleTime: 30_000,
+  });
+}
+
+/** 证书增删都会影响概览的 `expiring_certs` 告警。 */
+function invalidateCertificateViews(
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.certificates });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.statsOverview });
+}
+
+export function useCreateCertificate() {
+  const queryClient = useQueryClient();
+
+  return useMutation<Certificate, Error, CreateCertificateInput>({
+    mutationFn: async (input) =>
+      (await api.certificates.create(input)).certificate,
+    onSuccess: () => invalidateCertificateViews(queryClient),
+  });
+}
+
+export function useDeleteCertificate() {
+  const queryClient = useQueryClient();
+
+  return useMutation<{ ok: true }, Error, string>({
+    mutationFn: (id) => api.certificates.remove(id),
+    onSuccess: () => invalidateCertificateViews(queryClient),
   });
 }
 

@@ -6,6 +6,7 @@ import {
   CheckCircle2Icon,
   ChevronRightIcon,
   ClockIcon,
+  FileKeyIcon,
   GaugeIcon,
   PackageIcon,
   PlusIcon,
@@ -266,10 +267,12 @@ export default function OverviewPage() {
   const stats = overview.data;
   // 新装系统最先要做的动作是加服务器；即使已经有管理员账号也走这个空态。
   const isNewInstall = stats !== undefined && stats.servers.total === 0;
+  const expiringCerts = stats?.alerts.expiring_certs ?? 0;
   const alertTotal = stats
     ? stats.alerts.expired_instances +
       stats.alerts.exhausted_instances +
-      stats.alerts.offline_servers
+      stats.alerts.offline_servers +
+      expiringCerts
     : 0;
 
   const trafficTotal =
@@ -461,6 +464,16 @@ export default function OverviewPage() {
                   hint="去服务器页检查 Agent"
                   tone="destructive"
                 />
+                {expiringCerts > 0 ? (
+                  <AlertRow
+                    to="/certificates"
+                    icon={FileKeyIcon}
+                    label="即将到期的证书"
+                    count={expiringCerts}
+                    hint={`${expiringCerts} 张证书 30 天内到期，点击去更换`}
+                    tone="warning"
+                  />
+                ) : null}
               </CardContent>
             </Card>
           </section>
