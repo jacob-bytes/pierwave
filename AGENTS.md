@@ -43,7 +43,7 @@ CARGO_HOME=$PWD/.cargo-home cargo test -p mmrust-domain
 
 ## 前端
 
-- 组件层是 **shadcn/ui（new-york）**：组件放 `web/src/components/ui/`，用 `npx shadcn@latest add <name>` 拉取，不自己重写。
+- 组件层是 **shadcn/ui（radix-nova 预设）**：组件放 `web/src/components/ui/`，用 `npx shadcn@latest add <name>` 拉取，不自己重写。
 - 视觉与动效规范见 `docs/DESIGN.md`（深色 zinc 基底 + 单一强调色，动效 150–220ms）。
 - 列表页四态（loading / empty / error / 正常）是硬要求，不是可选优化。
 - 不写死颜色，全部走 `--background` 这类 CSS 变量。
