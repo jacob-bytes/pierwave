@@ -6,7 +6,8 @@
 **直接敲 `cargo` / `npm` 会失败**（Operation not permitted）。一律用：
 
 ```bash
-make check        # fmt + clippy(-D warnings) + test + web build，提交前必跑
+make check        # 格式校验 + clippy(-D warnings) + test + web build，提交前必跑
+make fmt          # 自动格式化（check 只校验，不改文件）
 make test         # 只跑测试
 make clippy
 make web-build

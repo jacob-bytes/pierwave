@@ -2,12 +2,15 @@
 export CARGO_HOME := $(CURDIR)/.cargo-home
 export NPM_CONFIG_CACHE := $(CURDIR)/.npm-cache
 
-.PHONY: check fmt clippy test build run web-install web-build web-dev dev e2e clean
+.PHONY: check fmt fmt-check clippy test build run web-install web-build web-dev dev e2e clean
 
-check: fmt clippy test web-build  ## 提交前跑这个
+check: fmt-check clippy test web-build  ## 提交前跑这个（只校验格式，不改文件）
 
 fmt:
 	cargo fmt --all
+
+fmt-check:
+	cargo fmt --all -- --check
 
 clippy:
 	cargo clippy --workspace --all-targets --quiet -- -D warnings
