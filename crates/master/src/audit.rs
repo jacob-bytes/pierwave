@@ -4,8 +4,8 @@
 //! 所以 [`record`] 永远返回 `()`，把 `repo::audit::record` 的错误吞在这里；
 //! 任何调用点都不需要（也不应该）用 `?` 传播审计失败。
 
-use mmrust_domain::models::User;
-use mmrust_domain::repo;
+use pierwave_domain::models::User;
+use pierwave_domain::repo;
 use serde_json::{json, Value};
 
 use crate::state::AppState;
@@ -59,7 +59,7 @@ pub fn diff(fields: Vec<(&str, Value, Value)>) -> Value {
 mod tests {
     use super::*;
 
-    use mmrust_domain::Db;
+    use pierwave_domain::Db;
 
     fn admin() -> User {
         User {

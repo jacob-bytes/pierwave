@@ -7,10 +7,10 @@ use std::collections::{BTreeMap, HashSet};
 
 use serde_json::Value;
 
-use mmrust_domain::certificate;
-use mmrust_domain::models::Server;
-use mmrust_domain::{credentials, repo, time, xray};
-use mmrust_proto::ManagedFile;
+use pierwave_domain::certificate;
+use pierwave_domain::models::Server;
+use pierwave_domain::{credentials, repo, time, xray};
+use pierwave_proto::ManagedFile;
 
 use crate::error::AppResult;
 use crate::state::AppState;
@@ -70,7 +70,7 @@ pub async fn render(state: &AppState, server: &Server) -> AppResult<DesiredConfi
     };
     let certificates = repo::certificates::find_by_ids(&state.db.pool, &cert_ids).await?;
 
-    let by_id: BTreeMap<&str, &mmrust_domain::models::Certificate> = certificates
+    let by_id: BTreeMap<&str, &pierwave_domain::models::Certificate> = certificates
         .iter()
         .map(|cert| (cert.id.as_str(), cert))
         .collect();
@@ -133,7 +133,7 @@ pub async fn publish(
 
     let delivered = state.hub.publish(
         &server.id,
-        mmrust_proto::MasterMessage::Desired(mmrust_proto::DesiredState {
+        pierwave_proto::MasterMessage::Desired(pierwave_proto::DesiredState {
             version,
             xray: desired.xray,
             files: desired.files,

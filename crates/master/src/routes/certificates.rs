@@ -10,7 +10,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use mmrust_domain::{certificate, repo};
+use pierwave_domain::{certificate, repo};
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -126,9 +126,9 @@ mod tests {
     use serde_json::json;
     use tower::ServiceExt;
 
-    use mmrust_domain::models::CertificateView;
-    use mmrust_domain::Db;
-    use mmrust_proto::MasterMessage;
+    use pierwave_domain::models::CertificateView;
+    use pierwave_domain::Db;
+    use pierwave_proto::MasterMessage;
 
     // 一次性自签测试证书（CN=example.com），仅用于测试；不是任何真实环境的密钥。
     const TEST_CERT_PEM: &str = include_str!("../../../domain/tests/fixtures/test-cert.pem");

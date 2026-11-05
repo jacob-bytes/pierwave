@@ -1,4 +1,4 @@
-# mmrust 施工计划
+# pierwave 施工计划
 
 目标：用 Rust 重写一套「Xray 代理面板 + 节点拼车/订阅分发」系统。
 参考手册在 `miaomiaowux-docs/`（只读），方案取舍见对话记录。
@@ -27,7 +27,7 @@
 
 ### 已定的实现细节（后端 lane 落地的）
 
-- 节点在库里只存「入站片段」（`config_json`），完整配置由 `mmrust_domain::xray::build_config` 纯函数拼装，输出确定性。
+- 节点在库里只存「入站片段」（`config_json`），完整配置由 `pierwave_domain::xray::build_config` 纯函数拼装，输出确定性。
 - 节点 API 返回的字段是 `config`（JSON 对象），前端不需要二次 parse。
 - 主控用 `AgentHub`（tokio broadcast）按 server 广播期望态；`apply` 时 `config_version` 原子 +1。
 - **重连补发 + 版本幂等**：Agent 连上就补发当前期望态；Agent 侧只有 `incoming > applied` 才真正重启 xray，
@@ -139,7 +139,7 @@ DELETE /api/v1/user-packages/:id                  -> {ok:true}
 { "config_version": 7, "warnings": ["节点 香港-01 被跳过：REALITY 私钥无法解析"] }
 ```
 
-节点是否可用的校验在 `mmrust_domain::xray::build_config_checked` 里；`config_version` 的语义不变
+节点是否可用的校验在 `pierwave_domain::xray::build_config_checked` 里；`config_version` 的语义不变
 （每次 apply 仍原子 +1），跳过的节点只是不进入本次下发的 `inbounds`。
 
 ### 时间语义
@@ -299,4 +299,4 @@ POST  /api/v1/me/password { old_password, new_password } -> { ok: true }
 - 全部走已有的 `settings` 表（key/value TEXT），缺失时回落到默认值。
 - `PATCH` 只接受白名单键，未知键 400；数值做范围校验（如 `login_max_attempts` 1–20）。
 - 改密码后**吊销该用户的其它会话**（保留当前这条），避免旧设备一直在线。
-- 断流总开关仍由环境变量 `MMRUST_ENFORCE` 控制，本轮不做运行时可切（会牵扯 Enforcer 生命周期）。
+- 断流总开关仍由环境变量 `PIERWAVE_ENFORCE` 控制，本轮不做运行时可切（会牵扯 Enforcer 生命周期）。

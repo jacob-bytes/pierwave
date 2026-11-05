@@ -2,12 +2,12 @@ use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use axum_extra::extract::cookie::CookieJar;
 
-use mmrust_domain::models::User;
+use pierwave_domain::models::User;
 
 use crate::error::AppError;
 use crate::state::AppState;
 
-pub const SESSION_COOKIE: &str = "mmrust_session";
+pub const SESSION_COOKIE: &str = "pierwave_session";
 
 /// 从 Cookie 解析当前登录用户；未登录直接 401。
 pub struct CurrentUser(pub User);
@@ -34,7 +34,7 @@ impl FromRequestParts<AppState> for CurrentUser {
             .get(SESSION_COOKIE)
             .map(|c| c.value().to_string())
             .ok_or(AppError::Unauthorized)?;
-        let user = mmrust_domain::repo::sessions::user_for_token(&state.db.pool, &token)
+        let user = pierwave_domain::repo::sessions::user_for_token(&state.db.pool, &token)
             .await?
             .ok_or(AppError::Unauthorized)?;
         Ok(CurrentUser(user))

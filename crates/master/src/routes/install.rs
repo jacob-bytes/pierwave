@@ -11,7 +11,7 @@ use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 
-use mmrust_domain::repo;
+use pierwave_domain::repo;
 
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -69,7 +69,7 @@ pub async fn script(
 fn render_script(base: &str, token: &str) -> String {
     format!(
         r#"#!/bin/sh
-# mmrust-agent 一键安装（由主控生成，token 只对一台服务器有效）
+# pierwave-agent 一键安装（由主控生成，token 只对一台服务器有效）
 set -eu
 
 TOKEN='{token}'
@@ -87,31 +87,31 @@ case "$(uname -m)" in
   *) echo "不支持的架构：$(uname -m)" >&2; exit 1 ;;
 esac
 
-echo "==> 下载 mmrust-agent ($TARGET)"
-curl -fsSL "$DOWNLOAD/mmrust-agent-$TARGET" -o /usr/local/bin/mmrust-agent
-chmod 0755 /usr/local/bin/mmrust-agent
+echo "==> 下载 pierwave-agent ($TARGET)"
+curl -fsSL "$DOWNLOAD/pierwave-agent-$TARGET" -o /usr/local/bin/pierwave-agent
+chmod 0755 /usr/local/bin/pierwave-agent
 
 echo "==> 写入配置"
-install -d -m 0755 /etc/mmrust-agent
-cat > /etc/mmrust-agent/config.toml <<CONF
+install -d -m 0755 /etc/pierwave-agent
+cat > /etc/pierwave-agent/config.toml <<CONF
 mode = "remote"
 master_url = "$MASTER_URL"
 token = "$TOKEN"
 connection_mode = "websocket"
 xray_mode = "external"
 CONF
-chmod 0600 /etc/mmrust-agent/config.toml
+chmod 0600 /etc/pierwave-agent/config.toml
 
 echo "==> 安装 systemd 单元"
-cat > /etc/systemd/system/mmrust-agent.service <<'UNIT'
+cat > /etc/systemd/system/pierwave-agent.service <<'UNIT'
 [Unit]
-Description=mmrust Agent
+Description=pierwave Agent
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/mmrust-agent -c /etc/mmrust-agent/config.toml
+ExecStart=/usr/local/bin/pierwave-agent -c /etc/pierwave-agent/config.toml
 Restart=always
 RestartSec=5
 
@@ -120,15 +120,15 @@ WantedBy=multi-user.target
 UNIT
 
 systemctl daemon-reload
-systemctl enable --now mmrust-agent
-echo "==> 完成，查看状态：systemctl status mmrust-agent"
+systemctl enable --now pierwave-agent
+echo "==> 完成，查看状态：systemctl status pierwave-agent"
 "#,
         token = token,
         base = base.trim_end_matches('/'),
     )
 }
 
-/// 从 `MMRUST_AGENT_DIST` 目录下发预编译的 agent 二进制。
+/// 从 `PIERWAVE_AGENT_DIST` 目录下发预编译的 agent 二进制。
 pub async fn download(
     State(_state): State<AppState>,
     Path(file): Path<String>,
@@ -136,7 +136,7 @@ pub async fn download(
     if file.contains('/') || file.contains("..") {
         return Err(AppError::BadRequest("非法的文件名".into()));
     }
-    let Ok(dir) = std::env::var("MMRUST_AGENT_DIST") else {
+    let Ok(dir) = std::env::var("PIERWAVE_AGENT_DIST") else {
         return Err(AppError::NotFound);
     };
     let path: PathBuf = PathBuf::from(dir).join(&file);
@@ -160,7 +160,7 @@ mod tests {
     use axum::Router;
     use tower::ServiceExt;
 
-    use mmrust_domain::Db;
+    use pierwave_domain::Db;
 
     async fn setup() -> (Router, String) {
         let db = Db::connect("sqlite::memory:").await.unwrap();
@@ -200,7 +200,7 @@ mod tests {
         assert!(body.contains("TOKEN='"), "脚本里应有 token");
         assert!(body.contains(&token));
         assert!(body.contains("MASTER_URL='http://panel.example.com'"));
-        assert!(body.contains("systemctl enable --now mmrust-agent"));
+        assert!(body.contains("systemctl enable --now pierwave-agent"));
     }
 
     #[tokio::test]
@@ -234,7 +234,7 @@ mod tests {
         let (app, _) = setup().await;
         let (status, _) = get(
             &app,
-            "/api/agent/download/mmrust-agent-x86_64",
+            "/api/agent/download/pierwave-agent-x86_64",
             "p.example.com",
         )
         .await;

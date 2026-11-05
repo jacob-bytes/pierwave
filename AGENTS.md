@@ -10,13 +10,13 @@ make check        # fmt + clippy(-D warnings) + test + web build，提交前必�
 make test         # 只跑测试
 make clippy
 make web-build
-make run          # 起主控（默认 127.0.0.1:8787，DB=data/mmrust.db）
+make run          # 起主控（默认 127.0.0.1:8787，DB=data/pierwave.db）
 ```
 
 需要单独跑 cargo 时显式带上缓存目录：
 
 ```bash
-CARGO_HOME=$PWD/.cargo-home cargo test -p mmrust-domain
+CARGO_HOME=$PWD/.cargo-home cargo test -p pierwave-domain
 ```
 
 ## 分层与文件归属

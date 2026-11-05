@@ -224,7 +224,7 @@ function SettingsForm({ initial }: { initial: Settings }) {
             <Input
               id="settings-panel-name"
               autoComplete="off"
-              placeholder="mmrust"
+              placeholder="pierwave"
               disabled={updateSettings.isPending}
               aria-invalid={Boolean(form.formState.errors.panel_name)}
               {...form.register("panel_name")}

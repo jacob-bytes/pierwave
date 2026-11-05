@@ -1,4 +1,4 @@
-# mmrust
+# PierWave
 
 用 Rust 重写的 Xray 代理面板：主控（面板 + 订阅分发 + 计费）与 Agent（服务器侧收敛器）分离，
 Agent 反向连入主控，服务器不需要开放任何入站端口。
@@ -23,7 +23,7 @@ make web-build       # 产出 web/dist，master 会直接托管
 make run             # 起主控 http://127.0.0.1:8787
 ```
 
-首次启动会创建管理员 `admin`，随机密码打印在日志里（或启动前设 `MMRUST_ADMIN_PASSWORD`）。
+首次启动会创建管理员 `admin`，随机密码打印在日志里（或启动前设 `PIERWAVE_ADMIN_PASSWORD`）。
 
 单独跑前端热更新：
 
@@ -35,15 +35,15 @@ make web-dev         # http://127.0.0.1:5173 ，/api 已代理到 8787
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `MMRUST_ADDR` | `127.0.0.1:8787` | 监听地址 |
-| `MMRUST_DB` | `sqlite://data/mmrust.db?mode=rwc` | SQLite 连接串 |
-| `MMRUST_WEB_DIR` | `web/dist` | SPA 产物目录 |
-| `MMRUST_ADMIN_PASSWORD` | 随机 | 初始管理员密码（仅首次建库生效） |
+| `PIERWAVE_ADDR` | `127.0.0.1:8787` | 监听地址 |
+| `PIERWAVE_DB` | `sqlite://data/pierwave.db?mode=rwc` | SQLite 连接串 |
+| `PIERWAVE_WEB_DIR` | `web/dist` | SPA 产物目录 |
+| `PIERWAVE_ADMIN_PASSWORD` | 随机 | 初始管理员密码（仅首次建库生效） |
 
 ## Agent
 
 ```toml
-# /etc/mmrust-agent/config.toml
+# /etc/pierwave-agent/config.toml
 mode = "remote"
 master_url = "https://panel.example.com"
 token = "<面板里生成的一次性 token>"
@@ -52,7 +52,7 @@ xray_mode = "external"
 ```
 
 ```bash
-./mmrust-agent -c /etc/mmrust-agent/config.toml
+./pierwave-agent -c /etc/pierwave-agent/config.toml
 ```
 
 ## 开发

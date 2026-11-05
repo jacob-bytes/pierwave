@@ -73,12 +73,12 @@ export function useMe() {
 
 /**
  * 面板名称：登录页与侧边栏都要显示，但未登录时拿不到 /settings，
- * 所以走公开的 /health。拿不到时回落到 "mmrust"，不要让标题空着。
+ * 所以走公开的 /health。拿不到时回落到 "pierwave"，不要让标题空着。
  */
 export function usePanelName(): string {
   const health = useHealth();
   const name = health.data?.panel_name?.trim();
-  return name && name.length > 0 ? name : "mmrust";
+  return name && name.length > 0 ? name : "pierwave";
 }
 
 export function useHealth() {

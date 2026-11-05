@@ -7,7 +7,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use mmrust_domain::repo;
+use pierwave_domain::repo;
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -54,9 +54,9 @@ mod tests {
     use axum::Router;
     use tower::ServiceExt;
 
-    use mmrust_domain::repo::nodes::{self, NewNode};
-    use mmrust_domain::repo::users::{self, NewUser};
-    use mmrust_domain::Db;
+    use pierwave_domain::repo::nodes::{self, NewNode};
+    use pierwave_domain::repo::users::{self, NewUser};
+    use pierwave_domain::Db;
 
     async fn setup() -> (Router, AppState, String) {
         let db = Db::connect("sqlite::memory:").await.unwrap();

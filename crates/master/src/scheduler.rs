@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use mmrust_domain::{repo, reset, time};
+use pierwave_domain::{repo, reset, time};
 
 use crate::enforcement;
 use crate::state::AppState;
@@ -89,11 +89,11 @@ pub fn spawn_daily_reset(state: AppState) -> tokio::task::JoinHandle<()> {
     })
 }
 
-/// 启动断流过期对账；`MMRUST_ENFORCE=0` 时直接退出。
+/// 启动断流过期对账；`PIERWAVE_ENFORCE=0` 时直接退出。
 pub fn spawn_enforcement_reconcile(state: AppState) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         if !state.enforcement.enabled() {
-            tracing::info!("MMRUST_ENFORCE=0：断流触发已关闭，对账任务不启动");
+            tracing::info!("PIERWAVE_ENFORCE=0：断流触发已关闭，对账任务不启动");
             return;
         }
         let mut ticker = tokio::time::interval(ENFORCEMENT_RECONCILE_INTERVAL);
@@ -115,7 +115,7 @@ pub fn spawn_enforcement_reconcile(state: AppState) -> tokio::task::JoinHandle<(
 mod tests {
     use super::*;
 
-    use mmrust_domain::Db;
+    use pierwave_domain::Db;
 
     async fn setup_with_expired_session(valid_session: bool) -> AppState {
         let db = Db::connect("sqlite::memory:").await.unwrap();

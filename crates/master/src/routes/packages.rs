@@ -5,8 +5,8 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use mmrust_domain::models::Patch;
-use mmrust_domain::repo;
+use pierwave_domain::models::Patch;
+use pierwave_domain::repo;
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -404,11 +404,11 @@ mod tests {
     use serde_json::json;
     use tower::ServiceExt;
 
-    use mmrust_domain::models::Node;
-    use mmrust_domain::repo::nodes::NewNode;
-    use mmrust_domain::repo::user_packages::{self, NewUserPackage};
-    use mmrust_domain::repo::users::{self, NewUser};
-    use mmrust_domain::Db;
+    use pierwave_domain::models::Node;
+    use pierwave_domain::repo::nodes::NewNode;
+    use pierwave_domain::repo::user_packages::{self, NewUserPackage};
+    use pierwave_domain::repo::users::{self, NewUser};
+    use pierwave_domain::Db;
 
     fn trojan_node(tag: &str, name: &str, port: i64) -> NewNode {
         NewNode {

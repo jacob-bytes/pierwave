@@ -6,7 +6,7 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use mmrust_domain::{password, repo};
+use pierwave_domain::{password, repo};
 
 use crate::auth::{CurrentUser, SESSION_COOKIE};
 use crate::error::{AppError, AppResult};
@@ -113,8 +113,8 @@ mod tests {
     use axum::Router;
     use tower::ServiceExt;
 
-    use mmrust_domain::time;
-    use mmrust_domain::Db;
+    use pierwave_domain::time;
+    use pierwave_domain::Db;
 
     async fn setup() -> (Router, AppState, String, String) {
         let db = Db::connect("sqlite::memory:").await.unwrap();

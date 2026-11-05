@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use anyhow::{Context, Result};
-use mmrust_proto::TrafficDelta;
+use pierwave_proto::TrafficDelta;
 
 use crate::{command_output, run_program};
 
@@ -269,7 +269,7 @@ mod tests {
     impl TempDir {
         fn new() -> Self {
             let dir =
-                std::env::temp_dir().join(format!("mmrust-stats-test-{}", uuid::Uuid::new_v4()));
+                std::env::temp_dir().join(format!("pierwave-stats-test-{}", uuid::Uuid::new_v4()));
             std::fs::create_dir_all(&dir).unwrap();
             Self(dir)
         }

@@ -12,9 +12,9 @@ use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use sqlx::SqlitePool;
 
-use mmrust_domain::models::User;
-use mmrust_domain::subscribe::{self, SubContext, SubNode, TrafficInfo};
-use mmrust_domain::{credentials, repo};
+use pierwave_domain::models::User;
+use pierwave_domain::subscribe::{self, SubContext, SubNode, TrafficInfo};
+use pierwave_domain::{credentials, repo};
 
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -143,10 +143,10 @@ mod tests {
     use serde_json::json;
     use tower::ServiceExt;
 
-    use mmrust_domain::models::Patch;
-    use mmrust_domain::repo::users::NewUser;
-    use mmrust_domain::repo::{nodes::NewNode, packages, servers, user_packages};
-    use mmrust_domain::Db;
+    use pierwave_domain::models::Patch;
+    use pierwave_domain::repo::users::NewUser;
+    use pierwave_domain::repo::{nodes::NewNode, packages, servers, user_packages};
+    use pierwave_domain::Db;
 
     const ADDRESS: &str = "203.0.113.10";
 

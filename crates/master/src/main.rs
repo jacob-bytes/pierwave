@@ -11,7 +11,7 @@ mod throttle;
 use std::net::SocketAddr;
 
 use anyhow::Context;
-use mmrust_domain::Db;
+use pierwave_domain::Db;
 
 use crate::state::AppState;
 
@@ -20,23 +20,23 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,mmrust_master=debug,tower_http=debug".into()),
+                .unwrap_or_else(|_| "info,pierwave_master=debug,tower_http=debug".into()),
         )
         .init();
 
     let db_url =
-        std::env::var("MMRUST_DB").unwrap_or_else(|_| "sqlite://data/mmrust.db?mode=rwc".into());
-    let addr: SocketAddr = std::env::var("MMRUST_ADDR")
+        std::env::var("PIERWAVE_DB").unwrap_or_else(|_| "sqlite://data/pierwave.db?mode=rwc".into());
+    let addr: SocketAddr = std::env::var("PIERWAVE_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:8787".into())
         .parse()
-        .context("MMRUST_ADDR 不是合法地址")?;
-    let web_dir = std::env::var("MMRUST_WEB_DIR").unwrap_or_else(|_| "web/dist".into());
+        .context("PIERWAVE_ADDR 不是合法地址")?;
+    let web_dir = std::env::var("PIERWAVE_WEB_DIR").unwrap_or_else(|_| "web/dist".into());
 
     let db = Db::connect(&db_url).await?;
     db.migrate().await?;
 
     if let Some(generated) = db
-        .ensure_admin(std::env::var("MMRUST_ADMIN_PASSWORD").ok())
+        .ensure_admin(std::env::var("PIERWAVE_ADMIN_PASSWORD").ok())
         .await?
     {
         tracing::warn!("已创建初始管理员 admin，密码：{generated}（请立刻修改）");

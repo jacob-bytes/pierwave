@@ -5,14 +5,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
 PORT=${PORT:-8791}
-WORK=${WORK:-/tmp/mmrust-e2e}
+WORK=${WORK:-/tmp/pierwave-e2e}
 BASE="http://127.0.0.1:$PORT"
 
 rm -rf "$WORK"; mkdir -p "$WORK"
-CARGO_HOME=$ROOT/.cargo-home cargo build -q -p mmrust-master -p mmrust-agent
+CARGO_HOME=$ROOT/.cargo-home cargo build -q -p pierwave-master -p pierwave-agent
 
-MMRUST_ADDR="127.0.0.1:$PORT" MMRUST_DB="sqlite://$WORK/db.sqlite?mode=rwc" \
-MMRUST_ADMIN_PASSWORD=devpass ./target/debug/mmrust-master > "$WORK/master.log" 2>&1 &
+PIERWAVE_ADDR="127.0.0.1:$PORT" PIERWAVE_DB="sqlite://$WORK/db.sqlite?mode=rwc" \
+PIERWAVE_ADMIN_PASSWORD=devpass ./target/debug/pierwave-master > "$WORK/master.log" 2>&1 &
 MASTER_PID=$!
 AGENT_PID=""
 cleanup() { kill $MASTER_PID ${AGENT_PID:-} 2>/dev/null || true; wait 2>/dev/null || true; }
@@ -103,7 +103,7 @@ xray_test_command = "true"
 stats_query_command = "$WORK/fake-stats.sh"
 stats_interval_secs = 1
 TOML
-./target/debug/mmrust-agent -c "$WORK/agent.toml" > "$WORK/agent.log" 2>&1 &
+./target/debug/pierwave-agent -c "$WORK/agent.toml" > "$WORK/agent.log" 2>&1 &
 AGENT_PID=$!
 
 for _ in $(seq 1 60); do [ -f "$WORK/xray/config.json" ] && break; sleep 0.2; done

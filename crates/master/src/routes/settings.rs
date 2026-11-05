@@ -8,13 +8,13 @@ use axum::Json;
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
 
-use mmrust_domain::repo;
+use pierwave_domain::repo;
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
-pub const DEFAULT_PANEL_NAME: &str = "mmrust 面板";
+pub const DEFAULT_PANEL_NAME: &str = "pierwave 面板";
 pub const DEFAULT_LOGIN_MAX_ATTEMPTS: i64 = 5;
 pub const DEFAULT_LOGIN_LOCK_SECS: i64 = 900;
 pub const DEFAULT_SESSION_TTL_HOURS: i64 = 720;
@@ -220,7 +220,7 @@ mod tests {
     use axum::Router;
     use tower::ServiceExt;
 
-    use mmrust_domain::Db;
+    use pierwave_domain::Db;
 
     async fn setup() -> (Router, AppState, String, String) {
         let db = Db::connect("sqlite::memory:").await.unwrap();
@@ -306,7 +306,7 @@ mod tests {
         let (status, _, body) =
             request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["items"]["panel_name"], "mmrust 面板");
+        assert_eq!(body["items"]["panel_name"], "pierwave 面板");
         assert_eq!(body["items"]["login_max_attempts"], 5);
         assert_eq!(body["items"]["login_lock_secs"], 900);
         assert_eq!(body["items"]["session_ttl_hours"], 720);
@@ -405,7 +405,7 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         let (_, _, body) = request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
-        assert_eq!(body["items"]["panel_name"], "mmrust 面板", "不该半截写入");
+        assert_eq!(body["items"]["panel_name"], "pierwave 面板", "不该半截写入");
     }
 
     #[tokio::test]

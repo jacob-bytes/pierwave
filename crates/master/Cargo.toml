@@ -1,16 +1,16 @@
 [package]
-name = "mmrust-master"
+name = "pierwave-master"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "mmrust-master"
+name = "pierwave-master"
 path = "src/main.rs"
 
 [dependencies]
-mmrust-domain = { path = "../domain" }
-mmrust-proto = { path = "../proto" }
+pierwave-domain = { path = "../domain" }
+pierwave-proto = { path = "../proto" }
 anyhow = { workspace = true }
 axum = { workspace = true }
 axum-extra = { workspace = true }

@@ -1,6 +1,6 @@
 //! 管理端统计：概览卡片与流量趋势。
 //!
-//! 两个接口都只读聚合结果，SQL 全在 `mmrust_domain::repo::stats` 里；
+//! 两个接口都只读聚合结果，SQL 全在 `pierwave_domain::repo::stats` 里；
 //! 契约见 `docs/PLAN.md`「P3：概览与订阅」。
 
 use axum::extract::{Query, State};
@@ -8,8 +8,8 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use mmrust_domain::models::Overview;
-use mmrust_domain::repo;
+use pierwave_domain::models::Overview;
+use pierwave_domain::repo;
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -61,9 +61,9 @@ mod tests {
     use serde_json::Value;
     use tower::ServiceExt;
 
-    use mmrust_domain::repo::{packages, servers, traffic, user_packages, users};
-    use mmrust_domain::time;
-    use mmrust_domain::Db;
+    use pierwave_domain::repo::{packages, servers, traffic, user_packages, users};
+    use pierwave_domain::time;
+    use pierwave_domain::Db;
 
     async fn setup() -> (Router, AppState, String) {
         let db = Db::connect("sqlite::memory:").await.unwrap();

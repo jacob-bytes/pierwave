@@ -273,7 +273,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
               to={homePath}
               className="shrink-0 text-muted-foreground transition-colors duration-150 hover:text-foreground"
             >
-              mmrust
+              pierwave
             </Link>
             <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/40" />
             <span className="truncate font-medium" aria-current="page">

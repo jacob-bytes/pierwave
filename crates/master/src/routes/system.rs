@@ -2,7 +2,7 @@ use axum::extract::State;
 use axum::Json;
 use serde_json::json;
 
-use mmrust_domain::repo;
+use pierwave_domain::repo;
 
 use crate::state::AppState;
 
@@ -16,7 +16,7 @@ pub async fn health(State(state): State<AppState>) -> Json<serde_json::Value> {
         .ok()
         .flatten()
         .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| "mmrust 面板".to_string());
+        .unwrap_or_else(|| "pierwave 面板".to_string());
 
     Json(json!({
         "status": "ok",

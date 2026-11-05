@@ -3,8 +3,8 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use mmrust_domain::models::{Patch, Server};
-use mmrust_domain::repo;
+use pierwave_domain::models::{Patch, Server};
+use pierwave_domain::repo;
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -413,8 +413,8 @@ mod tests {
     use axum::Router;
     use tower::ServiceExt;
 
-    use mmrust_domain::Db;
-    use mmrust_proto::MasterMessage;
+    use pierwave_domain::Db;
+    use pierwave_proto::MasterMessage;
 
     async fn setup() -> (Router, AppState, String) {
         let db = Db::connect("sqlite::memory:").await.unwrap();
@@ -728,12 +728,12 @@ mod tests {
             .as_array()
             .unwrap();
         assert_eq!(clients.len(), 1, "只有有套餐的用户被注入");
-        let secret = mmrust_domain::credentials::master_secret(&state.db.pool)
+        let secret = pierwave_domain::credentials::master_secret(&state.db.pool)
             .await
             .unwrap();
         assert_eq!(
             clients[0]["id"],
-            mmrust_domain::credentials::sub_uuid(&secret, &eligible.id, &node_id)
+            pierwave_domain::credentials::sub_uuid(&secret, &eligible.id, &node_id)
         );
         assert_eq!(clients[0]["email"], format!("{}@{node_tag}", eligible.id));
     }

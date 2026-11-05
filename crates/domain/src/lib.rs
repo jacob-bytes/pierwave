@@ -24,7 +24,7 @@ pub struct Db {
 }
 
 impl Db {
-    /// `sqlite://data/mmrust.db?mode=rwc`；目录不存在会自动创建。
+    /// `sqlite://data/pierwave.db?mode=rwc`；目录不存在会自动创建。
     pub async fn connect(url: &str) -> anyhow::Result<Self> {
         if let Some(path) = url.strip_prefix("sqlite://") {
             let path = path.split('?').next().unwrap_or(path);

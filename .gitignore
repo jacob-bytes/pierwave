@@ -9,3 +9,5 @@
 *.db-wal
 .DS_Store
 /preview-ui
+__pycache__/
+*.pyc

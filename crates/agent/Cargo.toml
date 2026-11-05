@@ -1,15 +1,15 @@
 [package]
-name = "mmrust-agent"
+name = "pierwave-agent"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "mmrust-agent"
+name = "pierwave-agent"
 path = "src/main.rs"
 
 [dependencies]
-mmrust-proto = { path = "../proto" }
+pierwave-proto = { path = "../proto" }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }

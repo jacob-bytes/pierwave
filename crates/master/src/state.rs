@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 #[cfg(test)]
 use std::time::Duration;
 
-use mmrust_domain::Db;
-use mmrust_proto::MasterMessage;
+use pierwave_domain::Db;
+use pierwave_proto::MasterMessage;
 use tokio::sync::broadcast;
 
 use crate::enforcement::Enforcer;

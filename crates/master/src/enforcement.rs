@@ -8,7 +8,7 @@
 //! 3. apply 复用 `routes::desired::render` + `publish`（和手动 apply / 重连补发同一条路径），
 //!    并在 push 成功后 bump `config_version`、写 `desired_snapshots`；
 //! 4. 只有真正从配置里消失/回到配置里的用户才写 `enforcement_events`；
-//! 5. `MMRUST_ENFORCE=0` 时以上全部跳过（默认开启），方便排障。
+//! 5. `PIERWAVE_ENFORCE=0` 时以上全部跳过（默认开启），方便排障。
 //!
 //! 双向对账：`reconcile_once` 每 5 分钟比较「当前 eligible 用户集合」与
 //! `desired_snapshots.granted_users`（上一次真正下发的内容）：
@@ -21,8 +21,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use mmrust_domain::models::Server;
-use mmrust_domain::{enforcement as rules, repo, time};
+use pierwave_domain::models::Server;
+use pierwave_domain::{enforcement as rules, repo, time};
 use tokio::sync::Notify;
 use tokio::time::Instant;
 
@@ -33,7 +33,7 @@ use crate::state::AppState;
 pub const DEFAULT_DEBOUNCE: Duration = Duration::from_secs(30);
 
 /// 环境变量：`0/false/no/off` 关闭断流（含恢复）；其它值（含未设置）视为开启。
-const ENFORCE_ENV: &str = "MMRUST_ENFORCE";
+const ENFORCE_ENV: &str = "PIERWAVE_ENFORCE";
 
 /// 一条待处理的用户变化：用户因为什么、是否来自可信的实时跨边界。
 ///
@@ -43,7 +43,7 @@ const ENFORCE_ENV: &str = "MMRUST_ENFORCE";
 pub struct RemovalCandidate {
     pub user_id: String,
     pub username: String,
-    /// 逗号分隔的原因码，见 [`mmrust_domain::enforcement`]。
+    /// 逗号分隔的原因码，见 [`pierwave_domain::enforcement`]。
     pub reason: String,
     /// `true` = 流量上报/对账当场发现；`false` = 旧快照兜底扫描出的不可用用户。
     pub confident: bool,
@@ -77,7 +77,7 @@ impl Enforcer {
         }
     }
 
-    /// 默认 30s 窗口，是否启用从 `MMRUST_ENFORCE` 读取。
+    /// 默认 30s 窗口，是否启用从 `PIERWAVE_ENFORCE` 读取。
     pub fn from_env() -> Self {
         Self::new(env_enabled(), DEFAULT_DEBOUNCE)
     }
@@ -176,7 +176,7 @@ fn env_enabled() -> bool {
     }
 }
 
-/// 启动去抖 worker；`MMRUST_ENFORCE=0` 时直接退出。
+/// 启动去抖 worker；`PIERWAVE_ENFORCE=0` 时直接退出。
 pub fn spawn_worker(state: AppState) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let enforcer = state.enforcement.clone();

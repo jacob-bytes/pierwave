@@ -3,12 +3,12 @@ use axum::extract::State;
 use axum::response::Response;
 use tokio::sync::broadcast;
 
-use mmrust_domain::enforcement as enforcement_rules;
-use mmrust_domain::metering;
-use mmrust_domain::models::{package_status_at, UserPackageView};
-use mmrust_domain::repo;
-use mmrust_domain::time;
-use mmrust_proto::{
+use pierwave_domain::enforcement as enforcement_rules;
+use pierwave_domain::metering;
+use pierwave_domain::models::{package_status_at, UserPackageView};
+use pierwave_domain::repo;
+use pierwave_domain::time;
+use pierwave_proto::{
     AgentMessage, DesiredState, MasterMessage, ServerAck, TrafficReport, PROTOCOL_VERSION,
 };
 
@@ -405,11 +405,11 @@ fn saturating_i64(value: u64) -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use mmrust_domain::models::UserPackageView;
-    use mmrust_domain::Db;
+    use pierwave_domain::models::UserPackageView;
+    use pierwave_domain::Db;
 
     use super::*;
-    use mmrust_proto::TrafficDelta;
+    use pierwave_proto::TrafficDelta;
 
     struct Fixture {
         state: AppState,
@@ -700,10 +700,10 @@ mod enforcement_tests {
     use serde_json::json;
     use tokio::sync::broadcast;
 
-    use mmrust_domain::models::{Patch, Server};
-    use mmrust_domain::repo;
-    use mmrust_domain::Db;
-    use mmrust_proto::{MasterMessage, TrafficDelta, TrafficReport};
+    use pierwave_domain::models::{Patch, Server};
+    use pierwave_domain::repo;
+    use pierwave_domain::Db;
+    use pierwave_proto::{MasterMessage, TrafficDelta, TrafficReport};
 
     use super::*;
 
@@ -855,14 +855,14 @@ mod enforcement_tests {
         }
     }
 
-    fn clients_of(desired: &mmrust_proto::DesiredState) -> Vec<serde_json::Value> {
+    fn clients_of(desired: &pierwave_proto::DesiredState) -> Vec<serde_json::Value> {
         desired.xray["inbounds"][0]["settings"]["clients"]
             .as_array()
             .cloned()
             .unwrap_or_default()
     }
 
-    fn has_client(desired: &mmrust_proto::DesiredState, user_id: &str, node_tag: &str) -> bool {
+    fn has_client(desired: &pierwave_proto::DesiredState, user_id: &str, node_tag: &str) -> bool {
         let email = format!("{user_id}@{node_tag}");
         clients_of(desired)
             .iter()
@@ -1025,7 +1025,7 @@ mod enforcement_tests {
             &fixture.state,
             &user_id,
             Some(10_000),
-            Some(mmrust_domain::time::now() + 3600),
+            Some(pierwave_domain::time::now() + 3600),
         )
         .await;
         // 先让用户进入下发配置。
@@ -1036,7 +1036,7 @@ mod enforcement_tests {
             &fixture.state.db.pool,
             &instance_id,
             repo::user_packages::UpdateUserPackage {
-                expires_at: Patch::Value(mmrust_domain::time::now() - 1),
+                expires_at: Patch::Value(pierwave_domain::time::now() - 1),
                 ..Default::default()
             },
         )
@@ -1185,7 +1185,7 @@ mod enforcement_tests {
         );
     }
 
-    async fn add_admin(state: &AppState) -> mmrust_domain::models::User {
+    async fn add_admin(state: &AppState) -> pierwave_domain::models::User {
         repo::users::create(
             &state.db.pool,
             repo::users::NewUser {
@@ -1360,7 +1360,7 @@ mod enforcement_tests {
     async fn daily_reset_restores_without_reconcile() {
         let fixture = fixture(Duration::from_millis(50)).await;
         let user_id = add_user(&fixture.state, "alice").await;
-        let (_, _, today) = mmrust_domain::time::business_ymd(mmrust_domain::time::now());
+        let (_, _, today) = pierwave_domain::time::business_ymd(pierwave_domain::time::now());
         let _instance_id =
             add_package_with_reset_day(&fixture.state, &user_id, 1000, i64::from(today)).await;
         init_desired(&fixture).await;
@@ -1409,7 +1409,7 @@ mod enforcement_tests {
     #[tokio::test]
     async fn enforcement_can_be_disabled() {
         let fixture = fixture(Duration::from_millis(20)).await;
-        // 覆盖开关：模拟 MMRUST_ENFORCE=0。
+        // 覆盖开关：模拟 PIERWAVE_ENFORCE=0。
         let state = fixture
             .state
             .clone()

@@ -19,7 +19,7 @@ build:
 	cargo build --workspace
 
 run:
-	cargo run -p mmrust-master
+	cargo run -p pierwave-master
 
 web-install:
 	cd web && npm install --no-audit --no-fund
@@ -34,7 +34,7 @@ web-dev:
 	cd web && npm run dev
 
 dev:  ## 后端 + 前端并行（两个终端更稳）
-	cargo run -p mmrust-master
+	cargo run -p pierwave-master
 
 clean:
 	cargo clean && rm -rf web/dist

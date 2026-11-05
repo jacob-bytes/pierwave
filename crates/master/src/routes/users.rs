@@ -3,8 +3,8 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use mmrust_domain::models::{Patch, User};
-use mmrust_domain::repo;
+use pierwave_domain::models::{Patch, User};
+use pierwave_domain::repo;
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -308,7 +308,7 @@ pub async fn create_user_package(
         // 按周期算的到期日落在 UTC+8 自然日的 23:59:59，而不是「绑定时刻 + N×86400」。
         Patch::Missing => package
             .period_days
-            .map(|days| mmrust_domain::time::end_of_business_day_after(repo::now(), days)),
+            .map(|days| pierwave_domain::time::end_of_business_day_after(repo::now(), days)),
     };
 
     let item = repo::user_packages::create(
@@ -484,7 +484,7 @@ mod tests {
     use serde_json::Value;
     use tower::ServiceExt;
 
-    use mmrust_domain::Db;
+    use pierwave_domain::Db;
 
     async fn setup() -> (Router, AppState, String) {
         let db = Db::connect("sqlite::memory:").await.unwrap();

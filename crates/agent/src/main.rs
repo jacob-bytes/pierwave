@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
-use mmrust_proto::{
+use pierwave_proto::{
     AgentHello, AgentMessage, ApplyResult, DesiredState, Heartbeat, MasterMessage, TrafficReport,
     PROTOCOL_VERSION,
 };
@@ -36,15 +36,15 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,mmrust_agent=debug".into()),
+                .unwrap_or_else(|_| "info,pierwave_agent=debug".into()),
         )
         .init();
 
     let path = std::env::args()
         .skip_while(|a| a != "-c")
         .nth(1)
-        .or_else(|| std::env::var("MMRUST_CONFIG").ok())
-        .unwrap_or_else(|| "/etc/mmrust-agent/config.toml".into());
+        .or_else(|| std::env::var("PIERWAVE_CONFIG").ok())
+        .unwrap_or_else(|| "/etc/pierwave-agent/config.toml".into());
     let cfg = Config::load(std::path::Path::new(&path))?;
     tracing::info!(%path, master = %cfg.master_url, "agent starting");
 
@@ -466,7 +466,7 @@ mod tests {
     impl TempDir {
         fn new() -> Self {
             let dir =
-                std::env::temp_dir().join(format!("mmrust-agent-test-{}", uuid::Uuid::new_v4()));
+                std::env::temp_dir().join(format!("pierwave-agent-test-{}", uuid::Uuid::new_v4()));
             std::fs::create_dir_all(&dir).unwrap();
             Self(dir)
         }
