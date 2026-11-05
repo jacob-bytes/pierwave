@@ -360,6 +360,45 @@ pub mod servers {
         )
     }
 
+    /// 改名 / 改地址 / 改 xray 模式；其他字段一律不动。
+    pub async fn update(
+        pool: &SqlitePool,
+        id: &str,
+        name: Option<&str>,
+        address: Option<&str>,
+        xray_mode: Option<&str>,
+    ) -> anyhow::Result<Option<Server>> {
+        sqlx::query(
+            "UPDATE servers SET
+                name = COALESCE(?, name),
+                address = COALESCE(?, address),
+                xray_mode = COALESCE(?, xray_mode)
+             WHERE id = ?",
+        )
+        .bind(name)
+        .bind(address)
+        .bind(xray_mode)
+        .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(
+            sqlx::query_as::<_, Server>("SELECT * FROM servers WHERE id = ?")
+                .bind(id)
+                .fetch_optional(pool)
+                .await?,
+        )
+    }
+
+    /// 删除服务器；nodes 由外键级联清理。
+    pub async fn delete(pool: &SqlitePool, id: &str) -> anyhow::Result<bool> {
+        let affected = sqlx::query("DELETE FROM servers WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?
+            .rows_affected();
+        Ok(affected > 0)
+    }
+
     pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<Server>> {
         Ok(
             sqlx::query_as::<_, Server>("SELECT * FROM servers ORDER BY created_at DESC")

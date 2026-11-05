@@ -20,6 +20,10 @@ pub fn router(state: AppState) -> Router {
             get(routes::servers::list).post(routes::servers::create),
         )
         .route(
+            "/api/v1/servers/{id}",
+            axum::routing::patch(routes::servers::update).delete(routes::servers::delete),
+        )
+        .route(
             "/api/v1/servers/{id}/nodes",
             get(routes::nodes::list).post(routes::nodes::create),
         )
