@@ -20,7 +20,11 @@ jobs:
       matrix:
         target: [x86_64-unknown-linux-musl, aarch64-unknown-linux-musl]
     steps:
+      # 必须取全量历史与 tag 对象：浅克隆下 annotated tag 会退化成轻量 tag，
+      # `git tag -l --format='%(contents)'` 拿到的就是 commit message 而不是发布说明。
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # cross 用容器里的 musl 工具链，aarch64 也不用额外装链接器
       - uses: taiki-e/install-action@v2
@@ -68,8 +72,11 @@ jobs:
       - name: Release notes from tag
         run: |
           git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > release-notes.md
-          test -s release-notes.md || echo "（无发布说明）" > release-notes.md
           cat release-notes.md
+          if ! grep -qE '^(feat|fix): ' release-notes.md; then
+            echo "::error::发布说明必须是 annotated tag 的消息，且以 'feat: ' 或 'fix: ' 开头"
+            exit 1
+          fi
 
       - uses: softprops/action-gh-release@v2
         with:
