@@ -50,6 +50,47 @@ export interface CreateServerResponse {
   install_command: string;
 }
 
+/** 节点：config 是后端直接返回的 JSON 对象，不需要前端再 parse。 */
+export interface Node {
+  id: string;
+  server_id: string;
+  tag: string;
+  name: string;
+  protocol: string;
+  transport: string;
+  security: string;
+  port: number;
+  config: Record<string, unknown>;
+  /** 后端目前序列化为 0/1，统一在展示层用 Boolean() 归一。 */
+  enabled: boolean | number;
+  created_at: number;
+  /** 后端暂时只回 created_at；保留字段以便主控补充更新时间后零改动接入。 */
+  updated_at?: number;
+}
+
+export interface CreateNodeInput {
+  name: string;
+  protocol: string;
+  transport: string;
+  security: string;
+  port: number;
+  config: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+export interface UpdateNodeInput {
+  name?: string;
+  port?: number;
+  enabled?: boolean;
+  config?: Record<string, unknown>;
+}
+
+export interface ApplyResult {
+  config_version: number;
+  /** 后端正在加；暂时没有时按空数组处理。 */
+  warnings?: string[] | null;
+}
+
 /** P1：用户与套餐契约，见 docs/PLAN.md「P1：用户与套餐（本轮契约）」。 */
 export type UserRole = "admin" | "user";
 export type UserStatus = "active" | "disabled";
@@ -143,6 +184,33 @@ export const api = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+
+  nodes: (serverId: string) =>
+    request<{ items: Node[] }>(
+      `/api/v1/servers/${encodeURIComponent(serverId)}/nodes`,
+    ),
+  createNode: (serverId: string, input: CreateNodeInput) =>
+    request<{ node: Node }>(
+      `/api/v1/servers/${encodeURIComponent(serverId)}/nodes`,
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      },
+    ),
+  updateNode: (id: string, input: UpdateNodeInput) =>
+    request<{ node: Node }>(`/api/v1/nodes/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteNode: (id: string) =>
+    request<{ ok: true }>(`/api/v1/nodes/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
+  applyServer: (serverId: string) =>
+    request<ApplyResult>(
+      `/api/v1/servers/${encodeURIComponent(serverId)}/apply`,
+      { method: "POST" },
+    ),
 
   users: (q: string) => {
     const params = new URLSearchParams({ limit: "200" });

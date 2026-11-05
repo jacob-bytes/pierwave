@@ -37,11 +37,18 @@ type NavItem = {
   end?: boolean;
   disabled?: boolean;
   sub?: boolean;
+  /** 多入口页面（例如 /servers/:id/nodes）需要自定义点亮规则。 */
+  activeWhen?: (pathname: string) => boolean;
 };
 
 const consoleNav: NavItem[] = [
   { to: "/", label: "概览", icon: LayoutDashboardIcon, end: true },
-  { to: "/servers", label: "服务器", icon: ServerIcon },
+  {
+    to: "/servers",
+    label: "服务器",
+    icon: ServerIcon,
+    activeWhen: (pathname) => pathname === "/servers",
+  },
 ];
 
 const managementNav: NavItem[] = [
@@ -50,7 +57,14 @@ const managementNav: NavItem[] = [
 ];
 
 const systemNav: NavItem[] = [
-  { to: "/nodes", label: "节点", icon: NetworkIcon, disabled: true },
+  {
+    to: "/nodes",
+    label: "节点",
+    icon: NetworkIcon,
+    activeWhen: (pathname) =>
+      pathname === "/nodes" ||
+      /^\/servers\/[^/]+\/nodes(?:\/|$)/.test(pathname),
+  },
   { to: "/settings", label: "设置", icon: SettingsIcon, disabled: true },
 ];
 
@@ -58,6 +72,11 @@ const allNav = [...consoleNav, ...managementNav, ...systemNav];
 
 function roleLabel(role: SessionUser["role"]) {
   return role === "admin" ? "管理员" : "普通用户";
+}
+
+function isItemActive(item: NavItem, pathname: string): boolean {
+  if (item.activeWhen) return item.activeWhen(pathname);
+  return item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
 }
 
 function PageLoading() {
@@ -69,8 +88,15 @@ function PageLoading() {
   );
 }
 
-function NavEntry({ item }: { item: NavItem }) {
+function NavEntry({
+  item,
+  pathname,
+}: {
+  item: NavItem;
+  pathname: string;
+}) {
   const Icon = item.icon;
+  const active = isItemActive(item, pathname);
 
   if (item.disabled) {
     return (
@@ -92,15 +118,14 @@ function NavEntry({ item }: { item: NavItem }) {
     <NavLink
       to={item.to}
       end={item.end}
-      className={({ isActive }) =>
-        cn(
-          "flex h-8 items-center gap-2 rounded-md px-2.5 text-[13px] transition-colors duration-150",
-          item.sub && "ml-3 h-7 pl-2 text-xs",
-          isActive
-            ? "bg-sidebar-accent font-medium text-foreground"
-            : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
-        )
-      }
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex h-8 items-center gap-2 rounded-md px-2.5 text-[13px] transition-colors duration-150",
+        item.sub && "ml-3 h-7 pl-2 text-xs",
+        active
+          ? "bg-sidebar-accent font-medium text-foreground"
+          : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+      )}
     >
       <Icon className={item.sub ? "size-3.5" : "size-4"} />
       {item.label}
@@ -116,9 +141,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
   const version = health.data?.version ?? "dev";
 
   const current =
-    allNav.find((item) =>
-      item.to === "/" ? pathname === "/" : pathname.startsWith(item.to),
-    ) ?? allNav[0];
+    allNav.find((item) => isItemActive(item, pathname)) ?? allNav[0];
   const pageLabel = current?.label ?? "概览";
 
   useEffect(() => {
@@ -155,7 +178,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
           </p>
           <div className="space-y-0.5">
             {consoleNav.map((item) => (
-              <NavEntry key={item.to} item={item} />
+              <NavEntry key={item.to} item={item} pathname={pathname} />
             ))}
           </div>
 
@@ -164,7 +187,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
           </p>
           <div className="space-y-0.5">
             {managementNav.map((item) => (
-              <NavEntry key={item.to} item={item} />
+              <NavEntry key={item.to} item={item} pathname={pathname} />
             ))}
           </div>
 
@@ -173,7 +196,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
           </p>
           <div className="space-y-0.5">
             {systemNav.map((item) => (
-              <NavEntry key={item.to} item={item} />
+              <NavEntry key={item.to} item={item} pathname={pathname} />
             ))}
           </div>
         </nav>

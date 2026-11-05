@@ -7,14 +7,18 @@ import {
 import {
   api,
   ApiError,
+  type ApplyResult,
   type BindUserPackageInput,
+  type CreateNodeInput,
   type CreatePackageInput,
   type CreateServerResponse,
   type CreateUserInput,
   type Health,
+  type Node,
   type Package,
   type Server,
   type SessionUser,
+  type UpdateNodeInput,
   type UpdatePackageInput,
   type UpdateUserInput,
   type UpdateUserPackageInput,
@@ -26,6 +30,7 @@ export const queryKeys = {
   me: ["me"] as const,
   health: ["health"] as const,
   servers: ["servers"] as const,
+  nodes: (serverId: string) => ["nodes", serverId] as const,
   users: (q: string) => ["users", { q }] as const,
   packages: ["packages"] as const,
   userPackages: (userId: string) => ["user", userId, "packages"] as const,
@@ -75,6 +80,118 @@ export function useCreateServer() {
     mutationFn: api.createServer,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.servers });
+    },
+  });
+}
+
+export function useNodes(serverId: string) {
+  return useQuery<Node[]>({
+    queryKey: queryKeys.nodes(serverId),
+    queryFn: async () => (await api.nodes(serverId)).items,
+    enabled: Boolean(serverId),
+    staleTime: 5_000,
+  });
+}
+
+export function useCreateNode(serverId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<Node, Error, CreateNodeInput>({
+    mutationFn: async (input) => (await api.createNode(serverId, input)).node,
+    onSuccess: () => {
+      // 新节点只影响该服务器的节点列表，不碰其它缓存。
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.nodes(serverId),
+      });
+    },
+  });
+}
+
+export function useUpdateNode(serverId: string) {
+  const queryClient = useQueryClient();
+  const queryKey = queryKeys.nodes(serverId);
+
+  return useMutation<
+    Node,
+    Error,
+    { id: string; input: UpdateNodeInput },
+    { previous?: Node[] }
+  >({
+    mutationFn: async ({ id, input }) => (await api.updateNode(id, input)).node,
+    onMutate: async ({ id, input }) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<Node[]>(queryKey);
+
+      if (previous) {
+        queryClient.setQueryData<Node[]>(
+          queryKey,
+          previous.map((node) =>
+            node.id === id
+              ? {
+                  ...node,
+                  ...(input.enabled !== undefined
+                    ? { enabled: input.enabled }
+                    : {}),
+                  ...(input.name !== undefined ? { name: input.name } : {}),
+                  ...(input.port !== undefined ? { port: input.port } : {}),
+                  ...(input.config !== undefined
+                    ? { config: input.config }
+                    : {}),
+                }
+              : node,
+          ),
+        );
+      }
+
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKey, context.previous);
+      }
+    },
+    onSuccess: (node) => {
+      queryClient.setQueryData<Node[]>(queryKey, (current) =>
+        current?.map((item) => (item.id === node.id ? node : item)),
+      );
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey });
+    },
+  });
+}
+
+export function useDeleteNode(serverId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<{ ok: true }, Error, string>({
+    mutationFn: (id) => api.deleteNode(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.nodes(serverId),
+      });
+    },
+  });
+}
+
+export function useApplyServer(serverId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<ApplyResult, Error, void>({
+    mutationFn: () => api.applyServer(serverId),
+    onSuccess: (result) => {
+      // 节点列表可能因 credentials 注入而变化；服务器列表的 config_version 也变了。
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.nodes(serverId),
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.servers });
+      queryClient.setQueryData<Server[]>(queryKeys.servers, (current) =>
+        current?.map((server) =>
+          server.id === serverId
+            ? { ...server, config_version: result.config_version }
+            : server,
+        ),
+      );
     },
   });
 }

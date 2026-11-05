@@ -16,6 +16,8 @@ const LoginPage = lazy(() => import("@/pages/Login"));
 const ServersPage = lazy(() => import("@/pages/Servers"));
 const UsersPage = lazy(() => import("@/pages/Users"));
 const PackagesPage = lazy(() => import("@/pages/Packages"));
+const NodesPage = lazy(() => import("@/pages/Nodes"));
+const NodesIndexPage = lazy(() => import("@/pages/NodesIndex"));
 
 function Centered({ children }: { children: ReactNode }) {
   return (
@@ -134,6 +136,8 @@ export default function App() {
         <Route element={<AppShell user={user} />}>
           <Route index element={<OverviewPlaceholder />} />
           <Route path="servers" element={<ServersPage />} />
+          <Route path="servers/:id/nodes" element={<NodesPage />} />
+          <Route path="nodes" element={<NodesIndexPage />} />
           <Route path="users" element={<UsersPage />} />
           <Route path="packages" element={<PackagesPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

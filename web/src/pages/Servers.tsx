@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import {
   CheckIcon,
   CopyIcon,
   KeyRoundIcon,
   Loader2Icon,
+  NetworkIcon,
   PlusIcon,
   RefreshCwIcon,
   ServerOffIcon,
@@ -54,7 +56,7 @@ import { useCreateServer, useServers } from "@/lib/queries";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
-const COLUMN_COUNT = 6;
+const COLUMN_COUNT = 7;
 
 const xrayModeLabels: Record<string, string> = {
   external: "外置",
@@ -110,6 +112,9 @@ function LoadingRows() {
           </TableCell>
           <TableCell className="px-4 py-3">
             <Skeleton className="h-3.5 w-8" />
+          </TableCell>
+          <TableCell className="px-4 py-3">
+            <Skeleton className="h-7 w-16 rounded-md" />
           </TableCell>
         </TableRow>
       ))}
@@ -318,7 +323,7 @@ export default function ServersPage() {
         </CardHeader>
 
         <CardContent className="p-0">
-          <Table aria-busy={servers.isPending}>
+          <Table className="min-w-[820px]" aria-busy={servers.isPending}>
             <TableCaption className="sr-only">服务器列表</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
@@ -339,6 +344,9 @@ export default function ServersPage() {
                 </TableHead>
                 <TableHead className="h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground">
                   配置版本
+                </TableHead>
+                <TableHead className="h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground">
+                  操作
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -375,6 +383,17 @@ export default function ServersPage() {
                     </TableCell>
                     <TableCell className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
                       v{server.config_version}
+                    </TableCell>
+                    <TableCell className="px-4 py-2.5">
+                      <Button variant="ghost" size="sm" asChild>
+                        <Link
+                          to={`/servers/${server.id}/nodes`}
+                          aria-label={`管理 ${server.name} 的节点`}
+                        >
+                          <NetworkIcon className="size-3.5" />
+                          节点
+                        </Link>
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))

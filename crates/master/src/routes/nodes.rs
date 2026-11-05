@@ -165,6 +165,10 @@ pub async fn create(
 pub struct PatchNode {
     pub enabled: Option<bool>,
     pub config: Option<Value>,
+    /// 允许改名：节点名会进订阅，改名后需要重新 apply 才能同步到服务器 tag 以外的地方
+    pub name: Option<String>,
+    /// 允许改端口：改完不 apply 不生效，前端会提示
+    pub port: Option<i64>,
 }
 
 pub async fn update(
@@ -174,18 +178,30 @@ pub async fn update(
     Json(req): Json<PatchNode>,
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
-    if req.enabled.is_none() && req.config.is_none() {
+    if req.enabled.is_none() && req.config.is_none() && req.name.is_none() && req.port.is_none() {
         return Err(AppError::BadRequest(
-            "至少需要提供 enabled 或 config".into(),
+            "至少需要提供 enabled / config / name / port 之一".into(),
         ));
     }
     if let Some(config) = &req.config {
         ensure_object(config)?;
     }
+    if let Some(port) = req.port {
+        validate_port(port)?;
+    }
+    let name = match req.name.as_deref().map(str::trim) {
+        Some("") => return Err(AppError::BadRequest("节点名称不能为空".into())),
+        Some(name) if name.chars().count() > 64 => {
+            return Err(AppError::BadRequest("节点名称最多 64 个字符".into()))
+        }
+        other => other.map(str::to_string),
+    };
 
     let update = repo::nodes::UpdateNode {
         enabled: req.enabled,
         config_json: req.config.map(|config| config.to_string()),
+        name,
+        port: req.port,
         ..Default::default()
     };
     let node = repo::nodes::update(&state.db.pool, &id, update)

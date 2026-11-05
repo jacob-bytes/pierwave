@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  isCombinationAllowed,
+  NODE_PROTOCOLS,
+  NODE_SECURITIES,
+  NODE_TRANSPORTS,
+} from "@/lib/protocols";
 import { dateInputToUnixEndOfDay } from "@/lib/time";
 
 const gbField = z.string().refine((value) => {
@@ -103,3 +109,35 @@ export type BindUserPackageValues = z.infer<typeof bindUserPackageSchema>;
 export const editUserPackageSchema = z.object(packageTermFields);
 
 export type EditUserPackageValues = z.infer<typeof editUserPackageSchema>;
+
+export const nodeFormSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(1, "请输入节点名称")
+      .max(64, "节点名称最多 64 个字符"),
+    protocol: z.enum(NODE_PROTOCOLS),
+    transport: z.enum(NODE_TRANSPORTS),
+    security: z.enum(NODE_SECURITIES),
+    port: z.string().refine((value) => {
+      const trimmed = value.trim();
+      if (!/^\d+$/.test(trimmed)) return false;
+      const parsed = Number(trimmed);
+      return parsed >= 1 && parsed <= 65535;
+    }, "端口需为 1–65535 的整数"),
+    enabled: z.boolean(),
+  })
+  .superRefine((values, ctx) => {
+    if (
+      !isCombinationAllowed(values.protocol, values.transport, values.security)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["transport"],
+        message: "当前协议不支持这个传输方式与安全层的组合",
+      });
+    }
+  });
+
+export type NodeFormValues = z.infer<typeof nodeFormSchema>;
