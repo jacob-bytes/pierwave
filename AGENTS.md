@@ -38,7 +38,7 @@ CARGO_HOME=$PWD/.cargo-home cargo test -p pierwave-domain
 3. **迁移只追加**：`crates/domain/migrations/` 下不改历史文件，新需求加 `000N_xxx.sql`。
 4. **文案中文**：面向用户的报错、按钮、提示一律简体中文。
 5. **测试**：纯逻辑（配置生成、订阅渲染、计费换算）必须有单元测试；涉及 HTTP 的用 `#[tokio::test]` + 内存 SQLite。
-6. **不碰参考目录**：`miaomiaowux-docs/` 是抓下来的参考手册，只读。
+6. **不碰参考目录**：`miaomiaowux-docs/` 是本地抓取的第三方文档，已 gitignore，只读。
 7. 提交前 `make check` 必须全绿；不许 `#[allow(dead_code)]` 掩盖没写完的东西（临时标注需在 PR 说明里写清）。
 
 ## 前端
