@@ -6,7 +6,7 @@ A Rust control plane for [Xray](https://github.com/XTLS/Xray-core) fleets: panel
 delivery, traffic metering and quota enforcement — with agents that dial **outbound** to the master,
 so your servers never expose an inbound management port.
 
-![Overview](docs/images/overview.png)
+![Overview](docs/images/en/overview.png)
 
 ## Why
 
@@ -56,7 +56,7 @@ PierWave puts all of that behind one control plane:
 
 | Servers | Users |
 |---|---|
-| ![servers](docs/images/servers.png) | ![users](docs/images/users.png) |
+| ![servers](docs/images/en/servers.png) | ![users](docs/images/en/users.png) |
 
 ## Quick start
 
@@ -104,7 +104,7 @@ database, no restart needed).
 
 Working: node/inbound management, desired-state delivery with rollback, users and package
 instances (multiple cards per user with independent quotas), subscription delivery, traffic metering
-and enforcement, certificate upload and deployment, audit log, self-service page for end users.
+and enforcement, certificate upload and deployment, audit log, self-service page for end users, bilingual UI (English / 简体中文).
 
 Not implemented yet: ACME issuance, per-user rate limiting, nginx certificate deployment,
 multi-master/HA. Certificates must be uploaded manually; for plain `IP:port` deployments REALITY is

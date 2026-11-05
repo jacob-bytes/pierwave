@@ -5,7 +5,7 @@
 Rust 写的 Xray 代理控制面：**主控 + Agent 分离**，Agent 反向连入，服务器不需要开放任何入站端口。
 面板、订阅分发、流量计费、超额断流在一套二进制里跑完。
 
-![概览](docs/images/overview.png)
+![概览](docs/images/zh/overview.png)
 
 ## 它解决什么
 
@@ -46,7 +46,7 @@ PierWave 把这些收进一个控制面：
 
 | 服务器 | 用户 |
 |---|---|
-| ![服务器](docs/images/servers.png) | ![用户](docs/images/users.png) |
+| ![服务器](docs/images/zh/servers.png) | ![用户](docs/images/zh/users.png) |
 
 ## 快速开始
 
@@ -90,7 +90,7 @@ curl -fsSL http://<主控地址>/api/agent/install.sh?token=<token> | sudo bash
 ## 状态
 
 已可用：节点/入站管理、期望态下发与回滚、用户与套餐实例（多卡独立额度）、订阅分发、
-流量计量与断流、证书上传与部署、审计日志、用户自助页。
+流量计量与断流、证书上传与部署、审计日志、用户自助页、中英文界面。
 
 未做：ACME 自动签发、按用户限速、nginx 证书部署、多主控/高可用。
 证书目前需手动上传；纯 IP:port 部署建议用 REALITY（不需要证书）。
