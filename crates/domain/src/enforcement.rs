@@ -9,9 +9,18 @@ pub const REASON_EXHAUSTED: &str = "exhausted";
 pub const REASON_EXPIRED: &str = "expired";
 /// 套餐被停用（原始状态不是 active）。
 pub const REASON_DISABLED: &str = "disabled";
+/// 账号或套餐整体不可用（用户被禁用、删号、解绑全部套餐等）。
+pub const REASON_INACTIVE: &str = "inactive";
+/// 套餐重新可用（额度增加、每日重置、重新绑卡）。
+pub const REASON_RECOVERED: &str = "recovered";
 
-/// 原因展示的固定顺序：到期 → 用尽 → 停用。
-const REASON_ORDER: [&str; 3] = [REASON_EXPIRED, REASON_EXHAUSTED, REASON_DISABLED];
+/// 原因展示的固定顺序：到期 → 用尽 → 停用 → 其它。
+const REASON_ORDER: [&str; 4] = [
+    REASON_EXPIRED,
+    REASON_EXHAUSTED,
+    REASON_DISABLED,
+    REASON_INACTIVE,
+];
 
 /// 合并多个原因（可重复、可已是逗号串），去重并按固定顺序输出。
 ///
@@ -48,6 +57,8 @@ pub fn reason_text(reason: &str) -> String {
             REASON_EXHAUSTED => "额度用尽",
             REASON_EXPIRED => "套餐已到期",
             REASON_DISABLED => "套餐已停用",
+            REASON_INACTIVE => "账号或套餐不可用",
+            REASON_RECOVERED => "套餐恢复可用",
             other => other,
         })
         .collect();
@@ -63,6 +74,14 @@ pub fn removal_message(username: &str, reason: &str, server_name: &str) -> Strin
     format!(
         "用户 {username} 因{}，已从服务器 {server_name} 的配置中移除",
         reason_text(reason)
+    )
+}
+
+/// 恢复事件的完整中文说明：谁、因为什么、回到哪台服务器的配置。
+pub fn restore_message(username: &str, server_name: &str) -> String {
+    format!(
+        "用户 {username} 因{}，已加入服务器 {server_name} 的配置",
+        reason_text(REASON_RECOVERED)
     )
 }
 
@@ -91,6 +110,8 @@ mod tests {
         assert_eq!(reason_text("expired"), "套餐已到期");
         assert_eq!(reason_text("expired,exhausted"), "套餐已到期、额度用尽");
         assert_eq!(reason_text(""), "套餐不可用");
+        assert_eq!(reason_text("inactive"), "账号或套餐不可用");
+        assert_eq!(reason_text("recovered"), "套餐恢复可用");
         // 未知原因不丢，原样展示。
         assert_eq!(reason_text("paused"), "paused");
     }
@@ -101,6 +122,15 @@ mod tests {
         assert_eq!(
             message,
             "用户 alice 因额度用尽，已从服务器 hk-1 的配置中移除"
+        );
+    }
+
+    #[test]
+    fn restore_message_names_user_and_server() {
+        let message = restore_message("alice", "hk-1");
+        assert_eq!(
+            message,
+            "用户 alice 因套餐恢复可用，已加入服务器 hk-1 的配置"
         );
     }
 }

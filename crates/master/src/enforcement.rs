@@ -1,4 +1,4 @@
-//! 断流（enforcement）：把「记账」变成「处置」。
+//! 断流（enforcement）：把「记账」变成「处置」，并保证处置是可逆的。
 //!
 //! 链路：
 //! 1. 流量上报落库时，如果某张实例从「可用」跨到「不可用」，就调用
@@ -7,8 +7,15 @@
 //!    窗口内继续到来的标记会合并，避免流量风暴触发几十次 apply；
 //! 3. apply 复用 `routes::desired::render` + `publish`（和手动 apply / 重连补发同一条路径），
 //!    并在 push 成功后 bump `config_version`、写 `desired_snapshots`；
-//! 4. 只有真正从配置里消失的用户才写 `enforcement_events`，供管理端追溯；
+//! 4. 只有真正从配置里消失/回到配置里的用户才写 `enforcement_events`；
 //! 5. `MMRUST_ENFORCE=0` 时以上全部跳过（默认开启），方便排障。
+//!
+//! 双向对账：`reconcile_once` 每 5 分钟比较「当前 eligible 用户集合」与
+//! `desired_snapshots.granted_users`（上一次真正下发的内容）：
+//! * 快照里有、现在不 eligible → 移除；
+//! * 现在 eligible、快照里没有 → 恢复（额度重置、管理员加额度、重新绑卡）。
+//!
+//! 判定复用 `authorization::eligible_pairs`，与真正渲染时同一套逻辑。
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -25,18 +32,20 @@ use crate::state::AppState;
 /// 去抖窗口：同一台服务器在 30s 内最多 apply 一次。
 pub const DEFAULT_DEBOUNCE: Duration = Duration::from_secs(30);
 
-/// 环境变量：`0/false/no/off` 关闭断流；其它值（含未设置）视为开启。
+/// 环境变量：`0/false/no/off` 关闭断流（含恢复）；其它值（含未设置）视为开启。
 const ENFORCE_ENV: &str = "MMRUST_ENFORCE";
 
-/// 一条待处理的移除：用户因为什么、是否来自可信的实时跨边界。
+/// 一条待处理的用户变化：用户因为什么、是否来自可信的实时跨边界。
+///
+/// 「移除还是恢复」不在这里写死：apply 时用旧快照的用户集合与当前渲染结果做
+/// 精确差集，差集方向才是最终事实。这里只携带用户名/原因，供写事件时复用。
 #[derive(Debug, Clone)]
 pub struct RemovalCandidate {
     pub user_id: String,
     pub username: String,
     /// 逗号分隔的原因码，见 [`mmrust_domain::enforcement`]。
     pub reason: String,
-    /// `true` = 流量上报当场发现（用户此前一定可用）；
-    /// `false` = 5 分钟对账扫出来的（可能只是历史残留，写事件要保守）。
+    /// `true` = 流量上报/对账当场发现；`false` = 旧快照兜底扫描出的不可用用户。
     pub confident: bool,
 }
 
@@ -188,7 +197,7 @@ pub fn spawn_worker(state: AppState) -> tokio::task::JoinHandle<()> {
     })
 }
 
-/// 流量上报跨过边界 / 对账发现残留后，标记所有「可能包含该用户 client」的服务器。
+/// 流量上报跨过边界后，标记所有「可能包含该用户 client」的服务器。
 ///
 /// 资格是全局的（任何一台有启用节点的服务器都会给可用用户注入 client），
 /// 所以用户一旦失去资格，就要让所有有启用节点的服务器重新收敛。
@@ -214,42 +223,210 @@ pub async fn mark_removal_candidates(
     Ok(())
 }
 
-/// 5 分钟对账：扫出「有 active 实例但全部不可用」的用户，标记脏。
+/// 5 分钟双向对账：移除「该走但还在」的，恢复「该回但不在」的。
 ///
-/// 这里不直接 apply：交给去抖 worker 合并处理；worker 会先比对
-/// `desired_snapshots.fingerprint/config_version`，期望态没变就跳过，不做空转。
+/// 基准是 `desired_snapshots.granted_users`（上一次真正下发的内容），不是当前库状态；
+/// 判定当前资格复用 [`repo::authorization::eligible_pairs`]，与 apply 渲染完全同口径。
+///
+/// 返回本轮「关注到」的用户数（不可用用户 + 需要恢复的用户），仅用于日志/测试；
+/// 真正是否 apply 由去抖 worker 再比对 fingerprint 决定。
 pub async fn reconcile_once(state: &AppState) -> anyhow::Result<usize> {
     if !state.enforcement.enabled() {
-        return Ok(0);
-    }
-    let unusable = repo::enforcement::list_unusable_users(&state.db.pool, time::now()).await?;
-    if unusable.is_empty() {
         return Ok(0);
     }
     let server_ids = repo::servers::list_ids_with_enabled_nodes(&state.db.pool).await?;
     if server_ids.is_empty() {
         return Ok(0);
     }
-    let users = unusable.len();
-    let candidates: Vec<RemovalCandidate> = unusable
-        .into_iter()
-        .map(|user| RemovalCandidate {
-            user_id: user.user_id,
-            username: user.username,
-            reason: user.reason,
-            // 对账看到的是「当前状态」，不代表这次扫描时用户的 client 还在配置里。
-            confident: false,
-        })
+
+    // 不可用用户的全集：给「移除」候选提供原因与用户名，也用于旧快照兜底。
+    let unusable = repo::enforcement::list_unusable_users(&state.db.pool, time::now()).await?;
+    let unusable_by_user: HashMap<String, repo::enforcement::UnusableUser> = unusable
+        .iter()
+        .cloned()
+        .map(|user| (user.user_id.clone(), user))
         .collect();
+
+    // 返回值语义与旧版保持一致：不可用用户即使已经不在快照里也计数，
+    // 这样「对账还在跑」这件事对日志/测试仍然可见。
+    let mut touched: HashSet<String> = unusable_by_user.keys().cloned().collect();
+    let mut legacy_servers = Vec::new();
+    let mut dirty_servers = 0usize;
+
     for server_id in &server_ids {
-        state.enforcement.mark_dirty(server_id, candidates.clone());
+        let Some(snapshot) = repo::desired::get(&state.db.pool, server_id).await? else {
+            legacy_servers.push(server_id.clone());
+            continue;
+        };
+        let previous: HashSet<String> = match snapshot.granted_user_ids() {
+            Some(ids) => ids.into_iter().collect(),
+            // 0005 之前的旧快照没有用户集合：若当前渲染与它指纹一致，可以安全回填；
+            // 否则无法判断已下发内容，退回旧口径（只做移除，不做恢复）。
+            None => match backfill_legacy_snapshot(state, server_id, &snapshot).await? {
+                Some(ids) => ids.into_iter().collect(),
+                None => {
+                    legacy_servers.push(server_id.clone());
+                    continue;
+                }
+            },
+        };
+
+        let eligible = eligible_user_ids(state, server_id).await?;
+        let mut candidates: Vec<RemovalCandidate> = Vec::new();
+
+        // 快照里有、现在不 eligible：应该移除。
+        for user_id in previous.difference(&eligible) {
+            touched.insert(user_id.clone());
+            candidates.push(removed_candidate(state, &unusable_by_user, user_id).await?);
+        }
+        // 现在 eligible、快照里没有：应该恢复。
+        for user_id in eligible.difference(&previous) {
+            touched.insert(user_id.clone());
+            candidates.push(RemovalCandidate {
+                user_id: user_id.clone(),
+                username: display_name(state, user_id).await?,
+                reason: rules::REASON_RECOVERED.to_string(),
+                confident: true,
+            });
+        }
+
+        if !candidates.is_empty() {
+            dirty_servers += 1;
+            tracing::info!(
+                server_id,
+                changes = candidates.len(),
+                "双向对账：标记服务器期望态为脏（移除/恢复）"
+            );
+            state.enforcement.mark_dirty(server_id, candidates);
+        }
     }
-    tracing::info!(
-        users,
-        servers = server_ids.len(),
-        "过期对账：发现不可用用户，已标记期望态为脏"
-    );
+
+    // 旧快照兜底：至少保住原来的移除能力；恢复检测要等快照被回填/下一次 apply 后生效。
+    if !legacy_servers.is_empty() && !unusable_by_user.is_empty() {
+        let candidates: Vec<RemovalCandidate> = unusable_by_user
+            .values()
+            .map(|user| RemovalCandidate {
+                user_id: user.user_id.clone(),
+                username: user.username.clone(),
+                reason: user.reason.clone(),
+                confident: false,
+            })
+            .collect();
+        for server_id in &legacy_servers {
+            dirty_servers += 1;
+            state.enforcement.mark_dirty(server_id, candidates.clone());
+        }
+    }
+
+    let users = touched.len();
+    if users > 0 {
+        tracing::info!(
+            users,
+            servers = server_ids.len(),
+            dirty_servers,
+            "双向对账完成"
+        );
+    }
     Ok(users)
+}
+
+/// 旧快照回填：只有「当前渲染 == 上次下发」时才能确定已下发用户集合。
+///
+/// 指纹一致说明配置自上次 apply 后没变，此时当前 eligible 用户集合就是已下发集合；
+/// 指纹不一致（例如管理员改了节点还没 apply）就不能猜，返回 `None` 交给旧口径兜底。
+async fn backfill_legacy_snapshot(
+    state: &AppState,
+    server_id: &str,
+    snapshot: &repo::desired::Snapshot,
+) -> anyhow::Result<Option<Vec<String>>> {
+    let Ok(server) = repo::servers::find_by_id(&state.db.pool, server_id).await else {
+        return Ok(None);
+    };
+    let desired = desired::render(state, &server).await?;
+    if snapshot.config_version != server.config_version
+        || snapshot.fingerprint != desired::fingerprint(&desired.xray)
+    {
+        return Ok(None);
+    }
+    repo::desired::save(
+        &state.db.pool,
+        server_id,
+        &snapshot.fingerprint,
+        snapshot.config_version,
+        &desired.granted_user_ids,
+        time::now(),
+    )
+    .await?;
+    tracing::info!(
+        server = %server.name,
+        config_version = snapshot.config_version,
+        users = desired.granted_user_ids.len(),
+        "回填旧快照的已下发用户集合"
+    );
+    Ok(Some(desired.granted_user_ids))
+}
+
+/// 当前资格用户集合，与 `desired::render` 注入 client 用的是同一个查询。
+async fn eligible_user_ids(state: &AppState, server_id: &str) -> anyhow::Result<HashSet<String>> {
+    Ok(
+        repo::authorization::eligible_pairs(&state.db.pool, server_id)
+            .await?
+            .into_iter()
+            .map(|pair| pair.user_id)
+            .collect(),
+    )
+}
+
+/// 为「快照里有但已不 eligible」的用户构造候选：优先用不可用扫描的原因，
+/// 否则按用户状态兜底（被禁用 / 删号 / 解绑全部套餐）。
+async fn removed_candidate(
+    state: &AppState,
+    unusable: &HashMap<String, repo::enforcement::UnusableUser>,
+    user_id: &str,
+) -> anyhow::Result<RemovalCandidate> {
+    if let Some(user) = unusable.get(user_id) {
+        return Ok(RemovalCandidate {
+            user_id: user_id.to_string(),
+            username: user.username.clone(),
+            reason: user.reason.clone(),
+            confident: false,
+        });
+    }
+    let (username, reason) = match repo::users::find_by_id_opt(&state.db.pool, user_id).await? {
+        Some(user) if user.status == "active" => {
+            (user.username, rules::REASON_INACTIVE.to_string())
+        }
+        Some(user) => (user.username, rules::REASON_DISABLED.to_string()),
+        None => (user_id.to_string(), rules::REASON_INACTIVE.to_string()),
+    };
+    Ok(RemovalCandidate {
+        user_id: user_id.to_string(),
+        username,
+        reason,
+        confident: false,
+    })
+}
+
+async fn display_name(state: &AppState, user_id: &str) -> anyhow::Result<String> {
+    Ok(repo::users::find_by_id_opt(&state.db.pool, user_id)
+        .await?
+        .map(|user| user.username)
+        .unwrap_or_else(|| user_id.to_string()))
+}
+
+/// 原因清洗：恢复方向的原因不应出现在移除事件里。
+fn removal_reason(reason: &str) -> String {
+    let codes: Vec<&str> = reason
+        .split(',')
+        .map(str::trim)
+        .filter(|code| !code.is_empty() && *code != rules::REASON_RECOVERED)
+        .collect();
+    let merged = rules::merge_reasons(codes);
+    if merged.is_empty() {
+        rules::REASON_INACTIVE.to_string()
+    } else {
+        merged
+    }
 }
 
 async fn apply_dirty_server(
@@ -283,7 +460,9 @@ async fn apply_dirty_server(
 ///   不递增 `config_version`、不广播（对账每 5 分钟跑一次也不会产生版本噪音）；
 /// * **复用同一条推送路径**：[`desired::publish`] 与手动 apply、Agent 重连补发
 ///   共用装配/推送逻辑，避免凭据或入站顺序出现第二套实现；
-/// * 只有 `version_before > 0`（此前确实下发过配置）且用户不在新配置里时才写事件。
+/// * **事件按真实差集写**：用 apply 前快照里的用户集合与本次渲染结果比较，
+///   快照有→本次无写 `removed`，快照无→本次有写 `restored`；
+/// * 没有已下发用户集合的旧快照走候选兜底，只写 `removed`，避免误判恢复。
 async fn apply_server(
     state: &AppState,
     server: &Server,
@@ -305,47 +484,94 @@ async fn apply_server(
         }
     }
 
-    // 新配置里仍然有资格的用户：他们不该收到移除事件。
-    let granted: HashSet<String> = desired.granted_user_ids.iter().cloned().collect();
+    // apply 前的已下发集合：事件差集的基准。
+    let previous: Option<HashSet<String>> = snapshot
+        .as_ref()
+        .and_then(repo::desired::Snapshot::granted_user_ids)
+        .map(|ids| ids.into_iter().collect());
+    // 本次配置里有资格的用户。
+    let current: HashSet<String> = desired.granted_user_ids.iter().cloned().collect();
+
     let outcome = desired::publish(state, server, desired).await?;
 
     let mut removed = 0usize;
+    let mut restored = 0usize;
     if version_before > 0 {
-        for candidate in candidates.values() {
-            if granted.contains(&candidate.user_id) {
-                continue;
+        match previous {
+            Some(previous) => {
+                // 快照有、本次没有 → 移除。
+                for user_id in previous.difference(&current) {
+                    let (username, reason) = match candidates.get(user_id) {
+                        Some(candidate) => (
+                            candidate.username.clone(),
+                            removal_reason(&candidate.reason),
+                        ),
+                        None => (
+                            display_name(state, user_id).await?,
+                            rules::REASON_INACTIVE.to_string(),
+                        ),
+                    };
+                    let message = rules::removal_message(&username, &reason, &server.name);
+                    if let Err(error) = write_event(
+                        state, "removed", server, user_id, &username, &reason, &message,
+                    )
+                    .await
+                    {
+                        tracing::error!(error = %error, user = %username, "写断流事件失败");
+                    }
+                    removed += 1;
+                }
+                // 快照没有、本次有 → 恢复。
+                for user_id in current.difference(&previous) {
+                    let username = match candidates.get(user_id) {
+                        Some(candidate) => candidate.username.clone(),
+                        None => display_name(state, user_id).await?,
+                    };
+                    let message = rules::restore_message(&username, &server.name);
+                    if let Err(error) = write_event(
+                        state,
+                        "restored",
+                        server,
+                        user_id,
+                        &username,
+                        rules::REASON_RECOVERED,
+                        &message,
+                    )
+                    .await
+                    {
+                        tracing::error!(error = %error, user = %username, "写恢复事件失败");
+                    }
+                    restored += 1;
+                }
             }
-            // 对账候选在第一次没有历史快照时可能只是「早就不可用」的存量，
-            // 不能凭空写一条「刚刚移除」；实时跨边界的候选则一定可信。
-            if !candidate.confident && snapshot.is_none() {
-                continue;
+            None => {
+                // 旧快照：无法判断「之前到底有没有」，只按候选保守写移除。
+                for candidate in candidates.values() {
+                    if current.contains(&candidate.user_id) {
+                        continue;
+                    }
+                    if !candidate.confident && snapshot.is_none() {
+                        continue;
+                    }
+                    let reason = removal_reason(&candidate.reason);
+                    let message =
+                        rules::removal_message(&candidate.username, &reason, &server.name);
+                    if let Err(error) = write_event(
+                        state,
+                        "removed",
+                        server,
+                        &candidate.user_id,
+                        &candidate.username,
+                        &reason,
+                        &message,
+                    )
+                    .await
+                    {
+                        tracing::error!(error = %error, user = %candidate.username, "写断流事件失败");
+                    }
+                    removed += 1;
+                }
             }
-            let message =
-                rules::removal_message(&candidate.username, &candidate.reason, &server.name);
-            if let Err(error) = repo::enforcement::insert_event(
-                &state.db.pool,
-                repo::enforcement::NewEvent {
-                    user_id: &candidate.user_id,
-                    username: &candidate.username,
-                    server_id: &server.id,
-                    server_name: &server.name,
-                    reason: &candidate.reason,
-                    message: &message,
-                },
-            )
-            .await
-            {
-                tracing::error!(error = %error, user = %candidate.username, "写断流事件失败");
-                continue;
-            }
-            removed += 1;
-            tracing::info!(
-                user = %candidate.username,
-                user_id = %candidate.user_id,
-                server = %server.name,
-                reason = %candidate.reason,
-                "{message}"
-            );
         }
     }
 
@@ -355,7 +581,41 @@ async fn apply_server(
         version_before,
         delivered = outcome.delivered,
         removed,
+        restored,
         "断流 apply 完成"
+    );
+    Ok(())
+}
+
+async fn write_event(
+    state: &AppState,
+    kind: &str,
+    server: &Server,
+    user_id: &str,
+    username: &str,
+    reason: &str,
+    message: &str,
+) -> anyhow::Result<()> {
+    repo::enforcement::insert_event(
+        &state.db.pool,
+        repo::enforcement::NewEvent {
+            kind,
+            user_id,
+            username,
+            server_id: &server.id,
+            server_name: &server.name,
+            reason,
+            message,
+        },
+    )
+    .await?;
+    tracing::info!(
+        kind,
+        user = %username,
+        user_id,
+        server = %server.name,
+        reason,
+        "{message}"
     );
     Ok(())
 }

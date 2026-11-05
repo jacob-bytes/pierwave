@@ -879,6 +879,7 @@ mod enforcement_tests {
             .await
             .unwrap();
         assert_eq!(events.len(), 1, "只应写一条断流事件");
+        assert_eq!(events[0].kind, "removed");
         assert_eq!(events[0].user_id, user_id);
         assert_eq!(events[0].reason, "exhausted");
         assert_eq!(events[0].server_id, fixture.server.id);
@@ -1036,6 +1037,7 @@ mod enforcement_tests {
             .await
             .unwrap();
         assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, "removed");
         assert_eq!(events[0].reason, "expired");
         assert!(
             events[0].message.contains("套餐已到期"),
@@ -1063,6 +1065,97 @@ mod enforcement_tests {
     }
 
     #[tokio::test]
+    async fn restoring_quota_re_adds_client_and_writes_restored_event() {
+        let fixture = fixture(Duration::from_millis(50)).await;
+        let user_id = add_user(&fixture.state, "alice").await;
+        let instance_id = add_package(&fixture.state, &user_id, Some(1000), None).await;
+        init_desired(&fixture).await;
+
+        let mut subscription = fixture.state.hub.subscribe(&fixture.server.id);
+        let _worker = crate::enforcement::spawn_worker(fixture.state.clone());
+
+        // 1) 跑满额度 → 自动移除（v2）。
+        record_traffic(
+            &fixture.state,
+            &fixture.server.id,
+            &traffic(1, &format!("{user_id}@{}", fixture.node_tag), 2000),
+        )
+        .await
+        .unwrap();
+        let desired = next_desired(&mut subscription.receiver).await;
+        let MasterMessage::Desired(desired) = desired else {
+            panic!("expected desired state");
+        };
+        assert_eq!(desired.version, 2);
+        assert!(
+            !has_client(&desired, &user_id, &fixture.node_tag),
+            "跑满后 client 应消失"
+        );
+        wait_event_count(&fixture.state, 1).await;
+
+        // 2) 管理员把 quota_override 调大 → 用户重新 eligible。
+        repo::user_packages::update(
+            &fixture.state.db.pool,
+            &instance_id,
+            repo::user_packages::UpdateUserPackage {
+                quota_override: Patch::Value(10_000),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        // 3) 对账发现「现在 eligible 但不在上次下发快照里」→ 恢复（v3）。
+        let users = crate::enforcement::reconcile_once(&fixture.state)
+            .await
+            .unwrap();
+        assert_eq!(users, 1, "对账应发现一个待恢复用户");
+
+        let desired = next_desired(&mut subscription.receiver).await;
+        let MasterMessage::Desired(desired) = desired else {
+            panic!("expected desired state");
+        };
+        assert_eq!(desired.version, 3, "恢复必须 bump config_version");
+        assert!(
+            has_client(&desired, &user_id, &fixture.node_tag),
+            "恢复后 client 应回到下发配置里"
+        );
+
+        wait_event_count(&fixture.state, 2).await;
+        let events = repo::enforcement::list_events(&fixture.state.db.pool, 10)
+            .await
+            .unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].kind, "restored", "最新一条应是恢复事件");
+        assert_eq!(events[0].reason, "recovered");
+        assert_eq!(events[0].user_id, user_id);
+        assert!(
+            events[0].message.contains("已加入服务器 hk-1 的配置"),
+            "{}",
+            events[0].message
+        );
+        assert_eq!(events[1].kind, "removed", "前一条仍是移除事件");
+
+        // 4) 再跑一轮对账：期望态没变 → 不 bump、不重复写事件。
+        let users = crate::enforcement::reconcile_once(&fixture.state)
+            .await
+            .unwrap();
+        assert_eq!(users, 0, "没有新的移除/恢复");
+        assert_no_more_desired(&mut subscription.receiver, Duration::from_millis(300)).await;
+        let server = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.server.id)
+            .await
+            .unwrap();
+        assert_eq!(server.config_version, 3, "幂等：不得重复 bump");
+        assert_eq!(
+            repo::enforcement::count_events(&fixture.state.db.pool)
+                .await
+                .unwrap(),
+            2,
+            "幂等：不得重复写事件"
+        );
+    }
+
+    #[tokio::test]
     async fn enforcement_can_be_disabled() {
         let fixture = fixture(Duration::from_millis(20)).await;
         // 覆盖开关：模拟 MMRUST_ENFORCE=0。
@@ -1071,7 +1164,7 @@ mod enforcement_tests {
             .clone()
             .with_enforcement(false, Duration::from_millis(20));
         let user_id = add_user(&state, "alice").await;
-        add_package(&state, &user_id, Some(1000), None).await;
+        let instance_id = add_package(&state, &user_id, Some(1000), None).await;
 
         let mut subscription = state.hub.subscribe(&fixture.server.id);
         let _worker = crate::enforcement::spawn_worker(state.clone());
@@ -1091,5 +1184,23 @@ mod enforcement_tests {
                 .unwrap(),
             0
         );
+
+        // 恢复逻辑也必须一并停掉：额度调大后对账不返回用户、不 apply。
+        repo::user_packages::update(
+            &state.db.pool,
+            &instance_id,
+            repo::user_packages::UpdateUserPackage {
+                quota_override: Patch::Value(10_000),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            crate::enforcement::reconcile_once(&state).await.unwrap(),
+            0,
+            "关闭时恢复对账也必须停"
+        );
+        assert_no_more_desired(&mut subscription.receiver, Duration::from_millis(200)).await;
     }
 }

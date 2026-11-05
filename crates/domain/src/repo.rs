@@ -434,11 +434,24 @@ pub mod desired {
         pub fingerprint: String,
         pub config_version: i64,
         pub updated_at: i64,
+        /// 最近一次下发配置里的用户集合（JSON 数组）。
+        ///
+        /// `None` = 0005 之前写入的旧快照，无法判断已下发内容；恢复对账必须跳过，
+        /// 否则会把「本来就已下发」的用户误判成需要恢复。
+        pub granted_users: Option<String>,
+    }
+
+    impl Snapshot {
+        /// 解析已下发的用户集合；旧快照/脏数据返回 `None`。
+        pub fn granted_user_ids(&self) -> Option<Vec<String>> {
+            let raw = self.granted_users.as_deref()?;
+            serde_json::from_str::<Vec<String>>(raw).ok()
+        }
     }
 
     pub async fn get(pool: &SqlitePool, server_id: &str) -> anyhow::Result<Option<Snapshot>> {
         Ok(sqlx::query_as::<_, Snapshot>(
-            "SELECT server_id, fingerprint, config_version, updated_at
+            "SELECT server_id, fingerprint, config_version, updated_at, granted_users
              FROM desired_snapshots WHERE server_id = ?",
         )
         .bind(server_id)
@@ -452,19 +465,24 @@ pub mod desired {
         server_id: &str,
         fingerprint: &str,
         config_version: i64,
+        granted_users: &[String],
         updated_at: i64,
     ) -> anyhow::Result<()> {
+        let granted_users = serde_json::to_string(granted_users).unwrap_or_else(|_| "[]".into());
         sqlx::query(
-            "INSERT INTO desired_snapshots (server_id, fingerprint, config_version, updated_at)
-             VALUES (?, ?, ?, ?)
+            "INSERT INTO desired_snapshots
+                (server_id, fingerprint, config_version, granted_users, updated_at)
+             VALUES (?, ?, ?, ?, ?)
              ON CONFLICT(server_id) DO UPDATE SET
                 fingerprint = excluded.fingerprint,
                 config_version = excluded.config_version,
+                granted_users = excluded.granted_users,
                 updated_at = excluded.updated_at",
         )
         .bind(server_id)
         .bind(fingerprint)
         .bind(config_version)
+        .bind(granted_users)
         .bind(updated_at)
         .execute(pool)
         .await?;
@@ -1327,6 +1345,8 @@ pub mod enforcement {
 
     /// 一条待写库的断流事件；`message` 由调用方用 [`crate::enforcement`] 生成。
     pub struct NewEvent<'a> {
+        /// `removed` | `restored`。
+        pub kind: &'a str,
         pub user_id: &'a str,
         pub username: &'a str,
         pub server_id: &'a str,
@@ -1343,10 +1363,11 @@ pub mod enforcement {
         let created_at = now();
         sqlx::query(
             "INSERT INTO enforcement_events
-                (id, user_id, username, server_id, server_name, reason, message, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (id, kind, user_id, username, server_id, server_name, reason, message, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
+        .bind(input.kind)
         .bind(input.user_id)
         .bind(input.username)
         .bind(input.server_id)
@@ -1359,6 +1380,7 @@ pub mod enforcement {
 
         Ok(EnforcementEvent {
             id,
+            kind: input.kind.to_string(),
             user_id: input.user_id.to_string(),
             username: input.username.to_string(),
             server_id: input.server_id.to_string(),
@@ -1374,7 +1396,7 @@ pub mod enforcement {
         limit: i64,
     ) -> anyhow::Result<Vec<EnforcementEvent>> {
         Ok(sqlx::query_as::<_, EnforcementEvent>(
-            "SELECT id, user_id, username, server_id, server_name, reason, message, created_at
+            "SELECT id, kind, user_id, username, server_id, server_name, reason, message, created_at
              FROM enforcement_events
              ORDER BY created_at DESC, rowid DESC
              LIMIT ?",

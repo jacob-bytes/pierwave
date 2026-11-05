@@ -89,12 +89,16 @@ pub async fn publish(
         }),
     );
 
-    // 快照用于断流对账判断「期望态有没有变化」；写失败只影响去抖精度，不影响本次下发。
+    // 快照有两份信息：
+    // * fingerprint/config_version 判断「期望态有没有变化」；
+    // * granted_users 是下一次对账判断「谁该恢复」的基准。
+    // 写失败只影响下一轮对账的精度，不影响本次下发。
     if let Err(error) = repo::desired::save(
         &state.db.pool,
         &server.id,
         &fingerprint,
         version,
+        &desired.granted_user_ids,
         time::now(),
     )
     .await

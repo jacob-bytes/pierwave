@@ -109,6 +109,7 @@ mod tests {
             repo::enforcement::insert_event(
                 &state.db.pool,
                 repo::enforcement::NewEvent {
+                    kind: "removed",
                     user_id: "user-1",
                     username: user,
                     server_id: "server-1",
@@ -127,6 +128,7 @@ mod tests {
         assert_eq!(items.len(), 2);
         assert_eq!(items[0]["username"], "carol", "最新事件排在最前");
         assert_eq!(items[1]["username"], "bob");
+        assert_eq!(items[0]["kind"], "removed");
         assert!(items[0]["message"]
             .as_str()
             .unwrap()
