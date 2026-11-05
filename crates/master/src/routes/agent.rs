@@ -1155,6 +1155,223 @@ mod enforcement_tests {
         );
     }
 
+    async fn add_admin(state: &AppState) -> mmrust_domain::models::User {
+        repo::users::create(
+            &state.db.pool,
+            repo::users::NewUser {
+                username: "admin".into(),
+                password: "password123".into(),
+                role: "admin".into(),
+                quota_bytes: None,
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn package_template(state: &AppState, quota_bytes: i64) -> String {
+        repo::packages::create(
+            &state.db.pool,
+            repo::packages::NewPackage {
+                name: "测试卡".into(),
+                quota_bytes: Some(quota_bytes),
+                period_days: None,
+                direction: "both".into(),
+                node_ratio: 1.0,
+            },
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    async fn add_package_with_reset_day(
+        state: &AppState,
+        user_id: &str,
+        quota_bytes: i64,
+        reset_day: i64,
+    ) -> String {
+        let package = repo::packages::create(
+            &state.db.pool,
+            repo::packages::NewPackage {
+                name: "重置卡".into(),
+                quota_bytes: Some(quota_bytes),
+                period_days: None,
+                direction: "both".into(),
+                node_ratio: 1.0,
+            },
+        )
+        .await
+        .unwrap();
+        repo::user_packages::create(
+            &state.db.pool,
+            user_id,
+            repo::user_packages::NewUserPackage {
+                package_id: package.id.clone(),
+                quota_override: None,
+                expires_at: None,
+                reset_day: Some(reset_day),
+            },
+            &package,
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    #[tokio::test]
+    async fn binding_new_package_restores_without_reconcile() {
+        let fixture = fixture(Duration::from_millis(50)).await;
+        let user_id = add_user(&fixture.state, "alice").await;
+        let admin = add_admin(&fixture.state).await;
+        // 初始配置：用户还没有卡 → 快照 granted_users 为空。
+        init_desired(&fixture).await;
+
+        let mut subscription = fixture.state.hub.subscribe(&fixture.server.id);
+        let _worker = crate::enforcement::spawn_worker(fixture.state.clone());
+
+        let package_id = package_template(&fixture.state, 10_000).await;
+        let _ = crate::routes::users::create_user_package(
+            axum::extract::State(fixture.state.clone()),
+            crate::auth::CurrentUser(admin),
+            axum::extract::Path(user_id.clone()),
+            axum::Json(crate::routes::users::CreateUserPackage {
+                package_id,
+                expires_at: Patch::Missing,
+                quota_override: None,
+                reset_day: None,
+            }),
+        )
+        .await
+        .unwrap();
+
+        // 不调用 reconcile_once：仅靠 route 里的 mark + 去抖完成恢复。
+        let desired = next_desired(&mut subscription.receiver).await;
+        let MasterMessage::Desired(desired) = desired else {
+            panic!("expected desired state");
+        };
+        assert_eq!(desired.version, 2);
+        assert!(
+            has_client(&desired, &user_id, &fixture.node_tag),
+            "绑卡后 client 应通过 mark+去抖自动回到配置"
+        );
+
+        wait_event_count(&fixture.state, 1).await;
+        let events = repo::enforcement::list_events(&fixture.state.db.pool, 10)
+            .await
+            .unwrap();
+        assert_eq!(events[0].kind, "restored");
+        assert_eq!(events[0].user_id, user_id);
+    }
+
+    #[tokio::test]
+    async fn raising_quota_via_patch_restores_without_reconcile() {
+        let fixture = fixture(Duration::from_millis(50)).await;
+        let user_id = add_user(&fixture.state, "alice").await;
+        let admin = add_admin(&fixture.state).await;
+        let instance_id = add_package(&fixture.state, &user_id, Some(1000), None).await;
+        init_desired(&fixture).await;
+
+        let mut subscription = fixture.state.hub.subscribe(&fixture.server.id);
+        let _worker = crate::enforcement::spawn_worker(fixture.state.clone());
+
+        // 先跑满，让断流把 client 移除（v2）。
+        record_traffic(
+            &fixture.state,
+            &fixture.server.id,
+            &traffic(1, &format!("{user_id}@{}", fixture.node_tag), 2000),
+        )
+        .await
+        .unwrap();
+        let desired = next_desired(&mut subscription.receiver).await;
+        let MasterMessage::Desired(desired) = desired else {
+            panic!("expected desired state");
+        };
+        assert_eq!(desired.version, 2);
+        assert!(!has_client(&desired, &user_id, &fixture.node_tag));
+        wait_event_count(&fixture.state, 1).await;
+
+        // 管理员改额度：route 里直接 mark，不等 5 分钟对账。
+        let _ = crate::routes::users::update_user_package(
+            axum::extract::State(fixture.state.clone()),
+            crate::auth::CurrentUser(admin),
+            axum::extract::Path(instance_id),
+            axum::Json(crate::routes::users::UpdateUserPackage {
+                expires_at: Patch::Missing,
+                quota_override: Patch::Value(10_000),
+                reset_day: Patch::Missing,
+                status: None,
+            }),
+        )
+        .await
+        .unwrap();
+
+        let desired = next_desired(&mut subscription.receiver).await;
+        let MasterMessage::Desired(desired) = desired else {
+            panic!("expected desired state");
+        };
+        assert_eq!(desired.version, 3);
+        assert!(
+            has_client(&desired, &user_id, &fixture.node_tag),
+            "改额度后 client 应通过 mark+去抖自动恢复"
+        );
+        wait_event_count(&fixture.state, 2).await;
+        let events = repo::enforcement::list_events(&fixture.state.db.pool, 10)
+            .await
+            .unwrap();
+        assert_eq!(events[0].kind, "restored");
+    }
+
+    #[tokio::test]
+    async fn daily_reset_restores_without_reconcile() {
+        let fixture = fixture(Duration::from_millis(50)).await;
+        let user_id = add_user(&fixture.state, "alice").await;
+        let (_, _, today) = mmrust_domain::time::business_ymd(mmrust_domain::time::now());
+        let _instance_id =
+            add_package_with_reset_day(&fixture.state, &user_id, 1000, i64::from(today)).await;
+        init_desired(&fixture).await;
+
+        let mut subscription = fixture.state.hub.subscribe(&fixture.server.id);
+        let _worker = crate::enforcement::spawn_worker(fixture.state.clone());
+
+        // 跑满 → 移除（v2）。
+        record_traffic(
+            &fixture.state,
+            &fixture.server.id,
+            &traffic(1, &format!("{user_id}@{}", fixture.node_tag), 2000),
+        )
+        .await
+        .unwrap();
+        let desired = next_desired(&mut subscription.receiver).await;
+        let MasterMessage::Desired(desired) = desired else {
+            panic!("expected desired state");
+        };
+        assert_eq!(desired.version, 2);
+        assert!(!has_client(&desired, &user_id, &fixture.node_tag));
+        wait_event_count(&fixture.state, 1).await;
+
+        // 每日重置清零：调度器这一轮会直接 mark，不等 5 分钟对账。
+        let report = crate::scheduler::run_reset_round(&fixture.state)
+            .await
+            .unwrap();
+        assert_eq!(report.instances, 1, "今天应命中这张重置卡");
+
+        let desired = next_desired(&mut subscription.receiver).await;
+        let MasterMessage::Desired(desired) = desired else {
+            panic!("expected desired state");
+        };
+        assert_eq!(desired.version, 3);
+        assert!(
+            has_client(&desired, &user_id, &fixture.node_tag),
+            "每日重置后 client 应通过 mark+去抖自动恢复"
+        );
+        wait_event_count(&fixture.state, 2).await;
+        let events = repo::enforcement::list_events(&fixture.state.db.pool, 10)
+            .await
+            .unwrap();
+        assert_eq!(events[0].kind, "restored");
+    }
+
     #[tokio::test]
     async fn enforcement_can_be_disabled() {
         let fixture = fixture(Duration::from_millis(20)).await;

@@ -275,6 +275,12 @@ pub async fn create_user_package(
     )
     .await?;
 
+    // 新绑卡可能让用户从「不可用」变「可用」：立刻标记，走 30s 去抖恢复；
+    // 失败只记日志，5 分钟对账仍会兜底。
+    if let Err(error) = crate::enforcement::mark_user_servers_dirty(&state, &user_id).await {
+        tracing::error!(%user_id, error = %error, "绑卡后标记期望态失败");
+    }
+
     Ok(Json(json!({ "item": item })))
 }
 
@@ -328,6 +334,12 @@ pub async fn update_user_package(
     )
     .await?
     .ok_or(AppError::NotFound)?;
+
+    // 额度 / 到期 / 状态任一变更都可能跨过可用边界：立刻标记该用户涉及的服务器，
+    // 由 apply 时的快照差集决定移除还是恢复；5 分钟对账仍作兜底。
+    if let Err(error) = crate::enforcement::mark_user_servers_dirty(&state, &item.user_id).await {
+        tracing::error!(user_id = %item.user_id, error = %error, "改套餐后标记期望态失败");
+    }
 
     Ok(Json(json!({ "item": item })))
 }

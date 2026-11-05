@@ -88,7 +88,19 @@ impl Enforcer {
 
     /// 标记某台服务器的期望态为脏。窗口内重复标记会合并成同一批。
     pub fn mark_dirty(&self, server_id: &str, candidates: Vec<RemovalCandidate>) {
-        if !self.enabled || candidates.is_empty() {
+        self.mark(server_id, candidates, false);
+    }
+
+    /// 标记某台服务器的期望态为脏，但不携带候选用户。
+    ///
+    /// 用于「用户状态明确变了，但方向交给 apply 时按快照差集判断」的触发点
+    /// （每日重置、绑卡、改额度）；apply 会自己加载用户名并计算移除原因。
+    pub fn mark_server_dirty(&self, server_id: &str) {
+        self.mark(server_id, Vec::new(), true);
+    }
+
+    fn mark(&self, server_id: &str, candidates: Vec<RemovalCandidate>, force: bool) {
+        if !self.enabled || (candidates.is_empty() && !force) {
             return;
         }
         let now = Instant::now();
@@ -221,6 +233,49 @@ pub async fn mark_removal_candidates(
         state.enforcement.mark_dirty(server_id, candidates.clone());
     }
     Ok(())
+}
+
+/// 每日重置清零后：标记所有有启用节点的服务器。
+///
+/// 不判断某个用户应该恢复还是移除；apply 会用快照差集自己算。
+/// 这样所有「用户状态变了」的触发点共用同一个入口。
+pub async fn mark_all_servers_dirty(state: &AppState) -> anyhow::Result<usize> {
+    if !state.enforcement.enabled() {
+        return Ok(0);
+    }
+    let server_ids = repo::servers::list_ids_with_enabled_nodes(&state.db.pool).await?;
+    for server_id in &server_ids {
+        state.enforcement.mark_server_dirty(server_id);
+    }
+    if !server_ids.is_empty() {
+        tracing::info!(
+            servers = server_ids.len(),
+            "状态变更：标记所有有启用节点的服务器期望态为脏"
+        );
+    }
+    Ok(server_ids.len())
+}
+
+/// 用户绑卡 / 改额度 / 改到期 / 改状态后：标记该用户可能出现的服务器。
+///
+/// 资格是全局的：用户 eligible 时会被注入所有有启用节点的服务器，
+/// 所以这里同样标记这些服务器；具体移除还是恢复由 apply 的快照差集决定。
+pub async fn mark_user_servers_dirty(state: &AppState, user_id: &str) -> anyhow::Result<usize> {
+    if !state.enforcement.enabled() {
+        return Ok(0);
+    }
+    let server_ids = repo::servers::list_ids_with_enabled_nodes(&state.db.pool).await?;
+    for server_id in &server_ids {
+        state.enforcement.mark_server_dirty(server_id);
+    }
+    if !server_ids.is_empty() {
+        tracing::info!(
+            user_id,
+            servers = server_ids.len(),
+            "用户套餐变更：标记服务器期望态为脏"
+        );
+    }
+    Ok(server_ids.len())
 }
 
 /// 5 分钟双向对账：移除「该走但还在」的，恢复「该回但不在」的。
@@ -407,6 +462,33 @@ async fn removed_candidate(
     })
 }
 
+/// 没有候选元数据时（例如改额度/重置触发）的移除事件信息：
+/// 按用户状态与实例状态现算，避免把「额度用尽」写成笼统的「不可用」。
+async fn resolve_removal(state: &AppState, user_id: &str) -> anyhow::Result<(String, String)> {
+    let Some(user) = repo::users::find_by_id_opt(&state.db.pool, user_id).await? else {
+        return Ok((user_id.to_string(), rules::REASON_INACTIVE.to_string()));
+    };
+    if user.status != "active" {
+        return Ok((user.username, rules::REASON_DISABLED.to_string()));
+    }
+
+    let now = time::now();
+    let views = repo::user_packages::list_views_by_user(&state.db.pool, &user.id).await?;
+    let mut reasons: Vec<&'static str> = Vec::new();
+    for view in &views {
+        let status = view.status_at(now);
+        if status != "active" && !reasons.contains(&status) {
+            reasons.push(status);
+        }
+    }
+    let reason = if reasons.is_empty() {
+        rules::REASON_INACTIVE.to_string()
+    } else {
+        rules::merge_reasons(reasons)
+    };
+    Ok((user.username, reason))
+}
+
 async fn display_name(state: &AppState, user_id: &str) -> anyhow::Result<String> {
     Ok(repo::users::find_by_id_opt(&state.db.pool, user_id)
         .await?
@@ -506,10 +588,7 @@ async fn apply_server(
                             candidate.username.clone(),
                             removal_reason(&candidate.reason),
                         ),
-                        None => (
-                            display_name(state, user_id).await?,
-                            rules::REASON_INACTIVE.to_string(),
-                        ),
+                        None => resolve_removal(state, user_id).await?,
                     };
                     let message = rules::removal_message(&username, &reason, &server.name);
                     if let Err(error) = write_event(

@@ -4,10 +4,9 @@
 //! 判定与幂等都在领域层/`crate::enforcement` 里，这里只负责触发和记日志，
 //! 定时器不参与业务逻辑。
 
-use std::sync::Arc;
 use std::time::Duration;
 
-use mmrust_domain::{reset, time, Db};
+use mmrust_domain::{reset, time};
 
 use crate::enforcement;
 use crate::state::AppState;
@@ -21,15 +20,30 @@ const RESET_INTERVAL: Duration = Duration::from_secs(60 * 60);
 /// 对账只标记脏，真正的 apply 由去抖 worker 合并执行。
 const ENFORCEMENT_RECONCILE_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
+/// 执行一轮每日重置；有实例被清零时立刻标记所有服务器。
+///
+/// 三重触发之一（另外两个是绑卡、改额度）：用户状态变了就直接走 30s 去抖，
+/// 不再等 5 分钟对账。方向（恢复/移除）由 apply 时的快照差集决定。
+pub async fn run_reset_round(state: &AppState) -> anyhow::Result<reset::ResetReport> {
+    let report = reset::run_daily_reset(&state.db.pool, time::now()).await?;
+    if report.instances > 0 {
+        // 标记失败不影响重置本身：5 分钟对账仍是兜底。
+        if let Err(error) = enforcement::mark_all_servers_dirty(state).await {
+            tracing::error!(error = %error, "每日重置后标记期望态失败");
+        }
+    }
+    Ok(report)
+}
+
 /// 启动每日重置任务；句柄由调用方持有到进程退出即可（drop 不会停止任务）。
-pub fn spawn_daily_reset(db: Arc<Db>) -> tokio::task::JoinHandle<()> {
+pub fn spawn_daily_reset(state: AppState) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(RESET_INTERVAL);
         // 机器休眠/卡顿后不要补跑一堆错过的 tick，下一轮继续即可。
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             ticker.tick().await;
-            match reset::run_daily_reset(&db.pool, time::now()).await {
+            match run_reset_round(&state).await {
                 Ok(report) if report.instances > 0 => {
                     tracing::info!(
                         instances = report.instances,
