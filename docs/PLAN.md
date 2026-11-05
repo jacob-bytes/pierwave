@@ -198,3 +198,23 @@ GET /api/v1/stats/traffic?days=7 -> {
 - 每小时唤醒一次，对 `reset_day == 今天(UTC+8)` 且今天还没重置过的实例执行清零；
 - 需要记录「上次重置时间」→ 迁移 `0003_user_package_reset.sql` 加 `last_reset_at INTEGER`；
 - 清零时同步扣减 `users.used_bytes`（扣到 0 为止，不要出现负数）。
+
+## P4：用户端自助（本轮契约）
+
+普通用户只能看到自己，接口一律**忽略传入参数、以会话用户为准**：
+
+```
+GET /api/v1/me/summary -> {
+  "user":     { "id", "username", "role", "short_code", "used_bytes", "quota_bytes" },
+  "packages": [ UserPackageView ],           // 与管理员视图同结构
+  "traffic":  { "today_bytes": 123, "month_bytes": 456 },
+  "subscription_url": "/api/v1/sub/{short_code}"
+}
+
+GET /api/v1/me/traffic?days=7 -> { "days": [ TrafficDay ] }   // 只统计该用户
+```
+
+规则：
+- 未登录 401；管理员调用也返回自己的数据（不特殊处理）。
+- 断流中的用户仍返回 200 与真实状态（`packages[].status` 为 `exhausted`/`expired`），不返回 403。
+- 前端据此区分三种提示：**正常 / 已用尽 (exhausted) / 已过期 (expired)**，并给「续费联系管理员」的引导文案，不要只显示「无节点」。
