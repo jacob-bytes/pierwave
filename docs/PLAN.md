@@ -163,3 +163,38 @@ DELETE /api/v1/user-packages/:id                  -> {ok:true}
 | 时间戳时区 | 存储与传输一律 UTC 秒；业务日（重置日、到期、日账本）按 UTC+8 计算 |
 | 节点被跳过（坏配置） | `apply` 响应返回 `warnings`；Agent 重连补发时仅写日志，面板若需常驻提示，后续在节点列表暴露 `problems` 字段 |
 | `quota_override` 清空 | `PATCH {"quota_override": null}` = 改回继承套餐额度；前端必须预填原值，否则用户只能解绑重绑 |
+
+## P3：概览与订阅（本轮契约）
+
+### 概览
+
+```
+GET /api/v1/stats/overview -> {
+  "servers":  { "total": 3, "online": 2 },
+  "users":    { "total": 10, "active": 9 },
+  "packages": { "total": 4, "instances": 12 },
+  "traffic":  { "today_bytes": 123, "month_bytes": 456 },
+  "alerts":   { "expired_instances": 2, "exhausted_instances": 1, "offline_servers": 1 }
+}
+```
+
+### 流量趋势
+
+```
+GET /api/v1/stats/traffic?days=7 -> {
+  "days": [ { "date": "2026-11-05", "uplink": 1, "downlink": 2, "weighted": 3 } ]
+}
+```
+
+`date` 为 UTC+8 自然日；缺数据的日期要补 0 而不是跳过（前端画图更简单）。
+
+### 订阅管理页要用的数据
+
+不需要新接口：`GET /api/v1/users` 已包含 `short_code`、`packages`、`used_bytes`、`quota_bytes`。
+订阅链接由前端拼 `{origin}/api/v1/sub/{short_code}`。
+
+### 每日重置（METERING §4 的落地）
+
+- 每小时唤醒一次，对 `reset_day == 今天(UTC+8)` 且今天还没重置过的实例执行清零；
+- 需要记录「上次重置时间」→ 迁移 `0003_user_package_reset.sql` 加 `last_reset_at INTEGER`；
+- 清零时同步扣减 `users.used_bytes`（扣到 0 为止，不要出现负数）。
