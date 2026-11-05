@@ -98,9 +98,10 @@ jobs:
       - name: E2E errors as annotations
         if: failure()
         run: |
-          # 优先把真正的失败行打出来（GitHub 每个 step 的 annotation 数量有上限）
-          if grep -qE "FAIL|^error|Traceback|assert" e2e.log; then
-            grep -nE "FAIL|^error|Traceback|assert" e2e.log | tail -6 > failures.txt || true
+          if grep -q "Traceback" e2e.log; then
+            awk '/Traceback/{f=1} f&&n<8{print; n++}' e2e.log > failures.txt
+          elif grep -q "FAIL" e2e.log; then
+            grep "FAIL" e2e.log | tail -4 > failures.txt
           else
             tail -6 e2e.log > failures.txt
           fi
