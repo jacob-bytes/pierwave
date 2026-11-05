@@ -15,9 +15,11 @@ import {
   type CreateUserInput,
   type Health,
   type Node,
+  type OverviewStats,
   type Package,
   type Server,
   type SessionUser,
+  type TrafficStats,
   type UpdateNodeInput,
   type UpdatePackageInput,
   type UpdateUserInput,
@@ -29,6 +31,8 @@ import {
 export const queryKeys = {
   me: ["me"] as const,
   health: ["health"] as const,
+  statsOverview: ["stats", "overview"] as const,
+  statsTraffic: (days: number) => ["stats", "traffic", days] as const,
   servers: ["servers"] as const,
   nodes: (serverId: string) => ["nodes", serverId] as const,
   users: (q: string) => ["users", { q }] as const,
@@ -56,6 +60,26 @@ export function useHealth() {
     queryFn: api.health,
     retry: false,
     staleTime: 5 * 60_000,
+  });
+}
+
+/** 概览统计。后端接口可能尚未上线，页面自行处理 404 文案。 */
+export function useOverview() {
+  return useQuery<OverviewStats>({
+    queryKey: queryKeys.statsOverview,
+    queryFn: api.stats.overview,
+    staleTime: 30_000,
+  });
+}
+
+/** 近 N 天流量趋势；后端会把缺数据的日期补 0。 */
+export function useTraffic(days: number) {
+  return useQuery<TrafficStats>({
+    queryKey: queryKeys.statsTraffic(days),
+    queryFn: () => api.stats.traffic(days),
+    enabled: days > 0,
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
   });
 }
 

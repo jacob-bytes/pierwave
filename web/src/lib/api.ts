@@ -181,8 +181,40 @@ export interface UpdateUserPackageInput {
   status?: string;
 }
 
+/** P3：概览契约，见 docs/PLAN.md「P3：概览与订阅（本轮契约）」。 */
+export interface OverviewStats {
+  servers: { total: number; online: number };
+  users: { total: number; active: number };
+  packages: { total: number; instances: number };
+  traffic: { today_bytes: number; month_bytes: number };
+  alerts: {
+    expired_instances: number;
+    exhausted_instances: number;
+    offline_servers: number;
+  };
+}
+
+/** 流量趋势的 `date` 是 UTC+8 自然日，后端会把缺数据的日期补 0。 */
+export interface TrafficDay {
+  date: string;
+  uplink: number;
+  downlink: number;
+  weighted: number;
+}
+
+export interface TrafficStats {
+  days: TrafficDay[];
+}
+
 export const api = {
   health: () => request<Health>("/api/v1/health"),
+  stats: {
+    overview: () => request<OverviewStats>("/api/v1/stats/overview"),
+    traffic: (days: number) =>
+      request<TrafficStats>(
+        `/api/v1/stats/traffic?days=${encodeURIComponent(String(days))}`,
+      ),
+  },
   me: () => request<{ user: SessionUser }>("/api/v1/auth/me"),
   login: (username: string, password: string) =>
     request<{ user: SessionUser }>("/api/v1/auth/login", {

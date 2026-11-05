@@ -1,11 +1,6 @@
 import { lazy, Suspense, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
-import {
-  LayoutDashboardIcon,
-  Loader2Icon,
-  RefreshCwIcon,
-  TriangleAlertIcon,
-} from "lucide-react";
+import { Loader2Icon, RefreshCwIcon, TriangleAlertIcon } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,8 +8,10 @@ import { isUnauthorized, useMe } from "@/lib/queries";
 import { safeNextPath } from "@/lib/auth";
 import { errorText } from "@/lib/errors";
 const LoginPage = lazy(() => import("@/pages/Login"));
+const OverviewPage = lazy(() => import("@/pages/Overview"));
 const ServersPage = lazy(() => import("@/pages/Servers"));
 const UsersPage = lazy(() => import("@/pages/Users"));
+const SubscriptionsPage = lazy(() => import("@/pages/Subscriptions"));
 const PackagesPage = lazy(() => import("@/pages/Packages"));
 const NodesPage = lazy(() => import("@/pages/Nodes"));
 const NodesIndexPage = lazy(() => import("@/pages/NodesIndex"));
@@ -44,30 +41,6 @@ function LoginRedirect() {
     new URLSearchParams(location.search).get("next"),
   );
   return <Navigate to={next} replace />;
-}
-
-function OverviewPlaceholder() {
-  return (
-    <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">概览</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          主控与节点的运行概况，后续接入。
-        </p>
-      </div>
-      <Card>
-        <CardContent className="flex flex-col items-center justify-center gap-2 py-16 text-center">
-          <div className="mb-1 grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
-            <LayoutDashboardIcon className="size-5" />
-          </div>
-          <p className="text-sm font-medium">概览正在建设中</p>
-          <p className="text-xs text-muted-foreground">
-            当前可以先在「服务器」页添加并管理 Agent。
-          </p>
-        </CardContent>
-      </Card>
-    </div>
-  );
 }
 
 export default function App() {
@@ -134,11 +107,12 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginRedirect />} />
         <Route element={<AppShell user={user} />}>
-          <Route index element={<OverviewPlaceholder />} />
+          <Route index element={<OverviewPage />} />
           <Route path="servers" element={<ServersPage />} />
           <Route path="servers/:id/nodes" element={<NodesPage />} />
           <Route path="nodes" element={<NodesIndexPage />} />
           <Route path="users" element={<UsersPage />} />
+          <Route path="subscriptions" element={<SubscriptionsPage />} />
           <Route path="packages" element={<PackagesPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

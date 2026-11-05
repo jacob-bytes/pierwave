@@ -10,6 +10,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   ChevronRightIcon,
   LayoutDashboardIcon,
+  Link2Icon,
   Loader2Icon,
   LogOutIcon,
   NetworkIcon,
@@ -53,7 +54,8 @@ const consoleNav: NavItem[] = [
 
 const managementNav: NavItem[] = [
   { to: "/users", label: "用户", icon: UsersIcon },
-  { to: "/packages", label: "套餐", icon: PackageIcon, sub: true },
+  { to: "/subscriptions", label: "订阅", icon: Link2Icon },
+  { to: "/packages", label: "套餐", icon: PackageIcon },
 ];
 
 const systemNav: NavItem[] = [
