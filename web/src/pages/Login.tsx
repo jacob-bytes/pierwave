@@ -1,65 +1,111 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "../lib/api";
+import { toast } from "sonner";
+import { Loader2Icon, TerminalIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useLogin } from "@/lib/queries";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
-  const qc = useQueryClient();
+  const login = useLogin();
 
-  const mutation = useMutation({
-    mutationFn: () => api.login(username, password),
-    onSuccess: (data) => {
-      qc.setQueryData(["me"], data);
-      navigate("/", { replace: true });
-    },
-  });
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    login.mutate(
+      { username: username.trim(), password },
+      {
+        onSuccess: () => {
+          navigate("/", { replace: true });
+        },
+        onError: (error) => {
+          toast.error(error.message || "登录失败，请稍后重试");
+        },
+      },
+    );
+  }
+
+  const errorMessage = login.isError
+    ? login.error.message || "登录失败，请稍后重试"
+    : null;
 
   return (
-    <div className="grid h-full place-items-center">
-      <form
-        className="w-80 space-y-4 rounded-xl border border-white/10 bg-[var(--color-surface)] p-6"
-        onSubmit={(e) => {
-          e.preventDefault();
-          mutation.mutate();
-        }}
-      >
-        <div>
-          <h1 className="text-lg font-semibold">登录 mmrust</h1>
-          <p className="mt-1 text-xs text-white/50">首次启动的管理员密码见服务端日志</p>
+    <div className="grid min-h-full place-items-center bg-background p-6">
+      <div className="w-full max-w-sm animate-in fade-in-0 slide-in-from-bottom-1 duration-150">
+        <div className="mb-6 flex flex-col items-center gap-3 text-center">
+          <div className="grid size-10 place-items-center rounded-xl bg-primary/15 text-primary ring-1 ring-primary/20">
+            <TerminalIcon className="size-5" />
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight">
+              登录 mmrust
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              使用管理员账号进入控制台
+            </p>
+          </div>
         </div>
-        <label className="block space-y-1.5">
-          <span className="text-xs text-white/60">用户名</span>
-          <input
-            className="w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoComplete="username"
-          />
-        </label>
-        <label className="block space-y-1.5">
-          <span className="text-xs text-white/60">密码</span>
-          <input
-            type="password"
-            className="w-full rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-          />
-        </label>
-        {mutation.isError && (
-          <p className="text-xs text-red-400">{(mutation.error as Error).message}</p>
-        )}
-        <button
-          type="submit"
-          disabled={mutation.isPending}
-          className="w-full rounded-md bg-[var(--color-accent)] px-3 py-2 text-sm font-medium text-black disabled:opacity-60"
-        >
-          {mutation.isPending ? "登录中…" : "登录"}
-        </button>
-      </form>
+
+        <Card>
+          <CardContent>
+            <form className="space-y-4" onSubmit={handleSubmit}>
+              <div className="space-y-2">
+                <Label htmlFor="login-username">用户名</Label>
+                <Input
+                  id="login-username"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  autoComplete="username"
+                  autoFocus
+                  placeholder="admin"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="login-password">密码</Label>
+                <Input
+                  id="login-password"
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="current-password"
+                  placeholder="请输入密码"
+                />
+              </div>
+
+              {errorMessage ? (
+                <p
+                  role="alert"
+                  aria-live="polite"
+                  className="text-xs text-destructive"
+                >
+                  {errorMessage}
+                </p>
+              ) : null}
+
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={login.isPending || !username.trim() || !password}
+              >
+                {login.isPending ? (
+                  <Loader2Icon className="animate-spin" />
+                ) : null}
+                {login.isPending ? "登录中…" : "登录"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        <p className="mt-4 text-center text-xs text-muted-foreground">
+          首次启动的管理员密码见服务端日志
+        </p>
+      </div>
     </div>
   );
 }

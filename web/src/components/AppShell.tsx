@@ -1,61 +1,225 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
-import { Server, LayoutDashboard, LogOut } from "lucide-react";
-import { api, type SessionUser } from "../lib/api";
-import { cn } from "../lib/cn";
+import { useEffect } from "react";
+import {
+  Link,
+  NavLink,
+  Outlet,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
+import type { LucideIcon } from "lucide-react";
+import {
+  ChevronRightIcon,
+  LayoutDashboardIcon,
+  Loader2Icon,
+  LogOutIcon,
+  NetworkIcon,
+  ServerIcon,
+  SettingsIcon,
+  TerminalIcon,
+  UsersIcon,
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import type { SessionUser } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { useLogout } from "@/lib/queries";
+import { APP_VERSION } from "@/lib/version";
 
-const nav = [
-  { to: "/", label: "概览", icon: LayoutDashboard, end: true },
-  { to: "/servers", label: "服务器", icon: Server, end: false },
+type NavItem = {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+  end?: boolean;
+  disabled?: boolean;
+};
+
+const consoleNav: NavItem[] = [
+  { to: "/", label: "概览", icon: LayoutDashboardIcon, end: true },
+  { to: "/servers", label: "服务器", icon: ServerIcon },
 ];
 
-export default function AppShell({ user }: { user: SessionUser }) {
-  const navigate = useNavigate();
-  const qc = useQueryClient();
+const pendingNav: NavItem[] = [
+  { to: "/nodes", label: "节点", icon: NetworkIcon, disabled: true },
+  { to: "/users", label: "用户", icon: UsersIcon, disabled: true },
+  { to: "/settings", label: "设置", icon: SettingsIcon, disabled: true },
+];
 
-  async function logout() {
-    await api.logout();
-    qc.clear();
-    navigate("/login");
+const allNav = [...consoleNav, ...pendingNav];
+
+function roleLabel(role: SessionUser["role"]) {
+  return role === "admin" ? "管理员" : "普通用户";
+}
+
+function NavEntry({ item }: { item: NavItem }) {
+  const Icon = item.icon;
+
+  if (item.disabled) {
+    return (
+      <span title="待实现" className="block">
+        <Button
+          variant="ghost"
+          size="default"
+          disabled
+          className="w-full justify-start gap-2 px-2.5 font-normal text-muted-foreground/40"
+        >
+          <Icon className="size-4" />
+          {item.label}
+        </Button>
+      </span>
+    );
   }
 
   return (
-    <div className="flex h-full">
-      <aside className="flex w-56 shrink-0 flex-col border-r border-white/10 bg-[var(--color-surface)]">
-        <div className="px-4 py-5 text-sm font-semibold tracking-wide">mmrust</div>
-        <nav className="flex-1 space-y-1 px-2">
-          {nav.map(({ to, label, icon: Icon, end }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={end}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-2 rounded-md px-3 py-2 text-sm text-white/70 transition",
-                  isActive ? "bg-white/10 text-white" : "hover:bg-white/5 hover:text-white",
-                )
-              }
-            >
-              <Icon size={16} />
-              {label}
-            </NavLink>
-          ))}
-        </nav>
-        <div className="border-t border-white/10 p-3 text-xs text-white/50">
-          <div className="mb-2 truncate">
-            {user.username} · {user.role}
+    <NavLink
+      to={item.to}
+      end={item.end}
+      className={({ isActive }) =>
+        cn(
+          "flex h-8 items-center gap-2 rounded-md px-2.5 text-[13px] transition-colors duration-150",
+          isActive
+            ? "bg-sidebar-accent font-medium text-foreground"
+            : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+        )
+      }
+    >
+      <Icon className="size-4" />
+      {item.label}
+    </NavLink>
+  );
+}
+
+export default function AppShell({ user }: { user: SessionUser }) {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const logout = useLogout();
+
+  const current =
+    allNav.find((item) =>
+      item.to === "/" ? pathname === "/" : pathname.startsWith(item.to),
+    ) ?? allNav[0];
+  const pageLabel = current?.label ?? "概览";
+
+  useEffect(() => {
+    document.title = `${pageLabel} · mmrust`;
+  }, [pageLabel]);
+
+  const initial = user.username.slice(0, 1).toUpperCase();
+
+  async function handleLogout() {
+    try {
+      await logout.mutateAsync();
+    } catch {
+      // 网络失败时 useLogout 仍会清空本地缓存，照常回登录页。
+    }
+    navigate("/login", { replace: true });
+  }
+
+  return (
+    <div className="flex h-full bg-background text-foreground">
+      <aside className="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
+        <Link
+          to="/"
+          className="flex h-14 shrink-0 items-center gap-2.5 border-b border-sidebar-border px-4"
+        >
+          <div className="grid size-6 place-items-center rounded-md bg-primary/15 text-primary">
+            <TerminalIcon className="size-3.5" />
           </div>
-          <button
-            onClick={logout}
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-white/5 hover:text-white"
-          >
-            <LogOut size={14} /> 退出
-          </button>
+          <span className="text-sm font-semibold tracking-wide">mmrust</span>
+        </Link>
+
+        <nav className="flex-1 overflow-y-auto p-3">
+          <p className="px-2.5 pb-1.5 text-[11px] font-medium tracking-wider text-muted-foreground/50">
+            控制台
+          </p>
+          <div className="space-y-0.5">
+            {consoleNav.map((item) => (
+              <NavEntry key={item.to} item={item} />
+            ))}
+          </div>
+
+          <p className="px-2.5 pt-5 pb-1.5 text-[11px] font-medium tracking-wider text-muted-foreground/50">
+            管理
+          </p>
+          <div className="space-y-0.5">
+            {pendingNav.map((item) => (
+              <NavEntry key={item.to} item={item} />
+            ))}
+          </div>
+        </nav>
+
+        <div className="border-t border-sidebar-border p-3">
+          <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5">
+            <div className="grid size-7 shrink-0 place-items-center rounded-full bg-primary/15 text-[11px] font-semibold text-primary">
+              {initial}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[13px] font-medium">
+                {user.username}
+              </div>
+              <div className="truncate text-[11px] text-muted-foreground">
+                {roleLabel(user.role)}
+              </div>
+            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="退出登录"
+                  onClick={handleLogout}
+                  disabled={logout.isPending}
+                >
+                  {logout.isPending ? (
+                    <Loader2Icon className="animate-spin" />
+                  ) : (
+                    <LogOutIcon />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>退出登录</TooltipContent>
+            </Tooltip>
+          </div>
         </div>
       </aside>
-      <main className="flex-1 overflow-auto p-6">
-        <Outlet />
-      </main>
+
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border bg-background/80 px-6 backdrop-blur">
+          <nav
+            aria-label="面包屑"
+            className="flex min-w-0 items-center gap-1.5 text-sm"
+          >
+            <Link
+              to="/"
+              className="shrink-0 text-muted-foreground transition-colors duration-150 hover:text-foreground"
+            >
+              mmrust
+            </Link>
+            <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/40" />
+            <span className="truncate font-medium" aria-current="page">
+              {pageLabel}
+            </span>
+          </nav>
+          <Badge
+            variant="outline"
+            className="hidden font-normal text-muted-foreground sm:inline-flex"
+          >
+            {roleLabel(user.role)}
+          </Badge>
+        </header>
+
+        <main className="min-h-0 flex-1 overflow-y-auto p-6">
+          <Outlet />
+        </main>
+      </div>
+
+      <div className="pointer-events-none fixed right-4 bottom-3 z-20 font-mono text-[11px] text-muted-foreground/50">
+        v{APP_VERSION}
+      </div>
     </div>
   );
 }
