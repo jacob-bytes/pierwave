@@ -28,6 +28,30 @@ pub fn router(state: AppState) -> Router {
             patch(routes::nodes::update).delete(routes::nodes::delete),
         )
         .route("/api/v1/servers/{id}/apply", post(routes::nodes::apply))
+        .route(
+            "/api/v1/users",
+            get(routes::users::list).post(routes::users::create),
+        )
+        .route(
+            "/api/v1/users/{id}",
+            patch(routes::users::update).delete(routes::users::delete),
+        )
+        .route(
+            "/api/v1/users/{id}/packages",
+            get(routes::users::list_user_packages).post(routes::users::create_user_package),
+        )
+        .route(
+            "/api/v1/user-packages/{id}",
+            patch(routes::users::update_user_package).delete(routes::users::delete_user_package),
+        )
+        .route(
+            "/api/v1/packages",
+            get(routes::packages::list).post(routes::packages::create),
+        )
+        .route(
+            "/api/v1/packages/{id}",
+            patch(routes::packages::update).delete(routes::packages::delete),
+        )
         .route("/api/agent/ws", get(routes::agent::ws))
         .with_state(state)
         .fallback_service(static_files)

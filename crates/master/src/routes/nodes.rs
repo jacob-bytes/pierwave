@@ -261,6 +261,7 @@ mod tests {
                 username: "admin".into(),
                 password: "devpass".into(),
                 role: "admin".into(),
+                quota_bytes: None,
             },
         )
         .await
@@ -519,6 +520,7 @@ mod tests {
                 username: "bob".into(),
                 password: "pw".into(),
                 role: "user".into(),
+                quota_bytes: None,
             },
         )
         .await

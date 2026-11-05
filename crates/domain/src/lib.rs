@@ -26,7 +26,10 @@ impl Db {
                 }
             }
         }
-        let opts = SqliteConnectOptions::from_str(url)?.create_if_missing(true);
+        // 外键打开到连接选项里：池里每条连接都生效，删用户时套餐实例才会级联清理。
+        let opts = SqliteConnectOptions::from_str(url)?
+            .create_if_missing(true)
+            .foreign_keys(true);
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
             .connect_with(opts)
@@ -38,10 +41,6 @@ impl Db {
             .await
             .ok();
         sqlx::query("PRAGMA busy_timeout = 5000")
-            .execute(&pool)
-            .await
-            .ok();
-        sqlx::query("PRAGMA foreign_keys = ON")
             .execute(&pool)
             .await
             .ok();
@@ -77,6 +76,7 @@ impl Db {
                 username: "admin".into(),
                 password: plain,
                 role: "admin".into(),
+                quota_bytes: None,
             },
         )
         .await?;
