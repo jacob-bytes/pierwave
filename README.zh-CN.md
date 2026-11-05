@@ -69,7 +69,7 @@ curl -fsSL http://<主控地址>/api/agent/install.sh?token=<token> | sudo bash
 
 脚本按架构下载 agent、写 `/etc/pierwave-agent/config.toml`（0600）、装 systemd 并启动。
 
-预编译的 Linux 二进制（musl，x86_64 / aarch64）和 macOS arm64 版本发布在
+预编译的 Linux 二进制（musl，x86_64 / aarch64）发布在
 [Releases](https://github.com/jacob-bytes/pierwave/releases) 页。把 `pierwave-agent-<target>`
 放进 `PIERWAVE_AGENT_DIST` 指向的目录，安装命令即可直接使用。
 从源码交叉编译的步骤见 [docs/DEPLOY.md](docs/DEPLOY.md)。

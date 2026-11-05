@@ -62,33 +62,16 @@ jobs:
             fi
           done
 
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*
-          generate_release_notes: true
-
-  macos:
-    name: macos arm64
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/cache@v4
-        with:
-          path: |
-            .cargo-home
-            target
-          key: release-darwin-arm64-${{ hashFiles('**/Cargo.lock') }}
-      - name: Build
-        run: cargo build --release --locked -p pierwave-master -p pierwave-agent
-      - name: Package
+      # 发布说明直接用 annotated tag 的正文，格式在打 tag 时就被固定住：
+      #   feat: ...
+      #   fix: ...
+      - name: Release notes from tag
         run: |
-          mkdir -p dist
-          for bin in pierwave-master pierwave-agent; do
-            cp "target/release/$bin" "dist/$bin-aarch64-apple-darwin"
-          done
-          (cd dist && shasum -a 256 ./* > SHA256SUMS-aarch64-apple-darwin)
-          ls -l dist
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > release-notes.md
+          test -s release-notes.md || echo "（无发布说明）" > release-notes.md
+          cat release-notes.md
+
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+          body_path: release-notes.md

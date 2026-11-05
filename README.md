@@ -81,7 +81,7 @@ curl -fsSL http://<master>/api/agent/install.sh?token=<token> | sudo bash
 
 The script picks the right architecture, downloads the agent, writes
 `/etc/pierwave-agent/config.toml` (0600), installs a systemd unit and starts it.
-Prebuilt Linux binaries (musl, x86_64 / aarch64) and a macOS arm64 build are published on the
+Prebuilt Linux binaries (musl, x86_64 / aarch64) are published on the
 [Releases](https://github.com/jacob-bytes/pierwave/releases) page. Drop `pierwave-agent-<target>`
 into the directory `PIERWAVE_AGENT_DIST` points to and the install command works as-is.
 See [docs/DEPLOY.md](docs/DEPLOY.md) for building from source instead.
