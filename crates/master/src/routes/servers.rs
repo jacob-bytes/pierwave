@@ -1,4 +1,5 @@
 use axum::extract::State;
+use axum::http::HeaderMap;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
@@ -32,6 +33,7 @@ fn default_xray_mode() -> String {
 
 pub async fn create(
     State(state): State<AppState>,
+    headers: HeaderMap,
     user: CurrentUser,
     Json(req): Json<CreateServer>,
 ) -> AppResult<Json<serde_json::Value>> {
@@ -53,7 +55,8 @@ pub async fn create(
         "server": server,
         "token": token,
         "install_command": format!(
-            "curl -fsSL https://<主控域名>/api/agent/install.sh?token={token} | sudo bash"
+            "curl -fsSL {}/api/agent/install.sh?token={token} | sudo bash",
+            crate::routes::install::external_base(&headers)
         ),
     })))
 }

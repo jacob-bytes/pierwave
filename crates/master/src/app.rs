@@ -70,6 +70,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/sub/{short_code}", get(routes::subscribe::get))
         .route("/api/v1/me/summary", get(routes::me::summary))
         .route("/api/v1/me/traffic", get(routes::me::traffic))
+        .route("/api/agent/install.sh", get(routes::install::script))
+        .route("/api/agent/download/{file}", get(routes::install::download))
         .route("/api/agent/ws", get(routes::agent::ws))
         .with_state(state)
         .fallback_service(static_files)
