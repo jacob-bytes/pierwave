@@ -37,7 +37,8 @@ curl -fsSL https://panel.example.com/api/agent/install.sh?token=… | sudo bash
 脚本会按 `uname -m` 选架构、下载 `/api/agent/download/pierwave-agent-<target>`、写
 `/etc/pierwave-agent/config.toml`（0600）、装 systemd 单元并启动。
 
-因此部署前要做两件事：
+因此部署前要做两件事（或者直接从 [Releases](https://github.com/jacob-bytes/pierwave/releases)
+下载对应架构的 `pierwave-agent-<target>` 放进分发目录，跳过编译）：
 
 ```bash
 # 1) 交叉编译（本机没有对应 target 就先 rustup target add）

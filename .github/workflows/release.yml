@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_HOME: ${{ github.workspace }}/.cargo-home
+
+jobs:
+  linux:
+    name: linux ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-unknown-linux-musl, aarch64-unknown-linux-musl]
+    steps:
+      - uses: actions/checkout@v4
+
+      # cross 用容器里的 musl 工具链，aarch64 也不用额外装链接器
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cargo-home
+            target
+          key: release-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build
+        run: |
+          cross build --release --locked --target ${{ matrix.target }} \
+            -p pierwave-master -p pierwave-agent
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          for bin in pierwave-master pierwave-agent; do
+            cp "target/${{ matrix.target }}/release/$bin" "dist/$bin-${{ matrix.target }}"
+          done
+          (cd dist && shasum -a 256 ./* > "SHA256SUMS-${{ matrix.target }}")
+          ls -l dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+
+  macos:
+    name: macos arm64
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .cargo-home
+            target
+          key: release-darwin-arm64-${{ hashFiles('**/Cargo.lock') }}
+      - name: Build
+        run: cargo build --release --locked -p pierwave-master -p pierwave-agent
+      - name: Package
+        run: |
+          mkdir -p dist
+          for bin in pierwave-master pierwave-agent; do
+            cp "target/release/$bin" "dist/$bin-aarch64-apple-darwin"
+          done
+          (cd dist && shasum -a 256 ./* > SHA256SUMS-aarch64-apple-darwin)
+          ls -l dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
