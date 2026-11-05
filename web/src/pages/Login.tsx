@@ -24,8 +24,10 @@ export default function LoginPage() {
     login.mutate(
       { username: username.trim(), password },
       {
-        onSuccess: () => {
-          navigate(nextPath, { replace: true });
+        onSuccess: (user) => {
+          // 管理员进控制台，普通用户进自助页；`next` 只在非根路径时优先。
+          const landing = user.role === "admin" ? "/" : "/me";
+          navigate(nextPath === "/" ? landing : nextPath, { replace: true });
         },
         onError: (error) => {
           toast.error(errorText(error, "登录失败，请检查网络后重试"));
@@ -50,7 +52,7 @@ export default function LoginPage() {
               登录 mmrust
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              使用管理员账号进入控制台
+              使用账号登录，管理员与普通用户共用入口
             </p>
           </div>
         </div>

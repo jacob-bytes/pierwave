@@ -91,8 +91,8 @@ function TrafficTooltip({ active, payload }: TrafficTooltipProps) {
 }
 
 /**
- * 流量趋势图。recharts 体积较大，这个文件只被概览页用 `lazy()` 动态加载，
- * 不会进入主 chunk。
+ * 流量趋势图。recharts 体积较大，这个文件只被概览页与「我的」页
+ * 用 `lazy()` 动态加载，不会进入主 chunk。
  */
 export default function TrafficChart({ days }: { days: TrafficDay[] }) {
   const hasTraffic = days.some(

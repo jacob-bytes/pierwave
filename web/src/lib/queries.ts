@@ -14,6 +14,8 @@ import {
   type CreateServerResponse,
   type CreateUserInput,
   type Health,
+  type MeSummary,
+  type MeTraffic,
   type Node,
   type OverviewStats,
   type Package,
@@ -30,6 +32,8 @@ import {
 
 export const queryKeys = {
   me: ["me"] as const,
+  meSummary: ["me", "summary"] as const,
+  meTraffic: (days: number) => ["me", "traffic", days] as const,
   health: ["health"] as const,
   statsOverview: ["stats", "overview"] as const,
   statsTraffic: (days: number) => ["stats", "traffic", days] as const,
@@ -77,6 +81,26 @@ export function useTraffic(days: number) {
   return useQuery<TrafficStats>({
     queryKey: queryKeys.statsTraffic(days),
     queryFn: () => api.stats.traffic(days),
+    enabled: days > 0,
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+  });
+}
+
+/** 用户自助摘要。后端接口可能尚未上线，页面自行处理 404 文案。 */
+export function useMeSummary() {
+  return useQuery<MeSummary>({
+    queryKey: queryKeys.meSummary,
+    queryFn: api.me.summary,
+    staleTime: 15_000,
+  });
+}
+
+/** 用户自助的近 N 天流量；只统计会话用户自己的节点。 */
+export function useMeTraffic(days: number) {
+  return useQuery<MeTraffic>({
+    queryKey: queryKeys.meTraffic(days),
+    queryFn: () => api.me.traffic(days),
     enabled: days > 0,
     placeholderData: keepPreviousData,
     staleTime: 60_000,

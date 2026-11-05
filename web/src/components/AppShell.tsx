@@ -18,6 +18,7 @@ import {
   ServerIcon,
   SettingsIcon,
   TerminalIcon,
+  UserRoundIcon,
   UsersIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +41,11 @@ type NavItem = {
   sub?: boolean;
   /** 多入口页面（例如 /servers/:id/nodes）需要自定义点亮规则。 */
   activeWhen?: (pathname: string) => boolean;
+};
+
+type NavGroup = {
+  title: string;
+  items: NavItem[];
 };
 
 const consoleNav: NavItem[] = [
@@ -70,7 +76,30 @@ const systemNav: NavItem[] = [
   { to: "/settings", label: "设置", icon: SettingsIcon, disabled: true },
 ];
 
-const allNav = [...consoleNav, ...managementNav, ...systemNav];
+/** 普通用户只有两个入口：概览式「我的」和订阅锚点。 */
+const userNav: NavItem[] = [
+  {
+    to: "/me",
+    label: "我的",
+    icon: UserRoundIcon,
+    end: true,
+    activeWhen: (pathname) => pathname === "/me",
+  },
+  {
+    to: "/me/subscription",
+    label: "订阅",
+    icon: Link2Icon,
+    activeWhen: (pathname) => pathname.startsWith("/me/subscription"),
+  },
+];
+
+const adminNavGroups: NavGroup[] = [
+  { title: "控制台", items: consoleNav },
+  { title: "管理", items: managementNav },
+  { title: "系统", items: systemNav },
+];
+
+const userNavGroups: NavGroup[] = [{ title: "自助", items: userNav }];
 
 function roleLabel(role: SessionUser["role"]) {
   return role === "admin" ? "管理员" : "普通用户";
@@ -142,6 +171,9 @@ export default function AppShell({ user }: { user: SessionUser }) {
   const health = useHealth();
   const version = health.data?.version ?? "dev";
 
+  const navGroups = user.role === "admin" ? adminNavGroups : userNavGroups;
+  const homePath = user.role === "admin" ? "/" : "/me";
+  const allNav = navGroups.flatMap((group) => group.items);
   const current =
     allNav.find((item) => isItemActive(item, pathname)) ?? allNav[0];
   const pageLabel = current?.label ?? "概览";
@@ -165,7 +197,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
     <div className="flex h-full bg-background text-foreground">
       <aside className="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
         <Link
-          to="/"
+          to={homePath}
           className="flex h-14 shrink-0 items-center gap-2.5 border-b border-sidebar-border px-4"
         >
           <div className="grid size-6 place-items-center rounded-md bg-primary/15 text-primary">
@@ -175,32 +207,23 @@ export default function AppShell({ user }: { user: SessionUser }) {
         </Link>
 
         <nav className="flex-1 overflow-y-auto p-3">
-          <p className="px-2.5 pb-1.5 text-[11px] font-medium tracking-wider text-muted-foreground/50">
-            控制台
-          </p>
-          <div className="space-y-0.5">
-            {consoleNav.map((item) => (
-              <NavEntry key={item.to} item={item} pathname={pathname} />
-            ))}
-          </div>
-
-          <p className="px-2.5 pt-5 pb-1.5 text-[11px] font-medium tracking-wider text-muted-foreground/50">
-            管理
-          </p>
-          <div className="space-y-0.5">
-            {managementNav.map((item) => (
-              <NavEntry key={item.to} item={item} pathname={pathname} />
-            ))}
-          </div>
-
-          <p className="px-2.5 pt-5 pb-1.5 text-[11px] font-medium tracking-wider text-muted-foreground/50">
-            系统
-          </p>
-          <div className="space-y-0.5">
-            {systemNav.map((item) => (
-              <NavEntry key={item.to} item={item} pathname={pathname} />
-            ))}
-          </div>
+          {navGroups.map((group, index) => (
+            <div key={group.title}>
+              <p
+                className={cn(
+                  "px-2.5 pb-1.5 text-[11px] font-medium tracking-wider text-muted-foreground/50",
+                  index > 0 && "pt-5",
+                )}
+              >
+                {group.title}
+              </p>
+              <div className="space-y-0.5">
+                {group.items.map((item) => (
+                  <NavEntry key={item.to} item={item} pathname={pathname} />
+                ))}
+              </div>
+            </div>
+          ))}
         </nav>
 
         <div className="border-t border-sidebar-border p-3">
@@ -245,7 +268,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
             className="flex min-w-0 items-center gap-1.5 text-sm"
           >
             <Link
-              to="/"
+              to={homePath}
               className="shrink-0 text-muted-foreground transition-colors duration-150 hover:text-foreground"
             >
               mmrust

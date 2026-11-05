@@ -14,6 +14,7 @@ import {
   UnlinkIcon,
 } from "lucide-react";
 import { FormField, FormRootError } from "@/components/FormField";
+import { PackageStatusBadge } from "@/components/packages/PackageStatusBadge";
 import { UsageBar } from "@/components/UsageBar";
 import {
   AlertDialog,
@@ -60,11 +61,7 @@ import type {
 } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { bytesToGbInput, formatBytes, parseGbInput } from "@/lib/format";
-import {
-  directionLabel,
-  packageStatusLabel,
-  packageStatusTone,
-} from "@/lib/labels";
+import { directionLabel } from "@/lib/labels";
 import {
   useBindUserPackage,
   usePackages,
@@ -90,24 +87,6 @@ interface UserPackagesSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   user: UserView;
-}
-
-function PackageStatusBadge({ status }: { status: string }) {
-  const tone = packageStatusTone(status);
-  return (
-    <Badge
-      variant="outline"
-      className={cn(
-        "shrink-0 border-transparent font-normal",
-        tone === "primary" && "bg-primary/10 text-primary",
-        tone === "warning" && "bg-warning/10 text-warning",
-        tone === "destructive" && "bg-destructive/10 text-destructive",
-        tone === "muted" && "bg-muted text-muted-foreground",
-      )}
-    >
-      {packageStatusLabel(status)}
-    </Badge>
-  );
 }
 
 function BindPackageForm({ userId }: { userId: string }) {

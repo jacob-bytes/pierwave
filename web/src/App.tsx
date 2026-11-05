@@ -15,6 +15,7 @@ const SubscriptionsPage = lazy(() => import("@/pages/Subscriptions"));
 const PackagesPage = lazy(() => import("@/pages/Packages"));
 const NodesPage = lazy(() => import("@/pages/Nodes"));
 const NodesIndexPage = lazy(() => import("@/pages/NodesIndex"));
+const MePage = lazy(() => import("@/pages/Me"));
 
 function Centered({ children }: { children: ReactNode }) {
   return (
@@ -35,12 +36,12 @@ function RouteFallback({ label }: { label: string }) {
   );
 }
 
-function LoginRedirect() {
+function LoginRedirect({ landing }: { landing: string }) {
   const location = useLocation();
   const next = safeNextPath(
     new URLSearchParams(location.search).get("next"),
   );
-  return <Navigate to={next} replace />;
+  return <Navigate to={next === "/" ? landing : next} replace />;
 }
 
 export default function App() {
@@ -102,20 +103,33 @@ export default function App() {
   const user = me.data;
   if (!user) return null;
 
+  const isAdmin = user.role === "admin";
+  const landing = isAdmin ? "/" : "/me";
+
   return (
     <Suspense fallback={<RouteFallback label="正在加载页面…" />}>
       <Routes>
-        <Route path="/login" element={<LoginRedirect />} />
-        <Route element={<AppShell user={user} />}>
-          <Route index element={<OverviewPage />} />
-          <Route path="servers" element={<ServersPage />} />
-          <Route path="servers/:id/nodes" element={<NodesPage />} />
-          <Route path="nodes" element={<NodesIndexPage />} />
-          <Route path="users" element={<UsersPage />} />
-          <Route path="subscriptions" element={<SubscriptionsPage />} />
-          <Route path="packages" element={<PackagesPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Route>
+        <Route path="/login" element={<LoginRedirect landing={landing} />} />
+        {isAdmin ? (
+          <Route element={<AppShell user={user} />}>
+            <Route index element={<OverviewPage />} />
+            <Route path="servers" element={<ServersPage />} />
+            <Route path="servers/:id/nodes" element={<NodesPage />} />
+            <Route path="nodes" element={<NodesIndexPage />} />
+            <Route path="users" element={<UsersPage />} />
+            <Route path="subscriptions" element={<SubscriptionsPage />} />
+            <Route path="packages" element={<PackagesPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        ) : (
+          // 普通用户只有自助视图：管理路由一律回 /me，避免看到 403 报错。
+          <Route element={<AppShell user={user} />}>
+            <Route path="me" element={<MePage />} />
+            <Route path="me/subscription" element={<MePage />} />
+            <Route index element={<Navigate to="/me" replace />} />
+            <Route path="*" element={<Navigate to="/me" replace />} />
+          </Route>
+        )}
       </Routes>
     </Suspense>
   );

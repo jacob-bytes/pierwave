@@ -206,6 +206,27 @@ export interface TrafficStats {
   days: TrafficDay[];
 }
 
+/** P4：用户自助契约，见 docs/PLAN.md「P4：用户端自助（本轮契约）」。 */
+export interface MeSummaryUser {
+  id: string;
+  username: string;
+  role: UserRole;
+  short_code: string;
+  used_bytes: number;
+  quota_bytes: number | null;
+}
+
+export interface MeSummary {
+  user: MeSummaryUser;
+  /** 与管理员视图同结构；quota_override=0 表示显式不限。 */
+  packages: UserPackageView[];
+  traffic: { today_bytes: number; month_bytes: number };
+  /** 后端可能返回站内相对地址，展示前统一转成绝对 URL。 */
+  subscription_url: string;
+}
+
+export type MeTraffic = TrafficStats;
+
 export const api = {
   health: () => request<Health>("/api/v1/health"),
   stats: {
@@ -215,7 +236,17 @@ export const api = {
         `/api/v1/stats/traffic?days=${encodeURIComponent(String(days))}`,
       ),
   },
-  me: () => request<{ user: SessionUser }>("/api/v1/auth/me"),
+  // 会话用户与自助接口共用 `me` 命名空间：api.me() / api.me.summary() / api.me.traffic(days)。
+  me: Object.assign(
+    () => request<{ user: SessionUser }>("/api/v1/auth/me"),
+    {
+      summary: () => request<MeSummary>("/api/v1/me/summary"),
+      traffic: (days: number) =>
+        request<MeTraffic>(
+          `/api/v1/me/traffic?days=${encodeURIComponent(String(days))}`,
+        ),
+    },
+  ),
   login: (username: string, password: string) =>
     request<{ user: SessionUser }>("/api/v1/auth/login", {
       method: "POST",
