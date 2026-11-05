@@ -98,7 +98,13 @@ jobs:
       - name: E2E errors as annotations
         if: failure()
         run: |
-          tail -30 e2e.log | while IFS= read -r line; do
+          # 优先把真正的失败行打出来（GitHub 每个 step 的 annotation 数量有上限）
+          if grep -qE "FAIL|^error|Traceback|assert" e2e.log; then
+            grep -nE "FAIL|^error|Traceback|assert" e2e.log | tail -6 > failures.txt || true
+          else
+            tail -6 e2e.log > failures.txt
+          fi
+          while IFS= read -r line; do
             [ -n "$line" ] && echo "::error::$line"
-          done
+          done < failures.txt
           exit 0
