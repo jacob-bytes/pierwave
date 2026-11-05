@@ -100,4 +100,10 @@ make e2e      # 端到端：起 master + agent，验证下发、计量、订阅�
 
 ## 许可证
 
-待定（见 LICENSE）。
+[AGPL-3.0](LICENSE)。
+
+你可以自建、修改、二次分发；但如果把 PierWave（或它的修改版）作为网络服务对外提供，
+必须按 AGPL-3.0 公开你的修改。商业授权请联系维护者。
+
+贡献代码前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)：提交即表示同意以 AGPL-3.0 授权，
+并授予维护者再许可权。
