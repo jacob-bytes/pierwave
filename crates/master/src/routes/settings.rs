@@ -14,7 +14,7 @@ use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
-pub const DEFAULT_PANEL_NAME: &str = "PierWave 面板";
+pub const DEFAULT_PANEL_NAME: &str = "PierWave";
 pub const DEFAULT_LOGIN_MAX_ATTEMPTS: i64 = 5;
 pub const DEFAULT_LOGIN_LOCK_SECS: i64 = 900;
 pub const DEFAULT_SESSION_TTL_HOURS: i64 = 720;
@@ -306,7 +306,7 @@ mod tests {
         let (status, _, body) =
             request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["items"]["panel_name"], "PierWave 面板");
+        assert_eq!(body["items"]["panel_name"], "PierWave");
         assert_eq!(body["items"]["login_max_attempts"], 5);
         assert_eq!(body["items"]["login_lock_secs"], 900);
         assert_eq!(body["items"]["session_ttl_hours"], 720);
@@ -405,7 +405,7 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         let (_, _, body) = request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
-        assert_eq!(body["items"]["panel_name"], "PierWave 面板", "不该半截写入");
+        assert_eq!(body["items"]["panel_name"], "PierWave", "不该半截写入");
     }
 
     #[tokio::test]
