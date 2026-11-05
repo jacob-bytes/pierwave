@@ -1,109 +1,128 @@
 # PierWave
 
-Rust 写的 Xray 代理控制面：**主控 + Agent 分离**，Agent 反向连入，服务器不需要开放任何入站端口。
-面板、订阅分发、流量计费、超额断流在一套二进制里跑完。
+**English** | [简体中文](README.zh-CN.md)
 
-![概览](docs/images/overview.png)
+A Rust control plane for [Xray](https://github.com/XTLS/Xray-core) fleets: panel, subscription
+delivery, traffic metering and quota enforcement — with agents that dial **outbound** to the master,
+so your servers never expose an inbound management port.
 
-## 它解决什么
+![Overview](docs/images/overview.png)
 
-多台服务器跑 Xray 时，真正麻烦的不是装 Xray，而是：谁在跑哪个节点、给谁用了多少流量、用完了怎么断。
-PierWave 把这些收进一个控制面：
+## Why
 
-- **服务器只管连出来** —— Agent 主动连主控（WebSocket），不用在每台机器上开管理端口，也不怕 NAT
-- **配置是期望态** —— 主控下发完整配置，Agent 校验（`xray -test`）→ 备份 → 原子替换 → 失败回滚
-- **凭据是派生的** —— 每个「用户 × 节点」的 UUID 由 HMAC 派生，不用存表；同一份值同时出现在订阅和服务端配置里
-- **计费有唯一口径** —— Xray stats → 增量 → 方向×节点倍率加权 → 日账本；超额自动断流，续费 30 秒内恢复
-- **订阅开箱可用** —— Clash/mihomo YAML 与 URI 两种输出，带 `Subscription-Userinfo` 流量头
+Running Xray on more than a couple of servers is rarely about installing Xray. The hard parts are:
+which node runs where, how much each user consumed, and what happens when the quota is gone.
+PierWave puts all of that behind one control plane:
 
-## 架构
+- **Servers only dial out.** Agents connect to the master over WebSocket — no management port on
+  each box, works behind NAT.
+- **Desired state, not commands.** The master ships a full config; the agent validates it
+  (`xray -test`), backs up, swaps atomically, and rolls back on failure.
+- **Derived credentials.** Each `(user, node)` UUID is derived with HMAC — nothing to store, and the
+  exact same value appears in the subscription and in the server config.
+- **One billing source of truth.** Xray stats → deltas → weighted by direction × node ratio → daily
+  ledger. Exhausted users are evicted from the config automatically and restored within ~30s after
+  a top-up.
+- **Subscriptions that work out of the box.** Clash/mihomo YAML and URI list, with the
+  `Subscription-Userinfo` header clients use to show quota.
+
+## Architecture
 
 ```
         ┌─────────── pierwave-master ───────────┐
-        │  axum API · 会话鉴权 · 静态 SPA         │
-        │  订阅渲染 · 计费账本 · 断流对账         │
+        │  axum API · sessions · static SPA     │
+        │  subscription render · metering       │
+        │  enforcement reconcile                │
         └───────▲───────────────────┬───────────┘
-                │ 期望态 / 心跳 / 流量 │ WebSocket（反向连入）
+                │ desired state /    │ WebSocket (outbound from agent)
+                │ heartbeat / traffic│
         ┌───────┴────────┐   ┌──────▼─────────┐
         │ pierwave-agent │   │ pierwave-agent │
-        │ 收敛器 + 监督   │   │ ...            │
+        │ reconciler     │   │ ...            │
         └───────┬────────┘   └────────────────┘
-                │ 本地 gRPC :10085
+                │ local gRPC :10085
              xray-core
 ```
 
-| crate | 职责 |
+| crate | responsibility |
 |---|---|
-| `crates/proto` | 主控 ↔ Agent 线协议，版本化、只增不改 |
-| `crates/domain` | 数据模型、SQL、业务规则（不依赖 axum） |
-| `crates/master` | HTTP API、鉴权、SPA 托管、Agent WS |
-| `crates/agent` | 连主控、收敛配置、上报心跳与流量 |
+| `crates/proto` | wire protocol between master and agent (versioned, additive-only) |
+| `crates/domain` | models, SQL, business rules (no axum dependency) |
+| `crates/master` | HTTP API, auth, SPA hosting, agent WebSocket |
+| `crates/agent` | connects to master, converges configs, reports health and traffic |
 | `web` | React 19 + TypeScript + Tailwind 4 + shadcn/ui |
 
-## 界面
+## Screens
 
-| 服务器 | 用户 |
+| Servers | Users |
 |---|---|
-| ![服务器](docs/images/servers.png) | ![用户](docs/images/users.png) |
+| ![servers](docs/images/servers.png) | ![users](docs/images/users.png) |
 
-## 快速开始
+## Quick start
 
 ```bash
-make web-install      # 首次：装前端依赖
-make web-build        # 产出 web/dist（master 直接托管）
+make web-install      # first run: frontend dependencies
+make web-build        # builds web/dist (served by the master)
 make run              # http://127.0.0.1:8787
 ```
 
-首次启动创建管理员 `admin`，密码打印在日志里（或启动前设 `PIERWAVE_ADMIN_PASSWORD`）。
-开发时热更新：`make web-dev`（:5173，`/api` 已代理）。
+The first start creates an `admin` account; the password is printed in the log
+(or set `PIERWAVE_ADMIN_PASSWORD` before starting).
 
-### 接入一台服务器
+For frontend hot reload: `make web-dev` (:5173, `/api` is proxied to the master).
 
-面板「服务器 → 添加」拿到一次性 token，在目标机执行：
+### Adding a server
+
+Create a server in the panel, copy the one-time command, run it on the target host:
 
 ```bash
-curl -fsSL http://<主控地址>/api/agent/install.sh?token=<token> | sudo bash
+curl -fsSL http://<master>/api/agent/install.sh?token=<token> | sudo bash
 ```
 
-脚本按架构下载 agent、写 `/etc/pierwave-agent/config.toml`（0600）、装 systemd 并启动。
-需要先把交叉编译的二进制放进 `PIERWAVE_AGENT_DIST` 指向的目录，见 [docs/DEPLOY.md](docs/DEPLOY.md)。
+The script picks the right architecture, downloads the agent, writes
+`/etc/pierwave-agent/config.toml` (0600), installs a systemd unit and starts it.
+Cross-compiled binaries must be placed in the directory `PIERWAVE_AGENT_DIST` points to —
+see [docs/DEPLOY.md](docs/DEPLOY.md).
 
-## 配置（master）
+## Configuration (master)
 
-| 变量 | 默认 | 说明 |
+| variable | default | description |
 |---|---|---|
-| `PIERWAVE_ADDR` | `127.0.0.1:8787` | 监听地址 |
-| `PIERWAVE_DB` | `sqlite://data/pierwave.db?mode=rwc` | 数据库 |
-| `PIERWAVE_WEB_DIR` | `web/dist` | SPA 产物 |
-| `PIERWAVE_ADMIN_PASSWORD` | 随机 | 仅首次建库生效 |
-| `PIERWAVE_AGENT_DIST` | 未设置 | agent 二进制目录 |
-| `PIERWAVE_ENFORCE` | 开 | `0` 关闭超额断流 |
+| `PIERWAVE_ADDR` | `127.0.0.1:8787` | listen address |
+| `PIERWAVE_DB` | `sqlite://data/pierwave.db?mode=rwc` | database |
+| `PIERWAVE_WEB_DIR` | `web/dist` | SPA assets |
+| `PIERWAVE_ADMIN_PASSWORD` | random | only used when the database is created |
+| `PIERWAVE_AGENT_DIST` | unset | directory holding agent binaries |
+| `PIERWAVE_ENFORCE` | on | `0` disables quota enforcement |
 
-登录限流阈值、会话有效期、面板名称在「设置」页改，存库、不用重启。
+Login throttling, session lifetime and the panel name live in the settings page (stored in the
+database, no restart needed).
 
-## 状态
+## Status
 
-已可用：节点/入站管理、期望态下发与回滚、用户与套餐实例（多卡独立额度）、订阅分发、
-流量计量与断流、证书上传与部署、审计日志、用户自助页。
+Working: node/inbound management, desired-state delivery with rollback, users and package
+instances (multiple cards per user with independent quotas), subscription delivery, traffic metering
+and enforcement, certificate upload and deployment, audit log, self-service page for end users.
 
-未做：ACME 自动签发、按用户限速、nginx 证书部署、多主控/高可用。
-证书目前需手动上传；纯 IP:port 部署建议用 REALITY（不需要证书）。
+Not implemented yet: ACME issuance, per-user rate limiting, nginx certificate deployment,
+multi-master/HA. Certificates must be uploaded manually; for plain `IP:port` deployments REALITY is
+the recommended transport since it needs no certificate.
 
-## 开发
+## Development
 
 ```bash
-make check    # fmt + clippy(-D warnings) + test + web build
-make e2e      # 端到端：起 master + agent，验证下发、计量、订阅闭环
+make check    # fmt + clippy(-D warnings) + tests + frontend build
+make e2e      # end-to-end: starts master + agent, verifies delivery, metering, subscription loop
 ```
 
-工程约定见 [AGENTS.md](AGENTS.md)，设计文档在 `docs/`（[PLAN](docs/PLAN.md) · [METERING](docs/METERING.md) · [SUBSCRIBE](docs/SUBSCRIBE.md) · [CERTS](docs/CERTS.md) · [DEPLOY](docs/DEPLOY.md)）。
+Conventions live in [AGENTS.md](AGENTS.md); design notes are under `docs/`
+([PLAN](docs/PLAN.md) · [METERING](docs/METERING.md) · [SUBSCRIBE](docs/SUBSCRIBE.md) · [CERTS](docs/CERTS.md) · [DEPLOY](docs/DEPLOY.md)).
 
-## 许可证
+## License
 
-[AGPL-3.0](LICENSE)。
+[AGPL-3.0](LICENSE). You may self-host, modify and redistribute; if you run a modified version as a
+network service, AGPL requires you to publish those modifications. Commercial licensing is
+available on request.
 
-你可以自建、修改、二次分发；但如果把 PierWave（或它的修改版）作为网络服务对外提供，
-必须按 AGPL-3.0 公开你的修改。商业授权请联系维护者。
-
-贡献代码前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)：提交即表示同意以 AGPL-3.0 授权，
-并授予维护者再许可权。
+Before contributing, read [CONTRIBUTING.md](CONTRIBUTING.md): submitting a PR means agreeing to
+license your contribution under AGPL-3.0 and granting the maintainer a right to relicense.
