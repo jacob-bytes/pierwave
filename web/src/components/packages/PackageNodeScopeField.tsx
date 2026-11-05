@@ -78,15 +78,23 @@ export function PackageNodeScopeField({
   );
 
   const groups = useMemo(() => {
-    const byServer = new Map<string, NodeSummary[]>();
+    // 按 server_id 分组、用 server_name 作标题：同名服务器不会被合并。
+    const byServer = new Map<
+      string,
+      { serverName: string; items: NodeSummary[] }
+    >();
     for (const node of visibleNodes) {
-      const bucket = byServer.get(node.server_name);
-      if (bucket) bucket.push(node);
-      else byServer.set(node.server_name, [node]);
+      const bucket = byServer.get(node.server_id);
+      if (bucket) bucket.items.push(node);
+      else
+        byServer.set(node.server_id, {
+          serverName: node.server_name,
+          items: [node],
+        });
     }
-    return Array.from(byServer, ([serverName, items]) => ({
-      serverName,
-      items,
+    return Array.from(byServer, ([serverId, group]) => ({
+      serverId,
+      ...group,
     }));
   }, [visibleNodes]);
 
@@ -265,7 +273,7 @@ export function PackageNodeScopeField({
                 <ScrollArea className="h-64">
                   <div className="space-y-1 pr-3">
                     {groups.map((group, groupIndex) => (
-                      <div key={group.serverName}>
+                      <div key={group.serverId}>
                         <div
                           className={cn(
                             "flex items-center gap-1.5 px-1 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground",
