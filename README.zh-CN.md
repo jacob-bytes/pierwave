@@ -44,13 +44,17 @@ PierWave 把这些收进一个控制面：
 
 ## 界面
 
-| 服务器 | 节点（7 天流量） |
+| 服务器 | 节点 |
 |---|---|
 | ![服务器](docs/images/zh/servers.png) | ![节点](docs/images/zh/nodes.png) |
 
-| 用户 | 用户自助 |
+| 用户 | 审计日志 |
 |---|---|
-| ![用户](docs/images/zh/users.png) | ![我的](docs/images/zh/me.png) |
+| ![用户](docs/images/zh/users.png) | ![审计日志](docs/images/zh/audit.png) |
+
+| 订阅 | 用户自助 |
+|---|---|
+| ![订阅](docs/images/zh/subscriptions.png) | ![用户自助](docs/images/zh/me.png) |
 
 ## 快速开始
 
@@ -94,7 +98,7 @@ curl -fsSL http://<主控地址>/api/agent/install.sh?token=<token> | sudo bash
 ## 状态
 
 已可用：节点/入站管理、期望态下发与回滚、用户与套餐实例（多卡独立额度）、订阅分发、
-流量计量与断流、证书上传与部署、审计日志、用户自助页、中英文界面。
+流量计量与断流、证书上传与部署、审计日志（含界面）、用户自助页、中英文界面。
 
 未做：ACME 自动签发、按用户限速、nginx 证书部署、多主控/高可用。
 证书目前需手动上传；纯 IP:port 部署建议用 REALITY（不需要证书）。

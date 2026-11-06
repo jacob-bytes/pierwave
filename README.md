@@ -54,13 +54,17 @@ PierWave puts all of that behind one control plane:
 
 ## Screens
 
-| Servers | Nodes (7-day traffic) |
+| Servers | Nodes |
 |---|---|
-| ![servers](docs/images/en/servers.png) | ![nodes](docs/images/en/nodes.png) |
+| ![Servers](docs/images/en/servers.png) | ![Nodes](docs/images/en/nodes.png) |
 
-| Users | Self-service |
+| Users | Audit log |
 |---|---|
-| ![users](docs/images/en/users.png) | ![me](docs/images/en/me.png) |
+| ![Users](docs/images/en/users.png) | ![Audit log](docs/images/en/audit.png) |
+
+| Subscriptions | Self-service |
+|---|---|
+| ![Subscriptions](docs/images/en/subscriptions.png) | ![Self-service](docs/images/en/me.png) |
 
 ## Quick start
 
@@ -108,7 +112,7 @@ database, no restart needed).
 
 Working: node/inbound management, desired-state delivery with rollback, users and package
 instances (multiple cards per user with independent quotas), subscription delivery, traffic metering
-and enforcement, certificate upload and deployment, audit log, self-service page for end users, bilingual UI (English / 简体中文).
+and enforcement, certificate upload and deployment, audit log with a dedicated UI, self-service page for end users, bilingual UI (English / 简体中文).
 
 Not implemented yet: ACME issuance, per-user rate limiting, nginx certificate deployment,
 multi-master/HA. Certificates must be uploaded manually; for plain `IP:port` deployments REALITY is
