@@ -310,6 +310,48 @@ impl UserPackageView {
     }
 }
 
+/// 规则模板的原始行：`rules` 是库里存的 JSON 数组文本。
+///
+/// 单独拆一行模型是因为 `rules` 需要在读出后解析成数组再对外，
+/// 和 [`AuditRow`] / [`Certificate`] 的处理方式一致。
+#[derive(Debug, Clone, FromRow)]
+pub struct RuleTemplateRow {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub rules: String,
+    pub is_default: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// 规则模板对外视图：`rules` 已解析成字符串数组，`is_default` 是布尔值。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RuleTemplate {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub rules: Vec<String>,
+    pub is_default: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl From<RuleTemplateRow> for RuleTemplate {
+    fn from(row: RuleTemplateRow) -> Self {
+        Self {
+            id: row.id,
+            name: row.name,
+            description: row.description,
+            // 写入前都过校验，脏数据（手工改库）退化成空数组而不是 500。
+            rules: serde_json::from_str(&row.rules).unwrap_or_default(),
+            is_default: row.is_default != 0,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
 /// 用户列表/详情视图：用户本体 + 名下所有套餐实例（一次查询装配）。
 #[derive(Debug, Clone, Serialize)]
 pub struct UserView {

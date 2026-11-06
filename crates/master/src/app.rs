@@ -58,6 +58,14 @@ pub fn router(state: AppState) -> Router {
             patch(routes::packages::update).delete(routes::packages::delete),
         )
         .route(
+            "/api/v1/rule-templates",
+            get(routes::rule_templates::list).post(routes::rule_templates::create),
+        )
+        .route(
+            "/api/v1/rule-templates/{id}",
+            patch(routes::rule_templates::update).delete(routes::rule_templates::delete),
+        )
+        .route(
             "/api/v1/certificates",
             get(routes::certificates::list).post(routes::certificates::create),
         )

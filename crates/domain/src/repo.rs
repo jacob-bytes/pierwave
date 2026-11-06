@@ -264,6 +264,200 @@ pub mod users {
     }
 }
 
+pub mod rule_templates {
+    use super::*;
+    use crate::models::{RuleTemplate, RuleTemplateRow};
+
+    pub struct NewRuleTemplate {
+        pub name: String,
+        pub description: String,
+        pub rules: Vec<String>,
+        pub is_default: bool,
+    }
+
+    #[derive(Debug, Default)]
+    pub struct UpdateRuleTemplate {
+        pub name: Option<String>,
+        pub description: Option<String>,
+        pub rules: Option<Vec<String>>,
+        pub is_default: Option<bool>,
+    }
+
+    /// 删除结果：默认模板由仓储拒绝，调用方据此回 400 中文。
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum DeleteOutcome {
+        Deleted,
+        NotFound,
+        IsDefault,
+    }
+
+    fn encode_rules(rules: &[String]) -> anyhow::Result<String> {
+        Ok(serde_json::to_string(rules)?)
+    }
+
+    fn from_rows(rows: Vec<RuleTemplateRow>) -> Vec<RuleTemplate> {
+        rows.into_iter().map(RuleTemplate::from).collect()
+    }
+
+    /// 默认模板排在最前，其余按创建顺序；顺序稳定，前端不需要再排。
+    pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<RuleTemplate>> {
+        let rows = sqlx::query_as::<_, RuleTemplateRow>(
+            "SELECT id, name, description, rules, is_default, created_at, updated_at
+             FROM rule_templates
+             ORDER BY is_default DESC, created_at ASC, rowid ASC",
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(from_rows(rows))
+    }
+
+    pub async fn find_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<RuleTemplate>> {
+        let row = sqlx::query_as::<_, RuleTemplateRow>(
+            "SELECT id, name, description, rules, is_default, created_at, updated_at
+             FROM rule_templates WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+        Ok(row.map(RuleTemplate::from))
+    }
+
+    /// 名称唯一性预检：返回已有行，路由据此给出 400 而不是等数据库报错。
+    pub async fn find_by_name(
+        pool: &SqlitePool,
+        name: &str,
+    ) -> anyhow::Result<Option<RuleTemplate>> {
+        let row = sqlx::query_as::<_, RuleTemplateRow>(
+            "SELECT id, name, description, rules, is_default, created_at, updated_at
+             FROM rule_templates WHERE name = ?",
+        )
+        .bind(name)
+        .fetch_optional(pool)
+        .await?;
+        Ok(row.map(RuleTemplate::from))
+    }
+
+    /// 订阅端未指定 `?rule=` 时用它；理论上迁移保证存在，但仍返回 `Option`
+    /// 以便调用方回落到内置规则。
+    pub async fn find_default(pool: &SqlitePool) -> anyhow::Result<Option<RuleTemplate>> {
+        let row = sqlx::query_as::<_, RuleTemplateRow>(
+            "SELECT id, name, description, rules, is_default, created_at, updated_at
+             FROM rule_templates WHERE is_default = 1 LIMIT 1",
+        )
+        .fetch_optional(pool)
+        .await?;
+        Ok(row.map(RuleTemplate::from))
+    }
+
+    /// 创建模板；`is_default = true` 时在**同一事务**里先清掉旧的默认标记。
+    pub async fn create(pool: &SqlitePool, input: NewRuleTemplate) -> anyhow::Result<RuleTemplate> {
+        let id = Uuid::new_v4().to_string();
+        let rules = encode_rules(&input.rules)?;
+        let ts = now();
+        let mut tx = pool.begin().await?;
+        if input.is_default {
+            sqlx::query("UPDATE rule_templates SET is_default = 0 WHERE is_default = 1")
+                .execute(&mut *tx)
+                .await?;
+        }
+        sqlx::query(
+            "INSERT INTO rule_templates
+                (id, name, description, rules, is_default, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(&input.name)
+        .bind(&input.description)
+        .bind(&rules)
+        .bind(i64::from(input.is_default))
+        .bind(ts)
+        .bind(ts)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        find_by_id(pool, &id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("规则模板创建后读取失败"))
+    }
+
+    /// 只更新传入的字段。设新默认时在同一事务里先清掉其它行，保证不会出现两个 1。
+    ///
+    /// 先确认目标行存在再清默认，避免 `PATCH` 一个不存在的 id 把全站默认清空。
+    pub async fn update(
+        pool: &SqlitePool,
+        id: &str,
+        input: UpdateRuleTemplate,
+    ) -> anyhow::Result<Option<RuleTemplate>> {
+        let rules = input.rules.as_deref().map(encode_rules).transpose()?;
+        let (default_set, default_value) = match input.is_default {
+            Some(value) => (true, i64::from(value)),
+            None => (false, 0),
+        };
+        let mut tx = pool.begin().await?;
+        let exists: Option<i64> =
+            sqlx::query_scalar("SELECT is_default FROM rule_templates WHERE id = ?")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if exists.is_none() {
+            return Ok(None);
+        }
+        if input.is_default == Some(true) {
+            sqlx::query("UPDATE rule_templates SET is_default = 0 WHERE id <> ?")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        sqlx::query(
+            "UPDATE rule_templates SET
+                name = COALESCE(?, name),
+                description = COALESCE(?, description),
+                rules = COALESCE(?, rules),
+                is_default = CASE WHEN ? THEN ? ELSE is_default END,
+                updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(input.name)
+        .bind(input.description)
+        .bind(rules)
+        .bind(default_set)
+        .bind(default_value)
+        .bind(now())
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        find_by_id(pool, id).await
+    }
+
+    /// 删除非默认模板。默认模板不允许删，否则订阅会失去当前策略。
+    pub async fn delete(pool: &SqlitePool, id: &str) -> anyhow::Result<DeleteOutcome> {
+        let mut tx = pool.begin().await?;
+        let is_default: Option<i64> =
+            sqlx::query_scalar("SELECT is_default FROM rule_templates WHERE id = ?")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        match is_default {
+            None => Ok(DeleteOutcome::NotFound),
+            Some(1) => Ok(DeleteOutcome::IsDefault),
+            Some(_) => {
+                let removed = sqlx::query("DELETE FROM rule_templates WHERE id = ?")
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?
+                    .rows_affected();
+                tx.commit().await?;
+                Ok(if removed > 0 {
+                    DeleteOutcome::Deleted
+                } else {
+                    DeleteOutcome::NotFound
+                })
+            }
+        }
+    }
+}
+
 pub mod sessions {
     use super::*;
 

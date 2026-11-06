@@ -23,6 +23,8 @@ use crate::state::AppState;
 pub struct SubscribeQuery {
     /// `clash` / `uri`；缺省时按 UA 嗅探。
     pub target: Option<String>,
+    /// 规则模板 id；缺省时用 `is_default = 1` 的模板。
+    pub rule: Option<String>,
 }
 
 pub async fn get(
@@ -38,6 +40,9 @@ pub async fn get(
     if user.status != "active" {
         return Err(AppError::NotFound);
     }
+
+    // 规则模板与节点无关，先解析：指定的模板不存在要 404，即使 target=uri 也一样。
+    let rules = rules_for(&state.db.pool, query.rule.as_deref()).await?;
 
     let secret = credentials::master_secret(&state.db.pool).await?;
     let mut nodes = Vec::new();
@@ -61,6 +66,7 @@ pub async fn get(
         nodes: &nodes,
         user_label: &user.username,
         traffic: Some(traffic),
+        rules: &rules,
     };
 
     let user_agent = headers
@@ -92,6 +98,25 @@ pub async fn get(
     }
 
     Ok(response)
+}
+
+/// `?rule=` → 指定模板；省略 → 默认模板；再没有 → 内置两条。
+///
+/// 指定了不存在的模板直接 404：静默回落到默认会让用户以为自定义规则生效了。
+async fn rules_for(pool: &SqlitePool, rule: Option<&str>) -> AppResult<Vec<String>> {
+    let template = match rule.map(str::trim).filter(|id| !id.is_empty()) {
+        Some(id) => Some(
+            repo::rule_templates::find_by_id(pool, id)
+                .await?
+                .ok_or(AppError::NotFound)?,
+        ),
+        None => repo::rule_templates::find_default(pool).await?,
+    };
+    Ok(match template {
+        // 空数组是脏数据（校验会拦住写入），这里仍回落到内置规则保证 YAML 合法。
+        Some(template) if !template.rules.is_empty() => template.rules,
+        _ => subscribe::default_rules(),
+    })
 }
 
 /// 流量/额度/到期信息。拆不出上下行，`used_bytes` 记到 download 上。
@@ -144,8 +169,9 @@ mod tests {
     use tower::ServiceExt;
 
     use pierwave_domain::models::Patch;
+    use pierwave_domain::repo::rule_templates::{NewRuleTemplate, UpdateRuleTemplate};
     use pierwave_domain::repo::users::NewUser;
-    use pierwave_domain::repo::{nodes::NewNode, packages, servers, user_packages};
+    use pierwave_domain::repo::{nodes::NewNode, packages, rule_templates, servers, user_packages};
     use pierwave_domain::Db;
 
     const ADDRESS: &str = "203.0.113.10";
@@ -333,7 +359,11 @@ mod tests {
         assert!(body.contains("日本-WS-TLS"), "缺少节点名");
         assert!(body.contains("reality-opts:"), "缺少 reality 配置");
         assert!(body.contains("ws-opts:"), "缺少 ws 配置");
-        assert!(body.contains("GEOIP,CN,DIRECT"));
+        // 兼容性：迁移里默认模板的内容必须让 rules 段与旧版写死的完全一致。
+        assert!(
+            body.contains("rules:\n  - \"GEOIP,CN,DIRECT\"\n  - \"MATCH,PROXY\"\n"),
+            "默认规则必须与升级前逐字节一致：{body}"
+        );
         assert!(!body.contains("禁用节点"), "禁用节点不应导出");
     }
 
@@ -639,6 +669,128 @@ mod tests {
         assert!(
             body.contains("proxies: []"),
             "超出总额度后订阅应为空：{body}"
+        );
+    }
+
+    async fn create_template(
+        state: &AppState,
+        name: &str,
+        rules: &[&str],
+        is_default: bool,
+    ) -> String {
+        rule_templates::create(
+            &state.db.pool,
+            NewRuleTemplate {
+                name: name.into(),
+                description: String::new(),
+                rules: rules.iter().map(|rule| rule.to_string()).collect(),
+                is_default,
+            },
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    #[tokio::test]
+    async fn default_rule_template_drives_subscription_rules() {
+        let (app, state, short_code) = setup().await;
+        create_template(
+            &state,
+            "国内直连",
+            &["DOMAIN-SUFFIX,corp.example,DIRECT", "MATCH,DIRECT"],
+            true,
+        )
+        .await;
+
+        let (status, _headers, body) = get(&app, &format!("/api/v1/sub/{short_code}"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("  - \"DOMAIN-SUFFIX,corp.example,DIRECT\"\n  - \"MATCH,DIRECT\"\n"),
+            "默认模板的规则应写进 YAML：{body}"
+        );
+        assert!(
+            !body.contains("GEOIP,CN,DIRECT"),
+            "旧的默认规则不应再出现：{body}"
+        );
+        assert!(!body.contains("MATCH,PROXY"), "旧的兜底不应再出现：{body}");
+    }
+
+    #[tokio::test]
+    async fn rule_query_overrides_default_and_uri_export_is_unaffected() {
+        let (app, state, short_code) = setup().await;
+        let rule_id = create_template(
+            &state,
+            "只走直连",
+            &["DOMAIN-SUFFIX,example.com,DIRECT", "MATCH,DIRECT"],
+            false,
+        )
+        .await;
+
+        let (status, _headers, body) = get(
+            &app,
+            &format!("/api/v1/sub/{short_code}?rule={rule_id}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("  - \"DOMAIN-SUFFIX,example.com,DIRECT\"\n  - \"MATCH,DIRECT\"\n"),
+            "?rule= 指定的模板应生效：{body}"
+        );
+
+        // 规则模板只影响 clash；URI 列表仍是每节点一行。
+        let (status, headers, body) = get(
+            &app,
+            &format!("/api/v1/sub/{short_code}?target=uri&rule={rule_id}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(header_str(&headers, "content-type")
+            .unwrap()
+            .contains("text/plain"));
+        let lines: Vec<&str> = body.lines().filter(|line| !line.is_empty()).collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].starts_with("vless://"));
+        assert!(!body.contains("rules:"), "URI 导出不应出现 YAML：{body}");
+    }
+
+    #[tokio::test]
+    async fn unknown_rule_template_is_404() {
+        let (app, _state, short_code) = setup().await;
+        let (status, _headers, _body) = get(
+            &app,
+            &format!("/api/v1/sub/{short_code}?rule=does-not-exist"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn missing_default_template_falls_back_to_builtin_rules() {
+        let (app, state, short_code) = setup().await;
+        let seeded = rule_templates::find_default(&state.db.pool)
+            .await
+            .unwrap()
+            .expect("迁移应带默认模板");
+        rule_templates::update(
+            &state.db.pool,
+            &seeded.id,
+            UpdateRuleTemplate {
+                is_default: Some(false),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let (status, _headers, body) = get(&app, &format!("/api/v1/sub/{short_code}"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("rules:\n  - \"GEOIP,CN,DIRECT\"\n  - \"MATCH,PROXY\"\n"),
+            "没有默认模板时应回落到内置规则：{body}"
         );
     }
 }

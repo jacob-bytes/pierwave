@@ -292,6 +292,16 @@ pub struct SubContext<'a> {
     pub nodes: &'a [SubNode],
     pub user_label: &'a str,
     pub traffic: Option<TrafficInfo>,
+    /// Clash `rules:` 段。URI 渲染器不读它，所以切换规则模板不影响 URI 订阅。
+    pub rules: &'a [String],
+}
+
+/// 内置兜底规则：与旧版写死的两条完全一致。
+///
+/// 正常情况下订阅端总会拿到默认模板；只有模板表为空（理论上不会）时才用它，
+/// 保证「没有任何模板」的极端情况下订阅内容仍和升级前一致。
+pub fn default_rules() -> Vec<String> {
+    vec!["GEOIP,CN,DIRECT".to_string(), "MATCH,PROXY".to_string()]
 }
 
 /// 写进 `Subscription-Userinfo` 头的流量信息。
@@ -407,8 +417,20 @@ impl Exporter for ClashExporter {
         out.push('\n');
 
         out.push_str(&clash_groups(ctx.nodes));
-        out.push_str("\nrules:\n  - \"GEOIP,CN,DIRECT\"\n  - \"MATCH,PROXY\"\n");
+        out.push_str("\nrules:\n");
+        if ctx.rules.is_empty() {
+            push_clash_rules(&mut out, &default_rules());
+        } else {
+            push_clash_rules(&mut out, ctx.rules);
+        }
         Ok(out)
+    }
+}
+
+/// 规则原样作为 YAML 双引号标量输出（与旧版 `  - "GEOIP,CN,DIRECT"` 逐字节一致）。
+fn push_clash_rules(out: &mut String, rules: &[String]) {
+    for rule in rules {
+        out.push_str(&format!("  - {}\n", yaml_string(rule)));
     }
 }
 
@@ -1015,10 +1037,12 @@ mod tests {
     #[test]
     fn clash_yaml_parses_with_two_proxies_and_full_groups() {
         let nodes = fixtures();
+        let rules = default_rules();
         let ctx = SubContext {
             nodes: &nodes,
             user_label: "alice",
             traffic: None,
+            rules: &rules,
         };
         let yaml = ClashExporter.render(&ctx).unwrap();
         let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).expect("必须是合法 YAML");
@@ -1108,10 +1132,12 @@ mod tests {
     #[test]
     fn clash_yaml_without_nodes_stays_valid() {
         let nodes: Vec<SubNode> = Vec::new();
+        let rules = default_rules();
         let ctx = SubContext {
             nodes: &nodes,
             user_label: "alice",
             traffic: None,
+            rules: &rules,
         };
         let yaml = ClashExporter.render(&ctx).unwrap();
         let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
@@ -1125,12 +1151,61 @@ mod tests {
     }
 
     #[test]
-    fn uri_export_has_one_line_per_node_with_right_scheme() {
+    fn clash_rules_come_from_context_and_fall_back_to_builtin() {
         let nodes = fixtures();
+        let custom = vec![
+            "DOMAIN-SUFFIX,example.com,DIRECT".to_string(),
+            "MATCH,DIRECT".to_string(),
+        ];
         let ctx = SubContext {
             nodes: &nodes,
             user_label: "alice",
             traffic: None,
+            rules: &custom,
+        };
+        let yaml = ClashExporter.render(&ctx).unwrap();
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
+        let rules: Vec<&str> = parsed
+            .get("rules")
+            .and_then(serde_yaml::Value::as_sequence)
+            .expect("rules 必须是列表")
+            .iter()
+            .filter_map(serde_yaml::Value::as_str)
+            .collect();
+        assert_eq!(
+            rules,
+            vec!["DOMAIN-SUFFIX,example.com,DIRECT", "MATCH,DIRECT"]
+        );
+
+        // 上下文没给规则时回落到内置两条，YAML 不会出现空的 rules 段。
+        let empty: Vec<String> = Vec::new();
+        let ctx = SubContext {
+            nodes: &nodes,
+            user_label: "alice",
+            traffic: None,
+            rules: &empty,
+        };
+        let yaml = ClashExporter.render(&ctx).unwrap();
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
+        let rules: Vec<&str> = parsed
+            .get("rules")
+            .and_then(serde_yaml::Value::as_sequence)
+            .unwrap()
+            .iter()
+            .filter_map(serde_yaml::Value::as_str)
+            .collect();
+        assert_eq!(rules, vec!["GEOIP,CN,DIRECT", "MATCH,PROXY"]);
+    }
+
+    #[test]
+    fn uri_export_has_one_line_per_node_with_right_scheme() {
+        let nodes = fixtures();
+        let rules = default_rules();
+        let ctx = SubContext {
+            nodes: &nodes,
+            user_label: "alice",
+            traffic: None,
+            rules: &rules,
         };
         let body = UriExporter.render(&ctx).unwrap();
         let lines: Vec<&str> = body.lines().filter(|line| !line.is_empty()).collect();
@@ -1176,10 +1251,12 @@ mod tests {
             &[("method", "aes-256-gcm"), ("password", "secret")],
         );
         let nodes = [vmess, ss];
+        let rules = default_rules();
         let ctx = SubContext {
             nodes: &nodes,
             user_label: "alice",
             traffic: None,
+            rules: &rules,
         };
         let body = UriExporter.render(&ctx).unwrap();
         let lines: Vec<&str> = body.lines().collect();
