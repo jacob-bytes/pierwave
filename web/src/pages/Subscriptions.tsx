@@ -13,6 +13,7 @@ import {
   UsersIcon,
   XIcon,
 } from "lucide-react";
+import { RuleTemplateSelect } from "@/components/subscriptions/RuleTemplateSelect";
 import { SubscriptionQrDialog } from "@/components/subscriptions/SubscriptionQrDialog";
 import { UsageBar } from "@/components/UsageBar";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -41,10 +42,14 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
-import type { UserView } from "@/lib/api";
+import type { RuleTemplate, UserView } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { errorText } from "@/lib/errors";
-import { useUsers } from "@/lib/queries";
+import { useRuleTemplates, useUsers } from "@/lib/queries";
+import {
+  pickDefaultRuleTemplate,
+  ruleTemplateErrorText,
+} from "@/lib/ruleTemplates";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
@@ -52,9 +57,19 @@ const COLUMN_COUNT = 5;
 
 type PackageFilter = "all" | "with" | "none";
 
-/** 订阅地址由前端拼装，复制和二维码都用同一个完整 URL。 */
-function subscriptionUrl(shortCode: string): string {
-  return `${window.location.origin}/api/v1/sub/${encodeURIComponent(shortCode)}`;
+/**
+ * 订阅地址由前端拼装，复制、打开和二维码都用同一个完整 URL。
+ *
+ * 选中非默认模板时带 `?rule=<id>`；默认模板不加参数，保持链接简洁。
+ */
+function subscriptionUrl(
+  shortCode: string,
+  template: RuleTemplate | null,
+): string {
+  const base = `${window.location.origin}/api/v1/sub/${encodeURIComponent(shortCode)}`;
+  return template && !template.is_default
+    ? `${base}?rule=${encodeURIComponent(template.id)}`
+    : base;
 }
 
 function packageLabel(user: UserView): string {
@@ -195,8 +210,32 @@ export default function SubscriptionsPage() {
   const [searchInput, setSearchInput] = useState(q);
   const [trackedQ, setTrackedQ] = useState(q);
   const [filter, setFilter] = useState<PackageFilter>("all");
-  const [qrUser, setQrUser] = useState<UserView | null>(null);
+  const [qrState, setQrState] = useState<{
+    user: UserView;
+    url: string;
+  } | null>(null);
+  /** 每行选择的规则模板；只影响本页链接拼接，不写回后端。 */
+  const [ruleSelections, setRuleSelections] = useState<Record<string, string>>(
+    {},
+  );
   const users = useUsers(q);
+  const ruleTemplates = useRuleTemplates();
+  const templates = ruleTemplates.data ?? [];
+  const defaultTemplate = pickDefaultRuleTemplate(templates);
+  const ruleTemplateError =
+    ruleTemplates.isError && templates.length === 0
+      ? ruleTemplateErrorText(ruleTemplates.error)
+      : null;
+
+  /** 行内选择优先；模板被删除或尚未加载时回落到默认模板。 */
+  function selectedTemplate(userId: string): RuleTemplate | null {
+    const selectedId = ruleSelections[userId];
+    if (selectedId) {
+      const found = templates.find((item) => item.id === selectedId);
+      if (found) return found;
+    }
+    return defaultTemplate;
+  }
 
   // 浏览器前进/后退改变 ?q 时同步输入框；用 render 期间的派生状态避免额外 effect。
   if (q !== trackedQ) {
@@ -239,8 +278,8 @@ export default function SubscriptionsPage() {
     }
   }
 
-  async function copySubscription(user: UserView) {
-    const ok = await copyText(subscriptionUrl(user.short_code));
+  async function copySubscription(user: UserView, url: string) {
+    const ok = await copyText(url);
     if (ok) {
       toast.success(t("subscriptions.copied", { username: user.username }));
     } else {
@@ -413,7 +452,8 @@ export default function SubscriptionsPage() {
                 />
               ) : (
                 filteredItems.map((user) => {
-                  const url = subscriptionUrl(user.short_code);
+                  const template = selectedTemplate(user.id);
+                  const url = subscriptionUrl(user.short_code, template);
                   const label = packageLabel(user);
 
                   return (
@@ -457,15 +497,30 @@ export default function SubscriptionsPage() {
                         />
                       </TableCell>
                       <TableCell className="px-4 py-2.5">
-                        <a
-                          href={url}
-                          target="_blank"
-                          rel="noreferrer"
-                          title={url}
-                          className="block max-w-[220px] truncate font-mono text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground"
-                        >
-                          {`…/sub/${user.short_code}`}
-                        </a>
+                        <div className="flex flex-col gap-1.5">
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={url}
+                            className="block max-w-[220px] truncate font-mono text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground"
+                          >
+                            {`…/sub/${user.short_code}`}
+                          </a>
+                          <RuleTemplateSelect
+                            templates={templates}
+                            selected={template}
+                            pending={ruleTemplates.isPending}
+                            error={ruleTemplateError}
+                            username={user.username}
+                            onSelect={(id) =>
+                              setRuleSelections((current) => ({
+                                ...current,
+                                [user.id]: id,
+                              }))
+                            }
+                          />
+                        </div>
                       </TableCell>
                       <TableCell className="px-4 py-2.5">
                         <div className="flex items-center gap-0.5">
@@ -476,7 +531,7 @@ export default function SubscriptionsPage() {
                             aria-label={t("subscriptions.copyAria", {
                               username: user.username,
                             })}
-                            onClick={() => void copySubscription(user)}
+                            onClick={() => void copySubscription(user, url)}
                           >
                             <CopyIcon className="size-3.5" />
                           </Button>
@@ -487,7 +542,7 @@ export default function SubscriptionsPage() {
                             aria-label={t("subscriptions.qrAria", {
                               username: user.username,
                             })}
-                            onClick={() => setQrUser(user)}
+                            onClick={() => setQrState({ user, url })}
                           >
                             <QrCodeIcon className="size-3.5" />
                           </Button>
@@ -519,14 +574,14 @@ export default function SubscriptionsPage() {
         </CardContent>
       </Card>
 
-      {qrUser ? (
+      {qrState ? (
         <SubscriptionQrDialog
-          key={qrUser.id}
+          key={qrState.url}
           open
-          username={qrUser.username}
-          url={subscriptionUrl(qrUser.short_code)}
+          username={qrState.user.username}
+          url={qrState.url}
           onOpenChange={(open) => {
-            if (!open) setQrUser(null);
+            if (!open) setQrState(null);
           }}
         />
       ) : null}

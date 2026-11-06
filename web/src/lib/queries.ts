@@ -15,6 +15,7 @@ import {
   type CreateCertificateInput,
   type CreateNodeInput,
   type CreatePackageInput,
+  type CreateRuleTemplateInput,
   type CreateServerResponse,
   type CreateUserInput,
   type EnforcementEvent,
@@ -27,12 +28,14 @@ import {
   type NodeTrafficDetail,
   type OverviewStats,
   type Package,
+  type RuleTemplate,
   type Server,
   type SessionUser,
   type Settings,
   type TrafficStats,
   type UpdateNodeInput,
   type UpdatePackageInput,
+  type UpdateRuleTemplateInput,
   type UpdateSettingsInput,
   type UpdateUserInput,
   type UpdateUserPackageInput,
@@ -55,6 +58,7 @@ export const queryKeys = {
   enforcementEvents: (limit: number) =>
     ["enforcement", "events", limit] as const,
   auditLog: (limit: number) => ["audit", limit] as const,
+  ruleTemplates: ["rule-templates"] as const,
   nodes: (serverId: string) => ["nodes", serverId] as const,
   /** 全局节点列表：不属于任何单台服务器，单独一个 key。 */
   allNodes: ["nodes", "all"] as const,
@@ -259,6 +263,61 @@ export function useAuditLog(limit: number) {
     enabled: limit > 0,
     placeholderData: keepPreviousData,
     staleTime: 15_000,
+  });
+}
+
+/**
+ * 管理员维护的规则模板列表。
+ *
+ * 后端可能暂时 404：这里不重试，由页面展示中文错误态与「重试」；
+ * 订阅页的下拉在拿不到列表时保持禁用，链接回落到默认模板。
+ */
+export function useRuleTemplates() {
+  return useQuery<RuleTemplate[]>({
+    queryKey: queryKeys.ruleTemplates,
+    queryFn: async () => (await api.ruleTemplates.list()).items,
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
+/** 增删改都只影响 `["rule-templates"]`，不动用户、套餐等无关缓存。 */
+function invalidateRuleTemplates(
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.ruleTemplates });
+}
+
+export function useCreateRuleTemplate() {
+  const queryClient = useQueryClient();
+
+  return useMutation<RuleTemplate, Error, CreateRuleTemplateInput>({
+    mutationFn: async (input) =>
+      (await api.ruleTemplates.create(input)).template,
+    onSuccess: () => invalidateRuleTemplates(queryClient),
+  });
+}
+
+export function useUpdateRuleTemplate() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    RuleTemplate,
+    Error,
+    { id: string; input: UpdateRuleTemplateInput }
+  >({
+    mutationFn: async ({ id, input }) =>
+      (await api.ruleTemplates.update(id, input)).template,
+    onSuccess: () => invalidateRuleTemplates(queryClient),
+  });
+}
+
+export function useDeleteRuleTemplate() {
+  const queryClient = useQueryClient();
+
+  return useMutation<{ ok: true }, Error, string>({
+    mutationFn: (id) => api.ruleTemplates.remove(id),
+    onSuccess: () => invalidateRuleTemplates(queryClient),
   });
 }
 

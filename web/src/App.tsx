@@ -17,6 +17,7 @@ const PackagesPage = lazy(() => import("@/pages/Packages"));
 const CertificatesPage = lazy(() => import("@/pages/Certificates"));
 const EventsPage = lazy(() => import("@/pages/Events"));
 const AuditPage = lazy(() => import("@/pages/Audit"));
+const RulesPage = lazy(() => import("@/pages/Rules"));
 const SettingsPage = lazy(() => import("@/pages/Settings"));
 const NodesPage = lazy(() => import("@/pages/Nodes"));
 const NodesIndexPage = lazy(() => import("@/pages/NodesIndex"));
@@ -125,6 +126,7 @@ export default function App() {
             <Route path="certificates" element={<CertificatesPage />} />
             <Route path="events" element={<EventsPage />} />
             <Route path="audit" element={<AuditPage />} />
+            <Route path="rules" element={<RulesPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

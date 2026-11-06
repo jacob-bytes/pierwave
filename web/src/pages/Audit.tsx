@@ -70,6 +70,7 @@ type Category =
   | "server"
   | "node"
   | "certificate"
+  | "rule_template"
   | "system";
 
 type Tone = "primary" | "destructive" | "warning" | "muted";
@@ -81,6 +82,7 @@ const CATEGORIES: { value: Category; labelKey: string }[] = [
   { value: "server", labelKey: "audit.category.server" },
   { value: "node", labelKey: "audit.category.node" },
   { value: "certificate", labelKey: "audit.category.certificate" },
+  { value: "rule_template", labelKey: "audit.category.ruleTemplate" },
   { value: "system", labelKey: "audit.category.system" },
 ];
 
@@ -106,6 +108,9 @@ const actionLabelKeys: Record<string, string> = {
   "node.delete": "audit.action.nodeDelete",
   "certificate.upload": "audit.action.certificateUpload",
   "certificate.delete": "audit.action.certificateDelete",
+  "rule_template.create": "audit.action.ruleTemplateCreate",
+  "rule_template.update": "audit.action.ruleTemplateUpdate",
+  "rule_template.delete": "audit.action.ruleTemplateDelete",
   "settings.update": "audit.action.settingsUpdate",
   "password.change": "audit.action.passwordChange",
   "config.apply": "audit.action.configApply",
@@ -134,6 +139,7 @@ function actionTone(action: string): Tone {
   ) {
     return "warning";
   }
+  if (action.startsWith("rule_template.")) return "warning";
   if (action.startsWith("user.") || action.startsWith("user_package.")) {
     return "primary";
   }
@@ -149,6 +155,7 @@ function actionCategory(action: string): Exclude<Category, "all"> | null {
   if (action.startsWith("server.")) return "server";
   if (action.startsWith("node.")) return "node";
   if (action.startsWith("certificate.")) return "certificate";
+  if (action.startsWith("rule_template.")) return "rule_template";
   if (
     action.startsWith("settings.") ||
     action.startsWith("password.") ||

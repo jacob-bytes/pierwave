@@ -18,6 +18,7 @@ import {
   LanguagesIcon,
   LayoutDashboardIcon,
   Link2Icon,
+  ListFilterIcon,
   Loader2Icon,
   LogOutIcon,
   NetworkIcon,
@@ -91,6 +92,7 @@ const systemNav: NavItem[] = [
   },
   { to: "/events", labelKey: "nav.events", icon: HistoryIcon },
   { to: "/audit", labelKey: "nav.audit", icon: ScrollTextIcon },
+  { to: "/rules", labelKey: "nav.rules", icon: ListFilterIcon },
   { to: "/certificates", labelKey: "nav.certificates", icon: FileKeyIcon },
   { to: "/settings", labelKey: "nav.settings", icon: SettingsIcon },
 ];

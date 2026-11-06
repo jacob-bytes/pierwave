@@ -71,6 +71,7 @@ const en = {
     nodes: "Nodes",
     events: "Events",
     audit: "Audit log",
+    rules: "Rule templates",
     certificates: "Certificates",
     settings: "Settings",
     me: "My account",
@@ -450,6 +451,12 @@ const en = {
     packageCountOne: "{n} package",
     noPackage: "No packages bound",
     packageMore: "{names} and {count} total",
+    ruleTemplate: "Rule template",
+    ruleTemplateAria: "Rule template for {username}",
+    ruleTemplateTitle: "Choose the rule template for this subscription",
+    ruleTemplateLoading: "Loading rule templates…",
+    ruleTemplateUnavailable:
+      "Rule templates failed to load; the default rules will be used",
     qr: {
       title: "Subscription QR code",
       desc: "Scan to import the subscription for “{username}”, or copy the link below.",
@@ -682,6 +689,7 @@ const en = {
       server: "Servers",
       node: "Nodes",
       certificate: "Certificates",
+      ruleTemplate: "Rule templates",
       system: "System",
     },
     action: {
@@ -705,6 +713,9 @@ const en = {
       settingsUpdate: "Update settings",
       passwordChange: "Change password",
       configApply: "Apply config",
+      ruleTemplateCreate: "Create rule template",
+      ruleTemplateUpdate: "Update rule template",
+      ruleTemplateDelete: "Delete rule template",
     },
     target: {
       settings: "System settings",
@@ -738,6 +749,73 @@ const en = {
     },
     loadFailed: "Audit log failed to load",
     loadError: "Could not load the audit log. Check your network and try again.",
+  },
+  rules: {
+    title: "Rule templates",
+    subtitle:
+      "Manage the Clash routing rules used by subscriptions; the default template applies unless a link specifies one.",
+    create: "New rule template",
+    list: "Rule template list",
+    desc: "Rules are stored one per line; the default template applies when a subscription link has no rule parameter.",
+    tableCaption: "Rule template list",
+    columns: {
+      name: "Name",
+      description: "Description",
+      count: "Rules",
+      updatedAt: "Updated",
+      actions: "Actions",
+    },
+    defaultBadge: "Default",
+    ruleCount: "{n} rules",
+    ruleCountOne: "{n} rule",
+    emptyTitle: "No rule templates yet",
+    emptyDesc:
+      "Create a rule template; subscriptions will render their Clash rules from it.",
+    emptyAction: "New rule template",
+    loadFailed: "Could not load rule templates",
+    loadError:
+      "Could not load rule templates. Check your network and try again.",
+    unavailable:
+      "The rule template API is not available yet (the backend may still be deploying). Please try again later.",
+    setDefault: "Set as default",
+    setDefaultDisabled: "Already the default template",
+    setDefaultSuccess: "“{name}” is now the default template",
+    setDefaultError: "Could not set the default template. Please try again.",
+    editAria: "Edit {name}",
+    deleteAria: "Delete {name}",
+    deleteDisabled:
+      "The default template cannot be deleted; set another template as default first",
+    delete: {
+      title: "Delete rule template",
+      desc: "Delete “{name}”? Subscription links that still point to it will stop working; choose another template for them.",
+      action: "Delete",
+      success: "Rule template “{name}” deleted",
+      error: "Could not delete the rule template. Please try again.",
+      errorTitle: "Delete failed",
+    },
+    form: {
+      createTitle: "New rule template",
+      editTitle: "Edit rule template",
+      desc: "One rule per line in Clash syntax; the last rule must be a MATCH fallback.",
+      name: "Name",
+      namePlaceholder: "e.g. Direct China traffic",
+      description: "Description",
+      descriptionPlaceholder: "Optional note about what this rule set is for",
+      rules: "Rules",
+      rulesHint:
+        "One rule per line, at most 200 characters each; empty lines are ignored and each line is trimmed on save. Example:",
+      rulesPlaceholder: "GEOIP,CN,DIRECT\nMATCH,PROXY",
+      matchHint:
+        "The last rule must start with MATCH (for example MATCH,PROXY), otherwise the Clash config has no fallback.",
+      default: "Set as default",
+      defaultHint:
+        "Used when a subscription link has no rule parameter; only one template can be the default.",
+      submitCreate: "Create",
+      submitSave: "Save",
+      created: "Rule template “{name}” created",
+      updated: "Rule template saved",
+      error: "Could not save the rule template. Please try again.",
+    },
   },
   settings: {
     title: "Settings",
@@ -1101,6 +1179,12 @@ const en = {
     keyPemRequired: "Paste the private key PEM",
     keyPemInvalid: "The private key PEM does not contain -----BEGIN",
     invalidDate: "Select a valid date",
+    ruleTemplateNameRequired: "Enter a rule template name",
+    rulesRequired:
+      "Rules cannot be empty; add at least one MATCH fallback rule",
+    ruleLineMax: "Line {line} is longer than {max} characters; shorten it and try again",
+    rulesLastMatch:
+      "The last rule must start with an uppercase MATCH (for example MATCH,PROXY)",
   },
 } satisfies Messages;
 

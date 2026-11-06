@@ -6,6 +6,11 @@ import {
   NODE_SECURITIES,
   NODE_TRANSPORTS,
 } from "@/lib/protocols";
+import {
+  findFirstOverlongRuleLine,
+  parseRuleLines,
+  RULE_LINE_MAX_LENGTH,
+} from "@/lib/ruleTemplates";
 import { dateInputToUnixEndOfDay } from "@/lib/time";
 
 /**
@@ -276,6 +281,62 @@ export function nodeFormSchema(t: TFunction) {
 }
 
 export type NodeFormValues = z.infer<ReturnType<typeof nodeFormSchema>>;
+
+/**
+ * 规则模板表单：多行文本在校验与提交时都按行拆分、trim、去空行。
+ *
+ * 规则与后端保持一致：非空、每条 1–200 字符、最后一条以大写 `MATCH` 开头。
+ * 错误挂在 `rules_text` 上，由对话框内联展示。
+ */
+export function ruleTemplateFormSchema(t: TFunction) {
+  return z
+    .object({
+      name: z
+        .string()
+        .trim()
+        .min(1, t("validation.ruleTemplateNameRequired")),
+      description: z.string(),
+      rules_text: z.string(),
+      is_default: z.boolean(),
+    })
+    .superRefine((values, ctx) => {
+      const rules = parseRuleLines(values.rules_text);
+
+      if (rules.length === 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["rules_text"],
+          message: t("validation.rulesRequired"),
+        });
+        return;
+      }
+
+      const tooLongLine = findFirstOverlongRuleLine(values.rules_text);
+      if (tooLongLine !== null) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["rules_text"],
+          message: t("validation.ruleLineMax", {
+            line: tooLongLine,
+            max: RULE_LINE_MAX_LENGTH,
+          }),
+        });
+        return;
+      }
+
+      if (!rules[rules.length - 1].startsWith("MATCH")) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["rules_text"],
+          message: t("validation.rulesLastMatch"),
+        });
+      }
+    });
+}
+
+export type RuleTemplateFormValues = z.infer<
+  ReturnType<typeof ruleTemplateFormSchema>
+>;
 
 /**
  * 证书上传的前端基础校验：只看 PEM 头，真正的解析（含私钥匹配）以后端为准。

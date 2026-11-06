@@ -108,6 +108,31 @@ export interface AuditEntry {
   created_at: number;
 }
 
+/**
+ * P2：订阅自定义规则模板，见 docs/PLAN.md「P2：订阅自定义规则（规则模板）」。
+ *
+ * `rules` 直接就是 Clash 规则文本；最后一条必须以 `MATCH` 开头（兜底规则）。
+ * 订阅链接未带 `?rule=` 时使用 `is_default` 的那条模板。
+ */
+export interface RuleTemplate {
+  id: string;
+  name: string;
+  description: string;
+  rules: string[];
+  is_default: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface CreateRuleTemplateInput {
+  name: string;
+  description?: string;
+  rules: string[];
+  is_default?: boolean;
+}
+
+export type UpdateRuleTemplateInput = Partial<CreateRuleTemplateInput>;
+
 /** 节点：config 是后端直接返回的 JSON 对象，不需要前端再 parse。 */
 export interface Node {
   id: string;
@@ -492,6 +517,29 @@ export const api = {
     list: (limit: number) =>
       request<{ items: AuditEntry[] }>(
         `/api/v1/audit?limit=${encodeURIComponent(String(limit))}`,
+      ),
+  },
+
+  /** 管理员维护的 Clash 规则模板；订阅链接用 `?rule=<id>` 引用。 */
+  ruleTemplates: {
+    list: () => request<{ items: RuleTemplate[] }>("/api/v1/rule-templates"),
+    create: (input: CreateRuleTemplateInput) =>
+      request<{ template: RuleTemplate }>("/api/v1/rule-templates", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    update: (id: string, input: UpdateRuleTemplateInput) =>
+      request<{ template: RuleTemplate }>(
+        `/api/v1/rule-templates/${encodeURIComponent(id)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(input),
+        },
+      ),
+    remove: (id: string) =>
+      request<{ ok: true }>(
+        `/api/v1/rule-templates/${encodeURIComponent(id)}`,
+        { method: "DELETE" },
       ),
   },
 

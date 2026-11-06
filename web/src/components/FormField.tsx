@@ -41,7 +41,8 @@ export function FormField({
           {error}
         </p>
       ) : hint ? (
-        <p className="text-xs text-muted-foreground">{hint}</p>
+        // 用 div 承载：部分表单的 hint 是带示例代码块的富文本，不能塞进 <p>。
+        <div className="text-xs text-muted-foreground">{hint}</div>
       ) : null}
     </div>
   );
