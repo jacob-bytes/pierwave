@@ -352,3 +352,57 @@ GET /api/v1/stats/nodes/{node_id}?days=30&top=10
 - 节点列表（`/servers/:id/nodes`）增加「7 天流量」列（下行/上行拆开，或合计 + tooltip 拆分）；
 - 行内「流量」入口打开 Sheet：节点近 30 天趋势图 + Top N 用户表；
 - 概览页的节点视图不做，避免和现有趋势图重复。
+
+## P2：订阅自定义规则（规则模板）
+
+现在 `rules` 在 `ClashExporter` 里写死 `GEOIP,CN,DIRECT` + `MATCH,PROXY`，用户没法按自己的
+分流策略走。做成**规则模板**：管理员维护几套，订阅默认用其中一套，也可以在订阅链接上指定。
+
+### 表
+
+```sql
+-- 0010_rule_templates.sql
+CREATE TABLE rule_templates (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    rules       TEXT NOT NULL,              -- JSON 数组，每个元素是一条 Clash 规则
+    is_default  INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+);
+-- 初始数据：默认模板（与旧行为完全一致，保证升级后订阅内容不变）
+```
+
+### 接口
+
+```
+GET    /api/v1/rule-templates        -> { items: [ {id,name,description,rules[],is_default,created_at,updated_at} ] }
+POST   /api/v1/rule-templates        { name, description?, rules: [..], is_default? } -> { template }
+PATCH  /api/v1/rule-templates/{id}   { name?, description?, rules?, is_default? } -> { template }
+DELETE /api/v1/rule-templates/{id}   -> { ok: true }
+```
+
+规则：
+
+- `rules` 非空，每条 1–200 字符；
+- **最后一条必须以 `MATCH` 开头**（Clash 没有兜底规则整份配置无效），否则 400 中文；
+- 同时只能有一个 `is_default = 1`：设置新的默认时在同一事务里清掉旧的；
+- 默认模板**不允许删除**；删除其它模板不影响已发出的订阅（订阅是按请求时选的模板渲染）。
+
+### 订阅端点
+
+```
+GET /api/v1/sub/{short_code}?rule=<template_id>&target=clash
+```
+
+- `rule` 省略 → 用 `is_default = 1` 的模板；
+- 没有任何模板（理论上不会，迁移里有初始数据）→ 回落到内置的两条规则。
+
+### 前端
+
+`/rules` 页面（系统组）：
+- 列表：名称、说明、规则条数、是否默认、更新时间；
+- 新建/编辑 Dialog：名称、说明、规则多行文本（一行一条）、设为默认开关；
+- 删除：被设为默认的禁止删除并提示；其它二次确认；
+- 订阅页在复制链接旁给一个「规则模板」下拉，选中后链接带 `?rule=`。
