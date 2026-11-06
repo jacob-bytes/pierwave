@@ -645,6 +645,18 @@ pub mod traffic {
         pub weighted: i64,
     }
 
+    /// 节点维度日账本的一行（`node_tag` 定位节点，`user_id` 为空串表示无法归因）。
+    #[derive(Debug, Clone, sqlx::FromRow)]
+    pub struct NodeDailyRow {
+        pub day: String,
+        pub server_id: String,
+        pub node_tag: String,
+        pub user_id: String,
+        pub uplink: i64,
+        pub downlink: i64,
+        pub weighted: i64,
+    }
+
     /// 幂等占位：首次见到 `(server_id, boot_id, seq)` 返回 `true`。
     ///
     /// 重复上报直接返回 `false`，调用方必须原样丢弃，不能再次累加账本。
@@ -696,6 +708,69 @@ pub mod traffic {
         .execute(pool)
         .await?;
         Ok(())
+    }
+
+    /// 一次节点维度累加的入参。
+    ///
+    /// `weighted` 必须由调用方用**同一个**已按方向×倍率算好的值传入，这里不再加权；
+    /// `user_id` 传 `''` 表示无法归因。
+    #[derive(Debug, Clone, Copy)]
+    pub struct NodeTrafficDelta<'a> {
+        pub node_tag: &'a str,
+        pub user_id: &'a str,
+        pub uplink: u64,
+        pub downlink: u64,
+        pub weighted: u64,
+    }
+
+    /// 按 (day, server_id, node_tag, user_id) 累加节点维度切片。
+    ///
+    /// `user_id = ''` 的行仍计入节点总量，但不进用户明细。
+    pub async fn accumulate_node_daily(
+        pool: &SqlitePool,
+        day: &str,
+        server_id: &str,
+        delta: NodeTrafficDelta<'_>,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO traffic_node_daily
+                (day, server_id, node_tag, user_id, uplink, downlink, weighted)
+             VALUES (?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(day, server_id, node_tag, user_id) DO UPDATE SET
+                uplink = uplink + excluded.uplink,
+                downlink = downlink + excluded.downlink,
+                weighted = weighted + excluded.weighted",
+        )
+        .bind(day)
+        .bind(server_id)
+        .bind(delta.node_tag)
+        .bind(delta.user_id)
+        .bind(saturating_i64(delta.uplink))
+        .bind(saturating_i64(delta.downlink))
+        .bind(saturating_i64(delta.weighted))
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn find_node_daily(
+        pool: &SqlitePool,
+        day: &str,
+        server_id: &str,
+        node_tag: &str,
+        user_id: &str,
+    ) -> anyhow::Result<Option<NodeDailyRow>> {
+        Ok(sqlx::query_as::<_, NodeDailyRow>(
+            "SELECT day, server_id, node_tag, user_id, uplink, downlink, weighted
+             FROM traffic_node_daily
+             WHERE day = ? AND server_id = ? AND node_tag = ? AND user_id = ?",
+        )
+        .bind(day)
+        .bind(server_id)
+        .bind(node_tag)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?)
     }
 
     pub async fn find_daily(
@@ -2183,6 +2258,176 @@ pub mod stats {
         Ok(row)
     }
 
+    /// 节点维度流量：`days` 窗口内按节点汇总，按 `weighted` 降序。
+    ///
+    /// 节点由 `(server_id, node_tag)` 定位——tag 只在单个服务器内唯一，必须 JOIN
+    /// `nodes` 的复合唯一键。节点删除后 `traffic_node_daily` 里的历史行仍在，
+    /// 但 JOIN 不到就不再出现在这里（总量仍由 `traffic_daily` 兜底）。
+    pub async fn node_traffic(
+        pool: &SqlitePool,
+        now: i64,
+        days: i64,
+        server_id: Option<&str>,
+    ) -> anyhow::Result<Vec<NodeTrafficRow>> {
+        let days = days.clamp(1, 90);
+        let (start_date, end_date) = day_window(now, days);
+        let today = crate::time::business_date(now);
+        let (month_start, month_end) = crate::time::business_month_bounds(now);
+        // 今日/本月要覆盖窗口以外的本月数据，所以扫描下界取两者更早的那个。
+        let scan_from = start_date.as_str().min(month_start.as_str());
+        let rows = sqlx::query_as::<_, NodeTrafficRow>(
+            "SELECT n.id AS node_id, n.tag AS node_tag, n.name AS name,
+                    n.server_id AS server_id, s.name AS server_name,
+                    n.protocol AS protocol, n.transport AS transport, n.security AS security,
+                    COALESCE(SUM(CASE WHEN t.day >= ? AND t.day <= ? THEN t.uplink ELSE 0 END), 0)
+                        AS uplink,
+                    COALESCE(SUM(CASE WHEN t.day >= ? AND t.day <= ? THEN t.downlink ELSE 0 END), 0)
+                        AS downlink,
+                    COALESCE(SUM(CASE WHEN t.day >= ? AND t.day <= ? THEN t.weighted ELSE 0 END), 0)
+                        AS weighted,
+                    COALESCE(SUM(CASE WHEN t.day = ? THEN t.weighted ELSE 0 END), 0)
+                        AS today_bytes,
+                    COALESCE(SUM(CASE WHEN t.day >= ? AND t.day <= ? THEN t.weighted ELSE 0 END), 0)
+                        AS month_bytes
+             FROM traffic_node_daily t
+             JOIN nodes n ON n.server_id = t.server_id AND n.tag = t.node_tag
+             JOIN servers s ON s.id = n.server_id
+             WHERE t.day >= ? AND t.day <= ? AND (? IS NULL OR t.server_id = ?)
+             GROUP BY n.id, n.tag, n.name, n.server_id, s.name,
+                      n.protocol, n.transport, n.security
+             ORDER BY SUM(CASE WHEN t.day >= ? AND t.day <= ? THEN t.weighted ELSE 0 END) DESC,
+                      n.id ASC",
+        )
+        .bind(&start_date)
+        .bind(&end_date)
+        .bind(&start_date)
+        .bind(&end_date)
+        .bind(&start_date)
+        .bind(&end_date)
+        .bind(&today)
+        .bind(&month_start)
+        .bind(&month_end)
+        .bind(scan_from)
+        .bind(&end_date)
+        .bind(server_id)
+        .bind(server_id)
+        .bind(&start_date)
+        .bind(&end_date)
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// 单个节点的流量详情：节点汇总 + 日趋势 + Top N 用户。
+    pub type NodeTrafficDetail = (NodeTrafficRow, Vec<TrafficDay>, Vec<NodeUserRow>);
+
+    /// 节点不存在返回 `None`（接口层转 404）；节点存在但窗口内没有流量时，
+    /// 汇总为零、趋势全是 0（缺失日补 0），`users` 为空。
+    pub async fn node_traffic_detail(
+        pool: &SqlitePool,
+        node_id: &str,
+        now: i64,
+        days: i64,
+        top: i64,
+    ) -> anyhow::Result<Option<NodeTrafficDetail>> {
+        let days = days.clamp(1, 90);
+        let top = top.clamp(1, 50);
+        let Some(node) = super::nodes::find_by_id(pool, node_id).await? else {
+            return Ok(None);
+        };
+        let server_name: String = sqlx::query_scalar("SELECT name FROM servers WHERE id = ?")
+            .bind(&node.server_id)
+            .fetch_one(pool)
+            .await?;
+
+        let (start_date, end_date) = day_window(now, days);
+        let today = crate::time::business_date(now);
+        let (month_start, month_end) = crate::time::business_month_bounds(now);
+        let scan_from = start_date.as_str().min(month_start.as_str());
+
+        #[derive(sqlx::FromRow)]
+        struct Totals {
+            uplink: i64,
+            downlink: i64,
+            weighted: i64,
+            today_bytes: i64,
+            month_bytes: i64,
+        }
+        let totals = sqlx::query_as::<_, Totals>(
+            "SELECT
+                COALESCE(SUM(CASE WHEN day >= ? AND day <= ? THEN uplink ELSE 0 END), 0)
+                    AS uplink,
+                COALESCE(SUM(CASE WHEN day >= ? AND day <= ? THEN downlink ELSE 0 END), 0)
+                    AS downlink,
+                COALESCE(SUM(CASE WHEN day >= ? AND day <= ? THEN weighted ELSE 0 END), 0)
+                    AS weighted,
+                COALESCE(SUM(CASE WHEN day = ? THEN weighted ELSE 0 END), 0) AS today_bytes,
+                COALESCE(SUM(CASE WHEN day >= ? AND day <= ? THEN weighted ELSE 0 END), 0)
+                    AS month_bytes
+             FROM traffic_node_daily
+             WHERE server_id = ? AND node_tag = ? AND day >= ? AND day <= ?",
+        )
+        .bind(&start_date)
+        .bind(&end_date)
+        .bind(&start_date)
+        .bind(&end_date)
+        .bind(&start_date)
+        .bind(&end_date)
+        .bind(&today)
+        .bind(&month_start)
+        .bind(&month_end)
+        .bind(&node.server_id)
+        .bind(&node.tag)
+        .bind(scan_from)
+        .bind(&end_date)
+        .fetch_one(pool)
+        .await?;
+
+        let row = NodeTrafficRow {
+            node_id: node.id.clone(),
+            node_tag: node.tag.clone(),
+            name: node.name.clone(),
+            server_id: node.server_id.clone(),
+            server_name,
+            protocol: node.protocol.clone(),
+            transport: node.transport.clone(),
+            security: node.security.clone(),
+            uplink: totals.uplink,
+            downlink: totals.downlink,
+            weighted: totals.weighted,
+            today_bytes: totals.today_bytes,
+            month_bytes: totals.month_bytes,
+        };
+
+        let trend = node_trend(pool, &node.server_id, &node.tag, now, days).await?;
+
+        // `user_id = ''` 是无法归因的流量：计入上面的节点总量，但不进用户明细。
+        // 用户后来被删时用 user_id 兜底展示，避免整行消失。
+        let users = sqlx::query_as::<_, NodeUserRow>(
+            "SELECT t.user_id AS user_id,
+                    COALESCE(u.username, t.user_id) AS username,
+                    COALESCE(SUM(t.uplink), 0) AS uplink,
+                    COALESCE(SUM(t.downlink), 0) AS downlink,
+                    COALESCE(SUM(t.weighted), 0) AS weighted
+             FROM traffic_node_daily t
+             LEFT JOIN users u ON u.id = t.user_id
+             WHERE t.server_id = ? AND t.node_tag = ?
+               AND t.day >= ? AND t.day <= ? AND t.user_id <> ''
+             GROUP BY t.user_id
+             ORDER BY SUM(t.weighted) DESC, t.user_id ASC
+             LIMIT ?",
+        )
+        .bind(&node.server_id)
+        .bind(&node.tag)
+        .bind(&start_date)
+        .bind(&end_date)
+        .bind(top)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(Some((row, trend, users)))
+    }
+
     async fn traffic_trend_scoped(
         pool: &SqlitePool,
         now: i64,
@@ -2194,14 +2439,6 @@ pub mod stats {
         let first = today - (days - 1);
         let start_date = crate::time::business_date(crate::time::business_day_start(first));
         let end_date = crate::time::business_date(crate::time::business_day_start(today));
-
-        #[derive(sqlx::FromRow)]
-        struct DayRow {
-            day: String,
-            uplink: i64,
-            downlink: i64,
-            weighted: i64,
-        }
 
         let sql = if subject.is_some() {
             "SELECT day,
@@ -2227,7 +2464,33 @@ pub mod stats {
             query = query.bind(subject);
         }
         let rows = query.fetch_all(pool).await?;
+        Ok(fill_days(now, days, rows))
+    }
 
+    /// `days` 窗口的起止日期（UTC+8，闭区间）。
+    fn day_window(now: i64, days: i64) -> (String, String) {
+        let days = days.clamp(1, 90);
+        let today = crate::time::business_day(now);
+        let first = today - (days - 1);
+        (
+            crate::time::business_date(crate::time::business_day_start(first)),
+            crate::time::business_date(crate::time::business_day_start(today)),
+        )
+    }
+
+    #[derive(sqlx::FromRow)]
+    struct DayRow {
+        day: String,
+        uplink: i64,
+        downlink: i64,
+        weighted: i64,
+    }
+
+    /// 把稀疏的 `GROUP BY day` 结果补成连续 `days` 个点（升序）。
+    fn fill_days(now: i64, days: i64, rows: Vec<DayRow>) -> Vec<TrafficDay> {
+        let days = days.clamp(1, 90);
+        let today = crate::time::business_day(now);
+        let first = today - (days - 1);
         let mut by_day: HashMap<String, (i64, i64, i64)> = rows
             .into_iter()
             .map(|row| (row.day, (row.uplink, row.downlink, row.weighted)))
@@ -2244,7 +2507,35 @@ pub mod stats {
                 weighted,
             });
         }
-        Ok(points)
+        points
+    }
+
+    /// 单节点日趋势，形状与全局趋势一致。
+    async fn node_trend(
+        pool: &SqlitePool,
+        server_id: &str,
+        node_tag: &str,
+        now: i64,
+        days: i64,
+    ) -> anyhow::Result<Vec<TrafficDay>> {
+        let days = days.clamp(1, 90);
+        let (start_date, end_date) = day_window(now, days);
+        let rows = sqlx::query_as::<_, DayRow>(
+            "SELECT day,
+                    COALESCE(SUM(uplink), 0) AS uplink,
+                    COALESCE(SUM(downlink), 0) AS downlink,
+                    COALESCE(SUM(weighted), 0) AS weighted
+             FROM traffic_node_daily
+             WHERE server_id = ? AND node_tag = ? AND day >= ? AND day <= ?
+             GROUP BY day",
+        )
+        .bind(server_id)
+        .bind(node_tag)
+        .bind(&start_date)
+        .bind(&end_date)
+        .fetch_all(pool)
+        .await?;
+        Ok(fill_days(now, days, rows))
     }
 }
 

@@ -68,6 +68,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/audit", get(routes::audit::list))
         .route("/api/v1/stats/overview", get(routes::stats::overview))
         .route("/api/v1/stats/traffic", get(routes::stats::traffic))
+        .route("/api/v1/stats/nodes", get(routes::stats::nodes))
+        .route(
+            "/api/v1/stats/nodes/{node_id}",
+            get(routes::stats::node_detail),
+        )
         .route(
             "/api/v1/enforcement/events",
             get(routes::enforcement::events),

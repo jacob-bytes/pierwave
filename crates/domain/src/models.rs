@@ -463,6 +463,39 @@ pub struct TrafficDay {
     pub weighted: i64,
 }
 
+/// 节点维度流量聚合（`days` 窗口内），附带今日/本月加权值。
+///
+/// `node_tag` 来自 `traffic_node_daily`，节点元数据来自 `nodes` JOIN；节点一旦
+/// 删除，历史行仍在库里但不会再出现在列表/详情里（详见迁移 0009 的注释）。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, FromRow)]
+pub struct NodeTrafficRow {
+    pub node_id: String,
+    pub node_tag: String,
+    pub name: String,
+    pub server_id: String,
+    pub server_name: String,
+    pub protocol: String,
+    pub transport: String,
+    pub security: String,
+    pub uplink: i64,
+    pub downlink: i64,
+    pub weighted: i64,
+    pub today_bytes: i64,
+    pub month_bytes: i64,
+}
+
+/// 某节点下单个用户的流量切片（`days` 窗口内，按 `weighted` 降序）。
+///
+/// `user_id = ''` 的无法归因流量不会出现在这里，但仍计入节点总量。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, FromRow)]
+pub struct NodeUserRow {
+    pub user_id: String,
+    pub username: String,
+    pub uplink: i64,
+    pub downlink: i64,
+    pub weighted: i64,
+}
+
 /// 一条断流事件：某用户被从某台服务器的下发配置中移除，或重新加回。
 ///
 /// `kind` 是 `removed` / `restored`；`message` 是落库时定稿的中文说明，前端直接

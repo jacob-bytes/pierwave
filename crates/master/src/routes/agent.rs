@@ -267,11 +267,17 @@ async fn record_delta(
     downlink: u64,
 ) -> anyhow::Result<Option<RemovalCandidate>> {
     // 按最后一个 `@` 切分：用户 ID 是 UUID（无 @），node_tag 里可能有 @。
-    let user = match email.rsplit_once('@') {
-        Some((user_id, node_tag)) if !user_id.is_empty() && !node_tag.is_empty() => {
-            repo::users::find_by_id_opt(&state.db.pool, user_id).await?
+    // 归因失败也要保留能拿到的 node_tag：节点总量不能因为用户脏数据而丢。
+    let (user, node_tag) = match email.rsplit_once('@') {
+        Some((user_id, node_tag)) => {
+            let user = if user_id.is_empty() || node_tag.is_empty() {
+                None
+            } else {
+                repo::users::find_by_id_opt(&state.db.pool, user_id).await?
+            };
+            (user, node_tag)
         }
-        _ => None,
+        None => (None, ""),
     };
 
     let Some(user) = user else {
@@ -285,6 +291,20 @@ async fn record_delta(
             uplink,
             downlink,
             weighted,
+        )
+        .await?;
+        // 节点维度单独留一行：`user_id = ''` 表示无法归因，仍计入节点总量。
+        repo::traffic::accumulate_node_daily(
+            &state.db.pool,
+            day,
+            server_id,
+            repo::traffic::NodeTrafficDelta {
+                node_tag,
+                user_id: "",
+                uplink,
+                downlink,
+                weighted,
+            },
         )
         .await?;
         return Ok(None);
@@ -318,6 +338,20 @@ async fn record_delta(
         uplink,
         downlink,
         weighted,
+    )
+    .await?;
+    // 同一个 weighted 原样写节点切片，不能二次加权。
+    repo::traffic::accumulate_node_daily(
+        &state.db.pool,
+        day,
+        server_id,
+        repo::traffic::NodeTrafficDelta {
+            node_tag,
+            user_id: &user.id,
+            uplink,
+            downlink,
+            weighted,
+        },
     )
     .await?;
     repo::users::add_used_bytes(&state.db.pool, &user.id, saturating_i64(weighted)).await?;
@@ -525,6 +559,22 @@ mod tests {
         assert_eq!(daily.uplink, 1000);
         assert_eq!(daily.downlink, 500);
         assert_eq!(daily.weighted, 3000);
+
+        // 节点维度用同一个 weighted，不能重复加权。
+        let node_daily = repo::traffic::find_node_daily(
+            &fixture.state.db.pool,
+            &day,
+            "server-1",
+            "hk-1",
+            &fixture.user_id,
+        )
+        .await
+        .unwrap()
+        .expect("应有节点维度日账本");
+        assert_eq!(
+            (node_daily.uplink, node_daily.downlink, node_daily.weighted),
+            (1000, 500, 3000)
+        );
     }
 
     #[tokio::test]
@@ -681,6 +731,28 @@ mod tests {
             (second.uplink, second.downlink, second.weighted),
             (200, 100, 300)
         );
+
+        // 归因失败的流量：节点维度也要落库，`user_id = ''` 表示无法归因。
+        // 没有 @ 时拿不到 node_tag，写空串；有 @ 时保留后半段。
+        let no_tag =
+            repo::traffic::find_node_daily(&fixture.state.db.pool, &day, "server-1", "", "")
+                .await
+                .unwrap()
+                .expect("无法解析的 email 也要留在节点维度（node_tag 为空）");
+        assert_eq!(
+            (no_tag.uplink, no_tag.downlink, no_tag.weighted),
+            (100, 50, 150)
+        );
+        let ghost =
+            repo::traffic::find_node_daily(&fixture.state.db.pool, &day, "server-1", "hk-1", "")
+                .await
+                .unwrap()
+                .expect("用户不存在时 node_tag 仍要保留");
+        assert_eq!(
+            (ghost.uplink, ghost.downlink, ghost.weighted),
+            (200, 100, 300)
+        );
+
         // 不存在的用户不能被凭空创建，也没有用户用量可加。
         assert!(
             repo::users::find_by_username(&fixture.state.db.pool, "ghost")
