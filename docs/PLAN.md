@@ -300,3 +300,55 @@ POST  /api/v1/me/password { old_password, new_password } -> { ok: true }
 - `PATCH` 只接受白名单键，未知键 400；数值做范围校验（如 `login_max_attempts` 1–20）。
 - 改密码后**吊销该用户的其它会话**（保留当前这条），避免旧设备一直在线。
 - 断流总开关仍由环境变量 `PIERWAVE_ENFORCE` 控制，本轮不做运行时可切（会牵扯 Enforcer 生命周期）。
+
+## P2：节点维度流量明细
+
+现有 `traffic_daily` 的 `subject` 是 **user_id**，节点维度在归因时被丢掉了。要回答
+「哪个节点在跑流量」「某节点上谁占得最多」，必须把 `(user, node)` 这个维度落库。
+
+### 表
+
+```sql
+-- 0009_traffic_node_daily.sql
+CREATE TABLE traffic_node_daily (
+    day       TEXT NOT NULL,              -- UTC+8 自然日
+    server_id TEXT NOT NULL,
+    node_tag  TEXT NOT NULL,              -- 来自 email 的 {user_id}@{node_tag} 后半段
+    user_id   TEXT NOT NULL,              -- '' = 无法归因（脏 email）
+    uplink    INTEGER NOT NULL DEFAULT 0,
+    downlink  INTEGER NOT NULL DEFAULT 0,
+    weighted  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, server_id, node_tag, user_id)
+);
+```
+
+保留 `traffic_daily`（用户总量、月账单仍读它），新表只做节点/用户×节点的切片。
+
+### 接口
+
+```
+GET /api/v1/stats/nodes?days=7&server_id=<可选>
+-> { "items": [ {
+     "node_id","node_tag","name","server_id","server_name","protocol","transport","security",
+     "uplink","downlink","weighted",          // days 窗口内
+     "today_bytes","month_bytes"              // 加权后
+   } ] }
+
+GET /api/v1/stats/nodes/{node_id}?days=30&top=10
+-> { "node": { ...同上单条... },
+     "days": [ { "date","uplink","downlink","weighted" } ],   // 缺失日补 0
+     "users": [ { "user_id","username","uplink","downlink","weighted" } ] }  // 按 weighted 降序
+```
+
+规则：管理员专用；`days` 夹在 1..90，`top` 夹在 1..50；`day` 一律 UTC+8。
+
+### 采集侧
+
+`record_delta` 已经能拿到 `node_tag`（`email.rsplit_once('@')` 的后半段），
+在写 `traffic_daily` 的同时写一行 `traffic_node_daily`；无法归因时 `user_id` 写 `''`。
+
+### 前端
+
+- 节点列表（`/servers/:id/nodes`）增加「7 天流量」列（下行/上行拆开，或合计 + tooltip 拆分）；
+- 行内「流量」入口打开 Sheet：节点近 30 天趋势图 + Top N 用户表；
+- 概览页的节点视图不做，避免和现有趋势图重复。
