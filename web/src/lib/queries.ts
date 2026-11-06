@@ -22,6 +22,8 @@ import {
   type MeTraffic,
   type Node,
   type NodeSummary,
+  type NodeTraffic,
+  type NodeTrafficDetail,
   type OverviewStats,
   type Package,
   type Server,
@@ -44,6 +46,10 @@ export const queryKeys = {
   health: ["health"] as const,
   statsOverview: ["stats", "overview"] as const,
   statsTraffic: (days: number) => ["stats", "traffic", days] as const,
+  statsNodes: (serverId: string, days: number) =>
+    ["stats", "nodes", { serverId, days }] as const,
+  statsNode: (nodeId: string, days: number, top: number) =>
+    ["stats", "node", nodeId, { days, top }] as const,
   servers: ["servers"] as const,
   enforcementEvents: (limit: number) =>
     ["enforcement", "events", limit] as const,
@@ -107,6 +113,35 @@ export function useTraffic(days: number) {
     enabled: days > 0,
     placeholderData: keepPreviousData,
     staleTime: 60_000,
+  });
+}
+
+/**
+ * 单台服务器的节点流量列表（P2）。
+ *
+ * 后端可能暂时 404：这里不重试，由节点列表把失败降级成「—」，
+ * 详情 Sheet 再给出可重试的中文错误态。
+ */
+export function useNodeTraffic(serverId: string, days: number) {
+  return useQuery<NodeTraffic[]>({
+    queryKey: queryKeys.statsNodes(serverId, days),
+    queryFn: async () => (await api.stats.nodes({ days, serverId })).items,
+    enabled: Boolean(serverId) && days > 0,
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
+/** 单个节点的流量趋势与 Top 用户（P2）。 */
+export function useNodeTrafficDetail(nodeId: string, days: number, top: number) {
+  return useQuery<NodeTrafficDetail>({
+    queryKey: queryKeys.statsNode(nodeId, days, top),
+    queryFn: () => api.stats.nodeDetail(nodeId, { days, top }),
+    enabled: Boolean(nodeId) && days > 0,
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+    retry: false,
   });
 }
 

@@ -828,6 +828,37 @@ const en = {
       created: "Node “{name}” created",
       error: "Could not save the node. Please try again.",
     },
+    traffic: {
+      column: "7-day traffic",
+      columnHint: "Weighted total; click a cell to open the last 30 days",
+      openAria: "View traffic details for “{name}”",
+      noTraffic: "No traffic in the last 7 days",
+      title: "Node traffic",
+      today: "Today",
+      thisMonth: "This month",
+      last30: "Last 30 days",
+      last30Hint: "Weighted by node ratio",
+      weighted: "Weighted",
+      trendTitle: "Traffic trend, last 30 days",
+      trendDesc:
+        "Counted by UTC+8 calendar day; missing days are treated as 0.",
+      trendTotal: "30 days {value}",
+      topUsers: "Top users",
+      topUsersDesc: "Sorted by weighted traffic, up to 10 users.",
+      userColumn: "User",
+      emptyUsers:
+        "No user-attributed traffic on this node in the last 30 days",
+      emptyUsersDesc:
+        "Traffic that cannot be attributed to a user is not listed here.",
+      emptyTitle: "No traffic on this node in the last 30 days",
+      emptyDesc:
+        "Once the node carries traffic, its trend and user breakdown appear here.",
+      loadFailed: "Node traffic failed to load",
+      loadError:
+        "Could not load node traffic. Check your network and try again.",
+      notReady:
+        "The node traffic API is not ready yet. Refresh once the backend is deployed.",
+    },
   },
   me: {
     shortCode: "Short code",

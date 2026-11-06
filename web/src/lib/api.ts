@@ -328,6 +328,45 @@ export interface TrafficStats {
   days: TrafficDay[];
 }
 
+/**
+ * P2：节点维度流量，见 docs/PLAN.md「P2：节点维度流量明细」。
+ *
+ * `uplink` / `downlink` / `weighted` 是 `days` 窗口内的合计，
+ * `today_bytes` / `month_bytes` 是后端按 UTC+8 算好的加权值。
+ */
+export interface NodeTraffic {
+  node_id: string;
+  node_tag: string;
+  name: string;
+  server_id: string;
+  server_name: string;
+  protocol: string;
+  transport: string;
+  security: string;
+  uplink: number;
+  downlink: number;
+  weighted: number;
+  today_bytes: number;
+  month_bytes: number;
+}
+
+/** 节点上按用户归因的流量切片，按 weighted 降序返回。 */
+export interface NodeTrafficUser {
+  user_id: string;
+  username: string;
+  uplink: number;
+  downlink: number;
+  weighted: number;
+}
+
+export interface NodeTrafficDetail {
+  node: NodeTraffic;
+  /** 缺失日期已由后端补 0，升序排列。 */
+  days: TrafficDay[];
+  /** Top N 用户，最多 `top` 条。 */
+  users: NodeTrafficUser[];
+}
+
 /** P4：用户自助契约，见 docs/PLAN.md「P4：用户端自助（本轮契约）」。 */
 export interface MeSummaryUser {
   id: string;
@@ -377,6 +416,19 @@ export const api = {
     traffic: (days: number) =>
       request<TrafficStats>(
         `/api/v1/stats/traffic?days=${encodeURIComponent(String(days))}`,
+      ),
+    /** 节点流量列表；`serverId` 缺省时统计全部服务器。后端可能尚未上线。 */
+    nodes: ({ days, serverId }: { days: number; serverId?: string }) => {
+      const params = new URLSearchParams({ days: String(days) });
+      if (serverId) params.set("server_id", serverId);
+      return request<{ items: NodeTraffic[] }>(
+        `/api/v1/stats/nodes?${params.toString()}`,
+      );
+    },
+    /** 单个节点的近 N 天趋势与 Top 用户。 */
+    nodeDetail: (nodeId: string, { days, top }: { days: number; top: number }) =>
+      request<NodeTrafficDetail>(
+        `/api/v1/stats/nodes/${encodeURIComponent(nodeId)}?days=${encodeURIComponent(String(days))}&top=${encodeURIComponent(String(top))}`,
       ),
   },
   // 会话用户与自助接口共用 `me` 命名空间：api.me() / api.me.summary() / api.me.traffic(days)。

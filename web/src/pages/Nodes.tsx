@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -48,11 +48,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { Node } from "@/lib/api";
+import { ApiError, type Node, type NodeTraffic } from "@/lib/api";
 import { errorText } from "@/lib/errors";
+import { formatBytes } from "@/lib/format";
 import { nodeSummary } from "@/lib/protocols";
 import {
   useApplyServer,
+  useNodeTraffic,
   useNodes,
   useServers,
   useUpdateNode,
@@ -61,10 +63,74 @@ import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
-const COLUMN_COUNT = 6;
+const COLUMN_COUNT = 7;
+const TRAFFIC_DAYS = 7;
+
+/** 详情 Sheet 含趋势图，按需加载，避免图表进入节点列表的同步依赖。 */
+const NodeTrafficSheet = lazy(() =>
+  import("@/components/nodes/NodeTrafficSheet").then((module) => ({
+    default: module.NodeTrafficSheet,
+  })),
+);
 
 function nodeChangedAt(node: Node): number {
   return node.updated_at ?? node.created_at;
+}
+
+/** 列表里的「7 天流量」单元格：点击打开详情 Sheet。 */
+function NodeTrafficCell({
+  node,
+  traffic,
+  loading,
+  errorTitle,
+  onOpen,
+}: {
+  node: Node;
+  traffic?: NodeTraffic;
+  loading: boolean;
+  errorTitle?: string;
+  onOpen: () => void;
+}) {
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-1.5 px-2 py-1">
+        <Skeleton className="h-3.5 w-14" />
+        <Skeleton className="h-2.5 w-24" />
+      </div>
+    );
+  }
+
+  const weighted = traffic?.weighted ?? 0;
+  const hasTraffic = weighted > 0;
+  const title = errorTitle
+    ? errorTitle
+    : hasTraffic && traffic
+      ? `${t("trafficChart.downlink")} ${formatBytes(traffic.downlink)} · ${t("trafficChart.uplink")} ${formatBytes(traffic.uplink)}`
+      : t("nodes.traffic.noTraffic");
+
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={t("nodes.traffic.openAria", { name: node.name })}
+      onClick={onOpen}
+      className="-mx-2 flex min-w-32 flex-col items-start gap-0.5 rounded-md px-2 py-1 text-left transition-colors duration-150 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+    >
+      <span
+        className={cn(
+          "font-mono text-xs tabular-nums",
+          hasTraffic ? "text-foreground" : "text-muted-foreground",
+        )}
+      >
+        {hasTraffic ? formatBytes(weighted) : "—"}
+      </span>
+      {hasTraffic && traffic ? (
+        <span className="font-mono text-[10px] whitespace-nowrap text-muted-foreground">
+          ↓ {formatBytes(traffic.downlink)} · ↑ {formatBytes(traffic.uplink)}
+        </span>
+      ) : null}
+    </button>
+  );
 }
 
 function LoadingRows() {
@@ -81,6 +147,9 @@ function LoadingRows() {
           </TableCell>
           <TableCell className="px-4 py-3">
             <Skeleton className="h-3.5 w-10" />
+          </TableCell>
+          <TableCell className="px-4 py-3">
+            <Skeleton className="h-3.5 w-16" />
           </TableCell>
           <TableCell className="px-4 py-3">
             <Skeleton className="h-4 w-8 rounded-full" />
@@ -207,6 +276,7 @@ export default function NodesPage() {
   const { id: serverId = "" } = useParams();
   const servers = useServers();
   const nodes = useNodes(serverId);
+  const traffic = useNodeTraffic(serverId, TRAFFIC_DAYS);
   const apply = useApplyServer(serverId);
 
   const [formState, setFormState] = useState<{
@@ -214,6 +284,7 @@ export default function NodesPage() {
     node?: Node;
   } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Node | null>(null);
+  const [trafficTarget, setTrafficTarget] = useState<Node | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
 
   const server = servers.data?.find((item) => item.id === serverId);
@@ -223,6 +294,14 @@ export default function NodesPage() {
     nodes.error,
     t("nodes.loadError"),
   );
+  const trafficByNode = new Map<string, NodeTraffic>(
+    (traffic.data ?? []).map((item) => [item.node_id, item]),
+  );
+  const trafficErrorTitle = traffic.isError
+    ? traffic.error instanceof ApiError && traffic.error.status === 404
+      ? t("nodes.traffic.notReady")
+      : errorText(traffic.error, t("nodes.traffic.loadError"))
+    : undefined;
 
   function handleApply() {
     if (!serverId || apply.isPending) return;
@@ -362,27 +441,30 @@ export default function NodesPage() {
         </CardHeader>
 
         <CardContent className="p-0">
-          <Table className="min-w-[760px]" aria-busy={nodes.isPending}>
+          <Table className="min-w-[900px]" aria-busy={nodes.isPending}>
             <TableCaption className="sr-only">{t("nodes.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
                 {[
-                  t("nodes.columns.name"),
-                  t("nodes.columns.protocol"),
-                  t("nodes.columns.port"),
-                  t("nodes.columns.enabled"),
-                  t("nodes.columns.updatedAt"),
-                  t("nodes.columns.actions"),
-                ].map(
-                  (label) => (
-                    <TableHead
-                      key={label}
-                      className="h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground"
-                    >
-                      {label}
-                    </TableHead>
-                  ),
-                )}
+                  { label: t("nodes.columns.name") },
+                  { label: t("nodes.columns.protocol") },
+                  { label: t("nodes.columns.port") },
+                  {
+                    label: t("nodes.traffic.column"),
+                    title: t("nodes.traffic.columnHint"),
+                  },
+                  { label: t("nodes.columns.enabled") },
+                  { label: t("nodes.columns.updatedAt") },
+                  { label: t("nodes.columns.actions") },
+                ].map(({ label, title }) => (
+                  <TableHead
+                    key={label}
+                    title={title}
+                    className="h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground"
+                  >
+                    {label}
+                  </TableHead>
+                ))}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -419,6 +501,15 @@ export default function NodesPage() {
                     </TableCell>
                     <TableCell className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
                       {node.port}
+                    </TableCell>
+                    <TableCell className="px-4 py-2.5">
+                      <NodeTrafficCell
+                        node={node}
+                        traffic={trafficByNode.get(node.id)}
+                        loading={traffic.isPending}
+                        errorTitle={trafficErrorTitle}
+                        onOpen={() => setTrafficTarget(node)}
+                      />
                     </TableCell>
                     <TableCell className="px-4 py-2.5">
                       <NodeEnabledSwitch serverId={serverId} node={node} />
@@ -490,6 +581,20 @@ export default function NodesPage() {
             if (!open) setDeleteTarget(null);
           }}
         />
+      ) : null}
+
+      {trafficTarget ? (
+        <Suspense fallback={null}>
+          <NodeTrafficSheet
+            key={trafficTarget.id}
+            open
+            node={trafficTarget}
+            serverName={server?.name}
+            onOpenChange={(open) => {
+              if (!open) setTrafficTarget(null);
+            }}
+          />
+        </Suspense>
       ) : null}
     </div>
   );
