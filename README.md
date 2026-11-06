@@ -54,9 +54,13 @@ PierWave puts all of that behind one control plane:
 
 ## Screens
 
-| Servers | Users |
+| Servers | Nodes (7-day traffic) |
 |---|---|
-| ![servers](docs/images/en/servers.png) | ![users](docs/images/en/users.png) |
+| ![servers](docs/images/en/servers.png) | ![nodes](docs/images/en/nodes.png) |
+
+| Users | Self-service |
+|---|---|
+| ![users](docs/images/en/users.png) | ![me](docs/images/en/me.png) |
 
 ## Quick start
 

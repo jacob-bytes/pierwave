@@ -44,9 +44,13 @@ PierWave 把这些收进一个控制面：
 
 ## 界面
 
-| 服务器 | 用户 |
+| 服务器 | 节点（7 天流量） |
 |---|---|
-| ![服务器](docs/images/zh/servers.png) | ![用户](docs/images/zh/users.png) |
+| ![服务器](docs/images/zh/servers.png) | ![节点](docs/images/zh/nodes.png) |
+
+| 用户 | 用户自助 |
+|---|---|
+| ![用户](docs/images/zh/users.png) | ![我的](docs/images/zh/me.png) |
 
 ## 快速开始
 
