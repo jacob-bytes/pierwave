@@ -8,6 +8,7 @@ import {
   api,
   ApiError,
   type ApplyResult,
+  type AuditEntry,
   type BindUserPackageInput,
   type Certificate,
   type ChangePasswordInput,
@@ -53,6 +54,7 @@ export const queryKeys = {
   servers: ["servers"] as const,
   enforcementEvents: (limit: number) =>
     ["enforcement", "events", limit] as const,
+  auditLog: (limit: number) => ["audit", limit] as const,
   nodes: (serverId: string) => ["nodes", serverId] as const,
   /** 全局节点列表：不属于任何单台服务器，单独一个 key。 */
   allNodes: ["nodes", "all"] as const,
@@ -243,6 +245,17 @@ export function useEnforcementEvents(limit: number) {
   return useQuery<EnforcementEvent[]>({
     queryKey: queryKeys.enforcementEvents(limit),
     queryFn: async () => (await api.enforcement.events(limit)).items,
+    enabled: limit > 0,
+    placeholderData: keepPreviousData,
+    staleTime: 15_000,
+  });
+}
+
+/** 审计日志，按条数取最新记录；搜索与分类筛选都在页面内完成。 */
+export function useAuditLog(limit: number) {
+  return useQuery<AuditEntry[]>({
+    queryKey: queryKeys.auditLog(limit),
+    queryFn: async () => (await api.audit.list(limit)).items,
     enabled: limit > 0,
     placeholderData: keepPreviousData,
     staleTime: 15_000,

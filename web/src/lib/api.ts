@@ -89,6 +89,25 @@ export interface EnforcementEvent {
   created_at: number;
 }
 
+/**
+ * 审计日志条目；管理员专用，按时间倒序返回。
+ *
+ * `detail` 后端已解析成 JSON 对象（解析失败时退化为原始字符串），
+ * 前端不需要再 parse；变更摘要由页面从它里面提取。
+ */
+export interface AuditEntry {
+  id: string;
+  actor_id: string | null;
+  actor_name: string | null;
+  /** 形如 `user.create` / `package.update`；未知值原样展示。 */
+  action: string;
+  /** 被操作对象的 id；`settings` 这类没有单行 id 的是固定字符串。 */
+  target: string | null;
+  detail: unknown;
+  /** Unix 秒。 */
+  created_at: number;
+}
+
 /** 节点：config 是后端直接返回的 JSON 对象，不需要前端再 parse。 */
 export interface Node {
   id: string;
@@ -465,6 +484,14 @@ export const api = {
     events: (limit: number) =>
       request<{ items: EnforcementEvent[] }>(
         `/api/v1/enforcement/events?limit=${encodeURIComponent(String(limit))}`,
+      ),
+  },
+
+  /** 管理员可见的审计日志，按时间倒序；limit 由后端夹在 1..500。 */
+  audit: {
+    list: (limit: number) =>
+      request<{ items: AuditEntry[] }>(
+        `/api/v1/audit?limit=${encodeURIComponent(String(limit))}`,
       ),
   },
 

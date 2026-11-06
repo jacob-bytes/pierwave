@@ -23,6 +23,7 @@ import {
   NetworkIcon,
   PackageIcon,
   RefreshCwIcon,
+  ScrollTextIcon,
   ServerIcon,
   SettingsIcon,
   TerminalIcon,
@@ -89,6 +90,7 @@ const systemNav: NavItem[] = [
       /^\/servers\/[^/]+\/nodes(?:\/|$)/.test(pathname),
   },
   { to: "/events", labelKey: "nav.events", icon: HistoryIcon },
+  { to: "/audit", labelKey: "nav.audit", icon: ScrollTextIcon },
   { to: "/certificates", labelKey: "nav.certificates", icon: FileKeyIcon },
   { to: "/settings", labelKey: "nav.settings", icon: SettingsIcon },
 ];
