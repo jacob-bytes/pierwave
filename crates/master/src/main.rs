@@ -34,6 +34,37 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // 发布相关的小工具（CI 与安装脚本使用）：
+    //   pierwave-master sign-release <私钥 base64 或环境变量 PIERWAVE_RELEASE_SIGNING_KEY> <清单> <签名输出>
+    //   pierwave-master verify-release <清单> <签名> [公钥 base64]
+    if let Some(pos) = args.iter().position(|arg| arg == "sign-release") {
+        let secret = args
+            .get(pos + 1)
+            .cloned()
+            .or_else(|| std::env::var("PIERWAVE_RELEASE_SIGNING_KEY").ok())
+            .context("缺少签名私钥：参数或 PIERWAVE_RELEASE_SIGNING_KEY")?;
+        let manifest_path = args.get(pos + 2).context("缺少清单路径")?;
+        let out_path = args.get(pos + 3).context("缺少签名输出路径")?;
+        let manifest = std::fs::read_to_string(manifest_path).context("读取清单失败")?;
+        let signature = pierwave_domain::release::sign_manifest(&secret, &manifest)?;
+        std::fs::write(out_path, format!("{signature}\n"))?;
+        eprintln!("signature written to {out_path}");
+        return Ok(());
+    }
+    if let Some(pos) = args.iter().position(|arg| arg == "verify-release") {
+        let manifest_path = args.get(pos + 1).context("缺少清单路径")?;
+        let sig_path = args.get(pos + 2).context("缺少签名路径")?;
+        let manifest = std::fs::read_to_string(manifest_path).context("读取清单失败")?;
+        let signature = std::fs::read_to_string(sig_path).context("读取签名失败")?;
+        let public = args
+            .get(pos + 3)
+            .cloned()
+            .unwrap_or_else(|| pierwave_domain::release::embedded_public_key().to_string());
+        pierwave_domain::release::verify_manifest(&manifest, &signature, &public)?;
+        println!("ok");
+        return Ok(());
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()

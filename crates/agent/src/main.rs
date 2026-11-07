@@ -129,7 +129,20 @@ async fn run_once(
                         anyhow::bail!("master rejected agent: {message}");
                     }
                     Ok(MasterMessage::Ping) => {
-                        ws.send(Message::Text(r#"{"type":"heartbeat","seq":0,"uptime_secs":0,"load1":0.0,"mem_used":0,"mem_total":0,"disk_used":0,"disk_total":0,"xray_running":false,"nginx_running":false}"#.into())).await.ok();
+                        let fallback = serde_json::json!({
+                            "type": "heartbeat",
+                            "seq": 0,
+                            "uptime_secs": 0,
+                            "load1": 0.0,
+                            "mem_used": 0,
+                            "mem_total": 0,
+                            "disk_used": 0,
+                            "disk_total": 0,
+                            "xray_running": false,
+                            "nginx_running": false,
+                            "agent_version": env!("CARGO_PKG_VERSION"),
+                        });
+                        ws.send(Message::Text(fallback.to_string())).await.ok();
                     }
                     Err(e) => tracing::warn!(error = %e, "unknown master message"),
                 }
@@ -404,6 +417,7 @@ fn sample_heartbeat(seq: u64, uptime_secs: u64) -> Heartbeat {
     let disk = read_disk();
     Heartbeat {
         seq,
+        agent_version: env!("CARGO_PKG_VERSION").to_string(),
         uptime_secs,
         load1,
         mem_used,

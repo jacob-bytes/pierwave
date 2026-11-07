@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,6 +30,10 @@ pub struct ServerAck {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Heartbeat {
     pub seq: u64,
+    /// Agent 版本。心跳也带一份，主控才能在「重连间隙」和「升级后」感知版本变化；
+    /// 缺省为空串，兼容不认识这个字段的旧 Agent。
+    #[serde(default)]
+    pub agent_version: String,
     pub uptime_secs: u64,
     pub load1: f32,
     pub mem_used: u64,

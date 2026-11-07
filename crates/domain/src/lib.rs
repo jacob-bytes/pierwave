@@ -8,6 +8,7 @@ pub mod metering;
 pub mod models;
 pub mod password;
 pub mod reality;
+pub mod release;
 pub mod repo;
 pub mod reset;
 pub mod routing;

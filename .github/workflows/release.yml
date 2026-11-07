@@ -15,6 +15,9 @@ jobs:
   linux:
     name: linux ${{ matrix.target }}
     runs-on: ubuntu-latest
+    env:
+      # 放在 job 级：step 级 env 在 `if:` 里读不到
+      PIERWAVE_RELEASE_SIGNING_KEY: ${{ secrets.PIERWAVE_RELEASE_SIGNING_KEY }}
     strategy:
       fail-fast: false
       matrix:
@@ -66,9 +69,21 @@ jobs:
             fi
           done
 
+      # 对 SHA256SUMS 做 Ed25519 签名：只校验 sha256 挡不住「清单和二进制一起被改」。
+      # 私钥放在仓库 Secret（PIERWAVE_RELEASE_SIGNING_KEY）里，公钥编译期内置。
+      - name: Sign checksums
+        if: env.PIERWAVE_RELEASE_SIGNING_KEY != ''
+        run: |
+          cargo build --release -p pierwave-master --locked
+          sums="dist/SHA256SUMS-${{ matrix.target }}"
+          ./target/release/pierwave-master sign-release "$PIERWAVE_RELEASE_SIGNING_KEY" "$sums" "$sums.sig"
+          echo "signed: $sums.sig"
+          ls -l dist
+
       # 发布说明直接用 annotated tag 的正文，格式在打 tag 时就被固定住：
       #   feat: ...
       #   fix: ...
+
       - name: Release notes from tag
         run: |
           # checkout 默认不拉 tag，浅克隆还会把 annotated tag 退化成轻量 tag，

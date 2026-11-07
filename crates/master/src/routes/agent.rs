@@ -169,9 +169,15 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
                 disk_total: hb.disk_total as i64,
                 uptime_secs: hb.uptime_secs as i64,
             };
+            // 心跳自带的版本优先：Agent 升级重启后，第一个心跳就能把新版本带上来，
+            // 不用等下次重连才更新 UI。
+            let version = if hb.agent_version.is_empty() {
+                agent_version
+            } else {
+                hb.agent_version.as_str()
+            };
             if let Err(e) =
-                repo::servers::update_health(&state.db.pool, server_id, agent_version, &health)
-                    .await
+                repo::servers::update_health(&state.db.pool, server_id, version, &health).await
             {
                 tracing::error!(error = %e, "heartbeat write failed");
             }
