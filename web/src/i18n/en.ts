@@ -261,9 +261,9 @@ const en = {
       notReported: "Not reported",
       latest: "Latest version",
       version: "Version",
-      versionPlaceholder: "e.g. v1.2.3",
+      versionPlaceholder: "e.g. v0.5.2",
       versionHint:
-        "Leave blank to use the latest version. The available release list is not exposed to the UI yet; enter a version manually if you need a specific one.",
+        "Leave empty to upgrade to the latest release, or type the version you want.",
       pendingHint:
         "A pending target {version} already exists; the controller will reject a new upgrade while it is still in progress.",
       warning:

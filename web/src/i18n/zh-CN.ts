@@ -252,9 +252,8 @@ const zhCN = {
       notReported: "未上报",
       latest: "最新版本",
       version: "版本号",
-      versionPlaceholder: "例如 v1.2.3",
-      versionHint:
-        "留空则使用最新版本。前端目前拿不到可用版本列表，需要指定版本时请手动填写。",
+      versionPlaceholder: "例如 v0.5.2",
+      versionHint: "留空则升级到最新版本；也可以手动填写要升级到的版本号。",
       pendingHint: "已有一个待升级目标 {version}；如果它仍在进行中，主控会拒绝新的升级。",
       warning:
         "升级会重启 Agent，连接会短暂中断；新版本启动失败会自动回滚。",

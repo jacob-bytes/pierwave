@@ -74,11 +74,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import type { CreateServerResponse, Server } from "@/lib/api";
 import {
   displayAgentVersion,
@@ -338,51 +333,6 @@ function VersionCell({ server }: { server: Server }) {
         {t("servers.configVersion", { version: server.config_version })}
       </span>
     </div>
-  );
-}
-
-/**
- * P4：行内的「升级 Agent」入口。
- *
- * 未开启「允许下发升级」时保留按钮但禁用，并用 tooltip 说明去哪里开启；
- * 直接隐藏会让管理员不知道有这个能力，也可能误以为升级按钮丢了。
- */
-function AgentUpgradeAction({
-  server,
-  onOpen,
-}: {
-  server: Server;
-  onOpen: () => void;
-}) {
-  const allowed = Boolean(server.allow_agent_upgrade);
-  const button = (
-    <Button
-      variant="ghost"
-      size="sm"
-      onClick={onOpen}
-      disabled={!allowed}
-      title={
-        allowed
-          ? t("servers.agentUpgrade.action")
-          : t("servers.agentUpgrade.disabledHint")
-      }
-    >
-      <ArrowUpCircleIcon className="size-3.5" />
-      {t("servers.agentUpgrade.action")}
-    </Button>
-  );
-
-  if (allowed) return button;
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span tabIndex={0} className="inline-flex rounded-md">
-          {button}
-        </span>
-      </TooltipTrigger>
-      <TooltipContent>{t("servers.agentUpgrade.disabledHint")}</TooltipContent>
-    </Tooltip>
   );
 }
 
@@ -885,30 +835,34 @@ export default function ServersPage() {
                       <TableCell className="px-4 py-2.5">
                         <div className="flex items-center gap-1">
                           <ServerDetailsPopover server={server} />
-                          <Button variant="ghost" size="sm" asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            asChild
+                            title={t("servers.nodes")}
+                          >
                             <Link
                               to={`/servers/${server.id}/nodes`}
                               aria-label={t("servers.manageNodesAria", { name: server.name })}
                             >
-                              <NetworkIcon className="size-3.5" />
-                              {t("servers.nodes")}
+                              <NetworkIcon className="size-4" />
                             </Link>
                           </Button>
-                          <Button variant="ghost" size="sm" asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            asChild
+                            title={t("servers.outbounds")}
+                          >
                             <Link
                               to={`/servers/${server.id}/outbounds`}
                               aria-label={t("servers.manageOutboundsAria", {
                                 name: server.name,
                               })}
                             >
-                              <WaypointsIcon className="size-3.5" />
-                              {t("servers.outbounds")}
+                              <WaypointsIcon className="size-4" />
                             </Link>
                           </Button>
-                          <AgentUpgradeAction
-                            server={server}
-                            onOpen={() => setUpgradeServerId(server.id)}
-                          />
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button
@@ -922,7 +876,20 @@ export default function ServersPage() {
                                 <MoreHorizontalIcon className="size-4" />
                               </Button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuContent align="end" className="w-52">
+                              <DropdownMenuItem
+                                disabled={!Boolean(server.allow_agent_upgrade)}
+                                title={
+                                  Boolean(server.allow_agent_upgrade)
+                                    ? t("servers.agentUpgrade.action")
+                                    : t("servers.agentUpgrade.disabledHint")
+                                }
+                                onSelect={() => setUpgradeServerId(server.id)}
+                              >
+                                <ArrowUpCircleIcon className="size-3.5" />
+                                {t("servers.agentUpgrade.action")}
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 onSelect={() => setHistoryServerId(server.id)}
                               >
