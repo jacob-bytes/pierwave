@@ -146,6 +146,24 @@ pub fn default_base_url() -> String {
     }
 }
 
+/// 心跳上报的 `arch`（`uname -m` 风格）映射到发布目标三元组。
+pub(crate) fn target_for_arch(arch: &str) -> Option<&'static str> {
+    match arch.trim().to_ascii_lowercase().as_str() {
+        "x86_64" | "amd64" | "x86-64" => Some("x86_64-unknown-linux-musl"),
+        "aarch64" | "arm64" => Some("aarch64-unknown-linux-musl"),
+        _ => None,
+    }
+}
+
+/// 配置里的默认值既允许短架构名，也允许写完整三元组。
+fn configured_target(target: &str) -> Option<&'static str> {
+    match target.trim() {
+        "x86_64-unknown-linux-musl" => Some("x86_64-unknown-linux-musl"),
+        "aarch64-unknown-linux-musl" => Some("aarch64-unknown-linux-musl"),
+        other => target_for_arch(other),
+    }
+}
+
 /// 组装下发的升级计划。
 ///
 /// 三个条件必须同时满足：服务器显式开启、存在目标版本、目标比当前 Agent 版本新。
@@ -163,13 +181,20 @@ fn upgrade_plan(state: &AppState, server: &Server, base_url: &str) -> Option<Age
         return None;
     }
 
+    // 心跳带了架构就按服务器的真实架构挑产物；旧 Agent 没带才回落到配置默认值。
+    let arch = server.arch.trim();
+    let triple = if arch.is_empty() {
+        configured_target(&state.agent_release.target)?
+    } else {
+        target_for_arch(arch)?
+    };
+
     let base = base_url.trim().trim_end_matches('/');
     let base = if base.is_empty() {
         default_base_url()
     } else {
         base.to_string()
     };
-    let triple = &state.agent_release.target;
     Some(AgentUpgradePlan {
         version: target.to_string(),
         asset_url: format!("{base}/api/agent/release/{target}/pierwave-agent-{triple}"),
@@ -371,6 +396,60 @@ mod tests {
         assert_eq!(
             plan.sig_url,
             "https://panel.example.com/api/agent/release/0.6.0/SHA256SUMS-x86_64-unknown-linux-musl.sig"
+        );
+    }
+
+    #[tokio::test]
+    async fn picks_asset_arch_from_heartbeat() {
+        let (state, server) = fixture(true, "0.5.0", Some("0.6.0")).await;
+        repo::servers::update_health(
+            &state.db.pool,
+            &server.id,
+            "0.5.0",
+            &repo::servers::HealthSnapshot {
+                arch: "aarch64".into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let server = repo::servers::find_by_id(&state.db.pool, &server.id)
+            .await
+            .unwrap();
+        let plan = render(&state, &server, "https://panel.example.com")
+            .await
+            .unwrap()
+            .agent_upgrade
+            .expect("开启且更新时必须下发升级计划");
+        assert!(
+            plan.asset_url
+                .contains("pierwave-agent-aarch64-unknown-linux-musl"),
+            "{}",
+            plan.asset_url
+        );
+
+        // 不认识的架构：宁可不升级，也不能下发一个必然验签失败的产物。
+        repo::servers::update_health(
+            &state.db.pool,
+            &server.id,
+            "0.5.0",
+            &repo::servers::HealthSnapshot {
+                arch: "mips".into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let server = repo::servers::find_by_id(&state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert!(
+            render(&state, &server, "https://panel.example.com")
+                .await
+                .unwrap()
+                .agent_upgrade
+                .is_none(),
+            "未知架构不能下发升级"
         );
     }
 }

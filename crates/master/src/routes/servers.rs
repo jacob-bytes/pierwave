@@ -168,7 +168,8 @@ pub async fn update(
 
 #[derive(Deserialize)]
 pub struct AgentUpgradeRequest {
-    /// 目标版本，例如 `0.6.0` 或 `v0.6.0`。
+    /// 目标版本，例如 `0.6.0` 或 `v0.6.0`；空串/缺省 = 解析最新 Release。
+    #[serde(default)]
     pub version: String,
 }
 
@@ -202,10 +203,37 @@ pub async fn trigger_agent_upgrade(
         ));
     }
 
-    let version = req.version.trim();
-    if !release::is_valid_version(version) {
+    // 前端拿不到版本列表，留空 = 使用最新 Release；结果缓存 5 分钟。
+    let requested = req.version.trim();
+    let version = if requested.is_empty() {
+        if let Some(cached) = state.latest_version.get() {
+            cached
+        } else {
+            let Some(latest) =
+                crate::routes::install::fetch_latest_version(&state.agent_release).await
+            else {
+                return Err(AppError::BadRequest(
+                    "无法获取最新版本，请显式指定 version（例如 0.6.0）".into(),
+                ));
+            };
+            state.latest_version.put(&latest);
+            latest
+        }
+    } else {
+        requested.to_string()
+    };
+
+    if !release::is_valid_version(&version) {
         return Err(AppError::BadRequest(format!(
             "版本号格式不合法：{version}（示例：0.6.0 或 v0.6.0）"
+        )));
+    }
+
+    // 心跳没带架构时回落到主控配置；带了但不在白名单就必须拒绝，不能发错产物。
+    let arch = server.arch.trim();
+    if !arch.is_empty() && super::desired::target_for_arch(arch).is_none() {
+        return Err(AppError::BadRequest(format!(
+            "不支持的 CPU 架构：{arch}（仅支持 x86_64 / aarch64）"
         )));
     }
 
@@ -215,7 +243,7 @@ pub async fn trigger_agent_upgrade(
             "服务器尚未上报 Agent 版本，无法判断升级方向；请先让 Agent 上线并发送一次心跳".into(),
         ));
     }
-    if !release::is_newer(version, current) {
+    if !release::is_newer(&version, current) {
         return Err(AppError::BadRequest(format!(
             "不允许降级：目标版本 {version} 必须比当前 Agent 版本 {current} 新"
         )));
@@ -230,8 +258,8 @@ pub async fn trigger_agent_upgrade(
         }
     }
 
-    let upgrade = repo::agent_upgrades::create(&state.db.pool, &id, current, version).await?;
-    repo::servers::set_agent_target_version(&state.db.pool, &id, Some(version)).await?;
+    let upgrade = repo::agent_upgrades::create(&state.db.pool, &id, current, &version).await?;
+    repo::servers::set_agent_target_version(&state.db.pool, &id, Some(&version)).await?;
 
     // 标脏：断流 worker 下次 apply 会带上（或已完成的）升级计划。
     state.enforcement.mark_server_dirty(&id);
@@ -250,7 +278,7 @@ pub async fn trigger_agent_upgrade(
         &id,
         json!({
             "from": current,
-            "to": version,
+            "to": &version,
             "upgrade_id": &upgrade.id,
         }),
     )
@@ -301,6 +329,8 @@ pub async fn delete(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::path::PathBuf;
 
     use axum::body::Body;
     use axum::http::{Method, Request, StatusCode};
@@ -481,6 +511,41 @@ mod tests {
         server.id
     }
 
+    /// 和 `setup` 一样，但把「最新版本」指向本地 JSON，测试绝不打 GitHub。
+    async fn setup_with_latest(latest_url: String) -> (Router, AppState, String) {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let admin = repo::users::create(
+            &db.pool,
+            repo::users::NewUser {
+                username: "admin".into(),
+                password: "devpass".into(),
+                role: "admin".into(),
+                quota_bytes: None,
+            },
+        )
+        .await
+        .unwrap();
+        let (token, _) = repo::sessions::create(&db.pool, &admin.id, 3600, None)
+            .await
+            .unwrap();
+        let mut state = AppState::new(db, "web/dist");
+        state.agent_release.latest_url = latest_url;
+        let app = crate::app::router(state.clone());
+        (
+            app,
+            state,
+            format!("{}={token}", crate::auth::SESSION_COOKIE),
+        )
+    }
+
+    fn latest_file(tag: &str) -> (PathBuf, String) {
+        let path =
+            std::env::temp_dir().join(format!("pierwave-latest-{}.json", uuid::Uuid::new_v4()));
+        std::fs::write(&path, format!(r#"{{"tag_name":"{tag}"}}"#)).unwrap();
+        (path.clone(), path.to_string_lossy().into_owned())
+    }
+
     #[tokio::test]
     async fn agent_upgrade_rejects_downgrade_and_disabled_switch() {
         let (app, state, cookie) = setup().await;
@@ -557,5 +622,101 @@ mod tests {
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(body["items"].as_array().unwrap().len(), 1);
         assert_eq!(body["items"][0]["to_version"], "0.6.0");
+    }
+
+    #[tokio::test]
+    async fn empty_version_resolves_latest_and_caches_it() {
+        let (latest_path, latest_url) = latest_file("v0.6.0");
+        let (app, state, cookie) = setup_with_latest(latest_url).await;
+
+        let first = seed_server(&state, true, "0.5.0").await;
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/servers/{first}/agent-upgrade"),
+            serde_json::json!({}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["upgrade"]["to_version"], "v0.6.0");
+
+        // 删掉「GitHub API」后第二台服务器仍能留空提交：说明走了 5 分钟缓存。
+        std::fs::remove_file(latest_path).unwrap();
+        let second = seed_server(&state, true, "0.5.0").await;
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/servers/{second}/agent-upgrade"),
+            serde_json::json!({"version": ""}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "缓存应避免再次回源：{body}");
+        assert_eq!(body["upgrade"]["to_version"], "v0.6.0");
+    }
+
+    #[tokio::test]
+    async fn empty_version_fails_with_chinese_hint_when_latest_unavailable() {
+        let (app, state, cookie) = setup_with_latest("/definitely/not/a/latest.json".into()).await;
+        let id = seed_server(&state, true, "0.5.0").await;
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/servers/{id}/agent-upgrade"),
+            serde_json::json!({}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert!(body["error"].as_str().unwrap().contains("无法获取最新版本"));
+    }
+
+    #[tokio::test]
+    async fn unsupported_arch_is_rejected() {
+        let (app, state, cookie) = setup().await;
+        let id = seed_server(&state, true, "0.5.0").await;
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.5.0",
+            &repo::servers::HealthSnapshot {
+                arch: "mips".into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/servers/{id}/agent-upgrade"),
+            serde_json::json!({"version":"0.6.0"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert!(body["error"]
+            .as_str()
+            .unwrap()
+            .contains("不支持的 CPU 架构"));
+    }
+
+    /// API 契约：`allow_agent_upgrade` 必须是 boolean，不是 0/1。
+    #[tokio::test]
+    async fn server_view_serializes_allow_agent_upgrade_as_boolean() {
+        let (app, state, cookie) = setup().await;
+        seed_server(&state, true, "0.5.0").await;
+
+        let (status, body) = send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let server = &body["items"][0];
+        assert_eq!(
+            server["allow_agent_upgrade"].as_bool(),
+            Some(true),
+            "必须是 JSON boolean：{server}"
+        );
+        assert!(server["agent_target_version"].is_null());
     }
 }

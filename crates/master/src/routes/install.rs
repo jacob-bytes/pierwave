@@ -15,7 +15,7 @@ use pierwave_domain::release;
 use pierwave_domain::repo;
 
 use crate::error::{AppError, AppResult};
-use crate::state::AppState;
+use crate::state::{AgentReleaseConfig, AppState};
 
 #[derive(Deserialize)]
 pub struct InstallQuery {
@@ -236,6 +236,71 @@ async fn cache_release(cache_path: &std::path::Path, bytes: &[u8]) {
     }
 }
 
+/// 中转端点的 server token：优先 `Authorization: Bearer`，兼容 `?token=`。
+///
+/// Agent 走请求头（避免 token 出现在访问日志/代理日志里），curl 手工调试走 query。
+fn request_token<'a>(headers: &'a HeaderMap, query: &'a InstallQuery) -> Option<&'a str> {
+    let bearer = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| {
+            let (scheme, token) = value.split_once(' ')?;
+            scheme
+                .eq_ignore_ascii_case("bearer")
+                .then_some(token.trim())
+        })
+        .filter(|token| !token.is_empty());
+    bearer.or_else(|| {
+        query
+            .token
+            .as_deref()
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+    })
+}
+
+/// 解析最新 Release 的 tag（`v0.6.0`）。
+///
+/// 生产打 GitHub API；`PIERWAVE_AGENT_LATEST_URL` 指向本地 JSON 文件时读文件，
+/// 测试/离线环境完全不碰网络。结果由调用方缓存 5 分钟。
+pub async fn fetch_latest_version(config: &AgentReleaseConfig) -> Option<String> {
+    let url = config.latest_url.trim();
+    if url.is_empty() {
+        return None;
+    }
+    let raw = if url.starts_with("http://") || url.starts_with("https://") {
+        let output = tokio::process::Command::new("curl")
+            .args([
+                "-fsSL",
+                "--max-time",
+                "15",
+                "-H",
+                "Accept: application/vnd.github+json",
+                "-H",
+                "User-Agent: pierwave-master",
+                url,
+            ])
+            .output()
+            .await
+            .ok()?;
+        if !output.status.success() {
+            tracing::warn!(
+                url,
+                status = ?output.status.code(),
+                "查询最新 Agent 版本失败"
+            );
+            return None;
+        }
+        String::from_utf8(output.stdout).ok()?
+    } else {
+        tokio::fs::read_to_string(url).await.ok()?
+    };
+
+    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let tag = value.get("tag_name")?.as_str()?.trim();
+    release::is_valid_version(tag).then(|| tag.to_string())
+}
+
 /// `GET /api/agent/release/{version}/{file}`：带 server token 的发布产物中转。
 ///
 /// Agent 在内网也能升级：主控回源 GitHub 一次并落缓存，后续请求直接读盘。
@@ -245,15 +310,11 @@ async fn cache_release(cache_path: &std::path::Path, bytes: &[u8]) {
 /// （目录穿越）不会落到 SPA 的 index.html 上变成 200，而是统一 404。
 pub async fn release(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(rest): Path<String>,
     Query(query): Query<InstallQuery>,
 ) -> AppResult<Response> {
-    let token = query
-        .token
-        .as_deref()
-        .map(str::trim)
-        .filter(|token| !token.is_empty())
-        .ok_or(AppError::Unauthorized)?;
+    let token = request_token(&headers, &query).ok_or(AppError::Unauthorized)?;
     if repo::servers::find_by_token(&state.db.pool, token)
         .await?
         .is_none()
@@ -405,6 +466,7 @@ mod tests {
             cache_dir: cache.to_path_buf(),
             source: source.to_string_lossy().into_owned(),
             target: crate::state::DEFAULT_AGENT_TARGET.into(),
+            latest_url: source.join("latest.json").to_string_lossy().into_owned(),
         };
         (crate::app::router(state), token)
     }
@@ -442,6 +504,41 @@ mod tests {
             get_bytes(&app, &format!("{uri}?token={token}")).await.0,
             StatusCode::SERVICE_UNAVAILABLE
         );
+    }
+
+    #[tokio::test]
+    async fn release_accepts_bearer_token() {
+        let cache = temp_dir("bearer-cache");
+        let source = temp_dir("bearer-source");
+        let file = "pierwave-agent-x86_64-unknown-linux-musl";
+        std::fs::create_dir_all(cache.join("0.6.0")).unwrap();
+        std::fs::write(cache.join("0.6.0").join(file), b"bearer-binary").unwrap();
+        let (app, token) = setup_release(&cache, &source).await;
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri(format!("/api/agent/release/0.6.0/{file}"))
+            .header(header::HOST, "panel.example.com")
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 22)
+            .await
+            .unwrap();
+        assert_eq!(bytes.as_ref(), b"bearer-binary");
+
+        // 非法 Bearer 同样 401。
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri(format!("/api/agent/release/0.6.0/{file}"))
+            .header(header::HOST, "panel.example.com")
+            .header(header::AUTHORIZATION, "Bearer nope")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]

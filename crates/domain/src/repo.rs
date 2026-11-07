@@ -560,6 +560,8 @@ pub mod servers {
     /// Agent 心跳里与本项目相关的健康指标。
     #[derive(Debug, Clone, Default)]
     pub struct HealthSnapshot {
+        /// CPU 架构（`x86_64` / `aarch64`）；空串 = 旧 Agent 没上报。
+        pub arch: String,
         pub xray_running: bool,
         pub nginx_running: bool,
         pub load1: f64,
@@ -726,6 +728,7 @@ pub mod servers {
                 last_seen_at = ?,
                 health_at = ?,
                 agent_version = ?,
+                arch = ?,
                 xray_running = ?,
                 nginx_running = ?,
                 load1 = ?,
@@ -739,6 +742,7 @@ pub mod servers {
         .bind(now())
         .bind(now())
         .bind(agent_version)
+        .bind(&health.arch)
         .bind(health.xray_running)
         .bind(health.nginx_running)
         .bind(health.load1)

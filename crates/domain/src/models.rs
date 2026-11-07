@@ -53,6 +53,8 @@ pub struct Server {
     pub allow_agent_upgrade: bool,
     /// 期望的 Agent 版本；NULL = 没有待执行的升级。
     pub agent_target_version: Option<String>,
+    /// Agent 上报的 CPU 架构（x86_64 / aarch64）；空串 = 未知。
+    pub arch: String,
 }
 
 /// 一次 Agent 自升级尝试。

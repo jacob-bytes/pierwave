@@ -173,6 +173,7 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
     match serde_json::from_str::<AgentMessage>(text) {
         Ok(AgentMessage::Heartbeat(hb)) => {
             let health = repo::servers::HealthSnapshot {
+                arch: hb.arch,
                 xray_running: hb.xray_running,
                 nginx_running: hb.nginx_running,
                 load1: hb.load1 as f64,
@@ -1613,6 +1614,7 @@ mod enforcement_tests {
             .unwrap();
 
         let health = repo::servers::HealthSnapshot {
+            arch: "aarch64".into(),
             xray_running: false,
             nginx_running: true,
             load1: 1.25,
@@ -1629,6 +1631,7 @@ mod enforcement_tests {
         let listed = repo::servers::list(&state.db.pool).await.unwrap();
         let row = &listed[0];
         assert_eq!(row.agent_version.as_deref(), Some("0.1.0"));
+        assert_eq!(row.arch, "aarch64", "架构要落库，升级时据此挑产物");
         assert_eq!(row.xray_running, Some(false), "xray 挂了必须能看出来");
         assert_eq!(row.load1, Some(1.25));
         assert_eq!(row.mem_total, Some(1024));

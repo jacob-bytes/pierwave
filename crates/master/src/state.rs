@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-#[cfg(test)]
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use pierwave_domain::Db;
 use pierwave_proto::MasterMessage;
@@ -18,6 +17,13 @@ const AGENT_CHANNEL_CAPACITY: usize = 64;
 pub const DEFAULT_RELEASE_SOURCE: &str =
     "https://github.com/jacob-bytes/pierwave/releases/download";
 
+/// 查询最新版本的默认 GitHub API 地址。
+pub const DEFAULT_LATEST_URL: &str =
+    "https://api.github.com/repos/jacob-bytes/pierwave/releases/latest";
+
+/// 最新版本缓存 5 分钟：前端「留空 = 最新」不应该每次点击都打 GitHub。
+const LATEST_VERSION_TTL: Duration = Duration::from_secs(300);
+
 /// 主控缓存/中转 Agent 发布产物所需的配置。
 ///
 /// `cache_dir` 与 `source` 都允许通过环境变量覆盖；`source` 还允许是本地目录，
@@ -29,6 +35,8 @@ pub struct AgentReleaseConfig {
     pub source: String,
     /// 下发计划里使用的发布目标三元组（决定下载哪个架构的二进制）。
     pub target: String,
+    /// 查询最新 Release 的 URL（生产是 GitHub API；测试/离线可指向本地 JSON 文件）。
+    pub latest_url: String,
 }
 
 pub const DEFAULT_AGENT_TARGET: &str = "x86_64-unknown-linux-musl";
@@ -43,6 +51,8 @@ impl AgentReleaseConfig {
                 .unwrap_or_else(|| DEFAULT_RELEASE_SOURCE.to_string()),
             target: env_nonempty("PIERWAVE_AGENT_TARGET")
                 .unwrap_or_else(|| DEFAULT_AGENT_TARGET.to_string()),
+            latest_url: env_nonempty("PIERWAVE_AGENT_LATEST_URL")
+                .unwrap_or_else(|| DEFAULT_LATEST_URL.to_string()),
         }
     }
 
@@ -57,6 +67,33 @@ fn env_nonempty(key: &str) -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+/// 「最新版本」的进程内缓存；过期后由下一次请求重新解析。
+#[derive(Clone, Default)]
+pub struct LatestVersionCache {
+    inner: Arc<Mutex<Option<(Instant, String)>>>,
+}
+
+impl LatestVersionCache {
+    pub fn get(&self) -> Option<String> {
+        let guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard
+            .as_ref()
+            .filter(|(at, _)| at.elapsed() < LATEST_VERSION_TTL)
+            .map(|(_, version)| version.clone())
+    }
+
+    pub fn put(&self, version: &str) {
+        *self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+            Some((Instant::now(), version.to_string()));
+    }
 }
 
 /// 已连接 Agent 的期望态广播中心。
@@ -136,6 +173,8 @@ pub struct AppState {
     pub login_throttle: Arc<LoginThrottle>,
     /// Agent 发布产物的缓存/回源配置。
     pub agent_release: AgentReleaseConfig,
+    /// 「最新版本」缓存（5 分钟）。
+    pub latest_version: LatestVersionCache,
 }
 
 impl AppState {
@@ -147,6 +186,7 @@ impl AppState {
             enforcement: Enforcer::from_env(),
             login_throttle: Arc::new(LoginThrottle::default()),
             agent_release: AgentReleaseConfig::from_env(),
+            latest_version: LatestVersionCache::default(),
         }
     }
 
