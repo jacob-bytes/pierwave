@@ -115,6 +115,15 @@ wait_listen() {
   return 1
 }
 
+# 基本依赖：只需要 bash 与 curl；unzip 缺失时会退回 python3
+for tool in bash curl; do
+  command -v "$tool" >/dev/null 2>&1 || { echo "缺少依赖：$tool" >&2; exit 2; }
+done
+if ! command -v unzip >/dev/null 2>&1 && ! command -v python3 >/dev/null 2>&1; then
+  echo "缺少 unzip（且没有 python3 兜底），无法解压下载的 Xray" >&2
+  exit 2
+fi
+
 find_xray
 
 # ---------- 只校验一份已有配置 ----------
@@ -149,8 +158,12 @@ else
   bad "找不到 pierwave-master（先跑 make build），跳过反推校验"
 fi
 
-UUID="$(python3 -c 'import uuid;print(uuid.uuid4())' 2>/dev/null || echo "11111111-1111-4111-8111-111111111111")"
-SID="$(python3 -c 'import os;print(os.urandom(8).hex())')"
+UUID="$(python3 -c 'import uuid;print(uuid.uuid4())' 2>/dev/null \
+     || tr -dc 'a-f0-9' </dev/urandom | head -c 32 | \
+        sed -E 's/(.{8})(.{4})(.{4})(.{4})(.{12})/\1-\2-\3-\4-\5/' \
+     || echo "11111111-1111-4111-8111-111111111111")"
+SID="$(python3 -c 'import os;print(os.urandom(8).hex())' 2>/dev/null \
+     || od -An -tx1 -N8 /dev/urandom | tr -d ' \n')"
 PORT_SERVER="$(pick_port)" || { bad "找不到空闲端口"; exit 1; }
 PORT_SOCKS="$(pick_port)"  || { bad "找不到空闲端口"; exit 1; }
 PORT_API="$(pick_port)"    || { bad "找不到空闲端口"; exit 1; }
