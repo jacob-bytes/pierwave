@@ -616,3 +616,45 @@ POST /api/v1/agent-upgrades/batches/{id}/cancel                    -> { batch }
 服务器列表多选（仅可选已开启升级的服务器）→ 顶部操作条「已选 N 台 · 升级到 ▾ · 开始批量升级」→
 进度面板逐台显示 `等待中/进行中/成功/失败(原因)`，失败项给「重试本台」；
 设置页新增「Agent 升级并发数」（1–5，默认 1）并说明「并发越大，同时中断的节点越多」。
+
+## P6：规则模板绑定到用户 / 套餐
+
+规则模板已经能存、订阅也能用 `?rule=` 指定，但每个用户都要手动拼参数。这一轮把
+「谁用哪套规则」落到数据里。
+
+### 数据（0017_rule_template_binding.sql）
+
+```sql
+ALTER TABLE users    ADD COLUMN rule_template_id TEXT REFERENCES rule_templates(id) ON DELETE SET NULL;
+ALTER TABLE packages ADD COLUMN rule_template_id TEXT REFERENCES rule_templates(id) ON DELETE SET NULL;
+```
+
+### 解析顺序（订阅端点）
+
+```
+?rule=<id>                    1. 链接参数（最高优先级，临时覆盖）
+users.rule_template_id        2. 用户绑定
+packages.rule_template_id     3. 用户当前套餐的绑定
+is_default = 1                4. 全局默认
+内置两条规则                   5. 兜底
+```
+
+- 「当前套餐」= 该用户最近一次绑定的、未过期的实例；同优先级下多实例取最新一条。
+- 模板被删除时 `SET NULL`：绑定自动失效并回落到下一级，**不会让订阅变成 502**。
+
+### 接口
+
+- `users` / `packages` 的视图与写接口都增加 `rule_template_id`（string | null）；
+- 校验：指向不存在的模板 → 400；
+- `GET /api/v1/subscriptions` 每行增加 `rule_template_id` 与 `rule_template_name`（生效值，
+  来自上面的解析顺序），前端直接展示「这个用户实际用的是哪套规则」。
+
+### 前端
+
+- 用户新建/编辑对话框：增加「规则模板」下拉（空 = 跟随套餐/全局默认）；
+- 套餐对话框：增加「默认规则模板」下拉，说明「套餐内用户未单独指定时用它」；
+- 订阅列表：每行显示生效的模板名（只读），点击可跳到规则模板页。
+
+### 不做
+
+- 按订阅链接的 `?rule=` 参数做鉴权（它本来就是公开端点，能改的只有规则，不影响计费）。
