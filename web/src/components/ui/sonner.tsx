@@ -3,6 +3,7 @@
 import type { CSSProperties } from "react"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 import { useI18n } from "@/i18n"
+import { useTheme } from "@/lib/useTheme"
 import {
   CircleCheckIcon,
   InfoIcon,
@@ -13,10 +14,11 @@ import {
 
 const Toaster = ({ ...props }: ToasterProps) => {
   const { t } = useI18n()
+  const { resolvedTheme } = useTheme()
 
   return (
     <Sonner
-      theme="dark"
+      theme={resolvedTheme}
       position="top-right"
       containerAriaLabel={t("app.notifications")}
       duration={3000}

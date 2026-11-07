@@ -21,12 +21,16 @@ import {
   ListFilterIcon,
   Loader2Icon,
   LogOutIcon,
+  MonitorIcon,
+  MoonIcon,
   NetworkIcon,
   PackageIcon,
   RefreshCwIcon,
   ScrollTextIcon,
   ServerIcon,
   SettingsIcon,
+  SunIcon,
+  SunMoonIcon,
   TerminalIcon,
   UserRoundIcon,
   UsersIcon,
@@ -47,6 +51,8 @@ import {
 import { useDocumentTitle, useI18n } from "@/i18n";
 import type { SessionUser } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useTheme } from "@/lib/useTheme";
+import type { ThemeMode } from "@/lib/theme";
 import { useHealth, useLogout, usePanelName } from "@/lib/queries";
 
 type NavItem = {
@@ -166,8 +172,32 @@ function NavEntry({ item, pathname }: { item: NavItem; pathname: string }) {
   );
 }
 
+function ThemeItem({
+  mode,
+  current,
+  icon: Icon,
+  label,
+  onSelect,
+}: {
+  mode: ThemeMode;
+  current: ThemeMode;
+  icon: LucideIcon;
+  label: string;
+  onSelect: (mode: ThemeMode) => void;
+}) {
+  const selected = current === mode;
+  return (
+    <DropdownMenuItem onSelect={() => onSelect(mode)}>
+      <Icon className="size-3.5" />
+      <span className="flex-1">{label}</span>
+      {selected ? <CheckIcon className="size-3.5 text-primary" /> : null}
+    </DropdownMenuItem>
+  );
+}
+
 export default function AppShell({ user }: { user: SessionUser }) {
   const { t, locale, setLocale } = useI18n();
+  const { theme, setTheme } = useTheme();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const logout = useLogout();
@@ -330,6 +360,35 @@ export default function AppShell({ user }: { user: SessionUser }) {
                       <CheckIcon className="size-3.5 text-primary" />
                     ) : null}
                   </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <SunMoonIcon className="size-3.5" />
+                  {t("userMenu.theme")}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  <ThemeItem
+                    mode="light"
+                    current={theme}
+                    icon={SunIcon}
+                    label={t("userMenu.themeLight")}
+                    onSelect={setTheme}
+                  />
+                  <ThemeItem
+                    mode="dark"
+                    current={theme}
+                    icon={MoonIcon}
+                    label={t("userMenu.themeDark")}
+                    onSelect={setTheme}
+                  />
+                  <ThemeItem
+                    mode="system"
+                    current={theme}
+                    icon={MonitorIcon}
+                    label={t("userMenu.themeSystem")}
+                    onSelect={setTheme}
+                  />
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
               <DropdownMenuSeparator />

@@ -44,6 +44,7 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
+  --color-overlay: var(--overlay);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -54,49 +55,17 @@
 }
 
 /*
- * 亮色保留 shadcn 默认值，方便以后接亮色主题；
- * 当前产品暗色优先，<html class="dark"> 常开。
+ * 主题 token。
+ *
+ * - `:root` / `.dark` 是深色基线（现有截图以它为基准，取值不要动）。
+ * - `[data-theme="light"]` 覆盖同一批变量；由 `lib/theme.ts` 同步
+ *   `<html data-theme>` 与 `.dark`，选择存在 localStorage（pierwave.theme）。
+ * - 亮色下 `--primary` 用加深的 indigo（L 0.49），与 `--primary-foreground`
+ *   近白文字对比度约 6.78:1（对纯白 7.07:1）；按钮 hover 是 primary/80，
+ *   合成后仍约 4.79:1。不是把深色值直接反相。`--muted-foreground` 在
+ *   zinc-50 底上约 4.88:1，在 muted 底上约 4.64:1，小号次要文字也能读。
  */
-:root {
-  color-scheme: light;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --warning: oklch(0.78 0.15 75);
-  /* 二维码固定白底黑码，任何主题下都保证可扫 */
-  --qr-background: oklch(1 0 0);
-  --qr-foreground: oklch(0 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
-
+:root,
 .dark {
   color-scheme: dark;
   /* zinc 基底 */
@@ -117,6 +86,7 @@
   --accent-foreground: oklch(0.965 0.003 285);
   --destructive: oklch(0.62 0.2 25);
   --warning: oklch(0.82 0.16 80);
+  /* 二维码固定白底黑码，任何主题下都保证可扫 */
   --qr-background: oklch(1 0 0);
   --qr-foreground: oklch(0 0 0);
   --border: oklch(1 0 0 / 8%);
@@ -127,6 +97,11 @@
   --chart-3: oklch(0.439 0.006 285);
   --chart-4: oklch(0.371 0.005 285);
   --chart-5: oklch(0.269 0.004 285);
+  /* Dialog / Sheet 遮罩；亮色用低透明度的同色基底，避免死黑 */
+  --overlay: oklch(0 0 0 / 60%);
+  /* 骨架屏扫光，深色下是 7% 白 */
+  --skeleton: oklch(1 0 0 / 7%);
+  --radius: 0.625rem;
   --sidebar: oklch(0.165 0.005 285);
   --sidebar-foreground: oklch(0.965 0.003 285);
   --sidebar-primary: oklch(0.673 0.182 276.935);
@@ -135,6 +110,48 @@
   --sidebar-accent-foreground: oklch(0.965 0.003 285);
   --sidebar-border: oklch(1 0 0 / 8%);
   --sidebar-ring: oklch(0.673 0.182 276.935);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  /* zinc-50 页面底 + 纯白卡片，保持和深色一致的层次差 */
+  --background: oklch(0.985 0.002 286);
+  --foreground: oklch(0.21 0.006 285.885);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.006 285.885);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.006 285.885);
+  /* 加深的 indigo：与 --primary-foreground（近白）对比度 ≈ 6.78:1 */
+  --primary: oklch(0.49 0.262 276.966);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --muted: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.54 0.016 285.938);
+  --accent: oklch(0.967 0.001 286.375);
+  --accent-foreground: oklch(0.21 0.006 285.885);
+  --destructive: oklch(0.505 0.213 27.518);
+  --warning: oklch(0.555 0.163 48.998);
+  --qr-background: oklch(1 0 0);
+  --qr-foreground: oklch(0 0 0);
+  --border: oklch(0.92 0.004 286.32);
+  --input: oklch(0.92 0.004 286.32);
+  --ring: oklch(0.49 0.262 276.966);
+  --chart-1: oklch(0.49 0.262 276.966);
+  --chart-2: oklch(0.54 0.016 285.938);
+  --chart-3: oklch(0.439 0.006 285.885);
+  --chart-4: oklch(0.371 0.005 285.823);
+  --chart-5: oklch(0.269 0.004 285.885);
+  --overlay: oklch(0.145 0.004 285 / 45%);
+  --skeleton: oklch(0.21 0.006 285.885 / 6%);
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.21 0.006 285.885);
+  --sidebar-primary: oklch(0.49 0.262 276.966);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.967 0.001 286.375);
+  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
+  --sidebar-border: oklch(0.92 0.004 286.32);
+  --sidebar-ring: oklch(0.49 0.262 276.966);
 }
 
 @layer base {
@@ -183,7 +200,7 @@
   background: linear-gradient(
     90deg,
     transparent,
-    oklch(1 0 0 / 7%),
+    var(--skeleton),
     transparent
   );
   animation: skeleton-shimmer 1.2s ease-in-out infinite;

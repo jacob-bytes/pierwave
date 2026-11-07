@@ -82,6 +82,10 @@ const zhCN = {
   userMenu: {
     changePassword: "修改密码",
     language: "语言 / Language",
+    theme: "主题 / Theme",
+    themeLight: "浅色",
+    themeDark: "深色",
+    themeSystem: "跟随系统",
     logout: "退出登录",
     chinese: "简体中文",
     english: "English",

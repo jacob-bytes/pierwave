@@ -11,8 +11,13 @@ import App from "./App";
 import { Toaster } from "@/components/ui/sonner";
 import { isUnauthorized } from "@/lib/queries";
 import { loginUrlFor } from "@/lib/auth";
+import { initTheme } from "@/lib/theme";
 import "@/i18n";
 import "./index.css";
+
+// 必须在 createRoot 之前：首帧就带上正确的 data-theme / .dark，
+// 否则亮色用户会先看到一帧深色（闪白/闪黑）。
+initTheme();
 
 /**
  * 会话过期统一回登录页：所有 query / mutation 的 401 都走这里，

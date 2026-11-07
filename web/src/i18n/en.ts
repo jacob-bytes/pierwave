@@ -86,6 +86,10 @@ const en = {
   userMenu: {
     changePassword: "Change password",
     language: "Language / 语言",
+    theme: "Theme / 主题",
+    themeLight: "Light",
+    themeDark: "Dark",
+    themeSystem: "System",
     logout: "Sign out",
     chinese: "简体中文",
     english: "English",

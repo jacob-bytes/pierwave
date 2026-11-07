@@ -4,8 +4,35 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="dark light" />
     <title>PierWave</title>
+    <!--
+      首帧前同步主题，避免亮色用户看到一帧深色。
+      与 src/lib/theme.ts 共用 pierwave.theme 键，默认深色。
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("pierwave.theme");
+          var mode =
+            stored === "light" || stored === "dark" || stored === "system"
+              ? stored
+              : "dark";
+          var dark =
+            mode === "dark" ||
+            (mode === "system" &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          var root = document.documentElement;
+          root.classList.toggle("dark", dark);
+          root.dataset.theme = dark ? "dark" : "light";
+          root.style.colorScheme = dark ? "dark" : "light";
+          var meta = document.querySelector('meta[name="color-scheme"]');
+          if (meta) meta.content = dark ? "dark" : "light";
+        } catch (error) {
+          // 隐私模式禁用 localStorage 时保持默认深色。
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
