@@ -5,10 +5,12 @@ import AppShell from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { isUnauthorized, useMe } from "@/lib/queries";
+import { isPublicStatusPath } from "@/lib/publicStatus";
 import { safeNextPath } from "@/lib/auth";
 import { errorText } from "@/lib/errors";
 import { useI18n } from "@/i18n";
 const LoginPage = lazy(() => import("@/pages/Login"));
+const StatusPage = lazy(() => import("@/pages/Status"));
 const OverviewPage = lazy(() => import("@/pages/Overview"));
 const ServersPage = lazy(() => import("@/pages/Servers"));
 const UsersPage = lazy(() => import("@/pages/Users"));
@@ -51,7 +53,27 @@ function LoginRedirect({ landing }: { landing: string }) {
   return <Navigate to={next === "/" ? landing : next} replace />;
 }
 
+/**
+ * `/status` 公开路由在调用 `useMe` 之前分流：未登录访问时不会发
+ * `/api/v1/auth/me`，也就不会触发下面的 401 → /login 重定向；页面本身
+ * 仍保留「进入管理面板」链接。其余路径交给 `AuthenticatedApp` 做会话守卫。
+ */
 export default function App() {
+  const { t } = useI18n();
+  const { pathname } = useLocation();
+
+  if (isPublicStatusPath(pathname)) {
+    return (
+      <Suspense fallback={<RouteFallback label={t("publicStatus.loading")} />}>
+        <StatusPage />
+      </Suspense>
+    );
+  }
+
+  return <AuthenticatedApp />;
+}
+
+function AuthenticatedApp() {
   const { t } = useI18n();
   const me = useMe();
 

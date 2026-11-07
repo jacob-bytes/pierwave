@@ -37,6 +37,7 @@ import {
   type Outbound,
   type OverviewStats,
   type Package,
+  type PublicStatus,
   type RoutingRule,
   type RuleTemplate,
   type RestoreBackupResponse,
@@ -72,6 +73,8 @@ export const queryKeys = {
   meSummary: ["me", "summary"] as const,
   meTraffic: (days: number) => ["me", "traffic", days] as const,
   health: ["health"] as const,
+  /** P10：公开状态页；不需要登录态，单独缓存。 */
+  publicStatus: ["public-status"] as const,
   statsOverview: ["stats", "overview"] as const,
   statsTraffic: (days: number) => ["stats", "traffic", days] as const,
   statsNodes: (serverId: string, days: number) =>
@@ -137,6 +140,22 @@ export function useHealth() {
     queryFn: api.health,
     retry: false,
     staleTime: 5 * 60_000,
+  });
+}
+
+/**
+ * P10：公开状态页数据。
+ *
+ * 30 秒自动刷新与后端缓存窗口对齐；`retry: false` 让「开关关闭」的 404
+ * 立刻落到「状态页已关闭」空态，而不是先转一圈重试。
+ */
+export function usePublicStatus() {
+  return useQuery<PublicStatus>({
+    queryKey: queryKeys.publicStatus,
+    queryFn: api.publicStatus,
+    retry: false,
+    staleTime: 25_000,
+    refetchInterval: 30_000,
   });
 }
 

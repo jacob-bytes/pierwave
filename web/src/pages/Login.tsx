@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Loader2Icon, TerminalIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -116,6 +116,14 @@ export default function LoginPage() {
 
         <p className="mt-4 text-center text-xs text-muted-foreground">
           {t("login.hint")}
+        </p>
+        <p className="mt-2 text-center text-xs">
+          <Link
+            to="/status"
+            className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          >
+            {t("login.statusLink")}
+          </Link>
         </p>
       </div>
     </div>

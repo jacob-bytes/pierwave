@@ -120,6 +120,57 @@ export interface Health {
   panel_name?: string;
 }
 
+/** P10：公开状态页的汇总数字，字段本身即白名单。 */
+export interface PublicStatusSummary {
+  servers_total: number;
+  servers_online: number;
+  nodes_total: number;
+  traffic_today: number;
+  traffic_month: number;
+}
+
+/** P10：公开状态页的单个小时桶；没有采样的小时为 null。 */
+export interface PublicStatusBucket {
+  /** 小时起点（Unix 秒，整点）。 */
+  ts: number;
+  /** 该小时内的平均在线比例，0..1。 */
+  online_ratio: number;
+}
+
+/**
+ * P10：公开状态页里的一台服务器。只包含白名单字段，不含地址与 token；
+ * `load1` / `mem_*` / `disk_*` / `uptime_secs` / `last_seen` 可能在离线或
+ * 从未上报时为 null。
+ */
+export interface PublicStatusServer {
+  id: string;
+  name: string;
+  online: boolean;
+  xray_running: boolean | null;
+  load1: number | null;
+  mem_used: number | null;
+  mem_total: number | null;
+  disk_used: number | null;
+  disk_total: number | null;
+  uptime_secs: number | null;
+  last_seen: number | null;
+  /** 0..1，窗口内没有采样时为 null。 */
+  uptime_24h: number | null;
+  /** 0..1，窗口内没有采样时为 null。 */
+  uptime_7d: number | null;
+  /** 固定 24 个元素，从最早的小时到当前小时。 */
+  buckets_24h: (PublicStatusBucket | null)[];
+}
+
+/** P10：`GET /api/v1/public/status`，无需登录。 */
+export interface PublicStatus {
+  panel_name: string;
+  /** 生成时间（Unix 秒）。 */
+  generated_at: number;
+  summary: PublicStatusSummary;
+  servers: PublicStatusServer[];
+}
+
 export interface Server {
   id: string;
   name: string;
@@ -738,6 +789,11 @@ export interface ChangePasswordInput {
 
 export const api = {
   health: () => request<Health>("/api/v1/health"),
+  /**
+   * P10：公开状态页。无需登录；设置里关闭开关时后端返回 404
+   * （code `public_status.disabled`），页面按「状态页已关闭」处理。
+   */
+  publicStatus: () => request<PublicStatus>("/api/v1/public/status"),
   stats: {
     overview: () => request<OverviewStats>("/api/v1/stats/overview"),
     traffic: (days: number) =>
