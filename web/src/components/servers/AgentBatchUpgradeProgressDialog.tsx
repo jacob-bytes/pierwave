@@ -245,7 +245,8 @@ function BatchItemRow({
           {item.error ? (
             <span
               className={cn(
-                "block truncate text-xs",
+                // 失败原因会被管理员当成唯一线索，截成一行等于逼他去看后端日志
+                "block whitespace-normal break-words text-xs leading-snug",
                 retryable ? "text-destructive" : "text-muted-foreground",
               )}
               title={item.error}
@@ -340,7 +341,7 @@ export function AgentBatchUpgradeProgressDialog({
   const running = batch?.status === "running";
   const description = batch
     ? t("servers.batch.progress.desc", {
-        id: batch.id,
+        id: batch.id.slice(0, 8),
         version: targetLabel,
       })
     : t("servers.batch.progress.descLatest");

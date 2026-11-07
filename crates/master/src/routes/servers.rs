@@ -270,7 +270,7 @@ pub(crate) async fn trigger_single_upgrade_with_base(
     }
     if !release::is_newer(version, current) {
         return Err(AppError::BadRequest(format!(
-            "不允许降级：目标版本 {version} 必须比当前 Agent 版本 {current} 新"
+            "目标版本 {version} 必须比当前 Agent 版本 {current} 新（不支持降级，也不支持重复升级到同一版本）"
         )));
     }
 
@@ -616,7 +616,7 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
         let message = body["error"].as_str().unwrap();
-        assert!(message.contains("不允许降级"), "{message}");
+        assert!(message.contains("不支持降级"), "{message}");
 
         let id = seed_server(&state, false, "0.5.0").await;
         let (status, body) = send(
