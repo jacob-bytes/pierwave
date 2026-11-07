@@ -11,9 +11,15 @@ struct TempDir(PathBuf);
 
 impl TempDir {
     fn new() -> Self {
-        let dir = std::env::temp_dir().join(format!("pierwave-cli-test-{}", std::process::id()));
-        let dir = dir.join(format!(
-            "{}",
+        // 只用 pid + 纳秒会撞车：同一进程里并行跑的测试，macOS 的时钟粒度可能给出相同的值，
+        // 两个测试共用目录就会互相删文件。再加一个进程内自增序号。
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "pierwave-cli-test-{}-{}-{}",
+            std::process::id(),
+            seq,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()

@@ -32,6 +32,18 @@ pub fn router(state: AppState) -> Router {
             get(routes::servers::list_agent_upgrades),
         )
         .route(
+            "/api/v1/agent-upgrades/batches",
+            get(routes::upgrade_batches::list).post(routes::upgrade_batches::create),
+        )
+        .route(
+            "/api/v1/agent-upgrades/batches/{id}",
+            get(routes::upgrade_batches::detail),
+        )
+        .route(
+            "/api/v1/agent-upgrades/batches/{id}/cancel",
+            post(routes::upgrade_batches::cancel),
+        )
+        .route(
             "/api/v1/servers/{id}/nodes",
             get(routes::nodes::list).post(routes::nodes::create),
         )

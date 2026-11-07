@@ -104,6 +104,8 @@ async fn main() -> anyhow::Result<()> {
     let _enforce_worker = enforcement::spawn_worker(state.clone());
     let _enforce_reconcile = scheduler::spawn_enforcement_reconcile(state.clone());
     let _upgrade_sweep = scheduler::spawn_upgrade_sweep(state.clone());
+    // 批量 Agent 升级：每 10 秒推进一步（只读写数据库，与单台升级共用触发逻辑）。
+    let _upgrade_batch_runner = scheduler::spawn_upgrade_batch_runner(state.clone());
     let app = app::router(state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("listening on http://{addr}, web dir = {web_dir}");

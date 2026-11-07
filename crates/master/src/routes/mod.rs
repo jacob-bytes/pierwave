@@ -16,4 +16,5 @@ pub mod settings;
 pub mod stats;
 pub mod subscribe;
 pub mod system;
+pub mod upgrade_batches;
 pub mod users;

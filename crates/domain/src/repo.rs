@@ -932,6 +932,246 @@ pub mod agent_upgrades {
     }
 }
 
+/// 批量 Agent 升级：只排队、只记录状态；真正的升级仍然走 [`agent_upgrades`]。
+pub mod upgrade_batches {
+    use super::*;
+
+    /// 新建一个 running 批次，并按 `server_ids` 的顺序插入 queued items。
+    ///
+    /// 批次和 items 在同一个事务里写入：校验通过后不能出现「有批次没条目」。
+    pub async fn create(
+        pool: &SqlitePool,
+        server_ids: &[String],
+        to_version: &str,
+        stop_on_failure: bool,
+        concurrency: i64,
+    ) -> anyhow::Result<AgentUpgradeBatch> {
+        let id = Uuid::new_v4().to_string();
+        let ts = now();
+        let mut tx = pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO agent_upgrade_batches
+                (id, from_version, to_version, status, stop_on_failure, concurrency, created_at, updated_at)
+             VALUES (?, '', ?, 'running', ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(to_version)
+        .bind(stop_on_failure)
+        .bind(concurrency)
+        .bind(ts)
+        .bind(ts)
+        .execute(&mut *tx)
+        .await?;
+
+        for server_id in server_ids {
+            sqlx::query(
+                "INSERT INTO agent_upgrade_batch_items
+                    (batch_id, server_id, upgrade_id, status, error, updated_at)
+                 VALUES (?, ?, NULL, 'queued', '', ?)",
+            )
+            .bind(&id)
+            .bind(server_id)
+            .bind(ts)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        find_by_id(pool, &id).await
+    }
+
+    pub async fn find_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<AgentUpgradeBatch> {
+        Ok(sqlx::query_as::<_, AgentUpgradeBatch>(
+            "SELECT * FROM agent_upgrade_batches WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_one(pool)
+        .await?)
+    }
+
+    pub async fn find_by_id_opt(
+        pool: &SqlitePool,
+        id: &str,
+    ) -> anyhow::Result<Option<AgentUpgradeBatch>> {
+        Ok(sqlx::query_as::<_, AgentUpgradeBatch>(
+            "SELECT * FROM agent_upgrade_batches WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?)
+    }
+
+    /// 最近的批次，最新在前。`limit` 夹在 1..=100。
+    pub async fn list(pool: &SqlitePool, limit: i64) -> anyhow::Result<Vec<AgentUpgradeBatch>> {
+        Ok(sqlx::query_as::<_, AgentUpgradeBatch>(
+            "SELECT * FROM agent_upgrade_batches
+             ORDER BY created_at DESC, rowid DESC
+             LIMIT ?",
+        )
+        .bind(limit.clamp(1, 100))
+        .fetch_all(pool)
+        .await?)
+    }
+
+    /// 批次详情：按插入顺序返回，带服务器名与当前 Agent 版本。
+    pub async fn items(
+        pool: &SqlitePool,
+        batch_id: &str,
+    ) -> anyhow::Result<Vec<AgentUpgradeBatchItemView>> {
+        Ok(sqlx::query_as::<_, AgentUpgradeBatchItemView>(
+            "SELECT i.batch_id, i.server_id, s.name AS server_name,
+                    s.agent_version AS agent_version, i.upgrade_id,
+                    i.status, i.error, i.updated_at
+             FROM agent_upgrade_batch_items i
+             JOIN servers s ON s.id = i.server_id
+             WHERE i.batch_id = ?
+             ORDER BY i.rowid ASC",
+        )
+        .bind(batch_id)
+        .fetch_all(pool)
+        .await?)
+    }
+
+    /// 更新单个 item 的状态与错误说明。
+    pub async fn mark_item(
+        pool: &SqlitePool,
+        batch_id: &str,
+        server_id: &str,
+        status: &str,
+        error: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE agent_upgrade_batch_items
+             SET status = ?, error = ?, updated_at = ?
+             WHERE batch_id = ? AND server_id = ?",
+        )
+        .bind(status)
+        .bind(error)
+        .bind(now())
+        .bind(batch_id)
+        .bind(server_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// 触发成功后回填 `upgrade_id` 并把 item 置为 running。
+    pub async fn start_item(
+        pool: &SqlitePool,
+        batch_id: &str,
+        server_id: &str,
+        upgrade_id: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE agent_upgrade_batch_items
+             SET status = 'running', upgrade_id = ?, error = '', updated_at = ?
+             WHERE batch_id = ? AND server_id = ?",
+        )
+        .bind(upgrade_id)
+        .bind(now())
+        .bind(batch_id)
+        .bind(server_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// 只回填 `upgrade_id`（item 已经是 running，用于恢复升级记录）。
+    pub async fn set_item_upgrade(
+        pool: &SqlitePool,
+        batch_id: &str,
+        server_id: &str,
+        upgrade_id: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE agent_upgrade_batch_items
+             SET upgrade_id = ?, updated_at = ?
+             WHERE batch_id = ? AND server_id = ?",
+        )
+        .bind(upgrade_id)
+        .bind(now())
+        .bind(batch_id)
+        .bind(server_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// 把剩余的 queued 全部标成 skipped（遇错即停）；返回受影响条数。
+    pub async fn skip_queued(
+        pool: &SqlitePool,
+        batch_id: &str,
+        error: &str,
+    ) -> anyhow::Result<u64> {
+        Ok(sqlx::query(
+            "UPDATE agent_upgrade_batch_items
+             SET status = 'skipped', error = ?, updated_at = ?
+             WHERE batch_id = ? AND status = 'queued'",
+        )
+        .bind(error)
+        .bind(now())
+        .bind(batch_id)
+        .execute(pool)
+        .await?
+        .rows_affected())
+    }
+
+    /// 取消时把剩余的 queued 全部标成 cancelled；返回受影响条数。
+    pub async fn cancel_queued(
+        pool: &SqlitePool,
+        batch_id: &str,
+        error: &str,
+    ) -> anyhow::Result<u64> {
+        Ok(sqlx::query(
+            "UPDATE agent_upgrade_batch_items
+             SET status = 'cancelled', error = ?, updated_at = ?
+             WHERE batch_id = ? AND status = 'queued'",
+        )
+        .bind(error)
+        .bind(now())
+        .bind(batch_id)
+        .execute(pool)
+        .await?
+        .rows_affected())
+    }
+
+    pub async fn mark(pool: &SqlitePool, id: &str, status: &str) -> anyhow::Result<()> {
+        sqlx::query("UPDATE agent_upgrade_batches SET status = ?, updated_at = ? WHERE id = ?")
+            .bind(status)
+            .bind(now())
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    /// 还有 queued / running item 的批次（runner 每轮扫这些）。
+    ///
+    /// 不只看 `status = 'running'`：取消或遇错即停后批次可能已经是终态，
+    /// 但仍在跑的 item 必须继续同步，否则会永远停在 running。
+    pub async fn active(pool: &SqlitePool) -> anyhow::Result<Vec<AgentUpgradeBatch>> {
+        Ok(sqlx::query_as::<_, AgentUpgradeBatch>(
+            "SELECT b.* FROM agent_upgrade_batches b
+             WHERE EXISTS (
+                 SELECT 1 FROM agent_upgrade_batch_items i
+                 WHERE i.batch_id = b.id AND i.status IN ('queued', 'running')
+             )
+             ORDER BY b.created_at ASC, b.rowid ASC",
+        )
+        .fetch_all(pool)
+        .await?)
+    }
+
+    /// 出现在任何未终态 item 里的服务器；用于「同一台不能在两个批次里」校验。
+    pub async fn busy_server_ids(pool: &SqlitePool) -> anyhow::Result<Vec<String>> {
+        Ok(sqlx::query_scalar(
+            "SELECT DISTINCT server_id FROM agent_upgrade_batch_items
+             WHERE status IN ('queued', 'running')",
+        )
+        .fetch_all(pool)
+        .await?)
+    }
+}
+
 /// 最近一次成功下发的期望态快照：断流对账靠它判断「配置有没有真的变化」。
 pub mod desired {
     use super::*;

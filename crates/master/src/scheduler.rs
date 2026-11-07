@@ -76,6 +76,239 @@ pub fn spawn_upgrade_sweep(state: AppState) -> tokio::task::JoinHandle<()> {
     })
 }
 
+/// 批量升级 runner 间隔：10 秒足够让状态同步看起来是实时的，也不会太吵。
+const UPGRADE_BATCH_INTERVAL: Duration = Duration::from_secs(10);
+/// 遇错即停时给剩余 queued 的说明。
+const SKIPPED_ERROR: &str = "同批次已有失败，剩余任务已跳过（stop_on_failure = true）";
+
+/// 一轮批量升级的总览，方便日志与测试断言。
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct BatchRoundReport {
+    /// 本轮扫描到的、还有 queued/running item 的批次数。
+    pub batches: usize,
+    /// 从 `agent_upgrades` 同步成终态的 item 数。
+    pub synced: usize,
+    /// 本轮新触发的升级数。
+    pub triggered: usize,
+    /// 收敛为终态的批次数。
+    pub finalized: usize,
+}
+
+/// 批量升级 runner 的一轮：只通过读写数据库协调，不重写升级逻辑。
+///
+/// 五步（对应 PLAN）：
+/// 1. 读取设置里的并发数并夹在 1..=5；
+/// 2. 把 running item 与 `agent_upgrades.status` 同步；
+/// 3. `stop_on_failure` 时把剩余 queued 标 skipped、批次 failed；
+/// 4. 未到并发上限就按顺序触发 queued（复用单台触发函数）；
+/// 5. 全部终态时收敛批次状态。
+pub async fn run_batch_round(state: &AppState) -> anyhow::Result<BatchRoundReport> {
+    let settings = crate::routes::settings::load(&state.db.pool).await;
+    let concurrency = settings.agent_upgrade_concurrency.clamp(
+        crate::routes::settings::MIN_AGENT_UPGRADE_CONCURRENCY,
+        crate::routes::settings::MAX_AGENT_UPGRADE_CONCURRENCY,
+    );
+
+    let batches = repo::upgrade_batches::active(&state.db.pool).await?;
+    let mut report = BatchRoundReport {
+        batches: batches.len(),
+        ..Default::default()
+    };
+    for batch in batches {
+        process_batch(state, &batch, concurrency, &mut report).await?;
+    }
+    Ok(report)
+}
+
+async fn process_batch(
+    state: &AppState,
+    batch: &pierwave_domain::models::AgentUpgradeBatch,
+    concurrency: i64,
+    report: &mut BatchRoundReport,
+) -> anyhow::Result<()> {
+    // 步骤 2：running item 以 `agent_upgrades.status` 为准。
+    let items = repo::upgrade_batches::items(&state.db.pool, &batch.id).await?;
+    for item in items.iter().filter(|item| item.status == "running") {
+        let upgrade = match item.upgrade_id.as_deref() {
+            Some(id) => repo::agent_upgrades::find_by_id(&state.db.pool, id).await?,
+            None => {
+                // 进程可能死在「创建升级记录」和「回填 upgrade_id」之间。
+                // 只认同一目标版本的记录，避免把批次之前的历史升级误认成自己的。
+                let recovered = repo::agent_upgrades::latest(&state.db.pool, &item.server_id)
+                    .await?
+                    .filter(|upgrade| upgrade.to_version == batch.to_version);
+                if let Some(upgrade) = &recovered {
+                    repo::upgrade_batches::set_item_upgrade(
+                        &state.db.pool,
+                        &batch.id,
+                        &item.server_id,
+                        &upgrade.id,
+                    )
+                    .await?;
+                }
+                recovered
+            }
+        };
+        let (status, error) = match upgrade {
+            None => ("failed", "升级记录不存在或已被清理".to_string()),
+            Some(upgrade) => match upgrade.status.as_str() {
+                "succeeded" => ("succeeded", String::new()),
+                "failed" => (
+                    "failed",
+                    if upgrade.error.is_empty() {
+                        "升级失败".to_string()
+                    } else {
+                        upgrade.error
+                    },
+                ),
+                // pending：Agent 还在下载/重启，保持 running 等下一轮。
+                _ => continue,
+            },
+        };
+        repo::upgrade_batches::mark_item(
+            &state.db.pool,
+            &batch.id,
+            &item.server_id,
+            status,
+            &error,
+        )
+        .await?;
+        report.synced += 1;
+    }
+
+    // 步骤 3：只要出现过 failed，遇错即停就把剩余 queued 全部跳过。
+    let mut items = repo::upgrade_batches::items(&state.db.pool, &batch.id).await?;
+    if batch.stop_on_failure && items.iter().any(|item| item.status == "failed") {
+        repo::upgrade_batches::skip_queued(&state.db.pool, &batch.id, SKIPPED_ERROR).await?;
+        if batch.status == "running" {
+            repo::upgrade_batches::mark(&state.db.pool, &batch.id, "failed").await?;
+            report.finalized += 1;
+        }
+        items = repo::upgrade_batches::items(&state.db.pool, &batch.id).await?;
+    }
+
+    // 步骤 5（提前收敛）：所有 item 都已终态，不再触发。
+    if items.iter().all(|item| is_terminal(&item.status)) {
+        let status = final_batch_status(&items);
+        if batch.status != status {
+            repo::upgrade_batches::mark(&state.db.pool, &batch.id, status).await?;
+            report.finalized += 1;
+        }
+        return Ok(());
+    }
+
+    // 取消或遇错即停后批次可能已是终态；不再触发新升级，但仍保留在 active()
+    // 里继续同步 running item，直到它们自然收敛。
+    if batch.status != "running" {
+        return Ok(());
+    }
+
+    // 步骤 4：按 item 插入顺序（即请求里的 server_ids 顺序）触发。
+    let running = items.iter().filter(|item| item.status == "running").count() as i64;
+    let slots = (concurrency - running).max(0);
+    if slots == 0 {
+        return Ok(());
+    }
+    let queued: Vec<pierwave_domain::models::AgentUpgradeBatchItemView> = items
+        .into_iter()
+        .filter(|item| item.status == "queued")
+        .take(slots as usize)
+        .collect();
+
+    let mut saw_failure = false;
+    for item in &queued {
+        match crate::routes::servers::trigger_single_upgrade(
+            state,
+            &item.server_id,
+            &batch.to_version,
+        )
+        .await
+        {
+            Ok(upgrade) => {
+                repo::upgrade_batches::start_item(
+                    &state.db.pool,
+                    &batch.id,
+                    &item.server_id,
+                    &upgrade.id,
+                )
+                .await?;
+                report.triggered += 1;
+            }
+            Err(error) => {
+                repo::upgrade_batches::mark_item(
+                    &state.db.pool,
+                    &batch.id,
+                    &item.server_id,
+                    "failed",
+                    &error.to_string(),
+                )
+                .await?;
+                report.synced += 1;
+                saw_failure = true;
+                if batch.stop_on_failure {
+                    break;
+                }
+            }
+        }
+    }
+
+    // 触发阶段产生的失败同样要落到「剩余 skipped / 批次 failed」。
+    if saw_failure && batch.stop_on_failure {
+        repo::upgrade_batches::skip_queued(&state.db.pool, &batch.id, SKIPPED_ERROR).await?;
+        repo::upgrade_batches::mark(&state.db.pool, &batch.id, "failed").await?;
+        report.finalized += 1;
+    }
+
+    let items = repo::upgrade_batches::items(&state.db.pool, &batch.id).await?;
+    if items.iter().all(|item| is_terminal(&item.status)) {
+        let status = final_batch_status(&items);
+        repo::upgrade_batches::mark(&state.db.pool, &batch.id, status).await?;
+        report.finalized += 1;
+    }
+    Ok(())
+}
+
+fn is_terminal(status: &str) -> bool {
+    matches!(status, "succeeded" | "failed" | "skipped" | "cancelled")
+}
+
+/// 有失败就是 failed；用户取消过、但全部跑完的批次是 cancelled；否则 succeeded。
+fn final_batch_status(
+    items: &[pierwave_domain::models::AgentUpgradeBatchItemView],
+) -> &'static str {
+    if items.iter().any(|item| item.status == "failed") {
+        "failed"
+    } else if items.iter().any(|item| item.status == "cancelled") {
+        "cancelled"
+    } else {
+        "succeeded"
+    }
+}
+
+/// 启动批量升级 runner。
+pub fn spawn_upgrade_batch_runner(state: AppState) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(UPGRADE_BATCH_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            ticker.tick().await;
+            match run_batch_round(&state).await {
+                Ok(report) if report.triggered > 0 || report.finalized > 0 => {
+                    tracing::info!(
+                        batches = report.batches,
+                        triggered = report.triggered,
+                        synced = report.synced,
+                        finalized = report.finalized,
+                        "批量升级 runner 已推进"
+                    );
+                }
+                Ok(_) => tracing::debug!("批量升级 runner：没有需要推进的批次"),
+                Err(error) => tracing::error!(error = %error, "批量升级 runner 失败"),
+            }
+        }
+    })
+}
+
 pub async fn run_session_purge(state: &AppState) -> anyhow::Result<u64> {
     let purged = repo::sessions::purge_expired(&state.db.pool).await?;
     if purged > 0 {
@@ -202,6 +435,375 @@ mod tests {
             repo::sessions::count(&state.db.pool).await.unwrap(),
             1,
             "有效会话不能被误删"
+        );
+    }
+
+    // ---- 批量 Agent 升级 runner ----
+
+    async fn setup_batch_state() -> AppState {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        AppState::new(db, "web/dist")
+    }
+
+    async fn seed_upgrade_server(state: &AppState, name: &str, version: &str) -> String {
+        let (server, _token) = repo::servers::create(&state.db.pool, name, "1.2.3.4", "external")
+            .await
+            .unwrap();
+        repo::servers::update(&state.db.pool, &server.id, None, None, None, Some(true))
+            .await
+            .unwrap();
+        repo::servers::update_health(
+            &state.db.pool,
+            &server.id,
+            version,
+            &repo::servers::HealthSnapshot::default(),
+        )
+        .await
+        .unwrap();
+        server.id
+    }
+
+    async fn set_concurrency(state: &AppState, value: i64) {
+        repo::settings::set(
+            &state.db.pool,
+            "agent_upgrade_concurrency",
+            &value.to_string(),
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn items_of(state: &AppState, batch_id: &str) -> Vec<(String, String)> {
+        repo::upgrade_batches::items(&state.db.pool, batch_id)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|item| (item.status, item.server_id))
+            .collect()
+    }
+
+    async fn batch_status(state: &AppState, batch_id: &str) -> String {
+        repo::upgrade_batches::find_by_id(&state.db.pool, batch_id)
+            .await
+            .unwrap()
+            .status
+    }
+
+    #[tokio::test]
+    async fn batch_runner_with_concurrency_one_is_strictly_serial() {
+        let state = setup_batch_state().await;
+        set_concurrency(&state, 1).await;
+        let first = seed_upgrade_server(&state, "a", "0.5.0").await;
+        let second = seed_upgrade_server(&state, "b", "0.5.0").await;
+        let batch = repo::upgrade_batches::create(
+            &state.db.pool,
+            &[first.clone(), second.clone()],
+            "0.6.0",
+            true,
+            1,
+        )
+        .await
+        .unwrap();
+
+        let report = run_batch_round(&state).await.unwrap();
+        assert_eq!(report.triggered, 1);
+        let items = items_of(&state, &batch.id).await;
+        assert_eq!(items[0].0, "running");
+        assert_eq!(items[1].0, "queued", "并发 1 时第二台必须排队");
+        assert_eq!(
+            repo::agent_upgrades::list_by_server(&state.db.pool, &second)
+                .await
+                .unwrap()
+                .len(),
+            0,
+            "第一台未终态前不能触发第二台"
+        );
+
+        // 第一台仍在 pending：再跑几轮也不应该发第二台。
+        for _ in 0..3 {
+            assert_eq!(run_batch_round(&state).await.unwrap().triggered, 0);
+        }
+        let items = items_of(&state, &batch.id).await;
+        assert_eq!(items[0].0, "running");
+        assert_eq!(items[1].0, "queued");
+        assert_eq!(
+            repo::agent_upgrades::list_by_server(&state.db.pool, &second)
+                .await
+                .unwrap()
+                .len(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn batch_runner_honors_concurrency_two_and_never_exceeds_it() {
+        let state = setup_batch_state().await;
+        set_concurrency(&state, 2).await;
+        let first = seed_upgrade_server(&state, "a", "0.5.0").await;
+        let second = seed_upgrade_server(&state, "b", "0.5.0").await;
+        let third = seed_upgrade_server(&state, "c", "0.5.0").await;
+        let batch = repo::upgrade_batches::create(
+            &state.db.pool,
+            &[first.clone(), second.clone(), third.clone()],
+            "0.6.0",
+            true,
+            2,
+        )
+        .await
+        .unwrap();
+
+        let report = run_batch_round(&state).await.unwrap();
+        assert_eq!(report.triggered, 2);
+        let items = items_of(&state, &batch.id).await;
+        assert_eq!(items[0].0, "running");
+        assert_eq!(items[1].0, "running");
+        assert_eq!(items[2].0, "queued", "并发上限 2，第三台不能启动");
+
+        // 两个 running 占满名额，再跑一轮不会多触发。
+        assert_eq!(run_batch_round(&state).await.unwrap().triggered, 0);
+        let items = items_of(&state, &batch.id).await;
+        assert_eq!(
+            items
+                .iter()
+                .filter(|(status, _)| status == "running")
+                .count(),
+            2
+        );
+        assert_eq!(
+            repo::agent_upgrades::list_by_server(&state.db.pool, &third)
+                .await
+                .unwrap()
+                .len(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn stop_on_failure_marks_remaining_items_skipped() {
+        let state = setup_batch_state().await;
+        set_concurrency(&state, 1).await;
+        let first = seed_upgrade_server(&state, "a", "0.5.0").await;
+        let second = seed_upgrade_server(&state, "b", "0.5.0").await;
+        let third = seed_upgrade_server(&state, "c", "0.5.0").await;
+        let batch = repo::upgrade_batches::create(
+            &state.db.pool,
+            &[first.clone(), second.clone(), third.clone()],
+            "0.6.0",
+            true,
+            1,
+        )
+        .await
+        .unwrap();
+
+        run_batch_round(&state).await.unwrap();
+        let upgrade = repo::agent_upgrades::latest(&state.db.pool, &first)
+            .await
+            .unwrap()
+            .unwrap();
+        repo::agent_upgrades::mark(&state.db.pool, &upgrade.id, "failed", "模拟失败")
+            .await
+            .unwrap();
+
+        run_batch_round(&state).await.unwrap();
+        let items = items_of(&state, &batch.id).await;
+        assert_eq!(items[0].0, "failed");
+        assert_eq!(items[1].0, "skipped");
+        assert_eq!(items[2].0, "skipped");
+        assert_eq!(batch_status(&state, &batch.id).await, "failed");
+        assert_eq!(
+            repo::agent_upgrades::list_by_server(&state.db.pool, &second)
+                .await
+                .unwrap()
+                .len(),
+            0,
+            "遇错即停后剩余的不能再触发"
+        );
+        assert_eq!(
+            repo::agent_upgrades::list_by_server(&state.db.pool, &third)
+                .await
+                .unwrap()
+                .len(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn continue_on_failure_runs_the_rest_then_marks_batch_failed() {
+        let state = setup_batch_state().await;
+        set_concurrency(&state, 1).await;
+        let first = seed_upgrade_server(&state, "a", "0.5.0").await;
+        let second = seed_upgrade_server(&state, "b", "0.5.0").await;
+        let batch = repo::upgrade_batches::create(
+            &state.db.pool,
+            &[first.clone(), second.clone()],
+            "0.6.0",
+            false,
+            1,
+        )
+        .await
+        .unwrap();
+
+        run_batch_round(&state).await.unwrap();
+        let upgrade = repo::agent_upgrades::latest(&state.db.pool, &first)
+            .await
+            .unwrap()
+            .unwrap();
+        repo::agent_upgrades::mark(&state.db.pool, &upgrade.id, "failed", "模拟失败")
+            .await
+            .unwrap();
+
+        // stop_on_failure=false：第一台失败后，同一轮里第二台立刻被触发。
+        let report = run_batch_round(&state).await.unwrap();
+        assert_eq!(report.triggered, 1);
+        let items = items_of(&state, &batch.id).await;
+        assert_eq!(items[0].0, "failed");
+        assert_eq!(items[1].0, "running");
+
+        let second_upgrade = repo::agent_upgrades::latest(&state.db.pool, &second)
+            .await
+            .unwrap()
+            .unwrap();
+        repo::agent_upgrades::mark(&state.db.pool, &second_upgrade.id, "succeeded", "")
+            .await
+            .unwrap();
+
+        run_batch_round(&state).await.unwrap();
+        let items = items_of(&state, &batch.id).await;
+        assert_eq!(items[0].0, "failed");
+        assert_eq!(items[1].0, "succeeded", "允许继续时剩余任务必须跑完");
+        assert_eq!(
+            batch_status(&state, &batch.id).await,
+            "failed",
+            "有失败时批次最终仍是 failed，但明细保留"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_does_not_interrupt_running_item_and_converges_to_cancelled() {
+        let state = setup_batch_state().await;
+        set_concurrency(&state, 1).await;
+        let first = seed_upgrade_server(&state, "a", "0.5.0").await;
+        let second = seed_upgrade_server(&state, "b", "0.5.0").await;
+        let batch = repo::upgrade_batches::create(
+            &state.db.pool,
+            &[first.clone(), second.clone()],
+            "0.6.0",
+            true,
+            1,
+        )
+        .await
+        .unwrap();
+
+        run_batch_round(&state).await.unwrap();
+        let cancelled = repo::upgrade_batches::cancel_queued(
+            &state.db.pool,
+            &batch.id,
+            "批次已取消，任务未开始",
+        )
+        .await
+        .unwrap();
+        assert_eq!(cancelled, 1);
+
+        // 运行中的升级不打断：状态仍是 running，批次也保持 running。
+        run_batch_round(&state).await.unwrap();
+        let items = items_of(&state, &batch.id).await;
+        assert_eq!(items[0].0, "running");
+        assert_eq!(items[1].0, "cancelled");
+        assert_eq!(batch_status(&state, &batch.id).await, "running");
+
+        // 运行中的升级自然成功；没有 queued 了，批次收敛为 cancelled。
+        let upgrade = repo::agent_upgrades::latest(&state.db.pool, &first)
+            .await
+            .unwrap()
+            .unwrap();
+        repo::agent_upgrades::mark(&state.db.pool, &upgrade.id, "succeeded", "")
+            .await
+            .unwrap();
+        run_batch_round(&state).await.unwrap();
+        let items = items_of(&state, &batch.id).await;
+        assert_eq!(items[0].0, "succeeded");
+        assert_eq!(items[1].0, "cancelled");
+        assert_eq!(batch_status(&state, &batch.id).await, "cancelled");
+    }
+
+    /// 超时巡检把 `agent_upgrades` 标 failed 后，批量 runner 下一轮必须同步到 item。
+    /// 时间通过「把 created_at 往前拨」注入，测试不依赖真实等待 15 分钟。
+    #[tokio::test]
+    async fn timed_out_upgrade_is_synced_to_failed_item() {
+        let state = setup_batch_state().await;
+        set_concurrency(&state, 1).await;
+        let first = seed_upgrade_server(&state, "a", "0.5.0").await;
+        let second = seed_upgrade_server(&state, "b", "0.5.0").await;
+        let batch = repo::upgrade_batches::create(
+            &state.db.pool,
+            &[first.clone(), second.clone()],
+            "0.6.0",
+            true,
+            1,
+        )
+        .await
+        .unwrap();
+
+        run_batch_round(&state).await.unwrap();
+        let upgrade = repo::agent_upgrades::latest(&state.db.pool, &first)
+            .await
+            .unwrap()
+            .unwrap();
+        sqlx::query(
+            "UPDATE agent_upgrades SET created_at = created_at - 2000, updated_at = updated_at - 2000 WHERE id = ?",
+        )
+        .bind(&upgrade.id)
+        .execute(&state.db.pool)
+        .await
+        .unwrap();
+
+        assert_eq!(
+            run_upgrade_sweep(&state).await.unwrap(),
+            vec![first.clone()]
+        );
+        run_batch_round(&state).await.unwrap();
+        let items = items_of(&state, &batch.id).await;
+        assert_eq!(items[0].0, "failed");
+        assert_eq!(items[1].0, "skipped");
+        assert_eq!(batch_status(&state, &batch.id).await, "failed");
+
+        // 失败原因来自 upgrade 记录，不是空串。
+        let detail = repo::upgrade_batches::items(&state.db.pool, &batch.id)
+            .await
+            .unwrap();
+        assert!(detail[0].error.contains("超时"), "{}", detail[0].error);
+    }
+
+    #[tokio::test]
+    async fn trigger_error_marks_item_failed_and_stops_the_batch() {
+        let state = setup_batch_state().await;
+        set_concurrency(&state, 1).await;
+        let first = seed_upgrade_server(&state, "a", "0.6.0").await;
+        let second = seed_upgrade_server(&state, "b", "0.6.0").await;
+        // 目标版本不比当前新：触发必然失败。
+        let batch = repo::upgrade_batches::create(
+            &state.db.pool,
+            &[first.clone(), second.clone()],
+            "0.5.0",
+            true,
+            1,
+        )
+        .await
+        .unwrap();
+
+        run_batch_round(&state).await.unwrap();
+        let items = items_of(&state, &batch.id).await;
+        assert_eq!(items[0].0, "failed");
+        assert_eq!(items[1].0, "skipped");
+        assert_eq!(batch_status(&state, &batch.id).await, "failed");
+        assert_eq!(
+            repo::agent_upgrades::list_by_server(&state.db.pool, &first)
+                .await
+                .unwrap()
+                .len(),
+            0,
+            "触发失败不应留下升级记录"
         );
     }
 }

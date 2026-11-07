@@ -73,6 +73,46 @@ pub struct AgentUpgrade {
     pub updated_at: i64,
 }
 
+/// 一次批量 Agent 升级。
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct AgentUpgradeBatch {
+    pub id: String,
+    /// 各台起始版本可能不同，批量层留空。
+    pub from_version: String,
+    pub to_version: String,
+    /// running | succeeded | failed | cancelled
+    pub status: String,
+    pub stop_on_failure: bool,
+    pub concurrency: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// 批量升级里的一台服务器。
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct AgentUpgradeBatchItem {
+    pub batch_id: String,
+    pub server_id: String,
+    pub upgrade_id: Option<String>,
+    /// queued | running | succeeded | failed | skipped | cancelled
+    pub status: String,
+    pub error: String,
+    pub updated_at: i64,
+}
+
+/// 批次详情里的 item：额外带服务器名与当前 Agent 版本，前端不用二次查询。
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct AgentUpgradeBatchItemView {
+    pub batch_id: String,
+    pub server_id: String,
+    pub server_name: String,
+    pub agent_version: Option<String>,
+    pub upgrade_id: Option<String>,
+    pub status: String,
+    pub error: String,
+    pub updated_at: i64,
+}
+
 #[derive(Debug, Clone, FromRow, Serialize)]
 pub struct Node {
     pub id: String,

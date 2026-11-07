@@ -18,11 +18,16 @@ pub const DEFAULT_PANEL_NAME: &str = "PierWave";
 pub const DEFAULT_LOGIN_MAX_ATTEMPTS: i64 = 5;
 pub const DEFAULT_LOGIN_LOCK_SECS: i64 = 900;
 pub const DEFAULT_SESSION_TTL_HOURS: i64 = 720;
+/// 批量 Agent 升级并发数：默认 1，上限 5。
+pub const DEFAULT_AGENT_UPGRADE_CONCURRENCY: i64 = 1;
+pub const MIN_AGENT_UPGRADE_CONCURRENCY: i64 = 1;
+pub const MAX_AGENT_UPGRADE_CONCURRENCY: i64 = 5;
 
 const PANEL_NAME_KEY: &str = "panel_name";
 const LOGIN_MAX_ATTEMPTS_KEY: &str = "login_max_attempts";
 const LOGIN_LOCK_SECS_KEY: &str = "login_lock_secs";
 const SESSION_TTL_HOURS_KEY: &str = "session_ttl_hours";
+const AGENT_UPGRADE_CONCURRENCY_KEY: &str = "agent_upgrade_concurrency";
 
 /// 设置页的四个白名单键；新增键必须同时改这里和 `docs/PLAN.md`。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,6 +36,7 @@ pub struct Settings {
     pub login_max_attempts: i64,
     pub login_lock_secs: i64,
     pub session_ttl_hours: i64,
+    pub agent_upgrade_concurrency: i64,
 }
 
 impl Default for Settings {
@@ -40,6 +46,7 @@ impl Default for Settings {
             login_max_attempts: DEFAULT_LOGIN_MAX_ATTEMPTS,
             login_lock_secs: DEFAULT_LOGIN_LOCK_SECS,
             session_ttl_hours: DEFAULT_SESSION_TTL_HOURS,
+            agent_upgrade_concurrency: DEFAULT_AGENT_UPGRADE_CONCURRENCY,
         }
     }
 }
@@ -55,6 +62,7 @@ impl Settings {
             "login_max_attempts": self.login_max_attempts,
             "login_lock_secs": self.login_lock_secs,
             "session_ttl_hours": self.session_ttl_hours,
+            "agent_upgrade_concurrency": self.agent_upgrade_concurrency,
         })
     }
 }
@@ -86,6 +94,14 @@ pub async fn load(pool: &SqlitePool) -> Settings {
             1,
             720,
             defaults.session_ttl_hours,
+        )
+        .await,
+        agent_upgrade_concurrency: read_int(
+            pool,
+            AGENT_UPGRADE_CONCURRENCY_KEY,
+            MIN_AGENT_UPGRADE_CONCURRENCY,
+            MAX_AGENT_UPGRADE_CONCURRENCY,
+            defaults.agent_upgrade_concurrency,
         )
         .await,
     }
@@ -165,6 +181,16 @@ pub async fn update(
             SESSION_TTL_HOURS_KEY => updates.push((
                 SESSION_TTL_HOURS_KEY,
                 validate_int("会话有效期（小时）", value, 1, 720)?.to_string(),
+            )),
+            AGENT_UPGRADE_CONCURRENCY_KEY => updates.push((
+                AGENT_UPGRADE_CONCURRENCY_KEY,
+                validate_int(
+                    "Agent 升级并发数",
+                    value,
+                    MIN_AGENT_UPGRADE_CONCURRENCY,
+                    MAX_AGENT_UPGRADE_CONCURRENCY,
+                )?
+                .to_string(),
             )),
             other => {
                 return Err(AppError::BadRequest(format!("未知的设置项：{other}")));
@@ -310,6 +336,10 @@ mod tests {
         assert_eq!(body["items"]["login_max_attempts"], 5);
         assert_eq!(body["items"]["login_lock_secs"], 900);
         assert_eq!(body["items"]["session_ttl_hours"], 720);
+        assert_eq!(
+            body["items"]["agent_upgrade_concurrency"], 1,
+            "批量升级并发默认必须是 1"
+        );
 
         let (status, _, body) = request(
             &app,
@@ -320,7 +350,8 @@ mod tests {
                 "panel_name": "  我的面板  ",
                 "login_max_attempts": 3,
                 "login_lock_secs": 120,
-                "session_ttl_hours": 2
+                "session_ttl_hours": 2,
+                "agent_upgrade_concurrency": 3
             })),
         )
         .await;
@@ -329,6 +360,7 @@ mod tests {
         assert_eq!(body["items"]["login_max_attempts"], 3);
         assert_eq!(body["items"]["login_lock_secs"], 120);
         assert_eq!(body["items"]["session_ttl_hours"], 2);
+        assert_eq!(body["items"]["agent_upgrade_concurrency"], 3);
 
         let (status, _, body) =
             request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
@@ -337,6 +369,7 @@ mod tests {
         assert_eq!(body["items"]["login_max_attempts"], 3);
         assert_eq!(body["items"]["login_lock_secs"], 120);
         assert_eq!(body["items"]["session_ttl_hours"], 2);
+        assert_eq!(body["items"]["agent_upgrade_concurrency"], 3);
 
         // 部分更新只动传了的键。
         let (status, _, body) = request(
@@ -406,6 +439,48 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
         let (_, _, body) = request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
         assert_eq!(body["items"]["panel_name"], "PierWave", "不该半截写入");
+    }
+
+    /// 并发数只接受 1..=5：写入越界直接 400（不做静默夹紧），
+    /// 这样调用方能立刻发现自己传错了值；读取侧仍会把库里被手工改坏的值回落成默认 1。
+    #[tokio::test]
+    async fn agent_upgrade_concurrency_is_validated_and_read_falls_back() {
+        let (app, state, admin, _bob) = setup().await;
+
+        for ok in [1, 5] {
+            let (status, _, body) = request(
+                &app,
+                Some(&admin),
+                Method::PATCH,
+                "/api/v1/settings",
+                Some(json!({"agent_upgrade_concurrency": ok})),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert_eq!(body["items"]["agent_upgrade_concurrency"], ok);
+        }
+
+        for bad in [json!(0), json!(6), json!(-1), json!(99), json!("2")] {
+            let (status, _, body) = request(
+                &app,
+                Some(&admin),
+                Method::PATCH,
+                "/api/v1/settings",
+                Some(json!({"agent_upgrade_concurrency": bad.clone()})),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "payload: {bad}");
+            assert!(
+                body["error"].as_str().unwrap().contains("Agent 升级并发数"),
+                "错误信息要指出字段：{body}"
+            );
+        }
+
+        // 直接写库绕过接口（模拟手工改坏）：读取回落到默认值 1，runner 仍能工作。
+        repo::settings::set(&state.db.pool, "agent_upgrade_concurrency", "99")
+            .await
+            .unwrap();
+        assert_eq!(load(&state.db.pool).await.agent_upgrade_concurrency, 1);
     }
 
     #[tokio::test]
