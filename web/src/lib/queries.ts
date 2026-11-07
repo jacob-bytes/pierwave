@@ -8,12 +8,15 @@ import {
   api,
   ApiError,
   type AgentUpgrade,
+  type AgentUpgradeBatch,
+  type AgentUpgradeBatchDetail,
   type AgentUpgradeInput,
   type ApplyResult,
   type AuditEntry,
   type BindUserPackageInput,
   type Certificate,
   type ChangePasswordInput,
+  type CreateAgentUpgradeBatchInput,
   type CreateCertificateInput,
   type CreateNodeInput,
   type CreateOutboundInput,
@@ -53,9 +56,13 @@ import {
 } from "@/lib/api";
 import { compareRoutingRules } from "@/lib/outbounds";
 import { hasPendingAgentUpgrade } from "@/lib/agentUpgrade";
+import { shouldPollAgentBatch } from "@/lib/agentUpgradeBatch";
 
 /** P4：有升级在途时，服务器列表与升级历史的轮询间隔。 */
 const AGENT_UPGRADE_POLL_MS = 15_000;
+
+/** P5：批量升级进度面板的轮询间隔。 */
+const AGENT_BATCH_POLL_MS = 5_000;
 
 export const queryKeys = {
   me: ["me"] as const,
@@ -71,6 +78,11 @@ export const queryKeys = {
   servers: ["servers"] as const,
   agentUpgrades: (serverId: string) =>
     ["agent-upgrades", serverId] as const,
+  /** P5：批次列表与单批次详情分开缓存，详情轮询不牵动列表。 */
+  agentUpgradeBatches: (limit: number) =>
+    ["agent-upgrade-batches", limit] as const,
+  agentUpgradeBatch: (batchId: string) =>
+    ["agent-upgrade-batch", batchId] as const,
   enforcementEvents: (limit: number) =>
     ["enforcement", "events", limit] as const,
   auditLog: (limit: number) => ["audit", limit] as const,
@@ -318,6 +330,85 @@ export function useTriggerAgentUpgrade(serverId: string) {
       }
       void queryClient.invalidateQueries({
         queryKey: queryKeys.agentUpgrades(serverId),
+      });
+    },
+  });
+}
+
+/**
+ * P5：批量升级批次列表，按创建时间倒序。
+ *
+ * 后端可能暂时 404：不重试，由进度面板展示可重试的中文错误态。
+ */
+export function useAgentUpgradeBatches(limit = 20, enabled = true) {
+  return useQuery<AgentUpgradeBatch[]>({
+    queryKey: queryKeys.agentUpgradeBatches(limit),
+    queryFn: async () => (await api.agentUpgradeBatches.list(limit)).items,
+    enabled,
+    staleTime: 5_000,
+    retry: false,
+  });
+}
+
+/**
+ * P5：单批次详情（批次 + 每台结果）。
+ *
+ * 批次还在 running、或还有 queued/running 的服务器时每 5 秒刷新一次；
+ * 批次与所有服务器都进入终态后自动停止轮询。
+ */
+export function useAgentUpgradeBatch(batchId: string, enabled = true) {
+  return useQuery<AgentUpgradeBatchDetail>({
+    queryKey: queryKeys.agentUpgradeBatch(batchId),
+    queryFn: () => api.agentUpgradeBatches.get(batchId),
+    enabled: Boolean(batchId) && enabled,
+    staleTime: 1_000,
+    retry: false,
+    refetchInterval: (query) => {
+      const detail = query.state.data;
+      if (!detail) return false;
+      return shouldPollAgentBatch(detail.batch.status, detail.items)
+        ? AGENT_BATCH_POLL_MS
+        : false;
+    },
+  });
+}
+
+/** P5：创建批次；只返回批次本身，进度面板打开后自行拉详情。 */
+export function useCreateAgentUpgradeBatch() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    AgentUpgradeBatch,
+    Error,
+    CreateAgentUpgradeBatchInput
+  >({
+    mutationFn: async (input) =>
+      (await api.agentUpgradeBatches.create(input)).batch,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["agent-upgrade-batches"],
+      });
+      // 升级流水要等 runner 触发后才写回目标版本，先刷新一次列表，
+      // 让已经有目标版本的服务器立刻进入 15 秒轮询。
+      void queryClient.invalidateQueries({ queryKey: queryKeys.servers });
+    },
+  });
+}
+
+/** P5：取消批次；剩余排队项由后端标记为 cancelled。 */
+export function useCancelAgentUpgradeBatch(batchId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<AgentUpgradeBatch, Error, void>({
+    mutationFn: async () => (await api.agentUpgradeBatches.cancel(batchId)).batch,
+    onSuccess: (batch) => {
+      // 立刻用返回的批次覆盖详情，让按钮和状态条不用等下一次轮询。
+      queryClient.setQueryData<AgentUpgradeBatchDetail>(
+        queryKeys.agentUpgradeBatch(batchId),
+        (current) => (current ? { ...current, batch } : current),
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ["agent-upgrade-batches"],
       });
     },
   });

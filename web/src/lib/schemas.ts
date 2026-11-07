@@ -150,7 +150,8 @@ export type ChangePasswordValues = z.infer<
 
 /**
  * 设置页表单：数值字段先用字符串承接，提交时再转数字。
- * 范围与后端白名单一致：次数 1–20、锁定 60–86400 秒、会话 1–720 小时。
+ * 范围与后端白名单一致：次数 1–20、锁定 60–86400 秒、会话 1–720 小时、
+ * Agent 升级并发 1–5。
  */
 export function settingsFormSchema(t: TFunction) {
   return z.object({
@@ -169,6 +170,11 @@ export function settingsFormSchema(t: TFunction) {
       1,
       720,
       t("validation.sessionRange"),
+    ),
+    agent_upgrade_concurrency: requiredIntField(
+      1,
+      5,
+      t("validation.upgradeConcurrencyRange"),
     ),
   });
 }

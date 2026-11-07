@@ -298,6 +298,99 @@ const en = {
         unknown: "Unknown",
       },
     },
+    batch: {
+      selectAria: "Select {name} for batch upgrade",
+      selectAllAria: "Select all servers eligible for batch upgrade",
+      selectAllHint:
+        "Only servers with “Allow upgrades” turned on are selected",
+      disabledHint: "“Allow upgrades” is off",
+      selected: "{n} selected",
+      versionLabel: "Upgrade to",
+      versionLatest: "Latest version",
+      versionCustom: "Specific version",
+      versionPlaceholder: "e.g. v0.5.2",
+      versionHint: "Leave empty to upgrade to the latest release",
+      start: "Start batch upgrade",
+      clear: "Clear selection",
+      barAria: "Batch upgrade actions",
+      progressAction: "Batch progress",
+      confirm: {
+        title: "Batch Agent upgrade",
+        desc: "Queue a batch Agent upgrade for the selected servers.",
+        warning: "This will upgrade {n} servers. Their nodes will briefly go offline in sequence during the upgrade.",
+        target: "Target version",
+        count: "Servers",
+        countValue: "{n}",
+        stopOnFailure: "Stop on failure",
+        stopOnFailureHint:
+          "After the first failure, the remaining queued servers are marked as skipped.",
+        submit: "Start batch upgrade",
+        submitting: "Submitting…",
+        queued: "Batch upgrade started",
+        queuedDesc:
+          "{n} servers are queued. Open the progress panel to see each result.",
+        error: "Could not start the batch upgrade. Please try again.",
+        notReady404:
+          "The controller does not expose the batch upgrade API yet. Try again later.",
+      },
+      progress: {
+        title: "Batch upgrade progress",
+        desc: "Batch {id} · target {version}; refreshes every 5 seconds while running.",
+        descLatest:
+          "The most recent batch upgrade; refreshes every 5 seconds while running.",
+        summary: "Succeeded {succeeded} · Failed {failed} · Remaining {remaining}",
+        summaryExtra: "Skipped {skipped} · Cancelled {cancelled}",
+        progressAria: "Batch upgrade completion {percent}%",
+        columns: {
+          server: "Server",
+          version: "Version",
+          status: "Status",
+          actions: "Actions",
+        },
+        target: "Target {version}",
+        latest: "Latest version",
+        notReported: "Not reported",
+        batchStatus: {
+          running: "Running",
+          succeeded: "Completed",
+          failed: "Has failures",
+          cancelled: "Cancelled",
+          unknown: "Unknown",
+        },
+        itemStatus: {
+          queued: "Queued",
+          running: "Running",
+          succeeded: "Succeeded",
+          failed: "Failed",
+          skipped: "Skipped",
+          cancelled: "Cancelled",
+          unknown: "Unknown",
+        },
+        retry: "Retry this server",
+        retrying: "Retrying…",
+        retried: "Upgrade re-issued for “{name}”",
+        retryError: "Could not retry the upgrade. Please try again.",
+        retryNotReady404:
+          "The controller does not expose the single-server upgrade API yet. Try again later.",
+        cancel: "Cancel batch",
+        cancelConfirm:
+          "Cancel this batch? The remaining {n} servers will be marked as cancelled.",
+        cancelConfirmAction: "Cancel batch",
+        cancelBack: "Back",
+        cancelling: "Cancelling…",
+        cancelledToast: "Batch cancelled",
+        cancelError: "Could not cancel the batch. Please try again.",
+        refresh: "Refresh",
+        loadFailed: "Batch progress failed to load",
+        loadError: "Could not load the batch progress. Please try again.",
+        notReady404:
+          "The controller does not expose the batch upgrade API yet. Try again later.",
+        emptyTitle: "No batch upgrades yet",
+        emptyDesc:
+          "Select servers with upgrades enabled and start a batch; progress will appear here.",
+        emptyItems: "This batch has no servers",
+      },
+    },
   },
   users: {
     title: "Users",
@@ -891,7 +984,7 @@ const en = {
   settings: {
     title: "Settings",
     subtitle:
-      "Panel name, login rate limiting and session lifetime; only administrators can change them.",
+      "Panel name, login rate limiting, session lifetime and upgrade concurrency; only administrators can change them.",
     loadFailed: "Settings failed to load",
     loadError:
       "Could not load settings. Check your network, or whether the controller is running.",
@@ -925,6 +1018,15 @@ const en = {
       sessionHintDefault: "Sign-in session lifetime, range 1–720 hours.",
       sessionHintWith:
         "Session lifetime is {duration}; sign in again after it expires.",
+    },
+    agentUpgrade: {
+      title: "Agent upgrades",
+      desc: "How many upgrades may run at once; applies to new batches after saving.",
+      concurrency: "Upgrade concurrency",
+      concurrencyHintDefault:
+        "The higher the concurrency, the more nodes are interrupted at once; one at a time by default.",
+      concurrencyHintWith:
+        "Up to {n} at a time; the higher the concurrency, the more nodes are interrupted at once; one at a time by default.",
     },
     duration: {
       hours: "{n} hours",
@@ -1385,6 +1487,7 @@ const en = {
     attemptsRange: "Failure limit must be an integer from 1 to 20",
     lockRange: "Lock duration must be 60–86400 seconds (1 minute–24 hours)",
     sessionRange: "Session lifetime must be 1–720 hours",
+    upgradeConcurrencyRange: "Upgrade concurrency must be an integer from 1 to 5",
     packageNameRequired: "Enter a package name",
     packageNameMax: "Package name must be at most 64 characters",
     periodRange: "Period must be between 1 and 3650 days",

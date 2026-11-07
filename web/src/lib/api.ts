@@ -1,5 +1,9 @@
 import { t } from "@/i18n";
 import type { AgentUpgradeStatus } from "@/lib/agentUpgrade";
+import type {
+  AgentUpgradeBatchItemStatus,
+  AgentUpgradeBatchStatus,
+} from "@/lib/agentUpgradeBatch";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -106,6 +110,54 @@ export interface AgentUpgradeInput {
    * 前端目前拿不到版本列表，UI 不猜版本号，只把用户输入原样上报。
    */
   version: string;
+}
+
+/**
+ * P5：批量 Agent 升级，见 docs/PLAN.md「P5：批量 Agent 升级」。
+ *
+ * 批量层只排队，真正的下载/校验/回滚仍复用单台升级流水；
+ * `item.upgrade_id` 在触发后回填，可用于跳回单台升级记录。
+ * 后端可能暂时没有这组接口，页面按 404 兜底成「尚未就绪」。
+ */
+export interface AgentUpgradeBatch {
+  id: string;
+  /** 各台起始版本可能不同，后端默认留空。 */
+  from_version: string;
+  to_version: string;
+  status: AgentUpgradeBatchStatus;
+  /** 后端目前序列化为 0/1，展示层用 Boolean() 归一。 */
+  stop_on_failure: boolean | number;
+  /** 同时执行的台数，被后端夹在 1–5。 */
+  concurrency: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface AgentUpgradeBatchItem {
+  server_id: string;
+  server_name: string;
+  /** 触发时 Agent 上报的版本；从未上报过为 null。 */
+  agent_version: string | null;
+  status: AgentUpgradeBatchItemStatus;
+  /** 失败原因；非失败状态通常为空串。 */
+  error: string;
+  /** 触发后回填的单台升级 id；尚未触发时为 null。 */
+  upgrade_id: string | null;
+}
+
+export interface CreateAgentUpgradeBatchInput {
+  /** 必须全部是已开启「允许下发升级」的服务器；后端限制 ≤ 50 台。 */
+  server_ids: string[];
+  /** 省略或空串表示「最新版本」。 */
+  version?: string;
+  /** 默认 true：任意一台失败后剩余排队项标记 skipped。 */
+  stop_on_failure?: boolean;
+}
+
+/** 批次详情：批次本身 + 每台服务器的排队/执行结果。 */
+export interface AgentUpgradeBatchDetail {
+  batch: AgentUpgradeBatch;
+  items: AgentUpgradeBatchItem[];
 }
 
 /** 断流 / 恢复事件；管理员接口，按时间倒序返回。 */
@@ -548,6 +600,11 @@ export interface Settings {
   login_lock_secs: number;
   /** 登录会话有效期（小时），1–720。 */
   session_ttl_hours: number;
+  /**
+   * P5：批量 Agent 升级的并发数，1–5，默认 1。
+   * 旧版后端可能不返回该键，设置页按 1 兜底。
+   */
+  agent_upgrade_concurrency: number;
 }
 
 export type UpdateSettingsInput = Partial<Settings>;
@@ -627,6 +684,31 @@ export const api = {
           method: "POST",
           body: JSON.stringify(input),
         },
+      ),
+  },
+
+  /** P5：批量升级批次；列表按创建时间倒序，`limit` 由后端夹在 1..20。 */
+  agentUpgradeBatches: {
+    list: (limit = 20) =>
+      request<{ items: AgentUpgradeBatch[] }>(
+        `/api/v1/agent-upgrades/batches?limit=${encodeURIComponent(String(limit))}`,
+      ),
+    get: (id: string) =>
+      request<AgentUpgradeBatchDetail>(
+        `/api/v1/agent-upgrades/batches/${encodeURIComponent(id)}`,
+      ),
+    create: (input: CreateAgentUpgradeBatchInput) =>
+      request<{ batch: AgentUpgradeBatch }>(
+        "/api/v1/agent-upgrades/batches",
+        {
+          method: "POST",
+          body: JSON.stringify(input),
+        },
+      ),
+    cancel: (id: string) =>
+      request<{ batch: AgentUpgradeBatch }>(
+        `/api/v1/agent-upgrades/batches/${encodeURIComponent(id)}/cancel`,
+        { method: "POST" },
       ),
   },
 

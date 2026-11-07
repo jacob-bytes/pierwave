@@ -9,7 +9,6 @@ import {
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { Toaster } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { isUnauthorized } from "@/lib/queries";
 import { loginUrlFor } from "@/lib/auth";
 import "@/i18n";
@@ -44,12 +43,10 @@ const queryClient = new QueryClient({
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider delayDuration={200}>
-        <BrowserRouter>
-          <App />
-          <Toaster />
-        </BrowserRouter>
-      </TooltipProvider>
+      <BrowserRouter>
+        <App />
+        <Toaster />
+      </BrowserRouter>
     </QueryClientProvider>
   </React.StrictMode>,
 );

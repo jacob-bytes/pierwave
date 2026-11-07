@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -19,6 +19,9 @@ import {
   TriangleAlertIcon,
   WaypointsIcon,
 } from "lucide-react";
+import { AgentBatchUpgradeBar } from "@/components/servers/AgentBatchUpgradeBar";
+import { AgentBatchUpgradeConfirmDialog } from "@/components/servers/AgentBatchUpgradeConfirmDialog";
+import { AgentBatchUpgradeProgressDialog } from "@/components/servers/AgentBatchUpgradeProgressDialog";
 import { AgentUpgradeDialog } from "@/components/servers/AgentUpgradeDialog";
 import { AgentUpgradeHistoryDialog } from "@/components/servers/AgentUpgradeHistoryDialog";
 import { ServerEditDialog } from "@/components/servers/ServerEditDialog";
@@ -31,6 +34,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -74,11 +78,25 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { CreateServerResponse, Server } from "@/lib/api";
 import {
   displayAgentVersion,
   hasPendingAgentUpgrade,
 } from "@/lib/agentUpgrade";
+import {
+  batchSelectionState,
+  canSelectForBatchUpgrade,
+  pruneBatchSelection,
+  selectableServerIds,
+  toggleBatchSelection,
+  type BatchSelectionState,
+} from "@/lib/agentUpgradeBatch";
 import { copyText } from "@/lib/clipboard";
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
@@ -87,7 +105,7 @@ import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
-const COLUMN_COUNT = 10;
+const COLUMN_COUNT = 11;
 /** 心跳超过这个时长没有更新就不该再当作实时数据。 */
 const HEARTBEAT_STALE_MS = 90_000;
 const HEAD_CLASS =
@@ -459,11 +477,91 @@ function ServerDetailsPopover({ server }: { server: Server }) {
   );
 }
 
+/** 表头复选框：三态，只对「已开启允许下发升级」的行生效。 */
+function SelectAllCheckbox({
+  state,
+  disabled,
+  onCheckedChange,
+}: {
+  state: BatchSelectionState;
+  disabled: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex">
+          <Checkbox
+            checked={
+              state === "all"
+                ? true
+                : state === "some"
+                  ? "indeterminate"
+                  : false
+            }
+            disabled={disabled}
+            // 禁用时让 hover 落到外层 span，Tooltip 才能显示说明。
+            className={disabled ? "pointer-events-none" : undefined}
+            onCheckedChange={(checked) => onCheckedChange(checked === true)}
+            aria-label={t("servers.batch.selectAllAria")}
+          />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{t("servers.batch.selectAllHint")}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * 行内复选框。
+ *
+ * 未开启「允许下发升级」的行不可勾选：复选框禁用并置灰，
+ * 外面套一层 Tooltip 解释原因（禁用元素本身收不到 hover，所以包在 span 上）。
+ */
+function ServerSelectCheckbox({
+  server,
+  checked,
+  onCheckedChange,
+}: {
+  server: Server;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  if (!canSelectForBatchUpgrade(server)) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex cursor-not-allowed">
+            <Checkbox
+              checked={false}
+              disabled
+              className="pointer-events-none"
+              aria-label={t("servers.batch.disabledHint")}
+            />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>{t("servers.batch.disabledHint")}</TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return (
+    <Checkbox
+      checked={checked}
+      onCheckedChange={(next) => onCheckedChange(next === true)}
+      aria-label={t("servers.batch.selectAria", { name: server.name })}
+    />
+  );
+}
+
 function LoadingRows() {
   return (
     <>
       {Array.from({ length: 5 }).map((_, index) => (
         <TableRow key={index} className="hover:bg-transparent">
+          <TableCell className="w-10 px-4 py-3">
+            <Skeleton className="size-4 rounded-[4px]" />
+          </TableCell>
           <TableCell className="px-4 py-3">
             <Skeleton className="h-3.5 w-28" />
           </TableCell>
@@ -573,13 +671,52 @@ export default function ServersPage() {
   const [copied, setCopied] = useState<"token" | "command" | null>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // P5：批量升级的多选与弹窗状态。selection 可能短暂保留已失效的 id，
+  // 渲染时统一用 selectedIds（已按当前可选集合过滤）作为唯一事实来源。
+  const [selection, setSelection] = useState<string[]>([]);
+  const [batchConfirm, setBatchConfirm] = useState<{
+    serverIds: string[];
+    version: string;
+  } | null>(null);
+  const [batchProgressOpen, setBatchProgressOpen] = useState(false);
+  /** null = 打开「最近一次批次」；有值时直接看指定批次。 */
+  const [batchProgressId, setBatchProgressId] = useState<string | null>(null);
+
   useEffect(() => {
     return () => {
       if (copyTimer.current) clearTimeout(copyTimer.current);
     };
   }, []);
 
-  const items = servers.data ?? [];
+  const items = useMemo(() => servers.data ?? [], [servers.data]);
+  const eligibleIds = useMemo(() => selectableServerIds(items), [items]);
+  // 列表刷新后可能有关掉「允许下发升级」的行：从这里起就丢掉失效 id，
+  // 不复用 effect，避免多一轮渲染。
+  const selectedIds = useMemo(
+    () => pruneBatchSelection(selection, eligibleIds),
+    [selection, eligibleIds],
+  );
+  const selectAllState = batchSelectionState(selectedIds, eligibleIds);
+
+  function handleSelectAll(checked: boolean) {
+    setSelection(checked ? [...eligibleIds] : []);
+  }
+
+  function handleToggleServer(id: string) {
+    setSelection(toggleBatchSelection(selectedIds, id));
+  }
+
+  function openBatchConfirm(version: string) {
+    const serverIds = pruneBatchSelection(selectedIds, eligibleIds);
+    if (serverIds.length === 0) return;
+    setBatchConfirm({ serverIds, version });
+  }
+
+  function openLatestBatch() {
+    setBatchProgressId(null);
+    setBatchProgressOpen(true);
+  }
+
   const editServer = items.find((server) => server.id === editServerId) ?? null;
   const upgradeServer =
     items.find((server) => server.id === upgradeServerId) ?? null;
@@ -654,7 +791,10 @@ export default function ServersPage() {
     copyTimer.current = setTimeout(() => setCopied(null), 1_500);
   }
 
+  // TooltipProvider 放在这个页面里而不是 main.tsx：整套 Radix Tooltip + floating-ui
+  // 只被本页用到，挂在应用根部会把 ~47kB 顶进首屏入口 chunk。
   return (
+    <TooltipProvider delayDuration={200}>
     <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
@@ -705,6 +845,15 @@ export default function ServersPage() {
               <Button
                 variant="outline"
                 size="sm"
+                onClick={openLatestBatch}
+                title={t("servers.batch.progressAction")}
+              >
+                <HistoryIcon className="size-3.5" />
+                {t("servers.batch.progressAction")}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => void servers.refetch()}
                 disabled={servers.isFetching}
               >
@@ -723,14 +872,29 @@ export default function ServersPage() {
           </CardDescription>
         </CardHeader>
 
+        {selectedIds.length > 0 ? (
+          <AgentBatchUpgradeBar
+            selectedCount={selectedIds.length}
+            onStart={openBatchConfirm}
+            onClear={() => setSelection([])}
+          />
+        ) : null}
+
         <CardContent className="p-0">
           <Table
-            className="min-w-[760px] xl:min-w-[1120px]"
+            className="min-w-[780px] xl:min-w-[1140px]"
             aria-busy={servers.isPending}
           >
             <TableCaption className="sr-only">{t("servers.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
+                <TableHead className={cn(HEAD_CLASS, "w-10 pr-0")}>
+                  <SelectAllCheckbox
+                    state={selectAllState}
+                    disabled={eligibleIds.length === 0}
+                    onCheckedChange={handleSelectAll}
+                  />
+                </TableHead>
                 <TableHead className={HEAD_CLASS}>{t("common.name")}</TableHead>
                 <TableHead className={cn(HEAD_CLASS, "hidden lg:table-cell")}>
                   {t("common.address")}
@@ -770,15 +934,24 @@ export default function ServersPage() {
               ) : (
                 items.map((server) => {
                   const serviceDown = isServiceDown(server);
+                  const selected = selectedIds.includes(server.id);
 
                   return (
                     <TableRow
                       key={server.id}
+                      data-state={selected ? "selected" : undefined}
                       className={cn(
                         serviceDown &&
                           "bg-destructive/5 hover:bg-destructive/10",
                       )}
                     >
+                      <TableCell className="w-10 px-4 py-2.5">
+                        <ServerSelectCheckbox
+                          server={server}
+                          checked={selected}
+                          onCheckedChange={() => handleToggleServer(server.id)}
+                        />
+                      </TableCell>
                       <TableCell className="max-w-56 px-4 py-2.5">
                         <div className="flex items-center gap-2">
                           <span
@@ -1141,6 +1314,29 @@ export default function ServersPage() {
           }}
         />
       ) : null}
+
+      {batchConfirm ? (
+        <AgentBatchUpgradeConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setBatchConfirm(null);
+          }}
+          serverIds={batchConfirm.serverIds}
+          version={batchConfirm.version}
+          onCreated={(batch) => {
+            setSelection([]);
+            setBatchProgressId(batch.id);
+            setBatchProgressOpen(true);
+          }}
+        />
+      ) : null}
+
+      <AgentBatchUpgradeProgressDialog
+        open={batchProgressOpen}
+        onOpenChange={setBatchProgressOpen}
+        batchId={batchProgressId}
+      />
     </div>
+    </TooltipProvider>
   );
 }

@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import type { ReactNode } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
+  ArrowUpCircleIcon,
   Loader2Icon,
   RefreshCwIcon,
   SaveIcon,
@@ -55,6 +56,11 @@ function toFormValues(items: Settings): SettingsFormValues {
       items.login_lock_secs == null ? "" : String(items.login_lock_secs),
     session_ttl_hours:
       items.session_ttl_hours == null ? "" : String(items.session_ttl_hours),
+    // 旧版后端还没有这个键：默认一次一台，而不是让输入框空着。
+    agent_upgrade_concurrency:
+      items.agent_upgrade_concurrency == null
+        ? "1"
+        : String(items.agent_upgrade_concurrency),
   };
 }
 
@@ -133,6 +139,17 @@ function SettingsSkeleton() {
           ))}
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="h-3 w-80" />
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Skeleton className="h-3 w-20" />
+          <Skeleton className="h-8 w-full max-w-md" />
+          <Skeleton className="h-3 w-72" />
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -192,6 +209,11 @@ function SettingsForm({ initial }: { initial: Settings }) {
   const attempts = parseIntInRange(form.watch("login_max_attempts"), 1, 20);
   const lockSecs = parseIntInRange(form.watch("login_lock_secs"), 60, 86400);
   const ttlHours = parseIntInRange(form.watch("session_ttl_hours"), 1, 720);
+  const concurrency = parseIntInRange(
+    form.watch("agent_upgrade_concurrency"),
+    1,
+    5,
+  );
 
   const onSubmit = form.handleSubmit(async (values) => {
     form.clearErrors("root");
@@ -201,6 +223,7 @@ function SettingsForm({ initial }: { initial: Settings }) {
         login_max_attempts: Number(values.login_max_attempts),
         login_lock_secs: Number(values.login_lock_secs),
         session_ttl_hours: Number(values.session_ttl_hours),
+        agent_upgrade_concurrency: Number(values.agent_upgrade_concurrency),
       });
       // PATCH 返回的 items 是权威值：回填表单（同时清掉脏标记），缓存已由 hook 更新。
       form.reset(toFormValues(items));
@@ -227,6 +250,10 @@ function SettingsForm({ initial }: { initial: Settings }) {
         duration: sessionDurationText(ttlHours),
       })
     : t("settings.security.sessionHintDefault");
+
+  const concurrencyHint = concurrency
+    ? t("settings.agentUpgrade.concurrencyHintWith", { n: concurrency })
+    : t("settings.agentUpgrade.concurrencyHintDefault");
 
   return (
     <form className="space-y-6" onSubmit={onSubmit}>
@@ -326,6 +353,39 @@ function SettingsForm({ initial }: { initial: Settings }) {
           </FormField>
 
           <FormRootError message={form.formState.errors.root?.message} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-sm font-medium">
+            <ArrowUpCircleIcon className="size-4 text-muted-foreground" />
+            {t("settings.agentUpgrade.title")}
+          </CardTitle>
+          <CardDescription className="text-xs">
+            {t("settings.agentUpgrade.desc")}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FormField
+            label={t("settings.agentUpgrade.concurrency")}
+            htmlFor="settings-agent-upgrade-concurrency"
+            required
+            hint={concurrencyHint}
+            error={form.formState.errors.agent_upgrade_concurrency?.message}
+            className="max-w-md"
+          >
+            <Input
+              id="settings-agent-upgrade-concurrency"
+              inputMode="numeric"
+              placeholder="1"
+              disabled={updateSettings.isPending}
+              aria-invalid={Boolean(
+                form.formState.errors.agent_upgrade_concurrency,
+              )}
+              {...form.register("agent_upgrade_concurrency")}
+            />
+          </FormField>
         </CardContent>
       </Card>
 

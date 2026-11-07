@@ -21,5 +21,16 @@ export default defineConfig({
       },
     },
   },
-  build: { outDir: "dist", sourcemap: false },
+  build: {
+    outDir: "dist",
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        // zod 只被 /servers 与 /settings 这类懒加载页用，但两个页面共享后会被
+        // 提升到入口 chunk——首屏白等 40 多 kB。单独切出来，按需并行加载。
+        manualChunks: (id) =>
+          id.includes("node_modules/zod") ? "zod" : undefined,
+      },
+    },
+  },
 });
