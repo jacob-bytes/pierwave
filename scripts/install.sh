@@ -9,13 +9,24 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------- constants
+# 所有系统路径都挂在 PREFIX 下（默认空 = 真实系统路径）。
+# 测试用 PIERWAVE_PREFIX=<临时目录> 把一切关进沙箱，配合 stub 的 systemctl，
+# 可以完整跑 install/upgrade/uninstall 而不碰真机。
+readonly PREFIX="${PIERWAVE_PREFIX:-}"
+readonly TEST_MODE="${PIERWAVE_TEST_MODE:-0}"
+
 readonly SERVICE_NAME="pierwave-master"
-readonly BIN_PATH="/usr/local/bin/pierwave-master"
-readonly ETC_DIR="/etc/pierwave"
+readonly BIN_DIR="${PREFIX}/usr/local/bin"
+readonly BIN_PATH="${BIN_DIR}/pierwave-master"
+readonly ETC_DIR="${PREFIX}/etc/pierwave"
 readonly ENV_FILE="${ETC_DIR}/pierwave.env"
-readonly DATA_DIR="/var/lib/pierwave"
-readonly UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
+readonly DATA_DIR="${PREFIX}/var/lib/pierwave"
+readonly UNIT_DIR="${PREFIX}/etc/systemd/system"
+readonly UNIT_PATH="${UNIT_DIR}/${SERVICE_NAME}.service"
+readonly SYSTEMCTL="${PIERWAVE_SYSTEMCTL:-systemctl}"
 readonly REPO="jacob-bytes/pierwave"
+# 发布产物下载根；测试时指向本地目录（curl 支持 file://）
+readonly RELEASE_BASE="${PIERWAVE_RELEASE_BASE:-https://github.com/${REPO}/releases/download}"
 readonly RELEASE_PUBKEY="vTmZY2HhvEOMbXKvxKYFuSWJLa5e5qjwxBNBSpJVhMM="
 
 readonly DEFAULT_PORT="8787"
@@ -42,13 +53,43 @@ function die()       { log_error "$*"; exit 1; }
 
 # ---------------------------------------------------------------- helpers
 function require_root() {
+  # 测试模式全部落在临时前缀里，不需要也不应该用 root 跑
+  [ "${TEST_MODE}" = "1" ] && return 0
   if [ "$(id -u)" -ne 0 ]; then
     die "This script must run as root. Try: sudo bash $0 $*"
   fi
 }
 
+# 测试模式的第一道闸：PREFIX 必须在临时目录下，否则直接退出（防止 PREFIX=/ 这种灾难）。
+function assert_test_prefix() {
+  [ "${TEST_MODE}" = "1" ] || return 0
+  # macOS 的 TMPDIR 是 /var/folders/...，而 pwd -P 会给出 /private/var/folders/...，
+  # 两边都做一次真实路径归一，否则护栏会把自己的沙箱拦下来。
+  local tmp_real prefix_real
+  tmp_real="$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P || printf '/tmp')"
+  prefix_real="$(cd "${PREFIX}" 2>/dev/null && pwd -P || printf '%s' "${PREFIX}")"
+  case "${prefix_real}" in
+    "${tmp_real}"/*|/tmp/*|/private/tmp/*) ;;
+    *) die "test mode requires PIERWAVE_PREFIX under a temp dir (got: '${prefix_real}')" ;;
+  esac
+}
+assert_test_prefix
+
+# 任何删除动作前都必须确认目标在 PREFIX 之内；测试模式额外要求 PREFIX 非空。
+function assert_confined() {
+  local target="$1"
+  if [ -z "${PREFIX}" ]; then
+    [ "${TEST_MODE}" = "1" ] && die "refusing to touch ${target}: test mode requires PIERWAVE_PREFIX"
+    return 0
+  fi
+  case "${target}" in
+    "${PREFIX}"/*) ;;
+    *) die "refusing to touch ${target}: outside prefix ${PREFIX}" ;;
+  esac
+}
+
 function require_systemd() {
-  if ! command -v systemctl >/dev/null 2>&1; then
+  if ! command -v "${SYSTEMCTL}" >/dev/null 2>&1; then
     die "systemd is required for this installer. Use the Docker deployment instead."
   fi
 }
@@ -73,13 +114,21 @@ Check network access, or set HTTPS_PROXY, or download the file manually and reru
 
 # Optional download: returns non-zero instead of aborting.
 function download_optional() {
+  # 「可选」包括「文件不存在」：必须永远返回 0，否则 set -e 会让整个安装静默退出
+  # （曾经在没配签名密钥的发布上表现为 curl 的 37，没有任何提示）。
   local url="$1" out="$2"
-  curl -fsSL --retry 2 --connect-timeout 10 --max-time 120 -o "${out}" "${url}" 2>/dev/null
+  curl -fsSL --retry 2 --connect-timeout 10 --max-time 120 -o "${out}" "${url}" 2>/dev/null || true
+  return 0
 }
 
 function latest_version() {
+  # 测试可以固定「最新版本」，避免依赖网络
+  if [ -n "${PIERWAVE_LATEST_VERSION:-}" ]; then
+    printf '%s' "${PIERWAVE_LATEST_VERSION}"
+    return 0
+  fi
   local json
-  json="$(curl -fsSL --max-time 20 "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null || true)"
+  json="$(curl -fsSL --max-time 20 "${PIERWAVE_LATEST_URL:-https://api.github.com/repos/${REPO}/releases/latest}" 2>/dev/null || true)"
   if [ -z "${json}" ]; then
     return 1
   fi
@@ -110,7 +159,7 @@ function installed_version() {
 }
 
 function service_state() {
-  systemctl is-active "${SERVICE_NAME}" 2>/dev/null || true
+  "${SYSTEMCTL}" is-active "${SERVICE_NAME}" 2>/dev/null || true
 }
 
 # Verify SHA256SUMS with the embedded Ed25519 public key when openssl 3 is available.
@@ -156,8 +205,10 @@ function verify_release() {
 }
 
 function ensure_layout() {
+  install -d -m 0755 "${BIN_DIR}"
   install -d -m 0755 "${ETC_DIR}"
   install -d -m 0700 "${DATA_DIR}"
+  install -d -m 0755 "${UNIT_DIR}"
 }
 
 function write_env_file() {
@@ -195,14 +246,18 @@ ReadWritePaths=${DATA_DIR}
 [Install]
 WantedBy=multi-user.target
 UNIT
-  systemctl daemon-reload
+  "${SYSTEMCTL}" daemon-reload
   log_ok "Installed systemd unit ${UNIT_PATH}"
 }
 
 function wait_healthy() {
   local tries="${1:-30}" i
+  if [ "${PIERWAVE_SKIP_HEALTH:-0}" = "1" ]; then
+    return 0
+  fi
+  local url="${PIERWAVE_HEALTH_URL:-http://127.0.0.1:${PORT}/api/v1/health}"
   for ((i = 1; i <= tries; i++)); do
-    if curl -fsS --max-time 2 "http://127.0.0.1:${PORT}/api/v1/health" >/dev/null 2>&1; then
+    if curl -fsS --max-time 2 "${url}" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -213,9 +268,12 @@ function wait_healthy() {
 function report_runtime() {
   local state
   state="$(service_state)"
-  if [ "${state}" = "active" ] && wait_healthy 5; then
+  if [ "${PIERWAVE_SKIP_HEALTH:-0}" = "1" ]; then
+    log_warn "Health check skipped (PIERWAVE_SKIP_HEALTH=1)"
+  elif [ "${state}" = "active" ] && wait_healthy 5; then
     log_ok "Service is running and /api/v1/health responds"
   else
+    # 服务 active 但健康检查没通过，同样算失败——否则升级会在「起不来」时被当成成功
     log_error "Service state: ${state:-unknown}; health check failed"
     log_error "Inspect logs: journalctl -u ${SERVICE_NAME} -n 100 --no-pager"
     return 1
@@ -248,9 +306,9 @@ function do_install() {
 
   WORK_DIR="$(mktemp -d)"
   local work="${WORK_DIR}"
-  download "https://github.com/${REPO}/releases/download/${version}/${asset}" "${work}/${asset}"
-  download_optional "https://github.com/${REPO}/releases/download/${version}/${sumfile}" "${work}/${sumfile}"
-  download_optional "https://github.com/${REPO}/releases/download/${version}/${sumfile}.sig" "${work}/${sumfile}.sig"
+  download "${RELEASE_BASE}/${version}/${asset}" "${work}/${asset}"
+  download_optional "${RELEASE_BASE}/${version}/${sumfile}" "${work}/${sumfile}"
+  download_optional "${RELEASE_BASE}/${version}/${sumfile}.sig" "${work}/${sumfile}.sig"
 
   if [ -f "${work}/${sumfile}" ]; then
     verify_release "${work}/${sumfile}" "${work}/${sumfile}.sig" "${asset}" "${work}/${asset}"
@@ -273,8 +331,8 @@ function do_install() {
   fi
 
   write_unit
-  systemctl enable --now "${SERVICE_NAME}" >/dev/null 2>&1 || true
-  systemctl restart "${SERVICE_NAME}"
+  "${SYSTEMCTL}" enable --now "${SERVICE_NAME}" >/dev/null 2>&1 || true
+  "${SYSTEMCTL}" restart "${SERVICE_NAME}"
   report_runtime
 }
 
@@ -305,21 +363,21 @@ function do_upgrade() {
   sumfile="SHA256SUMS-${target}"
   WORK_DIR="$(mktemp -d)"
   local work="${WORK_DIR}"
-  download "https://github.com/${REPO}/releases/download/${version}/${asset}" "${work}/${asset}"
-  download_optional "https://github.com/${REPO}/releases/download/${version}/${sumfile}" "${work}/${sumfile}"
-  download_optional "https://github.com/${REPO}/releases/download/${version}/${sumfile}.sig" "${work}/${sumfile}.sig"
+  download "${RELEASE_BASE}/${version}/${asset}" "${work}/${asset}"
+  download_optional "${RELEASE_BASE}/${version}/${sumfile}" "${work}/${sumfile}"
+  download_optional "${RELEASE_BASE}/${version}/${sumfile}.sig" "${work}/${sumfile}.sig"
   if [ -f "${work}/${sumfile}" ]; then
     verify_release "${work}/${sumfile}" "${work}/${sumfile}.sig" "${asset}" "${work}/${asset}"
   fi
 
   install -m 0755 "${work}/${asset}" "${BIN_PATH}"
-  systemctl restart "${SERVICE_NAME}"
+  "${SYSTEMCTL}" restart "${SERVICE_NAME}"
   if report_runtime; then
     log_ok "Upgrade finished: ${version}"
   else
     log_error "New version did not become healthy; rolling back"
     cp -f "${BIN_PATH}.bak" "${BIN_PATH}"
-    systemctl restart "${SERVICE_NAME}"
+    "${SYSTEMCTL}" restart "${SERVICE_NAME}"
     if report_runtime; then
       log_warn "Rolled back to ${current}"
     else
@@ -343,9 +401,9 @@ function backup_database() {
   fi
 }
 
-function do_start()    { require_root; systemctl start "${SERVICE_NAME}"; report_runtime; }
-function do_stop()     { require_root; systemctl stop "${SERVICE_NAME}"; log_ok "Stopped ${SERVICE_NAME}"; }
-function do_restart()  { require_root; systemctl restart "${SERVICE_NAME}"; report_runtime; }
+function do_start()    { require_root; "${SYSTEMCTL}" start "${SERVICE_NAME}"; report_runtime; }
+function do_stop()     { require_root; "${SYSTEMCTL}" stop "${SERVICE_NAME}"; log_ok "Stopped ${SERVICE_NAME}"; }
+function do_restart()  { require_root; "${SYSTEMCTL}" restart "${SERVICE_NAME}"; report_runtime; }
 function do_status() {
   printf 'Service : %s\n' "$(service_state)"
   printf 'Version : %s\n' "$(installed_version || true)"
@@ -358,14 +416,18 @@ function do_status() {
 
 function do_uninstall() {
   require_root
-  systemctl disable --now "${SERVICE_NAME}" >/dev/null 2>&1 || true
+  assert_confined "${UNIT_PATH}"
+  assert_confined "${BIN_PATH}"
+  assert_confined "${ENV_FILE}"
+  "${SYSTEMCTL}" disable --now "${SERVICE_NAME}" >/dev/null 2>&1 || true
   rm -f "${UNIT_PATH}"
-  systemctl daemon-reload
+  "${SYSTEMCTL}" daemon-reload
   rm -f "${BIN_PATH}" "${BIN_PATH}.bak"
   rm -f "${ENV_FILE}"
   rmdir "${ETC_DIR}" 2>/dev/null || true
   log_ok "Removed binary, config and systemd unit"
   if [ "${PURGE}" = "1" ]; then
+    assert_confined "${DATA_DIR}"
     rm -rf "${DATA_DIR}"
     log_warn "Data directory removed (--purge)"
   else

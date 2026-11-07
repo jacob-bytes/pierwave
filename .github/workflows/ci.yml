@@ -70,6 +70,10 @@ jobs:
       - name: Tests
         run: make test
 
+      # 安装脚本做的是卸载/升级/删数据这类破坏性操作，必须有自动化覆盖
+      - name: Installer self-test
+        run: make test-install
+
       - name: Web tests
         run: make web-test
 

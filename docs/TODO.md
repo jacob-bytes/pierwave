@@ -36,7 +36,11 @@
 
 ## 已知缺口（脚本与部署）
 
-- [ ] **`scripts/install.sh` 零自动化测试**：它执行卸载/升级/回滚/删数据目录这类破坏性操作，
+- [x] **`scripts/install.sh` 自动化测试**：`make test-install`（`scripts/test-install.sh`）。
+  用临时前缀 + stub `systemctl` + 本地假 release，覆盖 install 布局与 0600 权限、install 幂等、
+  status、拒绝降级、健康检查失败回滚、uninstall 保留数据、`--purge`、越界前缀被拒绝，
+  并在最后断言沙箱外零改动。已接进 CI。
+- [ ] ~~**`scripts/install.sh` 零自动化测试**~~：它执行卸载/升级/回滚/删数据目录这类破坏性操作，
   目前只有人工跑过。补法：用 `DESTDIR` 前缀 + stub `systemctl`，在临时目录跑完整的
   install → status → upgrade → uninstall，断言文件创建与清理正确、`--purge` 只删数据目录。
 - [ ] **Docker 镜像未在真机验证**：本机没有 Docker，`Dockerfile` 与 `docker-compose.yml`
