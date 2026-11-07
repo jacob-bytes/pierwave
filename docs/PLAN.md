@@ -760,3 +760,49 @@ sing-box、Stash、Surfboard、V2Ray、Egern。我们目前只有 Clash 与 URI 
 
 订阅行增加「格式」下拉（默认 Clash），复制/二维码用 `?target=<id>`；
 订阅页给一张「客户端支持」小表（折叠），列出 id 与对应客户端。
+
+## P10：探针公开页
+
+给未登录访客一个只读状态页（`/status`），视觉参考本机的 `miniprobe/monitor-theme-default`
+（shadcn + 靛蓝，与我们同源）。数据只用**已有 + 新增采样**，不造假。
+
+### 采样（0018_server_samples.sql）
+
+```sql
+CREATE TABLE server_samples (
+    server_id  TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    ts         INTEGER NOT NULL,       -- 采样时间（5 分钟对齐）
+    online     INTEGER NOT NULL,
+    load1      REAL NOT NULL DEFAULT 0,
+    mem_used   INTEGER NOT NULL DEFAULT 0,
+    mem_total  INTEGER NOT NULL DEFAULT 0,
+    disk_used  INTEGER NOT NULL DEFAULT 0,
+    disk_total INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (server_id, ts)
+);
+```
+
+调度器每 5 分钟写一行（在线状态取 `servers.status`），保留 7 天（每小时清理）。
+
+### 公开接口（**无需登录**）
+
+```
+GET /api/v1/public/status
+-> { panel_name, generated_at,
+     summary: { servers_total, servers_online, nodes_total, traffic_today, traffic_month },
+     servers: [ { id, name, online, xray_running, load1, mem_used, mem_total,
+                  disk_used, disk_total, uptime_secs, last_seen,
+                  uptime_24h, uptime_7d,           // 0..1，无采样时为 null
+                  buckets_24h: [ { ts, online_ratio } ] } ] }
+```
+
+- **不返回服务器地址、用户数、套餐等敏感信息**；
+- 设置项 `public_status_enabled`（默认 1）可整体关闭，关闭时 404；
+- 结果缓存 30 秒，避免被打爆。
+
+### 前端
+
+`/status` 公开路由（不需要登录、不套 AppShell 侧栏）：
+- 顶部：面板名 + 汇总（在线 x/y、节点数、今日/本月流量）；
+- 节点卡/表：状态点、负载、内存、磁盘、最后心跳、24h/7d 可用率条；
+- 复用参考项目的视觉语言（卡片、状态点、迷你条），但**不照搬我们没有的数据**（延迟、运营商、事件时间线）。
