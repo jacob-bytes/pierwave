@@ -17,10 +17,15 @@ use crate::state::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|arg| arg == "--version" || arg == "-V") {
+        println!("{}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     // 运维/验证用的小工具入口：
     //   pierwave-master --derive-reality-key <base64-private-key>
     // 用真实 Xray 的 `xray x25519 -i` 对照，确认我们的公钥反推没有算错。
-    let args: Vec<String> = std::env::args().collect();
     if let Some(pos) = args.iter().position(|arg| arg == "--derive-reality-key") {
         let private = args
             .get(pos + 1)
