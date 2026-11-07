@@ -201,7 +201,7 @@ fn restore_validation_error(error: anyhow::Error) -> AppError {
         AppError::coded(
             "backup.restore_migration_too_new",
             Some(json!({
-                "version": numbers.get(0).copied().unwrap_or_default(),
+                "version": numbers.first().copied().unwrap_or_default(),
                 "supported": numbers.get(1).copied().unwrap_or_default(),
             })),
             message,
