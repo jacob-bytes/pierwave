@@ -66,9 +66,9 @@ PierWave puts all of that behind one control plane:
 |---|---|
 | ![Users](docs/images/en/users.png) | ![Audit log](docs/images/en/audit.png) |
 
-| Rule templates | Self-service |
+| Rule templates | Public status |
 |---|---|
-| ![Rule templates](docs/images/en/rules.png) | ![Self-service](docs/images/en/me.png) |
+| ![Rule templates](docs/images/en/rules.png) | ![Public status](docs/images/en/status.png) |
 
 ## Quick start
 

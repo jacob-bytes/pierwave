@@ -56,9 +56,9 @@ PierWave 把这些收进一个控制面：
 |---|---|
 | ![用户](docs/images/zh/users.png) | ![审计日志](docs/images/zh/audit.png) |
 
-| 规则模板 | 用户自助 |
+| 规则模板 | 公开状态页 |
 |---|---|
-| ![规则模板](docs/images/zh/rules.png) | ![用户自助](docs/images/zh/me.png) |
+| ![规则模板](docs/images/zh/rules.png) | ![公开状态页](docs/images/zh/status.png) |
 
 ## 快速开始
 
