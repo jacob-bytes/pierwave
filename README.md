@@ -58,17 +58,17 @@ PierWave puts all of that behind one control plane:
 |---|---|
 | ![Servers](docs/images/en/servers.png) | ![Nodes](docs/images/en/nodes.png) |
 
-| Users | Subscriptions |
+| Outbounds & routing | Subscriptions |
 |---|---|
-| ![Users](docs/images/en/users.png) | ![Subscriptions](docs/images/en/subscriptions.png) |
+| ![Outbounds & routing](docs/images/en/outbounds.png) | ![Subscriptions](docs/images/en/subscriptions.png) |
 
-| Rule templates | Audit log |
+| Users | Audit log |
 |---|---|
-| ![Rule templates](docs/images/en/rules.png) | ![Audit log](docs/images/en/audit.png) |
+| ![Users](docs/images/en/users.png) | ![Audit log](docs/images/en/audit.png) |
 
-| Self-service |
-|---|
-| ![Self-service](docs/images/en/me.png) |
+| Rule templates | Self-service |
+|---|---|
+| ![Rule templates](docs/images/en/rules.png) | ![Self-service](docs/images/en/me.png) |
 
 ## Quick start
 
@@ -116,7 +116,8 @@ database, no restart needed).
 
 Working: node/inbound management, desired-state delivery with rollback, users and package
 instances (multiple cards per user with independent quotas), subscription delivery, traffic metering
-and enforcement, certificate upload and deployment, audit log with a dedicated UI, configurable subscription rule templates, self-service page for end users,
+and enforcement, certificate upload and deployment, audit log with a dedicated UI, configurable subscription rule templates, per-server outbounds and routing rules,
+self-service page for end users,
 bilingual UI (English / 简体中文).
 
 Not implemented yet: ACME issuance, per-user rate limiting, nginx certificate deployment,

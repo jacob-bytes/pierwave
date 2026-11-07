@@ -48,17 +48,17 @@ PierWave 把这些收进一个控制面：
 |---|---|
 | ![服务器](docs/images/zh/servers.png) | ![节点](docs/images/zh/nodes.png) |
 
-| 用户 | 订阅 |
+| 出站与路由 | 订阅 |
 |---|---|
-| ![用户](docs/images/zh/users.png) | ![订阅](docs/images/zh/subscriptions.png) |
+| ![出站与路由](docs/images/zh/outbounds.png) | ![订阅](docs/images/zh/subscriptions.png) |
 
-| 规则模板 | 审计日志 |
+| 用户 | 审计日志 |
 |---|---|
-| ![规则模板](docs/images/zh/rules.png) | ![审计日志](docs/images/zh/audit.png) |
+| ![用户](docs/images/zh/users.png) | ![审计日志](docs/images/zh/audit.png) |
 
-| 用户自助 |
-|---|
-| ![用户自助](docs/images/zh/me.png) |
+| 规则模板 | 用户自助 |
+|---|---|
+| ![规则模板](docs/images/zh/rules.png) | ![用户自助](docs/images/zh/me.png) |
 
 ## 快速开始
 
@@ -102,7 +102,7 @@ curl -fsSL http://<主控地址>/api/agent/install.sh?token=<token> | sudo bash
 ## 状态
 
 已可用：节点/入站管理、期望态下发与回滚、用户与套餐实例（多卡独立额度）、订阅分发、
-流量计量与断流、证书上传与部署、审计日志（含界面）、可配置的订阅规则模板、用户自助页、中英文界面。
+流量计量与断流、证书上传与部署、审计日志（含界面）、可配置的订阅规则模板、按服务器配置的出站与路由规则、用户自助页、中英文界面。
 
 未做：ACME 自动签发、按用户限速、nginx 证书部署、多主控/高可用。
 证书目前需手动上传；纯 IP:port 部署建议用 REALITY（不需要证书）。
