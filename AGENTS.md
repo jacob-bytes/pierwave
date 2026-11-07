@@ -37,7 +37,8 @@ CARGO_HOME=$PWD/.cargo-home cargo test -p pierwave-domain
 1. **协议只增不改**：动 `crates/proto` 的字段/变体，必须同时升 `PROTOCOL_VERSION`，并保证旧 Agent 能忽略新消息。
 2. **期望态而非命令**：Agent 侧只有「收敛到 DesiredState」一个动作，新增能力不许加命令式 RPC。
 3. **迁移只追加**：`crates/domain/migrations/` 下不改历史文件，新需求加 `000N_xxx.sql`。
-4. **文案中文**：面向用户的报错、按钮、提示一律简体中文。
+4. **文案双语**：面向用户的报错、按钮、提示要同时提供简体中文与英文（见下方「发布与内容规则」）。
+   后端的错误信息目前只有中文，这是已知缺口，新增错误文案时优先做成可翻译的键。
 5. **测试**：纯逻辑（配置生成、订阅渲染、计费换算）必须有单元测试；涉及 HTTP 的用 `#[tokio::test]` + 内存 SQLite。
 6. **不碰参考目录**：`miaomiaowux-docs/` 是本地抓取的第三方文档，已 gitignore，只读。
 7. 提交前 `make check` 必须全绿；不许 `#[allow(dead_code)]` 掩盖没写完的东西（临时标注需在 PR 说明里写清）。
