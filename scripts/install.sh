@@ -16,7 +16,7 @@ readonly ENV_FILE="${ETC_DIR}/pierwave.env"
 readonly DATA_DIR="/var/lib/pierwave"
 readonly UNIT_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 readonly REPO="jacob-bytes/pierwave"
-readonly RELEASE_PUBKEY="ud+PG+n1ED67znJYojJuVwBXulLIeT1D4elpOtrwyaU="
+readonly RELEASE_PUBKEY="vTmZY2HhvEOMbXKvxKYFuSWJLa5e5qjwxBNBSpJVhMM="
 
 readonly DEFAULT_PORT="8787"
 readonly DEFAULT_BIND="0.0.0.0"
