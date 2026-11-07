@@ -96,6 +96,23 @@ find_xray() {
   ok "已下载：$("$XRAY" version 2>/dev/null | head -1)"
 }
 
+# coreutils 的 timeout 在 macOS 上不一定有，这里做一个可移植版本
+run_with_timeout() {
+  local secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$secs" "$@" 2>/dev/null
+    return $?
+  fi
+  "$@" >/dev/null 2>&1 &
+  local pid=$!
+  ( sleep "$secs"; kill "$pid" 2>/dev/null ) >/dev/null 2>&1 &
+  local watcher=$!
+  wait "$pid"
+  local rc=$?
+  kill "$watcher" 2>/dev/null || true
+  return $rc
+}
+
 port_free() { ! (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 pick_port() {
   local p
@@ -157,14 +174,23 @@ for candidate in \
   if [ -n "$candidate" ] && [ -x "$candidate" ]; then BIN="$candidate"; break; fi
 done
 if [ -x "$BIN" ]; then
-  DERIVED="$("$BIN" --derive-reality-key "$PRIV")"
-  if [ "$DERIVED" = "$PUB" ]; then
-    ok "PierWave 的 publicKey 反推与 Xray 一致"
-  else
-    bad "publicKey 反推不一致：pierwave=$DERIVED xray=$PUB"
-  fi
+  # 旧版本的 pierwave-master 不认识这个参数，会当成「启动主控」一直阻塞在这里。
+  # 所以必须限时执行，并且校验输出真的是一个 base64 公钥。
+  DERIVED="$(run_with_timeout 10 "$BIN" --derive-reality-key "$PRIV" | head -1 || true)"
+  case "$DERIVED" in
+    "" | *[!A-Za-z0-9+/=]*)
+      bad "这个 pierwave-master 不支持 --derive-reality-key（多半是旧版本），跳过反推校验"
+      ;;
+    *)
+      if [ "$DERIVED" = "$PUB" ]; then
+        ok "PierWave 的 publicKey 反推与 Xray 一致"
+      else
+        bad "publicKey 反推不一致：pierwave=$DERIVED xray=$PUB"
+      fi
+      ;;
+  esac
 else
-  bad "找不到 pierwave-master（先跑 make build），跳过反推校验"
+  bad "找不到 pierwave-master（先跑 make build，或用 PIERWAVE_BIN 指定），跳过反推校验"
 fi
 
 UUID="$(python3 -c 'import uuid;print(uuid.uuid4())' 2>/dev/null \
