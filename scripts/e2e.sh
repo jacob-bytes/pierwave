@@ -329,4 +329,118 @@ assert weighted == 9000, f"重放不应改动日账本，实际 weighted={weight
 print(f"ok 重放被幂等丢弃：reports={reports}, weighted={weighted}")
 PY
 
+# ---------------------------------------------------------------- 规则模板
+echo "--- 规则模板：订阅可以按 ?rule= 覆盖分流规则 ---"
+TPL_ID=$(curl -sf -b "$WORK/cookie" -X POST "$BASE/api/v1/rule-templates" -H 'Content-Type: application/json' \
+  -d '{"name":"e2e-流媒体","rules":["DOMAIN-SUFFIX,example.com,DIRECT","MATCH,PROXY"]}' \
+  | jget '["template"]["id"]')
+
+curl -sf "$BASE/api/v1/sub/$ALICE_CODE?rule=$TPL_ID" -o "$WORK/sub-custom.yaml"
+grep -q 'DOMAIN-SUFFIX,example.com,DIRECT' "$WORK/sub-custom.yaml" \
+  || { echo "FAIL: ?rule= 没有生效，订阅里没有自定义规则"; sed -n '/^rules:/,$p' "$WORK/sub-custom.yaml"; exit 1; }
+grep -q 'GEOIP,CN,DIRECT' "$WORK/sub-custom.yaml" \
+  && { echo "FAIL: 指定模板后仍带着默认规则"; exit 1; }
+
+# 不带参数时仍是内置规则：升级不能改变已发出去的订阅
+curl -sf "$BASE/api/v1/sub/$ALICE_CODE" -o "$WORK/sub-default.yaml"
+grep -q 'GEOIP,CN,DIRECT' "$WORK/sub-default.yaml" \
+  || { echo "FAIL: 默认订阅丢失了内置规则"; exit 1; }
+
+CODE=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/sub/$ALICE_CODE?rule=00000000-0000-0000-0000-000000000000")
+[ "$CODE" = "404" ] || { echo "FAIL: 不存在的模板应 404，实际 $CODE"; exit 1; }
+
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -b "$WORK/cookie" -X POST "$BASE/api/v1/rule-templates" \
+  -H 'Content-Type: application/json' -d '{"name":"e2e-没有兜底","rules":["GEOIP,CN,DIRECT"]}')
+[ "$CODE" = "400" ] || { echo "FAIL: 末条不是 MATCH 应 400，实际 $CODE"; exit 1; }
+echo "ok 规则模板：自定义规则生效、默认订阅不变、非法模板被拒（${TPL_ID}）"
+
+# ---------------------------------------------------------------- 出站与路由
+echo "--- 出站与路由：下发到 Agent 的配置里要能看到自定义出站与规则 ---"
+# 前面的重放测试用一个裸 WS 客户端顶掉了真 Agent 的连接，这里把它重新拉起来，
+# 否则 apply 的广播没有接收方，配置不会落盘。
+kill "$AGENT_PID" 2>/dev/null || true
+wait "$AGENT_PID" 2>/dev/null || true
+./target/debug/pierwave-agent -c "$WORK/agent.toml" > "$WORK/agent.log" 2>&1 &
+AGENT_PID=$!
+for _ in $(seq 1 60); do
+  STATUS=$(curl -sf -b "$WORK/cookie" "$BASE/api/v1/servers" | jget '["items"][0]["status"]')
+  [ "$STATUS" = "online" ] && break
+  sleep 0.2
+done
+curl -sf -b "$WORK/cookie" -X POST "$BASE/api/v1/servers/$SERVER_ID/outbounds" -H 'Content-Type: application/json' \
+  -d '{"tag":"relay","protocol":"socks","config":{"settings":{"servers":[{"address":"10.0.0.2","port":1080}]}}}' >/dev/null
+curl -sf -b "$WORK/cookie" -X POST "$BASE/api/v1/servers/$SERVER_ID/routing-rules" -H 'Content-Type: application/json' \
+  -d '{"domain":"example.com","outbound_tag":"relay"}' >/dev/null
+
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -b "$WORK/cookie" -X POST "$BASE/api/v1/servers/$SERVER_ID/outbounds" \
+  -H 'Content-Type: application/json' -d '{"tag":"direct","protocol":"freedom","config":{}}')
+[ "$CODE" = "400" ] || { echo "FAIL: 占用保留字 direct 应 400，实际 $CODE"; exit 1; }
+
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -b "$WORK/cookie" -X POST "$BASE/api/v1/servers/$SERVER_ID/routing-rules" \
+  -H 'Content-Type: application/json' -d '{"outbound_tag":"relay"}')
+[ "$CODE" = "400" ] || { echo "FAIL: 没有匹配条件的规则应 400，实际 $CODE"; exit 1; }
+
+PREV_SUM=$(cksum "$WORK/xray/config.json" | awk '{print $1}')
+curl -sf -b "$WORK/cookie" -X POST "$BASE/api/v1/servers/$SERVER_ID/apply" >/dev/null
+for _ in $(seq 1 60); do
+  NOW_SUM=$(cksum "$WORK/xray/config.json" | awk '{print $1}')
+  [ "$NOW_SUM" != "$PREV_SUM" ] && break
+  sleep 0.2
+done
+python3 - "$WORK/xray/config.json" <<'PY'
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+outbounds = {o["tag"]: o for o in cfg["outbounds"]}
+assert "relay" in outbounds, f"自定义出站没下发：{list(outbounds)}"
+assert outbounds["relay"]["protocol"] == "socks", outbounds["relay"]
+assert outbounds["relay"]["settings"]["servers"][0]["address"] == "10.0.0.2", outbounds["relay"]
+rules = cfg["routing"]["rules"]
+assert rules[0]["inboundTag"] == ["api"], f"api 规则必须排在第一位：{rules[0]}"
+custom = [r for r in rules if r.get("outboundTag") == "relay"]
+assert custom, f"路由规则没下发：{rules}"
+assert custom[0]["domain"] == ["example.com"], custom[0]
+print("ok 出站与路由已下发:", list(outbounds), "| rules =", len(rules))
+PY
+
+# ---------------------------------------------------------------- 批量升级
+echo "--- 批量升级：遇错即停，剩余任务跳过 ---"
+curl -sf -b "$WORK/cookie" -X PATCH "$BASE/api/v1/servers/$SERVER_ID" -H 'Content-Type: application/json' \
+  -d '{"allow_agent_upgrade":true}' >/dev/null
+SECOND=$(curl -sf -b "$WORK/cookie" -X POST "$BASE/api/v1/servers" -H 'Content-Type: application/json' \
+  -d '{"name":"批量-第二台","address":"10.1.1.1"}')
+SECOND_ID=$(echo "$SECOND" | jget '["server"]["id"]')
+curl -sf -b "$WORK/cookie" -X PATCH "$BASE/api/v1/servers/$SECOND_ID" -H 'Content-Type: application/json' \
+  -d '{"allow_agent_upgrade":true}' >/dev/null
+
+# 目标版本比当前旧 → 触发阶段必然失败，正好用来验证「遇错即停」
+BATCH_ID=$(curl -sf -b "$WORK/cookie" -X POST "$BASE/api/v1/agent-upgrades/batches" -H 'Content-Type: application/json' \
+  -d "{\"server_ids\":[\"$SECOND_ID\",\"$SERVER_ID\"],\"version\":\"v0.0.1\",\"stop_on_failure\":true}" \
+  | jget '["batch"]["id"]')
+[ -n "$BATCH_ID" ] || { echo "FAIL: 建批次失败"; exit 1; }
+
+BATCH_STATUS=""
+for _ in $(seq 1 40); do
+  BATCH_STATUS=$(curl -sf -b "$WORK/cookie" "$BASE/api/v1/agent-upgrades/batches/$BATCH_ID" | jget '["batch"]["status"]')
+  [ "$BATCH_STATUS" != "running" ] && break
+  sleep 1
+done
+[ "$BATCH_STATUS" = "failed" ] || { echo "FAIL: 批次应 failed，实际 $BATCH_STATUS"; exit 1; }
+
+curl -sf -b "$WORK/cookie" "$BASE/api/v1/agent-upgrades/batches/$BATCH_ID" > "$WORK/batch.json"
+python3 - "$WORK/batch.json" "$SECOND_ID" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+second_id = sys.argv[2]
+items = {i["server_id"]: i for i in data["items"]}
+assert len(items) == 2, items
+second = items[second_id]
+assert second["status"] == "failed", second
+assert second["error"], "失败项必须带原因"
+# 另一台（排在后面）必须因为「遇错即停」被跳过
+other = [i for sid, i in items.items() if sid != second_id][0]
+assert other["status"] == "skipped", other
+print("ok 批量升级收敛:", {i["server_name"]: i["status"] for i in items.values()})
+PY
+
+
 echo "PASS 全部通过（日志：$WORK/master.log, $WORK/agent.log）"
