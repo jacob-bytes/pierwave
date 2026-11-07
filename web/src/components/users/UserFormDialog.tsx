@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { FormField, FormRootError } from "@/components/FormField";
+import { RuleTemplateBindingField } from "@/components/rules/RuleTemplateBindingField";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -24,7 +25,9 @@ import {
 import type { UpdateUserInput, UserView } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { bytesToGbInput, parseGbInput } from "@/lib/format";
-import { useCreateUser, useMe, useUpdateUser } from "@/lib/queries";
+import { ruleTemplateInputValue } from "@/lib/ruleBindings";
+import { useCreateUser, useMe, useRuleTemplates, useUpdateUser } from "@/lib/queries";
+import { ruleTemplateErrorText } from "@/lib/ruleTemplates";
 import {
   userFormSchema,
   type UserFormMode,
@@ -49,6 +52,12 @@ export function UserFormDialog({
   const me = useMe();
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
+  const ruleTemplates = useRuleTemplates();
+  const templates = ruleTemplates.data ?? [];
+  const ruleTemplateError =
+    ruleTemplates.isError && templates.length === 0
+      ? ruleTemplateErrorText(ruleTemplates.error)
+      : null;
   const pending =
     mode === "create" ? createUser.isPending : updateUser.isPending;
   const isSelf = mode === "edit" && Boolean(user) && user?.id === me.data?.id;
@@ -63,12 +72,14 @@ export function UserFormDialog({
             password: "",
             role: user.role,
             quota_gb: bytesToGbInput(user.quota_bytes),
+            rule_template_id: user.rule_template_id ?? "",
           }
         : {
             username: "",
             password: "",
             role: "user",
             quota_gb: "",
+            rule_template_id: "",
           },
   });
 
@@ -81,6 +92,8 @@ export function UserFormDialog({
     form.clearErrors("root");
     try {
       const quotaBytes = parseGbInput(values.quota_gb);
+      // 空选项 → 显式 null（回落到套餐 / 全局默认），而不是省略字段。
+      const ruleTemplateId = ruleTemplateInputValue(values.rule_template_id);
 
       if (mode === "create") {
         await createUser.mutateAsync({
@@ -88,12 +101,14 @@ export function UserFormDialog({
           password: values.password,
           role: values.role,
           quota_bytes: quotaBytes,
+          rule_template_id: ruleTemplateId,
         });
         toast.success(t("users.form.created", { name: values.username }));
       } else if (user) {
         const input: UpdateUserInput = {
           role: values.role,
           quota_bytes: quotaBytes,
+          rule_template_id: ruleTemplateId,
         };
         if (values.password) input.password = values.password;
         await updateUser.mutateAsync({ id: user.id, input });
@@ -211,6 +226,33 @@ export function UserFormDialog({
               disabled={pending}
               aria-invalid={Boolean(form.formState.errors.quota_gb)}
               {...form.register("quota_gb")}
+            />
+          </FormField>
+
+          <FormField
+            label={t("users.form.ruleTemplate")}
+            htmlFor="user-rule-template"
+            hint={t("users.form.ruleTemplateHint")}
+            error={form.formState.errors.rule_template_id?.message}
+          >
+            <Controller
+              control={form.control}
+              name="rule_template_id"
+              render={({ field }) => (
+                <RuleTemplateBindingField
+                  id="user-rule-template"
+                  value={field.value}
+                  onChange={field.onChange}
+                  templates={templates}
+                  pending={ruleTemplates.isPending}
+                  error={ruleTemplateError}
+                  disabled={pending}
+                  inheritLabel={t("users.form.ruleTemplateInherit")}
+                  loadingLabel={t("users.form.ruleTemplateLoading")}
+                  currentLabel={t("users.form.ruleTemplateCurrent")}
+                  ariaLabel={t("users.form.ruleTemplate")}
+                />
+              )}
             />
           </FormField>
 

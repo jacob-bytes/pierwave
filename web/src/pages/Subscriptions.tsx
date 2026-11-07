@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import type { KeyboardEvent } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   CopyIcon,
   ExternalLinkIcon,
   Link2Icon,
+  ListFilterIcon,
   QrCodeIcon,
   RefreshCwIcon,
   SearchIcon,
@@ -42,10 +43,14 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
-import type { RuleTemplate, UserView } from "@/lib/api";
+import {
+  ApiError,
+  type RuleTemplate,
+  type Subscription,
+} from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { errorText } from "@/lib/errors";
-import { useRuleTemplates, useUsers } from "@/lib/queries";
+import { useRuleTemplates, useSubscriptions } from "@/lib/queries";
 import {
   pickDefaultRuleTemplate,
   ruleTemplateErrorText,
@@ -53,9 +58,25 @@ import {
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
-const COLUMN_COUNT = 5;
+const COLUMN_COUNT = 6;
 
 type PackageFilter = "all" | "with" | "none";
+
+/**
+ * P6：订阅列表的生效规则模板名。
+ * 为空表示最终落在全局默认 / 内置规则上，页面展示「默认规则」。
+ */
+function effectiveRuleTemplateName(row: Subscription): string {
+  return (row.rule_template_name ?? "").trim();
+}
+
+/** 后端可能暂时没有订阅接口：404 给专门的「尚未就绪」，其余错误原样透出。 */
+function subscriptionListErrorText(error: unknown): string {
+  if (error instanceof ApiError && error.status === 404) {
+    return t("subscriptions.unavailable");
+  }
+  return errorText(error, t("subscriptions.loadError"));
+}
 
 /**
  * 订阅地址由前端拼装，复制、打开和二维码都用同一个完整 URL。
@@ -72,7 +93,7 @@ function subscriptionUrl(
     : base;
 }
 
-function packageLabel(user: UserView): string {
+function packageLabel(user: Subscription): string {
   const names = (user.packages ?? [])
     .map((item) => item.package_name)
     .filter(Boolean);
@@ -114,6 +135,9 @@ function LoadingRows() {
           </TableCell>
           <TableCell className="px-4 py-3">
             <Skeleton className="h-4 w-48" />
+          </TableCell>
+          <TableCell className="px-4 py-3">
+            <Skeleton className="h-5 w-24 rounded-full" />
           </TableCell>
           <TableCell className="px-4 py-3">
             <Skeleton className="h-3.5 w-28" />
@@ -211,14 +235,14 @@ export default function SubscriptionsPage() {
   const [trackedQ, setTrackedQ] = useState(q);
   const [filter, setFilter] = useState<PackageFilter>("all");
   const [qrState, setQrState] = useState<{
-    user: UserView;
+    user: Subscription;
     url: string;
   } | null>(null);
   /** 每行选择的规则模板；只影响本页链接拼接，不写回后端。 */
   const [ruleSelections, setRuleSelections] = useState<Record<string, string>>(
     {},
   );
-  const users = useUsers(q);
+  const subscriptions = useSubscriptions(q);
   const ruleTemplates = useRuleTemplates();
   const templates = ruleTemplates.data ?? [];
   const defaultTemplate = pickDefaultRuleTemplate(templates);
@@ -278,7 +302,7 @@ export default function SubscriptionsPage() {
     }
   }
 
-  async function copySubscription(user: UserView, url: string) {
+  async function copySubscription(user: Subscription, url: string) {
     const ok = await copyText(url);
     if (ok) {
       toast.success(t("subscriptions.copied", { username: user.username }));
@@ -287,7 +311,7 @@ export default function SubscriptionsPage() {
     }
   }
 
-  const items = users.data ?? [];
+  const items = subscriptions.data ?? [];
   const filteredItems = items.filter((user) => {
     if (filter === "with") return user.package_count > 0;
     if (filter === "none") return user.package_count === 0;
@@ -339,7 +363,7 @@ export default function SubscriptionsPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle className="flex items-center gap-2 text-sm font-medium">
               {t("subscriptions.list")}
-              {users.data && !users.isError ? (
+              {subscriptions.data && !subscriptions.isError ? (
                 <Badge
                   variant="secondary"
                   className="font-mono text-[11px] font-normal text-muted-foreground"
@@ -390,13 +414,13 @@ export default function SubscriptionsPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => void users.refetch()}
-                disabled={users.isFetching}
+                onClick={() => void subscriptions.refetch()}
+                disabled={subscriptions.isFetching}
               >
                 <RefreshCwIcon
                   className={cn(
                     "size-3.5",
-                    users.isFetching && "animate-spin",
+                    subscriptions.isFetching && "animate-spin",
                   )}
                 />
                 {t("common.refresh")}
@@ -409,7 +433,7 @@ export default function SubscriptionsPage() {
         </CardHeader>
 
         <CardContent className="p-0">
-          <Table className="min-w-[880px]" aria-busy={users.isPending}>
+          <Table className="min-w-[1000px]" aria-busy={subscriptions.isPending}>
             <TableCaption className="sr-only">{t("subscriptions.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
@@ -417,6 +441,7 @@ export default function SubscriptionsPage() {
                   t("subscriptions.columns.user"),
                   t("subscriptions.columns.packages"),
                   t("subscriptions.columns.used"),
+                  t("subscriptions.columns.ruleTemplate"),
                   t("subscriptions.columns.link"),
                   t("subscriptions.columns.actions"),
                 ].map((label) => (
@@ -431,16 +456,13 @@ export default function SubscriptionsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users.isPending ? (
+              {subscriptions.isPending ? (
                 <LoadingRows />
-              ) : users.isError ? (
+              ) : subscriptions.isError ? (
                 <ErrorRow
-                  message={errorText(
-                    users.error,
-                    t("subscriptions.loadError"),
-                  )}
-                  retrying={users.isFetching}
-                  onRetry={() => void users.refetch()}
+                  message={subscriptionListErrorText(subscriptions.error)}
+                  retrying={subscriptions.isFetching}
+                  onRetry={() => void subscriptions.refetch()}
                 />
               ) : filteredItems.length === 0 ? (
                 <EmptyRow
@@ -455,6 +477,7 @@ export default function SubscriptionsPage() {
                   const template = selectedTemplate(user.id);
                   const url = subscriptionUrl(user.short_code, template);
                   const label = packageLabel(user);
+                  const ruleTemplateName = effectiveRuleTemplateName(user);
 
                   return (
                     <TableRow key={user.id}>
@@ -495,6 +518,33 @@ export default function SubscriptionsPage() {
                           label={null}
                           className="w-48"
                         />
+                      </TableCell>
+                      {/*
+                        P6：生效规则模板（只读）。为空表示最终落在全局默认 /
+                        内置规则上，展示「默认规则」；点击跳到规则模板页。
+                      */}
+                      <TableCell className="px-4 py-2.5">
+                        <Badge
+                          asChild
+                          variant="outline"
+                          className={cn(
+                            "max-w-[200px] font-normal",
+                            !ruleTemplateName && "text-muted-foreground",
+                          )}
+                        >
+                          <Link
+                            to="/rules"
+                            title={t(
+                              "subscriptions.ruleTemplateEffectiveTitle",
+                            )}
+                          >
+                            <ListFilterIcon className="size-3" />
+                            <span className="truncate">
+                              {ruleTemplateName ||
+                                t("subscriptions.ruleTemplateDefault")}
+                            </span>
+                          </Link>
+                        </Badge>
                       </TableCell>
                       <TableCell className="px-4 py-2.5">
                         <div className="flex flex-col gap-1.5">

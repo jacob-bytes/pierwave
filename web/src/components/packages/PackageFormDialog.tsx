@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { FormField, FormRootError } from "@/components/FormField";
+import { RuleTemplateBindingField } from "@/components/rules/RuleTemplateBindingField";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,7 +26,9 @@ import { PackageNodeScopeField } from "@/components/packages/PackageNodeScopeFie
 import type { CreatePackageInput, Package } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { bytesToGbInput, parseGbInput } from "@/lib/format";
-import { useCreatePackage, useUpdatePackage } from "@/lib/queries";
+import { ruleTemplateInputValue } from "@/lib/ruleBindings";
+import { useCreatePackage, useRuleTemplates, useUpdatePackage } from "@/lib/queries";
+import { ruleTemplateErrorText } from "@/lib/ruleTemplates";
 import {
   packageFormSchema,
   type PackageFormValues,
@@ -59,6 +62,12 @@ export function PackageFormDialog({
   const { t: translate } = useI18n();
   const createPackage = useCreatePackage();
   const updatePackage = useUpdatePackage();
+  const ruleTemplates = useRuleTemplates();
+  const templates = ruleTemplates.data ?? [];
+  const ruleTemplateError =
+    ruleTemplates.isError && templates.length === 0
+      ? ruleTemplateErrorText(ruleTemplates.error)
+      : null;
   const editing = Boolean(packageItem);
   const pending = editing
     ? updatePackage.isPending
@@ -78,6 +87,7 @@ export function PackageFormDialog({
           node_ratio: String(packageItem.node_ratio),
           node_scope: packageNodeScope(packageItem),
           node_ids: packageItem.node_ids,
+          rule_template_id: packageItem.rule_template_id ?? "",
         }
       : {
           name: "",
@@ -87,6 +97,7 @@ export function PackageFormDialog({
           node_ratio: "1",
           node_scope: "all",
           node_ids: [],
+          rule_template_id: "",
         },
   });
 
@@ -120,6 +131,8 @@ export function PackageFormDialog({
         : null,
       direction: values.direction,
       node_ratio: Number(values.node_ratio),
+      // 空选项 → 显式 null（回落到全局默认），而不是省略字段。
+      rule_template_id: ruleTemplateInputValue(values.rule_template_id),
       ...scopeFields,
     };
 
@@ -259,6 +272,33 @@ export function PackageFormDialog({
               />
             </FormField>
           </div>
+
+          <FormField
+            label={t("packages.form.ruleTemplate")}
+            htmlFor="package-rule-template"
+            hint={t("packages.form.ruleTemplateHint")}
+            error={form.formState.errors.rule_template_id?.message}
+          >
+            <Controller
+              control={form.control}
+              name="rule_template_id"
+              render={({ field }) => (
+                <RuleTemplateBindingField
+                  id="package-rule-template"
+                  value={field.value}
+                  onChange={field.onChange}
+                  templates={templates}
+                  pending={ruleTemplates.isPending}
+                  error={ruleTemplateError}
+                  disabled={pending}
+                  inheritLabel={t("packages.form.ruleTemplateInherit")}
+                  loadingLabel={t("packages.form.ruleTemplateLoading")}
+                  currentLabel={t("packages.form.ruleTemplateCurrent")}
+                  ariaLabel={t("packages.form.ruleTemplate")}
+                />
+              )}
+            />
+          </FormField>
 
           <div className="border-t border-border pt-4">
             <FormField

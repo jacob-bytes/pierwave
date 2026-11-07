@@ -82,6 +82,11 @@ export function userFormSchema(t: TFunction, mode: "create" | "edit") {
       password: z.string(),
       role: z.enum(["admin", "user"]),
       quota_gb: gbField(t),
+      /**
+       * P6：规则模板绑定。空串 = 未绑定（跟随套餐 / 全局默认）；
+       * 提交时由 `ruleTemplateInputValue` 转成显式 `null`。
+       */
+      rule_template_id: z.string(),
     })
     .superRefine((values, ctx) => {
       if (mode === "create" && values.password.length < 8) {
@@ -207,6 +212,8 @@ export function packageFormSchema(t: TFunction) {
       }, t("validation.ratioRange")),
       node_scope: z.enum(PACKAGE_NODE_SCOPES),
       node_ids: z.array(z.string()),
+      /** P6：套餐默认规则模板。空串 = 不设置（回落到全局默认）。 */
+      rule_template_id: z.string(),
     })
     .superRefine((values, ctx) => {
       // 「一个都不给」用空数组表达，是合法状态；只有「指定」才要求至少一个。

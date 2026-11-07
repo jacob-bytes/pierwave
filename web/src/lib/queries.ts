@@ -41,6 +41,7 @@ import {
   type Server,
   type SessionUser,
   type Settings,
+  type Subscription,
   type TrafficStats,
   type UpdateNodeInput,
   type UpdateOutboundInput,
@@ -95,6 +96,8 @@ export const queryKeys = {
     ["routing-rules", serverId] as const,
   certificates: ["certificates"] as const,
   users: (q: string) => ["users", { q }] as const,
+  /** P6：订阅列表带生效规则模板；与用户列表分开缓存，避免互相污染。 */
+  subscriptions: (q: string) => ["subscriptions", { q }] as const,
   packages: ["packages"] as const,
   userPackages: (userId: string) => ["user", userId, "packages"] as const,
   settings: ["settings"] as const,
@@ -950,6 +953,33 @@ export function useUsers(q: string) {
   });
 }
 
+/**
+ * P6：订阅列表（管理员），每行带生效规则模板。
+ *
+ * 后端可能暂时 404：不重试，由订阅页展示中文错误态与「重试」。
+ * 用户、套餐或套餐实例变化都会影响「生效模板」的解析结果，相关 mutation 会
+ * 统一失效 `["subscriptions"]` 前缀的缓存。
+ */
+export function useSubscriptions(q: string) {
+  return useQuery<Subscription[]>({
+    queryKey: queryKeys.subscriptions(q),
+    queryFn: async () => (await api.subscriptions(q)).items,
+    placeholderData: keepPreviousData,
+    staleTime: 10_000,
+    retry: false,
+  });
+}
+
+/**
+ * 用户 / 套餐 / 套餐实例的改动都会改变订阅的「生效规则模板」：
+ * 用户绑定、套餐绑定、当前套餐实例都可能被解析顺序命中，所以统一失效订阅列表。
+ */
+function invalidateSubscriptionViews(
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
+  void queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
+}
+
 export function useCreateUser() {
   const queryClient = useQueryClient();
 
@@ -957,6 +987,7 @@ export function useCreateUser() {
     mutationFn: async (input) => (await api.createUser(input)).user,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["users"] });
+      invalidateSubscriptionViews(queryClient);
     },
   });
 }
@@ -968,6 +999,8 @@ export function useUpdateUser() {
     mutationFn: async ({ id, input }) => (await api.updateUser(id, input)).user,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["users"] });
+      // 规则模板绑定变了，订阅列表里展示的「生效模板」也会变。
+      invalidateSubscriptionViews(queryClient);
     },
   });
 }
@@ -979,6 +1012,7 @@ export function useDeleteUser() {
     mutationFn: (id) => api.deleteUser(id),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["users"] });
+      invalidateSubscriptionViews(queryClient);
     },
   });
 }
@@ -998,6 +1032,7 @@ export function useCreatePackage() {
     mutationFn: async (input) => (await api.createPackage(input)).package,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["packages"] });
+      invalidateSubscriptionViews(queryClient);
     },
   });
 }
@@ -1017,6 +1052,8 @@ export function useUpdatePackage() {
       void queryClient.invalidateQueries({ queryKey: ["users"] });
       // 套餐名/额度会嵌在用户的套餐视图里，刷新已打开的用户抽屉。
       void queryClient.invalidateQueries({ queryKey: ["user"] });
+      // 套餐的默认规则模板变了，订阅列表的生效模板也要重算。
+      invalidateSubscriptionViews(queryClient);
     },
   });
 }
@@ -1028,6 +1065,7 @@ export function useDeletePackage() {
     mutationFn: (id) => api.deletePackage(id),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["packages"] });
+      invalidateSubscriptionViews(queryClient);
     },
   });
 }
@@ -1049,6 +1087,8 @@ function invalidateUserPackages(
     queryKey: queryKeys.userPackages(userId),
   });
   void queryClient.invalidateQueries({ queryKey: ["users"] });
+  // 「当前套餐」参与生效规则模板的解析，绑定/解绑后订阅列表要刷新。
+  invalidateSubscriptionViews(queryClient);
 }
 
 export function useBindUserPackage(userId: string) {

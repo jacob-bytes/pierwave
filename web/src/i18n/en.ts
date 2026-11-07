@@ -492,6 +492,12 @@ const en = {
       quota: "Total quota (GB)",
       quotaHint: "Leave blank for unlimited; converted with 1024³.",
       quotaPlaceholder: "e.g. 100",
+      ruleTemplate: "Rule template",
+      ruleTemplateHint:
+        "Leave empty to follow the package, then fall back to the global default rules.",
+      ruleTemplateInherit: "Follow package / global default",
+      ruleTemplateCurrent: "Current template (not in list)",
+      ruleTemplateLoading: "Loading rule templates…",
       submitCreate: "Create user",
       submitSave: "Save changes",
       created: "User “{name}” created",
@@ -585,6 +591,7 @@ const en = {
       user: "User",
       packages: "Packages",
       used: "Used / quota",
+      ruleTemplate: "Rule template",
       link: "Subscription link",
       actions: "Actions",
     },
@@ -602,7 +609,10 @@ const en = {
       viewAll: "View all",
     },
     loadFailed: "Subscription list failed to load",
-    loadError: "Could not load the user list. Check your network and try again.",
+    loadError:
+      "Could not load the subscription list. Check your network and try again.",
+    unavailable:
+      "The subscriptions API is not ready yet (the backend may still be deploying). Please retry later.",
     copied: "Subscription link for “{username}” copied",
     copyError: "Copy failed. Open the link and copy it manually.",
     copyTitle: "Copy subscription link",
@@ -621,6 +631,9 @@ const en = {
     ruleTemplateLoading: "Loading rule templates…",
     ruleTemplateUnavailable:
       "Rule templates failed to load; the default rules will be used",
+    ruleTemplateDefault: "Default rules",
+    ruleTemplateEffectiveTitle:
+      "Effective rule template; open the rule templates page",
     qr: {
       title: "Subscription QR code",
       desc: "Scan to import the subscription for “{username}”, or copy the link below.",
@@ -694,6 +707,12 @@ const en = {
       directionPlaceholder: "Select a direction",
       ratio: "Node ratio",
       ratioHint: "Greater than 0 and at most 10.",
+      ruleTemplate: "Default rule template",
+      ruleTemplateHint:
+        "Used for users in this package who have no binding of their own.",
+      ruleTemplateInherit: "Not set (fall back to the global default)",
+      ruleTemplateCurrent: "Current template (not in list)",
+      ruleTemplateLoading: "Loading rule templates…",
       scope: "Node scope",
       scopeSelectedHint: "User subscriptions include only the checked nodes.",
       scopeHint: "Determines which nodes appear in this package's user subscriptions.",

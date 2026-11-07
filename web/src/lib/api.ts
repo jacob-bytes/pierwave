@@ -427,6 +427,11 @@ export interface UserView {
    * 账号仍是 `active` 时也可能断流，列表状态列必须单独展示它。
    */
   package_worst_status: UserPackageStatus | "none";
+  /**
+   * P6：用户绑定的规则模板；`null` = 跟随套餐 / 全局默认。
+   * 旧版后端可能暂时不返回该字段，展示层统一按 `null` 处理。
+   */
+  rule_template_id: string | null;
 }
 
 /** 后端返回的节点范围意图；UI 的三态见 `lib/schemas.ts` 的 `PackageNodeScope`。 */
@@ -454,6 +459,31 @@ export interface Package {
   node_count: number;
   /** 当前仍引用该模板的套餐实例数，删除前用于禁用按钮。 */
   user_count: number;
+  /**
+   * P6：套餐的默认规则模板；`null` = 套餐内用户未单独指定时回落到全局默认。
+   * 旧版后端可能暂时不返回该字段，展示层统一按 `null` 处理。
+   */
+  rule_template_id: string | null;
+}
+
+/**
+ * P6：订阅列表行，见 docs/PLAN.md「P6：规则模板绑定到用户 / 套餐」。
+ *
+ * 与 `UserView` 同源，额外带后端按
+ * `?rule=` > 用户绑定 > 当前套餐绑定 > 全局默认 > 内置规则 解析出的**生效**模板。
+ * `rule_template_id` / `rule_template_name` 为 `null` 表示最终没有命中任何模板
+ * （即使用全局默认或内置规则），前端展示为「默认规则」。
+ */
+export interface Subscription {
+  id: string;
+  username: string;
+  short_code: string;
+  used_bytes: number;
+  quota_bytes: number | null;
+  package_count: number;
+  packages: UserPackageView[];
+  rule_template_id: string | null;
+  rule_template_name: string | null;
 }
 
 export interface CreateUserInput {
@@ -461,6 +491,11 @@ export interface CreateUserInput {
   password: string;
   role?: UserRole;
   quota_bytes?: number | null;
+  /**
+   * P6：规则模板绑定。
+   * `null` = 显式不绑定（跟随套餐 / 全局默认）；省略 = 使用后端默认值。
+   */
+  rule_template_id?: string | null;
 }
 
 export interface UpdateUserInput {
@@ -468,6 +503,13 @@ export interface UpdateUserInput {
   role?: UserRole;
   password?: string;
   quota_bytes?: number | null;
+  /**
+   * P6：规则模板绑定，三态：
+   * - 省略 = 不改；
+   * - `null` = 显式清空，回落到套餐 / 全局默认；
+   * - 字符串 = 绑定到该模板。
+   */
+  rule_template_id?: string | null;
 }
 
 export interface CreatePackageInput {
@@ -483,6 +525,11 @@ export interface CreatePackageInput {
    * - 非空数组 = 只给这些节点。
    */
   node_ids?: string[] | null;
+  /**
+   * P6：套餐默认规则模板，三态同 `UpdatePackageInput`：
+   * 省略 = 不改；`null` = 清空并回落到全局默认；字符串 = 绑定。
+   */
+  rule_template_id?: string | null;
 }
 
 export type UpdatePackageInput = Partial<CreatePackageInput>;
@@ -868,6 +915,17 @@ export const api = {
     const params = new URLSearchParams({ limit: "200" });
     if (q) params.set("q", q);
     return request<{ items: UserView[] }>(`/api/v1/users?${params.toString()}`);
+  },
+  /**
+   * P6：订阅列表（管理员），每行带后端解析好的生效规则模板。
+   * 后端可能暂时 404：页面按中文错误态兜底并提供重试。
+   */
+  subscriptions: (q: string) => {
+    const params = new URLSearchParams({ limit: "200" });
+    if (q) params.set("q", q);
+    return request<{ items: Subscription[] }>(
+      `/api/v1/subscriptions?${params.toString()}`,
+    );
   },
   createUser: (input: CreateUserInput) =>
     request<{ user: UserView }>("/api/v1/users", {
