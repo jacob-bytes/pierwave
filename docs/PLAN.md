@@ -724,3 +724,39 @@ DELETE /api/v1/backup/restore    -> 取消待恢复
 1. 后端：`AppError` 增加 coded 构造 + 全部 `BadRequest/NotFound/Conflict/Unauthorized/Forbidden`
    站点改造，并输出 code 清单；
 2. 前端：`errors.ts` 按 code 查表 + `i18n` 的 `errors.*` 词典（中英各一份）+ 单测。
+
+## P9：订阅格式扩展
+
+参考实现对客户端格式的覆盖：Clash/Meta、Surge、Loon、Quantumult X、Shadowrocket、
+sing-box、Stash、Surfboard、V2Ray、Egern。我们目前只有 Clash 与 URI 两种。
+
+### 目标格式
+
+| id | 客户端 | 形态 |
+|---|---|---|
+| `clash` | mihomo / Verge | YAML（已有） |
+| `stash` | Stash | YAML，与 clash 结构接近（可复用生成器 + 少量差异） |
+| `surge` | Surge | INI 段落（`[Proxy]` / `[Proxy Group]` / `[Rule]`） |
+| `loon` | Loon | INI，与 surge 类似但字段名不同 |
+| `qx` | Quantumult X | INI（`[server_local]` / `[policy]` / `[filter_local]`） |
+| `surfboard` | Surfboard | INI，surge 的安卓变体 |
+| `singbox` | sing-box | JSON（`outbounds` + `route.rules`） |
+| `shadowrocket` | Shadowrocket | base64 的 URI 列表（与 v2ray 同族） |
+| `v2ray` | V2RayN / NG | base64 的 URI 列表（现有 `uri` 的别名） |
+| `egern` | Egern | YAML，与 clash 接近 |
+
+### 约束
+
+- 只加 `Exporter` 实现 + 注册表一行，**不改渲染器的调用方式**；
+- 每个格式都要有单测：至少断言节点数量、每条节点名出现、协议关键字正确、
+  JSON 格式（singbox）能被 `serde_json` 解析、YAML（stash/egern）能被解析；
+- REALITY / WS / gRPC 等传输在每个格式里的表达方式不同：不支持的组合**跳过该节点并计数**，
+  不要生成一条客户端会拒收的配置；
+- 规则模板要映射到各格式的规则语法（Surge 家族用 `DOMAIN-SUFFIX,x,y` 与 `FINAL,y`，
+  Quantumult X 用 `host-suffix` 等），映射不了的规则跳过；
+- `?target=` 与 UA 嗅探都要认识新 id。
+
+### 前端
+
+订阅行增加「格式」下拉（默认 Clash），复制/二维码用 `?target=<id>`；
+订阅页给一张「客户端支持」小表（折叠），列出 id 与对应客户端。
