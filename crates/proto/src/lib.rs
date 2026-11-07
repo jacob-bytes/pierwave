@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +52,23 @@ pub struct DesiredState {
     pub xray: serde_json::Value,
     #[serde(default)]
     pub files: Vec<ManagedFile>,
+    /// 期望的 Agent 升级目标。None = 不需要升级。
+    #[serde(default)]
+    pub agent_upgrade: Option<AgentUpgradePlan>,
+}
+
+/// 主控下发的 Agent 自升级计划。
+///
+/// 它仍然属于「期望态」：Agent 每次收敛都会比较 `version` 与自身版本，
+/// 只有目标版本更新时才执行一次，重复下发是幂等的。
+/// 所有 URL 指向主控中转（`/api/agent/release/...`），由主控负责回源 GitHub 并缓存，
+/// 这样内网机器不直连 GitHub 也能升级。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentUpgradePlan {
+    pub version: String,
+    pub asset_url: String,
+    pub sums_url: String,
+    pub sig_url: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

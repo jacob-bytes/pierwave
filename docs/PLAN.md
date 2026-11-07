@@ -486,3 +486,71 @@ DELETE /api/v1/routing-rules/{id}            -> { ok:true }
 - 图形化的规则可视化（先做表格 + 表单）
 - 出站连通性测试
 - routed 子节点（按节点分流到不同出站）——需要先有节点级别的出站绑定，下一轮
+
+## P4：Agent 自升级
+
+### 原则
+
+仍然走「期望态」：主控下发 `agent_upgrade: {version, asset_url, sums_url, sig_url}`，
+Agent 每次收敛时比较目标版本与自身版本，**只有更新才执行**，重复下发幂等。
+是否允许下发由服务器上的开关控制（默认关闭）。
+
+### 数据（0013_agent_upgrade.sql）
+
+```sql
+ALTER TABLE servers ADD COLUMN allow_agent_upgrade INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE servers ADD COLUMN agent_target_version TEXT;   -- 期望版本，NULL = 不升级
+
+CREATE TABLE agent_upgrades (
+    id          TEXT PRIMARY KEY,
+    server_id   TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    from_version TEXT NOT NULL,
+    to_version   TEXT NOT NULL,
+    status       TEXT NOT NULL,          -- pending | succeeded | failed
+    error        TEXT NOT NULL DEFAULT '',
+    created_at   INTEGER NOT NULL,
+    updated_at   INTEGER NOT NULL
+);
+```
+
+### 下载中转
+
+```
+GET /api/agent/release/{version}/{asset}        -> 二进制（主控回源 GitHub 并缓存）
+GET /api/agent/release/{version}/SHA256SUMS-{target}
+GET /api/agent/release/{version}/SHA256SUMS-{target}.sig
+```
+
+- 缓存目录 `PIERWAVE_AGENT_CACHE`（默认 `data/agent-cache`），命中直接返回；
+- 回源失败且无缓存 → 503 中文错误；
+- 该端点用 server token 鉴权（与 `/api/agent/ws` 一致），避免被当成公开 CDN。
+
+### Agent 侧流程
+
+1. 收到 plan，若 `version` 不新于自身 → 忽略；
+2. 下载三个文件到临时目录；
+3. **验签**：内置公钥验 `SHA256SUMS.sig` → 再校验二进制 sha256；
+4. 替换：`pierwave-agent.new` → 原子 rename；旧文件保留 `.bak`；
+5. 重启自身（`systemctl restart pierwave-agent`），进程退出由 systemd 拉起；
+6. **看门狗**：升级前 `systemd-run --on-active=120s` 注册一个回滚任务，
+   新版本启动后写 `upgrade-ok` 标记；120 秒内没有标记 → 回滚 `.bak` 并重启；
+7. 成功/失败都写回主控（下一个心跳带 `upgrade_result`）。
+
+### 接口
+
+```
+PATCH /api/v1/servers/{id}            { allow_agent_upgrade?: bool }   （已有 PATCH 扩展）
+POST  /api/v1/servers/{id}/agent-upgrade { version } -> { upgrade }    （仅允许开启时）
+GET   /api/v1/servers/{id}/agent-upgrades -> 历史
+```
+
+### 前端
+
+服务器行：显示 agent 版本；开启「允许下发升级」后，行操作出现「升级 Agent」，
+弹窗里选版本（默认最新），提交后展示 pending 状态并在心跳刷新后变 succeeded/failed。
+
+### 本轮不做
+
+- 批量升级（一次一台，串行由用户手动控制）
+- 降级（明确拒绝）
+- Docker 模式下 Agent 自升级（容器内升级由镜像版本决定）
