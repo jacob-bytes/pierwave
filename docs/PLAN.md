@@ -696,3 +696,31 @@ DELETE /api/v1/backup/restore    -> 取消待恢复
 - 「下载备份」按钮（浏览器直接下载）；
 - 「恢复」上传区：选择文件 → 二次确认（勾选「我明白会覆盖当前全部数据并需要重启」）→ 上传 → 展示「已就绪，重启后生效」与「取消待恢复」；
 - 显示当前库大小；恢复待生效时显眼提示。
+
+## P8：后端错误双语（错误码）
+
+现在所有 `AppError` 的文案都是中文，英文界面下报错仍是中文，违反双语规则。
+
+### 响应形状（向后兼容）
+
+```json
+{ "error": "目标版本必须比当前版本新", "code": "agent.upgrade.not_newer",
+  "params": { "current": "0.5.3", "target": "0.5.2" } }
+```
+
+`error` 保留（中文兜底），`code` 与 `params` 是新增。**旧前端不受影响，新前端按 code 翻译。**
+
+### 约定
+
+- code 用 `模块.对象.原因` 三段式，全小写下划线，例如 `user.not_found`、
+  `package.node_scope_invalid`、`backup.restore_bad_header`；
+- 同一个 code 的含义与文案必须稳定，**不要按句子造 code**（否则词典爆炸）；
+- `params` 只放前端需要插值的值，且必须是可 JSON 序列化的短值；
+- 前端 `errors.ts`：有 `code` 且词典命中 → 用翻译；否则回落到 `error` 原文
+  （保证未翻译的旧错误不显示成 `errors.xxx` 这种键名）。
+
+### 落地顺序
+
+1. 后端：`AppError` 增加 coded 构造 + 全部 `BadRequest/NotFound/Conflict/Unauthorized/Forbidden`
+   站点改造，并输出 code 清单；
+2. 前端：`errors.ts` 按 code 查表 + `i18n` 的 `errors.*` 词典（中英各一份）+ 单测。
