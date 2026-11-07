@@ -51,10 +51,7 @@ import {
 import { copyText } from "@/lib/clipboard";
 import { errorText } from "@/lib/errors";
 import { useRuleTemplates, useSubscriptions } from "@/lib/queries";
-import {
-  pickDefaultRuleTemplate,
-  ruleTemplateErrorText,
-} from "@/lib/ruleTemplates";
+import { ruleTemplateErrorText } from "@/lib/ruleTemplates";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
@@ -245,20 +242,20 @@ export default function SubscriptionsPage() {
   const subscriptions = useSubscriptions(q);
   const ruleTemplates = useRuleTemplates();
   const templates = ruleTemplates.data ?? [];
-  const defaultTemplate = pickDefaultRuleTemplate(templates);
   const ruleTemplateError =
     ruleTemplates.isError && templates.length === 0
       ? ruleTemplateErrorText(ruleTemplates.error)
       : null;
 
-  /** 行内选择优先；模板被删除或尚未加载时回落到默认模板。 */
+  /**
+   * 行内选择：空/未选 = 跟随用户自己的绑定（链接不带 ?rule=）。
+   * 之前默认选中全局默认模板，会让「规则模板」列显示默认、徽标却显示用户绑定，
+   * 复制出来的链接看起来和生效规则不一致。
+   */
   function selectedTemplate(userId: string): RuleTemplate | null {
     const selectedId = ruleSelections[userId];
-    if (selectedId) {
-      const found = templates.find((item) => item.id === selectedId);
-      if (found) return found;
-    }
-    return defaultTemplate;
+    if (!selectedId) return null;
+    return templates.find((item) => item.id === selectedId) ?? null;
   }
 
   // 浏览器前进/后退改变 ?q 时同步输入框；用 render 期间的派生状态避免额外 effect。
@@ -560,6 +557,7 @@ export default function SubscriptionsPage() {
                           <RuleTemplateSelect
                             templates={templates}
                             selected={template}
+                            effectiveName={ruleTemplateName}
                             pending={ruleTemplates.isPending}
                             error={ruleTemplateError}
                             username={user.username}

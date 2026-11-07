@@ -629,6 +629,9 @@ const en = {
     ruleTemplateAria: "Rule template for {username}",
     ruleTemplateTitle: "Choose the rule template for this subscription",
     ruleTemplateLoading: "Loading rule templates…",
+      ruleTemplateFollow: "Follow binding ({name})",
+      ruleTemplateFollowShort: "Follow: {name}",
+      ruleTemplateFollowHint: "Use the template this user already resolves to (own, package or global); the link carries no rule parameter",
     ruleTemplateUnavailable:
       "Rule templates failed to load; the default rules will be used",
     ruleTemplateDefault: "Default rules",

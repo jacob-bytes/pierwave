@@ -10,9 +10,14 @@ import {
 import type { RuleTemplate } from "@/lib/api";
 import { t } from "@/i18n";
 
+/** 「跟随绑定」的哨兵值：Radix Select 不接受空字符串作为 item value。 */
+export const FOLLOW_BINDING = "__follow__";
+
 interface RuleTemplateSelectProps {
   templates: RuleTemplate[];
   selected: RuleTemplate | null;
+  /** 该用户实际生效的模板名（来自后端解析），用于「跟随」选项的文案。 */
+  effectiveName: string | null;
   pending: boolean;
   /** 已本地化的加载错误；为空表示列表可用。 */
   error: string | null;
@@ -29,6 +34,7 @@ interface RuleTemplateSelectProps {
 export function RuleTemplateSelect({
   templates,
   selected,
+  effectiveName,
   pending,
   error,
   username,
@@ -54,24 +60,31 @@ export function RuleTemplateSelect({
   return (
     <div className="flex min-w-0 items-center gap-1">
       <Select
-        value={selected?.id ?? ""}
-        onValueChange={onSelect}
+        value={selected?.id ?? FOLLOW_BINDING}
+        onValueChange={(value) =>
+          onSelect(value === FOLLOW_BINDING ? "" : value)
+        }
         disabled={disabled}
       >
         <SelectTrigger
           size="sm"
-          className="h-7 w-[184px] text-xs"
+          className="h-7 w-[164px] text-xs"
           aria-label={t("subscriptions.ruleTemplateAria", { username })}
           title={title}
         >
           <ListFilterIcon className="size-3.5 text-muted-foreground" />
-          <span className="shrink-0 text-[11px] text-muted-foreground">
-            {t("subscriptions.ruleTemplate")}
-          </span>
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent align="start" className="max-w-[320px]">
           <SelectGroup>
+            {/* 默认就是「跟随」：用它自己的绑定，链接不带 ?rule=，避免静默覆盖 */}
+            <SelectItem value={FOLLOW_BINDING} title={t("subscriptions.ruleTemplateFollowHint")}>
+              <span className="truncate">
+                {t("subscriptions.ruleTemplateFollowShort", {
+                  name: effectiveName || t("subscriptions.ruleTemplateDefault"),
+                })}
+              </span>
+            </SelectItem>
             {templates.map((item) => (
               <SelectItem
                 key={item.id}
