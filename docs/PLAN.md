@@ -554,3 +554,65 @@ GET   /api/v1/servers/{id}/agent-upgrades -> 历史
 - 批量升级（一次一台，串行由用户手动控制）
 - 降级（明确拒绝）
 - Docker 模式下 Agent 自升级（容器内升级由镜像版本决定）
+
+## P5：批量 Agent 升级
+
+### 决策（已拍板）
+
+- 失败策略：**默认遇错即停**（剩余标 `skipped`），批次可传 `stop_on_failure: false`；
+- 并发：**默认 1**，可在设置里调大，**上限 5**（`agent_upgrade_concurrency`）；
+- 批量只对 `allow_agent_upgrade = 1` 的服务器生效，未开启的在 UI 里不可选、API 里 400。
+
+### 表（0016_upgrade_batches.sql）
+
+```sql
+CREATE TABLE agent_upgrade_batches (
+    id            TEXT PRIMARY KEY,
+    from_version  TEXT NOT NULL DEFAULT '',   -- 状态里各台不一致，留空
+    to_version    TEXT NOT NULL,
+    status        TEXT NOT NULL,              -- running | succeeded | failed | cancelled
+    stop_on_failure INTEGER NOT NULL DEFAULT 1,
+    concurrency   INTEGER NOT NULL DEFAULT 1,
+    created_at    INTEGER NOT NULL,
+    updated_at    INTEGER NOT NULL
+);
+
+CREATE TABLE agent_upgrade_batch_items (
+    batch_id   TEXT NOT NULL REFERENCES agent_upgrade_batches(id) ON DELETE CASCADE,
+    server_id  TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    upgrade_id TEXT,                          -- 触发后回填
+    status     TEXT NOT NULL,                 -- queued | running | succeeded | failed | skipped | cancelled
+    error      TEXT NOT NULL DEFAULT '',
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (batch_id, server_id)
+);
+```
+
+### 执行模型：批量层只排队，不重写升级逻辑
+
+后台 runner（每 10 秒一次）扫 `status = 'running'` 的批次：
+
+1. 读取设置 `agent_upgrade_concurrency`（夹在 1..=5）；
+2. 把 `running` 中的 item 与各自 `agent_upgrades.status` 同步：
+   `pending → running`、`succeeded → succeeded`、`failed → failed`；
+3. 若某 item 变 `failed` 且 `stop_on_failure = 1` → 剩余 `queued` 全部标 `skipped`，批次 `failed`；
+4. 若 `running < concurrency` 且有 `queued` → 按创建顺序触发（复用单台触发路径），item 置 `running`；
+5. 全部终态 → 批次 `succeeded`（有 failed 且允许继续时仍标 `failed` 但记录明细）。
+
+### 接口
+
+```
+POST /api/v1/agent-upgrades/batches
+     { server_ids: [..], version?: string, stop_on_failure?: bool } -> { batch }
+GET  /api/v1/agent-upgrades/batches?limit=20                       -> { items: [batch] }
+GET  /api/v1/agent-upgrades/batches/{id}                           -> { batch, items: [{server_id, server_name, agent_version, status, error, upgrade_id}] }
+POST /api/v1/agent-upgrades/batches/{id}/cancel                    -> { batch }
+```
+
+校验：`server_ids` 非空且 ≤ 50；必须全部开启 `allow_agent_upgrade`；同一台不能同时出现在两个 running 批次里。
+
+### 前端
+
+服务器列表多选（仅可选已开启升级的服务器）→ 顶部操作条「已选 N 台 · 升级到 ▾ · 开始批量升级」→
+进度面板逐台显示 `等待中/进行中/成功/失败(原因)`，失败项给「重试本台」；
+设置页新增「Agent 升级并发数」（1–5，默认 1）并说明「并发越大，同时中断的节点越多」。
