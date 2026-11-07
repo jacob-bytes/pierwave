@@ -26,6 +26,19 @@ fix: 一句话说清修了什么
 - **不写任何可能敏感的信息**（部署地址、服务器 IP、用户数据、内部排查过程、安全问题细节）。
   拿不准就先讨论，不要直接写进 tag。
 
+## 发布前必须做的真机验证
+
+```bash
+# 在一台能访问 GitHub 的 Linux 机器上（不需要 root）
+curl -fsSL "https://raw.githubusercontent.com/jacob-bytes/pierwave/main/scripts/verify-xray-bootstrap.sh?$(date +%s)" | bash
+```
+
+必须看到 `PASS 真实 Xray 全链路验证通过`。这条检查能抓到单元测试与 e2e 都抓不到的问题——
+历史上一共抓到过：
+
+- `streamSettings` 写成 `stream`（Xray 静默忽略传输与 TLS 配置）
+- 用户级统计挂在 `policy.system` 而不是 `policy.levels`（计费永远是 0）
+
 ## 打 tag 前
 
 先把 `Cargo.toml` 的 `[workspace.package].version` 改成要发布的版本号——
@@ -36,6 +49,19 @@ fix: 一句话说清修了什么
 sed -i '' 's/^version = "0\.1\.1"/version = "0.1.2"/' Cargo.toml   # macOS
 cargo check --workspace   # 让 Cargo.lock 跟上
 ```
+
+## 发布前必须做的真机验证
+
+```bash
+# 在一台能访问 GitHub 的 Linux 机器上（不需要 root）
+curl -fsSL "https://raw.githubusercontent.com/jacob-bytes/pierwave/main/scripts/verify-xray-bootstrap.sh?$(date +%s)" | bash
+```
+
+必须看到 `PASS 真实 Xray 全链路验证通过`。这条检查能抓到单元测试与 e2e 都抓不到的问题——
+历史上一共抓到过：
+
+- `streamSettings` 写成 `stream`（Xray 静默忽略传输与 TLS 配置）
+- 用户级统计挂在 `policy.system` 而不是 `policy.levels`（计费永远是 0）
 
 ## 打 tag
 

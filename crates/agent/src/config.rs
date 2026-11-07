@@ -63,9 +63,8 @@ fn default_backup_suffix() -> Option<String> {
     Some(".bak".into())
 }
 fn default_stats_query_command() -> String {
-    // 不要加 `-pattern`：Xray 的 statsquery 对 pattern 的匹配语义不稳定
-    // （实测 `-pattern user>>>` 直接返回空），而解析层本来就只认 `user>>>` 前缀，
-    // 多取一些由 Rust 侧过滤更可靠。
+    // 不传 `-pattern`：解析层本来就按 `user>>>` 前缀过滤，全量取回再由 Rust 过滤，
+    // 不依赖 CLI 的 pattern 匹配语义（不同版本行为可能有差异，少一个变量）。
     "xray api statsquery --server=127.0.0.1:10085".into()
 }
 fn default_stats_interval_secs() -> u64 {

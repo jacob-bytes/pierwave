@@ -2,9 +2,22 @@
 
 按约定：新增需求**先写测试再写实现**；所有面向用户的产出要中英双语。
 
+## 已完成：真机验证（2026-11-07，Xray 26.10.31，Linux x86_64）
+
+`make verify-xray` 全链路通过：`xray -test` 接受生成的配置字段、REALITY 端到端握手成功（HTTP 204）、
+`user>>>` 与 `inbound>>>` 计数器都产生。验证过程抓到并修复了两个致命问题：
+
+1. 节点配置用了 `stream` 而不是 Xray 的 `streamSettings` → 传输/TLS 设置被静默忽略；
+2. 用户级统计写在 `policy.system` 而不是 `policy.levels."0"` → 计费恒为 0。
+
+同时确认：`dokodemo-door` 在 Xray 26 上仍被接受；`xray api statsquery -pattern` 也能正常返回。
+
+**仍缺一项**：`publicKey` 反推与 `xray x25519` 的对照——需要发布一个包含
+`--derive-reality-key` 的版本后，脚本才能自动校验（当前会被跳过并提示 WARN）。
+
 ## 必须做（验证缺口）
 
-- [ ] **真机验证**：在一台真实的 Linux 服务器上跑 `xray -test`，起一个节点、用真实客户端连一次。
+- [x] **真机验证**（已通过，见上）：在一台真实的 Linux 服务器上跑 `xray -test`，起一个节点、用真实客户端连一次。
   脚本已就绪：`make verify-xray`（或 `./scripts/verify-xray.sh`）。
   它会下载/复用 Xray、在临时目录生成服务端与客户端配置、起 REALITY 节点、通过 socks 实际访问外网、
   查询 StatsService 计数器，**退出时清理自己创建的一切**（不碰系统文件、不留进程、不改端口配置）。
