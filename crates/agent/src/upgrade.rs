@@ -8,33 +8,35 @@
 //! 独立 timer，超时后执行本程序的 `--rollback-check <ok> <backup>`；新版本启动后
 //! 只有在**连上主控并收到 Ack** 时才写 `upgrade-ok`，没有标记就把 `.bak` 换回去。
 //!
-//! helper 用 `state_dir/rollback-helper`（刚校验过的新二进制的副本），而不是直接
-//! 指向当前路径：这样即使替换失败、或者升级前的旧版本还不认识 `--rollback-check`，
-//! 到点执行的也是能跑回滚逻辑的二进制，不会意外启动第二个 Agent。
+//! helper 用二进制同目录的 `<exe>.rollback-helper`（刚校验过的新二进制副本），
+//! 而不是直接指向当前路径：这样即使替换失败、或者升级前的旧版本还不认识
+//! `--rollback-check`，到点执行的也是能跑回滚逻辑的二进制，不会意外启动第二个
+//! Agent；放在二进制同目录还能避开 `/var` 被挂 noexec 的部署。
 //! 代价是如果新二进制根本加载不起来，helper 也跑不起来——这是自升级的固有边界。
 
 use std::future::Future;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::process::Stdio;
 
 use anyhow::{anyhow, bail, Context, Result};
 use pierwave_domain::release::{is_newer, verify_asset, verify_manifest};
 use pierwave_proto::AgentUpgradePlan;
+use tokio::io::AsyncWriteExt;
 
 /// 升级成功标记：新版本收到主控 Ack 后写入。
 pub const OK_MARKER_FILE: &str = "upgrade-ok";
 /// 升级进行中标记：替换前写入，用来告诉重启后的新进程「这次启动需要确认」。
 pub const PENDING_MARKER_FILE: &str = "upgrade-pending";
-/// 看门狗 helper 的落盘位置（新二进制的副本）。
-const ROLLBACK_HELPER_FILE: &str = "rollback-helper";
+/// 看门狗 helper 后缀：放在二进制同目录，避免 /var/lib 被挂 noexec 时无法执行。
+const HELPER_SUFFIX: &str = ".rollback-helper";
 /// 旧二进制备份后缀；helper 靠它反推线上路径。
 const BACKUP_SUFFIX: &str = ".bak";
 /// 新二进制临时文件后缀；与线上文件同目录，保证 rename 原子。
 const NEW_SUFFIX: &str = ".new";
 
 pub const DEFAULT_RESTART_COMMAND: &str = "systemctl restart pierwave-agent";
-pub const DEFAULT_WATCHDOG_SECS: u64 = 120;
 pub const DEFAULT_WATCHDOG_UNIT: &str = "pierwave-agent-rollback";
 
 /// 下载抽象：测试用假实现，生产用系统 `curl`（安装脚本本来就依赖它）。
@@ -50,21 +52,25 @@ pub trait Downloader {
 #[derive(Debug, Clone)]
 pub struct HttpDownloader {
     program: String,
-}
-
-impl Default for HttpDownloader {
-    fn default() -> Self {
-        Self {
-            program: "curl".into(),
-        }
-    }
+    token: String,
 }
 
 impl HttpDownloader {
-    #[allow(dead_code)] // 预留给「系统里 curl 不叫 curl」的部署
-    pub fn new(program: impl Into<String>) -> Self {
+    /// server token 走 curl 的 `--config -`（stdin），不进 argv：`ps` / `/proc/*/cmdline`
+    /// 对同机其它用户可见，token 不能出现在命令行里，更不能拼进 URL。
+    pub fn bearer(token: impl Into<String>) -> Self {
+        Self {
+            program: "curl".into(),
+            token: token.into(),
+        }
+    }
+
+    /// 测试用：替换成本地假 curl。
+    #[cfg(test)]
+    pub fn new(program: impl Into<String>, token: impl Into<String>) -> Self {
         Self {
             program: program.into(),
+            token: token.into(),
         }
     }
 }
@@ -75,7 +81,14 @@ impl Downloader for HttpDownloader {
             if !(url.starts_with("http://") || url.starts_with("https://")) {
                 bail!("升级下载地址必须是 http(s)：{url}");
             }
-            let out = tokio::process::Command::new(&self.program)
+            let token = self.token.trim();
+            if token.is_empty() {
+                bail!("server token 为空，无法下载升级文件");
+            }
+            if token.contains(['\r', '\n']) {
+                bail!("server token 含有非法换行");
+            }
+            let mut child = tokio::process::Command::new(&self.program)
                 .args([
                     "--fail",
                     "--silent",
@@ -87,11 +100,37 @@ impl Downloader for HttpDownloader {
                     "10",
                     "--max-time",
                     "300",
+                    "--config",
+                    "-",
                     url,
                 ])
-                .output()
-                .await
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
                 .with_context(|| format!("无法执行 `{}` 下载升级文件", self.program))?;
+
+            let config = format!(
+                "header = \"Authorization: Bearer {}\"\n",
+                escape_curl_config(token)
+            );
+            let write_result = match child.stdin.take() {
+                Some(mut stdin) => {
+                    let written = stdin.write_all(config.as_bytes()).await;
+                    drop(stdin);
+                    written
+                }
+                None => Ok(()),
+            };
+            if let Err(e) = write_result {
+                let _ = child.kill().await;
+                return Err(anyhow!("向 curl 写入鉴权头失败：{e}"));
+            }
+
+            let out = child
+                .wait_with_output()
+                .await
+                .with_context(|| format!("等待 `{}` 下载完成失败", self.program))?;
             if !out.status.success() {
                 let detail = crate::command_output(&out);
                 if detail.is_empty() {
@@ -102,6 +141,11 @@ impl Downloader for HttpDownloader {
             Ok(out.stdout)
         })
     }
+}
+
+/// curl 配置文件里的双引号字符串需要转义反斜杠与双引号。
+fn escape_curl_config(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -169,7 +213,7 @@ pub async fn run<D: Downloader + ?Sized>(
         .with_context(|| format!("创建升级状态目录失败: {}", ctx.state_dir.display()))?;
     let ok_marker = ok_marker(&ctx.state_dir);
     let pending_marker = pending_marker(&ctx.state_dir);
-    let helper_path = rollback_helper(&ctx.state_dir);
+    let helper_path = rollback_helper(&ctx.current_exe);
 
     // 上一个进程留下的 pending 说明「替换可能已经发生、但还没确认」。
     // 当前进程如果已经是目标版本，前面已经 Noop，不会走到这里；能走到这里
@@ -181,7 +225,18 @@ pub async fn run<D: Downloader + ?Sized>(
             target.trim()
         );
     }
-    // 上一次成功留下的 ok 标记会压制**本次**的看门狗，必须先清掉。
+    // 上一次成功留下的 ok 标记会压制**本次**的看门狗，必须清掉；
+    // 但如果上一轮的看门狗 timer 还在窗口内，先别动：
+    // 清掉 ok 会让旧 timer 把刚升级好的版本误判为「未确认」而回滚。
+    let watchdog_window = watchdog_window_secs(ctx);
+    if let Some(age) = marker_age_secs(&ok_marker) {
+        if age < watchdog_window {
+            bail!(
+                "上一次升级的看门狗窗口还剩 {} 秒，暂不开始新的升级",
+                watchdog_window - age
+            );
+        }
+    }
     match std::fs::remove_file(&ok_marker) {
         Ok(()) => tracing::warn!("清理上一轮遗留的 upgrade-ok 标记"),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -213,6 +268,9 @@ pub async fn run<D: Downloader + ?Sized>(
         .with_context(|| format!("下载升级产物失败: {}", plan.asset_url))?;
     verify_asset(&sums, &asset_name, &asset)
         .context("升级包 sha256 校验失败，拒绝升级（线上二进制未被修改）")?;
+    if asset.is_empty() {
+        bail!("升级产物为空，拒绝落盘");
+    }
     tracing::info!(
         asset = %asset_name,
         bytes = asset.len(),
@@ -241,7 +299,13 @@ pub async fn run<D: Downloader + ?Sized>(
         Some(wd) if systemd_is_available() => {
             let watchdog = (|| -> Result<()> {
                 copy_helper(&new_path, &helper_path)?;
-                register_watchdog(wd, &helper_path, &ok_marker, &backup_path)?;
+                register_watchdog(
+                    wd,
+                    &helper_path,
+                    &ok_marker,
+                    &backup_path,
+                    &ctx.restart_command,
+                )?;
                 Ok(())
             })();
             if let Err(e) = watchdog {
@@ -408,6 +472,7 @@ fn register_watchdog(
     helper: &Path,
     ok_marker: &Path,
     backup: &Path,
+    restart_command: &str,
 ) -> Result<bool> {
     if wd.program.trim().is_empty() {
         bail!("systemd-run 程序名为空");
@@ -420,6 +485,7 @@ fn register_watchdog(
         .arg("--rollback-check")
         .arg(ok_marker)
         .arg(backup)
+        .arg(restart_command)
         .output()
         .with_context(|| format!("无法执行 `{}`", wd.program))?;
     if out.status.success() {
@@ -437,20 +503,40 @@ fn register_watchdog(
 }
 
 /// 进程启动自检：
-/// - `upgrade-ok` 存在 → 上次升级已确认成功，删标记、清 pending/helper 并记录；
+/// - `upgrade-ok` 存在 → 上次升级已确认成功；看门狗窗口外删标记并记录，
+///   窗口内先保留（避免还没到点的旧 timer 把好版本回滚）；
 /// - pending 的目标仍比当前新 → 二进制还是旧的（替换没成功），清掉等待重试；
 /// - pending 的目标不新于当前 → 当前就是新版本，保留 pending 等 Ack。
-pub fn startup_check(state_dir: &Path, current_version: &str) -> Result<()> {
+pub fn startup_check(
+    state_dir: &Path,
+    current_version: &str,
+    current_exe: Option<&Path>,
+    watchdog_window_secs: u64,
+) -> Result<()> {
     if !state_dir.exists() {
         return Ok(());
     }
     let ok = ok_marker(state_dir);
     let pending = pending_marker(state_dir);
     if ok.exists() {
+        // 升级确认后如果很快又重启，旧的看门狗 timer 可能还没到点。
+        // 这时删掉 ok 会让它把好版本回滚，所以窗口内只记录、不删除。
+        if let Some(age) = marker_age_secs(&ok) {
+            if age < watchdog_window_secs {
+                tracing::info!(
+                    version = current_version,
+                    remaining = watchdog_window_secs - age,
+                    "检测到 upgrade-ok：上次 Agent 升级已成功；保留到看门狗窗口结束"
+                );
+                return Ok(());
+            }
+        }
         std::fs::remove_file(&ok)
             .with_context(|| format!("删除 upgrade-ok 失败: {}", ok.display()))?;
         let _ = std::fs::remove_file(&pending);
-        let _ = std::fs::remove_file(rollback_helper(state_dir));
+        if let Some(exe) = current_exe {
+            let _ = std::fs::remove_file(rollback_helper(exe));
+        }
         tracing::info!(
             version = current_version,
             "检测到 upgrade-ok：上次 Agent 升级已成功"
@@ -484,7 +570,7 @@ pub fn startup_check(state_dir: &Path, current_version: &str) -> Result<()> {
 ///
 /// 只有存在 pending 时才写，避免正常启动也留下标记。返回 true 表示本次确实
 /// 确认了一次升级。
-pub fn confirm_upgrade(state_dir: &Path) -> Result<bool> {
+pub fn confirm_upgrade(state_dir: &Path, watchdog_unit: Option<&str>) -> Result<bool> {
     let pending = pending_marker(state_dir);
     if !pending.exists() {
         return Ok(false);
@@ -493,8 +579,35 @@ pub fn confirm_upgrade(state_dir: &Path) -> Result<bool> {
     std::fs::write(&ok, b"ok\n")
         .with_context(|| format!("写入 upgrade-ok 失败: {}", ok.display()))?;
     let _ = std::fs::remove_file(&pending);
+    if let Some(unit) = watchdog_unit {
+        stop_watchdog(unit);
+    }
     tracing::info!("主控已 Ack：写入 upgrade-ok，升级确认成功");
     Ok(true)
+}
+
+/// 确认成功后主动停掉还没到点的 timer：既避免它白跑一趟，
+/// 也避免「确认后很快重启，启动自检删了 ok，旧 timer 又回滚好版本」的竞态。
+fn stop_watchdog(unit: &str) {
+    if !systemd_is_available() {
+        return;
+    }
+    let out = std::process::Command::new("systemctl")
+        .args(["--no-block", "stop"])
+        .arg(format!("{unit}.timer"))
+        .arg(format!("{unit}.service"))
+        .output();
+    match out {
+        Ok(out) if out.status.success() => {
+            tracing::info!(%unit, "rollback watchdog cancelled after confirmation")
+        }
+        Ok(out) => tracing::warn!(
+            %unit,
+            detail = %crate::command_output(&out),
+            "停止回滚 timer 失败（ok 标记仍会阻止回滚）"
+        ),
+        Err(e) => tracing::warn!(%unit, error = %e, "停止回滚 timer 失败（ok 标记仍会阻止回滚）"),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -519,6 +632,7 @@ pub fn rollback_check_with(
 ) -> Result<RollbackOutcome> {
     if !should_rollback(ok_marker.exists()) {
         tracing::info!("看门狗：检测到 upgrade-ok，升级已确认，无需回滚");
+        remove_self_helper();
         return Ok(RollbackOutcome::Confirmed);
     }
     if !backup.exists() {
@@ -542,22 +656,26 @@ pub fn rollback_check_with(
     }
     tracing::warn!(
         binary = %live.display(),
-        "看门狗：升级在 {} 秒内未确认，已还原上一版二进制",
-        DEFAULT_WATCHDOG_SECS
+        "看门狗：升级超时未确认，已还原上一版二进制"
     );
     run_restart(restart_command)
         .with_context(|| format!("看门狗还原后重启失败: {restart_command}"))?;
     tracing::warn!("看门狗：已重启上一版 Agent");
-    // 只有确认自己确实是 state_dir 里的 helper 才自删，避免误删线上二进制。
+    remove_self_helper();
+    Ok(RollbackOutcome::RolledBack)
+}
+
+/// 只有当前进程自己就是 `*.rollback-helper` 时才自删，避免误删线上二进制。
+fn remove_self_helper() {
     if let Ok(exe) = std::env::current_exe() {
-        if ok_marker
-            .parent()
-            .is_some_and(|dir| exe == dir.join(ROLLBACK_HELPER_FILE))
+        if exe
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(HELPER_SUFFIX))
         {
             let _ = std::fs::remove_file(&exe);
         }
     }
-    Ok(RollbackOutcome::RolledBack)
 }
 
 fn live_from_backup(backup: &Path) -> Result<PathBuf> {
@@ -641,8 +759,26 @@ fn pending_marker(state_dir: &Path) -> PathBuf {
     state_dir.join(PENDING_MARKER_FILE)
 }
 
-fn rollback_helper(state_dir: &Path) -> PathBuf {
-    state_dir.join(ROLLBACK_HELPER_FILE)
+/// 看门狗窗口：从注册 timer 到 ok 标记写入之间的保守时长。
+///
+/// 窗口内不能清掉 ok 标记，否则还没到点的旧 timer 会误判升级失败并回滚。
+fn watchdog_window_secs(ctx: &UpgradeContext) -> u64 {
+    ctx.watchdog.as_ref().map_or(0, |wd| wd.delay_secs)
+}
+
+fn marker_age_secs(marker: &Path) -> Option<u64> {
+    std::fs::metadata(marker)
+        .ok()?
+        .modified()
+        .ok()?
+        .elapsed()
+        .ok()
+        .map(|age| age.as_secs())
+}
+
+/// helper 与线上二进制同目录：那里一定允许执行，不会踩到 `/var` noexec 的坑。
+fn rollback_helper(live: &Path) -> PathBuf {
+    with_suffix(live, HELPER_SUFFIX)
 }
 
 /// 在完整文件名后追加后缀（`pierwave-agent` → `pierwave-agent.new`）。
@@ -849,6 +985,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn empty_asset_is_rejected() {
+        let dir = TempDir::new();
+        let live = live_binary(&dir);
+        let state = dir.path().join("state");
+        let (secret, public) = keypair();
+        let (manifest, sig) = signed_manifest(&secret, ASSET, b"");
+        let target = plan("0.6.0");
+        let downloader = FakeDownloader::new()
+            .with(&target.sums_url, manifest)
+            .with(&target.sig_url, sig)
+            .with(&target.asset_url, Vec::new());
+        let ctx = context(&live, &state, "0.5.0", &public);
+
+        let err = run(&target, &ctx, &downloader).await.unwrap_err();
+
+        assert!(err.to_string().contains("为空"), "{err}");
+        assert_eq!(read(&live), b"old-agent");
+        assert!(!with_suffix(&live, NEW_SUFFIX).exists());
+    }
+
+    #[tokio::test]
     async fn successful_upgrade_replaces_binary_and_keeps_backup() {
         let dir = TempDir::new();
         let live = live_binary(&dir);
@@ -931,15 +1088,55 @@ mod tests {
         // 没有 pending 时重复确认是幂等的，不写 ok。
         let empty = dir.path().join("empty");
         std::fs::create_dir_all(&empty).unwrap();
-        assert!(!confirm_upgrade(&empty).unwrap());
+        assert!(!confirm_upgrade(&empty, None).unwrap());
         assert!(!empty.join(OK_MARKER_FILE).exists());
 
-        assert!(confirm_upgrade(&state).unwrap());
+        assert!(confirm_upgrade(&state, None).unwrap());
         assert!(state.join(OK_MARKER_FILE).exists());
         assert!(!state.join(PENDING_MARKER_FILE).exists());
 
-        startup_check(&state, "0.6.0").unwrap();
+        startup_check(&state, "0.6.0", None, 0).unwrap();
         assert!(!state.join(OK_MARKER_FILE).exists(), "启动自检应删除 ok");
+    }
+
+    #[test]
+    fn startup_keeps_recent_ok_until_watchdog_window_ends() {
+        let dir = TempDir::new();
+        let state = dir.path().join("state");
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::write(state.join(OK_MARKER_FILE), b"ok\n").unwrap();
+
+        startup_check(&state, "0.6.0", None, 120).unwrap();
+        assert!(
+            state.join(OK_MARKER_FILE).exists(),
+            "窗口内的 ok 不能删，否则旧 timer 会误回滚"
+        );
+
+        startup_check(&state, "0.6.0", None, 0).unwrap();
+        assert!(!state.join(OK_MARKER_FILE).exists());
+    }
+
+    #[tokio::test]
+    async fn refuses_new_upgrade_while_previous_watchdog_window_is_open() {
+        let dir = TempDir::new();
+        let live = live_binary(&dir);
+        let state = dir.path().join("state");
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::write(state.join(OK_MARKER_FILE), b"ok\n").unwrap();
+        let (_secret, public) = keypair();
+        let mut ctx = context(&live, &state, "0.5.0", &public);
+        ctx.watchdog = Some(WatchdogConfig {
+            program: "systemd-run".into(),
+            unit: DEFAULT_WATCHDOG_UNIT.into(),
+            delay_secs: 120,
+        });
+        let downloader = FakeDownloader::new();
+
+        let err = run(&plan("0.6.0"), &ctx, &downloader).await.unwrap_err();
+
+        assert!(err.to_string().contains("看门狗窗口"), "{err}");
+        assert!(downloader.calls().is_empty());
+        assert_eq!(read(&live), b"old-agent");
     }
 
     #[test]
@@ -1009,7 +1206,7 @@ mod tests {
         std::fs::create_dir_all(&state).unwrap();
         std::fs::write(state.join(PENDING_MARKER_FILE), "0.6.0").unwrap();
 
-        startup_check(&state, "0.5.0").unwrap();
+        startup_check(&state, "0.5.0", None, 0).unwrap();
 
         assert!(!state.join(PENDING_MARKER_FILE).exists());
     }
@@ -1021,7 +1218,7 @@ mod tests {
         std::fs::create_dir_all(&state).unwrap();
         std::fs::write(state.join(PENDING_MARKER_FILE), "0.6.0").unwrap();
 
-        startup_check(&state, "0.6.0").unwrap();
+        startup_check(&state, "0.6.0", None, 0).unwrap();
 
         assert!(
             state.join(PENDING_MARKER_FILE).exists(),
@@ -1066,6 +1263,64 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[tokio::test]
+    async fn http_downloader_sends_bearer_token_via_stdin_not_argv() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new();
+        let config_file = dir.path().join("stdin-config.txt");
+        let args_file = dir.path().join("args.txt");
+        let script = dir.path().join("fake-curl");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\ncat > '{}'\nprintf '%s\\n' \"$@\" > '{}'\nprintf 'payload'\n",
+                config_file.display(),
+                args_file.display()
+            ),
+        )
+        .unwrap();
+        let mut perms = std::fs::metadata(&script).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&script, perms).unwrap();
+
+        let downloader = HttpDownloader::new(script.display().to_string(), "secret-token");
+        let body = downloader
+            .download("https://panel.example/api/agent/release/v0.6.0/agent")
+            .await
+            .unwrap();
+
+        assert_eq!(body, b"payload");
+        let config = std::fs::read_to_string(&config_file).unwrap();
+        assert!(
+            config.contains("Authorization: Bearer secret-token"),
+            "curl 配置里必须有鉴权头: {config}"
+        );
+        let args = std::fs::read_to_string(&args_file).unwrap();
+        assert!(
+            !args.contains("secret-token"),
+            "token 不能出现在 argv（ps 可见）: {args}"
+        );
+        assert!(args.contains("--config"), "{args}");
+    }
+
+    #[tokio::test]
+    async fn empty_token_is_rejected_before_spawning_curl() {
+        let downloader = HttpDownloader::new("/nonexistent/curl", "");
+        let err = downloader
+            .download("https://panel.example/api/agent/release/x")
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("token"), "{err}");
+    }
+
+    #[test]
+    fn escapes_curl_config_strings() {
+        assert_eq!(escape_curl_config("abc"), "abc");
+        assert_eq!(escape_curl_config(r#"a"b\c"#), r#"a\"b\\c"#);
+    }
+
+    #[cfg(unix)]
     #[test]
     fn watchdog_command_has_expected_shape() {
         use std::os::unix::fs::PermissionsExt;
@@ -1088,13 +1343,14 @@ mod tests {
         let wd = WatchdogConfig {
             program: script.display().to_string(),
             unit: DEFAULT_WATCHDOG_UNIT.into(),
-            delay_secs: DEFAULT_WATCHDOG_SECS,
+            delay_secs: 120,
         };
-        let helper = dir.path().join(ROLLBACK_HELPER_FILE);
+        let helper = rollback_helper(&dir.path().join("pierwave-agent"));
         let ok = dir.path().join(OK_MARKER_FILE);
         let backup = dir.path().join("pierwave-agent.bak");
 
-        assert!(register_watchdog(&wd, &helper, &ok, &backup).unwrap());
+        let restart = "systemctl restart pierwave-agent";
+        assert!(register_watchdog(&wd, &helper, &ok, &backup, restart).unwrap());
         let args = std::fs::read_to_string(&args_file).unwrap();
         assert!(args.contains("--on-active=120"), "{args}");
         assert!(args.contains("--unit=pierwave-agent-rollback"), "{args}");
@@ -1102,5 +1358,6 @@ mod tests {
         assert!(args.contains(helper.to_str().unwrap()), "{args}");
         assert!(args.contains(ok.to_str().unwrap()), "{args}");
         assert!(args.contains(backup.to_str().unwrap()), "{args}");
+        assert!(args.contains(restart), "{args}");
     }
 }

@@ -47,9 +47,13 @@ async fn main() -> Result<()> {
 
     // 看门狗 helper 入口：必须在读配置之前处理。新版本如果连配置都读不了，
     // `--rollback-check` 仍然要能把旧二进制换回去。
-    if let Some((ok_marker, backup)) = rollback_args() {
+    if let Some((ok_marker, backup, restart_command)) = rollback_args() {
         init_tracing();
-        match upgrade::rollback_check(&ok_marker, &backup) {
+        let outcome = match restart_command.as_deref() {
+            Some(command) => upgrade::rollback_check_with(&ok_marker, &backup, command),
+            None => upgrade::rollback_check(&ok_marker, &backup),
+        };
+        match outcome {
             Ok(outcome) => {
                 tracing::info!(?outcome, "rollback check finished");
                 return Ok(());
@@ -72,7 +76,13 @@ async fn main() -> Result<()> {
     tracing::info!(%path, master = %cfg.master_url, "agent starting");
 
     // 上次升级是否已经确认成功：成功就清标记；遗留的旧版本 pending 也在这里清理。
-    if let Err(e) = upgrade::startup_check(Path::new(&cfg.upgrade_state_dir), AGENT_VERSION) {
+    let current_exe = std::env::current_exe().ok();
+    if let Err(e) = upgrade::startup_check(
+        Path::new(&cfg.upgrade_state_dir),
+        AGENT_VERSION,
+        current_exe.as_deref(),
+        cfg.upgrade_watchdog_secs,
+    ) {
         tracing::warn!(error = %e, "启动自检失败（继续运行）");
     }
 
@@ -104,17 +114,24 @@ fn init_tracing() {
         .init();
 }
 
-/// 解析 `pierwave-agent --rollback-check <ok-marker> <backup-path>`。
+/// 解析 `pierwave-agent --rollback-check <ok-marker> <backup-path> [restart-command]`。
 ///
+/// 第三个参数是可选的：升级时的重启命令可能被配置成非默认值，回滚必须用同一条。
 /// 参数不全时直接退 2：这是看门狗调用的内部入口，不能悄悄当成正常启动。
-fn rollback_args() -> Option<(PathBuf, PathBuf)> {
+fn rollback_args() -> Option<(PathBuf, PathBuf, Option<String>)> {
     let args: Vec<String> = std::env::args().collect();
     let idx = args.iter().position(|arg| arg == "--rollback-check")?;
     if idx + 2 >= args.len() {
-        eprintln!("用法: pierwave-agent --rollback-check <ok-marker> <backup-path>");
+        eprintln!(
+            "用法: pierwave-agent --rollback-check <ok-marker> <backup-path> [restart-command]"
+        );
         std::process::exit(2);
     }
-    Some((PathBuf::from(&args[idx + 1]), PathBuf::from(&args[idx + 2])))
+    Some((
+        PathBuf::from(&args[idx + 1]),
+        PathBuf::from(&args[idx + 2]),
+        args.get(idx + 3).cloned(),
+    ))
 }
 
 async fn run_once(
@@ -156,7 +173,17 @@ async fn run_once(
                             protocol = ack.protocol_version, "registered");
                         // 升级后的新进程只有「连上主控 + 收到 Ack」才算成功；
                         // 看门狗看到 upgrade-ok 就不会回滚。
-                        match upgrade::confirm_upgrade(Path::new(&cfg.upgrade_state_dir)) {
+                        let watchdog_unit = if cfg.upgrade_watchdog_secs > 0
+                            && !cfg.upgrade_systemd_run.trim().is_empty()
+                        {
+                            Some(upgrade::DEFAULT_WATCHDOG_UNIT)
+                        } else {
+                            None
+                        };
+                        match upgrade::confirm_upgrade(
+                            Path::new(&cfg.upgrade_state_dir),
+                            watchdog_unit,
+                        ) {
                             Ok(true) => tracing::info!("agent upgrade confirmed by master ack"),
                             Ok(false) => {}
                             Err(e) => tracing::error!(
@@ -210,6 +237,7 @@ async fn run_once(
                             "xray_running": false,
                             "nginx_running": false,
                             "agent_version": env!("CARGO_PKG_VERSION"),
+                            "arch": std::env::consts::ARCH,
                         });
                         ws.send(Message::Text(fallback.to_string())).await.ok();
                     }
@@ -350,7 +378,12 @@ async fn run_agent_upgrade(
         public_key: pierwave_domain::release::embedded_public_key().to_string(),
         watchdog,
     };
-    upgrade::run(plan, &ctx, &upgrade::HttpDownloader::default()).await
+    upgrade::run(
+        plan,
+        &ctx,
+        &upgrade::HttpDownloader::bearer(cfg.token.clone()),
+    )
+    .await
 }
 
 /// 其它受管文件同样「写临时文件 → rename」，但不参与 xray 校验。
@@ -544,6 +577,7 @@ fn sample_heartbeat(seq: u64, uptime_secs: u64) -> Heartbeat {
     Heartbeat {
         seq,
         agent_version: env!("CARGO_PKG_VERSION").to_string(),
+        arch: std::env::consts::ARCH.to_string(),
         uptime_secs,
         load1,
         mem_used,
@@ -670,6 +704,13 @@ mod tests {
         );
         assert_eq!(parse_df(""), None);
         assert_eq!(parse_df("只 有 两 列"), None);
+    }
+
+    #[test]
+    fn heartbeat_reports_cpu_arch() {
+        let hb = sample_heartbeat(1, 2);
+        assert_eq!(hb.arch, std::env::consts::ARCH);
+        assert!(!hb.arch.is_empty(), "主控靠心跳里的 arch 选升级产物");
     }
 
     #[test]
