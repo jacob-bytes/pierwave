@@ -26,6 +26,31 @@ fix: 一句话说清修了什么
 - **不写任何可能敏感的信息**（部署地址、服务器 IP、用户数据、内部排查过程、安全问题细节）。
   拿不准就先讨论，不要直接写进 tag。
 
+## 发布签名密钥
+
+发布产物用 Ed25519 签名（`SHA256SUMS.sig`），安装脚本与 Agent 用**编译期内置的公钥**验签。
+
+| 项 | 位置 |
+|---|---|
+| 私钥（32 字节，base64） | 仓库 Secret `PIERWAVE_RELEASE_SIGNING_KEY` |
+| 公钥（32 字节，base64） | `crates/domain/src/release.rs` 的 `DEV_PUBLIC_KEY_B64` 与 `scripts/install.sh` 的 `RELEASE_PUBKEY` |
+
+两处公钥必须一致，私钥绝不能进仓库。没配 Secret 时发布会跳过签名（安装脚本会 WARN 并退回校验和）。
+
+**轮换步骤**（怀疑私钥泄露时）：
+
+```bash
+openssl genpkey -algorithm ed25519 -out priv.pem
+# 取私钥种子（PKCS8 DER 尾部 32 字节）与公钥（SPKI DER 尾部 32 字节），各自 base64
+```
+
+1. 更新 GitHub Secret；
+2. 把新公钥同步替换代码里那两处常量；
+3. 跑 `make check`，提交；
+4. **发一个新版本**——旧版本内置的是旧公钥，验不了新签名。
+
+注意：轮换后必须重新发布，否则已发布版本的安装脚本会拒绝新签名。
+
 ## 发布前必须做的真机验证
 
 ```bash
@@ -49,6 +74,31 @@ curl -fsSL "https://raw.githubusercontent.com/jacob-bytes/pierwave/main/scripts/
 sed -i '' 's/^version = "0\.1\.1"/version = "0.1.2"/' Cargo.toml   # macOS
 cargo check --workspace   # 让 Cargo.lock 跟上
 ```
+
+## 发布签名密钥
+
+发布产物用 Ed25519 签名（`SHA256SUMS.sig`），安装脚本与 Agent 用**编译期内置的公钥**验签。
+
+| 项 | 位置 |
+|---|---|
+| 私钥（32 字节，base64） | 仓库 Secret `PIERWAVE_RELEASE_SIGNING_KEY` |
+| 公钥（32 字节，base64） | `crates/domain/src/release.rs` 的 `DEV_PUBLIC_KEY_B64` 与 `scripts/install.sh` 的 `RELEASE_PUBKEY` |
+
+两处公钥必须一致，私钥绝不能进仓库。没配 Secret 时发布会跳过签名（安装脚本会 WARN 并退回校验和）。
+
+**轮换步骤**（怀疑私钥泄露时）：
+
+```bash
+openssl genpkey -algorithm ed25519 -out priv.pem
+# 取私钥种子（PKCS8 DER 尾部 32 字节）与公钥（SPKI DER 尾部 32 字节），各自 base64
+```
+
+1. 更新 GitHub Secret；
+2. 把新公钥同步替换代码里那两处常量；
+3. 跑 `make check`，提交；
+4. **发一个新版本**——旧版本内置的是旧公钥，验不了新签名。
+
+注意：轮换后必须重新发布，否则已发布版本的安装脚本会拒绝新签名。
 
 ## 发布前必须做的真机验证
 

@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 ///
 /// 这里刻意留一个固定的开发密钥，让本地构建也能跑通签名验证流程；
 /// 正式发布必须注入真实公钥，否则「校验通过」只是一场自娱自乐。
-pub const DEV_PUBLIC_KEY_B64: &str = "pRXhWVFOKtVf3uzarnuIUhte1IHTqx7JsylIFf1nEb0=";
+pub const DEV_PUBLIC_KEY_B64: &str = "ud+PG+n1ED67znJYojJuVwBXulLIeT1D4elpOtrwyaU=";
 
 /// 当前构建内置的发布公钥（base64，32 字节 Ed25519 公钥）。
 pub fn embedded_public_key() -> &'static str {
