@@ -5,14 +5,15 @@
 //! 线上文件要么是旧版本、要么是完整的新版本，不会出现写了一半的二进制。
 //!
 //! 看门狗是这套流程的安全网：升级前用 `systemd-run --on-active=<secs>` 注册一个
-//! 独立 timer，超时后执行本程序的 `--rollback-check <ok> <backup>`；新版本启动后
-//! 只有在**连上主控并收到 Ack** 时才写 `upgrade-ok`，没有标记就把 `.bak` 换回去。
+//! 独立 timer，超时后执行 `<exe>.rollback-helper` 脚本；新版本启动后只有在
+//! **连上主控并收到 Ack** 时才写 `upgrade-ok`，没有标记就把 `.bak` 换回去。
 //!
-//! helper 用二进制同目录的 `<exe>.rollback-helper`（刚校验过的新二进制副本），
-//! 而不是直接指向当前路径：这样即使替换失败、或者升级前的旧版本还不认识
-//! `--rollback-check`，到点执行的也是能跑回滚逻辑的二进制，不会意外启动第二个
-//! Agent；放在二进制同目录还能避开 `/var` 被挂 noexec 的部署。
-//! 代价是如果新二进制根本加载不起来，helper 也跑不起来——这是自升级的固有边界。
+//! helper 是**当场生成的 POSIX sh 脚本**，由 `/bin/sh` 执行，而不是「新二进制的副本」。
+//! 这一点很关键：新二进制可能因为架构不对、缺动态 loader、被 SELinux/noexec 拒绝而
+//! 根本执行不了，那时它的副本同样跑不起来，回滚就彻底失效。`/bin/sh` 一定在，
+//! 脚本只做 `cp`+`mv`+`systemctl` 三件最朴素的事。
+//!
+//! （`pierwave-agent --rollback-check <ok> <backup>` 仍保留，供人工救援与测试使用。）
 
 use std::future::Future;
 use std::io::Write;
@@ -298,7 +299,7 @@ pub async fn run<D: Downloader + ?Sized>(
     match &ctx.watchdog {
         Some(wd) if systemd_is_available() => {
             let watchdog = (|| -> Result<()> {
-                copy_helper(&new_path, &helper_path)?;
+                write_helper(&helper_path)?;
                 register_watchdog(
                     wd,
                     &helper_path,
@@ -438,21 +439,35 @@ fn publish_backup(live: &Path, backup: &Path) -> Result<()> {
     result
 }
 
-/// helper 也走「临时文件 + rename」，避免看门狗拿到半截二进制。
-fn copy_helper(new_binary: &Path, helper: &Path) -> Result<()> {
+/// 看门狗脚本。刻意用 POSIX sh 而不是「新二进制的副本」：
+/// 新二进制可能因为架构不对/缺 loader/被 SELinux 拒绝而根本执行不了，
+/// 那时复制出来的 helper 同样跑不起来，回滚就彻底失效。`/bin/sh` 一定在。
+const ROLLBACK_SCRIPT: &str = r#"#!/bin/sh
+# 参数：<ok 标记> <备份二进制> <线上二进制> <重启命令>
+set -eu
+ok="$1"; bak="$2"; live="$3"; restart="${4:-}"
+[ -f "$ok" ] && exit 0
+[ -f "$bak" ] || exit 2
+tmp="$live.restoring.$$"
+cp -f "$bak" "$tmp"
+chmod 0755 "$tmp"
+mv -f "$tmp" "$live"
+if [ -n "$restart" ]; then
+  sh -c "$restart" || true
+fi
+exit 0
+"#;
+
+/// 写入并发布 helper 脚本（临时文件 + rename，避免看门狗拿到半截脚本）。
+fn write_helper(helper: &Path) -> Result<()> {
     let tmp = with_suffix(helper, ".tmp");
     let _ = std::fs::remove_file(&tmp);
     let result = (|| -> Result<()> {
-        std::fs::copy(new_binary, &tmp).with_context(|| {
-            format!(
-                "复制回滚 helper 失败（{} -> {}）",
-                new_binary.display(),
-                tmp.display()
-            )
-        })?;
+        std::fs::write(&tmp, ROLLBACK_SCRIPT)
+            .with_context(|| format!("写入回滚脚本失败: {}", tmp.display()))?;
         make_executable(&tmp)?;
         std::fs::rename(&tmp, helper)
-            .with_context(|| format!("发布回滚 helper 失败: {}", helper.display()))?;
+            .with_context(|| format!("发布回滚脚本失败: {}", helper.display()))?;
         Ok(())
     })();
     if result.is_err() {
@@ -481,8 +496,8 @@ fn register_watchdog(
         .arg(format!("--on-active={}", wd.delay_secs))
         .arg(format!("--unit={}", wd.unit))
         .arg("--collect")
+        .arg("/bin/sh")
         .arg(helper)
-        .arg("--rollback-check")
         .arg(ok_marker)
         .arg(backup)
         .arg(restart_command)
@@ -1354,10 +1369,61 @@ mod tests {
         let args = std::fs::read_to_string(&args_file).unwrap();
         assert!(args.contains("--on-active=120"), "{args}");
         assert!(args.contains("--unit=pierwave-agent-rollback"), "{args}");
-        assert!(args.contains("--rollback-check"), "{args}");
+        assert!(
+            args.contains("/bin/sh"),
+            "看门狗脚本必须用 sh 执行，不能用新二进制：{args}"
+        );
+        assert!(!args.contains("--rollback-check"), "{args}");
         assert!(args.contains(helper.to_str().unwrap()), "{args}");
         assert!(args.contains(ok.to_str().unwrap()), "{args}");
         assert!(args.contains(backup.to_str().unwrap()), "{args}");
         assert!(args.contains(restart), "{args}");
+    }
+
+    /// 看门狗脚本必须真的能把备份换回去，且不会误伤已确认的版本。
+    #[test]
+    fn rollback_script_restores_backup_only_without_ok_marker() {
+        let dir = TempDir::new();
+        let live = dir.path().join("pierwave-agent");
+        let backup = dir.path().join("pierwave-agent.bak");
+        let ok = dir.path().join("upgrade-ok");
+        std::fs::write(&live, b"new").unwrap();
+        std::fs::write(&backup, b"old").unwrap();
+
+        let script = dir.path().join("rollback.sh");
+        std::fs::write(&script, ROLLBACK_SCRIPT).unwrap();
+
+        let run = |ok_exists: bool| {
+            if ok_exists {
+                std::fs::write(&ok, b"").unwrap();
+            } else {
+                let _ = std::fs::remove_file(&ok);
+            }
+            std::process::Command::new("/bin/sh")
+                .arg(&script)
+                .arg(&ok)
+                .arg(&backup)
+                .arg(&live)
+                .arg("true")
+                .status()
+                .unwrap()
+        };
+
+        // 没有 ok 标记 → 回滚
+        std::fs::write(&live, b"new").unwrap();
+        assert!(run(false).success());
+        assert_eq!(std::fs::read(&live).unwrap(), b"old");
+
+        // 有 ok 标记 → 不动
+        std::fs::write(&live, b"new").unwrap();
+        assert!(run(true).success());
+        assert_eq!(std::fs::read(&live).unwrap(), b"new");
+
+        // 备份不存在 → 退出码 2，不动
+        let _ = std::fs::remove_file(&ok);
+        std::fs::remove_file(&backup).unwrap();
+        let status = run(false);
+        assert_eq!(status.code(), Some(2));
+        assert_eq!(std::fs::read(&live).unwrap(), b"new");
     }
 }
