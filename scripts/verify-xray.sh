@@ -19,7 +19,7 @@ CLIENT_PID=""
 DOWNLOADED_XRAY=0
 FAILED=0
 
-SCRIPT_VERSION="2026-11-07.2"
+SCRIPT_VERSION="2026-11-07.3"
 log()  { printf '\033[36m==>\033[0m %s\n' "$*"; }
 ok()   { printf '  \033[32mok\033[0m %s\n' "$*"; }
 bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$*"; FAILED=1; }
@@ -180,8 +180,9 @@ if [ -x "$BIN" ]; then
   # 旧版本的 pierwave-master 不认识这个参数，会当成「启动主控」一直阻塞在这里。
   # 所以必须限时执行，并且校验输出真的是一个 base64 公钥。
   DERIVED="$(run_with_timeout 10 "$BIN" --derive-reality-key "$PRIV" | head -1 || true)"
+  # 公钥可能是标准 base64（+ / =）也可能是 base64url（- _），两种都要认。
   case "$DERIVED" in
-    "" | *[!A-Za-z0-9+/=]*)
+    "" | *[!A-Za-z0-9+/=_-]*)
       warn "这个 pierwave-master 不支持 --derive-reality-key（多半是旧版本），跳过反推校验"
       ;;
     *)

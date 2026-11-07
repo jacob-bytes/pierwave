@@ -10,7 +10,7 @@ REPO="jacob-bytes/pierwave"
 REF="${PIERWAVE_REF:-main}"
 # raw.githubusercontent.com 会缓存几分钟，加时间戳确保拿到最新脚本
 CACHEBUST="$(date +%s)"
-BOOT_VERSION="2026-11-07.2"
+BOOT_VERSION="2026-11-07.3"
 
 say() { printf '\033[36m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[31mFAIL\033[0m %s\n' "$*" >&2; exit 1; }
