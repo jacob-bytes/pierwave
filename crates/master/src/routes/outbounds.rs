@@ -22,7 +22,9 @@ pub(crate) async fn load_server(state: &AppState, id: &str) -> AppResult<Server>
     repo::servers::find_by_id(&state.db.pool, id)
         .await
         .map_err(|e| match e.downcast_ref::<sqlx::Error>() {
-            Some(sqlx::Error::RowNotFound) => AppError::NotFound,
+            Some(sqlx::Error::RowNotFound) => {
+                AppError::not_found("server.not_found", None, "资源不存在")
+            }
             _ => AppError::Internal(e),
         })
 }
@@ -31,7 +33,11 @@ pub(crate) async fn load_server(state: &AppState, id: &str) -> AppResult<Server>
 fn map_tag_conflict(error: anyhow::Error) -> AppError {
     let message = format!("{error:#}");
     if message.contains("UNIQUE constraint failed: server_outbounds") {
-        AppError::BadRequest("该服务器下已存在相同的出站 tag".into())
+        AppError::coded(
+            "outbound.tag_conflict",
+            None,
+            "该服务器下已存在相同的出站 tag",
+        )
     } else {
         AppError::Internal(error)
     }
@@ -45,11 +51,20 @@ fn default_enabled() -> bool {
     true
 }
 
-fn ensure_referenced_outbound_can_change(references: i64, what: &str) -> AppResult<()> {
+fn ensure_referenced_outbound_can_change(references: i64, action: &str) -> AppResult<()> {
     if references > 0 {
-        return Err(AppError::BadRequest(format!(
-            "该出站被 {references} 条路由规则引用，无法{what}"
-        )));
+        // `action` 用稳定 token，前端词典据此选择「删除 / 停用 / 改名」的动词。
+        let what = match action {
+            "delete" => "删除",
+            "disable" => "停用",
+            "rename" => "修改 tag",
+            _ => "修改",
+        };
+        return Err(AppError::coded(
+            "outbound.in_use",
+            Some(json!({ "references": references, "action": action })),
+            format!("该出站被 {references} 条路由规则引用，无法{what}"),
+        ));
     }
     Ok(())
 }
@@ -84,9 +99,22 @@ pub async fn create(
     user.require_admin()?;
     load_server(&state, &server_id).await?;
 
-    let tag = routing::normalize_tag(&req.tag).map_err(AppError::BadRequest)?;
-    let protocol = routing::normalize_protocol(&req.protocol).map_err(AppError::BadRequest)?;
-    routing::ensure_config_object(&req.config).map_err(AppError::BadRequest)?;
+    let tag = routing::normalize_tag(&req.tag).map_err(|error| {
+        AppError::coded(
+            "outbound.tag_invalid",
+            Some(json!({ "tag": &req.tag })),
+            error,
+        )
+    })?;
+    let protocol = routing::normalize_protocol(&req.protocol).map_err(|error| {
+        AppError::coded(
+            "outbound.protocol_invalid",
+            Some(json!({ "protocol": &req.protocol })),
+            error,
+        )
+    })?;
+    routing::ensure_config_object(&req.config)
+        .map_err(|error| AppError::coded("outbound.config_invalid", None, error))?;
 
     let outbound = repo::outbounds::create(
         &state.db.pool,
@@ -137,25 +165,36 @@ pub async fn update(
     user.require_admin()?;
     if req.tag.is_none() && req.protocol.is_none() && req.config.is_none() && req.enabled.is_none()
     {
-        return Err(AppError::BadRequest(
-            "至少需要提供 tag / protocol / config / enabled 之一".into(),
+        return Err(AppError::coded(
+            "request.no_update_fields",
+            None,
+            "至少需要提供 tag / protocol / config / enabled 之一",
         ));
     }
 
     let existing = repo::outbounds::find_by_id(&state.db.pool, &id)
         .await?
-        .ok_or(AppError::NotFound)?;
+        .ok_or_else(|| AppError::not_found("outbound.not_found", None, "资源不存在"))?;
 
     let tag = match req.tag.as_deref() {
-        Some(raw) => Some(routing::normalize_tag(raw).map_err(AppError::BadRequest)?),
+        Some(raw) => Some(routing::normalize_tag(raw).map_err(|error| {
+            AppError::coded("outbound.tag_invalid", Some(json!({ "tag": raw })), error)
+        })?),
         None => None,
     };
     let protocol = match req.protocol.as_deref() {
-        Some(raw) => Some(routing::normalize_protocol(raw).map_err(AppError::BadRequest)?),
+        Some(raw) => Some(routing::normalize_protocol(raw).map_err(|error| {
+            AppError::coded(
+                "outbound.protocol_invalid",
+                Some(json!({ "protocol": raw })),
+                error,
+            )
+        })?),
         None => None,
     };
     if let Some(config) = &req.config {
-        routing::ensure_config_object(config).map_err(AppError::BadRequest)?;
+        routing::ensure_config_object(config)
+            .map_err(|error| AppError::coded("outbound.config_invalid", None, error))?;
     }
 
     // 改名会让已有规则指向旧 tag，和删除一样先拦下来并说明引用数。
@@ -167,7 +206,7 @@ pub async fn update(
                 &existing.tag,
             )
             .await?;
-            ensure_referenced_outbound_can_change(references, "修改 tag")?;
+            ensure_referenced_outbound_can_change(references, "rename")?;
         }
     }
 
@@ -180,7 +219,7 @@ pub async fn update(
             &existing.tag,
         )
         .await?;
-        ensure_referenced_outbound_can_change(references, "停用")?;
+        ensure_referenced_outbound_can_change(references, "disable")?;
     }
 
     let config_changed = req.config.is_some();
@@ -196,7 +235,7 @@ pub async fn update(
     )
     .await
     .map_err(map_tag_conflict)?
-    .ok_or(AppError::NotFound)?;
+    .ok_or_else(|| AppError::not_found("outbound.not_found", None, "资源不存在"))?;
 
     let changes = crate::audit::diff(vec![
         ("tag", json!(&existing.tag), json!(&outbound.tag)),
@@ -238,15 +277,19 @@ pub async fn delete(
 
     let existing = repo::outbounds::find_by_id(&state.db.pool, &id)
         .await?
-        .ok_or(AppError::NotFound)?;
+        .ok_or_else(|| AppError::not_found("outbound.not_found", None, "资源不存在"))?;
     // 先给业务提示，避免规则里留下悬挂的 outboundTag。
     let references =
         repo::routing_rules::count_by_outbound(&state.db.pool, &existing.server_id, &existing.tag)
             .await?;
-    ensure_referenced_outbound_can_change(references, "删除")?;
+    ensure_referenced_outbound_can_change(references, "delete")?;
 
     if !repo::outbounds::delete(&state.db.pool, &id).await? {
-        return Err(AppError::NotFound);
+        return Err(AppError::not_found(
+            "outbound.not_found",
+            None,
+            "资源不存在",
+        ));
     }
 
     crate::audit::record(

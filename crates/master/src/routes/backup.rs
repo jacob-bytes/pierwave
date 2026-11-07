@@ -99,7 +99,7 @@ pub async fn restore(
         tokio::task::spawn_blocking(move || gunzip_file(&source, &target))
             .await
             .map_err(|error| AppError::Internal(anyhow::anyhow!("解压备份失败：{error}")))?
-            .map_err(AppError::BadRequest)?;
+            .map_err(restore_gunzip_error)?;
         _raw_guard = Some(TempFile::new(raw.clone()));
         raw_path = raw;
     } else {
@@ -109,7 +109,7 @@ pub async fn restore(
 
     let raw_bytes = backup::validate_backup_file(&raw_path)
         .await
-        .map_err(|error| AppError::BadRequest(format!("备份文件校验失败：{error:#}")))?;
+        .map_err(restore_validation_error)?;
 
     // 原子写：校验通过的完整文件已经写盘并 sync，落位只做同目录 rename。
     std::fs::rename(&raw_path, &pending).map_err(|error| AppError::Internal(error.into()))?;
@@ -154,7 +154,11 @@ pub async fn cancel_restore(
     let db_path = backup_db_path(&state)?;
     let pending = backup::pending_path(&db_path);
     if !pending.exists() {
-        return Err(AppError::BadRequest("没有待恢复的备份".into()));
+        return Err(AppError::coded(
+            "backup.restore_no_pending",
+            None,
+            "没有待恢复的备份",
+        ));
     }
     let bytes = std::fs::metadata(&pending)
         .map(|meta| meta.len())
@@ -172,11 +176,46 @@ pub async fn cancel_restore(
 }
 
 fn backup_db_path(state: &AppState) -> AppResult<PathBuf> {
-    state
-        .db
-        .file_path()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| AppError::BadRequest("当前数据库是内存库，不支持备份与恢复".into()))
+    state.db.file_path().map(Path::to_path_buf).ok_or_else(|| {
+        AppError::coded(
+            "backup.in_memory_unsupported",
+            None,
+            "当前数据库是内存库，不支持备份与恢复",
+        )
+    })
+}
+
+/// 备份校验失败的错误码：文案保持原样（便于排障），只按原因归类。
+fn restore_validation_error(error: anyhow::Error) -> AppError {
+    let message = format!("备份文件校验失败：{error:#}");
+    if message.contains("文件头不是 SQLite format 3") {
+        AppError::coded("backup.restore_bad_header", None, message)
+    } else if message.contains("备份缺少必需的表") {
+        AppError::coded("backup.restore_missing_tables", None, message)
+    } else if message.contains("迁移版本") {
+        AppError::coded("backup.restore_migration_too_new", None, message)
+    } else if message.contains("超过 512 MB") {
+        AppError::coded(
+            "backup.restore_too_large",
+            Some(json!({ "max_mb": 512 })),
+            message,
+        )
+    } else {
+        AppError::coded("backup.restore_invalid", None, message)
+    }
+}
+
+/// gzip 解压失败：超过上限与坏包分开，其余归入解压失败。
+fn restore_gunzip_error(message: String) -> AppError {
+    if message.contains("超过 512 MB") {
+        AppError::coded(
+            "backup.restore_too_large",
+            Some(json!({ "max_mb": 512 })),
+            message,
+        )
+    } else {
+        AppError::coded("backup.restore_bad_gzip", None, message)
+    }
 }
 
 fn parent_dir(db_path: &Path) -> &Path {
@@ -249,10 +288,15 @@ async fn save_body(body: Body, target: &Path) -> AppResult<u64> {
     let mut stream = body.into_data_stream();
     let mut total: u64 = 0;
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|_| AppError::BadRequest("读取上传内容失败".into()))?;
+        let chunk = chunk
+            .map_err(|_| AppError::coded("backup.restore_read_failed", None, "读取上传内容失败"))?;
         total = total.saturating_add(chunk.len() as u64);
         if total > MAX_BACKUP_BYTES {
-            return Err(AppError::BadRequest("备份文件超过 512 MB 上限".into()));
+            return Err(AppError::coded(
+                "backup.restore_too_large",
+                Some(json!({ "max_mb": 512 })),
+                "备份文件超过 512 MB 上限",
+            ));
         }
         file.write_all(&chunk)
             .await
@@ -468,6 +512,7 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
         let message = json(&body)["error"].as_str().unwrap().to_string();
         assert!(message.contains("SQLite format 3"), "实际：{message}");
+        assert_eq!(json(&body)["code"], "backup.restore_bad_header");
 
         let (status, _, body) = request(
             &app,
@@ -508,6 +553,7 @@ mod tests {
         let message = json(&body)["error"].as_str().unwrap().to_string();
         assert!(message.contains("users"), "实际：{message}");
         assert!(message.contains("_sqlx_migrations"), "实际：{message}");
+        assert_eq!(json(&body)["code"], "backup.restore_missing_tables");
 
         assert!(
             !backup::pending_path(&dir.db_path()).exists(),
@@ -552,6 +598,7 @@ mod tests {
         let message = json(&body)["error"].as_str().unwrap().to_string();
         assert!(message.contains("迁移版本"), "实际：{message}");
         assert!(message.contains("高于当前程序支持"), "实际：{message}");
+        assert_eq!(json(&body)["code"], "backup.restore_migration_too_new");
     }
 
     #[tokio::test]

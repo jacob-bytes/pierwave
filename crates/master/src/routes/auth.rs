@@ -112,7 +112,11 @@ pub async fn login(
         return Err(AppError::InvalidCredentials);
     }
     if user.status != "active" {
-        return Err(AppError::Forbidden);
+        return Err(AppError::forbidden(
+            "auth.account_disabled",
+            None,
+            "权限不足",
+        ));
     }
 
     state.login_throttle.clear(&key);

@@ -15,7 +15,7 @@ use crate::state::AppState;
 pub async fn summary(State(state): State<AppState>, user: CurrentUser) -> AppResult<Json<Value>> {
     let view = repo::users::view_by_id(&state.db.pool, &user.0.id)
         .await?
-        .ok_or(AppError::NotFound)?;
+        .ok_or_else(|| AppError::not_found("user.not_found", None, "资源不存在"))?;
     let now = repo::now();
     let (today_bytes, month_bytes) =
         repo::stats::subject_totals(&state.db.pool, &view.id, now).await?;
@@ -52,7 +52,11 @@ pub async fn traffic(
     Query(query): Query<DaysQuery>,
 ) -> AppResult<Json<Value>> {
     if !(1..=90).contains(&query.days) {
-        return Err(AppError::BadRequest("days 需在 1-90 之间".into()));
+        return Err(AppError::coded(
+            "stats.days_invalid",
+            Some(json!({ "min": 1, "max": 90 })),
+            "days 需在 1-90 之间",
+        ));
     }
     let days =
         repo::stats::traffic_trend_for_subject(&state.db.pool, repo::now(), query.days, &user.0.id)
@@ -77,17 +81,21 @@ pub async fn change_password(
         return Err(AppError::WrongPassword);
     }
     if req.new_password.chars().count() < 8 {
-        return Err(AppError::BadRequest("新密码至少 8 位".into()));
+        return Err(AppError::coded(
+            "user.password_too_short",
+            Some(json!({ "min": 8 })),
+            "新密码至少 8 位",
+        ));
     }
 
     if !repo::users::set_password(&state.db.pool, &user.0.id, &req.new_password).await? {
-        return Err(AppError::NotFound);
+        return Err(AppError::not_found("user.not_found", None, "资源不存在"));
     }
 
     let token = jar
         .get(SESSION_COOKIE)
         .map(|cookie| cookie.value().to_string())
-        .ok_or(AppError::Unauthorized)?;
+        .ok_or_else(|| AppError::unauthorized("auth.unauthorized", None, "未登录"))?;
     let revoked = repo::sessions::delete_others(&state.db.pool, &user.0.id, &token).await?;
     tracing::info!(user_id = %user.0.id, revoked, "密码已更新，其它会话已吊销");
 

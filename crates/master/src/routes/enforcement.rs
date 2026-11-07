@@ -31,10 +31,13 @@ pub async fn events(
     user.require_admin()?;
     let limit = match query.limit.as_deref() {
         None => DEFAULT_LIMIT,
-        Some(raw) => raw
-            .trim()
-            .parse::<i64>()
-            .map_err(|_| AppError::BadRequest(format!("limit 必须是 1-{MAX_LIMIT} 的整数")))?,
+        Some(raw) => raw.trim().parse::<i64>().map_err(|_| {
+            AppError::coded(
+                "query.limit_invalid",
+                Some(json!({ "min": 1, "max": MAX_LIMIT })),
+                format!("limit 必须是 1-{MAX_LIMIT} 的整数"),
+            )
+        })?,
     }
     .clamp(1, MAX_LIMIT);
 

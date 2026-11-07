@@ -10,6 +10,7 @@ use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE, USER_AGENT};
 use axum::http::{HeaderMap, HeaderName, HeaderValue};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
+use serde_json::json;
 use sqlx::SqlitePool;
 
 use pierwave_domain::models::User;
@@ -35,10 +36,19 @@ pub async fn get(
 ) -> AppResult<Response> {
     // 不存在与禁用共用 404，避免枚举订阅短码。
     let Some(user) = repo::users::find_by_short_code(&state.db.pool, &short_code).await? else {
-        return Err(AppError::NotFound);
+        return Err(AppError::not_found(
+            "subscribe.not_found",
+            None,
+            "资源不存在",
+        ));
     };
+    // 禁用与不存在共用同一个 code：不能通过错误码枚举出「短码存在但被禁用」。
     if user.status != "active" {
-        return Err(AppError::NotFound);
+        return Err(AppError::not_found(
+            "subscribe.not_found",
+            None,
+            "资源不存在",
+        ));
     }
 
     // 规则模板与节点无关，先解析：指定的模板不存在要 404，即使 target=uri 也一样。
@@ -74,11 +84,18 @@ pub async fn get(
         .and_then(|value| value.to_str().ok());
     let exporter =
         subscribe::select_exporter(query.target.as_deref(), user_agent).ok_or_else(|| {
-            AppError::BadRequest(format!(
-                "不支持的订阅格式：{}（当前支持：{}）",
-                query.target.as_deref().unwrap_or_default().trim(),
-                subscribe::exporter_ids().join(" / ")
-            ))
+            let target = query.target.as_deref().unwrap_or_default().trim();
+            AppError::coded(
+                "subscribe.format_unsupported",
+                Some(json!({
+                    "target": target,
+                    "supported": subscribe::exporter_ids(),
+                })),
+                format!(
+                    "不支持的订阅格式：{target}（当前支持：{}）",
+                    subscribe::exporter_ids().join(" / ")
+                ),
+            )
         })?;
     let body = exporter.render(&ctx)?;
 
@@ -119,7 +136,9 @@ async fn rules_for(
         Some(id) => Some(
             repo::rule_templates::find_by_id(pool, id)
                 .await?
-                .ok_or(AppError::NotFound)?,
+                .ok_or_else(|| {
+                    AppError::not_found("rule_template.not_found", None, "资源不存在")
+                })?,
         ),
         None => {
             repo::rule_templates::resolve_for_user(pool, &user.id, user.rule_template_id.as_deref())

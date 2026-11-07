@@ -60,7 +60,7 @@ pub async fn list(
         None => 200,
         Some(raw) => raw
             .parse::<i64>()
-            .map_err(|_| AppError::BadRequest("limit 必须是整数".into()))?,
+            .map_err(|_| AppError::coded("query.limit_invalid", None, "limit 必须是整数"))?,
     };
 
     let users = repo::users::list_views(&state.db.pool, query.q.as_deref(), limit).await?;

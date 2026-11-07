@@ -23,10 +23,15 @@ fn normalize_enum(field: &str, value: &str, allowed: &[&str]) -> AppResult<Strin
     if allowed.contains(&value.as_str()) {
         Ok(value)
     } else {
-        Err(AppError::BadRequest(format!(
-            "不支持的{field}：{value}（可选：{}）",
-            allowed.join(" / ")
-        )))
+        Err(AppError::coded(
+            "common.enum_invalid",
+            Some(json!({
+                "field": field,
+                "value": value,
+                "allowed": allowed,
+            })),
+            format!("不支持的{field}：{value}（可选：{}）", allowed.join(" / ")),
+        ))
     }
 }
 
@@ -34,8 +39,10 @@ fn validate_username(username: &str) -> AppResult<String> {
     let username = username.trim();
     let len = username.chars().count();
     if !(3..=32).contains(&len) {
-        return Err(AppError::BadRequest(
-            "用户名长度必须在 3-32 个字符之间".into(),
+        return Err(AppError::coded(
+            "user.username_length_invalid",
+            Some(json!({ "min": 3, "max": 32 })),
+            "用户名长度必须在 3-32 个字符之间",
         ));
     }
     Ok(username.to_string())
@@ -43,7 +50,11 @@ fn validate_username(username: &str) -> AppResult<String> {
 
 fn validate_password(password: &str) -> AppResult<()> {
     if password.chars().count() < 8 {
-        return Err(AppError::BadRequest("密码至少 8 位".into()));
+        return Err(AppError::coded(
+            "user.password_too_short",
+            Some(json!({ "min": 8 })),
+            "密码至少 8 位",
+        ));
     }
     Ok(())
 }
@@ -51,13 +62,13 @@ fn validate_password(password: &str) -> AppResult<()> {
 async fn load_user(state: &AppState, id: &str) -> AppResult<User> {
     repo::users::find_by_id_opt(&state.db.pool, id)
         .await?
-        .ok_or(AppError::NotFound)
+        .ok_or_else(|| AppError::not_found("user.not_found", None, "资源不存在"))
 }
 
 async fn user_view(state: &AppState, id: &str) -> AppResult<Value> {
     let view = repo::users::view_by_id(&state.db.pool, id)
         .await?
-        .ok_or(AppError::NotFound)?;
+        .ok_or_else(|| AppError::not_found("user.not_found", None, "资源不存在"))?;
     Ok(json!({ "user": view }))
 }
 
@@ -76,9 +87,13 @@ pub async fn list(
     user.require_admin()?;
     let limit = match query.limit.as_deref() {
         None => 200,
-        Some(raw) => raw
-            .parse::<i64>()
-            .map_err(|_| AppError::BadRequest("limit 必须是整数".into()))?,
+        Some(raw) => raw.parse::<i64>().map_err(|_| {
+            AppError::coded(
+                "query.limit_invalid",
+                Some(json!({ "max": 200 })),
+                "limit 必须是整数",
+            )
+        })?,
     };
     let items = repo::users::list_views(&state.db.pool, query.q.as_deref(), limit).await?;
     Ok(Json(json!({ "items": items })))
@@ -117,7 +132,7 @@ pub async fn create(
         .await?
         .is_some()
     {
-        return Err(AppError::BadRequest("用户名已存在".into()));
+        return Err(AppError::coded("user.username_taken", None, "用户名已存在"));
     }
 
     let created = repo::users::create(
@@ -175,7 +190,11 @@ pub async fn update(
         && !req.quota_bytes.is_set()
         && !req.rule_template_id.is_set()
     {
-        return Err(AppError::BadRequest("至少需要提供一个可更新字段".into()));
+        return Err(AppError::coded(
+            "request.no_update_fields",
+            None,
+            "至少需要提供一个可更新字段",
+        ));
     }
 
     let role = match req.role.as_deref() {
@@ -200,11 +219,17 @@ pub async fn update(
 
     // 防止管理员把自己锁在门外。
     if id == user.0.id && role.as_deref() == Some("user") {
-        return Err(AppError::BadRequest("不能把自己降级为普通用户".into()));
+        return Err(AppError::coded(
+            "user.cannot_demote_self",
+            None,
+            "不能把自己降级为普通用户",
+        ));
     }
     if id == user.0.id && status.as_deref() == Some("disabled") {
-        return Err(AppError::BadRequest(
-            "不能禁用自己的账号（否则将无法登录后台）".into(),
+        return Err(AppError::coded(
+            "user.cannot_disable_self",
+            None,
+            "不能禁用自己的账号（否则将无法登录后台）",
         ));
     }
 
@@ -222,11 +247,11 @@ pub async fn update(
         },
     )
     .await?
-    .ok_or(AppError::NotFound)?;
+    .ok_or_else(|| AppError::not_found("user.not_found", None, "资源不存在"))?;
 
     if let Some(password) = &req.password {
         if !repo::users::set_password(&state.db.pool, &id, password).await? {
-            return Err(AppError::NotFound);
+            return Err(AppError::not_found("user.not_found", None, "资源不存在"));
         }
     }
 
@@ -266,11 +291,15 @@ pub async fn delete(
     user.require_admin()?;
 
     if id == user.0.id {
-        return Err(AppError::BadRequest("不能删除自己".into()));
+        return Err(AppError::coded(
+            "user.cannot_delete_self",
+            None,
+            "不能删除自己",
+        ));
     }
     let removed = load_user(&state, &id).await?;
     if !repo::users::delete(&state.db.pool, &id).await? {
-        return Err(AppError::NotFound);
+        return Err(AppError::not_found("user.not_found", None, "资源不存在"));
     }
     crate::audit::record(
         &state,
@@ -320,7 +349,7 @@ pub async fn create_user_package(
 
     let package = repo::packages::find_by_id(&state.db.pool, &req.package_id)
         .await?
-        .ok_or(AppError::NotFound)?;
+        .ok_or_else(|| AppError::not_found("package.not_found", None, "资源不存在"))?;
 
     validate_quota_bytes(req.quota_override)?;
     if let Some(reset_day) = req.reset_day {
@@ -399,7 +428,11 @@ pub async fn update_user_package(
         && !req.reset_day.is_set()
         && req.status.is_none()
     {
-        return Err(AppError::BadRequest("至少需要提供一个可更新字段".into()));
+        return Err(AppError::coded(
+            "request.no_update_fields",
+            None,
+            "至少需要提供一个可更新字段",
+        ));
     }
 
     if req.quota_override.is_set() {
@@ -415,7 +448,7 @@ pub async fn update_user_package(
 
     let before = repo::user_packages::find_view_by_id(&state.db.pool, &id)
         .await?
-        .ok_or(AppError::NotFound)?;
+        .ok_or_else(|| AppError::not_found("user_package.not_found", None, "资源不存在"))?;
 
     let item = repo::user_packages::update(
         &state.db.pool,
@@ -428,7 +461,7 @@ pub async fn update_user_package(
         },
     )
     .await?
-    .ok_or(AppError::NotFound)?;
+    .ok_or_else(|| AppError::not_found("user_package.not_found", None, "资源不存在"))?;
 
     // 额度 / 到期 / 状态任一变更都可能跨过可用边界：立刻标记该用户涉及的服务器，
     // 由 apply 时的快照差集决定移除还是恢复；5 分钟对账仍作兜底。
@@ -480,7 +513,11 @@ pub async fn delete_user_package(
     user.require_admin()?;
     let removed = repo::user_packages::find_view_by_id(&state.db.pool, &id).await?;
     if !repo::user_packages::delete(&state.db.pool, &id).await? {
-        return Err(AppError::NotFound);
+        return Err(AppError::not_found(
+            "user_package.not_found",
+            None,
+            "资源不存在",
+        ));
     }
     if let Some(removed) = removed {
         crate::audit::record(
@@ -871,11 +908,23 @@ mod tests {
         assert!(body["error"].as_str().unwrap().contains("禁用自己"));
 
         // 用户字段校验。
-        for bad in [
-            json!({"username": "ab", "password": "password123"}),
-            json!({"username": "charlie", "password": "short"}),
-            json!({"username": "charlie", "password": "password123", "role": "root"}),
-            json!({"username": "charlie", "password": "password123", "quota_bytes": -1}),
+        for (bad, expected_code) in [
+            (
+                json!({"username": "ab", "password": "password123"}),
+                "user.username_length_invalid",
+            ),
+            (
+                json!({"username": "charlie", "password": "short"}),
+                "user.password_too_short",
+            ),
+            (
+                json!({"username": "charlie", "password": "password123", "role": "root"}),
+                "common.enum_invalid",
+            ),
+            (
+                json!({"username": "charlie", "password": "password123", "quota_bytes": -1}),
+                "package.quota_negative",
+            ),
         ] {
             let (status, body) = request(
                 &app,
@@ -886,8 +935,21 @@ mod tests {
             )
             .await;
             assert_eq!(status, StatusCode::BAD_REQUEST, "payload: {bad}");
+            assert_eq!(body["code"], expected_code, "payload: {bad}");
             assert!(!body["error"].as_str().unwrap().is_empty());
         }
+
+        // 下限放进 params，前端词典不需要把 8 写死。
+        let (_, body) = request(
+            &app,
+            Some(&admin),
+            Method::POST,
+            "/api/v1/users",
+            Some(json!({"username": "shortpw", "password": "short"})),
+        )
+        .await;
+        assert_eq!(body["code"], "user.password_too_short");
+        assert_eq!(body["params"]["min"], 8);
 
         // 套餐字段校验。
         for bad in [

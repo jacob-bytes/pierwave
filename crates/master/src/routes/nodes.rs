@@ -29,7 +29,9 @@ async fn load_server(state: &AppState, id: &str) -> AppResult<Server> {
     repo::servers::find_by_id(&state.db.pool, id)
         .await
         .map_err(|e| match e.downcast_ref::<sqlx::Error>() {
-            Some(sqlx::Error::RowNotFound) => AppError::NotFound,
+            Some(sqlx::Error::RowNotFound) => {
+                AppError::not_found("server.not_found", None, "资源不存在")
+            }
             _ => AppError::Internal(e),
         })
 }
@@ -39,10 +41,15 @@ fn normalize_enum(field: &str, value: &str, allowed: &[&str]) -> AppResult<Strin
     if allowed.contains(&value.as_str()) {
         Ok(value)
     } else {
-        Err(AppError::BadRequest(format!(
-            "不支持的{field}：{value}（可选：{}）",
-            allowed.join(" / ")
-        )))
+        Err(AppError::coded(
+            "common.enum_invalid",
+            Some(json!({
+                "field": field,
+                "value": value,
+                "allowed": allowed,
+            })),
+            format!("不支持的{field}：{value}（可选：{}）", allowed.join(" / ")),
+        ))
     }
 }
 
@@ -50,7 +57,11 @@ fn validate_port(port: i64) -> AppResult<()> {
     if (1..=65535).contains(&port) {
         Ok(())
     } else {
-        Err(AppError::BadRequest("端口必须在 1-65535 之间".into()))
+        Err(AppError::coded(
+            "node.port_invalid",
+            Some(json!({ "min": 1, "max": 65535 })),
+            "端口必须在 1-65535 之间",
+        ))
     }
 }
 
@@ -62,18 +73,30 @@ async fn validate_cert_binding(
 ) -> AppResult<()> {
     if security == "tls" {
         let Some(cert_id) = cert_id else {
-            return Err(AppError::BadRequest("TLS 节点必须绑定证书".into()));
+            return Err(AppError::coded(
+                "node.cert_required",
+                None,
+                "TLS 节点必须绑定证书",
+            ));
         };
         if repo::certificates::find_by_id(&state.db.pool, cert_id)
             .await?
             .is_none()
         {
-            return Err(AppError::BadRequest("绑定的证书不存在".into()));
+            return Err(AppError::coded(
+                "node.cert_not_found",
+                None,
+                "绑定的证书不存在",
+            ));
         }
         return Ok(());
     }
     if cert_id.is_some() {
-        return Err(AppError::BadRequest("只有 TLS 节点才能绑定证书".into()));
+        return Err(AppError::coded(
+            "node.cert_tls_only",
+            None,
+            "只有 TLS 节点才能绑定证书",
+        ));
     }
     Ok(())
 }
@@ -81,7 +104,11 @@ async fn validate_cert_binding(
 fn normalize_cert_id(raw: Option<&str>) -> AppResult<Option<String>> {
     match raw.map(str::trim) {
         None | Some("") => Ok(None),
-        Some(id) if id.chars().count() > 64 => Err(AppError::BadRequest("证书 id 不合法".into())),
+        Some(id) if id.chars().count() > 64 => Err(AppError::coded(
+            "node.cert_id_invalid",
+            None,
+            "证书 id 不合法",
+        )),
         Some(id) => Ok(Some(id.to_string())),
     }
 }
@@ -90,7 +117,11 @@ fn ensure_object(config: &Value) -> AppResult<()> {
     if config.is_object() {
         Ok(())
     } else {
-        Err(AppError::BadRequest("config 必须是 JSON 对象".into()))
+        Err(AppError::coded(
+            "node.config_invalid",
+            None,
+            "config 必须是 JSON 对象",
+        ))
     }
 }
 
@@ -153,7 +184,11 @@ pub async fn create(
 
     let name = req.name.trim();
     if name.is_empty() {
-        return Err(AppError::BadRequest("节点名称不能为空".into()));
+        return Err(AppError::coded(
+            "node.name_required",
+            None,
+            "节点名称不能为空",
+        ));
     }
     let protocol = normalize_enum("协议", &req.protocol, PROTOCOLS)?;
     let transport = normalize_enum("传输方式", &req.transport, TRANSPORTS)?;
@@ -171,11 +206,19 @@ pub async fn create(
         .map(str::to_string);
     if let Some(tag) = &tag {
         if tag.chars().count() > 64 {
-            return Err(AppError::BadRequest("tag 不能超过 64 个字符".into()));
+            return Err(AppError::coded(
+                "node.tag_too_long",
+                Some(json!({ "max": 64 })),
+                "tag 不能超过 64 个字符",
+            ));
         }
         let nodes = repo::nodes::list_by_server(&state.db.pool, &server_id).await?;
         if nodes.iter().any(|node| node.tag == *tag) {
-            return Err(AppError::BadRequest("该服务器下已存在相同的 tag".into()));
+            return Err(AppError::coded(
+                "node.tag_conflict",
+                None,
+                "该服务器下已存在相同的 tag",
+            ));
         }
     }
 
@@ -245,8 +288,10 @@ pub async fn update(
         && req.port.is_none()
         && !req.cert_id.is_set()
     {
-        return Err(AppError::BadRequest(
-            "至少需要提供 enabled / config / name / port / cert_id 之一".into(),
+        return Err(AppError::coded(
+            "request.no_update_fields",
+            None,
+            "至少需要提供 enabled / config / name / port / cert_id 之一",
         ));
     }
     if let Some(config) = &req.config {
@@ -256,16 +301,26 @@ pub async fn update(
         validate_port(port)?;
     }
     let name = match req.name.as_deref().map(str::trim) {
-        Some("") => return Err(AppError::BadRequest("节点名称不能为空".into())),
+        Some("") => {
+            return Err(AppError::coded(
+                "node.name_required",
+                None,
+                "节点名称不能为空",
+            ))
+        }
         Some(name) if name.chars().count() > 64 => {
-            return Err(AppError::BadRequest("节点名称最多 64 个字符".into()))
+            return Err(AppError::coded(
+                "node.name_too_long",
+                Some(json!({ "max": 64 })),
+                "节点名称最多 64 个字符",
+            ))
         }
         other => other.map(str::to_string),
     };
 
     let existing = repo::nodes::find_by_id(&state.db.pool, &id)
         .await?
-        .ok_or(AppError::NotFound)?;
+        .ok_or_else(|| AppError::not_found("node.not_found", None, "资源不存在"))?;
 
     // PATCH 的 cert_id 是三态：没传就沿用原绑定；传 null 表示解绑。
     let cert_id = if req.cert_id.is_set() {
@@ -274,17 +329,29 @@ pub async fn update(
             Patch::Null | Patch::Missing => None,
         };
         if normalized.is_some() && existing.security != "tls" {
-            return Err(AppError::BadRequest("只有 TLS 节点才能绑定证书".into()));
+            return Err(AppError::coded(
+                "node.cert_tls_only",
+                None,
+                "只有 TLS 节点才能绑定证书",
+            ));
         }
         if normalized.is_none() && existing.security == "tls" {
-            return Err(AppError::BadRequest("TLS 节点必须绑定证书".into()));
+            return Err(AppError::coded(
+                "node.cert_required",
+                None,
+                "TLS 节点必须绑定证书",
+            ));
         }
         if let Some(cert_id) = &normalized {
             if repo::certificates::find_by_id(&state.db.pool, cert_id)
                 .await?
                 .is_none()
             {
-                return Err(AppError::BadRequest("绑定的证书不存在".into()));
+                return Err(AppError::coded(
+                    "node.cert_not_found",
+                    None,
+                    "绑定的证书不存在",
+                ));
             }
         }
         match normalized {
@@ -294,7 +361,11 @@ pub async fn update(
     } else {
         // 没传就保持原样；但历史 TLS 节点若本来就没证书，不能继续让它空着。
         if existing.security == "tls" && existing.cert_id.is_none() {
-            return Err(AppError::BadRequest("TLS 节点必须绑定证书".into()));
+            return Err(AppError::coded(
+                "node.cert_required",
+                None,
+                "TLS 节点必须绑定证书",
+            ));
         }
         Patch::Missing
     };
@@ -310,7 +381,7 @@ pub async fn update(
     };
     let node = repo::nodes::update(&state.db.pool, &id, update)
         .await?
-        .ok_or(AppError::NotFound)?;
+        .ok_or_else(|| AppError::not_found("node.not_found", None, "资源不存在"))?;
 
     // config 可能含私钥，只记「改过」；启用/端口/名称/证书按前后值记。
     let changes = crate::audit::diff(vec![
@@ -348,7 +419,7 @@ pub async fn delete(
     user.require_admin()?;
     let removed = repo::nodes::find_by_id(&state.db.pool, &id).await?;
     if !repo::nodes::delete(&state.db.pool, &id).await? {
-        return Err(AppError::NotFound);
+        return Err(AppError::not_found("node.not_found", None, "资源不存在"));
     }
     if let Some(removed) = removed {
         crate::audit::record(
@@ -776,6 +847,9 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(body["error"].as_str().unwrap().contains("端口"));
+        assert_eq!(body["code"], "node.port_invalid");
+        assert_eq!(body["params"]["min"], 1);
+        assert_eq!(body["params"]["max"], 65535);
 
         let (status, body) = request(
             &app,

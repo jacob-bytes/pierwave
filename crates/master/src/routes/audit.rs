@@ -31,14 +31,20 @@ pub async fn list(
 
     let limit = match query.limit.as_deref() {
         None => DEFAULT_LIMIT,
-        Some(raw) => raw
-            .parse::<i64>()
-            .map_err(|_| AppError::BadRequest("limit 必须是整数".into()))?,
+        Some(raw) => raw.parse::<i64>().map_err(|_| {
+            AppError::coded(
+                "query.limit_invalid",
+                Some(json!({ "max": MAX_LIMIT })),
+                "limit 必须是整数",
+            )
+        })?,
     };
     if !(1..=MAX_LIMIT).contains(&limit) {
-        return Err(AppError::BadRequest(format!(
-            "limit 必须在 1-{MAX_LIMIT} 之间"
-        )));
+        return Err(AppError::coded(
+            "query.limit_out_of_range",
+            Some(json!({ "min": 1, "max": MAX_LIMIT })),
+            format!("limit 必须在 1-{MAX_LIMIT} 之间"),
+        ));
     }
 
     let items = repo::audit::list(&state.db.pool, limit).await?;

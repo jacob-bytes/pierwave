@@ -38,14 +38,22 @@ pub async fn create(
 
     let name = req.name.trim();
     if name.is_empty() {
-        return Err(AppError::BadRequest("证书名称不能为空".into()));
+        return Err(AppError::coded(
+            "certificate.name_required",
+            None,
+            "证书名称不能为空",
+        ));
     }
     if name.chars().count() > 64 {
-        return Err(AppError::BadRequest("证书名称最多 64 个字符".into()));
+        return Err(AppError::coded(
+            "certificate.name_too_long",
+            Some(json!({ "max": 64 })),
+            "证书名称最多 64 个字符",
+        ));
     }
 
     let parsed = certificate::parse(&req.cert_pem, &req.key_pem)
-        .map_err(|error| AppError::BadRequest(error.to_string()))?;
+        .map_err(|error| AppError::coded("certificate.invalid", None, error.to_string()))?;
 
     let cert = repo::certificates::create(
         &state.db.pool,
@@ -62,7 +70,7 @@ pub async fn create(
 
     let view = repo::certificates::view_by_id(&state.db.pool, &cert.id, repo::now())
         .await?
-        .ok_or(AppError::NotFound)?;
+        .ok_or_else(|| AppError::not_found("certificate.not_found", None, "资源不存在"))?;
 
     // 只记元数据：证书正文和私钥永远不进审计。
     crate::audit::record(
@@ -92,13 +100,19 @@ pub async fn delete(
     // 先给业务提示，避免外键/悬挂引用变成 500。
     let references = repo::certificates::count_node_references(&state.db.pool, &id).await?;
     if references > 0 {
-        return Err(AppError::BadRequest(format!(
-            "该证书被 {references} 个节点引用，无法删除"
-        )));
+        return Err(AppError::coded(
+            "certificate.in_use",
+            Some(json!({ "references": references })),
+            format!("该证书被 {references} 个节点引用，无法删除"),
+        ));
     }
     let removed = repo::certificates::view_by_id(&state.db.pool, &id, repo::now()).await?;
     if !repo::certificates::delete(&state.db.pool, &id).await? {
-        return Err(AppError::NotFound);
+        return Err(AppError::not_found(
+            "certificate.not_found",
+            None,
+            "资源不存在",
+        ));
     }
     if let Some(removed) = removed {
         crate::audit::record(

@@ -158,11 +158,15 @@ pub async fn update(
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
 
-    let object = body
-        .as_object()
-        .ok_or_else(|| AppError::BadRequest("请求体必须是 JSON 对象".into()))?;
+    let object = body.as_object().ok_or_else(|| {
+        AppError::coded("settings.body_not_object", None, "请求体必须是 JSON 对象")
+    })?;
     if object.is_empty() {
-        return Err(AppError::BadRequest("至少需要提供一个可更新字段".into()));
+        return Err(AppError::coded(
+            "request.no_update_fields",
+            None,
+            "至少需要提供一个可更新字段",
+        ));
     }
 
     // 先全量校验再写库：避免一个非法字段导致前面的字段被半截更新。
@@ -193,7 +197,11 @@ pub async fn update(
                 .to_string(),
             )),
             other => {
-                return Err(AppError::BadRequest(format!("未知的设置项：{other}")));
+                return Err(AppError::coded(
+                    "settings.unknown_key",
+                    Some(json!({ "key": other })),
+                    format!("未知的设置项：{other}"),
+                ));
             }
         }
     }
@@ -218,13 +226,15 @@ pub async fn update(
 }
 
 fn validate_panel_name(value: &Value) -> AppResult<String> {
-    let raw = value
-        .as_str()
-        .ok_or_else(|| AppError::BadRequest("面板名称必须是字符串".into()))?;
+    let raw = value.as_str().ok_or_else(|| {
+        AppError::coded("settings.panel_name_invalid", None, "面板名称必须是字符串")
+    })?;
     let name = raw.trim();
     if !(1..=64).contains(&name.chars().count()) {
-        return Err(AppError::BadRequest(
-            "面板名称长度必须在 1-64 个字符之间".into(),
+        return Err(AppError::coded(
+            "settings.panel_name_length_invalid",
+            Some(json!({ "min": 1, "max": 64 })),
+            "面板名称长度必须在 1-64 个字符之间",
         ));
     }
     Ok(name.to_string())
@@ -234,7 +244,13 @@ fn validate_int(label: &str, value: &Value, min: i64, max: i64) -> AppResult<i64
     value
         .as_i64()
         .filter(|number| (min..=max).contains(number))
-        .ok_or_else(|| AppError::BadRequest(format!("{label}需在 {min}-{max} 之间的整数")))
+        .ok_or_else(|| {
+            AppError::coded(
+                "settings.int_out_of_range",
+                Some(json!({ "min": min, "max": max })),
+                format!("{label}需在 {min}-{max} 之间的整数"),
+            )
+        })
 }
 
 #[cfg(test)]

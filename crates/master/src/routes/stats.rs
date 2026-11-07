@@ -47,7 +47,11 @@ pub async fn traffic(
     let days = match query.days.as_deref() {
         None => DEFAULT_TRAFFIC_DAYS,
         Some(raw) => raw.trim().parse::<i64>().map_err(|_| {
-            AppError::BadRequest(format!("days 必须是 1-{MAX_TRAFFIC_DAYS} 的整数"))
+            AppError::coded(
+                "stats.days_invalid",
+                Some(json!({ "min": 1, "max": MAX_TRAFFIC_DAYS })),
+                format!("days 必须是 1-{MAX_TRAFFIC_DAYS} 的整数"),
+            )
         })?,
     };
     let days = days.clamp(1, MAX_TRAFFIC_DAYS);
@@ -63,14 +67,19 @@ fn parse_days(raw: Option<&str>, default: i64) -> AppResult<i64> {
     let Some(raw) = raw else {
         return Ok(default);
     };
-    let days = raw
-        .trim()
-        .parse::<i64>()
-        .map_err(|_| AppError::BadRequest(format!("days 必须是 1-{MAX_TRAFFIC_DAYS} 的整数")))?;
+    let days = raw.trim().parse::<i64>().map_err(|_| {
+        AppError::coded(
+            "stats.days_invalid",
+            Some(json!({ "min": 1, "max": MAX_TRAFFIC_DAYS })),
+            format!("days 必须是 1-{MAX_TRAFFIC_DAYS} 的整数"),
+        )
+    })?;
     if !(1..=MAX_TRAFFIC_DAYS).contains(&days) {
-        return Err(AppError::BadRequest(format!(
-            "days 必须在 1-{MAX_TRAFFIC_DAYS} 之间"
-        )));
+        return Err(AppError::coded(
+            "stats.days_invalid",
+            Some(json!({ "min": 1, "max": MAX_TRAFFIC_DAYS })),
+            format!("days 必须在 1-{MAX_TRAFFIC_DAYS} 之间"),
+        ));
     }
     Ok(days)
 }
@@ -79,14 +88,19 @@ fn parse_top(raw: Option<&str>) -> AppResult<i64> {
     let Some(raw) = raw else {
         return Ok(DEFAULT_TOP_USERS);
     };
-    let top = raw
-        .trim()
-        .parse::<i64>()
-        .map_err(|_| AppError::BadRequest(format!("top 必须是 1-{MAX_TOP_USERS} 的整数")))?;
+    let top = raw.trim().parse::<i64>().map_err(|_| {
+        AppError::coded(
+            "stats.top_invalid",
+            Some(json!({ "min": 1, "max": MAX_TOP_USERS })),
+            format!("top 必须是 1-{MAX_TOP_USERS} 的整数"),
+        )
+    })?;
     if !(1..=MAX_TOP_USERS).contains(&top) {
-        return Err(AppError::BadRequest(format!(
-            "top 必须在 1-{MAX_TOP_USERS} 之间"
-        )));
+        return Err(AppError::coded(
+            "stats.top_invalid",
+            Some(json!({ "min": 1, "max": MAX_TOP_USERS })),
+            format!("top 必须在 1-{MAX_TOP_USERS} 之间"),
+        ));
     }
     Ok(top)
 }
@@ -134,7 +148,7 @@ pub async fn node_detail(
     let Some((node, points, users)) =
         repo::stats::node_traffic_detail(&state.db.pool, &node_id, repo::now(), days, top).await?
     else {
-        return Err(AppError::NotFound);
+        return Err(AppError::not_found("node.not_found", None, "资源不存在"));
     };
     Ok(Json(
         json!({ "node": node, "days": points, "users": users }),

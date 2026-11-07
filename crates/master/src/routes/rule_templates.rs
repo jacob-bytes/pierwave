@@ -24,7 +24,11 @@ const MAX_RULE_CHARS: usize = 200;
 fn normalize_name(raw: &str) -> AppResult<String> {
     let name = raw.trim();
     if name.is_empty() {
-        return Err(AppError::BadRequest("规则模板名称不能为空".into()));
+        return Err(AppError::coded(
+            "rule_template.name_required",
+            None,
+            "规则模板名称不能为空",
+        ));
     }
     Ok(name.to_string())
 }
@@ -37,8 +41,10 @@ fn normalize_description(raw: Option<String>, fallback: &str) -> String {
 /// 去空白并逐条校验；返回的就是要落库/渲染的最终规则。
 fn validate_rules(raw: Vec<String>) -> AppResult<Vec<String>> {
     if raw.is_empty() {
-        return Err(AppError::BadRequest(
-            "规则不能为空，至少需要一条以 MATCH 开头的兜底规则".into(),
+        return Err(AppError::coded(
+            "rule_template.rules_empty",
+            None,
+            "规则不能为空，至少需要一条以 MATCH 开头的兜底规则",
         ));
     }
 
@@ -47,16 +53,18 @@ fn validate_rules(raw: Vec<String>) -> AppResult<Vec<String>> {
         let rule = rule.trim();
         let chars = rule.chars().count();
         if chars == 0 {
-            return Err(AppError::BadRequest(format!(
-                "第 {} 条规则不能为空",
-                index + 1
-            )));
+            return Err(AppError::coded(
+                "rule_template.rule_empty",
+                Some(json!({ "index": index + 1 })),
+                format!("第 {} 条规则不能为空", index + 1),
+            ));
         }
         if chars > MAX_RULE_CHARS {
-            return Err(AppError::BadRequest(format!(
-                "第 {} 条规则超过 {MAX_RULE_CHARS} 个字符",
-                index + 1
-            )));
+            return Err(AppError::coded(
+                "rule_template.rule_too_long",
+                Some(json!({ "index": index + 1, "max": MAX_RULE_CHARS })),
+                format!("第 {} 条规则超过 {MAX_RULE_CHARS} 个字符", index + 1),
+            ));
         }
         rules.push(rule.to_string());
     }
@@ -65,9 +73,10 @@ fn validate_rules(raw: Vec<String>) -> AppResult<Vec<String>> {
     // 这类客户端不认的写法写进配置。
     let last = rules.last().expect("rules 非空已校验");
     if !last.starts_with("MATCH") {
-        return Err(AppError::BadRequest(
-            "最后一条规则必须以大写 MATCH 开头（例如 MATCH,PROXY），否则 Clash 配置没有兜底规则"
-                .into(),
+        return Err(AppError::coded(
+            "rule_template.last_rule_must_be_match",
+            None,
+            "最后一条规则必须以大写 MATCH 开头（例如 MATCH,PROXY），否则 Clash 配置没有兜底规则",
         ));
     }
 
@@ -82,9 +91,11 @@ async fn ensure_name_available(
 ) -> AppResult<()> {
     if let Some(existing) = repo::rule_templates::find_by_name(&state.db.pool, name).await? {
         if Some(existing.id.as_str()) != current_id {
-            return Err(AppError::BadRequest(format!(
-                "规则模板名称「{name}」已存在"
-            )));
+            return Err(AppError::coded(
+                "rule_template.name_taken",
+                Some(json!({ "name": name })),
+                format!("规则模板名称「{name}」已存在"),
+            ));
         }
     }
     Ok(())
@@ -93,7 +104,7 @@ async fn ensure_name_available(
 /// 并发下仍可能撞唯一索引：把数据库错误翻译成 400 中文，而不是 500。
 fn map_name_conflict(error: anyhow::Error) -> AppError {
     if format!("{error:#}").contains("UNIQUE constraint failed: rule_templates.name") {
-        AppError::BadRequest("规则模板名称已存在".into())
+        AppError::coded("rule_template.name_taken", None, "规则模板名称已存在")
     } else {
         AppError::Internal(error)
     }
@@ -175,7 +186,11 @@ pub async fn update(
         && req.rules.is_none()
         && req.is_default.is_none()
     {
-        return Err(AppError::BadRequest("至少需要提供一个可更新字段".into()));
+        return Err(AppError::coded(
+            "request.no_update_fields",
+            None,
+            "至少需要提供一个可更新字段",
+        ));
     }
 
     let name = match req.name.as_deref() {
@@ -201,7 +216,7 @@ pub async fn update(
     )
     .await
     .map_err(map_name_conflict)?
-    .ok_or(AppError::NotFound)?;
+    .ok_or_else(|| AppError::not_found("rule_template.not_found", None, "资源不存在"))?;
 
     let changes = crate::audit::diff(vec![
         (
@@ -249,13 +264,21 @@ pub async fn delete(
 
     let template = repo::rule_templates::find_by_id(&state.db.pool, &id)
         .await?
-        .ok_or(AppError::NotFound)?;
+        .ok_or_else(|| AppError::not_found("rule_template.not_found", None, "资源不存在"))?;
     match repo::rule_templates::delete(&state.db.pool, &id).await? {
         DeleteOutcome::Deleted => {}
-        DeleteOutcome::NotFound => return Err(AppError::NotFound),
+        DeleteOutcome::NotFound => {
+            return Err(AppError::not_found(
+                "rule_template.not_found",
+                None,
+                "资源不存在",
+            ))
+        }
         DeleteOutcome::IsDefault => {
-            return Err(AppError::BadRequest(
-                "默认规则模板不能删除，请先把其它模板设为默认".into(),
+            return Err(AppError::coded(
+                "rule_template.default_undeletable",
+                None,
+                "默认规则模板不能删除，请先把其它模板设为默认",
             ))
         }
     }
@@ -548,25 +571,33 @@ mod tests {
             .to_string();
 
         let cases = [
-            (json!({"name": "空规则", "rules": []}), "不能为空"),
+            (
+                json!({"name": "空规则", "rules": []}),
+                "不能为空",
+                "rule_template.rules_empty",
+            ),
             (
                 json!({"name": "没有兜底", "rules": ["GEOIP,CN,DIRECT"]}),
                 "MATCH",
+                "rule_template.last_rule_must_be_match",
             ),
             (
                 json!({"name": "小写 match", "rules": ["match,PROXY"]}),
                 "MATCH",
+                "rule_template.last_rule_must_be_match",
             ),
             (
                 json!({"name": "超长规则", "rules": ["A".repeat(MAX_RULE_CHARS + 1), "MATCH,PROXY"]}),
                 "200",
+                "rule_template.rule_too_long",
             ),
             (
                 json!({"name": "", "rules": ["MATCH,PROXY"]}),
                 "名称不能为空",
+                "rule_template.name_required",
             ),
         ];
-        for (body, expected) in cases {
+        for (body, expected, expected_code) in cases {
             let (status, value) = request(
                 &app,
                 Some(&cookie),
@@ -580,6 +611,7 @@ mod tests {
                 value["error"].as_str().unwrap().contains(expected),
                 "body={body} value={value}"
             );
+            assert_eq!(value["code"], expected_code, "body={body} value={value}");
         }
 
         // PATCH 同样走校验。

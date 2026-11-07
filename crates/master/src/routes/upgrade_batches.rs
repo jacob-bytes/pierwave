@@ -47,7 +47,9 @@ async fn load_batch(state: &AppState, id: &str) -> AppResult<AgentUpgradeBatch> 
     repo::upgrade_batches::find_by_id(&state.db.pool, id)
         .await
         .map_err(|error| match error.downcast_ref::<sqlx::Error>() {
-            Some(sqlx::Error::RowNotFound) => AppError::NotFound,
+            Some(sqlx::Error::RowNotFound) => {
+                AppError::not_found("upgrade_batch.not_found", None, "资源不存在")
+            }
             _ => AppError::Internal(error),
         })
 }
@@ -55,30 +57,46 @@ async fn load_batch(state: &AppState, id: &str) -> AppResult<AgentUpgradeBatch> 
 /// 去空、去重，保持请求里的顺序（runner 按这个顺序执行）。
 fn normalize_server_ids(raw: &[String]) -> AppResult<Vec<String>> {
     if raw.len() > MAX_BATCH_SERVERS {
-        return Err(AppError::BadRequest(format!(
-            "一个批次最多 {MAX_BATCH_SERVERS} 台服务器（当前 {} 台）",
-            raw.len()
-        )));
+        return Err(AppError::coded(
+            "upgrade_batch.too_many_servers",
+            Some(json!({ "max": MAX_BATCH_SERVERS, "count": raw.len() })),
+            format!(
+                "一个批次最多 {MAX_BATCH_SERVERS} 台服务器（当前 {} 台）",
+                raw.len()
+            ),
+        ));
     }
     let mut seen = HashSet::new();
     let mut ids = Vec::new();
     for value in raw {
         let id = value.trim();
         if id.is_empty() {
-            return Err(AppError::BadRequest("server_ids 里不能有空值".into()));
+            return Err(AppError::coded(
+                "upgrade_batch.empty_server_id",
+                None,
+                "server_ids 里不能有空值",
+            ));
         }
         if seen.insert(id.to_string()) {
             ids.push(id.to_string());
         }
     }
     if ids.is_empty() {
-        return Err(AppError::BadRequest("server_ids 不能为空".into()));
+        return Err(AppError::coded(
+            "upgrade_batch.no_servers",
+            None,
+            "server_ids 不能为空",
+        ));
     }
     if ids.len() > MAX_BATCH_SERVERS {
-        return Err(AppError::BadRequest(format!(
-            "一个批次最多 {MAX_BATCH_SERVERS} 台服务器（当前 {} 台）",
-            ids.len()
-        )));
+        return Err(AppError::coded(
+            "upgrade_batch.too_many_servers",
+            Some(json!({ "max": MAX_BATCH_SERVERS, "count": ids.len() })),
+            format!(
+                "一个批次最多 {MAX_BATCH_SERVERS} 台服务器（当前 {} 台）",
+                ids.len()
+            ),
+        ));
     }
     Ok(ids)
 }
@@ -111,10 +129,11 @@ pub async fn create(
         }
     }
     if !missing.is_empty() {
-        return Err(AppError::BadRequest(format!(
-            "以下服务器不存在：{}",
-            missing.join("、")
-        )));
+        return Err(AppError::coded(
+            "upgrade_batch.servers_not_found",
+            Some(json!({ "server_ids": &missing })),
+            format!("以下服务器不存在：{}", missing.join("、")),
+        ));
     }
 
     let disabled: Vec<&str> = servers
@@ -123,10 +142,14 @@ pub async fn create(
         .map(|server| server.name.as_str())
         .collect();
     if !disabled.is_empty() {
-        return Err(AppError::BadRequest(format!(
-            "以下服务器未开启 Agent 自升级（allow_agent_upgrade = false），不能加入批量升级：{}",
-            disabled.join("、")
-        )));
+        return Err(AppError::coded(
+            "upgrade_batch.servers_disabled",
+            Some(json!({ "servers": &disabled })),
+            format!(
+                "以下服务器未开启 Agent 自升级（allow_agent_upgrade = false），不能加入批量升级：{}",
+                disabled.join("、")
+            ),
+        ));
     }
 
     // 同一台不能同时出现在两个未终态批次里，否则会重复触发升级。
@@ -140,10 +163,11 @@ pub async fn create(
         .map(|server| server.name.as_str())
         .collect();
     if !conflicts.is_empty() {
-        return Err(AppError::BadRequest(format!(
-            "以下服务器已在进行中的批次里：{}",
-            conflicts.join("、")
-        )));
+        return Err(AppError::coded(
+            "upgrade_batch.server_busy",
+            Some(json!({ "servers": &conflicts })),
+            format!("以下服务器已在进行中的批次里：{}", conflicts.join("、")),
+        ));
     }
 
     let version = super::servers::resolve_upgrade_version(&state, &req.version).await?;
@@ -217,10 +241,11 @@ pub async fn cancel(
     user.require_admin()?;
     let batch = load_batch(&state, &id).await?;
     if batch.status != "running" {
-        return Err(AppError::BadRequest(format!(
-            "批次已结束（{}），无法取消",
-            batch.status
-        )));
+        return Err(AppError::coded(
+            "upgrade_batch.not_running",
+            Some(json!({ "status": &batch.status })),
+            format!("批次已结束（{}），无法取消", batch.status),
+        ));
     }
 
     let cancelled =

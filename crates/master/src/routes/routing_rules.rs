@@ -32,7 +32,11 @@ async fn validate_outbound_tag(
 ) -> AppResult<()> {
     let tag = outbound_tag.trim();
     if tag.is_empty() {
-        return Err(AppError::BadRequest("outbound_tag 不能为空".into()));
+        return Err(AppError::coded(
+            "routing_rule.outbound_tag_required",
+            None,
+            "outbound_tag 不能为空",
+        ));
     }
     if matches!(tag, "direct" | "blocked") {
         return Ok(());
@@ -41,7 +45,11 @@ async fn validate_outbound_tag(
     if outbounds.iter().any(|outbound| outbound.tag == tag) {
         Ok(())
     } else {
-        Err(AppError::BadRequest(format!("出站 tag「{tag}」不存在")))
+        Err(AppError::coded(
+            "routing_rule.outbound_not_found",
+            Some(json!({ "tag": tag })),
+            format!("出站 tag「{tag}」不存在"),
+        ))
     }
 }
 
@@ -59,7 +67,11 @@ async fn validate_inbound_tag(
     if nodes.iter().any(|node| node.tag == tag) {
         Ok(())
     } else {
-        Err(AppError::BadRequest(format!("入站节点 tag「{tag}」不存在")))
+        Err(AppError::coded(
+            "routing_rule.inbound_not_found",
+            Some(json!({ "tag": tag })),
+            format!("入站节点 tag「{tag}」不存在"),
+        ))
     }
 }
 
@@ -123,7 +135,7 @@ pub async fn create(
     let domain = routing::normalize_condition(req.domain.as_deref());
     let ip = routing::normalize_condition(req.ip.as_deref());
     routing::validate_rule_match(inbound_tag.as_deref(), domain.as_deref(), ip.as_deref())
-        .map_err(AppError::BadRequest)?;
+        .map_err(|error| AppError::coded("routing_rule.match_required", None, error))?;
 
     let outbound_tag = req.outbound_tag.trim().to_string();
     validate_outbound_tag(&state, &server_id, &outbound_tag).await?;
@@ -192,15 +204,16 @@ pub async fn update(
         && req.sort_order.is_none()
         && req.enabled.is_none()
     {
-        return Err(AppError::BadRequest(
-            "至少需要提供 inbound_tag / domain / ip / outbound_tag / sort_order / enabled 之一"
-                .into(),
+        return Err(AppError::coded(
+            "request.no_update_fields",
+            None,
+            "至少需要提供 inbound_tag / domain / ip / outbound_tag / sort_order / enabled 之一",
         ));
     }
 
     let existing = repo::routing_rules::find_by_id(&state.db.pool, &id)
         .await?
-        .ok_or(AppError::NotFound)?;
+        .ok_or_else(|| AppError::not_found("routing_rule.not_found", None, "资源不存在"))?;
 
     let inbound_patch = normalize_patch(req.inbound_tag);
     let domain_patch = normalize_patch(req.domain);
@@ -211,7 +224,7 @@ pub async fn update(
 
     // 清空最后一个匹配条件会让规则变成「全匹配」，必须拦住。
     routing::validate_rule_match(inbound_tag.as_deref(), domain.as_deref(), ip.as_deref())
-        .map_err(AppError::BadRequest)?;
+        .map_err(|error| AppError::coded("routing_rule.match_required", None, error))?;
 
     let outbound_tag = match req.outbound_tag.as_deref() {
         Some(raw) => raw.trim().to_string(),
@@ -235,7 +248,7 @@ pub async fn update(
         },
     )
     .await?
-    .ok_or(AppError::NotFound)?;
+    .ok_or_else(|| AppError::not_found("routing_rule.not_found", None, "资源不存在"))?;
 
     let changes = crate::audit::diff(vec![
         (
@@ -286,9 +299,13 @@ pub async fn delete(
 
     let existing = repo::routing_rules::find_by_id(&state.db.pool, &id)
         .await?
-        .ok_or(AppError::NotFound)?;
+        .ok_or_else(|| AppError::not_found("routing_rule.not_found", None, "资源不存在"))?;
     if !repo::routing_rules::delete(&state.db.pool, &id).await? {
-        return Err(AppError::NotFound);
+        return Err(AppError::not_found(
+            "routing_rule.not_found",
+            None,
+            "资源不存在",
+        ));
     }
 
     crate::audit::record(

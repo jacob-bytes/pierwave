@@ -10,6 +10,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
+use serde_json::json;
 
 use pierwave_domain::release;
 use pierwave_domain::repo;
@@ -48,13 +49,17 @@ pub async fn script(
         .as_deref()
         .map(str::trim)
         .filter(|t| !t.is_empty())
-        .ok_or_else(|| AppError::BadRequest("缺少 token 参数".into()))?;
+        .ok_or_else(|| AppError::coded("install.token_required", None, "缺少 token 参数"))?;
 
     if repo::servers::find_by_token(&state.db.pool, token)
         .await?
         .is_none()
     {
-        return Err(AppError::NotFound);
+        return Err(AppError::not_found(
+            "install.token_not_found",
+            None,
+            "资源不存在",
+        ));
     }
 
     let base = external_base(&headers);
@@ -135,15 +140,23 @@ pub async fn download(
     Path(file): Path<String>,
 ) -> AppResult<Response> {
     if file.contains('/') || file.contains("..") {
-        return Err(AppError::BadRequest("非法的文件名".into()));
+        return Err(AppError::coded(
+            "install.filename_invalid",
+            None,
+            "非法的文件名",
+        ));
     }
     let Ok(dir) = std::env::var("PIERWAVE_AGENT_DIST") else {
-        return Err(AppError::NotFound);
+        return Err(AppError::not_found(
+            "install.file_not_found",
+            None,
+            "资源不存在",
+        ));
     };
     let path: PathBuf = PathBuf::from(dir).join(&file);
     let bytes = tokio::fs::read(&path)
         .await
-        .map_err(|_| AppError::NotFound)?;
+        .map_err(|_| AppError::not_found("install.file_not_found", None, "资源不存在"))?;
     Ok((
         StatusCode::OK,
         [(header::CONTENT_TYPE, "application/octet-stream")],
@@ -314,27 +327,40 @@ pub async fn release(
     Path(rest): Path<String>,
     Query(query): Query<InstallQuery>,
 ) -> AppResult<Response> {
-    let token = request_token(&headers, &query).ok_or(AppError::Unauthorized)?;
+    let token = request_token(&headers, &query)
+        .ok_or_else(|| AppError::unauthorized("auth.unauthorized", None, "未登录"))?;
     if repo::servers::find_by_token(&state.db.pool, token)
         .await?
         .is_none()
     {
-        return Err(AppError::Unauthorized);
+        return Err(AppError::unauthorized("auth.unauthorized", None, "未登录"));
     }
 
     // 必须恰好是 `{version}/{file}` 两段。
     let mut segments = rest.split('/');
     let (Some(version), Some(file), None) = (segments.next(), segments.next(), segments.next())
     else {
-        return Err(AppError::NotFound);
+        return Err(AppError::not_found(
+            "install.release_not_found",
+            None,
+            "资源不存在",
+        ));
     };
     if version.is_empty() || file.is_empty() {
-        return Err(AppError::NotFound);
+        return Err(AppError::not_found(
+            "install.release_not_found",
+            None,
+            "资源不存在",
+        ));
     }
 
     // 非法版本/文件名一律 404：既不暴露「哪个文件存在」，也防目录穿越。
     if !valid_release_version(version) || !allowed_release_file(file) {
-        return Err(AppError::NotFound);
+        return Err(AppError::not_found(
+            "install.release_not_found",
+            None,
+            "资源不存在",
+        ));
     }
 
     let cache_path = state.agent_release.cache_path(version, file);
@@ -343,10 +369,14 @@ pub async fn release(
     }
 
     let Some(bytes) = fetch_origin(version, file, &state.agent_release.source).await else {
-        return Err(AppError::ServiceUnavailable(format!(
-            "无法获取 Agent 发布产物 {file}（版本 {version}）：主控回源 GitHub 失败，且本地没有缓存。\
-             请确认主控能访问外网，或稍后重试。"
-        )));
+        return Err(AppError::service_unavailable(
+            "install.release_unavailable",
+            Some(json!({ "file": file, "version": version })),
+            format!(
+                "无法获取 Agent 发布产物 {file}（版本 {version}）：主控回源 GitHub 失败，且本地没有缓存。\
+                 请确认主控能访问外网，或稍后重试。"
+            ),
+        ));
     };
 
     cache_release(&cache_path, &bytes).await;

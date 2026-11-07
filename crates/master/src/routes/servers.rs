@@ -43,11 +43,17 @@ pub async fn create(
     let name = req.name.trim();
     let address = req.address.trim();
     if name.is_empty() || address.is_empty() {
-        return Err(AppError::BadRequest("名称和地址不能为空".into()));
+        return Err(AppError::coded(
+            "server.name_address_required",
+            None,
+            "名称和地址不能为空",
+        ));
     }
     if req.xray_mode != "external" {
-        return Err(AppError::BadRequest(
-            "目前只支持外置 Xray（external）；内联模式尚未实现".into(),
+        return Err(AppError::coded(
+            "server.xray_mode_unsupported",
+            Some(json!({ "mode": &req.xray_mode })),
+            "目前只支持外置 Xray（external）；内联模式尚未实现",
         ));
     }
     let (server, token) =
@@ -93,20 +99,38 @@ pub async fn update(
 ) -> AppResult<Json<serde_json::Value>> {
     user.require_admin()?;
     let name = match req.name.as_deref().map(str::trim) {
-        Some("") => return Err(AppError::BadRequest("服务器名称不能为空".into())),
+        Some("") => {
+            return Err(AppError::coded(
+                "server.name_required",
+                None,
+                "服务器名称不能为空",
+            ))
+        }
         Some(name) if name.chars().count() > 64 => {
-            return Err(AppError::BadRequest("服务器名称最多 64 个字符".into()))
+            return Err(AppError::coded(
+                "server.name_too_long",
+                Some(json!({ "max": 64 })),
+                "服务器名称最多 64 个字符",
+            ))
         }
         other => other,
     };
     let address = match req.address.as_deref().map(str::trim) {
-        Some("") => return Err(AppError::BadRequest("服务器地址不能为空".into())),
+        Some("") => {
+            return Err(AppError::coded(
+                "server.address_required",
+                None,
+                "服务器地址不能为空",
+            ))
+        }
         other => other,
     };
     if let Some(mode) = req.xray_mode.as_deref() {
         if mode != "external" {
-            return Err(AppError::BadRequest(
-                "目前只支持外置 Xray（external）；内联模式尚未实现".into(),
+            return Err(AppError::coded(
+                "server.xray_mode_unsupported",
+                Some(json!({ "mode": mode })),
+                "目前只支持外置 Xray（external）；内联模式尚未实现",
             ));
         }
     }
@@ -115,8 +139,10 @@ pub async fn update(
         && req.xray_mode.is_none()
         && req.allow_agent_upgrade.is_none()
     {
-        return Err(AppError::BadRequest(
-            "至少需要提供 name / address / xray_mode / allow_agent_upgrade 之一".into(),
+        return Err(AppError::coded(
+            "request.no_update_fields",
+            None,
+            "至少需要提供 name / address / xray_mode / allow_agent_upgrade 之一",
         ));
     }
 
@@ -130,7 +156,7 @@ pub async fn update(
         req.allow_agent_upgrade,
     )
     .await?
-    .ok_or(AppError::NotFound)?;
+    .ok_or_else(|| AppError::not_found("server.not_found", None, "资源不存在"))?;
 
     let changes = crate::audit::diff(vec![
         (
@@ -177,7 +203,9 @@ async fn load_server(state: &AppState, id: &str) -> AppResult<Server> {
     repo::servers::find_by_id(&state.db.pool, id)
         .await
         .map_err(|error| match error.downcast_ref::<sqlx::Error>() {
-            Some(sqlx::Error::RowNotFound) => AppError::NotFound,
+            Some(sqlx::Error::RowNotFound) => {
+                AppError::not_found("server.not_found", None, "资源不存在")
+            }
             _ => AppError::Internal(error),
         })
 }
@@ -197,8 +225,10 @@ pub(crate) async fn resolve_upgrade_version(
             let Some(latest) =
                 crate::routes::install::fetch_latest_version(&state.agent_release).await
             else {
-                return Err(AppError::BadRequest(
-                    "无法获取最新版本，请显式指定 version（例如 0.6.0）".into(),
+                return Err(AppError::coded(
+                    "agent.upgrade.version_unavailable",
+                    None,
+                    "无法获取最新版本，请显式指定 version（例如 0.6.0）",
                 ));
             };
             state.latest_version.put(&latest);
@@ -208,9 +238,11 @@ pub(crate) async fn resolve_upgrade_version(
         requested.to_string()
     };
     if !release::is_valid_version(&version) {
-        return Err(AppError::BadRequest(format!(
-            "版本号格式不合法：{version}（示例：0.6.0 或 v0.6.0）"
-        )));
+        return Err(AppError::coded(
+            "agent.upgrade.version_invalid",
+            Some(json!({ "version": version })),
+            format!("版本号格式不合法：{version}（示例：0.6.0 或 v0.6.0）"),
+        ));
     }
     Ok(version)
 }
@@ -244,42 +276,61 @@ pub(crate) async fn trigger_single_upgrade_with_base(
     let server = load_server(state, server_id).await?;
 
     if !server.allow_agent_upgrade {
-        return Err(AppError::BadRequest(
-            "该服务器未开启 Agent 自升级（allow_agent_upgrade = false），请先开启后再试".into(),
+        return Err(AppError::coded(
+            "agent.upgrade.disabled",
+            None,
+            "该服务器未开启 Agent 自升级（allow_agent_upgrade = false），请先开启后再试",
         ));
     }
     if !release::is_valid_version(version) {
-        return Err(AppError::BadRequest(format!(
-            "版本号格式不合法：{version}（示例：0.6.0 或 v0.6.0）"
-        )));
+        return Err(AppError::coded(
+            "agent.upgrade.version_invalid",
+            Some(json!({ "version": version })),
+            format!("版本号格式不合法：{version}（示例：0.6.0 或 v0.6.0）"),
+        ));
     }
 
     // 心跳没带架构时回落到主控配置；带了但不在白名单就必须拒绝，不能发错产物。
     let arch = server.arch.trim();
     if !arch.is_empty() && super::desired::target_for_arch(arch).is_none() {
-        return Err(AppError::BadRequest(format!(
-            "不支持的 CPU 架构：{arch}（仅支持 x86_64 / aarch64）"
-        )));
+        return Err(AppError::coded(
+            "agent.upgrade.arch_unsupported",
+            Some(json!({ "arch": arch })),
+            format!("不支持的 CPU 架构：{arch}（仅支持 x86_64 / aarch64）"),
+        ));
     }
 
     let current = server.agent_version.as_deref().unwrap_or("").trim();
     if current.is_empty() {
-        return Err(AppError::BadRequest(
-            "服务器尚未上报 Agent 版本，无法判断升级方向；请先让 Agent 上线并发送一次心跳".into(),
+        return Err(AppError::coded(
+            "agent.upgrade.current_unknown",
+            None,
+            "服务器尚未上报 Agent 版本，无法判断升级方向；请先让 Agent 上线并发送一次心跳",
         ));
     }
     if !release::is_newer(version, current) {
-        return Err(AppError::BadRequest(format!(
-            "目标版本 {version} 必须比当前 Agent 版本 {current} 新（不支持降级，也不支持重复升级到同一版本）"
-        )));
+        return Err(AppError::coded(
+            "agent.upgrade.not_newer",
+            Some(json!({ "current": current, "target": version })),
+            format!(
+                "目标版本 {version} 必须比当前 Agent 版本 {current} 新（不支持降级，也不支持重复升级到同一版本）"
+            ),
+        ));
     }
 
     if let Some(latest) = repo::agent_upgrades::latest(&state.db.pool, server_id).await? {
         if latest.status == "pending" {
-            return Err(AppError::BadRequest(format!(
-                "该服务器已有进行中的升级（{} → {}），请等待心跳确认完成后再触发",
-                latest.from_version, latest.to_version
-            )));
+            return Err(AppError::coded(
+                "agent.upgrade.in_progress",
+                Some(json!({
+                    "current": &latest.from_version,
+                    "target": &latest.to_version,
+                })),
+                format!(
+                    "该服务器已有进行中的升级（{} → {}），请等待心跳确认完成后再触发",
+                    latest.from_version, latest.to_version
+                ),
+            ));
         }
     }
 
@@ -316,8 +367,10 @@ pub async fn trigger_agent_upgrade(
     // 未知 server id 不应因为空版本先去打网络，错误优先级保持 404 > 400。
     let server = load_server(&state, &id).await?;
     if !server.allow_agent_upgrade {
-        return Err(AppError::BadRequest(
-            "该服务器未开启 Agent 自升级（allow_agent_upgrade = false），请先开启后再试".into(),
+        return Err(AppError::coded(
+            "agent.upgrade.disabled",
+            None,
+            "该服务器未开启 Agent 自升级（allow_agent_upgrade = false），请先开启后再试",
         ));
     }
 
@@ -362,7 +415,7 @@ pub async fn delete(
     user.require_admin()?;
     let removed = repo::servers::find_by_id(&state.db.pool, &id).await.ok();
     if !repo::servers::delete(&state.db.pool, &id).await? {
-        return Err(AppError::NotFound);
+        return Err(AppError::not_found("server.not_found", None, "资源不存在"));
     }
     if let Some(removed) = removed {
         crate::audit::record(
@@ -545,6 +598,8 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
         assert!(body["error"].as_str().unwrap().contains("内联"));
+        assert_eq!(body["code"], "server.xray_mode_unsupported");
+        assert_eq!(body["params"]["mode"], "embedded");
     }
 
     // ---- Agent 自升级 ----

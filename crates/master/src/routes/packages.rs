@@ -21,7 +21,11 @@ fn normalize_node_id_list(ids: Vec<String>) -> AppResult<Vec<String>> {
     for id in ids {
         let id = id.trim();
         if id.is_empty() {
-            return Err(AppError::BadRequest("节点 id 不能为空".into()));
+            return Err(AppError::coded(
+                "package.node_scope_invalid",
+                None,
+                "节点 id 不能为空",
+            ));
         }
         if seen.insert(id.to_string()) {
             out.push(id.to_string());
@@ -48,10 +52,11 @@ fn normalize_patch_node_ids(raw: Patch<Vec<String>>) -> AppResult<Patch<Vec<Stri
 async fn validate_node_id_list(state: &AppState, node_ids: &[String]) -> AppResult<()> {
     let missing = repo::nodes::missing_ids(&state.db.pool, node_ids).await?;
     if !missing.is_empty() {
-        return Err(AppError::BadRequest(format!(
-            "节点不存在：{}",
-            missing.join("、")
-        )));
+        return Err(AppError::coded(
+            "package.node_not_found",
+            Some(json!({ "node_ids": &missing })),
+            format!("节点不存在：{}", missing.join("、")),
+        ));
     }
     Ok(())
 }
@@ -86,10 +91,15 @@ fn normalize_enum(field: &str, value: &str, allowed: &[&str]) -> AppResult<Strin
     if allowed.contains(&value.as_str()) {
         Ok(value)
     } else {
-        Err(AppError::BadRequest(format!(
-            "不支持的{field}：{value}（可选：{}）",
-            allowed.join(" / ")
-        )))
+        Err(AppError::coded(
+            "common.enum_invalid",
+            Some(json!({
+                "field": field,
+                "value": value,
+                "allowed": allowed,
+            })),
+            format!("不支持的{field}：{value}（可选：{}）", allowed.join(" / ")),
+        ))
     }
 }
 
@@ -99,21 +109,33 @@ pub(crate) fn validate_direction(value: &str) -> AppResult<String> {
 
 pub(crate) fn validate_quota_bytes(quota: Option<i64>) -> AppResult<()> {
     if quota.is_some_and(|quota| quota < 0) {
-        return Err(AppError::BadRequest("额度不能为负数".into()));
+        return Err(AppError::coded(
+            "package.quota_negative",
+            None,
+            "额度不能为负数",
+        ));
     }
     Ok(())
 }
 
 pub(crate) fn validate_period_days(period_days: Option<i64>) -> AppResult<()> {
     if period_days.is_some_and(|days| !(1..=3650).contains(&days)) {
-        return Err(AppError::BadRequest("周期天数必须在 1-3650 之间".into()));
+        return Err(AppError::coded(
+            "package.period_days_invalid",
+            Some(json!({ "min": 1, "max": 3650 })),
+            "周期天数必须在 1-3650 之间",
+        ));
     }
     Ok(())
 }
 
 pub(crate) fn validate_reset_day(reset_day: i64) -> AppResult<()> {
     if !(1..=31).contains(&reset_day) {
-        return Err(AppError::BadRequest("重置日必须在 1-31 之间".into()));
+        return Err(AppError::coded(
+            "package.reset_day_invalid",
+            Some(json!({ "min": 1, "max": 31 })),
+            "重置日必须在 1-31 之间",
+        ));
     }
     Ok(())
 }
@@ -122,8 +144,10 @@ pub(crate) fn validate_node_ratio(node_ratio: f64) -> AppResult<()> {
     if node_ratio.is_finite() && node_ratio > 0.0 && node_ratio <= 10.0 {
         Ok(())
     } else {
-        Err(AppError::BadRequest(
-            "节点倍率必须大于 0 且不超过 10".into(),
+        Err(AppError::coded(
+            "package.node_ratio_invalid",
+            Some(json!({ "max": 10 })),
+            "节点倍率必须大于 0 且不超过 10",
         ))
     }
 }
@@ -132,13 +156,21 @@ pub(crate) fn validate_node_ratio(node_ratio: f64) -> AppResult<()> {
 pub(crate) async fn validate_rule_template_id(state: &AppState, id: &str) -> AppResult<String> {
     let id = id.trim();
     if id.is_empty() {
-        return Err(AppError::BadRequest("规则模板不存在".into()));
+        return Err(AppError::coded(
+            "rule_template.reference_not_found",
+            None,
+            "规则模板不存在",
+        ));
     }
     if repo::rule_templates::find_by_id(&state.db.pool, id)
         .await?
         .is_none()
     {
-        return Err(AppError::BadRequest(format!("规则模板不存在：{id}")));
+        return Err(AppError::coded(
+            "rule_template.reference_not_found",
+            Some(json!({ "id": id })),
+            format!("规则模板不存在：{id}"),
+        ));
     }
     Ok(id.to_string())
 }
@@ -196,7 +228,11 @@ pub async fn create(
 
     let name = req.name.trim();
     if name.is_empty() {
-        return Err(AppError::BadRequest("套餐名称不能为空".into()));
+        return Err(AppError::coded(
+            "package.name_required",
+            None,
+            "套餐名称不能为空",
+        ));
     }
     validate_quota_bytes(req.quota_bytes)?;
     validate_period_days(req.period_days)?;
@@ -282,11 +318,21 @@ pub async fn update(
         && !req.node_ids.is_set()
         && !req.rule_template_id.is_set()
     {
-        return Err(AppError::BadRequest("至少需要提供一个可更新字段".into()));
+        return Err(AppError::coded(
+            "request.no_update_fields",
+            None,
+            "至少需要提供一个可更新字段",
+        ));
     }
 
     let name = match req.name.as_deref().map(str::trim) {
-        Some("") => return Err(AppError::BadRequest("套餐名称不能为空".into())),
+        Some("") => {
+            return Err(AppError::coded(
+                "package.name_required",
+                None,
+                "套餐名称不能为空",
+            ))
+        }
         other => other.map(str::to_string),
     };
     if req.quota_bytes.is_set() {
@@ -335,7 +381,7 @@ pub async fn update(
         },
     )
     .await?
-    .ok_or(AppError::NotFound)?;
+    .ok_or_else(|| AppError::not_found("package.not_found", None, "资源不存在"))?;
 
     let after = repo::packages::node_scope(&state.db.pool, &id).await?;
     mark_dirty_if_scope_changed(&state, &id, before_scope, after).await;
@@ -416,13 +462,15 @@ pub async fn delete(
     // 先给业务提示，避免直接把外键错误暴露成 500。
     let references = repo::packages::count_references(&state.db.pool, &id).await?;
     if references > 0 {
-        return Err(AppError::BadRequest(format!(
-            "该套餐还有 {references} 个用户在用，无法删除"
-        )));
+        return Err(AppError::coded(
+            "package.in_use",
+            Some(json!({ "references": references })),
+            format!("该套餐还有 {references} 个用户在用，无法删除"),
+        ));
     }
     let removed = repo::packages::find_by_id(&state.db.pool, &id).await?;
     if !repo::packages::delete(&state.db.pool, &id).await? {
-        return Err(AppError::NotFound);
+        return Err(AppError::not_found("package.not_found", None, "资源不存在"));
     }
     if let Some(removed) = removed {
         crate::audit::record(
