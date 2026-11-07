@@ -145,8 +145,17 @@ PUB="$(printf '%s\n' "$KEYS" | awk -F': *' '/[Pp]ublic/{print $2}' | tr -d '[:sp
 if [ -z "$PRIV" ] || [ -z "$PUB" ]; then bad "无法解析 x25519 输出"; exit 1; fi
 ok "私钥/公钥已生成"
 
-BIN="$(cd "$(dirname "$0")/.." && pwd)/target/release/pierwave-master"
-[ -x "$BIN" ] || BIN="$(cd "$(dirname "$0")/.." && pwd)/target/debug/pierwave-master"
+# 依次尝试：显式指定 → 脚本所在仓库 → 当前目录 → PATH
+BIN=""
+for candidate in \
+  "${PIERWAVE_BIN:-}" \
+  "$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)/target/release/pierwave-master" \
+  "$(cd "$(dirname "$0")/.." 2>/dev/null && pwd)/target/debug/pierwave-master" \
+  "$(pwd)/target/release/pierwave-master" \
+  "$(pwd)/target/debug/pierwave-master" \
+  "$(command -v pierwave-master 2>/dev/null || true)"; do
+  if [ -n "$candidate" ] && [ -x "$candidate" ]; then BIN="$candidate"; break; fi
+done
 if [ -x "$BIN" ]; then
   DERIVED="$("$BIN" --derive-reality-key "$PRIV")"
   if [ "$DERIVED" = "$PUB" ]; then
