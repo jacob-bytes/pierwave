@@ -49,6 +49,16 @@ CARGO_HOME=$PWD/.cargo-home cargo test -p pierwave-domain
 - 列表页四态（loading / empty / error / 正常）是硬要求，不是可选优化。
 - 不写死颜色，全部走 `--background` 这类 CSS 变量。
 
+## 发布与内容规则（项目所有者明确要求）
+
+1. **不要自行发版**：`git tag`、Release、版本号都由项目所有者拍板。改完代码只提交，等指示。
+   需要发版时先给出建议的版本号与 release 说明草稿，等确认。
+2. **面向用户的一切都要中英双语**：UI 文案、错误提示、空态、文档（README / docs/*.md）、
+   截图说明都要同时提供中文与英文。新增 i18n 键必须**同时**加到 `zh-CN.ts` 与 `en.ts`
+   （`en.ts` 用 `satisfies Messages`，漏键编译失败）。
+3. **测试先于实现**：新增需求必须先补单元测试（或继承测试），再写业务代码。
+   测试要覆盖边界与失败路径，而不只是 happy path。
+
 ## 并行协作（多 lane 同时开工时）
 
 1. **同一时刻只有一条 lane 改共享 crate**（`crates/domain`、`crates/master`）；其它 lane 改自己的 crate 或 `web/`。
