@@ -81,6 +81,7 @@ mod tests {
                 password: "password123".into(),
                 role: "user".into(),
                 quota_bytes: None,
+                rule_template_id: None,
             },
         )
         .await
@@ -96,6 +97,7 @@ mod tests {
                 period_days: None,
                 direction: "both".into(),
                 node_ratio: 1.0,
+                rule_template_id: None,
 
                 node_ids: None,
             },

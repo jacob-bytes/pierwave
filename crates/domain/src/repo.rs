@@ -62,6 +62,8 @@ pub mod users {
         pub password: String,
         pub role: String,
         pub quota_bytes: Option<i64>,
+        /// 用户级规则模板绑定；`None` = 跟随套餐 / 全局默认。
+        pub rule_template_id: Option<String>,
     }
 
     #[derive(Debug, Default)]
@@ -70,6 +72,8 @@ pub mod users {
         pub status: Option<String>,
         /// 缺失 = 不改；`Patch::Null` = 不限；`Patch::Value` = 具体额度。
         pub quota_bytes: Patch<i64>,
+        /// 缺失 = 不改；`Patch::Null` = 解绑（跟随套餐 / 默认）；`Patch::Value` = 绑定。
+        pub rule_template_id: Patch<String>,
     }
 
     pub async fn create(pool: &SqlitePool, input: NewUser) -> anyhow::Result<User> {
@@ -79,8 +83,9 @@ pub mod users {
         let ts = now();
         sqlx::query(
             "INSERT INTO users
-                (id, username, password_hash, role, status, short_code, quota_bytes, created_at, updated_at)
-             VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)",
+                (id, username, password_hash, role, status, short_code, quota_bytes,
+                 rule_template_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&input.username)
@@ -88,6 +93,7 @@ pub mod users {
         .bind(&input.role)
         .bind(&short_code)
         .bind(input.quota_bytes)
+        .bind(input.rule_template_id)
         .bind(ts)
         .bind(ts)
         .execute(pool)
@@ -175,11 +181,14 @@ pub mod users {
     ) -> anyhow::Result<Option<User>> {
         let quota_set = input.quota_bytes.is_set();
         let quota = input.quota_bytes.value();
+        let rule_set = input.rule_template_id.is_set();
+        let rule = input.rule_template_id.value();
         let res = sqlx::query(
             "UPDATE users SET
                 role = COALESCE(?, role),
                 status = COALESCE(?, status),
                 quota_bytes = CASE WHEN ? THEN ? ELSE quota_bytes END,
+                rule_template_id = CASE WHEN ? THEN ? ELSE rule_template_id END,
                 updated_at = ?
              WHERE id = ?",
         )
@@ -187,6 +196,8 @@ pub mod users {
         .bind(input.status)
         .bind(quota_set)
         .bind(quota)
+        .bind(rule_set)
+        .bind(rule)
         .bind(now())
         .bind(id)
         .execute(pool)
@@ -265,6 +276,10 @@ pub mod users {
 }
 
 pub mod rule_templates {
+    use std::collections::{HashMap, HashSet};
+
+    use sqlx::QueryBuilder;
+
     use super::*;
     use crate::models::{RuleTemplate, RuleTemplateRow};
 
@@ -347,6 +362,96 @@ pub mod rule_templates {
         .fetch_optional(pool)
         .await?;
         Ok(row.map(RuleTemplate::from))
+    }
+
+    /// 一次取多个模板（订阅列表批量解析用，避免每行一次查询）。
+    pub async fn find_by_ids(
+        pool: &SqlitePool,
+        ids: &[String],
+    ) -> anyhow::Result<HashMap<String, RuleTemplate>> {
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let mut builder = QueryBuilder::new(
+            "SELECT id, name, description, rules, is_default, created_at, updated_at
+             FROM rule_templates WHERE id IN (",
+        );
+        let mut separated = builder.separated(", ");
+        for id in ids {
+            separated.push_bind(id.clone());
+        }
+        separated.push_unseparated(")");
+        let rows = builder
+            .build_query_as::<RuleTemplateRow>()
+            .fetch_all(pool)
+            .await?;
+        Ok(from_rows(rows)
+            .into_iter()
+            .map(|template| (template.id.clone(), template))
+            .collect())
+    }
+
+    /// 解析一个用户实际生效的规则模板。
+    ///
+    /// 顺序与订阅端点一致：用户绑定 → 当前套餐绑定 → 全局默认 → `None`（内置规则）。
+    /// 绑定指向不存在的模板时视为未绑定继续回落——外键 `SET NULL` 已经会清列，
+    /// 这里再兜一层，兼容外键关闭期间留下的脏 id。
+    pub async fn resolve_for_user(
+        pool: &SqlitePool,
+        user_id: &str,
+        user_binding: Option<&str>,
+    ) -> anyhow::Result<Option<RuleTemplate>> {
+        let resolved = resolve_for_users(
+            pool,
+            &[(user_id.to_string(), user_binding.map(str::to_string))],
+        )
+        .await?;
+        Ok(resolved.get(user_id).cloned().flatten())
+    }
+
+    /// 批量解析多个用户的生效模板；返回每个用户对应的模板（`None` = 内置规则）。
+    ///
+    /// 用户绑定从调用方传入（`UserView.rule_template_id`），因此这里只需要一次
+    /// 「每个用户当前套餐绑定」查询 + 一次模板查询，订阅列表不会 N+1。
+    pub async fn resolve_for_users(
+        pool: &SqlitePool,
+        users: &[(String, Option<String>)],
+    ) -> anyhow::Result<HashMap<String, Option<RuleTemplate>>> {
+        let mut resolved: HashMap<String, Option<RuleTemplate>> = HashMap::new();
+        if users.is_empty() {
+            return Ok(resolved);
+        }
+
+        let user_ids: Vec<String> = users.iter().map(|(id, _)| id.clone()).collect();
+        let package_bindings =
+            super::user_packages::current_rule_template_ids(pool, &user_ids).await?;
+        let default = find_default(pool).await?;
+
+        // 所有可能命中的模板一次查完：用户绑定 + 套餐绑定 + 默认。
+        let mut candidates: HashSet<String> = users
+            .iter()
+            .filter_map(|(_, binding)| binding.clone())
+            .collect();
+        candidates.extend(package_bindings.values().cloned());
+        if let Some(default) = &default {
+            candidates.insert(default.id.clone());
+        }
+        let templates: HashMap<String, RuleTemplate> =
+            find_by_ids(pool, &candidates.into_iter().collect::<Vec<_>>()).await?;
+
+        for (user_id, binding) in users {
+            let chosen = binding
+                .as_ref()
+                .and_then(|id| templates.get(id))
+                .or_else(|| {
+                    package_bindings
+                        .get(user_id)
+                        .and_then(|id| templates.get(id))
+                })
+                .or(default.as_ref());
+            resolved.insert(user_id.clone(), chosen.cloned());
+        }
+        Ok(resolved)
     }
 
     /// 创建模板；`is_default = true` 时在**同一事务**里先清掉旧的默认标记。
@@ -1903,6 +2008,8 @@ pub mod packages {
         pub period_days: Option<i64>,
         pub direction: String,
         pub node_ratio: f64,
+        /// 套餐级规则模板绑定；`None` = 不绑定（跟随全局默认）。
+        pub rule_template_id: Option<String>,
         /// `None` = 未设范围（可见全部节点）；`Some([])` = 显式一个都不给。
         pub node_ids: Option<Vec<String>>,
     }
@@ -1916,6 +2023,8 @@ pub mod packages {
         pub period_days: Patch<i64>,
         pub direction: Option<String>,
         pub node_ratio: Option<f64>,
+        /// 缺失 = 不改；`Patch::Null` = 解绑；`Patch::Value` = 绑定。
+        pub rule_template_id: Patch<String>,
         /// 节点范围三态：缺失 = 不动；`Null` = 恢复全部；`Value([])` = 一个都不给。
         pub node_ids: Patch<Vec<String>>,
     }
@@ -1925,9 +2034,9 @@ pub mod packages {
         let mut tx = pool.begin().await?;
         sqlx::query(
             "INSERT INTO packages
-                (id, name, quota_bytes, period_days, direction, node_ratio, created_at,
-                 node_scope_explicit)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (id, name, quota_bytes, period_days, direction, node_ratio, rule_template_id,
+                 created_at, node_scope_explicit)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&input.name)
@@ -1935,6 +2044,7 @@ pub mod packages {
         .bind(input.period_days)
         .bind(&input.direction)
         .bind(input.node_ratio)
+        .bind(input.rule_template_id)
         .bind(now())
         .bind(i64::from(input.node_ids.is_some()))
         .execute(&mut *tx)
@@ -2047,7 +2157,7 @@ pub mod packages {
     pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<Package>> {
         let mut items = sqlx::query_as::<_, Package>(
             "SELECT p.id, p.name, p.quota_bytes, p.period_days, p.direction, p.node_ratio,
-                    p.created_at, COUNT(up.id) AS user_count
+                    p.rule_template_id, p.created_at, COUNT(up.id) AS user_count
              FROM packages p
              LEFT JOIN user_packages up ON up.package_id = p.id
              GROUP BY p.id
@@ -2103,6 +2213,8 @@ pub mod packages {
         let quota = input.quota_bytes.value();
         let period_set = input.period_days.is_set();
         let period = input.period_days.value();
+        let rule_set = input.rule_template_id.is_set();
+        let rule = input.rule_template_id.value();
         // Missing = 不动；Null = 恢复全部（explicit=0，清行）；Value = 显式范围（explicit=1）。
         let (scope_set, scope_explicit) = match &input.node_ids {
             Patch::Missing => (false, 0),
@@ -2117,6 +2229,7 @@ pub mod packages {
                 period_days = CASE WHEN ? THEN ? ELSE period_days END,
                 direction = COALESCE(?, direction),
                 node_ratio = COALESCE(?, node_ratio),
+                rule_template_id = CASE WHEN ? THEN ? ELSE rule_template_id END,
                 node_scope_explicit = CASE WHEN ? THEN ? ELSE node_scope_explicit END
              WHERE id = ?",
         )
@@ -2127,6 +2240,8 @@ pub mod packages {
         .bind(period)
         .bind(input.direction)
         .bind(input.node_ratio)
+        .bind(rule_set)
+        .bind(rule)
         .bind(scope_set)
         .bind(scope_explicit)
         .bind(id)
@@ -2266,6 +2381,46 @@ pub mod user_packages {
             .into_iter()
             .map(|view| view.resolve_status(now))
             .collect())
+    }
+
+    /// 每个用户「当前套餐」的规则模板绑定。
+    ///
+    /// 当前套餐 = 最近一次绑定的、未过期的实例；多个实例按创建时间取最新一条
+    /// （同秒创建时用 rowid 兜底）。当前实例没有绑定（或绑定列被 SET NULL）时
+    /// 不返回该用户，调用方按「未绑定套餐」继续回落到全局默认。
+    pub async fn current_rule_template_ids(
+        pool: &SqlitePool,
+        user_ids: &[String],
+    ) -> anyhow::Result<HashMap<String, String>> {
+        if user_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let now = super::now();
+        let mut builder = QueryBuilder::new(
+            "SELECT user_id, rule_template_id FROM (
+                SELECT up.user_id AS user_id,
+                       p.rule_template_id AS rule_template_id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY up.user_id
+                           ORDER BY up.created_at DESC, up.rowid DESC
+                       ) AS rn
+                FROM user_packages up
+                JOIN packages p ON p.id = up.package_id
+                WHERE up.status = 'active'
+                  AND (up.expires_at IS NULL OR up.expires_at > ",
+        );
+        builder.push_bind(now);
+        builder.push(") AND up.user_id IN (");
+        let mut separated = builder.separated(", ");
+        for user_id in user_ids {
+            separated.push_bind(user_id.clone());
+        }
+        separated.push_unseparated(")) WHERE rn = 1 AND rule_template_id IS NOT NULL");
+        let rows = builder
+            .build_query_as::<(String, String)>()
+            .fetch_all(pool)
+            .await?;
+        Ok(rows.into_iter().collect())
     }
 
     /// 一次查询取出一页用户的所有套餐实例，再按 user_id 分组（避免 N+1）。

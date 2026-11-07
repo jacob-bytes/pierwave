@@ -405,6 +405,7 @@ mod tests {
                 password: "devpass".into(),
                 role: "admin".into(),
                 quota_bytes: None,
+                rule_template_id: None,
             },
         )
         .await
@@ -577,6 +578,7 @@ mod tests {
                 password: "devpass".into(),
                 role: "admin".into(),
                 quota_bytes: None,
+                rule_template_id: None,
             },
         )
         .await

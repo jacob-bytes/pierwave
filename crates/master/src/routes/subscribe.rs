@@ -42,7 +42,7 @@ pub async fn get(
     }
 
     // 规则模板与节点无关，先解析：指定的模板不存在要 404，即使 target=uri 也一样。
-    let rules = rules_for(&state.db.pool, query.rule.as_deref()).await?;
+    let effective_rules = rules_for(&state.db.pool, &user, query.rule.as_deref()).await?;
 
     let secret = credentials::master_secret(&state.db.pool).await?;
     let mut nodes = Vec::new();
@@ -66,7 +66,7 @@ pub async fn get(
         nodes: &nodes,
         user_label: &user.username,
         traffic: Some(traffic),
-        rules: &rules,
+        rules: &effective_rules.rules,
     };
 
     let user_agent = headers
@@ -100,23 +100,33 @@ pub async fn get(
     Ok(response)
 }
 
-/// `?rule=` → 指定模板；省略 → 默认模板；再没有 → 内置两条。
+/// 订阅规则的五级解析：
+///
+/// 1. `?rule=<id>`（最高优先级，临时覆盖）
+/// 2. `users.rule_template_id`
+/// 3. 当前套餐（最近一次绑定的未过期实例）的 `packages.rule_template_id`
+/// 4. `is_default = 1`
+/// 5. 内置两条规则
 ///
 /// 指定了不存在的模板直接 404：静默回落到默认会让用户以为自定义规则生效了。
-async fn rules_for(pool: &SqlitePool, rule: Option<&str>) -> AppResult<Vec<String>> {
+/// 2–4 级的绑定指向不存在的模板时视为未绑定继续回落，**不报错**。
+async fn rules_for(
+    pool: &SqlitePool,
+    user: &User,
+    rule: Option<&str>,
+) -> AppResult<subscribe::EffectiveRules> {
     let template = match rule.map(str::trim).filter(|id| !id.is_empty()) {
         Some(id) => Some(
             repo::rule_templates::find_by_id(pool, id)
                 .await?
                 .ok_or(AppError::NotFound)?,
         ),
-        None => repo::rule_templates::find_default(pool).await?,
+        None => {
+            repo::rule_templates::resolve_for_user(pool, &user.id, user.rule_template_id.as_deref())
+                .await?
+        }
     };
-    Ok(match template {
-        // 空数组是脏数据（校验会拦住写入），这里仍回落到内置规则保证 YAML 合法。
-        Some(template) if !template.rules.is_empty() => template.rules,
-        _ => subscribe::default_rules(),
-    })
+    Ok(subscribe::effective_rules(template))
 }
 
 /// 流量/额度/到期信息。拆不出上下行，`used_bytes` 记到 download 上。
@@ -187,6 +197,7 @@ mod tests {
                 password: "password123".into(),
                 role: "user".into(),
                 quota_bytes: Some(10_000),
+                rule_template_id: None,
             },
         )
         .await
@@ -201,6 +212,7 @@ mod tests {
                 period_days: Some(30),
                 direction: "both".into(),
                 node_ratio: 1.0,
+                rule_template_id: None,
 
                 node_ids: None,
             },
@@ -378,6 +390,7 @@ mod tests {
                 password: "password123".into(),
                 role: "user".into(),
                 quota_bytes: None,
+                rule_template_id: None,
             },
         )
         .await
@@ -406,6 +419,7 @@ mod tests {
                 password: "password123".into(),
                 role: "user".into(),
                 quota_bytes: None,
+                rule_template_id: None,
             },
         )
         .await
@@ -442,6 +456,7 @@ mod tests {
                 password: "password123".into(),
                 role: "user".into(),
                 quota_bytes: None,
+                rule_template_id: None,
             },
         )
         .await
@@ -690,6 +705,312 @@ mod tests {
         .await
         .unwrap()
         .id
+    }
+
+    /// 把模板绑到用户级（第二条优先级）。
+    async fn bind_user(state: &AppState, user_id: &str, template_id: &str) {
+        repo::users::update(
+            &state.db.pool,
+            user_id,
+            repo::users::UpdateUser {
+                rule_template_id: Patch::Value(template_id.to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    /// 把模板绑到套餐级（第三条优先级）。
+    async fn bind_package(state: &AppState, package_id: &str, template_id: &str) {
+        packages::update(
+            &state.db.pool,
+            package_id,
+            packages::UpdatePackage {
+                rule_template_id: Patch::Value(template_id.to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn only_package(state: &AppState) -> pierwave_domain::models::Package {
+        packages::list(&state.db.pool).await.unwrap().remove(0)
+    }
+
+    async fn user_by_name(state: &AppState, username: &str) -> User {
+        repo::users::find_by_username(&state.db.pool, username)
+            .await
+            .unwrap()
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn rule_query_overrides_user_binding() {
+        let (app, state, short_code) = setup().await;
+        let alice = user_by_name(&state, "alice").await;
+        let user_template = create_template(
+            &state,
+            "用户级",
+            &["DOMAIN-SUFFIX,user.example,DIRECT", "MATCH,DIRECT"],
+            false,
+        )
+        .await;
+        let query_template = create_template(
+            &state,
+            "链接级",
+            &["DOMAIN-SUFFIX,query.example,PROXY", "MATCH,PROXY"],
+            false,
+        )
+        .await;
+        bind_user(&state, &alice.id, &user_template).await;
+
+        // 不传 ?rule= 时用户绑定生效。
+        let (_, _, body) = get(&app, &format!("/api/v1/sub/{short_code}"), None).await;
+        assert!(
+            body.contains("DOMAIN-SUFFIX,user.example,DIRECT"),
+            "用户绑定应生效：{body}"
+        );
+
+        // ?rule= 仍然压过用户绑定。
+        let (status, _, body) = get(
+            &app,
+            &format!("/api/v1/sub/{short_code}?rule={query_template}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("DOMAIN-SUFFIX,query.example,PROXY"),
+            "?rule= 应压过用户绑定：{body}"
+        );
+        assert!(
+            !body.contains("DOMAIN-SUFFIX,user.example,DIRECT"),
+            "用户绑定不应同时出现：{body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_binding_overrides_package_binding() {
+        let (app, state, short_code) = setup().await;
+        let alice = user_by_name(&state, "alice").await;
+        let package = only_package(&state).await;
+        let user_template = create_template(
+            &state,
+            "用户级",
+            &["DOMAIN-SUFFIX,user.example,DIRECT", "MATCH,DIRECT"],
+            false,
+        )
+        .await;
+        let package_template = create_template(
+            &state,
+            "套餐级",
+            &["DOMAIN-SUFFIX,package.example,PROXY", "MATCH,PROXY"],
+            false,
+        )
+        .await;
+        bind_package(&state, &package.id, &package_template).await;
+        bind_user(&state, &alice.id, &user_template).await;
+
+        let (status, _, body) = get(&app, &format!("/api/v1/sub/{short_code}"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("DOMAIN-SUFFIX,user.example,DIRECT"),
+            "用户绑定应压过套餐绑定：{body}"
+        );
+        assert!(
+            !body.contains("DOMAIN-SUFFIX,package.example,PROXY"),
+            "套餐绑定不应生效：{body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn package_binding_overrides_global_default() {
+        let (app, state, short_code) = setup().await;
+        let package = only_package(&state).await;
+        let package_template = create_template(
+            &state,
+            "套餐级",
+            &["DOMAIN-SUFFIX,package.example,PROXY", "MATCH,PROXY"],
+            false,
+        )
+        .await;
+        bind_package(&state, &package.id, &package_template).await;
+
+        let (status, _, body) = get(&app, &format!("/api/v1/sub/{short_code}"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("DOMAIN-SUFFIX,package.example,PROXY"),
+            "套餐绑定应压过全局默认：{body}"
+        );
+        assert!(
+            !body.contains("GEOIP,CN,DIRECT"),
+            "迁移自带的全局默认不应生效：{body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn current_package_uses_latest_unexpired_instance() {
+        let (app, state, short_code) = setup().await;
+        let alice = user_by_name(&state, "alice").await;
+
+        let first = only_package(&state).await;
+        let first_template = create_template(
+            &state,
+            "旧套餐",
+            &["DOMAIN-SUFFIX,old.example,DIRECT", "MATCH,DIRECT"],
+            false,
+        )
+        .await;
+        bind_package(&state, &first.id, &first_template).await;
+
+        // 新实例已过期：不能盖掉仍未过期的旧实例。
+        let expired = packages::create(
+            &state.db.pool,
+            packages::NewPackage {
+                name: "过期套餐".into(),
+                quota_bytes: Some(10_000),
+                period_days: None,
+                direction: "both".into(),
+                node_ratio: 1.0,
+                rule_template_id: None,
+                node_ids: None,
+            },
+        )
+        .await
+        .unwrap();
+        let expired_template = create_template(
+            &state,
+            "过期套餐模板",
+            &["DOMAIN-SUFFIX,expired.example,PROXY", "MATCH,PROXY"],
+            false,
+        )
+        .await;
+        bind_package(&state, &expired.id, &expired_template).await;
+        user_packages::create(
+            &state.db.pool,
+            &alice.id,
+            user_packages::NewUserPackage {
+                package_id: expired.id.clone(),
+                quota_override: None,
+                expires_at: Some(1),
+                reset_day: None,
+            },
+            &expired,
+        )
+        .await
+        .unwrap();
+
+        let (status, _, body) = get(&app, &format!("/api/v1/sub/{short_code}"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("DOMAIN-SUFFIX,old.example,DIRECT"),
+            "过期实例不应成为当前套餐：{body}"
+        );
+        assert!(
+            !body.contains("DOMAIN-SUFFIX,expired.example,PROXY"),
+            "过期实例的模板不应生效：{body}"
+        );
+
+        // 再来一个未过期的新实例：同优先级下取最新一条。
+        let newest = packages::create(
+            &state.db.pool,
+            packages::NewPackage {
+                name: "新套餐".into(),
+                quota_bytes: Some(10_000),
+                period_days: None,
+                direction: "both".into(),
+                node_ratio: 1.0,
+                rule_template_id: None,
+                node_ids: None,
+            },
+        )
+        .await
+        .unwrap();
+        let newest_template = create_template(
+            &state,
+            "新套餐模板",
+            &["DOMAIN-SUFFIX,new.example,PROXY", "MATCH,PROXY"],
+            false,
+        )
+        .await;
+        bind_package(&state, &newest.id, &newest_template).await;
+        user_packages::create(
+            &state.db.pool,
+            &alice.id,
+            user_packages::NewUserPackage {
+                package_id: newest.id.clone(),
+                quota_override: None,
+                expires_at: None,
+                reset_day: None,
+            },
+            &newest,
+        )
+        .await
+        .unwrap();
+
+        let (status, _, body) = get(&app, &format!("/api/v1/sub/{short_code}"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("DOMAIN-SUFFIX,new.example,PROXY"),
+            "多个未过期实例应取最新一条：{body}"
+        );
+        assert!(
+            !body.contains("DOMAIN-SUFFIX,old.example,DIRECT"),
+            "旧实例不应再生效：{body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn deleted_template_binding_falls_back_without_error() {
+        let (app, state, short_code) = setup().await;
+        let alice = user_by_name(&state, "alice").await;
+        let package = only_package(&state).await;
+        let template = create_template(
+            &state,
+            "将被删除",
+            &["DOMAIN-SUFFIX,gone.example,DIRECT", "MATCH,DIRECT"],
+            false,
+        )
+        .await;
+        bind_user(&state, &alice.id, &template).await;
+        bind_package(&state, &package.id, &template).await;
+
+        assert_eq!(
+            rule_templates::delete(&state.db.pool, &template)
+                .await
+                .unwrap(),
+            repo::rule_templates::DeleteOutcome::Deleted
+        );
+
+        // 外键 ON DELETE SET NULL 把两级绑定都清空，订阅回落而不是 502/404。
+        let alice_after = repo::users::find_by_id(&state.db.pool, &alice.id)
+            .await
+            .unwrap();
+        assert!(
+            alice_after.rule_template_id.is_none(),
+            "删除模板后用户绑定应被 SET NULL"
+        );
+        let package_after = packages::find_by_id(&state.db.pool, &package.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            package_after.rule_template_id.is_none(),
+            "删除模板后套餐绑定应被 SET NULL"
+        );
+
+        let (status, _, body) = get(&app, &format!("/api/v1/sub/{short_code}"), None).await;
+        assert_eq!(status, StatusCode::OK, "绑定失效不应报错：{body}");
+        assert!(
+            body.contains("GEOIP,CN,DIRECT"),
+            "删除模板后应回落到全局默认：{body}"
+        );
+        assert!(
+            !body.contains("DOMAIN-SUFFIX,gone.example,DIRECT"),
+            "被删模板的规则不应出现：{body}"
+        );
     }
 
     #[tokio::test]

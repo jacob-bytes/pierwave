@@ -128,6 +128,32 @@ pub(crate) fn validate_node_ratio(node_ratio: f64) -> AppResult<()> {
     }
 }
 
+/// 校验规则模板存在；返回去空白后的 id。
+pub(crate) async fn validate_rule_template_id(state: &AppState, id: &str) -> AppResult<String> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Err(AppError::BadRequest("规则模板不存在".into()));
+    }
+    if repo::rule_templates::find_by_id(&state.db.pool, id)
+        .await?
+        .is_none()
+    {
+        return Err(AppError::BadRequest(format!("规则模板不存在：{id}")));
+    }
+    Ok(id.to_string())
+}
+
+/// 可空版本：`None` 表示不绑定（跟随套餐 / 全局默认），不做校验。
+pub(crate) async fn validate_optional_rule_template_id(
+    state: &AppState,
+    id: Option<&str>,
+) -> AppResult<Option<String>> {
+    match id {
+        Some(id) => Ok(Some(validate_rule_template_id(state, id).await?)),
+        None => Ok(None),
+    }
+}
+
 pub async fn list(State(state): State<AppState>, user: CurrentUser) -> AppResult<Json<Value>> {
     user.require_admin()?;
     let items = repo::packages::list(&state.db.pool).await?;
@@ -148,6 +174,9 @@ pub struct CreatePackage {
     /// 缺省 / `null` = 不限制（全部节点）；`[]` = 一个都不给；数组 = 只给这些节点。
     #[serde(default)]
     pub node_ids: Option<Vec<String>>,
+    /// 套餐级规则模板；缺省 / `null` = 不绑定（跟随全局默认）。
+    #[serde(default)]
+    pub rule_template_id: Option<String>,
 }
 
 fn default_direction() -> String {
@@ -178,6 +207,8 @@ pub async fn create(
     if let Some(node_ids) = &node_ids {
         validate_node_id_list(&state, node_ids).await?;
     }
+    let rule_template_id =
+        validate_optional_rule_template_id(&state, req.rule_template_id.as_deref()).await?;
 
     let package = repo::packages::create(
         &state.db.pool,
@@ -187,6 +218,7 @@ pub async fn create(
             period_days: req.period_days,
             direction,
             node_ratio: req.node_ratio,
+            rule_template_id,
             node_ids,
         },
     )
@@ -206,6 +238,7 @@ pub async fn create(
             "period_days": package.period_days,
             "direction": &package.direction,
             "node_ratio": package.node_ratio,
+            "rule_template_id": package.rule_template_id,
             "node_scope": &package.node_scope,
             "node_count": package.node_count,
             "node_ids": &package.node_ids,
@@ -228,6 +261,9 @@ pub struct UpdatePackage {
     /// 三态：缺失 = 不动；`null` = 恢复全部；`[]` = 一个都不给；数组 = 指定。
     #[serde(default)]
     pub node_ids: Patch<Vec<String>>,
+    /// 三态：缺失 = 不动；`null` = 解绑；具体 id = 绑定。
+    #[serde(default)]
+    pub rule_template_id: Patch<String>,
 }
 
 pub async fn update(
@@ -244,6 +280,7 @@ pub async fn update(
         && req.direction.is_none()
         && req.node_ratio.is_none()
         && !req.node_ids.is_set()
+        && !req.rule_template_id.is_set()
     {
         return Err(AppError::BadRequest("至少需要提供一个可更新字段".into()));
     }
@@ -270,6 +307,11 @@ pub async fn update(
     if let Patch::Value(node_ids) = &node_ids {
         validate_node_id_list(&state, node_ids).await?;
     }
+    let rule_template_id = match req.rule_template_id {
+        Patch::Missing => Patch::Missing,
+        Patch::Null => Patch::Null,
+        Patch::Value(id) => Patch::Value(validate_rule_template_id(&state, &id).await?),
+    };
 
     // 审计与「范围是否变化」都要变更前快照：一次查询同时拿到 node_scope/node_count。
     let before_package = repo::packages::find_by_id(&state.db.pool, &id).await?;
@@ -288,6 +330,7 @@ pub async fn update(
             period_days: req.period_days,
             direction,
             node_ratio: req.node_ratio,
+            rule_template_id,
             node_ids,
         },
     )
@@ -326,6 +369,13 @@ pub async fn update(
             "node_ratio",
             json!(before_package.as_ref().map(|package| package.node_ratio)),
             json!(package.node_ratio),
+        ),
+        (
+            "rule_template_id",
+            json!(before_package
+                .as_ref()
+                .and_then(|package| package.rule_template_id.clone())),
+            json!(package.rule_template_id),
         ),
     ]);
     crate::audit::record(
@@ -446,6 +496,7 @@ mod tests {
                 password: "devpass".into(),
                 role: "admin".into(),
                 quota_bytes: None,
+                rule_template_id: None,
             },
         )
         .await
@@ -534,6 +585,7 @@ mod tests {
                 password: "password123".into(),
                 role: "user".into(),
                 quota_bytes: None,
+                rule_template_id: None,
             },
         )
         .await
@@ -999,6 +1051,7 @@ mod tests {
                 period_days: None,
                 direction: "both".into(),
                 node_ratio: 1.0,
+                rule_template_id: None,
                 node_ids: None,
             },
         )
@@ -1015,6 +1068,7 @@ mod tests {
                 period_days: None,
                 direction: "both".into(),
                 node_ratio: 1.0,
+                rule_template_id: None,
                 node_ids: Some(Vec::new()),
             },
         )

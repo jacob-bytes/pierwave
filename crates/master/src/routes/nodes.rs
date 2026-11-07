@@ -429,6 +429,7 @@ mod tests {
                 password: "devpass".into(),
                 role: "admin".into(),
                 quota_bytes: None,
+                rule_template_id: None,
             },
         )
         .await
@@ -669,6 +670,7 @@ mod tests {
                 password: "password123".into(),
                 role: "user".into(),
                 quota_bytes: None,
+                rule_template_id: None,
             },
         )
         .await
@@ -681,6 +683,7 @@ mod tests {
                 period_days: Some(30),
                 direction: "both".into(),
                 node_ratio: 1.0,
+                rule_template_id: None,
 
                 node_ids: None,
             },
@@ -708,6 +711,7 @@ mod tests {
                 password: "password123".into(),
                 role: "user".into(),
                 quota_bytes: None,
+                rule_template_id: None,
             },
         )
         .await
@@ -802,6 +806,7 @@ mod tests {
                 password: "pw".into(),
                 role: "user".into(),
                 quota_bytes: None,
+                rule_template_id: None,
             },
         )
         .await

@@ -10,7 +10,10 @@ use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
-use super::packages::{validate_quota_bytes, validate_reset_day};
+use super::packages::{
+    validate_optional_rule_template_id, validate_quota_bytes, validate_reset_day,
+    validate_rule_template_id,
+};
 
 const ROLES: &[&str] = &["admin", "user"];
 const STATUSES: &[&str] = &["active", "disabled"];
@@ -88,6 +91,9 @@ pub struct CreateUser {
     pub role: Option<String>,
     #[serde(default)]
     pub quota_bytes: Option<i64>,
+    /// 用户级规则模板；缺省 / `null` = 跟随套餐 / 全局默认。
+    #[serde(default)]
+    pub rule_template_id: Option<String>,
 }
 
 pub async fn create(
@@ -100,6 +106,8 @@ pub async fn create(
     let username = validate_username(&req.username)?;
     validate_password(&req.password)?;
     validate_quota_bytes(req.quota_bytes)?;
+    let rule_template_id =
+        validate_optional_rule_template_id(&state, req.rule_template_id.as_deref()).await?;
     let role = match req.role.as_deref() {
         Some(role) => normalize_enum("角色", role, ROLES)?,
         None => "user".to_string(),
@@ -119,6 +127,7 @@ pub async fn create(
             password: req.password,
             role,
             quota_bytes: req.quota_bytes,
+            rule_template_id,
         },
     )
     .await?;
@@ -132,6 +141,7 @@ pub async fn create(
             "username": &created.username,
             "role": &created.role,
             "quota_bytes": created.quota_bytes,
+            "rule_template_id": created.rule_template_id,
         }),
     )
     .await;
@@ -146,6 +156,9 @@ pub struct UpdateUser {
     pub password: Option<String>,
     #[serde(default)]
     pub quota_bytes: Patch<i64>,
+    /// 三态：缺失 = 不改；`null` = 解绑；具体 id = 绑定。
+    #[serde(default)]
+    pub rule_template_id: Patch<String>,
 }
 
 pub async fn update(
@@ -160,6 +173,7 @@ pub async fn update(
         && req.status.is_none()
         && req.password.is_none()
         && !req.quota_bytes.is_set()
+        && !req.rule_template_id.is_set()
     {
         return Err(AppError::BadRequest("至少需要提供一个可更新字段".into()));
     }
@@ -178,6 +192,11 @@ pub async fn update(
     if req.quota_bytes.is_set() {
         validate_quota_bytes(req.quota_bytes.value())?;
     }
+    let rule_template_id = match req.rule_template_id {
+        Patch::Missing => Patch::Missing,
+        Patch::Null => Patch::Null,
+        Patch::Value(id) => Patch::Value(validate_rule_template_id(&state, &id).await?),
+    };
 
     // 防止管理员把自己锁在门外。
     if id == user.0.id && role.as_deref() == Some("user") {
@@ -199,6 +218,7 @@ pub async fn update(
             role,
             status,
             quota_bytes: req.quota_bytes,
+            rule_template_id,
         },
     )
     .await?
@@ -218,6 +238,11 @@ pub async fn update(
             "quota_bytes",
             json!(before.quota_bytes),
             json!(updated.quota_bytes),
+        ),
+        (
+            "rule_template_id",
+            json!(before.rule_template_id),
+            json!(updated.rule_template_id),
         ),
         ("password", json!(false), json!(req.password.is_some())),
     ]);
@@ -496,6 +521,7 @@ mod tests {
                 password: "devpass".into(),
                 role: "admin".into(),
                 quota_bytes: None,
+                rule_template_id: None,
             },
         )
         .await
@@ -773,6 +799,7 @@ mod tests {
                 password: "password123".into(),
                 role: "user".into(),
                 quota_bytes: None,
+                rule_template_id: None,
             },
         )
         .await
@@ -1051,6 +1078,7 @@ mod tests {
                 password: "password123".into(),
                 role: "user".into(),
                 quota_bytes: None,
+                rule_template_id: None,
             },
         )
         .await
@@ -1063,6 +1091,7 @@ mod tests {
                 period_days: None,
                 direction: "both".into(),
                 node_ratio: 1.0,
+                rule_template_id: None,
 
                 node_ids: None,
             },
@@ -1166,6 +1195,7 @@ mod tests {
                     password: "password123".into(),
                     role: "user".into(),
                     quota_bytes: None,
+                    rule_template_id: None,
                 },
             )
             .await
@@ -1212,5 +1242,137 @@ mod tests {
             request(&app, Some(&admin), Method::GET, "/api/v1/packages", None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(user_count(&body), 1, "解绑一个 → user_count = 1");
+    }
+
+    #[tokio::test]
+    async fn unknown_rule_template_id_is_400_for_users_and_packages() {
+        let (app, state, admin) = setup().await;
+        let template = repo::rule_templates::create(
+            &state.db.pool,
+            repo::rule_templates::NewRuleTemplate {
+                name: "绑定用模板".into(),
+                description: String::new(),
+                rules: vec!["MATCH,DIRECT".into()],
+                is_default: false,
+            },
+        )
+        .await
+        .unwrap();
+
+        // 用户新建：不存在的模板 → 400 中文。
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::POST,
+            "/api/v1/users",
+            Some(json!({
+                "username": "bad-template",
+                "password": "password123",
+                "rule_template_id": "does-not-exist",
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(
+            body["error"].as_str().unwrap().contains("规则模板不存在"),
+            "unexpected: {body}"
+        );
+
+        // 用户新建：存在的模板 → 视图回显 id。
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::POST,
+            "/api/v1/users",
+            Some(json!({
+                "username": "bound-user",
+                "password": "password123",
+                "rule_template_id": &template.id,
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["user"]["rule_template_id"], template.id.as_str());
+        let user_id = body["user"]["id"].as_str().unwrap().to_string();
+
+        // 用户更新：非法 → 400；合法 → 生效；null → 解绑。
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            &format!("/api/v1/users/{user_id}"),
+            Some(json!({"rule_template_id": "does-not-exist"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body["error"].as_str().unwrap().contains("规则模板不存在"));
+
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            &format!("/api/v1/users/{user_id}"),
+            Some(json!({"rule_template_id": &template.id})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["user"]["rule_template_id"], template.id.as_str());
+
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            &format!("/api/v1/users/{user_id}"),
+            Some(json!({"rule_template_id": null})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["user"]["rule_template_id"].is_null());
+
+        // 套餐新建 / 更新走同一套校验。
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::POST,
+            "/api/v1/packages",
+            Some(json!({"name": "坏模板套餐", "rule_template_id": "does-not-exist"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body["error"].as_str().unwrap().contains("规则模板不存在"));
+
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::POST,
+            "/api/v1/packages",
+            Some(json!({"name": "绑定模板套餐", "rule_template_id": &template.id})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["package"]["rule_template_id"], template.id.as_str());
+        let package_id = body["package"]["id"].as_str().unwrap().to_string();
+
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            &format!("/api/v1/packages/{package_id}"),
+            Some(json!({"rule_template_id": "does-not-exist"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body["error"].as_str().unwrap().contains("规则模板不存在"));
+
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            &format!("/api/v1/packages/{package_id}"),
+            Some(json!({"rule_template_id": null})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["package"]["rule_template_id"].is_null());
     }
 }

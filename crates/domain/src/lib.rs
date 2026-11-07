@@ -87,6 +87,7 @@ impl Db {
                 password: plain,
                 role: "admin".into(),
                 quota_bytes: None,
+                rule_template_id: None,
             },
         )
         .await?;

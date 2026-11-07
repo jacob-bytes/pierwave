@@ -13,6 +13,8 @@ pub struct User {
     pub short_code: String,
     pub quota_bytes: Option<i64>,
     pub used_bytes: i64,
+    /// 用户级规则模板绑定；`null` = 跟随当前套餐 / 全局默认。
+    pub rule_template_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -275,6 +277,8 @@ pub struct Package {
     pub period_days: Option<i64>,
     pub direction: String,
     pub node_ratio: f64,
+    /// 套餐级规则模板绑定；`null` = 套餐内用户未单独指定时跟随全局默认。
+    pub rule_template_id: Option<String>,
     pub created_at: i64,
     /// 当前仍引用该套餐模板的实例数。
     ///
@@ -458,6 +462,8 @@ pub struct UserView {
     pub short_code: String,
     pub quota_bytes: Option<i64>,
     pub used_bytes: i64,
+    /// 用户级规则模板绑定；订阅解析从这一级开始（`?rule=` 之后）。
+    pub rule_template_id: Option<String>,
     pub created_at: i64,
     /// 名下套餐实例数；与 `packages.len()` 一致，方便前端分页/汇总时少算一次。
     pub package_count: i64,
@@ -485,6 +491,7 @@ impl From<(User, Vec<UserPackageView>)> for UserView {
             short_code: user.short_code,
             quota_bytes: user.quota_bytes,
             used_bytes: user.used_bytes,
+            rule_template_id: user.rule_template_id,
             created_at: user.created_at,
             package_count: packages.len() as i64,
             quota_exceeded: user
@@ -715,6 +722,7 @@ mod view_tests {
                 short_code: "abc".into(),
                 quota_bytes: None,
                 used_bytes: 0,
+                rule_template_id: None,
                 created_at: 0,
                 updated_at: 0,
             },

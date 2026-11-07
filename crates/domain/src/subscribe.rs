@@ -19,7 +19,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 
 use crate::credentials;
-use crate::models::Node;
+use crate::models::{Node, RuleTemplate};
 use crate::reality;
 
 // ---------------------------------------------------------------------------
@@ -306,6 +306,33 @@ pub struct SubContext<'a> {
 /// 保证「没有任何模板」的极端情况下订阅内容仍和升级前一致。
 pub fn default_rules() -> Vec<String> {
     vec!["GEOIP,CN,DIRECT".to_string(), "MATCH,PROXY".to_string()]
+}
+
+/// 最终生效的规则：`rules` 用于渲染，`rule_template_*` 用于订阅列表展示。
+///
+/// 空规则模板视为脏数据（写入校验会拦住），这里仍回落到内置规则，
+/// 同时把生效模板报成 `None`，避免前端显示一个实际没参与渲染的模板。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct EffectiveRules {
+    pub rule_template_id: Option<String>,
+    pub rule_template_name: Option<String>,
+    pub rules: Vec<String>,
+}
+
+/// 把解析出的模板（或 `None`）落成最终生效值。
+pub fn effective_rules(template: Option<RuleTemplate>) -> EffectiveRules {
+    match template {
+        Some(template) if !template.rules.is_empty() => EffectiveRules {
+            rule_template_id: Some(template.id),
+            rule_template_name: Some(template.name),
+            rules: template.rules,
+        },
+        _ => EffectiveRules {
+            rule_template_id: None,
+            rule_template_name: None,
+            rules: default_rules(),
+        },
+    }
 }
 
 /// 写进 `Subscription-Userinfo` 头的流量信息。
