@@ -13,6 +13,7 @@ import {
   type AgentUpgradeInput,
   type ApplyResult,
   type AuditEntry,
+  type BackupInfo,
   type BindUserPackageInput,
   type Certificate,
   type ChangePasswordInput,
@@ -38,6 +39,7 @@ import {
   type Package,
   type RoutingRule,
   type RuleTemplate,
+  type RestoreBackupResponse,
   type Server,
   type SessionUser,
   type Settings,
@@ -101,6 +103,8 @@ export const queryKeys = {
   packages: ["packages"] as const,
   userPackages: (userId: string) => ["user", userId, "packages"] as const,
   settings: ["settings"] as const,
+  /** P7：备份信息（当前库大小 + 待恢复状态），与设置分开缓存。 */
+  backupInfo: ["backup", "info"] as const,
 };
 
 /** 401 统一由 QueryCache / MutationCache 的全局 onError 处理。 */
@@ -227,6 +231,67 @@ export function useUpdateSettings() {
     onSuccess: (items) => {
       // PATCH 的返回值就是权威值：直接覆盖缓存，页面再用它 reset 表单。
       queryClient.setQueryData(queryKeys.settings, items);
+    },
+  });
+}
+
+/**
+ * P7：备份信息（当前库大小 + 是否有待恢复文件）。
+ *
+ * 后端可能暂时 404：不重试，由备份卡片展示中文错误态与「重试」。
+ */
+export function useBackupInfo() {
+  return useQuery<BackupInfo>({
+    queryKey: queryKeys.backupInfo,
+    queryFn: api.backup.info,
+    retry: false,
+    staleTime: 15_000,
+  });
+}
+
+/**
+ * P7：上传备份并安排恢复。
+ *
+ * 后端只保证 `restart_required`，所以先用文件大小乐观写入 pending，
+ * 让卡片立即切到「已就绪」；info 刷新后再用后端的上传时间覆盖。
+ */
+export function useRestoreBackup() {
+  const queryClient = useQueryClient();
+
+  return useMutation<RestoreBackupResponse, Error, File>({
+    mutationFn: (file) => api.backup.restore(file),
+    onSuccess: (result, file) => {
+      if (result.restart_required) {
+        queryClient.setQueryData<BackupInfo>(
+          queryKeys.backupInfo,
+          (current) =>
+            current
+              ? {
+                  ...current,
+                  pending: result.pending ?? {
+                    uploaded_at: Math.floor(Date.now() / 1_000),
+                    bytes: file.size,
+                  },
+                }
+              : current,
+        );
+      }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.backupInfo });
+    },
+  });
+}
+
+/** P7：取消待恢复；先清掉缓存里的 pending，再等 info 的权威值。 */
+export function useCancelRestore() {
+  const queryClient = useQueryClient();
+
+  return useMutation<{ ok: true }, Error, void>({
+    mutationFn: api.backup.cancelRestore,
+    onSuccess: () => {
+      queryClient.setQueryData<BackupInfo>(queryKeys.backupInfo, (current) =>
+        current ? { ...current, pending: null } : current,
+      );
+      void queryClient.invalidateQueries({ queryKey: queryKeys.backupInfo });
     },
   });
 }

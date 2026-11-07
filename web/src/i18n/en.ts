@@ -1050,6 +1050,55 @@ const en = {
       concurrencyHintWith:
         "Up to {n} at a time; the higher the concurrency, the more nodes are interrupted at once; one at a time by default.",
     },
+    backup: {
+      title: "Backup & restore",
+      desc: "A backup is a single SQLite database file; restoring overwrites all data and takes effect after the controller restarts.",
+      loadFailed: "Backup info failed to load",
+      loadError:
+        "Could not load backup info. Check your network, or whether the controller is running.",
+      notReady404:
+        "The backup and restore API is not ready yet (the backend may still be deploying). Please try again later.",
+      forbidden: "Only administrators can back up or restore data",
+      sizeLabel: "Current database size",
+      sizeHint:
+        "Includes users, packages, nodes, certificates and all configuration.",
+      download: "Download backup",
+      downloadHint: "The browser downloads a .db.gz snapshot directly.",
+      pendingTitle: "A restore is waiting for a restart",
+      pendingDesc:
+        "Uploaded {time} · {size}; current data is replaced only after the controller restarts.",
+      restoreTitle: "Restore data",
+      restoreDesc:
+        "Upload a .db or .db.gz file; it is staged on disk and replaces the current database only after the controller restarts.",
+      chooseFile: "Choose a backup file",
+      chooseHint: "Only .db or .db.gz, up to {size}.",
+      selectedFile: "{name} · {size}",
+      clearFile: "Clear selection",
+      confirmLabel:
+        "I understand this overwrites all current data and takes effect after the controller restarts",
+      confirmHint: "You must tick the confirmation before uploading.",
+      upload: "Upload and schedule restore",
+      uploading: "Uploading…",
+      uploadedToast:
+        "Backup uploaded; takes effect after the controller restarts",
+      uploadSuccessTitle:
+        "Ready; takes effect after the controller restarts",
+      uploadSuccessDesc:
+        "The backup is stored on the server; current data is replaced only after the controller restarts.",
+      cancelRestore: "Cancel pending restore",
+      cancelRestoreTitle: "Cancel pending restore",
+      cancelRestoreDesc:
+        "The uploaded backup is deleted and current data stays unchanged.",
+      cancelRestoreAction: "Cancel pending restore",
+      cancelRestoreSuccess: "Pending restore cancelled",
+      cancelRestoreError:
+        "Could not cancel the pending restore. Please try again.",
+      uploadError: "Could not upload the backup. Please try again.",
+      tooLarge:
+        "The file is larger than {size} and cannot be uploaded; compress or trim the backup first.",
+      emptyFile: "This file is empty; choose a valid backup file.",
+      unsupportedFile: "Only .db or .db.gz files are supported.",
+    },
     duration: {
       hours: "{n} hours",
       minutes: "{n} minutes",

@@ -31,6 +31,64 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+/**
+ * P7：上传备份文件。
+ *
+ * body 直接是文件字节（不套 FormData），所以不能复用 `request`：
+ * 它固定发 JSON，并把响应体无条件当 JSON 读。这里单独解析，
+ * 后端返回非 JSON（例如网关的 413 HTML）时回落到通用错误文案。
+ */
+async function uploadBinary<T>(path: string, file: Blob): Promise<T> {
+  const res = await fetch(path, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: file,
+  });
+  const text = await res.text();
+  let body: { error?: string } | null = null;
+  if (text) {
+    try {
+      body = JSON.parse(text) as { error?: string };
+    } catch {
+      body = null;
+    }
+  }
+  if (!res.ok) {
+    throw new ApiError(
+      body?.error ?? t("errors.requestFailed", { status: res.status }),
+      res.status,
+    );
+  }
+  return body as T;
+}
+
+/**
+ * P7：备份与恢复，见 docs/PLAN.md「P7：备份与恢复」。
+ *
+ * 备份 = 单个 SQLite 文件；恢复只落盘为待恢复文件，主控重启后才替换。
+ * 后端可能暂时 404：页面按中文错误态兜底，不写 mock 数据。
+ */
+export interface BackupPending {
+  /** 待恢复文件上传完成的 Unix 秒。 */
+  uploaded_at: number;
+  /** 待恢复文件大小（字节）。 */
+  bytes: number;
+}
+
+export interface BackupInfo {
+  /** 当前数据库文件大小（字节）。 */
+  db_bytes: number;
+  /** 非空表示已经上传、等待重启生效。 */
+  pending: BackupPending | null;
+}
+
+export interface RestoreBackupResponse {
+  restart_required: boolean;
+  /** 后端可能直接带回待恢复详情；没有时前端用文件大小兜底展示。 */
+  pending?: BackupPending | null;
+}
+
 export interface SessionUser {
   id: string;
   username: string;
@@ -806,6 +864,22 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify(input),
       }),
+  },
+
+  /**
+   * P7：备份与恢复，仅管理员可用；后端可能暂时 404。
+   *
+   * 下载走同源直链，浏览器会带上会话 Cookie 并直接落盘；
+   * 恢复上传必须发原始字节，见 `uploadBinary`。
+   */
+  backup: {
+    /** 同源直链：`<a download>` 直接指向它即可，无需 fetch。 */
+    downloadUrl: "/api/v1/backup",
+    info: () => request<BackupInfo>("/api/v1/backup/info"),
+    restore: (file: File) =>
+      uploadBinary<RestoreBackupResponse>("/api/v1/backup/restore", file),
+    cancelRestore: () =>
+      request<{ ok: true }>("/api/v1/backup/restore", { method: "DELETE" }),
   },
 
   // 节点按服务器归属管理；`listAll` 是跨服务器的全局列表（套餐范围选择器用）。
