@@ -41,7 +41,7 @@ json.dump({
     "name": "香港-REALITY", "protocol": "vless", "transport": "tcp", "security": "reality", "port": 443,
     "config": {
         "settings": {"clients": [], "decryption": "none"},
-        "stream": {"network": "tcp", "security": "reality",
+        "streamSettings": {"network": "tcp", "security": "reality",
                    "realitySettings": {"dest": "www.microsoft.com:443",
                                        "serverNames": ["www.microsoft.com"],
                                        "privateKey": priv,

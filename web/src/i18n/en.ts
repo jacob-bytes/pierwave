@@ -183,6 +183,8 @@ const en = {
     detailsAria: "View details for {name}",
     nodes: "Nodes",
     manageNodesAria: "Manage nodes for {name}",
+    outbounds: "Outbounds & routing",
+    manageOutboundsAria: "Manage outbounds and routing for {name}",
     mode: {
       external: "External",
       embedded: "Embedded",
@@ -1023,6 +1025,161 @@ const en = {
         "The node traffic API is not ready yet. Refresh once the backend is deployed.",
     },
   },
+  outbounds: {
+    title: "Outbounds & routing",
+    backServers: "Servers",
+    unknownServer: "Unknown server",
+    subtitle: "Configure custom outbounds and routing rules for this server.",
+    applyHint: "Apply the config before changes take effect on the server",
+    applyHintDesc:
+      "Saving only writes to the controller database. Click the button on the right to deliver the new config to the Agent.",
+    apply: "Apply config",
+    applying: "Delivering…",
+    applySuccess: "Config applied, version v{version}",
+    applyError: "Could not apply the config. Please try again.",
+    notReady:
+      "The outbounds and routing API is not ready yet. Refresh once the backend is deployed.",
+    loadError: "Could not load outbounds. Check your network and try again.",
+    enableAction: "Enable",
+    disableAction: "Disable",
+    toggleAria: "{action} outbound {tag}",
+    enabledToast: "Outbound “{tag}” enabled",
+    disabledToast: "Outbound “{tag}” disabled",
+    toggleError: "Could not change the outbound status. Please try again.",
+    actionsAria: "Actions for outbound {tag}",
+    outbounds: {
+      title: "Outbounds",
+      add: "New outbound",
+      desc: "direct and blocked are built in; custom outbounds can be used for relays or landing nodes.",
+      tableCaption: "Outbound list",
+      columns: {
+        tag: "Tag",
+        protocol: "Protocol",
+        enabled: "Enabled",
+        createdAt: "Created",
+      },
+      loadFailed: "Outbound list failed to load",
+      emptyTitle: "No custom outbounds yet",
+      emptyDesc:
+        "The built-in direct and blocked outbounds are always available; add a custom outbound when you need a relay.",
+      emptyAction: "Create first outbound",
+    },
+    form: {
+      createTitle: "New outbound",
+      editTitle: "Edit outbound",
+      createDesc:
+        "config is merged into the outbound object as-is; tag and protocol come from the saved values.",
+      editDesc:
+        "Apply the config again after editing to deliver it to the Agent.",
+      tag: "Tag",
+      tagPlaceholder: "us-relay",
+      tagHint:
+        "Lowercase letters, digits, - or _, 1–32 characters; direct / blocked / api are reserved.",
+      protocol: "Protocol",
+      protocolPlaceholder: "Select a protocol",
+      enabled: "Enabled",
+      enabledHint: "Disabled outbounds are not written into the delivered config.",
+      enabledOn: "Enabled immediately after saving",
+      enabledOff: "Saved as disabled",
+      config: "config (JSON)",
+      configValid: "Valid JSON · {n} lines",
+      configPlaceholderHint:
+        "The example is only a placeholder and is never filled in automatically; enter the actual server settings.",
+      placeholderSettingsStream:
+        "Fill settings with the server parameters (for example vnext / clients) and stream with the transport layer (for example network, wsSettings, tlsSettings).",
+      submitCreate: "Create outbound",
+      submitSave: "Save changes",
+      saving: "Saving…",
+      created: "Outbound “{tag}” created",
+      updated: "Outbound “{tag}” updated",
+      error: "Could not save the outbound. Please try again.",
+    },
+    delete: {
+      title: "Delete outbound",
+      desc: "Delete outbound “{tag}”? The backend will refuse if routing rules still reference it.",
+      action: "Delete",
+      success: "Outbound “{tag}” deleted; remember to apply the config again",
+      error: "Could not delete the outbound. Please try again.",
+    },
+    rules: {
+      title: "Routing rules",
+      add: "New rule",
+      desc: "Match inbound, domain and IP in order; the built-in api rule is not managed here.",
+      tableCaption: "Routing rule list",
+      columns: {
+        order: "Order",
+        match: "Match",
+        target: "Target",
+        enabled: "Enabled",
+      },
+      loadFailed: "Routing rules failed to load",
+      loadError:
+        "Could not load routing rules. Check your network and try again.",
+      emptyTitle: "No routing rules yet",
+      emptyDesc:
+        "Create a rule to route traffic from a specific inbound, domain or IP to a custom outbound.",
+      emptyAction: "Create first rule",
+      enableAction: "Enable",
+      disableAction: "Disable",
+      toggleAria: "{action} this routing rule",
+      enabledToast: "Routing rule enabled",
+      disabledToast: "Routing rule disabled",
+      toggleError:
+        "Could not change the routing rule status. Please try again.",
+      moveUpAria: "Move rule {index} up",
+      moveDownAria: "Move rule {index} down",
+      orderError: "Could not reorder the rules. Please try again.",
+      actionsAria: "Actions for rule {index}",
+      inboundMatch: "Inbound {tag}",
+      domainMatch: "Domain {value}",
+      ipMatch: "IP {value}",
+      delete: {
+        title: "Delete routing rule",
+        desc: "Delete the rule matching “{rule}”? Apply the config again afterwards.",
+        action: "Delete",
+        success: "Routing rule deleted; remember to apply the config again",
+        error: "Could not delete the routing rule. Please try again.",
+      },
+      form: {
+        createTitle: "New routing rule",
+        editTitle: "Edit routing rule",
+        createDesc:
+          "Fill at least one of inbound, domain or IP; otherwise the rule would swallow all traffic.",
+        editDesc:
+          "Apply the config again after editing to deliver it to the Agent.",
+        inbound: "Inbound",
+        inboundAny: "Any inbound",
+        inboundLoading: "Loading nodes…",
+        inboundLoadError:
+          "Could not load nodes; you can still match by domain or IP",
+        inboundEmpty:
+          "This server has no nodes yet; match by domain or IP instead",
+        outbound: "Target outbound",
+        outboundPlaceholder: "Select an outbound",
+        outboundLoadError:
+          "Could not load custom outbounds; only direct / blocked are available for now",
+        domain: "Domain",
+        domainHint:
+          "Comma-separated Xray domain patterns, for example example.com,*.example.com",
+        domainPlaceholder: "example.com,*.example.com",
+        ip: "IP",
+        ipHint: "Comma-separated IPs or CIDRs, for example 1.2.3.4,10.0.0.0/8",
+        ipPlaceholder: "1.2.3.4,10.0.0.0/8",
+        conditionHint:
+          "Fill at least one of the three match conditions; empty conditions are ignored.",
+        enabled: "Enabled",
+        enabledHint: "Disabled rules are not written into the delivered config.",
+        enabledOn: "Enabled immediately after saving",
+        enabledOff: "Saved as disabled",
+        submitCreate: "Create rule",
+        submitSave: "Save changes",
+        saving: "Saving…",
+        created: "Routing rule created",
+        updated: "Routing rule updated",
+        error: "Could not save the routing rule. Please try again.",
+      },
+    },
+  },
   me: {
     shortCode: "Short code",
     onlyOwnData: "Only your own data is shown here",
@@ -1186,6 +1343,13 @@ const en = {
     ruleLineMax: "Line {line} is longer than {max} characters; shorten it and try again",
     rulesLastMatch:
       "The last rule must start with an uppercase MATCH (for example MATCH,PROXY)",
+    outboundTagRequired: "Enter an outbound tag",
+    outboundTagInvalid:
+      "Tag may only contain lowercase letters, digits, - and _, 1–32 characters",
+    outboundTagReserved:
+      "direct / blocked / api are reserved tags; choose another one",
+    routingConditionRequired:
+      "Fill at least one of inbound, domain or IP; otherwise the rule matches all traffic",
   },
 } satisfies Messages;
 

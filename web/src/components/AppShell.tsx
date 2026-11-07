@@ -71,7 +71,10 @@ const consoleNav: NavItem[] = [
     to: "/servers",
     labelKey: "nav.servers",
     icon: ServerIcon,
-    activeWhen: (pathname) => pathname === "/servers",
+    // 出站与路由挂在服务器下，面包屑仍归到「服务器」。
+    activeWhen: (pathname) =>
+      pathname === "/servers" ||
+      /^\/servers\/[^/]+\/outbounds(?:\/|$)/.test(pathname),
   },
 ];
 

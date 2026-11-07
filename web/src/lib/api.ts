@@ -185,6 +185,73 @@ export interface UpdateNodeInput {
   cert_id?: string | null;
 }
 
+/** P3：出站与路由，见 docs/PLAN.md「P3：出站与路由（可视化）」。 */
+export type OutboundProtocol =
+  | "socks"
+  | "http"
+  | "vmess"
+  | "vless"
+  | "trojan"
+  | "shadowsocks"
+  | "freedom"
+  | "blackhole";
+
+/** 自定义出站；`direct` / `blocked` 是内置出站，不会出现在该列表里。 */
+export interface Outbound {
+  id: string;
+  server_id: string;
+  tag: string;
+  /** 白名单见 `OutboundProtocol`；未知值原样展示。 */
+  protocol: string;
+  /** 后端直接返回 JSON 对象；合并进出站对象时以 tag/protocol 为准。 */
+  config: Record<string, unknown>;
+  /** 后端目前序列化为 0/1，统一在展示层用 Boolean() 归一。 */
+  enabled: boolean | number;
+  created_at: number;
+}
+
+export interface CreateOutboundInput {
+  tag: string;
+  protocol: OutboundProtocol;
+  config: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+export interface UpdateOutboundInput {
+  tag?: string;
+  protocol?: OutboundProtocol;
+  config?: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+/** 路由规则：三个匹配条件（入站 / 域名 / IP）至少填一个。 */
+export interface RoutingRule {
+  id: string;
+  server_id: string;
+  sort_order: number;
+  /** 空 = 不限定入站；值来自该服务器的节点 tag。 */
+  inbound_tag: string | null;
+  /** 逗号分隔的 Xray 域名匹配串；空 = 不按域名匹配。 */
+  domain: string | null;
+  /** 逗号分隔的 IP/CIDR；空 = 不按 IP 匹配。 */
+  ip: string | null;
+  /** `direct` / `blocked` 或该服务器上已存在的自定义出站 tag。 */
+  outbound_tag: string;
+  enabled: boolean | number;
+  created_at: number;
+}
+
+export interface CreateRoutingRuleInput {
+  inbound_tag?: string | null;
+  domain?: string | null;
+  ip?: string | null;
+  outbound_tag: string;
+  sort_order?: number;
+  enabled?: boolean;
+}
+
+export type UpdateRoutingRuleInput = Partial<CreateRoutingRuleInput>;
+
 export interface ApplyResult {
   config_version: number;
   /** 后端正在加；暂时没有时按空数组处理。 */
@@ -585,6 +652,63 @@ export const api = {
       `/api/v1/servers/${encodeURIComponent(serverId)}/apply`,
       { method: "POST" },
     ),
+
+  /** 单台服务器的自定义出站；`direct` / `blocked` 由后端内置，不在列表里。 */
+  outbounds: {
+    list: (serverId: string) =>
+      request<{ items: Outbound[] }>(
+        `/api/v1/servers/${encodeURIComponent(serverId)}/outbounds`,
+      ),
+    create: (serverId: string, input: CreateOutboundInput) =>
+      request<{ outbound: Outbound }>(
+        `/api/v1/servers/${encodeURIComponent(serverId)}/outbounds`,
+        {
+          method: "POST",
+          body: JSON.stringify(input),
+        },
+      ),
+    update: (id: string, input: UpdateOutboundInput) =>
+      request<{ outbound: Outbound }>(
+        `/api/v1/outbounds/${encodeURIComponent(id)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(input),
+        },
+      ),
+    remove: (id: string) =>
+      request<{ ok: true }>(`/api/v1/outbounds/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
+  },
+
+  /** 单台服务器的路由规则；内置的 api 规则不在列表里。 */
+  routingRules: {
+    list: (serverId: string) =>
+      request<{ items: RoutingRule[] }>(
+        `/api/v1/servers/${encodeURIComponent(serverId)}/routing-rules`,
+      ),
+    create: (serverId: string, input: CreateRoutingRuleInput) =>
+      request<{ rule: RoutingRule }>(
+        `/api/v1/servers/${encodeURIComponent(serverId)}/routing-rules`,
+        {
+          method: "POST",
+          body: JSON.stringify(input),
+        },
+      ),
+    update: (id: string, input: UpdateRoutingRuleInput) =>
+      request<{ rule: RoutingRule }>(
+        `/api/v1/routing-rules/${encodeURIComponent(id)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(input),
+        },
+      ),
+    remove: (id: string) =>
+      request<{ ok: true }>(
+        `/api/v1/routing-rules/${encodeURIComponent(id)}`,
+        { method: "DELETE" },
+      ),
+  },
 
   certificates: {
     list: () => request<{ items: Certificate[] }>("/api/v1/certificates"),

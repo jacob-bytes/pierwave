@@ -20,6 +20,7 @@ const AuditPage = lazy(() => import("@/pages/Audit"));
 const RulesPage = lazy(() => import("@/pages/Rules"));
 const SettingsPage = lazy(() => import("@/pages/Settings"));
 const NodesPage = lazy(() => import("@/pages/Nodes"));
+const OutboundsPage = lazy(() => import("@/pages/Outbounds"));
 const NodesIndexPage = lazy(() => import("@/pages/NodesIndex"));
 const MePage = lazy(() => import("@/pages/Me"));
 
@@ -119,6 +120,7 @@ export default function App() {
             <Route index element={<OverviewPage />} />
             <Route path="servers" element={<ServersPage />} />
             <Route path="servers/:id/nodes" element={<NodesPage />} />
+            <Route path="servers/:id/outbounds" element={<OutboundsPage />} />
             <Route path="nodes" element={<NodesIndexPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="subscriptions" element={<SubscriptionsPage />} />

@@ -1,6 +1,12 @@
 import { z } from "zod";
 import type { TFunction } from "@/i18n";
 import {
+  ANY_INBOUND_TAG,
+  isReservedOutboundTag,
+  OUTBOUND_PROTOCOLS,
+  OUTBOUND_TAG_PATTERN,
+} from "@/lib/outbounds";
+import {
   isCombinationAllowed,
   NODE_PROTOCOLS,
   NODE_SECURITIES,
@@ -281,6 +287,64 @@ export function nodeFormSchema(t: TFunction) {
 }
 
 export type NodeFormValues = z.infer<ReturnType<typeof nodeFormSchema>>;
+
+/**
+ * 出站表单：tag / 协议 / 启用状态。
+ *
+ * config 是 JSON 文本，复用 `lib/json.ts` 的解析器在对话框里做行号级校验，
+ * 不放进 zod（那里拿不到原始文本的定位信息）。
+ */
+export function outboundFormSchema(t: TFunction) {
+  return z.object({
+    tag: z
+      .string()
+      .trim()
+      .min(1, t("validation.outboundTagRequired"))
+      .regex(OUTBOUND_TAG_PATTERN, t("validation.outboundTagInvalid"))
+      .refine(
+        (value) => !isReservedOutboundTag(value),
+        t("validation.outboundTagReserved"),
+      ),
+    protocol: z.enum(OUTBOUND_PROTOCOLS),
+    enabled: z.boolean(),
+  });
+}
+
+export type OutboundFormValues = z.infer<
+  ReturnType<typeof outboundFormSchema>
+>;
+
+/**
+ * 路由规则表单：三个匹配条件至少填一个，否则规则会吞掉所有流量。
+ *
+ * 空字符串在提交时统一转成 null；入站下拉的「不限」用对话框内的哨兵值承接。
+ */
+export function routingRuleFormSchema(t: TFunction) {
+  return z
+    .object({
+      inbound_tag: z.string(),
+      domain: z.string(),
+      ip: z.string(),
+      outbound_tag: z.string(),
+      enabled: z.boolean(),
+    })
+    .superRefine((values, ctx) => {
+      const hasInbound =
+        values.inbound_tag.trim() !== "" &&
+        values.inbound_tag !== ANY_INBOUND_TAG;
+      if (!hasInbound && !values.domain.trim() && !values.ip.trim()) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["domain"],
+          message: t("validation.routingConditionRequired"),
+        });
+      }
+    });
+}
+
+export type RoutingRuleFormValues = z.infer<
+  ReturnType<typeof routingRuleFormSchema>
+>;
 
 /**
  * 规则模板表单：多行文本在校验与提交时都按行拆分、trim、去空行。

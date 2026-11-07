@@ -292,6 +292,7 @@ export function buildConfigSkeleton(
 
   return {
     settings: protocolSettings(protocol),
-    stream,
+    // Xray 的字段名是 streamSettings；后端也兼容历史的 stream 写法
+    streamSettings: stream,
   };
 }

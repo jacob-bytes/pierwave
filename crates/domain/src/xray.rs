@@ -257,7 +257,7 @@ pub fn node_problem(node: &Node) -> Option<String> {
     }
 
     let fragment = parse_fragment(&node.config_json);
-    let stream = fragment.get("stream").and_then(Value::as_object);
+    let stream = stream_settings(&fragment);
     // 片段是安全层的事实来源，缺省才回落到节点表里的冗余列（与 build_inbound 一致）。
     let security = stream
         .and_then(|stream| stream.get("security"))
@@ -331,7 +331,7 @@ fn build_config_checked_impl(plan: &ServerPlan, require_tls_certs: bool) -> (Val
 /// 绑定了一张本次下发里真实存在的证书。
 fn node_tls_cert_problem(node: &Node, certs: &[NodeCertificate]) -> Option<String> {
     let fragment = parse_fragment(&node.config_json);
-    let stream = fragment.get("stream").and_then(Value::as_object);
+    let stream = stream_settings(&fragment);
     let security = stream
         .and_then(|stream| stream.get("security"))
         .and_then(Value::as_str)
@@ -395,8 +395,13 @@ fn build_inbound(
     if !matches!(inbound.get("settings"), Some(Value::Object(_))) {
         inbound.insert("settings".into(), default_settings(&node.protocol));
     }
-    if !matches!(inbound.get("stream"), Some(Value::Object(_))) {
-        inbound.insert("stream".into(), default_stream(node));
+    // Xray 认的字段名是 `streamSettings`；历史片段里写的是 `stream`，这里统一改名，
+    // 否则即使配置能生成，真实 Xray 也会忽略整段传输/安全设置。
+    if let Some(legacy) = inbound.remove("stream") {
+        inbound.entry("streamSettings").or_insert(legacy);
+    }
+    if !matches!(inbound.get("streamSettings"), Some(Value::Object(_))) {
+        inbound.insert("streamSettings".into(), default_stream(node));
     }
 
     apply_tls_certificate(&mut inbound, node, certs);
@@ -436,7 +441,8 @@ fn inject_clients(inbound: &mut Map<String, Value>, node: &Node, tag: &str, gran
     }
 
     let security = inbound
-        .get("stream")
+        .get("streamSettings")
+        .or_else(|| inbound.get("stream"))
         .and_then(Value::as_object)
         .and_then(|stream| stream.get("security"))
         .and_then(Value::as_str)
@@ -525,7 +531,10 @@ fn apply_tls_certificate(inbound: &mut Map<String, Value>, node: &Node, certs: &
     let Some(cert) = certs.iter().find(|cert| cert.node_id == node.id) else {
         return;
     };
-    let Some(stream) = inbound.get_mut("stream").and_then(Value::as_object_mut) else {
+    let Some(stream) = inbound
+        .get_mut("streamSettings")
+        .and_then(Value::as_object_mut)
+    else {
         return;
     };
     let security = stream
@@ -557,6 +566,14 @@ fn apply_tls_certificate(inbound: &mut Map<String, Value>, node: &Node, certs: &
             "keyFile": cert.key_path
         }]),
     );
+}
+
+/// 读取传输配置：优先 Xray 的 `streamSettings`，回落到历史片段里的 `stream`。
+pub fn stream_settings(fragment: &Map<String, Value>) -> Option<&Map<String, Value>> {
+    fragment
+        .get("streamSettings")
+        .or_else(|| fragment.get("stream"))
+        .and_then(Value::as_object)
 }
 
 fn parse_fragment(raw: &str) -> Map<String, Value> {
@@ -737,7 +754,7 @@ mod tests {
         assert_eq!(inbound["protocol"], "vless");
         assert_eq!(inbound["settings"]["decryption"], "none");
         assert_eq!(
-            inbound["stream"]["realitySettings"]["serverNames"][0],
+            inbound["streamSettings"]["realitySettings"]["serverNames"][0],
             "www.example.com"
         );
         assert_eq!(inbound["sniffing"]["enabled"], true);
@@ -767,8 +784,8 @@ mod tests {
         assert_eq!(inbounds[0]["settings"]["clients"], json!([]));
         // trojan 片段全空，settings/stream 都应补默认值
         assert_eq!(inbounds[1]["settings"]["clients"], json!([]));
-        assert_eq!(inbounds[1]["stream"]["network"], "tcp");
-        assert_eq!(inbounds[1]["stream"]["security"], "tls");
+        assert_eq!(inbounds[1]["streamSettings"]["network"], "tcp");
+        assert_eq!(inbounds[1]["streamSettings"]["security"], "tls");
     }
 
     #[test]
@@ -798,8 +815,8 @@ mod tests {
         let inbound = &config["inbounds"][0];
 
         assert_eq!(inbound["settings"]["decryption"], "none");
-        assert_eq!(inbound["stream"]["network"], "tcp");
-        assert_eq!(inbound["stream"]["security"], "none");
+        assert_eq!(inbound["streamSettings"]["network"], "tcp");
+        assert_eq!(inbound["streamSettings"]["security"], "none");
     }
 
     #[test]
@@ -1116,5 +1133,57 @@ mod tests {
             config["routing"]["rules"],
             json!([{"type": "field", "inboundTag": ["api"], "outboundTag": "api"}])
         );
+    }
+
+    /// Xray 只认 `streamSettings`；历史片段里的 `stream` 必须被改名而不是原样透传，
+    /// 否则配置能生成、真实 Xray 却会忽略整段传输/安全设置。
+    #[test]
+    fn legacy_stream_key_is_renamed_to_stream_settings() {
+        let legacy = node(
+            "legacy",
+            "vless",
+            "ws",
+            "tls",
+            443,
+            r#"{"settings": {"clients": [], "decryption": "none"},
+                "stream": {"network": "ws", "security": "tls", "tlsSettings": {"serverName": "a.com"},
+                           "wsSettings": {"path": "/ws"}}}"#,
+        );
+        let plan = ServerPlan {
+            server_name: "s",
+            nodes: std::slice::from_ref(&legacy),
+            grants: &[],
+            certs: &[],
+            outbounds: &[],
+            rules: &[],
+        };
+        let cfg = build_config(&plan);
+        let inbound = &cfg["inbounds"][0];
+        assert!(inbound.get("stream").is_none(), "不应再出现旧的 stream 键");
+        assert_eq!(inbound["streamSettings"]["network"], "ws");
+        assert_eq!(
+            inbound["streamSettings"]["tlsSettings"]["serverName"],
+            "a.com"
+        );
+
+        let modern = node(
+            "modern",
+            "vless",
+            "tcp",
+            "tls",
+            443,
+            r#"{"settings": {"clients": [], "decryption": "none"},
+                "streamSettings": {"network": "tcp", "security": "tls"}}"#,
+        );
+        let plan = ServerPlan {
+            server_name: "s",
+            nodes: std::slice::from_ref(&modern),
+            grants: &[],
+            certs: &[],
+            outbounds: &[],
+            rules: &[],
+        };
+        let cfg = build_config(&plan);
+        assert_eq!(cfg["inbounds"][0]["streamSettings"]["network"], "tcp");
     }
 }

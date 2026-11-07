@@ -14,7 +14,9 @@ import {
   type ChangePasswordInput,
   type CreateCertificateInput,
   type CreateNodeInput,
+  type CreateOutboundInput,
   type CreatePackageInput,
+  type CreateRoutingRuleInput,
   type CreateRuleTemplateInput,
   type CreateServerResponse,
   type CreateUserInput,
@@ -26,15 +28,19 @@ import {
   type NodeSummary,
   type NodeTraffic,
   type NodeTrafficDetail,
+  type Outbound,
   type OverviewStats,
   type Package,
+  type RoutingRule,
   type RuleTemplate,
   type Server,
   type SessionUser,
   type Settings,
   type TrafficStats,
   type UpdateNodeInput,
+  type UpdateOutboundInput,
   type UpdatePackageInput,
+  type UpdateRoutingRuleInput,
   type UpdateRuleTemplateInput,
   type UpdateSettingsInput,
   type UpdateUserInput,
@@ -42,6 +48,7 @@ import {
   type UserPackageView,
   type UserView,
 } from "@/lib/api";
+import { compareRoutingRules } from "@/lib/outbounds";
 
 export const queryKeys = {
   me: ["me"] as const,
@@ -62,6 +69,9 @@ export const queryKeys = {
   nodes: (serverId: string) => ["nodes", serverId] as const,
   /** 全局节点列表：不属于任何单台服务器，单独一个 key。 */
   allNodes: ["nodes", "all"] as const,
+  outbounds: (serverId: string) => ["outbounds", serverId] as const,
+  routingRules: (serverId: string) =>
+    ["routing-rules", serverId] as const,
   certificates: ["certificates"] as const,
   users: (q: string) => ["users", { q }] as const,
   packages: ["packages"] as const,
@@ -463,6 +473,259 @@ export function useApplyServer(serverId: string) {
             : server,
         ),
       );
+    },
+  });
+}
+
+/**
+ * 单台服务器的自定义出站。
+ *
+ * 后端可能暂时 404：不重试，由页面展示中文错误态与「重试」。
+ */
+export function useOutbounds(serverId: string) {
+  return useQuery<Outbound[]>({
+    queryKey: queryKeys.outbounds(serverId),
+    queryFn: async () => (await api.outbounds.list(serverId)).items,
+    enabled: Boolean(serverId),
+    staleTime: 5_000,
+    retry: false,
+  });
+}
+
+/** 出站的增删改也会影响路由规则里的出站下拉与引用关系。 */
+function invalidateOutboundViews(
+  queryClient: ReturnType<typeof useQueryClient>,
+  serverId: string,
+) {
+  void queryClient.invalidateQueries({
+    queryKey: queryKeys.outbounds(serverId),
+  });
+  void queryClient.invalidateQueries({
+    queryKey: queryKeys.routingRules(serverId),
+  });
+}
+
+function applyOutboundInput(
+  outbound: Outbound,
+  input: UpdateOutboundInput,
+): Outbound {
+  return {
+    ...outbound,
+    ...(input.tag !== undefined ? { tag: input.tag } : {}),
+    ...(input.protocol !== undefined ? { protocol: input.protocol } : {}),
+    ...(input.config !== undefined ? { config: input.config } : {}),
+    ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+  };
+}
+
+export function useCreateOutbound(serverId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<Outbound, Error, CreateOutboundInput>({
+    mutationFn: async (input) =>
+      (await api.outbounds.create(serverId, input)).outbound,
+    onSuccess: () => invalidateOutboundViews(queryClient, serverId),
+  });
+}
+
+export function useUpdateOutbound(serverId: string) {
+  const queryClient = useQueryClient();
+  const queryKey = queryKeys.outbounds(serverId);
+
+  return useMutation<
+    Outbound,
+    Error,
+    { id: string; input: UpdateOutboundInput },
+    { previous?: Outbound[] }
+  >({
+    mutationFn: async ({ id, input }) =>
+      (await api.outbounds.update(id, input)).outbound,
+    onMutate: async ({ id, input }) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<Outbound[]>(queryKey);
+
+      if (previous) {
+        queryClient.setQueryData<Outbound[]>(
+          queryKey,
+          previous.map((item) =>
+            item.id === id ? applyOutboundInput(item, input) : item,
+          ),
+        );
+      }
+
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKey, context.previous);
+      }
+    },
+    onSuccess: (outbound) => {
+      queryClient.setQueryData<Outbound[]>(queryKey, (current) =>
+        current?.map((item) => (item.id === outbound.id ? outbound : item)),
+      );
+    },
+    onSettled: () => invalidateOutboundViews(queryClient, serverId),
+  });
+}
+
+export function useDeleteOutbound(serverId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<{ ok: true }, Error, string>({
+    mutationFn: (id) => api.outbounds.remove(id),
+    onSuccess: () => invalidateOutboundViews(queryClient, serverId),
+  });
+}
+
+/** 路由规则列表：统一按 sort_order 排序，后端返回顺序不稳定时也一致。 */
+export function useRoutingRules(serverId: string) {
+  return useQuery<RoutingRule[]>({
+    queryKey: queryKeys.routingRules(serverId),
+    queryFn: async () =>
+      (await api.routingRules.list(serverId)).items
+        .slice()
+        .sort(compareRoutingRules),
+    enabled: Boolean(serverId),
+    staleTime: 5_000,
+    retry: false,
+  });
+}
+
+function applyRoutingRuleInput(
+  rule: RoutingRule,
+  input: UpdateRoutingRuleInput,
+): RoutingRule {
+  return {
+    ...rule,
+    ...(input.sort_order !== undefined
+      ? { sort_order: input.sort_order }
+      : {}),
+    ...(input.inbound_tag !== undefined
+      ? { inbound_tag: input.inbound_tag }
+      : {}),
+    ...(input.domain !== undefined ? { domain: input.domain } : {}),
+    ...(input.ip !== undefined ? { ip: input.ip } : {}),
+    ...(input.outbound_tag !== undefined
+      ? { outbound_tag: input.outbound_tag }
+      : {}),
+    ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+  };
+}
+
+export function useCreateRoutingRule(serverId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<RoutingRule, Error, CreateRoutingRuleInput>({
+    mutationFn: async (input) =>
+      (await api.routingRules.create(serverId, input)).rule,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.routingRules(serverId),
+      });
+    },
+  });
+}
+
+export function useUpdateRoutingRule(serverId: string) {
+  const queryClient = useQueryClient();
+  const queryKey = queryKeys.routingRules(serverId);
+
+  return useMutation<
+    RoutingRule,
+    Error,
+    { id: string; input: UpdateRoutingRuleInput },
+    { previous?: RoutingRule[] }
+  >({
+    mutationFn: async ({ id, input }) =>
+      (await api.routingRules.update(id, input)).rule,
+    onMutate: async ({ id, input }) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<RoutingRule[]>(queryKey);
+
+      if (previous) {
+        queryClient.setQueryData<RoutingRule[]>(
+          queryKey,
+          previous.map((item) =>
+            item.id === id ? applyRoutingRuleInput(item, input) : item,
+          ),
+        );
+      }
+
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKey, context.previous);
+      }
+    },
+    onSuccess: (rule) => {
+      queryClient.setQueryData<RoutingRule[]>(queryKey, (current) =>
+        current?.map((item) => (item.id === rule.id ? rule : item)),
+      );
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey });
+    },
+  });
+}
+
+export function useDeleteRoutingRule(serverId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<{ ok: true }, Error, string>({
+    mutationFn: (id) => api.routingRules.remove(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.routingRules(serverId),
+      });
+    },
+  });
+}
+
+export interface RoutingRuleOrderPatch {
+  id: string;
+  sort_order: number;
+}
+
+/**
+ * 调整路由规则顺序。
+ *
+ * 后端只有 `sort_order` 一个维度，且新建规则可能都拿到默认 0，
+ * 所以这里不做「两两交换」，而是按当前表格顺序重新编号成 0..n-1：
+ * 只 PATCH 编号真正变化的规则，重复的 sort_order 也能被纠正。
+ */
+export function useReorderRoutingRules(serverId: string) {
+  const queryClient = useQueryClient();
+  const queryKey = queryKeys.routingRules(serverId);
+
+  return useMutation<
+    void,
+    Error,
+    { ordered: RoutingRule[]; patches: RoutingRuleOrderPatch[] },
+    { previous?: RoutingRule[] }
+  >({
+    mutationFn: async ({ patches }) => {
+      // 串行 PATCH：SQLite 并发写容易撞锁，而重编号本身对请求顺序不敏感。
+      for (const patch of patches) {
+        await api.routingRules.update(patch.id, {
+          sort_order: patch.sort_order,
+        });
+      }
+    },
+    onMutate: async ({ ordered }) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<RoutingRule[]>(queryKey);
+      queryClient.setQueryData(queryKey, [...ordered].sort(compareRoutingRules));
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKey, context.previous);
+      }
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey });
     },
   });
 }

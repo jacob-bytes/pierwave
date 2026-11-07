@@ -435,7 +435,7 @@ mod tests {
         let inbounds = desired.xray["inbounds"].as_array().unwrap();
         assert_eq!(inbounds.len(), 3, "两个业务节点 + api");
         for inbound in &inbounds[..2] {
-            let certificates = inbound["stream"]["tlsSettings"]["certificates"]
+            let certificates = inbound["streamSettings"]["tlsSettings"]["certificates"]
                 .as_array()
                 .unwrap_or_else(|| panic!("TLS 节点必须带 certificates：{inbound}"));
             assert_eq!(certificates.len(), 1);

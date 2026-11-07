@@ -13,6 +13,7 @@ import {
   RefreshCwIcon,
   ServerOffIcon,
   TriangleAlertIcon,
+  WaypointsIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -786,6 +787,17 @@ export default function ServersPage() {
                             >
                               <NetworkIcon className="size-3.5" />
                               {t("servers.nodes")}
+                            </Link>
+                          </Button>
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link
+                              to={`/servers/${server.id}/outbounds`}
+                              aria-label={t("servers.manageOutboundsAria", {
+                                name: server.name,
+                              })}
+                            >
+                              <WaypointsIcon className="size-3.5" />
+                              {t("servers.outbounds")}
                             </Link>
                           </Button>
                         </div>

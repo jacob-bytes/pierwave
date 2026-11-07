@@ -100,7 +100,11 @@ impl SubNode {
                 return None;
             }
         };
-        let stream = fragment.get("stream").filter(|value| value.is_object());
+        // 片段里的传输配置可能叫 stream（历史）或 streamSettings（Xray 原生）
+        let stream = fragment
+            .get("streamSettings")
+            .or_else(|| fragment.get("stream"))
+            .filter(|value| value.is_object());
         let settings = fragment.get("settings").filter(|value| value.is_object());
 
         // 片段是事实来源，缺省才回落到节点表里的冗余列（和 xray::build_config 一致）。
