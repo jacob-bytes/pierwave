@@ -371,7 +371,18 @@ pub trait Exporter: Send + Sync {
     fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String>;
 }
 
-static EXPORTERS: &[&dyn Exporter] = &[&ClashExporter, &UriExporter];
+static EXPORTERS: &[&dyn Exporter] = &[
+    &ClashExporter,
+    &StashExporter,
+    &SurgeExporter,
+    &SurfboardExporter,
+    &LoonExporter,
+    &QxExporter,
+    &SingboxExporter,
+    &UriExporter,
+    &ShadowrocketExporter,
+    &V2RayExporter,
+];
 
 /// 已注册的渲染器；新增格式 = 加一个文件 + 这里加一行。
 pub fn exporters() -> &'static [&'static dyn Exporter] {
@@ -395,6 +406,9 @@ pub fn exporter_ids() -> Vec<&'static str> {
 ///
 /// 显式给了 `target` 就只认已注册的渲染器；未知目标返回 `None`，由调用方转成 400，
 /// 而不是把 clash YAML 塞给 sing-box 用户。没给 `target` 时才按 UA 嗅探并回落 clash。
+///
+/// UA 表按「越具体越靠前」排序：`Shadowrocket` 不能落到 clash，`Stash` 也不能
+/// 被 `clash` 兜走；都不认识时才回落 clash。
 pub fn select_exporter(
     target: Option<&str>,
     user_agent: Option<&str>,
@@ -404,10 +418,29 @@ pub fn select_exporter(
     }
     if let Some(user_agent) = user_agent {
         let user_agent = user_agent.to_ascii_lowercase();
-        if user_agent.contains("shadowrocket") || user_agent.contains("v2rayng") {
-            if let Some(exporter) = find_exporter("uri") {
-                return Some(exporter);
-            }
+        let id = if user_agent.contains("shadowrocket") {
+            "shadowrocket"
+        } else if user_agent.contains("v2rayng") || user_agent.contains("v2rayn") {
+            "v2ray"
+        } else if user_agent.contains("sing-box") || user_agent.contains("singbox") {
+            "singbox"
+        } else if user_agent.contains("stash") {
+            "stash"
+        } else if user_agent.contains("surfboard") {
+            "surfboard"
+        } else if user_agent.contains("quantumult") {
+            "qx"
+        } else if user_agent.contains("loon") {
+            "loon"
+        } else if user_agent.contains("surge") {
+            "surge"
+        } else if user_agent.contains("clash") || user_agent.contains("mihomo") {
+            "clash"
+        } else {
+            return find_exporter("clash");
+        };
+        if let Some(exporter) = find_exporter(id) {
+            return Some(exporter);
         }
     }
     find_exporter("clash")
@@ -916,6 +949,965 @@ impl Query {
         } else {
             format!("?{}", self.parts.join("&"))
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Stash（Clash 兼容 YAML）
+// ---------------------------------------------------------------------------
+
+/// Stash 的配置骨架与 Clash 几乎一致：`proxies` / `proxy-groups` / `rules`，
+/// 只是 Stash 识别首行注释为客户端标记，AUTO 组用 `url-test`（Clash 生成器已是）。
+///
+/// 复用 `ClashExporter` 而不复制一份生成器：以后 Clash 侧新增传输表达时，
+/// Stash 自动跟上，不会出现两份逐渐漂移的 YAML 逻辑。
+pub struct StashExporter;
+
+impl Exporter for StashExporter {
+    fn id(&self) -> &'static str {
+        "stash"
+    }
+
+    fn content_type(&self) -> &'static str {
+        "text/yaml; charset=utf-8"
+    }
+
+    fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
+        Ok(format!("# stash\n{}", ClashExporter.render(ctx)?))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Surge / Surfboard / Loon / Quantumult X（INI 家族）
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IniFlavor {
+    Surge,
+    Surfboard,
+    Loon,
+    Qx,
+}
+
+impl IniFlavor {
+    fn id(self) -> &'static str {
+        match self {
+            Self::Surge => "surge",
+            Self::Surfboard => "surfboard",
+            Self::Loon => "loon",
+            Self::Qx => "qx",
+        }
+    }
+
+    fn is_qx(self) -> bool {
+        matches!(self, Self::Qx)
+    }
+}
+
+/// INI 渲染结果：正文 + 跳过计数。
+///
+/// 计数不写进正文（客户端不认注释之外的统计），而是回给调用方记 warn；
+/// 单测直接断言计数，避免「跳过了一条但没人知道」。
+struct IniOutput {
+    body: String,
+    skipped_nodes: usize,
+    skipped_rules: usize,
+}
+
+fn log_skipped(client: &str, skipped_nodes: usize, skipped_rules: usize) {
+    if skipped_nodes > 0 {
+        tracing::warn!(
+            client,
+            skipped = skipped_nodes,
+            "订阅渲染跳过该客户端不支持的节点"
+        );
+    }
+    if skipped_rules > 0 {
+        tracing::warn!(
+            client,
+            skipped = skipped_rules,
+            "规则模板里有该客户端映射不了的规则，已跳过"
+        );
+    }
+}
+
+fn rules_or_default(ctx: &SubContext<'_>) -> Vec<String> {
+    if ctx.rules.is_empty() {
+        default_rules()
+    } else {
+        ctx.rules.to_vec()
+    }
+}
+
+/// 节点名放进 INI 的键/值里要避开分隔符：逗号会截断字段，等号会被当成键值分隔。
+/// 只替换真正有歧义的字符，普通中英文名保持原样。
+fn ini_name(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for ch in name.chars() {
+        match ch {
+            ',' => out.push('，'),
+            '=' => out.push('＝'),
+            '\n' | '\r' | '\t' => out.push(' '),
+            ch if ch.is_control() => {}
+            ch => out.push(ch),
+        }
+    }
+    let trimmed = out.trim();
+    if trimmed.is_empty() {
+        "node".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// 地区分组（与 Clash 同一套 `REGIONS` 顺序），`members` 里是渲染成功的节点。
+fn region_groups<'a>(nodes: &[&'a SubNode]) -> Vec<(&'static str, Vec<&'a SubNode>)> {
+    let mut groups = Vec::new();
+    for region in REGIONS {
+        let members: Vec<&SubNode> = nodes
+            .iter()
+            .copied()
+            .filter(|node| region_of(&node.name) == Some(*region))
+            .collect();
+        if !members.is_empty() {
+            groups.push((*region, members));
+        }
+    }
+    let others: Vec<&SubNode> = nodes
+        .iter()
+        .copied()
+        .filter(|node| region_of(&node.name).is_none())
+        .collect();
+    if !others.is_empty() {
+        groups.push((OTHER_REGION, others));
+    }
+    groups
+}
+
+/// 这家客户端能不能表达这个节点。
+///
+/// 规则偏保守：表达不了就跳过，绝不输出一条会被客户端整份拒收的配置。
+/// - REALITY：只有 Surge / Surfboard 支持（写 `reality=true`），必须带 public_key；
+/// - 传输：INI 家族只支持 tcp / ws，gRPC / h2 / httpupgrade 一律跳过；
+/// - Shadowsocks：没有传输层与安全层的表达，只接受 `tcp + none`。
+fn ini_supported(flavor: IniFlavor, node: &SubNode) -> bool {
+    if !matches!(node.protocol.as_str(), "vless" | "vmess" | "trojan" | "ss") {
+        return false;
+    }
+    if !matches!(node.security.as_str(), "none" | "tls" | "reality" | "xtls") {
+        return false;
+    }
+    if node.security == "reality" {
+        if node.protocol != "vless" || node.param("public_key").is_none() {
+            return false;
+        }
+        if matches!(flavor, IniFlavor::Loon | IniFlavor::Qx) {
+            return false;
+        }
+    }
+    if node.protocol == "ss" && (node.transport != "tcp" || node.security != "none") {
+        return false;
+    }
+    matches!(node.transport.as_str(), "tcp" | "" | "ws")
+}
+
+/// Surge / Surfboard / Loon 的节点行；三家的字段名差异集中在这里。
+fn family_node_line(flavor: IniFlavor, node: &SubNode) -> Option<String> {
+    if !ini_supported(flavor, node) {
+        return None;
+    }
+    let host = uri_host(&node.server);
+    let mut parts: Vec<String> = match node.protocol.as_str() {
+        "vless" => vec![
+            "vless".into(),
+            host,
+            node.port.to_string(),
+            format!("username={}", node.param("uuid").unwrap_or_default()),
+        ],
+        "vmess" => vec![
+            "vmess".into(),
+            host,
+            node.port.to_string(),
+            format!("username={}", node.param("uuid").unwrap_or_default()),
+        ],
+        "trojan" => vec![
+            "trojan".into(),
+            host,
+            node.port.to_string(),
+            format!("password={}", node.param("password").unwrap_or_default()),
+        ],
+        "ss" => vec![
+            "ss".into(),
+            host,
+            node.port.to_string(),
+            format!(
+                "encrypt-method={}",
+                node.param("method").unwrap_or("aes-256-gcm")
+            ),
+            format!("password={}", node.param("password").unwrap_or_default()),
+        ],
+        _ => return None,
+    };
+
+    if matches!(node.protocol.as_str(), "vless" | "vmess") && is_tls(&node.security) {
+        parts.push("tls=true".into());
+        if let Some(sni) = node.param("sni") {
+            parts.push(format!("sni={sni}"));
+        }
+        if node.param("allow_insecure") == Some("true") {
+            parts.push("skip-cert-verify=true".into());
+        }
+        if node.security == "reality" {
+            parts.push("reality=true".into());
+            parts.push(format!(
+                "public-key={}",
+                node.param("public_key").unwrap_or_default()
+            ));
+            if let Some(short_id) = node.param("short_id") {
+                parts.push(format!("short-id={short_id}"));
+            }
+        }
+        if let Some(flow) = node.param("flow") {
+            parts.push(format!("flow={flow}"));
+        }
+    } else if node.protocol == "trojan" {
+        if let Some(sni) = node.param("sni") {
+            parts.push(format!("sni={sni}"));
+        }
+        if node.param("allow_insecure") == Some("true") {
+            parts.push("skip-cert-verify=true".into());
+        }
+    }
+
+    if node.transport == "ws" {
+        match flavor {
+            // Surge / Surfboard 用 ws-* 参数族。
+            IniFlavor::Surge | IniFlavor::Surfboard => {
+                parts.push("ws=true".into());
+                parts.push(format!("ws-path={}", node.param("path").unwrap_or("/")));
+                if let Some(ws_host) = node.param("host") {
+                    parts.push(format!("ws-headers=Host:{ws_host}"));
+                }
+            }
+            // Loon 用 obfs-* 参数族（字段名与 Surge 不同）。
+            IniFlavor::Loon => {
+                parts.push("obfs=ws".into());
+                parts.push(format!("obfs-uri={}", node.param("path").unwrap_or("/")));
+                if let Some(ws_host) = node.param("host") {
+                    parts.push(format!("obfs-host={ws_host}"));
+                }
+            }
+            IniFlavor::Qx => return None,
+        }
+    }
+
+    if !matches!(flavor, IniFlavor::Loon) {
+        parts.push("udp-relay=true".into());
+    }
+
+    Some(format!("{} = {}", ini_name(&node.name), parts.join(", ")))
+}
+
+/// Quantumult X 的 `[server_local]` 行：`协议=host:port, key=value, ...`。
+fn qx_node_line(node: &SubNode) -> Option<String> {
+    if !ini_supported(IniFlavor::Qx, node) {
+        return None;
+    }
+    let host_port = format!("{}:{}", uri_host(&node.server), node.port);
+    let mut parts: Vec<String> = match node.protocol.as_str() {
+        "vless" => vec![
+            format!("vless={host_port}"),
+            "method=none".into(),
+            format!("password={}", node.param("uuid").unwrap_or_default()),
+        ],
+        "vmess" => vec![
+            format!("vmess={host_port}"),
+            "method=chacha20-poly1305".into(),
+            format!("password={}", node.param("uuid").unwrap_or_default()),
+        ],
+        "trojan" => vec![
+            format!("trojan={host_port}"),
+            format!("password={}", node.param("password").unwrap_or_default()),
+        ],
+        "ss" => vec![
+            format!("shadowsocks={host_port}"),
+            format!("method={}", node.param("method").unwrap_or("aes-256-gcm")),
+            format!("password={}", node.param("password").unwrap_or_default()),
+        ],
+        _ => return None,
+    };
+
+    let insecure = node.param("allow_insecure") == Some("true");
+    if node.transport == "ws" {
+        parts.push(format!(
+            "obfs={}",
+            if is_tls(&node.security) { "wss" } else { "ws" }
+        ));
+        parts.push(format!("obfs-uri={}", node.param("path").unwrap_or("/")));
+        if let Some(ws_host) = node.param("host") {
+            parts.push(format!("obfs-host={ws_host}"));
+        }
+        if insecure {
+            parts.push("tls-verification=false".into());
+        }
+    } else if is_tls(&node.security) {
+        if node.protocol == "trojan" {
+            parts.push("over-tls=true".into());
+            if let Some(sni) = node.param("sni") {
+                parts.push(format!("tls-host={sni}"));
+            }
+        } else {
+            parts.push("obfs=over-tls".into());
+            if let Some(sni) = node.param("sni") {
+                parts.push(format!("obfs-host={sni}"));
+            }
+        }
+        if insecure {
+            parts.push("tls-verification=false".into());
+        }
+    }
+
+    parts.push("udp-relay=true".into());
+    parts.push(format!("tag={}", ini_name(&node.name)));
+    Some(parts.join(", "))
+}
+
+fn push_test_group(out: &mut String, flavor: IniFlavor, name: &str, members: &[&SubNode]) {
+    let names: Vec<String> = members.iter().map(|node| ini_name(&node.name)).collect();
+    if flavor.is_qx() {
+        out.push_str(&format!(
+            "url-latency-benchmark={name}, {}, check-interval=300, tolerance=50\n",
+            names.join(", ")
+        ));
+    } else {
+        out.push_str(&format!(
+            "{name} = url-test, {}, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50\n",
+            names.join(", ")
+        ));
+    }
+}
+
+fn push_ini_groups(out: &mut String, flavor: IniFlavor, nodes: &[&SubNode]) {
+    let groups = region_groups(nodes);
+    let has_nodes = !nodes.is_empty();
+    let direct = if flavor.is_qx() { "direct" } else { "DIRECT" };
+    let mut members: Vec<String> = Vec::new();
+    if has_nodes {
+        members.push("AUTO".into());
+    }
+    members.extend(groups.iter().map(|(region, _)| (*region).to_string()));
+    members.push(direct.into());
+
+    if flavor.is_qx() {
+        out.push_str(&format!("static=PROXY, {}\n", members.join(", ")));
+    } else {
+        out.push_str(&format!("PROXY = select, {}\n", members.join(", ")));
+    }
+    if !has_nodes {
+        return;
+    }
+    push_test_group(out, flavor, "AUTO", nodes);
+    for (region, members) in &groups {
+        push_test_group(out, flavor, region, members);
+    }
+}
+
+/// 解析 `TYPE,value,policy[,no-resolve]`；`MATCH` 只有 `TYPE,policy`。
+fn parse_rule(rule: &str) -> Option<(String, Option<String>, String, bool)> {
+    let parts: Vec<&str> = rule.split(',').map(str::trim).collect();
+    let kind = parts.first().copied().filter(|kind| !kind.is_empty())?;
+    let kind = kind.to_ascii_uppercase();
+    if kind == "MATCH" {
+        let policy = parts.get(1).copied().filter(|policy| !policy.is_empty())?;
+        if parts.len() > 2 {
+            return None;
+        }
+        return Some((kind, None, policy.to_string(), false));
+    }
+    if parts.len() < 3 {
+        return None;
+    }
+    let value = parts[1];
+    let policy = parts[2];
+    if value.is_empty() || policy.is_empty() {
+        return None;
+    }
+    let no_resolve = match parts.get(3) {
+        None => false,
+        Some(option) if option.eq_ignore_ascii_case("no-resolve") => true,
+        Some(_) => return None,
+    };
+    if parts.len() > 4 {
+        return None;
+    }
+    Some((
+        kind,
+        Some(value.to_string()),
+        policy.to_string(),
+        no_resolve,
+    ))
+}
+
+fn surge_rule_kind(kind: &str) -> Option<&'static str> {
+    match kind {
+        "DOMAIN" => Some("DOMAIN"),
+        "DOMAIN-SUFFIX" => Some("DOMAIN-SUFFIX"),
+        "DOMAIN-KEYWORD" => Some("DOMAIN-KEYWORD"),
+        "IP-CIDR" => Some("IP-CIDR"),
+        "IP-CIDR6" => Some("IP-CIDR6"),
+        "GEOIP" => Some("GEOIP"),
+        _ => None,
+    }
+}
+
+fn qx_rule_kind(kind: &str) -> Option<&'static str> {
+    match kind {
+        "DOMAIN" => Some("host"),
+        "DOMAIN-SUFFIX" => Some("host-suffix"),
+        "DOMAIN-KEYWORD" => Some("host-keyword"),
+        "IP-CIDR" => Some("ip-cidr"),
+        "IP-CIDR6" => Some("ip6-cidr"),
+        "GEOIP" => Some("geoip"),
+        _ => None,
+    }
+}
+
+/// 只把策略名映射到本格式真实存在的出站/策略，映射不到就跳过整条规则，
+/// 不生成客户端会报「未知策略」的条目。
+fn ini_policy(flavor: IniFlavor, raw: &str, nodes: &[&SubNode]) -> Option<String> {
+    let upper = raw.to_ascii_uppercase();
+    let qx = flavor.is_qx();
+    match upper.as_str() {
+        "DIRECT" => Some(if qx { "direct" } else { "DIRECT" }.to_string()),
+        "REJECT" | "REJECT-DROP" => Some(if qx { "reject" } else { "REJECT" }.to_string()),
+        "PROXY" => Some("PROXY".to_string()),
+        "AUTO" if !nodes.is_empty() => Some("AUTO".to_string()),
+        other => {
+            let region = REGIONS
+                .iter()
+                .copied()
+                .find(|region| region.eq_ignore_ascii_case(other))?;
+            if !nodes
+                .iter()
+                .any(|node| region_of(&node.name) == Some(region))
+            {
+                return None;
+            }
+            Some(region.to_string())
+        }
+    }
+}
+
+/// 返回 `(规则行, 是否 FINAL)`；`None` 表示该格式映射不了。
+fn ini_rule_line(flavor: IniFlavor, rule: &str, nodes: &[&SubNode]) -> Option<(String, bool)> {
+    let (kind, value, policy_raw, no_resolve) = parse_rule(rule)?;
+    let policy = ini_policy(flavor, &policy_raw, nodes)?;
+    let qx = flavor.is_qx();
+    if kind == "MATCH" {
+        let line = if qx {
+            format!("final, {policy}")
+        } else {
+            format!("FINAL,{policy}")
+        };
+        return Some((line, true));
+    }
+    let kind = if qx {
+        qx_rule_kind(&kind)?
+    } else {
+        surge_rule_kind(&kind)?
+    };
+    let value = value?;
+    if no_resolve && !matches!(kind, "IP-CIDR" | "IP-CIDR6" | "ip-cidr" | "ip6-cidr") {
+        return None;
+    }
+    // GEOIP 的值在 Quantumult X 里习惯小写（geoip, cn, ...）。
+    let value = if qx && kind == "geoip" {
+        value.to_ascii_lowercase()
+    } else {
+        value
+    };
+    let suffix = if no_resolve {
+        if qx {
+            ", no-resolve"
+        } else {
+            ",no-resolve"
+        }
+    } else {
+        ""
+    };
+    let line = if qx {
+        format!("{kind}, {value}, {policy}{suffix}")
+    } else {
+        format!("{kind},{value},{policy}{suffix}")
+    };
+    Some((line, false))
+}
+
+/// 规则段；没有可用的 FINAL 时补一条 `FINAL,DIRECT`，保证配置永远合法。
+fn push_ini_rules(
+    out: &mut String,
+    flavor: IniFlavor,
+    rules: &[String],
+    nodes: &[&SubNode],
+) -> usize {
+    let mut skipped = 0;
+    let mut final_written = false;
+    for rule in rules {
+        let mapped = ini_rule_line(flavor, rule, nodes);
+        let Some((line, is_final)) = mapped else {
+            tracing::warn!(client = flavor.id(), rule = %rule, "规则模板映射不了，跳过该条规则");
+            skipped += 1;
+            continue;
+        };
+        if is_final && final_written {
+            // 模板里出现多条 MATCH 时只保留第一条，客户端不接受重复兜底。
+            skipped += 1;
+            continue;
+        }
+        out.push_str(&line);
+        out.push('\n');
+        final_written = final_written || is_final;
+    }
+    if !final_written {
+        out.push_str(if flavor.is_qx() {
+            "final, direct\n"
+        } else {
+            "FINAL,DIRECT\n"
+        });
+    }
+    skipped
+}
+
+fn render_ini(flavor: IniFlavor, ctx: &SubContext<'_>) -> IniOutput {
+    let mut proxies: Vec<(&SubNode, String)> = Vec::new();
+    for node in ctx.nodes {
+        let line = if flavor.is_qx() {
+            qx_node_line(node)
+        } else {
+            family_node_line(flavor, node)
+        };
+        match line {
+            Some(line) => proxies.push((node, line)),
+            None => tracing::warn!(
+                client = flavor.id(),
+                node = %node.name,
+                protocol = %node.protocol,
+                transport = %node.transport,
+                security = %node.security,
+                "该节点在此格式里无法表达，跳过"
+            ),
+        }
+    }
+    let skipped_nodes = ctx.nodes.len() - proxies.len();
+    let rendered: Vec<&SubNode> = proxies.iter().map(|(node, _)| *node).collect();
+
+    let mut body = String::new();
+    if flavor.is_qx() {
+        body.push_str("[server_local]\n");
+    } else {
+        body.push_str("[Proxy]\n");
+    }
+    for (_, line) in &proxies {
+        body.push_str(line);
+        body.push('\n');
+    }
+    body.push('\n');
+    body.push_str(if flavor.is_qx() {
+        "[policy]\n"
+    } else {
+        "[Proxy Group]\n"
+    });
+    push_ini_groups(&mut body, flavor, &rendered);
+    body.push('\n');
+    body.push_str(if flavor.is_qx() {
+        "[filter_local]\n"
+    } else {
+        "[Rule]\n"
+    });
+
+    let rules = rules_or_default(ctx);
+    let skipped_rules = push_ini_rules(&mut body, flavor, &rules, &rendered);
+    IniOutput {
+        body,
+        skipped_nodes,
+        skipped_rules,
+    }
+}
+
+pub struct SurgeExporter;
+
+impl Exporter for SurgeExporter {
+    fn id(&self) -> &'static str {
+        "surge"
+    }
+
+    fn content_type(&self) -> &'static str {
+        "text/plain; charset=utf-8"
+    }
+
+    fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
+        let output = render_ini(IniFlavor::Surge, ctx);
+        log_skipped(self.id(), output.skipped_nodes, output.skipped_rules);
+        Ok(output.body)
+    }
+}
+
+pub struct SurfboardExporter;
+
+impl Exporter for SurfboardExporter {
+    fn id(&self) -> &'static str {
+        "surfboard"
+    }
+
+    fn content_type(&self) -> &'static str {
+        "text/plain; charset=utf-8"
+    }
+
+    fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
+        let output = render_ini(IniFlavor::Surfboard, ctx);
+        log_skipped(self.id(), output.skipped_nodes, output.skipped_rules);
+        Ok(output.body)
+    }
+}
+
+pub struct LoonExporter;
+
+impl Exporter for LoonExporter {
+    fn id(&self) -> &'static str {
+        "loon"
+    }
+
+    fn content_type(&self) -> &'static str {
+        "text/plain; charset=utf-8"
+    }
+
+    fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
+        let output = render_ini(IniFlavor::Loon, ctx);
+        log_skipped(self.id(), output.skipped_nodes, output.skipped_rules);
+        Ok(output.body)
+    }
+}
+
+pub struct QxExporter;
+
+impl Exporter for QxExporter {
+    fn id(&self) -> &'static str {
+        "qx"
+    }
+
+    fn content_type(&self) -> &'static str {
+        "text/plain; charset=utf-8"
+    }
+
+    fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
+        let output = render_ini(IniFlavor::Qx, ctx);
+        log_skipped(self.id(), output.skipped_nodes, output.skipped_rules);
+        Ok(output.body)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// sing-box
+// ---------------------------------------------------------------------------
+
+struct SingboxOutput {
+    body: String,
+    skipped_nodes: usize,
+}
+
+/// 单个节点 → sing-box outbound；返回 `None` 表示这个组合 sing-box 也表达不了。
+fn singbox_outbound(node: &SubNode) -> Option<Value> {
+    if !matches!(node.protocol.as_str(), "vless" | "vmess" | "trojan" | "ss") {
+        return None;
+    }
+    if !matches!(node.security.as_str(), "none" | "tls" | "reality" | "xtls") {
+        return None;
+    }
+    if node.security == "reality" && node.protocol != "vless" {
+        return None;
+    }
+    // Shadowsocks 在 sing-box 里没有传输层字段。
+    if node.protocol == "ss" && node.transport != "tcp" {
+        return None;
+    }
+
+    let mut outbound = json!({
+        "type": node.protocol,
+        "tag": node.name,
+        "server": node.server,
+        "server_port": node.port,
+    });
+    match node.protocol.as_str() {
+        "vless" => {
+            outbound["uuid"] = json!(node.param("uuid").unwrap_or_default());
+            if let Some(flow) = node.param("flow") {
+                outbound["flow"] = json!(flow);
+            }
+        }
+        "vmess" => {
+            outbound["uuid"] = json!(node.param("uuid").unwrap_or_default());
+            outbound["security"] = json!("auto");
+            outbound["alter_id"] = json!(node
+                .param("alter_id")
+                .and_then(|value| value.parse::<i64>().ok())
+                .unwrap_or(0));
+        }
+        "trojan" => {
+            outbound["password"] = json!(node.param("password").unwrap_or_default());
+        }
+        "ss" => {
+            outbound["method"] = json!(node.param("method").unwrap_or("aes-256-gcm"));
+            outbound["password"] = json!(node.param("password").unwrap_or_default());
+        }
+        _ => return None,
+    }
+
+    if is_tls(&node.security) {
+        let mut tls = json!({ "enabled": true });
+        if let Some(sni) = node.param("sni") {
+            tls["server_name"] = json!(sni);
+        }
+        if node.param("allow_insecure") == Some("true") {
+            tls["insecure"] = json!(true);
+        }
+        if let Some(alpn) = node.param("alpn") {
+            let items: Vec<&str> = alpn
+                .split(',')
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .collect();
+            if !items.is_empty() {
+                tls["alpn"] = json!(items);
+            }
+        }
+        if node.security == "reality" {
+            // SubNode::from_node 保证 reality 节点一定有 public_key；手工构造的
+            // 脏数据在这里兜底成跳过，而不是产出缺字段的配置。
+            let public_key = node.param("public_key")?;
+            tls["utls"] = json!({
+                "enabled": true,
+                "fingerprint": node.param("fingerprint").unwrap_or("chrome"),
+            });
+            let mut reality = json!({ "enabled": true, "public_key": public_key });
+            if let Some(short_id) = node.param("short_id") {
+                reality["short_id"] = json!(short_id);
+            }
+            tls["reality"] = reality;
+        }
+        outbound["tls"] = tls;
+    }
+
+    match node.transport.as_str() {
+        "tcp" | "" => {}
+        "ws" => {
+            let mut transport = json!({
+                "type": "ws",
+                "path": node.param("path").unwrap_or("/"),
+            });
+            if let Some(host) = node.param("host") {
+                transport["headers"] = json!({ "Host": host });
+            }
+            outbound["transport"] = transport;
+        }
+        "grpc" => {
+            let mut transport = json!({ "type": "grpc" });
+            if let Some(service_name) = node.param("service_name") {
+                transport["service_name"] = json!(service_name);
+            }
+            outbound["transport"] = transport;
+        }
+        "h2" | "http" => {
+            let mut transport = json!({
+                "type": "http",
+                "path": node.param("path").unwrap_or("/"),
+            });
+            if let Some(host) = node.param("host") {
+                transport["host"] = json!([host]);
+            }
+            outbound["transport"] = transport;
+        }
+        "httpupgrade" => {
+            let mut transport = json!({
+                "type": "httpupgrade",
+                "path": node.param("path").unwrap_or("/"),
+            });
+            if let Some(host) = node.param("host") {
+                transport["host"] = json!(host);
+            }
+            outbound["transport"] = transport;
+        }
+        _ => return None,
+    }
+
+    Some(outbound)
+}
+
+/// 规则 → sing-box route rule；`MATCH` 映射成 `route.final`（不是一条 rule）。
+fn singbox_rule(rule: &str, has_nodes: bool) -> Option<(Value, Option<String>)> {
+    let (kind, value, policy_raw, _no_resolve) = parse_rule(rule)?;
+    let outbound = match policy_raw.to_ascii_uppercase().as_str() {
+        "DIRECT" => "direct".to_string(),
+        "REJECT" | "REJECT-DROP" => "blocker".to_string(),
+        "PROXY" => "selector".to_string(),
+        "AUTO" if has_nodes => "AUTO".to_string(),
+        _ => return None,
+    };
+    if kind == "MATCH" {
+        return Some((Value::Null, Some(outbound)));
+    }
+    let value = value?;
+    let condition = match kind.as_str() {
+        "DOMAIN" => json!({ "domain": [value] }),
+        "DOMAIN-SUFFIX" => json!({ "domain_suffix": [value] }),
+        "DOMAIN-KEYWORD" => json!({ "domain_keyword": [value] }),
+        "IP-CIDR" | "IP-CIDR6" => json!({ "ip_cidr": [value] }),
+        "GEOIP" => json!({ "geoip": [value.to_ascii_lowercase()] }),
+        _ => return None,
+    };
+    let mut condition = condition;
+    condition["outbound"] = json!(outbound);
+    Some((condition, None))
+}
+
+fn render_singbox(ctx: &SubContext<'_>) -> SingboxOutput {
+    let mut outbounds: Vec<Value> = Vec::new();
+    let mut node_tags: Vec<&str> = Vec::new();
+    let mut skipped_nodes = 0;
+    for node in ctx.nodes {
+        match singbox_outbound(node) {
+            Some(outbound) => {
+                node_tags.push(&node.name);
+                outbounds.push(outbound);
+            }
+            None => {
+                tracing::warn!(
+                    node = %node.name,
+                    protocol = %node.protocol,
+                    transport = %node.transport,
+                    security = %node.security,
+                    "该节点在 sing-box 里无法表达，跳过"
+                );
+                skipped_nodes += 1;
+            }
+        }
+    }
+
+    if !node_tags.is_empty() {
+        outbounds.push(json!({
+            "type": "urltest",
+            "tag": "AUTO",
+            "outbounds": node_tags,
+            "url": "http://www.gstatic.com/generate_204",
+            "interval": "5m",
+            "tolerance": 50,
+        }));
+        outbounds.push(json!({
+            "type": "selector",
+            "tag": "selector",
+            "outbounds": ["AUTO", "direct"],
+            "default": "AUTO",
+        }));
+    } else {
+        outbounds.push(json!({
+            "type": "selector",
+            "tag": "selector",
+            "outbounds": ["direct"],
+            "default": "direct",
+        }));
+    }
+    outbounds.push(json!({ "type": "direct", "tag": "direct" }));
+    outbounds.push(json!({ "type": "block", "tag": "blocker" }));
+
+    let has_nodes = !node_tags.is_empty();
+    let mut route_rules: Vec<Value> = Vec::new();
+    let mut final_outbound = "selector".to_string();
+    for rule in rules_or_default(ctx) {
+        let Some((condition, final_policy)) = singbox_rule(&rule, has_nodes) else {
+            tracing::warn!(rule = %rule, "规则模板映射不了 sing-box 规则，跳过该条规则");
+            continue;
+        };
+        if let Some(policy) = final_policy {
+            final_outbound = policy;
+        } else {
+            route_rules.push(condition);
+        }
+    }
+
+    let document = json!({
+        "log": { "level": "info" },
+        "outbounds": outbounds,
+        "route": {
+            "rules": route_rules,
+            "final": final_outbound,
+        },
+    });
+    let body = serde_json::to_string_pretty(&document).unwrap_or_else(|_| "{}".to_string());
+    SingboxOutput {
+        body,
+        skipped_nodes,
+    }
+}
+
+pub struct SingboxExporter;
+
+impl Exporter for SingboxExporter {
+    fn id(&self) -> &'static str {
+        "singbox"
+    }
+
+    fn content_type(&self) -> &'static str {
+        "application/json; charset=utf-8"
+    }
+
+    fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
+        let output = render_singbox(ctx);
+        log_skipped(self.id(), output.skipped_nodes, 0);
+        Ok(output.body)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shadowrocket / V2Ray（base64 的 URI 列表）
+// ---------------------------------------------------------------------------
+
+/// 标准 base64（带填充）编码 `UriExporter` 的输出。
+///
+/// Shadowrocket 与 V2RayN 的订阅都接受这种形态；解码后与 `?target=uri`
+/// 逐字节一致，只是多了一层传输编码。
+fn render_uri_base64(ctx: &SubContext<'_>) -> anyhow::Result<String> {
+    let body = UriExporter.render(ctx)?;
+    Ok(STANDARD.encode(body.as_bytes()))
+}
+
+pub struct ShadowrocketExporter;
+
+impl Exporter for ShadowrocketExporter {
+    fn id(&self) -> &'static str {
+        "shadowrocket"
+    }
+
+    fn content_type(&self) -> &'static str {
+        "text/plain; charset=utf-8"
+    }
+
+    fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
+        render_uri_base64(ctx)
+    }
+}
+
+pub struct V2RayExporter;
+
+impl Exporter for V2RayExporter {
+    fn id(&self) -> &'static str {
+        "v2ray"
+    }
+
+    fn content_type(&self) -> &'static str {
+        "text/plain; charset=utf-8"
+    }
+
+    fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
+        render_uri_base64(ctx)
     }
 }
 
@@ -1476,16 +2468,747 @@ mod tests {
         );
         assert_eq!(
             select_exporter(None, Some("Shadowrocket/2.2.0")).map(|e| e.id()),
-            Some("uri")
+            Some("shadowrocket")
         );
         assert_eq!(
             select_exporter(None, Some("clash-verge/1.5 mihomo")).map(|e| e.id()),
             Some("clash")
         );
         assert_eq!(select_exporter(None, None).map(|e| e.id()), Some("clash"));
-        // 未实现的格式不再静默回落，交给调用方转 400。
-        assert!(select_exporter(Some("singbox"), None).is_none());
-        assert!(select_exporter(Some("surge"), None).is_none());
+        // 未注册的 id 不再静默回落，交给调用方转 400。
+        assert!(select_exporter(Some("egern"), None).is_none());
+    }
+
+    #[test]
+    fn selector_recognizes_every_registered_id_and_new_user_agents() {
+        let ids = exporter_ids();
+        for id in &ids {
+            assert!(ids.contains(id), "注册表里缺少 {id}：{ids:?}");
+            assert!(
+                select_exporter(Some(id), None).is_some(),
+                "?target={id} 没有解析到渲染器"
+            );
+        }
+        for expected in [
+            "clash",
+            "stash",
+            "surge",
+            "loon",
+            "qx",
+            "surfboard",
+            "singbox",
+            "uri",
+            "shadowrocket",
+            "v2ray",
+        ] {
+            assert!(ids.contains(&expected), "注册表缺少格式 {expected}");
+        }
+
+        let ua_cases = [
+            ("Shadowrocket/2.2.0", "shadowrocket"),
+            ("v2rayNG/1.8.0", "v2ray"),
+            ("sing-box/1.8.0", "singbox"),
+            ("Stash/2.2.0", "stash"),
+            ("Surfboard/2.0", "surfboard"),
+            ("Quantumult%20X/1.4", "qx"),
+            ("Loon/3.1", "loon"),
+            ("Surge/5.0", "surge"),
+            ("ClashForAndroid/2.5", "clash"),
+        ];
+        for (ua, expected) in ua_cases {
+            assert_eq!(
+                select_exporter(None, Some(ua)).map(|e| e.id()),
+                Some(expected),
+                "UA {ua} 选错了格式"
+            );
+        }
+    }
+
+    fn sub_context<'a>(nodes: &'a [SubNode], rules: &'a [String]) -> SubContext<'a> {
+        SubContext {
+            nodes,
+            user_label: "alice",
+            traffic: None,
+            rules,
+        }
+    }
+
+    #[test]
+    fn stash_reuses_clash_yaml_with_header_and_url_test_auto() {
+        let nodes = fixtures();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let body = StashExporter.render(&ctx).unwrap();
+
+        assert!(body.starts_with("# stash\n"));
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&body).expect("stash 必须是合法 YAML");
+        let proxies = parsed
+            .get("proxies")
+            .and_then(serde_yaml::Value::as_sequence)
+            .expect("proxies 必须是列表");
+        assert_eq!(proxies.len(), 2);
+        let groups = parsed
+            .get("proxy-groups")
+            .and_then(serde_yaml::Value::as_sequence)
+            .expect("proxy-groups 必须是列表");
+        let auto = groups
+            .iter()
+            .find(|group| group.get("name").and_then(serde_yaml::Value::as_str) == Some("AUTO"))
+            .expect("缺少 AUTO 组");
+        assert_eq!(
+            auto.get("type").and_then(serde_yaml::Value::as_str),
+            Some("url-test")
+        );
+        let rules = parsed
+            .get("rules")
+            .and_then(serde_yaml::Value::as_sequence)
+            .expect("rules 必须是列表");
+        assert_eq!(rules[0].as_str(), Some("GEOIP,CN,DIRECT"));
+        assert_eq!(rules[1].as_str(), Some("MATCH,PROXY"));
+        for node in &nodes {
+            assert!(body.contains(&node.name), "缺少节点 {}", node.name);
+        }
+    }
+
+    #[test]
+    fn surge_ini_has_sections_reality_and_final() {
+        let nodes = fixtures();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let output = render_ini(IniFlavor::Surge, &ctx);
+        let body = &output.body;
+
+        assert_eq!(output.skipped_nodes, 0);
+        assert!(body.contains("[Proxy]"));
+        assert!(body.contains("[Proxy Group]"));
+        assert!(body.contains("[Rule]"));
+
+        // [Proxy] 段恰好两条节点行。
+        let proxy_section = body.split("[Proxy Group]").next().unwrap();
+        let proxy_lines = proxy_section
+            .lines()
+            .filter(|line| line.contains(" = "))
+            .count();
+        assert_eq!(proxy_lines, 2, "{proxy_section}");
+
+        assert!(body.contains("香港-REALITY = vless, "));
+        assert!(body.contains("reality=true"));
+        assert!(body.contains("public-key=public-key-abc"));
+        assert!(body.contains("short-id=abcd1234"));
+        assert!(body.contains("flow=xtls-rprx-vision"));
+        assert!(body.contains("tls=true"));
+        assert!(body.contains("日本-WS-TLS = trojan, "));
+        assert!(body.contains("ws=true"));
+        assert!(body.contains("ws-path=/ws"));
+        assert!(body.contains("ws-headers=Host:cdn.example.com"));
+
+        assert!(body.contains("PROXY = select, AUTO, 香港, 日本, DIRECT"));
+        assert!(body.contains("AUTO = url-test, 香港-REALITY, 日本-WS-TLS"));
+        assert!(body.contains("url=http://www.gstatic.com/generate_204"));
+        assert!(body.contains("GEOIP,CN,DIRECT"));
+        assert_eq!(body.lines().last(), Some("FINAL,PROXY"));
+    }
+
+    #[test]
+    fn surge_maps_rules_and_skips_unknown_kinds() {
+        let nodes = fixtures();
+        let rules = vec![
+            "DOMAIN-SUFFIX,example.com,DIRECT".to_string(),
+            "IP-CIDR,10.0.0.0/8,DIRECT,no-resolve".to_string(),
+            "RULE-SET,reject,REJECT".to_string(),
+            "MATCH,PROXY".to_string(),
+        ];
+        let ctx = sub_context(&nodes, &rules);
+        let output = render_ini(IniFlavor::Surge, &ctx);
+
+        assert!(output.body.contains("DOMAIN-SUFFIX,example.com,DIRECT"));
+        assert!(output.body.contains("IP-CIDR,10.0.0.0/8,DIRECT,no-resolve"));
+        assert!(!output.body.contains("RULE-SET"));
+        assert_eq!(output.skipped_rules, 1);
+        assert_eq!(output.body.lines().last(), Some("FINAL,PROXY"));
+    }
+
+    #[test]
+    fn surge_skips_unsupported_transport_and_counts() {
+        let nodes = vec![
+            node(
+                "gRPC-不支持",
+                "vless",
+                "grpc",
+                "tls",
+                443,
+                &[("uuid", "44444444-4444-4444-8444-444444444444")],
+            ),
+            node(
+                "香港-WS",
+                "vless",
+                "ws",
+                "tls",
+                443,
+                &[("uuid", "55555555-5555-4555-8555-555555555555")],
+            ),
+        ];
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let output = render_ini(IniFlavor::Surge, &ctx);
+
+        assert_eq!(output.skipped_nodes, 1);
+        assert!(!output.body.contains("gRPC-不支持"));
+        assert!(output.body.contains("香港-WS = vless, "));
+    }
+
+    #[test]
+    fn surge_without_nodes_is_still_a_valid_skeleton() {
+        let nodes: Vec<SubNode> = Vec::new();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let output = render_ini(IniFlavor::Surge, &ctx);
+
+        assert_eq!(output.skipped_nodes, 0);
+        assert!(output.body.contains("[Proxy]\n\n[Proxy Group]"));
+        assert!(output.body.contains("PROXY = select, DIRECT"));
+        assert!(!output.body.contains("AUTO = url-test"));
+        assert!(output.body.contains("GEOIP,CN,DIRECT"));
+        assert_eq!(output.body.lines().last(), Some("FINAL,PROXY"));
+    }
+
+    #[test]
+    fn surfboard_supports_reality_and_skips_grpc() {
+        let nodes = vec![
+            node(
+                "香港-REALITY",
+                "vless",
+                "tcp",
+                "reality",
+                443,
+                &[
+                    ("uuid", "11111111-1111-4111-8111-111111111111"),
+                    ("sni", "www.example.com"),
+                    ("public_key", "public-key-abc"),
+                    ("short_id", "abcd1234"),
+                ],
+            ),
+            node(
+                "gRPC-节点",
+                "trojan",
+                "grpc",
+                "tls",
+                8443,
+                &[("password", "secret")],
+            ),
+        ];
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let output = render_ini(IniFlavor::Surfboard, &ctx);
+
+        assert_eq!(output.skipped_nodes, 1);
+        assert!(output.body.contains("香港-REALITY = vless, "));
+        assert!(output.body.contains("reality=true"));
+        assert!(output.body.contains("public-key=public-key-abc"));
+        assert!(!output.body.contains("gRPC-节点"));
+        assert_eq!(output.body.lines().last(), Some("FINAL,PROXY"));
+    }
+
+    #[test]
+    fn loon_uses_obfs_fields_and_skips_reality() {
+        let nodes = vec![
+            node(
+                "香港-REALITY",
+                "vless",
+                "tcp",
+                "reality",
+                443,
+                &[
+                    ("uuid", "11111111-1111-4111-8111-111111111111"),
+                    ("public_key", "public-key-abc"),
+                ],
+            ),
+            node(
+                "日本-WS-TLS",
+                "trojan",
+                "ws",
+                "tls",
+                8443,
+                &[
+                    ("password", "22222222-2222-4222-8222-222222222222"),
+                    ("sni", "jp.example.com"),
+                    ("path", "/ws"),
+                    ("host", "cdn.example.com"),
+                ],
+            ),
+            node(
+                "美国-VMess",
+                "vmess",
+                "ws",
+                "tls",
+                443,
+                &[
+                    ("uuid", "33333333-3333-4333-8333-333333333333"),
+                    ("sni", "us.example.com"),
+                    ("path", "/vm"),
+                    ("host", "us.example.com"),
+                ],
+            ),
+        ];
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let output = render_ini(IniFlavor::Loon, &ctx);
+
+        // Loon 不支持 REALITY：该节点跳过并计数。
+        assert_eq!(output.skipped_nodes, 1);
+        assert!(!output.body.contains("香港-REALITY"));
+        assert!(output.body.contains("日本-WS-TLS = trojan, "));
+        assert!(output.body.contains("美国-VMess = vmess, "));
+        // Loon 的 TLS / WS 字段名与 Surge 不同。
+        assert!(output.body.contains("tls=true"));
+        assert!(output.body.contains("obfs=ws"));
+        assert!(output.body.contains("obfs-uri=/ws"));
+        assert!(output.body.contains("obfs-host=cdn.example.com"));
+        // Loon 没有 udp-relay 参数，不要生成。
+        assert!(!output.body.contains("udp-relay=true"));
+        assert!(output
+            .body
+            .contains("PROXY = select, AUTO, 日本, 美国, DIRECT"));
+        assert!(output.body.contains("GEOIP,CN,DIRECT"));
+        assert_eq!(output.body.lines().last(), Some("FINAL,PROXY"));
+    }
+
+    #[test]
+    fn qx_uses_server_local_policy_and_filter_sections() {
+        let nodes = vec![
+            node(
+                "香港-REALITY",
+                "vless",
+                "tcp",
+                "reality",
+                443,
+                &[
+                    ("uuid", "11111111-1111-4111-8111-111111111111"),
+                    ("public_key", "public-key-abc"),
+                ],
+            ),
+            node(
+                "日本-WS-TLS",
+                "trojan",
+                "ws",
+                "tls",
+                8443,
+                &[
+                    ("password", "22222222-2222-4222-8222-222222222222"),
+                    ("sni", "jp.example.com"),
+                    ("path", "/ws"),
+                    ("host", "cdn.example.com"),
+                ],
+            ),
+            node(
+                "plain-vless",
+                "vless",
+                "tcp",
+                "none",
+                80,
+                &[("uuid", "66666666-6666-4666-8666-666666666666")],
+            ),
+        ];
+        let rules = vec![
+            "DOMAIN-SUFFIX,example.com,DIRECT".to_string(),
+            "IP-CIDR,10.0.0.0/8,DIRECT,no-resolve".to_string(),
+            "GEOIP,CN,DIRECT".to_string(),
+            "MATCH,PROXY".to_string(),
+        ];
+        let ctx = sub_context(&nodes, &rules);
+        let output = render_ini(IniFlavor::Qx, &ctx);
+        let body = &output.body;
+
+        // REALITY 在 Quantumult X 里无法表达，跳过并计数。
+        assert_eq!(output.skipped_nodes, 1);
+        assert!(!body.contains("香港-REALITY"));
+        assert!(body.contains("[server_local]"));
+        assert!(body.contains("[policy]"));
+        assert!(body.contains("[filter_local]"));
+        assert!(body.contains("tag=plain-vless"));
+        assert!(body.contains("vless=203.0.113.10:80, method=none, password="));
+        assert!(body.contains("trojan=203.0.113.10:8443, password="));
+        assert!(body.contains("obfs=wss"));
+        assert!(body.contains("tag=日本-WS-TLS"));
+        assert!(body.contains("static=PROXY, AUTO, 日本, 其他, direct"));
+        assert!(body.contains("url-latency-benchmark=AUTO, 日本-WS-TLS, plain-vless"));
+        assert!(body.contains("host-suffix, example.com, direct"));
+        assert!(body.contains("ip-cidr, 10.0.0.0/8, direct, no-resolve"));
+        assert!(body.contains("geoip, cn, direct"));
+        assert_eq!(body.lines().last(), Some("final, PROXY"));
+    }
+
+    #[test]
+    fn qx_skips_unmapped_rules_and_falls_back_to_direct_final() {
+        let nodes = fixtures();
+        let rules = vec![
+            "RULE-SET,reject,REJECT".to_string(),
+            "MATCH,UNKNOWN-POLICY".to_string(),
+        ];
+        let ctx = sub_context(&nodes, &rules);
+        let output = render_ini(IniFlavor::Qx, &ctx);
+
+        assert!(!output.body.contains("RULE-SET"));
+        assert_eq!(output.skipped_rules, 2);
+        assert_eq!(output.body.lines().last(), Some("final, direct"));
+    }
+
+    #[test]
+    fn qx_without_nodes_is_still_a_valid_skeleton() {
+        let nodes: Vec<SubNode> = Vec::new();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let output = render_ini(IniFlavor::Qx, &ctx);
+
+        assert!(output.body.contains("[server_local]\n\n[policy]"));
+        assert!(output.body.contains("static=PROXY, direct"));
+        assert!(output.body.contains("geoip, cn, direct"));
+        assert_eq!(output.body.lines().last(), Some("final, PROXY"));
+    }
+
+    #[test]
+    fn singbox_json_has_outbounds_selector_and_reality() {
+        let nodes = fixtures();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let output = render_singbox(&ctx);
+        let parsed: Value = serde_json::from_str(&output.body).expect("sing-box 必须是合法 JSON");
+
+        assert_eq!(output.skipped_nodes, 0);
+        let outbounds = parsed["outbounds"].as_array().unwrap();
+        let tags: Vec<&str> = outbounds
+            .iter()
+            .filter_map(|outbound| outbound["tag"].as_str())
+            .collect();
+        for expected in [
+            "香港-REALITY",
+            "日本-WS-TLS",
+            "AUTO",
+            "selector",
+            "direct",
+            "blocker",
+        ] {
+            assert!(tags.contains(&expected), "缺少出站 {expected}: {tags:?}");
+        }
+
+        let vless = outbounds
+            .iter()
+            .find(|outbound| outbound["tag"] == "香港-REALITY")
+            .unwrap();
+        assert_eq!(vless["type"], "vless");
+        assert_eq!(vless["uuid"], "11111111-1111-4111-8111-111111111111");
+        assert_eq!(vless["flow"], "xtls-rprx-vision");
+        assert_eq!(vless["tls"]["enabled"], true);
+        assert_eq!(vless["tls"]["server_name"], "www.example.com");
+        assert_eq!(vless["tls"]["reality"]["enabled"], true);
+        assert_eq!(vless["tls"]["reality"]["public_key"], "public-key-abc");
+        assert_eq!(vless["tls"]["reality"]["short_id"], "abcd1234");
+        assert_eq!(vless["tls"]["utls"]["enabled"], true);
+
+        let trojan = outbounds
+            .iter()
+            .find(|outbound| outbound["tag"] == "日本-WS-TLS")
+            .unwrap();
+        assert_eq!(trojan["type"], "trojan");
+        assert_eq!(trojan["transport"]["type"], "ws");
+        assert_eq!(trojan["transport"]["path"], "/ws");
+        assert_eq!(trojan["transport"]["headers"]["Host"], "cdn.example.com");
+
+        // 默认规则：GEOIP,CN,DIRECT → geoip + direct；MATCH,PROXY → route.final。
+        assert_eq!(parsed["route"]["rules"][0]["geoip"][0], "cn");
+        assert_eq!(parsed["route"]["rules"][0]["outbound"], "direct");
+        assert_eq!(parsed["route"]["final"], "selector");
+    }
+
+    #[test]
+    fn singbox_maps_domain_cidr_rules_and_skips_unknown() {
+        let nodes = fixtures();
+        let rules = vec![
+            "DOMAIN-SUFFIX,example.com,DIRECT".to_string(),
+            "IP-CIDR,10.0.0.0/8,DIRECT".to_string(),
+            "RULE-SET,cn,DIRECT".to_string(),
+            "MATCH,PROXY".to_string(),
+        ];
+        let ctx = sub_context(&nodes, &rules);
+        let output = render_singbox(&ctx);
+        let parsed: Value = serde_json::from_str(&output.body).unwrap();
+        let rules = parsed["route"]["rules"].as_array().unwrap();
+
+        assert_eq!(rules.len(), 2, "RULE-SET 应被跳过：{rules:?}");
+        assert_eq!(rules[0]["domain_suffix"][0], "example.com");
+        assert_eq!(rules[0]["outbound"], "direct");
+        assert_eq!(rules[1]["ip_cidr"][0], "10.0.0.0/8");
+        assert_eq!(parsed["route"]["final"], "selector");
+    }
+
+    #[test]
+    fn singbox_without_nodes_still_has_the_three_required_outbounds() {
+        let nodes: Vec<SubNode> = Vec::new();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let output = render_singbox(&ctx);
+        let parsed: Value = serde_json::from_str(&output.body).expect("空节点也必须是合法 JSON");
+
+        let outbounds = parsed["outbounds"].as_array().unwrap();
+        assert_eq!(outbounds.len(), 3);
+        let tags: Vec<&str> = outbounds
+            .iter()
+            .filter_map(|outbound| outbound["tag"].as_str())
+            .collect();
+        for expected in ["direct", "blocker", "selector"] {
+            assert!(tags.contains(&expected));
+        }
+        assert_eq!(parsed["route"]["final"], "selector");
+    }
+
+    #[test]
+    fn singbox_skips_unsupported_transport_and_counts() {
+        let nodes = vec![
+            node(
+                "kcp-节点",
+                "vless",
+                "kcp",
+                "none",
+                443,
+                &[("uuid", "77777777-7777-4777-8777-777777777777")],
+            ),
+            node(
+                "ws-节点",
+                "vless",
+                "ws",
+                "tls",
+                443,
+                &[("uuid", "88888888-8888-4888-8888-888888888888")],
+            ),
+        ];
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let output = render_singbox(&ctx);
+        let parsed: Value = serde_json::from_str(&output.body).unwrap();
+
+        assert_eq!(output.skipped_nodes, 1);
+        let tags: Vec<&str> = parsed["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|outbound| outbound["tag"].as_str())
+            .collect();
+        assert!(tags.contains(&"ws-节点"));
+        assert!(!tags.contains(&"kcp-节点"));
+    }
+
+    #[test]
+    fn shadowrocket_is_padded_base64_of_the_uri_list() {
+        let nodes = fixtures();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let body = ShadowrocketExporter.render(&ctx).unwrap();
+        let plain = UriExporter.render(&ctx).unwrap();
+
+        assert!(body.len().is_multiple_of(4), "标准 base64 应带填充");
+        assert!(body
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '/' | '=')));
+        let decoded = STANDARD.decode(&body).expect("必须是标准 base64");
+        let text = String::from_utf8(decoded).unwrap();
+        assert_eq!(text, plain);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].starts_with("vless://"));
+        assert!(lines[1].starts_with("trojan://"));
+        assert!(lines[1].contains("path=%2Fws"));
+    }
+
+    #[test]
+    fn v2ray_is_base64_alias_of_uri_and_handles_empty_nodes() {
+        let nodes = fixtures();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let v2ray = V2RayExporter.render(&ctx).unwrap();
+        let shadowrocket = ShadowrocketExporter.render(&ctx).unwrap();
+        let plain = UriExporter.render(&ctx).unwrap();
+
+        assert_eq!(v2ray, shadowrocket);
+        let decoded = STANDARD.decode(&v2ray).unwrap();
+        assert_eq!(String::from_utf8(decoded).unwrap(), plain);
+        assert_eq!(V2RayExporter.id(), "v2ray");
+        assert_eq!(V2RayExporter.content_type(), "text/plain; charset=utf-8");
+
+        let empty: Vec<SubNode> = Vec::new();
+        let ctx = sub_context(&empty, &rules);
+        let body = V2RayExporter.render(&ctx).unwrap();
+        assert!(STANDARD.decode(body).unwrap().is_empty());
+    }
+
+    #[test]
+    fn exporter_ids_are_stable_and_ordered() {
+        // 400 的 supported 列表直接来自这里；顺序必须稳定，不能受 HashMap 影响。
+        assert_eq!(
+            exporter_ids(),
+            vec![
+                "clash",
+                "stash",
+                "surge",
+                "surfboard",
+                "loon",
+                "qx",
+                "singbox",
+                "uri",
+                "shadowrocket",
+                "v2ray",
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_subscription_is_valid_for_every_format() {
+        let nodes: Vec<SubNode> = Vec::new();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+
+        for exporter in exporters() {
+            let id = exporter.id();
+            let body = exporter
+                .render(&ctx)
+                .unwrap_or_else(|error| panic!("{id} 空节点渲染失败：{error}"));
+            match id {
+                "clash" | "stash" => {
+                    let yaml: serde_yaml::Value =
+                        serde_yaml::from_str(&body).unwrap_or_else(|error| {
+                            panic!("{id} 空节点不是合法 YAML：{error}\n{body}")
+                        });
+                    let proxies = yaml
+                        .get("proxies")
+                        .and_then(serde_yaml::Value::as_sequence)
+                        .unwrap_or_else(|| panic!("{id} 缺少 proxies：{body}"));
+                    assert!(proxies.is_empty(), "{id} 空节点不应有代理：{body}");
+                }
+                "singbox" => {
+                    let parsed: Value = serde_json::from_str(&body).unwrap_or_else(|error| {
+                        panic!("singbox 空节点不是合法 JSON：{error}\n{body}")
+                    });
+                    let tags: Vec<&str> = parsed["outbounds"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .filter_map(|outbound| outbound["tag"].as_str())
+                        .collect();
+                    for expected in ["direct", "blocker", "selector"] {
+                        assert!(tags.contains(&expected), "singbox 缺少 {expected}");
+                    }
+                }
+                "surge" | "surfboard" | "loon" => {
+                    assert!(body.contains("[Proxy]"), "{id} 缺少 [Proxy]");
+                    assert!(body.contains("[Proxy Group]"), "{id} 缺少 [Proxy Group]");
+                    assert!(body.contains("[Rule]"), "{id} 缺少 [Rule]");
+                    assert!(
+                        body.lines()
+                            .last()
+                            .unwrap_or_default()
+                            .starts_with("FINAL,"),
+                        "{id} 缺少 FINAL：{body}"
+                    );
+                }
+                "qx" => {
+                    for section in ["[server_local]", "[policy]", "[filter_local]"] {
+                        assert!(body.contains(section), "qx 缺少 {section}");
+                    }
+                    assert!(
+                        body.lines()
+                            .last()
+                            .unwrap_or_default()
+                            .starts_with("final,"),
+                        "qx 缺少 final：{body}"
+                    );
+                }
+                "uri" => assert!(body.is_empty(), "uri 空节点应输出空文本：{body}"),
+                "shadowrocket" | "v2ray" => {
+                    let decoded = STANDARD
+                        .decode(body.trim())
+                        .unwrap_or_else(|error| panic!("{id} 空节点不是合法 base64：{error}"));
+                    assert!(decoded.is_empty(), "{id} 空节点解码后应为空");
+                }
+                other => panic!("新增格式 {other} 没有覆盖空结构断言"),
+            }
+        }
+    }
+
+    #[test]
+    fn singbox_single_reality_node_has_reality_tls() {
+        let nodes = vec![node(
+            "单节点-REALITY",
+            "vless",
+            "tcp",
+            "reality",
+            443,
+            &[
+                ("uuid", "11111111-1111-4111-8111-111111111111"),
+                ("flow", "xtls-rprx-vision"),
+                ("sni", "www.example.com"),
+                ("public_key", "public-key-abc"),
+                ("short_id", "abcd1234"),
+                ("fingerprint", "chrome"),
+            ],
+        )];
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let output = render_singbox(&ctx);
+
+        assert_eq!(output.skipped_nodes, 0);
+        let parsed: Value = serde_json::from_str(&output.body).expect("必须是合法 JSON");
+        let outbounds = parsed["outbounds"].as_array().unwrap();
+        let node_outbounds: Vec<&Value> = outbounds
+            .iter()
+            .filter(|outbound| outbound["type"] == "vless")
+            .collect();
+        assert_eq!(node_outbounds.len(), 1, "单节点只应生成一条 vless 出站");
+        let vless = node_outbounds[0];
+        assert_eq!(vless["tag"], "单节点-REALITY");
+        assert_eq!(vless["tls"]["enabled"], true);
+        assert_eq!(vless["tls"]["server_name"], "www.example.com");
+        assert_eq!(vless["tls"]["reality"]["enabled"], true);
+        assert_eq!(vless["tls"]["reality"]["public_key"], "public-key-abc");
+        assert_eq!(vless["tls"]["reality"]["short_id"], "abcd1234");
+        assert_eq!(vless["tls"]["utls"]["fingerprint"], "chrome");
+        assert_eq!(vless["flow"], "xtls-rprx-vision");
+    }
+
+    #[test]
+    fn surge_single_reality_node_emits_reality_parameters() {
+        let nodes = vec![node(
+            "单节点-REALITY",
+            "vless",
+            "tcp",
+            "reality",
+            443,
+            &[
+                ("uuid", "11111111-1111-4111-8111-111111111111"),
+                ("flow", "xtls-rprx-vision"),
+                ("sni", "www.example.com"),
+                ("public_key", "public-key-abc"),
+                ("short_id", "abcd1234"),
+            ],
+        )];
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let output = render_ini(IniFlavor::Surge, &ctx);
+
+        assert_eq!(output.skipped_nodes, 0);
+        let proxy_section = output.body.split("[Proxy Group]").next().unwrap();
+        assert_eq!(
+            proxy_section
+                .lines()
+                .filter(|line| line.contains(" = "))
+                .count(),
+            1
+        );
+        assert!(output.body.contains("单节点-REALITY = vless, "));
+        assert!(output.body.contains("tls=true"));
+        assert!(output.body.contains("sni=www.example.com"));
+        assert!(output.body.contains("reality=true"));
+        assert!(output.body.contains("public-key=public-key-abc"));
+        assert!(output.body.contains("short-id=abcd1234"));
+        assert_eq!(output.body.lines().last(), Some("FINAL,PROXY"));
     }
 
     fn fragment_node(

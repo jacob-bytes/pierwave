@@ -194,6 +194,8 @@ mod tests {
     use axum::body::Body;
     use axum::http::{header, Method, Request, StatusCode};
     use axum::Router;
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
     use serde_json::json;
     use tower::ServiceExt;
 
@@ -509,18 +511,38 @@ mod tests {
     async fn unsupported_target_is_400_with_supported_formats() {
         let (app, _state, short_code) = setup().await;
 
+        // egern 在 PLAN 里列了但本轮没实现，用它验证「未注册 id → 400」。
         let (status, _headers, body) = get(
             &app,
-            &format!("/api/v1/sub/{short_code}?target=singbox"),
+            &format!("/api/v1/sub/{short_code}?target=egern"),
             None,
         )
         .await;
 
         assert_eq!(status, StatusCode::BAD_REQUEST);
         let error = body.as_str();
-        assert!(error.contains("singbox"), "unexpected: {error}");
-        assert!(error.contains("clash"), "unexpected: {error}");
-        assert!(error.contains("uri"), "unexpected: {error}");
+        assert!(error.contains("egern"), "unexpected: {error}");
+        // 注册表顺序稳定：不能因为换成 HashMap 而让 400 文案顺序漂移。
+        assert!(
+            error.contains(
+                "clash / stash / surge / surfboard / loon / qx / singbox / uri / shadowrocket / v2ray"
+            ),
+            "supported 列表顺序不稳定: {error}"
+        );
+        for supported in [
+            "clash",
+            "stash",
+            "surge",
+            "loon",
+            "qx",
+            "surfboard",
+            "singbox",
+            "shadowrocket",
+            "uri",
+            "v2ray",
+        ] {
+            assert!(error.contains(supported), "缺少格式 {supported}: {error}");
+        }
     }
 
     #[tokio::test]
@@ -538,7 +560,7 @@ mod tests {
         assert!(lines[0].starts_with("vless://"));
         assert!(lines[1].starts_with("trojan://"));
 
-        // UA 嗅探：Shadowrocket 得到 URI 列表。
+        // UA 嗅探：Shadowrocket 得到 base64 的 URI 列表。
         let (status, headers, body) = get(
             &app,
             &format!("/api/v1/sub/{short_code}"),
@@ -549,7 +571,10 @@ mod tests {
         assert!(header_str(&headers, "content-type")
             .unwrap()
             .contains("text/plain"));
-        assert!(body.starts_with("vless://"));
+        let decoded = STANDARD
+            .decode(body.trim())
+            .expect("Shadowrocket 订阅必须是 base64");
+        assert!(String::from_utf8(decoded).unwrap().starts_with("vless://"));
 
         // clash UA 得到 YAML。
         let (status, _headers, body) = get(

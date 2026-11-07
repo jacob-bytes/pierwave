@@ -64,6 +64,11 @@
   恢复不在线热替换，重启后生效；旧库保留为 `pre-restore-<ts>`。
 - [x] **后端错误双语**：`{error, code, params}`，109 个稳定错误码，见 [ERRORS.md](ERRORS.md)；
   前端按 code 翻译，未命中回落中文原文。
+- [x] **订阅格式扩展（P9）**：新增 `stash` / `surge` / `loon` / `qx` / `surfboard` /
+  `singbox` / `shadowrocket` / `v2ray` 导出器，`?target=` 与 UA 嗅探都能识别；
+  `v2ray` 输出 base64 的 URI 列表（解码后与 `uri` 一致）。
+  **`egern` 本轮未实现**：PLAN 里列了它，但注册表没有该 id，`?target=egern` 仍按
+  未知格式返回 400，不要误以为已支持。
 
 ## 候选需求（未排期）
 
@@ -71,7 +76,6 @@
 |---|---|---|---|
 | Docker / compose 部署 | 高 | 小 | 降低试用门槛 |
 | 规则模板绑定到用户/套餐 | 高 | 小-中 | 现在只能靠订阅链接 `?rule=` 手动指定 |
-| 订阅格式扩展（Surge / sing-box） | 高 | 中 | 已有 `Exporter` trait，加两个实现 |
 | 探针公开页 | 中-高 | 中 | 健康数据已具备，缺只读公开页面 |
 | 节点限速（非断流） | 中 | 中 | Xray 原生不支持按用户限速，需 Agent 侧限速 |
 | 节点测速 | 中 | 中 | PRO 类功能 |

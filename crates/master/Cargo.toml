@@ -28,3 +28,6 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 thiserror = { workspace = true }
 time = "0.3"
+
+[dev-dependencies]
+base64 = { workspace = true }
