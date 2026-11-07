@@ -142,12 +142,18 @@ fn build_config_impl(plan: &ServerPlan, nodes: &[Node]) -> Value {
         },
         // Xray 进程内计数器：email 维度是计费口径，inbound 维度留给节点视图对账。
         "stats": {},
+        // 用户级计数器挂在 policy.levels."0" 上，不是 policy.system——
+        // 放到 system 里 Xray 会静默忽略，表现为「流量都跑了，但计费一直是 0」。
         "policy": {
+            "levels": {
+                "0": {
+                    "statsUserUplink": true,
+                    "statsUserDownlink": true
+                }
+            },
             "system": {
                 "statsInboundUplink": true,
-                "statsInboundDownlink": true,
-                "statsUserUplink": true,
-                "statsUserDownlink": true
+                "statsInboundDownlink": true
             }
         },
         // gRPC API：Agent 用 `xray api statsquery` 连 127.0.0.1:10085 取数。
@@ -699,8 +705,11 @@ mod tests {
         let system = &config["policy"]["system"];
         assert_eq!(system["statsInboundUplink"], true);
         assert_eq!(system["statsInboundDownlink"], true);
-        assert_eq!(system["statsUserUplink"], true);
-        assert_eq!(system["statsUserDownlink"], true);
+        // 用户级计数器必须在 levels 下，放 system 里 Xray 不报错但也不生效
+        let level0 = &config["policy"]["levels"]["0"];
+        assert_eq!(level0["statsUserUplink"], true);
+        assert_eq!(level0["statsUserDownlink"], true);
+        assert!(system.get("statsUserUplink").is_none());
         assert_eq!(config["api"]["tag"], "api");
         let services = config["api"]["services"].as_array().unwrap();
         assert!(services.iter().any(|s| s == "StatsService"));

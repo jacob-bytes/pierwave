@@ -13,8 +13,10 @@ Xray 的计数器。两层：
 
 ```jsonc
 "stats": {},
-"policy": { "system": { "statsInboundUplink": true, "statsInboundDownlink": true,
-                        "statsUserUplink": true, "statsUserDownlink": true } },
+"policy": {
+  "levels": { "0": { "statsUserUplink": true, "statsUserDownlink": true } },  // 用户级在 levels，不在 system
+  "system": { "statsInboundUplink": true, "statsInboundDownlink": true }
+},
 // 再加一个只监听 127.0.0.1 的 api inbound（10085）+ 一条 routing 把 api 流量转给 api outbound
 ```
 

@@ -209,8 +209,10 @@ cat > "$WORK/server.json" <<JSON
 {
   "log": {"loglevel": "warning"},
   "stats": {},
-  "policy": {"system": {"statsInboundUplink": true, "statsInboundDownlink": true,
-                        "statsUserUplink": true, "statsUserDownlink": true}},
+  "policy": {
+    "levels": {"0": {"statsUserUplink": true, "statsUserDownlink": true}},
+    "system": {"statsInboundUplink": true, "statsInboundDownlink": true}
+  },
   "api": {"tag": "api", "services": ["StatsService"]},
   "inbounds": [
     {
