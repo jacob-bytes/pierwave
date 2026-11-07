@@ -236,8 +236,8 @@ cat > "$WORK/server.json" <<JSON
       "tag": "api",
       "port": $PORT_API,
       "listen": "127.0.0.1",
-      "protocol": "dokodemo-door",
-      "settings": {"address": "127.0.0.1"}
+      "protocol": "tunnel",
+      "settings": {"rewriteAddress": "127.0.0.1"}
     }
   ],
   "outbounds": [
@@ -253,13 +253,21 @@ log "服务端配置 xray -test"
 if "$XRAY" run -test -c "$WORK/server.json" >"$WORK/test-server.log" 2>&1; then
   ok "xray -test 通过（streamSettings / realitySettings / stats 字段都被接受）"
 else
-  bad "xray -test 失败"; sed -n '1,20p' "$WORK/test-server.log"; exit 1
+  # 老版本 Xray 里 api 入站的协议名是 dokodemo-door，新版是 tunnel
+  log "tunnel 不被接受，回退 dokodemo-door 重试"
+  sed -i.bak 's/"protocol": "tunnel"/"protocol": "dokodemo-door"/; s/"rewriteAddress"/"address"/' "$WORK/server.json"
+  if "$XRAY" run -test -c "$WORK/server.json" >"$WORK/test-server.log" 2>&1; then
+    ok "xray -test 通过（回退到 dokodemo-door）"
+  else
+    bad "xray -test 失败"; sed -n '1,20p' "$WORK/test-server.log"; exit 1
+  fi
 fi
 
 log "启动服务端"
 "$XRAY" run -c "$WORK/server.json" >"$WORK/server.log" 2>&1 &
 SERVER_PID=$!
 if wait_listen "$PORT_SERVER"; then ok "服务端已监听 127.0.0.1:$PORT_SERVER"; else bad "服务端没起来"; sed -n '1,20p' "$WORK/server.log"; exit 1; fi
+if wait_listen "$PORT_API" 30; then ok "API 已监听 127.0.0.1:$PORT_API"; else bad "API 端口没有监听"; fi
 
 # ---------- 客户端配置：socks 入站 → vless REALITY 出站 ----------
 cat > "$WORK/client.json" <<JSON
@@ -302,12 +310,18 @@ done
 # ---------- 统计计数器 ----------
 sleep 1
 log "查询 Xray StatsService"
-STATS="$("$XRAY" api statsquery --server="127.0.0.1:$PORT_API" -pattern "user>>>" 2>"$WORK/api.log" || true)"
-if printf '%s' "$STATS" | grep -q 'traffic>>>uplink'; then
+ALL_STATS="$("$XRAY" api statsquery --server="127.0.0.1:$PORT_API" -pattern "" 2>"$WORK/api.log" || true)"
+echo "----- 完整 stats 输出 -----"
+printf '%s\n' "$ALL_STATS" | sed -n '1,40p'
+[ -s "$WORK/api.log" ] && { echo "----- api 调用错误 -----"; sed -n '1,15p' "$WORK/api.log"; }
+echo "---------------------------"
+
+if printf '%s' "$ALL_STATS" | grep -q 'user>>>.*traffic>>>uplink'; then
   ok "user 维度计数器已产生（stats / policy / email 配置有效）"
-  printf '%s\n' "$STATS" | sed -n '1,12p'
+elif printf '%s' "$ALL_STATS" | grep -q 'inbound>>>'; then
+  bad "有 inbound 计数器但没有 user 计数器：用户级统计策略没生效"
 else
-  bad "没有看到 user 计数器"; sed -n '1,15p' "$WORK/api.log"
+  bad "完全没有计数器：stats 或 api 配置有问题"
 fi
 
 echo
