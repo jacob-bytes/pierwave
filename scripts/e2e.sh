@@ -118,10 +118,13 @@ assert len(cfg["inbounds"]) == 3, f"inbounds={len(cfg['inbounds'])}（2 个业�
 assert tags[-1] == "api", tags
 assert cfg["inbounds"][0]["port"] == 443 and cfg["inbounds"][0]["protocol"] == "vless"
 assert any(o["protocol"] == "freedom" for o in cfg["outbounds"])
-# 流量计量依赖这三块：stats、policy.system 与只监听回环的 api 入站。
+# 流量计量依赖这三块：stats、policy 与只监听回环的 api 入站。
+# 用户级计数器在 policy.levels."0" 下——放进 system 里 Xray 不报错但也不生效。
 assert cfg["stats"] == {}, cfg.get("stats")
-for flag in ("statsInboundUplink", "statsInboundDownlink", "statsUserUplink", "statsUserDownlink"):
+for flag in ("statsInboundUplink", "statsInboundDownlink"):
     assert cfg["policy"]["system"][flag] is True, flag
+for flag in ("statsUserUplink", "statsUserDownlink"):
+    assert cfg["policy"]["levels"]["0"][flag] is True, flag
 api = next(i for i in cfg["inbounds"] if i["tag"] == "api")
 assert api["listen"] == "127.0.0.1" and api["port"] == 10085, api
 assert "StatsService" in cfg["api"]["services"], cfg["api"]
