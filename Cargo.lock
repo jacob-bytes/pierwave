@@ -1386,6 +1386,7 @@ dependencies = [
  "axum",
  "axum-extra",
  "chrono",
+ "flate2",
  "futures-util",
  "pierwave-domain",
  "pierwave-proto",

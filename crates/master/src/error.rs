@@ -36,6 +36,12 @@ impl From<sqlx::Error> for AppError {
     }
 }
 
+impl From<std::io::Error> for AppError {
+    fn from(e: std::io::Error) -> Self {
+        AppError::Internal(e.into())
+    }
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message, retry_after) = match &self {

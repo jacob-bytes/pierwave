@@ -11,6 +11,7 @@ mod throttle;
 use std::net::SocketAddr;
 
 use anyhow::Context;
+use pierwave_domain::backup::{self, RestoreOutcome};
 use pierwave_domain::Db;
 
 use crate::state::AppState;
@@ -85,8 +86,63 @@ async fn main() -> anyhow::Result<()> {
         .context("PIERWAVE_ADDR 不是合法地址")?;
     let web_dir = std::env::var("PIERWAVE_WEB_DIR").unwrap_or_else(|_| "web/dist".into());
 
+    // 恢复必须在建连接池之前处理：池一旦打开就会持有旧数据库文件的 inode。
+    // 校验失败只记日志并保留 `<db>.restore-pending`，主控照常启动。
+    let restore_outcome = match Db::database_path(&db_url) {
+        Some(path) => Some(backup::apply_pending_restore(&path).await?),
+        None => None,
+    };
+
     let db = Db::connect(&db_url).await?;
     db.migrate().await?;
+
+    // 启动时应用/拒绝恢复也要进审计；此时还没有登录用户，记系统审计。
+    match restore_outcome {
+        Some(RestoreOutcome::Applied { pending, previous }) => {
+            let previous_display = previous
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "-".to_string());
+            tracing::warn!(
+                pending = %pending.display(),
+                previous = %previous_display,
+                "已应用待恢复的数据库备份；旧库已保留为 pre-restore 文件"
+            );
+            audit::record_system(
+                &db.pool,
+                "backup.restore.apply",
+                "backup",
+                serde_json::json!({
+                    "result": "applied",
+                    "pending": pending.display().to_string(),
+                    "previous": previous.map(|path| path.display().to_string()),
+                }),
+            )
+            .await;
+        }
+        Some(RestoreOutcome::Rejected { reason }) => {
+            let pending = Db::database_path(&db_url)
+                .map(|path| backup::pending_path(&path).display().to_string())
+                .unwrap_or_default();
+            tracing::error!(
+                pending = %pending,
+                reason = %reason,
+                "待恢复的数据库备份校验失败，未替换当前库；文件保留待人工处理"
+            );
+            audit::record_system(
+                &db.pool,
+                "backup.restore.apply",
+                "backup",
+                serde_json::json!({
+                    "result": "rejected",
+                    "pending": pending,
+                    "reason": reason,
+                }),
+            )
+            .await;
+        }
+        Some(RestoreOutcome::NoPending) | None => {}
+    }
 
     if let Some(generated) = db
         .ensure_admin(std::env::var("PIERWAVE_ADMIN_PASSWORD").ok())

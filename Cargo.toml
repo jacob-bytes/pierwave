@@ -28,6 +28,7 @@ hmac = "0.12"
 hex = "0.4"
 base64 = "0.22"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
+flate2 = "1"
 x25519-dalek = "2"
 serde_yaml = "0.9"
 tokio-tungstenite = "0.24"

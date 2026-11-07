@@ -3576,6 +3576,41 @@ pub mod stats {
 }
 
 /// 审计日志：所有管理端写操作的留痕。表在 `0001_init.sql` 里就已存在。
+/// 备份/恢复的只读查询与一致性快照。
+pub mod backup {
+    use super::*;
+
+    /// `VACUUM INTO` 生成独立、一致的单文件快照。
+    ///
+    /// 目标由调用方保证不存在；这里不用字符串拼接，路径走参数绑定。
+    pub async fn vacuum_into(pool: &SqlitePool, target: &str) -> anyhow::Result<()> {
+        sqlx::query("VACUUM INTO ?")
+            .bind(target)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn table_exists(pool: &SqlitePool, name: &str) -> anyhow::Result<bool> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
+        )
+        .bind(name)
+        .fetch_one(pool)
+        .await?;
+        Ok(count > 0)
+    }
+
+    /// 备份里最高的迁移版本；表为空时返回 `None`。
+    pub async fn max_migration_version(pool: &SqlitePool) -> anyhow::Result<Option<i64>> {
+        Ok(
+            sqlx::query_scalar("SELECT MAX(version) FROM _sqlx_migrations")
+                .fetch_one(pool)
+                .await?,
+        )
+    }
+}
+
 pub mod audit {
     use serde_json::Value;
 

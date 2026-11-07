@@ -12,6 +12,12 @@ pub fn router(state: AppState) -> Router {
 
     Router::new()
         .route("/api/v1/health", get(routes::system::health))
+        .route("/api/v1/backup", get(routes::backup::export))
+        .route(
+            "/api/v1/backup/restore",
+            post(routes::backup::restore).delete(routes::backup::cancel_restore),
+        )
+        .route("/api/v1/backup/info", get(routes::backup::info))
         .route("/api/v1/auth/login", post(routes::auth::login))
         .route("/api/v1/auth/logout", post(routes::auth::logout))
         .route("/api/v1/auth/me", get(routes::auth::me))

@@ -7,6 +7,7 @@
 use pierwave_domain::models::User;
 use pierwave_domain::repo;
 use serde_json::{json, Value};
+use sqlx::SqlitePool;
 
 use crate::state::AppState;
 
@@ -21,21 +22,41 @@ pub async fn record(
     target: impl Into<String>,
     detail: Value,
 ) {
-    let target = target.into();
-    // 失败只记日志，绝不向上传播：审计库表异常（例如被手工删表）不能连累主操作。
-    if let Err(error) = repo::audit::record(
+    write(
         &state.db.pool,
         Some(&actor.id),
         action,
-        Some(&target),
+        &target.into(),
         &detail,
     )
-    .await
-    {
+    .await;
+}
+
+/// 没有登录用户时的系统审计（例如启动时应用待恢复备份）。
+///
+/// 同样遵守「审计失败不影响主流程」：只记日志。
+pub async fn record_system(
+    pool: &SqlitePool,
+    action: &str,
+    target: impl Into<String>,
+    detail: Value,
+) {
+    write(pool, None, action, &target.into(), &detail).await;
+}
+
+async fn write(
+    pool: &SqlitePool,
+    actor_id: Option<&str>,
+    action: &str,
+    target: &str,
+    detail: &Value,
+) {
+    // 失败只记日志，绝不向上传播：审计库表异常（例如被手工删表）不能连累主操作。
+    if let Err(error) = repo::audit::record(pool, actor_id, action, Some(target), detail).await {
         tracing::error!(
             action,
             target = %target,
-            actor_id = %actor.id,
+            actor_id = actor_id.unwrap_or("-"),
             error = %error,
             "写审计日志失败（已忽略，不影响主操作）"
         );
