@@ -44,7 +44,7 @@ pub async fn run_reset_round(state: &AppState) -> anyhow::Result<reset::ResetRep
 /// 避免 `sessions` 表随登录次数无限增长。
 /// 升级超时巡检间隔：一分钟一次足够，不影响正常升级。
 const UPGRADE_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
-/// 超过这个时间仍未确认的升级判失败（与 routes::agent::UPGRADE_TIMEOUT_SECS 对齐）。
+/// 超过这个时间仍未确认的升级判失败（心跳默认 1 分钟一次，15 分钟足够完成一次升级 + 稳定窗口）。
 const UPGRADE_TIMEOUT_SECS: i64 = 900;
 
 /// 把卡住的 pending 升级标成失败并清空目标版本。

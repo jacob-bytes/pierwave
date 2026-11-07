@@ -232,9 +232,6 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
 /// 长期 pending 自行判断；Agent 重启后仍会带上新版本，下一次心跳即可翻转。
 /// 升级后需要稳定观察的秒数。心跳默认 60 秒一次，正好等于「至少再收到一次心跳」。
 const UPGRADE_STABLE_SECS: i64 = 60;
-/// 超过这个时间仍未完成 → 判失败并清空目标，避免前端永远转圈。
-const UPGRADE_TIMEOUT_SECS: i64 = 900;
-
 async fn settle_agent_upgrade(state: &AppState, server_id: &str, version: &str, now: i64) {
     let version = version.trim();
     if version.is_empty() {
