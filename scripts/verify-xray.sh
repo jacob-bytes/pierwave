@@ -19,6 +19,7 @@ CLIENT_PID=""
 DOWNLOADED_XRAY=0
 FAILED=0
 
+SCRIPT_VERSION="2026-11-07.2"
 log()  { printf '\033[36m==>\033[0m %s\n' "$*"; }
 ok()   { printf '  \033[32mok\033[0m %s\n' "$*"; }
 bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$*"; FAILED=1; }
@@ -51,6 +52,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+log "verify-xray $SCRIPT_VERSION"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/pierwave-verify.XXXXXX")"
 log "工作目录：${WORK}（退出时删除）"
 

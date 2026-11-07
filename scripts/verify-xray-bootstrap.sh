@@ -8,6 +8,9 @@ set -euo pipefail
 
 REPO="jacob-bytes/pierwave"
 REF="${PIERWAVE_REF:-main}"
+# raw.githubusercontent.com 会缓存几分钟，加时间戳确保拿到最新脚本
+CACHEBUST="$(date +%s)"
+BOOT_VERSION="2026-11-07.2"
 
 say() { printf '\033[36m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[31mFAIL\033[0m %s\n' "$*" >&2; exit 1; }
@@ -21,8 +24,9 @@ esac
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/pierwave-boot.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT INT TERM
 
-say "下载验证脚本（$REF）"
-curl -fsSL "https://raw.githubusercontent.com/$REPO/$REF/scripts/verify-xray.sh" -o "$WORK/verify-xray.sh" \
+say "bootstrap $BOOT_VERSION"
+say "下载验证脚本（$REF，cache-bust=$CACHEBUST）"
+curl -fsSL "https://raw.githubusercontent.com/$REPO/$REF/scripts/verify-xray.sh?v=$CACHEBUST" -o "$WORK/verify-xray.sh" \
   || die "下载验证脚本失败；确认这台机器能访问 raw.githubusercontent.com"
 
 say "下载 pierwave-master（$ARCH）"
