@@ -180,10 +180,11 @@ const zhCN = {
       external: "外置",
       embedded: "内联",
       externalOption: "外置（external）",
-      embeddedOption: "内联（embedded）",
+      deprecated: "已废弃",
+      deprecatedHint: "内联模式从未实现，该服务器已被自动转为外置；请确认服务器上已安装 Xray 并重新应用配置。",
       column: "模式",
       placeholder: "选择模式",
-      hint: "外置模式要求服务器已自行安装并运行 Xray；内联模式由 Agent 托管。",
+      hint: "要求服务器已自行安装并运行 Xray。内联模式尚未实现，暂不提供。",
     },
     detail: {
       configVersion: "配置版本",

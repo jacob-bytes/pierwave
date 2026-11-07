@@ -187,10 +187,11 @@ const en = {
       external: "External",
       embedded: "Embedded",
       externalOption: "External (external)",
-      embeddedOption: "Embedded (embedded)",
+      deprecated: "Deprecated",
+      deprecatedHint: "Embedded mode was never implemented; this server has been switched to external. Make sure Xray is installed and apply the config again.",
       column: "Mode",
       placeholder: "Select a mode",
-      hint: "External mode requires Xray to be installed and running on the server; embedded mode is managed by the Agent.",
+      hint: "Requires Xray to be installed and running on the server. Embedded mode is not implemented yet.",
     },
     detail: {
       configVersion: "Config version",

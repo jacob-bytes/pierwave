@@ -742,6 +742,14 @@ export default function ServersPage() {
                       </TableCell>
                       <TableCell className="hidden px-4 py-2.5 text-xs text-muted-foreground lg:table-cell">
                         {xrayModeLabel(server.xray_mode)}
+                        {server.xray_mode === "embedded" ? (
+                          <span
+                            className="ml-1.5 rounded bg-warning/10 px-1.5 py-0.5 text-[11px] text-warning"
+                            title={t("servers.mode.deprecatedHint")}
+                          >
+                            {t("servers.mode.deprecated")}
+                          </span>
+                        ) : null}
                       </TableCell>
                       <TableCell className="px-4 py-2.5">
                         <StatusBadge server={server} />
@@ -842,9 +850,6 @@ export default function ServersPage() {
                 <SelectContent>
                   <SelectItem value="external">
                     {t("servers.mode.externalOption")}
-                  </SelectItem>
-                  <SelectItem value="embedded">
-                    {t("servers.mode.embeddedOption")}
                   </SelectItem>
                 </SelectContent>
               </Select>

@@ -43,9 +43,9 @@ pub async fn create(
     if name.is_empty() || address.is_empty() {
         return Err(AppError::BadRequest("名称和地址不能为空".into()));
     }
-    if !matches!(req.xray_mode.as_str(), "external" | "embedded") {
+    if req.xray_mode != "external" {
         return Err(AppError::BadRequest(
-            "xray_mode 只能是 external 或 embedded".into(),
+            "目前只支持外置 Xray（external）；内联模式尚未实现".into(),
         ));
     }
     let (server, token) =
@@ -100,9 +100,9 @@ pub async fn update(
         other => other,
     };
     if let Some(mode) = req.xray_mode.as_deref() {
-        if !matches!(mode, "external" | "embedded") {
+        if mode != "external" {
             return Err(AppError::BadRequest(
-                "xray_mode 只能是 external 或 embedded".into(),
+                "目前只支持外置 Xray（external）；内联模式尚未实现".into(),
             ));
         }
     }
@@ -273,12 +273,12 @@ mod tests {
             &cookie,
             Method::PATCH,
             &format!("/api/v1/servers/{id}"),
-            serde_json::json!({"name":"hk-2","xray_mode":"embedded"}),
+            serde_json::json!({"name":"hk-2"}),
         )
         .await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(patched["server"]["name"], "hk-2");
-        assert_eq!(patched["server"]["xray_mode"], "embedded");
+        assert_eq!(patched["server"]["xray_mode"], "external");
         assert_eq!(
             patched["server"]["address"], "1.2.3.4",
             "没传的字段不应被清空"
@@ -319,5 +319,21 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    /// 内联 Xray 从未实现过：留着这个选项只会让用户以为它可用。
+    #[tokio::test]
+    async fn embedded_xray_mode_is_rejected() {
+        let (app, _state, cookie) = setup().await;
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"x","address":"1.2.3.4","xray_mode":"embedded"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert!(body["error"].as_str().unwrap().contains("内联"));
     }
 }

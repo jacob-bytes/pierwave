@@ -401,21 +401,56 @@ fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
 
 fn sample_heartbeat(seq: u64, uptime_secs: u64) -> Heartbeat {
     let (load1, mem_used, mem_total) = read_load_and_mem();
+    let disk = read_disk();
     Heartbeat {
         seq,
         uptime_secs,
         load1,
         mem_used,
         mem_total,
-        disk_used: 0,
-        disk_total: 0,
-        xray_running: std::process::Command::new("systemctl")
-            .args(["is-active", "xray"])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false),
-        nginx_running: false,
+        disk_used: disk.0,
+        disk_total: disk.1,
+        xray_running: unit_active("xray"),
+        nginx_running: unit_active("nginx"),
     }
+}
+
+/// 通过 `systemctl is-active` 判断某个 unit 是否在运行。
+///
+/// 单位不存在（没装）时 systemctl 返回非 0，也归为「没在跑」——对面板来说两者
+/// 没有区别，都是「该服务不可用」。
+fn unit_active(unit: &str) -> bool {
+    std::process::Command::new("systemctl")
+        .args(["is-active", unit])
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false)
+}
+
+/// 根分区用量，返回 (已用, 总量)，单位字节。
+///
+/// 用 `df -kP` 而不是引 libc/statvfs：只需要一次系统调用级别的信息，
+/// 不值得为它加一个 unsafe 依赖；`-P` 保证输出是固定的单行格式。
+fn read_disk() -> (u64, u64) {
+    let output = std::process::Command::new("df").args(["-kP", "/"]).output();
+    match output {
+        Ok(out) if out.status.success() => {
+            parse_df(&String::from_utf8_lossy(&out.stdout)).unwrap_or((0, 0))
+        }
+        _ => (0, 0),
+    }
+}
+
+/// 解析 `df -kP` 的输出：取最后一行的第 2、3 列（1K 块），换算成字节。
+fn parse_df(raw: &str) -> Option<(u64, u64)> {
+    let line = raw.lines().rfind(|line| !line.trim().is_empty())?;
+    let fields: Vec<&str> = line.split_whitespace().collect();
+    if fields.len() < 3 {
+        return None;
+    }
+    let total_kb: u64 = fields[1].parse().ok()?;
+    let used_kb: u64 = fields[2].parse().ok()?;
+    Some((used_kb * 1024, total_kb * 1024))
 }
 
 #[cfg(target_os = "linux")]
@@ -484,6 +519,17 @@ mod tests {
 
     fn read(path: &Path) -> String {
         std::fs::read_to_string(path).unwrap()
+    }
+
+    #[test]
+    fn parses_df_output() {
+        let sample = "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/disk1s1 500000000 125000000 375000000 25% /\n";
+        assert_eq!(
+            parse_df(sample),
+            Some((125_000_000 * 1024, 500_000_000 * 1024))
+        );
+        assert_eq!(parse_df(""), None);
+        assert_eq!(parse_df("只 有 两 列"), None);
     }
 
     #[test]
