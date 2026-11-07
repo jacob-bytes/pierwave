@@ -23,6 +23,10 @@ const ENFORCEMENT_RECONCILE_INTERVAL: Duration = Duration::from_secs(5 * 60);
 /// 过期会话清理：每小时扫一次库即可，清理量与登录量成正比、单次很轻。
 const SESSION_PURGE_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
+/// 服务器采样：5 分钟一笔，公开状态页的可用率依赖它。
+const SERVER_SAMPLE_INTERVAL: Duration =
+    Duration::from_secs(repo::server_samples::SAMPLE_INTERVAL_SECS as u64);
+
 /// 执行一轮每日重置；有实例被清零时立刻标记所有服务器。
 ///
 /// 三重触发之一（另外两个是绑卡、改额度）：用户状态变了就直接走 30s 去抖，
@@ -304,6 +308,37 @@ pub fn spawn_upgrade_batch_runner(state: AppState) -> tokio::task::JoinHandle<()
                 }
                 Ok(_) => tracing::debug!("批量升级 runner：没有需要推进的批次"),
                 Err(error) => tracing::error!(error = %error, "批量升级 runner 失败"),
+            }
+        }
+    })
+}
+
+/// 执行一轮服务器采样：把 `servers` 当前状态抄进 `server_samples`，并清理 7 天前的行。
+///
+/// 离线服务器也会写 `online = 0`；否则离线时段不进入可用率的分母。
+pub async fn run_sample_round(
+    state: &AppState,
+) -> anyhow::Result<repo::server_samples::SampleRound> {
+    let report = repo::server_samples::record_round(&state.db.pool, repo::now()).await?;
+    if report.recorded > 0 || report.pruned > 0 {
+        tracing::debug!(
+            recorded = report.recorded,
+            pruned = report.pruned,
+            "服务器采样完成"
+        );
+    }
+    Ok(report)
+}
+
+/// 启动服务器采样任务；第一次 tick 立即执行，启动时先落一笔。
+pub fn spawn_server_samples(state: AppState) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(SERVER_SAMPLE_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            ticker.tick().await;
+            if let Err(error) = run_sample_round(&state).await {
+                tracing::error!(error = %error, "服务器采样失败");
             }
         }
     })
@@ -774,6 +809,81 @@ mod tests {
             .await
             .unwrap();
         assert!(detail[0].error.contains("超时"), "{}", detail[0].error);
+    }
+
+    // ---- 探针采样 ----
+
+    #[tokio::test]
+    async fn sample_round_writes_aligned_rows_for_online_and_offline_servers() {
+        let state = setup_batch_state().await;
+        let online = seed_upgrade_server(&state, "a", "0.5.0").await;
+        let (offline, _token) = repo::servers::create(&state.db.pool, "b", "10.0.0.2", "external")
+            .await
+            .unwrap();
+
+        let report = run_sample_round(&state).await.unwrap();
+        assert_eq!(report.recorded, 2, "在线和离线服务器都要落一行");
+
+        let online_rows = repo::server_samples::list(&state.db.pool, &online, 0)
+            .await
+            .unwrap();
+        assert_eq!(online_rows.len(), 1);
+        assert_eq!(online_rows[0].ts % 300, 0, "ts 必须对齐到 5 分钟");
+        assert!(online_rows[0].online);
+
+        let offline_rows = repo::server_samples::list(&state.db.pool, &offline.id, 0)
+            .await
+            .unwrap();
+        assert_eq!(offline_rows.len(), 1);
+        assert!(
+            !offline_rows[0].online,
+            "离线服务器也必须写 online = 0，否则可用率分母少一段"
+        );
+
+        // 同一个 5 分钟桶再跑一轮：upsert 覆盖，不新增行。
+        let again = run_sample_round(&state).await.unwrap();
+        assert_eq!(again.recorded, 2);
+        assert_eq!(
+            repo::server_samples::list(&state.db.pool, &online, 0)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn sample_round_prunes_rows_older_than_seven_days() {
+        let state = setup_batch_state().await;
+        let (server, _token) = repo::servers::create(&state.db.pool, "a", "10.0.0.1", "external")
+            .await
+            .unwrap();
+        let now = repo::now();
+        let old_ts = now - 8 * 86_400;
+
+        repo::server_samples::record_round(&state.db.pool, old_ts)
+            .await
+            .unwrap();
+        assert_eq!(
+            repo::server_samples::list(&state.db.pool, &server.id, 0)
+                .await
+                .unwrap()
+                .len(),
+            1,
+            "先造一条 8 天前的行"
+        );
+
+        let report = run_sample_round(&state).await.unwrap();
+        assert_eq!(report.pruned, 1, "每轮都要顺带清理 7 天前的行");
+
+        let rows = repo::server_samples::list(&state.db.pool, &server.id, 0)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1, "只应剩下本轮新写入的行");
+        assert!(
+            rows[0].ts >= now - repo::server_samples::RETENTION_SECS,
+            "7 天前的行必须被删：{rows:?}"
+        );
     }
 
     #[tokio::test]

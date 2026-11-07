@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use pierwave_domain::Db;
 use pierwave_proto::MasterMessage;
+use serde_json::Value;
 use tokio::sync::broadcast;
 
 use crate::enforcement::Enforcer;
@@ -96,6 +97,45 @@ impl LatestVersionCache {
     }
 }
 
+/// 公开状态页的结果缓存：30 秒内重复请求直接复用，避免每次打库扫采样表。
+///
+/// 放在 `AppState` 里而不是全局静态变量：每个进程/测试实例各自独立，
+/// 测试之间不会互相污染。
+pub const PUBLIC_STATUS_CACHE_TTL: Duration = Duration::from_secs(30);
+
+#[derive(Clone, Default)]
+pub struct PublicStatusCache {
+    inner: Arc<Mutex<Option<(Instant, Value)>>>,
+}
+
+impl PublicStatusCache {
+    pub fn get(&self) -> Option<Value> {
+        let guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard
+            .as_ref()
+            .filter(|(at, _)| at.elapsed() < PUBLIC_STATUS_CACHE_TTL)
+            .map(|(_, value)| value.clone())
+    }
+
+    pub fn put(&self, value: Value) {
+        *self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((Instant::now(), value));
+    }
+
+    #[cfg(test)]
+    pub fn clear(&self) {
+        *self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    }
+}
+
 /// 已连接 Agent 的期望态广播中心。
 ///
 /// 主控只在 `apply` 时广播完整配置，Agent 收敛失败会回 `ApplyResult`，
@@ -175,6 +215,8 @@ pub struct AppState {
     pub agent_release: AgentReleaseConfig,
     /// 「最新版本」缓存（5 分钟）。
     pub latest_version: LatestVersionCache,
+    /// 公开状态页结果缓存（30 秒）。
+    pub public_status: PublicStatusCache,
 }
 
 impl AppState {
@@ -187,6 +229,7 @@ impl AppState {
             login_throttle: Arc::new(LoginThrottle::default()),
             agent_release: AgentReleaseConfig::from_env(),
             latest_version: LatestVersionCache::default(),
+            public_status: PublicStatusCache::default(),
         }
     }
 

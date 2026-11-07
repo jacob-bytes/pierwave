@@ -1,0 +1,425 @@
+//! 探针公开页：`GET /api/v1/public/status`（无需登录）。
+//!
+//! 响应形状与 `docs/PLAN.md`「P10：探针公开页」一致，只读、只暴露白名单字段。
+//! 采样聚合全部走 `pierwave_domain::repo::server_samples`，这里只负责把行拼成
+//! 24 个小时桶并做 30 秒进程内缓存。
+
+use std::collections::HashMap;
+
+use axum::extract::State;
+use axum::Json;
+use serde::Serialize;
+use serde_json::Value;
+
+use pierwave_domain::models::PublicSummary;
+use pierwave_domain::repo;
+
+use crate::error::{AppError, AppResult};
+use crate::state::AppState;
+
+const HOUR_SECS: i64 = 3_600;
+const BUCKETS_24H: usize = 24;
+
+/// 单台服务器的公开行：字段即白名单，绝不包含地址、token、用户数、套餐、证书。
+#[derive(Debug, Serialize)]
+struct PublicServer {
+    id: String,
+    name: String,
+    online: bool,
+    xray_running: Option<bool>,
+    load1: Option<f64>,
+    mem_used: Option<i64>,
+    mem_total: Option<i64>,
+    disk_used: Option<i64>,
+    disk_total: Option<i64>,
+    uptime_secs: Option<i64>,
+    last_seen: Option<i64>,
+    /// 0..1；窗口内没有采样时为 null。
+    uptime_24h: Option<f64>,
+    /// 0..1；窗口内没有采样时为 null。
+    uptime_7d: Option<f64>,
+    /// 固定 24 个元素，从最早的小时到当前小时；没有采样的小时为 null。
+    buckets_24h: Vec<Option<PublicBucket>>,
+}
+
+#[derive(Debug, Serialize)]
+struct PublicBucket {
+    ts: i64,
+    online_ratio: f64,
+}
+
+#[derive(Debug, Serialize)]
+struct PublicStatus {
+    panel_name: String,
+    generated_at: i64,
+    summary: PublicSummary,
+    servers: Vec<PublicServer>,
+}
+
+/// 24 个小时桶的起点，升序：`now` 所在小时及其之前 23 个小时。
+fn hour_bucket_starts(now: i64) -> Vec<i64> {
+    let current = now - now.rem_euclid(HOUR_SECS);
+    (0..BUCKETS_24H)
+        .rev()
+        .map(|back| current - back as i64 * HOUR_SECS)
+        .collect()
+}
+
+pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
+    let settings = crate::routes::settings::load(&state.db.pool).await;
+    if settings.public_status_enabled == 0 {
+        return Err(AppError::not_found(
+            "public_status.disabled",
+            None,
+            "公开状态页已关闭",
+        ));
+    }
+
+    // 开关判断必须在缓存之前：关闭后即使有旧缓存也必须立刻 404。
+    if let Some(cached) = state.public_status.get() {
+        return Ok(Json(cached));
+    }
+
+    let now = repo::now();
+    let summary = repo::stats::public_summary(&state.db.pool, now).await?;
+    let servers = repo::servers::list(&state.db.pool).await?;
+
+    let uptimes: HashMap<String, _> = repo::server_samples::uptime_all(&state.db.pool, now)
+        .await?
+        .into_iter()
+        .map(|row| (row.server_id.clone(), row))
+        .collect();
+
+    let current_hour = now - now.rem_euclid(HOUR_SECS);
+    let mut buckets: HashMap<String, HashMap<i64, f64>> = HashMap::new();
+    for row in repo::server_samples::hourly_buckets(
+        &state.db.pool,
+        current_hour - (BUCKETS_24H as i64 - 1) * HOUR_SECS,
+        current_hour + HOUR_SECS,
+    )
+    .await?
+    {
+        buckets
+            .entry(row.server_id)
+            .or_default()
+            .insert(row.ts, row.online_ratio);
+    }
+
+    let starts = hour_bucket_starts(now);
+    let servers = servers
+        .into_iter()
+        .map(|server| {
+            let uptime = uptimes.get(&server.id);
+            let buckets_24h = starts
+                .iter()
+                .map(|ts| {
+                    buckets
+                        .get(&server.id)
+                        .and_then(|by_hour| by_hour.get(ts))
+                        .map(|online_ratio| PublicBucket {
+                            ts: *ts,
+                            online_ratio: *online_ratio,
+                        })
+                })
+                .collect();
+            PublicServer {
+                id: server.id,
+                name: server.name,
+                online: server.status == "online",
+                xray_running: server.xray_running,
+                load1: server.load1,
+                mem_used: server.mem_used,
+                mem_total: server.mem_total,
+                disk_used: server.disk_used,
+                disk_total: server.disk_total,
+                uptime_secs: server.uptime_secs,
+                last_seen: server.last_seen_at,
+                uptime_24h: uptime.and_then(|row| row.uptime_24h),
+                uptime_7d: uptime.and_then(|row| row.uptime_7d),
+                buckets_24h,
+            }
+        })
+        .collect();
+
+    let response = PublicStatus {
+        panel_name: settings.panel_name,
+        generated_at: now,
+        summary,
+        servers,
+    };
+    let value = serde_json::to_value(response)
+        .map_err(|error| AppError::Internal(anyhow::Error::from(error)))?;
+    state.public_status.put(value.clone());
+    Ok(Json(value))
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::{Method, Request, StatusCode};
+    use axum::Router;
+    use serde_json::Value;
+    use tower::ServiceExt;
+
+    use pierwave_domain::repo;
+    use pierwave_domain::Db;
+
+    use crate::state::AppState;
+
+    async fn setup() -> (Router, AppState) {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let state = AppState::new(db, "web/dist");
+        let app = crate::app::router(state.clone());
+        (app, state)
+    }
+
+    async fn get(app: &Router, uri: &str) -> (StatusCode, Value, String) {
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri(uri)
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+            String::from_utf8_lossy(&bytes).into_owned(),
+        )
+    }
+
+    async fn seed_server(state: &AppState, name: &str, address: &str) -> String {
+        let (server, _token) = repo::servers::create(&state.db.pool, name, address, "external")
+            .await
+            .unwrap();
+        server.id
+    }
+
+    /// 测试只建一台服务器；返回它，避免 helper 里再传一遍 id。
+    async fn server_id(state: &AppState) -> String {
+        repo::servers::list(&state.db.pool).await.unwrap()[0]
+            .id
+            .clone()
+    }
+
+    async fn set_online(state: &AppState, online: bool) {
+        let id = server_id(state).await;
+        if online {
+            repo::servers::mark_online(&state.db.pool, &id)
+                .await
+                .unwrap();
+        } else {
+            repo::servers::mark_offline(&state.db.pool, &id)
+                .await
+                .unwrap();
+        }
+    }
+
+    fn assert_no_forbidden_keys(value: &Value) {
+        const FORBIDDEN: &[&str] = &[
+            "address",
+            "token",
+            "token_hash",
+            "username",
+            "password",
+            "password_hash",
+            "short_code",
+            "quota_bytes",
+            "user_count",
+            "users",
+            "packages",
+            "certificates",
+        ];
+        match value {
+            Value::Object(map) => {
+                for (key, child) in map {
+                    assert!(
+                        !FORBIDDEN.contains(&key.as_str()),
+                        "公开响应出现了敏感键：{key}"
+                    );
+                    assert_no_forbidden_keys(child);
+                }
+            }
+            Value::Array(items) => items.iter().for_each(assert_no_forbidden_keys),
+            _ => {}
+        }
+    }
+
+    #[tokio::test]
+    async fn no_samples_means_null_uptime_and_all_null_buckets() {
+        let (app, state) = setup().await;
+        seed_server(&state, "edge-1", "203.0.113.9").await;
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let server = &body["servers"][0];
+        assert!(server["uptime_24h"].is_null(), "{body}");
+        assert!(server["uptime_7d"].is_null(), "{body}");
+        let buckets = server["buckets_24h"].as_array().unwrap();
+        assert_eq!(buckets.len(), 24);
+        assert!(
+            buckets.iter().all(Value::is_null),
+            "没有采样时所有桶都必须是 null：{body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn half_online_samples_produce_half_uptime() {
+        let (app, state) = setup().await;
+        seed_server(&state, "edge-1", "203.0.113.9").await;
+        let now = repo::now();
+
+        for i in 0..24 {
+            set_online(&state, i % 2 == 0).await;
+            repo::server_samples::record_round(&state.db.pool, now - i * 300)
+                .await
+                .unwrap();
+        }
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let uptime = body["servers"][0]["uptime_24h"].as_f64().unwrap();
+        assert!((uptime - 0.5).abs() < 1e-9, "uptime_24h = {uptime}");
+        let uptime_7d = body["servers"][0]["uptime_7d"].as_f64().unwrap();
+        assert!((uptime_7d - 0.5).abs() < 1e-9, "uptime_7d = {uptime_7d}");
+    }
+
+    #[tokio::test]
+    async fn buckets_aggregate_by_hour_and_fill_missing_with_null() {
+        let (app, state) = setup().await;
+        seed_server(&state, "edge-1", "203.0.113.9").await;
+        let now = repo::now();
+        let current_hour = now - now.rem_euclid(3_600);
+        let target = current_hour - 3_600;
+
+        set_online(&state, true).await;
+        repo::server_samples::record_round(&state.db.pool, target)
+            .await
+            .unwrap();
+        set_online(&state, false).await;
+        repo::server_samples::record_round(&state.db.pool, target + 300)
+            .await
+            .unwrap();
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let buckets = body["servers"][0]["buckets_24h"].as_array().unwrap();
+        assert_eq!(buckets.len(), 24);
+        assert_eq!(buckets[22]["ts"], target, "倒数第二个桶是上一个整点");
+        assert_eq!(buckets[22]["online_ratio"], 0.5);
+        for (index, bucket) in buckets.iter().enumerate() {
+            if index != 22 {
+                assert!(bucket.is_null(), "第 {index} 个桶应为 null：{body}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn response_never_contains_address_or_other_sensitive_keys() {
+        let (app, state) = setup().await;
+        let server_id = seed_server(&state, "edge-1", "203.0.113.9").await;
+        repo::nodes::create(
+            &state.db.pool,
+            &server_id,
+            repo::nodes::NewNode {
+                tag: Some("vless-1".into()),
+                name: "香港-01".into(),
+                protocol: "vless".into(),
+                transport: "tcp".into(),
+                security: "none".into(),
+                port: 443,
+                config_json: "{}".into(),
+                enabled: true,
+                cert_id: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let (status, body, raw) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(
+            !raw.contains("203.0.113.9"),
+            "公开响应不应包含服务器地址：{raw}"
+        );
+        assert_no_forbidden_keys(&body);
+
+        let server_keys: Vec<&str> = body["servers"][0]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        let mut expected = vec![
+            "id",
+            "name",
+            "online",
+            "xray_running",
+            "load1",
+            "mem_used",
+            "mem_total",
+            "disk_used",
+            "disk_total",
+            "uptime_secs",
+            "last_seen",
+            "uptime_24h",
+            "uptime_7d",
+            "buckets_24h",
+        ];
+        expected.sort_unstable();
+        let mut actual = server_keys.clone();
+        actual.sort_unstable();
+        assert_eq!(actual, expected, "服务器行必须严格是白名单字段");
+        assert_eq!(body["summary"]["nodes_total"], 1);
+    }
+
+    #[tokio::test]
+    async fn disabled_switch_returns_404_even_without_login() {
+        let (app, state) = setup().await;
+        seed_server(&state, "edge-1", "203.0.113.9").await;
+        repo::settings::set(&state.db.pool, "public_status_enabled", "0")
+            .await
+            .unwrap();
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert_eq!(body["code"], "public_status.disabled");
+
+        repo::settings::set(&state.db.pool, "public_status_enabled", "1")
+            .await
+            .unwrap();
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+
+    /// 这条单独测：不带任何 Cookie 也必须 200，公开接口不能被登录态依赖。
+    #[tokio::test]
+    async fn public_status_is_accessible_without_login() {
+        let (app, state) = setup().await;
+        seed_server(&state, "edge-1", "203.0.113.9").await;
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["summary"]["servers_total"], 1);
+    }
+
+    #[tokio::test]
+    async fn result_is_cached_for_thirty_seconds() {
+        let (app, state) = setup().await;
+        seed_server(&state, "edge-1", "203.0.113.9").await;
+
+        let (_, first, _) = get(&app, "/api/v1/public/status").await;
+        seed_server(&state, "edge-2", "203.0.113.10").await;
+        let (_, cached, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(cached["summary"]["servers_total"], 1, "30 秒内应复用缓存");
+        assert_eq!(cached["generated_at"], first["generated_at"]);
+
+        state.public_status.clear();
+        let (_, fresh, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(fresh["summary"]["servers_total"], 2);
+    }
+}

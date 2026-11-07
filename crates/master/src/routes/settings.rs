@@ -22,14 +22,17 @@ pub const DEFAULT_SESSION_TTL_HOURS: i64 = 720;
 pub const DEFAULT_AGENT_UPGRADE_CONCURRENCY: i64 = 1;
 pub const MIN_AGENT_UPGRADE_CONCURRENCY: i64 = 1;
 pub const MAX_AGENT_UPGRADE_CONCURRENCY: i64 = 5;
+/// 公开状态页总开关：默认开启；0 = 关闭（接口返回 404）。
+pub const DEFAULT_PUBLIC_STATUS_ENABLED: i64 = 1;
 
 const PANEL_NAME_KEY: &str = "panel_name";
 const LOGIN_MAX_ATTEMPTS_KEY: &str = "login_max_attempts";
 const LOGIN_LOCK_SECS_KEY: &str = "login_lock_secs";
 const SESSION_TTL_HOURS_KEY: &str = "session_ttl_hours";
 const AGENT_UPGRADE_CONCURRENCY_KEY: &str = "agent_upgrade_concurrency";
+const PUBLIC_STATUS_ENABLED_KEY: &str = "public_status_enabled";
 
-/// 设置页的四个白名单键；新增键必须同时改这里和 `docs/PLAN.md`。
+/// 设置页的白名单键；新增键必须同时改这里和 `docs/PLAN.md`。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
     pub panel_name: String,
@@ -37,6 +40,8 @@ pub struct Settings {
     pub login_lock_secs: i64,
     pub session_ttl_hours: i64,
     pub agent_upgrade_concurrency: i64,
+    /// 0 = 关闭公开状态页；1 = 开启。
+    pub public_status_enabled: i64,
 }
 
 impl Default for Settings {
@@ -47,6 +52,7 @@ impl Default for Settings {
             login_lock_secs: DEFAULT_LOGIN_LOCK_SECS,
             session_ttl_hours: DEFAULT_SESSION_TTL_HOURS,
             agent_upgrade_concurrency: DEFAULT_AGENT_UPGRADE_CONCURRENCY,
+            public_status_enabled: DEFAULT_PUBLIC_STATUS_ENABLED,
         }
     }
 }
@@ -63,6 +69,7 @@ impl Settings {
             "login_lock_secs": self.login_lock_secs,
             "session_ttl_hours": self.session_ttl_hours,
             "agent_upgrade_concurrency": self.agent_upgrade_concurrency,
+            "public_status_enabled": self.public_status_enabled,
         })
     }
 }
@@ -102,6 +109,14 @@ pub async fn load(pool: &SqlitePool) -> Settings {
             MIN_AGENT_UPGRADE_CONCURRENCY,
             MAX_AGENT_UPGRADE_CONCURRENCY,
             defaults.agent_upgrade_concurrency,
+        )
+        .await,
+        public_status_enabled: read_int(
+            pool,
+            PUBLIC_STATUS_ENABLED_KEY,
+            0,
+            1,
+            defaults.public_status_enabled,
         )
         .await,
     }
@@ -195,6 +210,10 @@ pub async fn update(
                     MAX_AGENT_UPGRADE_CONCURRENCY,
                 )?
                 .to_string(),
+            )),
+            PUBLIC_STATUS_ENABLED_KEY => updates.push((
+                PUBLIC_STATUS_ENABLED_KEY,
+                validate_int("公开状态页开关（0 关闭 / 1 开启）", value, 0, 1)?.to_string(),
             )),
             other => {
                 return Err(AppError::coded(
@@ -575,5 +594,51 @@ mod tests {
             3600,
             "服务端会话有效期必须是 1 小时"
         );
+    }
+
+    #[tokio::test]
+    async fn public_status_enabled_accepts_only_zero_or_one() {
+        let (app, state, admin, _bob) = setup().await;
+
+        let (_, _, body) = request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(
+            body["items"]["public_status_enabled"], 1,
+            "公开状态页默认开启"
+        );
+
+        for ok in [0, 1] {
+            let (status, _, body) = request(
+                &app,
+                Some(&admin),
+                Method::PATCH,
+                "/api/v1/settings",
+                Some(json!({"public_status_enabled": ok})),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert_eq!(body["items"]["public_status_enabled"], ok);
+        }
+
+        for bad in [json!(2), json!(-1), json!("1"), json!(true)] {
+            let (status, _, body) = request(
+                &app,
+                Some(&admin),
+                Method::PATCH,
+                "/api/v1/settings",
+                Some(json!({"public_status_enabled": bad.clone()})),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "payload: {bad}");
+            assert!(
+                body["error"].as_str().unwrap().contains("公开状态页"),
+                "错误信息要指出字段：{body}"
+            );
+        }
+
+        // 直接写库绕过接口（模拟手工改坏）：读取回落到默认值 1。
+        repo::settings::set(&state.db.pool, "public_status_enabled", "9")
+            .await
+            .unwrap();
+        assert_eq!(load(&state.db.pool).await.public_status_enabled, 1);
     }
 }

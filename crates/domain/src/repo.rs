@@ -1599,6 +1599,13 @@ pub mod nodes {
         )
     }
 
+    /// 节点总数；公开状态页的 `nodes_total` 用它（不分启用/停用）。
+    pub async fn count(pool: &SqlitePool) -> anyhow::Result<i64> {
+        Ok(sqlx::query_scalar("SELECT COUNT(*) FROM nodes")
+            .fetch_one(pool)
+            .await?)
+    }
+
     pub async fn list_by_server(pool: &SqlitePool, server_id: &str) -> anyhow::Result<Vec<Node>> {
         Ok(sqlx::query_as::<_, Node>(
             "SELECT * FROM nodes WHERE server_id = ? ORDER BY created_at ASC, rowid ASC",
@@ -3147,10 +3154,171 @@ pub mod certificates {
     }
 }
 
+/// 探针采样：把 `servers` 的当前状态与健康字段按 5 分钟粒度落成历史。
+///
+/// 这里只负责「抄一份 + 按窗口聚合」，不判断公开页是否开启（那是接口层的事）。
+/// 采样时间由调用方传入，调度器与测试共用同一套逻辑。
+pub mod server_samples {
+    use super::*;
+
+    /// 采样粒度：5 分钟。
+    pub const SAMPLE_INTERVAL_SECS: i64 = 300;
+    /// 采样保留 7 天；每轮写入时顺带清掉更早的行。
+    pub const RETENTION_SECS: i64 = 7 * 86_400;
+
+    /// 一轮采样的结果，便于调度器记日志与测试断言。
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+    pub struct SampleRound {
+        /// 写入（或覆盖）的服务器行数。
+        pub recorded: u64,
+        /// 清理掉的过期行数。
+        pub pruned: u64,
+    }
+
+    /// 把时间对齐到 5 分钟整点。
+    ///
+    /// 调度器启动/重启时刻不一定落在整 5 分钟上，对齐后同一时间窗只会有一行；
+    /// 重复执行用 upsert 覆盖，不会把可用率的分母算重。
+    pub fn align_ts(ts: i64) -> i64 {
+        ts - ts.rem_euclid(SAMPLE_INTERVAL_SECS)
+    }
+
+    /// 写一轮采样并清理 7 天前的行。
+    ///
+    /// 数据来自 `servers` 的当前状态：离线服务器也会写 `online = 0`，
+    /// 否则离线时段不进入分母，可用率会永远显示 100%。
+    pub async fn record_round(pool: &SqlitePool, now: i64) -> anyhow::Result<SampleRound> {
+        let ts = align_ts(now);
+        let mut tx = pool.begin().await?;
+
+        let recorded = sqlx::query(
+            "INSERT INTO server_samples
+                (server_id, ts, online, load1, mem_used, mem_total, disk_used, disk_total)
+             SELECT id, ?, CASE WHEN status = 'online' THEN 1 ELSE 0 END,
+                    COALESCE(load1, 0), COALESCE(mem_used, 0), COALESCE(mem_total, 0),
+                    COALESCE(disk_used, 0), COALESCE(disk_total, 0)
+             FROM servers
+             WHERE true
+             ON CONFLICT(server_id, ts) DO UPDATE SET
+                online = excluded.online,
+                load1 = excluded.load1,
+                mem_used = excluded.mem_used,
+                mem_total = excluded.mem_total,
+                disk_used = excluded.disk_used,
+                disk_total = excluded.disk_total",
+        )
+        .bind(ts)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+
+        let pruned = sqlx::query("DELETE FROM server_samples WHERE ts < ?")
+            .bind(ts - RETENTION_SECS)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+
+        tx.commit().await?;
+        Ok(SampleRound { recorded, pruned })
+    }
+
+    /// 某台服务器自 `since` 起的采样，按时间升序（测试与排障用）。
+    pub async fn list(
+        pool: &SqlitePool,
+        server_id: &str,
+        since: i64,
+    ) -> anyhow::Result<Vec<ServerSample>> {
+        Ok(sqlx::query_as::<_, ServerSample>(
+            "SELECT * FROM server_samples
+             WHERE server_id = ? AND ts >= ?
+             ORDER BY ts ASC",
+        )
+        .bind(server_id)
+        .bind(since)
+        .fetch_all(pool)
+        .await?)
+    }
+
+    /// 所有服务器在 24h / 7d 窗口内的可用率（0..1）；没有采样的服务器不会出现在结果里。
+    pub async fn uptime_all(pool: &SqlitePool, now: i64) -> anyhow::Result<Vec<ServerUptime>> {
+        Ok(sqlx::query_as::<_, ServerUptime>(
+            "SELECT server_id,
+                    AVG(CASE WHEN ts >= ? THEN online END) AS uptime_24h,
+                    AVG(online) AS uptime_7d
+             FROM server_samples
+             WHERE ts >= ? AND ts <= ?
+             GROUP BY server_id",
+        )
+        .bind(now - 86_400)
+        .bind(now - RETENTION_SECS)
+        .bind(now)
+        .fetch_all(pool)
+        .await?)
+    }
+
+    /// `[since, until)` 内按小时聚合的在线比例，只返回有采样的 (server, 小时)。
+    pub async fn hourly_buckets(
+        pool: &SqlitePool,
+        since: i64,
+        until: i64,
+    ) -> anyhow::Result<Vec<ServerHourlyBucket>> {
+        Ok(sqlx::query_as::<_, ServerHourlyBucket>(
+            "SELECT server_id,
+                    (ts / 3600) * 3600 AS ts,
+                    AVG(online) AS online_ratio
+             FROM server_samples
+             WHERE ts >= ? AND ts < ?
+             GROUP BY server_id, (ts / 3600) * 3600",
+        )
+        .bind(since)
+        .bind(until)
+        .fetch_all(pool)
+        .await?)
+    }
+}
+
 pub mod stats {
     use std::collections::HashMap;
 
     use super::*;
+
+    /// 公开状态页的汇总：只查可公开的数字，不触碰用户/套餐/证书表。
+    pub async fn public_summary(pool: &SqlitePool, now: i64) -> anyhow::Result<PublicSummary> {
+        let (servers_total, servers_online): (i64, i64) = sqlx::query_as(
+            "SELECT COUNT(*),
+                    COALESCE(SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END), 0)
+             FROM servers",
+        )
+        .fetch_one(pool)
+        .await?;
+
+        let nodes_total = super::nodes::count(pool).await?;
+
+        let today = crate::time::business_date(now);
+        let (month_start, month_end) = crate::time::business_month_bounds(now);
+        let today_bytes: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily WHERE day = ?",
+        )
+        .bind(&today)
+        .fetch_one(pool)
+        .await?;
+        let month_bytes: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily
+             WHERE day >= ? AND day <= ?",
+        )
+        .bind(&month_start)
+        .bind(&month_end)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(PublicSummary {
+            servers_total,
+            servers_online,
+            nodes_total,
+            traffic_today: today_bytes,
+            traffic_month: month_bytes,
+        })
+    }
 
     /// 概览一次查齐所有卡片数字。`now` 由调用方传入，测试可以固定时间。
     pub async fn overview(pool: &SqlitePool, now: i64) -> anyhow::Result<Overview> {

@@ -10,6 +10,7 @@ pub mod me;
 pub mod nodes;
 pub mod outbounds;
 pub mod packages;
+pub mod public_status;
 pub mod routing_rules;
 pub mod rule_templates;
 pub mod servers;

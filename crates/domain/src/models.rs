@@ -568,6 +568,49 @@ pub struct ServerStats {
     pub online: i64,
 }
 
+/// 公开状态页的汇总数字。
+///
+/// 刻意不包含用户/套餐/证书等管理端口径：这个结构会被原样序列化到
+/// 无需登录的 `/api/v1/public/status`，字段本身即白名单。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct PublicSummary {
+    pub servers_total: i64,
+    pub servers_online: i64,
+    pub nodes_total: i64,
+    pub traffic_today: i64,
+    pub traffic_month: i64,
+}
+
+/// 一条服务器采样（调度器每 5 分钟写一行）。
+#[derive(Debug, Clone, PartialEq, FromRow)]
+pub struct ServerSample {
+    pub server_id: String,
+    pub ts: i64,
+    pub online: bool,
+    pub load1: f64,
+    pub mem_used: i64,
+    pub mem_total: i64,
+    pub disk_used: i64,
+    pub disk_total: i64,
+}
+
+/// 一台服务器在 24h / 7d 窗口内的可用率；没有采样时对应字段为 `None`。
+#[derive(Debug, Clone, FromRow)]
+pub struct ServerUptime {
+    pub server_id: String,
+    pub uptime_24h: Option<f64>,
+    pub uptime_7d: Option<f64>,
+}
+
+/// 一台服务器某个小时桶内的平均在线比例。
+#[derive(Debug, Clone, FromRow)]
+pub struct ServerHourlyBucket {
+    pub server_id: String,
+    /// 小时起点（Unix 秒，整点）。
+    pub ts: i64,
+    pub online_ratio: f64,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct UserStats {
     pub total: i64,

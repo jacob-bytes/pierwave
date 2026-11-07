@@ -12,6 +12,8 @@ pub fn router(state: AppState) -> Router {
 
     Router::new()
         .route("/api/v1/health", get(routes::system::health))
+        // 公开状态页：无需登录；关闭开关由 handler 自身判断并返回 404。
+        .route("/api/v1/public/status", get(routes::public_status::status))
         .route("/api/v1/backup", get(routes::backup::export))
         .route(
             "/api/v1/backup/restore",
