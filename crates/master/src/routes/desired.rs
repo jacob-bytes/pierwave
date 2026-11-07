@@ -39,6 +39,8 @@ pub struct ApplyOutcome {
 /// 凭据在这里一次性派生（`Grant::new`），`xray::build_config` 保持纯函数。
 pub async fn render(state: &AppState, server: &Server) -> AppResult<DesiredConfig> {
     let nodes = repo::nodes::list_enabled_by_server(&state.db.pool, &server.id).await?;
+    let outbounds = repo::outbounds::list_enabled_by_server(&state.db.pool, &server.id).await?;
+    let rules = repo::routing_rules::list_enabled_by_server(&state.db.pool, &server.id).await?;
     let secret = credentials::master_secret(&state.db.pool).await?;
     let pairs = repo::authorization::eligible_pairs(&state.db.pool, &server.id).await?;
 
@@ -100,8 +102,15 @@ pub async fn render(state: &AppState, server: &Server) -> AppResult<DesiredConfi
         });
     }
 
-    let (xray, warnings) =
-        xray::build_config_checked_with_certs(&server.name, &nodes, &grants, &node_certs);
+    let plan = xray::ServerPlan {
+        server_name: &server.name,
+        nodes: &nodes,
+        grants: &grants,
+        certs: &node_certs,
+        outbounds: &outbounds,
+        rules: &rules,
+    };
+    let (xray, warnings) = xray::build_config_checked_with_certs(&plan);
 
     Ok(DesiredConfig {
         xray,

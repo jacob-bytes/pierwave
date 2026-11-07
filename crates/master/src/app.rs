@@ -34,6 +34,22 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/servers/{id}/apply", post(routes::nodes::apply))
         .route(
+            "/api/v1/servers/{id}/outbounds",
+            get(routes::outbounds::list).post(routes::outbounds::create),
+        )
+        .route(
+            "/api/v1/outbounds/{id}",
+            patch(routes::outbounds::update).delete(routes::outbounds::delete),
+        )
+        .route(
+            "/api/v1/servers/{id}/routing-rules",
+            get(routes::routing_rules::list).post(routes::routing_rules::create),
+        )
+        .route(
+            "/api/v1/routing-rules/{id}",
+            patch(routes::routing_rules::update).delete(routes::routing_rules::delete),
+        )
+        .route(
             "/api/v1/users",
             get(routes::users::list).post(routes::users::create),
         )

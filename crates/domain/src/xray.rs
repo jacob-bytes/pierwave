@@ -6,7 +6,8 @@
 use serde_json::{json, Map, Value};
 
 use crate::credentials;
-use crate::models::Node;
+use crate::models::{Node, Outbound, RoutingRule};
+use crate::routing;
 
 /// 一条授权：某个用户有资格使用某个节点。
 ///
@@ -30,21 +31,6 @@ impl Grant {
     }
 }
 
-/// 生成可直接落盘的完整 Xray 配置。
-///
-/// * `server_name` 只在节点没有显式 tag 时用于生成兜底 tag；
-/// * 每个节点的 `config_json` 是「入站对象去掉 tag/port/protocol」的片段。
-///   片段里即便混入这三个字段也会被节点自身字段覆盖，避免双写不一致；
-/// * 片段缺 `settings` / `stream` 时按协议补安全默认值；
-/// * `grants` 是「有资格的用户 × 节点」的授权集合：每个 (用户, 节点) 生成一条
-///   client 追加到该 inbound 的 `settings.clients`，`email = {user_id}@{node_tag}`。
-///   片段里手工导入的 client 原样保留、排在派生 client 前面；`grants` 为空时不改
-///   `clients`（保持历史行为）；
-/// * 只生成调用方传入的节点，是否过滤 disabled 由调用方决定。
-pub fn build_config(server_name: &str, nodes: &[Node], grants: &[Grant]) -> Value {
-    build_config_with_certs(server_name, nodes, grants, &[])
-}
-
 /// 节点绑定到的证书文件路径。
 ///
 /// `render` 先按证书 id 去重，再把「节点 → 路径」传进来；配置生成保持纯函数，
@@ -56,20 +42,99 @@ pub struct NodeCertificate {
     pub key_path: String,
 }
 
-/// 与 [`build_config`] 相同，但会给绑定了证书的 TLS 节点补
-/// `stream.tlsSettings.certificates`（片段里已显式给路径时不覆盖）。
-pub fn build_config_with_certs(
-    server_name: &str,
-    nodes: &[Node],
-    grants: &[Grant],
-    certs: &[NodeCertificate],
-) -> Value {
+/// 一次配置生成所需的全部事实。
+///
+/// P3 之前 `build_config(server_name, nodes, grants)` 用的是位置参数：每多一类
+/// 输入（证书、出站、路由规则）都要改所有调用点。收成一个结构体后，主控的
+/// `desired::render` 一次性装配，手动 apply / 断流对账 / Agent 重连补发天然
+/// 拿到同一份输入；纯函数也只读这个结构，不关心数据来自哪张表。
+///
+/// 所有字段都是借用：调用方持有 `Vec`，配置生成不复制节点与规则。
+#[derive(Debug, Clone, Copy)]
+pub struct ServerPlan<'a> {
+    /// 只在节点没有显式 tag 时用于生成兜底 tag。
+    pub server_name: &'a str,
+    /// 参与生成的节点；是否过滤 disabled 由调用方决定。
+    pub nodes: &'a [Node],
+    /// (用户, 节点) 授权集合，用于派生 client 凭据。
+    pub grants: &'a [Grant],
+    /// 节点绑定的证书路径；没有证书时传空切片。
+    pub certs: &'a [NodeCertificate],
+    /// 启用的自定义出站，按创建顺序；内置 direct/blocked/api 由生成器补。
+    pub outbounds: &'a [Outbound],
+    /// 启用的路由规则，按 `sort_order, created_at`；api 规则由生成器固定放首位。
+    pub rules: &'a [RoutingRule],
+}
+
+impl<'a> ServerPlan<'a> {
+    /// 最小计划：只有节点与授权，证书/出站/规则全空。
+    ///
+    /// 让「只关心 inbound」的单元测试和调用点不用手写六个字段。
+    pub fn new(server_name: &'a str, nodes: &'a [Node], grants: &'a [Grant]) -> Self {
+        Self {
+            server_name,
+            nodes,
+            grants,
+            certs: &[],
+            outbounds: &[],
+            rules: &[],
+        }
+    }
+}
+
+/// 生成可直接落盘的完整 Xray 配置。
+///
+/// * 每个节点的 `config_json` 是「入站对象去掉 tag/port/protocol」的片段。
+///   片段里即便混入这三个字段也会被节点自身字段覆盖，避免双写不一致；
+/// * 片段缺 `settings` / `stream` 时按协议补安全默认值；
+/// * `grants` 是「有资格的用户 × 节点」的授权集合：每个 (用户, 节点) 生成一条
+///   client 追加到该 inbound 的 `settings.clients`，`email = {user_id}@{node_tag}`。
+///   片段里手工导入的 client 原样保留、排在派生 client 前面；`grants` 为空时不改
+///   `clients`（保持历史行为）；
+/// * `outbounds` = 内置 direct/blocked/api + 启用的自定义出站（按创建顺序），
+///   自定义项的 `config_json` 合并进对象、`tag`/`protocol` 以数据库为准；
+/// * `routing.rules` = api 规则固定第一 + 自定义规则（调用方已按排序取好），
+///   只带非空匹配字段，`inboundTag` / `domain` / `ip` 均为数组。
+pub fn build_config(plan: &ServerPlan) -> Value {
+    build_config_impl(plan, plan.nodes)
+}
+
+fn build_config_impl(plan: &ServerPlan, nodes: &[Node]) -> Value {
     let mut inbounds: Vec<Value> = nodes
         .iter()
         .enumerate()
-        .map(|(index, node)| build_inbound(server_name, index, node, grants, certs))
+        .map(|(index, node)| build_inbound(plan.server_name, index, node, plan.grants, plan.certs))
         .collect();
     inbounds.push(api_inbound());
+
+    let custom = custom_outbounds(plan.outbounds);
+    let custom_tags: Vec<String> = custom
+        .iter()
+        .filter_map(|outbound| outbound.get("tag").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect();
+
+    let mut outbounds = builtin_outbounds();
+    outbounds.extend(custom);
+
+    let mut rules = vec![api_rule()];
+    rules.extend(plan.rules.iter().filter_map(|rule| {
+        let tag = rule.outbound_tag.trim();
+        // 防御脏数据：规则指向已停用/不存在的出站时不能写进配置，
+        // 否则 Xray 会因为悬挂的 outboundTag 拒绝加载整份配置。
+        let known = matches!(tag, "direct" | "blocked" | "api")
+            || custom_tags.iter().any(|custom| custom.as_str() == tag);
+        if !known {
+            tracing::warn!(
+                server = %plan.server_name,
+                rule = %rule.id,
+                outbound = %rule.outbound_tag,
+                "路由规则指向的出站不可用，生成配置时跳过"
+            );
+            return None;
+        }
+        Some(routing::rule_value(rule))
+    }));
 
     json!({
         "log": {
@@ -97,35 +162,59 @@ pub fn build_config_with_certs(
             ]
         },
         "inbounds": inbounds,
-        "outbounds": [
-            {
-                "tag": "direct",
-                "protocol": "freedom",
-                "settings": {}
-            },
-            {
-                "tag": "blocked",
-                "protocol": "blackhole",
-                "settings": {}
-            },
-            // Xray 会为 api tag 自动注册 API handler；显式占位 outbound 与官方
-            // 示例一致，旧版本也能把 api 入站路由到它而不是真实外网。
-            {
-                "tag": "api",
-                "protocol": "freedom",
-                "settings": {}
-            }
-        ],
+        "outbounds": outbounds,
         "routing": {
             "domainStrategy": "AsIs",
-            "rules": [
-                {
-                    "type": "field",
-                    "inboundTag": ["api"],
-                    "outboundTag": "api"
-                }
-            ]
+            "rules": rules
         }
+    })
+}
+
+/// 内置出站：直连、黑洞、API 通道。
+///
+/// api 显式占位与官方示例一致：旧版本会把 api 入站的流量按 inboundTag 选到它，
+/// 而不是误送外网。自定义出站固定追加在它们之后，避免占用前三的位置。
+fn builtin_outbounds() -> Vec<Value> {
+    vec![
+        json!({
+            "tag": "direct",
+            "protocol": "freedom",
+            "settings": {}
+        }),
+        json!({
+            "tag": "blocked",
+            "protocol": "blackhole",
+            "settings": {}
+        }),
+        json!({
+            "tag": "api",
+            "protocol": "freedom",
+            "settings": {}
+        }),
+    ]
+}
+
+/// 自定义出站：`config_json` 合并进对象，`tag` / `protocol` 以数据库为准。
+fn custom_outbounds(items: &[Outbound]) -> Vec<Value> {
+    items
+        .iter()
+        .map(|outbound| {
+            let mut object = parse_fragment(&outbound.config_json);
+            object.insert("tag".into(), Value::String(outbound.tag.trim().to_string()));
+            object.insert(
+                "protocol".into(),
+                Value::String(outbound.protocol.trim().to_ascii_lowercase()),
+            );
+            Value::Object(object)
+        })
+        .collect()
+}
+
+fn api_rule() -> Value {
+    json!({
+        "type": "field",
+        "inboundTag": ["api"],
+        "outboundTag": "api"
     })
 }
 
@@ -197,38 +286,23 @@ pub fn node_problem(node: &Node) -> Option<String> {
 ///
 /// apply 用它把「被跳过的节点」回报给管理员；纯函数本身仍保持
 /// [`build_config`] 的历史行为，避免调用方（如单元测试/导入工具）被静默改变语义。
-pub fn build_config_checked(
-    server_name: &str,
-    nodes: &[Node],
-    grants: &[Grant],
-) -> (Value, Vec<String>) {
-    build_config_checked_impl(server_name, nodes, grants, &[], false)
+pub fn build_config_checked(plan: &ServerPlan) -> (Value, Vec<String>) {
+    build_config_checked_impl(plan, false)
 }
 
 /// 下发用的校验版：除了 REALITY 私钥，还会把「TLS 节点缺证书」的节点跳过并
 /// 给出中文 warning。API 层已拦住新建这类节点，这里兜住迁移前的历史数据。
-pub fn build_config_checked_with_certs(
-    server_name: &str,
-    nodes: &[Node],
-    grants: &[Grant],
-    certs: &[NodeCertificate],
-) -> (Value, Vec<String>) {
-    build_config_checked_impl(server_name, nodes, grants, certs, true)
+pub fn build_config_checked_with_certs(plan: &ServerPlan) -> (Value, Vec<String>) {
+    build_config_checked_impl(plan, true)
 }
 
-fn build_config_checked_impl(
-    server_name: &str,
-    nodes: &[Node],
-    grants: &[Grant],
-    certs: &[NodeCertificate],
-    require_tls_certs: bool,
-) -> (Value, Vec<String>) {
-    let mut usable = Vec::with_capacity(nodes.len());
+fn build_config_checked_impl(plan: &ServerPlan, require_tls_certs: bool) -> (Value, Vec<String>) {
+    let mut usable = Vec::with_capacity(plan.nodes.len());
     let mut warnings = Vec::new();
-    for node in nodes {
+    for node in plan.nodes {
         let problem = node_problem(node).or_else(|| {
             require_tls_certs
-                .then(|| node_tls_cert_problem(node, certs))
+                .then(|| node_tls_cert_problem(node, plan.certs))
                 .flatten()
         });
         match problem {
@@ -250,10 +324,7 @@ fn build_config_checked_impl(
             None => usable.push(node.clone()),
         }
     }
-    (
-        build_config_with_certs(server_name, &usable, grants, certs),
-        warnings,
-    )
+    (build_config_impl(plan, &usable), warnings)
 }
 
 /// TLS 节点必须能落出证书文件：要么片段里已显式写了 `certificates`，要么
@@ -571,9 +642,14 @@ mod tests {
         }
     }
 
+    /// 只有节点/授权的便捷入口；出站与规则由专门的测试显式构造。
+    fn build(server_name: &str, nodes: &[Node], grants: &[Grant]) -> Value {
+        build_config(&ServerPlan::new(server_name, nodes, grants))
+    }
+
     #[test]
     fn empty_server_still_gets_a_valid_skeleton() {
-        let config = build_config("hk-1", &[], &[]);
+        let config = build("hk-1", &[], &[]);
 
         assert_eq!(config["log"]["loglevel"], "warning");
         // 没有业务节点时仍要有 API 入站，Agent 才能查流量。
@@ -600,7 +676,7 @@ mod tests {
 
     #[test]
     fn enables_stats_and_local_api() {
-        let config = build_config("hk-1", &[], &[]);
+        let config = build("hk-1", &[], &[]);
 
         assert_eq!(config["stats"], json!({}));
         let system = &config["policy"]["system"];
@@ -650,7 +726,7 @@ mod tests {
             }"#,
         );
 
-        let config = build_config("hk-1", &[n], &[]);
+        let config = build("hk-1", &[n], &[]);
         let inbound = &config["inbounds"][0];
 
         // 业务节点在前，API 入站固定追加在最后。
@@ -679,7 +755,7 @@ mod tests {
         );
         let trojan = node("trojan-default", "trojan", "tcp", "tls", 10002, "{}");
 
-        let config = build_config("hk-1", &[vless, trojan], &[]);
+        let config = build("hk-1", &[vless, trojan], &[]);
         let inbounds = config["inbounds"].as_array().unwrap();
 
         assert_eq!(inbounds.len(), 3);
@@ -706,7 +782,7 @@ mod tests {
             r#"{"tag": "evil", "port": 1, "protocol": "vmess", "settings": {}}"#,
         );
 
-        let config = build_config("hk-1", &[n], &[]);
+        let config = build("hk-1", &[n], &[]);
         let inbound = &config["inbounds"][0];
 
         assert_eq!(inbound["tag"], "authoritative-tag");
@@ -718,7 +794,7 @@ mod tests {
     fn invalid_fragment_falls_back_to_defaults() {
         let n = node("broken", "vless", "tcp", "none", 443, "not-json");
 
-        let config = build_config("hk-1", &[n], &[]);
+        let config = build("hk-1", &[n], &[]);
         let inbound = &config["inbounds"][0];
 
         assert_eq!(inbound["settings"]["decryption"], "none");
@@ -731,8 +807,8 @@ mod tests {
         let n = node("", "vless", "tcp", "none", 443, "{}");
         let nodes = [n];
 
-        let first = build_config("HK 1", &nodes, &[]);
-        let second = build_config("HK 1", &nodes, &[]);
+        let first = build("HK 1", &nodes, &[]);
+        let second = build("HK 1", &nodes, &[]);
 
         assert_eq!(first["inbounds"][0]["tag"], "hk-1-443-0");
         assert_eq!(first, second);
@@ -777,7 +853,7 @@ mod tests {
         let nodes = [vless, vmess];
         let grants = grants_for(SECRET, &["user-1", "user-2"], &[&nodes[0], &nodes[1]]);
 
-        let config = build_config("hk-1", &nodes, &grants);
+        let config = build("hk-1", &nodes, &grants);
         let inbounds = config["inbounds"].as_array().unwrap();
 
         assert_eq!(inbounds.len(), 3);
@@ -831,7 +907,7 @@ mod tests {
         let nodes = [vless];
         let grants = grants_for(SECRET, &["user-1", "user-2"], &[&nodes[0]]);
 
-        let config = build_config("hk-1", &nodes, &grants);
+        let config = build("hk-1", &nodes, &grants);
         let clients = config["inbounds"][0]["settings"]["clients"]
             .as_array()
             .unwrap();
@@ -869,7 +945,7 @@ mod tests {
         );
         let nodes = [vless, empty];
 
-        let config = build_config("hk-1", &nodes, &[]);
+        let config = build("hk-1", &nodes, &[]);
         let inbounds = config["inbounds"].as_array().unwrap();
 
         assert_eq!(
@@ -893,7 +969,7 @@ mod tests {
         let nodes = [ss];
         let grants = grants_for(SECRET, &["user-1"], &[&nodes[0]]);
 
-        let config = build_config("hk-1", &nodes, &grants);
+        let config = build("hk-1", &nodes, &grants);
         let clients = config["inbounds"][0]["settings"]["clients"]
             .as_array()
             .unwrap();
@@ -907,5 +983,138 @@ mod tests {
         assert_eq!(clients[0]["email"], "user-1@ss-1");
         // 单用户 password 字段保留：Xray 在多用户模式下会忽略它。
         assert_eq!(config["inbounds"][0]["settings"]["password"], "legacy");
+    }
+
+    fn outbound(tag: &str, protocol: &str, config_json: &str) -> Outbound {
+        Outbound {
+            id: format!("out-{tag}"),
+            server_id: "server-1".into(),
+            tag: tag.into(),
+            protocol: protocol.into(),
+            config_json: config_json.into(),
+            enabled: 1,
+            created_at: 1,
+        }
+    }
+
+    fn rule(
+        id: &str,
+        sort_order: i64,
+        inbound_tag: Option<&str>,
+        domain: Option<&str>,
+        ip: Option<&str>,
+        outbound_tag: &str,
+    ) -> RoutingRule {
+        RoutingRule {
+            id: id.into(),
+            server_id: "server-1".into(),
+            sort_order,
+            inbound_tag: inbound_tag.map(str::to_string),
+            domain: domain.map(str::to_string),
+            ip: ip.map(str::to_string),
+            outbound_tag: outbound_tag.into(),
+            enabled: 1,
+            created_at: 1,
+        }
+    }
+
+    #[test]
+    fn custom_outbound_config_is_merged_but_tag_and_protocol_come_from_db() {
+        let socks = outbound(
+            "relay",
+            "socks",
+            r#"{
+                "tag": "evil",
+                "protocol": "vmess",
+                "settings": {"servers": [{"address": "10.0.0.2", "port": 1080}]}
+            }"#,
+        );
+
+        let config = build_config(&ServerPlan {
+            outbounds: std::slice::from_ref(&socks),
+            ..ServerPlan::new("hk-1", &[], &[])
+        });
+        let outbounds = config["outbounds"].as_array().unwrap();
+
+        // 内置三个 + 自定义一个。
+        assert_eq!(outbounds.len(), 4);
+        assert_eq!(outbounds[0]["tag"], "direct");
+        assert_eq!(outbounds[1]["tag"], "blocked");
+        assert_eq!(outbounds[2]["tag"], "api");
+        assert_eq!(outbounds[3]["tag"], "relay", "config 里的 tag 不能覆盖库");
+        assert_eq!(
+            outbounds[3]["protocol"], "socks",
+            "config 里的 protocol 不能覆盖库"
+        );
+        // 其余字段原样合并进来。
+        assert_eq!(
+            outbounds[3]["settings"]["servers"][0]["address"],
+            "10.0.0.2"
+        );
+    }
+
+    #[test]
+    fn rules_keep_api_first_and_only_carry_non_empty_matches() {
+        let socks = outbound("relay", "socks", r#"{"settings": {}}"#);
+        let domain_rule = rule(
+            "rule-domain",
+            0,
+            Some("hk-1"),
+            Some("geosite:cn, domain:example.com"),
+            None,
+            "relay",
+        );
+        let ip_rule = rule("rule-ip", 10, None, None, Some("10.0.0.0/8"), "blocked");
+        let rules = [domain_rule, ip_rule];
+
+        let config = build_config(&ServerPlan {
+            outbounds: std::slice::from_ref(&socks),
+            rules: &rules,
+            ..ServerPlan::new("hk-1", &[], &[])
+        });
+        let generated = config["routing"]["rules"].as_array().unwrap();
+
+        assert_eq!(generated.len(), 3);
+        // api 规则永远在第一条，且结构与旧版完全一致。
+        assert_eq!(
+            generated[0],
+            json!({"type": "field", "inboundTag": ["api"], "outboundTag": "api"})
+        );
+        assert_eq!(
+            generated[1],
+            json!({
+                "type": "field",
+                "inboundTag": ["hk-1"],
+                "domain": ["geosite:cn", "domain:example.com"],
+                "outboundTag": "relay"
+            })
+        );
+        assert_eq!(
+            generated[2],
+            json!({
+                "type": "field",
+                "ip": ["10.0.0.0/8"],
+                "outboundTag": "blocked"
+            })
+        );
+        // 只带非空匹配条件：第二条规则不应出现 inboundTag/domain。
+        assert!(generated[2].get("inboundTag").is_none());
+        assert!(generated[2].get("domain").is_none());
+    }
+
+    #[test]
+    fn rules_pointing_at_unavailable_outbounds_are_skipped() {
+        // 出站被停用（不在 plan.outbounds 里）时，规则不能写进配置，
+        // 否则 Xray 会因为悬挂的 outboundTag 拒绝加载。
+        let rules = [rule("rule-1", 0, None, Some("geosite:cn"), None, "relay")];
+        let config = build_config(&ServerPlan {
+            rules: &rules,
+            ..ServerPlan::new("hk-1", &[], &[])
+        });
+
+        assert_eq!(
+            config["routing"]["rules"],
+            json!([{"type": "field", "inboundTag": ["api"], "outboundTag": "api"}])
+        );
     }
 }

@@ -70,6 +70,40 @@ pub struct Node {
     pub cert_id: Option<String>,
 }
 
+/// 服务器上的一条自定义出站。
+///
+/// `tag` / `protocol` 是权威字段：`config_json` 在生成配置时被合并进出站对象，
+/// 但同名键一律以这两列为准（和 [`Node`] 的 tag/port/protocol 处理方式一致）。
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct Outbound {
+    pub id: String,
+    pub server_id: String,
+    pub tag: String,
+    pub protocol: String,
+    /// 库里存 JSON 文本，对外直接暴露成 `config` 对象。
+    #[serde(rename = "config", serialize_with = "config_json_as_value")]
+    pub config_json: String,
+    pub enabled: i64,
+    pub created_at: i64,
+}
+
+/// 服务器上的一条路由规则。
+///
+/// `inbound_tag` / `domain` / `ip` 至少一个非空；`domain` / `ip` 是逗号分隔的
+/// Xray 匹配串。生成配置时按 `sort_order, created_at` 顺序接在 api 规则后面。
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct RoutingRule {
+    pub id: String,
+    pub server_id: String,
+    pub sort_order: i64,
+    pub inbound_tag: Option<String>,
+    pub domain: Option<String>,
+    pub ip: Option<String>,
+    pub outbound_tag: String,
+    pub enabled: i64,
+    pub created_at: i64,
+}
+
 /// 上传的证书：私钥只落库，任何列表/详情视图都不带出去。
 #[derive(Debug, Clone, FromRow)]
 pub struct Certificate {

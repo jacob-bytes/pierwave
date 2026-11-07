@@ -1203,6 +1203,279 @@ pub mod nodes {
     }
 }
 
+/// 自定义出站：CRUD + 按服务器列表。
+///
+/// 排序口径固定为 `created_at, rowid`：配置生成要求「按创建顺序」，
+/// 同一秒创建的多行再由 rowid 兜底，保证每次渲染顺序一致。
+pub mod outbounds {
+    use super::*;
+
+    pub struct NewOutbound {
+        pub tag: String,
+        pub protocol: String,
+        pub config_json: String,
+        pub enabled: bool,
+    }
+
+    #[derive(Default)]
+    pub struct UpdateOutbound {
+        pub tag: Option<String>,
+        pub protocol: Option<String>,
+        pub config_json: Option<String>,
+        pub enabled: Option<bool>,
+    }
+
+    pub async fn create(
+        pool: &SqlitePool,
+        server_id: &str,
+        input: NewOutbound,
+    ) -> anyhow::Result<Outbound> {
+        let id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO server_outbounds
+                (id, server_id, tag, protocol, config_json, enabled, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(server_id)
+        .bind(input.tag.trim())
+        .bind(input.protocol.trim().to_ascii_lowercase())
+        .bind(&input.config_json)
+        .bind(i64::from(input.enabled))
+        .bind(now())
+        .execute(pool)
+        .await?;
+        find_by_id(pool, &id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("出站创建后读取失败"))
+    }
+
+    pub async fn find_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<Outbound>> {
+        Ok(
+            sqlx::query_as::<_, Outbound>("SELECT * FROM server_outbounds WHERE id = ?")
+                .bind(id)
+                .fetch_optional(pool)
+                .await?,
+        )
+    }
+
+    pub async fn list_by_server(
+        pool: &SqlitePool,
+        server_id: &str,
+    ) -> anyhow::Result<Vec<Outbound>> {
+        Ok(sqlx::query_as::<_, Outbound>(
+            "SELECT * FROM server_outbounds WHERE server_id = ?
+             ORDER BY created_at ASC, rowid ASC",
+        )
+        .bind(server_id)
+        .fetch_all(pool)
+        .await?)
+    }
+
+    /// 只返回启用的出站；配置生成按这个顺序追加到内置出站之后。
+    pub async fn list_enabled_by_server(
+        pool: &SqlitePool,
+        server_id: &str,
+    ) -> anyhow::Result<Vec<Outbound>> {
+        Ok(sqlx::query_as::<_, Outbound>(
+            "SELECT * FROM server_outbounds WHERE server_id = ? AND enabled = 1
+             ORDER BY created_at ASC, rowid ASC",
+        )
+        .bind(server_id)
+        .fetch_all(pool)
+        .await?)
+    }
+
+    pub async fn update(
+        pool: &SqlitePool,
+        id: &str,
+        input: UpdateOutbound,
+    ) -> anyhow::Result<Option<Outbound>> {
+        let res = sqlx::query(
+            "UPDATE server_outbounds SET
+                tag = COALESCE(?, tag),
+                protocol = COALESCE(?, protocol),
+                config_json = COALESCE(?, config_json),
+                enabled = COALESCE(?, enabled)
+             WHERE id = ?",
+        )
+        .bind(input.tag.map(|tag| tag.trim().to_string()))
+        .bind(
+            input
+                .protocol
+                .map(|protocol| protocol.trim().to_ascii_lowercase()),
+        )
+        .bind(input.config_json)
+        .bind(input.enabled.map(i64::from))
+        .bind(id)
+        .execute(pool)
+        .await?;
+
+        if res.rows_affected() == 0 {
+            return Ok(None);
+        }
+        find_by_id(pool, id).await
+    }
+
+    /// 返回是否真的删掉了一行。
+    pub async fn delete(pool: &SqlitePool, id: &str) -> anyhow::Result<bool> {
+        let res = sqlx::query("DELETE FROM server_outbounds WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(res.rows_affected() > 0)
+    }
+}
+
+/// 路由规则：CRUD + 按服务器列表 + 出站引用统计。
+pub mod routing_rules {
+    use super::*;
+
+    pub struct NewRoutingRule {
+        pub sort_order: i64,
+        pub inbound_tag: Option<String>,
+        pub domain: Option<String>,
+        pub ip: Option<String>,
+        pub outbound_tag: String,
+        pub enabled: bool,
+    }
+
+    #[derive(Default)]
+    pub struct UpdateRoutingRule {
+        pub sort_order: Option<i64>,
+        /// 三态：缺失 = 不改，`Null` = 清空，`Value` = 设置。
+        pub inbound_tag: Patch<String>,
+        pub domain: Patch<String>,
+        pub ip: Patch<String>,
+        pub outbound_tag: Option<String>,
+        pub enabled: Option<bool>,
+    }
+
+    pub async fn create(
+        pool: &SqlitePool,
+        server_id: &str,
+        input: NewRoutingRule,
+    ) -> anyhow::Result<RoutingRule> {
+        let id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO server_routing_rules
+                (id, server_id, sort_order, inbound_tag, domain, ip, outbound_tag, enabled, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(server_id)
+        .bind(input.sort_order)
+        .bind(&input.inbound_tag)
+        .bind(&input.domain)
+        .bind(&input.ip)
+        .bind(input.outbound_tag.trim())
+        .bind(i64::from(input.enabled))
+        .bind(now())
+        .execute(pool)
+        .await?;
+        find_by_id(pool, &id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("路由规则创建后读取失败"))
+    }
+
+    pub async fn find_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<RoutingRule>> {
+        Ok(
+            sqlx::query_as::<_, RoutingRule>("SELECT * FROM server_routing_rules WHERE id = ?")
+                .bind(id)
+                .fetch_optional(pool)
+                .await?,
+        )
+    }
+
+    pub async fn list_by_server(
+        pool: &SqlitePool,
+        server_id: &str,
+    ) -> anyhow::Result<Vec<RoutingRule>> {
+        Ok(sqlx::query_as::<_, RoutingRule>(
+            "SELECT * FROM server_routing_rules WHERE server_id = ?
+             ORDER BY sort_order ASC, created_at ASC, rowid ASC",
+        )
+        .bind(server_id)
+        .fetch_all(pool)
+        .await?)
+    }
+
+    /// 配置生成只取启用的规则，顺序与列表一致。
+    pub async fn list_enabled_by_server(
+        pool: &SqlitePool,
+        server_id: &str,
+    ) -> anyhow::Result<Vec<RoutingRule>> {
+        Ok(sqlx::query_as::<_, RoutingRule>(
+            "SELECT * FROM server_routing_rules WHERE server_id = ? AND enabled = 1
+             ORDER BY sort_order ASC, created_at ASC, rowid ASC",
+        )
+        .bind(server_id)
+        .fetch_all(pool)
+        .await?)
+    }
+
+    pub async fn update(
+        pool: &SqlitePool,
+        id: &str,
+        input: UpdateRoutingRule,
+    ) -> anyhow::Result<Option<RoutingRule>> {
+        let res = sqlx::query(
+            "UPDATE server_routing_rules SET
+                sort_order = COALESCE(?, sort_order),
+                inbound_tag = CASE WHEN ? THEN ? ELSE inbound_tag END,
+                domain = CASE WHEN ? THEN ? ELSE domain END,
+                ip = CASE WHEN ? THEN ? ELSE ip END,
+                outbound_tag = COALESCE(?, outbound_tag),
+                enabled = COALESCE(?, enabled)
+             WHERE id = ?",
+        )
+        .bind(input.sort_order)
+        .bind(i64::from(input.inbound_tag.is_set()))
+        .bind(input.inbound_tag.value())
+        .bind(i64::from(input.domain.is_set()))
+        .bind(input.domain.value())
+        .bind(i64::from(input.ip.is_set()))
+        .bind(input.ip.value())
+        .bind(input.outbound_tag.map(|tag| tag.trim().to_string()))
+        .bind(input.enabled.map(i64::from))
+        .bind(id)
+        .execute(pool)
+        .await?;
+
+        if res.rows_affected() == 0 {
+            return Ok(None);
+        }
+        find_by_id(pool, id).await
+    }
+
+    pub async fn delete(pool: &SqlitePool, id: &str) -> anyhow::Result<bool> {
+        let res = sqlx::query("DELETE FROM server_routing_rules WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    /// 该服务器下有多少条规则（含已停用的）指向这个出站 tag。
+    ///
+    /// 删除出站前用它给出「被 N 条规则引用」的中文提示；停用的规则也算引用，
+    /// 因为重新启用后会立刻变成悬挂引用。
+    pub async fn count_by_outbound(
+        pool: &SqlitePool,
+        server_id: &str,
+        outbound_tag: &str,
+    ) -> anyhow::Result<i64> {
+        Ok(sqlx::query_scalar(
+            "SELECT COUNT(*) FROM server_routing_rules
+             WHERE server_id = ? AND outbound_tag = ?",
+        )
+        .bind(server_id)
+        .bind(outbound_tag)
+        .fetch_one(pool)
+        .await?)
+    }
+}
+
 pub mod packages {
     use std::collections::HashMap;
 
