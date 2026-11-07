@@ -658,3 +658,41 @@ is_default = 1                4. 全局默认
 ### 不做
 
 - 按订阅链接的 `?rule=` 参数做鉴权（它本来就是公开端点，能改的只有规则，不影响计费）。
+
+## P7：备份与恢复
+
+所有数据（含证书 PEM）都在 SQLite 里，所以备份 = 单个数据库文件。
+
+### 接口（管理员）
+
+```
+GET    /api/v1/backup            -> application/gzip
+                                    文件名 pierwave-backup-<YYYYmmdd-HHMMSS>.db.gz
+                                    内容：`VACUUM INTO` 的一致性快照再 gzip
+POST   /api/v1/backup/restore    -> body 为 .db 或 .db.gz（Content-Type: application/octet-stream）
+                                    { restart_required: true, pending: {...} }
+GET    /api/v1/backup/info       -> { db_bytes, pending: null | { uploaded_at, bytes } }
+DELETE /api/v1/backup/restore    -> 取消待恢复
+```
+
+### 恢复为什么不在线替换
+
+热替换正在使用的 SQLite 文件会让连接池持有旧 inode，轻则数据错乱重则损坏。所以：
+
+1. 上传后**只落盘**为 `<db>.restore-pending`，返回 `restart_required`；
+2. 主控启动时若发现该文件且通过校验 → 把当前库改名成 `<db>.pre-restore-<ts>`（保留回滚）→ 用待恢复文件替换 → 继续启动；
+3. 校验不通过 → 不替换，日志报错并保留现场。
+
+### 校验
+
+- 文件头必须是 `SQLite format 3\0`；
+- 必须含 `users` 与 `_sqlx_migrations` 表（不是随便一个 sqlite 文件）；
+- 备份里的迁移版本 **不能高于** 当前二进制支持的版本（防止把新库恢复到旧版）；
+- 大小上限 512 MB。
+
+### 前端
+
+设置页新增「备份与恢复」卡片：
+- 「下载备份」按钮（浏览器直接下载）；
+- 「恢复」上传区：选择文件 → 二次确认（勾选「我明白会覆盖当前全部数据并需要重启」）→ 上传 → 展示「已就绪，重启后生效」与「取消待恢复」；
+- 显示当前库大小；恢复待生效时显眼提示。
