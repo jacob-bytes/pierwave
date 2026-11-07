@@ -103,6 +103,7 @@ async fn main() -> anyhow::Result<()> {
     // 断流：流量上报实时标记 + 每 5 分钟过期对账，统一交给去抖 worker 收敛。
     let _enforce_worker = enforcement::spawn_worker(state.clone());
     let _enforce_reconcile = scheduler::spawn_enforcement_reconcile(state.clone());
+    let _upgrade_sweep = scheduler::spawn_upgrade_sweep(state.clone());
     let app = app::router(state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("listening on http://{addr}, web dir = {web_dir}");

@@ -67,6 +67,8 @@ pub struct AgentUpgrade {
     /// pending | succeeded | failed
     pub status: String,
     pub error: String,
+    /// 第一次看到「目标版本已生效」的时间；稳定窗口从这里开始计时。
+    pub confirmed_at: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
 }

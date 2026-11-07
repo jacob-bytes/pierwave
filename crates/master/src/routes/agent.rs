@@ -195,7 +195,7 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
             {
                 tracing::error!(error = %e, "heartbeat write failed");
             }
-            settle_agent_upgrade(state, server_id, version).await;
+            settle_agent_upgrade(state, server_id, version, time::now()).await;
             tracing::debug!(seq = hb.seq, xray = hb.xray_running, "heartbeat");
         }
         Ok(AgentMessage::ApplyResult(result)) => {
@@ -230,7 +230,12 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
 ///
 /// 只由在线 Agent 的心跳触发。超时不算失败（本轮不做自动失败），前端看到
 /// 长期 pending 自行判断；Agent 重启后仍会带上新版本，下一次心跳即可翻转。
-async fn settle_agent_upgrade(state: &AppState, server_id: &str, version: &str) {
+/// 升级后需要稳定观察的秒数。心跳默认 60 秒一次，正好等于「至少再收到一次心跳」。
+const UPGRADE_STABLE_SECS: i64 = 60;
+/// 超过这个时间仍未完成 → 判失败并清空目标，避免前端永远转圈。
+const UPGRADE_TIMEOUT_SECS: i64 = 900;
+
+async fn settle_agent_upgrade(state: &AppState, server_id: &str, version: &str, now: i64) {
     let version = version.trim();
     if version.is_empty() {
         return;
@@ -251,16 +256,39 @@ async fn settle_agent_upgrade(state: &AppState, server_id: &str, version: &str) 
         return;
     }
 
-    let latest = match repo::agent_upgrades::latest(&state.db.pool, server_id).await {
-        Ok(latest) => latest,
+    let pending = match repo::agent_upgrades::find_pending(&state.db.pool, server_id).await {
+        Ok(pending) => pending,
         Err(e) => {
             tracing::error!(server_id, error = %e, "读取升级记录失败");
             return;
         }
     };
-    let Some(upgrade) = latest.filter(|upgrade| upgrade.status == "pending") else {
+    let Some(upgrade) = pending else {
         return;
     };
+
+    // 稳定窗口：第一次看到新版本只是「起来了」，还要再撑过一个窗口才算成功。
+    // 否则一个能连上、但几秒后就崩的坏版本会被立刻判成功，随后失联且无人回滚。
+    let Some(confirmed_at) = upgrade.confirmed_at else {
+        if let Err(e) = repo::agent_upgrades::mark_confirmed(&state.db.pool, &upgrade.id, now).await
+        {
+            tracing::error!(server_id, upgrade = %upgrade.id, error = %e, "记录升级确认时间失败");
+        }
+        tracing::info!(
+            server_id,
+            to = %upgrade.to_version,
+            "Agent 已上报新版本，进入稳定窗口观察"
+        );
+        return;
+    };
+    if now - confirmed_at < UPGRADE_STABLE_SECS {
+        tracing::debug!(
+            server_id,
+            remaining = UPGRADE_STABLE_SECS - (now - confirmed_at),
+            "稳定窗口未满"
+        );
+        return;
+    }
 
     if let Err(e) = repo::agent_upgrades::mark(&state.db.pool, &upgrade.id, "succeeded", "").await {
         tracing::error!(server_id, upgrade = %upgrade.id, error = %e, "标记升级成功失败");
@@ -1708,8 +1736,31 @@ mod upgrade_tests {
             .unwrap();
         assert_eq!(server.agent_target_version.as_deref(), Some("v0.6.0"));
 
-        // 升级后的心跳：目标达成，翻 succeeded 并清空 target。
+        // 第一次报上新版本：只是「起来了」，进入稳定窗口，仍保持 pending。
         handle_agent_message(&state, &server_id, "0.6.0", &heartbeat(2, "0.6.0")).await;
+        let latest = repo::agent_upgrades::latest(&state.db.pool, &server_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest.status, "pending", "稳定窗口未满前不能判成功");
+        let confirmed_at = latest.confirmed_at.expect("第一次看到新版本应记录确认时间");
+
+        // 窗口内再次心跳：仍然 pending。
+        settle_agent_upgrade(&state, &server_id, "0.6.0", confirmed_at + 30).await;
+        let latest = repo::agent_upgrades::latest(&state.db.pool, &server_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest.status, "pending");
+
+        // 撑过稳定窗口：翻 succeeded 并清空 target。
+        settle_agent_upgrade(
+            &state,
+            &server_id,
+            "0.6.0",
+            confirmed_at + UPGRADE_STABLE_SECS + 1,
+        )
+        .await;
         let latest = repo::agent_upgrades::latest(&state.db.pool, &server_id)
             .await
             .unwrap()
@@ -1731,5 +1782,50 @@ mod upgrade_tests {
                 .len(),
             1
         );
+    }
+
+    /// 卡住的 pending 必须被巡检判失败并清空目标，否则前端永远转圈、也无法重新发起升级。
+    #[tokio::test]
+    async fn stale_pending_upgrade_expires_and_clears_target() {
+        let (state, server_id) = fixture().await;
+        let upgrade = repo::agent_upgrades::latest(&state.db.pool, &server_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        // 把创建时间往前拨，模拟一次两周前就卡住的升级。
+        sqlx::query("UPDATE agent_upgrades SET created_at = created_at - 2000, updated_at = updated_at - 2000 WHERE id = ?")
+            .bind(&upgrade.id)
+            .execute(&state.db.pool)
+            .await
+            .unwrap();
+
+        let expired = crate::scheduler::run_upgrade_sweep(&state).await.unwrap();
+        assert_eq!(expired, vec![server_id.clone()]);
+
+        let latest = repo::agent_upgrades::latest(&state.db.pool, &server_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest.status, "failed");
+        assert!(latest.error.contains("超时"), "{}", latest.error);
+
+        let server = repo::servers::find_by_id(&state.db.pool, &server_id)
+            .await
+            .unwrap();
+        assert_eq!(server.agent_target_version, None, "超时后要清空目标版本");
+    }
+
+    /// 刚创建的 pending 不能被误判超时。
+    #[tokio::test]
+    async fn fresh_pending_upgrade_is_not_expired() {
+        let (state, server_id) = fixture().await;
+        let expired = crate::scheduler::run_upgrade_sweep(&state).await.unwrap();
+        assert!(expired.is_empty());
+        let latest = repo::agent_upgrades::latest(&state.db.pool, &server_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest.status, "pending");
     }
 }

@@ -835,6 +835,65 @@ pub mod agent_upgrades {
         .await?)
     }
 
+    /// 记录「第一次看到目标版本」的时刻，作为稳定窗口的起点。幂等：已有值不覆盖。
+    pub async fn mark_confirmed(pool: &SqlitePool, id: &str, ts: i64) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE agent_upgrades SET confirmed_at = ?
+             WHERE id = ? AND confirmed_at IS NULL",
+        )
+        .bind(ts)
+        .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// 某台服务器仍在 pending 的升级记录。
+    pub async fn find_pending(
+        pool: &SqlitePool,
+        server_id: &str,
+    ) -> anyhow::Result<Option<AgentUpgrade>> {
+        Ok(sqlx::query_as::<_, AgentUpgrade>(
+            "SELECT * FROM agent_upgrades
+             WHERE server_id = ? AND status = 'pending'
+             ORDER BY created_at DESC, rowid DESC
+             LIMIT 1",
+        )
+        .bind(server_id)
+        .fetch_optional(pool)
+        .await?)
+    }
+
+    /// 把超时仍未完成的升级标成 failed，并清空对应服务器的目标版本。
+    ///
+    /// 没有这一步，Agent 起不来时 `agent_target_version` 会永远挂着，
+    /// 前端一直转圈、也无法重新发起升级。
+    pub async fn expire_stale(
+        pool: &SqlitePool,
+        now: i64,
+        timeout_secs: i64,
+        error: &str,
+    ) -> anyhow::Result<Vec<String>> {
+        let cutoff = now - timeout_secs;
+        let stale: Vec<(String, String)> = sqlx::query_as(
+            "SELECT id, server_id FROM agent_upgrades
+             WHERE status = 'pending' AND created_at <= ?",
+        )
+        .bind(cutoff)
+        .fetch_all(pool)
+        .await?;
+        if stale.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut expired = Vec::new();
+        for (id, server_id) in stale {
+            mark(pool, &id, "failed", error).await?;
+            servers::set_agent_target_version(pool, &server_id, None).await?;
+            expired.push(server_id);
+        }
+        Ok(expired)
+    }
+
     /// 更新状态与错误说明；`updated_at` 一并推进。
     pub async fn mark(
         pool: &SqlitePool,

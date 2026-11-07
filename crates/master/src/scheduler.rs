@@ -42,6 +42,40 @@ pub async fn run_reset_round(state: &AppState) -> anyhow::Result<reset::ResetRep
 ///
 /// 会话过期后 `user_for_token` 已经不会认它，这里只是把死行清出库，
 /// 避免 `sessions` 表随登录次数无限增长。
+/// 升级超时巡检间隔：一分钟一次足够，不影响正常升级。
+const UPGRADE_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
+/// 超过这个时间仍未确认的升级判失败（与 routes::agent::UPGRADE_TIMEOUT_SECS 对齐）。
+const UPGRADE_TIMEOUT_SECS: i64 = 900;
+
+/// 把卡住的 pending 升级标成失败并清空目标版本。
+pub async fn run_upgrade_sweep(state: &AppState) -> anyhow::Result<Vec<String>> {
+    let expired = pierwave_domain::repo::agent_upgrades::expire_stale(
+        &state.db.pool,
+        pierwave_domain::time::now(),
+        UPGRADE_TIMEOUT_SECS,
+        "升级超时：Agent 在预期时间内没有上报新版本，已视为失败（本地看门狗会自动回滚）",
+    )
+    .await?;
+    for server_id in &expired {
+        tracing::warn!(server_id, "Agent 升级超时，已标记失败并清空目标版本");
+    }
+    Ok(expired)
+}
+
+/// 启动升级超时巡检。
+pub fn spawn_upgrade_sweep(state: AppState) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(UPGRADE_SWEEP_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            ticker.tick().await;
+            if let Err(error) = run_upgrade_sweep(&state).await {
+                tracing::error!(error = %error, "升级超时巡检失败");
+            }
+        }
+    })
+}
+
 pub async fn run_session_purge(state: &AppState) -> anyhow::Result<u64> {
     let purged = repo::sessions::purge_expired(&state.db.pool).await?;
     if purged > 0 {
