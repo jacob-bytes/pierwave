@@ -1,0 +1,27 @@
+# PierWave 主控（Docker 部署）。
+#
+#   cp .env.example .env   # 填 PIERWAVE_ADMIN_PASSWORD
+#   docker compose up -d
+#
+# 注意：Agent 不在这里 —— 它要跑在每台被控服务器上，见 README 的安装章节。
+
+services:
+  pierwave:
+    build: .
+    image: pierwave:latest
+    container_name: pierwave
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    volumes:
+      # 数据库与 Agent 发布缓存都在这里，删容器不丢数据
+      - ./data:/data
+    environment:
+      # 首次启动用它初始化管理员；不设则随机生成并打印在日志里
+      PIERWAVE_ADMIN_PASSWORD: ${PIERWAVE_ADMIN_PASSWORD:?请在 .env 里设置 PIERWAVE_ADMIN_PASSWORD}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8787/api/v1/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s

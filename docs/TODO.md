@@ -34,6 +34,15 @@
   - `stats` / `api` inbound 与 routing 规则是否生效，流量能否落到 `traffic_node_daily`
   - 证书下发路径与权限（0644 / 0600）
 
+## 已知缺口（脚本与部署）
+
+- [ ] **`scripts/install.sh` 零自动化测试**：它执行卸载/升级/回滚/删数据目录这类破坏性操作，
+  目前只有人工跑过。补法：用 `DESTDIR` 前缀 + stub `systemctl`，在临时目录跑完整的
+  install → status → upgrade → uninstall，断言文件创建与清理正确、`--purge` 只删数据目录。
+- [ ] **Docker 镜像未在真机验证**：本机没有 Docker，`Dockerfile` 与 `docker-compose.yml`
+  只做了静态审查。需要在一台有 Docker 的机器上跑一次 `docker compose up -d` 并确认：
+  面板可访问、`/data` 持久化、健康检查通过、Agent 中转下载可用。
+
 ## 已知缺口（Agent 升级）
 
 - [ ] **pending 没有超时失败机制**：如果 Agent 升级后起不来，`agent_target_version` 会永远挂在

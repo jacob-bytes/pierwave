@@ -71,9 +71,48 @@ make run              # http://127.0.0.1:8787
 首次启动创建管理员 `admin`，密码打印在日志里（或启动前设 `PIERWAVE_ADMIN_PASSWORD`）。
 开发时热更新：`make web-dev`（:5173，`/api` 已代理）。
 
-### 接入一台服务器
+## 安装
 
-面板「服务器 → 添加」拿到一次性 token，在目标机执行：
+**主控**有两种装法。**Agent 永远跑在被控服务器上，不要放进容器**——它要守护本机的 `xray`
+进程、写 `/etc/xray/config.json`、重启 systemd 服务，这些在容器里都做不到。
+
+### 方式 A：Docker（最快）
+
+```bash
+git clone https://github.com/jacob-bytes/pierwave.git && cd pierwave
+cp .env.example .env          # 填 PIERWAVE_ADMIN_PASSWORD（至少 12 位）
+docker compose up -d
+docker compose logs -f        # 查看访问地址与生成的密码
+```
+
+面板地址 `http://<主机>:8787`；数据库与 Agent 发布缓存都在 `./data`（bind mount），
+删容器不丢数据。`docker compose down` 停止服务，删掉 `./data` 才是真的删库。
+
+### 方式 B：systemd（一个脚本）
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jacob-bytes/pierwave/main/scripts/install.sh \
+  -o /tmp/pierwave-install.sh
+sudo bash /tmp/pierwave-install.sh install
+```
+
+会校验下载产物（Ed25519 签名 + SHA256）、装 systemd unit、随机生成管理员密码并打印一次，
+启动后自动做健康检查。子命令：
+
+```bash
+sudo pierwave-install.sh status      # 状态、版本、路径、健康检查
+sudo pierwave-install.sh upgrade     # 升级到最新版；降级会被拒绝
+sudo pierwave-install.sh upgrade --version v0.5.1
+sudo pierwave-install.sh restart | stop | start | logs
+sudo pierwave-install.sh uninstall   # 默认保留 /var/lib/pierwave，--purge 才删
+```
+
+文件位置：二进制 `/usr/local/bin/pierwave-master`、配置 `/etc/pierwave/pierwave.env`（0600）、
+数据 `/var/lib/pierwave`、unit `pierwave-master.service`。
+
+### 安装 Agent
+
+在面板里新建服务器，复制一次性命令，到目标主机执行：
 
 ```bash
 curl -fsSL http://<主控地址>/api/agent/install.sh?token=<token> | sudo bash

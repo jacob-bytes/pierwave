@@ -1,5 +1,42 @@
 # 部署
 
+## Docker（推荐给只想快速看效果的人）
+
+```bash
+git clone https://github.com/jacob-bytes/pierwave.git && cd pierwave
+cp .env.example .env      # 填 PIERWAVE_ADMIN_PASSWORD
+docker compose up -d
+```
+
+- 面板：`http://<主机>:8787`
+- 数据：`./data`（bind mount，含 `pierwave.db` 与 `agent-cache/`）
+- 镜像内已包含前端静态资源与 `curl`（Agent 升级中转回源要用）
+- **Agent 不进容器**：它需要操作宿主机的 xray 进程与 systemd
+
+## systemd（生产推荐）
+
+```bash
+sudo bash scripts/install.sh install
+sudo scripts/install.sh status
+sudo scripts/install.sh upgrade
+sudo scripts/install.sh uninstall --purge   # 连数据一起删，谨慎
+```
+
+## 从源码构建
+
+```bash
+make web-build
+cargo build --release -p pierwave-master -p pierwave-agent
+```
+
+Linux 发布产物用 musl 静态链接；`aarch64` 需要 `cross`（见 `.github/workflows/release.yml`）。
+
+## 发布签名
+
+产物附带 `SHA256SUMS-<target>` 与 `.sig`；公钥编译期内置，安装脚本与 Agent 都会验签。
+私钥只存在于仓库 Secret `PIERWAVE_RELEASE_SIGNING_KEY`，轮换步骤见 [RELEASE.md](RELEASE.md)。
+# 部署
+
 ## 主控（一台有公网域名的机器）
 
 ```bash

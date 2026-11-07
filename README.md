@@ -83,7 +83,48 @@ The first start creates an `admin` account; the password is printed in the log
 
 For frontend hot reload: `make web-dev` (:5173, `/api` is proxied to the master).
 
-### Adding a server
+## Install
+
+Two supported ways to run the **master**. The **agent** always runs on the target host, never in a
+container: it supervises the local `xray` process, writes `/etc/xray/config.json` and restarts a
+systemd unit — none of that works from inside a container.
+
+### Option A: Docker (fastest)
+
+```bash
+git clone https://github.com/jacob-bytes/pierwave.git && cd pierwave
+cp .env.example .env          # set PIERWAVE_ADMIN_PASSWORD (>= 12 chars)
+docker compose up -d
+docker compose logs -f        # shows the URL and the generated password
+```
+
+The panel listens on `http://<host>:8787`; the database and the agent release cache live in
+`./data` (bind-mounted), so recreating the container keeps your data.
+`docker compose down` stops it; deleting `./data` deletes everything.
+
+### Option B: systemd (one script)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jacob-bytes/pierwave/main/scripts/install.sh \
+  -o /tmp/pierwave-install.sh
+sudo bash /tmp/pierwave-install.sh install
+```
+
+Verified downloads (Ed25519 signature over `SHA256SUMS`), a dedicated systemd unit, a random admin
+password printed once, and a health check after start. Subcommands:
+
+```bash
+sudo pierwave-install.sh status      # state, version, paths, health
+sudo pierwave-install.sh upgrade     # newest release; downgrades are refused
+sudo pierwave-install.sh upgrade --version v0.5.1
+sudo pierwave-install.sh restart | stop | start | logs
+sudo pierwave-install.sh uninstall   # keeps /var/lib/pierwave unless --purge
+```
+
+Files: binary `/usr/local/bin/pierwave-master`, config `/etc/pierwave/pierwave.env` (0600),
+data `/var/lib/pierwave`, unit `pierwave-master.service`.
+
+### Installing an agent
 
 Create a server in the panel, copy the one-time command, run it on the target host:
 
@@ -91,7 +132,7 @@ Create a server in the panel, copy the one-time command, run it on the target ho
 curl -fsSL http://<master>/api/agent/install.sh?token=<token> | sudo bash
 ```
 
-The script picks the right architecture, downloads the agent, writes
+The installer picks the right architecture, downloads the agent, writes
 `/etc/pierwave-agent/config.toml` (0600), installs a systemd unit and starts it.
 Prebuilt Linux binaries (musl, x86_64 / aarch64) are published on the
 [Releases](https://github.com/jacob-bytes/pierwave/releases) page. Drop `pierwave-agent-<target>`

@@ -1,0 +1,12 @@
+target/
+.cargo-home/
+.npm-cache/
+node_modules/
+web/node_modules/
+web/dist/
+data/
+.git/
+miaomiaowux-docs/
+preview-ui/
+docs/images/
+*.md
