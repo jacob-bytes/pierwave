@@ -1,4 +1,5 @@
 import { t } from "@/i18n";
+import type { AgentUpgradeStatus } from "@/lib/agentUpgrade";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -52,6 +53,10 @@ export interface Server {
 
   /* 以下字段来自 Agent 心跳；从未连过的服务器整组为 null。 */
   agent_version: string | null;
+  /** P4：是否允许主控向该服务器下发 Agent 升级；默认关闭。 */
+  allow_agent_upgrade: boolean;
+  /** P4：期望的 Agent 版本；null 表示当前没有待执行的升级。 */
+  agent_target_version: string | null;
   xray_running: boolean | null;
   nginx_running: boolean | null;
   /** 1 分钟平均负载。 */
@@ -65,10 +70,42 @@ export interface Server {
   health_at: number | null;
 }
 
+export interface UpdateServerInput {
+  /** P4：只允许改「是否允许下发升级」；其余字段后端暂未开放。 */
+  allow_agent_upgrade?: boolean;
+}
+
 export interface CreateServerResponse {
   server: Server;
   token: string;
   install_command: string;
+}
+
+/**
+ * P4：Agent 自升级，见 docs/PLAN.md「P4：Agent 自升级」。
+ *
+ * `agent_target_version` 是服务器上的期望版本，`AgentUpgrade` 是一次升级的
+ * 流水；`status = pending` 时列表会每 15 秒刷新，直到 Agent 回报结果。
+ */
+export interface AgentUpgrade {
+  id: string;
+  server_id: string;
+  from_version: string;
+  to_version: string;
+  /** 后端未来新增状态时前端按 unknown 兜底。 */
+  status: AgentUpgradeStatus;
+  /** 失败原因；非失败状态通常为空串。 */
+  error: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface AgentUpgradeInput {
+  /**
+   * 目标版本；空串表示「使用最新版本」。
+   * 前端目前拿不到版本列表，UI 不猜版本号，只把用户输入原样上报。
+   */
+  version: string;
 }
 
 /** 断流 / 恢复事件；管理员接口，按时间倒序返回。 */
@@ -570,6 +607,28 @@ export const api = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  /** P4：服务器设置（目前只开放「允许下发升级」）。后端可能暂时 404。 */
+  updateServer: (id: string, input: UpdateServerInput) =>
+    request<{ server: Server }>(`/api/v1/servers/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+
+  /** P4：单台服务器的 Agent 升级任务与历史。后端可能暂时 404。 */
+  agentUpgrades: {
+    list: (serverId: string) =>
+      request<{ items: AgentUpgrade[] }>(
+        `/api/v1/servers/${encodeURIComponent(serverId)}/agent-upgrades`,
+      ),
+    create: (serverId: string, input: AgentUpgradeInput) =>
+      request<{ upgrade: AgentUpgrade }>(
+        `/api/v1/servers/${encodeURIComponent(serverId)}/agent-upgrade`,
+        {
+          method: "POST",
+          body: JSON.stringify(input),
+        },
+      ),
+  },
 
   /** 管理员可见的断流 / 恢复事件流。 */
   enforcement: {

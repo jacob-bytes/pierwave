@@ -615,24 +615,27 @@ pub mod servers {
         )
     }
 
-    /// 改名 / 改地址 / 改 xray 模式；其他字段一律不动。
+    /// 改名 / 改地址 / 改 xray 模式 / 开关 Agent 升级；其他字段一律不动。
     pub async fn update(
         pool: &SqlitePool,
         id: &str,
         name: Option<&str>,
         address: Option<&str>,
         xray_mode: Option<&str>,
+        allow_agent_upgrade: Option<bool>,
     ) -> anyhow::Result<Option<Server>> {
         sqlx::query(
             "UPDATE servers SET
                 name = COALESCE(?, name),
                 address = COALESCE(?, address),
-                xray_mode = COALESCE(?, xray_mode)
+                xray_mode = COALESCE(?, xray_mode),
+                allow_agent_upgrade = COALESCE(?, allow_agent_upgrade)
              WHERE id = ?",
         )
         .bind(name)
         .bind(address)
         .bind(xray_mode)
+        .bind(allow_agent_upgrade)
         .bind(id)
         .execute(pool)
         .await?;
@@ -642,6 +645,20 @@ pub mod servers {
                 .fetch_optional(pool)
                 .await?,
         )
+    }
+
+    /// 设置（或清空）期望的 Agent 版本。`None` = 不升级。
+    pub async fn set_agent_target_version(
+        pool: &SqlitePool,
+        id: &str,
+        version: Option<&str>,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE servers SET agent_target_version = ? WHERE id = ?")
+            .bind(version)
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(())
     }
 
     /// 删除服务器；nodes 由外键级联清理。
@@ -755,6 +772,100 @@ pub mod servers {
         .fetch_one(pool)
         .await?;
         Ok(version)
+    }
+}
+
+/// Agent 自升级尝试：每次触发一条，心跳确认后把 pending 翻成 succeeded。
+pub mod agent_upgrades {
+    use super::*;
+
+    /// 新建一条 pending 记录。
+    pub async fn create(
+        pool: &SqlitePool,
+        server_id: &str,
+        from_version: &str,
+        to_version: &str,
+    ) -> anyhow::Result<AgentUpgrade> {
+        let id = Uuid::new_v4().to_string();
+        let ts = now();
+        sqlx::query(
+            "INSERT INTO agent_upgrades
+                (id, server_id, from_version, to_version, status, error, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'pending', '', ?, ?)",
+        )
+        .bind(&id)
+        .bind(server_id)
+        .bind(from_version)
+        .bind(to_version)
+        .bind(ts)
+        .bind(ts)
+        .execute(pool)
+        .await?;
+        find_by_id(pool, &id)
+            .await?
+            .ok_or_else(|| sqlx::Error::RowNotFound.into())
+    }
+
+    pub async fn find_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<AgentUpgrade>> {
+        Ok(
+            sqlx::query_as::<_, AgentUpgrade>("SELECT * FROM agent_upgrades WHERE id = ?")
+                .bind(id)
+                .fetch_optional(pool)
+                .await?,
+        )
+    }
+
+    /// 最近一条升级记录（不论状态）。判断「有没有进行中的升级」用它。
+    pub async fn latest(
+        pool: &SqlitePool,
+        server_id: &str,
+    ) -> anyhow::Result<Option<AgentUpgrade>> {
+        Ok(sqlx::query_as::<_, AgentUpgrade>(
+            "SELECT * FROM agent_upgrades
+             WHERE server_id = ?
+             ORDER BY created_at DESC, rowid DESC
+             LIMIT 1",
+        )
+        .bind(server_id)
+        .fetch_optional(pool)
+        .await?)
+    }
+
+    /// 更新状态与错误说明；`updated_at` 一并推进。
+    pub async fn mark(
+        pool: &SqlitePool,
+        id: &str,
+        status: &str,
+        error: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE agent_upgrades
+             SET status = ?, error = ?, updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(status)
+        .bind(error)
+        .bind(now())
+        .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// 某台服务器的升级历史，最新在前。
+    pub async fn list_by_server(
+        pool: &SqlitePool,
+        server_id: &str,
+    ) -> anyhow::Result<Vec<AgentUpgrade>> {
+        Ok(sqlx::query_as::<_, AgentUpgrade>(
+            "SELECT * FROM agent_upgrades
+             WHERE server_id = ?
+             ORDER BY created_at DESC, rowid DESC
+             LIMIT 100",
+        )
+        .bind(server_id)
+        .fetch_all(pool)
+        .await?)
     }
 }
 

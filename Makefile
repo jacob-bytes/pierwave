@@ -2,9 +2,9 @@
 export CARGO_HOME := $(CURDIR)/.cargo-home
 export NPM_CONFIG_CACHE := $(CURDIR)/.npm-cache
 
-.PHONY: check fmt fmt-check clippy test build run web-install web-build web-dev dev e2e verify-xray clean
+.PHONY: check fmt fmt-check clippy test build run web-install web-build web-test web-dev dev e2e verify-xray clean
 
-check: fmt-check clippy test web-build  ## 提交前跑这个（只校验格式，不改文件）
+check: fmt-check clippy test web-build web-test  ## 提交前跑这个（只校验格式，不改文件）
 
 fmt:
 	cargo fmt --all
@@ -29,6 +29,9 @@ web-install:
 
 web-build:
 	cd web && npm run build
+
+web-test:  ## 前端纯逻辑单测（node:test）
+	cd web && npm test
 
 e2e:  ## 端到端冒烟：master + agent + 期望态下发
 	./scripts/e2e.sh

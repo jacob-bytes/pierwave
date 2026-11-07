@@ -1,4 +1,5 @@
 use axum::extract::{Path, State};
+use axum::http::HeaderMap;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -373,13 +374,15 @@ pub async fn delete(
 /// 装配与推送收敛在 `routes::desired`，断流 worker 复用同一条路径。
 pub async fn apply(
     State(state): State<AppState>,
+    headers: HeaderMap,
     user: CurrentUser,
     Path(server_id): Path<String>,
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
     let server = load_server(&state, &server_id).await?;
 
-    let outcome = super::desired::apply(&state, &server).await?;
+    let base = super::install::external_base(&headers);
+    let outcome = super::desired::apply(&state, &server, &base).await?;
     let warning_count = outcome.warnings.len();
     crate::audit::record(
         &state,

@@ -834,7 +834,7 @@ mod tests {
             .await
             .unwrap();
 
-        let desired = crate::routes::desired::render(&state, &server)
+        let desired = crate::routes::desired::render(&state, &server, "http://127.0.0.1:8787")
             .await
             .unwrap();
         assert!(
@@ -861,7 +861,7 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK);
-        let desired = crate::routes::desired::render(&state, &server)
+        let desired = crate::routes::desired::render(&state, &server, "http://127.0.0.1:8787")
             .await
             .unwrap();
         assert_eq!(desired.granted_user_ids, vec![user_id]);

@@ -34,6 +34,10 @@ pub struct Heartbeat {
     /// 缺省为空串，兼容不认识这个字段的旧 Agent。
     #[serde(default)]
     pub agent_version: String,
+    /// CPU 架构（`x86_64` / `aarch64`），主控据此选择升级产物。
+    /// 缺省为空串时主控回落到 `PIERWAVE_AGENT_TARGET` 配置。
+    #[serde(default)]
+    pub arch: String,
     pub uptime_secs: u64,
     pub load1: f32,
     pub mem_used: u64,

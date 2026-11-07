@@ -4,6 +4,8 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
 
+use pierwave_domain::models::Server;
+use pierwave_domain::release;
 use pierwave_domain::repo;
 
 use crate::auth::CurrentUser;
@@ -79,6 +81,8 @@ pub struct PatchServer {
     pub name: Option<String>,
     pub address: Option<String>,
     pub xray_mode: Option<String>,
+    /// 是否允许主控向这台服务器下发 Agent 升级计划。
+    pub allow_agent_upgrade: Option<bool>,
 }
 
 pub async fn update(
@@ -106,17 +110,27 @@ pub async fn update(
             ));
         }
     }
-    if name.is_none() && address.is_none() && req.xray_mode.is_none() {
+    if name.is_none()
+        && address.is_none()
+        && req.xray_mode.is_none()
+        && req.allow_agent_upgrade.is_none()
+    {
         return Err(AppError::BadRequest(
-            "至少需要提供 name / address / xray_mode 之一".into(),
+            "至少需要提供 name / address / xray_mode / allow_agent_upgrade 之一".into(),
         ));
     }
 
     let before = repo::servers::find_by_id(&state.db.pool, &id).await.ok();
-    let server =
-        repo::servers::update(&state.db.pool, &id, name, address, req.xray_mode.as_deref())
-            .await?
-            .ok_or(AppError::NotFound)?;
+    let server = repo::servers::update(
+        &state.db.pool,
+        &id,
+        name,
+        address,
+        req.xray_mode.as_deref(),
+        req.allow_agent_upgrade,
+    )
+    .await?
+    .ok_or(AppError::NotFound)?;
 
     let changes = crate::audit::diff(vec![
         (
@@ -134,6 +148,11 @@ pub async fn update(
             json!(before.as_ref().map(|server| &server.xray_mode)),
             json!(&server.xray_mode),
         ),
+        (
+            "allow_agent_upgrade",
+            json!(before.as_ref().map(|server| server.allow_agent_upgrade)),
+            json!(server.allow_agent_upgrade),
+        ),
     ]);
     crate::audit::record(
         &state,
@@ -145,6 +164,111 @@ pub async fn update(
     .await;
 
     Ok(Json(json!({ "server": server })))
+}
+
+#[derive(Deserialize)]
+pub struct AgentUpgradeRequest {
+    /// 目标版本，例如 `0.6.0` 或 `v0.6.0`。
+    pub version: String,
+}
+
+async fn load_server(state: &AppState, id: &str) -> AppResult<Server> {
+    repo::servers::find_by_id(&state.db.pool, id)
+        .await
+        .map_err(|error| match error.downcast_ref::<sqlx::Error>() {
+            Some(sqlx::Error::RowNotFound) => AppError::NotFound,
+            _ => AppError::Internal(error),
+        })
+}
+
+/// 触发一次 Agent 自升级。
+///
+/// 只写「期望版本」这条状态；Agent 收到期望态后自己下载、验签、替换、重启。
+/// 这里额外立即 apply 一次，避免后台对账因为「Xray 配置没变」而跳过下发，
+/// 让升级计划能第一时间到达在线 Agent。
+pub async fn trigger_agent_upgrade(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    user: CurrentUser,
+    Path(id): Path<String>,
+    Json(req): Json<AgentUpgradeRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    user.require_admin()?;
+    let server = load_server(&state, &id).await?;
+
+    if !server.allow_agent_upgrade {
+        return Err(AppError::BadRequest(
+            "该服务器未开启 Agent 自升级（allow_agent_upgrade = false），请先开启后再试".into(),
+        ));
+    }
+
+    let version = req.version.trim();
+    if !release::is_valid_version(version) {
+        return Err(AppError::BadRequest(format!(
+            "版本号格式不合法：{version}（示例：0.6.0 或 v0.6.0）"
+        )));
+    }
+
+    let current = server.agent_version.as_deref().unwrap_or("").trim();
+    if current.is_empty() {
+        return Err(AppError::BadRequest(
+            "服务器尚未上报 Agent 版本，无法判断升级方向；请先让 Agent 上线并发送一次心跳".into(),
+        ));
+    }
+    if !release::is_newer(version, current) {
+        return Err(AppError::BadRequest(format!(
+            "不允许降级：目标版本 {version} 必须比当前 Agent 版本 {current} 新"
+        )));
+    }
+
+    if let Some(latest) = repo::agent_upgrades::latest(&state.db.pool, &id).await? {
+        if latest.status == "pending" {
+            return Err(AppError::BadRequest(format!(
+                "该服务器已有进行中的升级（{} → {}），请等待心跳确认完成后再触发",
+                latest.from_version, latest.to_version
+            )));
+        }
+    }
+
+    let upgrade = repo::agent_upgrades::create(&state.db.pool, &id, current, version).await?;
+    repo::servers::set_agent_target_version(&state.db.pool, &id, Some(version)).await?;
+
+    // 标脏：断流 worker 下次 apply 会带上（或已完成的）升级计划。
+    state.enforcement.mark_server_dirty(&id);
+
+    // 立即下发一次：后台对账会因「Xray 配置未变」跳过，不能只依赖它。
+    let refreshed = repo::servers::find_by_id(&state.db.pool, &id).await?;
+    let base = crate::routes::install::external_base(&headers);
+    if let Err(error) = super::desired::apply(&state, &refreshed, &base).await {
+        tracing::warn!(server = %refreshed.name, error = %error, "触发升级后立即下发失败（已标脏，稍后重试）");
+    }
+
+    crate::audit::record(
+        &state,
+        &user.0,
+        "agent.upgrade",
+        &id,
+        json!({
+            "from": current,
+            "to": version,
+            "upgrade_id": &upgrade.id,
+        }),
+    )
+    .await;
+
+    Ok(Json(json!({ "upgrade": upgrade })))
+}
+
+/// 某台服务器的 Agent 升级历史，最新在前。
+pub async fn list_agent_upgrades(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<String>,
+) -> AppResult<Json<serde_json::Value>> {
+    user.require_admin()?;
+    let server = load_server(&state, &id).await?;
+    let items = repo::agent_upgrades::list_by_server(&state.db.pool, &server.id).await?;
+    Ok(Json(json!({ "items": items })))
 }
 
 pub async fn delete(
@@ -335,5 +459,103 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
         assert!(body["error"].as_str().unwrap().contains("内联"));
+    }
+
+    // ---- Agent 自升级 ----
+
+    async fn seed_server(state: &AppState, allow: bool, agent_version: &str) -> String {
+        let (server, _token) = repo::servers::create(&state.db.pool, "hk-1", "1.2.3.4", "external")
+            .await
+            .unwrap();
+        repo::servers::update(&state.db.pool, &server.id, None, None, None, Some(allow))
+            .await
+            .unwrap();
+        repo::servers::update_health(
+            &state.db.pool,
+            &server.id,
+            agent_version,
+            &repo::servers::HealthSnapshot::default(),
+        )
+        .await
+        .unwrap();
+        server.id
+    }
+
+    #[tokio::test]
+    async fn agent_upgrade_rejects_downgrade_and_disabled_switch() {
+        let (app, state, cookie) = setup().await;
+
+        let id = seed_server(&state, true, "0.6.0").await;
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/servers/{id}/agent-upgrade"),
+            serde_json::json!({"version":"0.5.0"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        let message = body["error"].as_str().unwrap();
+        assert!(message.contains("不允许降级"), "{message}");
+
+        let id = seed_server(&state, false, "0.5.0").await;
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/servers/{id}/agent-upgrade"),
+            serde_json::json!({"version":"0.6.0"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert!(body["error"].as_str().unwrap().contains("未开启"));
+    }
+
+    #[tokio::test]
+    async fn agent_upgrade_creates_pending_and_rejects_duplicate() {
+        let (app, state, cookie) = setup().await;
+        let id = seed_server(&state, true, "0.5.0").await;
+
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/servers/{id}/agent-upgrade"),
+            serde_json::json!({"version":"0.6.0"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["upgrade"]["status"], "pending");
+        assert_eq!(body["upgrade"]["from_version"], "0.5.0");
+        assert_eq!(body["upgrade"]["to_version"], "0.6.0");
+
+        let server = repo::servers::find_by_id(&state.db.pool, &id)
+            .await
+            .unwrap();
+        assert_eq!(server.agent_target_version.as_deref(), Some("0.6.0"));
+        assert!(server.allow_agent_upgrade);
+
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/servers/{id}/agent-upgrade"),
+            serde_json::json!({"version":"0.7.0"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert!(body["error"].as_str().unwrap().contains("进行中"));
+
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::GET,
+            &format!("/api/v1/servers/{id}/agent-upgrades"),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["items"].as_array().unwrap().len(), 1);
+        assert_eq!(body["items"][0]["to_version"], "0.6.0");
     }
 }

@@ -7,6 +7,8 @@ import {
 import {
   api,
   ApiError,
+  type AgentUpgrade,
+  type AgentUpgradeInput,
   type ApplyResult,
   type AuditEntry,
   type BindUserPackageInput,
@@ -42,6 +44,7 @@ import {
   type UpdatePackageInput,
   type UpdateRoutingRuleInput,
   type UpdateRuleTemplateInput,
+  type UpdateServerInput,
   type UpdateSettingsInput,
   type UpdateUserInput,
   type UpdateUserPackageInput,
@@ -49,6 +52,10 @@ import {
   type UserView,
 } from "@/lib/api";
 import { compareRoutingRules } from "@/lib/outbounds";
+import { hasPendingAgentUpgrade } from "@/lib/agentUpgrade";
+
+/** P4：有升级在途时，服务器列表与升级历史的轮询间隔。 */
+const AGENT_UPGRADE_POLL_MS = 15_000;
 
 export const queryKeys = {
   me: ["me"] as const,
@@ -62,6 +69,8 @@ export const queryKeys = {
   statsNode: (nodeId: string, days: number, top: number) =>
     ["stats", "node", nodeId, { days, top }] as const,
   servers: ["servers"] as const,
+  agentUpgrades: (serverId: string) =>
+    ["agent-upgrades", serverId] as const,
   enforcementEvents: (limit: number) =>
     ["enforcement", "events", limit] as const,
   auditLog: (limit: number) => ["audit", limit] as const,
@@ -234,8 +243,83 @@ export function useServers() {
     queryKey: queryKeys.servers,
     queryFn: async () => (await api.servers()).items,
     staleTime: 5_000,
-    refetchInterval: 15_000,
+    // 只有存在「已下发但未收敛」的目标版本时才轮询；升级成功后自动停止。
+    refetchInterval: (query) =>
+      query.state.data?.some(hasPendingAgentUpgrade)
+        ? AGENT_UPGRADE_POLL_MS
+        : false,
     refetchIntervalInBackground: false,
+  });
+}
+
+/** P4：修改服务器设置（目前只有「允许下发升级」）。 */
+export function useUpdateServer() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    Server,
+    Error,
+    { id: string; input: UpdateServerInput }
+  >({
+    mutationFn: async ({ id, input }) => (await api.updateServer(id, input)).server,
+    onSuccess: (server) => {
+      // PATCH 返回完整 server：合并进缓存，避免列表短暂闪回旧开关。
+      queryClient.setQueryData<Server[]>(queryKeys.servers, (current) =>
+        current?.map((item) =>
+          item.id === server.id ? { ...item, ...server } : item,
+        ),
+      );
+      void queryClient.invalidateQueries({ queryKey: queryKeys.servers });
+    },
+  });
+}
+
+/**
+ * P4：单台服务器的升级历史。
+ *
+ * 后端可能暂时 404：不重试，由 Dialog 展示可重试的中文错误态；
+ * 有 pending 记录时每 15 秒刷新，直到出现 succeeded / failed。
+ */
+export function useAgentUpgrades(serverId: string, enabled = true) {
+  return useQuery<AgentUpgrade[]>({
+    queryKey: queryKeys.agentUpgrades(serverId),
+    queryFn: async () => (await api.agentUpgrades.list(serverId)).items,
+    enabled: Boolean(serverId) && enabled,
+    staleTime: 5_000,
+    retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.some((item) => item.status === "pending")
+        ? AGENT_UPGRADE_POLL_MS
+        : false,
+  });
+}
+
+/** P4：下发 Agent 升级；成功后立刻在列表上标出目标版本，让轮询启动。 */
+export function useTriggerAgentUpgrade(serverId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<AgentUpgrade, Error, AgentUpgradeInput>({
+    mutationFn: async (input) =>
+      (await api.agentUpgrades.create(serverId, input)).upgrade,
+    onSuccess: (upgrade, input) => {
+      const target = upgrade.to_version || input.version;
+      if (target) {
+        // 不立刻 invalidate：后端刚写入时列表可能还没读到目标版本，
+        // 过早刷新会把乐观标记冲掉、让轮询停掉。等 15 秒后的轮询取权威值。
+        queryClient.setQueryData<Server[]>(queryKeys.servers, (current) =>
+          current?.map((server) =>
+            server.id === serverId
+              ? { ...server, agent_target_version: target }
+              : server,
+          ),
+        );
+      } else {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.servers });
+      }
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.agentUpgrades(serverId),
+      });
+    },
   });
 }
 

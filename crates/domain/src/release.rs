@@ -85,6 +85,22 @@ pub fn verify_asset(manifest: &str, asset: &str, content: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// 发布版本号的路径安全校验。
+///
+/// 版本号会被拼进缓存路径与回源 URL，因此只允许单个路径段里的安全字符：
+/// 字母、数字、`.`、`-`、`_`、`+`；禁止 `..`、`/`、空白与开头 `.`/`-`。
+/// 同时要求至少包含一个数字，避免把 `latest` 之类当版本号。
+pub fn is_valid_version(version: &str) -> bool {
+    !version.is_empty()
+        && version.len() <= 64
+        && !version.starts_with(['.', '-'])
+        && !version.contains("..")
+        && version.chars().any(|c| c.is_ascii_digit())
+        && version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+'))
+}
+
 /// 版本比较：忽略前缀 `v`，按数字段比较；`0.10.0` 必须大于 `0.9.9`。
 pub fn is_newer(candidate: &str, current: &str) -> bool {
     fn parts(v: &str) -> Vec<u64> {
@@ -173,6 +189,16 @@ mod tests {
         assert!(!is_newer("0.5.0", "0.5.0"));
         assert!(!is_newer("0.5.0", "0.5.1"));
         assert!(is_newer("1.0.0", "0.99.99"));
+    }
+
+    #[test]
+    fn validates_version_path_segment() {
+        for ok in ["0.5.1", "v0.5.1", "v0.6.0-rc.1", "0.5.1+build.7"] {
+            assert!(is_valid_version(ok), "应接受：{ok}");
+        }
+        for bad in ["", ".", "..", "../x", "0.5/1", "latest", "v1.0 "] {
+            assert!(!is_valid_version(bad), "应拒绝：{bad}");
+        }
     }
 
     #[test]

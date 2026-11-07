@@ -1336,10 +1336,15 @@ name = "pierwave-agent"
 version = "0.5.1"
 dependencies = [
  "anyhow",
+ "base64",
+ "ed25519-dalek",
  "futures-util",
+ "hex",
+ "pierwave-domain",
  "pierwave-proto",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tokio-tungstenite 0.24.0",
  "toml",

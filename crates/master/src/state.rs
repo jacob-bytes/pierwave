@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 #[cfg(test)]
 use std::time::Duration;
@@ -10,8 +11,53 @@ use tokio::sync::broadcast;
 use crate::enforcement::Enforcer;
 use crate::throttle::LoginThrottle;
 
-/// 每个服务器一条广播通道；没有 Agent 在线时发送方仍在，消息自然丢弃。
+/// 每台服务器一条广播通道；没有 Agent 在线时发送方仍在，消息自然丢弃。
 const AGENT_CHANNEL_CAPACITY: usize = 64;
+
+/// 发布产物的默认回源地址。
+pub const DEFAULT_RELEASE_SOURCE: &str =
+    "https://github.com/jacob-bytes/pierwave/releases/download";
+
+/// 主控缓存/中转 Agent 发布产物所需的配置。
+///
+/// `cache_dir` 与 `source` 都允许通过环境变量覆盖；`source` 还允许是本地目录，
+/// 便于离线镜像与测试（测试里绝不真的打 GitHub）。
+#[derive(Clone, Debug)]
+pub struct AgentReleaseConfig {
+    pub cache_dir: PathBuf,
+    /// `https://...` / `http://...` = 回源下载；其它值按本地目录处理。
+    pub source: String,
+    /// 下发计划里使用的发布目标三元组（决定下载哪个架构的二进制）。
+    pub target: String,
+}
+
+pub const DEFAULT_AGENT_TARGET: &str = "x86_64-unknown-linux-musl";
+
+impl AgentReleaseConfig {
+    pub fn from_env() -> Self {
+        Self {
+            cache_dir: env_nonempty("PIERWAVE_AGENT_CACHE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("data/agent-cache")),
+            source: env_nonempty("PIERWAVE_AGENT_RELEASE_SOURCE")
+                .unwrap_or_else(|| DEFAULT_RELEASE_SOURCE.to_string()),
+            target: env_nonempty("PIERWAVE_AGENT_TARGET")
+                .unwrap_or_else(|| DEFAULT_AGENT_TARGET.to_string()),
+        }
+    }
+
+    /// 本地缓存路径：`{cache_dir}/{version}/{file}`。
+    pub fn cache_path(&self, version: &str, file: &str) -> PathBuf {
+        self.cache_dir.join(version).join(file)
+    }
+}
+
+fn env_nonempty(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
 
 /// 已连接 Agent 的期望态广播中心。
 ///
@@ -88,6 +134,8 @@ pub struct AppState {
     pub enforcement: Enforcer,
     /// 登录失败限流；阈值每次登录时从设置表刷新。
     pub login_throttle: Arc<LoginThrottle>,
+    /// Agent 发布产物的缓存/回源配置。
+    pub agent_release: AgentReleaseConfig,
 }
 
 impl AppState {
@@ -98,6 +146,7 @@ impl AppState {
             hub: AgentHub::default(),
             enforcement: Enforcer::from_env(),
             login_throttle: Arc::new(LoginThrottle::default()),
+            agent_release: AgentReleaseConfig::from_env(),
         }
     }
 

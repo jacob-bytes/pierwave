@@ -1,5 +1,6 @@
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
+use axum::http::HeaderMap;
 use axum::response::Response;
 use tokio::sync::broadcast;
 
@@ -15,14 +16,19 @@ use pierwave_proto::{
 use crate::enforcement::RemovalCandidate;
 use crate::state::AppState;
 
-pub async fn ws(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
-    ws.on_upgrade(move |socket| handle(socket, state))
+pub async fn ws(
+    ws: WebSocketUpgrade,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+) -> Response {
+    let base = super::install::external_base(&headers);
+    ws.on_upgrade(move |socket| handle(socket, state, base))
 }
 
 /// Agent 反向连入：第一条消息必须是 Hello(token)。
 /// token 校验通过后下发 Ack；之后 socket 与广播通道并行处理：
 /// 一边收心跳/上报，一边把主控 apply 产生的期望态推下去。
-async fn handle(mut socket: WebSocket, state: AppState) {
+async fn handle(mut socket: WebSocket, state: AppState, base_url: String) {
     let Some(Ok(Message::Text(first))) = socket.recv().await else {
         return;
     };
@@ -38,7 +44,7 @@ async fn handle(mut socket: WebSocket, state: AppState) {
 
     // 心跳会带上 agent 版本一起落库，后续重连以最新 hello 为准。
     let agent_version = hello.agent_version.clone();
-    let server = match repo::servers::find_by_token(&state.db.pool, &hello.token).await {
+    let mut server = match repo::servers::find_by_token(&state.db.pool, &hello.token).await {
         Ok(Some(server)) => server,
         _ => {
             tracing::warn!(hostname = %hello.hostname, "agent auth failed");
@@ -51,6 +57,12 @@ async fn handle(mut socket: WebSocket, state: AppState) {
             return;
         }
     };
+
+    // 握手带的版本比库里的新（Agent 刚重启升级过）：先用于本次补发的比较，
+    // 心跳落库后两端就一致了。
+    if !agent_version.trim().is_empty() {
+        server.agent_version = Some(agent_version.clone());
+    }
 
     // 先注册再发 Ack：避免 Ack 与进入循环之间漏掉 apply 广播。
     // subscription 在 Drop 时自动注销。
@@ -79,13 +91,13 @@ async fn handle(mut socket: WebSocket, state: AppState) {
     // 重连补发：Agent 按版本号幂等，只有比本地已应用版本新才会真正重启 xray。
     // 配置装配与 apply 共用 routes::desired，保证补发的 client 凭据和上次下发的完全一致。
     if server.config_version > 0 {
-        match super::desired::render(&state, &server).await {
+        match super::desired::render(&state, &server, &base_url).await {
             Ok(rendered) => {
                 let desired = MasterMessage::Desired(DesiredState {
                     version: server.config_version,
                     xray: rendered.xray,
                     files: rendered.files,
-                    agent_upgrade: None, // 后端 lane 接入后改为 rendered.agent_upgrade
+                    agent_upgrade: rendered.agent_upgrade,
                 });
                 if !send_json(&mut socket, &desired).await {
                     return;
@@ -182,6 +194,7 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
             {
                 tracing::error!(error = %e, "heartbeat write failed");
             }
+            settle_agent_upgrade(state, server_id, version).await;
             tracing::debug!(seq = hb.seq, xray = hb.xray_running, "heartbeat");
         }
         Ok(AgentMessage::ApplyResult(result)) => {
@@ -209,6 +222,59 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
         Ok(AgentMessage::Hello(_)) => {}
         Err(e) => tracing::warn!(error = %e, "unparsable agent message"),
     }
+}
+
+/// 心跳确认升级完成：`agent_version == agent_target_version` 且有 pending 记录时，
+/// 把 pending 翻成 succeeded 并清空目标版本。
+///
+/// 只由在线 Agent 的心跳触发。超时不算失败（本轮不做自动失败），前端看到
+/// 长期 pending 自行判断；Agent 重启后仍会带上新版本，下一次心跳即可翻转。
+async fn settle_agent_upgrade(state: &AppState, server_id: &str, version: &str) {
+    let version = version.trim();
+    if version.is_empty() {
+        return;
+    }
+    let server = match repo::servers::find_by_id(&state.db.pool, server_id).await {
+        Ok(server) => server,
+        Err(e) => {
+            tracing::warn!(server_id, error = %e, "读取服务器状态失败，跳过升级确认");
+            return;
+        }
+    };
+    let Some(target) = server.agent_target_version.as_deref() else {
+        return;
+    };
+    // 版本号可能带 `v` 前缀（Release tag 风格）；Agent 心跳上报的是
+    // `CARGO_PKG_VERSION`，没有前缀。比较时统一忽略前导 `v`。
+    if target.trim().trim_start_matches('v') != version.trim_start_matches('v') {
+        return;
+    }
+
+    let latest = match repo::agent_upgrades::latest(&state.db.pool, server_id).await {
+        Ok(latest) => latest,
+        Err(e) => {
+            tracing::error!(server_id, error = %e, "读取升级记录失败");
+            return;
+        }
+    };
+    let Some(upgrade) = latest.filter(|upgrade| upgrade.status == "pending") else {
+        return;
+    };
+
+    if let Err(e) = repo::agent_upgrades::mark(&state.db.pool, &upgrade.id, "succeeded", "").await {
+        tracing::error!(server_id, upgrade = %upgrade.id, error = %e, "标记升级成功失败");
+        return;
+    }
+    if let Err(e) = repo::servers::set_agent_target_version(&state.db.pool, server_id, None).await {
+        tracing::error!(server_id, error = %e, "清空 Agent 目标版本失败");
+        return;
+    }
+    tracing::info!(
+        server_id,
+        from = %upgrade.from_version,
+        to = %upgrade.to_version,
+        "Agent 自升级完成（心跳已带新版本）"
+    );
 }
 
 /// 流量上报落库：归因 → 加权 → 日账本 / 用户总量 / 实例瀑布分配。
@@ -891,9 +957,10 @@ mod enforcement_tests {
     }
 
     async fn init_desired(fixture: &Fixture) {
-        let outcome = crate::routes::desired::apply(&fixture.state, &fixture.server)
-            .await
-            .unwrap();
+        let outcome =
+            crate::routes::desired::apply(&fixture.state, &fixture.server, "http://127.0.0.1:8787")
+                .await
+                .unwrap();
         assert_eq!(outcome.version, 1, "初始 apply 应为 v1");
         assert_eq!(outcome.delivered, 0, "测试里没有在线 Agent");
     }
@@ -1568,5 +1635,98 @@ mod enforcement_tests {
         assert_eq!(row.uptime_secs, Some(3600));
         assert!(row.health_at.is_some());
         assert_eq!(row.status, "online");
+    }
+}
+
+/// Agent 自升级：心跳把 pending 翻成 succeeded 的集成测试。
+#[cfg(test)]
+mod upgrade_tests {
+    use super::*;
+    use serde_json::json;
+
+    use pierwave_domain::Db;
+
+    async fn fixture() -> (AppState, String) {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let (server, _token) = repo::servers::create(&db.pool, "hk-1", "1.2.3.4", "external")
+            .await
+            .unwrap();
+        repo::servers::update(&db.pool, &server.id, None, None, None, Some(true))
+            .await
+            .unwrap();
+        repo::servers::update_health(
+            &db.pool,
+            &server.id,
+            "0.5.0",
+            &repo::servers::HealthSnapshot::default(),
+        )
+        .await
+        .unwrap();
+        repo::servers::set_agent_target_version(&db.pool, &server.id, Some("v0.6.0"))
+            .await
+            .unwrap();
+        repo::agent_upgrades::create(&db.pool, &server.id, "0.5.0", "v0.6.0")
+            .await
+            .unwrap();
+        (AppState::new(db, "web/dist"), server.id)
+    }
+
+    fn heartbeat(seq: u64, version: &str) -> String {
+        json!({
+            "type": "heartbeat",
+            "seq": seq,
+            "agent_version": version,
+            "uptime_secs": 1,
+            "load1": 0.1,
+            "mem_used": 1,
+            "mem_total": 2,
+            "disk_used": 1,
+            "disk_total": 2,
+            "xray_running": true,
+            "nginx_running": true,
+        })
+        .to_string()
+    }
+
+    #[tokio::test]
+    async fn heartbeat_with_target_version_flips_pending_to_succeeded() {
+        let (state, server_id) = fixture().await;
+
+        // 旧版本心跳：目标未达成，必须保持 pending。
+        handle_agent_message(&state, &server_id, "0.5.0", &heartbeat(1, "0.5.0")).await;
+        let latest = repo::agent_upgrades::latest(&state.db.pool, &server_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest.status, "pending");
+        let server = repo::servers::find_by_id(&state.db.pool, &server_id)
+            .await
+            .unwrap();
+        assert_eq!(server.agent_target_version.as_deref(), Some("v0.6.0"));
+
+        // 升级后的心跳：目标达成，翻 succeeded 并清空 target。
+        handle_agent_message(&state, &server_id, "0.6.0", &heartbeat(2, "0.6.0")).await;
+        let latest = repo::agent_upgrades::latest(&state.db.pool, &server_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest.status, "succeeded");
+        assert_eq!(latest.error, "");
+        let server = repo::servers::find_by_id(&state.db.pool, &server_id)
+            .await
+            .unwrap();
+        assert_eq!(server.agent_target_version, None);
+        assert_eq!(server.agent_version.as_deref(), Some("0.6.0"));
+
+        // 再发一次同样的心跳不会重复处理（没有 pending 了）。
+        handle_agent_message(&state, &server_id, "0.6.0", &heartbeat(3, "0.6.0")).await;
+        assert_eq!(
+            repo::agent_upgrades::list_by_server(&state.db.pool, &server_id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
     }
 }

@@ -397,7 +397,7 @@ async fn backfill_legacy_snapshot(
     let Ok(server) = repo::servers::find_by_id(&state.db.pool, server_id).await else {
         return Ok(None);
     };
-    let desired = desired::render(state, &server).await?;
+    let desired = desired::render(state, &server, &desired::default_base_url()).await?;
     if snapshot.config_version != server.config_version
         || snapshot.fingerprint != desired::fingerprint(&desired.xray)
     {
@@ -553,7 +553,7 @@ async fn apply_server(
     let version_before = server.config_version;
     let snapshot = repo::desired::get(&state.db.pool, &server.id).await?;
 
-    let desired = desired::render(state, server).await?;
+    let desired = desired::render(state, server, &desired::default_base_url()).await?;
     let fingerprint = desired::fingerprint(&desired.xray);
     if let Some(snapshot) = &snapshot {
         if snapshot.fingerprint == fingerprint && snapshot.config_version == version_before {

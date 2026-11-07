@@ -3,18 +3,25 @@ import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import {
+  ArrowUpCircleIcon,
   CheckIcon,
   CopyIcon,
+  HistoryIcon,
   InfoIcon,
   KeyRoundIcon,
   Loader2Icon,
+  MoreHorizontalIcon,
   NetworkIcon,
+  PencilIcon,
   PlusIcon,
   RefreshCwIcon,
   ServerOffIcon,
   TriangleAlertIcon,
   WaypointsIcon,
 } from "lucide-react";
+import { AgentUpgradeDialog } from "@/components/servers/AgentUpgradeDialog";
+import { AgentUpgradeHistoryDialog } from "@/components/servers/AgentUpgradeHistoryDialog";
+import { ServerEditDialog } from "@/components/servers/ServerEditDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,6 +39,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -60,7 +74,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { CreateServerResponse, Server } from "@/lib/api";
+import {
+  displayAgentVersion,
+  hasPendingAgentUpgrade,
+} from "@/lib/agentUpgrade";
 import { copyText } from "@/lib/clipboard";
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
@@ -188,9 +211,11 @@ function XrayStatus({ server }: { server: Server }) {
 }
 
 function agentVersionLabel(server: Server): string {
-  const version = server.agent_version;
-  if (!version) return "—";
-  return version.toLowerCase().startsWith("v") ? version : `v${version}`;
+  return displayAgentVersion(server.agent_version) || "—";
+}
+
+function targetVersionLabel(server: Server): string {
+  return displayAgentVersion(server.agent_target_version) || "—";
 }
 
 function memoryPercent(server: Server): number | null {
@@ -277,22 +302,87 @@ function MemoryCell({ server }: { server: Server }) {
 
 function VersionCell({ server }: { server: Server }) {
   const version = server.agent_version;
+  const pending = hasPendingAgentUpgrade(server);
 
   return (
-    <div className="flex flex-col gap-0.5">
-      <span
-        className={cn(
-          "font-mono text-xs",
-          !version && "text-muted-foreground",
-        )}
-        title={version ? t("servers.agentVersion") : t("servers.agentVersionMissing")}
-      >
-        {agentVersionLabel(server)}
-      </span>
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span
+          className={cn(
+            "font-mono text-xs",
+            !version && "text-muted-foreground",
+          )}
+          title={
+            version ? t("servers.agentVersion") : t("servers.agentVersionMissing")
+          }
+        >
+          {agentVersionLabel(server)}
+        </span>
+        {pending ? (
+          <Badge
+            variant="outline"
+            className="gap-1 border-transparent bg-warning/10 px-1.5 py-0 text-[11px] font-normal text-warning"
+            title={t("servers.agentUpgrade.pendingTitle", {
+              version: targetVersionLabel(server),
+            })}
+          >
+            <span
+              aria-hidden="true"
+              className="size-1.5 rounded-full bg-warning motion-safe:animate-pulse"
+            />
+            {t("servers.agentUpgrade.pendingBadge")}
+          </Badge>
+        ) : null}
+      </div>
       <span className="font-mono text-[11px] text-muted-foreground">
         {t("servers.configVersion", { version: server.config_version })}
       </span>
     </div>
+  );
+}
+
+/**
+ * P4：行内的「升级 Agent」入口。
+ *
+ * 未开启「允许下发升级」时保留按钮但禁用，并用 tooltip 说明去哪里开启；
+ * 直接隐藏会让管理员不知道有这个能力，也可能误以为升级按钮丢了。
+ */
+function AgentUpgradeAction({
+  server,
+  onOpen,
+}: {
+  server: Server;
+  onOpen: () => void;
+}) {
+  const allowed = Boolean(server.allow_agent_upgrade);
+  const button = (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={onOpen}
+      disabled={!allowed}
+      title={
+        allowed
+          ? t("servers.agentUpgrade.action")
+          : t("servers.agentUpgrade.disabledHint")
+      }
+    >
+      <ArrowUpCircleIcon className="size-3.5" />
+      {t("servers.agentUpgrade.action")}
+    </Button>
+  );
+
+  if (allowed) return button;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span tabIndex={0} className="inline-flex rounded-md">
+          {button}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{t("servers.agentUpgrade.disabledHint")}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -359,6 +449,13 @@ function ServerDetailsPopover({ server }: { server: Server }) {
             value={agentVersionLabel(server)}
             tone={server.agent_version ? "default" : "muted"}
           />
+          {hasPendingAgentUpgrade(server) ? (
+            <DetailRow
+              label={t("servers.upgradeDialog.target")}
+              value={targetVersionLabel(server)}
+              tone="warning"
+            />
+          ) : null}
           <DetailRow
             label={t("servers.detail.configVersion")}
             value={`v${server.config_version}`}
@@ -517,6 +614,9 @@ export default function ServersPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [tokenOpen, setTokenOpen] = useState(false);
   const [created, setCreated] = useState<CreateServerResponse | null>(null);
+  const [editServerId, setEditServerId] = useState<string | null>(null);
+  const [upgradeServerId, setUpgradeServerId] = useState<string | null>(null);
+  const [historyServerId, setHistoryServerId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [xrayMode, setXrayMode] = useState("external");
@@ -530,6 +630,11 @@ export default function ServersPage() {
   }, []);
 
   const items = servers.data ?? [];
+  const editServer = items.find((server) => server.id === editServerId) ?? null;
+  const upgradeServer =
+    items.find((server) => server.id === upgradeServerId) ?? null;
+  const historyServer =
+    items.find((server) => server.id === historyServerId) ?? null;
   const onlineCount = items.filter((server) => server.status === "online").length;
   const serviceDownCount = items.filter(isServiceDown).length;
   const showError = servers.isError && !servers.data;
@@ -670,7 +775,7 @@ export default function ServersPage() {
 
         <CardContent className="p-0">
           <Table
-            className="min-w-[760px] xl:min-w-[980px]"
+            className="min-w-[760px] xl:min-w-[1120px]"
             aria-busy={servers.isPending}
           >
             <TableCaption className="sr-only">{t("servers.tableCaption")}</TableCaption>
@@ -688,9 +793,9 @@ export default function ServersPage() {
                 <TableHead className={HEAD_CLASS}>{t("servers.detail.lastHeartbeat")}</TableHead>
                 <TableHead
                   className={cn(HEAD_CLASS, "hidden xl:table-cell")}
-                  title={`${t("servers.agentVersion")} / ${t("servers.detail.configVersion")}`}
+                  title={t("servers.detail.configVersion")}
                 >
-                  {t("common.version")}
+                  {t("servers.agentVersion")}
                 </TableHead>
                 <TableHead className={cn(HEAD_CLASS, "hidden xl:table-cell")}>
                   {t("servers.detail.load")}
@@ -800,6 +905,39 @@ export default function ServersPage() {
                               {t("servers.outbounds")}
                             </Link>
                           </Button>
+                          <AgentUpgradeAction
+                            server={server}
+                            onOpen={() => setUpgradeServerId(server.id)}
+                          />
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label={t(
+                                  "servers.agentUpgrade.actionsAria",
+                                  { name: server.name },
+                                )}
+                              >
+                                <MoreHorizontalIcon className="size-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44">
+                              <DropdownMenuItem
+                                onSelect={() => setHistoryServerId(server.id)}
+                              >
+                                <HistoryIcon className="size-3.5" />
+                                {t("servers.agentUpgrade.history")}
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onSelect={() => setEditServerId(server.id)}
+                              >
+                                <PencilIcon className="size-3.5" />
+                                {t("servers.agentUpgrade.edit")}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -1006,6 +1144,36 @@ export default function ServersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {editServer ? (
+        <ServerEditDialog
+          open
+          server={editServer}
+          onOpenChange={(open) => {
+            if (!open) setEditServerId(null);
+          }}
+        />
+      ) : null}
+
+      {upgradeServer ? (
+        <AgentUpgradeDialog
+          open
+          server={upgradeServer}
+          onOpenChange={(open) => {
+            if (!open) setUpgradeServerId(null);
+          }}
+        />
+      ) : null}
+
+      {historyServer ? (
+        <AgentUpgradeHistoryDialog
+          open
+          server={historyServer}
+          onOpenChange={(open) => {
+            if (!open) setHistoryServerId(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

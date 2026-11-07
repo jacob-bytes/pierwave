@@ -9,6 +9,7 @@ name = "pierwave-agent"
 path = "src/main.rs"
 
 [dependencies]
+pierwave-domain = { path = "../domain" }
 pierwave-proto = { path = "../proto" }
 anyhow = { workspace = true }
 tokio = { workspace = true }
@@ -21,3 +22,9 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 futures-util = "0.3"
+
+[dev-dependencies]
+base64 = { workspace = true }
+ed25519-dalek = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }

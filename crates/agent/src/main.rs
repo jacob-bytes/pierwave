@@ -1,5 +1,6 @@
 mod config;
 mod traffic;
+mod upgrade;
 
 use std::path::{Path, PathBuf};
 use std::process::Output;
@@ -9,8 +10,8 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use pierwave_proto::{
-    AgentHello, AgentMessage, ApplyResult, DesiredState, Heartbeat, MasterMessage, TrafficReport,
-    PROTOCOL_VERSION,
+    AgentHello, AgentMessage, AgentUpgradePlan, ApplyResult, DesiredState, Heartbeat,
+    MasterMessage, TrafficReport, PROTOCOL_VERSION,
 };
 use tokio_tungstenite::tungstenite::Message;
 
@@ -27,6 +28,12 @@ const DEFAULT_BACKUP_SUFFIX: &str = ".bak";
 /// 本进程已成功应用的配置版本；跨重连保留，重启后归零（会重新收敛一次）。
 static APPLIED_VERSION: AtomicI64 = AtomicI64::new(0);
 
+/// 一次收敛的结果；`upgraded` 表示新二进制已替换、需要当前进程退场。
+struct ApplyOutcome {
+    result: ApplyResult,
+    upgraded: bool,
+}
+
 fn should_apply(incoming: i64, applied: i64) -> bool {
     incoming > applied
 }
@@ -38,12 +45,23 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info,pierwave_agent=debug".into()),
-        )
-        .init();
+    // 看门狗 helper 入口：必须在读配置之前处理。新版本如果连配置都读不了，
+    // `--rollback-check` 仍然要能把旧二进制换回去。
+    if let Some((ok_marker, backup)) = rollback_args() {
+        init_tracing();
+        match upgrade::rollback_check(&ok_marker, &backup) {
+            Ok(outcome) => {
+                tracing::info!(?outcome, "rollback check finished");
+                return Ok(());
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "rollback check failed");
+                return Err(e);
+            }
+        }
+    }
+
+    init_tracing();
 
     let path = std::env::args()
         .skip_while(|a| a != "-c")
@@ -52,6 +70,11 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|| "/etc/pierwave-agent/config.toml".into());
     let cfg = Config::load(std::path::Path::new(&path))?;
     tracing::info!(%path, master = %cfg.master_url, "agent starting");
+
+    // 上次升级是否已经确认成功：成功就清标记；遗留的旧版本 pending 也在这里清理。
+    if let Err(e) = upgrade::startup_check(Path::new(&cfg.upgrade_state_dir), AGENT_VERSION) {
+        tracing::warn!(error = %e, "启动自检失败（继续运行）");
+    }
 
     // 断线重连：指数退避，上限 60s。
     // boot_id / 流量 seq / 采样基线都放在重连循环外：进程级身份不变，
@@ -70,6 +93,28 @@ async fn main() -> Result<()> {
             }
         }
     }
+}
+
+fn init_tracing() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,pierwave_agent=debug".into()),
+        )
+        .init();
+}
+
+/// 解析 `pierwave-agent --rollback-check <ok-marker> <backup-path>`。
+///
+/// 参数不全时直接退 2：这是看门狗调用的内部入口，不能悄悄当成正常启动。
+fn rollback_args() -> Option<(PathBuf, PathBuf)> {
+    let args: Vec<String> = std::env::args().collect();
+    let idx = args.iter().position(|arg| arg == "--rollback-check")?;
+    if idx + 2 >= args.len() {
+        eprintln!("用法: pierwave-agent --rollback-check <ok-marker> <backup-path>");
+        std::process::exit(2);
+    }
+    Some((PathBuf::from(&args[idx + 1]), PathBuf::from(&args[idx + 2])))
 }
 
 async fn run_once(
@@ -109,24 +154,43 @@ async fn run_once(
                     Ok(MasterMessage::Ack(ack)) => {
                         tracing::info!(server_id = %ack.server_id, config_version = ack.config_version,
                             protocol = ack.protocol_version, "registered");
+                        // 升级后的新进程只有「连上主控 + 收到 Ack」才算成功；
+                        // 看门狗看到 upgrade-ok 就不会回滚。
+                        match upgrade::confirm_upgrade(Path::new(&cfg.upgrade_state_dir)) {
+                            Ok(true) => tracing::info!("agent upgrade confirmed by master ack"),
+                            Ok(false) => {}
+                            Err(e) => tracing::error!(
+                                error = %e,
+                                "写入 upgrade-ok 失败，看门狗可能回滚本次升级"
+                            ),
+                        }
                     }
                     Ok(MasterMessage::Desired(state)) => {
                         let applied = APPLIED_VERSION.load(Ordering::Relaxed);
-                        let result = if should_apply(state.version, applied) {
-                            let result = apply_state(&state, cfg).await;
-                            if result.ok {
+                        let outcome = if should_apply(state.version, applied) {
+                            let outcome = apply_state(&state, cfg).await;
+                            if outcome.result.ok {
                                 APPLIED_VERSION.store(state.version, Ordering::Relaxed);
                             }
-                            result
+                            outcome
                         } else {
                             tracing::info!(
                                 version = state.version,
                                 applied,
                                 "desired state already applied, skipping restart"
                             );
-                            ApplyResult { version: state.version, ok: true, error: None }
+                            ApplyOutcome {
+                                result: ApplyResult { version: state.version, ok: true, error: None },
+                                upgraded: false,
+                            }
                         };
-                        let msg = AgentMessage::ApplyResult(result);
+                        // 新二进制已替换、重启命令已执行：当前进程必须退场，
+                        // 让 systemd 拉起新版本（也避免旧进程和新进程同时在线）。
+                        if outcome.upgraded {
+                            tracing::info!("agent upgraded; exiting current process");
+                            std::process::exit(0);
+                        }
+                        let msg = AgentMessage::ApplyResult(outcome.result);
                         ws.send(Message::Text(serde_json::to_string(&msg)?)).await?;
                     }
                     Ok(MasterMessage::Error { message }) => {
@@ -197,7 +261,7 @@ async fn run_once(
 }
 
 /// 收敛到期望态：其它文件原子落盘，xray 配置走「校验 → 备份 → 替换 → 重启」，失败回滚。
-async fn apply_state(state: &DesiredState, cfg: &Config) -> ApplyResult {
+async fn apply_state(state: &DesiredState, cfg: &Config) -> ApplyOutcome {
     let backup_suffix = match cfg.backup_suffix.as_deref() {
         Some(s) if !s.is_empty() => s,
         _ => DEFAULT_BACKUP_SUFFIX,
@@ -212,24 +276,81 @@ async fn apply_state(state: &DesiredState, cfg: &Config) -> ApplyResult {
             &cfg.restart_command,
         )
     });
-    match result {
-        Ok(()) => {
-            tracing::info!(version = state.version, "desired state applied");
-            ApplyResult {
-                version: state.version,
-                ok: true,
-                error: None,
-            }
-        }
-        Err(e) => {
-            tracing::error!(version = state.version, error = %e, "apply failed");
-            ApplyResult {
+    if let Err(e) = result {
+        tracing::error!(version = state.version, error = %e, "apply failed");
+        return ApplyOutcome {
+            result: ApplyResult {
                 version: state.version,
                 ok: false,
                 error: Some(e.to_string()),
+            },
+            upgraded: false,
+        };
+    }
+    tracing::info!(version = state.version, "desired state applied");
+
+    // 配置成功之后才尝试升级：升级会重启进程，不能把没落盘的配置带过去。
+    if let Some(plan) = &state.agent_upgrade {
+        match run_agent_upgrade(plan, cfg).await {
+            Ok(upgrade::UpgradeOutcome::Noop) => {}
+            Ok(upgrade::UpgradeOutcome::Upgraded { version }) => {
+                tracing::info!(%version, "agent upgrade applied");
+                return ApplyOutcome {
+                    result: ApplyResult {
+                        version: state.version,
+                        ok: true,
+                        error: None,
+                    },
+                    upgraded: true,
+                };
+            }
+            Err(e) => {
+                tracing::error!(version = %plan.version, error = %e, "agent upgrade failed");
+                return ApplyOutcome {
+                    result: ApplyResult {
+                        version: state.version,
+                        ok: false,
+                        error: Some(format!("Agent 升级失败: {e:#}")),
+                    },
+                    upgraded: false,
+                };
             }
         }
     }
+
+    ApplyOutcome {
+        result: ApplyResult {
+            version: state.version,
+            ok: true,
+            error: None,
+        },
+        upgraded: false,
+    }
+}
+
+async fn run_agent_upgrade(
+    plan: &AgentUpgradePlan,
+    cfg: &Config,
+) -> Result<upgrade::UpgradeOutcome> {
+    let current_exe = std::env::current_exe().context("无法确定 Agent 可执行文件路径")?;
+    let watchdog = if cfg.upgrade_watchdog_secs == 0 || cfg.upgrade_systemd_run.trim().is_empty() {
+        None
+    } else {
+        Some(upgrade::WatchdogConfig {
+            program: cfg.upgrade_systemd_run.clone(),
+            unit: upgrade::DEFAULT_WATCHDOG_UNIT.into(),
+            delay_secs: cfg.upgrade_watchdog_secs,
+        })
+    };
+    let ctx = upgrade::UpgradeContext {
+        current_version: AGENT_VERSION.into(),
+        current_exe,
+        state_dir: PathBuf::from(&cfg.upgrade_state_dir),
+        restart_command: cfg.upgrade_restart_command.clone(),
+        public_key: pierwave_domain::release::embedded_public_key().to_string(),
+        watchdog,
+    };
+    upgrade::run(plan, &ctx, &upgrade::HttpDownloader::default()).await
 }
 
 /// 其它受管文件同样「写临时文件 → rename」，但不参与 xray 校验。

@@ -10,3 +10,8 @@ export function errorText(error: unknown, fallback: string): string {
   }
   return fallback;
 }
+
+/** 接口与后端并行开发时，404 通常表示该能力尚未上线。 */
+export function isNotFound(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}

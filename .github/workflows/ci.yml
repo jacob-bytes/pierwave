@@ -70,6 +70,9 @@ jobs:
       - name: Tests
         run: make test
 
+      - name: Web tests
+        run: make web-test
+
       - name: Web build
         run: make web-build
 

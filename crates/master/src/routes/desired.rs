@@ -9,8 +9,8 @@ use serde_json::Value;
 
 use pierwave_domain::certificate;
 use pierwave_domain::models::Server;
-use pierwave_domain::{credentials, repo, time, xray};
-use pierwave_proto::ManagedFile;
+use pierwave_domain::{credentials, release, repo, time, xray};
+use pierwave_proto::{AgentUpgradePlan, ManagedFile};
 
 use crate::error::AppResult;
 use crate::state::AppState;
@@ -25,6 +25,8 @@ pub struct DesiredConfig {
     pub warnings: Vec<String>,
     /// 本次要随配置落盘的证书/私钥文件（按证书 id 去重，路径稳定）。
     pub files: Vec<ManagedFile>,
+    /// 本次是否要下发 Agent 升级计划；`None` = 不升级。
+    pub agent_upgrade: Option<AgentUpgradePlan>,
 }
 
 /// 一次成功下发的产物。
@@ -37,7 +39,11 @@ pub struct ApplyOutcome {
 /// 按「服务器 enabled 节点 × 有资格用户」装配完整 Xray 配置。
 ///
 /// 凭据在这里一次性派生（`Grant::new`），`xray::build_config` 保持纯函数。
-pub async fn render(state: &AppState, server: &Server) -> AppResult<DesiredConfig> {
+///
+/// `base_url` 是对外可访问的主控地址（HTTP 请求里由 `external_base` 推出），
+/// Agent 升级计划里的三个 URL 都用它拼；后台任务没有请求上下文时用
+/// [`default_base_url`]。
+pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppResult<DesiredConfig> {
     let nodes = repo::nodes::list_enabled_by_server(&state.db.pool, &server.id).await?;
     let outbounds = repo::outbounds::list_enabled_by_server(&state.db.pool, &server.id).await?;
     let rules = repo::routing_rules::list_enabled_by_server(&state.db.pool, &server.id).await?;
@@ -119,12 +125,62 @@ pub async fn render(state: &AppState, server: &Server) -> AppResult<DesiredConfi
         granted_user_ids,
         warnings,
         files,
+        agent_upgrade: upgrade_plan(state, server, base_url),
+    })
+}
+
+/// 后台任务没有请求头，按环境变量推出对外地址。
+///
+/// `PIERWAVE_PUBLIC_URL` 优先（反代后的公网地址），否则退回 `PIERWAVE_ADDR`
+/// 的本地监听地址。只在断流/对账这类后台 apply 里用到；HTTP 请求始终用请求头。
+pub fn default_base_url() -> String {
+    if let Ok(url) = std::env::var("PIERWAVE_PUBLIC_URL") {
+        let url = url.trim();
+        if !url.is_empty() {
+            return url.trim_end_matches('/').to_string();
+        }
+    }
+    match std::env::var("PIERWAVE_ADDR") {
+        Ok(addr) if !addr.trim().is_empty() => format!("http://{}", addr.trim()),
+        _ => "http://127.0.0.1:8787".into(),
+    }
+}
+
+/// 组装下发的升级计划。
+///
+/// 三个条件必须同时满足：服务器显式开启、存在目标版本、目标比当前 Agent 版本新。
+/// 任何一条不满足都返回 `None`——重复下发是幂等的，但降级/同版本永远不下发。
+fn upgrade_plan(state: &AppState, server: &Server, base_url: &str) -> Option<AgentUpgradePlan> {
+    if !server.allow_agent_upgrade {
+        return None;
+    }
+    let target = server.agent_target_version.as_deref()?.trim();
+    let current = server.agent_version.as_deref()?.trim();
+    if !release::is_valid_version(target) || current.is_empty() {
+        return None;
+    }
+    if !release::is_newer(target, current) {
+        return None;
+    }
+
+    let base = base_url.trim().trim_end_matches('/');
+    let base = if base.is_empty() {
+        default_base_url()
+    } else {
+        base.to_string()
+    };
+    let triple = &state.agent_release.target;
+    Some(AgentUpgradePlan {
+        version: target.to_string(),
+        asset_url: format!("{base}/api/agent/release/{target}/pierwave-agent-{triple}"),
+        sums_url: format!("{base}/api/agent/release/{target}/SHA256SUMS-{triple}"),
+        sig_url: format!("{base}/api/agent/release/{target}/SHA256SUMS-{triple}.sig"),
     })
 }
 
 /// 手动 apply 入口：渲染后立即推送（版本号每次 +1，保持既有语义）。
-pub async fn apply(state: &AppState, server: &Server) -> AppResult<ApplyOutcome> {
-    let desired = render(state, server).await?;
+pub async fn apply(state: &AppState, server: &Server, base_url: &str) -> AppResult<ApplyOutcome> {
+    let desired = render(state, server, base_url).await?;
     publish(state, server, desired).await
 }
 
@@ -146,7 +202,7 @@ pub async fn publish(
             version,
             xray: desired.xray,
             files: desired.files,
-            agent_upgrade: None, // 后端 lane 接入后改为 desired.agent_upgrade
+            agent_upgrade: desired.agent_upgrade,
         }),
     );
 
@@ -205,6 +261,8 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    use pierwave_domain::Db;
+
     #[test]
     fn fingerprint_is_stable_and_sensitive() {
         let a = json!({"inbounds": [{"tag": "hk-1", "port": 443}]});
@@ -215,5 +273,104 @@ mod tests {
         assert_ne!(fingerprint(&a), fingerprint(&c), "端口变化必须换指纹");
         // 固定算法：重启后仍能比较（写死一个期望值防止被误改成随机哈希）。
         assert_eq!(fingerprint(&json!({})), "08f44b07b5901a25");
+    }
+
+    /// 造一台带心跳版本的服务器；`target` / `allow` 通过 PATCH 同一套仓储写入。
+    async fn fixture(allow: bool, current: &str, target: Option<&str>) -> (AppState, Server) {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let (server, _token) = repo::servers::create(&db.pool, "hk-1", "1.2.3.4", "external")
+            .await
+            .unwrap();
+        repo::servers::update(&db.pool, &server.id, None, None, None, Some(allow))
+            .await
+            .unwrap();
+        repo::servers::update_health(
+            &db.pool,
+            &server.id,
+            current,
+            &repo::servers::HealthSnapshot::default(),
+        )
+        .await
+        .unwrap();
+        repo::servers::set_agent_target_version(&db.pool, &server.id, target)
+            .await
+            .unwrap();
+
+        let mut state = AppState::new(db, "web/dist");
+        state.agent_release.target = "x86_64-unknown-linux-musl".into();
+        let server = repo::servers::find_by_id(&state.db.pool, &server.id)
+            .await
+            .unwrap();
+        (state, server)
+    }
+
+    #[tokio::test]
+    async fn no_plan_when_switch_is_off() {
+        let (state, server) = fixture(false, "0.5.0", Some("0.6.0")).await;
+        let desired = render(&state, &server, "https://panel.example.com")
+            .await
+            .unwrap();
+        assert!(desired.agent_upgrade.is_none(), "开关关闭时不能下发升级");
+    }
+
+    #[tokio::test]
+    async fn no_plan_when_target_is_not_newer() {
+        // 同版本
+        let (state, server) = fixture(true, "0.6.0", Some("0.6.0")).await;
+        assert!(
+            render(&state, &server, "https://panel.example.com")
+                .await
+                .unwrap()
+                .agent_upgrade
+                .is_none(),
+            "同版本不应重复下发"
+        );
+
+        // 降级
+        let (state, server) = fixture(true, "0.6.0", Some("0.5.0")).await;
+        assert!(
+            render(&state, &server, "https://panel.example.com")
+                .await
+                .unwrap()
+                .agent_upgrade
+                .is_none(),
+            "降级不能下发"
+        );
+
+        // 目标存在但还没拿到当前版本：无法比较，同样不下发。
+        let (state, server) = fixture(true, "", Some("0.6.0")).await;
+        assert!(
+            render(&state, &server, "https://panel.example.com")
+                .await
+                .unwrap()
+                .agent_upgrade
+                .is_none(),
+            "当前版本未知时不应下发"
+        );
+    }
+
+    #[tokio::test]
+    async fn plans_upgrade_with_relay_urls_when_enabled_and_newer() {
+        let (state, server) = fixture(true, "0.5.0", Some("0.6.0")).await;
+        let plan = render(&state, &server, "https://panel.example.com")
+            .await
+            .unwrap()
+            .agent_upgrade
+            .expect("开启且更新时必须下发升级计划");
+
+        assert_eq!(plan.version, "0.6.0");
+        assert_eq!(
+            plan.asset_url,
+            "https://panel.example.com/api/agent/release/0.6.0/pierwave-agent-x86_64-unknown-linux-musl"
+        );
+        assert_eq!(
+            plan.sums_url,
+            "https://panel.example.com/api/agent/release/0.6.0/SHA256SUMS-x86_64-unknown-linux-musl"
+        );
+        assert_eq!(
+            plan.sig_url,
+            "https://panel.example.com/api/agent/release/0.6.0/SHA256SUMS-x86_64-unknown-linux-musl.sig"
+        );
     }
 }

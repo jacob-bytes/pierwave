@@ -20,6 +20,9 @@ pub enum AppError {
     /// 登录失败次数过多；携带建议的重试秒数（`Retry-After`）。
     #[error("尝试过于频繁，请稍后再试")]
     TooManyAttempts(u64),
+    /// 上游暂时不可用（例如回源 GitHub 失败且本地无缓存）。
+    #[error("{0}")]
+    ServiceUnavailable(String),
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -42,6 +45,9 @@ impl IntoResponse for AppError {
             AppError::Forbidden => (StatusCode::FORBIDDEN, self.to_string(), None),
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string(), None),
             AppError::NotFound => (StatusCode::NOT_FOUND, self.to_string(), None),
+            AppError::ServiceUnavailable(_) => {
+                (StatusCode::SERVICE_UNAVAILABLE, self.to_string(), None)
+            }
             AppError::TooManyAttempts(secs) => {
                 let minutes = (*secs).div_ceil(60).max(1);
                 (

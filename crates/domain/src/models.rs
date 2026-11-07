@@ -49,6 +49,24 @@ pub struct Server {
     pub disk_total: Option<i64>,
     pub uptime_secs: Option<i64>,
     pub health_at: Option<i64>,
+    /// 是否允许下发 Agent 升级计划。
+    pub allow_agent_upgrade: bool,
+    /// 期望的 Agent 版本；NULL = 没有待执行的升级。
+    pub agent_target_version: Option<String>,
+}
+
+/// 一次 Agent 自升级尝试。
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct AgentUpgrade {
+    pub id: String,
+    pub server_id: String,
+    pub from_version: String,
+    pub to_version: String,
+    /// pending | succeeded | failed
+    pub status: String,
+    pub error: String,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize)]

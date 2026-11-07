@@ -24,6 +24,14 @@ pub fn router(state: AppState) -> Router {
             axum::routing::patch(routes::servers::update).delete(routes::servers::delete),
         )
         .route(
+            "/api/v1/servers/{id}/agent-upgrade",
+            post(routes::servers::trigger_agent_upgrade),
+        )
+        .route(
+            "/api/v1/servers/{id}/agent-upgrades",
+            get(routes::servers::list_agent_upgrades),
+        )
+        .route(
             "/api/v1/servers/{id}/nodes",
             get(routes::nodes::list).post(routes::nodes::create),
         )
@@ -112,6 +120,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/me/password", post(routes::me::change_password))
         .route("/api/agent/install.sh", get(routes::install::script))
         .route("/api/agent/download/{file}", get(routes::install::download))
+        .route("/api/agent/release/{*rest}", get(routes::install::release))
         .route("/api/agent/ws", get(routes::agent::ws))
         .with_state(state)
         .fallback_service(static_files)

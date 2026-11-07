@@ -36,6 +36,18 @@ pub struct Config {
     /// 流量采样间隔（秒）；生产默认 60，e2e 会调到 1
     #[serde(default = "default_stats_interval_secs")]
     pub stats_interval_secs: u64,
+    /// 自升级的标记/回滚 helper 目录；必须可写，升级失败时靠它判断是否回滚
+    #[serde(default = "default_upgrade_state_dir")]
+    pub upgrade_state_dir: String,
+    /// 升级后重启自身；容器/测试可改成 `true`
+    #[serde(default = "default_upgrade_restart_command")]
+    pub upgrade_restart_command: String,
+    /// 看门狗延迟（秒）；0 = 显式关闭（容器/测试）
+    #[serde(default = "default_upgrade_watchdog_secs")]
+    pub upgrade_watchdog_secs: u64,
+    /// systemd-run 程序名；空 = 关闭看门狗
+    #[serde(default = "default_upgrade_systemd_run")]
+    pub upgrade_systemd_run: String,
 }
 
 fn default_mode() -> String {
@@ -69,6 +81,18 @@ fn default_stats_query_command() -> String {
 }
 fn default_stats_interval_secs() -> u64 {
     60
+}
+fn default_upgrade_state_dir() -> String {
+    "/var/lib/pierwave-agent".into()
+}
+fn default_upgrade_restart_command() -> String {
+    "systemctl restart pierwave-agent".into()
+}
+fn default_upgrade_watchdog_secs() -> u64 {
+    120
+}
+fn default_upgrade_systemd_run() -> String {
+    "systemd-run".into()
 }
 
 impl Config {
@@ -112,6 +136,10 @@ mod tests {
             backup_suffix: default_backup_suffix(),
             stats_query_command: default_stats_query_command(),
             stats_interval_secs: default_stats_interval_secs(),
+            upgrade_state_dir: default_upgrade_state_dir(),
+            upgrade_restart_command: default_upgrade_restart_command(),
+            upgrade_watchdog_secs: default_upgrade_watchdog_secs(),
+            upgrade_systemd_run: default_upgrade_systemd_run(),
         }
     }
 
@@ -163,6 +191,35 @@ mod tests {
             "不要依赖 statsquery 的 pattern 语义，过滤交给 Rust 侧"
         );
         assert_eq!(parsed.stats_interval_secs, 60);
+    }
+
+    #[test]
+    fn upgrade_settings_have_sane_defaults() {
+        let parsed: Config =
+            toml::from_str("master_url = \"http://127.0.0.1:8787\"\ntoken = \"t\"\n").unwrap();
+        assert_eq!(parsed.upgrade_state_dir, "/var/lib/pierwave-agent");
+        assert_eq!(
+            parsed.upgrade_restart_command,
+            "systemctl restart pierwave-agent"
+        );
+        assert_eq!(parsed.upgrade_watchdog_secs, 120);
+        assert_eq!(parsed.upgrade_systemd_run, "systemd-run");
+    }
+
+    #[test]
+    fn upgrade_settings_can_be_overridden() {
+        let parsed: Config = toml::from_str(
+            "master_url = \"http://127.0.0.1:8787\"\ntoken = \"t\"\n\
+             upgrade_state_dir = \"/tmp/pierwave-state\"\n\
+             upgrade_restart_command = \"true\"\n\
+             upgrade_watchdog_secs = 0\n\
+             upgrade_systemd_run = \"\"\n",
+        )
+        .unwrap();
+        assert_eq!(parsed.upgrade_state_dir, "/tmp/pierwave-state");
+        assert_eq!(parsed.upgrade_restart_command, "true");
+        assert_eq!(parsed.upgrade_watchdog_secs, 0);
+        assert!(parsed.upgrade_systemd_run.is_empty());
     }
 
     #[test]
