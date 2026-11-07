@@ -63,7 +63,10 @@ fn default_backup_suffix() -> Option<String> {
     Some(".bak".into())
 }
 fn default_stats_query_command() -> String {
-    "xray api statsquery --server=127.0.0.1:10085 -pattern user>>>".into()
+    // 不要加 `-pattern`：Xray 的 statsquery 对 pattern 的匹配语义不稳定
+    // （实测 `-pattern user>>>` 直接返回空），而解析层本来就只认 `user>>>` 前缀，
+    // 多取一些由 Rust 侧过滤更可靠。
+    "xray api statsquery --server=127.0.0.1:10085".into()
 }
 fn default_stats_interval_secs() -> u64 {
     60
@@ -154,7 +157,11 @@ mod tests {
             toml::from_str("master_url = \"http://127.0.0.1:8787\"\ntoken = \"t\"\n").unwrap();
         assert_eq!(
             parsed.stats_query_command,
-            "xray api statsquery --server=127.0.0.1:10085 -pattern user>>>"
+            "xray api statsquery --server=127.0.0.1:10085"
+        );
+        assert!(
+            !parsed.stats_query_command.contains("-pattern"),
+            "不要依赖 statsquery 的 pattern 语义，过滤交给 Rust 侧"
         );
         assert_eq!(parsed.stats_interval_secs, 60);
     }

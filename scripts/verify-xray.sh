@@ -22,6 +22,7 @@ FAILED=0
 log()  { printf '\033[36m==>\033[0m %s\n' "$*"; }
 ok()   { printf '  \033[32mok\033[0m %s\n' "$*"; }
 bad()  { printf '  \033[31mFAIL\033[0m %s\n' "$*"; FAILED=1; }
+warn() { printf '  \033[33mWARN\033[0m %s\n' "$*"; }
 
 cleanup() {
   local code=$?
@@ -179,7 +180,7 @@ if [ -x "$BIN" ]; then
   DERIVED="$(run_with_timeout 10 "$BIN" --derive-reality-key "$PRIV" | head -1 || true)"
   case "$DERIVED" in
     "" | *[!A-Za-z0-9+/=]*)
-      bad "这个 pierwave-master 不支持 --derive-reality-key（多半是旧版本），跳过反推校验"
+      warn "这个 pierwave-master 不支持 --derive-reality-key（多半是旧版本），跳过反推校验"
       ;;
     *)
       if [ "$DERIVED" = "$PUB" ]; then
@@ -190,7 +191,7 @@ if [ -x "$BIN" ]; then
       ;;
   esac
 else
-  bad "找不到 pierwave-master（先跑 make build，或用 PIERWAVE_BIN 指定），跳过反推校验"
+  warn "找不到 pierwave-master（先跑 make build，或用 PIERWAVE_BIN 指定），跳过反推校验"
 fi
 
 UUID="$(python3 -c 'import uuid;print(uuid.uuid4())' 2>/dev/null \
@@ -322,6 +323,25 @@ elif printf '%s' "$ALL_STATS" | grep -q 'inbound>>>'; then
   bad "有 inbound 计数器但没有 user 计数器：用户级统计策略没生效"
 else
   bad "完全没有计数器：stats 或 api 配置有问题"
+fi
+
+# ---------- 诊断：CLI 的 -pattern 行为 ----------
+PATTERNED="$("$XRAY" api statsquery --server="127.0.0.1:$PORT_API" -pattern "user>>>" 2>/dev/null || true)"
+if printf '%s' "$PATTERNED" | grep -q 'user>>>'; then
+  ok "带 -pattern user>>> 的查询也能返回数据（agent 不传 pattern 也安全）"
+else
+  warn "带 -pattern user>>> 的查询返回空 —— agent 已改为不传 pattern，这是预期的"
+fi
+
+# ---------- 诊断：api 入站的老协议名是否还能用 ----------
+if grep -q '"protocol": "tunnel"' "$WORK/server.json" 2>/dev/null; then
+  cp "$WORK/server.json" "$WORK/legacy.json"
+  sed -i.bak 's/"protocol": "tunnel"/"protocol": "dokodemo-door"/; s/"rewriteAddress"/"address"/' "$WORK/legacy.json"
+  if "$XRAY" run -test -c "$WORK/legacy.json" >/dev/null 2>&1; then
+    ok "老协议名 dokodemo-door 仍被这个 Xray 接受（生成器暂时无需改动）"
+  else
+    warn "老协议名 dokodemo-door 已不被接受 —— 生成器的 api 入站需要改成 tunnel"
+  fi
 fi
 
 echo
