@@ -1346,11 +1346,16 @@ mod tests {
         );
 
         let sub = SubNode::from_node(&node, "1.2.3.4", "user-1", "secret").unwrap();
-        let public = STANDARD
-            .decode(
-                sub.param("public_key")
-                    .expect("应从 privateKey 反推出 publicKey"),
-            )
+        // 必须与 `xray x25519` 同格式：URL-safe 无填充
+        let encoded = sub
+            .param("public_key")
+            .expect("应从 privateKey 反推出 publicKey");
+        assert!(
+            !encoded.contains(['+', '/', '=']),
+            "订阅里的 publicKey 用了标准 base64：{encoded}"
+        );
+        let public = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(encoded)
             .unwrap();
 
         assert_eq!(

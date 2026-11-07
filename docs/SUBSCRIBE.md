@@ -126,7 +126,10 @@ Surge / sing-box 等第二轮补——它们的差异主要在配置文件骨架
 现行片段只有 `privateKey`，客户端要 `publicKey`。两种解法里选**反推**：
 
 ```
-publicKey = base64( X25519(privateKey_bytes, basepoint) )
+publicKey = base64url_no_pad( X25519(privateKey_bytes, basepoint) )
+
+> 编码必须是 **URL-safe 且无填充**，与 `xray x25519` 的输出一致。标准 base64 的
+> `+ / =` 会让 v2rayN / Clash.Meta / sing-box 解析失败——密钥字节是对的，节点却连不上。
 ```
 
 理由：面板不该要求管理员手填一对数学上绑定的密钥；手填错了要等用户连不上才发现。

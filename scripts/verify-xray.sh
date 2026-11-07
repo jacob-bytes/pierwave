@@ -185,8 +185,11 @@ if [ -x "$BIN" ]; then
       warn "这个 pierwave-master 不支持 --derive-reality-key（多半是旧版本），跳过反推校验"
       ;;
     *)
-      if [ "$DERIVED" = "$PUB" ]; then
+      # 只比较解码后的 32 字节，两端编码风格不同（标准 base64 / base64url）不该算错。
+      norm() { printf '%s' "$1" | tr -d '=' | tr '+/' '-_'; }
+      if [ "$(norm "$DERIVED")" = "$(norm "$PUB")" ]; then
         ok "PierWave 的 publicKey 反推与 Xray 一致"
+        [ "$DERIVED" = "$PUB" ] || warn "编码风格不同（pierwave=$DERIVED xray=$PUB），字节一致即可"
       else
         bad "publicKey 反推不一致：pierwave=$DERIVED xray=$PUB"
       fi

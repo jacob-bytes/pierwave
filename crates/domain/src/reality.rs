@@ -4,8 +4,12 @@
 //! 所以这里用 X25519 反推（见 `docs/SUBSCRIBE.md` §7.3）：
 //!
 //! ```text
-//! publicKey = base64_standard( X25519(privateKey_bytes, basepoint) )
+//! publicKey = base64url_no_pad( X25519(privateKey_bytes, basepoint) )
 //! ```
+//!
+//! 编码必须是 **URL-safe 且无填充**：这是 Xray `x25519` 的输出格式，客户端（v2rayN /
+//! Clash.Meta / sing-box）按这个格式解析。用标准 base64 会带上 `+ / =`，反推出的密钥
+//! 字节完全正确、但客户端解析失败，表现为「REALITY 节点连不上」。
 //!
 //! 片段里若显式给出了 `publicKey`（导入的配置），由调用方优先使用显式值。
 
@@ -13,7 +17,7 @@ use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_S
 use base64::Engine;
 use x25519_dalek::{x25519, X25519_BASEPOINT_BYTES};
 
-/// 从 base64 的 REALITY 私钥推出 base64_standard 公钥。
+/// 从 base64 的 REALITY 私钥推出 base64url（无填充）公钥，与 `xray x25519` 输出一致。
 ///
 /// 私钥常见两种编码：Xray 自己生成的是 URL-safe 无填充（43 字符），
 /// 手工导入的可能是标准 base64。这里都接受；长度不是 32 字节或解码失败返回 `None`，
@@ -21,7 +25,7 @@ use x25519_dalek::{x25519, X25519_BASEPOINT_BYTES};
 pub fn public_key_from_private(private_key: &str) -> Option<String> {
     let private = decode_private_key(private_key)?;
     let public = x25519(private, X25519_BASEPOINT_BYTES);
-    Some(STANDARD.encode(public))
+    Some(URL_SAFE_NO_PAD.encode(public))
 }
 
 fn decode_private_key(raw: &str) -> Option<[u8; 32]> {
@@ -54,9 +58,14 @@ mod tests {
         let private_b64 = STANDARD.encode(&private_bytes);
 
         let public_b64 = public_key_from_private(&private_b64).expect("RFC 向量必须能推导");
-        let public_bytes = STANDARD.decode(public_b64).unwrap();
+        let public_bytes = URL_SAFE_NO_PAD.decode(&public_b64).unwrap();
 
         assert_eq!(hex::encode(public_bytes), RFC7748_PUBLIC_HEX);
+        // 编码必须和 `xray x25519` 一致：URL-safe、无填充
+        assert!(
+            !public_b64.contains(['+', '/', '=']),
+            "输出了标准 base64：{public_b64}"
+        );
     }
 
     #[test]
@@ -66,7 +75,7 @@ mod tests {
 
         let public_b64 =
             public_key_from_private(&private_b64).expect("Xray 私钥是 URL-safe 无填充");
-        let public_bytes = STANDARD.decode(public_b64).unwrap();
+        let public_bytes = URL_SAFE_NO_PAD.decode(&public_b64).unwrap();
 
         assert_eq!(hex::encode(public_bytes), RFC7748_PUBLIC_HEX);
     }
