@@ -406,3 +406,83 @@ GET /api/v1/sub/{short_code}?rule=<template_id>&target=clash
 - 新建/编辑 Dialog：名称、说明、规则多行文本（一行一条）、设为默认开关；
 - 删除：被设为默认的禁止删除并提示；其它二次确认；
 - 订阅页在复制链接旁给一个「规则模板」下拉，选中后链接带 `?rule=`。
+
+## P3：出站与路由（可视化）
+
+现状：`build_config` 里 `outbounds` 写死 `direct(freedom)` + `blocked(blackhole)`，`routing.rules`
+只有一条 api 规则。所以每台服务器只能「直连出站」，做不了中转/落地链路。
+
+### 表（0012_outbounds_routing.sql）
+
+```sql
+CREATE TABLE server_outbounds (
+    id          TEXT PRIMARY KEY,
+    server_id   TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    tag         TEXT NOT NULL,
+    protocol    TEXT NOT NULL,           -- socks / http / vmess / vless / trojan / shadowsocks / freedom / blackhole
+    config_json TEXT NOT NULL DEFAULT '{}',
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    created_at  INTEGER NOT NULL,
+    UNIQUE(server_id, tag)
+);
+
+CREATE TABLE server_routing_rules (
+    id           TEXT PRIMARY KEY,
+    server_id    TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    sort_order   INTEGER NOT NULL DEFAULT 0,
+    inbound_tag  TEXT,                   -- 空 = 不限定入站
+    domain       TEXT,                   -- 逗号分隔的 Xray 域名匹配串，空 = 不按域名
+    ip           TEXT,                   -- 逗号分隔的 IP/CIDR，空 = 不按 IP
+    outbound_tag TEXT NOT NULL,
+    enabled      INTEGER NOT NULL DEFAULT 1,
+    created_at   INTEGER NOT NULL
+);
+```
+
+### 校验
+
+- `tag`：`^[a-z0-9_-]{1,32}$`，同服务器内唯一，**不能占用保留字** `direct` / `blocked` / `api`；
+- `protocol` 白名单见上；`config` 必须是 JSON 对象；
+- 路由规则：`domain` / `ip` / `inbound_tag` **至少给一个**（否则规则会吞掉所有流量），
+  `outbound_tag` 必须是 `direct` / `blocked` 或该服务器已存在的自定义出站；
+- `inbound_tag` 若填写，必须指向该服务器上存在的节点 tag。
+
+### 配置生成
+
+`build_config` 增加 `outbounds` 与 `rules` 入参（建议抽一个 `ServerPlan` 结构体，别再加一串位置参数）：
+
+```
+outbounds = [direct(freedom), blocked(blackhole)] + 自定义（enabled 的，按创建顺序）
+routing.rules = [ {inboundTag:["api"], outboundTag:"api"} ] + 自定义规则（按 sort_order, created_at）
+```
+
+自定义出站的 `config_json` 原样合并进 outbound 对象（`tag`/`protocol` 以数据库为准）。
+
+### 接口
+
+```
+GET    /api/v1/servers/{id}/outbounds        -> { items: [ {id,server_id,tag,protocol,config,enabled,created_at} ] }
+POST   /api/v1/servers/{id}/outbounds        { tag, protocol, config, enabled? } -> { outbound }
+PATCH  /api/v1/outbounds/{id}                { tag?, protocol?, config?, enabled? } -> { outbound }
+DELETE /api/v1/outbounds/{id}                -> { ok:true }
+GET    /api/v1/servers/{id}/routing-rules    -> { items: [...] }
+POST   /api/v1/servers/{id}/routing-rules    { inbound_tag?, domain?, ip?, outbound_tag, sort_order? } -> { rule }
+PATCH  /api/v1/routing-rules/{id}            { ...同上 } -> { rule }
+DELETE /api/v1/routing-rules/{id}            -> { ok:true }
+```
+
+删除仍被路由规则引用的出站 → 400 并说明被几条规则引用。
+所有写操作都要 `mark_all_servers_dirty` 之外的精确处理：**标脏对应服务器**即可（复用 30s 去抖）。
+
+### 前端
+
+`/servers/:id/outbounds` 页面（服务器行操作入口）：
+- 上半「出站」：列表 + 新建/编辑对话框（tag、协议、JSON 配置、启用开关）；
+- 下半「路由规则」：列表（可上移/下移调整顺序）+ 新建/编辑（入站/域名/IP → 出站 下拉）；
+- 顶部提示「修改后需要应用配置才对服务器生效」，附「应用配置」按钮。
+
+### 本轮不做
+
+- 图形化的规则可视化（先做表格 + 表单）
+- 出站连通性测试
+- routed 子节点（按节点分流到不同出站）——需要先有节点级别的出站绑定，下一轮
