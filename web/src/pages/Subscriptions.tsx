@@ -14,6 +14,13 @@ import {
   UsersIcon,
   XIcon,
 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { RuleTemplateSelect } from "@/components/subscriptions/RuleTemplateSelect";
 import { SubscriptionQrDialog } from "@/components/subscriptions/SubscriptionQrDialog";
 import { UsageBar } from "@/components/UsageBar";
@@ -80,14 +87,30 @@ function subscriptionListErrorText(error: unknown): string {
  *
  * 选中非默认模板时带 `?rule=<id>`；默认模板不加参数，保持链接简洁。
  */
+/** 支持的订阅格式；顺序与后端注册表一致，`clash` 是默认值（不带参数）。 */
+const SUBSCRIPTION_FORMATS = [
+  "clash",
+  "stash",
+  "surge",
+  "surfboard",
+  "loon",
+  "qx",
+  "singbox",
+  "shadowrocket",
+  "v2ray",
+] as const;
+
 function subscriptionUrl(
   shortCode: string,
   template: RuleTemplate | null,
+  format: string,
 ): string {
   const base = `${window.location.origin}/api/v1/sub/${encodeURIComponent(shortCode)}`;
-  return template && !template.is_default
-    ? `${base}?rule=${encodeURIComponent(template.id)}`
-    : base;
+  const params = new URLSearchParams();
+  if (template && !template.is_default) params.set("rule", template.id);
+  if (format && format !== "clash") params.set("target", format);
+  const query = params.toString();
+  return query ? `${base}?${query}` : base;
 }
 
 function packageLabel(user: Subscription): string {
@@ -229,6 +252,7 @@ export default function SubscriptionsPage() {
   const navigate = useNavigate();
   const q = (searchParams.get("q") ?? "").trim();
   const [searchInput, setSearchInput] = useState(q);
+  const [format, setFormat] = useState<string>("clash");
   const [trackedQ, setTrackedQ] = useState(q);
   const [filter, setFilter] = useState<PackageFilter>("all");
   const [qrState, setQrState] = useState<{
@@ -384,6 +408,29 @@ export default function SubscriptionsPage() {
                 </TabsList>
               </Tabs>
 
+              <div className="flex w-full items-center gap-2 sm:w-auto">
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {t("subscriptions.formatLabel")}
+                </span>
+                <Select value={format} onValueChange={setFormat}>
+                  <SelectTrigger
+                    size="sm"
+                    className="h-8 w-[132px] text-xs"
+                    aria-label={t("subscriptions.formatAria")}
+                    title={t("subscriptions.formatHint")}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent align="end">
+                    {SUBSCRIPTION_FORMATS.map((item) => (
+                      <SelectItem key={item} value={item} className="text-xs">
+                        {t(`subscriptions.formats.${item}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="relative w-full sm:w-64">
                 <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -472,7 +519,7 @@ export default function SubscriptionsPage() {
               ) : (
                 filteredItems.map((user) => {
                   const template = selectedTemplate(user.id);
-                  const url = subscriptionUrl(user.short_code, template);
+                  const url = subscriptionUrl(user.short_code, template, format);
                   const label = packageLabel(user);
                   const ruleTemplateName = effectiveRuleTemplateName(user);
 
