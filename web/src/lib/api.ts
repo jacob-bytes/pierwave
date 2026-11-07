@@ -4,14 +4,37 @@ import type {
   AgentUpgradeBatchItemStatus,
   AgentUpgradeBatchStatus,
 } from "@/lib/agentUpgradeBatch";
+import { ApiError } from "@/lib/apiError";
 
-export class ApiError extends Error {
-  readonly status: number;
+export { ApiError } from "@/lib/apiError";
 
-  constructor(message: string, status: number) {
-    super(message);
-    this.status = status;
-  }
+/** 后端错误响应形状：`error` 是中文兜底，`code` / `params` 可选。 */
+interface ErrorBody {
+  error?: string;
+  code?: string;
+  params?: Record<string, unknown>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * 从响应体构造 ApiError：保留旧的 `error` 文案，同时带上 `code` 与
+ * `params`，供 `errors.ts` 按当前语言翻译。字段类型不对时忽略。
+ */
+function toApiError(body: unknown, status: number): ApiError {
+  const record = isRecord(body) ? body : {};
+  const message =
+    typeof record.error === "string" && record.error.trim()
+      ? record.error
+      : t("common.requestFailed", { status });
+  const code =
+    typeof record.code === "string" && record.code.trim()
+      ? record.code
+      : undefined;
+  const params = isRecord(record.params) ? record.params : undefined;
+  return new ApiError(message, status, code, params);
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -23,10 +46,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const text = await res.text();
   const body = text ? JSON.parse(text) : null;
   if (!res.ok) {
-    throw new ApiError(
-      body?.error ?? t("errors.requestFailed", { status: res.status }),
-      res.status,
-    );
+    throw toApiError(body, res.status);
   }
   return body as T;
 }
@@ -46,19 +66,16 @@ async function uploadBinary<T>(path: string, file: Blob): Promise<T> {
     body: file,
   });
   const text = await res.text();
-  let body: { error?: string } | null = null;
+  let body: ErrorBody | null = null;
   if (text) {
     try {
-      body = JSON.parse(text) as { error?: string };
+      body = JSON.parse(text) as ErrorBody;
     } catch {
       body = null;
     }
   }
   if (!res.ok) {
-    throw new ApiError(
-      body?.error ?? t("errors.requestFailed", { status: res.status }),
-      res.status,
-    );
+    throw toApiError(body, res.status);
   }
   return body as T;
 }

@@ -247,7 +247,7 @@ fn validate_int(label: &str, value: &Value, min: i64, max: i64) -> AppResult<i64
         .ok_or_else(|| {
             AppError::coded(
                 "settings.int_out_of_range",
-                Some(json!({ "min": min, "max": max })),
+                Some(json!({ "label": label, "min": min, "max": max })),
                 format!("{label}需在 {min}-{max} 之间的整数"),
             )
         })

@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import en from "./en";
+import {
+  getLocale,
+  persistLocale,
+  SUPPORTED_LOCALES,
+  setCurrentLocale,
+} from "./locale";
+import type { Locale } from "./locale";
 import zh from "./zh-CN";
 
-export type Locale = "zh-CN" | "en";
+export { detectLocale } from "./locale";
+export type { Locale } from "./locale";
 
 export type Messages = typeof zh;
 
@@ -14,41 +22,12 @@ export type TFunction = (
   values?: InterpolationValues,
 ) => string;
 
-const STORAGE_KEY = "pierwave.locale";
-const SUPPORTED: readonly Locale[] = ["zh-CN", "en"];
-
 const dictionaries: Record<Locale, Messages> = {
   "zh-CN": zh,
   en,
 };
 
-function isLocale(value: string | null | undefined): value is Locale {
-  return value === "zh-CN" || value === "en";
-}
-
-/**
- * 初始语言：localStorage → 浏览器语言（zh* 取中文）→ 英文。
- * localStorage 在隐私模式下可能抛错，读取失败时静默回落到浏览器语言。
- */
-export function detectLocale(): Locale {
-  try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (isLocale(stored)) return stored;
-  } catch {
-    // ignore storage access errors
-  }
-
-  const language =
-    typeof navigator === "undefined" ? "" : navigator.language.toLowerCase();
-  return language.startsWith("zh") ? "zh-CN" : "en";
-}
-
-let currentLocale: Locale = detectLocale();
 const listeners = new Set<() => void>();
-
-function getLocale(): Locale {
-  return currentLocale;
-}
 
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
@@ -62,16 +41,10 @@ function subscribe(listener: () => void): () => void {
  * 页面标题由 `useDocumentTitle` 在重渲染时更新，这里也主动重放一次。
  */
 export function setLocale(locale: Locale): void {
-  if (!SUPPORTED.includes(locale)) return;
+  if (!SUPPORTED_LOCALES.includes(locale)) return;
 
-  const changed = locale !== currentLocale;
-  currentLocale = locale;
-
-  try {
-    window.localStorage.setItem(STORAGE_KEY, locale);
-  } catch {
-    // ignore storage access errors
-  }
+  const changed = setCurrentLocale(locale);
+  persistLocale(locale);
 
   if (typeof document !== "undefined") {
     document.documentElement.lang = locale;
@@ -136,7 +109,7 @@ function translateFor(
 
 /** 模块级翻译函数：事件回调与纯函数里直接调用，总是读当前语言。 */
 export function t(key: string, values?: InterpolationValues): string {
-  return translateFor(currentLocale, key, values);
+  return translateFor(getLocale(), key, values);
 }
 
 /**
@@ -160,5 +133,5 @@ export function useI18n(): {
 
 // 首次加载就把 <html lang> 对齐到实际语言，屏幕阅读器与浏览器翻译都依赖它。
 if (typeof document !== "undefined") {
-  document.documentElement.lang = currentLocale;
+  document.documentElement.lang = getLocale();
 }

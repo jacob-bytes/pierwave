@@ -193,7 +193,19 @@ fn restore_validation_error(error: anyhow::Error) -> AppError {
     } else if message.contains("备份缺少必需的表") {
         AppError::coded("backup.restore_missing_tables", None, message)
     } else if message.contains("迁移版本") {
-        AppError::coded("backup.restore_migration_too_new", None, message)
+        let numbers: Vec<i64> = message
+            .split(|c: char| !c.is_ascii_digit())
+            .filter_map(|part| part.parse::<i64>().ok())
+            .collect();
+        // 前端要按 params 插值，缺了就只能回落中文原文
+        AppError::coded(
+            "backup.restore_migration_too_new",
+            Some(json!({
+                "version": numbers.get(0).copied().unwrap_or_default(),
+                "supported": numbers.get(1).copied().unwrap_or_default(),
+            })),
+            message,
+        )
     } else if message.contains("超过 512 MB") {
         AppError::coded(
             "backup.restore_too_large",
