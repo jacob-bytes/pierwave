@@ -150,6 +150,7 @@ mod tests {
             version: 7,
             xray: serde_json::json!({"inbounds": [], "outbounds": []}),
             files: vec![],
+            agent_upgrade: None,
         });
         let json = serde_json::to_string(&state).unwrap();
         let back: MasterMessage = serde_json::from_str(&json).unwrap();

@@ -85,6 +85,7 @@ async fn handle(mut socket: WebSocket, state: AppState) {
                     version: server.config_version,
                     xray: rendered.xray,
                     files: rendered.files,
+                    agent_upgrade: None, // 后端 lane 接入后改为 rendered.agent_upgrade
                 });
                 if !send_json(&mut socket, &desired).await {
                     return;

@@ -146,6 +146,7 @@ pub async fn publish(
             version,
             xray: desired.xray,
             files: desired.files,
+            agent_upgrade: None, // 后端 lane 接入后改为 desired.agent_upgrade
         }),
     );
 
