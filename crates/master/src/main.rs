@@ -17,6 +17,23 @@ use crate::state::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // 运维/验证用的小工具入口：
+    //   pierwave-master --derive-reality-key <base64-private-key>
+    // 用真实 Xray 的 `xray x25519 -i` 对照，确认我们的公钥反推没有算错。
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(pos) = args.iter().position(|arg| arg == "--derive-reality-key") {
+        let private = args
+            .get(pos + 1)
+            .context("用法: pierwave-master --derive-reality-key <base64-private-key>")?;
+        match pierwave_domain::reality::public_key_from_private(private) {
+            Some(public) => {
+                println!("{public}");
+                return Ok(());
+            }
+            None => anyhow::bail!("无法解析该私钥"),
+        }
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()

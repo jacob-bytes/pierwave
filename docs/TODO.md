@@ -5,6 +5,15 @@
 ## 必须做（验证缺口）
 
 - [ ] **真机验证**：在一台真实的 Linux 服务器上跑 `xray -test`，起一个节点、用真实客户端连一次。
+  脚本已就绪：`make verify-xray`（或 `./scripts/verify-xray.sh`）。
+  它会下载/复用 Xray、在临时目录生成服务端与客户端配置、起 REALITY 节点、通过 socks 实际访问外网、
+  查询 StatsService 计数器，**退出时清理自己创建的一切**（不碰系统文件、不留进程、不改端口配置）。
+  注意：脚本需要机器能访问 GitHub Releases；不能访问时用 `--xray-bin /usr/bin/xray` 指定已有二进制。
+  判定标准：
+  - `xray -test` 通过（证明 `streamSettings` 等字段名被真实 Xray 接受）
+  - 经节点访问外网返回 204/200
+  - `user>>>...>>>traffic>>>uplink` 计数器 > 0（证明 stats/policy/email 配置有效）
+  - PierWave 反推的 publicKey 与 `xray x25519` 输出一致
   目前所有“配置正确”都来自假命令（`restart_command=true`）与单元测试，没有真实 Xray 的证据。
   重点验证：
   - `streamSettings` 字段是否被 Xray 接受（v0.5.0 刚改名）
