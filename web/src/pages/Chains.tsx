@@ -316,7 +316,7 @@ function ChainHopsRow({ chain }: { chain: Chain }) {
 
   return (
     <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={CHAIN_COLUMN_COUNT} className="px-4 pb-3 pt-0">
+      <TableCell colSpan={CHAIN_COLUMN_COUNT} className="px-4 py-3">
         <div className="rounded-lg border border-border bg-muted/25 p-3">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-1">
             <span className="text-[11px] font-medium text-muted-foreground">
