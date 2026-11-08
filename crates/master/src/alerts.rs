@@ -229,7 +229,10 @@ pub fn build_curl_config(alert: &OutgoingAlert<'_>) -> String {
 }
 
 /// curl 配置里的双引号字符串需要转义反斜杠、双引号与换行。
-fn escape_curl_config(value: &str) -> String {
+///
+/// 管理员 Bot（`telegram_bot`）复用这里的转义；它同样把 token 放在 stdin 的
+/// `--config -` 里，不进 argv。
+pub(crate) fn escape_curl_config(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
     for character in value.chars() {
         match character {

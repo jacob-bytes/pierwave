@@ -920,3 +920,58 @@ CREATE TABLE chain_hops (          -- 按 seq 升序；seq=0 是入口
 ```
 POST /api/v1/alerts/test   -> 向已配置的渠道发一条测试消息（管理员）
 ```
+
+## P14：管理员 Telegram Bot（长轮询）
+
+只做管理员 Bot，不做租户绑定；所有命令只对 `telegram_admin_chat_ids` 里的 chat 生效。
+其它 chat 一律回 `未授权 / Unauthorized`，且授权判断发生在任何数据库读取之前。
+
+### 设置项（沿用现有白名单）
+
+| key | 默认 | 说明 |
+|---|---|---|
+| `telegram_bot_token` | 空 | 与告警共用同一个 token |
+| `telegram_admin_chat_ids` | 空 | 逗号分隔，trim / 去重，最多 10 个；空 = 不授权 |
+| `telegram_bot_enabled` | `false` | 布尔总开关；还要求 token 与管理员列表都非空 |
+
+### 命令（纯文本，不设 `parse_mode`）
+
+```
+/status     服务器在线 x/y、节点数、今日流量、告警数
+/servers    服务器列表：名称 / 在线 / 负载 / 延迟（最多 20 行）
+/user <名>  套餐、已用/总量、到期、状态
+/chain      转发链：名称 / 组数 / 成员数 / 是否降级
+/help       命令列表；非法命令也回这里
+```
+
+- 单条消息超过 Telegram 的 4096 字符上限时截断，并追加 `已截断 / truncated`。
+- 回复不含内部 id、异常堆栈；数据库错误只回「请稍后再试」。
+
+### 实现
+
+- `crates/master/src/telegram_bot.rs`：`getUpdates` 长轮询（`timeout=30`）+ 分发 +
+  `sendMessage`，两者都走 `curl` 子进程；token / chat_id / 正文通过 `--config -`
+  从 stdin 传入，**不进 argv**。
+- offset 只存进程内存：重启后可能重复处理上一条命令，可接受。
+- supervisor 在主控启动时拉起，每 30 秒读一次设置；`enabled=false`、token 或管理员
+  列表清空时中止长轮询，配置变化时先 abort 旧任务（同时 kill curl）再起新任务。
+- 所有错误只 `tracing::warn!`，不影响主控启动、WS、心跳等其它功能。
+
+### 安全边界
+
+- 如果 `telegram_admin_chat_ids` 填的是群 id，**群里每个人**都能执行这些只读管理命令；
+  建议只填个人 chat id，或明确接受群成员的读取权限。
+- bot token 一旦泄漏等于泄漏整套运维数据（设置表 / 数据库备份里都有它），
+  轮换 token 时应同时在 BotFather 失效旧 token。
+- 未授权回复本身也是对外可见行为；当前不做按 chat 的限流，异常流量由 Telegram
+  侧的 bot 限流兜底。
+
+### English summary
+
+The admin Telegram bot long-polls `getUpdates` (timeout 30s) and only answers chat ids
+listed in `telegram_admin_chat_ids`; every other chat gets `Unauthorized` without any
+database access. Commands are `/status`, `/servers`, `/user <name>`, `/chain` and
+`/help`, rendered as plain text (no Markdown parse mode), truncated at 4096 characters
+with a `truncated` notice. Delivery uses a `curl` subprocess and the bot token travels
+through `--config -` on stdin, never in argv. A supervisor task re-reads settings every
+30 seconds and stops/restarts polling when the feature is disabled or reconfigured.

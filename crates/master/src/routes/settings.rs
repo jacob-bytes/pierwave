@@ -33,6 +33,10 @@ pub const MAX_ALERT_COOLDOWN_SECS: i64 = 86_400;
 
 pub const MAX_TELEGRAM_TOKEN_CHARS: usize = 256;
 pub const MAX_TELEGRAM_CHAT_ID_CHARS: usize = 128;
+/// 管理员 Bot 最多授权 10 个 chat id（群 + 个人合计）。
+pub const MAX_TELEGRAM_ADMIN_CHAT_IDS: usize = 10;
+/// 管理员 chat id 列表的存储上限（逗号分隔的原始串）。
+pub const MAX_TELEGRAM_ADMIN_CHAT_IDS_CHARS: usize = 512;
 pub const MAX_WEBHOOK_URL_CHARS: usize = 2048;
 pub const MAX_ALERT_EVENTS_CHARS: usize = 256;
 
@@ -44,6 +48,8 @@ const AGENT_UPGRADE_CONCURRENCY_KEY: &str = "agent_upgrade_concurrency";
 const PUBLIC_STATUS_ENABLED_KEY: &str = "public_status_enabled";
 pub const TELEGRAM_BOT_TOKEN_KEY: &str = "telegram_bot_token";
 pub const TELEGRAM_CHAT_ID_KEY: &str = "telegram_chat_id";
+pub const TELEGRAM_ADMIN_CHAT_IDS_KEY: &str = "telegram_admin_chat_ids";
+pub const TELEGRAM_BOT_ENABLED_KEY: &str = "telegram_bot_enabled";
 pub const WEBHOOK_URL_KEY: &str = "webhook_url";
 pub const ALERT_EVENTS_KEY: &str = "alert_events";
 pub const ALERT_COOLDOWN_SECS_KEY: &str = "alert_cooldown_secs";
@@ -62,6 +68,16 @@ pub struct Settings {
     pub telegram_bot_token: String,
     /// 空 = 不启用 Telegram；与 token 必须同时配置。
     pub telegram_chat_id: String,
+    /// 管理员 Bot 允许的 chat id，逗号分隔（1..=10 个）；空 = 不授权任何人。
+    ///
+    /// 只对这里列出的 chat 生效：其它 chat 发来的命令一律回「未授权」，
+    /// 不读取任何业务数据。存储的是规范化后的串（trim、去重、逗号连接）。
+    pub telegram_admin_chat_ids: String,
+    /// 管理员 Bot 长轮询总开关；默认关闭。
+    ///
+    /// 必须同时满足 `enabled = true`、token 非空、管理员列表非空才会真正拉起
+    /// 长轮询任务；三个条件缺一个都按「未启用」处理。
+    pub telegram_bot_enabled: bool,
     /// 空 = 不启用 Webhook。
     pub webhook_url: String,
     /// 逗号分隔的事件名；规范化后存储（去重、固定顺序）。
@@ -81,6 +97,8 @@ impl Default for Settings {
             public_status_enabled: DEFAULT_PUBLIC_STATUS_ENABLED,
             telegram_bot_token: String::new(),
             telegram_chat_id: String::new(),
+            telegram_admin_chat_ids: String::new(),
+            telegram_bot_enabled: false,
             webhook_url: String::new(),
             alert_events: DEFAULT_ALERT_EVENTS.to_string(),
             alert_cooldown_secs: DEFAULT_ALERT_COOLDOWN_SECS,
@@ -103,6 +121,8 @@ impl Settings {
             "public_status_enabled": self.public_status_enabled,
             "telegram_bot_token": self.telegram_bot_token,
             "telegram_chat_id": self.telegram_chat_id,
+            "telegram_admin_chat_ids": self.telegram_admin_chat_ids,
+            "telegram_bot_enabled": self.telegram_bot_enabled,
             "webhook_url": self.webhook_url,
             "alert_events": self.alert_events,
             "alert_cooldown_secs": self.alert_cooldown_secs,
@@ -159,6 +179,14 @@ pub async fn load(pool: &SqlitePool) -> Settings {
             .await,
         telegram_chat_id: read_text(pool, TELEGRAM_CHAT_ID_KEY, "", normalize_telegram_chat_id)
             .await,
+        telegram_admin_chat_ids: read_text(
+            pool,
+            TELEGRAM_ADMIN_CHAT_IDS_KEY,
+            "",
+            normalize_telegram_admin_chat_ids,
+        )
+        .await,
+        telegram_bot_enabled: read_bool(pool, TELEGRAM_BOT_ENABLED_KEY, false).await,
         webhook_url: read_text(pool, WEBHOOK_URL_KEY, "", normalize_webhook_url).await,
         alert_events: read_text(
             pool,
@@ -228,6 +256,26 @@ async fn read_int(pool: &SqlitePool, key: &str, min: i64, max: i64, default: i64
                 tracing::warn!(key, "settings 值非法，使用默认值 {default}");
                 default
             }),
+        Ok(None) => default,
+        Err(error) => {
+            tracing::warn!(key, error = %error, "读取设置失败，使用默认值 {default}");
+            default
+        }
+    }
+}
+
+/// 读取布尔设置；接受写库用的 `1` / `0` 与更易读的 `true` / `false`。
+/// 其它值（含空串）回落到默认值并告警，避免手工改库让主控启动失败。
+async fn read_bool(pool: &SqlitePool, key: &str, default: bool) -> bool {
+    match repo::settings::get(pool, key).await {
+        Ok(Some(raw)) => match raw.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" => true,
+            "0" | "false" => false,
+            _ => {
+                tracing::warn!(key, "settings 布尔值非法，使用默认值 {default}");
+                default
+            }
+        },
         Ok(None) => default,
         Err(error) => {
             tracing::warn!(key, error = %error, "读取设置失败，使用默认值 {default}");
@@ -308,6 +356,23 @@ pub async fn update(
                     "settings.telegram_chat_id_invalid",
                     normalize_telegram_chat_id,
                 )?,
+            )),
+            TELEGRAM_ADMIN_CHAT_IDS_KEY => updates.push((
+                TELEGRAM_ADMIN_CHAT_IDS_KEY,
+                validate_text(
+                    "Telegram 管理员 Chat ID 列表",
+                    value,
+                    "settings.telegram_admin_chat_ids_invalid",
+                    normalize_telegram_admin_chat_ids,
+                )?,
+            )),
+            TELEGRAM_BOT_ENABLED_KEY => updates.push((
+                TELEGRAM_BOT_ENABLED_KEY,
+                if validate_bool("Telegram Bot 开关", value)? {
+                    "1".to_string()
+                } else {
+                    "0".to_string()
+                },
             )),
             WEBHOOK_URL_KEY => updates.push((
                 WEBHOOK_URL_KEY,
@@ -426,6 +491,50 @@ fn normalize_telegram_chat_id(raw: &str) -> Result<String, String> {
     Ok(chat_id.to_string())
 }
 
+/// 解析管理员 chat id 列表：逗号分隔、trim、去重、保持输入顺序。
+///
+/// 空串是合法值（= 不授权任何人，Bot 不会启动）；非空时最多
+/// [`MAX_TELEGRAM_ADMIN_CHAT_IDS`] 个。单个 id 的字符约束与
+/// `telegram_chat_id` 完全一致，避免出现两套口径。
+pub fn parse_telegram_admin_chat_ids(raw: &str) -> Result<Vec<String>, String> {
+    if raw.chars().count() > MAX_TELEGRAM_ADMIN_CHAT_IDS_CHARS {
+        return Err(format!(
+            "Telegram 管理员 Chat ID 列表最多 {MAX_TELEGRAM_ADMIN_CHAT_IDS_CHARS} 个字符"
+        ));
+    }
+    let mut ids: Vec<String> = Vec::new();
+    for part in raw.split(',') {
+        let id = part.trim();
+        if id.is_empty() {
+            continue;
+        }
+        if id.chars().count() > MAX_TELEGRAM_CHAT_ID_CHARS {
+            return Err(format!(
+                "Telegram Chat ID 最多 {MAX_TELEGRAM_CHAT_ID_CHARS} 个字符"
+            ));
+        }
+        if id
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
+        {
+            return Err("Telegram Chat ID 不能包含空白或控制字符".to_string());
+        }
+        if !ids.iter().any(|existing| existing == id) {
+            ids.push(id.to_string());
+        }
+    }
+    if ids.len() > MAX_TELEGRAM_ADMIN_CHAT_IDS {
+        return Err(format!(
+            "Telegram 管理员 Chat ID 最多 {MAX_TELEGRAM_ADMIN_CHAT_IDS} 个"
+        ));
+    }
+    Ok(ids)
+}
+
+fn normalize_telegram_admin_chat_ids(raw: &str) -> Result<String, String> {
+    Ok(parse_telegram_admin_chat_ids(raw)?.join(","))
+}
+
 fn normalize_webhook_url(raw: &str) -> Result<String, String> {
     let url = raw.trim();
     if url.is_empty() {
@@ -472,6 +581,17 @@ fn validate_int(label: &str, value: &Value, min: i64, max: i64) -> AppResult<i64
                 format!("{label}需在 {min}-{max} 之间的整数"),
             )
         })
+}
+
+/// 新设置项用 JSON 布尔值；写库统一成 `1` / `0`，方便沿用 key/value TEXT 表。
+fn validate_bool(label: &str, value: &Value) -> AppResult<bool> {
+    value.as_bool().ok_or_else(|| {
+        AppError::coded(
+            "settings.bool_invalid",
+            Some(json!({ "label": label })),
+            format!("{label}必须是布尔值 true / false"),
+        )
+    })
 }
 
 #[cfg(test)]
@@ -972,5 +1092,86 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(load(&state.db.pool).await.public_status_enabled, 1);
+    }
+
+    #[tokio::test]
+    async fn admin_bot_settings_default_off_and_round_trip() {
+        let (app, _state, admin, _bob) = setup().await;
+
+        let (_, _, body) = request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(body["items"]["telegram_admin_chat_ids"], "");
+        assert_eq!(body["items"]["telegram_bot_enabled"], false, "Bot 默认关闭");
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({
+                "telegram_admin_chat_ids": " 42, -100123,42, ",
+                "telegram_bot_enabled": true,
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body["items"]["telegram_admin_chat_ids"], "42,-100123",
+            "管理员列表要 trim、去重"
+        );
+        assert_eq!(body["items"]["telegram_bot_enabled"], true);
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({"telegram_bot_enabled": false, "telegram_admin_chat_ids": ""})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["items"]["telegram_bot_enabled"], false);
+        assert_eq!(body["items"]["telegram_admin_chat_ids"], "");
+    }
+
+    #[tokio::test]
+    async fn invalid_admin_bot_settings_are_rejected_and_read_falls_back() {
+        let (app, state, admin, _bob) = setup().await;
+
+        let too_many = (0..MAX_TELEGRAM_ADMIN_CHAT_IDS + 1)
+            .map(|index| index.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let cases = [
+            json!({"telegram_admin_chat_ids": too_many.clone()}),
+            json!({"telegram_admin_chat_ids": "1 2,3"}),
+            json!({"telegram_admin_chat_ids": "x".repeat(MAX_TELEGRAM_CHAT_ID_CHARS + 1)}),
+            json!({"telegram_admin_chat_ids": 42}),
+            json!({"telegram_bot_enabled": 1}),
+            json!({"telegram_bot_enabled": "true"}),
+        ];
+        for bad in cases {
+            let (status, _, body) = request(
+                &app,
+                Some(&admin),
+                Method::PATCH,
+                "/api/v1/settings",
+                Some(bad.clone()),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "payload: {bad}");
+            assert!(!body["error"].as_str().unwrap().is_empty());
+        }
+
+        // 手工改坏：读取回落默认值，主控仍能启动。
+        repo::settings::set(&state.db.pool, "telegram_bot_enabled", "maybe")
+            .await
+            .unwrap();
+        repo::settings::set(&state.db.pool, "telegram_admin_chat_ids", &too_many)
+            .await
+            .unwrap();
+        let settings = load(&state.db.pool).await;
+        assert!(!settings.telegram_bot_enabled);
+        assert_eq!(settings.telegram_admin_chat_ids, "");
+        assert!(parse_telegram_admin_chat_ids(" 1,2,1 ").unwrap() == vec!["1", "2"]);
     }
 }
