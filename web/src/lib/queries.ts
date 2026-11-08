@@ -12,6 +12,7 @@ import {
   type AgentUpgradeBatch,
   type AgentUpgradeBatchDetail,
   type AgentUpgradeInput,
+  type AlertTestResponse,
   type ApplyResult,
   type AuditListQuery,
   type BackupInfo,
@@ -272,6 +273,18 @@ export function useUpdateSettings() {
       // PATCH 的返回值就是权威值：直接覆盖缓存，页面再用它 reset 表单。
       queryClient.setQueryData(queryKeys.settings, items);
     },
+  });
+}
+
+/**
+ * P13：发送告警测试消息。
+ *
+ * 只负责请求；结果在卡片里用 `normalizeAlertTestResults` 归一化，
+ * 避免把纯前端逻辑带进入口 chunk（设置页是懒加载的）。
+ */
+export function useTestAlerts() {
+  return useMutation<AlertTestResponse, Error, void>({
+    mutationFn: api.alerts.test,
   });
 }
 

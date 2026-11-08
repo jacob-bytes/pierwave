@@ -1204,6 +1204,104 @@ const en = {
       concurrencyHintWith:
         "Up to {n} at a time; the higher the concurrency, the more nodes are interrupted at once; one at a time by default.",
     },
+    alerts: {
+      title: "Alert notifications",
+      desc: "Get notified via Telegram or Webhook when a server goes offline, a user is cut off, a forward chain degrades, or an Agent upgrade fails. Applies to events after saving.",
+      notReady404:
+        "The alert settings API is not ready yet (the backend may still be deploying). Please try again later.",
+      notReady:
+        "The backend does not recognize the alert settings keys yet (it may still be deploying), so they cannot be saved.",
+      forbidden: "Only administrators can view or change alert settings",
+      loadFailed: "Alert settings failed to load",
+      loadError:
+        "Could not load alert settings. Check your network, or whether the controller is running.",
+      emptyTitle: "No alert settings to configure",
+      emptyDesc:
+        "The backend returned no settings keys. Try again later, or check whether the controller version includes the alert settings API.",
+      save: "Save alert settings",
+      saving: "Saving…",
+      saved: "Alert settings saved",
+      saveError: "Could not save alert settings. Please try again.",
+      saveHint:
+        "Changes take effect only after you click Save; tests use the saved configuration.",
+      dirtyHint:
+        "You have unsaved changes; tests still use the saved configuration.",
+      telegram: {
+        title: "Telegram",
+        desc: "Enable Telegram by filling in Bot Token and Chat ID; leave both empty to disable it.",
+        token: "Bot Token",
+        tokenHint:
+          "Create a bot with @BotFather and paste its token, e.g. 123456789:AA….",
+        savedMask: "Saved: {masked}",
+        showToken: "Show Bot Token",
+        hideToken: "Hide Bot Token",
+        chatId: "Chat ID",
+        chatIdHint:
+          "Group id (usually starting with -100) or a channel username such as @channel.",
+        incomplete:
+          "Bot Token and Chat ID must both be filled in; otherwise Telegram sends nothing.",
+      },
+      webhook: {
+        title: "Webhook",
+        desc: "Events are POSTed to this URL as JSON; leave it empty to disable the webhook.",
+        url: "Webhook URL",
+        urlHint: "Must start with http:// or https://.",
+        placeholder: "https://example.com/hooks/pierwave",
+      },
+      events: {
+        title: "Alert events",
+        desc: "Only the selected event types are sent; if none are selected, no alerts are sent.",
+        server_offline: "Server offline",
+        server_offlineDesc:
+          "When a server loses its WebSocket connection to the controller.",
+        user_exhausted: "User cut off",
+        user_exhaustedDesc:
+          "When a user is cut off because their quota is exhausted or their package expired.",
+        chain_degraded: "Forward chain degraded",
+        chain_degradedDesc:
+          "When any hop in a forward chain cannot reach its target.",
+        upgrade_failed: "Upgrade failed",
+        upgrade_failedDesc: "When an Agent upgrade fails or times out.",
+      },
+      cooldown: "Cooldown (seconds)",
+      cooldownHint:
+        "The same alert is sent at most once per this window (debounced by event + target); 0 disables debouncing, range 0–86400 seconds, default 600.",
+      validation: {
+        webhookUrl:
+          "The Webhook URL must be a valid http:// or https:// address, up to 2048 characters",
+        cooldown: "Cooldown must be an integer between 0 and 86400",
+        token:
+          "Bot Token must be at most 256 characters and contain no whitespace or control characters",
+        chatId:
+          "Chat ID must be at most 128 characters and contain no whitespace or control characters",
+        events: "The alert event list contains an unknown entry",
+      },
+      test: {
+        title: "Send test message",
+        desc: "Sends one test message to each saved, fully configured channel; unsaved changes are not used.",
+        action: "Send test message",
+        sending: "Sending…",
+        error: "Could not send the test message. Please try again.",
+        notReady404:
+          "The alert test API is not ready yet (the backend may still be deploying). Please try again later.",
+        empty:
+          "No channel is configured yet; fill in Telegram or Webhook settings and save first.",
+        resultsTitle: "Test results",
+        ok: "Succeeded",
+        failed: "Failed",
+        noResults: "The backend returned no channel results.",
+        unknownError: "The backend returned no failure reason.",
+        successToast: "Test message sent",
+        partialToast: "Some channels failed; check the results in this card",
+        failedToast: "The test message failed; check the results in this card",
+        emptyToast: "No channel to test; configure and save one first",
+      },
+      channels: {
+        telegram: "Telegram",
+        webhook: "Webhook",
+        unknownWith: "Unknown channel ({channel})",
+      },
+    },
     backup: {
       title: "Backup & restore",
       desc: "A backup is a single SQLite database file; restoring overwrites all data and takes effect after the controller restarts.",

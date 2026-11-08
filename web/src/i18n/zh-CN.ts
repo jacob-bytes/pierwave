@@ -1148,6 +1148,95 @@ const zhCN = {
       concurrencyHintWith:
         "当前一次最多 {n} 台；并发越大，同时中断的节点越多；默认一次一台。",
     },
+    alerts: {
+      title: "告警通知",
+      desc: "服务器离线、用户断流、转发链降级或 Agent 升级失败时，通过 Telegram 或 Webhook 通知。保存后对之后发生的事件生效。",
+      notReady404: "告警设置接口尚未就绪（后端可能还在部署），请稍后重试",
+      notReady: "后端还不支持告警设置项（可能仍在部署），暂时无法保存",
+      forbidden: "只有管理员可以查看或修改告警设置",
+      loadFailed: "告警设置加载失败",
+      loadError: "无法加载告警设置，请检查网络或主控是否已启动",
+      emptyTitle: "还没有可配置的告警项",
+      emptyDesc:
+        "后端暂时没有返回任何设置键；稍后重试，或确认主控版本是否包含告警设置接口。",
+      save: "保存告警设置",
+      saving: "保存中…",
+      saved: "告警设置已保存",
+      saveError: "保存告警设置失败，请稍后重试",
+      saveHint: "修改后点击保存才会生效；测试使用已保存的配置。",
+      dirtyHint: "有未保存的修改，测试仍使用已保存的配置。",
+      telegram: {
+        title: "Telegram",
+        desc: "填写 Bot Token 与 Chat ID 后启用；两项都为空表示不用 Telegram。",
+        token: "Bot Token",
+        tokenHint: "在 @BotFather 创建机器人后获取，例如 123456789:AA…。",
+        savedMask: "已保存：{masked}",
+        showToken: "显示 Bot Token",
+        hideToken: "隐藏 Bot Token",
+        chatId: "Chat ID",
+        chatIdHint:
+          "群组 id（通常以 -100 开头）或频道用户名，例如 @channel。",
+        incomplete:
+          "Bot Token 与 Chat ID 需要同时填写，否则 Telegram 不会发送。",
+      },
+      webhook: {
+        title: "Webhook",
+        desc: "事件会以 JSON POST 到该地址；留空表示不用 Webhook。",
+        url: "Webhook URL",
+        urlHint: "必须以 http:// 或 https:// 开头。",
+        placeholder: "https://example.com/hooks/pierwave",
+      },
+      events: {
+        title: "告警事件",
+        desc: "只发送勾选的事件类型；全部不勾选时不会发送任何告警。",
+        server_offline: "服务器离线",
+        server_offlineDesc: "服务器与主控断开 WebSocket 连接时。",
+        user_exhausted: "用户断流",
+        user_exhaustedDesc: "用户因额度用尽或套餐过期被断流时。",
+        chain_degraded: "转发链降级",
+        chain_degradedDesc: "转发链任意一跳的目标不可达时。",
+        upgrade_failed: "升级失败",
+        upgrade_failedDesc: "Agent 升级失败或超时时。",
+      },
+      cooldown: "去抖秒数",
+      cooldownHint:
+        "同类告警在该时间内只发一次（按事件 + 对象去抖）；0 表示不去抖，范围 0–86400 秒，默认 600。",
+      validation: {
+        webhookUrl:
+          "Webhook URL 必须是有效的 http:// 或 https:// 地址，最长 2048 个字符",
+        cooldown: "去抖秒数需在 0–86400 之间的整数",
+        token:
+          "Bot Token 最多 256 个字符，且不能包含空白或控制字符",
+        chatId:
+          "Chat ID 最多 128 个字符，且不能包含空白或控制字符",
+        events: "告警事件列表包含未知项",
+      },
+      test: {
+        title: "发送测试消息",
+        desc: "向已保存并配置的渠道各发一条测试消息；未保存的修改不会生效。",
+        action: "发送测试消息",
+        sending: "发送中…",
+        error: "发送测试消息失败，请稍后重试",
+        notReady404:
+          "告警测试接口尚未就绪（后端可能还在部署），请稍后重试",
+        empty:
+          "还没有配置任何渠道；先填写 Telegram 或 Webhook 设置并保存。",
+        resultsTitle: "测试结果",
+        ok: "成功",
+        failed: "失败",
+        noResults: "后端没有返回任何渠道结果。",
+        unknownError: "后端没有返回失败原因。",
+        successToast: "测试消息已发送",
+        partialToast: "部分渠道发送失败，请查看卡片内的结果",
+        failedToast: "测试消息发送失败，请查看卡片内的结果",
+        emptyToast: "没有可测试的渠道，请先配置并保存",
+      },
+      channels: {
+        telegram: "Telegram",
+        webhook: "Webhook",
+        unknownWith: "未知渠道（{channel}）",
+      },
+    },
     backup: {
       title: "备份与恢复",
       desc: "备份是单个 SQLite 数据库文件；恢复会覆盖全部数据，并在主控重启后生效。",

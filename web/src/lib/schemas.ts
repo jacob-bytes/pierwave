@@ -51,7 +51,7 @@ function optionalIntField(
   }, message);
 }
 
-function requiredIntField(
+export function requiredIntField(
   min: number,
   max: number,
   message: string,

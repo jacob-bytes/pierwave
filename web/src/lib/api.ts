@@ -1,5 +1,6 @@
 import { t } from "@/i18n";
 import type { AgentUpgradeStatus } from "@/lib/agentUpgrade";
+import type { AlertTestResult } from "@/lib/alerts";
 import type {
   AgentUpgradeBatchItemStatus,
   AgentUpgradeBatchStatus,
@@ -906,6 +907,16 @@ export interface MeSummary {
 
 export type MeTraffic = TrafficStats;
 
+/**
+ * P13：`POST /api/v1/alerts/test` 的响应。
+ *
+ * 后端还会返回 `configured` 与 `message`（未配置渠道时的提示）；
+ * 卡片只消费 `results`，其余字段忽略，避免旧后端缺字段时崩掉。
+ */
+export interface AlertTestResponse {
+  results: AlertTestResult[];
+}
+
 /** P1：运维基础设置，见 docs/PLAN.md「P1：运维基础」。 */
 export interface Settings {
   /** 面板名称；后端缺失该键时会回落到默认值。 */
@@ -921,6 +932,18 @@ export interface Settings {
    * 旧版后端可能不返回该键，设置页按 1 兜底。
    */
   agent_upgrade_concurrency: number;
+  /**
+   * P13：告警通知。旧版后端可能不返回这些键，设置页按空值 / 默认值处理。
+   * Telegram 需要 Token 与 Chat ID 同时存在才会发送。
+   */
+  telegram_bot_token?: string | null;
+  telegram_chat_id?: string | null;
+  /** 只接受 http(s) 绝对地址；空 = 不启用 Webhook。 */
+  webhook_url?: string | null;
+  /** 逗号分隔的事件白名单；空串 = 不发送任何告警。 */
+  alert_events?: string | null;
+  /** 同类告警去抖秒数，0–86400，默认 600。 */
+  alert_cooldown_secs?: number | null;
 }
 
 export type UpdateSettingsInput = Partial<Settings>;
@@ -1085,6 +1108,20 @@ export const api = {
       request<{ items: Settings }>("/api/v1/settings", {
         method: "PATCH",
         body: JSON.stringify(input),
+      }),
+  },
+
+  /**
+   * P13：告警通知测试，见 docs/PLAN.md「P13：告警通知」。
+   *
+   * 只向已保存且配置完整的渠道发一条测试消息；未保存的修改不会生效。
+   * 后端可能暂时 404，卡片按中文错误态兜底，不写 mock。
+   */
+  alerts: {
+    test: () =>
+      request<AlertTestResponse>("/api/v1/alerts/test", {
+        method: "POST",
+        body: JSON.stringify({}),
       }),
   },
 

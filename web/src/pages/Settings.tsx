@@ -14,6 +14,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { FormField, FormRootError } from "@/components/FormField";
+import { AlertsCard } from "@/components/settings/AlertsCard";
 import { BackupCard } from "@/components/settings/BackupCard";
 import { Button } from "@/components/ui/button";
 import {
@@ -475,6 +476,9 @@ export default function SettingsPage() {
       ) : (
         <SettingsForm initial={settings.data} />
       )}
+
+      {/* P13：告警通知独立于主表单，自己拉设置、保存并发送测试消息。 */}
+      <AlertsCard />
 
       {/* P7：备份与恢复独立于设置表单，自己拉 info 并处理四态。 */}
       <BackupCard />
