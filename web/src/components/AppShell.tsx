@@ -25,6 +25,8 @@ import {
   MoonIcon,
   NetworkIcon,
   PackageIcon,
+  PanelLeftCloseIcon,
+  PanelLeftOpenIcon,
   RefreshCwIcon,
   ScrollTextIcon,
   ServerIcon,
@@ -148,7 +150,15 @@ function PageLoading() {
   );
 }
 
-function NavEntry({ item, pathname }: { item: NavItem; pathname: string }) {
+function NavEntry({
+  item,
+  pathname,
+  collapsed,
+}: {
+  item: NavItem;
+  pathname: string;
+  collapsed: boolean;
+}) {
   const { t } = useI18n();
   const Icon = item.icon;
   const active = isItemActive(item, pathname);
@@ -158,16 +168,19 @@ function NavEntry({ item, pathname }: { item: NavItem; pathname: string }) {
       to={item.to}
       end={item.end}
       aria-current={active ? "page" : undefined}
+      title={collapsed ? t(item.labelKey) : undefined}
       className={cn(
         "flex h-8 items-center gap-2 rounded-md px-2.5 text-[13px] transition-colors duration-150",
         item.sub && "ml-3 h-7 pl-2 text-xs",
+        collapsed && "justify-center px-0",
+        collapsed && item.sub && "ml-0",
         active
           ? "bg-sidebar-accent font-medium text-foreground"
           : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
       )}
     >
       <Icon className={item.sub ? "size-3.5" : "size-4"} />
-      {t(item.labelKey)}
+      {collapsed ? <span className="sr-only">{t(item.labelKey)}</span> : t(item.labelKey)}
     </NavLink>
   );
 }
@@ -195,8 +208,21 @@ function ThemeItem({
   );
 }
 
+const SIDEBAR_KEY = "pierwave.sidebar";
+
 export default function AppShell({ user }: { user: SessionUser }) {
   const { t, locale, setLocale } = useI18n();
+  // 侧栏折叠状态跟着浏览器走：侧栏是导航结构，不是每次访问都要重新决定的偏好。
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem(SIDEBAR_KEY) === "collapsed",
+  );
+  function toggleSidebar() {
+    setCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem(SIDEBAR_KEY, next ? "collapsed" : "expanded");
+      return next;
+    });
+  }
   const { theme, setTheme } = useTheme();
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -240,31 +266,51 @@ export default function AppShell({ user }: { user: SessionUser }) {
 
   return (
     <div className="flex h-full bg-background text-foreground">
-      <aside className="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
+      <aside
+        className={cn(
+          "flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200",
+          collapsed ? "w-14" : "w-60",
+        )}
+      >
         <Link
           to={homePath}
-          className="flex h-14 shrink-0 items-center gap-2.5 border-b border-sidebar-border px-4"
+          className={cn(
+            "flex h-14 shrink-0 items-center gap-2.5 border-b border-sidebar-border",
+            collapsed ? "justify-center px-0" : "px-4",
+          )}
+          title={panelName}
         >
-          <div className="grid size-6 place-items-center rounded-md bg-primary/15 text-primary">
+          <div className="grid size-6 shrink-0 place-items-center rounded-md bg-primary/15 text-primary">
             <TerminalIcon className="size-3.5" />
           </div>
-          <span className="text-sm font-semibold tracking-wide">{panelName}</span>
+          {collapsed ? null : (
+            <span className="truncate text-sm font-semibold tracking-wide">{panelName}</span>
+          )}
         </Link>
 
         <nav className="flex-1 overflow-y-auto p-3">
           {navGroups.map((group, index) => (
             <div key={group.titleKey}>
-              <p
-                className={cn(
-                  "px-2.5 pb-1.5 text-[11px] font-medium tracking-wider text-muted-foreground/50",
-                  index > 0 && "pt-5",
-                )}
-              >
-                {t(group.titleKey)}
-              </p>
+              {collapsed ? (
+                index > 0 ? <div className="mx-2 my-2 h-px bg-sidebar-border" /> : null
+              ) : (
+                <p
+                  className={cn(
+                    "px-2.5 pb-1.5 text-[11px] font-medium tracking-wider text-muted-foreground/50",
+                    index > 0 && "pt-5",
+                  )}
+                >
+                  {t(group.titleKey)}
+                </p>
+              )}
               <div className="space-y-0.5">
                 {group.items.map((item) => (
-                  <NavEntry key={item.to} item={item} pathname={pathname} />
+                  <NavEntry
+                    key={item.to}
+                    item={item}
+                    pathname={pathname}
+                    collapsed={collapsed}
+                  />
                 ))}
               </div>
             </div>
@@ -272,15 +318,46 @@ export default function AppShell({ user }: { user: SessionUser }) {
         </nav>
 
         {/* 侧边栏底部只保留版本号；账号入口已移到右上角 header。 */}
-        <div className="border-t border-sidebar-border px-4 py-3">
-          <p className="font-mono text-[11px] text-muted-foreground/60">
-            PierWave {versionLabel}
+        <div
+          className={cn(
+            "border-t border-sidebar-border py-3",
+            collapsed ? "text-center" : "px-4",
+          )}
+        >
+          <p
+            className="font-mono text-[11px] text-muted-foreground/60"
+            title={`PierWave ${versionLabel}`}
+          >
+            {collapsed ? versionLabel : `PierWave ${versionLabel}`}
           </p>
         </div>
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-6 backdrop-blur">
+          {/* 折叠按钮 + 竖线分隔：按钮贴着侧栏，面包屑与导航结构分属两块 */}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={toggleSidebar}
+            aria-label={
+              collapsed ? t("app.expandSidebar") : t("app.collapseSidebar")
+            }
+            aria-expanded={!collapsed}
+            title={collapsed ? t("app.expandSidebar") : t("app.collapseSidebar")}
+            className="hidden md:inline-flex"
+          >
+            {collapsed ? (
+              <PanelLeftOpenIcon className="size-4" />
+            ) : (
+              <PanelLeftCloseIcon className="size-4" />
+            )}
+          </Button>
+          <span
+            aria-hidden
+            className="hidden h-4 w-px shrink-0 bg-border md:block"
+          />
+
           <nav
             aria-label={t("app.breadcrumb")}
             className="flex min-w-0 items-center gap-1.5 text-sm"

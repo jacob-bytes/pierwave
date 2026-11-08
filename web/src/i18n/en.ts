@@ -18,6 +18,8 @@ const en = {
       "Cannot reach the controller. Check your network, or whether the controller is running.",
     retry: "Retry",
     breadcrumb: "Breadcrumb",
+    collapseSidebar: "Collapse sidebar",
+    expandSidebar: "Expand sidebar",
     accountMenu: "Account menu for {username}",
     defaultPage: "Overview",
   },

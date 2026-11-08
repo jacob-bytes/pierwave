@@ -14,6 +14,8 @@ const zhCN = {
     cannotConnectFallback: "无法连接主控，请检查网络或主控是否已启动",
     retry: "重试",
     breadcrumb: "面包屑",
+    collapseSidebar: "收起侧边栏",
+    expandSidebar: "展开侧边栏",
     accountMenu: "{username} 的账号菜单",
     defaultPage: "概览",
   },
