@@ -615,7 +615,11 @@ function SearchField({
   );
 }
 
-export default function AuditPage() {
+/**
+ * 「操作审计」面板：由 `/logs` 的 tab 挂载。
+ * 页面标题与 tab 外壳在 `Logs.tsx`；服务端筛选、游标分页与四态逻辑保持原样。
+ */
+export function AuditPanel() {
   useI18n();
   const [actorInput, setActorInput] = useState("");
   const [actorQuery, setActorQuery] = useState("");
@@ -666,16 +670,7 @@ export default function AuditPage() {
   }
 
   return (
-    <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">
-          {t("audit.title")}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t("audit.subtitle")}
-        </p>
-      </div>
-
+    <div className="space-y-6">
       <Card className="gap-0 overflow-hidden">
         <CardHeader className="border-b border-border">
           <div className="flex flex-wrap items-center justify-between gap-3">

@@ -69,6 +69,7 @@ const zhCN = {
     packages: "套餐",
     chains: "转发链",
     nodes: "节点",
+    logs: "日志",
     events: "事件",
     audit: "审计日志",
     rules: "规则模板",
@@ -1047,6 +1048,15 @@ const zhCN = {
     },
     loadFailed: "审计日志加载失败",
     loadError: "加载审计日志失败，请检查网络后重试",
+  },
+  logs: {
+    title: "日志",
+    subtitle: "系统事件与操作审计集中在这里；切换标签查看不同类型的记录。",
+    tabs: {
+      ariaLabel: "日志类型",
+      events: "系统事件",
+      audit: "操作审计",
+    },
   },
   rules: {
     title: "规则模板",

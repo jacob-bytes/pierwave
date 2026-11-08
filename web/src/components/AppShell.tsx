@@ -13,7 +13,6 @@ import {
   ChevronRightIcon,
   ChevronsUpDownIcon,
   FileKeyIcon,
-  HistoryIcon,
   KeyRoundIcon,
   LanguagesIcon,
   LayoutDashboardIcon,
@@ -53,6 +52,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useDocumentTitle, useI18n } from "@/i18n";
 import type { SessionUser } from "@/lib/api";
+import { resolveLogsTab } from "@/lib/logsTabs";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/useTheme";
 import type { ThemeMode } from "@/lib/theme";
@@ -103,8 +103,7 @@ const systemNav: NavItem[] = [
       pathname === "/nodes" ||
       /^\/servers\/[^/]+\/nodes(?:\/|$)/.test(pathname),
   },
-  { to: "/events", labelKey: "nav.events", icon: HistoryIcon },
-  { to: "/audit", labelKey: "nav.audit", icon: ScrollTextIcon },
+  { to: "/logs", labelKey: "nav.logs", icon: ScrollTextIcon },
   { to: "/rules", labelKey: "nav.rules", icon: ListFilterIcon },
   { to: "/certificates", labelKey: "nav.certificates", icon: FileKeyIcon },
   { to: "/settings", labelKey: "nav.settings", icon: SettingsIcon },
@@ -226,7 +225,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
     });
   }
   const { theme, setTheme } = useTheme();
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const navigate = useNavigate();
   const logout = useLogout();
   const health = useHealth();
@@ -241,6 +240,12 @@ export default function AppShell({ user }: { user: SessionUser }) {
   const current =
     allNav.find((item) => isItemActive(item, pathname)) ?? allNav[0];
   const pageLabel = current ? t(current.labelKey) : t("app.defaultPage");
+  // `/logs` 的 tab 决定面包屑第二级：日志 › 系统事件 / 操作审计。
+  const logsTab =
+    pathname === "/logs"
+      ? resolveLogsTab(new URLSearchParams(search).get("tab"))
+      : null;
+  const pageSubLabel = logsTab ? t(`logs.tabs.${logsTab}`) : null;
   const roleText = user.role === "admin" ? t("roles.admin") : t("roles.user");
   const rawVersion = health.data?.version?.trim();
   const versionLabel = rawVersion
@@ -249,7 +254,10 @@ export default function AppShell({ user }: { user: SessionUser }) {
       : `v${rawVersion}`
     : "v—";
 
-  useDocumentTitle(`${pageLabel} · ${panelName}`);
+  const titleLabel = pageSubLabel
+    ? `${pageLabel} · ${pageSubLabel}`
+    : pageLabel;
+  useDocumentTitle(`${titleLabel} · ${panelName}`);
 
   const initial = user.username.slice(0, 1).toUpperCase();
 
@@ -371,9 +379,23 @@ export default function AppShell({ user }: { user: SessionUser }) {
               {panelName}
             </Link>
             <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/40" />
-            <span className="truncate font-medium" aria-current="page">
+            <span
+              className="truncate font-medium"
+              aria-current={pageSubLabel ? undefined : "page"}
+            >
               {pageLabel}
             </span>
+            {pageSubLabel ? (
+              <>
+                <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/40" />
+                <span
+                  className="truncate text-muted-foreground"
+                  aria-current="page"
+                >
+                  {pageSubLabel}
+                </span>
+              </>
+            ) : null}
           </nav>
 
           {/* 中间留空，把页面动作与账号菜单推到最右侧。 */}

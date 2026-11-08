@@ -17,8 +17,7 @@ const UsersPage = lazy(() => import("@/pages/Users"));
 const SubscriptionsPage = lazy(() => import("@/pages/Subscriptions"));
 const PackagesPage = lazy(() => import("@/pages/Packages"));
 const CertificatesPage = lazy(() => import("@/pages/Certificates"));
-const EventsPage = lazy(() => import("@/pages/Events"));
-const AuditPage = lazy(() => import("@/pages/Audit"));
+const LogsPage = lazy(() => import("@/pages/Logs"));
 const RulesPage = lazy(() => import("@/pages/Rules"));
 const SettingsPage = lazy(() => import("@/pages/Settings"));
 const NodesPage = lazy(() => import("@/pages/Nodes"));
@@ -152,8 +151,16 @@ function AuthenticatedApp() {
             <Route path="subscriptions" element={<SubscriptionsPage />} />
             <Route path="packages" element={<PackagesPage />} />
             <Route path="certificates" element={<CertificatesPage />} />
-            <Route path="events" element={<EventsPage />} />
-            <Route path="audit" element={<AuditPage />} />
+            <Route path="logs" element={<LogsPage />} />
+            {/* 旧书签保留：/events 与 /audit 重定向到合并后的日志页。 */}
+            <Route
+              path="events"
+              element={<Navigate to="/logs?tab=events" replace />}
+            />
+            <Route
+              path="audit"
+              element={<Navigate to="/logs?tab=audit" replace />}
+            />
             <Route path="rules" element={<RulesPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

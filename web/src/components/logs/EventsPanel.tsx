@@ -213,7 +213,11 @@ function ErrorRow({
   );
 }
 
-export default function EventsPage() {
+/**
+ * 「系统事件」面板：由 `/logs` 的 tab 挂载。
+ * 页面标题与 tab 外壳在 `Logs.tsx`；这里的筛选、条数与四态逻辑保持原样。
+ */
+export function EventsPanel() {
   useI18n();
   const [filter, setFilter] = useState<KindFilter>("all");
   const [limit, setLimit] = useState<number>(LIMIT_OPTIONS[0]);
@@ -230,152 +234,143 @@ export default function EventsPage() {
   );
 
   return (
-    <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">{t("events.title")}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t("events.subtitle")}
-        </p>
+    <Card className="gap-0 overflow-hidden">
+      <CardHeader className="border-b border-border">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2 text-sm font-medium">
+            {t("events.list")}
+            {events.data ? (
+              <Badge
+                variant="secondary"
+                className="font-mono text-[11px] font-normal text-muted-foreground"
+              >
+                {items.length}
+              </Badge>
+            ) : null}
+          </CardTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void events.refetch()}
+            disabled={events.isFetching}
+          >
+            <RefreshCwIcon
+              className={cn(
+                "size-3.5",
+                events.isFetching && "animate-spin",
+              )}
+            />
+            {t("common.refresh")}
+          </Button>
+        </div>
+        <CardDescription className="text-xs">
+          {t("events.desc")}
+        </CardDescription>
+      </CardHeader>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-2.5">
+        <Tabs
+          value={filter}
+          onValueChange={(value) => setFilter(value as KindFilter)}
+        >
+          <TabsList>
+            <TabsTrigger value="all">{t("events.filter.all")}</TabsTrigger>
+            <TabsTrigger value="removed">{t("events.filter.removed")}</TabsTrigger>
+            <TabsTrigger value="restored">{t("events.filter.restored")}</TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {t("events.limitLabel")}
+          </span>
+          <Select
+            value={String(limit)}
+            onValueChange={(value) => setLimit(Number(value))}
+          >
+            <SelectTrigger size="sm" className="w-28">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {LIMIT_OPTIONS.map((option) => (
+                  <SelectItem key={option} value={String(option)}>
+                    {t("events.limitOption", { n: option })}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      <Card className="gap-0 overflow-hidden">
-        <CardHeader className="border-b border-border">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle className="flex items-center gap-2 text-sm font-medium">
-              {t("events.list")}
-              {events.data ? (
-                <Badge
-                  variant="secondary"
-                  className="font-mono text-[11px] font-normal text-muted-foreground"
-                >
-                  {items.length}
-                </Badge>
-              ) : null}
-            </CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void events.refetch()}
-              disabled={events.isFetching}
-            >
-              <RefreshCwIcon
-                className={cn(
-                  "size-3.5",
-                  events.isFetching && "animate-spin",
-                )}
+      <CardContent className="p-0">
+        <Table className="min-w-[760px]" aria-busy={events.isPending}>
+          <TableCaption className="sr-only">{t("events.tableCaption")}</TableCaption>
+          <TableHeader className="bg-muted/30">
+            <TableRow>
+              <TableHead className={HEAD_CLASS}>{t("events.columns.time")}</TableHead>
+              <TableHead className={HEAD_CLASS}>{t("events.columns.type")}</TableHead>
+              <TableHead className={HEAD_CLASS}>{t("events.columns.user")}</TableHead>
+              <TableHead className={HEAD_CLASS}>{t("events.columns.server")}</TableHead>
+              <TableHead className={HEAD_CLASS}>{t("events.columns.reason")}</TableHead>
+              <TableHead className={HEAD_CLASS}>{t("events.columns.message")}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {events.isPending ? (
+              <LoadingRows />
+            ) : showError ? (
+              <ErrorRow
+                message={errorMessage}
+                retrying={events.isFetching}
+                onRetry={() => void events.refetch()}
               />
-              {t("common.refresh")}
-            </Button>
-          </div>
-          <CardDescription className="text-xs">
-            {t("events.desc")}
-          </CardDescription>
-        </CardHeader>
-
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-2.5">
-          <Tabs
-            value={filter}
-            onValueChange={(value) => setFilter(value as KindFilter)}
-          >
-            <TabsList>
-              <TabsTrigger value="all">{t("events.filter.all")}</TabsTrigger>
-              <TabsTrigger value="removed">{t("events.filter.removed")}</TabsTrigger>
-              <TabsTrigger value="restored">{t("events.filter.restored")}</TabsTrigger>
-            </TabsList>
-          </Tabs>
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">
-              {t("events.limitLabel")}
-            </span>
-            <Select
-              value={String(limit)}
-              onValueChange={(value) => setLimit(Number(value))}
-            >
-              <SelectTrigger size="sm" className="w-28">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {LIMIT_OPTIONS.map((option) => (
-                    <SelectItem key={option} value={String(option)}>
-                      {t("events.limitOption", { n: option })}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        <CardContent className="p-0">
-          <Table className="min-w-[760px]" aria-busy={events.isPending}>
-            <TableCaption className="sr-only">{t("events.tableCaption")}</TableCaption>
-            <TableHeader className="bg-muted/30">
-              <TableRow>
-                <TableHead className={HEAD_CLASS}>{t("events.columns.time")}</TableHead>
-                <TableHead className={HEAD_CLASS}>{t("events.columns.type")}</TableHead>
-                <TableHead className={HEAD_CLASS}>{t("events.columns.user")}</TableHead>
-                <TableHead className={HEAD_CLASS}>{t("events.columns.server")}</TableHead>
-                <TableHead className={HEAD_CLASS}>{t("events.columns.reason")}</TableHead>
-                <TableHead className={HEAD_CLASS}>{t("events.columns.message")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {events.isPending ? (
-                <LoadingRows />
-              ) : showError ? (
-                <ErrorRow
-                  message={errorMessage}
-                  retrying={events.isFetching}
-                  onRetry={() => void events.refetch()}
-                />
-              ) : items.length === 0 ? (
-                <EmptyRow filter="all" onReset={() => setFilter("all")} />
-              ) : noFilteredResults ? (
-                <EmptyRow
-                  filter={filter}
-                  onReset={() => setFilter("all")}
-                />
-              ) : (
-                filteredItems.map((event) => (
-                  <TableRow key={event.id}>
-                    <TableCell className="px-4 py-2.5">
-                      <span
-                        className="text-xs text-muted-foreground"
-                        title={formatAbsoluteTime(event.created_at)}
-                      >
-                        {formatRelativeTime(event.created_at)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="px-4 py-2.5">
-                      <EventTypeBadge kind={event.kind} />
-                    </TableCell>
-                    <TableCell
-                      className="max-w-40 truncate px-4 py-2.5 text-sm"
-                      title={event.user_id}
+            ) : items.length === 0 ? (
+              <EmptyRow filter="all" onReset={() => setFilter("all")} />
+            ) : noFilteredResults ? (
+              <EmptyRow
+                filter={filter}
+                onReset={() => setFilter("all")}
+              />
+            ) : (
+              filteredItems.map((event) => (
+                <TableRow key={event.id}>
+                  <TableCell className="px-4 py-2.5">
+                    <span
+                      className="text-xs text-muted-foreground"
+                      title={formatAbsoluteTime(event.created_at)}
                     >
-                      {event.username || "—"}
-                    </TableCell>
-                    <TableCell
-                      className="max-w-40 truncate px-4 py-2.5 text-sm"
-                      title={event.server_id}
-                    >
-                      {event.server_name || "—"}
-                    </TableCell>
-                    <TableCell className="px-4 py-2.5 text-xs text-muted-foreground">
-                      {reasonLabel(event.reason)}
-                    </TableCell>
-                    <TableCell className="max-w-[460px] min-w-[240px] px-4 py-2.5 text-xs whitespace-normal text-muted-foreground">
-                      {event.message}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-    </div>
+                      {formatRelativeTime(event.created_at)}
+                    </span>
+                  </TableCell>
+                  <TableCell className="px-4 py-2.5">
+                    <EventTypeBadge kind={event.kind} />
+                  </TableCell>
+                  <TableCell
+                    className="max-w-40 truncate px-4 py-2.5 text-sm"
+                    title={event.user_id}
+                  >
+                    {event.username || "—"}
+                  </TableCell>
+                  <TableCell
+                    className="max-w-40 truncate px-4 py-2.5 text-sm"
+                    title={event.server_id}
+                  >
+                    {event.server_name || "—"}
+                  </TableCell>
+                  <TableCell className="px-4 py-2.5 text-xs text-muted-foreground">
+                    {reasonLabel(event.reason)}
+                  </TableCell>
+                  <TableCell className="max-w-[460px] min-w-[240px] px-4 py-2.5 text-xs whitespace-normal text-muted-foreground">
+                    {event.message}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   );
 }

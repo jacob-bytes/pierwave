@@ -73,6 +73,7 @@ const en = {
     packages: "Packages",
     chains: "Forward chains",
     nodes: "Nodes",
+    logs: "Logs",
     events: "Events",
     audit: "Audit log",
     rules: "Rule templates",
@@ -1089,6 +1090,16 @@ const en = {
     },
     loadFailed: "Audit log failed to load",
     loadError: "Could not load the audit log. Check your network and try again.",
+  },
+  logs: {
+    title: "Logs",
+    subtitle:
+      "System events and operation audits in one place; switch tabs to view each kind of record.",
+    tabs: {
+      ariaLabel: "Log types",
+      events: "System events",
+      audit: "Operation audit",
+    },
   },
   rules: {
     title: "Rule templates",
