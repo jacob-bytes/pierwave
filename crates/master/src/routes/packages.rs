@@ -152,6 +152,19 @@ pub(crate) fn validate_node_ratio(node_ratio: f64) -> AppResult<()> {
     }
 }
 
+/// 限速档位：0 = 不限；上限 10 Gbps。`None`（未配置）同样表示不限。
+pub(crate) fn validate_speed_limit_kbps(speed_limit_kbps: Option<i64>) -> AppResult<()> {
+    match speed_limit_kbps {
+        None => Ok(()),
+        Some(kbps) if (0..=10_000_000).contains(&kbps) => Ok(()),
+        Some(_) => Err(AppError::coded(
+            "package.speed_limit_kbps_invalid",
+            Some(json!({ "min": 0, "max": 10_000_000 })),
+            "限速档位必须在 0-10000000 kbps 之间（0 表示不限）",
+        )),
+    }
+}
+
 /// 校验规则模板存在；返回去空白后的 id。
 pub(crate) async fn validate_rule_template_id(state: &AppState, id: &str) -> AppResult<String> {
     let id = id.trim();
@@ -203,6 +216,9 @@ pub struct CreatePackage {
     pub direction: String,
     #[serde(default = "default_node_ratio")]
     pub node_ratio: f64,
+    /// 限速档位（kbps）；缺省 / 0 = 不限。只能映射成 bufferSize，是近似限速。
+    #[serde(default)]
+    pub speed_limit_kbps: Option<i64>,
     /// 缺省 / `null` = 不限制（全部节点）；`[]` = 一个都不给；数组 = 只给这些节点。
     #[serde(default)]
     pub node_ids: Option<Vec<String>>,
@@ -238,6 +254,7 @@ pub async fn create(
     validate_period_days(req.period_days)?;
     let direction = validate_direction(&req.direction)?;
     validate_node_ratio(req.node_ratio)?;
+    validate_speed_limit_kbps(req.speed_limit_kbps)?;
 
     let node_ids = normalize_create_node_ids(req.node_ids)?;
     if let Some(node_ids) = &node_ids {
@@ -254,6 +271,7 @@ pub async fn create(
             period_days: req.period_days,
             direction,
             node_ratio: req.node_ratio,
+            speed_limit_kbps: req.speed_limit_kbps,
             rule_template_id,
             node_ids,
         },
@@ -274,6 +292,7 @@ pub async fn create(
             "period_days": package.period_days,
             "direction": &package.direction,
             "node_ratio": package.node_ratio,
+            "speed_limit_kbps": package.speed_limit_kbps,
             "rule_template_id": package.rule_template_id,
             "node_scope": &package.node_scope,
             "node_count": package.node_count,
@@ -294,6 +313,9 @@ pub struct UpdatePackage {
     pub period_days: Patch<i64>,
     pub direction: Option<String>,
     pub node_ratio: Option<f64>,
+    /// 三态：缺失 = 不动；`null` = 取消限速；数值 = 档位 kbps（0 等价不限）。
+    #[serde(default)]
+    pub speed_limit_kbps: Patch<i64>,
     /// 三态：缺失 = 不动；`null` = 恢复全部；`[]` = 一个都不给；数组 = 指定。
     #[serde(default)]
     pub node_ids: Patch<Vec<String>>,
@@ -315,6 +337,7 @@ pub async fn update(
         && !req.period_days.is_set()
         && req.direction.is_none()
         && req.node_ratio.is_none()
+        && !req.speed_limit_kbps.is_set()
         && !req.node_ids.is_set()
         && !req.rule_template_id.is_set()
     {
@@ -348,6 +371,9 @@ pub async fn update(
     if let Some(node_ratio) = req.node_ratio {
         validate_node_ratio(node_ratio)?;
     }
+    if req.speed_limit_kbps.is_set() {
+        validate_speed_limit_kbps(req.speed_limit_kbps.value())?;
+    }
 
     let node_ids = normalize_patch_node_ids(req.node_ids)?;
     if let Patch::Value(node_ids) = &node_ids {
@@ -376,6 +402,7 @@ pub async fn update(
             period_days: req.period_days,
             direction,
             node_ratio: req.node_ratio,
+            speed_limit_kbps: req.speed_limit_kbps,
             rule_template_id,
             node_ids,
         },
@@ -415,6 +442,13 @@ pub async fn update(
             "node_ratio",
             json!(before_package.as_ref().map(|package| package.node_ratio)),
             json!(package.node_ratio),
+        ),
+        (
+            "speed_limit_kbps",
+            json!(before_package
+                .as_ref()
+                .and_then(|package| package.speed_limit_kbps)),
+            json!(package.speed_limit_kbps),
         ),
         (
             "rule_template_id",
@@ -507,6 +541,7 @@ mod tests {
     use pierwave_domain::repo::user_packages::{self, NewUserPackage};
     use pierwave_domain::repo::users::{self, NewUser};
     use pierwave_domain::Db;
+    use pierwave_proto::MasterMessage;
 
     fn trojan_node(tag: &str, name: &str, port: i64) -> NewNode {
         NewNode {
@@ -523,6 +558,7 @@ mod tests {
             .to_string(),
             enabled: true,
             cert_id: None,
+            bandwidth_kbps: None,
         }
     }
 
@@ -738,6 +774,152 @@ mod tests {
         let error = body["error"].as_str().unwrap();
         assert!(error.contains("节点不存在"), "unexpected: {error}");
         assert!(error.contains("does-not-exist"), "unexpected: {error}");
+    }
+
+    #[tokio::test]
+    async fn speed_limit_crud_validation_and_strictest_wins() {
+        let (app, state, cookie, server_id, _nodes) = setup().await;
+
+        // 创建时带档位；视图原样带出。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/packages",
+            Some(json!({"name": "限速卡", "quota_bytes": 10_000, "speed_limit_kbps": 50_000})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["package"]["speed_limit_kbps"], 50_000);
+        let package_id = body["package"]["id"].as_str().unwrap().to_string();
+
+        // 列表也必须带出该字段。
+        let (_, body) = request(&app, Some(&cookie), Method::GET, "/api/v1/packages", None).await;
+        assert_eq!(package_item(&body, &package_id)["speed_limit_kbps"], 50_000);
+
+        // PATCH 数值：改档位。
+        let uri = format!("/api/v1/packages/{package_id}");
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &uri,
+            Some(json!({"speed_limit_kbps": 20_000})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["package"]["speed_limit_kbps"], 20_000);
+
+        // PATCH null：取消限速。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &uri,
+            Some(json!({"speed_limit_kbps": null})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["package"]["speed_limit_kbps"], Value::Null);
+
+        // 越界：创建与更新都要 400 + 稳定 code。
+        for bad in [-1, 10_000_001] {
+            let (status, body) = request(
+                &app,
+                Some(&cookie),
+                Method::POST,
+                "/api/v1/packages",
+                Some(json!({"name": "坏档位", "speed_limit_kbps": bad})),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "create bad={bad}");
+            assert_eq!(body["code"], "package.speed_limit_kbps_invalid");
+            assert!(body["error"].as_str().unwrap().contains("限速档位"));
+
+            let (status, body) = request(
+                &app,
+                Some(&cookie),
+                Method::PATCH,
+                &uri,
+                Some(json!({"speed_limit_kbps": bad})),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "patch bad={bad}");
+            assert_eq!(body["code"], "package.speed_limit_kbps_invalid");
+        }
+
+        // 同一用户挂两张都覆盖全部节点的卡：生效档位必须取更严格的一个。
+        let slow = create_package(
+            &app,
+            &cookie,
+            json!({"name": "慢卡", "quota_bytes": 10_000, "speed_limit_kbps": 10_000}),
+        )
+        .await;
+        let fast = create_package(
+            &app,
+            &cookie,
+            json!({"name": "快卡", "quota_bytes": 10_000, "speed_limit_kbps": 100_000}),
+        )
+        .await;
+        let alice = users::create(
+            &state.db.pool,
+            NewUser {
+                username: "alice".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+                rule_template_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        for id in [&slow, &fast] {
+            let package = repo::packages::find_by_id(&state.db.pool, id)
+                .await
+                .unwrap()
+                .unwrap();
+            user_packages::create(
+                &state.db.pool,
+                &alice.id,
+                NewUserPackage {
+                    package_id: package.id.clone(),
+                    quota_override: None,
+                    expires_at: None,
+                    reset_day: None,
+                },
+                &package,
+            )
+            .await
+            .unwrap();
+        }
+
+        let mut subscription = state.hub.subscribe(&server_id);
+        let (status, _) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &format!("/api/v1/servers/{server_id}/apply"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let MasterMessage::Desired(desired) = subscription.receiver.recv().await.unwrap() else {
+            panic!("expected desired state");
+        };
+        // 10Mbps -> level 1（buffer 62KB），不是 100Mbps 的 625KB。
+        assert_eq!(desired.xray["policy"]["levels"]["1"]["bufferSize"], 62);
+        assert!(
+            desired.xray["policy"]["levels"].get("2").is_none(),
+            "只应生成一个实际生效的档位：{}",
+            desired.xray["policy"]["levels"]
+        );
+        let client = desired.xray["inbounds"][0]["settings"]["clients"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|client| client["level"].is_number())
+            .unwrap();
+        assert_eq!(client["level"], 1);
     }
 
     /// 三态转换：指定 → 全部（null）、全部 → 指定（数组）、指定 → 空（[]）→ 全部（null）。
@@ -1100,6 +1282,7 @@ mod tests {
                 direction: "both".into(),
                 node_ratio: 1.0,
                 rule_template_id: None,
+                speed_limit_kbps: None,
                 node_ids: None,
             },
         )
@@ -1117,6 +1300,7 @@ mod tests {
                 direction: "both".into(),
                 node_ratio: 1.0,
                 rule_template_id: None,
+                speed_limit_kbps: None,
                 node_ids: Some(Vec::new()),
             },
         )

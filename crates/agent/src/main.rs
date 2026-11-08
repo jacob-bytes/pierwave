@@ -1,12 +1,14 @@
 mod config;
 mod probe;
+mod tc;
 mod traffic;
 mod upgrade;
 
 use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
@@ -100,8 +102,55 @@ async fn main() -> Result<()> {
         cfg.probe_timeout_ms,
         cfg.probe_interval_secs,
     );
+    // tc 状态跨重连保留：断线期间安全阀仍要能删掉自己的 qdisc，所以单独起一个
+    // 每秒检查一次的看门狗，而不是只在 websocket 的 select 循环里检查。
+    let tc_manager = Arc::new(Mutex::new(tc::TcManager::new(
+        cfg.tc_interface.clone(),
+        PathBuf::from(&cfg.tc_state_path),
+    )));
+    {
+        // 上次进程可能被杀，先收敛残留的 1f00: 并恢复原始根队列。
+        let mut manager = tc_manager
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        manager.recover_startup();
+    }
+    {
+        let manager = tc_manager.clone();
+        tokio::spawn(async move {
+            wait_for_shutdown_signal().await;
+            let mut guard = manager
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            guard.cleanup();
+            tracing::info!("收到退出信号，已清理节点限速");
+            std::process::exit(0);
+        });
+    }
+    {
+        let manager = tc_manager.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(1));
+            loop {
+                tick.tick().await;
+                let mut guard = manager
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                guard.safety_check(Instant::now());
+            }
+        });
+    }
     loop {
-        match run_once(&cfg, &boot_id, &mut sampler, &mut traffic_seq, &probe_cache).await {
+        match run_once(
+            &cfg,
+            &boot_id,
+            &mut sampler,
+            &mut traffic_seq,
+            &probe_cache,
+            &tc_manager,
+        )
+        .await
+        {
             Ok(()) => backoff = 1,
             Err(e) => {
                 tracing::warn!(error = %e, backoff, "connection dropped");
@@ -109,6 +158,34 @@ async fn main() -> Result<()> {
                 backoff = (backoff * 2).min(60);
             }
         }
+    }
+}
+
+/// 等 SIGINT / SIGTERM；收到后由调用方清理 tc 再退出。
+async fn wait_for_shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                Ok(signal) => Some(signal),
+                Err(error) => {
+                    tracing::warn!(%error, "注册 SIGTERM 失败，只监听 Ctrl-C");
+                    None
+                }
+            };
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = async {
+                match &mut terminate {
+                    Some(signal) => { signal.recv().await; }
+                    None => std::future::pending::<()>().await,
+                }
+            } => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
     }
 }
 
@@ -147,6 +224,7 @@ async fn run_once(
     sampler: &mut TrafficSampler,
     traffic_seq: &mut u64,
     probe_cache: &probe::ProbeCache,
+    tc_manager: &Arc<Mutex<tc::TcManager>>,
 ) -> Result<()> {
     let url = cfg.ws_url();
     let (mut ws, _) = tokio_tungstenite::connect_async(&url)
@@ -175,6 +253,11 @@ async fn run_once(
                 let Some(frame) = incoming else { return Ok(()) };
                 let frame = frame?;
                 let Message::Text(text) = frame else { continue };
+                // 任何主控消息都证明链路还活着，刷新 tc 安全阀。
+                tc_manager
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .mark_contact(Instant::now());
                 match serde_json::from_str::<MasterMessage>(&text) {
                     Ok(MasterMessage::Ack(ack)) => {
                         tracing::info!(server_id = %ack.server_id, config_version = ack.config_version,
@@ -219,9 +302,30 @@ async fn run_once(
                                 upgraded: false,
                             }
                         };
+                        // tc 是独立于 xray 的收敛项：即使版本没变（重连补发同一版），
+                        // 也要重新对齐——安全阀可能刚在断线期间拆过规则。
+                        // 失败只 warn，绝不影响上面的 xray 配置应用。
+                        if !outcome.upgraded {
+                            if let Err(error) = tc_manager
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                                .apply(&state.nodes, Instant::now())
+                            {
+                                tracing::warn!(
+                                    error = %error,
+                                    "应用节点限速失败（不影响 xray 配置）"
+                                );
+                            }
+                        }
                         // 新二进制已替换、重启命令已执行：当前进程必须退场，
                         // 让 systemd 拉起新版本（也避免旧进程和新进程同时在线）。
                         if outcome.upgraded {
+                            // 升级退出前拆掉自己的 qdisc：新进程拉起前如果失败，
+                            // 没有 Agent 的安全阀兜底，限速规则会永久残留。
+                            tc_manager
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                                .cleanup();
                             tracing::info!("agent upgraded; exiting current process");
                             std::process::exit(0);
                         }
@@ -261,6 +365,10 @@ async fn run_once(
                     probe_cache.load(),
                 ));
                 ws.send(Message::Text(serde_json::to_string(&hb)?)).await?;
+                tc_manager
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .mark_contact(Instant::now());
             }
             _ = traffic.tick() => {
                 match sampler.sample(&cfg.stats_query_command) {

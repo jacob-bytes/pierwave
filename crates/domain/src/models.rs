@@ -134,6 +134,8 @@ pub struct Node {
     pub created_at: i64,
     /// 绑定的证书 id；`security = tls` 的节点必须非空（接口层校验）。
     pub cert_id: Option<String>,
+    /// 节点带宽上限（kbps）。`None` / `0` = 不限；由 Agent 用 tc 精确限速。
+    pub bandwidth_kbps: Option<i64>,
 }
 
 /// 服务器上的一条自定义出站。
@@ -279,6 +281,9 @@ pub struct Package {
     pub period_days: Option<i64>,
     pub direction: String,
     pub node_ratio: f64,
+    /// 套餐限速档位（kbps）。`None` / `0` = 不限；只能映射成 Xray
+    /// `policy.levels.N.bufferSize`，是近似限速而不是精确带宽。
+    pub speed_limit_kbps: Option<i64>,
     /// 套餐级规则模板绑定；`null` = 套餐内用户未单独指定时跟随全局默认。
     pub rule_template_id: Option<String>,
     pub created_at: i64,

@@ -65,6 +65,19 @@ fn validate_port(port: i64) -> AppResult<()> {
     }
 }
 
+/// 带宽上限：0 = 不限；上限 10 Gbps。`None`（未配置）同样表示不限。
+fn validate_bandwidth_kbps(bandwidth_kbps: Option<i64>) -> AppResult<()> {
+    match bandwidth_kbps {
+        None => Ok(()),
+        Some(kbps) if (0..=10_000_000).contains(&kbps) => Ok(()),
+        Some(_) => Err(AppError::coded(
+            "node.bandwidth_kbps_invalid",
+            Some(json!({ "min": 0, "max": 10_000_000 })),
+            "带宽上限必须在 0-10000000 kbps 之间（0 表示不限）",
+        )),
+    }
+}
+
 /// 校验节点与证书的绑定关系：TLS 必须有且证书存在，非 TLS 不允许携带证书。
 async fn validate_cert_binding(
     state: &AppState,
@@ -155,6 +168,9 @@ pub struct CreateNode {
     /// `security = tls` 时必填。
     #[serde(default)]
     pub cert_id: Option<String>,
+    /// 节点带宽上限（kbps）；缺省 / 0 = 不限。
+    #[serde(default)]
+    pub bandwidth_kbps: Option<i64>,
 }
 
 fn default_transport() -> String {
@@ -194,6 +210,7 @@ pub async fn create(
     let transport = normalize_enum("传输方式", &req.transport, TRANSPORTS)?;
     let security = normalize_enum("安全类型", &req.security, SECURITIES)?;
     validate_port(req.port)?;
+    validate_bandwidth_kbps(req.bandwidth_kbps)?;
     ensure_object(&req.config)?;
     let cert_id = normalize_cert_id(req.cert_id.as_deref())?;
     validate_cert_binding(&state, &security, cert_id.as_deref()).await?;
@@ -235,6 +252,7 @@ pub async fn create(
             config_json: req.config.to_string(),
             enabled: req.enabled,
             cert_id,
+            bandwidth_kbps: req.bandwidth_kbps,
         },
     )
     .await?;
@@ -255,6 +273,7 @@ pub async fn create(
             "port": node.port,
             "enabled": node.enabled != 0,
             "cert_id": &node.cert_id,
+            "bandwidth_kbps": node.bandwidth_kbps,
         }),
     )
     .await;
@@ -270,6 +289,8 @@ pub struct PatchNode {
     pub name: Option<String>,
     /// 允许改端口：改完不 apply 不生效，前端会提示
     pub port: Option<i64>,
+    /// 带宽上限（kbps）：不传 = 不改，0 = 取消限速。
+    pub bandwidth_kbps: Option<i64>,
     /// 三态：不传 = 不改，`null` = 解绑，字符串 = 绑定证书。
     #[serde(default)]
     pub cert_id: Patch<String>,
@@ -286,12 +307,13 @@ pub async fn update(
         && req.config.is_none()
         && req.name.is_none()
         && req.port.is_none()
+        && req.bandwidth_kbps.is_none()
         && !req.cert_id.is_set()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 enabled / config / name / port / cert_id 之一",
+            "至少需要提供 enabled / config / name / port / bandwidth_kbps / cert_id 之一",
         ));
     }
     if let Some(config) = &req.config {
@@ -300,6 +322,7 @@ pub async fn update(
     if let Some(port) = req.port {
         validate_port(port)?;
     }
+    validate_bandwidth_kbps(req.bandwidth_kbps)?;
     let name = match req.name.as_deref().map(str::trim) {
         Some("") => {
             return Err(AppError::coded(
@@ -377,6 +400,7 @@ pub async fn update(
         name,
         port: req.port,
         cert_id,
+        bandwidth_kbps: req.bandwidth_kbps,
         ..Default::default()
     };
     let node = repo::nodes::update(&state.db.pool, &id, update)
@@ -393,6 +417,11 @@ pub async fn update(
         ("port", json!(existing.port), json!(node.port)),
         ("name", json!(existing.name), json!(node.name)),
         ("cert_id", json!(existing.cert_id), json!(node.cert_id)),
+        (
+            "bandwidth_kbps",
+            json!(existing.bandwidth_kbps),
+            json!(node.bandwidth_kbps),
+        ),
         ("config", json!(false), json!(config_changed)),
     ]);
     crate::audit::record(
@@ -756,6 +785,7 @@ mod tests {
                 node_ratio: 1.0,
                 rule_template_id: None,
 
+                speed_limit_kbps: None,
                 node_ids: None,
             },
         )
@@ -814,6 +844,180 @@ mod tests {
             pierwave_domain::credentials::sub_uuid(&secret, &eligible.id, &node_id)
         );
         assert_eq!(clients[0]["email"], format!("{}@{node_tag}", eligible.id));
+    }
+
+    #[tokio::test]
+    async fn node_bandwidth_is_validated_and_carried_in_desired_state() {
+        let (app, state, cookie) = setup().await;
+
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/servers",
+            Some(json!({"name": "hk-1", "address": "1.2.3.4"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let server_id = body["server"]["id"].as_str().unwrap().to_string();
+        let nodes_uri = format!("/api/v1/servers/{server_id}/nodes");
+
+        let mut payload = vless_node();
+        payload["bandwidth_kbps"] = json!(100_000);
+        let (status, body) =
+            request(&app, Some(&cookie), Method::POST, &nodes_uri, Some(payload)).await;
+        assert_eq!(status, StatusCode::OK);
+        let node_id = body["node"]["id"].as_str().unwrap().to_string();
+        assert_eq!(body["node"]["bandwidth_kbps"], 100_000);
+
+        // 列表视图必须带出该字段，前端表单/列表不用再查详情。
+        let (_, body) = request(&app, Some(&cookie), Method::GET, &nodes_uri, None).await;
+        assert_eq!(body["items"][0]["bandwidth_kbps"], 100_000);
+
+        let mut subscription = state.hub.subscribe(&server_id);
+        let apply_uri = format!("/api/v1/servers/{server_id}/apply");
+        let (status, _) = request(&app, Some(&cookie), Method::POST, &apply_uri, None).await;
+        assert_eq!(status, StatusCode::OK);
+        let MasterMessage::Desired(desired) = subscription.receiver.recv().await.unwrap() else {
+            panic!("expected desired state");
+        };
+        assert_eq!(desired.nodes.len(), 1, "期望态必须带启用节点列表");
+        assert_eq!(desired.nodes[0].id, node_id);
+        assert_eq!(desired.nodes[0].port, 443);
+        assert_eq!(desired.nodes[0].bandwidth_kbps, 100_000);
+
+        // 0 = 取消限速；视图与期望态都要同步成 0（Agent 视为不限）。
+        let node_uri = format!("/api/v1/nodes/{node_id}");
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &node_uri,
+            Some(json!({"bandwidth_kbps": 0})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["node"]["bandwidth_kbps"], 0);
+
+        let (status, _) = request(&app, Some(&cookie), Method::POST, &apply_uri, None).await;
+        assert_eq!(status, StatusCode::OK);
+        let MasterMessage::Desired(desired) = subscription.receiver.recv().await.unwrap() else {
+            panic!("expected desired state");
+        };
+        assert_eq!(desired.nodes[0].bandwidth_kbps, 0);
+
+        // 越界：-1 与 10_000_001 都要 400 + 稳定 code。
+        for bad in [-1, 10_000_001] {
+            let (status, body) = request(
+                &app,
+                Some(&cookie),
+                Method::PATCH,
+                &node_uri,
+                Some(json!({"bandwidth_kbps": bad})),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "bad={bad}");
+            assert_eq!(body["code"], "node.bandwidth_kbps_invalid");
+            assert!(body["error"].as_str().unwrap().contains("带宽上限"));
+        }
+    }
+
+    #[tokio::test]
+    async fn package_speed_limit_maps_user_to_policy_level() {
+        let (app, state, cookie) = setup().await;
+
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/servers",
+            Some(json!({"name": "hk-1", "address": "1.2.3.4"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let server_id = body["server"]["id"].as_str().unwrap().to_string();
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &format!("/api/v1/servers/{server_id}/nodes"),
+            Some(vless_node()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let node_tag = body["node"]["tag"].as_str().unwrap().to_string();
+
+        let alice = repo::users::create(
+            &state.db.pool,
+            repo::users::NewUser {
+                username: "alice".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+                rule_template_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let package = repo::packages::create(
+            &state.db.pool,
+            repo::packages::NewPackage {
+                name: "限速卡".into(),
+                quota_bytes: Some(10_000),
+                period_days: Some(30),
+                direction: "both".into(),
+                node_ratio: 1.0,
+                speed_limit_kbps: Some(50_000),
+                rule_template_id: None,
+                node_ids: None,
+            },
+        )
+        .await
+        .unwrap();
+        repo::user_packages::create(
+            &state.db.pool,
+            &alice.id,
+            repo::user_packages::NewUserPackage {
+                package_id: package.id.clone(),
+                quota_override: None,
+                expires_at: None,
+                reset_day: None,
+            },
+            &package,
+        )
+        .await
+        .unwrap();
+
+        let mut subscription = state.hub.subscribe(&server_id);
+        let (status, _) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &format!("/api/v1/servers/{server_id}/apply"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let MasterMessage::Desired(desired) = subscription.receiver.recv().await.unwrap() else {
+            panic!("expected desired state");
+        };
+
+        // 50Mbps -> level 1，bufferSize = 50_000 / 160 = 312 KB。
+        let levels = &desired.xray["policy"]["levels"];
+        assert_eq!(levels["0"]["statsUserUplink"], true);
+        assert_eq!(levels["1"]["bufferSize"], 312);
+        assert_eq!(levels["1"]["statsUserUplink"], true);
+
+        let clients = desired.xray["inbounds"][0]["settings"]["clients"]
+            .as_array()
+            .unwrap();
+        assert_eq!(clients.len(), 1);
+        assert_eq!(
+            clients[0]["email"],
+            format!("{}@{node_tag}", alice.id),
+            "client 必须属于 alice"
+        );
+        assert_eq!(clients[0]["level"], 1, "client 必须映射到套餐档位");
     }
 
     #[tokio::test]
@@ -1002,6 +1206,7 @@ mod tests {
                 config_json: "{}".into(),
                 enabled: true,
                 cert_id: None,
+                bandwidth_kbps: None,
             },
         )
         .await

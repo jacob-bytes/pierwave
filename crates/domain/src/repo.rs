@@ -1541,6 +1541,8 @@ pub mod nodes {
         pub config_json: String,
         pub enabled: bool,
         pub cert_id: Option<String>,
+        /// 带宽上限（kbps）；`None` / 0 = 不限。
+        pub bandwidth_kbps: Option<i64>,
     }
 
     #[derive(Default)]
@@ -1555,6 +1557,8 @@ pub mod nodes {
         pub enabled: Option<bool>,
         /// 三态：缺失 = 不改，`Null` = 解绑，`Value` = 绑定指定证书。
         pub cert_id: Patch<String>,
+        /// `None` = 不改；`Some(0)` = 取消限速。
+        pub bandwidth_kbps: Option<i64>,
     }
 
     pub async fn create(
@@ -1572,8 +1576,9 @@ pub mod nodes {
         };
         sqlx::query(
             "INSERT INTO nodes
-                (id, server_id, tag, name, protocol, transport, security, port, config_json, enabled, cert_id, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (id, server_id, tag, name, protocol, transport, security, port, config_json,
+                 enabled, cert_id, bandwidth_kbps, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(server_id)
@@ -1586,6 +1591,7 @@ pub mod nodes {
         .bind(&input.config_json)
         .bind(i64::from(input.enabled))
         .bind(&input.cert_id)
+        .bind(input.bandwidth_kbps)
         .bind(now())
         .execute(pool)
         .await?;
@@ -1678,7 +1684,8 @@ pub mod nodes {
                 port = COALESCE(?, port),
                 config_json = COALESCE(?, config_json),
                 enabled = COALESCE(?, enabled),
-                cert_id = CASE WHEN ? THEN ? ELSE cert_id END
+                cert_id = CASE WHEN ? THEN ? ELSE cert_id END,
+                bandwidth_kbps = COALESCE(?, bandwidth_kbps)
              WHERE id = ?",
         )
         .bind(input.tag)
@@ -1691,6 +1698,7 @@ pub mod nodes {
         .bind(input.enabled.map(i64::from))
         .bind(i64::from(input.cert_id.is_set()))
         .bind(input.cert_id.value())
+        .bind(input.bandwidth_kbps)
         .bind(id)
         .execute(pool)
         .await?;
@@ -2019,6 +2027,8 @@ pub mod packages {
         pub period_days: Option<i64>,
         pub direction: String,
         pub node_ratio: f64,
+        /// 限速档位（kbps）；`None` / 0 = 不限。
+        pub speed_limit_kbps: Option<i64>,
         /// 套餐级规则模板绑定；`None` = 不绑定（跟随全局默认）。
         pub rule_template_id: Option<String>,
         /// `None` = 未设范围（可见全部节点）；`Some([])` = 显式一个都不给。
@@ -2034,6 +2044,8 @@ pub mod packages {
         pub period_days: Patch<i64>,
         pub direction: Option<String>,
         pub node_ratio: Option<f64>,
+        /// 缺失 = 不改；`Patch::Null` = 取消限速；`Patch::Value` = 档位 kbps。
+        pub speed_limit_kbps: Patch<i64>,
         /// 缺失 = 不改；`Patch::Null` = 解绑；`Patch::Value` = 绑定。
         pub rule_template_id: Patch<String>,
         /// 节点范围三态：缺失 = 不动；`Null` = 恢复全部；`Value([])` = 一个都不给。
@@ -2045,9 +2057,9 @@ pub mod packages {
         let mut tx = pool.begin().await?;
         sqlx::query(
             "INSERT INTO packages
-                (id, name, quota_bytes, period_days, direction, node_ratio, rule_template_id,
-                 created_at, node_scope_explicit)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (id, name, quota_bytes, period_days, direction, node_ratio, speed_limit_kbps,
+                 rule_template_id, created_at, node_scope_explicit)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&input.name)
@@ -2055,6 +2067,7 @@ pub mod packages {
         .bind(input.period_days)
         .bind(&input.direction)
         .bind(input.node_ratio)
+        .bind(input.speed_limit_kbps)
         .bind(input.rule_template_id)
         .bind(now())
         .bind(i64::from(input.node_ids.is_some()))
@@ -2168,7 +2181,7 @@ pub mod packages {
     pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<Package>> {
         let mut items = sqlx::query_as::<_, Package>(
             "SELECT p.id, p.name, p.quota_bytes, p.period_days, p.direction, p.node_ratio,
-                    p.rule_template_id, p.created_at, COUNT(up.id) AS user_count
+                    p.speed_limit_kbps, p.rule_template_id, p.created_at, COUNT(up.id) AS user_count
              FROM packages p
              LEFT JOIN user_packages up ON up.package_id = p.id
              GROUP BY p.id
@@ -2224,6 +2237,8 @@ pub mod packages {
         let quota = input.quota_bytes.value();
         let period_set = input.period_days.is_set();
         let period = input.period_days.value();
+        let speed_limit_set = input.speed_limit_kbps.is_set();
+        let speed_limit = input.speed_limit_kbps.value();
         let rule_set = input.rule_template_id.is_set();
         let rule = input.rule_template_id.value();
         // Missing = 不动；Null = 恢复全部（explicit=0，清行）；Value = 显式范围（explicit=1）。
@@ -2240,6 +2255,7 @@ pub mod packages {
                 period_days = CASE WHEN ? THEN ? ELSE period_days END,
                 direction = COALESCE(?, direction),
                 node_ratio = COALESCE(?, node_ratio),
+                speed_limit_kbps = CASE WHEN ? THEN ? ELSE speed_limit_kbps END,
                 rule_template_id = CASE WHEN ? THEN ? ELSE rule_template_id END,
                 node_scope_explicit = CASE WHEN ? THEN ? ELSE node_scope_explicit END
              WHERE id = ?",
@@ -2251,6 +2267,8 @@ pub mod packages {
         .bind(period)
         .bind(input.direction)
         .bind(input.node_ratio)
+        .bind(speed_limit_set)
+        .bind(speed_limit)
         .bind(rule_set)
         .bind(rule)
         .bind(scope_set)
@@ -2721,6 +2739,11 @@ pub mod authorization {
     pub struct EligiblePair {
         pub user_id: String,
         pub node_id: String,
+        /// 该用户在该节点上的近似限速档位（kbps）；`None` = 不限。
+        ///
+        /// 同一用户可能有多张可用套餐都覆盖这个节点，取**最严格**的一档
+        /// （最小的正数）；全部不限时才为 `None`。
+        pub speed_limit_kbps: Option<i64>,
     }
 
     /// 候选行的扁平形态：同一个人可能有多张卡，只要有一张可用就保留。
@@ -2732,6 +2755,7 @@ pub mod authorization {
         expires_at: Option<i64>,
         quota_bytes: Option<i64>,
         used_bytes: i64,
+        speed_limit_kbps: Option<i64>,
     }
 
     /// 给定服务器：enabled 节点 × 有资格用户的笛卡尔集，顺序稳定。
@@ -2766,7 +2790,8 @@ pub mod authorization {
                     up.status AS package_status,
                     up.expires_at,
                     COALESCE(up.quota_override, p.quota_bytes) AS quota_bytes,
-                    up.used_bytes
+                    up.used_bytes,
+                    p.speed_limit_kbps
              FROM users u
              CROSS JOIN nodes n
              JOIN user_packages up ON up.user_id = u.id
@@ -2790,7 +2815,8 @@ pub mod authorization {
         .await?;
 
         let now = super::now();
-        let mut seen = HashSet::new();
+        let mut seen: std::collections::HashMap<(String, String), usize> =
+            std::collections::HashMap::new();
         let mut pairs = Vec::new();
         for row in rows {
             if !crate::models::package_is_usable_at(
@@ -2802,14 +2828,32 @@ pub mod authorization {
             ) {
                 continue;
             }
-            if seen.insert((row.user_id.clone(), row.node_id.clone())) {
-                pairs.push(EligiblePair {
-                    user_id: row.user_id,
-                    node_id: row.node_id,
-                });
+            let key = (row.user_id.clone(), row.node_id.clone());
+            let limit = row.speed_limit_kbps.filter(|kbps| *kbps > 0);
+            if let Some(&index) = seen.get(&key) {
+                // 多张卡都覆盖同一节点时取最严格的一档，避免「贵的卡被便宜卡放松」。
+                let existing: &mut EligiblePair = &mut pairs[index];
+                existing.speed_limit_kbps = strictest_limit(existing.speed_limit_kbps, limit);
+                continue;
             }
+            seen.insert(key, pairs.len());
+            pairs.push(EligiblePair {
+                user_id: row.user_id,
+                node_id: row.node_id,
+                speed_limit_kbps: limit,
+            });
         }
         Ok(pairs)
+    }
+
+    /// 两档限速取更严格的一档：`None` 表示不限，任何正数都比 `None` 严格。
+    fn strictest_limit(a: Option<i64>, b: Option<i64>) -> Option<i64> {
+        match (a, b) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        }
     }
 
     /// 单个用户在所有服务器上的可见节点 id（订阅导出用）。

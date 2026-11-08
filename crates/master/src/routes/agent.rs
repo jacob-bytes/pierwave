@@ -98,7 +98,7 @@ async fn handle(mut socket: WebSocket, state: AppState, base_url: String) {
                     xray: rendered.xray,
                     files: rendered.files,
                     agent_upgrade: rendered.agent_upgrade,
-                    nodes: Vec::new(), // 限速 lane 接入后改为 rendered.nodes
+                    nodes: rendered.nodes,
                 });
                 if !send_json(&mut socket, &desired).await {
                     return;
@@ -589,6 +589,7 @@ mod tests {
                 node_ratio,
                 rule_template_id: None,
 
+                speed_limit_kbps: None,
                 node_ids: None,
             },
         )
@@ -911,6 +912,7 @@ mod enforcement_tests {
                 .to_string(),
                 enabled: true,
                 cert_id: None,
+                bandwidth_kbps: None,
             },
         )
         .await
@@ -955,6 +957,7 @@ mod enforcement_tests {
                 node_ratio: 1.0,
                 rule_template_id: None,
 
+                speed_limit_kbps: None,
                 node_ids: None,
             },
         )
@@ -1389,6 +1392,7 @@ mod enforcement_tests {
                 node_ratio: 1.0,
                 rule_template_id: None,
 
+                speed_limit_kbps: None,
                 node_ids: None,
             },
         )
@@ -1413,6 +1417,7 @@ mod enforcement_tests {
                 node_ratio: 1.0,
                 rule_template_id: None,
 
+                speed_limit_kbps: None,
                 node_ids: None,
             },
         )

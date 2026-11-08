@@ -33,6 +33,12 @@ pub struct Config {
     /// 采样 Xray 计数器的命令；测试/本地可指向假脚本
     #[serde(default = "default_stats_query_command")]
     pub stats_query_command: String,
+    /// 节点限速 tc 的出口网卡；空 = 自动探测默认路由所在网卡。
+    #[serde(default)]
+    pub tc_interface: Option<String>,
+    /// tc 原始根队列快照文件；应用限速前记录、清理时恢复。
+    #[serde(default = "default_tc_state_path")]
+    pub tc_state_path: String,
     /// 流量采样间隔（秒）；生产默认 60，e2e 会调到 1
     #[serde(default = "default_stats_interval_secs")]
     pub stats_interval_secs: u64,
@@ -90,6 +96,9 @@ fn default_stats_query_command() -> String {
 }
 fn default_stats_interval_secs() -> u64 {
     60
+}
+fn default_tc_state_path() -> String {
+    "/var/lib/pierwave-agent/tc-originals.json".into()
 }
 fn default_probe_target() -> String {
     "1.1.1.1:443".into()
@@ -153,6 +162,8 @@ mod tests {
             xray_test_command: default_xray_test_command(),
             backup_suffix: default_backup_suffix(),
             stats_query_command: default_stats_query_command(),
+            tc_interface: None,
+            tc_state_path: default_tc_state_path(),
             stats_interval_secs: default_stats_interval_secs(),
             probe_target: default_probe_target(),
             probe_timeout_ms: default_probe_timeout_ms(),
@@ -253,6 +264,29 @@ mod tests {
         .unwrap();
         assert_eq!(parsed.stats_query_command, "/tmp/fake-stats.sh");
         assert_eq!(parsed.stats_interval_secs, 5);
+    }
+
+    #[test]
+    fn tc_interface_defaults_to_auto_detect_and_can_be_overridden() {
+        let parsed: Config =
+            toml::from_str("master_url = \"http://127.0.0.1:8787\"\ntoken = \"t\"\n").unwrap();
+        assert!(
+            parsed.tc_interface.is_none(),
+            "默认必须自动探测默认路由网卡"
+        );
+        assert_eq!(
+            parsed.tc_state_path,
+            "/var/lib/pierwave-agent/tc-originals.json"
+        );
+
+        let parsed: Config = toml::from_str(
+            "master_url = \"http://127.0.0.1:8787\"\ntoken = \"t\"\n\
+             tc_interface = \"eth1\"\n\
+             tc_state_path = \"/tmp/tc-originals.json\"\n",
+        )
+        .unwrap();
+        assert_eq!(parsed.tc_interface.as_deref(), Some("eth1"));
+        assert_eq!(parsed.tc_state_path, "/tmp/tc-originals.json");
     }
 
     #[test]

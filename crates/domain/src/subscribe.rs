@@ -3233,6 +3233,7 @@ mod tests {
             enabled: 1,
             created_at: 1,
             cert_id: None,
+            bandwidth_kbps: None,
         }
     }
 }

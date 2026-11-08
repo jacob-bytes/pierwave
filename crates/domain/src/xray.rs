@@ -3,6 +3,8 @@
 //! 节点在库里只存「入站片段」（`config_json`），真正的完整配置由这里拼装。
 //! 同样的输入必须得到同样的输出，且 `inbounds` 顺序严格等于传入节点顺序。
 
+use std::collections::BTreeMap;
+
 use serde_json::{json, Map, Value};
 
 use crate::credentials;
@@ -18,6 +20,8 @@ pub struct Grant {
     pub user_id: String,
     pub node_id: String,
     pub uuid: String,
+    /// 套餐档位（kbps）；`None` / 0 = 不限，生成的 client 不带 `level`。
+    pub speed_limit_kbps: Option<i64>,
 }
 
 impl Grant {
@@ -27,7 +31,20 @@ impl Grant {
             user_id: user_id.to_string(),
             node_id: node_id.to_string(),
             uuid: credentials::sub_uuid(secret, user_id, node_id),
+            speed_limit_kbps: None,
         }
+    }
+
+    /// 同 [`Grant::new`]，额外带上套餐限速档位；0 与负数按「不限」处理。
+    pub fn limited(
+        secret: &str,
+        user_id: &str,
+        node_id: &str,
+        speed_limit_kbps: Option<i64>,
+    ) -> Self {
+        let mut grant = Self::new(secret, user_id, node_id);
+        grant.speed_limit_kbps = speed_limit_kbps.filter(|kbps| *kbps > 0);
+        grant
     }
 }
 
@@ -99,11 +116,86 @@ pub fn build_config(plan: &ServerPlan) -> Value {
     build_config_impl(plan, plan.nodes)
 }
 
+/// 套餐档位 → Xray level 的稳定映射。
+///
+/// 只收集**实际出现**在授权集合里的正整数档位，升序后从 1 开始编号；
+/// level 0 永远保留给「不限速」的用户（Xray 的默认 level）。
+/// 用 `BTreeMap` 而不是 `HashMap`：同样的授权集合必须生成逐字节相同的配置。
+fn speed_tiers(grants: &[Grant]) -> BTreeMap<i64, i64> {
+    let mut tiers = BTreeMap::new();
+    for grant in grants {
+        if let Some(kbps) = grant.speed_limit_kbps.filter(|kbps| *kbps > 0) {
+            tiers.entry(kbps).or_insert(0);
+        }
+    }
+    for (index, level) in tiers.values_mut().enumerate() {
+        *level = index as i64 + 1;
+    }
+    tiers
+}
+
+/// 生成 `policy.levels`：`"0"` 是默认档，之后每个限速档位一个 level。
+///
+/// 每个档位都必须带 `statsUserUplink/Downlink`，否则用户一被分到 level > 0，
+/// Xray 就不再为该用户累计流量，计费会静默归零。
+fn policy_levels(tiers: &BTreeMap<i64, i64>) -> Value {
+    let mut levels = Map::new();
+    levels.insert(
+        "0".into(),
+        json!({
+            "statsUserUplink": true,
+            "statsUserDownlink": true
+        }),
+    );
+    for (kbps, level) in tiers {
+        levels.insert(
+            level.to_string(),
+            json!({
+                "bufferSize": buffer_size_kb(*kbps),
+                "statsUserUplink": true,
+                "statsUserDownlink": true
+            }),
+        );
+    }
+    Value::Object(levels)
+}
+
+/// 把套餐档位（kbps）近似换算成 Xray `bufferSize`（单位 KB）。
+///
+/// Xray 的 `bufferSize` 不是限速器：它是每个请求的内部缓冲，写操作要等
+/// 缓冲区回落到该值以下才继续读，所以单条连接的粗吞吐约为
+/// `bufferSize / RTT`。取一个固定 RTT = 50ms（跨国公网常见量级）：
+///
+/// ```text
+/// bufferSize(KB) = kbps / 8 (KB/s) × 0.05s = kbps / 160
+/// ```
+///
+/// 下限 16KB：文档明确说过 buffer 太小/为 0 会让 UDP 满缓冲直接丢包；
+/// 上限 1GB 只是为了挡住异常输入。真实吞吐还会被 RTT、并发连接数、
+/// mux 子流数放大或缩小，所以这是**近似**，不是精确带宽。
+fn buffer_size_kb(kbps: i64) -> i64 {
+    if kbps <= 0 {
+        return 512;
+    }
+    (kbps / 160).clamp(16, 1_048_576)
+}
+
 fn build_config_impl(plan: &ServerPlan, nodes: &[Node]) -> Value {
+    // 套餐档位 -> Xray level（1..N）。level 0 固定留给「没配限速」的用户。
+    let tiers = speed_tiers(plan.grants);
     let mut inbounds: Vec<Value> = nodes
         .iter()
         .enumerate()
-        .map(|(index, node)| build_inbound(plan.server_name, index, node, plan.grants, plan.certs))
+        .map(|(index, node)| {
+            build_inbound(
+                plan.server_name,
+                index,
+                node,
+                plan.grants,
+                plan.certs,
+                &tiers,
+            )
+        })
         .collect();
     inbounds.push(api_inbound());
 
@@ -144,13 +236,10 @@ fn build_config_impl(plan: &ServerPlan, nodes: &[Node]) -> Value {
         "stats": {},
         // 用户级计数器挂在 policy.levels."0" 上，不是 policy.system——
         // 放到 system 里 Xray 会静默忽略，表现为「流量都跑了，但计费一直是 0」。
+        // 限速档位从 level 1 开始，每个档位也必须打开同样的计数器，
+        // 否则用户一旦被分到 level > 0，计费就会归零。
         "policy": {
-            "levels": {
-                "0": {
-                    "statsUserUplink": true,
-                    "statsUserDownlink": true
-                }
-            },
+            "levels": policy_levels(&tiers),
             "system": {
                 "statsInboundUplink": true,
                 "statsInboundDownlink": true
@@ -390,6 +479,7 @@ fn build_inbound(
     node: &Node,
     grants: &[Grant],
     certs: &[NodeCertificate],
+    tiers: &BTreeMap<i64, i64>,
 ) -> Value {
     let mut inbound = parse_fragment(&node.config_json);
 
@@ -413,7 +503,7 @@ fn build_inbound(
     apply_tls_certificate(&mut inbound, node, certs);
 
     let tag = effective_tag(server_name, index, node);
-    inject_clients(&mut inbound, node, &tag, grants);
+    inject_clients(&mut inbound, node, &tag, grants, tiers);
 
     inbound.insert("tag".into(), Value::String(tag));
     inbound.insert("port".into(), Value::from(node.port));
@@ -429,7 +519,13 @@ fn build_inbound(
 ///
 /// 只在协议支持「按用户建 client」时生效；`grants` 里没有该节点的授权时完全不动
 /// `settings`，保证没有套餐/没有用户时生成的配置与历史版本一致。
-fn inject_clients(inbound: &mut Map<String, Value>, node: &Node, tag: &str, grants: &[Grant]) {
+fn inject_clients(
+    inbound: &mut Map<String, Value>,
+    node: &Node,
+    tag: &str,
+    grants: &[Grant],
+    tiers: &BTreeMap<i64, i64>,
+) {
     let protocol = node.protocol.trim().to_ascii_lowercase();
     if !matches!(
         protocol.as_str(),
@@ -526,6 +622,14 @@ fn inject_clients(inbound: &mut Map<String, Value>, node: &Node, tag: &str, gran
             "email".into(),
             Value::String(credentials::sub_email(&grant.user_id, tag)),
         );
+        // 有限速档位的用户落到对应 level；不限速的用户保持历史行为（不写 level，
+        // 默认 level 0），所以没有档位时生成的配置与旧版本完全一致。
+        if let Some(level) = grant
+            .speed_limit_kbps
+            .and_then(|kbps| tiers.get(&kbps).copied())
+        {
+            client.insert("level".into(), Value::from(level));
+        }
         clients.push(Value::Object(client));
     }
 }
@@ -662,6 +766,7 @@ mod tests {
             enabled: 1,
             created_at: 1,
             cert_id: None,
+            bandwidth_kbps: None,
         }
     }
 
@@ -1194,5 +1299,125 @@ mod tests {
         };
         let cfg = build_config(&plan);
         assert_eq!(cfg["inbounds"][0]["streamSettings"]["network"], "tcp");
+    }
+    fn client_for<'a>(config: &'a Value, tag: &str, user_id: &str) -> &'a Value {
+        let email = credentials::sub_email(user_id, tag);
+        config["inbounds"][0]["settings"]["clients"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|client| client["email"] == email)
+            .unwrap_or_else(|| panic!("找不到 {email} 的 client"))
+    }
+
+    #[test]
+    fn speed_limit_tiers_generate_level_buffers_and_map_clients() {
+        let n = node(
+            "vless-reality",
+            "vless",
+            "tcp",
+            "reality",
+            443,
+            r#"{"settings": {"clients": [], "decryption": "none"},
+                "stream": {"network": "tcp", "security": "reality"}}"#,
+        );
+        let grants = vec![
+            Grant::limited(SECRET, "user-fast", &n.id, Some(100_000)),
+            Grant::limited(SECRET, "user-slow", &n.id, Some(10_000)),
+            Grant::new(SECRET, "user-free", &n.id),
+        ];
+        let config = build("hk-1", &[n], &grants);
+        let levels = &config["policy"]["levels"];
+
+        // level 0 必须保留给默认档（计费口径挂在这里）。
+        assert_eq!(levels["0"]["statsUserUplink"], true);
+        assert_eq!(levels["0"]["statsUserDownlink"], true);
+        assert!(levels["0"].get("bufferSize").is_none());
+
+        // 档位按 kbps 升序编号：10Mbps -> level 1，100Mbps -> level 2。
+        assert_eq!(levels["1"]["bufferSize"], 62);
+        assert_eq!(levels["2"]["bufferSize"], 625);
+        assert_ne!(
+            levels["1"]["bufferSize"], levels["2"]["bufferSize"],
+            "不同档位必须生成不同 bufferSize"
+        );
+        // 分到 level > 0 的用户仍要计费，否则流量统计会静默归零。
+        for level in ["1", "2"] {
+            assert_eq!(levels[level]["statsUserUplink"], true, "level {level}");
+            assert_eq!(levels[level]["statsUserDownlink"], true, "level {level}");
+        }
+
+        let slow = client_for(&config, "vless-reality", "user-slow");
+        let fast = client_for(&config, "vless-reality", "user-fast");
+        let free = client_for(&config, "vless-reality", "user-free");
+        assert_eq!(slow["level"], 1);
+        assert_eq!(fast["level"], 2);
+        assert!(
+            free.get("level").is_none(),
+            "不限速用户必须保持不写 level 的旧行为"
+        );
+    }
+
+    #[test]
+    fn same_limit_shares_one_level_across_users_and_nodes() {
+        let a = node("a", "vless", "tcp", "none", 443, "{}");
+        let b = node("b", "trojan", "tcp", "none", 8443, "{}");
+        let grants = vec![
+            Grant::limited(SECRET, "u1", &a.id, Some(50_000)),
+            Grant::limited(SECRET, "u2", &a.id, Some(50_000)),
+            Grant::limited(SECRET, "u1", &b.id, Some(50_000)),
+        ];
+        let config = build_config(&ServerPlan {
+            server_name: "hk-1",
+            nodes: &[a, b],
+            grants: &grants,
+            certs: &[],
+            outbounds: &[],
+            rules: &[],
+        });
+        let levels = config["policy"]["levels"].as_object().unwrap();
+        assert_eq!(levels.len(), 2, "level 0 + 一个 50Mbps 档");
+        assert_eq!(levels["1"]["bufferSize"], 312); // 50_000 / 160
+        for inbound in config["inbounds"].as_array().unwrap() {
+            if inbound["tag"] == "api" {
+                continue;
+            }
+            for client in inbound["settings"]["clients"].as_array().unwrap() {
+                assert_eq!(client["level"], 1);
+            }
+        }
+    }
+
+    #[test]
+    fn no_speed_limit_keeps_legacy_policy_shape() {
+        let n = node(
+            "vless",
+            "vless",
+            "tcp",
+            "none",
+            443,
+            r#"{"settings": {"clients": [], "decryption": "none"}}"#,
+        );
+        let grants = vec![Grant::new(SECRET, "u1", &n.id)];
+        let config = build("hk-1", &[n], &grants);
+
+        let levels = config["policy"]["levels"].as_object().unwrap();
+        assert_eq!(levels.len(), 1, "没有限速档位时只有 level 0");
+        assert_eq!(levels["0"]["statsUserUplink"], true);
+        let client = client_for(&config, "vless", "u1");
+        assert!(client.get("level").is_none());
+    }
+
+    #[test]
+    fn buffer_size_conversion_is_bounded_and_monotonic() {
+        assert_eq!(buffer_size_kb(100_000), 625);
+        assert_eq!(buffer_size_kb(160_000), 1_000);
+        assert_eq!(buffer_size_kb(10_000_000), 62_500);
+        // 极低档位有下限，避免 UDP 满缓冲直接丢包。
+        assert_eq!(buffer_size_kb(1_000), 16);
+        assert_eq!(buffer_size_kb(0), 512);
+        // 异常大输入有上限，但正常档位不会碰到。
+        assert_eq!(buffer_size_kb(i64::MAX), 1_048_576);
+        assert!(buffer_size_kb(20_000) < buffer_size_kb(40_000));
     }
 }

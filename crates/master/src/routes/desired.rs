@@ -10,7 +10,7 @@ use serde_json::Value;
 use pierwave_domain::certificate;
 use pierwave_domain::models::Server;
 use pierwave_domain::{credentials, release, repo, time, xray};
-use pierwave_proto::{AgentUpgradePlan, ManagedFile};
+use pierwave_proto::{AgentUpgradePlan, DesiredNode, ManagedFile};
 
 use crate::error::AppResult;
 use crate::state::AppState;
@@ -25,6 +25,8 @@ pub struct DesiredConfig {
     pub warnings: Vec<String>,
     /// 本次要随配置落盘的证书/私钥文件（按证书 id 去重，路径稳定）。
     pub files: Vec<ManagedFile>,
+    /// 已启用节点的限速信息；Agent 只认这个列表生成/清理 tc 规则。
+    pub nodes: Vec<DesiredNode>,
     /// 本次是否要下发 Agent 升级计划；`None` = 不升级。
     pub agent_upgrade: Option<AgentUpgradePlan>,
 }
@@ -60,7 +62,9 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
 
     let grants: Vec<xray::Grant> = pairs
         .iter()
-        .map(|pair| xray::Grant::new(&secret, &pair.user_id, &pair.node_id))
+        .map(|pair| {
+            xray::Grant::limited(&secret, &pair.user_id, &pair.node_id, pair.speed_limit_kbps)
+        })
         .collect();
 
     // 证书按 id 去重：同一张证书被多个节点引用时只写一份文件。
@@ -118,6 +122,17 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
     };
     let (xray, warnings) = xray::build_config_checked_with_certs(&plan);
 
+    // tc 只需要 id/tag/port/bandwidth；NULL 与 0 统一成 0（不限），Agent 不解析 Option。
+    let desired_nodes: Vec<DesiredNode> = nodes
+        .iter()
+        .map(|node| DesiredNode {
+            id: node.id.clone(),
+            tag: node.tag.clone(),
+            port: node.port,
+            bandwidth_kbps: node.bandwidth_kbps.unwrap_or(0).max(0),
+        })
+        .collect();
+
     Ok(DesiredConfig {
         xray,
         node_count: nodes.len() - warnings.len(),
@@ -125,6 +140,7 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
         granted_user_ids,
         warnings,
         files,
+        nodes: desired_nodes,
         agent_upgrade: upgrade_plan(state, server, base_url),
     })
 }
@@ -228,7 +244,7 @@ pub async fn publish(
             xray: desired.xray,
             files: desired.files,
             agent_upgrade: desired.agent_upgrade,
-            nodes: Vec::new(), // 限速 lane 接入后改为 desired.nodes
+            nodes: desired.nodes,
         }),
     );
 

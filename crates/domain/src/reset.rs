@@ -99,6 +99,7 @@ mod tests {
                 node_ratio: 1.0,
                 rule_template_id: None,
 
+                speed_limit_kbps: None,
                 node_ids: None,
             },
         )

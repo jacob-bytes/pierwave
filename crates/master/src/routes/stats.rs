@@ -282,6 +282,7 @@ mod tests {
                 node_ratio: 1.0,
                 rule_template_id: None,
 
+                speed_limit_kbps: None,
                 node_ids: None,
             },
         )
@@ -510,6 +511,7 @@ mod tests {
                 config_json: "{}".into(),
                 enabled: true,
                 cert_id: None,
+                bandwidth_kbps: None,
             },
         )
         .await

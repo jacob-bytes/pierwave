@@ -214,6 +214,7 @@ mod tests {
                 direction: "both".into(),
                 node_ratio: 1.0,
                 rule_template_id: Some(package_template.clone()),
+                speed_limit_kbps: None,
                 node_ids: None,
             },
         )
@@ -228,6 +229,7 @@ mod tests {
                 direction: "both".into(),
                 node_ratio: 1.0,
                 rule_template_id: None,
+                speed_limit_kbps: None,
                 node_ids: None,
             },
         )

@@ -629,6 +629,7 @@ mod tests {
                 .to_string(),
                 enabled: true,
                 cert_id: None,
+                bandwidth_kbps: None,
             },
         )
         .await

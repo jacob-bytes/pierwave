@@ -434,6 +434,7 @@ mod tests {
                 config_json: "{}".into(),
                 enabled: true,
                 cert_id: None,
+                bandwidth_kbps: None,
             },
         )
         .await
