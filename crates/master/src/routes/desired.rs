@@ -244,6 +244,7 @@ pub async fn publish(
             xray: desired.xray,
             files: desired.files,
             agent_upgrade: desired.agent_upgrade,
+            forwards: Vec::new(), // 转发 lane 接入后改为 desired.forwards
             nodes: desired.nodes,
         }),
     );

@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 5;
+pub const PROTOCOL_VERSION: u32 = 6;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +38,9 @@ pub struct Heartbeat {
     /// 缺省为空串时主控回落到 `PIERWAVE_AGENT_TARGET` 配置。
     #[serde(default)]
     pub arch: String,
+    /// 各转发规则的监听状态。
+    #[serde(default)]
+    pub forwards: Vec<ForwardStatus>,
     /// Agent 到探测目标（默认 1.1.1.1:443）的 TCP 握手往返毫秒数。
     /// `None` = 这轮没探测成功或旧 Agent 不认识该字段。
     #[serde(default)]
@@ -63,6 +66,10 @@ pub struct DesiredState {
     /// 期望的 Agent 升级目标。None = 不需要升级。
     #[serde(default)]
     pub agent_upgrade: Option<AgentUpgradePlan>,
+    /// 期望的端口转发规则（Agent 原生 TCP 监听，不经 Xray）。
+    /// 旧主控不下发时为空，Agent 视为「没有转发」并停掉自己的监听。
+    #[serde(default)]
+    pub forwards: Vec<DesiredForward>,
     /// 本次期望态里**已启用**节点的限速信息，供 Agent 生成 tc 规则。
     ///
     /// 只放 Agent 需要的最小集合：它拿不到服务器的节点表，而 xray JSON 里
@@ -70,6 +77,28 @@ pub struct DesiredState {
     /// Agent 视为「没有任何限速」并清掉自己建的 qdisc。
     #[serde(default)]
     pub nodes: Vec<DesiredNode>,
+}
+
+/// 一条端口转发：Agent 在 `listen_port` 上监听，把连接原样转到 `target`。
+///
+/// 与 Xray 节点是两套并行系统：转发走裸 TCP，不进代理协议栈，
+/// 因此也没有 `email`/统计计数器——它不计入用户流量。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DesiredForward {
+    pub id: String,
+    pub listen_port: i64,
+    pub target_host: String,
+    pub target_port: i64,
+}
+
+/// Agent 回报的转发运行状态（心跳里带）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct ForwardStatus {
+    pub id: String,
+    pub listening: bool,
+    /// 监听失败的原因（端口被占用等）；正常时为空串。
+    #[serde(default)]
+    pub error: String,
 }
 
 /// 期望态里的单个节点（仅 Agent 生成 tc 规则需要的字段）。
@@ -178,6 +207,7 @@ mod tests {
             files: vec![],
             agent_upgrade: None,
             nodes: vec![],
+            forwards: vec![],
         });
         let json = serde_json::to_string(&state).unwrap();
         let back: MasterMessage = serde_json::from_str(&json).unwrap();

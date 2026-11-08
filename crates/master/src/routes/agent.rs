@@ -98,6 +98,7 @@ async fn handle(mut socket: WebSocket, state: AppState, base_url: String) {
                     xray: rendered.xray,
                     files: rendered.files,
                     agent_upgrade: rendered.agent_upgrade,
+                    forwards: Vec::new(), // 转发 lane 接入后改为 rendered.forwards
                     nodes: rendered.nodes,
                 });
                 if !send_json(&mut socket, &desired).await {

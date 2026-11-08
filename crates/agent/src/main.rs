@@ -700,6 +700,7 @@ fn sample_heartbeat(seq: u64, uptime_secs: u64, latency_ms: Option<u32>) -> Hear
         agent_version: env!("CARGO_PKG_VERSION").to_string(),
         arch: std::env::consts::ARCH.to_string(),
         latency_ms,
+        forwards: Vec::new(), // 转发 lane 接入后填真实监听状态
         uptime_secs,
         load1,
         mem_used,
