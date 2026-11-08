@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId } from "react";
 import {
   Bar,
   BarChart,
@@ -8,9 +8,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { ChartColumnIcon, ChevronDownIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { ChartColumnIcon } from "lucide-react";
 import type { TrafficDay } from "@/lib/api";
 import { formatBytes } from "@/lib/format";
 import { t } from "@/i18n";
@@ -149,7 +147,6 @@ export default function TrafficChart({ days }: { days: TrafficDay[] }) {
   // 每个图表实例的 pattern id 唯一，避免同页多图时互相引用。
   const patternId = `pw-traffic-uplink-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const dataTableId = `pw-traffic-data-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
-  const [dataOpen, setDataOpen] = useState(false);
   const hasTraffic = days.some(
     (day) => day.downlink > 0 || day.uplink > 0,
   );
@@ -256,79 +253,31 @@ export default function TrafficChart({ days }: { days: TrafficDay[] }) {
       </div>
 
       {/*
-        图表不是唯一的取数方式：键盘 / 读屏用户可以展开逐日数据表。
-        默认折叠，按钮带 aria-expanded / aria-controls，表格本身可聚焦。
+        图表不是唯一的取数方式：逐日数据表始终渲染，用 sr-only 视觉隐藏，
+        读屏与键盘用户仍可逐行取数；视觉上不再出现按钮。
       */}
-      <div className="flex flex-col gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="self-start"
-          aria-expanded={dataOpen}
-          aria-controls={dataTableId}
-          onClick={() => setDataOpen((open) => !open)}
-        >
-          <ChartColumnIcon className="icon-md" aria-hidden="true" />
-          {dataOpen
-            ? t("trafficChart.hideData")
-            : t("trafficChart.viewData")}
-          <ChevronDownIcon
-            className={cn(
-              "icon-md transition-transform duration-150",
-              dataOpen && "rotate-180",
-            )}
-            aria-hidden="true"
-          />
-        </Button>
-        {dataOpen ? (
-          <div className="overflow-x-auto rounded-md border border-border">
-            <table
-              id={dataTableId}
-              tabIndex={0}
-              data-slot="traffic-data-table"
-              className="w-full text-xs"
-            >
-              <caption className="border-b border-border bg-muted/30 px-3 py-2 text-left text-muted-foreground">
-                {t("trafficChart.dataTableCaption")}
-              </caption>
-              <thead>
-                <tr className="border-b border-border text-left text-muted-foreground">
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    {t("trafficChart.date")}
-                  </th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">
-                    {t("trafficChart.downlink")}
-                  </th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">
-                    {t("trafficChart.uplink")}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {days.map((day) => (
-                  <tr
-                    key={day.date}
-                    className="border-b border-border last:border-0"
-                  >
-                    <th
-                      scope="row"
-                      className="px-3 py-1.5 text-left font-mono font-normal text-muted-foreground"
-                    >
-                      {day.date}
-                    </th>
-                    <td className="px-3 py-1.5 text-right font-mono tabular-nums">
-                      {formatBytes(day.downlink)}
-                    </td>
-                    <td className="px-3 py-1.5 text-right font-mono tabular-nums">
-                      {formatBytes(day.uplink)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
+      <div className="sr-only">
+        <table id={dataTableId} data-slot="traffic-data-table" className="w-full text-xs">
+          <caption>
+            {t("trafficChart.dataTableCaption")}
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">{t("trafficChart.date")}</th>
+              <th scope="col">{t("trafficChart.downlink")}</th>
+              <th scope="col">{t("trafficChart.uplink")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {days.map((day) => (
+              <tr key={day.date}>
+                <th scope="row">{day.date}</th>
+                <td>{formatBytes(day.downlink)}</td>
+                <td>{formatBytes(day.uplink)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

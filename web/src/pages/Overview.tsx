@@ -152,7 +152,7 @@ function OverviewSkeleton() {
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiSkeletons />
       </section>
-      <section className="grid items-start gap-4 xl:grid-cols-3">
+      <section className="grid gap-4 xl:grid-cols-3">
         <Card className="gap-4 xl:col-span-2">
           <CardHeader>
             <Skeleton className="h-4 w-32" />
@@ -405,7 +405,7 @@ export default function OverviewPage() {
             />
           </section>
 
-          <section className="grid items-start gap-4 xl:grid-cols-3">
+          <section className="grid gap-4 xl:grid-cols-3">
             <Card className="gap-4 xl:col-span-2">
               <CardHeader>
                 <CardTitle className="text-sm font-medium">
