@@ -1770,7 +1770,7 @@ const en = {
   chains: {
     title: "Forward chains",
     subtitle:
-      "Chain servers hop by hop: each hop can be a single node or a group, and clients enter at the first hop and relay by strategy to the next.",
+      "Chain servers hop by hop: each hop can be a single node or a group, and clients enter at the first hop and relay by strategy to the next. Up to 4 hops: every extra hop adds a relay, and with it latency and another failure point.",
     loadError:
       "Could not load forward chains. Check your network and try again.",
     relayNote:
@@ -1831,7 +1831,7 @@ const en = {
       loadFailed: "Forward chains failed to load",
       emptyTitle: "No forward chains yet",
       emptyDesc:
-        "Chain servers hop by hop: each hop can be a single node or a group, and clients enter at the first hop and relay by strategy to the next.",
+        "Chain servers hop by hop: each hop can be a single node or a group, and clients enter at the first hop and relay by strategy to the next. Up to 4 hops: every extra hop adds a relay, and with it latency and another failure point.",
       emptyAction: "Create first chain",
     },
     detail: {
