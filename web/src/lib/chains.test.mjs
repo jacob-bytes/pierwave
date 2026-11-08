@@ -17,6 +17,7 @@ import {
   formatHopEndpoint,
   formatMemberEndpoint,
   groupIsDegraded,
+  groupKind,
   hopListeningState,
   hopTargetState,
   isChainStrategy,
@@ -341,4 +342,14 @@ test("collectGroupIssues ignores blank server ids", () => {
     collectGroupIssues([groupInput(["", ""]), groupInput(["a"])]),
     [],
   );
+});
+
+test("groupKind treats one unnamed default-strategy member as a single node", () => {
+  const member = { server_id: "a", listen_port: 19001 };
+  assert.equal(groupKind({ members: [member] }), "single");
+  assert.equal(groupKind({ name: "  ", strategy: "round_robin", members: [member] }), "single");
+  assert.equal(groupKind({ name: "香港入口", members: [member] }), "group");
+  assert.equal(groupKind({ strategy: "failover", members: [member] }), "group");
+  assert.equal(groupKind({ members: [member, { ...member, server_id: "b" }] }), "group");
+  assert.equal(groupKind({ members: [] }), "group");
 });

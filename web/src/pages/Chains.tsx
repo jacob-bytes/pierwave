@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { toast } from "sonner";
 import {
+  ArrowDownIcon,
   ArrowRightIcon,
   ChevronRightIcon,
   InfoIcon,
@@ -58,6 +59,7 @@ import {
   entryMember,
   formatMemberEndpoint,
   groupIsDegraded,
+  groupKind,
   hopListeningState,
   hopTargetState,
   orderGroups,
@@ -335,6 +337,8 @@ function GroupCard({
   const { t } = useI18n();
   const members = orderMembers(group.members);
   const degraded = groupIsDegraded(group);
+  const kind = groupKind(group);
+  const single = kind === "single";
   const name = group.name?.trim() || t("chains.detail.unnamedGroup");
 
   return (
@@ -349,7 +353,7 @@ function GroupCard({
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <span className="shrink-0 text-[11px] text-muted-foreground">
-            {t("chains.detail.group", { seq: group.seq + 1 })}
+            {t("chains.detail.hop", { seq: group.seq + 1 })}
           </span>
           {isEntry ? (
             <Badge
@@ -359,13 +363,21 @@ function GroupCard({
               {t("chains.detail.entryBadge")}
             </Badge>
           ) : null}
-          <span
-            className="max-w-full truncate text-xs font-medium"
-            title={name}
+          <Badge
+            variant="secondary"
+            className="h-4 px-1.5 text-[10px] font-normal"
           >
-            {name}
-          </span>
-          <StrategyBadge strategy={group.strategy} />
+            {t(single ? "chains.detail.singleNode" : "chains.detail.groupType")}
+          </Badge>
+          {!single ? (
+            <span
+              className="max-w-full truncate text-xs font-medium"
+              title={name}
+            >
+              {name}
+            </span>
+          ) : null}
+          {!single ? <StrategyBadge strategy={group.strategy} /> : null}
           {degraded ? (
             <Badge
               variant="outline"
@@ -432,8 +444,15 @@ function ChainGroupsDetail({ chain }: { chain: Chain }) {
               {groups.map((group, index) => (
                 <Fragment key={group.id || group.seq}>
                   <GroupCard group={group} isEntry={index === 0} />
-                  <div className="hidden shrink-0 items-center text-muted-foreground lg:flex">
-                    <ArrowRightIcon className="size-3.5" aria-hidden="true" />
+                  <div className="flex shrink-0 items-center justify-center text-muted-foreground">
+                    <ArrowDownIcon
+                      className="size-3.5 lg:hidden"
+                      aria-hidden="true"
+                    />
+                    <ArrowRightIcon
+                      className="hidden size-3.5 lg:block"
+                      aria-hidden="true"
+                    />
                   </div>
                 </Fragment>
               ))}

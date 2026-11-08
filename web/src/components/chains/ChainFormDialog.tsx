@@ -44,7 +44,8 @@ import {
   CHAIN_STRATEGIES,
   DEFAULT_CHAIN_STRATEGY,
   GROUP_MAX_MEMBERS,
-  GROUP_MIN_MEMBERS,
+  GROUP_MIN_GROUP_MEMBERS,
+  groupKind,
   normalizeStrategy,
   orderGroups,
   orderMembers,
@@ -81,6 +82,7 @@ function emptyMember() {
 
 function emptyGroup() {
   return {
+    kind: "single" as const,
     name: "",
     strategy: DEFAULT_CHAIN_STRATEGY,
     members: [emptyMember()],
@@ -119,11 +121,13 @@ function GroupCard({
   const { control, formState, setValue, trigger, watch } = form;
 
   // 组内成员是第二层动态数组：每张组卡片各自维护 append / remove / move。
-  const { fields, append, remove, move } = useFieldArray({
+  const { fields, append, remove, move, replace } = useFieldArray({
     control,
     name: `groups.${index}.members`,
   });
-  const members = watch(`groups.${index}.members`);
+  const members = watch(`groups.${index}.members`) ?? [];
+  const kind = watch(`groups.${index}.kind`) ?? "group";
+  const single = kind === "single";
   const strategy = watch(`groups.${index}.strategy`);
   const selectedStrategy: ChainStrategy = normalizeStrategy(strategy);
   const isEntry = index === 0;
@@ -163,6 +167,25 @@ function GroupCard({
     });
   }
 
+  function setKind(next: "single" | "group") {
+    setValue(`groups.${index}.kind`, next, {
+      shouldDirty: true,
+      shouldTouch: true,
+    });
+    if (next === "single") {
+      const first = members[0] ?? emptyMember();
+      replace([
+        {
+          server_id: first.server_id,
+          listen_port: first.listen_port,
+        },
+      ]);
+    } else if (members.length < GROUP_MIN_GROUP_MEMBERS) {
+      append(emptyMember());
+    }
+    form.clearErrors(`groups.${index}`);
+  }
+
   return (
     <div
       className="space-y-3 rounded-lg border border-border bg-muted/20 p-3"
@@ -186,12 +209,14 @@ function GroupCard({
               {t("chains.form.groupExitHint")}
             </span>
           ) : null}
-          <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-            {t("chains.form.memberLimit", {
-              count: fields.length,
-              max: GROUP_MAX_MEMBERS,
-            })}
-          </span>
+          {!single ? (
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+              {t("chains.form.memberLimit", {
+                count: fields.length,
+                max: GROUP_MAX_MEMBERS,
+              })}
+            </span>
+          ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           <Button
@@ -230,6 +255,41 @@ function GroupCard({
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] text-muted-foreground">
+          {t("chains.form.hopType")}
+        </span>
+        <div
+          role="group"
+          aria-label={t("chains.form.hopTypeAria", { seq })}
+          className="inline-flex items-center gap-0.5 rounded-md border border-border bg-background/60 p-0.5"
+        >
+          <Button
+            type="button"
+            size="xs"
+            variant={single ? "secondary" : "ghost"}
+            aria-pressed={single}
+            disabled={pending}
+            onClick={() => setKind("single")}
+            className="h-6 rounded-sm px-2 text-[11px]"
+          >
+            {t("chains.form.typeSingle")}
+          </Button>
+          <Button
+            type="button"
+            size="xs"
+            variant={!single ? "secondary" : "ghost"}
+            aria-pressed={!single}
+            disabled={pending}
+            onClick={() => setKind("group")}
+            className="h-6 rounded-sm px-2 text-[11px]"
+          >
+            {t("chains.form.typeGroup")}
+          </Button>
+        </div>
+      </div>
+
+      {!single ? (
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="space-y-1">
           <Label htmlFor={`chain-group-${index}-name`} className="text-xs">
@@ -296,7 +356,9 @@ function GroupCard({
           ) : null}
         </div>
       </div>
+      ) : null}
 
+      {!single ? (
       <div className="flex items-start gap-1.5 rounded-md border border-border/70 bg-background/40 px-2 py-1.5">
         <InfoIcon
           className="mt-px size-3 shrink-0 text-muted-foreground"
@@ -314,12 +376,15 @@ function GroupCard({
           </p>
         </div>
       </div>
+      ) : null}
 
       <div className="space-y-1.5">
         <div className="flex flex-wrap items-center justify-between gap-1">
-          <Label className="text-xs">{t("chains.form.members")}</Label>
+          <Label className="text-xs">
+            {single ? t("chains.form.singleNode") : t("chains.form.members")}
+          </Label>
           <span className="text-[11px] text-muted-foreground">
-            {t("chains.form.membersHint")}
+            {single ? t("chains.form.singleHint") : t("chains.form.membersHint")}
           </span>
         </div>
 
@@ -337,6 +402,7 @@ function GroupCard({
                 key={field.id}
                 className="rounded-md border border-border/70 bg-card/60 p-2"
               >
+                {!single ? (
                 <div className="mb-1.5 flex items-center justify-between gap-2">
                   <span className="text-[11px] font-medium text-muted-foreground">
                     {t("chains.form.member", { seq: memberSeq })}
@@ -385,7 +451,7 @@ function GroupCard({
                         group: seq,
                         member: memberSeq,
                       })}
-                      disabled={pending || fields.length <= GROUP_MIN_MEMBERS}
+                      disabled={pending || fields.length <= GROUP_MIN_GROUP_MEMBERS}
                       onClick={() => {
                         remove(memberIndex);
                         form.clearErrors("groups");
@@ -395,6 +461,7 @@ function GroupCard({
                     </Button>
                   </div>
                 </div>
+                ) : null}
 
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_7rem]">
                   <div className="space-y-1">
@@ -483,19 +550,21 @@ function GroupCard({
           </p>
         ) : null}
 
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            append(emptyMember());
-            form.clearErrors("groups");
-          }}
-          disabled={pending || fields.length >= GROUP_MAX_MEMBERS}
-        >
-          <PlusIcon className="size-3.5" />
-          {t("chains.form.addMember")}
-        </Button>
+        {!single ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              append(emptyMember());
+              form.clearErrors("groups");
+            }}
+            disabled={pending || fields.length >= GROUP_MAX_MEMBERS}
+          >
+            <PlusIcon className="size-3.5" />
+            {t("chains.form.addMember")}
+          </Button>
+        ) : null}
       </div>
     </div>
   );
@@ -532,6 +601,7 @@ export function ChainFormDialog({
     return orderGroups(groups).map((group) => {
       const members = orderMembers(group.members);
       return {
+        kind: groupKind(group),
         name: group.name ?? "",
         strategy: normalizeStrategy(group.strategy),
         members:
@@ -577,8 +647,14 @@ export function ChainFormDialog({
       target_port: Number(values.target_port),
       enabled: values.enabled,
       groups: values.groups.map((group) => ({
-        name: group.name.trim() || undefined,
-        strategy: group.strategy,
+        name:
+          group.kind === "single"
+            ? undefined
+            : group.name.trim() || undefined,
+        strategy:
+          group.kind === "single"
+            ? DEFAULT_CHAIN_STRATEGY
+            : group.strategy,
         members: group.members.map((member, index) => ({
           server_id: member.server_id,
           listen_port: Number(member.listen_port),

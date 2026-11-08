@@ -412,6 +412,7 @@ export function chainFormSchema(t: TFunction) {
       enabled: z.boolean(),
       groups: z.array(
         z.object({
+          kind: z.enum(["single", "group"]),
           name: z
             .string()
             .trim()
@@ -433,6 +434,16 @@ export function chainFormSchema(t: TFunction) {
       ),
     })
     .superRefine((values, ctx) => {
+      // UI 约定：显式「分组」至少 2 台；1 台应选「单节点」。
+      values.groups.forEach((group, index) => {
+        if (group.kind === "group" && group.members.length < 2) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["groups", index, "members"],
+            message: t("validation.chainGroupMinMembers"),
+          });
+        }
+      });
       // 纯规则在 `collectGroupIssues` 里单测；这里只负责翻译文案与错误层级。
       for (const issue of collectGroupIssues(values.groups)) {
         switch (issue.kind) {

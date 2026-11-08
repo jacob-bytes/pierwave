@@ -34,6 +34,8 @@ export const CHAIN_MAX_GROUPS = 4;
 /** 与后端 `chains::MIN_GROUP_MEMBERS` / `MAX_GROUP_MEMBERS` 保持一致。 */
 export const GROUP_MIN_MEMBERS = 1;
 export const GROUP_MAX_MEMBERS = 8;
+/** UI 约定：显式的「分组」至少 2 台；只有 1 台请用「单节点」。 */
+export const GROUP_MIN_GROUP_MEMBERS = 2;
 
 /** 旧命名保留，语义已经是「组数」。 */
 export const CHAIN_MIN_HOPS = CHAIN_MIN_GROUPS;
@@ -108,6 +110,28 @@ export function normalizeStrategy(
   raw: string | null | undefined,
 ): ChainStrategy {
   return isChainStrategy(raw) ? raw : DEFAULT_CHAIN_STRATEGY;
+}
+
+/** 一跳的展示类型：单节点（1 台、无组名、默认策略）或分组。 */
+export type ChainHopKind = "single" | "group";
+
+/**
+ * 按后端数据结构推导一跳的类型。
+ *
+ * 单节点就是「1 台成员 + 没有组名 + 默认策略」；只要出现组名或非默认策略，
+ * 即使只有 1 台也按分组展示，避免编辑时把用户显式配置的组信息藏掉。
+ * 0 台成员的组仍按分组处理（还需要补成员）。
+ */
+export function groupKind(group: {
+  name?: string | null;
+  strategy?: string | null;
+  members: readonly unknown[];
+}): ChainHopKind {
+  if (group.members.length !== 1) return "group";
+  if ((group.name ?? "").trim()) return "group";
+  return normalizeStrategy(group.strategy) === DEFAULT_CHAIN_STRATEGY
+    ? "single"
+    : "group";
 }
 
 /** 按 seq 升序复制：后端已排序，但前端不依赖响应顺序。 */
