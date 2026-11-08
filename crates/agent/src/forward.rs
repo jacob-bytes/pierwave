@@ -13,16 +13,19 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io;
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use pierwave_proto::{DesiredForward, ForwardStatus};
+use pierwave_proto::{DesiredForward, ForwardStatus, ForwardStrategy, ForwardTarget};
 use tokio::io::copy_bidirectional;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
+
+use crate::selector::{Selector, TargetHealth};
 
 /// 连接目标的上限；超时按「目标不可达」处理，避免客户端永久挂起。
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -42,8 +45,9 @@ const TARGET_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 /// 心跳线程只 clone 这个 `Arc`，不碰 supervisor 本体，因此收敛期间
 /// （关闭旧监听最多等 [`SHUTDOWN_TIMEOUT`]）心跳不会被锁住。
 ///
-/// `target_ok` 单独放在 map 里：探测任务每 30 秒写一次，心跳读取时叠加到
-/// 监听状态上。这样监听状态（端口绑定）和目标可达性互不覆盖。
+/// 目标健康按「规则 + 候选目标」逐条存在 map 里：探测任务每 30 秒写一次，
+/// 连接失败时也会立即补测被选中的那个目标。心跳读取时把逐目标结果聚合成
+/// 整体 `target_ok`。这样监听状态（端口绑定）和目标可达性互不覆盖。
 #[derive(Debug, Clone, Default)]
 pub struct ForwardStatusHandle {
     inner: Arc<Mutex<StatusState>>,
@@ -52,7 +56,9 @@ pub struct ForwardStatusHandle {
 #[derive(Debug, Default)]
 struct StatusState {
     statuses: Vec<ForwardStatus>,
-    target_ok: HashMap<String, Option<bool>>,
+    /// 规则 id → 每个候选目标的探测结果，顺序与规则里的 `targets` 一致。
+    /// `None` = 这一轮还没测过（启动瞬间按健康处理，避免无谓断流）。
+    target_health: HashMap<String, Vec<Option<TargetHealth>>>,
 }
 
 impl ForwardStatusHandle {
@@ -66,7 +72,12 @@ impl ForwardStatusHandle {
             .iter()
             .cloned()
             .map(|mut status| {
-                status.target_ok = state.target_ok.get(&status.id).copied().flatten();
+                // `ForwardStatus` 只有一个整体 `target_ok`：主控只关心
+                // 「这条规则现在还有没有可用的成员」，不逐个回报。
+                status.target_ok = state
+                    .target_health
+                    .get(&status.id)
+                    .and_then(|health| overall_target_ok(health));
                 status
             })
             .collect()
@@ -80,24 +91,110 @@ impl ForwardStatusHandle {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         state.statuses = statuses;
         // 已经不在期望态里的规则不能留下探测缓存。
-        state.target_ok.retain(|id, _| ids.contains(id));
+        state.target_health.retain(|id, _| ids.contains(id));
     }
 
-    fn set_target_ok(&self, id: &str, ok: bool) {
+    /// 新规则接管监听前先建好逐目标槽位（全部 `None` = 尚未探测）。
+    fn init_target_health(&self, id: &str, targets: usize) {
         self.inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .target_ok
-            .insert(id.to_string(), Some(ok));
+            .target_health
+            .insert(id.to_string(), vec![None; targets]);
     }
 
-    fn clear_target_ok(&self, id: &str) {
+    fn set_target_health(&self, id: &str, index: usize, health: TargetHealth) {
+        let mut state = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(slot) = state
+            .target_health
+            .get_mut(id)
+            .and_then(|targets| targets.get_mut(index))
+        {
+            *slot = Some(health);
+        }
+    }
+
+    /// 供选路使用的健康快照；未探测过的目标按健康处理。
+    fn healthy_targets(&self, id: &str) -> Vec<TargetHealth> {
+        let state = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state
+            .target_health
+            .get(id)
+            .map(|targets| {
+                targets
+                    .iter()
+                    .map(|health| health.unwrap_or_else(TargetHealth::up))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn clear_target_health(&self, id: &str) {
         self.inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .target_ok
+            .target_health
             .remove(id);
     }
+
+    /// 测试辅助：读逐目标原始探测结果（`None` = 尚未探测）。
+    #[cfg(test)]
+    fn target_health_snapshot(&self, id: &str) -> Vec<Option<TargetHealth>> {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .target_health
+            .get(id)
+            .cloned()
+            .unwrap_or_default()
+    }
+}
+
+/// 整体 `target_ok`：是否存在任一健康目标。
+///
+/// 尚未探测的目标按健康处理——否则规则刚启动的那一瞬间会被报成全体不可用，
+/// 主控可能据此误判。至少探测过一个目标后，就按已知结果聚合；还没测到的
+/// 成员依旧默认健康，避免探测逐个完成的过程中状态抖动。
+fn overall_target_ok(health: &[Option<TargetHealth>]) -> Option<bool> {
+    if health.iter().all(Option::is_none) {
+        return None;
+    }
+    Some(
+        health
+            .iter()
+            .any(|entry| entry.is_none_or(|health| health.healthy)),
+    )
+}
+
+/// 一条规则在 accept 循环、连接 task、探测循环之间共享的运行时上下文。
+///
+/// `selector` 是这条规则自己的（不是全局的）：游标必须跨连接保留，
+/// 同时规则重建时随旧 `RunningForward` 一起丢弃，不会把旧目标的轮询相位
+/// 带到新目标列表上。
+#[derive(Clone)]
+struct ForwardRuntime {
+    id: String,
+    /// 候选目标；`targets` 为空时这里已经归一化成单个兼容目标。
+    targets: Arc<[ForwardTarget]>,
+    /// 规则来自旧主控的单目标格式（`targets` 为空）。
+    ///
+    /// 单目标不做健康门控：旧版总是尝试连接 `target_host:target_port`，
+    /// 目标探测只用于心跳上报。这样升级 Agent 不会改变旧规则的行为
+    /// （例如目标短暂不可达时，连接仍按原来的方式尝试/超时）。
+    legacy_single: bool,
+    strategy: ForwardStrategy,
+    selector: Arc<Mutex<Selector>>,
+    status: ForwardStatusHandle,
+    /// 连接失败时把目标下标丢给探测循环，立即补测这一个目标。
+    probe_requests: mpsc::UnboundedSender<usize>,
+    /// 连接目标失败 / 转发中断的累计次数。
+    connect_failures: Arc<AtomicU64>,
 }
 
 /// 正在运行的一条转发。
@@ -110,8 +207,7 @@ struct RunningForward {
     health_task: JoinHandle<()>,
     /// 供测试断言「重复下发没有重建监听」。
     started_at: Instant,
-    /// 连接目标失败 / 转发中断的累计次数。
-    connect_failures: Arc<AtomicU64>,
+    runtime: ForwardRuntime,
     /// 实际绑定的端口。测试用 `listen_port = 0` 让内核分配端口，
     /// 通过这里读回来，避免「先找空闲端口再绑定」的抢端口竞态。
     #[cfg(test)]
@@ -136,7 +232,7 @@ impl RunningForward {
         tracing::info!(
             %id,
             uptime_secs = self.started_at.elapsed().as_secs(),
-            failures = self.connect_failures.load(Ordering::Relaxed),
+            failures = self.runtime.connect_failures.load(Ordering::Relaxed),
             "转发监听已停止"
         );
     }
@@ -217,7 +313,7 @@ impl ForwardSupervisor {
             if let Some(running) = self.running.remove(&id) {
                 running.close(&id).await;
             }
-            self.status.clear_target_ok(&id);
+            self.status.clear_target_health(&id);
         }
         // 已经不在期望态里的失败项也清掉，别让心跳一直报旧规则。
         self.failed
@@ -233,9 +329,13 @@ impl ForwardSupervisor {
                 continue;
             }
             // 目标可能变了：旧探测结果不能带过来，等新探测任务写。
-            self.status.clear_target_ok(&spec.id);
+            self.status.clear_target_health(&spec.id);
             let listen = format!("{}:{}", self.bind_host, spec.listen_port);
-            let target = format!("{}:{}", spec.target_host, spec.target_port);
+            // `targets` 为空 = 旧主控的单目标兼容格式，归一化成一个成员。
+            // 这样 accept 循环只有一条「先选、再连」的路径。
+            let legacy_single = spec.targets.is_empty();
+            let targets: Arc<[ForwardTarget]> = resolve_targets(spec).into();
+            let target_count = targets.len();
             match TcpListener::bind(&listen).await {
                 Ok(listener) => {
                     #[cfg(test)]
@@ -244,34 +344,47 @@ impl ForwardSupervisor {
                         .expect("已绑定的 listener 一定有 local_addr")
                         .port();
                     let failures = Arc::new(AtomicU64::new(0));
-                    let (tx, rx) = oneshot::channel();
-                    let task = tokio::spawn(accept_loop(
-                        spec.id.clone(),
-                        listener,
-                        spec.target_host.clone(),
-                        spec.target_port,
-                        rx,
-                        failures.clone(),
-                    ));
+                    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+                    // 探测请求：连接失败时 accept 侧只发一个下标，
+                    // 由探测循环立即补测该目标（不必等 30 秒周期）。
+                    let (probe_tx, probe_rx) = mpsc::unbounded_channel();
+                    let runtime = ForwardRuntime {
+                        id: spec.id.clone(),
+                        targets: targets.clone(),
+                        legacy_single,
+                        strategy: spec.strategy,
+                        selector: Arc::new(Mutex::new(Selector::new())),
+                        status: self.status.clone(),
+                        probe_requests: probe_tx,
+                        connect_failures: failures,
+                    };
+                    self.status.init_target_health(&spec.id, target_count);
+                    let task = tokio::spawn(accept_loop(runtime.clone(), listener, shutdown_rx));
                     // 监听成功与目标可达是两件事：这里只负责周期探测目标，
                     // 结果写进 status handle，心跳把两者一起带上去。
                     let health_task = tokio::spawn(target_health_loop(
                         spec.id.clone(),
-                        spec.target_host.clone(),
-                        spec.target_port,
+                        targets,
                         self.status.clone(),
+                        probe_rx,
                     ));
-                    tracing::info!(id = %spec.id, %listen, %target, "转发监听已启动");
+                    tracing::info!(
+                        id = %spec.id,
+                        %listen,
+                        target_count,
+                        strategy = ?spec.strategy,
+                        "转发监听已启动"
+                    );
                     self.failed.remove(&spec.id);
                     self.running.insert(
                         spec.id.clone(),
                         RunningForward {
                             spec: spec.clone(),
-                            shutdown: Some(tx),
+                            shutdown: Some(shutdown_tx),
                             task,
                             health_task,
                             started_at: Instant::now(),
-                            connect_failures: failures,
+                            runtime,
                             #[cfg(test)]
                             bound_port,
                         },
@@ -319,91 +432,193 @@ impl ForwardSupervisor {
     }
 }
 
-/// 周期探测一条转发的目标，把结果写进心跳状态句柄。
+/// 把规则里的候选目标归一化成运行时列表。
+///
+/// `targets` 非空时直接用（主控的「组」）；为空时退回旧字段
+/// `target_host:target_port`，构造一个单成员列表。这样 accept 循环
+/// 永远只面对「多目标」一种形态，单目标行为与旧版一致。
+fn resolve_targets(spec: &DesiredForward) -> Vec<ForwardTarget> {
+    if spec.targets.is_empty() {
+        vec![ForwardTarget {
+            host: spec.target_host.clone(),
+            port: spec.target_port,
+            server_id: String::new(),
+        }]
+    } else {
+        spec.targets.clone()
+    }
+}
+
+/// 探测一个目标，返回 TCP 握手 RTT（毫秒）；失败/超时为 `None`。
+async fn probe_target(target_host: &str, target_port: i64) -> Option<u32> {
+    let host = target_host.to_string();
+    tokio::task::spawn_blocking(move || {
+        crate::probe::measure_target(&host, target_port, TARGET_PROBE_TIMEOUT)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// 并发探测一条规则的所有目标，逐目标写回状态。
 ///
 /// 复用 `probe::measure_target`（内部就是 `probe::measure` 的 TCP 握手探测）；
-/// 立即测一次，之后每 [`TARGET_PROBE_INTERVAL`] 一次。失败只写 `target_ok=false`，
-/// 绝不影响 `listening`——端口绑定是否成功由 accept 循环单独决定。
+/// 失败只写该目标的 `healthy=false`，绝不影响 `listening`——端口绑定是否成功
+/// 由 accept 循环单独决定。
+async fn probe_targets(id: &str, targets: &[ForwardTarget], status: &ForwardStatusHandle) {
+    let measured = futures_util::future::join_all(
+        targets
+            .iter()
+            .map(|target| probe_target(&target.host, target.port)),
+    )
+    .await;
+    let healthy = measured.iter().filter(|latency| latency.is_some()).count();
+    for (index, latency) in measured.into_iter().enumerate() {
+        status.set_target_health(
+            id,
+            index,
+            TargetHealth {
+                healthy: latency.is_some(),
+                latency_ms: latency,
+            },
+        );
+    }
+    tracing::debug!(%id, total = targets.len(), healthy, "转发目标批量探测完成");
+}
+
+/// 周期探测一条转发的**每个**目标，把逐目标结果写进心跳状态句柄。
+///
+/// 启动时立即测一轮，之后每 [`TARGET_PROBE_INTERVAL`] 一次；同时接收
+/// accept 侧发来的补测请求——某条连接选中的目标连不上时，只补测那一个，
+/// 让后续选择尽快跳过它。探测失败只写 `healthy=false`，不影响监听。
 async fn target_health_loop(
     id: String,
-    target_host: String,
-    target_port: i64,
+    targets: Arc<[ForwardTarget]>,
     status: ForwardStatusHandle,
+    mut probe_requests: mpsc::UnboundedReceiver<usize>,
 ) {
+    probe_targets(&id, &targets, &status).await;
+    let mut interval = tokio::time::interval(TARGET_PROBE_INTERVAL);
+    // interval 的第一次 tick 立即就绪；上面已经测过一轮，消费掉避免连测两次。
+    interval.tick().await;
     loop {
-        let probe_host = target_host.clone();
-        let measured = tokio::task::spawn_blocking(move || {
-            crate::probe::measure_target(&probe_host, target_port, TARGET_PROBE_TIMEOUT)
-        })
-        .await
-        .ok()
-        .flatten();
-        status.set_target_ok(&id, measured.is_some());
-        tracing::debug!(
-            %id,
-            %target_host,
-            target_port,
-            target_ok = measured.is_some(),
-            "转发目标探测完成"
-        );
-        tokio::time::sleep(TARGET_PROBE_INTERVAL).await;
+        tokio::select! {
+            _ = interval.tick() => probe_targets(&id, &targets, &status).await,
+            Some(index) = probe_requests.recv() => {
+                let Some(target) = targets.get(index) else { continue };
+                let latency = probe_target(&target.host, target.port).await;
+                status.set_target_health(
+                    &id,
+                    index,
+                    TargetHealth {
+                        healthy: latency.is_some(),
+                        latency_ms: latency,
+                    },
+                );
+                tracing::debug!(
+                    %id,
+                    index,
+                    host = %target.host,
+                    port = target.port,
+                    target_ok = latency.is_some(),
+                    "连接失败后立即复测被选中的目标"
+                );
+            }
+        }
     }
 }
 
 /// 监听 accept 循环：`shutdown` 一到就退出并 drop listener。
 async fn accept_loop(
-    id: String,
+    runtime: ForwardRuntime,
     listener: TcpListener,
-    target_host: String,
-    target_port: i64,
     mut shutdown: oneshot::Receiver<()>,
-    connect_failures: Arc<AtomicU64>,
 ) {
     loop {
         tokio::select! {
             // 优先处理关闭：删除规则后不要再接受排队中的新连接。
             biased;
             _ = &mut shutdown => {
-                tracing::debug!(%id, "转发 accept 循环退出");
+                tracing::debug!(id = %runtime.id, "转发 accept 循环退出");
                 break;
             }
             accepted = listener.accept() => {
                 match accepted {
                     Ok((client, peer)) => {
-                        let id = id.clone();
-                        let target_host = target_host.clone();
-                        let failures = connect_failures.clone();
+                        let runtime = runtime.clone();
                         // 每条连接独立 task：单条失败/卡住不影响 accept 循环。
                         tokio::spawn(async move {
-                            let target = format!("{target_host}:{target_port}");
-                            match proxy(client, &target_host, target_port).await {
-                                Ok((up, down)) => {
-                                    tracing::debug!(%id, %target, %peer, up, down, "转发连接关闭");
-                                }
-                                Err(error) => {
-                                    let count =
-                                        failures.fetch_add(1, Ordering::Relaxed) + 1;
-                                    // 目标不可达 / 超时 / 半路断开都走这里：
-                                    // 只计数 + 日志，客户端连接随函数返回被关闭。
-                                    tracing::warn!(
-                                        %id,
-                                        %target,
-                                        %peer,
-                                        %error,
-                                        failures = count,
-                                        "转发连接失败"
-                                    );
-                                }
-                            }
+                            handle_connection(runtime, client, peer).await;
                         });
                     }
                     Err(error) => {
                         // accept 失败（EMFILE 等）不能退出监听，否则整条规则假死。
-                        tracing::warn!(%id, %error, "转发 accept 失败，稍后重试");
+                        tracing::warn!(id = %runtime.id, %error, "转发 accept 失败，稍后重试");
                         tokio::time::sleep(ACCEPT_BACKOFF).await;
                     }
                 }
             }
+        }
+    }
+}
+
+/// 一条客户端连接：先按策略 `pick`，再连选中的那个目标。
+///
+/// 选中目标连接失败时**只关闭本次连接、计数、立即补测**，不回头重试其它
+/// 目标：组内成员通常跨机跨地域，逐个重试会把连接延迟成倍放大，而且
+/// 失败本身已经说明该成员此刻不可用；交给下一次新连接（探测结果更新后）
+/// 重新选路代价更小。
+async fn handle_connection(runtime: ForwardRuntime, client: TcpStream, peer: SocketAddr) {
+    // 健康快照与选路都在连接开始时取一次：同一连接不会中途换目标。
+    // 旧主控的单目标规则不做健康门控，保持升级前的行为：总是尝试连接。
+    let health = if runtime.legacy_single {
+        vec![TargetHealth::up(); runtime.targets.len()]
+    } else {
+        runtime.status.healthy_targets(&runtime.id)
+    };
+    let picked = runtime
+        .selector
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .pick(runtime.strategy, peer.ip(), &health);
+    let Some(index) = picked else {
+        // 没有健康目标：直接关闭客户端（drop 即 FIN/RST），不 panic。
+        tracing::debug!(id = %runtime.id, %peer, "没有健康目标，关闭新连接");
+        return;
+    };
+    let Some(target) = runtime.targets.get(index) else {
+        // 选择器的下标一定来自 targets；真越界只能记日志并关闭本次连接。
+        tracing::error!(id = %runtime.id, index, "选择器返回了越界目标");
+        return;
+    };
+    let target_label = format!("{}:{}", target.host, target.port);
+    match proxy(client, &target.host, target.port).await {
+        Ok((up, down)) => {
+            tracing::debug!(
+                id = %runtime.id,
+                target = %target_label,
+                server_id = %target.server_id,
+                %peer,
+                up,
+                down,
+                "转发连接关闭"
+            );
+        }
+        Err(error) => {
+            let count = runtime.connect_failures.fetch_add(1, Ordering::Relaxed) + 1;
+            // 目标不可达 / 超时 / 半路断开都走这里：只计数 + 日志，
+            // 客户端连接随函数返回被关闭；不在这里换目标重试。
+            tracing::warn!(
+                id = %runtime.id,
+                target = %target_label,
+                server_id = %target.server_id,
+                %peer,
+                %error,
+                failures = count,
+                "转发连接失败"
+            );
+            // 让探测循环立刻复测这一个目标，下一批连接就能跳过它。
+            let _ = runtime.probe_requests.send(index);
         }
     }
 }
@@ -452,12 +667,39 @@ mod tests {
         }
     }
 
+    fn forward_target(addr: SocketAddr) -> ForwardTarget {
+        ForwardTarget {
+            host: addr.ip().to_string(),
+            port: i64::from(addr.port()),
+            server_id: format!("srv-{}", addr.port()),
+        }
+    }
+
+    /// 组规则：候选目标走 `targets`，兼容字段故意留成连不上的 `127.0.0.1:0`，
+    /// 这样实现一旦错误地回退到单目标字段，测试会立刻失败。
+    fn grouped_rule(
+        id: &str,
+        listen_port: u16,
+        targets: Vec<SocketAddr>,
+        strategy: ForwardStrategy,
+    ) -> DesiredForward {
+        DesiredForward {
+            id: id.into(),
+            listen_port: i64::from(listen_port),
+            target_host: "127.0.0.1".into(),
+            target_port: 0,
+            targets: targets.into_iter().map(forward_target).collect(),
+            strategy,
+        }
+    }
+
     /// 本地 echo 服务：先吐一个 tag 字节（方便断言流量去了哪个 upstream），
-    /// 然后把收到的字节原样写回。
-    async fn spawn_tagged_echo(tag: u8) -> SocketAddr {
+    /// 然后把收到的字节原样写回。返回地址和 accept 循环句柄，
+    /// 测试可以 abort 句柄模拟「目标中途下线」。
+    async fn spawn_tagged_echo_with_handle(tag: u8) -> (SocketAddr, JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             loop {
                 let Ok((mut stream, _)) = listener.accept().await else {
                     break;
@@ -480,7 +722,11 @@ mod tests {
                 });
             }
         });
-        addr
+        (addr, handle)
+    }
+
+    async fn spawn_tagged_echo(tag: u8) -> SocketAddr {
+        spawn_tagged_echo_with_handle(tag).await.0
     }
 
     /// 连上转发端口，读 tag + 回显，返回 (tag, 回显字节)。
@@ -515,6 +761,48 @@ mod tests {
                 }
             }
             assert!(Instant::now() < deadline, "等待 {id} 的 target_ok 超时");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    /// 等一条规则的**所有**候选目标都完成至少一次探测。
+    async fn wait_for_all_targets_probed(
+        supervisor: &ForwardSupervisor,
+        id: &str,
+    ) -> Vec<Option<TargetHealth>> {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let health = supervisor.status_handle().target_health_snapshot(id);
+            if !health.is_empty() && health.iter().all(Option::is_some) {
+                return health;
+            }
+            assert!(Instant::now() < deadline, "等待 {id} 的逐目标探测超时");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    /// 等某个目标被探测成指定健康状态。
+    async fn wait_for_target_health(
+        supervisor: &ForwardSupervisor,
+        id: &str,
+        index: usize,
+        healthy: bool,
+    ) -> TargetHealth {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            if let Some(Some(health)) = supervisor
+                .status_handle()
+                .target_health_snapshot(id)
+                .get(index)
+            {
+                if health.healthy == healthy {
+                    return *health;
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "等待 {id} 的目标 {index} 变成 healthy={healthy} 超时"
+            );
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }
@@ -611,6 +899,7 @@ mod tests {
             .running
             .get("dead")
             .unwrap()
+            .runtime
             .connect_failures
             .clone();
         let deadline = Instant::now() + Duration::from_secs(2);
@@ -762,5 +1051,215 @@ mod tests {
                 "换端口后旧端口必须被释放"
             );
         }
+    }
+
+    /// 真跑 TCP：一条组规则两个 echo 目标，轮询游标必须跨连接保留。
+    /// 两个 echo 各自先吐 tag 字节，用 tag 区分连接落到了哪个目标。
+    #[tokio::test]
+    async fn round_robin_group_sends_second_connection_to_second_target() {
+        let (echo_a, _handle_a) = spawn_tagged_echo_with_handle(b'A').await;
+        let (echo_b, _handle_b) = spawn_tagged_echo_with_handle(b'B').await;
+        let mut supervisor = ForwardSupervisor::new("127.0.0.1");
+
+        supervisor
+            .apply(&[grouped_rule(
+                "group",
+                0,
+                vec![echo_a, echo_b],
+                ForwardStrategy::RoundRobin,
+            )])
+            .await;
+        let listen_port = supervisor.bound_port("group").unwrap();
+
+        let (first_tag, first_echo) = roundtrip(listen_port, b"first").await;
+        assert_eq!(first_tag, b'A', "第 1 条连接应落到第 1 个目标");
+        assert_eq!(first_echo, b"first");
+
+        let (second_tag, second_echo) = roundtrip(listen_port, b"second").await;
+        assert_eq!(
+            second_tag, b'B',
+            "第 2 条连接必须落到第 2 个目标（轮询游标跨连接保留）"
+        );
+        assert_eq!(second_echo, b"second");
+
+        // 第 3 条回到第 1 个目标，确认不是「永远第二个」。
+        let (third_tag, _) = roundtrip(listen_port, b"third").await;
+        assert_eq!(third_tag, b'A', "轮询应在 3 条连接上回到起点");
+    }
+
+    /// 全部目标不健康：新连接必须被立即关闭（不尝试连接、不 panic），
+    /// 监听本身仍然完好，换回可达目标后能继续工作。
+    #[tokio::test]
+    async fn group_with_all_targets_down_closes_connections_without_panic() {
+        let dead_a = SocketAddr::from(([127, 0, 0, 1], 0));
+        let dead_b = SocketAddr::from(([127, 0, 0, 1], 0));
+        let mut supervisor = ForwardSupervisor::new("127.0.0.1");
+
+        supervisor
+            .apply(&[grouped_rule(
+                "dead",
+                0,
+                vec![dead_a, dead_b],
+                ForwardStrategy::RoundRobin,
+            )])
+            .await;
+        let listen_port = supervisor.bound_port("dead").unwrap();
+
+        // 等两个目标都完成首轮探测，且都为不健康。
+        let health = wait_for_all_targets_probed(&supervisor, "dead").await;
+        assert!(
+            health.iter().all(|entry| !entry.unwrap().healthy),
+            "两个目标都应探测为不健康：{health:?}"
+        );
+        let status = supervisor.status_handle().snapshot();
+        assert_eq!(status.len(), 1);
+        assert!(status[0].listening, "目标全挂不能影响监听");
+        assert_eq!(
+            status[0].target_ok,
+            Some(false),
+            "整体 target_ok = 是否存在任一健康目标"
+        );
+
+        // 连上后应立刻关闭：读到 EOF 或 RST 都算关闭，但绝不能回显数据。
+        for _ in 0..2 {
+            let mut client = TcpStream::connect(("127.0.0.1", listen_port))
+                .await
+                .unwrap();
+            let _ = client.write_all(b"nobody home").await;
+            let mut buf = [0u8; 16];
+            let read = timeout(Duration::from_secs(3), client.read(&mut buf))
+                .await
+                .expect("目标全不健康时客户端不应被永久挂起");
+            match read {
+                Ok(0) => {}
+                Err(error) if error.kind() == io::ErrorKind::ConnectionReset => {}
+                Ok(n) => panic!("不应转发任何字节，实际收到 {n} 字节"),
+                Err(error) => panic!("应关闭连接，实际错误: {error}"),
+            }
+        }
+
+        // 监听没坏：换成可达目标重新下发（用新端口避免 TIME_WAIT 干扰），
+        // 同一条规则能立刻恢复服务。
+        let echo = spawn_tagged_echo(b'R').await;
+        supervisor
+            .apply(&[grouped_rule(
+                "dead",
+                0,
+                vec![echo],
+                ForwardStrategy::RoundRobin,
+            )])
+            .await;
+        assert!(
+            supervisor.status_handle().snapshot()[0].listening,
+            "换目标重新下发后应继续监听"
+        );
+        let recovered_port = supervisor.bound_port("dead").unwrap();
+        let (tag, echoed) = roundtrip(recovered_port, b"recovered").await;
+        assert_eq!(tag, b'R');
+        assert_eq!(echoed, b"recovered");
+    }
+
+    /// 组内只要有一个健康目标，整体 `target_ok` 就是 true；
+    /// 逐目标探测结果分别记录（这里用内部快照断言）。
+    #[tokio::test]
+    async fn group_target_ok_is_any_healthy_target() {
+        let dead = SocketAddr::from(([127, 0, 0, 1], 0));
+        let good = spawn_tagged_echo(b'G').await;
+        let mut supervisor = ForwardSupervisor::new("127.0.0.1");
+
+        supervisor
+            .apply(&[grouped_rule(
+                "mixed",
+                0,
+                vec![dead, good],
+                ForwardStrategy::Failover,
+            )])
+            .await;
+        let listen_port = supervisor.bound_port("mixed").unwrap();
+
+        let health = wait_for_all_targets_probed(&supervisor, "mixed").await;
+        assert_eq!(health[0].map(|entry| entry.healthy), Some(false));
+        assert_eq!(health[1].map(|entry| entry.healthy), Some(true));
+
+        let status = supervisor.status_handle().snapshot();
+        assert_eq!(
+            status[0].target_ok,
+            Some(true),
+            "只要有一个健康成员，整体 target_ok 就应为 true"
+        );
+
+        // Failover 按顺序跳过错的主目标，选中第二个。
+        let (tag, echoed) = roundtrip(listen_port, b"failover").await;
+        assert_eq!(tag, b'G');
+        assert_eq!(echoed, b"failover");
+    }
+
+    /// 选中的目标连接失败时：本次不换目标重试、失败计数 +1，
+    /// 并且立即补测该目标，让下一条连接跳过它。
+    #[tokio::test]
+    async fn failed_target_is_probed_immediately_and_skipped_by_next_connection() {
+        let (echo_a, handle_a) = spawn_tagged_echo_with_handle(b'A').await;
+        let (echo_b, _handle_b) = spawn_tagged_echo_with_handle(b'B').await;
+        let mut supervisor = ForwardSupervisor::new("127.0.0.1");
+
+        supervisor
+            .apply(&[grouped_rule(
+                "group",
+                0,
+                vec![echo_a, echo_b],
+                ForwardStrategy::RoundRobin,
+            )])
+            .await;
+        let listen_port = supervisor.bound_port("group").unwrap();
+
+        // 先让两个目标都探测为健康，再把第一个目标下线。
+        let health = wait_for_all_targets_probed(&supervisor, "group").await;
+        assert!(health.iter().all(|entry| entry.unwrap().healthy));
+        handle_a.abort();
+        let _ = handle_a.await;
+
+        // 第 1 条连接按轮询选中已下线的 A：连接失败并被关闭。
+        let mut first = TcpStream::connect(("127.0.0.1", listen_port))
+            .await
+            .unwrap();
+        let mut buf = [0u8; 16];
+        let read = timeout(Duration::from_secs(3), first.read(&mut buf))
+            .await
+            .expect("目标下线时客户端不应被永久挂起");
+        match read {
+            Ok(0) => {}
+            Err(error) if error.kind() == io::ErrorKind::ConnectionReset => {}
+            Ok(n) => panic!("目标已下线，不应有数据返回，实际 {n} 字节"),
+            Err(error) => panic!("目标已下线时应关闭连接，实际错误: {error}"),
+        }
+
+        // 失败计数 +1，且目标 A 在 30 秒周期探测之前就被立即复测为不健康。
+        let failures = supervisor
+            .running
+            .get("group")
+            .unwrap()
+            .runtime
+            .connect_failures
+            .clone();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while failures.load(Ordering::Relaxed) == 0 && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(
+            failures.load(Ordering::Relaxed),
+            1,
+            "连接失败必须计数，且本次连接不重试其它目标"
+        );
+        assert!(
+            !wait_for_target_health(&supervisor, "group", 0, false)
+                .await
+                .healthy,
+            "连接失败后目标 A 必须被立即探测为不健康"
+        );
+
+        // 下一条连接跳过不健康的 A，落到 B；游标也只在成功挑选时推进。
+        let (tag, echoed) = roundtrip(listen_port, b"next").await;
+        assert_eq!(tag, b'B', "下一条连接应跳过刚失败的目标");
+        assert_eq!(echoed, b"next");
     }
 }

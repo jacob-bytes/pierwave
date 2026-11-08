@@ -1,6 +1,7 @@
 mod config;
 mod forward;
 mod probe;
+mod selector;
 mod tc;
 mod traffic;
 mod upgrade;
