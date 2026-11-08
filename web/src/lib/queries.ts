@@ -20,6 +20,7 @@ import {
   type ChangePasswordInput,
   type CreateAgentUpgradeBatchInput,
   type CreateCertificateInput,
+  type CreateForwardInput,
   type CreateNodeInput,
   type CreateOutboundInput,
   type CreatePackageInput,
@@ -28,6 +29,7 @@ import {
   type CreateServerResponse,
   type CreateUserInput,
   type EnforcementEvent,
+  type Forward,
   type Health,
   type MeSummary,
   type MeTraffic,
@@ -47,6 +49,7 @@ import {
   type Settings,
   type Subscription,
   type TrafficStats,
+  type UpdateForwardInput,
   type UpdateNodeInput,
   type UpdateOutboundInput,
   type UpdatePackageInput,
@@ -109,6 +112,7 @@ export const queryKeys = {
   /** 全局节点列表：不属于任何单台服务器，单独一个 key。 */
   allNodes: ["nodes", "all"] as const,
   outbounds: (serverId: string) => ["outbounds", serverId] as const,
+  forwards: (serverId: string) => ["forwards", serverId] as const,
   routingRules: (serverId: string) =>
     ["routing-rules", serverId] as const,
   certificates: ["certificates"] as const,
@@ -748,6 +752,10 @@ export function useApplyServer(serverId: string) {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.nodes(serverId),
       });
+      // 转发规则和 Xray 配置一起随期望态下发，apply 后要重新拉运行时状态。
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.forwards(serverId),
+      });
       void queryClient.invalidateQueries({ queryKey: queryKeys.servers });
       queryClient.setQueryData<Server[]>(queryKeys.servers, (current) =>
         current?.map((server) =>
@@ -858,6 +866,108 @@ export function useDeleteOutbound(serverId: string) {
   return useMutation<{ ok: true }, Error, string>({
     mutationFn: (id) => api.outbounds.remove(id),
     onSuccess: () => invalidateOutboundViews(queryClient, serverId),
+  });
+}
+
+/**
+ * 单台服务器的端口转发规则。
+ *
+ * 后端可能暂时 404：不重试，由页面展示中文错误态与「重试」。
+ * 写操作成功后统一失效列表，让下一次心跳的 `runtime` 覆盖旧状态。
+ */
+export function useForwards(serverId: string) {
+  return useQuery<Forward[]>({
+    queryKey: queryKeys.forwards(serverId),
+    queryFn: async () => (await api.forwards.list(serverId)).items,
+    enabled: Boolean(serverId),
+    staleTime: 5_000,
+    retry: false,
+  });
+}
+
+function invalidateForwardViews(
+  queryClient: ReturnType<typeof useQueryClient>,
+  serverId: string,
+) {
+  void queryClient.invalidateQueries({
+    queryKey: queryKeys.forwards(serverId),
+  });
+  // 每次写操作都会推高 config_version，服务器列表也要跟着刷新。
+  void queryClient.invalidateQueries({ queryKey: queryKeys.servers });
+}
+
+function applyForwardInput(forward: Forward, input: UpdateForwardInput): Forward {
+  return {
+    ...forward,
+    ...(input.name !== undefined ? { name: input.name } : {}),
+    ...(input.listen_port !== undefined
+      ? { listen_port: input.listen_port }
+      : {}),
+    ...(input.target_host !== undefined
+      ? { target_host: input.target_host }
+      : {}),
+    ...(input.target_port !== undefined
+      ? { target_port: input.target_port }
+      : {}),
+    ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+  };
+}
+
+export function useCreateForward(serverId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<Forward, Error, CreateForwardInput>({
+    mutationFn: async (input) =>
+      (await api.forwards.create(serverId, input)).forward,
+    onSuccess: () => invalidateForwardViews(queryClient, serverId),
+  });
+}
+
+export function useUpdateForward(serverId: string) {
+  const queryClient = useQueryClient();
+  const queryKey = queryKeys.forwards(serverId);
+
+  return useMutation<
+    Forward,
+    Error,
+    { id: string; input: UpdateForwardInput },
+    { previous?: Forward[] }
+  >({
+    mutationFn: async ({ id, input }) =>
+      (await api.forwards.update(id, input)).forward,
+    onMutate: async ({ id, input }) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<Forward[]>(queryKey);
+
+      if (previous) {
+        queryClient.setQueryData<Forward[]>(
+          queryKey,
+          previous.map((item) =>
+            item.id === id ? applyForwardInput(item, input) : item,
+          ),
+        );
+      }
+
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKey, context.previous);
+      }
+    },
+    onSettled: () => {
+      // 返回值不带 runtime，合并会丢状态；直接让列表重新拉权威值。
+      void invalidateForwardViews(queryClient, serverId);
+    },
+  });
+}
+
+export function useDeleteForward(serverId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<{ ok: true }, Error, string>({
+    mutationFn: (id) => api.forwards.remove(id),
+    onSuccess: () => invalidateForwardViews(queryClient, serverId),
   });
 }
 

@@ -343,6 +343,32 @@ export type OutboundFormValues = z.infer<
 >;
 
 /**
+ * 端口转发表单：端口先用字符串承接，提交时再转数字。
+ *
+ * 前端只做「1–65535 + 地址非空」这类基础校验；保留端口、节点/转发端口冲突
+ * 以及自连回环都依赖服务器数据，由后端返回带 code 的中文错误，对话框原样透出。
+ */
+export function forwardFormSchema(t: TFunction) {
+  return z.object({
+    name: z
+      .string()
+      .trim()
+      .min(1, t("validation.forwardNameRequired"))
+      .max(64, t("validation.forwardNameMax")),
+    listen_port: requiredIntField(1, 65535, t("validation.portRange")),
+    target_host: z
+      .string()
+      .trim()
+      .min(1, t("validation.forwardTargetRequired"))
+      .max(255, t("validation.forwardTargetMax")),
+    target_port: requiredIntField(1, 65535, t("validation.portRange")),
+    enabled: z.boolean(),
+  });
+}
+
+export type ForwardFormValues = z.infer<ReturnType<typeof forwardFormSchema>>;
+
+/**
  * 路由规则表单：三个匹配条件至少填一个，否则规则会吞掉所有流量。
  *
  * 空字符串在提交时统一转成 null；入站下拉的「不限」用对话框内的哨兵值承接。

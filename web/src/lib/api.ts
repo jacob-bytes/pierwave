@@ -506,6 +506,47 @@ export interface CreateRoutingRuleInput {
 
 export type UpdateRoutingRuleInput = Partial<CreateRoutingRuleInput>;
 
+/**
+ * 单跳 TCP 端口转发：Agent 在服务器上监听 `listen_port`，
+ * 把入站连接原样转发到 `target_host:target_port`。
+ *
+ * 这套链路不经过 Xray，也不计入用户流量，与节点 / 出站是两套并行系统。
+ */
+export interface ForwardRuntime {
+  listening: boolean;
+  /** Agent 返回的失败原因；监听成功时为空串。 */
+  error: string;
+  /** 最近一次心跳回报该状态的时间（Unix 秒）。 */
+  updated_at: number;
+}
+
+export interface Forward {
+  id: string;
+  server_id: string;
+  name: string;
+  listen_port: number;
+  target_host: string;
+  target_port: number;
+  enabled: boolean;
+  created_at: number;
+  updated_at: number;
+  /**
+   * 运行时状态；`null` = Agent 从未上报过这条规则，
+   * 不代表监听失败，列表里展示为「未上报」。
+   */
+  runtime: ForwardRuntime | null;
+}
+
+export interface CreateForwardInput {
+  name: string;
+  listen_port: number;
+  target_host: string;
+  target_port: number;
+  enabled?: boolean;
+}
+
+export type UpdateForwardInput = Partial<CreateForwardInput>;
+
 export interface ApplyResult {
   config_version: number;
   /** 后端正在加；暂时没有时按空数组处理。 */
@@ -1064,6 +1105,37 @@ export const api = {
       ),
     remove: (id: string) =>
       request<{ ok: true }>(`/api/v1/outbounds/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
+  },
+
+  /**
+   * 单跳 TCP 端口转发。写操作会立即标脏并下发一次期望态；
+   * 列表里的 `runtime` 来自 Agent 心跳，用于展示真实的监听状态。
+   */
+  forwards: {
+    list: (serverId: string) =>
+      request<{ items: Forward[] }>(
+        `/api/v1/servers/${encodeURIComponent(serverId)}/forwards`,
+      ),
+    create: (serverId: string, input: CreateForwardInput) =>
+      request<{ forward: Forward }>(
+        `/api/v1/servers/${encodeURIComponent(serverId)}/forwards`,
+        {
+          method: "POST",
+          body: JSON.stringify(input),
+        },
+      ),
+    update: (id: string, input: UpdateForwardInput) =>
+      request<{ forward: Forward }>(
+        `/api/v1/forwards/${encodeURIComponent(id)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(input),
+        },
+      ),
+    remove: (id: string) =>
+      request<{ ok: true }>(`/api/v1/forwards/${encodeURIComponent(id)}`, {
         method: "DELETE",
       }),
   },

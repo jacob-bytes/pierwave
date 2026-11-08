@@ -23,6 +23,7 @@ const RulesPage = lazy(() => import("@/pages/Rules"));
 const SettingsPage = lazy(() => import("@/pages/Settings"));
 const NodesPage = lazy(() => import("@/pages/Nodes"));
 const OutboundsPage = lazy(() => import("@/pages/Outbounds"));
+const ForwardsPage = lazy(() => import("@/pages/Forwards"));
 const NodesIndexPage = lazy(() => import("@/pages/NodesIndex"));
 const MePage = lazy(() => import("@/pages/Me"));
 
@@ -143,6 +144,7 @@ function AuthenticatedApp() {
             <Route path="servers" element={<ServersPage />} />
             <Route path="servers/:id/nodes" element={<NodesPage />} />
             <Route path="servers/:id/outbounds" element={<OutboundsPage />} />
+            <Route path="servers/:id/forwards" element={<ForwardsPage />} />
             <Route path="nodes" element={<NodesIndexPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="subscriptions" element={<SubscriptionsPage />} />

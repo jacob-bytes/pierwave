@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import {
+  ArrowRightLeftIcon,
   ArrowUpCircleIcon,
   CheckIcon,
   CopyIcon,
@@ -1068,21 +1069,6 @@ export default function ServersPage() {
                               <NetworkIcon className="size-4" />
                             </Link>
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            asChild
-                            title={t("servers.outbounds")}
-                          >
-                            <Link
-                              to={`/servers/${server.id}/outbounds`}
-                              aria-label={t("servers.manageOutboundsAria", {
-                                name: server.name,
-                              })}
-                            >
-                              <WaypointsIcon className="size-4" />
-                            </Link>
-                          </Button>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button
@@ -1110,6 +1096,28 @@ export default function ServersPage() {
                                 {t("servers.agentUpgrade.action")}
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
+                              <DropdownMenuItem asChild>
+                                <Link
+                                  to={`/servers/${server.id}/outbounds`}
+                                  aria-label={t("servers.manageOutboundsAria", {
+                                    name: server.name,
+                                  })}
+                                >
+                                  <WaypointsIcon className="size-3.5" />
+                                  {t("servers.outbounds")}
+                                </Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem asChild>
+                                <Link
+                                  to={`/servers/${server.id}/forwards`}
+                                  aria-label={t("forwards.manageAria", {
+                                    name: server.name,
+                                  })}
+                                >
+                                  <ArrowRightLeftIcon className="size-3.5" />
+                                  {t("forwards.menuLabel")}
+                                </Link>
+                              </DropdownMenuItem>
                               <DropdownMenuItem
                                 onSelect={() => setHistoryServerId(server.id)}
                               >
