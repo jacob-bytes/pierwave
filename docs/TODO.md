@@ -34,6 +34,18 @@
   - `stats` / `api` inbound 与 routing 规则是否生效，流量能否落到 `traffic_node_daily`
   - 证书下发路径与权限（0644 / 0600）
 
+## 真机回归（每次发版后在该版本上跑）
+
+```bash
+# 1) 配置能被真实 Xray 接受 + 端到端握手 + 计数器
+make verify-xray
+
+# 2) 系统层：转发真的在监听、tc 限速真的加上、能正确还原
+sudo make verify-runtime ARGS="--forward-port 18443 --iface eth0 --rate-mbps 100 --cleanup"
+```
+
+`verify-runtime.sh` 只读为主，`--cleanup` 只会删我们自己的 `1f00:` qdisc，不碰别人的规则。
+
 ## 已知缺口（脚本与部署）
 
 - [x] **`scripts/install.sh` 自动化测试**：`make test-install`（`scripts/test-install.sh`）。

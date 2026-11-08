@@ -2,7 +2,7 @@
 export CARGO_HOME := $(CURDIR)/.cargo-home
 export NPM_CONFIG_CACHE := $(CURDIR)/.npm-cache
 
-.PHONY: check fmt fmt-check clippy test build run web-install web-build web-test web-dev dev e2e verify-xray test-install clean
+.PHONY: check fmt fmt-check clippy test build run web-install web-build web-test web-dev dev e2e verify-xray verify-runtime test-install clean
 
 check: fmt-check clippy test web-build web-test  ## 提交前跑这个（只校验格式，不改文件）
 
@@ -38,6 +38,9 @@ test-install:  ## install.sh 自测（临时前缀 + stub systemctl，不碰真�
 
 e2e:  ## 端到端冒烟：master + agent + 期望态下发
 	./scripts/e2e.sh
+
+verify-runtime:  ## 系统层验证（转发监听 / tc 限速 / 还原），需要 root
+	./scripts/verify-runtime.sh $(ARGS)
 
 verify-xray:  ## 真机验证：用真实 Xray 起节点并实际连一次（退出时清理干净）
 	cargo build --release -p pierwave-master
