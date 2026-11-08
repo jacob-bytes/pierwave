@@ -99,22 +99,9 @@ pub async fn create(
     user.require_admin()?;
     load_server(&state, &server_id).await?;
 
-    let tag = routing::normalize_tag(&req.tag).map_err(|error| {
-        AppError::coded(
-            "outbound.tag_invalid",
-            Some(json!({ "tag": &req.tag })),
-            error,
-        )
-    })?;
-    let protocol = routing::normalize_protocol(&req.protocol).map_err(|error| {
-        AppError::coded(
-            "outbound.protocol_invalid",
-            Some(json!({ "protocol": &req.protocol })),
-            error,
-        )
-    })?;
-    routing::ensure_config_object(&req.config)
-        .map_err(|error| AppError::coded("outbound.config_invalid", None, error))?;
+    let tag = routing::normalize_tag(&req.tag)?;
+    let protocol = routing::normalize_protocol(&req.protocol)?;
+    routing::ensure_config_object(&req.config)?;
 
     let outbound = repo::outbounds::create(
         &state.db.pool,
@@ -177,24 +164,15 @@ pub async fn update(
         .ok_or_else(|| AppError::not_found("outbound.not_found", None, "资源不存在"))?;
 
     let tag = match req.tag.as_deref() {
-        Some(raw) => Some(routing::normalize_tag(raw).map_err(|error| {
-            AppError::coded("outbound.tag_invalid", Some(json!({ "tag": raw })), error)
-        })?),
+        Some(raw) => Some(routing::normalize_tag(raw)?),
         None => None,
     };
     let protocol = match req.protocol.as_deref() {
-        Some(raw) => Some(routing::normalize_protocol(raw).map_err(|error| {
-            AppError::coded(
-                "outbound.protocol_invalid",
-                Some(json!({ "protocol": raw })),
-                error,
-            )
-        })?),
+        Some(raw) => Some(routing::normalize_protocol(raw)?),
         None => None,
     };
     if let Some(config) = &req.config {
-        routing::ensure_config_object(config)
-            .map_err(|error| AppError::coded("outbound.config_invalid", None, error))?;
+        routing::ensure_config_object(config)?;
     }
 
     // 改名会让已有规则指向旧 tag，和删除一样先拦下来并说明引用数。
@@ -473,18 +451,39 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
 
         let cases = [
-            (socks(), "已存在"),
-            (json!({"tag": "direct", "protocol": "freedom"}), "保留字"),
-            (json!({"tag": "blocked", "protocol": "blackhole"}), "保留字"),
-            (json!({"tag": "api", "protocol": "freedom"}), "保留字"),
-            (json!({"tag": "Upper", "protocol": "socks"}), "小写字母"),
-            (json!({"tag": "relay-2", "protocol": "wireguard"}), "不支持"),
+            (socks(), "已存在", "outbound.tag_conflict"),
+            (
+                json!({"tag": "direct", "protocol": "freedom"}),
+                "保留字",
+                "outbound.tag_reserved",
+            ),
+            (
+                json!({"tag": "blocked", "protocol": "blackhole"}),
+                "保留字",
+                "outbound.tag_reserved",
+            ),
+            (
+                json!({"tag": "api", "protocol": "freedom"}),
+                "保留字",
+                "outbound.tag_reserved",
+            ),
+            (
+                json!({"tag": "Upper", "protocol": "socks"}),
+                "小写字母",
+                "outbound.tag_invalid",
+            ),
+            (
+                json!({"tag": "relay-2", "protocol": "wireguard"}),
+                "不支持",
+                "outbound.protocol_invalid",
+            ),
             (
                 json!({"tag": "relay-3", "protocol": "socks", "config": []}),
                 "JSON 对象",
+                "outbound.config_invalid",
             ),
         ];
-        for (body, expected) in cases {
+        for (body, expected, code) in cases {
             let (status, value) =
                 request(&app, Some(&cookie), Method::POST, &uri, Some(body.clone())).await;
             assert_eq!(status, StatusCode::BAD_REQUEST, "body={body} value={value}");
@@ -492,16 +491,25 @@ mod tests {
                 value["error"].as_str().unwrap().contains(expected),
                 "body={body} value={value}"
             );
+            assert_eq!(value["code"], code, "body={body} value={value}");
         }
 
         // PATCH 同样走 tag / protocol / config 校验。
         let (_, list) = request(&app, Some(&cookie), Method::GET, &uri, None).await;
         let id = list["items"][0]["id"].as_str().unwrap().to_string();
         let uri = format!("/api/v1/outbounds/{id}");
-        for (body, expected) in [
-            (json!({"tag": "direct"}), "保留字"),
-            (json!({"protocol": "wireguard"}), "不支持"),
-            (json!({"config": "not-an-object"}), "JSON 对象"),
+        for (body, expected, code) in [
+            (json!({"tag": "direct"}), "保留字", "outbound.tag_reserved"),
+            (
+                json!({"protocol": "wireguard"}),
+                "不支持",
+                "outbound.protocol_invalid",
+            ),
+            (
+                json!({"config": "not-an-object"}),
+                "JSON 对象",
+                "outbound.config_invalid",
+            ),
         ] {
             let (status, value) =
                 request(&app, Some(&cookie), Method::PATCH, &uri, Some(body.clone())).await;
@@ -510,6 +518,7 @@ mod tests {
                 value["error"].as_str().unwrap().contains(expected),
                 "body={body} value={value}"
             );
+            assert_eq!(value["code"], code, "body={body} value={value}");
         }
     }
 

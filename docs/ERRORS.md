@@ -17,6 +17,7 @@
 | `common.enum_invalid` | 不支持的{field}：{value} | field, value |
 | `query.limit_invalid` | limit 必须是整数 | — |
 | `query.limit_out_of_range` | limit 必须在 1-{max} 之间 | max |
+| `query.cursor_invalid` | before 游标无效 | — |
 | `request.no_update_fields` | 至少需要提供一个可更新字段 | — |
 | `user.not_found` | 用户不存在 | — |
 | `user.username_length_invalid` | 用户名长度必须在 {min}-{max} 个字符之间 | max, min |
@@ -87,6 +88,7 @@
 | `outbound.tag_conflict` | 该服务器下已存在相同的出站 tag | — |
 | `outbound.in_use` | 该出站被 {references} 条路由规则引用，无法修改 | references |
 | `outbound.tag_invalid` | 出站 tag 不合法：{tag} | tag |
+| `outbound.tag_reserved` | tag「{tag}」是保留字，请换一个 | tag |
 | `outbound.protocol_invalid` | 不支持的出站协议：{protocol} | protocol |
 | `outbound.config_invalid` | config 必须是 JSON 对象 | — |
 | `routing_rule.not_found` | 路由规则不存在 | — |
@@ -103,6 +105,12 @@
 | `backup.restore_invalid` | 备份文件校验失败 | — |
 | `backup.restore_bad_gzip` | gzip 解压失败 | — |
 | `backup.restore_read_failed` | 读取上传内容失败 | — |
+| `release.key_length_invalid` | 密钥长度必须是 32 字节 | actual, expected |
+| `release.public_key_invalid` | 公钥格式不合法 | — |
+| `release.signature_length_invalid` | 签名长度不合法 | actual, expected |
+| `release.signature_invalid` | 清单签名校验失败：产物可能被篡改，或公钥不匹配 | — |
+| `release.asset_missing` | 清单里没有 {asset} | asset |
+| `release.checksum_mismatch` | {asset} 的 sha256 不匹配：期望 {expected}，实际 {actual} | actual, asset, expected |
 | `install.token_required` | 缺少 token 参数 | — |
 | `install.token_not_found` | token 无效 | — |
 | `install.filename_invalid` | 非法的文件名 | — |

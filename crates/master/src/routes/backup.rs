@@ -20,6 +20,7 @@ use serde_json::{json, Value};
 use tokio::io::AsyncWriteExt;
 
 use pierwave_domain::backup::{self, MAX_BACKUP_BYTES};
+use pierwave_domain::error::DomainError;
 
 use crate::audit;
 use crate::auth::CurrentUser;
@@ -186,7 +187,20 @@ fn backup_db_path(state: &AppState) -> AppResult<PathBuf> {
 }
 
 /// 备份校验失败的错误码：文案保持原样（便于排障），只按原因归类。
+///
+/// 领域层现在会直接给出 `DomainError`（优先使用其 code/params）；字符串匹配
+/// 只作为旧错误链的兜底，行为与以前一致。
 fn restore_validation_error(error: anyhow::Error) -> AppError {
+    if let Some(domain) = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<DomainError>())
+    {
+        return AppError::coded(
+            domain.code,
+            domain.params_option(),
+            format!("备份文件校验失败：{}", domain.message),
+        );
+    }
     let message = format!("备份文件校验失败：{error:#}");
     if message.contains("文件头不是 SQLite format 3") {
         AppError::coded("backup.restore_bad_header", None, message)
@@ -537,6 +551,7 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
         let message = json(&body)["error"].as_str().unwrap().to_string();
         assert!(message.contains("为空"), "实际：{message}");
+        assert_eq!(json(&body)["code"], "backup.restore_invalid");
 
         // 合法 SQLite，但没有 users / _sqlx_migrations。
         let tableless_path = dir.file("tableless.db");

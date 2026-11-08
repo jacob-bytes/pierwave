@@ -1,6 +1,7 @@
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use pierwave_domain::error::DomainError;
 use serde_json::{json, Value};
 
 /// 面向用户的错误。
@@ -38,7 +39,7 @@ pub enum AppError {
         message: String,
     },
     #[error(transparent)]
-    Internal(#[from] anyhow::Error),
+    Internal(anyhow::Error),
 }
 
 impl AppError {
@@ -98,6 +99,35 @@ impl AppError {
             params,
             message: message.into(),
         }
+    }
+
+    /// 从任意 `anyhow::Error` 的错误链里抽出 [`DomainError`]。
+    ///
+    /// 领域层用 `anyhow::Context` 包装过也能取到；取不到返回 `None`，由调用方
+    /// 保留原有映射（500 或特定 4xx）。
+    pub fn from_domain_chain(error: &anyhow::Error) -> Option<Self> {
+        error
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<DomainError>())
+            .map(|domain| Self::coded(domain.code, domain.params_option(), domain.message.clone()))
+    }
+}
+
+/// 所有 `?` 的默认入口：错误链里有 `DomainError` 就转成带 code 的 400，
+/// 其余保持原来的 500。
+impl From<anyhow::Error> for AppError {
+    fn from(error: anyhow::Error) -> Self {
+        match Self::from_domain_chain(&error) {
+            Some(error) => error,
+            None => AppError::Internal(error),
+        }
+    }
+}
+
+/// 领域校验函数直接返回 `DomainError` 时，`?` 也能落成 400。
+impl From<DomainError> for AppError {
+    fn from(error: DomainError) -> Self {
+        Self::from(anyhow::Error::new(error))
     }
 }
 
@@ -292,5 +322,41 @@ mod tests {
             assert_eq!(status, expected);
             assert!(body["code"].is_string(), "{body}");
         }
+    }
+
+    #[tokio::test]
+    async fn domain_error_in_anyhow_chain_becomes_coded_400() {
+        let error: anyhow::Error = anyhow::Error::new(DomainError::with_params(
+            "backup.restore_too_large",
+            json!({ "max_mb": 512 }),
+            "备份文件超过 512 MB 上限",
+        ))
+        .context("上传备份校验失败");
+
+        let (status, body) = render(AppError::from(error)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["error"], "备份文件超过 512 MB 上限");
+        assert_eq!(body["code"], "backup.restore_too_large");
+        assert_eq!(body["params"], json!({ "max_mb": 512 }));
+    }
+
+    #[tokio::test]
+    async fn domain_error_converts_directly_for_question_mark() {
+        let app_error: AppError =
+            DomainError::new("routing_rule.match_required", "路由规则至少要填写一项").into();
+        let (status, body) = render(app_error).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "routing_rule.match_required");
+        assert!(body.get("params").is_none(), "{body}");
+    }
+
+    #[tokio::test]
+    async fn plain_anyhow_error_still_maps_to_internal() {
+        let (status, body) = render(AppError::from(anyhow::anyhow!("读取磁盘失败"))).await;
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(body.get("code").is_none(), "{body}");
+        assert_eq!(body["error"], "服务器内部错误");
     }
 }

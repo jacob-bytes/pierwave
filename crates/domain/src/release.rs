@@ -6,10 +6,13 @@
 //!
 //! 兼容性：签名是对 `SHA256SUMS` 整体签的，清单再逐行覆盖每个产物。
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result};
 use base64::Engine;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use serde_json::json;
 use sha2::{Digest, Sha256};
+
+use crate::error::DomainError;
 
 /// 开发用的兜底公钥：发布构建通过 `PIERWAVE_RELEASE_PUBKEY` 编译期注入真实公钥。
 ///
@@ -26,10 +29,14 @@ fn decode_key(raw: &str) -> Result<[u8; 32]> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(raw.trim())
         .context("公钥/私钥不是合法的 base64")?;
-    let arr: [u8; 32] = bytes
-        .as_slice()
-        .try_into()
-        .map_err(|_| anyhow!("密钥长度必须是 32 字节"))?;
+    let actual = bytes.len();
+    let arr: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
+        DomainError::with_params(
+            "release.key_length_invalid",
+            json!({ "expected": 32, "actual": actual }),
+            "密钥长度必须是 32 字节",
+        )
+    })?;
     Ok(arr)
 }
 
@@ -43,14 +50,28 @@ pub fn sign_manifest(secret_key_b64: &str, manifest: &str) -> Result<String> {
 /// 校验清单签名。公钥来自参数或编译期内置值。
 pub fn verify_manifest(manifest: &str, signature_b64: &str, public_key_b64: &str) -> Result<()> {
     let key_bytes = decode_key(public_key_b64)?;
-    let verifying = VerifyingKey::from_bytes(&key_bytes).map_err(|_| anyhow!("公钥格式不合法"))?;
+    let verifying = VerifyingKey::from_bytes(&key_bytes)
+        .map_err(|_| DomainError::new("release.public_key_invalid", "公钥格式不合法"))?;
     let sig_bytes = base64::engine::general_purpose::STANDARD
         .decode(signature_b64.trim())
         .context("签名不是合法的 base64")?;
-    let signature = Signature::from_slice(&sig_bytes).map_err(|_| anyhow!("签名长度不合法"))?;
+    let actual = sig_bytes.len();
+    let signature = Signature::from_slice(&sig_bytes).map_err(|_| {
+        DomainError::with_params(
+            "release.signature_length_invalid",
+            json!({ "expected": 64, "actual": actual }),
+            "签名长度不合法",
+        )
+    })?;
     verifying
         .verify(manifest.as_bytes(), &signature)
-        .map_err(|_| anyhow!("清单签名校验失败：产物可能被篡改，或公钥不匹配"))
+        .map_err(|_| {
+            DomainError::new(
+                "release.signature_invalid",
+                "清单签名校验失败：产物可能被篡改，或公钥不匹配",
+            )
+        })?;
+    Ok(())
 }
 
 /// 解析 `sha256sum` 格式的清单。兼容 `hex  name` 与 `hex *name` 两种写法。
@@ -75,12 +96,21 @@ pub fn parse_manifest(manifest: &str) -> std::collections::HashMap<String, Strin
 /// 从清单里取出某个产物的 sha256，并与实际文件内容比对。
 pub fn verify_asset(manifest: &str, asset: &str, content: &[u8]) -> Result<()> {
     let map = parse_manifest(manifest);
-    let expected = map
-        .get(asset)
-        .ok_or_else(|| anyhow!("清单里没有 {asset}"))?;
+    let expected = map.get(asset).ok_or_else(|| {
+        DomainError::with_params(
+            "release.asset_missing",
+            json!({ "asset": asset }),
+            format!("清单里没有 {asset}"),
+        )
+    })?;
     let actual = hex::encode(Sha256::digest(content));
     if &actual != expected {
-        bail!("{asset} 的 sha256 不匹配：期望 {expected}，实际 {actual}");
+        return Err(DomainError::with_params(
+            "release.checksum_mismatch",
+            json!({ "asset": asset, "expected": expected, "actual": actual }),
+            format!("{asset} 的 sha256 不匹配：期望 {expected}，实际 {actual}"),
+        )
+        .into());
     }
     Ok(())
 }
@@ -136,6 +166,17 @@ mod tests {
         )
     }
 
+    fn domain_error(error: &anyhow::Error) -> &DomainError {
+        error
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<DomainError>())
+            .expect("发布校验错误必须携带 DomainError")
+    }
+
+    fn b64(bytes: &[u8]) -> String {
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    }
+
     #[test]
     fn signature_roundtrip() {
         let (secret, public) = keypair();
@@ -148,7 +189,9 @@ mod tests {
     fn tampered_manifest_is_rejected() {
         let (secret, public) = keypair();
         let sig = sign_manifest(&secret, "abc  a\n").unwrap();
-        assert!(verify_manifest("abd  a\n", &sig, &public).is_err());
+        let error = verify_manifest("abd  a\n", &sig, &public).unwrap_err();
+        assert_eq!(domain_error(&error).code, "release.signature_invalid");
+        assert!(error.to_string().contains("签名校验失败"), "{error}");
     }
 
     #[test]
@@ -160,7 +203,48 @@ mod tests {
                 .to_bytes(),
         );
         let sig = sign_manifest(&secret, "m").unwrap();
-        assert!(verify_manifest("m", &sig, &other).is_err());
+        let error = verify_manifest("m", &sig, &other).unwrap_err();
+        assert_eq!(domain_error(&error).code, "release.signature_invalid");
+    }
+
+    #[test]
+    fn rejects_bad_key_and_signature_shapes() {
+        let (secret, public) = keypair();
+
+        // 密钥不是 32 字节：私钥/公钥共用的解码路径。
+        let short_key = b64(&[0u8; 31]);
+        let error = sign_manifest(&short_key, "m").unwrap_err();
+        assert_eq!(domain_error(&error).code, "release.key_length_invalid");
+        assert_eq!(
+            domain_error(&error).params,
+            json!({ "expected": 32, "actual": 31 })
+        );
+
+        // 32 字节但不是合法的 compressed Edwards 点（y=2 不在曲线上）。
+        let mut invalid_key = [0u8; 32];
+        invalid_key[0] = 2;
+        let invalid_public = b64(&invalid_key);
+        let error = verify_manifest("m", &b64(&[0u8; 64]), &invalid_public).unwrap_err();
+        assert_eq!(domain_error(&error).code, "release.public_key_invalid");
+
+        // 签名长度不是 64 字节。
+        let sig = sign_manifest(&secret, "m").unwrap();
+        let short_sig = b64(&[0u8; 10]);
+        let error = verify_manifest("m", &short_sig, &public).unwrap_err();
+        assert_eq!(
+            domain_error(&error).code,
+            "release.signature_length_invalid"
+        );
+        assert_eq!(
+            domain_error(&error).params,
+            json!({ "expected": 64, "actual": 10 })
+        );
+
+        // 长度正确但内容与清单不匹配。
+        let wrong_sig = b64(&[0u8; 64]);
+        let error = verify_manifest("m", &wrong_sig, &public).unwrap_err();
+        assert_eq!(domain_error(&error).code, "release.signature_invalid");
+        assert!(verify_manifest("m", &sig, &public).is_ok());
     }
 
     #[test]
@@ -177,8 +261,23 @@ mod tests {
         let hash = hex::encode(Sha256::digest(content));
         let manifest = format!("{hash}  agent\n");
         assert!(verify_asset(&manifest, "agent", content).is_ok());
-        assert!(verify_asset(&manifest, "agent", b"tampered").is_err());
-        assert!(verify_asset(&manifest, "other", content).is_err());
+
+        let error = verify_asset(&manifest, "agent", b"tampered").unwrap_err();
+        let domain = domain_error(&error);
+        assert_eq!(domain.code, "release.checksum_mismatch");
+        assert_eq!(
+            domain.params,
+            json!({
+                "asset": "agent",
+                "expected": hash,
+                "actual": hex::encode(Sha256::digest(b"tampered")),
+            })
+        );
+
+        let error = verify_asset(&manifest, "other", content).unwrap_err();
+        let domain = domain_error(&error);
+        assert_eq!(domain.code, "release.asset_missing");
+        assert_eq!(domain.params, json!({ "asset": "other" }));
     }
 
     #[test]

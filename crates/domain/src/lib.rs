@@ -5,6 +5,7 @@ pub mod backup;
 pub mod certificate;
 pub mod credentials;
 pub mod enforcement;
+pub mod error;
 pub mod metering;
 pub mod models;
 pub mod password;

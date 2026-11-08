@@ -12,13 +12,28 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context};
+use serde_json::json;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
 
+use crate::error::DomainError;
 use crate::repo;
 
 /// 备份文件大小上限（上传的压缩体与解压后的数据库分别适用）。
 pub const MAX_BACKUP_BYTES: u64 = 512 * 1024 * 1024;
+
+/// 大小超限的稳定错误；`max_mb` 供前端插值，避免文案里写死单位换算。
+fn too_large_error(len: u64) -> DomainError {
+    let max_mb = MAX_BACKUP_BYTES / (1024 * 1024);
+    DomainError::with_params(
+        "backup.restore_too_large",
+        json!({ "max_mb": max_mb }),
+        format!(
+            "备份文件大小 {} MB 超过 {max_mb} MB 上限",
+            len / (1024 * 1024)
+        ),
+    )
+}
 
 /// SQLite 文件头，必须是文件最开头的 16 个字节。
 pub const SQLITE_MAGIC: &[u8] = b"SQLite format 3\0";
@@ -94,16 +109,13 @@ pub async fn validate_backup_file(path: &Path) -> anyhow::Result<u64> {
     let meta =
         fs::metadata(path).with_context(|| format!("读取备份文件失败：{}", path.display()))?;
     if !meta.is_file() {
-        bail!("备份不是普通文件");
+        return Err(DomainError::new("backup.restore_invalid", "备份不是普通文件").into());
     }
     if meta.len() == 0 {
-        bail!("备份文件为空");
+        return Err(DomainError::new("backup.restore_invalid", "备份文件为空").into());
     }
     if meta.len() > MAX_BACKUP_BYTES {
-        bail!(
-            "备份文件大小 {} MB 超过 512 MB 上限",
-            meta.len() / (1024 * 1024)
-        );
+        return Err(too_large_error(meta.len()).into());
     }
 
     let mut header = [0u8; 16];
@@ -111,7 +123,11 @@ pub async fn validate_backup_file(path: &Path) -> anyhow::Result<u64> {
         .and_then(|mut file| file.read(&mut header))
         .with_context(|| format!("读取备份文件头失败：{}", path.display()))?;
     if read < header.len() || &header[..] != SQLITE_MAGIC {
-        bail!("文件头不是 SQLite format 3（不是有效的 SQLite 数据库）");
+        return Err(DomainError::new(
+            "backup.restore_bad_header",
+            "文件头不是 SQLite format 3（不是有效的 SQLite 数据库）",
+        )
+        .into());
     }
 
     // 只读打开：校验过程绝不能修改备份文件。
@@ -133,7 +149,11 @@ async fn inspect(pool: &SqlitePool) -> anyhow::Result<()> {
         }
     }
     if !missing.is_empty() {
-        bail!("备份缺少必需的表：{}", missing.join("、"));
+        return Err(DomainError::new(
+            "backup.restore_missing_tables",
+            format!("备份缺少必需的表：{}", missing.join("、")),
+        )
+        .into());
     }
 
     let version = repo::backup::max_migration_version(pool)
@@ -141,10 +161,15 @@ async fn inspect(pool: &SqlitePool) -> anyhow::Result<()> {
         .context("读取备份的迁移版本失败（_sqlx_migrations 结构异常）")?;
     let supported = crate::latest_migration_version();
     if let Some(version) = version.filter(|version| *version > supported) {
-        bail!(
-            "备份的迁移版本 {version} 高于当前程序支持的版本 {supported}，\
-             请使用不低于该版本的程序恢复"
-        );
+        return Err(DomainError::with_params(
+            "backup.restore_migration_too_new",
+            json!({ "version": version, "supported": supported }),
+            format!(
+                "备份的迁移版本 {version} 高于当前程序支持的版本 {supported}，\
+                 请使用不低于该版本的程序恢复"
+            ),
+        )
+        .into());
     }
     Ok(())
 }
@@ -309,6 +334,13 @@ mod tests {
         .unwrap()
     }
 
+    fn domain_error(error: &anyhow::Error) -> &DomainError {
+        error
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<DomainError>())
+            .expect("备份校验错误必须携带 DomainError")
+    }
+
     #[tokio::test]
     async fn snapshot_is_a_readable_database_with_required_tables() {
         let dir = TestDir::new("snapshot");
@@ -342,12 +374,16 @@ mod tests {
 
         let text = dir.file("text.db");
         fs::write(&text, b"this is not a database").unwrap();
-        let reason = validate_backup_file(&text).await.unwrap_err().to_string();
+        let error = validate_backup_file(&text).await.unwrap_err();
+        assert_eq!(domain_error(&error).code, "backup.restore_bad_header");
+        let reason = error.to_string();
         assert!(reason.contains("SQLite format 3"), "实际：{reason}");
 
         let empty = dir.file("empty.db");
         fs::write(&empty, b"").unwrap();
-        let reason = validate_backup_file(&empty).await.unwrap_err().to_string();
+        let error = validate_backup_file(&empty).await.unwrap_err();
+        assert_eq!(domain_error(&error).code, "backup.restore_invalid");
+        let reason = error.to_string();
         assert!(reason.contains("为空"), "实际：{reason}");
 
         // 合法 SQLite 文件，但没有业务表。
@@ -358,12 +394,33 @@ mod tests {
             .await
             .unwrap();
         db.pool.close().await;
-        let reason = validate_backup_file(&tableless)
-            .await
-            .unwrap_err()
-            .to_string();
+        let error = validate_backup_file(&tableless).await.unwrap_err();
+        assert_eq!(domain_error(&error).code, "backup.restore_missing_tables");
+        let reason = error.to_string();
         assert!(reason.contains("users"), "实际：{reason}");
         assert!(reason.contains("_sqlx_migrations"), "实际：{reason}");
+    }
+
+    #[tokio::test]
+    async fn rejects_non_file_and_oversized_backups() {
+        let dir = TestDir::new("size");
+
+        // 目录不是普通文件：不能交给 SQLite。
+        let error = validate_backup_file(&dir.path).await.unwrap_err();
+        let domain = domain_error(&error);
+        assert_eq!(domain.code, "backup.restore_invalid");
+        assert!(domain.message.contains("普通文件"), "{domain}");
+
+        // 稀疏文件只占元数据，足以触发大小检查而不真的写 512 MB。
+        let oversized = dir.file("oversized.db");
+        let file = File::create(&oversized).unwrap();
+        file.set_len(MAX_BACKUP_BYTES + 1).unwrap();
+        drop(file);
+        let error = validate_backup_file(&oversized).await.unwrap_err();
+        let domain = domain_error(&error);
+        assert_eq!(domain.code, "backup.restore_too_large");
+        assert_eq!(domain.params, json!({ "max_mb": 512 }));
+        assert!(domain.message.contains("超过 512 MB"), "{domain}");
     }
 
     #[tokio::test]
@@ -385,7 +442,17 @@ mod tests {
 
         let target = dir.file("future.db");
         create_snapshot(&db.pool, &target).await.unwrap();
-        let reason = validate_backup_file(&target).await.unwrap_err().to_string();
+        let error = validate_backup_file(&target).await.unwrap_err();
+        let domain = domain_error(&error);
+        assert_eq!(domain.code, "backup.restore_migration_too_new");
+        assert_eq!(
+            domain.params,
+            json!({
+                "version": crate::latest_migration_version() + 1,
+                "supported": crate::latest_migration_version(),
+            })
+        );
+        let reason = error.to_string();
         assert!(reason.contains("迁移版本"), "实际：{reason}");
         assert!(reason.contains("高于当前程序支持"), "实际：{reason}");
         db.pool.close().await;

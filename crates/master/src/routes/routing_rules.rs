@@ -134,8 +134,7 @@ pub async fn create(
     let inbound_tag = routing::normalize_condition(req.inbound_tag.as_deref());
     let domain = routing::normalize_condition(req.domain.as_deref());
     let ip = routing::normalize_condition(req.ip.as_deref());
-    routing::validate_rule_match(inbound_tag.as_deref(), domain.as_deref(), ip.as_deref())
-        .map_err(|error| AppError::coded("routing_rule.match_required", None, error))?;
+    routing::validate_rule_match(inbound_tag.as_deref(), domain.as_deref(), ip.as_deref())?;
 
     let outbound_tag = req.outbound_tag.trim().to_string();
     validate_outbound_tag(&state, &server_id, &outbound_tag).await?;
@@ -223,8 +222,7 @@ pub async fn update(
     let ip = patched_value(&existing.ip, &ip_patch);
 
     // 清空最后一个匹配条件会让规则变成「全匹配」，必须拦住。
-    routing::validate_rule_match(inbound_tag.as_deref(), domain.as_deref(), ip.as_deref())
-        .map_err(|error| AppError::coded("routing_rule.match_required", None, error))?;
+    routing::validate_rule_match(inbound_tag.as_deref(), domain.as_deref(), ip.as_deref())?;
 
     let outbound_tag = match req.outbound_tag.as_deref() {
         Some(raw) => raw.trim().to_string(),
