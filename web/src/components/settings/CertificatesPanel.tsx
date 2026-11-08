@@ -6,6 +6,7 @@ import {
   Trash2Icon,
   TriangleAlertIcon,
 } from "lucide-react";
+import { EmptyState, SkeletonTable } from "@/components/common";
 import { CertificateFormDialog } from "@/components/certificates/CertificateFormDialog";
 import { DeleteCertificateDialog } from "@/components/certificates/DeleteCertificateDialog";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +18,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -36,51 +36,22 @@ import { t, useI18n } from "@/i18n";
 
 const COLUMN_COUNT = 5;
 
-function LoadingRows() {
-  return (
-    <>
-      {Array.from({ length: 4 }).map((_, index) => (
-        <TableRow key={index} className="hover:bg-transparent">
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-32" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-48" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-20" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-12" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="size-7 rounded-md" />
-          </TableCell>
-        </TableRow>
-      ))}
-    </>
-  );
-}
-
 function EmptyRow({ onUpload }: { onUpload: () => void }) {
   return (
     <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-sm flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
-            <FileKeyIcon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{t("certificates.emptyTitle")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t("certificates.emptyDesc")}
-            </p>
-          </div>
-          <Button variant="outline" size="sm" onClick={onUpload}>
-            <PlusIcon className="size-3.5" />
-            {t("certificates.emptyAction")}
-          </Button>
-        </div>
+      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-8">
+        <EmptyState
+          size="sm"
+          icon={FileKeyIcon}
+          title={t("certificates.emptyTitle")}
+          description={t("certificates.emptyDesc")}
+          action={
+            <Button variant="outline" size="sm" onClick={onUpload}>
+              <PlusIcon className="size-3.5" />
+              {t("certificates.emptyAction")}
+            </Button>
+          }
+        />
       </TableCell>
     </TableRow>
   );
@@ -217,8 +188,16 @@ export function CertificatesPanel() {
           </CardDescription>
         </CardHeader>
 
-        <CardContent className="p-0">
-          <Table className="min-w-[820px]" aria-busy={certificates.isPending}>
+        <CardContent className="p-0" aria-busy={certificates.isPending}>
+          {certificates.isPending ? (
+            <SkeletonTable rows={4} columns={COLUMN_COUNT} />
+          ) : null}
+          <Table
+            className={cn(
+              "min-w-[820px]",
+              certificates.isPending && "hidden",
+            )}
+          >
             <TableCaption className="sr-only">{t("certificates.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
@@ -239,9 +218,7 @@ export function CertificatesPanel() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {certificates.isPending ? (
-                <LoadingRows />
-              ) : showError ? (
+              {showError ? (
                 <ErrorRow
                   message={errorMessage}
                   retrying={certificates.isFetching}

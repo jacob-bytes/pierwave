@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowRightIcon,
@@ -12,6 +12,7 @@ import {
   TriangleAlertIcon,
   WorkflowIcon,
 } from "lucide-react";
+import { EmptyState, PageHeader, SkeletonTable } from "@/components/common";
 import { ChainFormDialog } from "@/components/chains/ChainFormDialog";
 import { DeleteChainDialog } from "@/components/chains/DeleteChainDialog";
 import { StrategyBadge } from "@/components/chains/StrategyBadge";
@@ -31,7 +32,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -425,7 +425,7 @@ function ChainGroupsRow({ chain }: { chain: Chain }) {
               {groups.map((group, index) => (
                 <Fragment key={group.id || group.seq}>
                   <GroupCard group={group} isEntry={index === 0} />
-                  <div className="hidden shrink-0 items-center text-muted-foreground/80 lg:flex">
+                  <div className="hidden shrink-0 items-center text-muted-foreground lg:flex">
                     <ArrowRightIcon className="size-3.5" aria-hidden="true" />
                   </div>
                 </Fragment>
@@ -489,31 +489,6 @@ function ChainEnabledSwitch({ chain }: { chain: Chain }) {
   );
 }
 
-function LoadingRows({ rows = 4 }: { rows?: number }) {
-  const widths = ["w-24", "w-16", "w-28", "w-32", "w-16", "w-14", "w-12"];
-
-  return (
-    <>
-      {Array.from({ length: rows }).map((_, rowIndex) => (
-        <TableRow key={rowIndex} className="hover:bg-transparent">
-          {Array.from({ length: CHAIN_COLUMN_COUNT }).map(
-            (__, columnIndex) => (
-              <TableCell key={columnIndex} className="px-4 py-3">
-                <Skeleton
-                  className={cn(
-                    "h-3.5",
-                    widths[columnIndex % widths.length],
-                  )}
-                />
-              </TableCell>
-            ),
-          )}
-        </TableRow>
-      ))}
-    </>
-  );
-}
-
 function ErrorRow({
   message,
   onRetry,
@@ -554,13 +529,11 @@ function ErrorRow({
 }
 
 function EmptyRow({
-  icon,
   title,
   description,
   actionLabel,
   onAction,
 }: {
-  icon: ReactNode;
   title: string;
   description: string;
   actionLabel: string;
@@ -568,20 +541,19 @@ function EmptyRow({
 }) {
   return (
     <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={CHAIN_COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-sm flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
-            {icon}
-          </div>
-          <div>
-            <p className="text-sm font-medium">{title}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={onAction}>
-            <PlusIcon className="size-3.5" />
-            {actionLabel}
-          </Button>
-        </div>
+      <TableCell colSpan={CHAIN_COLUMN_COUNT} className="px-4 py-8">
+        <EmptyState
+          size="sm"
+          icon={WorkflowIcon}
+          title={title}
+          description={description}
+          action={
+            <Button variant="outline" size="sm" onClick={onAction}>
+              <PlusIcon className="size-3.5" />
+              {actionLabel}
+            </Button>
+          }
+        />
       </TableCell>
     </TableRow>
   );
@@ -636,17 +608,11 @@ export default function ChainsPage() {
   }
 
   return (
-    <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight">
-            {t("chains.title")}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t("chains.subtitle")}
-          </p>
-        </div>
-      </div>
+    <div className="animate-enter space-y-6">
+      <PageHeader
+        title={t("chains.title")}
+        description={t("chains.subtitle")}
+      />
 
       <Card className="gap-0 overflow-hidden">
         <CardHeader className="border-b border-border">
@@ -697,8 +663,13 @@ export default function ChainsPage() {
           </div>
         </CardHeader>
 
-        <CardContent className="p-0">
-          <Table className="min-w-[880px]" aria-busy={chains.isPending}>
+        <CardContent className="p-0" aria-busy={chains.isPending}>
+          {chains.isPending ? (
+            <SkeletonTable rows={4} columns={CHAIN_COLUMN_COUNT} />
+          ) : null}
+          <Table
+            className={cn("min-w-[880px]", chains.isPending && "hidden")}
+          >
             <TableCaption className="sr-only">
               {t("chains.list.tableCaption")}
             </TableCaption>
@@ -720,9 +691,7 @@ export default function ChainsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {chains.isPending ? (
-                <LoadingRows />
-              ) : showError ? (
+              {showError ? (
                 <ErrorRow
                   message={loadError}
                   onRetry={() => void chains.refetch()}
@@ -730,7 +699,6 @@ export default function ChainsPage() {
                 />
               ) : items.length === 0 ? (
                 <EmptyRow
-                  icon={<WorkflowIcon className="size-5" />}
                   title={t("chains.list.emptyTitle")}
                   description={t("chains.list.emptyDesc")}
                   actionLabel={t("chains.list.emptyAction")}

@@ -15,6 +15,7 @@ import type { LucideIcon } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { FormField, FormRootError } from "@/components/FormField";
+import { SkeletonCard } from "@/components/common";
 import { AlertsCard } from "@/components/settings/AlertsCard";
 import { BackupCard } from "@/components/settings/BackupCard";
 import { CertificatesPanel } from "@/components/settings/CertificatesPanel";
@@ -28,7 +29,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tabs,
   TabsContent,
@@ -139,17 +139,7 @@ function SettingsSkeleton({ cards = 2 }: { cards?: number }) {
   return (
     <div className="space-y-6" aria-busy="true">
       {Array.from({ length: cards }, (_, index) => (
-        <Card key={index}>
-          <CardHeader>
-            <Skeleton className="h-4 w-24" />
-            <Skeleton className="h-3 w-64" />
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <Skeleton className="h-3 w-20" />
-            <Skeleton className="h-8 w-full max-w-md" />
-            <Skeleton className="h-3 w-52" />
-          </CardContent>
-        </Card>
+        <SkeletonCard key={index} lines={3} />
       ))}
     </div>
   );

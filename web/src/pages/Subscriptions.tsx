@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { EmptyState, PageHeader, SkeletonTable } from "@/components/common";
 import { RuleTemplateSelect } from "@/components/subscriptions/RuleTemplateSelect";
 import { SubscriptionQrDialog } from "@/components/subscriptions/SubscriptionQrDialog";
 import { UsageBar } from "@/components/UsageBar";
@@ -35,7 +36,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -124,41 +124,6 @@ function packageLabel(user: Subscription): string {
     : joined;
 }
 
-function LoadingRows() {
-  return (
-    <>
-      {Array.from({ length: 6 }).map((_, index) => (
-        <TableRow key={index} className="hover:bg-transparent">
-          <TableCell className="px-4 py-3">
-            <div className="flex items-center gap-2.5">
-              <Skeleton className="size-6 rounded-full" />
-              <div className="space-y-1.5">
-                <Skeleton className="h-3.5 w-24" />
-                <Skeleton className="h-2.5 w-16" />
-              </div>
-            </div>
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-5 w-28 rounded-full" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-4 w-48" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-5 w-24 rounded-full" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-28" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-7 w-24 rounded-md" />
-          </TableCell>
-        </TableRow>
-      ))}
-    </>
-  );
-}
-
 function EmptyRow({
   title,
   description,
@@ -174,24 +139,23 @@ function EmptyRow({
 }) {
   return (
     <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-sm flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
-            <Link2Icon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{title}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={onAction}>
-            {searching ? (
-              <XIcon className="size-3.5" />
-            ) : (
-              <UsersIcon className="size-3.5" />
-            )}
-            {actionLabel}
-          </Button>
-        </div>
+      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-8">
+        <EmptyState
+          size="sm"
+          icon={Link2Icon}
+          title={title}
+          description={description}
+          action={
+            <Button variant="outline" size="sm" onClick={onAction}>
+              {searching ? (
+                <XIcon className="size-3.5" />
+              ) : (
+                <UsersIcon className="size-3.5" />
+              )}
+              {actionLabel}
+            </Button>
+          }
+        />
       </TableCell>
     </TableRow>
   );
@@ -359,13 +323,11 @@ export default function SubscriptionsPage() {
   }
 
   return (
-    <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">{t("subscriptions.title")}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t("subscriptions.subtitle")}
-        </p>
-      </div>
+    <div className="animate-enter space-y-6">
+      <PageHeader
+        title={t("subscriptions.title")}
+        description={t("subscriptions.subtitle")}
+      />
 
       <Card className="gap-0 overflow-hidden">
         <CardHeader className="border-b border-border">
@@ -464,8 +426,16 @@ export default function SubscriptionsPage() {
           </CardDescription>
         </CardHeader>
 
-        <CardContent className="p-0">
-          <Table className="min-w-[1000px]" aria-busy={subscriptions.isPending}>
+        <CardContent className="p-0" aria-busy={subscriptions.isPending}>
+          {subscriptions.isPending ? (
+            <SkeletonTable rows={6} columns={COLUMN_COUNT} />
+          ) : null}
+          <Table
+            className={cn(
+              "min-w-[1000px]",
+              subscriptions.isPending && "hidden",
+            )}
+          >
             <TableCaption className="sr-only">{t("subscriptions.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
@@ -488,9 +458,7 @@ export default function SubscriptionsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {subscriptions.isPending ? (
-                <LoadingRows />
-              ) : subscriptions.isError ? (
+              {subscriptions.isError ? (
                 <ErrorRow
                   message={subscriptionListErrorText(subscriptions.error)}
                   retrying={subscriptions.isFetching}

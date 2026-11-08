@@ -17,6 +17,11 @@ import {
   TriangleAlertIcon,
   UsersIcon,
 } from "lucide-react";
+import {
+  EmptyState,
+  PageHeader,
+  SkeletonCard,
+} from "@/components/common";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -59,21 +64,14 @@ function KpiCard({
   icon: Icon,
   value,
   hint,
-  index = 0,
 }: {
   label: string;
   icon: LucideIcon;
   value: ReactNode;
   hint: string;
-  /** 首页概览专用：20ms 错开入场，其余页面不要用。 */
-  index?: number;
 }) {
   return (
-    <Card
-      size="sm"
-      className="animate-enter gap-3"
-      style={{ animationDelay: `${index * 20}ms` }}
-    >
+    <Card size="sm" className="gap-3">
       <CardHeader className="grid-cols-[1fr_auto] items-center gap-2">
         <CardDescription className="text-xs">{label}</CardDescription>
         <div className="grid size-7 place-items-center rounded-md bg-primary/10 text-primary">
@@ -94,16 +92,7 @@ function KpiSkeletons() {
   return (
     <>
       {Array.from({ length: 4 }).map((_, index) => (
-        <Card key={index} size="sm" className="gap-3">
-          <CardHeader className="grid-cols-[1fr_auto] items-center gap-2">
-            <Skeleton className="h-3 w-20" />
-            <Skeleton className="size-7 rounded-md" />
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2">
-            <Skeleton className="h-7 w-24" />
-            <Skeleton className="h-3 w-16" />
-          </CardContent>
-        </Card>
+        <SkeletonCard key={index} lines={2} />
       ))}
     </>
   );
@@ -125,24 +114,7 @@ function OverviewSkeleton() {
             <Skeleton className="h-[248px] w-full" />
           </CardContent>
         </Card>
-        <Card className="gap-4">
-          <CardHeader>
-            <Skeleton className="h-4 w-16" />
-            <Skeleton className="h-3 w-32" />
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            {Array.from({ length: 3 }).map((_, index) => (
-              <div key={index} className="flex items-center gap-3">
-                <Skeleton className="size-8 rounded-md" />
-                <div className="flex flex-1 flex-col gap-1.5">
-                  <Skeleton className="h-3.5 w-24" />
-                  <Skeleton className="h-2.5 w-16" />
-                </div>
-                <Skeleton className="h-4 w-6" />
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+        <SkeletonCard lines={3} />
       </section>
     </>
   );
@@ -186,22 +158,22 @@ function OverviewError({
 function EmptyOverview() {
   return (
     <Card>
-      <CardContent className="flex flex-col items-center justify-center gap-4 py-20 text-center">
-        <div className="grid size-12 place-items-center rounded-full bg-primary/10 text-primary">
-          <ServerIcon className="size-6" />
-        </div>
-        <div>
-          <p className="text-base font-medium">{t("overview.emptyTitle")}</p>
-          <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-            {t("overview.emptyDesc")}
-          </p>
-        </div>
-        <Button asChild>
-          <Link to="/servers">
-            <PlusIcon className="size-4" />
-            {t("overview.emptyAction")}
-          </Link>
-        </Button>
+      <CardContent>
+        <EmptyState
+          tone="primary"
+          icon={ServerIcon}
+          title={t("overview.emptyTitle")}
+          description={t("overview.emptyDesc")}
+          className="py-16"
+          action={
+            <Button asChild>
+              <Link to="/servers">
+                <PlusIcon className="size-4" />
+                {t("overview.emptyAction")}
+              </Link>
+            </Button>
+          }
+        />
       </CardContent>
     </Card>
   );
@@ -265,7 +237,7 @@ function AlertRow({
       >
         {count}
       </span>
-      <ChevronRightIcon className="size-3.5 text-muted-foreground/80 transition-transform duration-150 group-hover:translate-x-0.5" />
+      <ChevronRightIcon className="size-3.5 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5" />
     </Link>
   );
 }
@@ -299,26 +271,24 @@ export default function OverviewPage() {
     traffic.data?.days.reduce((sum, day) => sum + day.weighted, 0) ?? null;
 
   return (
-    <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">{t("overview.title")}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t("overview.subtitle")}
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={refreshAll}
-          disabled={refreshing}
-        >
-          <RefreshCwIcon
-            className={cn("size-3.5", refreshing && "animate-spin")}
-          />
-          {t("common.refresh")}
-        </Button>
-      </div>
+    <div className="animate-enter space-y-6">
+      <PageHeader
+        title={t("overview.title")}
+        description={t("overview.subtitle")}
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={refreshAll}
+            disabled={refreshing}
+          >
+            <RefreshCwIcon
+              className={cn("size-3.5", refreshing && "animate-spin")}
+            />
+            {t("common.refresh")}
+          </Button>
+        }
+      />
 
       {overview.isPending ? (
         <OverviewSkeleton />
@@ -335,7 +305,6 @@ export default function OverviewPage() {
           <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <KpiCard
               label={t("overview.onlineServers")}
-              index={0}
               icon={ServerIcon}
               value={
                 <>
@@ -353,7 +322,6 @@ export default function OverviewPage() {
             />
             <KpiCard
               label={t("overview.users")}
-              index={1}
               icon={UsersIcon}
               value={
                 <>
@@ -372,14 +340,12 @@ export default function OverviewPage() {
             />
             <KpiCard
               label={t("overview.packageInstances")}
-              index={2}
               icon={PackageIcon}
               value={stats.packages.instances}
               hint={t("overview.packagesTotalHint", { n: stats.packages.total })}
             />
             <KpiCard
               label={t("overview.todayTraffic")}
-              index={3}
               icon={ActivityIcon}
               value={formatBytes(stats.traffic.today_bytes)}
               hint={t("overview.monthTrafficHint", {

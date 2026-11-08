@@ -465,7 +465,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
             >
               {panelName}
             </Link>
-            <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/80" />
+            <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground" />
             <span
               className="truncate font-medium"
               aria-current={pageSubLabel ? undefined : "page"}
@@ -474,7 +474,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
             </span>
             {pageSubLabel ? (
               <>
-                <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/80" />
+                <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground" />
                 <span
                   className="truncate text-muted-foreground"
                   aria-current="page"

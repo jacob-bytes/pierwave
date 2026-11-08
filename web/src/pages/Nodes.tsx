@@ -13,6 +13,7 @@ import {
   TriangleAlertIcon,
   XIcon,
 } from "lucide-react";
+import { EmptyState, SkeletonTable } from "@/components/common";
 import { DeleteNodeDialog } from "@/components/nodes/DeleteNodeDialog";
 import { NodeFormDialog } from "@/components/nodes/NodeFormDialog";
 import { SpeedLimitBadge } from "@/components/SpeedLimitBadge";
@@ -134,58 +135,22 @@ function NodeTrafficCell({
   );
 }
 
-function LoadingRows() {
-  return (
-    <>
-      {Array.from({ length: 5 }).map((_, index) => (
-        <TableRow key={index} className="hover:bg-transparent">
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-32" />
-            <Skeleton className="mt-1.5 h-2.5 w-20" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-5 w-40 rounded-full" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-10" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-16" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-4 w-8 rounded-full" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-16" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="size-7 rounded-md" />
-          </TableCell>
-        </TableRow>
-      ))}
-    </>
-  );
-}
-
 function EmptyRow({ onCreate }: { onCreate: () => void }) {
   return (
     <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-sm flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
-            <NetworkIcon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{t("nodes.emptyTitle")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t("nodes.emptyDesc")}
-            </p>
-          </div>
-          <Button variant="outline" size="sm" onClick={onCreate}>
-            <PlusIcon className="size-3.5" />
-            {t("nodes.emptyAction")}
-          </Button>
-        </div>
+      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-8">
+        <EmptyState
+          size="sm"
+          icon={NetworkIcon}
+          title={t("nodes.emptyTitle")}
+          description={t("nodes.emptyDesc")}
+          action={
+            <Button variant="outline" size="sm" onClick={onCreate}>
+              <PlusIcon className="size-3.5" />
+              {t("nodes.emptyAction")}
+            </Button>
+          }
+        />
       </TableCell>
     </TableRow>
   );
@@ -441,8 +406,13 @@ export default function NodesPage() {
           </CardDescription>
         </CardHeader>
 
-        <CardContent className="p-0">
-          <Table className="min-w-[900px]" aria-busy={nodes.isPending}>
+        <CardContent className="p-0" aria-busy={nodes.isPending}>
+          {nodes.isPending ? (
+            <SkeletonTable rows={5} columns={COLUMN_COUNT} />
+          ) : null}
+          <Table
+            className={cn("min-w-[900px]", nodes.isPending && "hidden")}
+          >
             <TableCaption className="sr-only">{t("nodes.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
@@ -469,9 +439,7 @@ export default function NodesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {nodes.isPending ? (
-                <LoadingRows />
-              ) : showError ? (
+              {showError ? (
                 <ErrorRow
                   message={errorMessage}
                   retrying={nodes.isFetching}

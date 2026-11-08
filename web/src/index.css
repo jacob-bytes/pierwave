@@ -236,8 +236,7 @@
 /*
  * 入场动效：透明度 0→1 + 上移 8px→0，160ms。
  *
- * 只用于页面 / 卡片首次进入，以及首页概览的列表项错开
- * （调用方传 `style={{ animationDelay: `${index * 20}ms` }}`）。
+ * 只用于页面主内容区首次进入（每页最多一层）。
  * 不要在每次状态变化时重放，也不要用它做 hover / 循环动画。
  */
 @keyframes fade-in-up {
@@ -253,6 +252,13 @@
 
 .animate-enter {
   animation: fade-in-up 160ms var(--ease-out-soft) both;
+
+  /* 入场动画整体关闭，直接呈现终态。 */
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /*
@@ -285,12 +291,5 @@
 
   .skeleton-shimmer::after {
     animation: none;
-  }
-
-  /* 入场动画整体关闭，直接呈现终态；错开的 animation-delay 一并失效。 */
-  .animate-enter {
-    animation: none;
-    opacity: 1;
-    transform: none;
   }
 }

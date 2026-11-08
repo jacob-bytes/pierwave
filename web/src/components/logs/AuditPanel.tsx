@@ -11,6 +11,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { EmptyState, SkeletonTable } from "@/components/common";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,7 +38,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -395,35 +395,6 @@ function SummaryCell({
   );
 }
 
-function LoadingRows() {
-  return (
-    <>
-      {Array.from({ length: 5 }).map((_, index) => (
-        <TableRow key={index} className="hover:bg-transparent">
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-16" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-20" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-5 w-20 rounded-full" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-28" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-48" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="ml-auto h-6 w-14" />
-          </TableCell>
-        </TableRow>
-      ))}
-    </>
-  );
-}
-
 function EmptyRow({
   filtered,
   onClear,
@@ -433,27 +404,22 @@ function EmptyRow({
 }) {
   return (
     <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-sm flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
-            <ScrollTextIcon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">
-              {filtered ? t("audit.empty.filtered") : t("audit.empty.all")}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {filtered
-                ? t("audit.empty.filteredDesc")
-                : t("audit.empty.allDesc")}
-            </p>
-          </div>
-          {filtered ? (
-            <Button variant="outline" size="sm" onClick={onClear}>
-              {t("audit.empty.clearFilters")}
-            </Button>
-          ) : null}
-        </div>
+      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-8">
+        <EmptyState
+          size="sm"
+          icon={ScrollTextIcon}
+          title={filtered ? t("audit.empty.filtered") : t("audit.empty.all")}
+          description={
+            filtered ? t("audit.empty.filteredDesc") : t("audit.empty.allDesc")
+          }
+          action={
+            filtered ? (
+              <Button variant="outline" size="sm" onClick={onClear}>
+                {t("audit.empty.clearFilters")}
+              </Button>
+            ) : undefined
+          }
+        />
       </TableCell>
     </TableRow>
   );
@@ -812,8 +778,13 @@ export function AuditPanel() {
           </div>
         </div>
 
-        <CardContent className="p-0">
-          <Table className="min-w-[980px]" aria-busy={audit.isPending}>
+        <CardContent className="p-0" aria-busy={audit.isPending}>
+          {audit.isPending ? (
+            <SkeletonTable rows={5} columns={COLUMN_COUNT} />
+          ) : null}
+          <Table
+            className={cn("min-w-[980px]", audit.isPending && "hidden")}
+          >
             <TableCaption className="sr-only">
               {t("audit.tableCaption")}
             </TableCaption>
@@ -840,9 +811,7 @@ export function AuditPanel() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {audit.isPending ? (
-                <LoadingRows />
-              ) : showError ? (
+              {showError ? (
                 <ErrorRow
                   message={errorMessage}
                   retrying={audit.isFetching}

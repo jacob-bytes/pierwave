@@ -9,6 +9,7 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { EmptyState, SkeletonTable } from "@/components/common";
 import { DeleteRuleTemplateDialog } from "@/components/rules/DeleteRuleTemplateDialog";
 import { RuleTemplateFormDialog } from "@/components/rules/RuleTemplateFormDialog";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +21,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -57,51 +57,22 @@ function RuleCount({ count }: { count: number }) {
   );
 }
 
-function LoadingRows() {
-  return (
-    <>
-      {Array.from({ length: 4 }).map((_, index) => (
-        <TableRow key={index} className="hover:bg-transparent">
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-32" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-48" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-5 w-14 rounded-full" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-20" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="ml-auto h-6 w-24" />
-          </TableCell>
-        </TableRow>
-      ))}
-    </>
-  );
-}
-
 function EmptyRow({ onCreate }: { onCreate: () => void }) {
   return (
     <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-sm flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
-            <ListFilterIcon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{t("rules.emptyTitle")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t("rules.emptyDesc")}
-            </p>
-          </div>
-          <Button variant="outline" size="sm" onClick={onCreate}>
-            <PlusIcon className="size-3.5" />
-            {t("rules.emptyAction")}
-          </Button>
-        </div>
+      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-8">
+        <EmptyState
+          size="sm"
+          icon={ListFilterIcon}
+          title={t("rules.emptyTitle")}
+          description={t("rules.emptyDesc")}
+          action={
+            <Button variant="outline" size="sm" onClick={onCreate}>
+              <PlusIcon className="size-3.5" />
+              {t("rules.emptyAction")}
+            </Button>
+          }
+        />
       </TableCell>
     </TableRow>
   );
@@ -216,8 +187,13 @@ export function RuleTemplatesPanel() {
           </CardDescription>
         </CardHeader>
 
-        <CardContent className="p-0">
-          <Table className="min-w-[760px]" aria-busy={templates.isPending}>
+        <CardContent className="p-0" aria-busy={templates.isPending}>
+          {templates.isPending ? (
+            <SkeletonTable rows={4} columns={COLUMN_COUNT} />
+          ) : null}
+          <Table
+            className={cn("min-w-[760px]", templates.isPending && "hidden")}
+          >
             <TableCaption className="sr-only">
               {t("rules.tableCaption")}
             </TableCaption>
@@ -241,9 +217,7 @@ export function RuleTemplatesPanel() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {templates.isPending ? (
-                <LoadingRows />
-              ) : showError ? (
+              {showError ? (
                 <ErrorRow
                   message={ruleTemplateErrorText(templates.error)}
                   retrying={templates.isFetching}

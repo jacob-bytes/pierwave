@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -13,6 +13,7 @@ import {
   Trash2Icon,
   TriangleAlertIcon,
 } from "lucide-react";
+import { EmptyState, SkeletonTable } from "@/components/common";
 import { DeleteForwardDialog } from "@/components/forwards/DeleteForwardDialog";
 import { ForwardFormDialog } from "@/components/forwards/ForwardFormDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -200,31 +201,6 @@ function ForwardEnabledSwitch({
   );
 }
 
-function LoadingRows({ rows = 4 }: { rows?: number }) {
-  const widths = ["w-24", "w-16", "w-32", "w-20", "w-16", "w-14"];
-
-  return (
-    <>
-      {Array.from({ length: rows }).map((_, rowIndex) => (
-        <TableRow key={rowIndex} className="hover:bg-transparent">
-          {Array.from({ length: FORWARD_COLUMN_COUNT }).map(
-            (__, columnIndex) => (
-              <TableCell key={columnIndex} className="px-4 py-3">
-                <Skeleton
-                  className={cn(
-                    "h-3.5",
-                    widths[columnIndex % widths.length],
-                  )}
-                />
-              </TableCell>
-            ),
-          )}
-        </TableRow>
-      ))}
-    </>
-  );
-}
-
 function ErrorRow({
   message,
   onRetry,
@@ -267,13 +243,11 @@ function ErrorRow({
 }
 
 function EmptyRow({
-  icon,
   title,
   description,
   actionLabel,
   onAction,
 }: {
-  icon: ReactNode;
   title: string;
   description: string;
   actionLabel: string;
@@ -281,20 +255,19 @@ function EmptyRow({
 }) {
   return (
     <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={FORWARD_COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-sm flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
-            {icon}
-          </div>
-          <div>
-            <p className="text-sm font-medium">{title}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={onAction}>
-            <PlusIcon className="size-3.5" />
-            {actionLabel}
-          </Button>
-        </div>
+      <TableCell colSpan={FORWARD_COLUMN_COUNT} className="px-4 py-8">
+        <EmptyState
+          size="sm"
+          icon={ArrowRightLeftIcon}
+          title={title}
+          description={description}
+          action={
+            <Button variant="outline" size="sm" onClick={onAction}>
+              <PlusIcon className="size-3.5" />
+              {actionLabel}
+            </Button>
+          }
+        />
       </TableCell>
     </TableRow>
   );
@@ -441,8 +414,13 @@ export default function ForwardsPage() {
           </div>
         </CardHeader>
 
-        <CardContent className="p-0">
-          <Table className="min-w-[760px]" aria-busy={forwards.isPending}>
+        <CardContent className="p-0" aria-busy={forwards.isPending}>
+          {forwards.isPending ? (
+            <SkeletonTable rows={4} columns={FORWARD_COLUMN_COUNT} />
+          ) : null}
+          <Table
+            className={cn("min-w-[760px]", forwards.isPending && "hidden")}
+          >
             <TableCaption className="sr-only">
               {t("forwards.list.tableCaption")}
             </TableCaption>
@@ -463,9 +441,7 @@ export default function ForwardsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {forwards.isPending ? (
-                <LoadingRows />
-              ) : showError ? (
+              {showError ? (
                 <ErrorRow
                   message={loadError}
                   onRetry={() => void forwards.refetch()}
@@ -473,7 +449,6 @@ export default function ForwardsPage() {
                 />
               ) : items.length === 0 ? (
                 <EmptyRow
-                  icon={<ArrowRightLeftIcon className="size-5" />}
                   title={t("forwards.list.emptyTitle")}
                   description={t("forwards.list.emptyDesc")}
                   actionLabel={t("forwards.list.emptyAction")}

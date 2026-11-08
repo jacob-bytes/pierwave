@@ -17,6 +17,7 @@ import {
   UsersIcon,
   XIcon,
 } from "lucide-react";
+import { EmptyState, PageHeader, SkeletonTable } from "@/components/common";
 import { UserFormDialog } from "@/components/users/UserFormDialog";
 import { ResetPasswordDialog } from "@/components/users/ResetPasswordDialog";
 import { UserPackagesSheet } from "@/components/users/UserPackagesSheet";
@@ -60,7 +61,6 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -239,44 +239,6 @@ function PackageBreakdownPopover({ user }: { user: UserView }) {
   );
 }
 
-function LoadingRows() {
-  return (
-    <>
-      {Array.from({ length: 6 }).map((_, index) => (
-        <TableRow key={index} className="hover:bg-transparent">
-          <TableCell className="px-4 py-3">
-            <div className="flex items-center gap-2.5">
-              <Skeleton className="size-6 rounded-full" />
-              <div className="space-y-1.5">
-                <Skeleton className="h-3.5 w-24" />
-                <Skeleton className="h-2.5 w-16" />
-              </div>
-            </div>
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-5 w-14 rounded-full" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-5 w-14 rounded-full" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-5 w-10 rounded-full" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-36" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-20" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="size-7 rounded-md" />
-          </TableCell>
-        </TableRow>
-      ))}
-    </>
-  );
-}
-
 function EmptyRow({
   searching,
   onCreate,
@@ -288,33 +250,28 @@ function EmptyRow({
 }) {
   return (
     <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-sm flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
-            <UsersIcon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">
-              {searching ? t("users.emptySearch") : t("users.emptyNoUsers")}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {searching
-                ? t("users.emptySearchDesc")
-                : t("users.emptyDesc")}
-            </p>
-          </div>
-          {searching ? (
-            <Button variant="outline" size="sm" onClick={onClearSearch}>
-              <XIcon className="size-3.5" />
-              {t("users.clearSearch")}
-            </Button>
-          ) : (
-            <Button variant="outline" size="sm" onClick={onCreate}>
-              <PlusIcon className="size-3.5" />
-              {t("users.create")}
-            </Button>
-          )}
-        </div>
+      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-8">
+        <EmptyState
+          size="sm"
+          icon={UsersIcon}
+          title={searching ? t("users.emptySearch") : t("users.emptyNoUsers")}
+          description={
+            searching ? t("users.emptySearchDesc") : t("users.emptyDesc")
+          }
+          action={
+            searching ? (
+              <Button variant="outline" size="sm" onClick={onClearSearch}>
+                <XIcon className="size-3.5" />
+                {t("users.clearSearch")}
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" onClick={onCreate}>
+                <PlusIcon className="size-3.5" />
+                {t("users.create")}
+              </Button>
+            )
+          }
+        />
       </TableCell>
     </TableRow>
   );
@@ -502,19 +459,17 @@ export default function UsersPage() {
   );
 
   return (
-    <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">{t("users.title")}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t("users.subtitle")}
-          </p>
-        </div>
-        <Button onClick={() => setFormState({ mode: "create" })}>
-          <PlusIcon className="size-4" />
-          {t("users.create")}
-        </Button>
-      </div>
+    <div className="animate-enter space-y-6">
+      <PageHeader
+        title={t("users.title")}
+        description={t("users.subtitle")}
+        actions={
+          <Button onClick={() => setFormState({ mode: "create" })}>
+            <PlusIcon className="size-4" />
+            {t("users.create")}
+          </Button>
+        }
+      />
 
       <Card className="gap-0 overflow-hidden">
         <CardHeader className="border-b border-border">
@@ -576,8 +531,13 @@ export default function UsersPage() {
           </CardDescription>
         </CardHeader>
 
-        <CardContent className="p-0">
-          <Table className="min-w-[980px]" aria-busy={users.isPending}>
+        <CardContent className="p-0" aria-busy={users.isPending}>
+          {users.isPending ? (
+            <SkeletonTable rows={6} columns={COLUMN_COUNT} />
+          ) : null}
+          <Table
+            className={cn("min-w-[980px]", users.isPending && "hidden")}
+          >
             <TableCaption className="sr-only">{t("users.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
@@ -619,9 +579,7 @@ export default function UsersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users.isPending ? (
-                <LoadingRows />
-              ) : showError ? (
+              {showError ? (
                 <ErrorRow
                   message={errorMessage}
                   retrying={users.isFetching}

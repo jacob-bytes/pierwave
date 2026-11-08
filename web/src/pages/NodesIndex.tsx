@@ -6,6 +6,7 @@ import {
   ServerOffIcon,
   TriangleAlertIcon,
 } from "lucide-react";
+import { EmptyState, SkeletonCard } from "@/components/common";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,7 +16,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import type { Server } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { useServers } from "@/lib/queries";
@@ -27,14 +27,7 @@ function LoadingCards() {
   return (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {Array.from({ length: 6 }).map((_, index) => (
-        <div
-          key={index}
-          className="rounded-xl border border-border bg-card p-4"
-        >
-          <Skeleton className="h-4 w-28" />
-          <Skeleton className="mt-2 h-3 w-36" />
-          <Skeleton className="mt-4 h-3 w-20" />
-        </div>
+        <SkeletonCard key={index} lines={1} />
       ))}
     </div>
   );
@@ -174,20 +167,16 @@ export default function NodesIndexPage() {
               </Button>
             </div>
           ) : items.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-12 text-center">
-              <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
-                <ServerOffIcon className="size-5" />
-              </div>
-              <div>
-                <p className="text-sm font-medium">{t("nodes.index.emptyTitle")}</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t("nodes.index.emptyDesc")}
-                </p>
-              </div>
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/servers">{t("nodes.index.goAdd")}</Link>
-              </Button>
-            </div>
+            <EmptyState
+              icon={ServerOffIcon}
+              title={t("nodes.index.emptyTitle")}
+              description={t("nodes.index.emptyDesc")}
+              action={
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/servers">{t("nodes.index.goAdd")}</Link>
+                </Button>
+              }
+            />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {items.map((server) => (

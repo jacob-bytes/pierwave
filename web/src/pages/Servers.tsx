@@ -21,6 +21,11 @@ import {
   WaypointsIcon,
   WorkflowIcon,
 } from "lucide-react";
+import {
+  EmptyState,
+  PageHeader,
+  SkeletonTable,
+} from "@/components/common";
 import { AgentBatchUpgradeBar } from "@/components/servers/AgentBatchUpgradeBar";
 import { AgentBatchUpgradeConfirmDialog } from "@/components/servers/AgentBatchUpgradeConfirmDialog";
 import { AgentBatchUpgradeProgressDialog } from "@/components/servers/AgentBatchUpgradeProgressDialog";
@@ -70,7 +75,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -603,69 +607,22 @@ function ServerSelectCheckbox({
   );
 }
 
-function LoadingRows() {
-  return (
-    <>
-      {Array.from({ length: 5 }).map((_, index) => (
-        <TableRow key={index} className="hover:bg-transparent">
-          <TableCell className="w-10 px-4 py-3">
-            <Skeleton className="size-4 rounded-[4px]" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-28" />
-          </TableCell>
-          <TableCell className="hidden px-4 py-3 lg:table-cell">
-            <Skeleton className="h-3.5 w-32" />
-          </TableCell>
-          <TableCell className="hidden px-4 py-3 lg:table-cell">
-            <Skeleton className="h-3.5 w-10" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-5 w-16 rounded-full" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-14" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-20" />
-          </TableCell>
-          <TableCell className="hidden px-4 py-3 xl:table-cell">
-            <Skeleton className="h-7 w-20" />
-          </TableCell>
-          <TableCell className="hidden px-4 py-3 xl:table-cell">
-            <Skeleton className="h-3.5 w-10" />
-          </TableCell>
-          <TableCell className="hidden px-4 py-3 xl:table-cell">
-            <Skeleton className="h-3.5 w-20" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-7 w-16 rounded-md" />
-          </TableCell>
-        </TableRow>
-      ))}
-    </>
-  );
-}
-
 function EmptyRow({ onCreate }: { onCreate: () => void }) {
   return (
     <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-sm flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
-            <ServerOffIcon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{t("servers.emptyTitle")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t("servers.emptyDesc")}
-            </p>
-          </div>
-          <Button variant="outline" size="sm" onClick={onCreate}>
-            <PlusIcon className="size-3.5" />
-            {t("servers.emptyAction")}
-          </Button>
-        </div>
+      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-8">
+        <EmptyState
+          size="sm"
+          icon={ServerOffIcon}
+          title={t("servers.emptyTitle")}
+          description={t("servers.emptyDesc")}
+          action={
+            <Button variant="outline" size="sm" onClick={onCreate}>
+              <PlusIcon className="size-3.5" />
+              {t("servers.emptyAction")}
+            </Button>
+          }
+        />
       </TableCell>
     </TableRow>
   );
@@ -844,19 +801,17 @@ export default function ServersPage() {
   // 只被本页用到，挂在应用根部会把 ~47kB 顶进首屏入口 chunk。
   return (
     <TooltipProvider delayDuration={200}>
-    <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">{t("servers.title")}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t("servers.subtitle")}
-          </p>
-        </div>
-        <Button onClick={openCreateDialog}>
-          <PlusIcon className="size-4" />
-          {t("servers.add")}
-        </Button>
-      </div>
+    <div className="animate-enter space-y-6">
+      <PageHeader
+        title={t("servers.title")}
+        description={t("servers.subtitle")}
+        actions={
+          <Button onClick={openCreateDialog}>
+            <PlusIcon className="size-4" />
+            {t("servers.add")}
+          </Button>
+        }
+      />
 
       <Card className="gap-0 overflow-hidden">
         <CardHeader className="border-b border-border">
@@ -929,10 +884,15 @@ export default function ServersPage() {
           />
         ) : null}
 
-        <CardContent className="p-0">
+        <CardContent className="p-0" aria-busy={servers.isPending}>
+          {servers.isPending ? (
+            <SkeletonTable rows={5} columns={COLUMN_COUNT} />
+          ) : null}
           <Table
-            className="min-w-[780px] xl:min-w-[1140px]"
-            aria-busy={servers.isPending}
+            className={cn(
+              "min-w-[780px] xl:min-w-[1140px]",
+              servers.isPending && "hidden",
+            )}
           >
             <TableCaption className="sr-only">{t("servers.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
@@ -970,9 +930,7 @@ export default function ServersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {servers.isPending ? (
-                <LoadingRows />
-              ) : showError ? (
+              {showError ? (
                 <ErrorRow
                   message={errorMessage}
                   retrying={servers.isFetching}

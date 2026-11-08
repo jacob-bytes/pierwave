@@ -4,6 +4,7 @@ import {
   RefreshCwIcon,
   TriangleAlertIcon,
 } from "lucide-react";
+import { EmptyState, SkeletonTable } from "@/components/common";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +22,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -104,35 +104,6 @@ function EventTypeBadge({ kind }: { kind: EnforcementEventKind }) {
   );
 }
 
-function LoadingRows() {
-  return (
-    <>
-      {Array.from({ length: 5 }).map((_, index) => (
-        <TableRow key={index} className="hover:bg-transparent">
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-20" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-5 w-14 rounded-full" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-20" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-24" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-16" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-64" />
-          </TableCell>
-        </TableRow>
-      ))}
-    </>
-  );
-}
-
 function EmptyRow({
   filter,
   onReset,
@@ -148,29 +119,28 @@ function EmptyRow({
 
   return (
     <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-sm flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
-            <HistoryIcon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">
-              {filtered
-                ? t("events.empty.filtered", { label })
-                : t("events.empty.all")}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {filtered
-                ? t("events.empty.filteredDesc")
-                : t("events.empty.allDesc")}
-            </p>
-          </div>
-          {filtered ? (
-            <Button variant="outline" size="sm" onClick={onReset}>
-              {t("common.viewAll")}
-            </Button>
-          ) : null}
-        </div>
+      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-8">
+        <EmptyState
+          size="sm"
+          icon={HistoryIcon}
+          title={
+            filtered
+              ? t("events.empty.filtered", { label })
+              : t("events.empty.all")
+          }
+          description={
+            filtered
+              ? t("events.empty.filteredDesc")
+              : t("events.empty.allDesc")
+          }
+          action={
+            filtered ? (
+              <Button variant="outline" size="sm" onClick={onReset}>
+                {t("common.viewAll")}
+              </Button>
+            ) : undefined
+          }
+        />
       </TableCell>
     </TableRow>
   );
@@ -304,8 +274,13 @@ export function EventsPanel() {
         </div>
       </div>
 
-      <CardContent className="p-0">
-        <Table className="min-w-[760px]" aria-busy={events.isPending}>
+      <CardContent className="p-0" aria-busy={events.isPending}>
+        {events.isPending ? (
+          <SkeletonTable rows={5} columns={COLUMN_COUNT} />
+        ) : null}
+        <Table
+          className={cn("min-w-[760px]", events.isPending && "hidden")}
+        >
           <TableCaption className="sr-only">{t("events.tableCaption")}</TableCaption>
           <TableHeader className="bg-muted/30">
             <TableRow>
@@ -318,9 +293,7 @@ export function EventsPanel() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {events.isPending ? (
-              <LoadingRows />
-            ) : showError ? (
+            {showError ? (
               <ErrorRow
                 message={errorMessage}
                 retrying={events.isFetching}

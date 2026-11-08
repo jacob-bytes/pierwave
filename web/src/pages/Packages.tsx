@@ -9,6 +9,7 @@ import {
   Trash2Icon,
   TriangleAlertIcon,
 } from "lucide-react";
+import { EmptyState, PageHeader, SkeletonTable } from "@/components/common";
 import { PackageFormDialog } from "@/components/packages/PackageFormDialog";
 import { SpeedLimitBadge } from "@/components/SpeedLimitBadge";
 import {
@@ -38,7 +39,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -95,60 +95,22 @@ function NodeScopeBadge({ item }: { item: Package }) {
   );
 }
 
-function LoadingRows() {
-  return (
-    <>
-      {Array.from({ length: 5 }).map((_, index) => (
-        <TableRow key={index} className="hover:bg-transparent">
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-32" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-16" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-14" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-5 w-12 rounded-full" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-3.5 w-10" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-5 w-16 rounded-full" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="h-5 w-12 rounded-full" />
-          </TableCell>
-          <TableCell className="px-4 py-3">
-            <Skeleton className="size-7 rounded-md" />
-          </TableCell>
-        </TableRow>
-      ))}
-    </>
-  );
-}
-
 function EmptyRow({ onCreate }: { onCreate: () => void }) {
   return (
     <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-sm flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
-            <PackageIcon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{t("packages.emptyTitle")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t("packages.emptyDesc")}
-            </p>
-          </div>
-          <Button variant="outline" size="sm" onClick={onCreate}>
-            <PlusIcon className="size-3.5" />
-            {t("packages.emptyAction")}
-          </Button>
-        </div>
+      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-8">
+        <EmptyState
+          size="sm"
+          icon={PackageIcon}
+          title={t("packages.emptyTitle")}
+          description={t("packages.emptyDesc")}
+          action={
+            <Button variant="outline" size="sm" onClick={onCreate}>
+              <PlusIcon className="size-3.5" />
+              {t("packages.emptyAction")}
+            </Button>
+          }
+        />
       </TableCell>
     </TableRow>
   );
@@ -263,19 +225,17 @@ export default function PackagesPage() {
   );
 
   return (
-    <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">{t("packages.title")}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t("packages.subtitle")}
-          </p>
-        </div>
-        <Button onClick={() => setFormState({ mode: "create" })}>
-          <PlusIcon className="size-4" />
-          {t("packages.create")}
-        </Button>
-      </div>
+    <div className="animate-enter space-y-6">
+      <PageHeader
+        title={t("packages.title")}
+        description={t("packages.subtitle")}
+        actions={
+          <Button onClick={() => setFormState({ mode: "create" })}>
+            <PlusIcon className="size-4" />
+            {t("packages.create")}
+          </Button>
+        }
+      />
 
       <Card className="gap-0 overflow-hidden">
         <CardHeader className="border-b border-border">
@@ -311,8 +271,13 @@ export default function PackagesPage() {
           </CardDescription>
         </CardHeader>
 
-        <CardContent className="p-0">
-          <Table className="min-w-[880px]" aria-busy={packages.isPending}>
+        <CardContent className="p-0" aria-busy={packages.isPending}>
+          {packages.isPending ? (
+            <SkeletonTable rows={5} columns={COLUMN_COUNT} />
+          ) : null}
+          <Table
+            className={cn("min-w-[880px]", packages.isPending && "hidden")}
+          >
             <TableCaption className="sr-only">{t("packages.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
@@ -336,9 +301,7 @@ export default function PackagesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {packages.isPending ? (
-                <LoadingRows />
-              ) : showError ? (
+              {showError ? (
                 <ErrorRow
                   message={errorMessage}
                   retrying={packages.isFetching}
