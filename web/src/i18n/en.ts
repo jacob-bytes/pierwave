@@ -2210,6 +2210,10 @@ const en = {
     notObject: "config must be a JSON object (starting with { and ending with })",
   },
   errors: {
+    "chain.strategy_invalid": "Unknown routing strategy (choose round robin, failover, lowest latency or IP hash)",
+    "chain.group_member_count_invalid": "Each group needs {min}-{max} servers (currently {count})",
+    "chain.duplicate_group_member": "The same server cannot appear twice in one group",
+    "chain.group_name_too_long": "Group name must be at most {max} characters",
     "chain.not_found": "Forward chain not found",
     "chain.name_required": "Chain name is required",
     "chain.name_too_long": "Chain name must be at most {max} characters",

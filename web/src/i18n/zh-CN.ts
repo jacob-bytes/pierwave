@@ -2077,6 +2077,10 @@ const zhCN = {
     notObject: "config 必须是 JSON 对象（以 { 开头、} 结尾）",
   },
   errors: {
+    "chain.strategy_invalid": "选路策略不能识别（可选：轮询 / 主备 / 最低延迟 / IP 哈希）",
+    "chain.group_member_count_invalid": "每组必须有 {min}-{max} 台服务器（当前 {count} 台）",
+    "chain.duplicate_group_member": "同一台服务器不能在同一组出现两次",
+    "chain.group_name_too_long": "组名最多 {max} 个字符",
     "chain.not_found": "转发链不存在",
     "chain.name_required": "链名称不能为空",
     "chain.name_too_long": "链名称最多 {max} 个字符",
