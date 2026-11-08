@@ -886,3 +886,37 @@ CREATE TABLE chain_hops (          -- 按 seq 升序；seq=0 是入口
 - 主控：某跳连续 2 次 `target_ok=false` → 该跳标 `degraded`，**链整体标 degraded**；
   恢复 → 自动清除。前端链列表与跳列表显示状态；
 - 不做自动改路由（线性链没有备用路径），只做**可见的告警**——这是范围内最诚实的做法。
+
+## P13：告警通知（Telegram + Webhook）
+
+### 设置项（沿用现有白名单）
+
+| key | 默认 | 说明 |
+|---|---|---|
+| `telegram_bot_token` | 空 | 空 = 不启用 |
+| `telegram_chat_id` | 空 | 群或个人 id |
+| `webhook_url` | 空 | POST JSON |
+| `alert_events` | `server_offline,user_exhausted,chain_degraded` | 逗号分隔 |
+| `alert_cooldown_secs` | `600` | 同类告警去抖 |
+
+### 事件与去抖
+
+去抖键 `(kind, target_id)`：冷却期内同一对象同一类只发一条，避免反复上下线刷屏。
+
+### 投递
+
+主控用 `curl` 子进程投递（与现有「回源 GitHub」一致，不引入 HTTP 客户端依赖）。
+失败只 `tracing::warn!`，**绝不影响主流程**。
+
+### 触发点
+
+- 服务器离线（WS 断开）
+- 用户因额度/过期被断流（enforcement 移除）
+- 转发链降级（degraded 由 false → true）
+- Agent 升级失败（超时巡检标记 failed）
+
+### 接口
+
+```
+POST /api/v1/alerts/test   -> 向已配置的渠道发一条测试消息（管理员）
+```
