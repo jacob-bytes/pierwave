@@ -32,29 +32,71 @@ const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 /// `forward_bind` 留空时的兜底值，与配置默认值保持一致。
 const DEFAULT_BIND_HOST: &str = "0.0.0.0";
+/// 目标可达性探测周期。与主控「连续 2 次失败」的判定配合，约 1 分钟内可见降级。
+const TARGET_PROBE_INTERVAL: Duration = Duration::from_secs(30);
+/// 单次目标探测预算；目标黑洞时不能拖住下一轮心跳。
+const TARGET_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// 心跳可无锁读取的监听状态快照。
 ///
 /// 心跳线程只 clone 这个 `Arc`，不碰 supervisor 本体，因此收敛期间
 /// （关闭旧监听最多等 [`SHUTDOWN_TIMEOUT`]）心跳不会被锁住。
+///
+/// `target_ok` 单独放在 map 里：探测任务每 30 秒写一次，心跳读取时叠加到
+/// 监听状态上。这样监听状态（端口绑定）和目标可达性互不覆盖。
 #[derive(Debug, Clone, Default)]
 pub struct ForwardStatusHandle {
-    inner: Arc<Mutex<Vec<ForwardStatus>>>,
+    inner: Arc<Mutex<StatusState>>,
+}
+
+#[derive(Debug, Default)]
+struct StatusState {
+    statuses: Vec<ForwardStatus>,
+    target_ok: HashMap<String, Option<bool>>,
 }
 
 impl ForwardStatusHandle {
     pub fn snapshot(&self) -> Vec<ForwardStatus> {
-        self.inner
+        let state = self
+            .inner
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state
+            .statuses
+            .iter()
+            .cloned()
+            .map(|mut status| {
+                status.target_ok = state.target_ok.get(&status.id).copied().flatten();
+                status
+            })
+            .collect()
     }
 
     fn store(&self, statuses: Vec<ForwardStatus>) {
-        *self
+        let ids: HashSet<String> = statuses.iter().map(|status| status.id.clone()).collect();
+        let mut state = self
             .inner
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = statuses;
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.statuses = statuses;
+        // 已经不在期望态里的规则不能留下探测缓存。
+        state.target_ok.retain(|id, _| ids.contains(id));
+    }
+
+    fn set_target_ok(&self, id: &str, ok: bool) {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .target_ok
+            .insert(id.to_string(), Some(ok));
+    }
+
+    fn clear_target_ok(&self, id: &str) {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .target_ok
+            .remove(id);
     }
 }
 
@@ -64,6 +106,8 @@ struct RunningForward {
     /// `Some` 时用来通知 accept 循环优雅退出；`None` 表示已经通知过。
     shutdown: Option<oneshot::Sender<()>>,
     task: JoinHandle<()>,
+    /// 目标可达性探测循环；规则变化/删除时 abort。
+    health_task: JoinHandle<()>,
     /// 供测试断言「重复下发没有重建监听」。
     started_at: Instant,
     /// 连接目标失败 / 转发中断的累计次数。
@@ -77,6 +121,8 @@ struct RunningForward {
 impl RunningForward {
     /// 通知 accept 循环退出，并等它 drop 掉 listener（端口真正释放）。
     async fn close(mut self, id: &str) {
+        // 先停探测：规则已不在期望态，再写 target_ok 也没有意义。
+        self.health_task.abort();
         if let Some(tx) = self.shutdown.take() {
             let _ = tx.send(());
         }
@@ -171,6 +217,7 @@ impl ForwardSupervisor {
             if let Some(running) = self.running.remove(&id) {
                 running.close(&id).await;
             }
+            self.status.clear_target_ok(&id);
         }
         // 已经不在期望态里的失败项也清掉，别让心跳一直报旧规则。
         self.failed
@@ -185,6 +232,8 @@ impl ForwardSupervisor {
             if unchanged {
                 continue;
             }
+            // 目标可能变了：旧探测结果不能带过来，等新探测任务写。
+            self.status.clear_target_ok(&spec.id);
             let listen = format!("{}:{}", self.bind_host, spec.listen_port);
             let target = format!("{}:{}", spec.target_host, spec.target_port);
             match TcpListener::bind(&listen).await {
@@ -204,6 +253,14 @@ impl ForwardSupervisor {
                         rx,
                         failures.clone(),
                     ));
+                    // 监听成功与目标可达是两件事：这里只负责周期探测目标，
+                    // 结果写进 status handle，心跳把两者一起带上去。
+                    let health_task = tokio::spawn(target_health_loop(
+                        spec.id.clone(),
+                        spec.target_host.clone(),
+                        spec.target_port,
+                        self.status.clone(),
+                    ));
                     tracing::info!(id = %spec.id, %listen, %target, "转发监听已启动");
                     self.failed.remove(&spec.id);
                     self.running.insert(
@@ -212,6 +269,7 @@ impl ForwardSupervisor {
                             spec: spec.clone(),
                             shutdown: Some(tx),
                             task,
+                            health_task,
                             started_at: Instant::now(),
                             connect_failures: failures,
                             #[cfg(test)]
@@ -241,6 +299,8 @@ impl ForwardSupervisor {
                     id: id.clone(),
                     listening: true,
                     error: String::new(),
+                    // 探测结果由 status handle 在 snapshot 时叠加。
+                    target_ok: None,
                 },
                 None => ForwardStatus {
                     id: id.clone(),
@@ -251,10 +311,42 @@ impl ForwardSupervisor {
                         .get(id)
                         .cloned()
                         .unwrap_or_else(|| "监听未启动".into()),
+                    target_ok: None,
                 },
             })
             .collect();
         self.status.store(statuses);
+    }
+}
+
+/// 周期探测一条转发的目标，把结果写进心跳状态句柄。
+///
+/// 复用 `probe::measure_target`（内部就是 `probe::measure` 的 TCP 握手探测）；
+/// 立即测一次，之后每 [`TARGET_PROBE_INTERVAL`] 一次。失败只写 `target_ok=false`，
+/// 绝不影响 `listening`——端口绑定是否成功由 accept 循环单独决定。
+async fn target_health_loop(
+    id: String,
+    target_host: String,
+    target_port: i64,
+    status: ForwardStatusHandle,
+) {
+    loop {
+        let probe_host = target_host.clone();
+        let measured = tokio::task::spawn_blocking(move || {
+            crate::probe::measure_target(&probe_host, target_port, TARGET_PROBE_TIMEOUT)
+        })
+        .await
+        .ok()
+        .flatten();
+        status.set_target_ok(&id, measured.is_some());
+        tracing::debug!(
+            %id,
+            %target_host,
+            target_port,
+            target_ok = measured.is_some(),
+            "转发目标探测完成"
+        );
+        tokio::time::sleep(TARGET_PROBE_INTERVAL).await;
     }
 }
 
@@ -406,6 +498,25 @@ mod tests {
         (tag[0], echoed)
     }
 
+    /// 等探测任务写回 target_ok（首次探测是立即执行的，通常几十毫秒内完成）。
+    async fn wait_for_target_ok(supervisor: &ForwardSupervisor, id: &str) -> Option<bool> {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(status) = supervisor
+                .status_handle()
+                .snapshot()
+                .into_iter()
+                .find(|status| status.id == id)
+            {
+                if status.target_ok.is_some() {
+                    return status.target_ok;
+                }
+            }
+            assert!(Instant::now() < deadline, "等待 {id} 的 target_ok 超时");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
     #[tokio::test]
     async fn forwards_client_bytes_to_target_and_back() {
         let target = spawn_tagged_echo(b'E').await;
@@ -427,6 +538,37 @@ mod tests {
         let (tag, echoed) = roundtrip(listen_port, b"hello forward").await;
         assert_eq!(tag, b'E');
         assert_eq!(echoed, b"hello forward", "目标必须收到原始字节并原样回显");
+    }
+
+    /// 监听成功 ≠ 目标可达：目标不可达时 listening 仍为 true，但 target_ok=false。
+    #[tokio::test]
+    async fn target_health_is_reported_separately_from_listening() {
+        let reachable = spawn_tagged_echo(b'E').await;
+        let dead = SocketAddr::from(([127, 0, 0, 1], 0));
+        let mut supervisor = ForwardSupervisor::new("127.0.0.1");
+
+        supervisor
+            .apply(&[rule("good", 0, reachable), rule("dead", 0, dead)])
+            .await;
+
+        assert_eq!(
+            wait_for_target_ok(&supervisor, "good").await,
+            Some(true),
+            "可达目标应上报 target_ok=true"
+        );
+        assert_eq!(
+            wait_for_target_ok(&supervisor, "dead").await,
+            Some(false),
+            "不可达目标应上报 target_ok=false"
+        );
+
+        let status = supervisor.status_handle().snapshot();
+        let good = status.iter().find(|status| status.id == "good").unwrap();
+        let dead = status.iter().find(|status| status.id == "dead").unwrap();
+        assert!(good.listening && dead.listening, "端口都已绑定成功");
+        assert_eq!(good.target_ok, Some(true));
+        assert_eq!(dead.target_ok, Some(false), "目标不可达不能改 listening");
+        assert!(dead.error.is_empty(), "目标探测失败不是监听错误");
     }
 
     #[tokio::test]

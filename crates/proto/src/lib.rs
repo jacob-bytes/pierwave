@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 6;
+pub const PROTOCOL_VERSION: u32 = 7;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,10 +95,14 @@ pub struct DesiredForward {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct ForwardStatus {
     pub id: String,
+    /// 监听是否成功。与 `target_ok` 是两件事：端口绑上了不等于目标可达。
     pub listening: bool,
     /// 监听失败的原因（端口被占用等）；正常时为空串。
     #[serde(default)]
     pub error: String,
+    /// 目标 TCP 探测结果。`None` = 本轮尚未探测 / 旧 Agent 不认识该字段。
+    #[serde(default)]
+    pub target_ok: Option<bool>,
 }
 
 /// 期望态里的单个节点（仅 Agent 生成 tc 规则需要的字段）。
@@ -215,5 +219,25 @@ mod tests {
             MasterMessage::Desired(d) => assert_eq!(d.version, 7),
             _ => panic!("wrong variant"),
         }
+    }
+
+    #[test]
+    fn forward_status_target_ok_is_optional_for_old_agents() {
+        // 旧 Agent 的 JSON 没有 target_ok：反序列化必须是 None，而不是报错。
+        let old = r#"{"id":"fwd-1","listening":true,"error":""}"#;
+        let status: ForwardStatus = serde_json::from_str(old).unwrap();
+        assert_eq!(status.target_ok, None);
+
+        // 新 Agent 上报的目标可达性与 listening 相互独立。
+        let new = ForwardStatus {
+            id: "fwd-2".into(),
+            listening: true,
+            error: String::new(),
+            target_ok: Some(false),
+        };
+        let json = serde_json::to_value(&new).unwrap();
+        assert_eq!(json["listening"], true);
+        assert_eq!(json["target_ok"], false);
+        assert_eq!(PROTOCOL_VERSION, 7, "新增心跳字段必须升协议版本");
     }
 }

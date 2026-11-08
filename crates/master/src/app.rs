@@ -70,6 +70,14 @@ pub fn router(state: AppState) -> Router {
             patch(routes::forwards::update).delete(routes::forwards::delete),
         )
         .route(
+            "/api/v1/chains",
+            get(routes::chains::list).post(routes::chains::create),
+        )
+        .route(
+            "/api/v1/chains/{id}",
+            patch(routes::chains::update).delete(routes::chains::delete),
+        )
+        .route(
             "/api/v1/servers/{id}/outbounds",
             get(routes::outbounds::list).post(routes::outbounds::create),
         )

@@ -207,6 +207,7 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
                     forward_id: status.id.clone(),
                     listening: status.listening,
                     error: status.error.clone(),
+                    target_ok: status.target_ok,
                 })
                 .collect();
             if let Err(e) =
@@ -939,6 +940,7 @@ mod tests {
                 id: forward.id.clone(),
                 listening: true,
                 error: String::new(),
+                target_ok: Some(true),
             }],
         )
         .await;
@@ -949,6 +951,12 @@ mod tests {
         let runtime = views[0].runtime.as_ref().expect("第一轮心跳应有状态");
         assert!(runtime.listening);
         assert_eq!(runtime.error, "");
+        assert_eq!(
+            runtime.target_ok,
+            Some(true),
+            "target_ok 必须落入 forward_status"
+        );
+        assert!(!runtime.degraded);
 
         send(
             2,
@@ -956,6 +964,7 @@ mod tests {
                 id: forward.id.clone(),
                 listening: false,
                 error: "端口已被占用".into(),
+                target_ok: Some(false),
             }],
         )
         .await;
@@ -965,6 +974,8 @@ mod tests {
         let runtime = views[0].runtime.as_ref().unwrap();
         assert!(!runtime.listening);
         assert_eq!(runtime.error, "端口已被占用");
+        assert_eq!(runtime.target_ok, Some(false));
+        assert!(!runtime.degraded, "只失败一次不能判降级");
 
         // 空心跳清掉缓存：规则还在，但运行状态未知。
         send(3, Vec::new()).await;

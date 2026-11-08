@@ -52,6 +52,7 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
     let outbounds = repo::outbounds::list_enabled_by_server(&state.db.pool, &server.id).await?;
     let rules = repo::routing_rules::list_enabled_by_server(&state.db.pool, &server.id).await?;
     let forwards = repo::forwards::list_enabled_by_server(&state.db.pool, &server.id).await?;
+    let chains = repo::chains::list_enabled(&state.db.pool).await?;
     let secret = credentials::master_secret(&state.db.pool).await?;
     let pairs = repo::authorization::eligible_pairs(&state.db.pool, &server.id).await?;
 
@@ -137,15 +138,31 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
         .collect();
 
     // 转发走裸 TCP，不需要凭据；只把 Agent 监听必需的四列带下去。
-    let desired_forwards: Vec<DesiredForward> = forwards
+    let mut desired_forwards: Vec<DesiredForward> = forwards
         .iter()
         .map(|forward| DesiredForward {
-            id: forward.id.clone(),
+            // 独立转发用 `fwd-<uuid>`；链推导用 `chain-<id>-<seq>`，两套前缀不会撞。
+            id: pierwave_domain::forwards::desired_id(&forward.id),
             listen_port: forward.listen_port,
             target_host: forward.target_host.clone(),
             target_port: forward.target_port,
         })
         .collect();
+
+    // 链推导：只保留落在本服务器上的跳。一条链可能经过多台服务器，
+    // 每台服务器只收到「自己这一跳」的 DesiredForward。
+    for chain in &chains {
+        for (server_id, forward) in super::chains::derive_forwards(
+            &chain.chain.id,
+            &chain.chain.target_host,
+            chain.chain.target_port,
+            &chain.hops,
+        ) {
+            if server_id == server.id {
+                desired_forwards.push(forward);
+            }
+        }
+    }
 
     Ok(DesiredConfig {
         xray,
@@ -486,6 +503,94 @@ mod tests {
         );
     }
 
+    /// 独立单跳转发与链推导的转发必须合并进同一份 desired.forwards，
+    /// 且 id 分别使用 `fwd-` 与 `chain-` 前缀，不能互相覆盖。
+    #[tokio::test]
+    async fn desired_state_merges_standalone_and_chain_forwards() {
+        let (state, server_a) = fixture(false, "", None).await;
+        let (server_b, _) = repo::servers::create(&state.db.pool, "jp-1", "10.0.0.2", "external")
+            .await
+            .unwrap();
+
+        let standalone = repo::forwards::create(
+            &state.db.pool,
+            &server_a.id,
+            repo::forwards::NewForward {
+                name: "独立转发".into(),
+                listen_port: 8443,
+                target_host: "10.0.0.8".into(),
+                target_port: 443,
+                enabled: true,
+            },
+        )
+        .await
+        .unwrap();
+
+        // 两跳链：A:9001 → B:9002 → 1.1.1.1:443。
+        let chain = repo::chains::create(
+            &state.db.pool,
+            repo::chains::NewChain {
+                name: "港-日".into(),
+                target_host: "1.1.1.1".into(),
+                target_port: 443,
+                enabled: true,
+                hops: vec![
+                    repo::chains::NewChainHop {
+                        server_id: server_a.id.clone(),
+                        listen_port: 9001,
+                    },
+                    repo::chains::NewChainHop {
+                        server_id: server_b.id.clone(),
+                        listen_port: 9002,
+                    },
+                ],
+            },
+        )
+        .await
+        .unwrap();
+
+        let rendered = render(&state, &server_a, "https://panel.example.com")
+            .await
+            .unwrap();
+        assert_eq!(rendered.forwards.len(), 2, "独立 + 链入口共两条");
+        let standalone_id = pierwave_domain::forwards::desired_id(&standalone.id);
+        let entry_id = pierwave_domain::chains::forward_id(&chain.chain.id, 0);
+        assert_ne!(standalone_id, entry_id, "两种 id 前缀不能冲突");
+        let standalone_forward = rendered
+            .forwards
+            .iter()
+            .find(|forward| forward.id == standalone_id)
+            .expect("独立转发必须在期望态里");
+        assert_eq!(standalone_forward.listen_port, 8443);
+        assert_eq!(standalone_forward.target_host, "10.0.0.8");
+        assert_eq!(standalone_forward.target_port, 443);
+
+        let entry = rendered
+            .forwards
+            .iter()
+            .find(|forward| forward.id == entry_id)
+            .expect("链入口必须出现在第一跳服务器的期望态里");
+        assert_eq!(entry.listen_port, 9001);
+        assert_eq!(
+            entry.target_host, server_b.address,
+            "第一跳指向下一跳服务器地址"
+        );
+        assert_eq!(entry.target_port, 9002);
+
+        let rendered_b = render(&state, &server_b, "https://panel.example.com")
+            .await
+            .unwrap();
+        assert_eq!(rendered_b.forwards.len(), 1, "第二台服务器只收到自己这一跳");
+        let exit = &rendered_b.forwards[0];
+        assert_eq!(
+            exit.id,
+            pierwave_domain::chains::forward_id(&chain.chain.id, 1)
+        );
+        assert_eq!(exit.listen_port, 9002);
+        assert_eq!(exit.target_host, "1.1.1.1", "最后一跳指向链目标");
+        assert_eq!(exit.target_port, 443);
+    }
+
     /// 期望态只带启用的转发；`publish` 必须原样放进 DesiredState.forwards。
     #[tokio::test]
     async fn desired_state_carries_only_enabled_forwards() {
@@ -521,7 +626,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(rendered.forwards.len(), 1, "停用规则不能进入期望态");
-        assert_eq!(rendered.forwards[0].id, enabled.id);
+        assert_eq!(
+            rendered.forwards[0].id,
+            pierwave_domain::forwards::desired_id(&enabled.id),
+            "独立转发在期望态里的 id 必须带 fwd- 前缀"
+        );
         assert_eq!(rendered.forwards[0].listen_port, 8443);
         assert_eq!(rendered.forwards[0].target_host, "10.0.0.8");
         assert_eq!(rendered.forwards[0].target_port, 443);
@@ -536,7 +645,7 @@ mod tests {
                 assert_eq!(
                     desired.forwards,
                     vec![DesiredForward {
-                        id: enabled.id,
+                        id: pierwave_domain::forwards::desired_id(&enabled.id),
                         listen_port: 8443,
                         target_host: "10.0.0.8".into(),
                         target_port: 443,

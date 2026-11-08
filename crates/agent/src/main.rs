@@ -862,12 +862,18 @@ mod tests {
             id: "fwd".into(),
             listening: true,
             error: String::new(),
+            target_ok: Some(true),
         }];
         let hb = sample_heartbeat(1, 2, Some(23), forwards.clone());
         assert_eq!(hb.arch, std::env::consts::ARCH);
         assert!(!hb.arch.is_empty(), "主控靠心跳里的 arch 选升级产物");
         assert_eq!(hb.latency_ms, Some(23), "心跳应带上缓存的探测结果");
         assert_eq!(hb.forwards, forwards, "心跳应带上每条转发的监听状态");
+        assert_eq!(
+            hb.forwards[0].target_ok,
+            Some(true),
+            "目标可达性必须随心跳上报"
+        );
 
         let missing = sample_heartbeat(1, 2, None, Vec::new());
         assert_eq!(missing.latency_ms, None, "探测失败必须上报 null");

@@ -40,6 +40,23 @@ pub fn measure(addr: &str, timeout: Duration) -> Option<u32> {
     None
 }
 
+/// 同 [`measure`]，但目标用 `(host, port)` 表示，避免 IPv6 地址手工拼方括号。
+///
+/// 端口非法（越界）或解析失败都返回 `None`，与「目标不可达」同义。
+pub fn measure_target(target_host: &str, target_port: i64, timeout: Duration) -> Option<u32> {
+    let port = u16::try_from(target_port).ok()?;
+    let host = target_host.trim();
+    if host.is_empty() {
+        return None;
+    }
+    let addr = if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    };
+    measure(&addr, timeout)
+}
+
 /// 心跳可无锁读取的最近一次测量结果。
 #[derive(Debug, Default)]
 pub struct ProbeCache {
@@ -132,6 +149,26 @@ mod tests {
     #[test]
     fn measure_returns_none_for_unparsable_target() {
         assert_eq!(measure("", Duration::from_millis(500)), None);
+    }
+
+    #[test]
+    fn measure_target_uses_host_and_port_without_manual_brackets() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(measure_target("127.0.0.1", i64::from(port), Duration::from_millis(500)).is_some());
+        assert_eq!(
+            measure_target("127.0.0.1", 0, Duration::from_millis(500)),
+            None
+        );
+        assert_eq!(
+            measure_target("", i64::from(port), Duration::from_millis(500)),
+            None
+        );
+        assert_eq!(
+            measure_target("127.0.0.1", 65536, Duration::from_millis(500)),
+            None,
+            "非法端口不能当成可达"
+        );
     }
 
     #[test]

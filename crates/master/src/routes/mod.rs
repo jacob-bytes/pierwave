@@ -3,6 +3,7 @@ pub mod audit;
 pub mod auth;
 pub mod backup;
 pub mod certificates;
+pub mod chains;
 pub mod desired;
 pub mod enforcement;
 pub mod forwards;

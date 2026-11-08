@@ -1790,6 +1790,8 @@ pub mod forwards {
         pub forward_id: String,
         pub listening: bool,
         pub error: String,
+        /// 目标可达性；`None` = 本轮没探测 / 旧 Agent 没上报。
+        pub target_ok: Option<bool>,
     }
 
     pub async fn create(
@@ -1934,12 +1936,7 @@ pub mod forwards {
         server_id: &str,
     ) -> anyhow::Result<Vec<ForwardView>> {
         let forwards = list_by_server(pool, server_id).await?;
-        let statuses = sqlx::query_as::<_, ForwardStatusRow>(
-            "SELECT * FROM forward_status WHERE server_id = ?",
-        )
-        .bind(server_id)
-        .fetch_all(pool)
-        .await?;
+        let statuses = list_status_by_server(pool, server_id).await?;
         let mut by_id: HashMap<String, ForwardStatusRow> = statuses
             .into_iter()
             .map(|status| (status.forward_id.clone(), status))
@@ -1948,25 +1945,58 @@ pub mod forwards {
         Ok(forwards
             .into_iter()
             .map(|forward| {
-                let runtime = by_id.remove(&forward.id).map(|status| ForwardRuntime {
-                    listening: status.listening,
-                    error: status.error,
-                    updated_at: status.updated_at,
-                });
+                // 新 Agent 上报的是期望态 id（`fwd-<uuid>`）；旧 Agent 可能还在报
+                // 裸 uuid。两种都要能合并，优先认前缀形式。
+                let runtime = by_id
+                    .remove(&crate::forwards::desired_id(&forward.id))
+                    .or_else(|| by_id.remove(&forward.id))
+                    .map(|status| ForwardRuntime {
+                        listening: status.listening,
+                        error: status.error,
+                        target_ok: status.target_ok,
+                        degraded: crate::chains::is_degraded(status.target_fail_count),
+                        updated_at: status.updated_at,
+                    });
                 ForwardView { forward, runtime }
             })
             .collect())
+    }
+
+    /// 某台服务器的全部转发运行状态；链视图按 forward_id 合并时也用它。
+    pub async fn list_status_by_server(
+        pool: &SqlitePool,
+        server_id: &str,
+    ) -> anyhow::Result<Vec<ForwardStatusRow>> {
+        Ok(sqlx::query_as::<_, ForwardStatusRow>(
+            "SELECT * FROM forward_status WHERE server_id = ?",
+        )
+        .bind(server_id)
+        .fetch_all(pool)
+        .await?)
     }
 
     /// 用一次心跳里的 `forwards` 整体替换该服务器的状态缓存。
     ///
     /// 整体替换而不是 upsert：Agent 已经从期望态里删掉的规则不会再上报，
     /// 只有先 DELETE 才能把上一轮的旧状态清掉。事务保证读不到中间态。
+    ///
+    /// `target_fail_count` 是**连续** false 的计数：本轮 `Some(false)` 在上一轮
+    /// 计数上 +1，其余情况（`Some(true)` / `None`）一律清零。
     pub async fn save_status(
         pool: &SqlitePool,
         server_id: &str,
         statuses: &[NewForwardStatus],
     ) -> anyhow::Result<()> {
+        // 先读出上一轮计数，再整体删除；否则「连续」信息会随 DELETE 一起丢掉。
+        let previous: HashMap<String, i64> = sqlx::query_as::<_, (String, i64)>(
+            "SELECT forward_id, target_fail_count FROM forward_status WHERE server_id = ?",
+        )
+        .bind(server_id)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .collect();
+
         let ts = now();
         let mut tx = pool.begin().await?;
         sqlx::query("DELETE FROM forward_status WHERE server_id = ?")
@@ -1974,25 +2004,251 @@ pub mod forwards {
             .execute(&mut *tx)
             .await?;
         for status in statuses {
+            let fail_count = if status.target_ok == Some(false) {
+                previous.get(&status.forward_id).copied().unwrap_or(0) + 1
+            } else {
+                0
+            };
             sqlx::query(
                 "INSERT INTO forward_status
-                    (server_id, forward_id, listening, error, updated_at)
-                 VALUES (?, ?, ?, ?, ?)
+                    (server_id, forward_id, listening, error, target_ok,
+                     target_fail_count, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(server_id, forward_id) DO UPDATE SET
                     listening = excluded.listening,
                     error = excluded.error,
+                    target_ok = excluded.target_ok,
+                    target_fail_count = excluded.target_fail_count,
                     updated_at = excluded.updated_at",
             )
             .bind(server_id)
             .bind(&status.forward_id)
             .bind(i64::from(status.listening))
             .bind(&status.error)
+            .bind(status.target_ok)
+            .bind(fail_count)
             .bind(ts)
             .execute(&mut *tx)
             .await?;
         }
         tx.commit().await?;
         Ok(())
+    }
+}
+
+/// 线性多跳链：CRUD + 端口冲突查询。
+///
+/// 链只是「跳的配置」；期望态由 master 用 `chain_hops` + 服务器 address
+/// 推导成每台服务器上的 `DesiredForward`，存储层不负责推导。
+pub mod chains {
+    use super::*;
+
+    pub struct NewChainHop {
+        pub server_id: String,
+        pub listen_port: i64,
+    }
+
+    pub struct NewChain {
+        pub name: String,
+        pub target_host: String,
+        pub target_port: i64,
+        pub enabled: bool,
+        pub hops: Vec<NewChainHop>,
+    }
+
+    #[derive(Default)]
+    pub struct UpdateChain {
+        pub name: Option<String>,
+        pub target_host: Option<String>,
+        pub target_port: Option<i64>,
+        pub enabled: Option<bool>,
+        /// `None` = 不改跳；`Some` = 整体替换。
+        pub hops: Option<Vec<NewChainHop>>,
+    }
+
+    async fn load_hops(
+        pool: &SqlitePool,
+        chain_id: &str,
+    ) -> anyhow::Result<Vec<ChainHopWithServer>> {
+        Ok(sqlx::query_as::<_, ChainHopWithServer>(
+            "SELECT h.chain_id, h.seq, h.server_id,
+                    s.name AS server_name, s.address AS server_address, h.listen_port
+             FROM chain_hops h
+             JOIN servers s ON s.id = h.server_id
+             WHERE h.chain_id = ?
+             ORDER BY h.seq ASC",
+        )
+        .bind(chain_id)
+        .fetch_all(pool)
+        .await?)
+    }
+
+    async fn assemble(pool: &SqlitePool, chain: Chain) -> anyhow::Result<ChainWithHops> {
+        let hops = load_hops(pool, &chain.id).await?;
+        Ok(ChainWithHops { chain, hops })
+    }
+
+    pub async fn create(pool: &SqlitePool, input: NewChain) -> anyhow::Result<ChainWithHops> {
+        let id = Uuid::new_v4().to_string();
+        let ts = now();
+        let mut tx = pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO chains
+                (id, name, target_host, target_port, enabled, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(input.name.trim())
+        .bind(input.target_host.trim())
+        .bind(input.target_port)
+        .bind(i64::from(input.enabled))
+        .bind(ts)
+        .bind(ts)
+        .execute(&mut *tx)
+        .await?;
+        for (seq, hop) in input.hops.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO chain_hops (chain_id, seq, server_id, listen_port)
+                 VALUES (?, ?, ?, ?)",
+            )
+            .bind(&id)
+            .bind(seq as i64)
+            .bind(&hop.server_id)
+            .bind(hop.listen_port)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        find_by_id(pool, &id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("链创建后读取失败"))
+    }
+
+    pub async fn find_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<ChainWithHops>> {
+        let chain = sqlx::query_as::<_, Chain>("SELECT * FROM chains WHERE id = ?")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
+        match chain {
+            Some(chain) => Ok(Some(assemble(pool, chain).await?)),
+            None => Ok(None),
+        }
+    }
+
+    async fn list_where(
+        pool: &SqlitePool,
+        enabled_only: bool,
+    ) -> anyhow::Result<Vec<ChainWithHops>> {
+        let sql = if enabled_only {
+            "SELECT * FROM chains WHERE enabled = 1 ORDER BY created_at ASC, rowid ASC"
+        } else {
+            "SELECT * FROM chains ORDER BY created_at ASC, rowid ASC"
+        };
+        let chains = sqlx::query_as::<_, Chain>(sql).fetch_all(pool).await?;
+        let mut items = Vec::with_capacity(chains.len());
+        for chain in chains {
+            items.push(assemble(pool, chain).await?);
+        }
+        Ok(items)
+    }
+
+    pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<ChainWithHops>> {
+        list_where(pool, false).await
+    }
+
+    /// 期望态只推导启用的链。
+    pub async fn list_enabled(pool: &SqlitePool) -> anyhow::Result<Vec<ChainWithHops>> {
+        list_where(pool, true).await
+    }
+
+    pub async fn update(
+        pool: &SqlitePool,
+        id: &str,
+        input: UpdateChain,
+    ) -> anyhow::Result<Option<ChainWithHops>> {
+        let mut tx = pool.begin().await?;
+        let res = sqlx::query(
+            "UPDATE chains SET
+                name = COALESCE(?, name),
+                target_host = COALESCE(?, target_host),
+                target_port = COALESCE(?, target_port),
+                enabled = COALESCE(?, enabled),
+                updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(input.name.map(|name| name.trim().to_string()))
+        .bind(input.target_host.map(|host| host.trim().to_string()))
+        .bind(input.target_port)
+        .bind(input.enabled.map(i64::from))
+        .bind(now())
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+        if res.rows_affected() == 0 {
+            tx.rollback().await?;
+            return Ok(None);
+        }
+
+        if let Some(hops) = input.hops {
+            sqlx::query("DELETE FROM chain_hops WHERE chain_id = ?")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+            for (seq, hop) in hops.iter().enumerate() {
+                sqlx::query(
+                    "INSERT INTO chain_hops (chain_id, seq, server_id, listen_port)
+                     VALUES (?, ?, ?, ?)",
+                )
+                .bind(id)
+                .bind(seq as i64)
+                .bind(&hop.server_id)
+                .bind(hop.listen_port)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+        tx.commit().await?;
+        find_by_id(pool, id).await
+    }
+
+    pub async fn delete(pool: &SqlitePool, id: &str) -> anyhow::Result<bool> {
+        // 链删除后 Agent 可能还在线也可能离线；顺手清掉它推导出的状态行，
+        // 否则离线机器的 forward_status 里会留下永远没人覆盖的 `chain-<id>-*`。
+        let mut tx = pool.begin().await?;
+        let res = sqlx::query("DELETE FROM chains WHERE id = ?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM forward_status WHERE forward_id LIKE ?")
+            .bind(format!("chain-{id}-%"))
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    /// 另一条链是否已经占用了这台服务器的这个监听端口。
+    ///
+    /// `exclude_chain_id` 用于 PATCH：链自己的跳不算冲突。
+    pub async fn find_hop_port_conflict(
+        pool: &SqlitePool,
+        server_id: &str,
+        listen_port: i64,
+        exclude_chain_id: Option<&str>,
+    ) -> anyhow::Result<Option<ChainHopPortConflict>> {
+        Ok(sqlx::query_as::<_, ChainHopPortConflict>(
+            "SELECT h.chain_id, c.name AS chain_name, h.seq, h.listen_port
+             FROM chain_hops h
+             JOIN chains c ON c.id = h.chain_id
+             WHERE h.server_id = ? AND h.listen_port = ?
+               AND h.chain_id <> COALESCE(?, '')
+             LIMIT 1",
+        )
+        .bind(server_id)
+        .bind(listen_port)
+        .bind(exclude_chain_id)
+        .fetch_optional(pool)
+        .await?)
     }
 }
 

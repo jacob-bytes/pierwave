@@ -23,6 +23,17 @@ pub const NAME_MAX_CHARS: usize = 64;
 /// 不允许被转发监听的端口：`10085` = API 入站，`22` = SSHD。
 pub const RESERVED_PORTS: &[i64] = &[22, 10085];
 
+/// 独立单跳转发下发时的 id 前缀。
+///
+/// 存储层主键仍是裸 UUID；下发前加前缀是为了和链推导出的
+/// `chain-<chain_id>-<seq>` 在同一个 `DesiredState.forwards` 列表里不会撞 id。
+pub const DESIRED_ID_PREFIX: &str = "fwd-";
+
+/// 独立单跳转发在期望态里的稳定 id：`fwd-<uuid>`。
+pub fn desired_id(forward_id: &str) -> String {
+    format!("{DESIRED_ID_PREFIX}{forward_id}")
+}
+
 /// API 入站的固定端口；与 `xray::build_config` 里的 api inbound 保持一致。
 pub const API_PORT: i64 = 10085;
 
@@ -197,6 +208,17 @@ mod tests {
         let too_long = normalize_target_host(&"a".repeat(TARGET_HOST_MAX_CHARS + 1)).unwrap_err();
         assert_eq!(too_long.code, "forward.target_host_too_long");
         assert_eq!(too_long.params, json!({ "max": TARGET_HOST_MAX_CHARS }));
+    }
+
+    #[test]
+    fn desired_ids_are_prefixed_and_stable() {
+        assert_eq!(desired_id("abc"), "fwd-abc");
+        assert!(desired_id("abc").starts_with(DESIRED_ID_PREFIX));
+        assert_ne!(
+            desired_id("abc"),
+            crate::chains::forward_id("abc", 0),
+            "独立转发与链推导的 id 前缀必须不同"
+        );
     }
 
     #[test]

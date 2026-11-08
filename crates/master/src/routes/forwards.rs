@@ -104,7 +104,7 @@ async fn ensure_port_available(
 /// 标脏 + 立即下发一次。
 ///
 /// 立即下发失败不回滚已保存的规则：脏标记还在，后台对账稍后会重试。
-async fn mark_dirty_and_apply(state: &AppState, server: &Server, base_url: &str) {
+pub(crate) async fn mark_dirty_and_apply(state: &AppState, server: &Server, base_url: &str) {
     state.enforcement.mark_server_dirty(&server.id);
     if let Err(error) = super::desired::apply(state, server, base_url).await {
         tracing::warn!(
@@ -507,7 +507,7 @@ mod tests {
         // 创建后立即下发：规则必须在期望态里。
         let sent = next_forwards(&mut subscription.receiver).await;
         assert_eq!(sent.len(), 1, "创建后应下发这条转发");
-        assert_eq!(sent[0].id, id);
+        assert_eq!(sent[0].id, pierwave_domain::forwards::desired_id(&id));
         assert_eq!(sent[0].listen_port, 8443);
         assert_eq!(sent[0].target_host, "10.0.0.8");
         assert_eq!(sent[0].target_port, 443);
@@ -542,7 +542,7 @@ mod tests {
 
         let sent = next_forwards(&mut subscription.receiver).await;
         assert_eq!(sent.len(), 1);
-        assert_eq!(sent[0].id, id);
+        assert_eq!(sent[0].id, pierwave_domain::forwards::desired_id(&id));
         assert_eq!(sent[0].listen_port, 9443);
         assert_eq!(sent[0].target_host, "10.0.0.9");
         assert_eq!(sent[0].target_port, 8443);
@@ -797,6 +797,7 @@ mod tests {
                 forward_id: id.clone(),
                 listening: true,
                 error: String::new(),
+                target_ok: None,
             }],
         )
         .await
@@ -815,6 +816,7 @@ mod tests {
                 forward_id: id.clone(),
                 listening: false,
                 error: "端口已被占用".into(),
+                target_ok: None,
             }],
         )
         .await

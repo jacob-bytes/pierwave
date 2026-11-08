@@ -85,6 +85,10 @@ pub struct ForwardStatusRow {
     pub forward_id: String,
     pub listening: bool,
     pub error: String,
+    /// 目标可达性；`None` = 还没探测过 / 旧 Agent 没上报。
+    pub target_ok: Option<bool>,
+    /// 连续 `target_ok=false` 的次数；非 false 会清零。
+    pub target_fail_count: i64,
     pub updated_at: i64,
 }
 
@@ -93,6 +97,10 @@ pub struct ForwardStatusRow {
 pub struct ForwardRuntime {
     pub listening: bool,
     pub error: String,
+    /// 目标可达性；`None` = 还没探测过 / 旧 Agent 没上报。
+    pub target_ok: Option<bool>,
+    /// 连续两次目标不可达。
+    pub degraded: bool,
     pub updated_at: i64,
 }
 
@@ -102,6 +110,55 @@ pub struct ForwardView {
     #[serde(flatten)]
     pub forward: Forward,
     pub runtime: Option<ForwardRuntime>,
+}
+
+/// 一条线性多跳链。跳的配置在 `chain_hops`，这里只放链级字段。
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct Chain {
+    pub id: String,
+    pub name: String,
+    pub target_host: String,
+    pub target_port: i64,
+    pub enabled: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// 一跳的原始配置（不含服务器名称/地址）。
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct ChainHop {
+    pub chain_id: String,
+    pub seq: i64,
+    pub server_id: String,
+    pub listen_port: i64,
+}
+
+/// 一跳 + 它所在服务器展示/推导所需的字段。
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct ChainHopWithServer {
+    pub chain_id: String,
+    pub seq: i64,
+    pub server_id: String,
+    pub server_name: String,
+    /// 下一跳 target 用；只给下发/校验，不直接出现在 API 响应里。
+    pub server_address: String,
+    pub listen_port: i64,
+}
+
+/// 一条链及其按 `seq` 升序的跳。
+#[derive(Debug, Clone)]
+pub struct ChainWithHops {
+    pub chain: Chain,
+    pub hops: Vec<ChainHopWithServer>,
+}
+
+/// 另一条链已经占用了某台服务器的某个监听端口。
+#[derive(Debug, Clone, FromRow)]
+pub struct ChainHopPortConflict {
+    pub chain_id: String,
+    pub chain_name: String,
+    pub seq: i64,
+    pub listen_port: i64,
 }
 
 /// 一次 Agent 自升级尝试。
