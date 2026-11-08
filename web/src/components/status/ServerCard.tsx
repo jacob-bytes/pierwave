@@ -242,7 +242,7 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
             <AvailabilityValue ratio={server.uptime_7d} />
           </span>
           {/* 最后心跳已经在副行出现过，这里不再重复；右侧留给可用率区间说明 */}
-          <span className="shrink-0 text-muted-foreground/70">
+          <span className="shrink-0 text-muted-foreground">
             {t("publicStatus.server.availability24hHint")}
           </span>
         </div>

@@ -425,7 +425,7 @@ function ChainGroupsRow({ chain }: { chain: Chain }) {
               {groups.map((group, index) => (
                 <Fragment key={group.id || group.seq}>
                   <GroupCard group={group} isEntry={index === 0} />
-                  <div className="hidden shrink-0 items-center text-muted-foreground/60 lg:flex">
+                  <div className="hidden shrink-0 items-center text-muted-foreground/80 lg:flex">
                     <ArrowRightIcon className="size-3.5" aria-hidden="true" />
                   </div>
                 </Fragment>

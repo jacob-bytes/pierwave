@@ -59,14 +59,21 @@ function KpiCard({
   icon: Icon,
   value,
   hint,
+  index = 0,
 }: {
   label: string;
   icon: LucideIcon;
   value: ReactNode;
   hint: string;
+  /** 首页概览专用：20ms 错开入场，其余页面不要用。 */
+  index?: number;
 }) {
   return (
-    <Card size="sm" className="gap-3">
+    <Card
+      size="sm"
+      className="animate-enter gap-3"
+      style={{ animationDelay: `${index * 20}ms` }}
+    >
       <CardHeader className="grid-cols-[1fr_auto] items-center gap-2">
         <CardDescription className="text-xs">{label}</CardDescription>
         <div className="grid size-7 place-items-center rounded-md bg-primary/10 text-primary">
@@ -227,10 +234,7 @@ function AlertRow({
   return (
     <Link
       to={to}
-      className={cn(
-        "group flex items-center gap-3 rounded-md px-2.5 py-2.5 transition-colors duration-150 hover:bg-muted/40",
-        !active && "opacity-60 hover:opacity-100",
-      )}
+      className="group flex items-center gap-3 rounded-md px-2.5 py-2.5 transition-colors duration-150 hover:bg-muted/40"
     >
       <div
         className={cn(
@@ -241,7 +245,14 @@ function AlertRow({
         <Icon className="size-4" />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm">{label}</p>
+        <p
+          className={cn(
+            "truncate text-sm",
+            !active && "text-muted-foreground",
+          )}
+        >
+          {label}
+        </p>
         <p className="truncate text-xs text-muted-foreground">
           {active ? hint : t("common.none")}
         </p>
@@ -254,7 +265,7 @@ function AlertRow({
       >
         {count}
       </span>
-      <ChevronRightIcon className="size-3.5 text-muted-foreground/50 transition-transform duration-150 group-hover:translate-x-0.5" />
+      <ChevronRightIcon className="size-3.5 text-muted-foreground/80 transition-transform duration-150 group-hover:translate-x-0.5" />
     </Link>
   );
 }
@@ -324,6 +335,7 @@ export default function OverviewPage() {
           <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <KpiCard
               label={t("overview.onlineServers")}
+              index={0}
               icon={ServerIcon}
               value={
                 <>
@@ -341,6 +353,7 @@ export default function OverviewPage() {
             />
             <KpiCard
               label={t("overview.users")}
+              index={1}
               icon={UsersIcon}
               value={
                 <>
@@ -359,12 +372,14 @@ export default function OverviewPage() {
             />
             <KpiCard
               label={t("overview.packageInstances")}
+              index={2}
               icon={PackageIcon}
               value={stats.packages.instances}
               hint={t("overview.packagesTotalHint", { n: stats.packages.total })}
             />
             <KpiCard
               label={t("overview.todayTraffic")}
+              index={3}
               icon={ActivityIcon}
               value={formatBytes(stats.traffic.today_bytes)}
               hint={t("overview.monthTrafficHint", {

@@ -47,18 +47,36 @@ export default function LoginPage() {
     : null;
 
   return (
-    <div className="grid min-h-full place-items-center bg-background p-6">
-      <div className="w-full max-w-sm animate-in fade-in-0 slide-in-from-bottom-1 duration-150">
-        <div className="mb-6 flex flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-xl bg-primary/15 text-primary ring-1 ring-primary/20">
-            <TerminalIcon className="size-5" />
+    <div className="relative grid min-h-full place-items-center overflow-hidden bg-background p-6">
+      {/* 主题色低透明度光晕：纯装饰，深色下更强，亮色下收着用 */}
+      <div
+        aria-hidden="true"
+        className="auth-glow pointer-events-none absolute inset-0"
+      />
+
+      <div className="animate-enter relative w-full max-w-sm">
+        <div className="mb-7 flex flex-col items-center gap-4 text-center">
+          {/* 品牌标识：图标 + 产品字标 + 一句定位 */}
+          <div className="flex items-center gap-2.5">
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/25">
+              <TerminalIcon className="size-5" aria-hidden="true" />
+            </span>
+            <span className="text-left leading-tight">
+              <span className="block text-sm font-semibold tracking-tight">
+                {panelName}
+              </span>
+              <span className="mt-0.5 block text-[11px] font-medium tracking-[0.16em] text-muted-foreground uppercase">
+                {t("login.brandSubtitle")}
+              </span>
+            </span>
           </div>
+
           <div>
-            <h1 className="text-lg font-semibold tracking-tight">
+            <h1 className="text-xl font-semibold tracking-tight">
               {t("login.title", { panelName })}
             </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {t("login.subtitle")}
+            <p className="mx-auto mt-1.5 max-w-sm text-sm text-muted-foreground">
+              {t("login.tagline")}
             </p>
           </div>
         </div>

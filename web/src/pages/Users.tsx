@@ -610,7 +610,7 @@ export default function UsersPage() {
                   >
                     <span className="block">{label}</span>
                     {hint ? (
-                      <span className="mt-0.5 block text-[10px] font-normal tracking-normal whitespace-nowrap text-muted-foreground/70">
+                      <span className="mt-0.5 block text-[10px] font-normal tracking-normal whitespace-nowrap text-muted-foreground">
                         {hint}
                       </span>
                     ) : null}

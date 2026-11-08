@@ -286,7 +286,7 @@ export function PackageNodeScopeField({
                         >
                           <NetworkIcon className="size-3 shrink-0" />
                           <span className="truncate">{group.serverName}</span>
-                          <span className="font-mono text-muted-foreground/70">
+                          <span className="font-mono text-muted-foreground">
                             {group.items.length}
                           </span>
                         </div>

@@ -101,7 +101,8 @@ const en = {
   },
   login: {
     title: "Sign in to {panelName}",
-    subtitle: "Sign in with your account; administrators and users share this page.",
+    brandSubtitle: "Node & subscription panel",
+    tagline: "Nodes, subscriptions and traffic in one panel.",
     username: "Username",
     password: "Password",
     passwordPlaceholder: "Enter your password",

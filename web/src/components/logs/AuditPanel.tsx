@@ -376,7 +376,7 @@ function SummaryCell({
       {visible.map((item, index) => (
         <span key={`${index}-${item}`} className="whitespace-nowrap">
           {index > 0 ? (
-            <span aria-hidden="true" className="px-1 text-muted-foreground/40">
+            <span aria-hidden="true" className="px-1 text-muted-foreground">
               ·
             </span>
           ) : null}
@@ -385,7 +385,7 @@ function SummaryCell({
       ))}
       {hidden.length > 0 ? (
         <span
-          className="text-[11px] text-muted-foreground/60"
+          className="text-[11px] text-muted-foreground"
           title={hidden.join("\n")}
         >
           +{hidden.length}

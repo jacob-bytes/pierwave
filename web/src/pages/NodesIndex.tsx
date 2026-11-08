@@ -81,7 +81,7 @@ function ServerCard({ server }: { server: Server }) {
         <span>
           v{server.config_version} · {formatRelativeTime(server.last_seen_at)}
         </span>
-        <span className="inline-flex items-center gap-1 text-primary opacity-80 transition-opacity duration-150 group-hover:opacity-100">
+        <span className="inline-flex items-center gap-1 text-primary transition-colors duration-150 group-hover:text-foreground">
           {t("nodes.index.manage")}
           <ArrowRightIcon className="size-3" />
         </span>

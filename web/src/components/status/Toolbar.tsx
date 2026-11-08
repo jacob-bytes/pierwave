@@ -69,7 +69,7 @@ function Segmented<T extends string>({
                 className={cn(
                   "tnum min-w-[18px] rounded-full px-1 text-center text-[11px] leading-[18px] font-medium",
                   active
-                    ? "bg-primary/15 text-primary"
+                    ? "bg-primary/15 text-foreground"
                     : "bg-muted text-foreground",
                 )}
               >

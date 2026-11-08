@@ -265,7 +265,7 @@ function SidebarBody({
             ) : (
               <p
                 className={cn(
-                  "px-2.5 pb-1.5 text-[11px] font-medium tracking-wider text-muted-foreground/50",
+                  "px-2.5 pb-1.5 text-[11px] font-medium tracking-wider text-muted-foreground",
                   index > 0 && "pt-5",
                 )}
               >
@@ -294,7 +294,7 @@ function SidebarBody({
         )}
       >
         <p
-          className="font-mono text-[11px] text-muted-foreground/60"
+          className="font-mono text-[11px] text-muted-foreground"
           title={`PierWave ${versionLabel}`}
         >
           {collapsed ? versionLabel : `PierWave ${versionLabel}`}
@@ -465,7 +465,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
             >
               {panelName}
             </Link>
-            <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/40" />
+            <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/80" />
             <span
               className="truncate font-medium"
               aria-current={pageSubLabel ? undefined : "page"}
@@ -474,7 +474,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
             </span>
             {pageSubLabel ? (
               <>
-                <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/40" />
+                <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/80" />
                 <span
                   className="truncate text-muted-foreground"
                   aria-current="page"

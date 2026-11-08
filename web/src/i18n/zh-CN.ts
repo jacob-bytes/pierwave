@@ -97,7 +97,8 @@ const zhCN = {
   },
   login: {
     title: "登录 {panelName}",
-    subtitle: "使用账号登录，管理员与普通用户共用入口",
+    brandSubtitle: "节点与订阅面板",
+    tagline: "节点、订阅与流量，在一个面板里管住。",
     username: "用户名",
     password: "密码",
     passwordPlaceholder: "请输入密码",
