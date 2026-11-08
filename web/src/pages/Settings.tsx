@@ -12,6 +12,7 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { FormField, FormRootError } from "@/components/FormField";
 import { AlertsCard } from "@/components/settings/AlertsCard";
@@ -26,13 +27,26 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import { ApiError, type Settings } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { useSettings, useUpdateSettings } from "@/lib/queries";
 import {
-  settingsFormSchema,
-  type SettingsFormValues,
+  settingsGeneralSchema,
+  settingsSecuritySchema,
+  type SettingsGeneralValues,
+  type SettingsSecurityValues,
 } from "@/lib/schemas";
+import {
+  resolveSettingsTab,
+  settingsTabParam,
+  type SettingsTabId,
+} from "@/lib/settingsTabs";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
@@ -49,20 +63,27 @@ function settingsErrorText(error: unknown, fallback: string): string {
   return errorText(error, fallback);
 }
 
-function toFormValues(items: Settings): SettingsFormValues {
+/** 常规 tab 的表单值：只含本 tab 提交的键。 */
+function toGeneralFormValues(items: Settings): SettingsGeneralValues {
   return {
     panel_name: items.panel_name ?? "",
+    // 旧版后端还没有这个键：默认一次一台，而不是让输入框空着。
+    agent_upgrade_concurrency:
+      items.agent_upgrade_concurrency == null
+        ? "1"
+        : String(items.agent_upgrade_concurrency),
+  };
+}
+
+/** 安全 tab 的表单值：只含本 tab 提交的键。 */
+function toSecurityFormValues(items: Settings): SettingsSecurityValues {
+  return {
     login_max_attempts:
       items.login_max_attempts == null ? "" : String(items.login_max_attempts),
     login_lock_secs:
       items.login_lock_secs == null ? "" : String(items.login_lock_secs),
     session_ttl_hours:
       items.session_ttl_hours == null ? "" : String(items.session_ttl_hours),
-    // 旧版后端还没有这个键：默认一次一台，而不是让输入框空着。
-    agent_upgrade_concurrency:
-      items.agent_upgrade_concurrency == null
-        ? "1"
-        : String(items.agent_upgrade_concurrency),
   };
 }
 
@@ -112,46 +133,22 @@ function sessionDurationText(hours: number): string {
   return t("settings.duration.hoursWithDaysRest", { hours, days, rest });
 }
 
-function SettingsSkeleton() {
+function SettingsSkeleton({ cards = 2 }: { cards?: number }) {
   return (
     <div className="space-y-6" aria-busy="true">
-      <Card>
-        <CardHeader>
-          <Skeleton className="h-4 w-16" />
-          <Skeleton className="h-3 w-64" />
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <Skeleton className="h-3 w-20" />
-          <Skeleton className="h-8 w-full max-w-md" />
-          <Skeleton className="h-3 w-52" />
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <Skeleton className="h-4 w-16" />
-          <Skeleton className="h-3 w-72" />
-        </CardHeader>
-        <CardContent className="space-y-5">
-          {[0, 1, 2].map((index) => (
-            <div key={index} className="space-y-2">
-              <Skeleton className="h-3 w-24" />
-              <Skeleton className="h-8 w-full max-w-md" />
-              <Skeleton className="h-3 w-64" />
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <Skeleton className="h-4 w-20" />
-          <Skeleton className="h-3 w-80" />
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <Skeleton className="h-3 w-20" />
-          <Skeleton className="h-8 w-full max-w-md" />
-          <Skeleton className="h-3 w-72" />
-        </CardContent>
-      </Card>
+      {Array.from({ length: cards }, (_, index) => (
+        <Card key={index}>
+          <CardHeader>
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-3 w-64" />
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-8 w-full max-w-md" />
+            <Skeleton className="h-3 w-52" />
+          </CardContent>
+        </Card>
+      ))}
     </div>
   );
 }
@@ -194,13 +191,86 @@ function StateCard({
   );
 }
 
-function SettingsForm({ initial }: { initial: Settings }) {
+type SettingsQuery = ReturnType<typeof useSettings>;
+
+function RetryButton({ query }: { query: SettingsQuery }) {
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={() => void query.refetch()}
+      disabled={query.isFetching}
+    >
+      <RefreshCwIcon
+        className={cn("size-3.5", query.isFetching && "animate-spin")}
+      />
+      {t("common.retry")}
+    </Button>
+  );
+}
+
+/**
+ * 常规 / 安全两个 tab 共用同一份设置查询，但各自渲染四态。
+ * 告警与备份卡片自己拉数据，不走这里。
+ */
+function SettingsPanelState({
+  query,
+  cards,
+  children,
+}: {
+  query: SettingsQuery;
+  cards: number;
+  children: (items: Settings) => ReactNode;
+}) {
+  if (query.isPending) return <SettingsSkeleton cards={cards} />;
+  if (query.isError) {
+    return (
+      <StateCard
+        icon={TriangleAlertIcon}
+        tone="destructive"
+        title={t("settings.loadFailed")}
+        description={settingsErrorText(query.error, t("settings.loadError"))}
+        action={<RetryButton query={query} />}
+      />
+    );
+  }
+  if (!query.data || Object.keys(query.data).length === 0) {
+    return (
+      <StateCard
+        icon={SlidersHorizontalIcon}
+        title={t("settings.emptyTitle")}
+        description={t("settings.emptyDesc")}
+        action={<RetryButton query={query} />}
+      />
+    );
+  }
+  return <>{children(query.data)}</>;
+}
+
+/** 每个 tab 自己的保存条；提交键只由所在表单决定。 */
+function SaveBar({ pending }: { pending: boolean }) {
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-3">
+      <p className="text-xs text-muted-foreground">{t("settings.saveHint")}</p>
+      <Button type="submit" disabled={pending}>
+        {pending ? (
+          <Loader2Icon className="animate-spin" />
+        ) : (
+          <SaveIcon />
+        )}
+        {pending ? t("settings.saving") : t("common.save")}
+      </Button>
+    </div>
+  );
+}
+
+function GeneralForm({ initial }: { initial: Settings }) {
   const { t: translate } = useI18n();
   const updateSettings = useUpdateSettings();
-  const schema = useMemo(() => settingsFormSchema(translate), [translate]);
-  const form = useForm<SettingsFormValues>({
+  const schema = useMemo(() => settingsGeneralSchema(translate), [translate]);
+  const form = useForm<SettingsGeneralValues>({
     resolver: zodResolver(schema),
-    defaultValues: toFormValues(initial),
+    defaultValues: toGeneralFormValues(initial),
   });
 
   // 切换语言后重新校验，让已经显示的错误跟着换语言。
@@ -208,9 +278,6 @@ function SettingsForm({ initial }: { initial: Settings }) {
     if (form.formState.isSubmitted) void form.trigger();
   }, [translate, form]);
 
-  const attempts = parseIntInRange(form.watch("login_max_attempts"), 1, 20);
-  const lockSecs = parseIntInRange(form.watch("login_lock_secs"), 60, 86400);
-  const ttlHours = parseIntInRange(form.watch("session_ttl_hours"), 1, 720);
   const concurrency = parseIntInRange(
     form.watch("agent_upgrade_concurrency"),
     1,
@@ -220,38 +287,20 @@ function SettingsForm({ initial }: { initial: Settings }) {
   const onSubmit = form.handleSubmit(async (values) => {
     form.clearErrors("root");
     try {
+      // 只 PATCH 常规 tab 的键：不提交整份对象，避免覆盖安全 tab 刚存的值。
       const items = await updateSettings.mutateAsync({
         panel_name: values.panel_name.trim(),
-        login_max_attempts: Number(values.login_max_attempts),
-        login_lock_secs: Number(values.login_lock_secs),
-        session_ttl_hours: Number(values.session_ttl_hours),
         agent_upgrade_concurrency: Number(values.agent_upgrade_concurrency),
       });
       // PATCH 返回的 items 是权威值：回填表单（同时清掉脏标记），缓存已由 hook 更新。
-      form.reset(toFormValues(items));
-      toast.success(t("settings.saved"));
+      form.reset(toGeneralFormValues(items));
+      toast.success(t("settings.general.saved"));
     } catch (error) {
       const message = settingsErrorText(error, t("settings.saveError"));
       form.setError("root", { message });
       toast.error(message);
     }
   });
-
-  const attemptsHint =
-    attempts && lockSecs
-      ? t("settings.security.attemptsHintWith", {
-          n: attempts,
-          duration: lockDurationText(lockSecs),
-        })
-      : t("settings.security.attemptsHint");
-
-  const lockHint = lockHintText(lockSecs);
-
-  const sessionHint = ttlHours
-    ? t("settings.security.sessionHintWith", {
-        duration: sessionDurationText(ttlHours),
-      })
-    : t("settings.security.sessionHintDefault");
 
   const concurrencyHint = concurrency
     ? t("settings.agentUpgrade.concurrencyHintWith", { n: concurrency })
@@ -290,6 +339,101 @@ function SettingsForm({ initial }: { initial: Settings }) {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-sm font-medium">
+            <ArrowUpCircleIcon className="size-4 text-muted-foreground" />
+            {t("settings.agentUpgrade.title")}
+          </CardTitle>
+          <CardDescription className="text-xs">
+            {t("settings.agentUpgrade.desc")}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FormField
+            label={t("settings.agentUpgrade.concurrency")}
+            htmlFor="settings-agent-upgrade-concurrency"
+            required
+            hint={concurrencyHint}
+            error={form.formState.errors.agent_upgrade_concurrency?.message}
+            className="max-w-md"
+          >
+            <Input
+              id="settings-agent-upgrade-concurrency"
+              inputMode="numeric"
+              placeholder="1"
+              disabled={updateSettings.isPending}
+              aria-invalid={Boolean(
+                form.formState.errors.agent_upgrade_concurrency,
+              )}
+              {...form.register("agent_upgrade_concurrency")}
+            />
+          </FormField>
+        </CardContent>
+      </Card>
+
+      <FormRootError message={form.formState.errors.root?.message} />
+
+      <SaveBar pending={updateSettings.isPending} />
+    </form>
+  );
+}
+
+function SecurityForm({ initial }: { initial: Settings }) {
+  const { t: translate } = useI18n();
+  const updateSettings = useUpdateSettings();
+  const schema = useMemo(() => settingsSecuritySchema(translate), [translate]);
+  const form = useForm<SettingsSecurityValues>({
+    resolver: zodResolver(schema),
+    defaultValues: toSecurityFormValues(initial),
+  });
+
+  // 切换语言后重新校验，让已经显示的错误跟着换语言。
+  useEffect(() => {
+    if (form.formState.isSubmitted) void form.trigger();
+  }, [translate, form]);
+
+  const attempts = parseIntInRange(form.watch("login_max_attempts"), 1, 20);
+  const lockSecs = parseIntInRange(form.watch("login_lock_secs"), 60, 86400);
+  const ttlHours = parseIntInRange(form.watch("session_ttl_hours"), 1, 720);
+
+  const onSubmit = form.handleSubmit(async (values) => {
+    form.clearErrors("root");
+    try {
+      // 只 PATCH 安全 tab 的键：不提交整份对象，避免覆盖常规 tab 刚存的值。
+      const items = await updateSettings.mutateAsync({
+        login_max_attempts: Number(values.login_max_attempts),
+        login_lock_secs: Number(values.login_lock_secs),
+        session_ttl_hours: Number(values.session_ttl_hours),
+      });
+      // PATCH 返回的 items 是权威值：回填表单（同时清掉脏标记），缓存已由 hook 更新。
+      form.reset(toSecurityFormValues(items));
+      toast.success(t("settings.security.saved"));
+    } catch (error) {
+      const message = settingsErrorText(error, t("settings.saveError"));
+      form.setError("root", { message });
+      toast.error(message);
+    }
+  });
+
+  const attemptsHint =
+    attempts && lockSecs
+      ? t("settings.security.attemptsHintWith", {
+          n: attempts,
+          duration: lockDurationText(lockSecs),
+        })
+      : t("settings.security.attemptsHint");
+
+  const lockHint = lockHintText(lockSecs);
+
+  const sessionHint = ttlHours
+    ? t("settings.security.sessionHintWith", {
+        duration: sessionDurationText(ttlHours),
+      })
+    : t("settings.security.sessionHintDefault");
+
+  return (
+    <form className="space-y-6" onSubmit={onSubmit}>
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-sm font-medium">
@@ -358,130 +502,138 @@ function SettingsForm({ initial }: { initial: Settings }) {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm font-medium">
-            <ArrowUpCircleIcon className="size-4 text-muted-foreground" />
-            {t("settings.agentUpgrade.title")}
-          </CardTitle>
-          <CardDescription className="text-xs">
-            {t("settings.agentUpgrade.desc")}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <FormField
-            label={t("settings.agentUpgrade.concurrency")}
-            htmlFor="settings-agent-upgrade-concurrency"
-            required
-            hint={concurrencyHint}
-            error={form.formState.errors.agent_upgrade_concurrency?.message}
-            className="max-w-md"
-          >
-            <Input
-              id="settings-agent-upgrade-concurrency"
-              inputMode="numeric"
-              placeholder="1"
-              disabled={updateSettings.isPending}
-              aria-invalid={Boolean(
-                form.formState.errors.agent_upgrade_concurrency,
-              )}
-              {...form.register("agent_upgrade_concurrency")}
-            />
-          </FormField>
-        </CardContent>
-      </Card>
-
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        <p className="text-xs text-muted-foreground">
-          {t("settings.saveHint")}
-        </p>
-        <Button type="submit" disabled={updateSettings.isPending}>
-          {updateSettings.isPending ? (
-            <Loader2Icon className="animate-spin" />
-          ) : (
-            <SaveIcon />
-          )}
-          {updateSettings.isPending
-            ? t("settings.saving")
-            : t("common.save")}
-        </Button>
-      </div>
+      <SaveBar pending={updateSettings.isPending} />
     </form>
   );
 }
 
+/** tab 顺序即 URL 回落的顺序（第一个是默认 tab）。 */
+const SETTINGS_TABS = [
+  {
+    value: "general",
+    labelKey: "settings.tabs.regular",
+    descKey: "settings.tabs.regularDesc",
+  },
+  {
+    value: "security",
+    labelKey: "settings.tabs.security",
+    descKey: "settings.tabs.securityDesc",
+  },
+  {
+    value: "alerts",
+    labelKey: "settings.tabs.alerts",
+    descKey: "settings.tabs.alertsDesc",
+  },
+  {
+    value: "backup",
+    labelKey: "settings.tabs.backup",
+    descKey: "settings.tabs.backupDesc",
+  },
+] as const satisfies readonly {
+  value: SettingsTabId;
+  labelKey: string;
+  descKey: string;
+}[];
+
 export default function SettingsPage() {
   useI18n();
   const settings = useSettings();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // URL 是 tab 的唯一来源：刷新、前进/后退、外部链接都保持在同一个 tab。
+  const tab = resolveSettingsTab(searchParams.get("tab"));
+
+  function handleTabChange(value: string) {
+    const next = new URLSearchParams(searchParams);
+    const param = settingsTabParam(resolveSettingsTab(value));
+    if (param === null) next.delete("tab");
+    else next.set("tab", param);
+    // 默认 tab 不写参数；`?tab=bogus` 这类非法值也在切换时被清掉。
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }
 
   return (
     <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">{t("settings.title")}</h1>
+        <h1 className="text-xl font-semibold tracking-tight">
+          {t("settings.title")}
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {t("settings.subtitle")}
         </p>
       </div>
 
-      {settings.isPending ? (
-        <SettingsSkeleton />
-      ) : settings.isError ? (
-        <StateCard
-          icon={TriangleAlertIcon}
-          tone="destructive"
-          title={t("settings.loadFailed")}
-          description={settingsErrorText(
-            settings.error,
-            t("settings.loadError"),
-          )}
-          action={
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void settings.refetch()}
-              disabled={settings.isFetching}
-            >
-              <RefreshCwIcon
-                className={cn(
-                  "size-3.5",
-                  settings.isFetching && "animate-spin",
-                )}
-              />
-              {t("common.retry")}
-            </Button>
-          }
-        />
-      ) : !settings.data || Object.keys(settings.data).length === 0 ? (
-        <StateCard
-          icon={SlidersHorizontalIcon}
-          title={t("settings.emptyTitle")}
-          description={t("settings.emptyDesc")}
-          action={
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void settings.refetch()}
-              disabled={settings.isFetching}
-            >
-              <RefreshCwIcon
-                className={cn(
-                  "size-3.5",
-                  settings.isFetching && "animate-spin",
-                )}
-              />
-              {t("common.retry")}
-            </Button>
-          }
-        />
-      ) : (
-        <SettingsForm initial={settings.data} />
-      )}
+      <Tabs value={tab} onValueChange={handleTabChange} className="gap-4">
+        <TabsList
+          aria-label={t("settings.tabs.ariaLabel")}
+          className="max-w-full overflow-x-auto"
+        >
+          {SETTINGS_TABS.map((option) => (
+            <TabsTrigger key={option.value} value={option.value}>
+              {t(option.labelKey)}
+            </TabsTrigger>
+          ))}
+        </TabsList>
 
-      {/* P13：告警通知独立于主表单，自己拉设置、保存并发送测试消息。 */}
-      <AlertsCard />
+        {/*
+          forceMount：切走再切回时表单内容与告警/备份卡片的结果都保留，
+          也不会重复拉取数据；非激活面板由 data-[state=inactive] 隐藏。
+        */}
+        <TabsContent
+          value="general"
+          forceMount
+          aria-label={t("settings.tabs.regular")}
+          className="space-y-4 data-[state=inactive]:hidden"
+        >
+          <p className="text-xs text-muted-foreground">
+            {t("settings.tabs.regularDesc")}
+          </p>
+          <SettingsPanelState query={settings} cards={2}>
+            {(items) => <GeneralForm initial={items} />}
+          </SettingsPanelState>
+        </TabsContent>
 
-      {/* P7：备份与恢复独立于设置表单，自己拉 info 并处理四态。 */}
-      <BackupCard />
+        <TabsContent
+          value="security"
+          forceMount
+          aria-label={t("settings.tabs.security")}
+          className="space-y-4 data-[state=inactive]:hidden"
+        >
+          <p className="text-xs text-muted-foreground">
+            {t("settings.tabs.securityDesc")}
+          </p>
+          <SettingsPanelState query={settings} cards={1}>
+            {(items) => <SecurityForm initial={items} />}
+          </SettingsPanelState>
+        </TabsContent>
+
+        <TabsContent
+          value="alerts"
+          forceMount
+          aria-label={t("settings.tabs.alerts")}
+          className="space-y-4 data-[state=inactive]:hidden"
+        >
+          <p className="text-xs text-muted-foreground">
+            {t("settings.tabs.alertsDesc")}
+          </p>
+          {/* P13：告警通知独立于主表单，自己拉设置、保存并发送测试消息。 */}
+          <AlertsCard />
+        </TabsContent>
+
+        <TabsContent
+          value="backup"
+          forceMount
+          aria-label={t("settings.tabs.backup")}
+          className="space-y-4 data-[state=inactive]:hidden"
+        >
+          <p className="text-xs text-muted-foreground">
+            {t("settings.tabs.backupDesc")}
+          </p>
+          {/* P7：备份与恢复独立于设置表单，自己拉 info 并处理四态。 */}
+          <BackupCard />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

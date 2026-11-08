@@ -1119,6 +1119,21 @@ const zhCN = {
     emptyTitle: "还没有可显示的设置项",
     emptyDesc:
       "后端暂时没有返回任何设置键。稍后重试，或确认主控版本是否包含设置接口。",
+    tabs: {
+      ariaLabel: "设置分组",
+      regular: "常规",
+      regularDesc: "登录页显示的面板名称，以及批量升级 Agent 时的并发数。",
+      security: "安全",
+      securityDesc: "登录失败上限、锁定时长与会话有效期。",
+      alerts: "告警通知",
+      alertsDesc:
+        "配置 Telegram / Webhook 通知渠道与告警事件，并可发送测试消息。",
+      backup: "备份与恢复",
+      backupDesc: "下载当前数据库快照，或上传备份覆盖全部数据。",
+    },
+    general: {
+      saved: "常规设置已保存",
+    },
     panel: {
       title: "面板",
       desc: "显示在登录页与页面标题中的面板名称。",
@@ -1139,6 +1154,7 @@ const zhCN = {
       session: "会话有效期（小时）",
       sessionHintDefault: "登录会话的有效期，范围 1–720 小时。",
       sessionHintWith: "会话有效期 {duration}，过期后需要重新登录。",
+      saved: "安全设置已保存",
     },
     agentUpgrade: {
       title: "Agent 升级",

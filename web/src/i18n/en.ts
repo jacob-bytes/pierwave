@@ -1170,6 +1170,23 @@ const en = {
     emptyTitle: "No settings to display",
     emptyDesc:
       "The backend returned no settings keys. Try again later, or check whether the controller version includes the settings API.",
+    tabs: {
+      ariaLabel: "Settings sections",
+      regular: "General",
+      regularDesc:
+        "The panel name shown on the sign-in page, and how many Agent upgrades run at once.",
+      security: "Security",
+      securityDesc: "Failure limit, lock duration and session lifetime.",
+      alerts: "Alerts",
+      alertsDesc:
+        "Configure Telegram / Webhook channels and alert events, and send a test message.",
+      backup: "Backup & restore",
+      backupDesc:
+        "Download a snapshot of the current database, or upload a backup to replace all data.",
+    },
+    general: {
+      saved: "General settings saved",
+    },
     panel: {
       title: "Panel",
       desc: "The panel name shown on the sign-in page and in the page title.",
@@ -1194,6 +1211,7 @@ const en = {
       sessionHintDefault: "Sign-in session lifetime, range 1–720 hours.",
       sessionHintWith:
         "Session lifetime is {duration}; sign in again after it expires.",
+      saved: "Security settings saved",
     },
     agentUpgrade: {
       title: "Agent upgrades",

@@ -156,17 +156,30 @@ export type ChangePasswordValues = z.infer<
 >;
 
 /**
- * 设置页表单：数值字段先用字符串承接，提交时再转数字。
- * 范围与后端白名单一致：次数 1–20、锁定 60–86400 秒、会话 1–720 小时、
- * Agent 升级并发 1–5。
+ * 设置页「常规」表单：面板名称 + Agent 升级并发。
+ *
+ * 设置页拆成两个独立表单（常规 / 安全），各自只 PATCH 自己的键，
+ * 避免保存一个 tab 时把另一个 tab 刚存的值覆盖回旧值。
+ * 数值字段先用字符串承接，提交时再转数字；并发范围与后端白名单一致（1–5）。
  */
-export function settingsFormSchema(t: TFunction) {
+export function settingsGeneralSchema(t: TFunction) {
   return z.object({
     panel_name: z
       .string()
       .trim()
       .min(1, t("validation.panelNameRequired"))
       .max(64, t("validation.panelNameMax")),
+    agent_upgrade_concurrency: requiredIntField(
+      1,
+      5,
+      t("validation.upgradeConcurrencyRange"),
+    ),
+  });
+}
+
+/** 设置页「安全」表单：登录失败上限、锁定时长、会话有效期。 */
+export function settingsSecuritySchema(t: TFunction) {
+  return z.object({
     login_max_attempts: requiredIntField(
       1,
       20,
@@ -178,16 +191,15 @@ export function settingsFormSchema(t: TFunction) {
       720,
       t("validation.sessionRange"),
     ),
-    agent_upgrade_concurrency: requiredIntField(
-      1,
-      5,
-      t("validation.upgradeConcurrencyRange"),
-    ),
   });
 }
 
-export type SettingsFormValues = z.infer<
-  ReturnType<typeof settingsFormSchema>
+export type SettingsGeneralValues = z.infer<
+  ReturnType<typeof settingsGeneralSchema>
+>;
+
+export type SettingsSecurityValues = z.infer<
+  ReturnType<typeof settingsSecuritySchema>
 >;
 
 /** 套餐节点范围的三态：全部 / 指定 / 一个都不给。 */
