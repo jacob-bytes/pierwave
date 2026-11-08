@@ -77,6 +77,61 @@ GET /api/v1/sub/{short_code}?target=singbox
 
 Surge / sing-box 等第二轮补——它们的差异主要在配置文件骨架，不在节点表达，等 `SubNode` 被两种格式验证过再加更稳。
 
+### 5.1 已注册的客户端格式
+
+后端注册表（`subscribe::exporter_ids()`）当前包含：
+
+| id | 目标客户端 | 形态 |
+|---|---|---|
+| `clash` | mihomo / Clash Verge | YAML：`proxies` + `proxy-groups` + `rules` |
+| `stash` | Stash | Clash 兼容 YAML，首行加 `# stash` |
+| `surge` | Surge | INI：`[Proxy]` / `[Proxy Group]` / `[Rule]` |
+| `egern` | Egern（iOS） | **Surge 兼容** INI：复用 Surge 生成器，文件头加 Egern 标识 |
+| `surfboard` | Surfboard | INI，Surge 的 Android 变体 |
+| `loon` | Loon | INI，WS 使用 `obfs-*` 字段 |
+| `qx` | Quantumult X | INI：`[server_local]` / `[policy]` / `[filter_local]` |
+| `singbox` | sing-box | JSON：`outbounds` + `route.rules` |
+| `uri` | 通用 / v2rayN | 每行一条 `vless://` / `vmess://` / `trojan://` / `ss://` |
+| `shadowrocket` | Shadowrocket | base64 的 URI 列表 |
+| `v2ray` | V2RayN / NG | base64 的 URI 列表（与 `shadowrocket` 同族） |
+
+> **关于 `egern` 的假设（Assumption）**
+>
+> Egern 是 iOS 客户端，官方支持导入 Surge 配置。我们无法访问它的完整规范文档，
+> 因此 `egern` **复用 Surge 导出器的内容生成逻辑**（同一个内部函数，不是复制一份），
+> 输出 Surge 兼容 profile，并在文件头加 Egern 标识注释：
+> `#!MANAGED-CONFIG` 是 Surge 家族的 managed-config 标记（`?target=surge` 目前不带
+> 文件头，保持升级前的逐字节输出），后面两行中英双语说明「按 Surge 兼容格式输出」。
+> `Content-Type` 与 Surge 一致，为 `text/plain; charset=utf-8`。
+>
+> **这不是「完整支持 Egern」**：若 Egern 后续要求专有字段（专有传输、专有规则语法等），
+> 需要单独适配，届时再补独立渲染器。
+>
+> Egern is an iOS client that officially supports importing Surge profiles. We do
+> not have access to its complete specification, so `egern` **reuses the Surge
+> exporter's content generation logic** (one shared internal function, not a
+> copy) and emits a Surge-compatible profile with an Egern marker comment in the
+> header. `#!MANAGED-CONFIG` is the Surge-family managed-config marker
+> (`?target=surge` currently emits no header, preserving its previous
+> byte-for-byte body), followed by two bilingual note lines stating that the
+> output is Surge-compatible. The `Content-Type` matches Surge:
+> `text/plain; charset=utf-8`.
+>
+> **This is not "full Egern support"**: if Egern later requires proprietary
+> fields (custom transports, rule syntax, …), a dedicated adapter will be
+> needed.
+
+文件头的实际形态（`?target=egern`）：
+
+```text
+#!MANAGED-CONFIG
+# Egern（Surge 兼容）：按 Surge 格式输出；若 Egern 后续要求专有字段，需要单独适配。
+# Egern (Surge-compatible): exported as a Surge profile; if Egern later requires proprietary fields, a dedicated adapter is needed.
+[Proxy]
+```
+
+`?target=surge` 不带以上三行，正文与 `egern` 去掉文件头后逐字节一致（单测覆盖）。
+
 ## 6. 分组策略
 
 先把「分组」做成纯函数而不是模板拼接：

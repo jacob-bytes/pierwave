@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DEFAULT_SUBSCRIPTION_FORMAT,
+  SUBSCRIPTION_FORMAT_DESCRIPTIONS,
   SUBSCRIPTION_FORMATS,
   withSubscriptionFormat,
 } from "./subscriptionFormats.ts";
@@ -14,6 +15,7 @@ test("SUBSCRIPTION_FORMATS matches the backend exporter registry order", () => {
     "clash",
     "stash",
     "surge",
+    "egern",
     "surfboard",
     "loon",
     "qx",
@@ -22,6 +24,24 @@ test("SUBSCRIPTION_FORMATS matches the backend exporter registry order", () => {
     "v2ray",
   ]);
   assert.equal(DEFAULT_SUBSCRIPTION_FORMAT, "clash");
+});
+
+test("registry has 10 unique ids and egern builds a target URL", () => {
+  assert.equal(SUBSCRIPTION_FORMATS.length, 10);
+  assert.equal(
+    new Set(SUBSCRIPTION_FORMATS).size,
+    SUBSCRIPTION_FORMATS.length,
+    "格式 id 不能重复",
+  );
+  // Egern 是 Surge 兼容输出：label 在 i18n，描述单独给一个 i18n 键。
+  assert.equal(
+    SUBSCRIPTION_FORMAT_DESCRIPTIONS.egern,
+    "subscriptions.formatDescriptions.egern",
+  );
+  assert.equal(
+    withSubscriptionFormat("https://panel.example/api/v1/sub/abc", "egern"),
+    "https://panel.example/api/v1/sub/abc?target=egern",
+  );
 });
 
 test("default format keeps the link clean", () => {

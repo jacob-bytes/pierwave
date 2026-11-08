@@ -734,12 +734,17 @@ const zhCN = {
         clash: "Clash / mihomo",
         stash: "Stash",
         surge: "Surge",
+        egern: "Egern",
         surfboard: "Surfboard",
         loon: "Loon",
         qx: "Quantumult X",
         singbox: "sing-box",
         shadowrocket: "Shadowrocket",
         v2ray: "V2Ray",
+      },
+      formatDescriptions: {
+        egern:
+          "Surge 兼容：按 Surge profile 导出，文件头带 Egern 标识；若 Egern 要求专有字段，需要单独适配",
       },
       ruleTemplateFollow: "跟随绑定（{name}）",
       ruleTemplateFollowShort: "跟随：{name}",

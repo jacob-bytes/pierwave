@@ -764,12 +764,17 @@ const en = {
         clash: "Clash / mihomo",
         stash: "Stash",
         surge: "Surge",
+        egern: "Egern",
         surfboard: "Surfboard",
         loon: "Loon",
         qx: "Quantumult X",
         singbox: "sing-box",
         shadowrocket: "Shadowrocket",
         v2ray: "V2Ray",
+      },
+      formatDescriptions: {
+        egern:
+          "Surge-compatible: exported as a Surge profile with an Egern header; proprietary Egern fields would need a dedicated adapter",
       },
       ruleTemplateFollow: "Follow binding ({name})",
       ruleTemplateFollowShort: "Follow: {name}",

@@ -77,6 +77,7 @@ import {
 } from "@/lib/queries";
 import {
   DEFAULT_SUBSCRIPTION_FORMAT,
+  SUBSCRIPTION_FORMAT_DESCRIPTIONS,
   SUBSCRIPTION_FORMATS,
   withSubscriptionFormat,
   type SubscriptionFormat,
@@ -396,11 +397,19 @@ function SubscriptionCard({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="start">
-                {SUBSCRIPTION_FORMATS.map((item) => (
-                  <SelectItem key={item} value={item} className="text-xs">
-                    {t(`subscriptions.formats.${item}`)}
-                  </SelectItem>
-                ))}
+                {SUBSCRIPTION_FORMATS.map((item) => {
+                  const description = SUBSCRIPTION_FORMAT_DESCRIPTIONS[item];
+                  return (
+                    <SelectItem
+                      key={item}
+                      value={item}
+                      className="text-xs"
+                      title={description ? t(description) : undefined}
+                    >
+                      {t(`subscriptions.formats.${item}`)}
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>

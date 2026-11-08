@@ -76,11 +76,11 @@ sudo make verify-runtime ARGS="--forward-port 18443 --iface eth0 --rate-mbps 100
   恢复不在线热替换，重启后生效；旧库保留为 `pre-restore-<ts>`。
 - [x] **后端错误双语**：`{error, code, params}`，109 个稳定错误码，见 [ERRORS.md](ERRORS.md)；
   前端按 code 翻译，未命中回落中文原文。
-- [x] **订阅格式扩展（P9）**：新增 `stash` / `surge` / `loon` / `qx` / `surfboard` /
+- [x] **订阅格式扩展（P9）**：新增 `stash` / `surge` / `egern` / `loon` / `qx` / `surfboard` /
   `singbox` / `shadowrocket` / `v2ray` 导出器，`?target=` 与 UA 嗅探都能识别；
   `v2ray` 输出 base64 的 URI 列表（解码后与 `uri` 一致）。
-  **`egern` 本轮未实现**：PLAN 里列了它，但注册表没有该 id，`?target=egern` 仍按
-  未知格式返回 400，不要误以为已支持。
+  **`egern` 是 Surge 兼容实现**：复用 Surge 生成器，只在文件头加 Egern 标识；
+  若 Egern 后续要求专有字段，需要单独适配，详见 [SUBSCRIBE.md](SUBSCRIBE.md) §5.1。
 
 ## 候选需求（未排期）
 

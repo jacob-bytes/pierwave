@@ -515,21 +515,21 @@ mod tests {
     async fn unsupported_target_is_400_with_supported_formats() {
         let (app, _state, short_code) = setup().await;
 
-        // egern 在 PLAN 里列了但本轮没实现，用它验证「未注册 id → 400」。
+        // hiddify 未注册；egern 已注册，不能再拿它当「未知格式」的样本。
         let (status, _headers, body) = get(
             &app,
-            &format!("/api/v1/sub/{short_code}?target=egern"),
+            &format!("/api/v1/sub/{short_code}?target=hiddify"),
             None,
         )
         .await;
 
         assert_eq!(status, StatusCode::BAD_REQUEST);
         let error = body.as_str();
-        assert!(error.contains("egern"), "unexpected: {error}");
+        assert!(error.contains("hiddify"), "unexpected: {error}");
         // 注册表顺序稳定：不能因为换成 HashMap 而让 400 文案顺序漂移。
         assert!(
             error.contains(
-                "clash / stash / surge / surfboard / loon / qx / singbox / uri / shadowrocket / v2ray"
+                "clash / stash / surge / egern / surfboard / loon / qx / singbox / uri / shadowrocket / v2ray"
             ),
             "supported 列表顺序不稳定: {error}"
         );
@@ -537,6 +537,7 @@ mod tests {
             "clash",
             "stash",
             "surge",
+            "egern",
             "loon",
             "qx",
             "surfboard",
@@ -563,6 +564,32 @@ mod tests {
         assert_eq!(lines.len(), 2, "两个启用节点应各占一行：{body}");
         assert!(lines[0].starts_with("vless://"));
         assert!(lines[1].starts_with("trojan://"));
+
+        // ?target=egern：Surge 兼容 profile + Egern 文件头，Content-Type 与 Surge 一致。
+        let (status, headers, body) = get(
+            &app,
+            &format!("/api/v1/sub/{short_code}?target=egern"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            header_str(&headers, "content-type"),
+            Some("text/plain; charset=utf-8")
+        );
+        assert!(body.starts_with("#!MANAGED-CONFIG\n"), "{body}");
+        assert!(body.contains("[Proxy]"), "{body}");
+        assert!(body.contains("[Rule]"), "{body}");
+
+        // UA 嗅探：Egern 自带 UA 也选 egern。
+        let (status, _headers, body) = get(
+            &app,
+            &format!("/api/v1/sub/{short_code}"),
+            Some("Egern/1.0 CFNetwork"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.starts_with("#!MANAGED-CONFIG\n"), "{body}");
 
         // UA 嗅探：Shadowrocket 得到 base64 的 URI 列表。
         let (status, headers, body) = get(

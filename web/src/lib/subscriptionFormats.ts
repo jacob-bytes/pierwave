@@ -11,6 +11,7 @@ export const SUBSCRIPTION_FORMATS = [
   "clash",
   "stash",
   "surge",
+  "egern",
   "surfboard",
   "loon",
   "qx",
@@ -20,6 +21,18 @@ export const SUBSCRIPTION_FORMATS = [
 ] as const;
 
 export type SubscriptionFormat = (typeof SUBSCRIPTION_FORMATS)[number];
+
+/**
+ * 需要额外解释的格式 → i18n 键。
+ *
+ * `egern` 输出的是 Surge 兼容 profile（复用后端 Surge 生成器 + Egern 文件头），
+ * 不是 Egern 专有格式；若它以后要求专有字段，后端需要单独适配。
+ */
+export const SUBSCRIPTION_FORMAT_DESCRIPTIONS: Partial<
+  Record<SubscriptionFormat, string>
+> = {
+  egern: "subscriptions.formatDescriptions.egern",
+};
 
 /** 默认格式：链接保持干净，不带 `target`。 */
 export const DEFAULT_SUBSCRIPTION_FORMAT: SubscriptionFormat = "clash";

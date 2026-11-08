@@ -57,7 +57,10 @@ import {
 } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { errorText } from "@/lib/errors";
-import { SUBSCRIPTION_FORMATS } from "@/lib/subscriptionFormats";
+import {
+  SUBSCRIPTION_FORMAT_DESCRIPTIONS,
+  SUBSCRIPTION_FORMATS,
+} from "@/lib/subscriptionFormats";
 import { useRuleTemplates, useSubscriptions } from "@/lib/queries";
 import { ruleTemplateErrorText } from "@/lib/ruleTemplates";
 import { cn } from "@/lib/utils";
@@ -372,11 +375,20 @@ export default function SubscriptionsPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent align="end">
-                    {SUBSCRIPTION_FORMATS.map((item) => (
-                      <SelectItem key={item} value={item} className="text-xs">
-                        {t(`subscriptions.formats.${item}`)}
-                      </SelectItem>
-                    ))}
+                    {SUBSCRIPTION_FORMATS.map((item) => {
+                      const description =
+                        SUBSCRIPTION_FORMAT_DESCRIPTIONS[item];
+                      return (
+                        <SelectItem
+                          key={item}
+                          value={item}
+                          className="text-xs"
+                          title={description ? t(description) : undefined}
+                        >
+                          {t(`subscriptions.formats.${item}`)}
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               </div>

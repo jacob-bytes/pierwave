@@ -375,6 +375,7 @@ static EXPORTERS: &[&dyn Exporter] = &[
     &ClashExporter,
     &StashExporter,
     &SurgeExporter,
+    &EgernExporter,
     &SurfboardExporter,
     &LoonExporter,
     &QxExporter,
@@ -432,6 +433,8 @@ pub fn select_exporter(
             "qx"
         } else if user_agent.contains("loon") {
             "loon"
+        } else if user_agent.contains("egern") {
+            "egern"
         } else if user_agent.contains("surge") {
             "surge"
         } else if user_agent.contains("clash") || user_agent.contains("mihomo") {
@@ -1534,6 +1537,24 @@ fn render_ini(flavor: IniFlavor, ctx: &SubContext<'_>) -> IniOutput {
     }
 }
 
+/// Surge 与 Egern 共用的正文生成函数。
+///
+/// Egern 官方支持导入 Surge 配置（我们拿不到它的完整规范文档），所以这里只生成
+/// 一份 Surge INI 正文；两个 exporter 的差异只有 `client`（日志归因）与 `header`
+/// （文件头标识）。以后修 Surge 的节点/规则表达时 Egern 自动跟上，不会出现两份
+/// 逐渐漂移的渲染逻辑。
+///
+/// **这不是 Egern 专有格式**：若 Egern 后续要求专有字段，需要单独适配。
+fn render_surge_compatible(
+    client: &'static str,
+    header: &str,
+    ctx: &SubContext<'_>,
+) -> anyhow::Result<String> {
+    let output = render_ini(IniFlavor::Surge, ctx);
+    log_skipped(client, output.skipped_nodes, output.skipped_rules);
+    Ok(format!("{header}{}", output.body))
+}
+
 pub struct SurgeExporter;
 
 impl Exporter for SurgeExporter {
@@ -1546,9 +1567,40 @@ impl Exporter for SurgeExporter {
     }
 
     fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
-        let output = render_ini(IniFlavor::Surge, ctx);
-        log_skipped(self.id(), output.skipped_nodes, output.skipped_rules);
-        Ok(output.body)
+        // Surge 正文不加文件头，保持升级前的逐字节输出。
+        render_surge_compatible(self.id(), "", ctx)
+    }
+}
+
+/// Egern（iOS）订阅。
+///
+/// **假设（assumption）**：Egern 官方支持导入 Surge 配置，我们在无法访问其完整
+/// 规范文档的情况下复用 [`SurgeExporter`] 的生成逻辑，输出 Surge 兼容 profile，
+/// 只在文件头加 Egern 标识；`Content-Type` 也与 Surge 一致。
+///
+/// 若 Egern 后续要求专有字段，需要单独适配；**不要据此宣称「完整支持 Egern」**。
+pub struct EgernExporter;
+
+/// Egern 文件头：第一行是 Surge 家族约定的 `MANAGED-CONFIG` 指令（Surge 导出器
+/// 当前不带文件头，保持升级前的逐字节输出）；后面两行中英双语写明「Surge 兼容」
+/// 这个假设，避免被误读成专有格式。
+const EGERN_HEADER: &str = concat!(
+    "#!MANAGED-CONFIG\n",
+    "# Egern（Surge 兼容）：按 Surge 格式输出；若 Egern 后续要求专有字段，需要单独适配。\n",
+    "# Egern (Surge-compatible): exported as a Surge profile; if Egern later requires proprietary fields, a dedicated adapter is needed.\n",
+);
+
+impl Exporter for EgernExporter {
+    fn id(&self) -> &'static str {
+        "egern"
+    }
+
+    fn content_type(&self) -> &'static str {
+        "text/plain; charset=utf-8"
+    }
+
+    fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
+        render_surge_compatible(self.id(), EGERN_HEADER, ctx)
     }
 }
 
@@ -2475,8 +2527,12 @@ mod tests {
             Some("clash")
         );
         assert_eq!(select_exporter(None, None).map(|e| e.id()), Some("clash"));
-        // 未注册的 id 不再静默回落，交给调用方转 400。
-        assert!(select_exporter(Some("egern"), None).is_none());
+        // 已注册的 egern 走 ?target=；未注册的 id 不再静默回落，交给调用方转 400。
+        assert_eq!(
+            select_exporter(Some("egern"), None).map(|e| e.id()),
+            Some("egern")
+        );
+        assert!(select_exporter(Some("hiddify"), None).is_none());
     }
 
     #[test]
@@ -2493,6 +2549,7 @@ mod tests {
             "clash",
             "stash",
             "surge",
+            "egern",
             "loon",
             "qx",
             "surfboard",
@@ -2512,6 +2569,7 @@ mod tests {
             ("Surfboard/2.0", "surfboard"),
             ("Quantumult%20X/1.4", "qx"),
             ("Loon/3.1", "loon"),
+            ("Egern/1.0", "egern"),
             ("Surge/5.0", "surge"),
             ("ClashForAndroid/2.5", "clash"),
         ];
@@ -2531,6 +2589,16 @@ mod tests {
             traffic: None,
             rules,
         }
+    }
+
+    /// `[Proxy]` 段里的节点行（切到 `[Proxy Group]` 之前）。
+    fn proxy_lines(body: &str) -> Vec<&str> {
+        body.split("[Proxy Group]")
+            .next()
+            .unwrap_or_default()
+            .lines()
+            .filter(|line| line.contains(" = "))
+            .collect()
     }
 
     #[test]
@@ -2670,6 +2738,61 @@ mod tests {
         assert!(!output.body.contains("AUTO = url-test"));
         assert!(output.body.contains("GEOIP,CN,DIRECT"));
         assert_eq!(output.body.lines().last(), Some("FINAL,PROXY"));
+    }
+
+    #[test]
+    fn egern_reuses_the_surge_body_and_only_differs_in_the_header() {
+        let nodes = fixtures();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let surge = SurgeExporter.render(&ctx).unwrap();
+        let egern = EgernExporter.render(&ctx).unwrap();
+
+        // 文件头：MANAGED-CONFIG 指令 + 中英双语说明「按 Surge 兼容格式输出」。
+        assert!(egern.starts_with("#!MANAGED-CONFIG\n"), "{egern}");
+        assert!(egern.contains("Surge 兼容"), "{egern}");
+        assert!(egern.contains("Surge-compatible"), "{egern}");
+
+        // 去掉文件头后逐字节一致：两个格式共享同一个生成器，没有复制的一份。
+        let body = egern
+            .strip_prefix(EGERN_HEADER)
+            .expect("Egern 必须带统一文件头");
+        assert_eq!(body, surge, "Egern 正文必须与 Surge 逐字节一致");
+
+        // 代理行也逐行一致（本轮要求的最直接断言）。
+        assert_eq!(proxy_lines(body), proxy_lines(&surge));
+        assert_eq!(proxy_lines(body).len(), 2);
+    }
+
+    #[test]
+    fn egern_renders_nodes_groups_and_rules_with_surge_fields() {
+        let nodes = fixtures();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let body = EgernExporter.render(&ctx).unwrap();
+
+        assert!(body.contains("[Proxy]"));
+        assert!(body.contains("[Proxy Group]"));
+        assert!(body.contains("[Rule]"));
+
+        // 节点行与 Surge 的字段语义一致（REALITY / WS-TLS 都能表达）。
+        assert!(body.contains("香港-REALITY = vless, "));
+        assert!(body.contains("reality=true"));
+        assert!(body.contains("public-key=public-key-abc"));
+        assert!(body.contains("flow=xtls-rprx-vision"));
+        assert!(body.contains("日本-WS-TLS = trojan, "));
+        assert!(body.contains("ws=true"));
+        assert!(body.contains("ws-path=/ws"));
+        assert!(body.contains("ws-headers=Host:cdn.example.com"));
+
+        // 分组与规则复用 Surge 的映射，节点一个都不少。
+        assert!(body.contains("PROXY = select, AUTO, 香港, 日本, DIRECT"));
+        assert!(body.contains("AUTO = url-test, 香港-REALITY, 日本-WS-TLS"));
+        assert!(body.contains("GEOIP,CN,DIRECT"));
+        assert_eq!(body.lines().last(), Some("FINAL,PROXY"));
+
+        assert_eq!(EgernExporter.id(), "egern");
+        assert_eq!(EgernExporter.content_type(), "text/plain; charset=utf-8");
     }
 
     #[test]
@@ -3049,6 +3172,7 @@ mod tests {
                 "clash",
                 "stash",
                 "surge",
+                "egern",
                 "surfboard",
                 "loon",
                 "qx",
@@ -3097,7 +3221,7 @@ mod tests {
                         assert!(tags.contains(&expected), "singbox 缺少 {expected}");
                     }
                 }
-                "surge" | "surfboard" | "loon" => {
+                "surge" | "egern" | "surfboard" | "loon" => {
                     assert!(body.contains("[Proxy]"), "{id} 缺少 [Proxy]");
                     assert!(body.contains("[Proxy Group]"), "{id} 缺少 [Proxy Group]");
                     assert!(body.contains("[Rule]"), "{id} 缺少 [Rule]");
