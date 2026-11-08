@@ -18,8 +18,10 @@ import {
   type BindUserPackageInput,
   type Certificate,
   type ChangePasswordInput,
+  type Chain,
   type CreateAgentUpgradeBatchInput,
   type CreateCertificateInput,
+  type CreateChainInput,
   type CreateForwardInput,
   type CreateNodeInput,
   type CreateOutboundInput,
@@ -49,6 +51,7 @@ import {
   type Settings,
   type Subscription,
   type TrafficStats,
+  type UpdateChainInput,
   type UpdateForwardInput,
   type UpdateNodeInput,
   type UpdateOutboundInput,
@@ -113,6 +116,8 @@ export const queryKeys = {
   allNodes: ["nodes", "all"] as const,
   outbounds: (serverId: string) => ["outbounds", serverId] as const,
   forwards: (serverId: string) => ["forwards", serverId] as const,
+  /** 转发链是全局资源，与服务器无关，单独一个 key。 */
+  chains: ["chains"] as const,
   routingRules: (serverId: string) =>
     ["routing-rules", serverId] as const,
   certificates: ["certificates"] as const,
@@ -968,6 +973,102 @@ export function useDeleteForward(serverId: string) {
   return useMutation<{ ok: true }, Error, string>({
     mutationFn: (id) => api.forwards.remove(id),
     onSuccess: () => invalidateForwardViews(queryClient, serverId),
+  });
+}
+
+/**
+ * 线性多跳转发链。列表里的 `listening` / `target_ok` 来自 Agent 心跳，
+ * 所以写操作完成后让列表重新拉权威值，而不是本地拼接运行时状态。
+ */
+export function useChains() {
+  return useQuery<Chain[]>({
+    queryKey: queryKeys.chains,
+    queryFn: async () => (await api.chains.list()).items,
+    staleTime: 5_000,
+    retry: false,
+  });
+}
+
+function invalidateChainViews(
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.chains });
+  // 每次写操作都会推高所有涉及服务器的 config_version，服务器列表也要刷新。
+  void queryClient.invalidateQueries({ queryKey: queryKeys.servers });
+}
+
+/**
+ * 只合并配置字段：`degraded` / `hops[].listening` 这类运行时状态由心跳维护，
+ * 不能用表单值覆盖。跳的增删在 `onSettled` 里由重新拉取兜底。
+ */
+function applyChainInput(chain: Chain, input: UpdateChainInput): Chain {
+  return {
+    ...chain,
+    ...(input.name !== undefined ? { name: input.name } : {}),
+    ...(input.target_host !== undefined
+      ? { target_host: input.target_host }
+      : {}),
+    ...(input.target_port !== undefined
+      ? { target_port: input.target_port }
+      : {}),
+    ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+  };
+}
+
+export function useCreateChain() {
+  const queryClient = useQueryClient();
+
+  return useMutation<Chain, Error, CreateChainInput>({
+    mutationFn: async (input) => (await api.chains.create(input)).chain,
+    onSuccess: () => invalidateChainViews(queryClient),
+  });
+}
+
+export function useUpdateChain() {
+  const queryClient = useQueryClient();
+  const queryKey = queryKeys.chains;
+
+  return useMutation<
+    Chain,
+    Error,
+    { id: string; input: UpdateChainInput },
+    { previous?: Chain[] }
+  >({
+    mutationFn: async ({ id, input }) =>
+      (await api.chains.update(id, input)).chain,
+    onMutate: async ({ id, input }) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<Chain[]>(queryKey);
+
+      if (previous) {
+        queryClient.setQueryData<Chain[]>(
+          queryKey,
+          previous.map((item) =>
+            item.id === id ? applyChainInput(item, input) : item,
+          ),
+        );
+      }
+
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKey, context.previous);
+      }
+    },
+    onSettled: () => {
+      // 返回值不含每跳运行时状态，合并会丢状态；直接让列表重新拉权威值。
+      void invalidateChainViews(queryClient);
+    },
+  });
+}
+
+export function useDeleteChain() {
+  const queryClient = useQueryClient();
+
+  return useMutation<{ ok: true }, Error, string>({
+    mutationFn: (id) => api.chains.remove(id),
+    onSuccess: () => invalidateChainViews(queryClient),
   });
 }
 

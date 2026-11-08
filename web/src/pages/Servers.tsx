@@ -19,6 +19,7 @@ import {
   ServerOffIcon,
   TriangleAlertIcon,
   WaypointsIcon,
+  WorkflowIcon,
 } from "lucide-react";
 import { AgentBatchUpgradeBar } from "@/components/servers/AgentBatchUpgradeBar";
 import { AgentBatchUpgradeConfirmDialog } from "@/components/servers/AgentBatchUpgradeConfirmDialog";
@@ -1116,6 +1117,15 @@ export default function ServersPage() {
                                 >
                                   <ArrowRightLeftIcon className="size-3.5" />
                                   {t("forwards.menuLabel")}
+                                </Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem asChild>
+                                <Link
+                                  to="/chains"
+                                  aria-label={t("servers.openChainsAria")}
+                                >
+                                  <WorkflowIcon className="size-3.5" />
+                                  {t("servers.chains")}
                                 </Link>
                               </DropdownMenuItem>
                               <DropdownMenuItem

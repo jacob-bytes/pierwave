@@ -36,6 +36,7 @@ import {
   TerminalIcon,
   UserRoundIcon,
   UsersIcon,
+  WorkflowIcon,
 } from "lucide-react";
 import { ChangePasswordDialog } from "@/components/settings/ChangePasswordDialog";
 import { Button } from "@/components/ui/button";
@@ -90,6 +91,7 @@ const managementNav: NavItem[] = [
   { to: "/users", labelKey: "nav.users", icon: UsersIcon },
   { to: "/subscriptions", labelKey: "nav.subscriptions", icon: Link2Icon },
   { to: "/packages", labelKey: "nav.packages", icon: PackageIcon },
+  { to: "/chains", labelKey: "nav.chains", icon: WorkflowIcon },
 ];
 
 const systemNav: NavItem[] = [

@@ -547,6 +547,62 @@ export interface CreateForwardInput {
 
 export type UpdateForwardInput = Partial<CreateForwardInput>;
 
+/**
+ * 线性多跳转发链的一跳：在某台服务器上监听 `listen_port`，
+ * 转发到下一跳服务器的地址+端口，最后一跳转发到链的 `target_host:target_port`。
+ *
+ * 链不存在于 Agent 侧：主控把它推导成每台服务器上的独立转发规则
+ * （id 形如 `chain-<chain_id>-<seq>`），因此运行时状态复用转发心跳。
+ */
+export interface ChainHop {
+  /** 从 0 开始，按链的转发顺序递增。 */
+  seq: number;
+  server_id: string;
+  /** 服务器展示名；服务器被删除时后端仍会返回快照里的名字。 */
+  server_name: string;
+  listen_port: number;
+  /** true = 已监听，false = 监听失败，null = Agent 未上报。 */
+  listening: boolean | null;
+  /** true = 目标可达，false = 不可达，null = 尚未探测。 */
+  target_ok: boolean | null;
+  /** 连续 2 次 target_ok=false 后为 true；不是实时探测结果。 */
+  degraded: boolean;
+  /** Agent 返回的监听失败原因；无错误时为空串。 */
+  error: string;
+  /** 最近一次上报的 Unix 秒；null = 未上报。 */
+  updated_at: number | null;
+}
+
+export interface Chain {
+  id: string;
+  name: string;
+  target_host: string;
+  target_port: number;
+  enabled: boolean;
+  /** 任一跳 degraded 即为 true。 */
+  degraded: boolean;
+  /** 按 `seq` 升序排列。 */
+  hops: ChainHop[];
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ChainHopInput {
+  server_id: string;
+  listen_port: number;
+}
+
+export interface CreateChainInput {
+  name: string;
+  target_host: string;
+  target_port: number;
+  enabled?: boolean;
+  /** 1–4 跳，按入口到目标的顺序排列。 */
+  hops: ChainHopInput[];
+}
+
+export type UpdateChainInput = Partial<CreateChainInput>;
+
 export interface ApplyResult {
   config_version: number;
   /** 后端正在加；暂时没有时按空数组处理。 */
@@ -1136,6 +1192,28 @@ export const api = {
       ),
     remove: (id: string) =>
       request<{ ok: true }>(`/api/v1/forwards/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
+  },
+
+  /**
+   * 线性多跳转发链。与单跳转发不同，链不属于某台服务器：
+   * 写操作会自动标脏并下发所有涉及服务器的期望态，无需再手动应用。
+   */
+  chains: {
+    list: () => request<{ items: Chain[] }>("/api/v1/chains"),
+    create: (input: CreateChainInput) =>
+      request<{ chain: Chain }>("/api/v1/chains", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    update: (id: string, input: UpdateChainInput) =>
+      request<{ chain: Chain }>(`/api/v1/chains/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(input),
+      }),
+    remove: (id: string) =>
+      request<{ ok: true }>(`/api/v1/chains/${encodeURIComponent(id)}`, {
         method: "DELETE",
       }),
   },

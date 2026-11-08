@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { TFunction } from "@/i18n";
+import { CHAIN_MAX_HOPS, CHAIN_MIN_HOPS } from "@/lib/chains";
 import {
   ANY_INBOUND_TAG,
   isReservedOutboundTag,
@@ -367,6 +368,69 @@ export function forwardFormSchema(t: TFunction) {
 }
 
 export type ForwardFormValues = z.infer<ReturnType<typeof forwardFormSchema>>;
+
+/**
+ * 转发链表单：跳列表是动态数组，每跳只有「服务器 + 监听端口」。
+ *
+ * 前端拦「1–4 跳、同一服务器不重复、端口 1–65535、目标地址非空」；
+ * 保留端口、与节点 / 独立转发 / 其它链跳的端口冲突、自连回环仍由后端
+ * 返回带 code 的错误，对话框用 `errorText` 原样透出。
+ */
+export function chainFormSchema(t: TFunction) {
+  return z
+    .object({
+      name: z
+        .string()
+        .trim()
+        .min(1, t("validation.chainNameRequired"))
+        .max(64, t("validation.chainNameMax")),
+      target_host: z
+        .string()
+        .trim()
+        .min(1, t("validation.chainTargetRequired"))
+        .max(255, t("validation.chainTargetMax")),
+      target_port: requiredIntField(1, 65535, t("validation.portRange")),
+      enabled: z.boolean(),
+      hops: z.array(
+        z.object({
+          server_id: z.string().min(1, t("validation.chainHopServerRequired")),
+          listen_port: requiredIntField(1, 65535, t("validation.portRange")),
+        }),
+      ),
+    })
+    .superRefine((values, ctx) => {
+      if (
+        values.hops.length < CHAIN_MIN_HOPS ||
+        values.hops.length > CHAIN_MAX_HOPS
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["hops"],
+          message: t("validation.chainHopCount", {
+            min: CHAIN_MIN_HOPS,
+            max: CHAIN_MAX_HOPS,
+          }),
+        });
+        return;
+      }
+
+      // 空 server_id 已由字段级校验报错，这里只查「非空但重复」的情况。
+      const seen = new Set<string>();
+      values.hops.forEach((hop, index) => {
+        if (!hop.server_id) return;
+        if (seen.has(hop.server_id)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["hops", index, "server_id"],
+            message: t("validation.chainHopDuplicate"),
+          });
+        }
+        seen.add(hop.server_id);
+      });
+    });
+}
+
+export type ChainFormValues = z.infer<ReturnType<typeof chainFormSchema>>;
 
 /**
  * 路由规则表单：三个匹配条件至少填一个，否则规则会吞掉所有流量。
