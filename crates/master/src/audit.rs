@@ -90,6 +90,7 @@ mod tests {
             role: "admin".into(),
             status: "active".into(),
             short_code: "code".into(),
+            short_code_updated_at: 0,
             quota_bytes: None,
             used_bytes: 0,
             rule_template_id: None,

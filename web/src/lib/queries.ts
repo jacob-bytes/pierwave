@@ -46,6 +46,7 @@ import {
   type PublicStatus,
   type RoutingRule,
   type RuleTemplate,
+  type ResetSubscriptionResponse,
   type RestoreBackupResponse,
   type Server,
   type SessionUser,
@@ -80,6 +81,7 @@ export const queryKeys = {
   me: ["me"] as const,
   meSummary: ["me", "summary"] as const,
   meTraffic: (days: number) => ["me", "traffic", days] as const,
+  meEvents: (limit: number) => ["me", "events", limit] as const,
   health: ["health"] as const,
   /** P10：公开状态页；不需要登录态，单独缓存。 */
   publicStatus: ["public-status"] as const,
@@ -247,6 +249,29 @@ export function useMeTraffic(days: number) {
     enabled: days > 0,
     placeholderData: keepPreviousData,
     staleTime: 60_000,
+  });
+}
+
+/** 自己的断流 / 恢复事件；后端按 `user_id` 过滤，前端不再筛。 */
+export function useMeEvents(limit: number) {
+  return useQuery<EnforcementEvent[]>({
+    queryKey: queryKeys.meEvents(limit),
+    queryFn: async () => (await api.me.events(limit)).items,
+    enabled: limit > 0,
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
+/** 重置自己的订阅短码：成功后 summary 与事件缓存都要刷新。 */
+export function useResetSubscription() {
+  const queryClient = useQueryClient();
+
+  return useMutation<ResetSubscriptionResponse, Error, void>({
+    mutationFn: () => api.me.resetSubscription(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    },
   });
 }
 

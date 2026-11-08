@@ -155,6 +155,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/subscriptions", get(routes::subscriptions::list))
         .route("/api/v1/me/summary", get(routes::me::summary))
         .route("/api/v1/me/traffic", get(routes::me::traffic))
+        .route("/api/v1/me/events", get(routes::me::events))
+        .route(
+            "/api/v1/me/subscription/reset",
+            post(routes::me::reset_subscription),
+        )
         .route("/api/v1/me/password", post(routes::me::change_password))
         .route("/api/agent/install.sh", get(routes::install::script))
         .route("/api/agent/download/{file}", get(routes::install::download))

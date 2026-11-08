@@ -168,6 +168,8 @@ function AuthenticatedApp() {
               element={<Navigate to="/settings?tab=certificates" replace />}
             />
             <Route path="settings" element={<SettingsPage />} />
+            {/* `/me` 对管理员同样保留：返回的是管理员自己的数据，侧栏不加入口。 */}
+            <Route path="me" element={<MePage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         ) : (

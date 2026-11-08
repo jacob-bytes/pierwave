@@ -18,6 +18,7 @@ import {
   Link2Icon,
   Loader2Icon,
   LogOutIcon,
+  MenuIcon,
   MonitorIcon,
   MoonIcon,
   NetworkIcon,
@@ -36,6 +37,7 @@ import {
   WorkflowIcon,
 } from "lucide-react";
 import { ChangePasswordDialog } from "@/components/settings/ChangePasswordDialog";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -109,20 +111,17 @@ const systemNav: NavItem[] = [
   { to: "/settings", labelKey: "nav.settings", icon: SettingsIcon },
 ];
 
-/** 普通用户只有两个入口：概览式「我的」和订阅锚点。 */
+/**
+ * 普通用户侧栏只有「我的」一个入口：订阅、节点、流量、事件都在这一页里，
+ * 不再拆二级导航（导流到同一页面的锚点没有信息量）。
+ */
 const userNav: NavItem[] = [
   {
     to: "/me",
     labelKey: "nav.me",
     icon: UserRoundIcon,
     end: true,
-    activeWhen: (pathname) => pathname === "/me",
-  },
-  {
-    to: "/me/subscription",
-    labelKey: "nav.subscriptions",
-    icon: Link2Icon,
-    activeWhen: (pathname) => pathname.startsWith("/me/subscription"),
+    activeWhen: (pathname) => pathname === "/me" || pathname.startsWith("/me/"),
   },
 ];
 
@@ -155,10 +154,12 @@ function NavEntry({
   item,
   pathname,
   collapsed,
+  onNavigate,
 }: {
   item: NavItem;
   pathname: string;
   collapsed: boolean;
+  onNavigate?: () => void;
 }) {
   const { t } = useI18n();
   const Icon = item.icon;
@@ -168,6 +169,7 @@ function NavEntry({
     <NavLink
       to={item.to}
       end={item.end}
+      onClick={onNavigate}
       aria-current={active ? "page" : undefined}
       title={collapsed ? t(item.labelKey) : undefined}
       className={cn(
@@ -209,6 +211,99 @@ function ThemeItem({
   );
 }
 
+/**
+ * 侧栏内容。桌面端固定展示；移动端放进 Sheet 抽屉，两者共用同一份
+ * 导航结构，避免「手机上少一个入口」这种两套菜单漂移。
+ */
+function SidebarBody({
+  collapsed,
+  homePath,
+  panelName,
+  navGroups,
+  pathname,
+  versionLabel,
+  onNavigate,
+}: {
+  collapsed: boolean;
+  homePath: string;
+  panelName: string;
+  navGroups: NavGroup[];
+  pathname: string;
+  versionLabel: string;
+  onNavigate?: () => void;
+}) {
+  const { t } = useI18n();
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <Link
+        to={homePath}
+        onClick={onNavigate}
+        className={cn(
+          "flex h-14 shrink-0 items-center gap-2.5 border-b border-sidebar-border",
+          collapsed ? "justify-center px-0" : "px-4",
+        )}
+        title={panelName}
+      >
+        <div className="grid size-6 shrink-0 place-items-center rounded-md bg-primary/15 text-primary">
+          <TerminalIcon className="size-3.5" />
+        </div>
+        {collapsed ? null : (
+          <span className="truncate text-sm font-semibold tracking-wide">
+            {panelName}
+          </span>
+        )}
+      </Link>
+
+      <nav className="flex-1 overflow-y-auto p-3">
+        {navGroups.map((group, index) => (
+          <div key={group.titleKey}>
+            {collapsed ? (
+              index > 0 ? (
+                <div className="mx-2 my-2 h-px bg-sidebar-border" />
+              ) : null
+            ) : (
+              <p
+                className={cn(
+                  "px-2.5 pb-1.5 text-[11px] font-medium tracking-wider text-muted-foreground/50",
+                  index > 0 && "pt-5",
+                )}
+              >
+                {t(group.titleKey)}
+              </p>
+            )}
+            <div className="space-y-0.5">
+              {group.items.map((item) => (
+                <NavEntry
+                  key={item.to}
+                  item={item}
+                  pathname={pathname}
+                  collapsed={collapsed}
+                  onNavigate={onNavigate}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </nav>
+
+      <div
+        className={cn(
+          "border-t border-sidebar-border py-3",
+          collapsed ? "text-center" : "px-4",
+        )}
+      >
+        <p
+          className="font-mono text-[11px] text-muted-foreground/60"
+          title={`PierWave ${versionLabel}`}
+        >
+          {collapsed ? versionLabel : `PierWave ${versionLabel}`}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 const SIDEBAR_KEY = "pierwave.sidebar";
 
 export default function AppShell({ user }: { user: SessionUser }) {
@@ -233,12 +328,16 @@ export default function AppShell({ user }: { user: SessionUser }) {
   const queryClient = useQueryClient();
   const fetching = useIsFetching() > 0;
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const navGroups = user.role === "admin" ? adminNavGroups : userNavGroups;
   const homePath = user.role === "admin" ? "/" : "/me";
   const allNav = navGroups.flatMap((group) => group.items);
+  // 管理员侧栏不加入口，但 `/me` 仍然可访问；面包屑不能因此回落到「概览」。
   const current =
-    allNav.find((item) => isItemActive(item, pathname)) ?? allNav[0];
+    pathname === "/me"
+      ? { to: "/me", labelKey: "nav.me", icon: UserRoundIcon }
+      : (allNav.find((item) => isItemActive(item, pathname)) ?? allNav[0]);
   const pageLabel = current ? t(current.labelKey) : t("app.defaultPage");
   // `/logs` 的 tab 决定面包屑第二级：日志 › 系统事件 / 操作审计。
   const logsTab =
@@ -287,73 +386,52 @@ export default function AppShell({ user }: { user: SessionUser }) {
     <div className="flex h-full bg-background text-foreground">
       <aside
         className={cn(
-          "flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200",
+          "hidden shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200 md:flex",
           collapsed ? "w-14" : "w-60",
         )}
       >
-        <Link
-          to={homePath}
-          className={cn(
-            "flex h-14 shrink-0 items-center gap-2.5 border-b border-sidebar-border",
-            collapsed ? "justify-center px-0" : "px-4",
-          )}
-          title={panelName}
-        >
-          <div className="grid size-6 shrink-0 place-items-center rounded-md bg-primary/15 text-primary">
-            <TerminalIcon className="size-3.5" />
-          </div>
-          {collapsed ? null : (
-            <span className="truncate text-sm font-semibold tracking-wide">{panelName}</span>
-          )}
-        </Link>
-
-        <nav className="flex-1 overflow-y-auto p-3">
-          {navGroups.map((group, index) => (
-            <div key={group.titleKey}>
-              {collapsed ? (
-                index > 0 ? <div className="mx-2 my-2 h-px bg-sidebar-border" /> : null
-              ) : (
-                <p
-                  className={cn(
-                    "px-2.5 pb-1.5 text-[11px] font-medium tracking-wider text-muted-foreground/50",
-                    index > 0 && "pt-5",
-                  )}
-                >
-                  {t(group.titleKey)}
-                </p>
-              )}
-              <div className="space-y-0.5">
-                {group.items.map((item) => (
-                  <NavEntry
-                    key={item.to}
-                    item={item}
-                    pathname={pathname}
-                    collapsed={collapsed}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-        </nav>
-
-        {/* 侧边栏底部只保留版本号；账号入口已移到右上角 header。 */}
-        <div
-          className={cn(
-            "border-t border-sidebar-border py-3",
-            collapsed ? "text-center" : "px-4",
-          )}
-        >
-          <p
-            className="font-mono text-[11px] text-muted-foreground/60"
-            title={`PierWave ${versionLabel}`}
-          >
-            {collapsed ? versionLabel : `PierWave ${versionLabel}`}
-          </p>
-        </div>
+        <SidebarBody
+          collapsed={collapsed}
+          homePath={homePath}
+          panelName={panelName}
+          navGroups={navGroups}
+          pathname={pathname}
+          versionLabel={versionLabel}
+        />
       </aside>
 
+      {/* 移动端导航：与桌面侧栏共用 SidebarBody，点条目后自动收起抽屉。 */}
+      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <SheetContent
+          side="left"
+          className="w-64 gap-0 bg-sidebar p-0"
+          showCloseButton={false}
+        >
+          <SheetTitle className="sr-only">{panelName}</SheetTitle>
+          <SidebarBody
+            collapsed={false}
+            homePath={homePath}
+            panelName={panelName}
+            navGroups={navGroups}
+            pathname={pathname}
+            versionLabel={versionLabel}
+            onNavigate={() => setMobileNavOpen(false)}
+          />
+        </SheetContent>
+      </Sheet>
+
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-6 backdrop-blur">
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur sm:px-6">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setMobileNavOpen(true)}
+            aria-label={t("app.openNavigation")}
+            title={t("app.openNavigation")}
+            className="md:hidden"
+          >
+            <MenuIcon className="size-4" />
+          </Button>
           {/* 折叠按钮 + 竖线分隔：按钮贴着侧栏，面包屑与导航结构分属两块 */}
           <Button
             variant="ghost"
@@ -379,7 +457,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
 
           <nav
             aria-label={t("app.breadcrumb")}
-            className="flex min-w-0 items-center gap-1.5 text-sm"
+            className="hidden min-w-0 items-center gap-1.5 text-sm sm:flex"
           >
             <Link
               to={homePath}
@@ -406,6 +484,11 @@ export default function AppShell({ user }: { user: SessionUser }) {
               </>
             ) : null}
           </nav>
+
+          {/* 手机上面包屑折叠成当前页标题，避免与刷新/账号按钮抢宽度。 */}
+          <span className="min-w-0 truncate text-sm font-medium sm:hidden">
+            {pageLabel}
+          </span>
 
           {/* 中间留空，把页面动作与账号菜单推到最右侧。 */}
           <div className="flex-1" />

@@ -79,19 +79,20 @@ pub mod users {
     pub async fn create(pool: &SqlitePool, input: NewUser) -> anyhow::Result<User> {
         let id = Uuid::new_v4().to_string();
         let hash = crate::password::hash(&input.password)?;
-        let short_code = Uuid::new_v4().simple().to_string()[..10].to_string();
+        let short_code = new_short_code();
         let ts = now();
         sqlx::query(
             "INSERT INTO users
-                (id, username, password_hash, role, status, short_code, quota_bytes,
-                 rule_template_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)",
+                (id, username, password_hash, role, status, short_code, short_code_updated_at,
+                 quota_bytes, rule_template_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&input.username)
         .bind(&hash)
         .bind(&input.role)
         .bind(&short_code)
+        .bind(ts)
         .bind(input.quota_bytes)
         .bind(input.rule_template_id)
         .bind(ts)
@@ -99,6 +100,47 @@ pub mod users {
         .execute(pool)
         .await?;
         find_by_id(pool, &id).await
+    }
+
+    /// 订阅短码：10 位十六进制（与建号时一致）。
+    ///
+    /// 短码不是密钥，但泄漏等于送人流量；长度只要求「难以枚举」，不需要可读性。
+    fn new_short_code() -> String {
+        Uuid::new_v4().simple().to_string()[..10].to_string()
+    }
+
+    /// 用户自助重置订阅：只改 `id` 指定的这一行，返回新短码与时间戳。
+    ///
+    /// 唯一索引冲突理论上只有 16^10 分之一，但并发/倒霉时不能 500：
+    /// 换一个短码重试，最多 5 次。**不接受任何调用方传入的用户 id 之外的过滤条件**，
+    /// 越权由路由层取会话用户保证。
+    pub async fn reset_short_code(
+        pool: &SqlitePool,
+        id: &str,
+    ) -> anyhow::Result<Option<(String, i64)>> {
+        for _ in 0..5 {
+            let short_code = new_short_code();
+            let ts = now();
+            let result = sqlx::query(
+                "UPDATE users
+                 SET short_code = ?, short_code_updated_at = ?, updated_at = ?
+                 WHERE id = ?",
+            )
+            .bind(&short_code)
+            .bind(ts)
+            .bind(ts)
+            .bind(id)
+            .execute(pool)
+            .await;
+
+            match result {
+                Ok(res) if res.rows_affected() > 0 => return Ok(Some((short_code, ts))),
+                Ok(_) => return Ok(None),
+                Err(sqlx::Error::Database(error)) if error.is_unique_violation() => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
+        anyhow::bail!("生成订阅短码连续冲突")
     }
 
     pub async fn find_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<User> {
@@ -3468,6 +3510,27 @@ pub mod enforcement {
              ORDER BY created_at DESC, rowid DESC
              LIMIT ?",
         )
+        .bind(limit.clamp(1, 200))
+        .fetch_all(pool)
+        .await?)
+    }
+
+    /// 单个用户自己的断流/恢复事件（用户自助页用）。
+    ///
+    /// 过滤条件只有 `user_id = ?`：调用方必须传会话用户，绝不能把请求参数透传进来。
+    pub async fn list_events_for_user(
+        pool: &SqlitePool,
+        user_id: &str,
+        limit: i64,
+    ) -> anyhow::Result<Vec<EnforcementEvent>> {
+        Ok(sqlx::query_as::<_, EnforcementEvent>(
+            "SELECT id, kind, user_id, username, server_id, server_name, reason, message, created_at
+             FROM enforcement_events
+             WHERE user_id = ?
+             ORDER BY created_at DESC, rowid DESC
+             LIMIT ?",
+        )
+        .bind(user_id)
         .bind(limit.clamp(1, 200))
         .fetch_all(pool)
         .await?)

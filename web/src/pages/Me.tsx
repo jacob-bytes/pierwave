@@ -1,6 +1,5 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import type { ReactNode } from "react";
-import { useLocation } from "react-router-dom";
 import { toast } from "sonner";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -8,17 +7,20 @@ import {
   CalendarClockIcon,
   CalendarIcon,
   CopyIcon,
+  GaugeIcon,
+  HistoryIcon,
   InfoIcon,
   KeyRoundIcon,
   Link2Icon,
   PackageIcon,
   QrCodeIcon,
   RefreshCwIcon,
+  RotateCcwIcon,
+  ServerIcon,
   ShieldCheckIcon,
   TriangleAlertIcon,
 } from "lucide-react";
 import type { UseQueryResult } from "@tanstack/react-query";
-import { PackageStatusBadge } from "@/components/packages/PackageStatusBadge";
 import {
   statusToneClasses,
   type PackageStatusTone,
@@ -26,6 +28,17 @@ import {
 import { ChangePasswordDialog } from "@/components/settings/ChangePasswordDialog";
 import { SubscriptionQrDialog } from "@/components/subscriptions/SubscriptionQrDialog";
 import { UsageBar } from "@/components/UsageBar";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -38,20 +51,41 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ApiError,
+  type EnforcementEvent,
   type MeSummary,
   type MeTraffic,
   type UserPackageStatus,
-  type UserPackageView,
 } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
-import { directionLabel, packageStatusTone } from "@/lib/labels";
-import { useMeSummary, useMeTraffic } from "@/lib/queries";
-import { formatDate } from "@/lib/time";
+import {
+  useMeEvents,
+  useMeSummary,
+  useMeTraffic,
+  useResetSubscription,
+} from "@/lib/queries";
+import {
+  DEFAULT_SUBSCRIPTION_FORMAT,
+  SUBSCRIPTION_FORMATS,
+  withSubscriptionFormat,
+  type SubscriptionFormat,
+} from "@/lib/subscriptionFormats";
+import {
+  formatAbsoluteTime,
+  formatDate,
+  formatRelativeTime,
+} from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
@@ -59,6 +93,7 @@ import { t, useI18n } from "@/i18n";
 const TrafficChart = lazy(() => import("@/components/overview/TrafficChart"));
 
 const TRAFFIC_DAYS = 7;
+const EVENTS_LIMIT = 20;
 
 /** 自助接口与后端并行开发，404 给一句能看懂的中文，不写 mock。 */
 function meErrorText(error: unknown, fallback: string): string {
@@ -68,7 +103,7 @@ function meErrorText(error: unknown, fallback: string): string {
   return errorText(error, fallback);
 }
 
-type MeStatus = UserPackageStatus | "none" | "quota_exceeded";
+type MeStatus = UserPackageStatus | "none";
 
 const statusMeta: Record<
   MeStatus,
@@ -79,18 +114,7 @@ const statusMeta: Record<
   expired: { labelKey: "me.status.expired", tone: "warning" },
   disabled: { labelKey: "me.status.disabled", tone: "muted" },
   none: { labelKey: "me.status.none", tone: "muted" },
-  /** 账户级总闸命中；与单卡「已用尽」用不同文案区分。 */
-  quota_exceeded: { labelKey: "me.status.quotaExceeded", tone: "destructive" },
 };
-
-/** 多张卡取最严重者：用尽 > 过期 > 生效中 > 全部停用 > 无套餐。 */
-function overallStatus(packages: UserPackageView[]): MeStatus {
-  if (packages.some((item) => item.status === "exhausted")) return "exhausted";
-  if (packages.some((item) => item.status === "expired")) return "expired";
-  if (packages.some((item) => item.status === "active")) return "active";
-  if (packages.length === 0) return "none";
-  return "disabled";
-}
 
 function MeStatusBadge({ status }: { status: MeStatus }) {
   const meta = statusMeta[status];
@@ -107,22 +131,11 @@ function MeStatusBadge({ status }: { status: MeStatus }) {
   );
 }
 
-const packageCardTone: Record<PackageStatusTone, string> = {
-  primary: "ring-primary/30",
-  warning: "ring-warning/30",
-  destructive: "ring-destructive/30",
-  muted: "ring-border",
-};
+function StatusAlerts({ summary }: { summary: MeSummary }) {
+  const { usage, user } = summary;
 
-function StatusAlerts({
-  packages,
-  quotaExceeded,
-}: {
-  packages: UserPackageView[];
-  quotaExceeded: boolean;
-}) {
   // 账户级总额度是总闸：命中时全站停用，只留这一条，不再叠单卡提示。
-  if (quotaExceeded) {
+  if (user.quota_exceeded) {
     return (
       <Alert
         variant="destructive"
@@ -137,214 +150,213 @@ function StatusAlerts({
     );
   }
 
-  const exhausted = packages.some((item) => item.status === "exhausted");
-  const expired = packages.some((item) => item.status === "expired");
-  if (!exhausted && !expired) return null;
+  if (usage.status === "active" || usage.status === "none") return null;
+
+  if (usage.status === "exhausted") {
+    return (
+      <Alert
+        variant="destructive"
+        className="border-destructive/25 bg-destructive/10"
+      >
+        <TriangleAlertIcon />
+        <AlertTitle>{t("me.alerts.exhaustedTitle")}</AlertTitle>
+        <AlertDescription className="text-destructive/90">
+          {t("me.alerts.exhaustedDesc")}
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
+  if (usage.status === "expired") {
+    return (
+      <Alert className="border-warning/25 bg-warning/10 text-warning">
+        <CalendarClockIcon />
+        <AlertTitle>{t("me.alerts.expiredTitle")}</AlertTitle>
+        <AlertDescription className="text-warning/90">
+          {t("me.alerts.expiredDesc")}
+        </AlertDescription>
+      </Alert>
+    );
+  }
 
   return (
-    <div className="space-y-3">
-      {exhausted ? (
-        <Alert
-          variant="destructive"
-          className="border-destructive/25 bg-destructive/10"
-        >
-          <TriangleAlertIcon />
-          <AlertTitle>{t("me.alerts.exhaustedTitle")}</AlertTitle>
-          <AlertDescription className="text-destructive/90">
-            {t("me.alerts.exhaustedDesc")}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-      {expired ? (
-        <Alert className="border-warning/25 bg-warning/10 text-warning">
-          <CalendarClockIcon />
-          <AlertTitle>{t("me.alerts.expiredTitle")}</AlertTitle>
-          <AlertDescription className="text-warning/90">
-            {t("me.alerts.expiredDesc")}
-          </AlertDescription>
-        </Alert>
-      ) : null}
+    <Alert className="border-border bg-muted/40">
+      <ShieldCheckIcon />
+      <AlertTitle>{t("me.alerts.disabledTitle")}</AlertTitle>
+      <AlertDescription>{t("me.alerts.disabledDesc")}</AlertDescription>
+    </Alert>
+  );
+}
+
+function EmptyState({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border px-6 py-10 text-center">
+      <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
+        <Icon className="size-5" />
+      </div>
+      <div>
+        <p className="text-sm font-medium">{title}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+      </div>
     </div>
   );
 }
 
-function MetricCard({
+function Metric({
   label,
-  icon: Icon,
   value,
-  hint,
+  icon: Icon,
 }: {
   label: string;
-  icon: LucideIcon;
   value: ReactNode;
-  hint: string;
+  icon: LucideIcon;
 }) {
   return (
-    <Card size="sm" className="gap-3">
-      <CardHeader className="grid-cols-[1fr_auto] items-center gap-2">
-        <CardDescription className="text-xs">{label}</CardDescription>
-        <div className="grid size-7 place-items-center rounded-md bg-primary/10 text-primary">
-          <Icon className="size-3.5" />
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-semibold tracking-tight tabular-nums">
-          {value}
-        </div>
-        <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
-      </CardContent>
-    </Card>
-  );
-}
-
-function PackageCard({ item }: { item: UserPackageView }) {
-  const tone = packageStatusTone(item.status);
-
-  return (
-    <Card className={cn("gap-3 ring-1", packageCardTone[tone])}>
-      <CardHeader>
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <CardTitle className="truncate text-sm font-medium">
-              {item.package_name}
-            </CardTitle>
-            <CardDescription className="mt-1 text-xs">
-              {directionLabel(item.direction)} ·{" "}
-              {t("me.package.ratio", { ratio: item.node_ratio })}
-            </CardDescription>
-          </div>
-          <PackageStatusBadge status={item.status} />
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {/* zeroAsUnlimited：quota_override=0 是显式不限，不画进度条。 */}
-        <UsageBar
-          usedBytes={item.used_bytes}
-          quotaBytes={item.quota_override === 0 ? 0 : item.quota_bytes}
-          zeroAsUnlimited
-        />
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <CalendarIcon className="size-3.5" />
-            {t("me.package.expires")}
-            <span className="text-foreground/80">
-              {item.expires_at
-                ? formatDate(item.expires_at)
-                : t("common.longTermValid")}
-            </span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <RefreshCwIcon className="size-3.5" />
-            {t("me.package.reset")}
-            <span className="text-foreground/80">
-              {item.reset_day
-                ? t("me.package.resetMonthly", { day: item.reset_day })
-                : t("me.package.noReset")}
-            </span>
-          </span>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function MeSkeleton() {
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Skeleton className="size-10 rounded-full" />
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-32" />
-          <Skeleton className="h-3 w-44" />
-        </div>
+    <div className="rounded-lg bg-muted/40 px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Icon className="size-3.5" />
+        {label}
       </div>
-      <div className="grid gap-4 sm:grid-cols-3">
-        {[0, 1, 2].map((index) => (
-          <Card key={index} size="sm" className="gap-3">
-            <CardHeader>
-              <Skeleton className="h-3 w-20" />
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <Skeleton className="h-7 w-24" />
-              <Skeleton className="h-3 w-16" />
-            </CardContent>
-          </Card>
-        ))}
+      <div className="mt-1 text-base font-semibold tracking-tight tabular-nums">
+        {value}
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        {[0, 1].map((index) => (
-          <Card key={index} className="gap-3">
-            <CardHeader>
-              <Skeleton className="h-4 w-32" />
-              <Skeleton className="h-3 w-24" />
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-1.5 w-full rounded-full" />
-              <Skeleton className="h-3 w-40" />
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-      <Skeleton className="h-44 w-full rounded-xl" />
     </div>
   );
 }
 
-function MeError({
-  message,
-  retrying,
-  onRetry,
-}: {
-  message: string;
-  retrying: boolean;
-  onRetry: () => void;
-}) {
+function OverviewCard({ summary }: { summary: MeSummary }) {
+  const { package: plan, usage } = summary;
+  const limit = plan?.traffic_limit ?? null;
+  const unlimited = limit === null || limit <= 0;
+  const overQuota = !unlimited && usage.used_bytes >= limit;
+
   return (
-    <Card>
-      <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-        <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-          <TriangleAlertIcon className="size-5" />
-        </div>
-        <div>
-          <p className="text-sm font-medium">{t("me.loadFailed")}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onRetry}
-          disabled={retrying}
-        >
-          <RefreshCwIcon
-            className={cn("size-3.5", retrying && "animate-spin")}
+    <Card className="gap-4">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm font-medium">
+          <GaugeIcon className="size-4 text-muted-foreground" />
+          {t("me.overview.title")}
+        </CardTitle>
+        <CardDescription className="text-xs">
+          {t("me.overview.desc")}
+        </CardDescription>
+        <CardAction>
+          <MeStatusBadge status={usage.status} />
+        </CardAction>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!plan ? (
+          <EmptyState
+            icon={PackageIcon}
+            title={t("me.overview.noPackage")}
+            description={t("me.overview.noPackageDesc")}
           />
-          {t("common.retry")}
-        </Button>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-lg font-semibold tracking-tight">
+                  {plan.name}
+                </div>
+                <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <CalendarIcon className="size-3.5" />
+                  {t("me.overview.expires")}
+                  <span className="text-foreground/80">
+                    {plan.expires_at
+                      ? formatDate(plan.expires_at)
+                      : t("common.longTermValid")}
+                  </span>
+                </div>
+              </div>
+              <div className="text-right text-xs text-muted-foreground">
+                {t("me.overview.trafficLimit")}
+                <div className="mt-0.5 font-mono text-sm text-foreground/90">
+                  {formatBytes(limit, { zeroAsUnlimited: true })}
+                </div>
+              </div>
+            </div>
+
+            <UsageBar
+              usedBytes={usage.used_bytes}
+              quotaBytes={limit}
+              zeroAsUnlimited
+              overTone="warning"
+              label={t("me.overview.usage")}
+            />
+            {overQuota ? (
+              <p className="flex items-center gap-1.5 text-xs text-warning">
+                <TriangleAlertIcon className="size-3.5" />
+                {t("me.overview.overQuota")}
+              </p>
+            ) : null}
+
+            <div className="grid gap-2 sm:grid-cols-3">
+              <Metric
+                icon={ActivityIcon}
+                label={t("me.overview.used")}
+                value={formatBytes(usage.used_bytes)}
+              />
+              <Metric
+                icon={GaugeIcon}
+                label={t("me.overview.remaining")}
+                value={
+                  usage.remaining_bytes === null
+                    ? t("me.overview.unlimited")
+                    : formatBytes(usage.remaining_bytes)
+                }
+              />
+              <Metric
+                icon={CalendarClockIcon}
+                label={t("me.overview.daysLeft")}
+                value={
+                  usage.days_left === null
+                    ? t("me.overview.longTerm")
+                    : t("me.overview.days", { n: usage.days_left })
+                }
+              />
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );
 }
 
-/**
- * 订阅地址是后端可能返回的站内相对路径，二维码与复制都需要绝对 URL。
- */
+/** 订阅地址是后端返回的站内相对路径；复制、二维码都要绝对 URL。 */
 function absoluteSubscriptionUrl(summary: MeSummary): string {
+  const raw = summary.subscription?.url || summary.subscription_url;
   const fallback = `${window.location.origin}/api/v1/sub/${encodeURIComponent(
     summary.user.short_code,
   )}`;
-  if (!summary.subscription_url) return fallback;
-
+  if (!raw) return fallback;
   try {
-    return new URL(summary.subscription_url, window.location.origin).toString();
+    return new URL(raw, window.location.origin).toString();
   } catch {
     return fallback;
   }
 }
 
-function SubscriptionSection({ summary }: { summary: MeSummary }) {
+function SubscriptionCard({
+  summary,
+  onReset,
+}: {
+  summary: MeSummary;
+  onReset: () => void;
+}) {
+  const [format, setFormat] = useState<SubscriptionFormat>(
+    DEFAULT_SUBSCRIPTION_FORMAT,
+  );
   const [qrOpen, setQrOpen] = useState(false);
-  const url = absoluteSubscriptionUrl(summary);
+  const baseUrl = absoluteSubscriptionUrl(summary);
+  const url = withSubscriptionFormat(baseUrl, format);
 
   async function handleCopy() {
     if (await copyText(url)) {
@@ -366,6 +378,39 @@ function SubscriptionSection({ summary }: { summary: MeSummary }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="space-y-1">
+            <span className="text-xs text-muted-foreground">
+              {t("me.subscription.format")}
+            </span>
+            <Select
+              value={format}
+              onValueChange={(value) => setFormat(value as SubscriptionFormat)}
+            >
+              <SelectTrigger
+                size="sm"
+                className="h-8 w-[150px] text-xs"
+                aria-label={t("me.subscription.formatAria")}
+                title={t("me.subscription.formatHint")}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="start">
+                {SUBSCRIPTION_FORMATS.map((item) => (
+                  <SelectItem key={item} value={item} className="text-xs">
+                    {t(`subscriptions.formats.${item}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t("me.subscription.updatedAt", {
+              time: formatAbsoluteTime(summary.subscription?.updated_at),
+            })}
+          </p>
+        </div>
+
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <code
             className="min-w-0 flex-1 truncate rounded-md bg-muted px-2.5 py-2 font-mono text-xs text-muted-foreground"
@@ -388,10 +433,17 @@ function SubscriptionSection({ summary }: { summary: MeSummary }) {
             </Button>
           </div>
         </div>
-        <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
-          <InfoIcon className="mt-0.5 size-3.5 shrink-0" />
-          {t("me.subscription.hint")}
-        </p>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+          <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+            <InfoIcon className="mt-0.5 size-3.5 shrink-0" />
+            {t("me.subscription.hint")}
+          </p>
+          <Button variant="outline" size="sm" onClick={onReset}>
+            <RotateCcwIcon className="size-3.5" />
+            {t("me.subscription.reset")}
+          </Button>
+        </div>
       </CardContent>
 
       {qrOpen ? (
@@ -406,18 +458,212 @@ function SubscriptionSection({ summary }: { summary: MeSummary }) {
   );
 }
 
-function TrafficSection({
-  traffic,
+function NodesCard({ summary }: { summary: MeSummary }) {
+  // 断流/过期时授权集合为空：空态文案要说明「恢复后才有」，不能只说「没有套餐」。
+  const unavailable = ["exhausted", "expired", "disabled"].includes(
+    summary.usage.status,
+  );
+
+  return (
+    <Card className="gap-4">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm font-medium">
+          <ServerIcon className="size-4 text-muted-foreground" />
+          {t("me.nodes.title")}
+        </CardTitle>
+        <CardDescription className="text-xs">
+          {t("me.nodes.desc")}
+        </CardDescription>
+        <CardAction>
+          <Badge
+            variant="secondary"
+            className="font-mono text-[11px] font-normal text-muted-foreground"
+          >
+            {summary.nodes.length}
+          </Badge>
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        {summary.nodes.length === 0 ? (
+          <EmptyState
+            icon={ServerIcon}
+            title={
+              unavailable ? t("me.nodes.unavailable") : t("me.nodes.empty")
+            }
+            description={
+              unavailable
+                ? t("me.nodes.unavailableDesc")
+                : t("me.nodes.emptyDesc")
+            }
+          />
+        ) : (
+          <ul className="divide-y divide-border">
+            {summary.nodes.map((node) => (
+              <li
+                key={node.id}
+                className="flex flex-wrap items-center justify-between gap-2 py-2.5 first:pt-0 last:pb-0"
+              >
+                <span className="min-w-0 truncate text-sm font-medium">
+                  {node.name}
+                </span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className="border-transparent bg-primary/10 font-mono text-[11px] font-normal text-primary"
+                  >
+                    {node.protocol}
+                  </Badge>
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <ServerIcon className="size-3.5" />
+                    {node.server_name || "—"}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+const eventReasonKeys: Record<string, string> = {
+  exhausted: "me.events.reason.exhausted",
+  expired: "me.events.reason.expired",
+  disabled: "me.events.reason.disabled",
+  inactive: "me.events.reason.inactive",
+  recovered: "me.events.reason.recovered",
+};
+
+/** 后端 `reason` 是逗号分隔的机器码；按当前语言翻译，未知码原样展示。 */
+function eventReasonLabel(reason: string): string {
+  const labels = reason
+    .split(",")
+    .map((code) => code.trim())
+    .filter(Boolean)
+    .map((code) => (eventReasonKeys[code] ? t(eventReasonKeys[code]) : code));
+  return labels.join(" · ");
+}
+
+function EventRow({ event }: { event: EnforcementEvent }) {
+  const removed = event.kind === "removed";
+  return (
+    <li className="flex items-start gap-3 py-2.5 first:pt-0 last:pb-0">
+      <div
+        className={cn(
+          "mt-0.5 grid size-7 shrink-0 place-items-center rounded-full",
+          removed
+            ? "bg-destructive/10 text-destructive"
+            : "bg-primary/10 text-primary",
+        )}
+      >
+        {removed ? (
+          <TriangleAlertIcon className="size-3.5" />
+        ) : (
+          <ShieldCheckIcon className="size-3.5" />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium">
+            {t(removed ? "me.events.kind.removed" : "me.events.kind.restored")}
+          </span>
+          <Badge
+            variant="outline"
+            className="border-transparent bg-muted text-[11px] font-normal text-muted-foreground"
+          >
+            {eventReasonLabel(event.reason)}
+          </Badge>
+        </div>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          {t("me.events.server", { name: event.server_name || "—" })}
+        </p>
+      </div>
+      <time
+        className="shrink-0 text-xs text-muted-foreground"
+        dateTime={new Date(event.created_at * 1_000).toISOString()}
+        title={formatAbsoluteTime(event.created_at)}
+      >
+        {formatRelativeTime(event.created_at)}
+      </time>
+    </li>
+  );
+}
+
+function EventsCard({
+  events,
 }: {
-  traffic: UseQueryResult<MeTraffic>;
+  events: UseQueryResult<EnforcementEvent[]>;
 }) {
+  return (
+    <Card className="gap-4">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm font-medium">
+          <HistoryIcon className="size-4 text-muted-foreground" />
+          {t("me.events.title")}
+        </CardTitle>
+        <CardDescription className="text-xs">
+          {t("me.events.desc")}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {events.isPending ? (
+          <div className="space-y-3">
+            {[0, 1, 2].map((index) => (
+              <Skeleton key={index} className="h-10 w-full" />
+            ))}
+          </div>
+        ) : events.isError ? (
+          <div className="flex flex-col items-center gap-3 py-8 text-center">
+            <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
+              <TriangleAlertIcon className="size-5" />
+            </div>
+            <div>
+              <p className="text-sm font-medium">{t("me.events.loadFailed")}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {meErrorText(events.error, t("me.events.loadError"))}
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void events.refetch()}
+              disabled={events.isFetching}
+            >
+              <RefreshCwIcon
+                className={cn("size-3.5", events.isFetching && "animate-spin")}
+              />
+              {t("common.retry")}
+            </Button>
+          </div>
+        ) : events.data && events.data.length > 0 ? (
+          <ul className="divide-y divide-border">
+            {events.data.map((event) => (
+              <EventRow key={event.id} event={event} />
+            ))}
+          </ul>
+        ) : (
+          <EmptyState
+            icon={HistoryIcon}
+            title={t("me.events.empty")}
+            description={t("me.events.emptyDesc")}
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TrafficCard({ traffic }: { traffic: UseQueryResult<MeTraffic> }) {
   const total =
     traffic.data?.days.reduce((sum, day) => sum + day.weighted, 0) ?? null;
 
   return (
     <Card className="gap-4">
       <CardHeader>
-        <CardTitle className="text-sm font-medium">{t("me.traffic.title")}</CardTitle>
+        <CardTitle className="text-sm font-medium">
+          {t("me.traffic.title")}
+        </CardTitle>
         <CardDescription className="text-xs">
           {t("me.traffic.desc")}
         </CardDescription>
@@ -471,32 +717,139 @@ function TrafficSection({
   );
 }
 
+function MeSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <Skeleton className="size-10 rounded-full" />
+        <div className="space-y-2">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-3 w-44" />
+        </div>
+      </div>
+      <Skeleton className="h-52 w-full rounded-xl" />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Skeleton className="h-64 w-full rounded-xl" />
+        <Skeleton className="h-64 w-full rounded-xl" />
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Skeleton className="h-48 w-full rounded-xl" />
+        <Skeleton className="h-48 w-full rounded-xl" />
+      </div>
+    </div>
+  );
+}
+
+function MeError({
+  message,
+  retrying,
+  onRetry,
+}: {
+  message: string;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <Card>
+      <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
+        <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
+          <TriangleAlertIcon className="size-5" />
+        </div>
+        <div>
+          <p className="text-sm font-medium">{t("me.loadFailed")}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{message}</p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onRetry}
+          disabled={retrying}
+        >
+          <RefreshCwIcon
+            className={cn("size-3.5", retrying && "animate-spin")}
+          />
+          {t("common.retry")}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ResetSubscriptionDialog({
+  open,
+  onOpenChange,
+  username,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  username: string;
+}) {
+  const reset = useResetSubscription();
+
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && reset.isPending) return;
+        onOpenChange(next);
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogMedia className="bg-warning/10 text-warning">
+            <RotateCcwIcon className="size-5" />
+          </AlertDialogMedia>
+          <AlertDialogTitle>
+            {t("me.subscription.resetTitle")}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {t("me.subscription.resetDesc")}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={reset.isPending}>
+            {t("common.cancel")}
+          </AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            disabled={reset.isPending}
+            onClick={(event) => {
+              event.preventDefault();
+              reset.mutate(undefined, {
+                onSuccess: () => {
+                  toast.success(t("me.subscription.resetSuccess", { username }));
+                  onOpenChange(false);
+                },
+                onError: (error) => {
+                  toast.error(
+                    errorText(error, t("me.subscription.resetError")),
+                  );
+                },
+              });
+            }}
+          >
+            {t("me.subscription.resetAction")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export default function MePage() {
   useI18n();
   const summary = useMeSummary();
   const traffic = useMeTraffic(TRAFFIC_DAYS);
-  const { pathname } = useLocation();
-  const subscriptionRef = useRef<HTMLDivElement>(null);
+  const events = useMeEvents(EVENTS_LIMIT);
   const [passwordOpen, setPasswordOpen] = useState(false);
-
-  // 侧边栏「订阅」指向 /me/subscription，同一页滚动到订阅区。
-  useEffect(() => {
-    if (pathname !== "/me/subscription" || !summary.data) return;
-    subscriptionRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  }, [pathname, summary.data]);
+  const [resetOpen, setResetOpen] = useState(false);
 
   if (summary.isPending) return <MeSkeleton />;
 
   if (summary.isError) {
     return (
       <MeError
-        message={meErrorText(
-          summary.error,
-          t("me.loadError"),
-        )}
+        message={meErrorText(summary.error, t("me.loadError"))}
         retrying={summary.isFetching}
         onRetry={() => void summary.refetch()}
       />
@@ -506,16 +859,13 @@ export default function MePage() {
   if (!summary.data) return null;
 
   const data = summary.data;
-  const packages = data.packages ?? [];
-  const status: MeStatus = data.user.quota_exceeded
-    ? "quota_exceeded"
-    : overallStatus(packages);
   const initial = data.user.username.slice(0, 1).toUpperCase();
   const refreshing = summary.isFetching || traffic.isFetching;
 
   function refreshAll() {
     void summary.refetch();
     void traffic.refetch();
+    void events.refetch();
   }
 
   return (
@@ -532,14 +882,11 @@ export default function MePage() {
               <h1 className="text-xl font-semibold tracking-tight">
                 {data.user.username}
               </h1>
-              <MeStatusBadge status={status} />
+              <MeStatusBadge status={data.usage.status} />
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              {t("me.shortCode")}{" "}
-              <span className="font-mono text-foreground/80">
-                {data.user.short_code}
-              </span>{" "}
-              · {t("me.onlyOwnData")}
+              {data.user.email ? `${data.user.email} · ` : ""}
+              {t("me.onlyOwnData")}
             </p>
           </div>
         </div>
@@ -556,111 +903,56 @@ export default function MePage() {
         </Button>
       </div>
 
-      <StatusAlerts
-        packages={packages}
-        quotaExceeded={data.user.quota_exceeded}
-      />
+      <StatusAlerts summary={data} />
 
-      <section className="grid gap-4 sm:grid-cols-3">
-        <MetricCard
-          label={t("me.todayTraffic")}
-          icon={ActivityIcon}
-          value={formatBytes(data.traffic.today_bytes)}
-          hint={t("me.todayHint")}
+      <OverviewCard summary={data} />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SubscriptionCard
+          summary={data}
+          onReset={() => setResetOpen(true)}
         />
-        <MetricCard
-          label={t("me.monthTraffic")}
-          icon={CalendarIcon}
-          value={formatBytes(data.traffic.month_bytes)}
-          hint={t("me.monthHint")}
-        />
-        <MetricCard
-          label={t("me.packages")}
-          icon={PackageIcon}
-          value={t("me.packagesValue", { n: packages.length })}
-          hint={t("me.packagesHint")}
-        />
-      </section>
+        <TrafficCard traffic={traffic} />
+      </div>
 
-      <section id="packages" className="scroll-mt-6 space-y-3">
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-medium">{t("me.myPackages")}</h2>
-          {packages.length > 0 ? (
-            <Badge
-              variant="secondary"
-              className="font-mono text-[11px] font-normal text-muted-foreground"
-            >
-              {packages.length}
-            </Badge>
-          ) : null}
-        </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <NodesCard summary={data} />
+        <EventsCard events={events} />
+      </div>
 
-        {packages.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border px-6 py-10 text-center">
-            <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
-              <PackageIcon className="size-5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium">{t("me.emptyPackages")}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t("me.emptyPackagesDesc")}
-              </p>
-            </div>
-          </div>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
-            {packages.map((item) => (
-              <PackageCard key={item.id} item={item} />
-            ))}
-          </div>
-        )}
-      </section>
+      <Card className="gap-4">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-sm font-medium">
+            <ShieldCheckIcon className="size-4 text-muted-foreground" />
+            {t("me.accountSecurity")}
+          </CardTitle>
+          <CardDescription className="text-xs">
+            {t("me.accountSecurityDesc")}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">
+            {t("me.currentAccount")}{" "}
+            <span className="font-mono text-foreground/80">
+              {data.user.username}
+            </span>
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPasswordOpen(true)}
+          >
+            <KeyRoundIcon className="size-3.5" />
+            {t("me.changePassword")}
+          </Button>
+        </CardContent>
+      </Card>
 
-      <section
-        id="subscription"
-        ref={subscriptionRef}
-        className="scroll-mt-6"
-      >
-        <SubscriptionSection summary={data} />
-      </section>
-
-      <section id="traffic" className="scroll-mt-6">
-        <TrafficSection traffic={traffic} />
-      </section>
-
-      <section id="account" className="scroll-mt-6">
-        <Card className="gap-4">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm font-medium">
-              <ShieldCheckIcon className="size-4 text-muted-foreground" />
-              {t("me.accountSecurity")}
-            </CardTitle>
-            <CardDescription className="text-xs">
-              {t("me.accountSecurityDesc")}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground">
-              {t("me.currentAccount")}{" "}
-              <span className="font-mono text-foreground/80">
-                {data.user.username}
-              </span>
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPasswordOpen(true)}
-            >
-              <KeyRoundIcon className="size-3.5" />
-              {t("me.changePassword")}
-            </Button>
-          </CardContent>
-        </Card>
-      </section>
-
-      <ChangePasswordDialog
-        open={passwordOpen}
-        onOpenChange={setPasswordOpen}
+      <ChangePasswordDialog open={passwordOpen} onOpenChange={setPasswordOpen} />
+      <ResetSubscriptionDialog
+        open={resetOpen}
+        onOpenChange={setResetOpen}
+        username={data.user.username}
       />
     </div>
   );

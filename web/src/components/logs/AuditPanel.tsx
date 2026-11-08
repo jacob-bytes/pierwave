@@ -165,6 +165,7 @@ const actionLabelKeys: Record<string, string> = {
   "rule_template.delete": "audit.action.ruleTemplateDelete",
   "settings.update": "audit.action.settingsUpdate",
   "password.change": "audit.action.passwordChange",
+  "user.reset_subscription": "audit.action.userResetSubscription",
   "config.apply": "audit.action.configApply",
 };
 
@@ -255,6 +256,10 @@ function summarizeAudit(
 
   if (action === "password.change") {
     items.push(t("audit.summary.passwordChanged"));
+  }
+
+  if (action === "user.reset_subscription") {
+    items.push(t("audit.summary.subscriptionReset"));
   }
 
   for (const item of formatChanges(detail, resolve)) {

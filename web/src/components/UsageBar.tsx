@@ -9,6 +9,8 @@ interface UsageBarProps {
   zeroAsUnlimited?: boolean;
   /** 表格里列头已经写了「流量」时传 null。 */
   label?: string | null;
+  /** 超额时的颜色；默认 destructive，用户自助概览用 warning。 */
+  overTone?: "destructive" | "warning";
   className?: string;
 }
 
@@ -17,6 +19,7 @@ export function UsageBar({
   quotaBytes,
   zeroAsUnlimited = false,
   label = t("usage.label"),
+  overTone = "destructive",
   className,
 }: UsageBarProps) {
   const quota =
@@ -49,7 +52,11 @@ export function UsageBar({
           <div
             className={cn(
               "h-full rounded-full transition-[width] duration-200",
-              overQuota ? "bg-destructive" : "bg-primary",
+              overQuota
+                ? overTone === "warning"
+                  ? "bg-warning"
+                  : "bg-destructive"
+                : "bg-primary",
             )}
             style={{ width: `${percent}%` }}
           />

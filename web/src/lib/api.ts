@@ -888,6 +888,8 @@ export interface NodeTrafficDetail {
 export interface MeSummaryUser {
   id: string;
   username: string;
+  /** 当前数据模型没有 email 列，后端固定返回 null；界面按「未填写」处理。 */
+  email: string | null;
   role: UserRole;
   short_code: string;
   used_bytes: number;
@@ -896,16 +898,63 @@ export interface MeSummaryUser {
   quota_exceeded: boolean;
 }
 
+/** 概览卡用的主套餐（多张卡时后端取「最新可用」，否则取最新一张）。 */
+export interface MePackageSummary {
+  name: string;
+  /** 生效额度；null / 0 都表示不限。 */
+  traffic_limit: number | null;
+  /** Unix 秒；null = 永不过期。 */
+  expires_at: number | null;
+}
+
+/** 已用 / 剩余 / 剩余天数 / 状态，全部由后端算好。 */
+export interface MeUsage {
+  used_bytes: number;
+  /** 不限量时为 null；用尽时为 0。 */
+  remaining_bytes: number | null;
+  /** 已过期 = 0，永不过期 = null。 */
+  days_left: number | null;
+  status: UserPackageStatus | "none";
+}
+
+/** 「我的节点」列表项：**只给名字，不含服务器地址/端口/配置**。 */
+export interface MeNode {
+  id: string;
+  name: string;
+  tag: string;
+  protocol: string;
+  server_name: string;
+}
+
+export interface MeSubscription {
+  /** 后端可能返回站内相对地址，展示前统一转成绝对 URL。 */
+  url: string;
+  /** 订阅短码最后一次重置的 Unix 秒。 */
+  updated_at: number;
+}
+
 export interface MeSummary {
   user: MeSummaryUser;
-  /** 与管理员视图同结构；quota_override=0 表示显式不限。 */
+  /** 没有任何套餐实例时为 null。 */
+  package: MePackageSummary | null;
+  usage: MeUsage;
+  nodes: MeNode[];
+  subscription: MeSubscription;
+  /** 兼容字段：套餐明细（quota_override=0 表示显式不限）。 */
   packages: UserPackageView[];
+  /** 兼容字段：今日/本月流量。 */
   traffic: { today_bytes: number; month_bytes: number };
-  /** 后端可能返回站内相对地址，展示前统一转成绝对 URL。 */
+  /** 兼容字段：与 `subscription.url` 相同的相对地址。 */
   subscription_url: string;
 }
 
 export type MeTraffic = TrafficStats;
+
+/** `POST /api/v1/me/subscription/reset`：旧链接立即失效。 */
+export interface ResetSubscriptionResponse {
+  url: string;
+  updated_at: number;
+}
 
 /**
  * P13：`POST /api/v1/alerts/test` 的响应。
@@ -989,6 +1038,15 @@ export const api = {
         request<MeTraffic>(
           `/api/v1/me/traffic?days=${encodeURIComponent(String(days))}`,
         ),
+      /** 自己的断流/恢复事件；limit 由后端夹在 1..=200。 */
+      events: (limit: number) =>
+        request<{ items: EnforcementEvent[] }>(
+          `/api/v1/me/events?limit=${encodeURIComponent(String(limit))}`,
+        ),
+      resetSubscription: () =>
+        request<ResetSubscriptionResponse>("/api/v1/me/subscription/reset", {
+          method: "POST",
+        }),
       changePassword: (input: ChangePasswordInput) =>
         request<{ ok: true }>("/api/v1/me/password", {
           method: "POST",

@@ -57,6 +57,7 @@ import {
 } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { errorText } from "@/lib/errors";
+import { SUBSCRIPTION_FORMATS } from "@/lib/subscriptionFormats";
 import { useRuleTemplates, useSubscriptions } from "@/lib/queries";
 import { ruleTemplateErrorText } from "@/lib/ruleTemplates";
 import { cn } from "@/lib/utils";
@@ -87,19 +88,6 @@ function subscriptionListErrorText(error: unknown): string {
  *
  * 选中非默认模板时带 `?rule=<id>`；默认模板不加参数，保持链接简洁。
  */
-/** 支持的订阅格式；顺序与后端注册表一致，`clash` 是默认值（不带参数）。 */
-const SUBSCRIPTION_FORMATS = [
-  "clash",
-  "stash",
-  "surge",
-  "surfboard",
-  "loon",
-  "qx",
-  "singbox",
-  "shadowrocket",
-  "v2ray",
-] as const;
-
 function subscriptionUrl(
   shortCode: string,
   template: RuleTemplate | null,

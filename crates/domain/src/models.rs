@@ -11,6 +11,8 @@ pub struct User {
     pub role: String,
     pub status: String,
     pub short_code: String,
+    /// 订阅短码最后一次被重置的时间（Unix 秒）；建号时 = `created_at`。
+    pub short_code_updated_at: i64,
     pub quota_bytes: Option<i64>,
     pub used_bytes: i64,
     /// 用户级规则模板绑定；`null` = 跟随当前套餐 / 全局默认。
@@ -872,6 +874,7 @@ mod view_tests {
                 role: "user".into(),
                 status: "active".into(),
                 short_code: "abc".into(),
+                short_code_updated_at: 0,
                 quota_bytes: None,
                 used_bytes: 0,
                 rule_template_id: None,
