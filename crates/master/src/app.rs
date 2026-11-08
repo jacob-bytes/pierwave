@@ -62,6 +62,14 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/servers/{id}/apply", post(routes::nodes::apply))
         .route(
+            "/api/v1/servers/{id}/forwards",
+            get(routes::forwards::list).post(routes::forwards::create),
+        )
+        .route(
+            "/api/v1/forwards/{id}",
+            patch(routes::forwards::update).delete(routes::forwards::delete),
+        )
+        .route(
             "/api/v1/servers/{id}/outbounds",
             get(routes::outbounds::list).post(routes::outbounds::create),
         )

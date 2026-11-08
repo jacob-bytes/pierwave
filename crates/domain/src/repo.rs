@@ -1609,6 +1609,24 @@ pub mod nodes {
         )
     }
 
+    /// 同一服务器上占用该端口的节点（含已停用节点）。
+    ///
+    /// 转发监听端口不能与节点端口冲突；停用节点也算占用，因为随时可能被重新启用，
+    /// 若允许共用端口，恢复节点时才会暴露冲突。
+    pub async fn find_by_port(
+        pool: &SqlitePool,
+        server_id: &str,
+        port: i64,
+    ) -> anyhow::Result<Option<Node>> {
+        Ok(sqlx::query_as::<_, Node>(
+            "SELECT * FROM nodes WHERE server_id = ? AND port = ? LIMIT 1",
+        )
+        .bind(server_id)
+        .bind(port)
+        .fetch_optional(pool)
+        .await?)
+    }
+
     /// 节点总数；公开状态页的 `nodes_total` 用它（不分启用/停用）。
     pub async fn count(pool: &SqlitePool) -> anyhow::Result<i64> {
         Ok(sqlx::query_scalar("SELECT COUNT(*) FROM nodes")
@@ -1738,6 +1756,243 @@ pub mod nodes {
             .execute(pool)
             .await?;
         Ok(res.rows_affected() > 0)
+    }
+}
+
+/// 单跳 TCP 端口转发：规则 CRUD + 心跳运行状态缓存。
+///
+/// 规则和运行状态分两张表：规则是管理员写的期望态，状态是 Agent 每轮心跳
+/// 覆盖的观测值。列表接口在 [`list_with_status`] 里按 `forward_id` 合并。
+pub mod forwards {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    pub struct NewForward {
+        pub name: String,
+        pub listen_port: i64,
+        pub target_host: String,
+        pub target_port: i64,
+        pub enabled: bool,
+    }
+
+    #[derive(Default)]
+    pub struct UpdateForward {
+        pub name: Option<String>,
+        pub listen_port: Option<i64>,
+        pub target_host: Option<String>,
+        pub target_port: Option<i64>,
+        pub enabled: Option<bool>,
+    }
+
+    /// 心跳里一条转发状态落库前的形态（领域层不依赖 proto）。
+    pub struct NewForwardStatus {
+        pub forward_id: String,
+        pub listening: bool,
+        pub error: String,
+    }
+
+    pub async fn create(
+        pool: &SqlitePool,
+        server_id: &str,
+        input: NewForward,
+    ) -> anyhow::Result<Forward> {
+        let id = Uuid::new_v4().to_string();
+        let ts = now();
+        sqlx::query(
+            "INSERT INTO forwards
+                (id, server_id, name, listen_port, target_host, target_port, enabled,
+                 created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(server_id)
+        .bind(input.name.trim())
+        .bind(input.listen_port)
+        .bind(input.target_host.trim())
+        .bind(input.target_port)
+        .bind(i64::from(input.enabled))
+        .bind(ts)
+        .bind(ts)
+        .execute(pool)
+        .await?;
+        find_by_id(pool, &id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("转发规则创建后读取失败"))
+    }
+
+    pub async fn find_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<Forward>> {
+        Ok(
+            sqlx::query_as::<_, Forward>("SELECT * FROM forwards WHERE id = ?")
+                .bind(id)
+                .fetch_optional(pool)
+                .await?,
+        )
+    }
+
+    pub async fn list_by_server(
+        pool: &SqlitePool,
+        server_id: &str,
+    ) -> anyhow::Result<Vec<Forward>> {
+        Ok(sqlx::query_as::<_, Forward>(
+            "SELECT * FROM forwards WHERE server_id = ?
+             ORDER BY created_at ASC, rowid ASC",
+        )
+        .bind(server_id)
+        .fetch_all(pool)
+        .await?)
+    }
+
+    /// 期望态只下发启用的规则；排序与列表一致，保证每次渲染结果确定。
+    pub async fn list_enabled_by_server(
+        pool: &SqlitePool,
+        server_id: &str,
+    ) -> anyhow::Result<Vec<Forward>> {
+        Ok(sqlx::query_as::<_, Forward>(
+            "SELECT * FROM forwards WHERE server_id = ? AND enabled = 1
+             ORDER BY created_at ASC, rowid ASC",
+        )
+        .bind(server_id)
+        .fetch_all(pool)
+        .await?)
+    }
+
+    /// 同一服务器上是否已有转发占用该端口。
+    ///
+    /// `exclude_id` 用于 PATCH：规则自身不算冲突。
+    pub async fn find_by_listen_port(
+        pool: &SqlitePool,
+        server_id: &str,
+        listen_port: i64,
+        exclude_id: Option<&str>,
+    ) -> anyhow::Result<Option<Forward>> {
+        Ok(sqlx::query_as::<_, Forward>(
+            "SELECT * FROM forwards
+             WHERE server_id = ? AND listen_port = ? AND id <> COALESCE(?, '')
+             LIMIT 1",
+        )
+        .bind(server_id)
+        .bind(listen_port)
+        .bind(exclude_id)
+        .fetch_optional(pool)
+        .await?)
+    }
+
+    pub async fn update(
+        pool: &SqlitePool,
+        id: &str,
+        input: UpdateForward,
+    ) -> anyhow::Result<Option<Forward>> {
+        let res = sqlx::query(
+            "UPDATE forwards SET
+                name = COALESCE(?, name),
+                listen_port = COALESCE(?, listen_port),
+                target_host = COALESCE(?, target_host),
+                target_port = COALESCE(?, target_port),
+                enabled = COALESCE(?, enabled),
+                updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(input.name.map(|name| name.trim().to_string()))
+        .bind(input.listen_port)
+        .bind(input.target_host.map(|host| host.trim().to_string()))
+        .bind(input.target_port)
+        .bind(input.enabled.map(i64::from))
+        .bind(now())
+        .bind(id)
+        .execute(pool)
+        .await?;
+
+        if res.rows_affected() == 0 {
+            return Ok(None);
+        }
+        find_by_id(pool, id).await
+    }
+
+    pub async fn delete(pool: &SqlitePool, id: &str) -> anyhow::Result<bool> {
+        // 同事务清掉运行状态：否则 Agent 长期离线时，删除的规则会在
+        // forward_status 里留下永远没人再覆盖的旧行（列表虽然会过滤，但会积灰）。
+        let mut tx = pool.begin().await?;
+        let res = sqlx::query("DELETE FROM forwards WHERE id = ?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM forward_status WHERE forward_id = ?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    /// 列表 + 心跳状态。状态按 `forward_id` 合并；心跳里没有的规则 `runtime = None`。
+    ///
+    /// 只 JOIN 内存里的现存规则：规则被删除后，`forward_status` 里可能还有
+    /// 一条 Agent 尚未收敛的旧状态，它不会出现在结果里。
+    pub async fn list_with_status(
+        pool: &SqlitePool,
+        server_id: &str,
+    ) -> anyhow::Result<Vec<ForwardView>> {
+        let forwards = list_by_server(pool, server_id).await?;
+        let statuses = sqlx::query_as::<_, ForwardStatusRow>(
+            "SELECT * FROM forward_status WHERE server_id = ?",
+        )
+        .bind(server_id)
+        .fetch_all(pool)
+        .await?;
+        let mut by_id: HashMap<String, ForwardStatusRow> = statuses
+            .into_iter()
+            .map(|status| (status.forward_id.clone(), status))
+            .collect();
+
+        Ok(forwards
+            .into_iter()
+            .map(|forward| {
+                let runtime = by_id.remove(&forward.id).map(|status| ForwardRuntime {
+                    listening: status.listening,
+                    error: status.error,
+                    updated_at: status.updated_at,
+                });
+                ForwardView { forward, runtime }
+            })
+            .collect())
+    }
+
+    /// 用一次心跳里的 `forwards` 整体替换该服务器的状态缓存。
+    ///
+    /// 整体替换而不是 upsert：Agent 已经从期望态里删掉的规则不会再上报，
+    /// 只有先 DELETE 才能把上一轮的旧状态清掉。事务保证读不到中间态。
+    pub async fn save_status(
+        pool: &SqlitePool,
+        server_id: &str,
+        statuses: &[NewForwardStatus],
+    ) -> anyhow::Result<()> {
+        let ts = now();
+        let mut tx = pool.begin().await?;
+        sqlx::query("DELETE FROM forward_status WHERE server_id = ?")
+            .bind(server_id)
+            .execute(&mut *tx)
+            .await?;
+        for status in statuses {
+            sqlx::query(
+                "INSERT INTO forward_status
+                    (server_id, forward_id, listening, error, updated_at)
+                 VALUES (?, ?, ?, ?, ?)
+                 ON CONFLICT(server_id, forward_id) DO UPDATE SET
+                    listening = excluded.listening,
+                    error = excluded.error,
+                    updated_at = excluded.updated_at",
+            )
+            .bind(server_id)
+            .bind(&status.forward_id)
+            .bind(i64::from(status.listening))
+            .bind(&status.error)
+            .bind(ts)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
     }
 }
 

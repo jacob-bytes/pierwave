@@ -5,6 +5,7 @@ pub mod backup;
 pub mod certificates;
 pub mod desired;
 pub mod enforcement;
+pub mod forwards;
 pub mod install;
 pub mod me;
 pub mod nodes;

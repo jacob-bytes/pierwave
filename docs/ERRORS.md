@@ -59,6 +59,16 @@
 | `node.cert_tls_only` | 只有 TLS 节点才能绑定证书 | — |
 | `node.cert_not_found` | 绑定的证书不存在 | — |
 | `node.cert_id_invalid` | 证书 id 不合法 | — |
+| `forward.not_found` | 转发规则不存在 | — |
+| `forward.name_required` | 转发名称不能为空 | — |
+| `forward.name_too_long` | 转发名称最多 {max} 个字符 | max |
+| `forward.listen_port_invalid` | 监听端口必须在 {min}-{max} 之间 | max, min |
+| `forward.target_port_invalid` | 目标端口必须在 {min}-{max} 之间 | max, min |
+| `forward.target_host_required` | 目标地址不能为空 | — |
+| `forward.target_host_too_long` | 目标地址最多 {max} 个字符 | max |
+| `forward.port_reserved` | 端口 {port} 是保留端口（API 10085 / SSH 22），不能用于转发 | port |
+| `forward.port_conflict_node` | 监听端口 {port} 与节点「{node}」的端口冲突 | node, port |
+| `forward.port_conflict_forward` | 监听端口 {port} 已被转发规则「{name}」占用 | name, port |
 | `certificate.not_found` | 证书不存在 | — |
 | `certificate.name_required` | 证书名称不能为空 | — |
 | `certificate.name_too_long` | 证书名称最多 {max} 个字符 | max |

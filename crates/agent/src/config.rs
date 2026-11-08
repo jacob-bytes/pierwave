@@ -42,6 +42,10 @@ pub struct Config {
     /// 流量采样间隔（秒）；生产默认 60，e2e 会调到 1
     #[serde(default = "default_stats_interval_secs")]
     pub stats_interval_secs: u64,
+    /// 端口转发的监听地址；默认监听所有网卡。
+    /// 只对内网开放转发时改成内网 IP（例如 `192.168.1.10` 或 `10.0.0.5`）。
+    #[serde(default = "default_forward_bind")]
+    pub forward_bind: String,
     /// 网络质量探测目标（TCP）。默认公共 DNS 的 443，握手即可测 RTT。
     #[serde(default = "default_probe_target")]
     pub probe_target: String,
@@ -99,6 +103,9 @@ fn default_stats_interval_secs() -> u64 {
 }
 fn default_tc_state_path() -> String {
     "/var/lib/pierwave-agent/tc-originals.json".into()
+}
+fn default_forward_bind() -> String {
+    "0.0.0.0".into()
 }
 fn default_probe_target() -> String {
     "1.1.1.1:443".into()
@@ -165,6 +172,7 @@ mod tests {
             tc_interface: None,
             tc_state_path: default_tc_state_path(),
             stats_interval_secs: default_stats_interval_secs(),
+            forward_bind: default_forward_bind(),
             probe_target: default_probe_target(),
             probe_timeout_ms: default_probe_timeout_ms(),
             probe_interval_secs: default_probe_interval_secs(),
@@ -287,6 +295,23 @@ mod tests {
         .unwrap();
         assert_eq!(parsed.tc_interface.as_deref(), Some("eth1"));
         assert_eq!(parsed.tc_state_path, "/tmp/tc-originals.json");
+    }
+
+    #[test]
+    fn forward_bind_defaults_to_all_interfaces_and_can_be_overridden() {
+        let parsed: Config =
+            toml::from_str("master_url = \"http://127.0.0.1:8787\"\ntoken = \"t\"\n").unwrap();
+        assert_eq!(
+            parsed.forward_bind, "0.0.0.0",
+            "默认监听所有网卡，行为与旧版本一致"
+        );
+
+        let parsed: Config = toml::from_str(
+            "master_url = \"http://127.0.0.1:8787\"\ntoken = \"t\"\n\
+             forward_bind = \"10.0.0.5\"\n",
+        )
+        .unwrap();
+        assert_eq!(parsed.forward_bind, "10.0.0.5", "允许只监听内网地址");
     }
 
     #[test]

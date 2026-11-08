@@ -61,6 +61,49 @@ pub struct Server {
     pub arch: String,
 }
 
+/// 一条单跳 TCP 端口转发规则。
+///
+/// `listen_port` 在同一个 `server_id` 内唯一；`enabled = 0` 的规则不开监听，
+/// 但仍保留在库里（方便随时恢复，也继续占用端口，避免恢复时才发现冲突）。
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct Forward {
+    pub id: String,
+    pub server_id: String,
+    pub name: String,
+    pub listen_port: i64,
+    pub target_host: String,
+    pub target_port: i64,
+    pub enabled: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// 心跳缓存的一行转发运行状态（原始行）。
+#[derive(Debug, Clone, FromRow)]
+pub struct ForwardStatusRow {
+    pub server_id: String,
+    pub forward_id: String,
+    pub listening: bool,
+    pub error: String,
+    pub updated_at: i64,
+}
+
+/// 合并进列表的运行时状态：心跳里没有这条规则时为 `None`。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ForwardRuntime {
+    pub listening: bool,
+    pub error: String,
+    pub updated_at: i64,
+}
+
+/// 转发列表视图：规则字段平铺，运行时状态放在 `runtime`，没有心跳时为 `null`。
+#[derive(Debug, Clone, Serialize)]
+pub struct ForwardView {
+    #[serde(flatten)]
+    pub forward: Forward,
+    pub runtime: Option<ForwardRuntime>,
+}
+
 /// 一次 Agent 自升级尝试。
 #[derive(Debug, Clone, FromRow, Serialize)]
 pub struct AgentUpgrade {

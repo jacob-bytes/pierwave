@@ -98,7 +98,7 @@ async fn handle(mut socket: WebSocket, state: AppState, base_url: String) {
                     xray: rendered.xray,
                     files: rendered.files,
                     agent_upgrade: rendered.agent_upgrade,
-                    forwards: Vec::new(), // 转发 lane 接入后改为 rendered.forwards
+                    forwards: rendered.forwards,
                     nodes: rendered.nodes,
                 });
                 if !send_json(&mut socket, &desired).await {
@@ -197,6 +197,22 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
                 repo::servers::update_health(&state.db.pool, server_id, version, &health).await
             {
                 tracing::error!(error = %e, "heartbeat write failed");
+            }
+            // 转发运行状态是观测值：每轮心跳整体覆盖该服务器的缓存。
+            // 规则本身在 forwards 表里，这里只负责「上一轮说在监听，这一轮是否还在」。
+            let forward_status: Vec<repo::forwards::NewForwardStatus> = hb
+                .forwards
+                .iter()
+                .map(|status| repo::forwards::NewForwardStatus {
+                    forward_id: status.id.clone(),
+                    listening: status.listening,
+                    error: status.error.clone(),
+                })
+                .collect();
+            if let Err(e) =
+                repo::forwards::save_status(&state.db.pool, server_id, &forward_status).await
+            {
+                tracing::error!(error = %e, "forward status write failed");
             }
             settle_agent_upgrade(state, server_id, version, time::now()).await;
             tracing::debug!(seq = hb.seq, xray = hb.xray_running, "heartbeat");
@@ -866,6 +882,97 @@ mod tests {
                 .is_none()
         );
         assert_eq!(used_bytes(&fixture.state, &fixture.user_id).await, 0);
+    }
+
+    /// 心跳里的 forwards 必须落到 forward_status，并整体覆盖上一轮；
+    /// 空心跳 = Agent 已没有转发，旧状态要被清掉。
+    #[tokio::test]
+    async fn heartbeat_forward_status_is_persisted_and_replaced() {
+        let fixture = fixture().await;
+        let (server, _) =
+            repo::servers::create(&fixture.state.db.pool, "hk-1", "1.2.3.4", "external")
+                .await
+                .unwrap();
+        let forward = repo::forwards::create(
+            &fixture.state.db.pool,
+            &server.id,
+            repo::forwards::NewForward {
+                name: "香港中转".into(),
+                listen_port: 8443,
+                target_host: "10.0.0.8".into(),
+                target_port: 443,
+                enabled: true,
+            },
+        )
+        .await
+        .unwrap();
+
+        let heartbeat =
+            |seq: u64, forwards: Vec<pierwave_proto::ForwardStatus>| pierwave_proto::Heartbeat {
+                seq,
+                agent_version: "0.5.7".into(),
+                arch: "x86_64".into(),
+                forwards,
+                latency_ms: None,
+                uptime_secs: 1,
+                load1: 0.0,
+                mem_used: 0,
+                mem_total: 0,
+                disk_used: 0,
+                disk_total: 0,
+                xray_running: true,
+                nginx_running: true,
+            };
+        let send = |seq: u64, forwards: Vec<pierwave_proto::ForwardStatus>| {
+            let message = AgentMessage::Heartbeat(heartbeat(seq, forwards));
+            let text = serde_json::to_string(&message).unwrap();
+            let state = fixture.state.clone();
+            let server_id = server.id.clone();
+            async move {
+                handle_agent_message(&state, &server_id, "0.5.7", &text).await;
+            }
+        };
+
+        send(
+            1,
+            vec![pierwave_proto::ForwardStatus {
+                id: forward.id.clone(),
+                listening: true,
+                error: String::new(),
+            }],
+        )
+        .await;
+        let views = repo::forwards::list_with_status(&fixture.state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert_eq!(views.len(), 1);
+        let runtime = views[0].runtime.as_ref().expect("第一轮心跳应有状态");
+        assert!(runtime.listening);
+        assert_eq!(runtime.error, "");
+
+        send(
+            2,
+            vec![pierwave_proto::ForwardStatus {
+                id: forward.id.clone(),
+                listening: false,
+                error: "端口已被占用".into(),
+            }],
+        )
+        .await;
+        let views = repo::forwards::list_with_status(&fixture.state.db.pool, &server.id)
+            .await
+            .unwrap();
+        let runtime = views[0].runtime.as_ref().unwrap();
+        assert!(!runtime.listening);
+        assert_eq!(runtime.error, "端口已被占用");
+
+        // 空心跳清掉缓存：规则还在，但运行状态未知。
+        send(3, Vec::new()).await;
+        let views = repo::forwards::list_with_status(&fixture.state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert_eq!(views.len(), 1);
+        assert!(views[0].runtime.is_none(), "空心跳必须清掉旧运行状态");
     }
 }
 

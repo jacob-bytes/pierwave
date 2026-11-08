@@ -10,7 +10,7 @@ use serde_json::Value;
 use pierwave_domain::certificate;
 use pierwave_domain::models::Server;
 use pierwave_domain::{credentials, release, repo, time, xray};
-use pierwave_proto::{AgentUpgradePlan, DesiredNode, ManagedFile};
+use pierwave_proto::{AgentUpgradePlan, DesiredForward, DesiredNode, ManagedFile};
 
 use crate::error::AppResult;
 use crate::state::AppState;
@@ -27,6 +27,8 @@ pub struct DesiredConfig {
     pub files: Vec<ManagedFile>,
     /// 已启用节点的限速信息；Agent 只认这个列表生成/清理 tc 规则。
     pub nodes: Vec<DesiredNode>,
+    /// 已启用的单跳 TCP 转发规则；Agent 按它收敛监听器。
+    pub forwards: Vec<DesiredForward>,
     /// 本次是否要下发 Agent 升级计划；`None` = 不升级。
     pub agent_upgrade: Option<AgentUpgradePlan>,
 }
@@ -49,6 +51,7 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
     let nodes = repo::nodes::list_enabled_by_server(&state.db.pool, &server.id).await?;
     let outbounds = repo::outbounds::list_enabled_by_server(&state.db.pool, &server.id).await?;
     let rules = repo::routing_rules::list_enabled_by_server(&state.db.pool, &server.id).await?;
+    let forwards = repo::forwards::list_enabled_by_server(&state.db.pool, &server.id).await?;
     let secret = credentials::master_secret(&state.db.pool).await?;
     let pairs = repo::authorization::eligible_pairs(&state.db.pool, &server.id).await?;
 
@@ -133,6 +136,17 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
         })
         .collect();
 
+    // 转发走裸 TCP，不需要凭据；只把 Agent 监听必需的四列带下去。
+    let desired_forwards: Vec<DesiredForward> = forwards
+        .iter()
+        .map(|forward| DesiredForward {
+            id: forward.id.clone(),
+            listen_port: forward.listen_port,
+            target_host: forward.target_host.clone(),
+            target_port: forward.target_port,
+        })
+        .collect();
+
     Ok(DesiredConfig {
         xray,
         node_count: nodes.len() - warnings.len(),
@@ -141,6 +155,7 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
         warnings,
         files,
         nodes: desired_nodes,
+        forwards: desired_forwards,
         agent_upgrade: upgrade_plan(state, server, base_url),
     })
 }
@@ -244,7 +259,7 @@ pub async fn publish(
             xray: desired.xray,
             files: desired.files,
             agent_upgrade: desired.agent_upgrade,
-            forwards: Vec::new(), // 转发 lane 接入后改为 desired.forwards
+            forwards: desired.forwards,
             nodes: desired.nodes,
         }),
     );
@@ -469,5 +484,66 @@ mod tests {
                 .is_none(),
             "未知架构不能下发升级"
         );
+    }
+
+    /// 期望态只带启用的转发；`publish` 必须原样放进 DesiredState.forwards。
+    #[tokio::test]
+    async fn desired_state_carries_only_enabled_forwards() {
+        let (state, server) = fixture(false, "", None).await;
+        let enabled = repo::forwards::create(
+            &state.db.pool,
+            &server.id,
+            repo::forwards::NewForward {
+                name: "香港中转".into(),
+                listen_port: 8443,
+                target_host: "10.0.0.8".into(),
+                target_port: 443,
+                enabled: true,
+            },
+        )
+        .await
+        .unwrap();
+        repo::forwards::create(
+            &state.db.pool,
+            &server.id,
+            repo::forwards::NewForward {
+                name: "已停用".into(),
+                listen_port: 9443,
+                target_host: "10.0.0.9".into(),
+                target_port: 443,
+                enabled: false,
+            },
+        )
+        .await
+        .unwrap();
+
+        let rendered = render(&state, &server, "https://panel.example.com")
+            .await
+            .unwrap();
+        assert_eq!(rendered.forwards.len(), 1, "停用规则不能进入期望态");
+        assert_eq!(rendered.forwards[0].id, enabled.id);
+        assert_eq!(rendered.forwards[0].listen_port, 8443);
+        assert_eq!(rendered.forwards[0].target_host, "10.0.0.8");
+        assert_eq!(rendered.forwards[0].target_port, 443);
+
+        let mut subscription = state.hub.subscribe(&server.id);
+        let outcome = publish(&state, &server, rendered).await.unwrap();
+        assert_eq!(outcome.version, 1);
+
+        let message = subscription.receiver.recv().await.unwrap();
+        match message {
+            pierwave_proto::MasterMessage::Desired(desired) => {
+                assert_eq!(
+                    desired.forwards,
+                    vec![DesiredForward {
+                        id: enabled.id,
+                        listen_port: 8443,
+                        target_host: "10.0.0.8".into(),
+                        target_port: 443,
+                    }]
+                );
+            }
+            other => panic!("expected desired state, got {other:?}"),
+        }
     }
 }

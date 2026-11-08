@@ -1,4 +1,5 @@
 mod config;
+mod forward;
 mod probe;
 mod tc;
 mod traffic;
@@ -13,8 +14,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use pierwave_proto::{
-    AgentHello, AgentMessage, AgentUpgradePlan, ApplyResult, DesiredState, Heartbeat,
-    MasterMessage, TrafficReport, PROTOCOL_VERSION,
+    AgentHello, AgentMessage, AgentUpgradePlan, ApplyResult, DesiredState, ForwardStatus,
+    Heartbeat, MasterMessage, TrafficReport, PROTOCOL_VERSION,
 };
 use tokio_tungstenite::tungstenite::Message;
 
@@ -102,6 +103,8 @@ async fn main() -> Result<()> {
         cfg.probe_timeout_ms,
         cfg.probe_interval_secs,
     );
+    // 端口转发监听跨重连常驻：断线时继续服务，重连后主控重放期望态只做空 diff。
+    let mut forward_supervisor = forward::ForwardSupervisor::new(cfg.forward_bind.clone());
     // tc 状态跨重连保留：断线期间安全阀仍要能删掉自己的 qdisc，所以单独起一个
     // 每秒检查一次的看门狗，而不是只在 websocket 的 select 循环里检查。
     let tc_manager = Arc::new(Mutex::new(tc::TcManager::new(
@@ -148,6 +151,7 @@ async fn main() -> Result<()> {
             &mut traffic_seq,
             &probe_cache,
             &tc_manager,
+            &mut forward_supervisor,
         )
         .await
         {
@@ -225,7 +229,10 @@ async fn run_once(
     traffic_seq: &mut u64,
     probe_cache: &probe::ProbeCache,
     tc_manager: &Arc<Mutex<tc::TcManager>>,
+    forwards: &mut forward::ForwardSupervisor,
 ) -> Result<()> {
+    // 心跳只拿状态的只读快照，不和收敛过程抢锁；句柄是 Arc，clone 很便宜。
+    let forward_status = forwards.status_handle();
     let url = cfg.ws_url();
     let (mut ws, _) = tokio_tungstenite::connect_async(&url)
         .await
@@ -286,7 +293,7 @@ async fn run_once(
                     Ok(MasterMessage::Desired(state)) => {
                         let applied = APPLIED_VERSION.load(Ordering::Relaxed);
                         let outcome = if should_apply(state.version, applied) {
-                            let outcome = apply_state(&state, cfg).await;
+                            let outcome = apply_state(&state, cfg, forwards).await;
                             if outcome.result.ok {
                                 APPLIED_VERSION.store(state.version, Ordering::Relaxed);
                             }
@@ -297,6 +304,10 @@ async fn run_once(
                                 applied,
                                 "desired state already applied, skipping restart"
                             );
+                            // 转发与 xray 版本无关：版本重放时也重新对齐一次。
+                            // supervisor 内部做 diff，同一份列表不会重建监听，
+                            // 但绑定失败的规则会借机重试（端口可能刚被释放）。
+                            forwards.apply(&state.forwards).await;
                             ApplyOutcome {
                                 result: ApplyResult { version: state.version, ok: true, error: None },
                                 upgraded: false,
@@ -337,6 +348,7 @@ async fn run_once(
                         anyhow::bail!("master rejected agent: {message}");
                     }
                     Ok(MasterMessage::Ping) => {
+                        let forwards = forward_status.snapshot();
                         let fallback = serde_json::json!({
                             "type": "heartbeat",
                             "seq": 0,
@@ -351,6 +363,7 @@ async fn run_once(
                             "agent_version": env!("CARGO_PKG_VERSION"),
                             "arch": std::env::consts::ARCH,
                             "latency_ms": probe_cache.load(),
+                            "forwards": forwards,
                         });
                         ws.send(Message::Text(fallback.to_string())).await.ok();
                     }
@@ -363,6 +376,7 @@ async fn run_once(
                     seq,
                     uptime_start.elapsed().as_secs(),
                     probe_cache.load(),
+                    forward_status.snapshot(),
                 ));
                 ws.send(Message::Text(serde_json::to_string(&hb)?)).await?;
                 tc_manager
@@ -409,8 +423,16 @@ async fn run_once(
     }
 }
 
-/// 收敛到期望态：其它文件原子落盘，xray 配置走「校验 → 备份 → 替换 → 重启」，失败回滚。
-async fn apply_state(state: &DesiredState, cfg: &Config) -> ApplyOutcome {
+/// 收敛到期望态：转发监听先对齐（与 xray 成败无关），其它文件原子落盘，
+/// xray 配置走「校验 → 备份 → 替换 → 重启」，失败回滚。
+async fn apply_state(
+    state: &DesiredState,
+    cfg: &Config,
+    forwards: &mut forward::ForwardSupervisor,
+) -> ApplyOutcome {
+    // 转发是独立于 xray 的收敛项：先对齐监听，再处理 xray。
+    // 单条绑定失败只体现在 ForwardStatus 里，不会把整次 apply 判失败。
+    forwards.apply(&state.forwards).await;
     let backup_suffix = match cfg.backup_suffix.as_deref() {
         Some(s) if !s.is_empty() => s,
         _ => DEFAULT_BACKUP_SUFFIX,
@@ -692,7 +714,12 @@ fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
-fn sample_heartbeat(seq: u64, uptime_secs: u64, latency_ms: Option<u32>) -> Heartbeat {
+fn sample_heartbeat(
+    seq: u64,
+    uptime_secs: u64,
+    latency_ms: Option<u32>,
+    forwards: Vec<ForwardStatus>,
+) -> Heartbeat {
     let (load1, mem_used, mem_total) = read_load_and_mem();
     let disk = read_disk();
     Heartbeat {
@@ -700,7 +727,7 @@ fn sample_heartbeat(seq: u64, uptime_secs: u64, latency_ms: Option<u32>) -> Hear
         agent_version: env!("CARGO_PKG_VERSION").to_string(),
         arch: std::env::consts::ARCH.to_string(),
         latency_ms,
-        forwards: Vec::new(), // 转发 lane 接入后填真实监听状态
+        forwards,
         uptime_secs,
         load1,
         mem_used,
@@ -831,13 +858,20 @@ mod tests {
 
     #[test]
     fn heartbeat_reports_cpu_arch_and_probe_latency() {
-        let hb = sample_heartbeat(1, 2, Some(23));
+        let forwards = vec![ForwardStatus {
+            id: "fwd".into(),
+            listening: true,
+            error: String::new(),
+        }];
+        let hb = sample_heartbeat(1, 2, Some(23), forwards.clone());
         assert_eq!(hb.arch, std::env::consts::ARCH);
         assert!(!hb.arch.is_empty(), "主控靠心跳里的 arch 选升级产物");
         assert_eq!(hb.latency_ms, Some(23), "心跳应带上缓存的探测结果");
+        assert_eq!(hb.forwards, forwards, "心跳应带上每条转发的监听状态");
 
-        let missing = sample_heartbeat(1, 2, None);
+        let missing = sample_heartbeat(1, 2, None, Vec::new());
         assert_eq!(missing.latency_ms, None, "探测失败必须上报 null");
+        assert!(missing.forwards.is_empty());
     }
 
     #[test]
@@ -984,6 +1018,64 @@ mod tests {
         assert_eq!(
             with_suffix(Path::new("/etc/xray/config.json"), ".new"),
             PathBuf::from("/etc/xray/config.json.new")
+        );
+    }
+
+    /// 接线测试：期望态里的 forwards 要经 apply_state 落到 supervisor，
+    /// 空列表要停掉监听，心跳从状态句柄读到同一份结果。
+    #[tokio::test]
+    async fn apply_state_converges_forward_listeners_into_heartbeat() {
+        let dir = TempDir::new();
+        let toml = format!(
+            "master_url = \"http://127.0.0.1:8787\"\n\
+             token = \"t\"\n\
+             xray_config_path = \"{}\"\n\
+             xray_test_command = \"true\"\n\
+             restart_command = \"true\"\n",
+            dir.path().join("config.json").display()
+        );
+        let cfg: Config = toml::from_str(&toml).unwrap();
+        let mut supervisor = forward::ForwardSupervisor::new("127.0.0.1");
+
+        let forward = pierwave_proto::DesiredForward {
+            id: "f1".into(),
+            // 0 交给内核选端口，测试不关心具体值，只要真的绑上。
+            listen_port: 0,
+            target_host: "127.0.0.1".into(),
+            target_port: 1,
+        };
+        let state = DesiredState {
+            version: 1,
+            xray: serde_json::json!({}),
+            files: Vec::new(),
+            agent_upgrade: None,
+            forwards: vec![forward],
+            nodes: Vec::new(),
+        };
+
+        let outcome = apply_state(&state, &cfg, &mut supervisor).await;
+        assert!(outcome.result.ok, "转发监听不应影响 xray 应用结果");
+
+        let status = supervisor.status_handle().snapshot();
+        assert_eq!(status.len(), 1);
+        assert_eq!(status[0].id, "f1");
+        assert!(status[0].listening);
+        assert!(status[0].error.is_empty());
+
+        let hb = sample_heartbeat(1, 0, None, supervisor.status_handle().snapshot());
+        assert_eq!(hb.forwards, status, "心跳必须带上 supervisor 的监听状态");
+
+        // 空 forwards = 停止所有监听。
+        let state = DesiredState {
+            version: 2,
+            forwards: Vec::new(),
+            ..state
+        };
+        let outcome = apply_state(&state, &cfg, &mut supervisor).await;
+        assert!(outcome.result.ok);
+        assert!(
+            supervisor.status_handle().snapshot().is_empty(),
+            "空期望列表必须停掉全部转发监听"
         );
     }
 }
