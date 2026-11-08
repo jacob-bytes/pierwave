@@ -72,6 +72,9 @@ type Category =
   | "node"
   | "certificate"
   | "rule_template"
+  | "chain"
+  | "forward"
+  | "backup"
   | "system";
 
 type Tone = "primary" | "destructive" | "warning" | "muted";
@@ -90,7 +93,10 @@ const CATEGORY_ACTION_PREFIX: Record<Exclude<Category, "all">, string> = {
   node: "node",
   certificate: "certificate",
   rule_template: "rule_template",
-  system: "settings,password,config.apply",
+  chain: "chain",
+  forward: "forward",
+  backup: "backup",
+  system: "settings,password,config.apply,agent.upgrade",
 };
 
 const CATEGORIES: { value: Category; labelKey: string }[] = [
@@ -101,6 +107,9 @@ const CATEGORIES: { value: Category; labelKey: string }[] = [
   { value: "node", labelKey: "audit.category.node" },
   { value: "certificate", labelKey: "audit.category.certificate" },
   { value: "rule_template", labelKey: "audit.category.ruleTemplate" },
+  { value: "chain", labelKey: "audit.category.chain" },
+  { value: "forward", labelKey: "audit.category.forward" },
+  { value: "backup", labelKey: "audit.category.backup" },
   { value: "system", labelKey: "audit.category.system" },
 ];
 
@@ -109,6 +118,18 @@ const CATEGORIES: { value: Category; labelKey: string }[] = [
  * 新增 action 时只需要在这里补一行，并在两个词典里补对应文案。
  */
 const actionLabelKeys: Record<string, string> = {
+  "agent.upgrade.batch": "audit.action.agent_upgrade_batch",
+  "agent.upgrade": "audit.action.agent_upgrade",
+  "backup.export": "audit.action.backup_export",
+  "backup.restore.schedule": "audit.action.backup_restore_schedule",
+  "backup.restore.cancel": "audit.action.backup_restore_cancel",
+  "backup.restore.apply": "audit.action.backup_restore_apply",
+  "chain.create": "audit.action.chain_create",
+  "chain.update": "audit.action.chain_update",
+  "chain.delete": "audit.action.chain_delete",
+  "forward.create": "audit.action.forward_create",
+  "forward.update": "audit.action.forward_update",
+  "forward.delete": "audit.action.forward_delete",
   "user.create": "audit.action.userCreate",
   "user.update": "audit.action.userUpdate",
   "user.delete": "audit.action.userDelete",
@@ -590,7 +611,7 @@ function SearchField({
   ariaLabel: string;
 }) {
   return (
-    <div className="relative w-full sm:w-56">
+    <div className="relative w-48 shrink-0">
       <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
       <Input
         value={value}
@@ -686,7 +707,8 @@ export function AuditPanel() {
               ) : null}
             </CardTitle>
 
-            <div className="flex flex-wrap items-center gap-2">
+            {/* 控件同行排列：标题在左、三个控件在右，窄屏才换行 */}
+            <div className="flex items-center gap-2">
               <SearchField
                 value={actorInput}
                 onChange={setActorInput}
