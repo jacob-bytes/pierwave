@@ -24,6 +24,17 @@ pub const MIN_AGENT_UPGRADE_CONCURRENCY: i64 = 1;
 pub const MAX_AGENT_UPGRADE_CONCURRENCY: i64 = 5;
 /// 公开状态页总开关：默认开启；0 = 关闭（接口返回 404）。
 pub const DEFAULT_PUBLIC_STATUS_ENABLED: i64 = 1;
+/// 默认开启的三类告警；升级失败默认关闭（噪音较大，且升级本身有 UI 状态）。
+pub const DEFAULT_ALERT_EVENTS: &str = "server_offline,user_exhausted,chain_degraded";
+/// 同类告警默认冷却 600 秒；0 = 不去抖。
+pub const DEFAULT_ALERT_COOLDOWN_SECS: i64 = 600;
+pub const MIN_ALERT_COOLDOWN_SECS: i64 = 0;
+pub const MAX_ALERT_COOLDOWN_SECS: i64 = 86_400;
+
+pub const MAX_TELEGRAM_TOKEN_CHARS: usize = 256;
+pub const MAX_TELEGRAM_CHAT_ID_CHARS: usize = 128;
+pub const MAX_WEBHOOK_URL_CHARS: usize = 2048;
+pub const MAX_ALERT_EVENTS_CHARS: usize = 256;
 
 const PANEL_NAME_KEY: &str = "panel_name";
 const LOGIN_MAX_ATTEMPTS_KEY: &str = "login_max_attempts";
@@ -31,6 +42,11 @@ const LOGIN_LOCK_SECS_KEY: &str = "login_lock_secs";
 const SESSION_TTL_HOURS_KEY: &str = "session_ttl_hours";
 const AGENT_UPGRADE_CONCURRENCY_KEY: &str = "agent_upgrade_concurrency";
 const PUBLIC_STATUS_ENABLED_KEY: &str = "public_status_enabled";
+pub const TELEGRAM_BOT_TOKEN_KEY: &str = "telegram_bot_token";
+pub const TELEGRAM_CHAT_ID_KEY: &str = "telegram_chat_id";
+pub const WEBHOOK_URL_KEY: &str = "webhook_url";
+pub const ALERT_EVENTS_KEY: &str = "alert_events";
+pub const ALERT_COOLDOWN_SECS_KEY: &str = "alert_cooldown_secs";
 
 /// 设置页的白名单键；新增键必须同时改这里和 `docs/PLAN.md`。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,6 +58,16 @@ pub struct Settings {
     pub agent_upgrade_concurrency: i64,
     /// 0 = 关闭公开状态页；1 = 开启。
     pub public_status_enabled: i64,
+    /// 空 = 不启用 Telegram。
+    pub telegram_bot_token: String,
+    /// 空 = 不启用 Telegram；与 token 必须同时配置。
+    pub telegram_chat_id: String,
+    /// 空 = 不启用 Webhook。
+    pub webhook_url: String,
+    /// 逗号分隔的事件名；规范化后存储（去重、固定顺序）。
+    pub alert_events: String,
+    /// 同类告警冷却秒数；0 = 不去抖。
+    pub alert_cooldown_secs: i64,
 }
 
 impl Default for Settings {
@@ -53,6 +79,11 @@ impl Default for Settings {
             session_ttl_hours: DEFAULT_SESSION_TTL_HOURS,
             agent_upgrade_concurrency: DEFAULT_AGENT_UPGRADE_CONCURRENCY,
             public_status_enabled: DEFAULT_PUBLIC_STATUS_ENABLED,
+            telegram_bot_token: String::new(),
+            telegram_chat_id: String::new(),
+            webhook_url: String::new(),
+            alert_events: DEFAULT_ALERT_EVENTS.to_string(),
+            alert_cooldown_secs: DEFAULT_ALERT_COOLDOWN_SECS,
         }
     }
 }
@@ -70,6 +101,11 @@ impl Settings {
             "session_ttl_hours": self.session_ttl_hours,
             "agent_upgrade_concurrency": self.agent_upgrade_concurrency,
             "public_status_enabled": self.public_status_enabled,
+            "telegram_bot_token": self.telegram_bot_token,
+            "telegram_chat_id": self.telegram_chat_id,
+            "webhook_url": self.webhook_url,
+            "alert_events": self.alert_events,
+            "alert_cooldown_secs": self.alert_cooldown_secs,
         })
     }
 }
@@ -119,6 +155,26 @@ pub async fn load(pool: &SqlitePool) -> Settings {
             defaults.public_status_enabled,
         )
         .await,
+        telegram_bot_token: read_text(pool, TELEGRAM_BOT_TOKEN_KEY, "", normalize_telegram_token)
+            .await,
+        telegram_chat_id: read_text(pool, TELEGRAM_CHAT_ID_KEY, "", normalize_telegram_chat_id)
+            .await,
+        webhook_url: read_text(pool, WEBHOOK_URL_KEY, "", normalize_webhook_url).await,
+        alert_events: read_text(
+            pool,
+            ALERT_EVENTS_KEY,
+            DEFAULT_ALERT_EVENTS,
+            normalize_alert_events,
+        )
+        .await,
+        alert_cooldown_secs: read_int(
+            pool,
+            ALERT_COOLDOWN_SECS_KEY,
+            MIN_ALERT_COOLDOWN_SECS,
+            MAX_ALERT_COOLDOWN_SECS,
+            defaults.alert_cooldown_secs,
+        )
+        .await,
     }
 }
 
@@ -137,6 +193,26 @@ async fn read_panel_name(pool: &SqlitePool) -> String {
         Err(error) => {
             tracing::warn!(error = %error, "读取 panel_name 失败，使用默认值");
             DEFAULT_PANEL_NAME.to_string()
+        }
+    }
+}
+
+/// 读取文本设置：缺失用默认值；库里的值不合法时也回落默认值并告警。
+async fn read_text(
+    pool: &SqlitePool,
+    key: &str,
+    default: &str,
+    normalize: fn(&str) -> Result<String, String>,
+) -> String {
+    match repo::settings::get(pool, key).await {
+        Ok(Some(raw)) => normalize(&raw).unwrap_or_else(|error| {
+            tracing::warn!(key, %error, "settings 值非法，使用默认值");
+            default.to_string()
+        }),
+        Ok(None) => default.to_string(),
+        Err(error) => {
+            tracing::warn!(key, error = %error, "读取设置失败，使用默认值");
+            default.to_string()
         }
     }
 }
@@ -215,6 +291,52 @@ pub async fn update(
                 PUBLIC_STATUS_ENABLED_KEY,
                 validate_int("公开状态页开关（0 关闭 / 1 开启）", value, 0, 1)?.to_string(),
             )),
+            TELEGRAM_BOT_TOKEN_KEY => updates.push((
+                TELEGRAM_BOT_TOKEN_KEY,
+                validate_text(
+                    "Telegram Bot Token",
+                    value,
+                    "settings.telegram_bot_token_invalid",
+                    normalize_telegram_token,
+                )?,
+            )),
+            TELEGRAM_CHAT_ID_KEY => updates.push((
+                TELEGRAM_CHAT_ID_KEY,
+                validate_text(
+                    "Telegram Chat ID",
+                    value,
+                    "settings.telegram_chat_id_invalid",
+                    normalize_telegram_chat_id,
+                )?,
+            )),
+            WEBHOOK_URL_KEY => updates.push((
+                WEBHOOK_URL_KEY,
+                validate_text(
+                    "Webhook URL",
+                    value,
+                    "settings.webhook_url_invalid",
+                    normalize_webhook_url,
+                )?,
+            )),
+            ALERT_EVENTS_KEY => updates.push((
+                ALERT_EVENTS_KEY,
+                validate_text(
+                    "告警事件列表",
+                    value,
+                    "settings.alert_events_invalid",
+                    normalize_alert_events,
+                )?,
+            )),
+            ALERT_COOLDOWN_SECS_KEY => updates.push((
+                ALERT_COOLDOWN_SECS_KEY,
+                validate_int(
+                    "告警冷却时间（秒）",
+                    value,
+                    MIN_ALERT_COOLDOWN_SECS,
+                    MAX_ALERT_COOLDOWN_SECS,
+                )?
+                .to_string(),
+            )),
             other => {
                 return Err(AppError::coded(
                     "settings.unknown_key",
@@ -257,6 +379,86 @@ fn validate_panel_name(value: &Value) -> AppResult<String> {
         ));
     }
     Ok(name.to_string())
+}
+
+fn validate_text(
+    label: &str,
+    value: &Value,
+    code: &'static str,
+    normalize: fn(&str) -> Result<String, String>,
+) -> AppResult<String> {
+    let raw = value
+        .as_str()
+        .ok_or_else(|| AppError::coded(code, None, format!("{label}必须是字符串")))?;
+    normalize(raw).map_err(|message| AppError::coded(code, None, message))
+}
+
+/// 空值 = 不启用；非空 token 只约束长度与空白，避免把合法字符集写死。
+fn normalize_telegram_token(raw: &str) -> Result<String, String> {
+    let token = raw.trim();
+    if token.chars().count() > MAX_TELEGRAM_TOKEN_CHARS {
+        return Err(format!(
+            "Telegram Bot Token 最多 {MAX_TELEGRAM_TOKEN_CHARS} 个字符"
+        ));
+    }
+    if token
+        .chars()
+        .any(|character| character.is_whitespace() || character.is_control())
+    {
+        return Err("Telegram Bot Token 不能包含空白或控制字符".to_string());
+    }
+    Ok(token.to_string())
+}
+
+fn normalize_telegram_chat_id(raw: &str) -> Result<String, String> {
+    let chat_id = raw.trim();
+    if chat_id.chars().count() > MAX_TELEGRAM_CHAT_ID_CHARS {
+        return Err(format!(
+            "Telegram Chat ID 最多 {MAX_TELEGRAM_CHAT_ID_CHARS} 个字符"
+        ));
+    }
+    if chat_id
+        .chars()
+        .any(|character| character.is_whitespace() || character.is_control())
+    {
+        return Err("Telegram Chat ID 不能包含空白或控制字符".to_string());
+    }
+    Ok(chat_id.to_string())
+}
+
+fn normalize_webhook_url(raw: &str) -> Result<String, String> {
+    let url = raw.trim();
+    if url.is_empty() {
+        return Ok(String::new());
+    }
+    if url.chars().count() > MAX_WEBHOOK_URL_CHARS {
+        return Err(format!("Webhook URL 最多 {MAX_WEBHOOK_URL_CHARS} 个字符"));
+    }
+    let rest = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"));
+    let Some(rest) = rest else {
+        return Err("Webhook URL 必须以 http:// 或 https:// 开头".to_string());
+    };
+    if url
+        .chars()
+        .any(|character| character.is_whitespace() || character.is_control())
+    {
+        return Err("Webhook URL 不能包含空白或控制字符".to_string());
+    }
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if host.is_empty() {
+        return Err("Webhook URL 缺少主机名".to_string());
+    }
+    Ok(url.to_string())
+}
+
+fn normalize_alert_events(raw: &str) -> Result<String, String> {
+    if raw.chars().count() > MAX_ALERT_EVENTS_CHARS {
+        return Err(format!("告警事件列表最多 {MAX_ALERT_EVENTS_CHARS} 个字符"));
+    }
+    let events = crate::alerts::parse_alert_events(raw)?;
+    Ok(crate::alerts::format_alert_events(&events))
 }
 
 fn validate_int(label: &str, value: &Value, min: i64, max: i64) -> AppResult<i64> {
@@ -594,6 +796,136 @@ mod tests {
             3600,
             "服务端会话有效期必须是 1 小时"
         );
+    }
+
+    #[tokio::test]
+    async fn alert_settings_default_and_round_trip() {
+        let (app, _state, admin, _bob) = setup().await;
+
+        let (_, _, body) = request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(body["items"]["telegram_bot_token"], "");
+        assert_eq!(body["items"]["telegram_chat_id"], "");
+        assert_eq!(body["items"]["webhook_url"], "");
+        assert_eq!(
+            body["items"]["alert_events"], "server_offline,user_exhausted,chain_degraded",
+            "升级失败默认不开启"
+        );
+        assert_eq!(body["items"]["alert_cooldown_secs"], 600);
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({
+                "telegram_bot_token": "  123456:ABC-def_ghi  ",
+                "telegram_chat_id": "  -1001234567890  ",
+                "webhook_url": "  https://example.test/hooks/pierwave  ",
+                "alert_events": " upgrade_failed, server_offline, server_offline ",
+                "alert_cooldown_secs": 0,
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["items"]["telegram_bot_token"], "123456:ABC-def_ghi");
+        assert_eq!(body["items"]["telegram_chat_id"], "-1001234567890");
+        assert_eq!(
+            body["items"]["webhook_url"],
+            "https://example.test/hooks/pierwave"
+        );
+        assert_eq!(
+            body["items"]["alert_events"], "server_offline,upgrade_failed",
+            "事件列表要 trim、去重并固定顺序"
+        );
+        assert_eq!(body["items"]["alert_cooldown_secs"], 0);
+
+        // 上限 86400 合法；空事件列表表示全部关闭，空渠道表示不启用。
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({
+                "telegram_bot_token": "",
+                "telegram_chat_id": "",
+                "webhook_url": "",
+                "alert_events": "",
+                "alert_cooldown_secs": 86400,
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["items"]["alert_events"], "");
+        assert_eq!(body["items"]["alert_cooldown_secs"], 86400);
+        assert_eq!(body["items"]["webhook_url"], "");
+    }
+
+    #[tokio::test]
+    async fn invalid_alert_settings_are_rejected() {
+        let (app, _state, admin, _bob) = setup().await;
+
+        let cases = [
+            json!({"telegram_bot_token": "a b"}),
+            json!({"telegram_bot_token": "x".repeat(MAX_TELEGRAM_TOKEN_CHARS + 1)}),
+            json!({"telegram_bot_token": 123}),
+            json!({"telegram_chat_id": "a b"}),
+            json!({"telegram_chat_id": "x".repeat(MAX_TELEGRAM_CHAT_ID_CHARS + 1)}),
+            json!({"webhook_url": "ftp://example.test/hook"}),
+            json!({"webhook_url": "example.test/hook"}),
+            json!({"webhook_url": "http://"}),
+            json!({"webhook_url": "https://exa mple.test/hook"}),
+            json!({"webhook_url": "x".repeat(MAX_WEBHOOK_URL_CHARS + 1)}),
+            json!({"alert_events": "server_offline,nope"}),
+            json!({"alert_events": "x".repeat(MAX_ALERT_EVENTS_CHARS + 1)}),
+            json!({"alert_cooldown_secs": -1}),
+            json!({"alert_cooldown_secs": 86401}),
+            json!({"alert_cooldown_secs": "600"}),
+        ];
+        for bad in cases {
+            let (status, _, body) = request(
+                &app,
+                Some(&admin),
+                Method::PATCH,
+                "/api/v1/settings",
+                Some(bad.clone()),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "payload: {bad}");
+            assert!(!body["error"].as_str().unwrap().is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn corrupt_alert_settings_fall_back_to_defaults_on_read() {
+        let (app, state, admin, _bob) = setup().await;
+
+        for (key, value) in [
+            ("telegram_bot_token", "bad token"),
+            ("telegram_chat_id", "bad chat id"),
+            ("webhook_url", "ftp://example.test/hook"),
+            ("alert_events", "server_offline,wat"),
+            ("alert_cooldown_secs", "999999"),
+        ] {
+            repo::settings::set(&state.db.pool, key, value)
+                .await
+                .unwrap();
+        }
+
+        let settings = load(&state.db.pool).await;
+        assert_eq!(settings.telegram_bot_token, "");
+        assert_eq!(settings.telegram_chat_id, "");
+        assert_eq!(settings.webhook_url, "");
+        assert_eq!(settings.alert_events, DEFAULT_ALERT_EVENTS);
+        assert_eq!(settings.alert_cooldown_secs, DEFAULT_ALERT_COOLDOWN_SECS);
+
+        // 空事件列表是合法值，不能被回落成默认（否则「全部关闭」失效）。
+        repo::settings::set(&state.db.pool, "alert_events", "")
+            .await
+            .unwrap();
+        assert_eq!(load(&state.db.pool).await.alert_events, "");
+
+        let (_, _, body) = request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(body["items"]["alert_events"], "");
     }
 
     #[tokio::test]

@@ -8,6 +8,7 @@ use pierwave_proto::MasterMessage;
 use serde_json::Value;
 use tokio::sync::broadcast;
 
+use crate::alerts::Alerts;
 use crate::enforcement::Enforcer;
 use crate::throttle::LoginThrottle;
 
@@ -217,6 +218,8 @@ pub struct AppState {
     pub latest_version: LatestVersionCache,
     /// 公开状态页结果缓存（30 秒）。
     pub public_status: PublicStatusCache,
+    /// 告警去抖状态 + 投递器；未配置渠道时所有通知都是 no-op。
+    pub alerts: Alerts,
 }
 
 impl AppState {
@@ -230,6 +233,7 @@ impl AppState {
             agent_release: AgentReleaseConfig::from_env(),
             latest_version: LatestVersionCache::default(),
             public_status: PublicStatusCache::default(),
+            alerts: Alerts::default(),
         }
     }
 

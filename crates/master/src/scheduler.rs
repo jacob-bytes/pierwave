@@ -62,6 +62,17 @@ pub async fn run_upgrade_sweep(state: &AppState) -> anyhow::Result<Vec<String>> 
     .await?;
     for server_id in &expired {
         tracing::warn!(server_id, "Agent 升级超时，已标记失败并清空目标版本");
+        // 告警是旁路；同一台机器短时间内重复超时由 alerts 的冷却窗口兜底。
+        crate::alerts::notify(
+            state,
+            crate::alerts::AlertKind::UpgradeFailed,
+            server_id,
+            "Agent 升级失败 / Agent upgrade failed",
+            &format!(
+                "服务器 {server_id} 的 Agent 升级超时，已标记失败 / Agent upgrade on server {server_id} timed out and was marked failed"
+            ),
+        )
+        .await;
     }
     Ok(expired)
 }
@@ -415,9 +426,13 @@ pub fn spawn_enforcement_reconcile(state: AppState) -> tokio::task::JoinHandle<(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
 
     use pierwave_domain::Db;
+
+    use crate::alerts::{Alerts, RecordingTransport};
 
     async fn setup_with_expired_session(valid_session: bool) -> AppState {
         let db = Db::connect("sqlite::memory:").await.unwrap();
@@ -809,6 +824,47 @@ mod tests {
             .await
             .unwrap();
         assert!(detail[0].error.contains("超时"), "{}", detail[0].error);
+    }
+
+    /// 超时巡检标记 failed 时也要发 UpgradeFailed 告警。
+    #[tokio::test]
+    async fn timed_out_upgrade_sends_upgrade_failed_alert() {
+        let mut state = setup_batch_state().await;
+        let transport = Arc::new(RecordingTransport::default());
+        state.alerts = Alerts::new(transport.clone());
+        repo::settings::set(&state.db.pool, "webhook_url", "https://example.test/hook")
+            .await
+            .unwrap();
+        repo::settings::set(&state.db.pool, "alert_events", "upgrade_failed")
+            .await
+            .unwrap();
+        repo::settings::set(&state.db.pool, "alert_cooldown_secs", "0")
+            .await
+            .unwrap();
+
+        let server_id = seed_upgrade_server(&state, "a", "0.5.0").await;
+        repo::servers::set_agent_target_version(&state.db.pool, &server_id, Some("0.6.0"))
+            .await
+            .unwrap();
+        let upgrade = repo::agent_upgrades::create(&state.db.pool, &server_id, "0.5.0", "0.6.0")
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE agent_upgrades SET created_at = created_at - 2000, updated_at = updated_at - 2000 WHERE id = ?",
+        )
+        .bind(&upgrade.id)
+        .execute(&state.db.pool)
+        .await
+        .unwrap();
+
+        assert_eq!(
+            run_upgrade_sweep(&state).await.unwrap(),
+            vec![server_id.clone()]
+        );
+
+        let sent = transport.wait_for(1).await;
+        assert_eq!(sent[0].kind, "upgrade_failed");
+        assert_eq!(sent[0].target, server_id);
     }
 
     // ---- 探针采样 ----

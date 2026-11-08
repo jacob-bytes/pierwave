@@ -159,6 +159,18 @@ async fn handle(mut socket: WebSocket, state: AppState, base_url: String) {
         tracing::error!(error = %e, "mark_offline failed");
     }
     tracing::info!(server = %server.name, "agent disconnected");
+    // 告警是旁路：notify 内部吞掉所有错误，且投递在独立任务里，不会影响断开流程。
+    crate::alerts::notify(
+        &state,
+        crate::alerts::AlertKind::ServerOffline,
+        &server.id,
+        "服务器离线 / Server offline",
+        &format!(
+            "服务器 {} 的 Agent 连接已断开 / Agent connection for {} was closed",
+            server.name, server.name
+        ),
+    )
+    .await;
 }
 
 async fn send_json(socket: &mut WebSocket, message: &MasterMessage) -> bool {
@@ -210,10 +222,54 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
                     target_ok: status.target_ok,
                 })
                 .collect();
-            if let Err(e) =
-                repo::forwards::save_status(&state.db.pool, server_id, &forward_status).await
+            // 链降级是「状态跃迁」事件：save 前后各算一次，只在 false → true 时通知。
+            // 读失败只 warn，不影响心跳落库。
+            let chains_before = match super::chains::degradation_for_server(state, server_id).await
             {
-                tracing::error!(error = %e, "forward status write failed");
+                Ok(map) => map,
+                Err(error) => {
+                    tracing::warn!(error = %error, "读取链降级状态失败（心跳前）");
+                    Default::default()
+                }
+            };
+            let status_saved =
+                match repo::forwards::save_status(&state.db.pool, server_id, &forward_status).await
+                {
+                    Ok(()) => true,
+                    Err(e) => {
+                        tracing::error!(error = %e, "forward status write failed");
+                        false
+                    }
+                };
+            if status_saved {
+                match super::chains::degradation_for_server(state, server_id).await {
+                    Ok(chains_after) => {
+                        for (chain_id, (chain_name, degraded)) in chains_after {
+                            if !degraded {
+                                continue;
+                            }
+                            let was_degraded = chains_before
+                                .get(&chain_id)
+                                .is_some_and(|(_, before)| *before);
+                            if was_degraded {
+                                continue;
+                            }
+                            crate::alerts::notify(
+                                state,
+                                crate::alerts::AlertKind::ChainDegraded,
+                                &chain_id,
+                                "转发链降级 / Relay chain degraded",
+                                &format!(
+                                    "链 {chain_name} 连续 2 次探测目标不可达，已标记降级 / Chain {chain_name} is degraded after 2 consecutive failed probes"
+                                ),
+                            )
+                            .await;
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(error = %error, "读取链降级状态失败（心跳后）")
+                    }
+                }
             }
             settle_agent_upgrade(state, server_id, version, time::now()).await;
             tracing::debug!(seq = hb.seq, xray = hb.xray_running, "heartbeat");
@@ -558,8 +614,12 @@ fn saturating_i64(value: u64) -> i64 {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use pierwave_domain::models::UserPackageView;
     use pierwave_domain::Db;
+
+    use crate::alerts::{Alerts, RecordingTransport};
 
     use super::*;
     use pierwave_proto::TrafficDelta;
@@ -985,11 +1045,109 @@ mod tests {
         assert_eq!(views.len(), 1);
         assert!(views[0].runtime.is_none(), "空心跳必须清掉旧运行状态");
     }
+
+    /// 链降级只在 false → true 的跃迁时告警；恢复后再次降级会再发一次。
+    #[tokio::test]
+    async fn chain_degradation_alerts_only_on_transition() {
+        let mut fixture = fixture().await;
+        let transport = Arc::new(RecordingTransport::default());
+        fixture.state.alerts = Alerts::new(transport.clone());
+        repo::settings::set(
+            &fixture.state.db.pool,
+            "webhook_url",
+            "https://example.test/hook",
+        )
+        .await
+        .unwrap();
+        // 测试要验证「跃迁去重」，不能靠冷却窗口掩盖重复发送。
+        repo::settings::set(&fixture.state.db.pool, "alert_cooldown_secs", "0")
+            .await
+            .unwrap();
+
+        let (server, _token) =
+            repo::servers::create(&fixture.state.db.pool, "hk-1", "1.2.3.4", "external")
+                .await
+                .unwrap();
+        let chain = repo::chains::create(
+            &fixture.state.db.pool,
+            repo::chains::NewChain {
+                name: "relay".into(),
+                target_host: "10.0.0.9".into(),
+                target_port: 443,
+                enabled: true,
+                hops: vec![repo::chains::NewChainHop {
+                    server_id: server.id.clone(),
+                    listen_port: 8443,
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        let forward_id = pierwave_domain::chains::forward_id(&chain.chain.id, 0);
+
+        let send = |seq: u64, target_ok: bool| {
+            let heartbeat = pierwave_proto::Heartbeat {
+                seq,
+                agent_version: "0.5.7".into(),
+                arch: "x86_64".into(),
+                forwards: vec![pierwave_proto::ForwardStatus {
+                    id: forward_id.clone(),
+                    listening: true,
+                    error: String::new(),
+                    target_ok: Some(target_ok),
+                }],
+                latency_ms: None,
+                uptime_secs: 1,
+                load1: 0.0,
+                mem_used: 0,
+                mem_total: 0,
+                disk_used: 0,
+                disk_total: 0,
+                xray_running: true,
+                nginx_running: true,
+            };
+            let text = serde_json::to_string(&AgentMessage::Heartbeat(heartbeat)).unwrap();
+            let state = fixture.state.clone();
+            let server_id = server.id.clone();
+            async move {
+                handle_agent_message(&state, &server_id, "0.5.7", &text).await;
+            }
+        };
+
+        // 第一次失败：未达降级阈值，不发。
+        send(1, false).await;
+        transport
+            .assert_no_more(0, std::time::Duration::from_millis(100))
+            .await;
+
+        // 第二次连续失败：false → true，必须发一条。
+        send(2, false).await;
+        let sent = transport.wait_for(1).await;
+        assert_eq!(sent[0].kind, "chain_degraded");
+        assert_eq!(sent[0].target, chain.chain.id);
+
+        // 仍然降级：每次心跳都发就是刷屏，必须不发。
+        send(3, false).await;
+        transport
+            .assert_no_more(1, std::time::Duration::from_millis(100))
+            .await;
+
+        // 恢复 → 再次连续失败：这是新的跃迁，应该再发一条。
+        send(4, true).await;
+        transport
+            .assert_no_more(1, std::time::Duration::from_millis(100))
+            .await;
+        send(5, false).await;
+        send(6, false).await;
+        let sent = transport.wait_for(2).await;
+        assert_eq!(sent[1].kind, "chain_degraded");
+    }
 }
 
 /// 断流（enforcement）集成测试：流量上报 → 跨边界 → 去抖 apply → 配置里没有该用户。
 #[cfg(test)]
 mod enforcement_tests {
+    use std::sync::Arc;
     use std::time::Duration;
 
     use serde_json::json;
@@ -1001,6 +1159,7 @@ mod enforcement_tests {
     use pierwave_proto::{MasterMessage, TrafficDelta, TrafficReport};
 
     use super::*;
+    use crate::alerts::{Alerts, RecordingTransport};
 
     struct Fixture {
         state: AppState,
@@ -1171,7 +1330,16 @@ mod enforcement_tests {
 
     #[tokio::test]
     async fn exhausting_quota_triggers_one_apply_without_the_client() {
-        let fixture = fixture(Duration::from_millis(80)).await;
+        let mut fixture = fixture(Duration::from_millis(80)).await;
+        let transport = Arc::new(RecordingTransport::default());
+        fixture.state.alerts = Alerts::new(transport.clone());
+        repo::settings::set(
+            &fixture.state.db.pool,
+            "webhook_url",
+            "https://example.test/hook",
+        )
+        .await
+        .unwrap();
         let user_id = add_user(&fixture.state, "alice").await;
         add_package(&fixture.state, &user_id, Some(1000), None).await;
         init_desired(&fixture).await;
@@ -1223,6 +1391,11 @@ mod enforcement_tests {
             "{}",
             events[0].message
         );
+
+        // 移除用户时同步发 UserExhausted 告警（投递在独立任务里）。
+        let sent = transport.wait_for(1).await;
+        assert_eq!(sent[0].kind, "user_exhausted");
+        assert_eq!(sent[0].target, user_id);
 
         // 已经不可用之后再上报：不得重复触发 apply / 事件。
         record_traffic(

@@ -317,6 +317,37 @@ fn chain_json(chain: &ChainWithHops, statuses: &HashMap<String, ForwardStatusRow
     })
 }
 
+/// 指定服务器参与的链的整体降级状态：`chain_id -> (链名, 是否降级)`。
+///
+/// 心跳处理用它在 `save_status` 前后各算一次，只有 false → true 的跃迁才告警，
+/// 避免同一条降级链每 15 秒刷一次通知。状态本身不落库：`forward_status`
+/// 才是事实来源，链视图每次现算。
+pub(crate) async fn degradation_for_server(
+    state: &AppState,
+    server_id: &str,
+) -> AppResult<HashMap<String, (String, bool)>> {
+    let chains_list: Vec<ChainWithHops> = repo::chains::list(&state.db.pool)
+        .await?
+        .into_iter()
+        .filter(|chain| chain.hops.iter().any(|hop| hop.server_id == server_id))
+        .collect();
+    if chains_list.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let statuses = load_status_map(state, &chains_list).await?;
+    let mut result = HashMap::with_capacity(chains_list.len());
+    for chain in chains_list {
+        let degraded = chain.hops.iter().any(|hop| {
+            let forward_id = chains::forward_id(&chain.chain.id, hop.seq);
+            statuses
+                .get(&forward_id)
+                .is_some_and(|row| chains::is_degraded(row.target_fail_count))
+        });
+        result.insert(chain.chain.id, (chain.chain.name, degraded));
+    }
+    Ok(result)
+}
+
 pub async fn list(State(state): State<AppState>, user: CurrentUser) -> AppResult<Json<Value>> {
     user.require_admin()?;
     let chains_list = repo::chains::list(&state.db.pool).await?;

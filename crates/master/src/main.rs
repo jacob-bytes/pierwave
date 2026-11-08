@@ -1,3 +1,4 @@
+mod alerts;
 mod app;
 mod audit;
 mod auth;

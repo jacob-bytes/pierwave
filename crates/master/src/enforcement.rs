@@ -598,6 +598,7 @@ async fn apply_server(
                     {
                         tracing::error!(error = %error, user = %username, "写断流事件失败");
                     }
+                    notify_removed(state, server, user_id, &username, &reason).await;
                     removed += 1;
                 }
                 // 快照没有、本次有 → 恢复。
@@ -648,6 +649,14 @@ async fn apply_server(
                     {
                         tracing::error!(error = %error, user = %candidate.username, "写断流事件失败");
                     }
+                    notify_removed(
+                        state,
+                        server,
+                        &candidate.user_id,
+                        &candidate.username,
+                        &reason,
+                    )
+                    .await;
                     removed += 1;
                 }
             }
@@ -664,6 +673,27 @@ async fn apply_server(
         "断流 apply 完成"
     );
     Ok(())
+}
+
+/// 用户因额度/到期/禁用被移出配置时发一条告警；失败不影响断流主流程。
+async fn notify_removed(
+    state: &AppState,
+    server: &Server,
+    user_id: &str,
+    username: &str,
+    reason: &str,
+) {
+    crate::alerts::notify(
+        state,
+        crate::alerts::AlertKind::UserExhausted,
+        user_id,
+        "用户断流 / User enforcement",
+        &format!(
+            "用户 {username} 已从服务器 {} 的配置中移除（{reason}）/ User {username} was removed from {} ({reason})",
+            server.name, server.name
+        ),
+    )
+    .await;
 }
 
 async fn write_event(
