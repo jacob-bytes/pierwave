@@ -806,3 +806,44 @@ GET /api/v1/public/status
 - 顶部：面板名 + 汇总（在线 x/y、节点数、今日/本月流量）；
 - 节点卡/表：状态点、负载、内存、磁盘、最后心跳、24h/7d 可用率条；
 - 复用参考项目的视觉语言（卡片、状态点、迷你条），但**不照搬我们没有的数据**（延迟、运营商、事件时间线）。
+
+## P11：限速（A + C）
+
+### 先说清楚 Xray 的能力边界
+
+Xray **没有**按用户限速、也没有并发连接数上限的配置项。能用的旋钮只有：
+
+- `policy.levels.<n>.bufferSize`：连接缓冲区大小，间接影响吞吐；
+- `policy.levels.<n>.connIdle`：空闲连接回收时间；
+- 用户可分配 `level`，从而套用某一档策略。
+
+所以「按用户限速」只能做成**近似**（buffer 越小吞吐越低），不是精确的 kbps 控制。
+精确的按用户限速需要「每用户一个 inbound tag」——那会改变订阅模型，不在本轮。
+
+### A. 节点级带宽上限（tc，精确）
+
+```sql
+ALTER TABLE nodes ADD COLUMN bandwidth_kbps INTEGER;   -- NULL / 0 = 不限
+```
+
+- Agent 按节点端口在该服务器出口网卡上加 `tc` 规则（HTTPS/HTB + u32 filter 匹配 dport），
+  **只管理自己的 qdisc handle（`1f00:`）**，删除时只删这一条，绝不 `tc qdisc del dev root`；
+- 幂等：每次 apply 先删自己的 handle 再加；没有限额的节点不加规则；
+- 安全：Agent 应用后如果 30 秒内与主控失联，自动删除自己的 qdisc（避免把服务器网络锁死）；
+- 失败只 warn，不影响 xray 配置应用。
+
+### C. 每用户近似限速（bufferSize）
+
+```sql
+ALTER TABLE packages ADD COLUMN speed_limit_kbps INTEGER;  -- NULL / 0 = 不限
+```
+
+- 套餐上配一个档位；渲染 Xray 配置时，为每个用量档生成一个 `policy.levels.N.bufferSize`，
+  用户按套餐映射到对应 level；
+- UI 上必须标注**「近似限速：基于缓冲区大小，不是精确带宽」**，不能让人以为是精确值。
+
+### 接口 / 前端
+
+- 节点表单：`带宽上限（Mbps）`，0/空 = 不限；
+- 套餐表单：`限速档位（Mbps，近似）`；
+- 服务器列表/节点列表展示限速标记。
