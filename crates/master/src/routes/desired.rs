@@ -146,6 +146,8 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
             listen_port: forward.listen_port,
             target_host: forward.target_host.clone(),
             target_port: forward.target_port,
+            targets: Vec::new(),
+            strategy: Default::default(),
         })
         .collect();
 
@@ -649,6 +651,8 @@ mod tests {
                         listen_port: 8443,
                         target_host: "10.0.0.8".into(),
                         target_port: 443,
+                        targets: Vec::new(),
+                        strategy: Default::default(),
                     }]
                 );
             }

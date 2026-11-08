@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 7;
+pub const PROTOCOL_VERSION: u32 = 8;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,8 +87,40 @@ pub struct DesiredState {
 pub struct DesiredForward {
     pub id: String,
     pub listen_port: i64,
+    /// 单目标兼容字段：旧主控只下发这一对，`targets` 为空时 Agent 用它。
     pub target_host: String,
     pub target_port: i64,
+    /// 候选目标（组内成员）。空 = 退回 `target_host:target_port`。
+    #[serde(default)]
+    pub targets: Vec<ForwardTarget>,
+    /// 从候选里怎么挑一个。旧主控不下发时为轮询。
+    #[serde(default)]
+    pub strategy: ForwardStrategy,
+}
+
+/// 一个候选目标：某台服务器的地址与端口。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ForwardTarget {
+    pub host: String,
+    pub port: i64,
+    /// 用于把运行状态回报给主控（哪个成员在接流量）。
+    #[serde(default)]
+    pub server_id: String,
+}
+
+/// 组内选路策略。Agent 侧按连接执行。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ForwardStrategy {
+    /// 按顺序轮流（默认）。
+    #[default]
+    RoundRobin,
+    /// 主备：总是用第一个可用的，前面的通了就换回来。
+    Failover,
+    /// 只选当前探测延迟最低的，全部不通时按顺序回退。
+    LowestLatency,
+    /// 按客户端 IP 做一致性哈希，同一来源尽量落到同一台。
+    IpHashed,
 }
 
 /// Agent 回报的转发运行状态（心跳里带）。
@@ -238,6 +270,6 @@ mod tests {
         let json = serde_json::to_value(&new).unwrap();
         assert_eq!(json["listening"], true);
         assert_eq!(json["target_ok"], false);
-        assert_eq!(PROTOCOL_VERSION, 7, "新增心跳字段必须升协议版本");
+        assert_eq!(PROTOCOL_VERSION, 8, "新增心跳字段必须升协议版本");
     }
 }

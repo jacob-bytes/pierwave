@@ -447,6 +447,8 @@ mod tests {
             listen_port: i64::from(listen_port),
             target_host: target.ip().to_string(),
             target_port: i64::from(target.port()),
+            targets: Vec::new(),
+            strategy: Default::default(),
         }
     }
 

@@ -1049,6 +1049,8 @@ mod tests {
             listen_port: 0,
             target_host: "127.0.0.1".into(),
             target_port: 1,
+            targets: Vec::new(),
+            strategy: Default::default(),
         };
         let state = DesiredState {
             version: 1,

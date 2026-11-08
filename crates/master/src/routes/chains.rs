@@ -63,6 +63,8 @@ pub(crate) fn derive_forwards(
                     listen_port: hop.listen_port,
                     target_host: next_host,
                     target_port: next_port,
+                    targets: Vec::new(),
+                    strategy: Default::default(),
                 },
             )
         })
@@ -736,6 +738,8 @@ mod tests {
                     listen_port: 9001,
                     target_host: "1.1.1.1".into(),
                     target_port: 443,
+                    targets: Vec::new(),
+                    strategy: Default::default(),
                 }
             )]
         );
