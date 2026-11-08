@@ -7,9 +7,13 @@ import { useI18n } from "@/i18n";
 import type { PublicStatusServer } from "@/lib/api";
 import { formatBytePair } from "@/lib/format";
 import {
+  availabilityPercent,
+  availabilityTone,
   resourcePercent,
   serverState,
   statusLabelKey,
+  uptimeLabelKey,
+  uptimeParts,
   type ServerState,
 } from "@/lib/publicStatus";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
@@ -54,11 +58,19 @@ export function StatusDot({
   );
 }
 
+/**
+ * 标题行右侧的状态 pill：小圆点 + 状态 + 已在线时长，和参考项目一样焊在
+ * 一个 chip 里。离线时不给时长 —— `uptime_secs` 是掉线前最后一次心跳的值，
+ * 写在「离线」旁边会被读成「已经离线了这么久」。
+ */
 export function StatusChip({
   state,
+  uptime,
   className,
 }: {
   state: ServerState;
+  /** 已经格式化好的「141 天 1 小时」；没有数据时为 null。 */
+  uptime?: string | null;
   className?: string;
 }) {
   const { t } = useI18n();
@@ -73,13 +85,14 @@ export function StatusChip({
           : undefined
       }
       className={cn(
-        "tnum shrink-0 gap-1.5 overflow-visible font-normal",
+        "tnum h-5 shrink-0 gap-1 overflow-visible rounded-full px-1.5 text-[11px] font-normal whitespace-nowrap",
         meta.chip,
         className,
       )}
     >
       <StatusDot state={state} />
       {t(statusLabelKey(state))}
+      {uptime ? <span className="text-muted-foreground">{uptime}</span> : null}
     </Badge>
   );
 }
@@ -99,6 +112,23 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
       })
     : t("publicStatus.server.neverSeen");
 
+  // 在线（含异常）才有可展示的运行时长；离线时 pill 只留状态。
+  const uptimeDuration = (() => {
+    if (state === "offline") return null;
+    const parts = uptimeParts(server.uptime_secs);
+    return parts ? t(uptimeLabelKey(parts), parts) : null;
+  })();
+
+  // 离线时 Xray 字段是掉线前的残留，不写进副行。
+  const xray =
+    state !== "offline" && server.xray_running !== null
+      ? t(
+          server.xray_running
+            ? "publicStatus.server.xrayRunning"
+            : "publicStatus.server.xrayStopped",
+        )
+      : null;
+
   const load =
     server.load1 !== null && Number.isFinite(server.load1)
       ? server.load1
@@ -107,53 +137,43 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
   const diskPercent = resourcePercent(server.disk_used, server.disk_total);
   const memPair = formatBytePair(server.mem_used, server.mem_total);
   const diskPair = formatBytePair(server.disk_used, server.disk_total);
+  const uptime24h = availabilityPercent(server.uptime_24h);
 
   return (
     <Card
       className={cn(
-        "h-[282px] min-w-0 gap-0 rounded-xl p-4 [--card-spacing:--spacing(4)]",
+        "h-full min-w-0 gap-0 rounded-xl p-4 [--card-spacing:--spacing(4)]",
         state !== "online" && "bg-muted/40",
       )}
     >
-      <div className="flex min-w-0 items-center gap-1.5">
-        <h3 className="truncate font-semibold" title={server.name}>
+      {/* 标题行：名称在左，状态 pill 在右。名称让位、pill 不换行，
+          长主机名在省略号处截断，而不是把状态挤出卡片。 */}
+      <div className="flex min-w-0 items-center gap-2">
+        <h3 className="truncate text-sm font-semibold" title={server.name}>
           {server.name}
         </h3>
-        <StatusChip state={state} className="ml-auto" />
+        <StatusChip state={state} uptime={uptimeDuration} className="ml-auto" />
       </div>
 
+      {/* 副行：一行灰色小字，对应参考项目的发行版 / 虚拟化 / 架构。
+          我们只有最后心跳与 Xray 状态，就只写这两项，缺哪项就不写。 */}
       <p
         className="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
         title={heartbeatTitle}
       >
         <ClockIcon className="size-3 shrink-0" aria-hidden="true" />
         <span className="truncate">{heartbeat}</span>
+        {xray ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="shrink-0">{xray}</span>
+          </>
+        ) : null}
       </p>
 
-      {/* 负载没有可归一化的分母（API 不公开核数），所以这里给原始值，
-          不画一条没有依据的百分比进度条。内存与硬盘有真实总量，才画条。 */}
-      <div className="mt-5">
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="text-xs text-muted-foreground">
-            {t("publicStatus.server.load")}
-          </span>
-          <span
-            className={cn(
-              "tnum text-sm font-medium",
-              load === null && "text-muted-foreground",
-            )}
-          >
-            {load === null ? "—" : load.toFixed(2)}
-          </span>
-        </div>
-        <p className="mt-1 truncate text-xs text-muted-foreground">
-          {load === null
-            ? t("publicStatus.server.notReported")
-            : t("publicStatus.server.loadHint")}
-        </p>
-      </div>
-
-      <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-4">
+      {/* 2×2 指标。内存与硬盘有真实总量，画百分比条；24h 可用率用图例的
+          色阶；负载没有可归一化的分母（API 不公开核数），只给原始值。 */}
+      <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-4">
         <Meter
           label={t("publicStatus.server.memory")}
           percent={memPercent}
@@ -168,22 +188,47 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
           footTitle={diskPair ?? undefined}
           emptyLabel={t("publicStatus.server.notReported")}
         />
+        <Meter
+          label={t("publicStatus.server.availability24h")}
+          percent={uptime24h}
+          tone={availabilityTone(server.uptime_24h)}
+          foot={t("publicStatus.server.availability24hHint")}
+          footTitle={
+            uptime24h === null
+              ? t("publicStatus.server.noSample")
+              : undefined
+          }
+          emptyLabel={t("publicStatus.server.noSample")}
+        />
+        <Meter
+          label={t("publicStatus.server.load")}
+          value={load === null ? "—" : load.toFixed(2)}
+          muted={load === null}
+          foot={
+            load === null
+              ? t("publicStatus.server.notReported")
+              : t("publicStatus.server.loadHint")
+          }
+          emptyLabel={t("publicStatus.server.notReported")}
+        />
       </div>
 
-      <div className="mt-auto border-t border-border pt-3">
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="text-xs text-muted-foreground">
-            {t("publicStatus.server.availability24h")}
+      {/* 底部：左边 7 天可用率，右边最后心跳（相对时间，hover 看绝对时间）；
+          下面贴着卡片底边的 24 格条，细、无边框，颜色与图例一致。 */}
+      <div className="mt-auto pt-4">
+        <div className="flex min-w-0 items-baseline justify-between gap-2 text-xs">
+          <span className="inline-flex min-w-0 items-baseline gap-1.5 text-muted-foreground">
+            <span className="truncate">
+              {t("publicStatus.server.availability7d")}
+            </span>
+            <AvailabilityValue ratio={server.uptime_7d} />
           </span>
-          <AvailabilityValue ratio={server.uptime_24h} />
-        </div>
-        <AvailabilityStrip server={server} />
-        <div className="mt-2 flex items-baseline justify-between gap-2">
-          <span className="text-xs text-muted-foreground">
-            {t("publicStatus.server.availability7d")}
+          {/* 最后心跳已经在副行出现过，这里不再重复；右侧留给可用率区间说明 */}
+          <span className="shrink-0 text-muted-foreground/70">
+            {t("publicStatus.server.availability24hHint")}
           </span>
-          <AvailabilityValue ratio={server.uptime_7d} />
         </div>
+        <AvailabilityStrip server={server} className="mt-3" />
       </div>
     </Card>
   );

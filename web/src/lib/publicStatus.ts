@@ -108,6 +108,99 @@ export function resourcePercent(
 /** 一段服务器数据里够用来判断状态的字段。 */
 type StatusFields = { online: boolean; xray_running: boolean | null };
 
+/**
+ * 运行时长拆成天 / 时 / 分，供卡片的状态 pill 显示「141 天 1 小时」。
+ *
+ * 不足一分钟按 0 分钟算：向上取整会让刚启动的机器写成「1 分钟」，
+ * 与下一次刷新前的真实值对不上。负数、NaN 与无穷大都是没有数据。
+ */
+export type UptimeParts = { days: number; hours: number; minutes: number };
+
+export function uptimeParts(
+  seconds: number | null | undefined,
+): UptimeParts | null {
+  if (
+    seconds === null ||
+    seconds === undefined ||
+    !Number.isFinite(seconds) ||
+    seconds < 0
+  ) {
+    return null;
+  }
+  const totalMinutes = Math.floor(seconds / 60);
+  return {
+    days: Math.floor(totalMinutes / (60 * 24)),
+    hours: Math.floor((totalMinutes % (60 * 24)) / 60),
+    minutes: totalMinutes % 60,
+  };
+}
+
+/**
+ * 运行时长该用哪条文案：只显示到有意义的最高一级，但保留次一级。
+ * 「141 天 1 小时」不会写成「141 天 0 小时」，「5 小时 0 分钟」也不会。
+ */
+export function uptimeLabelKey(parts: UptimeParts): string {
+  if (parts.days > 0) {
+    return parts.hours > 0
+      ? "publicStatus.server.uptimeDaysHours"
+      : "publicStatus.server.uptimeDays";
+  }
+  if (parts.hours > 0) {
+    return parts.minutes > 0
+      ? "publicStatus.server.uptimeHoursMinutes"
+      : "publicStatus.server.uptimeHours";
+  }
+  if (parts.minutes > 0) return "publicStatus.server.uptimeMinutes";
+  return "publicStatus.server.uptimeJustNow";
+}
+
+/**
+ * 汇总卡里的「最忙节点」：在线且上报过 `load1` 的服务器里取最大的一台。
+ *
+ * 离线机器的负载是掉线前的残留，不参与评选；`load1` 为 null 或非有限值时
+ * 同理。并列时保留列表里先出现的一台，避免刷新时名字来回跳。
+ */
+export function busiestServer<
+  T extends { online: boolean; load1: number | null },
+>(servers: readonly T[]): T | null {
+  let top: T | null = null;
+  let topLoad = Number.NEGATIVE_INFINITY;
+
+  for (const server of servers) {
+    if (!server.online) continue;
+    const load = server.load1;
+    if (load === null || !Number.isFinite(load)) continue;
+    if (top === null || load > topLoad) {
+      top = server;
+      topLoad = load;
+    }
+  }
+
+  return top;
+}
+
+/**
+ * 所有服务器 24 小时可用率的均值；没有一台有采样时返回 null。
+ *
+ * 没有采样的服务器不进分母 —— 把「没数据」当成 0% 会把均值拉垮；
+ * 越界的比例先夹到 0..1，脏数据不会让汇总出现 120%。
+ */
+export function averageUptime24h(
+  servers: readonly { uptime_24h: number | null }[],
+): number | null {
+  let total = 0;
+  let sampled = 0;
+
+  for (const server of servers) {
+    const ratio = server.uptime_24h;
+    if (ratio === null || !Number.isFinite(ratio)) continue;
+    total += Math.min(1, Math.max(0, ratio));
+    sampled += 1;
+  }
+
+  return sampled === 0 ? null : total / sampled;
+}
+
 /** 状态标签与一台服务器是否匹配；`all` 永远匹配。 */
 export function matchesStatusFilter(
   server: StatusFields,

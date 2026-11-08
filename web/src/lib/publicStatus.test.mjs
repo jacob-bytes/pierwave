@@ -5,6 +5,8 @@ import zh from "../i18n/zh-CN.ts";
 import {
   availabilityPercent,
   availabilityTone,
+  averageUptime24h,
+  busiestServer,
   DEFAULT_STATUS_VIEW,
   filterPublicServers,
   hasSamples,
@@ -19,6 +21,8 @@ import {
   serverState,
   STATUS_VIEW_STORAGE_KEY,
   statusLabelKey,
+  uptimeLabelKey,
+  uptimeParts,
 } from "./publicStatus.ts";
 
 test("serverState distinguishes offline, abnormal and online", () => {
@@ -74,6 +78,100 @@ test("resourcePercent guards missing and zero totals", () => {
   assert.equal(resourcePercent(10, 100), 10);
   assert.equal(resourcePercent(150, 100), 100);
   assert.equal(resourcePercent(-5, 100), 0);
+});
+
+test("uptimeLabelKey keeps the highest meaningful unit and its next one", () => {
+  const key = (days, hours, minutes) =>
+    uptimeLabelKey({ days, hours, minutes });
+  assert.equal(key(141, 1, 2), "publicStatus.server.uptimeDaysHours");
+  assert.equal(key(2, 0, 5), "publicStatus.server.uptimeDays");
+  assert.equal(key(0, 5, 10), "publicStatus.server.uptimeHoursMinutes");
+  assert.equal(key(0, 5, 0), "publicStatus.server.uptimeHours");
+  assert.equal(key(0, 0, 7), "publicStatus.server.uptimeMinutes");
+  assert.equal(key(0, 0, 0), "publicStatus.server.uptimeJustNow");
+});
+
+test("uptimeParts floors to whole minutes and rejects unusable input", () => {
+  assert.deepEqual(uptimeParts(0), { days: 0, hours: 0, minutes: 0 });
+  // 不足一分钟按 0 分钟算，不四舍五入成「1 分钟」。
+  assert.deepEqual(uptimeParts(59), { days: 0, hours: 0, minutes: 0 });
+  assert.deepEqual(uptimeParts(60), { days: 0, hours: 0, minutes: 1 });
+  assert.deepEqual(uptimeParts(3_599), { days: 0, hours: 0, minutes: 59 });
+  assert.deepEqual(uptimeParts(3_600), { days: 0, hours: 1, minutes: 0 });
+  assert.deepEqual(uptimeParts(86_400), { days: 1, hours: 0, minutes: 0 });
+  // 参考截图里的「141 天 1 小时」：125 秒的零头被丢掉。
+  assert.deepEqual(uptimeParts(141 * 86_400 + 3_600 + 125), {
+    days: 141,
+    hours: 1,
+    minutes: 2,
+  });
+
+  assert.equal(uptimeParts(null), null);
+  assert.equal(uptimeParts(undefined), null);
+  assert.equal(uptimeParts(Number.NaN), null);
+  assert.equal(uptimeParts(Number.POSITIVE_INFINITY), null);
+  assert.equal(uptimeParts(-1), null);
+});
+
+const LOAD_SERVER = (id, online, load1) => ({ id, name: id, online, load1 });
+
+test("busiestServer ignores offline and unreported loads, ties keep the first", () => {
+  assert.equal(busiestServer([]), null);
+  assert.equal(busiestServer([LOAD_SERVER("a", true, null)]), null);
+  // 离线服务器的历史负载不能参与「最忙」的评选。
+  assert.equal(busiestServer([LOAD_SERVER("a", false, 99)]), null);
+  assert.equal(
+    busiestServer([
+      LOAD_SERVER("a", true, null),
+      LOAD_SERVER("b", false, 99),
+      LOAD_SERVER("c", true, Number.NaN),
+    ]),
+    null,
+  );
+
+  const top = busiestServer([
+    LOAD_SERVER("a", true, 1.25),
+    LOAD_SERVER("b", true, 3.5),
+    LOAD_SERVER("c", true, 2),
+  ]);
+  assert.equal(top.id, "b");
+
+  // 相同负载时保留列表里先出现的那台，结果稳定、不随排序抖动。
+  const tie = busiestServer([
+    LOAD_SERVER("first", true, 2),
+    LOAD_SERVER("second", true, 2),
+  ]);
+  assert.equal(tie.id, "first");
+});
+
+test("averageUptime24h averages real samples only, clamping dirty ratios", () => {
+  assert.equal(averageUptime24h([]), null);
+  assert.equal(
+    averageUptime24h([{ uptime_24h: null }, { uptime_24h: undefined }]),
+    null,
+  );
+  assert.equal(
+    averageUptime24h([
+      { uptime_24h: Number.NaN },
+      { uptime_24h: Number.POSITIVE_INFINITY },
+    ]),
+    null,
+  );
+
+  assert.equal(
+    averageUptime24h([{ uptime_24h: 1 }, { uptime_24h: 0.5 }]),
+    0.75,
+  );
+  // 没有采样的服务器不参与分母，否则会把它算成 0%。
+  assert.equal(
+    averageUptime24h([{ uptime_24h: 0.9 }, { uptime_24h: null }]),
+    0.9,
+  );
+  // 越界的比例先夹到 0..1 再求均值。
+  assert.equal(
+    averageUptime24h([{ uptime_24h: 2 }, { uptime_24h: -1 }]),
+    0.5,
+  );
 });
 
 test("isPublicStatusPath only allows the exact public route", () => {
@@ -235,6 +333,20 @@ test("status page dynamic i18n keys exist in both locales", () => {
     "server.online",
     "server.offline",
     "server.abnormal",
+    "server.xrayRunning",
+    "server.xrayStopped",
+    "server.uptimeDaysHours",
+    "server.uptimeDays",
+    "server.uptimeHoursMinutes",
+    "server.uptimeHours",
+    "server.uptimeMinutes",
+    "server.uptimeJustNow",
+    "server.availability24hHint",
+    "summary.busiest",
+    "summary.busiestHint",
+    "summary.averageUptime",
+    "summary.uptime24hHint",
+    "summary.today",
     "availability.ok",
     "availability.warn",
     "availability.down",

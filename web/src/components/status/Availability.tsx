@@ -10,14 +10,14 @@ import { formatAbsoluteTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /** 四种色阶共用一份 token 映射，图例、卡片和表格不会各写一套。 */
-const AVAILABILITY_TONE_CLASS: Record<AvailabilityTone, string> = {
+export const AVAILABILITY_BAR_CLASS: Record<AvailabilityTone, string> = {
   ok: "bg-primary",
   warn: "bg-warning",
   down: "bg-destructive",
   unknown: "bg-muted-foreground/20",
 };
 
-const AVAILABILITY_TEXT_CLASS: Record<AvailabilityTone, string> = {
+export const AVAILABILITY_TEXT_CLASS: Record<AvailabilityTone, string> = {
   ok: "text-foreground",
   warn: "text-warning",
   down: "text-destructive",
@@ -51,31 +51,34 @@ export function AvailabilityValue({ ratio }: { ratio: number | null }) {
 }
 
 /**
- * 24 个小时桶的迷你条。没有采样的桶画灰格，`title` 说明「无数据」；
- * 24 个桶全空时整条换成一句空态，而不是一排灰格。
+ * 24 个小时桶的迷你条，放在卡片最底部：细、无边框，颜色与图例一一对应。
+ *
+ * 没有采样的桶画成图例里的「无数据」灰格，而不是另起一个带虚线边框的空态 ——
+ * 网格本身就是数据，缺的那几小时理应显示为空格。24 个桶全空时整条都是灰的，
+ * 与图例里的「无数据」读法一致。
  */
 export function AvailabilityStrip({
   server,
+  className,
 }: {
   server: PublicStatusServer;
+  className?: string;
 }) {
   const { t } = useI18n();
-
-  if (!hasSamples(server.buckets_24h)) {
-    return (
-      <p className="mt-2 rounded-md border border-dashed border-border px-2 py-1 text-center text-xs text-muted-foreground">
-        {t("publicStatus.availability.noSamples")}
-      </p>
-    );
-  }
+  const samples = hasSamples(server.buckets_24h);
 
   return (
     <div
       role="group"
-      aria-label={t("publicStatus.server.availabilityAria", {
-        name: server.name,
-      })}
-      className="mt-2 grid grid-cols-[repeat(24,minmax(0,1fr))] gap-0.5"
+      aria-label={
+        samples
+          ? t("publicStatus.server.availabilityAria", { name: server.name })
+          : t("publicStatus.availability.noSamples")
+      }
+      className={cn(
+        "grid grid-cols-[repeat(24,minmax(0,1fr))] gap-0.5",
+        className,
+      )}
     >
       {server.buckets_24h.map((bucket, index) => {
         const ratio = bucket?.online_ratio ?? null;
@@ -94,8 +97,8 @@ export function AvailabilityStrip({
                 : t("publicStatus.availability.unknown")
             }
             className={cn(
-              "h-4 rounded-[2px]",
-              AVAILABILITY_TONE_CLASS[availabilityTone(ratio)],
+              "h-1.5 rounded-[2px]",
+              AVAILABILITY_BAR_CLASS[availabilityTone(ratio)],
             )}
           />
         );
@@ -122,7 +125,7 @@ export function AvailabilityLegend({ className }: { className?: string }) {
             aria-hidden="true"
             className={cn(
               "size-2 rounded-[2px]",
-              AVAILABILITY_TONE_CLASS[tone],
+              AVAILABILITY_BAR_CLASS[tone],
             )}
           />
           {t(`publicStatus.availability.${tone}`)}

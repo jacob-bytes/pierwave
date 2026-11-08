@@ -30,7 +30,6 @@ import {
   matchesServerQuery,
   persistStatusView,
   publicServerCounts,
-  serverState,
   type StatusFilter,
   type StatusView,
 } from "@/lib/publicStatus";
@@ -223,7 +222,7 @@ function NoticeCard({
   );
 }
 
-/** 骨架屏照参考项目的尺寸：四个 86px 汇总块 + 六张 282px 卡片。 */
+/** 骨架屏照参考项目的尺寸：四个 86px 汇总块 + 六张等高卡片。 */
 function StatusSkeleton({ label }: { label: string }) {
   return (
     <div aria-busy="true" aria-label={label}>
@@ -239,7 +238,7 @@ function StatusSkeleton({ label }: { label: string }) {
       </div>
       <div className="mt-2.5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {Array.from({ length: 6 }, (_, index) => (
-          <Skeleton key={index} className="h-[282px] rounded-xl" />
+          <Skeleton key={index} className="h-[258px] rounded-xl" />
         ))}
       </div>
     </div>
@@ -294,15 +293,12 @@ function StatusContent({ data }: { data: PublicStatus }) {
   const counts = publicServerCounts(searched);
   const filtered = filterPublicServers(data.servers, filter, query);
   const narrowing = filter !== "all" || query.trim() !== "";
-  const abnormal = data.servers.filter(
-    (server) => serverState(server) === "abnormal",
-  ).length;
 
   return (
     <>
       <Summary
         summary={data.summary}
-        abnormal={abnormal}
+        servers={data.servers}
         filter={filter}
         onFilter={setFilter}
       />
