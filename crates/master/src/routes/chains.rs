@@ -1289,13 +1289,13 @@ mod tests {
         assert_eq!(derived[2].1.target_host, "1.1.1.1");
     }
 
-    /// 校验：重复服务器、超过 4 跳、非法目标、节点/转发/其它链的端口冲突。
+    /// 校验：重复服务器、超过 6 跳、非法目标、节点/转发/其它链的端口冲突。
     #[tokio::test]
     async fn validation_rejects_bad_hops_targets_and_port_conflicts() {
         let fixture = setup().await;
         let uri = "/api/v1/chains";
 
-        // 0 跳 / 5 跳。
+        // 0 跳 / 7 跳（上限 6）。
         for body in [
             chain_body("空链", "1.1.1.1", 443, &[]),
             chain_body(
@@ -1308,6 +1308,8 @@ mod tests {
                     (fixture.a.as_str(), 8003),
                     (fixture.a.as_str(), 8004),
                     (fixture.a.as_str(), 8005),
+                    (fixture.a.as_str(), 8006),
+                    (fixture.a.as_str(), 8007),
                 ],
             ),
         ] {
@@ -1831,8 +1833,8 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {value}");
         assert_eq!(value["code"], "chain.duplicate_server");
 
-        // 组数仍受 1–4 限制。
-        let five_groups = (0..5)
+        // 组数仍受 1–6 限制。
+        let seven_groups = (0..7)
             .map(|index| group(None, None, &[group_member(&fixture.a, 9000 + index, 0)]))
             .collect::<Vec<_>>();
         let (status, value) = request(
@@ -1840,7 +1842,7 @@ mod tests {
             Some(&fixture.cookie),
             Method::POST,
             uri,
-            Some(groups_body("五组", "1.1.1.1", 443, &five_groups)),
+            Some(groups_body("七组", "1.1.1.1", 443, &seven_groups)),
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {value}");

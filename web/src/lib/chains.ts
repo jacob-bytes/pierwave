@@ -29,7 +29,7 @@ export const DEFAULT_CHAIN_STRATEGY: ChainStrategy = "round_robin";
 
 /** 与后端 `chains::MIN_HOPS` / `MAX_HOPS` 保持一致。 */
 export const CHAIN_MIN_GROUPS = 1;
-export const CHAIN_MAX_GROUPS = 4;
+export const CHAIN_MAX_GROUPS = 6;
 
 /** 与后端 `chains::MIN_GROUP_MEMBERS` / `MAX_GROUP_MEMBERS` 保持一致。 */
 export const GROUP_MIN_MEMBERS = 1;

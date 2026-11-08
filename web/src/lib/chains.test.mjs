@@ -112,7 +112,7 @@ test("formatHopEndpoint trims the server name and appends the port", () => {
   );
 });
 
-// ---- 组（group）语义：一条链由 1-4 组、每组 1-8 台成员组成 ----
+// ---- 组（group）语义：一条链由 1-6 组、每组 1-8 台成员组成 ----
 
 const member = (priority, overrides = {}) => ({
   server_id: `server-${priority}`,
@@ -136,7 +136,7 @@ const group = (seq, members, overrides = {}) => ({
 
 test("group limits match the backend contract", () => {
   assert.equal(CHAIN_MIN_GROUPS, 1);
-  assert.equal(CHAIN_MAX_GROUPS, 4);
+  assert.equal(CHAIN_MAX_GROUPS, 6);
   assert.equal(GROUP_MIN_MEMBERS, 1);
   assert.equal(GROUP_MAX_MEMBERS, 8);
   assert.deepEqual([...CHAIN_STRATEGIES], [
@@ -270,7 +270,7 @@ const groupInput = (serverIds) => ({
   members: serverIds.map((server_id) => ({ server_id })),
 });
 
-test("collectGroupIssues accepts the 1-4 groups / 1-8 members boundaries", () => {
+test("collectGroupIssues accepts the 1-6 groups / 1-8 members boundaries", () => {
   assert.deepEqual(collectGroupIssues([groupInput(["a"])]), []);
   assert.deepEqual(
     collectGroupIssues(
@@ -287,20 +287,20 @@ test("collectGroupIssues accepts the 1-4 groups / 1-8 members boundaries", () =>
   );
 });
 
-test("collectGroupIssues rejects group counts outside 1-4", () => {
+test("collectGroupIssues rejects group counts outside 1-6", () => {
   assert.deepEqual(collectGroupIssues([]), [
-    { kind: "group_count", count: 0, min: 1, max: 4 },
+    { kind: "group_count", count: 0, min: 1, max: 6 },
   ]);
 
   const issues = collectGroupIssues(
-    Array.from({ length: 5 }, (_, index) => groupInput([`s-${index}`])),
+    Array.from({ length: 7 }, (_, index) => groupInput([`s-${index}`])),
   );
   assert.equal(issues.length, 1);
   assert.deepEqual(issues[0], {
     kind: "group_count",
-    count: 5,
+    count: 7,
     min: 1,
-    max: 4,
+    max: 6,
   });
 });
 

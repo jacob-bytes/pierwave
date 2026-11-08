@@ -16,15 +16,15 @@ use crate::error::DomainError;
 /// 一条链最少 1 跳（入口直接指向 target）。
 pub const MIN_HOPS: usize = 1;
 
-/// 一条链最多 4 跳；再长对线性转发没有额外价值，只会放大故障面。
-/// 一条链最多 4 跳。
+/// 一条链最多 6 跳。
 ///
 /// 这是**产品规格**，不是技术硬限制：每多一跳就多一次 TCP 中转，
-/// 端到端延迟、故障点和排查成本都随之线性增长；而 4 跳已能覆盖
-/// 「国内入口 → 中转 → 中转/落地 → 目标」的常见线路组合。
+/// 端到端延迟、故障点和排查成本都随之线性增长；6 跳已能覆盖
+/// 「国内入口 → 中转 → 中转 → 落地 → 落地 → 目标」这类极端线路组合。
+/// 可用率是逐跳相乘的：单跳 98% 时 4 跳约 92%、6 跳约 89%，再长就没有实际意义。
 /// 若要放开，需要同时评估：拓扑 UI 的横向容量、逐跳延迟的归因难度、
 /// 以及链路上任何一台故障都会整链中断的可用性代价。
-pub const MAX_HOPS: usize = 4;
+pub const MAX_HOPS: usize = 6;
 
 /// 一个组最少 1 台成员。
 pub const MIN_GROUP_MEMBERS: usize = 1;
@@ -275,7 +275,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn hop_count_is_limited_to_one_through_four() {
+    fn hop_count_is_limited_to_one_through_six() {
         for count in MIN_HOPS..=MAX_HOPS {
             assert!(validate_hop_count(count).is_ok(), "count={count}");
         }
@@ -287,7 +287,11 @@ mod tests {
                 error.params,
                 json!({ "min": MIN_HOPS, "max": MAX_HOPS, "count": count })
             );
-            assert!(error.message.contains("1-4"), "{}", error.message);
+            assert!(
+                error.message.contains(&format!("1-{MAX_HOPS}")),
+                "{}",
+                error.message
+            );
         }
     }
 

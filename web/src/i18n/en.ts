@@ -1770,7 +1770,7 @@ const en = {
   chains: {
     title: "Forward chains",
     subtitle:
-      "Chain servers hop by hop: each hop can be a single node or a group, and clients enter at the first hop and relay by strategy to the next. Up to 4 hops: every extra hop adds a relay, and with it latency and another failure point.",
+      "Chain servers hop by hop: each hop can be a single node or a group, and clients enter at the first hop and relay by strategy to the next. Up to 6 hops: every extra hop adds a relay, and with it latency and another failure point.",
     loadError:
       "Could not load forward chains. Check your network and try again.",
     relayNote:
@@ -1831,7 +1831,7 @@ const en = {
       loadFailed: "Forward chains failed to load",
       emptyTitle: "No forward chains yet",
       emptyDesc:
-        "Chain servers hop by hop: each hop can be a single node or a group, and clients enter at the first hop and relay by strategy to the next. Up to 4 hops: every extra hop adds a relay, and with it latency and another failure point.",
+        "Chain servers hop by hop: each hop can be a single node or a group, and clients enter at the first hop and relay by strategy to the next. Up to 6 hops: every extra hop adds a relay, and with it latency and another failure point.",
       emptyAction: "Create first chain",
     },
     detail: {
@@ -2274,6 +2274,8 @@ const en = {
     emptyTitle: "No traffic in the last 7 days",
     emptyDesc: "Once nodes carry traffic, the trend appears here automatically.",
     aria: "Bar chart of upload and download traffic over the last 7 days",
+    viewData: "View data table",
+    hideData: "Hide data table",
     dataTableCaption: "Daily upload and download traffic for the last 7 days",
     date: "Date",
   },
