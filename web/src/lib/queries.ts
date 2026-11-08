@@ -1,5 +1,6 @@
 import {
   keepPreviousData,
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -12,7 +13,7 @@ import {
   type AgentUpgradeBatchDetail,
   type AgentUpgradeInput,
   type ApplyResult,
-  type AuditEntry,
+  type AuditListQuery,
   type BackupInfo,
   type BindUserPackageInput,
   type Certificate,
@@ -91,7 +92,18 @@ export const queryKeys = {
     ["agent-upgrade-batch", batchId] as const,
   enforcementEvents: (limit: number) =>
     ["enforcement", "events", limit] as const,
-  auditLog: (limit: number) => ["audit", limit] as const,
+  /**
+   * 审计日志：筛选条件与每页条数都进 key，切换筛选即换一条查询（列表自动重置）。
+   * 分页游标不进 key，由 infinite query 的 `pageParam` 管理。
+   */
+  auditLog: (query: AuditListQuery) =>
+    [
+      "audit",
+      query.limit,
+      query.action ?? "",
+      query.actor ?? "",
+      query.target ?? "",
+    ] as const,
   ruleTemplates: ["rule-templates"] as const,
   nodes: (serverId: string) => ["nodes", serverId] as const,
   /** 全局节点列表：不属于任何单台服务器，单独一个 key。 */
@@ -527,13 +539,19 @@ export function useEnforcementEvents(limit: number) {
   });
 }
 
-/** 审计日志，按条数取最新记录；搜索与分类筛选都在页面内完成。 */
-export function useAuditLog(limit: number) {
-  return useQuery<AuditEntry[]>({
-    queryKey: queryKeys.auditLog(limit),
-    queryFn: async () => (await api.audit.list(limit)).items,
-    enabled: limit > 0,
-    placeholderData: keepPreviousData,
+/**
+ * 审计日志：服务端筛选 + `(created_at, id)` 稳定游标分页（「加载更多」）。
+ *
+ * `queryKey` 包含全部筛选条件，所以切换分类 / 操作者 / 对象 / 每页条数时
+ * 会得到一条全新的查询，列表从第一页重新开始。
+ */
+export function useAuditLog(query: AuditListQuery) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.auditLog(query),
+    queryFn: ({ pageParam }) => api.audit.list({ ...query, before: pageParam }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.next_before ?? undefined,
+    enabled: query.limit > 0,
     staleTime: 15_000,
   });
 }

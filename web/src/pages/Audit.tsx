@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   CheckIcon,
+  ChevronDownIcon,
   CopyIcon,
   EyeIcon,
   RefreshCwIcon,
@@ -75,6 +76,23 @@ type Category =
 
 type Tone = "primary" | "destructive" | "warning" | "muted";
 
+/**
+ * 分类 → 服务端动作前缀。
+ *
+ * 后端按前缀匹配（逗号分隔的多个前缀是 OR）：
+ * - `user` 同时命中 `user.*` 与 `user_package.*`（没有点号，所以两者都覆盖）；
+ * - `system` 覆盖设置、改密码、应用配置三类动作。
+ */
+const CATEGORY_ACTION_PREFIX: Record<Exclude<Category, "all">, string> = {
+  user: "user",
+  package: "package",
+  server: "server",
+  node: "node",
+  certificate: "certificate",
+  rule_template: "rule_template",
+  system: "settings,password,config.apply",
+};
+
 const CATEGORIES: { value: Category; labelKey: string }[] = [
   { value: "all", labelKey: "audit.category.all" },
   { value: "user", labelKey: "audit.category.user" },
@@ -144,26 +162,6 @@ function actionTone(action: string): Tone {
     return "primary";
   }
   return "muted";
-}
-
-function actionCategory(action: string): Exclude<Category, "all"> | null {
-  // user_package.* 是「用户 → 套餐」的绑定操作，归到用户分类。
-  if (action.startsWith("user.") || action.startsWith("user_package.")) {
-    return "user";
-  }
-  if (action.startsWith("package.")) return "package";
-  if (action.startsWith("server.")) return "server";
-  if (action.startsWith("node.")) return "node";
-  if (action.startsWith("certificate.")) return "certificate";
-  if (action.startsWith("rule_template.")) return "rule_template";
-  if (
-    action.startsWith("settings.") ||
-    action.startsWith("password.") ||
-    action === "config.apply"
-  ) {
-    return "system";
-  }
-  return null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -578,44 +576,92 @@ function useLookupMaps(): LookupMaps {
   );
 }
 
+function SearchField({
+  value,
+  onChange,
+  onClear,
+  placeholder,
+  ariaLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onClear: () => void;
+  placeholder: string;
+  ariaLabel: string;
+}) {
+  return (
+    <div className="relative w-full sm:w-56">
+      <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        aria-label={ariaLabel}
+        className="pr-8 pl-8"
+      />
+      {value ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label={t("audit.clearSearch")}
+          className="absolute top-1/2 right-1 -translate-y-1/2"
+          onClick={onClear}
+        >
+          <XIcon className="size-3.5" />
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 export default function AuditPage() {
   useI18n();
-  const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
+  const [actorInput, setActorInput] = useState("");
+  const [actorQuery, setActorQuery] = useState("");
+  const [targetInput, setTargetInput] = useState("");
+  const [targetQuery, setTargetQuery] = useState("");
   const [category, setCategory] = useState<Category>("all");
   const [limit, setLimit] = useState<number>(LIMIT_OPTIONS[0]);
   const [detailEntry, setDetailEntry] = useState<AuditEntry | null>(null);
 
-  const audit = useAuditLog(limit);
-  const maps = useLookupMaps();
-
-  // 输入后 300ms 才生效，避免每敲一个字都重算整张表。
+  // 输入后 300ms 才生效，避免每敲一个字都打一次接口。
   useEffect(() => {
     const timer = setTimeout(() => {
-      setSearch(searchInput.trim());
+      setActorQuery(actorInput.trim());
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchInput]);
+  }, [actorInput]);
 
-  const items = audit.data ?? [];
-  const normalizedSearch = search.toLowerCase();
-  const filteredItems = items.filter((entry) => {
-    if (category !== "all" && actionCategory(entry.action) !== category) {
-      return false;
-    }
-    if (!normalizedSearch) return true;
-    return [entry.actor_name ?? "", entry.target ?? "", entry.action].some(
-      (value) => value.toLowerCase().includes(normalizedSearch),
-    );
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setTargetQuery(targetInput.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [targetInput]);
+
+  // 分类/搜索/每页条数都进 queryKey：任一变化都会重置列表并回到第一页。
+  const action =
+    category === "all" ? undefined : CATEGORY_ACTION_PREFIX[category];
+  const audit = useAuditLog({
+    limit,
+    action,
+    actor: actorQuery || undefined,
+    target: targetQuery || undefined,
   });
+  const maps = useLookupMaps();
 
-  const noFilteredResults = items.length > 0 && filteredItems.length === 0;
+  const items = audit.data?.pages.flatMap((page) => page.items) ?? [];
+  const filtersActive =
+    category !== "all" || actorQuery !== "" || targetQuery !== "";
   const showError = audit.isError && !audit.data;
   const errorMessage = errorText(audit.error, t("audit.loadError"));
 
   function clearFilters() {
-    setSearchInput("");
-    setSearch("");
+    setActorInput("");
+    setActorQuery("");
+    setTargetInput("");
+    setTargetQuery("");
     setCategory("all");
   }
 
@@ -640,37 +686,32 @@ export default function AuditPage() {
                   variant="secondary"
                   className="font-mono text-[11px] font-normal text-muted-foreground"
                 >
-                  {filteredItems.length}
+                  {t("audit.loaded", { n: items.length })}
                 </Badge>
               ) : null}
             </CardTitle>
 
             <div className="flex flex-wrap items-center gap-2">
-              <div className="relative w-full sm:w-72">
-                <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={searchInput}
-                  onChange={(event) => setSearchInput(event.target.value)}
-                  placeholder={t("audit.searchPlaceholder")}
-                  aria-label={t("audit.searchAria")}
-                  className="pr-8 pl-8"
-                />
-                {searchInput ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label={t("audit.clearSearch")}
-                    className="absolute top-1/2 right-1 -translate-y-1/2"
-                    onClick={() => {
-                      setSearchInput("");
-                      setSearch("");
-                    }}
-                  >
-                    <XIcon className="size-3.5" />
-                  </Button>
-                ) : null}
-              </div>
+              <SearchField
+                value={actorInput}
+                onChange={setActorInput}
+                onClear={() => {
+                  setActorInput("");
+                  setActorQuery("");
+                }}
+                placeholder={t("audit.searchActorPlaceholder")}
+                ariaLabel={t("audit.searchActorAria")}
+              />
+              <SearchField
+                value={targetInput}
+                onChange={setTargetInput}
+                onClear={() => {
+                  setTargetInput("");
+                  setTargetQuery("");
+                }}
+                placeholder={t("audit.searchTargetPlaceholder")}
+                ariaLabel={t("audit.searchTargetAria")}
+              />
               <Button
                 variant="outline"
                 size="sm"
@@ -769,11 +810,9 @@ export default function AuditPage() {
                   onRetry={() => void audit.refetch()}
                 />
               ) : items.length === 0 ? (
-                <EmptyRow filtered={false} onClear={clearFilters} />
-              ) : noFilteredResults ? (
-                <EmptyRow filtered onClear={clearFilters} />
+                <EmptyRow filtered={filtersActive} onClear={clearFilters} />
               ) : (
-                filteredItems.map((entry) => {
+                items.map((entry) => {
                   const target = resolveTarget(entry.action, entry.target, maps);
 
                   return (
@@ -829,6 +868,37 @@ export default function AuditPage() {
               )}
             </TableBody>
           </Table>
+
+          {!audit.isPending && !showError && items.length > 0 ? (
+            <div className="flex flex-col items-center gap-2 border-t border-border px-4 py-3">
+              {audit.hasNextPage ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void audit.fetchNextPage()}
+                  disabled={audit.isFetchingNextPage}
+                >
+                  {audit.isFetchingNextPage ? (
+                    <RefreshCwIcon className="size-3.5 animate-spin" />
+                  ) : (
+                    <ChevronDownIcon className="size-3.5" />
+                  )}
+                  {audit.isFetchingNextPage
+                    ? t("audit.loadingMore")
+                    : t("audit.loadMore")}
+                </Button>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  {t("audit.allLoaded")}
+                </p>
+              )}
+              {audit.isFetchNextPageError ? (
+                <p className="text-xs text-destructive">
+                  {t("audit.loadMoreError")}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

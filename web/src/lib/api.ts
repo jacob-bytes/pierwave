@@ -324,6 +324,29 @@ export interface AuditEntry {
 }
 
 /**
+ * 审计列表查询参数（全部走服务端）。
+ *
+ * 只传 `limit` 时与旧接口等价：取最新的 N 条。
+ */
+export interface AuditListQuery {
+  limit: number;
+  /** 上一页返回的 `next_before`（记录 id 或 Unix 秒时间戳）；不传表示第一页。 */
+  before?: string | null;
+  /** 动作前缀；逗号分隔表示多个前缀（服务端按 OR 处理）。 */
+  action?: string | null;
+  /** 操作者用户名子串。 */
+  actor?: string | null;
+  /** 目标 id / 固定名字串的子串。 */
+  target?: string | null;
+}
+
+/** 审计分页响应；`next_before` 为 null 表示没有更早的记录了。 */
+export interface AuditPage {
+  items: AuditEntry[];
+  next_before: string | null;
+}
+
+/**
  * P2：订阅自定义规则模板，见 docs/PLAN.md「P2：订阅自定义规则（规则模板）」。
  *
  * `rules` 直接就是 Clash 规则文本；最后一条必须以 `MATCH` 开头（兜底规则）。
@@ -898,12 +921,18 @@ export const api = {
       ),
   },
 
-  /** 管理员可见的审计日志，按时间倒序；limit 由后端夹在 1..500。 */
+  /** 管理员可见的审计日志，按 `(created_at, id)` 倒序做游标分页。 */
   audit: {
-    list: (limit: number) =>
-      request<{ items: AuditEntry[] }>(
-        `/api/v1/audit?limit=${encodeURIComponent(String(limit))}`,
-      ),
+    list: (query: AuditListQuery) => {
+      const params = new URLSearchParams({
+        limit: String(query.limit),
+      });
+      if (query.before) params.set("before", query.before);
+      if (query.action) params.set("action", query.action);
+      if (query.actor) params.set("actor", query.actor);
+      if (query.target) params.set("target", query.target);
+      return request<AuditPage>(`/api/v1/audit?${params.toString()}`);
+    },
   },
 
   /** 管理员维护的 Clash 规则模板；订阅链接用 `?rule=<id>` 引用。 */

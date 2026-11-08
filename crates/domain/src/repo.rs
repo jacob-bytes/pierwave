@@ -3785,10 +3785,47 @@ pub mod audit {
     use super::*;
     use crate::models::{AuditEntry, AuditRow};
 
+    /// 稳定翻页游标：排序键是 `(created_at, id)`，同一秒有多条记录时靠 id 决胜负。
+    ///
+    /// `id = None` 表示调用方只给了时间戳；此时按「不晚于该秒」翻页，
+    /// 不会漏掉同一秒里的其它记录。
+    #[derive(Debug, Clone)]
+    pub struct Cursor {
+        pub created_at: i64,
+        pub id: Option<String>,
+    }
+
+    /// 审计列表筛选条件；全部为空时等价于旧的「取最新 N 条」。
+    #[derive(Debug, Default, Clone)]
+    pub struct Filter {
+        /// 动作前缀；多个前缀之间是 OR（前端的「系统」分类覆盖好几类动作）。
+        pub action_prefixes: Vec<String>,
+        /// 操作者用户名子串。
+        pub actor: Option<String>,
+        /// 目标 id / 固定名字串。
+        pub target: Option<String>,
+    }
+
+    pub struct Page {
+        pub items: Vec<AuditEntry>,
+        /// 下一页游标；`None` 表示已经翻到底。
+        pub next_before: Option<String>,
+    }
+
     /// 写一条审计记录。
     ///
     /// 调用方负责把这里的失败降级成日志：审计是旁路，**不能**回滚或阻断主操作。
     /// `target` 是被操作对象的 id（设置类操作用固定名，如 `settings`）。
+    ///
+    /// **id 必须用 UUID v7，不要改回 v4。** `created_at` 只到秒，同秒多条记录谁先谁后
+    /// 完全由第二个排序键 `id` 决定：v7 的字符串字典序 = 创建顺序，所以
+    /// `ORDER BY created_at DESC, id DESC` 在同一秒内也能稳定地「新记录在前」，
+    /// 旧的 `rowid DESC` 行为因此不变；而 v4 是随机的，同秒顺序会变成随机结果——
+    /// 既让 `(created_at, id)` 游标翻页的顺序看起来忽上忽下，也会让
+    /// 「连续写三条、最新一条排最前」的既有测试间歇性失败。
+    ///
+    /// 历史遗留的 v4 记录不受影响：跨秒顺序由 `created_at` 决定，只有「同一秒内
+    /// 新旧记录混排」这个边界会呈现任意顺序，属于已定型的历史数据。
     pub async fn record(
         pool: &SqlitePool,
         actor_id: Option<&str>,
@@ -3800,7 +3837,7 @@ pub mod audit {
             "INSERT INTO audit_log (id, actor_id, action, target, detail, created_at)
              VALUES (?, ?, ?, ?, ?, ?)",
         )
-        .bind(Uuid::new_v4().to_string())
+        .bind(Uuid::now_v7().to_string())
         .bind(actor_id)
         .bind(action)
         .bind(target)
@@ -3811,22 +3848,138 @@ pub mod audit {
         Ok(())
     }
 
-    /// 最近 `limit` 条，按时间倒序。
+    /// LIKE 模式里的 `%` / `_` / `\` 必须转义，否则用户搜 `%` 会命中全部记录。
+    fn escape_like(raw: &str) -> String {
+        let mut escaped = String::with_capacity(raw.len() + 4);
+        for ch in raw.chars() {
+            if matches!(ch, '\\' | '%' | '_') {
+                escaped.push('\\');
+            }
+            escaped.push(ch);
+        }
+        escaped
+    }
+
+    fn contains_pattern(raw: &str) -> String {
+        format!("%{}%", escape_like(raw))
+    }
+
+    fn prefix_pattern(raw: &str) -> String {
+        format!("{}%", escape_like(raw))
+    }
+
+    /// 按 `(created_at, id)` 倒序翻页，最多返回 `limit` 条。
     ///
-    /// `actor_name` 用 LEFT JOIN：操作者后来被删了，这条历史记录仍然要能看到。
-    /// 时间戳只到秒，同秒记录用 `rowid` 兜底保证顺序稳定。
-    pub async fn list(pool: &SqlitePool, limit: i64) -> anyhow::Result<Vec<AuditEntry>> {
-        let rows = sqlx::query_as::<_, AuditRow>(
+    /// 排序键唯一，所以翻页不重不漏；历史 v4 记录在同一秒内的相对顺序是任意的，
+    /// 但 `(created_at, id)` 仍然是确定的全序，翻页依旧稳定。
+    ///
+    /// `limit` 由调用方夹在 1..=500；这里多取一条用来判断「还有没有下一页」，
+    /// 而不是让前端在最后一页多发一次空请求。
+    pub async fn page(
+        pool: &SqlitePool,
+        filter: &Filter,
+        cursor: Option<&Cursor>,
+        limit: i64,
+    ) -> anyhow::Result<Page> {
+        let limit = limit.clamp(1, 500);
+        let action_patterns: Vec<String> = filter
+            .action_prefixes
+            .iter()
+            .map(|prefix| prefix.trim())
+            .filter(|prefix| !prefix.is_empty())
+            .map(prefix_pattern)
+            .collect();
+        let actor_pattern = filter
+            .actor
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(contains_pattern);
+        let target_pattern = filter
+            .target
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(contains_pattern);
+
+        // SQL 片段都是静态字符串，筛选值一律走绑定参数。
+        let mut sql = String::from(
             "SELECT a.id, a.actor_id, u.username AS actor_name, a.action, a.target,
                     a.detail, a.created_at
              FROM audit_log a
              LEFT JOIN users u ON u.id = a.actor_id
-             ORDER BY a.created_at DESC, a.rowid DESC
-             LIMIT ?",
+             WHERE 1 = 1",
+        );
+        if !action_patterns.is_empty() {
+            sql.push_str(" AND (");
+            for index in 0..action_patterns.len() {
+                if index > 0 {
+                    sql.push_str(" OR ");
+                }
+                sql.push_str("a.action LIKE ? ESCAPE '\\'");
+            }
+            sql.push(')');
+        }
+        if actor_pattern.is_some() {
+            sql.push_str(" AND u.username LIKE ? ESCAPE '\\'");
+        }
+        if target_pattern.is_some() {
+            sql.push_str(" AND a.target LIKE ? ESCAPE '\\'");
+        }
+        match cursor {
+            Some(Cursor { id: Some(_), .. }) => {
+                sql.push_str(" AND (a.created_at, a.id) < (?, ?)");
+            }
+            Some(_) => sql.push_str(" AND a.created_at <= ?"),
+            None => {}
+        }
+        sql.push_str(" ORDER BY a.created_at DESC, a.id DESC LIMIT ?");
+
+        let mut query = sqlx::query_as::<_, AuditRow>(&sql);
+        for pattern in &action_patterns {
+            query = query.bind(pattern);
+        }
+        if let Some(pattern) = &actor_pattern {
+            query = query.bind(pattern);
+        }
+        if let Some(pattern) = &target_pattern {
+            query = query.bind(pattern);
+        }
+        if let Some(cursor) = cursor {
+            query = query.bind(cursor.created_at);
+            if let Some(id) = &cursor.id {
+                query = query.bind(id);
+            }
+        }
+        let mut rows = query.bind(limit + 1).fetch_all(pool).await?;
+
+        let has_more = rows.len() as i64 > limit;
+        if has_more {
+            rows.truncate(limit as usize);
+        }
+        let next_before = if has_more {
+            rows.last().map(|row| row.id.clone())
+        } else {
+            None
+        };
+        Ok(Page {
+            items: rows.into_iter().map(AuditEntry::from).collect(),
+            next_before,
+        })
+    }
+
+    /// 游标只给 id 时，用一次主键查询还原它的 `created_at`。
+    pub async fn find_created_at(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<i64>> {
+        Ok(
+            sqlx::query_scalar("SELECT created_at FROM audit_log WHERE id = ?")
+                .bind(id)
+                .fetch_optional(pool)
+                .await?,
         )
-        .bind(limit.clamp(1, 500))
-        .fetch_all(pool)
-        .await?;
-        Ok(rows.into_iter().map(AuditEntry::from).collect())
+    }
+
+    /// 旧的「取最新 `limit` 条」入口，保持给既有调用方使用。
+    pub async fn list(pool: &SqlitePool, limit: i64) -> anyhow::Result<Vec<AuditEntry>> {
+        Ok(page(pool, &Filter::default(), None, limit).await?.items)
     }
 }
