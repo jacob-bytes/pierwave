@@ -67,11 +67,11 @@ function Tile({
         : {})}
     >
       <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-        <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+        <Icon className="icon-sm shrink-0" aria-hidden="true" />
         <span className="truncate">{label}</span>
         {onOpen ? (
           <ListFilterIcon
-            className="ml-auto size-3 shrink-0 text-primary"
+            className="ml-auto icon-sm shrink-0 text-primary"
             aria-hidden="true"
           />
         ) : null}
@@ -148,7 +148,7 @@ export function Summary({
             <span className="inline-flex items-center gap-1.5">
               <span
                 aria-hidden="true"
-                className="size-1.5 shrink-0 rounded-full bg-primary"
+                className="size-1.5 shrink-0 rounded-full bg-primary status-breathe"
               />
               {t("publicStatus.summary.allOnline")}
             </span>

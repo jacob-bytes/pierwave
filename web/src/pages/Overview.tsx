@@ -41,6 +41,7 @@ import {
   useOverview,
   useTraffic,
 } from "@/lib/queries";
+import { trafficDayOverDay } from "@/lib/trafficDelta";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
@@ -59,30 +60,77 @@ function statsErrorText(error: unknown): string {
   return errorText(error, t("overview.statsError"));
 }
 
+/** 把 `936 MB` 拆成大号数字 + 小号单位，主次一眼可分。 */
+function ByteValue({ bytes }: { bytes: number }) {
+  const text = formatBytes(bytes);
+  const split = text.lastIndexOf(" ");
+  if (split === -1) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, split)}
+      <span className="ml-1 text-sm font-normal text-muted-foreground">
+        {text.slice(split + 1)}
+      </span>
+    </>
+  );
+}
+
 function KpiCard({
   label,
   icon: Icon,
   value,
   hint,
+  delta,
 }: {
   label: string;
   icon: LucideIcon;
   value: ReactNode;
   hint: string;
+  /** 相对上一周期的变化百分比；没有可比数据时传 null 或省略。 */
+  delta?: number | null;
 }) {
+  const hasDelta = typeof delta === "number" && Number.isFinite(delta);
+  const deltaText = !hasDelta
+    ? null
+    : Math.abs(delta) < 0.05
+      ? t("overview.trafficDeltaFlat")
+      : delta > 0
+        ? t("overview.trafficDeltaUp", {
+            value: Math.abs(delta).toFixed(1),
+          })
+        : t("overview.trafficDeltaDown", {
+            value: Math.abs(delta).toFixed(1),
+          });
+
   return (
-    <Card size="sm" className="gap-3">
+    <Card size="sm" className="h-full gap-3">
       <CardHeader className="grid-cols-[1fr_auto] items-center gap-2">
         <CardDescription className="text-xs">{label}</CardDescription>
         <div className="grid size-7 place-items-center rounded-md bg-primary/10 text-primary">
-          <Icon className="size-3.5" />
+          <Icon className="icon-sm" />
         </div>
       </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-semibold tracking-tight tabular-nums">
+      <CardContent className="flex flex-1 flex-col">
+        <div className="flex items-baseline text-[28px] leading-none font-semibold tracking-tight tabular-nums">
           {value}
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+        {/* 底部对齐：有变化率时不会把同一行的其它卡片撑得高低不一。 */}
+        <div className="mt-auto pt-2">
+          {deltaText ? (
+            // 流量涨跌本身没有好坏：保持 muted，不用绿 / 红，也不加图标。
+            <p className="text-xs text-muted-foreground tabular-nums">
+              {deltaText}
+            </p>
+          ) : null}
+          <p
+            className={cn(
+              "text-xs text-muted-foreground",
+              deltaText && "mt-0.5",
+            )}
+          >
+            {hint}
+          </p>
+        </div>
       </CardContent>
     </Card>
   );
@@ -133,7 +181,7 @@ function OverviewError({
     <Card>
       <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
         <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-          <TriangleAlertIcon className="size-5" />
+          <TriangleAlertIcon className="icon-lg" />
         </div>
         <div>
           <p className="text-sm font-medium">{t("overview.loadFailed")}</p>
@@ -146,7 +194,7 @@ function OverviewError({
           disabled={retrying}
         >
           <RefreshCwIcon
-            className={cn("size-3.5", retrying && "animate-spin")}
+            className={cn("icon-md", retrying && "animate-spin")}
           />
           {t("common.retry")}
         </Button>
@@ -168,7 +216,7 @@ function EmptyOverview() {
           action={
             <Button asChild>
               <Link to="/servers">
-                <PlusIcon className="size-4" />
+                <PlusIcon className="icon-md" />
                 {t("overview.emptyAction")}
               </Link>
             </Button>
@@ -214,7 +262,7 @@ function AlertRow({
           active ? alertToneClasses[tone] : "bg-muted text-muted-foreground",
         )}
       >
-        <Icon className="size-4" />
+        <Icon className="icon-md" />
       </div>
       <div className="min-w-0 flex-1">
         <p
@@ -237,7 +285,7 @@ function AlertRow({
       >
         {count}
       </span>
-      <ChevronRightIcon className="size-3.5 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5" />
+      <ChevronRightIcon className="icon-sm text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5" />
     </Link>
   );
 }
@@ -269,6 +317,8 @@ export default function OverviewPage() {
 
   const trafficTotal =
     traffic.data?.days.reduce((sum, day) => sum + day.weighted, 0) ?? null;
+  // 只有后端真实给出「今天 + 昨天」两个日桶时才显示变化率；否则整项省略。
+  const trafficDelta = trafficDayOverDay(traffic.data?.days);
 
   return (
     <div className="animate-enter space-y-6">
@@ -283,7 +333,7 @@ export default function OverviewPage() {
             disabled={refreshing}
           >
             <RefreshCwIcon
-              className={cn("size-3.5", refreshing && "animate-spin")}
+              className={cn("icon-md", refreshing && "animate-spin")}
             />
             {t("common.refresh")}
           </Button>
@@ -308,7 +358,7 @@ export default function OverviewPage() {
               icon={ServerIcon}
               value={
                 <>
-                  {stats.servers.online}{" "}
+                  {stats.servers.online}
                   <span className="ml-1 text-sm font-normal text-muted-foreground">
                     / {stats.servers.total}
                   </span>
@@ -325,7 +375,7 @@ export default function OverviewPage() {
               icon={UsersIcon}
               value={
                 <>
-                  {stats.users.active}{" "}
+                  {stats.users.active}
                   <span className="ml-1 text-sm font-normal text-muted-foreground">
                     / {stats.users.total}
                   </span>
@@ -347,7 +397,8 @@ export default function OverviewPage() {
             <KpiCard
               label={t("overview.todayTraffic")}
               icon={ActivityIcon}
-              value={formatBytes(stats.traffic.today_bytes)}
+              value={<ByteValue bytes={stats.traffic.today_bytes} />}
+              delta={trafficDelta}
               hint={t("overview.monthTrafficHint", {
                 value: formatBytes(stats.traffic.month_bytes),
               })}
@@ -382,7 +433,7 @@ export default function OverviewPage() {
                 ) : traffic.isError ? (
                   <div className="flex h-[248px] flex-col items-center justify-center gap-3 text-center">
                     <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-                      <TriangleAlertIcon className="size-5" />
+                      <TriangleAlertIcon className="icon-lg" />
                     </div>
                     <div>
                       <p className="text-sm font-medium">{t("overview.trafficLoadFailed")}</p>
@@ -398,7 +449,7 @@ export default function OverviewPage() {
                     >
                       <RefreshCwIcon
                         className={cn(
-                          "size-3.5",
+                          "icon-md",
                           traffic.isFetching && "animate-spin",
                         )}
                       />
@@ -479,7 +530,7 @@ export default function OverviewPage() {
                     className="mt-1 flex items-center justify-between rounded-md px-2.5 py-2 text-xs text-muted-foreground transition-colors duration-150 hover:bg-muted/40 hover:text-foreground"
                   >
                     <span className="flex items-center gap-2">
-                      <HistoryIcon className="size-3.5" />
+                      <HistoryIcon className="icon-sm" />
                       {t(
                         recentRemoved === 1
                           ? "overview.recentRemovedOne"
@@ -489,7 +540,7 @@ export default function OverviewPage() {
                     </span>
                     <span className="flex items-center gap-1">
                       {t("overview.viewRecords")}
-                      <ChevronRightIcon className="size-3.5" />
+                      <ChevronRightIcon className="icon-sm" />
                     </span>
                   </Link>
                 ) : null}

@@ -269,12 +269,12 @@ function EmptyRow({
           action={
             searching ? (
               <Button variant="outline" size="sm" onClick={onClearSearch}>
-                <XIcon className="size-3.5" />
+                <XIcon className="icon-sm" />
                 {t("users.clearSearch")}
               </Button>
             ) : (
               <Button variant="outline" size="sm" onClick={onCreate}>
-                <PlusIcon className="size-3.5" />
+                <PlusIcon className="icon-md" />
                 {t("users.create")}
               </Button>
             )
@@ -299,7 +299,7 @@ function ErrorRow({
       <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
         <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
           <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-            <TriangleAlertIcon className="size-5" />
+            <TriangleAlertIcon className="icon-lg" />
           </div>
           <div>
             <p className="text-sm font-medium">{t("users.loadFailed")}</p>
@@ -307,7 +307,7 @@ function ErrorRow({
           </div>
           <Button variant="outline" size="sm" onClick={onRetry} disabled={retrying}>
             <RefreshCwIcon
-              className={cn("size-3.5", retrying && "animate-spin")}
+              className={cn("icon-md", retrying && "animate-spin")}
             />
             {t("common.retry")}
           </Button>
@@ -339,7 +339,7 @@ function DeleteUserDialog({
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogMedia className="bg-destructive/10 text-destructive">
-            <Trash2Icon className="size-5" />
+            <Trash2Icon className="icon-lg" />
           </AlertDialogMedia>
           <AlertDialogTitle>{t("users.delete.title")}</AlertDialogTitle>
           <AlertDialogDescription>
@@ -564,18 +564,18 @@ export default function UsersPage() {
               username: user.username,
             })}
           >
-            <MoreHorizontalIcon className="size-4" />
+            <MoreHorizontalIcon className="icon-md" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
           <DropdownMenuItem
             onSelect={() => setFormState({ mode: "edit", user })}
           >
-            <PencilIcon className="size-3.5" />
+            <PencilIcon className="icon-sm" />
             {t("users.actions.edit")}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setResetUser(user)}>
-            <KeyRoundIcon className="size-3.5" />
+            <KeyRoundIcon className="icon-sm" />
             {t("users.actions.resetPassword")}
           </DropdownMenuItem>
           <DropdownMenuItem
@@ -585,13 +585,13 @@ export default function UsersPage() {
             }
             onSelect={() => toggleStatus(user)}
           >
-            <PowerIcon className="size-3.5" />
+            <PowerIcon className="icon-sm" />
             {user.status === "active"
               ? t("users.actions.disable")
               : t("users.actions.enable")}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setPackagesUser(user)}>
-            <PackageIcon className="size-3.5" />
+            <PackageIcon className="icon-sm" />
             {t("users.actions.managePackages")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
@@ -601,7 +601,7 @@ export default function UsersPage() {
             title={isSelf ? t("users.actions.cannotDeleteSelf") : undefined}
             onSelect={() => setDeleteTarget(user)}
           >
-            <Trash2Icon className="size-3.5" />
+            <Trash2Icon className="icon-sm" />
             {t("common.delete")}
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -672,7 +672,7 @@ export default function UsersPage() {
         description={t("users.subtitle")}
         actions={
           <Button onClick={() => setFormState({ mode: "create" })}>
-            <PlusIcon className="size-4" />
+            <PlusIcon className="icon-md" />
             {t("users.create")}
           </Button>
         }
@@ -695,7 +695,7 @@ export default function UsersPage() {
 
             <div className="flex flex-wrap items-center gap-2">
               <div className="relative w-full sm:w-72">
-                <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 icon-md -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={searchInput}
                   onChange={(event) => setSearchInput(event.target.value)}
@@ -713,7 +713,7 @@ export default function UsersPage() {
                     className="absolute top-1/2 right-1 -translate-y-1/2"
                     onClick={clearSearch}
                   >
-                    <XIcon className="size-3.5" />
+                    <XIcon className="icon-sm" />
                   </Button>
                 ) : null}
               </div>
@@ -725,7 +725,7 @@ export default function UsersPage() {
               >
                 <RefreshCwIcon
                   className={cn(
-                    "size-3.5",
+                    "icon-md",
                     users.isFetching && "animate-spin",
                   )}
                 />
@@ -848,7 +848,7 @@ export default function UsersPage() {
                         size="sm"
                         onClick={clearSearch}
                       >
-                        <XIcon className="size-3.5" />
+                        <XIcon className="icon-sm" />
                         {t("users.clearSearch")}
                       </Button>
                     ) : (
@@ -857,7 +857,7 @@ export default function UsersPage() {
                         size="sm"
                         onClick={() => setFormState({ mode: "create" })}
                       >
-                        <PlusIcon className="size-3.5" />
+                        <PlusIcon className="icon-md" />
                         {t("users.create")}
                       </Button>
                     )

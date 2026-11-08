@@ -53,6 +53,8 @@ export function StatusDot({
       className={cn(
         "size-1.5 shrink-0 rounded-full",
         STATE_META[state].dot,
+        // 只有在线（活着）的状态点呼吸；离线空心环与异常红点保持静止。
+        state === "online" && "status-breathe",
         className,
       )}
     />
@@ -168,7 +170,7 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
         className="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
         title={heartbeatTitle}
       >
-        <ClockIcon className="size-3 shrink-0" aria-hidden="true" />
+        <ClockIcon className="icon-sm shrink-0" aria-hidden="true" />
         <span className="truncate">{heartbeat}</span>
         {xray ? (
           <>

@@ -198,7 +198,7 @@ function StatusBadge({ server }: { server: Server }) {
           className={cn(
             "size-1.5 rounded-full",
             online
-              ? "bg-primary motion-safe:animate-pulse"
+              ? "bg-primary status-breathe"
               : "bg-muted-foreground/40",
           )}
         />
@@ -226,7 +226,7 @@ function XrayStatus({ server }: { server: Server }) {
         className={cn(
           "size-1.5 rounded-full",
           meta.dot,
-          state === "running" && "motion-safe:animate-pulse",
+          state === "running" && "status-breathe",
         )}
       />
       {t(meta.labelKey)}
@@ -450,7 +450,7 @@ function ServerDetailsPopover({ server }: { server: Server }) {
           className="xl:hidden"
           aria-label={t("servers.detailsAria", { name: server.name })}
         >
-          <InfoIcon className="size-3.5" />
+          <InfoIcon className="icon-md" />
           {t("common.details")}
         </Button>
       </PopoverTrigger>
@@ -625,7 +625,7 @@ function EmptyRow({ onCreate }: { onCreate: () => void }) {
           description={t("servers.emptyDesc")}
           action={
             <Button variant="outline" size="sm" onClick={onCreate}>
-              <PlusIcon className="size-3.5" />
+              <PlusIcon className="icon-md" />
               {t("servers.emptyAction")}
             </Button>
           }
@@ -649,7 +649,7 @@ function ErrorRow({
       <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
         <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
           <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-            <TriangleAlertIcon className="size-5" />
+            <TriangleAlertIcon className="icon-lg" />
           </div>
           <div>
             <p className="text-sm font-medium">{t("servers.loadFailed")}</p>
@@ -657,7 +657,7 @@ function ErrorRow({
           </div>
           <Button variant="outline" size="sm" onClick={onRetry} disabled={retrying}>
             <RefreshCwIcon
-              className={cn("size-3.5", retrying && "animate-spin")}
+              className={cn("icon-md", retrying && "animate-spin")}
             />
             {t("common.retry")}
           </Button>
@@ -813,7 +813,7 @@ export default function ServersPage() {
             to={`/servers/${server.id}/nodes`}
             aria-label={t("servers.manageNodesAria", { name: server.name })}
           >
-            <NetworkIcon className="size-4" />
+            <NetworkIcon className="icon-md" />
           </Link>
         </Button>
         <DropdownMenu>
@@ -825,7 +825,7 @@ export default function ServersPage() {
                 name: server.name,
               })}
             >
-              <MoreHorizontalIcon className="size-4" />
+              <MoreHorizontalIcon className="icon-md" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52">
@@ -838,7 +838,7 @@ export default function ServersPage() {
               }
               onSelect={() => setUpgradeServerId(server.id)}
             >
-              <ArrowUpCircleIcon className="size-3.5" />
+              <ArrowUpCircleIcon className="icon-sm" />
               {t("servers.agentUpgrade.action")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -849,7 +849,7 @@ export default function ServersPage() {
                   name: server.name,
                 })}
               >
-                <WaypointsIcon className="size-3.5" />
+                <WaypointsIcon className="icon-sm" />
                 {t("servers.outbounds")}
               </Link>
             </DropdownMenuItem>
@@ -860,23 +860,23 @@ export default function ServersPage() {
                   name: server.name,
                 })}
               >
-                <ArrowRightLeftIcon className="size-3.5" />
+                <ArrowRightLeftIcon className="icon-sm" />
                 {t("forwards.menuLabel")}
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <Link to="/chains" aria-label={t("servers.openChainsAria")}>
-                <WorkflowIcon className="size-3.5" />
+                <WorkflowIcon className="icon-sm" />
                 {t("servers.chains")}
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setHistoryServerId(server.id)}>
-              <HistoryIcon className="size-3.5" />
+              <HistoryIcon className="icon-sm" />
               {t("servers.agentUpgrade.history")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => setEditServerId(server.id)}>
-              <PencilIcon className="size-3.5" />
+              <PencilIcon className="icon-sm" />
               {t("servers.agentUpgrade.edit")}
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -1057,7 +1057,7 @@ export default function ServersPage() {
         description={t("servers.subtitle")}
         actions={
           <Button onClick={openCreateDialog}>
-            <PlusIcon className="size-4" />
+            <PlusIcon className="icon-md" />
             {t("servers.add")}
           </Button>
         }
@@ -1102,7 +1102,7 @@ export default function ServersPage() {
                 onClick={openLatestBatch}
                 title={t("servers.batch.progressAction")}
               >
-                <HistoryIcon className="size-3.5" />
+                <HistoryIcon className="icon-sm" />
                 {t("servers.batch.progressAction")}
               </Button>
               <Button
@@ -1113,7 +1113,7 @@ export default function ServersPage() {
               >
                 <RefreshCwIcon
                   className={cn(
-                    "size-3.5",
+                    "icon-md",
                     servers.isFetching && "animate-spin",
                   )}
                 />
@@ -1223,7 +1223,7 @@ export default function ServersPage() {
                       size="sm"
                       onClick={openCreateDialog}
                     >
-                      <PlusIcon className="size-3.5" />
+                      <PlusIcon className="icon-md" />
                       {t("servers.emptyAction")}
                     </Button>
                   }
@@ -1336,7 +1336,7 @@ export default function ServersPage() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <KeyRoundIcon className="size-4 text-primary" />
+              <KeyRoundIcon className="icon-md text-primary" />
               {t("servers.tokenDialog.title")}
             </DialogTitle>
             <DialogDescription>
@@ -1401,7 +1401,7 @@ export default function ServersPage() {
               </div>
 
               <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
-                <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
+                <TriangleAlertIcon className="mt-0.5 icon-sm shrink-0" />
                 <p>
                   {t("servers.tokenDialog.rootWarning")}
                 </p>
@@ -1422,7 +1422,7 @@ export default function ServersPage() {
                 }
               }}
             >
-              <CopyIcon className="size-3.5" />
+              <CopyIcon className="icon-md" />
               {t("servers.tokenDialog.copyCommand")}
             </Button>
             <Button onClick={() => setTokenOpen(false)}>

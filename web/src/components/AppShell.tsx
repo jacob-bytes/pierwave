@@ -146,7 +146,7 @@ function PageLoading() {
   const { t } = useI18n();
   return (
     <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-      <Loader2Icon className="size-4 animate-spin" />
+      <Loader2Icon className="icon-md animate-spin" />
       {t("app.loadingPage")}
     </div>
   );
@@ -184,7 +184,7 @@ function NavEntry({
           : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
       )}
     >
-      <Icon className={item.sub ? "size-3.5" : "size-4"} />
+      <Icon className={item.sub ? "icon-sm" : "icon-md"} />
       {collapsed ? <span className="sr-only">{t(item.labelKey)}</span> : t(item.labelKey)}
     </NavLink>
   );
@@ -206,9 +206,9 @@ function ThemeItem({
   const selected = current === mode;
   return (
     <DropdownMenuItem onSelect={() => onSelect(mode)}>
-      <Icon className="size-3.5" />
+      <Icon className="icon-sm" />
       <span className="flex-1">{label}</span>
-      {selected ? <CheckIcon className="size-3.5 text-primary" /> : null}
+      {selected ? <CheckIcon className="icon-sm text-primary" /> : null}
     </DropdownMenuItem>
   );
 }
@@ -248,7 +248,7 @@ function SidebarBody({
         title={panelName}
       >
         <div className="grid size-6 shrink-0 place-items-center rounded-md bg-primary/15 text-primary">
-          <TerminalIcon className="size-3.5" />
+          <TerminalIcon className="icon-sm" />
         </div>
         {collapsed ? null : (
           <span className="truncate text-sm font-semibold tracking-wide">
@@ -388,7 +388,8 @@ export default function AppShell({ user }: { user: SessionUser }) {
     <div className="flex h-full bg-background text-foreground">
       <aside
         className={cn(
-          "hidden shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200 md:flex",
+          // 侧栏跟页面底同色，内容区再抬一档（bg-card/40），形成「深 → 浅」两层。
+          "hidden shrink-0 flex-col border-r border-sidebar-border bg-background transition-[width] duration-200 md:flex",
           collapsed ? "w-14" : "w-60",
         )}
       >
@@ -406,7 +407,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
         <SheetContent
           side="left"
-          className="w-64 gap-0 bg-sidebar p-0"
+          className="w-64 gap-0 bg-background p-0"
           showCloseButton={false}
         >
           <SheetTitle className="sr-only">{panelName}</SheetTitle>
@@ -426,15 +427,15 @@ export default function AppShell({ user }: { user: SessionUser }) {
               className="w-full justify-start"
               onClick={() => setMobileNavOpen(false)}
             >
-              <XIcon className="size-4" />
+              <XIcon className="icon-md" />
               {t("common.close")}
             </Button>
           </div>
         </SheetContent>
       </Sheet>
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-background/80 px-4 backdrop-blur sm:px-6">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-card/40">
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4 sm:px-6">
           <Button
             variant="ghost"
             size="icon-sm"
@@ -443,7 +444,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
             title={t("app.openNavigation")}
             className="md:hidden"
           >
-            <MenuIcon className="size-4" />
+            <MenuIcon className="icon-md" />
           </Button>
           {/* 折叠按钮 + 竖线分隔：按钮贴着侧栏，面包屑与导航结构分属两块 */}
           <Button
@@ -458,9 +459,9 @@ export default function AppShell({ user }: { user: SessionUser }) {
             className="hidden md:inline-flex"
           >
             {collapsed ? (
-              <PanelLeftOpenIcon className="size-4" />
+              <PanelLeftOpenIcon className="icon-md" />
             ) : (
-              <PanelLeftCloseIcon className="size-4" />
+              <PanelLeftCloseIcon className="icon-md" />
             )}
           </Button>
           <span
@@ -478,7 +479,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
             >
               {panelName}
             </Link>
-            <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground" />
+            <ChevronRightIcon className="icon-sm shrink-0 text-muted-foreground" />
             <span
               className="truncate font-medium"
               aria-current={pageSubLabel ? undefined : "page"}
@@ -487,7 +488,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
             </span>
             {pageSubLabel ? (
               <>
-                <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                <ChevronRightIcon className="icon-sm shrink-0 text-muted-foreground" />
                 <span
                   className="truncate text-muted-foreground"
                   aria-current="page"
@@ -515,7 +516,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
             aria-label={t("common.refresh")}
           >
             <RefreshCwIcon
-              className={cn("size-4", fetching && "animate-spin")}
+              className={cn("icon-md", fetching && "animate-spin")}
             />
           </Button>
 
@@ -532,7 +533,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
                 <span className="hidden max-w-32 truncate text-[13px] font-medium sm:inline">
                   {user.username}
                 </span>
-                <ChevronsUpDownIcon className="hidden size-3.5 shrink-0 text-muted-foreground sm:inline" />
+                <ChevronsUpDownIcon className="hidden icon-sm shrink-0 text-muted-foreground sm:inline" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent side="bottom" align="end" className="w-56">
@@ -545,32 +546,32 @@ export default function AppShell({ user }: { user: SessionUser }) {
                 </span>
               </DropdownMenuLabel>
               <DropdownMenuItem onSelect={() => setPasswordOpen(true)}>
-                <KeyRoundIcon className="size-3.5" />
+                <KeyRoundIcon className="icon-sm" />
                 {t("userMenu.changePassword")}
               </DropdownMenuItem>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
-                  <LanguagesIcon className="size-3.5" />
+                  <LanguagesIcon className="icon-sm" />
                   {t("userMenu.language")}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
                   <DropdownMenuItem onSelect={() => setLocale("zh-CN")}>
                     <span className="flex-1">{t("userMenu.chinese")}</span>
                     {locale === "zh-CN" ? (
-                      <CheckIcon className="size-3.5 text-primary" />
+                      <CheckIcon className="icon-sm text-primary" />
                     ) : null}
                   </DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => setLocale("en")}>
                     <span className="flex-1">{t("userMenu.english")}</span>
                     {locale === "en" ? (
-                      <CheckIcon className="size-3.5 text-primary" />
+                      <CheckIcon className="icon-sm text-primary" />
                     ) : null}
                   </DropdownMenuItem>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
-                  <SunMoonIcon className="size-3.5" />
+                  <SunMoonIcon className="icon-sm" />
                   {t("userMenu.theme")}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
@@ -603,7 +604,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
                 disabled={logout.isPending}
                 onSelect={() => void handleLogout()}
               >
-                <LogOutIcon className="size-3.5" />
+                <LogOutIcon className="icon-sm" />
                 {t("userMenu.logout")}
               </DropdownMenuItem>
             </DropdownMenuContent>

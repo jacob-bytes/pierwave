@@ -251,6 +251,9 @@ const en = {
     packagesTotalHint: "{n} package templates in total",
     todayTraffic: "Traffic today",
     monthTrafficHint: "{value} this month",
+    trafficDeltaUp: "vs yesterday ↑ {value}%",
+    trafficDeltaDown: "vs yesterday ↓ {value}%",
+    trafficDeltaFlat: "vs yesterday flat",
     trafficTrend: "Traffic trend, last 7 days",
     trafficTrendDesc:
       "Counted by UTC+8 calendar day; missing days are treated as 0.",

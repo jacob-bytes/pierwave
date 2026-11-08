@@ -12,6 +12,29 @@
  */
 @theme {
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  /*
+   * 图标尺寸只有三档，和字阶一样属于「约定」而不是随手写的 14/16/20。
+   * 用 `icon-sm` / `icon-md` / `icon-lg` 三个工具类落到元素上：
+   * 表格内与徽章旁 = sm，按钮 / 导航 = md，空态 / 页头 = lg。
+   */
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
+}
+
+@utility icon-sm {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+}
+
+@utility icon-md {
+  width: var(--icon-md);
+  height: var(--icon-md);
+}
+
+@utility icon-lg {
+  width: var(--icon-lg);
+  height: var(--icon-lg);
 }
 
 @theme inline {
@@ -120,8 +143,13 @@
   --overlay: oklch(0 0 0 / 60%);
   /* 骨架屏扫光，深色下是 7% 白 */
   --skeleton: oklch(1 0 0 / 7%);
-  /* 深色卡片靠描边分层，阴影只用来压住浮层边缘 */
-  --card-shadow: 0 1px 2px oklch(0 0 0 / 30%);
+  /*
+   * 深色卡片：一条 1px 顶部亮边 + 极轻的落影。
+   * 亮边只负责把卡片上缘从背景里「提」起来，不靠大阴影；亮色主题保持原有冷色投影。
+   */
+  --card-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.045),
+    0 1px 2px rgb(0 0 0 / 0.35);
   /* 登录页背景光晕强度：深色底上可以更明显 */
   --auth-glow-strong: 26%;
   --auth-glow-soft: 10%;
@@ -341,6 +369,31 @@
     transparent
   );
   animation: skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+/*
+ * 在线状态点呼吸：2s 一轮，透明度 1 → 0.55 → 1。
+ *
+ * 只给「活着」的状态点用。离线 / 异常点保持静止，避免把故障也画成有生命。
+ * 减弱动效时完全静止（与全站 reduced-motion 规则同一档）。
+ */
+@keyframes status-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.status-breathe {
+  animation: status-breathe 2s ease-in-out infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 /*

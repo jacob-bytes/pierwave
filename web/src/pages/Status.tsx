@@ -92,7 +92,7 @@ function LiveStatus({
         className={cn(
           "size-1.5 shrink-0 rounded-full",
           warn ? "bg-warning" : "bg-primary",
-          !warn && "motion-safe:animate-pulse",
+          !warn && "status-breathe",
         )}
       />
       <span className="max-sm:sr-only">{label}</span>
@@ -119,12 +119,12 @@ function StatusHeader({
   const themeLabel = t("publicStatus.header.themeToggle");
 
   return (
-    <header className="sticky top-0 z-10 border-b border-border bg-card/80 backdrop-blur">
+    <header className="sticky top-0 z-10 border-b border-border bg-[color-mix(in_oklab,var(--card)_80%,var(--background))]">
       <div className="mx-auto flex max-w-[1400px] items-center gap-2 px-4 py-3 sm:gap-3 sm:px-6">
         <div className="min-w-0">
           <h1 className="flex min-w-0 items-center gap-2 text-base font-semibold tracking-tight">
             <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/15">
-              <ActivityIcon className="size-4" aria-hidden="true" />
+              <ActivityIcon className="icon-lg" aria-hidden="true" />
             </span>
             <span className="truncate">{panelName}</span>
           </h1>
@@ -146,7 +146,7 @@ function StatusHeader({
           title={t("publicStatus.refresh")}
         >
           <RefreshCwIcon
-            className={cn("size-3.5", isFetching && "animate-spin")}
+            className={cn("icon-md", isFetching && "animate-spin")}
             aria-hidden="true"
           />
           <span className="max-sm:sr-only">
@@ -165,15 +165,15 @@ function StatusHeader({
           aria-label={themeLabel}
         >
           {dark ? (
-            <SunIcon className="size-4" aria-hidden="true" />
+            <SunIcon className="icon-md" aria-hidden="true" />
           ) : (
-            <MoonIcon className="size-4" aria-hidden="true" />
+            <MoonIcon className="icon-md" aria-hidden="true" />
           )}
         </Button>
 
         <Button variant="ghost" size="sm" asChild>
           <Link to="/login">
-            <LayoutDashboardIcon className="size-3.5" aria-hidden="true" />
+            <LayoutDashboardIcon className="icon-md" aria-hidden="true" />
             <span className="max-sm:sr-only">
               {t("publicStatus.header.admin")}
             </span>
@@ -208,7 +208,7 @@ function NoticeCard({
             iconClassName,
           )}
         >
-          <Icon className="size-5" aria-hidden="true" />
+          <Icon className="icon-lg" aria-hidden="true" />
         </div>
         <div>
           <p className="text-sm font-medium">{title}</p>
@@ -391,7 +391,7 @@ export default function StatusPage() {
             <Button asChild variant="outline" size="sm">
               <Link to="/login">
                 {t("publicStatus.header.admin")}
-                <ArrowRightIcon className="size-3.5" aria-hidden="true" />
+                <ArrowRightIcon className="icon-md" aria-hidden="true" />
               </Link>
             </Button>
           </NoticeCard>
@@ -414,7 +414,7 @@ export default function StatusPage() {
             >
               <RefreshCwIcon
                 className={cn(
-                  "size-3.5",
+                  "icon-md",
                   status.isFetching && "animate-spin",
                 )}
                 aria-hidden="true"

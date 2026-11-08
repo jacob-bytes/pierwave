@@ -83,6 +83,38 @@ function TooltipValue({
   );
 }
 
+/**
+ * 悬停 / 键盘聚焦时的竖向参考线。
+ *
+ * Recharts 的 BarChart cursor 默认画整条分类色块；这里只留中间 1px 竖线，
+ * 不遮住柱子本身的颜色。坐标由 Recharts 传入（分类带 left/top/width/height）。
+ */
+function TrafficCursor({
+  x = 0,
+  y = 0,
+  width = 0,
+  height = 0,
+}: {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+}) {
+  const center = x + width / 2;
+  return (
+    <line
+      x1={center}
+      x2={center}
+      y1={y}
+      y2={y + height}
+      stroke="var(--muted-foreground)"
+      strokeOpacity={0.45}
+      strokeWidth={1}
+      pointerEvents="none"
+    />
+  );
+}
+
 function TrafficTooltip({ active, payload }: TrafficTooltipProps) {
   if (!active || !payload?.length) return null;
   const day = payload[0]?.payload;
@@ -124,7 +156,7 @@ export default function TrafficChart({ days }: { days: TrafficDay[] }) {
   if (!days.length || !hasTraffic) {
     return (
       <div className="flex h-[248px] flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border px-6 text-center">
-        <ChartColumnIcon className="size-5 text-muted-foreground" />
+        <ChartColumnIcon className="icon-lg text-muted-foreground" />
         <p className="text-sm font-medium">{t("trafficChart.emptyTitle")}</p>
         <p className="text-xs text-muted-foreground">
           {t("trafficChart.emptyDesc")}
@@ -150,12 +182,13 @@ export default function TrafficChart({ days }: { days: TrafficDay[] }) {
             data={days}
             margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
             barCategoryGap="28%"
-            // Recharts 默认把内层 svg 设成未命名的 role=application；
-            // 这里换成有名称的 role=img，键盘用户不会再落到空 application 上。
+            // 保留有名称的 role=img（默认会是空名的 role=application）；
+            // 同时打开 accessibilityLayer，键盘左右键可以在日期间移动并显示 tooltip。
+            // 逐日数据表仍是读屏 / 键盘用户的完整取数入口。
             {...({
               role: "img",
               "aria-label": t("trafficChart.aria"),
-              accessibilityLayer: false,
+              accessibilityLayer: true,
             } as Record<string, unknown>)}
           >
             <defs>
@@ -180,7 +213,7 @@ export default function TrafficChart({ days }: { days: TrafficDay[] }) {
             <CartesianGrid
               vertical={false}
               stroke="var(--border)"
-              strokeDasharray="3 3"
+              strokeWidth={1}
             />
             <XAxis
               dataKey="date"
@@ -194,11 +227,12 @@ export default function TrafficChart({ days }: { days: TrafficDay[] }) {
               tickFormatter={(value: number) => formatBytes(value)}
               axisLine={false}
               tickLine={false}
+              tickCount={4}
               width={64}
               tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
             />
             <Tooltip
-              cursor={{ fill: "var(--muted)", fillOpacity: 0.35 }}
+              cursor={<TrafficCursor />}
               content={<TrafficTooltip />}
             />
             <Bar
@@ -206,6 +240,7 @@ export default function TrafficChart({ days }: { days: TrafficDay[] }) {
               name={t("trafficChart.downlink")}
               stackId="traffic"
               fill="var(--primary)"
+              radius={[2, 2, 0, 0]}
               isAnimationActive={false}
             />
             <Bar
@@ -234,13 +269,13 @@ export default function TrafficChart({ days }: { days: TrafficDay[] }) {
           aria-controls={dataTableId}
           onClick={() => setDataOpen((open) => !open)}
         >
-          <ChartColumnIcon className="size-3.5" aria-hidden="true" />
+          <ChartColumnIcon className="icon-md" aria-hidden="true" />
           {dataOpen
             ? t("trafficChart.hideData")
             : t("trafficChart.viewData")}
           <ChevronDownIcon
             className={cn(
-              "size-3.5 transition-transform duration-150",
+              "icon-md transition-transform duration-150",
               dataOpen && "rotate-180",
             )}
             aria-hidden="true"

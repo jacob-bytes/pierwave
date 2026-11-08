@@ -52,7 +52,7 @@ export function EmptyState({
               : "bg-muted text-muted-foreground",
           )}
         >
-          <Icon className="size-5" aria-hidden="true" />
+          <Icon className="icon-lg" aria-hidden="true" />
         </div>
       ) : null}
       <div className="max-w-sm space-y-1">
