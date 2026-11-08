@@ -98,6 +98,7 @@ async fn handle(mut socket: WebSocket, state: AppState, base_url: String) {
                     xray: rendered.xray,
                     files: rendered.files,
                     agent_upgrade: rendered.agent_upgrade,
+                    nodes: Vec::new(), // 限速 lane 接入后改为 rendered.nodes
                 });
                 if !send_json(&mut socket, &desired).await {
                     return;

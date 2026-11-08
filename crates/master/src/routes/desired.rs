@@ -228,6 +228,7 @@ pub async fn publish(
             xray: desired.xray,
             files: desired.files,
             agent_upgrade: desired.agent_upgrade,
+            nodes: Vec::new(), // 限速 lane 接入后改为 desired.nodes
         }),
     );
 

@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +63,24 @@ pub struct DesiredState {
     /// 期望的 Agent 升级目标。None = 不需要升级。
     #[serde(default)]
     pub agent_upgrade: Option<AgentUpgradePlan>,
+    /// 本次期望态里**已启用**节点的限速信息，供 Agent 生成 tc 规则。
+    ///
+    /// 只放 Agent 需要的最小集合：它拿不到服务器的节点表，而 xray JSON 里
+    /// 没有「这个 inbound 对应哪个节点 id」。旧主控不下发该字段时为空，
+    /// Agent 视为「没有任何限速」并清掉自己建的 qdisc。
+    #[serde(default)]
+    pub nodes: Vec<DesiredNode>,
+}
+
+/// 期望态里的单个节点（仅 Agent 生成 tc 规则需要的字段）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DesiredNode {
+    pub id: String,
+    pub tag: String,
+    pub port: i64,
+    /// 节点带宽上限（kbps）；`0` = 不限。
+    #[serde(default)]
+    pub bandwidth_kbps: i64,
 }
 
 /// 主控下发的 Agent 自升级计划。
@@ -159,6 +177,7 @@ mod tests {
             xray: serde_json::json!({"inbounds": [], "outbounds": []}),
             files: vec![],
             agent_upgrade: None,
+            nodes: vec![],
         });
         let json = serde_json::to_string(&state).unwrap();
         let back: MasterMessage = serde_json::from_str(&json).unwrap();
