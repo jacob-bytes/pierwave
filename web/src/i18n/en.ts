@@ -1280,6 +1280,12 @@ const en = {
       backup: "Backup & restore",
       backupDesc:
         "Download a snapshot of the current database, or upload a backup to replace all data.",
+      templates: "Rule templates",
+      templatesDesc:
+        "Manage the Clash routing rules used for subscriptions; the default template applies when none is specified.",
+      certificates: "Certificates",
+      certificatesDesc:
+        "Manage certificates used by TLS nodes; upload one and bind it in the node form.",
     },
     general: {
       saved: "General settings saved",

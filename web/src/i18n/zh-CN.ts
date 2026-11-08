@@ -1226,6 +1226,11 @@ const zhCN = {
         "配置 Telegram / Webhook 通知渠道与告警事件，并可发送测试消息。",
       backup: "备份与恢复",
       backupDesc: "下载当前数据库快照，或上传备份覆盖全部数据。",
+      templates: "规则模板",
+      templatesDesc:
+        "管理订阅生成的 Clash 分流规则；未指定模板时使用默认模板。",
+      certificates: "证书",
+      certificatesDesc: "管理 TLS 节点使用的证书；上传后可在节点表单里绑定。",
     },
     general: {
       saved: "常规设置已保存",

@@ -161,7 +161,8 @@ function DomainsCell({ domains }: { domains: string[] }) {
   );
 }
 
-export default function CertificatesPage() {
+/** 设置页的「证书」tab：列表 + 上传/删除对话框，四态齐全。 */
+export function CertificatesPanel() {
   useI18n();
   const certificates = useCertificates();
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -175,20 +176,7 @@ export default function CertificatesPage() {
   );
 
   return (
-    <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">{t("certificates.title")}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t("certificates.subtitle")}
-          </p>
-        </div>
-        <Button onClick={() => setUploadOpen(true)}>
-          <PlusIcon className="size-4" />
-          {t("certificates.upload")}
-        </Button>
-      </div>
-
+    <div className="space-y-6">
       <Card className="gap-0 overflow-hidden">
         <CardHeader className="border-b border-border">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -203,20 +191,26 @@ export default function CertificatesPage() {
                 </Badge>
               ) : null}
             </CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void certificates.refetch()}
-              disabled={certificates.isFetching}
-            >
-              <RefreshCwIcon
-                className={cn(
-                  "size-3.5",
-                  certificates.isFetching && "animate-spin",
-                )}
-              />
-              {t("common.refresh")}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" onClick={() => setUploadOpen(true)}>
+                <PlusIcon className="size-3.5" />
+                {t("certificates.upload")}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void certificates.refetch()}
+                disabled={certificates.isFetching}
+              >
+                <RefreshCwIcon
+                  className={cn(
+                    "size-3.5",
+                    certificates.isFetching && "animate-spin",
+                  )}
+                />
+                {t("common.refresh")}
+              </Button>
+            </div>
           </div>
           <CardDescription className="text-xs">
             {t("certificates.desc")}

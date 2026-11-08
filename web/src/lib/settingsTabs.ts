@@ -4,6 +4,8 @@
  *
  * URL 约定：`/settings?tab=security`；默认的「常规」不写参数，
  * 非法值（手改、旧链接、拼错）统一回落到第一个 tab。
+ * 规则模板与证书原先各占一个侧栏入口，现合并为这里的最后两个 tab；
+ * 旧路由 `/rules`、`/certificates` 仍重定向到对应 tab。
  */
 
 export const SETTINGS_TAB_IDS = [
@@ -11,6 +13,8 @@ export const SETTINGS_TAB_IDS = [
   "security",
   "alerts",
   "backup",
+  "templates",
+  "certificates",
 ] as const;
 
 export type SettingsTabId = (typeof SETTINGS_TAB_IDS)[number];

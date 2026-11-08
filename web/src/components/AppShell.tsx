@@ -12,12 +12,10 @@ import {
   CheckIcon,
   ChevronRightIcon,
   ChevronsUpDownIcon,
-  FileKeyIcon,
   KeyRoundIcon,
   LanguagesIcon,
   LayoutDashboardIcon,
   Link2Icon,
-  ListFilterIcon,
   Loader2Icon,
   LogOutIcon,
   MonitorIcon,
@@ -53,6 +51,10 @@ import {
 import { useDocumentTitle, useI18n } from "@/i18n";
 import type { SessionUser } from "@/lib/api";
 import { resolveLogsTab } from "@/lib/logsTabs";
+import {
+  DEFAULT_SETTINGS_TAB,
+  resolveSettingsTab,
+} from "@/lib/settingsTabs";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/lib/useTheme";
 import type { ThemeMode } from "@/lib/theme";
@@ -104,8 +106,6 @@ const systemNav: NavItem[] = [
       /^\/servers\/[^/]+\/nodes(?:\/|$)/.test(pathname),
   },
   { to: "/logs", labelKey: "nav.logs", icon: ScrollTextIcon },
-  { to: "/rules", labelKey: "nav.rules", icon: ListFilterIcon },
-  { to: "/certificates", labelKey: "nav.certificates", icon: FileKeyIcon },
   { to: "/settings", labelKey: "nav.settings", icon: SettingsIcon },
 ];
 
@@ -245,7 +245,16 @@ export default function AppShell({ user }: { user: SessionUser }) {
     pathname === "/logs"
       ? resolveLogsTab(new URLSearchParams(search).get("tab"))
       : null;
-  const pageSubLabel = logsTab ? t(`logs.tabs.${logsTab}`) : null;
+  // `/settings` 同理：规则模板 / 证书等非默认 tab 也进面包屑。
+  const settingsTab =
+    pathname === "/settings"
+      ? resolveSettingsTab(new URLSearchParams(search).get("tab"))
+      : null;
+  const pageSubLabel = logsTab
+    ? t(`logs.tabs.${logsTab}`)
+    : settingsTab && settingsTab !== DEFAULT_SETTINGS_TAB
+      ? t(`settings.tabs.${settingsTab}`)
+      : null;
   const roleText = user.role === "admin" ? t("roles.admin") : t("roles.user");
   const rawVersion = health.data?.version?.trim();
   const versionLabel = rawVersion

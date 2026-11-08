@@ -144,7 +144,8 @@ function ErrorRow({
   );
 }
 
-export default function RulesPage() {
+/** 设置页的「规则模板」tab：列表 + 新建/编辑/删除对话框，四态齐全。 */
+export function RuleTemplatesPanel() {
   useI18n();
   const templates = useRuleTemplates();
   const updateTemplate = useUpdateRuleTemplate();
@@ -171,22 +172,7 @@ export default function RulesPage() {
   }
 
   return (
-    <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">
-            {t("rules.title")}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t("rules.subtitle")}
-          </p>
-        </div>
-        <Button onClick={() => setFormState({ mode: "create" })}>
-          <PlusIcon className="size-4" />
-          {t("rules.create")}
-        </Button>
-      </div>
-
+    <div className="space-y-6">
       <Card className="gap-0 overflow-hidden">
         <CardHeader className="border-b border-border">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -201,20 +187,29 @@ export default function RulesPage() {
                 </Badge>
               ) : null}
             </CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void templates.refetch()}
-              disabled={templates.isFetching}
-            >
-              <RefreshCwIcon
-                className={cn(
-                  "size-3.5",
-                  templates.isFetching && "animate-spin",
-                )}
-              />
-              {t("common.refresh")}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                onClick={() => setFormState({ mode: "create" })}
+              >
+                <PlusIcon className="size-3.5" />
+                {t("rules.create")}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void templates.refetch()}
+                disabled={templates.isFetching}
+              >
+                <RefreshCwIcon
+                  className={cn(
+                    "size-3.5",
+                    templates.isFetching && "animate-spin",
+                  )}
+                />
+                {t("common.refresh")}
+              </Button>
+            </div>
           </div>
           <CardDescription className="text-xs">
             {t("rules.desc")}

@@ -16,9 +16,7 @@ const ServersPage = lazy(() => import("@/pages/Servers"));
 const UsersPage = lazy(() => import("@/pages/Users"));
 const SubscriptionsPage = lazy(() => import("@/pages/Subscriptions"));
 const PackagesPage = lazy(() => import("@/pages/Packages"));
-const CertificatesPage = lazy(() => import("@/pages/Certificates"));
 const LogsPage = lazy(() => import("@/pages/Logs"));
-const RulesPage = lazy(() => import("@/pages/Rules"));
 const SettingsPage = lazy(() => import("@/pages/Settings"));
 const NodesPage = lazy(() => import("@/pages/Nodes"));
 const OutboundsPage = lazy(() => import("@/pages/Outbounds"));
@@ -150,7 +148,6 @@ function AuthenticatedApp() {
             <Route path="users" element={<UsersPage />} />
             <Route path="subscriptions" element={<SubscriptionsPage />} />
             <Route path="packages" element={<PackagesPage />} />
-            <Route path="certificates" element={<CertificatesPage />} />
             <Route path="logs" element={<LogsPage />} />
             {/* 旧书签保留：/events 与 /audit 重定向到合并后的日志页。 */}
             <Route
@@ -161,7 +158,15 @@ function AuthenticatedApp() {
               path="audit"
               element={<Navigate to="/logs?tab=audit" replace />}
             />
-            <Route path="rules" element={<RulesPage />} />
+            {/* 规则模板与证书已并入设置页：旧书签跳到对应 tab。 */}
+            <Route
+              path="rules"
+              element={<Navigate to="/settings?tab=templates" replace />}
+            />
+            <Route
+              path="certificates"
+              element={<Navigate to="/settings?tab=certificates" replace />}
+            />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

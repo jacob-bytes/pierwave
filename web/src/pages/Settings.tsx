@@ -17,6 +17,8 @@ import { toast } from "sonner";
 import { FormField, FormRootError } from "@/components/FormField";
 import { AlertsCard } from "@/components/settings/AlertsCard";
 import { BackupCard } from "@/components/settings/BackupCard";
+import { CertificatesPanel } from "@/components/settings/CertificatesPanel";
+import { RuleTemplatesPanel } from "@/components/settings/RuleTemplatesPanel";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -529,6 +531,16 @@ const SETTINGS_TABS = [
     labelKey: "settings.tabs.backup",
     descKey: "settings.tabs.backupDesc",
   },
+  {
+    value: "templates",
+    labelKey: "settings.tabs.templates",
+    descKey: "settings.tabs.templatesDesc",
+  },
+  {
+    value: "certificates",
+    labelKey: "settings.tabs.certificates",
+    descKey: "settings.tabs.certificatesDesc",
+  },
 ] as const satisfies readonly {
   value: SettingsTabId;
   labelKey: string;
@@ -632,6 +644,32 @@ export default function SettingsPage() {
           </p>
           {/* P7：备份与恢复独立于设置表单，自己拉 info 并处理四态。 */}
           <BackupCard />
+        </TabsContent>
+
+        <TabsContent
+          value="templates"
+          forceMount
+          aria-label={t("settings.tabs.templates")}
+          className="space-y-4 data-[state=inactive]:hidden"
+        >
+          <p className="text-xs text-muted-foreground">
+            {t("settings.tabs.templatesDesc")}
+          </p>
+          {/* 原 /rules 页：列表、对话框与四态整体搬进 tab，内部逻辑不变。 */}
+          <RuleTemplatesPanel />
+        </TabsContent>
+
+        <TabsContent
+          value="certificates"
+          forceMount
+          aria-label={t("settings.tabs.certificates")}
+          className="space-y-4 data-[state=inactive]:hidden"
+        >
+          <p className="text-xs text-muted-foreground">
+            {t("settings.tabs.certificatesDesc")}
+          </p>
+          {/* 原 /certificates 页：列表、对话框与四态整体搬进 tab，内部逻辑不变。 */}
+          <CertificatesPanel />
         </TabsContent>
       </Tabs>
     </div>

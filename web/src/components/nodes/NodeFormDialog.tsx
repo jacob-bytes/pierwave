@@ -542,7 +542,7 @@ export function NodeFormDialog({
                       <p className="text-xs text-muted-foreground">
                         {t("nodes.form.certEmptyPrefix")}
                         <Link
-                          to="/certificates"
+                          to="/settings?tab=certificates"
                           className="font-medium text-primary underline-offset-4 hover:underline"
                         >
                           {t("nodes.form.certEmptyLink")}

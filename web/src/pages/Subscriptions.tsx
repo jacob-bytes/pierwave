@@ -577,7 +577,7 @@ export default function SubscriptionsPage() {
                           )}
                         >
                           <Link
-                            to="/rules"
+                            to="/settings?tab=templates"
                             title={t(
                               "subscriptions.ruleTemplateEffectiveTitle",
                             )}

@@ -484,7 +484,7 @@ export default function OverviewPage() {
                 />
                 {expiringCerts > 0 ? (
                   <AlertRow
-                    to="/certificates"
+                    to="/settings?tab=certificates"
                     icon={FileKeyIcon}
                     label={t("overview.expiringCerts")}
                     count={expiringCerts}
