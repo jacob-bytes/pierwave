@@ -1,0 +1,52 @@
+# 真机验证：用真实 Xray 跑一遍「服务端 + 客户端 + 真实握手 + 统计计数器」。
+#
+# 为什么单独一个 workflow：
+#   - 它依赖外网（下载 Xray、访问 gstatic），比单元测试脆弱，不该拖住每次 push；
+#   - 但它是唯一能发现「配置字段名写错、真实 Xray 静默忽略」这类问题的手段
+#     （`streamSettings`、`policy.levels` 两个致命 bug 都是它抓到的）。
+# 所以：打 tag 时跑一次、每周跑一次、也可以手动触发。
+name: Verify Xray
+
+on:
+  push:
+    tags: ["v*"]
+  schedule:
+    - cron: "0 3 * * 1" # 每周一 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_HOME: ${{ github.workspace }}/.cargo-home
+
+jobs:
+  verify:
+    name: real xray round-trip
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cargo-home
+            target
+          key: verify-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build master
+        run: cargo build --release --locked -p pierwave-master
+
+      # 脚本自己下载 Xray、生成配置、起服务端与客户端、走真实握手，退出时清理干净。
+      # 失败时把它的输出原样贴到 Actions 里，方便定位是「配置不被接受」还是「网络不通」。
+      - name: Verify against real Xray
+        run: ./scripts/verify-xray.sh
+
+      - name: Annotate failure
+        if: failure()
+        run: |
+          echo "::error::真实 Xray 验证失败。先看是 xray -test 挂了（配置字段问题）还是握手/计数器没数据（stats 配置问题）。"

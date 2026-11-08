@@ -51,7 +51,20 @@ openssl genpkey -algorithm ed25519 -out priv.pem
 
 注意：轮换后必须重新发布，否则已发布版本的安装脚本会拒绝新签名。
 
-## 发布前必须做的真机验证
+## 发布前必须做的真机验证（已进 CI）
+
+打 tag 会触发 `.github/workflows/verify.yml`，它会用真实 Xray 跑一遍完整链路；
+另外每周一自动跑一次，防止「代码没动但上游 Xray 变了」的情况被漏掉。
+
+手动跑（推荐在发版前自己先跑一次）：
+
+```bash
+make verify-xray
+```
+
+下面这段是本地手跑的说明，保留作为排查参考。
+
+## 真机验证的判定标准
 
 ```bash
 # 在一台能访问 GitHub 的 Linux 机器上（不需要 root）
@@ -100,7 +113,20 @@ openssl genpkey -algorithm ed25519 -out priv.pem
 
 注意：轮换后必须重新发布，否则已发布版本的安装脚本会拒绝新签名。
 
-## 发布前必须做的真机验证
+## 发布前必须做的真机验证（已进 CI）
+
+打 tag 会触发 `.github/workflows/verify.yml`，它会用真实 Xray 跑一遍完整链路；
+另外每周一自动跑一次，防止「代码没动但上游 Xray 变了」的情况被漏掉。
+
+手动跑（推荐在发版前自己先跑一次）：
+
+```bash
+make verify-xray
+```
+
+下面这段是本地手跑的说明，保留作为排查参考。
+
+## 真机验证的判定标准
 
 ```bash
 # 在一台能访问 GitHub 的 Linux 机器上（不需要 root）
