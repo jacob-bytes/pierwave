@@ -276,7 +276,10 @@ function HeartbeatText({ healthAt }: { healthAt: number | null }) {
 
   return (
     <span
-      className={cn("inline-flex items-center gap-1", info.stale && "text-warning")}
+      className={cn(
+        "inline-flex items-center gap-1 tabular-nums",
+        info.stale && "text-warning",
+      )}
       title={info.title}
     >
       {info.stale ? (

@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { ApiError } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { useChangePassword } from "@/lib/queries";
@@ -119,9 +119,8 @@ export function ChangePasswordDialog({
             required
             error={form.formState.errors.old_password?.message}
           >
-            <Input
+            <PasswordInput
               id="change-password-old"
-              type="password"
               autoComplete="current-password"
               disabled={changePassword.isPending}
               aria-invalid={Boolean(form.formState.errors.old_password)}
@@ -136,9 +135,8 @@ export function ChangePasswordDialog({
             hint={t("changePassword.nextHint")}
             error={form.formState.errors.new_password?.message}
           >
-            <Input
+            <PasswordInput
               id="change-password-new"
-              type="password"
               autoComplete="new-password"
               disabled={changePassword.isPending}
               aria-invalid={Boolean(form.formState.errors.new_password)}
@@ -152,9 +150,8 @@ export function ChangePasswordDialog({
             required
             error={form.formState.errors.confirm_password?.message}
           >
-            <Input
+            <PasswordInput
               id="change-password-confirm"
-              type="password"
               autoComplete="new-password"
               disabled={changePassword.isPending}
               aria-invalid={Boolean(form.formState.errors.confirm_password)}

@@ -561,11 +561,7 @@ function AlertsForm({ initial }: { initial: Settings }) {
         >
           {dirty ? t("settings.alerts.dirtyHint") : t("settings.alerts.saveHint")}
         </p>
-        <Button
-          type="submit"
-          variant="secondary"
-          disabled={updateSettings.isPending}
-        >
+        <Button type="submit" disabled={updateSettings.isPending}>
           {updateSettings.isPending ? (
             <Loader2Icon className="animate-spin" />
           ) : (

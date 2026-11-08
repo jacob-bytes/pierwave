@@ -33,6 +33,7 @@
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
   --color-ring: var(--ring);
+  --color-focus-ring: var(--focus-ring);
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
@@ -104,6 +105,12 @@
   --border: oklch(1 0 0 / 8%);
   --input: oklch(1 0 0 / 12%);
   --ring: oklch(0.662 0.179 264.6);
+  /*
+   * 键盘焦点环专用色（WCAG 2.2 SC 2.4.11 要求 ≥3:1）。
+   * 比 --ring 更亮：与深色基底各部分实测 6.85–8.24:1，
+   * 不再用 `ring/50` 这类半透明值（旧实测只有 1.8–2.6:1）。
+   */
+  --focus-ring: oklch(0.74 0.16 264.6);
   --chart-1: oklch(0.662 0.179 264.6);
   --chart-2: oklch(0.7 0.015 285);
   --chart-3: oklch(0.439 0.006 285);
@@ -159,6 +166,8 @@
   --border: oklch(0.94 0.009 264.5);
   --input: oklch(0.94 0.009 264.5);
   --ring: oklch(0.424 0.199 265.638);
+  /* 亮色焦点环：与白卡 / 冷白底 / muted 底实测 8.11–9.00:1。 */
+  --focus-ring: oklch(0.42 0.2 265.6);
   --chart-1: oklch(0.424 0.199 265.638);
   --chart-2: oklch(0.609 0.111 221.7);
   --chart-3: oklch(0.592 0.218 0.6);
@@ -202,6 +211,78 @@
     background: color-mix(in oklch, var(--primary) 30%, transparent);
     color: var(--foreground);
   }
+}
+
+/*
+ * 全站统一焦点环（WCAG 2.2 SC 2.4.11 ≥ 3:1）。
+ *
+ * 刻意放在所有 @layer 之外：未分层的普通声明优先级高于 @layer utilities，
+ * 因此不用改 20 多个 shadcn 组件的 `focus-visible:ring-ring/50`，
+ * 一处规则即可覆盖链接、输入框、按钮、tab 面板、状态页汇总卡等。
+ * 同时把 `--tw-ring-color` 指向同一个不透明 token，避免残留的 50% 外环
+ * 仍是实际可见的弱对比指示器。
+ */
+:where(
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  summary,
+  [role="button"],
+  [role="tab"],
+  [role="tabpanel"],
+  [role="checkbox"],
+  [role="switch"],
+  [role="menuitem"],
+  [role="option"],
+  [contenteditable="true"],
+  [tabindex]:not([tabindex="-1"])
+):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  --tw-ring-color: var(--focus-ring);
+}
+
+/*
+ * 横向可滚动表格要让人「看得见」还有内容：
+ * 显式画出一条细滚动条（macOS 默认会隐藏），并让容器始终可横向拖动。
+ */
+[data-slot="table-container"] {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklch, var(--muted-foreground) 45%, transparent)
+    transparent;
+  overscroll-behavior-x: contain;
+}
+
+[data-slot="table-container"]::-webkit-scrollbar {
+  height: 8px;
+}
+
+[data-slot="table-container"]::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+[data-slot="table-container"]::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--muted-foreground) 40%, transparent);
+}
+
+[data-slot="table-container"]::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklch, var(--muted-foreground) 60%, transparent);
+}
+
+/*
+ * 空态 / 错误态通常只有一行 `colspan` 单元格。此时不要被表格的 min-width
+ * 撑出横向滚动（否则空态文案会被裁掉、还会多出一个没有意义的「滑动」提示）。
+ */
+[data-slot="table-container"]
+  table:has(> tbody > tr:only-child > td[colspan]) {
+  min-width: 100%;
+}
+
+[data-slot="table-container"] td[colspan] {
+  white-space: normal;
 }
 
 /* 骨架屏 shimmer：1.2s 循环，只在列表加载态使用 */

@@ -827,7 +827,7 @@ export function AuditPanel() {
                     <TableRow key={entry.id}>
                       <TableCell className="px-4 py-2.5">
                         <span
-                          className="text-xs whitespace-nowrap text-muted-foreground"
+                          className="text-xs whitespace-nowrap tabular-nums text-muted-foreground"
                           title={formatAbsoluteTime(entry.created_at)}
                         >
                           {formatRelativeTime(entry.created_at)}

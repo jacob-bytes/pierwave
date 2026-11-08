@@ -311,7 +311,7 @@ export function EventsPanel() {
                 <TableRow key={event.id}>
                   <TableCell className="px-4 py-2.5">
                     <span
-                      className="text-xs text-muted-foreground"
+                      className="text-xs tabular-nums text-muted-foreground"
                       title={formatAbsoluteTime(event.created_at)}
                     >
                       {formatRelativeTime(event.created_at)}

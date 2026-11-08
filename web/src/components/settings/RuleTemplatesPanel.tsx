@@ -268,7 +268,7 @@ export function RuleTemplatesPanel() {
                       {/* 迁移写入的初始模板时间戳是 0，别显示成 1970 年。 */}
                       {item.updated_at > 0 ? (
                         <span
-                          className="text-xs whitespace-nowrap text-muted-foreground"
+                          className="text-xs whitespace-nowrap tabular-nums text-muted-foreground"
                           title={formatAbsoluteTime(item.updated_at)}
                         >
                           {formatRelativeTime(item.updated_at)}

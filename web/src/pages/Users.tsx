@@ -669,7 +669,7 @@ export default function UsersPage() {
                           ) : null}
                         </div>
                       </TableCell>
-                      <TableCell className="px-4 py-2.5 text-xs text-muted-foreground">
+                      <TableCell className="px-4 py-2.5 text-xs tabular-nums text-muted-foreground">
                         <span title={formatAbsoluteTime(user.created_at)}>
                           {formatRelativeTime(user.created_at)}
                         </span>

@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import type { UserView } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { useUpdateUser } from "@/lib/queries";
@@ -81,9 +81,8 @@ export function ResetPasswordDialog({
             hint={t("users.resetPassword.passwordHint")}
             error={form.formState.errors.password?.message}
           >
-            <Input
+            <PasswordInput
               id="reset-password"
-              type="password"
               autoComplete="new-password"
               disabled={updateUser.isPending}
               aria-invalid={Boolean(form.formState.errors.password)}

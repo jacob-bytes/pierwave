@@ -1,3 +1,4 @@
+import { useId } from "react";
 import {
   Bar,
   BarChart,
@@ -26,13 +27,28 @@ function formatDayTick(value: string): string {
   return match ? `${Number(match[1])}/${Number(match[2])}` : value;
 }
 
-function LegendDot({ color, label }: { color: string; label: string }) {
+function LegendDot({
+  color,
+  label,
+  pattern,
+}: {
+  color: string;
+  label: string;
+  /** true 时用斜纹方块代替实心圆点，色盲用户不依赖颜色也能区分上下行。 */
+  pattern?: boolean;
+}) {
   return (
     <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
       <span
         aria-hidden="true"
-        className="size-2 rounded-full"
-        style={{ backgroundColor: color }}
+        className={pattern ? "size-2 rounded-[2px]" : "size-2 rounded-full"}
+        style={
+          pattern
+            ? {
+                backgroundImage: `repeating-linear-gradient(45deg, ${color} 0 1px, var(--card) 1px 3px)`,
+              }
+            : { backgroundColor: color }
+        }
       />
       {label}
     </span>
@@ -96,6 +112,8 @@ function TrafficTooltip({ active, payload }: TrafficTooltipProps) {
  * 用 `lazy()` 动态加载，不会进入主 chunk。
  */
 export default function TrafficChart({ days }: { days: TrafficDay[] }) {
+  // 每个图表实例的 pattern id 唯一，避免同页多图时互相引用。
+  const patternId = `pw-traffic-uplink-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const hasTraffic = days.some(
     (day) => day.downlink > 0 || day.uplink > 0,
   );
@@ -115,20 +133,46 @@ export default function TrafficChart({ days }: { days: TrafficDay[] }) {
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-4">
         <LegendDot color="var(--primary)" label={t("trafficChart.downlink")} />
-        <LegendDot color="var(--muted-foreground)" label={t("trafficChart.uplink")} />
+        <LegendDot
+          color="var(--muted-foreground)"
+          label={t("trafficChart.uplink")}
+          pattern
+        />
       </div>
 
-      <div
-        className="h-[220px] w-full"
-        role="img"
-        aria-label={t("trafficChart.aria")}
-      >
+      <div className="h-[220px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={days}
             margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
             barCategoryGap="28%"
+            // Recharts 默认把内层 svg 设成未命名的 role=application；
+            // 这里换成有名称的 role=img，键盘用户不会再落到空 application 上。
+            {...({
+              role: "img",
+              "aria-label": t("trafficChart.aria"),
+              accessibilityLayer: false,
+            } as Record<string, unknown>)}
           >
+            <defs>
+              <pattern
+                id={patternId}
+                width="6"
+                height="6"
+                patternUnits="userSpaceOnUse"
+                patternTransform="rotate(45)"
+              >
+                <rect width="6" height="6" fill="var(--muted-foreground)" />
+                <line
+                  x1="0"
+                  y1="0"
+                  x2="0"
+                  y2="6"
+                  stroke="var(--card)"
+                  strokeWidth="2"
+                />
+              </pattern>
+            </defs>
             <CartesianGrid
               vertical={false}
               stroke="var(--border)"
@@ -164,7 +208,7 @@ export default function TrafficChart({ days }: { days: TrafficDay[] }) {
               dataKey="uplink"
               name={t("trafficChart.uplink")}
               stackId="traffic"
-              fill="var(--muted-foreground)"
+              fill={`url(#${patternId})`}
               radius={[2, 2, 0, 0]}
               isAnimationActive={false}
             />

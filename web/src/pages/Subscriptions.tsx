@@ -540,7 +540,8 @@ export default function SubscriptionsPage() {
                           asChild
                           variant="outline"
                           className={cn(
-                            "max-w-[200px] font-normal",
+                            // 触控目标至少 24px 高（P2-2）：徽章基础高度只有 20px。
+                            "min-h-6 max-w-[200px] py-0.5 font-normal",
                             !ruleTemplateName && "text-muted-foreground",
                           )}
                         >
@@ -565,7 +566,7 @@ export default function SubscriptionsPage() {
                             target="_blank"
                             rel="noreferrer"
                             title={url}
-                            className="block max-w-[220px] truncate font-mono text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground"
+                            className="block min-h-6 max-w-[220px] truncate py-1 font-mono text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground"
                           >
                             {`…/sub/${user.short_code}`}
                           </a>

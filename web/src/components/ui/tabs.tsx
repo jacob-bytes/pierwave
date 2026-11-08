@@ -22,7 +22,9 @@ function Tabs({
 }
 
 const tabsListVariants = cva(
-  "group/tabs-list inline-flex w-fit items-center justify-center rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
+  // `justify-start` 而不是 `justify-center`：`overflow-x-auto` 下居中会把两端
+  // 内容推到负坐标，左侧的「General」永远滑不到（见 UI-AUDIT P1-2）。
+  "group/tabs-list inline-flex w-fit items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
   {
     variants: {
       variant: {
@@ -42,8 +44,46 @@ function TabsList({
   ...props
 }: React.ComponentProps<typeof TabsPrimitive.List> &
   VariantProps<typeof tabsListVariants>) {
+  const listRef = React.useRef<HTMLDivElement>(null)
+
+  /*
+   * 当前 tab 可能因为英文标签更宽而落在可视区外。`data-state` 变化时把
+   * 激活项滚回可视区；只在列表确实横向溢出时执行，避免带动整页滚动。
+   */
+  React.useEffect(() => {
+    const list = listRef.current
+    if (!list) return
+
+    const revealActive = () => {
+      if (list.scrollWidth <= list.clientWidth + 1) return
+      const active = list.querySelector<HTMLElement>(
+        '[data-slot="tabs-trigger"][data-state="active"]',
+      )
+      if (!active) return
+      const listRect = list.getBoundingClientRect()
+      const activeRect = active.getBoundingClientRect()
+      if (
+        activeRect.left >= listRect.left &&
+        activeRect.right <= listRect.right
+      ) {
+        return
+      }
+      active.scrollIntoView({ inline: "nearest", block: "nearest" })
+    }
+
+    revealActive()
+    const observer = new MutationObserver(revealActive)
+    observer.observe(list, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-state"],
+    })
+    return () => observer.disconnect()
+  }, [])
+
   return (
     <TabsPrimitive.List
+      ref={listRef}
       data-slot="tabs-list"
       data-variant={variant}
       className={cn(tabsListVariants({ variant }), className)}
@@ -79,7 +119,12 @@ function TabsContent({
   return (
     <TabsPrimitive.Content
       data-slot="tabs-content"
-      className={cn("flex-1 text-sm outline-none", className)}
+      // Radix 的 tabpanel 可聚焦：`outline-none` 会让键盘焦点「消失」，
+      // 这里补一个与全站一致的不透明 focus-visible 环（见 index.css）。
+      className={cn(
+        "flex-1 text-sm outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
+        className
+      )}
       {...props}
     />
   )

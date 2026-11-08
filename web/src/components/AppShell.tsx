@@ -35,6 +35,7 @@ import {
   UserRoundIcon,
   UsersIcon,
   WorkflowIcon,
+  XIcon,
 } from "lucide-react";
 import { ChangePasswordDialog } from "@/components/settings/ChangePasswordDialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -417,6 +418,17 @@ export default function AppShell({ user }: { user: SessionUser }) {
             versionLabel={versionLabel}
             onNavigate={() => setMobileNavOpen(false)}
           />
+          {/* 触屏没有 Escape，也不一定知道点遮罩能关：给一个显式关闭按钮。 */}
+          <div className="shrink-0 border-t border-sidebar-border p-3">
+            <Button
+              variant="ghost"
+              className="w-full justify-start"
+              onClick={() => setMobileNavOpen(false)}
+            >
+              <XIcon className="size-4" />
+              {t("common.close")}
+            </Button>
+          </div>
         </SheetContent>
       </Sheet>
 

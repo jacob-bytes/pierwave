@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import {
   Select,
   SelectContent,
@@ -170,9 +171,8 @@ export function UserFormDialog({
             }
             error={form.formState.errors.password?.message}
           >
-            <Input
+            <PasswordInput
               id="user-password"
-              type="password"
               autoComplete="new-password"
               disabled={pending}
               aria-invalid={Boolean(form.formState.errors.password)}

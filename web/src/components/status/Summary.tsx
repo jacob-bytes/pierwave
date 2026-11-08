@@ -3,6 +3,7 @@ import {
   ActivityIcon,
   ArrowDownUpIcon,
   GaugeIcon,
+  ListFilterIcon,
   ServerIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -44,10 +45,11 @@ function Tile({
   return (
     <Card
       className={cn(
-        "h-[86px] gap-0 rounded-xl p-3 [--card-spacing:--spacing(3)]",
+        "h-[86px] gap-0 rounded-xl p-3 transition [--card-spacing:--spacing(3)]",
+        // 可筛选的卡不是普通 KPI：hover / active 都要有明确反馈，触屏用户也能看到按压态。
         onOpen &&
-          "cursor-pointer transition hover:ring-primary/40 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none",
-        onOpen && pressed && "ring-primary/50",
+          "cursor-pointer hover:border-primary/50 hover:bg-muted/40 hover:ring-primary/40 active:scale-[0.99] active:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none",
+        onOpen && pressed && "border-primary/50 ring-primary/50",
       )}
       {...(onOpen
         ? {
@@ -67,6 +69,12 @@ function Tile({
       <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
         <Icon className="size-3.5 shrink-0" aria-hidden="true" />
         <span className="truncate">{label}</span>
+        {onOpen ? (
+          <ListFilterIcon
+            className="ml-auto size-3 shrink-0 text-primary"
+            aria-hidden="true"
+          />
+        ) : null}
       </div>
       {children}
     </Card>

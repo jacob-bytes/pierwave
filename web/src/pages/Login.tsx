@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Loader2Icon, TerminalIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useLogin, usePanelName } from "@/lib/queries";
@@ -92,24 +93,30 @@ export default function LoginPage() {
                   onChange={(event) => setUsername(event.target.value)}
                   autoComplete="username"
                   autoFocus
+                  required
+                  aria-required="true"
+                  aria-describedby={errorMessage ? "login-error" : undefined}
                   placeholder="admin"
                 />
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="login-password">{t("login.password")}</Label>
-                <Input
+                <PasswordInput
                   id="login-password"
-                  type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   autoComplete="current-password"
+                  required
+                  aria-required="true"
+                  aria-describedby={errorMessage ? "login-error" : undefined}
                   placeholder={t("login.passwordPlaceholder")}
                 />
               </div>
 
               {errorMessage ? (
                 <p
+                  id="login-error"
                   role="alert"
                   aria-live="polite"
                   className="text-xs text-destructive"
