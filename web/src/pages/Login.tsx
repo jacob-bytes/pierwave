@@ -59,8 +59,8 @@ export default function LoginPage() {
         <div className="mb-7 flex flex-col items-center gap-4 text-center">
           {/* 品牌标识：图标 + 产品字标 + 一句定位 */}
           <div className="flex items-center gap-2.5">
-            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/25">
-              <TerminalIcon className="size-5" aria-hidden="true" />
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
+              <TerminalIcon className="icon-lg" aria-hidden="true" />
             </span>
             <span className="text-left leading-tight">
               <span className="block text-sm font-semibold tracking-tight">

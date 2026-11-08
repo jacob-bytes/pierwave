@@ -247,7 +247,7 @@ function SidebarBody({
         )}
         title={panelName}
       >
-        <div className="grid size-6 shrink-0 place-items-center rounded-md bg-primary/15 text-primary">
+        <div className="grid size-6 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground">
           <TerminalIcon className="icon-sm" />
         </div>
         {collapsed ? null : (
