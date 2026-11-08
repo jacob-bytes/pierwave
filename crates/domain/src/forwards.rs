@@ -216,7 +216,7 @@ mod tests {
         assert!(desired_id("abc").starts_with(DESIRED_ID_PREFIX));
         assert_ne!(
             desired_id("abc"),
-            crate::chains::forward_id("abc", 0),
+            crate::chains::forward_id("abc", 0, "srv-a", 1),
             "独立转发与链推导的 id 前缀必须不同"
         );
     }

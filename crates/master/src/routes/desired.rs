@@ -154,12 +154,7 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
     // 链推导：只保留落在本服务器上的跳。一条链可能经过多台服务器，
     // 每台服务器只收到「自己这一跳」的 DesiredForward。
     for chain in &chains {
-        for (server_id, forward) in super::chains::derive_forwards(
-            &chain.chain.id,
-            &chain.chain.target_host,
-            chain.chain.target_port,
-            &chain.hops,
-        ) {
+        for (server_id, forward) in super::chains::derive_forwards(&chain.chain, &chain.groups) {
             if server_id == server.id {
                 desired_forwards.push(forward);
             }
@@ -536,14 +531,26 @@ mod tests {
                 target_host: "1.1.1.1".into(),
                 target_port: 443,
                 enabled: true,
-                hops: vec![
-                    repo::chains::NewChainHop {
-                        server_id: server_a.id.clone(),
-                        listen_port: 9001,
+                groups: vec![
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: server_a.id.clone(),
+                            listen_port: 9001,
+                            priority: 0,
+                            weight: 1,
+                        }],
                     },
-                    repo::chains::NewChainHop {
-                        server_id: server_b.id.clone(),
-                        listen_port: 9002,
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: server_b.id.clone(),
+                            listen_port: 9002,
+                            priority: 0,
+                            weight: 1,
+                        }],
                     },
                 ],
             },
@@ -556,7 +563,7 @@ mod tests {
             .unwrap();
         assert_eq!(rendered.forwards.len(), 2, "独立 + 链入口共两条");
         let standalone_id = pierwave_domain::forwards::desired_id(&standalone.id);
-        let entry_id = pierwave_domain::chains::forward_id(&chain.chain.id, 0);
+        let entry_id = pierwave_domain::chains::legacy_forward_id(&chain.chain.id, 0);
         assert_ne!(standalone_id, entry_id, "两种 id 前缀不能冲突");
         let standalone_forward = rendered
             .forwards
@@ -578,6 +585,10 @@ mod tests {
             "第一跳指向下一跳服务器地址"
         );
         assert_eq!(entry.target_port, 9002);
+        assert!(
+            entry.targets.is_empty(),
+            "单成员组必须继续走兼容字段，下发结果与旧版一致"
+        );
 
         let rendered_b = render(&state, &server_b, "https://panel.example.com")
             .await
@@ -586,11 +597,12 @@ mod tests {
         let exit = &rendered_b.forwards[0];
         assert_eq!(
             exit.id,
-            pierwave_domain::chains::forward_id(&chain.chain.id, 1)
+            pierwave_domain::chains::legacy_forward_id(&chain.chain.id, 1)
         );
         assert_eq!(exit.listen_port, 9002);
         assert_eq!(exit.target_host, "1.1.1.1", "最后一跳指向链目标");
         assert_eq!(exit.target_port, 443);
+        assert!(exit.targets.is_empty());
     }
 
     /// 期望态只带启用的转发；`publish` 必须原样放进 DesiredState.forwards。

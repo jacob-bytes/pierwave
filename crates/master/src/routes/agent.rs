@@ -1075,15 +1075,21 @@ mod tests {
                 target_host: "10.0.0.9".into(),
                 target_port: 443,
                 enabled: true,
-                hops: vec![repo::chains::NewChainHop {
-                    server_id: server.id.clone(),
-                    listen_port: 8443,
+                groups: vec![repo::chains::NewChainGroup {
+                    name: None,
+                    strategy: "round_robin".into(),
+                    members: vec![repo::chains::NewChainGroupMember {
+                        server_id: server.id.clone(),
+                        listen_port: 8443,
+                        priority: 0,
+                        weight: 1,
+                    }],
                 }],
             },
         )
         .await
         .unwrap();
-        let forward_id = pierwave_domain::chains::forward_id(&chain.chain.id, 0);
+        let forward_id = pierwave_domain::chains::legacy_forward_id(&chain.chain.id, 0);
 
         let send = |seq: u64, target_ok: bool| {
             let heartbeat = pierwave_proto::Heartbeat {

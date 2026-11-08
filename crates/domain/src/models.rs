@@ -114,7 +114,7 @@ pub struct ForwardView {
     pub runtime: Option<ForwardRuntime>,
 }
 
-/// 一条线性多跳链。跳的配置在 `chain_hops`，这里只放链级字段。
+/// 一条线性多跳链。跳（组）的配置在 `chain_groups`，这里只放链级字段。
 #[derive(Debug, Clone, FromRow, Serialize)]
 pub struct Chain {
     pub id: String,
@@ -126,37 +126,56 @@ pub struct Chain {
     pub updated_at: i64,
 }
 
-/// 一跳的原始配置（不含服务器名称/地址）。
+/// 链里的一「组」：组内 1..N 台服务器，由上一跳按 `strategy` 选一台。
 #[derive(Debug, Clone, FromRow, Serialize)]
-pub struct ChainHop {
+pub struct ChainGroup {
+    pub id: String,
     pub chain_id: String,
+    /// 组在链里的顺序，0 = 入口组。
     pub seq: i64,
-    pub server_id: String,
-    pub listen_port: i64,
+    /// 可选展示名。
+    pub name: Option<String>,
+    /// 选路策略（`round_robin` / `failover` / `lowest_latency` / `ip_hashed`）。
+    pub strategy: String,
 }
 
-/// 一跳 + 它所在服务器展示/推导所需的字段。
+/// 组内一个成员 + 推导/展示所需的服务器字段。
 #[derive(Debug, Clone, FromRow, Serialize)]
-pub struct ChainHopWithServer {
+pub struct ChainGroupMember {
+    pub group_id: String,
     pub chain_id: String,
+    /// 所属组的 seq；按组聚合时用。
     pub seq: i64,
+    /// 所属组的策略；下发时取**下一组**的它。
+    pub strategy: String,
     pub server_id: String,
     pub server_name: String,
     /// 下一跳 target 用；只给下发/校验，不直接出现在 API 响应里。
     pub server_address: String,
     pub listen_port: i64,
+    /// 主备用：小的优先。
+    pub priority: i64,
+    /// 预留给加权，本轮只存不用。
+    pub weight: i64,
 }
 
-/// 一条链及其按 `seq` 升序的跳。
+/// 一个有成员的组。
 #[derive(Debug, Clone)]
-pub struct ChainWithHops {
+pub struct ChainGroupWithMembers {
+    pub group: ChainGroup,
+    pub members: Vec<ChainGroupMember>,
+}
+
+/// 一条链及其按 `seq` 升序的组。
+#[derive(Debug, Clone)]
+pub struct ChainWithGroups {
     pub chain: Chain,
-    pub hops: Vec<ChainHopWithServer>,
+    pub groups: Vec<ChainGroupWithMembers>,
 }
 
 /// 另一条链已经占用了某台服务器的某个监听端口。
 #[derive(Debug, Clone, FromRow)]
-pub struct ChainHopPortConflict {
+pub struct ChainMemberPortConflict {
     pub chain_id: String,
     pub chain_name: String,
     pub seq: i64,

@@ -2078,16 +2078,30 @@ pub mod forwards {
     }
 }
 
-/// 线性多跳链：CRUD + 端口冲突查询。
+/// 线性多跳链：组的 CRUD + 端口冲突查询。
 ///
-/// 链只是「跳的配置」；期望态由 master 用 `chain_hops` + 服务器 address
+/// 链只是「组/成员的配置」；期望态由 master 用 groups + 服务器 address
 /// 推导成每台服务器上的 `DesiredForward`，存储层不负责推导。
+///
+/// 读接口总是把成员按 `priority ASC, rowid ASC` 排好：priority 小的优先（主备），
+/// 同优先级保持创建顺序（轮询）。推导层直接复用这个顺序，不再二次排序。
 pub mod chains {
+    use std::collections::HashMap;
+
     use super::*;
 
-    pub struct NewChainHop {
+    pub struct NewChainGroupMember {
         pub server_id: String,
         pub listen_port: i64,
+        pub priority: i64,
+        pub weight: i64,
+    }
+
+    pub struct NewChainGroup {
+        pub name: Option<String>,
+        /// 规范化的 snake_case 策略串（`round_robin` 等）。
+        pub strategy: String,
+        pub members: Vec<NewChainGroupMember>,
     }
 
     pub struct NewChain {
@@ -2095,7 +2109,7 @@ pub mod chains {
         pub target_host: String,
         pub target_port: i64,
         pub enabled: bool,
-        pub hops: Vec<NewChainHop>,
+        pub groups: Vec<NewChainGroup>,
     }
 
     #[derive(Default)]
@@ -2104,33 +2118,102 @@ pub mod chains {
         pub target_host: Option<String>,
         pub target_port: Option<i64>,
         pub enabled: Option<bool>,
-        /// `None` = 不改跳；`Some` = 整体替换。
-        pub hops: Option<Vec<NewChainHop>>,
+        /// `None` = 不改组；`Some` = 整体替换。
+        pub groups: Option<Vec<NewChainGroup>>,
     }
 
-    async fn load_hops(
+    async fn load_groups(
         pool: &SqlitePool,
         chain_id: &str,
-    ) -> anyhow::Result<Vec<ChainHopWithServer>> {
-        Ok(sqlx::query_as::<_, ChainHopWithServer>(
-            "SELECT h.chain_id, h.seq, h.server_id,
-                    s.name AS server_name, s.address AS server_address, h.listen_port
-             FROM chain_hops h
-             JOIN servers s ON s.id = h.server_id
-             WHERE h.chain_id = ?
-             ORDER BY h.seq ASC",
+    ) -> anyhow::Result<Vec<ChainGroupWithMembers>> {
+        let groups = sqlx::query_as::<_, ChainGroup>(
+            "SELECT id, chain_id, seq, name, strategy
+             FROM chain_groups
+             WHERE chain_id = ?
+             ORDER BY seq ASC, rowid ASC",
         )
         .bind(chain_id)
         .fetch_all(pool)
-        .await?)
+        .await?;
+        if groups.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let members = sqlx::query_as::<_, ChainGroupMember>(
+            "SELECT m.group_id, g.chain_id, g.seq, g.strategy,
+                    m.server_id, s.name AS server_name, s.address AS server_address,
+                    m.listen_port, m.priority, m.weight
+             FROM chain_group_members m
+             JOIN chain_groups g ON g.id = m.group_id
+             JOIN servers s ON s.id = m.server_id
+             WHERE g.chain_id = ?
+             ORDER BY g.seq ASC, m.priority ASC, m.rowid ASC",
+        )
+        .bind(chain_id)
+        .fetch_all(pool)
+        .await?;
+
+        let mut by_group: HashMap<String, Vec<ChainGroupMember>> = HashMap::new();
+        for member in members {
+            by_group
+                .entry(member.group_id.clone())
+                .or_default()
+                .push(member);
+        }
+
+        Ok(groups
+            .into_iter()
+            .map(|group| ChainGroupWithMembers {
+                members: by_group.remove(&group.id).unwrap_or_default(),
+                group,
+            })
+            .collect())
     }
 
-    async fn assemble(pool: &SqlitePool, chain: Chain) -> anyhow::Result<ChainWithHops> {
-        let hops = load_hops(pool, &chain.id).await?;
-        Ok(ChainWithHops { chain, hops })
+    async fn assemble(pool: &SqlitePool, chain: Chain) -> anyhow::Result<ChainWithGroups> {
+        let groups = load_groups(pool, &chain.id).await?;
+        Ok(ChainWithGroups { chain, groups })
     }
 
-    pub async fn create(pool: &SqlitePool, input: NewChain) -> anyhow::Result<ChainWithHops> {
+    /// 在一个事务连接里写入全部组和成员（调用方负责先清空旧组）。
+    async fn insert_groups(
+        conn: &mut sqlx::SqliteConnection,
+        chain_id: &str,
+        groups: &[NewChainGroup],
+    ) -> anyhow::Result<()> {
+        for (seq, group) in groups.iter().enumerate() {
+            let group_id = Uuid::new_v4().to_string();
+            sqlx::query(
+                "INSERT INTO chain_groups (id, chain_id, seq, name, strategy)
+                 VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(&group_id)
+            .bind(chain_id)
+            .bind(seq as i64)
+            .bind(group.name.as_deref())
+            .bind(&group.strategy)
+            .execute(&mut *conn)
+            .await?;
+
+            for member in &group.members {
+                sqlx::query(
+                    "INSERT INTO chain_group_members
+                        (group_id, server_id, listen_port, priority, weight)
+                     VALUES (?, ?, ?, ?, ?)",
+                )
+                .bind(&group_id)
+                .bind(&member.server_id)
+                .bind(member.listen_port)
+                .bind(member.priority)
+                .bind(member.weight)
+                .execute(&mut *conn)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn create(pool: &SqlitePool, input: NewChain) -> anyhow::Result<ChainWithGroups> {
         let id = Uuid::new_v4().to_string();
         let ts = now();
         let mut tx = pool.begin().await?;
@@ -2148,25 +2231,17 @@ pub mod chains {
         .bind(ts)
         .execute(&mut *tx)
         .await?;
-        for (seq, hop) in input.hops.iter().enumerate() {
-            sqlx::query(
-                "INSERT INTO chain_hops (chain_id, seq, server_id, listen_port)
-                 VALUES (?, ?, ?, ?)",
-            )
-            .bind(&id)
-            .bind(seq as i64)
-            .bind(&hop.server_id)
-            .bind(hop.listen_port)
-            .execute(&mut *tx)
-            .await?;
-        }
+        insert_groups(&mut tx, &id, &input.groups).await?;
         tx.commit().await?;
         find_by_id(pool, &id)
             .await?
             .ok_or_else(|| anyhow::anyhow!("链创建后读取失败"))
     }
 
-    pub async fn find_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<ChainWithHops>> {
+    pub async fn find_by_id(
+        pool: &SqlitePool,
+        id: &str,
+    ) -> anyhow::Result<Option<ChainWithGroups>> {
         let chain = sqlx::query_as::<_, Chain>("SELECT * FROM chains WHERE id = ?")
             .bind(id)
             .fetch_optional(pool)
@@ -2180,7 +2255,7 @@ pub mod chains {
     async fn list_where(
         pool: &SqlitePool,
         enabled_only: bool,
-    ) -> anyhow::Result<Vec<ChainWithHops>> {
+    ) -> anyhow::Result<Vec<ChainWithGroups>> {
         let sql = if enabled_only {
             "SELECT * FROM chains WHERE enabled = 1 ORDER BY created_at ASC, rowid ASC"
         } else {
@@ -2194,12 +2269,12 @@ pub mod chains {
         Ok(items)
     }
 
-    pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<ChainWithHops>> {
+    pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<ChainWithGroups>> {
         list_where(pool, false).await
     }
 
     /// 期望态只推导启用的链。
-    pub async fn list_enabled(pool: &SqlitePool) -> anyhow::Result<Vec<ChainWithHops>> {
+    pub async fn list_enabled(pool: &SqlitePool) -> anyhow::Result<Vec<ChainWithGroups>> {
         list_where(pool, true).await
     }
 
@@ -2207,7 +2282,7 @@ pub mod chains {
         pool: &SqlitePool,
         id: &str,
         input: UpdateChain,
-    ) -> anyhow::Result<Option<ChainWithHops>> {
+    ) -> anyhow::Result<Option<ChainWithGroups>> {
         let mut tx = pool.begin().await?;
         let res = sqlx::query(
             "UPDATE chains SET
@@ -2231,23 +2306,12 @@ pub mod chains {
             return Ok(None);
         }
 
-        if let Some(hops) = input.hops {
-            sqlx::query("DELETE FROM chain_hops WHERE chain_id = ?")
+        if let Some(groups) = input.groups {
+            sqlx::query("DELETE FROM chain_groups WHERE chain_id = ?")
                 .bind(id)
                 .execute(&mut *tx)
                 .await?;
-            for (seq, hop) in hops.iter().enumerate() {
-                sqlx::query(
-                    "INSERT INTO chain_hops (chain_id, seq, server_id, listen_port)
-                     VALUES (?, ?, ?, ?)",
-                )
-                .bind(id)
-                .bind(seq as i64)
-                .bind(&hop.server_id)
-                .bind(hop.listen_port)
-                .execute(&mut *tx)
-                .await?;
-            }
+            insert_groups(&mut tx, id, &groups).await?;
         }
         tx.commit().await?;
         find_by_id(pool, id).await
@@ -2269,21 +2333,23 @@ pub mod chains {
         Ok(res.rows_affected() > 0)
     }
 
-    /// 另一条链是否已经占用了这台服务器的这个监听端口。
+    /// 另一条链是否已经占用了这台服务器的这个监听端口（成员端口，不是组端口）。
     ///
-    /// `exclude_chain_id` 用于 PATCH：链自己的跳不算冲突。
-    pub async fn find_hop_port_conflict(
+    /// `exclude_chain_id` 用于 PATCH：链自己的成员不算冲突。
+    pub async fn find_member_port_conflict(
         pool: &SqlitePool,
         server_id: &str,
         listen_port: i64,
         exclude_chain_id: Option<&str>,
-    ) -> anyhow::Result<Option<ChainHopPortConflict>> {
-        Ok(sqlx::query_as::<_, ChainHopPortConflict>(
-            "SELECT h.chain_id, c.name AS chain_name, h.seq, h.listen_port
-             FROM chain_hops h
-             JOIN chains c ON c.id = h.chain_id
-             WHERE h.server_id = ? AND h.listen_port = ?
-               AND h.chain_id <> COALESCE(?, '')
+    ) -> anyhow::Result<Option<ChainMemberPortConflict>> {
+        Ok(sqlx::query_as::<_, ChainMemberPortConflict>(
+            "SELECT g.chain_id, c.name AS chain_name, g.seq, m.listen_port
+             FROM chain_group_members m
+             JOIN chain_groups g ON g.id = m.group_id
+             JOIN chains c ON c.id = g.chain_id
+             WHERE m.server_id = ? AND m.listen_port = ?
+               AND g.chain_id <> COALESCE(?, '')
+             ORDER BY g.seq ASC
              LIMIT 1",
         )
         .bind(server_id)
