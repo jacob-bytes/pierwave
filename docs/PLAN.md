@@ -847,3 +847,42 @@ ALTER TABLE packages ADD COLUMN speed_limit_kbps INTEGER;  -- NULL / 0 = 不限
 - 节点表单：`带宽上限（Mbps）`，0/空 = 不限；
 - 套餐表单：`限速档位（Mbps，近似）`；
 - 服务器列表/节点列表展示限速标记。
+
+## P12：转发第一梯队（多跳 / 健康检查）
+
+### 范围（有意收窄）
+
+| 做 | 不做（下一轮） |
+|---|---|
+| 线性多跳链：入口 → 中转(1..n) → 出口 → 目标 | 组、分支、选路段、画布 |
+| 每跳健康检查（TCP connect 目标） | 轮询/加权/最少连接等负载策略 |
+| 不健康自动摘除、恢复自动加回 | 入口 DNS 多线路 |
+| —— | 用户级「我的转发」 |
+
+### 模型（0023_chains.sql）
+
+```sql
+CREATE TABLE chains (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL,
+    target_host TEXT NOT NULL, target_port INTEGER NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1, created_at, updated_at
+);
+CREATE TABLE chain_hops (          -- 按 seq 升序；seq=0 是入口
+    chain_id TEXT NOT NULL REFERENCES chains(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL, server_id TEXT NOT NULL,
+    listen_port INTEGER NOT NULL,
+    PRIMARY KEY (chain_id, seq)
+);
+```
+
+**推导**：第 N 跳的 Agent 在 `listen_port` 监听，转发到第 N+1 跳服务器的地址 + 它的
+`listen_port`；最后一跳转发到 `target_host:target_port`。主控把每条链推导成
+各服务器上的若干 `DesiredForward`（复用现有转发下发通道，Agent 无需改动）。
+
+### 健康检查与摘除
+
+- Agent 已有的 TCP 探测复用它：对每条 forward 的目标做周期性 `connect`；
+- 心跳的 `ForwardStatus` 增加 `target_ok: Option<bool>`（proto 增量，版本 +1）；
+- 主控：某跳连续 2 次 `target_ok=false` → 该跳标 `degraded`，**链整体标 degraded**；
+  恢复 → 自动清除。前端链列表与跳列表显示状态；
+- 不做自动改路由（线性链没有备用路径），只做**可见的告警**——这是范围内最诚实的做法。
