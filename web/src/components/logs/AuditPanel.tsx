@@ -49,10 +49,23 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { AuditEntry } from "@/lib/api";
+import {
+  formatChangeText,
+  formatChanges,
+  formatFieldLabel,
+  formatFieldValue,
+} from "@/lib/auditChanges";
+import type { ChangeEntityKind, ChangeResolver } from "@/lib/auditChanges";
 import { copyText } from "@/lib/clipboard";
 import { errorText } from "@/lib/errors";
 import { formatJsonObject } from "@/lib/json";
-import { useAuditLog, usePackages, useServers, useUsers } from "@/lib/queries";
+import {
+  useAuditLog,
+  usePackages,
+  useRuleTemplates,
+  useServers,
+  useUsers,
+} from "@/lib/queries";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
@@ -189,31 +202,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-interface DiffValue {
-  from: unknown;
-  to: unknown;
-}
-
-function isDiff(value: unknown): value is DiffValue {
-  return isRecord(value) && "from" in value && "to" in value;
-}
-
-function formatValue(value: unknown): string {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "boolean") {
-    return value ? t("audit.value.yes") : t("audit.value.no");
-  }
-  if (Array.isArray(value)) {
-    return t("audit.summary.itemCount", { n: value.length });
-  }
-  if (isRecord(value)) return t("audit.value.object");
-  return String(value);
-}
-
-function diffText(field: string, diff: DiffValue): string {
-  return `${field}: ${formatValue(diff.from)} → ${formatValue(diff.to)}`;
-}
-
 /** 创建类记录没有 changes，退回到最能说明对象身份的几个字段。 */
 const FALLBACK_FIELDS = [
   "name",
@@ -233,11 +221,14 @@ const FALLBACK_FIELDS = [
 /**
  * 从 detail 里提炼一行极简摘要：
  * 1. user_package.bind / unbind 没有 diff，直接用「绑定套餐」这类人话；
- * 2. `changes` 对象里每个 `{from, to}` 一项；
- * 3. package.update 会把 node_scope / node_count 摊平到顶层，也要收进来；
- * 4. 其余（create / upload / delete / settings）取第一个有意义的字段。
+ * 2. `changes` 与顶层 `{from, to}` 交给 `formatChanges`，字段名/值都翻成人话；
+ * 3. 其余（create / upload / delete / settings）取第一个有意义的字段。
  */
-function summarizeAudit(action: string, detail: unknown): string[] {
+function summarizeAudit(
+  action: string,
+  detail: unknown,
+  resolve: ChangeResolver,
+): string[] {
   const entries = isRecord(detail) ? Object.entries(detail) : [];
   const items: string[] = [];
 
@@ -266,23 +257,20 @@ function summarizeAudit(action: string, detail: unknown): string[] {
     items.push(t("audit.summary.passwordChanged"));
   }
 
-  const changes = entries.find(([key]) => key === "changes")?.[1];
-  if (isRecord(changes)) {
-    for (const [field, value] of Object.entries(changes)) {
-      if (isDiff(value)) items.push(diffText(field, value));
-    }
-  }
-
-  for (const [field, value] of entries) {
-    if (field === "changes") continue;
-    if (isDiff(value)) items.push(diffText(field, value));
+  for (const item of formatChanges(detail, resolve)) {
+    items.push(formatChangeText(item));
   }
 
   if (items.length === 0) {
     for (const field of FALLBACK_FIELDS) {
       const value = entries.find(([key]) => key === field)?.[1];
       if (value === undefined || value === null) continue;
-      items.push(`${field}: ${formatValue(value)}`);
+      items.push(
+        t("audit.changes.fieldValue", {
+          label: formatFieldLabel(field),
+          value: formatFieldValue(field, value, resolve),
+        }),
+      );
       break;
     }
   }
@@ -294,6 +282,7 @@ interface LookupMaps {
   users: Map<string, string>;
   packages: Map<string, string>;
   servers: Map<string, string>;
+  ruleTemplates: Map<string, string>;
 }
 
 interface ResolvedTarget {
@@ -320,9 +309,11 @@ function resolveTarget(
     ? maps.users
     : action.startsWith("package.")
       ? maps.packages
-      : action.startsWith("server.") || action === "config.apply"
-        ? maps.servers
-        : null;
+      : action.startsWith("rule_template.")
+        ? maps.ruleTemplates
+        : action.startsWith("server.") || action === "config.apply"
+          ? maps.servers
+          : null;
   const name = names?.get(target);
   if (name) return { label: name, title: target, resolved: true };
 
@@ -357,8 +348,16 @@ function ActionBadge({ action }: { action: string }) {
   );
 }
 
-function SummaryCell({ action, detail }: { action: string; detail: unknown }) {
-  const items = summarizeAudit(action, detail);
+function SummaryCell({
+  action,
+  detail,
+  resolve,
+}: {
+  action: string;
+  detail: unknown;
+  resolve: ChangeResolver;
+}) {
+  const items = summarizeAudit(action, detail, resolve);
 
   if (items.length === 0) {
     return <span className="text-xs text-muted-foreground">—</span>;
@@ -582,6 +581,7 @@ function useLookupMaps(): LookupMaps {
   const users = useUsers("");
   const packages = usePackages();
   const servers = useServers();
+  const ruleTemplates = useRuleTemplates();
 
   return useMemo(
     () => ({
@@ -592,9 +592,25 @@ function useLookupMaps(): LookupMaps {
       servers: new Map(
         (servers.data ?? []).map((item) => [item.id, item.name]),
       ),
+      ruleTemplates: new Map(
+        (ruleTemplates.data ?? []).map((item) => [item.id, item.name]),
+      ),
     }),
-    [users.data, packages.data, servers.data],
+    [users.data, packages.data, servers.data, ruleTemplates.data],
   );
+}
+
+/** 把四份缓存合成一个 `resolve(kind, id)`；未命中返回 undefined，由纯函数降级。 */
+function useChangeResolver(maps: LookupMaps): ChangeResolver {
+  return useMemo(() => {
+    const tables: Record<ChangeEntityKind, Map<string, string>> = {
+      rule_template: maps.ruleTemplates,
+      user: maps.users,
+      package: maps.packages,
+      server: maps.servers,
+    };
+    return (kind, id) => tables[kind].get(id);
+  }, [maps]);
 }
 
 function SearchField({
@@ -675,6 +691,7 @@ export function AuditPanel() {
     target: targetQuery || undefined,
   });
   const maps = useLookupMaps();
+  const resolveChange = useChangeResolver(maps);
 
   const items = audit.data?.pages.flatMap((page) => page.items) ?? [];
   const filtersActive =
@@ -867,6 +884,7 @@ export function AuditPanel() {
                         <SummaryCell
                           action={entry.action}
                           detail={entry.detail}
+                          resolve={resolveChange}
                         />
                       </TableCell>
                       <TableCell className="px-4 py-2.5 text-right">

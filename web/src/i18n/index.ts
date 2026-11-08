@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
-import en from "./en";
+// 显式带 `.ts` 后缀：`node --test` 不解析 tsconfig paths 与无后缀导入，
+// 纯逻辑模块（如 `lib/auditChanges.ts`）需要能直接 import 本模块的 `t()`。
+import en from "./en.ts";
 import {
   getLocale,
   persistLocale,
   SUPPORTED_LOCALES,
   setCurrentLocale,
-} from "./locale";
-import type { Locale } from "./locale";
-import zh from "./zh-CN";
+} from "./locale.ts";
+import type { Locale } from "./locale.ts";
+import zh from "./zh-CN.ts";
 
-export { detectLocale } from "./locale";
-export type { Locale } from "./locale";
+export { detectLocale } from "./locale.ts";
+export type { Locale } from "./locale.ts";
 
 export type Messages = typeof zh;
 
