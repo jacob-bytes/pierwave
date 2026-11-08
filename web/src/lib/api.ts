@@ -154,6 +154,11 @@ export interface PublicStatusServer {
   disk_total: number | null;
   uptime_secs: number | null;
   last_seen: number | null;
+  /**
+   * Agent 到公网探测目标的 TCP 握手 RTT（毫秒）。
+   * null = 这轮探测失败或旧 Agent 不上报；前端不显示该项。
+   */
+  latency_ms: number | null;
   /** 0..1，窗口内没有采样时为 null。 */
   uptime_24h: number | null;
   /** 0..1，窗口内没有采样时为 null。 */
@@ -196,6 +201,8 @@ export interface Server {
   disk_used: number | null;
   disk_total: number | null;
   uptime_secs: number | null;
+  /** Agent 到公网探测目标的 TCP 握手 RTT（毫秒）；null = 未上报或探测失败。 */
+  latency_ms: number | null;
   /** 最后一次心跳的 Unix 秒。 */
   health_at: number | null;
 }

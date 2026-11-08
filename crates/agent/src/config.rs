@@ -36,6 +36,15 @@ pub struct Config {
     /// 流量采样间隔（秒）；生产默认 60，e2e 会调到 1
     #[serde(default = "default_stats_interval_secs")]
     pub stats_interval_secs: u64,
+    /// 网络质量探测目标（TCP）。默认公共 DNS 的 443，握手即可测 RTT。
+    #[serde(default = "default_probe_target")]
+    pub probe_target: String,
+    /// 单次 TCP 握手超时（毫秒）；超时按「没有数据」处理，不写 0。
+    #[serde(default = "default_probe_timeout_ms")]
+    pub probe_timeout_ms: u64,
+    /// 探测间隔（秒）；结果缓存在内存里，心跳只读缓存。
+    #[serde(default = "default_probe_interval_secs")]
+    pub probe_interval_secs: u64,
     /// 自升级的标记/回滚 helper 目录；必须可写，升级失败时靠它判断是否回滚
     #[serde(default = "default_upgrade_state_dir")]
     pub upgrade_state_dir: String,
@@ -80,6 +89,15 @@ fn default_stats_query_command() -> String {
     "xray api statsquery --server=127.0.0.1:10085".into()
 }
 fn default_stats_interval_secs() -> u64 {
+    60
+}
+fn default_probe_target() -> String {
+    "1.1.1.1:443".into()
+}
+fn default_probe_timeout_ms() -> u64 {
+    1000
+}
+fn default_probe_interval_secs() -> u64 {
     60
 }
 fn default_upgrade_state_dir() -> String {
@@ -136,6 +154,9 @@ mod tests {
             backup_suffix: default_backup_suffix(),
             stats_query_command: default_stats_query_command(),
             stats_interval_secs: default_stats_interval_secs(),
+            probe_target: default_probe_target(),
+            probe_timeout_ms: default_probe_timeout_ms(),
+            probe_interval_secs: default_probe_interval_secs(),
             upgrade_state_dir: default_upgrade_state_dir(),
             upgrade_restart_command: default_upgrade_restart_command(),
             upgrade_watchdog_secs: default_upgrade_watchdog_secs(),
@@ -232,5 +253,28 @@ mod tests {
         .unwrap();
         assert_eq!(parsed.stats_query_command, "/tmp/fake-stats.sh");
         assert_eq!(parsed.stats_interval_secs, 5);
+    }
+
+    #[test]
+    fn probe_settings_have_sane_defaults() {
+        let parsed: Config =
+            toml::from_str("master_url = \"http://127.0.0.1:8787\"\ntoken = \"t\"\n").unwrap();
+        assert_eq!(parsed.probe_target, "1.1.1.1:443");
+        assert_eq!(parsed.probe_timeout_ms, 1000);
+        assert_eq!(parsed.probe_interval_secs, 60);
+    }
+
+    #[test]
+    fn probe_settings_can_be_overridden() {
+        let parsed: Config = toml::from_str(
+            "master_url = \"http://127.0.0.1:8787\"\ntoken = \"t\"\n\
+             probe_target = \"8.8.8.8:53\"\n\
+             probe_timeout_ms = 250\n\
+             probe_interval_secs = 15\n",
+        )
+        .unwrap();
+        assert_eq!(parsed.probe_target, "8.8.8.8:53");
+        assert_eq!(parsed.probe_timeout_ms, 250);
+        assert_eq!(parsed.probe_interval_secs, 15);
     }
 }

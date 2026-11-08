@@ -17,6 +17,7 @@ import {
   parseStatusView,
   persistStatusView,
   publicServerCounts,
+  reportedLatency,
   resourcePercent,
   serverState,
   STATUS_VIEW_STORAGE_KEY,
@@ -68,6 +69,18 @@ test("hasSamples only reports true for at least one real bucket", () => {
   assert.equal(hasSamples([]), false);
   assert.equal(hasSamples([null, null, undefined]), false);
   assert.equal(hasSamples([null, { ts: 1, online_ratio: 1 }]), true);
+});
+
+test("reportedLatency hides missing values instead of showing 0 ms", () => {
+  assert.equal(reportedLatency(null), null);
+  assert.equal(reportedLatency(undefined), null);
+  assert.equal(reportedLatency(Number.NaN), null);
+  assert.equal(reportedLatency(Number.POSITIVE_INFINITY), null);
+  assert.equal(reportedLatency(-1), null);
+  assert.equal(reportedLatency(0), 0);
+  assert.equal(reportedLatency(23), 23);
+  assert.equal(reportedLatency(23.4), 23);
+  assert.equal(reportedLatency(23.6), 24);
 });
 
 test("resourcePercent guards missing and zero totals", () => {
@@ -335,6 +348,7 @@ test("status page dynamic i18n keys exist in both locales", () => {
     "server.abnormal",
     "server.xrayRunning",
     "server.xrayStopped",
+    "server.latency",
     "server.uptimeDaysHours",
     "server.uptimeDays",
     "server.uptimeHoursMinutes",

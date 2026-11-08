@@ -50,6 +50,8 @@ pub struct Server {
     pub disk_used: Option<i64>,
     pub disk_total: Option<i64>,
     pub uptime_secs: Option<i64>,
+    /// Agent 到公网探测目标的 TCP 握手 RTT（毫秒）；None = 探测失败或旧 Agent。
+    pub latency_ms: Option<i64>,
     pub health_at: Option<i64>,
     /// 是否允许下发 Agent 升级计划。
     pub allow_agent_upgrade: bool,
@@ -592,6 +594,8 @@ pub struct ServerSample {
     pub mem_total: i64,
     pub disk_used: i64,
     pub disk_total: i64,
+    /// 采样时刻的 TCP 握手 RTT（毫秒）；NULL = 当时没有有效探测结果。
+    pub latency_ms: Option<i64>,
 }
 
 /// 一台服务器在 24h / 7d 窗口内的可用率；没有采样时对应字段为 `None`。

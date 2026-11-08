@@ -34,6 +34,8 @@ struct PublicServer {
     disk_total: Option<i64>,
     uptime_secs: Option<i64>,
     last_seen: Option<i64>,
+    /// Agent 到公网探测目标的 TCP 握手 RTT（毫秒）；探测失败或旧 Agent 为 null。
+    latency_ms: Option<i64>,
     /// 0..1；窗口内没有采样时为 null。
     uptime_24h: Option<f64>,
     /// 0..1；窗口内没有采样时为 null。
@@ -134,6 +136,7 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
                 disk_total: server.disk_total,
                 uptime_secs: server.uptime_secs,
                 last_seen: server.last_seen_at,
+                latency_ms: server.latency_ms,
                 uptime_24h: uptime.and_then(|row| row.uptime_24h),
                 uptime_7d: uptime.and_then(|row| row.uptime_7d),
                 buckets_24h,
@@ -268,6 +271,102 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn heartbeat_latency_is_visible_and_old_agent_stays_null() {
+        let (app, state) = setup().await;
+        let id = seed_server(&state, "edge-1", "203.0.113.9").await;
+
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.1.0",
+            &repo::servers::HealthSnapshot {
+                latency_ms: Some(23),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["servers"][0]["latency_ms"], 23);
+
+        // 旧 Agent 的默认快照没有延迟：公开接口必须是 null，不能是 0。
+        state.public_status.clear();
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.1.0",
+            &repo::servers::HealthSnapshot::default(),
+        )
+        .await
+        .unwrap();
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(
+            body["servers"][0]["latency_ms"].is_null(),
+            "没有探测结果时必须是 null：{body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn samples_record_latency_and_null_does_not_break_aggregation() {
+        let (app, state) = setup().await;
+        let id = seed_server(&state, "edge-1", "203.0.113.9").await;
+        let now = repo::now();
+
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.1.0",
+            &repo::servers::HealthSnapshot {
+                latency_ms: Some(42),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        repo::server_samples::record_round(&state.db.pool, now - 300)
+            .await
+            .unwrap();
+
+        // 下一轮探测失败：采样里的 latency 是 NULL，但可用率聚合照常工作。
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.1.0",
+            &repo::servers::HealthSnapshot::default(),
+        )
+        .await
+        .unwrap();
+        repo::server_samples::record_round(&state.db.pool, now)
+            .await
+            .unwrap();
+
+        let samples = repo::server_samples::list(&state.db.pool, &id, now - 3_600)
+            .await
+            .unwrap();
+        assert_eq!(samples.len(), 2, "两轮采样都应落库");
+        assert_eq!(samples[0].latency_ms, Some(42));
+        assert_eq!(samples[1].latency_ms, None);
+
+        let uptime = repo::server_samples::uptime_all(&state.db.pool, now)
+            .await
+            .unwrap();
+        assert_eq!(uptime.len(), 1);
+        assert_eq!(uptime[0].server_id, id);
+
+        state.public_status.clear();
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(
+            body["servers"][0]["uptime_24h"].is_number(),
+            "latency 为 null 不应影响可用率聚合：{body}"
+        );
+        assert!(body["servers"][0]["latency_ms"].is_null(), "{body}");
+    }
+
+    #[tokio::test]
     async fn half_online_samples_produce_half_uptime() {
         let (app, state) = setup().await;
         seed_server(&state, "edge-1", "203.0.113.9").await;
@@ -366,6 +465,7 @@ mod tests {
             "disk_total",
             "uptime_secs",
             "last_seen",
+            "latency_ms",
             "uptime_24h",
             "uptime_7d",
             "buckets_24h",

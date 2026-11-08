@@ -1,4 +1,5 @@
 mod config;
+mod probe;
 mod traffic;
 mod upgrade;
 
@@ -93,8 +94,14 @@ async fn main() -> Result<()> {
     let mut sampler = TrafficSampler::new();
     let mut traffic_seq = 0u64;
     let mut backoff = 1u64;
+    // 探测任务跨重连常驻：每轮结果写进缓存，心跳只读缓存，不阻塞发送。
+    let probe_cache = probe::spawn(
+        cfg.probe_target.clone(),
+        cfg.probe_timeout_ms,
+        cfg.probe_interval_secs,
+    );
     loop {
-        match run_once(&cfg, &boot_id, &mut sampler, &mut traffic_seq).await {
+        match run_once(&cfg, &boot_id, &mut sampler, &mut traffic_seq, &probe_cache).await {
             Ok(()) => backoff = 1,
             Err(e) => {
                 tracing::warn!(error = %e, backoff, "connection dropped");
@@ -139,6 +146,7 @@ async fn run_once(
     boot_id: &str,
     sampler: &mut TrafficSampler,
     traffic_seq: &mut u64,
+    probe_cache: &probe::ProbeCache,
 ) -> Result<()> {
     let url = cfg.ws_url();
     let (mut ws, _) = tokio_tungstenite::connect_async(&url)
@@ -238,6 +246,7 @@ async fn run_once(
                             "nginx_running": false,
                             "agent_version": env!("CARGO_PKG_VERSION"),
                             "arch": std::env::consts::ARCH,
+                            "latency_ms": probe_cache.load(),
                         });
                         ws.send(Message::Text(fallback.to_string())).await.ok();
                     }
@@ -246,7 +255,11 @@ async fn run_once(
             }
             _ = heartbeat.tick() => {
                 seq += 1;
-                let hb = AgentMessage::Heartbeat(sample_heartbeat(seq, uptime_start.elapsed().as_secs()));
+                let hb = AgentMessage::Heartbeat(sample_heartbeat(
+                    seq,
+                    uptime_start.elapsed().as_secs(),
+                    probe_cache.load(),
+                ));
                 ws.send(Message::Text(serde_json::to_string(&hb)?)).await?;
             }
             _ = traffic.tick() => {
@@ -571,13 +584,14 @@ fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
-fn sample_heartbeat(seq: u64, uptime_secs: u64) -> Heartbeat {
+fn sample_heartbeat(seq: u64, uptime_secs: u64, latency_ms: Option<u32>) -> Heartbeat {
     let (load1, mem_used, mem_total) = read_load_and_mem();
     let disk = read_disk();
     Heartbeat {
         seq,
         agent_version: env!("CARGO_PKG_VERSION").to_string(),
         arch: std::env::consts::ARCH.to_string(),
+        latency_ms,
         uptime_secs,
         load1,
         mem_used,
@@ -707,10 +721,14 @@ mod tests {
     }
 
     #[test]
-    fn heartbeat_reports_cpu_arch() {
-        let hb = sample_heartbeat(1, 2);
+    fn heartbeat_reports_cpu_arch_and_probe_latency() {
+        let hb = sample_heartbeat(1, 2, Some(23));
         assert_eq!(hb.arch, std::env::consts::ARCH);
         assert!(!hb.arch.is_empty(), "主控靠心跳里的 arch 选升级产物");
+        assert_eq!(hb.latency_ms, Some(23), "心跳应带上缓存的探测结果");
+
+        let missing = sample_heartbeat(1, 2, None);
+        assert_eq!(missing.latency_ms, None, "探测失败必须上报 null");
     }
 
     #[test]

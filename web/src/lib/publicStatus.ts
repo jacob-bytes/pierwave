@@ -76,6 +76,24 @@ export function availabilityPercent(
   return Math.round(Math.min(1, Math.max(0, ratio)) * 100);
 }
 
+/**
+ * 心跳上报的 RTT（毫秒）。null / undefined / 非有限值 / 负数都视为「没有数据」，
+ * 页面据此整项隐藏；0 不特殊处理——后端已保证探测成功至少是 1。
+ */
+export function reportedLatency(
+  latency_ms: number | null | undefined,
+): number | null {
+  if (
+    latency_ms === null ||
+    latency_ms === undefined ||
+    !Number.isFinite(latency_ms) ||
+    latency_ms < 0
+  ) {
+    return null;
+  }
+  return Math.round(latency_ms);
+}
+
 /** 24 个桶里至少有一个采样，才画迷你条；全是 null 时整条显示空态。 */
 export function hasSamples(
   buckets: readonly (unknown | null | undefined)[],

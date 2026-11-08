@@ -9,6 +9,7 @@ import { formatBytePair } from "@/lib/format";
 import {
   availabilityPercent,
   availabilityTone,
+  reportedLatency,
   resourcePercent,
   serverState,
   statusLabelKey,
@@ -129,6 +130,11 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
         )
       : null;
 
+  // 延迟同理：null / 探测失败整项不显示，绝不用 0 ms 占位；
+  // 离线时保留的是掉线前最后一次心跳的旧值，也不当作实时质量展示。
+  const latency =
+    state === "offline" ? null : reportedLatency(server.latency_ms);
+
   const load =
     server.load1 !== null && Number.isFinite(server.load1)
       ? server.load1
@@ -156,7 +162,8 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
       </div>
 
       {/* 副行：一行灰色小字，对应参考项目的发行版 / 虚拟化 / 架构。
-          我们只有最后心跳与 Xray 状态，就只写这两项，缺哪项就不写。 */}
+          我们只有最后心跳、Xray 状态与探测延迟，缺哪项就不写（延迟为 null
+          时整项隐藏，不用 0 占位）。 */}
       <p
         className="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
         title={heartbeatTitle}
@@ -167,6 +174,17 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
           <>
             <span aria-hidden="true">·</span>
             <span className="shrink-0">{xray}</span>
+          </>
+        ) : null}
+        {latency !== null ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <span
+              className="tnum shrink-0"
+              title={t("publicStatus.server.latencyHint")}
+            >
+              {t("publicStatus.server.latency", { ms: latency })}
+            </span>
           </>
         ) : null}
       </p>

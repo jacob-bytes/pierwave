@@ -182,6 +182,7 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
                 disk_used: hb.disk_used as i64,
                 disk_total: hb.disk_total as i64,
                 uptime_secs: hb.uptime_secs as i64,
+                latency_ms: hb.latency_ms.map(i64::from),
             };
             // 心跳自带的版本优先：Agent 升级重启后，第一个心跳就能把新版本带上来，
             // 不用等下次重连才更新 UI。
@@ -1655,6 +1656,7 @@ mod enforcement_tests {
             disk_used: 10,
             disk_total: 100,
             uptime_secs: 3600,
+            latency_ms: Some(23),
         };
         repo::servers::update_health(&state.db.pool, &server.id, "0.1.0", &health)
             .await
@@ -1668,8 +1670,73 @@ mod enforcement_tests {
         assert_eq!(row.load1, Some(1.25));
         assert_eq!(row.mem_total, Some(1024));
         assert_eq!(row.uptime_secs, Some(3600));
+        assert_eq!(row.latency_ms, Some(23), "探测 RTT 要随心跳落库");
         assert!(row.health_at.is_some());
         assert_eq!(row.status, "online");
+    }
+
+    /// 旧 Agent 的 JSON 没有 `latency_ms`：deserialize 必须成功，库里保持 NULL，
+    /// 不能回落到 0（0 在 UI 上会被读成「极快」）。
+    #[tokio::test]
+    async fn heartbeat_without_latency_field_leaves_null() {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let state = AppState::new(db, "web/dist");
+        let (server, _token) = repo::servers::create(&state.db.pool, "hk-1", "1.2.3.4", "external")
+            .await
+            .unwrap();
+
+        let heartbeat = serde_json::json!({
+            "type": "heartbeat",
+            "seq": 1,
+            "uptime_secs": 2,
+            "load1": 0.1,
+            "mem_used": 1,
+            "mem_total": 2,
+            "disk_used": 1,
+            "disk_total": 2,
+            "xray_running": true,
+            "nginx_running": true,
+        })
+        .to_string();
+        handle_agent_message(&state, &server.id, "0.1.0", &heartbeat).await;
+
+        let row = repo::servers::find_by_id(&state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert_eq!(row.latency_ms, None, "旧 Agent 不上报时必须是 NULL");
+    }
+
+    /// 新 Agent 的心跳带 `latency_ms`：走同一条 message 解析路径落库。
+    #[tokio::test]
+    async fn heartbeat_with_latency_field_persists_value() {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let state = AppState::new(db, "web/dist");
+        let (server, _token) = repo::servers::create(&state.db.pool, "hk-1", "1.2.3.4", "external")
+            .await
+            .unwrap();
+
+        let heartbeat = serde_json::json!({
+            "type": "heartbeat",
+            "seq": 1,
+            "uptime_secs": 2,
+            "load1": 0.1,
+            "mem_used": 1,
+            "mem_total": 2,
+            "disk_used": 1,
+            "disk_total": 2,
+            "xray_running": true,
+            "nginx_running": true,
+            "latency_ms": 42,
+        })
+        .to_string();
+        handle_agent_message(&state, &server.id, "0.1.0", &heartbeat).await;
+
+        let row = repo::servers::find_by_id(&state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert_eq!(row.latency_ms, Some(42));
     }
 }
 

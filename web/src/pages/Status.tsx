@@ -43,7 +43,7 @@ import { cn } from "@/lib/utils";
  *
  * 版式对照本机 `miniprobe/monitor-theme-default`：页头、四个汇总块、
  * 工具栏、卡片网格 / 列表视图，以及卡片内的 24 格可用率条。数据严格按
- * `GET /api/v1/public/status` 的白名单渲染 —— 公开 API 没有的延迟、丢包、
+ * `GET /api/v1/public/status` 的白名单渲染 —— 公开 API 没有的丢包、
  * 运营商、单机流量和历史事件，这里一律不画。
  */
 

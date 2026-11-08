@@ -831,4 +831,42 @@ mod tests {
         );
         assert!(server["agent_target_version"].is_null());
     }
+
+    /// 管理端列表复用 `servers.latency_ms`：有心跳值就是 number，没有就是 null。
+    #[tokio::test]
+    async fn server_list_exposes_heartbeat_latency() {
+        let (app, state, cookie) = setup().await;
+        let id = seed_server(&state, true, "0.5.0").await;
+
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.5.0",
+            &repo::servers::HealthSnapshot {
+                latency_ms: Some(17),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let (status, body) = send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["items"][0]["latency_ms"], 17);
+
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.5.0",
+            &repo::servers::HealthSnapshot::default(),
+        )
+        .await
+        .unwrap();
+        let (status, body) = send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(
+            body["items"][0]["latency_ms"].is_null(),
+            "没有探测结果时必须序列化为 null：{body}"
+        );
+    }
 }

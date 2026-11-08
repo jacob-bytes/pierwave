@@ -316,6 +316,7 @@ function MemoryCell({ server }: { server: Server }) {
 function VersionCell({ server }: { server: Server }) {
   const version = server.agent_version;
   const pending = hasPendingAgentUpgrade(server);
+  const latency = server.latency_ms;
 
   return (
     <div className="flex flex-col gap-1">
@@ -349,6 +350,17 @@ function VersionCell({ server }: { server: Server }) {
       </div>
       <span className="font-mono text-[11px] text-muted-foreground">
         {t("servers.configVersion", { version: server.config_version })}
+        {latency !== null ? (
+          <>
+            {" · "}
+            <span
+              className="tnum"
+              title={t("servers.detail.latencyHint")}
+            >
+              {t("servers.latencyValue", { ms: latency })}
+            </span>
+          </>
+        ) : null}
       </span>
     </div>
   );
@@ -452,6 +464,15 @@ function ServerDetailsPopover({ server }: { server: Server }) {
                 : server.load1.toFixed(2)
             }
             tone={server.load1 === null ? "muted" : "default"}
+          />
+          <DetailRow
+            label={t("servers.detail.latency")}
+            value={
+              server.latency_ms === null
+                ? t("common.notReported")
+                : t("servers.latencyValue", { ms: server.latency_ms })
+            }
+            tone={server.latency_ms === null ? "muted" : "default"}
           />
           <DetailRow
             label={t("servers.detail.memory")}

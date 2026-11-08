@@ -675,6 +675,8 @@ pub mod servers {
         pub disk_used: i64,
         pub disk_total: i64,
         pub uptime_secs: i64,
+        /// Agent 测得并缓存的 TCP 握手 RTT（毫秒）；None = 本轮没有有效结果。
+        pub latency_ms: Option<i64>,
     }
 
     /// 返回 (服务器, 明文配对 token)。token 只在创建时可见一次。
@@ -841,7 +843,8 @@ pub mod servers {
                 mem_total = ?,
                 disk_used = ?,
                 disk_total = ?,
-                uptime_secs = ?
+                uptime_secs = ?,
+                latency_ms = ?
              WHERE id = ?",
         )
         .bind(now())
@@ -856,6 +859,7 @@ pub mod servers {
         .bind(health.disk_used)
         .bind(health.disk_total)
         .bind(health.uptime_secs)
+        .bind(health.latency_ms)
         .bind(id)
         .execute(pool)
         .await?;
@@ -3193,10 +3197,11 @@ pub mod server_samples {
 
         let recorded = sqlx::query(
             "INSERT INTO server_samples
-                (server_id, ts, online, load1, mem_used, mem_total, disk_used, disk_total)
+                (server_id, ts, online, load1, mem_used, mem_total, disk_used, disk_total,
+                 latency_ms)
              SELECT id, ?, CASE WHEN status = 'online' THEN 1 ELSE 0 END,
                     COALESCE(load1, 0), COALESCE(mem_used, 0), COALESCE(mem_total, 0),
-                    COALESCE(disk_used, 0), COALESCE(disk_total, 0)
+                    COALESCE(disk_used, 0), COALESCE(disk_total, 0), latency_ms
              FROM servers
              WHERE true
              ON CONFLICT(server_id, ts) DO UPDATE SET
@@ -3205,7 +3210,8 @@ pub mod server_samples {
                 mem_used = excluded.mem_used,
                 mem_total = excluded.mem_total,
                 disk_used = excluded.disk_used,
-                disk_total = excluded.disk_total",
+                disk_total = excluded.disk_total,
+                latency_ms = excluded.latency_ms",
         )
         .bind(ts)
         .execute(&mut *tx)
