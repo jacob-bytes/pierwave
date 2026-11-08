@@ -285,6 +285,35 @@
   white-space: normal;
 }
 
+/*
+ * sticky 首列 / 操作列的背景。
+ *
+ * 表格行默认用卡片底色；hover / selected 时同步换成不透明 muted，
+ * 避免半透明的行背景透出下方滚动内容。表头单独用与 `bg-muted/30`
+ * 视觉一致的合成色（半透明色不能直接给 sticky 用）。
+ */
+[data-slot="table-row"] {
+  --pw-sticky-bg: var(--card);
+}
+
+[data-slot="table-row"]:hover {
+  --pw-sticky-bg: var(--muted);
+}
+
+[data-slot="table-row"][data-state="selected"] {
+  --pw-sticky-bg: var(--muted);
+}
+
+[data-slot="table-cell"][data-sticky] {
+  background-color: var(--pw-sticky-bg);
+}
+
+[data-slot="table-head"][data-sticky] {
+  background-color: color-mix(in oklab, var(--muted) 30%, var(--card));
+  /* 表头压在数据行之上；数据行 sticky 单元格是 z-20。 */
+  z-index: 30;
+}
+
 /* 骨架屏 shimmer：1.2s 循环，只在列表加载态使用 */
 @keyframes skeleton-shimmer {
   from {

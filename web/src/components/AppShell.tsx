@@ -37,6 +37,7 @@ import {
   WorkflowIcon,
   XIcon,
 } from "lucide-react";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ChangePasswordDialog } from "@/components/settings/ChangePasswordDialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -610,9 +611,15 @@ export default function AppShell({ user }: { user: SessionUser }) {
         </header>
 
         <main className="min-h-0 flex-1 overflow-y-auto p-6">
-          <Suspense fallback={<PageLoading />}>
-            <Outlet />
-          </Suspense>
+          {/*
+            每个路由一个独立边界：渲染异常只影响当前页，切换路径时
+            通过 key 重新挂载，上一页的错误状态不会残留。
+          */}
+          <ErrorBoundary key={pathname} homePath={homePath}>
+            <Suspense fallback={<PageLoading />}>
+              <Outlet />
+            </Suspense>
+          </ErrorBoundary>
         </main>
       </div>
 

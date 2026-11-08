@@ -140,12 +140,34 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
   )
 }
 
-function TableHead({ className, ...props }: React.ComponentProps<"th">) {
+type StickySide = "left" | "right";
+
+/**
+ * 横向滚动时固定首列 / 操作列。
+ *
+ * `border-collapse: collapse` 下 sticky 列的边框会跟着滚动消失，
+ * 因此分隔线用 inset box-shadow 补，而不是 border。背景色由
+ * index.css 按表头 / 行状态设置，避免半透明背景透出滚动内容。
+ */
+const stickyClasses: Record<StickySide, string> = {
+  left:
+    "sticky left-0 z-20 shadow-[inset_-1px_0_0_var(--border)]",
+  right:
+    "sticky right-0 z-20 shadow-[inset_1px_0_0_var(--border)]",
+};
+
+function TableHead({
+  className,
+  sticky,
+  ...props
+}: React.ComponentProps<"th"> & { sticky?: StickySide }) {
   return (
     <th
       data-slot="table-head"
+      data-sticky={sticky}
       className={cn(
         "h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
+        sticky && stickyClasses[sticky],
         className
       )}
       {...props}
@@ -153,12 +175,18 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   )
 }
 
-function TableCell({ className, ...props }: React.ComponentProps<"td">) {
+function TableCell({
+  className,
+  sticky,
+  ...props
+}: React.ComponentProps<"td"> & { sticky?: StickySide }) {
   return (
     <td
       data-slot="table-cell"
+      data-sticky={sticky}
       className={cn(
         "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
+        sticky && stickyClasses[sticky],
         className
       )}
       {...props}

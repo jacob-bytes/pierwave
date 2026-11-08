@@ -17,7 +17,14 @@ import {
   UsersIcon,
   XIcon,
 } from "lucide-react";
-import { EmptyState, PageHeader, SkeletonTable } from "@/components/common";
+import {
+  EmptyState,
+  ListError,
+  MobileDataCard,
+  PageHeader,
+  SkeletonCard,
+  SkeletonTable,
+} from "@/components/common";
 import { UserFormDialog } from "@/components/users/UserFormDialog";
 import { ResetPasswordDialog } from "@/components/users/ResetPasswordDialog";
 import { UserPackagesSheet } from "@/components/users/UserPackagesSheet";
@@ -79,6 +86,7 @@ import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { UserFormMode } from "@/lib/schemas";
 import { t, useI18n } from "@/i18n";
+import { useIsDesktop } from "@/lib/useIsDesktop";
 
 const COLUMN_COUNT = 7;
 
@@ -373,6 +381,7 @@ function DeleteUserDialog({
 
 export default function UsersPage() {
   useI18n();
+  const isDesktop = useIsDesktop();
   const [searchParams, setSearchParams] = useSearchParams();
   const q = (searchParams.get("q") ?? "").trim();
   const [searchInput, setSearchInput] = useState(q);
@@ -458,6 +467,204 @@ export default function UsersPage() {
     t("users.loadError"),
   );
 
+  function renderUserIdentity(user: UserView) {
+    return (
+      <div className="flex items-center gap-2.5">
+        <Avatar size="sm">
+          <AvatarFallback>
+            {user.username.slice(0, 1).toUpperCase()}
+          </AvatarFallback>
+        </Avatar>
+        <div className="min-w-0">
+          <div className="truncate font-medium">{user.username}</div>
+          <div className="font-mono text-[11px] text-muted-foreground">
+            {user.short_code}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderUserRole(user: UserView) {
+    return (
+      <Badge
+        variant={user.role === "admin" ? "secondary" : "outline"}
+        className="font-normal"
+      >
+        {user.role === "admin" ? <ShieldIcon className="size-3" /> : null}
+        {roleLabel(user.role)}
+      </Badge>
+    );
+  }
+
+  function renderUserStatus(user: UserView) {
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        <UserStatusBadge status={user.status} />
+        <PackageWorstStatusBadge status={user.package_worst_status} />
+        {user.quota_exceeded ? <QuotaExceededBadge /> : null}
+      </div>
+    );
+  }
+
+  function renderUserTraffic(user: UserView) {
+    return (
+      <div className="space-y-1">
+        {user.package_count === 0 ? (
+          <p
+            className="w-48 text-xs text-muted-foreground"
+            title={t("users.noPackagesTitle")}
+          >
+            —
+          </p>
+        ) : (
+          <UsageBar
+            usedBytes={user.package_used_bytes}
+            quotaBytes={user.package_quota_bytes}
+            label={null}
+            className="w-48"
+          />
+        )}
+        {user.quota_exceeded ? (
+          <p
+            className="text-[11px] text-destructive"
+            title={t("users.quotaUsedTitle", {
+              used: formatBytes(user.used_bytes),
+              quota: formatBytes(user.quota_bytes),
+            })}
+          >
+            {t("users.quotaUsedFull")}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderUserCreated(user: UserView) {
+    return (
+      <span
+        className="text-xs tabular-nums text-muted-foreground"
+        title={formatAbsoluteTime(user.created_at)}
+      >
+        {formatRelativeTime(user.created_at)}
+      </span>
+    );
+  }
+
+  function renderUserActions(user: UserView) {
+    const isSelf = user.id === me.data?.id;
+
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t("users.actions.aria", {
+              username: user.username,
+            })}
+          >
+            <MoreHorizontalIcon className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuItem
+            onSelect={() => setFormState({ mode: "edit", user })}
+          >
+            <PencilIcon className="size-3.5" />
+            {t("users.actions.edit")}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setResetUser(user)}>
+            <KeyRoundIcon className="size-3.5" />
+            {t("users.actions.resetPassword")}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={isSelf || updateUser.isPending}
+            title={
+              isSelf ? t("users.actions.cannotDisableSelf") : undefined
+            }
+            onSelect={() => toggleStatus(user)}
+          >
+            <PowerIcon className="size-3.5" />
+            {user.status === "active"
+              ? t("users.actions.disable")
+              : t("users.actions.enable")}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setPackagesUser(user)}>
+            <PackageIcon className="size-3.5" />
+            {t("users.actions.managePackages")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            variant="destructive"
+            disabled={isSelf}
+            title={isSelf ? t("users.actions.cannotDeleteSelf") : undefined}
+            onSelect={() => setDeleteTarget(user)}
+          >
+            <Trash2Icon className="size-3.5" />
+            {t("common.delete")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  function renderRow(user: UserView) {
+    return (
+      <TableRow key={user.id}>
+        <TableCell sticky="left" className="px-4 py-2.5">
+          {renderUserIdentity(user)}
+        </TableCell>
+        <TableCell className="px-4 py-2.5">
+          {renderUserRole(user)}
+        </TableCell>
+        <TableCell className="px-4 py-2.5">
+          {renderUserStatus(user)}
+        </TableCell>
+        <TableCell className="px-4 py-2.5">
+          <PackageBreakdownPopover user={user} />
+        </TableCell>
+        <TableCell className="px-4 py-2.5">
+          {renderUserTraffic(user)}
+        </TableCell>
+        <TableCell className="px-4 py-2.5">
+          {renderUserCreated(user)}
+        </TableCell>
+        <TableCell sticky="right" className="px-4 py-2.5">
+          {renderUserActions(user)}
+        </TableCell>
+      </TableRow>
+    );
+  }
+
+  function renderCard(user: UserView) {
+    return (
+      <MobileDataCard
+        key={user.id}
+        title={user.username}
+        subtitle={user.short_code}
+        actions={renderUserActions(user)}
+        fields={[
+          { label: t("users.columns.role"), value: renderUserRole(user) },
+          { label: t("users.columns.status"), value: renderUserStatus(user) },
+          {
+            label: t("users.columns.packages"),
+            value: <PackageBreakdownPopover user={user} />,
+          },
+          {
+            label: t("users.columns.packageTraffic"),
+            value: renderUserTraffic(user),
+          },
+          {
+            label: t("users.columns.createdAt"),
+            value: renderUserCreated(user),
+          },
+        ]}
+      />
+    );
+  }
+
+
   return (
     <div className="animate-enter space-y-6">
       <PageHeader
@@ -532,12 +739,19 @@ export default function UsersPage() {
         </CardHeader>
 
         <CardContent className="p-0" aria-busy={users.isPending}>
-          {users.isPending ? (
+          {users.isPending && isDesktop ? (
             <SkeletonTable rows={6} columns={COLUMN_COUNT} />
           ) : null}
-          <Table
-            className={cn("min-w-[980px]", users.isPending && "hidden")}
-          >
+          {users.isPending && !isDesktop ? (
+            <div className="space-y-3 p-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <SkeletonCard key={index} lines={5} />
+              ))}
+            </div>
+          ) : null}
+          {isDesktop ? (
+          <div className={cn(users.isPending && "hidden")}>
+          <Table className="min-w-[980px]">
             <TableCaption className="sr-only">{t("users.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
@@ -559,9 +773,16 @@ export default function UsersPage() {
                   },
                   { label: t("users.columns.createdAt") },
                   { label: t("users.columns.actions") },
-                ].map(({ label, hint, title }) => (
+                ].map(({ label, hint, title }, index, columns) => (
                   <TableHead
                     key={label}
+                    sticky={
+                      index === 0
+                        ? "left"
+                        : index === columns.length - 1
+                          ? "right"
+                          : undefined
+                    }
                     title={title}
                     className={cn(
                       "px-4 text-xs font-medium tracking-wide text-muted-foreground",
@@ -592,159 +813,61 @@ export default function UsersPage() {
                   onClearSearch={clearSearch}
                 />
               ) : (
-                items.map((user) => {
-                  const isSelf = user.id === me.data?.id;
-
-                  return (
-                    <TableRow key={user.id}>
-                      <TableCell className="px-4 py-2.5">
-                        <div className="flex items-center gap-2.5">
-                          <Avatar size="sm">
-                            <AvatarFallback>
-                              {user.username.slice(0, 1).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="min-w-0">
-                            <div className="truncate font-medium">
-                              {user.username}
-                            </div>
-                            <div className="font-mono text-[11px] text-muted-foreground">
-                              {user.short_code}
-                            </div>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="px-4 py-2.5">
-                        <Badge
-                          variant={
-                            user.role === "admin" ? "secondary" : "outline"
-                          }
-                          className="font-normal"
-                        >
-                          {user.role === "admin" ? (
-                            <ShieldIcon className="size-3" />
-                          ) : null}
-                          {roleLabel(user.role)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="px-4 py-2.5">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <UserStatusBadge status={user.status} />
-                          <PackageWorstStatusBadge
-                            status={user.package_worst_status}
-                          />
-                          {user.quota_exceeded ? <QuotaExceededBadge /> : null}
-                        </div>
-                      </TableCell>
-                      <TableCell className="px-4 py-2.5">
-                        <PackageBreakdownPopover user={user} />
-                      </TableCell>
-                      <TableCell className="px-4 py-2.5">
-                        <div className="space-y-1">
-                          {user.package_count === 0 ? (
-                            <p
-                              className="w-48 text-xs text-muted-foreground"
-                              title={t("users.noPackagesTitle")}
-                            >
-                              —
-                            </p>
-                          ) : (
-                            <UsageBar
-                              usedBytes={user.package_used_bytes}
-                              quotaBytes={user.package_quota_bytes}
-                              label={null}
-                              className="w-48"
-                            />
-                          )}
-                          {user.quota_exceeded ? (
-                            <p
-                              className="text-[11px] text-destructive"
-                              title={t("users.quotaUsedTitle", {
-                                used: formatBytes(user.used_bytes),
-                                quota: formatBytes(user.quota_bytes),
-                              })}
-                            >
-                              {t("users.quotaUsedFull")}
-                            </p>
-                          ) : null}
-                        </div>
-                      </TableCell>
-                      <TableCell className="px-4 py-2.5 text-xs tabular-nums text-muted-foreground">
-                        <span title={formatAbsoluteTime(user.created_at)}>
-                          {formatRelativeTime(user.created_at)}
-                        </span>
-                      </TableCell>
-                      <TableCell className="px-4 py-2.5">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label={t("users.actions.aria", {
-                                username: user.username,
-                              })}
-                            >
-                              <MoreHorizontalIcon className="size-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-44">
-                            <DropdownMenuItem
-                              onSelect={() =>
-                                setFormState({ mode: "edit", user })
-                              }
-                            >
-                              <PencilIcon className="size-3.5" />
-                              {t("users.actions.edit")}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onSelect={() => setResetUser(user)}
-                            >
-                              <KeyRoundIcon className="size-3.5" />
-                              {t("users.actions.resetPassword")}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              disabled={isSelf || updateUser.isPending}
-                              title={
-                                isSelf
-                                  ? t("users.actions.cannotDisableSelf")
-                                  : undefined
-                              }
-                              onSelect={() => toggleStatus(user)}
-                            >
-                              <PowerIcon className="size-3.5" />
-                              {user.status === "active"
-                                ? t("users.actions.disable")
-                                : t("users.actions.enable")}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onSelect={() => setPackagesUser(user)}
-                            >
-                              <PackageIcon className="size-3.5" />
-                              {t("users.actions.managePackages")}
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              variant="destructive"
-                              disabled={isSelf}
-                              title={
-                                isSelf
-                                  ? t("users.actions.cannotDeleteSelf")
-                                  : undefined
-                              }
-                              onSelect={() => setDeleteTarget(user)}
-                            >
-                              <Trash2Icon className="size-3.5" />
-                              {t("common.delete")}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
+                items.map(renderRow)
               )}
             </TableBody>
           </Table>
+          </div>
+          ) : null}
+
+          {!users.isPending && !isDesktop ? (
+            <div className="space-y-3 p-3" aria-busy={false}>
+              {showError ? (
+                <Card size="sm" className="py-0">
+                  <ListError
+                    title={t("users.loadFailed")}
+                    message={errorMessage}
+                    retrying={users.isFetching}
+                    onRetry={() => void users.refetch()}
+                  />
+                </Card>
+              ) : items.length === 0 ? (
+                <EmptyState
+                  size="sm"
+                  icon={UsersIcon}
+                  title={
+                    q ? t("users.emptySearch") : t("users.emptyNoUsers")
+                  }
+                  description={
+                    q ? t("users.emptySearchDesc") : t("users.emptyDesc")
+                  }
+                  action={
+                    q ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={clearSearch}
+                      >
+                        <XIcon className="size-3.5" />
+                        {t("users.clearSearch")}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setFormState({ mode: "create" })}
+                      >
+                        <PlusIcon className="size-3.5" />
+                        {t("users.create")}
+                      </Button>
+                    )
+                  }
+                />
+              ) : (
+                items.map(renderCard)
+              )}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

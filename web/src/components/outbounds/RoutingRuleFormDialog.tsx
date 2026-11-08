@@ -258,9 +258,17 @@ export function RoutingRuleFormDialog({
                     <SelectTrigger
                       id="routing-rule-outbound"
                       className="w-full"
+                      aria-required
                       aria-invalid={Boolean(
                         form.formState.errors.outbound_tag,
                       )}
+                      aria-describedby={
+                        form.formState.errors.outbound_tag
+                          ? "routing-rule-outbound-error"
+                          : outboundHint
+                            ? "routing-rule-outbound-hint"
+                            : undefined
+                      }
                     >
                       <SelectValue
                         placeholder={t("outbounds.rules.form.outboundPlaceholder")}

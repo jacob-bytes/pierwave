@@ -21,7 +21,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { EmptyState, PageHeader, SkeletonTable } from "@/components/common";
+import {
+  EmptyState,
+  ListError,
+  MobileDataCard,
+  PageHeader,
+  SkeletonCard,
+  SkeletonTable,
+} from "@/components/common";
 import { RuleTemplateSelect } from "@/components/subscriptions/RuleTemplateSelect";
 import { SubscriptionQrDialog } from "@/components/subscriptions/SubscriptionQrDialog";
 import { UsageBar } from "@/components/UsageBar";
@@ -65,6 +72,7 @@ import { useRuleTemplates, useSubscriptions } from "@/lib/queries";
 import { ruleTemplateErrorText } from "@/lib/ruleTemplates";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
+import { useIsDesktop } from "@/lib/useIsDesktop";
 
 const COLUMN_COUNT = 6;
 
@@ -203,6 +211,7 @@ function ErrorRow({
 
 export default function SubscriptionsPage() {
   useI18n();
+  const isDesktop = useIsDesktop();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const q = (searchParams.get("q") ?? "").trim();
@@ -325,6 +334,217 @@ export default function SubscriptionsPage() {
     setFilter("all");
   }
 
+  function buildSubscriptionUrl(user: Subscription): string {
+    return subscriptionUrl(user.short_code, selectedTemplate(user.id), format);
+  }
+
+  function renderSubscriptionIdentity(user: Subscription) {
+    return (
+      <div className="flex items-center gap-2.5">
+        <Avatar size="sm">
+          <AvatarFallback>
+            {user.username.slice(0, 1).toUpperCase()}
+          </AvatarFallback>
+        </Avatar>
+        <div className="min-w-0">
+          <div className="truncate font-medium">{user.username}</div>
+          <div className="font-mono text-[11px] text-muted-foreground">
+            {user.short_code}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderSubscriptionPackages(user: Subscription) {
+    const label = packageLabel(user);
+    return (
+      <Badge
+        variant="outline"
+        className={cn(
+          "max-w-[240px] font-normal",
+          user.package_count === 0 && "text-muted-foreground",
+        )}
+        title={label}
+      >
+        <span className="truncate">{label}</span>
+      </Badge>
+    );
+  }
+
+  function renderSubscriptionTraffic(user: Subscription) {
+    return (
+      <UsageBar
+        usedBytes={user.used_bytes}
+        quotaBytes={user.quota_bytes}
+        label={null}
+        className="w-48"
+      />
+    );
+  }
+
+  function renderSubscriptionRuleTemplate(user: Subscription) {
+    const ruleTemplateName = effectiveRuleTemplateName(user);
+    return (
+      <Badge
+        asChild
+        variant="outline"
+        className={cn(
+          // 触控目标至少 24px 高（P2-2）：徽章基础高度只有 20px。
+          "min-h-6 max-w-[200px] py-0.5 font-normal",
+          !ruleTemplateName && "text-muted-foreground",
+        )}
+      >
+        <Link
+          to="/settings?tab=templates"
+          title={t("subscriptions.ruleTemplateEffectiveTitle")}
+        >
+          <ListFilterIcon className="size-3" />
+          <span className="truncate">
+            {ruleTemplateName || t("subscriptions.ruleTemplateDefault")}
+          </span>
+        </Link>
+      </Badge>
+    );
+  }
+
+  function renderSubscriptionLink(user: Subscription) {
+    const template = selectedTemplate(user.id);
+    const ruleTemplateName = effectiveRuleTemplateName(user);
+    const url = buildSubscriptionUrl(user);
+
+    return (
+      <div className="flex flex-col gap-1.5">
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          title={url}
+          className="block min-h-6 max-w-[220px] truncate py-1 font-mono text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground"
+        >
+          {`…/sub/${user.short_code}`}
+        </a>
+        <RuleTemplateSelect
+          templates={templates}
+          selected={template}
+          effectiveName={ruleTemplateName}
+          pending={ruleTemplates.isPending}
+          error={ruleTemplateError}
+          username={user.username}
+          onSelect={(id) =>
+            setRuleSelections((current) => ({
+              ...current,
+              [user.id]: id,
+            }))
+          }
+        />
+      </div>
+    );
+  }
+
+  function renderSubscriptionActions(user: Subscription) {
+    const url = buildSubscriptionUrl(user);
+
+    return (
+      <div className="flex items-center gap-0.5">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          title={t("subscriptions.copyTitle")}
+          aria-label={t("subscriptions.copyAria", {
+            username: user.username,
+          })}
+          onClick={() => void copySubscription(user, url)}
+        >
+          <CopyIcon className="size-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          title={t("subscriptions.qrTitle")}
+          aria-label={t("subscriptions.qrAria", {
+            username: user.username,
+          })}
+          onClick={() => setQrState({ user, url })}
+        >
+          <QrCodeIcon className="size-3.5" />
+        </Button>
+        <Button
+          asChild
+          variant="ghost"
+          size="icon-sm"
+          title={t("subscriptions.openTitle")}
+        >
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={t("subscriptions.openAria", {
+              username: user.username,
+            })}
+          >
+            <ExternalLinkIcon className="size-3.5" />
+          </a>
+        </Button>
+      </div>
+    );
+  }
+
+  function renderRow(user: Subscription) {
+    return (
+      <TableRow key={user.id}>
+        <TableCell sticky="left" className="px-4 py-2.5">
+          {renderSubscriptionIdentity(user)}
+        </TableCell>
+        <TableCell className="px-4 py-2.5">
+          {renderSubscriptionPackages(user)}
+        </TableCell>
+        <TableCell className="px-4 py-2.5">
+          {renderSubscriptionTraffic(user)}
+        </TableCell>
+        <TableCell className="px-4 py-2.5">
+          {renderSubscriptionRuleTemplate(user)}
+        </TableCell>
+        <TableCell className="px-4 py-2.5">
+          {renderSubscriptionLink(user)}
+        </TableCell>
+        <TableCell sticky="right" className="px-4 py-2.5">
+          {renderSubscriptionActions(user)}
+        </TableCell>
+      </TableRow>
+    );
+  }
+
+  function renderCard(user: Subscription) {
+    return (
+      <MobileDataCard
+        key={user.id}
+        title={user.username}
+        subtitle={user.short_code}
+        actions={renderSubscriptionActions(user)}
+        fields={[
+          {
+            label: t("subscriptions.columns.packages"),
+            value: renderSubscriptionPackages(user),
+          },
+          {
+            label: t("subscriptions.columns.used"),
+            value: renderSubscriptionTraffic(user),
+          },
+          {
+            label: t("subscriptions.columns.ruleTemplate"),
+            value: renderSubscriptionRuleTemplate(user),
+          },
+          {
+            label: t("subscriptions.columns.link"),
+            value: renderSubscriptionLink(user),
+          },
+        ]}
+      />
+    );
+  }
+
+
   return (
     <div className="animate-enter space-y-6">
       <PageHeader
@@ -439,15 +659,19 @@ export default function SubscriptionsPage() {
         </CardHeader>
 
         <CardContent className="p-0" aria-busy={subscriptions.isPending}>
-          {subscriptions.isPending ? (
+          {subscriptions.isPending && isDesktop ? (
             <SkeletonTable rows={6} columns={COLUMN_COUNT} />
           ) : null}
-          <Table
-            className={cn(
-              "min-w-[1000px]",
-              subscriptions.isPending && "hidden",
-            )}
-          >
+          {subscriptions.isPending && !isDesktop ? (
+            <div className="space-y-3 p-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <SkeletonCard key={index} lines={4} />
+              ))}
+            </div>
+          ) : null}
+          {isDesktop ? (
+          <div className={cn(subscriptions.isPending && "hidden")}>
+          <Table className="min-w-[1000px]">
             <TableCaption className="sr-only">{t("subscriptions.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
@@ -458,9 +682,16 @@ export default function SubscriptionsPage() {
                   t("subscriptions.columns.ruleTemplate"),
                   t("subscriptions.columns.link"),
                   t("subscriptions.columns.actions"),
-                ].map((label) => (
+                ].map((label, index, columns) => (
                     <TableHead
                       key={label}
+                      sticky={
+                        index === 0
+                          ? "left"
+                          : index === columns.length - 1
+                            ? "right"
+                            : undefined
+                      }
                       className="h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground"
                     >
                       {label}
@@ -485,156 +716,45 @@ export default function SubscriptionsPage() {
                   searching={Boolean(q)}
                 />
               ) : (
-                filteredItems.map((user) => {
-                  const template = selectedTemplate(user.id);
-                  const url = subscriptionUrl(user.short_code, template, format);
-                  const label = packageLabel(user);
-                  const ruleTemplateName = effectiveRuleTemplateName(user);
-
-                  return (
-                    <TableRow key={user.id}>
-                      <TableCell className="px-4 py-2.5">
-                        <div className="flex items-center gap-2.5">
-                          <Avatar size="sm">
-                            <AvatarFallback>
-                              {user.username.slice(0, 1).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="min-w-0">
-                            <div className="truncate font-medium">
-                              {user.username}
-                            </div>
-                            <div className="font-mono text-[11px] text-muted-foreground">
-                              {user.short_code}
-                            </div>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="px-4 py-2.5">
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            "max-w-[240px] font-normal",
-                            user.package_count === 0 &&
-                              "text-muted-foreground",
-                          )}
-                          title={label}
-                        >
-                          <span className="truncate">{label}</span>
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="px-4 py-2.5">
-                        <UsageBar
-                          usedBytes={user.used_bytes}
-                          quotaBytes={user.quota_bytes}
-                          label={null}
-                          className="w-48"
-                        />
-                      </TableCell>
-                      {/*
-                        P6：生效规则模板（只读）。为空表示最终落在全局默认 /
-                        内置规则上，展示「默认规则」；点击跳到规则模板页。
-                      */}
-                      <TableCell className="px-4 py-2.5">
-                        <Badge
-                          asChild
-                          variant="outline"
-                          className={cn(
-                            // 触控目标至少 24px 高（P2-2）：徽章基础高度只有 20px。
-                            "min-h-6 max-w-[200px] py-0.5 font-normal",
-                            !ruleTemplateName && "text-muted-foreground",
-                          )}
-                        >
-                          <Link
-                            to="/settings?tab=templates"
-                            title={t(
-                              "subscriptions.ruleTemplateEffectiveTitle",
-                            )}
-                          >
-                            <ListFilterIcon className="size-3" />
-                            <span className="truncate">
-                              {ruleTemplateName ||
-                                t("subscriptions.ruleTemplateDefault")}
-                            </span>
-                          </Link>
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="px-4 py-2.5">
-                        <div className="flex flex-col gap-1.5">
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
-                            title={url}
-                            className="block min-h-6 max-w-[220px] truncate py-1 font-mono text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground"
-                          >
-                            {`…/sub/${user.short_code}`}
-                          </a>
-                          <RuleTemplateSelect
-                            templates={templates}
-                            selected={template}
-                            effectiveName={ruleTemplateName}
-                            pending={ruleTemplates.isPending}
-                            error={ruleTemplateError}
-                            username={user.username}
-                            onSelect={(id) =>
-                              setRuleSelections((current) => ({
-                                ...current,
-                                [user.id]: id,
-                              }))
-                            }
-                          />
-                        </div>
-                      </TableCell>
-                      <TableCell className="px-4 py-2.5">
-                        <div className="flex items-center gap-0.5">
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            title={t("subscriptions.copyTitle")}
-                            aria-label={t("subscriptions.copyAria", {
-                              username: user.username,
-                            })}
-                            onClick={() => void copySubscription(user, url)}
-                          >
-                            <CopyIcon className="size-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            title={t("subscriptions.qrTitle")}
-                            aria-label={t("subscriptions.qrAria", {
-                              username: user.username,
-                            })}
-                            onClick={() => setQrState({ user, url })}
-                          >
-                            <QrCodeIcon className="size-3.5" />
-                          </Button>
-                          <Button
-                            asChild
-                            variant="ghost"
-                            size="icon-sm"
-                            title={t("subscriptions.openTitle")}
-                          >
-                            <a
-                              href={url}
-                              target="_blank"
-                              rel="noreferrer"
-                              aria-label={t("subscriptions.openAria", {
-                                username: user.username,
-                              })}
-                            >
-                              <ExternalLinkIcon className="size-3.5" />
-                            </a>
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
+                filteredItems.map(renderRow)
               )}
             </TableBody>
           </Table>
+          </div>
+          ) : null}
+
+          {!subscriptions.isPending && !isDesktop ? (
+            <div className="space-y-3 p-3">
+              {subscriptions.isError ? (
+                <Card size="sm" className="py-0">
+                  <ListError
+                    title={t("subscriptions.loadFailed")}
+                    message={subscriptionListErrorText(subscriptions.error)}
+                    retrying={subscriptions.isFetching}
+                    onRetry={() => void subscriptions.refetch()}
+                  />
+                </Card>
+              ) : filteredItems.length === 0 ? (
+                <EmptyState
+                  size="sm"
+                  icon={UsersIcon}
+                  title={emptyTitle}
+                  description={emptyDescription}
+                  action={
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleEmptyAction}
+                    >
+                      {emptyActionLabel}
+                    </Button>
+                  }
+                />
+              ) : (
+                filteredItems.map(renderCard)
+              )}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

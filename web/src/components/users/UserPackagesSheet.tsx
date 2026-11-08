@@ -215,7 +215,13 @@ function BindPackageForm({ userId }: { userId: string }) {
                 <SelectTrigger
                   id="bind-package"
                   className="w-full"
+                  aria-required
                   aria-invalid={Boolean(form.formState.errors.package_id)}
+                  aria-describedby={
+                    form.formState.errors.package_id
+                      ? "bind-package-error"
+                      : undefined
+                  }
                 >
                   <SelectValue placeholder={t("users.packagesSheet.bind.templatePlaceholder")} />
                 </SelectTrigger>

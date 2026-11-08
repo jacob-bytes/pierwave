@@ -284,7 +284,7 @@ export function EventsPanel() {
           <TableCaption className="sr-only">{t("events.tableCaption")}</TableCaption>
           <TableHeader className="bg-muted/30">
             <TableRow>
-              <TableHead className={HEAD_CLASS}>{t("events.columns.time")}</TableHead>
+              <TableHead sticky="left" className={HEAD_CLASS}>{t("events.columns.time")}</TableHead>
               <TableHead className={HEAD_CLASS}>{t("events.columns.type")}</TableHead>
               <TableHead className={HEAD_CLASS}>{t("events.columns.user")}</TableHead>
               <TableHead className={HEAD_CLASS}>{t("events.columns.server")}</TableHead>
@@ -309,7 +309,7 @@ export function EventsPanel() {
             ) : (
               filteredItems.map((event) => (
                 <TableRow key={event.id}>
-                  <TableCell className="px-4 py-2.5">
+                  <TableCell sticky="left" className="px-4 py-2.5">
                     <span
                       className="text-xs tabular-nums text-muted-foreground"
                       title={formatAbsoluteTime(event.created_at)}

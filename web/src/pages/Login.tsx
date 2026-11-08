@@ -86,7 +86,12 @@ export default function LoginPage() {
           <CardContent>
             <form className="space-y-4" onSubmit={handleSubmit}>
               <div className="space-y-2">
-                <Label htmlFor="login-username">{t("login.username")}</Label>
+                <Label htmlFor="login-username">
+                  {t("login.username")}
+                  <span aria-hidden="true" className="text-destructive">
+                    *
+                  </span>
+                </Label>
                 <Input
                   id="login-username"
                   value={username}
@@ -101,7 +106,12 @@ export default function LoginPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="login-password">{t("login.password")}</Label>
+                <Label htmlFor="login-password">
+                  {t("login.password")}
+                  <span aria-hidden="true" className="text-destructive">
+                    *
+                  </span>
+                </Label>
                 <PasswordInput
                   id="login-password"
                   value={password}

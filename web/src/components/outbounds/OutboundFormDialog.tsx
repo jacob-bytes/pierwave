@@ -196,7 +196,13 @@ export function OutboundFormDialog({
                     <SelectTrigger
                       id="outbound-protocol"
                       className="w-full"
+                      aria-required
                       aria-invalid={Boolean(form.formState.errors.protocol)}
+                      aria-describedby={
+                        form.formState.errors.protocol
+                          ? "outbound-protocol-error"
+                          : undefined
+                      }
                     >
                       <SelectValue
                         placeholder={t("outbounds.form.protocolPlaceholder")}

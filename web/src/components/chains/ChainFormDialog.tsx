@@ -408,6 +408,7 @@ function GroupCard({
                     >
                       <SelectTrigger
                         className="w-full"
+                        aria-required
                         aria-label={t("chains.form.memberServerAria", {
                           group: seq,
                           member: memberSeq,
@@ -455,6 +456,7 @@ function GroupCard({
                       inputMode="numeric"
                       autoComplete="off"
                       placeholder={t("chains.form.memberPortPlaceholder")}
+                      aria-required
                       aria-label={t("chains.form.memberPortAria", {
                         group: seq,
                         member: memberSeq,
@@ -707,10 +709,17 @@ export function ChainFormDialog({
 
           <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <Label>
+              {/*
+                分组是复合字段（组 + 成员），不是单个控件：
+                组标题用普通文本 + 星号，必填语义落在每个成员的
+                服务器 / 端口控件上（见下方 aria-required）。
+              */}
+              <span className="text-sm font-medium">
                 {t("chains.form.groups")}
-                <span className="text-destructive">*</span>
-              </Label>
+                <span aria-hidden="true" className="text-destructive">
+                  *
+                </span>
+              </span>
               <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
                 {t("chains.form.groupLimit", {
                   count: fields.length,

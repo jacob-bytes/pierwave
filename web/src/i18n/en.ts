@@ -24,6 +24,15 @@ const en = {
     accountMenu: "Account menu for {username}",
     defaultPage: "Overview",
   },
+  errorBoundary: {
+    title: "Something went wrong",
+    description:
+      "This page failed to render. Other pages still work — retry, or go back to the overview.",
+    retry: "Try again",
+    backHome: "Back to overview",
+    details: "Error details (include these when reporting)",
+    errorLabel: "Error",
+  },
   common: {
     cancel: "Cancel",
     save: "Save",
@@ -2253,6 +2262,10 @@ const en = {
     emptyTitle: "No traffic in the last 7 days",
     emptyDesc: "Once nodes carry traffic, the trend appears here automatically.",
     aria: "Bar chart of upload and download traffic over the last 7 days",
+    viewData: "View data table",
+    hideData: "Hide data table",
+    dataTableCaption: "Daily upload and download traffic for the last 7 days",
+    date: "Date",
   },
   usage: {
     label: "Traffic",

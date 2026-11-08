@@ -20,6 +20,15 @@ const zhCN = {
     accountMenu: "{username} 的账号菜单",
     defaultPage: "概览",
   },
+  errorBoundary: {
+    title: "页面出错了",
+    description:
+      "这个页面在渲染时遇到了问题，其他页面仍可正常使用。可以重试，或回到概览。",
+    retry: "重试",
+    backHome: "回到概览",
+    details: "错误详情（反馈时请附上）",
+    errorLabel: "错误信息",
+  },
   common: {
     cancel: "取消",
     save: "保存",
@@ -2121,6 +2130,10 @@ const zhCN = {
     emptyTitle: "近 7 天还没有流量记录",
     emptyDesc: "节点产生流量后，这里会自动出现趋势。",
     aria: "近 7 天上下行流量柱状图",
+    viewData: "查看数据表",
+    hideData: "收起数据表",
+    dataTableCaption: "近 7 天逐日上下行流量",
+    date: "日期",
   },
   usage: {
     label: "流量",

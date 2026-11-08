@@ -790,7 +790,7 @@ export function AuditPanel() {
             </TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
-                <TableHead className={HEAD_CLASS}>
+                <TableHead sticky="left" className={HEAD_CLASS}>
                   {t("audit.columns.time")}
                 </TableHead>
                 <TableHead className={HEAD_CLASS}>
@@ -805,7 +805,7 @@ export function AuditPanel() {
                 <TableHead className={HEAD_CLASS}>
                   {t("audit.columns.summary")}
                 </TableHead>
-                <TableHead className={cn(HEAD_CLASS, "text-right")}>
+                <TableHead sticky="right" className={cn(HEAD_CLASS, "text-right")}>
                   {t("audit.columns.actions")}
                 </TableHead>
               </TableRow>
@@ -825,7 +825,7 @@ export function AuditPanel() {
 
                   return (
                     <TableRow key={entry.id}>
-                      <TableCell className="px-4 py-2.5">
+                      <TableCell sticky="left" className="px-4 py-2.5">
                         <span
                           className="text-xs whitespace-nowrap tabular-nums text-muted-foreground"
                           title={formatAbsoluteTime(entry.created_at)}
@@ -861,7 +861,7 @@ export function AuditPanel() {
                           resolve={resolveChange}
                         />
                       </TableCell>
-                      <TableCell className="px-4 py-2.5 text-right">
+                      <TableCell sticky="right" className="px-4 py-2.5 text-right">
                         <Button
                           variant="ghost"
                           size="sm"

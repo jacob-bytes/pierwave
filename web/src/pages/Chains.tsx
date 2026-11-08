@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { toast } from "sonner";
 import {
   ArrowRightIcon,
@@ -12,7 +13,14 @@ import {
   TriangleAlertIcon,
   WorkflowIcon,
 } from "lucide-react";
-import { EmptyState, PageHeader, SkeletonTable } from "@/components/common";
+import {
+  EmptyState,
+  ListError,
+  MobileDataCard,
+  PageHeader,
+  SkeletonCard,
+  SkeletonTable,
+} from "@/components/common";
 import { ChainFormDialog } from "@/components/chains/ChainFormDialog";
 import { DeleteChainDialog } from "@/components/chains/DeleteChainDialog";
 import { StrategyBadge } from "@/components/chains/StrategyBadge";
@@ -63,6 +71,7 @@ import { formatForwardTarget } from "@/lib/forwards";
 import { useChains, useServers, useUpdateChain } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
+import { useIsDesktop } from "@/lib/useIsDesktop";
 
 const CHAIN_COLUMN_COUNT = 7;
 const HEAD_CLASS =
@@ -398,16 +407,14 @@ function GroupCard({
   );
 }
 
-/** 展开行：按 seq 从左到右画出每组，最后一站是链目标。 */
-function ChainGroupsRow({ chain }: { chain: Chain }) {
+/** 分组详情：桌面展开行与移动端卡片共用。 */
+function ChainGroupsDetail({ chain }: { chain: Chain }) {
   const { t } = useI18n();
   const groups = orderGroups(chain.groups);
   const target = formatForwardTarget(chain.target_host, chain.target_port);
 
   return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={CHAIN_COLUMN_COUNT} className="px-4 py-3">
-        <div className="rounded-lg border border-border bg-muted/25 p-3">
+    <div className="rounded-lg border border-border bg-muted/25 p-3">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-1">
             <span className="text-[11px] font-medium text-muted-foreground">
               {t("chains.detail.title")}
@@ -443,7 +450,15 @@ function ChainGroupsRow({ chain }: { chain: Chain }) {
               </div>
             </div>
           )}
-        </div>
+    </div>
+  );
+}
+
+function ChainGroupsRow({ chain }: { chain: Chain }) {
+  return (
+    <TableRow className="hover:bg-transparent">
+      <TableCell colSpan={CHAIN_COLUMN_COUNT} className="px-4 py-3">
+        <ChainGroupsDetail chain={chain} />
       </TableCell>
     </TableRow>
   );
@@ -561,6 +576,7 @@ function EmptyRow({
 
 export default function ChainsPage() {
   const { t } = useI18n();
+  const isDesktop = useIsDesktop();
   const chains = useChains();
   const servers = useServers();
 
@@ -606,6 +622,210 @@ export default function ChainsPage() {
       return next;
     });
   }
+
+  function renderChainName(chain: Chain) {
+    const expanded = expandedIds.has(chain.id);
+    return (
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="size-6 shrink-0"
+          aria-expanded={expanded}
+          aria-label={t(
+            expanded
+              ? "chains.list.collapseAria"
+              : "chains.list.expandAria",
+            { name: chain.name },
+          )}
+          onClick={() => toggleExpanded(chain.id)}
+        >
+          <ChevronRightIcon
+            className={cn(
+              "size-3.5 transition-transform duration-150",
+              expanded && "rotate-90",
+            )}
+          />
+        </Button>
+        <div className="min-w-0">
+          <div className="truncate font-medium">{chain.name}</div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderChainGroups(chain: Chain, alignEnd = false) {
+    const summary = chainGroupSummary(chain.groups);
+    return (
+      <div
+        className={cn(
+          "flex flex-col gap-1",
+          alignEnd && "items-end",
+        )}
+      >
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {t(
+            groupCountKey(summary.groups, summary.members),
+            {
+              groups: summary.groups,
+              members: summary.members,
+            },
+          )}
+        </span>
+        <div
+          className={cn(
+            "flex flex-wrap gap-1",
+            alignEnd && "justify-end",
+          )}
+        >
+          {orderGroups(chain.groups).map((group) => (
+            <StrategyBadge
+              key={group.id || group.seq}
+              strategy={group.strategy}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  function renderChainEntry(chain: Chain) {
+    const entry = entryMember(chain.groups);
+    return entry ? (
+      <span className="break-all font-mono text-xs" title={t("chains.list.entryHint")}>
+        {formatMemberEndpoint(entry)}
+      </span>
+    ) : (
+      <span className="text-xs text-muted-foreground">
+        {t("chains.list.noEntry")}
+      </span>
+    );
+  }
+
+  function renderChainTarget(chain: Chain) {
+    const target = formatForwardTarget(chain.target_host, chain.target_port);
+    return (
+      <span
+        className="break-all font-mono text-xs text-muted-foreground"
+        title={target}
+      >
+        {target}
+      </span>
+    );
+  }
+
+  function renderChainActions(chain: Chain) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t("chains.actionsAria", {
+              name: chain.name,
+            })}
+          >
+            <MoreHorizontalIcon className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-36">
+          <DropdownMenuItem
+            onSelect={() => setForm({ mode: "edit", chain })}
+          >
+            <PencilIcon className="size-3.5" />
+            {t("common.edit")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            variant="destructive"
+            onSelect={() => setDeleteTarget(chain)}
+          >
+            <Trash2Icon className="size-3.5" />
+            {t("common.delete")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  function renderRow(chain: Chain) {
+    const expanded = expandedIds.has(chain.id);
+
+    return (
+      <Fragment key={chain.id}>
+        <TableRow
+          className={cn(expanded && "bg-muted/20")}
+          style={
+            expanded
+              ? {
+                  "--pw-sticky-bg":
+                    "color-mix(in oklab, var(--muted) 20%, var(--card))",
+                } as CSSProperties
+              : undefined
+          }
+        >
+          <TableCell sticky="left" className="max-w-60 px-4 py-2.5">
+            {renderChainName(chain)}
+          </TableCell>
+          <TableCell className="px-4 py-2.5">
+            {renderChainGroups(chain)}
+          </TableCell>
+          <TableCell className="px-4 py-2.5">
+            {renderChainEntry(chain)}
+          </TableCell>
+          <TableCell className="px-4 py-2.5">
+            {renderChainTarget(chain)}
+          </TableCell>
+          <TableCell className="px-4 py-2.5">
+            <ChainStatusCell chain={chain} />
+          </TableCell>
+          <TableCell className="px-4 py-2.5">
+            <ChainEnabledSwitch chain={chain} />
+          </TableCell>
+          <TableCell sticky="right" className="px-4 py-2.5">
+            {renderChainActions(chain)}
+          </TableCell>
+        </TableRow>
+        {expanded ? <ChainGroupsRow chain={chain} /> : null}
+      </Fragment>
+    );
+  }
+
+  function renderCard(chain: Chain) {
+    const expanded = expandedIds.has(chain.id);
+    return (
+      <MobileDataCard
+        key={chain.id}
+        title={renderChainName(chain)}
+        actions={renderChainActions(chain)}
+        fields={[
+          {
+            label: t("chains.list.columns.groups"),
+            value: renderChainGroups(chain, true),
+          },
+          {
+            label: t("chains.list.columns.entry"),
+            value: renderChainEntry(chain),
+          },
+          {
+            label: t("chains.list.columns.target"),
+            value: renderChainTarget(chain),
+          },
+          {
+            label: t("chains.list.columns.status"),
+            value: <ChainStatusCell chain={chain} />,
+          },
+          {
+            label: t("chains.list.columns.enabled"),
+            value: <ChainEnabledSwitch chain={chain} />,
+          },
+        ]}
+      >
+        {expanded ? <ChainGroupsDetail chain={chain} /> : null}
+      </MobileDataCard>
+    );
+  }
+
 
   return (
     <div className="animate-enter space-y-6">
@@ -664,12 +884,19 @@ export default function ChainsPage() {
         </CardHeader>
 
         <CardContent className="p-0" aria-busy={chains.isPending}>
-          {chains.isPending ? (
+          {chains.isPending && isDesktop ? (
             <SkeletonTable rows={4} columns={CHAIN_COLUMN_COUNT} />
           ) : null}
-          <Table
-            className={cn("min-w-[880px]", chains.isPending && "hidden")}
-          >
+          {chains.isPending && !isDesktop ? (
+            <div className="space-y-3 p-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <SkeletonCard key={index} lines={5} />
+              ))}
+            </div>
+          ) : null}
+          {isDesktop ? (
+          <div className={cn(chains.isPending && "hidden")}>
+          <Table className="min-w-[880px]">
             <TableCaption className="sr-only">
               {t("chains.list.tableCaption")}
             </TableCaption>
@@ -683,8 +910,18 @@ export default function ChainsPage() {
                   t("chains.list.columns.status"),
                   t("chains.list.columns.enabled"),
                   t("common.actions"),
-                ].map((label) => (
-                  <TableHead key={label} className={HEAD_CLASS}>
+                ].map((label, index, columns) => (
+                  <TableHead
+                    key={label}
+                    sticky={
+                      index === 0
+                        ? "left"
+                        : index === columns.length - 1
+                          ? "right"
+                          : undefined
+                    }
+                    className={HEAD_CLASS}
+                  >
                     {label}
                   </TableHead>
                 ))}
@@ -705,137 +942,46 @@ export default function ChainsPage() {
                   onAction={() => setForm({ mode: "create" })}
                 />
               ) : (
-                items.map((chain) => {
-                  const target = formatForwardTarget(
-                    chain.target_host,
-                    chain.target_port,
-                  );
-                  const entry = entryMember(chain.groups);
-                  const summary = chainGroupSummary(chain.groups);
-                  const expanded = expandedIds.has(chain.id);
-
-                  return (
-                    <Fragment key={chain.id}>
-                      <TableRow className={cn(expanded && "bg-muted/20")}>
-                        <TableCell className="max-w-60 px-4 py-2.5">
-                          <div className="flex items-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              className="size-6 shrink-0"
-                              aria-expanded={expanded}
-                              aria-label={t(
-                                expanded
-                                  ? "chains.list.collapseAria"
-                                  : "chains.list.expandAria",
-                                { name: chain.name },
-                              )}
-                              onClick={() => toggleExpanded(chain.id)}
-                            >
-                              <ChevronRightIcon
-                                className={cn(
-                                  "size-3.5 transition-transform duration-150",
-                                  expanded && "rotate-90",
-                                )}
-                              />
-                            </Button>
-                            <div className="min-w-0">
-                              <div className="truncate font-medium">
-                                {chain.name}
-                              </div>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="px-4 py-2.5">
-                          <div className="flex flex-col gap-1">
-                            <span className="text-xs tabular-nums text-muted-foreground">
-                              {t(
-                                groupCountKey(
-                                  summary.groups,
-                                  summary.members,
-                                ),
-                                {
-                                  groups: summary.groups,
-                                  members: summary.members,
-                                },
-                              )}
-                            </span>
-                            <div className="flex flex-wrap gap-1">
-                              {orderGroups(chain.groups).map((group) => (
-                                <StrategyBadge
-                                  key={group.id || group.seq}
-                                  strategy={group.strategy}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="px-4 py-2.5 font-mono text-xs">
-                          {entry ? (
-                            <span
-                              className="break-all"
-                              title={t("chains.list.entryHint")}
-                            >
-                              {formatMemberEndpoint(entry)}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">
-                              {t("chains.list.noEntry")}
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
-                          <span className="break-all" title={target}>
-                            {target}
-                          </span>
-                        </TableCell>
-                        <TableCell className="px-4 py-2.5">
-                          <ChainStatusCell chain={chain} />
-                        </TableCell>
-                        <TableCell className="px-4 py-2.5">
-                          <ChainEnabledSwitch chain={chain} />
-                        </TableCell>
-                        <TableCell className="px-4 py-2.5">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                aria-label={t("chains.actionsAria", {
-                                  name: chain.name,
-                                })}
-                              >
-                                <MoreHorizontalIcon className="size-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-36">
-                              <DropdownMenuItem
-                                onSelect={() =>
-                                  setForm({ mode: "edit", chain })
-                                }
-                              >
-                                <PencilIcon className="size-3.5" />
-                                {t("common.edit")}
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                variant="destructive"
-                                onSelect={() => setDeleteTarget(chain)}
-                              >
-                                <Trash2Icon className="size-3.5" />
-                                {t("common.delete")}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-                      {expanded ? <ChainGroupsRow chain={chain} /> : null}
-                    </Fragment>
-                  );
-                })
+                items.map(renderRow)
               )}
             </TableBody>
           </Table>
+          </div>
+          ) : null}
+
+          {!chains.isPending && !isDesktop ? (
+            <div className="space-y-3 p-3">
+              {showError ? (
+                <Card size="sm" className="py-0">
+                  <ListError
+                    title={t("chains.list.loadFailed")}
+                    message={loadError}
+                    retrying={chains.isFetching}
+                    onRetry={() => void chains.refetch()}
+                  />
+                </Card>
+              ) : items.length === 0 ? (
+                <EmptyState
+                  size="sm"
+                  icon={WorkflowIcon}
+                  title={t("chains.list.emptyTitle")}
+                  description={t("chains.list.emptyDesc")}
+                  action={
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setForm({ mode: "create" })}
+                    >
+                      <PlusIcon className="size-3.5" />
+                      {t("chains.list.emptyAction")}
+                    </Button>
+                  }
+                />
+              ) : (
+                items.map(renderCard)
+              )}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

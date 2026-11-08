@@ -9,7 +9,14 @@ import {
   Trash2Icon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { EmptyState, PageHeader, SkeletonTable } from "@/components/common";
+import {
+  EmptyState,
+  ListError,
+  MobileDataCard,
+  PageHeader,
+  SkeletonCard,
+  SkeletonTable,
+} from "@/components/common";
 import { PackageFormDialog } from "@/components/packages/PackageFormDialog";
 import { SpeedLimitBadge } from "@/components/SpeedLimitBadge";
 import {
@@ -55,6 +62,7 @@ import { directionLabel } from "@/lib/labels";
 import { useDeletePackage, usePackages } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
+import { useIsDesktop } from "@/lib/useIsDesktop";
 
 const COLUMN_COUNT = 8;
 
@@ -210,6 +218,7 @@ function DeletePackageDialog({
 
 export default function PackagesPage() {
   useI18n();
+  const isDesktop = useIsDesktop();
   const packages = usePackages();
   const [formState, setFormState] = useState<{
     mode: "create" | "edit";
@@ -223,6 +232,172 @@ export default function PackagesPage() {
     packages.error,
     t("packages.loadError"),
   );
+
+  function renderPackageName(item: Package) {
+    return (
+      <div className="flex min-w-0 items-center gap-2">
+        <PackageIcon className="size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
+        <SpeedLimitBadge kbps={item.speed_limit_kbps} approximate />
+      </div>
+    );
+  }
+
+  function renderPackagePeriod(item: Package) {
+    return item.period_days
+      ? t(
+          item.period_days === 1
+            ? "packages.period.day"
+            : "packages.period.days",
+          { n: item.period_days },
+        )
+      : t("packages.period.longTerm");
+  }
+
+  function renderPackageDirection(item: Package) {
+    return (
+      <Badge
+        variant="outline"
+        className="font-normal text-muted-foreground"
+      >
+        {directionLabel(item.direction)}
+      </Badge>
+    );
+  }
+
+  function renderPackageUserCount(item: Package) {
+    return (
+      <Badge
+        variant="secondary"
+        className="font-mono text-[11px] font-normal text-muted-foreground"
+      >
+        {t(
+          item.user_count === 1
+            ? "packages.userCountOne"
+            : "packages.userCount",
+          { n: item.user_count },
+        )}
+      </Badge>
+    );
+  }
+
+  function renderPackageActions(item: Package) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t("packages.actionsAria", { name: item.name })}
+          >
+            <MoreHorizontalIcon className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-36">
+          <DropdownMenuItem
+            onSelect={() =>
+              setFormState({ mode: "edit", packageItem: item })
+            }
+          >
+            <PencilIcon className="size-3.5" />
+            {t("common.edit")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            variant="destructive"
+            disabled={item.user_count > 0}
+            title={
+              item.user_count > 0
+                ? t("packages.delete.disabledTitle", {
+                    n: item.user_count,
+                  })
+                : undefined
+            }
+            onSelect={() => setDeleteTarget(item)}
+          >
+            <Trash2Icon className="size-3.5" />
+            {t("common.delete")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  function renderRow(item: Package) {
+    return (
+      <TableRow key={item.id}>
+        <TableCell sticky="left" className="px-4 py-2.5">
+          {renderPackageName(item)}
+        </TableCell>
+        <TableCell className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
+          {formatBytes(item.quota_bytes)}
+        </TableCell>
+        <TableCell className="px-4 py-2.5 text-xs text-muted-foreground">
+          {renderPackagePeriod(item)}
+        </TableCell>
+        <TableCell className="px-4 py-2.5">
+          {renderPackageDirection(item)}
+        </TableCell>
+        <TableCell className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
+          ×{item.node_ratio}
+        </TableCell>
+        <TableCell className="px-4 py-2.5">
+          <NodeScopeBadge item={item} />
+        </TableCell>
+        <TableCell className="px-4 py-2.5">
+          {renderPackageUserCount(item)}
+        </TableCell>
+        <TableCell sticky="right" className="px-4 py-2.5">
+          {renderPackageActions(item)}
+        </TableCell>
+      </TableRow>
+    );
+  }
+
+  function renderCard(item: Package) {
+    return (
+      <MobileDataCard
+        key={item.id}
+        title={item.name}
+        actions={renderPackageActions(item)}
+        fields={[
+          {
+            label: t("packages.columns.quota"),
+            value: (
+              <span className="font-mono text-muted-foreground">
+                {formatBytes(item.quota_bytes)}
+              </span>
+            ),
+          },
+          {
+            label: t("packages.columns.period"),
+            value: renderPackagePeriod(item),
+          },
+          {
+            label: t("packages.columns.direction"),
+            value: renderPackageDirection(item),
+          },
+          {
+            label: t("packages.columns.ratio"),
+            value: (
+              <span className="font-mono text-muted-foreground">
+                ×{item.node_ratio}
+              </span>
+            ),
+          },
+          {
+            label: t("packages.columns.scope"),
+            value: <NodeScopeBadge item={item} />,
+          },
+          {
+            label: t("packages.columns.userCount"),
+            value: renderPackageUserCount(item),
+          },
+        ]}
+      />
+    );
+  }
+
 
   return (
     <div className="animate-enter space-y-6">
@@ -272,12 +447,19 @@ export default function PackagesPage() {
         </CardHeader>
 
         <CardContent className="p-0" aria-busy={packages.isPending}>
-          {packages.isPending ? (
+          {packages.isPending && isDesktop ? (
             <SkeletonTable rows={5} columns={COLUMN_COUNT} />
           ) : null}
-          <Table
-            className={cn("min-w-[880px]", packages.isPending && "hidden")}
-          >
+          {packages.isPending && !isDesktop ? (
+            <div className="space-y-3 p-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <SkeletonCard key={index} lines={4} />
+              ))}
+            </div>
+          ) : null}
+          {isDesktop ? (
+          <div className={cn(packages.isPending && "hidden")}>
+          <Table className="min-w-[880px]">
             <TableCaption className="sr-only">{t("packages.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
@@ -290,9 +472,16 @@ export default function PackagesPage() {
                   t("packages.columns.scope"),
                   t("packages.columns.userCount"),
                   t("packages.columns.actions"),
-                ].map((label) => (
+                ].map((label, index, columns) => (
                   <TableHead
                     key={label}
+                    sticky={
+                      index === 0
+                        ? "left"
+                        : index === columns.length - 1
+                          ? "right"
+                          : undefined
+                    }
                     className="h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground"
                   >
                     {label}
@@ -310,104 +499,46 @@ export default function PackagesPage() {
               ) : items.length === 0 ? (
                 <EmptyRow onCreate={() => setFormState({ mode: "create" })} />
               ) : (
-                items.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="px-4 py-2.5">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <PackageIcon className="size-4 shrink-0 text-muted-foreground" />
-                        <span className="min-w-0 flex-1 truncate font-medium">
-                          {item.name}
-                        </span>
-                        <SpeedLimitBadge
-                          kbps={item.speed_limit_kbps}
-                          approximate
-                        />
-                      </div>
-                    </TableCell>
-                    <TableCell className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
-                      {formatBytes(item.quota_bytes)}
-                    </TableCell>
-                    <TableCell className="px-4 py-2.5 text-xs text-muted-foreground">
-                      {item.period_days
-                        ? t(
-                            item.period_days === 1
-                              ? "packages.period.day"
-                              : "packages.period.days",
-                            { n: item.period_days },
-                          )
-                        : t("packages.period.longTerm")}
-                    </TableCell>
-                    <TableCell className="px-4 py-2.5">
-                      <Badge
-                        variant="outline"
-                        className="font-normal text-muted-foreground"
-                      >
-                        {directionLabel(item.direction)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
-                      ×{item.node_ratio}
-                    </TableCell>
-                    <TableCell className="px-4 py-2.5">
-                      <NodeScopeBadge item={item} />
-                    </TableCell>
-                    <TableCell className="px-4 py-2.5">
-                      <Badge
-                        variant="secondary"
-                        className="font-mono text-[11px] font-normal text-muted-foreground"
-                      >
-                        {t(
-                        item.user_count === 1
-                          ? "packages.userCountOne"
-                          : "packages.userCount",
-                        { n: item.user_count },
-                      )}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="px-4 py-2.5">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={t("packages.actionsAria", { name: item.name })}
-                          >
-                            <MoreHorizontalIcon className="size-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-36">
-                          <DropdownMenuItem
-                            onSelect={() =>
-                              setFormState({ mode: "edit", packageItem: item })
-                            }
-                          >
-                            <PencilIcon className="size-3.5" />
-                            {t("common.edit")}
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            variant="destructive"
-                            disabled={item.user_count > 0}
-                            title={
-                              item.user_count > 0
-                                ? t("packages.delete.disabledTitle", {
-                                  n: item.user_count,
-                                })
-                                : undefined
-                            }
-                            onSelect={() => setDeleteTarget(item)}
-                          >
-                            <Trash2Icon className="size-3.5" />
-                            {t("common.delete")}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))
+                items.map(renderRow)
               )}
             </TableBody>
           </Table>
+          </div>
+          ) : null}
+
+          {!packages.isPending && !isDesktop ? (
+            <div className="space-y-3 p-3">
+              {showError ? (
+                <Card size="sm" className="py-0">
+                  <ListError
+                    title={t("packages.loadFailed")}
+                    message={errorMessage}
+                    retrying={packages.isFetching}
+                    onRetry={() => void packages.refetch()}
+                  />
+                </Card>
+              ) : items.length === 0 ? (
+                <EmptyState
+                  size="sm"
+                  icon={PackageIcon}
+                  title={t("packages.emptyTitle")}
+                  description={t("packages.emptyDesc")}
+                  action={
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setFormState({ mode: "create" })}
+                    >
+                      <PlusIcon className="size-3.5" />
+                      {t("packages.create")}
+                    </Button>
+                  }
+                />
+              ) : (
+                items.map(renderCard)
+              )}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

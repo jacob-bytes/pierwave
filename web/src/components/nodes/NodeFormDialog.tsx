@@ -493,6 +493,10 @@ export function NodeFormDialog({
                   }
                 >
                   <div className="space-y-2">
+                    {/*
+                      FormField 下探不到 Controller 的 render-prop：
+                      必填/错误语义显式传给真正获得焦点的 trigger。
+                    */}
                     <Controller
                       control={form.control}
                       name="cert_id"
@@ -509,9 +513,17 @@ export function NodeFormDialog({
                           <SelectTrigger
                             id="node-cert"
                             className="w-full"
+                            aria-required
                             aria-invalid={Boolean(
                               form.formState.errors.cert_id,
                             )}
+                            aria-describedby={
+                              form.formState.errors.cert_id
+                                ? "node-cert-error"
+                                : certificates.isError || isEdit
+                                  ? "node-cert-hint"
+                                  : undefined
+                            }
                           >
                             <SelectValue
                               placeholder={

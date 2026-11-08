@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import type { CSSProperties, FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -23,7 +23,10 @@ import {
 } from "lucide-react";
 import {
   EmptyState,
+  ListError,
+  MobileDataCard,
   PageHeader,
+  SkeletonCard,
   SkeletonTable,
 } from "@/components/common";
 import { AgentBatchUpgradeBar } from "@/components/servers/AgentBatchUpgradeBar";
@@ -111,6 +114,7 @@ import { isSpeedLimited } from "@/lib/speed";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
+import { useIsDesktop } from "@/lib/useIsDesktop";
 
 const COLUMN_COUNT = 11;
 /** 心跳超过这个时长没有更新就不该再当作实时数据。 */
@@ -665,6 +669,7 @@ function ErrorRow({
 
 export default function ServersPage() {
   useI18n();
+  const isDesktop = useIsDesktop();
   const servers = useServers();
   const create = useCreateServer();
 
@@ -741,6 +746,248 @@ export default function ServersPage() {
   const createError = create.isError
     ? errorText(create.error, t("servers.createError"))
     : null;
+
+  function renderServerName(server: Server) {
+    const serviceDown = isServiceDown(server);
+    return (
+      <div className="flex items-center gap-2">
+        <span
+          aria-hidden="true"
+          className={cn(
+            "h-4 w-0.5 shrink-0 rounded-full",
+            serviceDown ? "bg-destructive" : "bg-transparent",
+          )}
+        />
+        <div className="truncate font-medium">{server.name}</div>
+      </div>
+    );
+  }
+
+  function renderServerMode(server: Server) {
+    return (
+      <>
+        {xrayModeLabel(server.xray_mode)}
+        {server.xray_mode === "embedded" ? (
+          <span
+            className="ml-1.5 rounded bg-warning/10 px-1.5 py-0.5 text-[11px] text-warning"
+            title={t("servers.mode.deprecatedHint")}
+          >
+            {t("servers.mode.deprecated")}
+          </span>
+        ) : null}
+      </>
+    );
+  }
+
+  function renderServerLoad(server: Server) {
+    return (
+      <span
+        className="font-mono text-xs tabular-nums"
+        title={t("servers.loadTitle")}
+      >
+        {server.load1 === null ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          server.load1.toFixed(2)
+        )}
+      </span>
+    );
+  }
+
+  function renderServerCheckbox(server: Server, selected: boolean) {
+    return (
+      <ServerSelectCheckbox
+        server={server}
+        checked={selected}
+        onCheckedChange={() => handleToggleServer(server.id)}
+      />
+    );
+  }
+
+  function renderServerActions(server: Server) {
+    return (
+      <div className="flex items-center gap-1">
+        <ServerDetailsPopover server={server} />
+        <Button variant="ghost" size="icon-sm" asChild title={t("servers.nodes")}>
+          <Link
+            to={`/servers/${server.id}/nodes`}
+            aria-label={t("servers.manageNodesAria", { name: server.name })}
+          >
+            <NetworkIcon className="size-4" />
+          </Link>
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={t("servers.agentUpgrade.actionsAria", {
+                name: server.name,
+              })}
+            >
+              <MoreHorizontalIcon className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuItem
+              disabled={!server.allow_agent_upgrade}
+              title={
+                server.allow_agent_upgrade
+                  ? t("servers.agentUpgrade.action")
+                  : t("servers.agentUpgrade.disabledHint")
+              }
+              onSelect={() => setUpgradeServerId(server.id)}
+            >
+              <ArrowUpCircleIcon className="size-3.5" />
+              {t("servers.agentUpgrade.action")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link
+                to={`/servers/${server.id}/outbounds`}
+                aria-label={t("servers.manageOutboundsAria", {
+                  name: server.name,
+                })}
+              >
+                <WaypointsIcon className="size-3.5" />
+                {t("servers.outbounds")}
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link
+                to={`/servers/${server.id}/forwards`}
+                aria-label={t("forwards.manageAria", {
+                  name: server.name,
+                })}
+              >
+                <ArrowRightLeftIcon className="size-3.5" />
+                {t("forwards.menuLabel")}
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link to="/chains" aria-label={t("servers.openChainsAria")}>
+                <WorkflowIcon className="size-3.5" />
+                {t("servers.chains")}
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setHistoryServerId(server.id)}>
+              <HistoryIcon className="size-3.5" />
+              {t("servers.agentUpgrade.history")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => setEditServerId(server.id)}>
+              <PencilIcon className="size-3.5" />
+              {t("servers.agentUpgrade.edit")}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    );
+  }
+
+  function renderRow(server: Server) {
+    const serviceDown = isServiceDown(server);
+    const selected = selectedIds.includes(server.id);
+
+    return (
+      <TableRow
+        key={server.id}
+        data-state={selected ? "selected" : undefined}
+        className={cn(
+          serviceDown && "bg-destructive/5 hover:bg-destructive/10",
+        )}
+        style={
+          serviceDown
+            ? {
+                "--pw-sticky-bg":
+                  "color-mix(in oklab, var(--destructive) 5%, var(--card))",
+              } as CSSProperties
+            : undefined
+        }
+      >
+        <TableCell sticky="left" className="w-10 px-4 py-2.5">
+          {renderServerCheckbox(server, selected)}
+        </TableCell>
+        <TableCell className="max-w-56 px-4 py-2.5">
+          {renderServerName(server)}
+        </TableCell>
+        <TableCell className="hidden px-4 py-2.5 font-mono text-xs text-muted-foreground lg:table-cell">
+          {server.address}
+        </TableCell>
+        <TableCell className="hidden px-4 py-2.5 text-xs text-muted-foreground lg:table-cell">
+          {renderServerMode(server)}
+        </TableCell>
+        <TableCell className="px-4 py-2.5">
+          <StatusBadge server={server} />
+        </TableCell>
+        <TableCell className="px-4 py-2.5">
+          <XrayStatus server={server} />
+        </TableCell>
+        <TableCell className="px-4 py-2.5 text-xs text-muted-foreground">
+          <HeartbeatText healthAt={server.health_at} />
+        </TableCell>
+        <TableCell className="hidden px-4 py-2.5 xl:table-cell">
+          <VersionCell server={server} />
+        </TableCell>
+        <TableCell className="hidden px-4 py-2.5 xl:table-cell">
+          {renderServerLoad(server)}
+        </TableCell>
+        <TableCell className="hidden px-4 py-2.5 xl:table-cell">
+          <MemoryCell server={server} />
+        </TableCell>
+        <TableCell sticky="right" className="px-4 py-2.5">
+          {renderServerActions(server)}
+        </TableCell>
+      </TableRow>
+    );
+  }
+
+  function renderCard(server: Server) {
+    const serviceDown = isServiceDown(server);
+    const selected = selectedIds.includes(server.id);
+
+    return (
+      <MobileDataCard
+        key={server.id}
+        title={server.name}
+        subtitle={server.address}
+        className={cn(serviceDown && "ring-destructive/30")}
+        badge={renderServerCheckbox(server, selected)}
+        actions={renderServerActions(server)}
+        fields={[
+          {
+            label: t("servers.mode.column"),
+            value: renderServerMode(server),
+          },
+          {
+            label: t("common.status"),
+            value: <StatusBadge server={server} />,
+          },
+          {
+            label: "Xray",
+            value: <XrayStatus server={server} />,
+          },
+          {
+            label: t("servers.detail.lastHeartbeat"),
+            value: <HeartbeatText healthAt={server.health_at} />,
+          },
+          {
+            label: t("servers.agentVersion"),
+            value: <VersionCell server={server} />,
+          },
+          {
+            label: t("servers.detail.load"),
+            value: renderServerLoad(server),
+          },
+          {
+            label: t("servers.detail.memory"),
+            value: <MemoryCell server={server} />,
+          },
+        ]}
+      />
+    );
+  }
+
 
   function openCreateDialog() {
     create.reset();
@@ -888,19 +1135,23 @@ export default function ServersPage() {
         ) : null}
 
         <CardContent className="p-0" aria-busy={servers.isPending}>
-          {servers.isPending ? (
+          {servers.isPending && isDesktop ? (
             <SkeletonTable rows={5} columns={COLUMN_COUNT} />
           ) : null}
-          <Table
-            className={cn(
-              "min-w-[780px] xl:min-w-[1140px]",
-              servers.isPending && "hidden",
-            )}
-          >
+          {servers.isPending && !isDesktop ? (
+            <div className="space-y-3 p-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <SkeletonCard key={index} lines={6} />
+              ))}
+            </div>
+          ) : null}
+          {isDesktop ? (
+          <div className={cn(servers.isPending && "hidden")}>
+          <Table className="min-w-[780px] xl:min-w-[1140px]">
             <TableCaption className="sr-only">{t("servers.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
-                <TableHead className={cn(HEAD_CLASS, "w-10 pr-0")}>
+                <TableHead sticky="left" className={cn(HEAD_CLASS, "w-10 pr-0")}>
                   <SelectAllCheckbox
                     state={selectAllState}
                     disabled={eligibleIds.length === 0}
@@ -929,7 +1180,7 @@ export default function ServersPage() {
                 <TableHead className={cn(HEAD_CLASS, "hidden xl:table-cell")}>
                   {t("servers.detail.memory")}
                 </TableHead>
-                <TableHead className={HEAD_CLASS}>{t("common.actions")}</TableHead>
+                <TableHead sticky="right" className={HEAD_CLASS}>{t("common.actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -942,176 +1193,46 @@ export default function ServersPage() {
               ) : items.length === 0 ? (
                 <EmptyRow onCreate={openCreateDialog} />
               ) : (
-                items.map((server) => {
-                  const serviceDown = isServiceDown(server);
-                  const selected = selectedIds.includes(server.id);
-
-                  return (
-                    <TableRow
-                      key={server.id}
-                      data-state={selected ? "selected" : undefined}
-                      className={cn(
-                        serviceDown &&
-                          "bg-destructive/5 hover:bg-destructive/10",
-                      )}
-                    >
-                      <TableCell className="w-10 px-4 py-2.5">
-                        <ServerSelectCheckbox
-                          server={server}
-                          checked={selected}
-                          onCheckedChange={() => handleToggleServer(server.id)}
-                        />
-                      </TableCell>
-                      <TableCell className="max-w-56 px-4 py-2.5">
-                        <div className="flex items-center gap-2">
-                          <span
-                            aria-hidden="true"
-                            className={cn(
-                              "h-4 w-0.5 shrink-0 rounded-full",
-                              serviceDown ? "bg-destructive" : "bg-transparent",
-                            )}
-                          />
-                          <div className="truncate font-medium">
-                            {server.name}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="hidden px-4 py-2.5 font-mono text-xs text-muted-foreground lg:table-cell">
-                        {server.address}
-                      </TableCell>
-                      <TableCell className="hidden px-4 py-2.5 text-xs text-muted-foreground lg:table-cell">
-                        {xrayModeLabel(server.xray_mode)}
-                        {server.xray_mode === "embedded" ? (
-                          <span
-                            className="ml-1.5 rounded bg-warning/10 px-1.5 py-0.5 text-[11px] text-warning"
-                            title={t("servers.mode.deprecatedHint")}
-                          >
-                            {t("servers.mode.deprecated")}
-                          </span>
-                        ) : null}
-                      </TableCell>
-                      <TableCell className="px-4 py-2.5">
-                        <StatusBadge server={server} />
-                      </TableCell>
-                      <TableCell className="px-4 py-2.5">
-                        <XrayStatus server={server} />
-                      </TableCell>
-                      <TableCell className="px-4 py-2.5 text-xs text-muted-foreground">
-                        <HeartbeatText healthAt={server.health_at} />
-                      </TableCell>
-                      <TableCell className="hidden px-4 py-2.5 xl:table-cell">
-                        <VersionCell server={server} />
-                      </TableCell>
-                      <TableCell
-                        className="hidden px-4 py-2.5 font-mono text-xs tabular-nums xl:table-cell"
-                        title={t("servers.loadTitle")}
-                      >
-                        {server.load1 === null ? (
-                          <span className="text-muted-foreground">—</span>
-                        ) : (
-                          server.load1.toFixed(2)
-                        )}
-                      </TableCell>
-                      <TableCell className="hidden px-4 py-2.5 xl:table-cell">
-                        <MemoryCell server={server} />
-                      </TableCell>
-                      <TableCell className="px-4 py-2.5">
-                        <div className="flex items-center gap-1">
-                          <ServerDetailsPopover server={server} />
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            asChild
-                            title={t("servers.nodes")}
-                          >
-                            <Link
-                              to={`/servers/${server.id}/nodes`}
-                              aria-label={t("servers.manageNodesAria", { name: server.name })}
-                            >
-                              <NetworkIcon className="size-4" />
-                            </Link>
-                          </Button>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                aria-label={t(
-                                  "servers.agentUpgrade.actionsAria",
-                                  { name: server.name },
-                                )}
-                              >
-                                <MoreHorizontalIcon className="size-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-52">
-                              <DropdownMenuItem
-                                disabled={!Boolean(server.allow_agent_upgrade)}
-                                title={
-                                  Boolean(server.allow_agent_upgrade)
-                                    ? t("servers.agentUpgrade.action")
-                                    : t("servers.agentUpgrade.disabledHint")
-                                }
-                                onSelect={() => setUpgradeServerId(server.id)}
-                              >
-                                <ArrowUpCircleIcon className="size-3.5" />
-                                {t("servers.agentUpgrade.action")}
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem asChild>
-                                <Link
-                                  to={`/servers/${server.id}/outbounds`}
-                                  aria-label={t("servers.manageOutboundsAria", {
-                                    name: server.name,
-                                  })}
-                                >
-                                  <WaypointsIcon className="size-3.5" />
-                                  {t("servers.outbounds")}
-                                </Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem asChild>
-                                <Link
-                                  to={`/servers/${server.id}/forwards`}
-                                  aria-label={t("forwards.manageAria", {
-                                    name: server.name,
-                                  })}
-                                >
-                                  <ArrowRightLeftIcon className="size-3.5" />
-                                  {t("forwards.menuLabel")}
-                                </Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem asChild>
-                                <Link
-                                  to="/chains"
-                                  aria-label={t("servers.openChainsAria")}
-                                >
-                                  <WorkflowIcon className="size-3.5" />
-                                  {t("servers.chains")}
-                                </Link>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onSelect={() => setHistoryServerId(server.id)}
-                              >
-                                <HistoryIcon className="size-3.5" />
-                                {t("servers.agentUpgrade.history")}
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onSelect={() => setEditServerId(server.id)}
-                              >
-                                <PencilIcon className="size-3.5" />
-                                {t("servers.agentUpgrade.edit")}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
+                items.map(renderRow)
               )}
             </TableBody>
           </Table>
+          </div>
+          ) : null}
+
+          {!servers.isPending && !isDesktop ? (
+            <div className="space-y-3 p-3">
+              {showError ? (
+                <Card size="sm" className="py-0">
+                  <ListError
+                    title={t("servers.loadFailed")}
+                    message={errorMessage}
+                    retrying={servers.isFetching}
+                    onRetry={() => void servers.refetch()}
+                  />
+                </Card>
+              ) : items.length === 0 ? (
+                <EmptyState
+                  size="sm"
+                  icon={ServerOffIcon}
+                  title={t("servers.emptyTitle")}
+                  description={t("servers.emptyDesc")}
+                  action={
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={openCreateDialog}
+                    >
+                      <PlusIcon className="size-3.5" />
+                      {t("servers.emptyAction")}
+                    </Button>
+                  }
+                />
+              ) : (
+                items.map(renderCard)
+              )}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
