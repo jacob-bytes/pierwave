@@ -1405,6 +1405,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pierwave-mcp"
+version = "0.5.10"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "serde_json",
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
 name = "pierwave-proto"
 version = "0.5.10"
 dependencies = [
