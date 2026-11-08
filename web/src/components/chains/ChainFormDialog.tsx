@@ -1,15 +1,23 @@
 import { useEffect, useMemo } from "react";
-import { Controller, useFieldArray, useForm } from "react-hook-form";
+import {
+  Controller,
+  useFieldArray,
+  useForm,
+  type UseFormReturn,
+} from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  InfoIcon,
   Loader2Icon,
   PlusIcon,
   Trash2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { FormField, FormRootError } from "@/components/FormField";
+import { StrategyBadge } from "@/components/chains/StrategyBadge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -31,9 +39,16 @@ import {
 import { Switch } from "@/components/ui/switch";
 import type { Chain, Server } from "@/lib/api";
 import {
-  CHAIN_MAX_HOPS,
-  CHAIN_MIN_HOPS,
-  orderHops,
+  CHAIN_MAX_GROUPS,
+  CHAIN_MIN_GROUPS,
+  CHAIN_STRATEGIES,
+  DEFAULT_CHAIN_STRATEGY,
+  GROUP_MAX_MEMBERS,
+  GROUP_MIN_MEMBERS,
+  normalizeStrategy,
+  orderGroups,
+  orderMembers,
+  type ChainStrategy,
 } from "@/lib/chains";
 import { errorText } from "@/lib/errors";
 import { useCreateChain, useUpdateChain } from "@/lib/queries";
@@ -49,17 +64,448 @@ interface ChainFormDialogProps {
   loadingServers: boolean;
 }
 
-interface HopFieldErrors {
+interface MemberFieldErrors {
   server_id?: { message?: string };
   listen_port?: { message?: string };
 }
 
+interface GroupFieldErrors {
+  name?: { message?: string };
+  strategy?: { message?: string };
+  members?: { message?: string } | (MemberFieldErrors | undefined)[];
+}
+
+function emptyMember() {
+  return { server_id: "", listen_port: "" };
+}
+
+function emptyGroup() {
+  return {
+    name: "",
+    strategy: DEFAULT_CHAIN_STRATEGY,
+    members: [emptyMember()],
+  };
+}
+
+/** 根错误（组数 / 成员数）与数组错误（逐字段）在 RHF 里形状不同。 */
+function rootMessage(error: unknown): string | undefined {
+  if (Array.isArray(error) || typeof error !== "object" || error === null) {
+    return undefined;
+  }
+  const message = (error as { message?: unknown }).message;
+  return typeof message === "string" ? message : undefined;
+}
+
+function GroupCard({
+  index,
+  groupCount,
+  form,
+  pending,
+  servers,
+  loadingServers,
+  onMoveGroup,
+  onRemoveGroup,
+}: {
+  index: number;
+  groupCount: number;
+  form: UseFormReturn<ChainFormValues>;
+  pending: boolean;
+  servers: Server[];
+  loadingServers: boolean;
+  onMoveGroup: (index: number, offset: -1 | 1) => void;
+  onRemoveGroup: (index: number) => void;
+}) {
+  const { t } = useI18n();
+  const { control, formState, setValue, trigger, watch } = form;
+
+  // 组内成员是第二层动态数组：每张组卡片各自维护 append / remove / move。
+  const { fields, append, remove, move } = useFieldArray({
+    control,
+    name: `groups.${index}.members`,
+  });
+  const members = watch(`groups.${index}.members`);
+  const strategy = watch(`groups.${index}.strategy`);
+  const selectedStrategy: ChainStrategy = normalizeStrategy(strategy);
+  const isEntry = index === 0;
+  const isLast = index === groupCount - 1;
+  const seq = index + 1;
+
+  const errorGroups = Array.isArray(formState.errors.groups)
+    ? (formState.errors.groups as unknown as (GroupFieldErrors | undefined)[])
+    : undefined;
+  const groupErrors = errorGroups?.[index];
+  const membersRootError = rootMessage(groupErrors?.members);
+  const memberErrors = Array.isArray(groupErrors?.members)
+    ? groupErrors.members
+    : undefined;
+
+  const strategyOptions = CHAIN_STRATEGIES.map((value) => ({
+    value,
+    label: t(`chains.strategy.${value}.label`),
+    desc: t(`chains.strategy.${value}.desc`),
+  }));
+
+  function setGroupField(field: "name" | "strategy", value: string) {
+    setValue(`groups.${index}.${field}`, value, {
+      shouldDirty: true,
+      shouldTouch: true,
+    });
+  }
+
+  function setMemberField(
+    memberIndex: number,
+    field: "server_id" | "listen_port",
+    value: string,
+  ) {
+    setValue(`groups.${index}.members.${memberIndex}.${field}`, value, {
+      shouldDirty: true,
+      shouldTouch: true,
+    });
+  }
+
+  return (
+    <div
+      className="space-y-3 rounded-lg border border-border bg-muted/20 p-3"
+      aria-label={t("chains.form.group", { seq })}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <span className="text-xs font-medium text-foreground">
+            {t("chains.form.group", { seq })}
+          </span>
+          {isEntry ? (
+            <Badge
+              variant="secondary"
+              className="h-4 px-1.5 text-[10px] font-normal"
+            >
+              {t("chains.form.groupEntryHint")}
+            </Badge>
+          ) : null}
+          {isLast && !isEntry ? (
+            <span className="text-[11px] text-muted-foreground">
+              {t("chains.form.groupExitHint")}
+            </span>
+          ) : null}
+          <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+            {t("chains.form.memberLimit", {
+              count: fields.length,
+              max: GROUP_MAX_MEMBERS,
+            })}
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="size-6"
+            aria-label={t("chains.form.moveGroupUp", { seq })}
+            disabled={pending || isEntry}
+            onClick={() => onMoveGroup(index, -1)}
+          >
+            <ArrowUpIcon className="size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="size-6"
+            aria-label={t("chains.form.moveGroupDown", { seq })}
+            disabled={pending || isLast}
+            onClick={() => onMoveGroup(index, 1)}
+          >
+            <ArrowDownIcon className="size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="size-6 text-muted-foreground hover:text-destructive"
+            aria-label={t("chains.form.removeGroup", { seq })}
+            disabled={pending || groupCount <= CHAIN_MIN_GROUPS}
+            onClick={() => onRemoveGroup(index)}
+          >
+            <Trash2Icon className="size-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <div className="space-y-1">
+          <Label htmlFor={`chain-group-${index}-name`} className="text-xs">
+            {t("chains.form.groupName")}
+          </Label>
+          <Input
+            id={`chain-group-${index}-name`}
+            value={watch(`groups.${index}.name`)}
+            onChange={(event) => setGroupField("name", event.target.value)}
+            onBlur={() => {
+              if (formState.isSubmitted) void trigger();
+            }}
+            placeholder={t("chains.form.groupNamePlaceholder")}
+            aria-label={t("chains.form.groupNameAria", { seq })}
+            autoComplete="off"
+            disabled={pending}
+            aria-invalid={Boolean(groupErrors?.name)}
+            className="h-8"
+          />
+          {groupErrors?.name?.message ? (
+            <p role="alert" className="text-xs text-destructive">
+              {groupErrors.name.message}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="space-y-1">
+          <Label className="text-xs">{t("chains.form.strategy")}</Label>
+          <Select
+            value={selectedStrategy}
+            onValueChange={(value) => {
+              setGroupField("strategy", value);
+              if (formState.isSubmitted) void trigger();
+            }}
+            disabled={pending}
+          >
+            <SelectTrigger
+              className="h-8 w-full"
+              aria-label={t("chains.form.strategyAria", { seq })}
+              aria-invalid={Boolean(groupErrors?.strategy)}
+            >
+              {/* 显式给 Value 文案：默认会把 SelectItem 里的说明文字也塞进触发器。 */}
+              <SelectValue>
+                {t(`chains.strategy.${selectedStrategy}.label`)}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent className="w-72">
+              {strategyOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  <span className="flex min-w-0 flex-col gap-0.5 whitespace-normal">
+                    <span className="font-medium">{option.label}</span>
+                    <span className="text-[11px] leading-snug text-muted-foreground">
+                      {option.desc}
+                    </span>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {groupErrors?.strategy?.message ? (
+            <p role="alert" className="text-xs text-destructive">
+              {groupErrors.strategy.message}
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="flex items-start gap-1.5 rounded-md border border-border/70 bg-background/40 px-2 py-1.5">
+        <InfoIcon
+          className="mt-px size-3 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        />
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <StrategyBadge strategy={selectedStrategy} />
+            <span className="text-[11px] text-muted-foreground">
+              {t("chains.form.strategyHint")}
+            </span>
+          </div>
+          <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+            {t(`chains.strategy.${selectedStrategy}.desc`)}
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-1">
+          <Label className="text-xs">{t("chains.form.members")}</Label>
+          <span className="text-[11px] text-muted-foreground">
+            {t("chains.form.membersHint")}
+          </span>
+        </div>
+
+        <div className="space-y-2">
+          {fields.map((field, memberIndex) => {
+            const memberError = memberErrors?.[memberIndex];
+            const serverError = memberError?.server_id?.message;
+            const portError = memberError?.listen_port?.message;
+            const memberSeq = memberIndex + 1;
+            const isFirstMember = memberIndex === 0;
+            const isLastMember = memberIndex === fields.length - 1;
+
+            return (
+              <div
+                key={field.id}
+                className="rounded-md border border-border/70 bg-card/60 p-2"
+              >
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-medium text-muted-foreground">
+                    {t("chains.form.member", { seq: memberSeq })}
+                  </span>
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="size-6"
+                      aria-label={t("chains.form.moveMemberUp", {
+                        group: seq,
+                        member: memberSeq,
+                      })}
+                      disabled={pending || isFirstMember}
+                      onClick={() => {
+                        move(memberIndex, memberIndex - 1);
+                        form.clearErrors("groups");
+                      }}
+                    >
+                      <ArrowUpIcon className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="size-6"
+                      aria-label={t("chains.form.moveMemberDown", {
+                        group: seq,
+                        member: memberSeq,
+                      })}
+                      disabled={pending || isLastMember}
+                      onClick={() => {
+                        move(memberIndex, memberIndex + 1);
+                        form.clearErrors("groups");
+                      }}
+                    >
+                      <ArrowDownIcon className="size-3.5" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="size-6 text-muted-foreground hover:text-destructive"
+                      aria-label={t("chains.form.removeMember", {
+                        group: seq,
+                        member: memberSeq,
+                      })}
+                      disabled={pending || fields.length <= GROUP_MIN_MEMBERS}
+                      onClick={() => {
+                        remove(memberIndex);
+                        form.clearErrors("groups");
+                      }}
+                    >
+                      <Trash2Icon className="size-3.5" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_7rem]">
+                  <div className="space-y-1">
+                    <Select
+                      value={members[memberIndex]?.server_id ?? ""}
+                      onValueChange={(value) => {
+                        setMemberField(memberIndex, "server_id", value);
+                        if (formState.isSubmitted) void trigger();
+                      }}
+                      disabled={pending || loadingServers}
+                    >
+                      <SelectTrigger
+                        className="w-full"
+                        aria-label={t("chains.form.memberServerAria", {
+                          group: seq,
+                          member: memberSeq,
+                        })}
+                        aria-invalid={Boolean(serverError)}
+                      >
+                        <SelectValue
+                          placeholder={t(
+                            "chains.form.memberServerPlaceholder",
+                          )}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {servers.map((server) => (
+                          <SelectItem
+                            key={server.id}
+                            value={server.id}
+                            title={server.address}
+                          >
+                            <span className="truncate">{server.name}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {serverError ? (
+                      <p role="alert" className="text-xs text-destructive">
+                        {serverError}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-1">
+                    <Input
+                      value={members[memberIndex]?.listen_port ?? ""}
+                      onChange={(event) =>
+                        setMemberField(
+                          memberIndex,
+                          "listen_port",
+                          event.target.value,
+                        )
+                      }
+                      onBlur={() => {
+                        if (formState.isSubmitted) void trigger();
+                      }}
+                      inputMode="numeric"
+                      autoComplete="off"
+                      placeholder={t("chains.form.memberPortPlaceholder")}
+                      aria-label={t("chains.form.memberPortAria", {
+                        group: seq,
+                        member: memberSeq,
+                      })}
+                      aria-invalid={Boolean(portError)}
+                      className="font-mono tabular-nums"
+                      disabled={pending}
+                    />
+                    {portError ? (
+                      <p role="alert" className="text-xs text-destructive">
+                        {portError}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {membersRootError ? (
+          <p role="alert" className="text-xs text-destructive">
+            {membersRootError}
+          </p>
+        ) : null}
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            append(emptyMember());
+            form.clearErrors("groups");
+          }}
+          disabled={pending || fields.length >= GROUP_MAX_MEMBERS}
+        >
+          <PlusIcon className="size-3.5" />
+          {t("chains.form.addMember")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 /**
- * 新建 / 编辑多跳转发链。
+ * 新建 / 编辑转发链的「组编辑器」。
  *
- * 前端只拦「1–4 跳、同一服务器不重复、端口 1–65535、目标地址非空」；
- * 保留端口、与节点 / 独立转发 / 其它链跳的冲突、自连回环都依赖服务器数据，
- * 由后端返回带 code 的错误，这里通过 `errorText` 原样透出。
+ * 一条链 = 1–4 组，每组 = 1–8 台成员；组内顺序决定 priority（主备 / 轮询）。
+ * 前端只拦「组数 / 成员数 / 同组与跨组重复服务器 / 端口 1–65535 / 目标非空」；
+ * 保留端口、与节点 / 独立转发 / 其它链成员的端口冲突、自连回环都依赖服务器
+ * 数据，由后端返回带 code 的错误，这里通过 `errorText` 原样透出。
  */
 export function ChainFormDialog({
   open,
@@ -76,6 +522,27 @@ export function ChainFormDialog({
   const pending = isEdit ? updateChain.isPending : createChain.isPending;
 
   const schema = useMemo(() => chainFormSchema(t), [t]);
+
+  const initialGroups = useMemo(() => {
+    const groups = chain?.groups ?? [];
+    if (groups.length === 0) return [emptyGroup()];
+
+    return orderGroups(groups).map((group) => {
+      const members = orderMembers(group.members);
+      return {
+        name: group.name ?? "",
+        strategy: normalizeStrategy(group.strategy),
+        members:
+          members.length > 0
+            ? members.map((member) => ({
+                server_id: member.server_id,
+                listen_port: String(member.listen_port),
+              }))
+            : [emptyMember()],
+      };
+    });
+  }, [chain]);
+
   const form = useForm<ChainFormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -83,54 +550,21 @@ export function ChainFormDialog({
       target_host: chain?.target_host ?? "",
       target_port: chain ? String(chain.target_port) : "",
       enabled: chain ? Boolean(chain.enabled) : true,
-      hops:
-        chain && chain.hops.length > 0
-          ? orderHops(chain.hops).map((hop) => ({
-              server_id: hop.server_id,
-              listen_port: String(hop.listen_port),
-            }))
-          : [{ server_id: "", listen_port: "" }],
+      groups: initialGroups,
     },
   });
 
   const { fields, append, remove, move } = useFieldArray({
     control: form.control,
-    name: "hops",
+    name: "groups",
   });
-  const hopValues = form.watch("hops");
 
   // 切换语言后重新校验，让已经显示的错误跟着换语言。
   useEffect(() => {
     if (form.formState.isSubmitted) void form.trigger();
   }, [t, form]);
 
-  // zod 把「1–4 跳」挂在 hops 根上、把重复服务器挂在对应行上，这里分别取。
-  const hopErrors = form.formState.errors.hops as unknown as
-    | (HopFieldErrors | undefined)[]
-    | { message?: string }
-    | undefined;
-  const hopsRootError = Array.isArray(hopErrors)
-    ? undefined
-    : hopErrors?.message;
-
-  function hopFieldError(
-    index: number,
-    field: keyof HopFieldErrors,
-  ): string | undefined {
-    if (!Array.isArray(hopErrors)) return undefined;
-    return hopErrors[index]?.[field]?.message;
-  }
-
-  function setHopField(
-    index: number,
-    field: "server_id" | "listen_port",
-    value: string,
-  ) {
-    form.setValue(`hops.${index}.${field}`, value, {
-      shouldDirty: true,
-      shouldTouch: true,
-    });
-  }
+  const groupsRootError = rootMessage(form.formState.errors.groups);
 
   const onSubmit = form.handleSubmit(async (values) => {
     form.clearErrors("root");
@@ -140,9 +574,14 @@ export function ChainFormDialog({
       target_host: values.target_host.trim(),
       target_port: Number(values.target_port),
       enabled: values.enabled,
-      hops: values.hops.map((hop) => ({
-        server_id: hop.server_id,
-        listen_port: Number(hop.listen_port),
+      groups: values.groups.map((group) => ({
+        name: group.name.trim() || undefined,
+        strategy: group.strategy,
+        members: group.members.map((member, index) => ({
+          server_id: member.server_id,
+          listen_port: Number(member.listen_port),
+          priority: index,
+        })),
       })),
     };
 
@@ -163,6 +602,10 @@ export function ChainFormDialog({
     }
   });
 
+  function clearGroupErrors() {
+    form.clearErrors("groups");
+  }
+
   return (
     <Dialog
       open={open}
@@ -171,7 +614,7 @@ export function ChainFormDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
             {isEdit
@@ -185,7 +628,11 @@ export function ChainFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form id="chain-form" className="space-y-4" onSubmit={onSubmit}>
+        <form
+          id="chain-form"
+          className="min-w-0 space-y-4"
+          onSubmit={onSubmit}
+        >
           <FormField
             label={t("chains.form.name")}
             htmlFor="chain-name"
@@ -258,185 +705,48 @@ export function ChainFormDialog({
             </FormField>
           </div>
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <Label>
-                {t("chains.form.hops")}
+                {t("chains.form.groups")}
                 <span className="text-destructive">*</span>
               </Label>
               <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                {t("chains.form.hopLimit", {
+                {t("chains.form.groupLimit", {
                   count: fields.length,
-                  max: CHAIN_MAX_HOPS,
+                  max: CHAIN_MAX_GROUPS,
                 })}
               </span>
             </div>
             <p className="text-xs text-muted-foreground">
-              {t("chains.form.hopsHint")}
+              {t("chains.form.groupsHint")}
             </p>
 
-            <div className="space-y-2">
-              {fields.map((field, index) => {
-                const serverError = hopFieldError(index, "server_id");
-                const portError = hopFieldError(index, "listen_port");
-                const isFirst = index === 0;
-                const isLast = index === fields.length - 1;
-                const seq = index + 1;
-
-                return (
-                  <div
-                    key={field.id}
-                    className="space-y-1.5 rounded-lg border border-border bg-muted/20 p-2.5"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-                        <span className="font-medium text-foreground">
-                          {t("chains.form.hop", { seq })}
-                        </span>
-                        {isFirst ? (
-                          <span className="text-primary">
-                            {t("chains.form.hopEntryHint")}
-                          </span>
-                        ) : null}
-                        {isLast && !isFirst ? (
-                          <span className="text-muted-foreground">
-                            {t("chains.form.hopExitHint")}
-                          </span>
-                        ) : null}
-                      </span>
-                      <div className="flex shrink-0 items-center gap-0.5">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="size-6"
-                          aria-label={t("chains.form.moveUp", { seq })}
-                          disabled={pending || isFirst}
-                          onClick={() => {
-                            // 顺序变了，旧错误会指向错误的行，先清掉等提交时重算。
-                            move(index, index - 1);
-                            form.clearErrors("hops");
-                          }}
-                        >
-                          <ArrowUpIcon className="size-3.5" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="size-6"
-                          aria-label={t("chains.form.moveDown", { seq })}
-                          disabled={pending || isLast}
-                          onClick={() => {
-                            move(index, index + 1);
-                            form.clearErrors("hops");
-                          }}
-                        >
-                          <ArrowDownIcon className="size-3.5" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="size-6 text-muted-foreground hover:text-destructive"
-                          aria-label={t("chains.form.removeHop", { seq })}
-                          disabled={pending || fields.length <= CHAIN_MIN_HOPS}
-                          onClick={() => {
-                            remove(index);
-                            form.clearErrors("hops");
-                          }}
-                        >
-                          <Trash2Icon className="size-3.5" />
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="grid gap-2 sm:grid-cols-[1fr_7rem]">
-                      <div className="space-y-1">
-                        <Select
-                          value={hopValues[index]?.server_id ?? ""}
-                          onValueChange={(value) => {
-                            setHopField(index, "server_id", value);
-                            // 首次填写不打扰：只有提交过之后才随改随校验，
-                            // 避免选中服务器时把「端口未填」等没轮到的错误一起弹出来。
-                            if (form.formState.isSubmitted) void form.trigger();
-                          }}
-                          disabled={pending || loadingServers}
-                        >
-                          <SelectTrigger
-                            className="w-full"
-                            aria-label={t("chains.form.hopServerAria", {
-                              seq,
-                            })}
-                            aria-invalid={Boolean(serverError)}
-                          >
-                            <SelectValue
-                              placeholder={t(
-                                "chains.form.hopServerPlaceholder",
-                              )}
-                            />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {servers.map((server) => (
-                              <SelectItem
-                                key={server.id}
-                                value={server.id}
-                                title={server.address}
-                              >
-                                <span className="truncate">{server.name}</span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {serverError ? (
-                          <p
-                            role="alert"
-                            className="text-xs text-destructive"
-                          >
-                            {serverError}
-                          </p>
-                        ) : null}
-                      </div>
-
-                      <div className="space-y-1">
-                        <Input
-                          value={hopValues[index]?.listen_port ?? ""}
-                          onChange={(event) =>
-                            setHopField(
-                              index,
-                              "listen_port",
-                              event.target.value,
-                            )
-                          }
-                          onBlur={() => {
-                            if (form.formState.isSubmitted) void form.trigger();
-                          }}
-                          inputMode="numeric"
-                          autoComplete="off"
-                          placeholder={t("chains.form.hopPortPlaceholder")}
-                          aria-label={t("chains.form.hopPortAria", { seq })}
-                          aria-invalid={Boolean(portError)}
-                          className="font-mono tabular-nums"
-                          disabled={pending}
-                        />
-                        {portError ? (
-                          <p
-                            role="alert"
-                            className="text-xs text-destructive"
-                          >
-                            {portError}
-                          </p>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="min-w-0 space-y-2">
+              {fields.map((field, index) => (
+                <GroupCard
+                  key={field.id}
+                  index={index}
+                  groupCount={fields.length}
+                  form={form}
+                  pending={pending}
+                  servers={servers}
+                  loadingServers={loadingServers}
+                  onMoveGroup={(from, offset) => {
+                    move(from, from + offset);
+                    clearGroupErrors();
+                  }}
+                  onRemoveGroup={(groupIndex) => {
+                    remove(groupIndex);
+                    clearGroupErrors();
+                  }}
+                />
+              ))}
             </div>
 
-            {hopsRootError ? (
+            {groupsRootError ? (
               <p role="alert" className="text-xs text-destructive">
-                {hopsRootError}
+                {groupsRootError}
               </p>
             ) : null}
 
@@ -445,13 +755,14 @@ export function ChainFormDialog({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() =>
-                  append({ server_id: "", listen_port: "" })
-                }
-                disabled={pending || fields.length >= CHAIN_MAX_HOPS}
+                onClick={() => {
+                  append(emptyGroup());
+                  clearGroupErrors();
+                }}
+                disabled={pending || fields.length >= CHAIN_MAX_GROUPS}
               >
                 <PlusIcon className="size-3.5" />
-                {t("chains.form.addHop")}
+                {t("chains.form.addGroup")}
               </Button>
               {servers.length === 0 && !loadingServers ? (
                 <span className="text-[11px] text-muted-foreground">

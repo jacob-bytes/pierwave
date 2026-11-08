@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { ChainFormDialog } from "@/components/chains/ChainFormDialog";
 import { DeleteChainDialog } from "@/components/chains/DeleteChainDialog";
+import { StrategyBadge } from "@/components/chains/StrategyBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,32 +42,43 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { Chain, ChainHop } from "@/lib/api";
+import type { Chain, ChainGroup, ChainGroupMember } from "@/lib/api";
 import {
+  chainGroupSummary,
   chainStatus,
-  degradedHops,
-  entryHop,
-  formatHopEndpoint,
+  degradedGroups,
+  entryMember,
+  formatMemberEndpoint,
+  groupIsDegraded,
   hopListeningState,
   hopTargetState,
-  orderHops,
+  orderGroups,
+  orderMembers,
   type ChainStatus,
   type HopListeningState,
   type HopTargetState,
 } from "@/lib/chains";
 import { errorText } from "@/lib/errors";
 import { formatForwardTarget } from "@/lib/forwards";
-import {
-  useChains,
-  useServers,
-  useUpdateChain,
-} from "@/lib/queries";
+import { useChains, useServers, useUpdateChain } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
 
 const CHAIN_COLUMN_COUNT = 7;
 const HEAD_CLASS =
   "h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground";
+
+/** 英文需要区分单复数：按组数 / 成员数挑文案键，中文四把键文案相同。 */
+function groupCountKey(groups: number, members: number): string {
+  if (groups === 1) {
+    return members === 1
+      ? "chains.list.groupCountOneGroupOneMember"
+      : "chains.list.groupCountOneGroup";
+  }
+  return members === 1
+    ? "chains.list.groupCountOneMember"
+    : "chains.list.groupCount";
+}
 
 /** 整链状态：停用走 muted，降级走 warning，正常走主色（在线态）。 */
 const CHAIN_STATUS_META: Record<
@@ -94,47 +106,47 @@ const CHAIN_STATUS_META: Record<
 };
 
 /**
- * 每跳的监听状态：`listening=true` 才写「监听中」；
+ * 成员的监听状态：`listening=true` 才写「监听中」；
  * `null` 是「未上报」，不是失败。
  */
-const HOP_LISTENING_META: Record<
+const MEMBER_LISTENING_META: Record<
   HopListeningState,
   { labelKey: string; dot: string; text: string }
 > = {
   listening: {
-    labelKey: "chains.hop.listening",
+    labelKey: "chains.member.listening",
     dot: "bg-primary",
     text: "text-primary",
   },
   failed: {
-    labelKey: "chains.hop.listeningFailed",
+    labelKey: "chains.member.listeningFailed",
     dot: "bg-destructive",
     text: "text-destructive",
   },
   unreported: {
-    labelKey: "chains.hop.listeningUnreported",
+    labelKey: "chains.member.listeningUnreported",
     dot: "bg-muted-foreground/40",
     text: "text-muted-foreground",
   },
 };
 
-/** 每跳的目标探测状态：`target_ok=false` 写「目标不可达」（destructive）。 */
-const HOP_TARGET_META: Record<
+/** 成员的目标探测状态：`target_ok=false` 写「目标不可达」（destructive）。 */
+const MEMBER_TARGET_META: Record<
   HopTargetState,
   { labelKey: string; dot: string; text: string }
 > = {
   reachable: {
-    labelKey: "chains.hop.targetReachable",
+    labelKey: "chains.member.targetReachable",
     dot: "bg-primary",
     text: "text-primary",
   },
   unreachable: {
-    labelKey: "chains.hop.targetUnreachable",
+    labelKey: "chains.member.targetUnreachable",
     dot: "bg-destructive",
     text: "text-destructive",
   },
   unprobed: {
-    labelKey: "chains.hop.targetUnprobed",
+    labelKey: "chains.member.targetUnprobed",
     dot: "bg-muted-foreground/40",
     text: "text-muted-foreground",
   },
@@ -149,21 +161,21 @@ function StatusDot({ className }: { className: string }) {
   );
 }
 
-function HopListeningStatus({ hop }: { hop: ChainHop }) {
+function MemberListeningStatus({ member }: { member: ChainGroupMember }) {
   const { t } = useI18n();
-  const state = hopListeningState(hop.listening);
-  const meta = HOP_LISTENING_META[state];
+  const state = hopListeningState(member.listening);
+  const meta = MEMBER_LISTENING_META[state];
   const title =
     state === "listening"
-      ? t("chains.hop.listeningTitle", {
-          server: hop.server_name,
-          port: hop.listen_port,
+      ? t("chains.member.listeningTitle", {
+          server: member.server_name,
+          port: member.listen_port,
         })
       : state === "failed"
-        ? t("chains.hop.listeningFailedTitle", {
-            error: hop.error.trim() || t("chains.hop.noError"),
+        ? t("chains.member.listeningFailedTitle", {
+            error: member.error.trim() || t("chains.member.noError"),
           })
-        : t("chains.hop.listeningUnreportedTitle");
+        : t("chains.member.listeningUnreportedTitle");
 
   return (
     <span
@@ -181,16 +193,16 @@ function HopListeningStatus({ hop }: { hop: ChainHop }) {
   );
 }
 
-function HopTargetStatus({ hop }: { hop: ChainHop }) {
+function MemberTargetStatus({ member }: { member: ChainGroupMember }) {
   const { t } = useI18n();
-  const state = hopTargetState(hop.target_ok);
-  const meta = HOP_TARGET_META[state];
+  const state = hopTargetState(member.target_ok);
+  const meta = MEMBER_TARGET_META[state];
   const title =
     state === "reachable"
-      ? t("chains.hop.targetReachableTitle")
+      ? t("chains.member.targetReachableTitle")
       : state === "unreachable"
-        ? t("chains.hop.targetUnreachableTitle")
-        : t("chains.hop.targetUnprobedTitle");
+        ? t("chains.member.targetUnreachableTitle")
+        : t("chains.member.targetUnprobedTitle");
 
   return (
     <span
@@ -204,14 +216,14 @@ function HopTargetStatus({ hop }: { hop: ChainHop }) {
 }
 
 /**
- * 整链状态列。降级时在徽章下方逐条列出「第 N 跳 服务器:端口」，
- * 不用展开就能看到坏在哪一跳；展开行的逐跳卡片给出同样的信息与错误原文。
+ * 整链状态列。降级时逐条列出「第 N 组 组名」，
+ * 不用展开就能看到坏在哪一组；展开行的成员卡片给出同样的信息与错误原文。
  */
 function ChainStatusCell({ chain }: { chain: Chain }) {
   const { t } = useI18n();
   const status = chainStatus(chain.enabled, chain.degraded);
   const meta = CHAIN_STATUS_META[status];
-  const failing = degradedHops(chain.hops);
+  const failing = degradedGroups(chain.groups);
 
   return (
     <div className="flex max-w-64 flex-col gap-0.5">
@@ -230,15 +242,15 @@ function ChainStatusCell({ chain }: { chain: Chain }) {
       {status === "degraded" ? (
         <span className="flex flex-col gap-0.5">
           {failing.length > 0 ? (
-            failing.map((hop) => (
+            failing.map((group) => (
               <span
-                key={hop.seq}
+                key={group.id || group.seq}
                 className="truncate text-[11px] text-warning"
                 title={t("chains.list.degradedHint")}
               >
-                {t("chains.list.degradedHop", {
-                  seq: hop.seq + 1,
-                  endpoint: formatHopEndpoint(hop),
+                {t("chains.list.degradedGroup", {
+                  seq: group.seq + 1,
+                  name: group.name?.trim() || t("chains.detail.unnamedGroup"),
                 })}
               </span>
             ))
@@ -253,53 +265,48 @@ function ChainStatusCell({ chain }: { chain: Chain }) {
   );
 }
 
-function HopCard({ hop, isEntry }: { hop: ChainHop; isEntry?: boolean }) {
+function GroupMemberRow({
+  member,
+  index,
+}: {
+  member: ChainGroupMember;
+  index: number;
+}) {
   const { t } = useI18n();
-  const endpoint = formatHopEndpoint(hop);
-  const error = hop.error.trim();
+  const endpoint = formatMemberEndpoint(member);
+  const error = member.error.trim();
+  const degraded = Boolean(member.degraded);
 
   return (
     <div
       className={cn(
-        "min-w-40 flex-1 rounded-md border bg-card/70 px-2.5 py-2 transition-colors duration-150",
-        hop.degraded ? "border-warning/45" : "border-border",
+        "rounded-md border px-2 py-1.5 transition-colors duration-150",
+        degraded
+          ? "border-warning/45 bg-warning/5"
+          : "border-border/60 bg-background/30",
       )}
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          <span>{t("chains.detail.hop", { seq: hop.seq + 1 })}</span>
-          {isEntry ? (
-            <Badge
-              variant="secondary"
-              className="h-4 px-1.5 text-[10px] font-normal"
-            >
-              {t("chains.detail.entryBadge")}
-            </Badge>
-          ) : null}
-        </span>
-        {hop.degraded ? (
-          <Badge
-            variant="outline"
-            className="h-4 border-warning/40 px-1.5 text-[10px] font-normal text-warning"
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+            {t("chains.detail.member", { seq: index + 1 })}
+          </span>
+          <span
+            className="truncate font-mono text-xs text-foreground"
+            title={endpoint}
           >
-            {t("chains.hop.degradedBadge")}
-          </Badge>
-        ) : null}
-      </div>
-      <div
-        className="mt-0.5 truncate font-mono text-xs"
-        title={endpoint}
-      >
-        {endpoint}
-      </div>
-      <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
-        <HopListeningStatus hop={hop} />
-        <HopTargetStatus hop={hop} />
+            {endpoint}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
+          <MemberListeningStatus member={member} />
+          <MemberTargetStatus member={member} />
+        </div>
       </div>
       {error ? (
         <p
           className="mt-1 truncate text-[11px] text-destructive"
-          title={t("chains.hop.errorTitle", { error })}
+          title={t("chains.member.errorTitle", { error })}
         >
           {error}
         </p>
@@ -308,10 +315,93 @@ function HopCard({ hop, isEntry }: { hop: ChainHop; isEntry?: boolean }) {
   );
 }
 
-/** 展开行：按 seq 从左到右画出整条链，最后一站是链目标。 */
-function ChainHopsRow({ chain }: { chain: Chain }) {
+/** 一张组卡片：组名 + 策略徽标 + 成员（服务器:端口 + 逐成员状态）。 */
+function GroupCard({
+  group,
+  isEntry,
+}: {
+  group: ChainGroup;
+  isEntry: boolean;
+}) {
   const { t } = useI18n();
-  const hops = orderHops(chain.hops);
+  const members = orderMembers(group.members);
+  const degraded = groupIsDegraded(group);
+  const name = group.name?.trim() || t("chains.detail.unnamedGroup");
+
+  return (
+    <div
+      className={cn(
+        "min-w-0 flex-1 rounded-md border bg-card/70 px-2.5 py-2 transition-colors duration-150",
+        degraded
+          ? "border-warning/45 bg-warning/5"
+          : "border-border",
+      )}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            {t("chains.detail.group", { seq: group.seq + 1 })}
+          </span>
+          {isEntry ? (
+            <Badge
+              variant="secondary"
+              className="h-4 px-1.5 text-[10px] font-normal"
+            >
+              {t("chains.detail.entryBadge")}
+            </Badge>
+          ) : null}
+          <span
+            className="max-w-full truncate text-xs font-medium"
+            title={name}
+          >
+            {name}
+          </span>
+          <StrategyBadge strategy={group.strategy} />
+          {degraded ? (
+            <Badge
+              variant="outline"
+              className="h-4 border-warning/40 px-1.5 text-[10px] font-normal text-warning"
+            >
+              {t("chains.member.degradedBadge")}
+            </Badge>
+          ) : null}
+        </div>
+        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+          {t(
+            members.length === 1
+              ? "chains.detail.memberCountOne"
+              : "chains.detail.memberCount",
+            { count: members.length },
+          )}
+        </span>
+      </div>
+
+      <div
+        className="mt-1.5 flex flex-col gap-1"
+        title={t("chains.detail.priorityHint")}
+      >
+        {members.length === 0 ? (
+          <p className="text-[11px] text-muted-foreground">
+            {t("chains.detail.emptyMembers")}
+          </p>
+        ) : (
+          members.map((member, index) => (
+            <GroupMemberRow
+              key={`${member.server_id}:${member.listen_port}:${index}`}
+              member={member}
+              index={index}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** 展开行：按 seq 从左到右画出每组，最后一站是链目标。 */
+function ChainGroupsRow({ chain }: { chain: Chain }) {
+  const { t } = useI18n();
+  const groups = orderGroups(chain.groups);
   const target = formatForwardTarget(chain.target_host, chain.target_port);
 
   return (
@@ -326,26 +416,26 @@ function ChainHopsRow({ chain }: { chain: Chain }) {
               {t("chains.detail.hint")}
             </span>
           </div>
-          {hops.length === 0 ? (
+          {groups.length === 0 ? (
             <p className="text-xs text-muted-foreground">
               {t("chains.detail.empty")}
             </p>
           ) : (
-            <div className="flex flex-col gap-1.5 sm:flex-row sm:items-stretch">
-              {hops.map((hop, index) => (
-                <Fragment key={hop.seq}>
-                  <HopCard hop={hop} isEntry={index === 0} />
-                  <div className="hidden shrink-0 items-center text-muted-foreground/60 sm:flex">
+            <div className="flex min-w-0 flex-col gap-1.5 lg:flex-row lg:items-start">
+              {groups.map((group, index) => (
+                <Fragment key={group.id || group.seq}>
+                  <GroupCard group={group} isEntry={index === 0} />
+                  <div className="hidden shrink-0 items-center text-muted-foreground/60 lg:flex">
                     <ArrowRightIcon className="size-3.5" aria-hidden="true" />
                   </div>
                 </Fragment>
               ))}
-              <div className="min-w-40 flex-1 rounded-md border border-primary/25 bg-primary/5 px-2.5 py-2">
+              <div className="min-w-40 rounded-md border border-primary/25 bg-primary/5 px-2.5 py-2 lg:flex-1">
                 <span className="text-[11px] text-muted-foreground">
                   {t("chains.detail.targetBadge")}
                 </span>
                 <div
-                  className="mt-0.5 truncate font-mono text-xs text-foreground"
+                  className="mt-0.5 break-all font-mono text-xs text-foreground"
                   title={target}
                 >
                   {target}
@@ -400,7 +490,7 @@ function ChainEnabledSwitch({ chain }: { chain: Chain }) {
 }
 
 function LoadingRows({ rows = 4 }: { rows?: number }) {
-  const widths = ["w-24", "w-12", "w-28", "w-32", "w-16", "w-14", "w-12"];
+  const widths = ["w-24", "w-16", "w-28", "w-32", "w-16", "w-14", "w-12"];
 
   return (
     <>
@@ -616,7 +706,7 @@ export default function ChainsPage() {
               <TableRow>
                 {[
                   t("chains.list.columns.name"),
-                  t("chains.list.columns.hops"),
+                  t("chains.list.columns.groups"),
                   t("chains.list.columns.entry"),
                   t("chains.list.columns.target"),
                   t("chains.list.columns.status"),
@@ -652,14 +742,13 @@ export default function ChainsPage() {
                     chain.target_host,
                     chain.target_port,
                   );
-                  const entry = entryHop(chain.hops);
+                  const entry = entryMember(chain.groups);
+                  const summary = chainGroupSummary(chain.groups);
                   const expanded = expandedIds.has(chain.id);
 
                   return (
                     <Fragment key={chain.id}>
-                      <TableRow
-                        className={cn(expanded && "bg-muted/20")}
-                      >
+                      <TableRow className={cn(expanded && "bg-muted/20")}>
                         <TableCell className="max-w-60 px-4 py-2.5">
                           <div className="flex items-center gap-1">
                             <Button
@@ -689,10 +778,29 @@ export default function ChainsPage() {
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell className="px-4 py-2.5 text-xs tabular-nums text-muted-foreground">
-                          {t("chains.list.hopCount", {
-                            count: chain.hops.length,
-                          })}
+                        <TableCell className="px-4 py-2.5">
+                          <div className="flex flex-col gap-1">
+                            <span className="text-xs tabular-nums text-muted-foreground">
+                              {t(
+                                groupCountKey(
+                                  summary.groups,
+                                  summary.members,
+                                ),
+                                {
+                                  groups: summary.groups,
+                                  members: summary.members,
+                                },
+                              )}
+                            </span>
+                            <div className="flex flex-wrap gap-1">
+                              {orderGroups(chain.groups).map((group) => (
+                                <StrategyBadge
+                                  key={group.id || group.seq}
+                                  strategy={group.strategy}
+                                />
+                              ))}
+                            </div>
+                          </div>
                         </TableCell>
                         <TableCell className="px-4 py-2.5 font-mono text-xs">
                           {entry ? (
@@ -700,7 +808,7 @@ export default function ChainsPage() {
                               className="break-all"
                               title={t("chains.list.entryHint")}
                             >
-                              {formatHopEndpoint(entry)}
+                              {formatMemberEndpoint(entry)}
                             </span>
                           ) : (
                             <span className="text-muted-foreground">
@@ -753,7 +861,7 @@ export default function ChainsPage() {
                           </DropdownMenu>
                         </TableCell>
                       </TableRow>
-                      {expanded ? <ChainHopsRow chain={chain} /> : null}
+                      {expanded ? <ChainGroupsRow chain={chain} /> : null}
                     </Fragment>
                   );
                 })

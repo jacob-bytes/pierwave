@@ -13,6 +13,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import type { Chain } from "@/lib/api";
+import { chainGroupSummary } from "@/lib/chains";
 import { errorText } from "@/lib/errors";
 import { formatForwardTarget } from "@/lib/forwards";
 import { useDeleteChain } from "@/lib/queries";
@@ -35,6 +36,7 @@ export function DeleteChainDialog({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const target = formatForwardTarget(chain.target_host, chain.target_port);
+  const summary = chainGroupSummary(chain.groups);
 
   return (
     <AlertDialog
@@ -53,7 +55,8 @@ export function DeleteChainDialog({
           <AlertDialogDescription>
             {t("chains.delete.desc", {
               name: chain.name,
-              hops: chain.hops.length,
+              groups: summary.groups,
+              members: summary.members,
               target,
             })}
           </AlertDialogDescription>

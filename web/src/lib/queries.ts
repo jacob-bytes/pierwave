@@ -1036,8 +1036,8 @@ function invalidateChainViews(
 }
 
 /**
- * 只合并配置字段：`degraded` / `hops[].listening` 这类运行时状态由心跳维护，
- * 不能用表单值覆盖。跳的增删在 `onSettled` 里由重新拉取兜底。
+ * 只合并配置字段：`degraded` / `groups[].members[].listening` 这类运行时状态
+ * 由心跳维护，不能用表单值覆盖。组与成员的增删在 `onSettled` 里由重新拉取兜底。
  */
 function applyChainInput(chain: Chain, input: UpdateChainInput): Chain {
   return {
@@ -1095,7 +1095,7 @@ export function useUpdateChain() {
       }
     },
     onSettled: () => {
-      // 返回值不含每跳运行时状态，合并会丢状态；直接让列表重新拉权威值。
+      // 返回值不含每组成员运行时状态，合并会丢状态；直接让列表重新拉权威值。
       void invalidateChainViews(queryClient);
     },
   });

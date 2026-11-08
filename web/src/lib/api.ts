@@ -6,6 +6,7 @@ import type {
   AgentUpgradeBatchStatus,
 } from "@/lib/agentUpgradeBatch";
 import { ApiError } from "@/lib/apiError";
+import type { ChainStrategy } from "@/lib/chains";
 
 export { ApiError } from "@/lib/apiError";
 
@@ -549,19 +550,23 @@ export interface CreateForwardInput {
 export type UpdateForwardInput = Partial<CreateForwardInput>;
 
 /**
- * 线性多跳转发链的一跳：在某台服务器上监听 `listen_port`，
- * 转发到下一跳服务器的地址+端口，最后一跳转发到链的 `target_host:target_port`。
+ * 组内一台成员服务器：在 `listen_port` 上监听，把流量交给下一组的成员
+ * （最后一组交给链的 `target_host:target_port`）。
  *
- * 链不存在于 Agent 侧：主控把它推导成每台服务器上的独立转发规则
- * （id 形如 `chain-<chain_id>-<seq>`），因此运行时状态复用转发心跳。
+ * 链不存在于 Agent 侧：主控把每个成员推导成一条独立转发规则
+ * （id 形如 `chain-<chain_id>-<seq>-<server_id>`），运行时状态复用心跳。
  */
-export interface ChainHop {
-  /** 从 0 开始，按链的转发顺序递增。 */
-  seq: number;
+export interface ChainGroupMember {
   server_id: string;
   /** 服务器展示名；服务器被删除时后端仍会返回快照里的名字。 */
   server_name: string;
   listen_port: number;
+  /** 组内顺序：小的优先（主备），同优先级保持配置顺序（轮询）。 */
+  priority: number;
+  /** 预留给加权，本轮只存不用。 */
+  weight: number;
+  /** 推导出的转发规则 id，用于和心跳状态对齐。 */
+  forward_id: string;
   /** true = 已监听，false = 监听失败，null = Agent 未上报。 */
   listening: boolean | null;
   /** true = 目标可达，false = 不可达，null = 尚未探测。 */
@@ -574,23 +579,48 @@ export interface ChainHop {
   updated_at: number | null;
 }
 
+/** 链里的一组：1–8 台成员，由上一跳按 `strategy` 选一台。 */
+export interface ChainGroup {
+  id: string;
+  /** 从 0 开始，0 = 入口组。 */
+  seq: number;
+  /** 可选展示名。 */
+  name: string | null;
+  /** `round_robin` | `failover` | `lowest_latency` | `ip_hashed`。 */
+  strategy: string;
+  /** 组内任一成员 degraded 即为 true。 */
+  degraded: boolean;
+  /** 按 `priority` 升序排列。 */
+  members: ChainGroupMember[];
+}
+
 export interface Chain {
   id: string;
   name: string;
   target_host: string;
   target_port: number;
   enabled: boolean;
-  /** 任一跳 degraded 即为 true。 */
+  /** 任一组 / 成员 degraded 即为 true。 */
   degraded: boolean;
-  /** 按 `seq` 升序排列。 */
-  hops: ChainHop[];
+  /** 按 `seq` 升序排列；前端只读这个字段，不再读兼容用的 `hops`。 */
+  groups: ChainGroup[];
   created_at: number;
   updated_at: number;
 }
 
-export interface ChainHopInput {
+export interface ChainGroupMemberInput {
   server_id: string;
   listen_port: number;
+  /** 组内顺序，0 = 最高优先级。 */
+  priority: number;
+}
+
+export interface ChainGroupInput {
+  /** 可选展示名；空串表示不命名。 */
+  name?: string;
+  strategy: ChainStrategy;
+  /** 1–8 台，按 priority 顺序排列。 */
+  members: ChainGroupMemberInput[];
 }
 
 export interface CreateChainInput {
@@ -598,8 +628,8 @@ export interface CreateChainInput {
   target_host: string;
   target_port: number;
   enabled?: boolean;
-  /** 1–4 跳，按入口到目标的顺序排列。 */
-  hops: ChainHopInput[];
+  /** 1–4 组，按入口到目标的顺序排列。 */
+  groups: ChainGroupInput[];
 }
 
 export type UpdateChainInput = Partial<CreateChainInput>;
