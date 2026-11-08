@@ -105,6 +105,36 @@ pub fn normalize_name(raw: &str) -> Result<String, DomainError> {
     Ok(name.to_string())
 }
 
+/// 自连放大检查：目标指向「本机 + 与本规则相同的端口」时会形成无限回环。
+///
+/// `0.0.0.0` 监听意味着本机所有地址都可连，所以把通配地址与回环地址视为同一台机器；
+/// 这是字符串级判断（不做 DNS 解析），能挡住最常见的手误，解析型自连由 Agent 侧日志暴露。
+pub fn ensure_not_self_loop(
+    listen_host: &str,
+    listen_port: i64,
+    target_host: &str,
+    target_port: i64,
+) -> Result<(), DomainError> {
+    if listen_port != target_port {
+        return Ok(());
+    }
+    let wildcard = matches!(listen_host.trim(), "0.0.0.0" | "[::]" | "::" | "");
+    let target_is_loopback = matches!(
+        target_host.trim().to_ascii_lowercase().as_str(),
+        "127.0.0.1" | "localhost" | "::1" | "[::1]"
+    );
+    if wildcard && target_is_loopback {
+        return Err(DomainError::with_params(
+            "forward.self_loop",
+            json!({ "port": listen_port }),
+            format!(
+                "目标指向本机同一端口 {listen_port}，会形成自连回环；请填写实际落地地址或换一个目标端口"
+            ),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,6 +154,16 @@ mod tests {
             let error = validate_target_port(bad).unwrap_err();
             assert_eq!(error.code, "forward.target_port_invalid", "bad={bad}");
         }
+    }
+
+    #[test]
+    fn self_loop_is_rejected() {
+        let error = ensure_not_self_loop("0.0.0.0", 8443, "127.0.0.1", 8443).unwrap_err();
+        assert_eq!(error.code, "forward.self_loop");
+        // 端口不同、目标是外网地址、监听在具体地址上，都不算自连
+        assert!(ensure_not_self_loop("0.0.0.0", 8443, "127.0.0.1", 443).is_ok());
+        assert!(ensure_not_self_loop("0.0.0.0", 8443, "10.0.0.8", 8443).is_ok());
+        assert!(ensure_not_self_loop("10.0.0.2", 8443, "127.0.0.1", 8443).is_ok());
     }
 
     #[test]

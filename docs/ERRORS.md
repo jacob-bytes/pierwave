@@ -134,3 +134,4 @@
 | `settings.panel_name_invalid` | 面板名称必须是字符串 | — |
 | `settings.panel_name_length_invalid` | 面板名称长度必须在 {min}-{max} 个字符之间 | max, min |
 | `settings.int_out_of_range` | {label}需在 {min}-{max} 之间的整数 | label, max, min |
+| `forward.self_loop` | 目标指向本机同一端口 {port}，会形成自连回环 | port |

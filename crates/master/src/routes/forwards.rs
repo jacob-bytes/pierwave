@@ -158,6 +158,7 @@ pub async fn create(
     forwards::validate_listen_port(req.listen_port)?;
     forwards::validate_target_port(req.target_port)?;
     forwards::ensure_port_not_reserved(req.listen_port)?;
+    forwards::ensure_not_self_loop("0.0.0.0", req.listen_port, &target_host, req.target_port)?;
     ensure_port_available(&state, &server_id, req.listen_port, None).await?;
 
     let forward_name_for_error = name.clone();
@@ -248,6 +249,13 @@ pub async fn update(
         if port != existing.listen_port {
             ensure_port_available(&state, &existing.server_id, port, Some(&existing.id)).await?;
         }
+        // 端口或目标任一变化都要重新查自连，否则「先把目标改成自己」能绕过创建时的检查
+        forwards::ensure_not_self_loop(
+            "0.0.0.0",
+            port,
+            req.target_host.as_deref().unwrap_or(&existing.target_host),
+            req.target_port.unwrap_or(existing.target_port),
+        )?;
     }
 
     // 并发撞唯一约束时也要能给出规则名；name 马上会被 move 进 UpdateForward。
