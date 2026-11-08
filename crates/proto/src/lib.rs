@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +38,10 @@ pub struct Heartbeat {
     /// 缺省为空串时主控回落到 `PIERWAVE_AGENT_TARGET` 配置。
     #[serde(default)]
     pub arch: String,
+    /// Agent 到探测目标（默认 1.1.1.1:443）的 TCP 握手往返毫秒数。
+    /// `None` = 这轮没探测成功或旧 Agent 不认识该字段。
+    #[serde(default)]
+    pub latency_ms: Option<u32>,
     pub uptime_secs: u64,
     pub load1: f32,
     pub mem_used: u64,
