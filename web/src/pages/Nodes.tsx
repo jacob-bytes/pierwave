@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { DeleteNodeDialog } from "@/components/nodes/DeleteNodeDialog";
 import { NodeFormDialog } from "@/components/nodes/NodeFormDialog";
+import { SpeedLimitBadge } from "@/components/SpeedLimitBadge";
 import {
   Alert,
   AlertAction,
@@ -482,7 +483,12 @@ export default function NodesPage() {
                 items.map((node) => (
                   <TableRow key={node.id}>
                     <TableCell className="max-w-56 px-4 py-2.5">
-                      <div className="truncate font-medium">{node.name}</div>
+                      <div className="flex min-w-0 items-center gap-2">
+                        <div className="min-w-0 flex-1 truncate font-medium">
+                          {node.name}
+                        </div>
+                        <SpeedLimitBadge kbps={node.bandwidth_kbps} />
+                      </div>
                       <div className="truncate font-mono text-[11px] text-muted-foreground">
                         {node.tag}
                       </div>

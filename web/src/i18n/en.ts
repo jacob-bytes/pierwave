@@ -828,6 +828,11 @@ const en = {
       disabledTitle: "{n} users are still using it; unbind them first",
     },
     actionsAria: "Actions for {name}",
+    speedLimit: {
+      badge: "Limit {mbps}M (approx.)",
+      badgeTitle:
+        "Approximate limit {mbps} Mbps: based on Xray buffer size, not exact bandwidth; actual throughput depends on latency and concurrency",
+    },
     form: {
       editTitle: "Edit package template",
       createTitle: "New package template",
@@ -837,6 +842,11 @@ const en = {
       quota: "Quota (GB)",
       quotaHint: "Leave blank for unlimited.",
       quotaPlaceholder: "e.g. 100",
+      speedLimit: "Speed limit (Mbps)",
+      speedLimitPlaceholder: "e.g. 50 (blank or 0 = unlimited)",
+      speedLimitHint:
+        "Approximate limit: based on Xray buffer size, not exact bandwidth; actual throughput depends on latency and concurrency. 0 or blank means unlimited.",
+      speedLimitRange: "Speed limit must be between 0 and 10000 Mbps",
       period: "Period (days)",
       periodHint: "Leave blank for long-term.",
       periodPlaceholder: "e.g. 30",
@@ -1291,6 +1301,12 @@ const en = {
     disabledToast: "Disabled “{name}”",
     toggleError: "Could not change the node status. Please try again.",
     actionsAria: "Actions for {name}",
+    limitedNodes: "Speed-limited nodes",
+    speedLimit: {
+      badge: "Limit {mbps}M",
+      badgeTitle:
+        "Downstream bandwidth cap {mbps} Mbps: exact tc rate limit, downstream only; apply the config again after changes",
+    },
     deleteDialog: {
       title: "Delete node",
       desc: "Delete “{name}”? Apply the config again for the change to take effect on the server.",
@@ -1327,6 +1343,11 @@ const en = {
       protocol: "Protocol",
       protocolPlaceholder: "Select a protocol",
       port: "Port",
+      bandwidth: "Bandwidth limit (Mbps)",
+      bandwidthPlaceholder: "e.g. 100 (blank or 0 = unlimited)",
+      bandwidthHint:
+        "Downstream only (exact tc rate limit; uploads are unaffected). Apply the config again for changes to take effect. 0 or blank means unlimited.",
+      bandwidthRange: "Bandwidth limit must be between 0 and 10000 Mbps",
       transport: "Transport",
       transportPlaceholder: "Select a transport",
       security: "Security",

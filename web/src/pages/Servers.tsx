@@ -100,7 +100,8 @@ import {
 import { copyText } from "@/lib/clipboard";
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
-import { useCreateServer, useServers } from "@/lib/queries";
+import { useAllNodes, useCreateServer, useServers } from "@/lib/queries";
+import { isSpeedLimited } from "@/lib/speed";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
@@ -395,6 +396,30 @@ function DetailRow({
   );
 }
 
+/**
+ * 服务器详情里的「已限速节点数」。
+ *
+ * 放在 PopoverContent 内部：只有展开详情时才挂载并发起全局节点查询，
+ * 避免每次进入 /servers 都多拉一份全量节点。接口失败时静默省略该行。
+ */
+function LimitedNodesRow({ serverId }: { serverId: string }) {
+  const nodes = useAllNodes();
+  if (!nodes.data) return null;
+
+  const count = nodes.data.filter(
+    (node) =>
+      node.server_id === serverId && isSpeedLimited(node.bandwidth_kbps),
+  ).length;
+
+  return (
+    <DetailRow
+      label={t("nodes.limitedNodes")}
+      value={String(count)}
+      tone={count > 0 ? "default" : "muted"}
+    />
+  );
+}
+
 /** 窄屏折叠列的内容入口；xl 以上所有列都已展开，不再显示。 */
 function ServerDetailsPopover({ server }: { server: Server }) {
   const state = xrayState(server);
@@ -483,6 +508,7 @@ function ServerDetailsPopover({ server }: { server: Server }) {
             }
             tone={percent === null ? "muted" : "default"}
           />
+          <LimitedNodesRow serverId={server.id} />
           <DetailRow
             label={t("servers.detail.lastHeartbeat")}
             value={heartbeat.text}

@@ -393,6 +393,11 @@ export interface Node {
   enabled: boolean | number;
   /** 只有 `security = "tls"` 的节点才有值，其余为 null。 */
   cert_id?: string | null;
+  /**
+   * 节点带宽上限（kbps）；0 / null = 不限。
+   * 由 Agent 用 tc 做**精确**下行限速，只限制下行。
+   */
+  bandwidth_kbps?: number | null;
   created_at: number;
   /** 后端暂时只回 created_at；保留字段以便主控补充更新时间后零改动接入。 */
   updated_at?: number;
@@ -416,6 +421,8 @@ export interface CreateNodeInput {
   enabled?: boolean;
   /** TLS 节点必填；其它安全层必须省略。 */
   cert_id?: string | null;
+  /** 节点带宽上限（kbps）；0 / 省略 = 不限。 */
+  bandwidth_kbps?: number | null;
 }
 
 export interface UpdateNodeInput {
@@ -423,6 +430,8 @@ export interface UpdateNodeInput {
   port?: number;
   enabled?: boolean;
   config?: Record<string, unknown>;
+  /** 节点带宽上限（kbps）；省略 = 不改，0 = 取消限速。 */
+  bandwidth_kbps?: number;
   /**
    * 三态：省略 = 不改，null = 解绑，字符串 = 绑定。
    * 但后端只接受「TLS 节点绑定 / 非 TLS 节点不携带」，解绑得先改安全层。
@@ -600,6 +609,11 @@ export interface Package {
   period_days: number | null;
   direction: PackageDirection;
   node_ratio: number;
+  /**
+   * 套餐限速档位（kbps）；0 / null = 不限。
+   * 只能映射到 Xray `policy.levels.N.bufferSize`，是**近似**限速。
+   */
+  speed_limit_kbps?: number | null;
   created_at?: number;
   /**
    * 范围意图：`all` = 未设范围（含以后新增的节点）；`custom` = 显式设过范围。
@@ -674,6 +688,8 @@ export interface CreatePackageInput {
   period_days?: number | null;
   direction?: PackageDirection;
   node_ratio?: number;
+  /** 套餐限速档位（kbps）；0 / 省略 = 不限，近似限速。 */
+  speed_limit_kbps?: number | null;
   /**
    * 三态节点范围：
    * - 省略（新建）/ `null`（编辑）= 全部节点；

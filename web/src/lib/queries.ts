@@ -688,6 +688,9 @@ export function useUpdateNode(serverId: string) {
                   ...(input.cert_id !== undefined
                     ? { cert_id: input.cert_id }
                     : {}),
+                  ...(input.bandwidth_kbps !== undefined
+                    ? { bandwidth_kbps: input.bandwidth_kbps }
+                    : {}),
                 }
               : node,
           ),
@@ -708,7 +711,7 @@ export function useUpdateNode(serverId: string) {
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey });
-      // 全局节点列表里的名称/启用状态也跟着变。
+      // 全局节点列表里的名称 / 启用状态 / 限速也跟着变。
       void queryClient.invalidateQueries({ queryKey: queryKeys.allNodes });
       // 增删节点会改变证书的引用关系。
       void queryClient.invalidateQueries({

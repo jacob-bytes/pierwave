@@ -53,6 +53,7 @@ import {
   useUpdateNode,
 } from "@/lib/queries";
 import { nodeFormSchema, type NodeFormValues } from "@/lib/schemas";
+import { kbpsToMbpsInput, mbpsInputToKbps } from "@/lib/speed";
 import { t, useI18n } from "@/i18n";
 
 interface NodeFormDialogProps {
@@ -109,6 +110,7 @@ export function NodeFormDialog({
       security: initial.security,
       cert_id: node?.cert_id ?? "",
       port: node ? String(node.port) : "443",
+      bandwidth_mbps: kbpsToMbpsInput(node?.bandwidth_kbps),
       enabled: node ? Boolean(node.enabled) : true,
     },
   });
@@ -222,6 +224,8 @@ export function NodeFormDialog({
     }
 
     const port = Number(values.port);
+    // 单位换算只在 lib/speed.ts 里发生，这里已经拿到的就是 kbps。
+    const bandwidthKbps = mbpsInputToKbps(values.bandwidth_mbps);
     // 只有 TLS 节点才带 cert_id；其余安全层必须完全省略，否则后端会 400。
     const certId = values.security === "tls" ? values.cert_id.trim() : "";
     const certBinding = certId ? { cert_id: certId } : {};
@@ -235,6 +239,7 @@ export function NodeFormDialog({
             port,
             enabled: values.enabled,
             config: check.value,
+            bandwidth_kbps: bandwidthKbps,
             ...certBinding,
           },
         });
@@ -248,6 +253,7 @@ export function NodeFormDialog({
           port,
           config: check.value,
           enabled: values.enabled,
+          bandwidth_kbps: bandwidthKbps,
           ...certBinding,
         });
         toast.success(t("nodes.form.created", { name: created.name }));
@@ -437,6 +443,34 @@ export function NodeFormDialog({
                   />
                 </FormField>
               </div>
+
+              <FormField
+                label={t("nodes.form.bandwidth")}
+                htmlFor="node-bandwidth"
+                hint={t("nodes.form.bandwidthHint")}
+                error={form.formState.errors.bandwidth_mbps?.message}
+              >
+                <div className="relative">
+                  <Input
+                    id="node-bandwidth"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    placeholder={t("nodes.form.bandwidthPlaceholder")}
+                    disabled={pending}
+                    aria-invalid={Boolean(
+                      form.formState.errors.bandwidth_mbps,
+                    )}
+                    className="pr-14"
+                    {...form.register("bandwidth_mbps")}
+                  />
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-muted-foreground"
+                  >
+                    Mbps
+                  </span>
+                </div>
+              </FormField>
 
               {!comboValid ? (
                 <p role="alert" className="text-xs text-destructive">

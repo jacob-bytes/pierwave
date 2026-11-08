@@ -34,6 +34,7 @@ import {
   type PackageFormValues,
   type PackageNodeScope,
 } from "@/lib/schemas";
+import { kbpsToMbpsInput, mbpsInputToKbps } from "@/lib/speed";
 import { t, useI18n } from "@/i18n";
 
 interface PackageFormDialogProps {
@@ -80,6 +81,7 @@ export function PackageFormDialog({
       ? {
           name: packageItem.name,
           quota_gb: bytesToGbInput(packageItem.quota_bytes),
+          speed_limit_mbps: kbpsToMbpsInput(packageItem.speed_limit_kbps),
           period_days: packageItem.period_days
             ? String(packageItem.period_days)
             : "",
@@ -92,6 +94,7 @@ export function PackageFormDialog({
       : {
           name: "",
           quota_gb: "",
+          speed_limit_mbps: "",
           period_days: "",
           direction: "both",
           node_ratio: "1",
@@ -131,6 +134,8 @@ export function PackageFormDialog({
         : null,
       direction: values.direction,
       node_ratio: Number(values.node_ratio),
+      // 单位换算只在 lib/speed.ts 里发生；空 / 0 → 0，后端按「不限」处理。
+      speed_limit_kbps: mbpsInputToKbps(values.speed_limit_mbps),
       // 空选项 → 显式 null（回落到全局默认），而不是省略字段。
       rule_template_id: ruleTemplateInputValue(values.rule_template_id),
       ...scopeFields,
@@ -272,6 +277,34 @@ export function PackageFormDialog({
               />
             </FormField>
           </div>
+
+          <FormField
+            label={t("packages.form.speedLimit")}
+            htmlFor="package-speed-limit"
+            hint={t("packages.form.speedLimitHint")}
+            error={form.formState.errors.speed_limit_mbps?.message}
+          >
+            <div className="relative">
+              <Input
+                id="package-speed-limit"
+                inputMode="decimal"
+                autoComplete="off"
+                placeholder={t("packages.form.speedLimitPlaceholder")}
+                disabled={pending}
+                aria-invalid={Boolean(
+                  form.formState.errors.speed_limit_mbps,
+                )}
+                className="pr-14"
+                {...form.register("speed_limit_mbps")}
+              />
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-muted-foreground"
+              >
+                Mbps
+              </span>
+            </div>
+          </FormField>
 
           <FormField
             label={t("packages.form.ruleTemplate")}

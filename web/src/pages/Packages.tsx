@@ -10,6 +10,7 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 import { PackageFormDialog } from "@/components/packages/PackageFormDialog";
+import { SpeedLimitBadge } from "@/components/SpeedLimitBadge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -349,9 +350,15 @@ export default function PackagesPage() {
                 items.map((item) => (
                   <TableRow key={item.id}>
                     <TableCell className="px-4 py-2.5">
-                      <div className="flex items-center gap-2">
-                        <PackageIcon className="size-4 text-muted-foreground" />
-                        <span className="font-medium">{item.name}</span>
+                      <div className="flex min-w-0 items-center gap-2">
+                        <PackageIcon className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 flex-1 truncate font-medium">
+                          {item.name}
+                        </span>
+                        <SpeedLimitBadge
+                          kbps={item.speed_limit_kbps}
+                          approximate
+                        />
                       </div>
                     </TableCell>
                     <TableCell className="px-4 py-2.5 font-mono text-xs text-muted-foreground">

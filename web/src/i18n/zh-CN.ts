@@ -793,6 +793,11 @@ const zhCN = {
       disabledTitle: "还有 {n} 个用户在用，需先解绑",
     },
     actionsAria: "操作 {name}",
+    speedLimit: {
+      badge: "限速 {mbps}M（近似）",
+      badgeTitle:
+        "近似限速 {mbps} Mbps：基于 Xray 缓冲区大小，不是精确带宽；实际吞吐受延迟与并发影响",
+    },
     form: {
       editTitle: "编辑套餐模板",
       createTitle: "新建套餐模板",
@@ -802,6 +807,11 @@ const zhCN = {
       quota: "额度（GB）",
       quotaHint: "留空表示不限。",
       quotaPlaceholder: "例如 100",
+      speedLimit: "限速档位（Mbps）",
+      speedLimitPlaceholder: "例如 50（留空或 0 = 不限）",
+      speedLimitHint:
+        "近似限速：基于 Xray 缓冲区大小，不是精确带宽；实际吞吐受延迟与并发影响。0 或留空表示不限。",
+      speedLimitRange: "限速档位需在 0–10000 Mbps 之间",
       period: "周期（天）",
       periodHint: "留空表示长期。",
       periodPlaceholder: "例如 30",
@@ -1222,6 +1232,12 @@ const zhCN = {
     disabledToast: "已停用「{name}」",
     toggleError: "切换节点状态失败，请稍后重试",
     actionsAria: "操作 {name}",
+    limitedNodes: "已限速节点",
+    speedLimit: {
+      badge: "限速 {mbps}M",
+      badgeTitle:
+        "下行带宽上限 {mbps} Mbps：由 tc 精确限制，只限制下行；修改后需重新应用配置",
+    },
     deleteDialog: {
       title: "删除节点",
       desc: "确定删除「{name}」？删除后需要重新应用配置才对服务器生效。",
@@ -1253,6 +1269,11 @@ const zhCN = {
       protocol: "协议",
       protocolPlaceholder: "选择协议",
       port: "端口",
+      bandwidth: "带宽上限（Mbps）",
+      bandwidthPlaceholder: "例如 100（留空或 0 = 不限）",
+      bandwidthHint:
+        "只限制下行（精确 tc 限速，上传不受影响）；修改后需要重新「应用配置」才会生效。0 或留空表示不限。",
+      bandwidthRange: "带宽上限需在 0–10000 Mbps 之间",
       transport: "传输方式",
       transportPlaceholder: "选择传输方式",
       security: "安全层",

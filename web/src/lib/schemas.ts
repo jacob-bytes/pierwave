@@ -17,6 +17,7 @@ import {
   parseRuleLines,
   RULE_LINE_MAX_LENGTH,
 } from "@/lib/ruleTemplates";
+import { isValidSpeedLimitMbpsInput } from "@/lib/speed";
 import { dateInputToUnixEndOfDay } from "@/lib/time";
 
 /**
@@ -202,6 +203,13 @@ export function packageFormSchema(t: TFunction) {
         .min(1, t("validation.packageNameRequired"))
         .max(64, t("validation.packageNameMax")),
       quota_gb: gbField(t),
+      /** 限速档位（Mbps 文本）；空串 / 0 = 不限。提交时由 `mbpsInputToKbps` 转 kbps。 */
+      speed_limit_mbps: z
+        .string()
+        .refine(
+          (value) => isValidSpeedLimitMbpsInput(value),
+          t("packages.form.speedLimitRange"),
+        ),
       period_days: optionalIntField(1, 3650, t("validation.periodRange")),
       direction: z.enum(["both", "upload", "download"]),
       node_ratio: z.string().refine((value) => {
@@ -277,6 +285,13 @@ export function nodeFormSchema(t: TFunction) {
         const parsed = Number(trimmed);
         return parsed >= 1 && parsed <= 65535;
       }, t("validation.portRange")),
+      /** 带宽上限（Mbps 文本）；空串 / 0 = 不限。提交时由 `mbpsInputToKbps` 转 kbps。 */
+      bandwidth_mbps: z
+        .string()
+        .refine(
+          (value) => isValidSpeedLimitMbpsInput(value),
+          t("nodes.form.bandwidthRange"),
+        ),
       enabled: z.boolean(),
     })
     .superRefine((values, ctx) => {
