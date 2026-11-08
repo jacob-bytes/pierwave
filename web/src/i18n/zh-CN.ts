@@ -1688,6 +1688,12 @@ const zhCN = {
     notObject: "config 必须是 JSON 对象（以 { 开头、} 结尾）",
   },
   errors: {
+    "chain.not_found": "转发链不存在",
+    "chain.name_required": "链名称不能为空",
+    "chain.name_too_long": "链名称最多 {max} 个字符",
+    "chain.hop_count_invalid": "链必须包含 {min}-{max} 跳（当前 {count} 跳）",
+    "chain.duplicate_server": "同一台服务器不能在一个链里出现两次",
+    "chain.port_conflict_hop": "监听端口 {port} 已被服务器「{server_name}」上的链「{name}」第 {seq} 跳占用",
     "forward.not_found": "转发规则不存在",
     "forward.name_required": "转发名称不能为空",
     "forward.name_too_long": "转发名称最多 {max} 个字符",

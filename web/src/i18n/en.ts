@@ -1794,6 +1794,12 @@ const en = {
     notObject: "config must be a JSON object (starting with { and ending with })",
   },
   errors: {
+    "chain.not_found": "Forward chain not found",
+    "chain.name_required": "Chain name is required",
+    "chain.name_too_long": "Chain name must be at most {max} characters",
+    "chain.hop_count_invalid": "A chain needs {min}-{max} hops (currently {count})",
+    "chain.duplicate_server": "The same server cannot appear twice in one chain",
+    "chain.port_conflict_hop": 'Listen port {port} is already used by chain "{name}" hop {seq} on server "{server_name}"',
     "forward.not_found": "Forward rule not found",
     "forward.name_required": "Forward name is required",
     "forward.name_too_long": "Forward name must be at most {max} characters",
