@@ -48,6 +48,26 @@ export function gbToBytes(gb: number): number {
   return Math.round(gb * BYTES_PER_GB);
 }
 
+/**
+ * 已用 / 总量的一行文字；总量非正数或任一侧缺失时返回 `null`，
+ * 页面据此显示「未上报」，而不是把 0 容量算成 0%。
+ */
+export function formatBytePair(
+  used: number | null,
+  total: number | null,
+): string | null {
+  if (
+    used === null ||
+    total === null ||
+    !Number.isFinite(used) ||
+    !Number.isFinite(total) ||
+    total <= 0
+  ) {
+    return null;
+  }
+  return `${formatBytes(used)} / ${formatBytes(total)}`;
+}
+
 export function bytesToGb(bytes: number | null | undefined): number | null {
   if (bytes === null || bytes === undefined) return null;
   return bytes / BYTES_PER_GB;

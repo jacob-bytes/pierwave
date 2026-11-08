@@ -56,6 +56,16 @@ export function formatRelativeTime(
   return toDateInputValue(unixSeconds);
 }
 
+/** Unix 秒 → UTC+8 的 `HH:mm`，用于页头的「更新于」一行。 */
+export function formatClockTime(
+  unixSeconds: number | null | undefined,
+): string {
+  if (unixSeconds === null || unixSeconds === undefined) return "—";
+  const date = toUtc8WallClock(unixSeconds * 1_000);
+  if (Number.isNaN(date.getTime())) return "—";
+  return `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
+}
+
 /** Unix 秒 → UTC+8 的 `YYYY-MM-DD HH:mm:ss`，用于 hover 绝对时间。 */
 export function formatAbsoluteTime(
   unixSeconds: number | null | undefined,
