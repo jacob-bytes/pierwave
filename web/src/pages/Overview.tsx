@@ -417,7 +417,7 @@ export default function OverviewPage() {
                 <CardAction>
                   <Badge
                     variant="outline"
-                    className="font-mono text-micro font-normal text-muted-foreground"
+                    className="font-mono type-micro font-normal text-muted-foreground"
                   >
                     {trafficTotal === null
                       ? "—"

@@ -380,12 +380,12 @@ function SummaryCell({
               ·
             </span>
           ) : null}
-          <span className="font-mono text-micro">{item}</span>
+          <span className="font-mono type-micro">{item}</span>
         </span>
       ))}
       {hidden.length > 0 ? (
         <span
-          className="text-micro text-muted-foreground"
+          className="type-micro text-muted-foreground"
           title={hidden.join("\n")}
         >
           +{hidden.length}
@@ -688,7 +688,7 @@ export function AuditPanel() {
               {audit.data ? (
                 <Badge
                   variant="secondary"
-                  className="font-mono text-micro font-normal text-muted-foreground"
+                  className="font-mono type-micro font-normal text-muted-foreground"
                 >
                   {t("audit.loaded", { n: items.length })}
                 </Badge>

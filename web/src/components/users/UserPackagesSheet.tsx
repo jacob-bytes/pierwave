@@ -508,7 +508,7 @@ export function UserPackagesSheet({
                 {bindings.data ? (
                   <Badge
                     variant="secondary"
-                    className="font-mono text-micro font-normal text-muted-foreground"
+                    className="font-mono type-micro font-normal text-muted-foreground"
                   >
                     {bindings.data.length}
                   </Badge>

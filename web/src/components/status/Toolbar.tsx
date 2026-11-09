@@ -67,7 +67,7 @@ function Segmented<T extends string>({
             {item.count !== undefined ? (
               <span
                 className={cn(
-                  "tnum min-w-[18px] rounded-full px-1 text-center text-micro font-medium",
+                  "tnum min-w-[18px] rounded-full px-1 text-center type-micro font-medium",
                   active
                     ? "bg-primary/15 text-foreground"
                     : "bg-muted text-foreground",

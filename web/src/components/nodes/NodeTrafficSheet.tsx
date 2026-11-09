@@ -105,7 +105,7 @@ function TrafficKpi({
         {value}
       </p>
       {hint ? (
-        <p className="text-micro text-muted-foreground">{hint}</p>
+        <p className="type-micro text-muted-foreground">{hint}</p>
       ) : null}
     </Card>
   );
@@ -222,7 +222,7 @@ function TopUsersTable({ users }: { users: NodeTrafficUser[] }) {
           {t("nodes.traffic.topUsers")}
           <Badge
             variant="secondary"
-            className="font-mono text-micro font-normal text-muted-foreground"
+            className="font-mono type-micro font-normal text-muted-foreground"
           >
             {rows.length}
           </Badge>
@@ -366,7 +366,7 @@ export function NodeTrafficSheet({
                     </div>
                     <Badge
                       variant="outline"
-                      className="font-mono text-micro font-normal text-muted-foreground"
+                      className="font-mono type-micro font-normal text-muted-foreground"
                     >
                       {t("nodes.traffic.trendTotal", {
                         value: formatBytes(data.node.weighted),

@@ -349,7 +349,7 @@ function VersionCell({ server }: { server: Server }) {
         {pending ? (
           <Badge
             variant="outline"
-            className="gap-1 border-transparent bg-warning/10 px-1.5 py-0 text-micro font-normal text-warning"
+            className="gap-1 border-transparent bg-warning/10 px-1.5 py-0 type-micro font-normal text-warning"
             title={t("servers.agentUpgrade.pendingTitle", {
               version: targetVersionLabel(server),
             })}
@@ -362,7 +362,7 @@ function VersionCell({ server }: { server: Server }) {
           </Badge>
         ) : null}
       </div>
-      <span className="font-mono text-micro text-muted-foreground">
+      <span className="font-mono type-micro text-muted-foreground">
         {t("servers.configVersion", { version: server.config_version })}
         {latency !== null ? (
           <>
@@ -769,7 +769,7 @@ export default function ServersPage() {
         {xrayModeLabel(server.xray_mode)}
         {server.xray_mode === "embedded" ? (
           <span
-            className="ml-1.5 rounded bg-warning/10 px-1.5 py-0.5 text-micro text-warning"
+            className="ml-1.5 rounded bg-warning/10 px-1.5 py-0.5 type-micro text-warning"
             title={t("servers.mode.deprecatedHint")}
           >
             {t("servers.mode.deprecated")}
@@ -1080,7 +1080,7 @@ export default function ServersPage() {
               {servers.data ? (
                 <Badge
                   variant="secondary"
-                  className="font-mono text-micro font-normal text-muted-foreground"
+                  className="font-mono type-micro font-normal text-muted-foreground"
                 >
                   {items.length}
                 </Badge>

@@ -65,7 +65,7 @@ export function StrategyBadge({ strategy, className }: StrategyBadgeProps) {
       variant="outline"
       title={t(descKey)}
       className={cn(
-        "h-5 gap-1 px-1.5 text-micro font-normal whitespace-nowrap",
+        "h-5 gap-1 px-1.5 type-micro font-normal whitespace-nowrap",
         meta.tone,
         className,
       )}

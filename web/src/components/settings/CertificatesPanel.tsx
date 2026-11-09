@@ -156,7 +156,7 @@ export function CertificatesPanel() {
               {certificates.data && !certificates.isError ? (
                 <Badge
                   variant="secondary"
-                  className="font-mono text-micro font-normal text-muted-foreground"
+                  className="font-mono type-micro font-normal text-muted-foreground"
                 >
                   {items.length}
                 </Badge>

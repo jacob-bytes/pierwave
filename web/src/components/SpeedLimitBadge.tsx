@@ -29,7 +29,7 @@ export function SpeedLimitBadge({
       variant="outline"
       title={t(`${prefix}.speedLimit.badgeTitle`, { mbps })}
       className={cn(
-        "shrink-0 font-mono text-micro font-normal text-muted-foreground",
+        "shrink-0 font-mono type-micro font-normal text-muted-foreground",
         className,
       )}
     >

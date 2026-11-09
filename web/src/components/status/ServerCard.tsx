@@ -88,7 +88,7 @@ export function StatusChip({
           : undefined
       }
       className={cn(
-        "tnum h-5 shrink-0 gap-1 overflow-visible rounded-full px-1.5 text-micro font-normal whitespace-nowrap",
+        "tnum h-5 shrink-0 gap-1 overflow-visible rounded-full px-1.5 type-micro font-normal whitespace-nowrap",
         meta.chip,
         className,
       )}

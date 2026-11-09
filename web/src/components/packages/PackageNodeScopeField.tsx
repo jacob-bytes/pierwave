@@ -152,7 +152,7 @@ export function PackageNodeScopeField({
                   <Icon className="size-3.5 shrink-0 text-muted-foreground" />
                   <span className="text-sm font-medium">{t(option.titleKey)}</span>
                 </span>
-                <span className="block text-micro leading-normal text-muted-foreground">
+                <span className="block type-micro leading-normal text-muted-foreground">
                   {option.value === "selected" && noNodes
                     ? t("packages.nodeScope.noNodesHint")
                     : t(option.hintKey)}
@@ -280,7 +280,7 @@ export function PackageNodeScopeField({
                       <div key={group.serverId}>
                         <div
                           className={cn(
-                            "flex items-center gap-1.5 px-1 pb-1 text-micro font-medium tracking-wide text-muted-foreground",
+                            "flex items-center gap-1.5 px-1 pb-1 type-micro font-medium tracking-wide text-muted-foreground",
                             groupIndex === 0 ? "pt-0" : "pt-2",
                           )}
                         >
@@ -327,13 +327,13 @@ export function PackageNodeScopeField({
                                     {!enabled ? (
                                       <Badge
                                         variant="outline"
-                                        className="border-transparent bg-muted text-micro font-normal text-muted-foreground"
+                                        className="border-transparent bg-muted type-micro font-normal text-muted-foreground"
                                       >
                                         {t("packages.nodeScope.disabled")}
                                       </Badge>
                                     ) : null}
                                   </span>
-                                  <span className="mt-0.5 block truncate font-mono text-micro text-muted-foreground">
+                                  <span className="mt-0.5 block truncate font-mono type-micro text-muted-foreground">
                                     {nodeSummary(
                                       node.protocol,
                                       node.transport,

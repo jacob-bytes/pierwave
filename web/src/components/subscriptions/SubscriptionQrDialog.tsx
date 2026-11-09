@@ -61,7 +61,7 @@ export function SubscriptionQrDialog({
             />
           </div>
           <code
-            className="w-full truncate rounded-md bg-muted px-2 py-1.5 text-center font-mono text-micro text-muted-foreground"
+            className="w-full truncate rounded-md bg-muted px-2 py-1.5 text-center font-mono type-micro text-muted-foreground"
             title={url}
           >
             {url}

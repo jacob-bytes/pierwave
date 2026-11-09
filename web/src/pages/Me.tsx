@@ -226,7 +226,7 @@ function Metric({
         <Icon className="size-3.5" />
         {label}
       </div>
-      <div className="mt-1 text-base leading-tight font-semibold tracking-tight tabular-nums">
+      <div className="mt-1 text-base leading-tight font-medium tracking-tight tabular-nums">
         {value}
       </div>
     </div>
@@ -486,7 +486,7 @@ function NodesCard({ summary }: { summary: MeSummary }) {
         <CardAction>
           <Badge
             variant="secondary"
-            className="font-mono text-micro font-normal text-muted-foreground"
+            className="font-mono type-micro font-normal text-muted-foreground"
           >
             {summary.nodes.length}
           </Badge>
@@ -518,7 +518,7 @@ function NodesCard({ summary }: { summary: MeSummary }) {
                 <span className="flex shrink-0 items-center gap-2">
                   <Badge
                     variant="outline"
-                    className="border-transparent bg-primary/10 font-mono text-micro font-normal text-primary"
+                    className="border-transparent bg-primary/10 font-mono type-micro font-normal text-primary"
                   >
                     {node.protocol}
                   </Badge>
@@ -579,7 +579,7 @@ function EventRow({ event }: { event: EnforcementEvent }) {
           </span>
           <Badge
             variant="outline"
-            className="border-transparent bg-muted text-micro font-normal text-muted-foreground"
+            className="border-transparent bg-muted type-micro font-normal text-muted-foreground"
           >
             {eventReasonLabel(event.reason)}
           </Badge>
@@ -679,7 +679,7 @@ function TrafficCard({ traffic }: { traffic: UseQueryResult<MeTraffic> }) {
         <CardAction>
           <Badge
             variant="outline"
-            className="font-mono text-micro font-normal text-muted-foreground"
+            className="font-mono type-micro font-normal text-muted-foreground"
           >
             {total === null
               ? "—"

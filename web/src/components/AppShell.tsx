@@ -267,7 +267,7 @@ function SidebarBody({
             ) : (
               <p
                 className={cn(
-                  "px-2.5 pb-1.5 text-[11.5px] leading-[1.35] font-medium tracking-wider text-muted-foreground",
+                  "px-2.5 pb-1.5 type-micro font-medium tracking-wider text-muted-foreground",
                   index > 0 && "pt-5",
                 )}
               >
@@ -296,7 +296,7 @@ function SidebarBody({
         )}
       >
         <p
-          className="font-mono text-micro text-muted-foreground"
+          className="font-mono type-micro text-muted-foreground"
           title={`PierWave ${versionLabel}`}
         >
           {collapsed ? versionLabel : `PierWave ${versionLabel}`}
@@ -527,7 +527,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
                 className="gap-2 px-1.5 font-normal"
                 aria-label={t("app.accountMenu", { username: user.username })}
               >
-                <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary/15 text-micro font-medium text-primary">
+                <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary/15 type-micro font-medium text-primary">
                   {initial}
                 </span>
                 <span className="hidden max-w-32 truncate text-[13px] font-medium sm:inline">
@@ -541,7 +541,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
                 <span className="text-sm font-medium text-foreground">
                   {user.username}
                 </span>
-                <span className="text-micro font-normal text-muted-foreground">
+                <span className="type-micro font-normal text-muted-foreground">
                   {roleText}
                 </span>
               </DropdownMenuLabel>

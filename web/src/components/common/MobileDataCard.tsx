@@ -47,7 +47,7 @@ export function MobileDataCard({
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium">{title}</div>
           {subtitle ? (
-            <div className="truncate font-mono text-micro text-muted-foreground">
+            <div className="truncate font-mono type-micro text-muted-foreground">
               {subtitle}
             </div>
           ) : null}

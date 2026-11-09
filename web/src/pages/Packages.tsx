@@ -269,7 +269,7 @@ export default function PackagesPage() {
     return (
       <Badge
         variant="secondary"
-        className="font-mono text-micro font-normal text-muted-foreground"
+        className="font-mono type-micro font-normal text-muted-foreground"
       >
         {t(
           item.user_count === 1
@@ -420,7 +420,7 @@ export default function PackagesPage() {
               {packages.data && !packages.isError ? (
                 <Badge
                   variant="secondary"
-                  className="font-mono text-micro font-normal text-muted-foreground"
+                  className="font-mono type-micro font-normal text-muted-foreground"
                 >
                   {items.length}
                 </Badge>

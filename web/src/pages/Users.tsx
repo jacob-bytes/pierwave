@@ -226,7 +226,7 @@ function PackageBreakdownPopover({ user }: { user: UserView }) {
                 <p className="truncate text-xs font-medium">
                   {item.package_name}
                 </p>
-                <p className="mt-0.5 font-mono text-micro text-muted-foreground">
+                <p className="mt-0.5 font-mono type-micro text-muted-foreground">
                   {formatBytes(item.used_bytes)} /{" "}
                   {formatBytes(item.quota_bytes, { zeroAsUnlimited: true })}
                 </p>
@@ -236,7 +236,7 @@ function PackageBreakdownPopover({ user }: { user: UserView }) {
           ))}
         </ul>
         {count > packages.length ? (
-          <p className="text-micro leading-normal text-muted-foreground">
+          <p className="type-micro leading-normal text-muted-foreground">
             {t("users.packageBreakdown.onlyFirst", {
               shown: packages.length,
             })}
@@ -477,7 +477,7 @@ export default function UsersPage() {
         </Avatar>
         <div className="min-w-0">
           <div className="truncate font-medium">{user.username}</div>
-          <div className="font-mono text-micro text-muted-foreground">
+          <div className="font-mono type-micro text-muted-foreground">
             {user.short_code}
           </div>
         </div>
@@ -527,7 +527,7 @@ export default function UsersPage() {
         )}
         {user.quota_exceeded ? (
           <p
-            className="text-micro leading-normal text-destructive"
+            className="type-micro leading-normal text-destructive"
             title={t("users.quotaUsedTitle", {
               used: formatBytes(user.used_bytes),
               quota: formatBytes(user.quota_bytes),
@@ -686,7 +686,7 @@ export default function UsersPage() {
               {users.data && !users.isError ? (
                 <Badge
                   variant="secondary"
-                  className="font-mono text-micro font-normal text-muted-foreground"
+                  className="font-mono type-micro font-normal text-muted-foreground"
                 >
                   {items.length}
                 </Badge>
@@ -791,7 +791,7 @@ export default function UsersPage() {
                   >
                     <span className="block">{label}</span>
                     {hint ? (
-                      <span className="mt-0.5 block text-micro font-normal tracking-normal whitespace-nowrap text-muted-foreground">
+                      <span className="mt-0.5 block type-micro font-normal tracking-normal whitespace-nowrap text-muted-foreground">
                         {hint}
                       </span>
                     ) : null}

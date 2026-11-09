@@ -48,7 +48,7 @@
    *
    * 注意：`@theme inline` 不会把变量输出到 :root，所以这里只作为
    * Tailwind 的 `leading-tight / leading-normal / leading-relaxed` 取值。
-   * `.text-micro` 里的 1.35 与 tight 相同，是为组件层留出的字面值。
+   * `.type-micro` 里的 1.35 与 tight 相同，是为组件层留出的字面值。
    */
   --leading-tight: 1.35;
   --leading-normal: 1.6;
@@ -56,7 +56,8 @@
   /*
    * `text-sm` 是正文最常用的字号，Tailwind 默认给它 1.25rem（约 1.43）行高，
    * 中文会偏挤。这里覆盖成 normal（1.6），让没有显式 leading-* 的正文
-   * 也落到同一套 token 上；表格行高因此约 +6.7%，仍在 ±10% 预算内。
+   * 也落到同一套 token 上；行高本身 +12.5%，被单元格 padding / 徽章
+   * 稀释后实测表格行高最大 +3.91%，仍在 ±10% 预算内。
    */
   --text-sm--line-height: 1.6;
   --color-sidebar-ring: var(--sidebar-ring);
@@ -241,14 +242,38 @@
  * - 只放大 4.5%，比直接提到 12px（+9%）更不容易让表格 / 徽章换行；
  * - 字距补足汉字之间的呼吸，配合 normal 行高（需要多行说明时叠加
  *   `leading-normal`）不再是 11px 的密排效果。
- * 放在 components 层，`leading-*` 工具类仍可覆盖这里的默认行高。
+ * 字号声明放在 utilities 层，才能盖过 Badge 等组件自带的 `text-xs`；
+ * `leading-*` 工具类仍可覆盖这里的默认行高。
+ *
+ * 刻意不叫 `.text-micro`：`cn` 的 tailwind-merge 会把未知的 `text-*`
+ * 当成文字颜色 / 字号，遇到同串里的 `text-muted-foreground` 会直接删掉它。
+ * `type-*` 不在冲突表里，经过任何 `cn()` 组合都能保留。
  */
 @layer components {
-  .text-micro {
-    font-size: 11.5px;
+  .type-micro {
     line-height: 1.35;
     letter-spacing: 0.01em;
   }
+}
+
+/*
+ * 字号单独放在 utilities 层：Badge 自带 `text-xs`，组件层会被它盖住。
+ * 放在所有内置 utilities 之后才能稳定赢过 12px，且不改变 line-height
+ * 的覆盖顺序（`leading-*` 仍可覆盖上面的 1.35）。
+ */
+@layer utilities {
+  .type-micro {
+    font-size: 11.5px;
+  }
+}
+
+/*
+ * 旧代码里大量使用 `tnum` 作为等宽数字的简写，但仓库里一直没有这个
+ * 工具类（`tabular-nums` 才有样式）。补一个别名，让指标 / 表格数字
+ * 真正走 `font-variant-numeric: tabular-nums`，不再是无效果的类名。
+ */
+@utility tnum {
+  font-variant-numeric: tabular-nums;
 }
 
 @layer base {

@@ -139,7 +139,7 @@ function ForwardStatusCell({ forward }: { forward: Forward }) {
       </span>
       {status === "failed" ? (
         <span
-          className="truncate text-micro text-destructive"
+          className="truncate type-micro text-destructive"
           title={
             runtimeError
               ? t("forwards.status.errorTitle", { error: runtimeError })
@@ -330,7 +330,7 @@ export default function ForwardsPage() {
             {server ? (
               <Badge
                 variant="secondary"
-                className="font-mono text-micro font-normal text-muted-foreground"
+                className="font-mono type-micro font-normal text-muted-foreground"
               >
                 v{server.config_version}
               </Badge>
@@ -373,7 +373,7 @@ export default function ForwardsPage() {
               {forwards.data ? (
                 <Badge
                   variant="secondary"
-                  className="font-mono text-micro font-normal text-muted-foreground"
+                  className="font-mono type-micro font-normal text-muted-foreground"
                 >
                   {items.length}
                 </Badge>
@@ -408,7 +408,7 @@ export default function ForwardsPage() {
           <CardDescription className="text-xs">
             {t("forwards.list.desc")}
           </CardDescription>
-          <div className="mt-2 flex items-start gap-1.5 text-micro leading-normal text-muted-foreground">
+          <div className="mt-2 flex items-start gap-1.5 type-micro leading-normal text-muted-foreground">
             <InfoIcon className="mt-px size-3 shrink-0" aria-hidden="true" />
             <span>{t("forwards.relayNote")}</span>
           </div>

@@ -223,7 +223,7 @@ function BatchItemRow({
     <TableRow>
       <TableCell className="max-w-48 px-3 py-2.5">
         <span className="block truncate font-medium">{item.server_name}</span>
-        <span className="block truncate font-mono text-micro text-muted-foreground">
+        <span className="block truncate font-mono type-micro text-muted-foreground">
           {item.server_id}
         </span>
       </TableCell>

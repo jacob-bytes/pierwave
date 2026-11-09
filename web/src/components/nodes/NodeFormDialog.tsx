@@ -651,7 +651,7 @@ export function NodeFormDialog({
                   className="min-h-72 resize-y font-mono text-xs leading-normal"
                 />
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-micro leading-normal text-muted-foreground">
+                  <p className="type-micro leading-normal text-muted-foreground">
                     {isEdit
                       ? t("nodes.form.configEditHint")
                       : configDirty

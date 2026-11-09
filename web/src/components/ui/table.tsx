@@ -84,7 +84,7 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
       {overflowing && !atEnd ? (
         <div
           data-slot="table-scroll-hint"
-          className="pointer-events-none absolute right-2 bottom-2 z-10 inline-flex items-center gap-1 rounded-full border border-border bg-popover/95 px-2 py-0.5 text-micro whitespace-nowrap text-muted-foreground shadow-sm"
+          className="pointer-events-none absolute right-2 bottom-2 z-10 inline-flex items-center gap-1 rounded-full border border-border bg-popover/95 px-2 py-0.5 type-micro whitespace-nowrap text-muted-foreground shadow-sm"
         >
           <ArrowLeftRightIcon className="size-3" aria-hidden="true" />
           {t("common.tableScrollHint")}

@@ -83,7 +83,7 @@ export class ErrorBoundary extends Component<
           <summary className="cursor-pointer text-xs text-muted-foreground">
             {t("errorBoundary.details")}
           </summary>
-          <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-border bg-muted/30 p-3 font-mono text-micro leading-normal break-words whitespace-pre-wrap text-muted-foreground">
+          <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-border bg-muted/30 p-3 font-mono type-micro leading-normal break-words whitespace-pre-wrap text-muted-foreground">
             <span className="font-medium">
               {t("errorBoundary.errorLabel")}: {message}
             </span>

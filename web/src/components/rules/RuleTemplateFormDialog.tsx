@@ -159,7 +159,7 @@ export function RuleTemplateFormDialog({
             hint={
               <div className="space-y-1.5">
                 <p>{t("rules.form.rulesHint")}</p>
-                <pre className="overflow-x-auto rounded-md border border-border bg-muted/30 px-2 py-1.5 font-mono text-micro leading-normal text-muted-foreground">
+                <pre className="overflow-x-auto rounded-md border border-border bg-muted/30 px-2 py-1.5 font-mono type-micro leading-normal text-muted-foreground">
                   {RULE_TEMPLATE_EXAMPLE}
                 </pre>
                 <p>{t("rules.form.matchHint")}</p>
