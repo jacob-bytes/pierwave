@@ -29,6 +29,15 @@ readonly REPO="jacob-bytes/pierwave"
 readonly RELEASE_BASE="${PIERWAVE_RELEASE_BASE:-https://github.com/${REPO}/releases/download}"
 readonly RELEASE_PUBKEY="vTmZY2HhvEOMbXKvxKYFuSWJLa5e5qjwxBNBSpJVhMM="
 
+# realm 是可选的转发引擎（TCP/UDP 转发）。版本与哈希都写死：
+# 配置格式是我们与 realm 之间的隐式契约，跟 latest 会在某天悄悄失效。
+readonly REALM_VERSION="v2.9.6"
+readonly REALM_DIR="${PREFIX}/usr/lib/pierwave/bin"
+# 哈希直接内联：install.sh 常被 curl | bash 单独执行，此时仓库里的
+# realm-checksums.txt 并不存在；内联值才是真正的信任锚点。
+readonly REALM_SHA256_X86_64="b1cc335547bea8bb2a88178bef12ec7f2363e36200e7ea1d4e1e67627929bf65"
+readonly REALM_SHA256_AARCH64="f4c0318dd86854da483dcb7645b4f39cae2cc3f91c688fef969d53220b949488"
+
 readonly DEFAULT_PORT="8787"
 readonly DEFAULT_BIND="0.0.0.0"
 
@@ -119,6 +128,60 @@ function download_optional() {
   local url="$1" out="$2"
   curl -fsSL --retry 2 --connect-timeout 10 --max-time 120 -o "${out}" "${url}" 2>/dev/null || true
   return 0
+}
+
+# 安装 realm（可选）。失败只 warn，绝不让它拖垮主程序安装。
+function install_realm() {
+  local target asset expected url dest actual
+  target="$(detect_target)"
+  asset="realm-${target}.tar.gz"
+  dest="${REALM_DIR}/realm"
+
+  if [ -x "${dest}" ]; then
+    log_ok "realm already present: ${dest}"
+    return 0
+  fi
+
+  case "${target}" in
+    x86_64-unknown-linux-musl) expected="${REALM_SHA256_X86_64}" ;;
+    aarch64-unknown-linux-musl) expected="${REALM_SHA256_AARCH64}" ;;
+    *) expected="" ;;
+  esac
+  if [ -z "${expected}" ]; then
+    log_warn "No pinned checksum for ${asset}; skipping realm (panel works without it)"
+    return 0
+  fi
+
+  url="https://github.com/zhboner/realm/releases/download/${REALM_VERSION}/${asset}"
+  WORK_DIR="${WORK_DIR:-$(mktemp -d)}"
+  if ! curl -fsSL --retry 2 --connect-timeout 10 --max-time 180 -o "${WORK_DIR}/${asset}" "${url}" 2>/dev/null; then
+    log_warn "Could not download realm; skipping (panel works without it)"
+    return 0
+  fi
+
+  actual="$(sha256_of "${WORK_DIR}/${asset}")"
+  if [ "${actual}" != "${expected}" ]; then
+    log_warn "realm checksum mismatch (expected ${expected}, got ${actual}); skipping"
+    return 0
+  fi
+
+  mkdir -p "${REALM_DIR}"
+  if tar xzf "${WORK_DIR}/${asset}" -C "${REALM_DIR}" realm 2>/dev/null; then
+    chmod 0755 "${dest}"
+    log_ok "Installed realm ${REALM_VERSION} (${dest})"
+  else
+    log_warn "Could not extract realm archive; skipping"
+  fi
+  return 0
+}
+
+# 跨平台 sha256：Linux 用 sha256sum，macOS 用 shasum
+function sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
 }
 
 function latest_version() {
@@ -330,6 +393,7 @@ function do_install() {
     write_env_file "${password}"
   fi
 
+  install_realm
   write_unit
   "${SYSTEMCTL}" enable --now "${SERVICE_NAME}" >/dev/null 2>&1 || true
   "${SYSTEMCTL}" restart "${SERVICE_NAME}"
