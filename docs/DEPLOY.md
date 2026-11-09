@@ -99,3 +99,18 @@ cp target/x86_64-unknown-linux-musl/release/pierwave-agent \
 - 单主控单写库：SQLite 够用到几千用户，写入放大集中在流量上报（已做批量与幂等）；
 - 证书目前只支持手动上传，ACME 未实现；
 - 不支持多主控/高可用。
+
+## 可选：realm 转发引擎
+
+`install.sh` 会尝试安装 realm **v2.9.6**（`/usr/lib/pierwave/bin/realm`），用于需要 **UDP** 或带权重负载均衡的转发规则。
+二进制从 realm 官方 Release 下载，并**按脚本内联的 sha256 校验**；下载失败、校验不符或架构没有对应哈希时**跳过安装**，
+面板照常工作，只是转发规则的「引擎」里选择 realm 时会显示「realm 未安装」。
+
+离线环境可以手动放置：
+
+```bash
+install -m 0755 realm /usr/lib/pierwave/bin/realm
+systemctl restart pierwave-agent
+```
+
+Agent 的 `realm_bin` 配置项可覆盖路径。realm 不可用时 **native 引擎的转发完全不受影响**。
