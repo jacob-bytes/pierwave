@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { Loader2Icon, TerminalIcon } from "lucide-react";
+import { ArrowRightIcon, Loader2Icon, TerminalIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -72,14 +72,8 @@ export default function LoginPage() {
             </span>
           </div>
 
-          <div>
-            <h1 className="text-xl leading-tight font-semibold tracking-tight">
-              {t("login.title", { panelName })}
-            </h1>
-            <p className="mx-auto mt-1.5 max-w-sm text-sm text-muted-foreground">
-              {t("login.tagline")}
-            </p>
-          </div>
+          {/* 可见标题与品牌行重复，视觉上不再渲染；保留一个供读屏识别的 h1。 */}
+          <h1 className="sr-only">{t("login.title", { panelName })}</h1>
         </div>
 
         <Card>
@@ -149,15 +143,17 @@ export default function LoginPage() {
           </CardContent>
         </Card>
 
-        <p className="mt-4 text-center text-xs text-muted-foreground">
-          {t("login.hint")}
-        </p>
-        <p className="mt-2 text-center text-xs">
+        <p className="mt-4 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-xs text-muted-foreground">
+          <span>{t("login.hint")}</span>
+          <span aria-hidden="true" className="text-border">
+            |
+          </span>
           <Link
             to="/status"
-            className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+            className="inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
           >
             {t("login.statusLink")}
+            <ArrowRightIcon className="icon-sm" aria-hidden="true" />
           </Link>
         </p>
       </div>
