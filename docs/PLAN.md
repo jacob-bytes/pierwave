@@ -975,3 +975,61 @@ database access. Commands are `/status`, `/servers`, `/user <name>`, `/chain` an
 with a `truncated` notice. Delivery uses a `curl` subprocess and the bot token travels
 through `--config -` on stdin, never in argv. A supervisor task re-reads settings every
 30 seconds and stops/restarts polling when the feature is disabled or reconfigured.
+
+## P15：转发引擎（native / realm / 自研隧道）
+
+### 结论先说
+
+转发不再只有一种实现，而是**引擎可选**：
+
+| 引擎 | TCP | UDP | 负载均衡 | 链路加密（ws/tls） | 状态精度 |
+|---|:--:|:--:|:--:|:--:|---|
+| `native`（现有） | ✅ | ❌ | ✅ 4 种策略 | ❌ | 端口级（listening / target_ok） |
+| `realm`（集成） | ✅ | ✅ `batched-udp` | ✅ roundrobin / iphash + 权重 | ✅ Kaminari ws/tls/wss | 进程级 + 端口探测 |
+| `tunnel`（自研，规划） | ✅ | 规划 | 复用 native 策略 | ✅ 自己的加密 | 端口级 |
+
+### 为什么用 realm 的「进程」而不是「库」
+
+`realm_core` 已经发布到 crates.io，理论上可以嵌入。但它有三处与我们冲突：
+
+1. **配置模型是 CLI 导向**（`Config`/`Endpoint`），我们的期望态是"链 → 组 → 成员 + 策略"，
+   嵌入后要在两套模型间做映射，改一次策略要动两层；
+2. **没有运行状态接口**：嵌入后我们能看到的也只是"它内部有没有 panic"，
+   拿不到"哪个 endpoint 绑定失败"——这点用子进程也一样，但子进程至少崩溃隔离；
+3. **feature 组合复杂**（transport/tls 后端/udp/balance），嵌入会把构建矩阵传染给 Agent。
+
+所以：**realm 作为受管子进程**，与现有 Xray 的托管方式一致（同一个 supervisor 模型）。
+
+### 状态从哪来（子进程没有 API 的解法）
+
+- **绑定是否成功**：Agent 自己对 `0.0.0.0:port` 做一次 `bind` 尝试——
+  成功说明 realm 没占到端口（失败态），`EADDRINUSE` 说明 realm 已绑定（正常态）。
+  这是**不依赖 realm 内部**的可靠判据；
+- **进程存活**：supervisor 直接知道退出码；
+- **stderr 解析**：只用于在 `listening=false` 时补充原因（如 `Address already in use`）。
+
+### 引擎选择放在哪
+
+- 全局默认：设置项 `forward_engine`（`native` | `realm`），影响新建规则；
+- 每条链/每条独立转发可覆盖：`engine` 字段（迁移 0028）；
+- native 与 realm 的规则**不能共存于同一端口**（沿用现有端口冲突校验）。
+
+### realm 的额外能力（我们直接获得）
+
+- `batched-udp`：Linux 上 `recvmmsg`/`sendmmsg`，游戏场景的包速率远高于朴素 UDP 循环；
+- `balance = "roundrobin: 4, 2, 1"`：带权重的组内分发；
+- `listen_transport` / `remote_transport`：**跳与跳之间**可用 ws/tls 加密
+  （Kaminari 选项），解决"中转链路裸奔"的问题；
+- `through` / `interface`：指定出口网卡或源地址，多线服务器按线路出流量。
+
+### 分阶段
+
+1. **P15.1**：`engine` 字段 + realm 子进程 + 配置生成 + 端口级状态（TCP 先跑通）
+2. **P15.2**：UDP 转发（realm `use_udp`）+ 会话超时透出
+3. **P15.3**：链路的 hop-to-hop 加密（realm transport）
+4. **P16（规划）**：自研加密隧道（自有协议、复用 native 的选路与状态模型）
+
+### 不做的事
+
+- 不把 realm 的 loader（从 URL 拉配置）接进来——配置只由主控生成；
+- 不允许手写 realm 配置注入（那会绕过端口冲突校验）。
