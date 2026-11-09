@@ -114,7 +114,7 @@ const en = {
   },
   login: {
     title: "Sign in to {panelName}",
-    brandSubtitle: "Nodes and subscriptions",
+    brandSubtitle: "The key is right here, in front of you",
     tagline: "Nodes, subscriptions and traffic, managed in one panel.",
     username: "Username",
     password: "Password",

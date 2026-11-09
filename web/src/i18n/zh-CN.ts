@@ -110,7 +110,7 @@ const zhCN = {
   },
   login: {
     title: "登录 {panelName}",
-    brandSubtitle: "节点与订阅面板",
+    brandSubtitle: "现在有一把钥匙，就在你面前",
     tagline: "节点、订阅与流量，在一个面板里管住。",
     username: "用户名",
     password: "密码",
