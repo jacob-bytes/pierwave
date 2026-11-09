@@ -69,7 +69,7 @@ jobs:
           listen = "127.0.0.1:31001"
           remote = "127.0.0.1:41001"
           no_tcp = false
-          use_udp = false
+          use_udp = true
           TOML
 
       - name: Round-trip through realm
@@ -107,6 +107,38 @@ jobs:
               except Exception as exc:  # 端口刚起时会有几次失败
                   if attempt == 19:
                       print("FAIL: 经 realm 转发失败", exc, file=sys.stderr)
+                      sys.exit(1)
+                  time.sleep(0.5)
+          PY
+
+      - name: UDP round-trip through realm
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' &
+          import socket
+          srv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+          srv.bind(("127.0.0.1", 41001))
+          while True:
+              data, addr = srv.recvfrom(4096)
+              srv.sendto(b"echo:" + data, addr)
+          PY
+          echo $! > /tmp/udp-echo.pid
+          sleep 1
+          python3 - <<'PY'
+          import socket, sys, time
+          payload = b"pierwave-realm-udp"
+          cli = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+          cli.settimeout(2)
+          for attempt in range(20):
+              try:
+                  cli.sendto(payload, ("127.0.0.1", 31001))
+                  got, _ = cli.recvfrom(4096)
+                  assert got == b"echo:" + payload, got
+                  print("ok realm UDP 回显:", got)
+                  break
+              except Exception as exc:
+                  if attempt == 19:
+                      print("FAIL: 经 realm 的 UDP 转发失败", exc, file=sys.stderr)
                       sys.exit(1)
                   time.sleep(0.5)
           PY
