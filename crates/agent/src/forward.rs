@@ -664,6 +664,7 @@ mod tests {
             target_port: i64::from(target.port()),
             targets: Vec::new(),
             strategy: Default::default(),
+            engine: Default::default(),
         }
     }
 
@@ -690,6 +691,7 @@ mod tests {
             target_port: 0,
             targets: targets.into_iter().map(forward_target).collect(),
             strategy,
+            engine: Default::default(),
         }
     }
 

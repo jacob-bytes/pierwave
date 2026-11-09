@@ -46,6 +46,13 @@ pub struct Config {
     /// 只对内网开放转发时改成内网 IP（例如 `192.168.1.10` 或 `10.0.0.5`）。
     #[serde(default = "default_forward_bind")]
     pub forward_bind: String,
+    /// realm 引擎的可执行文件。文件不存在时 realm 规则报「realm 未安装」，
+    /// native 规则完全不受影响。
+    #[serde(default = "default_realm_bin")]
+    pub realm_bin: String,
+    /// Agent 的持久状态目录（realm.toml 落在这里）；不存在会自动创建。
+    #[serde(default = "default_state_dir")]
+    pub state_dir: String,
     /// 网络质量探测目标（TCP）。默认公共 DNS 的 443，握手即可测 RTT。
     #[serde(default = "default_probe_target")]
     pub probe_target: String,
@@ -106,6 +113,12 @@ fn default_tc_state_path() -> String {
 }
 fn default_forward_bind() -> String {
     "0.0.0.0".into()
+}
+fn default_realm_bin() -> String {
+    crate::realm::DEFAULT_BIN.into()
+}
+fn default_state_dir() -> String {
+    "/var/lib/pierwave-agent".into()
 }
 fn default_probe_target() -> String {
     "1.1.1.1:443".into()
@@ -173,6 +186,8 @@ mod tests {
             tc_state_path: default_tc_state_path(),
             stats_interval_secs: default_stats_interval_secs(),
             forward_bind: default_forward_bind(),
+            realm_bin: default_realm_bin(),
+            state_dir: default_state_dir(),
             probe_target: default_probe_target(),
             probe_timeout_ms: default_probe_timeout_ms(),
             probe_interval_secs: default_probe_interval_secs(),
@@ -312,6 +327,29 @@ mod tests {
         )
         .unwrap();
         assert_eq!(parsed.forward_bind, "10.0.0.5", "允许只监听内网地址");
+    }
+
+    #[test]
+    fn realm_settings_have_sane_defaults() {
+        let parsed: Config =
+            toml::from_str("master_url = \"http://127.0.0.1:8787\"\ntoken = \"t\"\n").unwrap();
+        assert_eq!(
+            parsed.realm_bin, "/usr/lib/pierwave/bin/realm",
+            "默认安装路径由打包脚本决定"
+        );
+        assert_eq!(parsed.state_dir, "/var/lib/pierwave-agent");
+    }
+
+    #[test]
+    fn realm_settings_can_be_overridden() {
+        let parsed: Config = toml::from_str(
+            "master_url = \"http://127.0.0.1:8787\"\ntoken = \"t\"\n\
+             realm_bin = \"/opt/realm/bin/realm\"\n\
+             state_dir = \"/tmp/pierwave-state\"\n",
+        )
+        .unwrap();
+        assert_eq!(parsed.realm_bin, "/opt/realm/bin/realm");
+        assert_eq!(parsed.state_dir, "/tmp/pierwave-state");
     }
 
     #[test]

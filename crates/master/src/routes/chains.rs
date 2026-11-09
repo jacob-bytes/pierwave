@@ -30,13 +30,13 @@ use pierwave_domain::chains::GroupStrategy;
 use pierwave_domain::models::{
     Chain, ChainGroupMember, ChainGroupWithMembers, ChainWithGroups, ForwardStatusRow, Server,
 };
-use pierwave_domain::{chains, forwards, repo};
+use pierwave_domain::{chains, engine, forwards, repo};
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
-use pierwave_proto::{DesiredForward, ForwardStrategy, ForwardTarget};
+use pierwave_proto::{DesiredForward, ForwardEngine, ForwardStrategy, ForwardTarget};
 
 /// 一条已通过校验的成员：带上服务器地址，供冲突提示与推导使用。
 struct ValidatedMember {
@@ -142,6 +142,8 @@ pub(crate) fn derive_forwards(
                     target_port,
                     targets: targets.clone(),
                     strategy,
+                    // 整条链共用一个引擎：推导时逐跳透传，Agent 按它分流。
+                    engine: ForwardEngine::from_name(&chain.engine),
                 },
             ));
         }
@@ -196,6 +198,9 @@ pub struct CreateChain {
     pub target_port: i64,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    /// 整条链的引擎：`native` / `realm`；缺省 = `native`。
+    #[serde(default)]
+    pub engine: Option<String>,
     /// 旧字段：每组一台成员。新请求优先用 `groups`。
     #[serde(default)]
     pub hops: Vec<CreateChainHop>,
@@ -209,6 +214,8 @@ pub struct PatchChain {
     pub target_host: Option<String>,
     pub target_port: Option<i64>,
     pub enabled: Option<bool>,
+    /// `native` / `realm`；`None` = 不改。
+    pub engine: Option<String>,
     /// 旧字段：`None` = 不改；`Some` = 整体替换（每组一台）。
     pub hops: Option<Vec<CreateChainHop>>,
     /// 新字段：`None` = 不改；`Some` = 整体替换。
@@ -562,6 +569,7 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
         "target_host": chain.chain.target_host,
         "target_port": chain.chain.target_port,
         "enabled": chain.chain.enabled,
+        "engine": chain.chain.engine,
         "degraded": degraded,
         "groups": group_views,
         "hops": hop_views,
@@ -633,6 +641,7 @@ pub async fn create(
         target_host: raw_target_host,
         target_port,
         enabled,
+        engine: raw_engine,
         hops,
         groups,
     } = req;
@@ -640,6 +649,10 @@ pub async fn create(
     let name = chains::normalize_name(&raw_name)?;
     let target_host = forwards::normalize_target_host(&raw_target_host)?;
     forwards::validate_target_port(target_port)?;
+    let engine = match raw_engine.as_deref() {
+        Some(raw) => engine::normalize(raw)?,
+        None => engine::DEFAULT.to_string(),
+    };
 
     // 新字段优先；没传 groups 时把旧 hops 转成「每组一台」。
     let inputs = if groups.is_empty() {
@@ -657,6 +670,7 @@ pub async fn create(
             target_host,
             target_port,
             enabled,
+            engine,
             groups: new_groups(&groups),
         },
     )
@@ -672,6 +686,7 @@ pub async fn create(
             "target_host": &chain.chain.target_host,
             "target_port": chain.chain.target_port,
             "enabled": chain.chain.enabled,
+            "engine": &chain.chain.engine,
             "hops": chain.groups.iter().map(|group| json!({
                 "seq": group.group.seq,
                 "server_id": group.members.first().map(|member| &member.server_id),
@@ -713,6 +728,7 @@ pub async fn update(
         target_host: raw_target_host,
         target_port,
         enabled,
+        engine: raw_engine,
         hops,
         groups,
     } = req;
@@ -721,13 +737,14 @@ pub async fn update(
         && raw_target_host.is_none()
         && target_port.is_none()
         && enabled.is_none()
+        && raw_engine.is_none()
         && hops.is_none()
         && groups.is_none()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 name / target_host / target_port / enabled / groups / hops 之一",
+            "至少需要提供 name / target_host / target_port / enabled / engine / groups / hops 之一",
         ));
     }
 
@@ -746,6 +763,10 @@ pub async fn update(
     if let Some(port) = target_port {
         forwards::validate_target_port(port)?;
     }
+    let engine = match raw_engine.as_deref() {
+        Some(raw) => Some(engine::normalize(raw)?),
+        None => None,
+    };
     let final_target_host = target_host
         .as_deref()
         .unwrap_or(&existing.chain.target_host);
@@ -772,6 +793,7 @@ pub async fn update(
             target_host,
             target_port,
             enabled,
+            engine,
             groups: replace_groups.then(|| new_groups(&groups)),
         },
     )
@@ -798,6 +820,11 @@ pub async fn update(
             "enabled",
             json!(existing.chain.enabled),
             json!(updated.chain.enabled),
+        ),
+        (
+            "engine",
+            json!(&existing.chain.engine),
+            json!(&updated.chain.engine),
         ),
         (
             "hops",
@@ -1032,6 +1059,7 @@ mod tests {
             target_host: "1.1.1.1".into(),
             target_port: 443,
             enabled: true,
+            engine: "native".into(),
             created_at: 0,
             updated_at: 0,
         }
@@ -1403,6 +1431,7 @@ mod tests {
                 target_host: "10.0.0.8".into(),
                 target_port: 443,
                 enabled: true,
+                engine: "native".into(),
             },
         )
         .await
@@ -1919,6 +1948,162 @@ mod tests {
         assert!(rendered_c.forwards[0].targets.is_empty());
         assert_eq!(rendered_c.forwards[0].target_host, "1.1.1.1");
         assert_eq!(rendered_c.forwards[0].target_port, 443);
+    }
+
+    /// 链的引擎是链级字段：推导时逐跳透传，改引擎后重新推导即可切换。
+    #[test]
+    fn derived_forwards_carry_the_chain_engine() {
+        let mut chain = test_chain("c-engine");
+        chain.engine = "realm".into();
+        let groups = vec![test_group(
+            "c-engine",
+            0,
+            "round_robin",
+            &[("srv-a", "10.0.0.1", 9001, 0)],
+        )];
+
+        let derived = derive_forwards(&chain, &groups);
+        assert_eq!(derived.len(), 1);
+        assert_eq!(derived[0].1.engine, ForwardEngine::Realm);
+
+        // 非法的历史值按 native 读：不能因为一个脏值让整条链下发失败。
+        chain.engine = "wireguard".into();
+        assert_eq!(
+            derive_forwards(&chain, &groups)[0].1.engine,
+            ForwardEngine::Native
+        );
+    }
+
+    /// 主控出口：链的 engine 要同时出现在 API 响应与每台服务器的期望态里。
+    #[tokio::test]
+    async fn chain_engine_reaches_api_and_desired_state() {
+        let fixture = setup().await;
+
+        let mut body = groups_body(
+            "realm 链",
+            "1.1.1.1",
+            443,
+            &[group(
+                None,
+                Some("round_robin"),
+                &[group_member(&fixture.a, 9101, 0)],
+            )],
+        );
+        body["engine"] = json!("realm");
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        assert_eq!(value["chain"]["engine"], "realm", "响应必须带出 engine");
+        let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            "/api/v1/chains",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        assert_eq!(value["items"][0]["engine"], "realm");
+
+        let server_a = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.a)
+            .await
+            .unwrap();
+        let rendered =
+            super::super::desired::render(&fixture.state, &server_a, "https://panel.example.com")
+                .await
+                .unwrap();
+        assert_eq!(rendered.forwards.len(), 1);
+        assert_eq!(
+            rendered.forwards[0].engine,
+            ForwardEngine::Realm,
+            "链引擎必须透传到这一跳的 DesiredForward"
+        );
+        assert_eq!(
+            rendered.forwards[0].id,
+            chains::forward_id(&chain_id, 0, &fixture.a, 1)
+        );
+
+        // 切回 native：响应、期望态同步变化。
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::PATCH,
+            &format!("/api/v1/chains/{chain_id}"),
+            Some(json!({"engine": "native"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        assert_eq!(value["chain"]["engine"], "native");
+        let rendered =
+            super::super::desired::render(&fixture.state, &server_a, "https://panel.example.com")
+                .await
+                .unwrap();
+        assert_eq!(rendered.forwards[0].engine, ForwardEngine::Native);
+
+        // 不传 engine 的历史请求仍落 native。
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(groups_body(
+                "默认引擎",
+                "1.1.1.1",
+                443,
+                &[group(
+                    None,
+                    Some("round_robin"),
+                    &[group_member(&fixture.b, 9102, 0)],
+                )],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        assert_eq!(value["chain"]["engine"], "native");
+
+        // 非法引擎：400 + 稳定错误码，链不落库。
+        let mut bad = groups_body(
+            "非法引擎",
+            "1.1.1.1",
+            443,
+            &[group(
+                None,
+                Some("round_robin"),
+                &[group_member(&fixture.c, 9103, 0)],
+            )],
+        );
+        bad["engine"] = json!("wireguard");
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(bad),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {value}");
+        assert_eq!(value["code"], "forward.engine_invalid");
+        let (_, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            "/api/v1/chains",
+            None,
+        )
+        .await;
+        assert_eq!(
+            value["items"].as_array().unwrap().len(),
+            2,
+            "非法引擎的链不能落库"
+        );
     }
 
     #[tokio::test]

@@ -77,6 +77,16 @@ async fn legacy_hops_become_single_member_groups() {
         .await
         .unwrap();
 
+    // repo 按**最新** schema 查询（0028 之后 Chain 带 engine 列），
+    // 所以断言 0026 的转换结果前，把后续只追加列的迁移补跑完。
+    // 0026 本身的行为仍是在「升级前库」上单独验证的。
+    for migration in MIGRATOR.iter().filter(|migration| migration.version > 26) {
+        sqlx::raw_sql(&migration.sql)
+            .execute(&db.pool)
+            .await
+            .unwrap_or_else(|error| panic!("执行迁移 {} 失败: {error}", migration.version));
+    }
+
     let chain = repo::chains::find_by_id(&db.pool, "legacy-chain")
         .await
         .unwrap()

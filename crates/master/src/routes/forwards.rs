@@ -14,7 +14,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use pierwave_domain::models::Server;
-use pierwave_domain::{forwards, repo};
+use pierwave_domain::{engine, forwards, repo};
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -137,6 +137,9 @@ pub struct CreateForward {
     pub target_port: i64,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    /// `native` / `realm`；缺省 = `native`（与迁移默认值一致）。
+    #[serde(default)]
+    pub engine: Option<String>,
 }
 
 fn default_enabled() -> bool {
@@ -160,6 +163,10 @@ pub async fn create(
     forwards::ensure_port_not_reserved(req.listen_port)?;
     forwards::ensure_not_self_loop("0.0.0.0", req.listen_port, &target_host, req.target_port)?;
     ensure_port_available(&state, &server_id, req.listen_port, None).await?;
+    let engine = match req.engine.as_deref() {
+        Some(raw) => engine::normalize(raw)?,
+        None => engine::DEFAULT.to_string(),
+    };
 
     let forward_name_for_error = name.clone();
     let forward = repo::forwards::create(
@@ -171,6 +178,7 @@ pub async fn create(
             target_host,
             target_port: req.target_port,
             enabled: req.enabled,
+            engine,
         },
     )
     .await
@@ -188,6 +196,7 @@ pub async fn create(
             "target_host": &forward.target_host,
             "target_port": forward.target_port,
             "enabled": forward.enabled,
+            "engine": &forward.engine,
         }),
     )
     .await;
@@ -205,6 +214,8 @@ pub struct PatchForward {
     pub target_host: Option<String>,
     pub target_port: Option<i64>,
     pub enabled: Option<bool>,
+    /// `native` / `realm`；`None` = 不改。
+    pub engine: Option<String>,
 }
 
 pub async fn update(
@@ -220,11 +231,12 @@ pub async fn update(
         && req.target_host.is_none()
         && req.target_port.is_none()
         && req.enabled.is_none()
+        && req.engine.is_none()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 name / listen_port / target_host / target_port / enabled 之一",
+            "至少需要提供 name / listen_port / target_host / target_port / enabled / engine 之一",
         ));
     }
 
@@ -236,6 +248,10 @@ pub async fn update(
     };
     let target_host = match req.target_host.as_deref() {
         Some(raw) => Some(forwards::normalize_target_host(raw)?),
+        None => None,
+    };
+    let engine = match req.engine.as_deref() {
+        Some(raw) => Some(engine::normalize(raw)?),
         None => None,
     };
     if let Some(port) = req.target_port {
@@ -269,6 +285,7 @@ pub async fn update(
             target_host,
             target_port: req.target_port,
             enabled: req.enabled,
+            engine,
         },
     )
     .await
@@ -299,6 +316,7 @@ pub async fn update(
             json!(forward.target_port),
         ),
         ("enabled", json!(existing.enabled), json!(forward.enabled)),
+        ("engine", json!(&existing.engine), json!(&forward.engine)),
     ]);
     crate::audit::record(
         &state,
@@ -344,6 +362,7 @@ pub async fn delete(
             "listen_port": existing.listen_port,
             "target_host": &existing.target_host,
             "target_port": existing.target_port,
+            "engine": &existing.engine,
         }),
     )
     .await;
@@ -886,6 +905,98 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    /// 引擎字段：缺省 native、显式 realm 原样下发、PATCH 可切换、非法值 400。
+    #[tokio::test]
+    async fn engine_defaults_to_native_and_realm_reaches_desired_state() {
+        use pierwave_proto::ForwardEngine;
+
+        let (app, state, cookie, server_id) = setup().await;
+        let uri = format!("/api/v1/servers/{server_id}/forwards");
+        let mut subscription = state.hub.subscribe(&server_id);
+
+        // 不填 engine = native（与迁移默认值一致）。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &uri,
+            Some(forward_body(8443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(
+            body["forward"]["engine"], "native",
+            "缺省必须是 native，旧客户端行为不变"
+        );
+        let native_id = body["forward"]["id"].as_str().unwrap().to_string();
+        assert_eq!(
+            next_forwards(&mut subscription.receiver).await[0].engine,
+            ForwardEngine::Native,
+            "native 规则下发时也要带引擎（旧 Agent 会忽略）"
+        );
+
+        // 显式 realm：响应、列表、期望态三处都要带出来。
+        let mut realm_body = forward_body(9443);
+        realm_body["engine"] = json!("realm");
+        let (status, body) =
+            request(&app, Some(&cookie), Method::POST, &uri, Some(realm_body)).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["forward"]["engine"], "realm");
+        let realm_id = body["forward"]["id"].as_str().unwrap().to_string();
+        let sent = next_forwards(&mut subscription.receiver).await;
+        let realm_forward = sent
+            .iter()
+            .find(|forward| forward.id == pierwave_domain::forwards::desired_id(&realm_id))
+            .expect("realm 规则必须出现在期望态里");
+        assert_eq!(realm_forward.engine, ForwardEngine::Realm);
+
+        let (status, body) = request(&app, Some(&cookie), Method::GET, &uri, None).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let engines: Vec<&str> = body["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["engine"].as_str().unwrap())
+            .collect();
+        assert_eq!(engines.len(), 2);
+        assert!(
+            engines.contains(&"native") && engines.contains(&"realm"),
+            "{engines:?}"
+        );
+
+        // native → realm：PATCH 只改引擎，期望态立即切换。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &format!("/api/v1/forwards/{native_id}"),
+            Some(json!({"engine": "realm"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["forward"]["engine"], "realm");
+        let sent = next_forwards(&mut subscription.receiver).await;
+        let switched = sent
+            .iter()
+            .find(|forward| forward.id == pierwave_domain::forwards::desired_id(&native_id))
+            .expect("切换引擎后规则仍在期望态里");
+        assert_eq!(switched.engine, ForwardEngine::Realm);
+
+        // 非法引擎：400 + 稳定错误码，规则不被创建。
+        let mut bad_body = forward_body(10443);
+        bad_body["engine"] = json!("wireguard");
+        let (status, body) = request(&app, Some(&cookie), Method::POST, &uri, Some(bad_body)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "forward.engine_invalid");
+        assert_eq!(body["params"]["engine"], "wireguard");
+        let (_, body) = request(&app, Some(&cookie), Method::GET, &uri, None).await;
+        assert_eq!(
+            body["items"].as_array().unwrap().len(),
+            2,
+            "非法引擎不能落库"
+        );
     }
 
     // 避免「只读 token 未使用」的假警告：`admin_id` 在 setup 里只用于建会话。

@@ -10,7 +10,7 @@ use serde_json::Value;
 use pierwave_domain::certificate;
 use pierwave_domain::models::Server;
 use pierwave_domain::{credentials, release, repo, time, xray};
-use pierwave_proto::{AgentUpgradePlan, DesiredForward, DesiredNode, ManagedFile};
+use pierwave_proto::{AgentUpgradePlan, DesiredForward, DesiredNode, ForwardEngine, ManagedFile};
 
 use crate::error::AppResult;
 use crate::state::AppState;
@@ -148,6 +148,8 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
             target_port: forward.target_port,
             targets: Vec::new(),
             strategy: Default::default(),
+            // 库里的字符串已由写路径校验；读路径用 from_name 兜底旧数据。
+            engine: ForwardEngine::from_name(&forward.engine),
         })
         .collect();
 
@@ -518,6 +520,7 @@ mod tests {
                 target_host: "10.0.0.8".into(),
                 target_port: 443,
                 enabled: true,
+                engine: "native".into(),
             },
         )
         .await
@@ -531,6 +534,7 @@ mod tests {
                 target_host: "1.1.1.1".into(),
                 target_port: 443,
                 enabled: true,
+                engine: "native".into(),
                 groups: vec![
                     repo::chains::NewChainGroup {
                         name: None,
@@ -605,6 +609,62 @@ mod tests {
         assert!(exit.targets.is_empty());
     }
 
+    /// 独立转发的 engine 必须透传到期望态；缺省（库默认值）是 native。
+    #[tokio::test]
+    async fn desired_state_carries_forward_engine() {
+        let (state, server) = fixture(false, "", None).await;
+        let realm_forward = repo::forwards::create(
+            &state.db.pool,
+            &server.id,
+            repo::forwards::NewForward {
+                name: "realm 转发".into(),
+                listen_port: 8443,
+                target_host: "10.0.0.8".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "realm".into(),
+            },
+        )
+        .await
+        .unwrap();
+        let native_forward = repo::forwards::create(
+            &state.db.pool,
+            &server.id,
+            repo::forwards::NewForward {
+                name: "native 转发".into(),
+                listen_port: 9443,
+                target_host: "10.0.0.9".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "native".into(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let rendered = render(&state, &server, "https://panel.example.com")
+            .await
+            .unwrap();
+        let engine_of = |id: &str| {
+            rendered
+                .forwards
+                .iter()
+                .find(|forward| forward.id == pierwave_domain::forwards::desired_id(id))
+                .map(|forward| forward.engine)
+                .expect("规则必须在期望态里")
+        };
+        assert_eq!(
+            engine_of(&realm_forward.id),
+            ForwardEngine::Realm,
+            "realm 规则必须带 realm 引擎"
+        );
+        assert_eq!(
+            engine_of(&native_forward.id),
+            ForwardEngine::Native,
+            "native 规则必须带 native 引擎"
+        );
+    }
+
     /// 期望态只带启用的转发；`publish` 必须原样放进 DesiredState.forwards。
     #[tokio::test]
     async fn desired_state_carries_only_enabled_forwards() {
@@ -618,6 +678,7 @@ mod tests {
                 target_host: "10.0.0.8".into(),
                 target_port: 443,
                 enabled: true,
+                engine: "native".into(),
             },
         )
         .await
@@ -631,6 +692,7 @@ mod tests {
                 target_host: "10.0.0.9".into(),
                 target_port: 443,
                 enabled: false,
+                engine: "native".into(),
             },
         )
         .await
@@ -665,6 +727,7 @@ mod tests {
                         target_port: 443,
                         targets: Vec::new(),
                         strategy: Default::default(),
+                        engine: ForwardEngine::Native,
                     }]
                 );
             }

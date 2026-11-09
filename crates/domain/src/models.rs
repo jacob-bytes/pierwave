@@ -75,6 +75,9 @@ pub struct Server {
 ///
 /// `listen_port` 在同一个 `server_id` 内唯一；`enabled = 0` 的规则不开监听，
 /// 但仍保留在库里（方便随时恢复，也继续占用端口，避免恢复时才发现冲突）。
+///
+/// `engine` 只允许 `native` / `realm`，由 `engine::normalize` 在写路径校验；
+/// 历史行由迁移默认成 `native`。
 #[derive(Debug, Clone, FromRow, Serialize)]
 pub struct Forward {
     pub id: String,
@@ -84,6 +87,8 @@ pub struct Forward {
     pub target_host: String,
     pub target_port: i64,
     pub enabled: bool,
+    /// 转发引擎：`native`（Agent 自己监听）或 `realm`（受管子进程）。
+    pub engine: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -123,6 +128,9 @@ pub struct ForwardView {
 }
 
 /// 一条线性多跳链。跳（组）的配置在 `chain_groups`，这里只放链级字段。
+///
+/// `engine` 是整条链的引擎：推导时透传到每一跳的 `DesiredForward`，
+/// 不支持一条链里混用两种引擎（同一台服务器上的不同链可以不同）。
 #[derive(Debug, Clone, FromRow, Serialize)]
 pub struct Chain {
     pub id: String,
@@ -130,6 +138,8 @@ pub struct Chain {
     pub target_host: String,
     pub target_port: i64,
     pub enabled: bool,
+    /// 链的转发引擎：`native` 或 `realm`。
+    pub engine: String,
     pub created_at: i64,
     pub updated_at: i64,
 }

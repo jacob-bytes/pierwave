@@ -135,6 +135,7 @@
 | `settings.panel_name_length_invalid` | 面板名称长度必须在 {min}-{max} 个字符之间 | max, min |
 | `settings.int_out_of_range` | {label}需在 {min}-{max} 之间的整数 | label, max, min |
 | `forward.self_loop` | 目标指向本机同一端口 {port}，会形成自连回环 | port |
+| `forward.engine_invalid` | 转发引擎「{engine}」无效，只支持 native / realm | allowed, engine |
 | `chain.not_found` | 链不存在 | — |
 | `chain.name_required` | 链名称不能为空 | — |
 | `chain.name_too_long` | 链名称最多 {max} 个字符 | max |

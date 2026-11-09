@@ -966,6 +966,7 @@ mod tests {
                 target_host: "10.0.0.8".into(),
                 target_port: 443,
                 enabled: true,
+                engine: "native".into(),
             },
         )
         .await
@@ -1081,6 +1082,7 @@ mod tests {
                 target_host: "10.0.0.9".into(),
                 target_port: 443,
                 enabled: true,
+                engine: "native".into(),
                 groups: vec![repo::chains::NewChainGroup {
                     name: None,
                     strategy: "round_robin".into(),

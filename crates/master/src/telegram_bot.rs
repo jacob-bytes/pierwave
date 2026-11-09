@@ -1039,6 +1039,7 @@ mod tests {
                 target_host: "example.test".into(),
                 target_port: 443,
                 enabled: true,
+                engine: "native".into(),
                 groups: vec![chains_repo::NewChainGroup {
                     name: None,
                     strategy: chain_rules::GroupStrategy::RoundRobin.as_str().to_string(),

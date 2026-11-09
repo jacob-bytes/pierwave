@@ -2166,6 +2166,7 @@ const zhCN = {
     notObject: "config 必须是 JSON 对象（以 { 开头、} 结尾）",
   },
   errors: {
+    "forward.engine_invalid": "不支持的转发引擎「{engine}」（可选 native / realm）",
     "chain.strategy_invalid": "选路策略不能识别（可选：轮询 / 主备 / 最低延迟 / IP 哈希）",
     "chain.group_member_count_invalid": "每组必须有 {min}-{max} 台服务器（当前 {count} 台）",
     "chain.duplicate_group_member": "同一台服务器不能在同一组出现两次",

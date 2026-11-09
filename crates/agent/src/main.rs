@@ -1,6 +1,7 @@
 mod config;
 mod forward;
 mod probe;
+mod realm;
 mod selector;
 mod system_info;
 mod tc;
@@ -16,8 +17,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use pierwave_proto::{
-    AgentHello, AgentMessage, AgentUpgradePlan, ApplyResult, DesiredState, ForwardStatus,
-    Heartbeat, MasterMessage, TrafficReport, PROTOCOL_VERSION,
+    AgentHello, AgentMessage, AgentUpgradePlan, ApplyResult, DesiredForward, DesiredState,
+    ForwardEngine, ForwardStatus, Heartbeat, MasterMessage, TrafficReport, PROTOCOL_VERSION,
 };
 use tokio_tungstenite::tungstenite::Message;
 
@@ -46,6 +47,54 @@ struct AgentContext {
 struct ApplyOutcome {
     result: ApplyResult,
     upgraded: bool,
+}
+
+/// 两个转发引擎的收敛集合。
+///
+/// 期望态里每条规则自带 `engine`，这里按引擎分流：`native` 交给原有的
+/// [`forward::ForwardSupervisor`]（监听行为一字未改），`realm` 交给
+/// [`realm::RealmSupervisor`]（一份配置 + 一个受管子进程）。
+///
+/// 两者共享同一份端口冲突校验（主控侧保证同一个端口只会有一条规则），
+/// 所以这里可以放心让它们各自绑定自己的端口。
+struct ForwardEngines {
+    native: forward::ForwardSupervisor,
+    realm: realm::RealmSupervisor,
+}
+
+impl ForwardEngines {
+    fn new(cfg: &Config) -> Self {
+        Self {
+            native: forward::ForwardSupervisor::new(cfg.forward_bind.clone()),
+            realm: realm::RealmSupervisor::new(
+                cfg.realm_bin.clone(),
+                cfg.state_dir.clone(),
+                cfg.forward_bind.clone(),
+            ),
+        }
+    }
+
+    /// 先对齐 native、再对齐 realm，最后再给 native 一次重试机会。
+    ///
+    /// 引擎切换（同一条规则 native ↔ realm）时端口会短暂被另一边占着：
+    /// native 的 apply 是幂等的，只重试绑定失败的规则，再跑一次就能在
+    /// realm 释放端口后立刻恢复，不必等下一轮期望态。
+    async fn apply(&mut self, desired: &[DesiredForward]) {
+        let (native, realm): (Vec<DesiredForward>, Vec<DesiredForward>) = desired
+            .iter()
+            .cloned()
+            .partition(|spec| spec.engine == ForwardEngine::Native);
+        self.native.apply(&native).await;
+        self.realm.apply(&realm).await;
+        self.native.apply(&native).await;
+    }
+
+    /// 心跳用的状态快照：两个引擎各读自己的句柄，不会互相覆盖。
+    fn status_snapshot(&self) -> Vec<ForwardStatus> {
+        let mut statuses = self.native.status_handle().snapshot();
+        statuses.extend(self.realm.status_handle().snapshot());
+        statuses
+    }
 }
 
 fn should_apply(incoming: i64, applied: i64) -> bool {
@@ -127,7 +176,7 @@ async fn main() -> Result<()> {
         cfg.probe_interval_secs,
     );
     // 端口转发监听跨重连常驻：断线时继续服务，重连后主控重放期望态只做空 diff。
-    let mut forward_supervisor = forward::ForwardSupervisor::new(cfg.forward_bind.clone());
+    let mut forward_engines = ForwardEngines::new(&cfg);
     // tc 状态跨重连保留：断线期间安全阀仍要能删掉自己的 qdisc，所以单独起一个
     // 每秒检查一次的看门狗，而不是只在 websocket 的 select 循环里检查。
     let tc_manager = Arc::new(Mutex::new(tc::TcManager::new(
@@ -174,7 +223,7 @@ async fn main() -> Result<()> {
             &mut traffic_seq,
             &probe_cache,
             &tc_manager,
-            &mut forward_supervisor,
+            &mut forward_engines,
         )
         .await
         {
@@ -252,12 +301,10 @@ async fn run_once(
     traffic_seq: &mut u64,
     probe_cache: &probe::ProbeCache,
     tc_manager: &Arc<Mutex<tc::TcManager>>,
-    forwards: &mut forward::ForwardSupervisor,
+    forwards: &mut ForwardEngines,
 ) -> Result<()> {
     let boot_id = &context.boot_id;
     let system_info = &context.system_info;
-    // 心跳只拿状态的只读快照，不和收敛过程抢锁；句柄是 Arc，clone 很便宜。
-    let forward_status = forwards.status_handle();
     let url = cfg.ws_url();
     let (mut ws, _) = tokio_tungstenite::connect_async(&url)
         .await
@@ -373,7 +420,7 @@ async fn run_once(
                         anyhow::bail!("master rejected agent: {message}");
                     }
                     Ok(MasterMessage::Ping) => {
-                        let forwards = forward_status.snapshot();
+                        let forwards = forwards.status_snapshot();
                         let fallback = serde_json::json!({
                             "type": "heartbeat",
                             "seq": 0,
@@ -404,7 +451,7 @@ async fn run_once(
                     seq,
                     uptime_start.elapsed().as_secs(),
                     probe_cache.load(),
-                    forward_status.snapshot(),
+                    forwards.status_snapshot(),
                     system_info,
                 ));
                 ws.send(Message::Text(serde_json::to_string(&hb)?)).await?;
@@ -457,7 +504,7 @@ async fn run_once(
 async fn apply_state(
     state: &DesiredState,
     cfg: &Config,
-    forwards: &mut forward::ForwardSupervisor,
+    forwards: &mut ForwardEngines,
 ) -> ApplyOutcome {
     // 转发是独立于 xray 的收敛项：先对齐监听，再处理 xray。
     // 单条绑定失败只体现在 ForwardStatus 里，不会把整次 apply 判失败。
@@ -1074,6 +1121,19 @@ mod tests {
         );
     }
 
+    /// 测试用的双引擎集合：realm 指向一个不存在的二进制，
+    /// 只关心 native 行为的用例不会被 realm 影响。
+    fn test_engines(state_dir: &Path) -> ForwardEngines {
+        ForwardEngines {
+            native: forward::ForwardSupervisor::new("127.0.0.1"),
+            realm: realm::RealmSupervisor::new(
+                state_dir.join("no-such-realm"),
+                state_dir,
+                "127.0.0.1",
+            ),
+        }
+    }
+
     /// 接线测试：期望态里的 forwards 要经 apply_state 落到 supervisor，
     /// 空列表要停掉监听，心跳从状态句柄读到同一份结果。
     #[tokio::test]
@@ -1088,7 +1148,7 @@ mod tests {
             dir.path().join("config.json").display()
         );
         let cfg: Config = toml::from_str(&toml).unwrap();
-        let mut supervisor = forward::ForwardSupervisor::new("127.0.0.1");
+        let mut supervisor = test_engines(dir.path());
 
         let forward = pierwave_proto::DesiredForward {
             id: "f1".into(),
@@ -1098,6 +1158,7 @@ mod tests {
             target_port: 1,
             targets: Vec::new(),
             strategy: Default::default(),
+            engine: Default::default(),
         };
         let state = DesiredState {
             version: 1,
@@ -1111,7 +1172,7 @@ mod tests {
         let outcome = apply_state(&state, &cfg, &mut supervisor).await;
         assert!(outcome.result.ok, "转发监听不应影响 xray 应用结果");
 
-        let status = supervisor.status_handle().snapshot();
+        let status = supervisor.status_snapshot();
         assert_eq!(status.len(), 1);
         assert_eq!(status[0].id, "f1");
         assert!(status[0].listening);
@@ -1121,7 +1182,7 @@ mod tests {
             1,
             0,
             None,
-            supervisor.status_handle().snapshot(),
+            supervisor.status_snapshot(),
             &system_info::SystemInfo::default(),
         );
         assert_eq!(hb.forwards, status, "心跳必须带上 supervisor 的监听状态");
@@ -1135,8 +1196,76 @@ mod tests {
         let outcome = apply_state(&state, &cfg, &mut supervisor).await;
         assert!(outcome.result.ok);
         assert!(
-            supervisor.status_handle().snapshot().is_empty(),
+            supervisor.status_snapshot().is_empty(),
             "空期望列表必须停掉全部转发监听"
         );
+    }
+
+    /// realm 未安装时：realm 规则报「realm 未安装」，同一次收敛里的 native 规则
+    /// 必须照常监听——两个引擎的状态互不影响。
+    #[tokio::test]
+    async fn apply_state_keeps_native_listening_when_realm_is_missing() {
+        let dir = TempDir::new();
+        let toml = format!(
+            "master_url = \"http://127.0.0.1:8787\"\n\
+             token = \"t\"\n\
+             xray_config_path = \"{}\"\n\
+             xray_test_command = \"true\"\n\
+             restart_command = \"true\"\n\
+             realm_bin = \"{}\"\n\
+             state_dir = \"{}\"\n",
+            dir.path().join("config.json").display(),
+            dir.path().join("no-such-realm").display(),
+            dir.path().display()
+        );
+        let cfg: Config = toml::from_str(&toml).unwrap();
+        let mut engines = ForwardEngines::new(&cfg);
+
+        let native = DesiredForward {
+            id: "native-1".into(),
+            listen_port: 0,
+            target_host: "127.0.0.1".into(),
+            target_port: 1,
+            targets: Vec::new(),
+            strategy: Default::default(),
+            engine: ForwardEngine::Native,
+        };
+        let realm_rule = DesiredForward {
+            id: "realm-1".into(),
+            listen_port: 0,
+            target_host: "10.0.0.8".into(),
+            target_port: 443,
+            targets: Vec::new(),
+            strategy: Default::default(),
+            engine: ForwardEngine::Realm,
+        };
+        let state = DesiredState {
+            version: 1,
+            xray: serde_json::json!({}),
+            files: Vec::new(),
+            agent_upgrade: None,
+            forwards: vec![native, realm_rule],
+            nodes: Vec::new(),
+        };
+
+        let outcome = apply_state(&state, &cfg, &mut engines).await;
+        assert!(outcome.result.ok, "realm 未安装不能把整次 apply 判失败");
+
+        let statuses = engines.status_snapshot();
+        assert_eq!(statuses.len(), 2, "两条规则都要有状态：{statuses:?}");
+        let native_status = statuses
+            .iter()
+            .find(|status| status.id == "native-1")
+            .expect("native 规则必须有状态");
+        assert!(
+            native_status.listening && native_status.error.is_empty(),
+            "native 规则不受 realm 缺失影响：{native_status:?}"
+        );
+        let realm_status = statuses
+            .iter()
+            .find(|status| status.id == "realm-1")
+            .expect("realm 规则必须有状态");
+        assert!(!realm_status.listening, "没装 realm 时必须报未监听");
+        assert_eq!(realm_status.error, realm::NOT_INSTALLED);
     }
 }

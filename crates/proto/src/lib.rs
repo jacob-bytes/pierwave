@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 9;
+pub const PROTOCOL_VERSION: u32 = 10;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,6 +107,42 @@ pub struct DesiredForward {
     /// 从候选里怎么挑一个。旧主控不下发时为轮询。
     #[serde(default)]
     pub strategy: ForwardStrategy,
+    /// 用哪个转发引擎实现这条规则。
+    ///
+    /// 旧主控不下发该字段，反序列化后是 [`ForwardEngine::Native`]，
+    /// 与升级前的行为完全一致。
+    #[serde(default)]
+    pub engine: ForwardEngine,
+}
+
+/// 转发引擎。
+///
+/// `native` 是 Agent 自带的 TCP 监听（[`DesiredForward`] 里的实现）；
+/// `realm` 交给受管的 realm 子进程（`realm -c <config>`），本轮只开 TCP。
+///
+/// 存储与 API 里的字符串值就是这里的 snake_case 名字，两侧必须保持一致。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ForwardEngine {
+    /// Agent 自己监听并转发（默认，行为与旧版本一致）。
+    #[default]
+    Native,
+    /// 外接 realm 子进程。
+    Realm,
+}
+
+impl ForwardEngine {
+    /// 把数据库/API 里的引擎名映射成协议枚举。
+    ///
+    /// 只认 `realm`，其余（含未知值与空串）一律按 `native` 处理：
+    /// 写路径已由领域层严格校验，读路径的兜底必须保证旧数据仍能下发。
+    pub fn from_name(raw: &str) -> Self {
+        if raw.trim() == "realm" {
+            Self::Realm
+        } else {
+            Self::Native
+        }
+    }
 }
 
 /// 一个候选目标：某台服务器的地址与端口。
@@ -281,7 +317,7 @@ mod tests {
         let json = serde_json::to_value(&new).unwrap();
         assert_eq!(json["listening"], true);
         assert_eq!(json["target_ok"], false);
-        assert_eq!(PROTOCOL_VERSION, 9, "新增心跳字段必须升协议版本");
+        assert_eq!(PROTOCOL_VERSION, 10, "新增转发引擎字段必须升协议版本");
     }
 
     #[test]
@@ -318,5 +354,48 @@ mod tests {
         assert_eq!(back.os_name.as_deref(), Some("Debian GNU/Linux"));
         assert_eq!(back.os_version.as_deref(), Some("12"));
         assert_eq!(back.virt.as_deref(), Some("kvm"));
+    }
+
+    #[test]
+    fn forward_engine_defaults_to_native_for_old_masters() {
+        // 旧主控的 JSON 没有 engine：必须解析成 native，行为与升级前一致。
+        let old = r#"{
+            "id": "fwd-1",
+            "listen_port": 8443,
+            "target_host": "10.0.0.8",
+            "target_port": 443,
+            "targets": [],
+            "strategy": "round_robin"
+        }"#;
+        let forward: DesiredForward = serde_json::from_str(old).unwrap();
+        assert_eq!(forward.engine, ForwardEngine::Native);
+        assert_eq!(ForwardEngine::default(), ForwardEngine::Native);
+
+        // 新主控显式下发 realm 时按 snake_case 往返。
+        let realm = DesiredForward {
+            engine: ForwardEngine::Realm,
+            ..forward.clone()
+        };
+        let json = serde_json::to_value(&realm).unwrap();
+        assert_eq!(json["engine"], "realm");
+        let back: DesiredForward = serde_json::from_value(json).unwrap();
+        assert_eq!(back, realm);
+
+        // 未知值按 native 处理：读路径不能因为脏数据拒绝整份期望态。
+        assert_eq!(
+            ForwardEngine::from_name("  native "),
+            ForwardEngine::Native,
+            "允许首尾空白"
+        );
+        assert_eq!(
+            ForwardEngine::from_name("wireguard"),
+            ForwardEngine::Native,
+            "未知引擎回落 native"
+        );
+        assert_eq!(
+            ForwardEngine::from_name("realm"),
+            ForwardEngine::Realm,
+            "realm 必须被识别"
+        );
     }
 }

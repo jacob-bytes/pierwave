@@ -2301,6 +2301,7 @@ const en = {
     notObject: "config must be a JSON object (starting with { and ending with })",
   },
   errors: {
+    "forward.engine_invalid": "Unsupported forward engine \"{engine}\" (choose native or realm)",
     "chain.strategy_invalid": "Unknown routing strategy (choose round robin, failover, lowest latency or IP hash)",
     "chain.group_member_count_invalid": "Each group needs {min}-{max} servers (currently {count})",
     "chain.duplicate_group_member": "The same server cannot appear twice in one group",
