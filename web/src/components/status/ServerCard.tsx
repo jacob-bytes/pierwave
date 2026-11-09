@@ -1,4 +1,4 @@
-import { ClockIcon, GlobeIcon } from "lucide-react";
+import { GlobeIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Meter } from "@/components/status/Meter";
@@ -23,7 +23,6 @@ import {
   uptimeParts,
   type ServerState,
 } from "@/lib/publicStatus";
-import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /**
@@ -109,17 +108,6 @@ export function StatusChip({
 export function ServerCard({ server }: { server: PublicStatusServer }) {
   const { t, locale } = useI18n();
   const state = serverState(server);
-  const hasHeartbeat = server.last_seen !== null;
-  const heartbeat = hasHeartbeat
-    ? t("publicStatus.server.lastHeartbeat", {
-        time: formatRelativeTime(server.last_seen),
-      })
-    : t("publicStatus.server.neverSeen");
-  const heartbeatTitle = hasHeartbeat
-    ? t("publicStatus.server.lastHeartbeat", {
-        time: formatAbsoluteTime(server.last_seen),
-      })
-    : t("publicStatus.server.neverSeen");
 
   // 在线（含异常）才有可展示的运行时长；离线时 pill 只留状态。
   const uptimeDuration = (() => {
@@ -204,43 +192,34 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
         <StatusChip state={state} uptime={uptimeDuration} className="ml-auto" />
       </div>
 
-      {/* 机器形态：发行版 · 虚拟化 · 架构。缺项跳过；全缺整行不渲染，
-          不会出现 “undefined · · x86_64” 这种空洞。心跳/延迟仍在下一行。 */}
-      {spec ? (
+      {/* 一行元信息：发行版 · 虚拟化 · 架构 · Xray 状态 · 延迟。
+          缺哪项就跳过（全缺整行不渲染），不出现空的 “· ·”。
+          最后心跳不再展示：卡片右上角已有「在线 12 天」，重复且噪音。 */}
+      {spec || xray || latency !== null ? (
         <p
-          className="mt-1 truncate text-xs text-muted-foreground"
-          title={spec}
+          className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1 text-xs text-muted-foreground"
+          title={[spec, xray].filter(Boolean).join(" · ") || undefined}
         >
-          {spec}
+          {spec ? <span className="truncate">{spec}</span> : null}
+          {xray ? (
+            <>
+              {spec ? <span aria-hidden="true">·</span> : null}
+              <span className="shrink-0">{xray}</span>
+            </>
+          ) : null}
+          {latency !== null ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <span
+                className="tnum shrink-0"
+                title={t("publicStatus.server.latencyHint")}
+              >
+                {t("publicStatus.server.latency", { ms: latency })}
+              </span>
+            </>
+          ) : null}
         </p>
       ) : null}
-
-      {/* 心跳行：最后心跳 · Xray 状态 · 探测延迟；缺哪项就不写（延迟为 null
-          时整项隐藏，不用 0 占位）。 */}
-      <p
-        className="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
-        title={heartbeatTitle}
-      >
-        <ClockIcon className="icon-sm shrink-0" aria-hidden="true" />
-        <span className="truncate">{heartbeat}</span>
-        {xray ? (
-          <>
-            <span aria-hidden="true">·</span>
-            <span className="shrink-0">{xray}</span>
-          </>
-        ) : null}
-        {latency !== null ? (
-          <>
-            <span aria-hidden="true">·</span>
-            <span
-              className="tnum shrink-0"
-              title={t("publicStatus.server.latencyHint")}
-            >
-              {t("publicStatus.server.latency", { ms: latency })}
-            </span>
-          </>
-        ) : null}
-      </p>
 
       {/* 2×2 指标。内存与硬盘有真实总量，画百分比条；24h 可用率用图例的
           色阶；负载没有可归一化的分母（API 不公开核数），只给原始值。 */}
