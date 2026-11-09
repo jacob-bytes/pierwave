@@ -443,4 +443,58 @@ print("ok 批量升级收敛:", {i["server_name"]: i["status"] for i in items.va
 PY
 
 
+# ---- 转发引擎：native 与 realm 的差异必须体现在运行状态上 ----
+# native 规则：端口绑定成功 → listening=true；
+# realm 规则：realm 二进制不在本机 → listening=false 且 error 指明「未安装」。
+# 这一段同时守住两件事：期望态把 engine 透传到 Agent、Agent 按引擎分流且互不影响。
+NATIVE_FWD=$(curl -sf -b "$WORK/cookie" -X POST "$BASE/api/v1/servers/$SERVER_ID/forwards" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"e2e-native","listen_port":19555,"target_host":"127.0.0.1","target_port":1,"engine":"native"}')
+NATIVE_ENGINE=$(echo "$NATIVE_FWD" | jget '["forward"]["engine"]')
+[ "$NATIVE_ENGINE" = "native" ] || { echo "FAIL: native 转发 engine=$NATIVE_ENGINE"; exit 1; }
+
+REALM_FWD=$(curl -sf -b "$WORK/cookie" -X POST "$BASE/api/v1/servers/$SERVER_ID/forwards" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"e2e-realm","listen_port":19556,"target_host":"127.0.0.1","target_port":2,"engine":"realm"}')
+REALM_ENGINE=$(echo "$REALM_FWD" | jget '["forward"]["engine"]')
+[ "$REALM_ENGINE" = "realm" ] || { echo "FAIL: realm 转发 engine=$REALM_ENGINE"; exit 1; }
+
+# 非法引擎必须被拒绝
+BAD_CODE=$(curl -s -o /dev/null -w '%{http_code}' -b "$WORK/cookie" -X POST "$BASE/api/v1/servers/$SERVER_ID/forwards" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"e2e-bad","listen_port":19557,"target_host":"127.0.0.1","target_port":3,"engine":"nope"}')
+[ "$BAD_CODE" = "400" ] || { echo "FAIL: 非法引擎应 400，实际 $BAD_CODE"; exit 1; }
+
+# 等 Agent 落一轮心跳后再看运行状态（心跳 15s 一轮，这里轮询到出现为止）
+FWD_STATE=""
+for _ in $(seq 1 20); do
+  curl -sf -b "$WORK/cookie" "$BASE/api/v1/servers/$SERVER_ID/forwards" > "$WORK/forwards.json"
+  FWD_STATE=$(python3 - "$WORK/forwards.json" <<'PY'
+import json, sys
+items = {i["name"]: i for i in json.load(open(sys.argv[1]))["items"]}
+native = items.get("e2e-native") or {}
+realm = items.get("e2e-realm") or {}
+if not native.get("runtime"):
+    print("pending")
+else:
+    print(json.dumps({
+        "native_listening": native["runtime"]["listening"],
+        "realm_listening": (realm.get("runtime") or {}).get("listening"),
+        "realm_error": (realm.get("runtime") or {}).get("error") or "",
+    }, ensure_ascii=False))
+PY
+)
+  [ "$FWD_STATE" != "pending" ] && break
+  sleep 1
+done
+python3 - "$FWD_STATE" <<'PY'
+import json, sys
+state = json.loads(sys.argv[1])
+assert state["native_listening"] is True, f"native 规则应已监听：{state}"
+assert state["realm_listening"] is False, f"realm 缺失时不应监听：{state}"
+assert "realm" in state["realm_error"].lower(), f"realm 错误应说明原因：{state}"
+print("ok 转发引擎分流:", state)
+PY
+
+
 echo "PASS 全部通过（日志：$WORK/master.log, $WORK/agent.log）"

@@ -179,6 +179,21 @@ impl RealmSupervisor {
             return;
         }
 
+        // 先判「有没有装 realm」，再写配置。
+        // 顺序很重要：state_dir 不可写（如权限不足）时，先写配置会报
+        // 「写入 realm 配置失败」，把人引到错误的方向；而真正的原因是没装 realm。
+        // 缺二进制时也不该落一份永远用不上的配置。
+        if !self.bin.exists() {
+            tracing::warn!(
+                bin = %self.bin.display(),
+                "realm 未安装，realm 规则保持未监听（native 规则不受影响）"
+            );
+            self.stop("realm 未安装").await;
+            self.content_hash = None;
+            self.status.store(self.inactive_statuses(NOT_INSTALLED));
+            return;
+        }
+
         let content = render_config(&self.rules, &self.bind_host);
         let hash = config_hash(&content);
         let config_changed = self.content_hash != Some(hash);
@@ -701,14 +716,11 @@ mod tests {
         assert!(!statuses[0].listening, "没装 realm 不能报 listening=true");
         assert_eq!(statuses[0].error, NOT_INSTALLED, "错误文案必须稳定");
         assert_eq!(statuses[0].id, "r1");
-        // 配置仍会落盘：装上 realm 后下一轮 apply 直接可用，不用等主控重发。
+        // 没装 realm 时不落配置：一份永远不会被用到的文件只会让人误解
+        // 「已经准备好了」。装上之后下一次 apply 会直接生成。
         assert!(
-            dir.path().join(CONFIG_FILE_NAME).exists(),
-            "配置写入必须发生在启动检查之前"
-        );
-        assert!(
-            !tmp_path(&dir.path().join(CONFIG_FILE_NAME)).exists(),
-            "原子写不能残留 .tmp"
+            !dir.path().join(CONFIG_FILE_NAME).exists(),
+            "缺二进制时不应写配置文件"
         );
 
         // 空期望态：状态清空，不 panic。
