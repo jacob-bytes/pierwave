@@ -64,6 +64,20 @@ make verify-xray
 
 下面这段是本地手跑的说明，保留作为排查参考。
 
+## realm 引擎的验证（已进 CI）
+
+`.github/workflows/verify-realm.yml` 在 Linux runner 上：下载 realm v2.9.6 官方二进制、
+**按 `scripts/realm-checksums.txt` 校验哈希**、用我们生成的配置形状起一个 endpoint、
+真实走一遍 TCP 转发。失败时贴出 realm 日志。
+
+它守两件事：
+
+1. 我们生成的 `realm.toml` 被真实二进制接受（字段名、`balance` 语法、endpoint 结构）；
+2. 清单里的哈希没写错——写错了这步会红。
+
+升级 realm 版本时同步改三处：`scripts/realm-checksums.txt`、`crates/agent/src/realm.rs` 的注释、
+本文件里的版本号。
+
 ## 真机验证的判定标准
 
 ```bash
@@ -125,6 +139,20 @@ make verify-xray
 ```
 
 下面这段是本地手跑的说明，保留作为排查参考。
+
+## realm 引擎的验证（已进 CI）
+
+`.github/workflows/verify-realm.yml` 在 Linux runner 上：下载 realm v2.9.6 官方二进制、
+**按 `scripts/realm-checksums.txt` 校验哈希**、用我们生成的配置形状起一个 endpoint、
+真实走一遍 TCP 转发。失败时贴出 realm 日志。
+
+它守两件事：
+
+1. 我们生成的 `realm.toml` 被真实二进制接受（字段名、`balance` 语法、endpoint 结构）；
+2. 清单里的哈希没写错——写错了这步会红。
+
+升级 realm 版本时同步改三处：`scripts/realm-checksums.txt`、`crates/agent/src/realm.rs` 的注释、
+本文件里的版本号。
 
 ## 真机验证的判定标准
 

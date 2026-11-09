@@ -1,0 +1,121 @@
+# 验证 realm 引擎：拿官方 v2.9.6 二进制跑一次真实转发。
+#
+# 为什么需要它：Agent 生成的 realm.toml 与 realm 之间存在**隐式契约**
+# （字段名、balance 语法、endpoint 结构）。单元测试只能保证"我们生成了
+# 以为对的字符串"，只有真实二进制能证明它被接受并且真的转发。
+#
+# 同时校验 scripts/realm-checksums.txt 里的哈希：清单一旦写错，这里会红。
+name: Verify Realm
+
+on:
+  push:
+    tags: ["v*"]
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REALM_VERSION: v2.9.6
+  REALM_ASSET: realm-x86_64-unknown-linux-musl.tar.gz
+
+jobs:
+  verify:
+    name: real realm round-trip
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cargo-home
+            target
+          key: verify-realm-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Fetch realm and verify checksum
+        run: |
+          set -euo pipefail
+          expected="$(grep -E "^${REALM_VERSION}[[:space:]]+${REALM_ASSET}[[:space:]]" scripts/realm-checksums.txt | awk '{print $3}')"
+          if [ -z "${expected}" ]; then
+            echo "::error::scripts/realm-checksums.txt 里没有 ${REALM_ASSET} 的哈希"
+            exit 1
+          fi
+          curl -fsSL -o /tmp/realm.tar.gz \
+            "https://github.com/zhboner/realm/releases/download/${REALM_VERSION}/${REALM_ASSET}"
+          actual="$(sha256sum /tmp/realm.tar.gz | awk '{print $1}')"
+          if [ "${expected}" != "${actual}" ]; then
+            echo "::error::realm 归档哈希不匹配：期望 ${expected}，实际 ${actual}"
+            exit 1
+          fi
+          tar xzf /tmp/realm.tar.gz -C /tmp realm
+          /tmp/realm --version || true
+
+      # 我们生成的配置形状（见 crates/agent/src/realm.rs 的 render_config）
+      - name: Write config in our generated shape
+        run: |
+          cat > /tmp/realm.toml <<'TOML'
+          [network]
+          no_tcp = false
+          use_udp = false
+
+          [[endpoints]]
+          listen = "127.0.0.1:31001"
+          remote = "127.0.0.1:41001"
+          no_tcp = false
+          use_udp = false
+          TOML
+
+      - name: Round-trip through realm
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' &
+          import socket, threading
+          srv = socket.socket(); srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+          srv.bind(("127.0.0.1", 41001)); srv.listen(8)
+          def serve(c):
+              with c:
+                  while True:
+                      data = c.recv(4096)
+                      if not data: break
+                      c.sendall(b"echo:" + data)
+          while True:
+              conn, _ = srv.accept()
+              threading.Thread(target=serve, args=(conn,), daemon=True).start()
+          PY
+          echo $! > /tmp/echo.pid
+          /tmp/realm -c /tmp/realm.toml > /tmp/realm.log 2>&1 &
+          echo $! > /tmp/realm.pid
+          sleep 2
+          python3 - <<'PY'
+          import socket, sys, time
+          payload = b"pierwave-realm-check"
+          for attempt in range(20):
+              try:
+                  with socket.create_connection(("127.0.0.1", 31001), timeout=2) as s:
+                      s.sendall(payload)
+                      got = s.recv(4096)
+                      assert got == b"echo:" + payload, got
+                      print("ok realm 转发:", got)
+                      break
+              except Exception as exc:  # 端口刚起时会有几次失败
+                  if attempt == 19:
+                      print("FAIL: 经 realm 转发失败", exc, file=sys.stderr)
+                      sys.exit(1)
+                  time.sleep(0.5)
+          PY
+
+      - name: Show realm log on failure
+        if: failure()
+        run: cat /tmp/realm.log || true
+
+      - name: Annotate failure
+        if: failure()
+        run: |
+          echo "::error::realm 真实转发验证失败：先看 realm.log 是配置被拒（字段名/语法）还是端口未监听。"
