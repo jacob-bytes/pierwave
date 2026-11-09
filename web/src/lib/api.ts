@@ -531,6 +531,16 @@ export interface CreateRoutingRuleInput {
 export type UpdateRoutingRuleInput = Partial<CreateRoutingRuleInput>;
 
 /**
+ * 转发引擎。
+ *
+ * - `native`：PierWave 自带实现（TCP，组内选路与降级，暂不支持 UDP）；
+ * - `realm`：调用 realm 子进程（支持 UDP 与带权重负载均衡）。
+ *
+ * 与后端 `crates/domain/src/engine.rs` 的白名单一致。
+ */
+export type ForwardEngine = "native" | "realm";
+
+/**
  * 单跳 TCP 端口转发：Agent 在服务器上监听 `listen_port`，
  * 把入站连接原样转发到 `target_host:target_port`。
  *
@@ -552,6 +562,8 @@ export interface Forward {
   target_host: string;
   target_port: number;
   enabled: boolean;
+  /** 实现这条规则所用的引擎；后端缺省 / 历史数据为 `native`。 */
+  engine: ForwardEngine;
   created_at: number;
   updated_at: number;
   /**
@@ -567,6 +579,8 @@ export interface CreateForwardInput {
   target_host: string;
   target_port: number;
   enabled?: boolean;
+  /** 缺省 = `native`；表单总是显式发送，以便 edit 能把 realm 改回 native。 */
+  engine?: ForwardEngine;
 }
 
 export type UpdateForwardInput = Partial<CreateForwardInput>;
@@ -622,6 +636,8 @@ export interface Chain {
   target_host: string;
   target_port: number;
   enabled: boolean;
+  /** 整条链共用的引擎，逐跳透传到每个成员的期望态。 */
+  engine: ForwardEngine;
   /** 任一组 / 成员 degraded 即为 true。 */
   degraded: boolean;
   /** 按 `seq` 升序排列；前端只读这个字段，不再读兼容用的 `hops`。 */
@@ -650,6 +666,8 @@ export interface CreateChainInput {
   target_host: string;
   target_port: number;
   enabled?: boolean;
+  /** 缺省 = `native`；整条链共用一个引擎。 */
+  engine?: ForwardEngine;
   /** 1–4 组，按入口到目标的顺序排列。 */
   groups: ChainGroupInput[];
 }

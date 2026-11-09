@@ -59,6 +59,22 @@ const zhCN = {
     listSeparator: "、",
     days: "{n} 天",
     requestFailed: "请求失败 ({status})",
+    engine: {
+      native: {
+        label: "自带",
+        short: "PierWave 自带 · TCP",
+        desc: "PierWave 自带实现：TCP 转发，支持组内选路与降级；目前不支持 UDP。",
+      },
+      realm: {
+        label: "realm",
+        short: "realm 子进程 · UDP",
+        desc: "调用 realm（v2.9.6）子进程：支持 UDP 与带权重负载均衡；状态只能探测到端口级。realm 未安装时规则显示「未监听 + realm 未安装」。",
+      },
+      unknown: {
+        label: "未知引擎",
+        desc: "后端返回了未识别的转发引擎；界面按自带引擎展示，重新保存会写成 native。",
+      },
+    },
   },
   status: {
     active: "生效中",
@@ -1606,6 +1622,12 @@ const zhCN = {
     manageAria: "管理 {name} 的端口转发",
     relayNote:
       "「监听中」只代表 Agent 已在本机监听该端口，不验证目标地址是否可达。",
+    engine: {
+      missing: "引擎缺失",
+      missingHint: "未安装 realm，规则无法监听；安装后会自动恢复。",
+      missingTitle:
+        "引擎缺失：服务器上找不到 realm 可执行文件（{error}）。这是环境问题，不是转发配置错误；安装 realm 后会自动恢复。",
+    },
     list: {
       title: "转发规则",
       add: "新建转发",
@@ -1657,6 +1679,10 @@ const zhCN = {
       enabledHint: "停用后 Agent 会停止监听该端口。",
       enabledOn: "保存后立即启用",
       enabledOff: "保存为停用",
+      engine: "转发引擎",
+      engineAria: "转发引擎",
+      engineHint:
+        "选择运行这条规则所用的实现；保存后需要应用配置才会下发到 Agent。",
       submitCreate: "创建转发",
       submitSave: "保存修改",
       saving: "保存中…",
@@ -1679,6 +1705,15 @@ const zhCN = {
     loadError: "加载转发链失败，请检查网络后重试",
     relayNote:
       "「监听中」只代表该成员已在本机打开端口，不验证下一跳是否可达；「目标不可达」连续出现 2 次判定为降级。",
+    engine: {
+      missing: "引擎缺失",
+      missingHint: "整条链使用 realm，但成员服务器未安装 realm；安装后会自动恢复。",
+      missingTitle:
+        "引擎缺失：整条链使用 realm，但至少有一台成员服务器未安装 realm。这是环境问题，不是链路配置错误；安装 realm 后会自动恢复。",
+      memberMissing: "引擎缺失",
+      memberMissingTitle:
+        "服务器「{server}」未安装 realm，这一跳无法监听；安装后会自动恢复，不是端口或目标配置错误。",
+    },
     enableAction: "启用",
     disableAction: "停用",
     toggleAria: "{action}转发链「{name}」",
@@ -1798,6 +1833,10 @@ const zhCN = {
       enabledHint: "停用后 Agent 会停止监听这条链的所有成员。",
       enabledOn: "保存后立即启用",
       enabledOff: "保存为停用",
+      engine: "转发引擎（整条链）",
+      engineAria: "转发链的转发引擎",
+      engineHint:
+        "整条链共用一个引擎，逐跳透传；切换引擎会重建所有成员的监听。",
       groups: "链路节点",
       groupsHint:
         "每一跳可以是单节点（1 台）或分组（1-8 台）；同一台服务器不能在同一条链里重复。",

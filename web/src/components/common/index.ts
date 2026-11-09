@@ -1,5 +1,6 @@
 export { EmptyState } from "./EmptyState";
 export type { EmptyStateProps } from "./EmptyState";
+export { EngineBadge } from "./EngineBadge";
 export { PageHeader } from "./PageHeader";
 export type { PageHeaderProps } from "./PageHeader";
 export { SkeletonCard, SkeletonLine, SkeletonTable } from "./Skeleton";

@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -51,9 +52,16 @@ import {
   orderMembers,
   type ChainStrategy,
 } from "@/lib/chains";
+import {
+  FORWARD_ENGINES,
+  engineInput,
+  isForwardEngine,
+  normalizeEngine,
+} from "@/lib/engines";
 import { errorText } from "@/lib/errors";
 import { useCreateChain, useUpdateChain } from "@/lib/queries";
 import { chainFormSchema, type ChainFormValues } from "@/lib/schemas";
+import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
 
 interface ChainFormDialogProps {
@@ -622,9 +630,12 @@ export function ChainFormDialog({
       target_host: chain?.target_host ?? "",
       target_port: chain ? String(chain.target_port) : "",
       enabled: chain ? Boolean(chain.enabled) : true,
+      // 编辑旧链：engine 缺失时按契约缺省 native 回填，不让选项显示成空白。
+      engine: normalizeEngine(chain?.engine),
       groups: initialGroups,
     },
   });
+  const selectedEngine = form.watch("engine");
 
   const { fields, append, remove, move } = useFieldArray({
     control: form.control,
@@ -646,6 +657,8 @@ export function ChainFormDialog({
       target_host: values.target_host.trim(),
       target_port: Number(values.target_port),
       enabled: values.enabled,
+      // native 也显式发送：编辑时把 realm 改回 native，PATCH 必须带 engine。
+      ...engineInput(values.engine),
       groups: values.groups.map((group) => ({
         name:
           group.kind === "single"
@@ -782,6 +795,63 @@ export function ChainFormDialog({
               />
             </FormField>
           </div>
+
+          <FormField
+            label={t("chains.form.engine")}
+            hint={t("chains.form.engineHint")}
+          >
+            <div className="space-y-2">
+              <RadioGroup
+                aria-label={t("chains.form.engineAria")}
+                value={selectedEngine}
+                onValueChange={(next) => {
+                  if (!isForwardEngine(next)) return;
+                  form.setValue("engine", next, {
+                    shouldDirty: true,
+                    shouldTouch: true,
+                    shouldValidate: true,
+                  });
+                }}
+                disabled={pending}
+                className="grid gap-2 sm:grid-cols-2"
+              >
+                {FORWARD_ENGINES.map((engine) => {
+                  const active = selectedEngine === engine;
+                  return (
+                    <Label
+                      key={engine}
+                      htmlFor={`chain-engine-${engine}`}
+                      className={cn(
+                        "flex cursor-pointer items-start gap-2 rounded-lg border border-border bg-card p-2.5 transition-colors duration-150 hover:bg-muted/40",
+                        active &&
+                          "border-primary/60 bg-primary/5 hover:bg-primary/5",
+                        pending && "cursor-not-allowed opacity-60",
+                      )}
+                    >
+                      <RadioGroupItem
+                        id={`chain-engine-${engine}`}
+                        value={engine}
+                        disabled={pending}
+                        className="mt-0.5"
+                      />
+                      <span className="min-w-0 space-y-0.5">
+                        <span className="block text-sm font-medium">
+                          {t(`common.engine.${engine}.label`)}
+                        </span>
+                        <span className="block type-micro leading-normal text-muted-foreground">
+                          {t(`common.engine.${engine}.short`)}
+                        </span>
+                      </span>
+                    </Label>
+                  );
+                })}
+              </RadioGroup>
+              {/* 整条链一个引擎：说明里点明「逐跳透传」与 UDP 差异。 */}
+              <p className="rounded-md border border-border bg-muted/20 px-2.5 py-2 type-micro leading-normal text-muted-foreground">
+                {t(`common.engine.${selectedEngine}.desc`)}
+              </p>
+            </div>
+          </FormField>
 
           <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">

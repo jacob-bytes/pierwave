@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import {
   EmptyState,
+  EngineBadge,
   ListError,
   MobileDataCard,
   PageHeader,
@@ -68,6 +69,7 @@ import {
   type HopListeningState,
   type HopTargetState,
 } from "@/lib/chains";
+import { chainEngineMissing, engineMissing } from "@/lib/engines";
 import { errorText } from "@/lib/errors";
 import { formatForwardTarget } from "@/lib/forwards";
 import { useChains, useServers, useUpdateChain } from "@/lib/queries";
@@ -176,30 +178,40 @@ function MemberListeningStatus({ member }: { member: ChainGroupMember }) {
   const { t } = useI18n();
   const state = hopListeningState(member.listening);
   const meta = MEMBER_LISTENING_META[state];
+  // realm 成员报「未安装」：这是引擎缺失，不是端口 / 目标配置错。
+  const missingEngine =
+    state === "failed" && engineMissing(member.listening, member.error);
   const title =
     state === "listening"
       ? t("chains.member.listeningTitle", {
           server: member.server_name,
           port: member.listen_port,
         })
-      : state === "failed"
-        ? t("chains.member.listeningFailedTitle", {
-            error: member.error.trim() || t("chains.member.noError"),
+      : missingEngine
+        ? t("chains.engine.memberMissingTitle", {
+            server: member.server_name,
           })
-        : t("chains.member.listeningUnreportedTitle");
+        : state === "failed"
+          ? t("chains.member.listeningFailedTitle", {
+              error: member.error.trim() || t("chains.member.noError"),
+            })
+          : t("chains.member.listeningUnreportedTitle");
 
   return (
     <span
-      className={cn("inline-flex items-center gap-1 type-micro", meta.text)}
+      className={cn(
+        "inline-flex items-center gap-1 type-micro",
+        missingEngine ? "text-warning" : meta.text,
+      )}
       title={title}
     >
       <StatusDot
         className={cn(
-          meta.dot,
+          missingEngine ? "bg-warning" : meta.dot,
           state === "listening" && "motion-safe:animate-pulse",
         )}
       />
-      {t(meta.labelKey)}
+      {missingEngine ? t("chains.engine.memberMissing") : t(meta.labelKey)}
     </span>
   );
 }
@@ -229,26 +241,44 @@ function MemberTargetStatus({ member }: { member: ChainGroupMember }) {
 /**
  * 整链状态列。降级时逐条列出「第 N 组 组名」，
  * 不用展开就能看到坏在哪一组；展开行的成员卡片给出同样的信息与错误原文。
+ *
+ * realm 链报「realm 未安装」时链本身未必降级（target_ok 没失败），
+ * 所以额外用 warning 提示「引擎缺失」，避免把环境问题看成链路健康。
  */
 function ChainStatusCell({ chain }: { chain: Chain }) {
   const { t } = useI18n();
   const status = chainStatus(chain.enabled, chain.degraded);
   const meta = CHAIN_STATUS_META[status];
   const failing = degradedGroups(chain.groups);
+  // 停用的链 Agent 本来就不会监听，不提示引擎缺失。
+  const missingEngine = status !== "disabled" && chainEngineMissing(chain);
+  // 还没降级但引擎缺失时，主标签用「引擎缺失」代替会误导的「正常」。
+  const main =
+    missingEngine && status === "ok"
+      ? {
+          labelKey: "chains.engine.missing",
+          dot: "bg-warning",
+          text: "text-warning",
+        }
+      : meta;
+  const title =
+    missingEngine && status === "ok"
+      ? t("chains.engine.missingTitle")
+      : t(meta.titleKey);
 
   return (
     <div className="flex max-w-64 flex-col gap-0.5">
       <span
-        className={cn("inline-flex items-center gap-1.5 text-xs", meta.text)}
-        title={t(meta.titleKey)}
+        className={cn("inline-flex items-center gap-1.5 text-xs", main.text)}
+        title={title}
       >
         <StatusDot
           className={cn(
-            meta.dot,
+            main.dot,
             status === "degraded" && "motion-safe:animate-pulse",
           )}
         />
-        {t(meta.labelKey)}
+        {t(main.labelKey)}
       </span>
       {status === "degraded" ? (
         <span className="flex flex-col gap-0.5">
@@ -270,6 +300,14 @@ function ChainStatusCell({ chain }: { chain: Chain }) {
               {t("chains.list.degradedHint")}
             </span>
           )}
+        </span>
+      ) : null}
+      {missingEngine ? (
+        <span
+          className="truncate type-micro text-warning"
+          title={t("chains.engine.missingTitle")}
+        >
+          {t("chains.engine.missingHint")}
         </span>
       ) : null}
     </div>
@@ -667,7 +705,10 @@ export default function ChainsPage() {
           />
         </Button>
         <div className="min-w-0">
-          <div className="truncate font-medium">{chain.name}</div>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate font-medium">{chain.name}</span>
+            <EngineBadge engine={chain.engine} />
+          </div>
         </div>
       </div>
     );

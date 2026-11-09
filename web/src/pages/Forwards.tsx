@@ -13,7 +13,7 @@ import {
   Trash2Icon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { EmptyState, SkeletonTable } from "@/components/common";
+import { EmptyState, EngineBadge, SkeletonTable } from "@/components/common";
 import { DeleteForwardDialog } from "@/components/forwards/DeleteForwardDialog";
 import { ForwardFormDialog } from "@/components/forwards/ForwardFormDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -45,6 +45,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { Forward } from "@/lib/api";
+import { forwardEngineMissing } from "@/lib/engines";
 import { errorText } from "@/lib/errors";
 import {
   formatForwardTarget,
@@ -99,6 +100,9 @@ const FORWARD_STATUS_META: Record<
  * 状态列。语义按「停用 → 未上报 → 监听中 → 失败」判定；
  * 失败时把 `runtime.error` 放在徽章下方的副行，并同时挂到 title 上，
  * 窄屏截断也能看到完整原因。
+ *
+ * 例外：realm 规则报「未安装」时，主标签改成「引擎缺失」并用 warning 色，
+ * 与真正的配置 / 端口错误区分开——装好 realm 会自行恢复，不需要改规则。
  */
 function ForwardStatusCell({ forward }: { forward: Forward }) {
   const { t } = useI18n();
@@ -106,9 +110,13 @@ function ForwardStatusCell({ forward }: { forward: Forward }) {
   const meta = FORWARD_STATUS_META[status];
   const runtimeError = forwardRuntimeError(forward.runtime);
   const target = formatForwardTarget(forward.target_host, forward.target_port);
+  const engineMissing = status === "failed" && forwardEngineMissing(forward);
 
-  const title =
-    status === "disabled"
+  const title = engineMissing
+    ? t("forwards.engine.missingTitle", {
+        error: runtimeError ?? t("forwards.status.noError"),
+      })
+    : status === "disabled"
       ? t("forwards.status.disabledTitle")
       : status === "unknown"
         ? t("forwards.status.unknownTitle")
@@ -124,29 +132,39 @@ function ForwardStatusCell({ forward }: { forward: Forward }) {
   return (
     <div className="flex max-w-56 flex-col gap-0.5">
       <span
-        className={cn("inline-flex items-center gap-1.5 text-xs", meta.text)}
+        className={cn(
+          "inline-flex items-center gap-1.5 text-xs",
+          engineMissing ? "text-warning" : meta.text,
+        )}
         title={title}
       >
         <span
           aria-hidden="true"
           className={cn(
             "size-1.5 rounded-full",
-            meta.dot,
+            engineMissing ? "bg-warning" : meta.dot,
             status === "listening" && "motion-safe:animate-pulse",
           )}
         />
-        {t(meta.labelKey)}
+        {engineMissing ? t("forwards.engine.missing") : t(meta.labelKey)}
       </span>
       {status === "failed" ? (
         <span
-          className="truncate type-micro text-destructive"
+          className={cn(
+            "truncate type-micro",
+            engineMissing ? "text-warning" : "text-destructive",
+          )}
           title={
-            runtimeError
-              ? t("forwards.status.errorTitle", { error: runtimeError })
-              : t("forwards.status.noError")
+            engineMissing
+              ? title
+              : runtimeError
+                ? t("forwards.status.errorTitle", { error: runtimeError })
+                : t("forwards.status.noError")
           }
         >
-          {runtimeError ?? t("forwards.status.noError")}
+          {engineMissing
+            ? t("forwards.engine.missingHint")
+            : (runtimeError ?? t("forwards.status.noError"))}
         </span>
       ) : null}
     </div>
@@ -464,8 +482,11 @@ export default function ForwardsPage() {
                   return (
                     <TableRow key={forward.id}>
                       <TableCell className="max-w-56 px-4 py-2.5">
-                        <div className="truncate font-medium">
-                          {forward.name}
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <span className="truncate font-medium">
+                            {forward.name}
+                          </span>
+                          <EngineBadge engine={forward.engine} />
                         </div>
                       </TableCell>
                       <TableCell className="px-4 py-2.5 font-mono text-xs tabular-nums">

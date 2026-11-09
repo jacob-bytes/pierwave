@@ -959,6 +959,7 @@ function applyForwardInput(forward: Forward, input: UpdateForwardInput): Forward
       ? { target_port: input.target_port }
       : {}),
     ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+    ...(input.engine !== undefined ? { engine: input.engine } : {}),
   };
 }
 
@@ -1056,6 +1057,7 @@ function applyChainInput(chain: Chain, input: UpdateChainInput): Chain {
       ? { target_port: input.target_port }
       : {}),
     ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+    ...(input.engine !== undefined ? { engine: input.engine } : {}),
   };
 }
 

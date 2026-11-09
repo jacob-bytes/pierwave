@@ -63,6 +63,22 @@ const en = {
     listSeparator: ", ",
     days: "{n} days",
     requestFailed: "Request failed ({status})",
+    engine: {
+      native: {
+        label: "Native",
+        short: "Built-in · TCP",
+        desc: "PierWave's built-in implementation: TCP forwarding with in-group selection and failover; UDP is not supported yet.",
+      },
+      realm: {
+        label: "realm",
+        short: "realm subprocess · UDP",
+        desc: "Runs the realm (v2.9.6) subprocess: supports UDP and weighted load balancing; health can only be probed at the port level. If realm is not installed, the rule shows “not listening + realm not installed”.",
+      },
+      unknown: {
+        label: "Unknown engine",
+        desc: "The backend returned an unrecognized forward engine; the UI treats it as Native, and saving again writes native.",
+      },
+    },
   },
   status: {
     active: "Active",
@@ -1708,6 +1724,13 @@ const en = {
     manageAria: "Manage port forwarding for {name}",
     relayNote:
       "“Listening” only means the Agent has opened this port on the host; it does not verify that the target address is reachable.",
+    engine: {
+      missing: "Engine missing",
+      missingHint:
+        "realm is not installed, so the rule cannot listen; it recovers automatically after installation.",
+      missingTitle:
+        "Engine missing: the realm executable was not found on the server ({error}). This is an environment issue, not a forwarding misconfiguration; it recovers automatically after realm is installed.",
+    },
     list: {
       title: "Forward rules",
       add: "New forward",
@@ -1761,6 +1784,10 @@ const en = {
       enabledHint: "Disabling makes the Agent stop listening on this port.",
       enabledOn: "Enabled immediately after saving",
       enabledOff: "Saved as disabled",
+      engine: "Forward engine",
+      engineAria: "Forward engine",
+      engineHint:
+        "Choose which implementation runs this rule; apply the config after saving to deliver it to the Agent.",
       submitCreate: "Create forward",
       submitSave: "Save changes",
       saving: "Saving…",
@@ -1784,6 +1811,16 @@ const en = {
       "Could not load forward chains. Check your network and try again.",
     relayNote:
       "“Listening” only means this member has opened the port on the host; it does not verify the next hop. Two consecutive “target unreachable” probes mark the member as degraded.",
+    engine: {
+      missing: "Engine missing",
+      missingHint:
+        "The whole chain uses realm, but a member server does not have realm installed; it recovers automatically after installation.",
+      missingTitle:
+        "Engine missing: the whole chain uses realm, but at least one member server does not have realm installed. This is an environment issue, not a chain misconfiguration; it recovers automatically after realm is installed.",
+      memberMissing: "Engine missing",
+      memberMissingTitle:
+        "Server “{server}” does not have realm installed, so this hop cannot listen. This is not a port or target misconfiguration; it recovers automatically after realm is installed.",
+    },
     enableAction: "Enable",
     disableAction: "Disable",
     toggleAria: "{action} forward chain “{name}”",
@@ -1910,6 +1947,10 @@ const en = {
         "Disabling makes the Agent stop listening on every member of this chain.",
       enabledOn: "Enabled immediately after saving",
       enabledOff: "Saved as disabled",
+      engine: "Forward engine (whole chain)",
+      engineAria: "Forward engine for the chain",
+      engineHint:
+        "The whole chain shares one engine, passed through every hop; switching it rebuilds the listeners on all members.",
       groups: "Chain hops",
       groupsHint:
         "Each hop can be a single node (1 server) or a group (1-8 servers); the same server cannot appear twice in one chain.",

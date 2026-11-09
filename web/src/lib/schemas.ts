@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { TFunction } from "@/i18n";
 import { CHAIN_STRATEGIES, collectGroupIssues } from "@/lib/chains";
+import { FORWARD_ENGINES } from "@/lib/engines";
 import {
   ANY_INBOUND_TAG,
   isReservedOutboundTag,
@@ -376,6 +377,8 @@ export function forwardFormSchema(t: TFunction) {
       .max(255, t("validation.forwardTargetMax")),
     target_port: requiredIntField(1, 65535, t("validation.portRange")),
     enabled: z.boolean(),
+    // 只允许后端白名单里的两个值；未知值在表单打开时已回落 native。
+    engine: z.enum(FORWARD_ENGINES),
   });
 }
 
@@ -410,6 +413,8 @@ export function chainFormSchema(t: TFunction) {
         .max(255, t("validation.chainTargetMax")),
       target_port: requiredIntField(1, 65535, t("validation.portRange")),
       enabled: z.boolean(),
+      // 整条链共用一个引擎；只允许后端白名单里的两个值。
+      engine: z.enum(FORWARD_ENGINES),
       groups: z.array(
         z.object({
           kind: z.enum(["single", "group"]),

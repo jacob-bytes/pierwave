@@ -14,11 +14,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import type { Forward } from "@/lib/api";
+import {
+  FORWARD_ENGINES,
+  engineInput,
+  isForwardEngine,
+  normalizeEngine,
+} from "@/lib/engines";
 import { errorText } from "@/lib/errors";
 import { useCreateForward, useUpdateForward } from "@/lib/queries";
 import { forwardFormSchema, type ForwardFormValues } from "@/lib/schemas";
+import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
 
 interface ForwardFormDialogProps {
@@ -57,8 +66,11 @@ export function ForwardFormDialog({
       target_host: forward?.target_host ?? "",
       target_port: forward ? String(forward.target_port) : "",
       enabled: forward ? Boolean(forward.enabled) : true,
+      // 旧数据 / 旧后端没有 engine：按契约缺省 native 回填。
+      engine: normalizeEngine(forward?.engine),
     },
   });
+  const selectedEngine = form.watch("engine");
 
   // 切换语言后重新校验，让已经显示的错误跟着换语言。
   useEffect(() => {
@@ -74,6 +86,9 @@ export function ForwardFormDialog({
       target_host: values.target_host.trim(),
       target_port: Number(values.target_port),
       enabled: values.enabled,
+      // native 也显式发送：edit 时把 realm 改回 native 必须带字段，
+      // 否则 PATCH 的缺省语义是「不改」。
+      ...engineInput(values.engine),
     };
 
     try {
@@ -198,6 +213,63 @@ export function ForwardFormDialog({
               aria-invalid={Boolean(form.formState.errors.target_port)}
               className="font-mono tabular-nums"
             />
+          </FormField>
+
+          <FormField
+            label={t("forwards.form.engine")}
+            hint={t("forwards.form.engineHint")}
+          >
+            <div className="space-y-2">
+              <RadioGroup
+                aria-label={t("forwards.form.engineAria")}
+                value={selectedEngine}
+                onValueChange={(next) => {
+                  if (!isForwardEngine(next)) return;
+                  form.setValue("engine", next, {
+                    shouldDirty: true,
+                    shouldTouch: true,
+                    shouldValidate: true,
+                  });
+                }}
+                disabled={pending}
+                className="grid gap-2 sm:grid-cols-2"
+              >
+                {FORWARD_ENGINES.map((engine) => {
+                  const active = selectedEngine === engine;
+                  return (
+                    <Label
+                      key={engine}
+                      htmlFor={`forward-engine-${engine}`}
+                      className={cn(
+                        "flex cursor-pointer items-start gap-2 rounded-lg border border-border bg-card p-2.5 transition-colors duration-150 hover:bg-muted/40",
+                        active &&
+                          "border-primary/60 bg-primary/5 hover:bg-primary/5",
+                        pending && "cursor-not-allowed opacity-60",
+                      )}
+                    >
+                      <RadioGroupItem
+                        id={`forward-engine-${engine}`}
+                        value={engine}
+                        disabled={pending}
+                        className="mt-0.5"
+                      />
+                      <span className="min-w-0 space-y-0.5">
+                        <span className="block text-sm font-medium">
+                          {t(`common.engine.${engine}.label`)}
+                        </span>
+                        <span className="block type-micro leading-normal text-muted-foreground">
+                          {t(`common.engine.${engine}.short`)}
+                        </span>
+                      </span>
+                    </Label>
+                  );
+                })}
+              </RadioGroup>
+              {/* 随选择切换的完整说明：native 不支持 UDP / realm 支持 UDP 与权重。 */}
+              <p className="rounded-md border border-border bg-muted/20 px-2.5 py-2 type-micro leading-normal text-muted-foreground">
+                {t(`common.engine.${selectedEngine}.desc`)}
+              </p>
+            </div>
           </FormField>
 
           <FormField
