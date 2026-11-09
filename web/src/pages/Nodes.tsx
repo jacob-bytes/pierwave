@@ -127,7 +127,7 @@ function NodeTrafficCell({
         {hasTraffic ? formatBytes(weighted) : "—"}
       </span>
       {hasTraffic && traffic ? (
-        <span className="font-mono text-[10px] whitespace-nowrap text-muted-foreground">
+        <span className="font-mono text-micro whitespace-nowrap text-muted-foreground">
           ↓ {formatBytes(traffic.downlink)} · ↑ {formatBytes(traffic.uplink)}
         </span>
       ) : null}
@@ -302,7 +302,7 @@ export default function NodesPage() {
             <ArrowLeftIcon className="size-3" />
             {t("nodes.backServers")}
           </Link>
-          <h1 className="mt-1 flex min-w-0 items-center gap-2 text-xl font-semibold tracking-tight">
+          <h1 className="mt-1 flex min-w-0 items-center gap-2 text-xl leading-tight font-semibold tracking-tight">
             <span className="shrink-0">{t("nodes.title")}</span>
             <span className="text-muted-foreground">·</span>
             {servers.isPending ? (
@@ -313,7 +313,7 @@ export default function NodesPage() {
             {server ? (
               <Badge
                 variant="secondary"
-                className="font-mono text-[11px] font-normal text-muted-foreground"
+                className="font-mono text-micro font-normal text-muted-foreground"
               >
                 v{server.config_version}
               </Badge>
@@ -380,7 +380,7 @@ export default function NodesPage() {
               {nodes.data ? (
                 <Badge
                   variant="secondary"
-                  className="font-mono text-[11px] font-normal text-muted-foreground"
+                  className="font-mono text-micro font-normal text-muted-foreground"
                 >
                   {items.length}
                 </Badge>
@@ -457,14 +457,14 @@ export default function NodesPage() {
                         </div>
                         <SpeedLimitBadge kbps={node.bandwidth_kbps} />
                       </div>
-                      <div className="truncate font-mono text-[11px] text-muted-foreground">
+                      <div className="truncate font-mono text-micro text-muted-foreground">
                         {node.tag}
                       </div>
                     </TableCell>
                     <TableCell className="px-4 py-2.5">
                       <Badge
                         variant="outline"
-                        className="font-mono text-[11px] font-normal text-muted-foreground"
+                        className="font-mono text-micro font-normal text-muted-foreground"
                       >
                         {nodeSummary(
                           node.protocol,

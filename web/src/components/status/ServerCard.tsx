@@ -88,7 +88,7 @@ export function StatusChip({
           : undefined
       }
       className={cn(
-        "tnum h-5 shrink-0 gap-1 overflow-visible rounded-full px-1.5 text-[11px] font-normal whitespace-nowrap",
+        "tnum h-5 shrink-0 gap-1 overflow-visible rounded-full px-1.5 text-micro font-normal whitespace-nowrap",
         meta.chip,
         className,
       )}
@@ -157,7 +157,7 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
       {/* 标题行：名称在左，状态 pill 在右。名称让位、pill 不换行，
           长主机名在省略号处截断，而不是把状态挤出卡片。 */}
       <div className="flex min-w-0 items-center gap-2">
-        <h3 className="truncate text-sm font-semibold" title={server.name}>
+        <h3 className="truncate text-sm leading-tight font-medium" title={server.name}>
           {server.name}
         </h3>
         <StatusChip state={state} uptime={uptimeDuration} className="ml-auto" />

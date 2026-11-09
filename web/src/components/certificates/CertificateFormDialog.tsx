@@ -124,7 +124,7 @@ export function CertificateFormDialog({
               spellCheck={false}
               disabled={pending}
               aria-invalid={Boolean(form.formState.errors.cert_pem)}
-              className="min-h-36 resize-y font-mono text-xs leading-relaxed"
+              className="min-h-36 resize-y font-mono text-xs leading-normal"
               {...form.register("cert_pem")}
             />
           </FormField>
@@ -142,7 +142,7 @@ export function CertificateFormDialog({
               spellCheck={false}
               disabled={pending}
               aria-invalid={Boolean(form.formState.errors.key_pem)}
-              className="min-h-36 resize-y font-mono text-xs leading-relaxed"
+              className="min-h-36 resize-y font-mono text-xs leading-normal"
               {...form.register("key_pem")}
             />
           </FormField>

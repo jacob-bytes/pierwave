@@ -37,8 +37,11 @@ function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="card-title"
       className={cn(
-        "font-heading text-base leading-snug font-medium group-data-[size=sm]/card:text-sm",
-        className
+        "font-heading text-base font-medium group-data-[size=sm]/card:text-sm",
+        className,
+        // `text-sm` 在 tailwind-merge 里与 `leading` 同组，放在 className 之后
+        // 才能保证消费方覆盖字号时标题仍然用 tight 行高。
+        "leading-tight"
       )}
       {...props}
     />
@@ -49,7 +52,7 @@ function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-description"
-      className={cn("text-sm text-muted-foreground", className)}
+      className={cn("text-sm text-muted-foreground", className, "leading-normal")}
       {...props}
     />
   )

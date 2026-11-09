@@ -223,7 +223,7 @@ function BatchItemRow({
     <TableRow>
       <TableCell className="max-w-48 px-3 py-2.5">
         <span className="block truncate font-medium">{item.server_name}</span>
-        <span className="block truncate font-mono text-[11px] text-muted-foreground">
+        <span className="block truncate font-mono text-micro text-muted-foreground">
           {item.server_id}
         </span>
       </TableCell>
@@ -246,7 +246,7 @@ function BatchItemRow({
             <span
               className={cn(
                 // 失败原因会被管理员当成唯一线索，截成一行等于逼他去看后端日志
-                "block whitespace-normal break-words text-xs leading-snug",
+                "block whitespace-normal break-words text-xs leading-normal",
                 retryable ? "text-destructive" : "text-muted-foreground",
               )}
               title={item.error}

@@ -139,7 +139,7 @@ function ForwardStatusCell({ forward }: { forward: Forward }) {
       </span>
       {status === "failed" ? (
         <span
-          className="truncate text-[11px] text-destructive"
+          className="truncate text-micro text-destructive"
           title={
             runtimeError
               ? t("forwards.status.errorTitle", { error: runtimeError })
@@ -317,7 +317,7 @@ export default function ForwardsPage() {
             <ArrowLeftIcon className="size-3" />
             {t("forwards.backServers")}
           </Link>
-          <h1 className="mt-1 flex min-w-0 items-center gap-2 text-xl font-semibold tracking-tight">
+          <h1 className="mt-1 flex min-w-0 items-center gap-2 text-xl leading-tight font-semibold tracking-tight">
             <span className="shrink-0">{t("forwards.title")}</span>
             <span className="text-muted-foreground">·</span>
             {servers.isPending ? (
@@ -330,7 +330,7 @@ export default function ForwardsPage() {
             {server ? (
               <Badge
                 variant="secondary"
-                className="font-mono text-[11px] font-normal text-muted-foreground"
+                className="font-mono text-micro font-normal text-muted-foreground"
               >
                 v{server.config_version}
               </Badge>
@@ -373,7 +373,7 @@ export default function ForwardsPage() {
               {forwards.data ? (
                 <Badge
                   variant="secondary"
-                  className="font-mono text-[11px] font-normal text-muted-foreground"
+                  className="font-mono text-micro font-normal text-muted-foreground"
                 >
                   {items.length}
                 </Badge>
@@ -408,7 +408,7 @@ export default function ForwardsPage() {
           <CardDescription className="text-xs">
             {t("forwards.list.desc")}
           </CardDescription>
-          <div className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+          <div className="mt-2 flex items-start gap-1.5 text-micro leading-normal text-muted-foreground">
             <InfoIcon className="mt-px size-3 shrink-0" aria-hidden="true" />
             <span>{t("forwards.relayNote")}</span>
           </div>

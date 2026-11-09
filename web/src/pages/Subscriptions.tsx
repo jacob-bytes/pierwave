@@ -348,7 +348,7 @@ export default function SubscriptionsPage() {
         </Avatar>
         <div className="min-w-0">
           <div className="truncate font-medium">{user.username}</div>
-          <div className="font-mono text-[11px] text-muted-foreground">
+          <div className="font-mono text-micro text-muted-foreground">
             {user.short_code}
           </div>
         </div>
@@ -560,7 +560,7 @@ export default function SubscriptionsPage() {
               {subscriptions.data && !subscriptions.isError ? (
                 <Badge
                   variant="secondary"
-                  className="font-mono text-[11px] font-normal text-muted-foreground"
+                  className="font-mono text-micro font-normal text-muted-foreground"
                 >
                   {filteredItems.length}
                 </Badge>

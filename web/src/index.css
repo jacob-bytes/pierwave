@@ -42,6 +42,23 @@
     "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
     "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --font-heading: var(--font-sans);
+  /*
+   * 中文行高 token。汉字没有西文那样的升部 / 降部留白，1.5 会显得挤；
+   * 标题和单行数字用 tight，中文正文用 normal，长段落说明用 relaxed。
+   *
+   * 注意：`@theme inline` 不会把变量输出到 :root，所以这里只作为
+   * Tailwind 的 `leading-tight / leading-normal / leading-relaxed` 取值。
+   * `.text-micro` 里的 1.35 与 tight 相同，是为组件层留出的字面值。
+   */
+  --leading-tight: 1.35;
+  --leading-normal: 1.6;
+  --leading-relaxed: 1.75;
+  /*
+   * `text-sm` 是正文最常用的字号，Tailwind 默认给它 1.25rem（约 1.43）行高，
+   * 中文会偏挤。这里覆盖成 normal（1.6），让没有显式 leading-* 的正文
+   * 也落到同一套 token 上；表格行高因此约 +6.7%，仍在 ±10% 预算内。
+   */
+  --text-sm--line-height: 1.6;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -216,6 +233,22 @@
   --sidebar-ring: oklch(0.424 0.199 265.638);
   /* 亮色下给卡片一层极淡的冷色投影，让白卡从冷白底上浮起来 */
   --card-shadow: 0 1px 2px oklch(0.253 0.03 267.4 / 6%), 0 4px 12px oklch(0.253 0.03 267.4 / 4%);
+}
+
+/*
+ * 小字号语义类：11px 在中文回退字体（PingFang SC / 微软雅黑）下笔画会粘连，
+ * 且 11px 不在任何字阶里。统一收到 11.5px + 0.01em 字距：
+ * - 只放大 4.5%，比直接提到 12px（+9%）更不容易让表格 / 徽章换行；
+ * - 字距补足汉字之间的呼吸，配合 normal 行高（需要多行说明时叠加
+ *   `leading-normal`）不再是 11px 的密排效果。
+ * 放在 components 层，`leading-*` 工具类仍可覆盖这里的默认行高。
+ */
+@layer components {
+  .text-micro {
+    font-size: 11.5px;
+    line-height: 1.35;
+    letter-spacing: 0.01em;
+  }
 }
 
 @layer base {

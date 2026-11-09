@@ -65,7 +65,7 @@ function Bar({
           />
         </span>
       </div>
-      <span className="tnum truncate text-[11px] text-muted-foreground">
+      <span className="tnum truncate text-micro text-muted-foreground">
         {pair ?? "—"}
       </span>
     </div>
@@ -194,7 +194,7 @@ export function ServerTable({
                     >
                       {load ?? "—"}
                     </span>
-                    <span className="truncate text-[11px] text-muted-foreground">
+                    <span className="truncate text-micro text-muted-foreground">
                       {load === null
                         ? t("publicStatus.server.notReported")
                         : t("publicStatus.server.loadHint")}

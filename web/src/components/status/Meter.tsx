@@ -81,7 +81,7 @@ export function Meter({
       <div className="flex items-baseline justify-between gap-2">
         <span className="truncate text-xs text-muted-foreground">{label}</span>
         <span
-          className={cn("tnum shrink-0 text-xs font-semibold", valueClass)}
+          className={cn("tnum shrink-0 text-xs font-medium", valueClass)}
         >
           {display}
         </span>

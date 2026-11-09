@@ -66,14 +66,14 @@ export default function LoginPage() {
               <span className="block text-sm font-semibold tracking-tight">
                 {panelName}
               </span>
-              <span className="mt-0.5 block text-[11px] font-medium tracking-[0.16em] text-muted-foreground uppercase">
+              <span className="mt-0.5 block text-micro font-medium tracking-[0.16em] text-muted-foreground uppercase">
                 {t("login.brandSubtitle")}
               </span>
             </span>
           </div>
 
           <div>
-            <h1 className="text-xl font-semibold tracking-tight">
+            <h1 className="text-xl leading-tight font-semibold tracking-tight">
               {t("login.title", { panelName })}
             </h1>
             <p className="mx-auto mt-1.5 max-w-sm text-sm text-muted-foreground">

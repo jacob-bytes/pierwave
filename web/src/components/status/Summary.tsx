@@ -128,7 +128,7 @@ export function Summary({
             : undefined
         }
       >
-        <div className="tnum mt-0.5 text-xl leading-7 font-semibold">
+        <div className="tnum mt-0.5 text-xl leading-tight font-medium">
           {summary.servers_online} / {summary.servers_total}
         </div>
         <div className="mt-auto flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground">
@@ -159,7 +159,7 @@ export function Summary({
       <Tile icon={ActivityIcon} label={t("publicStatus.summary.busiest")}>
         <div
           className={cn(
-            "tnum mt-0.5 text-xl leading-7 font-semibold",
+            "tnum mt-0.5 text-xl leading-tight font-medium",
             busiestLoad === null && "text-muted-foreground",
           )}
         >
@@ -174,7 +174,7 @@ export function Summary({
       </Tile>
 
       <Tile icon={ArrowDownUpIcon} label={t("publicStatus.summary.monthTraffic")}>
-        <div className="tnum mt-0.5 text-xl leading-7 font-semibold">
+        <div className="tnum mt-0.5 text-xl leading-tight font-medium">
           {formatBytes(summary.traffic_month)}
         </div>
         {/* 只有「今日总量」一个数，没有下行 / 上行的拆分，就只写一个数。 */}
@@ -188,7 +188,7 @@ export function Summary({
       <Tile icon={GaugeIcon} label={t("publicStatus.summary.averageUptime")}>
         <div
           className={cn(
-            "tnum mt-0.5 text-xl leading-7 font-semibold",
+            "tnum mt-0.5 text-xl leading-tight font-medium",
             averagePercent === null && "text-muted-foreground",
           )}
         >

@@ -269,13 +269,13 @@ export function OutboundFormDialog({
                 spellCheck={false}
                 disabled={pending}
                 aria-invalid={!parsed.ok}
-                className="min-h-56 resize-y font-mono text-xs leading-relaxed"
+                className="min-h-56 resize-y font-mono text-xs leading-normal"
               />
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-micro leading-normal text-muted-foreground">
                 {t("outbounds.form.configPlaceholderHint")}
               </p>
               {showSettingsStreamHint ? (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-micro leading-normal text-muted-foreground">
                   {t("outbounds.form.placeholderSettingsStream")}
                 </p>
               ) : null}

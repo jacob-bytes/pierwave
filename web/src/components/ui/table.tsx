@@ -84,7 +84,7 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
       {overflowing && !atEnd ? (
         <div
           data-slot="table-scroll-hint"
-          className="pointer-events-none absolute right-2 bottom-2 z-10 inline-flex items-center gap-1 rounded-full border border-border bg-popover/95 px-2 py-0.5 text-[11px] whitespace-nowrap text-muted-foreground shadow-sm"
+          className="pointer-events-none absolute right-2 bottom-2 z-10 inline-flex items-center gap-1 rounded-full border border-border bg-popover/95 px-2 py-0.5 text-micro whitespace-nowrap text-muted-foreground shadow-sm"
         >
           <ArrowLeftRightIcon className="size-3" aria-hidden="true" />
           {t("common.tableScrollHint")}
@@ -166,7 +166,7 @@ function TableHead({
       data-slot="table-head"
       data-sticky={sticky}
       className={cn(
-        "h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
+        "h-10 px-2 text-left align-middle font-[550] whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
         sticky && stickyClasses[sticky],
         className
       )}

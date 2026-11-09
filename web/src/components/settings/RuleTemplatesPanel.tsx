@@ -50,7 +50,7 @@ function RuleCount({ count }: { count: number }) {
   return (
     <Badge
       variant="secondary"
-      className="font-mono text-[11px] font-normal text-muted-foreground"
+      className="font-mono text-micro font-normal text-muted-foreground"
     >
       {t(count === 1 ? "rules.ruleCountOne" : "rules.ruleCount", { n: count })}
     </Badge>
@@ -152,7 +152,7 @@ export function RuleTemplatesPanel() {
               {templates.data && !templates.isError ? (
                 <Badge
                   variant="secondary"
-                  className="font-mono text-[11px] font-normal text-muted-foreground"
+                  className="font-mono text-micro font-normal text-muted-foreground"
                 >
                   {items.length}
                 </Badge>

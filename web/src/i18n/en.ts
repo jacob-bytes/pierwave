@@ -34,6 +34,7 @@ const en = {
     errorLabel: "Error",
   },
   common: {
+    moreActions: "More actions",
     cancel: "Cancel",
     save: "Save",
     saving: "Saving…",

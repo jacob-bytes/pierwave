@@ -380,12 +380,12 @@ function SummaryCell({
               ·
             </span>
           ) : null}
-          <span className="font-mono text-[11px]">{item}</span>
+          <span className="font-mono text-micro">{item}</span>
         </span>
       ))}
       {hidden.length > 0 ? (
         <span
-          className="text-[11px] text-muted-foreground"
+          className="text-micro text-muted-foreground"
           title={hidden.join("\n")}
         >
           +{hidden.length}
@@ -532,7 +532,7 @@ function DetailDialog({
               {copied ? t("common.copied") : t("common.copy")}
             </Button>
           </div>
-          <pre className="max-h-[55vh] overflow-auto rounded-lg border border-border bg-muted/30 p-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap">
+          <pre className="max-h-[55vh] overflow-auto rounded-lg border border-border bg-muted/30 p-3 font-mono text-xs leading-normal break-words whitespace-pre-wrap">
             {text}
           </pre>
         </div>
@@ -688,7 +688,7 @@ export function AuditPanel() {
               {audit.data ? (
                 <Badge
                   variant="secondary"
-                  className="font-mono text-[11px] font-normal text-muted-foreground"
+                  className="font-mono text-micro font-normal text-muted-foreground"
                 >
                   {t("audit.loaded", { n: items.length })}
                 </Badge>

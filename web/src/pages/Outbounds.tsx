@@ -202,7 +202,7 @@ function RuleMatch({ rule }: { rule: RoutingRule }) {
       {parts.map((part) => (
         <span
           key={part}
-          className="max-w-full rounded-md border border-border bg-muted/30 px-1.5 py-0.5 font-mono text-[11px] break-all text-muted-foreground"
+          className="max-w-full rounded-md border border-border bg-muted/30 px-1.5 py-0.5 font-mono text-micro break-all text-muted-foreground"
         >
           {part}
         </span>
@@ -412,7 +412,7 @@ export default function OutboundsPage() {
             <ArrowLeftIcon className="size-3" />
             {t("outbounds.backServers")}
           </Link>
-          <h1 className="mt-1 flex min-w-0 items-center gap-2 text-xl font-semibold tracking-tight">
+          <h1 className="mt-1 flex min-w-0 items-center gap-2 text-xl leading-tight font-semibold tracking-tight">
             <span className="shrink-0">{t("outbounds.title")}</span>
             <span className="text-muted-foreground">·</span>
             {servers.isPending ? (
@@ -425,7 +425,7 @@ export default function OutboundsPage() {
             {server ? (
               <Badge
                 variant="secondary"
-                className="font-mono text-[11px] font-normal text-muted-foreground"
+                className="font-mono text-micro font-normal text-muted-foreground"
               >
                 v{server.config_version}
               </Badge>
@@ -468,7 +468,7 @@ export default function OutboundsPage() {
               {outbounds.data ? (
                 <Badge
                   variant="secondary"
-                  className="font-mono text-[11px] font-normal text-muted-foreground"
+                  className="font-mono text-micro font-normal text-muted-foreground"
                 >
                   {outboundItems.length}
                 </Badge>
@@ -554,7 +554,7 @@ export default function OutboundsPage() {
                     <TableCell className="px-4 py-2.5">
                       <Badge
                         variant="outline"
-                        className="font-mono text-[11px] font-normal text-muted-foreground"
+                        className="font-mono text-micro font-normal text-muted-foreground"
                       >
                         {outboundProtocolLabel(outbound.protocol)}
                       </Badge>
@@ -621,7 +621,7 @@ export default function OutboundsPage() {
               {rules.data ? (
                 <Badge
                   variant="secondary"
-                  className="font-mono text-[11px] font-normal text-muted-foreground"
+                  className="font-mono text-micro font-normal text-muted-foreground"
                 >
                   {ruleItems.length}
                 </Badge>
@@ -739,7 +739,7 @@ export default function OutboundsPage() {
                     <TableCell className="px-4 py-2.5">
                       <Badge
                         variant="outline"
-                        className="font-mono text-[11px] font-normal"
+                        className="font-mono text-micro font-normal"
                       >
                         {rule.outbound_tag}
                       </Badge>

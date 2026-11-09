@@ -30,6 +30,7 @@ const zhCN = {
     errorLabel: "错误信息",
   },
   common: {
+    moreActions: "更多操作",
     cancel: "取消",
     save: "保存",
     saving: "保存中…",

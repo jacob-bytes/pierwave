@@ -111,7 +111,7 @@ function KpiCard({
         </div>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col">
-        <div className="flex items-baseline text-[28px] leading-none font-semibold tracking-tight tabular-nums">
+        <div className="flex items-baseline text-[28px] leading-tight font-medium tracking-tight tabular-nums">
           {value}
         </div>
         {/* 底部对齐：有变化率时不会把同一行的其它卡片撑得高低不一。 */}
@@ -417,7 +417,7 @@ export default function OverviewPage() {
                 <CardAction>
                   <Badge
                     variant="outline"
-                    className="font-mono text-[11px] font-normal text-muted-foreground"
+                    className="font-mono text-micro font-normal text-muted-foreground"
                   >
                     {trafficTotal === null
                       ? "—"

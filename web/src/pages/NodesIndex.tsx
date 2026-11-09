@@ -110,7 +110,7 @@ export default function NodesIndexPage() {
     <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">{t("nodes.title")}</h1>
+          <h1 className="text-xl leading-tight font-semibold tracking-tight">{t("nodes.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {t("nodes.index.subtitle")}
           </p>

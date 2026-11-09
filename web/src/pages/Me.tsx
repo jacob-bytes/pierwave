@@ -226,7 +226,7 @@ function Metric({
         <Icon className="size-3.5" />
         {label}
       </div>
-      <div className="mt-1 text-base font-semibold tracking-tight tabular-nums">
+      <div className="mt-1 text-base leading-tight font-semibold tracking-tight tabular-nums">
         {value}
       </div>
     </div>
@@ -264,7 +264,7 @@ function OverviewCard({ summary }: { summary: MeSummary }) {
           <>
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div className="min-w-0">
-                <div className="text-lg font-semibold tracking-tight">
+                <div className="text-lg leading-tight font-medium tracking-tight">
                   {plan.name}
                 </div>
                 <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -486,7 +486,7 @@ function NodesCard({ summary }: { summary: MeSummary }) {
         <CardAction>
           <Badge
             variant="secondary"
-            className="font-mono text-[11px] font-normal text-muted-foreground"
+            className="font-mono text-micro font-normal text-muted-foreground"
           >
             {summary.nodes.length}
           </Badge>
@@ -518,7 +518,7 @@ function NodesCard({ summary }: { summary: MeSummary }) {
                 <span className="flex shrink-0 items-center gap-2">
                   <Badge
                     variant="outline"
-                    className="border-transparent bg-primary/10 font-mono text-[11px] font-normal text-primary"
+                    className="border-transparent bg-primary/10 font-mono text-micro font-normal text-primary"
                   >
                     {node.protocol}
                   </Badge>
@@ -579,7 +579,7 @@ function EventRow({ event }: { event: EnforcementEvent }) {
           </span>
           <Badge
             variant="outline"
-            className="border-transparent bg-muted text-[11px] font-normal text-muted-foreground"
+            className="border-transparent bg-muted text-micro font-normal text-muted-foreground"
           >
             {eventReasonLabel(event.reason)}
           </Badge>
@@ -679,7 +679,7 @@ function TrafficCard({ traffic }: { traffic: UseQueryResult<MeTraffic> }) {
         <CardAction>
           <Badge
             variant="outline"
-            className="font-mono text-[11px] font-normal text-muted-foreground"
+            className="font-mono text-micro font-normal text-muted-foreground"
           >
             {total === null
               ? "—"
@@ -882,13 +882,13 @@ export default function MePage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex items-center gap-3">
           <Avatar size="lg">
-            <AvatarFallback className="bg-primary/15 font-semibold text-primary">
+            <AvatarFallback className="bg-primary/15 font-medium text-primary">
               {initial}
             </AvatarFallback>
           </Avatar>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-semibold tracking-tight">
+              <h1 className="text-xl leading-tight font-semibold tracking-tight">
                 {data.user.username}
               </h1>
               <MeStatusBadge status={data.usage.status} />

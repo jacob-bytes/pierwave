@@ -199,18 +199,18 @@ function GroupCard({
           {isEntry ? (
             <Badge
               variant="secondary"
-              className="h-4 px-1.5 text-[10px] font-normal"
+              className="h-4 px-1.5 text-micro font-normal"
             >
               {t("chains.form.groupEntryHint")}
             </Badge>
           ) : null}
           {isLast && !isEntry ? (
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-micro text-muted-foreground">
               {t("chains.form.groupExitHint")}
             </span>
           ) : null}
           {!single ? (
-            <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+            <span className="font-mono text-micro tabular-nums text-muted-foreground">
               {t("chains.form.memberLimit", {
                 count: fields.length,
                 max: GROUP_MAX_MEMBERS,
@@ -256,7 +256,7 @@ function GroupCard({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] text-muted-foreground">
+        <span className="text-micro text-muted-foreground">
           {t("chains.form.hopType")}
         </span>
         <div
@@ -271,7 +271,7 @@ function GroupCard({
             aria-pressed={single}
             disabled={pending}
             onClick={() => setKind("single")}
-            className="h-6 rounded-sm px-2 text-[11px]"
+            className="h-6 rounded-sm px-2 text-micro"
           >
             {t("chains.form.typeSingle")}
           </Button>
@@ -282,7 +282,7 @@ function GroupCard({
             aria-pressed={!single}
             disabled={pending}
             onClick={() => setKind("group")}
-            className="h-6 rounded-sm px-2 text-[11px]"
+            className="h-6 rounded-sm px-2 text-micro"
           >
             {t("chains.form.typeGroup")}
           </Button>
@@ -341,7 +341,7 @@ function GroupCard({
                 <SelectItem key={option.value} value={option.value}>
                   <span className="flex min-w-0 flex-col gap-0.5 whitespace-normal">
                     <span className="font-medium">{option.label}</span>
-                    <span className="text-[11px] leading-snug text-muted-foreground">
+                    <span className="text-micro leading-normal text-muted-foreground">
                       {option.desc}
                     </span>
                   </span>
@@ -367,11 +367,11 @@ function GroupCard({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
             <StrategyBadge strategy={selectedStrategy} />
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-micro text-muted-foreground">
               {t("chains.form.strategyHint")}
             </span>
           </div>
-          <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+          <p className="mt-0.5 text-micro leading-normal text-muted-foreground">
             {t(`chains.strategy.${selectedStrategy}.desc`)}
           </p>
         </div>
@@ -383,7 +383,7 @@ function GroupCard({
           <Label className="text-xs">
             {single ? t("chains.form.singleNode") : t("chains.form.members")}
           </Label>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-micro text-muted-foreground">
             {single ? t("chains.form.singleHint") : t("chains.form.membersHint")}
           </span>
         </div>
@@ -404,7 +404,7 @@ function GroupCard({
               >
                 {!single ? (
                 <div className="mb-1.5 flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-medium text-muted-foreground">
+                  <span className="text-micro font-medium text-muted-foreground">
                     {t("chains.form.member", { seq: memberSeq })}
                   </span>
                   <div className="flex shrink-0 items-center gap-0.5">
@@ -796,7 +796,7 @@ export function ChainFormDialog({
                   *
                 </span>
               </span>
-              <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+              <span className="font-mono text-micro tabular-nums text-muted-foreground">
                 {t("chains.form.groupLimit", {
                   count: fields.length,
                   max: CHAIN_MAX_GROUPS,
@@ -850,7 +850,7 @@ export function ChainFormDialog({
                 {t("chains.form.addGroup")}
               </Button>
               {servers.length === 0 && !loadingServers ? (
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-micro text-muted-foreground">
                   {t("chains.form.noServers")}
                 </span>
               ) : null}

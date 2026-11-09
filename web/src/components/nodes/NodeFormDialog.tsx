@@ -648,10 +648,10 @@ export function NodeFormDialog({
                   spellCheck={false}
                   disabled={pending}
                   aria-invalid={!parsed.ok}
-                  className="min-h-72 resize-y font-mono text-xs leading-relaxed"
+                  className="min-h-72 resize-y font-mono text-xs leading-normal"
                 />
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-micro leading-normal text-muted-foreground">
                     {isEdit
                       ? t("nodes.form.configEditHint")
                       : configDirty

@@ -237,7 +237,7 @@ export default function PackagesPage() {
     return (
       <div className="flex min-w-0 items-center gap-2">
         <PackageIcon className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
+        <span className="min-w-0 max-w-[200px] truncate font-medium">{item.name}</span>
         <SpeedLimitBadge kbps={item.speed_limit_kbps} approximate />
       </div>
     );
@@ -269,7 +269,7 @@ export default function PackagesPage() {
     return (
       <Badge
         variant="secondary"
-        className="font-mono text-[11px] font-normal text-muted-foreground"
+        className="font-mono text-micro font-normal text-muted-foreground"
       >
         {t(
           item.user_count === 1
@@ -420,7 +420,7 @@ export default function PackagesPage() {
               {packages.data && !packages.isError ? (
                 <Badge
                   variant="secondary"
-                  className="font-mono text-[11px] font-normal text-muted-foreground"
+                  className="font-mono text-micro font-normal text-muted-foreground"
                 >
                   {items.length}
                 </Badge>
@@ -482,7 +482,7 @@ export default function PackagesPage() {
                           ? "right"
                           : undefined
                     }
-                    className="h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground"
+                    className="h-9 px-4 text-xs font-[550] tracking-wide text-muted-foreground"
                   >
                     {label}
                   </TableHead>

@@ -42,7 +42,7 @@ export default function LogsPage() {
   return (
     <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">
+        <h1 className="text-xl leading-tight font-semibold tracking-tight">
           {t("logs.title")}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">

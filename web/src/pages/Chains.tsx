@@ -190,7 +190,7 @@ function MemberListeningStatus({ member }: { member: ChainGroupMember }) {
 
   return (
     <span
-      className={cn("inline-flex items-center gap-1 text-[11px]", meta.text)}
+      className={cn("inline-flex items-center gap-1 text-micro", meta.text)}
       title={title}
     >
       <StatusDot
@@ -217,7 +217,7 @@ function MemberTargetStatus({ member }: { member: ChainGroupMember }) {
 
   return (
     <span
-      className={cn("inline-flex items-center gap-1 text-[11px]", meta.text)}
+      className={cn("inline-flex items-center gap-1 text-micro", meta.text)}
       title={title}
     >
       <StatusDot className={meta.dot} />
@@ -256,7 +256,7 @@ function ChainStatusCell({ chain }: { chain: Chain }) {
             failing.map((group) => (
               <span
                 key={group.id || group.seq}
-                className="truncate text-[11px] text-warning"
+                className="truncate text-micro text-warning"
                 title={t("chains.list.degradedHint")}
               >
                 {t("chains.list.degradedGroup", {
@@ -266,7 +266,7 @@ function ChainStatusCell({ chain }: { chain: Chain }) {
               </span>
             ))
           ) : (
-            <span className="text-[11px] text-warning">
+            <span className="text-micro text-warning">
               {t("chains.list.degradedHint")}
             </span>
           )}
@@ -299,7 +299,7 @@ function GroupMemberRow({
     >
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
         <div className="flex min-w-0 items-center gap-1.5">
-          <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+          <span className="shrink-0 text-micro tabular-nums text-muted-foreground">
             {t("chains.detail.member", { seq: index + 1 })}
           </span>
           <span
@@ -316,7 +316,7 @@ function GroupMemberRow({
       </div>
       {error ? (
         <p
-          className="mt-1 truncate text-[11px] text-destructive"
+          className="mt-1 truncate text-micro text-destructive"
           title={t("chains.member.errorTitle", { error })}
         >
           {error}
@@ -352,20 +352,20 @@ function GroupCard({
     >
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <span className="shrink-0 text-[11px] text-muted-foreground">
+          <span className="shrink-0 text-micro text-muted-foreground">
             {t("chains.detail.hop", { seq: group.seq + 1 })}
           </span>
           {isEntry ? (
             <Badge
               variant="secondary"
-              className="h-4 px-1.5 text-[10px] font-normal"
+              className="h-4 px-1.5 text-micro font-normal"
             >
               {t("chains.detail.entryBadge")}
             </Badge>
           ) : null}
           <Badge
             variant="secondary"
-            className="h-4 px-1.5 text-[10px] font-normal"
+            className="h-4 px-1.5 text-micro font-normal"
           >
             {t(single ? "chains.detail.singleNode" : "chains.detail.groupType")}
           </Badge>
@@ -381,13 +381,13 @@ function GroupCard({
           {degraded ? (
             <Badge
               variant="outline"
-              className="h-4 border-warning/40 px-1.5 text-[10px] font-normal text-warning"
+              className="h-4 border-warning/40 px-1.5 text-micro font-normal text-warning"
             >
               {t("chains.member.degradedBadge")}
             </Badge>
           ) : null}
         </div>
-        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+        <span className="shrink-0 text-micro tabular-nums text-muted-foreground">
           {t(
             members.length === 1
               ? "chains.detail.memberCountOne"
@@ -402,7 +402,7 @@ function GroupCard({
         title={t("chains.detail.priorityHint")}
       >
         {members.length === 0 ? (
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-micro leading-normal text-muted-foreground">
             {t("chains.detail.emptyMembers")}
           </p>
         ) : (
@@ -428,10 +428,10 @@ function ChainGroupsDetail({ chain }: { chain: Chain }) {
   return (
     <div className="rounded-lg border border-border bg-muted/25 p-3">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-1">
-            <span className="text-[11px] font-medium text-muted-foreground">
+            <span className="text-micro font-medium text-muted-foreground">
               {t("chains.detail.title")}
             </span>
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-micro text-muted-foreground">
               {t("chains.detail.hint")}
             </span>
           </div>
@@ -457,7 +457,7 @@ function ChainGroupsDetail({ chain }: { chain: Chain }) {
                 </Fragment>
               ))}
               <div className="min-w-40 rounded-md border border-primary/25 bg-primary/5 px-2.5 py-2 lg:flex-1">
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-micro text-muted-foreground">
                   {t("chains.detail.targetBadge")}
                 </span>
                 <div
@@ -861,7 +861,7 @@ export default function ChainsPage() {
               {chains.data ? (
                 <Badge
                   variant="secondary"
-                  className="font-mono text-[11px] font-normal text-muted-foreground"
+                  className="font-mono text-micro font-normal text-muted-foreground"
                 >
                   {items.length}
                 </Badge>
@@ -896,7 +896,7 @@ export default function ChainsPage() {
           <CardDescription className="text-xs">
             {t("chains.list.desc")}
           </CardDescription>
-          <div className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+          <div className="mt-2 flex items-start gap-1.5 text-micro leading-normal text-muted-foreground">
             <InfoIcon className="mt-px size-3 shrink-0" aria-hidden="true" />
             <span>{t("chains.relayNote")}</span>
           </div>

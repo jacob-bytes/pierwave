@@ -36,7 +36,7 @@ import { AgentUpgradeDialog } from "@/components/servers/AgentUpgradeDialog";
 import { AgentUpgradeHistoryDialog } from "@/components/servers/AgentUpgradeHistoryDialog";
 import { ServerEditDialog } from "@/components/servers/ServerEditDialog";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -349,7 +349,7 @@ function VersionCell({ server }: { server: Server }) {
         {pending ? (
           <Badge
             variant="outline"
-            className="gap-1 border-transparent bg-warning/10 px-1.5 py-0 text-[11px] font-normal text-warning"
+            className="gap-1 border-transparent bg-warning/10 px-1.5 py-0 text-micro font-normal text-warning"
             title={t("servers.agentUpgrade.pendingTitle", {
               version: targetVersionLabel(server),
             })}
@@ -362,7 +362,7 @@ function VersionCell({ server }: { server: Server }) {
           </Badge>
         ) : null}
       </div>
-      <span className="font-mono text-[11px] text-muted-foreground">
+      <span className="font-mono text-micro text-muted-foreground">
         {t("servers.configVersion", { version: server.config_version })}
         {latency !== null ? (
           <>
@@ -769,7 +769,7 @@ export default function ServersPage() {
         {xrayModeLabel(server.xray_mode)}
         {server.xray_mode === "embedded" ? (
           <span
-            className="ml-1.5 rounded bg-warning/10 px-1.5 py-0.5 text-[11px] text-warning"
+            className="ml-1.5 rounded bg-warning/10 px-1.5 py-0.5 text-micro text-warning"
             title={t("servers.mode.deprecatedHint")}
           >
             {t("servers.mode.deprecated")}
@@ -808,26 +808,35 @@ export default function ServersPage() {
     return (
       <div className="flex items-center gap-1">
         <ServerDetailsPopover server={server} />
-        <Button variant="ghost" size="icon-sm" asChild title={t("servers.nodes")}>
-          <Link
-            to={`/servers/${server.id}/nodes`}
-            aria-label={t("servers.manageNodesAria", { name: server.name })}
-          >
-            <NetworkIcon className="icon-md" />
-          </Link>
-        </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={t("servers.agentUpgrade.actionsAria", {
-                name: server.name,
-              })}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Link
+              to={`/servers/${server.id}/nodes`}
+              aria-label={t("servers.manageNodesAria", { name: server.name })}
+              className={buttonVariants({ variant: "ghost", size: "icon-sm" })}
             >
-              <MoreHorizontalIcon className="icon-md" />
-            </Button>
-          </DropdownMenuTrigger>
+              <NetworkIcon className="icon-md" />
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent>{t("servers.nodes")}</TooltipContent>
+        </Tooltip>
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={t("servers.agentUpgrade.actionsAria", {
+                    name: server.name,
+                  })}
+                >
+                  <MoreHorizontalIcon className="icon-md" />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>{t("common.moreActions")}</TooltipContent>
+          </Tooltip>
           <DropdownMenuContent align="end" className="w-52">
             <DropdownMenuItem
               disabled={!server.allow_agent_upgrade}
@@ -1071,7 +1080,7 @@ export default function ServersPage() {
               {servers.data ? (
                 <Badge
                   variant="secondary"
-                  className="font-mono text-[11px] font-normal text-muted-foreground"
+                  className="font-mono text-micro font-normal text-muted-foreground"
                 >
                   {items.length}
                 </Badge>
@@ -1395,7 +1404,7 @@ export default function ServersPage() {
                     {copied === "command" ? t("common.copied") : t("common.copy")}
                   </Button>
                 </div>
-                <pre className="max-h-40 overflow-auto rounded-lg border border-border bg-muted/30 p-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap">
+                <pre className="max-h-40 overflow-auto rounded-lg border border-border bg-muted/30 p-3 font-mono text-xs leading-normal break-words whitespace-pre-wrap">
                   {created.install_command}
                 </pre>
               </div>

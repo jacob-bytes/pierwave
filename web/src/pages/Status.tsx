@@ -122,7 +122,7 @@ function StatusHeader({
     <header className="sticky top-0 z-10 border-b border-border bg-[color-mix(in_oklab,var(--card)_80%,var(--background))]">
       <div className="mx-auto flex max-w-[1400px] items-center gap-2 px-4 py-3 sm:gap-3 sm:px-6">
         <div className="min-w-0">
-          <h1 className="flex min-w-0 items-center gap-2 text-base font-semibold tracking-tight">
+          <h1 className="flex min-w-0 items-center gap-2 text-base leading-tight font-semibold tracking-tight">
             <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/15">
               <ActivityIcon className="icon-lg" aria-hidden="true" />
             </span>
