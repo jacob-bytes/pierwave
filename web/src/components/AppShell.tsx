@@ -267,7 +267,7 @@ function SidebarBody({
             ) : (
               <p
                 className={cn(
-                  "px-2.5 pb-1.5 text-micro font-medium tracking-wider text-muted-foreground",
+                  "px-2.5 pb-1.5 text-[11.5px] leading-[1.35] font-medium tracking-wider text-muted-foreground",
                   index > 0 && "pt-5",
                 )}
               >

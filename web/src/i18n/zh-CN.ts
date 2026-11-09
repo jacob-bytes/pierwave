@@ -91,7 +91,7 @@ const zhCN = {
     settings: "设置",
     me: "我的",
     groups: {
-      console: "控制台",
+      console: "资源",
       management: "管理",
       system: "系统",
       selfService: "自助",

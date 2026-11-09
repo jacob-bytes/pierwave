@@ -95,7 +95,7 @@ const en = {
     settings: "Settings",
     me: "My account",
     groups: {
-      console: "Console",
+      console: "Resources",
       management: "Management",
       system: "System",
       selfService: "Self-service",
