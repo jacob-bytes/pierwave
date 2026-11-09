@@ -184,6 +184,8 @@ const en = {
       offline: "Offline",
       abnormal: "Degraded",
       abnormalTitle: "Agent is online but Xray is not running",
+      countryTitle: "{name} / {code}",
+      countryUnset: "Country not set",
       lastHeartbeat: "Last heartbeat {time}",
       neverSeen: "Never reported",
       load: "Load",
@@ -289,6 +291,12 @@ const en = {
     onlineCount: "Online {online} / {total}",
     serviceAbnormal: "Service errors {n}",
     desc: "Agents connect out to the controller, so no inbound port is needed. The list refreshes every 15 seconds while an upgrade is pending. A server that is online but has Xray stopped is highlighted in red; on narrow screens, open Details to see load and memory.",
+    country: "Country / region",
+    countryPlaceholder: "CN / US / JP",
+    countryHint:
+      "ISO 3166-1 code, such as CN / US / JP. Used for the flag on the public status page.",
+    countryInvalid:
+      "Enter a two-letter uppercase code (such as CN / US / JP), or leave it empty.",
     tableCaption: "Server list",
     loadFailed: "Server list failed to load",
     loadError: "Could not load the server list. Check your network and try again.",
@@ -385,7 +393,7 @@ const en = {
     },
     editDialog: {
       title: "Edit server",
-      desc: "Agent upgrade settings for “{name}”.",
+      desc: "Server settings for “{name}”.",
       currentVersion: "Current Agent version",
       allow: "Allow upgrades",
       allowDesc:

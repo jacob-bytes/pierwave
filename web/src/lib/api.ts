@@ -161,6 +161,16 @@ export interface PublicStatusServer {
    * null = 这轮探测失败或旧 Agent 不上报；前端不显示该项。
    */
   latency_ms: number | null;
+  /** 管理员填写的国家/地区代码（ISO 3166-1 alpha-2）；未填写为 null。 */
+  country_code: string | null;
+  /** Agent 上报的发行版名称；旧 Agent 或读不到为 null。 */
+  os_name: string | null;
+  /** Agent 上报的发行版版本；旧 Agent 或读不到为 null。 */
+  os_version: string | null;
+  /** Agent 上报的虚拟化类型；裸机或读不到为 null。 */
+  virt: string | null;
+  /** Agent 上报的 CPU 架构；旧 Agent 为空串。 */
+  arch: string;
   /** 0..1，窗口内没有采样时为 null。 */
   uptime_24h: number | null;
   /** 0..1，窗口内没有采样时为 null。 */
@@ -207,11 +217,23 @@ export interface Server {
   latency_ms: number | null;
   /** 最后一次心跳的 Unix 秒。 */
   health_at: number | null;
+  /** Agent 上报的 CPU 架构；空串 = 未知。 */
+  arch: string;
+  /** Agent 从 /etc/os-release 读到的发行版名称；null = 旧 Agent 或读不到。 */
+  os_name: string | null;
+  /** Agent 从 /etc/os-release 读到的版本号；null = 旧 Agent 或读不到。 */
+  os_version: string | null;
+  /** Agent 探测到的虚拟化类型；null = 裸机或读不到。 */
+  virt: string | null;
+  /** 管理员填写的国家/地区代码（ISO 3166-1 alpha-2）；null = 未填写。 */
+  country_code: string | null;
 }
 
 export interface UpdateServerInput {
   /** P4：只允许改「是否允许下发升级」；其余字段后端暂未开放。 */
   allow_agent_upgrade?: boolean;
+  /** ISO 3166-1 alpha-2；空串 = 清空。 */
+  country_code?: string;
 }
 
 export interface CreateServerResponse {
@@ -1091,12 +1113,18 @@ export const api = {
     }),
   logout: () => request<{ ok: true }>("/api/v1/auth/logout", { method: "POST" }),
   servers: () => request<{ items: Server[] }>("/api/v1/servers"),
-  createServer: (input: { name: string; address: string; xray_mode: string }) =>
+  createServer: (input: {
+    name: string;
+    address: string;
+    xray_mode: string;
+    /** ISO 3166-1 alpha-2；省略或空串 = 不填。 */
+    country_code?: string;
+  }) =>
     request<CreateServerResponse>("/api/v1/servers", {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  /** P4：服务器设置（目前只开放「允许下发升级」）。后端可能暂时 404。 */
+  /** P4：服务器设置（目前开放「允许下发升级」与国家/地区）。后端可能暂时 404。 */
   updateServer: (id: string, input: UpdateServerInput) =>
     request<{ server: Server }>(`/api/v1/servers/${encodeURIComponent(id)}`, {
       method: "PATCH",

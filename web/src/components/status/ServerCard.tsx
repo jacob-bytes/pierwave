@@ -1,16 +1,22 @@
-import { ClockIcon } from "lucide-react";
+import { ClockIcon, GlobeIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Meter } from "@/components/status/Meter";
 import { AvailabilityStrip, AvailabilityValue } from "@/components/status/Availability";
 import { useI18n } from "@/i18n";
 import type { PublicStatusServer } from "@/lib/api";
+import {
+  countryCodeToFlag,
+  countryDisplayName,
+  normalizeCountryCode,
+} from "@/lib/country";
 import { formatBytePair } from "@/lib/format";
 import {
   availabilityPercent,
   availabilityTone,
   reportedLatency,
   resourcePercent,
+  serverSpecLine,
   serverState,
   statusLabelKey,
   uptimeLabelKey,
@@ -101,7 +107,7 @@ export function StatusChip({
 }
 
 export function ServerCard({ server }: { server: PublicStatusServer }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const state = serverState(server);
   const hasHeartbeat = server.last_seen !== null;
   const heartbeat = hasHeartbeat
@@ -146,6 +152,19 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
   const memPair = formatBytePair(server.mem_used, server.mem_total);
   const diskPair = formatBytePair(server.disk_used, server.disk_total);
   const uptime24h = availabilityPercent(server.uptime_24h);
+  // 国旗三态：合法代码 → emoji；未设置 / 非法 → 地球图标（保持标题行对齐，
+  // 也不猜测国家）。国家名用 Intl.DisplayNames 本地化，失败回落代码。
+  const normalizedCountry = normalizeCountryCode(server.country_code);
+  const flag = countryCodeToFlag(server.country_code);
+  const countryTitle = normalizedCountry
+    ? t("publicStatus.server.countryTitle", {
+        name:
+          countryDisplayName(normalizedCountry, locale) ?? normalizedCountry,
+        code: normalizedCountry,
+      })
+    : t("publicStatus.server.countryUnset");
+  // 发行版 · 虚拟化 · 架构；缺哪项跳哪项，全缺返回 null（整行不渲染）。
+  const spec = serverSpecLine(server);
 
   return (
     <Card
@@ -160,11 +179,43 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
         <h3 className="truncate text-sm leading-tight font-medium" title={server.name}>
           {server.name}
         </h3>
+        {/* 国旗永远占位：合法代码显示 emoji，否则显示中性地球。
+            旗帜是装饰性的，国家名与代码在 title / aria-label 里。 */}
+        <span
+          role="img"
+          aria-label={countryTitle}
+          title={countryTitle}
+          className="shrink-0"
+        >
+          {flag ? (
+            <span
+              aria-hidden="true"
+              className="text-sm leading-none select-none"
+            >
+              {flag}
+            </span>
+          ) : (
+            <GlobeIcon
+              aria-hidden="true"
+              className="icon-sm text-muted-foreground"
+            />
+          )}
+        </span>
         <StatusChip state={state} uptime={uptimeDuration} className="ml-auto" />
       </div>
 
-      {/* 副行：一行灰色小字，对应参考项目的发行版 / 虚拟化 / 架构。
-          我们只有最后心跳、Xray 状态与探测延迟，缺哪项就不写（延迟为 null
+      {/* 机器形态：发行版 · 虚拟化 · 架构。缺项跳过；全缺整行不渲染，
+          不会出现 “undefined · · x86_64” 这种空洞。心跳/延迟仍在下一行。 */}
+      {spec ? (
+        <p
+          className="mt-1 truncate text-xs text-muted-foreground"
+          title={spec}
+        >
+          {spec}
+        </p>
+      ) : null}
+
+      {/* 心跳行：最后心跳 · Xray 状态 · 探测延迟；缺哪项就不写（延迟为 null
           时整项隐藏，不用 0 占位）。 */}
       <p
         className="mt-1 flex min-w-0 items-center gap-1 text-xs text-muted-foreground"

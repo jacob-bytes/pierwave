@@ -719,6 +719,12 @@ pub mod servers {
         pub uptime_secs: i64,
         /// Agent 测得并缓存的 TCP 握手 RTT（毫秒）；None = 本轮没有有效结果。
         pub latency_ms: Option<i64>,
+        /// `/etc/os-release` 的 NAME；None = 旧 Agent 或读不到。
+        pub os_name: Option<String>,
+        /// `/etc/os-release` 的 VERSION_ID；None = 旧 Agent 或读不到。
+        pub os_version: Option<String>,
+        /// 虚拟化类型（kvm / vmware / ...）；None = 裸机或读不到。
+        pub virt: Option<String>,
     }
 
     /// 返回 (服务器, 明文配对 token)。token 只在创建时可见一次。
@@ -728,18 +734,30 @@ pub mod servers {
         address: &str,
         xray_mode: &str,
     ) -> anyhow::Result<(Server, String)> {
+        create_with_country(pool, name, address, xray_mode, None).await
+    }
+
+    /// 同 [`create`]，但允许在创建时直接填写国家/地区代码。
+    pub async fn create_with_country(
+        pool: &SqlitePool,
+        name: &str,
+        address: &str,
+        xray_mode: &str,
+        country_code: Option<&str>,
+    ) -> anyhow::Result<(Server, String)> {
         let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
         let token_hash = crate::password::sha256_hex(&token);
         let id = Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT INTO servers (id, name, address, token_hash, xray_mode, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO servers (id, name, address, token_hash, xray_mode, country_code, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(name)
         .bind(address)
         .bind(&token_hash)
         .bind(xray_mode)
+        .bind(country_code)
         .bind(now())
         .execute(pool)
         .await?;
@@ -796,6 +814,20 @@ pub mod servers {
                 .fetch_optional(pool)
                 .await?,
         )
+    }
+
+    /// 设置（或清空）国家/地区代码。`None` = 清空为 NULL，与「没传」区分开。
+    pub async fn set_country_code(
+        pool: &SqlitePool,
+        id: &str,
+        country_code: Option<&str>,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE servers SET country_code = ? WHERE id = ?")
+            .bind(country_code)
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(())
     }
 
     /// 设置（或清空）期望的 Agent 版本。`None` = 不升级。
@@ -878,6 +910,9 @@ pub mod servers {
                 health_at = ?,
                 agent_version = ?,
                 arch = ?,
+                os_name = ?,
+                os_version = ?,
+                virt = ?,
                 xray_running = ?,
                 nginx_running = ?,
                 load1 = ?,
@@ -893,6 +928,9 @@ pub mod servers {
         .bind(now())
         .bind(agent_version)
         .bind(&health.arch)
+        .bind(&health.os_name)
+        .bind(&health.os_version)
+        .bind(&health.virt)
         .bind(health.xray_running)
         .bind(health.nginx_running)
         .bind(health.load1)

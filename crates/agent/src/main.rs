@@ -2,6 +2,7 @@ mod config;
 mod forward;
 mod probe;
 mod selector;
+mod system_info;
 mod tc;
 mod traffic;
 mod upgrade;
@@ -32,6 +33,14 @@ const DEFAULT_BACKUP_SUFFIX: &str = ".bak";
 
 /// 本进程已成功应用的配置版本；跨重连保留，重启后归零（会重新收敛一次）。
 static APPLIED_VERSION: AtomicI64 = AtomicI64::new(0);
+
+/// 进程级不变的身份与系统信息，跨重连保留。
+///
+/// 打包成一个结构体送给 `run_once`，避免参数列表继续膨胀（clippy 上限 7 个）。
+struct AgentContext {
+    boot_id: String,
+    system_info: system_info::SystemInfo,
+}
 
 /// 一次收敛的结果；`upgraded` 表示新二进制已替换、需要当前进程退场。
 struct ApplyOutcome {
@@ -80,6 +89,16 @@ async fn main() -> Result<()> {
     let cfg = Config::load(std::path::Path::new(&path))?;
     tracing::info!(%path, master = %cfg.master_url, "agent starting");
 
+    // 发行版 / 虚拟化在进程生命周期内不会变：只在这里采集一次，心跳只读缓存。
+    // 这样每 15 秒的心跳不会 fork `systemd-detect-virt`。
+    let system_info = system_info::collect();
+    tracing::info!(
+        os_name = system_info.os_name.as_deref().unwrap_or("-"),
+        os_version = system_info.os_version.as_deref().unwrap_or("-"),
+        virt = system_info.virt.as_deref().unwrap_or("-"),
+        "collected system info"
+    );
+
     // 上次升级是否已经确认成功：成功就清标记；遗留的旧版本 pending 也在这里清理。
     let current_exe = std::env::current_exe().ok();
     if let Err(e) = upgrade::startup_check(
@@ -94,7 +113,10 @@ async fn main() -> Result<()> {
     // 断线重连：指数退避，上限 60s。
     // boot_id / 流量 seq / 采样基线都放在重连循环外：进程级身份不变，
     // 重连后既不会换 id，也不会把已经上报过的累计流量再报一遍。
-    let boot_id = uuid::Uuid::new_v4().to_string();
+    let context = AgentContext {
+        boot_id: uuid::Uuid::new_v4().to_string(),
+        system_info,
+    };
     let mut sampler = TrafficSampler::new();
     let mut traffic_seq = 0u64;
     let mut backoff = 1u64;
@@ -147,7 +169,7 @@ async fn main() -> Result<()> {
     loop {
         match run_once(
             &cfg,
-            &boot_id,
+            &context,
             &mut sampler,
             &mut traffic_seq,
             &probe_cache,
@@ -225,13 +247,15 @@ fn rollback_args() -> Option<(PathBuf, PathBuf, Option<String>)> {
 
 async fn run_once(
     cfg: &Config,
-    boot_id: &str,
+    context: &AgentContext,
     sampler: &mut TrafficSampler,
     traffic_seq: &mut u64,
     probe_cache: &probe::ProbeCache,
     tc_manager: &Arc<Mutex<tc::TcManager>>,
     forwards: &mut forward::ForwardSupervisor,
 ) -> Result<()> {
+    let boot_id = &context.boot_id;
+    let system_info = &context.system_info;
     // 心跳只拿状态的只读快照，不和收敛过程抢锁；句柄是 Arc，clone 很便宜。
     let forward_status = forwards.status_handle();
     let url = cfg.ws_url();
@@ -363,6 +387,9 @@ async fn run_once(
                             "nginx_running": false,
                             "agent_version": env!("CARGO_PKG_VERSION"),
                             "arch": std::env::consts::ARCH,
+                            "os_name": system_info.os_name,
+                            "os_version": system_info.os_version,
+                            "virt": system_info.virt,
                             "latency_ms": probe_cache.load(),
                             "forwards": forwards,
                         });
@@ -378,6 +405,7 @@ async fn run_once(
                     uptime_start.elapsed().as_secs(),
                     probe_cache.load(),
                     forward_status.snapshot(),
+                    system_info,
                 ));
                 ws.send(Message::Text(serde_json::to_string(&hb)?)).await?;
                 tc_manager
@@ -720,6 +748,7 @@ fn sample_heartbeat(
     uptime_secs: u64,
     latency_ms: Option<u32>,
     forwards: Vec<ForwardStatus>,
+    system_info: &system_info::SystemInfo,
 ) -> Heartbeat {
     let (load1, mem_used, mem_total) = read_load_and_mem();
     let disk = read_disk();
@@ -727,6 +756,9 @@ fn sample_heartbeat(
         seq,
         agent_version: env!("CARGO_PKG_VERSION").to_string(),
         arch: std::env::consts::ARCH.to_string(),
+        os_name: system_info.os_name.clone(),
+        os_version: system_info.os_version.clone(),
+        virt: system_info.virt.clone(),
         latency_ms,
         forwards,
         uptime_secs,
@@ -857,6 +889,14 @@ mod tests {
         assert_eq!(parse_df("只 有 两 列"), None);
     }
 
+    fn system_info_fixture() -> system_info::SystemInfo {
+        system_info::SystemInfo {
+            os_name: Some("Debian GNU/Linux".into()),
+            os_version: Some("12".into()),
+            virt: Some("kvm".into()),
+        }
+    }
+
     #[test]
     fn heartbeat_reports_cpu_arch_and_probe_latency() {
         let forwards = vec![ForwardStatus {
@@ -865,9 +905,13 @@ mod tests {
             error: String::new(),
             target_ok: Some(true),
         }];
-        let hb = sample_heartbeat(1, 2, Some(23), forwards.clone());
+        let system_info = system_info_fixture();
+        let hb = sample_heartbeat(1, 2, Some(23), forwards.clone(), &system_info);
         assert_eq!(hb.arch, std::env::consts::ARCH);
         assert!(!hb.arch.is_empty(), "主控靠心跳里的 arch 选升级产物");
+        assert_eq!(hb.os_name.as_deref(), Some("Debian GNU/Linux"));
+        assert_eq!(hb.os_version.as_deref(), Some("12"));
+        assert_eq!(hb.virt.as_deref(), Some("kvm"));
         assert_eq!(hb.latency_ms, Some(23), "心跳应带上缓存的探测结果");
         assert_eq!(hb.forwards, forwards, "心跳应带上每条转发的监听状态");
         assert_eq!(
@@ -876,8 +920,10 @@ mod tests {
             "目标可达性必须随心跳上报"
         );
 
-        let missing = sample_heartbeat(1, 2, None, Vec::new());
+        let missing = sample_heartbeat(1, 2, None, Vec::new(), &system_info::SystemInfo::default());
         assert_eq!(missing.latency_ms, None, "探测失败必须上报 null");
+        assert_eq!(missing.os_name, None, "读不到 os-release 时必须上报 null");
+        assert_eq!(missing.virt, None, "裸机/读不到时必须上报 null");
         assert!(missing.forwards.is_empty());
     }
 
@@ -1071,7 +1117,13 @@ mod tests {
         assert!(status[0].listening);
         assert!(status[0].error.is_empty());
 
-        let hb = sample_heartbeat(1, 0, None, supervisor.status_handle().snapshot());
+        let hb = sample_heartbeat(
+            1,
+            0,
+            None,
+            supervisor.status_handle().snapshot(),
+            &system_info::SystemInfo::default(),
+        );
         assert_eq!(hb.forwards, status, "心跳必须带上 supervisor 的监听状态");
 
         // 空 forwards = 停止所有监听。

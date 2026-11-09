@@ -566,7 +566,13 @@ export function useCreateServer() {
   return useMutation<
     CreateServerResponse,
     Error,
-    { name: string; address: string; xray_mode: string }
+    {
+      name: string;
+      address: string;
+      xray_mode: string;
+      /** ISO 3166-1 alpha-2；省略或空串 = 不填。 */
+      country_code?: string;
+    }
   >({
     mutationFn: api.createServer,
     onSuccess: () => {

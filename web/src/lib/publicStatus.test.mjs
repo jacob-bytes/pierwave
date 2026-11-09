@@ -19,6 +19,7 @@ import {
   publicServerCounts,
   reportedLatency,
   resourcePercent,
+  serverSpecLine,
   serverState,
   STATUS_VIEW_STORAGE_KEY,
   statusLabelKey,
@@ -39,6 +40,58 @@ test("statusLabelKey maps every state to its translated label", () => {
   assert.equal(statusLabelKey("online"), "publicStatus.server.online");
   assert.equal(statusLabelKey("offline"), "publicStatus.server.offline");
   assert.equal(statusLabelKey("abnormal"), "publicStatus.server.abnormal");
+});
+
+test("serverSpecLine joins available parts and skips the missing ones", () => {
+  assert.equal(
+    serverSpecLine({
+      os_name: "Debian GNU/Linux",
+      os_version: "12",
+      virt: "kvm",
+      arch: "x86_64",
+    }),
+    "Debian GNU/Linux 12 · kvm · x86_64",
+  );
+  assert.equal(
+    serverSpecLine({
+      os_name: "Debian GNU/Linux",
+      os_version: "12",
+      virt: null,
+      arch: "x86_64",
+    }),
+    "Debian GNU/Linux 12 · x86_64",
+    "缺虚拟化时跳过，不留空段",
+  );
+  assert.equal(
+    serverSpecLine({
+      os_name: null,
+      os_version: null,
+      virt: "vmware",
+      arch: "aarch64",
+    }),
+    "vmware · aarch64",
+    "缺 OS 时仍显示虚拟化与架构",
+  );
+  assert.equal(
+    serverSpecLine({
+      os_name: "Alpine Linux",
+      os_version: null,
+      virt: "none",
+      arch: null,
+    }),
+    "Alpine Linux",
+    "virt = none（裸机）不显示；版本缺失不留空洞",
+  );
+  assert.equal(
+    serverSpecLine({
+      os_name: " ",
+      os_version: "",
+      virt: null,
+      arch: "  ",
+    }),
+    null,
+    "全缺必须返回 null，卡片据此不渲染整行",
+  );
 });
 
 test("availabilityTone keeps missing samples grey and bands the rest", () => {

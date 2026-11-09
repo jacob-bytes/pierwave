@@ -180,6 +180,8 @@ const zhCN = {
       offline: "离线",
       abnormal: "异常",
       abnormalTitle: "Agent 在线，但 Xray 未运行",
+      countryTitle: "{name} / {code}",
+      countryUnset: "未设置国家",
       lastHeartbeat: "最后心跳 {time}",
       neverSeen: "从未上报",
       load: "负载",
@@ -282,6 +284,10 @@ const zhCN = {
     onlineCount: "在线 {online} / {total}",
     serviceAbnormal: "服务异常 {n}",
     desc: "Agent 主动连入主控，无需开放入站端口；检测到待升级任务时列表每 15 秒自动刷新。在线但 Xray 停止会标红，窄屏可在「详情」查看负载与内存。",
+    country: "国家/地区",
+    countryPlaceholder: "CN / US / JP",
+    countryHint: "ISO 3166-1 代码，如 CN / US / JP，用于探针页国旗",
+    countryInvalid: "请输入两位大写字母（如 CN / US / JP），或留空",
     tableCaption: "服务器列表",
     loadFailed: "服务器列表加载失败",
     loadError: "加载服务器列表失败，请检查网络后重试",
@@ -376,7 +382,7 @@ const zhCN = {
     },
     editDialog: {
       title: "编辑服务器",
-      desc: "「{name}」的 Agent 升级设置。",
+      desc: "「{name}」的服务器设置。",
       currentVersion: "当前 Agent 版本",
       allow: "允许下发升级",
       allowDesc:

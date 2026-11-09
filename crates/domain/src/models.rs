@@ -61,6 +61,14 @@ pub struct Server {
     pub agent_target_version: Option<String>,
     /// Agent 上报的 CPU 架构（x86_64 / aarch64）；空串 = 未知。
     pub arch: String,
+    /// Agent 从 `/etc/os-release` 读到的发行版名称；NULL = 旧 Agent 或读不到。
+    pub os_name: Option<String>,
+    /// Agent 从 `/etc/os-release` 读到的版本号；NULL = 旧 Agent 或读不到。
+    pub os_version: Option<String>,
+    /// Agent 探测到的虚拟化类型（kvm / vmware / ...）；NULL = 裸机或读不到。
+    pub virt: Option<String>,
+    /// 管理员填写的国家/地区代码（ISO 3166-1 alpha-2）；NULL = 未填写。
+    pub country_code: Option<String>,
 }
 
 /// 一条单跳 TCP 端口转发规则。

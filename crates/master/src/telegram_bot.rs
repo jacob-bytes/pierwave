@@ -860,6 +860,7 @@ mod tests {
             disk_total: 0,
             uptime_secs: 0,
             latency_ms: Some(23),
+            ..Default::default()
         };
         servers_repo::update_health(&state.db.pool, &online.id, "0.6.0", &health)
             .await

@@ -4,6 +4,7 @@
 pub mod backup;
 pub mod certificate;
 pub mod chains;
+pub mod country;
 pub mod credentials;
 pub mod enforcement;
 pub mod error;

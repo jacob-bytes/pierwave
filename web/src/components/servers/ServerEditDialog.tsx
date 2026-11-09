@@ -11,10 +11,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { displayAgentVersion } from "@/lib/agentUpgrade";
 import type { Server } from "@/lib/api";
+import { isCountryCode } from "@/lib/country";
 import { errorText, isNotFound } from "@/lib/errors";
 import { useUpdateServer } from "@/lib/queries";
 import { t, useI18n } from "@/i18n";
@@ -42,17 +44,29 @@ export function ServerEditDialog({
   const [allowUpgrade, setAllowUpgrade] = useState(() =>
     Boolean(server.allow_agent_upgrade),
   );
+  const [countryCode, setCountryCode] = useState(
+    () => server.country_code ?? "",
+  );
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (updateServer.isPending) return;
 
+    const normalizedCountry = countryCode.trim().toUpperCase();
+    if (normalizedCountry && !isCountryCode(normalizedCountry)) {
+      setError(t("servers.countryInvalid"));
+      return;
+    }
+
     setError(null);
     try {
       await updateServer.mutateAsync({
         id: server.id,
-        input: { allow_agent_upgrade: allowUpgrade },
+        input: {
+          allow_agent_upgrade: allowUpgrade,
+          country_code: normalizedCountry,
+        },
       });
       toast.success(t("servers.editDialog.saved"));
       onOpenChange(false);
@@ -99,6 +113,32 @@ export function ServerEditDialog({
               {displayAgentVersion(server.agent_version) ||
                 t("servers.upgradeDialog.notReported")}
             </span>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="server-country" className="text-sm">
+              {t("servers.country")}
+            </Label>
+            <Input
+              id="server-country"
+              value={countryCode}
+              onChange={(event) =>
+                setCountryCode(event.target.value.toUpperCase())
+              }
+              placeholder={t("servers.countryPlaceholder")}
+              maxLength={2}
+              autoComplete="off"
+              spellCheck={false}
+              disabled={updateServer.isPending}
+              aria-describedby="server-country-desc"
+              className="w-28 font-mono tracking-[0.2em] uppercase"
+            />
+            <p
+              id="server-country-desc"
+              className="text-xs leading-relaxed text-muted-foreground"
+            >
+              {t("servers.countryHint")}
+            </p>
           </div>
 
           <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-muted/30 p-3">

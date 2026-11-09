@@ -23,12 +23,26 @@ async fn legacy_hops_become_single_member_groups() {
     let db = Db::connect("sqlite::memory:").await.unwrap();
     apply_through(&db, 25).await;
 
-    let (server_a, _) = repo::servers::create(&db.pool, "hk-a", "10.0.0.1", "external")
+    // 不能用 `repo::servers::create`：它按最新 schema 写 country_code / os_*，
+    // 而这里刻意停在 0025。迁移测试只关心 servers.id，直接按 0025 的列插入。
+    for (id, name, address) in [
+        ("legacy-a", "hk-a", "10.0.0.1"),
+        ("legacy-b", "jp-b", "10.0.0.2"),
+    ] {
+        sqlx::query(
+            "INSERT INTO servers (id, name, address, token_hash, created_at)
+             VALUES (?, ?, ?, ?, 100)",
+        )
+        .bind(id)
+        .bind(name)
+        .bind(address)
+        .bind(format!("token-{id}"))
+        .execute(&db.pool)
         .await
         .unwrap();
-    let (server_b, _) = repo::servers::create(&db.pool, "jp-b", "10.0.0.2", "external")
-        .await
-        .unwrap();
+    }
+    let server_a = String::from("legacy-a");
+    let server_b = String::from("legacy-b");
 
     sqlx::query(
         "INSERT INTO chains (id, name, target_host, target_port, enabled, created_at, updated_at)
@@ -38,8 +52,8 @@ async fn legacy_hops_become_single_member_groups() {
     .await
     .unwrap();
     for (seq, server_id, listen_port) in [
-        (0_i64, server_a.id.as_str(), 9001_i64),
-        (1, server_b.id.as_str(), 9002),
+        (0_i64, server_a.as_str(), 9001_i64),
+        (1, server_b.as_str(), 9002),
     ] {
         sqlx::query(
             "INSERT INTO chain_hops (chain_id, seq, server_id, listen_port)
@@ -71,7 +85,7 @@ async fn legacy_hops_become_single_member_groups() {
     for (seq, (group, (expected_server, expected_port))) in chain
         .groups
         .iter()
-        .zip([(&server_a.id, 9001_i64), (&server_b.id, 9002)])
+        .zip([(&server_a, 9001_i64), (&server_b, 9002)])
         .enumerate()
     {
         assert_eq!(group.group.seq, seq as i64, "seq 必须原样保留");
@@ -94,15 +108,11 @@ async fn legacy_hops_become_single_member_groups() {
     assert_eq!(kept, 2, "chain_hops 必须保留");
 
     // 端口冲突检查已经改读成员表。
-    let conflict = repo::chains::find_member_port_conflict(
-        &db.pool,
-        &server_a.id,
-        9001,
-        Some("another-chain"),
-    )
-    .await
-    .unwrap()
-    .expect("迁移后的成员端口必须能被冲突检查看到");
+    let conflict =
+        repo::chains::find_member_port_conflict(&db.pool, &server_a, 9001, Some("another-chain"))
+            .await
+            .unwrap()
+            .expect("迁移后的成员端口必须能被冲突检查看到");
     assert_eq!(conflict.chain_id, "legacy-chain");
     assert_eq!(conflict.seq, 0);
     assert_eq!(conflict.listen_port, 9001);

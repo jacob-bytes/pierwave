@@ -27,10 +27,39 @@ pub struct CreateServer {
     pub address: String,
     #[serde(default = "default_xray_mode")]
     pub xray_mode: String,
+    /// ISO 3166-1 alpha-2（如 CN / US / JP）；空 = 不填。
+    #[serde(default)]
+    pub country_code: Option<String>,
 }
 
 fn default_xray_mode() -> String {
     "external".into()
+}
+
+/// 国家/地区代码校验：空串 = 清空；否则必须是 ISO 3166-1 alpha-2 白名单内的
+/// 两位大写字母。
+///
+/// 公开探针页用这两个字母转国旗 emoji，所以不接受小写、数字、三位代码，
+/// 也不接受 `ZZ` / `XK` 这类非官方分配代码——宁可显示地球图标，也不猜国家。
+pub(crate) fn normalize_country_code(raw: Option<&str>) -> AppResult<Option<String>> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let code = raw.trim();
+    if code.is_empty() {
+        return Ok(None);
+    }
+    if code.len() == 2
+        && code.chars().all(|ch| ch.is_ascii_uppercase())
+        && pierwave_domain::country::is_valid_country_code(code)
+    {
+        return Ok(Some(code.to_string()));
+    }
+    Err(AppError::coded(
+        "server.country_code_invalid",
+        Some(json!({ "value": code })),
+        "国家/地区代码无效：请填写 ISO 3166-1 两位字母代码（如 CN / US / JP），或留空 / Invalid country/region code: enter an ISO 3166-1 two-letter code (e.g. CN / US / JP), or leave it empty",
+    ))
 }
 
 pub async fn create(
@@ -56,8 +85,14 @@ pub async fn create(
             "目前只支持外置 Xray（external）；内联模式尚未实现",
         ));
     }
-    let (server, token) =
-        repo::servers::create(&state.db.pool, name, address, &req.xray_mode).await?;
+    let (server, token) = repo::servers::create_with_country(
+        &state.db.pool,
+        name,
+        address,
+        &req.xray_mode,
+        normalize_country_code(req.country_code.as_deref())?.as_deref(),
+    )
+    .await?;
     // 明文 token 不落审计：它只该在创建响应里出现一次。
     crate::audit::record(
         &state,
@@ -89,6 +124,8 @@ pub struct PatchServer {
     pub xray_mode: Option<String>,
     /// 是否允许主控向这台服务器下发 Agent 升级计划。
     pub allow_agent_upgrade: Option<bool>,
+    /// ISO 3166-1 alpha-2；空串 = 清空，缺省 = 不改。
+    pub country_code: Option<String>,
 }
 
 pub async fn update(
@@ -138,16 +175,22 @@ pub async fn update(
         && address.is_none()
         && req.xray_mode.is_none()
         && req.allow_agent_upgrade.is_none()
+        && req.country_code.is_none()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 name / address / xray_mode / allow_agent_upgrade 之一",
+            "至少需要提供 name / address / xray_mode / allow_agent_upgrade / country_code 之一",
         ));
     }
 
+    let country_code = match req.country_code.as_deref() {
+        Some(raw) => Some(normalize_country_code(Some(raw))?),
+        None => None,
+    };
+
     let before = repo::servers::find_by_id(&state.db.pool, &id).await.ok();
-    let server = repo::servers::update(
+    let mut server = repo::servers::update(
         &state.db.pool,
         &id,
         name,
@@ -157,6 +200,11 @@ pub async fn update(
     )
     .await?
     .ok_or_else(|| AppError::not_found("server.not_found", None, "资源不存在"))?;
+    // `country_code` 单独写：空串要落成 NULL（清空），COALESCE 表达不了这个语义。
+    if let Some(code) = country_code {
+        repo::servers::set_country_code(&state.db.pool, &id, code.as_deref()).await?;
+        server.country_code = code;
+    }
 
     let changes = crate::audit::diff(vec![
         (
@@ -178,6 +226,13 @@ pub async fn update(
             "allow_agent_upgrade",
             json!(before.as_ref().map(|server| server.allow_agent_upgrade)),
             json!(server.allow_agent_upgrade),
+        ),
+        (
+            "country_code",
+            json!(before
+                .as_ref()
+                .and_then(|server| server.country_code.as_deref())),
+            json!(server.country_code.as_deref()),
         ),
     ]);
     crate::audit::record(
@@ -585,6 +640,88 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
+    /// 国家/地区代码：创建与 PATCH 都接受两位大写字母，空串可清空；
+    /// 小写、数字、超长都拒绝，避免前端拿不到能转国旗的代码。
+    #[tokio::test]
+    async fn country_code_is_validated_and_editable() {
+        let (app, _state, cookie) = setup().await;
+
+        let (status, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"hk-1","address":"1.2.3.4","country_code":"hk"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{created}");
+        assert_eq!(created["code"], "server.country_code_invalid");
+
+        let (status, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"hk-1","address":"1.2.3.4","country_code":"HK"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{created}");
+        assert_eq!(created["server"]["country_code"], "HK");
+        let id = created["server"]["id"].as_str().unwrap().to_string();
+
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"country_code":"jp"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{patched}");
+        assert_eq!(patched["code"], "server.country_code_invalid");
+
+        // `ZZ` 是用户分配代码，不在官方白名单：必须拒绝，前端才会显示地球。
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"country_code":"ZZ"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{patched}");
+        assert_eq!(patched["code"], "server.country_code_invalid");
+
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"country_code":"JP"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        assert_eq!(patched["server"]["country_code"], "JP");
+
+        // 空串 = 清空；列表接口也必须带出这个字段（null）。
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"country_code":""}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        assert!(patched["server"]["country_code"].is_null());
+
+        let (status, listed) =
+            send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{listed}");
+        assert!(listed["items"][0].get("country_code").is_some(), "{listed}");
+        assert!(listed["items"][0]["country_code"].is_null(), "{listed}");
+    }
+
     /// 内联 Xray 从未实现过：留着这个选项只会让用户以为它可用。
     #[tokio::test]
     async fn embedded_xray_mode_is_rejected() {
@@ -831,6 +968,45 @@ mod tests {
             "必须是 JSON boolean：{server}"
         );
         assert!(server["agent_target_version"].is_null());
+    }
+
+    /// 管理端列表必须带出新增的 OS / 虚拟化 / 国家字段：
+    /// 旧 Agent 没有 os_* / virt 时为 null，arch 为空串。
+    #[tokio::test]
+    async fn server_list_exposes_os_virt_and_country() {
+        let (app, state, cookie) = setup().await;
+        let (server, _token) = repo::servers::create_with_country(
+            &state.db.pool,
+            "hk-1",
+            "1.2.3.4",
+            "external",
+            Some("HK"),
+        )
+        .await
+        .unwrap();
+        repo::servers::update_health(
+            &state.db.pool,
+            &server.id,
+            "0.7.2",
+            &repo::servers::HealthSnapshot {
+                arch: "x86_64".into(),
+                os_name: Some("Debian GNU/Linux".into()),
+                os_version: Some("12".into()),
+                virt: Some("kvm".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let (status, body) = send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let row = &body["items"][0];
+        assert_eq!(row["country_code"], "HK");
+        assert_eq!(row["os_name"], "Debian GNU/Linux");
+        assert_eq!(row["os_version"], "12");
+        assert_eq!(row["virt"], "kvm");
+        assert_eq!(row["arch"], "x86_64");
     }
 
     /// 管理端列表复用 `servers.latency_ms`：有心跳值就是 number，没有就是 null。

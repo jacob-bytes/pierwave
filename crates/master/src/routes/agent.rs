@@ -188,6 +188,9 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
         Ok(AgentMessage::Heartbeat(hb)) => {
             let health = repo::servers::HealthSnapshot {
                 arch: hb.arch,
+                os_name: hb.os_name,
+                os_version: hb.os_version,
+                virt: hb.virt,
                 xray_running: hb.xray_running,
                 nginx_running: hb.nginx_running,
                 load1: hb.load1 as f64,
@@ -973,6 +976,9 @@ mod tests {
                 seq,
                 agent_version: "0.5.7".into(),
                 arch: "x86_64".into(),
+                os_name: None,
+                os_version: None,
+                virt: None,
                 forwards,
                 latency_ms: None,
                 uptime_secs: 1,
@@ -1096,6 +1102,9 @@ mod tests {
                 seq,
                 agent_version: "0.5.7".into(),
                 arch: "x86_64".into(),
+                os_name: None,
+                os_version: None,
+                virt: None,
                 forwards: vec![pierwave_proto::ForwardStatus {
                     id: forward_id.clone(),
                     listening: true,
@@ -1961,6 +1970,7 @@ mod enforcement_tests {
             disk_total: 100,
             uptime_secs: 3600,
             latency_ms: Some(23),
+            ..Default::default()
         };
         repo::servers::update_health(&state.db.pool, &server.id, "0.1.0", &health)
             .await
@@ -2009,6 +2019,47 @@ mod enforcement_tests {
             .await
             .unwrap();
         assert_eq!(row.latency_ms, None, "旧 Agent 不上报时必须是 NULL");
+        assert_eq!(row.os_name, None, "旧 Agent 没有 os_name 时必须 NULL");
+        assert_eq!(row.os_version, None, "旧 Agent 没有 os_version 时必须 NULL");
+        assert_eq!(row.virt, None, "旧 Agent 没有 virt 时必须 NULL");
+    }
+
+    /// 新 Agent 心跳带 OS / 虚拟化：走同一条 message 解析路径落库。
+    #[tokio::test]
+    async fn heartbeat_with_os_fields_persists_values() {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let state = AppState::new(db, "web/dist");
+        let (server, _token) = repo::servers::create(&state.db.pool, "hk-1", "1.2.3.4", "external")
+            .await
+            .unwrap();
+
+        let heartbeat = serde_json::json!({
+            "type": "heartbeat",
+            "seq": 1,
+            "uptime_secs": 2,
+            "load1": 0.1,
+            "mem_used": 1,
+            "mem_total": 2,
+            "disk_used": 1,
+            "disk_total": 2,
+            "xray_running": true,
+            "nginx_running": true,
+            "arch": "x86_64",
+            "os_name": "Debian GNU/Linux",
+            "os_version": "12",
+            "virt": "kvm",
+        })
+        .to_string();
+        handle_agent_message(&state, &server.id, "0.1.0", &heartbeat).await;
+
+        let row = repo::servers::find_by_id(&state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert_eq!(row.os_name.as_deref(), Some("Debian GNU/Linux"));
+        assert_eq!(row.os_version.as_deref(), Some("12"));
+        assert_eq!(row.virt.as_deref(), Some("kvm"));
+        assert_eq!(row.arch, "x86_64");
     }
 
     /// 新 Agent 的心跳带 `latency_ms`：走同一条 message 解析路径落库。

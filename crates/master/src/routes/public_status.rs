@@ -36,6 +36,16 @@ struct PublicServer {
     last_seen: Option<i64>,
     /// Agent 到公网探测目标的 TCP 握手 RTT（毫秒）；探测失败或旧 Agent 为 null。
     latency_ms: Option<i64>,
+    /// 管理员填写的国家/地区代码（ISO 3166-1 alpha-2）；未填写为 null。
+    country_code: Option<String>,
+    /// Agent 上报的发行版名称；旧 Agent 或读不到为 null。
+    os_name: Option<String>,
+    /// Agent 上报的发行版版本；旧 Agent 或读不到为 null。
+    os_version: Option<String>,
+    /// Agent 上报的虚拟化类型；裸机或读不到为 null。
+    virt: Option<String>,
+    /// Agent 上报的 CPU 架构；旧 Agent 为空串。
+    arch: String,
     /// 0..1；窗口内没有采样时为 null。
     uptime_24h: Option<f64>,
     /// 0..1；窗口内没有采样时为 null。
@@ -137,6 +147,11 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
                 uptime_secs: server.uptime_secs,
                 last_seen: server.last_seen_at,
                 latency_ms: server.latency_ms,
+                country_code: server.country_code,
+                os_name: server.os_name,
+                os_version: server.os_version,
+                virt: server.virt,
+                arch: server.arch,
                 uptime_24h: uptime.and_then(|row| row.uptime_24h),
                 uptime_7d: uptime.and_then(|row| row.uptime_7d),
                 buckets_24h,
@@ -268,6 +283,60 @@ mod tests {
             buckets.iter().all(Value::is_null),
             "没有采样时所有桶都必须是 null：{body}"
         );
+    }
+
+    #[tokio::test]
+    async fn heartbeat_os_info_and_country_are_visible_but_old_agents_stay_null() {
+        let (app, state) = setup().await;
+        let id = seed_server(&state, "edge-1", "203.0.113.9").await;
+        repo::servers::set_country_code(&state.db.pool, &id, Some("JP"))
+            .await
+            .unwrap();
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.1.0",
+            &repo::servers::HealthSnapshot {
+                arch: "x86_64".into(),
+                os_name: Some("Debian GNU/Linux".into()),
+                os_version: Some("12".into()),
+                virt: Some("kvm".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let server = &body["servers"][0];
+        assert_eq!(server["country_code"], "JP");
+        assert_eq!(server["os_name"], "Debian GNU/Linux");
+        assert_eq!(server["os_version"], "12");
+        assert_eq!(server["virt"], "kvm");
+        assert_eq!(server["arch"], "x86_64");
+
+        // 旧 Agent 没有这些字段：公开接口必须是 null，而不是空串或 0。
+        state.public_status.clear();
+        repo::servers::set_country_code(&state.db.pool, &id, None)
+            .await
+            .unwrap();
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.1.0",
+            &repo::servers::HealthSnapshot::default(),
+        )
+        .await
+        .unwrap();
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let server = &body["servers"][0];
+        assert!(server["country_code"].is_null(), "{body}");
+        assert!(server["os_name"].is_null(), "{body}");
+        assert!(server["os_version"].is_null(), "{body}");
+        assert!(server["virt"].is_null(), "{body}");
+        assert_eq!(server["arch"], "", "旧 Agent 的 arch 是空串");
     }
 
     #[tokio::test]
@@ -467,6 +536,11 @@ mod tests {
             "uptime_secs",
             "last_seen",
             "latency_ms",
+            "country_code",
+            "os_name",
+            "os_version",
+            "virt",
+            "arch",
             "uptime_24h",
             "uptime_7d",
             "buckets_24h",

@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 8;
+pub const PROTOCOL_VERSION: u32 = 9;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +38,17 @@ pub struct Heartbeat {
     /// 缺省为空串时主控回落到 `PIERWAVE_AGENT_TARGET` 配置。
     #[serde(default)]
     pub arch: String,
+    /// 操作系统名称（`/etc/os-release` 的 `NAME`）。
+    /// 旧 Agent 不上报时为 `None`，主控保持 null。
+    #[serde(default)]
+    pub os_name: Option<String>,
+    /// 操作系统版本（`/etc/os-release` 的 `VERSION_ID`）。
+    #[serde(default)]
+    pub os_version: Option<String>,
+    /// 虚拟化类型（`kvm` / `vmware` / `none` 等）。
+    /// 裸机、探测失败或旧 Agent 不上报时为 `None`。
+    #[serde(default)]
+    pub virt: Option<String>,
     /// 各转发规则的监听状态。
     #[serde(default)]
     pub forwards: Vec<ForwardStatus>,
@@ -270,6 +281,42 @@ mod tests {
         let json = serde_json::to_value(&new).unwrap();
         assert_eq!(json["listening"], true);
         assert_eq!(json["target_ok"], false);
-        assert_eq!(PROTOCOL_VERSION, 8, "新增心跳字段必须升协议版本");
+        assert_eq!(PROTOCOL_VERSION, 9, "新增心跳字段必须升协议版本");
+    }
+
+    #[test]
+    fn old_heartbeat_without_os_fields_deserializes_as_none() {
+        // 旧 Agent 的 JSON 没有 os_name / os_version / virt：
+        // 必须能解析成功且保持 None，主控据此落 NULL，而不是报错或写空串。
+        let old = r#"{
+            "seq": 1,
+            "agent_version": "0.1.0",
+            "arch": "x86_64",
+            "uptime_secs": 2,
+            "load1": 0.1,
+            "mem_used": 1,
+            "mem_total": 2,
+            "disk_used": 1,
+            "disk_total": 2,
+            "xray_running": true,
+            "nginx_running": true
+        }"#;
+        let heartbeat: Heartbeat = serde_json::from_str(old).unwrap();
+        assert_eq!(heartbeat.os_name, None);
+        assert_eq!(heartbeat.os_version, None);
+        assert_eq!(heartbeat.virt, None);
+
+        // 新 Agent 上报后 round-trip 不丢字段。
+        let heartbeat = Heartbeat {
+            os_name: Some("Debian GNU/Linux".into()),
+            os_version: Some("12".into()),
+            virt: Some("kvm".into()),
+            ..heartbeat
+        };
+        let json = serde_json::to_value(&heartbeat).unwrap();
+        let back: Heartbeat = serde_json::from_value(json).unwrap();
+        assert_eq!(back.os_name.as_deref(), Some("Debian GNU/Linux"));
+        assert_eq!(back.os_version.as_deref(), Some("12"));
+        assert_eq!(back.virt.as_deref(), Some("kvm"));
     }
 }

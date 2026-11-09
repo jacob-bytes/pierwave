@@ -44,6 +44,32 @@ export function statusLabelKey(state: ServerState): string {
 }
 
 /**
+ * 卡片副行：`{os_name} {os_version} · {virt} · {arch}`。
+ *
+ * 缺哪项就跳过哪项（空串、null、`virt = none` 都不占位），全缺返回 null，
+ * 由调用方决定不渲染这一行 —— 绝不让 `undefined` / `null` 漏进界面。
+ */
+export function serverSpecLine(server: {
+  os_name?: string | null;
+  os_version?: string | null;
+  virt?: string | null;
+  arch?: string | null;
+}): string | null {
+  const clean = (value: string | null | undefined) =>
+    typeof value === "string" ? value.trim() : "";
+  const os = [clean(server.os_name), clean(server.os_version)]
+    .filter((part) => part.length > 0)
+    .join(" ");
+  const virt = clean(server.virt);
+  const parts = [
+    os,
+    virt.toLowerCase() === "none" ? "" : virt,
+    clean(server.arch),
+  ].filter((part) => part.length > 0);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/**
  * `null` / 非有限值都是「没有数据」。
  * 99% 以上算正常；一半以上算部分离线；其余算离线。
  */

@@ -107,6 +107,7 @@ import {
   type BatchSelectionState,
 } from "@/lib/agentUpgradeBatch";
 import { copyText } from "@/lib/clipboard";
+import { isCountryCode } from "@/lib/country";
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
 import { useAllNodes, useCreateServer, useServers } from "@/lib/queries";
@@ -681,6 +682,7 @@ export default function ServersPage() {
   const [historyServerId, setHistoryServerId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
+  const [country, setCountry] = useState("");
   const [xrayMode, setXrayMode] = useState("external");
   const [copied, setCopied] = useState<"token" | "command" | null>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1012,17 +1014,25 @@ export default function ServersPage() {
     event.preventDefault();
     if (create.isPending || !name.trim() || !address.trim()) return;
 
+    const normalizedCountry = country.trim().toUpperCase();
+    if (normalizedCountry && !isCountryCode(normalizedCountry)) {
+      toast.error(t("servers.countryInvalid"));
+      return;
+    }
+
     create.mutate(
       {
         name: name.trim(),
         address: address.trim(),
         xray_mode: xrayMode,
+        country_code: normalizedCountry,
       },
       {
         onSuccess: (data) => {
           setCreateOpen(false);
           setName("");
           setAddress("");
+          setCountry("");
           setCreated(data);
           setTokenOpen(true);
           toast.success(t("servers.createdToast", { name: data.server.name }));
@@ -1281,6 +1291,30 @@ export default function ServersPage() {
                 autoComplete="off"
                 disabled={create.isPending}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="server-country">{t("servers.country")}</Label>
+              <Input
+                id="server-country"
+                value={country}
+                onChange={(event) =>
+                  setCountry(event.target.value.toUpperCase())
+                }
+                placeholder={t("servers.countryPlaceholder")}
+                maxLength={2}
+                autoComplete="off"
+                spellCheck={false}
+                disabled={create.isPending}
+                aria-describedby="create-server-country-desc"
+                className="w-28 font-mono tracking-[0.2em] uppercase"
+              />
+              <p
+                id="create-server-country-desc"
+                className="text-xs text-muted-foreground"
+              >
+                {t("servers.countryHint")}
+              </p>
             </div>
 
             <div className="space-y-2">
