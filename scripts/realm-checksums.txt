@@ -1,0 +1,7 @@
+# realm v2.9.6 (musl) 归档的 sha256
+# 来源：https://github.com/zhboner/realm/releases/tag/v2.9.6
+# 由维护者在 2026-11-10 经本地代理下载后计算；install.sh 用这份清单校验，
+# 清单里没有的架构直接跳过 realm（面板照常工作，仅 realm 引擎不可用）。
+# 升级 realm 时同步更新版本号、文件名与哈希三处。
+v2.9.6 realm-x86_64-unknown-linux-musl.tar.gz  b1cc335547bea8bb2a88178bef12ec7f2363e36200e7ea1d4e1e67627929bf65
+v2.9.6 realm-aarch64-unknown-linux-musl.tar.gz f4c0318dd86854da483dcb7645b4f39cae2cc3f91c688fef969d53220b949488
