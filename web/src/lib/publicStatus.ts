@@ -49,11 +49,16 @@ export function statusLabelKey(state: ServerState): string {
  * 缺哪项就跳过哪项（空串、null、`virt = none` 都不占位），全缺返回 null，
  * 由调用方决定不渲染这一行 —— 绝不让 `undefined` / `null` 漏进界面。
  */
+/**
+ * 卡片副行：`发行版 版本 · 虚拟化`。
+ *
+ * **刻意不含架构**：架构 + Xray 状态 + 延迟放在同一行时会让 1440 下换行，
+ * 而 arch 对看探针页的人价值很低（运维细节，不是"这台好不好"的信号）。
+ */
 export function serverSpecLine(server: {
   os_name?: string | null;
   os_version?: string | null;
   virt?: string | null;
-  arch?: string | null;
 }): string | null {
   const clean = (value: string | null | undefined) =>
     typeof value === "string" ? value.trim() : "";
@@ -61,11 +66,9 @@ export function serverSpecLine(server: {
     .filter((part) => part.length > 0)
     .join(" ");
   const virt = clean(server.virt);
-  const parts = [
-    os,
-    virt.toLowerCase() === "none" ? "" : virt,
-    clean(server.arch),
-  ].filter((part) => part.length > 0);
+  const parts = [os, virt.toLowerCase() === "none" ? "" : virt].filter(
+    (part) => part.length > 0,
+  );
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 

@@ -42,7 +42,7 @@ test("statusLabelKey maps every state to its translated label", () => {
   assert.equal(statusLabelKey("abnormal"), "publicStatus.server.abnormal");
 });
 
-test("serverSpecLine joins available parts and skips the missing ones", () => {
+test("serverSpecLine joins os and virt, skipping missing parts", () => {
   assert.equal(
     serverSpecLine({
       os_name: "Debian GNU/Linux",
@@ -50,7 +50,8 @@ test("serverSpecLine joins available parts and skips the missing ones", () => {
       virt: "kvm",
       arch: "x86_64",
     }),
-    "Debian GNU/Linux 12 · kvm · x86_64",
+    "Debian GNU/Linux 12 · kvm",
+    "架构不进入副行（与 Xray、延迟同行会挤到换行）",
   );
   assert.equal(
     serverSpecLine({
@@ -59,7 +60,7 @@ test("serverSpecLine joins available parts and skips the missing ones", () => {
       virt: null,
       arch: "x86_64",
     }),
-    "Debian GNU/Linux 12 · x86_64",
+    "Debian GNU/Linux 12",
     "缺虚拟化时跳过，不留空段",
   );
   assert.equal(
@@ -69,8 +70,8 @@ test("serverSpecLine joins available parts and skips the missing ones", () => {
       virt: "vmware",
       arch: "aarch64",
     }),
-    "vmware · aarch64",
-    "缺 OS 时仍显示虚拟化与架构",
+    "vmware",
+    "缺 OS 时仍显示虚拟化",
   );
   assert.equal(
     serverSpecLine({
