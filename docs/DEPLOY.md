@@ -114,3 +114,53 @@ systemctl restart pierwave-agent
 ```
 
 Agent 的 `realm_bin` 配置项可覆盖路径。realm 不可用时 **native 引擎的转发完全不受影响**。
+
+## 可选：链路的跳间加密（P15.3）
+
+只对 `engine = realm` 且 **≥2 组**的链生效；入口第一跳、最后一跳到目标仍是明文。
+
+前置条件：
+
+1. realm 必须是带 `transport` feature 的版本（`install.sh` 安装的官方默认资产满足；
+   `realm-slim-*` **不带**，会静默忽略加密配置，禁止使用）：
+
+   ```bash
+   /usr/lib/pierwave/bin/realm --version
+   # 期望形如：2.9.6 [brutal][batched-udp][proxy][balance][transport][multi-thread]
+   /usr/lib/pierwave/bin/realm --version | grep -q '\[transport\]' && echo ok
+   ```
+
+2. 从第 2 组起，每组准备一张**公网 CA**证书（自签不可用，见 PLAN §2）：
+   - 完整链 PEM（leaf + 中间证书），未加密私钥；
+   - 必须有 DNS SAN；域名**不需要**解析到该服务器；
+   - 同组多台服务器共用同一张证书，**私钥会下发到组内每一台**；
+   - 证书到期需手动更换（没有 ACME），到期后链直接不可用，不会回退明文。
+
+启用：先升级主控、再升级全部 Agent（等服务器列表里每台都上报支持 transport），然后
+面板 → 转发链 → 引擎选 `realm`、至少两组、跳间加密选 `TLS` → 为每组选证书和域名 →
+应用配置。改完先看 `apply` 的 warnings 与链状态。
+
+验证（在入口服务器上，把地址/域名换成你的）：
+
+```bash
+# 1. 下一跳确实在做 TLS，且证书域名匹配
+openssl s_client -connect 203.0.113.10:30002 -servername hop1.example.com -verify_return_error -brief
+
+# 2. 加密端点不转发 UDP（应无输出）
+ss -lun | grep 30002
+
+# 3. 握手失败的原因：agent 会在状态跃迁时打一条 warn（目标/SNI/原因码）；
+#    要看 realm 自己的逐连接日志，把 /etc/pierwave-agent/config.toml 里的 realm_log_level 调成 debug 后重启
+journalctl -u pierwave-agent -f | grep -iE 'tls|handshake|cert'
+```
+
+网络边界：加密端点的监听端口仍是**开放中继**（单向 TLS 不验证客户端），必须用防火墙只放行
+上一跳的出口 IP；入口第一跳端口只放行实际客户端网段。最后一跳→目标、客户端→入口不在本功能内。
+
+**English summary.** Hop-to-hop encryption applies only to `realm` chains with at least two groups. It requires
+a realm build with the `transport` feature (`realm --version` must contain `[transport]`; slim builds
+silently ignore the option) and one publicly trusted certificate per hop group from the second group
+on. The private key is deployed to every member of that group, and certificates must be renewed
+manually. Encrypted endpoints disable UDP, and the listener is still an open relay because TLS is
+one-way: firewall it to the previous hop only. The first hop and the final hop-to-target leg remain
+plaintext.
