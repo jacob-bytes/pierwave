@@ -10,6 +10,8 @@
  * - SOCKS 只支持 TCP/WS/gRPC，其余协议覆盖全部传输方式。
  */
 
+import { SS_DEFAULT_METHOD, SS_DEFAULT_NETWORK } from "@/lib/shadowsocks";
+
 export const NODE_PROTOCOLS = [
   "vless",
   "vmess",
@@ -242,7 +244,11 @@ function protocolSettings(protocol: NodeProtocol): Record<string, unknown> {
     case "trojan":
       return { clients: [] };
     case "shadowsocks":
-      return { method: "aes-256-gcm", password: "" };
+      return {
+        method: SS_DEFAULT_METHOD,
+        password: "",
+        network: SS_DEFAULT_NETWORK,
+      };
     case "socks":
       return { auth: "noauth", udp: false };
     case "http":

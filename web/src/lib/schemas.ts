@@ -19,6 +19,16 @@ import {
   parseRuleLines,
   RULE_LINE_MAX_LENGTH,
 } from "@/lib/ruleTemplates";
+import {
+  expectedKeyBytes,
+  normalizeSsMethod,
+  normalizeSsNetwork,
+  SS_LEGACY_PASSWORD_MIN,
+  SS_METHODS,
+  SS_NETWORKS,
+  ssKeyRequirementLabel,
+  validateSsKey,
+} from "@/lib/shadowsocks";
 import { isValidSpeedLimitMbpsInput } from "@/lib/speed";
 import { dateInputToUnixEndOfDay } from "@/lib/time";
 
@@ -307,6 +317,10 @@ export function nodeFormSchema(t: TFunction) {
           t("nodes.form.bandwidthRange"),
         ),
       enabled: z.boolean(),
+      /** Shadowsocks 专有字段；非 SS 协议下隐藏，提交时也不写进 config。 */
+      ss_method: z.string(),
+      ss_password: z.string(),
+      ss_network: z.string(),
     })
     .superRefine((values, ctx) => {
       if (
@@ -324,6 +338,49 @@ export function nodeFormSchema(t: TFunction) {
           path: ["cert_id"],
           message: t("validation.certRequired"),
         });
+      }
+      // SS 的 settings 由后端强校验：这里先按同一套方法白名单 / 密钥长度 /
+      // network 拦一遍，错误挂到对应字段，避免提交后才收到 400。
+      if (values.protocol === "shadowsocks") {
+        const method = normalizeSsMethod(values.ss_method);
+        if (!(SS_METHODS as readonly string[]).includes(method)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["ss_method"],
+            message: t("validation.ssMethodInvalid"),
+          });
+        } else {
+          const check = validateSsKey(method, values.ss_password);
+          if (!check.ok) {
+            const bytes = expectedKeyBytes(method) ?? 0;
+            ctx.addIssue({
+              code: "custom",
+              path: ["ss_password"],
+              message:
+                check.error === "key_too_short"
+                  ? t("validation.ssKeyTooShort", {
+                      min: SS_LEGACY_PASSWORD_MIN,
+                    })
+                  : check.error === "key_base64"
+                    ? t("validation.ssKeyBase64", { bytes })
+                    : t("validation.ssKeyLength", {
+                        method: ssKeyRequirementLabel(method),
+                        bytes,
+                      }),
+            });
+          }
+        }
+        if (
+          !(SS_NETWORKS as readonly string[]).includes(
+            normalizeSsNetwork(values.ss_network),
+          )
+        ) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["ss_network"],
+            message: t("validation.ssNetworkInvalid"),
+          });
+        }
       }
     });
 }

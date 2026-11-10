@@ -1624,6 +1624,10 @@ const en = {
       transportPlaceholder: "Select a transport",
       security: "Security",
       securityPlaceholder: "Select a security layer",
+      ssMethod: "Method",
+      ssPassword: "Server key",
+      ssNetwork: "UDP mode",
+      ssGenerate: "Generate",
       readOnly: "Read-only after creation",
       securityReadOnlyHint:
         "Read-only after creation; changing the security layer requires applying the config again",
@@ -2537,6 +2541,11 @@ const en = {
     comboInvalid:
       "This protocol does not support this transport and security combination",
     certRequired: "TLS nodes must have a certificate bound",
+    ssMethodInvalid: "Select a supported method",
+    ssKeyBase64: "The key must be a {bytes}-byte random key in base64",
+    ssKeyLength: "{method} requires a {bytes}-byte base64 key",
+    ssKeyTooShort: "The password must be at least {min} characters",
+    ssNetworkInvalid: "UDP mode must be tcp, udp or tcp,udp",
     certNameRequired: "Enter a certificate name",
     certNameMax: "Certificate name must be at most 64 characters",
     certPemRequired: "Paste the certificate PEM",

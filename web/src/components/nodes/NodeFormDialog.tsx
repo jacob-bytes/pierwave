@@ -53,6 +53,18 @@ import {
   useUpdateNode,
 } from "@/lib/queries";
 import { nodeFormSchema, type NodeFormValues } from "@/lib/schemas";
+import {
+  expectedKeyBytes,
+  generateSsKey,
+  SS_DEFAULT_METHOD,
+  SS_DEFAULT_NETWORK,
+  SS_METHODS,
+  SS_NETWORKS,
+  ssSettings,
+  stripSsSettings,
+  withSsSettings,
+  type SsSettings,
+} from "@/lib/shadowsocks";
 import { kbpsToMbpsInput, mbpsInputToKbps } from "@/lib/speed";
 import { t, useI18n } from "@/i18n";
 
@@ -100,6 +112,7 @@ export function NodeFormDialog({
   const certificates = useCertificates();
 
   const initial = initialCombo(node);
+  const initialSs = ssSettings(node);
   const schema = useMemo(() => nodeFormSchema(translate), [translate]);
   const form = useForm<NodeFormValues>({
     resolver: zodResolver(schema),
@@ -112,6 +125,9 @@ export function NodeFormDialog({
       port: node ? String(node.port) : "443",
       bandwidth_mbps: kbpsToMbpsInput(node?.bandwidth_kbps),
       enabled: node ? Boolean(node.enabled) : true,
+      ss_method: initialSs.method,
+      ss_password: initialSs.password,
+      ss_network: initialSs.network,
     },
   });
 
@@ -153,6 +169,71 @@ export function NodeFormDialog({
   const securityOptions = allowedSecurities(protocol, transport);
   const comboValid = isCombinationAllowed(protocol, transport, security);
 
+  const isSs = protocol === "shadowsocks";
+  const ssMethod = form.watch("ss_method");
+  const ssIs2022 = expectedKeyBytes(ssMethod) !== null;
+
+  function ssValues(): SsSettings {
+    const values = form.getValues();
+    return {
+      method: values.ss_method,
+      password: values.ss_password,
+      network: values.ss_network,
+    };
+  }
+
+  /** 把三件套同步进右侧 JSON，避免字段与预览各说各话。 */
+  function syncSsToConfig(settings: SsSettings) {
+    const config = parseJsonConfig(configText, translate);
+    if (!config.ok) return;
+    setConfigText(formatJsonObject(withSsSettings(config.value, settings)));
+  }
+
+  function updateSsField(
+    field: "ss_method" | "ss_password" | "ss_network",
+    value: string,
+  ) {
+    form.setValue(field, value, { shouldValidate: true });
+    const key =
+      field === "ss_method"
+        ? "method"
+        : field === "ss_password"
+          ? "password"
+          : "network";
+    syncSsToConfig({ ...ssValues(), [key]: value });
+  }
+
+  /** 切走 SS 时把专有字段清掉，避免 vless 等协议残留 settings.password。 */
+  function clearSsFields() {
+    form.setValue("ss_method", SS_DEFAULT_METHOD);
+    form.setValue("ss_password", "");
+    form.setValue("ss_network", SS_DEFAULT_NETWORK);
+    form.clearErrors(["ss_method", "ss_password", "ss_network"]);
+  }
+
+  function stripSsFromConfigText() {
+    const config = parseJsonConfig(configText, translate);
+    if (!config.ok) return;
+    const stripped = stripSsSettings(config.value);
+    if (stripped !== config.value) setConfigText(formatJsonObject(stripped));
+  }
+
+  /** 骨架里的 SS settings 跟随三个字段，避免重置后 JSON 与字段不一致。 */
+  function skeletonFor(
+    nextProtocol: NodeProtocol,
+    nextTransport: NodeTransport,
+    nextSecurity: NodeSecurity,
+  ) {
+    const skeleton = buildConfigSkeleton(
+      nextProtocol,
+      nextTransport,
+      nextSecurity,
+    );
+    return nextProtocol === "shadowsocks"
+      ? withSsSettings(skeleton, ssValues())
+      : skeleton;
+  }
+
   /** 安全层离开 TLS 时清空证书绑定；TLS 与非 TLS 之间切换都要提示重新应用。 */
   function noteSecurityChange(previous: NodeSecurity, next: NodeSecurity) {
     if (next === "tls") {
@@ -171,7 +252,7 @@ export function NodeFormDialog({
     if (isEdit || configDirty) return;
     setConfigText(
       formatJsonObject(
-        buildConfigSkeleton(nextProtocol, nextTransport, nextSecurity),
+        skeletonFor(nextProtocol, nextTransport, nextSecurity),
       ),
     );
   }
@@ -182,6 +263,9 @@ export function NodeFormDialog({
     form.setValue("protocol", next, { shouldValidate: true });
     form.setValue("transport", nextTransport, { shouldValidate: true });
     form.setValue("security", nextSecurity, { shouldValidate: true });
+    // 凭据永远不跨协议沿用：切到 SS 时从空密码开始，切走时清空三个字段。
+    clearSsFields();
+    if (next !== "shadowsocks") stripSsFromConfigText();
     noteSecurityChange(security, nextSecurity);
     regenerate(next, nextTransport, nextSecurity);
   }
@@ -209,10 +293,21 @@ export function NodeFormDialog({
   }
 
   function resetSkeleton() {
-    setConfigText(
-      formatJsonObject(buildConfigSkeleton(protocol, transport, security)),
-    );
+    setConfigText(formatJsonObject(skeletonFor(protocol, transport, security)));
     setConfigDirty(false);
+  }
+
+  /** 手改 JSON 时反向同步三个字段，提交时不会用旧字段覆盖刚写的 settings。 */
+  function handleConfigTextChange(text: string) {
+    setConfigText(text);
+    setConfigDirty(true);
+    if (!isSs) return;
+    const config = parseJsonConfig(text, translate);
+    if (!config.ok) return;
+    const settings = ssSettings({ config: config.value });
+    form.setValue("ss_method", settings.method);
+    form.setValue("ss_password", settings.password);
+    form.setValue("ss_network", settings.network);
   }
 
   const onSubmit = form.handleSubmit(async (values) => {
@@ -229,6 +324,15 @@ export function NodeFormDialog({
     // 只有 TLS 节点才带 cert_id；其余安全层必须完全省略，否则后端会 400。
     const certId = values.security === "tls" ? values.cert_id.trim() : "";
     const certBinding = certId ? { cert_id: certId } : {};
+    // SS 三件套只写 config.settings；切到其它协议时反过来剥掉，避免残留。
+    const config =
+      values.protocol === "shadowsocks"
+        ? withSsSettings(check.value, {
+            method: values.ss_method,
+            password: values.ss_password,
+            network: values.ss_network,
+          })
+        : stripSsSettings(check.value);
 
     try {
       if (isEdit && node) {
@@ -238,7 +342,7 @@ export function NodeFormDialog({
             name: values.name,
             port,
             enabled: values.enabled,
-            config: check.value,
+            config,
             bandwidth_kbps: bandwidthKbps,
             ...certBinding,
           },
@@ -251,7 +355,7 @@ export function NodeFormDialog({
           transport: values.transport,
           security: values.security,
           port,
-          config: check.value,
+          config,
           enabled: values.enabled,
           bandwidth_kbps: bandwidthKbps,
           ...certBinding,
@@ -443,6 +547,139 @@ export function NodeFormDialog({
                   />
                 </FormField>
               </div>
+
+              {isSs ? (
+                <>
+                  <FormField
+                    label={t("nodes.form.ssMethod")}
+                    htmlFor="node-ss-method"
+                    required
+                    error={form.formState.errors.ss_method?.message}
+                  >
+                    <Controller
+                      control={form.control}
+                      name="ss_method"
+                      render={({ field }) => (
+                        <Select
+                          value={field.value}
+                          onValueChange={(value) =>
+                            updateSsField("ss_method", value)
+                          }
+                          disabled={pending}
+                        >
+                          <SelectTrigger
+                            id="node-ss-method"
+                            className="w-full font-mono"
+                            aria-invalid={Boolean(
+                              form.formState.errors.ss_method,
+                            )}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {SS_METHODS.map((item) => (
+                              <SelectItem
+                                key={item}
+                                value={item}
+                                className="font-mono"
+                              >
+                                {item}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </FormField>
+
+                  <FormField
+                    label={t("nodes.form.ssPassword")}
+                    htmlFor="node-ss-password"
+                    required={ssIs2022}
+                    error={form.formState.errors.ss_password?.message}
+                  >
+                    <Controller
+                      control={form.control}
+                      name="ss_password"
+                      render={({ field }) => (
+                        <div className="flex items-center gap-2">
+                          <Input
+                            id="node-ss-password"
+                            autoComplete="off"
+                            spellCheck={false}
+                            className="font-mono"
+                            disabled={pending}
+                            aria-invalid={Boolean(
+                              form.formState.errors.ss_password,
+                            )}
+                            value={field.value}
+                            onChange={(event) =>
+                              updateSsField(
+                                "ss_password",
+                                event.target.value,
+                              )
+                            }
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() =>
+                              updateSsField(
+                                "ss_password",
+                                generateSsKey(form.getValues("ss_method")),
+                              )
+                            }
+                            disabled={pending}
+                          >
+                            {t("nodes.form.ssGenerate")}
+                          </Button>
+                        </div>
+                      )}
+                    />
+                  </FormField>
+
+                  <FormField
+                    label={t("nodes.form.ssNetwork")}
+                    htmlFor="node-ss-network"
+                    error={form.formState.errors.ss_network?.message}
+                  >
+                    <Controller
+                      control={form.control}
+                      name="ss_network"
+                      render={({ field }) => (
+                        <Select
+                          value={field.value}
+                          onValueChange={(value) =>
+                            updateSsField("ss_network", value)
+                          }
+                          disabled={pending}
+                        >
+                          <SelectTrigger
+                            id="node-ss-network"
+                            className="w-full font-mono"
+                            aria-invalid={Boolean(
+                              form.formState.errors.ss_network,
+                            )}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {SS_NETWORKS.map((item) => (
+                              <SelectItem
+                                key={item}
+                                value={item}
+                                className="font-mono"
+                              >
+                                {item}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </FormField>
+                </>
+              ) : null}
 
               <FormField
                 label={t("nodes.form.bandwidth")}
@@ -641,10 +878,9 @@ export function NodeFormDialog({
                 <Textarea
                   id="node-config"
                   value={configText}
-                  onChange={(event) => {
-                    setConfigText(event.target.value);
-                    setConfigDirty(true);
-                  }}
+                  onChange={(event) =>
+                    handleConfigTextChange(event.target.value)
+                  }
                   spellCheck={false}
                   disabled={pending}
                   aria-invalid={!parsed.ok}

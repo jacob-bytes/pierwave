@@ -16,6 +16,7 @@ import {
 import { EmptyState, SkeletonTable } from "@/components/common";
 import { DeleteNodeDialog } from "@/components/nodes/DeleteNodeDialog";
 import { NodeFormDialog } from "@/components/nodes/NodeFormDialog";
+import { SsMethodBadge } from "@/components/nodes/SsMethodBadge";
 import { SpeedLimitBadge } from "@/components/SpeedLimitBadge";
 import {
   Alert,
@@ -455,6 +456,7 @@ export default function NodesPage() {
                         <div className="min-w-0 flex-1 truncate font-medium">
                           {node.name}
                         </div>
+                        <SsMethodBadge node={node} />
                         <SpeedLimitBadge kbps={node.bandwidth_kbps} />
                       </div>
                       <div className="truncate font-mono type-micro text-muted-foreground">
