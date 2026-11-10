@@ -88,8 +88,13 @@ impl Session {
     }
 
     /// 摘掉会话时同时停掉读任务——否则 socket 关不掉、fd 泄漏。
-    fn shutdown(self) {
+    ///
+    /// `abort` 只是请求取消，任务真正被 drop 才会释放它持有的 `Arc<UdpSocket>`。
+    /// 所以这里必须 await 句柄：调用方（规则关闭 / 空闲回收）返回时 fd 已经释放，
+    /// 同端口的新规则可以立刻绑定。
+    async fn shutdown(self) {
         self.reader.abort();
+        let _ = self.reader.await;
     }
 }
 
@@ -116,11 +121,9 @@ impl SessionTable {
         Some(session.upstream.clone())
     }
 
-    /// 插入新会话。理论上一个客户端只会建一次；真撞了就保留新的、关掉旧的。
-    fn insert(&mut self, client: SocketAddr, session: Session) {
-        if let Some(previous) = self.sessions.insert(client, session) {
-            previous.shutdown();
-        }
+    /// 插入新会话，返回被替换掉的旧会话（若有），由调用方在锁外 close。
+    fn insert(&mut self, client: SocketAddr, session: Session) -> Option<Session> {
+        self.sessions.insert(client, session)
     }
 
     /// 摘掉空闲**超过** `idle` 的会话。abort 读任务这类收尾由调用方在锁外做。
@@ -255,7 +258,7 @@ impl UdpForward {
         let sessions = self.inner.take_all_sessions();
         let count = sessions.len();
         for (client, session) in sessions {
-            session.shutdown();
+            session.shutdown().await;
             tracing::debug!(id = %self.inner.id, %client, "UDP 会话随规则关闭");
         }
         tracing::info!(
@@ -354,7 +357,7 @@ impl UdpInner {
             last_active_ms.clone(),
             self.epoch,
         ));
-        self.lock_sessions().insert(
+        let previous = self.lock_sessions().insert(
             client,
             Session {
                 upstream: upstream.clone(),
@@ -363,6 +366,10 @@ impl UdpInner {
                 reader,
             },
         );
+        // 同一客户端理论上只会建一次；真撞了就保留新的、等旧读任务真正退出。
+        if let Some(previous) = previous {
+            previous.shutdown().await;
+        }
         tracing::debug!(
             id = %self.id,
             %client,
@@ -433,7 +440,7 @@ async fn sweep_loop(inner: Arc<UdpInner>, mut shutdown: watch::Receiver<bool>) {
                 let count = expired.len();
                 for (client, session) in expired {
                     let target_index = session.target_index;
-                    session.shutdown();
+                    session.shutdown().await;
                     tracing::debug!(
                         id = %inner.id,
                         %client,
@@ -516,15 +523,7 @@ async fn connect_upstream(target: &ForwardTarget) -> io::Result<UdpSocket> {
             format!("目标端口非法: {}", target.port),
         )
     })?;
-    let host = target.host.trim();
-    if host.is_empty() {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "目标地址为空"));
-    }
-    // 用 (host, port) 而不是拼字符串：目标写成 IPv6 时不需要手写方括号。
-    let mut addresses = tokio::net::lookup_host((host, port)).await?;
-    let remote = addresses.next().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::NotFound, format!("目标地址解析不到: {host}"))
-    })?;
+    let remote = resolve_target(&target.host, port).await?;
     // 本地通配地址必须与目标同族，否则 connect 直接 EAFNOSUPPORT。
     let local = if remote.is_ipv4() {
         SocketAddr::from(([0, 0, 0, 0], 0))
@@ -534,6 +533,22 @@ async fn connect_upstream(target: &ForwardTarget) -> io::Result<UdpSocket> {
     let socket = UdpSocket::bind(local).await?;
     socket.connect(remote).await?;
     Ok(socket)
+}
+
+/// 解析目标地址。
+///
+/// 用 `(host, port)` 而不是手拼字符串：IPv6 字面量（`2001:db8::1`）不需要
+/// 调用方写方括号，`lookup_host` 会直接按 IP 字面量解析，不走 DNS。
+/// 域名解析失败就是 `NotFound`，由调用方计数并丢弃当前数据报。
+async fn resolve_target(host: &str, port: u16) -> io::Result<SocketAddr> {
+    let host = host.trim();
+    if host.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "目标地址为空"));
+    }
+    let mut addresses = tokio::net::lookup_host((host, port)).await?;
+    addresses
+        .next()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("目标地址解析不到: {host}")))
 }
 
 /// 会话选路：**只按客户端地址做一致性哈希**，绝不轮询。
@@ -759,7 +774,7 @@ mod tests {
         table.insert(client_addr("198.51.100.9:5555"), idle_session(0));
         let mut expired = table.take_expired(u64::MAX, SESSION_IDLE);
         let (_, session) = expired.pop().unwrap();
-        session.shutdown();
+        session.shutdown().await;
         assert!(table.take_all().is_empty());
     }
 
@@ -989,5 +1004,74 @@ mod tests {
         .err()
         .expect("端口被占用时必须失败");
         assert_eq!(error.kind(), io::ErrorKind::AddrInUse);
+    }
+
+    // ---- 目标解析与 fd 释放 ----
+
+    /// IPv6 字面量目标不需要调用方写方括号，也不该走 DNS。
+    #[tokio::test]
+    async fn ipv6_literal_targets_resolve_without_brackets() {
+        let addr = resolve_target("2001:db8::1", 443)
+            .await
+            .expect("IPv6 字面量必须能直接解析");
+        assert!(addr.is_ipv6());
+        assert_eq!(addr.port(), 443);
+        assert_eq!(addr.ip().to_string(), "2001:db8::1");
+    }
+
+    /// 目标地址为空 / 端口非法 = 明确错误，由会话层计数并丢弃，不 panic。
+    #[tokio::test]
+    async fn invalid_targets_are_reported_as_errors() {
+        assert_eq!(
+            resolve_target("   ", 443).await.unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
+        let target = ForwardTarget {
+            host: "127.0.0.1".into(),
+            port: 70_000,
+            server_id: "srv".into(),
+        };
+        assert_eq!(
+            connect_upstream(&target).await.unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
+    }
+
+    /// 会话被关闭后，读上游任务必须在 `close()` 返回前真正 drop：
+    /// 否则它持有的 socket 会拖到下一次调度，规则重建时可能出现 fd 残留。
+    #[tokio::test]
+    async fn close_releases_reader_tasks_before_returning() {
+        let echo = spawn_udp_echo(None).await;
+        let forward = start_forward(echo, Limits::default()).await;
+        let inner = forward.inner.clone();
+
+        // 用一个只有测试能看到的 marker 观察读任务是否还活着。
+        let marker = Arc::new(());
+        let client = client_addr("127.0.0.1:33001");
+        let upstream = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let reader = {
+            let marker = marker.clone();
+            tokio::spawn(async move {
+                let _guard = marker;
+                std::future::pending::<()>().await;
+            })
+        };
+        inner.lock_sessions().insert(
+            client,
+            Session {
+                upstream,
+                target_index: 0,
+                last_active_ms: Arc::new(AtomicU64::new(inner.now_ms())),
+                reader,
+            },
+        );
+        assert_eq!(Arc::strong_count(&marker), 2, "读任务必须持有 marker");
+
+        forward.close().await;
+        assert_eq!(
+            Arc::strong_count(&marker),
+            1,
+            "close 返回前读任务必须已经被 drop（fd 已释放）"
+        );
     }
 }

@@ -33,6 +33,16 @@ uuid      = 前 16 字节，按 RFC 4122 写成 UUIDv4 形式
 - 可归因：Xray 的 `email` 直接写成 `{user_id}@{node_tag}`，流量统计按 email 聚合就能落到人和节点。
 - **轮换代价明确**：`master_secret` 换版本 → 所有订阅同时失效。所以 secret 存 `settings` 表并带 `v1` 前缀，
   迁移时写 `v2`，老订阅自然失效，不需要额外的兼容分支。
+- **轮换会连带 SS2022**：同一份 master secret 也派生 SS2022 的每用户密钥，所以换 `hmac_secret_v1`
+  会让 vless/vmess 的 UUID、trojan 密码、SS2022 的每用户密钥**同时全部失效**。已下发的 Agent
+  配置里还是旧凭据，两边会一直错位；正确顺序是：轮换 secret → 重新 apply（下发新 client）→
+  用户重新拉订阅。客户端还在用缓存订阅时表现为「密码错误」，不会自动恢复。
+
+> Rotating `hmac_secret_v1` invalidates **every** derived credential: vless/vmess UUIDs,
+> trojan passwords, and SS2022 per-user keys alike. The Agent keeps serving the previously
+> applied clients until the next apply, so the order is: rotate the secret, re-apply the server
+> config, then have users refresh their subscription. A client that still holds a cached
+> subscription just sees "wrong password"; nothing recovers automatically.
 
 > 为什么不存表：存表意味着每次加节点要给所有用户插 N 行（拼车场景下是 O(用户×节点)），
 > 而且节点删除要级联清理。派生法在扩容时是 O(1)。
@@ -169,16 +179,30 @@ Surge / sing-box 等第二轮补——它们的差异主要在配置文件骨架
 | vless | `id` = sub_uuid，`flow` 沿用片段，`email` |
 | vmess | `id` = sub_uuid，`alterId` = 0，`email` |
 | trojan | `password` = sub_uuid，`email` |
-| shadowsocks | 2022：`password` = ss2022_user_key（user **不带** method）；旧 AEAD：`password` = sub_uuid + 自己的 `method`；`email` |
+| shadowsocks | 2022：`password` = ss2022_user_key（**长度随方法**：AES-128 16 字节、AES-256 32 字节；user **不带** method）；旧 AEAD：`password` = sub_uuid + 自己的 `method`；`email` |
 
 > Shadowsocks 的密码形态随方法不同：SS2022 多用户下客户端密码是
 > `ServerPassword:UserPassword`（服务端密钥在前），旧 AEAD 多用户下用户密码就是客户端密码。
 > 导出器统一走 `SubNode::ss_client_password()`，不允许直接读 `params["password"]`。
 >
+> SS2022 的每用户密钥长度必须与方法一致：Xray 会按方法的 `KeySaltLength` 校验每个 user 的
+> `password`，长度不符会让它**拒绝加载整份配置**（不是只让这个用户连不上）。另外 Xray 的
+> SS2022 多用户只支持 `2022-blake3-aes-*`；`2022-blake3-chacha20-poly1305` 只能单用户使用，
+> 带授权用户时订阅与下发配置都会跳过该节点并告警。密钥输入接受标准 / URL-safe base64、
+> 带不带 padding、多余 `=`，落盘与订阅统一写成标准 base64。
+>
 > The Shadowsocks client password depends on the method: for SS2022 it is
 > `ServerPassword:UserPassword`, while legacy AEAD uses the per-user password as-is.
 > Exporters must go through `SubNode::ss_client_password()` instead of reading
 > `params["password"]` directly.
+>
+> The SS2022 per-user key length must match the method (16 bytes for AES-128, 32 bytes for
+> AES-256). Xray validates every user key against the method's `KeySaltLength` and refuses to
+> load the **entire** config on a mismatch. Xray's SS2022 multi-user mode also only supports
+> `2022-blake3-aes-*`; `2022-blake3-chacha20-poly1305` is single-user only, so a node that has
+> granted users is skipped (with a warning) in both the rendered config and the subscription.
+> Keys accept standard / URL-safe base64 with or without padding and any trailing `=`; both the
+> config and the subscription are written in canonical standard base64.
 
 `build_config(server, nodes, users)` 的签名变化会波及 `nodes::apply` 与 agent 侧（不需要改协议，只改配置内容）。
 

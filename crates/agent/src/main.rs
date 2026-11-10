@@ -90,6 +90,14 @@ impl ForwardEngines {
         self.native.apply(&native).await;
     }
 
+    /// 心跳周期对账：realm 子进程崩溃后不必等主控重新下发期望态。
+    ///
+    /// native 监听没有「子进程」这一层，崩溃不存在；绑定失败的规则仍由
+    /// 下一次 apply / 重连补发重试。
+    async fn reconcile(&mut self) {
+        self.realm.ensure_running().await;
+    }
+
     /// 心跳用的状态快照：两个引擎各读自己的句柄，不会互相覆盖。
     fn status_snapshot(&self) -> Vec<ForwardStatus> {
         let mut statuses = self.native.status_handle().snapshot();
@@ -448,6 +456,8 @@ async fn run_once(
                 }
             }
             _ = heartbeat.tick() => {
+                // 先做一次轻量对账：realm 崩溃时最多一个心跳周期就恢复。
+                forwards.reconcile().await;
                 seq += 1;
                 let hb = AgentMessage::Heartbeat(sample_heartbeat(
                     seq,
@@ -502,21 +512,35 @@ async fn run_once(
     }
 }
 
-/// 收敛到期望态：转发监听先对齐（与 xray 成败无关），其它文件原子落盘，
-/// xray 配置走「校验 → 备份 → 替换 → 重启」，失败回滚。
+/// 收敛到期望态：受管文件 → 转发监听 → xray 配置。
+///
+/// 顺序不能反：证书/私钥必须先落盘，realm（以及随后的 xray）重启时新路径
+/// 才已经存在；反过来会让 realm 拿着不存在的文件路径进入崩溃循环。
+/// `apply_files` 失败时整轮直接失败，**不碰任何正在跑的监听/子进程**：
+/// 旧 realm 继续用旧证书服务，链路不中断。
+/// 转发监听本身仍与 xray 成败无关，单条绑定失败只体现在 `ForwardStatus` 里。
 async fn apply_state(
     state: &DesiredState,
     cfg: &Config,
     forwards: &mut ForwardEngines,
 ) -> ApplyOutcome {
-    // 转发是独立于 xray 的收敛项：先对齐监听，再处理 xray。
-    // 单条绑定失败只体现在 ForwardStatus 里，不会把整次 apply 判失败。
+    if let Err(e) = apply_files(state) {
+        tracing::error!(version = state.version, error = %e, "apply files failed");
+        return ApplyOutcome {
+            result: ApplyResult {
+                version: state.version,
+                ok: false,
+                error: Some(e.to_string()),
+            },
+            upgraded: false,
+        };
+    }
     forwards.apply(&state.forwards).await;
     let backup_suffix = match cfg.backup_suffix.as_deref() {
         Some(s) if !s.is_empty() => s,
         _ => DEFAULT_BACKUP_SUFFIX,
     };
-    let result = apply_files(state).and_then(|()| {
+    let result = (|| {
         let content = serde_json::to_vec_pretty(&state.xray).context("序列化 xray 配置失败")?;
         apply_xray_atomic(
             Path::new(&cfg.xray_config_path),
@@ -525,7 +549,7 @@ async fn apply_state(
             backup_suffix,
             &cfg.restart_command,
         )
-    });
+    })();
     if let Err(e) = result {
         tracing::error!(version = state.version, error = %e, "apply failed");
         return ApplyOutcome {
@@ -609,6 +633,10 @@ async fn run_agent_upgrade(
 }
 
 /// 其它受管文件同样「写临时文件 → rename」，但不参与 xray 校验。
+///
+/// 权限必须按 `ManagedFile.mode` 落：证书私钥是 0600，忽略 mode 会按 umask
+/// 写成 0644，同机其它用户就能读到。临时文件按目标 mode 创建，写完再校正
+/// （umask 只会去掉权限位，创建时就不会比目标更宽），最后 fsync + rename。
 fn apply_files(state: &DesiredState) -> Result<()> {
     for f in &state.files {
         let path = Path::new(&f.path);
@@ -617,14 +645,47 @@ fn apply_files(state: &DesiredState) -> Result<()> {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("创建目录失败: {}", parent.display()))?;
         }
-        std::fs::write(&tmp, &f.content)
-            .with_context(|| format!("写入临时文件失败: {}", tmp.display()))?;
+        if let Err(e) = write_file_with_mode(&tmp, f.content.as_bytes(), f.mode) {
+            // 写一半失败（ENOSPC 等）时不要留下半份临时文件。
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e).with_context(|| format!("写入临时文件失败: {}", tmp.display()));
+        }
         if let Err(e) = std::fs::rename(&tmp, path) {
             let _ = std::fs::remove_file(&tmp);
             return Err(anyhow::anyhow!("替换文件失败（{}）: {e}", path.display()));
         }
     }
     Ok(())
+}
+
+/// 按目标权限写文件：创建时就带 mode，写完再精确校正并 fsync。
+///
+/// `mode == 0` 表示主控没给（旧版本协议），按最保守的 0600 处理。
+fn write_file_with_mode(path: &Path, content: &[u8], mode: u32) -> std::io::Result<()> {
+    let mode = if mode == 0 { 0o600 } else { mode };
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(mode)
+            .open(path)?;
+        // 创建时的 mode 会被 umask 收窄（例如 077 会把 0644 变 0600）；
+        // 写完后校正到目标值，保证最终权限精确。
+        file.set_permissions(std::fs::Permissions::from_mode(mode))?;
+        file.write_all(content)?;
+        file.sync_all()?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = mode;
+        std::fs::write(path, content)
+    }
 }
 
 /// 原子应用 xray 配置：
@@ -1423,5 +1484,227 @@ mod tests {
         let mut buf = [0u8; 7];
         client.read_exact(&mut buf).await.unwrap();
         assert_eq!(&buf, b"coexist", "native 规则应完成一次完整回环");
+    }
+
+    /// 受管文件的权限必须精确按 `ManagedFile.mode` 落盘：私钥 0600、证书 0644。
+    ///
+    /// 预置一个 0644 的临时文件，模拟上一次残留 / umask 收窄：写入后必须校正。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn apply_files_honours_managed_file_modes() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new();
+        let cert = dir.path().join("certs/server.crt");
+        let key = dir.path().join("certs/server.key");
+        std::fs::create_dir_all(cert.parent().unwrap()).unwrap();
+        // 旧实现只会 std::fs::write，残留文件大概率是 0644；这里先造出这个状态。
+        let stale_tmp = with_suffix(&key, ".tmp");
+        std::fs::write(&stale_tmp, "stale").unwrap();
+        std::fs::set_permissions(&stale_tmp, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let state = DesiredState {
+            version: 1,
+            xray: serde_json::json!({}),
+            files: vec![
+                pierwave_proto::ManagedFile {
+                    path: cert.display().to_string(),
+                    content: "CERT".into(),
+                    mode: 0o644,
+                },
+                pierwave_proto::ManagedFile {
+                    path: key.display().to_string(),
+                    content: "KEY".into(),
+                    mode: 0o600,
+                },
+            ],
+            agent_upgrade: None,
+            forwards: Vec::new(),
+            nodes: Vec::new(),
+        };
+
+        apply_files(&state).unwrap();
+
+        assert_eq!(read(&cert), "CERT");
+        assert_eq!(read(&key), "KEY");
+        let cert_mode = std::fs::metadata(&cert).unwrap().permissions().mode() & 0o777;
+        let key_mode = std::fs::metadata(&key).unwrap().permissions().mode() & 0o777;
+        assert_eq!(cert_mode, 0o644, "证书应是 0644");
+        assert_eq!(key_mode, 0o600, "私钥必须是 0600，不能受 umask/残留影响");
+        assert!(!stale_tmp.exists(), "rename 后不能残留 .tmp");
+    }
+
+    /// `ManagedFile.mode == 0`（旧主控没给）按最保守的 0600 处理，绝不写成世界可读。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn missing_mode_defaults_to_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new();
+        let path = dir.path().join("certs/unknown.pem");
+        let state = DesiredState {
+            version: 1,
+            xray: serde_json::json!({}),
+            files: vec![pierwave_proto::ManagedFile {
+                path: path.display().to_string(),
+                content: "PEM".into(),
+                mode: 0,
+            }],
+            agent_upgrade: None,
+            forwards: Vec::new(),
+            nodes: Vec::new(),
+        };
+
+        apply_files(&state).unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "缺省权限必须保守处理");
+    }
+
+    /// 文件写失败 → 整轮 apply 失败，且**不能碰 realm**：旧进程继续用旧证书跑。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn managed_file_failure_does_not_restart_forwards_or_realm() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new();
+        let counter = dir.path().join("launches");
+        let script = dir.path().join("realm");
+        std::fs::write(
+            &script,
+            format!("#!/bin/sh\necho x >> \"{}\"\nsleep 30\n", counter.display()),
+        )
+        .unwrap();
+        let mut perms = std::fs::metadata(&script).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&script, perms).unwrap();
+
+        let toml = format!(
+            "master_url = \"http://127.0.0.1:8787\"\n\
+             token = \"t\"\n\
+             xray_config_path = \"{}\"\n\
+             xray_test_command = \"true\"\n\
+             restart_command = \"true\"\n\
+             realm_bin = \"{}\"\n\
+             state_dir = \"{}\"\n",
+            dir.path().join("config.json").display(),
+            script.display(),
+            dir.path().display()
+        );
+        let cfg: Config = toml::from_str(&toml).unwrap();
+        let mut engines = ForwardEngines::new(&cfg);
+
+        // 父路径是一个普通文件 → create_dir_all 必然失败。
+        let blocker = dir.path().join("blocker");
+        std::fs::write(&blocker, "not a directory").unwrap();
+        let state = DesiredState {
+            version: 1,
+            xray: serde_json::json!({}),
+            files: vec![pierwave_proto::ManagedFile {
+                path: blocker.join("cert.pem").display().to_string(),
+                content: "CERT".into(),
+                mode: 0o600,
+            }],
+            agent_upgrade: None,
+            forwards: vec![DesiredForward {
+                id: "realm-1".into(),
+                listen_port: 0,
+                target_host: "10.0.0.8".into(),
+                target_port: 443,
+                targets: Vec::new(),
+                strategy: Default::default(),
+                engine: ForwardEngine::Realm,
+                udp: false,
+            }],
+            nodes: Vec::new(),
+        };
+
+        let outcome = apply_state(&state, &cfg, &mut engines).await;
+
+        assert!(!outcome.result.ok, "文件写不下去时整轮 apply 必须失败");
+        assert!(
+            !counter.exists(),
+            "apply_files 失败时不能启动/重启 realm（旧进程继续跑）"
+        );
+        assert!(
+            engines.status_snapshot().is_empty(),
+            "连转发状态都不该被改动"
+        );
+    }
+
+    /// 顺序断言：文件先落盘，realm 才启动——realm 启动时新证书路径必须已存在。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn managed_files_are_on_disk_before_realm_starts() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new();
+        let cert = dir.path().join("certs/server.crt");
+        let marker = dir.path().join("seen");
+        let script = dir.path().join("realm");
+        // 假 realm：启动瞬间记录证书文件是否已经存在，然后睡到被 kill。
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nif [ -f \"{}\" ]; then echo present > \"{}\"; else echo missing > \"{}\"; fi\nsleep 30\n",
+                cert.display(),
+                marker.display(),
+                marker.display()
+            ),
+        )
+        .unwrap();
+        let mut perms = std::fs::metadata(&script).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&script, perms).unwrap();
+
+        let toml = format!(
+            "master_url = \"http://127.0.0.1:8787\"\n\
+             token = \"t\"\n\
+             xray_config_path = \"{}\"\n\
+             xray_test_command = \"true\"\n\
+             restart_command = \"true\"\n\
+             realm_bin = \"{}\"\n\
+             state_dir = \"{}\"\n",
+            dir.path().join("config.json").display(),
+            script.display(),
+            dir.path().display()
+        );
+        let cfg: Config = toml::from_str(&toml).unwrap();
+        let mut engines = ForwardEngines::new(&cfg);
+        let state = DesiredState {
+            version: 1,
+            xray: serde_json::json!({}),
+            files: vec![pierwave_proto::ManagedFile {
+                path: cert.display().to_string(),
+                content: "CERT".into(),
+                mode: 0o644,
+            }],
+            agent_upgrade: None,
+            forwards: vec![DesiredForward {
+                id: "realm-1".into(),
+                listen_port: 0,
+                target_host: "10.0.0.8".into(),
+                target_port: 443,
+                targets: Vec::new(),
+                strategy: Default::default(),
+                engine: ForwardEngine::Realm,
+                udp: false,
+            }],
+            nodes: Vec::new(),
+        };
+
+        let outcome = apply_state(&state, &cfg, &mut engines).await;
+        assert!(outcome.result.ok, "realm 未监听不影响 apply 结果");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !marker.exists() {
+            assert!(Instant::now() < deadline, "等待假 realm 启动超时");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(
+            read(&marker).trim(),
+            "present",
+            "realm 启动时证书文件必须已经落盘"
+        );
     }
 }

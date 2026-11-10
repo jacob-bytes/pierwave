@@ -216,9 +216,8 @@ struct RunningForward {
     /// 供测试断言「重复下发没有重建监听」。
     started_at: Instant,
     runtime: ForwardRuntime,
-    /// 实际绑定的端口。测试用 `listen_port = 0` 让内核分配端口，
-    /// 通过这里读回来，避免「先找空闲端口再绑定」的抢端口竞态。
-    #[cfg(test)]
+    /// 实际绑定的端口。规则写 `listen_port = 0` 时由内核分配，这里读回；
+    /// 只切换 `udp` 位时要用它把 UDP socket 绑到同一个端口号上。
     bound_port: u16,
 }
 
@@ -262,6 +261,11 @@ pub struct ForwardSupervisor {
     running: HashMap<String, RunningForward>,
     /// 绑定失败的规则：id → 原因。保留到下次 `apply` 重试绑定。
     failed: HashMap<String, String>,
+    /// 只切换 `udp` 位时 UDP 绑定失败的原因（TCP 仍在监听）。
+    ///
+    /// 与 `failed` 分开：`failed` 表示整条规则没起来；这里表示 TCP 已经可用、
+    /// 但 UDP 那一半没绑上，状态必须如实报 `listening=false`，下一轮继续重试。
+    udp_failures: HashMap<String, String>,
     /// 最近一次期望列表的顺序，保证心跳里的状态顺序稳定。
     order: Vec<String>,
     status: ForwardStatusHandle,
@@ -279,6 +283,7 @@ impl ForwardSupervisor {
             bind_host,
             running: HashMap::new(),
             failed: HashMap::new(),
+            udp_failures: HashMap::new(),
             order: Vec::new(),
             status: ForwardStatusHandle::default(),
         }
@@ -311,15 +316,73 @@ impl ForwardSupervisor {
             wanted.push(spec);
         }
 
-        // 1. 先关掉「已删除」和「参数已变化」的监听。
-        //    顺序很重要：同一端口换目标时，旧监听不先释放会让新绑定 EADDRINUSE。
+        // 1a. 只切换 `udp` 位：TCP 监听保持不动，只增删 UDP 那一半。
+        //     已验收的 TCP 服务不能因为补一个 UDP 监听就短暂拒绝新连接。
+        let bind_host = self.bind_host.clone();
+        let mut udp_retry_failed: Vec<(String, String)> = Vec::new();
+        for spec in wanted.iter().copied() {
+            let Some(running) = self.running.get_mut(&spec.id) else {
+                continue;
+            };
+            if !differs_only_in_udp(&running.spec, spec) {
+                continue;
+            }
+            if spec.udp {
+                if running.udp.is_some() {
+                    running.spec.udp = true;
+                    self.udp_failures.remove(&spec.id);
+                    continue;
+                }
+                // UDP 规则不做 TCP 目标探测：TCP 握手证明不了 UDP 可达。
+                // 把旧的探测任务与结果清掉，避免心跳拿一个过期结论冒充 target_ok。
+                if let Some(health_task) = running.health_task.take() {
+                    health_task.abort();
+                    // 等它真正停下再清结果，否则刚清完又可能被写回一个探测值。
+                    let _ = health_task.await;
+                }
+                self.status.clear_target_health(&spec.id);
+                let port = running.bound_port;
+                let targets = running.runtime.targets.clone();
+                let failures = running.runtime.connect_failures.clone();
+                match udp::start(spec.id.clone(), &bind_host, port, targets, failures).await {
+                    Ok(forward) => {
+                        running.udp = Some(forward);
+                        running.spec.udp = true;
+                        self.udp_failures.remove(&spec.id);
+                        tracing::info!(id = %spec.id, port, "补上 UDP 监听（TCP 未中断）");
+                    }
+                    Err(error) => {
+                        udp_retry_failed.push((
+                            spec.id.clone(),
+                            format!("UDP 监听 {bind_host}:{port} 失败: {error}"),
+                        ));
+                    }
+                }
+            } else {
+                if let Some(udp) = running.udp.take() {
+                    udp.close().await;
+                }
+                running.spec.udp = false;
+                self.udp_failures.remove(&spec.id);
+                tracing::info!(id = %spec.id, "关闭 UDP 监听（TCP 未中断）");
+            }
+        }
+        for (id, reason) in udp_retry_failed {
+            tracing::warn!(%id, %reason, "UDP 监听绑定失败，TCP 继续监听");
+            self.udp_failures.insert(id, reason);
+        }
+
+        // 1b. 再关掉「已删除」和「参数已变化」的监听。
+        //     顺序很重要：同一端口换目标时，旧监听不先释放会让新绑定 EADDRINUSE。
+        //     只差 udp 位的规则已经在 1a 里就地处理，不能在这里把 TCP 也拆掉。
         let stale: Vec<String> = self
             .running
             .iter()
             .filter(|(id, running)| {
-                !wanted
-                    .iter()
-                    .any(|spec| spec.id == **id && *spec == &running.spec)
+                !wanted.iter().any(|spec| {
+                    spec.id == **id
+                        && (*spec == &running.spec || differs_only_in_udp(&running.spec, spec))
+                })
             })
             .map(|(id, _)| id.clone())
             .collect();
@@ -328,9 +391,12 @@ impl ForwardSupervisor {
                 running.close(&id).await;
             }
             self.status.clear_target_health(&id);
+            self.udp_failures.remove(&id);
         }
         // 已经不在期望态里的失败项也清掉，别让心跳一直报旧规则。
         self.failed
+            .retain(|id, _| wanted.iter().any(|spec| &spec.id == id));
+        self.udp_failures
             .retain(|id, _| wanted.iter().any(|spec| &spec.id == id));
 
         // 2. 绑定新增 / 变化的监听。失败只记录状态，不影响其它规则。
@@ -436,6 +502,7 @@ impl ForwardSupervisor {
                         "转发监听已启动"
                     );
                     self.failed.remove(&spec.id);
+                    self.udp_failures.remove(&spec.id);
                     self.running.insert(
                         spec.id.clone(),
                         RunningForward {
@@ -446,7 +513,6 @@ impl ForwardSupervisor {
                             health_task,
                             started_at: Instant::now(),
                             runtime,
-                            #[cfg(test)]
                             bound_port,
                         },
                     );
@@ -469,6 +535,18 @@ impl ForwardSupervisor {
             .order
             .iter()
             .map(|id| match self.running.get(id) {
+                // TCP 在跑、但补 UDP 时绑定失败：如实报 listening=false，
+                // 原因里说明是哪一半失败，下一轮 apply 会继续重试。
+                Some(_) if self.udp_failures.contains_key(id) => ForwardStatus {
+                    id: id.clone(),
+                    listening: false,
+                    error: self
+                        .udp_failures
+                        .get(id)
+                        .cloned()
+                        .unwrap_or_else(|| "UDP 监听未启动".into()),
+                    target_ok: None,
+                },
                 Some(_) => ForwardStatus {
                     id: id.clone(),
                     listening: true,
@@ -491,6 +569,17 @@ impl ForwardSupervisor {
             .collect();
         self.status.store(statuses);
     }
+}
+
+/// 两条规则是否只有 `udp` 位不同。
+///
+/// 只差这一位时可以就地补/撤 UDP socket，不必拆掉已经验收的 TCP 监听。
+fn differs_only_in_udp(current: &DesiredForward, wanted: &DesiredForward) -> bool {
+    let mut current = current.clone();
+    let mut wanted = wanted.clone();
+    current.udp = false;
+    wanted.udp = false;
+    current == wanted
 }
 
 /// 把规则里的候选目标归一化成运行时列表。
@@ -1343,10 +1432,17 @@ mod tests {
     /// 同一个端口号上的 TCP + UDP echo：UDP 原样回显，TCP 先吐 tag 'D' 再回显。
     /// 一条 `udp = true` 的规则要能把两种协议同时转给同一个目标。
     async fn spawn_dual_echo() -> SocketAddr {
-        let udp = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let addr = udp.local_addr().unwrap();
-        // 同一端口号再绑 TCP：两种协议互不影响。
-        let listener = TcpListener::bind(addr).await.unwrap();
+        // UDP 先拿随机端口，再在同一个端口号上绑 TCP。并行测试里那个 TCP 端口
+        // 可能刚好被别人占着（UDP/TCP 端口空间独立），撞了就换一个端口重试。
+        let (udp, listener, addr) = loop {
+            let udp = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+            let addr = udp.local_addr().unwrap();
+            match TcpListener::bind(addr).await {
+                // 同一端口号再绑 TCP：两种协议互不影响。
+                Ok(listener) => break (udp, listener, addr),
+                Err(_) => continue,
+            }
+        };
 
         tokio::spawn(async move {
             let mut buf = vec![0u8; 2048];
@@ -1456,15 +1552,27 @@ mod tests {
         );
     }
 
-    /// 只把 udp 关掉（端口/目标不变）：规则必须重建，UDP 端口释放、TCP 继续可用。
+    /// 只把 udp 关掉（端口/目标不变）：TCP 监听必须完全不动，UDP 端口释放。
     #[tokio::test]
     async fn turning_udp_off_releases_only_the_udp_port() {
         let target = spawn_dual_echo().await;
         let mut supervisor = ForwardSupervisor::new("127.0.0.1");
         supervisor.apply(&[udp_rule("fwd", 0, target)]).await;
         let port = supervisor.bound_port("fwd").unwrap();
+        let tcp_task = supervisor.running.get("fwd").unwrap().task.id();
+        let started_at = supervisor.running.get("fwd").unwrap().started_at;
 
-        supervisor.apply(&[rule("fwd", port, target)]).await;
+        // listen_port 保持 0（期望态与运行时一致），只有 udp 位变化。
+        supervisor.apply(&[rule("fwd", 0, target)]).await;
+
+        let running = supervisor.running.get("fwd").unwrap();
+        assert_eq!(
+            running.task.id(),
+            tcp_task,
+            "关 UDP 不能重建 TCP accept 任务"
+        );
+        assert_eq!(running.started_at, started_at, "TCP 监听不能被重启");
+        assert!(running.udp.is_none());
         assert!(
             supervisor.status_handle().snapshot()[0].listening,
             "关掉 UDP 后 TCP 监听必须仍在"
@@ -1480,6 +1588,120 @@ mod tests {
         let (tag, echoed) = roundtrip(port, b"tcp-only").await;
         assert_eq!(tag, b'D');
         assert_eq!(echoed, b"tcp-only");
+    }
+
+    /// 只把 udp 打开（同端口已在 TCP 监听）：必须只补 UDP 监听，不重建 TCP。
+    #[tokio::test]
+    async fn turning_udp_on_adds_udp_without_interrupting_tcp() {
+        let target = spawn_dual_echo().await;
+        let mut supervisor = ForwardSupervisor::new("127.0.0.1");
+        supervisor.apply(&[rule("fwd", 0, target)]).await;
+        let port = supervisor.bound_port("fwd").unwrap();
+        let tcp_task = supervisor.running.get("fwd").unwrap().task.id();
+
+        // 先建立一条连接并保持打开：切换过程中它不能断。
+        let mut long_lived = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        let mut tag = [0u8; 1];
+        timeout(Duration::from_secs(2), long_lived.read_exact(&mut tag))
+            .await
+            .expect("读取 tag 超时")
+            .expect("读取 tag 失败");
+        assert_eq!(tag[0], b'D');
+
+        supervisor.apply(&[udp_rule("fwd", 0, target)]).await;
+
+        let running = supervisor.running.get("fwd").unwrap();
+        assert_eq!(
+            running.task.id(),
+            tcp_task,
+            "补 UDP 不能重建 TCP accept 任务"
+        );
+        assert!(running.udp.is_some(), "UDP 监听必须补上");
+        assert!(supervisor.status_handle().snapshot()[0].listening);
+
+        // 已建立的 TCP 连接继续可用。
+        long_lived.write_all(b"still here").await.unwrap();
+        let mut echoed = [0u8; 10];
+        timeout(Duration::from_secs(2), long_lived.read_exact(&mut echoed))
+            .await
+            .expect("旧连接读取超时")
+            .expect("旧连接读取失败");
+        assert_eq!(&echoed, b"still here", "切换期间旧 TCP 连接不能断");
+
+        // 新连接与 UDP 都可用。
+        let (tag, _) = roundtrip(port, b"new tcp").await;
+        assert_eq!(tag, b'D');
+        let client = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let mut buf = [0u8; 64];
+        client
+            .send_to(b"udp on", ("127.0.0.1", port))
+            .await
+            .unwrap();
+        let (size, _) = timeout(Duration::from_secs(2), client.recv_from(&mut buf))
+            .await
+            .expect("UDP 回显超时")
+            .expect("UDP 回显失败");
+        assert_eq!(&buf[..size], b"udp on");
+    }
+
+    /// 补 UDP 时端口被占用：TCP 必须继续服务，状态如实报 UDP 失败；
+    /// 占用释放后下一轮 apply 自动补上 UDP。
+    #[tokio::test]
+    async fn udp_bind_failure_while_toggling_keeps_tcp_alive() {
+        let target = spawn_dual_echo().await;
+        let occupied = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let port = occupied.local_addr().unwrap().port();
+        let mut supervisor = ForwardSupervisor::new("127.0.0.1");
+
+        supervisor.apply(&[rule("fwd", port, target)]).await;
+        let tcp_task = supervisor.running.get("fwd").unwrap().task.id();
+        let (tag, _) = roundtrip(port, b"tcp first").await;
+        assert_eq!(tag, b'D');
+
+        supervisor.apply(&[udp_rule("fwd", port, target)]).await;
+
+        let running = supervisor.running.get("fwd").unwrap();
+        assert_eq!(
+            running.task.id(),
+            tcp_task,
+            "UDP 绑定失败也不能拆掉 TCP 监听"
+        );
+        assert!(running.udp.is_none());
+        let status = supervisor.status_handle().snapshot();
+        assert!(
+            !status[0].listening,
+            "UDP 没绑上时不能报整体 listening=true"
+        );
+        assert!(
+            status[0].error.contains("UDP"),
+            "失败原因必须说明是 UDP：{:?}",
+            status[0].error
+        );
+
+        // TCP 仍然可用。
+        let (tag, echoed) = roundtrip(port, b"tcp survives").await;
+        assert_eq!(tag, b'D');
+        assert_eq!(echoed, b"tcp survives");
+
+        // 释放占用后重放期望态：只补 UDP，TCP 任务仍不重建。
+        drop(occupied);
+        supervisor.apply(&[udp_rule("fwd", port, target)]).await;
+        let running = supervisor.running.get("fwd").unwrap();
+        assert_eq!(running.task.id(), tcp_task);
+        assert!(running.udp.is_some(), "端口释放后必须自动补上 UDP");
+        assert!(supervisor.status_handle().snapshot()[0].listening);
+
+        let client = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let mut buf = [0u8; 64];
+        client
+            .send_to(b"udp later", ("127.0.0.1", port))
+            .await
+            .unwrap();
+        let (size, _) = timeout(Duration::from_secs(2), client.recv_from(&mut buf))
+            .await
+            .expect("UDP 回显超时")
+            .expect("UDP 回显失败");
+        assert_eq!(&buf[..size], b"udp later");
     }
 
     /// UDP 端口被别人占着：这条规则必须 listening=false 且带原因，

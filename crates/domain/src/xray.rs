@@ -21,11 +21,14 @@ pub struct Grant {
     pub user_id: String,
     pub node_id: String,
     pub uuid: String,
-    /// SS2022 每用户密钥（标准 base64，32 字节）。
+    /// SS2022 每用户密钥（标准 base64）。
     ///
-    /// 旧 AEAD 方法不用它（沿用 UUID 当密码），但派生成本只有一次 HMAC，
-    /// 统一在这里算好可以让 [`build_config`] 保持纯函数、不接触 master secret。
+    /// SS2022 的方法决定密钥长度：AES-128 必须 16 字节，AES-256 / ChaCha20
+    /// 必须 32 字节。长度写错会让 Xray **拒绝整份配置**，所以这里两档都算好
+    /// （[`Grant::ss_key_for`] 按方法取）。旧 AEAD 方法不用它（沿用 UUID 当密码）。
     pub ss_key: String,
+    /// AES-128 档的 SS2022 每用户密钥（16 字节，标准 base64）。
+    pub ss_key_128: String,
     /// 套餐档位（kbps）；`None` / 0 = 不限，生成的 client 不带 `level`。
     pub speed_limit_kbps: Option<i64>,
 }
@@ -37,8 +40,20 @@ impl Grant {
             user_id: user_id.to_string(),
             node_id: node_id.to_string(),
             uuid: credentials::sub_uuid(secret, user_id, node_id),
-            ss_key: credentials::ss2022_user_key(secret, user_id, node_id),
+            ss_key: credentials::ss2022_user_key_len(secret, user_id, node_id, 32),
+            ss_key_128: credentials::ss2022_user_key_len(secret, user_id, node_id, 16),
             speed_limit_kbps: None,
+        }
+    }
+
+    /// 给定 SS2022 方法应使用的每用户密钥。
+    ///
+    /// 长度不匹配会被 Xray 当成坏凭据直接拒绝加载配置，因此调用方**必须**
+    /// 用这个方法而不是直接读 `ss_key`。
+    pub fn ss_key_for(&self, method: &str) -> &str {
+        match ss2022_key_len(method) {
+            Some(16) => &self.ss_key_128,
+            _ => &self.ss_key,
         }
     }
 
@@ -387,6 +402,54 @@ pub fn is_ss2022(method: &str) -> bool {
     ss2022_key_len(method).is_some()
 }
 
+/// 该方法能否用「每用户密钥」的多用户形态。
+///
+/// Xray 的 SS2022 多用户（`clients` 里每个 user 一把密钥）只实现了
+/// `2022-blake3-aes-*`；`2022-blake3-chacha20-poly1305` 一旦出现 `clients`，
+/// Xray 会直接报 `only blake3-aes-*-gcm methods are supported` 并**拒绝加载
+/// 整份配置**（不是只跳过这个节点）。所以生成配置/订阅时必须先判定。
+pub fn ss2022_supports_multiuser(method: &str) -> bool {
+    matches!(
+        method.trim().to_ascii_lowercase().as_str(),
+        "2022-blake3-aes-128-gcm" | "2022-blake3-aes-256-gcm"
+    )
+}
+
+/// 会进入多用户形态、但 Xray 不支持该方法的 SS2022 节点。
+pub fn ss2022_multiuser_unsupported(method: &str) -> bool {
+    is_ss2022(method) && !ss2022_supports_multiuser(method)
+}
+
+/// 宽松解码 SS2022 密钥：接受标准 / URL-safe base64、带不带 padding、多余 `=`。
+///
+/// 各种客户端/面板导出的 SS2022 密钥格式不一致：`openssl rand -base64` 是标准
+/// 带 padding，`ss://` 链接里是 URL-safe，手工复制还常带换行或多余 `=`。
+/// Xray 自己只认标准 base64（解码失败会退化成「把字面量当密钥」），长度对不上
+/// 就静默握手失败。所以我们在入口统一解码，落盘和订阅再统一写规范形态。
+fn decode_ss2022_key(raw: &str) -> Option<Vec<u8>> {
+    use base64::engine::general_purpose::{STANDARD_NO_PAD, URL_SAFE_NO_PAD};
+    use base64::Engine;
+
+    let trimmed = raw.trim().trim_end_matches('=');
+    if trimmed.is_empty() {
+        return None;
+    }
+    STANDARD_NO_PAD
+        .decode(trimmed)
+        .or_else(|_| URL_SAFE_NO_PAD.decode(trimmed))
+        .ok()
+}
+
+/// SS2022 密钥的规范形态：标准 base64 + 标准 padding（Xray 唯一稳定接受的写法）。
+///
+/// 解码失败返回 `None`（调用方应把它当作非法密钥）。
+pub fn canonical_ss2022_key(raw: &str) -> Option<String> {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+
+    decode_ss2022_key(raw).map(|bytes| STANDARD.encode(bytes))
+}
+
 /// 校验 Shadowsocks 入站片段；`None` = 合法，`Some` = 带稳定错误码的问题。
 ///
 /// 片段里缺 `settings` 时按 [`default_settings`] 的默认值判定（2022 + 空密钥），
@@ -415,12 +478,9 @@ fn ss_settings_problem(settings: Option<&Map<String, Value>>) -> Option<DomainEr
         .unwrap_or_default();
 
     if let Some(expected) = ss2022_key_len(&method) {
-        use base64::engine::general_purpose::STANDARD;
-        use base64::Engine;
-
-        match STANDARD.decode(password) {
-            Ok(key) if key.len() == expected => {}
-            Ok(key) => {
+        match decode_ss2022_key(password) {
+            Some(key) if key.len() == expected => {}
+            Some(key) => {
                 return Some(DomainError::with_params(
                     "node.ss_key_invalid",
                     json!({
@@ -434,7 +494,7 @@ fn ss_settings_problem(settings: Option<&Map<String, Value>>) -> Option<DomainEr
                     ),
                 ))
             }
-            Err(_) => {
+            None => {
                 return Some(DomainError::with_params(
                     "node.ss_key_invalid",
                     json!({ "method": method, "expected_bytes": expected }),
@@ -496,7 +556,7 @@ fn ss_network(settings: Option<&Map<String, Value>>) -> String {
 /// 让 Xray 用默认的 `tcp`。
 fn normalize_ss_settings(settings: &mut Map<String, Value>) {
     let method = ss_method(Some(settings));
-    settings.insert("method".into(), Value::String(method));
+    settings.insert("method".into(), Value::String(method.clone()));
 
     match settings
         .get("network")
@@ -515,9 +575,58 @@ fn normalize_ss_settings(settings: &mut Map<String, Value>) {
 
     if let Some(password) = settings.get("password").and_then(Value::as_str) {
         let trimmed = password.trim();
-        if trimmed != password {
-            settings.insert("password".into(), Value::String(trimmed.to_string()));
+        // SS2022 的密钥统一写规范形态：URL-safe / 缺 padding / 多余 `=` 的输入
+        // 若原样写进配置，Xray 解码失败后会把它当字面量密钥，握手静默失败。
+        let normalized = if is_ss2022(&method) {
+            canonical_ss2022_key(trimmed).unwrap_or_else(|| trimmed.to_string())
+        } else {
+            trimmed.to_string()
+        };
+        if normalized != password {
+            settings.insert("password".into(), Value::String(normalized));
         }
+    }
+}
+
+/// 让 `settings` 与节点的 `protocol` 一致，并补齐该协议必需的骨架字段。
+///
+/// `config_json` 是自由的入站片段：节点协议改过、或从别的协议整段复制过来时，
+/// `settings` 里会残留 `method` / `password` 这类只属于 Shadowsocks 的键。
+/// Xray 对部分字段很严格（例如 vless 的 `decryption`、SS2022 的多用户形态），
+/// 残留会让**整份配置**加载失败，而不是只影响这一个节点。
+fn normalize_settings(protocol: &str, inbound: &mut Map<String, Value>) {
+    if !matches!(inbound.get("settings"), Some(Value::Object(_))) {
+        inbound.insert("settings".into(), default_settings(protocol));
+    }
+    let Some(settings) = inbound.get_mut("settings").and_then(Value::as_object_mut) else {
+        return;
+    };
+    let protocol = protocol.trim().to_ascii_lowercase();
+    match protocol.as_str() {
+        "shadowsocks" | "ss" => normalize_ss_settings(settings),
+        "vless" | "vmess" | "trojan" => normalize_client_settings(&protocol, settings),
+        _ => {}
+    }
+}
+
+/// vless / vmess / trojan 的 settings 骨架。
+fn normalize_client_settings(protocol: &str, settings: &mut Map<String, Value>) {
+    // `method` 只可能出现在 Shadowsocks 的 settings 里；看到它就说明整段
+    // settings 是从别的协议残留/复制过来的，里面的 clients 也不可信，
+    // 直接换成该协议的默认骨架（派生 client 随后由 inject_clients 注入）。
+    if settings.contains_key("method") {
+        if let Value::Object(defaults) = default_settings(protocol) {
+            *settings = defaults;
+        }
+        return;
+    }
+    if protocol == "vless" {
+        // VLESS 入站的 decryption 必须是 none；缺省或写成别的值都可能让
+        // Xray 拒绝加载整份配置。
+        settings.insert("decryption".into(), Value::String("none".into()));
+    }
+    if !matches!(settings.get("clients"), Some(Value::Array(_))) {
+        settings.insert("clients".into(), Value::Array(Vec::new()));
     }
 }
 
@@ -579,15 +688,50 @@ pub fn build_config_checked_with_certs(plan: &ServerPlan) -> (Value, Vec<String>
     build_config_checked_impl(plan, true)
 }
 
+/// SS2022 节点是否会进入「每用户密钥」的多用户形态。
+///
+/// 两种来源：面板注入的授权用户，或片段里手工导入的 `clients`。只要有一种，
+/// Xray 就会走多用户实现——而它只支持 `2022-blake3-aes-*`。chacha 带任何
+/// clients 都会让**整份配置**加载失败，所以必须把节点整条跳过并告警，
+/// 不能让它连累同一服务器上的其它节点。
+fn ss_multiuser_problem(node: &Node) -> Option<String> {
+    let protocol = node.protocol.trim().to_ascii_lowercase();
+    if !matches!(protocol.as_str(), "shadowsocks" | "ss") {
+        return None;
+    }
+    let fragment = parse_fragment(&node.config_json);
+    let method = ss_method(fragment.get("settings").and_then(Value::as_object));
+    if ss2022_multiuser_unsupported(&method) {
+        return Some(format!(
+            "SS2022 方法 {method} 不支持多用户（Xray 仅支持 2022-blake3-aes-*），已跳过"
+        ));
+    }
+    None
+}
+
+/// 片段里是否已经有手工 client（会触发 Xray 的多用户形态）。
+fn node_has_manual_clients(node: &Node) -> bool {
+    parse_fragment(&node.config_json)
+        .get("settings")
+        .and_then(Value::as_object)
+        .and_then(|settings| settings.get("clients"))
+        .and_then(Value::as_array)
+        .is_some_and(|clients| !clients.is_empty())
+}
+
 fn build_config_checked_impl(plan: &ServerPlan, require_tls_certs: bool) -> (Value, Vec<String>) {
     let mut usable = Vec::with_capacity(plan.nodes.len());
     let mut warnings = Vec::new();
     for node in plan.nodes {
-        let problem = node_problem(node).or_else(|| {
-            require_tls_certs
-                .then(|| node_tls_cert_problem(node, plan.certs))
-                .flatten()
-        });
+        let has_grants = plan.grants.iter().any(|grant| grant.node_id == node.id);
+        let multiuser = has_grants || node_has_manual_clients(node);
+        let problem = node_problem(node)
+            .or_else(|| multiuser.then(|| ss_multiuser_problem(node)).flatten())
+            .or_else(|| {
+                require_tls_certs
+                    .then(|| node_tls_cert_problem(node, plan.certs))
+                    .flatten()
+            });
         match problem {
             Some(reason) => {
                 let name = node_display_name(node);
@@ -676,17 +820,8 @@ fn build_inbound(
     inbound.remove("port");
     inbound.remove("protocol");
 
-    if !matches!(inbound.get("settings"), Some(Value::Object(_))) {
-        inbound.insert("settings".into(), default_settings(&node.protocol));
-    }
-    if matches!(
-        node.protocol.trim().to_ascii_lowercase().as_str(),
-        "shadowsocks" | "ss"
-    ) {
-        if let Some(settings) = inbound.get_mut("settings").and_then(Value::as_object_mut) {
-            normalize_ss_settings(settings);
-        }
-    }
+    // settings 缺失时补协议默认骨架；与协议不符的残留键在这里清掉。
+    normalize_settings(&node.protocol, &mut inbound);
     // Xray 认的字段名是 `streamSettings`；历史片段里写的是 `stream`，这里统一改名，
     // 否则即使配置能生成，真实 Xray 也会忽略整段传输/安全设置。
     if let Some(legacy) = inbound.remove("stream") {
@@ -786,6 +921,17 @@ fn inject_clients(
         .map(str::to_ascii_lowercase)
         .unwrap_or_else(|| SS_DEFAULT_METHOD.to_string());
     let ss_2022 = is_ss2022(&ss_method);
+    // Xray 的 SS2022 多用户只支持 AES；chacha 一旦带 clients 会让整份配置加载
+    // 失败（连累其它节点）。这里退化成单用户形态（不注入 clients），
+    // `build_config_checked` 会把这个节点整条跳过并告警。
+    if ss_2022 && ss2022_multiuser_unsupported(&ss_method) {
+        tracing::warn!(
+            node = %node.id,
+            method = %ss_method,
+            "SS2022 方法不支持多用户，跳过 client 注入（改用 2022-blake3-aes-*）"
+        );
+        return;
+    }
 
     let clients = settings
         .get_mut("clients")
@@ -810,8 +956,12 @@ fn inject_clients(
             }
             "shadowsocks" | "ss" => {
                 if ss_2022 {
-                    // SS2022：per-user 密钥，绝不能再带 method。
-                    client.insert("password".into(), Value::String(grant.ss_key.clone()));
+                    // SS2022：per-user 密钥，长度随方法（AES-128 = 16 字节），
+                    // 并且绝不能再带 method。
+                    client.insert(
+                        "password".into(),
+                        Value::String(grant.ss_key_for(&ss_method).to_string()),
+                    );
                 } else {
                     // 旧 AEAD：user 密码沿用 UUID 派生，每个 user 带自己的 method。
                     client.insert("password".into(), Value::String(grant.uuid.clone()));
@@ -1399,7 +1549,8 @@ mod tests {
         use base64::engine::general_purpose::STANDARD;
         use base64::Engine;
 
-        let ss = ss_node("2022-blake3-chacha20-poly1305", &ss_key(32), "tcp");
+        // 32 字节档用 AES-256 验证（chacha 不支持多用户，不会注入 clients）。
+        let ss = ss_node("2022-blake3-aes-256-gcm", &ss_key(32), "tcp");
         let nodes = [ss];
         let grants = grants_for(SECRET, &["user-1"], &[&nodes[0]]);
         let config = build("hk-1", &nodes, &grants);
@@ -1408,6 +1559,191 @@ mod tests {
             .unwrap();
 
         assert_eq!(STANDARD.decode(password).unwrap().len(), 32);
+    }
+
+    /// AES-128-GCM 的每用户密钥必须是 16 字节；发 32 字节会让 Xray 拒绝整份配置。
+    #[test]
+    fn shadowsocks_2022_aes_128_clients_get_a_16_byte_key() {
+        use base64::engine::general_purpose::STANDARD;
+        use base64::Engine;
+
+        let ss = ss_node("2022-blake3-aes-128-gcm", &ss_key(16), "tcp");
+        let nodes = [ss];
+        let grants = grants_for(SECRET, &["user-1", "user-2"], &[&nodes[0]]);
+        let config = build("hk-1", &nodes, &grants);
+        let clients = config["inbounds"][0]["settings"]["clients"]
+            .as_array()
+            .unwrap();
+
+        assert_eq!(clients.len(), 2);
+        for (index, user_id) in ["user-1", "user-2"].iter().enumerate() {
+            let raw = STANDARD
+                .decode(clients[index]["password"].as_str().unwrap())
+                .expect("每用户密钥必须是标准 base64");
+            assert_eq!(raw.len(), 16, "AES-128 的每用户密钥必须是 16 字节");
+            assert_eq!(
+                clients[index]["password"],
+                credentials::ss2022_user_key_len(SECRET, user_id, &nodes[0].id, 16),
+                "配置与订阅必须用同一把 16 字节密钥"
+            );
+        }
+
+        // 32 字节档不能被截断逻辑影响（历史凭据不能漂移）。
+        let ss = ss_node("2022-blake3-aes-256-gcm", &ss_key(32), "tcp");
+        let nodes = [ss];
+        let grants = grants_for(SECRET, &["user-1"], &[&nodes[0]]);
+        let config = build("hk-1", &nodes, &grants);
+        assert_eq!(
+            config["inbounds"][0]["settings"]["clients"][0]["password"],
+            credentials::ss2022_user_key(SECRET, "user-1", &nodes[0].id)
+        );
+    }
+
+    /// Xray 的 SS2022 多用户只支持 AES：chacha + 任何授权用户都必须被跳过，
+    /// 否则 Xray 会拒绝加载整份配置，同一服务器上的其它节点一起失联。
+    #[test]
+    fn shadowsocks_2022_chacha_multiuser_is_skipped_with_a_warning() {
+        let ss = ss_node("2022-blake3-chacha20-poly1305", &ss_key(32), "tcp");
+        let nodes = [ss];
+        let grants = grants_for(SECRET, &["user-1"], &[&nodes[0]]);
+
+        // 纯函数本身不能生成带 clients 的 chacha（防御性：调用方漏了 checked 版）。
+        let config = build("hk-1", &nodes, &grants);
+        assert!(
+            config["inbounds"][0]["settings"]["clients"]
+                .as_array()
+                .is_none_or(|clients| clients.is_empty()),
+            "chacha 不能注入 clients：{}",
+            config["inbounds"][0]["settings"]
+        );
+
+        // 下发路径必须跳过整条节点并给出警告，而不是让整份配置失败。
+        let (config, warnings) = build_config_checked(&ServerPlan::new("hk-1", &nodes, &grants));
+        assert_eq!(config["inbounds"].as_array().unwrap().len(), 1, "只剩 api");
+        assert_eq!(warnings.len(), 1);
+        assert!(
+            warnings[0].contains("不支持多用户"),
+            "警告必须说明原因：{warnings:?}"
+        );
+
+        // 没有授权用户时是合法的单用户形态，不能被跳过。
+        let (config, warnings) = build_config_checked(&ServerPlan::new("hk-1", &nodes, &[]));
+        assert_eq!(warnings.len(), 0);
+        assert_eq!(config["inbounds"][0]["protocol"], "shadowsocks");
+
+        // 片段里手工导入的 clients 同样会触发多用户形态，也必须跳过。
+        let manual = node(
+            "ss-chacha-manual",
+            "shadowsocks",
+            "tcp",
+            "none",
+            9000,
+            &json!({
+                "settings": {
+                    "method": "2022-blake3-chacha20-poly1305",
+                    "password": ss_key(32),
+                    "clients": [{"password": ss_key(32), "email": "hand@import"}]
+                }
+            })
+            .to_string(),
+        );
+        let (config, warnings) =
+            build_config_checked(&ServerPlan::new("hk-1", std::slice::from_ref(&manual), &[]));
+        assert_eq!(config["inbounds"].as_array().unwrap().len(), 1, "只剩 api");
+        assert_eq!(warnings.len(), 1, "手工 clients 也必须告警：{warnings:?}");
+    }
+
+    /// 客户端/面板导出的 SS2022 密钥格式不一：URL-safe、缺 padding、多余 `=`
+    /// 都应该被接受，并在落盘配置里统一成标准 base64。
+    #[test]
+    fn shadowsocks_2022_key_encodings_are_normalized() {
+        use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
+        use base64::Engine;
+
+        let raw = [7u8; 32];
+        let standard = STANDARD.encode(raw);
+        let url_safe = URL_SAFE_NO_PAD.encode(raw);
+        // 缺 padding（标准字母表）和“多余 =”都是常见输入。
+        let no_pad = standard.trim_end_matches('=').to_string();
+        let extra_pad = format!("{standard}==");
+
+        for input in [
+            format!("  {standard}\n"),
+            format!("\t{url_safe}\r\n"),
+            no_pad.clone(),
+            url_safe.clone(),
+            extra_pad.clone(),
+        ] {
+            assert!(
+                shadowsocks_problem(&ss_config("2022-blake3-aes-256-gcm", &input, "tcp")).is_none(),
+                "{input:?} 应被接受"
+            );
+            let ss = ss_node("2022-blake3-aes-256-gcm", &input, "tcp");
+            let config = build("hk-1", &[ss], &[]);
+            assert_eq!(
+                config["inbounds"][0]["settings"]["password"], standard,
+                "{input:?} 必须被规范化成标准 base64"
+            );
+        }
+
+        // 长度不符的 base64 仍要拒绝，不能靠“宽松解码”放行。
+        let short = STANDARD.encode([7u8; 16]);
+        assert_eq!(
+            shadowsocks_problem(&ss_config("2022-blake3-aes-256-gcm", &short, "tcp"))
+                .map(|problem| problem.code),
+            Some("node.ss_key_invalid")
+        );
+    }
+
+    /// 节点协议改过 / 片段从别的协议复制时，残留的 SS settings 不能把 Xray 弄挂。
+    #[test]
+    fn foreign_protocol_settings_are_rebuilt_for_client_protocols() {
+        // vless 节点带着完整的 SS settings（method/password/network）。
+        let vless = node(
+            "vless-with-ss-settings",
+            "vless",
+            "tcp",
+            "none",
+            443,
+            r#"{"settings": {"method": "aes-256-gcm", "password": "server-key-123",
+                             "network": "tcp,udp"}}"#,
+        );
+        let nodes = [vless];
+        let grants = grants_for(SECRET, &["user-1"], &[&nodes[0]]);
+        let config = build("hk-1", &nodes, &grants);
+        let settings = &config["inbounds"][0]["settings"];
+
+        assert!(
+            settings.get("method").is_none(),
+            "不能把 SS 的 method 带进 vless"
+        );
+        assert_eq!(
+            settings["decryption"], "none",
+            "vless 必须有 decryption=none"
+        );
+        assert_eq!(
+            settings["clients"][0]["id"],
+            credentials::sub_uuid(SECRET, "user-1", &nodes[0].id)
+        );
+
+        // trojan 同理：残留 settings 被换成默认骨架，派生 client 照常注入。
+        let trojan = node(
+            "trojan-with-ss-settings",
+            "trojan",
+            "tcp",
+            "none",
+            8443,
+            r#"{"settings": {"method": "aes-256-gcm", "password": "server-key-123"}}"#,
+        );
+        let nodes = [trojan];
+        let grants = grants_for(SECRET, &["user-1"], &[&nodes[0]]);
+        let config = build("hk-1", &nodes, &grants);
+        let settings = &config["inbounds"][0]["settings"];
+        assert!(settings.get("method").is_none());
+        assert_eq!(
+            settings["clients"][0]["password"],
+            credentials::sub_uuid(SECRET, "user-1", &nodes[0].id)
+        );
     }
 
     #[test]

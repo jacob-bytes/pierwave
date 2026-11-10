@@ -259,6 +259,46 @@ impl RealmSupervisor {
         }
     }
 
+    /// 周期对账：子进程已退出（崩溃/被杀）时按磁盘上的最新配置重新拉起。
+    ///
+    /// 直播路径的 `apply` 只在主控下发期望态时才会被调用；realm 崩溃后如果
+    /// 一直等下一次期望态，转发会静默停摆到下次 apply。心跳周期调用这里，
+    /// 最多一个心跳周期就自愈。配置没变且进程还活着时**什么都不做**
+    /// （不重写文件、不重启、不重新探测），因此可以安全地高频调用。
+    pub async fn ensure_running(&mut self) {
+        if self.rules.is_empty() || self.process_alive() {
+            return;
+        }
+        // 还没成功写过配置（没装 realm / 写入失败）时不重试：原因已经写在
+        // 状态里，每轮都重试只会刷日志，等下一次真实 apply 再处理。
+        if self.content_hash.is_none() {
+            return;
+        }
+        if !self.bin.exists() {
+            // 运行中二进制被删掉：如实上报未安装。
+            self.status.store(self.inactive_statuses(NOT_INSTALLED));
+            return;
+        }
+        if !is_available(&self.bin) {
+            // 存在但没有执行位：上一次 apply 已经把「启动失败」写进状态。
+            // 这里不反复 spawn（会每 15 秒刷一行日志），等文件被修好再自愈。
+            return;
+        }
+        tracing::warn!(
+            rules = self.rules.len(),
+            "realm 进程已退出，按现有配置重新拉起"
+        );
+        self.restart().await;
+        tokio::time::sleep(STARTUP_GRACE).await;
+        if self.process_alive() {
+            let statuses = self.probe_statuses().await;
+            // 探测期间可能刚好又退出：监视任务写的退出码更具体，不能覆盖。
+            if self.process_alive() {
+                self.status.store(statuses);
+            }
+        }
+    }
+
     /// 每条规则一条状态：用 bind 探测判断端口是否已被 realm 占用。
     async fn probe_statuses(&self) -> Vec<ForwardStatus> {
         let mut statuses = Vec::with_capacity(self.rules.len());
@@ -913,5 +953,112 @@ mod tests {
         std::fs::read_to_string(path)
             .map(|content| content.lines().count())
             .unwrap_or(0)
+    }
+
+    /// 二进制存在但没有执行位：状态必须明确是「启动失败」，而不是「未安装」；
+    /// 心跳对账也不能每 15 秒反复 spawn 刷日志。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn non_executable_binary_reports_a_spawn_error_and_is_not_retried() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new();
+        let script = dir.path().join("realm");
+        std::fs::write(&script, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let mut supervisor = RealmSupervisor::new(&script, dir.path(), "127.0.0.1");
+        supervisor
+            .apply(&[realm_rule("r1", 39113, &[("10.0.0.2", 443)])])
+            .await;
+
+        let statuses = supervisor.status_handle().snapshot();
+        assert_eq!(statuses.len(), 1);
+        assert!(!statuses[0].listening, "起不来时绝不能报监听中");
+        assert!(
+            statuses[0].error.contains("启动失败"),
+            "状态必须说明是启动失败：{}",
+            statuses[0].error
+        );
+        assert_ne!(
+            statuses[0].error, NOT_INSTALLED,
+            "存在但不可执行 ≠ 未安装，两种原因要可区分"
+        );
+
+        // 心跳对账不应改写状态（也不会重试 spawn）。
+        supervisor.ensure_running().await;
+        let again = supervisor.status_handle().snapshot();
+        assert_eq!(again[0].error, statuses[0].error);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn ensure_running_restarts_a_crashed_realm_process() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new();
+        let counter = dir.path().join("launches");
+        let script = dir.path().join("realm");
+        // 启动即退出：模拟 realm 崩溃。
+        std::fs::write(
+            &script,
+            format!("#!/bin/sh\necho x >> \"{}\"\nexit 7\n", counter.display()),
+        )
+        .unwrap();
+        let mut perms = std::fs::metadata(&script).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&script, perms).unwrap();
+
+        let mut supervisor = RealmSupervisor::new(&script, dir.path(), "127.0.0.1");
+        supervisor
+            .apply(&[realm_rule("r1", 39111, &[("10.0.0.2", 443)])])
+            .await;
+        wait_for_launches(&counter, 1).await;
+
+        // 等监视任务把进程标记为已退出（状态里应能看到退出码）。
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while supervisor.process_alive() {
+            assert!(std::time::Instant::now() < deadline, "等待 realm 退出超时");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+
+        supervisor.ensure_running().await;
+        wait_for_launches(&counter, 2).await;
+        assert_eq!(count_launches(&counter), 2, "崩溃后必须按现有配置重新拉起");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn ensure_running_does_nothing_while_the_process_is_alive() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new();
+        let counter = dir.path().join("launches");
+        let script = dir.path().join("realm");
+        std::fs::write(
+            &script,
+            format!("#!/bin/sh\necho x >> \"{}\"\nsleep 30\n", counter.display()),
+        )
+        .unwrap();
+        let mut perms = std::fs::metadata(&script).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&script, perms).unwrap();
+
+        let mut supervisor = RealmSupervisor::new(&script, dir.path(), "127.0.0.1");
+        let rule = realm_rule("r1", 39112, &[("10.0.0.2", 443)]);
+        supervisor.apply(std::slice::from_ref(&rule)).await;
+        wait_for_launches(&counter, 1).await;
+
+        // 心跳每 15 秒调用一次；进程活着时必须完全不动（不重启、不重写配置）。
+        supervisor.ensure_running().await;
+        supervisor.ensure_running().await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            count_launches(&counter),
+            1,
+            "进程活着时 ensure_running 不能重启"
+        );
+
+        supervisor.apply(&[]).await;
     }
 }

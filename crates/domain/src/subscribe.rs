@@ -44,6 +44,18 @@ pub struct SubNode {
     pub params: BTreeMap<String, String>,
 }
 
+/// 片段里的 Shadowsocks 方法：去空白、转小写；缺失/空白按默认 2022 方法。
+///
+/// 与 `xray::build_config` 的判定保持一致，否则订阅和服务器会各用一套方法。
+fn ss_method(settings: Option<&Value>) -> String {
+    settings
+        .and_then(|settings| get_str(settings, "method"))
+        .map(str::trim)
+        .filter(|method| !method.is_empty())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_else(|| xray::SS_DEFAULT_METHOD.to_string())
+}
+
 impl SubNode {
     pub fn param(&self, key: &str) -> Option<&str> {
         self.params.get(key).map(String::as_str)
@@ -160,6 +172,17 @@ impl SubNode {
                 );
                 return None;
             }
+            // 订阅天然是「每用户一把密钥」的多用户形态；Xray 只对 AES 实现了
+            // SS2022 多用户。发出去的 chacha 节点在服务器上根本不成立，跳过。
+            let method = ss_method(settings);
+            if xray::ss2022_multiuser_unsupported(&method) {
+                tracing::warn!(
+                    node = %node.id,
+                    method = %method,
+                    "SS2022 方法不支持多用户（Xray 仅支持 2022-blake3-aes-*），订阅跳过该节点"
+                );
+                return None;
+            }
         }
 
         // 凭据：vless/vmess 用派生 UUID，trojan/ss 用同一个 UUID 当密码，
@@ -194,17 +217,12 @@ impl SubNode {
                 params.insert("password".into(), uuid.clone());
             }
             "ss" => {
-                let method = settings
-                    .and_then(|settings| get_str(settings, "method"))
-                    .map(str::trim)
-                    .filter(|method| !method.is_empty())
-                    .map(str::to_ascii_lowercase)
-                    .unwrap_or_else(|| xray::SS_DEFAULT_METHOD.to_string());
+                let method = ss_method(settings);
                 // 与 `xray::build_config` 的每用户凭据保持一致：
-                // * SS2022：每用户 32 字节密钥；客户端密码还要拼上服务端密钥；
+                // * SS2022：每用户密钥，长度必须随方法（AES-128 = 16，AES-256 = 32）；
                 // * 旧 AEAD：用户密码就是 UUID。
-                let user_password = if xray::is_ss2022(&method) {
-                    credentials::ss2022_user_key(secret, user_id, &node.id)
+                let user_password = if let Some(key_len) = xray::ss2022_key_len(&method) {
+                    credentials::ss2022_user_key_len(secret, user_id, &node.id, key_len)
                 } else {
                     uuid.clone()
                 };
@@ -218,7 +236,11 @@ impl SubNode {
                             .and_then(|settings| get_str(settings, "password"))
                             .map(str::trim)
                             .filter(|key| !key.is_empty())
-                            .map(str::to_string),
+                            // 与落盘配置统一成标准 base64：订阅里的
+                            // `ServerPassword:UserPassword` 必须和服务器逐字节一致。
+                            .map(|key| {
+                                xray::canonical_ss2022_key(key).unwrap_or_else(|| key.to_string())
+                            }),
                     );
                 }
             }
@@ -2442,8 +2464,8 @@ mod tests {
     }
 
     fn expected_ss_password(method: &str, server_key: &str, node_id: &str) -> String {
-        let user_key = credentials::ss2022_user_key(SS_SECRET, "user-1", node_id);
-        if xray::is_ss2022(method) {
+        if let Some(key_len) = xray::ss2022_key_len(method) {
+            let user_key = credentials::ss2022_user_key_len(SS_SECRET, "user-1", node_id, key_len);
             format!("{server_key}:{user_key}")
         } else {
             credentials::sub_uuid(SS_SECRET, "user-1", node_id)
@@ -2562,6 +2584,65 @@ mod tests {
             node.ss_client_password(),
             format!("{server_key}:{user_key}"),
             "2022 客户端密码必须是 server:user"
+        );
+    }
+
+    /// AES-128 的每用户密钥必须是 16 字节，且订阅与下发配置逐字节一致。
+    #[test]
+    fn ss_2022_aes_128_user_key_is_16_bytes_and_matches_the_config() {
+        let method = "2022-blake3-aes-128-gcm";
+        let server_key = ss_server_key(16);
+        let node = ss_sub_node("ss-2022-128", method, &server_key);
+        let expected = credentials::ss2022_user_key_len(SS_SECRET, "user-1", "ss-2022-128", 16);
+
+        assert_eq!(STANDARD.decode(&expected).unwrap().len(), 16);
+        assert_eq!(node.param("password"), Some(expected.as_str()));
+        assert_eq!(
+            node.ss_client_password(),
+            format!("{server_key}:{expected}"),
+            "客户端密码必须是 server:user，且 user 是 16 字节"
+        );
+    }
+
+    /// Xray 不支持 SS2022 chacha 的多用户形态，订阅不能发这种节点。
+    #[test]
+    fn ss_2022_chacha_is_skipped_in_subscriptions() {
+        let raw = fragment_node(
+            "ss-chacha",
+            "香港-SS",
+            "shadowsocks",
+            "tcp",
+            "none",
+            8388,
+            json!({
+                "settings": {
+                    "method": "2022-blake3-chacha20-poly1305",
+                    "password": ss_server_key(32),
+                    "network": "tcp"
+                }
+            }),
+        );
+        assert!(
+            SubNode::from_node(&raw, "203.0.113.10", "user-1", SS_SECRET).is_none(),
+            "chacha 的每用户密钥无法在 Xray 上成立，订阅必须跳过"
+        );
+    }
+
+    /// 库里存着 URL-safe / 缺 padding 的 SS2022 服务端密钥时，订阅必须同样
+    /// 输出标准 base64，否则客户端拿到的 `server:user` 和服务器不一致。
+    #[test]
+    fn ss_2022_server_key_is_canonicalized_in_the_subscription() {
+        let url_safe = URL_SAFE_NO_PAD.encode([7u8; 32]);
+        assert!(!url_safe.contains('='));
+        let node = ss_sub_node("ss-canonical", "2022-blake3-aes-256-gcm", &url_safe);
+        let canonical = ss_server_key(32);
+        let user_key = credentials::ss2022_user_key_len(SS_SECRET, "user-1", "ss-canonical", 32);
+
+        assert_eq!(node.param("server_password"), Some(canonical.as_str()));
+        assert_eq!(
+            node.ss_client_password(),
+            format!("{canonical}:{user_key}"),
+            "客户端密码里的服务端密钥必须是规范形态"
         );
     }
 

@@ -115,6 +115,15 @@ systemctl restart pierwave-agent
 
 Agent 的 `realm_bin` 配置项可覆盖路径。realm 不可用时 **native 引擎的转发完全不受影响**。
 
+realm 子进程崩溃或被 kill 后，Agent 最多等一个心跳周期（15 秒）就会按已落盘的配置自动重新拉起；
+在那之前，面板的监听状态会如实显示「realm 进程已退出（退出码 N）」。二进制存在但不可执行、
+或启动即退出时，状态文本同样带启动错误/退出码，不会伪装成监听中。
+
+> If the realm child process crashes or is killed, the Agent restarts it from the on-disk config
+> within one heartbeat (15 s). Until then the status column reports the exit code instead of
+> pretending the listener is up. A binary that exists but is not executable, or that exits
+> immediately, is reported with its spawn error / exit code.
+
 ## 可选：链路的跳间加密（P15.3）
 
 只对 `engine = realm` 且 **≥2 组**的链生效；入口第一跳、最后一跳到目标仍是明文。

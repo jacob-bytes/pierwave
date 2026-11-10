@@ -63,23 +63,35 @@ pub fn sub_email(user_id: &str, node_tag: &str) -> String {
     format!("{user_id}@{node_tag}")
 }
 
-/// SS2022 每用户密钥：32 字节随机等价物，base64 标准编码。
+/// SS2022 每用户密钥：**长度必须与方法匹配**的标准 base64 编码密钥。
 ///
-/// SS2022 的 user 密码必须是「和 `openssl rand -base64 32` 等价」的密钥：
-/// Xray 会先 base64 解码、再按方法要求的长度校验。这里用 HMAC-SHA256 的完整
-/// 32 字节摘要，既是确定性的（同一个 `(user, node)` 永远得到同一把钥匙），
-/// 又不需要额外存表。
+/// SS2022 的 user 密码必须是「和 `openssl rand -base64 <len>` 等价」的密钥：
+/// Xray 会对每个 user 的 `password` 做 base64 解码，再按方法的
+/// `KeySaltLength`（AES-128 = 16，AES-256 / ChaCha20 = 32）校验；
+/// 长度不匹配时 Xray **拒绝加载整份配置**，不是只让这个用户连不上。
+/// 所以这里按方法截断 HMAC-SHA256 摘要，而不是固定输出 32 字节。
+///
+/// 32 字节档保持历史实现（完整摘要），已有用户的凭据不会因为本次修复而变化；
+/// 16 字节档是新行为（旧实现给 128 位方法也发 32 字节，配置必然加载失败）。
 ///
 /// **派生域**是 `ss2022/{user_id}/{node_id}`，和 [`sub_uuid`] 的 `v1/` 明确分开：
 /// 两套凭据由同一份 master secret 派生，但绝不能互相泄露等价关系。
-pub fn ss2022_user_key(secret: &str, user_id: &str, node_id: &str) -> String {
+pub fn ss2022_user_key_len(secret: &str, user_id: &str, node_id: &str, key_len: usize) -> String {
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
 
     let mut mac =
         Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("HMAC 接受任意长度密钥，不会失败");
     mac.update(format!("ss2022/{user_id}/{node_id}").as_bytes());
-    STANDARD.encode(mac.finalize().into_bytes())
+    let digest = mac.finalize().into_bytes();
+    // 只允许 16 / 32 两个合法长度；异常输入截到摘要长度，绝不 panic。
+    let key_len = key_len.clamp(1, digest.len());
+    STANDARD.encode(&digest[..key_len])
+}
+
+/// 32 字节档的 SS2022 每用户密钥（AES-256 / ChaCha20）。
+pub fn ss2022_user_key(secret: &str, user_id: &str, node_id: &str) -> String {
+    ss2022_user_key_len(secret, user_id, node_id, 32)
 }
 
 /// 客户端实际填写的 Shadowsocks 密码。
@@ -167,6 +179,30 @@ mod tests {
         // `openssl rand -base64 32` 的输出是 44 字符（含一个 `=`）。
         assert_eq!(first.len(), 44);
         assert!(first.ends_with('='));
+    }
+
+    #[test]
+    fn ss2022_user_key_length_follows_the_method() {
+        use base64::engine::general_purpose::STANDARD;
+        use base64::Engine;
+
+        let key16 = ss2022_user_key_len(SECRET, "user-1", "node-1", 16);
+        assert_eq!(STANDARD.decode(&key16).unwrap().len(), 16);
+        // 16 字节档必须是完整摘要的前 16 字节，这样两档是同一个派生域。
+        assert_eq!(
+            key16,
+            STANDARD.encode(
+                &STANDARD
+                    .decode(ss2022_user_key(SECRET, "user-1", "node-1"))
+                    .unwrap()[..16]
+            )
+        );
+
+        // 32 字节档保持历史输出，不能被截断逻辑改掉。
+        assert_eq!(
+            ss2022_user_key_len(SECRET, "user-1", "node-1", 32),
+            ss2022_user_key(SECRET, "user-1", "node-1")
+        );
     }
 
     #[test]

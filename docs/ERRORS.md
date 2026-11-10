@@ -174,3 +174,22 @@ falls back to the Chinese message returned by the backend.
 `settings.network` 只允许 `tcp` / `udp` / `tcp,udp`（缺省 = `tcp`），否则
 `node.ss_network_invalid`。SS2022 多用户：inbound 写 `method`，每个 user 只写
 base64 密钥、**不带** `method`；旧 AEAD 多用户：每个 user 带自己的 `method`。
+
+### SS2022 的两个硬约束
+
+- **每用户密钥长度必须随方法**：AES-128 是 16 字节，AES-256 / ChaCha20 是 32 字节。
+  Xray 会按方法的 `KeySaltLength` 校验每个 user 的 `password`，长度不符会**拒绝加载
+  整份配置**（不是只让这个用户连不上）。面板派生时会按方法截断，不需要管理员关心。
+- **多用户只支持 AES**：Xray 的 SS2022 多用户实现只支持 `2022-blake3-aes-*`；
+  `2022-blake3-chacha20-poly1305` 一旦带 `clients` 会让整份配置加载失败。因此该方法的节点
+  在有授权用户时会被跳过（apply 返回 warning、订阅里也不出现），改用 AES 方法即可。
+- 密钥输入接受标准 / URL-safe base64、带不带 padding、多余 `=`；落盘配置与订阅统一写成
+  标准 base64，避免「校验通过、客户端却连不上」。
+
+> **Two hard constraints for SS2022.** (1) The per-user key length must match the method:
+> 16 bytes for AES-128, 32 bytes for AES-256 / ChaCha20. Xray validates every user key against
+> the method's `KeySaltLength` and refuses to load the whole config on a mismatch. (2) Xray's
+> SS2022 multi-user mode only supports `2022-blake3-aes-*`. A `2022-blake3-chacha20-poly1305`
+> node that has granted users is skipped (apply warning, absent from the subscription); use an
+> AES method instead. Keys may be standard or URL-safe base64, with or without padding and any
+> trailing `=`; the config and the subscription are always written in canonical standard base64.

@@ -194,7 +194,7 @@ mod tests {
     use axum::body::Body;
     use axum::http::{header, Method, Request, StatusCode};
     use axum::Router;
-    use base64::engine::general_purpose::STANDARD;
+    use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
     use base64::Engine;
     use serde_json::json;
     use tower::ServiceExt;
@@ -643,6 +643,140 @@ mod tests {
 
         let (status, _headers, _body) = get(&app, &format!("/api/v1/sub/{short_code}"), None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    /// 禁用节点不能出现在订阅里；重新启用后必须立刻出现。
+    ///
+    /// 这条覆盖「停用/删除节点后客户端不该再拿到旧凭据」的服务端一侧：
+    /// 我们是只读端点（不处理客户端缓存），但每次请求都必须按当前 enabled 过滤。
+    #[tokio::test]
+    async fn disabled_nodes_never_appear_in_the_subscription() {
+        let (app, state, short_code) = setup().await;
+        let uri = format!("/api/v1/sub/{short_code}");
+
+        let (status, _, body) = get(&app, &uri, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            !body.contains("禁用节点"),
+            "禁用节点不能出现在订阅里：{body}"
+        );
+
+        // 重新启用后必须出现，证明上面的缺失真的是 enabled 过滤而不是名字写错。
+        let server = servers::list(&state.db.pool).await.unwrap().remove(0);
+        let disabled = repo::nodes::list_by_server(&state.db.pool, &server.id)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|node| node.tag == "disabled")
+            .expect("setup 里应有禁用节点");
+        repo::nodes::update(
+            &state.db.pool,
+            &disabled.id,
+            repo::nodes::UpdateNode {
+                enabled: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let (status, _, body) = get(&app, &uri, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("禁用节点"), "启用后节点必须重新出现：{body}");
+    }
+
+    /// SS2022 AES-128 的订阅凭据必须与下发配置逐字节一致，且用户密钥是 16 字节。
+    ///
+    /// 32 字节的 per-user key 会让 Xray 拒绝加载整份配置；订阅若不等长，
+    /// 客户端则表现为「密码错误」——两种都是不可接受的静默失败。
+    #[tokio::test]
+    async fn ss2022_aes_128_credentials_match_between_config_and_subscription() {
+        let (app, state, short_code) = setup().await;
+        let server = servers::list(&state.db.pool).await.unwrap().remove(0);
+        let server_key = STANDARD.encode([7u8; 16]);
+        let node = repo::nodes::create(
+            &state.db.pool,
+            &server.id,
+            NewNode {
+                tag: Some("ss-2022".into()),
+                name: "新加坡-SS2022".into(),
+                protocol: "shadowsocks".into(),
+                transport: "tcp".into(),
+                security: "none".into(),
+                port: 8388,
+                config_json: json!({
+                    "settings": {
+                        "method": "2022-blake3-aes-128-gcm",
+                        "password": server_key,
+                        "network": "tcp,udp"
+                    }
+                })
+                .to_string(),
+                enabled: true,
+                cert_id: None,
+                bandwidth_kbps: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let alice = user_by_name(&state, "alice").await;
+        let secret = pierwave_domain::credentials::master_secret(&state.db.pool)
+            .await
+            .unwrap();
+        let user_key =
+            pierwave_domain::credentials::ss2022_user_key_len(&secret, &alice.id, &node.id, 16);
+        assert_eq!(STANDARD.decode(&user_key).unwrap().len(), 16);
+
+        // 1) 下发配置里的 client：只带 16 字节 password，不带 method。
+        let rendered = crate::routes::desired::render(&state, &server, "http://127.0.0.1:8787")
+            .await
+            .unwrap();
+        let inbound = rendered.xray["inbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|inbound| inbound["tag"] == "ss-2022")
+            .expect("SS2022 节点必须有入站");
+        let client = inbound["settings"]["clients"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|client| client["email"] == format!("{}@ss-2022", alice.id))
+            .expect("alice 的 client 必须被注入");
+        assert_eq!(client["password"], user_key);
+        assert_eq!(
+            STANDARD
+                .decode(client["password"].as_str().unwrap())
+                .unwrap()
+                .len(),
+            16
+        );
+        assert!(
+            client.get("method").is_none(),
+            "SS2022 的 user 不能带 method"
+        );
+
+        // 2) 订阅里的 `ss://base64(method:ServerPassword:UserPassword)`。
+        let (status, _, body) =
+            get(&app, &format!("/api/v1/sub/{short_code}?target=uri"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        let line = body
+            .lines()
+            .find(|line| line.starts_with("ss://"))
+            .expect("订阅里应有 ss 节点");
+        let (userinfo, _rest) = line
+            .trim()
+            .strip_prefix("ss://")
+            .unwrap()
+            .split_once('@')
+            .unwrap();
+        let decoded = URL_SAFE_NO_PAD.decode(userinfo).unwrap();
+        assert_eq!(
+            String::from_utf8(decoded).unwrap(),
+            format!("2022-blake3-aes-128-gcm:{server_key}:{user_key}"),
+            "订阅密码必须与下发配置逐字节一致"
+        );
     }
 
     #[tokio::test]
