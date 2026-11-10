@@ -72,9 +72,14 @@ jobs:
           use_udp = true
           TOML
 
-      - name: Round-trip through realm
+      # TCP 与 UDP 必须在**同一个 step**里验证：
+      # GitHub Actions 每个 run 结束会回收后台进程，realm 若在上一 step 启动，
+      # 下一 step 里已经不在了（第一次跑就踩了这个坑：TCP 过、UDP 超时）。
+      - name: Round-trip through realm (tcp + udp)
         run: |
           set -euo pipefail
+
+          # TCP 回显
           python3 - <<'PY' &
           import socket, threading
           srv = socket.socket(); srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -89,31 +94,7 @@ jobs:
               conn, _ = srv.accept()
               threading.Thread(target=serve, args=(conn,), daemon=True).start()
           PY
-          echo $! > /tmp/echo.pid
-          /tmp/realm -c /tmp/realm.toml > /tmp/realm.log 2>&1 &
-          echo $! > /tmp/realm.pid
-          sleep 2
-          python3 - <<'PY'
-          import socket, sys, time
-          payload = b"pierwave-realm-check"
-          for attempt in range(20):
-              try:
-                  with socket.create_connection(("127.0.0.1", 31001), timeout=2) as s:
-                      s.sendall(payload)
-                      got = s.recv(4096)
-                      assert got == b"echo:" + payload, got
-                      print("ok realm 转发:", got)
-                      break
-              except Exception as exc:  # 端口刚起时会有几次失败
-                  if attempt == 19:
-                      print("FAIL: 经 realm 转发失败", exc, file=sys.stderr)
-                      sys.exit(1)
-                  time.sleep(0.5)
-          PY
-
-      - name: UDP round-trip through realm
-        run: |
-          set -euo pipefail
+          # UDP 回显
           python3 - <<'PY' &
           import socket
           srv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -122,25 +103,47 @@ jobs:
               data, addr = srv.recvfrom(4096)
               srv.sendto(b"echo:" + data, addr)
           PY
-          echo $! > /tmp/udp-echo.pid
           sleep 1
+
+          /tmp/realm -c /tmp/realm.toml > /tmp/realm.log 2>&1 &
+          REALM_PID=$!
+          sleep 2
+
           python3 - <<'PY'
           import socket, sys, time
-          payload = b"pierwave-realm-udp"
-          cli = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-          cli.settimeout(2)
-          for attempt in range(20):
-              try:
-                  cli.sendto(payload, ("127.0.0.1", 31001))
-                  got, _ = cli.recvfrom(4096)
-                  assert got == b"echo:" + payload, got
-                  print("ok realm UDP 回显:", got)
-                  break
-              except Exception as exc:
-                  if attempt == 19:
-                      print("FAIL: 经 realm 的 UDP 转发失败", exc, file=sys.stderr)
-                      sys.exit(1)
-                  time.sleep(0.5)
+
+          def tcp_check():
+              payload = b"pierwave-realm-check"
+              for attempt in range(20):
+                  try:
+                      with socket.create_connection(("127.0.0.1", 31001), timeout=2) as s:
+                          s.sendall(payload)
+                          assert s.recv(4096) == b"echo:" + payload
+                          print("ok realm TCP 回显")
+                          return
+                  except Exception as exc:
+                      if attempt == 19:
+                          raise SystemExit(f"FAIL: TCP 经 realm 失败：{exc}")
+                      time.sleep(0.5)
+
+          def udp_check():
+              payload = b"pierwave-realm-udp"
+              cli = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+              cli.settimeout(2)
+              for attempt in range(20):
+                  try:
+                      cli.sendto(payload, ("127.0.0.1", 31001))
+                      got, _ = cli.recvfrom(4096)
+                      assert got == b"echo:" + payload, got
+                      print("ok realm UDP 回显")
+                      return
+                  except Exception as exc:
+                      if attempt == 19:
+                          raise SystemExit(f"FAIL: UDP 经 realm 失败：{exc}")
+                      time.sleep(0.5)
+
+          tcp_check()
+          udp_check()
           PY
 
       - name: Show realm log on failure
