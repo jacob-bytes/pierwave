@@ -2210,6 +2210,9 @@ const zhCN = {
     notObject: "config 必须是 JSON 对象（以 { 开头、} 结尾）",
   },
   errors: {
+    "node.ss_method_invalid": "不支持的 Shadowsocks 加密方法：{method}",
+    "node.ss_key_invalid": "Shadowsocks 密钥不合法：{method}",
+    "node.ss_network_invalid": "不支持的 Shadowsocks 网络类型：{network}",
     "forward.engine_invalid": "不支持的转发引擎「{engine}」（可选 native / realm）",
     "chain.strategy_invalid": "选路策略不能识别（可选：轮询 / 主备 / 最低延迟 / IP 哈希）",
     "chain.group_member_count_invalid": "每组必须有 {min}-{max} 台服务器（当前 {count} 台）",

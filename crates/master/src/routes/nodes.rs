@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 
 use pierwave_domain::models::{Patch, Server};
 use pierwave_domain::repo;
+use pierwave_domain::xray;
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -138,6 +139,25 @@ fn ensure_object(config: &Value) -> AppResult<()> {
     }
 }
 
+/// Shadowsocks 的 `settings` 校验：方法白名单、密钥长度、`network`。
+///
+/// 规则本身在 `pierwave_domain::xray` 里（配置生成与订阅共用同一套判定），
+/// 这里只把领域错误翻成 HTTP 400。新建/修改都要过，否则会把「xray -test
+/// 一定失败」的节点写进库：apply 时才被跳过，用户看到的是订阅里有、服务器上没有。
+fn validate_shadowsocks(protocol: &str, config: &Value) -> AppResult<()> {
+    if !matches!(protocol, "shadowsocks" | "ss") {
+        return Ok(());
+    }
+    match xray::shadowsocks_problem(config) {
+        Some(problem) => Err(AppError::coded(
+            problem.code,
+            problem.params_option(),
+            problem.message,
+        )),
+        None => Ok(()),
+    }
+}
+
 pub async fn list(
     State(state): State<AppState>,
     user: CurrentUser,
@@ -212,6 +232,7 @@ pub async fn create(
     validate_port(req.port)?;
     validate_bandwidth_kbps(req.bandwidth_kbps)?;
     ensure_object(&req.config)?;
+    validate_shadowsocks(&protocol, &req.config)?;
     let cert_id = normalize_cert_id(req.cert_id.as_deref())?;
     validate_cert_binding(&state, &security, cert_id.as_deref()).await?;
 
@@ -344,6 +365,11 @@ pub async fn update(
     let existing = repo::nodes::find_by_id(&state.db.pool, &id)
         .await?
         .ok_or_else(|| AppError::not_found("node.not_found", None, "资源不存在"))?;
+
+    // 协议不允许 PATCH，SS 的 settings 规则以库里已有的 protocol 为准。
+    if let Some(config) = &req.config {
+        validate_shadowsocks(&existing.protocol, config)?;
+    }
 
     // PATCH 的 cert_id 是三态：没传就沿用原绑定；传 null 表示解绑。
     let cert_id = if req.cert_id.is_set() {
@@ -1072,6 +1098,230 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(body["error"].as_str().unwrap().contains("JSON"));
+    }
+
+    /// 测试用 SS2022 密钥：`bytes` 个 0x07 的 standard base64。
+    fn ss_key(bytes: usize) -> String {
+        use base64::engine::general_purpose::STANDARD;
+        use base64::Engine;
+        STANDARD.encode(vec![7u8; bytes])
+    }
+
+    fn ss_node(method: &str, password: &str, network: &str) -> Value {
+        json!({
+            "name": "ss-节点",
+            "protocol": "shadowsocks",
+            "transport": "tcp",
+            "security": "none",
+            "port": 9000,
+            "config": {
+                "settings": {
+                    "method": method,
+                    "password": password,
+                    "network": network
+                },
+                "stream": {"network": "tcp", "security": "none"}
+            }
+        })
+    }
+
+    async fn create_server(app: &Router, cookie: &str) -> String {
+        let (status, body) = request(
+            app,
+            Some(cookie),
+            Method::POST,
+            "/api/v1/servers",
+            Some(json!({"name": "hk-1", "address": "1.2.3.4"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        body["server"]["id"].as_str().unwrap().to_string()
+    }
+
+    #[tokio::test]
+    async fn shadowsocks_create_rejects_invalid_method_key_and_network() {
+        let (app, _state, cookie) = setup().await;
+        let server_id = create_server(&app, &cookie).await;
+        let uri = format!("/api/v1/servers/{server_id}/nodes");
+
+        // 方法不在白名单里 → node.ss_method_invalid
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &uri,
+            Some(ss_node("aes-256-cfb", &ss_key(32), "tcp")),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "node.ss_method_invalid");
+        assert_eq!(body["params"]["method"], "aes-256-cfb");
+        assert!(body["error"].as_str().unwrap().contains("aes-256-cfb"));
+
+        // 2022 密钥长度不对 → node.ss_key_invalid（16 字节配 256 位方法）
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &uri,
+            Some(ss_node("2022-blake3-aes-256-gcm", &ss_key(16), "tcp")),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "node.ss_key_invalid");
+        assert_eq!(body["params"]["expected_bytes"], 32);
+        assert_eq!(body["params"]["actual_bytes"], 16);
+
+        // 空密钥 → node.ss_key_invalid（这就是本次要修的历史 bug 形态）
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &uri,
+            Some(ss_node("2022-blake3-aes-256-gcm", "", "tcp")),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "node.ss_key_invalid");
+
+        // 旧 AEAD 密码少于 8 字符 → node.ss_key_invalid
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &uri,
+            Some(ss_node("aes-256-gcm", "short", "tcp")),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "node.ss_key_invalid");
+
+        // network 只允许 tcp / udp / tcp,udp → node.ss_network_invalid
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &uri,
+            Some(ss_node("2022-blake3-aes-256-gcm", &ss_key(32), "ws")),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "node.ss_network_invalid");
+        assert_eq!(body["params"]["network"], "ws");
+
+        // 全部被拒后不应留下半成品节点。
+        let (status, body) = request(&app, Some(&cookie), Method::GET, &uri, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["items"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn shadowsocks_create_accepts_2022_and_legacy_keys() {
+        let (app, _state, cookie) = setup().await;
+        let server_id = create_server(&app, &cookie).await;
+        let uri = format!("/api/v1/servers/{server_id}/nodes");
+
+        for (method, password) in [
+            ("2022-blake3-aes-256-gcm", ss_key(32)),
+            ("2022-blake3-aes-128-gcm", ss_key(16)),
+            ("2022-blake3-chacha20-poly1305", ss_key(32)),
+            ("aes-256-gcm", "legacy-password".to_string()),
+        ] {
+            let (status, body) = request(
+                &app,
+                Some(&cookie),
+                Method::POST,
+                &uri,
+                Some(ss_node(method, &password, "tcp,udp")),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{method} 应当通过：{body}");
+            assert_eq!(body["node"]["protocol"], "shadowsocks");
+        }
+
+        // 非 SS 协议不受影响：vless 仍然可以不带 settings。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &uri,
+            Some(json!({
+                "name": "vless",
+                "protocol": "vless",
+                "transport": "tcp",
+                "security": "none",
+                "port": 443,
+                "config": {}
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+
+    #[tokio::test]
+    async fn shadowsocks_update_validates_the_new_config() {
+        let (app, _state, cookie) = setup().await;
+        let server_id = create_server(&app, &cookie).await;
+        let uri = format!("/api/v1/servers/{server_id}/nodes");
+
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &uri,
+            Some(ss_node("2022-blake3-aes-256-gcm", &ss_key(32), "tcp")),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let node_id = body["node"]["id"].as_str().unwrap().to_string();
+        let node_uri = format!("/api/v1/nodes/{node_id}");
+
+        let invalid = json!({
+            "settings": {"method": "2022-blake3-aes-256-gcm", "password": "", "network": "tcp"}
+        });
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &node_uri,
+            Some(json!({ "config": invalid })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "node.ss_key_invalid");
+
+        // 只改名字不该被旧配置拦住；改成合法 config 才落库。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &node_uri,
+            Some(json!({ "name": "改名后的 SS" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["node"]["name"], "改名后的 SS");
+
+        let valid = json!({
+            "settings": {
+                "method": "aes-256-gcm",
+                "password": "legacy-password",
+                "network": "udp"
+            }
+        });
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &node_uri,
+            Some(json!({ "config": valid })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body["node"]["config"]["settings"]["password"],
+            "legacy-password"
+        );
     }
 
     #[tokio::test]

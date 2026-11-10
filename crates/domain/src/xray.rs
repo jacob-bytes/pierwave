@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use serde_json::{json, Map, Value};
 
 use crate::credentials;
+use crate::error::DomainError;
 use crate::models::{Node, Outbound, RoutingRule};
 use crate::routing;
 
@@ -20,6 +21,11 @@ pub struct Grant {
     pub user_id: String,
     pub node_id: String,
     pub uuid: String,
+    /// SS2022 每用户密钥（标准 base64，32 字节）。
+    ///
+    /// 旧 AEAD 方法不用它（沿用 UUID 当密码），但派生成本只有一次 HMAC，
+    /// 统一在这里算好可以让 [`build_config`] 保持纯函数、不接触 master secret。
+    pub ss_key: String,
     /// 套餐档位（kbps）；`None` / 0 = 不限，生成的 client 不带 `level`。
     pub speed_limit_kbps: Option<i64>,
 }
@@ -31,6 +37,7 @@ impl Grant {
             user_id: user_id.to_string(),
             node_id: node_id.to_string(),
             uuid: credentials::sub_uuid(secret, user_id, node_id),
+            ss_key: credentials::ss2022_user_key(secret, user_id, node_id),
             speed_limit_kbps: None,
         }
     }
@@ -342,6 +349,178 @@ impl SkippedNode {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Shadowsocks：方法白名单、密钥长度与网络模式
+// ---------------------------------------------------------------------------
+
+/// Xray 支持的 Shadowsocks 方法白名单（见 `docs/ERRORS.md`）。
+pub const SS_METHODS: &[&str] = &[
+    "2022-blake3-aes-128-gcm",
+    "2022-blake3-aes-256-gcm",
+    "2022-blake3-chacha20-poly1305",
+    "aes-256-gcm",
+    "aes-128-gcm",
+    "chacha20-poly1305",
+    "xchacha20-poly1305",
+];
+
+/// 新建 Shadowsocks 节点的默认方法：SS2022，密码必须由管理员填。
+pub const SS_DEFAULT_METHOD: &str = "2022-blake3-aes-256-gcm";
+
+/// `settings.network`：控制原生 UDP 监听；Xray 缺省为 `tcp`。
+pub const SS_NETWORKS: &[&str] = &["tcp", "udp", "tcp,udp"];
+
+/// 旧 AEAD 的密码最小长度（短密码是弱口令，而且多数客户端会直接拒绝）。
+pub const SS_LEGACY_PASSWORD_MIN: usize = 8;
+
+/// SS2022 方法要求的密钥字节数；旧 AEAD 返回 `None`（密码是任意字符串）。
+pub fn ss2022_key_len(method: &str) -> Option<usize> {
+    match method.trim().to_ascii_lowercase().as_str() {
+        "2022-blake3-aes-128-gcm" => Some(16),
+        "2022-blake3-aes-256-gcm" | "2022-blake3-chacha20-poly1305" => Some(32),
+        _ => None,
+    }
+}
+
+/// 是否 SS2022 方法。多用户形态（user 带不带 `method`）与密码编码都由它决定。
+pub fn is_ss2022(method: &str) -> bool {
+    ss2022_key_len(method).is_some()
+}
+
+/// 校验 Shadowsocks 入站片段；`None` = 合法，`Some` = 带稳定错误码的问题。
+///
+/// 片段里缺 `settings` 时按 [`default_settings`] 的默认值判定（2022 + 空密钥），
+/// 所以「没填密钥」的历史节点同样会被拦下。
+pub fn shadowsocks_problem(config: &Value) -> Option<DomainError> {
+    ss_settings_problem(config.get("settings").and_then(Value::as_object))
+}
+
+fn ss_settings_problem(settings: Option<&Map<String, Value>>) -> Option<DomainError> {
+    let method = ss_method(settings);
+    if !SS_METHODS.contains(&method.as_str()) {
+        return Some(DomainError::with_params(
+            "node.ss_method_invalid",
+            json!({ "method": method, "allowed": SS_METHODS }),
+            format!(
+                "不支持的 Shadowsocks 加密方法：{method}（可选：{}）",
+                SS_METHODS.join(" / ")
+            ),
+        ));
+    }
+
+    let password = settings
+        .and_then(|settings| settings.get("password"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+
+    if let Some(expected) = ss2022_key_len(&method) {
+        use base64::engine::general_purpose::STANDARD;
+        use base64::Engine;
+
+        match STANDARD.decode(password) {
+            Ok(key) if key.len() == expected => {}
+            Ok(key) => {
+                return Some(DomainError::with_params(
+                    "node.ss_key_invalid",
+                    json!({
+                        "method": method,
+                        "expected_bytes": expected,
+                        "actual_bytes": key.len(),
+                    }),
+                    format!(
+                        "Shadowsocks 方法 {method} 要求 base64 解码后 {expected} 字节的密钥（实际 {} 字节）",
+                        key.len()
+                    ),
+                ))
+            }
+            Err(_) => {
+                return Some(DomainError::with_params(
+                    "node.ss_key_invalid",
+                    json!({ "method": method, "expected_bytes": expected }),
+                    format!(
+                        "Shadowsocks 密钥必须是 base64 编码的 {expected} 字节随机密钥（可参考 `openssl rand -base64 {expected}`）"
+                    ),
+                ))
+            }
+        }
+    } else if password.chars().count() < SS_LEGACY_PASSWORD_MIN {
+        return Some(DomainError::with_params(
+            "node.ss_key_invalid",
+            json!({ "method": method, "min_chars": SS_LEGACY_PASSWORD_MIN }),
+            format!("Shadowsocks 密码至少 {SS_LEGACY_PASSWORD_MIN} 个字符"),
+        ));
+    }
+
+    let network = ss_network(settings);
+    if !SS_NETWORKS.contains(&network.as_str()) {
+        return Some(DomainError::with_params(
+            "node.ss_network_invalid",
+            json!({ "network": network, "allowed": SS_NETWORKS }),
+            format!(
+                "不支持的 Shadowsocks 网络类型：{network}（可选：{}）",
+                SS_NETWORKS.join(" / ")
+            ),
+        ));
+    }
+
+    None
+}
+
+/// 片段里的方法：去空白、转小写；缺失/空白按默认值处理。
+fn ss_method(settings: Option<&Map<String, Value>>) -> String {
+    settings
+        .and_then(|settings| settings.get("method"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|method| !method.is_empty())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_else(|| SS_DEFAULT_METHOD.to_string())
+}
+
+/// 片段里的网络模式：去空白、转小写；缺失/空白按 Xray 默认的 `tcp` 处理。
+fn ss_network(settings: Option<&Map<String, Value>>) -> String {
+    settings
+        .and_then(|settings| settings.get("network"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|network| !network.is_empty())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_else(|| "tcp".to_string())
+}
+
+/// SS 的 `method` / `network` 大小写敏感（Xray 只认小写），`password` 两侧空白无意义。
+///
+/// 主控新建时已校验过，这里兜住导入的历史片段：把 `AES-256-GCM` 归一成
+/// `aes-256-gcm`，避免「校验通过、Xray 却拒绝加载」。`network` 为空时直接移除，
+/// 让 Xray 用默认的 `tcp`。
+fn normalize_ss_settings(settings: &mut Map<String, Value>) {
+    let method = ss_method(Some(settings));
+    settings.insert("method".into(), Value::String(method));
+
+    match settings
+        .get("network")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+    {
+        Some(network) if !network.is_empty() => {
+            settings.insert("network".into(), Value::String(network));
+        }
+        Some(_) => {
+            settings.remove("network");
+        }
+        None => {}
+    }
+
+    if let Some(password) = settings.get("password").and_then(Value::as_str) {
+        let trimmed = password.trim();
+        if trimmed != password {
+            settings.insert("password".into(), Value::String(trimmed.to_string()));
+        }
+    }
+}
+
 /// 校验节点能否生成 Xray 可接受的 inbound；不能时返回中文原因。
 ///
 /// 只拦「一定会让 `xray -test` 失败」的硬错误。片段缺 `stream` / `settings`
@@ -352,6 +531,15 @@ pub fn node_problem(node: &Node) -> Option<String> {
     }
 
     let fragment = parse_fragment(&node.config_json);
+    let protocol = node.protocol.trim().to_ascii_lowercase();
+    if matches!(protocol.as_str(), "shadowsocks" | "ss") {
+        if let Some(problem) =
+            ss_settings_problem(fragment.get("settings").and_then(Value::as_object))
+        {
+            return Some(problem.message);
+        }
+    }
+
     let stream = stream_settings(&fragment);
     // 片段是安全层的事实来源，缺省才回落到节点表里的冗余列（与 build_inbound 一致）。
     let security = stream
@@ -491,6 +679,14 @@ fn build_inbound(
     if !matches!(inbound.get("settings"), Some(Value::Object(_))) {
         inbound.insert("settings".into(), default_settings(&node.protocol));
     }
+    if matches!(
+        node.protocol.trim().to_ascii_lowercase().as_str(),
+        "shadowsocks" | "ss"
+    ) {
+        if let Some(settings) = inbound.get_mut("settings").and_then(Value::as_object_mut) {
+            normalize_ss_settings(settings);
+        }
+    }
     // Xray 认的字段名是 `streamSettings`；历史片段里写的是 `stream`，这里统一改名，
     // 否则即使配置能生成，真实 Xray 也会忽略整段传输/安全设置。
     if let Some(legacy) = inbound.remove("stream") {
@@ -579,15 +775,17 @@ fn inject_clients(
         .map(str::to_string);
     let vless_flow = fragment_flow.or(stream_flow);
 
-    // Shadowsocks 非 2022 的多用户模式要求每个用户带自己的 method；2022 则必须留空。
+    // Shadowsocks 多用户有两种形态：
+    // * SS2022：`method` 只写在 inbound 上，每个 user 只写自己的密钥，**不能**带 method；
+    // * 旧 AEAD：`method` 只写在每个 user 上，inbound 的 `password` 会被忽略。
     let ss_method = settings
         .get("method")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|method| !method.is_empty())
-        .unwrap_or("aes-256-gcm")
-        .to_string();
-    let ss_per_user_method = !ss_method.to_ascii_lowercase().starts_with("2022-");
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_else(|| SS_DEFAULT_METHOD.to_string());
+    let ss_2022 = is_ss2022(&ss_method);
 
     let clients = settings
         .get_mut("clients")
@@ -611,8 +809,12 @@ fn inject_clients(
                 client.insert("password".into(), Value::String(grant.uuid.clone()));
             }
             "shadowsocks" | "ss" => {
-                client.insert("password".into(), Value::String(grant.uuid.clone()));
-                if ss_per_user_method {
+                if ss_2022 {
+                    // SS2022：per-user 密钥，绝不能再带 method。
+                    client.insert("password".into(), Value::String(grant.ss_key.clone()));
+                } else {
+                    // 旧 AEAD：user 密码沿用 UUID 派生，每个 user 带自己的 method。
+                    client.insert("password".into(), Value::String(grant.uuid.clone()));
                     client.insert("method".into(), Value::String(ss_method.clone()));
                 }
             }
@@ -697,7 +899,13 @@ fn default_settings(protocol: &str) -> Value {
     match protocol.trim().to_ascii_lowercase().as_str() {
         "vless" => json!({ "clients": [], "decryption": "none" }),
         "vmess" | "trojan" => json!({ "clients": [] }),
-        "shadowsocks" => json!({ "method": "aes-256-gcm", "password": "" }),
+        // SS2022 是默认方法；空 password 是故意的：UI 必须让管理员填密钥，
+        // 校验（`shadowsocks_problem`）会把空密钥的节点拦在 apply 之前。
+        "shadowsocks" | "ss" => json!({
+            "method": SS_DEFAULT_METHOD,
+            "password": "",
+            "network": "tcp,udp"
+        }),
         _ => json!({}),
     }
 }
@@ -1114,6 +1322,238 @@ mod tests {
         assert_eq!(clients[0]["email"], "user-1@ss-1");
         // 单用户 password 字段保留：Xray 在多用户模式下会忽略它。
         assert_eq!(config["inbounds"][0]["settings"]["password"], "legacy");
+    }
+
+    // -----------------------------------------------------------------
+    // Shadowsocks：2022 与旧 AEAD 的两种多用户形态、密钥长度与网络校验
+    // -----------------------------------------------------------------
+
+    /// 与 `openssl rand -base64 N` 等价的测试密钥：`bytes` 个 0x07。
+    fn ss_key(bytes: usize) -> String {
+        use base64::engine::general_purpose::STANDARD;
+        use base64::Engine;
+        STANDARD.encode(vec![7u8; bytes])
+    }
+
+    /// 最小的 SS 入站片段（`network` 传空串表示不写该字段）。
+    fn ss_config(method: &str, password: &str, network: &str) -> Value {
+        let mut settings = json!({ "method": method, "password": password });
+        if !network.is_empty() {
+            settings["network"] = json!(network);
+        }
+        json!({
+            "settings": settings,
+            "stream": {"network": "tcp", "security": "none"}
+        })
+    }
+
+    fn ss_node(method: &str, password: &str, network: &str) -> Node {
+        node(
+            "ss-node",
+            "shadowsocks",
+            "tcp",
+            "none",
+            9000,
+            &ss_config(method, password, network).to_string(),
+        )
+    }
+
+    #[test]
+    fn shadowsocks_2022_clients_only_carry_the_per_user_key() {
+        let server_key = ss_key(32);
+        let ss = ss_node("2022-blake3-aes-256-gcm", &server_key, "tcp,udp");
+        let nodes = [ss];
+        let grants = grants_for(SECRET, &["user-1", "user-2"], &[&nodes[0]]);
+
+        let config = build("hk-1", &nodes, &grants);
+        let settings = &config["inbounds"][0]["settings"];
+        let clients = settings["clients"].as_array().unwrap();
+
+        assert_eq!(clients.len(), 2);
+        for (index, user_id) in ["user-1", "user-2"].iter().enumerate() {
+            // 2022 的 user 只能写 password（= 每用户密钥），**不能**带 method。
+            assert!(
+                clients[index].get("method").is_none(),
+                "SS2022 多用户的 user 不能带 method"
+            );
+            assert_eq!(
+                clients[index]["password"],
+                credentials::ss2022_user_key(SECRET, user_id, &nodes[0].id)
+            );
+            assert_eq!(clients[index]["email"], format!("{user_id}@ss-node"));
+        }
+        // 每用户密钥必须和服务器密钥不同，否则多用户隔离失效。
+        assert_ne!(
+            clients[0]["password"],
+            Value::String(server_key.clone()),
+            "用户密钥不能等于服务器密钥"
+        );
+        // inbound 的 method/password/network 原样保留。
+        assert_eq!(settings["method"], "2022-blake3-aes-256-gcm");
+        assert_eq!(settings["password"], server_key);
+        assert_eq!(settings["network"], "tcp,udp");
+    }
+
+    #[test]
+    fn shadowsocks_2022_user_key_is_32_bytes_of_base64() {
+        use base64::engine::general_purpose::STANDARD;
+        use base64::Engine;
+
+        let ss = ss_node("2022-blake3-chacha20-poly1305", &ss_key(32), "tcp");
+        let nodes = [ss];
+        let grants = grants_for(SECRET, &["user-1"], &[&nodes[0]]);
+        let config = build("hk-1", &nodes, &grants);
+        let password = config["inbounds"][0]["settings"]["clients"][0]["password"]
+            .as_str()
+            .unwrap();
+
+        assert_eq!(STANDARD.decode(password).unwrap().len(), 32);
+    }
+
+    #[test]
+    fn shadowsocks_legacy_clients_keep_their_own_method() {
+        let ss = ss_node("aes-256-gcm", "legacy-server-key", "tcp,udp");
+        let nodes = [ss];
+        let grants = grants_for(SECRET, &["user-1"], &[&nodes[0]]);
+
+        let config = build("hk-1", &nodes, &grants);
+        let client = &config["inbounds"][0]["settings"]["clients"][0];
+
+        // 旧 AEAD：user 密码沿用 UUID 派生，并且每个 user 必须带 method。
+        assert_eq!(
+            client["password"],
+            credentials::sub_uuid(SECRET, "user-1", &nodes[0].id)
+        );
+        assert_eq!(client["method"], "aes-256-gcm");
+    }
+
+    #[test]
+    fn shadowsocks_2022_key_length_must_match_the_method() {
+        let key16 = ss_key(16);
+        let key32 = ss_key(32);
+
+        for (method, password) in [
+            ("2022-blake3-aes-128-gcm", key16.as_str()),
+            ("2022-blake3-aes-256-gcm", key32.as_str()),
+            ("2022-blake3-chacha20-poly1305", key32.as_str()),
+        ] {
+            assert!(
+                shadowsocks_problem(&ss_config(method, password, "tcp")).is_none(),
+                "{method} 配 {} 字节密钥应当合法",
+                password.len()
+            );
+        }
+
+        // 16 字节密钥不能配 256 位方法，反之亦然。
+        let wrong = shadowsocks_problem(&ss_config("2022-blake3-aes-256-gcm", &key16, "tcp"))
+            .expect("长度不匹配必须被拒");
+        assert_eq!(wrong.code, "node.ss_key_invalid");
+        assert_eq!(
+            shadowsocks_problem(&ss_config("2022-blake3-aes-128-gcm", &key32, "tcp"))
+                .expect("长度不匹配必须被拒")
+                .code,
+            "node.ss_key_invalid"
+        );
+    }
+
+    #[test]
+    fn shadowsocks_2022_password_must_be_base64_and_present() {
+        for password in ["", "not-base64!!", "AAAA", "   "] {
+            let problem =
+                shadowsocks_problem(&ss_config("2022-blake3-aes-256-gcm", password, "tcp"));
+            assert_eq!(
+                problem.map(|problem| problem.code),
+                Some("node.ss_key_invalid"),
+                "{password:?} 不是合法的 32 字节 base64 密钥"
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_aead_password_has_a_minimum_length() {
+        assert!(shadowsocks_problem(&ss_config("aes-256-gcm", "12345678", "tcp")).is_none());
+        let short = shadowsocks_problem(&ss_config("aes-256-gcm", "1234567", "tcp"))
+            .expect("旧 AEAD 少于 8 个字符必须被拒");
+        assert_eq!(short.code, "node.ss_key_invalid");
+    }
+
+    #[test]
+    fn ss_method_whitelist_rejects_unknown_methods() {
+        let problem = shadowsocks_problem(&ss_config("aes-256-cfb", "12345678", "tcp"))
+            .expect("不在白名单里的方法必须被拒");
+        assert_eq!(problem.code, "node.ss_method_invalid");
+
+        // 白名单里的 7 个方法都要能通过（2022 用对应长度的密钥）。
+        for method in SS_METHODS {
+            let password = match ss2022_key_len(method) {
+                Some(len) => ss_key(len),
+                None => "legacy-password".to_string(),
+            };
+            assert!(
+                shadowsocks_problem(&ss_config(method, &password, "tcp")).is_none(),
+                "{method} 应在白名单里"
+            );
+        }
+    }
+
+    #[test]
+    fn ss_network_accepts_only_tcp_udp_or_both() {
+        for network in ["tcp", "udp", "tcp,udp"] {
+            assert!(
+                shadowsocks_problem(&ss_config("aes-256-gcm", "12345678", network)).is_none(),
+                "{network} 应当合法"
+            );
+        }
+        for network in ["both", "tcp, udp", "udp,tcp", "ws"] {
+            let problem = shadowsocks_problem(&ss_config("aes-256-gcm", "12345678", network))
+                .unwrap_or_else(|| panic!("{network} 不是合法的 SS network"));
+            assert_eq!(problem.code, "node.ss_network_invalid");
+        }
+        // 缺省 = tcp：不写 network 也合法。
+        assert!(shadowsocks_problem(&ss_config("aes-256-gcm", "12345678", "")).is_none());
+    }
+
+    #[test]
+    fn shadowsocks_method_and_network_are_normalized_in_the_generated_config() {
+        let ss = ss_node("AES-256-GCM", "legacy-password", "TCP,UDP");
+        let config = build("hk-1", &[ss], &[]);
+        let settings = &config["inbounds"][0]["settings"];
+
+        assert_eq!(settings["method"], "aes-256-gcm");
+        assert_eq!(settings["network"], "tcp,udp");
+    }
+
+    #[test]
+    fn shadowsocks_default_settings_are_2022_with_an_empty_key() {
+        let ss = node("ss-default", "shadowsocks", "tcp", "none", 9000, "{}");
+        let config = build("hk-1", &[ss], &[]);
+        let settings = &config["inbounds"][0]["settings"];
+
+        // 空密码是故意的：UI 必须让管理员填，否则节点不合格（见下方 node_problem 测试）。
+        assert_eq!(settings["method"], "2022-blake3-aes-256-gcm");
+        assert_eq!(settings["password"], "");
+        assert_eq!(settings["network"], "tcp,udp");
+    }
+
+    #[test]
+    fn node_problem_reports_invalid_shadowsocks_settings() {
+        let valid = ss_node("2022-blake3-aes-256-gcm", &ss_key(32), "tcp");
+        assert_eq!(node_problem(&valid), None);
+
+        let broken = node(
+            "ss-broken",
+            "shadowsocks",
+            "tcp",
+            "none",
+            9000,
+            r#"{"settings":{"method":"2022-blake3-aes-256-gcm","password":""}}"#,
+        );
+        let reason = node_problem(&broken).expect("空密钥的 SS 节点必须被拦下");
+        assert!(reason.contains("Shadowsocks"), "unexpected: {reason}");
+
+        // 历史数据里没有 settings 的 SS 节点同样不合格，不能静默下发。
+        let legacy = node("ss-legacy", "shadowsocks", "tcp", "none", 9000, "{}");
+        assert!(node_problem(&legacy).is_some());
     }
 
     fn outbound(tag: &str, protocol: &str, config_json: &str) -> Outbound {

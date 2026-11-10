@@ -21,6 +21,7 @@ use serde_json::{json, Value};
 use crate::credentials;
 use crate::models::{Node, RuleTemplate};
 use crate::reality;
+use crate::xray;
 
 // ---------------------------------------------------------------------------
 // 视图模型
@@ -46,6 +47,23 @@ pub struct SubNode {
 impl SubNode {
     pub fn param(&self, key: &str) -> Option<&str> {
         self.params.get(key).map(String::as_str)
+    }
+
+    /// Shadowsocks 的**客户端密码**。
+    ///
+    /// * SS2022 多用户：`ServerPassword:UserPassword`（服务端密钥在前）；
+    /// * 旧 AEAD 多用户：用户密码就是客户端密码。
+    ///
+    /// 所有导出器都必须走这个访问器，而不是直接读 `params["password"]`：
+    /// 漏拼服务端密钥的订阅在客户端看起来只是「密码错误」，极难排查。
+    pub fn ss_client_password(&self) -> String {
+        let user_password = self.param("password").unwrap_or_default();
+        let server_key = if self.param("method").is_some_and(xray::is_ss2022) {
+            self.param("server_password")
+        } else {
+            None
+        };
+        credentials::ss_client_password(server_key, user_password)
     }
 
     /// 从库里的节点（`config_json` 是 Xray 入站片段）装配视图模型。
@@ -129,6 +147,21 @@ impl SubNode {
 
         let mut params = BTreeMap::new();
 
+        // Shadowsocks 的 settings 是订阅凭据的事实来源：方法/密钥/network 任何一项
+        // 不合格，发出去的节点都连不上。与 `xray::build_config` 用同一套判定，
+        // 脏节点跳过并记 warn，而不是把「订阅里有、服务器上没有」的节点发给用户。
+        if protocol == "ss" {
+            if let Some(problem) = xray::shadowsocks_problem(&fragment) {
+                tracing::warn!(
+                    node = %node.id,
+                    code = problem.code,
+                    reason = %problem.message,
+                    "Shadowsocks 节点设置不合法，订阅跳过该节点"
+                );
+                return None;
+            }
+        }
+
         // 凭据：vless/vmess 用派生 UUID，trojan/ss 用同一个 UUID 当密码，
         // 保证一个 (user, node) 只有一个可替换的凭据。
         let uuid = credentials::sub_uuid(secret, user_id, &node.id);
@@ -161,12 +194,33 @@ impl SubNode {
                 params.insert("password".into(), uuid.clone());
             }
             "ss" => {
-                // 与 xray::default_settings 的兜底保持一致。
                 let method = settings
                     .and_then(|settings| get_str(settings, "method"))
-                    .unwrap_or("aes-256-gcm");
-                params.insert("method".into(), method.to_string());
-                params.insert("password".into(), uuid.clone());
+                    .map(str::trim)
+                    .filter(|method| !method.is_empty())
+                    .map(str::to_ascii_lowercase)
+                    .unwrap_or_else(|| xray::SS_DEFAULT_METHOD.to_string());
+                // 与 `xray::build_config` 的每用户凭据保持一致：
+                // * SS2022：每用户 32 字节密钥；客户端密码还要拼上服务端密钥；
+                // * 旧 AEAD：用户密码就是 UUID。
+                let user_password = if xray::is_ss2022(&method) {
+                    credentials::ss2022_user_key(secret, user_id, &node.id)
+                } else {
+                    uuid.clone()
+                };
+                params.insert("method".into(), method.clone());
+                params.insert("password".into(), user_password);
+                if xray::is_ss2022(&method) {
+                    set(
+                        &mut params,
+                        "server_password",
+                        settings
+                            .and_then(|settings| get_str(settings, "password"))
+                            .map(str::trim)
+                            .filter(|key| !key.is_empty())
+                            .map(str::to_string),
+                    );
+                }
             }
             _ => {
                 tracing::warn!(node = %node.id, protocol, "未知协议，订阅跳过该节点");
@@ -534,11 +588,12 @@ fn clash_proxy(node: &SubNode) -> String {
         "ss" => {
             out.push_str(&format!(
                 "    cipher: {}\n",
-                yaml_string(node.param("method").unwrap_or("aes-256-gcm"))
+                yaml_string(node.param("method").unwrap_or(xray::SS_DEFAULT_METHOD))
             ));
+            // SS2022 的客户端密码是 `server:user`，不能直接写用户密钥。
             out.push_str(&format!(
                 "    password: {}\n",
-                yaml_string(node.param("password").unwrap_or_default())
+                yaml_string(&node.ss_client_password())
             ));
         }
         _ => {}
@@ -879,8 +934,9 @@ fn render_trojan(node: &SubNode) -> String {
 }
 
 fn render_ss(node: &SubNode) -> String {
-    let method = node.param("method").unwrap_or("aes-256-gcm");
-    let password = node.param("password").unwrap_or_default();
+    let method = node.param("method").unwrap_or(xray::SS_DEFAULT_METHOD);
+    // SS2022：`userinfo = base64(method:ServerPassword:UserPassword)`。
+    let password = node.ss_client_password();
     let userinfo = URL_SAFE_NO_PAD.encode(format!("{method}:{password}"));
     format!(
         "ss://{userinfo}@{}:{}#{}",
@@ -1145,9 +1201,10 @@ fn family_node_line(flavor: IniFlavor, node: &SubNode) -> Option<String> {
             node.port.to_string(),
             format!(
                 "encrypt-method={}",
-                node.param("method").unwrap_or("aes-256-gcm")
+                node.param("method").unwrap_or(xray::SS_DEFAULT_METHOD)
             ),
-            format!("password={}", node.param("password").unwrap_or_default()),
+            // SS2022 的密码必须带 `server:user` 前缀。
+            format!("password={}", node.ss_client_password()),
         ],
         _ => return None,
     };
@@ -1234,8 +1291,11 @@ fn qx_node_line(node: &SubNode) -> Option<String> {
         ],
         "ss" => vec![
             format!("shadowsocks={host_port}"),
-            format!("method={}", node.param("method").unwrap_or("aes-256-gcm")),
-            format!("password={}", node.param("password").unwrap_or_default()),
+            format!(
+                "method={}",
+                node.param("method").unwrap_or(xray::SS_DEFAULT_METHOD)
+            ),
+            format!("password={}", node.ss_client_password()),
         ],
         _ => return None,
     };
@@ -1708,8 +1768,9 @@ fn singbox_outbound(node: &SubNode) -> Option<Value> {
             outbound["password"] = json!(node.param("password").unwrap_or_default());
         }
         "ss" => {
-            outbound["method"] = json!(node.param("method").unwrap_or("aes-256-gcm"));
-            outbound["password"] = json!(node.param("password").unwrap_or_default());
+            outbound["method"] = json!(node.param("method").unwrap_or(xray::SS_DEFAULT_METHOD));
+            // sing-box 里 SS2022 的密码同样是 `server:user`。
+            outbound["password"] = json!(node.ss_client_password());
         }
         _ => return None,
     }
@@ -2350,6 +2411,202 @@ mod tests {
         let decoded = URL_SAFE_NO_PAD.decode(userinfo).unwrap();
         assert_eq!(String::from_utf8(decoded).unwrap(), "aes-256-gcm:secret");
         assert_eq!(rest, "203.0.113.10:8388#%E5%85%B6%E4%BB%96-ss");
+    }
+
+    // -----------------------------------------------------------------
+    // Shadowsocks：订阅里每一处密码都必须是客户端可用的形态
+    // -----------------------------------------------------------------
+
+    const SS_SECRET: &str = "0123456789abcdef0123456789abcdef";
+
+    fn ss_server_key(bytes: usize) -> String {
+        STANDARD.encode(vec![7u8; bytes])
+    }
+
+    /// 从真实节点片段走一遍 `SubNode::from_node`，凭据派生和渲染都覆盖到。
+    fn ss_sub_node(id: &str, method: &str, server_key: &str) -> SubNode {
+        let raw = fragment_node(
+            id,
+            "香港-SS",
+            "shadowsocks",
+            "tcp",
+            "none",
+            8388,
+            json!({
+                "settings": {"method": method, "password": server_key, "network": "tcp,udp"},
+                "stream": {"network": "tcp", "security": "none"}
+            }),
+        );
+        SubNode::from_node(&raw, "203.0.113.10", "user-1", SS_SECRET)
+            .expect("合法的 SS 节点应能进订阅")
+    }
+
+    fn expected_ss_password(method: &str, server_key: &str, node_id: &str) -> String {
+        let user_key = credentials::ss2022_user_key(SS_SECRET, "user-1", node_id);
+        if xray::is_ss2022(method) {
+            format!("{server_key}:{user_key}")
+        } else {
+            credentials::sub_uuid(SS_SECRET, "user-1", node_id)
+        }
+    }
+
+    /// 每个导出器都要同时断言 SS2022 与旧 AEAD 两种密码形态。
+    ///
+    /// 这是本模块最容易漏的地方：clash/uri/INI/sing-box 各写一遍密码字段，
+    /// 任何一处直接读 `params["password"]` 都会漏掉 `ServerPassword:` 前缀。
+    #[test]
+    fn every_exporter_emits_a_client_usable_ss_password() {
+        let cases = [
+            ("2022-blake3-aes-256-gcm", ss_server_key(32)),
+            ("2022-blake3-aes-128-gcm", ss_server_key(16)),
+            ("aes-256-gcm", "legacy-server-key".to_string()),
+        ];
+
+        for (method, server_key) in cases {
+            let node_id = format!("ss-{}", method.replace(['.', ':'], "-"));
+            let node = ss_sub_node(&node_id, method, &server_key);
+            let expected = expected_ss_password(method, &server_key, &node_id);
+            assert_eq!(
+                node.ss_client_password(),
+                expected,
+                "{method}: SubNode 访问器必须给出客户端密码"
+            );
+            let nodes = [node];
+            let rules = default_rules();
+            let ctx = sub_context(&nodes, &rules);
+
+            // Clash / Stash（同一份 YAML）。
+            for id in ["clash", "stash"] {
+                let body = find_exporter(id).unwrap().render(&ctx).unwrap();
+                let yaml: serde_yaml::Value = serde_yaml::from_str(&body).unwrap();
+                let proxy = &yaml["proxies"][0];
+                assert_eq!(proxy["type"].as_str(), Some("ss"), "{id}");
+                assert_eq!(proxy["cipher"].as_str(), Some(method), "{id}");
+                assert_eq!(
+                    proxy["password"].as_str(),
+                    Some(expected.as_str()),
+                    "{id} 的 password 不是客户端可用的形态：{body}"
+                );
+            }
+
+            // URI 列表：`ss://base64(method:password)@host:port`。
+            let uri_body = find_exporter("uri").unwrap().render(&ctx).unwrap();
+            let uri_line = uri_body.trim();
+            let (userinfo, _rest) = uri_line
+                .strip_prefix("ss://")
+                .unwrap()
+                .split_once('@')
+                .unwrap();
+            let decoded = URL_SAFE_NO_PAD.decode(userinfo).unwrap();
+            assert_eq!(
+                String::from_utf8(decoded).unwrap(),
+                format!("{method}:{expected}"),
+                "uri 的 userinfo 必须编码完整的客户端密码"
+            );
+
+            // Shadowrocket / v2ray 是整份 base64 的 URI 列表。
+            for id in ["shadowrocket", "v2ray"] {
+                let body = find_exporter(id).unwrap().render(&ctx).unwrap();
+                let decoded = STANDARD.decode(body.trim()).unwrap();
+                let text = String::from_utf8(decoded).unwrap();
+                assert_eq!(text.trim(), uri_line, "{id} 必须复用同一条 ss:// URI");
+            }
+
+            // Surge / Egern / Surfboard / Loon 的 INI 节点行。
+            for id in ["surge", "egern", "surfboard", "loon"] {
+                let body = find_exporter(id).unwrap().render(&ctx).unwrap();
+                assert!(
+                    body.contains(&format!("encrypt-method={method}")),
+                    "{id} 缺少 encrypt-method：{body}"
+                );
+                assert!(
+                    body.contains(&format!("password={expected}")),
+                    "{id} 的 password 不是客户端可用的形态：{body}"
+                );
+            }
+
+            // Quantumult X 的 `[server_local]` 行。
+            let qx = find_exporter("qx").unwrap().render(&ctx).unwrap();
+            assert!(qx.contains(&format!("method={method}")), "{qx}");
+            assert!(
+                qx.contains(&format!("password={expected}")),
+                "qx 的 password 不是客户端可用的形态：{qx}"
+            );
+
+            // sing-box 的 outbound。
+            let singbox = find_exporter("singbox").unwrap().render(&ctx).unwrap();
+            let parsed: Value = serde_json::from_str(&singbox).unwrap();
+            let outbound = parsed["outbounds"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|outbound| outbound["type"] == "ss")
+                .unwrap_or_else(|| panic!("singbox 缺少 ss 出站：{singbox}"));
+            assert_eq!(outbound["method"], method);
+            assert_eq!(
+                outbound["password"], expected,
+                "singbox 的 password 不是客户端可用的形态"
+            );
+        }
+    }
+
+    #[test]
+    fn ss_2022_password_is_never_the_bare_user_key() {
+        let method = "2022-blake3-aes-256-gcm";
+        let server_key = ss_server_key(32);
+        let node = ss_sub_node("ss-2022-only", method, &server_key);
+        let user_key = credentials::ss2022_user_key(SS_SECRET, "user-1", "ss-2022-only");
+
+        assert_eq!(node.param("password"), Some(user_key.as_str()));
+        assert_eq!(
+            node.ss_client_password(),
+            format!("{server_key}:{user_key}"),
+            "2022 客户端密码必须是 server:user"
+        );
+    }
+
+    #[test]
+    fn legacy_ss_password_ignores_the_server_key() {
+        let node = ss_sub_node("ss-legacy", "aes-256-gcm", "legacy-server-key");
+
+        assert_eq!(
+            node.ss_client_password(),
+            credentials::sub_uuid(SS_SECRET, "user-1", "ss-legacy"),
+            "旧 AEAD 的用户密码就是客户端密码"
+        );
+        assert_ne!(node.ss_client_password(), "legacy-server-key");
+    }
+
+    #[test]
+    fn from_node_skips_shadowsocks_without_a_usable_key() {
+        let cases = [
+            // 历史 bug 的形态：2022 + 空密钥
+            json!({"settings": {"method": "2022-blake3-aes-256-gcm", "password": ""}}),
+            // 密钥长度与方法不匹配
+            json!({"settings": {"method": "2022-blake3-aes-256-gcm", "password": "AAAA"}}),
+            // 旧 AEAD 密码过短
+            json!({"settings": {"method": "aes-256-gcm", "password": "short"}}),
+            // 方法不在白名单
+            json!({"settings": {"method": "aes-256-cfb", "password": "legacy-password"}}),
+            // 完全缺 settings：默认 2022 + 空密钥
+            json!({}),
+        ];
+
+        for (index, config) in cases.into_iter().enumerate() {
+            let raw = fragment_node(
+                &format!("ss-broken-{index}"),
+                "香港-SS",
+                "shadowsocks",
+                "tcp",
+                "none",
+                8388,
+                config.clone(),
+            );
+            assert!(
+                SubNode::from_node(&raw, "203.0.113.10", "user-1", SS_SECRET).is_none(),
+                "不合格的 SS 节点必须被跳过：{config}"
+            );
+        }
     }
 
     #[test]

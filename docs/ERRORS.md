@@ -55,6 +55,9 @@
 | `node.tag_too_long` | tag 不能超过 {max} 个字符 | max |
 | `node.tag_conflict` | 该服务器下已存在相同的 tag | — |
 | `node.config_invalid` | config 必须是 JSON 对象 | — |
+| `node.ss_method_invalid` | 不支持的 Shadowsocks 加密方法：{method} | allowed, method |
+| `node.ss_key_invalid` | Shadowsocks 密钥不合法：{method} | actual_bytes, expected_bytes, method, min_chars |
+| `node.ss_network_invalid` | 不支持的 Shadowsocks 网络类型：{network} | allowed, network |
 | `node.cert_required` | TLS 节点必须绑定证书 | — |
 | `node.cert_tls_only` | 只有 TLS 节点才能绑定证书 | — |
 | `node.cert_not_found` | 绑定的证书不存在 | — |
@@ -142,3 +145,32 @@
 | `chain.hop_count_invalid` | 链必须包含 {min}-{max} 跳（当前 {count} 跳） | count, max, min |
 | `chain.duplicate_server` | 同一台服务器（{server_id}）不能在一跳链里出现两次 | server_id |
 | `chain.port_conflict_hop` | 监听端口 {port} 已被服务器「{server_name}」上的链「{name}」第 {seq} 跳占用 | chain_id, name, port, seq, server_name |
+
+## Shadowsocks 节点校验（中英对照）
+
+新增的三个 SS 错误码需要同时提供英文文案。`web/src/i18n/{zh-CN,en}.ts` 的 `errors.*`
+由 Web lane 同步补齐；在补齐之前，英文界面会回落到后端返回的中文兜底。
+
+The three Shadowsocks codes below are bilingual. The `errors.*` entries in
+`web/src/i18n/{zh-CN,en}.ts` are owned by the Web lane; until they land, the English UI
+falls back to the Chinese message returned by the backend.
+
+| code | 中文 | English | params |
+|---|---|---|---|
+| `node.ss_method_invalid` | 不支持的 Shadowsocks 加密方法：{method}（可选：{allowed}） | Unsupported Shadowsocks method: {method} (allowed: {allowed}) | allowed, method |
+| `node.ss_key_invalid` | Shadowsocks 密钥不合法：{method} 要求 {expected_bytes} 字节的 base64 密钥（实际 {actual_bytes} 字节）；旧 AEAD 密码至少 {min_chars} 个字符 | Invalid Shadowsocks key for {method}: a {expected_bytes}-byte base64 key is required (got {actual_bytes} bytes); legacy AEAD passwords need at least {min_chars} characters | actual_bytes, expected_bytes, method, min_chars（按分支出现 / per branch） |
+| `node.ss_network_invalid` | 不支持的 Shadowsocks 网络类型：{network}（可选：tcp / udp / tcp,udp） | Unsupported Shadowsocks network: {network} (allowed: tcp / udp / tcp,udp) | allowed, network |
+
+规则（代码见 `crates/domain/src/xray.rs`）：
+
+| method | 密钥要求 / Key requirement | 失败码 / Error code |
+|---|---|---|
+| `2022-blake3-aes-128-gcm` | base64，解码后 16 字节 / base64, 16 bytes | `node.ss_key_invalid` |
+| `2022-blake3-aes-256-gcm` | base64，解码后 32 字节 / base64, 32 bytes | `node.ss_key_invalid` |
+| `2022-blake3-chacha20-poly1305` | base64，解码后 32 字节 / base64, 32 bytes | `node.ss_key_invalid` |
+| `aes-256-gcm` / `aes-128-gcm` / `chacha20-poly1305` / `xchacha20-poly1305` | 至少 8 个字符 / at least 8 characters | `node.ss_key_invalid` |
+| 其它 / anything else | 不在白名单 / not in the whitelist | `node.ss_method_invalid` |
+
+`settings.network` 只允许 `tcp` / `udp` / `tcp,udp`（缺省 = `tcp`），否则
+`node.ss_network_invalid`。SS2022 多用户：inbound 写 `method`，每个 user 只写
+base64 密钥、**不带** `method`；旧 AEAD 多用户：每个 user 带自己的 `method`。

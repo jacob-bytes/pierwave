@@ -2347,6 +2347,9 @@ const en = {
     notObject: "config must be a JSON object (starting with { and ending with })",
   },
   errors: {
+    "node.ss_method_invalid": "Unsupported Shadowsocks method: {method}",
+    "node.ss_key_invalid": "Invalid Shadowsocks key for {method}: 2022 methods need a base64 key of the exact length; legacy AEAD needs at least 8 characters",
+    "node.ss_network_invalid": "Unsupported Shadowsocks network: {network} (allowed: tcp / udp / tcp,udp)",
     "forward.engine_invalid": "Unsupported forward engine \"{engine}\" (choose native or realm)",
     "chain.strategy_invalid": "Unknown routing strategy (choose round robin, failover, lowest latency or IP hash)",
     "chain.group_member_count_invalid": "Each group needs {min}-{max} servers (currently {count})",

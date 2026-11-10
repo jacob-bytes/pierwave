@@ -215,8 +215,10 @@ grep -q "agent applied desired state" "$WORK/master.log" || { echo "FAIL: 主控
 # 在线加第三个节点 → apply v2 → Agent 热更新
 python3 - "$WORK/node3.json" <<'PY'
 import json, sys
+# 旧 AEAD 走多用户：inbound 的 password 只作占位，用户密码由订阅派生；
+# 主控会校验它至少 8 个字符，所以这里必须给一个合法值。
 json.dump({"name": "新加坡-SS", "protocol": "shadowsocks", "transport": "tcp", "security": "none", "port": 9000,
-           "config": {"settings": {"method": "aes-256-gcm", "clients": []}}}, open(sys.argv[1], "w"))
+           "config": {"settings": {"method": "aes-256-gcm", "password": "e2e-server-key", "clients": []}}}, open(sys.argv[1], "w"))
 PY
 curl -sf -b "$WORK/cookie" -X POST "$BASE/api/v1/servers/$SERVER_ID/nodes" \
   -H 'Content-Type: application/json' -d @"$WORK/node3.json" >/dev/null

@@ -169,7 +169,16 @@ Surge / sing-box 等第二轮补——它们的差异主要在配置文件骨架
 | vless | `id` = sub_uuid，`flow` 沿用片段，`email` |
 | vmess | `id` = sub_uuid，`alterId` = 0，`email` |
 | trojan | `password` = sub_uuid，`email` |
-| shadowsocks | `password` = sub_uuid（多用户模式），`email` |
+| shadowsocks | 2022：`password` = ss2022_user_key（user **不带** method）；旧 AEAD：`password` = sub_uuid + 自己的 `method`；`email` |
+
+> Shadowsocks 的密码形态随方法不同：SS2022 多用户下客户端密码是
+> `ServerPassword:UserPassword`（服务端密钥在前），旧 AEAD 多用户下用户密码就是客户端密码。
+> 导出器统一走 `SubNode::ss_client_password()`，不允许直接读 `params["password"]`。
+>
+> The Shadowsocks client password depends on the method: for SS2022 it is
+> `ServerPassword:UserPassword`, while legacy AEAD uses the per-user password as-is.
+> Exporters must go through `SubNode::ss_client_password()` instead of reading
+> `params["password"]` directly.
 
 `build_config(server, nodes, users)` 的签名变化会波及 `nodes::apply` 与 agent 侧（不需要改协议，只改配置内容）。
 
