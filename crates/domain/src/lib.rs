@@ -10,6 +10,7 @@ pub mod enforcement;
 pub mod engine;
 pub mod error;
 pub mod forwards;
+pub mod hop_transport;
 pub mod metering;
 pub mod models;
 pub mod password;

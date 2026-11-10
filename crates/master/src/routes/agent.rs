@@ -192,6 +192,7 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
                 os_version: hb.os_version,
                 virt: hb.virt,
                 realm_available: hb.realm_available,
+                realm_transport: hb.realm_transport,
                 xray_running: hb.xray_running,
                 nginx_running: hb.nginx_running,
                 load1: hb.load1 as f64,
@@ -1004,6 +1005,71 @@ mod tests {
         assert_eq!(row.realm_available, Some(false));
     }
 
+    /// 心跳里的 `realm_transport` 必须落库：NULL = 未知（按不支持处理），
+    /// 1/0 = 明确支持/不支持。主控的下发能力门禁读的就是这一列。
+    #[tokio::test]
+    async fn heartbeat_realm_transport_is_persisted() {
+        let fixture = fixture().await;
+        let (server, _) =
+            repo::servers::create(&fixture.state.db.pool, "hk-1", "1.2.3.4", "external")
+                .await
+                .unwrap();
+
+        let send = |seq: u64, realm_transport: Option<bool>| {
+            let mut heartbeat = serde_json::json!({
+                "type": "heartbeat",
+                "seq": seq,
+                "agent_version": "0.8.0",
+                "uptime_secs": 1,
+                "load1": 0.0,
+                "mem_used": 0,
+                "mem_total": 0,
+                "disk_used": 0,
+                "disk_total": 0,
+                "xray_running": true,
+                "nginx_running": true,
+            });
+            // None 模拟旧 Agent：字段整个缺失，不能写成 false。
+            if let Some(value) = realm_transport {
+                heartbeat["realm_transport"] = serde_json::json!(value);
+            }
+            let text = heartbeat.to_string();
+            let state = fixture.state.clone();
+            let server_id = server.id.clone();
+            async move {
+                handle_agent_message(&state, &server_id, "0.8.0", &text).await;
+            }
+        };
+
+        send(1, None).await;
+        let row = repo::servers::find_by_id(&fixture.state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert_eq!(row.realm_transport, None, "旧 Agent 未上报时必须是 NULL");
+
+        send(2, Some(true)).await;
+        let row = repo::servers::find_by_id(&fixture.state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert_eq!(row.realm_transport, Some(true));
+
+        send(3, Some(false)).await;
+        let row = repo::servers::find_by_id(&fixture.state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert_eq!(row.realm_transport, Some(false));
+
+        // 旧 Agent 重连后上报缺失字段：必须清回 NULL，不能沿用上一轮的 true。
+        send(4, None).await;
+        let row = repo::servers::find_by_id(&fixture.state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert_eq!(
+            row.realm_transport, None,
+            "旧 Agent 重连必须把旧能力清成未知，能力门禁才会挡住 TLS"
+        );
+    }
+
     /// 心跳里的 forwards 必须落到 forward_status，并整体覆盖上一轮；
     /// 空心跳 = Agent 已没有转发，旧状态要被清掉。
     #[tokio::test]
@@ -1038,6 +1104,7 @@ mod tests {
                 os_version: None,
                 virt: None,
                 realm_available: None,
+                realm_transport: None,
                 forwards,
                 latency_ms: None,
                 uptime_secs: 1,
@@ -1142,9 +1209,11 @@ mod tests {
                 enabled: true,
                 engine: "native".into(),
                 udp: false,
+                transport: "none".into(),
                 groups: vec![repo::chains::NewChainGroup {
                     name: None,
                     strategy: "round_robin".into(),
+                    cert_id: None,
                     members: vec![repo::chains::NewChainGroupMember {
                         server_id: server.id.clone(),
                         listen_port: 8443,
@@ -1167,6 +1236,7 @@ mod tests {
                 os_version: None,
                 virt: None,
                 realm_available: None,
+                realm_transport: None,
                 forwards: vec![pierwave_proto::ForwardStatus {
                     id: forward_id.clone(),
                     listening: true,

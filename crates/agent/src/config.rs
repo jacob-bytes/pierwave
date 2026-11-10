@@ -50,6 +50,10 @@ pub struct Config {
     /// native 规则完全不受影响。
     #[serde(default = "default_realm_bin")]
     pub realm_bin: String,
+    /// realm 配置里的 `[log].level`。只对带 transport 的端点生成 `[log]`；
+    /// 排障时可临时改成 `debug`（单连接握手失败在 debug 级）。
+    #[serde(default = "default_realm_log_level")]
+    pub realm_log_level: String,
     /// Agent 的持久状态目录（realm.toml 落在这里）；不存在会自动创建。
     #[serde(default = "default_state_dir")]
     pub state_dir: String,
@@ -116,6 +120,9 @@ fn default_forward_bind() -> String {
 }
 fn default_realm_bin() -> String {
     crate::realm::DEFAULT_BIN.into()
+}
+fn default_realm_log_level() -> String {
+    "warn".into()
 }
 fn default_state_dir() -> String {
     "/var/lib/pierwave-agent".into()
@@ -187,6 +194,7 @@ mod tests {
             stats_interval_secs: default_stats_interval_secs(),
             forward_bind: default_forward_bind(),
             realm_bin: default_realm_bin(),
+            realm_log_level: default_realm_log_level(),
             state_dir: default_state_dir(),
             probe_target: default_probe_target(),
             probe_timeout_ms: default_probe_timeout_ms(),
@@ -338,6 +346,7 @@ mod tests {
             "默认安装路径由打包脚本决定"
         );
         assert_eq!(parsed.state_dir, "/var/lib/pierwave-agent");
+        assert_eq!(parsed.realm_log_level, "warn", "默认 warn，不开 debug");
     }
 
     #[test]
@@ -345,10 +354,12 @@ mod tests {
         let parsed: Config = toml::from_str(
             "master_url = \"http://127.0.0.1:8787\"\ntoken = \"t\"\n\
              realm_bin = \"/opt/realm/bin/realm\"\n\
+             realm_log_level = \"debug\"\n\
              state_dir = \"/tmp/pierwave-state\"\n",
         )
         .unwrap();
         assert_eq!(parsed.realm_bin, "/opt/realm/bin/realm");
+        assert_eq!(parsed.realm_log_level, "debug");
         assert_eq!(parsed.state_dir, "/tmp/pierwave-state");
     }
 

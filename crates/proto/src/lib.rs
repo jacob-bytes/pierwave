@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 12;
+pub const PROTOCOL_VERSION: u32 = 13;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,6 +53,14 @@ pub struct Heartbeat {
     /// `None` = 旧 Agent 未上报，主控保持 NULL（未知），不能当成「没装」。
     #[serde(default)]
     pub realm_available: Option<bool>,
+    /// 本机 realm 是否带 `transport` feature（`realm --version` 输出包含
+    /// `[transport]`）。
+    ///
+    /// `None` = 旧 Agent 未上报 / 无法判定（二进制不存在、命令超时）；
+    /// `Some(false)` = 明确不支持。主控只有看到 `Some(true)` 才会下发 TLS 链，
+    /// 未知一律按不支持处理（fail closed，绝不回退明文）。
+    #[serde(default)]
+    pub realm_transport: Option<bool>,
     /// 各转发规则的监听状态。
     #[serde(default)]
     pub forwards: Vec<ForwardStatus>,
@@ -124,6 +132,25 @@ pub struct DesiredForward {
     /// （只监听 TCP）。
     #[serde(default)]
     pub udp: bool,
+    /// realm 这一跳的**入站** transport 串，例如
+    /// `tls;cert=/usr/local/etc/xray/certs/<id>.pem;key=/usr/local/etc/xray/certs/<id>.key`。
+    ///
+    /// `None` = 明文监听（旧主控不下发时也是 `None`，行为与升级前一致）。
+    /// 只对 `engine == realm` 有意义；字符串由主控的 `TransportSpec` 生成，
+    /// Agent 不接受用户自由文本，只按白名单校验后写进 realm.toml。
+    #[serde(default)]
+    pub listen_transport: Option<String>,
+    /// realm 这一跳的**出站** transport 串，例如 `tls;sni=hop1.example.com`。
+    ///
+    /// `None` = 明文出站。
+    #[serde(default)]
+    pub remote_transport: Option<String>,
+    /// `true` = 该端点的 realm 配置必须写 `network = { use_udp = false }`。
+    ///
+    /// UDP 不走 transport，加密端点必须显式关掉，否则同端口仍会明文转发 UDP。
+    /// 旧主控不下发时为 `false`，保持原有行为（全局 `use_udp = true`）。
+    #[serde(default)]
+    pub disable_udp: bool,
 }
 
 /// 转发引擎。
@@ -334,8 +361,8 @@ mod tests {
     #[test]
     fn forward_udp_defaults_to_false_for_old_masters() {
         assert_eq!(
-            PROTOCOL_VERSION, 12,
-            "新增 DesiredForward.udp 必须升协议版本"
+            PROTOCOL_VERSION, 13,
+            "新增 DesiredForward 的 transport 字段必须升协议版本"
         );
 
         // 旧主控的 JSON 没有 udp：必须解析成 false，也就是「只监听 TCP」，
@@ -351,6 +378,11 @@ mod tests {
         }"#;
         let forward: DesiredForward = serde_json::from_str(old).unwrap();
         assert!(!forward.udp, "旧主控不下发 udp 时必须按 false 处理");
+        // 旧主控没有 transport 字段：必须解析成「明文 + 不关 UDP」，
+        // 升级 Agent 不能因此改变任何既有明文规则的行为。
+        assert_eq!(forward.listen_transport, None);
+        assert_eq!(forward.remote_transport, None);
+        assert!(!forward.disable_udp);
 
         // 新主控显式开启时按布尔值往返，不能丢字段。
         let enabled = DesiredForward {
@@ -361,6 +393,41 @@ mod tests {
         assert_eq!(json["udp"], true);
         let back: DesiredForward = serde_json::from_value(json).unwrap();
         assert_eq!(back, enabled);
+    }
+
+    #[test]
+    fn hop_transport_fields_roundtrip_and_stay_optional() {
+        let mut forward: DesiredForward = serde_json::from_str(
+            r#"{
+                "id": "chain-c1-1",
+                "listen_port": 30002,
+                "target_host": "10.0.0.3",
+                "target_port": 30003,
+                "targets": [],
+                "strategy": "round_robin",
+                "engine": "realm"
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(forward.listen_transport, None);
+        assert_eq!(forward.remote_transport, None);
+        assert!(!forward.disable_udp);
+
+        forward.listen_transport = Some(
+            "tls;cert=/usr/local/etc/xray/certs/c1.pem;key=/usr/local/etc/xray/certs/c1.key".into(),
+        );
+        forward.remote_transport = Some("tls;sni=hop2.example.com".into());
+        forward.disable_udp = true;
+
+        let json = serde_json::to_value(&forward).unwrap();
+        assert_eq!(json["disable_udp"], true);
+        assert_eq!(json["remote_transport"], "tls;sni=hop2.example.com");
+        assert_eq!(
+            json["listen_transport"],
+            forward.listen_transport.clone().unwrap()
+        );
+        let back: DesiredForward = serde_json::from_value(json).unwrap();
+        assert_eq!(back, forward);
     }
 
     #[test]
@@ -388,6 +455,10 @@ mod tests {
             heartbeat.realm_available, None,
             "旧 Agent 没有 realm_available 时必须解析为 None（主控落 NULL）"
         );
+        assert_eq!(
+            heartbeat.realm_transport, None,
+            "旧 Agent 没有 realm_transport 时必须解析为 None（未知按不支持处理）"
+        );
 
         // 新 Agent 上报后 round-trip 不丢字段。
         let heartbeat = Heartbeat {
@@ -395,6 +466,7 @@ mod tests {
             os_version: Some("12".into()),
             virt: Some("kvm".into()),
             realm_available: Some(true),
+            realm_transport: Some(true),
             ..heartbeat
         };
         let json = serde_json::to_value(&heartbeat).unwrap();
@@ -403,6 +475,7 @@ mod tests {
         assert_eq!(back.os_version.as_deref(), Some("12"));
         assert_eq!(back.virt.as_deref(), Some("kvm"));
         assert_eq!(back.realm_available, Some(true));
+        assert_eq!(back.realm_transport, Some(true));
 
         // false 是「明确没装」，与 None（未知）必须能区分。
         let not_installed = Heartbeat {
@@ -413,6 +486,11 @@ mod tests {
         assert_eq!(json["realm_available"], false);
         let back: Heartbeat = serde_json::from_value(json).unwrap();
         assert_eq!(back.realm_available, Some(false));
+        assert_eq!(
+            back.realm_transport,
+            Some(true),
+            "未安装 realm 不代表 transport 能力字段被丢掉"
+        );
     }
 
     #[test]

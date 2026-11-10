@@ -1041,9 +1041,11 @@ mod tests {
                 enabled: true,
                 engine: "native".into(),
                 udp: false,
+                transport: "none".into(),
                 groups: vec![chains_repo::NewChainGroup {
                     name: None,
                     strategy: chain_rules::GroupStrategy::RoundRobin.as_str().to_string(),
+                    cert_id: None,
                     members: vec![chains_repo::NewChainGroupMember {
                         server_id: server.id.clone(),
                         listen_port: 8443,

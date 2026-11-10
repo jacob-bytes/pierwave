@@ -65,13 +65,15 @@ struct ForwardEngines {
 
 impl ForwardEngines {
     fn new(cfg: &Config) -> Self {
+        let mut realm = realm::RealmSupervisor::new(
+            cfg.realm_bin.clone(),
+            cfg.state_dir.clone(),
+            cfg.forward_bind.clone(),
+        );
+        realm.set_log_level(&cfg.realm_log_level);
         Self {
             native: forward::ForwardSupervisor::new(cfg.forward_bind.clone()),
-            realm: realm::RealmSupervisor::new(
-                cfg.realm_bin.clone(),
-                cfg.state_dir.clone(),
-                cfg.forward_bind.clone(),
-            ),
+            realm,
         }
     }
 
@@ -96,6 +98,11 @@ impl ForwardEngines {
     /// 下一次 apply / 重连补发重试。
     async fn reconcile(&mut self) {
         self.realm.ensure_running().await;
+    }
+
+    /// 本机 realm 是否支持 transport（心跳上报；按二进制缓存，换二进制会重测）。
+    async fn realm_transport(&mut self) -> Option<bool> {
+        self.realm.transport_capability().await
     }
 
     /// 心跳用的状态快照：两个引擎各读自己的句柄，不会互相覆盖。
@@ -429,6 +436,7 @@ async fn run_once(
                         anyhow::bail!("master rejected agent: {message}");
                     }
                     Ok(MasterMessage::Ping) => {
+                        let realm_transport = forwards.realm_transport().await;
                         let forwards = forwards.status_snapshot();
                         let fallback = serde_json::json!({
                             "type": "heartbeat",
@@ -447,6 +455,7 @@ async fn run_once(
                             "os_version": system_info.os_version,
                             "virt": system_info.virt,
                             "realm_available": realm::is_available(Path::new(&cfg.realm_bin)),
+                            "realm_transport": realm_transport,
                             "latency_ms": probe_cache.load(),
                             "forwards": forwards,
                         });
@@ -459,6 +468,7 @@ async fn run_once(
                 // 先做一次轻量对账：realm 崩溃时最多一个心跳周期就恢复。
                 forwards.reconcile().await;
                 seq += 1;
+                let realm_transport = forwards.realm_transport().await;
                 let hb = AgentMessage::Heartbeat(sample_heartbeat(
                     seq,
                     uptime_start.elapsed().as_secs(),
@@ -466,6 +476,7 @@ async fn run_once(
                     forwards.status_snapshot(),
                     system_info,
                     Path::new(&cfg.realm_bin),
+                    realm_transport,
                 ));
                 ws.send(Message::Text(serde_json::to_string(&hb)?)).await?;
                 tc_manager
@@ -861,6 +872,7 @@ fn sample_heartbeat(
     forwards: Vec<ForwardStatus>,
     system_info: &system_info::SystemInfo,
     realm_bin: &Path,
+    realm_transport: Option<bool>,
 ) -> Heartbeat {
     let (load1, mem_used, mem_total) = read_load_and_mem();
     let disk = read_disk();
@@ -872,6 +884,7 @@ fn sample_heartbeat(
         os_version: system_info.os_version.clone(),
         virt: system_info.virt.clone(),
         realm_available: Some(realm::is_available(realm_bin)),
+        realm_transport,
         latency_ms,
         forwards,
         uptime_secs,
@@ -1026,6 +1039,7 @@ mod tests {
             forwards.clone(),
             &system_info,
             Path::new(realm::DEFAULT_BIN),
+            None,
         );
         assert_eq!(hb.arch, std::env::consts::ARCH);
         assert!(!hb.arch.is_empty(), "主控靠心跳里的 arch 选升级产物");
@@ -1047,6 +1061,7 @@ mod tests {
             Vec::new(),
             &system_info::SystemInfo::default(),
             Path::new(realm::DEFAULT_BIN),
+            None,
         );
         assert_eq!(missing.latency_ms, None, "探测失败必须上报 null");
         assert_eq!(missing.os_name, None, "读不到 os-release 时必须上报 null");
@@ -1062,7 +1077,7 @@ mod tests {
         let bin = dir.path().join("realm");
         let system_info = system_info::SystemInfo::default();
 
-        let absent = sample_heartbeat(1, 0, None, Vec::new(), &system_info, &bin);
+        let absent = sample_heartbeat(1, 0, None, Vec::new(), &system_info, &bin, None);
         assert_eq!(
             absent.realm_available,
             Some(false),
@@ -1075,16 +1090,84 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
-        let installed = sample_heartbeat(2, 0, None, Vec::new(), &system_info, &bin);
+        let installed = sample_heartbeat(2, 0, None, Vec::new(), &system_info, &bin, Some(true));
         assert_eq!(installed.realm_available, Some(true));
+        assert_eq!(
+            installed.realm_transport,
+            Some(true),
+            "transport 能力必须原样上报，未知时是 null"
+        );
 
         std::fs::remove_file(&bin).unwrap();
-        let removed = sample_heartbeat(3, 0, None, Vec::new(), &system_info, &bin);
+        let removed = sample_heartbeat(3, 0, None, Vec::new(), &system_info, &bin, None);
         assert_eq!(
             removed.realm_available,
             Some(false),
             "运行中删除 realm 后下一轮心跳必须变成 false"
         );
+    }
+
+    /// 心跳里的 `realm_transport` 来自 `realm --version` 能力探测，
+    /// 按二进制缓存；换掉二进制后必须重测（不能沿用 true）。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn heartbeat_reports_realm_transport_capability_from_binary() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new();
+        let script = dir.path().join("realm");
+        let write = |features: &str| {
+            std::fs::write(
+                &script,
+                format!(
+                    "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"2.9.6 {features}\"\n  exit 0\nfi\nsleep 30\n"
+                ),
+            )
+            .unwrap();
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        write("[brutal][transport]");
+
+        let toml = format!(
+            "master_url = \"http://127.0.0.1:8787\"\n\
+             token = \"t\"\n\
+             xray_config_path = \"{}\"\n\
+             xray_test_command = \"true\"\n\
+             restart_command = \"true\"\n\
+             realm_bin = \"{}\"\n\
+             state_dir = \"{}\"\n",
+            dir.path().join("config.json").display(),
+            script.display(),
+            dir.path().display(),
+        );
+        let cfg: Config = toml::from_str(&toml).unwrap();
+        let mut engines = ForwardEngines::new(&cfg);
+        assert_eq!(
+            engines.realm_transport().await,
+            Some(true),
+            "带 [transport] 必须上报 true"
+        );
+
+        // 运行中换成 slim/旧版：文件大小变化使缓存失效，必须变成 false。
+        write("[brutal][batched-udp]");
+        assert_eq!(
+            engines.realm_transport().await,
+            Some(false),
+            "换二进制后不能继续沿用旧缓存"
+        );
+
+        // 心跳结构体携带该值（主控据此做能力门禁）。
+        let hb = sample_heartbeat(
+            1,
+            0,
+            None,
+            Vec::new(),
+            &system_info::SystemInfo::default(),
+            &script,
+            engines.realm_transport().await,
+        );
+        assert_eq!(hb.realm_transport, Some(false));
+        assert_eq!(hb.realm_available, Some(true));
     }
 
     #[test]
@@ -1273,6 +1356,9 @@ mod tests {
             strategy: Default::default(),
             engine: Default::default(),
             udp: false,
+            listen_transport: None,
+            remote_transport: None,
+            disable_udp: false,
         };
         let state = DesiredState {
             version: 1,
@@ -1299,6 +1385,7 @@ mod tests {
             supervisor.status_snapshot(),
             &system_info::SystemInfo::default(),
             Path::new(realm::DEFAULT_BIN),
+            None,
         );
         assert_eq!(hb.forwards, status, "心跳必须带上 supervisor 的监听状态");
 
@@ -1345,6 +1432,9 @@ mod tests {
             strategy: Default::default(),
             engine: ForwardEngine::Native,
             udp: false,
+            listen_transport: None,
+            remote_transport: None,
+            disable_udp: false,
         };
         let realm_rule = DesiredForward {
             id: "realm-1".into(),
@@ -1355,6 +1445,9 @@ mod tests {
             strategy: Default::default(),
             engine: ForwardEngine::Realm,
             udp: false,
+            listen_transport: None,
+            remote_transport: None,
+            disable_udp: false,
         };
         let state = DesiredState {
             version: 1,
@@ -1438,6 +1531,9 @@ mod tests {
             strategy: Default::default(),
             engine: ForwardEngine::Native,
             udp: false,
+            listen_transport: None,
+            remote_transport: None,
+            disable_udp: false,
         };
         let realm_rule = DesiredForward {
             id: "realm-pending".into(),
@@ -1448,6 +1544,9 @@ mod tests {
             strategy: Default::default(),
             engine: ForwardEngine::Realm,
             udp: false,
+            listen_transport: None,
+            remote_transport: None,
+            disable_udp: false,
         };
 
         let state = DesiredState {
@@ -1615,6 +1714,9 @@ mod tests {
                 strategy: Default::default(),
                 engine: ForwardEngine::Realm,
                 udp: false,
+                listen_transport: None,
+                remote_transport: None,
+                disable_udp: false,
             }],
             nodes: Vec::new(),
         };
@@ -1689,6 +1791,9 @@ mod tests {
                 strategy: Default::default(),
                 engine: ForwardEngine::Realm,
                 udp: false,
+                listen_transport: None,
+                remote_transport: None,
+                disable_udp: false,
             }],
             nodes: Vec::new(),
         };

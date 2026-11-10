@@ -28,9 +28,10 @@ use serde_json::{json, Value};
 
 use pierwave_domain::chains::GroupStrategy;
 use pierwave_domain::models::{
-    Chain, ChainGroupMember, ChainGroupWithMembers, ChainWithGroups, ForwardStatusRow, Server,
+    Certificate, Chain, ChainGroupMember, ChainGroupWithMembers, ChainWithGroups, ForwardStatusRow,
+    Server,
 };
-use pierwave_domain::{chains, engine, forwards, repo};
+use pierwave_domain::{chains, engine, forwards, hop_transport, repo};
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -51,6 +52,8 @@ struct ValidatedMember {
 struct ValidatedGroup {
     name: Option<String>,
     strategy: GroupStrategy,
+    /// 该组监听证书 id；入口组（seq = 0）必须为 `None`。
+    cert_id: Option<String>,
     members: Vec<ValidatedMember>,
 }
 
@@ -146,6 +149,10 @@ pub(crate) fn derive_forwards(
                     engine: ForwardEngine::from_name(&chain.engine),
                     // UDP 同样是链级开关：每一跳在自己的 listen_port 上都开 UDP。
                     udp: chain.udp,
+                    // transport 由 derive_forwards_with_transports 叠加：明文链保持 None。
+                    listen_transport: None,
+                    remote_transport: None,
+                    disable_udp: false,
                 },
             ));
         }
@@ -187,6 +194,9 @@ pub struct CreateChainGroup {
     /// 缺省 = `round_robin`。非法值由领域层给出中文错误 + code。
     #[serde(default)]
     pub strategy: Option<String>,
+    /// 该组 realm 监听证书；入口组（第一组）不允许填写。空串视为未填。
+    #[serde(default)]
+    pub cert_id: Option<String>,
     #[serde(default)]
     pub members: Vec<CreateChainMember>,
 }
@@ -206,6 +216,9 @@ pub struct CreateChain {
     /// 整条链是否同时监听 UDP（只对 `native` 有意义）；缺省 = `false`。
     #[serde(default)]
     pub udp: bool,
+    /// 跳间加密模式：`none`（缺省，明文）或 `tls`。
+    #[serde(default)]
+    pub transport: Option<String>,
     /// 旧字段：每组一台成员。新请求优先用 `groups`。
     #[serde(default)]
     pub hops: Vec<CreateChainHop>,
@@ -223,6 +236,8 @@ pub struct PatchChain {
     pub engine: Option<String>,
     /// `None` = 不改；`Some(false)` 用来关掉整条链的 UDP。
     pub udp: Option<bool>,
+    /// `none` / `tls`；`None` = 不改。
+    pub transport: Option<String>,
     /// 旧字段：`None` = 不改；`Some` = 整体替换（每组一台）。
     pub hops: Option<Vec<CreateChainHop>>,
     /// 新字段：`None` = 不改；`Some` = 整体替换。
@@ -235,6 +250,7 @@ fn groups_from_hops(hops: Vec<CreateChainHop>) -> Vec<CreateChainGroup> {
         .map(|hop| CreateChainGroup {
             name: None,
             strategy: None,
+            cert_id: None,
             members: vec![CreateChainMember {
                 server_id: hop.server_id,
                 listen_port: hop.listen_port,
@@ -290,6 +306,12 @@ async fn resolve_groups(
             None => GroupStrategy::default(),
         };
         let name = chains::normalize_group_name(input.name.as_deref())?;
+        let cert_id = input
+            .cert_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|cert| !cert.is_empty())
+            .map(str::to_string);
 
         let mut members = Vec::with_capacity(input.members.len());
         for (index, member) in input.members.iter().enumerate() {
@@ -380,6 +402,7 @@ async fn resolve_groups(
         groups.push(ValidatedGroup {
             name,
             strategy,
+            cert_id,
             members,
         });
     }
@@ -393,6 +416,7 @@ fn validated_from_existing(groups: &[ChainGroupWithMembers]) -> Vec<ValidatedGro
         .map(|group| ValidatedGroup {
             name: group.group.name.clone(),
             strategy: GroupStrategy::from_db(&group.group.strategy),
+            cert_id: group.group.cert_id.clone(),
             members: group
                 .members
                 .iter()
@@ -433,12 +457,205 @@ fn ensure_targets_safe(
     Ok(())
 }
 
+/// 推导时携带的逐组 transport。
+///
+/// `derive_forwards` 只关心拓扑；transport 是「链级安全模式」的产物，单独叠加，
+/// 明文链传空切片时逐字节保持旧行为。
+pub(crate) fn derive_forwards_with_transports(
+    chain: &Chain,
+    groups: &[ChainGroupWithMembers],
+    transports: &[hop_transport::HopTransport],
+) -> Vec<(String, DesiredForward)> {
+    let mut derived = derive_forwards(chain, groups);
+    if transports.is_empty() {
+        return derived;
+    }
+
+    let mut ordered: Vec<&ChainGroupWithMembers> = groups.iter().collect();
+    ordered.sort_by_key(|group| group.group.seq);
+    let mut index_by_server: HashMap<&str, usize> = HashMap::new();
+    for (index, group) in ordered.iter().enumerate() {
+        for member in &group.members {
+            index_by_server.insert(member.server_id.as_str(), index);
+        }
+    }
+    for (server_id, forward) in &mut derived {
+        let Some(index) = index_by_server.get(server_id.as_str()) else {
+            continue;
+        };
+        let Some(transport) = transports.get(*index) else {
+            continue;
+        };
+        forward.listen_transport = transport.listen.clone();
+        forward.remote_transport = transport.remote.clone();
+        forward.disable_udp = transport.disable_udp;
+    }
+    derived
+}
+
+/// 纯推导：一条链的逐组 transport（明文链返回空 Vec）。
+///
+/// 失败一律是「整链无效」，调用方据此跳过整条链（不是跳过某一跳）：
+///
+/// * 能力门禁：链上**任意**成员的 `realm_transport != Some(true)`（含旧 Agent /
+///   slim realm 的 NULL）→ `chain.tls_realm_unsupported`；
+/// * 证书缺失 / 过期 / 无 DNS SAN / 私钥不匹配 → 对应 `chain.tls_cert_*`；
+/// * 组 0 不允许证书；seq >= 1 每组必须有。
+///
+/// `certs` 由调用方一次性批量读取（见 `desired::render`），避免逐链查库。
+pub(crate) fn plan_from_certificates(
+    chain: &Chain,
+    groups: &[ChainGroupWithMembers],
+    certs: &HashMap<&str, &Certificate>,
+    now: i64,
+) -> Result<Vec<hop_transport::HopTransport>, pierwave_domain::error::DomainError> {
+    use pierwave_domain::error::DomainError;
+
+    if !hop_transport::is_tls(&chain.transport) {
+        return Ok(Vec::new());
+    }
+
+    // 下发路径也必须重查链级前置条件：写路径已经拦过，但手工改库/旧数据
+    // 仍可能留下「native+tls」「单组 tls」「tls+udp」这类不能安全下发的组合。
+    // 这里宁可整链跳过，也不能把它渲染成一个不带 transport 的明文端点。
+    if !engine::is_realm(&chain.engine) {
+        return Err(DomainError::new(
+            "chain.tls_requires_realm",
+            "只有 realm 引擎的链才能启用跳间加密",
+        ));
+    }
+    if groups.len() < 2 {
+        return Err(DomainError::new(
+            "chain.tls_requires_two_hops",
+            "至少两跳的链才有跳间链路",
+        ));
+    }
+    if chain.udp {
+        return Err(DomainError::new(
+            "chain.tls_udp_unsupported",
+            "加密链不支持 UDP，请关闭该链的 UDP",
+        ));
+    }
+
+    // 能力门禁先于证书：旧 Agent 收到 transport 会静默忽略，必须整链挡住。
+    let mut unsupported: Vec<&str> = Vec::new();
+    for member in groups.iter().flat_map(|group| group.members.iter()) {
+        if member.realm_transport != Some(true)
+            && !unsupported.contains(&member.server_name.as_str())
+        {
+            unsupported.push(member.server_name.as_str());
+        }
+    }
+    if !unsupported.is_empty() {
+        return Err(DomainError::with_params(
+            "chain.tls_realm_unsupported",
+            json!({ "servers": unsupported }),
+            format!(
+                "以下服务器的 realm 未启用 transport（需要升级 Agent / 换官方 realm）：{}",
+                unsupported.join("、")
+            ),
+        ));
+    }
+
+    let mut ordered: Vec<&ChainGroupWithMembers> = groups.iter().collect();
+    ordered.sort_by_key(|group| group.group.seq);
+    let mut group_certs = Vec::with_capacity(ordered.len());
+    for (seq, group) in ordered.iter().enumerate() {
+        if seq == 0 {
+            group_certs.push(None);
+            continue;
+        }
+        let cert_id = group.group.cert_id.as_deref().ok_or_else(|| {
+            DomainError::with_params(
+                "chain.tls_group_cert_required",
+                json!({ "seq": seq }),
+                format!("第 {} 组缺少证书", seq + 1),
+            )
+        })?;
+        let cert = certs.get(cert_id).copied().ok_or_else(|| {
+            DomainError::with_params(
+                "chain.tls_cert_not_found",
+                json!({ "cert_id": cert_id, "seq": seq }),
+                format!("第 {} 组引用的证书不存在", seq + 1),
+            )
+        })?;
+        group_certs.push(Some(hop_transport::validate_certificate(cert, now)?));
+    }
+    hop_transport::derive_hop_transports(&group_certs)
+}
+
+/// 保存时校验链的加密配置：结构规则 + 证书内容。
+///
+/// **不在这里拒绝「Agent 能力未知」**：服务器可能暂时离线，未知不等于不支持。
+/// 保存后若仍不具备条件，`blocked_reason` 与 apply 的 warnings 会说明原因，
+/// 下发时整链跳过（绝不回退明文）。
+async fn validate_transport(
+    state: &AppState,
+    transport: &str,
+    engine: &str,
+    udp: bool,
+    groups: &[ValidatedGroup],
+) -> AppResult<()> {
+    let group_certs: Vec<Option<&str>> = groups
+        .iter()
+        .map(|group| group.cert_id.as_deref())
+        .collect();
+    hop_transport::validate_chain(transport, engine, udp, &group_certs)?;
+    if !hop_transport::is_tls(transport) {
+        return Ok(());
+    }
+    for (seq, group) in groups.iter().enumerate().skip(1) {
+        let cert_id = group.cert_id.as_deref().unwrap_or_default();
+        let cert = repo::certificates::find_by_ids(&state.db.pool, &[cert_id.to_string()])
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                AppError::coded(
+                    "chain.tls_cert_not_found",
+                    Some(json!({ "cert_id": cert_id, "seq": seq })),
+                    format!("第 {} 组引用的证书不存在", seq + 1),
+                )
+            })?;
+        hop_transport::validate_certificate(&cert, repo::now())?;
+    }
+    Ok(())
+}
+
+/// 链视图里的「为什么没下发」：能力或证书不满足时给用户看的原因。
+///
+/// 与 `desired::render` 共用 [`plan_from_certificates`]，不会出现「面板说能下发、
+/// 实际被跳过」的两套口径。
+async fn transport_blocked_reason(
+    state: &AppState,
+    chain: &ChainWithGroups,
+) -> AppResult<Option<(String, String)>> {
+    if !hop_transport::is_tls(&chain.chain.transport) {
+        return Ok(None);
+    }
+    let cert_ids: Vec<String> = chain
+        .groups
+        .iter()
+        .filter_map(|group| group.group.cert_id.clone())
+        .collect();
+    let certificates = repo::certificates::find_by_ids(&state.db.pool, &cert_ids).await?;
+    let by_id: HashMap<&str, &Certificate> = certificates
+        .iter()
+        .map(|cert| (cert.id.as_str(), cert))
+        .collect();
+    match plan_from_certificates(&chain.chain, &chain.groups, &by_id, repo::now()) {
+        Ok(_) => Ok(None),
+        Err(error) => Ok(Some((error.code.to_string(), error.message))),
+    }
+}
+
 fn new_groups(groups: &[ValidatedGroup]) -> Vec<repo::chains::NewChainGroup> {
     groups
         .iter()
         .map(|group| repo::chains::NewChainGroup {
             name: group.name.clone(),
             strategy: group.strategy.as_str().to_string(),
+            cert_id: group.cert_id.clone(),
             members: group
                 .members
                 .iter()
@@ -548,6 +765,7 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
             "seq": group.group.seq,
             "name": group.group.name,
             "strategy": group.group.strategy,
+            "cert_id": group.group.cert_id,
             "degraded": group_degraded,
             "members": member_views,
         }));
@@ -578,6 +796,7 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
         "enabled": chain.chain.enabled,
         "engine": chain.chain.engine,
         "udp": chain.chain.udp,
+        "transport": chain.chain.transport,
         "degraded": degraded,
         "groups": group_views,
         "hops": hop_views,
@@ -629,10 +848,15 @@ pub async fn list(State(state): State<AppState>, user: CurrentUser) -> AppResult
     user.require_admin()?;
     let chains_list = repo::chains::list(&state.db.pool).await?;
     let statuses = load_status_map(&state, &chains_list).await?;
-    let items: Vec<Value> = chains_list
-        .iter()
-        .map(|chain| chain_json(chain, &statuses))
-        .collect();
+    let mut items = Vec::with_capacity(chains_list.len());
+    for chain in &chains_list {
+        let mut view = chain_json(chain, &statuses);
+        if let Some((code, reason)) = transport_blocked_reason(&state, chain).await? {
+            view["blocked_code"] = json!(code);
+            view["blocked_reason"] = json!(reason);
+        }
+        items.push(view);
+    }
     Ok(Json(json!({ "items": items })))
 }
 
@@ -651,6 +875,7 @@ pub async fn create(
         enabled,
         engine: raw_engine,
         udp,
+        transport: raw_transport,
         hops,
         groups,
     } = req;
@@ -662,6 +887,8 @@ pub async fn create(
         Some(raw) => engine::normalize(raw)?,
         None => engine::DEFAULT.to_string(),
     };
+    let transport =
+        hop_transport::normalize(raw_transport.as_deref().unwrap_or(hop_transport::DEFAULT))?;
 
     // 新字段优先；没传 groups 时把旧 hops 转成「每组一台」。
     let inputs = if groups.is_empty() {
@@ -671,6 +898,7 @@ pub async fn create(
     };
     let groups = resolve_groups(&state, &inputs, None).await?;
     ensure_targets_safe(&groups, &target_host, target_port)?;
+    validate_transport(&state, &transport, &engine, udp, &groups).await?;
 
     let chain = repo::chains::create(
         &state.db.pool,
@@ -681,6 +909,7 @@ pub async fn create(
             enabled,
             engine,
             udp,
+            transport,
             groups: new_groups(&groups),
         },
     )
@@ -698,6 +927,7 @@ pub async fn create(
             "enabled": chain.chain.enabled,
             "engine": &chain.chain.engine,
             "udp": chain.chain.udp,
+            "transport": &chain.chain.transport,
             "hops": chain.groups.iter().map(|group| json!({
                 "seq": group.group.seq,
                 "server_id": group.members.first().map(|member| &member.server_id),
@@ -707,6 +937,7 @@ pub async fn create(
                 "seq": group.group.seq,
                 "name": &group.group.name,
                 "strategy": &group.group.strategy,
+                "cert_id": &group.group.cert_id,
                 "members": group.members.iter().map(|member| json!({
                     "server_id": &member.server_id,
                     "listen_port": member.listen_port,
@@ -722,7 +953,12 @@ pub async fn create(
     mark_servers_dirty_and_apply(&state, &base, &chain_server_ids(&chain)).await;
 
     let statuses = load_status_map(&state, std::slice::from_ref(&chain)).await?;
-    Ok(Json(json!({ "chain": chain_json(&chain, &statuses) })))
+    let mut view = chain_json(&chain, &statuses);
+    if let Some((code, reason)) = transport_blocked_reason(&state, &chain).await? {
+        view["blocked_code"] = json!(code);
+        view["blocked_reason"] = json!(reason);
+    }
+    Ok(Json(json!({ "chain": view })))
 }
 
 pub async fn update(
@@ -741,6 +977,7 @@ pub async fn update(
         enabled,
         engine: raw_engine,
         udp,
+        transport: raw_transport,
         hops,
         groups,
     } = req;
@@ -751,13 +988,14 @@ pub async fn update(
         && enabled.is_none()
         && raw_engine.is_none()
         && udp.is_none()
+        && raw_transport.is_none()
         && hops.is_none()
         && groups.is_none()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 name / target_host / target_port / enabled / engine / udp / groups / hops 之一",
+            "至少需要提供 name / target_host / target_port / enabled / engine / udp / transport / groups / hops 之一",
         ));
     }
 
@@ -780,6 +1018,10 @@ pub async fn update(
         Some(raw) => Some(engine::normalize(raw)?),
         None => None,
     };
+    let transport = match raw_transport.as_deref() {
+        Some(raw) => Some(hop_transport::normalize(raw)?),
+        None => None,
+    };
     let final_target_host = target_host
         .as_deref()
         .unwrap_or(&existing.chain.target_host);
@@ -797,6 +1039,16 @@ pub async fn update(
         None => validated_from_existing(&existing.groups),
     };
     ensure_targets_safe(&groups, final_target_host, final_target_port)?;
+    let final_engine = engine.as_deref().unwrap_or(&existing.chain.engine);
+    let final_transport = transport.as_deref().unwrap_or(&existing.chain.transport);
+    let final_udp = udp.unwrap_or(existing.chain.udp);
+    // 只在「安全相关的字段真的被改」时校验证书内容：证书过期后仍然要允许
+    // 用户改名/停用/删除这条链，否则会被卡在一个无法自救的状态里。
+    let security_changed =
+        raw_transport.is_some() || engine.is_some() || replace_groups || udp.is_some();
+    if security_changed {
+        validate_transport(&state, final_transport, final_engine, final_udp, &groups).await?;
+    }
 
     let updated = repo::chains::update(
         &state.db.pool,
@@ -808,6 +1060,7 @@ pub async fn update(
             enabled,
             engine,
             udp,
+            transport,
             groups: replace_groups.then(|| new_groups(&groups)),
         },
     )
@@ -842,6 +1095,11 @@ pub async fn update(
         ),
         ("udp", json!(existing.chain.udp), json!(updated.chain.udp)),
         (
+            "transport",
+            json!(&existing.chain.transport),
+            json!(&updated.chain.transport),
+        ),
+        (
             "hops",
             json!(existing.groups.len()),
             json!(updated.groups.len()),
@@ -865,7 +1123,12 @@ pub async fn update(
     mark_servers_dirty_and_apply(&state, &base, &affected).await;
 
     let statuses = load_status_map(&state, std::slice::from_ref(&updated)).await?;
-    Ok(Json(json!({ "chain": chain_json(&updated, &statuses) })))
+    let mut view = chain_json(&updated, &statuses);
+    if let Some((code, reason)) = transport_blocked_reason(&state, &updated).await? {
+        view["blocked_code"] = json!(code);
+        view["blocked_reason"] = json!(reason);
+    }
+    Ok(Json(json!({ "chain": view })))
 }
 
 pub async fn delete(
@@ -1076,6 +1339,7 @@ mod tests {
             enabled: true,
             engine: "native".into(),
             udp: false,
+            transport: "none".into(),
             created_at: 0,
             updated_at: 0,
         }
@@ -1095,6 +1359,7 @@ mod tests {
                 seq,
                 name: None,
                 strategy: strategy.into(),
+                cert_id: None,
             },
             members: members
                 .iter()
@@ -1110,6 +1375,7 @@ mod tests {
                         listen_port: *listen_port,
                         priority: *priority,
                         weight: 1,
+                        realm_transport: Some(true),
                     },
                 )
                 .collect(),
@@ -2302,5 +2568,663 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+    // ---------------------------------------------------------------- P15.3 跳间 TLS
+
+    const TLS_TEST_CERT: &str = include_str!("../../../domain/tests/fixtures/test-cert.pem");
+    const TLS_TEST_KEY: &str = include_str!("../../../domain/tests/fixtures/test-key.pem");
+    const TLS_EXPIRED_CERT: &str =
+        include_str!("../../../domain/tests/fixtures/test-expired-cert.pem");
+    const TLS_EXPIRED_KEY: &str =
+        include_str!("../../../domain/tests/fixtures/test-expired-key.pem");
+    /// fixture 证书的 `not_after`（2036-11-02）。
+    const TLS_NOT_AFTER: i64 = 2_109_208_713;
+
+    async fn add_certificate(state: &AppState, name: &str, not_after: i64) -> Certificate {
+        repo::certificates::create(
+            &state.db.pool,
+            repo::certificates::NewCertificate {
+                name: name.into(),
+                domains: vec!["example.com".into(), "www.example.com".into()],
+                cert_pem: TLS_TEST_CERT.into(),
+                key_pem: TLS_TEST_KEY.into(),
+                not_before: 1_793_341_113,
+                not_after,
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn add_expired_certificate(state: &AppState, name: &str) -> Certificate {
+        repo::certificates::create(
+            &state.db.pool,
+            repo::certificates::NewCertificate {
+                name: name.into(),
+                domains: vec!["expired.example.com".into()],
+                cert_pem: TLS_EXPIRED_CERT.into(),
+                key_pem: TLS_EXPIRED_KEY.into(),
+                not_before: 1_577_836_800,
+                not_after: 1_609_459_200,
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn set_transport_capability(state: &AppState, server_id: &str, value: Option<bool>) {
+        repo::servers::update_health(
+            &state.db.pool,
+            server_id,
+            "0.7.5",
+            &repo::servers::HealthSnapshot {
+                realm_transport: value,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    fn tls_groups_body(
+        name: &str,
+        target_host: &str,
+        target_port: i64,
+        groups: &[Value],
+        udp: bool,
+    ) -> Value {
+        let mut body = groups_body(name, target_host, target_port, groups);
+        body["engine"] = json!("realm");
+        body["transport"] = json!("tls");
+        body["udp"] = json!(udp);
+        body
+    }
+
+    fn group_with_cert(cert_id: Option<&str>, members: &[Value]) -> Value {
+        let mut group = group(None, Some("round_robin"), members);
+        if let Some(cert_id) = cert_id {
+            group["cert_id"] = json!(cert_id);
+        }
+        group
+    }
+
+    /// 2 组加密链：入口只有 remote_transport，出口只有 listen_transport；
+    /// 证书文件只发给「本机是成员」的组，入口服务器不需要证书。
+    #[tokio::test]
+    async fn tls_chain_reaches_desired_state_with_cert_files_only_for_members() {
+        let fixture = setup().await;
+        for server_id in [&fixture.a, &fixture.b, &fixture.c] {
+            set_transport_capability(&fixture.state, server_id, Some(true)).await;
+        }
+        let cert = add_certificate(&fixture.state, "hop1", TLS_NOT_AFTER).await;
+
+        let body = tls_groups_body(
+            "加密链",
+            "1.1.1.1",
+            443,
+            &[
+                group_with_cert(None, &[group_member(&fixture.a, 9001, 0)]),
+                group_with_cert(
+                    Some(&cert.id),
+                    &[
+                        group_member(&fixture.b, 9002, 0),
+                        group_member(&fixture.c, 9003, 0),
+                    ],
+                ),
+            ],
+            false,
+        );
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        assert_eq!(value["chain"]["transport"], "tls");
+        assert_eq!(value["chain"]["groups"][0]["cert_id"], Value::Null);
+        assert_eq!(
+            value["chain"]["groups"][1]["cert_id"],
+            json!(&cert.id),
+            "组证书必须原样返回，前端靠它展示/轮换"
+        );
+        assert!(
+            value["chain"].get("blocked_reason").is_none(),
+            "能力与证书都满足时不应有 blocked_reason：{value}"
+        );
+
+        let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+        let server_a = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.a)
+            .await
+            .unwrap();
+        let server_b = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.b)
+            .await
+            .unwrap();
+        let server_c = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.c)
+            .await
+            .unwrap();
+        let server_d = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.d)
+            .await
+            .unwrap();
+        let base = "https://panel.example.com";
+
+        let rendered_a = crate::routes::desired::render(&fixture.state, &server_a, base)
+            .await
+            .unwrap();
+        let entry = rendered_a
+            .forwards
+            .iter()
+            .find(|forward| forward.listen_port == 9001)
+            .expect("入口跳必须在期望态里");
+        assert_eq!(entry.id, format!("chain-{chain_id}-0"));
+        assert_eq!(entry.listen_transport, None, "入口监听保持明文");
+        assert_eq!(
+            entry.remote_transport.as_deref(),
+            Some("tls;sni=example.com"),
+            "上一跳用下一组证书的首个具体域名做 SNI"
+        );
+        assert!(entry.disable_udp, "加密链所有端点都必须关 UDP");
+        assert!(
+            rendered_a.files.is_empty(),
+            "入口服务器不需要下一跳的证书文件"
+        );
+
+        let rendered_b = crate::routes::desired::render(&fixture.state, &server_b, base)
+            .await
+            .unwrap();
+        let middle = rendered_b
+            .forwards
+            .iter()
+            .find(|forward| forward.listen_port == 9002)
+            .expect("出口跳必须在期望态里");
+        assert_eq!(
+            middle.listen_transport.as_deref(),
+            Some(
+                format!(
+                    "tls;cert={};key={}",
+                    pierwave_domain::certificate::cert_file_path(&cert.id),
+                    pierwave_domain::certificate::key_file_path(&cert.id)
+                )
+                .as_str()
+            )
+        );
+        assert_eq!(middle.remote_transport, None, "落地到目标是明文");
+        assert!(middle.disable_udp);
+        assert_eq!(rendered_b.files.len(), 2, "证书 + 私钥各一份");
+        let pem = rendered_b
+            .files
+            .iter()
+            .find(|file| file.path.ends_with(".pem"))
+            .expect("必须下发证书");
+        let key = rendered_b
+            .files
+            .iter()
+            .find(|file| file.path.ends_with(".key"))
+            .expect("必须下发私钥");
+        assert_eq!(pem.content, TLS_TEST_CERT);
+        assert_eq!(pem.mode, 0o644);
+        assert_eq!(key.content, TLS_TEST_KEY);
+        assert_eq!(key.mode, 0o600, "私钥必须 0600");
+
+        // 同组第二台成员也要拿到同一张证书，才能被同一个 SNI 校验通过。
+        let rendered_c = crate::routes::desired::render(&fixture.state, &server_c, base)
+            .await
+            .unwrap();
+        assert!(
+            rendered_c
+                .forwards
+                .iter()
+                .any(|forward| forward.listen_port == 9003),
+            "组内每台成员各有一条 forward"
+        );
+        assert_eq!(rendered_c.files.len(), 2);
+
+        // 与链无关的服务器：既没有这条链的 forward，也没有它的证书。
+        let rendered_d = crate::routes::desired::render(&fixture.state, &server_d, base)
+            .await
+            .unwrap();
+        assert!(rendered_d.forwards.is_empty());
+        assert!(rendered_d.files.is_empty());
+    }
+
+    /// 保存时的所有非法组合都必须 400 + 稳定 code，不能「先存下再说」。
+    #[tokio::test]
+    async fn tls_chain_validation_rejects_invalid_combinations() {
+        let fixture = setup().await;
+        for server_id in [&fixture.a, &fixture.b] {
+            set_transport_capability(&fixture.state, server_id, Some(true)).await;
+        }
+        let cert = add_certificate(&fixture.state, "hop1", TLS_NOT_AFTER).await;
+        let expired = add_expired_certificate(&fixture.state, "expired").await;
+
+        let two_groups =
+            |transport: &str, engine: &str, udp: bool, cert_id: Option<&str>| -> Value {
+                let mut body = groups_body(
+                    "非法组合",
+                    "1.1.1.1",
+                    443,
+                    &[
+                        group_with_cert(None, &[group_member(&fixture.a, 9001, 0)]),
+                        group_with_cert(cert_id, &[group_member(&fixture.b, 9002, 0)]),
+                    ],
+                );
+                body["engine"] = json!(engine);
+                body["transport"] = json!(transport);
+                body["udp"] = json!(udp);
+                body
+            };
+
+        let cases: Vec<(Value, &str)> = vec![
+            (
+                two_groups("tls", "native", false, Some(&cert.id)),
+                "chain.tls_requires_realm",
+            ),
+            (
+                // 1 组链没有「跳间」。
+                tls_groups_body(
+                    "单跳",
+                    "1.1.1.1",
+                    443,
+                    &[group_with_cert(None, &[group_member(&fixture.a, 9001, 0)])],
+                    false,
+                ),
+                "chain.tls_requires_two_hops",
+            ),
+            (
+                two_groups("tls", "realm", true, Some(&cert.id)),
+                "chain.tls_udp_unsupported",
+            ),
+            (
+                two_groups("tls", "realm", false, None),
+                "chain.tls_group_cert_required",
+            ),
+            (
+                // 入口组（第一组）不允许证书。
+                {
+                    let mut body = two_groups("tls", "realm", false, Some(&cert.id));
+                    body["groups"][0]["cert_id"] = json!(&cert.id);
+                    body
+                },
+                "chain.tls_group_cert_forbidden",
+            ),
+            (
+                two_groups("tls", "realm", false, Some(&expired.id)),
+                "chain.tls_cert_expired",
+            ),
+            (
+                two_groups("tls", "realm", false, Some("no-such-cert")),
+                "chain.tls_cert_not_found",
+            ),
+        ];
+
+        for (body, expected) in cases {
+            let (status, value) = request(
+                &fixture.app,
+                Some(&fixture.cookie),
+                Method::POST,
+                "/api/v1/chains",
+                Some(body),
+            )
+            .await;
+            assert_eq!(
+                status,
+                StatusCode::BAD_REQUEST,
+                "expected {expected}: {value}"
+            );
+            assert_eq!(value["code"], expected, "unexpected: {value}");
+            assert!(
+                value["error"]
+                    .as_str()
+                    .is_some_and(|error| !error.is_empty()),
+                "必须有中文兜底文案：{value}"
+            );
+        }
+    }
+
+    /// 能力门禁：链上任意成员未知/不支持 → 整链不进 forwards + warnings，
+    /// 链视图给出 blocked_reason；绝不因为「先跑通」而降级明文。
+    #[tokio::test]
+    async fn tls_chain_is_skipped_whole_when_a_member_lacks_transport() {
+        let fixture = setup().await;
+        let cert = add_certificate(&fixture.state, "hop1", TLS_NOT_AFTER).await;
+
+        // 直接走仓储建链：保存路径不因「能力未知」拒绝（服务器可能离线），
+        // 下发路径必须整链跳过。
+        let chain = repo::chains::create(
+            &fixture.state.db.pool,
+            repo::chains::NewChain {
+                name: "能力不足".into(),
+                target_host: "1.1.1.1".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "realm".into(),
+                udp: false,
+                transport: "tls".into(),
+                groups: vec![
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: None,
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: fixture.a.clone(),
+                            listen_port: 9001,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: Some(cert.id.clone()),
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: fixture.b.clone(),
+                            listen_port: 9002,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                ],
+            },
+        )
+        .await
+        .unwrap();
+
+        let server_a = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.a)
+            .await
+            .unwrap();
+        let rendered =
+            crate::routes::desired::render(&fixture.state, &server_a, "https://panel.example.com")
+                .await
+                .unwrap();
+        assert!(
+            rendered
+                .forwards
+                .iter()
+                .all(|forward| !forward.id.starts_with(&format!("chain-{}", chain.chain.id))),
+            "整条链都不能下发：{:?}",
+            rendered.forwards
+        );
+        assert!(
+            rendered
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("未下发") && warning.contains("transport")),
+            "warnings 必须说明原因：{:?}",
+            rendered.warnings
+        );
+
+        // 只把一台成员标记为支持还不够：入口也要支持 transport。
+        set_transport_capability(&fixture.state, &fixture.b, Some(true)).await;
+        let rendered =
+            crate::routes::desired::render(&fixture.state, &server_a, "https://panel.example.com")
+                .await
+                .unwrap();
+        assert!(rendered
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("未下发")));
+
+        // 两台都明确支持后才下发。
+        set_transport_capability(&fixture.state, &fixture.a, Some(true)).await;
+        let rendered =
+            crate::routes::desired::render(&fixture.state, &server_a, "https://panel.example.com")
+                .await
+                .unwrap();
+        assert!(rendered
+            .forwards
+            .iter()
+            .any(|forward| forward.listen_port == 9001));
+        assert!(rendered.warnings.is_empty(), "{:?}", rendered.warnings);
+    }
+
+    /// 保存后证书过期：下次 apply 整链跳过（连同证书文件），链视图给出 blocked_reason。
+    #[tokio::test]
+    async fn expired_certificate_blocks_the_whole_chain_at_render_time() {
+        let fixture = setup().await;
+        for server_id in [&fixture.a, &fixture.b] {
+            set_transport_capability(&fixture.state, server_id, Some(true)).await;
+        }
+        let expired = add_expired_certificate(&fixture.state, "expired").await;
+
+        let chain = repo::chains::create(
+            &fixture.state.db.pool,
+            repo::chains::NewChain {
+                name: "过期证书".into(),
+                target_host: "1.1.1.1".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "realm".into(),
+                udp: false,
+                transport: "tls".into(),
+                groups: vec![
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: None,
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: fixture.a.clone(),
+                            listen_port: 9001,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: Some(expired.id.clone()),
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: fixture.b.clone(),
+                            listen_port: 9002,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                ],
+            },
+        )
+        .await
+        .unwrap();
+
+        let server_b = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.b)
+            .await
+            .unwrap();
+        let rendered =
+            crate::routes::desired::render(&fixture.state, &server_b, "https://panel.example.com")
+                .await
+                .unwrap();
+        assert!(
+            rendered.forwards.is_empty(),
+            "整链不下发：{:?}",
+            rendered.forwards
+        );
+        assert!(
+            rendered.files.is_empty(),
+            "失效链的证书文件也不能下发：{:?}",
+            rendered.files
+        );
+        assert!(
+            rendered
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("已过期")),
+            "{:?}",
+            rendered.warnings
+        );
+
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            "/api/v1/chains",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let chain_view = &value["items"][0];
+        assert_eq!(chain_view["blocked_code"], "chain.tls_cert_expired");
+        assert!(
+            chain_view["blocked_reason"]
+                .as_str()
+                .is_some_and(|reason| reason.contains("已过期")),
+            "{chain_view}"
+        );
+
+        // 证书坏了也不能把用户锁死：改名 / 停用必须仍然可用。
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::PATCH,
+            &format!("/api/v1/chains/{}", chain.chain.id),
+            Some(json!({ "enabled": false, "name": "已停用" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{value}");
+        assert_eq!(value["chain"]["enabled"], false);
+        assert_eq!(value["chain"]["name"], "已停用");
+    }
+
+    /// 下发路径的前置校验：脏数据/手工改库留下「native+tls」「单组 tls」
+    /// 「tls+udp」时整链跳过，不能退化成明文端点。
+    #[test]
+    fn plan_refuses_unsafe_tls_shapes_at_render_time() {
+        let certs: HashMap<&str, &Certificate> = HashMap::new();
+        let chain = Chain {
+            transport: "tls".into(),
+            engine: "realm".into(),
+            udp: false,
+            ..test_chain("c-tls-dirty")
+        };
+        let single = vec![test_group(
+            "c-tls-dirty",
+            0,
+            "round_robin",
+            &[("srv-a", "10.0.0.1", 9001, 0)],
+        )];
+        assert_eq!(
+            plan_from_certificates(&chain, &single, &certs, 0)
+                .unwrap_err()
+                .code,
+            "chain.tls_requires_two_hops"
+        );
+
+        let two = vec![
+            test_group(
+                "c-tls-dirty",
+                0,
+                "round_robin",
+                &[("srv-a", "10.0.0.1", 9001, 0)],
+            ),
+            test_group(
+                "c-tls-dirty",
+                1,
+                "round_robin",
+                &[("srv-b", "10.0.0.2", 9002, 0)],
+            ),
+        ];
+        assert_eq!(
+            plan_from_certificates(
+                &Chain {
+                    engine: "native".into(),
+                    ..chain.clone()
+                },
+                &two,
+                &certs,
+                0,
+            )
+            .unwrap_err()
+            .code,
+            "chain.tls_requires_realm"
+        );
+        assert_eq!(
+            plan_from_certificates(
+                &Chain {
+                    udp: true,
+                    ..chain.clone()
+                },
+                &two,
+                &certs,
+                0,
+            )
+            .unwrap_err()
+            .code,
+            "chain.tls_udp_unsupported"
+        );
+    }
+
+    /// 链里逐跳叠加 transport 的映射：入口只出、中间进出、落地只进。
+    #[test]
+    fn derive_forwards_applies_transports_per_group() {
+        let chain = Chain {
+            transport: "tls".into(),
+            engine: "realm".into(),
+            ..test_chain("c-tls")
+        };
+        let groups = vec![
+            test_group("c-tls", 0, "round_robin", &[("srv-a", "10.0.0.1", 9001, 0)]),
+            test_group("c-tls", 1, "round_robin", &[("srv-b", "10.0.0.2", 9002, 0)]),
+            test_group("c-tls", 2, "round_robin", &[("srv-c", "10.0.0.3", 9003, 0)]),
+        ];
+        let transports = vec![
+            hop_transport::HopTransport {
+                listen: None,
+                remote: Some("tls;sni=hop1.example.com".into()),
+                disable_udp: true,
+            },
+            hop_transport::HopTransport {
+                listen: Some("tls;cert=/c1.pem;key=/c1.key".into()),
+                remote: Some("tls;sni=hop2.example.com".into()),
+                disable_udp: true,
+            },
+            hop_transport::HopTransport {
+                listen: Some("tls;cert=/c2.pem;key=/c2.key".into()),
+                remote: None,
+                disable_udp: true,
+            },
+        ];
+        let derived = derive_forwards_with_transports(&chain, &groups, &transports);
+        let by_port = |port: i64| {
+            derived
+                .iter()
+                .find(|(_, forward)| forward.listen_port == port)
+                .map(|(_, forward)| forward)
+                .expect("每个成员一条 forward")
+        };
+
+        let entry = by_port(9001);
+        assert_eq!(entry.listen_transport, None);
+        assert_eq!(
+            entry.remote_transport.as_deref(),
+            Some("tls;sni=hop1.example.com")
+        );
+        assert!(entry.disable_udp);
+
+        let middle = by_port(9002);
+        assert_eq!(
+            middle.listen_transport.as_deref(),
+            Some("tls;cert=/c1.pem;key=/c1.key")
+        );
+        assert_eq!(
+            middle.remote_transport.as_deref(),
+            Some("tls;sni=hop2.example.com")
+        );
+
+        let exit = by_port(9003);
+        assert_eq!(
+            exit.listen_transport.as_deref(),
+            Some("tls;cert=/c2.pem;key=/c2.key")
+        );
+        assert_eq!(exit.remote_transport, None);
+        assert!(derived.iter().all(|(_, forward)| forward.disable_udp));
+
+        // 明文链：传空 transport 列表，推导结果逐字段保持旧行为。
+        let plain_chain = test_chain("c-plain");
+        let plain = derive_forwards_with_transports(&plain_chain, &groups, &[]);
+        assert!(plain
+            .iter()
+            .all(|(_, forward)| forward.listen_transport.is_none()
+                && forward.remote_transport.is_none()
+                && !forward.disable_udp));
     }
 }

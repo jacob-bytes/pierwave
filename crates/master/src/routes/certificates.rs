@@ -98,12 +98,16 @@ pub async fn delete(
     user.require_admin()?;
 
     // 先给业务提示，避免外键/悬挂引用变成 500。
-    let references = repo::certificates::count_node_references(&state.db.pool, &id).await?;
+    // 链组（`chain_groups.cert_id`）也引用证书：漏掉它会让删除后的下一次 apply
+    // 因为「某组缺证书」把整条 TLS 链停掉。
+    let nodes = repo::certificates::count_node_references(&state.db.pool, &id).await?;
+    let chains = repo::certificates::count_chain_references(&state.db.pool, &id).await?;
+    let references = nodes + chains;
     if references > 0 {
         return Err(AppError::coded(
             "certificate.in_use",
-            Some(json!({ "references": references })),
-            format!("该证书被 {references} 个节点引用，无法删除"),
+            Some(json!({ "references": references, "nodes": nodes, "chains": chains })),
+            format!("该证书被 {nodes} 个节点、{chains} 条链引用，无法删除"),
         ));
     }
     let removed = repo::certificates::view_by_id(&state.db.pool, &id, repo::now()).await?;
@@ -715,5 +719,69 @@ mod tests {
         // 原有字段不能被破坏。
         assert!(body["alerts"]["expired_instances"].is_number());
         assert!(body["alerts"]["offline_servers"].is_number());
+    }
+    /// 链组也引用证书：删除保护必须把 `chain_groups.cert_id` 算进去，
+    /// 否则删掉后下一次 apply 会因为「组缺证书」把整条 TLS 链停掉。
+    #[tokio::test]
+    async fn deleting_a_certificate_referenced_by_a_chain_is_rejected() {
+        let (app, state, cookie) = setup().await;
+        let entry = create_server(&app, &cookie).await;
+        let (exit, _) = repo::servers::create(&state.db.pool, "jp-1", "10.0.0.2", "external")
+            .await
+            .unwrap();
+        let cert = upload_cert(&app, &cookie).await;
+
+        let chain = repo::chains::create(
+            &state.db.pool,
+            repo::chains::NewChain {
+                name: "链引用".into(),
+                target_host: "1.1.1.1".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "realm".into(),
+                udp: false,
+                transport: "tls".into(),
+                groups: vec![
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: None,
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: entry.clone(),
+                            listen_port: 9001,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: Some(cert.id.clone()),
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: exit.id.clone(),
+                            listen_port: 9002,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                ],
+            },
+        )
+        .await
+        .unwrap();
+
+        let uri = format!("/api/v1/certificates/{}", cert.id);
+        let (status, body) = request(&app, Some(&cookie), Method::DELETE, &uri, None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "certificate.in_use");
+        assert_eq!(body["params"]["chains"], 1, "{body}");
+        assert_eq!(body["params"]["nodes"], 0, "{body}");
+
+        // 解除引用后可以删除。
+        repo::chains::delete(&state.db.pool, &chain.chain.id)
+            .await
+            .unwrap();
+        let (status, _) = request(&app, Some(&cookie), Method::DELETE, &uri, None).await;
+        assert_eq!(status, StatusCode::OK);
     }
 }

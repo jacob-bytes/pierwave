@@ -70,6 +70,9 @@ pub struct Server {
     /// Agent 上报的 realm 可用性（`realm_bin` 存在且可执行）。
     /// NULL = 旧 Agent 未上报 / 从未连过；false 才是明确「没装」。
     pub realm_available: Option<bool>,
+    /// Agent 上报的 realm 是否带 `transport` feature（`realm --version` 含
+    /// `[transport]`）。NULL = 未知（旧 Agent / 无法判定），按不支持处理。
+    pub realm_transport: Option<bool>,
     /// 管理员填写的国家/地区代码（ISO 3166-1 alpha-2）；NULL = 未填写。
     pub country_code: Option<String>,
 }
@@ -149,6 +152,8 @@ pub struct Chain {
     /// 整条链是否同时监听 UDP：推导时透传到每一跳（每跳用各自的 `listen_port`）。
     /// 只对 `native` 有意义，`realm` 固定转发 UDP。
     pub udp: bool,
+    /// 跳间加密模式：`none`（默认，明文）或 `tls`（单向 TLS）。
+    pub transport: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -164,6 +169,8 @@ pub struct ChainGroup {
     pub name: Option<String>,
     /// 选路策略（`round_robin` / `failover` / `lowest_latency` / `ip_hashed`）。
     pub strategy: String,
+    /// 该组 realm 监听使用的证书 id；`None` = 明文。入口组（seq = 0）必须为 `None`。
+    pub cert_id: Option<String>,
 }
 
 /// 组内一个成员 + 推导/展示所需的服务器字段。
@@ -184,6 +191,9 @@ pub struct ChainGroupMember {
     pub priority: i64,
     /// 预留给加权，本轮只存不用。
     pub weight: i64,
+    /// 该成员所在服务器的 realm transport 能力缓存（NULL = 未知）。
+    /// 下发 TLS 链前必须逐台检查，未知按不支持处理。
+    pub realm_transport: Option<bool>,
 }
 
 /// 一个有成员的组。

@@ -92,6 +92,17 @@ async fn legacy_hops_become_single_member_groups() {
         .unwrap()
         .expect("旧链必须还在");
     assert_eq!(chain.groups.len(), 2, "每个旧 hop 变成一个组");
+    assert_eq!(
+        chain.chain.transport, "none",
+        "0031 之后旧链默认明文，下发结果必须与升级前一致"
+    );
+    assert!(
+        chain
+            .groups
+            .iter()
+            .all(|group| group.group.cert_id.is_none()),
+        "旧数据不能凭空出现证书"
+    );
     for (seq, (group, (expected_server, expected_port))) in chain
         .groups
         .iter()
@@ -109,6 +120,72 @@ async fn legacy_hops_become_single_member_groups() {
         assert_eq!(member.priority, 0);
         assert_eq!(member.weight, 1);
     }
+
+    // 0031 的追加列：transport / cert_id 能经仓储往返；realm_transport 默认 NULL。
+    let tls_chain = repo::chains::create(
+        &db.pool,
+        repo::chains::NewChain {
+            name: "新加密链".into(),
+            target_host: "1.1.1.1".into(),
+            target_port: 443,
+            enabled: true,
+            engine: "realm".into(),
+            udp: false,
+            transport: "tls".into(),
+            groups: vec![
+                repo::chains::NewChainGroup {
+                    name: None,
+                    strategy: "round_robin".into(),
+                    cert_id: None,
+                    members: vec![repo::chains::NewChainGroupMember {
+                        server_id: server_a.clone(),
+                        listen_port: 9101,
+                        priority: 0,
+                        weight: 1,
+                    }],
+                },
+                repo::chains::NewChainGroup {
+                    name: None,
+                    strategy: "round_robin".into(),
+                    cert_id: Some("cert-hop1".into()),
+                    members: vec![repo::chains::NewChainGroupMember {
+                        server_id: server_b.clone(),
+                        listen_port: 9102,
+                        priority: 0,
+                        weight: 1,
+                    }],
+                },
+            ],
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(tls_chain.chain.transport, "tls");
+    assert_eq!(
+        tls_chain.groups[1].group.cert_id.as_deref(),
+        Some("cert-hop1")
+    );
+
+    let plain_again = repo::chains::update(
+        &db.pool,
+        &tls_chain.chain.id,
+        repo::chains::UpdateChain {
+            transport: Some("none".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(plain_again.chain.transport, "none");
+
+    let capability: Option<bool> =
+        sqlx::query_scalar("SELECT realm_transport FROM servers WHERE id = ?")
+            .bind(&server_a)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(capability, None, "旧 Agent 未上报时必须是 NULL（未知）");
 
     // chain_hops 保留（只追加迁移，不删历史表）。
     let kept: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM chain_hops")

@@ -818,6 +818,9 @@ mod tests {
             strategy: Default::default(),
             engine: Default::default(),
             udp: false,
+            listen_transport: None,
+            remote_transport: None,
+            disable_udp: false,
         }
     }
 
@@ -846,6 +849,9 @@ mod tests {
             strategy,
             engine: Default::default(),
             udp: false,
+            listen_transport: None,
+            remote_transport: None,
+            disable_udp: false,
         }
     }
 

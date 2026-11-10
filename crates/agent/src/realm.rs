@@ -25,7 +25,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use pierwave_proto::{DesiredForward, ForwardEngine, ForwardStatus};
 use tokio::net::TcpListener;
@@ -68,6 +68,16 @@ pub const NOT_INSTALLED: &str = "realm 未安装";
 /// 进程活着但端口还没绑上时的原因：最常见的是 realm 正在启动，
 /// 或某个 endpoint 绑定失败（例如端口被别的程序抢走）。
 pub const NOT_LISTENING: &str = "realm 未监听端口";
+
+/// `realm --version` 的探测超时：版本输出应该立刻返回，卡住就按「无法判定」处理。
+const CAPABILITY_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// 期望态里有 transport、但本机 realm 没有 `[transport]` feature 时的原因。
+/// 只出现在状态里，绝不渲染成「不带 transport 的明文配置」。
+pub const TRANSPORT_UNSUPPORTED: &str = "realm 不支持跳间加密（--version 未包含 [transport]）";
+
+/// 有 transport 规则但无法判定能力（二进制不可执行 / 命令失败 / 超时）。
+pub const TRANSPORT_UNKNOWN: &str = "无法判定 realm 是否支持跳间加密，已拒绝下发";
 
 /// 停止子进程时等待它退出的上限；超时就 abort（`kill_on_drop` 兜底杀掉）。
 const STOP_TIMEOUT: Duration = Duration::from_secs(5);
@@ -139,8 +149,12 @@ pub struct RealmSupervisor {
     config_path: PathBuf,
     /// 写进 realm 配置的监听地址，与 native 的 `forward_bind` 保持一致。
     bind_host: String,
+    /// 写进配置的日志级别：有 transport 端点时才生成 `[log]`（默认 warn）。
+    log_level: String,
     /// 最近一次套用的 realm 规则（已排序，状态顺序与之对应）。
     rules: Vec<DesiredForward>,
+    /// `realm --version` 能力缓存：按二进制 `(size, mtime)` 失效。
+    transport: Option<(BinaryStamp, bool)>,
     /// 已落盘配置的内容哈希；`None` = 还没写过 / 上一轮已清空。
     content_hash: Option<u64>,
     process: Option<RunningRealm>,
@@ -163,7 +177,9 @@ impl RealmSupervisor {
             bin: bin.into(),
             config_path: state_dir.into().join(CONFIG_FILE_NAME),
             bind_host,
+            log_level: "warn".to_string(),
             rules: Vec::new(),
+            transport: None,
             content_hash: None,
             process: None,
             status: RealmStatusHandle::default(),
@@ -173,6 +189,28 @@ impl RealmSupervisor {
     /// 心跳侧读状态用；clone 出来的句柄可以脱离 supervisor 借用。
     pub fn status_handle(&self) -> RealmStatusHandle {
         self.status.clone()
+    }
+
+    /// 配置里的 `realm_log_level`：只影响带 transport 的配置（`[log].level`）。
+    /// 非法值回落到 `warn`，避免生成 realm 不认识的级别导致启动失败。
+    pub fn set_log_level(&mut self, level: &str) {
+        self.log_level = normalize_log_level(level).to_string();
+    }
+
+    /// 本机 realm 是否支持 transport（`realm --version` 含 `[transport]`）。
+    ///
+    /// 缓存按二进制 `(size, mtime)` 失效：运行中换掉二进制后不会继续沿用 true。
+    /// `None` = 不存在 / 不可执行 / 命令失败，**不缓存**，下一轮心跳重试。
+    pub async fn transport_capability(&mut self) -> Option<bool> {
+        let stamp = binary_stamp(&self.bin)?;
+        if let Some((cached, value)) = &self.transport {
+            if *cached == stamp {
+                return Some(*value);
+            }
+        }
+        let value = detect_transport(&self.bin).await?;
+        self.transport = Some((stamp, value));
+        Some(value)
     }
 
     /// 收敛到期望列表。非 realm 规则会被忽略（分流在调用方做，这里防御一次）。
@@ -217,7 +255,46 @@ impl RealmSupervisor {
             return;
         }
 
-        let content = render_config(&self.rules, &self.bind_host);
+        // 能力门禁（防静默明文）：期望态里出现 transport 时，本机 realm 必须
+        // 自带 `transport` feature。旧 Agent 会忽略字段、slim realm 会静默忽略
+        // transport，两者都会得到「面板说加密、实际明文」——这里宁可整轮拒绝，
+        // 也绝不渲染一份不带 transport 的明文配置。
+        if self.has_transport_rules() {
+            match self.transport_capability().await {
+                Some(true) => {}
+                capability => {
+                    let reason = match capability {
+                        Some(false) => TRANSPORT_UNSUPPORTED,
+                        _ => TRANSPORT_UNKNOWN,
+                    };
+                    tracing::error!(
+                        bin = %self.bin.display(),
+                        ?capability,
+                        "本机 realm 不支持跳间加密，已拒绝下发（不会回退明文）"
+                    );
+                    self.stop("realm 不支持 transport").await;
+                    self.content_hash = None;
+                    self.status.store(self.inactive_statuses(reason));
+                    return;
+                }
+            }
+        }
+
+        let content = match render_config(&self.rules, &self.bind_host, &self.log_level) {
+            Ok(content) => content,
+            Err(error) => {
+                tracing::error!(
+                    rules = self.rules.len(),
+                    %error,
+                    "realm transport 配置不合法，整轮拒绝下发"
+                );
+                self.stop("realm 配置不合法").await;
+                self.content_hash = None;
+                self.status
+                    .store(self.inactive_statuses(&format!("realm 配置不合法: {error}")));
+                return;
+            }
+        };
         let hash = config_hash(&content);
         let config_changed = self.content_hash != Some(hash);
         let needs_start = !self.process_alive();
@@ -284,6 +361,21 @@ impl RealmSupervisor {
             // 这里不反复 spawn（会每 15 秒刷一行日志），等文件被修好再自愈。
             return;
         }
+        // 运行中二进制被换成了 slim/旧版：即使旧配置还躺在磁盘上，也绝不能
+        // 重新拉起——realm 会静默忽略 transport，直接变成明文。
+        if self.has_transport_rules() {
+            match self.transport_capability().await {
+                Some(true) => {}
+                capability => {
+                    let reason = match capability {
+                        Some(false) => TRANSPORT_UNSUPPORTED,
+                        _ => TRANSPORT_UNKNOWN,
+                    };
+                    self.status.store(self.inactive_statuses(reason));
+                    return;
+                }
+            }
+        }
         tracing::warn!(
             rules = self.rules.len(),
             "realm 进程已退出，按现有配置重新拉起"
@@ -317,6 +409,13 @@ impl RealmSupervisor {
             });
         }
         statuses
+    }
+
+    /// 期望态里是否有任何端点带 transport。
+    fn has_transport_rules(&self) -> bool {
+        self.rules
+            .iter()
+            .any(|rule| rule.listen_transport.is_some() || rule.remote_transport.is_some())
     }
 
     fn inactive_statuses(&self, reason: &str) -> Vec<ForwardStatus> {
@@ -461,7 +560,11 @@ async fn probe_listening(bind_host: &str, listen_port: i64) -> bool {
 /// 其余写 `extra_remotes`，并加 `balance = "roundrobin: ..."`——
 /// 本轮不带权重，每个目标权重都是 1。排序由调用方/本函数按监听端口固定，
 /// 同一组规则重复渲染必须逐字节一致（否则内容哈希会抖，子进程会被反复重启）。
-pub fn render_config(rules: &[DesiredForward], bind_host: &str) -> String {
+pub fn render_config(
+    rules: &[DesiredForward],
+    bind_host: &str,
+    log_level: &str,
+) -> Result<String, String> {
     let mut ordered: Vec<&DesiredForward> = rules
         .iter()
         .filter(|rule| rule.engine == ForwardEngine::Realm)
@@ -472,9 +575,41 @@ pub fn render_config(rules: &[DesiredForward], bind_host: &str) -> String {
             .then_with(|| a.id.cmp(&b.id))
     });
 
+    // 先整体校验 transport：宁可整轮拒绝，也不写出一份 realm 会静默忽略
+    // transport 的配置（那等于明文）。
+    let has_transport = ordered
+        .iter()
+        .any(|rule| rule.listen_transport.is_some() || rule.remote_transport.is_some());
+    for rule in &ordered {
+        let endpoint_has_transport =
+            rule.listen_transport.is_some() || rule.remote_transport.is_some();
+        if endpoint_has_transport && !rule.disable_udp {
+            return Err(format!(
+                "端点 {} 带 transport 但主控没有要求关闭 UDP；UDP 不走 transport，拒绝下发",
+                rule.id
+            ));
+        }
+        if let Some(raw) = &rule.listen_transport {
+            validate_transport(TransportSide::Listen, raw)
+                .map_err(|error| format!("端点 {} 的 listen_transport 不合法: {error}", rule.id))?;
+        }
+        if let Some(raw) = &rule.remote_transport {
+            validate_transport(TransportSide::Remote, raw)
+                .map_err(|error| format!("端点 {} 的 remote_transport 不合法: {error}", rule.id))?;
+        }
+    }
+
     let mut out = String::new();
     out.push_str("# generated by pierwave-agent; do not edit（主控下发为准）\n");
     out.push_str("[network]\nno_tcp = false\nuse_udp = true\n");
+
+    // `[log]` 只在确实有加密端点时生成：没有 transport 的服务器升级后
+    // 不应该因为多一行配置而重启 realm。realm 默认 level=off、输出 stdout，
+    // Agent 把 stdout 丢了，不配 stderr 就看不到绑定错误。
+    if has_transport {
+        let level = normalize_log_level(log_level);
+        let _ = write!(out, "\n[log]\nlevel = \"{level}\"\noutput = \"stderr\"\n");
+    }
 
     for rule in ordered {
         let targets = rule_targets(rule);
@@ -503,8 +638,134 @@ pub fn render_config(rules: &[DesiredForward], bind_host: &str) -> String {
             let weights = vec!["1"; targets.len()].join(", ");
             let _ = writeln!(out, "balance = \"roundrobin: {weights}\"");
         }
+        // 键顺序固定：listen → remote → extra_remotes → balance →
+        // listen_transport → remote_transport → network。
+        if let Some(transport) = &rule.listen_transport {
+            let _ = writeln!(out, "listen_transport = \"{}\"", toml_escape(transport));
+        }
+        if let Some(transport) = &rule.remote_transport {
+            let _ = writeln!(out, "remote_transport = \"{}\"", toml_escape(transport));
+        }
+        // UDP 不走 transport：加密端点必须显式覆盖全局 use_udp=true。
+        if rule.disable_udp {
+            out.push_str("network = { use_udp = false }\n");
+        }
     }
-    out
+    Ok(out)
+}
+
+/// transport 串的端别：监听端只认 cert/key，客户端只认 sni。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TransportSide {
+    Listen,
+    Remote,
+}
+
+/// 严格校验主控下发的 transport 串。
+///
+/// 只接受 `tls` 开关 + 本端允许的键：监听端 `cert`/`key` 各一次，客户端
+/// `sni` 一次。`insecure` / `0rtt` / `ws` / 任何未知键都直接拒绝——这些要么
+/// 关闭身份校验，要么会静默改变协议，都不是本期允许的形态。
+fn validate_transport(side: TransportSide, raw: &str) -> Result<(), String> {
+    if raw.is_empty() {
+        return Err("空串等于没有 transport".into());
+    }
+    let tokens: Vec<&str> = raw.split(';').collect();
+    if tokens.first() != Some(&"tls") {
+        return Err(format!(
+            "必须以 tls 开头（收到 {raw:?}）；wss 不是合法 token"
+        ));
+    }
+    let mut cert = false;
+    let mut key = false;
+    let mut sni = false;
+    for token in &tokens[1..] {
+        if token.is_empty() {
+            return Err("存在空的 token".into());
+        }
+        if matches!(*token, "insecure" | "0rtt" | "ws" | "wss") {
+            return Err(format!("禁止的 transport token：{token}"));
+        }
+        let Some((name, value)) = token.split_once('=') else {
+            return Err(format!("token「{token}」不是 key=value"));
+        };
+        if !valid_transport_value(value) {
+            return Err(format!("token「{token}」的值包含非法字符"));
+        }
+        match (side, name) {
+            (TransportSide::Listen, "cert") if !cert => cert = true,
+            (TransportSide::Listen, "key") if !key => key = true,
+            (TransportSide::Remote, "sni") if !sni => sni = true,
+            _ => return Err(format!("本端不允许的 transport 键：{name}")),
+        }
+    }
+    match side {
+        TransportSide::Listen if !(cert && key) => {
+            Err("监听端必须同时提供 cert 与 key（缺一个 realm 会 panic）".into())
+        }
+        TransportSide::Remote if !sni => Err("客户端必须提供 sni（缺失 realm 会 panic）".into()),
+        _ => Ok(()),
+    }
+}
+
+/// transport 值只允许路径/域名安全字符：`;`、空白、引号都无法注入。
+fn valid_transport_value(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '/' | '.' | '_' | '-'))
+}
+
+/// 日志级别白名单；未知值回落到 `warn`。
+fn normalize_log_level(raw: &str) -> &'static str {
+    match raw.trim() {
+        "trace" => "trace",
+        "debug" => "debug",
+        "info" => "info",
+        "error" => "error",
+        "off" => "off",
+        _ => "warn",
+    }
+}
+
+/// 二进制标识：大小 + 修改时间，用来判断「运行中是否被换过」。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BinaryStamp {
+    size: u64,
+    modified: Option<SystemTime>,
+}
+
+fn binary_stamp(path: &Path) -> Option<BinaryStamp> {
+    let metadata = std::fs::metadata(path).ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    Some(BinaryStamp {
+        size: metadata.len(),
+        modified: metadata.modified().ok(),
+    })
+}
+
+/// 跑一次 `realm --version`，看输出是否包含 `[transport]`。
+///
+/// 超时/启动失败/非零退出都返回 `None`（未知，按不支持处理），不缓存。
+async fn detect_transport(bin: &Path) -> Option<bool> {
+    let mut command = tokio::process::Command::new(bin);
+    command
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = tokio::time::timeout(CAPABILITY_TIMEOUT, command.output())
+        .await
+        .ok()?
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+    text.push_str(&String::from_utf8_lossy(&output.stderr));
+    Some(text.contains("[transport]"))
 }
 
 /// 规则的目标列表：`targets` 为空时退回旧主控的单目标字段。
@@ -603,6 +864,9 @@ mod tests {
             strategy: Default::default(),
             engine: ForwardEngine::Realm,
             udp: false,
+            listen_transport: None,
+            remote_transport: None,
+            disable_udp: false,
         };
         for (host, port) in targets {
             spec.targets.push(ForwardTarget {
@@ -616,6 +880,11 @@ mod tests {
             spec.target_port = *port;
         }
         spec
+    }
+
+    /// 集中测试用渲染：默认 warn 级别，失败即 panic。
+    fn render(rules: &[DesiredForward]) -> String {
+        render_config(rules, "0.0.0.0", "warn").expect("测试规则必须能渲染")
     }
 
     #[test]
@@ -643,7 +912,7 @@ mod tests {
 
     #[test]
     fn renders_single_target_endpoint() {
-        let toml = render_config(&[realm_rule("r1", 30001, &[("10.0.0.2", 443)])], "0.0.0.0");
+        let toml = render(&[realm_rule("r1", 30001, &[("10.0.0.2", 443)])]);
 
         assert!(toml.contains("[[endpoints]]"), "{toml}");
         assert!(toml.contains("listen = \"0.0.0.0:30001\""), "{toml}");
@@ -656,14 +925,11 @@ mod tests {
 
     #[test]
     fn renders_multi_target_endpoint_with_balance() {
-        let toml = render_config(
-            &[realm_rule(
-                "r1",
-                30001,
-                &[("10.0.0.2", 443), ("10.0.0.3", 8443)],
-            )],
-            "0.0.0.0",
-        );
+        let toml = render(&[realm_rule(
+            "r1",
+            30001,
+            &[("10.0.0.2", 443), ("10.0.0.3", 8443)],
+        )]);
 
         assert!(toml.contains("remote = \"10.0.0.2:443\""), "{toml}");
         assert!(
@@ -677,18 +943,15 @@ mod tests {
     /// 两跳、第二个 endpoint 有 2 个目标：端口排序稳定，balance 只出现在多目标那条。
     #[test]
     fn renders_two_hops_with_sorted_endpoints() {
-        let toml = render_config(
-            &[
-                // 故意乱序传入：渲染必须按监听端口排序。
-                realm_rule(
-                    "chain-c1-0",
-                    30001,
-                    &[("10.0.0.2", 40001), ("10.0.0.3", 40001)],
-                ),
-                realm_rule("chain-c1-1", 30002, &[("203.0.113.9", 443)]),
-            ],
-            "0.0.0.0",
-        );
+        let toml = render(&[
+            // 故意乱序传入：渲染必须按监听端口排序。
+            realm_rule(
+                "chain-c1-0",
+                30001,
+                &[("10.0.0.2", 40001), ("10.0.0.3", 40001)],
+            ),
+            realm_rule("chain-c1-1", 30002, &[("203.0.113.9", 443)]),
+        ]);
 
         let first = toml.find("listen = \"0.0.0.0:30001\"").unwrap();
         let second = toml.find("listen = \"0.0.0.0:30002\"").unwrap();
@@ -704,10 +967,7 @@ mod tests {
 
     #[test]
     fn ipv6_targets_are_bracketed() {
-        let toml = render_config(
-            &[realm_rule("v6", 30001, &[("2001:db8::1", 443)])],
-            "0.0.0.0",
-        );
+        let toml = render(&[realm_rule("v6", 30001, &[("2001:db8::1", 443)])]);
         assert!(toml.contains("remote = \"[2001:db8::1]:443\""), "{toml}");
     }
 
@@ -716,8 +976,8 @@ mod tests {
         let a = realm_rule("a", 30001, &[("10.0.0.2", 443)]);
         let b = realm_rule("b", 30002, &[("10.0.0.3", 443)]);
 
-        let forward = render_config(&[a.clone(), b.clone()], "0.0.0.0");
-        let reversed = render_config(&[b.clone(), a.clone()], "0.0.0.0");
+        let forward = render(&[a.clone(), b.clone()]);
+        let reversed = render(&[b.clone(), a.clone()]);
         assert_eq!(forward, reversed, "同一组规则换顺序必须渲染出同一份配置");
         assert_eq!(
             config_hash(&forward),
@@ -725,10 +985,7 @@ mod tests {
             "内容哈希相同 = 不重启子进程"
         );
 
-        let changed = render_config(
-            &[realm_rule("a", 30009, &[("10.0.0.2", 443)]), b],
-            "0.0.0.0",
-        );
+        let changed = render(&[realm_rule("a", 30009, &[("10.0.0.2", 443)]), b]);
         assert_ne!(
             config_hash(&forward),
             config_hash(&changed),
@@ -746,7 +1003,7 @@ mod tests {
             engine: ForwardEngine::Native,
             ..realm_rule("native", 30001, &[("10.0.0.2", 443)])
         };
-        let toml = render_config(&[native], "0.0.0.0");
+        let toml = render(&[native]);
         assert!(!toml.contains("[[endpoints]]"), "{toml}");
     }
 
@@ -795,7 +1052,7 @@ mod tests {
     #[test]
     fn network_keys_stay_out_of_endpoints() {
         let rules = vec![realm_rule("r1", 30001, &[("10.0.0.2", 443)])];
-        let toml = render_config(&rules, "0.0.0.0");
+        let toml = render(&rules);
         let network_block = toml
             .split("[[endpoints]]")
             .next()
@@ -818,7 +1075,7 @@ mod tests {
     #[test]
     fn realm_config_enables_udp() {
         let rules = vec![realm_rule("r1", 30001, &[("10.0.0.2", 443)])];
-        let toml = render_config(&rules, "0.0.0.0");
+        let toml = render(&rules);
         assert!(toml.contains("[network]"), "{toml}");
         assert!(toml.contains("use_udp = true"), "UDP 必须启用：{toml}");
         assert!(!toml.contains("use_udp = false"), "{toml}");
@@ -1058,6 +1315,252 @@ mod tests {
             1,
             "进程活着时 ensure_running 不能重启"
         );
+
+        supervisor.apply(&[]).await;
+    }
+    fn transport_rule(id: &str, listen_port: i64) -> DesiredForward {
+        DesiredForward {
+            listen_transport: Some(
+                "tls;cert=/usr/local/etc/xray/certs/c1.pem;key=/usr/local/etc/xray/certs/c1.key"
+                    .into(),
+            ),
+            remote_transport: Some("tls;sni=hop1.example.com".into()),
+            disable_udp: true,
+            ..realm_rule(id, listen_port, &[("10.0.0.3", 30003)])
+        }
+    }
+
+    /// 加密端点：transport 行 + 每端点 `network = { use_udp = false }` + `[log]`。
+    #[test]
+    fn renders_transport_lines_in_fixed_order_and_disables_udp() {
+        let toml = render(&[transport_rule("chain-c1-1", 30002)]);
+
+        assert!(
+            toml.contains("[log]"),
+            "有 transport 时必须生成 [log]：{toml}"
+        );
+        assert!(toml.contains("level = \"warn\""), "{toml}");
+        assert!(toml.contains("output = \"stderr\""), "{toml}");
+        assert!(
+            toml.find("[log]").unwrap() < toml.find("[[endpoints]]").unwrap(),
+            "[log] 必须在 endpoint 之前：{toml}"
+        );
+        assert_eq!(
+            toml.matches("network = { use_udp = false }").count(),
+            1,
+            "每个加密端点都要显式关 UDP：{toml}"
+        );
+
+        let listen = toml.find("listen = \"0.0.0.0:30002\"").unwrap();
+        let remote = toml.find("remote = \"10.0.0.3:30003\"").unwrap();
+        let listen_transport = toml.find("listen_transport = \"tls;cert=").unwrap();
+        let remote_transport = toml
+            .find("remote_transport = \"tls;sni=hop1.example.com\"")
+            .unwrap();
+        let network = toml.find("network = { use_udp = false }").unwrap();
+        assert!(
+            listen < remote
+                && remote < listen_transport
+                && listen_transport < remote_transport
+                && remote_transport < network,
+            "键顺序必须是 listen → remote → … → listen_transport → remote_transport → network：{toml}"
+        );
+
+        // 日志级别可配；默认不要 debug（每条连接一行）。
+        let debug = render_config(&[transport_rule("r1", 30002)], "0.0.0.0", "debug").unwrap();
+        assert!(debug.contains("level = \"debug\""), "{debug}");
+        let bogus = render_config(&[transport_rule("r1", 30002)], "0.0.0.0", "verbose").unwrap();
+        assert!(
+            bogus.contains("level = \"warn\""),
+            "非法级别回落 warn：{bogus}"
+        );
+    }
+
+    /// 没有 transport 的配置与升级前逐字节一致：不生成 `[log]`，也不加 network 覆盖。
+    #[test]
+    fn plaintext_config_is_unchanged_and_has_no_log_section() {
+        let rule = realm_rule("r1", 30001, &[("10.0.0.2", 443)]);
+        let expected = "# generated by pierwave-agent; do not edit（主控下发为准）\n\
+[network]\nno_tcp = false\nuse_udp = true\n\
+\n[[endpoints]]\n\
+listen = \"0.0.0.0:30001\"\n\
+remote = \"10.0.0.2:443\"\n";
+        assert_eq!(render(&[rule]), expected);
+        assert!(!render(&[realm_rule("r1", 30001, &[("10.0.0.2", 443)])]).contains("[log]"));
+        assert!(!render(&[realm_rule("r1", 30001, &[("10.0.0.2", 443)])])
+            .contains("network = { use_udp = false }"));
+    }
+
+    /// 任何「看起来配了、实际明文」的写法都必须整轮拒绝。
+    #[test]
+    fn transport_rendering_rejects_unsafe_or_plaintext_downgrade() {
+        let mut without_udp_off = transport_rule("r1", 30001);
+        without_udp_off.disable_udp = false;
+        let error = render_config(&[without_udp_off], "0.0.0.0", "warn").unwrap_err();
+        assert!(error.contains("关闭 UDP"), "{error}");
+
+        for bad in [
+            // wss 不是 kaminari 的 token：整串会被当作「没有 transport」→ 明文。
+            "wss;host=cdn.example.com;path=/ws",
+            "tls;sni=hop1.example.com;insecure",
+            "tls;sni=hop1.example.com;0rtt",
+            "tls;sni=hop1.example.com;ws;host=cdn.example.com;path=/ws",
+            "tls;cert=/a.pem",
+            "tls;sni=",
+            "tls;unknown=/a",
+            "",
+        ] {
+            let mut rule = realm_rule("r1", 30001, &[("10.0.0.2", 443)]);
+            rule.remote_transport = Some(bad.into());
+            rule.disable_udp = true;
+            let error = render_config(&[rule], "0.0.0.0", "warn").unwrap_err();
+            assert!(
+                error.contains("remote_transport"),
+                "bad={bad:?} error={error}"
+            );
+        }
+
+        // 监听端不允许 sni / 客户端不允许 cert。
+        for bad in [
+            "tls;sni=hop1.example.com",
+            "tls;cert=/a.pem;key=/a.key;insecure",
+        ] {
+            let mut rule = realm_rule("r1", 30001, &[("10.0.0.2", 443)]);
+            rule.listen_transport = Some(bad.into());
+            rule.disable_udp = true;
+            assert!(
+                render_config(&[rule], "0.0.0.0", "warn").is_err(),
+                "bad={bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn transport_changes_the_config_hash() {
+        let plain = render(&[realm_rule("r1", 30001, &[("10.0.0.2", 443)])]);
+        let encrypted = render(&[transport_rule("r1", 30001)]);
+        assert_ne!(
+            config_hash(&plain),
+            config_hash(&encrypted),
+            "transport 变化必须触发 realm 重启"
+        );
+        assert_eq!(
+            config_hash(&encrypted),
+            config_hash(&render(&[transport_rule("r1", 30001)])),
+            "同一份 transport 重复渲染必须同哈希"
+        );
+    }
+
+    #[cfg(unix)]
+    fn fake_realm(dir: &Path, version: &str, counter: Option<&Path>) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let script = dir.join("realm");
+        let count = counter
+            .map(|path| format!("echo x >> \"{}\"\n", path.display()))
+            .unwrap_or_default();
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"{version}\"\n  exit 0\nfi\n{count}sleep 30\n"
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        script
+    }
+
+    /// `realm --version` 的输出决定能力：含 `[transport]` 才是 true。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn capability_probe_reads_the_transport_feature() {
+        let dir = TempDir::new();
+        let with = fake_realm(dir.path(), "2.9.6 [brutal][transport]", None);
+        assert_eq!(detect_transport(&with).await, Some(true));
+
+        let without = fake_realm(dir.path(), "2.9.6 [brutal][batched-udp]", None);
+        assert_eq!(detect_transport(&without).await, Some(false));
+
+        assert_eq!(
+            detect_transport(&dir.path().join("no-such-realm")).await,
+            None,
+            "不存在 = 未知，不能当成支持"
+        );
+
+        // 换二进制后缓存必须失效：同一个路径先 false 后 true。
+        let mut supervisor = RealmSupervisor::new(&without, dir.path(), "127.0.0.1");
+        assert_eq!(supervisor.transport_capability().await, Some(false));
+        fake_realm(
+            dir.path(),
+            "2.9.6 [brutal][transport]  # 更长的一行用于改变文件大小",
+            None,
+        );
+        assert_eq!(
+            supervisor.transport_capability().await,
+            Some(true),
+            "运行中换掉二进制后不能沿用旧缓存"
+        );
+    }
+
+    /// 核心防御：realm 不支持 transport 时，收到 transport 规则必须报错，
+    /// 不能渲染成一份「看起来有配置、实际明文」的 realm.toml。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unsupported_realm_refuses_transport_instead_of_rendering_plaintext() {
+        let dir = TempDir::new();
+        let counter = dir.path().join("launches");
+        let script = fake_realm(dir.path(), "2.9.6 [brutal][batched-udp]", Some(&counter));
+        let mut supervisor = RealmSupervisor::new(&script, dir.path(), "127.0.0.1");
+
+        supervisor
+            .apply(&[transport_rule("chain-c1-1", 30002)])
+            .await;
+
+        let statuses = supervisor.status_handle().snapshot();
+        assert_eq!(statuses.len(), 1);
+        assert!(!statuses[0].listening);
+        assert_eq!(
+            statuses[0].error, TRANSPORT_UNSUPPORTED,
+            "状态必须说明是 realm 缺 transport，而不是普通的未监听"
+        );
+        assert!(
+            !dir.path().join(CONFIG_FILE_NAME).exists(),
+            "拒绝渲染时不能落盘配置：落下去就会以明文被 realm 使用"
+        );
+        assert_eq!(count_launches(&counter), 0, "不支持时不能启动 realm");
+        assert!(!supervisor.process_alive());
+    }
+
+    /// 支持 transport 时正常落盘并启动；配置里真的有 transport 与 UDP 关闭。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn supported_realm_renders_transport_config_and_starts() {
+        let dir = TempDir::new();
+        let counter = dir.path().join("launches");
+        let script = fake_realm(
+            dir.path(),
+            "2.9.6 [brutal][batched-udp][transport]",
+            Some(&counter),
+        );
+        let mut supervisor = RealmSupervisor::new(&script, dir.path(), "127.0.0.1");
+
+        supervisor
+            .apply(&[transport_rule("chain-c1-1", 30002)])
+            .await;
+        wait_for_launches(&counter, 1).await;
+
+        let toml = std::fs::read_to_string(dir.path().join(CONFIG_FILE_NAME)).unwrap();
+        assert!(
+            toml.contains("listen_transport = \"tls;cert="),
+            "listen transport 必须落盘：{toml}"
+        );
+        assert!(
+            toml.contains("remote_transport = \"tls;sni=hop1.example.com\""),
+            "{toml}"
+        );
+        assert!(toml.contains("network = { use_udp = false }"), "{toml}");
+        assert_eq!(supervisor.transport_capability().await, Some(true));
+        assert!(supervisor.process_alive());
 
         supervisor.apply(&[]).await;
     }

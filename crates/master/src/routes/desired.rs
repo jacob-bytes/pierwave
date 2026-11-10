@@ -3,13 +3,13 @@
 //! 几处如果各写一遍（尤其是授权集合 + 凭据派生），重连补发就会和上次 apply
 //! 不一致，用户会看到「订阅里有 uuid、服务器配置里没有」。所以收敛到这里。
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
 use pierwave_domain::certificate;
-use pierwave_domain::models::Server;
-use pierwave_domain::{credentials, release, repo, time, xray};
+use pierwave_domain::models::{Certificate, Server};
+use pierwave_domain::{credentials, hop_transport, release, repo, time, xray};
 use pierwave_proto::{AgentUpgradePlan, DesiredForward, DesiredNode, ForwardEngine, ManagedFile};
 
 use crate::error::AppResult;
@@ -71,8 +71,9 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
         })
         .collect();
 
-    // 证书按 id 去重：同一张证书被多个节点引用时只写一份文件。
-    let cert_ids: Vec<String> = {
+    // 证书按 id 去重：同一张证书被多个节点/链组引用时只写一份文件。
+    // 先一次性查出「节点引用的 + 启用链组引用的」，再决定哪些真的落到本机。
+    let node_cert_ids: Vec<String> = {
         let mut ids: Vec<String> = nodes
             .iter()
             .filter_map(|node| node.cert_id.as_deref())
@@ -84,9 +85,28 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
         ids.dedup();
         ids
     };
+    let chain_cert_ids: Vec<String> = {
+        let mut ids: Vec<String> = chains
+            .iter()
+            .filter(|chain| hop_transport::is_tls(&chain.chain.transport))
+            .flat_map(|chain| chain.groups.iter())
+            .filter(|group| group.group.seq >= 1)
+            .filter_map(|group| group.group.cert_id.as_deref())
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+            .collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    };
+    let mut cert_ids = node_cert_ids.clone();
+    cert_ids.extend(chain_cert_ids);
+    cert_ids.sort();
+    cert_ids.dedup();
     let certificates = repo::certificates::find_by_ids(&state.db.pool, &cert_ids).await?;
 
-    let by_id: BTreeMap<&str, &pierwave_domain::models::Certificate> = certificates
+    let by_id: HashMap<&str, &Certificate> = certificates
         .iter()
         .map(|cert| (cert.id.as_str(), cert))
         .collect();
@@ -102,20 +122,6 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
         })
         .collect();
 
-    let mut files = Vec::with_capacity(certificates.len() * 2);
-    for cert in &certificates {
-        files.push(ManagedFile {
-            path: certificate::cert_file_path(&cert.id),
-            content: cert.cert_pem.clone(),
-            mode: certificate::CERT_FILE_MODE,
-        });
-        files.push(ManagedFile {
-            path: certificate::key_file_path(&cert.id),
-            content: cert.key_pem.clone(),
-            mode: certificate::KEY_FILE_MODE,
-        });
-    }
-
     let plan = xray::ServerPlan {
         server_name: &server.name,
         nodes: &nodes,
@@ -124,7 +130,9 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
         outbounds: &outbounds,
         rules: &rules,
     };
-    let (xray, warnings) = xray::build_config_checked_with_certs(&plan);
+    let (xray, mut warnings) = xray::build_config_checked_with_certs(&plan);
+    // 节点告警只用于算「实际生效的节点数」，链告警不能算进去。
+    let node_warning_count = warnings.len();
 
     // tc 只需要 id/tag/port/bandwidth；NULL 与 0 统一成 0（不限），Agent 不解析 Option。
     let desired_nodes: Vec<DesiredNode> = nodes
@@ -152,22 +160,82 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
             engine: ForwardEngine::from_name(&forward.engine),
             // 只有 native 会读这一位；realm 的配置固定转发 UDP。
             udp: forward.udp,
+            // 独立转发永远是明文；transport 只属于链。
+            listen_transport: None,
+            remote_transport: None,
+            disable_udp: false,
         })
         .collect();
 
     // 链推导：只保留落在本服务器上的跳。一条链可能经过多台服务器，
     // 每台服务器只收到「自己这一跳」的 DesiredForward。
+    //
+    // 加密链的失败是**整链**的：证书缺失/过期/域名不匹、成员服务器能力不满足
+    // 时，整条链不进 forwards（也不下发它的证书文件），warning 里写清原因。
+    // 绝不为「先跑通」而退回明文。
+    let mut file_cert_ids: HashSet<String> = node_cert_ids.iter().cloned().collect();
     for chain in &chains {
-        for (server_id, forward) in super::chains::derive_forwards(&chain.chain, &chain.groups) {
+        let transports = match super::chains::plan_from_certificates(
+            &chain.chain,
+            &chain.groups,
+            &by_id,
+            time::now(),
+        ) {
+            Ok(transports) => transports,
+            Err(error) => {
+                warnings.push(format!(
+                    "链「{}」未下发：{}",
+                    chain.chain.name, error.message
+                ));
+                continue;
+            }
+        };
+
+        // 证书只发给「本机是成员」的组（seq >= 1）：上一跳只需要 SNI 字符串，
+        // 不需要证书文件。按 cert_id 去重，节点也引用的证书只写一份。
+        for group in &chain.groups {
+            if group.group.seq == 0
+                || !group
+                    .members
+                    .iter()
+                    .any(|member| member.server_id == server.id)
+            {
+                continue;
+            }
+            if let Some(cert_id) = group.group.cert_id.as_deref() {
+                file_cert_ids.insert(cert_id.to_string());
+            }
+        }
+
+        for (server_id, forward) in
+            super::chains::derive_forwards_with_transports(&chain.chain, &chain.groups, &transports)
+        {
             if server_id == server.id {
                 desired_forwards.push(forward);
             }
         }
     }
 
+    let mut files = Vec::with_capacity(file_cert_ids.len() * 2);
+    for cert in &certificates {
+        if !file_cert_ids.contains(&cert.id) {
+            continue;
+        }
+        files.push(ManagedFile {
+            path: certificate::cert_file_path(&cert.id),
+            content: cert.cert_pem.clone(),
+            mode: certificate::CERT_FILE_MODE,
+        });
+        files.push(ManagedFile {
+            path: certificate::key_file_path(&cert.id),
+            content: cert.key_pem.clone(),
+            mode: certificate::KEY_FILE_MODE,
+        });
+    }
+
     Ok(DesiredConfig {
         xray,
-        node_count: nodes.len() - warnings.len(),
+        node_count: nodes.len() - node_warning_count,
         grant_count: grants.len(),
         granted_user_ids,
         warnings,
@@ -539,10 +607,12 @@ mod tests {
                 enabled: true,
                 engine: "native".into(),
                 udp: false,
+                transport: "none".into(),
                 groups: vec![
                     repo::chains::NewChainGroup {
                         name: None,
                         strategy: "round_robin".into(),
+                        cert_id: None,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: server_a.id.clone(),
                             listen_port: 9001,
@@ -553,6 +623,7 @@ mod tests {
                     repo::chains::NewChainGroup {
                         name: None,
                         strategy: "round_robin".into(),
+                        cert_id: None,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: server_b.id.clone(),
                             listen_port: 9002,
@@ -597,6 +668,9 @@ mod tests {
             entry.targets.is_empty(),
             "单成员组必须继续走兼容字段，下发结果与旧版一致"
         );
+        assert_eq!(entry.listen_transport, None, "明文链不能凭空多出 transport");
+        assert_eq!(entry.remote_transport, None);
+        assert!(!entry.disable_udp, "明文链必须保持全局 use_udp 行为");
 
         let rendered_b = render(&state, &server_b, "https://panel.example.com")
             .await
@@ -611,6 +685,9 @@ mod tests {
         assert_eq!(exit.target_host, "1.1.1.1", "最后一跳指向链目标");
         assert_eq!(exit.target_port, 443);
         assert!(exit.targets.is_empty());
+        assert_eq!(exit.listen_transport, None, "明文链没有加密端点");
+        assert_eq!(exit.remote_transport, None);
+        assert!(!exit.disable_udp);
     }
 
     /// 独立转发的 engine 必须透传到期望态；缺省（库默认值）是 native。
@@ -737,6 +814,9 @@ mod tests {
                         strategy: Default::default(),
                         engine: ForwardEngine::Native,
                         udp: false,
+                        listen_transport: None,
+                        remote_transport: None,
+                        disable_udp: false,
                     }]
                 );
             }

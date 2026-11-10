@@ -727,6 +727,8 @@ pub mod servers {
         pub virt: Option<String>,
         /// realm 引擎是否可用；None = 旧 Agent 未上报（保持 NULL）。
         pub realm_available: Option<bool>,
+        /// realm 是否带 transport feature；None = 旧 Agent 未上报 / 无法判定。
+        pub realm_transport: Option<bool>,
     }
 
     /// 返回 (服务器, 明文配对 token)。token 只在创建时可见一次。
@@ -916,6 +918,7 @@ pub mod servers {
                 os_version = ?,
                 virt = ?,
                 realm_available = ?,
+                realm_transport = ?,
                 xray_running = ?,
                 nginx_running = ?,
                 load1 = ?,
@@ -935,6 +938,7 @@ pub mod servers {
         .bind(&health.os_version)
         .bind(&health.virt)
         .bind(health.realm_available)
+        .bind(health.realm_transport)
         .bind(health.xray_running)
         .bind(health.nginx_running)
         .bind(health.load1)
@@ -2157,6 +2161,8 @@ pub mod chains {
         pub name: Option<String>,
         /// 规范化的 snake_case 策略串（`round_robin` 等）。
         pub strategy: String,
+        /// 该组监听证书 id；入口组（seq = 0）必须为 `None`。
+        pub cert_id: Option<String>,
         pub members: Vec<NewChainGroupMember>,
     }
 
@@ -2169,6 +2175,8 @@ pub mod chains {
         pub engine: String,
         /// 整条链是否同时监听 UDP；只对 `native` 有意义。
         pub udp: bool,
+        /// 已通过 `hop_transport::normalize` 校验的加密模式（`none` / `tls`）。
+        pub transport: String,
         pub groups: Vec<NewChainGroup>,
     }
 
@@ -2182,6 +2190,8 @@ pub mod chains {
         pub engine: Option<String>,
         /// `None` = 不改。注意 `Some(false)` 绑成 0 而不是 NULL，COALESCE 能正常关掉。
         pub udp: Option<bool>,
+        /// `None` = 不改；`Some` 必须已通过 `hop_transport::normalize` 校验。
+        pub transport: Option<String>,
         /// `None` = 不改组；`Some` = 整体替换。
         pub groups: Option<Vec<NewChainGroup>>,
     }
@@ -2191,7 +2201,7 @@ pub mod chains {
         chain_id: &str,
     ) -> anyhow::Result<Vec<ChainGroupWithMembers>> {
         let groups = sqlx::query_as::<_, ChainGroup>(
-            "SELECT id, chain_id, seq, name, strategy
+            "SELECT id, chain_id, seq, name, strategy, cert_id
              FROM chain_groups
              WHERE chain_id = ?
              ORDER BY seq ASC, rowid ASC",
@@ -2206,7 +2216,7 @@ pub mod chains {
         let members = sqlx::query_as::<_, ChainGroupMember>(
             "SELECT m.group_id, g.chain_id, g.seq, g.strategy,
                     m.server_id, s.name AS server_name, s.address AS server_address,
-                    m.listen_port, m.priority, m.weight
+                    m.listen_port, m.priority, m.weight, s.realm_transport
              FROM chain_group_members m
              JOIN chain_groups g ON g.id = m.group_id
              JOIN servers s ON s.id = m.server_id
@@ -2248,14 +2258,15 @@ pub mod chains {
         for (seq, group) in groups.iter().enumerate() {
             let group_id = Uuid::new_v4().to_string();
             sqlx::query(
-                "INSERT INTO chain_groups (id, chain_id, seq, name, strategy)
-                 VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO chain_groups (id, chain_id, seq, name, strategy, cert_id)
+                 VALUES (?, ?, ?, ?, ?, ?)",
             )
             .bind(&group_id)
             .bind(chain_id)
             .bind(seq as i64)
             .bind(group.name.as_deref())
             .bind(&group.strategy)
+            .bind(group.cert_id.as_deref())
             .execute(&mut *conn)
             .await?;
 
@@ -2283,9 +2294,9 @@ pub mod chains {
         let mut tx = pool.begin().await?;
         sqlx::query(
             "INSERT INTO chains
-                (id, name, target_host, target_port, enabled, engine, udp,
+                (id, name, target_host, target_port, enabled, engine, udp, transport,
                  created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(input.name.trim())
@@ -2294,6 +2305,7 @@ pub mod chains {
         .bind(i64::from(input.enabled))
         .bind(crate::engine::from_db(&input.engine))
         .bind(i64::from(input.udp))
+        .bind(crate::hop_transport::from_db(&input.transport))
         .bind(ts)
         .bind(ts)
         .execute(&mut *tx)
@@ -2359,6 +2371,7 @@ pub mod chains {
                 enabled = COALESCE(?, enabled),
                 engine = COALESCE(?, engine),
                 udp = COALESCE(?, udp),
+                transport = COALESCE(?, transport),
                 updated_at = ?
              WHERE id = ?",
         )
@@ -2368,6 +2381,12 @@ pub mod chains {
         .bind(input.enabled.map(i64::from))
         .bind(input.engine.as_deref().map(crate::engine::from_db))
         .bind(input.udp.map(i64::from))
+        .bind(
+            input
+                .transport
+                .as_deref()
+                .map(crate::hop_transport::from_db),
+        )
         .bind(now())
         .bind(id)
         .execute(&mut *tx)
@@ -3887,6 +3906,17 @@ pub mod certificates {
     pub async fn count_node_references(pool: &SqlitePool, id: &str) -> anyhow::Result<i64> {
         Ok(
             sqlx::query_scalar("SELECT COUNT(*) FROM nodes WHERE cert_id = ?")
+                .bind(id)
+                .fetch_one(pool)
+                .await?,
+        )
+    }
+
+    /// 仍被多少个链组引用（`chain_groups.cert_id`）。删除证书前必须一起检查，
+    /// 否则删完下一次 apply 会因为「组缺证书」把整条 TLS 链停掉。
+    pub async fn count_chain_references(pool: &SqlitePool, id: &str) -> anyhow::Result<i64> {
+        Ok(
+            sqlx::query_scalar("SELECT COUNT(*) FROM chain_groups WHERE cert_id = ?")
                 .bind(id)
                 .fetch_one(pool)
                 .await?,

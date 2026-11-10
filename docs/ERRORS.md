@@ -76,7 +76,7 @@
 | `certificate.name_required` | 证书名称不能为空 | — |
 | `certificate.name_too_long` | 证书名称最多 {max} 个字符 | max |
 | `certificate.invalid` | 证书或私钥无法解析，或两者不匹配 | — |
-| `certificate.in_use` | 该证书被 {references} 个节点引用，无法删除 | references |
+| `certificate.in_use` | 该证书被 {nodes} 个节点、{chains} 条链引用，无法删除 | references, nodes, chains |
 | `package.not_found` | 套餐不存在 | — |
 | `package.name_required` | 套餐名称不能为空 | — |
 | `package.quota_negative` | 额度不能为负数 | — |
@@ -193,3 +193,41 @@ base64 密钥、**不带** `method`；旧 AEAD 多用户：每个 user 带自己
 > node that has granted users is skipped (apply warning, absent from the subscription); use an
 > AES method instead. Keys may be standard or URL-safe base64, with or without padding and any
 > trailing `=`; the config and the subscription are always written in canonical standard base64.
+
+### 跳间 TLS（P15.3）/ Hop-to-hop TLS
+
+链的加密模式只有 `none`（默认明文）与 `tls`（realm 单向 TLS）。以下错误全部是
+**fail closed**：保存时拒绝，或下发时整条链跳过——绝不回退明文。
+
+| code | 中文 | English | params |
+|---|---|---|---|
+| `chain.transport_invalid` | 链的加密模式「{transport}」无效，只支持 none / tls | Invalid chain transport "{transport}"; expected none / tls | allowed, transport |
+| `chain.tls_requires_realm` | 只有 realm 引擎的链才能启用跳间加密 | Hop-to-hop TLS requires the realm engine | — |
+| `chain.tls_requires_two_hops` | 至少两跳的链才有跳间链路 | Hop-to-hop TLS needs at least two groups | — |
+| `chain.tls_udp_unsupported` | 加密链不支持 UDP，请关闭该链的 UDP | Encrypted chains do not support UDP; disable UDP on this chain | — |
+| `chain.tls_group_cert_required` | 第 {seq} 组缺少证书 | Group {seq} has no certificate | seq |
+| `chain.tls_group_cert_forbidden` | 入口组不需要证书：入口监听始终是明文 | The entry group must not have a certificate; its listener stays plaintext | — |
+| `chain.tls_cert_not_found` | 第 {seq} 组引用的证书不存在 | The certificate referenced by group {seq} does not exist | cert_id, seq |
+| `chain.tls_cert_invalid` | 证书「{name}」或它的私钥无法解析 / 私钥已加密 | Certificate "{name}" or its private key cannot be parsed, or the key is encrypted | name |
+| `chain.tls_cert_key_mismatch` | 证书「{name}」与私钥不匹配 | Certificate "{name}" does not match its private key | name |
+| `chain.tls_cert_expired` | 证书「{name}」已过期（到期时间 {not_after}） | Certificate "{name}" expired at {not_after} | name, not_after |
+| `chain.tls_cert_no_dns_san` | 证书「{name}」没有 DNS SAN，不能用于跳间 TLS | Certificate "{name}" has no DNS SAN and cannot be used for hop TLS | name |
+| `chain.tls_cert_wildcard_only` | 证书「{name}」只有通配符 SAN，不能直接作为 SNI，请改用具体域名 | Certificate "{name}" only has wildcard SANs; a concrete hostname is required as SNI | domains, name |
+| `chain.tls_cert_domain_invalid` | 域名「{domain}」不在证书「{name}」的 SAN 中 | Domain "{domain}" is not covered by certificate "{name}" | domain, name |
+| `chain.tls_sni_invalid` | SNI「{sni}」不是合法的 DNS 域名（不能是 IP） | SNI "{sni}" is not a valid DNS name (IP literals are rejected) | sni |
+| `chain.tls_transport_invalid` | 证书路径「{value}」不合法（只允许字母、数字与 / . _ -） | Invalid certificate path "{value}" (allowed: letters, digits and / . _ -) | value |
+| `chain.tls_realm_unsupported` | 以下服务器的 realm 未启用 transport（需要升级 Agent / 换官方 realm）：{servers} | These servers run a realm without the transport feature (upgrade the agent or use the official realm): {servers} | servers |
+
+**下发时**：`chain.tls_realm_unsupported` / 证书类失败会让整条链不进 forwards，
+apply 结果的 `warnings` 里出现「链『X』未下发：…」，链视图的 `blocked_code` /
+`blocked_reason` 同步展示。Agent 侧最后一道门禁：如果期望态里出现 transport，
+但本机 `realm --version` 不含 `[transport]`，Agent **拒绝渲染并报错**
+（状态文案「realm 不支持跳间加密」），不会写出明文配置。
+
+> The master removes the whole chain from `forwards` and surfaces the reason in apply
+> `warnings` plus `blocked_code`/`blocked_reason`; the agent refuses to render a config at all
+> when its own `realm --version` lacks `[transport]`. In both cases there is no plaintext fallback.
+
+前端 i18n 键（`errors.chain.*`）需由前端 lane 按上表补齐；本轮后端只保证
+`code`/`params` 稳定与中文兜底。 / Frontend i18n keys (`errors.chain.*`) are added by the web
+lane; this backend change guarantees stable `code`/`params` plus the Chinese fallback.
