@@ -725,6 +725,8 @@ pub mod servers {
         pub os_version: Option<String>,
         /// 虚拟化类型（kvm / vmware / ...）；None = 裸机或读不到。
         pub virt: Option<String>,
+        /// realm 引擎是否可用；None = 旧 Agent 未上报（保持 NULL）。
+        pub realm_available: Option<bool>,
     }
 
     /// 返回 (服务器, 明文配对 token)。token 只在创建时可见一次。
@@ -913,6 +915,7 @@ pub mod servers {
                 os_name = ?,
                 os_version = ?,
                 virt = ?,
+                realm_available = ?,
                 xray_running = ?,
                 nginx_running = ?,
                 load1 = ?,
@@ -931,6 +934,7 @@ pub mod servers {
         .bind(&health.os_name)
         .bind(&health.os_version)
         .bind(&health.virt)
+        .bind(health.realm_available)
         .bind(health.xray_running)
         .bind(health.nginx_running)
         .bind(health.load1)

@@ -191,6 +191,7 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
                 os_name: hb.os_name,
                 os_version: hb.os_version,
                 virt: hb.virt,
+                realm_available: hb.realm_available,
                 xray_running: hb.xray_running,
                 nginx_running: hb.nginx_running,
                 load1: hb.load1 as f64,
@@ -948,6 +949,61 @@ mod tests {
         assert_eq!(used_bytes(&fixture.state, &fixture.user_id).await, 0);
     }
 
+    /// 心跳里的 `realm_available` 必须落库；旧 Agent 的 JSON 没有该字段时
+    /// 必须写 NULL（未知），不能默认成 false。
+    #[tokio::test]
+    async fn heartbeat_realm_availability_is_persisted() {
+        let fixture = fixture().await;
+        let (server, _) =
+            repo::servers::create(&fixture.state.db.pool, "hk-1", "1.2.3.4", "external")
+                .await
+                .unwrap();
+
+        let send = |seq: u64, realm_available: Option<bool>| {
+            let mut heartbeat = serde_json::json!({
+                "type": "heartbeat",
+                "seq": seq,
+                "agent_version": "0.8.0",
+                "uptime_secs": 1,
+                "load1": 0.0,
+                "mem_used": 0,
+                "mem_total": 0,
+                "disk_used": 0,
+                "disk_total": 0,
+                "xray_running": true,
+                "nginx_running": true,
+            });
+            // None 模拟旧 Agent：字段整个缺失，而不是显式 null。
+            if let Some(value) = realm_available {
+                heartbeat["realm_available"] = serde_json::json!(value);
+            }
+            let text = heartbeat.to_string();
+            let state = fixture.state.clone();
+            let server_id = server.id.clone();
+            async move {
+                handle_agent_message(&state, &server_id, "0.8.0", &text).await;
+            }
+        };
+
+        send(1, None).await;
+        let row = repo::servers::find_by_id(&fixture.state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert_eq!(row.realm_available, None, "旧 Agent 未上报时必须是 NULL");
+
+        send(2, Some(true)).await;
+        let row = repo::servers::find_by_id(&fixture.state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert_eq!(row.realm_available, Some(true));
+
+        send(3, Some(false)).await;
+        let row = repo::servers::find_by_id(&fixture.state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert_eq!(row.realm_available, Some(false));
+    }
+
     /// 心跳里的 forwards 必须落到 forward_status，并整体覆盖上一轮；
     /// 空心跳 = Agent 已没有转发，旧状态要被清掉。
     #[tokio::test]
@@ -980,6 +1036,7 @@ mod tests {
                 os_name: None,
                 os_version: None,
                 virt: None,
+                realm_available: None,
                 forwards,
                 latency_ms: None,
                 uptime_secs: 1,
@@ -1107,6 +1164,7 @@ mod tests {
                 os_name: None,
                 os_version: None,
                 virt: None,
+                realm_available: None,
                 forwards: vec![pierwave_proto::ForwardStatus {
                     id: forward_id.clone(),
                     listening: true,

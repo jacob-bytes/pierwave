@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2Icon } from "lucide-react";
+import { Loader2Icon, TriangleAlertIcon } from "lucide-react";
 import { toast } from "sonner";
 import { FormField, FormRootError } from "@/components/FormField";
 import { Button } from "@/components/ui/button";
@@ -17,12 +17,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
-import type { Forward } from "@/lib/api";
+import type { Forward, Server } from "@/lib/api";
 import {
   FORWARD_ENGINES,
   engineInput,
   isForwardEngine,
   normalizeEngine,
+  realmMissingOnServer,
 } from "@/lib/engines";
 import { errorText } from "@/lib/errors";
 import { useCreateForward, useUpdateForward } from "@/lib/queries";
@@ -34,6 +35,8 @@ interface ForwardFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   serverId: string;
+  /** 规则所属服务器；用于在保存前提示「这台机器没装 realm」。 */
+  server?: Server | null;
   mode: "create" | "edit";
   forward?: Forward;
 }
@@ -48,6 +51,7 @@ export function ForwardFormDialog({
   open,
   onOpenChange,
   serverId,
+  server,
   mode,
   forward,
 }: ForwardFormDialogProps) {
@@ -71,6 +75,9 @@ export function ForwardFormDialog({
     },
   });
   const selectedEngine = form.watch("engine");
+  // 静态事实：这台服务器明确没装 realm 时，保存前就告诉用户；
+  // `null` / 缺失（旧 Agent）不提示，避免误报。不阻止保存。
+  const realmUnavailable = realmMissingOnServer(selectedEngine, server);
 
   // 切换语言后重新校验，让已经显示的错误跟着换语言。
   useEffect(() => {
@@ -269,6 +276,18 @@ export function ForwardFormDialog({
               <p className="rounded-md border border-border bg-muted/20 px-2.5 py-2 type-micro leading-normal text-muted-foreground">
                 {t(`common.engine.${selectedEngine}.desc`)}
               </p>
+              {realmUnavailable ? (
+                <div
+                  role="status"
+                  className="flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs leading-normal text-warning"
+                >
+                  <TriangleAlertIcon
+                    className="mt-0.5 size-3.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span>{t("forwards.form.realmNotInstalled")}</span>
+                </div>
+              ) : null}
             </div>
           </FormField>
 

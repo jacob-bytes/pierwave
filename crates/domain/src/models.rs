@@ -67,6 +67,9 @@ pub struct Server {
     pub os_version: Option<String>,
     /// Agent 探测到的虚拟化类型（kvm / vmware / ...）；NULL = 裸机或读不到。
     pub virt: Option<String>,
+    /// Agent 上报的 realm 可用性（`realm_bin` 存在且可执行）。
+    /// NULL = 旧 Agent 未上报 / 从未连过；false 才是明确「没装」。
+    pub realm_available: Option<bool>,
     /// 管理员填写的国家/地区代码（ISO 3166-1 alpha-2）；NULL = 未填写。
     pub country_code: Option<String>,
 }

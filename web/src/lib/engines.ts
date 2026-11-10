@@ -165,6 +165,120 @@ export function chainEngineMissing(chain: ChainEngineLike): boolean {
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// 「服务器是否安装了 realm」：静态事实，来自服务器列表的 `realm_available`。
+//
+// 与上面的 `engineMissing` 严格区分：
+// - 这里回答「这台机器装没装 realm」，创建 / 编辑时就能知道，来源是服务器上报；
+// - `engineMissing` 回答「这条规则运行后有没有报 realm 未安装」，来源是 runtime。
+// `realm_available` 缺失 / null 表示旧 Agent 未上报，按「未知」处理，不能误报。
+// ---------------------------------------------------------------------------
+
+/** 服务器列表里与「是否安装 realm」有关的最小字段集。 */
+export interface RealmAvailabilityLike {
+  /** true = 已安装；false = 明确未安装；null / 缺失 = 旧 Agent 未上报。 */
+  realm_available?: boolean | null;
+}
+
+/**
+ * 所选服务器里是否至少有一台**明确**没有安装 realm（`false`）。
+ *
+ * `null` / `undefined`（旧 Agent 未上报）不算缺失；空数组返回 `false`。
+ */
+export function serversMissingRealm(
+  servers: readonly RealmAvailabilityLike[],
+): boolean {
+  return servers.some((server) => server.realm_available === false);
+}
+
+/** 带展示名的服务器：用于把「哪些服务器没装」拼成一句话。 */
+export interface NamedRealmServerLike extends RealmAvailabilityLike {
+  name: string;
+}
+
+/**
+ * 明确未安装 realm 的服务器名，保持传入顺序、按名字去重、跳过空名字。
+ * `null` / `undefined` 的服务器不会出现在结果里。
+ */
+export function missingRealmServerNames(
+  servers: readonly NamedRealmServerLike[],
+): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+
+  for (const server of servers) {
+    if (server.realm_available !== false) continue;
+
+    const name = server.name.trim();
+    if (!name || seen.has(name)) continue;
+
+    seen.add(name);
+    names.push(name);
+  }
+
+  return names;
+}
+
+/**
+ * 把服务器名列表拼成一句话；分隔符由调用方按当前语言传入
+ * （中文「、」/ 英文「, 」）。空名单返回空串，不会留下悬空分隔符。
+ */
+export function formatServerNameList(
+  names: readonly string[],
+  separator: string,
+): string {
+  return names
+    .filter((name) => name.trim().length > 0)
+    .join(separator);
+}
+
+/**
+ * 规则引擎是 realm，且这台服务器明确没有安装 realm。
+ *
+ * 未知引擎按 native 兜底，所以不会因为未来新增引擎而误报。
+ */
+export function realmMissingOnServer(
+  engine: unknown,
+  server: RealmAvailabilityLike | null | undefined,
+): boolean {
+  return (
+    normalizeEngine(engine) === "realm" && server?.realm_available === false
+  );
+}
+
+/** 转发链的结构子集：只看引擎与成员指向的服务器 ID。 */
+export interface ChainRealmLike {
+  engine?: string | null;
+  groups?: readonly {
+    members?: readonly {
+      server_id?: string | null;
+    }[];
+  }[];
+}
+
+/**
+ * realm 链的成员服务器里，是否至少有一台明确没有安装 realm。
+ *
+ * 按 `server_id` 关联服务器列表；未知 / 已删除的服务器跳过，
+ * 服务器列表还没加载完时也不会误报。
+ */
+export function chainServersMissingRealm(
+  chain: ChainRealmLike,
+  servers: readonly (RealmAvailabilityLike & { id: string })[],
+): boolean {
+  if (normalizeEngine(chain.engine) !== "realm") return false;
+
+  const byId = new Map(servers.map((server) => [server.id, server]));
+  for (const group of chain.groups ?? []) {
+    for (const member of group.members ?? []) {
+      if (!member.server_id) continue;
+      if (byId.get(member.server_id)?.realm_available === false) return true;
+    }
+  }
+
+  return false;
+}
+
 /**
  * 表单提交时的 `engine` 序列化。
  *

@@ -69,7 +69,11 @@ import {
   type HopListeningState,
   type HopTargetState,
 } from "@/lib/chains";
-import { chainEngineMissing, engineMissing } from "@/lib/engines";
+import {
+  chainEngineMissing,
+  chainServersMissingRealm,
+  engineMissing,
+} from "@/lib/engines";
 import { errorText } from "@/lib/errors";
 import { formatForwardTarget } from "@/lib/forwards";
 import { useChains, useServers, useUpdateChain } from "@/lib/queries";
@@ -707,7 +711,13 @@ export default function ChainsPage() {
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-1.5">
             <span className="truncate font-medium">{chain.name}</span>
-            <EngineBadge engine={chain.engine} />
+            <EngineBadge
+              engine={chain.engine}
+              realmUnavailable={chainServersMissingRealm(
+                chain,
+                servers.data ?? [],
+              )}
+            />
           </div>
         </div>
       </div>

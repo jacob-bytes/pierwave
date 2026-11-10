@@ -73,6 +73,7 @@ const en = {
         label: "realm",
         short: "realm subprocess · UDP",
         desc: "Runs the realm (v2.9.6) subprocess: supports UDP and weighted load balancing; health can only be probed at the port level. If realm is not installed, the rule shows “not listening + realm not installed”.",
+        notInstalled: "realm is not installed on this server",
       },
       unknown: {
         label: "Unknown engine",
@@ -1788,6 +1789,8 @@ const en = {
       engineAria: "Forward engine",
       engineHint:
         "Choose which implementation runs this rule; apply the config after saving to deliver it to the Agent.",
+      realmNotInstalled:
+        "This server does not have realm installed. After saving, this rule will show “not listening · realm not installed”; install realm and apply the config again to recover.",
       submitCreate: "Create forward",
       submitSave: "Save changes",
       saving: "Saving…",
@@ -1951,6 +1954,8 @@ const en = {
       engineAria: "Forward engine for the chain",
       engineHint:
         "The whole chain shares one engine, passed through every hop; switching it rebuilds the listeners on all members.",
+      realmNotInstalled:
+        "Some selected servers do not have realm installed: {servers}. After saving, those hops will show “not listening · realm not installed”; install realm and apply the config again to recover.",
       groups: "Chain hops",
       groupsHint:
         "Each hop can be a single node (1 server) or a group (1-8 servers); the same server cannot appear twice in one chain.",

@@ -35,6 +35,29 @@ use tokio::task::JoinHandle;
 /// realm 的默认安装路径；打包脚本把资产解到 `/usr/lib/pierwave/bin/realm`。
 pub const DEFAULT_BIN: &str = "/usr/lib/pierwave/bin/realm";
 
+/// `realm_bin` 是否真的可用：必须是普通文件且带执行位。
+///
+/// 只判 `exists()` 不够：升级/解包中断可能留下一个没有执行位的残缺文件，
+/// 那种情况下 heartbeat 若报 true，主控会在创建规则时误导用户「已经装好」。
+/// 这里只做一次 `stat`（不 fork 子进程），代价足够低，可以在每轮心跳重新判定。
+pub fn is_available(bin: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(bin) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
 /// 状态目录里的配置文件名。
 pub const CONFIG_FILE_NAME: &str = "realm.toml";
 
@@ -552,6 +575,29 @@ mod tests {
             spec.target_port = *port;
         }
         spec
+    }
+
+    #[test]
+    fn availability_requires_an_executable_file() {
+        let dir = TempDir::new();
+        let bin = dir.path().join("realm");
+
+        assert!(!is_available(&bin), "路径不存在时 realm 不可用");
+
+        std::fs::write(&bin, b"#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(!is_available(&bin), "文件存在但没有执行位时 realm 仍不可用");
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        assert!(is_available(&bin), "存在且可执行才算可用");
+
+        assert!(!is_available(dir.path()), "目录不是 realm 可执行文件");
+
+        std::fs::remove_file(&bin).unwrap();
+        assert!(!is_available(&bin), "运行中被删除要立刻反映为不可用");
     }
 
     #[test]

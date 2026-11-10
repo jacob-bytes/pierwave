@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 10;
+pub const PROTOCOL_VERSION: u32 = 11;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +49,10 @@ pub struct Heartbeat {
     /// 裸机、探测失败或旧 Agent 不上报时为 `None`。
     #[serde(default)]
     pub virt: Option<String>,
+    /// Agent 本机是否装有可用的 realm 引擎（`realm_bin` 存在且可执行）。
+    /// `None` = 旧 Agent 未上报，主控保持 NULL（未知），不能当成「没装」。
+    #[serde(default)]
+    pub realm_available: Option<bool>,
     /// 各转发规则的监听状态。
     #[serde(default)]
     pub forwards: Vec<ForwardStatus>,
@@ -118,7 +122,8 @@ pub struct DesiredForward {
 /// 转发引擎。
 ///
 /// `native` 是 Agent 自带的 TCP 监听（[`DesiredForward`] 里的实现）；
-/// `realm` 交给受管的 realm 子进程（`realm -c <config>`），本轮只开 TCP。
+/// `realm` 交给受管的 realm 子进程（`realm -c <config>`），TCP 与 UDP
+/// 同时转发（配置里 `use_udp = true`）。
 ///
 /// 存储与 API 里的字符串值就是这里的 snake_case 名字，两侧必须保持一致。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -317,7 +322,10 @@ mod tests {
         let json = serde_json::to_value(&new).unwrap();
         assert_eq!(json["listening"], true);
         assert_eq!(json["target_ok"], false);
-        assert_eq!(PROTOCOL_VERSION, 10, "新增转发引擎字段必须升协议版本");
+        assert_eq!(
+            PROTOCOL_VERSION, 11,
+            "新增 realm_available 心跳字段必须升协议版本"
+        );
     }
 
     #[test]
@@ -341,12 +349,17 @@ mod tests {
         assert_eq!(heartbeat.os_name, None);
         assert_eq!(heartbeat.os_version, None);
         assert_eq!(heartbeat.virt, None);
+        assert_eq!(
+            heartbeat.realm_available, None,
+            "旧 Agent 没有 realm_available 时必须解析为 None（主控落 NULL）"
+        );
 
         // 新 Agent 上报后 round-trip 不丢字段。
         let heartbeat = Heartbeat {
             os_name: Some("Debian GNU/Linux".into()),
             os_version: Some("12".into()),
             virt: Some("kvm".into()),
+            realm_available: Some(true),
             ..heartbeat
         };
         let json = serde_json::to_value(&heartbeat).unwrap();
@@ -354,6 +367,17 @@ mod tests {
         assert_eq!(back.os_name.as_deref(), Some("Debian GNU/Linux"));
         assert_eq!(back.os_version.as_deref(), Some("12"));
         assert_eq!(back.virt.as_deref(), Some("kvm"));
+        assert_eq!(back.realm_available, Some(true));
+
+        // false 是「明确没装」，与 None（未知）必须能区分。
+        let not_installed = Heartbeat {
+            realm_available: Some(false),
+            ..heartbeat
+        };
+        let json = serde_json::to_value(&not_installed).unwrap();
+        assert_eq!(json["realm_available"], false);
+        let back: Heartbeat = serde_json::from_value(json).unwrap();
+        assert_eq!(back.realm_available, Some(false));
     }
 
     #[test]

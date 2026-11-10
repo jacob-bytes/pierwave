@@ -45,7 +45,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { Forward } from "@/lib/api";
-import { forwardEngineMissing } from "@/lib/engines";
+import { forwardEngineMissing, realmMissingOnServer } from "@/lib/engines";
 import { errorText } from "@/lib/errors";
 import {
   formatForwardTarget,
@@ -486,7 +486,13 @@ export default function ForwardsPage() {
                           <span className="truncate font-medium">
                             {forward.name}
                           </span>
-                          <EngineBadge engine={forward.engine} />
+                          <EngineBadge
+                            engine={forward.engine}
+                            realmUnavailable={realmMissingOnServer(
+                              forward.engine,
+                              server,
+                            )}
+                          />
                         </div>
                       </TableCell>
                       <TableCell className="px-4 py-2.5 font-mono text-xs tabular-nums">
@@ -553,6 +559,7 @@ export default function ForwardsPage() {
           key={`${form.mode}-${form.forward?.id ?? "new"}`}
           open
           serverId={serverId}
+          server={server}
           mode={form.mode}
           forward={form.forward}
           onOpenChange={(open) => {

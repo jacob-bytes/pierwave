@@ -3,6 +3,7 @@ import {
   Controller,
   useFieldArray,
   useForm,
+  useWatch,
   type UseFormReturn,
 } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,6 +14,7 @@ import {
   Loader2Icon,
   PlusIcon,
   Trash2Icon,
+  TriangleAlertIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { FormField, FormRootError } from "@/components/FormField";
@@ -55,8 +57,11 @@ import {
 import {
   FORWARD_ENGINES,
   engineInput,
+  formatServerNameList,
   isForwardEngine,
+  missingRealmServerNames,
   normalizeEngine,
+  serversMissingRealm,
 } from "@/lib/engines";
 import { errorText } from "@/lib/errors";
 import { useCreateChain, useUpdateChain } from "@/lib/queries";
@@ -636,6 +641,28 @@ export function ChainFormDialog({
     },
   });
   const selectedEngine = form.watch("engine");
+  // 用 useWatch 订阅整组：成员是在子组件 GroupCard 里改的，
+  // 顶层 `form.watch` 的引用可能不变，warning 会漏更新。
+  const watchedGroups =
+    useWatch({ control: form.control, name: "groups" }) ?? [];
+
+  // 已选成员指向的服务器（按当前服务器列表解析；已被删掉的跳过）。
+  const selectedServers = useMemo(() => {
+    const byId = new Map(servers.map((server) => [server.id, server]));
+    return watchedGroups.flatMap((group) =>
+      group.members
+        .map((member) => byId.get(member.server_id))
+        .filter((server): server is Server => server !== undefined),
+    );
+  }, [servers, watchedGroups]);
+
+  // 静态事实：选了 realm，且已选服务器里至少有一台明确没装 realm。
+  // null / 缺失（旧 Agent）不算缺失；只提示，不阻止保存。
+  const realmMissing =
+    selectedEngine === "realm" && serversMissingRealm(selectedServers);
+  const realmMissingNames = realmMissing
+    ? missingRealmServerNames(selectedServers)
+    : [];
 
   const { fields, append, remove, move } = useFieldArray({
     control: form.control,
@@ -850,6 +877,25 @@ export function ChainFormDialog({
               <p className="rounded-md border border-border bg-muted/20 px-2.5 py-2 type-micro leading-normal text-muted-foreground">
                 {t(`common.engine.${selectedEngine}.desc`)}
               </p>
+              {realmMissingNames.length > 0 ? (
+                <div
+                  role="status"
+                  className="flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs leading-normal text-warning"
+                >
+                  <TriangleAlertIcon
+                    className="mt-0.5 size-3.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span>
+                    {t("chains.form.realmNotInstalled", {
+                      servers: formatServerNameList(
+                        realmMissingNames,
+                        t("common.listSeparator"),
+                      ),
+                    })}
+                  </span>
+                </div>
+              ) : null}
             </div>
           </FormField>
 

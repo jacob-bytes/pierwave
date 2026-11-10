@@ -4,12 +4,17 @@ import {
   DEFAULT_FORWARD_ENGINE,
   FORWARD_ENGINES,
   chainEngineMissing,
+  chainServersMissingRealm,
   engineInput,
   engineMeta,
   engineMissing,
+  formatServerNameList,
   forwardEngineMissing,
   isForwardEngine,
+  missingRealmServerNames,
   normalizeEngine,
+  realmMissingOnServer,
+  serversMissingRealm,
 } from "./engines.ts";
 import en from "../i18n/en.ts";
 import zhCN from "../i18n/zh-CN.ts";
@@ -129,6 +134,7 @@ const ENGINE_I18N_KEYS = [
   "forwards.form.engine",
   "forwards.form.engineHint",
   "forwards.form.engineAria",
+  "forwards.form.realmNotInstalled",
   "chains.engine.missing",
   "chains.engine.missingHint",
   "chains.engine.missingTitle",
@@ -137,6 +143,8 @@ const ENGINE_I18N_KEYS = [
   "chains.form.engine",
   "chains.form.engineHint",
   "chains.form.engineAria",
+  "chains.form.realmNotInstalled",
+  "common.engine.realm.notInstalled",
 ];
 
 test("every engine i18n key exists and is non-empty in both languages", () => {
@@ -269,6 +277,186 @@ test("chainEngineMissing reports any realm member that is missing the engine", (
   assert.equal(chainEngineMissing({ engine: "realm", groups: [] }), false);
   assert.equal(chainEngineMissing({ engine: "realm" }), false);
   assert.equal(chainEngineMissing({ engine: "realm", groups: [{}] }), false);
+});
+
+// ---- 服务器未安装 realm（静态事实，来自服务器列表） ----
+
+test("serversMissingRealm only reports servers that explicitly lack realm", () => {
+  // 全部明确装了 → 不提示。
+  assert.equal(
+    serversMissingRealm([
+      { realm_available: true },
+      { realm_available: true },
+    ]),
+    false,
+  );
+
+  // 至少一台明确没装 → 提示。
+  assert.equal(
+    serversMissingRealm([
+      { realm_available: true },
+      { realm_available: false },
+    ]),
+    true,
+  );
+
+  // null / undefined / 字段缺失 = 旧 Agent 未上报，不能误报。
+  assert.equal(
+    serversMissingRealm([
+      { realm_available: null },
+      { realm_available: undefined },
+      {},
+    ]),
+    false,
+  );
+
+  assert.equal(serversMissingRealm([]), false);
+
+  // false 与 null 混合：null 不参与，但只要有一台 false 就提示。
+  assert.equal(
+    serversMissingRealm([
+      { realm_available: false },
+      { realm_available: null },
+    ]),
+    true,
+  );
+});
+
+test("missingRealmServerNames lists only false servers, in order, without duplicates", () => {
+  const server = (name, realm_available) => ({
+    id: name,
+    name,
+    realm_available,
+  });
+
+  assert.deepEqual(
+    missingRealmServerNames([
+      server("hk-01", true),
+      server("hk-02", false),
+      server("us-03", null),
+      server("us-04", false),
+    ]),
+    ["hk-02", "us-04"],
+  );
+
+  // 同一台服务器在链的不同跳里出现时，名字只列一次。
+  assert.deepEqual(
+    missingRealmServerNames([server("hk-02", false), server("hk-02", false)]),
+    ["hk-02"],
+  );
+
+  assert.deepEqual(missingRealmServerNames([]), []);
+  assert.deepEqual(
+    missingRealmServerNames([server("hk-01", true), server("us-03", null)]),
+    [],
+  );
+});
+
+test("formatServerNameList joins names with the locale separator", () => {
+  assert.equal(formatServerNameList(["hk-02", "us-04"], "、"), "hk-02、us-04");
+  assert.equal(formatServerNameList(["hk-02"], ", "), "hk-02");
+  assert.equal(formatServerNameList([], "、"), "");
+  // 空名字不能拼出「、」这种悬空分隔符。
+  assert.equal(formatServerNameList(["hk-02", "", "us-04"], "、"), "hk-02、us-04");
+});
+
+test("realmMissingOnServer only fires for realm rules on a server that lacks realm", () => {
+  assert.equal(realmMissingOnServer("realm", { realm_available: false }), true);
+
+  assert.equal(realmMissingOnServer("native", { realm_available: false }), false);
+  assert.equal(realmMissingOnServer(undefined, { realm_available: false }), false);
+  assert.equal(realmMissingOnServer("", { realm_available: false }), false);
+  // 未知引擎按 native 兜底，不能因为服务器没装 realm 就提示。
+  assert.equal(
+    realmMissingOnServer("wireguard", { realm_available: false }),
+    false,
+  );
+
+  // 服务器明确装了 / 未上报（null）/ 服务器数据缺失 → 都不能提示「未安装」。
+  assert.equal(realmMissingOnServer("realm", { realm_available: true }), false);
+  assert.equal(realmMissingOnServer("realm", { realm_available: null }), false);
+  assert.equal(realmMissingOnServer("realm", undefined), false);
+  assert.equal(realmMissingOnServer("realm", null), false);
+});
+
+test("chainServersMissingRealm resolves member server ids against the server list", () => {
+  const chain = (engine, groups) => ({
+    engine,
+    groups: groups.map((ids, index) => ({
+      id: String(index),
+      members: ids.map((server_id) => ({ server_id })),
+    })),
+  });
+  const servers = [
+    { id: "s1", realm_available: true },
+    { id: "s2", realm_available: false },
+    { id: "s3", realm_available: null },
+  ];
+
+  assert.equal(
+    chainServersMissingRealm(chain("realm", [["s1", "s3"]]), servers),
+    false,
+  );
+  assert.equal(
+    chainServersMissingRealm(chain("realm", [["s1"], ["s2"]]), servers),
+    true,
+  );
+  // 非 realm 链不受服务器是否装 realm 影响。
+  assert.equal(
+    chainServersMissingRealm(chain("native", [["s2"]]), servers),
+    false,
+  );
+  // 未知 server_id / 空链 / 服务器列表未加载：不能误报。
+  assert.equal(
+    chainServersMissingRealm(chain("realm", [["missing"]]), servers),
+    false,
+  );
+  assert.equal(chainServersMissingRealm(chain("realm", []), servers), false);
+  assert.equal(chainServersMissingRealm({ engine: "realm" }, servers), false);
+  assert.equal(chainServersMissingRealm(chain("realm", [["s2"]]), []), false);
+});
+
+test("realm-not-installed hint interpolates the joined server names", () => {
+  const servers = [
+    { id: "hk-02", name: "hk-02", realm_available: false },
+    { id: "us-03", name: "us-03", realm_available: false },
+  ];
+  const names = missingRealmServerNames(servers);
+
+  for (const [locale, dictionary] of dictionaries) {
+    const template = lookup(dictionary, "chains.form.realmNotInstalled");
+    const separator = lookup(dictionary, "common.listSeparator");
+    const rendered = template
+      .replace("{servers}", formatServerNameList(names, separator))
+      .replace(/\s+/g, " ");
+
+    assert.ok(
+      rendered.includes(`hk-02${separator}us-03`),
+      `${locale} should join both server names`,
+    );
+    assert.match(rendered, /realm/);
+  }
+
+  // 中文按需求给出完整可执行的一句话。
+  const zhHint = lookup(zhCN, "chains.form.realmNotInstalled").replace(
+    "{servers}",
+    formatServerNameList(names, lookup(zhCN, "common.listSeparator")),
+  );
+  assert.equal(
+    zhHint,
+    "所选服务器中有未安装 realm 的：hk-02、us-03。保存后这些跳会显示「未监听 · realm 未安装」，装好 realm 并重新应用即可恢复。",
+  );
+});
+
+test("realm-not-installed badge tooltip is bilingual", () => {
+  assert.equal(
+    lookup(zhCN, "common.engine.realm.notInstalled"),
+    "该服务器未安装 realm",
+  );
+  assert.equal(
+    lookup(en, "common.engine.realm.notInstalled"),
+    "realm is not installed on this server",
+  );
 });
 
 // ---- 表单提交序列化 ----

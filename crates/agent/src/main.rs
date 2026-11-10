@@ -437,6 +437,7 @@ async fn run_once(
                             "os_name": system_info.os_name,
                             "os_version": system_info.os_version,
                             "virt": system_info.virt,
+                            "realm_available": realm::is_available(Path::new(&cfg.realm_bin)),
                             "latency_ms": probe_cache.load(),
                             "forwards": forwards,
                         });
@@ -453,6 +454,7 @@ async fn run_once(
                     probe_cache.load(),
                     forwards.status_snapshot(),
                     system_info,
+                    Path::new(&cfg.realm_bin),
                 ));
                 ws.send(Message::Text(serde_json::to_string(&hb)?)).await?;
                 tc_manager
@@ -796,6 +798,7 @@ fn sample_heartbeat(
     latency_ms: Option<u32>,
     forwards: Vec<ForwardStatus>,
     system_info: &system_info::SystemInfo,
+    realm_bin: &Path,
 ) -> Heartbeat {
     let (load1, mem_used, mem_total) = read_load_and_mem();
     let disk = read_disk();
@@ -806,6 +809,7 @@ fn sample_heartbeat(
         os_name: system_info.os_name.clone(),
         os_version: system_info.os_version.clone(),
         virt: system_info.virt.clone(),
+        realm_available: Some(realm::is_available(realm_bin)),
         latency_ms,
         forwards,
         uptime_secs,
@@ -953,7 +957,14 @@ mod tests {
             target_ok: Some(true),
         }];
         let system_info = system_info_fixture();
-        let hb = sample_heartbeat(1, 2, Some(23), forwards.clone(), &system_info);
+        let hb = sample_heartbeat(
+            1,
+            2,
+            Some(23),
+            forwards.clone(),
+            &system_info,
+            Path::new(realm::DEFAULT_BIN),
+        );
         assert_eq!(hb.arch, std::env::consts::ARCH);
         assert!(!hb.arch.is_empty(), "主控靠心跳里的 arch 选升级产物");
         assert_eq!(hb.os_name.as_deref(), Some("Debian GNU/Linux"));
@@ -967,11 +978,51 @@ mod tests {
             "目标可达性必须随心跳上报"
         );
 
-        let missing = sample_heartbeat(1, 2, None, Vec::new(), &system_info::SystemInfo::default());
+        let missing = sample_heartbeat(
+            1,
+            2,
+            None,
+            Vec::new(),
+            &system_info::SystemInfo::default(),
+            Path::new(realm::DEFAULT_BIN),
+        );
         assert_eq!(missing.latency_ms, None, "探测失败必须上报 null");
         assert_eq!(missing.os_name, None, "读不到 os-release 时必须上报 null");
         assert_eq!(missing.virt, None, "裸机/读不到时必须上报 null");
         assert!(missing.forwards.is_empty());
+    }
+
+    /// `realm_available` 由配置里的 `realm_bin` 判定：存在且可执行才是 true。
+    /// 每轮心跳都重新判定，所以运行中安装/删除 realm 也会在下一轮心跳反映出来。
+    #[test]
+    fn heartbeat_reports_realm_availability_from_bin_path() {
+        let dir = TempDir::new();
+        let bin = dir.path().join("realm");
+        let system_info = system_info::SystemInfo::default();
+
+        let absent = sample_heartbeat(1, 0, None, Vec::new(), &system_info, &bin);
+        assert_eq!(
+            absent.realm_available,
+            Some(false),
+            "bin 不存在时必须明确上报 false，而不是 null"
+        );
+
+        std::fs::write(&bin, b"#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let installed = sample_heartbeat(2, 0, None, Vec::new(), &system_info, &bin);
+        assert_eq!(installed.realm_available, Some(true));
+
+        std::fs::remove_file(&bin).unwrap();
+        let removed = sample_heartbeat(3, 0, None, Vec::new(), &system_info, &bin);
+        assert_eq!(
+            removed.realm_available,
+            Some(false),
+            "运行中删除 realm 后下一轮心跳必须变成 false"
+        );
     }
 
     #[test]
@@ -1184,6 +1235,7 @@ mod tests {
             None,
             supervisor.status_snapshot(),
             &system_info::SystemInfo::default(),
+            Path::new(realm::DEFAULT_BIN),
         );
         assert_eq!(hb.forwards, status, "心跳必须带上 supervisor 的监听状态");
 

@@ -69,6 +69,7 @@ const zhCN = {
         label: "realm",
         short: "realm 子进程 · UDP",
         desc: "调用 realm（v2.9.6）子进程：支持 UDP 与带权重负载均衡；状态只能探测到端口级。realm 未安装时规则显示「未监听 + realm 未安装」。",
+        notInstalled: "该服务器未安装 realm",
       },
       unknown: {
         label: "未知引擎",
@@ -1683,6 +1684,8 @@ const zhCN = {
       engineAria: "转发引擎",
       engineHint:
         "选择运行这条规则所用的实现；保存后需要应用配置才会下发到 Agent。",
+      realmNotInstalled:
+        "这台服务器未安装 realm。保存后这条规则会显示「未监听 · realm 未安装」，装好 realm 并重新应用即可恢复。",
       submitCreate: "创建转发",
       submitSave: "保存修改",
       saving: "保存中…",
@@ -1837,6 +1840,8 @@ const zhCN = {
       engineAria: "转发链的转发引擎",
       engineHint:
         "整条链共用一个引擎，逐跳透传；切换引擎会重建所有成员的监听。",
+      realmNotInstalled:
+        "所选服务器中有未安装 realm 的：{servers}。保存后这些跳会显示「未监听 · realm 未安装」，装好 realm 并重新应用即可恢复。",
       groups: "链路节点",
       groupsHint:
         "每一跳可以是单节点（1 台）或分组（1-8 台）；同一台服务器不能在同一条链里重复。",

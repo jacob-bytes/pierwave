@@ -1009,6 +1009,90 @@ mod tests {
         assert_eq!(row["arch"], "x86_64");
     }
 
+    /// 管理端列表必须带出 `realm_available`：null = 未知（旧 Agent），
+    /// true / false 是 Agent 明确上报的静态事实，前端据此在创建前提示。
+    #[tokio::test]
+    async fn server_list_exposes_realm_availability() {
+        let (app, state, cookie) = setup().await;
+        let (server, _token) = repo::servers::create(&state.db.pool, "hk-1", "1.2.3.4", "external")
+            .await
+            .unwrap();
+
+        // 从未上报过：字段存在且为 null，不能是 false。
+        let (status, body) = send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let row = &body["items"][0];
+        assert!(row.get("realm_available").is_some(), "{row}");
+        assert!(row["realm_available"].is_null(), "{row}");
+
+        for (reported, expected) in [(true, true), (false, false)] {
+            repo::servers::update_health(
+                &state.db.pool,
+                &server.id,
+                "0.8.0",
+                &repo::servers::HealthSnapshot {
+                    realm_available: Some(reported),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+
+            let (status, body) =
+                send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert_eq!(
+                body["items"][0]["realm_available"], expected,
+                "心跳写入后列表必须原样带出：{body}"
+            );
+        }
+
+        // 旧 Agent 再接回来：没有该字段 = 未知，重新落 NULL。
+        repo::servers::update_health(
+            &state.db.pool,
+            &server.id,
+            "0.7.0",
+            &repo::servers::HealthSnapshot::default(),
+        )
+        .await
+        .unwrap();
+        let (status, body) = send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body["items"][0]["realm_available"].is_null(), "{body}");
+    }
+
+    /// 离线只改 status，不能清空最后一次心跳带来的 realm 可用性。
+    #[tokio::test]
+    async fn offline_server_keeps_last_realm_availability() {
+        let (app, state, cookie) = setup().await;
+        let (server, _token) = repo::servers::create(&state.db.pool, "hk-1", "1.2.3.4", "external")
+            .await
+            .unwrap();
+        repo::servers::update_health(
+            &state.db.pool,
+            &server.id,
+            "0.8.0",
+            &repo::servers::HealthSnapshot {
+                realm_available: Some(false),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        repo::servers::mark_offline(&state.db.pool, &server.id)
+            .await
+            .unwrap();
+
+        let (status, body) = send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let row = &body["items"][0];
+        assert_eq!(row["status"], "offline");
+        assert_eq!(
+            row["realm_available"], false,
+            "离线服务器必须保留最后一次上报值：{row}"
+        );
+    }
+
     /// 管理端列表复用 `servers.latency_ms`：有心跳值就是 number，没有就是 null。
     #[tokio::test]
     async fn server_list_exposes_heartbeat_latency() {

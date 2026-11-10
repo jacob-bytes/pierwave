@@ -219,6 +219,12 @@ export interface Server {
   health_at: number | null;
   /** Agent 上报的 CPU 架构；空串 = 未知。 */
   arch: string;
+  /**
+   * 服务器上是否安装了 realm（realm 转发引擎必需）。
+   * true = 已安装；false = 明确未安装；null / 缺失 = 旧 Agent 未上报。
+   * 这是静态环境事实，与规则运行时的 `runtime.error` 是两回事。
+   */
+  realm_available?: boolean | null;
   /** Agent 从 /etc/os-release 读到的发行版名称；null = 旧 Agent 或读不到。 */
   os_name: string | null;
   /** Agent 从 /etc/os-release 读到的版本号；null = 旧 Agent 或读不到。 */
