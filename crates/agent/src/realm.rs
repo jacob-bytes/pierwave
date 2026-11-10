@@ -415,8 +415,9 @@ async fn probe_listening(bind_host: &str, listen_port: i64) -> bool {
 
 /// 按 realm 的配置模型渲染一份 TOML。
 ///
-/// TCP + UDP 同时转发（`no_tcp = false` / `use_udp = true`）：UDP 是选 realm 引擎的
-/// 主要理由——native 引擎只有 TCP。多目标时第一个写 `remote`，
+/// TCP + UDP 同时转发：`no_tcp` / `use_udp` 是 **`[network]` 的全局开关**，
+/// 不写在每个 endpoint 里（endpoint 只有 `network` 子表可覆盖，顶层不收这两个键）。
+/// UDP 是选 realm 引擎的主要理由——native 引擎只有 TCP。多目标时第一个写 `remote`，
 /// 其余写 `extra_remotes`，并加 `balance = "roundrobin: ..."`——
 /// 本轮不带权重，每个目标权重都是 1。排序由调用方/本函数按监听端口固定，
 /// 同一组规则重复渲染必须逐字节一致（否则内容哈希会抖，子进程会被反复重启）。
@@ -462,7 +463,6 @@ pub fn render_config(rules: &[DesiredForward], bind_host: &str) -> String {
             let weights = vec!["1"; targets.len()].join(", ");
             let _ = writeln!(out, "balance = \"roundrobin: {weights}\"");
         }
-        out.push_str("no_tcp = false\nuse_udp = true\n");
     }
     out
 }
@@ -746,6 +746,31 @@ mod tests {
         write_config_atomic(&path, "new = true\n").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "new = true\n");
         assert!(!tmp_path(&path).exists());
+    }
+
+    /// `no_tcp` / `use_udp` 只能出现在 `[network]`。
+    /// 写进 `[[endpoints]]` 时 realm 会当作未知键忽略——看起来配了 UDP，
+    /// 实际只监听 TCP，是排查起来最费劲的一类错误。
+    #[test]
+    fn network_keys_stay_out_of_endpoints() {
+        let rules = vec![realm_rule("r1", 30001, &[("10.0.0.2", 443)])];
+        let toml = render_config(&rules, "0.0.0.0");
+        let network_block = toml
+            .split("[[endpoints]]")
+            .next()
+            .expect("配置必须有前导部分");
+        assert!(network_block.contains("use_udp = true"), "{toml}");
+        assert!(network_block.contains("no_tcp = false"), "{toml}");
+        for endpoint in toml.split("[[endpoints]]").skip(1) {
+            assert!(
+                !endpoint.contains("use_udp"),
+                "endpoint 里不应出现 use_udp：{endpoint}"
+            );
+            assert!(
+                !endpoint.contains("no_tcp"),
+                "endpoint 里不应出现 no_tcp：{endpoint}"
+            );
+        }
     }
 
     /// 选 realm 引擎的核心理由是 UDP，配置里必须真的打开它。

@@ -61,15 +61,17 @@ jobs:
       - name: Write config in our generated shape
         run: |
           cat > /tmp/realm.toml <<'TOML'
+          [log]
+          level = "debug"
+          output = "stdout"
+
           [network]
           no_tcp = false
-          use_udp = false
+          use_udp = true
 
           [[endpoints]]
           listen = "127.0.0.1:31001"
           remote = "127.0.0.1:41001"
-          no_tcp = false
-          use_udp = true
           TOML
 
       # TCP 与 UDP 必须在**同一个 step**里验证：
@@ -145,6 +147,8 @@ jobs:
           tcp_check()
           udp_check()
           PY
+          echo "--- realm.log ---"
+          cat /tmp/realm.log || true
 
       - name: Show realm log on failure
         if: failure()
