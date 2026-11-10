@@ -1860,6 +1860,8 @@ pub mod forwards {
         pub enabled: bool,
         /// 已通过 `engine::normalize` 校验的引擎名（`native` / `realm`）。
         pub engine: String,
+        /// 是否同时监听 UDP；只对 `native` 有意义。
+        pub udp: bool,
     }
 
     #[derive(Default)]
@@ -1871,6 +1873,8 @@ pub mod forwards {
         pub enabled: Option<bool>,
         /// `None` = 不改；`Some` 必须已通过 `engine::normalize` 校验。
         pub engine: Option<String>,
+        /// `None` = 不改。注意 `Some(false)` 绑成 0 而不是 NULL，COALESCE 能正常关掉。
+        pub udp: Option<bool>,
     }
 
     /// 心跳里一条转发状态落库前的形态（领域层不依赖 proto）。
@@ -1891,9 +1895,9 @@ pub mod forwards {
         let ts = now();
         sqlx::query(
             "INSERT INTO forwards
-                (id, server_id, name, listen_port, target_host, target_port, enabled, engine,
+                (id, server_id, name, listen_port, target_host, target_port, enabled, engine, udp,
                  created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(server_id)
@@ -1903,6 +1907,7 @@ pub mod forwards {
         .bind(input.target_port)
         .bind(i64::from(input.enabled))
         .bind(crate::engine::from_db(&input.engine))
+        .bind(i64::from(input.udp))
         .bind(ts)
         .bind(ts)
         .execute(pool)
@@ -1982,6 +1987,7 @@ pub mod forwards {
                 target_port = COALESCE(?, target_port),
                 enabled = COALESCE(?, enabled),
                 engine = COALESCE(?, engine),
+                udp = COALESCE(?, udp),
                 updated_at = ?
              WHERE id = ?",
         )
@@ -1991,6 +1997,7 @@ pub mod forwards {
         .bind(input.target_port)
         .bind(input.enabled.map(i64::from))
         .bind(input.engine.as_deref().map(crate::engine::from_db))
+        .bind(input.udp.map(i64::from))
         .bind(now())
         .bind(id)
         .execute(pool)
@@ -2160,6 +2167,8 @@ pub mod chains {
         pub enabled: bool,
         /// 已通过 `engine::normalize` 校验的引擎名（`native` / `realm`）。
         pub engine: String,
+        /// 整条链是否同时监听 UDP；只对 `native` 有意义。
+        pub udp: bool,
         pub groups: Vec<NewChainGroup>,
     }
 
@@ -2171,6 +2180,8 @@ pub mod chains {
         pub enabled: Option<bool>,
         /// `None` = 不改；`Some` 必须已通过 `engine::normalize` 校验。
         pub engine: Option<String>,
+        /// `None` = 不改。注意 `Some(false)` 绑成 0 而不是 NULL，COALESCE 能正常关掉。
+        pub udp: Option<bool>,
         /// `None` = 不改组；`Some` = 整体替换。
         pub groups: Option<Vec<NewChainGroup>>,
     }
@@ -2272,8 +2283,9 @@ pub mod chains {
         let mut tx = pool.begin().await?;
         sqlx::query(
             "INSERT INTO chains
-                (id, name, target_host, target_port, enabled, engine, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (id, name, target_host, target_port, enabled, engine, udp,
+                 created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(input.name.trim())
@@ -2281,6 +2293,7 @@ pub mod chains {
         .bind(input.target_port)
         .bind(i64::from(input.enabled))
         .bind(crate::engine::from_db(&input.engine))
+        .bind(i64::from(input.udp))
         .bind(ts)
         .bind(ts)
         .execute(&mut *tx)
@@ -2345,6 +2358,7 @@ pub mod chains {
                 target_port = COALESCE(?, target_port),
                 enabled = COALESCE(?, enabled),
                 engine = COALESCE(?, engine),
+                udp = COALESCE(?, udp),
                 updated_at = ?
              WHERE id = ?",
         )
@@ -2353,6 +2367,7 @@ pub mod chains {
         .bind(input.target_port)
         .bind(input.enabled.map(i64::from))
         .bind(input.engine.as_deref().map(crate::engine::from_db))
+        .bind(input.udp.map(i64::from))
         .bind(now())
         .bind(id)
         .execute(&mut *tx)

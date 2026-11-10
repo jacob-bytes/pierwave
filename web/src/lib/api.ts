@@ -570,6 +570,12 @@ export interface Forward {
   enabled: boolean;
   /** 实现这条规则所用的引擎；后端缺省 / 历史数据为 `native`。 */
   engine: ForwardEngine;
+  /**
+   * 是否同时监听 UDP（与 `listen_port` 同端口）。
+   * 只对 `native` 有效：`realm` 的配置固定 `use_udp = true`，总是转发 UDP。
+   * 旧后端可能不返回该字段，展示层按 false 处理。
+   */
+  udp: boolean;
   created_at: number;
   updated_at: number;
   /**
@@ -587,6 +593,8 @@ export interface CreateForwardInput {
   enabled?: boolean;
   /** 缺省 = `native`；表单总是显式发送，以便 edit 能把 realm 改回 native。 */
   engine?: ForwardEngine;
+  /** 只对 `native` 有意义：同时监听 UDP；缺省 / `realm` 时为 false。 */
+  udp?: boolean;
 }
 
 export type UpdateForwardInput = Partial<CreateForwardInput>;
@@ -644,6 +652,12 @@ export interface Chain {
   enabled: boolean;
   /** 整条链共用的引擎，逐跳透传到每个成员的期望态。 */
   engine: ForwardEngine;
+  /**
+   * 是否让整条链的每个成员同时监听 UDP（同一端口号）。
+   * 只对 `native` 有效：`realm` 的配置固定 `use_udp = true`。
+   * 旧后端可能不返回该字段，展示层按 false 处理。
+   */
+  udp: boolean;
   /** 任一组 / 成员 degraded 即为 true。 */
   degraded: boolean;
   /** 按 `seq` 升序排列；前端只读这个字段，不再读兼容用的 `hops`。 */
@@ -674,6 +688,8 @@ export interface CreateChainInput {
   enabled?: boolean;
   /** 缺省 = `native`；整条链共用一个引擎。 */
   engine?: ForwardEngine;
+  /** 只对 `native` 有意义：整条链同时监听 UDP；缺省 / `realm` 时为 false。 */
+  udp?: boolean;
   /** 1–4 组，按入口到目标的顺序排列。 */
   groups: ChainGroupInput[];
 }

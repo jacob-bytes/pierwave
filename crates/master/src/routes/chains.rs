@@ -144,6 +144,8 @@ pub(crate) fn derive_forwards(
                     strategy,
                     // 整条链共用一个引擎：推导时逐跳透传，Agent 按它分流。
                     engine: ForwardEngine::from_name(&chain.engine),
+                    // UDP 同样是链级开关：每一跳在自己的 listen_port 上都开 UDP。
+                    udp: chain.udp,
                 },
             ));
         }
@@ -201,6 +203,9 @@ pub struct CreateChain {
     /// 整条链的引擎：`native` / `realm`；缺省 = `native`。
     #[serde(default)]
     pub engine: Option<String>,
+    /// 整条链是否同时监听 UDP（只对 `native` 有意义）；缺省 = `false`。
+    #[serde(default)]
+    pub udp: bool,
     /// 旧字段：每组一台成员。新请求优先用 `groups`。
     #[serde(default)]
     pub hops: Vec<CreateChainHop>,
@@ -216,6 +221,8 @@ pub struct PatchChain {
     pub enabled: Option<bool>,
     /// `native` / `realm`；`None` = 不改。
     pub engine: Option<String>,
+    /// `None` = 不改；`Some(false)` 用来关掉整条链的 UDP。
+    pub udp: Option<bool>,
     /// 旧字段：`None` = 不改；`Some` = 整体替换（每组一台）。
     pub hops: Option<Vec<CreateChainHop>>,
     /// 新字段：`None` = 不改；`Some` = 整体替换。
@@ -570,6 +577,7 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
         "target_port": chain.chain.target_port,
         "enabled": chain.chain.enabled,
         "engine": chain.chain.engine,
+        "udp": chain.chain.udp,
         "degraded": degraded,
         "groups": group_views,
         "hops": hop_views,
@@ -642,6 +650,7 @@ pub async fn create(
         target_port,
         enabled,
         engine: raw_engine,
+        udp,
         hops,
         groups,
     } = req;
@@ -671,6 +680,7 @@ pub async fn create(
             target_port,
             enabled,
             engine,
+            udp,
             groups: new_groups(&groups),
         },
     )
@@ -687,6 +697,7 @@ pub async fn create(
             "target_port": chain.chain.target_port,
             "enabled": chain.chain.enabled,
             "engine": &chain.chain.engine,
+            "udp": chain.chain.udp,
             "hops": chain.groups.iter().map(|group| json!({
                 "seq": group.group.seq,
                 "server_id": group.members.first().map(|member| &member.server_id),
@@ -729,6 +740,7 @@ pub async fn update(
         target_port,
         enabled,
         engine: raw_engine,
+        udp,
         hops,
         groups,
     } = req;
@@ -738,13 +750,14 @@ pub async fn update(
         && target_port.is_none()
         && enabled.is_none()
         && raw_engine.is_none()
+        && udp.is_none()
         && hops.is_none()
         && groups.is_none()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 name / target_host / target_port / enabled / engine / groups / hops 之一",
+            "至少需要提供 name / target_host / target_port / enabled / engine / udp / groups / hops 之一",
         ));
     }
 
@@ -794,6 +807,7 @@ pub async fn update(
             target_port,
             enabled,
             engine,
+            udp,
             groups: replace_groups.then(|| new_groups(&groups)),
         },
     )
@@ -826,6 +840,7 @@ pub async fn update(
             json!(&existing.chain.engine),
             json!(&updated.chain.engine),
         ),
+        ("udp", json!(existing.chain.udp), json!(updated.chain.udp)),
         (
             "hops",
             json!(existing.groups.len()),
@@ -1060,6 +1075,7 @@ mod tests {
             target_port: 443,
             enabled: true,
             engine: "native".into(),
+            udp: false,
             created_at: 0,
             updated_at: 0,
         }
@@ -1432,6 +1448,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "native".into(),
+                udp: false,
             },
         )
         .await
@@ -1974,6 +1991,31 @@ mod tests {
         );
     }
 
+    /// 链级 UDP 开关：推导时透传到每一跳，与引擎一样是整条链共用的。
+    #[test]
+    fn derived_forwards_carry_the_chain_udp() {
+        let mut chain = test_chain("c-udp");
+        let groups = vec![
+            test_group("c-udp", 0, "round_robin", &[("srv-a", "10.0.0.1", 9001, 0)]),
+            test_group("c-udp", 1, "round_robin", &[("srv-b", "10.0.0.2", 9002, 0)]),
+        ];
+
+        // 缺省（历史数据）= 只开 TCP，行为与升级前一致。
+        assert!(!chain.udp);
+        let derived = derive_forwards(&chain, &groups);
+        assert_eq!(derived.len(), 2);
+        assert!(derived.iter().all(|(_, forward)| !forward.udp));
+
+        // 开启后两跳都必须带 udp：链级开关不允许只开一半。
+        chain.udp = true;
+        let derived = derive_forwards(&chain, &groups);
+        assert_eq!(derived.len(), 2);
+        assert!(
+            derived.iter().all(|(_, forward)| forward.udp),
+            "链的 udp 必须透传到每一跳"
+        );
+    }
+
     /// 主控出口：链的 engine 要同时出现在 API 响应与每台服务器的期望态里。
     #[tokio::test]
     async fn chain_engine_reaches_api_and_desired_state() {
@@ -2104,6 +2146,116 @@ mod tests {
             2,
             "非法引擎的链不能落库"
         );
+    }
+
+    /// 链的 UDP 开关：API 响应、列表、每台服务器的期望态三处一致，PATCH 能关掉。
+    #[tokio::test]
+    async fn chain_udp_reaches_api_and_every_hop() {
+        let fixture = setup().await;
+        let mut body = groups_body(
+            "udp 链",
+            "1.1.1.1",
+            443,
+            &[
+                group(
+                    None,
+                    Some("round_robin"),
+                    &[group_member(&fixture.a, 9101, 0)],
+                ),
+                group(
+                    None,
+                    Some("round_robin"),
+                    &[group_member(&fixture.b, 9102, 0)],
+                ),
+            ],
+        );
+        body["udp"] = json!(true);
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        assert_eq!(value["chain"]["udp"], true, "响应必须带出 udp");
+        let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+
+        // 列表视图（chain_json 手写字段，最容易漏）。
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            "/api/v1/chains",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        assert_eq!(value["items"][0]["udp"], true, "列表必须带出 udp");
+
+        // 两跳的期望态都要带 udp=true，端口各自是自己的 listen_port。
+        for (server_id, listen_port) in [(&fixture.a, 9101), (&fixture.b, 9102)] {
+            let server = repo::servers::find_by_id(&fixture.state.db.pool, server_id)
+                .await
+                .unwrap();
+            let rendered =
+                super::super::desired::render(&fixture.state, &server, "https://panel.example.com")
+                    .await
+                    .unwrap();
+            let hop = rendered
+                .forwards
+                .iter()
+                .find(|forward| forward.id.starts_with(&format!("chain-{chain_id}-")))
+                .expect("每一跳都要出现在自己的期望态里");
+            assert!(hop.udp, "链的 udp 必须透传到这一跳");
+            assert_eq!(hop.listen_port, listen_port);
+        }
+
+        // PATCH 关掉：false 不能被 COALESCE 当成「不改」。
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::PATCH,
+            &format!("/api/v1/chains/{chain_id}"),
+            Some(json!({"udp": false})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        assert_eq!(value["chain"]["udp"], false);
+
+        let server_a = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.a)
+            .await
+            .unwrap();
+        let rendered =
+            super::super::desired::render(&fixture.state, &server_a, "https://panel.example.com")
+                .await
+                .unwrap();
+        assert!(
+            !rendered.forwards[0].udp,
+            "关掉之后期望态必须同步回到只开 TCP"
+        );
+
+        // 不传 udp 的历史请求仍落 false。
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(groups_body(
+                "默认 udp",
+                "1.1.1.1",
+                443,
+                &[group(
+                    None,
+                    Some("round_robin"),
+                    &[group_member(&fixture.c, 9103, 0)],
+                )],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        assert_eq!(value["chain"]["udp"], false);
     }
 
     #[tokio::test]

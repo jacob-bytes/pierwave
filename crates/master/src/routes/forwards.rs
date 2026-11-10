@@ -140,6 +140,9 @@ pub struct CreateForward {
     /// `native` / `realm`；缺省 = `native`（与迁移默认值一致）。
     #[serde(default)]
     pub engine: Option<String>,
+    /// 是否同时监听同端口的 UDP（只对 `native` 有意义）；缺省 = `false`。
+    #[serde(default)]
+    pub udp: bool,
 }
 
 fn default_enabled() -> bool {
@@ -179,6 +182,7 @@ pub async fn create(
             target_port: req.target_port,
             enabled: req.enabled,
             engine,
+            udp: req.udp,
         },
     )
     .await
@@ -197,6 +201,7 @@ pub async fn create(
             "target_port": forward.target_port,
             "enabled": forward.enabled,
             "engine": &forward.engine,
+            "udp": forward.udp,
         }),
     )
     .await;
@@ -216,6 +221,8 @@ pub struct PatchForward {
     pub enabled: Option<bool>,
     /// `native` / `realm`；`None` = 不改。
     pub engine: Option<String>,
+    /// `None` = 不改；`Some(false)` 用来关掉 UDP。
+    pub udp: Option<bool>,
 }
 
 pub async fn update(
@@ -232,11 +239,12 @@ pub async fn update(
         && req.target_port.is_none()
         && req.enabled.is_none()
         && req.engine.is_none()
+        && req.udp.is_none()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 name / listen_port / target_host / target_port / enabled / engine 之一",
+            "至少需要提供 name / listen_port / target_host / target_port / enabled / engine / udp 之一",
         ));
     }
 
@@ -286,6 +294,7 @@ pub async fn update(
             target_port: req.target_port,
             enabled: req.enabled,
             engine,
+            udp: req.udp,
         },
     )
     .await
@@ -317,6 +326,7 @@ pub async fn update(
         ),
         ("enabled", json!(existing.enabled), json!(forward.enabled)),
         ("engine", json!(&existing.engine), json!(&forward.engine)),
+        ("udp", json!(existing.udp), json!(forward.udp)),
     ]);
     crate::audit::record(
         &state,
@@ -363,6 +373,7 @@ pub async fn delete(
             "target_host": &existing.target_host,
             "target_port": existing.target_port,
             "engine": &existing.engine,
+            "udp": existing.udp,
         }),
     )
     .await;
@@ -997,6 +1008,114 @@ mod tests {
             2,
             "非法引擎不能落库"
         );
+    }
+
+    /// UDP 开关：缺省 false（只监听 TCP），开启后透传到期望态，PATCH 能真的关掉。
+    #[tokio::test]
+    async fn udp_toggle_roundtrips_and_reaches_desired_state() {
+        let (app, state, cookie, server_id) = setup().await;
+        let uri = format!("/api/v1/servers/{server_id}/forwards");
+        let mut subscription = state.hub.subscribe(&server_id);
+
+        // 不填 udp = 只监听 TCP（与迁移默认值一致，旧客户端行为不变）。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &uri,
+            Some(forward_body(8443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["forward"]["udp"], false, "缺省必须只开 TCP");
+        let tcp_id = body["forward"]["id"].as_str().unwrap().to_string();
+        assert!(
+            !next_forwards(&mut subscription.receiver).await[0].udp,
+            "缺省规则在期望态里也只能是 TCP"
+        );
+
+        // 显式开启：响应、期望态、列表三处都要带出来。
+        let mut udp_body = forward_body(9443);
+        udp_body["udp"] = json!(true);
+        let (status, body) = request(&app, Some(&cookie), Method::POST, &uri, Some(udp_body)).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["forward"]["udp"], true);
+        let udp_id = body["forward"]["id"].as_str().unwrap().to_string();
+        let sent = next_forwards(&mut subscription.receiver).await;
+        let udp_forward = sent
+            .iter()
+            .find(|forward| forward.id == pierwave_domain::forwards::desired_id(&udp_id))
+            .expect("udp 规则必须出现在期望态里");
+        assert!(udp_forward.udp, "udp=true 必须透传到期望态");
+
+        // PATCH 只带 udp 也要被接受（no_update_fields 必须认这个字段）。
+        let forward_uri = format!("/api/v1/forwards/{tcp_id}");
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &forward_uri,
+            Some(json!({"udp": true})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["forward"]["udp"], true);
+        assert!(
+            next_forwards(&mut subscription.receiver)
+                .await
+                .iter()
+                .find(|forward| forward.id == pierwave_domain::forwards::desired_id(&tcp_id))
+                .unwrap()
+                .udp
+        );
+
+        // 关掉：false 不能被 COALESCE 当成「不改」。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &forward_uri,
+            Some(json!({"udp": false})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(
+            body["forward"]["udp"], false,
+            "PATCH udp=false 必须真的关掉"
+        );
+        assert!(
+            !next_forwards(&mut subscription.receiver)
+                .await
+                .iter()
+                .find(|forward| forward.id == pierwave_domain::forwards::desired_id(&tcp_id))
+                .unwrap()
+                .udp,
+            "关掉之后期望态必须同步"
+        );
+
+        // 列表视图同样平铺 udp：一条关着、一条开着。
+        let (status, body) = request(&app, Some(&cookie), Method::GET, &uri, None).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let items = body["items"].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        let udp_flags: Vec<bool> = items
+            .iter()
+            .map(|item| item["udp"].as_bool().expect("列表必须平铺 udp"))
+            .collect();
+        assert_eq!(
+            udp_flags.iter().filter(|open| **open).count(),
+            1,
+            "只有显式开过的那条仍是 true：{udp_flags:?}"
+        );
+        let by_id = |id: &str| {
+            items
+                .iter()
+                .find(|item| item["id"] == id)
+                .map(|item| item["udp"].as_bool().unwrap())
+                .expect("规则必须在列表里")
+        };
+        assert!(!by_id(&tcp_id), "PATCH udp=false 必须落库");
+        assert!(by_id(&udp_id), "另一条没被改过，必须保持 true");
     }
 
     // 避免「只读 token 未使用」的假警告：`admin_id` 在 setup 里只用于建会话。

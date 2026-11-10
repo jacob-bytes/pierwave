@@ -562,6 +562,7 @@ mod tests {
             targets: Vec::new(),
             strategy: Default::default(),
             engine: ForwardEngine::Realm,
+            udp: false,
         };
         for (host, port) in targets {
             spec.targets.push(ForwardTarget {

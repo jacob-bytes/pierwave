@@ -20,6 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import type { Forward, Server } from "@/lib/api";
 import {
   FORWARD_ENGINES,
+  effectiveUdp,
   engineInput,
   isForwardEngine,
   normalizeEngine,
@@ -72,9 +73,12 @@ export function ForwardFormDialog({
       enabled: forward ? Boolean(forward.enabled) : true,
       // 旧数据 / 旧后端没有 engine：按契约缺省 native 回填。
       engine: normalizeEngine(forward?.engine),
+      // 旧数据 / 旧后端没有 udp：按契约缺省 false 回填。
+      udp: Boolean(forward?.udp),
     },
   });
   const selectedEngine = form.watch("engine");
+  const realmEngine = selectedEngine === "realm";
   // 静态事实：这台服务器明确没装 realm 时，保存前就告诉用户；
   // `null` / 缺失（旧 Agent）不提示，避免误报。不阻止保存。
   const realmUnavailable = realmMissingOnServer(selectedEngine, server);
@@ -96,6 +100,7 @@ export function ForwardFormDialog({
       // native 也显式发送：edit 时把 realm 改回 native 必须带字段，
       // 否则 PATCH 的缺省语义是「不改」。
       ...engineInput(values.engine),
+      udp: values.udp,
     };
 
     try {
@@ -289,6 +294,26 @@ export function ForwardFormDialog({
                 </div>
               ) : null}
             </div>
+          </FormField>
+
+          <FormField label={t("forwards.form.udp")} htmlFor="forward-udp">
+            <Controller
+              control={form.control}
+              name="udp"
+              render={({ field }) => (
+                <span
+                  className="inline-flex items-center"
+                  title={realmEngine ? t("common.udpRealmTitle") : undefined}
+                >
+                  <Switch
+                    id="forward-udp"
+                    checked={effectiveUdp(selectedEngine, field.value)}
+                    onCheckedChange={field.onChange}
+                    disabled={pending || realmEngine}
+                  />
+                </span>
+              )}
+            />
           </FormField>
 
           <FormField

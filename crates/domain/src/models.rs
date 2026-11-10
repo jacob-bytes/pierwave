@@ -92,6 +92,9 @@ pub struct Forward {
     pub enabled: bool,
     /// 转发引擎：`native`（Agent 自己监听）或 `realm`（受管子进程）。
     pub engine: String,
+    /// 是否在同一端口号上**再**监听一个 UDP socket。只对 `native` 有意义：
+    /// `realm` 固定转发 UDP，不看这一列。
+    pub udp: bool,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -143,6 +146,9 @@ pub struct Chain {
     pub enabled: bool,
     /// 链的转发引擎：`native` 或 `realm`。
     pub engine: String,
+    /// 整条链是否同时监听 UDP：推导时透传到每一跳（每跳用各自的 `listen_port`）。
+    /// 只对 `native` 有意义，`realm` 固定转发 UDP。
+    pub udp: bool,
     pub created_at: i64,
     pub updated_at: i64,
 }

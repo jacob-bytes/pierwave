@@ -984,7 +984,7 @@ through `--config -` on stdin, never in argv. A supervisor task re-reads setting
 
 | 引擎 | TCP | UDP | 负载均衡 | 链路加密（ws/tls） | 状态精度 |
 |---|:--:|:--:|:--:|:--:|---|
-| `native`（现有） | ✅ | ❌ | ✅ 4 种策略 | ❌ | 端口级（listening / target_ok） |
+| `native`（现有） | ✅ | ✅ 同端口会话表（按客户端地址哈希） | ✅ 4 种策略 | ❌ | 端口级（listening / target_ok；UDP 的 target_ok 为未知） |
 | `realm`（集成） | ✅ | ✅ `batched-udp` | ✅ roundrobin / iphash + 权重 | ✅ Kaminari ws/tls/wss | 进程级 + 端口探测 |
 | `tunnel`（自研，规划） | ✅ | 规划 | 复用 native 策略 | ✅ 自己的加密 | 端口级 |
 
@@ -1033,3 +1033,724 @@ through `--config -` on stdin, never in argv. A supervisor task re-reads setting
 
 - 不把 realm 的 loader（从 URL 拉配置）接进来——配置只由主控生成；
 - 不允许手写 realm 配置注入（那会绕过端口冲突校验）。
+
+## P15.3：链路跳间加密（ws / tls）
+
+> 版本锚点：realm **v2.9.6**（2026-08-30 发布）→ `realm_core` **0.5.1** → `kaminari` **0.14**
+> （realm 的 `transport` feature；选项细节按 0.14.0 的源码核对）。本文的选项名、解析规则和能力判断都按这组版本核对过，
+> 依据链接见 §11；换 realm 版本必须重新核对，不能假设兼容。
+
+### 结论先说（TL;DR）
+
+1. **加密只发生在 realm 的跳与跳之间**：第 i 组（服务器）的 realm 连第 i+1 组的 realm。
+   客户端→入口、入口第一跳的本机监听、最后一跳→目标，都不属于 P15.3。
+2. **不能做自签 CA**：realm 2.9.6 的 TLS **客户端没有自定义 CA / 信任根选项**，只信任编译进
+   二进制的 Mozilla 根（`webpki-roots`）；自签证书只能配 `insecure` 跳过校验，等于没有身份认证
+   （可被中间人）。**MVP 复用现有 `certificates` 里的公网 CA 证书**。
+3. **一组一张证书**：同一跳组的所有成员共用同一张证书和私钥；上一跳的 `remote_transport`
+   用该证书的域名做 `sni`。证书域名**不需要在运行时解析到那台服务器**——SNI 与 TCP 连接地址是
+   两个东西，用 IP 直连也能通过校验（证书 SAN 里有这个名字即可）。
+4. **UDP 不经过 transport**：realm 的 UDP 转发走独立路径，根本不看 transport；必须给每个
+   加密端点写 `network = { use_udp = false }`，否则同一端口仍会**明文**转发 UDP。
+5. **一律 fail closed**：证书缺失/过期/域名不匹配/能力不满足 → 整条链不下发并给出可见原因，
+   **绝不静默回退明文**。旧 Agent 和 `realm-slim` 会忽略 transport 字段，必须靠能力协商挡住（§5.3）。
+6. **ws 不是加密**，只是混淆；`wss` 也不是一个 token。本轮只做 TLS，ws/wss 留到有 CDN 前置
+   需求时再做（写法见 §3.8，本期不生成）。
+
+**English summary.** P15.3 encrypts only the realm-to-realm legs of a chain; the client-to-entry
+leg, the first hop's listener and the final hop-to-target leg stay outside scope. realm 2.9.6's
+TLS client has no custom trust anchor: it only trusts compiled-in Mozilla roots, so a private CA
+would require `insecure` (no authentication) and is rejected. The MVP therefore reuses uploaded
+public-CA certificates, one per hop group, with the group's domain as the dialer's `sni`. UDP never
+goes through the transport, so encrypted endpoints must disable UDP explicitly. Every failure is
+fail-closed: never silently fall back to plaintext.
+
+### 1. 加密发生在哪一段（边界）
+
+链的模型是「组 → 成员」：第 i 组的每台成员在自己的 `listen_port` 上监听，把流量交给第 i+1 组
+的成员（由上一跳按策略选一台）；最后一组交给链的 `target_host:target_port`。realm 在每台成员
+上各是一个 `[[endpoints]]`，`listen_transport` 管**这一跳的入**，`remote_transport` 管
+**这一跳的出**。因此一条 n 组的链只有 **n−1 段**可加密：
+
+```
+client ──①──> 入口（Xray inbound / 客户端自己的协议）──②──> realm G0
+realm G0 ──③──> realm G1 ──③──> ... ──③──> realm G(n-1)
+realm G(n-1) ──④──> target
+```
+
+| 段 | 谁负责 | 本期 |
+|---|---|---|
+| ① 客户端 → 入口 | Xray 的 inbound（REALITY/TLS/WS）或客户端自身协议 | **不做** |
+| ② 入口本机进程 → G0 的 `listen_port` | 本机回环 / 防火墙 | **不做**；要求只绑回环或网段 ACL |
+| ③ G(i) 的 `remote` → G(i+1) 的 `listen` | realm `remote_transport` / `listen_transport` | **做**（TLS 单向） |
+| ④ G(n−1) → 目标 | realm 明文转发 | **不做**；目标不是我们的，不能替它加 TLS |
+
+硬性前提：
+
+- `engine = realm`；`native` 引擎没有 transport，永远明文。
+- 组数 ≥ 2；单跳链没有「跳间」，`hop_security = tls` 直接 400（`chain.tls_requires_two_hops`）。
+- 一条链**整体**一种模式（`plaintext` / `tls`），本期不支持逐段混搭；逐段混搭只会让某一段
+  静默错配（TLS 客户端连上明文监听），没有产品价值。
+- 第 0 组的监听保持明文。它通常由同机 Xray 经回环访问；如果入口与实际发包方不在同一台机器，
+  这一段不在 P15.3 内，需要靠防火墙或后续「Xray outbound 也走 TLS」解决。
+- 最后一跳到目标是明文。目标若是 HTTPS，它自己的 TLS 仍保护载荷，但 SNI/域名对落地服务器的
+  上游可见。
+
+还要说清一个预期：**加密 ≠ 不可识别**。TLS 让载荷不可读、可校验完整性、能确认服务端身份；
+但「长期连接某非标准端口、固定包长节奏」这类流量特征仍然在。ws/wss 只是改变握手的形状，
+不等于隐蔽。P15.3 解决的是「裸 TCP 上什么都能看」，不是「对抗全流量分析」。
+
+**English summary.** With n groups there are exactly n−1 encryptable legs: each group's
+`remote_transport` dials the next group's `listen_transport`. The client-to-entry leg, the entry
+host's local hop-0 listener, and the final hop-to-target leg remain plaintext by design and are
+out of scope. TLS hides payload and authenticates the server; it does not make the flow
+unobservable.
+
+### 2. 证书从哪来
+
+#### 2.1 先把 realm 的能力钉死
+
+realm 的 `listen_transport` / `remote_transport` 直接交给 kaminari 解析
+（[`src/conf/endpoint.rs`](https://github.com/zhboner/realm/blob/v2.9.6/src/conf/endpoint.rs)）。
+kaminari 0.14 的 TLS 配置长这样（[`opt.rs`](https://docs.rs/kaminari/0.14.0/src/kaminari/opt.rs.html)、
+[`tls.rs`](https://docs.rs/kaminari/0.14.0/src/kaminari/tls.rs.html)）：
+
+| 端 | 可用字段 | 没有的 |
+|---|---|---|
+| 服务端 | `cert`、`key`、`ocsp`、`servername`（只给 `servername` 时自动生成自签） | 自定义 CA、客户端证书 |
+| 客户端 | `sni`（必填）、`alpn`、`insecure`（裸 token）、`0rtt`（裸 token） | **`ca=` / 信任根路径**、`server-name` |
+
+客户端的验证器固定是 `WebPkiServerVerifier` + `webpki_roots::TLS_SERVER_ROOTS`（Mozilla 根）；
+`insecure` 则换成 `SkipVerify`。服务端是 `with_no_client_auth()`，即**单向认证**。
+**结论：realm 2.9.6 无法验证自签 CA。** 这不是配置写法问题，是库的 API 就没有这个旋钮。
+
+如果未来要自签 CA，只有三条路：给 kaminari/realm 提 PR 增加 `ca=`（我们再升级 pin 的版本）；
+自己维护一个 patched realm 构建（会把「realm 是受管子进程、二进制来自官方 Release」的假设打破，
+还要承担多架构构建与签名）；或者等 P16 自研隧道。三条都不在本期。
+
+#### 2.2 两种方案对比
+
+| | A. 复用现有 `certificates`（公网 CA） | B. 主控自签 CA，Agent 落地 |
+|---|---|---|
+| 身份信任 | 浏览器/系统级公网根（realm 内置 Mozilla 根） | 自建根，需要 dialer 显式信任 |
+| realm 2.9.6 支持 | ✅ 默认即可 | ❌ 无 CA 选项，只能用 `insecure`（无身份认证） |
+| 域名/DNS | 签发时需要控制域名；**运行时不需要解析** | 不需要 |
+| 轮换 | 手动上传新证书（ACME 未实现）；组内共享私钥 | 可自动签发/续期 |
+| 私钥暴露面 | 已上传证书的私钥本来就在库/备份里；额外下发到**同组所有成员** | 每台一张，暴露面更小 |
+| 过期影响 | 到期即握手失败，链断；需人工续期 | 可自动续期；CA 私钥在库里 |
+| 运维成本 | 每跳组准备一张证书，90 天左右手动换 | 代码量大（X.509 签发、CA 存储、分发、轮换） |
+| 本期结论 | **推荐 / MVP** | **不可安全实现，不做** |
+
+#### 2.3 推荐
+
+**A：复用现有 `certificates`。** 理由不是「省事」，而是它是当前 realm 下**唯一能同时做到
+加密 + 服务端身份认证**的路径；B 的唯一实现方式是 `insecure`，那是「加密但不认证」，
+比明文更危险——它会让人以为链路是可信的。
+
+证书域名的选择：从证书的 DNS SAN 里选一个（存到 `chain_groups.tls_server_name`）。
+它**不必**解析到那台服务器，也**不必**和 `server_address` 相同；realm 客户端把 `sni` 与 TCP
+连接地址分开处理（`TlsConnect` 用 `sni` 建 `ServerName`，连接仍走 `remote` 的 IP:port）。
+
+#### 2.4 公网证书的硬性要求
+
+- 必须是**完整链 PEM**：leaf 在前，中间证书在后；只放 leaf 时 rustls 可能报 `UnknownIssuer`。
+- 私钥必须是未加密的 PKCS#8 / RSA / SEC1（现有上传解析已拒绝加密私钥）。
+- 必须有 **DNS SAN**；只有 CN 的旧证书不行（webpki 不认 CN）。IP SAN 不作为本期路径
+  （`sni` 按 DNS 名解析，且公网 IP 证书少见）。
+- 未过期；建议有效期余量 ≥ 30 天再启用。
+- 通配符可用：`*.example.com` 能匹配 `hop1.example.com`，不能匹配 `a.b.example.com`。
+- 同一组的**所有成员共用同一张证书和私钥**。这是多成员组 + 远端只有一个 `sni` 的必然结果；
+  UI 必须明确提示「私钥会下发到本组每一台服务器」。
+
+**English summary.** kaminari 0.14 exposes no client-side CA option: it verifies against compiled-in
+Mozilla roots or skips verification entirely. A master-issued private CA is therefore impossible to
+use securely with realm 2.9.6. The recommendation is to reuse existing uploaded public-CA
+certificates: one certificate per hop group, deployed (including its private key) to every member of
+that group, with a DNS SAN used as the next hop's `sni`. The name does not need to resolve at
+runtime.
+
+### 3. 配置怎么生成
+
+#### 3.1 数据模型与线协议
+
+迁移 `0031_hop_tls.sql`（只追加）：
+
+```sql
+-- 链级开关：plaintext（默认，行为不变）| tls
+ALTER TABLE chains ADD COLUMN hop_security TEXT NOT NULL DEFAULT 'plaintext';
+
+-- 每组的监听证书。seq = 0（入口组）必须为 NULL；其余组在 tls 模式下必填。
+ALTER TABLE chain_groups ADD COLUMN cert_id TEXT;
+-- 该组证书里选定的 DNS SAN，作为上一跳 remote_transport 的 sni。
+ALTER TABLE chain_groups ADD COLUMN tls_server_name TEXT;
+
+-- Agent 能力缓存：NULL = 未知（旧 Agent / 未上报）；1 = realm --version 带 [transport]；0 = 不支持。
+ALTER TABLE servers ADD COLUMN realm_transport INTEGER;
+```
+
+线协议 `PROTOCOL_VERSION` 11 → **12**，只加字段：
+
+```rust
+pub struct DesiredForward {
+    // ... 现有字段
+    #[serde(default)] pub listen_transport: Option<String>,  // None = 明文监听
+    #[serde(default)] pub remote_transport: Option<String>,  // None = 明文出站
+    /// 健康探测用：目标（下一跳）的 TLS SNI；None = TCP 探测。
+    #[serde(default)] pub probe_tls_sni: Option<String>,
+}
+
+pub struct ForwardStatus {
+    // ... 现有字段
+    /// 目标探测失败的具体原因（TLS 错误等）；None = 没有可用原因。
+    #[serde(default)] pub target_error: Option<String>,
+}
+
+pub struct Heartbeat {
+    // ... 现有字段
+    #[serde(default)] pub realm_transport: Option<bool>,
+}
+
+pub struct AgentHello {
+    // ... 现有字段
+    /// 12 起才有；旧 Agent 反序列化为 0。主控据此决定能不能下发 transport。
+    #[serde(default)] pub protocol_version: u32,
+}
+```
+
+为什么 transport 字符串由**主控**生成而不是 Agent：一条链的「下一跳是谁、SNI 是什么、证书
+在哪台机器上」只有主控知道；Agent 只拿到自己这一跳的最终字符串，保持「期望态」模型不变。
+
+#### 3.2 每一跳生成什么
+
+| 组 | `listen_transport` | `remote_transport` |
+|---|---|---|
+| 0（入口） | 不写（明文） | `tls;sni=<G1.tls_server_name>` |
+| i（1 … n−2） | `tls;cert=<Gi.cert_path>;key=<Gi.key_path>` | `tls;sni=<G(i+1).tls_server_name>` |
+| n−1（落地） | `tls;cert=<G(n-1).cert_path>;key=<G(n-1).key_path>` | 不写（明文到 target） |
+| 明文链 | 不写 | 不写 |
+
+证书路径复用 `pierwave_domain::certificate::cert_file_path` / `key_file_path`，即
+`/usr/local/etc/xray/certs/{cert_id}.pem` 与 `.key`。同一张证书既被 Xray 节点引用、又被链引用时
+只写一份（按 cert_id 去重）。
+
+#### 3.3 具体 TOML 示例
+
+一条 3 组链，证书域名分别是 `hop1.example.com`、`hop2.example.com`
+（每台服务器各有一份完整的 realm.toml；下面只展示相关段落，`[network]`/`[log]` 全文件一份）：
+
+**入口服务器（G0）**——只加密出口：
+
+```toml
+[network]
+no_tcp = false
+use_udp = true
+
+[log]
+level = "warn"
+output = "stderr"
+
+[[endpoints]]
+listen = "0.0.0.0:30001"
+remote = "203.0.113.10:30002"
+remote_transport = "tls;sni=hop1.example.com"
+network = { use_udp = false }
+```
+
+**中转服务器（G1）**——TLS 进、TLS 出：
+
+```toml
+[[endpoints]]
+listen = "0.0.0.0:30002"
+remote = "192.0.2.20:30003"
+listen_transport = "tls;cert=/usr/local/etc/xray/certs/5f0c9a.pem;key=/usr/local/etc/xray/certs/5f0c9a.key"
+remote_transport = "tls;sni=hop2.example.com"
+network = { use_udp = false }
+```
+
+**落地服务器（G2）**——TLS 进、明文到目标：
+
+```toml
+[[endpoints]]
+listen = "0.0.0.0:30003"
+remote = "198.51.100.9:443"
+listen_transport = "tls;cert=/usr/local/etc/xray/certs/9a1d44.pem;key=/usr/local/etc/xray/certs/9a1d44.key"
+network = { use_udp = false }
+```
+
+`[log]` 只在「本机存在至少一个带 transport 的端点」时生成，避免没有加密规则的服务器在升级后
+因为多了一行配置而重启 realm；`level = "warn"`、`output = "stderr"` 是让 agent 的
+`stderr(inherit)` 能收到握手失败（realm 默认 `log.level = off`、输出 stdout，而 agent 把 stdout
+设成了 `null`，不配这个等于**什么都看不到**）。
+
+#### 3.4 字符串语法与禁止写法
+
+每个端点的值是一个用 `;` 分隔的 token 串；token 前后空白会被 trim，**值里不能有 `;`**。
+`tls` / `ws` 是「开关 token」，必须精确等于 `tls` / `ws`；其余是 `key=value`。
+
+| 目的 | 正确写法 | 说明 |
+|---|---|---|
+| 服务端证书 | `tls;cert=/path/cert.pem;key=/path/key.pem` | 两个都要有，缺一个 realm 会 panic 退出 |
+| 客户端 SNI | `tls;sni=hop1.example.com` | **必填**；没有 `sni` 会 panic「tls: require sni」 |
+| 服务端自签（禁用） | `tls;servername=example.com` | 是 `servername`，不是 `server-name`；禁用 |
+| 客户端跳过校验（禁用） | `tls;sni=...;insecure` | 只认**裸 token** `insecure`，`insecure=true` 反而不生效；仍然禁用 |
+| WebSocket | `ws;host=cdn.example.com;path=/ws` | host 与 path 都必填；两端一致 |
+| WS over TLS | `tls;...;ws;host=...;path=...` | 同一个串里同时有 `tls` 和 `ws`，kaminari 组合成 Wss |
+
+**必须避免的坑（会导致「以为加密了，其实没有」）：**
+
+- ❌ `wss;host=...;path=...`：kaminari 没有 `wss` 这个 token，`has_opt` 只认精确的 `ws` 和
+  `tls`。整串会被解析成「没有任何 transport」→ **静默明文**。这是本期最危险的写法，代码生成器
+  必须禁止（我们的 builder 根本不会产出 `wss`）。
+- ❌ `tls;server-name=...`：没有这个键。服务端只认 `servername`，客户端只认 `sni`。
+  客户端写错会 panic；服务端若 cert/key 齐全则只是忽略这个键，**不会报错**，更不能靠运气。
+- ❌ `tls;cert=...`（缺 key）或 `tls;sni=`（空值）：panic，realm 进程退出。
+- ❌ `ws;host=...`（缺 path）：panic。
+- ❌ 空串 / 只有空白：等于没有 transport（明文）。
+- ❌ 把 `insecure` 当成选项值；或为了「先跑通」加 `insecure`。语义上它是「不验证服务端」，
+  本项目的安全承诺不允许。
+
+transport 串由 domain 层的 `TransportSpec` builder 生成（只有 `tls_server(cert,key)`、
+`tls_client(sni)`、`ws_server(host,path)`、`ws_client(host,path)` 四个构造器），**不接受用户
+自由文本**，也不允许从 API 直接透传。路径只允许 `[A-Za-z0-9/._-]`，SNI 只允许合法 DNS 名，
+从根上消除 `;` 注入。
+
+#### 3.5 「每一项都要一致吗？」
+
+不要求整串相同，要求**每一段两侧配对兼容**：
+
+| 检查 | 规则 |
+|---|---|
+| 协议 | 对同一条跳间链路，上文 G(i) 的 `remote_transport` 有 `tls`，下文 G(i+1) 的 `listen_transport` 也必须有 `tls`；否则握手必失败 |
+| 证书 ↔ SNI | 监听端证书的 SAN 必须覆盖拨号端的 `sni`（支持通配符，大小写不敏感） |
+| 证书链 | 拨号端只信 Mozilla 根；监听端必须给完整链 |
+| WS | 两端 `host`、`path` 必须一致；两端都必填 |
+| ALPN | 服务端没有配 ALPN，客户端不要写 `alpn=`；写了也可能协商不出协议，没有任何收益 |
+| 认证方向 | 服务端 `with_no_client_auth()`，没有 mTLS；两端字符串里都不该出现客户端证书相关键 |
+| 同一端点 | `listen_transport` 与 `remote_transport` 可以不同（入口通常「明文进、TLS 出」；落地「TLS 进、明文出」），这正是设计的一部分 |
+
+#### 3.6 多成员组：一张组证书
+
+第 i 组可能有 1..8 台成员，但上一跳的 **一个 endpoint 只有一个 `remote_transport`**，也就只有
+一个 `sni`。因此：**第 i 组的所有成员必须装同一张证书**（同一个 cert_id），远端才能对任意一台
+成员用同一个 SNI 校验通过。由此带来的约束写进 UI 文案：
+
+- 该证书的私钥会下发到本组每一台服务器；任何一台成员被攻破都等于拿到本组监听的私钥。
+- 不支持「每台成员一张自己的证书」；如果必须，组只能留 1 台（这不是限制，是 realm 的模型边界）。
+
+#### 3.7 渲染细节
+
+- 每个 endpoint 的键顺序固定：`listen`、`remote`、`extra_remotes`、`balance`、
+  `listen_transport`、`remote_transport`、`network`。同一组规则重复渲染必须逐字节一致
+  （现有的内容哈希/重启抑制依赖这一点）。
+- 所有字符串走现有的 TOML 转义；transport 串本身再做一次字符白名单校验。
+- 带 transport 的端点追加 `network = { use_udp = false }`。realm 的配置合并逻辑是
+  「endpoint 自己有的不继承全局」（`take_field`），所以这一行能精确关掉该端点的 UDP，
+  不影响同机其它明文转发规则的 UDP。
+- realm 是**一个进程一份配置**：改一条链的 transport 会让这台服务器上所有 realm endpoint
+  一起重启。证书轮换、加跳、改 SNI 都会造成该服务器上所有 realm 链路短暂中断；这个代价要在
+  UI/文档里写明。
+- `[log]` 的位置在所有 endpoint 之前；`[network]` 保持现状。
+
+#### 3.8 ws / wss（本期只留参考，不实现）
+
+```toml
+# ws（无加密，仅混淆；P15.4 再评估）
+listen_transport = "ws;host=cdn.example.com;path=/ws"
+remote_transport = "ws;host=cdn.example.com;path=/ws"
+
+# wss = tls + ws 同一个串；不是 "wss;"
+listen_transport = "tls;cert=/path/cert.pem;key=/path/key.pem;ws;host=cdn.example.com;path=/ws"
+remote_transport = "tls;sni=cdn.example.com;ws;host=cdn.example.com;path=/ws"
+```
+
+**English summary.** The master derives per-hop transport strings from the chain groups and ships
+them in `DesiredForward` (protocol v12). Each group except the entry needs one certificate; the
+group's chosen DNS SAN becomes the previous hop's `tls;sni=`. The generated realm config uses only
+`tls;cert=...;key=...` on listeners and `tls;sni=...` on dialers, adds per-endpoint
+`network = { use_udp = false }`, and enables warn-level stderr logging only when transports exist.
+A literal `wss;...` token is a silent-plaintext trap: kaminari only recognises exact `ws` and `tls`
+tokens, and wss is the combination of both.
+
+### 4. 证书分发与轮换
+
+#### 4.1 路径与权限
+
+复用现有 `ManagedFile` 与证书路径：
+
+| 文件 | 路径 | 权限 |
+|---|---|---|
+| 证书链 | `/usr/local/etc/xray/certs/{cert_id}.pem` | `0644` |
+| 私钥 | `/usr/local/etc/xray/certs/{cert_id}.key` | `0600` |
+
+`DesiredState.files` 由 `desired::render` 装配：原来只收集「节点引用的证书」，现在再加
+「本服务器所属链组（seq ≥ 1）引用的证书」，按 cert_id 去重。上一跳**不需要**证书文件，
+只需要 SNI 字符串。
+
+#### 4.2 现有实现的两个缺口（必须先补）
+
+1. **`ManagedFile.mode` 现在被忽略**：`crates/agent/src/main.rs::apply_files` 只做
+   `write(tmp) → rename`，不 `set_permissions`。私钥会按 umask 落成 `0644` 甚至更宽。
+   P15.3 必须改成「以目标 mode 创建临时文件（`OpenOptionsExt::mode`，避免写入窗口期可读）→
+   `set_permissions` 校正 → `sync_all` → rename」，并加测试。
+2. **顺序错了**：`apply_state` 现在是「先 `forwards.apply`（realm 重启）→ 再 `apply_files`」。
+   证书轮换时 realm 会拿着**还没写下去的新路径**启动，直接 panic。必须改成
+   **`apply_files` → `forwards.apply` → xray apply**；文件写失败就整轮 apply 失败、不碰 realm。
+   这样旧的 realm 进程继续用旧证书跑，链不中断。
+
+#### 4.3 原子替换与轮换
+
+- 证书行是不可变的：轮换 = 上传新证书（新 id）→ 改组的 `cert_id` → 新路径。
+  因此**不会原地覆盖**正在被 realm 读的文件；新旧文件自然共存。
+- Agent 写文件用「同目录临时文件 + rename」，rename 前 chmod + fsync；rename 是原子的。
+- 轮换流程：主控 apply（新路径 + 新 SNI 如有）→ Agent 写文件 → realm 配置哈希变化 → 重启 →
+  探针确认新证书握手成功。上一跳只有在 SNI 变化时才需要改配置；同一域名换证书时上一跳
+  无感，这是公网 CA + 稳定 SNI 带来的好处。
+- 旧文件不会自动删除（Agent 现在没有 prune 机制）。它们是历史私钥，留在磁盘上属可控风险；
+  彻底清理放 P15.4，做「只删 `/usr/local/etc/xray/certs/` 下不在当前 desired 集合里的文件」
+  的白名单式 GC，且必须排除 Xray 仍在引用的证书。
+- 没有 ACME：到期前必须人工上传新证书。面板已有 `days_left` 与 `expiring_certs` 告警
+  （按 `certificates.not_after` 统计，天然覆盖链证书），P15.3 再在链详情里显示到期日。
+
+#### 4.4 私钥暴露面
+
+- 证书私钥本来就在 SQLite（备份即包含）；链组会把它复制到同组每台成员的磁盘。
+- CA 私钥不存在（没有自签 CA），所以没有「一把根钥匙泄漏全盘皆输」的问题；但一张组证书
+  泄漏 = 可以冒充该组监听端。
+- realm 配置里只有路径，没有密钥内容；日志里只允许出现路径和指纹。
+
+**English summary.** Chain certificates reuse the existing `ManagedFile` pipeline and the
+`/usr/local/etc/xray/certs/{id}.{pem,key}` paths. Two fixes are mandatory before shipping: honour
+`ManagedFile.mode` (0600 keys) and write files **before** restarting realm, otherwise a rotation
+starts realm with paths that do not exist yet. Rotation uses a new certificate row and a new path,
+so files are never overwritten in place; old files are left for a later whitelist GC.
+
+### 5. 失败与降级
+
+#### 5.1 策略：fail closed，不降级明文
+
+**推荐并且只允许 fail closed。** 理由：
+
+1. 静默降级会把「以为加密」变成「其实明文」，比直接不可用更危险；
+2. 降级不可观测：用户只会看到能用，不会知道公网链路已经裸奔；
+3. 明文是一个**显式**选项（`hop_security = plaintext`，UI 上可见），不需要偷偷做。
+
+#### 5.2 各种失败下的行为
+
+| 场景 | 主控 | Agent | 用户看到 |
+|---|---|---|---|
+| 保存链时缺证书/域名不匹配/证书过期 | 400 + 具体 code，不落库 | 不下发 | 表单内联错误 |
+| 保存时某成员服务器 `realm_transport != true`（旧 Agent / slim realm） | 400：旧 Agent 用 `chain.tls_agent_unsupported`，realm 缺 transport 用 `chain.tls_realm_unsupported`，列出服务器 | 不下发 | 表单错误 + 「升级 Agent / 换官方 realm」 |
+| 保存后证书过期 | 下次 apply 时**整条链**跳过（不是跳过某一跳），`warnings` 里说明；链详情 `blocked_reason` | 该链所有监听被收敛掉（链断） | 链状态「未下发：证书已过期」 |
+| 运行中证书到期 | 不自动改配置；心跳/探针发现握手失败 | TLS 探针 `target_ok=false`，连续 2 次标 degraded | 链「降级」+ 告警（P13 `chain_degraded`） |
+| 证书文件写失败 | apply 失败，返回错误 | 不重启 realm，旧监听继续用旧文件 | apply 报错，链保持旧状态 |
+| realm 读到坏证书/缺文件 | — | realm panic 退出，所有 realm 规则 `listening=false`，error 带退出码 | 该服务器所有 realm 链不可用；日志有 panic 原因 |
+| 旧 Agent 收到 transport 字段 | 能力门禁挡住，不下发 | （不会被下发） | 不会出现「面板说加密、实际明文」 |
+| 某跳 TLS 握手失败 | — | 上一跳探针失败 → 该成员 degraded；主控告警 | 连接超时/重置；链状态降级；日志有原因 |
+| UDP 打到加密端口 | — | 端点 `use_udp=false`，没有 UDP 监听 | 无响应（不是明文转发） |
+
+#### 5.3 能力协商（这条不做，整套加密就是假的）
+
+有两个「静默明文」来源，必须同时挡住：
+
+1. **旧 Agent**：`DesiredForward` 新增的 `listen_transport`/`remote_transport` 对旧 Agent 是
+   未知字段，serde 默认忽略；它会照常生成没有 transport 的 realm.toml → 明文。
+2. **slim realm**：`realm-slim-*` 资产没有 `transport` feature。`EndpointConf` 的字段仍然能
+   反序列化，但 `build_transport` 不编译，配置被**静默忽略** → 明文。官方默认资产有
+   transport，`install.sh` 装的是默认资产；但用户可能手动装 slim/旧版。
+
+门禁分三层：
+
+- **Agent 启动时**跑 `realm --version`，输出形如
+  `2.9.6 [brutal][batched-udp][proxy][balance][transport][multi-thread]`（realm 的
+  `--version` 把 `FEATURES` 一起打印），包含 `[transport]` 才上报 `realm_transport = true`；
+  反之 false；命令失败/文件不存在 → `None`。缓存结果，二进制替换或 realm 重启后再测。
+- **Agent hello** 带 `protocol_version = 12`。主控收到 `< 12` 的 hello 时，立即把该服务器的
+  `realm_transport` 置 NULL，并在本次下发里**剥掉所有 TLS 链**。这堵住「新 Agent 被换回旧
+  二进制，但数据库里还留着旧 true」的窗口。
+- **每次 render/apply** 重新检查 `servers.realm_transport == Some(true)`；未知一律视为不支持。
+  链保存时检查全部成员服务器，未知直接 400，不要「先存下再说」。
+
+上线顺序：**先升主控**（此阶段不下发任何 transport）→ **再升完全部 Agent**，等每台心跳都上报
+`realm_transport = true` → **最后才允许把链改成 `tls`**。反过来做会被能力门禁挡住，不会造成
+明文，但会让用户困惑「为什么保存不了」。
+
+#### 5.4 过期
+
+- 证书 `not_after` 是绝对时刻；不引入自动续期。
+- 面板已有 30 天告警（`repo::certificates::count_expiring`），链详情显示到期日。
+- 运行中到期不自动改配置：TLS 握手失败 → 探针降级 → 告警；下一次 apply 时链被跳过并给出
+  `warnings`。两种情况都不会回退明文。
+
+**English summary.** Every failure is fail-closed: missing, expired, mismatched, unsupported or
+legacy conditions remove the whole chain (or reject the request) and never downgrade to plaintext.
+Silent downgrades are real: old agents ignore unknown transport fields and slim realm builds ignore
+transports entirely. Three gates prevent this: `realm --version` must report `[transport]`,
+`AgentHello.protocol_version` must be 12, and every render re-checks the cached capability.
+
+### 6. 可观测性
+
+#### 6.1 用户看到什么
+
+- **保存时**：表单内联错误（code + 中文），例如「第 2 组缺少证书」「证书 `hop1.example.com`
+  已过期」「服务器 A、B 的 Agent 不支持跳间加密」。
+- **apply 时**：`warnings` 里一条「链『X』未下发：…」；链列表/详情显示 `blocked_reason`。
+- **运行时**：链状态 `degraded`，成员行显示 `target_error`（如「证书已过期」「证书不受信任
+  （链不完整或非公网 CA）」「证书域名与 SNI 不匹配」「无法连接」）；P13 的链降级告警。
+- **客户端侧**：链路仍在下发时，入口端口还能 TCP 连接，但数据过不去（超时/连接被重置）——
+  入口只负责转发，TLS 失败发生在下一跳；精确原因在面板和日志里。若链已被 fail-closed
+  收敛掉，则是连接直接被拒。
+
+#### 6.2 主动探测：把「监听中」和「能握手」分开
+
+现状：Agent 的健康探测只做 TCP connect（`crates/agent/src/probe.rs`），TLS 配错时
+`listening=true`、`target_ok=true`，面板一片绿，实际全断。P15.3 必须补：
+
+- `DesiredForward.probe_tls_sni = Some(sni)` 时，对每个目标做 **TLS 握手** 而不是裸 TCP；
+  验证用与 realm 相同的 Mozilla 根（agent 引入 `rustls`（`ring` backend）+ `webpki-roots`，
+  不开 `aws-lc` 以避免 musl 构建负担）。
+- 成功：`target_ok=true` + 握手耗时；失败：`target_ok=false` + `target_error`（映射
+  `rustls::Error`：`CertExpired`/`UnknownIssuer`/`NotValidForName`/`HandshakeFailure`/IO）。
+- 探测频率沿用 30s；上一跳对每个下一跳成员各测一次，因此多成员组能快速摘除坏成员
+  （现有 `overall_target_ok` + 选路逻辑自动生效）。
+- 探针失败 ≠ 监听失败：继续保留 `listening` 的独立判据。
+
+#### 6.3 日志记什么
+
+| 位置 | 内容 | 不记 |
+|---|---|---|
+| master | 链 render 决策、跳过原因、证书指纹（sha256 前 12 位）、组/跳、SNI、目标地址 | 私钥、PEM 内容 |
+| agent | realm 配置哈希、endpoint 数、transport 种类（tls/plain）、证书路径、realm 退出码 | 私钥、完整 transport 串（可含路径，但没必要） |
+| realm | `[log] level=warn output=stderr`：握手错误、证书读取失败、端口绑定失败 | — |
+
+realm 的 `stderr` 已经 `inherit` 到 agent；现在缺的是 `[log]` 段。没有它，realm 默认
+`level=off` 且输出 stdout（agent 把 stdout 丢了），TLS 失败**完全静默**。handshake 错误
+不要做正则解析来驱动状态（版本一换就碎）；状态由 TLS 探针负责，日志只给人看。
+
+#### 6.4 新增错误码（同时更新 `docs/ERRORS.md` 与 i18n）
+
+| code | 中文兜底 | params |
+|---|---|---|
+| `chain.tls_requires_realm` | 只有 realm 引擎的链才能启用跳间加密 | — |
+| `chain.tls_requires_two_hops` | 至少两跳的链才有跳间链路 | — |
+| `chain.tls_group_cert_required` | 第 {seq} 组缺少证书 | seq |
+| `chain.tls_group_cert_forbidden` | 入口组不需要证书 | — |
+| `chain.tls_cert_expired` | 证书已过期 | name, not_after |
+| `chain.tls_cert_domain_invalid` | 域名 {domain} 不在证书 SAN 中 | domain |
+| `chain.tls_cert_no_dns_san` | 证书没有 DNS SAN，不能用于跳间 TLS | — |
+| `chain.tls_agent_unsupported` | 以下服务器不支持跳间加密：{servers} | servers |
+| `chain.tls_realm_unsupported` | 以下服务器的 realm 未启用 transport：{servers} | servers |
+
+`certificate.in_use` 的引用计数要加上链组：删除仍被链引用的证书 → 400，提示「被 N 个节点、
+M 条链引用」。
+
+**English summary.** Users get precise errors at save time and a `blocked_reason`/degraded state at
+runtime; the client itself only sees a timeout. A new TLS health probe (same Mozilla roots as realm)
+turns `target_ok` into a real handshake check and reports `target_error` such as expired,
+untrusted or hostname-mismatched certificates. realm logging must be enabled explicitly
+(`[log] level=warn output=stderr`), otherwise handshake failures are invisible. New error codes are
+listed for both the error registry and the i18n dictionaries.
+
+### 7. MVP：TLS 单向 + 公网证书（推荐）
+
+| 方案 | 机密性 | 完整性 | 服务端身份 | DPI 对抗 | 前置条件 | 结论 |
+|---|---|---|---|---|---|---|
+| **TLS + 公网证书** | ✅ | ✅ | ✅ | 中（流量特征仍在） | 每组一张可用公网证书 | **MVP** |
+| TLS + 自签 + `insecure` | ✅ | ✅ | ❌ 可被中间人 | 中 | 无 | **不做**（伪安全） |
+| 仅 ws | ❌ | ❌ | ❌ | 弱（只是换个握手形状） | 无 | **不做**（不满足目标） |
+| wss（tls+ws） | ✅ | ✅ | ✅ | 中 | 公网证书 + CDN/域名前置 | P15.4 |
+
+**MVP 一句话**：只对 `engine = realm` 且 ≥2 组的链，用现有 `certificates` 里的公网证书做跳间
+**单向 TLS**（每组一张、组内成员共用），加密端点关 UDP；证书/能力不满足时**整链拒绝下发**，
+绝不回退明文。
+
+为什么不是 ws：它不提供机密性、完整性和身份认证，只改变握手形状；「公网链路上可被识别」的
+问题它只解决表面一层。为什么不是自签 CA：realm 的 TLS 客户端没有自定义信任根，只能 `insecure`，
+那等于把「防中间人」这件事删掉。
+
+单向 TLS 的已知代价：监听端只验证服务端、不验证客户端（realm 服务端固定
+`with_no_client_auth`），所以**任何能连到该端口的人都能把它当跳板**。当前明文转发本来也是
+开放的，P15.3 不会让它更糟，但也不要在文案里暗示「已经安全」；真正的访问控制要靠防火墙
+（只允许上一跳的出口 IP）或后续 mTLS/自研隧道。这一条必须写进 UI 提示与 DEPLOY。
+
+**English summary.** The MVP is one-way TLS with existing public-CA certificates, one per group,
+with UDP disabled on encrypted endpoints and fail-closed behaviour. Self-signed TLS plus
+`insecure` is rejected because it provides no server authentication; ws alone provides no
+confidentiality at all. One-way TLS still leaves each listener an open relay for anyone who can
+reach it, so firewall allow-listing or later mTLS is required.
+
+### 8. 测试策略
+
+#### 8.1 纯函数 / 单元测试（不碰网络）
+
+- `TransportSpec`：四种构造器输出逐字节固定；`tls_server` 缺 key、`tls_client` 无 sni、
+  含 `;`/换行/空白的输入被拒绝；`wss` 永不出现。
+- SNI 校验：精确匹配、大小写、通配符、单层/多层子域、IP 字面量拒绝。
+- 证书校验：过期边界（`not_after == now`）、无 DNS SAN、域名不在 SAN、证书与私钥不匹配
+  （复用现有 `certificate::parse`）。
+- 链规则：native 引擎拒绝、1 组拒绝、组 0 带证书拒绝、多成员组允许、缺失证书拒绝。
+- 生成映射：2 组 / 3 组 / 多成员组，逐跳断言 `listen_transport` / `remote_transport` 的有无与内容。
+
+#### 8.2 主控（内存 SQLite + HTTP）
+
+- `desired::render` 的 golden：入口只有 remote、中转两者都有、落地只有 listen；明文链两者都无。
+- 证书文件装配：只在组成员服务器上出现、按 id 去重、mode 正确；不泄漏 key 到响应。
+- 失败路径：证书过期 → 整链不在 forwards 里 + warnings 一条；能力 false/未知 → 同上；
+  旧 protocol hello → 剥离 TLS 链。
+- 证书删除保护：被链组引用时 400；解除引用后可删。
+- 表单校验：400 code/params 与 i18n 键存在（错误码表同步测试）。
+
+#### 8.3 Agent
+
+- `render_config` golden：含 transport 行、`network = { use_udp = false }`、`[log]`；
+  顺序稳定；无 TLS 规则时不生成 `[log]`（避免无谓重启）。
+- `apply_files`：unix 下私钥文件 mode 必须是 0600；写入失败时不重启 realm；文件先于
+  forwards 的顺序用可注入的失败点测试。
+- 能力探测：假 realm 脚本输出带/不带 `[transport]` 的 `--version`，断言上报值。
+- TLS 探针：本地起一个自签 TLS 监听，断言 `target_ok=false` 且 `target_error` 是
+  「证书不受信任」类；本地明文监听断言 TCP 路径不受影响；错误映射单测覆盖
+  `CertExpired`/`UnknownIssuer`/`NotValidForName`。
+
+#### 8.4 真实 realm 的 CI（可行，但有边界）
+
+**可行**：GitHub Actions 的 Linux x86_64 runner 下载 pin 死的 realm v2.9.6 默认资产
+（与 `install.sh` 相同的 sha256），跑：
+
+1. **监听端正向**：realm endpoint A = TLS listener（测试用自签证书），
+   `openssl s_client -connect 127.0.0.1:port -servername test.local -verify_return_error`
+   不带 CA 时应按预期失败，`-CAfile` 指定自签根时应成功并打印证书——证明 listener 真的在
+   做 TLS 且用对了证书。
+2. **客户端校验负向**：realm endpoint B = 明文监听 + `remote_transport = "tls;sni=test.local"`，
+   remote 指向一个自签 TLS 服务；客户端连 B 发数据，应被断开（`UnknownIssuer`），证明 realm
+   客户端**确实在校验**而不是静默明文。
+3. **UDP 关闭**：全局 `use_udp = true` + 端点 `network = { use_udp = false }`；向端口发 UDP
+   包无响应，`ss -lun` 不出现该端口。
+4. **能力/版本**：`realm --version` 输出包含 `[transport]`；对 slim 资产（可选）断言不包含，
+   用于验证门禁文案。
+5. **配置形状**：用可用的 realm 二进制启动生成的配置，断言进程不因未知键/缺文件立刻退出。
+
+**不可行/不能做成 hermetic 的**：realm 客户端只信 Mozilla 根，CI 里**无法**用自签证书做
+「客户端验证通过」的正向测试（除非发一个公网可信证书，TLS 也要求私钥，不能进仓库）。
+所以：
+
+- 「客户端验证通过」的完整链路放到**双机手工验收**（§8.5），用真实域名证书；
+- CI 只覆盖「监听端 TLS 正确」「客户端验证确实开启」「配置合法」「UDP 关闭」「能力探测」；
+- 如果哪天给 realm 打了 `ca=` 补丁，才可以把自签正向测试搬进 CI。
+
+#### 8.5 双机手工验收（发版前必做）
+
+- 两台 VPS + 一张真实域名证书（或通配符），建 2 组链，`hop_security = tls`；
+- 入口用该链访问一个 TCP 回显/HTTP 目标，确认可用；
+- 在入口 `openssl s_client -connect <中转>:<port> -servername <domain>` 成功，证书域名正确；
+- `tcpdump -i any -A port <中转端口>` 看不到明文 HTTP/业务字节；
+- 改错 SNI / 换成过期证书：链在 30–60s 内变 degraded，日志出现 handshake 错误，**没有明文回退**；
+- 只留 UDP：确认加密端口不响应 UDP；
+- 把中转 Agent 换回旧版本：面板在重连后拒绝下发 TLS 链（能力门禁生效），而不是明文继续跑。
+
+**English summary.** Unit and HTTP tests cover the deterministic parts (transport strings, mapping,
+expiry, capability gating, file modes and ordering). Real-realm CI can verify the TLS listener, the
+fact that the realm client rejects a self-signed certificate, UDP being off, and the version
+capability check. A fully verified client handshake needs a publicly trusted certificate that
+cannot live in CI, so that case stays a two-host manual acceptance test.
+
+### 9. 任务书（每步可验收）
+
+| # | 工作 | 规模 | 验收 |
+|---|---|---|---|
+| 0 | **运行时契约钉死**：起 realm v2.9.6，验证 `--version` 的 `[transport]`、`tls;cert/key` 监听、`tls;sni` 客户端、`wss;` 的静默明文、每端点 `use_udp=false`、`[log]` 输出到 stderr | S（0.5d） | 一份可复现的命令记录（回填本文 §11），结论与本方案一致；不一致先停下来改方案 |
+| 1 | 迁移 `0031_hop_tls.sql` + domain models/repo 字段（`hop_security`、`cert_id`、`tls_server_name`、`servers.realm_transport`） | M | 旧库升级后默认 `plaintext`，现有链的下发结果逐字节不变；迁移测试与 repo 测试通过 |
+| 2 | domain `hop_transport`：`TransportSpec` builder、SNI/证书/通配符/过期校验、链前置规则 | M | §8.1 全部单测；无网络、无 DB |
+| 3 | proto v12：`DesiredForward.listen_transport/remote_transport/probe_tls_sni`、`ForwardStatus.target_error`、`Heartbeat.realm_transport`、`AgentHello.protocol_version` | M | 旧 JSON 反序列化为 `None/0`；新字段往返；`PROTOCOL_VERSION == 12` 断言 |
+| 4 | master 推导与下发：逐跳 transport、组成员证书进 `files`、证书删除保护、能力门禁、过期/缺失整链跳过、`warnings`、`blocked_reason` | L | §8.2 全部测试；2/3 组 golden；过期/未知/旧协议都不产生明文；无证书时不生成任何 transport |
+| 5 | agent 渲染与落盘：transport 行、`network use_udp=false`、条件 `[log]`、`ManagedFile.mode`、files-before-realm、`realm_transport` 能力探测 | L | §8.3 渲染/权限/顺序/能力测试；`make check` 绿 |
+| 6 | agent TLS 探针：`probe_tls_sni` 走 rustls 握手、错误映射、`target_error` 上报、链视图展示 | M | 自签负向测试；明文路径无回归；degraded 计数与告警沿用现有逻辑 |
+| 7 | API + 前端：链表单 `hop_security`、每组证书/域名选择、共享私钥/到期提示、`blocked_reason`/`target_error` 展示、i18n 中英 | M | 表单能阻止非法组合；错误码双语；链列表四态不回归 |
+| 8 | 测试与 CI：真实 realm 用例（§8.4）、golden、`make check` | M | CI 用例除下载 pin 死的 realm 资产外不依赖外网；失败信息可读 |
+| 9 | 双机验收 + 文档：DEPLOY 段、回滚说明、`make check` | S | §8.5 全过；未加密链路/旧数据回归通过；不提交、不发版 |
+
+依赖顺序：0 → 1/2/3 可并行 → 4 → 5 → 6 → 7 → 8 → 9。第 0 步是硬门禁：结论不成立就停止，
+不要带着「可能不支持」的假设写代码。
+
+**English summary.** Step 0 pins the runtime contract before any code. Steps 1–3 add schema,
+domain builders and protocol fields; step 4 derives transports in master; step 5 renders and writes
+them safely in the agent; step 6 adds real handshake health checks; step 7 exposes the minimum UI
+and bilingual errors; steps 8–9 provide CI and two-host acceptance. Every step has a concrete
+acceptance criterion, and the sequence is gated on step 0.
+
+### 10. 不做什么（本期范围边界）
+
+- **不做自签 CA / 自定义信任根**：realm 2.9.6 的客户端没有这个能力，`insecure` 明确禁止。
+- **不做 ws / wss**：ws 不加密；wss 等 CDN 前置需求明确后再做（写法已记录，本期不生成）。
+- **不加密**客户端→入口、入口本机→G0、最后一跳→目标这三段。
+- **不做 UDP over TLS**：加密端点 `use_udp=false`，这些端口不转发 UDP；不引入第二个 realm 进程。
+- **不做 mTLS / 客户端证书**：监听端仍是开放中继，访问控制交给防火墙或 P16。
+- **不做 ACME / 自动续期**：证书仍手动上传；到期即断链，只告警不自动换。
+- **不做多成员组各自独立证书**：远端只有一个 `sni`，同组必须共用一张证书。
+- **不做证书吊销/CRL/OCSP**。
+- **不做 CA/证书轮换的零停机编排**：realm 进程重启会短暂中断该服务器所有 realm 链。
+- **不做 realm 自动升级**，也不接受用户手写 transport 串（绕过校验）。
+- **不做「加密后自动降级明文」**，任何情况都不。
+- **不做全链路端到端探测**：只做「上一跳→下一跳」的 TLS 探针；最后一跳到目标仍按现有 TCP 探测。
+
+**English summary.** The scope excludes private CAs, ws/wss, client-side and last-mile encryption,
+UDP-over-TLS, mTLS, ACME, per-member certificates, revocation, zero-downtime realm restarts, realm
+auto-upgrade, plaintext downgrade, and full end-to-end chain probing.
+
+### 11. 风险、待确认与依据
+
+**三个最大风险：**
+
+1. **公网证书的运维成本**：没有 ACME，90 天左右必须人工换；忘记换 = 链断。缓解：30 天告警、
+   链详情到期日、apply 前预检、文档写清「到期不会回退明文」。
+2. **静默明文**：旧 Agent / `realm-slim` / 写错 `wss;` 都会得到「看起来配了、实际明文」。
+   缓解：三层能力门禁 + `wss` 永不生成 + CI 负向用例 + 日志打印 transport 种类。
+   这是本期最需要测试兜底的风险。
+3. **UDP 明文穿透**：realm 的 UDP 路径完全不看 transport；如果 `network = { use_udp = false }`
+   的端点级覆盖在某版本上失效，同一个端口会继续明文转发 UDP。缓解：第 0 步用 UDP 包验证；
+   CI 固化；必要时退化为「整份配置 `use_udp = false`」（代价是同机明文规则也没有 UDP，需在
+   UI 明示）。
+
+**其它需要注意的：**
+
+- **realm 的信任根会随版本变**：客户端只信编译进二进制的 Mozilla 根；极老的根或私有 CA
+  都会被拒。升级 realm 后要重跑 TLS 用例。
+- **单向认证 = 开放中继**：任何能连到监听端口的人都能用这条链；必须配防火墙。
+- **realm 单进程**：一次配置变化重启该服务器所有 realm 端点，所有链短暂中断。
+- **多成员组共享私钥**：一台成员被攻破 = 该组监听身份泄露。
+- **TLS 握手开销**：每条新 TCP 连接多一次握手 RTT；短连接场景吞吐/延迟会受影响，双机验收
+  要记录基线。
+- **探针与 realm 的信任根一致性**：agent 探针必须用 `webpki-roots`（与 kaminari 同源），
+  不要用系统 CA store，否则会出现「面板红、实际能用」或反之。
+
+**待确认（第 0 步回答，写回本节）：**
+
+1. 选定的 realm v2.9.6 资产（x86_64/aarch64）`--version` 是否都带 `[transport]`？
+2. 端点级 `network = { use_udp = false }` 在该版本上是否确实覆盖全局 `use_udp = true`？
+3. `wss;` 写法是否确实解析为「无 transport」→ 明文（用抓包确认）？
+4. `[log] output = "stderr"` 的握手错误文案长什么样，是否含足够上下文？
+5. 真实域名证书 + IP 直连 + `sni` 在双机上是否稳定通过？
+
+**依据（2026-11-10 核对）：**
+
+- realm v2.9.6 的 `realm_core` 依赖 kaminari 0.14：
+  [realm_core/Cargo.toml@v2.9.6](https://github.com/zhboner/realm/blob/v2.9.6/realm_core/Cargo.toml)
+- realm 把 transport 串交给 kaminari 的 `get_ws_conf` / `get_tls_client_conf` /
+  `get_tls_server_conf`：
+  [src/conf/endpoint.rs@v2.9.6](https://github.com/zhboner/realm/blob/v2.9.6/src/conf/endpoint.rs)
+- 客户端只有 `sni/alpn/insecure/0rtt`，信任 webpki 根；服务端 `with_no_client_auth`：
+  [kaminari 0.14 tls.rs](https://docs.rs/kaminari/0.14.0/src/kaminari/tls.rs.html)
+- token 精确匹配与 `wss` 不被识别：
+  [kaminari 0.14 opt.rs](https://docs.rs/kaminari/0.14.0/src/kaminari/opt.rs.html)，
+  选项说明见 [kaminari README](https://github.com/zephyrchien/kaminari#options)
+- endpoint 级 network 覆盖全局（`take_field` 只在 endpoint 为空时继承）：
+  [src/conf/mod.rs@v2.9.6](https://github.com/zhboner/realm/blob/v2.9.6/src/conf/mod.rs)
+- UDP 路径不使用 transport：
+  [realm_core/src/udp/middle.rs@v2.9.6](https://github.com/zhboner/realm/blob/v2.9.6/realm_core/src/udp/middle.rs)
+- `realm --version` 打印版本 + 编译 feature（`FEATURES`）：
+  [src/cmd/mod.rs@v2.9.6](https://github.com/zhboner/realm/blob/v2.9.6/src/cmd/mod.rs)、
+  [src/consts.rs@v2.9.6](https://github.com/zhboner/realm/blob/v2.9.6/src/consts.rs)
+
+**English summary.** The top risks are certificate operations without ACME, silent plaintext due to
+old agents/slim realm/mistyped `wss;`, and UDP bypassing the transport. Step 0 must answer five
+runtime questions (transport feature in both release assets, endpoint-level UDP override, `wss;`
+plaintext behaviour, stderr log shape, and real-cert IP/SNI behaviour). The cited realm 2.9.6 and
+kaminari 0.14 sources are the basis for the design; re-check them whenever realm is upgraded.

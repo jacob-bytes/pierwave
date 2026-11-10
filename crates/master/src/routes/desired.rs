@@ -150,6 +150,8 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
             strategy: Default::default(),
             // 库里的字符串已由写路径校验；读路径用 from_name 兜底旧数据。
             engine: ForwardEngine::from_name(&forward.engine),
+            // 只有 native 会读这一位；realm 的配置固定转发 UDP。
+            udp: forward.udp,
         })
         .collect();
 
@@ -521,6 +523,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "native".into(),
+                udp: false,
             },
         )
         .await
@@ -535,6 +538,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "native".into(),
+                udp: false,
                 groups: vec![
                     repo::chains::NewChainGroup {
                         name: None,
@@ -623,6 +627,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "realm".into(),
+                udp: false,
             },
         )
         .await
@@ -637,6 +642,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "native".into(),
+                udp: false,
             },
         )
         .await
@@ -679,6 +685,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "native".into(),
+                udp: false,
             },
         )
         .await
@@ -693,6 +700,7 @@ mod tests {
                 target_port: 443,
                 enabled: false,
                 engine: "native".into(),
+                udp: false,
             },
         )
         .await
@@ -728,6 +736,7 @@ mod tests {
                         targets: Vec::new(),
                         strategy: Default::default(),
                         engine: ForwardEngine::Native,
+                        udp: false,
                     }]
                 );
             }

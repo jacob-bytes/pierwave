@@ -15,7 +15,8 @@ PIERWAVE_ADDR="127.0.0.1:$PORT" PIERWAVE_DB="sqlite://$WORK/db.sqlite?mode=rwc" 
 PIERWAVE_ADMIN_PASSWORD=devpass ./target/debug/pierwave-master > "$WORK/master.log" 2>&1 &
 MASTER_PID=$!
 AGENT_PID=""
-cleanup() { kill $MASTER_PID ${AGENT_PID:-} 2>/dev/null || true; wait 2>/dev/null || true; }
+UDP_ECHO_PID=""
+cleanup() { kill $MASTER_PID ${AGENT_PID:-} ${UDP_ECHO_PID:-} 2>/dev/null || true; wait 2>/dev/null || true; }
 trap cleanup EXIT
 
 for _ in $(seq 1 60); do curl -sf "$BASE/api/v1/health" >/dev/null 2>&1 && break; sleep 0.2; done
@@ -498,5 +499,63 @@ assert "realm" in state["realm_error"].lower(), f"realm 错误应说明原因：
 print("ok 转发引擎分流:", state)
 PY
 
+
+# ---- UDP 转发：真起一个 UDP echo，客户端发 3 个包必须全部回显 ----
+# 这一段打通完整链路：主控接受 udp=true → 期望态带上 udp → Agent 在同一个
+# listen_port 上再绑 UDP socket → 会话表把数据报转给目标并把回包写回客户端。
+python3 - "$WORK" <<'PY' &
+import socket, sys, threading
+work = sys.argv[1]
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind(("127.0.0.1", 0))
+with open(f"{work}/udp-echo.port", "w") as fh:
+    fh.write(str(sock.getsockname()[1]))
+def serve():
+    while True:
+        try:
+            data, peer = sock.recvfrom(65535)
+        except OSError:
+            return
+        sock.sendto(b"udp:" + data, peer)
+threading.Thread(target=serve, daemon=True).start()
+threading.Event().wait()
+PY
+UDP_ECHO_PID=$!
+for _ in $(seq 1 50); do [ -s "$WORK/udp-echo.port" ] && break; sleep 0.1; done
+UDP_TARGET_PORT=$(cat "$WORK/udp-echo.port")
+[ -n "$UDP_TARGET_PORT" ] || { echo "FAIL: UDP echo 没有起来"; exit 1; }
+
+UDP_FWD=$(curl -sf -b "$WORK/cookie" -X POST "$BASE/api/v1/servers/$SERVER_ID/forwards" \
+  -H 'Content-Type: application/json' \
+  -d "{\"name\":\"e2e-udp\",\"listen_port\":19558,\"target_host\":\"127.0.0.1\",\"target_port\":$UDP_TARGET_PORT,\"engine\":\"native\",\"udp\":true}")
+UDP_FLAG=$(echo "$UDP_FWD" | jget '["forward"]["udp"]')
+[ "$UDP_FLAG" = "True" ] || { echo "FAIL: 转发响应没有回显 udp=true（实际 $UDP_FLAG）"; exit 1; }
+echo "ok 建 UDP 转发规则（udp=true）"
+
+UDP_LISTENING=""
+for _ in $(seq 1 30); do
+  curl -sf -b "$WORK/cookie" "$BASE/api/v1/servers/$SERVER_ID/forwards" > "$WORK/forwards-udp.json"
+  UDP_LISTENING=$(python3 - "$WORK/forwards-udp.json" <<'PY'
+import json, sys
+items = {i["name"]: i for i in json.load(open(sys.argv[1]))["items"]}
+rule = items.get("e2e-udp") or {}
+print("true" if (rule.get("runtime") or {}).get("listening") is True else "pending")
+PY
+)
+  [ "$UDP_LISTENING" = "true" ] && break
+  sleep 1
+done
+[ "$UDP_LISTENING" = "true" ] || { echo "FAIL: e2e-udp 没有进入 listening"; tail -20 "$WORK/agent.log"; exit 1; }
+
+python3 - <<'PY'
+import socket
+client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+client.settimeout(3)
+for payload in (b"one", b"two", b"three"):
+    client.sendto(payload, ("127.0.0.1", 19558))
+    data, _ = client.recvfrom(65535)
+    assert data == b"udp:" + payload, (payload, data)
+print("ok UDP 转发回环：3 个数据报全部回显")
+PY
 
 echo "PASS 全部通过（日志：$WORK/master.log, $WORK/agent.log）"

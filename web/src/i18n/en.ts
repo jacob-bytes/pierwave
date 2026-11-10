@@ -80,6 +80,9 @@ const en = {
         desc: "The backend returned an unrecognized forward engine; the UI treats it as Native, and saving again writes native.",
       },
     },
+    udp: "UDP",
+    udpRealmTitle:
+      "The realm engine already forwards both TCP and UDP, so this switch is always on.",
   },
   status: {
     active: "Active",
@@ -1793,6 +1796,7 @@ const en = {
       engineAria: "Forward engine",
       engineHint:
         "Choose which implementation runs this rule; apply the config after saving to deliver it to the Agent.",
+      udp: "UDP forwarding",
       realmNotInstalled:
         "This server does not have realm installed. After saving, this rule will show “not listening · realm not installed”; install realm and apply the config again to recover.",
       submitCreate: "Create forward",
@@ -1958,6 +1962,7 @@ const en = {
       engineAria: "Forward engine for the chain",
       engineHint:
         "The whole chain shares one engine, passed through every hop; switching it rebuilds the listeners on all members.",
+      udp: "UDP forwarding",
       realmNotInstalled:
         "Some selected servers do not have realm installed: {servers}. After saving, those hops will show “not listening · realm not installed”; install realm and apply the config again to recover.",
       groups: "Chain hops",

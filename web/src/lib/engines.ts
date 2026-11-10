@@ -292,3 +292,28 @@ export function chainServersMissingRealm(
 export function engineInput(value: unknown): { engine: ForwardEngine } {
   return { engine: normalizeEngine(value) };
 }
+
+/**
+ * 规则实际是否同时监听 UDP。
+ *
+ * - `realm` 在配置里已经固定 `use_udp = true`，所以恒为 `true`，
+ *   不随后端字段 / 用户选择变化；
+ * - `native`（含缺失字段）与未知引擎原样透传 `udp`，`undefined` 按 false。
+ *
+ * 表单里开关的显示值用它，而不是直接读表单里的 `udp`。
+ */
+export function effectiveUdp(engine: unknown, udp: unknown): boolean {
+  if (normalizeEngine(engine) === "realm") return true;
+  return Boolean(udp);
+}
+
+/**
+ * 列表里是否额外显示 `UDP` 徽标。
+ *
+ * realm 不显示：引擎徽标已经写明 realm 支持 UDP，再挂一个就是重复；
+ * 其它引擎只有真的开启 UDP 才显示。未知引擎照常按实际开关显示，
+ * 因为它的引擎徽标没有解释 UDP。
+ */
+export function udpBadgeVisible(engine: unknown, udp: unknown): boolean {
+  return normalizeEngine(engine) !== "realm" && Boolean(udp);
+}

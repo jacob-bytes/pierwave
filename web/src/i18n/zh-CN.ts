@@ -76,6 +76,8 @@ const zhCN = {
         desc: "后端返回了未识别的转发引擎；界面按自带引擎展示，重新保存会写成 native。",
       },
     },
+    udp: "UDP",
+    udpRealmTitle: "realm 引擎已同时转发 TCP 与 UDP，此开关恒为开启。",
   },
   status: {
     active: "生效中",
@@ -1688,6 +1690,7 @@ const zhCN = {
       engineAria: "转发引擎",
       engineHint:
         "选择运行这条规则所用的实现；保存后需要应用配置才会下发到 Agent。",
+      udp: "UDP 转发",
       realmNotInstalled:
         "这台服务器未安装 realm。保存后这条规则会显示「未监听 · realm 未安装」，装好 realm 并重新应用即可恢复。",
       submitCreate: "创建转发",
@@ -1844,6 +1847,7 @@ const zhCN = {
       engineAria: "转发链的转发引擎",
       engineHint:
         "整条链共用一个引擎，逐跳透传；切换引擎会重建所有成员的监听。",
+      udp: "UDP 转发",
       realmNotInstalled:
         "所选服务器中有未安装 realm 的：{servers}。保存后这些跳会显示「未监听 · realm 未安装」，装好 realm 并重新应用即可恢复。",
       groups: "链路节点",

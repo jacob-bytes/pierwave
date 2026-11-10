@@ -56,6 +56,7 @@ import {
 } from "@/lib/chains";
 import {
   FORWARD_ENGINES,
+  effectiveUdp,
   engineInput,
   formatServerNameList,
   isForwardEngine,
@@ -637,10 +638,13 @@ export function ChainFormDialog({
       enabled: chain ? Boolean(chain.enabled) : true,
       // 编辑旧链：engine 缺失时按契约缺省 native 回填，不让选项显示成空白。
       engine: normalizeEngine(chain?.engine),
+      // 旧数据 / 旧后端没有 udp：按契约缺省 false 回填。
+      udp: Boolean(chain?.udp),
       groups: initialGroups,
     },
   });
   const selectedEngine = form.watch("engine");
+  const realmEngine = selectedEngine === "realm";
   // 用 useWatch 订阅整组：成员是在子组件 GroupCard 里改的，
   // 顶层 `form.watch` 的引用可能不变，warning 会漏更新。
   const watchedGroups =
@@ -686,6 +690,8 @@ export function ChainFormDialog({
       enabled: values.enabled,
       // native 也显式发送：编辑时把 realm 改回 native，PATCH 必须带 engine。
       ...engineInput(values.engine),
+      // 只对 native 有意义；realm 时展示层按开启处理，提交仍原样带值。
+      udp: values.udp,
       groups: values.groups.map((group) => ({
         name:
           group.kind === "single"
@@ -897,6 +903,26 @@ export function ChainFormDialog({
                 </div>
               ) : null}
             </div>
+          </FormField>
+
+          <FormField label={t("chains.form.udp")} htmlFor="chain-udp">
+            <Controller
+              control={form.control}
+              name="udp"
+              render={({ field }) => (
+                <span
+                  className="inline-flex items-center"
+                  title={realmEngine ? t("common.udpRealmTitle") : undefined}
+                >
+                  <Switch
+                    id="chain-udp"
+                    checked={effectiveUdp(selectedEngine, field.value)}
+                    onCheckedChange={field.onChange}
+                    disabled={pending || realmEngine}
+                  />
+                </span>
+              )}
+            />
           </FormField>
 
           <div className="min-w-0 space-y-2">

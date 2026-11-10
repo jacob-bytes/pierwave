@@ -6,6 +6,7 @@ mod selector;
 mod system_info;
 mod tc;
 mod traffic;
+mod udp;
 mod upgrade;
 
 use std::path::{Path, PathBuf};
@@ -1210,6 +1211,7 @@ mod tests {
             targets: Vec::new(),
             strategy: Default::default(),
             engine: Default::default(),
+            udp: false,
         };
         let state = DesiredState {
             version: 1,
@@ -1281,6 +1283,7 @@ mod tests {
             targets: Vec::new(),
             strategy: Default::default(),
             engine: ForwardEngine::Native,
+            udp: false,
         };
         let realm_rule = DesiredForward {
             id: "realm-1".into(),
@@ -1290,6 +1293,7 @@ mod tests {
             targets: Vec::new(),
             strategy: Default::default(),
             engine: ForwardEngine::Realm,
+            udp: false,
         };
         let state = DesiredState {
             version: 1,
@@ -1372,6 +1376,7 @@ mod tests {
             targets: Vec::new(),
             strategy: Default::default(),
             engine: ForwardEngine::Native,
+            udp: false,
         };
         let realm_rule = DesiredForward {
             id: "realm-pending".into(),
@@ -1381,6 +1386,7 @@ mod tests {
             targets: Vec::new(),
             strategy: Default::default(),
             engine: ForwardEngine::Realm,
+            udp: false,
         };
 
         let state = DesiredState {

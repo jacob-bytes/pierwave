@@ -67,3 +67,27 @@ export function EngineBadge({
     </>
   );
 }
+
+/**
+ * 名称旁的 `UDP` 小徽标：只在 native 规则真正开启 UDP 时显示，不新增列。
+ *
+ * 与 `EngineBadge` 同一套 outline + type-micro 视觉，紧挨着引擎徽标排；
+ * realm 不显示（引擎徽标已说明它本来就转发 UDP）。
+ */
+export function UdpBadge({ className }: { className?: string }) {
+  const { t } = useI18n();
+
+  return (
+    <Badge
+      variant="outline"
+      data-udp="true"
+      className={cn(
+        "h-5 px-1.5 type-micro font-normal whitespace-nowrap",
+        ENGINE_TONES.native,
+        className,
+      )}
+    >
+      {t("common.udp")}
+    </Badge>
+  );
+}

@@ -5,6 +5,7 @@ import {
   FORWARD_ENGINES,
   chainEngineMissing,
   chainServersMissingRealm,
+  effectiveUdp,
   engineInput,
   engineMeta,
   engineMissing,
@@ -15,6 +16,7 @@ import {
   normalizeEngine,
   realmMissingOnServer,
   serversMissingRealm,
+  udpBadgeVisible,
 } from "./engines.ts";
 import en from "../i18n/en.ts";
 import zhCN from "../i18n/zh-CN.ts";
@@ -477,4 +479,66 @@ test("engineInput always sends an explicit legal value", () => {
 test("engineInput serializes to JSON with exactly one engine field", () => {
   assert.equal(JSON.stringify(engineInput("realm")), '{"engine":"realm"}');
   assert.equal(JSON.stringify(engineInput("native")), '{"engine":"native"}');
+});
+
+// ---- UDP：realm 恒为开启，其它引擎按用户选择 ----
+
+test("effectiveUdp forces UDP on for realm and passes the flag otherwise", () => {
+  // realm 的配置里本来就是 use_udp = true：开关只是展示，不能是关闭。
+  assert.equal(effectiveUdp("realm", true), true);
+  assert.equal(effectiveUdp("realm", false), true);
+  assert.equal(effectiveUdp("realm", undefined), true);
+  // 后端写路径允许首尾空白，与 normalizeEngine 一致。
+  assert.equal(effectiveUdp("  realm  ", false), true);
+
+  // native 原样透传；缺失 / 旧数据按 false 处理。
+  assert.equal(effectiveUdp("native", true), true);
+  assert.equal(effectiveUdp("native", false), false);
+  assert.equal(effectiveUdp("native", undefined), false);
+  assert.equal(effectiveUdp("native", null), false);
+
+  // 未知引擎也原样透传，不因为不认识就改写用户的开关。
+  assert.equal(effectiveUdp("wireguard", true), true);
+  assert.equal(effectiveUdp("wireguard", false), false);
+  assert.equal(effectiveUdp(undefined, true), true);
+  assert.equal(effectiveUdp(null, false), false);
+});
+
+test("udpBadgeVisible never duplicates the realm badge", () => {
+  // realm 的引擎徽标已经说明「UDP」，列表里不再额外加 UDP 徽标。
+  assert.equal(udpBadgeVisible("realm", true), false);
+  assert.equal(udpBadgeVisible("realm", false), false);
+  assert.equal(udpBadgeVisible("realm", undefined), false);
+  assert.equal(udpBadgeVisible("  realm  ", true), false);
+
+  // native 只有真的开启 UDP 才显示。
+  assert.equal(udpBadgeVisible("native", true), true);
+  assert.equal(udpBadgeVisible("native", false), false);
+  assert.equal(udpBadgeVisible("native", undefined), false);
+  assert.equal(udpBadgeVisible("native", null), false);
+
+  // 未知引擎的引擎徽标没有提到 UDP，按实际开关显示，不能吞掉信息。
+  assert.equal(udpBadgeVisible("wireguard", true), true);
+  assert.equal(udpBadgeVisible("wireguard", false), false);
+  assert.equal(udpBadgeVisible(undefined, true), true);
+  assert.equal(udpBadgeVisible(null, false), false);
+});
+
+test("UDP label, badge and realm title stay terse and bilingual", () => {
+  assert.equal(lookup(zhCN, "common.udp"), "UDP");
+  assert.equal(lookup(en, "common.udp"), "UDP");
+
+  // 只允许 label 与徽标，不写「适合游戏 / 语音」这类说明。
+  assert.equal(lookup(zhCN, "forwards.form.udp"), "UDP 转发");
+  assert.equal(lookup(en, "forwards.form.udp"), "UDP forwarding");
+  assert.equal(lookup(zhCN, "chains.form.udp"), "UDP 转发");
+  assert.equal(lookup(en, "chains.form.udp"), "UDP forwarding");
+
+  // 禁用态只用 title 说明原因：realm 已包含 UDP。
+  for (const dictionary of [zhCN, en]) {
+    const title = lookup(dictionary, "common.udpRealmTitle");
+    assert.ok(title.trim().length > 0);
+    assert.match(title, /UDP/);
+    assert.match(title, /realm/);
+  }
 });

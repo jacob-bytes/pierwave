@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 11;
+pub const PROTOCOL_VERSION: u32 = 12;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,6 +117,13 @@ pub struct DesiredForward {
     /// 与升级前的行为完全一致。
     #[serde(default)]
     pub engine: ForwardEngine,
+    /// 这条规则是否**同时**在 `listen_port` 上监听 UDP（与 TCP 同端口号）。
+    ///
+    /// 只对 `native` 引擎有意义：`realm` 的配置固定 `use_udp = true`，总是转发
+    /// UDP，不看这个字段。旧主控不下发时按 `false`，也就是与升级前完全一致
+    /// （只监听 TCP）。
+    #[serde(default)]
+    pub udp: bool,
 }
 
 /// 转发引擎。
@@ -322,10 +329,38 @@ mod tests {
         let json = serde_json::to_value(&new).unwrap();
         assert_eq!(json["listening"], true);
         assert_eq!(json["target_ok"], false);
+    }
+
+    #[test]
+    fn forward_udp_defaults_to_false_for_old_masters() {
         assert_eq!(
-            PROTOCOL_VERSION, 11,
-            "新增 realm_available 心跳字段必须升协议版本"
+            PROTOCOL_VERSION, 12,
+            "新增 DesiredForward.udp 必须升协议版本"
         );
+
+        // 旧主控的 JSON 没有 udp：必须解析成 false，也就是「只监听 TCP」，
+        // 升级 Agent 不能因此凭空多开一个 UDP 端口。
+        let old = r#"{
+            "id": "fwd-1",
+            "listen_port": 8443,
+            "target_host": "10.0.0.8",
+            "target_port": 443,
+            "targets": [],
+            "strategy": "round_robin",
+            "engine": "native"
+        }"#;
+        let forward: DesiredForward = serde_json::from_str(old).unwrap();
+        assert!(!forward.udp, "旧主控不下发 udp 时必须按 false 处理");
+
+        // 新主控显式开启时按布尔值往返，不能丢字段。
+        let enabled = DesiredForward {
+            udp: true,
+            ..forward
+        };
+        let json = serde_json::to_value(&enabled).unwrap();
+        assert_eq!(json["udp"], true);
+        let back: DesiredForward = serde_json::from_value(json).unwrap();
+        assert_eq!(back, enabled);
     }
 
     #[test]

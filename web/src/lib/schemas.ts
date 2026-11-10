@@ -436,6 +436,8 @@ export function forwardFormSchema(t: TFunction) {
     enabled: z.boolean(),
     // 只允许后端白名单里的两个值；未知值在表单打开时已回落 native。
     engine: z.enum(FORWARD_ENGINES),
+    // 只对 native 有意义；realm 时展示层按开启处理，提交仍原样带值。
+    udp: z.boolean(),
   });
 }
 
@@ -472,6 +474,8 @@ export function chainFormSchema(t: TFunction) {
       enabled: z.boolean(),
       // 整条链共用一个引擎；只允许后端白名单里的两个值。
       engine: z.enum(FORWARD_ENGINES),
+      // 只对 native 有意义；realm 时展示层按开启处理。
+      udp: z.boolean(),
       groups: z.array(
         z.object({
           kind: z.enum(["single", "group"]),

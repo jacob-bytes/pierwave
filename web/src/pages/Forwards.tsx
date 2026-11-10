@@ -13,7 +13,12 @@ import {
   Trash2Icon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { EmptyState, EngineBadge, SkeletonTable } from "@/components/common";
+import {
+  EmptyState,
+  EngineBadge,
+  SkeletonTable,
+  UdpBadge,
+} from "@/components/common";
 import { DeleteForwardDialog } from "@/components/forwards/DeleteForwardDialog";
 import { ForwardFormDialog } from "@/components/forwards/ForwardFormDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -45,7 +50,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { Forward } from "@/lib/api";
-import { forwardEngineMissing, realmMissingOnServer } from "@/lib/engines";
+import {
+  forwardEngineMissing,
+  realmMissingOnServer,
+  udpBadgeVisible,
+} from "@/lib/engines";
 import { errorText } from "@/lib/errors";
 import {
   formatForwardTarget,
@@ -493,6 +502,9 @@ export default function ForwardsPage() {
                               server,
                             )}
                           />
+                          {udpBadgeVisible(forward.engine, forward.udp) ? (
+                            <UdpBadge />
+                          ) : null}
                         </div>
                       </TableCell>
                       <TableCell className="px-4 py-2.5 font-mono text-xs tabular-nums">

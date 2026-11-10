@@ -1040,6 +1040,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "native".into(),
+                udp: false,
                 groups: vec![chains_repo::NewChainGroup {
                     name: None,
                     strategy: chain_rules::GroupStrategy::RoundRobin.as_str().to_string(),

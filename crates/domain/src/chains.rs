@@ -44,7 +44,7 @@ pub const DEGRADED_AFTER_FAILURES: i64 = 2;
 /// 链推导出的 `DesiredForward.id` 前缀；与独立转发的 `fwd-` 前缀区分开。
 pub const FORWARD_ID_PREFIX: &str = "chain-";
 
-/// 组内选路策略的四个合法值（与 `PROTOCOL_VERSION = 11` 的线协议一致）。
+/// 组内选路策略的四个合法值（与 `PROTOCOL_VERSION = 12` 的线协议一致）。
 pub const STRATEGY_NAMES: [&str; 4] = ["round_robin", "failover", "lowest_latency", "ip_hashed"];
 
 /// 领域层的选路策略。
