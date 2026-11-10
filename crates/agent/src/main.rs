@@ -1320,4 +1320,102 @@ mod tests {
         assert!(!realm_status.listening, "没装 realm 时必须报未监听");
         assert_eq!(realm_status.error, realm::NOT_INSTALLED);
     }
+    /// 同一台服务器上 native 与 realm 规则混用：native 真的转发字节，
+    /// realm 因未安装而保持未监听，两者互不破坏。
+    ///
+    /// 与 `apply_state_keeps_native_listening_when_realm_is_missing` 的区别：
+    /// 那条只比状态字段，这条**真的建立 TCP 连接收发数据**——证明 realm
+    /// 配置生成/写盘/探测的代码路径不会碰掉 native 的数据面。
+    #[tokio::test]
+    async fn native_and_realm_rules_coexist_and_native_still_carries_bytes() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let dir = TempDir::new();
+        let toml = format!(
+            "master_url = \"http://127.0.0.1:8787\"\n\
+             token = \"t\"\n\
+             xray_config_path = \"{}\"\n\
+             xray_test_command = \"true\"\n\
+             restart_command = \"true\"\n\
+             realm_bin = \"{}\"\n\
+             state_dir = \"{}\"\n",
+            dir.path().join("config.json").display(),
+            dir.path().join("no-such-realm").display(),
+            dir.path().display()
+        );
+        let cfg: Config = toml::from_str(&toml).unwrap();
+
+        // 目标回声服务
+        let echo = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let echo_port = echo.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = match echo.accept().await {
+                    Ok(pair) => pair,
+                    Err(_) => return,
+                };
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 64];
+                    if let Ok(n) = socket.read(&mut buf).await {
+                        let _ = socket.write_all(&buf[..n]).await;
+                    }
+                });
+            }
+        });
+
+        // native 与 realm 各占一个端口；listen_port 0 让内核分配后读回。
+        let native = DesiredForward {
+            id: "native-live".into(),
+            listen_port: 0,
+            target_host: "127.0.0.1".into(),
+            target_port: echo_port as i64,
+            targets: Vec::new(),
+            strategy: Default::default(),
+            engine: ForwardEngine::Native,
+        };
+        let realm_rule = DesiredForward {
+            id: "realm-pending".into(),
+            listen_port: 0,
+            target_host: "10.0.0.8".into(),
+            target_port: 443,
+            targets: Vec::new(),
+            strategy: Default::default(),
+            engine: ForwardEngine::Realm,
+        };
+
+        let state = DesiredState {
+            version: 1,
+            xray: serde_json::json!({}),
+            files: Vec::new(),
+            agent_upgrade: None,
+            forwards: vec![native, realm_rule],
+            nodes: Vec::new(),
+        };
+
+        let mut engines = ForwardEngines::new(&cfg);
+        let outcome = apply_state(&state, &cfg, &mut engines).await;
+        assert!(outcome.result.ok, "realm 缺失不能让整次 apply 失败");
+
+        let statuses = engines.status_snapshot();
+        assert_eq!(statuses.len(), 2, "两条规则都要有状态：{statuses:?}");
+        let realm_status = statuses
+            .iter()
+            .find(|status| status.id == "realm-pending")
+            .expect("realm 规则必须有状态");
+        assert!(!realm_status.listening);
+        assert_eq!(realm_status.error, realm::NOT_INSTALLED);
+
+        // 数据面：native 规则必须真的把字节送到回声服务并原样返回。
+        let native_port = engines
+            .native
+            .bound_port("native-live")
+            .expect("native 监听端口应可读回");
+        let mut client = tokio::net::TcpStream::connect(("127.0.0.1", native_port))
+            .await
+            .expect("应能连上 native 监听的端口");
+        client.write_all(b"coexist").await.unwrap();
+        let mut buf = [0u8; 7];
+        client.read_exact(&mut buf).await.unwrap();
+        assert_eq!(&buf, b"coexist", "native 规则应完成一次完整回环");
+    }
 }

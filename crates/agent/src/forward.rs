@@ -277,7 +277,7 @@ impl ForwardSupervisor {
 
     /// 测试辅助：读回内核实际分配的监听端口（规则里 `listen_port = 0` 时用）。
     #[cfg(test)]
-    fn bound_port(&self, id: &str) -> Option<u16> {
+    pub(crate) fn bound_port(&self, id: &str) -> Option<u16> {
         self.running.get(id).map(|running| running.bound_port)
     }
 
