@@ -12,6 +12,7 @@ pub mod install;
 pub mod me;
 pub mod nodes;
 pub mod outbounds;
+pub mod overview;
 pub mod packages;
 pub mod public_status;
 pub mod routing_rules;

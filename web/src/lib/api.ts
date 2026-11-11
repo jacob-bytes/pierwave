@@ -959,6 +959,66 @@ export interface TrafficStats {
   days: TrafficDay[];
 }
 
+/** `GET /api/v1/overview?days=7` 的 KPI 汇总。 */
+export interface OverviewKpi {
+  servers_online: number;
+  servers_total: number;
+  nodes: number;
+  traffic_today: number;
+  traffic_month: number;
+  /** 24 小时在线率（0–100）。 */
+  uptime_24h: number;
+}
+
+/** 聚合接口的逐日流量；`day` 与 `/stats/traffic` 的 `date` 同为 UTC+8 自然日。 */
+export interface OverviewSeriesPoint {
+  day: string;
+  uplink: number;
+  downlink: number;
+}
+
+/** 协议维度：`nodes` 是该协议下的节点数，`traffic_7d` 是 7 天合计。 */
+export interface OverviewProtocol {
+  protocol: string;
+  nodes: number;
+  traffic_7d: number;
+}
+
+/** 转发链健康度；概览告警卡只消费 `degraded` 与 `handshake_failures`。 */
+export interface OverviewChains {
+  total: number;
+  degraded: number;
+  blocked: number;
+  forwards_total: number;
+  forwards_failing: number;
+  handshake_failures: number;
+}
+
+/** Top 5 条目；当前契约只返回 `kind: "server"`。 */
+export interface OverviewTopItem {
+  kind: "server";
+  name: string;
+  traffic_7d: number;
+  load1: number | null;
+  online: boolean;
+}
+
+/**
+ * 概览聚合契约（P14）：一次请求拿到图表、协议、链路与 Top 5。
+ *
+ * 既有的 `/api/v1/stats/overview` 继续供第一行 KPI 与告警计数使用，
+ * 新接口失败时不会拖垮整页。
+ */
+export interface OverviewData {
+  kpi: OverviewKpi;
+  series: OverviewSeriesPoint[];
+  /** 后端已按 `traffic_7d` 降序；前端仍会做一次防御性排序。 */
+  protocols: OverviewProtocol[];
+  chains: OverviewChains;
+  /** 最多 5 条。 */
+  top: OverviewTopItem[];
+}
+
 /**
  * P2：节点维度流量，见 docs/PLAN.md「P2：节点维度流量明细」。
  *
@@ -1123,6 +1183,13 @@ export const api = {
    * （code `public_status.disabled`），页面按「状态页已关闭」处理。
    */
   publicStatus: () => request<PublicStatus>("/api/v1/public/status"),
+  /** 概览聚合（P14）：图表、协议分布、链路健康度与 Top 5。 */
+  overview: {
+    get: (days: number) =>
+      request<OverviewData>(
+        `/api/v1/overview?days=${encodeURIComponent(String(days))}`,
+      ),
+  },
   stats: {
     overview: () => request<OverviewStats>("/api/v1/stats/overview"),
     traffic: (days: number) =>

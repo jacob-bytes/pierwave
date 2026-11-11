@@ -4473,7 +4473,7 @@ pub mod stats {
     }
 
     /// `days` 窗口的起止日期（UTC+8，闭区间）。
-    fn day_window(now: i64, days: i64) -> (String, String) {
+    pub(crate) fn day_window(now: i64, days: i64) -> (String, String) {
         let days = days.clamp(1, 90);
         let today = crate::time::business_day(now);
         let first = today - (days - 1);
@@ -4541,6 +4541,789 @@ pub mod stats {
         .fetch_all(pool)
         .await?;
         Ok(fill_days(now, days, rows))
+    }
+}
+
+/// 概览页一次拉齐的只读聚合（`GET /api/v1/overview`）。
+///
+/// 字段名是前端契约的一部分，改名视为破坏性变更。所有 SQL 都在这里，
+/// master 只做参数解析与序列化。
+///
+/// 口径：
+/// * `kpi.traffic_today/month` 与 `/api/v1/stats/overview` 一致，用 `weighted`
+///   （计费口径）；
+/// * `series` 直接复用 `stats::traffic_trend`：同一时间窗、同一「缺失日补 0」规则，
+///   只保留契约要求的 `day/uplink/downlink`；
+/// * `protocols.traffic_7d` / `top.traffic_7d` 用原始上下行之和（与趋势图同口径），
+///   窗口长度 = `days`（默认 7，故字段名固定为 `traffic_7d`）；
+/// * 协议归属在 SQL 里拆 `subject = "{user_id}@{node_tag}"`：节点 tag 只允许
+///   `[a-z0-9_-]`，不会含 `@`，按第一个（也是唯一一个）`@` 切分即可。删掉的节点
+///   JOIN 不到，流量归入 `unknown` 而不是丢弃；
+/// * `chains.blocked` = 启用链中存在 `listening = 0` 的成员（监听失败，整条链不通）。
+///   这里不复刻链列表的证书/能力门禁（那需要解析证书，属于链视图的实时判断）；
+///   `chains.forwards_*` 只统计独立端口转发规则，不含链推导出的转发。
+pub mod overview {
+    use std::collections::HashMap;
+
+    use serde::Serialize;
+
+    use super::*;
+
+    /// Top 卡片最多返回的服务器数。
+    const TOP_SERVERS: i64 = 5;
+
+    #[derive(Debug, Clone, PartialEq, Serialize)]
+    pub struct Kpi {
+        pub servers_online: i64,
+        pub servers_total: i64,
+        pub nodes: i64,
+        pub traffic_today: i64,
+        pub traffic_month: i64,
+        /// 0..1；没有可用采样的服务器不参与均值，全都没有时为 0。
+        pub uptime_24h: f64,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+    pub struct SeriesPoint {
+        pub day: String,
+        pub uplink: i64,
+        pub downlink: i64,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+    pub struct ProtocolRow {
+        pub protocol: String,
+        /// 该协议配置的节点数（含停用节点；与 KPI 的 `nodes` 同口径）。
+        pub nodes: i64,
+        /// 窗口内原始上下行之和；已删除节点归入 `protocol = "unknown"`。
+        pub traffic_7d: i64,
+    }
+
+    #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+    pub struct ChainRow {
+        pub total: i64,
+        pub degraded: i64,
+        pub blocked: i64,
+        pub forwards_total: i64,
+        pub forwards_failing: i64,
+        /// `forward_status.target_error IS NOT NULL` 的行数。
+        pub handshake_failures: i64,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize)]
+    pub struct TopRow {
+        /// 目前只有 `server`；保留字段供后续扩展节点维度。
+        pub kind: &'static str,
+        pub name: String,
+        pub traffic_7d: i64,
+        pub load1: Option<f64>,
+        pub online: bool,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize)]
+    pub struct OverviewSnapshot {
+        pub kpi: Kpi,
+        pub series: Vec<SeriesPoint>,
+        pub protocols: Vec<ProtocolRow>,
+        pub chains: ChainRow,
+        pub top: Vec<TopRow>,
+    }
+
+    /// 固定 8 条聚合查询，与数据量无关（没有 N+1）。
+    pub async fn snapshot(
+        pool: &SqlitePool,
+        now: i64,
+        days: i64,
+    ) -> anyhow::Result<OverviewSnapshot> {
+        let days = days.clamp(1, 90);
+        let today = crate::time::business_date(now);
+        let (month_start, month_end) = crate::time::business_month_bounds(now);
+
+        // 一条 SQL 拿齐四张表的标量，避免为每个数字各发一次查询。
+        let (servers_total, servers_online, nodes, traffic_today, traffic_month): (
+            i64,
+            i64,
+            i64,
+            i64,
+            i64,
+        ) = sqlx::query_as(
+            "SELECT
+                (SELECT COUNT(*) FROM servers),
+                (SELECT COUNT(*) FROM servers WHERE status = 'online'),
+                (SELECT COUNT(*) FROM nodes),
+                (SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily WHERE day = ?),
+                (SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily
+                  WHERE day >= ? AND day <= ?)",
+        )
+        .bind(&today)
+        .bind(&month_start)
+        .bind(&month_end)
+        .fetch_one(pool)
+        .await?;
+
+        let series = super::stats::traffic_trend(pool, now, days)
+            .await?
+            .into_iter()
+            .map(|point| SeriesPoint {
+                day: point.date,
+                uplink: point.uplink,
+                downlink: point.downlink,
+            })
+            .collect();
+
+        Ok(OverviewSnapshot {
+            kpi: Kpi {
+                servers_online,
+                servers_total,
+                nodes,
+                traffic_today,
+                traffic_month,
+                uptime_24h: mean_uptime_24h(pool, now).await?,
+            },
+            series,
+            protocols: protocol_rows(pool, now, days).await?,
+            chains: chain_row(pool).await?,
+            top: top_servers(pool, now, days).await?,
+        })
+    }
+
+    /// 与 `/api/v1/public/status` 完全同口径：先用 `server_samples::uptime_all`
+    /// 取每台服务器 24h 的均值，再对「有采样」的服务器求均值。
+    async fn mean_uptime_24h(pool: &SqlitePool, now: i64) -> anyhow::Result<f64> {
+        let rows = super::server_samples::uptime_all(pool, now).await?;
+        let mut sum = 0.0;
+        let mut sampled = 0_u64;
+        for row in rows {
+            if let Some(value) = row.uptime_24h {
+                sum += value;
+                sampled += 1;
+            }
+        }
+        Ok(if sampled == 0 {
+            0.0
+        } else {
+            sum / sampled as f64
+        })
+    }
+
+    /// 协议分布：节点数来自 `nodes`，流量用**一条** `GROUP BY` 聚合
+    /// `traffic_daily`。两者在 Rust 里按协议合并，保证「配了但没流量」的协议
+    /// 以 `traffic_7d = 0` 出现，已删节点的流量落到 `unknown`。
+    async fn protocol_rows(
+        pool: &SqlitePool,
+        now: i64,
+        days: i64,
+    ) -> anyhow::Result<Vec<ProtocolRow>> {
+        let (start_date, end_date) = super::stats::day_window(now, days);
+        let node_counts: Vec<(String, i64)> =
+            sqlx::query_as("SELECT protocol, COUNT(*) FROM nodes GROUP BY protocol")
+                .fetch_all(pool)
+                .await?;
+        // `instr(subject, '@')` 取第一个 @：节点 tag 的字符集不允许 @，
+        // 所以它同时就是最后一个 @（与 METERING §3 的切分规则一致）。
+        let traffic: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT COALESCE(n.protocol, 'unknown') AS protocol,
+                    COALESCE(SUM(t.uplink + t.downlink), 0) AS traffic
+             FROM traffic_daily t
+             LEFT JOIN nodes n
+               ON n.server_id = t.server_id
+              AND n.tag = CASE
+                    WHEN instr(t.subject, '@') > 0
+                    THEN substr(t.subject, instr(t.subject, '@') + 1)
+                    ELSE ''
+                  END
+             WHERE t.day >= ? AND t.day <= ?
+             GROUP BY COALESCE(n.protocol, 'unknown')",
+        )
+        .bind(&start_date)
+        .bind(&end_date)
+        .fetch_all(pool)
+        .await?;
+
+        let mut by_protocol: HashMap<String, ProtocolRow> = node_counts
+            .into_iter()
+            .map(|(protocol, nodes)| {
+                (
+                    protocol.clone(),
+                    ProtocolRow {
+                        protocol,
+                        nodes,
+                        traffic_7d: 0,
+                    },
+                )
+            })
+            .collect();
+        for (protocol, traffic_7d) in traffic {
+            by_protocol
+                .entry(protocol.clone())
+                .and_modify(|row| row.traffic_7d = traffic_7d)
+                .or_insert(ProtocolRow {
+                    protocol,
+                    nodes: 0,
+                    traffic_7d,
+                });
+        }
+        let mut rows: Vec<ProtocolRow> = by_protocol.into_values().collect();
+        rows.sort_by(|a, b| {
+            b.traffic_7d
+                .cmp(&a.traffic_7d)
+                .then_with(|| a.protocol.cmp(&b.protocol))
+        });
+        Ok(rows)
+    }
+
+    /// 链路健康：一次 CTE 把链 → 组 → 成员 → 心跳状态对齐，降级/阻断各算一次。
+    ///
+    /// forward id 的格式必须与 `crate::chains::forward_id` 一致：单成员组用
+    /// `chain-<id>-<seq>`，多成员组追加 `-<server_id>`。
+    async fn chain_row(pool: &SqlitePool) -> anyhow::Result<ChainRow> {
+        #[derive(sqlx::FromRow)]
+        struct Health {
+            total: i64,
+            degraded: i64,
+            blocked: i64,
+        }
+        let health = sqlx::query_as::<_, Health>(
+            "WITH group_sizes AS (
+                 SELECT group_id, COUNT(*) AS members
+                 FROM chain_group_members
+                 GROUP BY group_id
+             ),
+             derived AS (
+                 SELECT c.id AS chain_id,
+                        c.enabled AS enabled,
+                        m.server_id AS server_id,
+                        CASE WHEN gs.members <= 1
+                             THEN 'chain-' || c.id || '-' || g.seq
+                             ELSE 'chain-' || c.id || '-' || g.seq || '-' || m.server_id
+                        END AS forward_id
+                 FROM chains c
+                 JOIN chain_groups g ON g.chain_id = c.id
+                 JOIN group_sizes gs ON gs.group_id = g.id
+                 JOIN chain_group_members m ON m.group_id = g.id
+             )
+             SELECT (SELECT COUNT(*) FROM chains) AS total,
+                    COUNT(DISTINCT CASE WHEN fs.target_fail_count >= ? THEN d.chain_id END)
+                        AS degraded,
+                    COUNT(DISTINCT CASE WHEN d.enabled = 1 AND fs.listening = 0
+                                        THEN d.chain_id END) AS blocked
+             FROM derived d
+             LEFT JOIN forward_status fs
+               ON fs.server_id = d.server_id AND fs.forward_id = d.forward_id",
+        )
+        .bind(crate::chains::DEGRADED_AFTER_FAILURES)
+        .fetch_one(pool)
+        .await?;
+
+        let (forwards_total, forwards_failing): (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM forwards),
+                    (SELECT COUNT(*)
+                     FROM forwards f
+                     JOIN forward_status fs
+                       ON fs.server_id = f.server_id AND fs.forward_id = f.id
+                     WHERE fs.listening = 0)",
+        )
+        .fetch_one(pool)
+        .await?;
+        let handshake_failures: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM forward_status WHERE target_error IS NOT NULL",
+        )
+        .fetch_one(pool)
+        .await?;
+
+        Ok(ChainRow {
+            total: health.total,
+            degraded: health.degraded,
+            blocked: health.blocked,
+            forwards_total,
+            forwards_failing,
+            handshake_failures,
+        })
+    }
+
+    /// Top 服务器：窗口内原始上下行之和降序。LEFT JOIN 保证零流量服务器也参与
+    /// 排序（服务器少于 5 台时它们会出现在列表尾部），但不会为了凑数硬填。
+    async fn top_servers(pool: &SqlitePool, now: i64, days: i64) -> anyhow::Result<Vec<TopRow>> {
+        let (start_date, end_date) = super::stats::day_window(now, days);
+
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            name: String,
+            traffic_7d: i64,
+            load1: Option<f64>,
+            online: bool,
+        }
+        let rows = sqlx::query_as::<_, Row>(
+            "SELECT s.name AS name,
+                    COALESCE(SUM(t.uplink + t.downlink), 0) AS traffic_7d,
+                    s.load1 AS load1,
+                    s.status = 'online' AS online
+             FROM servers s
+             LEFT JOIN traffic_daily t
+               ON t.server_id = s.id AND t.day >= ? AND t.day <= ?
+             GROUP BY s.id, s.name, s.load1, s.status, s.created_at
+             ORDER BY traffic_7d DESC, s.created_at ASC, s.id ASC
+             LIMIT ?",
+        )
+        .bind(&start_date)
+        .bind(&end_date)
+        .bind(TOP_SERVERS)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| TopRow {
+                kind: "server",
+                name: row.name,
+                traffic_7d: row.traffic_7d,
+                load1: row.load1,
+                online: row.online,
+            })
+            .collect())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        use crate::Db;
+
+        fn at(rfc3339: &str) -> i64 {
+            chrono::DateTime::parse_from_rfc3339(rfc3339)
+                .unwrap()
+                .timestamp()
+        }
+
+        async fn setup() -> SqlitePool {
+            let db = Db::connect("sqlite::memory:").await.unwrap();
+            db.migrate().await.unwrap();
+            db.pool
+        }
+
+        async fn add_node(pool: &SqlitePool, server_id: &str, tag: &str, protocol: &str) {
+            super::super::nodes::create(
+                pool,
+                server_id,
+                super::super::nodes::NewNode {
+                    tag: Some(tag.into()),
+                    name: tag.into(),
+                    protocol: protocol.into(),
+                    transport: "tcp".into(),
+                    security: "none".into(),
+                    port: 443,
+                    config_json: "{}".into(),
+                    enabled: true,
+                    cert_id: None,
+                    bandwidth_kbps: None,
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        async fn seed(
+            pool: &SqlitePool,
+            day: &str,
+            server_id: &str,
+            subject: &str,
+            bytes: (u64, u64, u64),
+        ) {
+            super::super::traffic::accumulate_daily(
+                pool, day, server_id, subject, bytes.0, bytes.1, bytes.2,
+            )
+            .await
+            .unwrap();
+        }
+
+        #[tokio::test]
+        async fn protocols_group_by_protocol_and_bucket_deleted_nodes_as_unknown() {
+            let pool = setup().await;
+            let (server, _) = super::super::servers::create(&pool, "hk-1", "10.0.0.1", "external")
+                .await
+                .unwrap();
+            add_node(&pool, &server.id, "v1", "vless").await;
+            add_node(&pool, &server.id, "t1", "trojan").await;
+            add_node(&pool, &server.id, "m1", "vmess").await;
+
+            let now = at("2026-11-15T12:00:00+08:00");
+            let today = crate::time::business_date(now);
+            seed(&pool, &today, &server.id, "alice@v1", (10, 20, 30)).await;
+            seed(&pool, &today, &server.id, "alice@t1", (1, 2, 3)).await;
+            // 节点已删除：subject 里的 tag 在 nodes 里找不到。
+            seed(&pool, &today, &server.id, "bob@gone", (5, 5, 10)).await;
+
+            let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
+            let rows: Vec<(&str, i64, i64)> = snapshot
+                .protocols
+                .iter()
+                .map(|row| (row.protocol.as_str(), row.nodes, row.traffic_7d))
+                .collect();
+            assert_eq!(
+                rows,
+                vec![
+                    ("vless", 1, 30),
+                    ("unknown", 0, 10),
+                    ("trojan", 1, 3),
+                    // 配了但窗口内没有流量：仍然返回，流量为 0。
+                    ("vmess", 1, 0),
+                ]
+            );
+        }
+
+        #[tokio::test]
+        async fn window_includes_boundary_day_and_excludes_future_days() {
+            let pool = setup().await;
+            let (server, _) = super::super::servers::create(&pool, "hk-1", "10.0.0.1", "external")
+                .await
+                .unwrap();
+            add_node(&pool, &server.id, "v1", "vless").await;
+
+            let now = at("2026-11-15T12:00:00+08:00");
+            // days = 7 → 窗口 11-09..11-15（含两端）。
+            seed(&pool, "2026-11-09", &server.id, "alice@v1", (1, 2, 3)).await;
+            seed(&pool, "2026-11-08", &server.id, "alice@v1", (100, 100, 200)).await;
+            seed(&pool, "2026-11-16", &server.id, "alice@v1", (200, 200, 400)).await;
+
+            let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
+            assert_eq!(snapshot.series.len(), 7);
+            assert_eq!(snapshot.series[0].day, "2026-11-09");
+            assert_eq!(
+                (snapshot.series[0].uplink, snapshot.series[0].downlink),
+                (1, 2)
+            );
+            assert_eq!(snapshot.series[6].day, "2026-11-15");
+            assert_eq!(
+                (snapshot.series[6].uplink, snapshot.series[6].downlink),
+                (0, 0),
+                "未来日期的数据不能进入窗口"
+            );
+            assert_eq!(snapshot.protocols[0].traffic_7d, 3);
+            assert_eq!(snapshot.top[0].traffic_7d, 3);
+
+            // days = 1 只含今天：昨天与边界日都排除。
+            let snapshot = super::snapshot(&pool, now, 1).await.unwrap();
+            assert_eq!(snapshot.series.len(), 1);
+            assert_eq!(snapshot.series[0].day, "2026-11-15");
+            assert_eq!(snapshot.protocols[0].traffic_7d, 0);
+            assert_eq!(snapshot.top[0].traffic_7d, 0);
+        }
+
+        #[tokio::test]
+        async fn top_servers_are_sorted_by_traffic_and_truncated_to_five() {
+            let pool = setup().await;
+            let now = at("2026-11-15T12:00:00+08:00");
+            let today = crate::time::business_date(now);
+
+            for index in 1..=6 {
+                let (server, _) = super::super::servers::create(
+                    &pool,
+                    &format!("s{index}"),
+                    &format!("10.0.0.{index}"),
+                    "external",
+                )
+                .await
+                .unwrap();
+                seed(
+                    &pool,
+                    &today,
+                    &server.id,
+                    "alice@x",
+                    (index * 10, 0, index * 10),
+                )
+                .await;
+            }
+
+            let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
+            let names: Vec<&str> = snapshot.top.iter().map(|row| row.name.as_str()).collect();
+            assert_eq!(names, vec!["s6", "s5", "s4", "s3", "s2"]);
+            assert_eq!(snapshot.top.len(), 5);
+            assert_eq!(snapshot.top[0].traffic_7d, 60);
+            assert_eq!(snapshot.top[0].kind, "server");
+            assert!(!snapshot.top[0].online);
+            assert_eq!(snapshot.top[0].load1, None);
+        }
+
+        #[tokio::test]
+        async fn top_includes_zero_traffic_servers_when_under_five() {
+            let pool = setup().await;
+            let now = at("2026-11-15T12:00:00+08:00");
+            let today = crate::time::business_date(now);
+
+            let (busy, _) = super::super::servers::create(&pool, "busy", "10.0.0.1", "external")
+                .await
+                .unwrap();
+            let (_, _) = super::super::servers::create(&pool, "idle", "10.0.0.2", "external")
+                .await
+                .unwrap();
+            super::super::servers::update_health(
+                &pool,
+                &busy.id,
+                "0.1.0",
+                &super::super::servers::HealthSnapshot {
+                    load1: 0.4,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            super::super::servers::mark_online(&pool, &busy.id)
+                .await
+                .unwrap();
+            seed(&pool, &today, &busy.id, "alice@x", (90, 10, 100)).await;
+
+            let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
+            assert_eq!(snapshot.top.len(), 2);
+            assert_eq!(snapshot.top[0].name, "busy");
+            assert_eq!(snapshot.top[0].traffic_7d, 100);
+            assert_eq!(snapshot.top[0].load1, Some(0.4));
+            assert!(snapshot.top[0].online);
+            assert_eq!(snapshot.top[1].name, "idle");
+            assert_eq!(snapshot.top[1].traffic_7d, 0);
+            assert!(!snapshot.top[1].online);
+
+            // 零流量服务器也参与排序：再建一台有流量的会排到它前面。
+            let (other, _) = super::super::servers::create(&pool, "other", "10.0.0.3", "external")
+                .await
+                .unwrap();
+            seed(&pool, &today, &other.id, "alice@x", (5, 5, 10)).await;
+            let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
+            let names: Vec<&str> = snapshot.top.iter().map(|row| row.name.as_str()).collect();
+            assert_eq!(names, vec!["busy", "other", "idle"]);
+            assert_eq!(snapshot.top[2].name, "idle");
+            assert_eq!(snapshot.top[2].traffic_7d, 0);
+        }
+
+        #[tokio::test]
+        async fn handshake_failures_count_only_rows_with_target_error() {
+            let pool = setup().await;
+            let (server, _) = super::super::servers::create(&pool, "hk-1", "10.0.0.1", "external")
+                .await
+                .unwrap();
+            let forward = super::super::forwards::create(
+                &pool,
+                &server.id,
+                super::super::forwards::NewForward {
+                    name: "web".into(),
+                    listen_port: 8443,
+                    target_host: "1.1.1.1".into(),
+                    target_port: 443,
+                    enabled: true,
+                    engine: "native".into(),
+                    udp: false,
+                },
+            )
+            .await
+            .unwrap();
+
+            super::super::forwards::save_status(
+                &pool,
+                &server.id,
+                &[
+                    super::super::forwards::NewForwardStatus {
+                        forward_id: forward.id.clone(),
+                        listening: false,
+                        error: "监听失败".into(),
+                        target_ok: None,
+                        target_error: None,
+                    },
+                    super::super::forwards::NewForwardStatus {
+                        forward_id: "fwd-a".into(),
+                        listening: true,
+                        error: String::new(),
+                        target_ok: Some(false),
+                        target_error: Some("cert_expired".into()),
+                    },
+                    super::super::forwards::NewForwardStatus {
+                        forward_id: "fwd-b".into(),
+                        listening: true,
+                        error: String::new(),
+                        target_ok: Some(false),
+                        target_error: Some("timeout".into()),
+                    },
+                    super::super::forwards::NewForwardStatus {
+                        forward_id: "fwd-c".into(),
+                        listening: true,
+                        error: String::new(),
+                        target_ok: None,
+                        target_error: None,
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+            let snapshot = super::snapshot(&pool, at("2026-11-15T12:00:00+08:00"), 7)
+                .await
+                .unwrap();
+            assert_eq!(
+                snapshot.chains.handshake_failures, 2,
+                "只有 target_error 非 NULL 的两行计入"
+            );
+            assert_eq!(snapshot.chains.forwards_total, 1);
+            assert_eq!(snapshot.chains.forwards_failing, 1);
+            assert_eq!(snapshot.chains.total, 0);
+            assert_eq!(snapshot.chains.degraded, 0);
+            assert_eq!(snapshot.chains.blocked, 0);
+        }
+
+        #[tokio::test]
+        async fn chain_health_marks_degraded_after_two_failures_and_blocked_on_listen_failure() {
+            let pool = setup().await;
+            let now = at("2026-11-15T12:00:00+08:00");
+            let (server, _) = super::super::servers::create(&pool, "hk-1", "10.0.0.1", "external")
+                .await
+                .unwrap();
+            let chain = super::super::chains::create(
+                &pool,
+                super::super::chains::NewChain {
+                    name: "港-日".into(),
+                    target_host: "1.1.1.1".into(),
+                    target_port: 443,
+                    enabled: true,
+                    engine: "native".into(),
+                    udp: false,
+                    transport: "none".into(),
+                    groups: vec![super::super::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: None,
+                        members: vec![super::super::chains::NewChainGroupMember {
+                            server_id: server.id.clone(),
+                            listen_port: 9001,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    }],
+                },
+            )
+            .await
+            .unwrap();
+            let forward_id = crate::chains::forward_id(&chain.chain.id, 0, &server.id, 1);
+            let failing = || super::super::forwards::NewForwardStatus {
+                forward_id: forward_id.clone(),
+                listening: true,
+                error: String::new(),
+                target_ok: Some(false),
+                target_error: Some("cert_expired".into()),
+            };
+
+            // 第一次失败：不降级（连续两次才算）。
+            super::super::forwards::save_status(&pool, &server.id, &[failing()])
+                .await
+                .unwrap();
+            let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
+            assert_eq!(snapshot.chains.total, 1);
+            assert_eq!(snapshot.chains.degraded, 0);
+            assert_eq!(snapshot.chains.handshake_failures, 1);
+
+            // 第二次失败：链降级。
+            super::super::forwards::save_status(&pool, &server.id, &[failing()])
+                .await
+                .unwrap();
+            let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
+            assert_eq!(snapshot.chains.degraded, 1);
+
+            // 监听失败：链视为 blocked，降级与握手失败计数清零。
+            super::super::forwards::save_status(
+                &pool,
+                &server.id,
+                &[super::super::forwards::NewForwardStatus {
+                    forward_id,
+                    listening: false,
+                    error: "监听 9001 失败".into(),
+                    target_ok: None,
+                    target_error: None,
+                }],
+            )
+            .await
+            .unwrap();
+            let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
+            assert_eq!(snapshot.chains.degraded, 0);
+            assert_eq!(snapshot.chains.blocked, 1);
+            assert_eq!(snapshot.chains.handshake_failures, 0);
+        }
+
+        #[tokio::test]
+        async fn uptime_average_reuses_public_status_semantics() {
+            let pool = setup().await;
+            let now = at("2026-11-15T12:00:00+08:00");
+            let (a, _) = super::super::servers::create(&pool, "a", "10.0.0.1", "external")
+                .await
+                .unwrap();
+            let (b, _) = super::super::servers::create(&pool, "b", "10.0.0.2", "external")
+                .await
+                .unwrap();
+            super::super::servers::mark_online(&pool, &a.id)
+                .await
+                .unwrap();
+            super::super::server_samples::record_round(&pool, now - 300)
+                .await
+                .unwrap();
+
+            // 一台在线、一台离线：均值 0.5。
+            super::super::servers::mark_offline(&pool, &b.id)
+                .await
+                .unwrap();
+            super::super::server_samples::record_round(&pool, now)
+                .await
+                .unwrap();
+            // 没有采样的服务器不参与均值。
+            super::super::servers::create(&pool, "c", "10.0.0.3", "external")
+                .await
+                .unwrap();
+            let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
+            assert!((snapshot.kpi.uptime_24h - 0.5).abs() < 1e-9);
+            assert_eq!(snapshot.kpi.servers_total, 3);
+            assert_eq!(snapshot.kpi.servers_online, 1);
+        }
+
+        #[tokio::test]
+        async fn empty_database_returns_zeroes_and_empty_lists_without_panicking() {
+            let pool = setup().await;
+            let snapshot = super::snapshot(&pool, at("2026-11-15T12:00:00+08:00"), 7)
+                .await
+                .unwrap();
+            assert_eq!(
+                snapshot.kpi,
+                Kpi {
+                    servers_online: 0,
+                    servers_total: 0,
+                    nodes: 0,
+                    traffic_today: 0,
+                    traffic_month: 0,
+                    uptime_24h: 0.0,
+                }
+            );
+            assert_eq!(snapshot.series.len(), 7);
+            assert!(snapshot
+                .series
+                .iter()
+                .all(|point| point.uplink == 0 && point.downlink == 0));
+            assert!(snapshot.protocols.is_empty());
+            assert!(snapshot.top.is_empty());
+            assert_eq!(snapshot.chains, ChainRow::default());
+        }
+
+        #[tokio::test]
+        async fn kpi_traffic_uses_weighted_and_month_bounds() {
+            let pool = setup().await;
+            let (server, _) = super::super::servers::create(&pool, "hk-1", "10.0.0.1", "external")
+                .await
+                .unwrap();
+            let now = at("2026-11-15T12:00:00+08:00");
+            let today = crate::time::business_date(now);
+            seed(&pool, &today, &server.id, "alice@x", (10, 20, 300)).await;
+            seed(&pool, "2026-11-01", &server.id, "alice@x", (1, 1, 50)).await;
+            seed(&pool, "2026-10-31", &server.id, "alice@x", (2, 2, 70)).await;
+
+            let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
+            assert_eq!(snapshot.kpi.traffic_today, 300, "today 用 weighted");
+            assert_eq!(
+                snapshot.kpi.traffic_month, 350,
+                "month 覆盖 11-01..11-15，不含 10-31"
+            );
+        }
     }
 }
 

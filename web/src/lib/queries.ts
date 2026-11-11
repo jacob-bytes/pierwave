@@ -41,6 +41,7 @@ import {
   type NodeTraffic,
   type NodeTrafficDetail,
   type Outbound,
+  type OverviewData,
   type OverviewStats,
   type Package,
   type PublicStatus,
@@ -86,6 +87,8 @@ export const queryKeys = {
   /** P10：公开状态页；不需要登录态，单独缓存。 */
   publicStatus: ["public-status"] as const,
   statsOverview: ["stats", "overview"] as const,
+  /** 概览聚合（P14）：窗口天数进 key，切换窗口即换查询。 */
+  overview: (days: number) => ["overview", days] as const,
   statsTraffic: (days: number) => ["stats", "traffic", days] as const,
   statsNodes: (serverId: string, days: number) =>
     ["stats", "nodes", { serverId, days }] as const,
@@ -183,11 +186,27 @@ export function usePublicStatus() {
   });
 }
 
-/** 概览统计。后端接口可能尚未上线，页面自行处理 404 文案。 */
-export function useOverview() {
+/** 既有概览统计：第一行 KPI 与告警计数。后端接口可能尚未上线，页面自行处理 404 文案。 */
+export function useOverviewStats() {
   return useQuery<OverviewStats>({
     queryKey: queryKeys.statsOverview,
     queryFn: api.stats.overview,
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * 概览聚合（P14）：图表、协议分布、链路告警与 Top 5。
+ *
+ * 与 `useOverviewStats` 分开缓存：新接口尚未上线时只让新增卡片降级，
+ * 既有 KPI / 告警卡仍可用。`days` 必须为正数。
+ */
+export function useOverview(days: number) {
+  return useQuery<OverviewData>({
+    queryKey: queryKeys.overview(days),
+    queryFn: () => api.overview.get(days),
+    enabled: days > 0,
+    placeholderData: keepPreviousData,
     staleTime: 30_000,
   });
 }

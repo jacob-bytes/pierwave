@@ -3,11 +3,13 @@ import { Link } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
   ActivityIcon,
+  ChartColumnIcon,
   CheckCircle2Icon,
   ChevronRightIcon,
   ClockIcon,
   FileKeyIcon,
   GaugeIcon,
+  HandshakeIcon,
   HistoryIcon,
   PackageIcon,
   PlusIcon,
@@ -16,6 +18,7 @@ import {
   ServerOffIcon,
   TriangleAlertIcon,
   UsersIcon,
+  WaypointsIcon,
 } from "lucide-react";
 import {
   EmptyState,
@@ -33,12 +36,19 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ApiError } from "@/lib/api";
+import { ApiError, type OverviewProtocol, type OverviewTopItem } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
 import {
+  formatShare,
+  sortProtocols,
+  topServers,
+  visibleAlerts,
+} from "@/lib/overview";
+import {
   useEnforcementEvents,
   useOverview,
+  useOverviewStats,
   useTraffic,
 } from "@/lib/queries";
 import { trafficDayOverDay } from "@/lib/trafficDelta";
@@ -162,7 +172,20 @@ function OverviewSkeleton() {
             <Skeleton className="h-[248px] w-full" />
           </CardContent>
         </Card>
-        <SkeletonCard lines={3} />
+        <SkeletonCard lines={5} />
+      </section>
+      <section className="grid gap-4 xl:grid-cols-3">
+        <SkeletonCard lines={4} />
+        <Card className="gap-4 xl:col-span-2">
+          <CardHeader>
+            <Skeleton className="h-4 w-24" />
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <Skeleton key={index} className="h-8 w-full" />
+            ))}
+          </CardContent>
+        </Card>
       </section>
     </>
   );
@@ -223,6 +246,257 @@ function EmptyOverview() {
           }
         />
       </CardContent>
+    </Card>
+  );
+}
+
+/** 新增卡片的错误态：比整页错误轻，避免新接口 404 时拖垮既有概览。 */
+function PanelError({
+  message,
+  retrying,
+  onRetry,
+}: {
+  message: string;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+      <div className="grid size-9 place-items-center rounded-full bg-destructive/10 text-destructive">
+        <TriangleAlertIcon className="icon-md" />
+      </div>
+      <div>
+        <p className="text-sm font-medium">{t("overview.panelLoadFailed")}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{message}</p>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onRetry}
+        disabled={retrying}
+      >
+        <RefreshCwIcon className={cn("icon-md", retrying && "animate-spin")} />
+        {t("common.retry")}
+      </Button>
+    </div>
+  );
+}
+
+function ProtocolCard({
+  protocols,
+  isPending,
+  error,
+  retrying,
+  onRetry,
+  className,
+}: {
+  protocols: OverviewProtocol[] | undefined;
+  isPending: boolean;
+  error: unknown;
+  retrying: boolean;
+  onRetry: () => void;
+  className?: string;
+}) {
+  const rows = sortProtocols(protocols ?? []);
+  const total = rows.reduce(
+    (sum, row) => sum + (Number.isFinite(row.traffic_7d) ? row.traffic_7d : 0),
+    0,
+  );
+
+  return (
+    <Card className={cn("gap-0", className)}>
+      <CardHeader className="border-b border-border pb-4">
+        <CardTitle className="text-sm font-medium">
+          {t("overview.protocolTitle")}
+        </CardTitle>
+      </CardHeader>
+      {isPending ? (
+        <CardContent className="flex flex-col gap-4 p-4" aria-hidden="true">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-3">
+                <Skeleton className="h-3.5 w-20" />
+                <Skeleton className="h-3 w-16" />
+              </div>
+              <Skeleton className="h-1.5 w-full" />
+            </div>
+          ))}
+        </CardContent>
+      ) : error ? (
+        <PanelError
+          message={statsErrorText(error)}
+          retrying={retrying}
+          onRetry={onRetry}
+        />
+      ) : rows.length === 0 ? (
+        <EmptyState
+          size="sm"
+          icon={ChartColumnIcon}
+          title={t("overview.protocolEmpty")}
+          className="py-10"
+        />
+      ) : (
+        <CardContent className="p-2">
+          <ul className="flex flex-col">
+            {rows.map((row) => {
+              const traffic = Number.isFinite(row.traffic_7d)
+                ? row.traffic_7d
+                : 0;
+              const share = formatShare(traffic, total);
+              const label =
+                row.protocol === "unknown"
+                  ? t("overview.protocolUnknown")
+                  : row.protocol;
+
+              return (
+                <li
+                  key={row.protocol}
+                  className="flex flex-col gap-1.5 rounded-md px-2.5 py-2"
+                >
+                  <div className="flex items-baseline justify-between gap-3">
+                    <div className="flex min-w-0 items-baseline gap-2">
+                      <span
+                        className={cn(
+                          "truncate text-sm",
+                          row.protocol !== "unknown" && "font-mono",
+                        )}
+                      >
+                        {label}
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                        {t(
+                          row.nodes === 1
+                            ? "overview.protocolNodesOne"
+                            : "overview.protocolNodes",
+                          { n: row.nodes },
+                        )}
+                      </span>
+                    </div>
+                    <span className="shrink-0 font-mono text-xs tabular-nums">
+                      {formatBytes(traffic)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div
+                      aria-hidden="true"
+                      className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
+                    >
+                      <div
+                        className="h-full rounded-full bg-primary"
+                        style={{ width: `${share}%` }}
+                      />
+                    </div>
+                    <span className="w-8 shrink-0 text-right text-[10px] text-muted-foreground tabular-nums">
+                      {Math.round(share)}%
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+function TopCard({
+  items,
+  isPending,
+  error,
+  retrying,
+  onRetry,
+  className,
+}: {
+  items: OverviewTopItem[] | undefined;
+  isPending: boolean;
+  error: unknown;
+  retrying: boolean;
+  onRetry: () => void;
+  className?: string;
+}) {
+  const rows = topServers(items);
+
+  return (
+    <Card className={cn("gap-0", className)}>
+      <CardHeader className="border-b border-border pb-4">
+        <CardTitle className="text-sm font-medium">
+          {t("overview.topTitle")}
+        </CardTitle>
+      </CardHeader>
+      {isPending ? (
+        <CardContent className="flex flex-col gap-3 p-4" aria-hidden="true">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div key={index} className="flex items-center gap-3">
+              <Skeleton className="h-3.5 flex-1" />
+              <Skeleton className="h-3 w-14" />
+              <Skeleton className="size-2 rounded-full" />
+              <Skeleton className="h-3 w-10" />
+            </div>
+          ))}
+        </CardContent>
+      ) : error ? (
+        <PanelError
+          message={statsErrorText(error)}
+          retrying={retrying}
+          onRetry={onRetry}
+        />
+      ) : rows.length === 0 ? (
+        <EmptyState
+          size="sm"
+          icon={ServerIcon}
+          title={t("overview.topEmpty")}
+          className="py-10"
+        />
+      ) : (
+        <CardContent className="p-2">
+          <ul className="flex flex-col gap-0.5">
+            {rows.map((item, index) => {
+              const load =
+                typeof item.load1 === "number" && Number.isFinite(item.load1)
+                  ? item.load1.toFixed(2)
+                  : "—";
+              const statusLabel = item.online
+                ? t("servers.statusOnline")
+                : t("servers.statusOffline");
+
+              return (
+                <li key={`${item.name}-${index}`}>
+                  <Link
+                    to="/servers"
+                    className="group flex items-center gap-3 rounded-md px-2.5 py-2.5 transition-colors duration-150 hover:bg-muted/40"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      {item.name}
+                    </span>
+                    <span className="shrink-0 font-mono text-xs tabular-nums">
+                      {formatBytes(item.traffic_7d)}
+                    </span>
+                    <span
+                      role="img"
+                      aria-label={statusLabel}
+                      title={statusLabel}
+                      className={cn(
+                        "size-2 shrink-0 rounded-full",
+                        item.online
+                          ? "bg-primary status-breathe"
+                          : "bg-muted-foreground/40",
+                      )}
+                    />
+                    <span
+                      title={t("overview.loadValue", { value: load })}
+                      className="w-12 shrink-0 text-right font-mono text-xs text-muted-foreground tabular-nums"
+                    >
+                      {load}
+                    </span>
+                    <ChevronRightIcon className="icon-sm text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5" />
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </CardContent>
+      )}
     </Card>
   );
 }
@@ -292,19 +566,28 @@ function AlertRow({
 
 export default function OverviewPage() {
   useI18n();
-  const overview = useOverview();
+  // 既有统计接口继续供第一行 KPI 与告警计数；新聚合接口只驱动新增卡片。
+  const overview = useOverviewStats();
+  const aggregate = useOverview(TRAFFIC_DAYS);
   const traffic = useTraffic(TRAFFIC_DAYS);
   const events = useEnforcementEvents(50);
   const recentRemoved =
     events.data?.filter((event) => event.kind === "removed").length ?? 0;
-  const refreshing = overview.isFetching || traffic.isFetching;
+  const refreshing =
+    overview.isFetching || aggregate.isFetching || traffic.isFetching;
 
   function refreshAll() {
     void overview.refetch();
+    void aggregate.refetch();
     void traffic.refetch();
   }
 
   const stats = overview.data;
+  const chainAlerts = visibleAlerts(aggregate.data?.chains);
+  const chainAlertTotal = chainAlerts.reduce(
+    (sum, alert) => sum + alert.count,
+    0,
+  );
   // 新装系统最先要做的动作是加服务器；即使已经有管理员账号也走这个空态。
   const isNewInstall = stats !== undefined && stats.servers.total === 0;
   const expiringCerts = stats?.alerts.expiring_certs ?? 0;
@@ -312,7 +595,8 @@ export default function OverviewPage() {
     ? stats.alerts.expired_instances +
       stats.alerts.exhausted_instances +
       stats.alerts.offline_servers +
-      expiringCerts
+      expiringCerts +
+      chainAlertTotal
     : 0;
 
   const trafficTotal =
@@ -464,6 +748,16 @@ export default function OverviewPage() {
               </CardContent>
             </Card>
 
+            <ProtocolCard
+              protocols={aggregate.data?.protocols}
+              isPending={aggregate.isPending}
+              error={aggregate.isError ? aggregate.error : null}
+              retrying={aggregate.isFetching}
+              onRetry={() => void aggregate.refetch()}
+            />
+          </section>
+
+          <section className="grid gap-4 xl:grid-cols-3">
             <Card className="gap-0">
               <CardHeader className="border-b border-border pb-4">
                 <CardTitle className="text-sm font-medium">{t("overview.alerts")}</CardTitle>
@@ -544,8 +838,38 @@ export default function OverviewPage() {
                     </span>
                   </Link>
                 ) : null}
+                {chainAlerts.map((alert) => (
+                  <AlertRow
+                    key={alert.kind}
+                    to="/chains"
+                    icon={
+                      alert.kind === "degraded" ? WaypointsIcon : HandshakeIcon
+                    }
+                    label={t(
+                      alert.kind === "degraded"
+                        ? "overview.degradedChains"
+                        : "overview.handshakeFailures",
+                    )}
+                    count={alert.count}
+                    hint={t(
+                      alert.kind === "degraded"
+                        ? "overview.degradedChainsHint"
+                        : "overview.handshakeFailuresHint",
+                    )}
+                    tone={alert.kind === "degraded" ? "warning" : "destructive"}
+                  />
+                ))}
               </CardContent>
             </Card>
+
+            <TopCard
+              items={aggregate.data?.top}
+              isPending={aggregate.isPending}
+              error={aggregate.isError ? aggregate.error : null}
+              retrying={aggregate.isFetching}
+              onRetry={() => void aggregate.refetch()}
+              className="xl:col-span-2"
+            />
           </section>
         </>
       ) : null}
