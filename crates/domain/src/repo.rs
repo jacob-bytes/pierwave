@@ -1858,6 +1858,8 @@ pub mod nodes {
 pub mod forwards {
     use std::collections::HashMap;
 
+    use serde::Serialize;
+
     use super::*;
 
     pub struct NewForward {
@@ -1897,6 +1899,17 @@ pub mod forwards {
         pub target_ok: Option<bool>,
         /// 加密链握手失败原因码；`None` = 未探测 / 成功 / 旧 Agent 没上报。
         pub target_error: Option<String>,
+        /// 逐目标探测结果；空 = 未探测（存 NULL），不能写成 0ms。
+        pub targets: Vec<NewTargetProbe>,
+    }
+
+    /// 心跳里一个 target 的探测结果（与线协议的 `TargetProbe` 同形，
+    /// 但领域层不依赖 proto，所以单独定义）。
+    #[derive(Debug, Clone, Serialize)]
+    pub struct NewTargetProbe {
+        pub server_id: String,
+        pub ok: bool,
+        pub latency_ms: Option<u32>,
     }
 
     pub async fn create(
@@ -2130,17 +2143,24 @@ pub mod forwards {
             } else {
                 0
             };
+            // 空数组 = 本轮没探测：存 NULL，读路径保持「无数据」而不是「0ms」。
+            let targets_json = if status.targets.is_empty() {
+                None
+            } else {
+                Some(serde_json::to_string(&status.targets)?)
+            };
             sqlx::query(
                 "INSERT INTO forward_status
                     (server_id, forward_id, listening, error, target_ok, target_error,
-                     target_fail_count, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                     target_fail_count, targets_json, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(server_id, forward_id) DO UPDATE SET
                     listening = excluded.listening,
                     error = excluded.error,
                     target_ok = excluded.target_ok,
                     target_error = excluded.target_error,
                     target_fail_count = excluded.target_fail_count,
+                    targets_json = excluded.targets_json,
                     updated_at = excluded.updated_at",
             )
             .bind(server_id)
@@ -2150,6 +2170,7 @@ pub mod forwards {
             .bind(status.target_ok)
             .bind(&status.target_error)
             .bind(fail_count)
+            .bind(&targets_json)
             .bind(ts)
             .execute(&mut *tx)
             .await?;
@@ -5150,6 +5171,7 @@ pub mod overview {
                         error: "监听失败".into(),
                         target_ok: None,
                         target_error: None,
+                        targets: Vec::new(),
                     },
                     super::super::forwards::NewForwardStatus {
                         forward_id: "fwd-a".into(),
@@ -5157,6 +5179,7 @@ pub mod overview {
                         error: String::new(),
                         target_ok: Some(false),
                         target_error: Some("cert_expired".into()),
+                        targets: Vec::new(),
                     },
                     super::super::forwards::NewForwardStatus {
                         forward_id: "fwd-b".into(),
@@ -5164,6 +5187,7 @@ pub mod overview {
                         error: String::new(),
                         target_ok: Some(false),
                         target_error: Some("timeout".into()),
+                        targets: Vec::new(),
                     },
                     super::super::forwards::NewForwardStatus {
                         forward_id: "fwd-c".into(),
@@ -5171,6 +5195,7 @@ pub mod overview {
                         error: String::new(),
                         target_ok: None,
                         target_error: None,
+                        targets: Vec::new(),
                     },
                 ],
             )
@@ -5230,6 +5255,7 @@ pub mod overview {
                 error: String::new(),
                 target_ok: Some(false),
                 target_error: Some("cert_expired".into()),
+                targets: Vec::new(),
             };
 
             // 第一次失败：不降级（连续两次才算）。
@@ -5258,6 +5284,7 @@ pub mod overview {
                     error: "监听 9001 失败".into(),
                     target_ok: None,
                     target_error: None,
+                    targets: Vec::new(),
                 }],
             )
             .await

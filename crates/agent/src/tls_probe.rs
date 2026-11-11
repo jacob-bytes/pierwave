@@ -16,7 +16,7 @@ use std::error::Error as _;
 use std::io;
 use std::net::SocketAddr;
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rustls::pki_types::ServerName;
 use tokio::io::AsyncWriteExt;
@@ -40,46 +40,80 @@ pub const TIMEOUT: &str = "timeout";
 /// 也避免把 rustls 的 Debug 文本（含证书路径/内部状态）泄漏到主控。
 pub type ProbeError = Option<&'static str>;
 
-/// 对 `host:port` 做一次 TCP connect + TLS 握手，SNI 用 `sni`。
-///
-/// 总预算 [`PROBE_TIMEOUT`]（3 秒）。成功返回 `None`，失败返回稳定错误码。
-/// 成功后立即关闭连接（探针不做任何业务 I/O）。
-pub async fn probe(host: &str, port: i64, sni: &str) -> ProbeError {
-    probe_with_timeout(host, port, sni, PROBE_TIMEOUT).await
+/// 一次带耗时的探针结果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TimedProbe {
+    /// 与 [`probe_timed`] 相同的错误码；成功为 `None`。
+    pub error: ProbeError,
+    /// TCP connect + TLS 握手的毫秒数；失败为 `None`。
+    ///
+    /// 小于 1ms（本机回环）也向上取到 1ms：延迟字段不允许出现 0。
+    pub latency_ms: Option<u32>,
 }
 
-/// 同 [`probe`]，但可指定总预算（测试用短超时）。
-async fn probe_with_timeout(host: &str, port: i64, sni: &str, budget: Duration) -> ProbeError {
-    match tokio::time::timeout(budget, probe_inner(host, port, sni)).await {
-        Ok(error) => error,
-        Err(_) => Some(TIMEOUT),
+impl TimedProbe {
+    fn failed(error: &'static str) -> Self {
+        Self {
+            error: Some(error),
+            latency_ms: None,
+        }
     }
 }
 
-async fn probe_inner(host: &str, port: i64, sni: &str) -> ProbeError {
+/// 对 `host:port` 做一次 TCP connect + TLS 握手，SNI 用 `sni`。
+///
+/// 总预算 [`PROBE_TIMEOUT`]（3 秒）。成功返回 `None`，失败返回稳定错误码；
+/// 同时返回握手耗时（毫秒），失败时耗时为 `None`。成功后立即关闭连接
+/// （探针不做任何业务 I/O）。
+pub async fn probe_timed(host: &str, port: i64, sni: &str) -> TimedProbe {
+    probe_timed_with_timeout(host, port, sni, PROBE_TIMEOUT).await
+}
+
+/// 同 [`probe_timed`]，但可指定总预算（测试用短超时）。
+#[cfg(test)]
+async fn probe_with_timeout(host: &str, port: i64, sni: &str, budget: Duration) -> ProbeError {
+    probe_timed_with_timeout(host, port, sni, budget)
+        .await
+        .error
+}
+
+async fn probe_timed_with_timeout(
+    host: &str,
+    port: i64,
+    sni: &str,
+    budget: Duration,
+) -> TimedProbe {
+    match tokio::time::timeout(budget, probe_inner(host, port, sni)).await {
+        Ok(result) => result,
+        Err(_) => TimedProbe::failed(TIMEOUT),
+    }
+}
+
+async fn probe_inner(host: &str, port: i64, sni: &str) -> TimedProbe {
     let Some(port) = u16::try_from(port).ok().filter(|port| *port != 0) else {
-        return Some(TCP_CONNECT_FAILED);
+        return TimedProbe::failed(TCP_CONNECT_FAILED);
     };
     let host = host.trim().trim_start_matches('[').trim_end_matches(']');
     if host.is_empty() {
-        return Some(TCP_CONNECT_FAILED);
+        return TimedProbe::failed(TCP_CONNECT_FAILED);
     }
     let addresses = match tokio::net::lookup_host((host, port)).await {
         Ok(addresses) => addresses.collect::<Vec<SocketAddr>>(),
-        Err(_) => return Some(TCP_CONNECT_FAILED),
+        Err(_) => return TimedProbe::failed(TCP_CONNECT_FAILED),
     };
     if addresses.is_empty() {
-        return Some(TCP_CONNECT_FAILED);
+        return TimedProbe::failed(TCP_CONNECT_FAILED);
     }
 
     // SNI 必须与 realm 的 `ServerName::try_from(sni)` 一致（DNS 名，不含端口）。
     let Ok(server_name) = ServerName::try_from(sni.to_ascii_lowercase()) else {
-        return Some(NAME_MISMATCH);
+        return TimedProbe::failed(NAME_MISMATCH);
     };
     let connector = TlsConnector::from(client_config());
 
     let mut last_connect_error = TCP_CONNECT_FAILED;
     for address in addresses {
+        let started = Instant::now();
         let stream = match TcpStream::connect(address).await {
             Ok(stream) => stream,
             Err(error) => {
@@ -94,14 +128,18 @@ async fn probe_inner(host: &str, port: i64, sni: &str) -> ProbeError {
         let _ = stream.set_nodelay(true);
         return match connector.connect(server_name.clone(), stream).await {
             Ok(mut tls) => {
+                let millis = u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
                 // 握手成功就够了；立即关闭，不发送任何业务字节。
                 let _ = tls.shutdown().await;
-                None
+                TimedProbe {
+                    error: None,
+                    latency_ms: Some(millis.max(1)),
+                }
             }
-            Err(error) => Some(classify_handshake_error(&error)),
+            Err(error) => TimedProbe::failed(classify_handshake_error(&error)),
         };
     }
-    Some(last_connect_error)
+    TimedProbe::failed(last_connect_error)
 }
 
 /// 与 realm/kaminari 相同的信任根：编译进二进制的 Mozilla 根，**只用这一份**。
@@ -327,6 +365,16 @@ pub(crate) mod tests {
         .await;
         task.abort();
         assert_eq!(error, Some(TIMEOUT));
+    }
+
+    /// 失败路径不能带耗时：`latency_ms = None`（不是 0）。
+    #[tokio::test]
+    async fn timed_probe_reports_no_latency_on_failure() {
+        let result =
+            probe_timed_with_timeout("127.0.0.1", 0, "example.com", Duration::from_millis(300))
+                .await;
+        assert_eq!(result.error, Some(TCP_CONNECT_FAILED));
+        assert_eq!(result.latency_ms, None, "失败不能报告 0ms");
     }
 
     #[tokio::test]

@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 16;
+pub const PROTOCOL_VERSION: u32 = 17;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -311,6 +311,27 @@ pub struct ForwardStatus {
     /// 不带 rustls 的 Debug 文本。旧 Agent 不认识该字段时为 `None`。
     #[serde(default)]
     pub target_error: Option<String>,
+    /// 逐目标 TCP 握手探测结果。
+    ///
+    /// 每个元素对应这条规则的一个 target（`server_id` 来自
+    /// [`ForwardTarget::server_id`]）。空数组 = 本轮没有探测（旧 Agent、
+    /// UDP 规则、nftables 引擎），主控必须把链路延迟显示成 null 而不是 0。
+    /// 失败的目标也要出现在数组里（`ok = false`、`latency_ms = None`），
+    /// 这样主控才能区分「探了但不可达」与「根本没探」。
+    #[serde(default)]
+    pub targets: Vec<TargetProbe>,
+}
+
+/// 一个目标最近一轮 TCP 握手探测的结果。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct TargetProbe {
+    /// 目标服务器 id；旧主控的单目标兼容格式没有它（空串）。
+    pub server_id: String,
+    /// 这一轮 TCP 握手是否成功。
+    pub ok: bool,
+    /// TCP 握手往返毫秒数；失败 / 旧 Agent 未记录时为 `None`，绝不能是 0。
+    #[serde(default)]
+    pub latency_ms: Option<u32>,
 }
 
 /// 期望态里的单个节点（仅 Agent 生成 tc 规则需要的字段）。
@@ -439,6 +460,10 @@ mod tests {
             status.target_error, None,
             "旧 Agent 没有 target_error 时必须解析为 None（主控落 NULL）"
         );
+        assert!(
+            status.targets.is_empty(),
+            "旧 Agent 没有 targets 时必须解析成空数组（未探测，不是 0ms）"
+        );
 
         // 新 Agent 上报的目标可达性与 listening 相互独立。
         let new = ForwardStatus {
@@ -447,6 +472,7 @@ mod tests {
             error: String::new(),
             target_ok: Some(false),
             target_error: Some("cert_expired".into()),
+            targets: Vec::new(),
         };
         let json = serde_json::to_value(&new).unwrap();
         assert_eq!(json["listening"], true);
@@ -466,6 +492,7 @@ mod tests {
             error: String::new(),
             target_ok: Some(true),
             target_error: None,
+            targets: Vec::new(),
         };
         let json = serde_json::to_value(&status).unwrap();
         assert_eq!(json["target_error"], serde_json::Value::Null, "{json}");
@@ -476,8 +503,8 @@ mod tests {
     #[test]
     fn forward_udp_defaults_to_false_for_old_masters() {
         assert_eq!(
-            PROTOCOL_VERSION, 16,
-            "新增 DesiredForward.protocol 必须升协议版本"
+            PROTOCOL_VERSION, 17,
+            "新增 ForwardStatus.targets 必须升协议版本"
         );
 
         // 旧主控的 JSON 没有 udp：必须解析成 false，也就是「只监听 TCP」，
@@ -603,6 +630,45 @@ mod tests {
         );
         let back: DesiredForward = serde_json::from_value(json).unwrap();
         assert_eq!(back, forward);
+    }
+
+    /// 逐目标探测结果只加字段：旧 Agent 报文解析成空数组，新报文原样往返，
+    /// 失败的延迟必须是 null（而不是 0ms）。
+    #[test]
+    fn forward_status_carries_per_target_probes() {
+        let old = r#"{"id":"fwd-1","listening":true,"error":"","target_ok":true}"#;
+        let status: ForwardStatus = serde_json::from_str(old).unwrap();
+        assert!(status.targets.is_empty(), "旧 Agent 没有 targets 字段");
+
+        let status = ForwardStatus {
+            id: "fwd-2".into(),
+            listening: true,
+            error: String::new(),
+            target_ok: Some(true),
+            target_error: None,
+            targets: vec![
+                TargetProbe {
+                    server_id: "srv-a".into(),
+                    ok: true,
+                    latency_ms: Some(23),
+                },
+                TargetProbe {
+                    server_id: "srv-b".into(),
+                    ok: false,
+                    latency_ms: None,
+                },
+            ],
+        };
+        let json = serde_json::to_value(&status).unwrap();
+        assert_eq!(json["targets"][0]["server_id"], "srv-a");
+        assert_eq!(json["targets"][0]["latency_ms"], 23);
+        assert_eq!(
+            json["targets"][1]["latency_ms"],
+            serde_json::Value::Null,
+            "失败目标不能把延迟写成 0"
+        );
+        let back: ForwardStatus = serde_json::from_value(json).unwrap();
+        assert_eq!(back, status, "逐目标探测结果必须能往返");
     }
 
     #[test]

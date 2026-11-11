@@ -1085,6 +1085,7 @@ mod tests {
             error: String::new(),
             target_ok: Some(true),
             target_error: None,
+            targets: Vec::new(),
         }];
         let system_info = system_info_fixture();
         let hb = sample_heartbeat(

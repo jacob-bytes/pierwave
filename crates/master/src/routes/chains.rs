@@ -38,7 +38,7 @@ use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
 use pierwave_proto::{
-    DesiredForward, ForwardEngine, ForwardProtocol, ForwardStrategy, ForwardTarget,
+    DesiredForward, ForwardEngine, ForwardProtocol, ForwardStrategy, ForwardTarget, TargetProbe,
 };
 
 /// 一条已通过校验的成员：带上服务器地址，供冲突提示与推导使用。
@@ -832,6 +832,71 @@ async fn load_status_map(
     Ok(map)
 }
 
+/// 读取一条 `forward_status` 行里的逐目标探测结果。
+///
+/// JSON 由仓储按 `pierwave_domain::repo::forwards::NewTargetProbe` 写入，
+/// 与线协议的 `TargetProbe` 同形。旧 Agent 没有 targets（列为 NULL）或
+/// 历史脏数据都按「未探测」处理，绝不让整条链视图 500。
+fn status_target_probes(row: Option<&ForwardStatusRow>) -> Vec<TargetProbe> {
+    row.and_then(|row| row.targets_json.as_deref())
+        .and_then(|raw| serde_json::from_str(raw).ok())
+        .unwrap_or_default()
+}
+
+/// 上一跳对某个成员的实测 RTT。
+///
+/// 一台成员可能被多台上一跳同时探测（上一组有多台成员），此时取**最小值**：
+/// 链路的「第 i 段」应该代表最快可达的那条路径，而不是最慢的一次探测。
+/// 没有任何上一跳成功测到它时返回 `None`（主控据此输出 null，不是 0ms）。
+fn previous_hop_latency(
+    statuses: &HashMap<String, ForwardStatusRow>,
+    chain_id: &str,
+    previous_group: &ChainGroupWithMembers,
+    group: &ChainGroupWithMembers,
+    member: &ChainGroupMember,
+) -> Option<u32> {
+    let multiple = group.members.len() > 1;
+    ordered_members(previous_group)
+        .into_iter()
+        .filter_map(|previous| {
+            let forward_id = member_forward_id(chain_id, previous, previous_group.members.len());
+            status_target_probes(statuses.get(&forward_id))
+                .into_iter()
+                .filter(|probe| probe.ok)
+                // 多成员组的目标一定带 server_id；单成员组走兼容字段时
+                // Agent 拿不到 server_id（空串），按「唯一成员」匹配。
+                .filter(|probe| {
+                    if multiple {
+                        probe.server_id == member.server_id
+                    } else {
+                        probe.server_id.is_empty() || probe.server_id == member.server_id
+                    }
+                })
+                .filter_map(|probe| probe.latency_ms)
+                .min()
+        })
+        .min()
+}
+
+/// 最后一跳成员到链目标的实测 RTT。
+///
+/// 链目标不是服务器，Agent 上报的 `server_id` 是空串；失败 / 未探测 = `None`。
+fn chain_target_latency(
+    statuses: &HashMap<String, ForwardStatusRow>,
+    chain_id: &str,
+    group: &ChainGroupWithMembers,
+    member: &ChainGroupMember,
+) -> Option<u32> {
+    let forward_id = member_forward_id(chain_id, member, group.members.len());
+    let probes = status_target_probes(statuses.get(&forward_id));
+    probes
+        .iter()
+        .find(|probe| probe.server_id.is_empty())
+        .or_else(|| probes.first())
+        .filter(|probe| probe.ok)
+        .and_then(|probe| probe.latency_ms)
+}
+
 /// 链视图：配置 + 每组/每个成员的运行状态（监听、目标可达、是否降级）。
 ///
 /// 同时保留旧的 `hops` 数组（每组取排序后的第一台成员），让尚未升级的前端
@@ -840,16 +905,70 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
     let mut group_views = Vec::with_capacity(chain.groups.len());
     let mut hop_views = Vec::with_capacity(chain.groups.len());
     let mut degraded = false;
+    // `path_mode` 只看「每组几台 + 多成员组的策略」；`total_latency_ms`
+    // 只在单路径（single）时有意义，多路径下不冒充一个确定值。
+    let path_mode = chains::path_mode(
+        chain
+            .groups
+            .iter()
+            .map(|group| (group.group.strategy.as_str(), group.members.len())),
+    );
+    // 各段延迟之和；任何一段缺数据就整体为 None（不能把未知当 0ms）。
+    // 空链（脏数据）没有段可加，同样是 None 而不是 0。
+    let mut total_latency: Option<u64> = if chain.groups.is_empty() {
+        None
+    } else {
+        Some(0)
+    };
 
-    for group in &chain.groups {
+    for (group_index, group) in chain.groups.iter().enumerate() {
+        let previous_group = group_index
+            .checked_sub(1)
+            .and_then(|index| chain.groups.get(index));
+        let is_last_group = group_index + 1 == chain.groups.len();
         let mut member_views = Vec::with_capacity(group.members.len());
         let mut group_degraded = false;
+        if group.members.is_empty() {
+            total_latency = None;
+        }
         for member in ordered_members(group) {
             let forward_id = member_forward_id(&chain.chain.id, member, group.members.len());
             let status = statuses.get(&forward_id);
             let member_degraded =
                 status.is_some_and(|row| chains::is_degraded(row.target_fail_count));
             group_degraded |= member_degraded;
+            // 第 i 跳成员：取上一跳（可能多台）对它的实测 RTT，取最小值。
+            let latency_ms = previous_group.and_then(|previous| {
+                previous_hop_latency(statuses, &chain.chain.id, previous, group, member)
+            });
+            // 最后一跳成员：到链目标的实测 RTT；其它组为 null。
+            let target_latency_ms = if is_last_group {
+                chain_target_latency(statuses, &chain.chain.id, group, member)
+            } else {
+                None
+            };
+            if let Some(total) = total_latency.as_mut() {
+                let mut sum = *total;
+                let mut complete = true;
+                // 首组没有「上一跳」段；其余每组都必须有值才能相加。
+                if group_index > 0 {
+                    match latency_ms {
+                        Some(value) => sum += u64::from(value),
+                        None => complete = false,
+                    }
+                }
+                if is_last_group {
+                    match target_latency_ms {
+                        Some(value) => sum += u64::from(value),
+                        None => complete = false,
+                    }
+                }
+                if complete {
+                    *total = sum;
+                } else {
+                    total_latency = None;
+                }
+            }
             member_views.push(json!({
                 "server_id": member.server_id,
                 "server_name": member.server_name,
@@ -864,6 +983,10 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
                 "degraded": member_degraded,
                 "error": status.map(|row| row.error.as_str()).unwrap_or(""),
                 "updated_at": status.map(|row| row.updated_at),
+                // 上一跳 → 本成员这一段的实测 RTT（最小值）；无数据 = null。
+                "latency_ms": latency_ms,
+                // 仅最后一跳：本成员 → 链目标的实测 RTT；其它组为 null。
+                "target_latency_ms": target_latency_ms,
             }));
         }
         degraded |= group_degraded;
@@ -897,6 +1020,12 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
         }
     }
 
+    let total_latency_ms = if path_mode == chains::PATH_SINGLE {
+        total_latency.and_then(|total| u32::try_from(total).ok())
+    } else {
+        None
+    };
+
     json!({
         "id": chain.chain.id,
         "name": chain.chain.name,
@@ -908,6 +1037,10 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
         "udp": chain.chain.udp,
         "transport": chain.chain.transport,
         "degraded": degraded,
+        // single | multi | hash：前端据此决定是否画「合计」。
+        "path_mode": path_mode,
+        // 只有 single 时是各段之和；缺任何一段数据、或非单路径都为 null。
+        "total_latency_ms": total_latency_ms,
         "groups": group_views,
         "hops": hop_views,
         "created_at": chain.chain.created_at,
@@ -1966,6 +2099,7 @@ mod tests {
                             error: String::new(),
                             target_ok,
                             target_error: target_error.map(str::to_string),
+                            targets: Vec::new(),
                         }],
                     )
                     .await
@@ -2263,6 +2397,7 @@ mod tests {
                         error: String::new(),
                         target_ok: Some(target_ok),
                         target_error: target_error.map(str::to_string),
+                        targets: Vec::new(),
                     }],
                 )
                 .await
@@ -3693,5 +3828,240 @@ mod tests {
             .all(|(_, forward)| forward.listen_transport.is_none()
                 && forward.remote_transport.is_none()
                 && !forward.disable_udp));
+    }
+
+    /// 直接写一条 forward_status（与心跳落库走同一个仓储函数）。
+    ///
+    /// `probes` = `(server_id, ok, latency_ms)`；空数组表示「本轮没探测」。
+    async fn save_probes(
+        state: &AppState,
+        server_id: &str,
+        forward_id: &str,
+        probes: &[(&str, bool, Option<u32>)],
+    ) {
+        repo::forwards::save_status(
+            &state.db.pool,
+            server_id,
+            &[repo::forwards::NewForwardStatus {
+                forward_id: forward_id.to_string(),
+                listening: true,
+                error: String::new(),
+                target_ok: Some(probes.iter().any(|(_, ok, _)| *ok)),
+                target_error: None,
+                targets: probes
+                    .iter()
+                    .map(
+                        |(server_id, ok, latency_ms)| repo::forwards::NewTargetProbe {
+                            server_id: (*server_id).to_string(),
+                            ok: *ok,
+                            latency_ms: *latency_ms,
+                        },
+                    )
+                    .collect(),
+            }],
+        )
+        .await
+        .unwrap();
+    }
+
+    /// 单路径（每组一台）：各段 RTT 直接相加；没有数据时全部 null。
+    #[tokio::test]
+    async fn chain_latency_single_path_sums_every_segment() {
+        let fixture = setup().await;
+        let uri = "/api/v1/chains";
+
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(groups_body(
+                "单路径",
+                "1.1.1.1",
+                443,
+                &[
+                    group(None, None, &[group_member(&fixture.a, 9001, 0)]),
+                    group(None, None, &[group_member(&fixture.b, 9002, 0)]),
+                ],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+        assert_eq!(value["chain"]["path_mode"], "single");
+        assert!(
+            value["chain"]["total_latency_ms"].is_null(),
+            "还没探测时不能编造合计：{value}"
+        );
+
+        // 心跳：a 探测 b 用 20ms，b 探测链目标用 5ms。
+        let a_id = chains::forward_id(&chain_id, 0, &fixture.a, 1);
+        let b_id = chains::forward_id(&chain_id, 1, &fixture.b, 1);
+        save_probes(&fixture.state, &fixture.a, &a_id, &[("", true, Some(20))]).await;
+        save_probes(&fixture.state, &fixture.b, &b_id, &[("", true, Some(5))]).await;
+
+        let (status, body) =
+            request(&fixture.app, Some(&fixture.cookie), Method::GET, uri, None).await;
+        assert_eq!(status, StatusCode::OK);
+        let chain = &body["items"][0];
+        assert_eq!(chain["path_mode"], "single");
+        assert_eq!(chain["total_latency_ms"], 25, "20 + 5");
+        assert!(
+            chain["groups"][0]["members"][0]["latency_ms"].is_null(),
+            "入口组没有上一跳，延迟必须是 null"
+        );
+        assert_eq!(chain["groups"][1]["members"][0]["latency_ms"], 20);
+        assert_eq!(chain["groups"][1]["members"][0]["target_latency_ms"], 5);
+        assert!(
+            chain["groups"][0]["members"][0]["target_latency_ms"].is_null(),
+            "非最后一跳不显示到链目标的延迟"
+        );
+
+        // 链路 JSON 只读观测值：把数据清空（心跳未探测）后必须回到全 null，不能 500。
+        save_probes(&fixture.state, &fixture.a, &a_id, &[]).await;
+        save_probes(&fixture.state, &fixture.b, &b_id, &[]).await;
+        let (status, body) =
+            request(&fixture.app, Some(&fixture.cookie), Method::GET, uri, None).await;
+        assert_eq!(status, StatusCode::OK);
+        let chain = &body["items"][0];
+        assert!(chain["groups"][1]["members"][0]["latency_ms"].is_null());
+        assert!(chain["groups"][1]["members"][0]["target_latency_ms"].is_null());
+        assert!(chain["total_latency_ms"].is_null(), "缺数据不能求和");
+    }
+
+    /// 多台上一跳探测同一个成员：取最小值；多成员组下合计为 null。
+    #[tokio::test]
+    async fn chain_latency_takes_the_minimum_across_previous_hops() {
+        let fixture = setup().await;
+        let uri = "/api/v1/chains";
+
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(groups_body(
+                "多路径",
+                "1.1.1.1",
+                443,
+                &[
+                    group(
+                        None,
+                        Some("round_robin"),
+                        &[
+                            group_member(&fixture.a, 9001, 0),
+                            group_member(&fixture.b, 9002, 0),
+                        ],
+                    ),
+                    group(None, None, &[group_member(&fixture.c, 9003, 0)]),
+                ],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+        assert_eq!(value["chain"]["path_mode"], "multi");
+
+        let a_id = chains::forward_id(&chain_id, 0, &fixture.a, 2);
+        let b_id = chains::forward_id(&chain_id, 0, &fixture.b, 2);
+        let c_id = chains::forward_id(&chain_id, 1, &fixture.c, 1);
+        // a 与 b 都探测 c：30ms 与 12ms。
+        save_probes(
+            &fixture.state,
+            &fixture.a,
+            &a_id,
+            &[(&fixture.c, true, Some(30))],
+        )
+        .await;
+        save_probes(
+            &fixture.state,
+            &fixture.b,
+            &b_id,
+            &[(&fixture.c, true, Some(12))],
+        )
+        .await;
+        save_probes(&fixture.state, &fixture.c, &c_id, &[("", true, Some(7))]).await;
+
+        let (_, body) = request(&fixture.app, Some(&fixture.cookie), Method::GET, uri, None).await;
+        let chain = &body["items"][0];
+        assert_eq!(chain["path_mode"], "multi");
+        assert!(
+            chain["total_latency_ms"].is_null(),
+            "多路径没有唯一的合计值"
+        );
+        assert_eq!(
+            chain["groups"][1]["members"][0]["latency_ms"], 12,
+            "取上一跳探测的最小值"
+        );
+        assert_eq!(chain["groups"][1]["members"][0]["target_latency_ms"], 7);
+    }
+
+    /// 多成员组且策略为 ip_hashed：path_mode = hash。
+    #[tokio::test]
+    async fn chain_path_mode_is_hash_for_ip_hashed_multi_member_group() {
+        let fixture = setup().await;
+        let uri = "/api/v1/chains";
+
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(groups_body(
+                "哈希链",
+                "1.1.1.1",
+                443,
+                &[group(
+                    None,
+                    Some("ip_hashed"),
+                    &[
+                        group_member(&fixture.a, 9001, 0),
+                        group_member(&fixture.b, 9002, 0),
+                    ],
+                )],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+
+        let a_id = chains::forward_id(&chain_id, 0, &fixture.a, 2);
+        let b_id = chains::forward_id(&chain_id, 0, &fixture.b, 2);
+        save_probes(&fixture.state, &fixture.a, &a_id, &[("", true, Some(9))]).await;
+        save_probes(&fixture.state, &fixture.b, &b_id, &[("", true, Some(4))]).await;
+
+        let (_, body) = request(&fixture.app, Some(&fixture.cookie), Method::GET, uri, None).await;
+        let chain = &body["items"][0];
+        assert_eq!(chain["path_mode"], "hash");
+        assert!(chain["total_latency_ms"].is_null());
+        assert_eq!(chain["groups"][0]["members"][0]["target_latency_ms"], 9);
+        assert_eq!(chain["groups"][0]["members"][1]["target_latency_ms"], 4);
+    }
+
+    /// 完全没有探测数据（旧 Agent / 刚建链）：字段存在、值为 null、接口不报错。
+    #[tokio::test]
+    async fn chain_latency_is_null_without_probe_data() {
+        let fixture = setup().await;
+        let uri = "/api/v1/chains";
+
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(groups_body(
+                "无数据",
+                "1.1.1.1",
+                443,
+                &[group(None, None, &[group_member(&fixture.a, 9001, 0)])],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        let chain = &value["chain"];
+        assert_eq!(chain["path_mode"], "single");
+        assert!(chain["total_latency_ms"].is_null());
+        assert!(chain["groups"][0]["members"][0]["latency_ms"].is_null());
+        assert!(chain["groups"][0]["members"][0]["target_latency_ms"].is_null());
     }
 }

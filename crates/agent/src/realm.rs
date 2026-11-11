@@ -27,7 +27,7 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
-use pierwave_proto::{DesiredForward, ForwardEngine, ForwardStatus};
+use pierwave_proto::{DesiredForward, ForwardEngine, ForwardStatus, TargetProbe};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -116,6 +116,8 @@ struct TlsHealth {
     ok: bool,
     /// 失败原因码（`tls_probe` 的稳定短串）；成功时为 `None`。
     error: Option<String>,
+    /// 逐目标探测结果（含 RTT），随心跳带给主控做链路延迟。
+    targets: Vec<TargetProbe>,
 }
 
 impl RealmStatusHandle {
@@ -132,6 +134,7 @@ impl RealmStatusHandle {
                 if let Some(health) = state.tls.get(&status.id) {
                     status.target_ok = Some(health.ok);
                     status.target_error = health.error.clone();
+                    status.targets = health.targets.clone();
                 }
                 status
             })
@@ -182,6 +185,7 @@ impl RealmStatusHandle {
                 error: reason.clone(),
                 target_ok: None,
                 target_error: None,
+                targets: Vec::new(),
             })
             .collect();
         self.store(statuses);
@@ -203,7 +207,15 @@ struct ProbeSpec {
     /// 与 realm 的 `remote_transport` 里完全相同的 SNI。
     sni: String,
     /// 下一组的全部成员（组内多成员时每个都测一次）。
-    targets: Vec<(String, i64)>,
+    targets: Vec<ProbeTarget>,
+}
+
+/// 一个下一跳成员：地址 + 用于回报给主控的 server_id。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProbeTarget {
+    host: String,
+    port: i64,
+    server_id: String,
 }
 
 /// 正在运行的 TLS 探针任务。
@@ -510,6 +522,7 @@ impl RealmSupervisor {
                 // realm 没有状态 API，目标可达性由 TLS 探针单独写入。
                 target_ok: None,
                 target_error: None,
+                targets: Vec::new(),
             });
         }
         statuses
@@ -531,6 +544,7 @@ impl RealmSupervisor {
                 error: reason.to_string(),
                 target_ok: None,
                 target_error: None,
+                targets: Vec::new(),
             })
             .collect()
     }
@@ -690,10 +704,7 @@ fn probe_specs(rules: &[DesiredForward]) -> Vec<ProbeSpec> {
         .filter(|rule| rule.engine == ForwardEngine::Realm)
         .filter_map(|rule| {
             let sni = remote_transport_sni(rule.remote_transport.as_deref()?)?;
-            let targets: Vec<(String, i64)> = rule_targets(rule)
-                .into_iter()
-                .map(|(host, port)| (host.to_string(), port))
-                .collect();
+            let targets: Vec<ProbeTarget> = probe_targets(rule);
             if targets.is_empty() {
                 return None;
             }
@@ -712,17 +723,30 @@ fn probe_specs(rules: &[DesiredForward]) -> Vec<ProbeSpec> {
 ///
 /// 任一成员成功 = 这一跳可达（`target_ok = true`，`target_error = None`）；
 /// 全部失败时取第一个失败原因（`ForwardStatus` 只有一个 `target_error`）。
-async fn probe_rule(spec: &ProbeSpec) -> tls_probe::ProbeError {
+async fn probe_rule(spec: &ProbeSpec) -> (tls_probe::ProbeError, Vec<TargetProbe>) {
     let results = futures_util::future::join_all(
         spec.targets
             .iter()
-            .map(|(host, port)| tls_probe::probe(host, *port, &spec.sni)),
+            .map(|target| tls_probe::probe_timed(&target.host, target.port, &spec.sni)),
     )
     .await;
-    if results.iter().any(Option::is_none) {
-        return None;
-    }
-    results.into_iter().flatten().next()
+    let probes: Vec<TargetProbe> = spec
+        .targets
+        .iter()
+        .zip(results.iter())
+        .map(|(target, result)| TargetProbe {
+            server_id: target.server_id.clone(),
+            ok: result.error.is_none(),
+            latency_ms: result.latency_ms,
+        })
+        .collect();
+    // 任一成员握手成功 = 这一跳可达；否则取第一个失败原因。
+    let error = if results.iter().any(|result| result.error.is_none()) {
+        None
+    } else {
+        results.iter().find_map(|result| result.error)
+    };
+    (error, probes)
 }
 
 /// 探针主循环：立即测一轮，之后每 [`TLS_PROBE_INTERVAL`] 测一轮。
@@ -733,11 +757,11 @@ async fn run_tls_probe_loop(specs: Vec<ProbeSpec>, status: RealmStatusHandle) {
     let mut previous: HashMap<String, tls_probe::ProbeError> = HashMap::new();
     loop {
         for spec in &specs {
-            let error = probe_rule(spec).await;
+            let (error, probes) = probe_rule(spec).await;
             let target = spec
                 .targets
                 .first()
-                .map(|(host, port)| format!("{host}:{port}"))
+                .map(|target| format!("{}:{}", target.host, target.port))
                 .unwrap_or_default();
             match (previous.get(&spec.id).copied(), error) {
                 (None, Some(code)) => tracing::warn!(
@@ -769,6 +793,7 @@ async fn run_tls_probe_loop(specs: Vec<ProbeSpec>, status: RealmStatusHandle) {
                 TlsHealth {
                     ok: error.is_none(),
                     error: error.map(str::to_string),
+                    targets: probes,
                 },
             );
         }
@@ -1010,6 +1035,29 @@ async fn detect_transport(bin: &Path) -> Option<bool> {
     let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
     text.push_str(&String::from_utf8_lossy(&output.stderr));
     Some(text.contains("[transport]"))
+}
+
+/// 探测用的下一跳列表：与 `rule_targets` 相同的顺序，额外带上 server_id。
+///
+/// 单成员组走兼容字段时 Agent 拿不到 server_id（空串），主控会按「唯一成员」
+/// 匹配；多成员组的 `targets` 一定带 server_id。
+fn probe_targets(rule: &DesiredForward) -> Vec<ProbeTarget> {
+    if rule.targets.is_empty() {
+        vec![ProbeTarget {
+            host: rule.target_host.clone(),
+            port: rule.target_port,
+            server_id: String::new(),
+        }]
+    } else {
+        rule.targets
+            .iter()
+            .map(|target| ProbeTarget {
+                host: target.host.clone(),
+                port: target.port,
+                server_id: target.server_id.clone(),
+            })
+            .collect()
+    }
 }
 
 /// 规则的目标列表：`targets` 为空时退回旧主控的单目标字段。
@@ -1280,6 +1328,8 @@ mod tests {
     #[test]
     fn probe_specs_only_cover_realm_rules_with_tls_remote() {
         let mut tls = realm_rule("r-tls", 30001, &[("10.0.0.2", 443), ("10.0.0.3", 443)]);
+        tls.targets[0].server_id = "srv-g1-a".into();
+        tls.targets[1].server_id = "srv-g1-b".into();
         tls.remote_transport = Some("tls;sni=Hop1.Example.com".into());
         tls.disable_udp = true;
 
@@ -1307,8 +1357,19 @@ mod tests {
         );
         assert_eq!(
             specs[0].targets,
-            vec![("10.0.0.2".to_string(), 443), ("10.0.0.3".to_string(), 443)],
-            "组内每个成员都要探测"
+            vec![
+                ProbeTarget {
+                    host: "10.0.0.2".into(),
+                    port: 443,
+                    server_id: "srv-g1-a".into(),
+                },
+                ProbeTarget {
+                    host: "10.0.0.3".into(),
+                    port: 443,
+                    server_id: "srv-g1-b".into(),
+                },
+            ],
+            "组内每个成员都要探测，并带上 server_id 供主控聚合"
         );
     }
 
@@ -1347,6 +1408,7 @@ mod tests {
             error: String::new(),
             target_ok: None,
             target_error: None,
+            targets: Vec::new(),
         }]);
         assert_eq!(
             handle.snapshot()[0].target_ok,
@@ -1359,6 +1421,11 @@ mod tests {
             TlsHealth {
                 ok: false,
                 error: Some(tls_probe::UNKNOWN_ISSUER.into()),
+                targets: vec![TargetProbe {
+                    server_id: "srv-b".into(),
+                    ok: false,
+                    latency_ms: None,
+                }],
             },
         );
         let status = handle.snapshot().pop().unwrap();
@@ -1374,11 +1441,25 @@ mod tests {
             TlsHealth {
                 ok: true,
                 error: None,
+                targets: vec![TargetProbe {
+                    server_id: "srv-b".into(),
+                    ok: true,
+                    latency_ms: Some(12),
+                }],
             },
         );
         let status = handle.snapshot().pop().unwrap();
         assert_eq!(status.target_ok, Some(true));
         assert_eq!(status.target_error, None, "成功时不能残留上一轮原因");
+        assert_eq!(
+            status.targets,
+            vec![TargetProbe {
+                server_id: "srv-b".into(),
+                ok: true,
+                latency_ms: Some(12),
+            }],
+            "逐目标 RTT 必须随快照带出（链路延迟用）"
+        );
 
         // 规则已不在期望态：整体替换后探针缓存不能再造出一条状态。
         handle.store(Vec::new());
@@ -1387,6 +1468,7 @@ mod tests {
             TlsHealth {
                 ok: false,
                 error: Some(tls_probe::TIMEOUT.into()),
+                targets: Vec::new(),
             },
         );
         assert!(handle.snapshot().is_empty());

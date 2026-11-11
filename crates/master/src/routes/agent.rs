@@ -227,6 +227,16 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
                     error: status.error.clone(),
                     target_ok: status.target_ok,
                     target_error: status.target_error.clone(),
+                    // 旧 Agent 没有 targets：空数组 → 落 NULL → 链路延迟保持 null。
+                    targets: status
+                        .targets
+                        .iter()
+                        .map(|probe| repo::forwards::NewTargetProbe {
+                            server_id: probe.server_id.clone(),
+                            ok: probe.ok,
+                            latency_ms: probe.latency_ms,
+                        })
+                        .collect(),
                 })
                 .collect();
             // 链降级是「状态跃迁」事件：save 前后各算一次，只在 false → true 时通知。
@@ -1199,6 +1209,18 @@ mod tests {
                 error: String::new(),
                 target_ok: Some(true),
                 target_error: Some("cert_expired".into()),
+                targets: vec![
+                    pierwave_proto::TargetProbe {
+                        server_id: "srv-next".into(),
+                        ok: true,
+                        latency_ms: Some(17),
+                    },
+                    pierwave_proto::TargetProbe {
+                        server_id: "srv-down".into(),
+                        ok: false,
+                        latency_ms: None,
+                    },
+                ],
             }],
         )
         .await;
@@ -1221,6 +1243,18 @@ mod tests {
         );
         assert!(!runtime.degraded);
 
+        // 逐目标 RTT 必须原样落库，供 /api/v1/chains 计算跳间延迟。
+        let rows = repo::forwards::list_status_by_server(&fixture.state.db.pool, &server.id)
+            .await
+            .unwrap();
+        let raw = rows[0].targets_json.as_deref().expect("targets 必须落库");
+        let probes: Vec<pierwave_proto::TargetProbe> = serde_json::from_str(raw).unwrap();
+        assert_eq!(probes.len(), 2);
+        assert_eq!(probes[0].server_id, "srv-next");
+        assert_eq!(probes[0].latency_ms, Some(17));
+        assert!(!probes[1].ok);
+        assert_eq!(probes[1].latency_ms, None, "失败目标不能写成 0ms");
+
         send(
             2,
             vec![pierwave_proto::ForwardStatus {
@@ -1229,12 +1263,20 @@ mod tests {
                 error: "端口已被占用".into(),
                 target_ok: Some(false),
                 target_error: None,
+                targets: Vec::new(),
             }],
         )
         .await;
         let views = repo::forwards::list_with_status(&fixture.state.db.pool, &server.id)
             .await
             .unwrap();
+        let rows = repo::forwards::list_status_by_server(&fixture.state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert!(
+            rows[0].targets_json.is_none(),
+            "空 targets 必须落 NULL（未探测），不能保留上一轮"
+        );
         let runtime = views[0].runtime.as_ref().unwrap();
         assert!(!runtime.listening);
         assert_eq!(runtime.error, "端口已被占用");
@@ -1365,6 +1407,7 @@ mod tests {
                     error: String::new(),
                     target_ok: Some(target_ok),
                     target_error: None,
+                    targets: Vec::new(),
                 }],
                 latency_ms: None,
                 uptime_secs: 1,

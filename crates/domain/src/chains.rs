@@ -261,6 +261,43 @@ pub fn normalize_group_name(raw: Option<&str>) -> Result<Option<String>, DomainE
     Ok(Some(name.to_string()))
 }
 
+/// 链的路径形态：每组只有一台成员，端到端只有一条路径。
+pub const PATH_SINGLE: &str = "single";
+/// 存在多成员组，选中哪一台由策略决定（不是纯哈希）。
+pub const PATH_MULTI: &str = "multi";
+/// 所有多成员组都用 `ip_hashed`：同一来源总落到同一台，路径可按来源复现。
+pub const PATH_HASH: &str = "hash";
+
+/// 判定链的路径形态（纯函数，输入是「组策略 + 成员数」）。
+///
+/// * `single`：每组 ≤ 1 台，整条链只有一条路径，各段延迟可以直接相加；
+/// * `hash`：所有多成员组都是 `ip_hashed`（同一客户端 IP 固定走一条路径）；
+/// * `multi`：其余情况——存在多成员组，且至少一个多成员组用轮询/主备/最低延迟。
+///
+/// 只有 `single` 的 `total_latency_ms` 才有意义：多路径下「合计」是一个
+/// 不存在的确定值，主控返回 null，避免把某一次探测的路径冒充成整条链。
+pub fn path_mode<'a, I>(groups: I) -> &'static str
+where
+    I: IntoIterator<Item = (&'a str, usize)>,
+{
+    let mut has_multi = false;
+    let mut all_multi_hashed = true;
+    for (strategy, member_count) in groups {
+        if member_count <= 1 {
+            continue;
+        }
+        has_multi = true;
+        all_multi_hashed &= GroupStrategy::from_db(strategy) == GroupStrategy::IpHashed;
+    }
+    if !has_multi {
+        PATH_SINGLE
+    } else if all_multi_hashed {
+        PATH_HASH
+    } else {
+        PATH_MULTI
+    }
+}
+
 /// 连续失败次数是否已经达到降级阈值。
 ///
 /// 只读计数，不在这里记录历史；计数由 `repo::forwards::save_status` 维护。
@@ -441,6 +478,31 @@ mod tests {
 
         let ok = vec![vec!["a".to_string()], vec!["b".to_string()]];
         assert!(ensure_chain_servers_unique(&ok).is_ok());
+    }
+
+    #[test]
+    fn path_mode_is_single_multi_or_hash() {
+        assert_eq!(path_mode([]), PATH_SINGLE);
+        assert_eq!(
+            path_mode([("round_robin", 1), ("ip_hashed", 1)]),
+            PATH_SINGLE,
+            "每组一台时策略不参与判定"
+        );
+        assert_eq!(
+            path_mode([("round_robin", 1), ("round_robin", 2)]),
+            PATH_MULTI
+        );
+        assert_eq!(path_mode([("round_robin", 1), ("ip_hashed", 2)]), PATH_HASH);
+        assert_eq!(
+            path_mode([("ip_hashed", 3), ("ip_hashed", 2)]),
+            PATH_HASH,
+            "所有多成员组都哈希才算 hash"
+        );
+        assert_eq!(
+            path_mode([("ip_hashed", 2), ("round_robin", 2)]),
+            PATH_MULTI,
+            "只要有一个多成员组不是哈希，路径就不固定"
+        );
     }
 
     #[test]

@@ -184,6 +184,7 @@ impl NftablesSupervisor {
                             .unwrap_or_else(|| "没有可下发的 nftables 规则".to_string()),
                         target_ok: None,
                         target_error: None,
+                        targets: Vec::new(),
                     })
                     .collect(),
             );
@@ -218,6 +219,7 @@ impl NftablesSupervisor {
                             error: error.clone(),
                             target_ok: None,
                             target_error: None,
+                            targets: Vec::new(),
                         },
                         None => ForwardStatus {
                             id: rule.id.clone(),
@@ -225,6 +227,7 @@ impl NftablesSupervisor {
                             error: String::new(),
                             target_ok: None,
                             target_error: None,
+                            targets: Vec::new(),
                         },
                     })
                     .collect();
@@ -276,6 +279,7 @@ impl NftablesSupervisor {
                 error: reason.to_string(),
                 target_ok: None,
                 target_error: None,
+                targets: Vec::new(),
             })
             .collect()
     }

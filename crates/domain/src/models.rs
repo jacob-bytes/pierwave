@@ -124,6 +124,11 @@ pub struct ForwardStatusRow {
     pub target_error: Option<String>,
     /// 连续 `target_ok=false` 的次数；非 false 会清零。
     pub target_fail_count: i64,
+    /// 逐目标探测结果的 JSON 数组（迁移 0035）；`None` = 未探测 / 旧 Agent。
+    ///
+    /// 仓储只负责存取这段 JSON，不解释内容：主控把它反序列化成
+    /// `pierwave_proto::TargetProbe`，避免 domain 依赖线协议。
+    pub targets_json: Option<String>,
     pub updated_at: i64,
 }
 

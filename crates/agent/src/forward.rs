@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use pierwave_proto::{DesiredForward, ForwardStatus, ForwardStrategy, ForwardTarget};
+use pierwave_proto::{DesiredForward, ForwardStatus, ForwardStrategy, ForwardTarget, TargetProbe};
 use tokio::io::copy_bidirectional;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot};
@@ -62,8 +62,27 @@ pub struct ForwardStatusHandle {
 struct StatusState {
     statuses: Vec<ForwardStatus>,
     /// 规则 id → 每个候选目标的探测结果，顺序与规则里的 `targets` 一致。
-    /// `None` = 这一轮还没测过（启动瞬间按健康处理，避免无谓断流）。
-    target_health: HashMap<String, Vec<Option<TargetHealth>>>,
+    /// `health = None` = 这一轮还没测过（启动瞬间按健康处理，避免无谓断流）。
+    target_health: HashMap<String, Vec<TargetSlot>>,
+}
+
+/// 一个候选目标的服务器 id + 最近一次探测结果。
+///
+/// 单独保留 `server_id` 是因为心跳要把逐目标 RTT 按成员回报给主控：
+/// 主控据此把「上一跳对第 i 跳某成员的实测 RTT」挂到链视图的成员上。
+#[derive(Debug, Clone)]
+struct TargetSlot {
+    server_id: String,
+    health: Option<TargetHealth>,
+}
+
+impl TargetSlot {
+    fn new(server_id: &str) -> Self {
+        Self {
+            server_id: server_id.to_string(),
+            health: None,
+        }
+    }
 }
 
 impl ForwardStatusHandle {
@@ -82,7 +101,25 @@ impl ForwardStatusHandle {
                 status.target_ok = state
                     .target_health
                     .get(&status.id)
-                    .and_then(|health| overall_target_ok(health));
+                    .and_then(|slots| overall_target_ok(slots));
+                // 只上报**已经探测过**的目标：未探测保持空数组（主控显示 null），
+                // 不能把「还没测」伪装成 ok=false 或 0ms。
+                status.targets = state
+                    .target_health
+                    .get(&status.id)
+                    .map(|slots| {
+                        slots
+                            .iter()
+                            .filter_map(|slot| {
+                                slot.health.map(|health| TargetProbe {
+                                    server_id: slot.server_id.clone(),
+                                    ok: health.healthy,
+                                    latency_ms: health.latency_ms,
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 status
             })
             .collect()
@@ -99,13 +136,19 @@ impl ForwardStatusHandle {
         state.target_health.retain(|id, _| ids.contains(id));
     }
 
-    /// 新规则接管监听前先建好逐目标槽位（全部 `None` = 尚未探测）。
-    fn init_target_health(&self, id: &str, targets: usize) {
+    /// 新规则接管监听前先建好逐目标槽位（全部未探测）。
+    fn init_target_health(&self, id: &str, targets: &[ForwardTarget]) {
         self.inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .target_health
-            .insert(id.to_string(), vec![None; targets]);
+            .insert(
+                id.to_string(),
+                targets
+                    .iter()
+                    .map(|target| TargetSlot::new(&target.server_id))
+                    .collect(),
+            );
     }
 
     fn set_target_health(&self, id: &str, index: usize, health: TargetHealth) {
@@ -118,7 +161,7 @@ impl ForwardStatusHandle {
             .get_mut(id)
             .and_then(|targets| targets.get_mut(index))
         {
-            *slot = Some(health);
+            slot.health = Some(health);
         }
     }
 
@@ -134,7 +177,7 @@ impl ForwardStatusHandle {
             .map(|targets| {
                 targets
                     .iter()
-                    .map(|health| health.unwrap_or_else(TargetHealth::up))
+                    .map(|slot| slot.health.unwrap_or_else(TargetHealth::up))
                     .collect()
             })
             .unwrap_or_default()
@@ -156,7 +199,7 @@ impl ForwardStatusHandle {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .target_health
             .get(id)
-            .cloned()
+            .map(|slots| slots.iter().map(|slot| slot.health).collect())
             .unwrap_or_default()
     }
 }
@@ -166,14 +209,14 @@ impl ForwardStatusHandle {
 /// 尚未探测的目标按健康处理——否则规则刚启动的那一瞬间会被报成全体不可用，
 /// 主控可能据此误判。至少探测过一个目标后，就按已知结果聚合；还没测到的
 /// 成员依旧默认健康，避免探测逐个完成的过程中状态抖动。
-fn overall_target_ok(health: &[Option<TargetHealth>]) -> Option<bool> {
-    if health.iter().all(Option::is_none) {
+fn overall_target_ok(slots: &[TargetSlot]) -> Option<bool> {
+    if slots.iter().all(|slot| slot.health.is_none()) {
         return None;
     }
     Some(
-        health
+        slots
             .iter()
-            .any(|entry| entry.is_none_or(|health| health.healthy)),
+            .any(|slot| slot.health.is_none_or(|health| health.healthy)),
     )
 }
 
@@ -385,7 +428,7 @@ impl ForwardSupervisor {
                 // 这里只重置成「全部未知（按健康处理）」，避免健康列表为空
                 // 导致 TCP 连接全部被立即关闭。下一次完整重建会恢复周期探测。
                 self.status
-                    .init_target_health(&spec.id, running.runtime.targets.len());
+                    .init_target_health(&spec.id, &running.runtime.targets);
                 self.udp_failures.remove(&spec.id);
                 tracing::info!(id = %spec.id, "关闭 UDP 监听（TCP 未中断）");
             }
@@ -553,7 +596,7 @@ impl ForwardSupervisor {
             // 带 UDP 的规则不做 TCP 目标探测：TCP 握手证明不了 UDP 可达，
             // 对「只开 UDP」的目标会报出假降级；`target_ok` 保持 `None`（未知）。
             let health_task = if wants_tcp && !wants_udp {
-                self.status.init_target_health(&spec.id, target_count);
+                self.status.init_target_health(&spec.id, &targets);
                 Some(tokio::spawn(target_health_loop(
                     spec.id.clone(),
                     targets,
@@ -610,6 +653,7 @@ impl ForwardSupervisor {
                         .unwrap_or_else(|| "UDP 监听未启动".into()),
                     target_ok: None,
                     target_error: None,
+                    targets: Vec::new(),
                 },
                 Some(_) => ForwardStatus {
                     id: id.clone(),
@@ -618,6 +662,7 @@ impl ForwardSupervisor {
                     // 探测结果由 status handle 在 snapshot 时叠加。
                     target_ok: None,
                     target_error: None,
+                    targets: Vec::new(),
                 },
                 None => ForwardStatus {
                     id: id.clone(),
@@ -630,6 +675,7 @@ impl ForwardSupervisor {
                         .unwrap_or_else(|| "监听未启动".into()),
                     target_ok: None,
                     target_error: None,
+                    targets: Vec::new(),
                 },
             })
             .collect();
@@ -1980,5 +2026,50 @@ mod tests {
         assert!(good.listening, "单条失败不能影响其它规则");
 
         drop(occupied);
+    }
+
+    /// 逐目标 RTT：成功探测必须带毫秒数，失败必须是 `ok=false` + `latency=None`。
+    #[tokio::test]
+    async fn status_snapshot_reports_probe_latency_for_every_target() {
+        let live = spawn_tagged_echo(b'L').await;
+        let refused = {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            listener.local_addr().unwrap()
+            // listener drop 后端口无人监听，握手必然失败。
+        };
+        let mut supervisor = ForwardSupervisor::new("127.0.0.1");
+
+        let spec = grouped_rule(
+            "fwd-latency",
+            0,
+            vec![live, refused],
+            ForwardStrategy::RoundRobin,
+        );
+        supervisor.apply(&[spec]).await;
+
+        let health = wait_for_all_targets_probed(&supervisor, "fwd-latency").await;
+        assert!(health[0].is_some() && health[1].is_some());
+
+        let status = supervisor
+            .status_handle()
+            .snapshot()
+            .into_iter()
+            .find(|status| status.id == "fwd-latency")
+            .expect("规则必须有状态");
+        assert_eq!(status.targets.len(), 2, "每个候选目标都要上报一条探测结果");
+
+        let ok = &status.targets[0];
+        assert_eq!(ok.server_id, format!("srv-{}", live.port()));
+        assert!(ok.ok);
+        let latency = ok.latency_ms.expect("成功探测必须记录毫秒数");
+        assert!(
+            (1..=5_000).contains(&latency),
+            "本机回环 RTT 必须落在合理范围，实际 {latency}ms"
+        );
+
+        let failed = &status.targets[1];
+        assert_eq!(failed.server_id, format!("srv-{}", refused.port()));
+        assert!(!failed.ok, "连不上的目标必须 ok=false");
+        assert_eq!(failed.latency_ms, None, "失败不能写成 0ms");
     }
 }

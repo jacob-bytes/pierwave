@@ -897,6 +897,7 @@ mod tests {
                 error: String::new(),
                 target_ok: Some(false),
                 target_error: Some("unknown_issuer".into()),
+                targets: Vec::new(),
             }],
         )
         .await
@@ -922,6 +923,7 @@ mod tests {
                 error: "端口已被占用".into(),
                 target_ok: Some(true),
                 target_error: None,
+                targets: Vec::new(),
             }],
         )
         .await
