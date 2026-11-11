@@ -729,6 +729,8 @@ pub mod servers {
         pub realm_available: Option<bool>,
         /// realm 是否带 transport feature；None = 旧 Agent 未上报 / 无法判定。
         pub realm_transport: Option<bool>,
+        /// nftables 引擎是否可用；None = 旧 Agent 未上报。
+        pub nftables_available: Option<bool>,
     }
 
     /// 返回 (服务器, 明文配对 token)。token 只在创建时可见一次。
@@ -919,6 +921,7 @@ pub mod servers {
                 virt = ?,
                 realm_available = ?,
                 realm_transport = ?,
+                nftables_available = ?,
                 xray_running = ?,
                 nginx_running = ?,
                 load1 = ?,
@@ -939,6 +942,7 @@ pub mod servers {
         .bind(&health.virt)
         .bind(health.realm_available)
         .bind(health.realm_transport)
+        .bind(health.nftables_available)
         .bind(health.xray_running)
         .bind(health.nginx_running)
         .bind(health.load1)
@@ -1862,7 +1866,7 @@ pub mod forwards {
         pub target_host: String,
         pub target_port: i64,
         pub enabled: bool,
-        /// 已通过 `engine::normalize` 校验的引擎名（`native` / `realm`）。
+        /// 已通过 `engine::normalize` 校验的引擎名（`native` / `realm` / `nftables`）。
         pub engine: String,
         /// 是否同时监听 UDP；只对 `native` 有意义。
         pub udp: bool,
@@ -2176,7 +2180,7 @@ pub mod chains {
         pub target_host: String,
         pub target_port: i64,
         pub enabled: bool,
-        /// 已通过 `engine::normalize` 校验的引擎名（`native` / `realm`）。
+        /// 已通过 `engine::normalize` 校验的引擎名（`native` / `realm` / `nftables`）。
         pub engine: String,
         /// 整条链是否同时监听 UDP；只对 `native` 有意义。
         pub udp: bool,
@@ -2221,7 +2225,8 @@ pub mod chains {
         let members = sqlx::query_as::<_, ChainGroupMember>(
             "SELECT m.group_id, g.chain_id, g.seq, g.strategy,
                     m.server_id, s.name AS server_name, s.address AS server_address,
-                    m.listen_port, m.priority, m.weight, s.realm_transport
+                    m.listen_port, m.priority, m.weight, s.realm_transport,
+                    s.nftables_available
              FROM chain_group_members m
              JOIN chain_groups g ON g.id = m.group_id
              JOIN servers s ON s.id = m.server_id

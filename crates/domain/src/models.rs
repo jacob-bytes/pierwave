@@ -73,6 +73,9 @@ pub struct Server {
     /// Agent 上报的 realm 是否带 `transport` feature（`realm --version` 含
     /// `[transport]`）。NULL = 未知（旧 Agent / 无法判定），按不支持处理。
     pub realm_transport: Option<bool>,
+    /// Agent 上报的 nftables 引擎是否可用（`nft` 存在且有 CAP_NET_ADMIN）。
+    /// NULL = 旧 Agent 未上报 / 从未连过；false = 明确不可用。
+    pub nftables_available: Option<bool>,
     /// 管理员填写的国家/地区代码（ISO 3166-1 alpha-2）；NULL = 未填写。
     pub country_code: Option<String>,
 }
@@ -82,8 +85,8 @@ pub struct Server {
 /// `listen_port` 在同一个 `server_id` 内唯一；`enabled = 0` 的规则不开监听，
 /// 但仍保留在库里（方便随时恢复，也继续占用端口，避免恢复时才发现冲突）。
 ///
-/// `engine` 只允许 `native` / `realm`，由 `engine::normalize` 在写路径校验；
-/// 历史行由迁移默认成 `native`。
+/// `engine` 只允许 `native` / `realm` / `nftables`，由 `engine::normalize`
+/// 在写路径校验；历史行由迁移默认成 `native`。
 #[derive(Debug, Clone, FromRow, Serialize)]
 pub struct Forward {
     pub id: String,
@@ -93,10 +96,11 @@ pub struct Forward {
     pub target_host: String,
     pub target_port: i64,
     pub enabled: bool,
-    /// 转发引擎：`native`（Agent 自己监听）或 `realm`（受管子进程）。
+    /// 转发引擎：`native`（Agent 自己监听）、`realm`（受管子进程）
+    /// 或 `nftables`（内核 DNAT）。
     pub engine: String,
-    /// 是否在同一端口号上**再**监听一个 UDP socket。只对 `native` 有意义：
-    /// `realm` 固定转发 UDP，不看这一列。
+    /// 是否在同一端口号上**再**监听一个 UDP socket。对 `native` / `nftables`
+    /// 有意义：`realm` 固定转发 UDP，不看这一列。
     pub udp: bool,
     pub created_at: i64,
     pub updated_at: i64,
@@ -151,10 +155,10 @@ pub struct Chain {
     pub target_host: String,
     pub target_port: i64,
     pub enabled: bool,
-    /// 链的转发引擎：`native` 或 `realm`。
+    /// 链的转发引擎：`native`、`realm` 或 `nftables`。
     pub engine: String,
     /// 整条链是否同时监听 UDP：推导时透传到每一跳（每跳用各自的 `listen_port`）。
-    /// 只对 `native` 有意义，`realm` 固定转发 UDP。
+    /// 对 `native` / `nftables` 有意义，`realm` 固定转发 UDP。
     pub udp: bool,
     /// 跳间加密模式：`none`（默认，明文）或 `tls`（单向 TLS）。
     pub transport: String,
@@ -198,6 +202,9 @@ pub struct ChainGroupMember {
     /// 该成员所在服务器的 realm transport 能力缓存（NULL = 未知）。
     /// 下发 TLS 链前必须逐台检查，未知按不支持处理。
     pub realm_transport: Option<bool>,
+    /// 该成员所在服务器的 nftables 能力缓存（NULL = 未知）。
+    /// nftables 链下发前逐台检查，未知按不支持处理。
+    pub nftables_available: Option<bool>,
 }
 
 /// 一个有成员的组。

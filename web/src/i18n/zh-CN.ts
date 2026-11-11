@@ -71,6 +71,12 @@ const zhCN = {
         desc: "调用 realm（v2.9.6）子进程：支持 UDP 与带权重负载均衡；状态只能探测到端口级。realm 未安装时规则显示「未监听 + realm 未安装」。",
         notInstalled: "该服务器未安装 realm",
       },
+      nftables: {
+        label: "nftables",
+        short: "内核 DNAT · TCP/UDP",
+        desc: "用内核 nftables DNAT 转发，数据不经过用户态；需要安装 nft 并以 root 运行。内核转发不做目标探测，状态只到规则级。",
+        notAvailable: "该服务器没有可用的 nftables（需要安装 nft 并以 root 运行）",
+      },
       unknown: {
         label: "未知引擎",
         desc: "后端返回了未识别的转发引擎；界面按自带引擎展示，重新保存会写成 native。",
@@ -1872,6 +1878,9 @@ const zhCN = {
       udp: "UDP 转发",
       realmNotInstalled:
         "所选服务器中有未安装 realm 的：{servers}。保存后这些跳会显示「未监听 · realm 未安装」，装好 realm 并重新应用即可恢复。",
+      nftablesNotAvailable:
+        "这些服务器没有可用的 nftables：{servers}。需要安装 nft 并以 root 运行；能力未知时不能保存 nftables 规则。",
+      nftablesSingleOnly: "nftables 引擎下非入口组只能单节点",
       groups: "链路节点",
       groupsHint:
         "每一跳可以是单节点（1 台）或分组（1-8 台）；同一台服务器不能在同一条链里重复。",
@@ -2258,10 +2267,13 @@ const zhCN = {
     "chain.tls_sni_invalid": "SNI「{sni}」不是合法的 DNS 域名（不能是 IP）",
     "chain.tls_transport_invalid": "证书路径「{value}」不合法（只允许字母、数字与 / . _ -）",
     "chain.tls_realm_unsupported": "以下服务器的 realm 未启用 transport（需要升级 Agent / 换官方 realm）：{servers}",
+    "forward.nftables_unavailable": "服务器「{server_name}」没有可用的 nftables（需要安装 nft 并以 root 运行）",
+    "chain.nftables_unavailable": "以下服务器的 nftables 不可用（需要安装 nft 并以 root 运行）：{servers}",
+    "chain.nftables_multi_target": "nftables 引擎暂不支持第 {seq} 组的多成员选路，请改成单成员组",
     "node.ss_method_invalid": "不支持的 Shadowsocks 加密方法：{method}",
     "node.ss_key_invalid": "Shadowsocks 密钥不合法：{method}",
     "node.ss_network_invalid": "不支持的 Shadowsocks 网络类型：{network}",
-    "forward.engine_invalid": "不支持的转发引擎「{engine}」（可选 native / realm）",
+    "forward.engine_invalid": "不支持的转发引擎「{engine}」（可选 native / realm / nftables）",
     "chain.strategy_invalid": "选路策略不能识别（可选：轮询 / 主备 / 最低延迟 / IP 哈希）",
     "chain.group_member_count_invalid": "每组必须有 {min}-{max} 台服务器（当前 {count} 台）",
     "chain.duplicate_group_member": "同一台服务器不能在同一组出现两次",
@@ -2447,6 +2459,8 @@ const zhCN = {
     chainTlsCertRequired: "请选择这一组的证书",
     chainTlsEntryCertForbidden: "入口组不需要证书",
     chainTlsUdpConflict: "跳间加密需要关闭 UDP 转发",
+    chainNftablesMultiMembers:
+      "nftables 引擎暂不支持非入口组的多成员选路，请把该组改成单节点",
     comboInvalid: "当前协议不支持这个传输方式与安全层的组合",
     certRequired: "TLS 节点必须绑定证书",
     ssMethodInvalid: "请选择支持的加密方法",

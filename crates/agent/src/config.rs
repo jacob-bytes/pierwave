@@ -54,6 +54,9 @@ pub struct Config {
     /// 排障时可临时改成 `debug`（单连接握手失败在 debug 级）。
     #[serde(default = "default_realm_log_level")]
     pub realm_log_level: String,
+    /// nftables 引擎的 `nft` 可执行文件；默认从 PATH 取。
+    #[serde(default = "default_nft_bin")]
+    pub nft_bin: String,
     /// Agent 的持久状态目录（realm.toml 落在这里）；不存在会自动创建。
     #[serde(default = "default_state_dir")]
     pub state_dir: String,
@@ -123,6 +126,9 @@ fn default_realm_bin() -> String {
 }
 fn default_realm_log_level() -> String {
     "warn".into()
+}
+fn default_nft_bin() -> String {
+    crate::nftables::DEFAULT_BIN.into()
 }
 fn default_state_dir() -> String {
     "/var/lib/pierwave-agent".into()
@@ -195,6 +201,7 @@ mod tests {
             forward_bind: default_forward_bind(),
             realm_bin: default_realm_bin(),
             realm_log_level: default_realm_log_level(),
+            nft_bin: default_nft_bin(),
             state_dir: default_state_dir(),
             probe_target: default_probe_target(),
             probe_timeout_ms: default_probe_timeout_ms(),

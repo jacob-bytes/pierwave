@@ -12,9 +12,13 @@ import {
   formatServerNameList,
   forwardEngineMissing,
   isForwardEngine,
+  missingNftablesServerNames,
   missingRealmServerNames,
+  nftablesMissingOnServer,
+  nftablesMultiMemberGroups,
   normalizeEngine,
   realmMissingOnServer,
+  serversMissingNftables,
   serversMissingRealm,
   udpBadgeVisible,
 } from "./engines.ts";
@@ -38,13 +42,14 @@ const dictionaries = [
 // ---- 枚举与默认值 ----
 
 test("engine enum matches the backend whitelist and defaults to native", () => {
-  assert.deepEqual([...FORWARD_ENGINES], ["native", "realm"]);
+  assert.deepEqual([...FORWARD_ENGINES], ["native", "realm", "nftables"]);
   assert.equal(DEFAULT_FORWARD_ENGINE, "native");
 });
 
-test("isForwardEngine accepts only the two documented values", () => {
+test("isForwardEngine accepts only the documented values", () => {
   assert.equal(isForwardEngine("native"), true);
   assert.equal(isForwardEngine("realm"), true);
+  assert.equal(isForwardEngine("nftables"), true);
 
   for (const bad of [
     "",
@@ -66,6 +71,7 @@ test("isForwardEngine accepts only the two documented values", () => {
 test("normalizeEngine keeps legal values and falls back to native", () => {
   assert.equal(normalizeEngine("native"), "native");
   assert.equal(normalizeEngine("realm"), "realm");
+  assert.equal(normalizeEngine("nftables"), "nftables");
   // 后端写路径允许首尾空白；前后端规则保持一致。
   assert.equal(normalizeEngine("  realm  "), "realm");
   // 大小写不匹配与未来新增值都按后端读路径回落 native。
@@ -117,8 +123,10 @@ test("engineMeta falls back to a non-empty unknown label for future values", () 
 test("engine labels are bilingual and match the badge copy", () => {
   assert.equal(lookup(zhCN, "common.engine.native.label"), "自带");
   assert.equal(lookup(zhCN, "common.engine.realm.label"), "realm");
+  assert.equal(lookup(zhCN, "common.engine.nftables.label"), "nftables");
   assert.equal(lookup(en, "common.engine.native.label"), "Native");
   assert.equal(lookup(en, "common.engine.realm.label"), "realm");
+  assert.equal(lookup(en, "common.engine.nftables.label"), "nftables");
 });
 
 const ENGINE_I18N_KEYS = [
@@ -128,6 +136,10 @@ const ENGINE_I18N_KEYS = [
   "common.engine.realm.label",
   "common.engine.realm.short",
   "common.engine.realm.desc",
+  "common.engine.nftables.label",
+  "common.engine.nftables.short",
+  "common.engine.nftables.desc",
+  "common.engine.nftables.notAvailable",
   "common.engine.unknown.label",
   "common.engine.unknown.desc",
   "forwards.engine.missing",
@@ -541,4 +553,59 @@ test("UDP label, badge and realm title stay terse and bilingual", () => {
     assert.match(title, /UDP/);
     assert.match(title, /realm/);
   }
+});
+
+// ---- nftables 能力与链限制 ----
+
+test("serversMissingNftables requires an explicit true", () => {
+  assert.equal(serversMissingNftables([]), false);
+  assert.equal(serversMissingNftables([{ nftables_available: true }]), false);
+  assert.equal(serversMissingNftables([{ nftables_available: false }]), true);
+  assert.equal(serversMissingNftables([{ nftables_available: null }]), true);
+  assert.equal(serversMissingNftables([{}]), true);
+});
+
+test("missingNftablesServerNames trims and dedupes unsupported servers", () => {
+  assert.deepEqual(
+    missingNftablesServerNames([
+      { name: " 香港-01 ", nftables_available: true },
+      { name: "日本-02", nftables_available: false },
+      { name: " 日本-02 ", nftables_available: null },
+      { name: "美国-04" },
+      { name: "   ", nftables_available: false },
+    ]),
+    ["日本-02", "美国-04"],
+  );
+  assert.deepEqual(missingNftablesServerNames([]), []);
+});
+
+test("nftablesMissingOnServer only applies to the nftables engine", () => {
+  assert.equal(
+    nftablesMissingOnServer("nftables", { nftables_available: true }),
+    false,
+  );
+  assert.equal(
+    nftablesMissingOnServer("nftables", { nftables_available: false }),
+    true,
+  );
+  assert.equal(nftablesMissingOnServer("nftables", null), true);
+  assert.equal(
+    nftablesMissingOnServer("native", { nftables_available: false }),
+    false,
+  );
+  assert.equal(
+    nftablesMissingOnServer("realm", { nftables_available: false }),
+    false,
+  );
+});
+
+test("nftablesMultiMemberGroups only flags non-entry groups", () => {
+  const groups = [
+    { members: [{}, {}] }, // entry group: allowed
+    { members: [{}] }, // single: fine
+    { members: [{}, {}] }, // non-entry multi: rejected
+  ];
+  assert.deepEqual(nftablesMultiMemberGroups("nftables", groups), [2]);
+  assert.deepEqual(nftablesMultiMemberGroups("native", groups), []);
+  assert.deepEqual(nftablesMultiMemberGroups("realm", groups), []);
 });

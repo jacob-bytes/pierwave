@@ -1,5 +1,6 @@
 mod config;
 mod forward;
+mod nftables;
 mod probe;
 mod realm;
 mod selector;
@@ -55,13 +56,15 @@ struct ApplyOutcome {
 ///
 /// 期望态里每条规则自带 `engine`，这里按引擎分流：`native` 交给原有的
 /// [`forward::ForwardSupervisor`]（监听行为一字未改），`realm` 交给
-/// [`realm::RealmSupervisor`]（一份配置 + 一个受管子进程）。
+/// [`realm::RealmSupervisor`]（一份配置 + 一个受管子进程），`nftables` 交给
+/// [`nftables::NftablesSupervisor`]（内核 DNAT，不开用户态 socket）。
 ///
-/// 两者共享同一份端口冲突校验（主控侧保证同一个端口只会有一条规则），
-/// 所以这里可以放心让它们各自绑定自己的端口。
+/// 三者共享同一份端口冲突校验（主控侧保证同一个端口只会有一条规则），
+/// 所以这里可以放心让它们各自处理自己的端口。
 struct ForwardEngines {
     native: forward::ForwardSupervisor,
     realm: realm::RealmSupervisor,
+    nftables: nftables::NftablesSupervisor,
 }
 
 impl ForwardEngines {
@@ -75,19 +78,31 @@ impl ForwardEngines {
         Self {
             native: forward::ForwardSupervisor::new(cfg.forward_bind.clone()),
             realm,
+            nftables: nftables::NftablesSupervisor::new(
+                cfg.nft_bin.clone(),
+                cfg.state_dir.clone(),
+                cfg.forward_bind.clone(),
+            ),
         }
     }
 
-    /// 先对齐 native、再对齐 realm，最后再给 native 一次重试机会。
+    /// 先撤/建 nftables 表，再对齐 native、realm，最后给 native 一次重试机会。
     ///
     /// 引擎切换（同一条规则 native ↔ realm）时端口会短暂被另一边占着：
     /// native 的 apply 是幂等的，只重试绑定失败的规则，再跑一次就能在
     /// realm 释放端口后立刻恢复，不必等下一轮期望态。
+    /// nftables 不占用端口；先处理它能保证 native 重新绑定时旧 DNAT 已撤掉。
     async fn apply(&mut self, desired: &[DesiredForward]) {
+        let nftables: Vec<DesiredForward> = desired
+            .iter()
+            .filter(|spec| spec.engine == ForwardEngine::Nftables)
+            .cloned()
+            .collect();
         let (native, realm): (Vec<DesiredForward>, Vec<DesiredForward>) = desired
             .iter()
             .cloned()
             .partition(|spec| spec.engine == ForwardEngine::Native);
+        self.nftables.apply(&nftables).await;
         self.native.apply(&native).await;
         self.realm.apply(&realm).await;
         self.native.apply(&native).await;
@@ -98,7 +113,18 @@ impl ForwardEngines {
     /// native 监听没有「子进程」这一层，崩溃不存在；绑定失败的规则仍由
     /// 下一次 apply / 重连补发重试。
     async fn reconcile(&mut self) {
+        self.nftables.reconcile().await;
         self.realm.ensure_running().await;
+    }
+
+    /// 本机 nftables 是否可用（心跳上报；旧 Agent 没有这个字段）。
+    fn nftables_available(&self) -> bool {
+        self.nftables.available()
+    }
+
+    /// 退出信号清理 nftables 表用；nft 规则不会随进程退出自动消失。
+    fn nftables_cleanup(&self) -> nftables::NftablesCleanup {
+        self.nftables.cleanup_handle()
     }
 
     /// 本机 realm 是否支持 transport（心跳上报；按二进制缓存，换二进制会重测）。
@@ -110,6 +136,7 @@ impl ForwardEngines {
     fn status_snapshot(&self) -> Vec<ForwardStatus> {
         let mut statuses = self.native.status_handle().snapshot();
         statuses.extend(self.realm.status_handle().snapshot());
+        statuses.extend(self.nftables.status_handle().snapshot());
         statuses
     }
 }
@@ -194,6 +221,8 @@ async fn main() -> Result<()> {
     );
     // 端口转发监听跨重连常驻：断线时继续服务，重连后主控重放期望态只做空 diff。
     let mut forward_engines = ForwardEngines::new(&cfg);
+    // nft 表不会随进程退出自动消失：信号处理任务持有清理句柄，优雅退出时删除。
+    let nft_cleanup = forward_engines.nftables_cleanup();
     // tc 状态跨重连保留：断线期间安全阀仍要能删掉自己的 qdisc，所以单独起一个
     // 每秒检查一次的看门狗，而不是只在 websocket 的 select 循环里检查。
     let tc_manager = Arc::new(Mutex::new(tc::TcManager::new(
@@ -215,7 +244,8 @@ async fn main() -> Result<()> {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             guard.cleanup();
-            tracing::info!("收到退出信号，已清理节点限速");
+            nft_cleanup.cleanup();
+            tracing::info!("收到退出信号，已清理节点限速与 nftables 表");
             std::process::exit(0);
         });
     }
@@ -476,8 +506,11 @@ async fn run_once(
                     probe_cache.load(),
                     forwards.status_snapshot(),
                     system_info,
-                    Path::new(&cfg.realm_bin),
-                    realm_transport,
+                    EngineCapabilities {
+                        realm_available: realm::is_available(Path::new(&cfg.realm_bin)),
+                        realm_transport,
+                        nftables_available: forwards.nftables_available(),
+                    },
                 ));
                 ws.send(Message::Text(serde_json::to_string(&hb)?)).await?;
                 tc_manager
@@ -866,14 +899,21 @@ fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
+/// 心跳里三个外部引擎能力，单独打包避免 `sample_heartbeat` 参数继续膨胀。
+#[derive(Debug, Clone, Copy)]
+struct EngineCapabilities {
+    realm_available: bool,
+    realm_transport: Option<bool>,
+    nftables_available: bool,
+}
+
 fn sample_heartbeat(
     seq: u64,
     uptime_secs: u64,
     latency_ms: Option<u32>,
     forwards: Vec<ForwardStatus>,
     system_info: &system_info::SystemInfo,
-    realm_bin: &Path,
-    realm_transport: Option<bool>,
+    engines: EngineCapabilities,
 ) -> Heartbeat {
     let (load1, mem_used, mem_total) = read_load_and_mem();
     let disk = read_disk();
@@ -884,8 +924,9 @@ fn sample_heartbeat(
         os_name: system_info.os_name.clone(),
         os_version: system_info.os_version.clone(),
         virt: system_info.virt.clone(),
-        realm_available: Some(realm::is_available(realm_bin)),
-        realm_transport,
+        realm_available: Some(engines.realm_available),
+        realm_transport: engines.realm_transport,
+        nftables_available: Some(engines.nftables_available),
         latency_ms,
         forwards,
         uptime_secs,
@@ -1001,6 +1042,18 @@ mod tests {
         }
     }
 
+    fn caps(
+        realm_bin: &Path,
+        realm_transport: Option<bool>,
+        nftables_available: bool,
+    ) -> EngineCapabilities {
+        EngineCapabilities {
+            realm_available: realm::is_available(realm_bin),
+            realm_transport,
+            nftables_available,
+        }
+    }
+
     fn read(path: &Path) -> String {
         std::fs::read_to_string(path).unwrap()
     }
@@ -1040,8 +1093,7 @@ mod tests {
             Some(23),
             forwards.clone(),
             &system_info,
-            Path::new(realm::DEFAULT_BIN),
-            None,
+            caps(Path::new(realm::DEFAULT_BIN), None, false),
         );
         assert_eq!(hb.arch, std::env::consts::ARCH);
         assert!(!hb.arch.is_empty(), "主控靠心跳里的 arch 选升级产物");
@@ -1062,8 +1114,7 @@ mod tests {
             None,
             Vec::new(),
             &system_info::SystemInfo::default(),
-            Path::new(realm::DEFAULT_BIN),
-            None,
+            caps(Path::new(realm::DEFAULT_BIN), None, false),
         );
         assert_eq!(missing.latency_ms, None, "探测失败必须上报 null");
         assert_eq!(missing.os_name, None, "读不到 os-release 时必须上报 null");
@@ -1079,7 +1130,14 @@ mod tests {
         let bin = dir.path().join("realm");
         let system_info = system_info::SystemInfo::default();
 
-        let absent = sample_heartbeat(1, 0, None, Vec::new(), &system_info, &bin, None);
+        let absent = sample_heartbeat(
+            1,
+            0,
+            None,
+            Vec::new(),
+            &system_info,
+            caps(&bin, None, false),
+        );
         assert_eq!(
             absent.realm_available,
             Some(false),
@@ -1092,7 +1150,14 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
-        let installed = sample_heartbeat(2, 0, None, Vec::new(), &system_info, &bin, Some(true));
+        let installed = sample_heartbeat(
+            2,
+            0,
+            None,
+            Vec::new(),
+            &system_info,
+            caps(&bin, Some(true), true),
+        );
         assert_eq!(installed.realm_available, Some(true));
         assert_eq!(
             installed.realm_transport,
@@ -1101,7 +1166,14 @@ mod tests {
         );
 
         std::fs::remove_file(&bin).unwrap();
-        let removed = sample_heartbeat(3, 0, None, Vec::new(), &system_info, &bin, None);
+        let removed = sample_heartbeat(
+            3,
+            0,
+            None,
+            Vec::new(),
+            &system_info,
+            caps(&bin, None, false),
+        );
         assert_eq!(
             removed.realm_available,
             Some(false),
@@ -1165,8 +1237,7 @@ mod tests {
             None,
             Vec::new(),
             &system_info::SystemInfo::default(),
-            &script,
-            engines.realm_transport().await,
+            caps(&script, engines.realm_transport().await, false),
         );
         assert_eq!(hb.realm_transport, Some(false));
         assert_eq!(hb.realm_available, Some(true));
@@ -1329,6 +1400,11 @@ mod tests {
                 state_dir,
                 "127.0.0.1",
             ),
+            nftables: nftables::NftablesSupervisor::new(
+                state_dir.join("no-such-nft"),
+                state_dir,
+                "127.0.0.1",
+            ),
         }
     }
 
@@ -1386,8 +1462,7 @@ mod tests {
             None,
             supervisor.status_snapshot(),
             &system_info::SystemInfo::default(),
-            Path::new(realm::DEFAULT_BIN),
-            None,
+            caps(Path::new(realm::DEFAULT_BIN), None, false),
         );
         assert_eq!(hb.forwards, status, "心跳必须带上 supervisor 的监听状态");
 

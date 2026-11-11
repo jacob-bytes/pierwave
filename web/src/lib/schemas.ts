@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { TFunction } from "@/i18n";
 import { CHAIN_STRATEGIES, collectGroupIssues } from "@/lib/chains";
 import { CHAIN_TRANSPORTS, validateTls } from "@/lib/chainTls";
-import { FORWARD_ENGINES } from "@/lib/engines";
+import { FORWARD_ENGINES, nftablesMultiMemberGroups } from "@/lib/engines";
 import {
   ANY_INBOUND_TAG,
   isReservedOutboundTag,
@@ -570,6 +570,18 @@ export function chainFormSchema(t: TFunction) {
             });
             break;
         }
+      }
+
+      // nftables 的 DNAT 一次只能选一个目标：非入口组必须单成员。
+      for (const groupIndex of nftablesMultiMemberGroups(
+        values.engine,
+        values.groups,
+      )) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["groups", groupIndex, "members"],
+          message: t("validation.chainNftablesMultiMembers"),
+        });
       }
 
       // 加密规则同样先由纯函数产出 issue，再挂到对应字段：

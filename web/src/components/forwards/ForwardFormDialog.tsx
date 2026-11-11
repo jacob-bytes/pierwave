@@ -23,6 +23,7 @@ import {
   effectiveUdp,
   engineInput,
   isForwardEngine,
+  nftablesMissingOnServer,
   normalizeEngine,
   realmMissingOnServer,
 } from "@/lib/engines";
@@ -82,6 +83,8 @@ export function ForwardFormDialog({
   // 静态事实：这台服务器明确没装 realm 时，保存前就告诉用户；
   // `null` / 缺失（旧 Agent）不提示，避免误报。不阻止保存。
   const realmUnavailable = realmMissingOnServer(selectedEngine, server);
+  // nftables 必须由 Agent 明确上报可用；未知（离线 / 旧 Agent）也提示。
+  const nftablesUnavailable = nftablesMissingOnServer(selectedEngine, server);
 
   // 切换语言后重新校验，让已经显示的错误跟着换语言。
   useEffect(() => {
@@ -256,6 +259,7 @@ export function ForwardFormDialog({
                         "flex cursor-pointer items-start gap-2 rounded-lg border border-border bg-card p-2.5 transition-colors duration-150 hover:bg-muted/40",
                         active &&
                           "border-primary/60 bg-primary/5 hover:bg-primary/5",
+                        engine === "nftables" && "sm:col-span-2",
                         pending && "cursor-not-allowed opacity-60",
                       )}
                     >
@@ -291,6 +295,18 @@ export function ForwardFormDialog({
                     aria-hidden="true"
                   />
                   <span>{t("forwards.form.realmNotInstalled")}</span>
+                </div>
+              ) : null}
+              {nftablesUnavailable ? (
+                <div
+                  role="status"
+                  className="flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs leading-normal text-warning"
+                >
+                  <TriangleAlertIcon
+                    className="mt-0.5 size-3.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span>{t("common.engine.nftables.notAvailable")}</span>
                 </div>
               ) : null}
             </div>

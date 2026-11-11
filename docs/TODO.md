@@ -145,10 +145,28 @@ MeowX 客户端、许可证体系。
 
 优先级：中（信息增强；等 SS/UDP/隧道落地后一起做，避免改两次）。
 
-## 待办：nftables 内核转发引擎（第三种引擎）
+## 已完成（MVP）：nftables 内核转发引擎（第三种引擎）
 
 目标：再加一个引擎 `nftables`，用内核 DNAT 做端口转发，**不经用户态中继**，
 吞吐/延迟优于现有 `native` 与 `realm`。适合大带宽中转与游戏端口映射。
+
+### 当前实现（v0.7.6 之后）
+
+- Agent 新模块 `crates/agent/src/nftables.rs`：自有表 `inet pierwave`，
+  `prerouting` + `output` 两条 nat 链；每次 apply 原子重建这张表，只删自己的表。
+- 端口/目标来自期望态；TCP 与 UDP 同端口都支持，目标域名在 apply 时解析一次。
+- 状态：`listening=true` 表示表已成功装入；内核转发无法探测目标，
+  `target_ok` / `target_error` 恒为 null。
+- 能力门禁：Agent 心跳执行 `nft list tables`，成功才上报
+  `nftables_available=true`；主控只有看到 true 才允许保存/下发 nftables 规则，
+  避免旧 Agent 收到不认识的枚举值。
+- 优雅退出（SIGTERM / SIGINT）删除自有表；被 SIGKILL 时表会残留，
+  下次 Agent 启动/apply 会重建，卸载时仍建议手动 `nft delete table inet pierwave`。
+- 链限制：nftables 暂不支持非入口组的多成员选路，保存时返回
+  `chain.nftables_multi_target`；入口组可以多成员（各自是独立入口）。
+
+**仍需补**：多目标 `jhash`/map 选路、Linux 上真实 `nft -c`/端到端回归、
+内核 counters 的可观测性。
 
 ### 为什么值得做
 
@@ -160,27 +178,37 @@ MeowX 客户端、许可证体系。
 | realm | 用户态 + 独立进程 | 同上，再加进程间 |
 | **nftables** | 内核 netfilter DNAT | 包不出内核，接近线速 |
 
-### 关键设计（待实现时细化）
+### 关键设计（已落地）
 
 - 独立表：`nft add table inet pierwave`，所有规则只在这个表里增删；
   **绝不动系统其它表**，删除只 `delete table inet pierwave`；
 - 规则：`prerouting`（外部入站）与 `output`（本机发起）两条链，`dnat to <target>`；
-- 多目标：`numgen` 或 `jhash` 做源地址哈希（与 UDP 一致的原因：会话粘性）；
+- 多目标：`numgen` / `jhash` 做源地址哈希（**待实现**；当前单目标）；
 - TCP + UDP 天然都支持，没有"两种协议两套实现"的问题；
 - 需要 root / `CAP_NET_ADMIN`；没有权限时该引擎规则报「引擎不可用」而不是静默失败。
 
 ### 已知代价（要写进 UI 与文档）
 
-- **状态只能看内核计数器**：`listening` 可用 bind 探测，但**看不到连接数/字节数**（除非解析 `nft list ruleset -a` 的 counters）；
+- **状态只能看是否成功装载**：`listening=true` 表示表已装入，但**看不到连接数/字节数**（除非解析 `nft list ruleset -a` 的 counters）；
 - **不能做目标健康探测**：内核转发不感知目标生死，`target_ok` 只能为 null；
 - **不能限速**（除非叠加 tc）；与现有带宽限速功能的关系需要重新说明；
 - 与 `native` 的端口冲突校验要共享（同一端口不能两条规则）。
 
 ### 分阶段
 
-1. Agent 生成/清理自有 nft 表 + 幂等 apply + 单测（用 `nft -c` 或假命令注入）；
-2. 状态探测（bind）+ 失败原因（无权限/表被占用）；
-3. UI：引擎选择加第三项，说明「需要 root，不支持目标健康探测」；
-4. CI：Linux runner 上真跑一次（需要 sudo 权限，GitHub runner 有）。
+1. [x] Agent 生成/清理自有 nft 表 + 幂等 apply + 单测（假命令注入）；
+2. [x] 能力探测（`nft list tables`）+ 失败原因（无权限/表被占用）；
+3. [x] UI：引擎选择加第三项，说明「需要 root，不支持目标健康探测」；
+4. [ ] CI：Linux runner 上真跑一次 `nft -c` / 端到端（需要 sudo 权限，GitHub runner 有）。
 
 优先级：中（性能收益明确，但依赖 root 且可观测性弱）。
+
+**English summary.** The nftables MVP uses a dedicated `inet pierwave` table with
+`prerouting` and `output` NAT chains, rebuilds only its own table on every apply, and supports
+single-target TCP/UDP rules (hostnames resolved at apply time). The Agent reports
+`nftables_available` only when `nft list tables` succeeds; the master refuses to save or deliver
+nftables rules to older/unknown agents. Target probing is not possible (`target_ok` is null), and
+multi-member selection outside the entry group is rejected for now (`chain.nftables_multi_target`).
+Graceful shutdown deletes the table; a SIGKILL leaves it behind until the next apply. Remaining:
+`jhash`/map multi-target selection, real Linux `nft -c` and end-to-end verification, and kernel
+counter observability.

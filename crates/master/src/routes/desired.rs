@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use pierwave_domain::certificate;
 use pierwave_domain::models::{Certificate, Server};
-use pierwave_domain::{credentials, hop_transport, release, repo, time, xray};
+use pierwave_domain::{credentials, engine, hop_transport, release, repo, time, xray};
 use pierwave_proto::{AgentUpgradePlan, DesiredForward, DesiredNode, ForwardEngine, ManagedFile};
 
 use crate::error::AppResult;
@@ -146,9 +146,18 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
         .collect();
 
     // 转发走裸 TCP，不需要凭据；只把 Agent 监听必需的四列带下去。
-    let mut desired_forwards: Vec<DesiredForward> = forwards
-        .iter()
-        .map(|forward| DesiredForward {
+    let mut desired_forwards: Vec<DesiredForward> = Vec::with_capacity(forwards.len());
+    for forward in &forwards {
+        let engine_name = engine::from_db(&forward.engine);
+        // 旧 Agent 不认识 nftables 枚举值：能力未确认时不发，避免整份期望态解析失败。
+        if engine::is_nftables(engine_name) && server.nftables_available != Some(true) {
+            warnings.push(format!(
+                "转发「{}」未下发：服务器没有可用的 nftables（需要安装 nft 并以 root 运行）",
+                forward.name
+            ));
+            continue;
+        }
+        desired_forwards.push(DesiredForward {
             // 独立转发用 `fwd-<uuid>`；链推导用 `chain-<id>-<seq>`，两套前缀不会撞。
             id: pierwave_domain::forwards::desired_id(&forward.id),
             listen_port: forward.listen_port,
@@ -157,15 +166,15 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
             targets: Vec::new(),
             strategy: Default::default(),
             // 库里的字符串已由写路径校验；读路径用 from_name 兜底旧数据。
-            engine: ForwardEngine::from_name(&forward.engine),
-            // 只有 native 会读这一位；realm 的配置固定转发 UDP。
+            engine: ForwardEngine::from_name(engine_name),
+            // 只有 native / nftables 会读这一位；realm 的配置固定转发 UDP。
             udp: forward.udp,
             // 独立转发永远是明文；transport 只属于链。
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
-        })
-        .collect();
+        });
+    }
 
     // 链推导：只保留落在本服务器上的跳。一条链可能经过多台服务器，
     // 每台服务器只收到「自己这一跳」的 DesiredForward。
@@ -175,6 +184,39 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
     // 绝不为「先跑通」而退回明文。
     let mut file_cert_ids: HashSet<String> = node_cert_ids.iter().cloned().collect();
     for chain in &chains {
+        if engine::is_nftables(&chain.chain.engine) {
+            if let Some((seq, _)) = chain
+                .groups
+                .iter()
+                .enumerate()
+                .find(|(seq, group)| *seq >= 1 && group.members.len() > 1)
+            {
+                warnings.push(format!(
+                    "链「{}」未下发：nftables 引擎暂不支持第 {} 组的多成员选路",
+                    chain.chain.name,
+                    seq + 1
+                ));
+                continue;
+            }
+            let mut unsupported: Vec<&str> = chain
+                .groups
+                .iter()
+                .flat_map(|group| group.members.iter())
+                .filter(|member| member.nftables_available != Some(true))
+                .map(|member| member.server_name.as_str())
+                .collect::<HashSet<_>>()
+                .into_iter()
+                .collect();
+            if !unsupported.is_empty() {
+                unsupported.sort_unstable();
+                warnings.push(format!(
+                    "链「{}」未下发：以下服务器没有可用的 nftables：{}",
+                    chain.chain.name,
+                    unsupported.join("、")
+                ));
+                continue;
+            }
+        }
         let transports = match super::chains::plan_from_certificates(
             &chain.chain,
             &chain.groups,
@@ -447,6 +489,63 @@ mod tests {
             .await
             .unwrap();
         (state, server)
+    }
+
+    /// nftables 规则只在服务器明确上报能力后才进期望态；否则只加 warning。
+    #[tokio::test]
+    async fn nftables_forward_is_gated_by_agent_capability() {
+        let (state, server) = fixture(false, "0.8.0", None).await;
+        repo::forwards::create(
+            &state.db.pool,
+            &server.id,
+            repo::forwards::NewForward {
+                name: "nft".into(),
+                listen_port: 18443,
+                target_host: "10.0.0.8".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "nftables".into(),
+                udp: false,
+            },
+        )
+        .await
+        .unwrap();
+
+        let desired = render(&state, &server, "https://panel.example.com")
+            .await
+            .unwrap();
+        assert!(
+            desired.forwards.is_empty(),
+            "能力未知时不能把 nftables 枚举发给旧 Agent"
+        );
+        assert!(
+            desired
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("nftables")),
+            "{:?}",
+            desired.warnings
+        );
+
+        repo::servers::update_health(
+            &state.db.pool,
+            &server.id,
+            "0.8.0",
+            &repo::servers::HealthSnapshot {
+                nftables_available: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let server = repo::servers::find_by_id(&state.db.pool, &server.id)
+            .await
+            .unwrap();
+        let desired = render(&state, &server, "https://panel.example.com")
+            .await
+            .unwrap();
+        assert_eq!(desired.forwards.len(), 1);
+        assert_eq!(desired.forwards[0].engine, ForwardEngine::Nftables);
     }
 
     #[tokio::test]

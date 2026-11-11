@@ -75,6 +75,13 @@ const en = {
         desc: "Runs the realm (v2.9.6) subprocess: supports UDP and weighted load balancing; health can only be probed at the port level. If realm is not installed, the rule shows “not listening + realm not installed”.",
         notInstalled: "realm is not installed on this server",
       },
+      nftables: {
+        label: "nftables",
+        short: "Kernel DNAT · TCP/UDP",
+        desc: "Forwards with kernel nftables DNAT, so traffic never enters userspace; requires nft installed and root. Kernel forwarding cannot probe targets, so status is rule-level only.",
+        notAvailable:
+          "This server has no usable nftables (install nft and run as root)",
+      },
       unknown: {
         label: "Unknown engine",
         desc: "The backend returned an unrecognized forward engine; the UI treats it as Native, and saving again writes native.",
@@ -1988,6 +1995,10 @@ const en = {
       udp: "UDP forwarding",
       realmNotInstalled:
         "Some selected servers do not have realm installed: {servers}. After saving, those hops will show “not listening · realm not installed”; install realm and apply the config again to recover.",
+      nftablesNotAvailable:
+        "These servers have no usable nftables: {servers}. Install nft and run as root; saving nftables rules is blocked while the capability is unknown.",
+      nftablesSingleOnly:
+        "With the nftables engine, only the entry group can have multiple members",
       groups: "Chain hops",
       groupsHint:
         "Each hop can be a single node (1 server) or a group (1-8 servers); the same server cannot appear twice in one chain.",
@@ -2397,10 +2408,13 @@ const en = {
     "chain.tls_sni_invalid": "SNI \"{sni}\" is not a valid DNS name (IP literals are rejected)",
     "chain.tls_transport_invalid": "Invalid certificate path \"{value}\" (allowed: letters, digits and / . _ -)",
     "chain.tls_realm_unsupported": "These servers run a realm without the transport feature (upgrade the agent or use the official realm): {servers}",
+    "forward.nftables_unavailable": "Server \"{server_name}\" has no usable nftables (install nft and run as root)",
+    "chain.nftables_unavailable": "These servers have no usable nftables (install nft and run as root): {servers}",
+    "chain.nftables_multi_target": "The nftables engine does not support multi-member selection in group {seq}; use a single-member group",
     "node.ss_method_invalid": "Unsupported Shadowsocks method: {method}",
     "node.ss_key_invalid": "Invalid Shadowsocks key for {method}: 2022 methods need a base64 key of the exact length; legacy AEAD needs at least 8 characters",
     "node.ss_network_invalid": "Unsupported Shadowsocks network: {network} (allowed: tcp / udp / tcp,udp)",
-    "forward.engine_invalid": "Unsupported forward engine \"{engine}\" (choose native or realm)",
+    "forward.engine_invalid": "Unsupported forward engine \"{engine}\" (choose native, realm or nftables)",
     "chain.strategy_invalid": "Unknown routing strategy (choose round robin, failover, lowest latency or IP hash)",
     "chain.group_member_count_invalid": "Each group needs {min}-{max} servers (currently {count})",
     "chain.duplicate_group_member": "The same server cannot appear twice in one group",
@@ -2588,6 +2602,8 @@ const en = {
     chainTlsCertRequired: "Select a certificate for this group",
     chainTlsEntryCertForbidden: "The entry group does not need a certificate",
     chainTlsUdpConflict: "Hop encryption requires UDP forwarding to be off",
+    chainNftablesMultiMembers:
+      "The nftables engine does not support multi-member selection outside the entry group; use a single node for that group",
     comboInvalid:
       "This protocol does not support this transport and security combination",
     certRequired: "TLS nodes must have a certificate bound",

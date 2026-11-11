@@ -138,7 +138,10 @@
 | `settings.panel_name_length_invalid` | 面板名称长度必须在 {min}-{max} 个字符之间 | max, min |
 | `settings.int_out_of_range` | {label}需在 {min}-{max} 之间的整数 | label, max, min |
 | `forward.self_loop` | 目标指向本机同一端口 {port}，会形成自连回环 | port |
-| `forward.engine_invalid` | 转发引擎「{engine}」无效，只支持 native / realm | allowed, engine |
+| `forward.engine_invalid` | 转发引擎「{engine}」无效，只支持 native / realm / nftables | allowed, engine |
+| `forward.nftables_unavailable` | 服务器「{server_name}」没有可用的 nftables（需要安装 nft 并以 root 运行） | available, server_id, server_name |
+| `chain.nftables_unavailable` | 以下服务器的 nftables 不可用（需要安装 nft 并以 root 运行）：{servers} | servers |
+| `chain.nftables_multi_target` | nftables 引擎暂不支持第 {seq} 组的多成员选路，请改成单成员组 | count, seq |
 | `chain.not_found` | 链不存在 | — |
 | `chain.name_required` | 链名称不能为空 | — |
 | `chain.name_too_long` | 链名称最多 {max} 个字符 | max |

@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 14;
+pub const PROTOCOL_VERSION: u32 = 15;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,6 +53,14 @@ pub struct Heartbeat {
     /// `None` = 旧 Agent 未上报，主控保持 NULL（未知），不能当成「没装」。
     #[serde(default)]
     pub realm_available: Option<bool>,
+    /// 本机是否具备可用的 nftables 引擎（`nft` 可执行且当前进程有
+    /// CAP_NET_ADMIN；心跳时实际执行一次 `nft list tables` 判定）。
+    ///
+    /// `None` = 旧 Agent 未上报；`Some(false)` = 明确不可用。
+    /// 主控只有看到 `Some(true)` 才允许保存/下发 nftables 规则，避免旧 Agent
+    /// 收到不认识的新枚举值而整份期望态解析失败。
+    #[serde(default)]
+    pub nftables_available: Option<bool>,
     /// 本机 realm 是否带 `transport` feature（`realm --version` 输出包含
     /// `[transport]`）。
     ///
@@ -127,9 +135,9 @@ pub struct DesiredForward {
     pub engine: ForwardEngine,
     /// 这条规则是否**同时**在 `listen_port` 上监听 UDP（与 TCP 同端口号）。
     ///
-    /// 只对 `native` 引擎有意义：`realm` 的配置固定 `use_udp = true`，总是转发
-    /// UDP，不看这个字段。旧主控不下发时按 `false`，也就是与升级前完全一致
-    /// （只监听 TCP）。
+    /// 对 `native` / `nftables` 引擎有意义：`realm` 的配置固定 `use_udp = true`，
+    /// 总是转发 UDP，不看这个字段。旧主控不下发时按 `false`，也就是与升级前
+    /// 完全一致（只监听 TCP）。
     #[serde(default)]
     pub udp: bool,
     /// realm 这一跳的**入站** transport 串，例如
@@ -168,18 +176,20 @@ pub enum ForwardEngine {
     Native,
     /// 外接 realm 子进程。
     Realm,
+    /// 内核 nftables DNAT（需要 root / CAP_NET_ADMIN）。
+    Nftables,
 }
 
 impl ForwardEngine {
     /// 把数据库/API 里的引擎名映射成协议枚举。
     ///
-    /// 只认 `realm`，其余（含未知值与空串）一律按 `native` 处理：
+    /// 认 `realm` / `nftables`，其余（含未知值与空串）一律按 `native` 处理：
     /// 写路径已由领域层严格校验，读路径的兜底必须保证旧数据仍能下发。
     pub fn from_name(raw: &str) -> Self {
-        if raw.trim() == "realm" {
-            Self::Realm
-        } else {
-            Self::Native
+        match raw.trim() {
+            "realm" => Self::Realm,
+            "nftables" => Self::Nftables,
+            _ => Self::Native,
         }
     }
 }
@@ -394,7 +404,7 @@ mod tests {
     #[test]
     fn forward_udp_defaults_to_false_for_old_masters() {
         assert_eq!(
-            PROTOCOL_VERSION, 14,
+            PROTOCOL_VERSION, 15,
             "新增 ForwardStatus.target_error 必须升协议版本"
         );
 

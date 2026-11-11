@@ -225,6 +225,11 @@ export interface Server {
    * 这是静态环境事实，与规则运行时的 `runtime.error` 是两回事。
    */
   realm_available?: boolean | null;
+  /**
+   * 服务器上是否有可用的 nftables（`nft` 存在且 Agent 有 CAP_NET_ADMIN）。
+   * true = 可用；false = 明确不可用；null / 缺失 = 旧 Agent 未上报。
+   */
+  nftables_available?: boolean | null;
   /** Agent 从 /etc/os-release 读到的发行版名称；null = 旧 Agent 或读不到。 */
   os_name: string | null;
   /** Agent 从 /etc/os-release 读到的版本号；null = 旧 Agent 或读不到。 */
@@ -544,7 +549,7 @@ export type UpdateRoutingRuleInput = Partial<CreateRoutingRuleInput>;
  *
  * 与后端 `crates/domain/src/engine.rs` 的白名单一致。
  */
-export type ForwardEngine = "native" | "realm";
+export type ForwardEngine = "native" | "realm" | "nftables";
 
 /**
  * 单跳 TCP 端口转发：Agent 在服务器上监听 `listen_port`，
@@ -572,8 +577,8 @@ export interface Forward {
   engine: ForwardEngine;
   /**
    * 是否同时监听 UDP（与 `listen_port` 同端口）。
-   * 只对 `native` 有效：`realm` 的配置固定 `use_udp = true`，总是转发 UDP。
-   * 旧后端可能不返回该字段，展示层按 false 处理。
+   * 对 `native` / `nftables` 有效：`realm` 的配置固定 `use_udp = true`，
+   * 总是转发 UDP。旧后端可能不返回该字段，展示层按 false 处理。
    */
   udp: boolean;
   created_at: number;
@@ -591,9 +596,9 @@ export interface CreateForwardInput {
   target_host: string;
   target_port: number;
   enabled?: boolean;
-  /** 缺省 = `native`；表单总是显式发送，以便 edit 能把 realm 改回 native。 */
+  /** 缺省 = `native`；表单总是显式发送，以便 edit 能把引擎改回 native。 */
   engine?: ForwardEngine;
-  /** 只对 `native` 有意义：同时监听 UDP；缺省 / `realm` 时为 false。 */
+  /** 对 `native` / `nftables` 有意义：同时监听 UDP；缺省 / `realm` 时为 false。 */
   udp?: boolean;
 }
 
@@ -661,7 +666,7 @@ export interface Chain {
   engine: ForwardEngine;
   /**
    * 是否让整条链的每个成员同时监听 UDP（同一端口号）。
-   * 只对 `native` 有效：`realm` 的配置固定 `use_udp = true`。
+   * 对 `native` / `nftables` 有效：`realm` 的配置固定 `use_udp = true`。
    * 旧后端可能不返回该字段，展示层按 false 处理。
    */
   udp: boolean;
@@ -703,7 +708,7 @@ export interface CreateChainInput {
   enabled?: boolean;
   /** 缺省 = `native`；整条链共用一个引擎。 */
   engine?: ForwardEngine;
-  /** 只对 `native` 有意义：整条链同时监听 UDP；缺省 / `realm` 时为 false。 */
+  /** 对 `native` / `nftables` 有意义：整条链同时监听 UDP；缺省 / `realm` 时为 false。 */
   udp?: boolean;
   /** `none`（缺省，明文）或 `tls`；tls 只允许 realm 且至少 2 组。 */
   transport?: "none" | "tls";

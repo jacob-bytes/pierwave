@@ -158,7 +158,7 @@ database, no restart needed).
 Working: node/inbound management, desired-state delivery with rollback, users and package
 instances (multiple cards per user with independent quotas), subscription delivery, traffic metering
 and enforcement, certificate upload and deployment, audit log with a dedicated UI, configurable subscription rule templates, per-server outbounds and routing rules,
-self-service page for end users,
+port forwarding and multi-hop relay chains (native / realm / nftables engines; realm chains support hop-to-hop TLS), self-service page for end users,
 bilingual UI (English / 简体中文).
 
 Not implemented yet: ACME issuance, per-user rate limiting, nginx certificate deployment,

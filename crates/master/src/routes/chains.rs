@@ -42,10 +42,13 @@ use pierwave_proto::{DesiredForward, ForwardEngine, ForwardStrategy, ForwardTarg
 /// 一条已通过校验的成员：带上服务器地址，供冲突提示与推导使用。
 struct ValidatedMember {
     server_id: String,
+    server_name: String,
     server_address: String,
     listen_port: i64,
     priority: i64,
     weight: i64,
+    /// 该服务器是否明确支持 nftables；未知按不支持处理。
+    nftables_available: Option<bool>,
 }
 
 /// 一条已通过校验的组。
@@ -210,7 +213,7 @@ pub struct CreateChain {
     pub target_port: i64,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
-    /// 整条链的引擎：`native` / `realm`；缺省 = `native`。
+    /// 整条链的引擎：`native` / `realm` / `nftables`；缺省 = `native`。
     #[serde(default)]
     pub engine: Option<String>,
     /// 整条链是否同时监听 UDP（只对 `native` 有意义）；缺省 = `false`。
@@ -232,7 +235,7 @@ pub struct PatchChain {
     pub target_host: Option<String>,
     pub target_port: Option<i64>,
     pub enabled: Option<bool>,
-    /// `native` / `realm`；`None` = 不改。
+    /// `native` / `realm` / `nftables`；`None` = 不改。
     pub engine: Option<String>,
     /// `None` = 不改；`Some(false)` 用来关掉整条链的 UDP。
     pub udp: Option<bool>,
@@ -392,10 +395,12 @@ async fn resolve_groups(
 
             members.push(ValidatedMember {
                 server_id: server.id,
+                server_name: server.name,
                 server_address: server.address,
                 listen_port: member.listen_port,
                 priority: member.priority,
                 weight: member.weight,
+                nftables_available: server.nftables_available,
             });
         }
 
@@ -422,10 +427,12 @@ fn validated_from_existing(groups: &[ChainGroupWithMembers]) -> Vec<ValidatedGro
                 .iter()
                 .map(|member| ValidatedMember {
                     server_id: member.server_id.clone(),
+                    server_name: member.server_name.clone(),
                     server_address: member.server_address.clone(),
                     listen_port: member.listen_port,
                     priority: member.priority,
                     weight: member.weight,
+                    nftables_available: member.nftables_available,
                 })
                 .collect(),
         })
@@ -622,14 +629,96 @@ async fn validate_transport(
     Ok(())
 }
 
+/// nftables 链的结构 / 能力门禁（保存与视图共用）。
+///
+/// * nftables 的 DNAT 只支持单目标；seq >= 1 的多成员组需要选路，当前不下发；
+/// * 链上任意成员服务器没有明确上报 `nftables_available = true` 都拒绝，
+///   避免旧 Agent 收到不认识的枚举值。
+fn validate_nftables_chain(engine_name: &str, groups: &[ValidatedGroup]) -> AppResult<()> {
+    if !engine::is_nftables(engine_name) {
+        return Ok(());
+    }
+    if let Some((seq, _)) = groups
+        .iter()
+        .enumerate()
+        .find(|(seq, group)| *seq >= 1 && group.members.len() > 1)
+    {
+        return Err(AppError::coded(
+            "chain.nftables_multi_target",
+            Some(json!({ "seq": seq + 1, "count": groups[seq].members.len() })),
+            format!(
+                "nftables 引擎暂不支持第 {} 组的多成员选路，请改成单成员组",
+                seq + 1
+            ),
+        ));
+    }
+    let unsupported: Vec<&str> = groups
+        .iter()
+        .flat_map(|group| group.members.iter())
+        .filter(|member| member.nftables_available != Some(true))
+        .map(|member| member.server_name.as_str())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    if !unsupported.is_empty() {
+        let mut names = unsupported;
+        names.sort_unstable();
+        return Err(AppError::coded(
+            "chain.nftables_unavailable",
+            Some(json!({ "servers": names })),
+            format!(
+                "以下服务器没有可用的 nftables（需要安装 nft 并以 root 运行）：{}",
+                names.join("、")
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// 链视图里的「为什么没下发」：能力或证书不满足时给用户看的原因。
 ///
 /// 与 `desired::render` 共用 [`plan_from_certificates`]，不会出现「面板说能下发、
 /// 实际被跳过」的两套口径。
-async fn transport_blocked_reason(
+async fn chain_blocked_reason(
     state: &AppState,
     chain: &ChainWithGroups,
 ) -> AppResult<Option<(String, String)>> {
+    if engine::is_nftables(&chain.chain.engine) {
+        if let Some((seq, _)) = chain
+            .groups
+            .iter()
+            .enumerate()
+            .find(|(seq, group)| *seq >= 1 && group.members.len() > 1)
+        {
+            return Ok(Some((
+                "chain.nftables_multi_target".to_string(),
+                format!(
+                    "nftables 引擎暂不支持第 {} 组的多成员选路，请改成单成员组",
+                    seq + 1
+                ),
+            )));
+        }
+        let mut names: Vec<&str> = chain
+            .groups
+            .iter()
+            .flat_map(|group| group.members.iter())
+            .filter(|member| member.nftables_available != Some(true))
+            .map(|member| member.server_name.as_str())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        if !names.is_empty() {
+            names.sort_unstable();
+            return Ok(Some((
+                "chain.nftables_unavailable".to_string(),
+                format!(
+                    "以下服务器的 nftables 不可用（需要安装 nft 并以 root 运行）：{}",
+                    names.join("、")
+                ),
+            )));
+        }
+        return Ok(None);
+    }
     if !hop_transport::is_tls(&chain.chain.transport) {
         return Ok(None);
     }
@@ -853,7 +942,7 @@ pub async fn list(State(state): State<AppState>, user: CurrentUser) -> AppResult
     let mut items = Vec::with_capacity(chains_list.len());
     for chain in &chains_list {
         let mut view = chain_json(chain, &statuses);
-        if let Some((code, reason)) = transport_blocked_reason(&state, chain).await? {
+        if let Some((code, reason)) = chain_blocked_reason(&state, chain).await? {
             view["blocked_code"] = json!(code);
             view["blocked_reason"] = json!(reason);
         }
@@ -900,6 +989,7 @@ pub async fn create(
     };
     let groups = resolve_groups(&state, &inputs, None).await?;
     ensure_targets_safe(&groups, &target_host, target_port)?;
+    validate_nftables_chain(&engine, &groups)?;
     validate_transport(&state, &transport, &engine, udp, &groups).await?;
 
     let chain = repo::chains::create(
@@ -956,7 +1046,7 @@ pub async fn create(
 
     let statuses = load_status_map(&state, std::slice::from_ref(&chain)).await?;
     let mut view = chain_json(&chain, &statuses);
-    if let Some((code, reason)) = transport_blocked_reason(&state, &chain).await? {
+    if let Some((code, reason)) = chain_blocked_reason(&state, &chain).await? {
         view["blocked_code"] = json!(code);
         view["blocked_reason"] = json!(reason);
     }
@@ -1049,6 +1139,7 @@ pub async fn update(
     let security_changed =
         raw_transport.is_some() || engine.is_some() || replace_groups || udp.is_some();
     if security_changed {
+        validate_nftables_chain(final_engine, &groups)?;
         validate_transport(&state, final_transport, final_engine, final_udp, &groups).await?;
     }
 
@@ -1126,7 +1217,7 @@ pub async fn update(
 
     let statuses = load_status_map(&state, std::slice::from_ref(&updated)).await?;
     let mut view = chain_json(&updated, &statuses);
-    if let Some((code, reason)) = transport_blocked_reason(&state, &updated).await? {
+    if let Some((code, reason)) = chain_blocked_reason(&state, &updated).await? {
         view["blocked_code"] = json!(code);
         view["blocked_reason"] = json!(reason);
     }
@@ -1378,6 +1469,7 @@ mod tests {
                         priority: *priority,
                         weight: 1,
                         realm_transport: Some(true),
+                        nftables_available: Some(true),
                     },
                 )
                 .collect(),
@@ -1912,6 +2004,146 @@ mod tests {
 
         let (_, body) = request(&fixture.app, Some(&fixture.cookie), Method::GET, uri, None).await;
         assert!(body["items"].as_array().unwrap().is_empty());
+    }
+
+    /// nftables 链：能力 + 单成员组两个门禁，成功后视图不带 blocked_reason。
+    #[tokio::test]
+    async fn nftables_chain_requires_capability_and_single_member_groups() {
+        let fixture = setup().await;
+        set_nftables_capability(&fixture.state, &fixture.a, Some(true)).await;
+        set_nftables_capability(&fixture.state, &fixture.b, Some(true)).await;
+
+        let mut body = groups_body(
+            "nft 链",
+            "10.0.0.9",
+            443,
+            &[
+                group(
+                    None,
+                    Some("round_robin"),
+                    &[group_member(&fixture.a, 30001, 0)],
+                ),
+                group(
+                    None,
+                    Some("round_robin"),
+                    &[group_member(&fixture.b, 30002, 0)],
+                ),
+            ],
+        );
+        body["engine"] = json!("nftables");
+        let (status, response) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(body.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {response}");
+
+        let (status, list) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            "/api/v1/chains",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let item = list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["name"] == "nft 链")
+            .unwrap();
+        assert!(item.get("blocked_reason").is_none(), "{item}");
+
+        // 第 2 组多成员：nftables 当前不支持选路。
+        let mut multi = groups_body(
+            "nft 多成员",
+            "10.0.0.9",
+            443,
+            &[
+                group(
+                    None,
+                    Some("round_robin"),
+                    &[group_member(&fixture.a, 30011, 0)],
+                ),
+                group(
+                    None,
+                    Some("round_robin"),
+                    &[
+                        group_member(&fixture.b, 30012, 0),
+                        group_member(&fixture.c, 30013, 0),
+                    ],
+                ),
+            ],
+        );
+        multi["engine"] = json!("nftables");
+        let (status, response) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(multi),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {response}");
+        assert_eq!(response["code"], "chain.nftables_multi_target");
+
+        // 能力不满足：已保存的链在视图里给出 blocked_reason；新保存直接拒绝。
+        set_nftables_capability(&fixture.state, &fixture.b, None).await;
+        let (_, list) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            "/api/v1/chains",
+            None,
+        )
+        .await;
+        let blocked = list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["name"] == "nft 链")
+            .unwrap();
+        assert_eq!(blocked["blocked_code"], "chain.nftables_unavailable");
+        assert!(
+            blocked["blocked_reason"]
+                .as_str()
+                .unwrap()
+                .contains("nftables"),
+            "{blocked}"
+        );
+
+        let mut unsupported = groups_body(
+            "nft 无能力",
+            "10.0.0.9",
+            443,
+            &[
+                group(
+                    None,
+                    Some("round_robin"),
+                    &[group_member(&fixture.a, 30021, 0)],
+                ),
+                group(
+                    None,
+                    Some("round_robin"),
+                    &[group_member(&fixture.b, 30022, 0)],
+                ),
+            ],
+        );
+        unsupported["engine"] = json!("nftables");
+        let (status, response) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(unsupported),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {response}");
+        assert_eq!(response["code"], "chain.nftables_unavailable");
     }
 
     /// 组接口：响应里带每组策略/成员，运行状态按成员（而不是按组）合并。
@@ -2640,6 +2872,20 @@ mod tests {
         )
         .await
         .unwrap()
+    }
+
+    async fn set_nftables_capability(state: &AppState, server_id: &str, value: Option<bool>) {
+        repo::servers::update_health(
+            &state.db.pool,
+            server_id,
+            "0.8.0",
+            &repo::servers::HealthSnapshot {
+                nftables_available: value,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
     }
 
     async fn set_transport_capability(state: &AppState, server_id: &str, value: Option<bool>) {

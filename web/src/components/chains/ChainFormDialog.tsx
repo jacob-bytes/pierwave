@@ -66,8 +66,10 @@ import {
   engineInput,
   formatServerNameList,
   isForwardEngine,
+  missingNftablesServerNames,
   missingRealmServerNames,
   normalizeEngine,
+  serversMissingNftables,
   serversMissingRealm,
 } from "@/lib/engines";
 import { errorText } from "@/lib/errors";
@@ -132,6 +134,7 @@ function GroupCard({
   servers,
   loadingServers,
   tlsEnabled,
+  nftablesEngine,
   certificates,
   certsLoading,
   certsError,
@@ -147,6 +150,7 @@ function GroupCard({
   servers: Server[];
   loadingServers: boolean;
   tlsEnabled: boolean;
+  nftablesEngine: boolean;
   certificates: Certificate[];
   certsLoading: boolean;
   certsError: boolean;
@@ -391,7 +395,12 @@ function GroupCard({
             size="xs"
             variant={!single ? "secondary" : "ghost"}
             aria-pressed={!single}
-            disabled={pending}
+            title={
+              nftablesEngine && !isEntry
+                ? t("chains.form.nftablesSingleOnly")
+                : undefined
+            }
+            disabled={pending || (nftablesEngine && !isEntry)}
             onClick={() => setKind("group")}
             className="h-6 rounded-sm px-2 type-micro"
           >
@@ -826,6 +835,12 @@ export function ChainFormDialog({
   const realmMissingNames = realmMissing
     ? missingRealmServerNames(selectedServers)
     : [];
+  const nftablesMissing =
+    selectedEngine === "nftables" &&
+    serversMissingNftables(selectedServers);
+  const nftablesMissingNames = nftablesMissing
+    ? missingNftablesServerNames(selectedServers)
+    : [];
 
   const { fields, append, remove, move } = useFieldArray({
     control: form.control,
@@ -1084,6 +1099,7 @@ export function ChainFormDialog({
                         "flex cursor-pointer items-start gap-2 rounded-lg border border-border bg-card p-2.5 transition-colors duration-150 hover:bg-muted/40",
                         active &&
                           "border-primary/60 bg-primary/5 hover:bg-primary/5",
+                        engine === "nftables" && "sm:col-span-2",
                         pending && "cursor-not-allowed opacity-60",
                       )}
                     >
@@ -1122,6 +1138,25 @@ export function ChainFormDialog({
                     {t("chains.form.realmNotInstalled", {
                       servers: formatServerNameList(
                         realmMissingNames,
+                        t("common.listSeparator"),
+                      ),
+                    })}
+                  </span>
+                </div>
+              ) : null}
+              {nftablesMissingNames.length > 0 ? (
+                <div
+                  role="status"
+                  className="flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs leading-normal text-warning"
+                >
+                  <TriangleAlertIcon
+                    className="mt-0.5 size-3.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span>
+                    {t("chains.form.nftablesNotAvailable", {
+                      servers: formatServerNameList(
+                        nftablesMissingNames,
                         t("common.listSeparator"),
                       ),
                     })}
@@ -1262,6 +1297,7 @@ export function ChainFormDialog({
                   servers={servers}
                   loadingServers={loadingServers}
                   tlsEnabled={tlsEnabled}
+                  nftablesEngine={selectedEngine === "nftables"}
                   certificates={certificates.data ?? []}
                   certsLoading={certificates.isPending}
                   certsError={certificates.isError}

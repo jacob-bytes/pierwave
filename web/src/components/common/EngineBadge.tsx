@@ -20,6 +20,7 @@ interface EngineBadgeProps {
 const ENGINE_TONES = {
   native: "border-border/80 bg-muted/40 text-muted-foreground",
   realm: "border-primary/35 bg-primary/10 text-primary",
+  nftables: "border-warning/35 bg-warning/10 text-warning",
 } as const;
 
 const UNKNOWN_TONE = "border-warning/40 bg-warning/10 text-warning";

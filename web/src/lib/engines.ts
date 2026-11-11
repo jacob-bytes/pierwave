@@ -2,7 +2,7 @@
  * 转发引擎的纯逻辑：枚举、默认值、文案键与运行时判定。
  *
  * 后端契约（`crates/domain/src/engine.rs` / `ForwardEngine`）：
- * - 独立转发与转发链都只有 `native` / `realm` 两个合法值；
+ * - 独立转发与转发链都只有 `native` / `realm` / `nftables` 三个合法值；
  * - 新建时缺省 `native`；写路径严格拒绝其它值（`forward.engine_invalid`）；
  * - 读路径对历史脏数据回落到 `native`，所以 UI 也按同样规则兜底。
  *
@@ -15,6 +15,7 @@ import type { ForwardEngine } from "./api.ts";
 export const FORWARD_ENGINES = [
   "native",
   "realm",
+  "nftables",
 ] as const satisfies readonly ForwardEngine[];
 
 export type { ForwardEngine };
@@ -23,7 +24,7 @@ export type { ForwardEngine };
 export const DEFAULT_FORWARD_ENGINE: ForwardEngine = "native";
 
 export function isForwardEngine(value: unknown): value is ForwardEngine {
-  return value === "native" || value === "realm";
+  return value === "native" || value === "realm" || value === "nftables";
 }
 
 /** `null` / `undefined` / 空白串 = 后端没带该字段（旧版本），按默认值处理。 */
@@ -42,7 +43,9 @@ function isAbsentEngine(value: unknown): boolean {
 function knownEngine(value: unknown): ForwardEngine | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
-  return trimmed === "native" || trimmed === "realm" ? trimmed : null;
+  return trimmed === "native" || trimmed === "realm" || trimmed === "nftables"
+    ? trimmed
+    : null;
 }
 
 /**
@@ -291,6 +294,75 @@ export function chainServersMissingRealm(
  */
 export function engineInput(value: unknown): { engine: ForwardEngine } {
   return { engine: normalizeEngine(value) };
+}
+
+// ---------------------------------------------------------------------------
+// nftables 能力：来自服务器列表的 `nftables_available`。
+//
+// 这是静态环境事实：`nft` 存在且 Agent 有 CAP_NET_ADMIN 时才是 true。
+// 未知 / 缺失（旧 Agent / 离线）按不可用处理，与后端的写路径门禁一致。
+// ---------------------------------------------------------------------------
+
+/** 服务器列表里与 nftables 能力有关的最小字段集。 */
+export interface NftablesAvailabilityLike {
+  /** true = 可用；false / null / 缺失 = 不可用或未知。 */
+  nftables_available?: boolean | null;
+}
+
+/**
+ * 所选服务器里是否至少有一台**没有明确上报** nftables 可用。
+ *
+ * 与 `serversMissingRealm` 不同，nftables 要求 `Some(true)` 才放行：
+ * 旧 Agent 收到不认识的枚举值会导致整份期望态解析失败，未知也必须按不可用。
+ */
+export function serversMissingNftables(
+  servers: readonly NftablesAvailabilityLike[],
+): boolean {
+  return servers.some((server) => server.nftables_available !== true);
+}
+
+/** 明确没有 nftables 能力的服务器名，保持传入顺序、按名字去重。 */
+export function missingNftablesServerNames(
+  servers: readonly (NftablesAvailabilityLike & { name: string })[],
+): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const server of servers) {
+    if (server.nftables_available === true) continue;
+    const name = server.name.trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  return names;
+}
+
+/** 引擎是 nftables，且这台服务器没有明确可用。 */
+export function nftablesMissingOnServer(
+  engine: unknown,
+  server: NftablesAvailabilityLike | null | undefined,
+): boolean {
+  return (
+    normalizeEngine(engine) === "nftables" &&
+    server?.nftables_available !== true
+  );
+}
+
+/**
+ * nftables 链暂不支持「非入口组多成员选路」。
+ *
+ * 返回有问题的组下标（0 起；seq >= 1 且 members > 1），后端写路径同样会拒绝。
+ * 入口组可以多成员：它们各自是独立入口，不需要上一跳选路。
+ */
+export function nftablesMultiMemberGroups(
+  engine: unknown,
+  groups: readonly { members: readonly unknown[] }[],
+): number[] {
+  if (normalizeEngine(engine) !== "nftables") return [];
+  return groups
+    .map((group, index) => ({ group, index }))
+    .filter(({ group, index }) => index >= 1 && group.members.length > 1)
+    .map(({ index }) => index);
 }
 
 /**

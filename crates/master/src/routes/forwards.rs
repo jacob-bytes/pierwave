@@ -51,6 +51,42 @@ fn map_port_conflict(error: anyhow::Error, port: i64, name: &str) -> AppError {
     }
 }
 
+/// nftables 规则只能保存到「明确支持 nftables」的服务器。
+///
+/// 旧 Agent 收到 `engine = nftables` 会因为不认识的枚举值导致整份期望态解析失败，
+/// 所以这里必须在写路径挡住；未知能力（离线 / 旧 Agent）也按不支持处理。
+fn ensure_nftables_supported(server: &Server, engine_name: &str) -> AppResult<()> {
+    if !engine::is_nftables(engine_name) || server.nftables_available == Some(true) {
+        return Ok(());
+    }
+    let (code, message) = if server.nftables_available == Some(false) {
+        (
+            "forward.nftables_unavailable",
+            format!(
+                "服务器「{}」没有可用的 nftables（需要安装 nft 并以 root 运行）",
+                server.name
+            ),
+        )
+    } else {
+        (
+            "forward.nftables_unavailable",
+            format!(
+                "服务器「{}」尚未上报 nftables 能力，请等 Agent 上线后重试",
+                server.name
+            ),
+        )
+    };
+    Err(AppError::coded(
+        code,
+        Some(json!({
+            "server_id": server.id,
+            "server_name": server.name,
+            "available": server.nftables_available,
+        })),
+        message,
+    ))
+}
+
 /// 同一服务器内的端口占用检查，顺序固定：
 /// 1. 节点端口（含停用节点）；
 /// 2. 其它转发规则（含停用规则）。
@@ -137,7 +173,7 @@ pub struct CreateForward {
     pub target_port: i64,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
-    /// `native` / `realm`；缺省 = `native`（与迁移默认值一致）。
+    /// `native` / `realm` / `nftables`；缺省 = `native`（与迁移默认值一致）。
     #[serde(default)]
     pub engine: Option<String>,
     /// 是否同时监听同端口的 UDP（只对 `native` 有意义）；缺省 = `false`。
@@ -170,6 +206,7 @@ pub async fn create(
         Some(raw) => engine::normalize(raw)?,
         None => engine::DEFAULT.to_string(),
     };
+    ensure_nftables_supported(&server, &engine)?;
 
     let forward_name_for_error = name.clone();
     let forward = repo::forwards::create(
@@ -219,7 +256,7 @@ pub struct PatchForward {
     pub target_host: Option<String>,
     pub target_port: Option<i64>,
     pub enabled: Option<bool>,
-    /// `native` / `realm`；`None` = 不改。
+    /// `native` / `realm` / `nftables`；`None` = 不改。
     pub engine: Option<String>,
     /// `None` = 不改；`Some(false)` 用来关掉 UDP。
     pub udp: Option<bool>,
@@ -249,6 +286,7 @@ pub async fn update(
     }
 
     let existing = load_forward(&state, &id).await?;
+    let server = load_server(&state, &existing.server_id).await?;
 
     let name = match req.name.as_deref() {
         Some(raw) => Some(forwards::normalize_name(raw)?),
@@ -262,6 +300,7 @@ pub async fn update(
         Some(raw) => Some(engine::normalize(raw)?),
         None => None,
     };
+    ensure_nftables_supported(&server, engine.as_deref().unwrap_or(&existing.engine))?;
     if let Some(port) = req.target_port {
         forwards::validate_target_port(port)?;
     }
@@ -341,7 +380,6 @@ pub async fn update(
     )
     .await;
 
-    let server = load_server(&state, &existing.server_id).await?;
     let base = super::install::external_base(&headers);
     mark_dirty_and_apply(&state, &server, &base).await;
 
@@ -927,6 +965,49 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    /// nftables 保存要求 Agent 明确上报能力；成功后期望态必须带 Nftables。
+    #[tokio::test]
+    async fn nftables_requires_capability_and_reaches_desired_state() {
+        use pierwave_proto::ForwardEngine;
+
+        let (app, state, cookie, server_id) = setup().await;
+        let uri = format!("/api/v1/servers/{server_id}/forwards");
+
+        let mut body = forward_body(8443);
+        body["engine"] = json!("nftables");
+        let (status, response) =
+            request(&app, Some(&cookie), Method::POST, &uri, Some(body.clone())).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {response}");
+        assert_eq!(
+            response["code"], "forward.nftables_unavailable",
+            "能力未知时必须 fail closed"
+        );
+
+        repo::servers::update_health(
+            &state.db.pool,
+            &server_id,
+            "0.8.0",
+            &repo::servers::HealthSnapshot {
+                nftables_available: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let mut subscription = state.hub.subscribe(&server_id);
+        let (status, response) = request(&app, Some(&cookie), Method::POST, &uri, Some(body)).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {response}");
+        assert_eq!(response["forward"]["engine"], "nftables");
+        let id = response["forward"]["id"].as_str().unwrap();
+        let sent = next_forwards(&mut subscription.receiver).await;
+        let forward = sent
+            .iter()
+            .find(|forward| forward.id == pierwave_domain::forwards::desired_id(id))
+            .expect("nftables 规则必须出现在期望态里");
+        assert_eq!(forward.engine, ForwardEngine::Nftables);
     }
 
     /// 引擎字段：缺省 native、显式 realm 原样下发、PATCH 可切换、非法值 400。
