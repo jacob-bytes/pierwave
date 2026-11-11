@@ -28,8 +28,7 @@ use serde_json::{json, Value};
 
 use pierwave_domain::chains::GroupStrategy;
 use pierwave_domain::models::{
-    Certificate, Chain, ChainGroupMember, ChainGroupWithMembers, ChainWithGroups, ForwardStatusRow,
-    Server,
+    Chain, ChainGroupMember, ChainGroupWithMembers, ChainWithGroups, ForwardStatusRow, Server,
 };
 use pierwave_domain::{chains, engine, forwards, hop_transport, protocol, repo};
 
@@ -512,103 +511,6 @@ pub(crate) fn derive_forwards_with_transports(
     derived
 }
 
-/// 纯推导：一条链的逐组 transport（明文链返回空 Vec）。
-///
-/// 失败一律是「整链无效」，调用方据此跳过整条链（不是跳过某一跳）：
-///
-/// * 能力门禁：链上**任意**成员的 `realm_transport != Some(true)`（含旧 Agent /
-///   slim realm 的 NULL）→ `chain.tls_realm_unsupported`；
-/// * 证书缺失 / 过期 / 无 DNS SAN / 私钥不匹配 → 对应 `chain.tls_cert_*`；
-/// * 组 0 不允许证书；seq >= 1 每组必须有。
-///
-/// `certs` 由调用方一次性批量读取（见 `desired::render`），避免逐链查库。
-pub(crate) fn plan_from_certificates(
-    chain: &Chain,
-    groups: &[ChainGroupWithMembers],
-    certs: &HashMap<&str, &Certificate>,
-    now: i64,
-) -> Result<Vec<hop_transport::HopTransport>, pierwave_domain::error::DomainError> {
-    use pierwave_domain::error::DomainError;
-
-    if !hop_transport::is_tls(&chain.transport) {
-        return Ok(Vec::new());
-    }
-    if protocol::is_udp_only(&chain.protocol) {
-        return Err(DomainError::new(
-            "chain.protocol_udp_with_tls",
-            "加密链只走 TCP，不能选择仅 UDP",
-        ));
-    }
-
-    // 下发路径也必须重查链级前置条件：写路径已经拦过，但手工改库/旧数据
-    // 仍可能留下「native+tls」「单组 tls」「tls+udp」这类不能安全下发的组合。
-    // 这里宁可整链跳过，也不能把它渲染成一个不带 transport 的明文端点。
-    if !engine::is_realm(&chain.engine) {
-        return Err(DomainError::new(
-            "chain.tls_requires_realm",
-            "只有 realm 引擎的链才能启用跳间加密",
-        ));
-    }
-    if groups.len() < 2 {
-        return Err(DomainError::new(
-            "chain.tls_requires_two_hops",
-            "至少两跳的链才有跳间链路",
-        ));
-    }
-    if protocol::allows_udp(&chain.protocol) {
-        return Err(DomainError::new(
-            "chain.tls_udp_unsupported",
-            "加密链不支持 UDP，请把链的协议改为 tcp",
-        ));
-    }
-
-    // 能力门禁先于证书：旧 Agent 收到 transport 会静默忽略，必须整链挡住。
-    let mut unsupported: Vec<&str> = Vec::new();
-    for member in groups.iter().flat_map(|group| group.members.iter()) {
-        if member.realm_transport != Some(true)
-            && !unsupported.contains(&member.server_name.as_str())
-        {
-            unsupported.push(member.server_name.as_str());
-        }
-    }
-    if !unsupported.is_empty() {
-        return Err(DomainError::with_params(
-            "chain.tls_realm_unsupported",
-            json!({ "servers": unsupported }),
-            format!(
-                "以下服务器的 realm 未启用 transport（需要升级 Agent / 换官方 realm）：{}",
-                unsupported.join("、")
-            ),
-        ));
-    }
-
-    let mut ordered: Vec<&ChainGroupWithMembers> = groups.iter().collect();
-    ordered.sort_by_key(|group| group.group.seq);
-    let mut group_certs = Vec::with_capacity(ordered.len());
-    for (seq, group) in ordered.iter().enumerate() {
-        if seq == 0 {
-            group_certs.push(None);
-            continue;
-        }
-        let cert_id = group.group.cert_id.as_deref().ok_or_else(|| {
-            DomainError::with_params(
-                "chain.tls_group_cert_required",
-                json!({ "seq": seq }),
-                format!("第 {} 组缺少证书", seq + 1),
-            )
-        })?;
-        let cert = certs.get(cert_id).copied().ok_or_else(|| {
-            DomainError::with_params(
-                "chain.tls_cert_not_found",
-                json!({ "cert_id": cert_id, "seq": seq }),
-                format!("第 {} 组引用的证书不存在", seq + 1),
-            )
-        })?;
-        group_certs.push(Some(hop_transport::validate_certificate(cert, now)?));
-    }
-    hop_transport::derive_hop_transports(&group_certs)
-}
-
 /// 保存时校验链的加密配置：结构规则 + 证书内容。
 ///
 /// **不在这里拒绝「Agent 能力未知」**：服务器可能暂时离线，未知不等于不支持。
@@ -693,67 +595,19 @@ fn validate_nftables_chain(engine_name: &str, groups: &[ValidatedGroup]) -> AppR
     Ok(())
 }
 
-/// 链视图里的「为什么没下发」：能力或证书不满足时给用户看的原因。
+/// 链视图里的「为什么没下发」：capacity / 证书不满足时给用户看的原因。
 ///
-/// 与 `desired::render` 共用 [`plan_from_certificates`]，不会出现「面板说能下发、
-/// 实际被跳过」的两套口径。
+/// 判定本身只有一份：[`pierwave_domain::chains::blocked_reason`]。这里只负责
+/// 把证书批量读出来（仓储 `blocked_reasons` 一次 `IN (...)` 查完），
+/// 与概览 `repo::overview` 的计数共用同一规则，不会再出现两套口径。
 async fn chain_blocked_reason(
     state: &AppState,
     chain: &ChainWithGroups,
-) -> AppResult<Option<(String, String)>> {
-    if engine::is_nftables(&chain.chain.engine) {
-        if let Some((seq, _)) = chain
-            .groups
-            .iter()
-            .enumerate()
-            .find(|(seq, group)| *seq >= 1 && group.members.len() > 1)
-        {
-            return Ok(Some((
-                "chain.nftables_multi_target".to_string(),
-                format!(
-                    "nftables 引擎暂不支持第 {} 组的多成员选路，请改成单成员组",
-                    seq + 1
-                ),
-            )));
-        }
-        let mut names: Vec<&str> = chain
-            .groups
-            .iter()
-            .flat_map(|group| group.members.iter())
-            .filter(|member| member.nftables_available != Some(true))
-            .map(|member| member.server_name.as_str())
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect();
-        if !names.is_empty() {
-            names.sort_unstable();
-            return Ok(Some((
-                "chain.nftables_unavailable".to_string(),
-                format!(
-                    "以下服务器的 nftables 不可用（需要安装 nft 并以 root 运行）：{}",
-                    names.join("、")
-                ),
-            )));
-        }
-        return Ok(None);
-    }
-    if !hop_transport::is_tls(&chain.chain.transport) {
-        return Ok(None);
-    }
-    let cert_ids: Vec<String> = chain
-        .groups
-        .iter()
-        .filter_map(|group| group.group.cert_id.clone())
-        .collect();
-    let certificates = repo::certificates::find_by_ids(&state.db.pool, &cert_ids).await?;
-    let by_id: HashMap<&str, &Certificate> = certificates
-        .iter()
-        .map(|cert| (cert.id.as_str(), cert))
-        .collect();
-    match plan_from_certificates(&chain.chain, &chain.groups, &by_id, repo::now()) {
-        Ok(_) => Ok(None),
-        Err(error) => Ok(Some((error.code.to_string(), error.message))),
-    }
+) -> AppResult<Option<pierwave_domain::chains::BlockedReason>> {
+    let mut reasons =
+        repo::chains::blocked_reasons(&state.db.pool, std::slice::from_ref(chain), repo::now())
+            .await?;
+    Ok(reasons.remove(&chain.chain.id))
 }
 
 fn new_groups(groups: &[ValidatedGroup]) -> Vec<repo::chains::NewChainGroup> {
@@ -1091,12 +945,14 @@ pub async fn list(State(state): State<AppState>, user: CurrentUser) -> AppResult
     user.require_admin()?;
     let chains_list = repo::chains::list(&state.db.pool).await?;
     let statuses = load_status_map(&state, &chains_list).await?;
+    // 一次批量读证书，逐链只做纯判定；不要退回循环里按链查库。
+    let blocked = repo::chains::blocked_reasons(&state.db.pool, &chains_list, repo::now()).await?;
     let mut items = Vec::with_capacity(chains_list.len());
     for chain in &chains_list {
         let mut view = chain_json(chain, &statuses);
-        if let Some((code, reason)) = chain_blocked_reason(&state, chain).await? {
-            view["blocked_code"] = json!(code);
-            view["blocked_reason"] = json!(reason);
+        if let Some(reason) = blocked.get(&chain.chain.id) {
+            view["blocked_code"] = json!(reason.code);
+            view["blocked_reason"] = json!(reason.message);
         }
         items.push(view);
     }
@@ -1207,9 +1063,9 @@ pub async fn create(
 
     let statuses = load_status_map(&state, std::slice::from_ref(&chain)).await?;
     let mut view = chain_json(&chain, &statuses);
-    if let Some((code, reason)) = chain_blocked_reason(&state, &chain).await? {
-        view["blocked_code"] = json!(code);
-        view["blocked_reason"] = json!(reason);
+    if let Some(reason) = chain_blocked_reason(&state, &chain).await? {
+        view["blocked_code"] = json!(reason.code);
+        view["blocked_reason"] = json!(reason.message);
     }
     Ok(Json(json!({ "chain": view })))
 }
@@ -1397,9 +1253,9 @@ pub async fn update(
 
     let statuses = load_status_map(&state, std::slice::from_ref(&updated)).await?;
     let mut view = chain_json(&updated, &statuses);
-    if let Some((code, reason)) = chain_blocked_reason(&state, &updated).await? {
-        view["blocked_code"] = json!(code);
-        view["blocked_reason"] = json!(reason);
+    if let Some(reason) = chain_blocked_reason(&state, &updated).await? {
+        view["blocked_code"] = json!(reason.code);
+        view["blocked_reason"] = json!(reason.message);
     }
     Ok(Json(json!({ "chain": view })))
 }
@@ -1447,7 +1303,8 @@ mod tests {
     use axum::Router;
     use tower::ServiceExt;
 
-    use pierwave_domain::models::Chain;
+    use pierwave_domain::chains::plan_from_certificates;
+    use pierwave_domain::models::{Certificate, Chain};
     use pierwave_domain::Db;
 
     struct Fixture {

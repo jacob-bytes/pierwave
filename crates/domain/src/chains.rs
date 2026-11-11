@@ -12,6 +12,8 @@ use std::collections::{HashMap, HashSet};
 use serde_json::json;
 
 use crate::error::DomainError;
+use crate::models::{Certificate, Chain, ChainGroupWithMembers};
+use crate::{engine, hop_transport, protocol};
 
 /// 一条链最少 1 跳（入口直接指向 target）。
 pub const MIN_HOPS: usize = 1;
@@ -303,6 +305,172 @@ where
 /// 只读计数，不在这里记录历史；计数由 `repo::forwards::save_status` 维护。
 pub fn is_degraded(target_fail_count: i64) -> bool {
     target_fail_count >= DEGRADED_AFTER_FAILURES
+}
+
+/// 一条链在视图里「为什么没下发」的结构化原因。
+///
+/// `code` 是前端词典的稳定键，`message` 是中文兜底文案；两者都由
+/// [`blocked_reason`] 统一产出，链列表、创建/更新响应与概览计数不再各算一套。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockedReason {
+    pub code: String,
+    pub message: String,
+}
+
+/// 纯推导：一条链的逐组 transport（明文链返回空 Vec）。
+///
+/// 失败一律是「整链无效」，调用方据此跳过整条链（不是跳过某一跳）：
+///
+/// * 能力门禁：链上**任意**成员的 `realm_transport != Some(true)`（含旧 Agent /
+///   slim realm 的 NULL）→ `chain.tls_realm_unsupported`；
+/// * 证书缺失 / 过期 / 无 DNS SAN / 私钥不匹配 → 对应 `chain.tls_cert_*`；
+/// * 组 0 不允许证书；seq >= 1 每组必须有。
+///
+/// `certs` 由调用方一次性批量读取（见 `desired::render`），避免逐链查库。
+/// 本函数既用于下发（master 的期望态），也用于视图/概览的 blocked 判定，
+/// 保证「面板说能下发」与「实际下发」永远是同一套规则。
+pub fn plan_from_certificates(
+    chain: &Chain,
+    groups: &[ChainGroupWithMembers],
+    certs: &HashMap<&str, &Certificate>,
+    now: i64,
+) -> Result<Vec<hop_transport::HopTransport>, DomainError> {
+    if !hop_transport::is_tls(&chain.transport) {
+        return Ok(Vec::new());
+    }
+    if protocol::is_udp_only(&chain.protocol) {
+        return Err(DomainError::new(
+            "chain.protocol_udp_with_tls",
+            "加密链只走 TCP，不能选择仅 UDP",
+        ));
+    }
+
+    // 下发路径也必须重查链级前置条件：写路径已经拦过，但手工改库/旧数据
+    // 仍可能留下「native+tls」「单组 tls」「tls+udp」这类不能安全下发的组合。
+    // 这里宁可整链跳过，也不能把它渲染成一个不带 transport 的明文端点。
+    if !engine::is_realm(&chain.engine) {
+        return Err(DomainError::new(
+            "chain.tls_requires_realm",
+            "只有 realm 引擎的链才能启用跳间加密",
+        ));
+    }
+    if groups.len() < 2 {
+        return Err(DomainError::new(
+            "chain.tls_requires_two_hops",
+            "至少两跳的链才有跳间链路",
+        ));
+    }
+    if protocol::allows_udp(&chain.protocol) {
+        return Err(DomainError::new(
+            "chain.tls_udp_unsupported",
+            "加密链不支持 UDP，请把链的协议改为 tcp",
+        ));
+    }
+
+    // 能力门禁先于证书：旧 Agent 收到 transport 会静默忽略，必须整链挡住。
+    let mut unsupported: Vec<&str> = Vec::new();
+    for member in groups.iter().flat_map(|group| group.members.iter()) {
+        if member.realm_transport != Some(true)
+            && !unsupported.contains(&member.server_name.as_str())
+        {
+            unsupported.push(member.server_name.as_str());
+        }
+    }
+    if !unsupported.is_empty() {
+        return Err(DomainError::with_params(
+            "chain.tls_realm_unsupported",
+            json!({ "servers": unsupported }),
+            format!(
+                "以下服务器的 realm 未启用 transport（需要升级 Agent / 换官方 realm）：{}",
+                unsupported.join("、")
+            ),
+        ));
+    }
+
+    let mut ordered: Vec<&ChainGroupWithMembers> = groups.iter().collect();
+    ordered.sort_by_key(|group| group.group.seq);
+    let mut group_certs = Vec::with_capacity(ordered.len());
+    for (seq, group) in ordered.iter().enumerate() {
+        if seq == 0 {
+            group_certs.push(None);
+            continue;
+        }
+        let cert_id = group.group.cert_id.as_deref().ok_or_else(|| {
+            DomainError::with_params(
+                "chain.tls_group_cert_required",
+                json!({ "seq": seq }),
+                format!("第 {} 组缺少证书", seq + 1),
+            )
+        })?;
+        let cert = certs.get(cert_id).copied().ok_or_else(|| {
+            DomainError::with_params(
+                "chain.tls_cert_not_found",
+                json!({ "cert_id": cert_id, "seq": seq }),
+                format!("第 {} 组引用的证书不存在", seq + 1),
+            )
+        })?;
+        group_certs.push(Some(hop_transport::validate_certificate(cert, now)?));
+    }
+    hop_transport::derive_hop_transports(&group_certs)
+}
+
+/// 链视图里的「为什么没下发」：能力或证书不满足时给用户看的原因。
+///
+/// 这是**唯一**的 blocked 判定入口：链列表、创建/更新响应和概览的
+/// [`crate::repo::chains::count_blocked`] 都调用它，不允许在仓储里重写规则。
+///
+/// 注意：`listening = 0` 不属于 blocked（那是运行态健康，由 `degraded` /
+/// 成员视图表达）；blocked 只描述「配置层面整链无法下发」。
+pub fn blocked_reason(
+    chain: &Chain,
+    groups: &[ChainGroupWithMembers],
+    certs: &HashMap<&str, &Certificate>,
+    now: i64,
+) -> Option<BlockedReason> {
+    if engine::is_nftables(&chain.engine) {
+        if let Some((seq, _)) = groups
+            .iter()
+            .enumerate()
+            .find(|(seq, group)| *seq >= 1 && group.members.len() > 1)
+        {
+            return Some(BlockedReason {
+                code: "chain.nftables_multi_target".to_string(),
+                message: format!(
+                    "nftables 引擎暂不支持第 {} 组的多成员选路，请改成单成员组",
+                    seq + 1
+                ),
+            });
+        }
+        let mut names: Vec<&str> = groups
+            .iter()
+            .flat_map(|group| group.members.iter())
+            .filter(|member| member.nftables_available != Some(true))
+            .map(|member| member.server_name.as_str())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        if !names.is_empty() {
+            names.sort_unstable();
+            return Some(BlockedReason {
+                code: "chain.nftables_unavailable".to_string(),
+                message: format!(
+                    "以下服务器的 nftables 不可用（需要安装 nft 并以 root 运行）：{}",
+                    names.join("、")
+                ),
+            });
+        }
+        return None;
+    }
+    if !hop_transport::is_tls(&chain.transport) {
+        return None;
+    }
+    match plan_from_certificates(chain, groups, certs, now) {
+        Ok(_) => None,
+        Err(error) => Some(BlockedReason {
+            code: error.code.to_string(),
+            message: error.message,
+        }),
+    }
 }
 
 #[cfg(test)]

@@ -9,7 +9,9 @@ use serde_json::Value;
 
 use pierwave_domain::certificate;
 use pierwave_domain::models::{Certificate, Server};
-use pierwave_domain::{credentials, engine, hop_transport, protocol, release, repo, time, xray};
+use pierwave_domain::{
+    chains, credentials, engine, hop_transport, protocol, release, repo, time, xray,
+};
 use pierwave_proto::{
     AgentUpgradePlan, DesiredForward, DesiredNode, ForwardEngine, ForwardProtocol, ManagedFile,
 };
@@ -221,7 +223,7 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
                 continue;
             }
         }
-        let transports = match super::chains::plan_from_certificates(
+        let transports = match chains::plan_from_certificates(
             &chain.chain,
             &chain.groups,
             &by_id,

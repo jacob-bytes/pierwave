@@ -2405,6 +2405,113 @@ pub mod chains {
         list_where(pool, true).await
     }
 
+    /// 概览用：与链列表同口径的 blocked 链数。
+    ///
+    /// 口径完全走 [`crate::chains::blocked_reason`]：证书过期 / 能力不足等
+    /// **配置层面整链无法下发**才算 blocked；`listening = 0` 是运行态健康，
+    /// 不计入（与链列表一致）。
+    ///
+    /// 固定 3 条 SQL（链 / 组 / 成员）+ 最多 1 条证书批量查询，查询次数与链
+    /// 数量无关，不存在 N+1；没有链时只发 1 条查询直接返回 0。
+    pub async fn count_blocked(pool: &SqlitePool, now: i64) -> anyhow::Result<i64> {
+        let chains =
+            sqlx::query_as::<_, Chain>("SELECT * FROM chains ORDER BY created_at ASC, rowid ASC")
+                .fetch_all(pool)
+                .await?;
+        if chains.is_empty() {
+            return Ok(0);
+        }
+
+        let mut groups = load_all_groups(pool).await?;
+        let chains_list: Vec<ChainWithGroups> = chains
+            .into_iter()
+            .map(|chain| ChainWithGroups {
+                groups: groups.remove(&chain.id).unwrap_or_default(),
+                chain,
+            })
+            .collect();
+        Ok(blocked_reasons(pool, &chains_list, now).await?.len() as i64)
+    }
+
+    /// 批量算出哪些链 blocked，返回 `chain_id -> 原因`。
+    ///
+    /// 链列表与概览计数都调用它；证书用一次 `IN (...)` 查完，禁止在循环里
+    /// 按链查库。未 blocked 的链不出现在结果里。
+    pub async fn blocked_reasons(
+        pool: &SqlitePool,
+        chains_list: &[ChainWithGroups],
+        now: i64,
+    ) -> anyhow::Result<HashMap<String, crate::chains::BlockedReason>> {
+        let cert_ids: Vec<String> = chains_list
+            .iter()
+            .flat_map(|chain| chain.groups.iter())
+            .filter_map(|group| group.group.cert_id.clone())
+            .collect();
+        let certificates = super::certificates::find_by_ids(pool, &cert_ids).await?;
+        let by_id: HashMap<&str, &Certificate> = certificates
+            .iter()
+            .map(|cert| (cert.id.as_str(), cert))
+            .collect();
+
+        Ok(chains_list
+            .iter()
+            .filter_map(|chain| {
+                crate::chains::blocked_reason(&chain.chain, &chain.groups, &by_id, now)
+                    .map(|reason| (chain.chain.id.clone(), reason))
+            })
+            .collect())
+    }
+
+    /// 一次性读出所有链的组与成员：概览计数专用，避免逐链查库。
+    ///
+    /// 成员按 `priority ASC, rowid ASC` 排好，与 [`load_groups`] 的读接口一致，
+    /// 后续判定即使只用到成员数/能力字段，也不会出现两种顺序。
+    async fn load_all_groups(
+        pool: &SqlitePool,
+    ) -> anyhow::Result<HashMap<String, Vec<ChainGroupWithMembers>>> {
+        let groups = sqlx::query_as::<_, ChainGroup>(
+            "SELECT id, chain_id, seq, name, strategy, cert_id
+             FROM chain_groups
+             ORDER BY chain_id ASC, seq ASC, rowid ASC",
+        )
+        .fetch_all(pool)
+        .await?;
+        if groups.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let members = sqlx::query_as::<_, ChainGroupMember>(
+            "SELECT m.group_id, g.chain_id, g.seq, g.strategy,
+                    m.server_id, s.name AS server_name, s.address AS server_address,
+                    m.listen_port, m.priority, m.weight, s.realm_transport,
+                    s.nftables_available
+             FROM chain_group_members m
+             JOIN chain_groups g ON g.id = m.group_id
+             JOIN servers s ON s.id = m.server_id
+             ORDER BY g.chain_id ASC, g.seq ASC, m.priority ASC, m.rowid ASC",
+        )
+        .fetch_all(pool)
+        .await?;
+
+        let mut by_group: HashMap<String, Vec<ChainGroupMember>> = HashMap::new();
+        for member in members {
+            by_group
+                .entry(member.group_id.clone())
+                .or_default()
+                .push(member);
+        }
+
+        let mut by_chain: HashMap<String, Vec<ChainGroupWithMembers>> = HashMap::new();
+        for group in groups {
+            let members = by_group.remove(&group.id).unwrap_or_default();
+            by_chain
+                .entry(group.chain_id.clone())
+                .or_default()
+                .push(ChainGroupWithMembers { group, members });
+        }
+        Ok(by_chain)
+    }
+
     pub async fn update(
         pool: &SqlitePool,
         id: &str,
@@ -4604,8 +4711,10 @@ pub mod stats {
 /// * 协议归属在 SQL 里拆 `subject = "{user_id}@{node_tag}"`：节点 tag 只允许
 ///   `[a-z0-9_-]`，不会含 `@`，按第一个（也是唯一一个）`@` 切分即可。删掉的节点
 ///   JOIN 不到，流量归入 `unknown` 而不是丢弃；
-/// * `chains.blocked` = 启用链中存在 `listening = 0` 的成员（监听失败，整条链不通）。
-///   这里不复刻链列表的证书/能力门禁（那需要解析证书，属于链视图的实时判断）；
+/// * `chains.blocked` 与链列表的 `blocked_reason` **同口径**：配置层面无法下发
+///   （nftables 能力不足 / 多目标不支持 / TLS 证书或跳间能力不满足）才计数，
+///   `listening = 0` 属于运行态健康，不再计入。判定统一走
+///   [`crate::chains::blocked_reason`]，不在概览 SQL 里另算一套；
 ///   `chains.forwards_*` 只统计独立端口转发规则，不含链推导出的转发。
 pub mod overview {
     use std::collections::HashMap;
@@ -4674,7 +4783,9 @@ pub mod overview {
         pub top: Vec<TopRow>,
     }
 
-    /// 固定 8 条聚合查询，与数据量无关（没有 N+1）。
+    /// 查询次数固定、与数据量无关（没有 N+1）：概览主体 9 条；
+    /// `chains.blocked` 走 [`super::chains::count_blocked`] 的 3 条结构查询
+    /// + 最多 1 条证书批量查询（无链时只 1 条）。
     pub async fn snapshot(
         pool: &SqlitePool,
         now: i64,
@@ -4727,7 +4838,7 @@ pub mod overview {
             },
             series,
             protocols: protocol_rows(pool, now, days).await?,
-            chains: chain_row(pool).await?,
+            chains: chain_row(pool, now).await?,
             top: top_servers(pool, now, days).await?,
         })
     }
@@ -4817,16 +4928,16 @@ pub mod overview {
         Ok(rows)
     }
 
-    /// 链路健康：一次 CTE 把链 → 组 → 成员 → 心跳状态对齐，降级/阻断各算一次。
+    /// 链路健康：一次 CTE 把链 → 组 → 成员 → 心跳状态对齐，算降级；
+    /// 阻断数走与链列表完全相同的 [`crate::chains::blocked_reason`] 判定。
     ///
     /// forward id 的格式必须与 `crate::chains::forward_id` 一致：单成员组用
     /// `chain-<id>-<seq>`，多成员组追加 `-<server_id>`。
-    async fn chain_row(pool: &SqlitePool) -> anyhow::Result<ChainRow> {
+    async fn chain_row(pool: &SqlitePool, now: i64) -> anyhow::Result<ChainRow> {
         #[derive(sqlx::FromRow)]
         struct Health {
             total: i64,
             degraded: i64,
-            blocked: i64,
         }
         let health = sqlx::query_as::<_, Health>(
             "WITH group_sizes AS (
@@ -4836,7 +4947,6 @@ pub mod overview {
              ),
              derived AS (
                  SELECT c.id AS chain_id,
-                        c.enabled AS enabled,
                         m.server_id AS server_id,
                         CASE WHEN gs.members <= 1
                              THEN 'chain-' || c.id || '-' || g.seq
@@ -4849,9 +4959,7 @@ pub mod overview {
              )
              SELECT (SELECT COUNT(*) FROM chains) AS total,
                     COUNT(DISTINCT CASE WHEN fs.target_fail_count >= ? THEN d.chain_id END)
-                        AS degraded,
-                    COUNT(DISTINCT CASE WHEN d.enabled = 1 AND fs.listening = 0
-                                        THEN d.chain_id END) AS blocked
+                        AS degraded
              FROM derived d
              LEFT JOIN forward_status fs
                ON fs.server_id = d.server_id AND fs.forward_id = d.forward_id",
@@ -4876,10 +4984,12 @@ pub mod overview {
         .fetch_one(pool)
         .await?;
 
+        let blocked = super::chains::count_blocked(pool, now).await?;
+
         Ok(ChainRow {
             total: health.total,
             degraded: health.degraded,
-            blocked: health.blocked,
+            blocked,
             forwards_total,
             forwards_failing,
             handshake_failures,
@@ -5217,7 +5327,7 @@ pub mod overview {
         }
 
         #[tokio::test]
-        async fn chain_health_marks_degraded_after_two_failures_and_blocked_on_listen_failure() {
+        async fn chain_health_marks_degraded_after_two_failures_and_keeps_blocked_config_only() {
             let pool = setup().await;
             let now = at("2026-11-15T12:00:00+08:00");
             let (server, _) = super::super::servers::create(&pool, "hk-1", "10.0.0.1", "external")
@@ -5274,7 +5384,8 @@ pub mod overview {
             let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
             assert_eq!(snapshot.chains.degraded, 1);
 
-            // 监听失败：链视为 blocked，降级与握手失败计数清零。
+            // 监听失败：运行态不健康，但这不是配置层面的 blocked
+            // （概览与链列表同口径：blocked 只看证书/能力等「整链无法下发」）。
             super::super::forwards::save_status(
                 &pool,
                 &server.id,
@@ -5291,7 +5402,10 @@ pub mod overview {
             .unwrap();
             let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
             assert_eq!(snapshot.chains.degraded, 0);
-            assert_eq!(snapshot.chains.blocked, 1);
+            assert_eq!(
+                snapshot.chains.blocked, 0,
+                "listening=0 不计入 blocked，与链列表 blocked_reason 一致"
+            );
             assert_eq!(snapshot.chains.handshake_failures, 0);
         }
 

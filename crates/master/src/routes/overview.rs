@@ -328,4 +328,296 @@ mod tests {
         assert_eq!(users::count(&state.db.pool).await.unwrap(), before_users);
         assert_eq!(nodes::count(&state.db.pool).await.unwrap(), before_nodes);
     }
+
+    const TEST_CERT_PEM: &str = include_str!("../../../domain/tests/fixtures/test-cert.pem");
+    const TEST_KEY_PEM: &str = include_str!("../../../domain/tests/fixtures/test-key.pem");
+    const EXPIRED_CERT_PEM: &str =
+        include_str!("../../../domain/tests/fixtures/test-expired-cert.pem");
+    const EXPIRED_KEY_PEM: &str =
+        include_str!("../../../domain/tests/fixtures/test-expired-key.pem");
+
+    async fn set_capabilities(
+        pool: &sqlx::SqlitePool,
+        server_id: &str,
+        realm_transport: Option<bool>,
+        nftables_available: Option<bool>,
+    ) {
+        servers::update_health(
+            pool,
+            server_id,
+            "0.8.0",
+            &servers::HealthSnapshot {
+                realm_transport,
+                nftables_available,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn add_certificate(
+        pool: &sqlx::SqlitePool,
+        name: &str,
+        cert_pem: &str,
+        key_pem: &str,
+        not_after: i64,
+    ) -> String {
+        repo::certificates::create(
+            pool,
+            repo::certificates::NewCertificate {
+                name: name.into(),
+                domains: vec!["example.com".into()],
+                cert_pem: cert_pem.into(),
+                key_pem: key_pem.into(),
+                not_before: 1_577_836_800,
+                not_after,
+            },
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    fn one_group(
+        server_id: &str,
+        listen_port: i64,
+        cert_id: Option<String>,
+    ) -> Vec<repo::chains::NewChainGroup> {
+        vec![repo::chains::NewChainGroup {
+            name: None,
+            strategy: "round_robin".into(),
+            cert_id,
+            members: vec![repo::chains::NewChainGroupMember {
+                server_id: server_id.into(),
+                listen_port,
+                priority: 0,
+                weight: 1,
+            }],
+        }]
+    }
+
+    /// 概览的 `chains.blocked` 必须与链列表里带 `blocked_reason` 的条数逐一对齐。
+    ///
+    /// 三种容易分叉的情况各造一次：证书过期、nftables 能力不足、`listening = 0`。
+    /// 前两者是配置层面的 blocked，两处都应计数；`listening = 0` 是运行态健康，
+    /// 两处都不应计入（旧概览 SQL 会把它算成 blocked，这正是本次修掉的偏差）。
+    #[tokio::test]
+    async fn overview_blocked_matches_chain_list_for_cert_capability_and_listen_failure() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+
+        async fn counts(app: &Router, cookie: &str) -> (i64, usize) {
+            let (status, overview) = request(app, Some(cookie), "/api/v1/overview?days=7").await;
+            assert_eq!(status, StatusCode::OK, "overview: {overview}");
+            let (status, list) = request(app, Some(cookie), "/api/v1/chains").await;
+            assert_eq!(status, StatusCode::OK, "chains: {list}");
+            let blocked_items = list["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|item| item.get("blocked_reason").is_some())
+                .count();
+            (
+                overview["chains"]["blocked"].as_i64().unwrap(),
+                blocked_items,
+            )
+        }
+
+        // 无链：两处都为 0，且不能因为空表出错。
+        assert_eq!(counts(&app, &admin).await, (0, 0), "无链时应为 0");
+
+        let (a, _) = servers::create(pool, "a", "10.0.0.1", "external")
+            .await
+            .unwrap();
+        let (b, _) = servers::create(pool, "b", "10.0.0.2", "external")
+            .await
+            .unwrap();
+        let (c, _) = servers::create(pool, "c", "10.0.0.3", "external")
+            .await
+            .unwrap();
+        set_capabilities(pool, &a.id, Some(true), Some(true)).await;
+        set_capabilities(pool, &b.id, Some(true), Some(true)).await;
+        set_capabilities(pool, &c.id, Some(false), Some(false)).await;
+
+        // 仅仅 listening=0 的明文链：运行态不健康，但不是配置层面的 blocked。
+        let plain = repo::chains::create(
+            pool,
+            repo::chains::NewChain {
+                name: "listen-failed".into(),
+                target_host: "1.1.1.1".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "native".into(),
+                protocol: "tcp".into(),
+                transport: "none".into(),
+                groups: one_group(&a.id, 9001, None),
+            },
+        )
+        .await
+        .unwrap();
+        repo::forwards::save_status(
+            pool,
+            &a.id,
+            &[repo::forwards::NewForwardStatus {
+                forward_id: pierwave_domain::chains::forward_id(&plain.chain.id, 0, &a.id, 1),
+                listening: false,
+                error: "监听 9001 失败".into(),
+                target_ok: None,
+                target_error: None,
+                targets: Vec::new(),
+            }],
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            counts(&app, &admin).await,
+            (0, 0),
+            "listening=0 不应被算进 blocked（概览与列表都不算）"
+        );
+
+        // 证书过期：整链无法下发，两处都计 1。
+        let expired_cert = add_certificate(
+            pool,
+            "expired",
+            EXPIRED_CERT_PEM,
+            EXPIRED_KEY_PEM,
+            1_609_459_200,
+        )
+        .await;
+        let expired = repo::chains::create(
+            pool,
+            repo::chains::NewChain {
+                name: "expired-cert".into(),
+                target_host: "1.1.1.1".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "realm".into(),
+                protocol: "tcp".into(),
+                transport: "tls".into(),
+                groups: vec![
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: None,
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: a.id.clone(),
+                            listen_port: 9001,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: Some(expired_cert.clone()),
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: b.id.clone(),
+                            listen_port: 9002,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                ],
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            counts(&app, &admin).await,
+            (1, 1),
+            "过期证书：概览计数与链列表 blocked 条数必须一致"
+        );
+
+        // nftables 能力不足：整链无法下发，两处都计 2。
+        let nft = repo::chains::create(
+            pool,
+            repo::chains::NewChain {
+                name: "nft-capability".into(),
+                target_host: "1.1.1.1".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "nftables".into(),
+                protocol: "tcp".into(),
+                transport: "none".into(),
+                groups: one_group(&c.id, 9003, None),
+            },
+        )
+        .await
+        .unwrap();
+
+        let (overview_blocked, list_blocked) = counts(&app, &admin).await;
+        assert_eq!(
+            (overview_blocked, list_blocked),
+            (2, 2),
+            "过期证书 + 能力不足：两处都计 2，listening=0 不额外计入"
+        );
+
+        // 证书有效且能力满足的加密链：不进 blocked，两处计数都不变。
+        let valid_cert =
+            add_certificate(pool, "valid", TEST_CERT_PEM, TEST_KEY_PEM, 2_109_208_713).await;
+        repo::chains::create(
+            pool,
+            repo::chains::NewChain {
+                name: "healthy-tls".into(),
+                target_host: "1.1.1.1".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "realm".into(),
+                protocol: "tcp".into(),
+                transport: "tls".into(),
+                groups: vec![
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: None,
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: a.id.clone(),
+                            listen_port: 9004,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: Some(valid_cert),
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: b.id.clone(),
+                            listen_port: 9005,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                ],
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            counts(&app, &admin).await,
+            (2, 2),
+            "证书有效的加密链不应被计入 blocked"
+        );
+
+        // 两种 blocked 原因也要保持原样（文案/错误码属于验收过的契约）。
+        let (_, list) = request(&app, Some(&admin), "/api/v1/chains").await;
+        let items = list["items"].as_array().unwrap();
+        let expired_view = items
+            .iter()
+            .find(|item| item["id"] == json!(expired.chain.id))
+            .unwrap();
+        assert_eq!(expired_view["blocked_code"], "chain.tls_cert_expired");
+        assert!(expired_view["blocked_reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("已过期")));
+        let nft_view = items
+            .iter()
+            .find(|item| item["id"] == json!(nft.chain.id))
+            .unwrap();
+        assert_eq!(nft_view["blocked_code"], "chain.nftables_unavailable");
+        assert!(nft_view["blocked_reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("nft")));
+    }
 }
