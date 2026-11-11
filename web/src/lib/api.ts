@@ -651,6 +651,13 @@ export interface ChainGroupMember {
    * `null` = 握手正常或尚未探测。翻译键见 `lib/chainTls.ts`。
    */
   target_error: string | null;
+  /**
+   * 上一跳 → 这台成员这一段的实测 RTT（多台上一跳取最小值）。
+   * 首组没有上一跳、Agent 未探测或探测失败时为 null。
+   */
+  latency_ms: number | null;
+  /** 仅最后一跳：这台成员 → 链目标的实测 RTT；其它组为 null。 */
+  target_latency_ms: number | null;
   /** 连续 2 次 target_ok=false 后为 true；不是实时探测结果。 */
   degraded: boolean;
   /** Agent 返回的监听失败原因；无错误时为空串。 */
@@ -702,6 +709,16 @@ export interface Chain {
   blocked_reason?: string | null;
   /** 任一组 / 成员 degraded 即为 true。 */
   degraded: boolean;
+  /**
+   * 路径形态：`single`（每组一台，整链唯一路径）/ `multi`（存在按策略
+   * 选路的多成员组）/ `hash`（多成员组全部 ip_hashed）。旧后端可能不返回。
+   */
+  path_mode?: string;
+  /**
+   * 各段实测延迟之和；仅 `path_mode = single` 且有完整数据时有值，
+   * 多路径 / 缺任何一段 / 空链均为 null。
+   */
+  total_latency_ms?: number | null;
   /** 按 `seq` 升序排列；前端只读这个字段，不再读兼容用的 `hops`。 */
   groups: ChainGroup[];
   created_at: number;

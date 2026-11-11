@@ -1857,6 +1857,11 @@ const zhCN = {
       priorityHint:
         "组内顺序即优先级：靠上的成员优先（主备 / 轮询都按它）",
       emptyMembers: "这一跳还没有成员",
+      currentPath: "当前路径",
+      sourceHashed: "按来源分流",
+      memberInUse: "在用",
+      totalLatency: "链路内合计 {total}",
+      totalLatencyTitle: "不含客户端到入口",
     },
     status: {
       ok: "正常",

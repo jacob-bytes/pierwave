@@ -71,6 +71,15 @@ import {
   type HopListeningState,
   type HopTargetState,
 } from "@/lib/chains";
+import {
+  hopLatencyLabel,
+  hopLatencyTone,
+  memberInUse,
+  pathModeBadge,
+  protocolBadge,
+  totalLatencyLabel,
+  type HopLatencyTone,
+} from "@/lib/chainTopology";
 import { isTlsTransport, tlsErrorKey } from "@/lib/chainTls";
 import {
   chainEngineMissing,
@@ -87,6 +96,32 @@ import { useIsDesktop } from "@/lib/useIsDesktop";
 const CHAIN_COLUMN_COUNT = 7;
 const HEAD_CLASS =
   "h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground";
+
+/** 延迟三档 + 无数据的文字色；色值全部走 CSS 变量。 */
+const LATENCY_TONE_CLASS: Record<HopLatencyTone, string> = {
+  default: "text-foreground",
+  warning: "text-warning",
+  destructive: "text-destructive",
+  muted: "text-muted-foreground",
+};
+
+/**
+ * 进入某个组的那一段延迟。
+ *
+ * 组内只有一台成员时这段是唯一值；多成员组由策略选路，没有唯一路径，
+ * 返回 null 由箭头显示 `—`，不拿某一台的数字冒充整组。
+ */
+function segmentLatency(group: ChainGroup): number | null {
+  const members = orderMembers(group.members);
+  return members.length === 1 ? members[0].latency_ms : null;
+}
+
+/** 末跳 → 目标：同样只在末跳唯一成员时才有唯一值。 */
+function targetLatency(group: ChainGroup | undefined): number | null {
+  if (!group) return null;
+  const members = orderMembers(group.members);
+  return members.length === 1 ? members[0].target_latency_ms : null;
+}
 
 /** 英文需要区分单复数：按组数 / 成员数挑文案键，中文四把键文案相同。 */
 function groupCountKey(groups: number, members: number): string {
@@ -178,6 +213,53 @@ function StatusDot({ className }: { className: string }) {
       aria-hidden="true"
       className={cn("size-1.5 shrink-0 rounded-full", className)}
     />
+  );
+}
+
+/**
+ * 两跳之间的箭头：上行延迟、下行协议。
+ *
+ * 延迟为 null 时仍渲染 `—`，否则箭头上下两行会塌掉；
+ * 桌面横向箭头、移动端纵向箭头共用同一组数据。
+ */
+function HopArrow({
+  latencyMs,
+  protocol,
+}: {
+  latencyMs: number | null;
+  protocol: string;
+}) {
+  const tone = hopLatencyTone(latencyMs);
+
+  return (
+    <div className="flex shrink-0 flex-row items-center justify-center gap-1.5 py-1 lg:flex-col lg:gap-0.5 lg:py-0">
+      <span
+        className={cn(
+          "whitespace-nowrap type-micro tabular-nums leading-none",
+          LATENCY_TONE_CLASS[tone],
+        )}
+      >
+        {hopLatencyLabel(latencyMs)}
+      </span>
+      <div className="flex items-center text-muted-foreground">
+        <span
+          className="hidden h-px w-2.5 bg-border lg:block"
+          aria-hidden="true"
+        />
+        <ArrowDownIcon className="size-3.5 lg:hidden" aria-hidden="true" />
+        <ArrowRightIcon
+          className="hidden size-3.5 lg:block"
+          aria-hidden="true"
+        />
+        <span
+          className="hidden h-px w-2.5 bg-border lg:block"
+          aria-hidden="true"
+        />
+      </div>
+      <span className="whitespace-nowrap type-micro leading-none text-muted-foreground">
+        {protocol}
+      </span>
+    </div>
   );
 }
 
@@ -324,9 +406,11 @@ function ChainStatusCell({ chain }: { chain: Chain }) {
 function GroupMemberRow({
   member,
   index,
+  inUse,
 }: {
   member: ChainGroupMember;
   index: number;
+  inUse: boolean;
 }) {
   const { t } = useI18n();
   const endpoint = formatMemberEndpoint(member);
@@ -358,6 +442,14 @@ function GroupMemberRow({
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
           <MemberListeningStatus member={member} />
           <MemberTargetStatus member={member} />
+          {inUse ? (
+            <Badge
+              variant="outline"
+              className="h-4 border-border/60 px-1.5 type-micro font-normal text-muted-foreground"
+            >
+              {t("chains.detail.memberInUse")}
+            </Badge>
+          ) : null}
         </div>
       </div>
       {error ? (
@@ -385,15 +477,20 @@ function GroupMemberRow({
 function GroupCard({
   group,
   isEntry,
+  pathMode,
+  highlight,
 }: {
   group: ChainGroup;
   isEntry: boolean;
+  pathMode: string;
+  highlight: boolean;
 }) {
   const { t } = useI18n();
   const members = orderMembers(group.members);
   const degraded = groupIsDegraded(group);
   const kind = groupKind(group);
   const single = kind === "single";
+  const inUse = memberInUse(pathMode, members.length);
   const name = group.name?.trim() || t("chains.detail.unnamedGroup");
 
   return (
@@ -403,6 +500,7 @@ function GroupCard({
         degraded
           ? "border-warning/45 bg-warning/5"
           : "border-border",
+        highlight && "ring-1 ring-primary/40",
       )}
     >
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
@@ -466,6 +564,7 @@ function GroupCard({
               key={`${member.server_id}:${member.listen_port}:${index}`}
               member={member}
               index={index}
+              inUse={inUse}
             />
           ))
         )}
@@ -479,51 +578,83 @@ function ChainGroupsDetail({ chain }: { chain: Chain }) {
   const { t } = useI18n();
   const groups = orderGroups(chain.groups);
   const target = formatForwardTarget(chain.target_host, chain.target_port);
+  const pathMode = chain.path_mode ?? "";
+  const singlePath = pathMode === "single";
+  const hashBadge = pathMode === "hash" ? pathModeBadge(pathMode, t) : null;
+  const total = totalLatencyLabel(chain.total_latency_ms);
+  const protocol = protocolBadge(chain.protocol);
+  const lastGroup = groups[groups.length - 1];
+  const lastTargetLatency = targetLatency(lastGroup);
 
   return (
     <div className="rounded-lg border border-border bg-muted/25 p-3">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-1">
-            <span className="type-micro font-medium text-muted-foreground">
-              {t("chains.detail.title")}
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <span className="type-micro font-medium text-muted-foreground">
+          {t("chains.detail.title")}
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          {hashBadge ? (
+            <Badge
+              variant="outline"
+              className="h-4 border-border/60 px-1.5 type-micro font-normal text-muted-foreground"
+            >
+              {hashBadge}
+            </Badge>
+          ) : null}
+          {total ? (
+            <span
+              className="type-micro tabular-nums text-muted-foreground"
+              title={t("chains.detail.totalLatencyTitle")}
+            >
+              {t("chains.detail.totalLatency", { total })}
             </span>
+          ) : null}
+        </div>
+      </div>
+      <p className="mb-2 type-micro leading-normal text-muted-foreground">
+        {t("chains.detail.hint")}
+      </p>
+      {groups.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {t("chains.detail.empty")}
+        </p>
+      ) : (
+        <div className="flex min-w-0 flex-col gap-1.5 lg:flex-row lg:items-start">
+          {groups.map((group, index) => {
+            const next = groups[index + 1];
+            return (
+              <Fragment key={group.id || group.seq}>
+                <GroupCard
+                  group={group}
+                  isEntry={index === 0}
+                  pathMode={pathMode}
+                  highlight={singlePath}
+                />
+                <HopArrow
+                  latencyMs={next ? segmentLatency(next) : lastTargetLatency}
+                  protocol={protocol}
+                />
+              </Fragment>
+            );
+          })}
+          <div
+            className={cn(
+              "min-w-40 rounded-md border border-primary/25 bg-primary/5 px-2.5 py-2 lg:flex-1",
+              singlePath && "ring-1 ring-primary/40",
+            )}
+          >
             <span className="type-micro text-muted-foreground">
-              {t("chains.detail.hint")}
+              {t("chains.detail.targetBadge")}
             </span>
-          </div>
-          {groups.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              {t("chains.detail.empty")}
-            </p>
-          ) : (
-            <div className="flex min-w-0 flex-col gap-1.5 lg:flex-row lg:items-start">
-              {groups.map((group, index) => (
-                <Fragment key={group.id || group.seq}>
-                  <GroupCard group={group} isEntry={index === 0} />
-                  <div className="flex shrink-0 items-center justify-center text-muted-foreground">
-                    <ArrowDownIcon
-                      className="size-3.5 lg:hidden"
-                      aria-hidden="true"
-                    />
-                    <ArrowRightIcon
-                      className="hidden size-3.5 lg:block"
-                      aria-hidden="true"
-                    />
-                  </div>
-                </Fragment>
-              ))}
-              <div className="min-w-40 rounded-md border border-primary/25 bg-primary/5 px-2.5 py-2 lg:flex-1">
-                <span className="type-micro text-muted-foreground">
-                  {t("chains.detail.targetBadge")}
-                </span>
-                <div
-                  className="mt-0.5 break-all font-mono text-xs text-foreground"
-                  title={target}
-                >
-                  {target}
-                </div>
-              </div>
+            <div
+              className="mt-0.5 break-all font-mono text-xs text-foreground"
+              title={target}
+            >
+              {target}
             </div>
-          )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -725,6 +856,14 @@ export default function ChainsPage() {
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-1.5">
             <span className="truncate font-medium">{chain.name}</span>
+            {chain.path_mode === "single" ? (
+              <Badge
+                variant="outline"
+                className="h-4 shrink-0 border-primary/40 bg-primary/10 px-1.5 type-micro font-normal text-primary"
+              >
+                {pathModeBadge("single", t)}
+              </Badge>
+            ) : null}
             {blockedReason ? (
               <span
                 role="img"

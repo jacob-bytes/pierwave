@@ -1967,6 +1967,11 @@ const en = {
       priorityHint:
         "Order is priority: upper members are preferred (used by failover and round robin)",
       emptyMembers: "This hop has no members yet",
+      currentPath: "Current path",
+      sourceHashed: "Hashed by source",
+      memberInUse: "In use",
+      totalLatency: "Chain total {total}",
+      totalLatencyTitle: "Excludes client to entry",
     },
     status: {
       ok: "Healthy",
