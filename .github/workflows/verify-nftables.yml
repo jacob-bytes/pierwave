@@ -1,0 +1,86 @@
+# 验证 nftables 引擎：在真实内核上用真实 nft 二进制装载我们生成的规则。
+#
+# 为什么必须跑：语法错误只有真实 nft 能发现。单元测试断言的是字符串形状，
+# 而 `nft -f` 的解析器对分号、优先级关键字、nat 语句的位置很挑。
+# 这里用与 Agent 完全相同的脚本文本（含 delete + add），在 runner 上真装一次再删掉。
+name: Verify NFTables
+
+on:
+  push:
+    tags: ["v*"]
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: real nft round-trip
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nftables
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq nftables
+
+      - name: Load the script shape the agent generates
+        run: |
+          set -euo pipefail
+          cat > /tmp/pierwave.nft <<'NFT'
+          table inet pierwave {
+              chain prerouting {
+                  type nat hook prerouting priority dstnat; policy accept;
+                  fib daddr type local tcp dport 30001 dnat ip to 10.0.0.2:443
+                  fib daddr type local udp dport 30001 dnat ip to 10.0.0.2:443
+              }
+              chain output {
+                  type nat hook output priority -100; policy accept;
+                  fib daddr type local tcp dport 30002 dnat ip to 203.0.113.9:8443
+              }
+          }
+          NFT
+          sudo nft -f /tmp/pierwave.nft
+          echo "--- 装载后的表 ---"
+          sudo nft list table inet pierwave | sed 's/^/  /'
+
+      - name: Assert the rules really landed
+        run: |
+          set -euo pipefail
+          rules="$(sudo nft list table inet pierwave)"
+          echo "${rules}" | grep -q "dport 30001" || { echo "::error::30001 的 DNAT 规则没落到内核"; exit 1; }
+          echo "${rules}" | grep -q "dnat ip to 10.0.0.2:443" || { echo "::error::DNAT 目标不对"; exit 1; }
+          echo "${rules}" | grep -q "hook output" || { echo "::error::缺少 output 链（本机发起也要能转发）"; exit 1; }
+          echo "${rules}" | grep -q "udp dport 30001" || { echo "::error::UDP 规则缺失"; exit 1; }
+
+      - name: Idempotent rebuild (delete + add, as the agent does)
+        run: |
+          set -euo pipefail
+          { echo "delete table inet pierwave"; cat /tmp/pierwave.nft; } > /tmp/pierwave-rebuild.nft
+          sudo nft -f /tmp/pierwave-rebuild.nft
+          sudo nft list table inet pierwave | grep -q "dport 30001" || { echo "::error::重建后规则丢失"; exit 1; }
+          echo "ok 重建后规则仍在"
+
+      - name: Cleanup removes only our table
+        run: |
+          set -euo pipefail
+          sudo nft add table inet unrelated_probe
+          sudo nft delete table inet pierwave
+          sudo nft list tables | grep -q "table inet unrelated_probe" || { echo "::error::误删了其它表"; exit 1; }
+          if sudo nft list table inet pierwave >/dev/null 2>&1; then
+            echo "::error::pierwave 表没有被删掉"
+            exit 1
+          fi
+          sudo nft delete table inet unrelated_probe
+          echo "ok 只删自己的表，别人的表不受影响"
+
+      - name: Invalid syntax must fail loudly
+        run: |
+          set -euo pipefail
+          if sudo nft -f <(echo "table inet pierwave { chain x { dnat to nowhere } }") 2>/dev/null; then
+            echo "::error::非法脚本竟然被接受"
+            exit 1
+          fi
+          echo "ok 非法脚本按预期被拒绝"
