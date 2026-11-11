@@ -154,3 +154,24 @@ test("validateTls reports the udp conflict alongside certificate issues", () => 
     ],
   );
 });
+
+test("validateTls reads the new protocol field and lets it override the legacy udp bit", () => {
+  const groups = [group(""), group("cert-exit")];
+  assert.deepEqual(
+    validateTls({ transport: "tls", protocol: "udp", groups }),
+    [{ kind: "udp_conflict" }],
+  );
+  assert.deepEqual(
+    validateTls({ transport: "tls", protocol: "both", groups }),
+    [{ kind: "udp_conflict" }],
+  );
+  assert.deepEqual(
+    validateTls({ transport: "tls", protocol: "tcp", groups }),
+    [],
+  );
+  // 新字段存在时旧位不再参与判断，与后端「protocol 优先」一致。
+  assert.deepEqual(
+    validateTls({ transport: "tls", protocol: "tcp", udp: true, groups }),
+    [],
+  );
+});

@@ -544,15 +544,26 @@ export type UpdateRoutingRuleInput = Partial<CreateRoutingRuleInput>;
 /**
  * 转发引擎。
  *
- * - `native`：PierWave 自带实现（TCP，组内选路与降级，暂不支持 UDP）；
- * - `realm`：调用 realm 子进程（支持 UDP 与带权重负载均衡）。
+ * - `native`：PierWave 自带实现（TCP/UDP，组内选路与降级）；
+ * - `realm`：调用 realm 子进程（固定同时监听 TCP 与 UDP，带权重负载均衡）。
  *
  * 与后端 `crates/domain/src/engine.rs` 的白名单一致。
  */
 export type ForwardEngine = "native" | "realm" | "nftables";
 
 /**
- * 单跳 TCP 端口转发：Agent 在服务器上监听 `listen_port`，
+ * 转发协议模式（转发与链共用）。
+ *
+ * - `tcp`：只监听 TCP（缺省）；
+ * - `udp`：只监听 UDP，同端口的 TCP 不监听；
+ * - `both`：同一端口号上 TCP 与 UDP 都监听。
+ *
+ * 与后端 `crates/domain/src/protocol.rs` 的白名单一致。
+ */
+export type ForwardProtocol = "tcp" | "udp" | "both";
+
+/**
+ * 单跳端口转发：Agent 在服务器上监听 `listen_port`，
  * 把入站连接原样转发到 `target_host:target_port`。
  *
  * 这套链路不经过 Xray，也不计入用户流量，与节点 / 出站是两套并行系统。
@@ -576,9 +587,13 @@ export interface Forward {
   /** 实现这条规则所用的引擎；后端缺省 / 历史数据为 `native`。 */
   engine: ForwardEngine;
   /**
-   * 是否同时监听 UDP（与 `listen_port` 同端口）。
-   * 对 `native` / `nftables` 有效：`realm` 的配置固定 `use_udp = true`，
-   * 总是转发 UDP。旧后端可能不返回该字段，展示层按 false 处理。
+   * 监听协议：`tcp`（缺省）/ `udp` / `both`。
+   * 旧后端可能不返回该字段，展示层用 `normalizeProtocol` 按 `udp` 位兜底。
+   */
+  protocol: ForwardProtocol;
+  /**
+   * @deprecated 旧布尔位，只为读取旧响应保留：`true` = 同时监听 UDP。
+   * 读写行为以 `protocol` 为准；新写入由后端按协议同步这一列。
    */
   udp: boolean;
   created_at: number;
@@ -598,7 +613,12 @@ export interface CreateForwardInput {
   enabled?: boolean;
   /** 缺省 = `native`；表单总是显式发送，以便 edit 能把引擎改回 native。 */
   engine?: ForwardEngine;
-  /** 对 `native` / `nftables` 有意义：同时监听 UDP；缺省 / `realm` 时为 false。 */
+  /** 监听协议：`tcp`（缺省）/ `udp` / `both`；与 `udp` 同传时以它为准。 */
+  protocol?: ForwardProtocol;
+  /**
+   * @deprecated 旧布尔位，仅在没传 `protocol` 时由后端推导：
+   * `true` → `both`、`false` → `tcp`。
+   */
   udp?: boolean;
 }
 
@@ -665,9 +685,13 @@ export interface Chain {
   /** 整条链共用的引擎，逐跳透传到每个成员的期望态。 */
   engine: ForwardEngine;
   /**
-   * 是否让整条链的每个成员同时监听 UDP（同一端口号）。
-   * 对 `native` / `nftables` 有效：`realm` 的配置固定 `use_udp = true`。
-   * 旧后端可能不返回该字段，展示层按 false 处理。
+   * 整条链的监听协议：`tcp`（缺省）/ `udp` / `both`，逐跳透传到每个成员。
+   * 旧后端可能不返回该字段，展示层用 `normalizeProtocol` 按 `udp` 位兜底。
+   */
+  protocol: ForwardProtocol;
+  /**
+   * @deprecated 旧布尔位，只为读取旧响应保留：`true` = 每个成员同时监听 UDP。
+   * 读写行为以 `protocol` 为准。
    */
   udp: boolean;
   /** 跳间加密模式：`none`（明文）或 `tls`；旧后端缺失按 `none` 处理。 */
@@ -708,7 +732,12 @@ export interface CreateChainInput {
   enabled?: boolean;
   /** 缺省 = `native`；整条链共用一个引擎。 */
   engine?: ForwardEngine;
-  /** 对 `native` / `nftables` 有意义：整条链同时监听 UDP；缺省 / `realm` 时为 false。 */
+  /** 整条链的监听协议：`tcp`（缺省）/ `udp` / `both`；与 `udp` 同传时以它为准。 */
+  protocol?: ForwardProtocol;
+  /**
+   * @deprecated 旧布尔位，仅在没传 `protocol` 时由后端推导：
+   * `true` → `both`、`false` → `tcp`。
+   */
   udp?: boolean;
   /** `none`（缺省，明文）或 `tls`；tls 只允许 realm 且至少 2 组。 */
   transport?: "none" | "tls";

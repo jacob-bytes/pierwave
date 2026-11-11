@@ -62,7 +62,6 @@ import {
 } from "@/lib/chains";
 import {
   FORWARD_ENGINES,
-  effectiveUdp,
   engineInput,
   formatServerNameList,
   isForwardEngine,
@@ -73,6 +72,12 @@ import {
   serversMissingRealm,
 } from "@/lib/engines";
 import { errorText } from "@/lib/errors";
+import {
+  DEFAULT_PROTOCOL,
+  PROTOCOL_MODES,
+  normalizeProtocol,
+  protocolAvailable,
+} from "@/lib/protocolMode";
 import {
   useCertificates,
   useCreateChain,
@@ -801,15 +806,14 @@ export function ChainFormDialog({
       enabled: chain ? Boolean(chain.enabled) : true,
       // 编辑旧链：engine 缺失时按契约缺省 native 回填，不让选项显示成空白。
       engine: normalizeEngine(chain?.engine),
-      // 旧数据 / 旧后端没有 udp：按契约缺省 false 回填。
-      udp: Boolean(chain?.udp),
+      // 旧数据 / 旧后端没有 protocol：旧 udp:true 按 both 回填，否则 tcp。
+      protocol: normalizeProtocol(chain?.protocol, chain?.udp),
       // 旧数据 / 旧后端没有 transport：按契约缺省 none 回填。
       transport: normalizeTransport(chain?.transport),
       groups: initialGroups,
     },
   });
   const selectedEngine = form.watch("engine");
-  const realmEngine = selectedEngine === "realm";
   // 用 useWatch 订阅整组：成员是在子组件 GroupCard 里改的，
   // 顶层 `form.watch` 的引用可能不变，warning 会漏更新。
   const watchedGroups =
@@ -817,6 +821,26 @@ export function ChainFormDialog({
   const selectedTransport = form.watch("transport");
   const tlsEnabled = selectedTransport === "tls";
   const canTls = tlsAvailable(selectedEngine, watchedGroups.length);
+  const selectedProtocol = form.watch("protocol");
+  const availability = protocolAvailable(selectedEngine, selectedTransport);
+
+  // 引擎 / 加密方式改动可能让当前协议失效：
+  // realm 不接受仅 UDP；TLS 只走 TCP（UDP 与 both 都不行）。
+  // 立即回落 tcp，避免留下「禁用但仍选中」的无效状态。
+  useEffect(() => {
+    if (availability[selectedProtocol]) return;
+    form.setValue("protocol", DEFAULT_PROTOCOL, {
+      shouldDirty: true,
+      shouldTouch: true,
+      shouldValidate: form.formState.isSubmitted,
+    });
+  }, [
+    availability.tcp,
+    availability.udp,
+    availability.both,
+    selectedProtocol,
+    form,
+  ]);
 
   // 已选成员指向的服务器（按当前服务器列表解析；已被删掉的跳过）。
   const selectedServers = useMemo(() => {
@@ -883,9 +907,12 @@ export function ChainFormDialog({
       ...engineInput(values.engine),
       // 编辑时把 tls 改回 none 同样必须显式发送。
       transport: values.transport,
-      // 只对 native 有意义；realm 时展示层按开启处理，提交仍原样带值。
-      // 加密链后端拒绝 udp=true，这里强制回落，避免用户先开 UDP 再开 TLS。
-      udp: tls ? false : values.udp,
+      // 协议是权威字段；引擎 / TLS 切换瞬间的无效组合回落 tcp。
+      protocol: protocolAvailable(values.engine, values.transport)[
+        values.protocol
+      ]
+        ? values.protocol
+        : DEFAULT_PROTOCOL,
       groups: values.groups.map((group, index) => ({
         name:
           group.kind === "single"
@@ -1085,6 +1112,17 @@ export function ChainFormDialog({
                     shouldTouch: true,
                     shouldValidate: true,
                   });
+                  // realm 固定双开：先把仅 UDP 收回 tcp，再等 effect 兜底。
+                  if (
+                    next === "realm" &&
+                    form.getValues("protocol") === "udp"
+                  ) {
+                    form.setValue("protocol", DEFAULT_PROTOCOL, {
+                      shouldDirty: true,
+                      shouldTouch: true,
+                      shouldValidate: true,
+                    });
+                  }
                 }}
                 disabled={pending}
                 className="grid gap-2 sm:grid-cols-2"
@@ -1186,11 +1224,12 @@ export function ChainFormDialog({
                         shouldTouch: true,
                         shouldValidate: form.formState.isSubmitted,
                       });
-                      // 后端拒绝 tls + udp：开启加密时同步把 UDP 关掉。
-                      if (checked) {
-                        form.setValue("udp", false, {
+                      // 加密链只走 TCP：开启加密时把仅 UDP / both 收回 tcp。
+                      if (checked && form.getValues("protocol") !== "tcp") {
+                        form.setValue("protocol", DEFAULT_PROTOCOL, {
                           shouldDirty: true,
                           shouldTouch: true,
+                          shouldValidate: form.formState.isSubmitted,
                         });
                       }
                     }}
@@ -1202,37 +1241,56 @@ export function ChainFormDialog({
           </FormField>
 
           <FormField
-            label={t("chains.form.udp")}
-            htmlFor="chain-udp"
-            error={form.formState.errors.udp?.message}
+            label={t("common.protocolMode.label")}
+            error={form.formState.errors.protocol?.message}
           >
-            <Controller
-              control={form.control}
-              name="udp"
-              render={({ field }) => (
-                <span
-                  className="inline-flex items-center"
-                  title={
-                    tlsEnabled
-                      ? t("chains.tls.udpDisabledTitle")
-                      : realmEngine
-                        ? t("common.udpRealmTitle")
-                        : undefined
-                  }
-                >
-                  <Switch
-                    id="chain-udp"
-                    checked={
-                      tlsEnabled
-                        ? false
-                        : effectiveUdp(selectedEngine, field.value)
+            <RadioGroup
+              aria-label={t("common.protocolMode.label")}
+              value={selectedProtocol}
+              onValueChange={(next) => {
+                if (!availability[next as keyof typeof availability]) return;
+                form.setValue("protocol", next as typeof selectedProtocol, {
+                  shouldDirty: true,
+                  shouldTouch: true,
+                  shouldValidate: form.formState.isSubmitted,
+                });
+              }}
+              disabled={pending}
+              className="grid gap-2 sm:grid-cols-3"
+            >
+              {PROTOCOL_MODES.map((mode) => {
+                const active = selectedProtocol === mode;
+                const disabled = pending || !availability[mode];
+                return (
+                  <Label
+                    key={mode}
+                    htmlFor={`chain-protocol-${mode}`}
+                    title={
+                      availability[mode]
+                        ? undefined
+                        : tlsEnabled
+                          ? t("chains.tls.udpDisabledTitle")
+                          : t("common.udpRealmTitle")
                     }
-                    onCheckedChange={field.onChange}
-                    disabled={pending || realmEngine || tlsEnabled}
-                  />
-                </span>
-              )}
-            />
+                    className={cn(
+                      "flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-2 transition-colors duration-150 hover:bg-muted/40",
+                      active &&
+                        "border-primary/60 bg-primary/5 hover:bg-primary/5",
+                      disabled && "cursor-not-allowed opacity-60",
+                    )}
+                  >
+                    <RadioGroupItem
+                      id={`chain-protocol-${mode}`}
+                      value={mode}
+                      disabled={disabled}
+                    />
+                    <span className="text-sm font-medium">
+                      {t(`common.protocolMode.${mode}`)}
+                    </span>
+                  </Label>
+                );
+              })}
+            </RadioGroup>
           </FormField>
 
           <FormField

@@ -979,6 +979,10 @@ function applyForwardInput(forward: Forward, input: UpdateForwardInput): Forward
       : {}),
     ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
     ...(input.engine !== undefined ? { engine: input.engine } : {}),
+    // 协议是权威字段；旧的 udp 位只是镜像（both = true），与后端一致。
+    ...(input.protocol !== undefined
+      ? { protocol: input.protocol, udp: input.protocol === "both" }
+      : {}),
   };
 }
 
@@ -1079,6 +1083,9 @@ function applyChainInput(chain: Chain, input: UpdateChainInput): Chain {
     ...(input.engine !== undefined ? { engine: input.engine } : {}),
     ...(input.transport !== undefined
       ? { transport: input.transport }
+      : {}),
+    ...(input.protocol !== undefined
+      ? { protocol: input.protocol, udp: input.protocol === "both" }
       : {}),
   };
 }

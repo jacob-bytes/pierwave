@@ -20,7 +20,6 @@ import { Switch } from "@/components/ui/switch";
 import type { Forward, Server } from "@/lib/api";
 import {
   FORWARD_ENGINES,
-  effectiveUdp,
   engineInput,
   isForwardEngine,
   nftablesMissingOnServer,
@@ -28,6 +27,12 @@ import {
   realmMissingOnServer,
 } from "@/lib/engines";
 import { errorText } from "@/lib/errors";
+import {
+  DEFAULT_PROTOCOL,
+  PROTOCOL_MODES,
+  normalizeProtocol,
+  protocolAvailable,
+} from "@/lib/protocolMode";
 import { useCreateForward, useUpdateForward } from "@/lib/queries";
 import { forwardFormSchema, type ForwardFormValues } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
@@ -74,17 +79,35 @@ export function ForwardFormDialog({
       enabled: forward ? Boolean(forward.enabled) : true,
       // 旧数据 / 旧后端没有 engine：按契约缺省 native 回填。
       engine: normalizeEngine(forward?.engine),
-      // 旧数据 / 旧后端没有 udp：按契约缺省 false 回填。
-      udp: Boolean(forward?.udp),
+      // 旧数据 / 旧后端没有 protocol：旧 udp:true 按 both 回填，否则 tcp。
+      protocol: normalizeProtocol(forward?.protocol, forward?.udp),
     },
   });
   const selectedEngine = form.watch("engine");
-  const realmEngine = selectedEngine === "realm";
+  const selectedProtocol = form.watch("protocol");
+  const availability = protocolAvailable(selectedEngine);
   // 静态事实：这台服务器明确没装 realm 时，保存前就告诉用户；
   // `null` / 缺失（旧 Agent）不提示，避免误报。不阻止保存。
   const realmUnavailable = realmMissingOnServer(selectedEngine, server);
   // nftables 必须由 Agent 明确上报可用；未知（离线 / 旧 Agent）也提示。
   const nftablesUnavailable = nftablesMissingOnServer(selectedEngine, server);
+
+  // 引擎改动可能让当前协议失效（realm 不接受仅 UDP）：立即回落到 tcp，
+  // 避免留下「禁用但仍选中」的无效状态。
+  useEffect(() => {
+    if (availability[selectedProtocol]) return;
+    form.setValue("protocol", DEFAULT_PROTOCOL, {
+      shouldDirty: true,
+      shouldTouch: true,
+      shouldValidate: form.formState.isSubmitted,
+    });
+  }, [
+    availability.tcp,
+    availability.udp,
+    availability.both,
+    selectedProtocol,
+    form,
+  ]);
 
   // 切换语言后重新校验，让已经显示的错误跟着换语言。
   useEffect(() => {
@@ -103,7 +126,10 @@ export function ForwardFormDialog({
       // native 也显式发送：edit 时把 realm 改回 native 必须带字段，
       // 否则 PATCH 的缺省语义是「不改」。
       ...engineInput(values.engine),
-      udp: values.udp,
+      // 协议是权威字段；无效组合（引擎切换瞬间）回落 tcp。
+      protocol: protocolAvailable(values.engine)[values.protocol]
+        ? values.protocol
+        : DEFAULT_PROTOCOL,
     };
 
     try {
@@ -245,6 +271,17 @@ export function ForwardFormDialog({
                     shouldTouch: true,
                     shouldValidate: true,
                   });
+                  // realm 固定双开：先把仅 UDP 收回 tcp，再等 effect 兜底。
+                  if (
+                    next === "realm" &&
+                    form.getValues("protocol") === "udp"
+                  ) {
+                    form.setValue("protocol", DEFAULT_PROTOCOL, {
+                      shouldDirty: true,
+                      shouldTouch: true,
+                      shouldValidate: true,
+                    });
+                  }
                 }}
                 disabled={pending}
                 className="grid gap-2 sm:grid-cols-2"
@@ -312,24 +349,55 @@ export function ForwardFormDialog({
             </div>
           </FormField>
 
-          <FormField label={t("forwards.form.udp")} htmlFor="forward-udp">
-            <Controller
-              control={form.control}
-              name="udp"
-              render={({ field }) => (
-                <span
-                  className="inline-flex items-center"
-                  title={realmEngine ? t("common.udpRealmTitle") : undefined}
-                >
-                  <Switch
-                    id="forward-udp"
-                    checked={effectiveUdp(selectedEngine, field.value)}
-                    onCheckedChange={field.onChange}
-                    disabled={pending || realmEngine}
-                  />
-                </span>
-              )}
-            />
+          <FormField
+            label={t("common.protocolMode.label")}
+            error={form.formState.errors.protocol?.message}
+          >
+            <RadioGroup
+              aria-label={t("common.protocolMode.label")}
+              value={selectedProtocol}
+              onValueChange={(next) => {
+                if (!availability[next as keyof typeof availability]) return;
+                form.setValue("protocol", next as typeof selectedProtocol, {
+                  shouldDirty: true,
+                  shouldTouch: true,
+                  shouldValidate: form.formState.isSubmitted,
+                });
+              }}
+              disabled={pending}
+              className="grid gap-2 sm:grid-cols-3"
+            >
+              {PROTOCOL_MODES.map((mode) => {
+                const active = selectedProtocol === mode;
+                const disabled = pending || !availability[mode];
+                return (
+                  <Label
+                    key={mode}
+                    htmlFor={`forward-protocol-${mode}`}
+                    title={
+                      availability[mode]
+                        ? undefined
+                        : t("common.udpRealmTitle")
+                    }
+                    className={cn(
+                      "flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-2 transition-colors duration-150 hover:bg-muted/40",
+                      active &&
+                        "border-primary/60 bg-primary/5 hover:bg-primary/5",
+                      disabled && "cursor-not-allowed opacity-60",
+                    )}
+                  >
+                    <RadioGroupItem
+                      id={`forward-protocol-${mode}`}
+                      value={mode}
+                      disabled={disabled}
+                    />
+                    <span className="text-sm font-medium">
+                      {t(`common.protocolMode.${mode}`)}
+                    </span>
+                  </Label>
+                );
+              })}
+            </RadioGroup>
           </FormField>
 
           <FormField

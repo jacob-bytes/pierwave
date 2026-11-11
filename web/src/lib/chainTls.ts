@@ -91,6 +91,9 @@ export type TlsIssue =
 /** `validateTls` 只读表单里与加密有关的字段，方便直接单测。 */
 export interface TlsFormLike {
   transport?: string | null;
+  /** 新协议字段：`udp` / `both` 与 TLS 冲突。 */
+  protocol?: string | null;
+  /** 旧布尔位；仅兼容旧调用方，存在 `protocol` 时以协议为准。 */
   udp?: boolean | null;
   groups?: readonly {
     cert_id?: string | null;
@@ -102,7 +105,7 @@ export interface TlsFormLike {
  *
  * 返回的 issue 由表单 schema 翻译成当前语言的文案，并挂到对应字段：
  * - `group_count` → `groups` 根（加密至少 2 组）；
- * - `udp_conflict` → `udp`；
+ * - `udp_conflict` → `protocol`；
  * - `cert_forbidden` / `cert_missing` → `groups[seq].cert_id`。
  *
  * 非 tls 时直接返回空列表：明文链允许入口组没有证书，也不限制组数。
@@ -121,7 +124,13 @@ export function validateTls(form: TlsFormLike): TlsIssue[] {
     });
   }
 
-  if (form.udp) {
+  const usesUdp =
+    form.protocol === "udp" ||
+    form.protocol === "both" ||
+    // 旧调用方只有布尔位；新表单不再带 udp，保留这个分支只为兼容。
+    (form.protocol == null && Boolean(form.udp));
+
+  if (usesUdp) {
     issues.push({ kind: "udp_conflict" });
   }
 

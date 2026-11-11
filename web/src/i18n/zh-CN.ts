@@ -62,13 +62,13 @@ const zhCN = {
     engine: {
       native: {
         label: "自带",
-        short: "PierWave 自带 · TCP",
-        desc: "PierWave 自带实现：TCP 转发，支持组内选路与降级；目前不支持 UDP。",
+        short: "PierWave 自带 · TCP/UDP",
+        desc: "PierWave 自带实现：直接监听并转发，支持组内选路与降级；协议可选仅 TCP、仅 UDP 或同端口双开。",
       },
       realm: {
         label: "realm",
-        short: "realm 子进程 · UDP",
-        desc: "调用 realm（v2.9.6）子进程：支持 UDP 与带权重负载均衡；状态只能探测到端口级。realm 未安装时规则显示「未监听 + realm 未安装」。",
+        short: "realm 子进程 · TCP/UDP",
+        desc: "调用 realm（v2.9.6）子进程：固定同时监听 TCP 与 UDP（不支持仅 UDP），支持带权重负载均衡；状态只能探测到端口级。realm 未安装时规则显示「未监听 + realm 未安装」。",
         notInstalled: "该服务器未安装 realm",
       },
       nftables: {
@@ -83,7 +83,19 @@ const zhCN = {
       },
     },
     udp: "UDP",
-    udpRealmTitle: "realm 引擎已同时转发 TCP 与 UDP，此开关恒为开启。",
+    udpRealmTitle:
+      "realm 引擎固定同时转发 TCP 与 UDP，不支持仅 UDP。",
+    protocol: {
+      tcp: "TCP",
+      udp: "UDP",
+      both: "TCP + UDP",
+    },
+    protocolMode: {
+      label: "协议模式",
+      tcp: "仅 TCP",
+      udp: "仅 UDP",
+      both: "TCP + UDP",
+    },
   },
   status: {
     active: "生效中",
@@ -2273,6 +2285,10 @@ const zhCN = {
     notObject: "config 必须是 JSON 对象（以 { 开头、} 结尾）",
   },
   errors: {
+    "chain.protocol_invalid": "不支持的链转发协议「{protocol}」（可选 tcp / udp / both）",
+    "chain.protocol_udp_with_tls": "加密链只走 TCP，不能选择仅 UDP",
+    "forward.protocol_invalid": "不支持的转发协议「{protocol}」（可选 tcp / udp / both）",
+    "forward.protocol_udp_requires_native": "realm 引擎固定同时转发 TCP 与 UDP，不支持仅 UDP；请改用 native 或 nftables 引擎",
     "chain.tls_requires_realm": "只有 realm 引擎的链才能启用跳间加密",
     "chain.tls_requires_two_hops": "至少两跳的链才有跳间链路",
     "chain.tls_udp_unsupported": "加密链不支持 UDP，请关闭该链的 UDP",

@@ -1,6 +1,7 @@
 import { LockIcon, TriangleAlertIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { engineMeta } from "@/lib/engines";
+import { normalizeProtocol, protocolLabelKey } from "@/lib/protocolMode";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
 
@@ -89,6 +90,39 @@ export function UdpBadge({ className }: { className?: string }) {
       )}
     >
       {t("common.udp")}
+    </Badge>
+  );
+}
+
+/**
+ * 名称旁的协议徽标：`tcp` → TCP、`udp` → UDP、`both` → TCP + UDP。
+ *
+ * `protocol` 缺失（旧后端）时用旧 `udp` 布尔位兜底：`true` → both。
+ * 与 `EngineBadge` 同一套 outline + type-micro 视觉，不新增表格列。
+ */
+export function ProtocolBadge({
+  protocol,
+  legacyUdp,
+  className,
+}: {
+  protocol?: unknown;
+  legacyUdp?: unknown;
+  className?: string;
+}) {
+  const { t } = useI18n();
+  const mode = normalizeProtocol(protocol, legacyUdp);
+
+  return (
+    <Badge
+      variant="outline"
+      data-protocol={mode}
+      className={cn(
+        "h-5 px-1.5 type-micro font-normal whitespace-nowrap",
+        ENGINE_TONES.native,
+        className,
+      )}
+    >
+      {t(protocolLabelKey(mode))}
     </Badge>
   );
 }

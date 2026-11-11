@@ -66,13 +66,13 @@ const en = {
     engine: {
       native: {
         label: "Native",
-        short: "Built-in · TCP",
-        desc: "PierWave's built-in implementation: TCP forwarding with in-group selection and failover; UDP is not supported yet.",
+        short: "Built-in · TCP/UDP",
+        desc: "PierWave's built-in implementation: listens and forwards directly, with in-group selection and failover; choose TCP only, UDP only, or both on the same port.",
       },
       realm: {
         label: "realm",
-        short: "realm subprocess · UDP",
-        desc: "Runs the realm (v2.9.6) subprocess: supports UDP and weighted load balancing; health can only be probed at the port level. If realm is not installed, the rule shows “not listening + realm not installed”.",
+        short: "realm subprocess · TCP/UDP",
+        desc: "Runs the realm (v2.9.6) subprocess: always listens on both TCP and UDP (UDP-only is not supported) with weighted load balancing; health can only be probed at the port level. If realm is not installed, the rule shows “not listening + realm not installed”.",
         notInstalled: "realm is not installed on this server",
       },
       nftables: {
@@ -89,7 +89,18 @@ const en = {
     },
     udp: "UDP",
     udpRealmTitle:
-      "The realm engine already forwards both TCP and UDP, so this switch is always on.",
+      "The realm engine always forwards both TCP and UDP; UDP-only is not supported.",
+    protocol: {
+      tcp: "TCP",
+      udp: "UDP",
+      both: "TCP + UDP",
+    },
+    protocolMode: {
+      label: "Protocol",
+      tcp: "TCP only",
+      udp: "UDP only",
+      both: "TCP + UDP",
+    },
   },
   status: {
     active: "Active",
@@ -2414,6 +2425,10 @@ const en = {
     notObject: "config must be a JSON object (starting with { and ending with })",
   },
   errors: {
+    "chain.protocol_invalid": "Unsupported chain protocol \"{protocol}\" (choose tcp, udp or both)",
+    "chain.protocol_udp_with_tls": "Encrypted chains only carry TCP; UDP-only is not allowed",
+    "forward.protocol_invalid": "Unsupported forward protocol \"{protocol}\" (choose tcp, udp or both)",
+    "forward.protocol_udp_requires_native": "The realm engine always forwards both TCP and UDP; UDP-only requires the native or nftables engine",
     "chain.tls_requires_realm": "Hop-to-hop TLS requires the realm engine",
     "chain.tls_requires_two_hops": "Hop-to-hop TLS needs at least two groups",
     "chain.tls_udp_unsupported": "Encrypted chains do not support UDP; disable UDP on this chain",

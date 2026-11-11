@@ -20,10 +20,10 @@ import {
   ListError,
   MobileDataCard,
   PageHeader,
+  ProtocolBadge,
   SkeletonCard,
   SkeletonTable,
   TlsBadge,
-  UdpBadge,
 } from "@/components/common";
 import { ChainFormDialog } from "@/components/chains/ChainFormDialog";
 import { DeleteChainDialog } from "@/components/chains/DeleteChainDialog";
@@ -76,7 +76,6 @@ import {
   chainEngineMissing,
   chainServersMissingRealm,
   engineMissing,
-  udpBadgeVisible,
 } from "@/lib/engines";
 import { errorText } from "@/lib/errors";
 import { formatForwardTarget } from "@/lib/forwards";
@@ -747,7 +746,10 @@ export default function ChainsPage() {
                 servers.data ?? [],
               )}
             />
-            {udpBadgeVisible(chain.engine, chain.udp) ? <UdpBadge /> : null}
+            <ProtocolBadge
+              protocol={chain.protocol}
+              legacyUdp={chain.udp}
+            />
             {isTlsTransport(chain.transport) ? <TlsBadge /> : null}
           </div>
         </div>

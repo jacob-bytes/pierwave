@@ -15,6 +15,7 @@ import {
   NODE_SECURITIES,
   NODE_TRANSPORTS,
 } from "@/lib/protocols";
+import { PROTOCOL_MODES } from "@/lib/protocolMode";
 import {
   findFirstOverlongRuleLine,
   parseRuleLines,
@@ -437,8 +438,8 @@ export function forwardFormSchema(t: TFunction) {
     enabled: z.boolean(),
     // 只允许后端白名单里的两个值；未知值在表单打开时已回落 native。
     engine: z.enum(FORWARD_ENGINES),
-    // 只对 native 有意义；realm 时展示层按开启处理，提交仍原样带值。
-    udp: z.boolean(),
+    // 监听协议：tcp / udp / both；不合法组合在表单里已被禁用并回落 tcp。
+    protocol: z.enum(PROTOCOL_MODES),
   });
 }
 
@@ -457,7 +458,7 @@ export type ForwardFormValues = z.infer<ReturnType<typeof forwardFormSchema>>;
  * - 同组重复 → 后出现的那个 `groups[i].members[j].server_id`；
  * - 跨组重复 → 后出现的那个 `groups[i].members[j].server_id`；
  * - tls 缺证书 → 该组自己的 `groups[i].cert_id`（不落 root）；
- * - tls + UDP / 组数不足 → `udp` / `groups` 根；
+ * - tls + UDP 协议 / 组数不足 → `protocol` / `groups` 根；
  * - 端口 / 服务器必填 → 对应字段本身。
  */
 export function chainFormSchema(t: TFunction) {
@@ -477,8 +478,8 @@ export function chainFormSchema(t: TFunction) {
       enabled: z.boolean(),
       // 整条链共用一个引擎；只允许后端白名单里的两个值。
       engine: z.enum(FORWARD_ENGINES),
-      // 只对 native 有意义；realm 时展示层按开启处理。
-      udp: z.boolean(),
+      // 监听协议：tcp / udp / both；realm 禁用仅 UDP，tls 禁用 UDP 两种。
+      protocol: z.enum(PROTOCOL_MODES),
       // 跳间加密：none（缺省）/ tls；tls 的前置条件在 superRefine 里查。
       transport: z.enum(CHAIN_TRANSPORTS),
       groups: z.array(
@@ -598,7 +599,7 @@ export function chainFormSchema(t: TFunction) {
           case "udp_conflict":
             ctx.addIssue({
               code: "custom",
-              path: ["udp"],
+              path: ["protocol"],
               message: t("validation.chainTlsUdpConflict"),
             });
             break;

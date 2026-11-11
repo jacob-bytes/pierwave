@@ -1,6 +1,11 @@
 export { EmptyState } from "./EmptyState";
 export type { EmptyStateProps } from "./EmptyState";
-export { EngineBadge, TlsBadge, UdpBadge } from "./EngineBadge";
+export {
+  EngineBadge,
+  ProtocolBadge,
+  TlsBadge,
+  UdpBadge,
+} from "./EngineBadge";
 export { PageHeader } from "./PageHeader";
 export type { PageHeaderProps } from "./PageHeader";
 export { SkeletonCard, SkeletonLine, SkeletonTable } from "./Skeleton";
