@@ -81,11 +81,13 @@ export function CountrySelect({
           <ChevronsUpDownIcon className="icon-sm shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
+      {/* 始终向下展开，但允许 Radix 在空间不足时上移（不翻转），并留 12px 边距，
+          避免「清除」被顶出视口。列表自身再按可用高度收缩。 */}
       <PopoverContent
         align="start"
         side="bottom"
         sideOffset={4}
-        avoidCollisions={false}
+        collisionPadding={12}
         className="w-64 p-0"
       >
         <div className="border-b border-border p-2">
@@ -98,7 +100,10 @@ export function CountrySelect({
             className="h-8"
           />
         </div>
-        <ul className="max-h-60 overflow-y-auto p-1" role="listbox">
+        <ul
+          className="max-h-[min(13rem,var(--radix-popover-content-available-height))] overflow-y-auto p-1"
+          role="listbox"
+        >
           {options.length === 0 ? (
             <li className="px-2 py-6 text-center text-xs text-muted-foreground">
               {t("servers.countryNoMatch")}
