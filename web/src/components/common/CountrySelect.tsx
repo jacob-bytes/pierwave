@@ -81,7 +81,13 @@ export function CountrySelect({
           <ChevronsUpDownIcon className="icon-sm shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-64 p-0">
+      <PopoverContent
+        align="start"
+        side="bottom"
+        sideOffset={4}
+        avoidCollisions={false}
+        className="w-64 p-0"
+      >
         <div className="border-b border-border p-2">
           <Input
             autoFocus
