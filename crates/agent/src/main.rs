@@ -5,6 +5,7 @@ mod realm;
 mod selector;
 mod system_info;
 mod tc;
+mod tls_probe;
 mod traffic;
 mod udp;
 mod upgrade;
@@ -1030,6 +1031,7 @@ mod tests {
             listening: true,
             error: String::new(),
             target_ok: Some(true),
+            target_error: None,
         }];
         let system_info = system_info_fixture();
         let hb = sample_heartbeat(

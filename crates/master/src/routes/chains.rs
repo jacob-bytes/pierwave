@@ -753,6 +753,7 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
                 // 监听成功与目标可达是两件事：端口绑上了，目标仍可能不可达。
                 "listening": status.map(|row| row.listening),
                 "target_ok": status.and_then(|row| row.target_ok),
+                "target_error": status.and_then(|row| row.target_error.clone()),
                 "degraded": member_degraded,
                 "error": status.map(|row| row.error.as_str()).unwrap_or(""),
                 "updated_at": status.map(|row| row.updated_at),
@@ -781,6 +782,7 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
                 "listen_port": member.listen_port,
                 "listening": status.map(|row| row.listening),
                 "target_ok": status.and_then(|row| row.target_ok),
+                "target_error": status.and_then(|row| row.target_error.clone()),
                 "degraded": status.is_some_and(|row| chains::is_degraded(row.target_fail_count)),
                 "error": status.map(|row| row.error.as_str()).unwrap_or(""),
                 "updated_at": status.map(|row| row.updated_at),
@@ -1809,45 +1811,55 @@ mod tests {
         assert_eq!(body["items"].as_array().unwrap().len(), 1);
 
         let hop_id = chains::legacy_forward_id(&chain_id, 0);
-        let save = |target_ok: Option<bool>, listening: bool| {
-            let pool = fixture.state.db.pool.clone();
-            let server_id = fixture.a.clone();
-            let forward_id = hop_id.clone();
-            async move {
-                repo::forwards::save_status(
-                    &pool,
-                    &server_id,
-                    &[repo::forwards::NewForwardStatus {
-                        forward_id,
-                        listening,
-                        error: String::new(),
-                        target_ok,
-                    }],
-                )
-                .await
-                .unwrap();
-            }
-        };
+        let save =
+            |target_ok: Option<bool>, target_error: Option<&'static str>, listening: bool| {
+                let pool = fixture.state.db.pool.clone();
+                let server_id = fixture.a.clone();
+                let forward_id = hop_id.clone();
+                async move {
+                    repo::forwards::save_status(
+                        &pool,
+                        &server_id,
+                        &[repo::forwards::NewForwardStatus {
+                            forward_id,
+                            listening,
+                            error: String::new(),
+                            target_ok,
+                            target_error: target_error.map(str::to_string),
+                        }],
+                    )
+                    .await
+                    .unwrap();
+                }
+            };
 
-        // 第一次 false：不降级。
-        save(Some(false), true).await;
+        // 第一次 false：不降级；握手失败原因原样带出（前端负责翻译）。
+        save(Some(false), Some("cert_expired"), true).await;
         let (_, body) = request(&fixture.app, Some(&fixture.cookie), Method::GET, uri, None).await;
         let hop = &body["items"][0]["hops"][0];
         assert_eq!(hop["target_ok"], false);
+        assert_eq!(
+            hop["target_error"], "cert_expired",
+            "链跳状态必须带出握手失败原因码"
+        );
         assert_eq!(hop["listening"], true, "监听成功与目标可达是两件事");
         assert_eq!(hop["degraded"], false);
         assert_eq!(body["items"][0]["degraded"], false);
 
         // 第二次 false：跳与链都降级。
-        save(Some(false), true).await;
+        save(Some(false), Some("cert_expired"), true).await;
         let (_, body) = request(&fixture.app, Some(&fixture.cookie), Method::GET, uri, None).await;
         assert_eq!(body["items"][0]["hops"][0]["degraded"], true);
         assert_eq!(body["items"][0]["degraded"], true);
 
-        // 恢复：降级立刻清除。
-        save(Some(true), true).await;
+        // 恢复：降级立刻清除，失败原因不能残留。
+        save(Some(true), None, true).await;
         let (_, body) = request(&fixture.app, Some(&fixture.cookie), Method::GET, uri, None).await;
         assert_eq!(body["items"][0]["hops"][0]["target_ok"], true);
+        assert!(
+            body["items"][0]["hops"][0]["target_error"].is_null(),
+            "握手成功后 target_error 必须是 null，不能残留上一轮原因"
+        );
         assert_eq!(body["items"][0]["hops"][0]["degraded"], false);
         assert_eq!(body["items"][0]["degraded"], false);
 
@@ -1956,7 +1968,10 @@ mod tests {
         // 两个成员分别上报：一个目标不可达、一个正常。
         let a_id = chains::forward_id(&chain_id, 0, &fixture.a, 2);
         let b_id = chains::forward_id(&chain_id, 0, &fixture.b, 2);
-        let save = |server_id: String, forward_id: String, target_ok: bool| {
+        let save = |server_id: String,
+                    forward_id: String,
+                    target_ok: bool,
+                    target_error: Option<&'static str>| {
             let pool = fixture.state.db.pool.clone();
             async move {
                 repo::forwards::save_status(
@@ -1967,24 +1982,39 @@ mod tests {
                         listening: true,
                         error: String::new(),
                         target_ok: Some(target_ok),
+                        target_error: target_error.map(str::to_string),
                     }],
                 )
                 .await
                 .unwrap();
             }
         };
-        save(fixture.a.clone(), a_id.clone(), false).await;
-        save(fixture.b.clone(), b_id.clone(), true).await;
+        save(
+            fixture.a.clone(),
+            a_id.clone(),
+            false,
+            Some("name_mismatch"),
+        )
+        .await;
+        save(fixture.b.clone(), b_id.clone(), true, None).await;
 
         let (_, body) = request(&fixture.app, Some(&fixture.cookie), Method::GET, uri, None).await;
         let group = &body["items"][0]["groups"][0];
         assert_eq!(group["members"][0]["target_ok"], false);
         assert_eq!(group["members"][1]["target_ok"], true);
+        assert_eq!(
+            group["members"][0]["target_error"], "name_mismatch",
+            "多成员组的成员行也要带出握手失败原因"
+        );
+        assert!(
+            group["members"][1]["target_error"].is_null(),
+            "成功的成员不能凭空多出原因"
+        );
         assert_eq!(group["degraded"], false, "一次失败还不算降级");
         assert_eq!(body["items"][0]["degraded"], false);
 
         // 同一成员连续第二次失败：该组与整条链降级。
-        save(fixture.a.clone(), a_id, false).await;
+        save(fixture.a.clone(), a_id, false, Some("name_mismatch")).await;
         let (_, body) = request(&fixture.app, Some(&fixture.cookie), Method::GET, uri, None).await;
         assert_eq!(body["items"][0]["groups"][0]["degraded"], true);
         assert_eq!(body["items"][0]["degraded"], true);

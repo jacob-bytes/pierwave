@@ -225,6 +225,7 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
                     listening: status.listening,
                     error: status.error.clone(),
                     target_ok: status.target_ok,
+                    target_error: status.target_error.clone(),
                 })
                 .collect();
             // 链降级是「状态跃迁」事件：save 前后各算一次，只在 false → true 时通知。
@@ -1133,6 +1134,7 @@ mod tests {
                 listening: true,
                 error: String::new(),
                 target_ok: Some(true),
+                target_error: Some("cert_expired".into()),
             }],
         )
         .await;
@@ -1148,6 +1150,11 @@ mod tests {
             Some(true),
             "target_ok 必须落入 forward_status"
         );
+        assert_eq!(
+            runtime.target_error.as_deref(),
+            Some("cert_expired"),
+            "target_error 必须原样落入 forward_status（不做翻译）"
+        );
         assert!(!runtime.degraded);
 
         send(
@@ -1157,6 +1164,7 @@ mod tests {
                 listening: false,
                 error: "端口已被占用".into(),
                 target_ok: Some(false),
+                target_error: None,
             }],
         )
         .await;
@@ -1167,6 +1175,10 @@ mod tests {
         assert!(!runtime.listening);
         assert_eq!(runtime.error, "端口已被占用");
         assert_eq!(runtime.target_ok, Some(false));
+        assert_eq!(
+            runtime.target_error, None,
+            "新一轮没有原因时必须覆盖成 NULL，不能残留上一轮"
+        );
         assert!(!runtime.degraded, "只失败一次不能判降级");
 
         // 空心跳清掉缓存：规则还在，但运行状态未知。
@@ -1176,6 +1188,51 @@ mod tests {
             .unwrap();
         assert_eq!(views.len(), 1);
         assert!(views[0].runtime.is_none(), "空心跳必须清掉旧运行状态");
+    }
+
+    /// 旧 Agent 的心跳 JSON 没有 target_error：必须落 NULL（未知），
+    /// 而不是空串或反序列化失败。旧 Agent 与不解密链路的规则都应保持 NULL。
+    #[tokio::test]
+    async fn heartbeat_without_target_error_persists_null() {
+        let fixture = fixture().await;
+        let (server, _) =
+            repo::servers::create(&fixture.state.db.pool, "hk-1", "1.2.3.4", "external")
+                .await
+                .unwrap();
+
+        let heartbeat = serde_json::json!({
+            "type": "heartbeat",
+            "seq": 1,
+            "agent_version": "0.8.0",
+            "arch": "x86_64",
+            "forwards": [{
+                "id": "fwd-old",
+                "listening": true,
+                "error": "",
+                "target_ok": true,
+            }],
+            "uptime_secs": 1,
+            "load1": 0.0,
+            "mem_used": 0,
+            "mem_total": 0,
+            "disk_used": 0,
+            "disk_total": 0,
+            "xray_running": true,
+            "nginx_running": true,
+        })
+        .to_string();
+
+        handle_agent_message(&fixture.state, &server.id, "0.8.0", &heartbeat).await;
+
+        let rows = repo::forwards::list_status_by_server(&fixture.state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].target_ok, Some(true));
+        assert_eq!(
+            rows[0].target_error, None,
+            "旧心跳没有 target_error 时必须落 NULL，不能落空串"
+        );
     }
 
     /// 链降级只在 false → true 的跃迁时告警；恢复后再次降级会再发一次。
@@ -1242,6 +1299,7 @@ mod tests {
                     listening: true,
                     error: String::new(),
                     target_ok: Some(target_ok),
+                    target_error: None,
                 }],
                 latency_ms: None,
                 uptime_secs: 1,

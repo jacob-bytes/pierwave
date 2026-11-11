@@ -546,6 +546,7 @@ impl ForwardSupervisor {
                         .cloned()
                         .unwrap_or_else(|| "UDP 监听未启动".into()),
                     target_ok: None,
+                    target_error: None,
                 },
                 Some(_) => ForwardStatus {
                     id: id.clone(),
@@ -553,6 +554,7 @@ impl ForwardSupervisor {
                     error: String::new(),
                     // 探测结果由 status handle 在 snapshot 时叠加。
                     target_ok: None,
+                    target_error: None,
                 },
                 None => ForwardStatus {
                     id: id.clone(),
@@ -564,6 +566,7 @@ impl ForwardSupervisor {
                         .cloned()
                         .unwrap_or_else(|| "监听未启动".into()),
                     target_ok: None,
+                    target_error: None,
                 },
             })
             .collect();

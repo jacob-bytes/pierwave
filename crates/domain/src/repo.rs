@@ -1888,6 +1888,8 @@ pub mod forwards {
         pub error: String,
         /// 目标可达性；`None` = 本轮没探测 / 旧 Agent 没上报。
         pub target_ok: Option<bool>,
+        /// 加密链握手失败原因码；`None` = 未探测 / 成功 / 旧 Agent 没上报。
+        pub target_error: Option<String>,
     }
 
     pub async fn create(
@@ -2056,6 +2058,7 @@ pub mod forwards {
                         listening: status.listening,
                         error: status.error,
                         target_ok: status.target_ok,
+                        target_error: status.target_error,
                         degraded: crate::chains::is_degraded(status.target_fail_count),
                         updated_at: status.updated_at,
                     });
@@ -2113,13 +2116,14 @@ pub mod forwards {
             };
             sqlx::query(
                 "INSERT INTO forward_status
-                    (server_id, forward_id, listening, error, target_ok,
+                    (server_id, forward_id, listening, error, target_ok, target_error,
                      target_fail_count, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(server_id, forward_id) DO UPDATE SET
                     listening = excluded.listening,
                     error = excluded.error,
                     target_ok = excluded.target_ok,
+                    target_error = excluded.target_error,
                     target_fail_count = excluded.target_fail_count,
                     updated_at = excluded.updated_at",
             )
@@ -2128,6 +2132,7 @@ pub mod forwards {
             .bind(i64::from(status.listening))
             .bind(&status.error)
             .bind(status.target_ok)
+            .bind(&status.target_error)
             .bind(fail_count)
             .bind(ts)
             .execute(&mut *tx)

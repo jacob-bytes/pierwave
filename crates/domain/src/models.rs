@@ -111,6 +111,8 @@ pub struct ForwardStatusRow {
     pub error: String,
     /// 目标可达性；`None` = 还没探测过 / 旧 Agent 没上报。
     pub target_ok: Option<bool>,
+    /// 加密链握手失败原因码；`None` = 未探测 / 成功 / 旧 Agent 没上报。
+    pub target_error: Option<String>,
     /// 连续 `target_ok=false` 的次数；非 false 会清零。
     pub target_fail_count: i64,
     pub updated_at: i64,
@@ -123,6 +125,8 @@ pub struct ForwardRuntime {
     pub error: String,
     /// 目标可达性；`None` = 还没探测过 / 旧 Agent 没上报。
     pub target_ok: Option<bool>,
+    /// 加密链握手失败原因码；`None` = 未探测 / 成功 / 旧 Agent 没上报。
+    pub target_error: Option<String>,
     /// 连续两次目标不可达。
     pub degraded: bool,
     pub updated_at: i64,

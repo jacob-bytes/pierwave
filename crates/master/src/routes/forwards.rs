@@ -819,7 +819,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK, "unexpected: {body}");
         let id = body["forward"]["id"].as_str().unwrap().to_string();
 
-        // 第一轮心跳：监听成功。
+        // 第一轮心跳：监听成功，但加密链握手失败（原因码必须原样带出）。
         repo::forwards::save_status(
             &state.db.pool,
             &server_id,
@@ -827,7 +827,8 @@ mod tests {
                 forward_id: id.clone(),
                 listening: true,
                 error: String::new(),
-                target_ok: None,
+                target_ok: Some(false),
+                target_error: Some("unknown_issuer".into()),
             }],
         )
         .await
@@ -836,6 +837,11 @@ mod tests {
         let (_, body) = request(&app, Some(&cookie), Method::GET, &uri, None).await;
         assert_eq!(body["items"][0]["runtime"]["listening"], true);
         assert_eq!(body["items"][0]["runtime"]["error"], "");
+        assert_eq!(body["items"][0]["runtime"]["target_ok"], false);
+        assert_eq!(
+            body["items"][0]["runtime"]["target_error"], "unknown_issuer",
+            "/forwards 的运行时状态必须带出握手失败原因"
+        );
         assert!(body["items"][0]["runtime"]["updated_at"].as_i64().unwrap() > 0);
 
         // 下一轮心跳失败：错误信息覆盖上一轮，不应残留「成功」。
@@ -846,7 +852,8 @@ mod tests {
                 forward_id: id.clone(),
                 listening: false,
                 error: "端口已被占用".into(),
-                target_ok: None,
+                target_ok: Some(true),
+                target_error: None,
             }],
         )
         .await
@@ -854,6 +861,10 @@ mod tests {
         let (_, body) = request(&app, Some(&cookie), Method::GET, &uri, None).await;
         assert_eq!(body["items"][0]["runtime"]["listening"], false);
         assert_eq!(body["items"][0]["runtime"]["error"], "端口已被占用");
+        assert!(
+            body["items"][0]["runtime"]["target_error"].is_null(),
+            "恢复后不能残留上一轮的失败原因"
+        );
 
         // 删规则后：列表里不再出现（即使状态表还残留旧 id）。
         let (status, _) = request(

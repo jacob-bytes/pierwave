@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 13;
+pub const PROTOCOL_VERSION: u32 = 14;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -221,6 +221,14 @@ pub struct ForwardStatus {
     /// 目标 TCP 探测结果。`None` = 本轮尚未探测 / 旧 Agent 不认识该字段。
     #[serde(default)]
     pub target_ok: Option<bool>,
+    /// 加密链路的握手失败原因（`None` = 未探测或成功）。
+    ///
+    /// 只对带 `remote_transport = "tls;sni=…"` 的 realm 规则填写；值是稳定的
+    /// 英文短串（`tcp_connect_failed` / `cert_expired` / `unknown_issuer` /
+    /// `name_mismatch` / `handshake_failed` / `timeout`），由主控/前端翻译，
+    /// 不带 rustls 的 Debug 文本。旧 Agent 不认识该字段时为 `None`。
+    #[serde(default)]
+    pub target_error: Option<String>,
 }
 
 /// 期望态里的单个节点（仅 Agent 生成 tc 规则需要的字段）。
@@ -341,10 +349,14 @@ mod tests {
 
     #[test]
     fn forward_status_target_ok_is_optional_for_old_agents() {
-        // 旧 Agent 的 JSON 没有 target_ok：反序列化必须是 None，而不是报错。
+        // 旧 Agent 的 JSON 没有 target_ok / target_error：反序列化必须是 None，而不是报错。
         let old = r#"{"id":"fwd-1","listening":true,"error":""}"#;
         let status: ForwardStatus = serde_json::from_str(old).unwrap();
         assert_eq!(status.target_ok, None);
+        assert_eq!(
+            status.target_error, None,
+            "旧 Agent 没有 target_error 时必须解析为 None（主控落 NULL）"
+        );
 
         // 新 Agent 上报的目标可达性与 listening 相互独立。
         let new = ForwardStatus {
@@ -352,17 +364,38 @@ mod tests {
             listening: true,
             error: String::new(),
             target_ok: Some(false),
+            target_error: Some("cert_expired".into()),
         };
         let json = serde_json::to_value(&new).unwrap();
         assert_eq!(json["listening"], true);
         assert_eq!(json["target_ok"], false);
+        assert_eq!(json["target_error"], "cert_expired");
+        let back: ForwardStatus = serde_json::from_value(json).unwrap();
+        assert_eq!(back, new, "新字段必须能往返");
+    }
+
+    /// 握手成功 / 未探测时 `target_error` 序列化成 null（与 target_ok 一致），
+    /// 主控反序列化后仍是 None，不能变成空串。
+    #[test]
+    fn forward_status_target_error_serializes_null_when_none() {
+        let status = ForwardStatus {
+            id: "fwd-3".into(),
+            listening: true,
+            error: String::new(),
+            target_ok: Some(true),
+            target_error: None,
+        };
+        let json = serde_json::to_value(&status).unwrap();
+        assert_eq!(json["target_error"], serde_json::Value::Null, "{json}");
+        let back: ForwardStatus = serde_json::from_value(json).unwrap();
+        assert_eq!(back.target_error, None);
     }
 
     #[test]
     fn forward_udp_defaults_to_false_for_old_masters() {
         assert_eq!(
-            PROTOCOL_VERSION, 13,
-            "新增 DesiredForward 的 transport 字段必须升协议版本"
+            PROTOCOL_VERSION, 14,
+            "新增 ForwardStatus.target_error 必须升协议版本"
         );
 
         // 旧主控的 JSON 没有 udp：必须解析成 false，也就是「只监听 TCP」，

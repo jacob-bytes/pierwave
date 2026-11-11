@@ -34,6 +34,11 @@ serde_yaml = "0.9"
 tokio-tungstenite = "0.24"
 toml = "0.8"
 x509-parser = "0.18"
+# TLS 探针：只用于 Agent 侧的真实握手观测。ring backend（不用 aws-lc）是为了
+# 减轻 musl 静态构建负担；webpki-roots 保证与 realm/kaminari 用同一个信任根。
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+webpki-roots = "1"
 
 [profile.dev]
 debug = 1

@@ -163,6 +163,42 @@ ss -lun | grep 30002
 journalctl -u pierwave-agent -f | grep -iE 'tls|handshake|cert'
 ```
 
+### 面板上的握手失败：TLS 探针
+
+Agent 每 30 秒对**带 `remote_transport` 的 realm 规则**做一次真实 TLS 握手：
+TCP connect（3 秒预算）→ 用与 realm **同一个信任根**（编译进二进制的 Mozilla 根）校验
+下一跳证书 → 成功后立即关闭。它不等真实用户流量，所以证书过期/域名配错在链路还没被
+访问时就能在面板里看到。
+
+链详情/转发列表的成员行会出现 `target_ok=false` 和 `target_error`：
+
+| `target_error` | 面板含义 |
+|---|---|
+| `tcp_connect_failed` | 连不上下一跳（端口没开、防火墙、服务器离线） |
+| `cert_expired` | 下一跳证书已过期 |
+| `unknown_issuer` | 证书不受信任（自签，或只传了 leaf、中间证书不完整） |
+| `name_mismatch` | 证书 SAN 与 `sni` 不匹配 |
+| `handshake_failed` | 其它 TLS 握手错误（看 realm 原始日志） |
+| `timeout` | 3 秒内没完成 TCP 连接或握手 |
+
+这些是稳定短串，主控/前端负责翻译；面板不会显示 rustls 的原始 Debug。**与 realm 日志的
+关系**：realm 把单连接握手失败记在 `debug` 级，默认不输出，只有真实流量撞上错误时才看得到；
+探针是主动握手，不需要流量就能暴露原因。需要 realm 的原文（例如证书链细节）时，把
+`realm_log_level` 调成 `debug` 后重启 Agent，再看 `journalctl -u pierwave-agent`。
+
+探针**只观测，不影响转发**：失败不会摘除成员、不会改 realm 配置，realm 仍按
+`balance` 轮询到坏成员；明文中继与只有 `listen_transport` 的规则不会被探测，因此未加密
+链路没有额外流量（每个加密出口每 30 秒最多一次握手）。
+
+> The Agent performs a real TLS handshake every 30 seconds for realm rules that have a
+> `remote_transport` (3-second budget, the same compiled-in Mozilla roots realm uses, then close).
+> The panel shows `target_ok=false` plus a stable `target_error` code (`tcp_connect_failed`,
+> `cert_expired`, `unknown_issuer`, `name_mismatch`, `handshake_failed`, `timeout`) that the UI
+> translates; raw rustls debug text is never exposed. realm logs per-connection handshake failures
+> at `debug` (hidden by default), so raise `realm_log_level` to `debug` when you need the original
+> error. The probe only observes: it never removes members or changes realm config, and plaintext or
+> listen-only rules are not probed, so unencrypted links see no extra traffic.
+
 网络边界：加密端点的监听端口仍是**开放中继**（单向 TLS 不验证客户端），必须用防火墙只放行
 上一跳的出口 IP；入口第一跳端口只放行实际客户端网段。最后一跳→目标、客户端→入口不在本功能内。
 

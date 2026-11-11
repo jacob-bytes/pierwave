@@ -19,7 +19,7 @@
 //! 重启策略：只有**配置内容哈希**变化（或进程已退出）才重启子进程；
 //! 同一份期望态重复下发时既不重写文件、也不重启，与 native 的幂等语义一致。
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -31,6 +31,8 @@ use pierwave_proto::{DesiredForward, ForwardEngine, ForwardStatus};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
+
+use crate::tls_probe;
 
 /// realm 的默认安装路径；打包脚本把资产解到 `/usr/lib/pierwave/bin/realm`。
 pub const DEFAULT_BIN: &str = "/usr/lib/pierwave/bin/realm";
@@ -82,6 +84,9 @@ pub const TRANSPORT_UNKNOWN: &str = "无法判定 realm 是否支持跳间加密
 /// 停止子进程时等待它退出的上限；超时就 abort（`kill_on_drop` 兜底杀掉）。
 const STOP_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// 加密链握手探测周期：与 native 的目标探测保持一致（30s）。
+const TLS_PROBE_INTERVAL: Duration = Duration::from_secs(30);
+
 /// 刚 spawn 后等 realm 绑定端口的宽限：立刻做 bind 探针会和它的 bind 抢跑，
 /// 既可能误报「未监听」，也可能让 realm 自己的绑定失败。
 const STARTUP_GRACE: Duration = Duration::from_millis(150);
@@ -90,25 +95,72 @@ const STARTUP_GRACE: Duration = Duration::from_millis(150);
 ///
 /// 与 native 的 [`crate::forward::ForwardStatusHandle`] 分开：两个引擎各自
 /// 整体替换自己的状态集合，互不覆盖；心跳把两份拼起来上传。
+///
+/// 监听状态（bind 探针）与 TLS 握手结果分开存：两者由不同任务写入，
+/// 不能互相覆盖——端口绑上了但下一跳握手失败是加密链最常见的故障形态。
 #[derive(Debug, Clone, Default)]
 pub struct RealmStatusHandle {
-    inner: Arc<Mutex<Vec<ForwardStatus>>>,
+    inner: Arc<Mutex<RealmStatusState>>,
+}
+
+#[derive(Debug, Default)]
+struct RealmStatusState {
+    statuses: Vec<ForwardStatus>,
+    /// 规则 id → 最近一轮 TLS 探针结果；只存带 `remote_transport` 的规则。
+    tls: HashMap<String, TlsHealth>,
+}
+
+/// 一条规则最近一轮 TLS 探针的结果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TlsHealth {
+    ok: bool,
+    /// 失败原因码（`tls_probe` 的稳定短串）；成功时为 `None`。
+    error: Option<String>,
 }
 
 impl RealmStatusHandle {
     pub fn snapshot(&self) -> Vec<ForwardStatus> {
-        self.inner
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
-    }
-
-    fn store(&self, statuses: Vec<ForwardStatus>) {
-        let mut slot = self
+        let state = self
             .inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *slot = statuses;
+        state
+            .statuses
+            .iter()
+            .cloned()
+            .map(|mut status| {
+                if let Some(health) = state.tls.get(&status.id) {
+                    status.target_ok = Some(health.ok);
+                    status.target_error = health.error.clone();
+                }
+                status
+            })
+            .collect()
+    }
+
+    fn store(&self, statuses: Vec<ForwardStatus>) {
+        let ids: HashSet<String> = statuses.iter().map(|status| status.id.clone()).collect();
+        let mut state = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.statuses = statuses;
+        // 已经不在期望态里的规则不能留下探针缓存。
+        state.tls.retain(|id, _| ids.contains(id));
+    }
+
+    /// 写一条规则的 TLS 探针结果。
+    ///
+    /// 只在规则仍在当前状态集合里时写入：探针任务与规则变更并发时，
+    /// 旧任务的结果不能凭空造出一条新 id。
+    fn set_tls_health(&self, id: &str, health: TlsHealth) {
+        let mut state = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state.statuses.iter().any(|status| status.id == id) {
+            state.tls.insert(id.to_string(), health);
+        }
     }
 
     /// 子进程退出后：所有 realm 规则立刻变成「没在监听」，原因里带退出码。
@@ -129,6 +181,7 @@ impl RealmStatusHandle {
                 listening: false,
                 error: reason.clone(),
                 target_ok: None,
+                target_error: None,
             })
             .collect();
         self.store(statuses);
@@ -140,6 +193,23 @@ struct RunningRealm {
     /// 通知监视任务优雅停止；`None` = 已经通知过。
     stop: Option<oneshot::Sender<()>>,
     /// 监视任务：等子进程退出、记录退出码、更新状态。
+    task: JoinHandle<()>,
+}
+
+/// 一条规则要探测的下一跳。
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProbeSpec {
+    id: String,
+    /// 与 realm 的 `remote_transport` 里完全相同的 SNI。
+    sni: String,
+    /// 下一组的全部成员（组内多成员时每个都测一次）。
+    targets: Vec<(String, i64)>,
+}
+
+/// 正在运行的 TLS 探针任务。
+struct RunningProbe {
+    /// 任务当前覆盖的规则集合；集合不变就不重启任务（不丢上一轮结果）。
+    spec: Vec<ProbeSpec>,
     task: JoinHandle<()>,
 }
 
@@ -158,6 +228,8 @@ pub struct RealmSupervisor {
     /// 已落盘配置的内容哈希；`None` = 还没写过 / 上一轮已清空。
     content_hash: Option<u64>,
     process: Option<RunningRealm>,
+    /// 带 `remote_transport` 的规则的 TLS 握手探针；只观测，不影响转发。
+    probe: Option<RunningProbe>,
     status: RealmStatusHandle,
 }
 
@@ -182,6 +254,7 @@ impl RealmSupervisor {
             transport: None,
             content_hash: None,
             process: None,
+            probe: None,
             status: RealmStatusHandle::default(),
         }
     }
@@ -334,6 +407,8 @@ impl RealmSupervisor {
                 self.status.store(statuses);
             }
         }
+        // TLS 握手探针只对带 remote_transport 的规则运行；规则集合变化时才重启任务。
+        self.sync_probe();
     }
 
     /// 周期对账：子进程已退出（崩溃/被杀）时按磁盘上的最新配置重新拉起。
@@ -353,6 +428,7 @@ impl RealmSupervisor {
         }
         if !self.bin.exists() {
             // 运行中二进制被删掉：如实上报未安装。
+            self.stop_probe();
             self.status.store(self.inactive_statuses(NOT_INSTALLED));
             return;
         }
@@ -371,6 +447,7 @@ impl RealmSupervisor {
                         Some(false) => TRANSPORT_UNSUPPORTED,
                         _ => TRANSPORT_UNKNOWN,
                     };
+                    self.stop_probe();
                     self.status.store(self.inactive_statuses(reason));
                     return;
                 }
@@ -389,6 +466,32 @@ impl RealmSupervisor {
                 self.status.store(statuses);
             }
         }
+        self.sync_probe();
+    }
+
+    /// 让 TLS 探针任务与当前规则集合对齐。
+    ///
+    /// 只在规则集合（id/SNI/目标）变化时重启任务：同一份期望态重复下发、
+    /// 心跳对账都不会重置探测周期或丢掉上一轮结果。
+    fn sync_probe(&mut self) {
+        let spec = probe_specs(&self.rules);
+        if self.probe.as_ref().is_some_and(|probe| probe.spec == spec) {
+            return;
+        }
+        self.stop_probe();
+        if spec.is_empty() {
+            return;
+        }
+        let status = self.status.clone();
+        let task = tokio::spawn(run_tls_probe_loop(spec.clone(), status));
+        self.probe = Some(RunningProbe { spec, task });
+    }
+
+    /// 停掉探针任务（配置变化、进程停止、没有可探测的规则）。
+    fn stop_probe(&mut self) {
+        if let Some(probe) = self.probe.take() {
+            probe.task.abort();
+        }
     }
 
     /// 每条规则一条状态：用 bind 探测判断端口是否已被 realm 占用。
@@ -404,8 +507,9 @@ impl RealmSupervisor {
                 } else {
                     NOT_LISTENING.to_string()
                 },
-                // realm 没有状态 API，目标可达性本轮不上报。
+                // realm 没有状态 API，目标可达性由 TLS 探针单独写入。
                 target_ok: None,
+                target_error: None,
             });
         }
         statuses
@@ -426,6 +530,7 @@ impl RealmSupervisor {
                 listening: false,
                 error: reason.to_string(),
                 target_ok: None,
+                target_error: None,
             })
             .collect()
     }
@@ -502,7 +607,10 @@ impl RealmSupervisor {
     }
 
     /// 通知监视任务停止并等它退出；子进程由 `kill_on_drop` 兜底回收。
+    ///
+    /// 探针任务一并停掉：进程都不在了，继续探测只会往状态里写与转发无关的结论。
     async fn stop(&mut self, reason: &str) {
+        self.stop_probe();
         let Some(mut running) = self.process.take() else {
             return;
         };
@@ -518,6 +626,14 @@ impl RealmSupervisor {
             let _ = running.task.await;
         }
         tracing::info!(reason, "realm 进程已停止");
+    }
+}
+
+impl Drop for RealmSupervisor {
+    fn drop(&mut self) {
+        // 探针任务持有一份状态句柄；supervisor 被丢弃（进程退出/测试结束）时
+        // 必须一起停掉，否则它会继续在后台按 30s 周期探测。
+        self.stop_probe();
     }
 }
 
@@ -549,6 +665,114 @@ async fn probe_listening(bind_host: &str, listen_port: i64) -> bool {
             false
         }
         Err(error) => error.kind() == io::ErrorKind::AddrInUse,
+    }
+}
+
+/// 从 realm 的 `remote_transport` 串里取出 SNI（`tls;sni=X`）。
+///
+/// 主控已用 `TransportSpec` 生成并校验过，这里只做防御式解析：
+/// 不是 `tls` 开头、没有 `sni=` 的串一律不探测（保持 `target_error = None`）。
+fn remote_transport_sni(raw: &str) -> Option<String> {
+    let mut tokens = raw.split(';');
+    if tokens.next() != Some("tls") {
+        return None;
+    }
+    tokens
+        .filter_map(|token| token.strip_prefix("sni="))
+        .find(|sni| !sni.is_empty())
+        .map(str::to_string)
+}
+
+/// 当前规则里需要做 TLS 握手探测的集合；没有 `remote_transport` 的规则不探测。
+fn probe_specs(rules: &[DesiredForward]) -> Vec<ProbeSpec> {
+    let mut specs: Vec<ProbeSpec> = rules
+        .iter()
+        .filter(|rule| rule.engine == ForwardEngine::Realm)
+        .filter_map(|rule| {
+            let sni = remote_transport_sni(rule.remote_transport.as_deref()?)?;
+            let targets: Vec<(String, i64)> = rule_targets(rule)
+                .into_iter()
+                .map(|(host, port)| (host.to_string(), port))
+                .collect();
+            if targets.is_empty() {
+                return None;
+            }
+            Some(ProbeSpec {
+                id: rule.id.clone(),
+                sni,
+                targets,
+            })
+        })
+        .collect();
+    specs.sort_by(|a, b| a.id.cmp(&b.id));
+    specs
+}
+
+/// 一轮探测：每条规则对它**所有**下一跳成员各做一次真实握手。
+///
+/// 任一成员成功 = 这一跳可达（`target_ok = true`，`target_error = None`）；
+/// 全部失败时取第一个失败原因（`ForwardStatus` 只有一个 `target_error`）。
+async fn probe_rule(spec: &ProbeSpec) -> tls_probe::ProbeError {
+    let results = futures_util::future::join_all(
+        spec.targets
+            .iter()
+            .map(|(host, port)| tls_probe::probe(host, *port, &spec.sni)),
+    )
+    .await;
+    if results.iter().any(Option::is_none) {
+        return None;
+    }
+    results.into_iter().flatten().next()
+}
+
+/// 探针主循环：立即测一轮，之后每 [`TLS_PROBE_INTERVAL`] 测一轮。
+///
+/// 只写状态缓存，从不碰 realm 进程或转发路径；失败不影响转发。
+async fn run_tls_probe_loop(specs: Vec<ProbeSpec>, status: RealmStatusHandle) {
+    // 只在状态跃迁时打日志，避免 30 秒一条刷屏。
+    let mut previous: HashMap<String, tls_probe::ProbeError> = HashMap::new();
+    loop {
+        for spec in &specs {
+            let error = probe_rule(spec).await;
+            let target = spec
+                .targets
+                .first()
+                .map(|(host, port)| format!("{host}:{port}"))
+                .unwrap_or_default();
+            match (previous.get(&spec.id).copied(), error) {
+                (None, Some(code)) => tracing::warn!(
+                    rule = %spec.id,
+                    sni = %spec.sni,
+                    target = %target,
+                    error = code,
+                    "TLS 探针失败"
+                ),
+                (Some(Some(previous)), Some(code)) if previous != code => tracing::warn!(
+                    rule = %spec.id,
+                    sni = %spec.sni,
+                    target = %target,
+                    error = code,
+                    previous,
+                    "TLS 探针失败原因变化"
+                ),
+                (Some(Some(_)), None) => tracing::info!(
+                    rule = %spec.id,
+                    sni = %spec.sni,
+                    target = %target,
+                    "TLS 探针恢复"
+                ),
+                _ => {}
+            }
+            previous.insert(spec.id.clone(), error);
+            status.set_tls_health(
+                &spec.id,
+                TlsHealth {
+                    ok: error.is_none(),
+                    error: error.map(str::to_string),
+                },
+            );
+        }
+        tokio::time::sleep(TLS_PROBE_INTERVAL).await;
     }
 }
 
@@ -1028,6 +1252,180 @@ mod tests {
         );
         std::net::TcpListener::bind(("127.0.0.1", free_port as u16))
             .expect("探针必须立刻释放端口，否则 realm 之后会绑不上");
+    }
+
+    /// 只有带 `remote_transport = "tls;sni=…"` 的 realm 规则才探测；
+    /// 明文规则、只有入站 transport 的规则都必须保持 `target_error = None`。
+    #[test]
+    fn probe_specs_only_cover_realm_rules_with_tls_remote() {
+        let mut tls = realm_rule("r-tls", 30001, &[("10.0.0.2", 443), ("10.0.0.3", 443)]);
+        tls.remote_transport = Some("tls;sni=Hop1.Example.com".into());
+        tls.disable_udp = true;
+
+        let plaintext = realm_rule("r-plain", 30002, &[("10.0.0.4", 443)]);
+
+        let mut listen_only = realm_rule("r-listen", 30003, &[("10.0.0.5", 443)]);
+        listen_only.listen_transport = Some(
+            "tls;cert=/usr/local/etc/xray/certs/a.pem;key=/usr/local/etc/xray/certs/a.key".into(),
+        );
+        listen_only.disable_udp = true;
+
+        let mut malformed = realm_rule("r-bad", 30004, &[("10.0.0.6", 443)]);
+        malformed.remote_transport = Some("wss;sni=hop.example.com".into());
+
+        let mut native = realm_rule("r-native", 30005, &[("10.0.0.7", 443)]);
+        native.engine = ForwardEngine::Native;
+        native.remote_transport = Some("tls;sni=hop.example.com".into());
+
+        let specs = probe_specs(&[tls, plaintext, listen_only, malformed, native]);
+        assert_eq!(specs.len(), 1, "只有 r-tls 需要探测：{specs:?}");
+        assert_eq!(specs[0].id, "r-tls");
+        assert_eq!(
+            specs[0].sni, "Hop1.Example.com",
+            "SNI 原样使用（主控已小写）"
+        );
+        assert_eq!(
+            specs[0].targets,
+            vec![("10.0.0.2".to_string(), 443), ("10.0.0.3".to_string(), 443)],
+            "组内每个成员都要探测"
+        );
+    }
+
+    #[test]
+    fn remote_transport_sni_requires_tls_and_sni_token() {
+        assert_eq!(
+            remote_transport_sni("tls;sni=hop.example.com"),
+            Some("hop.example.com".to_string())
+        );
+        assert_eq!(
+            remote_transport_sni("tls;ws;sni=a"),
+            Some("a".to_string()),
+            "只有 sni= 才是探测关心的字段"
+        );
+        assert_eq!(
+            remote_transport_sni("ws;sni=a"),
+            None,
+            "不是 tls 的 transport 不探测"
+        );
+        assert_eq!(
+            remote_transport_sni("tls;cert=/a.pem;key=/a.key"),
+            None,
+            "监听端 transport 没有 sni，不该探测"
+        );
+        assert_eq!(remote_transport_sni(""), None);
+        assert_eq!(remote_transport_sni("tls;sni="), None);
+    }
+
+    /// 监听状态与 TLS 结果由不同任务写入，快照必须合并且互不覆盖。
+    #[test]
+    fn status_snapshot_merges_tls_health_without_overwriting_listening() {
+        let handle = RealmStatusHandle::default();
+        handle.store(vec![ForwardStatus {
+            id: "r1".into(),
+            listening: true,
+            error: String::new(),
+            target_ok: None,
+            target_error: None,
+        }]);
+        assert_eq!(
+            handle.snapshot()[0].target_ok,
+            None,
+            "还没探测时必须是 None"
+        );
+
+        handle.set_tls_health(
+            "r1",
+            TlsHealth {
+                ok: false,
+                error: Some(tls_probe::UNKNOWN_ISSUER.into()),
+            },
+        );
+        let status = handle.snapshot().pop().unwrap();
+        assert!(status.listening, "探针失败不能篡改 listening");
+        assert_eq!(status.target_ok, Some(false));
+        assert_eq!(
+            status.target_error.as_deref(),
+            Some(tls_probe::UNKNOWN_ISSUER)
+        );
+
+        handle.set_tls_health(
+            "r1",
+            TlsHealth {
+                ok: true,
+                error: None,
+            },
+        );
+        let status = handle.snapshot().pop().unwrap();
+        assert_eq!(status.target_ok, Some(true));
+        assert_eq!(status.target_error, None, "成功时不能残留上一轮原因");
+
+        // 规则已不在期望态：整体替换后探针缓存不能再造出一条状态。
+        handle.store(Vec::new());
+        handle.set_tls_health(
+            "r1",
+            TlsHealth {
+                ok: false,
+                error: Some(tls_probe::TIMEOUT.into()),
+            },
+        );
+        assert!(handle.snapshot().is_empty());
+    }
+
+    /// 真实握手用例：下一跳是自签 TLS 监听时，探针必须报 `unknown_issuer`
+    /// （与 realm 的 webpki 根一致），而不是只报「已监听」。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn tls_probe_reports_unknown_issuer_for_self_signed_next_hop() {
+        use std::os::unix::fs::PermissionsExt;
+
+        use crate::tls_probe::tests::{spawn_self_signed_server, TEST_CERT_PEM, TEST_KEY_PEM};
+
+        let (port, server_task) = spawn_self_signed_server(TEST_CERT_PEM, TEST_KEY_PEM).await;
+        let dir = TempDir::new();
+        let counter = dir.path().join("launches");
+        let script = dir.path().join("realm");
+        // 带 --version 分支：否则能力门禁会判定「不支持 transport」而整轮拒绝。
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo '2.9.6 [transport]'; exit 0; fi\necho x >> \"{}\"\nsleep 30\n",
+                counter.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut supervisor = RealmSupervisor::new(&script, dir.path(), "127.0.0.1");
+        let mut rule = realm_rule("chain-c1-0", 39121, &[("127.0.0.1", i64::from(port))]);
+        rule.remote_transport = Some("tls;sni=example.com".into());
+        rule.disable_udp = true;
+        supervisor.apply(std::slice::from_ref(&rule)).await;
+        wait_for_launches(&counter, 1).await;
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let statuses = supervisor.status_handle().snapshot();
+            if statuses
+                .first()
+                .and_then(|status| status.target_error.clone())
+                .is_some()
+            {
+                let status = &statuses[0];
+                assert_eq!(
+                    status.target_error.as_deref(),
+                    Some(tls_probe::UNKNOWN_ISSUER),
+                    "自签证书必须映射成 unknown_issuer"
+                );
+                assert_eq!(status.target_ok, Some(false));
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "等待 TLS 探针结果超时：{statuses:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        server_task.abort();
     }
 
     #[test]
