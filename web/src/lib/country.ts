@@ -310,3 +310,14 @@ export function countryDisplayName(
     return normalized;
   }
 }
+
+/**
+ * 国家代码速查页：直接给 ISO 3166-1 的清单，按界面语言选维基条目。
+ * 用户不知道 CN / JP 这类代码时点这个链接，不用在表单里写一段解释。
+ */
+export function countryLookupUrl(locale: string): string {
+  const lang = locale.toLowerCase().startsWith("en") ? "en" : "zh";
+  return lang === "en"
+    ? "https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2"
+    : "https://zh.wikipedia.org/wiki/ISO_3166-1%E4%BA%8C%E4%BD%8D%E5%AD%97%E6%AF%8D%E4%BB%A3%E7%A0%81";
+}

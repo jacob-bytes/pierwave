@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ReactNode } from "react";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -35,6 +35,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, type OverviewProtocol, type OverviewTopItem } from "@/lib/api";
 import { errorText } from "@/lib/errors";
@@ -304,7 +311,7 @@ function ProtocolCard({
   );
 
   return (
-    <Card className={cn("gap-0", className)}>
+    <Card className={cn("flex flex-col gap-0", className)}>
       <CardHeader className="border-b border-border pb-4">
         <CardTitle className="text-sm font-medium">
           {t("overview.protocolTitle")}
@@ -418,7 +425,7 @@ function TopCard({
   const rows = topServers(items);
 
   return (
-    <Card className={cn("gap-0", className)}>
+    <Card className={cn("flex flex-col gap-0", className)}>
       <CardHeader className="border-b border-border pb-4">
         <CardTitle className="text-sm font-medium">
           {t("overview.topTitle")}
@@ -449,8 +456,8 @@ function TopCard({
           className="py-10"
         />
       ) : (
-        <CardContent className="p-2">
-          <ul className="flex flex-col gap-0.5">
+        <CardContent className="flex flex-1 flex-col p-2">
+          <ul className="flex flex-1 flex-col justify-between gap-0.5">
             {rows.map((item, index) => {
               const load =
                 typeof item.load1 === "number" && Number.isFinite(item.load1)
@@ -508,6 +515,19 @@ const alertToneClasses: Record<AlertTone, string> = {
   destructive: "bg-destructive/10 text-destructive",
 };
 
+/** 告警卡最多平铺几条：与右侧 Top 5 的高度对齐，其余进弹窗。 */
+const ALERT_PREVIEW = 3;
+
+interface AlertItem {
+  key: string;
+  to: string;
+  icon: LucideIcon;
+  label: string;
+  count: number;
+  hint: string;
+  tone: AlertTone;
+}
+
 function AlertRow({
   to,
   icon: Icon,
@@ -515,6 +535,7 @@ function AlertRow({
   count,
   hint,
   tone,
+  onNavigate,
 }: {
   to: string;
   icon: LucideIcon;
@@ -522,12 +543,15 @@ function AlertRow({
   count: number;
   hint: string;
   tone: AlertTone;
+  /** 在弹窗里点击后关掉弹窗。 */
+  onNavigate?: () => void;
 }) {
   const active = count > 0;
 
   return (
     <Link
       to={to}
+      onClick={onNavigate}
       className="group flex items-center gap-3 rounded-md px-2.5 py-2.5 transition-colors duration-150 hover:bg-muted/40"
     >
       <div
@@ -603,6 +627,73 @@ export default function OverviewPage() {
     traffic.data?.days.reduce((sum, day) => sum + day.weighted, 0) ?? null;
   // 只有后端真实给出「今天 + 昨天」两个日桶时才显示变化率；否则整项省略。
   const trafficDelta = trafficDayOverDay(traffic.data?.days);
+
+  // 告警项统一成一个数组：卡片里只展示前 ALERT_PREVIEW 条（与右侧 Top 5 高度对齐），
+  // 其余进「查看全部」弹窗。告警多时不再把整列拉长。
+  const alertItems: AlertItem[] = stats
+    ? [
+        {
+          key: "expired",
+          to: "/users",
+          icon: ClockIcon,
+          label: t("overview.expiredInstances"),
+          count: stats.alerts.expired_instances,
+          hint: t("overview.expiredHint"),
+          tone: "warning",
+        },
+        {
+          key: "exhausted",
+          to: "/users",
+          icon: GaugeIcon,
+          label: t("overview.exhaustedInstances"),
+          count: stats.alerts.exhausted_instances,
+          hint: t("overview.exhaustedHint"),
+          tone: "destructive",
+        },
+        {
+          key: "offline",
+          to: "/servers",
+          icon: ServerOffIcon,
+          label: t("overview.offlineServers"),
+          count: stats.alerts.offline_servers,
+          hint: t("overview.offlineHint"),
+          tone: "destructive",
+        },
+        ...(expiringCerts > 0
+          ? [
+              {
+                key: "certs",
+                to: "/settings?tab=certificates",
+                icon: FileKeyIcon,
+                label: t("overview.expiringCerts"),
+                count: expiringCerts,
+                hint: t("overview.expiringHint", { n: expiringCerts }),
+                tone: "warning" as const,
+              },
+            ]
+          : []),
+        ...chainAlerts.map((alert) => ({
+          key: alert.kind,
+          to: "/chains",
+          icon: alert.kind === "degraded" ? WaypointsIcon : HandshakeIcon,
+          label: t(
+            alert.kind === "degraded"
+              ? "overview.degradedChains"
+              : "overview.handshakeFailures",
+          ),
+          count: alert.count,
+          hint: t(
+            alert.kind === "degraded"
+              ? "overview.degradedChainsHint"
+              : "overview.handshakeFailuresHint",
+          ),
+          tone: "warning" as const,
+        })),
+      ]
+    : [];
+  const previewAlerts = alertItems.slice(0, ALERT_PREVIEW);
+  const hiddenAlertCount = alertItems.length - previewAlerts.length;
+  const [allAlertsOpen, setAllAlertsOpen] = useState(false);
 
   return (
     <div className="animate-enter space-y-6">
@@ -757,9 +848,9 @@ export default function OverviewPage() {
             />
           </section>
 
-          {/* items-start：两列高度不一致时不让矮的那张被拉长。
-              告警多时它自己变高，Top 5 保持自然高度，空白留在页面背景上而不是卡片里。 */}
-          <section className="grid items-start gap-4 xl:grid-cols-3">
+          {/* 这里保持默认 stretch：告警卡高、Top 5 矮，让 Top 5 的行均分剩余高度，
+              两卡底部对齐且卡片内部不出现大片空白。告警超过 ALERT_PREVIEW 条进弹窗。 */}
+          <section className="grid gap-4 xl:grid-cols-3">
             <Card className="gap-0">
               <CardHeader className="border-b border-border pb-4">
                 <CardTitle className="text-sm font-medium">{t("overview.alerts")}</CardTitle>
@@ -786,39 +877,28 @@ export default function OverviewPage() {
                 </CardAction>
               </CardHeader>
               <CardContent className="flex flex-col gap-1 p-2">
-                <AlertRow
-                  to="/users"
-                  icon={ClockIcon}
-                  label={t("overview.expiredInstances")}
-                  count={stats.alerts.expired_instances}
-                  hint={t("overview.expiredHint")}
-                  tone="warning"
-                />
-                <AlertRow
-                  to="/users"
-                  icon={GaugeIcon}
-                  label={t("overview.exhaustedInstances")}
-                  count={stats.alerts.exhausted_instances}
-                  hint={t("overview.exhaustedHint")}
-                  tone="destructive"
-                />
-                <AlertRow
-                  to="/servers"
-                  icon={ServerOffIcon}
-                  label={t("overview.offlineServers")}
-                  count={stats.alerts.offline_servers}
-                  hint={t("overview.offlineHint")}
-                  tone="destructive"
-                />
-                {expiringCerts > 0 ? (
+                {previewAlerts.map((alert) => (
                   <AlertRow
-                    to="/settings?tab=certificates"
-                    icon={FileKeyIcon}
-                    label={t("overview.expiringCerts")}
-                    count={expiringCerts}
-                    hint={t("overview.expiringHint", { n: expiringCerts })}
-                    tone="warning"
+                    key={alert.key}
+                    to={alert.to}
+                    icon={alert.icon}
+                    label={alert.label}
+                    count={alert.count}
+                    hint={alert.hint}
+                    tone={alert.tone}
                   />
+                ))}
+                {hiddenAlertCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setAllAlertsOpen(true)}
+                    className="mt-1 flex items-center justify-between rounded-md px-2.5 py-2 text-xs text-muted-foreground transition-colors duration-150 hover:bg-muted/40 hover:text-foreground"
+                  >
+                    <span>
+                      {t("overview.alertMore", { n: hiddenAlertCount })}
+                    </span>
+                    <ChevronRightIcon className="icon-sm" />
+                  </button>
                 ) : null}
                 {recentRemoved > 0 ? (
                   <Link
@@ -840,27 +920,6 @@ export default function OverviewPage() {
                     </span>
                   </Link>
                 ) : null}
-                {chainAlerts.map((alert) => (
-                  <AlertRow
-                    key={alert.kind}
-                    to="/chains"
-                    icon={
-                      alert.kind === "degraded" ? WaypointsIcon : HandshakeIcon
-                    }
-                    label={t(
-                      alert.kind === "degraded"
-                        ? "overview.degradedChains"
-                        : "overview.handshakeFailures",
-                    )}
-                    count={alert.count}
-                    hint={t(
-                      alert.kind === "degraded"
-                        ? "overview.degradedChainsHint"
-                        : "overview.handshakeFailuresHint",
-                    )}
-                    tone={alert.kind === "degraded" ? "warning" : "destructive"}
-                  />
-                ))}
               </CardContent>
             </Card>
 
@@ -875,6 +934,32 @@ export default function OverviewPage() {
           </section>
         </>
       ) : null}
+
+      <Dialog open={allAlertsOpen} onOpenChange={setAllAlertsOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("overview.alertsAllTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("overview.pendingCount", { n: alertTotal })}
+            </DialogDescription>
+          </DialogHeader>
+          {/* 告警项多时可滚动，弹窗高度不随条数增长 */}
+          <div className="flex max-h-[60vh] flex-col gap-1 overflow-y-auto">
+            {alertItems.map((alert) => (
+              <AlertRow
+                key={alert.key}
+                to={alert.to}
+                icon={alert.icon}
+                label={alert.label}
+                count={alert.count}
+                hint={alert.hint}
+                tone={alert.tone}
+                onNavigate={() => setAllAlertsOpen(false)}
+              />
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

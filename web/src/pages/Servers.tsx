@@ -20,6 +20,7 @@ import {
   TriangleAlertIcon,
   WaypointsIcon,
   WorkflowIcon,
+  ExternalLinkIcon,
 } from "lucide-react";
 import {
   EmptyState,
@@ -116,6 +117,7 @@ import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 import { useIsDesktop } from "@/lib/useIsDesktop";
+import { countryLookupUrl } from "@/lib/country";
 
 const COLUMN_COUNT = 11;
 /** 心跳超过这个时长没有更新就不该再当作实时数据。 */
@@ -669,7 +671,7 @@ function ErrorRow({
 }
 
 export default function ServersPage() {
-  useI18n();
+  const { t, locale } = useI18n();
   const isDesktop = useIsDesktop();
   const servers = useServers();
   const create = useCreateServer();
@@ -1314,6 +1316,15 @@ export default function ServersPage() {
                 className="text-xs text-muted-foreground"
               >
                 {t("servers.countryHint")}
+              <a
+                href={countryLookupUrl(locale)}
+                target="_blank"
+                rel="noreferrer"
+                className="ml-1 inline-flex items-center gap-0.5 font-medium text-primary underline-offset-4 hover:underline"
+              >
+                {t("servers.countryLookup")}
+                <ExternalLinkIcon className="icon-sm" aria-hidden="true" />
+              </a>
               </p>
             </div>
 

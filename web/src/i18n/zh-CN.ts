@@ -259,6 +259,8 @@ const zhCN = {
     },
   },
   overview: {
+    alertMore: "查看全部 {n} 项",
+    alertsAllTitle: "全部待处理事项",
     title: "概览",
     subtitle: "主控、服务器与订阅的实时概况。",
     statsNotReady: "统计接口暂未就绪，后端上线后刷新即可",
@@ -325,6 +327,7 @@ const zhCN = {
     country: "国家/地区",
     countryPlaceholder: "CN / US / JP",
     countryHint: "ISO 3166-1 代码，如 CN / US / JP，用于探针页国旗",
+    countryLookup: "查询代码",
     countryInvalid: "请输入两位大写字母（如 CN / US / JP），或留空",
     tableCaption: "服务器列表",
     loadFailed: "服务器列表加载失败",

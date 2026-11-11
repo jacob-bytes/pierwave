@@ -265,6 +265,8 @@ const en = {
     },
   },
   overview: {
+    alertMore: "View all {n}",
+    alertsAllTitle: "All pending items",
     title: "Overview",
     subtitle: "Live status of the controller, servers and subscriptions.",
     statsNotReady:
@@ -335,6 +337,7 @@ const en = {
     countryPlaceholder: "CN / US / JP",
     countryHint:
       "ISO 3166-1 code, such as CN / US / JP. Used for the flag on the public status page.",
+    countryLookup: "Look up",
     countryInvalid:
       "Enter a two-letter uppercase code (such as CN / US / JP), or leave it empty.",
     tableCaption: "Server list",

@@ -1,6 +1,10 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { Loader2Icon, SlidersHorizontalIcon } from "lucide-react";
+import {
+  ExternalLinkIcon,
+  Loader2Icon,
+  SlidersHorizontalIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +24,7 @@ import { isCountryCode } from "@/lib/country";
 import { errorText, isNotFound } from "@/lib/errors";
 import { useUpdateServer } from "@/lib/queries";
 import { t, useI18n } from "@/i18n";
+import { countryLookupUrl } from "@/lib/country";
 
 interface ServerEditDialogProps {
   open: boolean;
@@ -38,7 +43,7 @@ export function ServerEditDialog({
   onOpenChange,
   server,
 }: ServerEditDialogProps) {
-  useI18n();
+  const { locale } = useI18n();
   const updateServer = useUpdateServer();
   // Dialog 只在选中服务器时挂载，初始值就是最新值；不跟随轮询覆盖未保存的修改。
   const [allowUpgrade, setAllowUpgrade] = useState(() =>
@@ -138,6 +143,15 @@ export function ServerEditDialog({
               className="text-xs leading-relaxed text-muted-foreground"
             >
               {t("servers.countryHint")}
+              <a
+                href={countryLookupUrl(locale)}
+                target="_blank"
+                rel="noreferrer"
+                className="ml-1 inline-flex items-center gap-0.5 font-medium text-primary underline-offset-4 hover:underline"
+              >
+                {t("servers.countryLookup")}
+                <ExternalLinkIcon className="icon-sm" aria-hidden="true" />
+              </a>
             </p>
           </div>
 
