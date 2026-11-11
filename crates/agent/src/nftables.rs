@@ -199,6 +199,7 @@ impl NftablesSupervisor {
         batch.push_str(&script);
         if let Err(error) = write_script(&self.script_path, &batch) {
             let reason = format!("写入 nftables 脚本失败：{error}");
+            self.needs_retry = true;
             self.status
                 .store(self.inactive_statuses(&reason, &self.rules));
             return;
