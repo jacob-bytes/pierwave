@@ -464,7 +464,7 @@ function TopCard({
                 <li key={`${item.name}-${index}`}>
                   <Link
                     to="/servers"
-                    className="group flex items-center gap-3 rounded-md px-2.5 py-2.5 transition-colors duration-150 hover:bg-muted/40"
+                    className="group flex items-center gap-3 rounded-md px-2.5 py-3.5 transition-colors duration-150 hover:bg-muted/40"
                   >
                     <span className="min-w-0 flex-1 truncate text-sm">
                       {item.name}
@@ -757,7 +757,9 @@ export default function OverviewPage() {
             />
           </section>
 
-          <section className="grid gap-4 xl:grid-cols-3">
+          {/* items-start：两列高度不一致时不让矮的那张被拉长。
+              告警多时它自己变高，Top 5 保持自然高度，空白留在页面背景上而不是卡片里。 */}
+          <section className="grid items-start gap-4 xl:grid-cols-3">
             <Card className="gap-0">
               <CardHeader className="border-b border-border pb-4">
                 <CardTitle className="text-sm font-medium">{t("overview.alerts")}</CardTitle>
