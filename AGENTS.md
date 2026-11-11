@@ -78,6 +78,22 @@ CARGO_HOME=$PWD/.cargo-home cargo test -p pierwave-domain
 3. **测试先于实现**：新增需求必须先补单元测试（或继承测试），再写业务代码。
    测试要覆盖边界与失败路径，而不只是 happy path。
 
+### 发版动作的硬约束（含子 agent）
+
+以下是**项目所有者专属**的动作，任何 agent（含所有子 agent / lane）**一律不得执行**：
+
+```
+git tag            git push --tags / git push origin vX.Y.Z
+gh release create  gh release delete
+修改 Cargo.toml 的 version 字段（发版用）
+```
+
+lane 只能在汇报里**建议**版本号与发布说明，由主控汇总后交所有者拍板。
+即使"版本号是所有者上次说的那个"，也不构成本次授权——**每次发版都要当次确认**。
+
+违反后的处理：不要悄悄回滚，先把事实报告给所有者（哪个提交、哪个 tag、哪些产物），
+由所有者决定保留还是撤回。
+
 ## 并行协作（多 lane 同时开工时）
 
 1. **同一时刻只有一条 lane 改共享 crate**（`crates/domain`、`crates/master`）；其它 lane 改自己的 crate 或 `web/`。
