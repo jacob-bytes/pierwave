@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { TFunction } from "@/i18n";
 import { CHAIN_STRATEGIES, collectGroupIssues } from "@/lib/chains";
+import { CHAIN_TRANSPORTS, validateTls } from "@/lib/chainTls";
 import { FORWARD_ENGINES } from "@/lib/engines";
 import {
   ANY_INBOUND_TAG,
@@ -446,15 +447,17 @@ export type ForwardFormValues = z.infer<ReturnType<typeof forwardFormSchema>>;
 /**
  * 转发链表单：组是动态数组，每组又有自己的成员动态数组。
  *
- * 前端拦「1–4 组、每组 1–8 台、同一服务器不能重复、端口 1–65535、
- * 目标地址非空」；保留端口、与节点 / 独立转发 / 其它链成员的端口冲突、
- * 自连回环仍由后端返回带 code 的错误，对话框用 `errorText` 原样透出。
+ * 前端拦「1–6 组、每组 1–8 台、同一服务器不能重复、端口 1–65535、
+ * 目标地址非空、tls 链每组证书」；保留端口、与节点 / 独立转发 / 其它链成员的
+ * 端口冲突、自连回环仍由后端返回带 code 的错误，对话框用 `errorText` 原样透出。
  *
  * 错误挂载层级：
  * - 组数越界 → `groups` 根；
  * - 组内成员数越界 → `groups[i].members` 根；
  * - 同组重复 → 后出现的那个 `groups[i].members[j].server_id`；
  * - 跨组重复 → 后出现的那个 `groups[i].members[j].server_id`；
+ * - tls 缺证书 → 该组自己的 `groups[i].cert_id`（不落 root）；
+ * - tls + UDP / 组数不足 → `udp` / `groups` 根；
  * - 端口 / 服务器必填 → 对应字段本身。
  */
 export function chainFormSchema(t: TFunction) {
@@ -476,6 +479,8 @@ export function chainFormSchema(t: TFunction) {
       engine: z.enum(FORWARD_ENGINES),
       // 只对 native 有意义；realm 时展示层按开启处理。
       udp: z.boolean(),
+      // 跳间加密：none（缺省）/ tls；tls 的前置条件在 superRefine 里查。
+      transport: z.enum(CHAIN_TRANSPORTS),
       groups: z.array(
         z.object({
           kind: z.enum(["single", "group"]),
@@ -484,6 +489,8 @@ export function chainFormSchema(t: TFunction) {
             .trim()
             .max(64, t("validation.chainGroupNameMax")),
           strategy: z.enum(CHAIN_STRATEGIES),
+          // 仅 tls 链的 seq >= 1 组必填；入口组提交时会被省略。
+          cert_id: z.string(),
           members: z.array(
             z.object({
               server_id: z
@@ -560,6 +567,41 @@ export function chainFormSchema(t: TFunction) {
               message: t("validation.chainServerDuplicate", {
                 seq: issue.firstGroupIndex + 1,
               }),
+            });
+            break;
+        }
+      }
+
+      // 加密规则同样先由纯函数产出 issue，再挂到对应字段：
+      // 缺证书挂到该组自己的 cert_id，不走 root，避免对话框只弹一条总错误。
+      for (const issue of validateTls(values)) {
+        switch (issue.kind) {
+          case "group_count":
+            ctx.addIssue({
+              code: "custom",
+              path: ["groups"],
+              message: t("validation.chainTlsMinGroups"),
+            });
+            break;
+          case "udp_conflict":
+            ctx.addIssue({
+              code: "custom",
+              path: ["udp"],
+              message: t("validation.chainTlsUdpConflict"),
+            });
+            break;
+          case "cert_forbidden":
+            ctx.addIssue({
+              code: "custom",
+              path: ["groups", issue.groupSeq, "cert_id"],
+              message: t("validation.chainTlsEntryCertForbidden"),
+            });
+            break;
+          case "cert_missing":
+            ctx.addIssue({
+              code: "custom",
+              path: ["groups", issue.groupSeq, "cert_id"],
+              message: t("validation.chainTlsCertRequired"),
             });
             break;
         }

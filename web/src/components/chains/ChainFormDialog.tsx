@@ -40,7 +40,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import type { Chain, Server } from "@/lib/api";
+import {
+  needsCert,
+  normalizeTransport,
+  tlsAvailable,
+} from "@/lib/chainTls";
+import type { Certificate, Chain, Server } from "@/lib/api";
 import {
   CHAIN_MAX_GROUPS,
   CHAIN_MIN_GROUPS,
@@ -65,7 +70,11 @@ import {
   serversMissingRealm,
 } from "@/lib/engines";
 import { errorText } from "@/lib/errors";
-import { useCreateChain, useUpdateChain } from "@/lib/queries";
+import {
+  useCertificates,
+  useCreateChain,
+  useUpdateChain,
+} from "@/lib/queries";
 import { chainFormSchema, type ChainFormValues } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
@@ -87,6 +96,7 @@ interface MemberFieldErrors {
 interface GroupFieldErrors {
   name?: { message?: string };
   strategy?: { message?: string };
+  cert_id?: { message?: string };
   members?: { message?: string } | (MemberFieldErrors | undefined)[];
 }
 
@@ -99,6 +109,7 @@ function emptyGroup() {
     kind: "single" as const,
     name: "",
     strategy: DEFAULT_CHAIN_STRATEGY,
+    cert_id: "",
     members: [emptyMember()],
   };
 }
@@ -119,6 +130,10 @@ function GroupCard({
   pending,
   servers,
   loadingServers,
+  tlsEnabled,
+  certificates,
+  certsLoading,
+  certsError,
   onMoveGroup,
   onRemoveGroup,
 }: {
@@ -128,6 +143,10 @@ function GroupCard({
   pending: boolean;
   servers: Server[];
   loadingServers: boolean;
+  tlsEnabled: boolean;
+  certificates: Certificate[];
+  certsLoading: boolean;
+  certsError: boolean;
   onMoveGroup: (index: number, offset: -1 | 1) => void;
   onRemoveGroup: (index: number) => void;
 }) {
@@ -162,6 +181,14 @@ function GroupCard({
     label: t(`chains.strategy.${value}.label`),
     desc: t(`chains.strategy.${value}.desc`),
   }));
+
+  const certPlaceholder = certsLoading
+    ? t("chains.tls.certLoading")
+    : certsError
+      ? t("chains.tls.certLoadError")
+      : certificates.length === 0
+        ? t("chains.tls.certEmpty")
+        : t("chains.tls.certPlaceholder");
 
   function setGroupField(field: "name" | "strategy", value: string) {
     setValue(`groups.${index}.${field}`, value, {
@@ -392,6 +419,55 @@ function GroupCard({
       </div>
       ) : null}
 
+      {tlsEnabled && needsCert(index) ? (
+        <div className="space-y-1">
+          <Label htmlFor={`chain-group-${index}-cert`} className="text-xs">
+            {t("chains.tls.cert")}
+          </Label>
+          <Controller
+            control={control}
+            name={`groups.${index}.cert_id`}
+            render={({ field }) => (
+              <Select
+                value={field.value}
+                onValueChange={(value) => {
+                  field.onChange(value);
+                  if (formState.isSubmitted) void trigger();
+                }}
+                disabled={
+                  pending ||
+                  certsLoading ||
+                  certsError ||
+                  certificates.length === 0
+                }
+              >
+                <SelectTrigger
+                  id={`chain-group-${index}-cert`}
+                  className="h-8 w-full"
+                  aria-required
+                  aria-invalid={Boolean(groupErrors?.cert_id)}
+                  aria-label={t("chains.tls.certAria", { seq })}
+                >
+                  <SelectValue placeholder={certPlaceholder} />
+                </SelectTrigger>
+                <SelectContent>
+                  {certificates.map((cert) => (
+                    <SelectItem key={cert.id} value={cert.id}>
+                      {cert.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
+          {groupErrors?.cert_id?.message ? (
+            <p role="alert" className="text-xs text-destructive">
+              {groupErrors.cert_id.message}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="space-y-1.5">
         <div className="flex flex-wrap items-center justify-between gap-1">
           <Label className="text-xs">
@@ -587,10 +663,11 @@ function GroupCard({
 /**
  * 新建 / 编辑转发链的「组编辑器」。
  *
- * 一条链 = 1–4 组，每组 = 1–8 台成员；组内顺序决定 priority（主备 / 轮询）。
- * 前端只拦「组数 / 成员数 / 同组与跨组重复服务器 / 端口 1–65535 / 目标非空」；
- * 保留端口、与节点 / 独立转发 / 其它链成员的端口冲突、自连回环都依赖服务器
- * 数据，由后端返回带 code 的错误，这里通过 `errorText` 原样透出。
+ * 一条链 = 1–6 组，每组 = 1–8 台成员；组内顺序决定 priority（主备 / 轮询）。
+ * 前端只拦「组数 / 成员数 / 同组与跨组重复服务器 / 端口 1–65535 / 目标非空 /
+ * tls 链每组的证书」；保留端口、与节点 / 独立转发 / 其它链成员的端口冲突、
+ * 自连回环都依赖服务器数据，由后端返回带 code 的错误，这里通过 `errorText`
+ * 原样透出。
  */
 export function ChainFormDialog({
   open,
@@ -604,6 +681,7 @@ export function ChainFormDialog({
   const isEdit = mode === "edit";
   const createChain = useCreateChain();
   const updateChain = useUpdateChain();
+  const certificates = useCertificates();
   const pending = isEdit ? updateChain.isPending : createChain.isPending;
 
   const schema = useMemo(() => chainFormSchema(t), [t]);
@@ -612,12 +690,14 @@ export function ChainFormDialog({
     const groups = chain?.groups ?? [];
     if (groups.length === 0) return [emptyGroup()];
 
-    return orderGroups(groups).map((group) => {
+    return orderGroups(groups).map((group, index) => {
       const members = orderMembers(group.members);
       return {
         kind: groupKind(group),
         name: group.name ?? "",
         strategy: normalizeStrategy(group.strategy),
+        // 入口组（index 0）即使有历史脏数据也不回填证书：后端口径同样禁止。
+        cert_id: index === 0 ? "" : (group.cert_id ?? ""),
         members:
           members.length > 0
             ? members.map((member) => ({
@@ -640,6 +720,8 @@ export function ChainFormDialog({
       engine: normalizeEngine(chain?.engine),
       // 旧数据 / 旧后端没有 udp：按契约缺省 false 回填。
       udp: Boolean(chain?.udp),
+      // 旧数据 / 旧后端没有 transport：按契约缺省 none 回填。
+      transport: normalizeTransport(chain?.transport),
       groups: initialGroups,
     },
   });
@@ -649,6 +731,9 @@ export function ChainFormDialog({
   // 顶层 `form.watch` 的引用可能不变，warning 会漏更新。
   const watchedGroups =
     useWatch({ control: form.control, name: "groups" }) ?? [];
+  const selectedTransport = form.watch("transport");
+  const tlsEnabled = selectedTransport === "tls";
+  const canTls = tlsAvailable(selectedEngine, watchedGroups.length);
 
   // 已选成员指向的服务器（按当前服务器列表解析；已被删掉的跳过）。
   const selectedServers = useMemo(() => {
@@ -673,6 +758,22 @@ export function ChainFormDialog({
     name: "groups",
   });
 
+  // 引擎改回 native 或删到只剩 1 组时，加密开关会变成禁用；
+  // 先把 transport 收回 none，避免留下一个「禁用但仍勾选」的无效状态。
+  useEffect(() => {
+    if (tlsEnabled && !canTls) {
+      form.setValue("transport", "none", { shouldDirty: true });
+    }
+  }, [tlsEnabled, canTls, form]);
+
+  // 入口组不允许证书：组被上移 / 删除后，新入口组的历史证书要清掉，
+  // 否则校验会把错误挂在一个不渲染的字段上。
+  useEffect(() => {
+    if (watchedGroups[0]?.cert_id) {
+      form.setValue("groups.0.cert_id", "", { shouldDirty: true });
+    }
+  }, [watchedGroups, form]);
+
   // 切换语言后重新校验，让已经显示的错误跟着换语言。
   useEffect(() => {
     if (form.formState.isSubmitted) void form.trigger();
@@ -683,6 +784,7 @@ export function ChainFormDialog({
   const onSubmit = form.handleSubmit(async (values) => {
     form.clearErrors("root");
 
+    const tls = values.transport === "tls";
     const input = {
       name: values.name.trim(),
       target_host: values.target_host.trim(),
@@ -690,9 +792,12 @@ export function ChainFormDialog({
       enabled: values.enabled,
       // native 也显式发送：编辑时把 realm 改回 native，PATCH 必须带 engine。
       ...engineInput(values.engine),
+      // 编辑时把 tls 改回 none 同样必须显式发送。
+      transport: values.transport,
       // 只对 native 有意义；realm 时展示层按开启处理，提交仍原样带值。
-      udp: values.udp,
-      groups: values.groups.map((group) => ({
+      // 加密链后端拒绝 udp=true，这里强制回落，避免用户先开 UDP 再开 TLS。
+      udp: tls ? false : values.udp,
+      groups: values.groups.map((group, index) => ({
         name:
           group.kind === "single"
             ? undefined
@@ -701,6 +806,10 @@ export function ChainFormDialog({
           group.kind === "single"
             ? DEFAULT_CHAIN_STRATEGY
             : group.strategy,
+        // 入口组始终不带证书；非 tls 链也不保留证书绑定。
+        ...(tls && needsCert(index)
+          ? { cert_id: group.cert_id.trim() }
+          : {}),
         members: group.members.map((member, index) => ({
           server_id: member.server_id,
           listen_port: Number(member.listen_port),
@@ -905,20 +1014,69 @@ export function ChainFormDialog({
             </div>
           </FormField>
 
-          <FormField label={t("chains.form.udp")} htmlFor="chain-udp">
+          <FormField label={t("chains.tls.label")} htmlFor="chain-tls">
+            <Controller
+              control={form.control}
+              name="transport"
+              render={({ field }) => (
+                <span
+                  className="inline-flex items-center"
+                  title={
+                    canTls ? undefined : t("chains.tls.disabledTitle")
+                  }
+                >
+                  <Switch
+                    id="chain-tls"
+                    checked={field.value === "tls"}
+                    onCheckedChange={(checked) => {
+                      form.setValue("transport", checked ? "tls" : "none", {
+                        shouldDirty: true,
+                        shouldTouch: true,
+                        shouldValidate: form.formState.isSubmitted,
+                      });
+                      // 后端拒绝 tls + udp：开启加密时同步把 UDP 关掉。
+                      if (checked) {
+                        form.setValue("udp", false, {
+                          shouldDirty: true,
+                          shouldTouch: true,
+                        });
+                      }
+                    }}
+                    disabled={pending || !canTls}
+                  />
+                </span>
+              )}
+            />
+          </FormField>
+
+          <FormField
+            label={t("chains.form.udp")}
+            htmlFor="chain-udp"
+            error={form.formState.errors.udp?.message}
+          >
             <Controller
               control={form.control}
               name="udp"
               render={({ field }) => (
                 <span
                   className="inline-flex items-center"
-                  title={realmEngine ? t("common.udpRealmTitle") : undefined}
+                  title={
+                    tlsEnabled
+                      ? t("chains.tls.udpDisabledTitle")
+                      : realmEngine
+                        ? t("common.udpRealmTitle")
+                        : undefined
+                  }
                 >
                   <Switch
                     id="chain-udp"
-                    checked={effectiveUdp(selectedEngine, field.value)}
+                    checked={
+                      tlsEnabled
+                        ? false
+                        : effectiveUdp(selectedEngine, field.value)
+                    }
                     onCheckedChange={field.onChange}
-                    disabled={pending || realmEngine}
+                    disabled={pending || realmEngine || tlsEnabled}
                   />
                 </span>
               )}
@@ -959,6 +1117,10 @@ export function ChainFormDialog({
                   pending={pending}
                   servers={servers}
                   loadingServers={loadingServers}
+                  tlsEnabled={tlsEnabled}
+                  certificates={certificates.data ?? []}
+                  certsLoading={certificates.isPending}
+                  certsError={certificates.isError}
                   onMoveGroup={(from, offset) => {
                     move(from, from + offset);
                     clearGroupErrors();

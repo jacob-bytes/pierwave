@@ -621,6 +621,11 @@ export interface ChainGroupMember {
   listening: boolean | null;
   /** true = 目标可达，false = 不可达，null = 尚未探测。 */
   target_ok: boolean | null;
+  /**
+   * TLS 探针的稳定失败短串，例如 `cert_expired` / `timeout`；
+   * `null` = 握手正常或尚未探测。翻译键见 `lib/chainTls.ts`。
+   */
+  target_error: string | null;
   /** 连续 2 次 target_ok=false 后为 true；不是实时探测结果。 */
   degraded: boolean;
   /** Agent 返回的监听失败原因；无错误时为空串。 */
@@ -638,6 +643,8 @@ export interface ChainGroup {
   name: string | null;
   /** `round_robin` | `failover` | `lowest_latency` | `ip_hashed`。 */
   strategy: string;
+  /** 该组 realm 监听证书；入口组（seq 0）始终为 null。 */
+  cert_id: string | null;
   /** 组内任一成员 degraded 即为 true。 */
   degraded: boolean;
   /** 按 `priority` 升序排列。 */
@@ -658,6 +665,12 @@ export interface Chain {
    * 旧后端可能不返回该字段，展示层按 false 处理。
    */
   udp: boolean;
+  /** 跳间加密模式：`none`（明文）或 `tls`；旧后端缺失按 `none` 处理。 */
+  transport: string;
+  /** 链因能力 / 证书不满足被下发跳过时的稳定错误码。 */
+  blocked_code?: string | null;
+  /** 链被跳过时的原因原文；非空时列表在链名旁显示 warning。 */
+  blocked_reason?: string | null;
   /** 任一组 / 成员 degraded 即为 true。 */
   degraded: boolean;
   /** 按 `seq` 升序排列；前端只读这个字段，不再读兼容用的 `hops`。 */
@@ -677,6 +690,8 @@ export interface ChainGroupInput {
   /** 可选展示名；空串表示不命名。 */
   name?: string;
   strategy: ChainStrategy;
+  /** 该组 realm 监听证书；入口组必须省略，tls 链的 seq >= 1 组必填。 */
+  cert_id?: string | null;
   /** 1–8 台，按 priority 顺序排列。 */
   members: ChainGroupMemberInput[];
 }
@@ -690,6 +705,8 @@ export interface CreateChainInput {
   engine?: ForwardEngine;
   /** 只对 `native` 有意义：整条链同时监听 UDP；缺省 / `realm` 时为 false。 */
   udp?: boolean;
+  /** `none`（缺省，明文）或 `tls`；tls 只允许 realm 且至少 2 组。 */
+  transport?: "none" | "tls";
   /** 1–4 组，按入口到目标的顺序排列。 */
   groups: ChainGroupInput[];
 }

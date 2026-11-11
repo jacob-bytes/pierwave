@@ -22,6 +22,7 @@ import {
   PageHeader,
   SkeletonCard,
   SkeletonTable,
+  TlsBadge,
   UdpBadge,
 } from "@/components/common";
 import { ChainFormDialog } from "@/components/chains/ChainFormDialog";
@@ -70,6 +71,7 @@ import {
   type HopListeningState,
   type HopTargetState,
 } from "@/lib/chains";
+import { isTlsTransport, tlsErrorKey } from "@/lib/chainTls";
 import {
   chainEngineMissing,
   chainServersMissingRealm,
@@ -330,6 +332,7 @@ function GroupMemberRow({
   const { t } = useI18n();
   const endpoint = formatMemberEndpoint(member);
   const error = member.error.trim();
+  const tlsError = tlsErrorKey(member.target_error);
   const degraded = Boolean(member.degraded);
 
   return (
@@ -364,6 +367,15 @@ function GroupMemberRow({
           title={t("chains.member.errorTitle", { error })}
         >
           {error}
+        </p>
+      ) : null}
+      {tlsError ? (
+        <p
+          className="mt-1 flex items-center gap-1 type-micro text-destructive"
+          title={member.target_error ?? undefined}
+        >
+          <TriangleAlertIcon className="size-3 shrink-0" aria-hidden="true" />
+          {t(tlsError)}
         </p>
       ) : null}
     </div>
@@ -688,6 +700,7 @@ export default function ChainsPage() {
 
   function renderChainName(chain: Chain) {
     const expanded = expandedIds.has(chain.id);
+    const blockedReason = chain.blocked_reason?.trim();
     return (
       <div className="flex items-center gap-1">
         <Button
@@ -713,6 +726,20 @@ export default function ChainsPage() {
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-1.5">
             <span className="truncate font-medium">{chain.name}</span>
+            {blockedReason ? (
+              <span
+                role="img"
+                aria-label={blockedReason}
+                title={blockedReason}
+                data-blocked="true"
+                className="inline-flex shrink-0 text-warning"
+              >
+                <TriangleAlertIcon
+                  className="size-3.5"
+                  aria-hidden="true"
+                />
+              </span>
+            ) : null}
             <EngineBadge
               engine={chain.engine}
               realmUnavailable={chainServersMissingRealm(
@@ -721,6 +748,7 @@ export default function ChainsPage() {
               )}
             />
             {udpBadgeVisible(chain.engine, chain.udp) ? <UdpBadge /> : null}
+            {isTlsTransport(chain.transport) ? <TlsBadge /> : null}
           </div>
         </div>
       </div>

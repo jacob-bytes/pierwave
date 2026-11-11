@@ -1058,6 +1058,9 @@ function applyChainInput(chain: Chain, input: UpdateChainInput): Chain {
       : {}),
     ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
     ...(input.engine !== undefined ? { engine: input.engine } : {}),
+    ...(input.transport !== undefined
+      ? { transport: input.transport }
+      : {}),
   };
 }
 

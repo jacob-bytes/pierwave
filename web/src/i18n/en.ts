@@ -1822,6 +1822,28 @@ const en = {
       "Could not load forward chains. Check your network and try again.",
     relayNote:
       "“Listening” only means this member has opened the port on the host; it does not verify the next hop. Two consecutive “target unreachable” probes mark the member as degraded.",
+    tls: {
+      label: "Hop encryption",
+      badge: "TLS",
+      badgeTitle: "Hop-to-hop encryption is on",
+      disabledTitle:
+        "Available only for realm chains with at least 2 groups",
+      cert: "Certificate",
+      certAria: "Certificate for group {seq}",
+      certPlaceholder: "Select a certificate",
+      certLoading: "Loading certificates…",
+      certEmpty: "No certificate available",
+      certLoadError: "Could not load certificates",
+      udpDisabledTitle: "UDP forwarding must be off while hop encryption is on",
+    },
+    tlsError: {
+      tcp_connect_failed: "TCP connection failed",
+      cert_expired: "Certificate expired",
+      unknown_issuer: "Untrusted certificate issuer",
+      name_mismatch: "Certificate name mismatch",
+      handshake_failed: "TLS handshake failed",
+      timeout: "TLS handshake timed out",
+    },
     engine: {
       missing: "Engine missing",
       missingHint:
@@ -2558,6 +2580,10 @@ const en = {
     chainMemberDuplicate: "The same server cannot appear twice in one hop",
     chainServerDuplicate:
       "The same server cannot appear twice in the chain (already used in group {seq})",
+    chainTlsMinGroups: "Hop encryption needs at least 2 groups",
+    chainTlsCertRequired: "Select a certificate for this group",
+    chainTlsEntryCertForbidden: "The entry group does not need a certificate",
+    chainTlsUdpConflict: "Hop encryption requires UDP forwarding to be off",
     comboInvalid:
       "This protocol does not support this transport and security combination",
     certRequired: "TLS nodes must have a certificate bound",

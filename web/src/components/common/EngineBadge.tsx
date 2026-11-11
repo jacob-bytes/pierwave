@@ -1,4 +1,4 @@
-import { TriangleAlertIcon } from "lucide-react";
+import { LockIcon, TriangleAlertIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { engineMeta } from "@/lib/engines";
 import { cn } from "@/lib/utils";
@@ -88,6 +88,32 @@ export function UdpBadge({ className }: { className?: string }) {
       )}
     >
       {t("common.udp")}
+    </Badge>
+  );
+}
+
+/**
+ * 名称旁的 `TLS` 小徽标：`transport = tls` 时显示，表示这跳与下一跳之间加密。
+ *
+ * 与 `EngineBadge` / `UdpBadge` 同一套 outline + type-micro 视觉，
+ * 锁图标让「加密」在扫视时先于文字被认出来。
+ */
+export function TlsBadge({ className }: { className?: string }) {
+  const { t } = useI18n();
+
+  return (
+    <Badge
+      variant="outline"
+      title={t("chains.tls.badgeTitle")}
+      data-tls="true"
+      className={cn(
+        "h-5 gap-1 px-1.5 type-micro font-normal whitespace-nowrap",
+        ENGINE_TONES.realm,
+        className,
+      )}
+    >
+      <LockIcon className="size-3" aria-hidden="true" />
+      {t("chains.tls.badge")}
     </Badge>
   );
 }
