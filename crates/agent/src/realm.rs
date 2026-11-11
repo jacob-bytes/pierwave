@@ -25,10 +25,10 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use pierwave_proto::{DesiredForward, ForwardEngine, ForwardStatus, TargetProbe};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
@@ -84,8 +84,9 @@ pub const TRANSPORT_UNKNOWN: &str = "无法判定 realm 是否支持跳间加密
 /// 停止子进程时等待它退出的上限；超时就 abort（`kill_on_drop` 兜底杀掉）。
 const STOP_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// 加密链握手探测周期：与 native 的目标探测保持一致（30s）。
-const TLS_PROBE_INTERVAL: Duration = Duration::from_secs(30);
+/// 目标探测周期：明文规则做 TCP 握手计时，加密规则做 TLS 握手；与 native 的
+/// 目标探测保持一致（30s）。
+const PROBE_INTERVAL: Duration = Duration::from_secs(30);
 
 /// 刚 spawn 后等 realm 绑定端口的宽限：立刻做 bind 探针会和它的 bind 抢跑，
 /// 既可能误报「未监听」，也可能让 realm 自己的绑定失败。
@@ -96,7 +97,7 @@ const STARTUP_GRACE: Duration = Duration::from_millis(150);
 /// 与 native 的 [`crate::forward::ForwardStatusHandle`] 分开：两个引擎各自
 /// 整体替换自己的状态集合，互不覆盖；心跳把两份拼起来上传。
 ///
-/// 监听状态（bind 探针）与 TLS 握手结果分开存：两者由不同任务写入，
+/// 监听状态（bind 探针）与目标探测结果分开存：两者由不同任务写入，
 /// 不能互相覆盖——端口绑上了但下一跳握手失败是加密链最常见的故障形态。
 #[derive(Debug, Clone, Default)]
 pub struct RealmStatusHandle {
@@ -106,15 +107,16 @@ pub struct RealmStatusHandle {
 #[derive(Debug, Default)]
 struct RealmStatusState {
     statuses: Vec<ForwardStatus>,
-    /// 规则 id → 最近一轮 TLS 探针结果；只存带 `remote_transport` 的规则。
-    tls: HashMap<String, TlsHealth>,
+    /// 规则 id → 最近一轮目标探测结果；明文规则是 TCP 计时，加密规则是 TLS 握手。
+    probes: HashMap<String, ProbeHealth>,
 }
 
-/// 一条规则最近一轮 TLS 探针的结果。
+/// 一条规则最近一轮目标探测的结果。
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct TlsHealth {
+struct ProbeHealth {
     ok: bool,
-    /// 失败原因码（`tls_probe` 的稳定短串）；成功时为 `None`。
+    /// 失败原因码（`tls_probe` 的稳定短串，TCP 探测只会产生 connect 失败/超时）；
+    /// 成功时为 `None`。
     error: Option<String>,
     /// 逐目标探测结果（含 RTT），随心跳带给主控做链路延迟。
     targets: Vec<TargetProbe>,
@@ -131,7 +133,7 @@ impl RealmStatusHandle {
             .iter()
             .cloned()
             .map(|mut status| {
-                if let Some(health) = state.tls.get(&status.id) {
+                if let Some(health) = state.probes.get(&status.id) {
                     status.target_ok = Some(health.ok);
                     status.target_error = health.error.clone();
                     status.targets = health.targets.clone();
@@ -149,20 +151,20 @@ impl RealmStatusHandle {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         state.statuses = statuses;
         // 已经不在期望态里的规则不能留下探针缓存。
-        state.tls.retain(|id, _| ids.contains(id));
+        state.probes.retain(|id, _| ids.contains(id));
     }
 
-    /// 写一条规则的 TLS 探针结果。
+    /// 写一条规则的目标探测结果。
     ///
     /// 只在规则仍在当前状态集合里时写入：探针任务与规则变更并发时，
     /// 旧任务的结果不能凭空造出一条新 id。
-    fn set_tls_health(&self, id: &str, health: TlsHealth) {
+    fn set_probe_health(&self, id: &str, health: ProbeHealth) {
         let mut state = self
             .inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if state.statuses.iter().any(|status| status.id == id) {
-            state.tls.insert(id.to_string(), health);
+            state.probes.insert(id.to_string(), health);
         }
     }
 
@@ -204,10 +206,41 @@ struct RunningRealm {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ProbeSpec {
     id: String,
-    /// 与 realm 的 `remote_transport` 里完全相同的 SNI。
-    sni: String,
+    /// 探测方式：明文规则只做 TCP 计时，加密规则做完整 TLS 握手。
+    mode: ProbeMode,
     /// 下一组的全部成员（组内多成员时每个都测一次）。
     targets: Vec<ProbeTarget>,
+}
+
+/// 一条规则用哪种探针。
+///
+/// 探测方式只看 `remote_transport`：它是这条规则真正出站时使用的传输。
+/// 明文链的每一跳都没有 transport，所以多跳链的延迟以前完全测不到。
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ProbeMode {
+    /// 明文（`remote_transport` 为空）：TCP connect 计时，连上即关，不写数据。
+    Tcp,
+    /// 加密（`remote_transport = "tls;sni=…"`）：完整 TLS 握手，失败原因可分类。
+    Tls { sni: String },
+}
+
+impl ProbeMode {
+    /// 日志用的短标识；不进入状态回报。
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Tcp => "tcp",
+            Self::Tls { .. } => "tls",
+        }
+    }
+
+    /// 失败时是否在状态里带原因码。
+    ///
+    /// `ForwardStatus.target_error` 在协议里只描述**加密链**的握手失败；明文探测
+    /// 失败只用 `target_ok = false` + `targets[].ok = false` 表达（与 native 一致），
+    /// 不把 `tcp_connect_failed` 冒充成 TLS 错误塞给主控。
+    fn reports_error(&self) -> bool {
+        matches!(self, Self::Tls { .. })
+    }
 }
 
 /// 一个下一跳成员：地址 + 用于回报给主控的 server_id。
@@ -218,7 +251,7 @@ struct ProbeTarget {
     server_id: String,
 }
 
-/// 正在运行的 TLS 探针任务。
+/// 正在运行的目标探针任务。
 struct RunningProbe {
     /// 任务当前覆盖的规则集合；集合不变就不重启任务（不丢上一轮结果）。
     spec: Vec<ProbeSpec>,
@@ -240,7 +273,8 @@ pub struct RealmSupervisor {
     /// 已落盘配置的内容哈希；`None` = 还没写过 / 上一轮已清空。
     content_hash: Option<u64>,
     process: Option<RunningRealm>,
-    /// 带 `remote_transport` 的规则的 TLS 握手探针；只观测，不影响转发。
+    /// 目标探针：明文规则做 TCP 计时，带 `remote_transport` 的规则做 TLS 握手。
+    /// 只观测，不影响转发。
     probe: Option<RunningProbe>,
     status: RealmStatusHandle,
 }
@@ -419,7 +453,8 @@ impl RealmSupervisor {
                 self.status.store(statuses);
             }
         }
-        // TLS 握手探针只对带 remote_transport 的规则运行；规则集合变化时才重启任务。
+        // 目标探针：明文规则做 TCP 计时，带 remote_transport 的规则做 TLS 握手。
+        // 规则集合变化时才重启任务。
         self.sync_probe();
     }
 
@@ -481,9 +516,9 @@ impl RealmSupervisor {
         self.sync_probe();
     }
 
-    /// 让 TLS 探针任务与当前规则集合对齐。
+    /// 让目标探针任务与当前规则集合对齐。
     ///
-    /// 只在规则集合（id/SNI/目标）变化时重启任务：同一份期望态重复下发、
+    /// 只在规则集合（id/探测方式/目标）变化时重启任务：同一份期望态重复下发、
     /// 心跳对账都不会重置探测周期或丢掉上一轮结果。
     fn sync_probe(&mut self) {
         let spec = probe_specs(&self.rules);
@@ -495,7 +530,7 @@ impl RealmSupervisor {
             return;
         }
         let status = self.status.clone();
-        let task = tokio::spawn(run_tls_probe_loop(spec.clone(), status));
+        let task = tokio::spawn(run_probe_loop(spec.clone(), status));
         self.probe = Some(RunningProbe { spec, task });
     }
 
@@ -519,7 +554,7 @@ impl RealmSupervisor {
                 } else {
                     NOT_LISTENING.to_string()
                 },
-                // realm 没有状态 API，目标可达性由 TLS 探针单独写入。
+                // realm 没有状态 API，目标可达性由目标探针单独写入。
                 target_ok: None,
                 target_error: None,
                 targets: Vec::new(),
@@ -697,26 +732,45 @@ fn remote_transport_sni(raw: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// 当前规则里需要做 TLS 握手探测的集合；没有 `remote_transport` 的规则不探测。
+/// 当前需要探测的规则集合。
+///
+/// 明文规则（两个 transport 都没有）做 TCP 计时，带 `remote_transport` 的规则做
+/// TLS 握手；只有 `listen_transport` 的加密落地跳不探测（它没有下一跳可测，
+/// 目标是普通下游，不是链路上的服务器）。
 fn probe_specs(rules: &[DesiredForward]) -> Vec<ProbeSpec> {
     let mut specs: Vec<ProbeSpec> = rules
         .iter()
         .filter(|rule| rule.engine == ForwardEngine::Realm)
         .filter_map(|rule| {
-            let sni = remote_transport_sni(rule.remote_transport.as_deref()?)?;
+            let mode = probe_mode(rule)?;
             let targets: Vec<ProbeTarget> = probe_targets(rule);
             if targets.is_empty() {
                 return None;
             }
             Some(ProbeSpec {
                 id: rule.id.clone(),
-                sni,
+                mode,
                 targets,
             })
         })
         .collect();
     specs.sort_by(|a, b| a.id.cmp(&b.id));
     specs
+}
+
+/// 规则 → 探测方式。
+///
+/// * `remote_transport = "tls;sni=…"`：沿用现有的 TLS 握手探测（加密链行为不变）；
+/// * 两个 transport 都没有：明文规则，只做 TCP connect 计时——多跳链最常见的形态；
+/// * 只有 `listen_transport`：加密落地跳 / 仅监听入口，没有「本跳 → 下一跳」的
+///   链路段可测，保持升级前的不探测行为；
+/// * `remote_transport` 不是合法的 `tls;sni=…`：不探测（渲染配置时会整轮拒绝）。
+fn probe_mode(rule: &DesiredForward) -> Option<ProbeMode> {
+    match rule.remote_transport.as_deref() {
+        Some(raw) => remote_transport_sni(raw).map(|sni| ProbeMode::Tls { sni }),
+        None if rule.listen_transport.is_none() => Some(ProbeMode::Tcp),
+        None => None,
+    }
 }
 
 /// 一轮探测：每条规则对它**所有**下一跳成员各做一次真实握手。
@@ -727,7 +781,7 @@ async fn probe_rule(spec: &ProbeSpec) -> (tls_probe::ProbeError, Vec<TargetProbe
     let results = futures_util::future::join_all(
         spec.targets
             .iter()
-            .map(|target| tls_probe::probe_timed(&target.host, target.port, &spec.sni)),
+            .map(|target| probe_target(&spec.mode, target)),
     )
     .await;
     let probes: Vec<TargetProbe> = spec
@@ -749,10 +803,93 @@ async fn probe_rule(spec: &ProbeSpec) -> (tls_probe::ProbeError, Vec<TargetProbe
     (error, probes)
 }
 
-/// 探针主循环：立即测一轮，之后每 [`TLS_PROBE_INTERVAL`] 测一轮。
+/// 按规则类型选探针：明文只做 TCP 握手，加密做完整 TLS 握手。
+async fn probe_target(mode: &ProbeMode, target: &ProbeTarget) -> tls_probe::TimedProbe {
+    match mode {
+        ProbeMode::Tcp => probe_tcp_timed(&target.host, target.port).await,
+        ProbeMode::Tls { sni } => tls_probe::probe_timed(&target.host, target.port, sni).await,
+    }
+}
+
+/// 明文规则的轻量探针：TCP connect 计时，连上即关，不发送、不读取任何字节。
+///
+/// 复用 TLS 探针的总预算 [`tls_probe::PROBE_TIMEOUT`]：一条黑洞目标不能把整轮
+/// 探测拖住。成功路径和 TLS 探针一样把 0ms（本机回环）抬到 1ms；失败时
+/// `latency_ms = None`，绝不写 0。
+async fn probe_tcp_timed(host: &str, port: i64) -> tls_probe::TimedProbe {
+    match tokio::time::timeout(tls_probe::PROBE_TIMEOUT, tcp_connect_timed(host, port)).await {
+        Ok(result) => result,
+        Err(_) => failed_probe(tls_probe::TIMEOUT),
+    }
+}
+
+fn failed_probe(code: &'static str) -> tls_probe::TimedProbe {
+    tls_probe::TimedProbe {
+        error: Some(code),
+        latency_ms: None,
+    }
+}
+
+async fn tcp_connect_timed(host: &str, port: i64) -> tls_probe::TimedProbe {
+    let Some(port) = u16::try_from(port).ok().filter(|port| *port != 0) else {
+        return failed_probe(tls_probe::TCP_CONNECT_FAILED);
+    };
+    let host = host.trim().trim_start_matches('[').trim_end_matches(']');
+    if host.is_empty() {
+        return failed_probe(tls_probe::TCP_CONNECT_FAILED);
+    }
+    let Ok(addresses) = tokio::net::lookup_host((host, port)).await else {
+        return failed_probe(tls_probe::TCP_CONNECT_FAILED);
+    };
+    let mut last_error = tls_probe::TCP_CONNECT_FAILED;
+    for address in addresses {
+        let started = Instant::now();
+        match TcpStream::connect(address).await {
+            Ok(stream) => {
+                let millis = u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
+                // 明文规则只要「端口能连上」；立刻关闭，不往目标写任何字节。
+                drop(stream);
+                return tls_probe::TimedProbe {
+                    error: None,
+                    latency_ms: Some(millis.max(1)),
+                };
+            }
+            Err(error) => {
+                last_error = if error.kind() == io::ErrorKind::TimedOut {
+                    tls_probe::TIMEOUT
+                } else {
+                    tls_probe::TCP_CONNECT_FAILED
+                };
+            }
+        }
+    }
+    failed_probe(last_error)
+}
+
+/// 把一轮探测结果转成状态缓存。
+///
+/// 明文探测的失败原因只用于日志（状态跃迁），不写进 `target_error`：
+/// 那个字段在协议里只属于加密链。
+fn probe_health(
+    spec: &ProbeSpec,
+    error: tls_probe::ProbeError,
+    targets: Vec<TargetProbe>,
+) -> ProbeHealth {
+    ProbeHealth {
+        ok: error.is_none(),
+        error: if spec.mode.reports_error() {
+            error.map(str::to_string)
+        } else {
+            None
+        },
+        targets,
+    }
+}
+
+/// 探针主循环：立即测一轮，之后每 [`PROBE_INTERVAL`] 测一轮。
 ///
 /// 只写状态缓存，从不碰 realm 进程或转发路径；失败不影响转发。
-async fn run_tls_probe_loop(specs: Vec<ProbeSpec>, status: RealmStatusHandle) {
+async fn run_probe_loop(specs: Vec<ProbeSpec>, status: RealmStatusHandle) {
     // 只在状态跃迁时打日志，避免 30 秒一条刷屏。
     let mut previous: HashMap<String, tls_probe::ProbeError> = HashMap::new();
     loop {
@@ -766,38 +903,31 @@ async fn run_tls_probe_loop(specs: Vec<ProbeSpec>, status: RealmStatusHandle) {
             match (previous.get(&spec.id).copied(), error) {
                 (None, Some(code)) => tracing::warn!(
                     rule = %spec.id,
-                    sni = %spec.sni,
+                    mode = spec.mode.label(),
                     target = %target,
                     error = code,
-                    "TLS 探针失败"
+                    "目标探针失败"
                 ),
                 (Some(Some(previous)), Some(code)) if previous != code => tracing::warn!(
                     rule = %spec.id,
-                    sni = %spec.sni,
+                    mode = spec.mode.label(),
                     target = %target,
                     error = code,
                     previous,
-                    "TLS 探针失败原因变化"
+                    "目标探针失败原因变化"
                 ),
                 (Some(Some(_)), None) => tracing::info!(
                     rule = %spec.id,
-                    sni = %spec.sni,
+                    mode = spec.mode.label(),
                     target = %target,
-                    "TLS 探针恢复"
+                    "目标探针恢复"
                 ),
                 _ => {}
             }
             previous.insert(spec.id.clone(), error);
-            status.set_tls_health(
-                &spec.id,
-                TlsHealth {
-                    ok: error.is_none(),
-                    error: error.map(str::to_string),
-                    targets: probes,
-                },
-            );
+            status.set_probe_health(&spec.id, probe_health(spec, error, probes));
         }
-        tokio::time::sleep(TLS_PROBE_INTERVAL).await;
+        tokio::time::sleep(PROBE_INTERVAL).await;
     }
 }
 
@@ -1323,10 +1453,11 @@ mod tests {
             .expect("探针必须立刻释放端口，否则 realm 之后会绑不上");
     }
 
-    /// 只有带 `remote_transport = "tls;sni=…"` 的 realm 规则才探测；
-    /// 明文规则、只有入站 transport 的规则都必须保持 `target_error = None`。
+    /// 明文规则必须进入 TCP 探测；带 `remote_transport = "tls;sni=…"` 的规则继续
+    /// 做 TLS 握手；只有 `listen_transport` 的落地跳、非法 transport、native 规则
+    /// 都不探测（与升级前一致）。
     #[test]
-    fn probe_specs_only_cover_realm_rules_with_tls_remote() {
+    fn probe_specs_cover_plaintext_and_tls_rules_but_not_listen_only() {
         let mut tls = realm_rule("r-tls", 30001, &[("10.0.0.2", 443), ("10.0.0.3", 443)]);
         tls.targets[0].server_id = "srv-g1-a".into();
         tls.targets[1].server_id = "srv-g1-b".into();
@@ -1349,14 +1480,35 @@ mod tests {
         native.remote_transport = Some("tls;sni=hop.example.com".into());
 
         let specs = probe_specs(&[tls, plaintext, listen_only, malformed, native]);
-        assert_eq!(specs.len(), 1, "只有 r-tls 需要探测：{specs:?}");
-        assert_eq!(specs[0].id, "r-tls");
+        assert_eq!(specs.len(), 2, "明文与加密各一条：{specs:?}");
+
+        let plaintext_spec = specs
+            .iter()
+            .find(|spec| spec.id == "r-plain")
+            .expect("明文规则必须做 TCP 探测");
+        assert_eq!(plaintext_spec.mode, ProbeMode::Tcp);
         assert_eq!(
-            specs[0].sni, "Hop1.Example.com",
+            plaintext_spec.targets,
+            vec![ProbeTarget {
+                host: "10.0.0.4".into(),
+                port: 443,
+                server_id: String::new(),
+            }]
+        );
+
+        let tls_spec = specs
+            .iter()
+            .find(|spec| spec.id == "r-tls")
+            .expect("加密规则必须做 TLS 探测");
+        assert_eq!(
+            tls_spec.mode,
+            ProbeMode::Tls {
+                sni: "Hop1.Example.com".into()
+            },
             "SNI 原样使用（主控已小写）"
         );
         assert_eq!(
-            specs[0].targets,
+            tls_spec.targets,
             vec![
                 ProbeTarget {
                     host: "10.0.0.2".into(),
@@ -1398,9 +1550,9 @@ mod tests {
         assert_eq!(remote_transport_sni("tls;sni="), None);
     }
 
-    /// 监听状态与 TLS 结果由不同任务写入，快照必须合并且互不覆盖。
+    /// 监听状态与目标探测结果由不同任务写入，快照必须合并且互不覆盖。
     #[test]
-    fn status_snapshot_merges_tls_health_without_overwriting_listening() {
+    fn status_snapshot_merges_probe_health_without_overwriting_listening() {
         let handle = RealmStatusHandle::default();
         handle.store(vec![ForwardStatus {
             id: "r1".into(),
@@ -1416,9 +1568,9 @@ mod tests {
             "还没探测时必须是 None"
         );
 
-        handle.set_tls_health(
+        handle.set_probe_health(
             "r1",
-            TlsHealth {
+            ProbeHealth {
                 ok: false,
                 error: Some(tls_probe::UNKNOWN_ISSUER.into()),
                 targets: vec![TargetProbe {
@@ -1436,9 +1588,9 @@ mod tests {
             Some(tls_probe::UNKNOWN_ISSUER)
         );
 
-        handle.set_tls_health(
+        handle.set_probe_health(
             "r1",
-            TlsHealth {
+            ProbeHealth {
                 ok: true,
                 error: None,
                 targets: vec![TargetProbe {
@@ -1463,15 +1615,193 @@ mod tests {
 
         // 规则已不在期望态：整体替换后探针缓存不能再造出一条状态。
         handle.store(Vec::new());
-        handle.set_tls_health(
+        handle.set_probe_health(
             "r1",
-            TlsHealth {
+            ProbeHealth {
                 ok: false,
                 error: Some(tls_probe::TIMEOUT.into()),
                 targets: Vec::new(),
             },
         );
         assert!(handle.snapshot().is_empty());
+    }
+
+    /// 明文规则的探测方式：一条 TCP 目标。
+    fn tcp_probe_spec(id: &str, host: &str, port: i64) -> ProbeSpec {
+        ProbeSpec {
+            id: id.into(),
+            mode: ProbeMode::Tcp,
+            targets: vec![ProbeTarget {
+                host: host.into(),
+                port,
+                server_id: String::new(),
+            }],
+        }
+    }
+
+    /// 明文规则的真实探测：本地 TcpListener → 成功且带 RTT（1..5000ms）。
+    #[tokio::test]
+    async fn plaintext_probe_reports_rtt_to_a_listening_socket() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = i64::from(listener.local_addr().unwrap().port());
+        let spec = tcp_probe_spec("chain-c1-0", "127.0.0.1", port);
+
+        let (error, probes) = probe_rule(&spec).await;
+        assert_eq!(error, None, "本地监听必须探测成功");
+        assert_eq!(probes.len(), 1);
+        assert!(probes[0].ok);
+        let latency = probes[0]
+            .latency_ms
+            .expect("成功路径必须回报 RTT（链路延迟用）");
+        println!("plaintext TCP probe 127.0.0.1:{port} -> {latency}ms");
+        assert!(
+            (1..=5000).contains(&latency),
+            "本机回环 RTT 必须在 1..5000ms：{latency}"
+        );
+        drop(listener);
+    }
+
+    /// 连接被拒：`ok = false` 且 `latency_ms = None`（失败不能写成 0ms）。
+    #[tokio::test]
+    async fn plaintext_probe_reports_no_latency_when_connection_is_refused() {
+        // 先拿一个端口再释放：连接必然被拒绝。
+        let port = {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            i64::from(listener.local_addr().unwrap().port())
+        };
+        let spec = tcp_probe_spec("chain-c1-0", "127.0.0.1", port);
+
+        let (error, probes) = probe_rule(&spec).await;
+        assert_eq!(error, Some(tls_probe::TCP_CONNECT_FAILED));
+        assert_eq!(probes.len(), 1, "失败的目标也要出现在 targets 里");
+        assert!(!probes[0].ok);
+        assert_eq!(probes[0].latency_ms, None, "失败不能报告 0ms");
+
+        // 状态里只用 ok=false 表达失败；`target_error` 属于加密链，明文不填。
+        let health = probe_health(&spec, error, probes);
+        assert!(!health.ok);
+        assert_eq!(health.error, None);
+        assert_eq!(health.targets[0].latency_ms, None);
+    }
+
+    /// 同一份规则重复同步必须复用同一个探针任务；目标变化才 abort 重建。
+    #[tokio::test]
+    async fn syncing_the_same_rules_reuses_the_probe_task_and_restarts_on_change() {
+        let dir = TempDir::new();
+        let mut supervisor =
+            RealmSupervisor::new(dir.path().join("no-such-realm"), dir.path(), "127.0.0.1");
+        // 目标用必然被拒的本地端口：每轮探测立刻结束，不会留下连接或长任务。
+        let first_port = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            i64::from(listener.local_addr().unwrap().port())
+        };
+        supervisor.rules = vec![realm_rule("r1", 30001, &[("127.0.0.1", first_port)])];
+
+        supervisor.sync_probe();
+        let first = supervisor
+            .probe
+            .as_ref()
+            .expect("明文规则必须启动探针任务")
+            .task
+            .id();
+
+        // 重复下发同一份期望态：不新建、也不 abort 现有任务。
+        supervisor.sync_probe();
+        assert_eq!(
+            first,
+            supervisor.probe.as_ref().unwrap().task.id(),
+            "规则不变时不能重启探针任务（否则每轮 apply 都会泄漏一个 30s 循环）"
+        );
+        assert!(!supervisor.probe.as_ref().unwrap().task.is_finished());
+
+        // 目标变化：旧任务被 abort，新任务接管。
+        let second_port = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            i64::from(listener.local_addr().unwrap().port())
+        };
+        supervisor.rules = vec![realm_rule("r1", 30001, &[("127.0.0.1", second_port)])];
+        supervisor.sync_probe();
+        let second = supervisor.probe.as_ref().unwrap().task.id();
+        assert_ne!(first, second, "目标变化必须重建探针任务");
+        assert_eq!(
+            supervisor.probe.as_ref().unwrap().spec[0].targets[0].port,
+            second_port,
+            "新任务必须使用新的目标"
+        );
+        assert!(!supervisor.probe.as_ref().unwrap().task.is_finished());
+
+        // 规则清空 / 显式停止：任务句柄被丢弃，不会继续探测。
+        supervisor.stop_probe();
+        assert!(supervisor.probe.is_none());
+    }
+
+    /// 明文与加密规则混用：两者的 targets 都要出现在心跳快照里。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn mixed_plaintext_and_tls_rules_both_report_targets() {
+        use crate::tls_probe::tests::{spawn_self_signed_server, TEST_CERT_PEM, TEST_KEY_PEM};
+
+        let dir = TempDir::new();
+        let counter = dir.path().join("launches");
+        let script = fake_realm(
+            dir.path(),
+            "2.9.6 [brutal][batched-udp][transport]",
+            Some(&counter),
+        );
+
+        // 明文目标：本地监听；加密目标：自签 TLS（握手失败，但 targets 仍要出现）。
+        let plaintext = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let plaintext_port = i64::from(plaintext.local_addr().unwrap().port());
+        let (tls_port, tls_task) = spawn_self_signed_server(TEST_CERT_PEM, TEST_KEY_PEM).await;
+
+        let mut supervisor = RealmSupervisor::new(&script, dir.path(), "127.0.0.1");
+        let mut encrypted = realm_rule("chain-c1-1", 39122, &[("127.0.0.1", i64::from(tls_port))]);
+        encrypted.remote_transport = Some("tls;sni=example.com".into());
+        encrypted.disable_udp = true;
+        supervisor
+            .apply(&[
+                realm_rule("chain-c1-0", 39121, &[("127.0.0.1", plaintext_port)]),
+                encrypted,
+            ])
+            .await;
+        wait_for_launches(&counter, 1).await;
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let statuses = supervisor.status_handle().snapshot();
+            let plain = statuses.iter().find(|status| status.id == "chain-c1-0");
+            let tls = statuses.iter().find(|status| status.id == "chain-c1-1");
+            if let (Some(plain), Some(tls)) = (plain, tls) {
+                if !plain.targets.is_empty() && !tls.targets.is_empty() {
+                    println!(
+                        "mixed rules targets: plain={:?} tls={:?}",
+                        plain.targets, tls.targets
+                    );
+                    assert!(
+                        plain.targets[0].ok && plain.targets[0].latency_ms.is_some(),
+                        "明文规则的 targets 必须带 RTT：{plain:?}"
+                    );
+                    assert_eq!(plain.target_error, None);
+                    assert_eq!(
+                        tls.target_error.as_deref(),
+                        Some(tls_probe::UNKNOWN_ISSUER),
+                        "自签证书必须映射成 unknown_issuer"
+                    );
+                    assert!(
+                        !tls.targets[0].ok && tls.targets[0].latency_ms.is_none(),
+                        "加密规则的失败目标也要出现在 targets 里：{tls:?}"
+                    );
+                    break;
+                }
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "等待明文/加密探针结果超时：{statuses:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        tls_task.abort();
+        supervisor.apply(&[]).await;
     }
 
     /// 真实握手用例：下一跳是自签 TLS 监听时，探针必须报 `unknown_issuer`
