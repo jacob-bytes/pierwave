@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Controller,
   useFieldArray,
@@ -10,6 +10,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  ChevronRightIcon,
   InfoIcon,
   Loader2Icon,
   PlusIcon,
@@ -134,6 +135,8 @@ function GroupCard({
   certificates,
   certsLoading,
   certsError,
+  expanded,
+  onToggle,
   onMoveGroup,
   onRemoveGroup,
 }: {
@@ -147,6 +150,8 @@ function GroupCard({
   certificates: Certificate[];
   certsLoading: boolean;
   certsError: boolean;
+  expanded: boolean;
+  onToggle: () => void;
   onMoveGroup: (index: number, offset: -1 | 1) => void;
   onRemoveGroup: (index: number) => void;
 }) {
@@ -163,6 +168,7 @@ function GroupCard({
   const single = kind === "single";
   const strategy = watch(`groups.${index}.strategy`);
   const selectedStrategy: ChainStrategy = normalizeStrategy(strategy);
+  const groupName = (watch(`groups.${index}.name`) ?? "").trim();
   const isEntry = index === 0;
   const isLast = index === groupCount - 1;
   const seq = index + 1;
@@ -175,6 +181,7 @@ function GroupCard({
   const memberErrors = Array.isArray(groupErrors?.members)
     ? groupErrors.members
     : undefined;
+  const hasError = Boolean(groupErrors);
 
   const strategyOptions = CHAIN_STRATEGIES.map((value) => ({
     value,
@@ -229,12 +236,42 @@ function GroupCard({
 
   return (
     <div
-      className="space-y-3 rounded-lg border border-border bg-muted/20 p-3"
+      role="group"
+      data-group-index={index}
       aria-label={t("chains.form.group", { seq })}
+      className={cn(
+        "overflow-hidden rounded-lg border bg-muted/20 transition-colors duration-150",
+        expanded ? "border-border" : "border-border/70 hover:border-border",
+        hasError && "border-destructive/45",
+      )}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <span className="text-xs font-medium text-foreground">
+      <div
+        className={cn(
+          "flex items-center justify-between gap-2 px-2.5 py-1.5",
+          expanded && "border-b border-border/60 bg-muted/20",
+        )}
+      >
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          aria-controls={`chain-group-${index}-body`}
+          aria-label={t(
+            expanded
+              ? "chains.form.collapseGroup"
+              : "chains.form.expandGroup",
+            { seq },
+          )}
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-sm text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          <ChevronRightIcon
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground transition-transform duration-150",
+              expanded && "rotate-90",
+            )}
+            aria-hidden="true"
+          />
+          <span className="shrink-0 text-xs font-medium text-foreground">
             {t("chains.form.group", { seq })}
           </span>
           {isEntry ? (
@@ -246,19 +283,46 @@ function GroupCard({
             </Badge>
           ) : null}
           {isLast && !isEntry ? (
-            <span className="type-micro text-muted-foreground">
+            <span className="shrink-0 type-micro text-muted-foreground">
               {t("chains.form.groupExitHint")}
             </span>
           ) : null}
-          {!single ? (
-            <span className="font-mono type-micro tabular-nums text-muted-foreground">
-              {t("chains.form.memberLimit", {
-                count: fields.length,
-                max: GROUP_MAX_MEMBERS,
-              })}
+          {!expanded ? (
+            <>
+              <Badge
+                variant="secondary"
+                className="h-4 px-1.5 type-micro font-normal"
+              >
+                {t(single ? "chains.form.typeSingle" : "chains.form.typeGroup")}
+              </Badge>
+              {!single && groupName ? (
+                <span
+                  className="max-w-40 truncate text-xs text-foreground"
+                  title={groupName}
+                >
+                  {groupName}
+                </span>
+              ) : null}
+              {!single ? <StrategyBadge strategy={selectedStrategy} /> : null}
+              {!single ? (
+                <span className="shrink-0 font-mono type-micro tabular-nums text-muted-foreground">
+                  {t("chains.form.memberLimit", {
+                    count: fields.length,
+                    max: GROUP_MAX_MEMBERS,
+                  })}
+                </span>
+              ) : null}
+            </>
+          ) : null}
+          {hasError ? (
+            <span
+              className="inline-flex shrink-0 text-destructive"
+              title={t("chains.form.groupErrorTitle")}
+            >
+              <TriangleAlertIcon className="size-3.5" aria-hidden="true" />
             </span>
           ) : null}
-        </div>
+        </button>
         <div className="flex shrink-0 items-center gap-0.5">
           <Button
             type="button"
@@ -295,6 +359,12 @@ function GroupCard({
           </Button>
         </div>
       </div>
+
+      {expanded ? (
+      <div
+        id={`chain-group-${index}-body`}
+        className="space-y-3 p-3"
+      >
 
       <div className="flex flex-wrap items-center gap-2">
         <span className="type-micro text-muted-foreground">
@@ -656,6 +726,8 @@ function GroupCard({
           </Button>
         ) : null}
       </div>
+      </div>
+      ) : null}
     </div>
   );
 }
@@ -683,6 +755,8 @@ export function ChainFormDialog({
   const updateChain = useUpdateChain();
   const certificates = useCertificates();
   const pending = isEdit ? updateChain.isPending : createChain.isPending;
+  // 组卡片一次只展开一个：6 组时也能把弹窗压在一屏内，同时保留完整编辑器。
+  const [activeGroup, setActiveGroup] = useState<number | null>(0);
 
   const schema = useMemo(() => chainFormSchema(t), [t]);
 
@@ -833,10 +907,48 @@ export function ChainFormDialog({
       form.setError("root", { message });
       toast.error(message);
     }
+  }, (errors) => {
+    // 被折叠的组也可能有错：保存失败时展开第一个出错组，避免「点了保存没反应」。
+    const groupErrors = Array.isArray(errors.groups)
+      ? errors.groups
+      : undefined;
+    const firstInvalid = groupErrors?.findIndex((group) => Boolean(group));
+    if (firstInvalid === undefined || firstInvalid < 0) return;
+    setActiveGroup(firstInvalid);
+    window.setTimeout(() => {
+      document
+        .getElementById(`chain-group-${firstInvalid}`)
+        ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }, 0);
   });
 
   function clearGroupErrors() {
     form.clearErrors("groups");
+  }
+
+  function handleMoveGroup(from: number, offset: -1 | 1) {
+    move(from, from + offset);
+    setActiveGroup(from + offset);
+    clearGroupErrors();
+  }
+
+  function handleRemoveGroup(groupIndex: number) {
+    remove(groupIndex);
+    setActiveGroup((current) => {
+      if (current === null) return null;
+      if (current === groupIndex) {
+        return Math.min(groupIndex, fields.length - 2);
+      }
+      return current > groupIndex ? current - 1 : current;
+    });
+    clearGroupErrors();
+  }
+
+  function handleAddGroup() {
+    const nextIndex = fields.length;
+    append(emptyGroup());
+    setActiveGroup(nextIndex);
+    clearGroupErrors();
   }
 
   return (
@@ -847,8 +959,8 @@ export function ChainFormDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-3xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[88vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
+        <DialogHeader className="border-b border-border px-4 py-4 pr-12 sm:px-6">
           <DialogTitle>
             {isEdit
               ? t("chains.form.editTitle")
@@ -863,9 +975,14 @@ export function ChainFormDialog({
 
         <form
           id="chain-form"
-          className="min-w-0 space-y-4"
+          className="min-h-0 flex-1 overflow-y-auto"
           onSubmit={onSubmit}
         >
+          <div className="grid gap-6 p-4 sm:p-6 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
+            <div className="min-w-0 space-y-4">
+              <span className="block text-sm font-medium">
+                {t("chains.form.basics")}
+              </span>
           <FormField
             label={t("chains.form.name")}
             htmlFor="chain-name"
@@ -1083,7 +1200,34 @@ export function ChainFormDialog({
             />
           </FormField>
 
-          <div className="min-w-0 space-y-2">
+          <FormField
+            label={t("chains.form.enabled")}
+            htmlFor="chain-enabled"
+            hint={t("chains.form.enabledHint")}
+          >
+            <div className="flex items-center gap-2.5">
+              <Controller
+                control={form.control}
+                name="enabled"
+                render={({ field }) => (
+                  <Switch
+                    id="chain-enabled"
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={pending}
+                  />
+                )}
+              />
+              <span className="text-xs text-muted-foreground">
+                {form.watch("enabled")
+                  ? t("chains.form.enabledOn")
+                  : t("chains.form.enabledOff")}
+              </span>
+            </div>
+          </FormField>
+            </div>
+
+            <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               {/*
                 分组是复合字段（组 + 成员），不是单个控件：
@@ -1121,14 +1265,14 @@ export function ChainFormDialog({
                   certificates={certificates.data ?? []}
                   certsLoading={certificates.isPending}
                   certsError={certificates.isError}
-                  onMoveGroup={(from, offset) => {
-                    move(from, from + offset);
-                    clearGroupErrors();
-                  }}
-                  onRemoveGroup={(groupIndex) => {
-                    remove(groupIndex);
-                    clearGroupErrors();
-                  }}
+                  expanded={activeGroup === index}
+                  onToggle={() =>
+                    setActiveGroup((current) =>
+                      current === index ? null : index,
+                    )
+                  }
+                  onMoveGroup={handleMoveGroup}
+                  onRemoveGroup={handleRemoveGroup}
                 />
               ))}
             </div>
@@ -1144,10 +1288,7 @@ export function ChainFormDialog({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => {
-                  append(emptyGroup());
-                  clearGroupErrors();
-                }}
+                onClick={handleAddGroup}
                 disabled={pending || fields.length >= CHAIN_MAX_GROUPS}
               >
                 <PlusIcon className="size-3.5" />
@@ -1159,38 +1300,17 @@ export function ChainFormDialog({
                 </span>
               ) : null}
             </div>
+            </div>
           </div>
 
-          <FormField
-            label={t("chains.form.enabled")}
-            htmlFor="chain-enabled"
-            hint={t("chains.form.enabledHint")}
-          >
-            <div className="flex items-center gap-2.5">
-              <Controller
-                control={form.control}
-                name="enabled"
-                render={({ field }) => (
-                  <Switch
-                    id="chain-enabled"
-                    checked={field.value}
-                    onCheckedChange={field.onChange}
-                    disabled={pending}
-                  />
-                )}
-              />
-              <span className="text-xs text-muted-foreground">
-                {form.watch("enabled")
-                  ? t("chains.form.enabledOn")
-                  : t("chains.form.enabledOff")}
-              </span>
+          {form.formState.errors.root?.message ? (
+            <div className="px-4 pb-4 sm:px-6 sm:pb-6">
+              <FormRootError message={form.formState.errors.root?.message} />
             </div>
-          </FormField>
-
-          <FormRootError message={form.formState.errors.root?.message} />
+          ) : null}
         </form>
 
-        <DialogFooter>
+        <DialogFooter className="mx-0 mb-0 rounded-none border-border px-4 py-3 sm:px-6">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}

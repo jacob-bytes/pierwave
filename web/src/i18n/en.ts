@@ -1965,9 +1965,10 @@ const en = {
       createTitle: "New forward chain",
       editTitle: "Edit forward chain",
       createDesc:
-        "Add 1-4 hops from entry to target; each hop can be a single node or a group. Saving applies the config to every server involved.",
+        "Add 1-6 hops from entry to target; each hop can be a single node or a group. Saving applies the config to every server involved.",
       editDesc:
         "Changing hop types, member order or ports rebuilds the listeners; saving applies the config.",
+      basics: "Basics",
       name: "Name",
       namePlaceholder: "hk-jp-us",
       targetHost: "Target host",
@@ -1994,6 +1995,9 @@ const en = {
       group: "Hop {seq}",
       groupEntryHint: "Entry hop",
       groupExitHint: "Last hop",
+      expandGroup: "Expand hop {seq}",
+      collapseGroup: "Collapse hop {seq}",
+      groupErrorTitle: "This hop has missing required fields",
       hopType: "Type",
       hopTypeAria: "Hop {seq} type",
       typeSingle: "Single node",
