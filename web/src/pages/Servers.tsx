@@ -107,7 +107,7 @@ import {
   type BatchSelectionState,
 } from "@/lib/agentUpgradeBatch";
 import { copyText } from "@/lib/clipboard";
-import { ISO_COUNTRY_CODES, countryDisplayName, isCountryCode } from "@/lib/country";
+import { isCountryCode } from "@/lib/country";
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
 import { useAllNodes, useCreateServer, useServers } from "@/lib/queries";
@@ -116,6 +116,7 @@ import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 import { useIsDesktop } from "@/lib/useIsDesktop";
+import { CountrySelect } from "@/components/common/CountrySelect";
 
 const COLUMN_COUNT = 11;
 /** 心跳超过这个时长没有更新就不该再当作实时数据。 */
@@ -669,7 +670,7 @@ function ErrorRow({
 }
 
 export default function ServersPage() {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const isDesktop = useIsDesktop();
   const servers = useServers();
   const create = useCreateServer();
@@ -1295,20 +1296,10 @@ export default function ServersPage() {
 
             <div className="space-y-2">
               <Label htmlFor="server-country">{t("servers.country")}</Label>
-              <Input
-                id="server-country"
+                            <CountrySelect
                 value={country}
-                onChange={(event) =>
-                  setCountry(event.target.value.toUpperCase())
-                }
-                placeholder={t("servers.countryPlaceholder")}
-                maxLength={2}
-                autoComplete="off"
-                spellCheck={false}
+                onChange={setCountry}
                 disabled={create.isPending}
-                aria-describedby="create-server-country-desc"
-                list="create-server-country-list"
-                className="w-28 font-mono tracking-[0.2em] uppercase"
               />
               <p
                 id="create-server-country-desc"
@@ -1316,11 +1307,6 @@ export default function ServersPage() {
               >
                 {t("servers.countryHint")}
               </p>
-            <datalist id="create-server-country-list">
-  {ISO_COUNTRY_CODES.map((code) => (
-    <option key={code} value={code} label={countryDisplayName(code, locale) ?? code} />
-  ))}
-</datalist>
             </div>
 
             <div className="space-y-2">

@@ -335,6 +335,9 @@ const en = {
     desc: "Agents connect out to the controller, so no inbound port is needed. The list refreshes every 15 seconds while an upgrade is pending. A server that is online but has Xray stopped is highlighted in red; on narrow screens, open Details to see load and memory.",
     country: "Country / region",
     countryPlaceholder: "CN / US / JP",
+    countrySearch: "Search country or code",
+    countryNoMatch: "No matching country",
+    countryClear: "Clear",
     countryHint:
       "ISO 3166-1 code, such as CN / US / JP. Used for the flag on the public status page.",
     countryLookup: "Look up",

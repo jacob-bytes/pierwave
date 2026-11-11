@@ -321,3 +321,23 @@ export function countryLookupUrl(locale: string): string {
     ? "https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2"
     : "https://zh.wikipedia.org/wiki/ISO_3166-1%E4%BA%8C%E4%BD%8D%E5%AD%97%E6%AF%8D%E4%BB%A3%E7%A0%81";
 }
+
+/**
+ * 按「代码前缀」或「国名子串」过滤国家列表。
+ *
+ * 代码匹配放在名字前面：用户敲 `jp` 时想要日本，而不是名字里含 jp 的其它国家。
+ * 大小写不敏感；query 为空时返回全部。
+ */
+export function filterCountries<T extends { code: string; name: string }>(
+  countries: readonly T[],
+  query: string,
+): T[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [...countries];
+  const byCode = countries.filter((c) => c.code.toLowerCase().startsWith(q));
+  const byName = countries.filter(
+    (c) =>
+      !byCode.includes(c) && c.name.toLowerCase().includes(q),
+  );
+  return [...byCode, ...byName];
+}

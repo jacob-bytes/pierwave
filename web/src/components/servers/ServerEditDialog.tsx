@@ -17,12 +17,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { CountrySelect } from "@/components/common/CountrySelect";
 import { displayAgentVersion } from "@/lib/agentUpgrade";
 import type { Server } from "@/lib/api";
-import { ISO_COUNTRY_CODES, countryDisplayName, isCountryCode } from "@/lib/country";
+import { isCountryCode } from "@/lib/country";
 import { errorText, isNotFound } from "@/lib/errors";
 import { useUpdateServer } from "@/lib/queries";
-import { t, useI18n } from "@/i18n";
+import { t } from "@/i18n";
 
 
 interface ServerEditDialogProps {
@@ -43,7 +44,6 @@ export function ServerEditDialog({
   server,
 }: ServerEditDialogProps) {
 
-  const { locale } = useI18n();
   const updateServer = useUpdateServer();
   // Dialog 只在选中服务器时挂载，初始值就是最新值；不跟随轮询覆盖未保存的修改。
   const [allowUpgrade, setAllowUpgrade] = useState(() =>
@@ -139,17 +139,17 @@ export function ServerEditDialog({
               list="server-country-list"
               className="w-28 font-mono tracking-[0.2em] uppercase"
             />
-            <p
+            <CountrySelect
+                value={countryCode}
+                onChange={setCountryCode}
+                disabled={updateServer.isPending}
+              />
+              <p
               id="server-country-desc"
               className="text-xs leading-relaxed text-muted-foreground"
             >
               {t("servers.countryHint")}
             </p>
-            <datalist id="server-country-list">
-  {ISO_COUNTRY_CODES.map((code) => (
-    <option key={code} value={code} label={countryDisplayName(code, locale) ?? code} />
-  ))}
-</datalist>
           </div>
 
           <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-muted/30 p-3">
