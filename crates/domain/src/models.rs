@@ -80,7 +80,7 @@ pub struct Server {
     pub country_code: Option<String>,
 }
 
-/// 一条单跳 TCP 端口转发规则。
+/// 一条单跳端口转发规则（协议由 [`Forward::protocol`] 决定）。
 ///
 /// `listen_port` 在同一个 `server_id` 内唯一；`enabled = 0` 的规则不开监听，
 /// 但仍保留在库里（方便随时恢复，也继续占用端口，避免恢复时才发现冲突）。
@@ -99,9 +99,14 @@ pub struct Forward {
     /// 转发引擎：`native`（Agent 自己监听）、`realm`（受管子进程）
     /// 或 `nftables`（内核 DNAT）。
     pub engine: String,
-    /// 是否在同一端口号上**再**监听一个 UDP socket。对 `native` / `nftables`
-    /// 有意义：`realm` 固定转发 UDP，不看这一列。
+    /// 是否在同一端口号上**再**监听一个 UDP socket。
+    ///
+    /// 仅为兼容旧 API/旧 Agent 保留的镜像列；读写路径以 [`Forward::protocol`]
+    /// 为准，新写入时由仓储按协议同步这一列，不再单独修改。
     pub udp: bool,
+    /// 监听的协议：`tcp`（默认）/ `udp` / `both`。迁移 0034 之前的 `udp`
+    /// 布尔位只在迁移里作为来源，之后不再参与行为判断。
+    pub protocol: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -158,8 +163,11 @@ pub struct Chain {
     /// 链的转发引擎：`native`、`realm` 或 `nftables`。
     pub engine: String,
     /// 整条链是否同时监听 UDP：推导时透传到每一跳（每跳用各自的 `listen_port`）。
-    /// 对 `native` / `nftables` 有意义，`realm` 固定转发 UDP。
+    ///
+    /// 仅为兼容旧 API/旧 Agent 保留的镜像列；行为以 [`Chain::protocol`] 为准。
     pub udp: bool,
+    /// 整条链的协议：`tcp`（默认）/ `udp` / `both`，推导时原样透传到每一跳。
+    pub protocol: String,
     /// 跳间加密模式：`none`（默认，明文）或 `tls`（单向 TLS）。
     pub transport: String,
     pub created_at: i64,

@@ -130,7 +130,7 @@ async fn legacy_hops_become_single_member_groups() {
             target_port: 443,
             enabled: true,
             engine: "realm".into(),
-            udp: false,
+            protocol: "tcp".into(),
             transport: "tls".into(),
             groups: vec![
                 repo::chains::NewChainGroup {

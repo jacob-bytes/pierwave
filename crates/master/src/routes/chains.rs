@@ -31,13 +31,15 @@ use pierwave_domain::models::{
     Certificate, Chain, ChainGroupMember, ChainGroupWithMembers, ChainWithGroups, ForwardStatusRow,
     Server,
 };
-use pierwave_domain::{chains, engine, forwards, hop_transport, repo};
+use pierwave_domain::{chains, engine, forwards, hop_transport, protocol, repo};
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
-use pierwave_proto::{DesiredForward, ForwardEngine, ForwardStrategy, ForwardTarget};
+use pierwave_proto::{
+    DesiredForward, ForwardEngine, ForwardProtocol, ForwardStrategy, ForwardTarget,
+};
 
 /// 一条已通过校验的成员：带上服务器地址，供冲突提示与推导使用。
 struct ValidatedMember {
@@ -150,8 +152,10 @@ pub(crate) fn derive_forwards(
                     strategy,
                     // 整条链共用一个引擎：推导时逐跳透传，Agent 按它分流。
                     engine: ForwardEngine::from_name(&chain.engine),
-                    // UDP 同样是链级开关：每一跳在自己的 listen_port 上都开 UDP。
-                    udp: chain.udp,
+                    // 协议同样是链级开关：每一跳在自己的 listen_port 上都按它监听。
+                    protocol: ForwardProtocol::from_name(&chain.protocol),
+                    // 旧 `udp` 位继续填镜像值：只用于兼容旧 Agent。
+                    udp: protocol::is_both(&chain.protocol),
                     // transport 由 derive_forwards_with_transports 叠加：明文链保持 None。
                     listen_transport: None,
                     remote_transport: None,
@@ -216,7 +220,12 @@ pub struct CreateChain {
     /// 整条链的引擎：`native` / `realm` / `nftables`；缺省 = `native`。
     #[serde(default)]
     pub engine: Option<String>,
-    /// 整条链是否同时监听 UDP（只对 `native` 有意义）；缺省 = `false`。
+    /// 整条链的监听协议：`tcp`（缺省）/ `udp` / `both`。
+    ///
+    /// 不传时由旧 `udp` 布尔位推导（`true` → `both`），保证旧客户端语义不变。
+    #[serde(default)]
+    pub protocol: Option<String>,
+    /// 旧字段：整条链是否同时监听 UDP；仅在没传 `protocol` 时生效。
     #[serde(default)]
     pub udp: bool,
     /// 跳间加密模式：`none`（缺省，明文）或 `tls`。
@@ -237,7 +246,10 @@ pub struct PatchChain {
     pub enabled: Option<bool>,
     /// `native` / `realm` / `nftables`；`None` = 不改。
     pub engine: Option<String>,
-    /// `None` = 不改；`Some(false)` 用来关掉整条链的 UDP。
+    /// `tcp` / `udp` / `both`；`None` = 不改。
+    pub protocol: Option<String>,
+    /// 旧字段：`None` = 不改；`Some(true)` → `both`、`Some(false)` → `tcp`。
+    /// 同时传 `protocol` 时以 `protocol` 为准。
     pub udp: Option<bool>,
     /// `none` / `tls`；`None` = 不改。
     pub transport: Option<String>,
@@ -521,6 +533,12 @@ pub(crate) fn plan_from_certificates(
     if !hop_transport::is_tls(&chain.transport) {
         return Ok(Vec::new());
     }
+    if protocol::is_udp_only(&chain.protocol) {
+        return Err(DomainError::new(
+            "chain.protocol_udp_with_tls",
+            "加密链只走 TCP，不能选择仅 UDP",
+        ));
+    }
 
     // 下发路径也必须重查链级前置条件：写路径已经拦过，但手工改库/旧数据
     // 仍可能留下「native+tls」「单组 tls」「tls+udp」这类不能安全下发的组合。
@@ -537,10 +555,10 @@ pub(crate) fn plan_from_certificates(
             "至少两跳的链才有跳间链路",
         ));
     }
-    if chain.udp {
+    if protocol::allows_udp(&chain.protocol) {
         return Err(DomainError::new(
             "chain.tls_udp_unsupported",
-            "加密链不支持 UDP，请关闭该链的 UDP",
+            "加密链不支持 UDP，请把链的协议改为 tcp",
         ));
     }
 
@@ -600,14 +618,14 @@ async fn validate_transport(
     state: &AppState,
     transport: &str,
     engine: &str,
-    udp: bool,
+    protocol: &str,
     groups: &[ValidatedGroup],
 ) -> AppResult<()> {
     let group_certs: Vec<Option<&str>> = groups
         .iter()
         .map(|group| group.cert_id.as_deref())
         .collect();
-    hop_transport::validate_chain(transport, engine, udp, &group_certs)?;
+    hop_transport::validate_chain(transport, engine, protocol, &group_certs)?;
     if !hop_transport::is_tls(transport) {
         return Ok(());
     }
@@ -886,6 +904,7 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
         "target_port": chain.chain.target_port,
         "enabled": chain.chain.enabled,
         "engine": chain.chain.engine,
+        "protocol": chain.chain.protocol,
         "udp": chain.chain.udp,
         "transport": chain.chain.transport,
         "degraded": degraded,
@@ -965,6 +984,7 @@ pub async fn create(
         target_port,
         enabled,
         engine: raw_engine,
+        protocol: raw_protocol,
         udp,
         transport: raw_transport,
         hops,
@@ -978,6 +998,10 @@ pub async fn create(
         Some(raw) => engine::normalize(raw)?,
         None => engine::DEFAULT.to_string(),
     };
+    let protocol = match raw_protocol.as_deref() {
+        Some(raw) => protocol::normalize_chain(raw)?,
+        None => protocol::from_legacy_udp(udp).to_string(),
+    };
     let transport =
         hop_transport::normalize(raw_transport.as_deref().unwrap_or(hop_transport::DEFAULT))?;
 
@@ -990,7 +1014,10 @@ pub async fn create(
     let groups = resolve_groups(&state, &inputs, None).await?;
     ensure_targets_safe(&groups, &target_host, target_port)?;
     validate_nftables_chain(&engine, &groups)?;
-    validate_transport(&state, &transport, &engine, udp, &groups).await?;
+    validate_transport(&state, &transport, &engine, &protocol, &groups).await?;
+    // TLS + UDP 的冲突优先于「realm 固定双开」：用户选了加密链时，
+    // 更具体的 chain.protocol_udp_with_tls 才是能指导修复的错误。
+    protocol::ensure_realm_supported(&protocol, &engine)?;
 
     let chain = repo::chains::create(
         &state.db.pool,
@@ -1000,7 +1027,7 @@ pub async fn create(
             target_port,
             enabled,
             engine,
-            udp,
+            protocol,
             transport,
             groups: new_groups(&groups),
         },
@@ -1018,6 +1045,7 @@ pub async fn create(
             "target_port": chain.chain.target_port,
             "enabled": chain.chain.enabled,
             "engine": &chain.chain.engine,
+            "protocol": &chain.chain.protocol,
             "udp": chain.chain.udp,
             "transport": &chain.chain.transport,
             "hops": chain.groups.iter().map(|group| json!({
@@ -1068,6 +1096,7 @@ pub async fn update(
         target_port,
         enabled,
         engine: raw_engine,
+        protocol: raw_protocol,
         udp,
         transport: raw_transport,
         hops,
@@ -1079,6 +1108,7 @@ pub async fn update(
         && target_port.is_none()
         && enabled.is_none()
         && raw_engine.is_none()
+        && raw_protocol.is_none()
         && udp.is_none()
         && raw_transport.is_none()
         && hops.is_none()
@@ -1087,7 +1117,7 @@ pub async fn update(
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 name / target_host / target_port / enabled / engine / udp / transport / groups / hops 之一",
+            "至少需要提供 name / target_host / target_port / enabled / engine / protocol / udp / transport / groups / hops 之一",
         ));
     }
 
@@ -1109,6 +1139,10 @@ pub async fn update(
     let engine = match raw_engine.as_deref() {
         Some(raw) => Some(engine::normalize(raw)?),
         None => None,
+    };
+    let protocol = match raw_protocol.as_deref() {
+        Some(raw) => Some(protocol::normalize_chain(raw)?),
+        None => udp.map(|udp| protocol::from_legacy_udp(udp).to_string()),
     };
     let transport = match raw_transport.as_deref() {
         Some(raw) => Some(hop_transport::normalize(raw)?),
@@ -1133,14 +1167,22 @@ pub async fn update(
     ensure_targets_safe(&groups, final_target_host, final_target_port)?;
     let final_engine = engine.as_deref().unwrap_or(&existing.chain.engine);
     let final_transport = transport.as_deref().unwrap_or(&existing.chain.transport);
-    let final_udp = udp.unwrap_or(existing.chain.udp);
+    let final_protocol = protocol.as_deref().unwrap_or(&existing.chain.protocol);
     // 只在「安全相关的字段真的被改」时校验证书内容：证书过期后仍然要允许
     // 用户改名/停用/删除这条链，否则会被卡在一个无法自救的状态里。
     let security_changed =
-        raw_transport.is_some() || engine.is_some() || replace_groups || udp.is_some();
+        raw_transport.is_some() || engine.is_some() || replace_groups || protocol.is_some();
     if security_changed {
         validate_nftables_chain(final_engine, &groups)?;
-        validate_transport(&state, final_transport, final_engine, final_udp, &groups).await?;
+        validate_transport(
+            &state,
+            final_transport,
+            final_engine,
+            final_protocol,
+            &groups,
+        )
+        .await?;
+        protocol::ensure_realm_supported(final_protocol, final_engine)?;
     }
 
     let updated = repo::chains::update(
@@ -1152,7 +1194,7 @@ pub async fn update(
             target_port,
             enabled,
             engine,
-            udp,
+            protocol,
             transport,
             groups: replace_groups.then(|| new_groups(&groups)),
         },
@@ -1185,6 +1227,11 @@ pub async fn update(
             "engine",
             json!(&existing.chain.engine),
             json!(&updated.chain.engine),
+        ),
+        (
+            "protocol",
+            json!(&existing.chain.protocol),
+            json!(&updated.chain.protocol),
         ),
         ("udp", json!(existing.chain.udp), json!(updated.chain.udp)),
         (
@@ -1431,6 +1478,7 @@ mod tests {
             target_port: 443,
             enabled: true,
             engine: "native".into(),
+            protocol: "tcp".into(),
             udp: false,
             transport: "none".into(),
             created_at: 0,
@@ -1808,7 +1856,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "native".into(),
-                udp: false,
+                protocol: "tcp".into(),
             },
         )
         .await
@@ -2533,14 +2581,27 @@ mod tests {
         let derived = derive_forwards(&chain, &groups);
         assert_eq!(derived.len(), 2);
         assert!(derived.iter().all(|(_, forward)| !forward.udp));
+        assert!(
+            derived
+                .iter()
+                .all(|(_, forward)| forward.protocol == ForwardProtocol::Tcp),
+            "缺省协议必须是 tcp"
+        );
 
-        // 开启后两跳都必须带 udp：链级开关不允许只开一半。
+        // 开启后两跳都必须带 UDP：链级开关不允许只开一半。
+        chain.protocol = "both".into();
         chain.udp = true;
         let derived = derive_forwards(&chain, &groups);
         assert_eq!(derived.len(), 2);
         assert!(
             derived.iter().all(|(_, forward)| forward.udp),
-            "链的 udp 必须透传到每一跳"
+            "链的 udp 镜像位必须透传到每一跳"
+        );
+        assert!(
+            derived
+                .iter()
+                .all(|(_, forward)| forward.protocol == ForwardProtocol::Both),
+            "链的 protocol 必须透传到每一跳"
         );
     }
 
@@ -2784,6 +2845,134 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK, "unexpected: {value}");
         assert_eq!(value["chain"]["udp"], false);
+    }
+
+    /// 链的协议模式：透传到每一跳；仅 UDP / 非法值 / realm / TLS 的冲突全部在保存时拒绝。
+    #[tokio::test]
+    async fn chain_protocol_reaches_every_hop_and_rejects_bad_combinations() {
+        use pierwave_proto::ForwardProtocol;
+
+        let fixture = setup().await;
+        let two_groups = |base: i64| {
+            vec![
+                group(
+                    None,
+                    Some("round_robin"),
+                    &[group_member(&fixture.a, base, 0)],
+                ),
+                group(
+                    None,
+                    Some("round_robin"),
+                    &[group_member(&fixture.b, base + 1, 0)],
+                ),
+            ]
+        };
+
+        let mut body = groups_body("仅 UDP 链", "1.1.1.1", 443, &two_groups(9201));
+        body["protocol"] = json!("udp");
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        assert_eq!(value["chain"]["protocol"], "udp");
+        assert_eq!(value["chain"]["udp"], false, "仅 UDP 不能误标旧镜像位");
+        let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+
+        for (server_id, listen_port) in [(&fixture.a, 9201), (&fixture.b, 9202)] {
+            let server = repo::servers::find_by_id(&fixture.state.db.pool, server_id)
+                .await
+                .unwrap();
+            let rendered =
+                super::super::desired::render(&fixture.state, &server, "https://panel.example.com")
+                    .await
+                    .unwrap();
+            let hop = rendered
+                .forwards
+                .iter()
+                .find(|forward| forward.id.starts_with(&format!("chain-{chain_id}-")))
+                .expect("每一跳都要出现在自己的期望态里");
+            assert_eq!(hop.protocol, ForwardProtocol::Udp, "协议必须透传到每一跳");
+            assert!(!hop.udp, "旧镜像位不能把仅 UDP 写成双开");
+            assert_eq!(hop.listen_port, listen_port);
+        }
+
+        // 非法协议。
+        let mut bad = groups_body("坏协议", "1.1.1.1", 443, &two_groups(9301));
+        bad["protocol"] = json!("sctp");
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(bad),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {value}");
+        assert_eq!(value["code"], "chain.protocol_invalid");
+
+        // realm 固定双开：没有 TLS 时给 realm 的专属错误。
+        let mut realm_udp = groups_body("realm 仅 UDP", "1.1.1.1", 443, &two_groups(9401));
+        realm_udp["engine"] = json!("realm");
+        realm_udp["protocol"] = json!("udp");
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(realm_udp),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {value}");
+        assert_eq!(value["code"], "forward.protocol_udp_requires_native");
+
+        // 加密链只走 TCP：仅 UDP + tls 给专属错误。
+        let mut tls_udp = groups_body("TLS 仅 UDP", "1.1.1.1", 443, &two_groups(9501));
+        tls_udp["engine"] = json!("realm");
+        tls_udp["protocol"] = json!("udp");
+        tls_udp["transport"] = json!("tls");
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(tls_udp),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {value}");
+        assert_eq!(value["code"], "chain.protocol_udp_with_tls");
+
+        // both 含 UDP：走既有的「加密链不支持 UDP」错误。
+        let mut tls_both = groups_body("TLS both", "1.1.1.1", 443, &two_groups(9601));
+        tls_both["engine"] = json!("realm");
+        tls_both["protocol"] = json!("both");
+        tls_both["transport"] = json!("tls");
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(tls_both),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {value}");
+        assert_eq!(value["code"], "chain.tls_udp_unsupported");
+
+        // 旧客户端只发 udp=true 仍映射成 both。
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::PATCH,
+            &format!("/api/v1/chains/{chain_id}"),
+            Some(json!({"udp": true})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        assert_eq!(value["chain"]["protocol"], "both");
     }
 
     #[tokio::test]
@@ -3176,7 +3365,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "realm".into(),
-                udp: false,
+                protocol: "tcp".into(),
                 transport: "tls".into(),
                 groups: vec![
                     repo::chains::NewChainGroup {
@@ -3272,7 +3461,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "realm".into(),
-                udp: false,
+                protocol: "tcp".into(),
                 transport: "tls".into(),
                 groups: vec![
                     repo::chains::NewChainGroup {
@@ -3369,6 +3558,7 @@ mod tests {
         let chain = Chain {
             transport: "tls".into(),
             engine: "realm".into(),
+            protocol: "tcp".into(),
             udp: false,
             ..test_chain("c-tls-dirty")
         };
@@ -3416,6 +3606,7 @@ mod tests {
         assert_eq!(
             plan_from_certificates(
                 &Chain {
+                    protocol: "both".into(),
                     udp: true,
                     ..chain.clone()
                 },

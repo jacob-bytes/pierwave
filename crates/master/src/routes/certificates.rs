@@ -739,7 +739,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "realm".into(),
-                udp: false,
+                protocol: "tcp".into(),
                 transport: "tls".into(),
                 groups: vec![
                     repo::chains::NewChainGroup {

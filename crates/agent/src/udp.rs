@@ -15,8 +15,8 @@
 //! 3. **有上限**：每条规则同时存在的会话不超过 [`MAX_SESSIONS`]，超限拒绝新会话
 //!    并只告警一次——被打爆时宁可丢新客户端，也不能把 Agent 的 fd 吃光。
 //!
-//! `udp = false` 的规则完全不会走到这个模块（由 `forward` 模块决定），
-//! 因此 native 的 TCP 行为不受影响。
+//! 只有 `protocol = udp / both` 的规则会走到这个模块（由 `forward` 模块决定）；
+//! `protocol = tcp` 的规则完全不碰 UDP，因此 native 的 TCP 行为不受影响。
 
 use std::collections::HashMap;
 use std::io;

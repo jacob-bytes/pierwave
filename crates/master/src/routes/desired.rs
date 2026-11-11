@@ -9,8 +9,10 @@ use serde_json::Value;
 
 use pierwave_domain::certificate;
 use pierwave_domain::models::{Certificate, Server};
-use pierwave_domain::{credentials, engine, hop_transport, release, repo, time, xray};
-use pierwave_proto::{AgentUpgradePlan, DesiredForward, DesiredNode, ForwardEngine, ManagedFile};
+use pierwave_domain::{credentials, engine, hop_transport, protocol, release, repo, time, xray};
+use pierwave_proto::{
+    AgentUpgradePlan, DesiredForward, DesiredNode, ForwardEngine, ForwardProtocol, ManagedFile,
+};
 
 use crate::error::AppResult;
 use crate::state::AppState;
@@ -167,8 +169,10 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
             strategy: Default::default(),
             // 库里的字符串已由写路径校验；读路径用 from_name 兜底旧数据。
             engine: ForwardEngine::from_name(engine_name),
-            // 只有 native / nftables 会读这一位；realm 的配置固定转发 UDP。
-            udp: forward.udp,
+            // 旧 udp 位继续填镜像值：只用于兼容旧 Agent。
+            udp: protocol::is_both(&forward.protocol),
+            // 读路径以 protocol 为准；非法/空串回落 tcp。
+            protocol: ForwardProtocol::from_name(protocol::from_db(&forward.protocol)),
             // 独立转发永远是明文；transport 只属于链。
             listen_transport: None,
             remote_transport: None,
@@ -505,7 +509,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "nftables".into(),
-                udp: false,
+                protocol: "tcp".into(),
             },
         )
         .await
@@ -690,7 +694,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "native".into(),
-                udp: false,
+                protocol: "tcp".into(),
             },
         )
         .await
@@ -705,7 +709,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "native".into(),
-                udp: false,
+                protocol: "tcp".into(),
                 transport: "none".into(),
                 groups: vec![
                     repo::chains::NewChainGroup {
@@ -803,7 +807,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "realm".into(),
-                udp: false,
+                protocol: "tcp".into(),
             },
         )
         .await
@@ -818,7 +822,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "native".into(),
-                udp: false,
+                protocol: "tcp".into(),
             },
         )
         .await
@@ -861,7 +865,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "native".into(),
-                udp: false,
+                protocol: "tcp".into(),
             },
         )
         .await
@@ -876,7 +880,7 @@ mod tests {
                 target_port: 443,
                 enabled: false,
                 engine: "native".into(),
-                udp: false,
+                protocol: "tcp".into(),
             },
         )
         .await
@@ -912,6 +916,7 @@ mod tests {
                         targets: Vec::new(),
                         strategy: Default::default(),
                         engine: ForwardEngine::Native,
+                        protocol: Default::default(),
                         udp: false,
                         listen_transport: None,
                         remote_transport: None,

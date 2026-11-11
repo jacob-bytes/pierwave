@@ -305,15 +305,19 @@ pub fn check_certificate_sni(cert: &Certificate, sni: &str) -> Result<(), Domain
     ))
 }
 
-/// 链级前置校验：模式与引擎/组数/UDP/每组证书是否自洽。
+/// 链级前置校验：模式与引擎/组数/协议/每组证书是否自洽。
 ///
 /// `group_certs` 按 seq 升序，元素是写路径收到的 `cert_id`（已 trim，空串视为
 /// `None`）。入口组（下标 0）永远不允许有证书；`tls` 时每个 seq >= 1 的组必填。
 /// 证书**内容**（过期/域名/私钥）由 [`validate_certificate`] 另行校验。
+///
+/// `protocol` 是链的协议模式（`tcp` / `udp` / `both`）：
+/// * `udp` + `tls` → `chain.protocol_udp_with_tls`（加密链只走 TCP）；
+/// * `both` + `tls` → 既有的 `chain.tls_udp_unsupported`（UDP 不走 transport）。
 pub fn validate_chain(
     transport: &str,
     engine: &str,
-    udp: bool,
+    protocol: &str,
     group_certs: &[Option<&str>],
 ) -> Result<(), DomainError> {
     let mode = normalize(transport)?;
@@ -330,6 +334,9 @@ pub fn validate_chain(
     if mode != TLS {
         return Ok(());
     }
+    // 协议冲突优先于引擎/跳数/证书：用户选了「仅 UDP + TLS」时，
+    // 最具体的 chain.protocol_udp_with_tls 才是能指导修复的错误。
+    crate::protocol::ensure_tls_compatible(protocol, &mode)?;
     if !crate::engine::is_realm(engine) {
         return Err(DomainError::new(
             "chain.tls_requires_realm",
@@ -342,10 +349,10 @@ pub fn validate_chain(
             "至少两跳的链才有跳间链路",
         ));
     }
-    if udp {
+    if crate::protocol::allows_udp(protocol) {
         return Err(DomainError::new(
             "chain.tls_udp_unsupported",
-            "加密链不支持 UDP，请关闭该链的 UDP",
+            "加密链不支持 UDP，请把链的协议改为 tcp",
         ));
     }
     for (seq, cert) in group_certs.iter().enumerate().skip(1) {
@@ -669,45 +676,61 @@ mod tests {
     }
 
     #[test]
-    fn chain_rules_cover_engine_hops_udp_and_certs() {
+    fn chain_rules_cover_engine_hops_protocol_and_certs() {
         let certs = [None, Some("c1"), Some("c2")];
-        validate_chain("tls", "realm", false, &certs).unwrap();
-        validate_chain("none", "native", true, &[None, None]).unwrap();
-        validate_chain("none", "realm", true, &[None]).unwrap();
+        validate_chain("tls", "realm", "tcp", &certs).unwrap();
+        validate_chain("none", "native", "both", &[None, None]).unwrap();
+        validate_chain("none", "realm", "both", &[None]).unwrap();
+        validate_chain("none", "realm", "udp", &[None]).unwrap();
 
         assert_eq!(
-            validate_chain("tls", "native", false, &certs)
+            validate_chain("tls", "native", "tcp", &certs)
                 .unwrap_err()
                 .code,
             "chain.tls_requires_realm"
         );
         assert_eq!(
-            validate_chain("tls", "realm", false, &[None])
+            validate_chain("tls", "realm", "tcp", &[None])
                 .unwrap_err()
                 .code,
             "chain.tls_requires_two_hops"
         );
         assert_eq!(
-            validate_chain("tls", "realm", true, &certs)
+            validate_chain("tls", "realm", "both", &certs)
                 .unwrap_err()
                 .code,
-            "chain.tls_udp_unsupported"
+            "chain.tls_udp_unsupported",
+            "both 含 UDP，加密链必须拒绝"
         );
         assert_eq!(
-            validate_chain("tls", "realm", false, &[None, None, Some("c2")])
+            validate_chain("tls", "realm", "udp", &certs)
+                .unwrap_err()
+                .code,
+            "chain.protocol_udp_with_tls",
+            "仅 UDP 与 TLS 的组合必须给专属错误码"
+        );
+        assert_eq!(
+            validate_chain("tls", "native", "udp", &[None])
+                .unwrap_err()
+                .code,
+            "chain.protocol_udp_with_tls",
+            "协议冲突优先于引擎/跳数错误"
+        );
+        assert_eq!(
+            validate_chain("tls", "realm", "tcp", &[None, None, Some("c2")])
                 .unwrap_err()
                 .code,
             "chain.tls_group_cert_required"
         );
         assert_eq!(
-            validate_chain("none", "realm", false, &[Some("c0")])
+            validate_chain("none", "realm", "tcp", &[Some("c0")])
                 .unwrap_err()
                 .code,
             "chain.tls_group_cert_forbidden",
             "入口组在任何模式下都不允许挂证书"
         );
         assert_eq!(
-            validate_chain("tls", "realm", false, &[Some("c0"), Some("c1")])
+            validate_chain("tls", "realm", "tcp", &[Some("c0"), Some("c1")])
                 .unwrap_err()
                 .code,
             "chain.tls_group_cert_forbidden"

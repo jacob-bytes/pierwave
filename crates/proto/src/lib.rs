@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 15;
+pub const PROTOCOL_VERSION: u32 = 16;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,13 +133,20 @@ pub struct DesiredForward {
     /// 与升级前的行为完全一致。
     #[serde(default)]
     pub engine: ForwardEngine,
-    /// 这条规则是否**同时**在 `listen_port` 上监听 UDP（与 TCP 同端口号）。
+    /// 旧版兼容位：这条规则是否**额外**在 `listen_port` 上监听 UDP。
     ///
-    /// 对 `native` / `nftables` 引擎有意义：`realm` 的配置固定 `use_udp = true`，
-    /// 总是转发 UDP，不看这个字段。旧主控不下发时按 `false`，也就是与升级前
-    /// 完全一致（只监听 TCP）。
+    /// 新主控以 [`DesiredForward::protocol`] 为准；这一位只用于让升级后的
+    /// Agent 继续兼容「只会下发 `udp` 布尔值」的旧主控。读时必须用
+    /// [`DesiredForward::effective_protocol`]，它会把 `protocol = tcp` 且
+    /// `udp = true` 的旧报文解释成 [`ForwardProtocol::Both`]。
     #[serde(default)]
     pub udp: bool,
+    /// 这条规则要监听的协议（`tcp` / `udp` / `both`）。
+    ///
+    /// 新主控下发该字段；旧主控没有它，反序列化后是 [`ForwardProtocol::Tcp`]，
+    /// 再由 [`DesiredForward::effective_protocol`] 结合旧 `udp` 位还原语义。
+    #[serde(default)]
+    pub protocol: ForwardProtocol,
     /// realm 这一跳的**入站** transport 串，例如
     /// `tls;cert=/usr/local/etc/xray/certs/<id>.pem;key=/usr/local/etc/xray/certs/<id>.key`。
     ///
@@ -161,11 +168,76 @@ pub struct DesiredForward {
     pub disable_udp: bool,
 }
 
+/// 一条转发规则监听的协议。
+///
+/// 存储与 API 里的字符串值就是这里的 snake_case 名字，两侧必须保持一致。
+/// 旧的布尔列 `udp` 只作为迁移来源，读路径以本枚举为准。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ForwardProtocol {
+    /// 只监听 TCP（默认，与升级前 `udp = false` 完全一致）。
+    #[default]
+    Tcp,
+    /// 只监听 UDP（仅 `native` / `nftables` 引擎支持）。
+    Udp,
+    /// 同一端口号上 TCP 与 UDP 都监听。
+    Both,
+}
+
+impl ForwardProtocol {
+    /// 把数据库/API 里的协议名映射成协议枚举。
+    ///
+    /// 未知值与空串一律回落 `tcp`：写路径由领域层严格校验，读路径的兜底
+    /// 必须保证旧数据仍能下发，而且最保守的结果是「只监听 TCP」，不会
+    /// 凭空多开一个 UDP 端口。
+    pub fn from_name(raw: &str) -> Self {
+        match raw.trim() {
+            "udp" => Self::Udp,
+            "both" => Self::Both,
+            _ => Self::Tcp,
+        }
+    }
+
+    /// 稳定的 snake_case 名字（与数据库/API 一致）。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Tcp => "tcp",
+            Self::Udp => "udp",
+            Self::Both => "both",
+        }
+    }
+
+    /// 是否监听 TCP。
+    pub const fn allows_tcp(self) -> bool {
+        matches!(self, Self::Tcp | Self::Both)
+    }
+
+    /// 是否监听 UDP。
+    pub const fn allows_udp(self) -> bool {
+        matches!(self, Self::Udp | Self::Both)
+    }
+}
+
+impl DesiredForward {
+    /// 实际生效的协议：兼容旧主控的 `udp = true`。
+    ///
+    /// 新主控会把 `protocol` 与旧 `udp` 位同时填好；旧主控没有 `protocol`
+    /// （默认 `tcp`），但可能下发 `udp = true`，那种报文必须继续同时监听两种协议。
+    pub fn effective_protocol(&self) -> ForwardProtocol {
+        if self.protocol == ForwardProtocol::Tcp && self.udp {
+            ForwardProtocol::Both
+        } else {
+            self.protocol
+        }
+    }
+}
+
 /// 转发引擎。
 ///
 /// `native` 是 Agent 自带的 TCP 监听（[`DesiredForward`] 里的实现）；
-/// `realm` 交给受管的 realm 子进程（`realm -c <config>`），TCP 与 UDP
-/// 同时转发（配置里 `use_udp = true`）。
+/// `realm` 交给受管的 realm 子进程（`realm -c <config>`）；哪些协议监听
+/// 由 [`DesiredForward::protocol`] 决定（`both` 写 `use_udp = true`，
+/// `tcp` 写 `use_udp = false`，`udp` 被主控拒绝）。
 ///
 /// 存储与 API 里的字符串值就是这里的 snake_case 名字，两侧必须保持一致。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -404,8 +476,8 @@ mod tests {
     #[test]
     fn forward_udp_defaults_to_false_for_old_masters() {
         assert_eq!(
-            PROTOCOL_VERSION, 15,
-            "新增 ForwardStatus.target_error 必须升协议版本"
+            PROTOCOL_VERSION, 16,
+            "新增 DesiredForward.protocol 必须升协议版本"
         );
 
         // 旧主控的 JSON 没有 udp：必须解析成 false，也就是「只监听 TCP」，
@@ -421,6 +493,12 @@ mod tests {
         }"#;
         let forward: DesiredForward = serde_json::from_str(old).unwrap();
         assert!(!forward.udp, "旧主控不下发 udp 时必须按 false 处理");
+        assert_eq!(
+            forward.protocol,
+            ForwardProtocol::Tcp,
+            "旧主控没有 protocol 时必须解析成 tcp"
+        );
+        assert_eq!(forward.effective_protocol(), ForwardProtocol::Tcp);
         // 旧主控没有 transport 字段：必须解析成「明文 + 不关 UDP」，
         // 升级 Agent 不能因此改变任何既有明文规则的行为。
         assert_eq!(forward.listen_transport, None);
@@ -436,6 +514,60 @@ mod tests {
         assert_eq!(json["udp"], true);
         let back: DesiredForward = serde_json::from_value(json).unwrap();
         assert_eq!(back, enabled);
+        assert_eq!(
+            back.effective_protocol(),
+            ForwardProtocol::Both,
+            "旧主控 udp=true 必须继续表示两种协议都开"
+        );
+    }
+
+    #[test]
+    fn forward_protocol_defaults_to_tcp_and_roundtrips() {
+        let old = r#"{
+            "id": "fwd-1",
+            "listen_port": 8443,
+            "target_host": "10.0.0.8",
+            "target_port": 443,
+            "targets": [],
+            "strategy": "round_robin",
+            "engine": "native"
+        }"#;
+        let forward: DesiredForward = serde_json::from_str(old).unwrap();
+        assert_eq!(ForwardProtocol::default(), ForwardProtocol::Tcp);
+        assert_eq!(forward.protocol, ForwardProtocol::Tcp);
+        assert_eq!(ForwardProtocol::from_name(" tcp "), ForwardProtocol::Tcp);
+        assert_eq!(ForwardProtocol::from_name("udp"), ForwardProtocol::Udp);
+        assert_eq!(ForwardProtocol::from_name("both"), ForwardProtocol::Both);
+        assert_eq!(
+            ForwardProtocol::from_name("wireguard"),
+            ForwardProtocol::Tcp,
+            "未知值必须保守回落 tcp"
+        );
+        assert_eq!(ForwardProtocol::Tcp.as_str(), "tcp");
+
+        for protocol in [
+            ForwardProtocol::Tcp,
+            ForwardProtocol::Udp,
+            ForwardProtocol::Both,
+        ] {
+            let spec = DesiredForward {
+                protocol,
+                ..forward.clone()
+            };
+            let json = serde_json::to_value(&spec).unwrap();
+            assert_eq!(json["protocol"], protocol.as_str());
+            let back: DesiredForward = serde_json::from_value(json).unwrap();
+            assert_eq!(back.protocol, protocol);
+            assert_eq!(back, spec);
+            assert_eq!(back.effective_protocol(), protocol);
+        }
+
+        assert!(ForwardProtocol::Tcp.allows_tcp());
+        assert!(!ForwardProtocol::Tcp.allows_udp());
+        assert!(!ForwardProtocol::Udp.allows_tcp());
+        assert!(ForwardProtocol::Udp.allows_udp());
+        assert!(ForwardProtocol::Both.allows_tcp());
+        assert!(ForwardProtocol::Both.allows_udp());
     }
 
     #[test]

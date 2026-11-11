@@ -1040,7 +1040,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "native".into(),
-                udp: false,
+                protocol: "tcp".into(),
                 transport: "none".into(),
                 groups: vec![chains_repo::NewChainGroup {
                     name: None,

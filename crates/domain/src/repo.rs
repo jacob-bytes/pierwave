@@ -1868,8 +1868,10 @@ pub mod forwards {
         pub enabled: bool,
         /// 已通过 `engine::normalize` 校验的引擎名（`native` / `realm` / `nftables`）。
         pub engine: String,
-        /// 是否同时监听 UDP；只对 `native` 有意义。
-        pub udp: bool,
+        /// 已通过 `protocol::normalize_forward` 校验的协议名（`tcp` / `udp` / `both`）。
+        ///
+        /// 旧的 `udp` 列由仓储按它同步写成镜像值，只用于兼容旧 API/旧 Agent。
+        pub protocol: String,
     }
 
     #[derive(Default)]
@@ -1881,8 +1883,9 @@ pub mod forwards {
         pub enabled: Option<bool>,
         /// `None` = 不改；`Some` 必须已通过 `engine::normalize` 校验。
         pub engine: Option<String>,
-        /// `None` = 不改。注意 `Some(false)` 绑成 0 而不是 NULL，COALESCE 能正常关掉。
-        pub udp: Option<bool>,
+        /// `None` = 不改；`Some` 必须已通过 `protocol::normalize_forward` 校验。
+        /// 改动时仓储会同步旧的 `udp` 镜像列。
+        pub protocol: Option<String>,
     }
 
     /// 心跳里一条转发状态落库前的形态（领域层不依赖 proto）。
@@ -1905,9 +1908,9 @@ pub mod forwards {
         let ts = now();
         sqlx::query(
             "INSERT INTO forwards
-                (id, server_id, name, listen_port, target_host, target_port, enabled, engine, udp,
-                 created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (id, server_id, name, listen_port, target_host, target_port, enabled, engine,
+                 protocol, udp, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(server_id)
@@ -1917,7 +1920,9 @@ pub mod forwards {
         .bind(input.target_port)
         .bind(i64::from(input.enabled))
         .bind(crate::engine::from_db(&input.engine))
-        .bind(i64::from(input.udp))
+        .bind(crate::protocol::from_db(&input.protocol))
+        // 旧 udp 列只作镜像：读路径以 protocol 为准。
+        .bind(i64::from(crate::protocol::is_both(&input.protocol)))
         .bind(ts)
         .bind(ts)
         .execute(pool)
@@ -1997,6 +2002,7 @@ pub mod forwards {
                 target_port = COALESCE(?, target_port),
                 enabled = COALESCE(?, enabled),
                 engine = COALESCE(?, engine),
+                protocol = COALESCE(?, protocol),
                 udp = COALESCE(?, udp),
                 updated_at = ?
              WHERE id = ?",
@@ -2007,7 +2013,13 @@ pub mod forwards {
         .bind(input.target_port)
         .bind(input.enabled.map(i64::from))
         .bind(input.engine.as_deref().map(crate::engine::from_db))
-        .bind(input.udp.map(i64::from))
+        .bind(input.protocol.as_deref().map(crate::protocol::from_db))
+        .bind(
+            input
+                .protocol
+                .as_deref()
+                .map(|protocol| i64::from(crate::protocol::is_both(protocol))),
+        )
         .bind(now())
         .bind(id)
         .execute(pool)
@@ -2182,8 +2194,10 @@ pub mod chains {
         pub enabled: bool,
         /// 已通过 `engine::normalize` 校验的引擎名（`native` / `realm` / `nftables`）。
         pub engine: String,
-        /// 整条链是否同时监听 UDP；只对 `native` 有意义。
-        pub udp: bool,
+        /// 已通过 `protocol::normalize_chain` 校验的协议名（`tcp` / `udp` / `both`）。
+        ///
+        /// 旧的 `udp` 列由仓储按它同步写成镜像值，只用于兼容旧 API/旧 Agent。
+        pub protocol: String,
         /// 已通过 `hop_transport::normalize` 校验的加密模式（`none` / `tls`）。
         pub transport: String,
         pub groups: Vec<NewChainGroup>,
@@ -2197,8 +2211,9 @@ pub mod chains {
         pub enabled: Option<bool>,
         /// `None` = 不改；`Some` 必须已通过 `engine::normalize` 校验。
         pub engine: Option<String>,
-        /// `None` = 不改。注意 `Some(false)` 绑成 0 而不是 NULL，COALESCE 能正常关掉。
-        pub udp: Option<bool>,
+        /// `None` = 不改；`Some` 必须已通过 `protocol::normalize_chain` 校验。
+        /// 改动时仓储会同步旧的 `udp` 镜像列。
+        pub protocol: Option<String>,
         /// `None` = 不改；`Some` 必须已通过 `hop_transport::normalize` 校验。
         pub transport: Option<String>,
         /// `None` = 不改组；`Some` = 整体替换。
@@ -2304,9 +2319,9 @@ pub mod chains {
         let mut tx = pool.begin().await?;
         sqlx::query(
             "INSERT INTO chains
-                (id, name, target_host, target_port, enabled, engine, udp, transport,
+                (id, name, target_host, target_port, enabled, engine, protocol, udp, transport,
                  created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(input.name.trim())
@@ -2314,7 +2329,9 @@ pub mod chains {
         .bind(input.target_port)
         .bind(i64::from(input.enabled))
         .bind(crate::engine::from_db(&input.engine))
-        .bind(i64::from(input.udp))
+        .bind(crate::protocol::from_db(&input.protocol))
+        // 旧 udp 列只作镜像：读路径以 protocol 为准。
+        .bind(i64::from(crate::protocol::is_both(&input.protocol)))
         .bind(crate::hop_transport::from_db(&input.transport))
         .bind(ts)
         .bind(ts)
@@ -2380,6 +2397,7 @@ pub mod chains {
                 target_port = COALESCE(?, target_port),
                 enabled = COALESCE(?, enabled),
                 engine = COALESCE(?, engine),
+                protocol = COALESCE(?, protocol),
                 udp = COALESCE(?, udp),
                 transport = COALESCE(?, transport),
                 updated_at = ?
@@ -2390,7 +2408,13 @@ pub mod chains {
         .bind(input.target_port)
         .bind(input.enabled.map(i64::from))
         .bind(input.engine.as_deref().map(crate::engine::from_db))
-        .bind(input.udp.map(i64::from))
+        .bind(input.protocol.as_deref().map(crate::protocol::from_db))
+        .bind(
+            input
+                .protocol
+                .as_deref()
+                .map(|protocol| i64::from(crate::protocol::is_both(protocol))),
+        )
         .bind(
             input
                 .transport
@@ -5110,7 +5134,7 @@ pub mod overview {
                     target_port: 443,
                     enabled: true,
                     engine: "native".into(),
-                    udp: false,
+                    protocol: "tcp".into(),
                 },
             )
             .await
@@ -5182,7 +5206,7 @@ pub mod overview {
                     target_port: 443,
                     enabled: true,
                     engine: "native".into(),
-                    udp: false,
+                    protocol: "tcp".into(),
                     transport: "none".into(),
                     groups: vec![super::super::chains::NewChainGroup {
                         name: None,

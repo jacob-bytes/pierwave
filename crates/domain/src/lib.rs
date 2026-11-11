@@ -14,6 +14,7 @@ pub mod hop_transport;
 pub mod metering;
 pub mod models;
 pub mod password;
+pub mod protocol;
 pub mod reality;
 pub mod release;
 pub mod repo;

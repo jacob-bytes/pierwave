@@ -1,4 +1,4 @@
-//! 单跳 TCP 端口转发管理（管理员）。
+//! 单跳端口转发管理（管理员；协议支持 tcp / udp / both）。
 //!
 //! 契约：`GET/POST /api/v1/servers/{id}/forwards`、`PATCH/DELETE /api/v1/forwards/{id}`。
 //!
@@ -14,7 +14,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use pierwave_domain::models::Server;
-use pierwave_domain::{engine, forwards, repo};
+use pierwave_domain::{engine, forwards, protocol, repo};
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -176,7 +176,13 @@ pub struct CreateForward {
     /// `native` / `realm` / `nftables`；缺省 = `native`（与迁移默认值一致）。
     #[serde(default)]
     pub engine: Option<String>,
-    /// 是否同时监听同端口的 UDP（只对 `native` 有意义）；缺省 = `false`。
+    /// 监听协议：`tcp`（缺省）/ `udp` / `both`。
+    ///
+    /// 不传时由旧 `udp` 布尔位推导（`true` → `both`），保证升级前的客户端
+    /// 继续按原语义工作。
+    #[serde(default)]
+    pub protocol: Option<String>,
+    /// 旧字段：是否同时监听同端口的 UDP；仅在没传 `protocol` 时生效。
     #[serde(default)]
     pub udp: bool,
 }
@@ -206,6 +212,11 @@ pub async fn create(
         Some(raw) => engine::normalize(raw)?,
         None => engine::DEFAULT.to_string(),
     };
+    let protocol = match req.protocol.as_deref() {
+        Some(raw) => protocol::normalize_forward(raw)?,
+        None => protocol::from_legacy_udp(req.udp).to_string(),
+    };
+    protocol::ensure_realm_supported(&protocol, &engine)?;
     ensure_nftables_supported(&server, &engine)?;
 
     let forward_name_for_error = name.clone();
@@ -219,7 +230,7 @@ pub async fn create(
             target_port: req.target_port,
             enabled: req.enabled,
             engine,
-            udp: req.udp,
+            protocol,
         },
     )
     .await
@@ -238,6 +249,7 @@ pub async fn create(
             "target_port": forward.target_port,
             "enabled": forward.enabled,
             "engine": &forward.engine,
+            "protocol": &forward.protocol,
             "udp": forward.udp,
         }),
     )
@@ -258,7 +270,10 @@ pub struct PatchForward {
     pub enabled: Option<bool>,
     /// `native` / `realm` / `nftables`；`None` = 不改。
     pub engine: Option<String>,
-    /// `None` = 不改；`Some(false)` 用来关掉 UDP。
+    /// `tcp` / `udp` / `both`；`None` = 不改。
+    pub protocol: Option<String>,
+    /// 旧字段：`None` = 不改；`Some(true)` → `both`、`Some(false)` → `tcp`。
+    /// 同时传 `protocol` 时以 `protocol` 为准。
     pub udp: Option<bool>,
 }
 
@@ -276,12 +291,13 @@ pub async fn update(
         && req.target_port.is_none()
         && req.enabled.is_none()
         && req.engine.is_none()
+        && req.protocol.is_none()
         && req.udp.is_none()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 name / listen_port / target_host / target_port / enabled / engine / udp 之一",
+            "至少需要提供 name / listen_port / target_host / target_port / enabled / engine / protocol / udp 之一",
         ));
     }
 
@@ -300,7 +316,16 @@ pub async fn update(
         Some(raw) => Some(engine::normalize(raw)?),
         None => None,
     };
-    ensure_nftables_supported(&server, engine.as_deref().unwrap_or(&existing.engine))?;
+    let protocol = match req.protocol.as_deref() {
+        Some(raw) => Some(protocol::normalize_forward(raw)?),
+        None => req
+            .udp
+            .map(|udp| protocol::from_legacy_udp(udp).to_string()),
+    };
+    let final_engine = engine.as_deref().unwrap_or(&existing.engine);
+    let final_protocol = protocol.as_deref().unwrap_or(&existing.protocol);
+    protocol::ensure_realm_supported(final_protocol, final_engine)?;
+    ensure_nftables_supported(&server, final_engine)?;
     if let Some(port) = req.target_port {
         forwards::validate_target_port(port)?;
     }
@@ -333,7 +358,7 @@ pub async fn update(
             target_port: req.target_port,
             enabled: req.enabled,
             engine,
-            udp: req.udp,
+            protocol,
         },
     )
     .await
@@ -365,6 +390,11 @@ pub async fn update(
         ),
         ("enabled", json!(existing.enabled), json!(forward.enabled)),
         ("engine", json!(&existing.engine), json!(&forward.engine)),
+        (
+            "protocol",
+            json!(&existing.protocol),
+            json!(&forward.protocol),
+        ),
         ("udp", json!(existing.udp), json!(forward.udp)),
     ]);
     crate::audit::record(
@@ -1208,6 +1238,106 @@ mod tests {
         };
         assert!(!by_id(&tcp_id), "PATCH udp=false 必须落库");
         assert!(by_id(&udp_id), "另一条没被改过，必须保持 true");
+    }
+
+    /// 协议模式：三种取值往返；仅 UDP + realm 被拒；非法值有稳定错误码。
+    #[tokio::test]
+    async fn protocol_modes_roundtrip_and_realm_rejects_udp_only() {
+        use pierwave_proto::ForwardProtocol;
+
+        let (app, state, cookie, server_id) = setup().await;
+        let uri = format!("/api/v1/servers/{server_id}/forwards");
+        let mut subscription = state.hub.subscribe(&server_id);
+
+        // 缺省 = tcp，期望态也必须是 tcp（不是旧 udp 镜像位的推断结果）。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &uri,
+            Some(forward_body(8443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["forward"]["protocol"], "tcp");
+        assert_eq!(body["forward"]["udp"], false);
+        let sent = next_forwards(&mut subscription.receiver).await;
+        assert_eq!(sent[0].protocol, ForwardProtocol::Tcp);
+        assert!(!sent[0].udp);
+
+        // 仅 UDP：落库与下发都以 protocol 为准。
+        let mut udp_body = forward_body(9443);
+        udp_body["protocol"] = json!("udp");
+        let (status, body) = request(&app, Some(&cookie), Method::POST, &uri, Some(udp_body)).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["forward"]["protocol"], "udp");
+        assert_eq!(body["forward"]["udp"], false, "仅 UDP 不能把旧位误标成双开");
+        let udp_id = body["forward"]["id"].as_str().unwrap().to_string();
+        let sent = next_forwards(&mut subscription.receiver).await;
+        let udp_forward = sent
+            .iter()
+            .find(|forward| forward.id == pierwave_domain::forwards::desired_id(&udp_id))
+            .expect("仅 UDP 规则必须下发");
+        assert_eq!(udp_forward.protocol, ForwardProtocol::Udp);
+        assert!(!udp_forward.udp);
+
+        // both：protocol 与旧镜像位都打开。
+        let mut both_body = forward_body(10443);
+        both_body["protocol"] = json!("both");
+        let (status, body) =
+            request(&app, Some(&cookie), Method::POST, &uri, Some(both_body)).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["forward"]["protocol"], "both");
+        assert_eq!(body["forward"]["udp"], true);
+        let sent = next_forwards(&mut subscription.receiver).await;
+        let both_forward = sent
+            .iter()
+            .find(|forward| forward.protocol == ForwardProtocol::Both)
+            .expect("both 规则必须下发");
+        assert!(both_forward.udp, "旧 Agent 仍需收到 udp=true 镜像位");
+
+        // 仅 UDP + realm：保存时就拒绝，不能靠下发时静默双开。
+        let mut realm_udp = forward_body(11443);
+        realm_udp["engine"] = json!("realm");
+        realm_udp["protocol"] = json!("udp");
+        let (status, body) =
+            request(&app, Some(&cookie), Method::POST, &uri, Some(realm_udp)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "forward.protocol_udp_requires_native");
+        assert_eq!(body["params"]["engine"], "realm");
+
+        // 非法协议：两种字段都走域名层校验。
+        let mut bad = forward_body(12443);
+        bad["protocol"] = json!("sctp");
+        let (status, body) = request(&app, Some(&cookie), Method::POST, &uri, Some(bad)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "forward.protocol_invalid");
+        assert_eq!(body["params"]["protocol"], "sctp");
+
+        // PATCH：已有 realm 规则改成仅 UDP 也必须被拦住。
+        let realm_uri = format!("/api/v1/forwards/{udp_id}");
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &realm_uri,
+            Some(json!({"engine": "realm"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "forward.protocol_udp_requires_native");
+
+        // 旧客户端只发 udp=true 仍然映射成 both。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &format!("/api/v1/forwards/{udp_id}"),
+            Some(json!({"udp": true})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["forward"]["protocol"], "both");
     }
 
     // 避免「只读 token 未使用」的假警告：`admin_id` 在 setup 里只用于建会话。

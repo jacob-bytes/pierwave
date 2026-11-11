@@ -1153,7 +1153,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "native".into(),
-                udp: false,
+                protocol: "tcp".into(),
             },
         )
         .await
@@ -1329,7 +1329,7 @@ mod tests {
                 target_port: 443,
                 enabled: true,
                 engine: "native".into(),
-                udp: false,
+                protocol: "tcp".into(),
                 transport: "none".into(),
                 groups: vec![repo::chains::NewChainGroup {
                     name: None,

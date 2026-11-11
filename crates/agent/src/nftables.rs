@@ -336,11 +336,16 @@ pub fn render_script(rules: &[(DesiredForward, SocketAddr)], bind_host: &str) ->
                 IpAddr::V4(_) => format!("dnat ip to {}:{}", target.ip(), target.port()),
                 IpAddr::V6(_) => format!("dnat ip6 to [{}]:{}", target.ip(), target.port()),
             };
-            lines.push(format!(
-                "        {matcher} tcp dport {} {dnat}",
-                rule.listen_port
-            ));
-            if rule.udp {
+            // 读路径以 protocol 为准；旧主控的 udp=true 由 effective_protocol
+            // 还原成 both。只生成所选协议的规则：仅 UDP 时不能留下 tcp dnat。
+            let protocol = rule.effective_protocol();
+            if protocol.allows_tcp() {
+                lines.push(format!(
+                    "        {matcher} tcp dport {} {dnat}",
+                    rule.listen_port
+                ));
+            }
+            if protocol.allows_udp() {
                 lines.push(format!(
                     "        {matcher} udp dport {} {dnat}",
                     rule.listen_port
@@ -425,6 +430,7 @@ mod tests {
             targets: Vec::new(),
             strategy: ForwardStrategy::RoundRobin,
             engine: ForwardEngine::Nftables,
+            protocol: pierwave_proto::ForwardProtocol::Both,
             udp: true,
             listen_transport: None,
             remote_transport: None,
@@ -475,10 +481,42 @@ mod tests {
     #[test]
     fn omits_udp_when_the_rule_does_not_enable_it() {
         let mut spec = rule("f1", 8080, "1.2.3.4", 80);
+        spec.protocol = pierwave_proto::ForwardProtocol::Tcp;
         spec.udp = false;
         let script = render_script(&[(spec, "1.2.3.4:80".parse().unwrap())], "0.0.0.0");
         assert!(script.contains("tcp dport 8080"));
         assert!(!script.contains("udp dport 8080"), "{script}");
+    }
+
+    #[test]
+    fn udp_only_rule_renders_only_udp_dnat() {
+        let mut spec = rule("f1", 8080, "1.2.3.4", 80);
+        spec.protocol = pierwave_proto::ForwardProtocol::Udp;
+        spec.udp = false;
+        let script = render_script(&[(spec, "1.2.3.4:80".parse().unwrap())], "0.0.0.0");
+        assert!(
+            script.contains("udp dport 8080 dnat ip to 1.2.3.4:80"),
+            "{script}"
+        );
+        assert!(
+            !script.contains("tcp dport 8080"),
+            "仅 UDP 模式不能生成 tcp dnat：{script}"
+        );
+    }
+
+    #[test]
+    fn both_protocol_renders_one_dnat_per_protocol() {
+        let mut spec = rule("f1", 8080, "1.2.3.4", 80);
+        spec.protocol = pierwave_proto::ForwardProtocol::Both;
+        spec.udp = true;
+        let script = render_script(&[(spec, "1.2.3.4:80".parse().unwrap())], "0.0.0.0");
+        for protocol in ["tcp", "udp"] {
+            assert_eq!(
+                script.matches(&format!("{protocol} dport 8080")).count(),
+                2,
+                "prerouting 与 output 各一条 {protocol}：{script}"
+            );
+        }
     }
 
     #[tokio::test]

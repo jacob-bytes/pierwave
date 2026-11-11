@@ -234,3 +234,32 @@ apply 结果的 `warnings` 里出现「链『X』未下发：…」，链视图�
 前端 i18n 键（`errors.chain.*`）需由前端 lane 按上表补齐；本轮后端只保证
 `code`/`params` 稳定与中文兜底。 / Frontend i18n keys (`errors.chain.*`) are added by the web
 lane; this backend change guarantees stable `code`/`params` plus the Chinese fallback.
+
+### 转发协议模式（P15.4）/ Forward protocol mode
+
+转发与链的 `protocol` 只有 `tcp`（默认）/ `udp` / `both` 三种取值。写路径严格校验，
+读路径对历史脏数据回落 `tcp`（不会凭空多开 UDP 端口）。旧的 `udp` 布尔位只作为
+迁移 `0034` 的来源，以及旧客户端/旧 Agent 的兼容镜像。
+
+| code | 中文 | English | params |
+|---|---|---|---|
+| `forward.protocol_invalid` | 转发协议「{protocol}」无效，只支持 tcp / udp / both | Invalid forward protocol "{protocol}"; expected tcp / udp / both | allowed, protocol |
+| `chain.protocol_invalid` | 链的转发协议「{protocol}」无效，只支持 tcp / udp / both | Invalid chain protocol "{protocol}"; expected tcp / udp / both | allowed, protocol |
+| `forward.protocol_udp_requires_native` | realm 引擎固定同时转发 TCP 与 UDP，不支持仅 UDP；请改用 native 或 nftables 引擎 | The realm engine always forwards both TCP and UDP; use the native or nftables engine for UDP-only | engine, feature, protocol |
+| `chain.protocol_udp_with_tls` | 加密链只走 TCP，不能选择仅 UDP | Encrypted chains are TCP-only; UDP-only is not supported | protocol, transport |
+
+行为矩阵（写路径）/ Behaviour matrix (write path):
+
+| 场景 / Case | 结果 / Result |
+|---|---|
+| `protocol` 不在白名单 | `forward.protocol_invalid` / `chain.protocol_invalid` |
+| `protocol = udp` 且 `engine = realm` | `forward.protocol_udp_requires_native`（转发与链共用） |
+| `protocol = udp` 且链 `transport = tls` | `chain.protocol_udp_with_tls` |
+| `protocol = both` 且链 `transport = tls` | `chain.tls_udp_unsupported`（UDP 不走 transport） |
+| 只传旧字段 `udp = true` | 归一化为 `protocol = both`（旧客户端兼容） |
+| 只传旧字段 `udp = false` | 归一化为 `protocol = tcp` |
+
+迁移 `0034_forward_protocol.sql`：`udp = 1 → both`，`udp = 0 → tcp`；`udp` 列保留，
+但读写行为只认 `protocol`。Agent 侧：native 按所选协议绑定（仅 UDP 时完全不绑 TCP）；
+nftables 只为所选协议生成 DNAT 规则；realm 的 `both` 写 `use_udp = true`，`tcp` 写
+`use_udp = false` 并给端点加 `network = { use_udp = false }`。
