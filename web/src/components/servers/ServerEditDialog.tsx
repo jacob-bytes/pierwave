@@ -1,7 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import {
-  ExternalLinkIcon,
   Loader2Icon,
   SlidersHorizontalIcon,
 } from "lucide-react";
@@ -20,11 +19,11 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { displayAgentVersion } from "@/lib/agentUpgrade";
 import type { Server } from "@/lib/api";
-import { isCountryCode } from "@/lib/country";
+import { ISO_COUNTRY_CODES, countryDisplayName, isCountryCode } from "@/lib/country";
 import { errorText, isNotFound } from "@/lib/errors";
 import { useUpdateServer } from "@/lib/queries";
 import { t, useI18n } from "@/i18n";
-import { countryLookupUrl } from "@/lib/country";
+
 
 interface ServerEditDialogProps {
   open: boolean;
@@ -43,6 +42,7 @@ export function ServerEditDialog({
   onOpenChange,
   server,
 }: ServerEditDialogProps) {
+
   const { locale } = useI18n();
   const updateServer = useUpdateServer();
   // Dialog 只在选中服务器时挂载，初始值就是最新值；不跟随轮询覆盖未保存的修改。
@@ -136,6 +136,7 @@ export function ServerEditDialog({
               spellCheck={false}
               disabled={updateServer.isPending}
               aria-describedby="server-country-desc"
+              list="server-country-list"
               className="w-28 font-mono tracking-[0.2em] uppercase"
             />
             <p
@@ -143,16 +144,12 @@ export function ServerEditDialog({
               className="text-xs leading-relaxed text-muted-foreground"
             >
               {t("servers.countryHint")}
-              <a
-                href={countryLookupUrl(locale)}
-                target="_blank"
-                rel="noreferrer"
-                className="ml-1 inline-flex items-center gap-0.5 font-medium text-primary underline-offset-4 hover:underline"
-              >
-                {t("servers.countryLookup")}
-                <ExternalLinkIcon className="icon-sm" aria-hidden="true" />
-              </a>
             </p>
+            <datalist id="server-country-list">
+  {ISO_COUNTRY_CODES.map((code) => (
+    <option key={code} value={code} label={countryDisplayName(code, locale) ?? code} />
+  ))}
+</datalist>
           </div>
 
           <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-muted/30 p-3">

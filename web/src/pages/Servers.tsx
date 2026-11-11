@@ -20,7 +20,6 @@ import {
   TriangleAlertIcon,
   WaypointsIcon,
   WorkflowIcon,
-  ExternalLinkIcon,
 } from "lucide-react";
 import {
   EmptyState,
@@ -108,7 +107,7 @@ import {
   type BatchSelectionState,
 } from "@/lib/agentUpgradeBatch";
 import { copyText } from "@/lib/clipboard";
-import { isCountryCode } from "@/lib/country";
+import { ISO_COUNTRY_CODES, countryDisplayName, isCountryCode } from "@/lib/country";
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
 import { useAllNodes, useCreateServer, useServers } from "@/lib/queries";
@@ -117,7 +116,6 @@ import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 import { useIsDesktop } from "@/lib/useIsDesktop";
-import { countryLookupUrl } from "@/lib/country";
 
 const COLUMN_COUNT = 11;
 /** 心跳超过这个时长没有更新就不该再当作实时数据。 */
@@ -1309,6 +1307,7 @@ export default function ServersPage() {
                 spellCheck={false}
                 disabled={create.isPending}
                 aria-describedby="create-server-country-desc"
+                list="create-server-country-list"
                 className="w-28 font-mono tracking-[0.2em] uppercase"
               />
               <p
@@ -1316,16 +1315,12 @@ export default function ServersPage() {
                 className="text-xs text-muted-foreground"
               >
                 {t("servers.countryHint")}
-              <a
-                href={countryLookupUrl(locale)}
-                target="_blank"
-                rel="noreferrer"
-                className="ml-1 inline-flex items-center gap-0.5 font-medium text-primary underline-offset-4 hover:underline"
-              >
-                {t("servers.countryLookup")}
-                <ExternalLinkIcon className="icon-sm" aria-hidden="true" />
-              </a>
               </p>
+            <datalist id="create-server-country-list">
+  {ISO_COUNTRY_CODES.map((code) => (
+    <option key={code} value={code} label={countryDisplayName(code, locale) ?? code} />
+  ))}
+</datalist>
             </div>
 
             <div className="space-y-2">
