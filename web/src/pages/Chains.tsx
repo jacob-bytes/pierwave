@@ -238,14 +238,17 @@ function HopArrow({
 
   return (
     <div className="flex shrink-0 flex-row items-center justify-center gap-1.5 py-1 lg:flex-col lg:gap-0.5 lg:py-0">
-      <span
-        className={cn(
-          "whitespace-nowrap type-micro tabular-nums leading-none",
-          LATENCY_TONE_CLASS[tone],
-        )}
-      >
-        {hopLatencyLabel(latencyMs)}
-      </span>
+      {/* 没有实测数据时不画占位横线：留空比一条「—」更干净，箭头和协议标记照常显示 */}
+      {latencyMs !== null ? (
+        <span
+          className={cn(
+            "whitespace-nowrap type-micro tabular-nums leading-none",
+            LATENCY_TONE_CLASS[tone],
+          )}
+        >
+          {hopLatencyLabel(latencyMs)}
+        </span>
+      ) : null}
       <div className="flex items-center text-muted-foreground">
         <span
           className="hidden h-px w-2.5 bg-border lg:block"
