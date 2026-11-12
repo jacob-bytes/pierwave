@@ -1901,6 +1901,10 @@ pub mod forwards {
         pub target_error: Option<String>,
         /// 逐目标探测结果；空 = 未探测（存 NULL），不能写成 0ms。
         pub targets: Vec<NewTargetProbe>,
+        /// Agent 统计的入方向累计字节；`None` = 没有数据源 / 旧 Agent。
+        pub traffic_in: Option<u64>,
+        /// Agent 统计的出方向累计字节；nftables / realm 为 `None`。
+        pub traffic_out: Option<u64>,
     }
 
     /// 心跳里一个 target 的探测结果（与线协议的 `TargetProbe` 同形，
@@ -2152,8 +2156,8 @@ pub mod forwards {
             sqlx::query(
                 "INSERT INTO forward_status
                     (server_id, forward_id, listening, error, target_ok, target_error,
-                     target_fail_count, targets_json, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     target_fail_count, targets_json, traffic_in, traffic_out, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(server_id, forward_id) DO UPDATE SET
                     listening = excluded.listening,
                     error = excluded.error,
@@ -2161,6 +2165,8 @@ pub mod forwards {
                     target_error = excluded.target_error,
                     target_fail_count = excluded.target_fail_count,
                     targets_json = excluded.targets_json,
+                    traffic_in = excluded.traffic_in,
+                    traffic_out = excluded.traffic_out,
                     updated_at = excluded.updated_at",
             )
             .bind(server_id)
@@ -2171,12 +2177,279 @@ pub mod forwards {
             .bind(&status.target_error)
             .bind(fail_count)
             .bind(&targets_json)
+            // u64 → INTEGER：真实流量不可能接近 i64::MAX；截断只发生在脏数据上。
+            .bind(
+                status
+                    .traffic_in
+                    .map(|value| value.min(i64::MAX as u64) as i64),
+            )
+            .bind(
+                status
+                    .traffic_out
+                    .map(|value| value.min(i64::MAX as u64) as i64),
+            )
             .bind(ts)
             .execute(&mut *tx)
             .await?;
         }
         tx.commit().await?;
+
+        // 延迟历史是观测数据，写入失败不能反过来把心跳状态判成失败：
+        // 状态已经提交，这里只 warn，下一轮心跳会带来新的样本。
+        let mut recorded = false;
+        for status in statuses {
+            for probe in &status.targets {
+                if !probe.ok {
+                    // 失败探测无论带没带 latency 都不进历史。
+                    continue;
+                }
+                let Some(latency_ms) = probe.latency_ms else {
+                    // 成功但没有延迟值：没有可用样本，绝不写成 0ms。
+                    continue;
+                };
+                match super::latency::record_sample(
+                    pool,
+                    ts,
+                    server_id,
+                    &status.forward_id,
+                    &probe.server_id,
+                    i64::from(latency_ms),
+                )
+                .await
+                {
+                    Ok(()) => recorded = true,
+                    Err(error) => {
+                        tracing::warn!(error = %error, "写入延迟样本失败（不影响心跳状态）")
+                    }
+                }
+            }
+        }
+        if recorded {
+            // 保留 7 天：写入时顺带清理，避免额外调度器；ts 上有索引，代价很小。
+            if let Err(error) =
+                super::latency::purge_before(pool, ts - super::latency::RETENTION_SECS).await
+            {
+                tracing::warn!(error = %error, "清理过期延迟样本失败");
+            }
+        }
         Ok(())
+    }
+}
+
+/// 链路延迟历史样本（迁移 0036）。
+///
+/// 只存**成功**的探测（`ok = true` 且 `latency_ms` 非空）；失败/未探测不落
+/// 样本，历史里因此不会出现「0ms」这种把不可达伪装成极快的脏点。
+pub mod latency {
+    use super::*;
+
+    /// 保留 7 天。链视图按 `hours` 查询时最多也就回看 168 小时。
+    pub const RETENTION_SECS: i64 = 7 * 24 * 60 * 60;
+
+    /// 同一 `(forward_id, target_server_id)` 30 秒内只保留一行：
+    /// 心跳默认 15 秒一次，不去重会写成两倍的行数。
+    pub const DEDUP_SECS: i64 = 30;
+
+    #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
+    pub struct LatencySample {
+        pub ts: i64,
+        pub server_id: String,
+        pub forward_id: String,
+        pub target_server_id: String,
+        pub latency_ms: i64,
+    }
+
+    /// 写一条样本；`ts` 由调用方传入（生产是当前时间，测试可造历史数据）。
+    ///
+    /// 去重口径：同 `(forward_id, target_server_id)` 已有一行落在
+    /// `(ts - 30s, ts]` 内时，更新那一行的值（保留窗口起点的时间戳），
+    /// 否则插入新行。这样「30 秒内重复」不会产生第二条，而超过 30 秒的
+    /// 新样本仍然保留。
+    pub async fn record_sample(
+        pool: &SqlitePool,
+        ts: i64,
+        server_id: &str,
+        forward_id: &str,
+        target_server_id: &str,
+        latency_ms: i64,
+    ) -> anyhow::Result<()> {
+        // 只更新值，**不动 ts**：ts 是这个 30 秒窗口的第一条样本时刻。
+        // 如果连 ts 一起推到当前时间，15 秒一次的心跳会让同一行永远「在 30 秒内」，
+        // 于是永远只更新这一行、再也不产生新样本。
+        let updated = sqlx::query(
+            "UPDATE forward_latency_samples
+                SET server_id = ?, latency_ms = ?
+              WHERE rowid = (
+                    SELECT rowid FROM forward_latency_samples
+                     WHERE forward_id = ? AND target_server_id = ?
+                       AND ts <= ? AND ts > ?
+                     ORDER BY ts DESC LIMIT 1
+              )",
+        )
+        .bind(server_id)
+        .bind(latency_ms)
+        .bind(forward_id)
+        .bind(target_server_id)
+        .bind(ts)
+        .bind(ts - DEDUP_SECS)
+        .execute(pool)
+        .await?;
+        if updated.rows_affected() == 0 {
+            sqlx::query(
+                "INSERT INTO forward_latency_samples
+                    (ts, server_id, forward_id, target_server_id, latency_ms)
+                 VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(ts)
+            .bind(server_id)
+            .bind(forward_id)
+            .bind(target_server_id)
+            .bind(latency_ms)
+            .execute(pool)
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// 读取一批 forward 在 `since`（含）之后的样本，按时间升序。
+    ///
+    /// 链视图一次最多 6×8 条 forward，`IN (...)` 一次查完，不在循环里查库。
+    pub async fn list_for_forwards(
+        pool: &SqlitePool,
+        forward_ids: &[String],
+        since: i64,
+    ) -> anyhow::Result<Vec<LatencySample>> {
+        if forward_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut builder = sqlx::QueryBuilder::new(
+            "SELECT ts, server_id, forward_id, target_server_id, latency_ms
+               FROM forward_latency_samples
+              WHERE ts >= ",
+        );
+        builder.push_bind(since);
+        builder.push(" AND forward_id IN (");
+        let mut separated = builder.separated(", ");
+        for id in forward_ids {
+            separated.push_bind(id.clone());
+        }
+        separated.push_unseparated(")");
+        builder.push(" ORDER BY ts ASC, forward_id ASC, target_server_id ASC");
+        Ok(builder
+            .build_query_as::<LatencySample>()
+            .fetch_all(pool)
+            .await?)
+    }
+
+    /// 删除早于 `cutoff` 的样本，返回删除行数。
+    ///
+    /// 由 [`super::forwards::save_status`] 在写入样本后顺带调用；单独暴露
+    /// 是为了测试和将来的维护工具。
+    pub async fn purge_before(pool: &SqlitePool, cutoff: i64) -> anyhow::Result<u64> {
+        let result = sqlx::query("DELETE FROM forward_latency_samples WHERE ts < ?")
+            .bind(cutoff)
+            .execute(pool)
+            .await?;
+        Ok(result.rows_affected())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        async fn setup() -> SqlitePool {
+            let db = crate::Db::connect("sqlite::memory:").await.unwrap();
+            db.migrate().await.unwrap();
+            db.pool
+        }
+
+        #[tokio::test]
+        async fn samples_roundtrip_and_dedup_within_thirty_seconds() {
+            let pool = setup().await;
+            record_sample(&pool, 1_000, "hop-a", "fwd-1", "srv-b", 10)
+                .await
+                .unwrap();
+            // 15 秒内的重复心跳：更新同一行，不再插入。
+            record_sample(&pool, 1_015, "hop-a", "fwd-1", "srv-b", 20)
+                .await
+                .unwrap();
+            let rows = list_for_forwards(&pool, &["fwd-1".to_string()], 0)
+                .await
+                .unwrap();
+            assert_eq!(rows.len(), 1, "30 秒内只能有一行");
+            assert_eq!(
+                rows[0].ts, 1_000,
+                "ts 锚定窗口第一条样本，不能被后续心跳推走"
+            );
+            assert_eq!(rows[0].latency_ms, 20);
+
+            // 超过 30 秒：新样本保留。
+            record_sample(&pool, 1_050, "hop-a", "fwd-1", "srv-b", 30)
+                .await
+                .unwrap();
+            let rows = list_for_forwards(&pool, &["fwd-1".to_string()], 0)
+                .await
+                .unwrap();
+            assert_eq!(rows.len(), 2);
+            assert_eq!(
+                rows.iter().map(|row| row.ts).collect::<Vec<_>>(),
+                vec![1_000, 1_050],
+                "读数按时间升序"
+            );
+        }
+
+        #[tokio::test]
+        async fn window_filter_and_purge_are_independent() {
+            let pool = setup().await;
+            record_sample(&pool, 1_000, "a", "fwd-1", "srv-b", 10)
+                .await
+                .unwrap();
+            record_sample(&pool, 2_000, "a", "fwd-1", "srv-b", 20)
+                .await
+                .unwrap();
+            record_sample(&pool, 2_000, "a", "fwd-2", "srv-c", 30)
+                .await
+                .unwrap();
+
+            let rows = list_for_forwards(&pool, &["fwd-1".to_string(), "fwd-2".to_string()], 1_500)
+                .await
+                .unwrap();
+            assert_eq!(rows.len(), 2, "窗口外（1000）的样本必须被过滤");
+            assert!(rows.iter().all(|row| row.ts >= 1_500));
+
+            assert!(
+                list_for_forwards(&pool, &[], 0).await.unwrap().is_empty(),
+                "空 forward 列表直接返回空数组，不发 SQL"
+            );
+
+            assert_eq!(purge_before(&pool, 1_500).await.unwrap(), 1);
+            assert_eq!(
+                list_for_forwards(&pool, &["fwd-1".to_string()], 0)
+                    .await
+                    .unwrap()
+                    .len(),
+                1,
+                "只删早于 cutoff 的行"
+            );
+        }
+
+        #[tokio::test]
+        async fn recording_an_older_sample_does_not_overwrite_a_newer_one() {
+            let pool = setup().await;
+            record_sample(&pool, 2_000, "a", "fwd-1", "srv-b", 20)
+                .await
+                .unwrap();
+            // 回填历史不能被 30 秒去重逻辑当成「更新最新值」。
+            record_sample(&pool, 1_000, "a", "fwd-1", "srv-b", 10)
+                .await
+                .unwrap();
+            let rows = list_for_forwards(&pool, &["fwd-1".to_string()], 0)
+                .await
+                .unwrap();
+            assert_eq!(rows.len(), 2);
+            assert_eq!(rows[0].latency_ms, 10);
+            assert_eq!(rows[1].latency_ms, 20);
+        }
     }
 }
 
@@ -2262,7 +2535,7 @@ pub mod chains {
             "SELECT m.group_id, g.chain_id, g.seq, g.strategy,
                     m.server_id, s.name AS server_name, s.address AS server_address,
                     m.listen_port, m.priority, m.weight, s.realm_transport,
-                    s.nftables_available
+                    s.nftables_available, s.last_seen_at
              FROM chain_group_members m
              JOIN chain_groups g ON g.id = m.group_id
              JOIN servers s ON s.id = m.server_id
@@ -2484,7 +2757,7 @@ pub mod chains {
             "SELECT m.group_id, g.chain_id, g.seq, g.strategy,
                     m.server_id, s.name AS server_name, s.address AS server_address,
                     m.listen_port, m.priority, m.weight, s.realm_transport,
-                    s.nftables_available
+                    s.nftables_available, s.last_seen_at
              FROM chain_group_members m
              JOIN chain_groups g ON g.id = m.group_id
              JOIN servers s ON s.id = m.server_id
@@ -5282,6 +5555,8 @@ pub mod overview {
                         target_ok: None,
                         target_error: None,
                         targets: Vec::new(),
+                        traffic_in: None,
+                        traffic_out: None,
                     },
                     super::super::forwards::NewForwardStatus {
                         forward_id: "fwd-a".into(),
@@ -5290,6 +5565,8 @@ pub mod overview {
                         target_ok: Some(false),
                         target_error: Some("cert_expired".into()),
                         targets: Vec::new(),
+                        traffic_in: None,
+                        traffic_out: None,
                     },
                     super::super::forwards::NewForwardStatus {
                         forward_id: "fwd-b".into(),
@@ -5298,6 +5575,8 @@ pub mod overview {
                         target_ok: Some(false),
                         target_error: Some("timeout".into()),
                         targets: Vec::new(),
+                        traffic_in: None,
+                        traffic_out: None,
                     },
                     super::super::forwards::NewForwardStatus {
                         forward_id: "fwd-c".into(),
@@ -5306,6 +5585,8 @@ pub mod overview {
                         target_ok: None,
                         target_error: None,
                         targets: Vec::new(),
+                        traffic_in: None,
+                        traffic_out: None,
                     },
                 ],
             )
@@ -5366,6 +5647,8 @@ pub mod overview {
                 target_ok: Some(false),
                 target_error: Some("cert_expired".into()),
                 targets: Vec::new(),
+                traffic_in: None,
+                traffic_out: None,
             };
 
             // 第一次失败：不降级（连续两次才算）。
@@ -5396,6 +5679,8 @@ pub mod overview {
                     target_ok: None,
                     target_error: None,
                     targets: Vec::new(),
+                    traffic_in: None,
+                    traffic_out: None,
                 }],
             )
             .await

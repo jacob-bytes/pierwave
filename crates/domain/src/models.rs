@@ -129,6 +129,11 @@ pub struct ForwardStatusRow {
     /// 仓储只负责存取这段 JSON，不解释内容：主控把它反序列化成
     /// `pierwave_proto::TargetProbe`，避免 domain 依赖线协议。
     pub targets_json: Option<String>,
+    /// Agent 统计的入方向累计字节（迁移 0036）。
+    /// `None` = 没有数据源（realm）/ 旧 Agent 未上报；`Some(0)` = 确实为 0。
+    pub traffic_in: Option<i64>,
+    /// Agent 统计的出方向累计字节（迁移 0036）；nftables / realm 为 `None`。
+    pub traffic_out: Option<i64>,
     pub updated_at: i64,
 }
 
@@ -218,6 +223,9 @@ pub struct ChainGroupMember {
     /// 该成员所在服务器的 nftables 能力缓存（NULL = 未知）。
     /// nftables 链下发前逐台检查，未知按不支持处理。
     pub nftables_available: Option<bool>,
+    /// 该成员所在服务器的最后一次心跳（Unix 秒）；`None` = 从未连过。
+    /// 链视图把它格式化成 ISO8601 字符串对外返回。
+    pub last_seen_at: Option<i64>,
 }
 
 /// 一个有成员的组。

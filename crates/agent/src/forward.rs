@@ -64,6 +64,18 @@ struct StatusState {
     /// 规则 id → 每个候选目标的探测结果，顺序与规则里的 `targets` 一致。
     /// `health = None` = 这一轮还没测过（启动瞬间按健康处理，避免无谓断流）。
     target_health: HashMap<String, Vec<TargetSlot>>,
+    /// 规则 id → TCP 双向累计字节。只在 `native` 且有 TCP 监听时存在；
+    /// UDP-only / realm / nftables 没有这里的条目，心跳上报 null。
+    traffic: HashMap<String, TrafficCounters>,
+}
+
+/// 一条 native 转发规则的累计字节计数器（连接任务写、心跳读）。
+#[derive(Debug, Clone, Default)]
+struct TrafficCounters {
+    /// 客户端 → 目标（handle_connection 里 `copy_bidirectional` 的第一项）。
+    inbound: Arc<AtomicU64>,
+    /// 目标 → 客户端。
+    outbound: Arc<AtomicU64>,
 }
 
 /// 一个候选目标的服务器 id + 最近一次探测结果。
@@ -96,6 +108,11 @@ impl ForwardStatusHandle {
             .iter()
             .cloned()
             .map(|mut status| {
+                // 流量是累计值，直接读原子量；没有数据源的规则保持 None。
+                if let Some(traffic) = state.traffic.get(&status.id) {
+                    status.traffic_in = Some(traffic.inbound.load(Ordering::Relaxed));
+                    status.traffic_out = Some(traffic.outbound.load(Ordering::Relaxed));
+                }
                 // `ForwardStatus` 只有一个整体 `target_ok`：主控只关心
                 // 「这条规则现在还有没有可用的成员」，不逐个回报。
                 status.target_ok = state
@@ -132,8 +149,29 @@ impl ForwardStatusHandle {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         state.statuses = statuses;
-        // 已经不在期望态里的规则不能留下探测缓存。
+        // 已经不在期望态里的规则不能留下探测/流量缓存。
         state.target_health.retain(|id, _| ids.contains(id));
+        state.traffic.retain(|id, _| ids.contains(id));
+    }
+
+    /// 为一条 native 规则注册计数器（重复调用返回同一组 Arc，累计值不丢）。
+    fn register_traffic(&self, id: &str) -> TrafficCounters {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .traffic
+            .entry(id.to_string())
+            .or_default()
+            .clone()
+    }
+
+    /// 规则删除 / 变成 UDP-only 时丢掉旧计数器，避免心跳拿旧值冒充当前流量。
+    fn clear_traffic(&self, id: &str) {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .traffic
+            .remove(id);
     }
 
     /// 新规则接管监听前先建好逐目标槽位（全部未探测）。
@@ -245,6 +283,8 @@ struct ForwardRuntime {
     probe_requests: mpsc::UnboundedSender<usize>,
     /// 连接目标失败 / 转发中断的累计次数。
     connect_failures: Arc<AtomicU64>,
+    /// 这条规则 TCP 双向累计字节；UDP-only 时不注册（心跳报 null）。
+    traffic: TrafficCounters,
 }
 
 /// 正在运行的一条转发。
@@ -460,6 +500,7 @@ impl ForwardSupervisor {
                 running.close(&id).await;
             }
             self.status.clear_target_health(&id);
+            self.status.clear_traffic(&id);
             self.udp_failures.remove(&id);
         }
         // 已经不在期望态里的失败项也清掉，别让心跳一直报旧规则。
@@ -570,6 +611,13 @@ impl ForwardSupervisor {
             // 探测请求：连接失败时 accept 侧只发一个下标，
             // 由探测循环立即补测该目标（不必等 30 秒周期）。
             let (probe_tx, probe_rx) = mpsc::unbounded_channel();
+            // TCP 监听才有字节可计；UDP-only 规则显式清掉旧计数器。
+            let traffic = if wants_tcp {
+                self.status.register_traffic(&spec.id)
+            } else {
+                self.status.clear_traffic(&spec.id);
+                TrafficCounters::default()
+            };
             let runtime = ForwardRuntime {
                 id: spec.id.clone(),
                 targets: targets.clone(),
@@ -580,6 +628,7 @@ impl ForwardSupervisor {
                 status: self.status.clone(),
                 probe_requests: probe_tx,
                 connect_failures: failures,
+                traffic,
             };
             // 仅 UDP 模式没有 accept 循环：TCP 那一半根本不存在。
             let (task, shutdown) = match listener {
@@ -654,6 +703,8 @@ impl ForwardSupervisor {
                     target_ok: None,
                     target_error: None,
                     targets: Vec::new(),
+                    traffic_in: None,
+                    traffic_out: None,
                 },
                 Some(_) => ForwardStatus {
                     id: id.clone(),
@@ -663,6 +714,8 @@ impl ForwardSupervisor {
                     target_ok: None,
                     target_error: None,
                     targets: Vec::new(),
+                    traffic_in: None,
+                    traffic_out: None,
                 },
                 None => ForwardStatus {
                     id: id.clone(),
@@ -676,6 +729,8 @@ impl ForwardSupervisor {
                     target_ok: None,
                     target_error: None,
                     targets: Vec::new(),
+                    traffic_in: None,
+                    traffic_out: None,
                 },
             })
             .collect();
@@ -862,6 +917,10 @@ async fn handle_connection(runtime: ForwardRuntime, client: TcpStream, peer: Soc
     let target_label = format!("{}:{}", target.host, target.port);
     match proxy(client, &target.host, target.port).await {
         Ok((up, down)) => {
+            // 累计字节：up = 客户端 → 目标（入方向），down = 目标 → 客户端。
+            // 心跳只读原子量，不阻塞连接收尾。
+            runtime.traffic.inbound.fetch_add(up, Ordering::Relaxed);
+            runtime.traffic.outbound.fetch_add(down, Ordering::Relaxed);
             tracing::debug!(
                 id = %runtime.id,
                 target = %target_label,
@@ -1035,6 +1094,32 @@ mod tests {
         (tag[0], echoed)
     }
 
+    /// 等连接任务把累计字节写回（copy_bidirectional 在连接关闭后才返回）。
+    async fn wait_for_traffic(
+        supervisor: &ForwardSupervisor,
+        id: &str,
+        min_in: u64,
+        min_out: u64,
+    ) -> ForwardStatus {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(status) = supervisor
+                .status_handle()
+                .snapshot()
+                .into_iter()
+                .find(|status| status.id == id)
+            {
+                if status.traffic_in.is_some_and(|value| value >= min_in)
+                    && status.traffic_out.is_some_and(|value| value >= min_out)
+                {
+                    return status;
+                }
+            }
+            assert!(Instant::now() < deadline, "等待 {id} 的流量累计超时");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
     /// 等探测任务写回 target_ok（首次探测是立即执行的，通常几十毫秒内完成）。
     async fn wait_for_target_ok(supervisor: &ForwardSupervisor, id: &str) -> Option<bool> {
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -1112,11 +1197,33 @@ mod tests {
         assert_eq!(status[0].id, "fwd");
         assert!(status[0].listening, "绑定成功的规则应上报 listening=true");
         assert!(status[0].error.is_empty());
+        assert_eq!(
+            (status[0].traffic_in, status[0].traffic_out),
+            (Some(0), Some(0)),
+            "native TCP 规则一开始就是「已统计 0 字节」，不是「没有数据源」"
+        );
 
         // 双向字节流：客户端写入 → 目标收到并回显。
         let (tag, echoed) = roundtrip(listen_port, b"hello forward").await;
         assert_eq!(tag, b'E');
         assert_eq!(echoed, b"hello forward", "目标必须收到原始字节并原样回显");
+
+        // 回显里第一个字节是 echo 服务的 tag；两个方向都必须至少包含它。
+        let status = wait_for_traffic(
+            &supervisor,
+            "fwd",
+            b"hello forward".len() as u64,
+            b"hello forward".len() as u64 + 1,
+        )
+        .await;
+        assert!(
+            status.traffic_in.unwrap() >= b"hello forward".len() as u64,
+            "入方向至少包含客户端写入的字节"
+        );
+        assert!(
+            status.traffic_out.unwrap() > b"hello forward".len() as u64,
+            "出方向至少包含 tag + 回显"
+        );
     }
 
     /// 监听成功 ≠ 目标可达：目标不可达时 listening 仍为 true，但 target_ok=false。
@@ -1702,6 +1809,11 @@ mod tests {
         assert_eq!(status.len(), 1);
         assert!(status[0].listening, "仅 UDP 模式 UDP 绑定成功即 listening");
         assert_eq!(status[0].target_ok, None, "UDP 规则不做 TCP 目标探测");
+        assert_eq!(
+            (status[0].traffic_in, status[0].traffic_out),
+            (None, None),
+            "UDP-only 没有字节统计源：必须上报 null，不能编造 0"
+        );
 
         assert!(
             tokio::net::UdpSocket::bind(("127.0.0.1", port))

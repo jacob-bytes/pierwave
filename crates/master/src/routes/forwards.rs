@@ -898,6 +898,8 @@ mod tests {
                 target_ok: Some(false),
                 target_error: Some("unknown_issuer".into()),
                 targets: Vec::new(),
+                traffic_in: None,
+                traffic_out: None,
             }],
         )
         .await
@@ -924,6 +926,8 @@ mod tests {
                 target_ok: Some(true),
                 target_error: None,
                 targets: Vec::new(),
+                traffic_in: None,
+                traffic_out: None,
             }],
         )
         .await

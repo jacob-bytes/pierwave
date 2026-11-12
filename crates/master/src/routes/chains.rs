@@ -20,7 +20,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::Json;
 use serde::Deserialize;
@@ -837,6 +837,14 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
                 "degraded": member_degraded,
                 "error": status.map(|row| row.error.as_str()).unwrap_or(""),
                 "updated_at": status.map(|row| row.updated_at),
+                // 服务器最后一次心跳（ISO8601 UTC）；从未连过 / 旧数据 = null。
+                "last_seen_at": member
+                    .last_seen_at
+                    .and_then(pierwave_domain::time::rfc3339_utc),
+                // 每跳累计流量：None = 该引擎没有数据源（realm）或旧 Agent，
+                // 绝不能把「未知」写成 0。
+                "traffic_in": status.and_then(|row| row.traffic_in),
+                "traffic_out": status.and_then(|row| row.traffic_out),
                 // 上一跳 → 本成员这一段的实测 RTT（最小值）；无数据 = null。
                 "latency_ms": latency_ms,
                 // 仅最后一跳：本成员 → 链目标的实测 RTT；其它组为 null。
@@ -957,6 +965,137 @@ pub async fn list(State(state): State<AppState>, user: CurrentUser) -> AppResult
         items.push(view);
     }
     Ok(Json(json!({ "items": items })))
+}
+
+/// 延迟历史的时间窗口：1..=168 小时（默认 24）。
+const LATENCY_MIN_HOURS: i64 = 1;
+const LATENCY_MAX_HOURS: i64 = 168;
+const LATENCY_DEFAULT_HOURS: i64 = 24;
+
+#[derive(Debug, Deserialize)]
+pub struct LatencyQuery {
+    /// 故意接成字符串：`hours=abc` 也要返回带 code 的 400，
+    /// 而不是 axum 默认的纯文本 Query 拒绝。
+    hours: Option<String>,
+}
+
+fn invalid_latency_hours() -> AppError {
+    AppError::coded(
+        "chain.latency_hours_invalid",
+        Some(json!({"min": LATENCY_MIN_HOURS, "max": LATENCY_MAX_HOURS})),
+        format!(
+            "hours 必须是 {LATENCY_MIN_HOURS}-{LATENCY_MAX_HOURS} 之间的整数（默认 {LATENCY_DEFAULT_HOURS}）"
+        ),
+    )
+}
+
+/// 解析 `hours`：缺省/空白 = 24；非整数或越界 = 400。
+fn parse_latency_hours(raw: Option<&str>) -> AppResult<i64> {
+    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
+        return Ok(LATENCY_DEFAULT_HOURS);
+    };
+    let hours = raw.parse::<i64>().map_err(|_| invalid_latency_hours())?;
+    if !(LATENCY_MIN_HOURS..=LATENCY_MAX_HOURS).contains(&hours) {
+        return Err(invalid_latency_hours());
+    }
+    Ok(hours)
+}
+
+/// `forward_id -> (目标跳 seq, 目标成员 server_id)`，只用于单成员下一跳。
+///
+/// 单成员组下发时走兼容字段（`targets` 为空），Agent 拿不到 server_id，
+/// 探测结果里的 `target_server_id` 是空串。主控知道这个 forward 的下一组
+/// 只有一台成员，可以在读历史时把它映射回来；多成员组 Agent 会上报真实
+/// server_id，直接按成员表匹配即可。
+fn single_target_map(chain: &ChainWithGroups) -> HashMap<String, (i64, String)> {
+    let mut map = HashMap::new();
+    for (index, group) in chain.groups.iter().enumerate() {
+        let Some(next) = chain.groups.get(index + 1) else {
+            // 最后一跳的目标是链目标（不是服务器），没有成员可归属。
+            continue;
+        };
+        if next.members.len() != 1 {
+            continue;
+        }
+        let Some(target) = next.members.first() else {
+            continue;
+        };
+        for member in &group.members {
+            let forward_id = member_forward_id(&chain.chain.id, member, group.members.len());
+            map.insert(forward_id, (next.group.seq, target.server_id.clone()));
+        }
+    }
+    map
+}
+
+/// `GET /api/v1/chains/{id}/latency?hours=24`
+///
+/// 口径：只统计**跳与跳之间**的成功探测；每个 5 分钟桶对同一跳的所有成员取
+/// 中位数（见 [`chains::aggregate_latency`]）。最后一跳 → 链目标的 RTT 不是
+/// 服务器间链路，不进入历史；入口组没有上一跳，也不会有点。
+pub async fn latency(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<String>,
+    Query(query): Query<LatencyQuery>,
+) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+    let hours = parse_latency_hours(query.hours.as_deref())?;
+    let chain = repo::chains::find_by_id(&state.db.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::not_found("chain.not_found", None, "链不存在"))?;
+
+    let since = repo::now() - hours * 60 * 60;
+    let mut forward_ids = Vec::new();
+    let mut seq_by_server: HashMap<String, i64> = HashMap::new();
+    for group in &chain.groups {
+        for member in &group.members {
+            seq_by_server.insert(member.server_id.clone(), group.group.seq);
+            forward_ids.push(member_forward_id(
+                &chain.chain.id,
+                member,
+                group.members.len(),
+            ));
+        }
+    }
+    let single_targets = single_target_map(&chain);
+    let samples = repo::latency::list_for_forwards(&state.db.pool, &forward_ids, since).await?;
+
+    let mut points = Vec::with_capacity(samples.len());
+    for sample in samples {
+        let (seq, server_id) = if sample.target_server_id.is_empty() {
+            match single_targets.get(&sample.forward_id) {
+                Some((seq, server_id)) => (*seq, server_id.clone()),
+                None => continue,
+            }
+        } else {
+            match seq_by_server.get(&sample.target_server_id) {
+                Some(seq) => (*seq, sample.target_server_id.clone()),
+                // 链改过成员后残留的历史样本：目标已不在这条链里，跳过。
+                None => continue,
+            }
+        };
+        points.push(chains::LatencyPoint {
+            ts: sample.ts,
+            seq,
+            server_id,
+            latency_ms: sample.latency_ms,
+        });
+    }
+
+    let points = chains::aggregate_latency(&points, chains::LATENCY_BUCKET_SECS);
+    let points: Vec<Value> = points
+        .into_iter()
+        .map(|point| {
+            json!({
+                "ts": point.ts,
+                "seq": point.seq,
+                "server_id": point.server_id,
+                "latency_ms": point.latency_ms,
+            })
+        })
+        .collect();
+    Ok(Json(json!({ "points": points })))
 }
 
 pub async fn create(
@@ -1508,6 +1647,8 @@ mod tests {
                         weight: 1,
                         realm_transport: Some(true),
                         nftables_available: Some(true),
+                        // 测试 fixture 不关心心跳时间；链视图必须能处理 null。
+                        last_seen_at: None,
                     },
                 )
                 .collect(),
@@ -1957,6 +2098,8 @@ mod tests {
                             target_ok,
                             target_error: target_error.map(str::to_string),
                             targets: Vec::new(),
+                            traffic_in: None,
+                            traffic_out: None,
                         }],
                     )
                     .await
@@ -2255,6 +2398,8 @@ mod tests {
                         target_ok: Some(target_ok),
                         target_error: target_error.map(str::to_string),
                         targets: Vec::new(),
+                        traffic_in: None,
+                        traffic_out: None,
                     }],
                 )
                 .await
@@ -3715,6 +3860,8 @@ mod tests {
                         },
                     )
                     .collect(),
+                traffic_in: None,
+                traffic_out: None,
             }],
         )
         .await
@@ -3920,5 +4067,212 @@ mod tests {
         assert!(chain["total_latency_ms"].is_null());
         assert!(chain["groups"][0]["members"][0]["latency_ms"].is_null());
         assert!(chain["groups"][0]["members"][0]["target_latency_ms"].is_null());
+    }
+
+    /// 延迟历史：写入 → 读取、窗口过滤、空数组、非法 hours 400；
+    /// 同时验证单成员下一跳的空 server_id 能被主控映射回成员。
+    #[tokio::test]
+    async fn chain_latency_history_filters_windows_and_rejects_bad_hours() {
+        let fixture = setup().await;
+        let uri = "/api/v1/chains";
+
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(groups_body(
+                "历史",
+                "1.1.1.1",
+                443,
+                &[
+                    group(None, None, &[group_member(&fixture.a, 9001, 0)]),
+                    group(None, None, &[group_member(&fixture.b, 9002, 0)]),
+                ],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+        let history_uri = format!("/api/v1/chains/{chain_id}/latency");
+
+        // 空数据：必须是 200 + 空数组，不是 404/500。
+        let (status, body) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            &history_uri,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["points"], json!([]));
+
+        // 非法 hours：缺 code 的 400 不合格，前端要能翻译。
+        for hours in ["0", "169", "abc", "-1"] {
+            let (status, body) = request(
+                &fixture.app,
+                Some(&fixture.cookie),
+                Method::GET,
+                &format!("{history_uri}?hours={hours}"),
+                None,
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "hours={hours}: {body}");
+            assert_eq!(body["code"], "chain.latency_hours_invalid");
+            assert_eq!(body["params"]["min"], 1);
+            assert_eq!(body["params"]["max"], 168);
+        }
+
+        let a_id = chains::forward_id(&chain_id, 0, &fixture.a, 1);
+        let b_id = chains::forward_id(&chain_id, 1, &fixture.b, 1);
+        let now = repo::now();
+        // a → b 两次探测（2 小时前 / 1 分钟前）；单成员组走兼容字段，
+        // Agent 上报的 target_server_id 是空串，历史接口必须映射到 b。
+        repo::latency::record_sample(
+            &fixture.state.db.pool,
+            now - 7_200,
+            &fixture.a,
+            &a_id,
+            "",
+            20,
+        )
+        .await
+        .unwrap();
+        repo::latency::record_sample(&fixture.state.db.pool, now - 60, &fixture.a, &a_id, "", 40)
+            .await
+            .unwrap();
+        // 最后一跳 → 链目标：不是服务器间链路，不能出现在历史里。
+        repo::latency::record_sample(&fixture.state.db.pool, now - 60, &fixture.b, &b_id, "", 99)
+            .await
+            .unwrap();
+
+        let (status, body) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            &format!("{history_uri}?hours=1"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["points"].as_array().unwrap().len(), 1, "{body}");
+        assert_eq!(body["points"][0]["seq"], 1);
+        assert_eq!(body["points"][0]["server_id"], fixture.b);
+        assert_eq!(body["points"][0]["latency_ms"], 40);
+        assert!(
+            body["points"][0]["ts"].as_i64().unwrap() <= now - 60,
+            "输出 ts 是 5 分钟桶起点，不能晚于样本时间"
+        );
+
+        // 窗口放宽到 3 小时：两个 5 分钟桶都在，按时间升序。
+        let (status, body) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            &format!("{history_uri}?hours=3"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let points = body["points"].as_array().unwrap();
+        assert_eq!(points.len(), 2, "{body}");
+        assert_eq!(points[0]["latency_ms"], 20);
+        assert_eq!(points[1]["latency_ms"], 40);
+        assert!(points[0]["ts"].as_i64() < points[1]["ts"].as_i64());
+    }
+
+    /// 链成员视图必须带服务器的最后上报时间（ISO8601）与每跳累计流量，
+    /// 没有数据源时必须是 null（不是 0）。
+    #[tokio::test]
+    async fn chain_members_expose_last_seen_and_traffic() {
+        let fixture = setup().await;
+        let uri = "/api/v1/chains";
+
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(groups_body(
+                "观测",
+                "1.1.1.1",
+                443,
+                &[
+                    group(None, None, &[group_member(&fixture.a, 9001, 0)]),
+                    group(None, None, &[group_member(&fixture.b, 9002, 0)]),
+                ],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+
+        // 只有 b 上报过心跳：a 的 last_seen_at 必须是 null。
+        repo::servers::heartbeat(&fixture.state.db.pool, &fixture.b)
+            .await
+            .unwrap();
+
+        let a_id = chains::forward_id(&chain_id, 0, &fixture.a, 1);
+        repo::forwards::save_status(
+            &fixture.state.db.pool,
+            &fixture.a,
+            &[repo::forwards::NewForwardStatus {
+                forward_id: a_id,
+                listening: true,
+                error: String::new(),
+                target_ok: Some(true),
+                target_error: None,
+                targets: vec![repo::forwards::NewTargetProbe {
+                    server_id: fixture.b.clone(),
+                    ok: true,
+                    latency_ms: Some(17),
+                }],
+                traffic_in: Some(1_024),
+                traffic_out: Some(2_048),
+            }],
+        )
+        .await
+        .unwrap();
+
+        let (status, body) =
+            request(&fixture.app, Some(&fixture.cookie), Method::GET, uri, None).await;
+        assert_eq!(status, StatusCode::OK);
+        let chain = body["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|chain| chain["id"] == chain_id)
+            .unwrap();
+        let entry = &chain["groups"][0]["members"][0];
+        let exit = &chain["groups"][1]["members"][0];
+        assert!(entry["last_seen_at"].is_null(), "从未心跳必须是 null");
+        assert!(
+            exit["last_seen_at"]
+                .as_str()
+                .is_some_and(|value| value.ends_with('Z')),
+            "last_seen_at 必须是 ISO8601 UTC 字符串：{exit}"
+        );
+        assert_eq!(entry["traffic_in"], 1_024);
+        assert_eq!(entry["traffic_out"], 2_048);
+        assert!(
+            exit["traffic_in"].is_null() && exit["traffic_out"].is_null(),
+            "没有心跳状态时流量必须是 null，不能编造 0：{exit}"
+        );
+
+        // realm 引擎没有计数器：Agent 报 null，链路视图也必须是 null。
+        let (status, body) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            &format!("/api/v1/chains/{chain_id}/latency"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            !body["points"].as_array().unwrap().is_empty(),
+            "同一轮心跳写入了延迟样本，历史接口应能读到"
+        );
     }
 }

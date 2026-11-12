@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 17;
+pub const PROTOCOL_VERSION: u32 = 18;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -320,6 +320,20 @@ pub struct ForwardStatus {
     /// 这样主控才能区分「探了但不可达」与「根本没探」。
     #[serde(default)]
     pub targets: Vec<TargetProbe>,
+    /// 这条规则自监听启动以来从客户端方向收到的字节数（累计值）。
+    ///
+    /// `None` = 该引擎/协议没有数据源（realm、native 的 UDP-only 规则）或
+    /// 旧 Agent 根本没上报。**绝不能把未知写成 0**：0 只表示「确实累计了 0 字节」。
+    /// 目前 native 只统计 TCP accept 循环里的字节；nftables 只统计 DNAT 规则
+    /// 入方向的计数。单位是字节。
+    #[serde(default)]
+    pub traffic_in: Option<u64>,
+    /// 这条规则自监听启动以来发回客户端方向的字节数（累计值）。
+    ///
+    /// nftables 的 DNAT counter 只看到一个方向，因此该字段为 `None`；
+    /// 只有 native 的 TCP 双向拷贝能同时给出两个方向。
+    #[serde(default)]
+    pub traffic_out: Option<u64>,
 }
 
 /// 一个目标最近一轮 TCP 握手探测的结果。
@@ -473,6 +487,8 @@ mod tests {
             target_ok: Some(false),
             target_error: Some("cert_expired".into()),
             targets: Vec::new(),
+            traffic_in: Some(1024),
+            traffic_out: Some(2048),
         };
         let json = serde_json::to_value(&new).unwrap();
         assert_eq!(json["listening"], true);
@@ -493,6 +509,8 @@ mod tests {
             target_ok: Some(true),
             target_error: None,
             targets: Vec::new(),
+            traffic_in: None,
+            traffic_out: None,
         };
         let json = serde_json::to_value(&status).unwrap();
         assert_eq!(json["target_error"], serde_json::Value::Null, "{json}");
@@ -503,8 +521,8 @@ mod tests {
     #[test]
     fn forward_udp_defaults_to_false_for_old_masters() {
         assert_eq!(
-            PROTOCOL_VERSION, 17,
-            "新增 ForwardStatus.targets 必须升协议版本"
+            PROTOCOL_VERSION, 18,
+            "新增 ForwardStatus.traffic_in/out 必须升协议版本"
         );
 
         // 旧主控的 JSON 没有 udp：必须解析成 false，也就是「只监听 TCP」，
@@ -658,6 +676,8 @@ mod tests {
                     latency_ms: None,
                 },
             ],
+            traffic_in: None,
+            traffic_out: None,
         };
         let json = serde_json::to_value(&status).unwrap();
         assert_eq!(json["targets"][0]["server_id"], "srv-a");
@@ -669,6 +689,42 @@ mod tests {
         );
         let back: ForwardStatus = serde_json::from_value(json).unwrap();
         assert_eq!(back, status, "逐目标探测结果必须能往返");
+    }
+
+    /// 每跳流量是可选字段：旧 Agent 不上报时必须是 None（主控落 NULL），
+    /// 新 Agent 的 0 与「没有数据源」必须能区分。
+    #[test]
+    fn forward_status_traffic_is_optional_and_roundtrips() {
+        let old = r#"{"id":"fwd-1","listening":true,"error":"","target_ok":true}"#;
+        let status: ForwardStatus = serde_json::from_str(old).unwrap();
+        assert_eq!(status.traffic_in, None);
+        assert_eq!(status.traffic_out, None);
+
+        let status = ForwardStatus {
+            id: "fwd-2".into(),
+            listening: true,
+            error: String::new(),
+            target_ok: Some(true),
+            target_error: None,
+            targets: Vec::new(),
+            traffic_in: Some(0),
+            traffic_out: None,
+        };
+        let json = serde_json::to_value(&status).unwrap();
+        assert_eq!(json["traffic_in"], 0, "0 是「已统计但确实是 0 字节」");
+        assert_eq!(
+            json["traffic_out"],
+            serde_json::Value::Null,
+            "无数据源必须是 null，不能编造 0"
+        );
+        let back: ForwardStatus = serde_json::from_value(json).unwrap();
+        assert_eq!(back, status);
+
+        // 未知引擎/旧 Agent 的缺省反序列化不能报错。
+        let old = r#"{"id":"fwd-3","listening":false,"error":"x"}"#;
+        let status: ForwardStatus = serde_json::from_str(old).unwrap();
+        assert_eq!(status.traffic_in, None);
+        assert_eq!(status.traffic_out, None);
     }
 
     #[test]

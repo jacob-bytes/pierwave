@@ -143,6 +143,7 @@
 | `chain.nftables_unavailable` | 以下服务器的 nftables 不可用（需要安装 nft 并以 root 运行）：{servers} | servers |
 | `chain.nftables_multi_target` | nftables 引擎暂不支持第 {seq} 组的多成员选路，请改成单成员组 | count, seq |
 | `chain.not_found` | 链不存在 | — |
+| `chain.latency_hours_invalid` | hours 必须是 1-168 之间的整数（默认 24） | min, max |
 | `chain.name_required` | 链名称不能为空 | — |
 | `chain.name_too_long` | 链名称最多 {max} 个字符 | max |
 | `chain.hop_count_invalid` | 链必须包含 {min}-{max} 跳（当前 {count} 跳） | count, max, min |
@@ -263,3 +264,41 @@ lane; this backend change guarantees stable `code`/`params` plus the Chinese fal
 但读写行为只认 `protocol`。Agent 侧：native 按所选协议绑定（仅 UDP 时完全不绑 TCP）；
 nftables 只为所选协议生成 DNAT 规则；realm 的 `both` 写 `use_udp = true`，`tcp` 写
 `use_udp = false` 并给端点加 `network = { use_udp = false }`。
+
+### 链路延迟历史与每跳流量 / Chain latency history and per-hop traffic
+
+`GET /api/v1/chains/{id}/latency?hours=24` 只返回 **跳与跳之间** 的成功探测：
+
+| 字段 / Field | 含义 / Meaning |
+|---|---|
+| `ts` | 5 分钟桶的起点（Unix 秒）/ start of the 5-minute bucket (Unix seconds) |
+| `seq` | **被探测的跳**（目标成员所在组的 seq）；入口组没有上一跳，不会有点 / the probed hop; the entry group has no previous hop |
+| `server_id` | 被探测的成员；该桶有多个成员时，取中位数样本所属的成员 / the probed member; for a multi-member bucket, the member whose sample is the median |
+| `latency_ms` | 该桶所有成员样本的中位数（偶数个取较低的中位数）/ median of all member samples in the bucket (lower median on ties) |
+
+- `hours` 缺省 24，范围 1..168，非法值返回 400 `chain.latency_hours_invalid`；空数据返回
+  `{"points":[]}`（不是 404/500）。
+- 最后一跳 → 链目标的 RTT 不属于服务器间链路，不进入历史；它仍通过成员的
+  `target_latency_ms` 实时展示。
+- 样本保留 7 天；写入时顺带删除更早的行。同一 `(forward_id, target_server_id)` 30 秒内
+  重复心跳只更新一行，因此一行/目标/30 秒是上限。
+- 成员新增 `last_seen_at`（ISO8601 UTC 字符串，来自 `servers.last_seen_at`，从未心跳为
+  `null`）与 `traffic_in` / `traffic_out`（累计字节）。**`null` 表示没有数据源，绝不等于 0**。
+
+> The endpoint returns only successful hop-to-hop probes, bucketed into 5 minutes and aggregated
+> with the median across members of the same hop. `hours` defaults to 24 and accepts 1..168;
+> invalid values return 400 `chain.latency_hours_invalid`; no data returns `{"points":[]}`.
+> The last-hop → chain-target RTT is not a server-to-server link and stays out of history (it is
+> still exposed as `target_latency_ms`). Samples are retained for 7 days and purged on write; a
+> repeat heartbeat within 30 seconds updates the existing row for the same
+> `(forward_id, target_server_id)`. Members expose `last_seen_at` (ISO8601 UTC, null when the
+> server has never checked in) and cumulative `traffic_in`/`traffic_out`; `null` means "no data
+> source", never 0.
+
+流量数据源 / Traffic data sources:
+
+| 引擎 / Engine | `traffic_in` | `traffic_out` | 说明 / Notes |
+|---|---|---|---|
+| native | ✅ 累计字节 | ✅ 累计字节 | `copy_bidirectional` 双向计数；UDP-only 为 `null`；`both` 规则只统计 TCP 一半，UDP 数据报不计入 / counted in the TCP accept path; UDP-only is null; for `both` only the TCP half is counted |
+| nftables | ✅ DNAT counter | `null` | 内核 counter 只看客户端 → 目标方向；表重建后从 0 重新累计 / kernel counters only see the DNAT direction and reset when the table is rebuilt |
+| realm | `null` | `null` | realm 没有字节计数 API，不编造数据 / realm exposes no byte counters; nothing is fabricated |

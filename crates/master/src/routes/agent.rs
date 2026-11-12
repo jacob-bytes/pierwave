@@ -237,6 +237,9 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
                             latency_ms: probe.latency_ms,
                         })
                         .collect(),
+                    // 旧 Agent 没有流量字段 → None → 链路视图 null，不能当 0。
+                    traffic_in: status.traffic_in,
+                    traffic_out: status.traffic_out,
                 })
                 .collect();
             // 链降级是「状态跃迁」事件：save 前后各算一次，只在 false → true 时通知。
@@ -1221,6 +1224,8 @@ mod tests {
                         latency_ms: None,
                     },
                 ],
+                traffic_in: Some(4096),
+                traffic_out: Some(8192),
             }],
         )
         .await;
@@ -1255,6 +1260,22 @@ mod tests {
         assert!(!probes[1].ok);
         assert_eq!(probes[1].latency_ms, None, "失败目标不能写成 0ms");
 
+        // 流量原样落库；None 保持 NULL（realm / 旧 Agent），不能变成 0。
+        assert_eq!(rows[0].traffic_in, Some(4096));
+        assert_eq!(rows[0].traffic_out, Some(8192));
+
+        // 只有成功探测写延迟样本；失败目标不能留下 0ms 的脏点。
+        let samples = repo::latency::list_for_forwards(
+            &fixture.state.db.pool,
+            std::slice::from_ref(&forward.id),
+            0,
+        )
+        .await
+        .unwrap();
+        assert_eq!(samples.len(), 1, "一次心跳每个成功目标一条样本");
+        assert_eq!(samples[0].target_server_id, "srv-next");
+        assert_eq!(samples[0].latency_ms, 17);
+
         send(
             2,
             vec![pierwave_proto::ForwardStatus {
@@ -1264,6 +1285,8 @@ mod tests {
                 target_ok: Some(false),
                 target_error: None,
                 targets: Vec::new(),
+                traffic_in: None,
+                traffic_out: None,
             }],
         )
         .await;
@@ -1408,6 +1431,8 @@ mod tests {
                     target_ok: Some(target_ok),
                     target_error: None,
                     targets: Vec::new(),
+                    traffic_in: None,
+                    traffic_out: None,
                 }],
                 latency_ms: None,
                 uptime_secs: 1,

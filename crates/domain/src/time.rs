@@ -52,6 +52,15 @@ pub fn business_date(ts: i64) -> String {
         .unwrap_or_else(|| "1970-01-01".to_string())
 }
 
+/// Unix 秒 → ISO8601 UTC 字符串（`2026-11-12T13:46:12Z`）。
+///
+/// 链视图的 `last_seen_at` 契约是 ISO8601 字符串（不是 Unix 秒）；本项目的
+/// 存储时区仍是 UTC，所以直接用 `Z` 后缀，不做 UTC+8 换算。无效时间戳返回
+/// `None`，调用方输出 null，绝不用 `1970-01-01` 冒充「从未连过」。
+pub fn rfc3339_utc(ts: i64) -> Option<String> {
+    chrono::DateTime::from_timestamp(ts, 0).map(|utc| utc.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+}
+
 /// `ts` 所属 UTC+8 自然日的 `(年, 月, 日)`。
 ///
 /// 月度重置日需要「当月第几天 / 当月最后一天」，字符串比较做不了，
@@ -169,5 +178,15 @@ mod tests {
         let (year, month, _) = business_ymd(dec);
         assert_eq!((year, month), (2024, 12));
         assert_eq!(business_days_in_month(dec), 31);
+    }
+
+    #[test]
+    fn rfc3339_uses_utc_and_rejects_garbage() {
+        assert_eq!(
+            rfc3339_utc(1_704_067_200).as_deref(),
+            Some("2024-01-01T00:00:00Z")
+        );
+        assert_eq!(rfc3339_utc(0).as_deref(), Some("1970-01-01T00:00:00Z"));
+        assert_eq!(rfc3339_utc(i64::MAX), None, "无效时间必须是 null，不能编造");
     }
 }

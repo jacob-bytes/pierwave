@@ -466,6 +466,8 @@ mod tests {
                 target_ok: None,
                 target_error: None,
                 targets: Vec::new(),
+                traffic_in: None,
+                traffic_out: None,
             }],
         )
         .await

@@ -41,22 +41,49 @@ const ERROR_LIMIT: usize = 500;
 /// 心跳可无锁读取的 nftables 规则状态快照。
 #[derive(Debug, Clone, Default)]
 pub struct NftablesStatusHandle {
-    inner: Arc<Mutex<Vec<ForwardStatus>>>,
+    inner: Arc<Mutex<NftablesStatusState>>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct NftablesStatusState {
+    statuses: Vec<ForwardStatus>,
+    /// 规则 id → (入方向字节, 出方向字节)。nftables 没有反向计数器，
+    /// 所以永远只填入方向；出方向保持 None（不是 0）。
+    traffic: HashMap<String, (Option<u64>, Option<u64>)>,
 }
 
 impl NftablesStatusHandle {
     pub fn snapshot(&self) -> Vec<ForwardStatus> {
-        self.inner
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
-    }
-
-    fn store(&self, statuses: Vec<ForwardStatus>) {
-        *self
+        let state = self
             .inner
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = statuses;
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut statuses = state.statuses.clone();
+        for status in &mut statuses {
+            if let Some((inbound, outbound)) = state.traffic.get(&status.id) {
+                status.traffic_in = *inbound;
+                status.traffic_out = *outbound;
+            }
+        }
+        statuses
+    }
+
+    /// 表被重建/删除后旧计数器作废，状态与流量一起重置。
+    fn store(&self, statuses: Vec<ForwardStatus>) {
+        let mut state = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.statuses = statuses;
+        state.traffic.clear();
+    }
+
+    fn store_traffic(&self, traffic: HashMap<String, (Option<u64>, Option<u64>)>) {
+        let mut state = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.traffic = traffic;
     }
 }
 
@@ -185,6 +212,8 @@ impl NftablesSupervisor {
                         target_ok: None,
                         target_error: None,
                         targets: Vec::new(),
+                        traffic_in: None,
+                        traffic_out: None,
                     })
                     .collect(),
             );
@@ -220,6 +249,8 @@ impl NftablesSupervisor {
                             target_ok: None,
                             target_error: None,
                             targets: Vec::new(),
+                            traffic_in: None,
+                            traffic_out: None,
                         },
                         None => ForwardStatus {
                             id: rule.id.clone(),
@@ -228,10 +259,14 @@ impl NftablesSupervisor {
                             target_ok: None,
                             target_error: None,
                             targets: Vec::new(),
+                            traffic_in: None,
+                            traffic_out: None,
                         },
                     })
                     .collect();
                 self.status.store(statuses);
+                // 表刚重建，counter 归零；立刻读一轮，心跳不必等下一轮。
+                self.refresh_traffic().await;
             }
             Err(error) => {
                 tracing::error!(
@@ -260,7 +295,65 @@ impl NftablesSupervisor {
         if self.needs_retry || !table_exists(&self.bin).await {
             let rules = self.rules.clone();
             self.apply(&rules).await;
+        } else {
+            // 表没变也要读一次 counter：流量持续增长，心跳必须看到最新值。
+            self.refresh_traffic().await;
         }
+    }
+
+    /// 读 `nft -j list table inet pierwave` 的计数器并写回状态句柄。
+    ///
+    /// 失败只记 debug/warn 并保留上一轮的值：nft 短暂失败不应该让面板上的
+    /// 流量突然变成 null。表被重建时 `store` 已经先清空流量。
+    async fn refresh_traffic(&self) {
+        if self.rules.is_empty() {
+            self.status.store_traffic(HashMap::new());
+            return;
+        }
+        let output = match run_nft_capture(&self.bin, &["-j", "list", "table", "inet", TABLE]).await
+        {
+            Ok(output) => output,
+            Err(error) => {
+                tracing::debug!(bin = %self.bin.display(), %error, "读取 nftables 计数器失败");
+                return;
+            }
+        };
+        let counters = match parse_counters(&output) {
+            Ok(counters) => counters,
+            Err(error) => {
+                tracing::warn!(bin = %self.bin.display(), %error, "解析 nftables 计数器失败");
+                return;
+            }
+        };
+        let mut traffic = HashMap::with_capacity(self.rules.len());
+        for rule in &self.rules {
+            let protocol = rule.effective_protocol();
+            let tcp = protocol
+                .allows_tcp()
+                .then(|| {
+                    counters
+                        .get(&(rule.listen_port, "tcp".to_string()))
+                        .copied()
+                })
+                .flatten();
+            let udp = protocol
+                .allows_udp()
+                .then(|| {
+                    counters
+                        .get(&(rule.listen_port, "udp".to_string()))
+                        .copied()
+                })
+                .flatten();
+            let inbound = match (tcp, udp) {
+                (None, None) => None,
+                (tcp, udp) => Some(tcp.unwrap_or(0) + udp.unwrap_or(0)),
+            };
+            if let Some(inbound) = inbound {
+                // DNAT 规则只看到客户端 → 目标方向，出方向没有数据源。
+                traffic.insert(rule.id.clone(), (Some(inbound), None));
+            }
+        }
+        self.status.store_traffic(traffic);
     }
 
     async fn cleanup(&mut self) {
@@ -280,6 +373,8 @@ impl NftablesSupervisor {
                 target_ok: None,
                 target_error: None,
                 targets: Vec::new(),
+                traffic_in: None,
+                traffic_out: None,
             })
             .collect()
     }
@@ -343,15 +438,17 @@ pub fn render_script(rules: &[(DesiredForward, SocketAddr)], bind_host: &str) ->
             // 读路径以 protocol 为准；旧主控的 udp=true 由 effective_protocol
             // 还原成 both。只生成所选协议的规则：仅 UDP 时不能留下 tcp dnat。
             let protocol = rule.effective_protocol();
+            // `counter` 必须在 dnat 之前：这样每条规则都会累计命中字节，
+            // 心跳用 `nft -j list table` 读回（nft 默认不计数）。
             if protocol.allows_tcp() {
                 lines.push(format!(
-                    "        {matcher} tcp dport {} {dnat}",
+                    "        {matcher} tcp dport {} counter {dnat}",
                     rule.listen_port
                 ));
             }
             if protocol.allows_udp() {
                 lines.push(format!(
-                    "        {matcher} udp dport {} {dnat}",
+                    "        {matcher} udp dport {} counter {dnat}",
                     rule.listen_port
                 ));
             }
@@ -387,6 +484,11 @@ pub async fn resolve_target(rule: &DesiredForward) -> Result<SocketAddr, String>
 }
 
 async fn run_nft(bin: &Path, args: &[&str]) -> Result<(), String> {
+    run_nft_capture(bin, args).await.map(|_| ())
+}
+
+/// 执行 nft 并返回 stdout（解析 `-j list table` 的计数器用）。
+async fn run_nft_capture(bin: &Path, args: &[&str]) -> Result<String, String> {
     let output = tokio::time::timeout(
         COMMAND_TIMEOUT,
         tokio::process::Command::new(bin)
@@ -398,11 +500,71 @@ async fn run_nft(bin: &Path, args: &[&str]) -> Result<(), String> {
     .map_err(|_| format!("nft {} 超时", args.join(" ")))?
     .map_err(|error| format!("执行 nft 失败：{error}"))?;
     if output.status.success() {
-        return Ok(());
+        return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
     let text: String = stderr.trim().chars().take(ERROR_LIMIT).collect();
     Err(format!("nft {} 失败：{text}", args.join(" ")))
+}
+
+/// 解析 `nft -j list table inet pierwave` 里每条 dnat 规则的 counter。
+///
+/// 返回 `(listen_port, "tcp"/"udp") -> bytes`，同一端口的两条链
+/// （prerouting / output）与同一协议的多条规则累加。只统计同时带
+/// `dnat` 与 `counter` 的规则；其它规则（用户手改的表等）一律忽略。
+pub fn parse_counters(raw: &str) -> Result<HashMap<(i64, String), u64>, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(raw).map_err(|error| format!("nft JSON 解析失败：{error}"))?;
+    let items = value
+        .get("nftables")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "nft JSON 缺少 nftables 数组".to_string())?;
+    let mut totals: HashMap<(i64, String), u64> = HashMap::new();
+    for item in items {
+        let Some(exprs) = item
+            .get("rule")
+            .and_then(|rule| rule.get("expr"))
+            .and_then(serde_json::Value::as_array)
+        else {
+            continue;
+        };
+        if !exprs.iter().any(|expr| expr.get("dnat").is_some()) {
+            continue;
+        }
+        let mut protocol: Option<String> = None;
+        let mut port: Option<i64> = None;
+        for expr in exprs {
+            let Some(payload) = expr.pointer("/match/left/payload") else {
+                continue;
+            };
+            let proto = payload.get("protocol").and_then(serde_json::Value::as_str);
+            let field = payload.get("field").and_then(serde_json::Value::as_str);
+            if field != Some("dport") || !matches!(proto, Some("tcp" | "udp")) {
+                continue;
+            }
+            let Some(value) = expr
+                .pointer("/match/right")
+                .and_then(serde_json::Value::as_i64)
+            else {
+                continue;
+            };
+            protocol = proto.map(str::to_string);
+            port = Some(value);
+        }
+        let (Some(protocol), Some(port)) = (protocol, port) else {
+            continue;
+        };
+        let bytes: u64 = exprs
+            .iter()
+            .filter_map(|expr| expr.get("counter"))
+            .filter_map(|counter| counter.get("bytes"))
+            .filter_map(serde_json::Value::as_u64)
+            .sum();
+        if bytes > 0 || exprs.iter().any(|expr| expr.get("counter").is_some()) {
+            *totals.entry((port, protocol)).or_default() += bytes;
+        }
+    }
+    Ok(totals)
 }
 
 async fn table_exists(bin: &Path) -> bool {
@@ -454,8 +616,12 @@ mod tests {
         assert!(script.contains("table inet pierwave {"), "{script}");
         assert!(script.contains("type nat hook prerouting priority dstnat; policy accept;"));
         assert!(script.contains("type nat hook output priority -100; policy accept;"));
-        assert!(script.contains("fib daddr type local tcp dport 8080 dnat ip to 1.2.3.4:80"));
-        assert!(script.contains("fib daddr type local udp dport 8080 dnat ip to 1.2.3.4:80"));
+        assert!(
+            script.contains("fib daddr type local tcp dport 8080 counter dnat ip to 1.2.3.4:80")
+        );
+        assert!(
+            script.contains("fib daddr type local udp dport 8080 counter dnat ip to 1.2.3.4:80")
+        );
         assert_eq!(
             script
                 .matches("fib daddr type local tcp dport 8080")
@@ -475,7 +641,8 @@ mod tests {
             "10.0.0.5",
         );
         assert!(
-            script.contains("ip daddr 10.0.0.5 tcp dport 8443 dnat ip6 to [2001:db8::1]:443"),
+            script
+                .contains("ip daddr 10.0.0.5 tcp dport 8443 counter dnat ip6 to [2001:db8::1]:443"),
             "{script}"
         );
         assert!(script.contains("ip daddr 10.0.0.5 udp dport 8443"));
@@ -499,7 +666,7 @@ mod tests {
         spec.udp = false;
         let script = render_script(&[(spec, "1.2.3.4:80".parse().unwrap())], "0.0.0.0");
         assert!(
-            script.contains("udp dport 8080 dnat ip to 1.2.3.4:80"),
+            script.contains("udp dport 8080 counter dnat ip to 1.2.3.4:80"),
             "{script}"
         );
         assert!(
@@ -521,6 +688,50 @@ mod tests {
                 "prerouting 与 output 各一条 {protocol}：{script}"
             );
         }
+    }
+
+    /// nft -j 的真实形状：每个 rule 的 expr 里含 match(payload dport) +
+    /// counter + dnat。同一端口在两条链里的计数要累加，非 dnat 规则忽略。
+    #[test]
+    fn parses_dnat_counters_per_port_and_protocol() {
+        let raw = r#"{"nftables":[
+            {"metainfo":{"version":"1.0.9","release_name":"x"}},
+            {"table":{"family":"inet","name":"pierwave"}},
+            {"chain":{"family":"inet","table":"pierwave","name":"prerouting","type":"nat"}},
+            {"rule":{"family":"inet","table":"pierwave","chain":"prerouting","expr":[
+                {"match":{"op":"==","left":{"payload":{"protocol":"tcp","field":"dport"}},"right":8080}},
+                {"counter":{"packets":10,"bytes":1000}},
+                {"dnat":{"addr":"1.2.3.4","port":80}}
+            ]}},
+            {"rule":{"family":"inet","table":"pierwave","chain":"prerouting","expr":[
+                {"match":{"op":"==","left":{"payload":{"protocol":"udp","field":"dport"}},"right":8080}},
+                {"counter":{"packets":2,"bytes":200}},
+                {"dnat":{"addr":"1.2.3.4","port":80}}
+            ]}},
+            {"rule":{"family":"inet","table":"pierwave","chain":"output","expr":[
+                {"match":{"op":"==","left":{"payload":{"protocol":"tcp","field":"dport"}},"right":8080}},
+                {"counter":{"packets":1,"bytes":50}},
+                {"dnat":{"addr":"1.2.3.4","port":80}}
+            ]}},
+            {"rule":{"family":"inet","table":"pierwave","chain":"prerouting","expr":[
+                {"match":{"op":"==","left":{"payload":{"protocol":"tcp","field":"dport"}},"right":9090}},
+                {"counter":{"packets":9,"bytes":999}}
+            ]}}
+        ]}"#;
+        let counters = parse_counters(raw).unwrap();
+        assert_eq!(counters.get(&(8080, "tcp".to_string())), Some(&1050));
+        assert_eq!(counters.get(&(8080, "udp".to_string())), Some(&200));
+        assert_eq!(
+            counters.get(&(9090, "tcp".to_string())),
+            None,
+            "没有 dnat 的规则不是转发流量"
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_counter_json_instead_of_panicking() {
+        assert!(parse_counters("not json").is_err());
+        assert!(parse_counters("{}").is_err());
     }
 
     #[tokio::test]
@@ -596,6 +807,49 @@ mod tests {
         assert_eq!(status[0].target_ok, None, "内核转发无法做目标探测");
         let script = std::fs::read_to_string(dir.path().join(SCRIPT_FILE_NAME)).unwrap();
         assert!(script.contains("table inet pierwave"), "{script}");
+    }
+
+    /// 表里的 counter 必须按 (端口, 协议) 汇总到对应规则：both 规则取
+    /// tcp+udp 之和作为入方向；出方向没有数据源，必须是 None 而不是 0。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn heartbeat_reports_nftables_dnat_counters() {
+        let dir = TempDir::new();
+        let bin = fake_nft(
+            dir.path(),
+            r#"if [ "$1" = "-j" ]; then
+cat <<'JSON'
+{"nftables":[
+ {"rule":{"family":"inet","table":"pierwave","chain":"prerouting","expr":[
+   {"match":{"op":"==","left":{"payload":{"protocol":"tcp","field":"dport"}},"right":8080}},
+   {"counter":{"packets":3,"bytes":1000}},
+   {"dnat":{"addr":"1.2.3.4","port":80}}
+ ]}},
+ {"rule":{"family":"inet","table":"pierwave","chain":"prerouting","expr":[
+   {"match":{"op":"==","left":{"payload":{"protocol":"udp","field":"dport"}},"right":8080}},
+   {"counter":{"packets":2,"bytes":200}},
+   {"dnat":{"addr":"1.2.3.4","port":80}}
+ ]}}
+]}
+JSON
+fi
+exit 0"#,
+        );
+        let mut supervisor = NftablesSupervisor::new(bin, dir.path(), "0.0.0.0");
+        supervisor.apply(&[rule("f1", 8080, "1.2.3.4", 80)]).await;
+        let status = supervisor.status_handle().snapshot();
+        assert_eq!(status[0].traffic_in, Some(1_200), "tcp 1000 + udp 200");
+        assert_eq!(
+            status[0].traffic_out, None,
+            "DNAT counter 只看一个方向，不能编造出方向"
+        );
+
+        // 心跳对账（表没变）也必须刷新计数。
+        supervisor.reconcile().await;
+        assert_eq!(
+            supervisor.status_handle().snapshot()[0].traffic_in,
+            Some(1_200)
+        );
     }
 
     #[cfg(unix)]

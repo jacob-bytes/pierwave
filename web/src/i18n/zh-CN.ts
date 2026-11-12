@@ -2299,6 +2299,7 @@ const zhCN = {
     notObject: "config 必须是 JSON 对象（以 { 开头、} 结尾）",
   },
   errors: {
+    "chain.latency_hours_invalid": "hours 必须是 1-168 之间的整数（默认 24）",
     "chain.protocol_invalid": "不支持的链转发协议「{protocol}」（可选 tcp / udp / both）",
     "chain.protocol_udp_with_tls": "加密链只走 TCP，不能选择仅 UDP",
     "forward.protocol_invalid": "不支持的转发协议「{protocol}」（可选 tcp / udp / both）",

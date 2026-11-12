@@ -1086,6 +1086,8 @@ mod tests {
             target_ok: Some(true),
             target_error: None,
             targets: Vec::new(),
+            traffic_in: None,
+            traffic_out: None,
         }];
         let system_info = system_info_fixture();
         let hb = sample_heartbeat(

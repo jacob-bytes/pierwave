@@ -77,6 +77,7 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/chains/{id}",
             patch(routes::chains::update).delete(routes::chains::delete),
         )
+        .route("/api/v1/chains/{id}/latency", get(routes::chains::latency))
         .route(
             "/api/v1/servers/{id}/outbounds",
             get(routes::outbounds::list).post(routes::outbounds::create),

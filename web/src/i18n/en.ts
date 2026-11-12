@@ -2439,6 +2439,7 @@ const en = {
     notObject: "config must be a JSON object (starting with { and ending with })",
   },
   errors: {
+    "chain.latency_hours_invalid": "hours must be an integer between 1 and 168 (default 24)",
     "chain.protocol_invalid": "Unsupported chain protocol \"{protocol}\" (choose tcp, udp or both)",
     "chain.protocol_udp_with_tls": "Encrypted chains only carry TCP; UDP-only is not allowed",
     "forward.protocol_invalid": "Unsupported forward protocol \"{protocol}\" (choose tcp, udp or both)",

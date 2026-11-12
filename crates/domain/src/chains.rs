@@ -300,6 +300,68 @@ where
     }
 }
 
+/// 延迟历史的时间桶宽度：5 分钟。
+///
+/// 心跳默认 15 秒一条、每条最多一个目标一行样本；5 分钟桶把最多 20 个点
+/// 压成 1 个，既保留趋势又不会让前端画上千个点。
+pub const LATENCY_BUCKET_SECS: i64 = 5 * 60;
+
+/// 延迟历史的一个点（既是聚合输入，也是 API 输出）。
+///
+/// * `ts`：输入时是样本时刻，输出时是所在 5 分钟桶的起点（Unix 秒）；
+/// * `seq`：**被探测的那一跳**（目标成员所在组的 seq）。入口组没有上一跳，
+///   因此不会有点；最后一跳到链目标的探测没有 `server_id`，不进历史；
+/// * `server_id`：被探测的成员服务器 id；
+/// * `latency_ms`：TCP 握手 RTT。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LatencyPoint {
+    pub ts: i64,
+    pub seq: i64,
+    pub server_id: String,
+    pub latency_ms: i64,
+}
+
+/// 把同一跳的样本按时间桶聚合：一个桶一个点，取该桶内所有成员的**中位数**。
+///
+/// 口径（与 API 文档一致）：
+/// * 桶起点 = `ts.div_euclid(bucket) * bucket`；
+/// * 同一 `(桶, seq)` 内把所有成员的样本放在一起排序，取 `len / 2`（偶数个时
+///   取较低的中位数），`server_id` 记为该中位数样本的成员，仅用于区分/排障；
+/// * 输出按 `(ts, seq)` 升序，便于前端直接铺时间轴；空输入返回空数组。
+pub fn aggregate_latency(samples: &[LatencyPoint], bucket_secs: i64) -> Vec<LatencyPoint> {
+    if samples.is_empty() || bucket_secs <= 0 {
+        return Vec::new();
+    }
+    let mut buckets: std::collections::BTreeMap<(i64, i64), Vec<&LatencyPoint>> =
+        std::collections::BTreeMap::new();
+    for sample in samples {
+        let bucket = sample.ts.div_euclid(bucket_secs) * bucket_secs;
+        buckets
+            .entry((bucket, sample.seq))
+            .or_default()
+            .push(sample);
+    }
+    buckets
+        .into_iter()
+        .map(|((ts, seq), mut bucket)| {
+            // 排序键带上 server_id，保证同延迟时的代表性成员稳定（不受查询顺序影响）。
+            bucket.sort_by(|a, b| {
+                a.latency_ms
+                    .cmp(&b.latency_ms)
+                    .then_with(|| a.server_id.cmp(&b.server_id))
+            });
+            // 偶数个取较低的中位数：`(len - 1) / 2`（不是 `len / 2`）。
+            let median = bucket[(bucket.len() - 1) / 2];
+            LatencyPoint {
+                ts,
+                seq,
+                server_id: median.server_id.clone(),
+                latency_ms: median.latency_ms,
+            }
+        })
+        .collect()
+}
+
 /// 连续失败次数是否已经达到降级阈值。
 ///
 /// 只读计数，不在这里记录历史；计数由 `repo::forwards::save_status` 维护。
@@ -704,5 +766,59 @@ mod tests {
                 "chain.hop_count_invalid"
             );
         }
+    }
+
+    fn point(ts: i64, seq: i64, server_id: &str, latency_ms: i64) -> LatencyPoint {
+        LatencyPoint {
+            ts,
+            seq,
+            server_id: server_id.into(),
+            latency_ms,
+        }
+    }
+
+    #[test]
+    fn latency_history_is_bucketed_and_uses_the_median() {
+        // 同一个 5 分钟桶：三个成员 10/30/20 → 中位数 20。
+        let samples = vec![
+            point(1_000, 1, "b", 30),
+            point(1_010, 1, "a", 10),
+            point(1_020, 1, "c", 20),
+        ];
+        let points = aggregate_latency(&samples, LATENCY_BUCKET_SECS);
+        assert_eq!(points, vec![point(900, 1, "c", 20)]);
+
+        // 偶数个样本取较低的中位数（10/30 → 10），且结果稳定。
+        let samples = vec![point(1_000, 1, "b", 30), point(1_000, 1, "a", 10)];
+        assert_eq!(
+            aggregate_latency(&samples, LATENCY_BUCKET_SECS),
+            vec![point(900, 1, "a", 10)]
+        );
+
+        // 不同桶 / 不同跳各自聚合，输出按 (ts, seq) 升序。
+        let samples = vec![
+            point(1_500, 2, "c", 40),
+            point(1_500, 1, "a", 20),
+            point(1_201, 2, "d", 60),
+            point(1_200, 1, "b", 80),
+        ];
+        assert_eq!(
+            aggregate_latency(&samples, LATENCY_BUCKET_SECS),
+            vec![
+                point(1_200, 1, "b", 80),
+                point(1_200, 2, "d", 60),
+                point(1_500, 1, "a", 20),
+                point(1_500, 2, "c", 40),
+            ]
+        );
+    }
+
+    #[test]
+    fn latency_history_returns_empty_for_no_samples_or_invalid_bucket() {
+        assert!(aggregate_latency(&[], LATENCY_BUCKET_SECS).is_empty());
+        assert!(
+            aggregate_latency(&[point(1_000, 0, "a", 10)], 0).is_empty(),
+            "非法桶宽不能 panic，也不能返回编造的点"
+        );
     }
 }
