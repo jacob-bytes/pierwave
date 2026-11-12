@@ -1812,6 +1812,8 @@ const zhCN = {
       },
     },
     list: {
+      topology: "拓扑",
+      topologyAria: "查看「{name}」的拓扑",
       title: "转发链",
       add: "新建转发链",
       desc: "每跳可以是单节点或 1-8 台分组成员；最后一跳转发到链目标，保存后自动下发。",

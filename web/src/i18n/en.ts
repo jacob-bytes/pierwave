@@ -1921,6 +1921,8 @@ const en = {
       },
     },
     list: {
+      topology: "Topology",
+      topologyAria: 'View topology of "{name}"',
       title: "Forward chains",
       add: "New chain",
       desc: "Each hop can be a single node or a group of 1-8 members; the last hop relays to the chain target. Saving applies the config automatically.",

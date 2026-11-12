@@ -1,10 +1,9 @@
-import { Fragment, useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import { Fragment, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowDownIcon,
   ArrowRightIcon,
-  ChevronRightIcon,
+  WaypointsIcon,
   InfoIcon,
   MoreHorizontalIcon,
   PencilIcon,
@@ -25,6 +24,12 @@ import {
   SkeletonTable,
   TlsBadge,
 } from "@/components/common";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ChainFormDialog } from "@/components/chains/ChainFormDialog";
 import { DeleteChainDialog } from "@/components/chains/DeleteChainDialog";
 import { StrategyBadge } from "@/components/chains/StrategyBadge";
@@ -659,16 +664,6 @@ function ChainGroupsDetail({ chain }: { chain: Chain }) {
   );
 }
 
-function ChainGroupsRow({ chain }: { chain: Chain }) {
-  return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={CHAIN_COLUMN_COUNT} className="px-4 py-3">
-        <ChainGroupsDetail chain={chain} />
-      </TableCell>
-    </TableRow>
-  );
-}
-
 function ChainEnabledSwitch({ chain }: { chain: Chain }) {
   const { t } = useI18n();
   const update = useUpdateChain();
@@ -790,69 +785,16 @@ export default function ChainsPage() {
     chain?: Chain;
   } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Chain | null>(null);
-  /** 展开的行；降级链在首次出现时自动展开，用户收起后不再强行打开。 */
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const autoExpanded = useRef<Set<string>>(new Set());
+  const [topologyChain, setTopologyChain] = useState<Chain | null>(null);
 
   const items = chains.data ?? [];
   const showError = chains.isError && !chains.data;
   const loadError = errorText(chains.error, t("chains.loadError"));
 
-  useEffect(() => {
-    if (!chains.data) return;
-
-    const newlyDegraded = chains.data
-      .filter(
-        (chain) => chain.degraded && !autoExpanded.current.has(chain.id),
-      )
-      .map((chain) => chain.id);
-    if (newlyDegraded.length === 0) return;
-
-    for (const id of newlyDegraded) autoExpanded.current.add(id);
-    setExpandedIds((previous) => {
-      const next = new Set(previous);
-      for (const id of newlyDegraded) next.add(id);
-      return next;
-    });
-  }, [chains.data]);
-
-  function toggleExpanded(id: string) {
-    setExpandedIds((previous) => {
-      const next = new Set(previous);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  }
-
   function renderChainName(chain: Chain) {
-    const expanded = expandedIds.has(chain.id);
     const blockedReason = chain.blocked_reason?.trim();
     return (
       <div className="flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="size-6 shrink-0"
-          aria-expanded={expanded}
-          aria-label={t(
-            expanded
-              ? "chains.list.collapseAria"
-              : "chains.list.expandAria",
-            { name: chain.name },
-          )}
-          onClick={() => toggleExpanded(chain.id)}
-        >
-          <ChevronRightIcon
-            className={cn(
-              "size-3.5 transition-transform duration-150",
-              expanded && "rotate-90",
-            )}
-          />
-        </Button>
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-1.5">
             <span className="truncate font-medium" title={chain.name}>
@@ -960,6 +902,16 @@ export default function ChainsPage() {
 
   function renderChainActions(chain: Chain) {
     return (
+      <div className="flex items-center gap-0.5">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label={t("chains.list.topologyAria", { name: chain.name })}
+        title={t("chains.list.topology")}
+        onClick={() => setTopologyChain(chain)}
+      >
+        <WaypointsIcon className="size-4" />
+      </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -989,25 +941,13 @@ export default function ChainsPage() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      </div>
     );
   }
 
   function renderRow(chain: Chain) {
-    const expanded = expandedIds.has(chain.id);
-
     return (
-      <Fragment key={chain.id}>
-        <TableRow
-          className={cn(expanded && "bg-muted/20")}
-          style={
-            expanded
-              ? {
-                  "--pw-sticky-bg":
-                    "color-mix(in oklab, var(--muted) 20%, var(--card))",
-                } as CSSProperties
-              : undefined
-          }
-        >
+      <TableRow key={chain.id}>
           <TableCell sticky="left" className="max-w-60 px-4 py-2.5">
             {renderChainName(chain)}
           </TableCell>
@@ -1029,14 +969,11 @@ export default function ChainsPage() {
           <TableCell sticky="right" className="px-4 py-2.5">
             {renderChainActions(chain)}
           </TableCell>
-        </TableRow>
-        {expanded ? <ChainGroupsRow chain={chain} /> : null}
-      </Fragment>
+      </TableRow>
     );
   }
 
   function renderCard(chain: Chain) {
-    const expanded = expandedIds.has(chain.id);
     return (
       <MobileDataCard
         key={chain.id}
@@ -1064,9 +1001,7 @@ export default function ChainsPage() {
             value: <ChainEnabledSwitch chain={chain} />,
           },
         ]}
-      >
-        {expanded ? <ChainGroupsDetail chain={chain} /> : null}
-      </MobileDataCard>
+      />
     );
   }
 
@@ -1229,8 +1164,38 @@ export default function ChainsPage() {
         </CardContent>
       </Card>
 
+        <Dialog
+        open={topologyChain !== null}
+        onOpenChange={(open) => {
+          if (!open) setTopologyChain(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-5xl">
+          <DialogHeader>
+            <DialogTitle className="flex flex-wrap items-center gap-1.5">
+              <span className="truncate">{topologyChain?.name}</span>
+              {topologyChain?.path_mode === "single" ? (
+                <Badge
+                  variant="outline"
+                  className="h-4 border-primary/40 bg-primary/10 px-1.5 type-micro font-normal text-primary"
+                >
+                  {t("chains.detail.currentPath")}
+                </Badge>
+              ) : null}
+              <Badge
+                variant="outline"
+                className="h-4 px-1.5 type-micro font-normal text-muted-foreground"
+              >
+                {protocolBadge(topologyChain?.protocol)}
+              </Badge>
+            </DialogTitle>
+          </DialogHeader>
+          {topologyChain ? <ChainGroupsDetail chain={topologyChain} /> : null}
+        </DialogContent>
+      </Dialog>
+
       {form ? (
-        <ChainFormDialog
+      <ChainFormDialog
           key={`${form.mode}-${form.chain?.id ?? "new"}`}
           open
           mode={form.mode}
