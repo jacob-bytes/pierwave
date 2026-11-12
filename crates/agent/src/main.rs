@@ -116,13 +116,17 @@ impl ForwardEngines {
         self.native.apply(&native).await;
     }
 
-    /// 心跳周期对账：realm 子进程崩溃后不必等主控重新下发期望态。
+    /// 心跳周期对账：realm 子进程 / tunnel 端点退出后不必等主控重新下发期望态。
+    ///
+    /// 顺序固定 realm → tunnel，两者互不阻塞：任一引擎本轮失败只会写日志和
+    /// 自己的状态，不会让另一个引擎跳过对账。
     ///
     /// native 监听没有「子进程」这一层，崩溃不存在；绑定失败的规则仍由
     /// 下一次 apply / 重连补发重试。
     async fn reconcile(&mut self) {
         self.nftables.reconcile().await;
         self.realm.ensure_running().await;
+        self.tunnel.reconcile().await;
     }
 
     /// 本机 nftables 是否可用（心跳上报；旧 Agent 没有这个字段）。
