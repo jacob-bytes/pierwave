@@ -1805,3 +1805,117 @@ old agents/slim realm/mistyped `wss;`, and UDP bypassing the transport. Step 0 m
 runtime questions (transport feature in both release assets, endpoint-level UDP override, `wss;`
 plaintext behaviour, stderr log shape, and real-cert IP/SNI behaviour). The cited realm 2.9.6 and
 kaminari 0.14 sources are the basis for the design; re-check them whenever realm is upgraded.
+
+## P16：自研隧道（tunnel 引擎）
+
+> 目标：替换 realm 在**链路跳间**的角色，解决它三个硬限制——只能用公网 CA 证书、
+> 没有 ws/wss 混淆、UDP 与 transport 完全解耦。**不替换**客户端到入口那一段。
+
+### 1. 三种安全模式
+
+| 模式 | 证书 | 认证 | 说明 |
+|---|---|---|---|
+| `tls` | 自签，主控签发 | CA 链 | **默认**。解决"必须买公网证书、90 天人工换"的痛点 |
+| `noise` | 无 | PSK（Noise IK） | 完全不要证书。用 `snow` crate，WireGuard 同一套握手 |
+| ~~`pinned`~~ | — | — | **不做**：换证书必须两端同步更新，硬耦合，收益不如 CA |
+
+两种模式共用同一个监听端口，握手首字节区分：
+
+```
+[0x01] TLS ClientHello
+[0x02] Noise 握手消息 1
+```
+
+### 2. 传输选择
+
+- **TCP 中继：TCP + TLS 1.3 / Noise**，**不做多路复用**。
+  理由：跳间链路 RTT 稳定、丢包低，队头阻塞不是主要矛盾；TLS 会话复用已把握手成本降到接近 0；
+  多路复用会引入流控状态机和 HOL，复杂度高一个数量级。
+- **UDP 中继：QUIC datagram**（`quinn`）。不做 UDP-over-TCP——弱网下延迟会被放大，做了也会被弃用。
+
+### 3. 协议
+
+握手（两步）：
+```
+ClientHello: { version: 1, hop_id, proof }
+ServerHello: { version: 1, ok, reason? }
+proof = HMAC(hop_secret, hop_id || timestamp)   // ±5 分钟窗口 + 服务端最近 proof 缓存
+```
+
+数据帧：
+```
+[u8 kind][u32 len][payload]
+kind: 0x01 数据 | 0x02 关闭 | 0x03 心跳
+```
+首帧带目标地址（SOCKS5 地址格式），同一个入口可按需连不同下一跳。
+
+### 4. 密钥与轮换
+
+```
+hop_secret = HMAC(master_secret, "tunnel/{chain_id}/{hop_seq}")   // 32 字节
+static_psk  = 派生同上，只用于认证
+session_key = 每次期望态下发时重新协商的临时密钥（Noise IK 的临时公钥）
+```
+
+**硬要求**：PSK 泄漏无法靠到期兜底，所以静态 PSK **只用于认证**，实际加密必须用临时会话密钥，
+把泄漏窗口压到一个心跳周期内。
+
+轮换 = 改 master secret 或 chain_id → 全链换钥 → **链路瞬断**（两端需同时 apply）。与 SS2022 同一类坑，文档必须写清。
+
+### 5. 性能与资源（设计目标，非承诺）
+
+```
+单连接常驻     rustls 会话 8KB + 读写缓冲 64KB ≈ 72KB
+10k 并发       ≈ 700MB  ← 必须由 max_connections 硬上限兜住
+max_connections 默认 8192，超限拒绝新连接并按 30s 节流记一次 warn（不踢在线连接）
+```
+
+优化项（按收益排序）：
+1. `copy_bidirectional` 缓冲 8KB → 32–64KB（一行改动，收益最大）；
+2. 每核一个 accept 循环（`SO_REUSEPORT`）；现在单循环跑不满多核；
+3. 加密固定用 `ring` 后端，不引入 aws-lc；
+4. **不用 `splice`**：加密后不存在零拷贝路径，任何"零拷贝加密隧道"的说法都不成立（除非上 kTLS）。
+
+验收基准（**必须先测再谈优化**）：
+
+```
+单流 iperf3           ≥ 800 Mbps @ 1Gbps
+10k 空连接内存         < 800 MB
+建连速率              ≥ 3000/s（含握手）
+1000 并发 RTT 增量     < 2 ms
+```
+
+### 6. 安全边界
+
+- **不自己实现任何 AEAD/KDF**：TCP 用 rustls，Noise 用 snow，UDP 用 quinn；
+- 代码里**不提供 `insecure` 开关**；
+- 隧道绑定 `hop_id`，服务端只允许转发到该跳预配置的下一跳（防开放中继）；
+- 私钥落盘 0600（复用 `ManagedFile.mode`）；
+- 握手 `version` 精确匹配，**不向下兼容**；
+- 失败一律 fail-closed：证书/密钥/握手失败 → 整链不下发，绝不回退明文。
+
+### 7. 接入现有架构
+
+```
+ForwardEngine 新增 Tunnel
+DesiredForward 增加 tunnel 段（hop_id、对端、证书路径、hop_secret）
+DesiredState.files 带证书（复用现有管线）
+Agent 新增 tunnel.rs supervisor（与 native/realm 同层）
+观测复用 ForwardStatus：延迟、流量、listening、target_error 无需新通道
+```
+
+### 8. 分阶段
+
+| 阶段 | 内容 | 验收 |
+|---|---|---|
+| **P16.1** | TLS + 自有 CA，1:1 连接，帧协议，单跳回环 | 两台机器跑通；iperf3 与裸链对比；丢包 <1% 时吞吐损失 <10% |
+| **P16.2** | Noise/PSK 模式（同一套帧与调度，只换握手层） | 无证书链路跑通；密钥轮换流程验证 |
+| **P16.3** | UDP over QUIC | 游戏 UDP 回环；10% 丢包下抖动可控 |
+| **P16.4** | 混淆层（ws / fake-http） | **有明确需求再做**；不解决安全，做早会掩盖真实缺陷 |
+
+### 9. 不做
+
+- 不做证书固定（pinned）模式；
+- 不做通用多路复用；
+- 不做 kTLS / 内核旁路；
+- 不替换客户端到入口那一段（Xray 继续负责）。
