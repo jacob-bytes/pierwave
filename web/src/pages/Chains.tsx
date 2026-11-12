@@ -624,7 +624,7 @@ function ChainGroupsDetail({ chain }: { chain: Chain }) {
           {t("chains.detail.empty")}
         </p>
       ) : (
-        <div className="flex min-w-0 flex-col gap-1.5 lg:flex-row lg:items-start">
+        <div className="flex min-w-0 flex-col gap-1.5 lg:flex-row lg:items-center">
           {groups.map((group, index) => {
             const next = groups[index + 1];
             return (
