@@ -97,6 +97,21 @@ sudo make verify-runtime ARGS="--forward-port 18443 --iface eth0 --rate-mbps 100
 | 审计日志服务端过滤与分页 | 低 | 小 | 数据量大时才需要 |
 | 自定义 CSS | 低 | 小 | 主题定制 |
 
+## 待办：旧 Agent 的「仅 UDP」能力门禁（安全）
+
+**问题**：`protocol = udp` 是 v0.8.0 引入的。旧 Agent（PROTOCOL_VERSION < 16）会忽略该字段，
+按旧的 `udp` 镜像位只监听 TCP —— 用户以为「仅 UDP」生效，实际一条监听都没有。
+
+**为什么危险**：静默失效。面板显示规则已下发、状态可能仍是 listening（旧逻辑），但流量全丢。
+
+**修法**：
+1. `Hello` / `Heartbeat` 带上 `protocol_version`；
+2. 主控保存或下发 `protocol = udp` 前检查该服务器上报的版本，低于 16 一律拒绝保存，
+   错误码建议 `forward.protocol_requires_agent_upgrade`（中英双语）；
+3. 已保存的旧数据在 render 时按同一规则跳过并给 warning，不要下发成 TCP。
+
+**验收**：旧 Agent 的服务器保存 udp-only → 400 且提示升级；render 不为它生成 udp-only 规则。
+
 ## 明确不做
 
 ACME 自动签发、nginx 证书部署、多主控/高可用、域名配置四件套、Cloudflare Tunnel、
