@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   ArrowRightLeftIcon,
@@ -674,6 +674,8 @@ export default function ServersPage() {
   const isDesktop = useIsDesktop();
   const servers = useServers();
   const create = useCreateServer();
+  const [searchParams] = useSearchParams();
+  const highlightParam = searchParams.get("highlight")?.trim() || null;
 
   const [createOpen, setCreateOpen] = useState(false);
   const [tokenOpen, setTokenOpen] = useState(false);
@@ -699,9 +701,21 @@ export default function ServersPage() {
   /** null = 打开「最近一次批次」；有值时直接看指定批次。 */
   const [batchProgressId, setBatchProgressId] = useState<string | null>(null);
 
+  // 从链路拓扑跳转过来时，把目标服务器滚到视口中间并短暂高亮。
+  // 只在参数变化后应用一次，避免 15 秒轮询刷新时反复滚动。
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [highlightFading, setHighlightFading] = useState(false);
+  const highlightApplied = useRef<string | null>(null);
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightFadeTimer = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
   useEffect(() => {
     return () => {
       if (copyTimer.current) clearTimeout(copyTimer.current);
+      if (highlightTimer.current) clearTimeout(highlightTimer.current);
+      if (highlightFadeTimer.current) clearTimeout(highlightFadeTimer.current);
     };
   }, []);
 
@@ -714,6 +728,35 @@ export default function ServersPage() {
     [selection, eligibleIds],
   );
   const selectAllState = batchSelectionState(selectedIds, eligibleIds);
+
+  useEffect(() => {
+    if (!highlightParam) {
+      highlightApplied.current = null;
+      return;
+    }
+    if (highlightApplied.current === highlightParam) return;
+    if (!items.some((server) => server.id === highlightParam)) return;
+
+    highlightApplied.current = highlightParam;
+    setHighlightId(highlightParam);
+    setHighlightFading(false);
+    document
+      .getElementById(`server-row-${highlightParam}`)
+      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+
+    if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    if (highlightFadeTimer.current) clearTimeout(highlightFadeTimer.current);
+    // 保持 2 秒，再用 500ms 把光环淡出。
+    highlightTimer.current = setTimeout(() => {
+      highlightTimer.current = null;
+      setHighlightFading(true);
+      highlightFadeTimer.current = setTimeout(() => {
+        highlightFadeTimer.current = null;
+        setHighlightId(null);
+        setHighlightFading(false);
+      }, 500);
+    }, 2_000);
+  }, [highlightParam, items]);
 
   function handleSelectAll(checked: boolean) {
     setSelection(checked ? [...eligibleIds] : []);
@@ -900,13 +943,19 @@ export default function ServersPage() {
   function renderRow(server: Server) {
     const serviceDown = isServiceDown(server);
     const selected = selectedIds.includes(server.id);
+    const highlighted = highlightId === server.id;
 
     return (
       <TableRow
         key={server.id}
+        id={`server-row-${server.id}`}
         data-state={selected ? "selected" : undefined}
         className={cn(
           serviceDown && "bg-destructive/5 hover:bg-destructive/10",
+          highlighted &&
+            "ring-1 ring-inset transition-[box-shadow] duration-500",
+          highlighted &&
+            (highlightFading ? "ring-primary/0" : "ring-primary/40"),
         )}
         style={
           serviceDown
@@ -917,7 +966,13 @@ export default function ServersPage() {
             : undefined
         }
       >
-        <TableCell sticky="left" className="w-10 px-4 py-2.5">
+        <TableCell
+          sticky="left"
+          className={cn(
+            "w-10 px-4 py-2.5",
+            highlighted && "border-l border-primary/40",
+          )}
+        >
           {renderServerCheckbox(server, selected)}
         </TableCell>
         <TableCell className="max-w-56 px-4 py-2.5">
@@ -947,7 +1002,13 @@ export default function ServersPage() {
         <TableCell className="hidden px-4 py-2.5 xl:table-cell">
           <MemoryCell server={server} />
         </TableCell>
-        <TableCell sticky="right" className="px-4 py-2.5">
+        <TableCell
+          sticky="right"
+          className={cn(
+            "px-4 py-2.5",
+            highlighted && "border-r border-primary/40",
+          )}
+        >
           {renderServerActions(server)}
         </TableCell>
       </TableRow>
@@ -957,46 +1018,53 @@ export default function ServersPage() {
   function renderCard(server: Server) {
     const serviceDown = isServiceDown(server);
     const selected = selectedIds.includes(server.id);
+    const highlighted = highlightId === server.id;
 
     return (
-      <MobileDataCard
-        key={server.id}
-        title={server.name}
-        subtitle={server.address}
-        className={cn(serviceDown && "ring-destructive/30")}
-        badge={renderServerCheckbox(server, selected)}
-        actions={renderServerActions(server)}
-        fields={[
-          {
-            label: t("servers.mode.column"),
-            value: renderServerMode(server),
-          },
-          {
-            label: t("common.status"),
-            value: <StatusBadge server={server} />,
-          },
-          {
-            label: "Xray",
-            value: <XrayStatus server={server} />,
-          },
-          {
-            label: t("servers.detail.lastHeartbeat"),
-            value: <HeartbeatText healthAt={server.health_at} />,
-          },
-          {
-            label: t("servers.agentVersion"),
-            value: <VersionCell server={server} />,
-          },
-          {
-            label: t("servers.detail.load"),
-            value: renderServerLoad(server),
-          },
-          {
-            label: t("servers.detail.memory"),
-            value: <MemoryCell server={server} />,
-          },
-        ]}
-      />
+      <div key={server.id} id={`server-row-${server.id}`}>
+        <MobileDataCard
+          title={server.name}
+          subtitle={server.address}
+          className={cn(
+            serviceDown && "ring-destructive/30",
+            highlighted &&
+              "ring-1 ring-primary/40 transition-[box-shadow] duration-500",
+            highlighted && highlightFading && "ring-primary/0",
+          )}
+          badge={renderServerCheckbox(server, selected)}
+          actions={renderServerActions(server)}
+          fields={[
+            {
+              label: t("servers.mode.column"),
+              value: renderServerMode(server),
+            },
+            {
+              label: t("common.status"),
+              value: <StatusBadge server={server} />,
+            },
+            {
+              label: "Xray",
+              value: <XrayStatus server={server} />,
+            },
+            {
+              label: t("servers.detail.lastHeartbeat"),
+              value: <HeartbeatText healthAt={server.health_at} />,
+            },
+            {
+              label: t("servers.agentVersion"),
+              value: <VersionCell server={server} />,
+            },
+            {
+              label: t("servers.detail.load"),
+              value: renderServerLoad(server),
+            },
+            {
+              label: t("servers.detail.memory"),
+              value: <MemoryCell server={server} />,
+            },
+          ]}
+        />
+      </div>
     );
   }
 

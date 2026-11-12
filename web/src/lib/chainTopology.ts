@@ -5,10 +5,14 @@
  * 的链视图对齐：
  * - `latency_ms` 表示「上一跳 → 这台成员」，首组没有上一跳，恒为 null；
  * - `target_latency_ms` 只在最后一跳有值，表示「这台成员 → 链目标」；
- * - `null` 一律是「没有测到」，绝不能当成 0 ms；
+ * - `last_seen_at` 是服务器最近一次心跳（ISO8601），不是成员转发状态；
+ * - `target_error` 是最后一跳 TLS 探测的稳定短串，明文规则为 null；
+ * - `null` 一律是「没有测到 / 未上报」，绝不能当成 0 ms 或「正常」；
  * - `path_mode = single` 时整条链只有一条路径，各段延迟才能相加；
  *   `multi` / `hash` 下没有唯一路径，不冒充一个确定的总延迟。
  */
+
+import { TLS_ERROR_CODES } from "./chainTls.ts";
 
 /** 延迟三档 + 无数据。`muted` 只用于 null，不参与阈值判定。 */
 export type HopLatencyTone = "default" | "warning" | "destructive" | "muted";
@@ -122,4 +126,77 @@ export function memberInUse(pathMode: unknown, groupSize: number): boolean {
     Number.isFinite(groupSize) &&
     groupSize > 1
   );
+}
+
+/** 最后上报超过这个时长就不该再当作「实时」：5 分钟。 */
+export const MEMBER_SEEN_STALE_MS = 5 * 60 * 1_000;
+
+/** 最后上报的展示色调：新鲜 / 超过 5 分钟 / 无数据。 */
+export type MemberSeenTone = "default" | "warning" | "muted";
+
+/**
+ * ISO8601 → Unix 秒；缺失、空白、非法日期都返回 null。
+ *
+ * `formatRelativeTime` 只接受 Unix 秒，而心跳字段是 ISO8601；
+ * 这里只做格式转换，不参与任何「多久算旧」的判断。
+ */
+export function isoToUnixSeconds(value: unknown): number | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const ms = Date.parse(trimmed);
+  if (!Number.isFinite(ms)) return null;
+  return Math.floor(ms / 1_000);
+}
+
+/**
+ * 成员最后上报的色调。
+ *
+ * `null` / 非法时间 = 未上报，用 muted；超过 5 分钟用 warning；
+ * 其余（含时钟偏差导致的未来时间）都按新鲜处理。边界严格按「超过」：
+ * 恰好 5 分钟仍是 default。
+ */
+export function memberSeenTone(
+  lastSeenAt: string | null | undefined,
+  now = Date.now(),
+): MemberSeenTone {
+  const seen = isoToUnixSeconds(lastSeenAt);
+  if (seen === null) return "muted";
+  return now - seen * 1_000 > MEMBER_SEEN_STALE_MS ? "warning" : "default";
+}
+
+/** 箭头加粗的两个阈值：`< 50 ms` 细、`50–200 ms` 中、`> 200 ms` 粗。 */
+export const ARROW_THICK_MS = 50;
+export const ARROW_WARNING_MS = 200;
+
+/**
+ * 箭头线宽（px）：`< 50 ms` 1、`50–200 ms` 1.5、`> 200 ms` 2。
+ *
+ * `null` / 非法值保持 1px，不把「没测到」画成一条粗线。
+ */
+export function arrowWidth(ms: number | null | undefined): number {
+  const value = finiteLatency(ms);
+  if (value === null || value < ARROW_THICK_MS) return 1;
+  if (value <= ARROW_WARNING_MS) return 1.5;
+  return 2;
+}
+
+/** `> 200 ms` 时箭头用 warning 色；null / 边界内仍是普通色。 */
+export function arrowWarning(ms: number | null | undefined): boolean {
+  const value = finiteLatency(ms);
+  return value !== null && value > ARROW_WARNING_MS;
+}
+
+/**
+ * 成员 `target_error` → `chains.tlsError.*`；未知 / 空值返回 null，界面不渲染。
+ *
+ * 六个短串的唯一定义仍在 `chainTls.ts`，这里只负责拓扑里的取键，
+ * 避免同一份后端契约出现两份白名单。
+ */
+export function targetErrorKey(code: unknown): string | null {
+  if (typeof code !== "string") return null;
+  const value = code.trim();
+  return (TLS_ERROR_CODES as readonly string[]).includes(value)
+    ? `chains.tlsError.${value}`
+    : null;
 }

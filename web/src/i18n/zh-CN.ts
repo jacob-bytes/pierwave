@@ -1864,6 +1864,8 @@ const zhCN = {
       memberInUse: "在用",
       totalLatency: "链路内合计 {total}",
       totalLatencyTitle: "不含客户端到入口",
+      fullscreen: "全屏",
+      exitFullscreen: "退出全屏",
     },
     status: {
       ok: "正常",
@@ -1891,6 +1893,9 @@ const zhCN = {
       degradedBadge: "降级",
       errorTitle: "错误信息：{error}",
       noError: "Agent 未返回具体原因，请查看 Agent 日志",
+      lastSeen: "最后上报 {time}",
+      lastSeenNone: "未上报",
+      openServerAria: "在服务器页查看「{server}」",
     },
     form: {
       createTitle: "新建转发链",
@@ -2256,6 +2261,8 @@ const zhCN = {
   time: {
     neverOnline: "从未在线",
     justNow: "刚刚",
+    secondAgo: "{n} 秒前",
+    secondsAgo: "{n} 秒前",
     minuteAgo: "{n} 分钟前",
     minutesAgo: "{n} 分钟前",
     hourAgo: "{n} 小时前",

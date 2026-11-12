@@ -652,6 +652,15 @@ export interface ChainGroupMember {
    */
   target_error: string | null;
   /**
+   * 该服务器最后一次心跳（ISO8601）；`null` = 未上报。
+   * 旧后端可能不返回该字段，前端一律按 `null` 处理。
+   */
+  last_seen_at?: string | null;
+  /** 本跳已转发的入站字节；`null` = 尚未上报。 */
+  traffic_in?: number | null;
+  /** 本跳已转发的出站字节；`null` = 尚未上报。 */
+  traffic_out?: number | null;
+  /**
    * 上一跳 → 这台成员这一段的实测 RTT（多台上一跳取最小值）。
    * 首组没有上一跳、Agent 未探测或探测失败时为 null。
    */

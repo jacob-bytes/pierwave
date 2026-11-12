@@ -1,4 +1,4 @@
-import { t } from "@/i18n";
+import { t } from "../i18n/index.ts";
 
 const MINUTE_MS = 60_000;
 const UTC8_OFFSET_MS = 8 * 60 * 60 * 1_000;
@@ -28,16 +28,28 @@ function formatUtc8DateTime(date: Date): string {
   )}:${pad(date.getUTCSeconds())}`;
 }
 
-/** 后端时间一律 Unix 秒；展示优先相对时间。 */
+/**
+ * 后端时间一律 Unix 秒；展示优先相对时间。
+ *
+ * `includeSeconds` 只给需要看清「刚刚有多久」的成员行用：默认行为不变，
+ * 1 分钟内仍是「刚刚」；开启后同一段区间显示 `32 秒前`。
+ */
 export function formatRelativeTime(
   unixSeconds: number | null | undefined,
   now = Date.now(),
+  includeSeconds = false,
 ): string {
   if (unixSeconds === null || unixSeconds === undefined)
     return t("time.neverOnline");
 
   const diff = now - unixSeconds * 1_000;
-  if (diff < MINUTE_MS) return t("time.justNow");
+  if (diff < MINUTE_MS) {
+    if (!includeSeconds) return t("time.justNow");
+    const seconds = Math.max(0, Math.floor(diff / 1_000));
+    return t(seconds === 1 ? "time.secondAgo" : "time.secondsAgo", {
+      n: seconds,
+    });
+  }
 
   const minutes = Math.floor(diff / MINUTE_MS);
   if (minutes < 60)

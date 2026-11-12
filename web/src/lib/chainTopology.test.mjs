@@ -3,11 +3,17 @@ import test from "node:test";
 import en from "../i18n/en.ts";
 import zhCN from "../i18n/zh-CN.ts";
 import {
+  MEMBER_SEEN_STALE_MS,
+  arrowWarning,
+  arrowWidth,
   hopLatencyLabel,
   hopLatencyTone,
+  isoToUnixSeconds,
   memberInUse,
+  memberSeenTone,
   pathModeBadge,
   protocolBadge,
+  targetErrorKey,
   totalLatencyLabel,
 } from "./chainTopology.ts";
 
@@ -99,4 +105,113 @@ test("memberInUse only marks multi-member groups in multi mode", () => {
   assert.equal(memberInUse("single", 3), false);
   assert.equal(memberInUse("hash", 3), false);
   assert.equal(memberInUse("unknown", 3), false);
+});
+
+const SEEN_NOW = Date.parse("2026-11-12T12:00:00.000Z");
+const isoAgo = (ms) => new Date(SEEN_NOW - ms).toISOString();
+
+test("isoToUnixSeconds converts ISO8601 and rejects missing or invalid values", () => {
+  assert.equal(isoToUnixSeconds("1970-01-01T00:00:01.000Z"), 1);
+  assert.equal(isoToUnixSeconds("2026-11-12T12:00:00.000Z"), SEEN_NOW / 1_000);
+  assert.equal(isoToUnixSeconds(" 2026-11-12T12:00:00.000Z "), SEEN_NOW / 1_000);
+  assert.equal(isoToUnixSeconds("not-a-date"), null);
+  assert.equal(isoToUnixSeconds(""), null);
+  assert.equal(isoToUnixSeconds("   "), null);
+  assert.equal(isoToUnixSeconds(null), null);
+  assert.equal(isoToUnixSeconds(undefined), null);
+  assert.equal(isoToUnixSeconds(1_794_000_000), null);
+});
+
+test("memberSeenTone: fresh report is default", () => {
+  assert.equal(memberSeenTone(isoAgo(32_000), SEEN_NOW), "default");
+  assert.equal(memberSeenTone(isoAgo(1_000), SEEN_NOW), "default");
+  assert.equal(memberSeenTone(isoAgo(MEMBER_SEEN_STALE_MS), SEEN_NOW), "default");
+  assert.equal(memberSeenTone(isoAgo(MEMBER_SEEN_STALE_MS - 1), SEEN_NOW), "default");
+  // 时钟偏差给出的未来时间也不该被标成陈旧。
+  assert.equal(memberSeenTone(isoAgo(-10_000), SEEN_NOW), "default");
+  assert.equal(MEMBER_SEEN_STALE_MS, 300_000);
+});
+
+test("memberSeenTone: strictly over 5 minutes is warning", () => {
+  assert.equal(memberSeenTone(isoAgo(MEMBER_SEEN_STALE_MS + 1), SEEN_NOW), "warning");
+  assert.equal(memberSeenTone(isoAgo(MEMBER_SEEN_STALE_MS + 60_000), SEEN_NOW), "warning");
+  assert.equal(memberSeenTone(isoAgo(3_600_000), SEEN_NOW), "warning");
+});
+
+test("memberSeenTone: missing or invalid heartbeat is muted, never warning", () => {
+  assert.equal(memberSeenTone(null, SEEN_NOW), "muted");
+  assert.equal(memberSeenTone(undefined, SEEN_NOW), "muted");
+  assert.equal(memberSeenTone("", SEEN_NOW), "muted");
+  assert.equal(memberSeenTone("   ", SEEN_NOW), "muted");
+  assert.equal(memberSeenTone("not-a-date", SEEN_NOW), "muted");
+  assert.equal(memberSeenTone(1_794_000_000, SEEN_NOW), "muted");
+});
+
+test("arrowWidth: <50 ms is 1px, 50-200 ms is 1.5px, >200 ms is 2px", () => {
+  assert.equal(arrowWidth(0), 1);
+  assert.equal(arrowWidth(49), 1);
+  assert.equal(arrowWidth(49.9), 1);
+  assert.equal(arrowWidth(50), 1.5);
+  assert.equal(arrowWidth(100), 1.5);
+  assert.equal(arrowWidth(200), 1.5);
+  assert.equal(arrowWidth(200.1), 2);
+  assert.equal(arrowWidth(201), 2);
+  assert.equal(arrowWidth(1_200), 2);
+});
+
+test("arrowWidth keeps 1px for missing or invalid latency", () => {
+  assert.equal(arrowWidth(null), 1);
+  assert.equal(arrowWidth(undefined), 1);
+  assert.equal(arrowWidth(Number.NaN), 1);
+  assert.equal(arrowWidth(-1), 1);
+});
+
+test("arrowWarning only fires above 200 ms", () => {
+  assert.equal(arrowWarning(null), false);
+  assert.equal(arrowWarning(undefined), false);
+  assert.equal(arrowWarning(Number.NaN), false);
+  assert.equal(arrowWarning(0), false);
+  assert.equal(arrowWarning(50), false);
+  assert.equal(arrowWarning(200), false);
+  assert.equal(arrowWarning(200.1), true);
+  assert.equal(arrowWarning(201), true);
+  assert.equal(arrowWarning(1_200), true);
+});
+
+test("targetErrorKey maps exactly the six stable TLS probe codes", () => {
+  assert.equal(targetErrorKey("tcp_connect_failed"), "chains.tlsError.tcp_connect_failed");
+  assert.equal(targetErrorKey("cert_expired"), "chains.tlsError.cert_expired");
+  assert.equal(targetErrorKey("unknown_issuer"), "chains.tlsError.unknown_issuer");
+  assert.equal(targetErrorKey("name_mismatch"), "chains.tlsError.name_mismatch");
+  assert.equal(targetErrorKey("handshake_failed"), "chains.tlsError.handshake_failed");
+  assert.equal(targetErrorKey("timeout"), "chains.tlsError.timeout");
+  assert.equal(targetErrorKey("  timeout  "), "chains.tlsError.timeout");
+});
+
+test("targetErrorKey hides unknown, empty and non-string codes", () => {
+  assert.equal(targetErrorKey("connection_reset"), null);
+  assert.equal(targetErrorKey("TCP_CONNECT_FAILED"), null);
+  assert.equal(targetErrorKey(""), null);
+  assert.equal(targetErrorKey("   "), null);
+  assert.equal(targetErrorKey(null), null);
+  assert.equal(targetErrorKey(undefined), null);
+  assert.equal(targetErrorKey(1), null);
+});
+
+test("targetErrorKey resolves to translated copy in both dictionaries", () => {
+  assert.equal(zhT(targetErrorKey("cert_expired")), "证书已过期");
+  assert.equal(zhT(targetErrorKey("timeout")), "TLS 握手超时");
+  assert.equal(enT(targetErrorKey("cert_expired")), "Certificate expired");
+  assert.equal(enT(targetErrorKey("timeout")), "TLS handshake timed out");
+});
+
+test("last-seen and fullscreen copy exist in both dictionaries", () => {
+  assert.equal(zhT("chains.member.lastSeen"), "最后上报 {time}");
+  assert.equal(enT("chains.member.lastSeen"), "Last reported {time}");
+  assert.equal(zhT("chains.member.lastSeenNone"), "未上报");
+  assert.equal(enT("chains.member.lastSeenNone"), "Not reported");
+  assert.equal(zhT("chains.detail.fullscreen"), "全屏");
+  assert.equal(enT("chains.detail.fullscreen"), "Fullscreen");
+  assert.equal(zhT("chains.detail.exitFullscreen"), "退出全屏");
+  assert.equal(enT("chains.detail.exitFullscreen"), "Exit fullscreen");
 });

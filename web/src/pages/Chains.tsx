@@ -1,8 +1,11 @@
 import { Fragment, useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import {
   ArrowDownIcon,
   ArrowRightIcon,
+  MaximizeIcon,
+  MinimizeIcon,
   WaypointsIcon,
   InfoIcon,
   MoreHorizontalIcon,
@@ -77,15 +80,21 @@ import {
   type HopTargetState,
 } from "@/lib/chains";
 import {
+  arrowWarning,
+  arrowWidth,
   hopLatencyLabel,
   hopLatencyTone,
+  isoToUnixSeconds,
   memberInUse,
+  memberSeenTone,
   pathModeBadge,
   protocolBadge,
+  targetErrorKey,
   totalLatencyLabel,
   type HopLatencyTone,
+  type MemberSeenTone,
 } from "@/lib/chainTopology";
-import { isTlsTransport, tlsErrorKey } from "@/lib/chainTls";
+import { isTlsTransport } from "@/lib/chainTls";
 import {
   chainEngineMissing,
   chainServersMissingRealm,
@@ -93,6 +102,7 @@ import {
 } from "@/lib/engines";
 import { errorText } from "@/lib/errors";
 import { formatForwardTarget } from "@/lib/forwards";
+import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { useChains, useServers, useUpdateChain } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
@@ -107,6 +117,13 @@ const LATENCY_TONE_CLASS: Record<HopLatencyTone, string> = {
   default: "text-foreground",
   warning: "text-warning",
   destructive: "text-destructive",
+  muted: "text-muted-foreground",
+};
+
+/** 最后上报的色调：只有陈旧才是 warning，未上报保持次要文字色。 */
+const MEMBER_SEEN_TONE_CLASS: Record<MemberSeenTone, string> = {
+  default: "text-muted-foreground",
+  warning: "text-warning",
   muted: "text-muted-foreground",
 };
 
@@ -235,6 +252,8 @@ function HopArrow({
   protocol: string;
 }) {
   const tone = hopLatencyTone(latencyMs);
+  const width = arrowWidth(latencyMs);
+  const warning = arrowWarning(latencyMs);
 
   return (
     <div className="flex shrink-0 flex-row items-center justify-center gap-1.5 py-1 lg:flex-col lg:gap-0.5 lg:py-0">
@@ -249,18 +268,36 @@ function HopArrow({
           {hopLatencyLabel(latencyMs)}
         </span>
       ) : null}
-      <div className="flex items-center text-muted-foreground">
+      <div
+        className={cn(
+          "flex items-center",
+          warning ? "text-warning" : "text-muted-foreground",
+        )}
+      >
         <span
-          className="hidden h-px w-2.5 bg-border lg:block"
+          className={cn(
+            "hidden w-2.5 lg:block",
+            warning ? "bg-warning" : "bg-border",
+          )}
+          style={{ height: `${width}px` }}
           aria-hidden="true"
         />
-        <ArrowDownIcon className="size-3.5 lg:hidden" aria-hidden="true" />
+        <ArrowDownIcon
+          className="size-3.5 lg:hidden"
+          strokeWidth={width}
+          aria-hidden="true"
+        />
         <ArrowRightIcon
           className="hidden size-3.5 lg:block"
+          strokeWidth={width}
           aria-hidden="true"
         />
         <span
-          className="hidden h-px w-2.5 bg-border lg:block"
+          className={cn(
+            "hidden w-2.5 lg:block",
+            warning ? "bg-warning" : "bg-border",
+          )}
+          style={{ height: `${width}px` }}
           aria-hidden="true"
         />
       </div>
@@ -415,21 +452,36 @@ function GroupMemberRow({
   member,
   index,
   inUse,
+  isLastHop,
 }: {
   member: ChainGroupMember;
   index: number;
   inUse: boolean;
+  isLastHop: boolean;
 }) {
   const { t } = useI18n();
   const endpoint = formatMemberEndpoint(member);
   const error = member.error.trim();
-  const tlsError = tlsErrorKey(member.target_error);
+  const tlsError = targetErrorKey(member.target_error);
   const degraded = Boolean(member.degraded);
+  const now = Date.now();
+  const seenSeconds = isoToUnixSeconds(member.last_seen_at);
+  const seenTone = memberSeenTone(member.last_seen_at, now);
+  const seenLabel =
+    seenSeconds === null
+      ? t("chains.member.lastSeenNone")
+      : t("chains.member.lastSeen", {
+          time: formatRelativeTime(seenSeconds, now, true),
+        });
 
   return (
-    <div
+    <Link
+      to={`/servers?highlight=${encodeURIComponent(member.server_id)}`}
+      aria-label={t("chains.member.openServerAria", {
+        server: member.server_name,
+      })}
       className={cn(
-        "rounded-md border px-2 py-1.5 transition-colors duration-150",
+        "block rounded-md border px-2 py-1.5 transition-colors duration-150 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none",
         degraded
           ? "border-warning/45 bg-warning/5"
           : "border-border/60 bg-background/30",
@@ -448,8 +500,33 @@ function GroupMemberRow({
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
+          <span
+            className={cn(
+              "type-micro tabular-nums",
+              MEMBER_SEEN_TONE_CLASS[seenTone],
+            )}
+            title={
+              seenSeconds === null
+                ? undefined
+                : formatAbsoluteTime(seenSeconds)
+            }
+          >
+            {seenLabel}
+          </span>
           <MemberListeningStatus member={member} />
           <MemberTargetStatus member={member} />
+          {isLastHop && tlsError ? (
+            <span
+              className="inline-flex items-center gap-1 type-micro text-destructive"
+              title={member.target_error ?? undefined}
+            >
+              <TriangleAlertIcon
+                className="size-3 shrink-0"
+                aria-hidden="true"
+              />
+              {t(tlsError)}
+            </span>
+          ) : null}
           {inUse ? (
             <Badge
               variant="outline"
@@ -468,7 +545,9 @@ function GroupMemberRow({
           {error}
         </p>
       ) : null}
-      {tlsError ? (
+      {/* 非最后一跳的 target_error 是「上一跳 → 本跳」的握手失败，保留原有提示；
+          最后一跳的目标探测失败已经放在状态行里，避免重复。 */}
+      {!isLastHop && tlsError ? (
         <p
           className="mt-1 flex items-center gap-1 type-micro text-destructive"
           title={member.target_error ?? undefined}
@@ -477,7 +556,7 @@ function GroupMemberRow({
           {t(tlsError)}
         </p>
       ) : null}
-    </div>
+    </Link>
   );
 }
 
@@ -485,11 +564,13 @@ function GroupMemberRow({
 function GroupCard({
   group,
   isEntry,
+  isLastHop,
   pathMode,
   highlight,
 }: {
   group: ChainGroup;
   isEntry: boolean;
+  isLastHop: boolean;
   pathMode: string;
   highlight: boolean;
 }) {
@@ -573,6 +654,7 @@ function GroupCard({
               member={member}
               index={index}
               inUse={inUse}
+              isLastHop={isLastHop}
             />
           ))
         )}
@@ -635,6 +717,7 @@ function ChainGroupsDetail({ chain }: { chain: Chain }) {
                 <GroupCard
                   group={group}
                   isEntry={index === 0}
+                  isLastHop={index === groups.length - 1}
                   pathMode={pathMode}
                   highlight={singlePath}
                 />
@@ -789,6 +872,7 @@ export default function ChainsPage() {
   } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Chain | null>(null);
   const [topologyChain, setTopologyChain] = useState<Chain | null>(null);
+  const [topologyFullscreen, setTopologyFullscreen] = useState(false);
 
   const items = chains.data ?? [];
   const showError = chains.isError && !chains.data;
@@ -1170,12 +1254,20 @@ export default function ChainsPage() {
         <Dialog
         open={topologyChain !== null}
         onOpenChange={(open) => {
-          if (!open) setTopologyChain(null);
+          if (!open) {
+            setTopologyChain(null);
+            setTopologyFullscreen(false);
+          }
         }}
       >
-        <DialogContent className="sm:max-w-5xl">
+        <DialogContent
+          className={cn(
+            "sm:max-w-5xl",
+            topologyFullscreen && "max-w-[95vw] sm:max-w-[95vw]",
+          )}
+        >
           <DialogHeader>
-            <DialogTitle className="flex flex-wrap items-center gap-1.5">
+            <DialogTitle className="flex flex-wrap items-center gap-1.5 pr-16">
               <span className="truncate">{topologyChain?.name}</span>
               {topologyChain?.path_mode === "single" ? (
                 <Badge
@@ -1193,7 +1285,36 @@ export default function ChainsPage() {
               </Badge>
             </DialogTitle>
           </DialogHeader>
-          {topologyChain ? <ChainGroupsDetail chain={topologyChain} /> : null}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="absolute top-2 right-10"
+            aria-label={t(
+              topologyFullscreen
+                ? "chains.detail.exitFullscreen"
+                : "chains.detail.fullscreen",
+            )}
+            aria-pressed={topologyFullscreen}
+            title={t(
+              topologyFullscreen
+                ? "chains.detail.exitFullscreen"
+                : "chains.detail.fullscreen",
+            )}
+            onClick={() => setTopologyFullscreen((value) => !value)}
+          >
+            {topologyFullscreen ? <MinimizeIcon /> : <MaximizeIcon />}
+          </Button>
+          {topologyChain ? (
+            <div
+              className={cn(
+                "min-h-0 overflow-y-auto overscroll-contain transition-[max-height] duration-200",
+                topologyFullscreen ? "max-h-[90vh]" : "max-h-[70vh]",
+              )}
+            >
+              <ChainGroupsDetail chain={topologyChain} />
+            </div>
+          ) : null}
         </DialogContent>
       </Dialog>
 

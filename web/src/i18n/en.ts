@@ -1974,6 +1974,8 @@ const en = {
       memberInUse: "In use",
       totalLatency: "Chain total {total}",
       totalLatencyTitle: "Excludes client to entry",
+      fullscreen: "Fullscreen",
+      exitFullscreen: "Exit fullscreen",
     },
     status: {
       ok: "Healthy",
@@ -2004,6 +2006,9 @@ const en = {
       degradedBadge: "Degraded",
       errorTitle: "Error: {error}",
       noError: "The Agent did not return a reason; check the Agent logs",
+      lastSeen: "Last reported {time}",
+      lastSeenNone: "Not reported",
+      openServerAria: "View “{server}” on the servers page",
     },
     form: {
       createTitle: "New forward chain",
@@ -2395,6 +2400,8 @@ const en = {
   time: {
     neverOnline: "Never online",
     justNow: "Just now",
+    secondAgo: "{n} second ago",
+    secondsAgo: "{n} seconds ago",
     minuteAgo: "{n} minute ago",
     minutesAgo: "{n} minutes ago",
     hourAgo: "{n} hour ago",
