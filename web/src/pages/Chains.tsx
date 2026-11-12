@@ -590,7 +590,7 @@ function GroupCard({
   return (
     <div
       className={cn(
-        "min-w-0 flex-1 rounded-md border bg-card/70 px-2.5 py-2 transition-colors duration-150",
+        "min-w-0 flex-1 overflow-hidden rounded-md border bg-card/70 px-2.5 py-2 transition-colors duration-150",
         degraded
           ? "border-warning/45 bg-warning/5"
           : "border-border",
@@ -634,25 +634,26 @@ function GroupCard({
             </Badge>
           ) : null}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {traffic ? (
-            <span
-              className="type-micro tabular-nums whitespace-nowrap text-muted-foreground"
-              title={t("chains.detail.hopTrafficTitle")}
-            >
-              {traffic}
-            </span>
-          ) : null}
-          <span className="type-micro tabular-nums text-muted-foreground">
-            {t(
-              members.length === 1
-                ? "chains.detail.memberCountOne"
-                : "chains.detail.memberCount",
-              { count: members.length },
-            )}
-          </span>
-        </div>
+        <span className="shrink-0 type-micro tabular-nums text-muted-foreground">
+          {t(
+            members.length === 1
+              ? "chains.detail.memberCountOne"
+              : "chains.detail.memberCount",
+            { count: members.length },
+          )}
+        </span>
       </div>
+
+      {traffic ? (
+        // 流量单独占一行：四跳并排时和徽标 / 成员数挤在一行会顶出卡片，
+        // 与箭头上的延迟标签视觉重叠。允许在数字之间换行，窄屏不溢出。
+        <div
+          className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 type-micro tabular-nums text-muted-foreground"
+          title={t("chains.detail.hopTrafficTitle")}
+        >
+          {traffic}
+        </div>
+      ) : null}
 
       <div
         className="mt-1.5 flex flex-col gap-1"
