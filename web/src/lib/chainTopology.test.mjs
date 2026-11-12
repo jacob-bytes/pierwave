@@ -10,6 +10,7 @@ import {
   formatHopTraffic,
   groupLatencyBySeq,
   hopLatencyLabel,
+  lineDashArray,
   hopLatencyTone,
   isoToUnixSeconds,
   memberInUse,
@@ -353,4 +354,14 @@ test("latency trend copy exists in both dictionaries", () => {
   assert.equal(enT("chains.detail.latencyWindow24h"), "24 h");
   assert.equal(zhT("chains.detail.latencyWindow7d"), "7 天");
   assert.equal(enT("chains.detail.latencyWindow7d"), "7 d");
+});
+
+test("lineDashArray cycles six distinct patterns and ignores bad indexes", () => {
+  const patterns = [0, 1, 2, 3, 4, 5].map((i) => lineDashArray(i));
+  assert.equal(patterns[0], undefined, "第一条是实线");
+  assert.equal(new Set(patterns.filter(Boolean)).size, 5, "其余五条线型互不相同");
+  assert.equal(lineDashArray(6), undefined, "第 7 条回到实线");
+  assert.equal(lineDashArray(-1), undefined, "负数回落实线");
+  assert.equal(lineDashArray(Number.NaN), undefined, "NaN 回落实线");
+  assert.equal(lineDashArray(7.9), lineDashArray(1), "小数按整数部分取");
 });

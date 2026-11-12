@@ -9,7 +9,7 @@ import {
 } from "recharts";
 import { ActivityIcon } from "lucide-react";
 import type { ChainLatencyPoint } from "@/lib/api";
-import { bucketLabel, groupLatencyBySeq } from "@/lib/chainTopology";
+import { bucketLabel, groupLatencyBySeq, lineDashArray } from "@/lib/chainTopology";
 import { useI18n } from "@/i18n";
 
 /** 只用主色，靠透明度区分不同的跳；不引入新的色相。 */
@@ -117,7 +117,11 @@ function LatencyCursor({
 }
 
 /**
- * 延迟趋势折线图：每一跳一条线，颜色只用主色不同透明度。
+ * 延迟趋势折线图：每一跳一条线。
+ *
+ * 区分方式以**线型**为主（实线 / 虚线 / 点线 / 点划线…），颜色只做细微差别。
+ * 只靠同色透明度在深色底上几乎看不出来，也无法区分 6 条以上的线；线型在色盲和
+ * 黑白截图里同样可辨。
  *
  * 数据量按 5 分钟桶：24h 最多 288 点、7d 最多 2016 点，所以不画散点，
  * 只保留折线和悬停点。空数据由调用方之外的这里兜底为空态。
@@ -149,14 +153,24 @@ export default function LatencyChart({
             key={seq}
             className="flex items-center gap-1.5 text-xs text-muted-foreground"
           >
-            <span
+            <svg
               aria-hidden="true"
-              className="h-0.5 w-4 rounded-full"
-              style={{
-                backgroundColor: "var(--primary)",
-                opacity: lineOpacity(index),
-              }}
-            />
+              width="16"
+              height="6"
+              viewBox="0 0 16 6"
+              className="shrink-0"
+            >
+              <line
+                x1="0"
+                y1="3"
+                x2="16"
+                y2="3"
+                stroke="var(--primary)"
+                strokeOpacity={lineOpacity(index)}
+                strokeWidth={1.5}
+                strokeDasharray={lineDashArray(index)}
+              />
+            </svg>
             {t("chains.detail.hop", { seq: seq + 1 })}
           </span>
         ))}
@@ -211,6 +225,7 @@ export default function LatencyChart({
                 stroke="var(--primary)"
                 strokeOpacity={lineOpacity(index)}
                 strokeWidth={1.5}
+                strokeDasharray={lineDashArray(index)}
                 dot={false}
                 activeDot={{
                   r: 3,

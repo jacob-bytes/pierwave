@@ -321,3 +321,23 @@ export function targetErrorKey(code: unknown): string | null {
     ? `chains.tlsError.${value}`
     : null;
 }
+
+/**
+ * 延迟趋势的线型：按跳序循环取，最多 6 种。
+ *
+ * 为什么不用颜色：主题只有单一强调色，同色不同透明度在深色底上几乎分不出来，
+ * 跳数一多就全靠猜；线型在黑白色盲下同样可辨。
+ */
+const LINE_DASHES = [
+  undefined, // 实线
+  "6 3",
+  "2 3",
+  "8 3 2 3",
+  "12 4",
+  "3 3",
+] as const;
+
+export function lineDashArray(index: number): string | undefined {
+  if (!Number.isFinite(index) || index < 0) return undefined;
+  return LINE_DASHES[Math.floor(index) % LINE_DASHES.length];
+}
