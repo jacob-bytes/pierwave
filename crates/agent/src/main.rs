@@ -8,6 +8,7 @@ mod system_info;
 mod tc;
 mod tls_probe;
 mod traffic;
+mod tunnel;
 mod udp;
 mod upgrade;
 

@@ -25,9 +25,12 @@ futures-util = "0.3"
 rustls = { workspace = true }
 tokio-rustls = { workspace = true }
 webpki-roots = { workspace = true }
+# P16.1 隧道：proof = HMAC-SHA256，CA/证书 PEM 解码走 base64。
+# 三者都已在 workspace 依赖里（domain/master 已在用），没有引入新 crate。
+hmac = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
 
 [dev-dependencies]
-base64 = { workspace = true }
 ed25519-dalek = { workspace = true }
 hex = { workspace = true }
-sha2 = { workspace = true }

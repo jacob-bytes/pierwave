@@ -1340,6 +1340,7 @@ dependencies = [
  "ed25519-dalek",
  "futures-util",
  "hex",
+ "hmac",
  "pierwave-domain",
  "pierwave-proto",
  "rustls",
