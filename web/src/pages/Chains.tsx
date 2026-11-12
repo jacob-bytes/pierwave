@@ -855,7 +855,9 @@ export default function ChainsPage() {
         </Button>
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate font-medium">{chain.name}</span>
+            <span className="truncate font-medium" title={chain.name}>
+              {chain.name}
+            </span>
             {chain.path_mode === "single" ? (
               <Badge
                 variant="outline"
