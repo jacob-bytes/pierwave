@@ -1333,7 +1333,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "pierwave-agent"
-version = "0.7.9"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -1359,7 +1359,7 @@ dependencies = [
 
 [[package]]
 name = "pierwave-domain"
-version = "0.7.9"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1383,7 +1383,7 @@ dependencies = [
 
 [[package]]
 name = "pierwave-master"
-version = "0.7.9"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1409,7 +1409,7 @@ dependencies = [
 
 [[package]]
 name = "pierwave-mcp"
-version = "0.7.9"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1420,7 +1420,7 @@ dependencies = [
 
 [[package]]
 name = "pierwave-proto"
-version = "0.7.9"
+version = "0.8.0"
 dependencies = [
  "serde",
  "serde_json",
