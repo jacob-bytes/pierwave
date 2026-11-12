@@ -51,6 +51,18 @@ fn map_port_conflict(error: anyhow::Error, port: i64, name: &str) -> AppError {
     }
 }
 
+/// tunnel 引擎必须带链上下文（hop_id / 证书 / 对端），独立转发表没有这些字段。
+fn ensure_tunnel_not_standalone(engine_name: &str) -> AppResult<()> {
+    if !engine::is_tunnel(engine_name) {
+        return Ok(());
+    }
+    Err(AppError::coded(
+        "forward.tunnel_requires_chain",
+        Some(json!({ "engine": engine::TUNNEL })),
+        "tunnel 引擎只能用于链，不能创建独立转发",
+    ))
+}
+
 /// nftables 规则只能保存到「明确支持 nftables」的服务器。
 ///
 /// 旧 Agent 收到 `engine = nftables` 会因为不认识的枚举值导致整份期望态解析失败，
@@ -218,6 +230,7 @@ pub async fn create(
     };
     protocol::ensure_realm_supported(&protocol, &engine)?;
     ensure_nftables_supported(&server, &engine)?;
+    ensure_tunnel_not_standalone(&engine)?;
 
     let forward_name_for_error = name.clone();
     let forward = repo::forwards::create(
@@ -326,6 +339,7 @@ pub async fn update(
     let final_protocol = protocol.as_deref().unwrap_or(&existing.protocol);
     protocol::ensure_realm_supported(final_protocol, final_engine)?;
     ensure_nftables_supported(&server, final_engine)?;
+    ensure_tunnel_not_standalone(final_engine)?;
     if let Some(port) = req.target_port {
         forwards::validate_target_port(port)?;
     }

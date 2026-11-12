@@ -1913,6 +1913,37 @@ Agent 新增 tunnel.rs supervisor（与 native/realm 同层）
 | **P16.3** | UDP over QUIC | 游戏 UDP 回环；10% 丢包下抖动可控 |
 | **P16.4** | 混淆层（ws / fake-http） | **有明确需求再做**；不解决安全，做早会掩盖真实缺陷 |
 
+### 8.1 实现状态（2026-11）
+
+> P16.1 的帧/TLS/握手骨架已在 `2d5fef0` 合并。本轮把隧道接入了
+> `ForwardEngine` / `DesiredState`，并完成三件事：
+>
+> 1. **帧适配器**：`FrameIo` 直接暴露 `FrameKind::Data` 的 payload，
+>    `copy_bidirectional_with_sizes(32 KiB)` 直接跑在它和 `TcpStream` 之间；
+>    删除了 `tokio::io::duplex(32 KiB)` 与两个泵任务。10 个并发回环连接的
+>    进程物理足迹增量从 **2144 KiB（旧）降到 1808–1968 KiB（新，多次运行）**
+>    （macOS `vmmap` 的 Physical footprint，测试名 `tunnel_rss_delta_*`）。
+> 2. **白名单**：`TunnelServerConfig.allowed_targets` 在首帧地址解析后、
+>    `connect_target` 之前校验；空列表拒绝一切。域名后缀 / 精确 IP /
+>    端口闭区间，拒绝时回 CLOSE + 30s 节流 warn。
+> 3. **2 跳链接入**：第 0 跳 Dialer、第 1 跳 Listener；主控生成自有 CA +
+>    每台服务器属证书，经 `DesiredState.files` 下发（cert/key 0600、
+>    ca.pem 0644）；`hop_secret = HMAC(master_secret, "tunnel/{chain_id}/{seq}")`。
+>
+> **当前限制**：tunnel 引擎只支持 2 跳、每组 1 台成员（多成员会把流量
+> 全部压到第一台，因此先拒绝而不是静默降级）；3+ 跳、Noise/PSK、UDP/QUIC
+> 仍按原计划留在后续阶段。
+>
+> **Status (2026-11, English)**: P16.1 framing/TLS/handshake landed in
+> `2d5fef0`. This round wires the tunnel into `ForwardEngine` /
+> `DesiredState`: a frame adapter replaces the 32 KiB duplex bridge (10
+> loopback connections: 2144 KiB → 1808–1968 KiB physical footprint), the
+> listener validates an allowlist before any outbound connect (empty = deny
+> all), and a 2-hop chain is derived into an entry dialer plus an exit
+> listener with a master-owned CA and per-server leaf certificates. The
+> current engine is limited to 2 hops with one member per group; Noise/PSK,
+> UDP/QUIC and 3+ hop topologies remain future work.
+
 ### 9. 不做
 
 - 不做证书固定（pinned）模式；

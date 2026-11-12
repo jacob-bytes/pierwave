@@ -19,6 +19,7 @@
 //! `target_ok=false` 才算降级。
 
 use std::collections::{HashMap, HashSet};
+use std::net::IpAddr;
 
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
@@ -38,6 +39,7 @@ use crate::state::AppState;
 
 use pierwave_proto::{
     DesiredForward, ForwardEngine, ForwardProtocol, ForwardStrategy, ForwardTarget, TargetProbe,
+    TunnelRole, TunnelSpec, TunnelTargetRule,
 };
 
 /// 一条已通过校验的成员：带上服务器地址，供冲突提示与推导使用。
@@ -50,6 +52,8 @@ struct ValidatedMember {
     weight: i64,
     /// 该服务器是否明确支持 nftables；未知按不支持处理。
     nftables_available: Option<bool>,
+    /// 该服务器是否明确支持 P16 隧道；未知按不支持处理。
+    tunnel_available: Option<bool>,
 }
 
 /// 一条已通过校验的组。
@@ -159,6 +163,7 @@ pub(crate) fn derive_forwards(
                     listen_transport: None,
                     remote_transport: None,
                     disable_udp: false,
+                    tunnel: None,
                 },
             ));
         }
@@ -412,6 +417,7 @@ async fn resolve_groups(
                 priority: member.priority,
                 weight: member.weight,
                 nftables_available: server.nftables_available,
+                tunnel_available: server.tunnel_available,
             });
         }
 
@@ -444,6 +450,7 @@ fn validated_from_existing(groups: &[ChainGroupWithMembers]) -> Vec<ValidatedGro
                     priority: member.priority,
                     weight: member.weight,
                     nftables_available: member.nftables_available,
+                    tunnel_available: member.tunnel_available,
                 })
                 .collect(),
         })
@@ -509,6 +516,209 @@ pub(crate) fn derive_forwards_with_transports(
         forward.disable_udp = transport.disable_udp;
     }
     derived
+}
+
+/// P16 隧道的链推导：2 跳链 → 入口 Dialer + 出口 Listener。
+///
+/// * 第 0 组（入口）每台成员一条 Dialer：公开监听自己的 `listen_port`，
+///   每来一条客户端连接就用 TLS 连第 1 组唯一成员的 `listen_port`；
+/// * 第 1 组（出口）唯一成员一条 Listener：接受隧道连接，只允许连链目标；
+/// * `hop_secret` 由主控按 `HMAC(master_secret, "tunnel/{chain_id}/{1}")`
+///   派生（`seq` = Listener 所在组），入口与出口拿到同一份；
+/// * `allowed_targets` 两侧都是链目标：Dialer 把它作为首帧请求，
+///   Listener 用它做白名单校验——任何一侧被篡改都连不到别的地址。
+///
+/// 返回值是 `(server_id, DesiredForward)`，与其它引擎的推导形状一致；
+/// 证书材料（路径/内容）由 `desired::render` 另外放进 `DesiredState.files`。
+pub(crate) fn derive_tunnel_forwards(
+    chain: &Chain,
+    groups: &[ChainGroupWithMembers],
+    hop_secret_b64: &str,
+) -> Vec<(String, DesiredForward)> {
+    let mut ordered: Vec<&ChainGroupWithMembers> = groups.iter().collect();
+    ordered.sort_by_key(|group| group.group.seq);
+    let (Some(entry), Some(exit)) = (ordered.first(), ordered.get(1)) else {
+        return Vec::new();
+    };
+    let (Some(entry_member), Some(exit_member)) = (entry.members.first(), exit.members.first())
+    else {
+        return Vec::new();
+    };
+
+    let hop_id = format!("{}:{}", chain.id, exit.group.seq);
+    let final_target_rule = TunnelTargetRule {
+        host: chain.target_host.clone(),
+        ports: Some((chain.target_port as u16, chain.target_port as u16)),
+    };
+    // Dialer：第一条约束 remote（下一跳 Listener），最后一条是每连接请求的
+    // 链目标；Listener：只允许链目标。这样两侧都是 fail closed。
+    let dialer_allowed = vec![
+        TunnelTargetRule {
+            host: exit_member.server_address.clone(),
+            ports: Some((
+                exit_member.listen_port as u16,
+                exit_member.listen_port as u16,
+            )),
+        },
+        final_target_rule.clone(),
+    ];
+    let listener_allowed = vec![final_target_rule];
+
+    let mut derived = Vec::with_capacity(2);
+    derived.push((
+        entry_member.server_id.clone(),
+        DesiredForward {
+            id: chains::forward_id(
+                &chain.id,
+                entry.group.seq,
+                &entry_member.server_id,
+                entry.members.len(),
+            ),
+            listen_port: entry_member.listen_port,
+            target_host: exit_member.server_address.clone(),
+            target_port: exit_member.listen_port,
+            targets: Vec::new(),
+            strategy: Default::default(),
+            engine: ForwardEngine::Tunnel,
+            protocol: ForwardProtocol::Tcp,
+            udp: false,
+            listen_transport: None,
+            remote_transport: None,
+            disable_udp: false,
+            tunnel: Some(TunnelSpec {
+                role: TunnelRole::Dialer,
+                hop_id: hop_id.clone(),
+                listen: format!("0.0.0.0:{}", entry_member.listen_port),
+                remote: host_port(&exit_member.server_address, exit_member.listen_port),
+                cert_pem_path: String::new(),
+                key_pem_path: String::new(),
+                ca_pem_path: crate::tunnel_cert::ca_path(),
+                hop_secret: hop_secret_b64.to_string(),
+                allowed_targets: dialer_allowed,
+            }),
+        },
+    ));
+    derived.push((
+        exit_member.server_id.clone(),
+        DesiredForward {
+            id: chains::forward_id(
+                &chain.id,
+                exit.group.seq,
+                &exit_member.server_id,
+                exit.members.len(),
+            ),
+            listen_port: exit_member.listen_port,
+            target_host: chain.target_host.clone(),
+            target_port: chain.target_port,
+            targets: Vec::new(),
+            strategy: Default::default(),
+            engine: ForwardEngine::Tunnel,
+            protocol: ForwardProtocol::Tcp,
+            udp: false,
+            listen_transport: None,
+            remote_transport: None,
+            disable_udp: false,
+            tunnel: Some(TunnelSpec {
+                role: TunnelRole::Listener,
+                hop_id,
+                listen: format!("0.0.0.0:{}", exit_member.listen_port),
+                remote: String::new(),
+                cert_pem_path: crate::tunnel_cert::cert_path(&exit_member.server_id),
+                key_pem_path: crate::tunnel_cert::key_path(&exit_member.server_id),
+                ca_pem_path: String::new(),
+                hop_secret: hop_secret_b64.to_string(),
+                allowed_targets: listener_allowed,
+            }),
+        },
+    ));
+    derived
+}
+
+/// 拼接 `host:port`；IPv6 字面量必须加方括号，否则 Dialer 的
+/// `SocketAddr` 解析会失败（虽然兼容分支也能拆，但方括号是标准写法）。
+fn host_port(host: &str, port: i64) -> String {
+    let host = host.trim();
+    if host.parse::<IpAddr>().is_ok_and(|ip| ip.is_ipv6()) {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
+/// tunnel 链的保存门禁：2 跳 / 每组 1 台 / TCP / 无 realm transport /
+/// 所有成员都明确上报 `tunnel_available = true`。
+///
+/// 「未知」与 `false` 都拒绝：旧 Agent 收到 `engine = tunnel` 会因为不认识的
+/// 枚举值让整份期望态解析失败，必须在写路径挡住。保存后成员能力可能变化
+/// （换 Agent / 降级），下发路径由 [`pierwave_domain::chains::tunnel_blocked_reason`]
+/// 再挡一次，两处语义一致。
+fn validate_tunnel_chain(
+    engine_name: &str,
+    protocol: &str,
+    transport: &str,
+    groups: &[ValidatedGroup],
+) -> AppResult<()> {
+    if !engine::is_tunnel(engine_name) {
+        return Ok(());
+    }
+    if groups.len() != 2 {
+        return Err(AppError::coded(
+            "chain.tunnel_requires_two_hops",
+            Some(json!({ "hops": groups.len() })),
+            format!(
+                "tunnel 引擎当前只支持 2 跳链（入口 Dialer + 出口 Listener），当前 {} 跳",
+                groups.len()
+            ),
+        ));
+    }
+    if let Some((seq, group)) = groups
+        .iter()
+        .enumerate()
+        .find(|(_, group)| group.members.len() != 1)
+    {
+        return Err(AppError::coded(
+            "chain.tunnel_single_member",
+            Some(json!({ "seq": seq, "members": group.members.len() })),
+            format!(
+                "tunnel 引擎当前只支持每组 1 台成员（第 {} 组有 {} 台）",
+                seq + 1,
+                group.members.len()
+            ),
+        ));
+    }
+    if protocol != protocol::TCP {
+        return Err(AppError::coded(
+            "chain.tunnel_tcp_only",
+            Some(json!({ "protocol": protocol })),
+            "tunnel 引擎只支持 TCP，请把链的协议改为 tcp",
+        ));
+    }
+    if hop_transport::is_tls(transport) {
+        return Err(AppError::coded(
+            "chain.tunnel_transport_conflict",
+            Some(json!({ "transport": transport })),
+            "tunnel 自带 TLS，不能再选择 realm 的 transport=tls",
+        ));
+    }
+    let unsupported: Vec<&str> = groups
+        .iter()
+        .flat_map(|group| group.members.iter())
+        .filter(|member| member.tunnel_available != Some(true))
+        .map(|member| member.server_name.as_str())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    if !unsupported.is_empty() {
+        return Err(AppError::coded(
+            "chain.tunnel_unavailable",
+            Some(json!({ "servers": unsupported })),
+            format!(
+                "以下服务器的 Agent 不支持 tunnel 引擎（需要升级到带 tunnel 能力的版本）：{}",
+                unsupported.join("、")
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// 保存时校验链的加密配置：结构规则 + 证书内容。
@@ -1142,6 +1352,7 @@ pub async fn create(
     let groups = resolve_groups(&state, &inputs, None).await?;
     ensure_targets_safe(&groups, &target_host, target_port)?;
     validate_nftables_chain(&engine, &groups)?;
+    validate_tunnel_chain(&engine, &protocol, &transport, &groups)?;
     validate_transport(&state, &transport, &engine, &protocol, &groups).await?;
     // TLS + UDP 的冲突优先于「realm 固定双开」：用户选了加密链时，
     // 更具体的 chain.protocol_udp_with_tls 才是能指导修复的错误。
@@ -1302,6 +1513,7 @@ pub async fn update(
         raw_transport.is_some() || engine.is_some() || replace_groups || protocol.is_some();
     if security_changed {
         validate_nftables_chain(final_engine, &groups)?;
+        validate_tunnel_chain(final_engine, final_protocol, final_transport, &groups)?;
         validate_transport(
             &state,
             final_transport,
@@ -1647,6 +1859,7 @@ mod tests {
                         weight: 1,
                         realm_transport: Some(true),
                         nftables_available: Some(true),
+                        tunnel_available: Some(true),
                         // 测试 fixture 不关心心跳时间；链视图必须能处理 null。
                         last_seen_at: None,
                     },
@@ -4273,6 +4486,87 @@ mod tests {
         assert!(
             !body["points"].as_array().unwrap().is_empty(),
             "同一轮心跳写入了延迟样本，历史接口应能读到"
+        );
+    }
+    /// tunnel 链的保存门禁：旧 Agent（NULL）与明确不支持（false）都拒绝；
+    /// 跳数、成员数、协议、transport 四类结构错误各有稳定 code。
+    #[test]
+    fn tunnel_chain_requires_capable_two_hop_single_member_tcp() {
+        fn member(name: &str, tunnel: Option<bool>) -> ValidatedMember {
+            ValidatedMember {
+                server_id: format!("srv-{name}"),
+                server_name: name.into(),
+                server_address: "10.0.0.1".into(),
+                listen_port: 19401,
+                priority: 0,
+                weight: 1,
+                nftables_available: None,
+                tunnel_available: tunnel,
+            }
+        }
+        fn coded(error: AppError) -> (String, String) {
+            match error {
+                AppError::Coded { code, message, .. } => (code.to_string(), message),
+                other => panic!("期望带 code 的错误，实际 {other:?}"),
+            }
+        }
+        fn group(members: Vec<ValidatedMember>) -> ValidatedGroup {
+            ValidatedGroup {
+                name: None,
+                strategy: GroupStrategy::RoundRobin,
+                cert_id: None,
+                members,
+            }
+        }
+
+        let ok = vec![
+            group(vec![member("a", Some(true))]),
+            group(vec![member("b", Some(true))]),
+        ];
+        assert!(validate_tunnel_chain("tunnel", "tcp", "none", &ok).is_ok());
+        // 非 tunnel 引擎完全不触发这些约束。
+        assert!(validate_tunnel_chain("native", "both", "tls", &[]).is_ok());
+
+        let unknown = vec![
+            group(vec![member("a", Some(true))]),
+            group(vec![member("b", None)]),
+        ];
+        let (code, message) =
+            coded(validate_tunnel_chain("tunnel", "tcp", "none", &unknown).unwrap_err());
+        assert_eq!(code, "chain.tunnel_unavailable");
+        assert!(message.contains("b"), "{message}");
+
+        let unsupported = vec![
+            group(vec![member("a", Some(false))]),
+            group(vec![member("b", Some(true))]),
+        ];
+        assert_eq!(
+            coded(validate_tunnel_chain("tunnel", "tcp", "none", &unsupported).unwrap_err()).0,
+            "chain.tunnel_unavailable"
+        );
+
+        let one_hop = vec![group(vec![member("a", Some(true))])];
+        assert_eq!(
+            coded(validate_tunnel_chain("tunnel", "tcp", "none", &one_hop).unwrap_err()).0,
+            "chain.tunnel_requires_two_hops"
+        );
+
+        let multi_member = vec![
+            group(vec![member("a", Some(true)), member("b", Some(true))]),
+            group(vec![member("c", Some(true))]),
+        ];
+        assert_eq!(
+            coded(validate_tunnel_chain("tunnel", "tcp", "none", &multi_member).unwrap_err()).0,
+            "chain.tunnel_single_member"
+        );
+
+        assert_eq!(
+            coded(validate_tunnel_chain("tunnel", "both", "none", &ok).unwrap_err()).0,
+            "chain.tunnel_tcp_only"
+        );
+        assert_eq!(
+            coded(validate_tunnel_chain("tunnel", "tcp", "tls", &ok).unwrap_err()).0,
+            "chain.tunnel_transport_conflict"
         );
     }
 }

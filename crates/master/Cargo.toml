@@ -28,6 +28,11 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 thiserror = { workspace = true }
 time = "0.3"
+# P16 隧道：主控自签 CA + 每台服务器一张属证书。
+# 只启用 ring 后端与 PEM 输出，避免把 aws-lc 带进 musl 静态构建；
+# 新增的体积主要是 ring（master 之前没有直接依赖它，但 rustls 已经在
+# workspace 里用了同一个 ring 版本，最终二进制增量约数百 KB）。
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
 
 [dev-dependencies]
 base64 = { workspace = true }

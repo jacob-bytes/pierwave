@@ -142,7 +142,7 @@ impl ForwardStatusHandle {
             .collect()
     }
 
-    fn store(&self, statuses: Vec<ForwardStatus>) {
+    pub(crate) fn store(&self, statuses: Vec<ForwardStatus>) {
         let ids: HashSet<String> = statuses.iter().map(|status| status.id.clone()).collect();
         let mut state = self
             .inner
@@ -997,6 +997,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            tunnel: None,
         }
     }
 
@@ -1029,6 +1030,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            tunnel: None,
         }
     }
 

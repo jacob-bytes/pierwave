@@ -601,6 +601,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            tunnel: None,
         }
     }
 

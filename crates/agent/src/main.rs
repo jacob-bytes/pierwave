@@ -66,6 +66,7 @@ struct ForwardEngines {
     native: forward::ForwardSupervisor,
     realm: realm::RealmSupervisor,
     nftables: nftables::NftablesSupervisor,
+    tunnel: tunnel::TunnelSupervisor,
 }
 
 impl ForwardEngines {
@@ -84,6 +85,7 @@ impl ForwardEngines {
                 cfg.state_dir.clone(),
                 cfg.forward_bind.clone(),
             ),
+            tunnel: tunnel::TunnelSupervisor::new(),
         }
     }
 
@@ -94,18 +96,23 @@ impl ForwardEngines {
     /// realm 释放端口后立刻恢复，不必等下一轮期望态。
     /// nftables 不占用端口；先处理它能保证 native 重新绑定时旧 DNAT 已撤掉。
     async fn apply(&mut self, desired: &[DesiredForward]) {
-        let nftables: Vec<DesiredForward> = desired
-            .iter()
-            .filter(|spec| spec.engine == ForwardEngine::Nftables)
-            .cloned()
-            .collect();
-        let (native, realm): (Vec<DesiredForward>, Vec<DesiredForward>) = desired
-            .iter()
-            .cloned()
-            .partition(|spec| spec.engine == ForwardEngine::Native);
+        let by_engine = |engine: ForwardEngine| -> Vec<DesiredForward> {
+            desired
+                .iter()
+                .filter(|spec| spec.engine == engine)
+                .cloned()
+                .collect()
+        };
+        let nftables = by_engine(ForwardEngine::Nftables);
+        let native = by_engine(ForwardEngine::Native);
+        let realm = by_engine(ForwardEngine::Realm);
+        let tunnel = by_engine(ForwardEngine::Tunnel);
         self.nftables.apply(&nftables).await;
         self.native.apply(&native).await;
         self.realm.apply(&realm).await;
+        self.tunnel.apply(&tunnel).await;
+        // 引擎切换时旧引擎可能还占着端口；native 的 apply 幂等，
+        // 再跑一次就能在端口释放后立刻恢复。
         self.native.apply(&native).await;
     }
 
@@ -138,6 +145,7 @@ impl ForwardEngines {
         let mut statuses = self.native.status_handle().snapshot();
         statuses.extend(self.realm.status_handle().snapshot());
         statuses.extend(self.nftables.status_handle().snapshot());
+        statuses.extend(self.tunnel.status_handle().snapshot());
         statuses
     }
 }
@@ -511,6 +519,7 @@ async fn run_once(
                         realm_available: realm::is_available(Path::new(&cfg.realm_bin)),
                         realm_transport,
                         nftables_available: forwards.nftables_available(),
+                        tunnel_available: true,
                     },
                 ));
                 ws.send(Message::Text(serde_json::to_string(&hb)?)).await?;
@@ -906,6 +915,8 @@ struct EngineCapabilities {
     realm_available: bool,
     realm_transport: Option<bool>,
     nftables_available: bool,
+    /// P16 隧道引擎是否可用；带 tunnel 模块的 Agent 恒为 true。
+    tunnel_available: bool,
 }
 
 fn sample_heartbeat(
@@ -928,6 +939,7 @@ fn sample_heartbeat(
         realm_available: Some(engines.realm_available),
         realm_transport: engines.realm_transport,
         nftables_available: Some(engines.nftables_available),
+        tunnel_available: Some(engines.tunnel_available),
         latency_ms,
         forwards,
         uptime_secs,
@@ -1052,6 +1064,7 @@ mod tests {
             realm_available: realm::is_available(realm_bin),
             realm_transport,
             nftables_available,
+            tunnel_available: true,
         }
     }
 
@@ -1409,6 +1422,7 @@ mod tests {
                 state_dir,
                 "127.0.0.1",
             ),
+            tunnel: tunnel::TunnelSupervisor::new(),
         }
     }
 
@@ -1442,6 +1456,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            tunnel: None,
         };
         let state = DesiredState {
             version: 1,
@@ -1518,6 +1533,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            tunnel: None,
         };
         let realm_rule = DesiredForward {
             id: "realm-1".into(),
@@ -1532,6 +1548,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            tunnel: None,
         };
         let state = DesiredState {
             version: 1,
@@ -1619,6 +1636,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            tunnel: None,
         };
         let realm_rule = DesiredForward {
             id: "realm-pending".into(),
@@ -1633,6 +1651,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            tunnel: None,
         };
 
         let state = DesiredState {
@@ -1804,6 +1823,7 @@ mod tests {
                 listen_transport: None,
                 remote_transport: None,
                 disable_udp: false,
+                tunnel: None,
             }],
             nodes: Vec::new(),
         };
@@ -1882,6 +1902,7 @@ mod tests {
                 listen_transport: None,
                 remote_transport: None,
                 disable_udp: false,
+                tunnel: None,
             }],
             nodes: Vec::new(),
         };

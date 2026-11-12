@@ -9,6 +9,7 @@ mod scheduler;
 mod state;
 mod telegram_bot;
 mod throttle;
+mod tunnel_cert;
 
 use std::net::SocketAddr;
 

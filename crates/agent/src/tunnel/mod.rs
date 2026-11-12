@@ -31,10 +31,11 @@
 //!   帧层只在两个方向上各加一个泵；
 //! - CLOSE 帧是**立即断开**：不排空、不等对端，直接丢弃目标连接。
 
-#![allow(dead_code)] // P16.1 骨架尚未被 main 接线；接 supervisor 时删除（见模块文档）。
-
+mod adapter;
 mod framing;
 mod handshake;
+mod supervisor;
+mod whitelist;
 
 use std::collections::HashMap;
 use std::fmt;
@@ -51,15 +52,18 @@ use rustls::pki_types::{
     ServerName,
 };
 use rustls::{ClientConfig, RootCertStore, ServerConfig};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
+use self::adapter::FrameIo;
 use self::handshake::{ClientHello, HandshakeError, ReplayCache, ServerHello};
 // 对外的帧/地址类型：上层（TunnelSupervisor）只需要这几个名字。
 use self::framing::FrameError;
 pub use self::framing::{Frame, FrameKind, TargetAddr, MAX_FRAME_PAYLOAD};
+pub use self::supervisor::TunnelSupervisor;
+pub use self::whitelist::TargetRule;
 
 /// 默认最大并发连接数。10k 并发 × 单连接 ~100KB 会吃掉 1GB，
 /// 所以必须有硬上限兜住（P16 设计目标见 docs/PLAN.md §5）。
@@ -69,8 +73,6 @@ pub const DEFAULT_MAX_CONNECTIONS: usize = 8192;
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 /// 连接目标的预算；超时按「目标不可达」处理，避免客户端永久挂起。
 const TARGET_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-/// 关闭时等待帧层把尾巴排空的预算；对端不读时不能把任务永久挂住。
-const DRAIN_TIMEOUT: Duration = Duration::from_secs(10);
 /// accept 出错后的退避，避免 fd 耗尽时空转烧 CPU。
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 /// 连接数超限的 warn 节流周期。
@@ -85,12 +87,6 @@ const REJECT_WARN_INTERVAL: Duration = Duration::from_secs(30);
 /// 已足够让 TLS 记录写满，边际收益很低。
 const COPY_BUF_SIZE: usize = 32 * 1024;
 
-/// 帧层到 `copy_bidirectional` 之间的内存管道容量。
-///
-/// 32 KiB 与单方向搬运缓冲同量级：足够吸收一次突发的帧写入，同时把
-/// 「每连接常驻」压在 2×32 KiB（copy 双向）+ 32 KiB（duplex）附近。
-const DUPLEX_BUF_SIZE: usize = 32 * 1024;
-
 /// 服务端配置。`hops` 是 `hop_id -> hop_secret` 的预共享密钥表。
 pub struct TunnelServerConfig {
     /// 监听地址；端口写 0 时由内核分配（测试用）。
@@ -103,6 +99,8 @@ pub struct TunnelServerConfig {
     pub hops: HashMap<String, Vec<u8>>,
     /// 并发连接硬上限；超限拒绝新连接，不踢在线连接。
     pub max_connections: usize,
+    /// 允许连接的目标白名单；空 = 拒绝一切（fail closed）。
+    pub allowed_targets: Vec<TargetRule>,
 }
 
 impl TunnelServerConfig {
@@ -118,6 +116,7 @@ impl TunnelServerConfig {
             key_path: key_path.into(),
             hops,
             max_connections: DEFAULT_MAX_CONNECTIONS,
+            allowed_targets: Vec::new(),
         }
     }
 }
@@ -131,6 +130,7 @@ impl fmt::Debug for TunnelServerConfig {
             .field("key_path", &self.key_path)
             .field("hops", &self.hops.keys().collect::<Vec<_>>())
             .field("max_connections", &self.max_connections)
+            .field("allowed_targets", &self.allowed_targets)
             .finish()
     }
 }
@@ -147,6 +147,8 @@ pub struct TunnelStats {
     pub total: u64,
     /// 累计因 `max_connections` 拒绝的连接数。
     pub rejected: u64,
+    /// 累计因目标不在白名单被拒绝的连接数。
+    pub denied: u64,
 }
 
 /// 无锁读取 [`TunnelStats`] 的句柄；心跳线程只 clone 这个。
@@ -161,6 +163,7 @@ impl TunnelStatsHandle {
             active: self.metrics.active.load(Ordering::Acquire),
             total: self.metrics.total.load(Ordering::Relaxed),
             rejected: self.metrics.rejected.load(Ordering::Relaxed),
+            denied: self.metrics.denied.load(Ordering::Relaxed),
         }
     }
 }
@@ -170,8 +173,11 @@ struct Metrics {
     active: AtomicUsize,
     total: AtomicU64,
     rejected: AtomicU64,
+    denied: AtomicU64,
     /// 上次打「连接数超限」warn 的时间；30s 内只打一次，避免刷爆日志。
     last_reject_warn: Mutex<Option<Instant>>,
+    /// 上次打「目标不在白名单」warn 的时间；同样 30s 节流。
+    last_denied_warn: Mutex<Option<Instant>>,
 }
 
 impl Metrics {
@@ -188,6 +194,26 @@ impl Metrics {
         Some(ActiveGuard {
             metrics: Arc::clone(self),
         })
+    }
+
+    /// 目标被白名单拒绝：计数 + 30s 节流 warn。
+    fn deny(&self, target: &TargetAddr, peer: std::net::SocketAddr) {
+        self.denied.fetch_add(1, Ordering::Relaxed);
+        let mut last = self
+            .last_denied_warn
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let now = Instant::now();
+        if reject_warn_due(*last, now) {
+            *last = Some(now);
+            tracing::warn!(
+                %peer,
+                ?target,
+                "隧道目标不在白名单内，拒绝并关闭 / tunnel target is not allowlisted, closing（{}s 内只记一次 / logged once per {}s）",
+                REJECT_WARN_INTERVAL.as_secs(),
+                REJECT_WARN_INTERVAL.as_secs()
+            );
+        }
     }
 
     fn reject(&self, max_connections: usize) {
@@ -231,6 +257,7 @@ struct ServerInner {
     max_connections: usize,
     metrics: Arc<Metrics>,
     replay: Mutex<ReplayCache>,
+    allowed_targets: Vec<TargetRule>,
 }
 
 /// 隧道服务端。`bind` 后由 `serve` 跑 accept 循环；本类型可 clone 进任务。
@@ -259,6 +286,7 @@ impl TunnelServer {
                 max_connections: config.max_connections,
                 metrics: Arc::new(Metrics::default()),
                 replay: Mutex::new(ReplayCache::new()),
+                allowed_targets: config.allowed_targets,
             }),
         };
         Ok((server, listener))
@@ -268,10 +296,6 @@ impl TunnelServer {
         TunnelStatsHandle {
             metrics: Arc::clone(&self.inner.metrics),
         }
-    }
-
-    pub fn stats(&self) -> TunnelStats {
-        self.stats_handle().snapshot()
     }
 
     /// accept 循环，永不正常返回。每条连接一个 task，连接槽由 RAII 守卫归还。
@@ -351,7 +375,19 @@ impl TunnelServer {
         // 首帧地址之后允许跟初始数据（当前客户端不发，协议预留）。
         let initial = first.payload[consumed..].to_vec();
 
-        let mut upstream = match connect_target(&target).await {
+        // 白名单必须在这里、在 connect_target 之前判定：拒绝时绝不发起任何连接。
+        // 空列表 = 拒绝一切（fail closed）。
+        if !whitelist::allows(&self.inner.allowed_targets, &target) {
+            self.inner.metrics.deny(&target, peer);
+            // 明确回 CLOSE，客户端能立即失败而不是等 TLS 超时。
+            let _ = framing::write_frame(&mut tls, FrameKind::Close, &[]).await;
+            return Err(anyhow!(
+                "目标 {:?} 不在白名单内 / target is not allowlisted",
+                target
+            ));
+        }
+
+        let upstream = match connect_target(&target).await {
             Ok(upstream) => upstream,
             Err(error) => {
                 // 明确告诉客户端目标不可达，而不是让它等 TLS 超时。
@@ -360,7 +396,7 @@ impl TunnelServer {
             }
         };
 
-        forward(&mut tls, &mut upstream, initial, peer).await
+        forward(tls, upstream, initial, peer).await
     }
 
     /// 版本 → hop → 时间窗 → proof → 重放。顺序很重要：先做便宜且无状态的
@@ -405,126 +441,73 @@ impl TunnelServer {
 
 /// 帧层与目标 TCP 之间的双向搬运。
 ///
-/// 两个泵 + 一个 `copy_bidirectional`：
+/// `FrameIo` 直接把帧 payload 暴露成字节流，因此这里只需要一个
+/// `copy_bidirectional_with_sizes`，不再有 duplex 和两个泵任务：
 ///
 /// ```text
-/// 客户端 --DATA帧--> tls_read  --write--> duplex_write ┐
-///                                                     copy_bidirectional <--> 目标 TCP
-/// 客户端 <--DATA帧-- tls_write <--read--- duplex_read  ┘
+/// 客户端 <--DATA/CLOSE 帧--> FrameIo <--copy_bidirectional--> 目标 TCP
 /// ```
 ///
-/// `copy_bidirectional` 负责半关语义：一边 EOF 时对另一边的写方向 `shutdown`，
-/// 然后等另一个方向结束。帧层只把「TLS EOF」翻译成 duplex 写方向 shutdown，
-/// 把「目标 EOF」翻译成 TLS close_notify（写方向半关，读方向继续）。
+/// `copy_bidirectional` 负责半关语义：一边 EOF 时对另一边的写方向
+/// `shutdown`（FrameIo 的写方向会发 CLOSE 帧）。额外的 `select!` 只处理
+/// 「客户端显式 CLOSE」：那是立即断开，不能等目标方向自然 EOF。
 async fn forward(
-    tls: &mut tokio_rustls::server::TlsStream<TcpStream>,
-    upstream: &mut TcpStream,
+    tls: tokio_rustls::server::TlsStream<TcpStream>,
+    mut upstream: TcpStream,
     initial: Vec<u8>,
     peer: std::net::SocketAddr,
 ) -> Result<()> {
-    let (local, mut remote) = tokio::io::duplex(DUPLEX_BUF_SIZE);
-    let (mut local_read, mut local_write) = tokio::io::split(local);
-    let (mut tls_read, mut tls_write) = tokio::io::split(tls);
+    if !initial.is_empty() {
+        upstream.write_all(&initial).await?;
+    }
 
-    let to_target = async move {
-        if !initial.is_empty() {
-            local_write.write_all(&initial).await?;
+    let mut framed = FrameIo::new(tls);
+    let close = framed.close_notify();
+    let already_closed = framed.saw_close();
+    let copy = tokio::io::copy_bidirectional_with_sizes(
+        &mut upstream,
+        &mut framed,
+        COPY_BUF_SIZE,
+        COPY_BUF_SIZE,
+    );
+    tokio::pin!(copy);
+
+    tokio::select! {
+        biased;
+        _ = async {
+            if !already_closed {
+                close.notified().await;
+            }
+        } => {
+            tracing::debug!(peer = %peer, "客户端发送 CLOSE，立即断开 / client sent CLOSE, closing immediately");
+            Ok(())
         }
-        loop {
-            match read_frame_logged(&mut tls_read, peer).await? {
-                Some(frame) => match frame.kind {
-                    FrameKind::Data => {
-                        if !frame.payload.is_empty() {
-                            local_write.write_all(&frame.payload).await?;
-                        }
-                    }
-                    // 心跳只用于保活/未来 RTT 观测，P16.1 不回包。
-                    FrameKind::Ping => {}
-                    FrameKind::Close => return Ok::<_, anyhow::Error>(ClientEnd::Close),
-                },
-                None => {
-                    // 客户端半关写方向：把 EOF 传给目标，回程仍然继续。
-                    local_write.shutdown().await?;
-                    return Ok(ClientEnd::Eof);
+        result = &mut copy => {
+            match result {
+                Ok((client_to_target, target_to_client)) => {
+                    tracing::debug!(
+                        peer = %peer,
+                        client_to_target,
+                        target_to_client,
+                        "隧道双向搬运结束 / tunnel copy finished"
+                    );
+                    Ok(())
                 }
-            }
-        }
-    };
-
-    let to_client = async move {
-        let mut buf = vec![0u8; COPY_BUF_SIZE];
-        loop {
-            let read = local_read.read(&mut buf).await?;
-            if read == 0 {
-                // 目标方向 EOF → 给客户端发 TLS close_notify（只关写方向），
-                // 客户端仍可继续把剩余数据发过来。
-                tls_write.shutdown().await?;
-                return Ok::<(), anyhow::Error>(());
-            }
-            framing::write_frame(&mut tls_write, FrameKind::Data, &buf[..read]).await?;
-        }
-    };
-
-    let copy = async {
-        tokio::io::copy_bidirectional_with_sizes(
-            upstream,
-            &mut remote,
-            COPY_BUF_SIZE,
-            COPY_BUF_SIZE,
-        )
-        .await
-    };
-
-    tokio::pin!(to_target, to_client, copy);
-
-    let mut client_done = false;
-    let mut target_done = false;
-    loop {
-        tokio::select! {
-            result = &mut to_target, if !client_done => {
-                match result? {
-                    ClientEnd::Close => {
-                        // CLOSE = 立即断开：不排空、不等对端，直接丢 target。
-                        return Ok(());
-                    }
-                    ClientEnd::Eof => client_done = true,
-                }
-            }
-            result = &mut to_client, if !target_done => {
-                result?;
-                target_done = true;
-            }
-            result = &mut copy => {
-                let (client_to_target, target_to_client) = result?;
-                tracing::debug!(
-                    peer = %peer,
-                    client_to_target,
-                    target_to_client,
-                    "隧道双向搬运结束 / tunnel copy finished"
-                );
-                if !target_done {
-                    // copy 结束意味着目标方向已 EOF；to_client 只剩把 duplex
-                    // 里的尾巴写完并半关 TLS。给它有限时间，避免对端不读时挂死。
-                    match timeout(DRAIN_TIMEOUT, &mut to_client).await {
-                        Ok(result) => result?,
-                        Err(_) => tracing::warn!(
+                Err(error) => {
+                    // 帧层（超大长度/未知类型/半帧）的错误必须留下 error 日志；
+                    // 普通对端断开只在上层按 debug 处理。
+                    if error.kind() == io::ErrorKind::InvalidData {
+                        tracing::error!(
                             peer = %peer,
-                            "隧道关闭排空超时 / tunnel drain timed out while closing"
-                        ),
+                            %error,
+                            "隧道帧非法，断开连接 / invalid tunnel frame, disconnecting"
+                        );
                     }
+                    Err(error.into())
                 }
-                return Ok(());
             }
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ClientEnd {
-    /// 客户端半关写方向（TLS close_notify / TCP FIN）。
-    Eof,
-    /// 客户端显式发 CLOSE 帧。
-    Close,
 }
 
 async fn read_frame_logged<R>(reader: &mut R, peer: std::net::SocketAddr) -> Result<Option<Frame>>
@@ -700,6 +683,7 @@ pub struct TunnelConnection {
 
 impl TunnelConnection {
     /// 发数据帧；单帧上限 64 KiB（超过返回错误，不静默分片）。
+    #[cfg(test)]
     pub async fn send_data(&mut self, payload: &[u8]) -> Result<()> {
         if payload.len() > MAX_FRAME_PAYLOAD {
             bail!(
@@ -713,23 +697,32 @@ impl TunnelConnection {
         Ok(())
     }
 
+    #[cfg(test)]
     pub async fn send_ping(&mut self) -> Result<()> {
         framing::write_frame(&mut self.stream, FrameKind::Ping, &[]).await?;
         Ok(())
     }
 
     /// 发 CLOSE：服务端立即断开目标连接，不再排空。
+    #[cfg(test)]
     pub async fn send_close(&mut self) -> Result<()> {
         framing::write_frame(&mut self.stream, FrameKind::Close, &[]).await?;
         Ok(())
     }
 
     /// 读一帧；`None` = 对端半关/关闭（TLS close_notify 或 TCP FIN）。
+    #[cfg(test)]
     pub async fn recv(&mut self) -> Result<Option<Frame>> {
         Ok(framing::read_frame(&mut self.stream).await?)
     }
 
+    /// 把连接转成字节流适配器（Dialer 的 `copy_bidirectional` 用）。
+    pub fn into_frame_io(self) -> FrameIo<tokio_rustls::client::TlsStream<TcpStream>> {
+        FrameIo::new(self.stream)
+    }
+
     /// 只关写方向（TLS close_notify），仍可继续读。用于优雅半关。
+    #[cfg(test)]
     pub async fn shutdown(&mut self) -> Result<()> {
         self.stream.shutdown().await?;
         Ok(())
@@ -946,9 +939,11 @@ mod tests {
     use std::collections::HashMap;
     use std::net::SocketAddr;
     use std::path::{Path, PathBuf};
-    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
+    use pierwave_proto::{DesiredForward, ForwardEngine, TunnelRole, TunnelSpec, TunnelTargetRule};
     use rustls::pki_types::ServerName;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
@@ -956,11 +951,12 @@ mod tests {
     use tokio::time::timeout;
     use tokio_rustls::{client::TlsStream, TlsConnector};
 
-    use super::framing::{FrameKind, TargetAddr, MAX_FRAME_PAYLOAD};
+    use super::framing::{Frame, FrameKind, TargetAddr, MAX_FRAME_PAYLOAD};
     use super::handshake::{self, ClientHello, ServerHello};
     use super::{
-        client_tls_config, roots_from_pem, TunnelClient, TunnelConnection, TunnelServer,
-        TunnelServerConfig, TunnelStatsHandle, DEFAULT_MAX_CONNECTIONS,
+        client_tls_config, roots_from_pem, TargetRule, TunnelClient, TunnelConnection,
+        TunnelServer, TunnelServerConfig, TunnelStatsHandle, TunnelSupervisor,
+        DEFAULT_MAX_CONNECTIONS,
     };
 
     const CA_PEM: &str = include_str!("../../tests/fixtures/tunnel-ca.pem");
@@ -1021,6 +1017,9 @@ mod tests {
                 key_path,
                 hops,
                 max_connections,
+                // 回环测试统一允许 127.0.0.0/8 的任意端口；白名单拒绝路径由
+                // 单独的用例构造更严格的规则。
+                allowed_targets: vec![TargetRule::new("127.0.0.1", None)],
             };
             let (server, listener) = TunnelServer::bind(config)
                 .await
@@ -1296,6 +1295,237 @@ mod tests {
         echo_task.abort();
     }
 
+    /// 起一个带 accept 计数的目标服务：用于断言「白名单拒绝时绝不发起连接」。
+    async fn spawn_counted_echo() -> (SocketAddr, Arc<AtomicUsize>, JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&accepted);
+        let task = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                counter.fetch_add(1, Ordering::SeqCst);
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 4096];
+                    loop {
+                        match stream.read(&mut buf).await {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => {
+                                if stream.write_all(&buf[..n]).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        });
+        (addr, accepted, task)
+    }
+
+    #[tokio::test]
+    async fn whitelist_rejection_closes_without_connecting() {
+        let (echo_addr, accepted, echo_task) = spawn_counted_echo().await;
+        let dir = TempDir::new();
+        let cert_path = dir.write("server.pem", SERVER_CERT_PEM);
+        let key_path = dir.write("server-key.pem", SERVER_KEY_PEM);
+
+        let mut hops = HashMap::new();
+        hops.insert(HOP_ID.to_string(), HOP_SECRET.to_vec());
+        let config = TunnelServerConfig {
+            bind: "127.0.0.1:0".parse().unwrap(),
+            cert_path,
+            key_path,
+            hops,
+            max_connections: DEFAULT_MAX_CONNECTIONS,
+            // 只允许一个与 echo 无关的地址：请求 127.0.0.1 必须被拒绝。
+            allowed_targets: vec![TargetRule::new("192.0.2.1", Some((1, 65535)))],
+        };
+        let (server, listener) = TunnelServer::bind(config).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let stats = server.stats_handle();
+        let task = tokio::spawn(async move {
+            let _ = server.serve(listener).await;
+        });
+
+        let dir_ca = TempDir::new();
+        let ca_path = dir_ca.write("ca.pem", CA_PEM);
+        let client = client_with_ca_file(addr, &ca_path);
+        let mut tunnel = client
+            .connect(&TargetAddr::Ip(echo_addr))
+            .await
+            .expect("首帧发送成功（拒绝发生在服务端校验后）");
+
+        // 服务端回 CLOSE（或直接断开）：两种都必须让客户端立即失败。
+        let outcome = timeout(Duration::from_secs(3), tunnel.recv())
+            .await
+            .expect("等待服务端拒绝超时")
+            .expect("读取隧道失败");
+        match outcome {
+            Some(Frame {
+                kind: FrameKind::Close,
+                ..
+            })
+            | None => {}
+            other => panic!("白名单拒绝必须回 CLOSE/EOF，实际 {other:?}"),
+        }
+
+        // 给可能的连接建立留一点时间，再确认目标一次都没有被连过。
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(accepted.load(Ordering::SeqCst), 0, "拒绝路径绝不能发起连接");
+        let snapshot = stats.snapshot();
+        assert_eq!(snapshot.denied, 1);
+        wait_for_active(&stats, 0).await;
+
+        task.abort();
+        echo_task.abort();
+    }
+
+    fn free_port() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().port()
+    }
+
+    fn base64_secret(secret: &[u8]) -> String {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode(secret)
+    }
+
+    fn tunnel_spec(
+        role: TunnelRole,
+        listen: &str,
+        remote: &str,
+        cert_path: &Path,
+        key_path: &Path,
+        ca_path: &Path,
+        allowed: &[SocketAddr],
+    ) -> TunnelSpec {
+        TunnelSpec {
+            role,
+            hop_id: HOP_ID.into(),
+            listen: listen.into(),
+            remote: remote.into(),
+            cert_pem_path: if matches!(role, TunnelRole::Listener) {
+                cert_path.display().to_string()
+            } else {
+                String::new()
+            },
+            key_pem_path: if matches!(role, TunnelRole::Listener) {
+                key_path.display().to_string()
+            } else {
+                String::new()
+            },
+            ca_pem_path: if matches!(role, TunnelRole::Dialer) {
+                ca_path.display().to_string()
+            } else {
+                String::new()
+            },
+            hop_secret: base64_secret(HOP_SECRET),
+            allowed_targets: allowed
+                .iter()
+                .map(|addr| TunnelTargetRule {
+                    host: addr.ip().to_string(),
+                    ports: Some((addr.port(), addr.port())),
+                })
+                .collect(),
+        }
+    }
+
+    /// 端到端回环：同一个 Agent 上同时收敛 Dialer 与 Listener，客户端连
+    /// Dialer 的公开端口，数据经 TLS 隧道到 Listener，再回显。
+    #[tokio::test]
+    async fn dialer_and_listener_loop_through_supervisor() {
+        let (echo_addr, echo_task) = spawn_echo().await;
+        let dir = TempDir::new();
+        let cert_path = dir.write("server.pem", SERVER_CERT_PEM);
+        let key_path = dir.write("server-key.pem", SERVER_KEY_PEM);
+        let ca_path = dir.write("ca.pem", CA_PEM);
+
+        let listener_port = free_port();
+        let dialer_port = free_port();
+        let listener_spec = DesiredForward {
+            id: "tunnel-listener".into(),
+            listen_port: i64::from(listener_port),
+            target_host: echo_addr.ip().to_string(),
+            target_port: i64::from(echo_addr.port()),
+            targets: Vec::new(),
+            strategy: Default::default(),
+            engine: ForwardEngine::Tunnel,
+            protocol: Default::default(),
+            udp: false,
+            listen_transport: None,
+            remote_transport: None,
+            disable_udp: false,
+            tunnel: Some(tunnel_spec(
+                TunnelRole::Listener,
+                &format!("127.0.0.1:{listener_port}"),
+                "",
+                &cert_path,
+                &key_path,
+                &ca_path,
+                &[echo_addr],
+            )),
+        };
+        let dialer_spec = DesiredForward {
+            id: "tunnel-dialer".into(),
+            listen_port: i64::from(dialer_port),
+            target_host: echo_addr.ip().to_string(),
+            target_port: i64::from(echo_addr.port()),
+            targets: Vec::new(),
+            strategy: Default::default(),
+            engine: ForwardEngine::Tunnel,
+            protocol: Default::default(),
+            udp: false,
+            listen_transport: None,
+            remote_transport: None,
+            disable_udp: false,
+            tunnel: Some(tunnel_spec(
+                TunnelRole::Dialer,
+                &format!("127.0.0.1:{dialer_port}"),
+                &format!("127.0.0.1:{listener_port}"),
+                &cert_path,
+                &key_path,
+                &ca_path,
+                &[
+                    format!("127.0.0.1:{listener_port}").parse().unwrap(),
+                    echo_addr,
+                ],
+            )),
+        };
+
+        let mut supervisor = TunnelSupervisor::new();
+        supervisor.apply(&[listener_spec, dialer_spec]).await;
+        let statuses = supervisor.status_handle().snapshot();
+        assert_eq!(statuses.len(), 2);
+        for status in &statuses {
+            assert!(status.listening, "{} 必须 listening: {status:?}", status.id);
+            assert!(status.error.is_empty(), "{status:?}");
+        }
+        assert_eq!(
+            supervisor.bound_addr("tunnel-dialer").unwrap().port(),
+            dialer_port
+        );
+
+        // 走真正的 Dialer 公开端口；内部会建立 TLS 隧道到 Listener。
+        let mut client = TcpStream::connect(("127.0.0.1", dialer_port))
+            .await
+            .expect("连接 Dialer 失败");
+        client.write_all(b"through-tunnel").await.unwrap();
+        let mut echoed = vec![0u8; 14];
+        timeout(Duration::from_secs(5), client.read_exact(&mut echoed))
+            .await
+            .expect("读回显超时")
+            .expect("读回显失败");
+        assert_eq!(&echoed, b"through-tunnel");
+
+        drop(client);
+        supervisor.apply(&[]).await;
+        assert!(supervisor.status_handle().snapshot().is_empty());
+        echo_task.abort();
+    }
+
     #[tokio::test]
     async fn oversized_first_frame_disconnects() {
         let harness = Harness::start(DEFAULT_MAX_CONNECTIONS).await;
@@ -1366,5 +1596,84 @@ mod tests {
         tunnel.send_close().await.expect("发送 CLOSE");
         wait_for_active(&harness.stats, 0).await;
         echo_task.abort();
+    }
+    /// 单连接常驻内存测量（默认 ignored，避免与其它并行测试互相干扰 RSS）。
+    ///
+    /// 跑法：`cargo test -p pierwave-agent tunnel_rss -- --ignored --nocapture --test-threads=1`
+    ///
+    /// 断言「10 个并发回环连接带来的 RSS 增量 < 2 MB」。这是从 duplex 桥接
+    /// 切到 FrameIo 之后的核心收益：不再有每条连接 32 KiB 的管道 + 32 KiB
+    /// 的泵缓冲。
+    #[tokio::test]
+    #[ignore = "RSS measurement: run with --ignored --test-threads=1 --nocapture"]
+    async fn tunnel_rss_delta_for_ten_connections_is_under_two_megabytes() {
+        /// 读进程物理足迹（KiB）。macOS 的 `ps` 在沙箱里不可用，改用
+        /// `vmmap` 的 "Physical footprint"；它比 RSS 更接近真实占用。
+        fn rss_kb() -> u64 {
+            let pid = std::process::id().to_string();
+            let output = std::process::Command::new("vmmap")
+                .arg(&pid)
+                .output()
+                .expect("vmmap 必须可用");
+            let text = String::from_utf8_lossy(&output.stdout);
+            let line = text
+                .lines()
+                .find(|line| line.starts_with("Physical footprint:"))
+                .expect("vmmap 输出必须包含 Physical footprint");
+            let value = line
+                .trim_start_matches("Physical footprint:")
+                .trim()
+                .trim_end_matches('K');
+            value.parse().expect("physical footprint 必须是数字")
+        }
+
+        let harness = Harness::start(DEFAULT_MAX_CONNECTIONS).await;
+        // 目标只 accept + 持有 socket，不分配任何读写缓冲：这样测到的增量
+        // 全部来自隧道两端，而不是测试用的 echo 服务。
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let echo_addr = listener.local_addr().unwrap();
+        let held: Arc<Mutex<Vec<TcpStream>>> = Arc::new(Mutex::new(Vec::new()));
+        let held_task = {
+            let held = Arc::clone(&held);
+            tokio::spawn(async move {
+                while let Ok((stream, _)) = listener.accept().await {
+                    held.lock().unwrap().push(stream);
+                }
+            })
+        };
+        let now = handshake::unix_now();
+
+        // 先建一条连接并丢弃，让 TLS/分配器的首次开销落在基线之前。
+        let warmup = client_with_fixture_ca(harness.addr);
+        let mut warmup_client = warmup;
+        warmup_client.proof_timestamp = Some(now.saturating_sub(30));
+        drop(connect(&warmup_client, echo_addr).await);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let before = rss_kb();
+        let mut tunnels = Vec::with_capacity(10);
+        for index in 0..10 {
+            let mut client = client_with_fixture_ca(harness.addr);
+            // 每条连接一个唯一 proof，避免重放缓存拒绝。
+            client.proof_timestamp = Some(now.saturating_sub(20 + index));
+            tunnels.push(connect(&client, echo_addr).await);
+        }
+        wait_for_active(&harness.stats, 10).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let after = rss_kb();
+
+        let delta = after.saturating_sub(before);
+        println!(
+            "RSS before={before} KiB after={after} KiB delta={delta} KiB ({:.1} KiB/连接)",
+            delta as f64 / 10.0
+        );
+        assert!(
+            delta < 2 * 1024,
+            "10 个并发连接的 RSS 增量必须 < 2 MiB，实际 {delta} KiB"
+        );
+
+        drop(tunnels);
+        wait_for_active(&harness.stats, 0).await;
+        held_task.abort();
     }
 }

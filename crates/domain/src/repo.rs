@@ -54,6 +54,105 @@ pub mod settings {
     }
 }
 
+pub mod tunnel {
+    use super::*;
+    use sqlx::FromRow;
+
+    /// 单例 CA（`tunnel_ca.id = 1`）。
+    #[derive(Debug, Clone, FromRow)]
+    pub struct TunnelCa {
+        pub cert_pem: String,
+        pub key_pem: String,
+        pub created_at: i64,
+    }
+
+    /// 一台服务器的属证书。
+    #[derive(Debug, Clone, FromRow)]
+    pub struct TunnelServerCert {
+        pub server_id: String,
+        pub cert_pem: String,
+        pub key_pem: String,
+        /// 签发时的服务器地址（IP 或域名）；地址变化时重签。
+        pub subject: String,
+        pub not_after: i64,
+        pub issued_at: i64,
+    }
+
+    pub async fn get_ca(pool: &SqlitePool) -> anyhow::Result<Option<TunnelCa>> {
+        Ok(sqlx::query_as::<_, TunnelCa>(
+            "SELECT cert_pem, key_pem, created_at FROM tunnel_ca WHERE id = 1",
+        )
+        .fetch_optional(pool)
+        .await?)
+    }
+
+    /// 写入 CA；已存在时保持不变（先写入者胜出，避免并发签发两套互不认的 CA）。
+    pub async fn put_ca_if_absent(
+        pool: &SqlitePool,
+        cert_pem: &str,
+        key_pem: &str,
+    ) -> anyhow::Result<TunnelCa> {
+        sqlx::query(
+            "INSERT INTO tunnel_ca (id, cert_pem, key_pem, created_at)
+             VALUES (1, ?, ?, ?)
+             ON CONFLICT(id) DO NOTHING",
+        )
+        .bind(cert_pem)
+        .bind(key_pem)
+        .bind(now())
+        .execute(pool)
+        .await?;
+        get_ca(pool)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("tunnel_ca 写入后读取失败"))
+    }
+
+    pub async fn get_server_cert(
+        pool: &SqlitePool,
+        server_id: &str,
+    ) -> anyhow::Result<Option<TunnelServerCert>> {
+        Ok(sqlx::query_as::<_, TunnelServerCert>(
+            "SELECT server_id, cert_pem, key_pem, subject, not_after, issued_at
+             FROM tunnel_server_certs WHERE server_id = ?",
+        )
+        .bind(server_id)
+        .fetch_optional(pool)
+        .await?)
+    }
+
+    pub async fn put_server_cert(
+        pool: &SqlitePool,
+        server_id: &str,
+        cert_pem: &str,
+        key_pem: &str,
+        subject: &str,
+        not_after: i64,
+    ) -> anyhow::Result<TunnelServerCert> {
+        sqlx::query(
+            "INSERT INTO tunnel_server_certs
+                (server_id, cert_pem, key_pem, subject, not_after, issued_at)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(server_id) DO UPDATE SET
+                cert_pem = excluded.cert_pem,
+                key_pem = excluded.key_pem,
+                subject = excluded.subject,
+                not_after = excluded.not_after,
+                issued_at = excluded.issued_at",
+        )
+        .bind(server_id)
+        .bind(cert_pem)
+        .bind(key_pem)
+        .bind(subject)
+        .bind(not_after)
+        .bind(now())
+        .execute(pool)
+        .await?;
+        get_server_cert(pool, server_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("tunnel_server_certs 写入后读取失败"))
+    }
+}
+
 pub mod users {
     use super::*;
 
@@ -731,6 +830,8 @@ pub mod servers {
         pub realm_transport: Option<bool>,
         /// nftables 引擎是否可用；None = 旧 Agent 未上报。
         pub nftables_available: Option<bool>,
+        /// P16 隧道引擎是否可用；None = 旧 Agent 未上报（按不支持处理）。
+        pub tunnel_available: Option<bool>,
     }
 
     /// 返回 (服务器, 明文配对 token)。token 只在创建时可见一次。
@@ -922,6 +1023,7 @@ pub mod servers {
                 realm_available = ?,
                 realm_transport = ?,
                 nftables_available = ?,
+                tunnel_available = ?,
                 xray_running = ?,
                 nginx_running = ?,
                 load1 = ?,
@@ -943,6 +1045,7 @@ pub mod servers {
         .bind(health.realm_available)
         .bind(health.realm_transport)
         .bind(health.nftables_available)
+        .bind(health.tunnel_available)
         .bind(health.xray_running)
         .bind(health.nginx_running)
         .bind(health.load1)
@@ -2535,7 +2638,7 @@ pub mod chains {
             "SELECT m.group_id, g.chain_id, g.seq, g.strategy,
                     m.server_id, s.name AS server_name, s.address AS server_address,
                     m.listen_port, m.priority, m.weight, s.realm_transport,
-                    s.nftables_available, s.last_seen_at
+                    s.nftables_available, s.tunnel_available, s.last_seen_at
              FROM chain_group_members m
              JOIN chain_groups g ON g.id = m.group_id
              JOIN servers s ON s.id = m.server_id
@@ -2757,7 +2860,7 @@ pub mod chains {
             "SELECT m.group_id, g.chain_id, g.seq, g.strategy,
                     m.server_id, s.name AS server_name, s.address AS server_address,
                     m.listen_port, m.priority, m.weight, s.realm_transport,
-                    s.nftables_available, s.last_seen_at
+                    s.nftables_available, s.tunnel_available, s.last_seen_at
              FROM chain_group_members m
              JOIN chain_groups g ON g.id = m.group_id
              JOIN servers s ON s.id = m.server_id

@@ -76,6 +76,9 @@ pub struct Server {
     /// Agent 上报的 nftables 引擎是否可用（`nft` 存在且有 CAP_NET_ADMIN）。
     /// NULL = 旧 Agent 未上报 / 从未连过；false = 明确不可用。
     pub nftables_available: Option<bool>,
+    /// Agent 上报的 P16 隧道引擎是否可用。
+    /// NULL = 旧 Agent 未上报 / 从未连过；只有 true 才允许保存 tunnel 链。
+    pub tunnel_available: Option<bool>,
     /// 管理员填写的国家/地区代码（ISO 3166-1 alpha-2）；NULL = 未填写。
     pub country_code: Option<String>,
 }
@@ -223,6 +226,9 @@ pub struct ChainGroupMember {
     /// 该成员所在服务器的 nftables 能力缓存（NULL = 未知）。
     /// nftables 链下发前逐台检查，未知按不支持处理。
     pub nftables_available: Option<bool>,
+    /// 该成员所在服务器的 P16 隧道能力缓存（NULL = 未知）。
+    /// tunnel 链下发前逐台检查，未知按不支持处理（旧 Agent 直接拒绝保存）。
+    pub tunnel_available: Option<bool>,
     /// 该成员所在服务器的最后一次心跳（Unix 秒）；`None` = 从未连过。
     /// 链视图把它格式化成 ISO8601 字符串对外返回。
     pub last_seen_at: Option<i64>,

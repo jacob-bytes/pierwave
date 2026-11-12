@@ -1296,6 +1296,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            tunnel: None,
         };
         for (host, port) in targets {
             spec.targets.push(ForwardTarget {

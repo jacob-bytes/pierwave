@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 18;
+pub const PROTOCOL_VERSION: u32 = 19;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,6 +61,12 @@ pub struct Heartbeat {
     /// 收到不认识的新枚举值而整份期望态解析失败。
     #[serde(default)]
     pub nftables_available: Option<bool>,
+    /// 本机是否具备 P16 隧道引擎（TLS + 自有 CA 的帧中继）。
+    ///
+    /// `None` = 旧 Agent 未上报；只有 `Some(true)` 才允许主控保存/下发
+    /// `engine = tunnel` 的链，未知一律按不支持处理（fail closed）。
+    #[serde(default)]
+    pub tunnel_available: Option<bool>,
     /// 本机 realm 是否带 `transport` feature（`realm --version` 输出包含
     /// `[transport]`）。
     ///
@@ -166,6 +172,69 @@ pub struct DesiredForward {
     /// 旧主控不下发时为 `false`，保持原有行为（全局 `use_udp = true`）。
     #[serde(default)]
     pub disable_udp: bool,
+    /// P16 隧道参数；`Some` 时 `engine` 必须是 [`ForwardEngine::Tunnel`]。
+    ///
+    /// 旧主控不下发该字段（`None`），行为与升级前完全一致。
+    #[serde(default)]
+    pub tunnel: Option<TunnelSpec>,
+}
+
+/// 隧道里一端扮演的角色。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TunnelRole {
+    /// 接受对端隧道连接，校验首帧目标后连出去（出口）。
+    Listener,
+    /// 监听客户端明文连接，把它送进对端 Listener（入口）。
+    Dialer,
+}
+
+/// P16 隧道的一条链路参数。
+///
+/// 2 跳链的形态：
+///
+/// * 入口服务器（第 0 跳）拿 [`TunnelRole::Dialer`]：公开监听 `listen`，
+///   每来一条客户端连接就连 `remote`（下一跳 Listener），首帧请求
+///   `allowed_targets` 里的地址；
+/// * 出口服务器（第 1 跳）拿 [`TunnelRole::Listener`]：在 `listen` 上接受
+///   TLS 隧道，首帧地址必须命中 `allowed_targets`，然后才连目标。
+///
+/// `hop_secret` 是 base64 的 32 字节 HMAC 密钥，由主控按
+/// `HMAC(master_secret, "tunnel/{chain_id}/{seq}")` 派生。证书/CA 的路径
+/// 由主控决定，并通过 `DesiredState.files` 同批下发。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TunnelSpec {
+    pub role: TunnelRole,
+    /// 两端一致的链路标识（ClientHello 用；1..=255 字节）。
+    pub hop_id: String,
+    /// Listener/Dialer 监听的地址，如 `0.0.0.0:19401`。
+    pub listen: String,
+    /// Dialer 连接的对端 Listener 地址；Listener 侧为空串。
+    pub remote: String,
+    /// Listener 的证书路径（PEM）；Dialer 侧为空串。
+    pub cert_pem_path: String,
+    /// Listener 的私钥路径（PEM）；Dialer 侧为空串。
+    pub key_pem_path: String,
+    /// Dialer 只信任的 CA 路径（PEM）；Listener 侧为空串。
+    pub ca_pem_path: String,
+    /// base64(32B) 的每链路 HMAC 密钥。
+    pub hop_secret: String,
+    /// 允许/请求的目标地址白名单。空 = 拒绝一切（fail closed）。
+    #[serde(default)]
+    pub allowed_targets: Vec<TunnelTargetRule>,
+}
+
+/// 隧道目标白名单规则。
+///
+/// * `host` 是 IP 字面量时按**精确 IP**匹配；
+/// * 否则按域名后缀匹配：`example.com` 命中 `example.com` 与
+///   `*.example.com`，`*.example.com` 只命中子域；
+/// * `ports` 是闭区间；`None` = 任意端口。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TunnelTargetRule {
+    pub host: String,
+    #[serde(default)]
+    pub ports: Option<(u16, u16)>,
 }
 
 /// 一条转发规则监听的协议。
@@ -250,6 +319,8 @@ pub enum ForwardEngine {
     Realm,
     /// 内核 nftables DNAT（需要 root / CAP_NET_ADMIN）。
     Nftables,
+    /// P16 自研 TLS 隧道（帧中继，自有 CA）。
+    Tunnel,
 }
 
 impl ForwardEngine {
@@ -261,6 +332,7 @@ impl ForwardEngine {
         match raw.trim() {
             "realm" => Self::Realm,
             "nftables" => Self::Nftables,
+            "tunnel" => Self::Tunnel,
             _ => Self::Native,
         }
     }
@@ -521,8 +593,8 @@ mod tests {
     #[test]
     fn forward_udp_defaults_to_false_for_old_masters() {
         assert_eq!(
-            PROTOCOL_VERSION, 18,
-            "新增 ForwardStatus.traffic_in/out 必须升协议版本"
+            PROTOCOL_VERSION, 19,
+            "新增 ForwardStatus.traffic_in/out、tunnel 能力与 TunnelSpec 必须升协议版本"
         );
 
         // 旧主控的 JSON 没有 udp：必须解析成 false，也就是「只监听 TCP」，
@@ -831,5 +903,95 @@ mod tests {
             ForwardEngine::Realm,
             "realm 必须被识别"
         );
+        assert_eq!(
+            ForwardEngine::from_name("tunnel"),
+            ForwardEngine::Tunnel,
+            "tunnel 必须被识别"
+        );
+    }
+
+    /// 隧道字段是新增的可选段：旧主控报文没有它，新报文原样往返，
+    /// 且引擎 `tunnel` 必须能序列化成稳定的 snake_case。
+    #[test]
+    fn tunnel_spec_roundtrips_and_defaults_to_none() {
+        let old = r#"{
+            "id": "chain-c1-0",
+            "listen_port": 19401,
+            "target_host": "10.0.0.2",
+            "target_port": 19402,
+            "targets": [],
+            "strategy": "round_robin",
+            "engine": "native"
+        }"#;
+        let forward: DesiredForward = serde_json::from_str(old).unwrap();
+        assert_eq!(
+            forward.tunnel, None,
+            "旧主控没有 tunnel 段时必须解析成 None"
+        );
+
+        let spec = TunnelSpec {
+            role: TunnelRole::Listener,
+            hop_id: "c1:1".into(),
+            listen: "0.0.0.0:19402".into(),
+            remote: String::new(),
+            cert_pem_path: "/usr/local/etc/pierwave/tunnel/srv-b.pem".into(),
+            key_pem_path: "/usr/local/etc/pierwave/tunnel/srv-b.key".into(),
+            ca_pem_path: String::new(),
+            hop_secret: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=".into(),
+            allowed_targets: vec![TunnelTargetRule {
+                host: "example.com".into(),
+                ports: Some((443, 443)),
+            }],
+        };
+        let mut with_tunnel = forward.clone();
+        with_tunnel.engine = ForwardEngine::Tunnel;
+        with_tunnel.tunnel = Some(spec.clone());
+        let json = serde_json::to_value(&with_tunnel).unwrap();
+        assert_eq!(json["engine"], "tunnel");
+        assert_eq!(json["tunnel"]["role"], "listener");
+        assert_eq!(
+            json["tunnel"]["allowed_targets"][0]["ports"],
+            serde_json::json!([443, 443])
+        );
+        let back: DesiredForward = serde_json::from_value(json).unwrap();
+        assert_eq!(back, with_tunnel);
+        assert_eq!(back.tunnel, Some(spec));
+
+        // Dialer 是另一个稳定枚举值。
+        let dialer = TunnelSpec {
+            role: TunnelRole::Dialer,
+            ..with_tunnel.tunnel.clone().unwrap()
+        };
+        let json = serde_json::to_value(&dialer).unwrap();
+        assert_eq!(json["role"], "dialer");
+        let back: TunnelSpec = serde_json::from_value(json).unwrap();
+        assert_eq!(back.role, TunnelRole::Dialer);
+    }
+
+    /// 心跳新增 `tunnel_available`：旧 Agent 缺失 = None，明确值原样往返。
+    #[test]
+    fn heartbeat_tunnel_availability_is_optional() {
+        let old = r#"{
+            "seq": 1,
+            "uptime_secs": 1,
+            "load1": 0.0,
+            "mem_used": 0,
+            "mem_total": 0,
+            "disk_used": 0,
+            "disk_total": 0,
+            "xray_running": false,
+            "nginx_running": false
+        }"#;
+        let hb: Heartbeat = serde_json::from_str(old).unwrap();
+        assert_eq!(hb.tunnel_available, None, "旧 Agent 未上报必须是 None");
+
+        let hb = Heartbeat {
+            tunnel_available: Some(true),
+            ..hb
+        };
+        let json = serde_json::to_value(&hb).unwrap();
+        assert_eq!(json["tunnel_available"], true);
+        let back: Heartbeat = serde_json::from_value(json).unwrap();
+        assert_eq!(back.tunnel_available, Some(true));
     }
 }

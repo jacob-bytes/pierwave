@@ -476,6 +476,67 @@ pub fn plan_from_certificates(
     hop_transport::derive_hop_transports(&group_certs)
 }
 
+/// tunnel 链的前置条件（保存与下发共用同一套判定）。
+///
+/// P16.1 的拓扑是「入口 Dialer → 出口 Listener」：2 跳、每组一台成员。
+/// 多成员组需要每个成员一个 `remote`，而 [`pierver_proto::TunnelSpec::remote`]
+/// 只有一个地址，强行下发会导致只有第一台收到流量，所以先拒绝而不是静默降级。
+pub fn tunnel_blocked_reason(
+    chain: &Chain,
+    groups: &[ChainGroupWithMembers],
+) -> Option<BlockedReason> {
+    if groups.len() != 2 {
+        return Some(BlockedReason {
+            code: "chain.tunnel_requires_two_hops".to_string(),
+            message: format!(
+                "tunnel 引擎当前只支持 2 跳链（入口 Dialer + 出口 Listener），当前 {} 跳",
+                groups.len()
+            ),
+        });
+    }
+    if let Some(group) = groups.iter().find(|group| group.members.len() != 1) {
+        return Some(BlockedReason {
+            code: "chain.tunnel_single_member".to_string(),
+            message: format!(
+                "tunnel 引擎当前只支持每组 1 台成员（第 {} 组有 {} 台）",
+                group.group.seq + 1,
+                group.members.len()
+            ),
+        });
+    }
+    if !protocol::allows_tcp(&chain.protocol) || protocol::allows_udp(&chain.protocol) {
+        return Some(BlockedReason {
+            code: "chain.tunnel_tcp_only".to_string(),
+            message: "tunnel 引擎只支持 TCP，请把链的协议改为 tcp".to_string(),
+        });
+    }
+    if crate::hop_transport::is_tls(&chain.transport) {
+        return Some(BlockedReason {
+            code: "chain.tunnel_transport_conflict".to_string(),
+            message: "tunnel 自带 TLS，不能再选择 realm 的 transport=tls".to_string(),
+        });
+    }
+    let mut names: Vec<&str> = groups
+        .iter()
+        .flat_map(|group| group.members.iter())
+        .filter(|member| member.tunnel_available != Some(true))
+        .map(|member| member.server_name.as_str())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    if !names.is_empty() {
+        names.sort_unstable();
+        return Some(BlockedReason {
+            code: "chain.tunnel_unavailable".to_string(),
+            message: format!(
+                "以下服务器的 Agent 不支持 tunnel 引擎（需要升级到带 tunnel 能力的版本）：{}",
+                names.join("、")
+            ),
+        });
+    }
+    None
+}
+
 /// 链视图里的「为什么没下发」：能力或证书不满足时给用户看的原因。
 ///
 /// 这是**唯一**的 blocked 判定入口：链列表、创建/更新响应和概览的
@@ -489,6 +550,9 @@ pub fn blocked_reason(
     certs: &HashMap<&str, &Certificate>,
     now: i64,
 ) -> Option<BlockedReason> {
+    if engine::is_tunnel(&chain.engine) {
+        return tunnel_blocked_reason(chain, groups);
+    }
     if engine::is_nftables(&chain.engine) {
         if let Some((seq, _)) = groups
             .iter()

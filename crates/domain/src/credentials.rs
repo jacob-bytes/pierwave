@@ -89,6 +89,29 @@ pub fn ss2022_user_key_len(secret: &str, user_id: &str, node_id: &str, key_len: 
     STANDARD.encode(&digest[..key_len])
 }
 
+/// 隧道每跳的 HMAC 密钥：`HMAC-SHA256(master_secret, "tunnel/{chain_id}/{seq}")`。
+///
+/// 输出原样 32 字节；调用方（主控）负责 base64 后放进 [`pierwave_proto::TunnelSpec`]。
+/// `seq` 是 Listener 所在组的序号（2 跳链固定为 1），这样同一台服务器上的
+/// 不同链路拿到不同密钥。该函数是纯函数，重启/重放派生结果稳定。
+pub fn tunnel_hop_secret(secret: &str, chain_id: &str, seq: i64) -> [u8; 32] {
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("HMAC 接受任意长度密钥，不会失败");
+    mac.update(format!("tunnel/{chain_id}/{seq}").as_bytes());
+    let digest = mac.finalize().into_bytes();
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&digest);
+    key
+}
+
+/// 隧道每跳密钥的 base64 形式（44 字符，含 padding），可直接放进
+/// `TunnelSpec.hop_secret`。主控不需要自己引入 base64 依赖。
+pub fn tunnel_hop_secret_b64(secret: &str, chain_id: &str, seq: i64) -> String {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+    STANDARD.encode(tunnel_hop_secret(secret, chain_id, seq))
+}
+
 /// 32 字节档的 SS2022 每用户密钥（AES-256 / ChaCha20）。
 pub fn ss2022_user_key(secret: &str, user_id: &str, node_id: &str) -> String {
     ss2022_user_key_len(secret, user_id, node_id, 32)
@@ -148,6 +171,30 @@ mod tests {
         assert_eq!(bytes[23], b'-');
         assert_eq!(bytes[14], b'4');
         assert!(matches!(bytes[19], b'8' | b'9' | b'a' | b'b'));
+    }
+
+    #[test]
+    fn tunnel_hop_secret_is_stable_and_domain_separated() {
+        use base64::engine::general_purpose::STANDARD;
+        use base64::Engine;
+
+        let first = tunnel_hop_secret(SECRET, "chain-1", 1);
+        assert_eq!(first, tunnel_hop_secret(SECRET, "chain-1", 1));
+        assert_eq!(
+            STANDARD.encode(first).len(),
+            44,
+            "32 字节 base64 固定 44 字符"
+        );
+        assert_ne!(first, tunnel_hop_secret(SECRET, "chain-1", 2));
+        assert_ne!(first, tunnel_hop_secret(SECRET, "chain-2", 1));
+        assert_ne!(first, tunnel_hop_secret("another-secret", "chain-1", 1));
+
+        // 与订阅凭据的派生域必须分开。
+        assert_ne!(
+            STANDARD.encode(first),
+            ss2022_user_key(SECRET, "chain-1", "1"),
+            "隧道密钥不能复用订阅凭据的派生域"
+        );
     }
 
     #[test]

@@ -55,29 +55,6 @@ pub struct Frame {
     pub payload: Vec<u8>,
 }
 
-impl Frame {
-    pub fn data(payload: Vec<u8>) -> Self {
-        Self {
-            kind: FrameKind::Data,
-            payload,
-        }
-    }
-
-    pub fn close() -> Self {
-        Self {
-            kind: FrameKind::Close,
-            payload: Vec::new(),
-        }
-    }
-
-    pub fn ping() -> Self {
-        Self {
-            kind: FrameKind::Ping,
-            payload: Vec::new(),
-        }
-    }
-}
-
 /// 帧层的错误。`TooLarge` 单独成类：调用方要按规范打 `error` 日志。
 #[derive(Debug)]
 pub enum FrameError {
