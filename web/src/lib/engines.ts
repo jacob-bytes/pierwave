@@ -2,7 +2,8 @@
  * 转发引擎的纯逻辑：枚举、默认值、文案键与运行时判定。
  *
  * 后端契约（`crates/domain/src/engine.rs` / `ForwardEngine`）：
- * - 独立转发与转发链都只有 `native` / `realm` / `nftables` 三个合法值；
+ * - 独立转发只有 `native` / `realm` / `nftables` 三个合法值；
+ * - 转发链多一个实验性的 `tunnel`（P16 自研加密隧道，只支持 2 跳 / 每组 1 台）；
  * - 新建时缺省 `native`；写路径严格拒绝其它值（`forward.engine_invalid`）；
  * - 读路径对历史脏数据回落到 `native`，所以 UI 也按同样规则兜底。
  *
@@ -11,20 +12,46 @@
 
 import type { ForwardEngine } from "./api.ts";
 
-/** 与后端白名单一致；顺序也是表单里的展示顺序。 */
+/** 独立转发的引擎白名单；顺序也是表单里的展示顺序。 */
 export const FORWARD_ENGINES = [
   "native",
   "realm",
   "nftables",
 ] as const satisfies readonly ForwardEngine[];
 
+/**
+ * 转发链的引擎白名单：独立转发的三项 + 实验性的 `tunnel`。
+ *
+ * `tunnel` 没有「下一跳」与证书角色，后端写路径会拒绝独立转发使用它，
+ * 所以这里不能把它加进 {@link FORWARD_ENGINES}。
+ */
+export const CHAIN_ENGINES = [
+  "native",
+  "realm",
+  "nftables",
+  "tunnel",
+] as const satisfies readonly ForwardEngine[];
+
 export type { ForwardEngine };
 
-/** 新建规则 / 表单初始值。 */
-export const DEFAULT_FORWARD_ENGINE: ForwardEngine = "native";
+/** 独立转发可用的引擎：`tunnel` 只属于链。 */
+export type StandaloneEngine = Exclude<ForwardEngine, "tunnel">;
 
-export function isForwardEngine(value: unknown): value is ForwardEngine {
+/** 新建规则 / 表单初始值。 */
+export const DEFAULT_FORWARD_ENGINE: StandaloneEngine = "native";
+
+export function isForwardEngine(value: unknown): value is StandaloneEngine {
   return value === "native" || value === "realm" || value === "nftables";
+}
+
+/** 链的引擎白名单（含实验性的 `tunnel`）。 */
+export function isChainEngine(value: unknown): value is ForwardEngine {
+  return (
+    value === "native" ||
+    value === "realm" ||
+    value === "nftables" ||
+    value === "tunnel"
+  );
 }
 
 /** `null` / `undefined` / 空白串 = 后端没带该字段（旧版本），按默认值处理。 */
@@ -43,7 +70,10 @@ function isAbsentEngine(value: unknown): boolean {
 function knownEngine(value: unknown): ForwardEngine | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
-  return trimmed === "native" || trimmed === "realm" || trimmed === "nftables"
+  return trimmed === "native" ||
+    trimmed === "realm" ||
+    trimmed === "nftables" ||
+    trimmed === "tunnel"
     ? trimmed
     : null;
 }
@@ -57,6 +87,18 @@ function knownEngine(value: unknown): ForwardEngine | null {
  */
 export function normalizeEngine(value: unknown): ForwardEngine {
   return knownEngine(value) ?? DEFAULT_FORWARD_ENGINE;
+}
+
+/**
+ * 独立转发表单专用：`tunnel` 只属于链，独立转发不能选。
+ *
+ * 正常数据里不会出现独立 forward 的 `engine = tunnel`（后端写路径拒绝），
+ * 这里仍显式回落 `native`，避免表单把 tunnel 当成可编辑的独立转发引擎。
+ */
+export function normalizeForwardEngine(value: unknown): StandaloneEngine {
+  const engine = knownEngine(value);
+  if (engine === "tunnel") return DEFAULT_FORWARD_ENGINE;
+  return engine ?? DEFAULT_FORWARD_ENGINE;
 }
 
 export interface EngineMeta {
@@ -102,6 +144,40 @@ export function engineMeta(value: unknown): EngineMeta {
     labelKey: "common.engine.unknown.label",
     descKey: "common.engine.unknown.desc",
   };
+}
+
+/** 链引擎单选项；文案键统一在 `common.engine.*`。 */
+export interface ChainEngineOption {
+  engine: ForwardEngine;
+  labelKey: string;
+  shortKey: string;
+  descKey: string;
+  /** tunnel 是实验能力：列表徽标与单选项都要带「实验性」小标。 */
+  experimental: boolean;
+  /** 当前组数 / 成员数是否满足该引擎的拓扑要求；只有 tunnel 会因此为 false。 */
+  available: boolean;
+}
+
+/**
+ * 链的引擎单选项。
+ *
+ * 顺序与 {@link CHAIN_ENGINES} 一致；`tunnel` 永远可被选中，拓扑不满足时
+ * 由表单字段级错误说明原因（而不是把选项禁用掉，让用户不知道为什么点不动）。
+ * `available` 只表达「当前拓扑是否已经满足 tunnel 的 2 跳 / 单成员要求」。
+ */
+export function chainEngineOptions(
+  groupCount: number,
+  groupSizes: readonly number[],
+): ChainEngineOption[] {
+  const tunnelReady = tunnelAvailable("tunnel", groupCount, groupSizes);
+  return CHAIN_ENGINES.map((engine) => ({
+    engine,
+    labelKey: `common.engine.${engine}.label`,
+    shortKey: `common.engine.${engine}.short`,
+    descKey: `common.engine.${engine}.desc`,
+    experimental: engine === "tunnel",
+    available: engine === "tunnel" ? tunnelReady : true,
+  }));
 }
 
 /**
@@ -294,6 +370,108 @@ export function chainServersMissingRealm(
  */
 export function engineInput(value: unknown): { engine: ForwardEngine } {
   return { engine: normalizeEngine(value) };
+}
+
+// ---------------------------------------------------------------------------
+// tunnel 能力：来自服务器列表的 `tunnel_available`。
+//
+// 与 nftables 一样，只有明确 `true` 才放行：旧 Agent 收到 `engine = tunnel`
+// 会因为不认识的枚举值让整份期望态解析失败，未知也必须按不可用处理。
+// ---------------------------------------------------------------------------
+
+/** 服务器列表里与 tunnel 能力有关的最小字段集。 */
+export interface TunnelAvailabilityLike {
+  /** true = 支持；false / null / 缺失 = 不支持或未知。 */
+  tunnel_available?: boolean | null;
+}
+
+/** 所选服务器里是否至少有一台没有明确上报 tunnel 可用。 */
+export function serversMissingTunnel(
+  servers: readonly TunnelAvailabilityLike[],
+): boolean {
+  return servers.some((server) => server.tunnel_available !== true);
+}
+
+/** 明确不支持 tunnel 的服务器名，保持传入顺序、按名字去重。 */
+export function missingTunnelServerNames(
+  servers: readonly (TunnelAvailabilityLike & { name: string })[],
+): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const server of servers) {
+    if (server.tunnel_available === true) continue;
+    const name = server.name.trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  return names;
+}
+
+/** 引擎是 tunnel，且这台服务器没有明确支持。 */
+export function tunnelMissingOnServer(
+  engine: unknown,
+  server: TunnelAvailabilityLike | null | undefined,
+): boolean {
+  return (
+    normalizeEngine(engine) === "tunnel" &&
+    server?.tunnel_available !== true
+  );
+}
+
+/** tunnel 链的固定跳数（入口 Dialer + 出口 Listener）。 */
+export const TUNNEL_GROUP_COUNT = 2;
+
+/**
+ * tunnel 链目前的拓扑前置条件：正好 2 组、每组正好 1 台成员。
+ *
+ * 非 tunnel 引擎恒为 false（包括未知引擎：先按 native 兜底）。
+ * 多成员组会让流量全部压到第一台，后端写路径同样拒绝。
+ */
+export function tunnelAvailable(
+  engine: unknown,
+  groupCount: number,
+  groupSizes: readonly number[],
+): boolean {
+  return (
+    normalizeEngine(engine) === "tunnel" &&
+    groupCount === TUNNEL_GROUP_COUNT &&
+    groupSizes.length === TUNNEL_GROUP_COUNT &&
+    groupSizes.every((size) => size === 1)
+  );
+}
+
+/** tunnel 拓扑问题；由表单 schema 翻译成当前语言并挂到字段上。 */
+export type TunnelIssue =
+  | { kind: "group_count"; count: number }
+  | { kind: "member_count"; groupIndex: number; count: number };
+
+/**
+ * 保存前的 tunnel 拓扑校验。
+ *
+ * 非 tunnel 引擎返回空数组；组数不对只报一条 `groups` 根错误，
+ * 每组成员数不对各自挂到 `groups[i].members`，都不落到表单 root。
+ */
+export function tunnelIssues(
+  engine: unknown,
+  groups: readonly { members: readonly unknown[] }[],
+): TunnelIssue[] {
+  if (normalizeEngine(engine) !== "tunnel") return [];
+
+  const issues: TunnelIssue[] = [];
+  if (groups.length !== TUNNEL_GROUP_COUNT) {
+    issues.push({ kind: "group_count", count: groups.length });
+  }
+  groups.forEach((group, groupIndex) => {
+    if (group.members.length !== 1) {
+      issues.push({
+        kind: "member_count",
+        groupIndex,
+        count: group.members.length,
+      });
+    }
+  });
+  return issues;
 }
 
 // ---------------------------------------------------------------------------

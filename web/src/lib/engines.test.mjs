@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  CHAIN_ENGINES,
   DEFAULT_FORWARD_ENGINE,
   FORWARD_ENGINES,
   chainEngineMissing,
+  chainEngineOptions,
   chainServersMissingRealm,
   effectiveUdp,
   engineInput,
@@ -14,12 +16,16 @@ import {
   isForwardEngine,
   missingNftablesServerNames,
   missingRealmServerNames,
+  missingTunnelServerNames,
   nftablesMissingOnServer,
   nftablesMultiMemberGroups,
   normalizeEngine,
   realmMissingOnServer,
   serversMissingNftables,
   serversMissingRealm,
+  serversMissingTunnel,
+  tunnelAvailable,
+  tunnelIssues,
   udpBadgeVisible,
 } from "./engines.ts";
 import en from "../i18n/en.ts";
@@ -140,6 +146,10 @@ const ENGINE_I18N_KEYS = [
   "common.engine.nftables.short",
   "common.engine.nftables.desc",
   "common.engine.nftables.notAvailable",
+  "common.engine.tunnel.label",
+  "common.engine.tunnel.short",
+  "common.engine.tunnel.desc",
+  "common.engine.tunnel.experimental",
   "common.engine.unknown.label",
   "common.engine.unknown.desc",
   "forwards.engine.missing",
@@ -158,7 +168,12 @@ const ENGINE_I18N_KEYS = [
   "chains.form.engineHint",
   "chains.form.engineAria",
   "chains.form.realmNotInstalled",
+  "chains.form.tunnelNotAvailable",
+  "chains.tunnel.protocolTitle",
+  "chains.tls.tunnelDisabledTitle",
   "common.engine.realm.notInstalled",
+  "validation.chainTunnelTwoHops",
+  "validation.chainTunnelSingleMember",
 ];
 
 test("every engine i18n key exists and is non-empty in both languages", () => {
@@ -608,4 +623,163 @@ test("nftablesMultiMemberGroups only flags non-entry groups", () => {
   assert.deepEqual(nftablesMultiMemberGroups("nftables", groups), [2]);
   assert.deepEqual(nftablesMultiMemberGroups("native", groups), []);
   assert.deepEqual(nftablesMultiMemberGroups("realm", groups), []);
+});
+
+// ---- tunnel：链专属引擎、2 跳 / 单成员拓扑与能力门禁 ----
+
+test("chain engine list adds experimental tunnel after the standalone engines", () => {
+  assert.deepEqual(
+    [...CHAIN_ENGINES],
+    ["native", "realm", "nftables", "tunnel"],
+  );
+  // 独立转发的白名单保持不变：tunnel 没有下一跳，后端拒绝独立转发使用它。
+  assert.deepEqual([...FORWARD_ENGINES], ["native", "realm", "nftables"]);
+});
+
+test("engineMeta knows tunnel and maps it to common.engine.tunnel.*", () => {
+  const meta = engineMeta("tunnel");
+  assert.equal(meta.known, true);
+  assert.equal(meta.engine, "tunnel");
+  assert.equal(meta.labelKey, "common.engine.tunnel.label");
+  assert.equal(meta.descKey, "common.engine.tunnel.desc");
+  // normalizeEngine 也必须保留 tunnel，否则编辑现有 tunnel 链会回落 native。
+  assert.equal(normalizeEngine("tunnel"), "tunnel");
+  assert.equal(normalizeEngine("  tunnel  "), "tunnel");
+});
+
+test("tunnelAvailable accepts only a 2-hop chain with one member per group", () => {
+  // 1 跳：不允许。
+  assert.equal(tunnelAvailable("tunnel", 1, [1]), false);
+  // 3 跳：不允许。
+  assert.equal(tunnelAvailable("tunnel", 3, [1, 1, 1]), false);
+  // 2 跳但某组多成员：不允许。
+  assert.equal(tunnelAvailable("tunnel", 2, [1, 2]), false);
+  assert.equal(tunnelAvailable("tunnel", 2, [2, 1]), false);
+  // 2 跳且每组恰好 1 台：唯一合法形态。
+  assert.equal(tunnelAvailable("tunnel", 2, [1, 1]), true);
+  // groupSizes 与 groupCount 不一致时不能误判。
+  assert.equal(tunnelAvailable("tunnel", 2, [1]), false);
+  assert.equal(tunnelAvailable("tunnel", 2, [1, 1, 1]), false);
+  // 其它引擎即使拓扑是 2×1 也不是 tunnel。
+  assert.equal(tunnelAvailable("native", 2, [1, 1]), false);
+  assert.equal(tunnelAvailable("realm", 2, [1, 1]), false);
+  assert.equal(tunnelAvailable("nftables", 2, [1, 1]), false);
+  // 未知引擎按 native 兜底，不能误判成 tunnel。
+  assert.equal(tunnelAvailable("wireguard", 2, [1, 1]), false);
+  assert.equal(tunnelAvailable(undefined, 2, [1, 1]), false);
+});
+
+test("tunnelIssues reports hop count and per-group member count", () => {
+  assert.deepEqual(tunnelIssues("tunnel", [{ members: [{}] }]), [
+    { kind: "group_count", count: 1 },
+  ]);
+  assert.deepEqual(
+    tunnelIssues("tunnel", [
+      { members: [{}] },
+      { members: [{}] },
+      { members: [{}] },
+    ]),
+    [{ kind: "group_count", count: 3 }],
+  );
+  assert.deepEqual(
+    tunnelIssues("tunnel", [
+      { members: [{}, {}] },
+      { members: [{}] },
+    ]),
+    [{ kind: "member_count", groupIndex: 0, count: 2 }],
+  );
+  assert.deepEqual(
+    tunnelIssues("tunnel", [
+      { members: [{}] },
+      { members: [{}] },
+    ]),
+    [],
+  );
+  // 非 tunnel 引擎不产生 tunnel 专属问题。
+  assert.deepEqual(tunnelIssues("native", [{ members: [] }]), []);
+});
+
+test("chainEngineOptions keeps tunnel selectable and exposes topology readiness", () => {
+  const invalid = chainEngineOptions(1, [1]);
+  assert.deepEqual(
+    invalid.map((option) => option.engine),
+    ["native", "realm", "nftables", "tunnel"],
+  );
+  const tunnelOption = invalid.find((option) => option.engine === "tunnel");
+  assert.equal(tunnelOption.experimental, true);
+  assert.equal(tunnelOption.available, false);
+  assert.equal(tunnelOption.labelKey, "common.engine.tunnel.label");
+  // 其它引擎没有实验小标，也不会被 tunnel 的拓扑要求影响。
+  assert.equal(
+    invalid.find((option) => option.engine === "native").available,
+    true,
+  );
+  assert.equal(
+    invalid.find((option) => option.engine === "native").experimental,
+    false,
+  );
+
+  const valid = chainEngineOptions(2, [1, 1]);
+  assert.equal(
+    valid.find((option) => option.engine === "tunnel").available,
+    true,
+  );
+});
+
+test("tunnel capability requires an explicit true", () => {
+  assert.equal(serversMissingTunnel([]), false);
+  assert.equal(serversMissingTunnel([{ tunnel_available: true }]), false);
+  assert.equal(serversMissingTunnel([{ tunnel_available: false }]), true);
+  assert.equal(serversMissingTunnel([{ tunnel_available: null }]), true);
+  assert.equal(serversMissingTunnel([{}]), true);
+
+  assert.deepEqual(
+    missingTunnelServerNames([
+      { name: " 香港-01 ", tunnel_available: true },
+      { name: "日本-02", tunnel_available: false },
+      { name: " 日本-02 ", tunnel_available: null },
+      { name: "美国-04" },
+      { name: "   ", tunnel_available: false },
+    ]),
+    ["日本-02", "美国-04"],
+  );
+  assert.deepEqual(missingTunnelServerNames([]), []);
+});
+
+test("tunnel error dictionary covers all five backend codes in both languages", () => {
+  const codes = [
+    "chain.tunnel_requires_two_hops",
+    "chain.tunnel_single_member",
+    "chain.tunnel_tcp_only",
+    "chain.tunnel_transport_conflict",
+    "chain.tunnel_unavailable",
+  ];
+  for (const code of codes) {
+    assert.equal(typeof zhCN.errors[code], "string", `zh missing ${code}`);
+    assert.equal(typeof en.errors[code], "string", `en missing ${code}`);
+    assert.ok(zhCN.errors[code].trim().length > 0);
+    assert.ok(en.errors[code].trim().length > 0);
+  }
+});
+
+test("tunnel copy is bilingual and names its experimental limits", () => {
+  assert.equal(lookup(zhCN, "common.engine.tunnel.label"), "tunnel");
+  assert.equal(lookup(en, "common.engine.tunnel.label"), "tunnel");
+  assert.equal(lookup(zhCN, "common.engine.tunnel.experimental"), "实验性");
+  assert.equal(lookup(en, "common.engine.tunnel.experimental"), "Experimental");
+  for (const dictionary of [zhCN, en]) {
+    const desc = lookup(dictionary, "common.engine.tunnel.desc");
+    assert.match(desc, /2\s*(跳|hops?)/);
+    assert.match(desc, /TCP/);
+    assert.match(desc, /CA/);
+  }
+  // 禁用的 title 说明 tunnel 自带加密，不能和跳间 TLS 同时开启。
+  assert.match(
+    lookup(zhCN, "chains.tls.tunnelDisabledTitle"),
+    /tunnel.*加密/,
+  );
+  assert.match(
+    lookup(en, "chains.tls.tunnelDisabledTitle"),
+    /tunnel.*encrypt/i,
+  );
 });

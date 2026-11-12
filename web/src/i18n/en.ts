@@ -82,6 +82,12 @@ const en = {
         notAvailable:
           "This server has no usable nftables (install nft and run as root)",
       },
+      tunnel: {
+        label: "tunnel",
+        short: "Self-hosted encrypted tunnel · TCP (experimental)",
+        desc: "Experimental engine: the controller signs its own CA and encrypts each hop, so no public certificate is needed. Currently limited to 2 hops with one member per group and TCP only, and it cannot be combined with hop TLS.",
+        experimental: "Experimental",
+      },
       unknown: {
         label: "Unknown engine",
         desc: "The backend returned an unrecognized forward engine; the UI treats it as Native, and saving again writes native.",
@@ -1865,6 +1871,8 @@ const en = {
       badgeTitle: "Hop-to-hop encryption is on",
       disabledTitle:
         "Available only for realm chains with at least 2 groups",
+      tunnelDisabledTitle:
+        "The tunnel engine already encrypts hops; hop TLS cannot be enabled",
       cert: "Certificate",
       certAria: "Certificate for group {seq}",
       certPlaceholder: "Select a certificate",
@@ -1880,6 +1888,9 @@ const en = {
       name_mismatch: "Certificate name mismatch",
       handshake_failed: "TLS handshake failed",
       timeout: "TLS handshake timed out",
+    },
+    tunnel: {
+      protocolTitle: "The tunnel engine only supports TCP",
     },
     engine: {
       missing: "Engine missing",
@@ -2048,6 +2059,8 @@ const en = {
         "Some selected servers do not have realm installed: {servers}. After saving, those hops will show “not listening · realm not installed”; install realm and apply the config again to recover.",
       nftablesNotAvailable:
         "These servers have no usable nftables: {servers}. Install nft and run as root; saving nftables rules is blocked while the capability is unknown.",
+      tunnelNotAvailable:
+        "These servers in this group do not support tunnel yet: {servers}. Upgrade the agent first; tunnel chains cannot be saved while the capability is unknown or false.",
       nftablesSingleOnly:
         "With the nftables engine, only the entry group can have multiple members",
       groups: "Chain hops",
@@ -2471,6 +2484,11 @@ const en = {
     "forward.nftables_unavailable": "Server \"{server_name}\" has no usable nftables (install nft and run as root)",
     "chain.nftables_unavailable": "These servers have no usable nftables (install nft and run as root): {servers}",
     "chain.nftables_multi_target": "The nftables engine does not support multi-member selection in group {seq}; use a single-member group",
+    "chain.tunnel_requires_two_hops": "The tunnel engine only supports 2-hop chains (entry dialer + exit listener); currently {hops} hops",
+    "chain.tunnel_single_member": "The tunnel engine only supports one member per group (this group has {members})",
+    "chain.tunnel_tcp_only": "The tunnel engine only supports TCP (currently {protocol})",
+    "chain.tunnel_transport_conflict": "The tunnel engine already encrypts hops; transport=tls cannot be selected",
+    "chain.tunnel_unavailable": "These servers run an agent without tunnel support (upgrade required): {servers}",
     "node.ss_method_invalid": "Unsupported Shadowsocks method: {method}",
     "node.ss_key_invalid": "Invalid Shadowsocks key for {method}: 2022 methods need a base64 key of the exact length; legacy AEAD needs at least 8 characters",
     "node.ss_network_invalid": "Unsupported Shadowsocks network: {network} (allowed: tcp / udp / tcp,udp)",
@@ -2664,6 +2682,10 @@ const en = {
     chainTlsUdpConflict: "Hop encryption requires UDP forwarding to be off",
     chainNftablesMultiMembers:
       "The nftables engine does not support multi-member selection outside the entry group; use a single node for that group",
+    chainTunnelTwoHops:
+      "The tunnel engine requires exactly 2 hops (currently {count})",
+    chainTunnelSingleMember:
+      "Each hop in a tunnel chain must have exactly 1 member (hop {seq} has {count})",
     comboInvalid:
       "This protocol does not support this transport and security combination",
     certRequired: "TLS nodes must have a certificate bound",

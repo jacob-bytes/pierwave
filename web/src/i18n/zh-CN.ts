@@ -77,6 +77,12 @@ const zhCN = {
         desc: "用内核 nftables DNAT 转发，数据不经过用户态；需要安装 nft 并以 root 运行。内核转发不做目标探测，状态只到规则级。",
         notAvailable: "该服务器没有可用的 nftables（需要安装 nft 并以 root 运行）",
       },
+      tunnel: {
+        label: "tunnel",
+        short: "自研加密隧道 · TCP（实验性）",
+        desc: "实验性引擎：主控自签 CA，跳间链路自带加密，不依赖公网证书。当前只支持 2 跳、每组 1 台成员、仅 TCP，且不能同时开启跳间加密。",
+        experimental: "实验性",
+      },
       unknown: {
         label: "未知引擎",
         desc: "后端返回了未识别的转发引擎；界面按自带引擎展示，重新保存会写成 native。",
@@ -1757,6 +1763,8 @@ const zhCN = {
       badge: "TLS",
       badgeTitle: "跳间加密已启用",
       disabledTitle: "仅 realm 引擎且至少 2 组的链可启用跳间加密",
+      tunnelDisabledTitle:
+        "tunnel 引擎自带跳间加密，不能再开启跳间 TLS",
       cert: "证书",
       certAria: "第 {seq} 组的证书",
       certPlaceholder: "选择证书",
@@ -1772,6 +1780,9 @@ const zhCN = {
       name_mismatch: "证书域名与 SNI 不匹配",
       handshake_failed: "TLS 握手失败",
       timeout: "TLS 握手超时",
+    },
+    tunnel: {
+      protocolTitle: "tunnel 引擎只支持 TCP",
     },
     engine: {
       missing: "引擎缺失",
@@ -1932,6 +1943,8 @@ const zhCN = {
         "所选服务器中有未安装 realm 的：{servers}。保存后这些跳会显示「未监听 · realm 未安装」，装好 realm 并重新应用即可恢复。",
       nftablesNotAvailable:
         "这些服务器没有可用的 nftables：{servers}。需要安装 nft 并以 root 运行；能力未知时不能保存 nftables 规则。",
+      tunnelNotAvailable:
+        "该组服务器暂不支持 tunnel：{servers}。需要升级到带 tunnel 能力的 Agent；能力未知或为 false 时不能保存 tunnel 链。",
       nftablesSingleOnly: "nftables 引擎下非入口组只能单节点",
       groups: "链路节点",
       groupsHint:
@@ -2331,6 +2344,11 @@ const zhCN = {
     "forward.nftables_unavailable": "服务器「{server_name}」没有可用的 nftables（需要安装 nft 并以 root 运行）",
     "chain.nftables_unavailable": "以下服务器的 nftables 不可用（需要安装 nft 并以 root 运行）：{servers}",
     "chain.nftables_multi_target": "nftables 引擎暂不支持第 {seq} 组的多成员选路，请改成单成员组",
+    "chain.tunnel_requires_two_hops": "tunnel 引擎只支持 2 跳链（入口 Dialer + 出口 Listener），当前 {hops} 跳",
+    "chain.tunnel_single_member": "tunnel 引擎只支持每组 1 台成员（该组有 {members} 台）",
+    "chain.tunnel_tcp_only": "tunnel 引擎只支持 TCP（当前 {protocol}）",
+    "chain.tunnel_transport_conflict": "tunnel 自带跳间加密，不能再选择 transport=tls",
+    "chain.tunnel_unavailable": "以下服务器的 Agent 不支持 tunnel 引擎（需要升级）：{servers}",
     "node.ss_method_invalid": "不支持的 Shadowsocks 加密方法：{method}",
     "node.ss_key_invalid": "Shadowsocks 密钥不合法：{method}",
     "node.ss_network_invalid": "不支持的 Shadowsocks 网络类型：{network}",
@@ -2522,6 +2540,9 @@ const zhCN = {
     chainTlsUdpConflict: "跳间加密需要关闭 UDP 转发",
     chainNftablesMultiMembers:
       "nftables 引擎暂不支持非入口组的多成员选路，请把该组改成单节点",
+    chainTunnelTwoHops: "tunnel 引擎必须正好 2 跳（当前 {count} 跳）",
+    chainTunnelSingleMember:
+      "tunnel 引擎的每一跳只能有 1 台成员（第 {seq} 跳有 {count} 台）",
     comboInvalid: "当前协议不支持这个传输方式与安全层的组合",
     certRequired: "TLS 节点必须绑定证书",
     ssMethodInvalid: "请选择支持的加密方法",

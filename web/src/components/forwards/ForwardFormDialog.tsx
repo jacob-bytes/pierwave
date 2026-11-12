@@ -23,7 +23,7 @@ import {
   engineInput,
   isForwardEngine,
   nftablesMissingOnServer,
-  normalizeEngine,
+  normalizeForwardEngine,
   realmMissingOnServer,
 } from "@/lib/engines";
 import { errorText } from "@/lib/errors";
@@ -78,7 +78,7 @@ export function ForwardFormDialog({
       target_port: forward ? String(forward.target_port) : "",
       enabled: forward ? Boolean(forward.enabled) : true,
       // 旧数据 / 旧后端没有 engine：按契约缺省 native 回填。
-      engine: normalizeEngine(forward?.engine),
+      engine: normalizeForwardEngine(forward?.engine),
       // 旧数据 / 旧后端没有 protocol：旧 udp:true 按 both 回填，否则 tcp。
       protocol: normalizeProtocol(forward?.protocol, forward?.udp),
     },

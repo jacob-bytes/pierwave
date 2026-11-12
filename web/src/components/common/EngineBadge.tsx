@@ -22,6 +22,7 @@ const ENGINE_TONES = {
   native: "border-border/80 bg-muted/40 text-muted-foreground",
   realm: "border-primary/35 bg-primary/10 text-primary",
   nftables: "border-warning/35 bg-warning/10 text-warning",
+  tunnel: "border-primary/35 bg-primary/10 text-primary",
 } as const;
 
 const UNKNOWN_TONE = "border-warning/40 bg-warning/10 text-warning";
@@ -29,8 +30,9 @@ const UNKNOWN_TONE = "border-warning/40 bg-warning/10 text-warning";
 /**
  * 列表名称旁的转发引擎小徽标：`native` → 「自带」，`realm` → 「realm」。
  *
- * 与 `StrategyBadge` 同一套视觉（outline + type-micro），不新增表格列；
- * 文案与说明统一在 `common.engine.*`，title 给出完整语义。
+ * `tunnel` 额外带一个「实验性」小标：它只支持 2 跳 / 每组 1 台 / 仅 TCP，
+ * 不能和 `transport=tls` 同时使用。与 `StrategyBadge` 同一套视觉
+ * （outline + type-micro），不新增表格列；文案与说明统一在 `common.engine.*`。
  */
 export function EngineBadge({
   engine,
@@ -55,6 +57,15 @@ export function EngineBadge({
       >
         {t(meta.labelKey)}
       </Badge>
+      {meta.engine === "tunnel" ? (
+        <Badge
+          variant="outline"
+          data-experimental="true"
+          className="h-4 px-1 type-micro font-normal whitespace-nowrap border-border/80 bg-muted/40 text-muted-foreground"
+        >
+          {t("common.engine.tunnel.experimental")}
+        </Badge>
+      ) : null}
       {realmUnavailable ? (
         <span
           role="img"

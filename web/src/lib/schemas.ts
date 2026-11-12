@@ -2,7 +2,12 @@ import { z } from "zod";
 import type { TFunction } from "@/i18n";
 import { CHAIN_STRATEGIES, collectGroupIssues } from "@/lib/chains";
 import { CHAIN_TRANSPORTS, validateTls } from "@/lib/chainTls";
-import { FORWARD_ENGINES, nftablesMultiMemberGroups } from "@/lib/engines";
+import {
+  CHAIN_ENGINES,
+  FORWARD_ENGINES,
+  nftablesMultiMemberGroups,
+  tunnelIssues,
+} from "@/lib/engines";
 import {
   ANY_INBOUND_TAG,
   isReservedOutboundTag,
@@ -476,8 +481,8 @@ export function chainFormSchema(t: TFunction) {
         .max(255, t("validation.chainTargetMax")),
       target_port: requiredIntField(1, 65535, t("validation.portRange")),
       enabled: z.boolean(),
-      // 整条链共用一个引擎；只允许后端白名单里的两个值。
-      engine: z.enum(FORWARD_ENGINES),
+      // 整条链共用一个引擎；链的白名单比独立转发多一个实验性的 tunnel。
+      engine: z.enum(CHAIN_ENGINES),
       // 监听协议：tcp / udp / both；realm 禁用仅 UDP，tls 禁用 UDP 两种。
       protocol: z.enum(PROTOCOL_MODES),
       // 跳间加密：none（缺省）/ tls；tls 的前置条件在 superRefine 里查。
@@ -567,6 +572,31 @@ export function chainFormSchema(t: TFunction) {
               ],
               message: t("validation.chainServerDuplicate", {
                 seq: issue.firstGroupIndex + 1,
+              }),
+            });
+            break;
+        }
+      }
+
+      // tunnel 只支持 2 跳、每组 1 台：都挂到具体字段，不落到表单 root。
+      for (const issue of tunnelIssues(values.engine, values.groups)) {
+        switch (issue.kind) {
+          case "group_count":
+            ctx.addIssue({
+              code: "custom",
+              path: ["groups"],
+              message: t("validation.chainTunnelTwoHops", {
+                count: issue.count,
+              }),
+            });
+            break;
+          case "member_count":
+            ctx.addIssue({
+              code: "custom",
+              path: ["groups", issue.groupIndex, "members"],
+              message: t("validation.chainTunnelSingleMember", {
+                seq: issue.groupIndex + 1,
+                count: issue.count,
               }),
             });
             break;

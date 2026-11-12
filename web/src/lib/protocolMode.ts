@@ -5,7 +5,8 @@
  * - `tcp` 只监听 TCP；`udp` 只监听 UDP（TCP 端口不监听）；
  * - `both` 在同一端口号上同时监听 TCP 与 UDP；
  * - `realm` 固定双开，不接受「仅 UDP」（`forward.protocol_udp_requires_native`）；
- * - 加密链（`transport = tls`）只走 TCP，`udp` / `both` 都不可选。
+ * - 加密链（`transport = tls`）只走 TCP，`udp` / `both` 都不可选；
+ * - `tunnel` 链自带加密且当前只支持 TCP，`udp` / `both` 都不可选。
  *
  * 旧布尔位 `udp` 只作为读取兼容：`true` = `both`、`false` = `tcp`，
  * 写路径始终发送 `protocol`。
@@ -76,9 +77,10 @@ export interface ProtocolAvailability {
 /**
  * 计算协议模式的可选性。
  *
- * - `tcp` 恒可用（唯一在 realm 与 TLS 下都合法的模式）；
+ * - `tcp` 恒可用（唯一在 realm / TLS / tunnel 下都合法的模式）；
  * - `realm` 不能只开 UDP，但可以 `both`（它本来就双开）；
- * - `tls` 加密链只走 TCP，`udp` 与 `both` 都禁用。
+ * - `tls` 加密链只走 TCP，`udp` 与 `both` 都禁用；
+ * - `tunnel` 当前只支持 TCP，`udp` 与 `both` 都禁用。
  *
  * 未知引擎按 `native`、未知 transport 按 `none` 处理，与各自模块的回落一致。
  */
@@ -87,10 +89,11 @@ export function protocolAvailable(
   transport?: unknown,
 ): ProtocolAvailability {
   const realm = normalizeEngine(engine) === "realm";
+  const tunnel = normalizeEngine(engine) === "tunnel";
   const tls = isTlsTransport(transport);
   return {
     tcp: true,
-    udp: !realm && !tls,
-    both: !tls,
+    udp: !realm && !tls && !tunnel,
+    both: !tls && !tunnel,
   };
 }

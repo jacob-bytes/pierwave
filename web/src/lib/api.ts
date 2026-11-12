@@ -230,6 +230,11 @@ export interface Server {
    * true = 可用；false = 明确不可用；null / 缺失 = 旧 Agent 未上报。
    */
   nftables_available?: boolean | null;
+  /**
+   * 服务器上的 Agent 是否支持 P16 tunnel 引擎。
+   * 只有明确 `true` 才能参与 tunnel 链；`false` / `null` / 缺失都按不支持处理。
+   */
+  tunnel_available?: boolean | null;
   /** Agent 从 /etc/os-release 读到的发行版名称；null = 旧 Agent 或读不到。 */
   os_name: string | null;
   /** Agent 从 /etc/os-release 读到的版本号；null = 旧 Agent 或读不到。 */
@@ -545,11 +550,14 @@ export type UpdateRoutingRuleInput = Partial<CreateRoutingRuleInput>;
  * 转发引擎。
  *
  * - `native`：PierWave 自带实现（TCP/UDP，组内选路与降级）；
- * - `realm`：调用 realm 子进程（固定同时监听 TCP 与 UDP，带权重负载均衡）。
+ * - `realm`：调用 realm 子进程（固定同时监听 TCP 与 UDP，带权重负载均衡）；
+ * - `nftables`：内核 DNAT；
+ * - `tunnel`：P16 自研加密隧道，**仅用于链**（实验性）。
  *
- * 与后端 `crates/domain/src/engine.rs` 的白名单一致。
+ * 与后端 `crates/domain/src/engine.rs` 的白名单一致；独立转发的可选项见
+ * `lib/engines.ts` 的 `FORWARD_ENGINES`，链的可选项见 `CHAIN_ENGINES`。
  */
-export type ForwardEngine = "native" | "realm" | "nftables";
+export type ForwardEngine = "native" | "realm" | "nftables" | "tunnel";
 
 /**
  * 转发协议模式（转发与链共用）。

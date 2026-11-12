@@ -61,12 +61,13 @@ import {
   type ChainStrategy,
 } from "@/lib/chains";
 import {
-  FORWARD_ENGINES,
+  chainEngineOptions,
   engineInput,
   formatServerNameList,
-  isForwardEngine,
+  isChainEngine,
   missingNftablesServerNames,
   missingRealmServerNames,
+  missingTunnelServerNames,
   normalizeEngine,
   serversMissingNftables,
   serversMissingRealm,
@@ -140,6 +141,7 @@ function GroupCard({
   loadingServers,
   tlsEnabled,
   nftablesEngine,
+  tunnelEngine,
   certificates,
   certsLoading,
   certsError,
@@ -156,6 +158,8 @@ function GroupCard({
   loadingServers: boolean;
   tlsEnabled: boolean;
   nftablesEngine: boolean;
+  /** 选中 tunnel 时，该组的成员必须都明确上报 `tunnel_available = true`。 */
+  tunnelEngine: boolean;
   certificates: Certificate[];
   certsLoading: boolean;
   certsError: boolean;
@@ -181,6 +185,18 @@ function GroupCard({
   const isEntry = index === 0;
   const isLast = index === groupCount - 1;
   const seq = index + 1;
+
+  // tunnel 能力是静态环境事实：未知（null / 缺失）与 false 都不能参与 tunnel 链，
+  // 提示挂在这一组下方，不阻止用户继续编辑其它字段。
+  const tunnelMissingNames = tunnelEngine
+    ? missingTunnelServerNames(
+        members
+          .map((member) =>
+            servers.find((server) => server.id === member.server_id),
+          )
+          .filter((server): server is Server => server !== undefined),
+      )
+    : [];
 
   const errorGroups = Array.isArray(formState.errors.groups)
     ? (formState.errors.groups as unknown as (GroupFieldErrors | undefined)[])
@@ -724,6 +740,27 @@ function GroupCard({
           </p>
         ) : null}
 
+        {tunnelMissingNames.length > 0 ? (
+          <div
+            role="status"
+            data-tunnel-unavailable="true"
+            className="flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs leading-normal text-warning"
+          >
+            <TriangleAlertIcon
+              className="mt-0.5 size-3.5 shrink-0"
+              aria-hidden="true"
+            />
+            <span>
+              {t("chains.form.tunnelNotAvailable", {
+                servers: formatServerNameList(
+                  tunnelMissingNames,
+                  t("common.listSeparator"),
+                ),
+              })}
+            </span>
+          </div>
+        ) : null}
+
         {!single ? (
           <Button
             type="button"
@@ -820,6 +857,14 @@ export function ChainFormDialog({
     useWatch({ control: form.control, name: "groups" }) ?? [];
   const selectedTransport = form.watch("transport");
   const tlsEnabled = selectedTransport === "tls";
+  const engineOptions = chainEngineOptions(
+    watchedGroups.length,
+    watchedGroups.map((group) => group.members.length),
+  );
+  const tunnelSelected = normalizeEngine(selectedEngine) === "tunnel";
+  const tlsDisabledTitle = tunnelSelected
+    ? t("chains.tls.tunnelDisabledTitle")
+    : t("chains.tls.disabledTitle");
   const canTls = tlsAvailable(selectedEngine, watchedGroups.length);
   const selectedProtocol = form.watch("protocol");
   const availability = protocolAvailable(selectedEngine, selectedTransport);
@@ -1106,7 +1151,7 @@ export function ChainFormDialog({
                 aria-label={t("chains.form.engineAria")}
                 value={selectedEngine}
                 onValueChange={(next) => {
-                  if (!isForwardEngine(next)) return;
+                  if (!isChainEngine(next)) return;
                   form.setValue("engine", next, {
                     shouldDirty: true,
                     shouldTouch: true,
@@ -1127,32 +1172,42 @@ export function ChainFormDialog({
                 disabled={pending}
                 className="grid gap-2 sm:grid-cols-2"
               >
-                {FORWARD_ENGINES.map((engine) => {
-                  const active = selectedEngine === engine;
+                {engineOptions.map((option) => {
+                  const active = selectedEngine === option.engine;
                   return (
                     <Label
-                      key={engine}
-                      htmlFor={`chain-engine-${engine}`}
+                      key={option.engine}
+                      htmlFor={`chain-engine-${option.engine}`}
+                      data-engine-option={option.engine}
+                      data-tunnel-ready={option.available}
                       className={cn(
                         "flex cursor-pointer items-start gap-2 rounded-lg border border-border bg-card p-2.5 transition-colors duration-150 hover:bg-muted/40",
                         active &&
                           "border-primary/60 bg-primary/5 hover:bg-primary/5",
-                        engine === "nftables" && "sm:col-span-2",
                         pending && "cursor-not-allowed opacity-60",
                       )}
                     >
                       <RadioGroupItem
-                        id={`chain-engine-${engine}`}
-                        value={engine}
+                        id={`chain-engine-${option.engine}`}
+                        value={option.engine}
                         disabled={pending}
                         className="mt-0.5"
                       />
                       <span className="min-w-0 space-y-0.5">
-                        <span className="block text-sm font-medium">
-                          {t(`common.engine.${engine}.label`)}
+                        <span className="flex flex-wrap items-center gap-1 text-sm font-medium">
+                          {t(option.labelKey)}
+                          {option.experimental ? (
+                            <Badge
+                              variant="outline"
+                              data-experimental="true"
+                              className="h-4 px-1 type-micro font-normal border-border/80 bg-muted/40 text-muted-foreground"
+                            >
+                              {t("common.engine.tunnel.experimental")}
+                            </Badge>
+                          ) : null}
                         </span>
                         <span className="block type-micro leading-normal text-muted-foreground">
-                          {t(`common.engine.${engine}.short`)}
+                          {t(option.shortKey)}
                         </span>
                       </span>
                     </Label>
@@ -1211,9 +1266,7 @@ export function ChainFormDialog({
               render={({ field }) => (
                 <span
                   className="inline-flex items-center"
-                  title={
-                    canTls ? undefined : t("chains.tls.disabledTitle")
-                  }
+                  title={canTls ? undefined : tlsDisabledTitle}
                 >
                   <Switch
                     id="chain-tls"
@@ -1268,9 +1321,11 @@ export function ChainFormDialog({
                     title={
                       availability[mode]
                         ? undefined
-                        : tlsEnabled
-                          ? t("chains.tls.udpDisabledTitle")
-                          : t("common.udpRealmTitle")
+                        : tunnelSelected
+                          ? t("chains.tunnel.protocolTitle")
+                          : tlsEnabled
+                            ? t("chains.tls.udpDisabledTitle")
+                            : t("common.udpRealmTitle")
                     }
                     className={cn(
                       "flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-2 transition-colors duration-150 hover:bg-muted/40",
@@ -1356,6 +1411,7 @@ export function ChainFormDialog({
                   loadingServers={loadingServers}
                   tlsEnabled={tlsEnabled}
                   nftablesEngine={selectedEngine === "nftables"}
+                  tunnelEngine={tunnelSelected}
                   certificates={certificates.data ?? []}
                   certsLoading={certificates.isPending}
                   certsError={certificates.isError}
