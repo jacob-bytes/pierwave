@@ -1,8 +1,7 @@
 import { t } from "@/i18n";
+import { formatByteValue } from "./bytes.ts";
 
 export const BYTES_PER_GB = 1024 ** 3;
-
-const UNITS = ["B", "KB", "MB", "GB", "TB", "PB"];
 
 interface FormatBytesOptions {
   /** 空值时的文案，默认「不限」。 */
@@ -22,26 +21,7 @@ export function formatBytes(
   if (!Number.isFinite(value)) return "—";
   if (zeroAsUnlimited && value === 0) return unlimitedLabel;
 
-  const negative = value < 0;
-  const absolute = Math.abs(value);
-  const sign = negative ? "-" : "";
-
-  if (absolute < 1024) {
-    return `${sign}${Math.round(absolute)} B`;
-  }
-
-  const exponent = Math.min(
-    Math.floor(Math.log(absolute) / Math.log(1024)),
-    UNITS.length - 1,
-  );
-  const scaled = absolute / 1024 ** exponent;
-  const digits = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
-  const fixed = scaled.toFixed(digits);
-  const text = fixed.includes(".")
-    ? fixed.replace(/0+$/, "").replace(/\.$/, "")
-    : fixed;
-
-  return `${sign}${text} ${UNITS[exponent]}`;
+  return formatByteValue(value);
 }
 
 export function gbToBytes(gb: number): number {

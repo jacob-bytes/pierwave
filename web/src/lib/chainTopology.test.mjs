@@ -6,6 +6,9 @@ import {
   MEMBER_SEEN_STALE_MS,
   arrowWarning,
   arrowWidth,
+  bucketLabel,
+  formatHopTraffic,
+  groupLatencyBySeq,
   hopLatencyLabel,
   hopLatencyTone,
   isoToUnixSeconds,
@@ -13,6 +16,7 @@ import {
   memberSeenTone,
   pathModeBadge,
   protocolBadge,
+  sumHopTraffic,
   targetErrorKey,
   totalLatencyLabel,
 } from "./chainTopology.ts";
@@ -214,4 +218,139 @@ test("last-seen and fullscreen copy exist in both dictionaries", () => {
   assert.equal(enT("chains.detail.fullscreen"), "Fullscreen");
   assert.equal(zhT("chains.detail.exitFullscreen"), "退出全屏");
   assert.equal(enT("chains.detail.exitFullscreen"), "Exit fullscreen");
+});
+
+/* ------------------------------------------------------------------ *
+ * 每跳流量：null = 没有数据源，0 B = 确实为 0
+ * ------------------------------------------------------------------ */
+
+const MB = 1024 * 1024;
+
+test("formatHopTraffic hides an item whose value is null, never 0 B", () => {
+  assert.equal(formatHopTraffic(null, null), null);
+  assert.equal(formatHopTraffic(undefined, undefined), null);
+  assert.equal(formatHopTraffic(120 * MB, null), "↑ 120 MB");
+  assert.equal(formatHopTraffic(null, 640 * MB), "↓ 640 MB");
+  assert.equal(formatHopTraffic(120 * MB, 640 * MB), "↑ 120 MB ↓ 640 MB");
+});
+
+test("formatHopTraffic keeps a known zero and ignores invalid values", () => {
+  assert.equal(formatHopTraffic(0, 0), "↑ 0 B ↓ 0 B");
+  assert.equal(formatHopTraffic(0, null), "↑ 0 B");
+  assert.equal(formatHopTraffic(Number.NaN, 1024), "↓ 1 KB");
+  assert.equal(formatHopTraffic(-1, Number.POSITIVE_INFINITY), null);
+  assert.equal(formatHopTraffic(-1, 2048), "↓ 2 KB");
+});
+
+test("sumHopTraffic adds known member values and hides partially known directions", () => {
+  assert.deepEqual(sumHopTraffic([]), { inB: null, outB: null });
+  assert.deepEqual(sumHopTraffic([{ traffic_in: null, traffic_out: null }]), {
+    inB: null,
+    outB: null,
+  });
+  assert.deepEqual(
+    sumHopTraffic([
+      { traffic_in: 1024, traffic_out: 2048 },
+      { traffic_in: 1024, traffic_out: 4096 },
+    ]),
+    { inB: 2048, outB: 6144 },
+  );
+  // 任一台成员没上报该方向，就不把部分和冒充整跳合计。
+  assert.deepEqual(
+    sumHopTraffic([{ traffic_in: 1024, traffic_out: 2048 }, { traffic_in: 1024 }]),
+    { inB: 2048, outB: null },
+  );
+  assert.deepEqual(sumHopTraffic([{ traffic_in: 0, traffic_out: 0 }]), {
+    inB: 0,
+    outB: 0,
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * 延迟历史：seq → 按时间升序的点
+ * ------------------------------------------------------------------ */
+
+test("groupLatencyBySeq groups points per hop and sorts each series by ts", () => {
+  const points = [
+    { ts: 300, seq: 2, server_id: "b", latency_ms: 50 },
+    { ts: 100, seq: 1, server_id: "a", latency_ms: 20 },
+    { ts: 100, seq: 2, server_id: "c", latency_ms: 40 },
+    { ts: 200, seq: 1, server_id: "d", latency_ms: 30 },
+  ];
+  const grouped = groupLatencyBySeq(points);
+
+  assert.deepEqual(
+    [...grouped.keys()].sort((a, b) => a - b),
+    [1, 2],
+  );
+  assert.deepEqual(grouped.get(1), [
+    { ts: 100, latency_ms: 20 },
+    { ts: 200, latency_ms: 30 },
+  ]);
+  assert.deepEqual(grouped.get(2), [
+    { ts: 100, latency_ms: 40 },
+    { ts: 300, latency_ms: 50 },
+  ]);
+  // 纯函数：不改调用方数组，输出只保留图表需要的最小字段。
+  assert.deepEqual(points[0], {
+    ts: 300,
+    seq: 2,
+    server_id: "b",
+    latency_ms: 50,
+  });
+});
+
+test("groupLatencyBySeq returns an empty map and drops malformed samples", () => {
+  assert.equal(groupLatencyBySeq([]).size, 0);
+
+  const grouped = groupLatencyBySeq([
+    { ts: 100, seq: 1, server_id: "a", latency_ms: 20 },
+    { ts: Number.NaN, seq: 1, server_id: "b", latency_ms: 99 },
+    { ts: 200, seq: Number.NaN, server_id: "c", latency_ms: 99 },
+    { ts: 300, seq: 2, server_id: "d", latency_ms: Number.NaN },
+    { ts: 400, seq: 2, server_id: "e", latency_ms: -5 },
+  ]);
+
+  assert.deepEqual(grouped.get(1), [{ ts: 100, latency_ms: 20 }]);
+  assert.equal(grouped.has(2), false);
+  assert.equal(grouped.size, 1);
+});
+
+/* ------------------------------------------------------------------ *
+ * 时间轴标签：6h / 24h 用 HH:mm，7d 用 MM-DD（统一 UTC+8 业务时区）
+ * ------------------------------------------------------------------ */
+
+/** UTC+8 墙上时间 → Unix 秒。 */
+function utc8(year, month, day, hour, minute) {
+  return Math.floor(Date.UTC(year, month - 1, day, hour - 8, minute) / 1_000);
+}
+
+test("bucketLabel renders HH:mm for the 6h and 24h windows", () => {
+  assert.equal(bucketLabel(utc8(2026, 11, 12, 8, 0), 6), "08:00");
+  assert.equal(bucketLabel(utc8(2026, 11, 12, 8, 5), 6), "08:05");
+  assert.equal(bucketLabel(utc8(2026, 11, 12, 8, 5), 24), "08:05");
+  assert.equal(bucketLabel(utc8(2026, 1, 5, 0, 0), 24), "00:00");
+  assert.equal(bucketLabel(utc8(2026, 1, 5, 23, 55), 6), "23:55");
+  // Unix 0 在 UTC+8 是 08:00，证明用的是业务时区而不是浏览器本地时区。
+  assert.equal(bucketLabel(0, 24), "08:00");
+});
+
+test("bucketLabel renders MM-DD only for the 7-day window", () => {
+  assert.equal(bucketLabel(utc8(2026, 11, 12, 8, 5), 168), "11-12");
+  assert.equal(bucketLabel(utc8(2026, 1, 5, 0, 0), 168), "01-05");
+  assert.equal(bucketLabel(utc8(2026, 12, 31, 23, 55), 168), "12-31");
+  assert.equal(bucketLabel(Number.NaN, 24), "—");
+});
+
+test("latency trend copy exists in both dictionaries", () => {
+  assert.equal(zhT("chains.detail.latencyTrend"), "延迟趋势");
+  assert.equal(enT("chains.detail.latencyTrend"), "Latency trend");
+  assert.equal(zhT("chains.detail.latencyEmpty"), "还没有延迟样本");
+  assert.equal(enT("chains.detail.latencyEmpty"), "No latency samples yet");
+  assert.equal(zhT("chains.detail.latencyWindow6h"), "6 小时");
+  assert.equal(enT("chains.detail.latencyWindow6h"), "6 h");
+  assert.equal(zhT("chains.detail.latencyWindow24h"), "24 小时");
+  assert.equal(enT("chains.detail.latencyWindow24h"), "24 h");
+  assert.equal(zhT("chains.detail.latencyWindow7d"), "7 天");
+  assert.equal(enT("chains.detail.latencyWindow7d"), "7 d");
 });

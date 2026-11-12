@@ -12,6 +12,7 @@
  *   `multi` / `hash` 下没有唯一路径，不冒充一个确定的总延迟。
  */
 
+import { formatByteValue } from "./bytes.ts";
 import { TLS_ERROR_CODES } from "./chainTls.ts";
 
 /** 延迟三档 + 无数据。`muted` 只用于 null，不参与阈值判定。 */
@@ -61,6 +62,126 @@ export function hopLatencyTone(
 export function hopLatencyLabel(ms: number | null | undefined): string {
   const value = finiteLatency(ms);
   return value === null ? "—" : `${Math.round(value)} ms`;
+}
+
+/** 累计字节只接受有限非负数；null / 旧后端缺字段 / 脏值一律当作未知。 */
+function knownBytes(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : null;
+}
+
+/**
+ * 一跳卡片的流量文案：`↑ 120 MB ↓ 640 MB`；两侧都未知时返回 null。
+ *
+ * `null` 是「没有数据源」（realm / 旧 Agent），整项不渲染；`0` 是
+ * 「确实累计了 0 字节」，仍要显示 `0 B`。两者不能混为一谈。
+ */
+export function formatHopTraffic(
+  inB: number | null | undefined,
+  outB: number | null | undefined,
+): string | null {
+  const parts: string[] = [];
+  const inbound = knownBytes(inB);
+  const outbound = knownBytes(outB);
+  if (inbound !== null) parts.push(`↑ ${formatByteValue(inbound)}`);
+  if (outbound !== null) parts.push(`↓ ${formatByteValue(outbound)}`);
+  return parts.length === 0 ? null : parts.join(" ");
+}
+
+/** 一跳卡片上的双向累计流量；未知方向保持 null。 */
+export interface HopTrafficTotals {
+  inB: number | null;
+  outB: number | null;
+}
+
+/**
+ * 把组内成员的上行 / 下行累计字节相加。
+ *
+ * 某一方向只要有成员没上报，就返回 null：部分和会被读成「整跳只有这么多」，
+ * 比不显示更糟。空组同样没有数据。
+ */
+export function sumHopTraffic(
+  members: readonly {
+    traffic_in?: number | null;
+    traffic_out?: number | null;
+  }[],
+): HopTrafficTotals {
+  function total(key: "traffic_in" | "traffic_out"): number | null {
+    if (members.length === 0) return null;
+    let sum = 0;
+    for (const member of members) {
+      const value = knownBytes(member[key]);
+      if (value === null) return null;
+      sum += value;
+    }
+    return sum;
+  }
+
+  return { inB: total("traffic_in"), outB: total("traffic_out") };
+}
+
+/** 后端延迟历史的一条样本；`seq` 是被探测的那一跳（入口组恒为 0 且无点）。 */
+export interface LatencyHistoryPoint {
+  ts: number;
+  seq: number;
+  server_id: string;
+  latency_ms: number;
+}
+
+/** 图表只需要时间和延迟；`server_id` 只用于排障，不进入序列。 */
+export interface LatencySeriesPoint {
+  ts: number;
+  latency_ms: number;
+}
+
+/**
+ * 按 `seq` 分组延迟历史，每组按 `ts` 升序。
+ *
+ * 容忍脏值：时间 / 跳号不是有限数、延迟不是有限非负数的样本直接丢弃，
+ * 避免把 NaN 或负延迟喂给 recharts。输入数组不被修改。
+ */
+export function groupLatencyBySeq(
+  points: readonly LatencyHistoryPoint[],
+): Map<number, LatencySeriesPoint[]> {
+  const grouped = new Map<number, LatencySeriesPoint[]>();
+  for (const point of points) {
+    if (
+      !Number.isFinite(point.ts) ||
+      !Number.isFinite(point.seq) ||
+      !Number.isFinite(point.latency_ms) ||
+      point.latency_ms < 0
+    ) {
+      continue;
+    }
+    const series = grouped.get(point.seq) ?? [];
+    series.push({ ts: point.ts, latency_ms: point.latency_ms });
+    grouped.set(point.seq, series);
+  }
+  for (const series of grouped.values()) {
+    series.sort((a, b) => a.ts - b.ts);
+  }
+  return grouped;
+}
+
+/** UTC+8 业务时区，与 `lib/time.ts` 的展示口径一致。 */
+const UTC8_OFFSET_SECONDS = 8 * 60 * 60;
+
+/**
+ * 延迟图的时间轴标签。
+ *
+ * 6h / 24h 窗口显示 `HH:mm`，7 天窗口显示 `MM-DD`；与页面其它时间一样
+ * 按 UTC+8 计算，不随浏览器时区变化。非法时间返回 `—`。
+ */
+export function bucketLabel(ts: number, hours: number): string {
+  if (!Number.isFinite(ts)) return "—";
+  const date = new Date((ts + UTC8_OFFSET_SECONDS) * 1_000);
+  if (Number.isNaN(date.getTime())) return "—";
+  const pad = (value: number) => String(value).padStart(2, "0");
+  if (hours >= 24 * 7) {
+    return `${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
+  }
+  return `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
 }
 
 /**

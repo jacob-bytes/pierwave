@@ -20,6 +20,7 @@ import {
   type Certificate,
   type ChangePasswordInput,
   type Chain,
+  type ChainLatencyPoint,
   type CreateAgentUpgradeBatchInput,
   type CreateCertificateInput,
   type CreateChainInput,
@@ -124,6 +125,9 @@ export const queryKeys = {
   forwards: (serverId: string) => ["forwards", serverId] as const,
   /** 转发链是全局资源，与服务器无关，单独一个 key。 */
   chains: ["chains"] as const,
+  /** 延迟历史：时间窗进 key，切换窗口即换查询并重新请求。 */
+  chainLatency: (chainId: string, hours: number) =>
+    ["chains", chainId, "latency", hours] as const,
   routingRules: (serverId: string) =>
     ["routing-rules", serverId] as const,
   certificates: ["certificates"] as const,
@@ -1144,6 +1148,25 @@ export function useDeleteChain() {
   return useMutation<{ ok: true }, Error, string>({
     mutationFn: (id) => api.chains.remove(id),
     onSuccess: () => invalidateChainViews(queryClient),
+  });
+}
+
+/**
+ * 一条链的延迟历史。只有展开「延迟趋势」时才请求；时间窗变化会换 key
+ * 并重新请求，空数组表示「还没有样本」而不是错误。
+ */
+export function useChainLatency(
+  chainId: string,
+  hours: number,
+  enabled = true,
+) {
+  return useQuery<ChainLatencyPoint[]>({
+    queryKey: queryKeys.chainLatency(chainId, hours),
+    queryFn: async () => (await api.chains.latency(chainId, hours)).points,
+    enabled: enabled && Boolean(chainId),
+    // 切换时间窗必须重新请求；延迟历史本身是低频数据，不额外缓存旧窗口。
+    staleTime: 0,
+    retry: false,
   });
 }
 

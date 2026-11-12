@@ -34,6 +34,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ChainFormDialog } from "@/components/chains/ChainFormDialog";
+import { ChainLatencyTrend } from "@/components/chains/ChainLatencyTrend";
 import { DeleteChainDialog } from "@/components/chains/DeleteChainDialog";
 import { StrategyBadge } from "@/components/chains/StrategyBadge";
 import { Badge } from "@/components/ui/badge";
@@ -82,6 +83,7 @@ import {
 import {
   arrowWarning,
   arrowWidth,
+  formatHopTraffic,
   hopLatencyLabel,
   hopLatencyTone,
   isoToUnixSeconds,
@@ -89,6 +91,7 @@ import {
   memberSeenTone,
   pathModeBadge,
   protocolBadge,
+  sumHopTraffic,
   targetErrorKey,
   totalLatencyLabel,
   type HopLatencyTone,
@@ -581,6 +584,8 @@ function GroupCard({
   const single = kind === "single";
   const inUse = memberInUse(pathMode, members.length);
   const name = group.name?.trim() || t("chains.detail.unnamedGroup");
+  const trafficTotals = sumHopTraffic(members);
+  const traffic = formatHopTraffic(trafficTotals.inB, trafficTotals.outB);
 
   return (
     <div
@@ -629,14 +634,24 @@ function GroupCard({
             </Badge>
           ) : null}
         </div>
-        <span className="shrink-0 type-micro tabular-nums text-muted-foreground">
-          {t(
-            members.length === 1
-              ? "chains.detail.memberCountOne"
-              : "chains.detail.memberCount",
-            { count: members.length },
-          )}
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          {traffic ? (
+            <span
+              className="type-micro tabular-nums whitespace-nowrap text-muted-foreground"
+              title={t("chains.detail.hopTrafficTitle")}
+            >
+              {traffic}
+            </span>
+          ) : null}
+          <span className="type-micro tabular-nums text-muted-foreground">
+            {t(
+              members.length === 1
+                ? "chains.detail.memberCountOne"
+                : "chains.detail.memberCount",
+              { count: members.length },
+            )}
+          </span>
+        </div>
       </div>
 
       <div
@@ -1313,6 +1328,12 @@ export default function ChainsPage() {
               )}
             >
               <ChainGroupsDetail chain={topologyChain} />
+              <div className="mt-3">
+                <ChainLatencyTrend
+                  key={topologyChain.id}
+                  chainId={topologyChain.id}
+                />
+              </div>
             </div>
           ) : null}
         </DialogContent>

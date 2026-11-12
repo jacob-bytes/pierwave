@@ -734,6 +734,19 @@ export interface Chain {
   updated_at: number;
 }
 
+/**
+ * `GET /api/v1/chains/{id}/latency` 的一个点。
+ *
+ * `ts` 是 5 分钟桶起点（Unix 秒）；`seq` 是被探测的那一跳，入口组没有点；
+ * 同一桶已按该跳所有成员取中位数。
+ */
+export interface ChainLatencyPoint {
+  ts: number;
+  seq: number;
+  server_id: string;
+  latency_ms: number;
+}
+
 export interface ChainGroupMemberInput {
   server_id: string;
   listen_port: number;
@@ -1553,6 +1566,11 @@ export const api = {
       request<{ ok: true }>(`/api/v1/chains/${encodeURIComponent(id)}`, {
         method: "DELETE",
       }),
+    /** 延迟历史：`hours` 为 1..168，空数据返回 `{ points: [] }`。 */
+    latency: (id: string, hours: number) =>
+      request<{ points: ChainLatencyPoint[] }>(
+        `/api/v1/chains/${encodeURIComponent(id)}/latency?hours=${hours}`,
+      ),
   },
 
   /** 单台服务器的路由规则；内置的 api 规则不在列表里。 */
