@@ -503,7 +503,7 @@ function GroupCard({
                 {t(`chains.strategy.${selectedStrategy}.label`)}
               </SelectValue>
             </SelectTrigger>
-            <SelectContent className="w-72">
+            <SelectContent className="w-44">
               {strategyOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   <span className="flex min-w-0 flex-col gap-0.5 whitespace-normal">
@@ -1272,14 +1272,9 @@ export function ChainFormDialog({
                       data-engine-option={option.engine}
                       data-tunnel-ready={option.available}
                     >
-                      <span className="flex min-w-0 flex-col gap-0.5">
-                        <span className="flex items-center gap-1.5">
-                          {t(option.labelKey)}
-                          {option.experimental ? <ExperimentalTag /> : null}
-                        </span>
-                        <span className="text-xs font-normal text-muted-foreground">
-                          {t(`common.engine.${option.engine}.short`)}
-                        </span>
+                      <span className="flex items-center gap-1.5">
+                        {t(option.labelKey)}
+                        {option.experimental ? <ExperimentalTag /> : null}
                       </span>
                     </SelectItem>
                   ))}
@@ -1333,14 +1328,9 @@ export function ChainFormDialog({
                                 ? t("chains.tls.udpDisabledTitle")
                                 : t("common.udpRealmTitle")
                         }
-                        className="items-start py-2 data-disabled:pointer-events-auto"
+                        className="data-disabled:pointer-events-auto"
                       >
-                        <span className="flex min-w-0 flex-col gap-0.5">
-                          <span>{t(`common.protocolMode.${mode}`)}</span>
-                          <span className="text-xs font-normal text-muted-foreground">
-                            {t(`common.protocolMode.${mode}Hint`)}
-                          </span>
-                        </span>
+                        {t(`common.protocolMode.${mode}`)}
                       </SelectItem>
                     );
                   })}
