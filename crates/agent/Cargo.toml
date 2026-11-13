@@ -30,6 +30,10 @@ webpki-roots = { workspace = true }
 hmac = { workspace = true }
 sha2 = { workspace = true }
 base64 = { workspace = true }
+# P16.2 Noise/PSK：Noise 协议实现（IK handshake + ChaChaPoly/BLAKE2s）。
+# 体积影响见 crates/agent/README 或 PR 说明：默认 resolver 会带入
+# chacha20poly1305 / aes-gcm / curve25519-dalek 等纯 Rust crate。
+snow = "0.9"
 
 [dev-dependencies]
 ed25519-dalek = { workspace = true }

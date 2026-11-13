@@ -1,6 +1,14 @@
-//! P16.1：TLS + 自有 CA 的单跳隧道骨架。
+//! P16 隧道：TLS + 自有 CA（默认）与 Noise/PSK 两种安全模式。
 //!
-//! 一条隧道 = 一条 TCP + TLS 连接，不共享、不复用、不做多路复用。连接建立后：
+//! 一条隧道 = 一条 TCP +（TLS 或 Noise）连接，不共享、不复用、不做多路复用。
+//! 两种模式共用同一个监听端口，由握手首字节分流（见 [`modes`]）：
+//!
+//! ```text
+//! [0x01] TLS ClientHello
+//! [0x02] Noise 握手消息 1
+//! ```
+//!
+//! 连接建立后：
 //!
 //! 1. 客户端发 [`handshake::ClientHello`]（`hop_id` + `proof`）；
 //! 2. 服务端校验版本、hop、±300s 时间戳窗口、HMAC proof 与重放缓存，
@@ -18,11 +26,13 @@
 //!
 //! # 安全边界
 //!
-//! - TLS 只由 rustls 实现，本模块不实现任何 AEAD/KDF；
-//! - 客户端只信任**显式传入**的 CA，`None` 表示空信任根（fail-closed），
+//! - TLS 只由 rustls 实现，Noise 只由 `snow` 实现，本模块不实现任何 AEAD/KDF；
+//! - TLS 客户端只信任**显式传入**的 CA，`None` 表示空信任根（fail-closed），
 //!   不存在回退 `webpki-roots` 或 `insecure` 开关；
-//! - 握手版本精确匹配，失败回 `ServerHello{ok:false, reason}` 后立即断开；
-//! - 帧长度硬上限 64 KiB，超限断开并记 error。
+//! - Noise 静态密钥对与 PSK 都由 `hop_secret` 经 HMAC 域分离派生，两端可独立
+//!   复现；临时密钥由 `snow` 每次握手生成，静态材料只用于认证；
+//! - TLS 握手版本精确匹配，失败回 `ServerHello{ok:false, reason}` 后立即断开；
+//! - 未知首字节 fail-closed；帧长度硬上限 64 KiB，超限断开并记 error。
 //!
 //! # 关闭语义
 //!
@@ -34,6 +44,7 @@
 mod adapter;
 mod framing;
 mod handshake;
+mod modes;
 mod supervisor;
 mod whitelist;
 
@@ -52,7 +63,7 @@ use rustls::pki_types::{
     ServerName,
 };
 use rustls::{ClientConfig, RootCertStore, ServerConfig};
-use tokio::io::{AsyncRead, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
@@ -62,6 +73,9 @@ use self::handshake::{ClientHello, HandshakeError, ReplayCache, ServerHello};
 // 对外的帧/地址类型：上层（TunnelSupervisor）只需要这几个名字。
 use self::framing::FrameError;
 pub use self::framing::{Frame, FrameKind, TargetAddr, MAX_FRAME_PAYLOAD};
+pub use self::modes::{
+    BoxedStream, NoiseHop, NoiseMaterial, NoiseStream, TunnelSecurity, DEFAULT_REKEY_INTERVAL,
+};
 pub use self::supervisor::TunnelSupervisor;
 pub use self::whitelist::TargetRule;
 
@@ -91,9 +105,15 @@ const COPY_BUF_SIZE: usize = 32 * 1024;
 pub struct TunnelServerConfig {
     /// 监听地址；端口写 0 时由内核分配（测试用）。
     pub bind: std::net::SocketAddr,
-    /// 服务端证书链（PEM，可含多段 CERTIFICATE）。
+    /// 同时支持的安全模式。
+    ///
+    /// 监听端始终按握手首字节分流：`Tls` 要求绑定前能加载证书私钥，`Noise`
+    /// 不要求证书但要求 `hops` 非空。若同时提供了证书与 hop，两种客户端都能
+    /// 连上同一个端口；只提供其中一种时，另一种首字节会被明确拒绝。
+    pub security: TunnelSecurity,
+    /// 服务端证书链（PEM，可含多段 CERTIFICATE）。Noise-only 模式可留空。
     pub cert_path: PathBuf,
-    /// 服务端私钥（PEM：PKCS#8 / PKCS#1 / SEC1 均可）。
+    /// 服务端私钥（PEM：PKCS#8 / PKCS#1 / SEC1 均可）。Noise-only 模式可留空。
     pub key_path: PathBuf,
     /// 本机允许接入的跳。未知 hop_id 一律拒绝。
     pub hops: HashMap<String, Vec<u8>>,
@@ -112,8 +132,26 @@ impl TunnelServerConfig {
     ) -> Self {
         Self {
             bind,
+            security: TunnelSecurity::Tls,
             cert_path: cert_path.into(),
             key_path: key_path.into(),
+            hops,
+            max_connections: DEFAULT_MAX_CONNECTIONS,
+            allowed_targets: Vec::new(),
+        }
+    }
+
+    /// Noise-only 监听：不需要证书与私钥。
+    ///
+    /// 接 `TunnelSupervisor` 需要 proto 增加模式字段（本轮不碰 proto），所以
+    /// 运行时暂时没有调用点；API 本身已完整并由回环测试覆盖。
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn noise(bind: std::net::SocketAddr, hops: HashMap<String, Vec<u8>>) -> Self {
+        Self {
+            bind,
+            security: TunnelSecurity::Noise,
+            cert_path: PathBuf::new(),
+            key_path: PathBuf::new(),
             hops,
             max_connections: DEFAULT_MAX_CONNECTIONS,
             allowed_targets: Vec::new(),
@@ -126,6 +164,7 @@ impl fmt::Debug for TunnelServerConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TunnelServerConfig")
             .field("bind", &self.bind)
+            .field("security", &self.security)
             .field("cert_path", &self.cert_path)
             .field("key_path", &self.key_path)
             .field("hops", &self.hops.keys().collect::<Vec<_>>())
@@ -252,7 +291,10 @@ impl Drop for ActiveGuard {
 }
 
 struct ServerInner {
-    acceptor: TlsAcceptor,
+    /// `None` = 本监听没有加载证书，TLS 首字节会被明确拒绝。
+    tls: Option<TlsAcceptor>,
+    /// Noise 模式可接受的 hop（含由 hop_secret 派生的静态材料）。
+    noise_hops: Vec<NoiseHop>,
     hops: HashMap<String, Vec<u8>>,
     max_connections: usize,
     metrics: Arc<Metrics>,
@@ -269,19 +311,41 @@ pub struct TunnelServer {
 impl TunnelServer {
     /// 加载证书/私钥并绑定监听。证书或私钥不合法时**在绑定前**失败，
     /// 避免出现「端口占着、但永远握不上手」的假监听。
+    ///
+    /// TLS 与 Noise 共用这个监听：证书存在就能接 TLS 客户端，`hops` 非空
+    /// 就能接 Noise 客户端。`security` 决定绑定前必须满足哪一组凭据。
     pub async fn bind(config: TunnelServerConfig) -> Result<(Self, TcpListener)> {
         validate_server_config(&config)?;
-        let tls = server_tls_config(&config.cert_path, &config.key_path)?;
+        let tls = load_optional_server_tls(&config)?;
+        // 没有证书时监听的有效模式必然是 Noise（TLS 首字节会被明确拒绝）。
+        let effective_security = if tls.is_some() {
+            config.security
+        } else {
+            TunnelSecurity::Noise
+        };
+        let noise_hops = config
+            .hops
+            .iter()
+            .map(|(hop_id, secret)| NoiseHop::new(hop_id.clone(), secret))
+            .collect::<Vec<_>>();
         let listener = TcpListener::bind(config.bind).await.with_context(|| {
             format!(
                 "绑定隧道监听 {} 失败 / failed to bind tunnel listener",
                 config.bind
             )
         })?;
+        tracing::info!(
+            bind = %listener.local_addr().unwrap_or(config.bind),
+            security = %effective_security,
+            tls = tls.is_some(),
+            hops = config.hops.len(),
+            "隧道监听已就绪 / tunnel listener ready"
+        );
 
         let server = Self {
             inner: Arc::new(ServerInner {
-                acceptor: TlsAcceptor::from(tls),
+                tls,
+                noise_hops,
                 hops: config.hops,
                 max_connections: config.max_connections,
                 metrics: Arc::new(Metrics::default()),
@@ -326,20 +390,77 @@ impl TunnelServer {
         }
     }
 
-    async fn handle_connection(&self, stream: TcpStream, peer: std::net::SocketAddr) -> Result<()> {
+    async fn handle_connection(
+        &self,
+        mut stream: TcpStream,
+        peer: std::net::SocketAddr,
+    ) -> Result<()> {
         // 隧道帧多为交互小包；Nagle 会把它们攒成 40ms 的延迟。
         let _ = stream.set_nodelay(true);
 
-        let mut tls = match timeout(HANDSHAKE_TIMEOUT, self.inner.acceptor.accept(stream)).await {
-            Ok(Ok(tls)) => tls,
-            Ok(Err(error)) => bail!("TLS 握手失败 / TLS handshake failed: {error}"),
+        // 首字节决定底层：0x01/0x16 → TLS，0x02 → Noise。peek 不消费字节，
+        // 所以 TLS 的 ClientHello 可以原样交给 rustls；Noise 分支在握手前
+        // 显式吃掉模式字节。
+        let mode = match timeout(HANDSHAKE_TIMEOUT, peek_mode(&mut stream)).await {
+            Ok(Ok(mode)) => mode,
+            Ok(Err(error)) => {
+                bail!("读取隧道模式字节失败 / failed to read tunnel mode byte: {error}")
+            }
             Err(_) => bail!(
-                "TLS 握手超时（{}s）/ TLS handshake timed out after {}s",
+                "等待隧道模式字节超时（{}s）/ timed out waiting for the tunnel mode byte after {}s",
                 HANDSHAKE_TIMEOUT.as_secs(),
                 HANDSHAKE_TIMEOUT.as_secs()
             ),
         };
 
+        match mode {
+            modes::MODE_TLS => {
+                consume_mode_byte(&mut stream, modes::MODE_TLS).await?;
+                self.serve_tls(stream, peer).await
+            }
+            modes::TLS_CLIENT_HELLO => {
+                // 兼容不发送模式字节的旧客户端：首字节就是 TLS record type。
+                self.serve_tls(stream, peer).await
+            }
+            modes::MODE_NOISE => {
+                consume_mode_byte(&mut stream, modes::MODE_NOISE).await?;
+                let accepted = timeout(
+                    HANDSHAKE_TIMEOUT,
+                    modes::server_handshake(&mut stream, &self.inner.noise_hops),
+                )
+                .await
+                .map_err(|_| {
+                    anyhow!(
+                        "Noise 握手超时（{}s）/ Noise handshake timed out after {}s",
+                        HANDSHAKE_TIMEOUT.as_secs(),
+                        HANDSHAKE_TIMEOUT.as_secs()
+                    )
+                })?
+                .context("Noise 握手失败 / Noise handshake failed")?;
+                let (hop, transport) = accepted;
+                tracing::debug!(
+                    peer = %peer,
+                    hop_id = %hop.hop_id,
+                    "Noise 隧道握手通过 / Noise tunnel handshake accepted"
+                );
+                let noise = NoiseStream::start(
+                    stream,
+                    transport,
+                    hop.material,
+                    false,
+                    DEFAULT_REKEY_INTERVAL,
+                );
+                self.serve_frames(Box::new(noise), peer).await
+            }
+            other => bail!(
+                "未知的隧道首字节 0x{other:02x}（期望 0x01 TLS 或 0x02 Noise）/ unknown tunnel mode byte 0x{other:02x} (expected 0x01 TLS or 0x02 Noise)"
+            ),
+        }
+    }
+
+    /// TLS 分支：TLS 握手 + HMAC hop 认证，然后交给统一帧层。
+    async fn serve_tls(&self, stream: TcpStream, peer: std::net::SocketAddr) -> Result<()> {
+        let mut tls = self.accept_tls(stream).await?;
         if let Err(error) = self.authenticate(&mut tls, peer).await {
             // 失败也回 ServerHello{ok:false}，客户端能拿到可读原因；随后断开。
             let reply = ServerHello::reject(error.to_string());
@@ -349,10 +470,18 @@ impl TunnelServer {
             ));
         }
         ServerHello::accept().write(&mut tls).await?;
+        self.serve_frames(Box::new(tls), peer).await
+    }
 
+    /// 把已认证的连接交给统一的帧/转发层。
+    async fn serve_frames(
+        &self,
+        mut stream: BoxedStream,
+        peer: std::net::SocketAddr,
+    ) -> Result<()> {
         // 首帧必须是地址帧；CLOSE 直接结束，PING 说明客户端实现有问题。
         // 握手完成后客户端应立刻发地址，不能无限期占着连接槽。
-        let first = match timeout(HANDSHAKE_TIMEOUT, read_frame_logged(&mut tls, peer)).await {
+        let first = match timeout(HANDSHAKE_TIMEOUT, read_frame_logged(&mut stream, peer)).await {
             Ok(result) => result?,
             Err(_) => bail!(
                 "等待首帧超时（{}s）/ timed out waiting for the first frame after {}s",
@@ -380,7 +509,7 @@ impl TunnelServer {
         if !whitelist::allows(&self.inner.allowed_targets, &target) {
             self.inner.metrics.deny(&target, peer);
             // 明确回 CLOSE，客户端能立即失败而不是等 TLS 超时。
-            let _ = framing::write_frame(&mut tls, FrameKind::Close, &[]).await;
+            let _ = framing::write_frame(&mut stream, FrameKind::Close, &[]).await;
             return Err(anyhow!(
                 "目标 {:?} 不在白名单内 / target is not allowlisted",
                 target
@@ -391,12 +520,33 @@ impl TunnelServer {
             Ok(upstream) => upstream,
             Err(error) => {
                 // 明确告诉客户端目标不可达，而不是让它等 TLS 超时。
-                let _ = framing::write_frame(&mut tls, FrameKind::Close, &[]).await;
+                let _ = framing::write_frame(&mut stream, FrameKind::Close, &[]).await;
                 return Err(error);
             }
         };
 
-        forward(tls, upstream, initial, peer).await
+        forward(stream, upstream, initial, peer).await
+    }
+
+    /// 只做 TLS 握手；证书未加载时给出可读错误（fail closed，不回退明文）。
+    async fn accept_tls(
+        &self,
+        stream: TcpStream,
+    ) -> Result<tokio_rustls::server::TlsStream<TcpStream>> {
+        let acceptor = self.inner.tls.as_ref().ok_or_else(|| {
+            anyhow!(
+                "本监听未启用 TLS（缺少证书/私钥）/ TLS is not enabled on this listener (missing certificate/key)"
+            )
+        })?;
+        match timeout(HANDSHAKE_TIMEOUT, acceptor.accept(stream)).await {
+            Ok(Ok(tls)) => Ok(tls),
+            Ok(Err(error)) => bail!("TLS 握手失败 / TLS handshake failed: {error}"),
+            Err(_) => bail!(
+                "TLS 握手超时（{}s）/ TLS handshake timed out after {}s",
+                HANDSHAKE_TIMEOUT.as_secs(),
+                HANDSHAKE_TIMEOUT.as_secs()
+            ),
+        }
     }
 
     /// 版本 → hop → 时间窗 → proof → 重放。顺序很重要：先做便宜且无状态的
@@ -452,7 +602,7 @@ impl TunnelServer {
 /// `shutdown`（FrameIo 的写方向会发 CLOSE 帧）。额外的 `select!` 只处理
 /// 「客户端显式 CLOSE」：那是立即断开，不能等目标方向自然 EOF。
 async fn forward(
-    tls: tokio_rustls::server::TlsStream<TcpStream>,
+    stream: BoxedStream,
     mut upstream: TcpStream,
     initial: Vec<u8>,
     peer: std::net::SocketAddr,
@@ -461,7 +611,7 @@ async fn forward(
         upstream.write_all(&initial).await?;
     }
 
-    let mut framed = FrameIo::new(tls);
+    let mut framed = FrameIo::new(stream);
     let close = framed.close_notify();
     let already_closed = framed.saw_close();
     let copy = tokio::io::copy_bidirectional_with_sizes(
@@ -510,6 +660,40 @@ async fn forward(
     }
 }
 
+/// 读取（但不消费）握手首字节，用于 TLS / Noise 分流。
+async fn peek_mode(stream: &mut TcpStream) -> io::Result<u8> {
+    let mut byte = [0u8; 1];
+    loop {
+        match stream.peek(&mut byte).await {
+            Ok(0) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "对端在发送模式字节前关闭 / peer closed before sending the mode byte",
+                ))
+            }
+            Ok(_) => return Ok(byte[0]),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+/// 消费模式字节；`expected` 用于断言分流结果与读到的字节一致。
+async fn consume_mode_byte(stream: &mut TcpStream, expected: u8) -> Result<()> {
+    let mut byte = [0u8; 1];
+    stream.read_exact(&mut byte).await.with_context(|| {
+        format!("消费隧道模式字节失败 / failed to consume the tunnel mode byte 0x{expected:02x}")
+    })?;
+    if byte[0] != expected {
+        bail!(
+            "隧道模式字节在 peek 与读取之间变化（期望 0x{expected:02x}，实际 0x{:02x}）/ tunnel mode byte changed between peek and read (expected 0x{expected:02x}, got 0x{:02x})",
+            byte[0],
+            byte[0]
+        );
+    }
+    Ok(())
+}
+
 async fn read_frame_logged<R>(reader: &mut R, peer: std::net::SocketAddr) -> Result<Option<Frame>>
 where
     R: AsyncRead + Unpin,
@@ -556,20 +740,24 @@ async fn connect_target(target: &TargetAddr) -> Result<TcpStream> {
     Ok(stream)
 }
 
-/// TLS 隧道客户端。`roots = None` 表示空信任根（fail-closed），
-/// 不会隐式使用 `webpki-roots`，这正是不允许 `insecure` 开关的落地方式。
+/// 隧道客户端。TLS 用显式 CA，Noise 用 `hop_secret` 派生的 PSK/静态密钥；
+/// 两种模式共用同一套帧层与地址语义。
 pub struct TunnelClient {
     server_addr: std::net::SocketAddr,
-    server_name: ServerName<'static>,
+    /// Noise 模式不需要 SNI；TLS 模式必填。
+    server_name: Option<ServerName<'static>>,
     hop_id: String,
     hop_secret: Vec<u8>,
     config: Arc<ClientConfig>,
+    security: TunnelSecurity,
+    /// 客户端发起重协商的周期；测试可压到毫秒级。
+    rekey_interval: Duration,
     /// 仅测试用：覆盖 ClientHello 的时间戳，用来验证服务端的窗口/重放。
     proof_timestamp: Option<u64>,
 }
 
 impl TunnelClient {
-    /// 用显式 CA 构建客户端。`roots = None` → 空信任根，连接必定失败。
+    /// 用显式 CA 构建 TLS 客户端。`roots = None` → 空信任根，连接必定失败。
     pub fn new(
         server_addr: std::net::SocketAddr,
         server_name: ServerName<'static>,
@@ -579,15 +767,17 @@ impl TunnelClient {
     ) -> Self {
         Self {
             server_addr,
-            server_name,
+            server_name: Some(server_name),
             hop_id: hop_id.into(),
             hop_secret,
             config: client_tls_config(roots),
+            security: TunnelSecurity::Tls,
+            rekey_interval: DEFAULT_REKEY_INTERVAL,
             proof_timestamp: None,
         }
     }
 
-    /// 从 CA 文件构建客户端；文件里必须至少有一个 `CERTIFICATE` 块。
+    /// 从 CA 文件构建 TLS 客户端；文件里必须至少有一个 `CERTIFICATE` 块。
     pub fn trusting_ca_file(
         server_addr: std::net::SocketAddr,
         server_name: ServerName<'static>,
@@ -605,7 +795,37 @@ impl TunnelClient {
         ))
     }
 
-    /// 建 TLS、握手、发首帧地址，返回可读写帧的连接。
+    /// 构建 Noise/PSK 客户端：不需要证书、CA 或 SNI。
+    ///
+    /// 两端只要持有同一个 `hop_secret`，就能独立算出相同的静态密钥对与 PSK。
+    /// 接 `TunnelSupervisor` 需要 proto 增加模式字段（本轮不碰 proto），所以
+    /// 运行时暂时没有调用点；API 本身已完整并由回环测试覆盖。
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn noise(
+        server_addr: std::net::SocketAddr,
+        hop_id: impl Into<String>,
+        hop_secret: Vec<u8>,
+    ) -> Self {
+        Self {
+            server_addr,
+            server_name: None,
+            hop_id: hop_id.into(),
+            hop_secret,
+            config: client_tls_config(None),
+            security: TunnelSecurity::Noise,
+            rekey_interval: DEFAULT_REKEY_INTERVAL,
+            proof_timestamp: None,
+        }
+    }
+
+    /// 覆盖周期重协商间隔（会 clamp 到最小值，避免 0 造成重协商风暴）。
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn with_rekey_interval(mut self, interval: Duration) -> Self {
+        self.rekey_interval = interval.max(modes::MIN_REKEY_INTERVAL);
+        self
+    }
+
+    /// 建连、握手、发首帧地址，返回可读写帧的连接。
     pub async fn connect(&self, target: &TargetAddr) -> Result<TunnelConnection> {
         let tcp = match timeout(TARGET_CONNECT_TIMEOUT, TcpStream::connect(self.server_addr)).await
         {
@@ -625,13 +845,29 @@ impl TunnelClient {
         };
         let _ = tcp.set_nodelay(true);
 
+        match self.security {
+            TunnelSecurity::Tls => self.connect_tls(tcp, target).await,
+            TunnelSecurity::Noise => self.connect_noise(tcp, target).await,
+        }
+    }
+
+    async fn connect_tls(
+        &self,
+        mut tcp: TcpStream,
+        target: &TargetAddr,
+    ) -> Result<TunnelConnection> {
+        let server_name = self
+            .server_name
+            .clone()
+            .ok_or_else(|| anyhow!("TLS 模式缺少服务器名 / TLS mode requires a server name"))?;
+        // 模式字节必须先于 TLS ClientHello；服务端 peek 后消费它。
+        tcp.write_all(&[modes::MODE_TLS])
+            .await
+            .context("发送 TLS 模式字节失败 / failed to send the TLS mode byte")?;
+        tcp.flush().await.ok();
+
         let connector = TlsConnector::from(self.config.clone());
-        let mut tls = match timeout(
-            HANDSHAKE_TIMEOUT,
-            connector.connect(self.server_name.clone(), tcp),
-        )
-        .await
-        {
+        let mut tls = match timeout(HANDSHAKE_TIMEOUT, connector.connect(server_name, tcp)).await {
             Ok(Ok(tls)) => tls,
             Ok(Err(error)) => return Err(describe_tls_handshake_error(error)),
             Err(_) => {
@@ -643,13 +879,66 @@ impl TunnelClient {
             }
         };
 
+        self.exchange_tls_hello(&mut tls).await?;
+        let mut connection = TunnelConnection {
+            stream: Box::new(tls),
+            rekey_count: None,
+        };
+        connection.send_address(target).await?;
+        Ok(connection)
+    }
+
+    async fn connect_noise(
+        &self,
+        mut tcp: TcpStream,
+        target: &TargetAddr,
+    ) -> Result<TunnelConnection> {
+        tcp.write_all(&[modes::MODE_NOISE])
+            .await
+            .context("发送 Noise 模式字节失败 / failed to send the Noise mode byte")?;
+        tcp.flush().await.ok();
+
+        let material = NoiseMaterial::from_secret(&self.hop_secret);
+        let transport = timeout(
+            HANDSHAKE_TIMEOUT,
+            modes::client_handshake(&mut tcp, &material),
+        )
+        .await
+        .map_err(|_| {
+            anyhow!(
+                "Noise 握手超时（{}s）/ Noise handshake timed out after {}s",
+                HANDSHAKE_TIMEOUT.as_secs(),
+                HANDSHAKE_TIMEOUT.as_secs()
+            )
+        })?
+        // 服务端在认证失败时直接断开（不回明文原因），客户端统一补一句可读提示：
+        // 这一层最常见的失败就是 PSK/hop 配错。
+        .context(
+            "Noise 握手失败（PSK 不匹配、未知 hop 或对端不是 Noise）/ Noise handshake failed (PSK mismatch, unknown hop, or peer is not Noise)",
+        )?;
+
+        let noise = NoiseStream::start(tcp, transport, material, true, self.rekey_interval);
+        let counter = noise.rekey_count_handle();
+        let mut connection = TunnelConnection {
+            stream: Box::new(noise),
+            rekey_count: Some(counter),
+        };
+        connection.send_address(target).await?;
+        Ok(connection)
+    }
+
+    /// TLS 层的 hop 认证：版本、hop、时间窗、HMAC proof、重放。
+    async fn exchange_tls_hello(
+        &self,
+        tls: &mut tokio_rustls::client::TlsStream<TcpStream>,
+    ) -> Result<()> {
         let timestamp = self.proof_timestamp.unwrap_or_else(handshake::unix_now);
         let hello = ClientHello::new(&self.hop_secret, self.hop_id.clone(), timestamp);
-        timeout(HANDSHAKE_TIMEOUT, hello.write(&mut tls))
+        timeout(HANDSHAKE_TIMEOUT, hello.write(tls))
             .await
             .context("发送 ClientHello 超时 / timed out sending ClientHello")??;
 
-        let reply = timeout(HANDSHAKE_TIMEOUT, ServerHello::read(&mut tls))
+        let reply = timeout(HANDSHAKE_TIMEOUT, ServerHello::read(tls))
             .await
             .context("等待 ServerHello 超时 / timed out waiting for ServerHello")??;
 
@@ -668,20 +957,25 @@ impl TunnelClient {
                 .unwrap_or_else(|| "服务端未给出原因 / server gave no reason".to_string());
             bail!("隧道握手被服务端拒绝 / tunnel handshake rejected by server: {reason}");
         }
-
-        let mut connection = TunnelConnection { stream: tls };
-        connection.send_address(target).await?;
-        Ok(connection)
+        Ok(())
     }
 }
 
-/// 一条已建立的隧道。调用方按帧语义读写；P16.1 不提供 `AsyncRead/AsyncWrite`
-/// 适配层（帧边界对上层更重要，等有真实业务接入时再做）。
+/// 一条已建立的隧道。底层可能是 TLS 或 Noise，上层只按帧语义读写。
 pub struct TunnelConnection {
-    stream: tokio_rustls::client::TlsStream<TcpStream>,
+    stream: BoxedStream,
+    /// Noise 模式的重协商计数；TLS 为 `None`。
+    rekey_count: Option<Arc<AtomicU64>>,
 }
 
 impl TunnelConnection {
+    /// 已完成的 Noise 重协商次数；TLS 恒为 0。
+    pub fn rekey_count(&self) -> u64 {
+        self.rekey_count
+            .as_ref()
+            .map_or(0, |counter| counter.load(Ordering::Relaxed))
+    }
+
     /// 发数据帧；单帧上限 64 KiB（超过返回错误，不静默分片）。
     #[cfg(test)]
     pub async fn send_data(&mut self, payload: &[u8]) -> Result<()> {
@@ -710,18 +1004,22 @@ impl TunnelConnection {
         Ok(())
     }
 
-    /// 读一帧；`None` = 对端半关/关闭（TLS close_notify 或 TCP FIN）。
+    /// 读一帧；`None` = 对端半关/关闭（TLS close_notify / Noise EOF / TCP FIN）。
     #[cfg(test)]
     pub async fn recv(&mut self) -> Result<Option<Frame>> {
         Ok(framing::read_frame(&mut self.stream).await?)
     }
 
     /// 把连接转成字节流适配器（Dialer 的 `copy_bidirectional` 用）。
-    pub fn into_frame_io(self) -> FrameIo<tokio_rustls::client::TlsStream<TcpStream>> {
+    pub fn into_frame_io(self) -> FrameIo<BoxedStream> {
+        tracing::debug!(
+            rekeys = self.rekey_count(),
+            "隧道连接转为字节流 / tunnel connection converted to byte stream"
+        );
         FrameIo::new(self.stream)
     }
 
-    /// 只关写方向（TLS close_notify），仍可继续读。用于优雅半关。
+    /// 只关写方向（TLS close_notify / Noise 半关），仍可继续读。用于优雅半关。
     #[cfg(test)]
     pub async fn shutdown(&mut self) -> Result<()> {
         self.stream.shutdown().await?;
@@ -747,7 +1045,38 @@ fn validate_server_config(config: &TunnelServerConfig) -> Result<()> {
             bail!("hop_secret 不能为空 / hop_secret must not be empty: {hop_id}");
         }
     }
+
+    let has_cert = !config.cert_path.as_os_str().is_empty();
+    let has_key = !config.key_path.as_os_str().is_empty();
+    match config.security {
+        TunnelSecurity::Tls => {
+            if !has_cert || !has_key {
+                bail!(
+                    "TLS 模式必须同时提供证书和私钥 / TLS mode requires both a certificate and a private key"
+                );
+            }
+        }
+        TunnelSecurity::Noise => {
+            // 允许 Noise-only（两者都空）；只给一半是配置错误，不能靠猜。
+            if has_cert != has_key {
+                bail!(
+                    "证书和私钥必须同时提供或同时留空 / certificate and private key must be provided together or both omitted"
+                );
+            }
+        }
+    }
     Ok(())
+}
+
+/// 按配置加载 TLS；Noise-only 监听（两个路径都为空）返回 `None`。
+fn load_optional_server_tls(config: &TunnelServerConfig) -> Result<Option<TlsAcceptor>> {
+    if config.cert_path.as_os_str().is_empty() && config.key_path.as_os_str().is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(TlsAcceptor::from(server_tls_config(
+        &config.cert_path,
+        &config.key_path,
+    )?)))
 }
 
 fn client_tls_config(roots: Option<Arc<RootCertStore>>) -> Arc<ClientConfig> {
@@ -955,7 +1284,7 @@ mod tests {
     use super::handshake::{self, ClientHello, ServerHello};
     use super::{
         client_tls_config, roots_from_pem, TargetRule, TunnelClient, TunnelConnection,
-        TunnelServer, TunnelServerConfig, TunnelStatsHandle, TunnelSupervisor,
+        TunnelSecurity, TunnelServer, TunnelServerConfig, TunnelStatsHandle, TunnelSupervisor,
         DEFAULT_MAX_CONNECTIONS,
     };
 
@@ -1013,6 +1342,7 @@ mod tests {
 
             let config = TunnelServerConfig {
                 bind: "127.0.0.1:0".parse().expect("固定回环地址"),
+                security: TunnelSecurity::Tls,
                 cert_path,
                 key_path,
                 hops,
@@ -1295,6 +1625,182 @@ mod tests {
         echo_task.abort();
     }
 
+    fn noise_client(addr: SocketAddr) -> TunnelClient {
+        TunnelClient::noise(addr, HOP_ID, HOP_SECRET.to_vec())
+    }
+
+    /// Noise 回环：无证书建隧道 → echo → 双向各 3 条消息。
+    #[tokio::test]
+    async fn noise_roundtrip_echoes_three_messages_each_way() {
+        let harness = Harness::start(DEFAULT_MAX_CONNECTIONS).await;
+        let (echo_addr, echo_task) = spawn_echo().await;
+        let mut tunnel = connect(&noise_client(harness.addr), echo_addr).await;
+
+        let messages = [
+            b"noise-1".to_vec(),
+            vec![0x5a; 40 * 1024],
+            b"noise-3".to_vec(),
+        ];
+        for message in &messages {
+            tunnel.send_data(message).await.expect("发送 Noise 数据帧");
+            assert_eq!(&recv_exact(&mut tunnel, message.len()).await, message);
+        }
+
+        assert_eq!(harness.stats.snapshot().total, 1);
+        assert_eq!(harness.stats.snapshot().active, 1);
+        assert_eq!(tunnel.rekey_count(), 0, "默认 10 分钟内不应重协商");
+
+        tunnel.send_close().await.expect("发送 CLOSE");
+        wait_for_active(&harness.stats, 0).await;
+        echo_task.abort();
+    }
+
+    /// 错误 PSK：握手失败，错误里要能看出是 Noise/PSK 的问题。
+    #[tokio::test]
+    async fn noise_wrong_psk_fails_with_readable_error() {
+        let harness = Harness::start(DEFAULT_MAX_CONNECTIONS).await;
+        let wrong = TunnelClient::noise(
+            harness.addr,
+            HOP_ID,
+            b"definitely-not-the-right-secret!".to_vec(),
+        );
+        let error = wrong
+            .connect(&TargetAddr::Ip("127.0.0.1:9".parse().expect("固定地址")))
+            .await
+            .err()
+            .expect("错误 PSK 必须握手失败");
+        let text = format!("{error:#}");
+        assert!(text.contains("Noise"), "{text}");
+        assert!(text.contains("PSK"), "{text}");
+
+        // 失败不能泄漏成「一直挂着的半开连接」。
+        wait_for_active(&harness.stats, 0).await;
+    }
+
+    /// 同一个 hop_secret 两端独立派生出的静态公钥必须完全一致。
+    #[test]
+    fn noise_static_key_is_deterministic_across_ends() {
+        let left = super::NoiseMaterial::from_secret(HOP_SECRET).static_public();
+        let right = super::NoiseMaterial::from_secret(HOP_SECRET).static_public();
+        let other = super::NoiseMaterial::from_secret(b"a-different-hop-secret").static_public();
+
+        assert_eq!(left, right, "同一 hop_secret 必须得到同一对静态密钥");
+        assert_ne!(left, other, "不同 hop_secret 必须得到不同的静态密钥");
+        assert_ne!(left, [0u8; 32], "派生结果不能是全零");
+    }
+
+    /// 极短 REKEY_INTERVAL：连接继续传数据，且底层完成了新会话握手。
+    #[tokio::test]
+    async fn noise_rekey_keeps_streaming_and_swaps_session() {
+        let harness = Harness::start(DEFAULT_MAX_CONNECTIONS).await;
+        let (echo_addr, echo_task) = spawn_echo().await;
+        let client = noise_client(harness.addr).with_rekey_interval(Duration::from_millis(80));
+        let mut tunnel = connect(&client, echo_addr).await;
+
+        tunnel
+            .send_data(b"before-rekey")
+            .await
+            .expect("发送重协商前数据");
+        assert_eq!(recv_exact(&mut tunnel, 12).await, b"before-rekey");
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while tunnel.rekey_count() == 0 {
+            assert!(
+                Instant::now() < deadline,
+                "等待 Noise 重协商超时（count=0）"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+
+        // 重协商复用同一条 TCP：服务端累计连接数不能增加。
+        assert_eq!(
+            harness.stats.snapshot().total,
+            1,
+            "重协商必须复用同一条 TCP，而不是重连"
+        );
+        tunnel
+            .send_data(b"after-rekey")
+            .await
+            .expect("发送重协商后数据");
+        assert_eq!(recv_exact(&mut tunnel, 11).await, b"after-rekey");
+        assert!(tunnel.rekey_count() >= 1);
+        println!(
+            "Noise 重协商：rekeys={}，服务端累计连接={}（重协商复用同一条 TCP）",
+            tunnel.rekey_count(),
+            harness.stats.snapshot().total
+        );
+
+        tunnel.send_close().await.expect("发送 CLOSE");
+        wait_for_active(&harness.stats, 0).await;
+        echo_task.abort();
+    }
+
+    /// 同一监听端口：TLS 与 Noise 客户端都能连，证明首字节分流正确。
+    #[tokio::test]
+    async fn tls_and_noise_clients_share_one_listener() {
+        let harness = Harness::start(DEFAULT_MAX_CONNECTIONS).await;
+        let (echo_addr, echo_task) = spawn_echo().await;
+
+        let mut tls = connect(&client_with_fixture_ca(harness.addr), echo_addr).await;
+        tls.send_data(b"over-tls")
+            .await
+            .expect("TLS 客户端发送数据");
+        assert_eq!(recv_exact(&mut tls, 8).await, b"over-tls");
+        assert_eq!(harness.stats.snapshot().total, 1);
+
+        let mut noise = connect(&noise_client(harness.addr), echo_addr).await;
+        noise
+            .send_data(b"over-noise")
+            .await
+            .expect("Noise 客户端发送数据");
+        assert_eq!(recv_exact(&mut noise, 10).await, b"over-noise");
+        assert_eq!(
+            harness.stats.snapshot().total,
+            2,
+            "两种模式必须共用同一个 accept 循环"
+        );
+
+        tls.send_close().await.expect("TLS 发送 CLOSE");
+        noise.send_close().await.expect("Noise 发送 CLOSE");
+        wait_for_active(&harness.stats, 0).await;
+        echo_task.abort();
+    }
+
+    /// Noise-only 监听：没有证书也能绑定；TLS 客户端会得到明确失败。
+    #[tokio::test]
+    async fn noise_only_listener_binds_without_certificates() {
+        let mut hops = HashMap::new();
+        hops.insert(HOP_ID.to_string(), HOP_SECRET.to_vec());
+        let mut config = TunnelServerConfig::noise("127.0.0.1:0".parse().unwrap(), hops);
+        config.allowed_targets = vec![TargetRule::new("127.0.0.1", None)];
+        let (server, listener) = TunnelServer::bind(config)
+            .await
+            .expect("Noise-only 监听必须能在没有证书时启动");
+        let addr = listener.local_addr().unwrap();
+        let stats = server.stats_handle();
+        let task = tokio::spawn(async move {
+            let _ = server.serve(listener).await;
+        });
+        let (echo_addr, echo_task) = spawn_echo().await;
+
+        let mut tunnel = connect(&noise_client(addr), echo_addr).await;
+        tunnel.send_data(b"noise-only").await.expect("发送数据");
+        assert_eq!(recv_exact(&mut tunnel, 10).await, b"noise-only");
+
+        // TLS 首字节被明确拒绝（fail closed，不回退明文 / 不 panic）。
+        let tls_error = client_with_fixture_ca(addr)
+            .connect(&TargetAddr::Ip(echo_addr))
+            .await
+            .err()
+            .expect("Noise-only 监听必须拒绝 TLS 客户端");
+        assert!(format!("{tls_error:#}").contains("TLS"), "{tls_error:#}");
+
+        tunnel.send_close().await.expect("发送 CLOSE");
+        wait_for_active(&stats, 0).await;
+        task.abort();
+        echo_task.abort();
+    }
+
     /// 起一个带 accept 计数的目标服务：用于断言「白名单拒绝时绝不发起连接」。
     async fn spawn_counted_echo() -> (SocketAddr, Arc<AtomicUsize>, JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1336,6 +1842,7 @@ mod tests {
         hops.insert(HOP_ID.to_string(), HOP_SECRET.to_vec());
         let config = TunnelServerConfig {
             bind: "127.0.0.1:0".parse().unwrap(),
+            security: TunnelSecurity::Tls,
             cert_path,
             key_path,
             hops,
