@@ -898,12 +898,13 @@ export default function ChainsPage() {
   function renderChainName(chain: Chain) {
     const blockedReason = chain.blocked_reason?.trim();
     return (
-      <div className="flex items-center gap-1">
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate font-medium" title={chain.name}>
-              {chain.name}
-            </span>
+      <div className="flex min-w-0 flex-col gap-1">
+        {/* 链名独占一行：徽标多的时候名字被挤成「港…」，悬停提示也容易被徽标挡住。
+            徽标下移到第二行，名字就能用满整列宽度。 */}
+        <span className="truncate font-medium" title={chain.name}>
+          {chain.name}
+        </span>
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
             {chain.path_mode === "single" ? (
               <Badge
                 variant="outline"
@@ -941,8 +942,7 @@ export default function ChainsPage() {
               protocol={chain.protocol}
               legacyUdp={chain.udp}
             />
-            {isTlsTransport(chain.transport) ? <TlsBadge /> : null}
-          </div>
+          {isTlsTransport(chain.transport) ? <TlsBadge /> : null}
         </div>
       </div>
     );
