@@ -700,6 +700,16 @@ export interface ChainGroup {
   members: ChainGroupMember[];
 }
 
+/**
+ * tunnel 引擎的隧道加密模式：
+ * - `tls`（缺省，推荐）：自有 CA 证书，主控自动签发；
+ * - `noise`：不需要证书，双方用预共享密钥认证，每 10 分钟重新协商会话密钥。
+ *
+ * 仅 `engine = tunnel` 时有意义；旧后端可能不返回，展示层用
+ * `normalizeTunnelSecurity` 回落到 `tls`。
+ */
+export type TunnelSecurity = "tls" | "noise";
+
 export interface Chain {
   id: string;
   name: string;
@@ -720,6 +730,11 @@ export interface Chain {
   udp: boolean;
   /** 跳间加密模式：`none`（明文）或 `tls`；旧后端缺失按 `none` 处理。 */
   transport: string;
+  /**
+   * 隧道引擎的加密模式：`tls`（缺省）/ `noise`，仅 `engine = tunnel` 时有意义。
+   * 旧后端不返回该字段时按 `tls` 处理。
+   */
+  tunnel_security?: TunnelSecurity;
   /** 链因能力 / 证书不满足被下发跳过时的稳定错误码。 */
   blocked_code?: string | null;
   /** 链被跳过时的原因原文；非空时列表在链名旁显示 warning。 */
@@ -788,6 +803,11 @@ export interface CreateChainInput {
   udp?: boolean;
   /** `none`（缺省，明文）或 `tls`；tls 只允许 realm 且至少 2 组。 */
   transport?: "none" | "tls";
+  /**
+   * 隧道引擎的加密模式；缺省 `tls`，仅 `engine = tunnel` 时有意义。
+   * 非 tunnel 引擎不传，避免把无意义的值写到别的引擎上。
+   */
+  tunnel_security?: TunnelSecurity;
   /** 1–4 组，按入口到目标的顺序排列。 */
   groups: ChainGroupInput[];
 }

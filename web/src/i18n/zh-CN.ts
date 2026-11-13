@@ -1784,6 +1784,19 @@ const zhCN = {
     tunnel: {
       protocolTitle: "tunnel 引擎只支持 TCP",
     },
+    tunnelSecurity: {
+      label: "隧道加密",
+      tls: {
+        label: "证书（自有 CA）",
+        desc: "主控自动签发，推荐",
+        badge: "TLS",
+      },
+      noise: {
+        label: "预共享密钥（无证书）",
+        desc: "无需证书，每 10 分钟重新协商会话密钥",
+        badge: "PSK",
+      },
+    },
     engine: {
       missing: "引擎缺失",
       missingHint: "整条链使用 realm，但成员服务器未安装 realm；安装后会自动恢复。",
@@ -2349,6 +2362,7 @@ const zhCN = {
     "chain.tunnel_tcp_only": "tunnel 引擎只支持 TCP（当前 {protocol}）",
     "chain.tunnel_transport_conflict": "tunnel 自带跳间加密，不能再选择 transport=tls",
     "chain.tunnel_unavailable": "以下服务器的 Agent 不支持 tunnel 引擎（需要升级）：{servers}",
+    "chain.tunnel_security_invalid": "不支持的隧道加密模式「{tunnel_security}」（可选 {allowed}）",
     "node.ss_method_invalid": "不支持的 Shadowsocks 加密方法：{method}",
     "node.ss_key_invalid": "Shadowsocks 密钥不合法：{method}",
     "node.ss_network_invalid": "不支持的 Shadowsocks 网络类型：{network}",

@@ -2,6 +2,11 @@ import { LockIcon, TriangleAlertIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { engineMeta } from "@/lib/engines";
 import { normalizeProtocol, protocolLabelKey } from "@/lib/protocolMode";
+import {
+  normalizeTunnelSecurity,
+  securityBadgeKey,
+  securityVisible,
+} from "@/lib/tunnelSecurity";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
 
@@ -134,6 +139,42 @@ export function ProtocolBadge({
       )}
     >
       {t(protocolLabelKey(mode))}
+    </Badge>
+  );
+}
+
+/**
+ * tunnel 链的加密模式小标：`TLS`（自有 CA）/ `PSK`（预共享密钥）。
+ *
+ * 只在 `engine = tunnel` 时渲染；其它引擎返回 null，不占位。
+ * 与 `EngineBadge` / `TlsBadge` 同一套 outline + type-micro 视觉。
+ */
+export function TunnelSecurityBadge({
+  engine,
+  security,
+  className,
+}: {
+  engine: unknown;
+  security: unknown;
+  className?: string;
+}) {
+  const { t } = useI18n();
+  if (!securityVisible(engine)) return null;
+
+  const mode = normalizeTunnelSecurity(security);
+
+  return (
+    <Badge
+      variant="outline"
+      title={t(`chains.tunnelSecurity.${mode}.desc`)}
+      data-tunnel-security={mode}
+      className={cn(
+        "h-5 px-1.5 type-micro font-normal whitespace-nowrap",
+        ENGINE_TONES[mode === "noise" ? "native" : "realm"],
+        className,
+      )}
+    >
+      {t(securityBadgeKey(mode))}
     </Badge>
   );
 }

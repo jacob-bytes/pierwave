@@ -38,6 +38,7 @@ import {
 } from "@/lib/shadowsocks";
 import { isValidSpeedLimitMbpsInput } from "@/lib/speed";
 import { dateInputToUnixEndOfDay } from "@/lib/time";
+import { TUNNEL_SECURITY_MODES } from "@/lib/tunnelSecurity";
 
 /**
  * 校验消息全部由 `t` 生成。
@@ -487,6 +488,8 @@ export function chainFormSchema(t: TFunction) {
       protocol: z.enum(PROTOCOL_MODES),
       // 跳间加密：none（缺省）/ tls；tls 的前置条件在 superRefine 里查。
       transport: z.enum(CHAIN_TRANSPORTS),
+      // 隧道加密：tls（缺省）/ noise，仅 engine=tunnel 时显示并提交。
+      tunnel_security: z.enum(TUNNEL_SECURITY_MODES),
       groups: z.array(
         z.object({
           kind: z.enum(["single", "group"]),

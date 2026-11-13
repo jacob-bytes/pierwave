@@ -4,6 +4,7 @@ export {
   EngineBadge,
   ProtocolBadge,
   TlsBadge,
+  TunnelSecurityBadge,
   UdpBadge,
 } from "./EngineBadge";
 export { PageHeader } from "./PageHeader";

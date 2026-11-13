@@ -26,6 +26,7 @@ import {
   SkeletonCard,
   SkeletonTable,
   TlsBadge,
+  TunnelSecurityBadge,
 } from "@/components/common";
 import {
   Dialog,
@@ -931,6 +932,10 @@ export default function ChainsPage() {
                 chain,
                 servers.data ?? [],
               )}
+            />
+            <TunnelSecurityBadge
+              engine={chain.engine}
+              security={chain.tunnel_security}
             />
             <ProtocolBadge
               protocol={chain.protocol}

@@ -85,6 +85,11 @@ import {
   useUpdateChain,
 } from "@/lib/queries";
 import { chainFormSchema, type ChainFormValues } from "@/lib/schemas";
+import {
+  TUNNEL_SECURITY_MODES,
+  normalizeTunnelSecurity,
+  securityLabelKey,
+} from "@/lib/tunnelSecurity";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
 
@@ -847,6 +852,8 @@ export function ChainFormDialog({
       protocol: normalizeProtocol(chain?.protocol, chain?.udp),
       // 旧数据 / 旧后端没有 transport：按契约缺省 none 回填。
       transport: normalizeTransport(chain?.transport),
+      // 旧数据 / 旧后端没有 tunnel_security：按契约缺省 tls 回填。
+      tunnel_security: normalizeTunnelSecurity(chain?.tunnel_security),
       groups: initialGroups,
     },
   });
@@ -857,6 +864,7 @@ export function ChainFormDialog({
     useWatch({ control: form.control, name: "groups" }) ?? [];
   const selectedTransport = form.watch("transport");
   const tlsEnabled = selectedTransport === "tls";
+  const selectedTunnelSecurity = form.watch("tunnel_security");
   const engineOptions = chainEngineOptions(
     watchedGroups.length,
     watchedGroups.map((group) => group.members.length),
@@ -952,6 +960,10 @@ export function ChainFormDialog({
       ...engineInput(values.engine),
       // 编辑时把 tls 改回 none 同样必须显式发送。
       transport: values.transport,
+      // 只在 tunnel 引擎下提交：其它引擎没有这条语义，不发无意义字段。
+      ...(values.engine === "tunnel"
+        ? { tunnel_security: normalizeTunnelSecurity(values.tunnel_security) }
+        : {}),
       // 协议是权威字段；引擎 / TLS 切换瞬间的无效组合回落 tcp。
       protocol: protocolAvailable(values.engine, values.transport)[
         values.protocol
@@ -1258,6 +1270,59 @@ export function ChainFormDialog({
               ) : null}
             </div>
           </FormField>
+
+          {/* tunnel 引擎才有隧道加密模式；其它引擎整项不渲染，也不占位。 */}
+          {tunnelSelected ? (
+            <FormField label={t("chains.tunnelSecurity.label")}>
+              <RadioGroup
+                aria-label={t("chains.tunnelSecurity.label")}
+                value={selectedTunnelSecurity}
+                onValueChange={(next) => {
+                  if (next !== "tls" && next !== "noise") return;
+                  form.setValue("tunnel_security", next, {
+                    shouldDirty: true,
+                    shouldTouch: true,
+                    shouldValidate: form.formState.isSubmitted,
+                  });
+                }}
+                disabled={pending}
+                className="grid gap-2"
+              >
+                {TUNNEL_SECURITY_MODES.map((mode) => {
+                  const active = selectedTunnelSecurity === mode;
+                  return (
+                    <Label
+                      key={mode}
+                      htmlFor={`chain-tunnel-security-${mode}`}
+                      data-tunnel-security-option={mode}
+                      data-active={active}
+                      className={cn(
+                        "flex cursor-pointer items-start gap-2 rounded-lg border border-border bg-card p-2.5 transition-colors duration-150 hover:bg-muted/40",
+                        active &&
+                          "border-primary/60 bg-primary/5 hover:bg-primary/5",
+                        pending && "cursor-not-allowed opacity-60",
+                      )}
+                    >
+                      <RadioGroupItem
+                        id={`chain-tunnel-security-${mode}`}
+                        value={mode}
+                        disabled={pending}
+                        className="mt-0.5"
+                      />
+                      <span className="min-w-0 space-y-0.5">
+                        <span className="block text-sm font-medium">
+                          {t(securityLabelKey(mode))}
+                        </span>
+                        <span className="block type-micro leading-normal text-muted-foreground">
+                          {t(`chains.tunnelSecurity.${mode}.desc`)}
+                        </span>
+                      </span>
+                    </Label>
+                  );
+                })}
+              </RadioGroup>
+            </FormField>
+          ) : null}
 
           <FormField label={t("chains.tls.label")} htmlFor="chain-tls">
             <Controller

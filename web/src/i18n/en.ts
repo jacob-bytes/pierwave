@@ -1892,6 +1892,19 @@ const en = {
     tunnel: {
       protocolTitle: "The tunnel engine only supports TCP",
     },
+    tunnelSecurity: {
+      label: "Tunnel encryption",
+      tls: {
+        label: "Certificate (own CA)",
+        desc: "Auto-issued by the master; recommended",
+        badge: "TLS",
+      },
+      noise: {
+        label: "Pre-shared key (no certificate)",
+        desc: "No certificate; keys rotate every 10 min",
+        badge: "PSK",
+      },
+    },
     engine: {
       missing: "Engine missing",
       missingHint:
@@ -2489,6 +2502,7 @@ const en = {
     "chain.tunnel_tcp_only": "The tunnel engine only supports TCP (currently {protocol})",
     "chain.tunnel_transport_conflict": "The tunnel engine already encrypts hops; transport=tls cannot be selected",
     "chain.tunnel_unavailable": "These servers run an agent without tunnel support (upgrade required): {servers}",
+    "chain.tunnel_security_invalid": "Unsupported tunnel encryption mode \"{tunnel_security}\" (choose {allowed})",
     "node.ss_method_invalid": "Unsupported Shadowsocks method: {method}",
     "node.ss_key_invalid": "Invalid Shadowsocks key for {method}: 2022 methods need a base64 key of the exact length; legacy AEAD needs at least 8 characters",
     "node.ss_network_invalid": "Unsupported Shadowsocks network: {network} (allowed: tcp / udp / tcp,udp)",
