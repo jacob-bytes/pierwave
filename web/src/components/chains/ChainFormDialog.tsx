@@ -139,6 +139,20 @@ function rootMessage(error: unknown): string | undefined {
   return typeof message === "string" ? message : undefined;
 }
 
+/** tunnel 专用的「实验性」小标：下拉项与触发器共用。 */
+function ExperimentalTag() {
+  const { t } = useI18n();
+  return (
+    <Badge
+      variant="outline"
+      data-experimental="true"
+      className="h-4 shrink-0 px-1 type-micro font-normal border-border/80 bg-muted/40 text-muted-foreground"
+    >
+      {t("common.engine.tunnel.experimental")}
+    </Badge>
+  );
+}
+
 function GroupCard({
   index,
   groupCount,
@@ -1208,13 +1222,12 @@ export function ChainFormDialog({
             </FormField>
           </div>
 
-          <FormField
-            label={t("chains.form.engine")}
-            hint={t("chains.form.engineHint")}
-          >
-            <div className="space-y-2">
-              <RadioGroup
-                aria-label={t("chains.form.engineAria")}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="order-1 min-w-0 space-y-1.5">
+              <Label htmlFor="chain-engine" className="text-sm">
+                {t("chains.form.engineLabel")}
+              </Label>
+              <Select
                 value={selectedEngine}
                 onValueChange={(next) => {
                   if (!isChainEngine(next)) return;
@@ -1236,94 +1249,148 @@ export function ChainFormDialog({
                   }
                 }}
                 disabled={pending}
-                className="grid gap-2 sm:grid-cols-2"
               >
-                {engineOptions.map((option) => {
-                  const active = selectedEngine === option.engine;
-                  return (
-                    <Label
+                <SelectTrigger
+                  id="chain-engine"
+                  className="h-8 w-full"
+                  aria-label={t("chains.form.engineAria")}
+                >
+                  <SelectValue>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate">
+                        {t(`common.engine.${selectedEngine}.label`)}
+                      </span>
+                      {tunnelSelected ? <ExperimentalTag /> : null}
+                    </span>
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent className="w-56">
+                  {engineOptions.map((option) => (
+                    <SelectItem
                       key={option.engine}
-                      htmlFor={`chain-engine-${option.engine}`}
+                      value={option.engine}
                       data-engine-option={option.engine}
                       data-tunnel-ready={option.available}
-                      className={cn(
-                        "flex cursor-pointer items-start gap-2 rounded-lg border border-border bg-card p-2.5 transition-colors duration-150 hover:bg-muted/40",
-                        active &&
-                          "border-primary/60 bg-primary/5 hover:bg-primary/5",
-                        pending && "cursor-not-allowed opacity-60",
-                      )}
                     >
-                      <RadioGroupItem
-                        id={`chain-engine-${option.engine}`}
-                        value={option.engine}
-                        disabled={pending}
-                        className="mt-0.5"
-                      />
-                      <span className="min-w-0 space-y-0.5">
-                        <span className="flex flex-wrap items-center gap-1 text-sm font-medium">
-                          {t(option.labelKey)}
-                          {option.experimental ? (
-                            <Badge
-                              variant="outline"
-                              data-experimental="true"
-                              className="h-4 px-1 type-micro font-normal border-border/80 bg-muted/40 text-muted-foreground"
-                            >
-                              {t("common.engine.tunnel.experimental")}
-                            </Badge>
-                          ) : null}
-                        </span>
-                        <span className="block type-micro leading-normal text-muted-foreground">
-                          {t(option.shortKey)}
-                        </span>
+                      <span className="flex items-center gap-1.5">
+                        {t(option.labelKey)}
+                        {option.experimental ? <ExperimentalTag /> : null}
                       </span>
-                    </Label>
-                  );
-                })}
-              </RadioGroup>
-              {/* 整条链一个引擎：说明里点明「逐跳透传」与 UDP 差异。 */}
-              <p className="rounded-md border border-border bg-muted/20 px-2.5 py-2 type-micro leading-normal text-muted-foreground">
-                {t(`common.engine.${selectedEngine}.desc`)}
-              </p>
-              {realmMissingNames.length > 0 ? (
-                <div
-                  role="status"
-                  className="flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs leading-normal text-warning"
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="order-3 min-w-0 space-y-1.5 sm:order-2">
+              <Label htmlFor="chain-protocol" className="text-sm">
+                {t("chains.form.protocolLabel")}
+              </Label>
+              <Select
+                value={selectedProtocol}
+                onValueChange={(next) => {
+                  if (!availability[next as keyof typeof availability]) {
+                    return;
+                  }
+                  form.setValue("protocol", next as typeof selectedProtocol, {
+                    shouldDirty: true,
+                    shouldTouch: true,
+                    shouldValidate: form.formState.isSubmitted,
+                  });
+                }}
+                disabled={pending}
+              >
+                <SelectTrigger
+                  id="chain-protocol"
+                  className="h-8 w-full"
+                  aria-label={t("common.protocolMode.label")}
+                  aria-invalid={Boolean(form.formState.errors.protocol)}
                 >
-                  <TriangleAlertIcon
-                    className="mt-0.5 size-3.5 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <span>
-                    {t("chains.form.realmNotInstalled", {
-                      servers: formatServerNameList(
-                        realmMissingNames,
-                        t("common.listSeparator"),
-                      ),
-                    })}
-                  </span>
-                </div>
-              ) : null}
-              {nftablesMissingNames.length > 0 ? (
-                <div
-                  role="status"
-                  className="flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs leading-normal text-warning"
-                >
-                  <TriangleAlertIcon
-                    className="mt-0.5 size-3.5 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <span>
-                    {t("chains.form.nftablesNotAvailable", {
-                      servers: formatServerNameList(
-                        nftablesMissingNames,
-                        t("common.listSeparator"),
-                      ),
-                    })}
-                  </span>
-                </div>
+                  <SelectValue>
+                    {t(`common.protocolMode.${selectedProtocol}`)}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {PROTOCOL_MODES.map((mode) => {
+                    const disabled = pending || !availability[mode];
+                    return (
+                      <SelectItem
+                        key={mode}
+                        value={mode}
+                        disabled={disabled}
+                        data-protocol-option={mode}
+                        title={
+                          availability[mode]
+                            ? undefined
+                            : tunnelSelected
+                              ? t("chains.tunnel.protocolTitle")
+                              : tlsEnabled
+                                ? t("chains.tls.udpDisabledTitle")
+                                : t("common.udpRealmTitle")
+                        }
+                        className="data-disabled:pointer-events-auto"
+                      >
+                        {t(`common.protocolMode.${mode}`)}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              {form.formState.errors.protocol?.message ? (
+                <p role="alert" className="text-xs text-destructive">
+                  {form.formState.errors.protocol.message}
+                </p>
               ) : null}
             </div>
-          </FormField>
+
+            {/* 只留一行：当前引擎的短说明；窄屏紧跟在引擎下方。 */}
+            <p
+              data-engine-short="true"
+              title={t(`common.engine.${selectedEngine}.short`)}
+              className="order-2 truncate type-micro text-muted-foreground sm:order-3 sm:col-span-2"
+            >
+              {t(`common.engine.${selectedEngine}.short`)}
+            </p>
+          </div>
+
+          {realmMissingNames.length > 0 ? (
+            <div
+              role="status"
+              className="flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs leading-normal text-warning"
+            >
+              <TriangleAlertIcon
+                className="mt-0.5 size-3.5 shrink-0"
+                aria-hidden="true"
+              />
+              <span>
+                {t("chains.form.realmNotInstalled", {
+                  servers: formatServerNameList(
+                    realmMissingNames,
+                    t("common.listSeparator"),
+                  ),
+                })}
+              </span>
+            </div>
+          ) : null}
+          {nftablesMissingNames.length > 0 ? (
+            <div
+              role="status"
+              className="flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-xs leading-normal text-warning"
+            >
+              <TriangleAlertIcon
+                className="mt-0.5 size-3.5 shrink-0"
+                aria-hidden="true"
+              />
+              <span>
+                {t("chains.form.nftablesNotAvailable", {
+                  servers: formatServerNameList(
+                    nftablesMissingNames,
+                    t("common.listSeparator"),
+                  ),
+                })}
+              </span>
+            </div>
+          ) : null}
 
           {/* tunnel 引擎才有隧道加密模式；其它引擎整项不渲染，也不占位。 */}
           {tunnelSelected ? (
@@ -1410,61 +1477,6 @@ export function ChainFormDialog({
                 </span>
               )}
             />
-          </FormField>
-
-          <FormField
-            label={t("common.protocolMode.label")}
-            error={form.formState.errors.protocol?.message}
-          >
-            <RadioGroup
-              aria-label={t("common.protocolMode.label")}
-              value={selectedProtocol}
-              onValueChange={(next) => {
-                if (!availability[next as keyof typeof availability]) return;
-                form.setValue("protocol", next as typeof selectedProtocol, {
-                  shouldDirty: true,
-                  shouldTouch: true,
-                  shouldValidate: form.formState.isSubmitted,
-                });
-              }}
-              disabled={pending}
-              className="grid gap-2 sm:grid-cols-3"
-            >
-              {PROTOCOL_MODES.map((mode) => {
-                const active = selectedProtocol === mode;
-                const disabled = pending || !availability[mode];
-                return (
-                  <Label
-                    key={mode}
-                    htmlFor={`chain-protocol-${mode}`}
-                    title={
-                      availability[mode]
-                        ? undefined
-                        : tunnelSelected
-                          ? t("chains.tunnel.protocolTitle")
-                          : tlsEnabled
-                            ? t("chains.tls.udpDisabledTitle")
-                            : t("common.udpRealmTitle")
-                    }
-                    className={cn(
-                      "flex cursor-pointer items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-2 transition-colors duration-150 hover:bg-muted/40",
-                      active &&
-                        "border-primary/60 bg-primary/5 hover:bg-primary/5",
-                      disabled && "cursor-not-allowed opacity-60",
-                    )}
-                  >
-                    <RadioGroupItem
-                      id={`chain-protocol-${mode}`}
-                      value={mode}
-                      disabled={disabled}
-                    />
-                    <span className="text-sm font-medium">
-                      {t(`common.protocolMode.${mode}`)}
-                    </span>
-                  </Label>
-                );
-              })}
-            </RadioGroup>
           </FormField>
 
           <FormField

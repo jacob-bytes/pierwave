@@ -1997,6 +1997,8 @@ const zhCN = {
       enabledOn: "保存后立即启用",
       enabledOff: "保存为停用",
       engine: "转发引擎（整条链）",
+      engineLabel: "转发引擎",
+      protocolLabel: "协议模式",
       engineAria: "转发链的转发引擎",
       engineHint:
         "整条链共用一个引擎，逐跳透传；切换引擎会重建所有成员的监听。",

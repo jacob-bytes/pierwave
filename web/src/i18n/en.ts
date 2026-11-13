@@ -2115,6 +2115,8 @@ const en = {
       enabledOn: "Enabled immediately after saving",
       enabledOff: "Saved as disabled",
       engine: "Forward engine (whole chain)",
+      engineLabel: "Forward engine",
+      protocolLabel: "Protocol",
       engineAria: "Forward engine for the chain",
       engineHint:
         "The whole chain shares one engine, passed through every hop; switching it rebuilds the listeners on all members.",
