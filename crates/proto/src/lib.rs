@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 19;
+pub const PROTOCOL_VERSION: u32 = 20;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -189,6 +189,53 @@ pub enum TunnelRole {
     Dialer,
 }
 
+/// 隧道的安全模式：两端必须一致。
+///
+/// * [`TunnelSecurity::Tls`]：主控自有 CA 签发的证书 + rustls（P16.1，默认）；
+/// * [`TunnelSecurity::Noise`]：无证书，`hop_secret` 派生的静态密钥 + PSK
+///   （P16.2，Noise IK）。
+///
+/// 旧主控不下发该字段，反序列化后是 [`TunnelSecurity::Tls`]，
+/// 与升级前「只支持 TLS」的行为完全一致。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TunnelSecurity {
+    /// TLS + 自有 CA（默认）。
+    #[default]
+    Tls,
+    /// Noise/PSK：不需要证书，只共享 `hop_secret`。
+    Noise,
+}
+
+impl TunnelSecurity {
+    /// 从数据库/API 里的字符串读取；未知值回落 `tls`（读路径不能因脏值失败）。
+    pub fn from_name(raw: &str) -> Self {
+        match raw.trim() {
+            "noise" => Self::Noise,
+            _ => Self::Tls,
+        }
+    }
+
+    /// 稳定的 snake_case 名字（与线协议、数据库、API 一致）。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Tls => "tls",
+            Self::Noise => "noise",
+        }
+    }
+
+    /// 是否是 Noise 模式。
+    pub fn is_noise(self) -> bool {
+        self == Self::Noise
+    }
+}
+
+impl std::fmt::Display for TunnelSecurity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// P16 隧道的一条链路参数。
 ///
 /// 2 跳链的形态：
@@ -211,11 +258,17 @@ pub struct TunnelSpec {
     pub listen: String,
     /// Dialer 连接的对端 Listener 地址；Listener 侧为空串。
     pub remote: String,
-    /// Listener 的证书路径（PEM）；Dialer 侧为空串。
+    /// 两端一致的隧道安全模式。
+    ///
+    /// 旧主控不下发时为 [`TunnelSecurity::Tls`]；`Noise` 模式下三个证书
+    /// 路径字段都为空串，Agent 不会读取它们。
+    #[serde(default)]
+    pub security: TunnelSecurity,
+    /// Listener 的证书路径（PEM）；Dialer 侧为空串，Noise 模式为空串。
     pub cert_pem_path: String,
-    /// Listener 的私钥路径（PEM）；Dialer 侧为空串。
+    /// Listener 的私钥路径（PEM）；Dialer 侧为空串，Noise 模式为空串。
     pub key_pem_path: String,
-    /// Dialer 只信任的 CA 路径（PEM）；Listener 侧为空串。
+    /// Dialer 只信任的 CA 路径（PEM）；Listener 侧为空串，Noise 模式为空串。
     pub ca_pem_path: String,
     /// base64(32B) 的每链路 HMAC 密钥。
     pub hop_secret: String,
@@ -593,8 +646,8 @@ mod tests {
     #[test]
     fn forward_udp_defaults_to_false_for_old_masters() {
         assert_eq!(
-            PROTOCOL_VERSION, 19,
-            "新增 ForwardStatus.traffic_in/out、tunnel 能力与 TunnelSpec 必须升协议版本"
+            PROTOCOL_VERSION, 20,
+            "新增 ForwardStatus.traffic_in/out、tunnel 能力与 TunnelSpec/TunnelSecurity 必须升协议版本"
         );
 
         // 旧主控的 JSON 没有 udp：必须解析成 false，也就是「只监听 TCP」，
@@ -934,6 +987,7 @@ mod tests {
             hop_id: "c1:1".into(),
             listen: "0.0.0.0:19402".into(),
             remote: String::new(),
+            security: TunnelSecurity::Tls,
             cert_pem_path: "/usr/local/etc/pierwave/tunnel/srv-b.pem".into(),
             key_pem_path: "/usr/local/etc/pierwave/tunnel/srv-b.key".into(),
             ca_pem_path: String::new(),
@@ -950,12 +1004,43 @@ mod tests {
         assert_eq!(json["engine"], "tunnel");
         assert_eq!(json["tunnel"]["role"], "listener");
         assert_eq!(
+            json["tunnel"]["security"], "tls",
+            "security 必须是稳定的 snake_case 字符串"
+        );
+        assert_eq!(
             json["tunnel"]["allowed_targets"][0]["ports"],
             serde_json::json!([443, 443])
         );
         let back: DesiredForward = serde_json::from_value(json).unwrap();
         assert_eq!(back, with_tunnel);
         assert_eq!(back.tunnel, Some(spec));
+
+        // 旧主控没有 security：必须按 TLS 解析，行为与升级前一致。
+        let old_tunnel = with_tunnel.clone();
+        let mut old_json = serde_json::to_value(&old_tunnel).unwrap();
+        old_json["tunnel"]
+            .as_object_mut()
+            .unwrap()
+            .remove("security");
+        let back: DesiredForward = serde_json::from_value(old_json).unwrap();
+        assert_eq!(
+            back.tunnel.as_ref().map(|tunnel| tunnel.security),
+            Some(TunnelSecurity::Tls),
+            "旧主控不下发 security 时必须默认 TLS"
+        );
+
+        // Noise 模式原样往返；证书路径为空串是合法状态。
+        let mut noise_tunnel = old_tunnel.tunnel.clone().unwrap();
+        noise_tunnel.security = TunnelSecurity::Noise;
+        noise_tunnel.cert_pem_path.clear();
+        noise_tunnel.key_pem_path.clear();
+        noise_tunnel.ca_pem_path.clear();
+        let json = serde_json::to_value(&noise_tunnel).unwrap();
+        assert_eq!(json["security"], "noise");
+        assert_eq!(json["cert_pem_path"], "");
+        let back: TunnelSpec = serde_json::from_value(json).unwrap();
+        assert_eq!(back.security, TunnelSecurity::Noise);
+        assert!(back.cert_pem_path.is_empty());
 
         // Dialer 是另一个稳定枚举值。
         let dialer = TunnelSpec {

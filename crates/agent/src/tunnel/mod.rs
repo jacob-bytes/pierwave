@@ -143,9 +143,8 @@ impl TunnelServerConfig {
 
     /// Noise-only 监听：不需要证书与私钥。
     ///
-    /// 接 `TunnelSupervisor` 需要 proto 增加模式字段（本轮不碰 proto），所以
-    /// 运行时暂时没有调用点；API 本身已完整并由回环测试覆盖。
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// `TunnelSupervisor` 在 `TunnelSpec.security = Noise` 时走这个构造器，
+    /// 证书路径留空是合法状态（不会被读取）。
     pub fn noise(bind: std::net::SocketAddr, hops: HashMap<String, Vec<u8>>) -> Self {
         Self {
             bind,
@@ -798,9 +797,8 @@ impl TunnelClient {
     /// 构建 Noise/PSK 客户端：不需要证书、CA 或 SNI。
     ///
     /// 两端只要持有同一个 `hop_secret`，就能独立算出相同的静态密钥对与 PSK。
-    /// 接 `TunnelSupervisor` 需要 proto 增加模式字段（本轮不碰 proto），所以
-    /// 运行时暂时没有调用点；API 本身已完整并由回环测试覆盖。
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// `TunnelSupervisor` 在 `TunnelSpec.security = Noise` 时走这个构造器，
+    /// 三个证书路径字段一律不读。
     pub fn noise(
         server_addr: std::net::SocketAddr,
         hop_id: impl Into<String>,
@@ -819,7 +817,10 @@ impl TunnelClient {
     }
 
     /// 覆盖周期重协商间隔（会 clamp 到最小值，避免 0 造成重协商风暴）。
-    #[cfg_attr(not(test), allow(dead_code))]
+    ///
+    /// 生产固定用 [`DEFAULT_REKEY_INTERVAL`]；只有测试需要压缩到毫秒级，
+    /// 因此编进测试构建即可，不再用 `allow(dead_code)` 掩盖未接线的方法。
+    #[cfg(test)]
     pub fn with_rekey_interval(mut self, interval: Duration) -> Self {
         self.rekey_interval = interval.max(modes::MIN_REKEY_INTERVAL);
         self
@@ -1914,6 +1915,7 @@ mod tests {
             hop_id: HOP_ID.into(),
             listen: listen.into(),
             remote: remote.into(),
+            security: TunnelSecurity::Tls,
             cert_pem_path: if matches!(role, TunnelRole::Listener) {
                 cert_path.display().to_string()
             } else {

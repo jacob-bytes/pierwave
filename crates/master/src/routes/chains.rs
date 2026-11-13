@@ -31,6 +31,7 @@ use pierwave_domain::chains::GroupStrategy;
 use pierwave_domain::models::{
     Chain, ChainGroupMember, ChainGroupWithMembers, ChainWithGroups, ForwardStatusRow, Server,
 };
+use pierwave_domain::tunnel_security as tunnel_mode;
 use pierwave_domain::{chains, engine, forwards, hop_transport, protocol, repo};
 
 use crate::auth::CurrentUser;
@@ -39,7 +40,7 @@ use crate::state::AppState;
 
 use pierwave_proto::{
     DesiredForward, ForwardEngine, ForwardProtocol, ForwardStrategy, ForwardTarget, TargetProbe,
-    TunnelRole, TunnelSpec, TunnelTargetRule,
+    TunnelRole, TunnelSecurity, TunnelSpec, TunnelTargetRule,
 };
 
 /// 一条已通过校验的成员：带上服务器地址，供冲突提示与推导使用。
@@ -235,6 +236,9 @@ pub struct CreateChain {
     /// 跳间加密模式：`none`（缺省，明文）或 `tls`。
     #[serde(default)]
     pub transport: Option<String>,
+    /// 隧道安全模式：`tls`（缺省）或 `noise`；只对 `engine = tunnel` 有意义。
+    #[serde(default)]
+    pub tunnel_security: Option<String>,
     /// 旧字段：每组一台成员。新请求优先用 `groups`。
     #[serde(default)]
     pub hops: Vec<CreateChainHop>,
@@ -257,6 +261,8 @@ pub struct PatchChain {
     pub udp: Option<bool>,
     /// `none` / `tls`；`None` = 不改。
     pub transport: Option<String>,
+    /// `tls` / `noise`；`None` = 不改。
+    pub tunnel_security: Option<String>,
     /// 旧字段：`None` = 不改；`Some` = 整体替换（每组一台）。
     pub hops: Option<Vec<CreateChainHop>>,
     /// 新字段：`None` = 不改；`Some` = 整体替换。
@@ -546,6 +552,14 @@ pub(crate) fn derive_tunnel_forwards(
     };
 
     let hop_id = format!("{}:{}", chain.id, exit.group.seq);
+    // Noise 模式不需要任何证书/CA 文件：路径留空，Agent 据此完全不读文件
+    // （空串是合法状态；TLS 模式仍按原路径下发，行为不变）。
+    let noise = tunnel_mode::is_noise(&chain.tunnel_security);
+    let security = if noise {
+        TunnelSecurity::Noise
+    } else {
+        TunnelSecurity::Tls
+    };
     let final_target_rule = TunnelTargetRule {
         host: chain.target_host.clone(),
         ports: Some((chain.target_port as u16, chain.target_port as u16)),
@@ -590,9 +604,14 @@ pub(crate) fn derive_tunnel_forwards(
                 hop_id: hop_id.clone(),
                 listen: format!("0.0.0.0:{}", entry_member.listen_port),
                 remote: host_port(&exit_member.server_address, exit_member.listen_port),
+                security,
                 cert_pem_path: String::new(),
                 key_pem_path: String::new(),
-                ca_pem_path: crate::tunnel_cert::ca_path(),
+                ca_pem_path: if noise {
+                    String::new()
+                } else {
+                    crate::tunnel_cert::ca_path()
+                },
                 hop_secret: hop_secret_b64.to_string(),
                 allowed_targets: dialer_allowed,
             }),
@@ -623,8 +642,17 @@ pub(crate) fn derive_tunnel_forwards(
                 hop_id,
                 listen: format!("0.0.0.0:{}", exit_member.listen_port),
                 remote: String::new(),
-                cert_pem_path: crate::tunnel_cert::cert_path(&exit_member.server_id),
-                key_pem_path: crate::tunnel_cert::key_path(&exit_member.server_id),
+                security,
+                cert_pem_path: if noise {
+                    String::new()
+                } else {
+                    crate::tunnel_cert::cert_path(&exit_member.server_id)
+                },
+                key_pem_path: if noise {
+                    String::new()
+                } else {
+                    crate::tunnel_cert::key_path(&exit_member.server_id)
+                },
                 ca_pem_path: String::new(),
                 hop_secret: hop_secret_b64.to_string(),
                 allowed_targets: listener_allowed,
@@ -1108,6 +1136,7 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
         "protocol": chain.chain.protocol,
         "udp": chain.chain.udp,
         "transport": chain.chain.transport,
+        "tunnel_security": chain.chain.tunnel_security,
         "degraded": degraded,
         // single | multi | hash：前端据此决定是否画「合计」。
         "path_mode": path_mode,
@@ -1325,6 +1354,7 @@ pub async fn create(
         protocol: raw_protocol,
         udp,
         transport: raw_transport,
+        tunnel_security: raw_tunnel_security,
         hops,
         groups,
     } = req;
@@ -1342,6 +1372,11 @@ pub async fn create(
     };
     let transport =
         hop_transport::normalize(raw_transport.as_deref().unwrap_or(hop_transport::DEFAULT))?;
+    let tunnel_security = tunnel_mode::normalize(
+        raw_tunnel_security
+            .as_deref()
+            .unwrap_or(tunnel_mode::DEFAULT),
+    )?;
 
     // 新字段优先；没传 groups 时把旧 hops 转成「每组一台」。
     let inputs = if groups.is_empty() {
@@ -1368,6 +1403,7 @@ pub async fn create(
             engine,
             protocol,
             transport,
+            tunnel_security,
             groups: new_groups(&groups),
         },
     )
@@ -1387,6 +1423,7 @@ pub async fn create(
             "protocol": &chain.chain.protocol,
             "udp": chain.chain.udp,
             "transport": &chain.chain.transport,
+            "tunnel_security": &chain.chain.tunnel_security,
             "hops": chain.groups.iter().map(|group| json!({
                 "seq": group.group.seq,
                 "server_id": group.members.first().map(|member| &member.server_id),
@@ -1438,6 +1475,7 @@ pub async fn update(
         protocol: raw_protocol,
         udp,
         transport: raw_transport,
+        tunnel_security: raw_tunnel_security,
         hops,
         groups,
     } = req;
@@ -1450,13 +1488,14 @@ pub async fn update(
         && raw_protocol.is_none()
         && udp.is_none()
         && raw_transport.is_none()
+        && raw_tunnel_security.is_none()
         && hops.is_none()
         && groups.is_none()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 name / target_host / target_port / enabled / engine / protocol / udp / transport / groups / hops 之一",
+            "至少需要提供 name / target_host / target_port / enabled / engine / protocol / udp / transport / tunnel_security / groups / hops 之一",
         ));
     }
 
@@ -1487,6 +1526,10 @@ pub async fn update(
         Some(raw) => Some(hop_transport::normalize(raw)?),
         None => None,
     };
+    let tunnel_security = match raw_tunnel_security.as_deref() {
+        Some(raw) => Some(tunnel_mode::normalize(raw)?),
+        None => None,
+    };
     let final_target_host = target_host
         .as_deref()
         .unwrap_or(&existing.chain.target_host);
@@ -1509,8 +1552,11 @@ pub async fn update(
     let final_protocol = protocol.as_deref().unwrap_or(&existing.chain.protocol);
     // 只在「安全相关的字段真的被改」时校验证书内容：证书过期后仍然要允许
     // 用户改名/停用/删除这条链，否则会被卡在一个无法自救的状态里。
-    let security_changed =
-        raw_transport.is_some() || engine.is_some() || replace_groups || protocol.is_some();
+    let security_changed = raw_transport.is_some()
+        || raw_tunnel_security.is_some()
+        || engine.is_some()
+        || replace_groups
+        || protocol.is_some();
     if security_changed {
         validate_nftables_chain(final_engine, &groups)?;
         validate_tunnel_chain(final_engine, final_protocol, final_transport, &groups)?;
@@ -1536,6 +1582,7 @@ pub async fn update(
             engine,
             protocol,
             transport,
+            tunnel_security,
             groups: replace_groups.then(|| new_groups(&groups)),
         },
     )
@@ -1578,6 +1625,11 @@ pub async fn update(
             "transport",
             json!(&existing.chain.transport),
             json!(&updated.chain.transport),
+        ),
+        (
+            "tunnel_security",
+            json!(&existing.chain.tunnel_security),
+            json!(&updated.chain.tunnel_security),
         ),
         (
             "hops",
@@ -1822,6 +1874,7 @@ mod tests {
             protocol: "tcp".into(),
             udp: false,
             transport: "none".into(),
+            tunnel_security: "tls".into(),
             created_at: 0,
             updated_at: 0,
         }
@@ -3441,6 +3494,20 @@ mod tests {
         .unwrap();
     }
 
+    async fn set_tunnel_capability(state: &AppState, server_id: &str, value: Option<bool>) {
+        repo::servers::update_health(
+            &state.db.pool,
+            server_id,
+            "0.8.3",
+            &repo::servers::HealthSnapshot {
+                tunnel_available: value,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
     fn tls_groups_body(
         name: &str,
         target_host: &str,
@@ -3717,6 +3784,7 @@ mod tests {
                 engine: "realm".into(),
                 protocol: "tcp".into(),
                 transport: "tls".into(),
+                tunnel_security: "tls".into(),
                 groups: vec![
                     repo::chains::NewChainGroup {
                         name: None,
@@ -3813,6 +3881,7 @@ mod tests {
                 engine: "realm".into(),
                 protocol: "tcp".into(),
                 transport: "tls".into(),
+                tunnel_security: "tls".into(),
                 groups: vec![
                     repo::chains::NewChainGroup {
                         name: None,
@@ -4488,6 +4557,189 @@ mod tests {
             "同一轮心跳写入了延迟样本，历史接口应能读到"
         );
     }
+    /// Noise 链：保存时接受 `noise`、链 JSON 返回该字段，且下发时
+    /// TunnelSpec.security = Noise、三个证书路径为空、files 里没有任何隧道证书。
+    #[tokio::test]
+    async fn noise_tunnel_chain_is_dispatched_without_certificate_files() {
+        let fixture = setup().await;
+        for server_id in [&fixture.a, &fixture.b] {
+            set_tunnel_capability(&fixture.state, server_id, Some(true)).await;
+        }
+        let body = json!({
+            "name": "noise 隧道",
+            "target_host": "1.1.1.1",
+            "target_port": 443,
+            "engine": "tunnel",
+            "protocol": "tcp",
+            "transport": "none",
+            "tunnel_security": "noise",
+            "groups": [
+                group(None, None, &[group_member(&fixture.a, 19401, 0)]),
+                group(None, None, &[group_member(&fixture.b, 19402, 0)]),
+            ],
+        });
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{value}");
+        assert_eq!(
+            value["chain"]["tunnel_security"], "noise",
+            "创建响应必须回显 tunnel_security"
+        );
+        assert!(value["chain"]["blocked_code"].is_null(), "{value}");
+        let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            "/api/v1/chains",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            value["items"][0]["tunnel_security"], "noise",
+            "GET /chains 的 items[].tunnel_security 必须返回"
+        );
+
+        let server_a = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.a)
+            .await
+            .unwrap();
+        let rendered_a =
+            crate::routes::desired::render(&fixture.state, &server_a, "https://panel.example.com")
+                .await
+                .unwrap();
+        assert!(rendered_a.warnings.is_empty(), "{:?}", rendered_a.warnings);
+        let entry = rendered_a
+            .forwards
+            .iter()
+            .find(|forward| forward.id == chains::legacy_forward_id(&chain_id, 0))
+            .expect("入口 Dialer 必须出现在服务器 A 的期望态里");
+        let dialer = entry.tunnel.as_ref().expect("entry 必须带 tunnel 段");
+        assert_eq!(dialer.security, TunnelSecurity::Noise);
+        assert!(
+            dialer.cert_pem_path.is_empty()
+                && dialer.key_pem_path.is_empty()
+                && dialer.ca_pem_path.is_empty(),
+            "Noise 模式不能带任何证书路径：{dialer:?}"
+        );
+        assert!(!dialer.hop_secret.is_empty(), "Noise 仍然需要 hop_secret");
+        assert!(
+            rendered_a
+                .files
+                .iter()
+                .all(|file| !file.path.contains("/tunnel/")),
+            "Noise 链不能下发隧道证书：{:?}",
+            rendered_a.files
+        );
+
+        let server_b = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.b)
+            .await
+            .unwrap();
+        let rendered_b =
+            crate::routes::desired::render(&fixture.state, &server_b, "https://panel.example.com")
+                .await
+                .unwrap();
+        assert!(rendered_b.warnings.is_empty(), "{:?}", rendered_b.warnings);
+        let exit = rendered_b
+            .forwards
+            .iter()
+            .find(|forward| forward.id == chains::legacy_forward_id(&chain_id, 1))
+            .expect("出口 Listener 必须出现在服务器 B 的期望态里");
+        let listener = exit.tunnel.as_ref().expect("exit 必须带 tunnel 段");
+        assert_eq!(listener.security, TunnelSecurity::Noise);
+        assert!(
+            listener.cert_pem_path.is_empty()
+                && listener.key_pem_path.is_empty()
+                && listener.ca_pem_path.is_empty(),
+            "Noise 模式不能带任何证书路径：{listener:?}"
+        );
+        assert!(
+            rendered_b
+                .files
+                .iter()
+                .all(|file| !file.path.contains("/tunnel/")),
+            "Noise 链不能下发隧道证书：{:?}",
+            rendered_b.files
+        );
+    }
+
+    /// 非法 tunnel_security：POST / PATCH 都必须 400 + 稳定 code。
+    #[tokio::test]
+    async fn invalid_tunnel_security_is_rejected_with_stable_code() {
+        let fixture = setup().await;
+        for bad in ["wireguard", "Noise", "TLS", ""] {
+            let body = json!({
+                "name": "非法模式",
+                "target_host": "1.1.1.1",
+                "target_port": 443,
+                "tunnel_security": bad,
+            });
+            let (status, value) = request(
+                &fixture.app,
+                Some(&fixture.cookie),
+                Method::POST,
+                "/api/v1/chains",
+                Some(body),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "bad={bad:?}: {value}");
+            assert_eq!(
+                value["code"], "chain.tunnel_security_invalid",
+                "bad={bad:?}: {value}"
+            );
+            assert_eq!(value["params"]["tunnel_security"], bad);
+        }
+
+        let chain = repo::chains::create(
+            &fixture.state.db.pool,
+            repo::chains::NewChain {
+                name: "待改".into(),
+                target_host: "1.1.1.1".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "native".into(),
+                protocol: "tcp".into(),
+                transport: "none".into(),
+                tunnel_security: "tls".into(),
+                groups: vec![repo::chains::NewChainGroup {
+                    name: None,
+                    strategy: "round_robin".into(),
+                    cert_id: None,
+                    members: vec![repo::chains::NewChainGroupMember {
+                        server_id: fixture.a.clone(),
+                        listen_port: 9001,
+                        priority: 0,
+                        weight: 1,
+                    }],
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::PATCH,
+            &format!("/api/v1/chains/{}", chain.chain.id),
+            Some(json!({ "tunnel_security": "wireguard" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{value}");
+        assert_eq!(value["code"], "chain.tunnel_security_invalid");
+        let stored = repo::chains::find_by_id(&fixture.state.db.pool, &chain.chain.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.chain.tunnel_security, "tls", "非法值不能落库");
+    }
+
     /// tunnel 链的保存门禁：旧 Agent（NULL）与明确不支持（false）都拒绝；
     /// 跳数、成员数、协议、transport 四类结构错误各有稳定 code。
     #[test]

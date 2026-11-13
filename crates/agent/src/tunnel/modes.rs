@@ -123,23 +123,10 @@ const KIND_DATA: u8 = 0x01;
 const PUMP_BUFFER: usize = MAX_DATA_PLAINTEXT;
 
 /// 隧道安全模式。默认 TLS，保持既有行为不变。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TunnelSecurity {
-    /// 自有 CA 的 TLS（P16.1 已实现）。
-    #[default]
-    Tls,
-    /// Noise IK + PSK：无证书，完全对称密钥。
-    Noise,
-}
-
-impl fmt::Display for TunnelSecurity {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Tls => "tls",
-            Self::Noise => "noise",
-        })
-    }
-}
+///
+/// 定义在 `pierwave-proto` 里：主控通过 `TunnelSpec.security` 下发，
+/// Agent 不再维护第二份枚举，避免两端字符串/默认值漂移。
+pub use pierwave_proto::TunnelSecurity;
 
 /// 隧道底层字节流。TLS 与 Noise 都装箱成这个类型，上层不再区分。
 pub trait AsyncStream: AsyncRead + AsyncWrite + Unpin + Send {}

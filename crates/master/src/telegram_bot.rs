@@ -1042,6 +1042,7 @@ mod tests {
                 engine: "native".into(),
                 protocol: "tcp".into(),
                 transport: "none".into(),
+                tunnel_security: "tls".into(),
                 groups: vec![chains_repo::NewChainGroup {
                     name: None,
                     strategy: chain_rules::GroupStrategy::RoundRobin.as_str().to_string(),

@@ -236,6 +236,25 @@ apply 结果的 `warnings` 里出现「链『X』未下发：…」，链视图�
 `code`/`params` 稳定与中文兜底。 / Frontend i18n keys (`errors.chain.*`) are added by the web
 lane; this backend change guarantees stable `code`/`params` plus the Chinese fallback.
 
+### 隧道安全模式（P16）/ Tunnel security mode
+
+`engine = tunnel` 的链额外有一个安全模式：`tls`（默认，主控自有 CA 签发证书）或
+`noise`（Noise/PSK，无证书，只共享 `hop_secret`）。该字段只对 tunnel 引擎有意义，
+与 realm 的 `transport`（`none` / `tls`）是两个独立维度。
+
+| code | 中文 | English | params |
+|---|---|---|---|
+| `chain.tunnel_security_invalid` | 隧道安全模式「{tunnel_security}」无效，只支持 tls / noise | Invalid tunnel security "{tunnel_security}"; expected tls / noise | allowed, tunnel_security |
+
+写路径（POST/PATCH）严格校验，非法值返回 400 且不落库；读路径遇到未知值回落 `tls`，
+与迁移 0038 的默认值一致。Noise 模式下发时 `TunnelSpec.security = noise`，三个证书路径
+为空串，`DesiredState.files` 里没有该链的证书文件。
+
+> A tunnel chain has its own security mode: `tls` (default, master-owned CA) or `noise`
+> (Noise/PSK, no certificates, only a shared `hop_secret`). It is independent of realm's
+> `transport`. Invalid values are rejected with 400 on write and fall back to `tls` on read;
+> Noise dispatches an empty certificate-path set and no tunnel files.
+
 ### 转发协议模式（P15.4）/ Forward protocol mode
 
 转发与链的 `protocol` 只有 `tcp`（默认）/ `udp` / `both` 三种取值。写路径严格校验，

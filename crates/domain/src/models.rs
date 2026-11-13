@@ -183,6 +183,11 @@ pub struct Chain {
     pub protocol: String,
     /// 跳间加密模式：`none`（默认，明文）或 `tls`（单向 TLS）。
     pub transport: String,
+    /// P16 隧道引擎的安全模式：`tls`（默认，自有 CA）或 `noise`（Noise/PSK）。
+    ///
+    /// 只对 `engine = tunnel` 有意义；历史行由迁移 0038 默认成 `tls`，
+    /// 读路径遇到未知值回落 `tls`（见 [`crate::tunnel_security`]）。
+    pub tunnel_security: String,
     pub created_at: i64,
     pub updated_at: i64,
 }

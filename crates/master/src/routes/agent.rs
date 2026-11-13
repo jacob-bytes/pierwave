@@ -1461,6 +1461,7 @@ mod tests {
                 engine: "native".into(),
                 protocol: "tcp".into(),
                 transport: "none".into(),
+                tunnel_security: "tls".into(),
                 groups: vec![repo::chains::NewChainGroup {
                     name: None,
                     strategy: "round_robin".into(),

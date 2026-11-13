@@ -33,7 +33,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine as _;
-use pierwave_proto::{DesiredForward, ForwardEngine, ForwardStatus, TunnelRole, TunnelSpec};
+use pierwave_proto::{
+    DesiredForward, ForwardEngine, ForwardStatus, TunnelRole, TunnelSecurity, TunnelSpec,
+};
 use rustls::pki_types::ServerName;
 use tokio::net::{lookup_host, TcpListener, TcpStream};
 use tokio::task::JoinHandle;
@@ -119,6 +121,10 @@ fn describe_start_failure(error: &anyhow::Error) -> String {
         return format!("证书或配置文件缺失 / certificate or config file missing: {error:#}");
     }
     let text = format!("{error:#}");
+    // TLS 规格缺路径时由 validate_spec 直接给出「证书缺失」，没有 io 错误链。
+    if text.contains("证书缺失") || text.contains("certificate missing") {
+        return format!("证书或配置文件缺失 / certificate or config file missing: {text}");
+    }
     if text.contains("failed to bind") || text.contains("绑定隧道") {
         return format!("绑定失败 / bind failed: {text}");
     }
@@ -374,12 +380,17 @@ async fn start_endpoint(spec: &DesiredForward) -> Result<Started> {
                     "tunnel Listener 的白名单为空，将拒绝所有目标 / empty allowlist: all targets denied"
                 );
             }
-            let mut config = TunnelServerConfig::new(
-                bind,
-                tunnel.cert_pem_path.clone(),
-                tunnel.key_pem_path.clone(),
-                hops,
-            );
+            let mut config = match tunnel.security {
+                // TLS：证书/私钥路径由主控下发，缺失时在 bind 前失败。
+                TunnelSecurity::Tls => TunnelServerConfig::new(
+                    bind,
+                    tunnel.cert_pem_path.clone(),
+                    tunnel.key_pem_path.clone(),
+                    hops,
+                ),
+                // Noise：完全不读证书路径，只认 hop_secret。
+                TunnelSecurity::Noise => TunnelServerConfig::noise(bind, hops),
+            };
             config.max_connections = crate::tunnel::DEFAULT_MAX_CONNECTIONS;
             config.allowed_targets = allowed_targets;
             let (server, listener) = TunnelServer::bind(config).await?;
@@ -408,14 +419,21 @@ async fn start_endpoint(spec: &DesiredForward) -> Result<Started> {
                 );
             }
             let target = dial_target(&tunnel)?;
-            let ca_path = tunnel.ca_pem_path.clone();
-            let client = TunnelClient::trusting_ca_file(
-                remote,
-                server_name,
-                tunnel.hop_id.clone(),
-                secret,
-                std::path::Path::new(&ca_path),
-            )?;
+            let client = match tunnel.security {
+                // TLS：CA 文件必须存在且可读。
+                TunnelSecurity::Tls => {
+                    let ca_path = tunnel.ca_pem_path.clone();
+                    TunnelClient::trusting_ca_file(
+                        remote,
+                        server_name,
+                        tunnel.hop_id.clone(),
+                        secret,
+                        std::path::Path::new(&ca_path),
+                    )?
+                }
+                // Noise：不需要 CA/SNI，只共享 hop_secret。
+                TunnelSecurity::Noise => TunnelClient::noise(remote, tunnel.hop_id.clone(), secret),
+            };
             let listener = TcpListener::bind(bind).await.with_context(|| {
                 format!("绑定隧道入口 {bind} 失败 / failed to bind tunnel dialer")
             })?;
@@ -436,15 +454,21 @@ fn validate_spec(spec: &TunnelSpec) -> Result<()> {
     }
     match spec.role {
         TunnelRole::Listener => {
-            if spec.cert_pem_path.trim().is_empty() || spec.key_pem_path.trim().is_empty() {
-                bail!("Listener 缺少 cert_pem_path/key_pem_path / listener is missing certificate paths");
+            // Noise 模式不读证书路径：空串 / 不存在的路径都是合法状态。
+            if spec.security == TunnelSecurity::Tls
+                && (spec.cert_pem_path.trim().is_empty() || spec.key_pem_path.trim().is_empty())
+            {
+                bail!(
+                    "Listener 缺少证书/私钥路径（证书缺失）/ listener is missing certificate/key paths (certificate missing)"
+                );
             }
         }
         TunnelRole::Dialer => {
             if spec.remote.trim().is_empty() {
                 bail!("Dialer 缺少 remote / dialer is missing remote address");
             }
-            if spec.ca_pem_path.trim().is_empty() {
+            // Noise 模式不需要 CA 文件。
+            if spec.security == TunnelSecurity::Tls && spec.ca_pem_path.trim().is_empty() {
                 bail!("Dialer 缺少 ca_pem_path / dialer is missing CA path");
             }
         }
@@ -693,6 +717,7 @@ mod tests {
                 hop_id: HOP_ID.into(),
                 listen: format!("127.0.0.1:{listen_port}"),
                 remote: remote.into(),
+                security: TunnelSecurity::Tls,
                 cert_pem_path: paths.cert.into(),
                 key_pem_path: paths.key.into(),
                 ca_pem_path: paths.ca.into(),
@@ -772,6 +797,30 @@ mod tests {
             },
             allowed,
         )
+    }
+
+    /// Noise 规格：三个证书路径都是空串，Agent 不能因此报错。
+    fn noise_spec(
+        id: &str,
+        role: TunnelRole,
+        port: u16,
+        remote: &str,
+        allowed: &[SocketAddr],
+    ) -> DesiredForward {
+        let mut forward = forward_with_paths(
+            id,
+            role,
+            port,
+            remote,
+            SpecPaths {
+                cert: "",
+                key: "",
+                ca: "",
+            },
+            allowed,
+        );
+        forward.tunnel.as_mut().expect("必须带 tunnel 段").security = TunnelSecurity::Noise;
+        forward
     }
 
     fn status_of(supervisor: &TunnelSupervisor, id: &str) -> ForwardStatus {
@@ -1025,6 +1074,65 @@ mod tests {
 
         drop(occupied);
         supervisor.apply(&[]).await;
+    }
+
+    /// TLS 规格缺证书路径：必须报「证书缺失」，不能悄悄退化成 Noise/明文。
+    #[tokio::test]
+    async fn tls_spec_with_empty_certificate_paths_reports_missing_certificate() {
+        let mut spec = listener_spec_paths("tls-missing", free_port(), "", "");
+        spec.tunnel.as_mut().expect("必须带 tunnel 段").security = TunnelSecurity::Tls;
+
+        let mut supervisor = TunnelSupervisor::new();
+        supervisor.apply(&[spec]).await;
+
+        let status = status_of(&supervisor, "tls-missing");
+        assert!(!status.listening, "{status:?}");
+        assert!(
+            status.error.contains("证书") && status.error.contains("missing"),
+            "TLS 缺证书必须写明：{}",
+            status.error
+        );
+        supervisor.apply(&[]).await;
+    }
+
+    /// Noise 规格：证书路径全空是合法状态，监听与回环都必须工作。
+    #[tokio::test]
+    async fn noise_specs_run_without_reading_certificate_paths() {
+        let (echo_addr, echo_task) = spawn_echo().await;
+        let listener_port = free_port();
+        let dialer_port = free_port();
+        let listener_addr: SocketAddr = format!("127.0.0.1:{listener_port}").parse().unwrap();
+        let remote = format!("127.0.0.1:{listener_port}");
+        let allowed = [listener_addr, echo_addr];
+
+        let listener = noise_spec(
+            "noise-listener",
+            TunnelRole::Listener,
+            listener_port,
+            "",
+            &[echo_addr],
+        );
+        let dialer = noise_spec(
+            "noise-dialer",
+            TunnelRole::Dialer,
+            dialer_port,
+            &remote,
+            &allowed,
+        );
+
+        let mut supervisor = TunnelSupervisor::new();
+        supervisor.apply(&[listener, dialer]).await;
+
+        assert!(status_of(&supervisor, "noise-listener").listening);
+        assert!(status_of(&supervisor, "noise-dialer").listening);
+        assert_eq!(
+            roundtrip(dialer_port, b"noise-payload").await,
+            b"noise-payload",
+            "Noise 模式必须能穿过隧道回环"
+        );
+
+        supervisor.apply(&[]).await;
+        echo_task.abort();
     }
 
     /// 退避：连续失败时下一次允许重建的时间按 15s→30s→60s… 递增；

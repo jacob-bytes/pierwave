@@ -96,6 +96,10 @@ async fn legacy_hops_become_single_member_groups() {
         chain.chain.transport, "none",
         "0031 之后旧链默认明文，下发结果必须与升级前一致"
     );
+    assert_eq!(
+        chain.chain.tunnel_security, "tls",
+        "0038 之后旧链默认 TLS 隧道模式，P16.1 行为不变"
+    );
     assert!(
         chain
             .groups
@@ -132,6 +136,7 @@ async fn legacy_hops_become_single_member_groups() {
             engine: "realm".into(),
             protocol: "tcp".into(),
             transport: "tls".into(),
+            tunnel_security: "tls".into(),
             groups: vec![
                 repo::chains::NewChainGroup {
                     name: None,
@@ -161,9 +166,26 @@ async fn legacy_hops_become_single_member_groups() {
     .await
     .unwrap();
     assert_eq!(tls_chain.chain.transport, "tls");
+    assert_eq!(tls_chain.chain.tunnel_security, "tls");
     assert_eq!(
         tls_chain.groups[1].group.cert_id.as_deref(),
         Some("cert-hop1")
+    );
+
+    let noise_chain = repo::chains::update(
+        &db.pool,
+        &tls_chain.chain.id,
+        repo::chains::UpdateChain {
+            tunnel_security: Some("noise".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        noise_chain.chain.tunnel_security, "noise",
+        "tunnel_security 必须能经仓储往返"
     );
 
     let plain_again = repo::chains::update(

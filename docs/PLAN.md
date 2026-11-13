@@ -1936,7 +1936,7 @@ Agent 新增 tunnel.rs supervisor（与 native/realm 同层）
 >    ca.pem 0644）；`hop_secret = HMAC(master_secret, "tunnel/{chain_id}/{seq}")`。
 >
 > **当前限制**：tunnel 引擎只支持 2 跳、每组 1 台成员（多成员会把流量
-> 全部压到第一台，因此先拒绝而不是静默降级）；3+ 跳、Noise/PSK、UDP/QUIC
+> 全部压到第一台，因此先拒绝而不是静默降级）；3+ 跳、UDP/QUIC
 > 仍按原计划留在后续阶段。
 >
 > **Status (2026-11, English)**: P16.1 framing/TLS/handshake landed in
@@ -1946,8 +1946,36 @@ Agent 新增 tunnel.rs supervisor（与 native/realm 同层）
 > listener validates an allowlist before any outbound connect (empty = deny
 > all), and a 2-hop chain is derived into an entry dialer plus an exit
 > listener with a master-owned CA and per-server leaf certificates. The
-> current engine is limited to 2 hops with one member per group; Noise/PSK,
-> UDP/QUIC and 3+ hop topologies remain future work.
+> current engine is limited to 2 hops with one member per group; UDP/QUIC
+> and 3+ hop topologies remain future work.
+
+### 8.2 P16.2 Noise/PSK 的下发路径（2026-11）
+
+P16.2 的 Noise 握手（`d393d4d`）最初只做到 Agent 侧 API，没有下发路径。
+本轮把它接到链配置上：
+
+* **线协议 v20**：`TunnelSpec` 增加 `security`（`tls` / `noise`，缺省 `tls`），
+  旧主控报文反序列化后仍是 TLS，升级 Agent 行为不变；
+* **存储**：迁移 0038 给 `chains` 追加 `tunnel_security TEXT NOT NULL DEFAULT 'tls'`，
+  读路径对未知/脏值回落 `tls`；
+* **API**：`POST/PATCH /api/v1/chains` 接受 `tunnel_security`，非法值返回
+  `chain.tunnel_security_invalid`；`GET /api/v1/chains` 的 `items[].tunnel_security`
+  原样返回；
+* **下发**：`noise` 链不签发、也不下发任何隧道证书/CA，`TunnelSpec` 的三个证书
+  路径均为空串，只带 `hop_secret`；`tls` 链仍走 P16.1 的 CA + 属证书；
+* **Agent**：`TunnelSupervisor` 按 `spec.security` 选择
+  `TunnelServerConfig::new` / `TunnelClient::trusting_ca_file`（TLS）或
+  `TunnelServerConfig::noise` / `TunnelClient::noise`（Noise）。Noise 模式不读
+  证书路径；TLS 模式缺证书仍在启动前失败并报「证书缺失」。
+
+> **Status (2026-11, English)**: the P16.2 Noise handshake shipped in `d393d4d`
+> without a dispatch path. This round adds protocol v20 `TunnelSpec.security`
+> (default `tls`), migration 0038 `chains.tunnel_security`, API validation with
+> `chain.tunnel_security_invalid`, and mode-aware rendering: `noise` chains ship
+> no certificates or CA files (empty path fields, only `hop_secret`), while
+> `tls` chains keep P16.1 assets. `TunnelSupervisor` selects TLS or Noise from
+> `spec.security`; Noise never reads certificate paths, and TLS still fails fast
+> with a missing-certificate status.
 
 ### 9. 不做
 

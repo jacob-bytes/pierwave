@@ -10,7 +10,8 @@ use serde_json::Value;
 use pierwave_domain::certificate;
 use pierwave_domain::models::{Certificate, Server};
 use pierwave_domain::{
-    chains, credentials, engine, hop_transport, protocol, release, repo, time, xray,
+    chains, credentials, engine, hop_transport, protocol, release, repo, time, tunnel_security,
+    xray,
 };
 use pierwave_proto::{
     AgentUpgradePlan, DesiredForward, DesiredNode, ForwardEngine, ForwardProtocol, ManagedFile,
@@ -247,11 +248,15 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
                 ));
                 continue;
             }
-            let assets =
+            let assets = if tunnel_security::is_noise(&chain.chain.tunnel_security) {
+                // Noise/PSK 不读任何证书/CA 文件，也不需要主控签发材料；
+                // 跳过 ensure_chain_assets 意味着既不下发文件、也不碰 CA。
+                None
+            } else {
                 match tunnel_cert::ensure_chain_assets(&state.db.pool, &chain.groups, time::now())
                     .await
                 {
-                    Ok(assets) => assets,
+                    Ok(assets) => Some(assets),
                     Err(error) => {
                         warnings.push(format!(
                             "链「{}」未下发：签发隧道证书失败：{error}",
@@ -259,7 +264,8 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
                         ));
                         continue;
                     }
-                };
+                }
+            };
             let hop_secret_b64 = credentials::tunnel_hop_secret_b64(&secret, &chain.chain.id, 1);
             for (server_id, forward) in
                 super::chains::derive_tunnel_forwards(&chain.chain, &chain.groups, &hop_secret_b64)
@@ -272,39 +278,43 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
                 };
                 match tunnel.role {
                     pierwave_proto::TunnelRole::Listener => {
-                        let Some(cert) = assets.server(&server.id) else {
-                            warnings.push(format!(
-                                "链「{}」未下发：服务器 {} 缺少隧道证书",
-                                chain.chain.name, server.name
-                            ));
-                            break;
-                        };
-                        let cert_path = tunnel_cert::cert_path(&server.id);
-                        if file_paths.insert(cert_path.clone()) {
-                            files.push(ManagedFile {
-                                path: cert_path,
-                                content: cert.cert_pem.clone(),
-                                mode: tunnel_cert::CERT_FILE_MODE,
-                            });
-                        }
-                        let key_path = tunnel_cert::key_path(&server.id);
-                        if file_paths.insert(key_path.clone()) {
-                            files.push(ManagedFile {
-                                path: key_path,
-                                content: cert.key_pem.clone(),
-                                mode: tunnel_cert::KEY_FILE_MODE,
-                            });
+                        if let Some(assets) = assets.as_ref() {
+                            let Some(cert) = assets.server(&server.id) else {
+                                warnings.push(format!(
+                                    "链「{}」未下发：服务器 {} 缺少隧道证书",
+                                    chain.chain.name, server.name
+                                ));
+                                break;
+                            };
+                            let cert_path = tunnel_cert::cert_path(&server.id);
+                            if file_paths.insert(cert_path.clone()) {
+                                files.push(ManagedFile {
+                                    path: cert_path,
+                                    content: cert.cert_pem.clone(),
+                                    mode: tunnel_cert::CERT_FILE_MODE,
+                                });
+                            }
+                            let key_path = tunnel_cert::key_path(&server.id);
+                            if file_paths.insert(key_path.clone()) {
+                                files.push(ManagedFile {
+                                    path: key_path,
+                                    content: cert.key_pem.clone(),
+                                    mode: tunnel_cert::KEY_FILE_MODE,
+                                });
+                            }
                         }
                         desired_forwards.push(forward);
                     }
                     pierwave_proto::TunnelRole::Dialer => {
-                        let ca_path = tunnel_cert::ca_path();
-                        if file_paths.insert(ca_path.clone()) {
-                            files.push(ManagedFile {
-                                path: ca_path,
-                                content: assets.ca_pem.clone(),
-                                mode: tunnel_cert::CA_FILE_MODE,
-                            });
+                        if let Some(assets) = assets.as_ref() {
+                            let ca_path = tunnel_cert::ca_path();
+                            if file_paths.insert(ca_path.clone()) {
+                                files.push(ManagedFile {
+                                    path: ca_path,
+                                    content: assets.ca_pem.clone(),
+                                    mode: tunnel_cert::CA_FILE_MODE,
+                                });
+                            }
                         }
                         desired_forwards.push(forward);
                     }
@@ -809,6 +819,7 @@ mod tests {
                 engine: "native".into(),
                 protocol: "tcp".into(),
                 transport: "none".into(),
+                tunnel_security: "tls".into(),
                 groups: vec![
                     repo::chains::NewChainGroup {
                         name: None,
@@ -1065,6 +1076,7 @@ mod tests {
                 engine: "tunnel".into(),
                 protocol: "tcp".into(),
                 transport: "none".into(),
+                tunnel_security: "tls".into(),
                 groups: vec![
                     repo::chains::NewChainGroup {
                         name: None,
@@ -1107,6 +1119,11 @@ mod tests {
         assert_eq!(entry.engine, ForwardEngine::Tunnel);
         let dialer = entry.tunnel.as_ref().expect("entry 必须带 tunnel 段");
         assert_eq!(dialer.role, pierwave_proto::TunnelRole::Dialer);
+        assert_eq!(
+            dialer.security,
+            pierwave_proto::TunnelSecurity::Tls,
+            "显式 tls 链必须下发 TLS 模式"
+        );
         assert_eq!(dialer.listen, "0.0.0.0:19401");
         assert_eq!(dialer.remote, "10.0.0.2:19402");
         assert_eq!(dialer.ca_pem_path, "/usr/local/etc/pierwave/tunnel/ca.pem");
@@ -1146,6 +1163,11 @@ mod tests {
             .expect("出口 Listener 必须出现在服务器 B 的期望态里");
         let listener = exit.tunnel.as_ref().expect("exit 必须带 tunnel 段");
         assert_eq!(listener.role, pierwave_proto::TunnelRole::Listener);
+        assert_eq!(
+            listener.security,
+            pierwave_proto::TunnelSecurity::Tls,
+            "TLS 链的 Listener 也必须下发 TLS 模式"
+        );
         assert_eq!(listener.listen, "0.0.0.0:19402");
         assert!(listener.remote.is_empty());
         assert_eq!(
@@ -1220,6 +1242,7 @@ mod tests {
                 engine: "tunnel".into(),
                 protocol: "tcp".into(),
                 transport: "none".into(),
+                tunnel_security: "tls".into(),
                 groups: vec![
                     repo::chains::NewChainGroup {
                         name: None,

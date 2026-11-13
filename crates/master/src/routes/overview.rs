@@ -451,6 +451,7 @@ mod tests {
                 engine: "native".into(),
                 protocol: "tcp".into(),
                 transport: "none".into(),
+                tunnel_security: "tls".into(),
                 groups: one_group(&a.id, 9001, None),
             },
         )
@@ -497,6 +498,7 @@ mod tests {
                 engine: "realm".into(),
                 protocol: "tcp".into(),
                 transport: "tls".into(),
+                tunnel_security: "tls".into(),
                 groups: vec![
                     repo::chains::NewChainGroup {
                         name: None,
@@ -542,6 +544,7 @@ mod tests {
                 engine: "nftables".into(),
                 protocol: "tcp".into(),
                 transport: "none".into(),
+                tunnel_security: "tls".into(),
                 groups: one_group(&c.id, 9003, None),
             },
         )
@@ -568,6 +571,7 @@ mod tests {
                 engine: "realm".into(),
                 protocol: "tcp".into(),
                 transport: "tls".into(),
+                tunnel_security: "tls".into(),
                 groups: vec![
                     repo::chains::NewChainGroup {
                         name: None,

@@ -741,6 +741,7 @@ mod tests {
                 engine: "realm".into(),
                 protocol: "tcp".into(),
                 transport: "tls".into(),
+                tunnel_security: "tls".into(),
                 groups: vec![
                     repo::chains::NewChainGroup {
                         name: None,

@@ -2597,6 +2597,8 @@ pub mod chains {
         pub protocol: String,
         /// 已通过 `hop_transport::normalize` 校验的加密模式（`none` / `tls`）。
         pub transport: String,
+        /// 已通过 `tunnel_security::normalize` 校验的隧道安全模式（`tls` / `noise`）。
+        pub tunnel_security: String,
         pub groups: Vec<NewChainGroup>,
     }
 
@@ -2613,6 +2615,8 @@ pub mod chains {
         pub protocol: Option<String>,
         /// `None` = 不改；`Some` 必须已通过 `hop_transport::normalize` 校验。
         pub transport: Option<String>,
+        /// `None` = 不改；`Some` 必须已通过 `tunnel_security::normalize` 校验。
+        pub tunnel_security: Option<String>,
         /// `None` = 不改组；`Some` = 整体替换。
         pub groups: Option<Vec<NewChainGroup>>,
     }
@@ -2717,8 +2721,8 @@ pub mod chains {
         sqlx::query(
             "INSERT INTO chains
                 (id, name, target_host, target_port, enabled, engine, protocol, udp, transport,
-                 created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 tunnel_security, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(input.name.trim())
@@ -2730,6 +2734,7 @@ pub mod chains {
         // 旧 udp 列只作镜像：读路径以 protocol 为准。
         .bind(i64::from(crate::protocol::is_both(&input.protocol)))
         .bind(crate::hop_transport::from_db(&input.transport))
+        .bind(crate::tunnel_security::from_db(&input.tunnel_security))
         .bind(ts)
         .bind(ts)
         .execute(&mut *tx)
@@ -2904,6 +2909,7 @@ pub mod chains {
                 protocol = COALESCE(?, protocol),
                 udp = COALESCE(?, udp),
                 transport = COALESCE(?, transport),
+                tunnel_security = COALESCE(?, tunnel_security),
                 updated_at = ?
              WHERE id = ?",
         )
@@ -2924,6 +2930,12 @@ pub mod chains {
                 .transport
                 .as_deref()
                 .map(crate::hop_transport::from_db),
+        )
+        .bind(
+            input
+                .tunnel_security
+                .as_deref()
+                .map(crate::tunnel_security::from_db),
         )
         .bind(now())
         .bind(id)
@@ -5727,6 +5739,7 @@ pub mod overview {
                     engine: "native".into(),
                     protocol: "tcp".into(),
                     transport: "none".into(),
+                    tunnel_security: "tls".into(),
                     groups: vec![super::super::chains::NewChainGroup {
                         name: None,
                         strategy: "round_robin".into(),
