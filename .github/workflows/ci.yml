@@ -68,7 +68,31 @@ jobs:
           exit 0
 
       - name: Tests
-        run: make test
+        run: |
+          set -o pipefail
+          make test 2>&1 | tee /tmp/test.log
+
+      # 测试失败时把日志写进 job summary 并留成 artifact：
+      # 维护者没有 admin 权限读不到 raw log，只有这里能看到「哪个用例挂了」。
+      - name: Test failure details
+        if: failure()
+        run: |
+          if [ -f /tmp/test.log ]; then
+            {
+              echo "### 失败的测试输出（最后 200 行）"
+              echo '```'
+              tail -n 200 /tmp/test.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload test log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log
+          path: /tmp/test.log
+          if-no-files-found: warn
 
       # 安装脚本做的是卸载/升级/删数据这类破坏性操作，必须有自动化覆盖
       - name: Installer self-test
