@@ -2010,7 +2010,7 @@ const zhCN = {
       nftablesSingleOnly: "nftables 引擎下非入口组只能单节点",
       groups: "链路节点",
       groupsHint:
-        "每一跳可以是单节点（1 台）或分组（1-8 台）；同一台服务器不能在同一条链里重复。",
+        "每一跳可以是单节点（1 台）或分组（1-8 台）；同一台服务器不能在同一条链里重复。中间跳不需要填端口，由系统自动分配。",
       groupLimit: "{count}/{max} 跳",
       group: "第 {seq} 跳",
       groupEntryHint: "入口跳",

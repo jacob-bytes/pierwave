@@ -2129,7 +2129,7 @@ const en = {
         "With the nftables engine, only the entry group can have multiple members",
       groups: "Chain hops",
       groupsHint:
-        "Each hop can be a single node (1 server) or a group (1-8 servers); the same server cannot appear twice in one chain.",
+        "Each hop can be a single node (1 server) or a group (1-8 servers); the same server cannot appear twice in one chain. Intermediate hops need no port: it is assigned automatically.",
       groupLimit: "{count}/{max} hops",
       group: "Hop {seq}",
       groupEntryHint: "Entry hop",
