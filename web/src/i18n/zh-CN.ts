@@ -2334,6 +2334,7 @@ const zhCN = {
     notObject: "config 必须是 JSON 对象（以 { 开头、} 结尾）",
   },
   errors: {
+    "chain.tunnel_udp_requires_tls": "tunnel 的 UDP 中继需要 TLS 安全模式（Noise 的 UDP 本轮不做）",
     "chain.latency_hours_invalid": "hours 必须是 1-168 之间的整数（默认 24）",
     "chain.protocol_invalid": "不支持的链转发协议「{protocol}」（可选 tcp / udp / both）",
     "chain.protocol_udp_with_tls": "加密链只走 TCP，不能选择仅 UDP",

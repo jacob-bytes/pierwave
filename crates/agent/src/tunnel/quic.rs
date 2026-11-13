@@ -54,23 +54,23 @@
 //! 只按这个目标建会话。这样同一本地客户端恒定同一目标，且服务端无需知道
 //! 本地客户端的存在。
 //!
+//! # 接线方式
+//!
+//! 回包只带**目标地址**，不带本地客户端地址；所以「同一目标上的多个本地
+//! 客户端」无法只靠回包区分。因此入口侧（[`super::udp_dialer`]）采用
+//! **一个本地 UDP 客户端一条 QUIC 连接**：拿本地客户端地址建连、`send_from`
+//! 继续按它做哈希、回包按连接回到对应客户端。服务端的 `(连接, 目标)` 会话键
+//! 与 native UDP 的 `(客户端地址, 目标)` 一一对应，**零协议改动**。
+//!
+//! 若要单连接复用，下一版协议（换 ALPN）需要在头部加一个 client 地址字段，
+//! 服务端原样回显。
+//!
 //! # 本轮范围
 //!
 //! * 只做 TLS 模式；Noise 的 UDP 路径（PSK 认证 + 无证书）本轮不做，
 //!   [`TunnelClient::with_udp`] 在 Noise 模式下明确失败；
-//! * 还没有接进 `ForwardEngine` 的 UDP 路径（入口侧的 UDP 监听、按本地客户端
-//!   哈希、回包回填本地客户端）。本轮交付的是「隧道层的 UDP 中继」及其回环
-//!   测试；接线点见 PR 说明。
-//!
-//! # 接线建议（下一轮）
-//!
-//! 回包只带**目标地址**，不带本地客户端地址；所以「同一目标上的多个本地
-//! 客户端」无法只靠回包区分。接进 `ForwardEngine` 的 UDP 路径时，建议
-//! **一个本地 UDP 会话一条 QUIC 连接**（拿本地客户端地址建连、`send_from`
-//! 继续按它做哈希、回包按连接回到对应客户端）。这样服务端的
-//! `(连接, 目标)` 会话键与 native UDP 的 `(客户端地址, 目标)` 一一对应，
-//! 不需要改数据报格式。若要单连接复用，下一版协议（换 ALPN）在头部加
-//! 一个 client 地址字段，服务端原样回显。
+//! * 入口侧的 UDP 监听与会话表在 [`super::udp_dialer`]；出口侧是
+//!   [`TunnelServer::with_udp`]（白名单只含链目标）。
 //!
 //! # 安全边界
 //!
@@ -100,7 +100,7 @@ use tokio::net::UdpSocket;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
-use super::handshake::{self, ClientHello, HandshakeError, ReplayCache, ServerHello};
+use super::handshake::{self, ClientHello, HandshakeError, ServerHello};
 use super::whitelist::{self, TargetRule};
 use super::{Metrics, TargetAddr, HANDSHAKE_TIMEOUT};
 
@@ -392,6 +392,7 @@ impl SessionTable {
             .collect()
     }
 
+    #[cfg(test)]
     fn take_all(&mut self) -> Vec<(SessionKey, Session)> {
         self.sessions.drain().collect()
     }
@@ -465,8 +466,6 @@ struct QuicUdpCtx {
     /// 与 TCP 路径共用的连接槽计数 / 超限 warn。
     tcp_metrics: Arc<Metrics>,
     max_connections: usize,
-    /// 与 TCP 路径共用重放缓存：同一个 proof 不能既走 TCP 又走 QUIC。
-    replay: Arc<Mutex<ReplayCache>>,
 }
 
 /// [`QuicUdpServer::bind`] 的配置。
@@ -482,8 +481,6 @@ pub(super) struct QuicUdpServerConfig {
     /// 与 TCP 路径共用连接上限。
     pub(super) tcp_metrics: Arc<Metrics>,
     pub(super) max_connections: usize,
-    /// 与 TCP 路径共用重放缓存。
-    pub(super) replay: Arc<Mutex<ReplayCache>>,
 }
 
 /// UDP 中继的 QUIC 服务端。
@@ -533,7 +530,6 @@ impl QuicUdpServer {
                 metrics: Arc::new(QuicUdpMetrics::default()),
                 tcp_metrics: config.tcp_metrics,
                 max_connections: config.max_connections,
-                replay: config.replay,
             }),
         })
     }
@@ -674,8 +670,8 @@ impl QuicUdpCtx {
 
     /// 认证：唯一一条双向流里交换 ClientHello / ServerHello。
     ///
-    /// 顺序与 TCP 路径一致：版本 → hop → 时间窗 → HMAC → 重放；便宜的检查在
-    /// 前面，只有 HMAC 通过才碰重放缓存。
+    /// 顺序与 TCP 路径一致：版本 → hop → 时间窗 → HMAC。QUIC 额外**不做**
+    /// 时间戳重放去重（见 `check_hello` 的说明）。
     async fn authenticate(&self, connection: &Connection, peer: SocketAddr) -> Result<String> {
         let (mut send, mut recv) = match timeout(HANDSHAKE_TIMEOUT, connection.accept_bi()).await {
             Ok(Ok(streams)) => streams,
@@ -731,11 +727,12 @@ impl QuicUdpCtx {
         if !hello.verify(secret) {
             return Err(HandshakeError::BadProof);
         }
-        let mut replay = self
-            .replay
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        replay.check_and_insert(hello.proof, Instant::now())?;
+        // 刻意**不**查重放缓存：proof 只由 `(hop_secret, hop_id, 秒级时间戳)`
+        // 决定，而入口侧「一个本地 UDP 客户端一条 QUIC 连接」，同一秒内会有
+        // 多条连接，proof 必然相同。QUIC 的 ClientHello 在 TLS 1.3 加密流里，
+        // 被动攻击者拿不到 proof、也无法重放整段 QUIC 握手（服务端每次生成
+        // 新密钥，Finished 必然校验失败），所以这一层不需要时间戳去重。
+        // TCP 路径继续使用共享重放缓存，语义不变。
         tracing::debug!(%peer, hop_id = %hello.hop_id, "UDP 中继 proof 校验通过 / UDP relay proof accepted");
         Ok(())
     }
@@ -1144,19 +1141,9 @@ impl QuicUdpClient {
         })
     }
 
-    /// 候选目标（一致性哈希的桶，顺序固定）。
-    pub fn targets(&self) -> &[TargetAddr] {
-        &self.targets
-    }
-
     /// QUIC 对端地址。
     pub fn remote_address(&self) -> SocketAddr {
         self.connection.remote_address()
-    }
-
-    /// 单个 datagram 的载荷上限（随路径 MTU 变化）。
-    pub fn max_datagram_size(&self) -> Option<usize> {
-        self.connection.max_datagram_size()
     }
 
     /// 按本地 UDP 客户端地址选目标并发一个数据报，返回选中的目标。
@@ -1164,8 +1151,8 @@ impl QuicUdpClient {
     /// 这是粘性的唯一来源：同一 `local_client` 的每个包都会哈希到同一个目标，
     /// 与 native UDP 的 [`crate::udp::pick_target`] 完全同一套规则。
     ///
-    /// 注意回包不带 `local_client`，只带目标地址；要按本地客户端回填，见模块
-    /// 文档「接线建议」（一个本地会话一条 QUIC 连接）。
+    /// 注意回包不带 `local_client`，只带目标地址；因此入口侧是**一个本地
+    /// 客户端一条连接**（见 [`super::udp_dialer`]），回包按连接回到对应客户端。
     pub fn send_from(&self, local_client: SocketAddr, payload: &[u8]) -> Result<TargetAddr> {
         let index = crate::udp::pick_target(local_client, self.targets.len());
         let target = self.targets.get(index).cloned().ok_or_else(|| {
@@ -1303,8 +1290,8 @@ mod tests {
     const SERVER_CERT_PEM: &str = include_str!("../../tests/fixtures/tunnel-server.pem");
     const SERVER_KEY_PEM: &str = include_str!("../../tests/fixtures/tunnel-server-key.pem");
     const HOP_ID: &str = "hop-udp";
-    /// TCP 用例单独用一个 hop：proof = HMAC(hop_id || timestamp)，同一秒内
-    /// 两条连接用同一个 hop 会被重放缓存拒绝（与 TCP 路径同一策略）。
+    /// TCP 用例单独用一个 hop：TCP 仍按 proof 去重，同一秒内两条同 hop 的
+    /// TCP 连接会被重放缓存拒绝。
     const HOP_ID_TCP: &str = "hop-tcp";
     const HOP_SECRET: &[u8] = b"test-hop-secret-32-bytes-long!!!";
     const TEST_SNI: &str = "tunnel.test";
@@ -1344,7 +1331,6 @@ mod tests {
     /// 流量去了哪个目标；`received` 是「真的收到了几个包」的证据。
     struct UdpEcho {
         addr: SocketAddr,
-        tag: Option<u8>,
         received: Arc<AtomicUsize>,
         task: JoinHandle<()>,
     }
@@ -1381,7 +1367,6 @@ mod tests {
         });
         UdpEcho {
             addr,
-            tag,
             received,
             task,
         }
@@ -1924,8 +1909,8 @@ mod tests {
         )
         .await;
 
-        // 先跑 QUIC，再跑 TCP；两个 hop 不同，避开同一秒内的重放去重
-        // （proof = HMAC(hop_id || timestamp)，与 TCP 路径共用一张重放表）。
+        // 先跑 QUIC，再跑 TCP；两个 hop 不同，避免同一份 hop_secret 在两条
+        // 路径上交叉（TCP 仍走重放缓存，QUIC 不做时间戳去重）。
         let udp_echo = spawn_udp_echo(None).await;
         let udp_client = harness
             .udp_client_with(HOP_ID, vec![localhost_rule(udp_echo.addr)])

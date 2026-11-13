@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 20;
+pub const PROTOCOL_VERSION: u32 = 21;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -275,6 +275,13 @@ pub struct TunnelSpec {
     /// 允许/请求的目标地址白名单。空 = 拒绝一切（fail closed）。
     #[serde(default)]
     pub allowed_targets: Vec<TunnelTargetRule>,
+    /// 这条隧道是否同时中继 UDP（P16.3，QUIC datagram）。
+    ///
+    /// 由链的 `protocol = udp / both` 推导：`true` 时 Dialer 在 `listen`
+    /// 端口上额外绑一个 UDP 监听，Listener 在同一端口上起 QUIC endpoint。
+    /// 旧主控不下发时为 `false`，也就是纯 TCP 隧道，行为与升级前一致。
+    #[serde(default)]
+    pub udp: bool,
 }
 
 /// 隧道目标白名单规则。
@@ -646,8 +653,8 @@ mod tests {
     #[test]
     fn forward_udp_defaults_to_false_for_old_masters() {
         assert_eq!(
-            PROTOCOL_VERSION, 20,
-            "新增 ForwardStatus.traffic_in/out、tunnel 能力与 TunnelSpec/TunnelSecurity 必须升协议版本"
+            PROTOCOL_VERSION, 21,
+            "新增 ForwardStatus.traffic_in/out、tunnel 能力、TunnelSpec/TunnelSecurity 与 TunnelSpec.udp 必须升协议版本"
         );
 
         // 旧主控的 JSON 没有 udp：必须解析成 false，也就是「只监听 TCP」，
@@ -996,6 +1003,7 @@ mod tests {
                 host: "example.com".into(),
                 ports: Some((443, 443)),
             }],
+            udp: false,
         };
         let mut with_tunnel = forward.clone();
         with_tunnel.engine = ForwardEngine::Tunnel;
@@ -1028,6 +1036,21 @@ mod tests {
             Some(TunnelSecurity::Tls),
             "旧主控不下发 security 时必须默认 TLS"
         );
+        assert_eq!(
+            back.tunnel.as_ref().map(|tunnel| tunnel.udp),
+            Some(false),
+            "旧主控不下发 udp 时必须是纯 TCP 隧道"
+        );
+
+        // 新主控显式开启 UDP 时按布尔值往返，不能丢字段。
+        let udp_tunnel = TunnelSpec {
+            udp: true,
+            ..with_tunnel.tunnel.clone().unwrap()
+        };
+        let json = serde_json::to_value(&udp_tunnel).unwrap();
+        assert_eq!(json["udp"], true);
+        let back: TunnelSpec = serde_json::from_value(json).unwrap();
+        assert!(back.udp, "udp=true 必须原样往返");
 
         // Noise 模式原样往返；证书路径为空串是合法状态。
         let mut noise_tunnel = old_tunnel.tunnel.clone().unwrap();

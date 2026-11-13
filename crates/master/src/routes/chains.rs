@@ -552,6 +552,9 @@ pub(crate) fn derive_tunnel_forwards(
     };
 
     let hop_id = format!("{}:{}", chain.id, exit.group.seq);
+    // `protocol = udp / both` 让隧道额外中继 UDP（P16.3）：两端同端口上
+    // 起 QUIC datagram。`tcp` 链保持 udp=false，行为与升级前逐字节一致。
+    let udp = protocol::allows_udp(&chain.protocol);
     // Noise 模式不需要任何证书/CA 文件：路径留空，Agent 据此完全不读文件
     // （空串是合法状态；TLS 模式仍按原路径下发，行为不变）。
     let noise = tunnel_mode::is_noise(&chain.tunnel_security);
@@ -614,6 +617,7 @@ pub(crate) fn derive_tunnel_forwards(
                 },
                 hop_secret: hop_secret_b64.to_string(),
                 allowed_targets: dialer_allowed,
+                udp,
             }),
         },
     ));
@@ -656,6 +660,7 @@ pub(crate) fn derive_tunnel_forwards(
                 ca_pem_path: String::new(),
                 hop_secret: hop_secret_b64.to_string(),
                 allowed_targets: listener_allowed,
+                udp,
             }),
         },
     ));
@@ -673,8 +678,8 @@ fn host_port(host: &str, port: i64) -> String {
     }
 }
 
-/// tunnel 链的保存门禁：2 跳 / 每组 1 台 / TCP / 无 realm transport /
-/// 所有成员都明确上报 `tunnel_available = true`。
+/// tunnel 链的保存门禁：2 跳 / 每组 1 台 / 无 realm transport /
+/// UDP 中继仅在 TLS 模式 / 所有成员都明确上报 `tunnel_available = true`。
 ///
 /// 「未知」与 `false` 都拒绝：旧 Agent 收到 `engine = tunnel` 会因为不认识的
 /// 枚举值让整份期望态解析失败，必须在写路径挡住。保存后成员能力可能变化
@@ -684,6 +689,7 @@ fn validate_tunnel_chain(
     engine_name: &str,
     protocol: &str,
     transport: &str,
+    tunnel_security: &str,
     groups: &[ValidatedGroup],
 ) -> AppResult<()> {
     if !engine::is_tunnel(engine_name) {
@@ -714,11 +720,16 @@ fn validate_tunnel_chain(
             ),
         ));
     }
-    if protocol != protocol::TCP {
+    // UDP 中继（P16.3）走 QUIC + TLS 证书；Noise 的 UDP 本轮不做，保存时
+    // 直接拒绝，避免下发一个 Agent 必然启动失败的端点（fail closed）。
+    if protocol::allows_udp(protocol) && tunnel_mode::is_noise(tunnel_security) {
         return Err(AppError::coded(
-            "chain.tunnel_tcp_only",
-            Some(json!({ "protocol": protocol })),
-            "tunnel 引擎只支持 TCP，请把链的协议改为 tcp",
+            "chain.tunnel_udp_requires_tls",
+            Some(json!({
+                "protocol": protocol,
+                "tunnel_security": tunnel_mode::NOISE,
+            })),
+            "tunnel 的 UDP 中继需要 TLS 安全模式 / the tunnel UDP relay requires the TLS security mode（Noise 的 UDP 本轮不做 / Noise over UDP is not implemented yet）",
         ));
     }
     if hop_transport::is_tls(transport) {
@@ -1387,7 +1398,7 @@ pub async fn create(
     let groups = resolve_groups(&state, &inputs, None).await?;
     ensure_targets_safe(&groups, &target_host, target_port)?;
     validate_nftables_chain(&engine, &groups)?;
-    validate_tunnel_chain(&engine, &protocol, &transport, &groups)?;
+    validate_tunnel_chain(&engine, &protocol, &transport, &tunnel_security, &groups)?;
     validate_transport(&state, &transport, &engine, &protocol, &groups).await?;
     // TLS + UDP 的冲突优先于「realm 固定双开」：用户选了加密链时，
     // 更具体的 chain.protocol_udp_with_tls 才是能指导修复的错误。
@@ -1550,6 +1561,9 @@ pub async fn update(
     let final_engine = engine.as_deref().unwrap_or(&existing.chain.engine);
     let final_transport = transport.as_deref().unwrap_or(&existing.chain.transport);
     let final_protocol = protocol.as_deref().unwrap_or(&existing.chain.protocol);
+    let final_tunnel_security = tunnel_security
+        .as_deref()
+        .unwrap_or(&existing.chain.tunnel_security);
     // 只在「安全相关的字段真的被改」时校验证书内容：证书过期后仍然要允许
     // 用户改名/停用/删除这条链，否则会被卡在一个无法自救的状态里。
     let security_changed = raw_transport.is_some()
@@ -1559,7 +1573,13 @@ pub async fn update(
         || protocol.is_some();
     if security_changed {
         validate_nftables_chain(final_engine, &groups)?;
-        validate_tunnel_chain(final_engine, final_protocol, final_transport, &groups)?;
+        validate_tunnel_chain(
+            final_engine,
+            final_protocol,
+            final_transport,
+            final_tunnel_security,
+            &groups,
+        )?;
         validate_transport(
             &state,
             final_transport,
@@ -4670,6 +4690,204 @@ mod tests {
         );
     }
 
+    /// UDP 隧道（`protocol = both / udp`）：两跳的 `TunnelSpec.udp` 都是 true，
+    /// 但 `DesiredForward.udp` 保持 false —— UDP 由隧道自己中继，不能让 native
+    /// 的 UDP 转发路径在同一个端口上再绑一次。
+    #[tokio::test]
+    async fn udp_tunnel_chain_dispatches_tunnel_spec_udp() {
+        let fixture = setup().await;
+        for server_id in [&fixture.a, &fixture.b] {
+            set_tunnel_capability(&fixture.state, server_id, Some(true)).await;
+        }
+
+        for (protocol, entry_port, exit_port) in [("both", 19401, 19402), ("udp", 19501, 19502)] {
+            let body = json!({
+                "name": format!("udp 隧道-{protocol}"),
+                "target_host": "1.1.1.1",
+                "target_port": 443,
+                "engine": "tunnel",
+                "protocol": protocol,
+                "transport": "none",
+                "tunnel_security": "tls",
+                "groups": [
+                    group(None, None, &[group_member(&fixture.a, entry_port, 0)]),
+                    group(None, None, &[group_member(&fixture.b, exit_port, 0)]),
+                ],
+            });
+            let (status, value) = request(
+                &fixture.app,
+                Some(&fixture.cookie),
+                Method::POST,
+                "/api/v1/chains",
+                Some(body),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{protocol}: {value}");
+            assert_eq!(value["chain"]["protocol"], protocol, "{value}");
+            let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+
+            let server_a = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.a)
+                .await
+                .unwrap();
+            let rendered = crate::routes::desired::render(
+                &fixture.state,
+                &server_a,
+                "https://panel.example.com",
+            )
+            .await
+            .unwrap();
+            let entry = rendered
+                .forwards
+                .iter()
+                .find(|forward| forward.id == chains::legacy_forward_id(&chain_id, 0))
+                .expect("入口 Dialer 必须在服务器 A 的期望态里");
+            let dialer = entry.tunnel.as_ref().expect("entry 必须带 tunnel 段");
+            assert!(dialer.udp, "{protocol}: 入口跳必须开启 UDP 中继");
+            assert!(
+                !entry.udp,
+                "{protocol}: 隧道链不能让 native UDP 转发再绑一次同端口"
+            );
+            assert_eq!(
+                dialer.allowed_targets.len(),
+                2,
+                "Dialer 的白名单仍是「下一跳 + 链目标」，UDP 选路只取最后一条"
+            );
+            assert_eq!(dialer.allowed_targets[1].host, "1.1.1.1");
+            assert_eq!(dialer.allowed_targets[1].ports, Some((443, 443)));
+
+            let server_b = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.b)
+                .await
+                .unwrap();
+            let rendered_b = crate::routes::desired::render(
+                &fixture.state,
+                &server_b,
+                "https://panel.example.com",
+            )
+            .await
+            .unwrap();
+            let exit = rendered_b
+                .forwards
+                .iter()
+                .find(|forward| forward.id == chains::legacy_forward_id(&chain_id, 1))
+                .expect("出口 Listener 必须在服务器 B 的期望态里");
+            let listener = exit.tunnel.as_ref().expect("exit 必须带 tunnel 段");
+            assert!(listener.udp, "{protocol}: 出口跳必须开启 UDP 中继");
+            assert_eq!(
+                listener.allowed_targets.len(),
+                1,
+                "Listener 的 UDP 白名单只能含链目标"
+            );
+            assert_eq!(listener.allowed_targets[0].host, "1.1.1.1");
+
+            if protocol == "both" {
+                println!(
+                    "[tunnel udp spec dialer]\n{}",
+                    serde_json::to_string_pretty(dialer).unwrap()
+                );
+                println!(
+                    "[tunnel udp spec listener]\n{}",
+                    serde_json::to_string_pretty(listener).unwrap()
+                );
+            }
+        }
+    }
+
+    /// Noise + UDP 必须被明确拒绝（400），不能落库；TLS + TCP 的 Noise 隧道
+    /// 仍然可用，证明拒绝只针对 UDP 中继。
+    #[tokio::test]
+    async fn noise_tunnel_chain_cannot_enable_udp() {
+        let fixture = setup().await;
+        for server_id in [&fixture.a, &fixture.b] {
+            set_tunnel_capability(&fixture.state, server_id, Some(true)).await;
+        }
+
+        let body = json!({
+            "name": "noise udp 隧道",
+            "target_host": "1.1.1.1",
+            "target_port": 443,
+            "engine": "tunnel",
+            "protocol": "both",
+            "transport": "none",
+            "tunnel_security": "noise",
+            "groups": [
+                group(None, None, &[group_member(&fixture.a, 19601, 0)]),
+                group(None, None, &[group_member(&fixture.b, 19602, 0)]),
+            ],
+        });
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{value}");
+        assert_eq!(value["code"], "chain.tunnel_udp_requires_tls", "{value}");
+        assert_eq!(value["params"]["tunnel_security"], "noise");
+        assert_eq!(value["params"]["protocol"], "both");
+        let chains = repo::chains::list(&fixture.state.db.pool).await.unwrap();
+        assert!(
+            chains
+                .iter()
+                .all(|chain| chain.chain.name != "noise udp 隧道"),
+            "被拒绝的链不能落库"
+        );
+
+        // TLS + both 先保存成功，再 PATCH 成 noise：也必须被拒，原值不变。
+        let ok_body = json!({
+            "name": "tls udp 隧道",
+            "target_host": "1.1.1.1",
+            "target_port": 443,
+            "engine": "tunnel",
+            "protocol": "both",
+            "transport": "none",
+            "tunnel_security": "tls",
+            "groups": [
+                group(None, None, &[group_member(&fixture.a, 19701, 0)]),
+                group(None, None, &[group_member(&fixture.b, 19702, 0)]),
+            ],
+        });
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(ok_body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{value}");
+        let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::PATCH,
+            &format!("/api/v1/chains/{chain_id}"),
+            Some(json!({ "tunnel_security": "noise" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{value}");
+        assert_eq!(value["code"], "chain.tunnel_udp_requires_tls", "{value}");
+        let stored = repo::chains::find_by_id(&fixture.state.db.pool, &chain_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.chain.tunnel_security, "tls", "非法组合不能落库");
+
+        // Noise + TCP 仍然允许（拒绝只针对 UDP 中继）。
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::PATCH,
+            &format!("/api/v1/chains/{chain_id}"),
+            Some(json!({ "protocol": "tcp", "tunnel_security": "noise" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{value}");
+        assert_eq!(value["chain"]["tunnel_security"], "noise");
+    }
+
     /// 非法 tunnel_security：POST / PATCH 都必须 400 + 稳定 code。
     #[tokio::test]
     async fn invalid_tunnel_security_is_rejected_with_stable_code() {
@@ -4741,9 +4959,9 @@ mod tests {
     }
 
     /// tunnel 链的保存门禁：旧 Agent（NULL）与明确不支持（false）都拒绝；
-    /// 跳数、成员数、协议、transport 四类结构错误各有稳定 code。
+    /// 跳数、成员数、transport 三类结构错误各有稳定 code；UDP 中继只在 TLS 模式。
     #[test]
-    fn tunnel_chain_requires_capable_two_hop_single_member_tcp() {
+    fn tunnel_chain_requires_capable_two_hop_single_member_tls_for_udp() {
         fn member(name: &str, tunnel: Option<bool>) -> ValidatedMember {
             ValidatedMember {
                 server_id: format!("srv-{name}"),
@@ -4775,16 +4993,35 @@ mod tests {
             group(vec![member("a", Some(true))]),
             group(vec![member("b", Some(true))]),
         ];
-        assert!(validate_tunnel_chain("tunnel", "tcp", "none", &ok).is_ok());
+        assert!(validate_tunnel_chain("tunnel", "tcp", "none", "tls", &ok).is_ok());
         // 非 tunnel 引擎完全不触发这些约束。
-        assert!(validate_tunnel_chain("native", "both", "tls", &[]).is_ok());
+        assert!(validate_tunnel_chain("native", "both", "tls", "tls", &[]).is_ok());
+
+        // UDP 中继（udp / both）在 TLS 模式下合法；Noise + UDP 必须拒绝。
+        assert!(validate_tunnel_chain("tunnel", "both", "none", "tls", &ok).is_ok());
+        assert!(validate_tunnel_chain("tunnel", "udp", "none", "tls", &ok).is_ok());
+        let (code, message) =
+            coded(validate_tunnel_chain("tunnel", "both", "none", "noise", &ok).unwrap_err());
+        assert_eq!(code, "chain.tunnel_udp_requires_tls");
+        assert!(
+            message.contains("TLS") && message.contains("Noise"),
+            "报错必须点名 TLS 与 Noise：{message}"
+        );
+        assert_eq!(
+            coded(validate_tunnel_chain("tunnel", "udp", "none", "noise", &ok).unwrap_err()).0,
+            "chain.tunnel_udp_requires_tls"
+        );
+        assert!(
+            validate_tunnel_chain("tunnel", "tcp", "none", "noise", &ok).is_ok(),
+            "Noise + TCP 隧道必须继续可用"
+        );
 
         let unknown = vec![
             group(vec![member("a", Some(true))]),
             group(vec![member("b", None)]),
         ];
         let (code, message) =
-            coded(validate_tunnel_chain("tunnel", "tcp", "none", &unknown).unwrap_err());
+            coded(validate_tunnel_chain("tunnel", "tcp", "none", "tls", &unknown).unwrap_err());
         assert_eq!(code, "chain.tunnel_unavailable");
         assert!(message.contains("b"), "{message}");
 
@@ -4793,13 +5030,14 @@ mod tests {
             group(vec![member("b", Some(true))]),
         ];
         assert_eq!(
-            coded(validate_tunnel_chain("tunnel", "tcp", "none", &unsupported).unwrap_err()).0,
+            coded(validate_tunnel_chain("tunnel", "tcp", "none", "tls", &unsupported).unwrap_err())
+                .0,
             "chain.tunnel_unavailable"
         );
 
         let one_hop = vec![group(vec![member("a", Some(true))])];
         assert_eq!(
-            coded(validate_tunnel_chain("tunnel", "tcp", "none", &one_hop).unwrap_err()).0,
+            coded(validate_tunnel_chain("tunnel", "tcp", "none", "tls", &one_hop).unwrap_err()).0,
             "chain.tunnel_requires_two_hops"
         );
 
@@ -4808,16 +5046,15 @@ mod tests {
             group(vec![member("c", Some(true))]),
         ];
         assert_eq!(
-            coded(validate_tunnel_chain("tunnel", "tcp", "none", &multi_member).unwrap_err()).0,
+            coded(
+                validate_tunnel_chain("tunnel", "tcp", "none", "tls", &multi_member).unwrap_err()
+            )
+            .0,
             "chain.tunnel_single_member"
         );
 
         assert_eq!(
-            coded(validate_tunnel_chain("tunnel", "both", "none", &ok).unwrap_err()).0,
-            "chain.tunnel_tcp_only"
-        );
-        assert_eq!(
-            coded(validate_tunnel_chain("tunnel", "tcp", "tls", &ok).unwrap_err()).0,
+            coded(validate_tunnel_chain("tunnel", "tcp", "tls", "tls", &ok).unwrap_err()).0,
             "chain.tunnel_transport_conflict"
         );
     }

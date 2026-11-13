@@ -255,6 +255,26 @@ lane; this backend change guarantees stable `code`/`params` plus the Chinese fal
 > `transport`. Invalid values are rejected with 400 on write and fall back to `tls` on read;
 > Noise dispatches an empty certificate-path set and no tunnel files.
 
+### 隧道 UDP 中继（P16.3）/ Tunnel UDP relay
+
+`engine = tunnel` 且链的 `protocol = udp / both` 时，两端在同一个端口号上起
+QUIC datagram 中继（`TunnelSpec.udp = true`）。UDP 中继使用 TLS 1.3 证书；
+Noise 模式没有证书，因此 Noise + UDP 在保存与下发两处都 **fail closed**，不会
+退化成明文或悄悄关掉 UDP。
+
+| code | 中文 | English | params |
+|---|---|---|---|
+| `chain.tunnel_udp_requires_tls` | tunnel 的 UDP 中继需要 TLS 安全模式（Noise 的 UDP 本轮不做） | The tunnel UDP relay requires the TLS security mode (Noise over UDP is not implemented yet) | protocol, tunnel_security |
+
+`POST/PATCH /api/v1/chains` 返回 400 + 该 code；已存在的链如果被手工改成
+noise + udp，下发时整链跳过并给出同一个 `blocked_code`。
+
+> With `engine = tunnel` and `protocol = udp / both`, both hops run a QUIC
+> datagram relay on the same port number (`TunnelSpec.udp = true`). The relay
+> uses TLS 1.3 certificates, so Noise + UDP is rejected on both the write path
+> (400 with the code above) and the dispatch path (the chain is blocked with
+> the same `blocked_code`) instead of silently degrading.
+
 ### 转发协议模式（P15.4）/ Forward protocol mode
 
 转发与链的 `protocol` 只有 `tcp`（默认）/ `udp` / `both` 三种取值。写路径严格校验，

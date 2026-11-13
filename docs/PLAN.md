@@ -1977,6 +1977,53 @@ P16.2 的 Noise 握手（`d393d4d`）最初只做到 Agent 侧 API，没有下�
 > `spec.security`; Noise never reads certificate paths, and TLS still fails fast
 > with a missing-certificate status.
 
+### 8.3 P16.3 UDP over QUIC 的接线（2026-11）
+
+`79a691f` 已交付 QUIC datagram 中继（`crates/agent/src/tunnel/quic.rs`），但
+没有生产调用点。本轮把它接进 `ForwardEngine` 的 UDP 路径——**零数据报格式
+改动**（§8.1 末尾「UDP/QUIC 留待后续阶段」已被本节取代）：
+
+* **线协议 v21**：`TunnelSpec` 增加 `#[serde(default)] udp: bool`；旧主控报文
+  解析成 `false`（纯 TCP 隧道），升级 Agent 行为不变。主控对
+  `protocol = udp / both` 的 tunnel 链下发 `udp = true`，`tcp` 链保持不变；
+* **保存门禁**：`noise + udp` 返回 `chain.tunnel_udp_requires_tls`（Noise 的
+  UDP 本轮不做）；`protocol = udp / both` 在 TLS 模式下合法。下发路径的
+  `tunnel_blocked_reason` 用同一判定再挡一次；
+* **出口跳（Listener）**：`TunnelServer::with_udp(chain_target_rules)` 在隧道
+  端口上起 QUIC endpoint，白名单**只含链目标**；UDP 绑定或证书失败 =
+  端点启动失败（`ForwardStatus.listening = false`）；
+* **入口跳（Dialer）**：在 TCP 入口的同一端口号上绑 UDP socket；会话表键 =
+  本地客户端 `SocketAddr`，**一个客户端一条 QUIC 连接**（回包只带目标地址，
+  单连接无法区分同一目标上的多个客户端）。建连期间最多缓存 8 个数据报，
+  连上后按序补发；空闲 60s 回收（关 QUIC 连接），上限 4096，超限丢新包 +
+  30s 节流 warn；连接断开立刻清掉该客户端会话；
+* **UDP 选路**：Dialer 只把**链目标那一条**规则传给 `send_from`；把「下一跳
+  Listener + 链目标」的整份白名单传进去会让一致性哈希把下一跳当成 UDP 后端；
+* **QUIC 认证**：不再查时间戳重放缓存。proof 只由 `(hop_secret, hop_id, 秒级
+  时间戳)` 决定，而「一个本地客户端一条连接」同一秒内必然产生相同 proof；
+  QUIC 的 ClientHello 在 TLS 1.3 加密流里，被动攻击者既拿不到 proof，也无法
+  重放整段 QUIC 握手（服务端每次生成新密钥）。TCP 路径的重放缓存不变；
+* **测试**：两端 tunnel + 本地 UDP echo（3 包全回显、`datagrams_in == 3`）、
+  两个不同源地址客户端各自会话（`sessions == 2`，互不串包）、空闲回收后
+  会话归零、白名单外目标 `denied` 增加且 echo 收包为 0、`noise + udp` 在
+  主控 400。
+
+> **Status (2026-11, English)**: `79a691f` shipped the QUIC datagram relay
+> without a production call site. This round wires it into the tunnel engine
+> with **no datagram-format change**: protocol v21 adds
+> `TunnelSpec.udp` (default `false`), derived from chain `protocol = udp /
+> both`; `noise + udp` is rejected with `chain.tunnel_udp_requires_tls` on both
+> save and dispatch. The exit hop starts a QUIC endpoint on the tunnel port with
+> an allowlist containing only the chain target. The entry hop binds UDP on the
+> same port and keeps one QUIC connection **per local client** (replies carry
+> only the target address), buffers up to 8 datagrams while connecting, reclaims
+> idle sessions after 60s, caps sessions at 4096 with a 30s-throttled warn, and
+> drops the session as soon as the connection closes. Only the chain-target rule
+> is passed to UDP target selection, and QUIC authentication no longer consults
+> the timestamp replay cache (one connection per client would otherwise collide
+> within the same second; TLS 1.3 channel protection already prevents replay).
+> `ForwardStatus.listening` now requires the UDP bind to succeed.
+
 ### 9. 不做
 
 - 不做证书固定（pinned）模式；

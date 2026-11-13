@@ -13,7 +13,7 @@ use serde_json::json;
 
 use crate::error::DomainError;
 use crate::models::{Certificate, Chain, ChainGroupWithMembers};
-use crate::{engine, hop_transport, protocol};
+use crate::{engine, hop_transport, protocol, tunnel_security};
 
 /// 一条链最少 1 跳（入口直接指向 target）。
 pub const MIN_HOPS: usize = 1;
@@ -504,10 +504,12 @@ pub fn tunnel_blocked_reason(
             ),
         });
     }
-    if !protocol::allows_tcp(&chain.protocol) || protocol::allows_udp(&chain.protocol) {
+    // Noise 的 UDP 中继本轮不做（QUIC 需要 TLS 证书）。保存路径已经拒绝，
+    // 下发路径再挡一次：手工改库或旧数据不能让 Agent 起一个必然失败的端点。
+    if protocol::allows_udp(&chain.protocol) && tunnel_security::is_noise(&chain.tunnel_security) {
         return Some(BlockedReason {
-            code: "chain.tunnel_tcp_only".to_string(),
-            message: "tunnel 引擎只支持 TCP，请把链的协议改为 tcp".to_string(),
+            code: "chain.tunnel_udp_requires_tls".to_string(),
+            message: "tunnel 的 UDP 中继需要 TLS 安全模式 / the tunnel UDP relay requires the TLS security mode（Noise 的 UDP 本轮不做 / Noise over UDP is not implemented yet）".to_string(),
         });
     }
     if crate::hop_transport::is_tls(&chain.transport) {

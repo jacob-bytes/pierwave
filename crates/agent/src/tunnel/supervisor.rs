@@ -41,6 +41,8 @@ use tokio::net::{lookup_host, TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
+use super::quic::QuicUdpStatsHandle;
+use super::udp_dialer::{self, DialerUdp, DialerUdpConfig};
 use crate::forward::ForwardStatusHandle;
 use crate::tunnel::framing::TargetAddr;
 use crate::tunnel::whitelist::{self, TargetRule};
@@ -57,12 +59,79 @@ const RECONCILE_BASE_DELAY: Duration = Duration::from_secs(15);
 /// 连续失败的退避上限：再慢就会让「证书刚补回来」等太久。
 const RECONCILE_MAX_DELAY: Duration = Duration::from_secs(300);
 
+/// UDP 中继的计数句柄：Listener 是 QUIC 服务端，Dialer 是本地的 QUIC 会话表。
+///
+/// 两侧类型不同，但对运维关心的字段（收/发/拒绝/会话数）语义一致；关闭时
+/// 统一打进一行日志，也保证这些计数在生产构建里真的被读取。
+#[derive(Clone)]
+pub(crate) enum UdpStats {
+    Listener(QuicUdpStatsHandle),
+    Dialer(udp_dialer::StatsHandle),
+}
+
+impl UdpStats {
+    /// 关闭时记录 UDP 中继计数；`datagrams_in == 0` 表示这条链没有跑过 UDP。
+    fn log_close(&self, id: &str) {
+        match self {
+            Self::Listener(stats) => {
+                let snapshot = stats.snapshot();
+                tracing::info!(
+                    %id,
+                    role = "listener",
+                    datagrams_in = snapshot.datagrams_in,
+                    datagrams_out = snapshot.datagrams_out,
+                    denied = snapshot.denied,
+                    malformed = snapshot.malformed,
+                    hop_mismatch = snapshot.hop_mismatch,
+                    sessions_rejected = snapshot.sessions_rejected,
+                    forward_errors = snapshot.forward_errors,
+                    send_errors = snapshot.send_errors,
+                    sessions = snapshot.sessions,
+                    "隧道 UDP 中继已停止 / tunnel UDP relay stopped"
+                );
+            }
+            Self::Dialer(stats) => {
+                let snapshot = stats.snapshot();
+                tracing::info!(
+                    %id,
+                    role = "dialer",
+                    datagrams_in = snapshot.datagrams_in,
+                    datagrams_out = snapshot.datagrams_out,
+                    sessions_rejected = snapshot.sessions_rejected,
+                    connect_errors = snapshot.connect_errors,
+                    send_errors = snapshot.send_errors,
+                    sessions = snapshot.sessions,
+                    "隧道 UDP 入口已停止 / tunnel UDP dialer stopped"
+                );
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn listener_snapshot(&self) -> Option<super::quic::QuicUdpStats> {
+        match self {
+            Self::Listener(stats) => Some(stats.snapshot()),
+            Self::Dialer(_) => None,
+        }
+    }
+
+    #[cfg(test)]
+    fn dialer_snapshot(&self) -> Option<udp_dialer::Stats> {
+        match self {
+            Self::Listener(_) => None,
+            Self::Dialer(stats) => Some(stats.snapshot()),
+        }
+    }
+}
+
 /// 一个正在运行的 tunnel 端点。
 struct RunningTunnel {
     spec: TunnelSpec,
     task: JoinHandle<()>,
     /// Listener 才有；心跳/测试用。
     stats: Option<TunnelStatsHandle>,
+    /// UDP 中继计数；`udp = false` 时为 `None`。
+    udp_stats: Option<UdpStats>,
     /// 实际绑定地址（`listen` 写端口 0 时由内核分配）。
     bound_addr: SocketAddr,
     /// 启动时刻；停止日志与「reconcile 没有重建」的测试断言用。
@@ -73,6 +142,9 @@ impl RunningTunnel {
     async fn close(self, id: &str) {
         self.task.abort();
         let _ = timeout(SHUTDOWN_TIMEOUT, self.task).await;
+        if let Some(udp) = &self.udp_stats {
+            udp.log_close(id);
+        }
         if let Some(stats) = self.stats {
             let snapshot = stats.snapshot();
             tracing::info!(
@@ -175,6 +247,14 @@ impl TunnelSupervisor {
         self.running.get(id).map(|running| running.bound_addr)
     }
 
+    /// 测试辅助：读 UDP 中继计数。
+    #[cfg(test)]
+    pub(crate) fn udp_stats(&self, id: &str) -> Option<UdpStats> {
+        self.running
+            .get(id)
+            .and_then(|running| running.udp_stats.clone())
+    }
+
     /// 收敛到期望列表。只处理 `engine = tunnel` 的规则。
     ///
     /// `apply` 是主控的明确信号：失败项立即重试，不受心跳退避限制；
@@ -254,7 +334,13 @@ impl TunnelSupervisor {
                 continue;
             }
             match start_endpoint(spec).await {
-                Ok((spec_tunnel, task, stats, bound_addr)) => {
+                Ok(StartedEndpoint {
+                    spec: spec_tunnel,
+                    task,
+                    stats,
+                    udp_stats,
+                    bound_addr,
+                }) => {
                     tracing::info!(
                         id = %spec.id,
                         role = ?spec_tunnel.role,
@@ -272,6 +358,7 @@ impl TunnelSupervisor {
                             spec: spec_tunnel,
                             task,
                             stats,
+                            udp_stats,
                             bound_addr,
                             started_at: Instant::now(),
                         },
@@ -341,14 +428,16 @@ impl TunnelSupervisor {
     }
 }
 
-type Started = (
-    TunnelSpec,
-    JoinHandle<()>,
-    Option<TunnelStatsHandle>,
-    SocketAddr,
-);
+/// 一个端点启动后的产物：期望 spec、任务、两侧计数、实际绑定地址。
+struct StartedEndpoint {
+    spec: TunnelSpec,
+    task: JoinHandle<()>,
+    stats: Option<TunnelStatsHandle>,
+    udp_stats: Option<UdpStats>,
+    bound_addr: SocketAddr,
+}
 
-async fn start_endpoint(spec: &DesiredForward) -> Result<Started> {
+async fn start_endpoint(spec: &DesiredForward) -> Result<StartedEndpoint> {
     let tunnel = spec
         .tunnel
         .clone()
@@ -392,16 +481,46 @@ async fn start_endpoint(spec: &DesiredForward) -> Result<Started> {
                 TunnelSecurity::Noise => TunnelServerConfig::noise(bind, hops),
             };
             config.max_connections = crate::tunnel::DEFAULT_MAX_CONNECTIONS;
+            // UDP 中继的白名单**只含链目标**（`dial_target` = 白名单最后一条）。
+            // 不能把整份 allowed_targets 传进去：那是 TCP 首帧的语义，可能含
+            // 其它条目；UDP 出口只允许把数据报发给链目标。
+            let udp_targets = if tunnel.udp {
+                match tunnel.allowed_targets.last() {
+                    Some(_) => vec![dial_target_rule(&tunnel)?],
+                    // 空白名单 = 拒绝一切 UDP（与 TCP 首帧同一语义），不是错误。
+                    None => Vec::new(),
+                }
+            } else {
+                Vec::new()
+            };
             config.allowed_targets = allowed_targets;
             let (server, listener) = TunnelServer::bind(config).await?;
             let bound_addr = listener.local_addr().context("读取隧道监听地址失败")?;
+            // `udp = true` 时在同一个端口号上起 QUIC endpoint；绑定/证书失败
+            // 直接让整个端点启动失败（listening = false），不能只跑一半。
+            let server = if tunnel.udp {
+                server.with_udp(udp_targets).await.map_err(|error| {
+                    error.context(
+                        "隧道 Listener 的 UDP 中继启动失败 / failed to start the tunnel UDP relay",
+                    )
+                })?
+            } else {
+                server
+            };
             let stats = server.stats_handle();
+            let udp_stats = server.udp_stats_handle().map(UdpStats::Listener);
             let task = tokio::spawn(async move {
                 if let Err(error) = server.serve(listener).await {
                     tracing::error!(error = %error, "隧道 Listener 退出 / tunnel listener exited");
                 }
             });
-            Ok((tunnel, task, Some(stats), bound_addr))
+            Ok(StartedEndpoint {
+                spec: tunnel,
+                task,
+                stats: Some(stats),
+                udp_stats,
+                bound_addr,
+            })
         }
         TunnelRole::Dialer => {
             let bind: SocketAddr = tunnel.listen.parse().with_context(|| {
@@ -439,11 +558,51 @@ async fn start_endpoint(spec: &DesiredForward) -> Result<Started> {
             })?;
             let bound_addr = listener.local_addr().context("读取隧道入口地址失败")?;
             let client = Arc::new(client);
+            // UDP 入口与 TCP 入口同 IP、同端口号。候选目标**只传链目标那一条**：
+            // 把含下一跳的整份白名单传进去，一致性哈希可能把 Listener 当后端。
+            let udp = if tunnel.udp {
+                let target_rule = dial_target_rule(&tunnel)?;
+                Some(
+                    DialerUdp::bind(DialerUdpConfig {
+                        bind: bound_addr,
+                        client: Arc::clone(&client),
+                        target_rules: vec![target_rule],
+                        limits: udp_dialer::Limits::default(),
+                    })
+                    .await
+                    .map_err(|error| {
+                        error.context(
+                            "隧道 Dialer 的 UDP 入口启动失败 / failed to start the tunnel UDP dialer",
+                        )
+                    })?,
+                )
+            } else {
+                None
+            };
+            let udp_stats = udp.as_ref().map(|udp| UdpStats::Dialer(udp.stats_handle()));
             let id = spec.id.clone();
             let task = tokio::spawn(async move {
-                dialer_accept_loop(id, listener, client, target, bound_addr).await;
+                match udp {
+                    // 两个循环放在同一个任务里：abort 时 UDP socket 随 future 一起
+                    // drop，端口立即释放，不会留下脱离监管的后台任务。
+                    Some(udp) => {
+                        let tcp = dialer_accept_loop(id, listener, client, target, bound_addr);
+                        tokio::pin!(tcp);
+                        tokio::select! {
+                            () = &mut tcp => {}
+                            () = udp.serve() => {}
+                        }
+                    }
+                    None => dialer_accept_loop(id, listener, client, target, bound_addr).await,
+                }
             });
-            Ok((tunnel, task, None, bound_addr))
+            Ok(StartedEndpoint {
+                spec: tunnel,
+                task,
+                stats: None,
+                udp_stats,
+                bound_addr,
+            })
         }
     }
 }
@@ -451,6 +610,10 @@ async fn start_endpoint(spec: &DesiredForward) -> Result<Started> {
 fn validate_spec(spec: &TunnelSpec) -> Result<()> {
     if spec.hop_id.trim().is_empty() || spec.hop_id.len() > 255 {
         bail!("hop_id 长度非法（1..=255）/ invalid hop_id length (1..=255)");
+    }
+    // 主控保存时已拒绝；Agent 再挡一次，避免旧/手工数据让端点起一半。
+    if spec.udp && spec.security != TunnelSecurity::Tls {
+        bail!("Noise 模式的 UDP 中继本轮不做 / UDP relay over Noise is not implemented yet");
     }
     match spec.role {
         TunnelRole::Listener => {
@@ -507,6 +670,20 @@ fn dial_target(spec: &TunnelSpec) -> Result<TargetAddr> {
         bail!("Dialer 的目标域名为空 / dialer target host is empty");
     }
     Ok(TargetAddr::Domain { host, port })
+}
+
+/// Dialer 的 UDP 候选目标：只取链目标那一条（与 [`dial_target`] 完全一致）。
+///
+/// **不能**把整份 `allowed_targets` 传给 UDP 选路：那份列表的第一条是下一跳
+/// Listener，一致性哈希会把它当成一个 UDP 后端。这里把目标规范化成
+/// [`TargetRule`]（IP 用精确地址、域名用后缀规则 + 闭区间端口）。
+fn dial_target_rule(spec: &TunnelSpec) -> Result<TargetRule> {
+    Ok(match dial_target(spec)? {
+        TargetAddr::Ip(addr) => {
+            TargetRule::new(addr.ip().to_string(), Some((addr.port(), addr.port())))
+        }
+        TargetAddr::Domain { host, port } => TargetRule::new(host, Some((port, port))),
+    })
 }
 
 /// `remote` 字符串对应的目标地址，用于让 Dialer 用同一套白名单规则校验它。
@@ -640,8 +817,11 @@ mod tests {
     use super::*;
     use std::path::{Path, PathBuf};
 
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use pierwave_proto::TunnelTargetRule;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::UdpSocket;
     use tokio::time::timeout;
 
     const CA_PEM: &str = include_str!("../../tests/fixtures/tunnel-ca.pem");
@@ -729,6 +909,7 @@ mod tests {
                         ports: Some((addr.port(), addr.port())),
                     })
                     .collect(),
+                udp: false,
             }),
         }
     }
@@ -887,6 +1068,77 @@ mod tests {
             .expect("读回显超时")
             .expect("读回显失败");
         echoed
+    }
+
+    /// 本地 UDP echo；`received` 是「真的收到了几个包」的证据。
+    struct UdpEcho {
+        addr: SocketAddr,
+        received: Arc<AtomicUsize>,
+        task: JoinHandle<()>,
+    }
+
+    impl Drop for UdpEcho {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    async fn spawn_udp_echo() -> UdpEcho {
+        let socket = UdpSocket::bind("127.0.0.1:0")
+            .await
+            .expect("UDP echo 必须能绑定");
+        let addr = socket.local_addr().expect("读取 UDP echo 地址");
+        let received = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&received);
+        let task = tokio::spawn(async move {
+            let mut buf = vec![0u8; 2048];
+            loop {
+                let Ok((size, peer)) = socket.recv_from(&mut buf).await else {
+                    break;
+                };
+                counter.fetch_add(1, Ordering::Relaxed);
+                if socket.send_to(&buf[..size], peer).await.is_err() {
+                    break;
+                }
+            }
+        });
+        UdpEcho {
+            addr,
+            received,
+            task,
+        }
+    }
+
+    /// 通过入口 UDP 端口发一个包并等回包。
+    async fn udp_roundtrip(client: &UdpSocket, dialer: SocketAddr, payload: &[u8]) -> Vec<u8> {
+        client
+            .send_to(payload, dialer)
+            .await
+            .expect("发送 UDP 数据报失败");
+        let mut reply = [0u8; 2048];
+        let (size, from) = timeout(Duration::from_secs(5), client.recv_from(&mut reply))
+            .await
+            .expect("等待 UDP 回包超时")
+            .expect("读取 UDP 回包失败");
+        assert_eq!(from, dialer, "回包必须来自入口的 UDP 端口");
+        reply[..size].to_vec()
+    }
+
+    async fn wait_until<F: Fn() -> bool>(what: &str, condition: F) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if condition() {
+                return;
+            }
+            assert!(Instant::now() < deadline, "等待超时：{what}");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    /// 只打开 TunnelSpec.udp，其余字段保持不变（tcp-only 用例完全不受影响）。
+    fn with_tunnel_udp(mut forward: DesiredForward) -> DesiredForward {
+        forward.tunnel.as_mut().expect("必须带 tunnel 段").udp = true;
+        forward
     }
 
     fn certs() -> (TempDir, PathBuf, PathBuf, PathBuf) {
@@ -1246,6 +1498,254 @@ mod tests {
 
         supervisor.apply(&[]).await;
         assert!(supervisor.running.is_empty());
+    }
+
+    /// 两端 tunnel + 本地 UDP echo：3 个数据报全部回显，出口 QUIC 计数对上。
+    #[tokio::test]
+    async fn udp_tunnel_echoes_three_datagrams_and_reports_quic_stats() {
+        let echo = spawn_udp_echo().await;
+        let (_dir, cert, key, ca) = certs();
+        let listener_port = free_port();
+        let dialer_port = free_port();
+        let listener_addr: SocketAddr = format!("127.0.0.1:{listener_port}").parse().unwrap();
+        let allowed = [listener_addr, echo.addr];
+
+        let listener = with_tunnel_udp(listener_spec_allowed(
+            "udp-listener",
+            listener_port,
+            &cert,
+            &key,
+            &[echo.addr],
+        ));
+        let dialer = with_tunnel_udp(dialer_spec(
+            "udp-dialer",
+            dialer_port,
+            listener_port,
+            &ca,
+            &allowed,
+        ));
+
+        let mut supervisor = TunnelSupervisor::new();
+        supervisor.apply(&[listener, dialer]).await;
+        assert!(status_of(&supervisor, "udp-listener").listening);
+        assert!(status_of(&supervisor, "udp-dialer").listening);
+
+        let client = UdpSocket::bind("127.0.0.1:0").await.expect("客户端绑定");
+        let dialer_addr: SocketAddr = format!("127.0.0.1:{dialer_port}").parse().unwrap();
+        for payload in [b"first".as_slice(), b"second", b"third"] {
+            assert_eq!(
+                udp_roundtrip(&client, dialer_addr, payload).await,
+                payload,
+                "UDP 回显内容必须与发送一致"
+            );
+        }
+        assert_eq!(
+            echo.received.load(Ordering::Relaxed),
+            3,
+            "echo 必须真的收到 3 个包"
+        );
+
+        wait_until("出口 QUIC 计数到 3", || {
+            supervisor
+                .udp_stats("udp-listener")
+                .and_then(|stats| stats.listener_snapshot())
+                .is_some_and(|stats| stats.datagrams_in == 3 && stats.sessions == 1)
+        })
+        .await;
+
+        let server = supervisor
+            .udp_stats("udp-listener")
+            .expect("UDP Listener 必须有计数句柄")
+            .listener_snapshot()
+            .expect("Listener 侧必须是 QUIC 计数");
+        assert_eq!(server.datagrams_in, 3, "{server:?}");
+        assert_eq!(server.datagrams_out, 3, "{server:?}");
+        assert_eq!(server.sessions, 1, "一个本地客户端只能有一个服务端会话");
+        assert_eq!(server.denied, 0, "{server:?}");
+
+        let dialer_stats = supervisor
+            .udp_stats("udp-dialer")
+            .expect("UDP Dialer 必须有计数句柄")
+            .dialer_snapshot()
+            .expect("Dialer 侧必须是本地会话计数");
+        assert_eq!(dialer_stats.datagrams_in, 3, "{dialer_stats:?}");
+        assert_eq!(dialer_stats.datagrams_out, 3, "{dialer_stats:?}");
+        assert_eq!(dialer_stats.sessions, 1, "{dialer_stats:?}");
+        println!("[udp tunnel] server={server:?} dialer={dialer_stats:?}");
+
+        supervisor.apply(&[]).await;
+    }
+
+    /// 两个不同源地址的本地客户端各自一条 QUIC 连接、各自一个会话，互不串包。
+    #[tokio::test]
+    async fn two_udp_clients_get_separate_sessions_and_replies() {
+        let echo = spawn_udp_echo().await;
+        let (_dir, cert, key, ca) = certs();
+        let listener_port = free_port();
+        let dialer_port = free_port();
+        let listener_addr: SocketAddr = format!("127.0.0.1:{listener_port}").parse().unwrap();
+        let allowed = [listener_addr, echo.addr];
+
+        let listener = with_tunnel_udp(listener_spec_allowed(
+            "udp2-listener",
+            listener_port,
+            &cert,
+            &key,
+            &[echo.addr],
+        ));
+        let dialer = with_tunnel_udp(dialer_spec(
+            "udp2-dialer",
+            dialer_port,
+            listener_port,
+            &ca,
+            &allowed,
+        ));
+
+        let mut supervisor = TunnelSupervisor::new();
+        supervisor.apply(&[listener, dialer]).await;
+
+        let client_a = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let client_b = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let dialer_addr: SocketAddr = format!("127.0.0.1:{dialer_port}").parse().unwrap();
+
+        // 先各发一个包（两个 QUIC 连接），再同时收；回包必须回到各自的 socket。
+        client_a.send_to(b"alpha-1", dialer_addr).await.unwrap();
+        client_b.send_to(b"beta-1", dialer_addr).await.unwrap();
+        let mut buf = [0u8; 512];
+        let (size, _) = timeout(Duration::from_secs(5), client_a.recv_from(&mut buf))
+            .await
+            .expect("客户端 A 回包超时")
+            .unwrap();
+        assert_eq!(&buf[..size], b"alpha-1", "客户端 A 不能收到 B 的回包");
+        let (size, _) = timeout(Duration::from_secs(5), client_b.recv_from(&mut buf))
+            .await
+            .expect("客户端 B 回包超时")
+            .unwrap();
+        assert_eq!(&buf[..size], b"beta-1", "客户端 B 不能收到 A 的回包");
+
+        // 各自继续发包，仍然回到自己。
+        assert_eq!(
+            udp_roundtrip(&client_a, dialer_addr, b"alpha-2").await,
+            b"alpha-2"
+        );
+        assert_eq!(
+            udp_roundtrip(&client_b, dialer_addr, b"beta-2").await,
+            b"beta-2"
+        );
+
+        wait_until("两个客户端各自一个会话", || {
+            let server = supervisor
+                .udp_stats("udp2-listener")
+                .and_then(|stats| stats.listener_snapshot());
+            let dialer = supervisor
+                .udp_stats("udp2-dialer")
+                .and_then(|stats| stats.dialer_snapshot());
+            server.is_some_and(|stats| stats.sessions == 2)
+                && dialer.is_some_and(|stats| stats.sessions == 2)
+        })
+        .await;
+
+        let server = supervisor
+            .udp_stats("udp2-listener")
+            .unwrap()
+            .listener_snapshot()
+            .unwrap();
+        let dialer_stats = supervisor
+            .udp_stats("udp2-dialer")
+            .unwrap()
+            .dialer_snapshot()
+            .unwrap();
+        assert_eq!(
+            server.sessions, 2,
+            "两个本地客户端 → 两条 QUIC 连接：{server:?}"
+        );
+        assert_eq!(server.datagrams_in, 4, "{server:?}");
+        assert_eq!(server.datagrams_out, 4, "{server:?}");
+        assert_eq!(
+            dialer_stats.sessions, 2,
+            "入口侧也必须各有一个会话：{dialer_stats:?}"
+        );
+        println!("[udp two clients] server={server:?} dialer={dialer_stats:?}");
+
+        supervisor.apply(&[]).await;
+    }
+
+    /// 白名单外的目标：出口 `denied` 增加、echo 收包为 0、客户端拿不到回包。
+    #[tokio::test]
+    async fn udp_tunnel_denies_targets_outside_the_chain_whitelist() {
+        let allowed_echo = spawn_udp_echo().await;
+        let denied_echo = spawn_udp_echo().await;
+        let (_dir, cert, key, ca) = certs();
+        let listener_port = free_port();
+        let dialer_port = free_port();
+        let listener_addr: SocketAddr = format!("127.0.0.1:{listener_port}").parse().unwrap();
+        // Dialer 的链目标是 denied_echo；Listener 只允许 allowed_echo。
+        let allowed = [listener_addr, denied_echo.addr];
+
+        let listener = with_tunnel_udp(listener_spec_allowed(
+            "deny-listener",
+            listener_port,
+            &cert,
+            &key,
+            &[allowed_echo.addr],
+        ));
+        let dialer = with_tunnel_udp(dialer_spec(
+            "deny-dialer",
+            dialer_port,
+            listener_port,
+            &ca,
+            &allowed,
+        ));
+
+        let mut supervisor = TunnelSupervisor::new();
+        supervisor.apply(&[listener, dialer]).await;
+
+        let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let dialer_addr: SocketAddr = format!("127.0.0.1:{dialer_port}").parse().unwrap();
+        client
+            .send_to(b"must-not-arrive", dialer_addr)
+            .await
+            .unwrap();
+
+        wait_until("出口拒绝计数到 1", || {
+            supervisor
+                .udp_stats("deny-listener")
+                .and_then(|stats| stats.listener_snapshot())
+                .is_some_and(|stats| stats.denied >= 1)
+        })
+        .await;
+
+        // 被拒绝的目标不能产生回包。
+        let mut buf = [0u8; 256];
+        let no_reply = timeout(Duration::from_millis(400), client.recv_from(&mut buf)).await;
+        assert!(no_reply.is_err(), "白名单外的目标不能有回包");
+
+        let server = supervisor
+            .udp_stats("deny-listener")
+            .unwrap()
+            .listener_snapshot()
+            .unwrap();
+        assert_eq!(server.denied, 1, "每个被拒绝的数据报都要计数：{server:?}");
+        assert_eq!(server.sessions, 0, "拒绝时不能建服务端会话：{server:?}");
+        assert_eq!(server.datagrams_out, 0, "{server:?}");
+        assert_eq!(
+            allowed_echo.received.load(Ordering::Relaxed),
+            0,
+            "白名单内的 echo 也不能收到包"
+        );
+        assert_eq!(
+            denied_echo.received.load(Ordering::Relaxed),
+            0,
+            "白名单外的 echo 收包计数必须为 0"
+        );
+        println!(
+            "[udp deny] denied={} sessions={} denied_echo_received={}",
+            server.denied,
+            server.sessions,
+            denied_echo.received.load(Ordering::Relaxed)
+        );
+
+        supervisor.apply(&[]).await;
     }
 
     #[test]

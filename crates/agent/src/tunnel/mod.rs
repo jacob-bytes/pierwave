@@ -45,12 +45,11 @@ mod adapter;
 mod framing;
 mod handshake;
 mod modes;
-// P16.3 的 UDP 中继（QUIC datagram）。本轮由测试驱动，尚未接进
-// `ForwardEngine` 的 UDP 路径（见 PR 说明的「未做事项」）；接线时删除这个
-// allow。TCP 路径完全不经过这个模块，行为不变。
-#[allow(dead_code)]
+// P16.3 的 UDP 中继（QUIC datagram）：出口侧（QUIC server）在本模块，
+// 入口侧（本地 UDP 会话表）在 `udp_dialer`。TCP 路径完全不经过这两个模块。
 mod quic;
 mod supervisor;
+mod udp_dialer;
 mod whitelist;
 
 use std::collections::HashMap;
@@ -310,14 +309,9 @@ struct ServerInner {
     allowed_targets: Vec<TargetRule>,
     /// 内核实际分配的监听地址（`bind` 里写端口 0 时也能读回来）。
     /// UDP 中继要绑**同一个端口**，所以必须保存实际值而不是配置里的 0。
-    /// 只有启用 UDP 中继时才读；接线后删除 allow。
-    #[allow(dead_code)]
     bound_addr: std::net::SocketAddr,
     /// 启用 UDP 中继时要重新加载证书（TCP 的 `TlsAcceptor` 不暴露配置）。
-    /// 只有启用 UDP 中继时才读；接线后删除 allow。
-    #[allow(dead_code)]
     cert_path: PathBuf,
-    #[allow(dead_code)]
     key_path: PathBuf,
 }
 
@@ -396,9 +390,6 @@ impl TunnelServer {
     /// 只有 TLS 模式支持：Noise 的 UDP 路径本轮不做，调用会明确失败，不会
     /// 悄悄退化成明文或跳过认证。
     ///
-    /// 本轮还没有调用点（ForwardEngine 的 UDP 路径未接线），先删掉 allow
-    /// 会让 `cargo check` 的 dead_code 把整条新路径当成错误；接线时一并删除。
-    #[allow(dead_code)]
     pub async fn with_udp(self, target_rules: Vec<TargetRule>) -> Result<Self> {
         self.attach_udp(target_rules, QuicUdpLimits::default())
             .await
@@ -414,7 +405,6 @@ impl TunnelServer {
         self.attach_udp(target_rules, limits).await
     }
 
-    #[allow(dead_code)]
     async fn attach_udp(
         mut self,
         target_rules: Vec<TargetRule>,
@@ -438,14 +428,12 @@ impl TunnelServer {
             limits,
             tcp_metrics: Arc::clone(&self.inner.metrics),
             max_connections: self.inner.max_connections,
-            replay: Arc::clone(&self.inner.replay),
         })?;
         self.quic = Some(Arc::new(server));
         Ok(self)
     }
 
     /// UDP 中继的计数句柄；没启用 UDP 时为 `None`。
-    #[allow(dead_code)]
     pub fn udp_stats_handle(&self) -> Option<QuicUdpStatsHandle> {
         self.quic.as_ref().map(|quic| quic.stats_handle())
     }
@@ -863,8 +851,6 @@ pub struct TunnelClient {
     hop_secret: Vec<u8>,
     config: Arc<ClientConfig>,
     /// 显式信任根。TCP 与 QUIC（UDP 中继）共用同一份 CA；`None` 时是空信任根。
-    /// 只有 `with_udp` 会读；接线后删除 allow。
-    #[allow(dead_code)]
     roots: Arc<RootCertStore>,
     security: TunnelSecurity,
     /// 客户端发起重协商的周期；测试可压到毫秒级。
@@ -947,9 +933,8 @@ impl TunnelClient {
     ///
     /// 只有 TLS 模式支持；Noise 的 UDP 路径本轮不做，明确失败而不是退化。
     ///
-    /// 本轮还没有调用点（ForwardEngine 的 UDP 路径未接线），allow 的删除
-    /// 时机与 [`TunnelServer::with_udp`] 相同。
-    #[allow(dead_code)]
+    /// 入口侧（[`udp_dialer`]）**每个本地 UDP 客户端建一条这样的连接**：
+    /// 回包只带目标地址，只有「一条连接 = 一个客户端」才能把回包送对人。
     pub async fn with_udp(&self, target_rules: Vec<TargetRule>) -> Result<QuicUdpClient> {
         if self.security != TunnelSecurity::Tls {
             bail!("Noise 模式的 UDP 中继本轮不做 / UDP relay over Noise is not implemented yet");
@@ -2092,6 +2077,7 @@ mod tests {
                     ports: Some((addr.port(), addr.port())),
                 })
                 .collect(),
+            udp: false,
         }
     }
 
