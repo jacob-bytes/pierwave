@@ -38,6 +38,8 @@ struct PublicServer {
     latency_ms: Option<i64>,
     /// 管理员填写的国家/地区代码（ISO 3166-1 alpha-2）；未填写为 null。
     country_code: Option<String>,
+    /// 管理员填写的分组名；未分组为 null。公开页用它做分组筛选，分组名本来就在 `groups` 里出现过。
+    group_name: Option<String>,
     /// Agent 上报的发行版名称；旧 Agent 或读不到为 null。
     os_name: Option<String>,
     /// Agent 上报的发行版版本；旧 Agent 或读不到为 null。
@@ -180,7 +182,8 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
                 uptime_secs: server.uptime_secs,
                 last_seen: server.last_seen_at,
                 latency_ms: server.latency_ms,
-                country_code: server.country_code,
+                country_code: server.country_code.clone(),
+                group_name: server.group_name.clone(),
                 os_name: server.os_name,
                 os_version: server.os_version,
                 virt: server.virt,
