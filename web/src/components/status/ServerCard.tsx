@@ -263,22 +263,15 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
         />
       </div>
 
-      {/* 底部：左边是点阵本身的说明（近 24 小时、每格 1 小时），右边才是 7 天可用率。
-          原来的写法把两个不同窗口的指标并排，看起来像同一件事。 */}
+      {/* 点阵紧跟在「24h 可用率」下面，所以它不需要自己的标签；
+          7 天可用率是另一个窗口，单独一行放在最底部，不和点阵并排。
+          之前把两者摆在同一行，读起来像点阵同时代表 24 小时和 7 天。 */}
       <div className="mt-auto pt-4">
-        <div className="flex min-w-0 items-baseline justify-between gap-2 text-xs">
-          <span
-            className="min-w-0 truncate text-muted-foreground"
-            title={t("publicStatus.availability.legend")}
-          >
-            {t("publicStatus.server.availability24hHint")}
-          </span>
-          <span className="inline-flex shrink-0 items-baseline gap-1.5 text-muted-foreground">
-            <span>{t("publicStatus.server.availability7d")}</span>
-            <AvailabilityValue ratio={server.uptime_7d} />
-          </span>
-        </div>
         <AvailabilityStrip server={server} className="mt-3" />
+        <div className="mt-2 flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
+          <span>{t("publicStatus.server.availability7d")}</span>
+          <AvailabilityValue ratio={server.uptime_7d} />
+        </div>
       </div>
     </Card>
   );
