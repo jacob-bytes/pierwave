@@ -60,9 +60,13 @@ function Segmented<T extends string>({
             aria-label={item.label === "" ? item.title : undefined}
             title={item.title}
             className={cn(
-              "inline-flex h-7 items-center gap-1.5 rounded text-xs whitespace-nowrap transition-colors",
+              "relative inline-flex h-7 items-center gap-1.5 rounded text-xs whitespace-nowrap transition-colors",
               "focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none",
-              item.label === "" ? "px-1.5" : "px-2",
+              // 纯图标按钮：min-w-8 保证 32px 宽，after 把 28px 高补到 32px，
+              // 不改变分段控件的外观与行高。
+              item.label === ""
+                ? "min-w-8 px-1.5 after:absolute after:-inset-y-0.5 after:inset-x-0 after:content-['']"
+                : "px-2",
               active
                 ? "bg-accent font-medium text-primary"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -200,13 +204,13 @@ export function Toolbar({
       value: "grid",
       label: "",
       title: t("publicStatus.toolbar.gridView"),
-      icon: <LayoutGridIcon className="size-3.5" aria-hidden="true" />,
+      icon: <LayoutGridIcon className="icon-sm" aria-hidden="true" />,
     },
     {
       value: "list",
       label: "",
       title: t("publicStatus.toolbar.listView"),
-      icon: <ListIcon className="size-3.5" aria-hidden="true" />,
+      icon: <ListIcon className="icon-sm" aria-hidden="true" />,
     },
   ];
 
@@ -273,7 +277,7 @@ export function Toolbar({
       <div className="ml-auto flex items-center gap-2">
         <label className="relative inline-flex h-8 items-center">
           <SearchIcon
-            className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground"
+            className="pointer-events-none absolute left-2 icon-sm text-muted-foreground"
             aria-hidden="true"
           />
           <input
@@ -282,16 +286,16 @@ export function Toolbar({
             onChange={(event) => onQuery(event.target.value)}
             placeholder={t("publicStatus.toolbar.searchPlaceholder")}
             aria-label={t("publicStatus.toolbar.searchAria")}
-            className="h-8 w-40 rounded-md border border-input bg-card pr-7 pl-7 text-xs outline-none transition placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 sm:w-52 dark:bg-card [&::-webkit-search-cancel-button]:appearance-none"
+            className="h-8 w-40 rounded-md border border-input bg-card pr-8 pl-7 text-xs outline-none transition placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 sm:w-52 dark:bg-card [&::-webkit-search-cancel-button]:appearance-none"
           />
           {query !== "" ? (
             <button
               type="button"
               onClick={() => onQuery("")}
               aria-label={t("publicStatus.toolbar.clearSearch")}
-              className="absolute right-1.5 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+              className="absolute right-0 grid size-8 place-items-center rounded text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
             >
-              <XIcon className="size-3.5" aria-hidden="true" />
+              <XIcon className="icon-sm" aria-hidden="true" />
             </button>
           ) : null}
         </label>

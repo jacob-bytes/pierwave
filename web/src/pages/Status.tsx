@@ -1,23 +1,23 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import type { LucideIcon } from "lucide-react";
 import {
   ActivityIcon,
   ArrowRightIcon,
   LayoutDashboardIcon,
+  ListFilterIcon,
   MoonIcon,
   RefreshCwIcon,
   ServerOffIcon,
   ShieldIcon,
   SunIcon,
-  TriangleAlertIcon,
 } from "lucide-react";
+import { EmptyState, ListError, SkeletonLine } from "@/components/common";
 import { ServerCard } from "@/components/status/ServerCard";
 import { ServerTable } from "@/components/status/ServerTable";
 import { Summary } from "@/components/status/Summary";
 import { Toolbar } from "@/components/status/Toolbar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDocumentTitle, useI18n } from "@/i18n";
 import type { PublicStatus } from "@/lib/api";
@@ -48,6 +48,12 @@ import { cn } from "@/lib/utils";
  * `GET /api/v1/public/status` 的白名单渲染 —— 公开 API 没有的丢包、
  * 运营商、单机流量和历史事件，这里一律不画。
  */
+
+/**
+ * 页头与内容共用一条容器：同样的最大宽度和左右内边距，
+ * 保证页头左边缘和下方卡片左边缘始终对齐。
+ */
+const PAGE_CONTAINER = "mx-auto w-full max-w-[1400px] px-4 sm:px-6";
 
 /** 页头右侧的实时状态点：有数据是主色，断线或数据过期转警告色。 */
 function LiveStatus({
@@ -122,7 +128,7 @@ function StatusHeader({
 
   return (
     <header className="sticky top-0 z-10 border-b border-border bg-[color-mix(in_oklab,var(--card)_80%,var(--background))]">
-      <div className="mx-auto flex max-w-[1400px] items-center gap-2 px-4 py-3 sm:gap-3 sm:px-6">
+      <div className={cn(PAGE_CONTAINER, "flex items-center gap-2 py-3 sm:gap-3")}>
         <div className="min-w-0">
           <h1 className="flex min-w-0 items-center gap-2 text-base leading-tight font-semibold tracking-tight">
             <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/15">
@@ -142,7 +148,6 @@ function StatusHeader({
         <Button
           type="button"
           variant="ghost"
-          size="sm"
           onClick={onRefresh}
           disabled={isFetching}
           title={t("publicStatus.refresh")}
@@ -161,7 +166,7 @@ function StatusHeader({
         <Button
           type="button"
           variant="ghost"
-          size="icon-sm"
+          size="icon"
           onClick={() => setTheme(dark ? "light" : "dark")}
           title={themeLabel}
           aria-label={themeLabel}
@@ -173,7 +178,7 @@ function StatusHeader({
           )}
         </Button>
 
-        <Button variant="ghost" size="sm" asChild>
+        <Button variant="ghost" asChild>
           <Link to="/login">
             <LayoutDashboardIcon className="icon-md" aria-hidden="true" />
             <span className="max-sm:sr-only">
@@ -186,90 +191,105 @@ function StatusHeader({
   );
 }
 
-function NoticeCard({
-  icon: Icon,
-  iconClassName,
-  title,
-  description,
+/**
+ * 空态统一进站内的 `EmptyState`，外面套一张与卡片同材质的底，
+ * 让「无数据 / 无结果 / 已关闭」三种情况在页面上是同一层视觉。
+ */
+function StatePanel({
   children,
   className,
 }: {
-  icon: LucideIcon;
-  iconClassName: string;
-  title: string;
-  description: string;
-  children?: ReactNode;
+  children: ReactNode;
   className?: string;
 }) {
   return (
-    <Card className={cn("rounded-xl", className)}>
-      <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-        <div
-          className={cn(
-            "grid size-10 place-items-center rounded-full",
-            iconClassName,
-          )}
-        >
-          <Icon className="icon-lg" aria-hidden="true" />
-        </div>
-        <div>
-          <p className="text-sm font-medium">{title}</p>
-          <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
-            {description}
-          </p>
-        </div>
-        {children}
-      </CardContent>
-    </Card>
+    <Card className={cn("rounded-xl py-0", className)}>{children}</Card>
   );
 }
 
-/** 骨架屏照参考项目的尺寸：四个 86px 汇总块 + 六张等高卡片。 */
-function StatusSkeleton({ label }: { label: string }) {
+/** 一个指标的骨架：标签 / 数值一行、4px 进度条、底部原始值。 */
+function MeterSkeleton() {
   return (
-    <div aria-busy="true" aria-label={label}>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {Array.from({ length: 4 }, (_, index) => (
-          <Skeleton key={index} className="h-[86px] rounded-xl" />
-        ))}
+    <div className="min-w-0" aria-hidden="true">
+      <div className="flex items-baseline justify-between gap-2">
+        <SkeletonLine className="h-3 w-12" />
+        <SkeletonLine className="h-3 w-8" />
       </div>
-      <div className="mt-2.5 flex items-center gap-2 px-1">
-        <Skeleton className="h-8 w-64 rounded-md" />
-        <div className="flex-1" />
-        <Skeleton className="h-8 w-40 rounded-md sm:w-52" />
-      </div>
-      <div className="mt-2.5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {Array.from({ length: 6 }, (_, index) => (
-          <Skeleton key={index} className="h-[258px] rounded-xl" />
-        ))}
-      </div>
+      <Skeleton className="mt-2 h-1 w-full rounded-full" />
+      <SkeletonLine className="mt-1.5 h-3 w-20" />
     </div>
   );
 }
 
-/** 当前筛选没有结果：与「一台服务器都没有」分开，这里给一条出路。 */
-function FilterEmpty({
-  title,
-  description,
-  onClear,
-}: {
-  title: string;
-  description?: string;
-  onClear: () => void;
-}) {
-  const { t } = useI18n();
-
+/**
+ * 与 `ServerCard` 同构的骨架：标题行 + 副行 + 2×2 指标 + 底部可用率点阵。
+ * 结构一致，加载结束换成真数据时不会整块跳动。
+ */
+function ServerCardSkeleton() {
   return (
-    <div className="grid place-items-center rounded-xl border border-dashed border-border py-16 text-center">
-      <p className="text-sm font-medium">{title}</p>
-      {description ? (
-        <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-          {description}
-        </p>
-      ) : null}
-      <Button variant="outline" size="sm" className="mt-3" onClick={onClear}>
-        {t("publicStatus.toolbar.clearFilters")}
-      </Button>
+    <Card
+      aria-hidden="true"
+      className="h-full min-w-0 gap-0 rounded-xl p-4 [--card-spacing:--spacing(4)]"
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <SkeletonLine className="h-4 w-1/2" />
+        <Skeleton className="ml-auto h-5 w-20 shrink-0 rounded-full" />
+      </div>
+      <SkeletonLine className="mt-1.5 h-3 w-3/5" />
+
+      <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-4">
+        {Array.from({ length: 4 }, (_, index) => (
+          <MeterSkeleton key={index} />
+        ))}
+      </div>
+
+      <div className="mt-auto pt-4">
+        <div className="mt-3 grid grid-cols-[repeat(24,minmax(0,1fr))] gap-0.5">
+          {Array.from({ length: 24 }, (_, index) => (
+            <Skeleton key={index} className="h-1.5 rounded-[2px]" />
+          ))}
+        </div>
+        <div className="mt-2 flex items-baseline justify-between gap-2">
+          <SkeletonLine className="h-3 w-16" />
+          <SkeletonLine className="h-3 w-10" />
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * 首屏骨架：四个汇总块 + 工具栏 + 四张服务器卡片。
+ *
+ * 摘要块只占位高度；服务器卡片按真实卡片的结构铺骨架，
+ * 手机上是一列、桌面最多四列，与真实网格一致。
+ */
+function StatusSkeleton({ label }: { label: string }) {
+  return (
+    <div aria-busy="true" aria-label={label}>
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {Array.from({ length: 4 }, (_, index) => (
+          <Card
+            key={index}
+            aria-hidden="true"
+            className="h-[86px] gap-0 rounded-xl p-3 [--card-spacing:--spacing(3)]"
+          >
+            <SkeletonLine className="h-3 w-16" />
+            <SkeletonLine className="mt-2 h-5 w-20" />
+            <SkeletonLine className="mt-auto h-3 w-24" />
+          </Card>
+        ))}
+      </div>
+      <div className="mt-4 flex items-center gap-2 px-1">
+        <Skeleton className="h-8 w-64 rounded-md" />
+        <div className="flex-1" />
+        <Skeleton className="h-8 w-40 rounded-md sm:w-52" />
+      </div>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {Array.from({ length: 4 }, (_, index) => (
+          <ServerCardSkeleton key={index} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -322,15 +342,15 @@ function StatusContent({ data }: { data: PublicStatus }) {
       />
 
       <h2 className="sr-only">{t("publicStatus.servers.title")}</h2>
-      <div className="mt-2.5 space-y-2.5">
+      <div className="mt-4 space-y-4">
         {data.servers.length === 0 ? (
-          <NoticeCard
-            icon={ServerOffIcon}
-            iconClassName="bg-muted text-muted-foreground"
-            title={t("publicStatus.servers.emptyTitle")}
-            description={t("publicStatus.servers.emptyDescription")}
-            className="mt-6"
-          />
+          <StatePanel>
+            <EmptyState
+              icon={ServerOffIcon}
+              title={t("publicStatus.servers.emptyTitle")}
+              description={t("publicStatus.servers.emptyDescription")}
+            />
+          </StatePanel>
         ) : (
           <>
             <Toolbar
@@ -351,24 +371,30 @@ function StatusContent({ data }: { data: PublicStatus }) {
             />
 
             {filtered.length === 0 ? (
-              group !== null ? (
-                <FilterEmpty
-                  title={t("publicStatus.groups.emptyFilteredTitle")}
-                  onClear={clear}
+              <StatePanel>
+                <EmptyState
+                  icon={ListFilterIcon}
+                  title={
+                    group !== null
+                      ? t("publicStatus.groups.emptyFilteredTitle")
+                      : t("publicStatus.servers.emptyFilteredTitle")
+                  }
+                  description={
+                    group === null
+                      ? t("publicStatus.servers.emptyFilteredDescription")
+                      : undefined
+                  }
+                  action={
+                    <Button variant="outline" size="sm" onClick={clear}>
+                      {t("publicStatus.toolbar.clearFilters")}
+                    </Button>
+                  }
                 />
-              ) : (
-                <FilterEmpty
-                  title={t("publicStatus.servers.emptyFilteredTitle")}
-                  description={t(
-                    "publicStatus.servers.emptyFilteredDescription",
-                  )}
-                  onClear={clear}
-                />
-              )
+              </StatePanel>
             ) : view === "list" ? (
               <ServerTable servers={filtered} />
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {filtered.map((server) => (
                   <ServerCard key={server.id} server={server} />
                 ))}
@@ -399,11 +425,11 @@ export default function StatusPage() {
         onRefresh={() => void status.refetch()}
       />
 
-      <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-4 sm:px-6">
+      <main className={cn(PAGE_CONTAINER, "flex-1 py-4")}>
         {status.data ? (
           <>
             {status.isError ? (
-              <p role="alert" className="mb-3 text-sm text-destructive">
+              <p role="alert" className="mb-4 text-sm text-destructive">
                 {errorText(
                   status.error,
                   t("publicStatus.error.description"),
@@ -415,46 +441,33 @@ export default function StatusPage() {
         ) : status.isPending ? (
           <StatusSkeleton label={t("publicStatus.loading")} />
         ) : disabled ? (
-          <NoticeCard
-            icon={ShieldIcon}
-            iconClassName="bg-muted text-muted-foreground"
-            title={t("publicStatus.disabled.title")}
-            description={t("publicStatus.disabled.description")}
-          >
-            <Button asChild variant="outline" size="sm">
-              <Link to="/login">
-                {t("publicStatus.header.admin")}
-                <ArrowRightIcon className="icon-md" aria-hidden="true" />
-              </Link>
-            </Button>
-          </NoticeCard>
+          <StatePanel>
+            <EmptyState
+              icon={ShieldIcon}
+              title={t("publicStatus.disabled.title")}
+              description={t("publicStatus.disabled.description")}
+              action={
+                <Button asChild variant="outline" size="sm">
+                  <Link to="/login">
+                    {t("publicStatus.header.admin")}
+                    <ArrowRightIcon className="icon-sm" aria-hidden="true" />
+                  </Link>
+                </Button>
+              }
+            />
+          </StatePanel>
         ) : (
-          <NoticeCard
-            icon={TriangleAlertIcon}
-            iconClassName="bg-destructive/10 text-destructive"
-            title={t("publicStatus.error.title")}
-            description={errorText(
-              status.error,
-              t("publicStatus.error.description"),
-            )}
-          >
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void status.refetch()}
-              disabled={status.isFetching}
-            >
-              <RefreshCwIcon
-                className={cn(
-                  "icon-md",
-                  status.isFetching && "animate-spin",
-                )}
-                aria-hidden="true"
-              />
-              {t("publicStatus.error.retry")}
-            </Button>
-          </NoticeCard>
+          <StatePanel>
+            <ListError
+              title={t("publicStatus.error.title")}
+              message={errorText(
+                status.error,
+                t("publicStatus.error.description"),
+              )}
+              retrying={status.isFetching}
+              onRetry={() => void status.refetch()}
+            />
+          </StatePanel>
         )}
       </main>
     </div>

@@ -14,7 +14,10 @@ export const AVAILABILITY_BAR_CLASS: Record<AvailabilityTone, string> = {
   ok: "bg-primary",
   warn: "bg-warning",
   down: "bg-destructive",
-  unknown: "bg-muted-foreground/20",
+  // 深色下 20% 的次要前景只有 1.37:1，和卡片底分不清；60% 合成后
+  // 3.16–3.27:1（异常卡的 muted/40 底到普通卡片底），仍是最低一档的灰，
+  // 不引入新色相。
+  unknown: "bg-muted-foreground/20 dark:bg-muted-foreground/60",
 };
 
 export const AVAILABILITY_TEXT_CLASS: Record<AvailabilityTone, string> = {
