@@ -1824,7 +1824,7 @@ mod tests {
             "UDP 端口必须已被规则占住"
         );
         assert!(
-            TcpListener::bind(("127.0.0.1", port)).await.is_ok(),
+            wait_tcp_port_free(port).await,
             "仅 UDP 模式不能占用 TCP 端口"
         );
         assert!(
@@ -1905,10 +1905,23 @@ mod tests {
             "切到仅 UDP 后旧 TCP 监听必须释放"
         );
         assert!(
-            TcpListener::bind(("127.0.0.1", new_port)).await.is_ok(),
+            wait_tcp_port_free(new_port).await,
             "仅 UDP 模式不能占用 TCP 端口"
         );
         assert!(supervisor.status_handle().snapshot()[0].listening);
+    }
+
+
+    /// 等 UDP 端口可绑定（最多 2 秒）。关闭监听与内核释放之间有窗口。
+    async fn wait_tcp_port_free(port: u16) -> bool {
+        for _ in 0..100 {
+            if let Ok(socket) = tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+                drop(socket);
+                return true;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        false
     }
 
     /// 等端口真正可绑：关闭监听与内核释放之间有窗口，并行测试也可能短暂占用。
@@ -1979,9 +1992,7 @@ mod tests {
             "关掉 UDP 后 TCP 监听必须仍在"
         );
         assert!(
-            tokio::net::UdpSocket::bind(("127.0.0.1", port))
-                .await
-                .is_ok(),
+            wait_udp_port_free(port).await,
             "udp 位变化必须触发重建并释放 UDP 端口"
         );
 
@@ -2142,9 +2153,7 @@ mod tests {
             busy.error
         );
         assert!(
-            TcpListener::bind(("127.0.0.1", busy_port as u16))
-                .await
-                .is_ok(),
+            wait_tcp_port_free(busy_port as u16).await,
             "UDP 绑定失败时已绑上的 TCP 监听必须释放"
         );
         let good = status.iter().find(|s| s.id == "good-udp").unwrap();
