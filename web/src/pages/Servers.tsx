@@ -1503,20 +1503,39 @@ export default function ServersPage() {
             className="space-y-4"
             onSubmit={handleCreate}
           >
-            <div className="space-y-2">
-              <Label htmlFor="server-name">{t("servers.createDialog.name")}</Label>
-              <Input
-                id="server-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="hk-1"
-                autoComplete="off"
-                disabled={create.isPending}
-              />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="server-name">
+                  {t("servers.createDialog.name")}
+                </Label>
+                <Input
+                  id="server-name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="hk-1"
+                  autoComplete="off"
+                  disabled={create.isPending}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="server-group">{t("servers.group")}</Label>
+                <Input
+                  id="server-group"
+                  value={group}
+                  onChange={(event) => setGroup(event.target.value)}
+                  placeholder={t("servers.groupPlaceholder")}
+                  maxLength={GROUP_NAME_MAX_LENGTH}
+                  autoComplete="off"
+                  disabled={create.isPending}
+                />
+              </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="server-address">{t("servers.createDialog.address")}</Label>
+              <Label htmlFor="server-address">
+                {t("servers.createDialog.address")}
+              </Label>
               <Input
                 id="server-address"
                 value={address}
@@ -1527,53 +1546,41 @@ export default function ServersPage() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="server-group">{t("servers.group")}</Label>
-              <Input
-                id="server-group"
-                value={group}
-                onChange={(event) => setGroup(event.target.value)}
-                placeholder={t("servers.groupPlaceholder")}
-                maxLength={GROUP_NAME_MAX_LENGTH}
-                autoComplete="off"
-                disabled={create.isPending}
-              />
-            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="server-country">{t("servers.country")}</Label>
+                <CountrySelect
+                  value={country}
+                  onChange={setCountry}
+                  disabled={create.isPending}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("servers.countryHint")}
+                </p>
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="server-country">{t("servers.country")}</Label>
-                            <CountrySelect
-                value={country}
-                onChange={setCountry}
-                disabled={create.isPending}
-              />
-              <p
-                id="create-server-country-desc"
-                className="text-xs text-muted-foreground"
-              >
-                {t("servers.countryHint")}
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="server-mode">{t("servers.createDialog.mode")}</Label>
-              <Select
-                value={xrayMode}
-                onValueChange={setXrayMode}
-                disabled={create.isPending}
-              >
-                <SelectTrigger id="server-mode" className="w-full">
-                  <SelectValue placeholder={t("servers.mode.placeholder")} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="external">
-                    {t("servers.mode.externalOption")}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                {t("servers.mode.hint")}
-              </p>
+              <div className="space-y-2">
+                <Label htmlFor="server-mode">
+                  {t("servers.createDialog.mode")}
+                </Label>
+                <Select
+                  value={xrayMode}
+                  onValueChange={setXrayMode}
+                  disabled={create.isPending}
+                >
+                  <SelectTrigger id="server-mode" className="w-full">
+                    <SelectValue placeholder={t("servers.mode.placeholder")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="external">
+                      {t("servers.mode.externalOption")}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {t("servers.mode.hint")}
+                </p>
+              </div>
             </div>
 
             {createError ? (

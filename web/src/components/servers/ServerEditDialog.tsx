@@ -133,27 +133,12 @@ export function ServerEditDialog({
             <Label htmlFor="server-country" className="text-sm">
               {t("servers.country")}
             </Label>
-            <Input
-              id="server-country"
-              value={countryCode}
-              onChange={(event) =>
-                setCountryCode(event.target.value.toUpperCase())
-              }
-              placeholder={t("servers.countryPlaceholder")}
-              maxLength={2}
-              autoComplete="off"
-              spellCheck={false}
-              disabled={updateServer.isPending}
-              aria-describedby="server-country-desc"
-              list="server-country-list"
-              className="w-28 font-mono tracking-[0.2em] uppercase"
-            />
             <CountrySelect
-                value={countryCode}
-                onChange={setCountryCode}
-                disabled={updateServer.isPending}
-              />
-              <p
+              value={countryCode}
+              onChange={setCountryCode}
+              disabled={updateServer.isPending}
+            />
+            <p
               id="server-country-desc"
               className="text-xs leading-relaxed text-muted-foreground"
             >
