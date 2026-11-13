@@ -37,6 +37,29 @@ export const STATUS_VIEW_STORAGE_KEY = "pierwave.status.view";
 /** 没有存过、或存的值不认识时的默认版式。 */
 export const DEFAULT_STATUS_VIEW: StatusView = "grid";
 
+/**
+ * 页头「更新于」的新鲜窗口：2 分钟内算实时，之后数据点转 muted。
+ *
+ * 轮询本身是 30 秒一次；连续失败时页面仍挂着最后一次数据，时间戳超过
+ * 两分钟就不该再被当成「刚刚」——参考实现同样只把新鲜数据画成实心点。
+ */
+export const STATUS_STALE_SECONDS = 2 * 60;
+
+/**
+ * 公开页数据是否已过期。
+ *
+ * `nowMs` 是浏览器时钟（毫秒），`generatedAtSeconds` 是主控下发的时间戳。
+ * `nowMs <= 0` 是首帧还没读到时钟，未来时间戳是时钟偏差：两者都不能
+ * 判定为过期，否则页面会在首帧或偏差下误报。
+ */
+export function isStatusStale(
+  nowMs: number,
+  generatedAtSeconds: number,
+): boolean {
+  if (nowMs <= 0 || !Number.isFinite(generatedAtSeconds)) return false;
+  return nowMs / 1_000 - generatedAtSeconds >= STATUS_STALE_SECONDS;
+}
+
 /** 可用率迷你条的色阶；`unknown` 表示该小时没有采样。 */
 export type AvailabilityTone = "ok" | "warn" | "down" | "unknown";
 

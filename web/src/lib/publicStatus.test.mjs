@@ -11,6 +11,7 @@ import {
   filterPublicServers,
   hasSamples,
   isPublicStatusPath,
+  isStatusStale,
   loadStatusView,
   matchesGroupFilter,
   matchesServerQuery,
@@ -22,6 +23,7 @@ import {
   resourcePercent,
   serverSpecLine,
   serverState,
+  STATUS_STALE_SECONDS,
   STATUS_VIEW_STORAGE_KEY,
   statusGroupTabs,
   statusLabelKey,
@@ -532,4 +534,25 @@ test("status page dynamic i18n keys exist in both locales", () => {
     assert.equal(typeof pick(zh.publicStatus, key), "string", `zh ${key}`);
     assert.equal(typeof pick(en.publicStatus, key), "string", `en ${key}`);
   }
+});
+
+test("isStatusStale keeps data fresh for two minutes and flags it after", () => {
+  const nowMs = 1_800_000_000_000;
+  const at = nowMs / 1_000;
+
+  // 窗口内：59 秒、119 秒都还算新鲜。
+  assert.equal(isStatusStale(nowMs, at - 59), false);
+  assert.equal(isStatusStale(nowMs, at - 119), false);
+  // 边界：整两分钟起就过期，之后一直是过期。
+  assert.equal(isStatusStale(nowMs, at - STATUS_STALE_SECONDS), true);
+  assert.equal(isStatusStale(nowMs, at - 180), true);
+  assert.equal(STATUS_STALE_SECONDS, 120);
+});
+
+test("isStatusStale ignores a missing clock and future timestamps", () => {
+  // 首帧还没读到时钟：不能把「未知」当成过期。
+  assert.equal(isStatusStale(0, 1_700_000_000), false);
+  // 时钟偏差导致的未来时间戳同样不算过期。
+  assert.equal(isStatusStale(1_800_000_000_000, 1_800_000_100), false);
+  assert.equal(isStatusStale(1_800_000_000_000, Number.NaN), false);
 });

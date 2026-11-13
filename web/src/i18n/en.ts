@@ -23,6 +23,8 @@ const en = {
     openNavigation: "Open navigation",
     accountMenu: "Account menu for {username}",
     defaultPage: "Overview",
+    statusLink: "Status",
+    statusLinkTitle: "Open the public status page in a new tab",
   },
   errorBoundary: {
     title: "Something went wrong",
@@ -178,13 +180,11 @@ const en = {
     loading: "Loading status…",
     updatedAt: "Updated {time}",
     autoRefreshHint: "Refreshes every 30 seconds",
-    refresh: "Refresh",
-    refreshing: "Refreshing…",
     header: {
       connecting: "Connecting…",
       disconnected: "Disconnected",
       themeToggle: "Toggle theme",
-      admin: "Open admin panel",
+      admin: "Admin",
     },
     summary: {
       servers: "Servers online",

@@ -19,6 +19,8 @@ const zhCN = {
     openNavigation: "打开导航",
     accountMenu: "{username} 的账号菜单",
     defaultPage: "概览",
+    statusLink: "探针",
+    statusLinkTitle: "在新标签页打开公开探针页",
   },
   errorBoundary: {
     title: "页面出错了",
@@ -173,13 +175,11 @@ const zhCN = {
     loading: "正在加载状态…",
     updatedAt: "更新于 {time}",
     autoRefreshHint: "每 30 秒自动刷新",
-    refresh: "刷新",
-    refreshing: "刷新中…",
     header: {
       connecting: "连接中…",
       disconnected: "连接中断",
       themeToggle: "切换主题",
-      admin: "进入管理面板",
+      admin: "进入后台",
     },
     summary: {
       servers: "在线服务器",

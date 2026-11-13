@@ -68,14 +68,21 @@ export function formatRelativeTime(
   return toDateInputValue(unixSeconds);
 }
 
-/** Unix 秒 → UTC+8 的 `HH:mm`，用于页头的「更新于」一行。 */
+/**
+ * Unix 秒 → UTC+8 的 `HH:mm:ss`，用于页头的「更新于」一行。
+ *
+ * 探针页与参考实现一致，把秒也画出来：数据停住时，读者从秒位就能看出
+ * 停在哪一刻，而不是只看到一个模糊的分钟。
+ */
 export function formatClockTime(
   unixSeconds: number | null | undefined,
 ): string {
   if (unixSeconds === null || unixSeconds === undefined) return "—";
   const date = toUtc8WallClock(unixSeconds * 1_000);
   if (Number.isNaN(date.getTime())) return "—";
-  return `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
+  return `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(
+    date.getUTCSeconds(),
+  )}`;
 }
 
 /** Unix 秒 → UTC+8 的 `YYYY-MM-DD HH:mm:ss`，用于 hover 绝对时间。 */

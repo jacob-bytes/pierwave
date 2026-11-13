@@ -6,7 +6,6 @@ import {
   LayoutDashboardIcon,
   ListFilterIcon,
   MoonIcon,
-  RefreshCwIcon,
   ServerOffIcon,
   ShieldIcon,
   SunIcon,
@@ -25,6 +24,7 @@ import { errorText, isNotFound } from "@/lib/errors";
 import {
   DEFAULT_STATUS_VIEW,
   filterPublicServers,
+  isStatusStale,
   loadStatusView,
   matchesGroupFilter,
   matchesServerQuery,
@@ -55,7 +55,7 @@ import { cn } from "@/lib/utils";
  */
 const PAGE_CONTAINER = "mx-auto w-full max-w-[1400px] px-4 sm:px-6";
 
-/** 页头右侧的实时状态点：有数据是主色，断线或数据过期转警告色。 */
+/** 页头右侧的实时状态点：数据新鲜是主色，过期转 muted，断线仍用警告色。 */
 function LiveStatus({
   data,
   isError,
@@ -75,12 +75,11 @@ function LiveStatus({
   }, []);
 
   const time = data ? formatClockTime(data.generated_at) : null;
-  // 30 秒轮询 × 3：90 秒还没有新数据，说明页面上的数字已经不能当“实时”看。
-  const stale =
-    now > 0 &&
-    data !== undefined &&
-    now / 1_000 - data.generated_at > 90;
-  const warn = isError || stale;
+  // 2 分钟没有新数据就不再算“实时”，点与文字一起转 muted；轮询失败则是另一回事，
+  // 仍然用警告色把「连接断了」和「数据旧了」分开。
+  const stale = data !== undefined && isStatusStale(now, data.generated_at);
+  const warn = isError;
+  const calm = data !== undefined && !warn && !stale;
   const label = isError
     ? t("publicStatus.header.disconnected")
     : time
@@ -93,16 +92,17 @@ function LiveStatus({
         "inline-flex shrink-0 items-center gap-1.5 text-xs whitespace-nowrap",
         warn ? "text-warning" : "text-muted-foreground",
       )}
-      title={warn ? label : t("publicStatus.autoRefreshHint")}
+      title={warn || stale ? label : t("publicStatus.autoRefreshHint")}
     >
       <span
         aria-hidden="true"
         className={cn(
           "size-1.5 shrink-0 rounded-full",
-          warn ? "bg-warning" : "bg-primary",
-          !warn && "status-breathe",
+          warn ? "bg-warning" : stale ? "bg-muted-foreground" : "bg-primary",
+          calm && "status-breathe",
         )}
       />
+      {/* 手机上页头放不下整句，圆点才是承载状态的部分；文字留在无障碍树里。 */}
       <span className="max-sm:sr-only">{label}</span>
     </span>
   );
@@ -111,13 +111,9 @@ function LiveStatus({
 function StatusHeader({
   data,
   isError,
-  isFetching,
-  onRefresh,
 }: {
   data: PublicStatus | undefined;
   isError: boolean;
-  isFetching: boolean;
-  onRefresh: () => void;
 }) {
   const { t } = useI18n();
   const { resolvedTheme, setTheme } = useTheme();
@@ -146,24 +142,15 @@ function StatusHeader({
 
         <div className="flex-1" />
 
+        {/* 顺序按参考实现：更新时间在最左，然后「进入后台」，主题切换最右。
+            页面每 30 秒自己刷新，页头不再放刷新按钮。 */}
         <LiveStatus data={data} isError={isError} />
 
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={onRefresh}
-          disabled={isFetching}
-          title={t("publicStatus.refresh")}
-        >
-          <RefreshCwIcon
-            className={cn("icon-md", isFetching && "animate-spin")}
-            aria-hidden="true"
-          />
-          <span className="max-sm:sr-only">
-            {isFetching
-              ? t("publicStatus.refreshing")
-              : t("publicStatus.refresh")}
-          </span>
+        <Button variant="ghost" asChild>
+          <Link to="/login">
+            <LayoutDashboardIcon className="icon-md" aria-hidden="true" />
+            {t("publicStatus.header.admin")}
+          </Link>
         </Button>
 
         <Button
@@ -179,15 +166,6 @@ function StatusHeader({
           ) : (
             <MoonIcon className="icon-md" aria-hidden="true" />
           )}
-        </Button>
-
-        <Button variant="ghost" asChild>
-          <Link to="/login">
-            <LayoutDashboardIcon className="icon-md" aria-hidden="true" />
-            <span className="max-sm:sr-only">
-              {t("publicStatus.header.admin")}
-            </span>
-          </Link>
         </Button>
       </div>
     </header>
@@ -421,12 +399,7 @@ export default function StatusPage() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-background">
-      <StatusHeader
-        data={status.data}
-        isError={status.isError}
-        isFetching={status.isFetching}
-        onRefresh={() => void status.refetch()}
-      />
+      <StatusHeader data={status.data} isError={status.isError} />
 
       <main className={cn(PAGE_CONTAINER, "flex-1 py-4")}>
         {status.data ? (

@@ -12,6 +12,7 @@ import {
   CheckIcon,
   ChevronRightIcon,
   ChevronsUpDownIcon,
+  ExternalLinkIcon,
   KeyRoundIcon,
   LanguagesIcon,
   LayoutDashboardIcon,
@@ -514,6 +515,20 @@ export default function AppShell({ user }: { user: SessionUser }) {
             <RefreshCwIcon
               className={cn("icon-md", fetching && "animate-spin")}
             />
+          </Button>
+
+          {/* 公开探针页和后台是两个入口：新标签页打开，后台这边不丢当前页。
+              登录态不参与判定 —— /status 自己就是不登录也能看的页面。 */}
+          <Button
+            asChild
+            variant="ghost"
+            size="sm"
+            title={t("app.statusLinkTitle")}
+          >
+            <a href="/status" target="_blank" rel="noreferrer">
+              <ExternalLinkIcon className="icon-sm" />
+              <span className="max-sm:sr-only">{t("app.statusLink")}</span>
+            </a>
           </Button>
 
           <DropdownMenu>
