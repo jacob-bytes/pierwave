@@ -129,16 +129,19 @@ function StatusHeader({
   return (
     <header className="sticky top-0 z-10 border-b border-border bg-[color-mix(in_oklab,var(--card)_80%,var(--background))]">
       <div className={cn(PAGE_CONTAINER, "flex items-center gap-2 py-3 sm:gap-3")}>
-        <div className="min-w-0">
-          <h1 className="flex min-w-0 items-center gap-2 text-base leading-tight font-semibold tracking-tight">
-            <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
-              <ActivityIcon className="icon-lg" aria-hidden="true" />
-            </span>
-            <span className="truncate">{panelName}</span>
-          </h1>
-          <p className="mt-0.5 truncate pl-9 text-xs text-muted-foreground">
-            {t("publicStatus.tagline")}
-          </p>
+        {/* 品牌区：logo 与两行文字等高，文字块靠行高撑满，两行之间只留 2px。 */}
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
+            <ActivityIcon className="icon-lg" aria-hidden="true" />
+          </span>
+          <div className="flex min-w-0 flex-col">
+            <h1 className="truncate text-base leading-tight font-semibold tracking-tight">
+              {panelName}
+            </h1>
+            <p className="mt-0.5 truncate text-xs leading-tight text-muted-foreground">
+              {t("publicStatus.tagline")}
+            </p>
+          </div>
         </div>
 
         <div className="flex-1" />
