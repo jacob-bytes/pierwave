@@ -2105,6 +2105,12 @@ const en = {
       basics: "Basics",
       name: "Name",
       namePlaceholder: "hk-jp-us",
+      target: "Target",
+      targetModeManual: "Manual",
+      targetModeNode: "From node",
+      targetModeAria: "Target input mode",
+      targetNodePlaceholder: "Select a node",
+      targetNodeAria: "Select a node to fill the target host and port",
       targetHost: "Target host",
       targetHostPlaceholder: "10.0.0.8 or db.example.com",
       targetHostHint:

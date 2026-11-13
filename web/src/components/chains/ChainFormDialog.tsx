@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Controller,
   useFieldArray,
@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { portFieldVisible, stripAutoPorts } from "@/lib/chainPorts";
+import { matchTargetNode, nodeTargetValue } from "@/lib/chainTarget";
 import {
   needsCert,
   normalizeTransport,
@@ -82,6 +83,7 @@ import {
   protocolAvailable,
 } from "@/lib/protocolMode";
 import {
+  useAllNodes,
   useCertificates,
   useCreateChain,
   useUpdateChain,
@@ -865,9 +867,24 @@ export function ChainFormDialog({
   const createChain = useCreateChain();
   const updateChain = useUpdateChain();
   const certificates = useCertificates();
+  const allNodes = useAllNodes();
   const pending = isEdit ? updateChain.isPending : createChain.isPending;
   // 组卡片一次只展开一个：6 组时也能把弹窗压在一屏内，同时保留完整编辑器。
   const [activeGroup, setActiveGroup] = useState<number | null>(0);
+  // 目标区：手动填写 / 从节点选择。选中节点只回填 target_host + target_port。
+  const [targetMode, setTargetMode] = useState<"manual" | "node">("manual");
+  const [selectedNodeId, setSelectedNodeId] = useState("");
+  // 用户一旦自己切过页签，异步加载回来的节点列表就不许再改他的选择。
+  const targetModeTouched = useRef(false);
+  const targetNodes = useMemo(
+    () =>
+      (allNodes.data ?? []).filter(
+        (node) =>
+          typeof node.server_address === "string" &&
+          node.server_address.trim() !== "",
+      ),
+    [allNodes.data],
+  );
 
   const schema = useMemo(() => chainFormSchema(t), [t]);
 
@@ -912,6 +929,21 @@ export function ChainFormDialog({
       groups: initialGroups,
     },
   });
+  // 重新打开已保存的链：目标恰好是某个「服务器地址 + 节点端口」时，
+  // 默认落在「从节点选择」并选中该节点；节点列表是异步的，所以放在 effect 里。
+  // 只在用户还没自己切过页签时生效，避免节点晚到时抢走用户的选择。
+  useEffect(() => {
+    if (!isEdit || targetModeTouched.current) return;
+    const matched = matchTargetNode(
+      form.getValues("target_host"),
+      form.getValues("target_port"),
+      targetNodes,
+    );
+    if (!matched) return;
+    targetModeTouched.current = true;
+    setTargetMode("node");
+    setSelectedNodeId(matched.id);
+  }, [form, isEdit, targetNodes]);
   const selectedEngine = form.watch("engine");
   // 用 useWatch 订阅整组：成员是在子组件 GroupCard 里改的，
   // 顶层 `form.watch` 的引用可能不变，warning 会漏更新。
@@ -1118,6 +1150,39 @@ export function ChainFormDialog({
     clearGroupErrors();
   }
 
+  function handleTargetModeChange(next: "manual" | "node") {
+    targetModeTouched.current = true;
+    setTargetMode(next);
+    if (next !== "node") return;
+    // 从手动切回来时，如果当前目标正好等于某个节点，直接把它选上。
+    const matched = matchTargetNode(
+      form.getValues("target_host"),
+      form.getValues("target_port"),
+      targetNodes,
+    );
+    if (matched) setSelectedNodeId(matched.id);
+  }
+
+  function handleTargetNodeSelect(nodeId: string) {
+    const node = targetNodes.find((item) => item.id === nodeId);
+    if (!node) return;
+    const value = nodeTargetValue(node);
+    targetModeTouched.current = true;
+    setSelectedNodeId(nodeId);
+    form.setValue("target_host", value.target_host, {
+      shouldDirty: true,
+      shouldTouch: true,
+    });
+    form.setValue("target_port", String(value.target_port), {
+      shouldDirty: true,
+      shouldTouch: true,
+    });
+    form.clearErrors(["target_host", "target_port"]);
+    if (form.formState.isSubmitted) {
+      void form.trigger(["target_host", "target_port"]);
+    }
+  }
+
   return (
     <Dialog
       open={open}
@@ -1172,54 +1237,137 @@ export function ChainFormDialog({
             />
           </FormField>
 
-          <div className="grid gap-3 sm:grid-cols-[1fr_7rem]">
-            <FormField
-              label={t("chains.form.targetHost")}
-              htmlFor="chain-target-host"
-              required
-              error={form.formState.errors.target_host?.message}
-              hint={t("chains.form.targetHostHint")}
-            >
-              <Input
-                id="chain-target-host"
-                value={form.watch("target_host")}
-                onChange={(event) =>
-                  form.setValue("target_host", event.target.value, {
-                    shouldDirty: true,
-                  })
-                }
-                onBlur={() => void form.trigger("target_host")}
-                placeholder={t("chains.form.targetHostPlaceholder")}
-                autoComplete="off"
-                disabled={pending}
-                aria-invalid={Boolean(form.formState.errors.target_host)}
-                className="font-mono"
-              />
-            </FormField>
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm font-medium">
+                {t("chains.form.target")}
+              </span>
+              <div
+                role="group"
+                aria-label={t("chains.form.targetModeAria")}
+                className="inline-flex items-center gap-0.5 rounded-md border border-border bg-background/60 p-0.5"
+              >
+                <Button
+                  type="button"
+                  size="xs"
+                  variant={targetMode === "manual" ? "secondary" : "ghost"}
+                  aria-pressed={targetMode === "manual"}
+                  disabled={pending}
+                  // 目标区就在名称下方：点页签时若让名称失焦触发校验，
+                  // 错误文案会把按钮顶走，移动端第一次点击会落空。
+                  onPointerDown={(event) => event.preventDefault()}
+                  onClick={() => handleTargetModeChange("manual")}
+                  className="h-6 rounded-sm px-2 type-micro"
+                >
+                  {t("chains.form.targetModeManual")}
+                </Button>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant={targetMode === "node" ? "secondary" : "ghost"}
+                  aria-pressed={targetMode === "node"}
+                  disabled={pending}
+                  onPointerDown={(event) => event.preventDefault()}
+                  onClick={() => handleTargetModeChange("node")}
+                  className="h-6 rounded-sm px-2 type-micro"
+                >
+                  {t("chains.form.targetModeNode")}
+                </Button>
+              </div>
+            </div>
 
-            <FormField
-              label={t("chains.form.targetPort")}
-              htmlFor="chain-target-port"
-              required
-              error={form.formState.errors.target_port?.message}
-            >
-              <Input
-                id="chain-target-port"
-                value={form.watch("target_port")}
-                onChange={(event) =>
-                  form.setValue("target_port", event.target.value, {
-                    shouldDirty: true,
-                  })
-                }
-                onBlur={() => void form.trigger("target_port")}
-                inputMode="numeric"
-                autoComplete="off"
-                placeholder="5432"
-                disabled={pending}
-                aria-invalid={Boolean(form.formState.errors.target_port)}
-                className="font-mono tabular-nums"
-              />
-            </FormField>
+            {targetMode === "node" ? (
+              <Select
+                value={selectedNodeId}
+                onValueChange={handleTargetNodeSelect}
+                disabled={pending || allNodes.isPending}
+              >
+                <SelectTrigger
+                  className="h-8 w-full"
+                  aria-label={t("chains.form.targetNodeAria")}
+                >
+                  <SelectValue
+                    placeholder={t("chains.form.targetNodePlaceholder")}
+                  />
+                </SelectTrigger>
+                <SelectContent className="max-w-[min(90vw,36rem)]">
+                  {targetNodes.map((node) => {
+                    const label = `${node.name ?? ""} · ${node.server_name ?? ""}:${node.port}`;
+                    return (
+                      <SelectItem key={node.id} value={node.id} title={label}>
+                        <span className="truncate">{label}</span>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            ) : null}
+
+            <div className="grid gap-3 sm:grid-cols-[1fr_7rem]">
+              <FormField
+                label={t("chains.form.targetHost")}
+                htmlFor="chain-target-host"
+                required
+                error={form.formState.errors.target_host?.message}
+                hint={t("chains.form.targetHostHint")}
+              >
+                <Input
+                  id="chain-target-host"
+                  value={form.watch("target_host")}
+                  onChange={(event) => {
+                    if (selectedNodeId) setSelectedNodeId("");
+                    targetModeTouched.current = true;
+                    form.setValue("target_host", event.target.value, {
+                      shouldDirty: true,
+                    });
+                  }}
+                  onBlur={() => void form.trigger("target_host")}
+                  placeholder={t("chains.form.targetHostPlaceholder")}
+                  autoComplete="off"
+                  readOnly={targetMode === "node"}
+                  aria-readonly={targetMode === "node"}
+                  disabled={pending}
+                  aria-invalid={Boolean(form.formState.errors.target_host)}
+                  className={cn(
+                    "font-mono",
+                    targetMode === "node" &&
+                      "bg-muted/40 text-muted-foreground",
+                  )}
+                />
+              </FormField>
+
+              <FormField
+                label={t("chains.form.targetPort")}
+                htmlFor="chain-target-port"
+                required
+                error={form.formState.errors.target_port?.message}
+              >
+                <Input
+                  id="chain-target-port"
+                  value={form.watch("target_port")}
+                  onChange={(event) => {
+                    if (selectedNodeId) setSelectedNodeId("");
+                    targetModeTouched.current = true;
+                    form.setValue("target_port", event.target.value, {
+                      shouldDirty: true,
+                    });
+                  }}
+                  onBlur={() => void form.trigger("target_port")}
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder="5432"
+                  readOnly={targetMode === "node"}
+                  aria-readonly={targetMode === "node"}
+                  disabled={pending}
+                  aria-invalid={Boolean(form.formState.errors.target_port)}
+                  className={cn(
+                    "font-mono tabular-nums",
+                    targetMode === "node" &&
+                      "bg-muted/40 text-muted-foreground",
+                  )}
+                />
+              </FormField>
+            </div>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">

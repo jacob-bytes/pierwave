@@ -481,11 +481,18 @@ export interface Node {
 }
 
 /**
- * 全局节点（跨服务器）：在 `Node` 之上补 `server_name`，供套餐范围选择器分组。
+ * 全局节点（跨服务器）：在 `Node` 之上补 `server_name` 与 `server_address`，
+ * 供套餐范围选择器分组、建链时「从节点选择」回填目标。
  * 接口 `GET /api/v1/nodes` 是管理员接口，后端可能尚未上线。
  */
 export interface NodeSummary extends Node {
   server_name: string;
+  /**
+   * 所属服务器地址（只读，主控查询时 JOIN servers 带出）。
+   *
+   * 建链时选中节点后用它填 `target_host`，不改链的保存格式。
+   */
+  server_address: string;
 }
 
 export interface CreateNodeInput {

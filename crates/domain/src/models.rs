@@ -456,6 +456,11 @@ pub struct NodeListItem {
     #[serde(flatten)]
     pub node: Node,
     pub server_name: String,
+    /// 所属服务器地址（JOIN servers 带出，只读）。
+    ///
+    /// 建链时的「从节点选择」用它回填 `target_host`；不落 `nodes` 表，
+    /// 服务器地址变更后无需同步节点行。
+    pub server_address: String,
 }
 
 /// 订阅装配用：节点 + 所属服务器地址。

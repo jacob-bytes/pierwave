@@ -1467,6 +1467,12 @@ mod tests {
         let items = body["items"].as_array().unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["server_name"], "hk-1");
+        assert_eq!(
+            items[0]["server_address"], "1.2.3.4",
+            "建链时的「从节点选择」要直接拿到服务器地址"
+        );
+        assert_eq!(items[0]["server_id"], server.id);
         assert_eq!(items[0]["name"], "香港-01");
+        assert_eq!(items[0]["port"], 443);
     }
 }

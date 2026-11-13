@@ -1910,9 +1910,12 @@ pub mod nodes {
     ///
     /// JOIN 天然满足「所属服务器必须存在」；否则节点在库里就是孤儿，不该出现在订阅里。
     /// 全局节点列表（跨服务器），供管理端的选择器使用。
+    ///
+    /// `server_address` 只读、随查询 JOIN 带出：建链时可直接用它回填目标地址，
+    /// 不需要再加一次服务器列表查询。
     pub async fn list_all(pool: &SqlitePool) -> anyhow::Result<Vec<crate::models::NodeListItem>> {
         Ok(sqlx::query_as::<_, crate::models::NodeListItem>(
-            "SELECT n.*, s.name AS server_name
+            "SELECT n.*, s.name AS server_name, s.address AS server_address
              FROM nodes n
              JOIN servers s ON s.id = n.server_id
              ORDER BY s.created_at ASC, s.rowid ASC,
