@@ -81,6 +81,10 @@ pub struct Server {
     pub tunnel_available: Option<bool>,
     /// 管理员填写的国家/地区代码（ISO 3166-1 alpha-2）；NULL = 未填写。
     pub country_code: Option<String>,
+    /// 服务器分组名（最长 32 个字符）；NULL = 未分组。
+    ///
+    /// 只是展示维度：公开探针页按它聚合，不参与鉴权或期望态下发。
+    pub group_name: Option<String>,
 }
 
 /// 一条单跳端口转发规则（协议由 [`Forward::protocol`] 决定）。

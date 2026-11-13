@@ -4,7 +4,7 @@
 //! 采样聚合全部走 `pierwave_domain::repo::server_samples`，这里只负责把行拼成
 //! 24 个小时桶并做 30 秒进程内缓存。
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use axum::extract::State;
 use axum::Json;
@@ -66,6 +66,26 @@ struct PublicStatus {
     generated_at: i64,
     summary: PublicSummary,
     servers: Vec<PublicServer>,
+    /// 按 `servers.group_name` 聚合；未分组是 `name: null`，按名称升序。
+    groups: Vec<PublicGroup>,
+}
+
+/// 一个分组的公开聚合。`uptime_24h` 是组内各服务器可用率的算术平均；
+/// 组内没有任何采样时是 `null`，不是 0。
+#[derive(Debug, Serialize)]
+struct PublicGroup {
+    name: Option<String>,
+    servers: i64,
+    online: i64,
+    uptime_24h: Option<f64>,
+}
+
+#[derive(Debug, Default)]
+struct GroupAccumulator {
+    servers: i64,
+    online: i64,
+    uptime_sum: f64,
+    uptime_count: i64,
 }
 
 /// 24 个小时桶的起点，升序：`now` 所在小时及其之前 23 个小时。
@@ -118,10 +138,23 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
     }
 
     let starts = hour_bucket_starts(now);
+    let mut group_accumulators: BTreeMap<Option<String>, GroupAccumulator> = BTreeMap::new();
     let servers = servers
         .into_iter()
         .map(|server| {
             let uptime = uptimes.get(&server.id);
+            let uptime_24h = uptime.and_then(|row| row.uptime_24h);
+            let group = group_accumulators
+                .entry(server.group_name.clone())
+                .or_default();
+            group.servers += 1;
+            if server.status == "online" {
+                group.online += 1;
+            }
+            if let Some(value) = uptime_24h {
+                group.uptime_sum += value;
+                group.uptime_count += 1;
+            }
             let buckets_24h = starts
                 .iter()
                 .map(|ts| {
@@ -152,18 +185,37 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
                 os_version: server.os_version,
                 virt: server.virt,
                 arch: server.arch,
-                uptime_24h: uptime.and_then(|row| row.uptime_24h),
+                uptime_24h,
                 uptime_7d: uptime.and_then(|row| row.uptime_7d),
                 buckets_24h,
             }
         })
         .collect();
 
+    // 具名分组按名称字典序升序；未分组（None）固定最后，与 Web 的分组排序一致。
+    let mut groups: Vec<PublicGroup> = group_accumulators
+        .into_iter()
+        .map(|(name, group)| PublicGroup {
+            name,
+            servers: group.servers,
+            online: group.online,
+            uptime_24h: (group.uptime_count > 0)
+                .then(|| group.uptime_sum / group.uptime_count as f64),
+        })
+        .collect();
+    groups.sort_by(|a, b| match (&a.name, &b.name) {
+        (Some(a), Some(b)) => a.cmp(b),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    });
+
     let response = PublicStatus {
         panel_name: settings.panel_name,
         generated_at: now,
         summary,
         servers,
+        groups,
     };
     let value = serde_json::to_value(response)
         .map_err(|error| AppError::Internal(anyhow::Error::from(error)))?;
@@ -214,6 +266,25 @@ mod tests {
         let (server, _token) = repo::servers::create(&state.db.pool, name, address, "external")
             .await
             .unwrap();
+        server.id
+    }
+
+    async fn seed_grouped_server(
+        state: &AppState,
+        name: &str,
+        address: &str,
+        group: Option<&str>,
+    ) -> String {
+        let (server, _token) = repo::servers::create_with_country_and_group(
+            &state.db.pool,
+            name,
+            address,
+            "external",
+            None,
+            group,
+        )
+        .await
+        .unwrap();
         server.id
     }
 
@@ -550,6 +621,83 @@ mod tests {
         actual.sort_unstable();
         assert_eq!(actual, expected, "服务器行必须严格是白名单字段");
         assert_eq!(body["summary"]["nodes_total"], 1);
+    }
+
+    /// 分组聚合：未分组归到 `name: null`，分组按名称升序，可用率是组内均值。
+    #[tokio::test]
+    async fn groups_aggregate_counts_and_uptime_sorted_by_name() {
+        let (app, state) = setup().await;
+        let b1 = seed_grouped_server(&state, "b-1", "203.0.113.1", Some("b-group")).await;
+        let b2 = seed_grouped_server(&state, "b-2", "203.0.113.2", Some("b-group")).await;
+        let a1 = seed_grouped_server(&state, "a-1", "203.0.113.3", Some("a-group")).await;
+        let ungrouped = seed_grouped_server(&state, "u-1", "203.0.113.4", None).await;
+
+        // 两轮采样：b-1 两轮在线（1.0），b-2 第一轮在线、第二轮离线（0.5），
+        // b-group 的 24h 均值 = (1.0 + 0.5) / 2 = 0.75。
+        repo::servers::mark_online(&state.db.pool, &b1)
+            .await
+            .unwrap();
+        repo::servers::mark_online(&state.db.pool, &b2)
+            .await
+            .unwrap();
+        repo::servers::mark_online(&state.db.pool, &a1)
+            .await
+            .unwrap();
+        repo::servers::mark_online(&state.db.pool, &ungrouped)
+            .await
+            .unwrap();
+        let now = repo::now();
+        repo::server_samples::record_round(&state.db.pool, now - 300)
+            .await
+            .unwrap();
+
+        repo::servers::mark_offline(&state.db.pool, &b2)
+            .await
+            .unwrap();
+        repo::server_samples::record_round(&state.db.pool, now)
+            .await
+            .unwrap();
+
+        // 采样之后才建组：这个组从未有过采样，用于验证 uptime_24h = null。
+        let empty = seed_grouped_server(&state, "c-1", "203.0.113.5", Some("c-group")).await;
+        repo::servers::mark_offline(&state.db.pool, &empty)
+            .await
+            .unwrap();
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let groups = body["groups"].as_array().unwrap();
+        let names: Vec<Option<&str>> = groups.iter().map(|group| group["name"].as_str()).collect();
+        assert_eq!(
+            names,
+            vec![Some("a-group"), Some("b-group"), Some("c-group"), None],
+            "具名分组按名称升序，未分组固定最后：{body}"
+        );
+
+        let a = &groups[0];
+        assert_eq!(a["servers"], 1);
+        assert_eq!(a["online"], 1);
+        assert!((a["uptime_24h"].as_f64().unwrap() - 1.0).abs() < 1e-9);
+
+        let b = &groups[1];
+        assert_eq!(b["servers"], 2);
+        assert_eq!(b["online"], 1, "b-2 已离线");
+        assert!(
+            (b["uptime_24h"].as_f64().unwrap() - 0.75).abs() < 1e-9,
+            "{b}"
+        );
+
+        // 从未采样过的组：servers 照常计数，uptime_24h 必须是 null 而不是 0。
+        let c = &groups[2];
+        assert_eq!(c["servers"], 1);
+        assert_eq!(c["online"], 0);
+        assert!(c["uptime_24h"].is_null(), "{c}");
+
+        let ungrouped_row = &groups[3];
+        assert!(ungrouped_row["name"].is_null());
+        assert_eq!(ungrouped_row["servers"], 1);
+        assert_eq!(ungrouped_row["online"], 1);
+        assert!((ungrouped_row["uptime_24h"].as_f64().unwrap() - 1.0).abs() < 1e-9);
     }
 
     #[tokio::test]

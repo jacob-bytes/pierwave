@@ -32,6 +32,8 @@
 | `server.name_required` | 服务器名称不能为空 | — |
 | `server.address_required` | 服务器地址不能为空 | — |
 | `server.name_too_long` | 服务器名称最多 {max} 个字符 | max |
+| `server.group_name_too_long` | 分组名称最多 {max} 个字符 | max |
+| `server.group_name_invalid` | 分组名称包含非法字符 | value |
 | `server.xray_mode_unsupported` | 目前只支持外置 Xray（external） | — |
 | `agent.upgrade.version_unavailable` | 无法获取最新版本，请显式指定 version | — |
 | `agent.upgrade.version_invalid` | 版本号格式不合法：{version} | version |
@@ -341,3 +343,23 @@ nftables 只为所选协议生成 DNAT 规则；realm 的 `both` 写 `use_udp = 
 | native | ✅ 累计字节 | ✅ 累计字节 | `copy_bidirectional` 双向计数；UDP-only 为 `null`；`both` 规则只统计 TCP 一半，UDP 数据报不计入 / counted in the TCP accept path; UDP-only is null; for `both` only the TCP half is counted |
 | nftables | ✅ DNAT counter | `null` | 内核 counter 只看客户端 → 目标方向；表重建后从 0 重新累计 / kernel counters only see the DNAT direction and reset when the table is rebuilt |
 | realm | `null` | `null` | realm 没有字节计数 API，不编造数据 / realm exposes no byte counters; nothing is fabricated |
+
+### 服务器分组 / Server groups
+
+`servers.group_name` 是纯展示字段（迁移 `0039`），不参与鉴权或期望态下发。
+写路径规则：先去首尾空白；空串 → `NULL`（未分组）；最长 32 个字符；拒绝换行、
+制表符等控制字符。`PATCH /api/v1/servers/{id}` 不传该字段表示「不改」，
+传空串表示「清空」。
+
+> `servers.group_name` is presentation-only (migration `0039`) and never affects auth or
+> desired-state dispatch. The write path trims surrounding whitespace, turns an empty string into
+> `NULL` (ungrouped), limits names to 32 characters, and rejects control characters such as
+> newlines and tabs. Omitting the field on `PATCH /api/v1/servers/{id}` means "leave unchanged";
+> an empty string means "clear".
+
+公开状态页的 `groups` 中具名分组按名称升序，未分组（`name: null`）固定最后；
+`uptime_24h` 是组内各服务器 24h 可用率的算术平均，组内没有采样时为 `null`。
+
+> On the public status page, named groups in `groups` are sorted by name and ungrouped servers (`name: null`) come last.
+> `uptime_24h` is the arithmetic mean of the member servers' 24h uptimes; it is `null` when the
+> group has no samples, never `0`.

@@ -32,6 +32,10 @@ pub fn router(state: AppState) -> Router {
             axum::routing::patch(routes::servers::update).delete(routes::servers::delete),
         )
         .route(
+            "/api/v1/servers/{id}/token",
+            post(routes::servers::rotate_token),
+        )
+        .route(
             "/api/v1/servers/{id}/agent-upgrade",
             post(routes::servers::trigger_agent_upgrade),
         )

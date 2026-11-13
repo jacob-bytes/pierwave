@@ -88,6 +88,53 @@ cp target/x86_64-unknown-linux-musl/release/pierwave-agent \
    /srv/pierwave/dist/pierwave-agent-x86_64-unknown-linux-musl
 ```
 
+## 连接令牌重置与服务器命令
+
+明文 token 只在创建与重置时返回一次。丢失后不必删服务器：管理员调用
+`POST /api/v1/servers/{id}/token` 会生成新 token、覆盖 `token_hash` 并返回新的
+`install_command`；旧的 token **立即失效**（已连上的 Agent 不会因此被踢下线，
+但下次重连 / 重新安装会失败，需要到面板重新取命令）。审计动作是
+`server.token_rotated`，只记服务器信息，不记明文 token。
+
+服务器 JSON 还有一组不依赖 token 的常驻命令：
+
+```json
+"commands": {
+  "install": null,
+  "upgrade": "curl -fsSL https://panel.example.com/api/agent/install.sh | sh -s -- upgrade",
+  "uninstall": "curl -fsSL https://panel.example.com/api/agent/install.sh | sh -s -- uninstall",
+  "stop": "systemctl stop pierwave-agent",
+  "restart": "systemctl restart pierwave-agent"
+}
+```
+
+`install` 只在创建 / 重置响应里出现（一次性），其余四条随时可取。
+`upgrade` / `uninstall` 的参数名与 `scripts/install.sh` 一致；`stop` / `restart`
+操作 Agent 的 systemd 单元。
+
+> **Token rotation.** The plaintext token is returned only on create and on
+> `POST /api/v1/servers/{id}/token`. Rotation overwrites `token_hash`, so the old token stops
+> working immediately (an already-connected Agent is not kicked out, but it cannot reconnect or
+> reinstall until the command is fetched again). The audit action is `server.token_rotated`;
+> plaintext tokens are never written to the audit log. The server JSON exposes a
+> token-independent `commands` object: `install` is only present in create/rotate responses,
+> while `upgrade`, `uninstall`, `stop`, and `restart` can be fetched at any time.
+
+## 服务器分组
+
+`servers.group_name`（迁移 `0039`，可空）只是展示维度。创建 / PATCH 时接受
+`group_name`：自动去首尾空白，空串清空为 `NULL`，最长 32 个字符，拒绝控制字符
+（错误码见 [ERRORS.md](ERRORS.md)）。公开状态页的 `GET /api/v1/public/status`
+增加 `groups` 数组，具名分组按名称升序、未分组用 `name: null` 放在最后；`uptime_24h` 是组内可用率
+的算术平均，无采样时为 `null`。
+
+> **Server groups.** `servers.group_name` (migration `0039`, nullable) is presentation-only.
+> Create/PATCH accept `group_name`, trimming whitespace, turning an empty string into `NULL`,
+> limiting it to 32 characters, and rejecting control characters (see [ERRORS.md](ERRORS.md)).
+> The public `GET /api/v1/public/status` response gains a `groups` array with named groups sorted by
+> name and ungrouped servers (`name: null`) last; `uptime_24h` is the mean member uptime and is `null`
+> when no samples exist.
+
 ## 日志与备份
 
 - 日志走 stdout，交给 systemd/journald 或容器日志驱动；

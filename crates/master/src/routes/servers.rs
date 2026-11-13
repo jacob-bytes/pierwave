@@ -2,7 +2,7 @@ use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::Json;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{json, Value};
 
 use pierwave_domain::models::{AgentUpgrade, Server};
 use pierwave_domain::release;
@@ -12,13 +12,84 @@ use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
+/// 服务器分组名最大字符数；空串 = 未分组。
+pub(crate) const GROUP_NAME_MAX_CHARS: usize = 32;
+
+/// Agent 一键安装脚本的固定路径（与 `routes::install::script` 一致）。
+const AGENT_INSTALL_SCRIPT: &str = "/api/agent/install.sh";
+
+/// 一条可直接复制的安装命令；明文 token 只出现在这里。
+fn install_command(base: &str, token: &str) -> String {
+    format!(
+        "curl -fsSL {}{AGENT_INSTALL_SCRIPT}?token={token} | sudo bash",
+        base.trim_end_matches('/')
+    )
+}
+
+/// 不依赖 token 的常驻命令；`install` 只有创建 / 重置响应里才有值。
+///
+/// upgrade / uninstall 的参数名取自 `scripts/install.sh` 的命令表，
+/// stop / restart 操作的是 Agent 自己的 systemd 单元。
+fn commands_view(base: &str, install: Option<&str>) -> Value {
+    let script = format!("{}{AGENT_INSTALL_SCRIPT}", base.trim_end_matches('/'));
+    json!({
+        "install": install,
+        "upgrade": format!("curl -fsSL {script} | sh -s -- upgrade"),
+        "uninstall": format!("curl -fsSL {script} | sh -s -- uninstall"),
+        "stop": "systemctl stop pierwave-agent",
+        "restart": "systemctl restart pierwave-agent",
+    })
+}
+
+/// 管理端服务器 JSON：`Server` 的所有字段 + `commands`。
+fn server_view(server: &Server, base: &str, install: Option<&str>) -> AppResult<Value> {
+    let mut value = serde_json::to_value(server)
+        .map_err(|error| AppError::Internal(anyhow::Error::from(error)))?;
+    value["commands"] = commands_view(base, install);
+    Ok(value)
+}
+
+/// 分组名：去首尾空白，空串 = 未分组；最长 32 个字符；拒绝控制字符。
+pub(crate) fn normalize_group_name(raw: Option<&str>) -> AppResult<Option<String>> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let name = raw.trim();
+    if name.is_empty() {
+        return Ok(None);
+    }
+    if name.chars().count() > GROUP_NAME_MAX_CHARS {
+        return Err(AppError::coded(
+            "server.group_name_too_long",
+            Some(json!({ "max": GROUP_NAME_MAX_CHARS })),
+            format!(
+                "分组名称最多 {GROUP_NAME_MAX_CHARS} 个字符 / Group name must be at most {GROUP_NAME_MAX_CHARS} characters"
+            ),
+        ));
+    }
+    if name.chars().any(char::is_control) {
+        return Err(AppError::coded(
+            "server.group_name_invalid",
+            Some(json!({ "value": name })),
+            "分组名称包含非法字符（不能包含换行、制表符等控制字符） / Group name contains invalid characters (newlines and tabs are not allowed)",
+        ));
+    }
+    Ok(Some(name.to_string()))
+}
+
 pub async fn list(
     State(state): State<AppState>,
+    headers: HeaderMap,
     user: CurrentUser,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<Value>> {
     user.require_admin()?;
     let servers = repo::servers::list(&state.db.pool).await?;
-    Ok(Json(json!({ "items": servers })))
+    let base = super::install::external_base(&headers);
+    let items = servers
+        .iter()
+        .map(|server| server_view(server, &base, None))
+        .collect::<AppResult<Vec<_>>>()?;
+    Ok(Json(json!({ "items": items })))
 }
 
 #[derive(Deserialize)]
@@ -30,6 +101,9 @@ pub struct CreateServer {
     /// ISO 3166-1 alpha-2（如 CN / US / JP）；空 = 不填。
     #[serde(default)]
     pub country_code: Option<String>,
+    /// 分组名；空串 = 未分组，最长 32 个字符。
+    #[serde(default)]
+    pub group_name: Option<String>,
 }
 
 fn default_xray_mode() -> String {
@@ -85,12 +159,14 @@ pub async fn create(
             "目前只支持外置 Xray（external）；内联模式尚未实现",
         ));
     }
-    let (server, token) = repo::servers::create_with_country(
+    let group_name = normalize_group_name(req.group_name.as_deref())?;
+    let (server, token) = repo::servers::create_with_country_and_group(
         &state.db.pool,
         name,
         address,
         &req.xray_mode,
         normalize_country_code(req.country_code.as_deref())?.as_deref(),
+        group_name.as_deref(),
     )
     .await?;
     // 明文 token 不落审计：它只该在创建响应里出现一次。
@@ -103,17 +179,18 @@ pub async fn create(
             "name": &server.name,
             "address": &server.address,
             "xray_mode": &server.xray_mode,
+            "group_name": &server.group_name,
         }),
     )
     .await;
     // 明文 token 只在这里出现一次
+    let base = crate::routes::install::external_base(&headers);
+    let command = install_command(&base, &token);
+    let server = server_view(&server, &base, Some(&command))?;
     Ok(Json(json!({
         "server": server,
         "token": token,
-        "install_command": format!(
-            "curl -fsSL {}/api/agent/install.sh?token={token} | sudo bash",
-            crate::routes::install::external_base(&headers)
-        ),
+        "install_command": command,
     })))
 }
 
@@ -126,14 +203,30 @@ pub struct PatchServer {
     pub allow_agent_upgrade: Option<bool>,
     /// ISO 3166-1 alpha-2；空串 = 清空，缺省 = 不改。
     pub country_code: Option<String>,
+    /// 分组名；空串 / `null` = 清空，缺省 = 不改。
+    ///
+    /// 用 `Option<Option<_>>` + 自定义反序列化区分「没传」与「显式 null」：
+    /// Web 编辑弹窗用 null 表示清空分组，不能和「不改」混为一谈。
+    #[serde(default, deserialize_with = "deserialize_present_group_name")]
+    pub group_name: Option<Option<String>>,
+}
+
+fn deserialize_present_group_name<'de, D>(
+    deserializer: D,
+) -> Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer).map(Some)
 }
 
 pub async fn update(
     State(state): State<AppState>,
+    headers: HeaderMap,
     user: CurrentUser,
     Path(id): Path<String>,
     Json(req): Json<PatchServer>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<Value>> {
     user.require_admin()?;
     let name = match req.name.as_deref().map(str::trim) {
         Some("") => {
@@ -176,16 +269,21 @@ pub async fn update(
         && req.xray_mode.is_none()
         && req.allow_agent_upgrade.is_none()
         && req.country_code.is_none()
+        && req.group_name.is_none()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 name / address / xray_mode / allow_agent_upgrade / country_code 之一",
+            "至少需要提供 name / address / xray_mode / allow_agent_upgrade / country_code / group_name 之一",
         ));
     }
 
     let country_code = match req.country_code.as_deref() {
         Some(raw) => Some(normalize_country_code(Some(raw))?),
+        None => None,
+    };
+    let group_name = match req.group_name.as_ref() {
+        Some(raw) => Some(normalize_group_name(raw.as_deref())?),
         None => None,
     };
 
@@ -200,10 +298,15 @@ pub async fn update(
     )
     .await?
     .ok_or_else(|| AppError::not_found("server.not_found", None, "资源不存在"))?;
-    // `country_code` 单独写：空串要落成 NULL（清空），COALESCE 表达不了这个语义。
+    // `country_code` / `group_name` 单独写：空串要落成 NULL（清空），
+    // COALESCE 表达不了这个语义。
     if let Some(code) = country_code {
         repo::servers::set_country_code(&state.db.pool, &id, code.as_deref()).await?;
         server.country_code = code;
+    }
+    if let Some(group) = group_name {
+        repo::servers::set_group_name(&state.db.pool, &id, group.as_deref()).await?;
+        server.group_name = group;
     }
 
     let changes = crate::audit::diff(vec![
@@ -234,6 +337,13 @@ pub async fn update(
                 .and_then(|server| server.country_code.as_deref())),
             json!(server.country_code.as_deref()),
         ),
+        (
+            "group_name",
+            json!(before
+                .as_ref()
+                .and_then(|server| server.group_name.as_deref())),
+            json!(server.group_name.as_deref()),
+        ),
     ]);
     crate::audit::record(
         &state,
@@ -244,7 +354,43 @@ pub async fn update(
     )
     .await;
 
-    Ok(Json(json!({ "server": server })))
+    let base = crate::routes::install::external_base(&headers);
+    Ok(Json(
+        json!({ "server": server_view(&server, &base, None)? }),
+    ))
+}
+
+/// 重置连接令牌：旧 token 立即失效，新明文 token 只在这里返回一次。
+///
+/// 与创建一样，审计只记动作与目标，绝不落明文 token。
+pub async fn rotate_token(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    user: CurrentUser,
+    Path(id): Path<String>,
+) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+    let Some((server, token)) = repo::servers::rotate_token(&state.db.pool, &id).await? else {
+        return Err(AppError::not_found("server.not_found", None, "资源不存在"));
+    };
+    crate::audit::record(
+        &state,
+        &user.0,
+        "server.token_rotated",
+        &server.id,
+        json!({
+            "name": &server.name,
+            "address": &server.address,
+            "group_name": &server.group_name,
+        }),
+    )
+    .await;
+
+    let base = crate::routes::install::external_base(&headers);
+    Ok(Json(json!({
+        "token": token,
+        "install_command": install_command(&base, &token),
+    })))
 }
 
 #[derive(Deserialize)]
@@ -553,6 +699,21 @@ mod tests {
             status,
             serde_json::from_slice(&bytes).unwrap_or(Value::Null),
         )
+    }
+
+    /// 安装脚本是 text/x-shellscript，不是 JSON：单独读原文。
+    async fn get_text(app: &Router, uri: &str) -> (StatusCode, String) {
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri(uri)
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        (status, String::from_utf8_lossy(&bytes).into_owned())
     }
 
     #[tokio::test]
@@ -1091,6 +1252,356 @@ mod tests {
             row["realm_available"], false,
             "离线服务器必须保留最后一次上报值：{row}"
         );
+    }
+
+    // ---- 连接令牌重置 / 静态命令 ----
+
+    /// 创建响应是唯一可能带 `commands.install` 的地方；列表里必须是 null。
+    #[tokio::test]
+    async fn server_json_exposes_static_commands_and_null_install_in_list() {
+        let (app, _state, cookie) = setup().await;
+        let (status, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"hk-1","address":"1.2.3.4"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{created}");
+
+        let token = created["token"].as_str().unwrap();
+        let install = created["install_command"].as_str().unwrap();
+        assert!(
+            install.contains(token),
+            "安装命令必须带一次性 token：{install}"
+        );
+        assert_eq!(created["server"]["commands"]["install"], install);
+
+        let commands = &created["server"]["commands"];
+        assert_eq!(commands["stop"], "systemctl stop pierwave-agent");
+        assert_eq!(commands["restart"], "systemctl restart pierwave-agent");
+        let upgrade = commands["upgrade"].as_str().unwrap();
+        let uninstall = commands["uninstall"].as_str().unwrap();
+        assert!(
+            upgrade.contains("/api/agent/install.sh") && upgrade.ends_with("| sh -s -- upgrade"),
+            "{upgrade}"
+        );
+        assert!(
+            uninstall.contains("/api/agent/install.sh")
+                && uninstall.ends_with("| sh -s -- uninstall"),
+            "{uninstall}"
+        );
+        assert!(
+            !upgrade.contains(token),
+            "静态命令不能包含 token：{upgrade}"
+        );
+        assert!(
+            !uninstall.contains(token),
+            "静态命令不能包含 token：{uninstall}"
+        );
+
+        let (status, listed) =
+            send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{listed}");
+        assert!(
+            listed["items"][0]["commands"]["install"].is_null(),
+            "{listed}"
+        );
+        assert_eq!(
+            listed["items"][0]["commands"]["stop"],
+            "systemctl stop pierwave-agent"
+        );
+    }
+
+    /// 重置后旧 token 立即失效；新 token 能重新取安装脚本；审计里不能出现明文 token。
+    #[tokio::test]
+    async fn token_rotation_invalidates_old_token_and_audits() {
+        let (app, state, cookie) = setup().await;
+        let (_, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"hk-1","address":"1.2.3.4"}),
+        )
+        .await;
+        let id = created["server"]["id"].as_str().unwrap().to_string();
+        let old_token = created["token"].as_str().unwrap().to_string();
+
+        let (status, body) =
+            get_text(&app, &format!("/api/agent/install.sh?token={old_token}")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+
+        let (status, rotated) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/servers/{id}/token"),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{rotated}");
+        let new_token = rotated["token"].as_str().unwrap().to_string();
+        assert_ne!(new_token, old_token);
+        let install = rotated["install_command"].as_str().unwrap();
+        assert!(install.contains(&new_token), "{install}");
+        assert!(install.contains("| sudo bash"), "{install}");
+
+        // 旧 token 立刻不能下载安装脚本。
+        let (status, body) =
+            get_text(&app, &format!("/api/agent/install.sh?token={old_token}")).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        // 新 token 可用。
+        let (status, body) =
+            get_text(&app, &format!("/api/agent/install.sh?token={new_token}")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains(&new_token));
+
+        // 仓储层也只认新哈希。
+        assert!(repo::servers::find_by_token(&state.db.pool, &old_token)
+            .await
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            repo::servers::find_by_token(&state.db.pool, &new_token)
+                .await
+                .unwrap()
+                .unwrap()
+                .id,
+            id
+        );
+
+        // 审计：动作正确，detail 里绝不能出现明文 token。
+        let filter = repo::audit::Filter {
+            action_prefixes: vec!["server.token_rotated".into()],
+            ..Default::default()
+        };
+        let page = repo::audit::page(&state.db.pool, &filter, None, 10)
+            .await
+            .unwrap();
+        assert_eq!(page.items.len(), 1, "{:?}", page.items);
+        assert_eq!(page.items[0].target.as_deref(), Some(id.as_str()));
+        let detail = page.items[0].detail.clone().unwrap_or(Value::Null);
+        assert!(
+            !detail.to_string().contains(&new_token),
+            "审计不能落明文 token：{detail}"
+        );
+        assert!(
+            !detail.to_string().contains(&old_token),
+            "审计不能落明文 token：{detail}"
+        );
+
+        // 再重置一次：上一个新 token 也必须立即失效。
+        let (status, _) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/servers/{id}/token"),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = get_text(&app, &format!("/api/agent/install.sh?token={new_token}")).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn token_rotation_requires_admin_and_known_server() {
+        let (app, state, cookie) = setup().await;
+
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers/00000000-0000-0000-0000-000000000000/token",
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert_eq!(body["code"], "server.not_found");
+
+        let bob = repo::users::create(
+            &state.db.pool,
+            repo::users::NewUser {
+                username: "bob".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+                rule_template_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let (bob_token, _) = repo::sessions::create(&state.db.pool, &bob.id, 3600, None)
+            .await
+            .unwrap();
+        let bob_cookie = format!("{}={bob_token}", crate::auth::SESSION_COOKIE);
+
+        let (_, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"hk-1","address":"1.2.3.4"}),
+        )
+        .await;
+        let id = created["server"]["id"].as_str().unwrap();
+        let (status, body) = send(
+            &app,
+            &bob_cookie,
+            Method::POST,
+            &format!("/api/v1/servers/{id}/token"),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    }
+
+    // ---- 服务器分组 ----
+
+    #[tokio::test]
+    async fn group_name_is_trimmed_validated_and_editable() {
+        let (app, _state, cookie) = setup().await;
+
+        let (status, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"hk-1","address":"1.2.3.4","group_name":"  香港  "}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{created}");
+        assert_eq!(created["server"]["group_name"], "香港");
+        let id = created["server"]["id"].as_str().unwrap().to_string();
+
+        // 只改名不能把分组清空。
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"name":"hk-2"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        assert_eq!(patched["server"]["group_name"], "香港");
+
+        // 空串 / 纯空白 = 清空。
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"group_name":"   "}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        assert!(patched["server"]["group_name"].is_null(), "{patched}");
+
+        // Web 编辑弹窗用显式 null 表示清空：必须与「没传」区分开。
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"group_name":"日本"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        assert_eq!(patched["server"]["group_name"], "日本");
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"group_name": null}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        assert!(patched["server"]["group_name"].is_null(), "{patched}");
+
+        // 32 个字符是上限，33 个拒绝。
+        let max = "组".repeat(32);
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"group_name": max}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        assert_eq!(patched["server"]["group_name"], max);
+
+        let too_long = "组".repeat(33);
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"group_name": too_long}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "server.group_name_too_long");
+        assert_eq!(body["params"]["max"], 32);
+
+        // 换行 / NUL 等控制字符属于非法字符。
+        for invalid in ["a\nb", "a\u{0000}b", "a\tb"] {
+            let (status, body) = send(
+                &app,
+                &cookie,
+                Method::PATCH,
+                &format!("/api/v1/servers/{id}"),
+                serde_json::json!({"group_name": invalid}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+            assert_eq!(body["code"], "server.group_name_invalid", "{body}");
+        }
+
+        // 创建路径同样校验；缺省 = null。
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"jp-1","address":"5.6.7.8","group_name":"a\nb"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "server.group_name_invalid");
+
+        let (status, plain) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"jp-2","address":"5.6.7.9"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{plain}");
+        assert!(plain["server"]["group_name"].is_null(), "{plain}");
+    }
+
+    #[tokio::test]
+    async fn group_name_is_returned_in_list() {
+        let (app, _state, cookie) = setup().await;
+        send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"hk-1","address":"1.2.3.4","group_name":"香港"}),
+        )
+        .await;
+
+        let (status, listed) =
+            send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{listed}");
+        assert_eq!(listed["items"][0]["group_name"], "香港");
     }
 
     /// 管理端列表复用 `servers.latency_ms`：有心跳值就是 number，没有就是 null。

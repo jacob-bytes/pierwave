@@ -852,12 +852,25 @@ pub mod servers {
         xray_mode: &str,
         country_code: Option<&str>,
     ) -> anyhow::Result<(Server, String)> {
-        let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+        create_with_country_and_group(pool, name, address, xray_mode, country_code, None).await
+    }
+
+    /// 同 [`create_with_country`]，但允许在创建时直接填写分组名。
+    pub async fn create_with_country_and_group(
+        pool: &SqlitePool,
+        name: &str,
+        address: &str,
+        xray_mode: &str,
+        country_code: Option<&str>,
+        group_name: Option<&str>,
+    ) -> anyhow::Result<(Server, String)> {
+        let token = new_token();
         let token_hash = crate::password::sha256_hex(&token);
         let id = Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT INTO servers (id, name, address, token_hash, xray_mode, country_code, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO servers
+                (id, name, address, token_hash, xray_mode, country_code, group_name, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(name)
@@ -865,11 +878,39 @@ pub mod servers {
         .bind(&token_hash)
         .bind(xray_mode)
         .bind(country_code)
+        .bind(group_name)
         .bind(now())
         .execute(pool)
         .await?;
         let server = find_by_id(pool, &id).await?;
         Ok((server, token))
+    }
+
+    /// 生成一台服务器的连接令牌（64 位十六进制，仅创建 / 重置时返回明文）。
+    fn new_token() -> String {
+        format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
+    }
+
+    /// 重置连接令牌：写入新哈希并返回 `(服务器, 新明文 token)`。
+    ///
+    /// 旧 token 因哈希被覆盖而立即失效；服务器不存在返回 `None`。
+    pub async fn rotate_token(
+        pool: &SqlitePool,
+        id: &str,
+    ) -> anyhow::Result<Option<(Server, String)>> {
+        let token = new_token();
+        let token_hash = crate::password::sha256_hex(&token);
+        let affected = sqlx::query("UPDATE servers SET token_hash = ? WHERE id = ?")
+            .bind(&token_hash)
+            .bind(id)
+            .execute(pool)
+            .await?
+            .rows_affected();
+        if affected == 0 {
+            return Ok(None);
+        }
+        let server = find_by_id(pool, id).await?;
+        Ok(Some((server, token)))
     }
 
     pub async fn find_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Server> {
@@ -931,6 +972,20 @@ pub mod servers {
     ) -> anyhow::Result<()> {
         sqlx::query("UPDATE servers SET country_code = ? WHERE id = ?")
             .bind(country_code)
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    /// 设置（或清空）服务器分组。`None` = 清空为 NULL，与「没传」区分开。
+    pub async fn set_group_name(
+        pool: &SqlitePool,
+        id: &str,
+        group_name: Option<&str>,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE servers SET group_name = ? WHERE id = ?")
+            .bind(group_name)
             .bind(id)
             .execute(pool)
             .await?;
