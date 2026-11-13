@@ -1911,6 +1911,19 @@ mod tests {
         assert!(supervisor.status_handle().snapshot()[0].listening);
     }
 
+    /// 等端口真正可绑：关闭监听与内核释放之间有窗口，并行测试也可能短暂占用。
+    /// 直接 bind 一次就断言会偶发失败；这里最多等 2 秒再判定。
+    async fn wait_udp_port_free(port: u16) -> bool {
+        for _ in 0..100 {
+            if let Ok(socket) = tokio::net::UdpSocket::bind(("127.0.0.1", port)).await {
+                drop(socket);
+                return true;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        false
+    }
+
     /// 运行期间 UDP 端口被占住，删除规则后必须释放。
     #[tokio::test]
     async fn removing_udp_rule_releases_udp_port() {
@@ -1928,9 +1941,7 @@ mod tests {
 
         supervisor.apply(&[]).await;
         assert!(
-            tokio::net::UdpSocket::bind(("127.0.0.1", port))
-                .await
-                .is_ok(),
+            wait_udp_port_free(port).await,
             "删除规则后 UDP 端口必须释放，否则同端口改配置会撞自己"
         );
     }
