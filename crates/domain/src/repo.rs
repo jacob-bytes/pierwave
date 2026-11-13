@@ -1231,15 +1231,11 @@ pub mod servers {
             let stats = rows.iter().find(|row| row.server.id == hk).unwrap();
             assert_eq!(stats.node_count, 8);
             assert_eq!(stats.node_enabled_count, 8);
+            // 不截断：前端要靠完整列表算「+N」。
             assert_eq!(
                 stats.node_protocols,
-                vec!["vless", "vmess", "http", "shadowsocks"],
-                "按节点数降序，同数按名称升序，只保留 4 个"
-            );
-            assert_eq!(
-                stats.node_protocols.len(),
-                4,
-                "协议最多展示 4 个（节点更多的协议优先）"
+                vec!["vless", "vmess", "http", "shadowsocks", "socks", "trojan"],
+                "按节点数降序，同数按名称升序，返回全部协议"
             );
         }
 

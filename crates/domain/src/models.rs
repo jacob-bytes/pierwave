@@ -118,10 +118,9 @@ impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for ServerWithNodeStats {
     }
 }
 
-/// 每个服务器在列表里最多展示的协议数。
-pub const NODE_PROTOCOL_LIMIT: usize = 4;
-
-/// 把 `GROUP_CONCAT(protocol)` 的原始串排成「节点数降序 → 名称升序」，最多 4 个。
+/// 把 `GROUP_CONCAT(protocol)` 的原始串排成「节点数降序 → 名称升序」。
+///
+/// 不在这里截断：前端要显示「+N」，必须知道完整协议种类数。截断留给展示层。
 ///
 /// 聚合里协议出现一次就代表一个节点，所以出现次数就是该协议的节点数。
 /// 空串（服务器没有节点）返回空数组；未知协议原样保留，便于排查脏数据。
@@ -137,7 +136,6 @@ pub fn rank_node_protocols(raw: &str) -> Vec<String> {
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
     ranked
         .into_iter()
-        .take(NODE_PROTOCOL_LIMIT)
         .map(|(protocol, _)| protocol.to_string())
         .collect()
 }
