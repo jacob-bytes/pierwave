@@ -1024,6 +1024,28 @@ pub mod servers {
         )
     }
 
+    /// 列表页专用：服务器 + 每台的节点统计。
+    ///
+    /// 一次 `GROUP BY` 查完：`node_count` / `node_enabled_count` 用条件聚合，
+    /// `GROUP_CONCAT(protocol)` 只把每个节点的协议名拼起来（在 Rust 里计数排序）。
+    /// 不按服务器逐台回表，服务器数量增长时仍是固定一次查询。
+    pub async fn list_with_node_stats(
+        pool: &SqlitePool,
+    ) -> anyhow::Result<Vec<ServerWithNodeStats>> {
+        Ok(sqlx::query_as::<_, ServerWithNodeStats>(
+            "SELECT s.*,
+                    COUNT(n.id) AS node_count,
+                    COUNT(CASE WHEN n.enabled = 1 THEN 1 END) AS node_enabled_count,
+                    COALESCE(GROUP_CONCAT(n.protocol, ','), '') AS node_protocols_raw
+             FROM servers s
+             LEFT JOIN nodes n ON n.server_id = s.id
+             GROUP BY s.id
+             ORDER BY s.created_at DESC",
+        )
+        .fetch_all(pool)
+        .await?)
+    }
+
     /// 有启用节点的服务器：只有这些服务器的下发配置里可能出现用户 client。
     ///
     /// 断流标记用它决定「这次不可用要通知哪些服务器」，顺序稳定（创建时间）。
@@ -1135,6 +1157,126 @@ pub mod servers {
         .fetch_one(pool)
         .await?;
         Ok(version)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        async fn setup() -> SqlitePool {
+            let db = crate::Db::connect("sqlite::memory:").await.unwrap();
+            db.migrate().await.unwrap();
+            db.pool
+        }
+
+        async fn create_server(pool: &SqlitePool, name: &str) -> String {
+            let (server, _token) = create(pool, name, "1.2.3.4", "external").await.unwrap();
+            server.id
+        }
+
+        async fn add_node(
+            pool: &SqlitePool,
+            server_id: &str,
+            protocol: &str,
+            port: i64,
+            enabled: bool,
+        ) {
+            crate::repo::nodes::create(
+                pool,
+                server_id,
+                crate::repo::nodes::NewNode {
+                    tag: None,
+                    name: format!("{protocol}-{port}"),
+                    protocol: protocol.into(),
+                    transport: "tcp".into(),
+                    security: "none".into(),
+                    port,
+                    config_json: "{}".into(),
+                    enabled,
+                    cert_id: None,
+                    bandwidth_kbps: None,
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        /// 多协议：按节点数降序、同数按名称升序，最多 4 个；其它服务器的节点不混入。
+        #[tokio::test]
+        async fn node_stats_rank_protocols_by_count_and_never_mix_servers() {
+            let pool = setup().await;
+            let hk = create_server(&pool, "hk-1").await;
+            let empty = create_server(&pool, "empty").await;
+
+            let counts = [
+                ("vless", 2),
+                ("vmess", 2),
+                ("trojan", 1),
+                ("shadowsocks", 1),
+                ("socks", 1),
+                ("http", 1),
+            ];
+            let mut port = 10_000;
+            for (protocol, count) in counts {
+                for _ in 0..count {
+                    port += 1;
+                    add_node(&pool, &hk, protocol, port, true).await;
+                }
+            }
+
+            let rows = list_with_node_stats(&pool).await.unwrap();
+            assert_eq!(rows.len(), 2, "列表查询不能漏掉没有节点的服务器");
+            assert!(rows.iter().any(|row| row.server.id == empty));
+
+            let stats = rows.iter().find(|row| row.server.id == hk).unwrap();
+            assert_eq!(stats.node_count, 8);
+            assert_eq!(stats.node_enabled_count, 8);
+            assert_eq!(
+                stats.node_protocols,
+                vec!["vless", "vmess", "http", "shadowsocks"],
+                "按节点数降序，同数按名称升序，只保留 4 个"
+            );
+            assert_eq!(
+                stats.node_protocols.len(),
+                4,
+                "协议最多展示 4 个（节点更多的协议优先）"
+            );
+        }
+
+        /// 没有节点：计数为 0，协议为空数组，不能返回 NULL 或报错。
+        #[tokio::test]
+        async fn node_stats_are_zero_for_servers_without_nodes() {
+            let pool = setup().await;
+            create_server(&pool, "empty").await;
+
+            let rows = list_with_node_stats(&pool).await.unwrap();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].node_count, 0);
+            assert_eq!(rows[0].node_enabled_count, 0);
+            assert!(rows[0].node_protocols.is_empty());
+        }
+
+        /// 停用节点计入总数与协议统计，但不计入启用数。
+        #[tokio::test]
+        async fn node_stats_count_disabled_nodes_without_enabling_them() {
+            let pool = setup().await;
+            let server = create_server(&pool, "hk-1").await;
+            add_node(&pool, &server, "vless", 10_001, true).await;
+            add_node(&pool, &server, "vless", 10_002, false).await;
+            add_node(&pool, &server, "vmess", 10_003, false).await;
+
+            let rows = list_with_node_stats(&pool).await.unwrap();
+            assert_eq!(rows[0].node_count, 3);
+            assert_eq!(
+                rows[0].node_enabled_count, 1,
+                "两个停用节点不能计入 enabled"
+            );
+            assert_eq!(
+                rows[0].node_protocols,
+                vec!["vless", "vmess"],
+                "停用节点的协议仍参与统计"
+            );
+        }
     }
 }
 

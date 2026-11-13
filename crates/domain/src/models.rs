@@ -87,6 +87,61 @@ pub struct Server {
     pub group_name: Option<String>,
 }
 
+/// 服务器 + 该服务器的节点统计（列表页只读聚合，不落库）。
+///
+/// SQL 只做一次 `GROUP BY`，把每台服务器的节点数、启用数与协议串一起带出来；
+/// 协议排序在这里完成，避免主控为每台服务器再查一次节点（N+1）。
+#[derive(Debug, Clone)]
+pub struct ServerWithNodeStats {
+    pub server: Server,
+    /// 该服务器上的节点总数（含停用节点）。
+    pub node_count: i64,
+    /// 其中 `enabled = 1` 的节点数。
+    pub node_enabled_count: i64,
+    /// 去重后的协议，按节点数降序、同数按名称升序，最多 4 个。
+    pub node_protocols: Vec<String>,
+}
+
+impl<'r> FromRow<'r, sqlx::sqlite::SqliteRow> for ServerWithNodeStats {
+    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        use sqlx::Row;
+
+        // `s.*` 先按 [`Server`] 的字段读出来；聚合列是查询里额外选择的别名。
+        let server = Server::from_row(row)?;
+        let raw: String = row.try_get("node_protocols_raw")?;
+        Ok(Self {
+            server,
+            node_count: row.try_get("node_count")?,
+            node_enabled_count: row.try_get("node_enabled_count")?,
+            node_protocols: rank_node_protocols(&raw),
+        })
+    }
+}
+
+/// 每个服务器在列表里最多展示的协议数。
+pub const NODE_PROTOCOL_LIMIT: usize = 4;
+
+/// 把 `GROUP_CONCAT(protocol)` 的原始串排成「节点数降序 → 名称升序」，最多 4 个。
+///
+/// 聚合里协议出现一次就代表一个节点，所以出现次数就是该协议的节点数。
+/// 空串（服务器没有节点）返回空数组；未知协议原样保留，便于排查脏数据。
+pub fn rank_node_protocols(raw: &str) -> Vec<String> {
+    use std::collections::HashMap;
+
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for protocol in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        *counts.entry(protocol).or_default() += 1;
+    }
+
+    let mut ranked: Vec<(&str, usize)> = counts.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    ranked
+        .into_iter()
+        .take(NODE_PROTOCOL_LIMIT)
+        .map(|(protocol, _)| protocol.to_string())
+        .collect()
+}
+
 /// 一条单跳端口转发规则（协议由 [`Forward::protocol`] 决定）。
 ///
 /// `listen_port` 在同一个 `server_id` 内唯一；`enabled = 0` 的规则不开监听，

@@ -83,11 +83,18 @@ pub async fn list(
     user: CurrentUser,
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
-    let servers = repo::servers::list(&state.db.pool).await?;
+    let servers = repo::servers::list_with_node_stats(&state.db.pool).await?;
     let base = super::install::external_base(&headers);
     let items = servers
         .iter()
-        .map(|server| server_view(server, &base, None))
+        .map(|row| {
+            let mut value = server_view(&row.server, &base, None)?;
+            // 只读聚合：不改表结构，列表查询时一次算出。
+            value["node_count"] = json!(row.node_count);
+            value["node_enabled_count"] = json!(row.node_enabled_count);
+            value["node_protocols"] = json!(row.node_protocols);
+            Ok(value)
+        })
         .collect::<AppResult<Vec<_>>>()?;
     Ok(Json(json!({ "items": items })))
 }
@@ -881,6 +888,82 @@ mod tests {
         assert_eq!(status, StatusCode::OK, "{listed}");
         assert!(listed["items"][0].get("country_code").is_some(), "{listed}");
         assert!(listed["items"][0]["country_code"].is_null(), "{listed}");
+    }
+
+    /// 列表接口带只读节点统计：总数、启用数、按节点数排序的协议（最多 4 个）。
+    #[tokio::test]
+    async fn list_includes_read_only_node_stats() {
+        let (app, state, cookie) = setup().await;
+
+        let (_, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"hk-1","address":"1.2.3.4","group_name":"香港"}),
+        )
+        .await;
+        let id = created["server"]["id"].as_str().unwrap().to_string();
+
+        let (_, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"empty","address":"5.6.7.8"}),
+        )
+        .await;
+        let empty_id = created["server"]["id"].as_str().unwrap().to_string();
+
+        for (tag, protocol, enabled) in [
+            ("vless-1", "vless", true),
+            ("vless-2", "vless", false),
+            ("vmess-1", "vmess", true),
+        ] {
+            repo::nodes::create(
+                &state.db.pool,
+                &id,
+                repo::nodes::NewNode {
+                    tag: Some(tag.into()),
+                    name: tag.into(),
+                    protocol: protocol.into(),
+                    transport: "tcp".into(),
+                    security: "none".into(),
+                    port: 443,
+                    config_json: "{}".into(),
+                    enabled,
+                    cert_id: None,
+                    bandwidth_kbps: None,
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        let (status, listed) =
+            send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{listed}");
+
+        let hk = listed["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == id)
+            .unwrap();
+        assert_eq!(hk["group_name"], "香港");
+        assert_eq!(hk["node_count"], 3);
+        assert_eq!(hk["node_enabled_count"], 2);
+        assert_eq!(hk["node_protocols"], serde_json::json!(["vless", "vmess"]));
+
+        let empty = listed["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == empty_id)
+            .unwrap();
+        assert_eq!(empty["node_count"], 0);
+        assert_eq!(empty["node_enabled_count"], 0);
+        assert_eq!(empty["node_protocols"], serde_json::json!([]));
     }
 
     /// 内联 Xray 从未实现过：留着这个选项只会让用户以为它可用。

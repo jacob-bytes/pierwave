@@ -224,6 +224,12 @@ export interface Server {
 
   /** 分组名；null = 未分组。旧后端可能不返回该字段。 */
   group_name?: string | null;
+  /** 该服务器的节点总数（含停用节点）；只读聚合，旧后端可能缺失。 */
+  node_count?: number;
+  /** 其中已启用的节点数；只读聚合，旧后端可能缺失。 */
+  node_enabled_count?: number;
+  /** 去重后的协议，按节点数降序、最多 4 个；只读聚合，旧后端可能缺失。 */
+  node_protocols?: string[];
   /** Agent 运维命令；旧后端可能不返回该字段。 */
   commands?: ServerCommands;
 

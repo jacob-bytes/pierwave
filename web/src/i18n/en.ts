@@ -1685,9 +1685,6 @@ const en = {
     index: {
       subtitle:
         "Nodes belong to a specific server. Pick a server first, then manage its inbound nodes.",
-      selectServer: "Select a server",
-      selectServerDesc:
-        "Inside a server you can create nodes, toggle their state and apply the config.",
       loadFailed: "Server list failed to load",
       loadError:
         "Could not load the server list. Check your network and try again.",
@@ -1698,6 +1695,16 @@ const en = {
       online: "Online",
       offline: "Offline",
       manage: "Manage nodes",
+      nodeCount: "{n} nodes",
+      nodeCountOne: "{n} node",
+      allEnabled: "All enabled",
+      disabledCount: "{n} disabled",
+      disabledCountOne: "{n} disabled",
+      noNodes: "No nodes yet",
+      protocolOverflow: "+{n}",
+      moreProtocols: "{n} more protocols",
+      group: "Group",
+      groupAria: "Group: {name}",
     },
     form: {
       createTitle: "New node",
