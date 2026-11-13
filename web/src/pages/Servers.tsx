@@ -18,7 +18,6 @@ import {
   RefreshCwIcon,
   RotateCcwIcon,
   ServerOffIcon,
-  SquareIcon,
   TerminalIcon,
   TriangleAlertIcon,
   WaypointsIcon,
@@ -1020,30 +1019,6 @@ export default function ServersPage() {
               <TerminalIcon className="icon-sm" />
               {t("servers.commands.action")}
             </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={!server.commands?.stop}
-              title={
-                server.commands?.stop
-                  ? t("servers.commands.stop")
-                  : t("servers.commands.notReady")
-              }
-              onSelect={() => void copyServiceCommand(server, "stop")}
-            >
-              <SquareIcon className="icon-sm" />
-              {t("servers.commands.stop")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={!server.commands?.restart}
-              title={
-                server.commands?.restart
-                  ? t("servers.commands.restart")
-                  : t("servers.commands.notReady")
-              }
-              onSelect={() => void copyServiceCommand(server, "restart")}
-            >
-              <RefreshCwIcon className="icon-sm" />
-              {t("servers.commands.restart")}
-            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => setResetTokenServerId(server.id)}>
               <RotateCcwIcon className="icon-sm" />
@@ -1253,23 +1228,6 @@ export default function ServersPage() {
   function handleTokenOpenChange(open: boolean) {
     setTokenOpen(open);
     if (!open) setCopied(null);
-  }
-
-  /** 停止/重启只复制命令，不在浏览器里执行任何远程操作。 */
-  async function copyServiceCommand(
-    server: Server,
-    key: "stop" | "restart",
-  ) {
-    const command = server.commands?.[key];
-    if (!command) {
-      toast.error(t("servers.commands.notReady"));
-      return;
-    }
-    if (!(await copyText(command))) {
-      toast.error(t("servers.commands.copyFailed"));
-      return;
-    }
-    toast.success(t("servers.commands.executeHint"));
   }
 
   async function handleCopy(
