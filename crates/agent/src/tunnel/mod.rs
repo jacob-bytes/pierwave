@@ -1676,4 +1676,86 @@ mod tests {
         wait_for_active(&harness.stats, 0).await;
         held_task.abort();
     }
+
+    /// 回环吞吐基准：对比「直接 TCP」与「经隧道」的同一份数据量。
+    ///
+    /// 为什么这样测：设计里「800 Mbps @ 1 Gbps」那个阈值测的是链路带宽，不是隧道效率；
+    /// 回环没有带宽上限，测出来的是加密与拷贝的**上限**，与链路无关，任何机器都能跑。
+    ///
+    /// 跑法：`cargo test --release -p pierwave-agent bench_tunnel -- --ignored --nocapture`
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    #[ignore = "benchmark: run with --release --ignored --nocapture"]
+    async fn bench_tunnel_loopback_throughput() {
+        const TOTAL: u64 = 256 * 1024 * 1024; // 256 MiB
+        const CHUNK: usize = 64 * 1024;
+
+        async fn pump_direct(mut stream: TcpStream, total: u64) -> (f64, f64) {
+            let start = std::time::Instant::now();
+            let chunk = vec![0x5a_u8; CHUNK];
+            const WINDOW: u64 = 16;
+            let mut got = 0_u64;
+            while got < total {
+                for _ in 0..WINDOW {
+                    if stream.write_all(&chunk).await.is_err() {
+                        return (start.elapsed().as_secs_f64(), got as f64);
+                    }
+                }
+                let mut need = (WINDOW * CHUNK as u64) as usize;
+                let mut buf = vec![0_u8; CHUNK];
+                while need > 0 {
+                    match stream.read(&mut buf).await {
+                        Ok(0) | Err(_) => return (start.elapsed().as_secs_f64(), got as f64),
+                        Ok(n) => {
+                            need -= n.min(need);
+                            got += n as u64;
+                        }
+                    }
+                }
+            }
+            (start.elapsed().as_secs_f64(), got as f64)
+        }
+
+        // 基线：直接连 echo。
+        let (echo_addr, echo_task) = spawn_echo().await;
+        let direct = TcpStream::connect(echo_addr).await.expect("直连 echo");
+        let _ = direct.set_nodelay(true);
+        let (direct_secs, direct_bytes) = pump_direct(direct, TOTAL).await;
+        let direct_mib = direct_bytes / direct_secs / (1024.0 * 1024.0);
+
+        // 被测：同样的 echo，但经过隧道。单连接、1 MiB 窗口往返，避免两端缓冲互等死锁。
+        let harness = Harness::start(256).await;
+        let client = client_with_fixture_ca(harness.addr);
+        let mut conn = connect(&client, echo_addr).await;
+        let chunk = vec![0x5a_u8; CHUNK];
+        const WINDOW: u64 = 16; // 16 × 64 KiB = 1 MiB
+        let start = std::time::Instant::now();
+        let mut got = 0_u64;
+        while got < TOTAL {
+            for _ in 0..WINDOW {
+                conn.send_data(&chunk).await.expect("隧道写失败");
+            }
+            let mut need = (WINDOW * CHUNK as u64) as usize;
+            while need > 0 {
+                match conn.recv().await {
+                    Ok(Some(frame)) if frame.kind == FrameKind::Data => {
+                        let len = frame.payload.len().min(need);
+                        need -= len;
+                        got += frame.payload.len() as u64;
+                    }
+                    Ok(Some(_)) => {}
+                    Ok(None) => break,
+                    Err(error) => panic!("隧道读失败: {error}"),
+                }
+            }
+        }
+        let tunnel_secs = start.elapsed().as_secs_f64();
+        let tunnel_mib = got as f64 / tunnel_secs / (1024.0 * 1024.0);
+
+        println!(
+            "\n直接 TCP: {direct_mib:.0} MiB/s ({direct_secs:.2}s)\n经隧道:   {tunnel_mib:.0} MiB/s ({tunnel_secs:.2}s)\n比值:     {:.3}",
+            tunnel_mib / direct_mib
+        );
+        echo_task.abort();
+        assert!(got > 0, "隧道基准必须搬完数据");
+    }
 }
