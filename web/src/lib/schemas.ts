@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { TFunction } from "@/i18n";
+import { portFieldVisible } from "@/lib/chainPorts";
 import { CHAIN_STRATEGIES, collectGroupIssues } from "@/lib/chains";
 import { CHAIN_TRANSPORTS, validateTls } from "@/lib/chainTls";
 import {
@@ -454,9 +455,10 @@ export type ForwardFormValues = z.infer<ReturnType<typeof forwardFormSchema>>;
 /**
  * 转发链表单：组是动态数组，每组又有自己的成员动态数组。
  *
- * 前端拦「1–6 组、每组 1–8 台、同一服务器不能重复、端口 1–65535、
- * 目标地址非空、tls 链每组证书」；保留端口、与节点 / 独立转发 / 其它链成员的
- * 端口冲突、自连回环仍由后端返回带 code 的错误，对话框用 `errorText` 原样透出。
+ * 前端拦「1–6 组、每组 1–8 台、同一服务器不能重复、入口组端口 1–65535
+ * （中间跳的端口由后端分配）、目标地址非空、tls 链每组证书」；保留端口、
+ * 与节点 / 独立转发 / 其它链成员的端口冲突、自连回环仍由后端返回带 code 的
+ * 错误，对话框用 `errorText` 原样透出。
  *
  * 错误挂载层级：
  * - 组数越界 → `groups` 根；
@@ -505,11 +507,9 @@ export function chainFormSchema(t: TFunction) {
               server_id: z
                 .string()
                 .min(1, t("validation.chainHopServerRequired")),
-              listen_port: requiredIntField(
-                1,
-                65535,
-                t("validation.portRange"),
-              ),
+              // 入口组（seq 0）在 superRefine 里校验；中间跳（seq ≥ 1）的端口
+              // 由后端自动分配，不校验也不提交，避免历史脏数据卡住保存。
+              listen_port: z.string(),
             }),
           ),
         }),
@@ -525,6 +525,18 @@ export function chainFormSchema(t: TFunction) {
             message: t("validation.chainGroupMinMembers"),
           });
         }
+        // 入口组仍然手填端口；中间跳的端口由后端分配，不校验也不提交。
+        if (!portFieldVisible(index)) return;
+        group.members.forEach((member, memberIndex) => {
+          const raw = member.listen_port.trim();
+          const port = Number(raw);
+          if (/^\d+$/.test(raw) && port >= 1 && port <= 65535) return;
+          ctx.addIssue({
+            code: "custom",
+            path: ["groups", index, "members", memberIndex, "listen_port"],
+            message: t("validation.portRange"),
+          });
+        });
       });
       // 纯规则在 `collectGroupIssues` 里单测；这里只负责翻译文案与错误层级。
       for (const issue of collectGroupIssues(values.groups)) {

@@ -1914,6 +1914,8 @@ const en = {
       "Could not load forward chains. Check your network and try again.",
     relayNote:
       "“Listening” only means this member has opened the port on the host; it does not verify the next hop. Two consecutive “target unreachable” probes mark the member as degraded.",
+    autoPort: "Auto",
+    autoPortReadonly: "Port {port} (auto)",
     tls: {
       label: "Hop encryption",
       badge: "TLS",
@@ -2567,6 +2569,7 @@ const en = {
     "chain.hop_count_invalid": "A chain needs {min}-{max} groups (currently {count})",
     "chain.duplicate_server": "The same server cannot appear twice in one chain",
     "chain.port_conflict_hop": 'Listen port {port} is already used by group {seq} of chain "{name}" on server "{server_name}"',
+    "chain.port_pool_exhausted": "The listen port pool is exhausted: no free port in 20000–29999. Release a port or delete unused forward chains.",
     "forward.not_found": "Forward rule not found",
     "forward.name_required": "Forward name is required",
     "forward.name_too_long": "Forward name must be at most {max} characters",

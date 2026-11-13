@@ -809,7 +809,11 @@ export interface ChainLatencyPoint {
 
 export interface ChainGroupMemberInput {
   server_id: string;
-  listen_port: number;
+  /**
+   * 监听端口：入口组（seq 0）必填；中间跳（seq ≥ 1）省略，
+   * 由后端从 20000–29999 的端口池里分配。
+   */
+  listen_port?: number;
   /** 组内顺序，0 = 最高优先级。 */
   priority: number;
 }

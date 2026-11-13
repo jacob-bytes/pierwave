@@ -13,6 +13,7 @@ import {
   ChevronRightIcon,
   InfoIcon,
   Loader2Icon,
+  LockIcon,
   PlusIcon,
   Trash2Icon,
   TriangleAlertIcon,
@@ -41,6 +42,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { portFieldVisible, stripAutoPorts } from "@/lib/chainPorts";
 import {
   needsCert,
   normalizeTransport,
@@ -142,6 +144,7 @@ function GroupCard({
   groupCount,
   form,
   pending,
+  editing,
   servers,
   loadingServers,
   tlsEnabled,
@@ -159,6 +162,8 @@ function GroupCard({
   groupCount: number;
   form: UseFormReturn<ChainFormValues>;
   pending: boolean;
+  /** 编辑已保存的链：中间跳展示后端已分配的只读端口。 */
+  editing: boolean;
   servers: Server[];
   loadingServers: boolean;
   tlsEnabled: boolean;
@@ -190,6 +195,8 @@ function GroupCard({
   const isEntry = index === 0;
   const isLast = index === groupCount - 1;
   const seq = index + 1;
+  // 入口组仍由用户填端口；中间跳的端口由后端自动分配，不渲染输入框。
+  const showPortField = portFieldVisible(index);
 
   // tunnel 能力是静态环境事实：未知（null / 缺失）与 false 都不能参与 tunnel 链，
   // 提示挂在这一组下方，不阻止用户继续编辑其它字段。
@@ -591,6 +598,12 @@ function GroupCard({
             const memberSeq = memberIndex + 1;
             const isFirstMember = memberIndex === 0;
             const isLastMember = memberIndex === fields.length - 1;
+            const savedPort = (
+              members[memberIndex]?.listen_port ?? ""
+            ).trim();
+            // 中间跳只在编辑已保存的链时展示后端已分配的端口；新建时没有可展示的值。
+            const showSavedPort =
+              editing && !showPortField && /^\d+$/.test(savedPort);
 
             return (
               <div
@@ -658,7 +671,13 @@ function GroupCard({
                 </div>
                 ) : null}
 
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_7rem]">
+                <div
+                  className={cn(
+                    "grid grid-cols-1 gap-2",
+                    showPortField && "sm:grid-cols-[minmax(0,1fr)_7rem]",
+                    showSavedPort && "sm:grid-cols-[minmax(0,1fr)_auto]",
+                  )}
+                >
                   <div className="space-y-1">
                     <Select
                       value={members[memberIndex]?.server_id ?? ""}
@@ -702,37 +721,58 @@ function GroupCard({
                     ) : null}
                   </div>
 
-                  <div className="space-y-1">
-                    <Input
-                      value={members[memberIndex]?.listen_port ?? ""}
-                      onChange={(event) =>
-                        setMemberField(
-                          memberIndex,
-                          "listen_port",
-                          event.target.value,
-                        )
-                      }
-                      onBlur={() => {
-                        if (formState.isSubmitted) void trigger();
-                      }}
-                      inputMode="numeric"
-                      autoComplete="off"
-                      placeholder={t("chains.form.memberPortPlaceholder")}
-                      aria-required
-                      aria-label={t("chains.form.memberPortAria", {
-                        group: seq,
-                        member: memberSeq,
-                      })}
-                      aria-invalid={Boolean(portError)}
-                      className="font-mono tabular-nums"
-                      disabled={pending}
-                    />
-                    {portError ? (
-                      <p role="alert" className="text-xs text-destructive">
-                        {portError}
-                      </p>
-                    ) : null}
-                  </div>
+                  {showPortField ? (
+                    <div className="space-y-1">
+                      <Input
+                        value={members[memberIndex]?.listen_port ?? ""}
+                        onChange={(event) =>
+                          setMemberField(
+                            memberIndex,
+                            "listen_port",
+                            event.target.value,
+                          )
+                        }
+                        onBlur={() => {
+                          if (formState.isSubmitted) void trigger();
+                        }}
+                        inputMode="numeric"
+                        autoComplete="off"
+                        placeholder={t("chains.form.memberPortPlaceholder")}
+                        aria-required
+                        aria-label={t("chains.form.memberPortAria", {
+                          group: seq,
+                          member: memberSeq,
+                        })}
+                        aria-invalid={Boolean(portError)}
+                        className="font-mono tabular-nums"
+                        disabled={pending}
+                      />
+                      {portError ? (
+                        <p role="alert" className="text-xs text-destructive">
+                          {portError}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : showSavedPort ? (
+                    <div className="flex min-w-0 items-center sm:justify-end">
+                      <div
+                        data-auto-port="true"
+                        title={t("chains.autoPort")}
+                        aria-label={t("chains.autoPortReadonly", {
+                          port: savedPort,
+                        })}
+                        className="flex h-9 w-full items-center gap-1.5 rounded-md border border-border/60 bg-muted/30 px-2.5 sm:w-auto"
+                      >
+                        <LockIcon
+                          className="size-3 shrink-0 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                        <span className="whitespace-nowrap font-mono text-xs tabular-nums text-muted-foreground">
+                          {t("chains.autoPortReadonly", { port: savedPort })}
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             );
@@ -792,9 +832,10 @@ function GroupCard({
  * 新建 / 编辑转发链的「组编辑器」。
  *
  * 一条链 = 1–6 组，每组 = 1–8 台成员；组内顺序决定 priority（主备 / 轮询）。
- * 前端只拦「组数 / 成员数 / 同组与跨组重复服务器 / 端口 1–65535 / 目标非空 /
- * tls 链每组的证书」；保留端口、与节点 / 独立转发 / 其它链成员的端口冲突、
- * 自连回环都依赖服务器数据，由后端返回带 code 的错误，这里通过 `errorText`
+ * 前端只拦「组数 / 成员数 / 同组与跨组重复服务器 / 入口组端口 1–65535 /
+ * 目标非空 / tls 链每组的证书」；中间跳（seq ≥ 1）的端口由后端自动分配，
+ * 表单不渲染输入，提交时整段省略。保留端口、与节点 / 独立转发 / 其它链成员的
+ * 端口冲突、自连回环都依赖服务器数据，由后端返回带 code 的错误，这里通过 `errorText`
  * 原样透出。
  */
 export function ChainFormDialog({
@@ -970,24 +1011,37 @@ export function ChainFormDialog({
       ]
         ? values.protocol
         : DEFAULT_PROTOCOL,
-      groups: values.groups.map((group, index) => ({
-        name:
-          group.kind === "single"
-            ? undefined
-            : group.name.trim() || undefined,
-        strategy:
-          group.kind === "single"
-            ? DEFAULT_CHAIN_STRATEGY
-            : group.strategy,
-        // 入口组始终不带证书；非 tls 链也不保留证书绑定。
-        ...(tls && needsCert(index)
-          ? { cert_id: group.cert_id.trim() }
-          : {}),
-        members: group.members.map((member, index) => ({
-          server_id: member.server_id,
-          listen_port: Number(member.listen_port),
-          priority: index,
+      // 入口组照常发送 listen_port；中间跳整个去掉，交给后端从端口池分配。
+      groups: stripAutoPorts(
+        values.groups.map((group, index) => ({
+          seq: index,
+          name:
+            group.kind === "single"
+              ? undefined
+              : group.name.trim() || undefined,
+          strategy:
+            group.kind === "single"
+              ? DEFAULT_CHAIN_STRATEGY
+              : group.strategy,
+          // 入口组始终不带证书；非 tls 链也不保留证书绑定。
+          cert_id:
+            tls && needsCert(index) ? group.cert_id.trim() : undefined,
+          members: group.members.map((member, memberIndex) => ({
+            server_id: member.server_id,
+            // 中间跳在新建时为空；统一归一成 undefined，避免提交空串数字 0。
+            listen_port:
+              member.listen_port.trim() === ""
+                ? undefined
+                : Number(member.listen_port),
+            priority: memberIndex,
+          })),
         })),
+      ).map((group) => ({
+        // seq 只用于判断端口归属，不发给后端（顺序由数组下标表达）。
+        name: group.name,
+        strategy: group.strategy,
+        ...(group.cert_id !== undefined ? { cert_id: group.cert_id } : {}),
+        members: group.members,
       })),
     };
 
@@ -1472,6 +1526,7 @@ export function ChainFormDialog({
                   groupCount={fields.length}
                   form={form}
                   pending={pending}
+                  editing={isEdit}
                   servers={servers}
                   loadingServers={loadingServers}
                   tlsEnabled={tlsEnabled}

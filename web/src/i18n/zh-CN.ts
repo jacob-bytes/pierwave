@@ -1805,6 +1805,8 @@ const zhCN = {
     loadError: "加载转发链失败，请检查网络后重试",
     relayNote:
       "「监听中」只代表该成员已在本机打开端口，不验证下一跳是否可达；「目标不可达」连续出现 2 次判定为降级。",
+    autoPort: "自动",
+    autoPortReadonly: "端口 {port}（自动）",
     tls: {
       label: "跳间加密",
       badge: "TLS",
@@ -2425,6 +2427,7 @@ const zhCN = {
     "chain.hop_count_invalid": "链必须包含 {min}-{max} 组（当前 {count} 组）",
     "chain.duplicate_server": "同一台服务器不能在一个链里出现两次",
     "chain.port_conflict_hop": "监听端口 {port} 已被服务器「{server_name}」上的链「{name}」第 {seq} 组占用",
+    "chain.port_pool_exhausted": "端口池已用尽：20000–29999 内没有可用端口，请先释放端口或删除不再使用的转发链",
     "forward.not_found": "转发规则不存在",
     "forward.name_required": "转发名称不能为空",
     "forward.name_too_long": "转发名称最多 {max} 个字符",
