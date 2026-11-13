@@ -171,6 +171,7 @@ const en = {
     pageTitle: "Sign in",
   },
   publicStatus: {
+    tagline: "The key has been in front of you all along",
     pageTitle: "Service status",
     headingFallback: "Service status",
     subtitle: "Live server status and availability, visible without signing in.",

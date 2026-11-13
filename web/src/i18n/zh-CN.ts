@@ -166,6 +166,7 @@ const zhCN = {
     pageTitle: "登录",
   },
   publicStatus: {
+    tagline: "现在有一把钥匙，就在你面前",
     pageTitle: "服务状态",
     headingFallback: "服务状态",
     subtitle: "实时服务状态与可用率，无需登录即可查看。",

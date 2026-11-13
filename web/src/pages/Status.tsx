@@ -131,13 +131,13 @@ function StatusHeader({
       <div className={cn(PAGE_CONTAINER, "flex items-center gap-2 py-3 sm:gap-3")}>
         <div className="min-w-0">
           <h1 className="flex min-w-0 items-center gap-2 text-base leading-tight font-semibold tracking-tight">
-            <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/15">
+            <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
               <ActivityIcon className="icon-lg" aria-hidden="true" />
             </span>
             <span className="truncate">{panelName}</span>
           </h1>
-          <p className="mt-0.5 hidden truncate text-xs text-muted-foreground sm:block">
-            {t("publicStatus.subtitle")}
+          <p className="mt-0.5 truncate pl-9 text-xs text-muted-foreground">
+            {t("publicStatus.tagline")}
           </p>
         </div>
 
