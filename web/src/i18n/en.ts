@@ -2525,6 +2525,7 @@ const en = {
     notObject: "config must be a JSON object (starting with { and ending with })",
   },
   errors: {
+    "chain.entry_port_required": "The entry group (group 1) must provide a listen port",
     "chain.tunnel_udp_requires_tls": "The tunnel UDP relay requires the TLS security mode (Noise over UDP is not implemented yet)",
     "chain.latency_hours_invalid": "hours must be an integer between 1 and 168 (default 24)",
     "chain.protocol_invalid": "Unsupported chain protocol \"{protocol}\" (choose tcp, udp or both)",

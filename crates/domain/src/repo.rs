@@ -2619,7 +2619,7 @@ pub mod latency {
 /// 读接口总是把成员按 `priority ASC, rowid ASC` 排好：priority 小的优先（主备），
 /// 同优先级保持创建顺序（轮询）。推导层直接复用这个顺序，不再二次排序。
 pub mod chains {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     use super::*;
 
@@ -3052,6 +3052,39 @@ pub mod chains {
         .bind(exclude_chain_id)
         .fetch_optional(pool)
         .await?)
+    }
+
+    /// 一台服务器上所有已占用的监听端口：独立转发、节点、**其它**链的成员。
+    ///
+    /// 自动分配端口前用它一次性取全集，避免对每个候选端口各查三条：
+    /// * `forwards.listen_port`：不管启用与否都占用（恢复时不会再检查一次）；
+    /// * `nodes.port`：停用节点同样占用，理由同上；
+    /// * `chain_group_members.listen_port`：PATCH 时用 `exclude_chain_id` 把
+    ///   当前链自身排除掉，否则它已有的端口会被当成冲突、导致更新失败。
+    ///
+    /// 返回集合无序；选择端口由 [`crate::chains::allocate_port`] 做（取最小空闲）。
+    pub async fn occupied_listen_ports(
+        pool: &SqlitePool,
+        server_id: &str,
+        exclude_chain_id: Option<&str>,
+    ) -> anyhow::Result<HashSet<i64>> {
+        let ports: Vec<i64> = sqlx::query_scalar(
+            "SELECT listen_port FROM forwards WHERE server_id = ?
+             UNION
+             SELECT port FROM nodes WHERE server_id = ?
+             UNION
+             SELECT m.listen_port
+             FROM chain_group_members m
+             JOIN chain_groups g ON g.id = m.group_id
+             WHERE m.server_id = ? AND g.chain_id <> COALESCE(?, '')",
+        )
+        .bind(server_id)
+        .bind(server_id)
+        .bind(server_id)
+        .bind(exclude_chain_id)
+        .fetch_all(pool)
+        .await?;
+        Ok(ports.into_iter().collect())
     }
 }
 

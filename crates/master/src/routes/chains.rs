@@ -192,7 +192,9 @@ pub struct CreateChainHop {
 pub struct CreateChainMember {
     #[serde(default)]
     pub server_id: String,
-    pub listen_port: i64,
+    /// 监听端口：入口组（seq = 0）必填；中间组省略时由主控从端口池分配。
+    #[serde(default)]
+    pub listen_port: Option<i64>,
     #[serde(default)]
     pub priority: i64,
     #[serde(default = "default_weight")]
@@ -209,6 +211,17 @@ pub struct CreateChainGroup {
     /// 该组 realm 监听证书；入口组（第一组）不允许填写。空串视为未填。
     #[serde(default)]
     pub cert_id: Option<String>,
+    /// 组级监听端口（兼容契约）：成员自己没填时使用；中间组可省略。
+    ///
+    /// 多成员组的每个成员本来各有端口；组级值只是「都填同一个」的快捷写法，
+    /// 省略时中间组的每个成员各自从所在服务器的端口池分配。
+    #[serde(default)]
+    pub listen_port: Option<i64>,
+    /// 组的成员服务器列表（兼容契约）：`members` 为空时按顺序展开成单台成员。
+    ///
+    /// 新前端发 `members`；旧/简化客户端只发 `server_ids` 也能建链。
+    #[serde(default)]
+    pub server_ids: Vec<String>,
     #[serde(default)]
     pub members: Vec<CreateChainMember>,
 }
@@ -276,12 +289,44 @@ fn groups_from_hops(hops: Vec<CreateChainHop>) -> Vec<CreateChainGroup> {
             name: None,
             strategy: None,
             cert_id: None,
+            listen_port: None,
+            server_ids: Vec::new(),
             members: vec![CreateChainMember {
                 server_id: hop.server_id,
-                listen_port: hop.listen_port,
+                listen_port: Some(hop.listen_port),
                 priority: 0,
                 weight: 1,
             }],
+        })
+        .collect()
+}
+
+/// 把一组输入展开成有效成员：`members` 优先，只有它为空时才用 `server_ids`。
+///
+/// 组级 `listen_port` 是成员缺省值；成员自己显式填的端口优先。这样
+/// 旧请求（每台成员都带端口）逐字段不变，新请求可以只给入口组端口。
+fn expanded_members(group: &CreateChainGroup) -> Vec<CreateChainMember> {
+    if !group.members.is_empty() {
+        return group
+            .members
+            .iter()
+            .map(|member| CreateChainMember {
+                server_id: member.server_id.clone(),
+                listen_port: member.listen_port.or(group.listen_port),
+                priority: member.priority,
+                weight: member.weight,
+            })
+            .collect();
+    }
+    group
+        .server_ids
+        .iter()
+        .enumerate()
+        .map(|(index, server_id)| CreateChainMember {
+            server_id: server_id.clone(),
+            listen_port: group.listen_port,
+            priority: index as i64,
+            weight: 1,
         })
         .collect()
 }
@@ -299,19 +344,32 @@ async fn load_server_for_hop(state: &AppState, server_id: &str) -> AppResult<Ser
 
 /// 校验组列表：组数、成员数、重复服务器、策略、端口范围/保留端口，以及与该服务器上
 /// 节点 / 独立转发 / 其它链成员的端口冲突。
+///
+/// `listen_port` 的四种来源（优先级从高到低）：
+/// 1. 成员显式填的端口（旧格式，逐字段兼容）；
+/// 2. 组级 `listen_port`（兼容简化契约：多台成员共用同一个端口号）；
+/// 3. PATCH 时该服务器在旧链里的端口（已有端口保持不变）；
+/// 4. 中间组（seq >= 1）从端口池自动分配；入口组省略则 400。
+///
+/// 自动分配会先按服务器取出「forward + node + 其它链成员」占用集合，分配成功后
+/// 立即写入集合，保证同一次保存内两组不会拿到同一个端口。
 async fn resolve_groups(
     state: &AppState,
     inputs: &[CreateChainGroup],
     exclude_chain_id: Option<&str>,
+    existing_groups: Option<&[ChainGroupWithMembers]>,
 ) -> AppResult<Vec<ValidatedGroup>> {
     chains::validate_group_count(inputs.len())?;
 
+    // 先把兼容写法（members / server_ids）统一展开，后续只处理有效成员。
+    let effective_members: Vec<Vec<CreateChainMember>> =
+        inputs.iter().map(expanded_members).collect();
+
     // 先做纯字段校验（不查库），让「9 个成员」这类错误优先于「服务器不存在」。
-    let server_ids_by_group: Vec<Vec<String>> = inputs
+    let server_ids_by_group: Vec<Vec<String>> = effective_members
         .iter()
-        .map(|group| {
-            group
-                .members
+        .map(|members| {
+            members
                 .iter()
                 .map(|member| member.server_id.trim().to_string())
                 .collect()
@@ -322,10 +380,22 @@ async fn resolve_groups(
     }
     chains::ensure_chain_servers_unique(&server_ids_by_group)?;
 
+    // 一条链里服务器不会重复（上面已校验），所以按 server_id 记录旧端口即可。
+    // PATCH 只传了 groups 时，新增成员省略端口 → 分配新端口；已有成员省略端口 →
+    // 保留它原来的端口。
+    let existing_ports: HashMap<&str, i64> = existing_groups
+        .into_iter()
+        .flatten()
+        .flat_map(|group| group.members.iter())
+        .map(|member| (member.server_id.as_str(), member.listen_port))
+        .collect();
+    let mut occupied_by_server: HashMap<String, HashSet<i64>> = HashMap::new();
+
     let mut groups = Vec::with_capacity(inputs.len());
     for (seq, input) in inputs.iter().enumerate() {
         let seq = seq as i64;
-        chains::validate_group_member_count(input.members.len(), seq)?;
+        let members = &effective_members[seq as usize];
+        chains::validate_group_member_count(members.len(), seq)?;
         let strategy = match input.strategy.as_deref() {
             Some(raw) => GroupStrategy::parse(raw)?,
             None => GroupStrategy::default(),
@@ -338,88 +408,52 @@ async fn resolve_groups(
             .filter(|cert| !cert.is_empty())
             .map(str::to_string);
 
-        let mut members = Vec::with_capacity(input.members.len());
-        for (index, member) in input.members.iter().enumerate() {
-            forwards::validate_listen_port(member.listen_port)?;
-            forwards::ensure_port_not_reserved(member.listen_port)?;
-
+        let mut validated_members = Vec::with_capacity(members.len());
+        for (index, member) in members.iter().enumerate() {
             let server_id = &server_ids_by_group[seq as usize][index];
             let server = load_server_for_hop(state, server_id).await?;
-            if let Some(node) =
-                repo::nodes::find_by_port(&state.db.pool, &server.id, member.listen_port).await?
-            {
-                return Err(AppError::coded(
-                    "forward.port_conflict_node",
-                    Some(json!({
-                        "port": member.listen_port,
-                        "node": node.name,
-                        "node_id": node.id,
-                        "node_tag": node.tag,
-                        "server_id": server.id,
-                        "server_name": server.name,
-                    })),
-                    format!(
-                        "监听端口 {} 与服务器「{}」上的节点「{}」（tag {}）冲突",
-                        member.listen_port, server.name, node.name, node.tag
-                    ),
-                ));
-            }
-            if let Some(forward) = repo::forwards::find_by_listen_port(
-                &state.db.pool,
-                &server.id,
-                member.listen_port,
-                None,
-            )
-            .await?
-            {
-                return Err(AppError::coded(
-                    "forward.port_conflict_forward",
-                    Some(json!({
-                        "port": member.listen_port,
-                        "name": forward.name,
-                        "id": forward.id,
-                        "server_id": server.id,
-                        "server_name": server.name,
-                    })),
-                    format!(
-                        "监听端口 {} 已被服务器「{}」上的转发规则「{}」占用",
-                        member.listen_port, server.name, forward.name
-                    ),
-                ));
-            }
-            if let Some(conflict) = repo::chains::find_member_port_conflict(
-                &state.db.pool,
-                &server.id,
-                member.listen_port,
-                exclude_chain_id,
-            )
-            .await?
-            {
-                return Err(AppError::coded(
-                    "chain.port_conflict_hop",
-                    Some(json!({
-                        "port": member.listen_port,
-                        "chain_id": conflict.chain_id,
-                        "name": conflict.chain_name,
-                        "seq": conflict.seq + 1,
-                        "server_id": server.id,
-                        "server_name": server.name,
-                    })),
-                    format!(
-                        "监听端口 {} 已被服务器「{}」上的链「{}」第 {} 组占用",
-                        member.listen_port,
-                        server.name,
-                        conflict.chain_name,
-                        conflict.seq + 1
-                    ),
-                ));
-            }
 
-            members.push(ValidatedMember {
+            let listen_port = match member.listen_port {
+                Some(port) => {
+                    forwards::validate_listen_port(port)?;
+                    forwards::ensure_port_not_reserved(port)?;
+                    ensure_port_available(state, &server, port, exclude_chain_id).await?;
+                    port
+                }
+                None => {
+                    // 入口端口必须由用户明确给出：静默分配会让线上客户端失联。
+                    chains::ensure_entry_port(seq, None)?;
+                    if let Some(port) = existing_ports.get(server.id.as_str()).copied() {
+                        // 更新链时保留旧端口；它已经在库里，跳过冲突检查以免
+                        // 历史数据/并发写入把正常的“保存”卡死。
+                        forwards::validate_listen_port(port)?;
+                        forwards::ensure_port_not_reserved(port)?;
+                        port
+                    } else {
+                        let occupied = match occupied_by_server.entry(server.id.clone()) {
+                            std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                            std::collections::hash_map::Entry::Vacant(entry) => entry.insert(
+                                repo::chains::occupied_listen_ports(
+                                    &state.db.pool,
+                                    &server.id,
+                                    exclude_chain_id,
+                                )
+                                .await?,
+                            ),
+                        };
+                        let port = chains::allocate_port(&server.id, occupied)?;
+                        // 分配后立即加入集合：同一次保存内的后续组不会重复拿到它。
+                        occupied.insert(port);
+                        port
+                    }
+                }
+            };
+
+            validated_members.push(ValidatedMember {
                 server_id: server.id,
                 server_name: server.name,
                 server_address: server.address,
-                listen_port: member.listen_port,
+                listen_port,
                 priority: member.priority,
                 weight: member.weight,
                 nftables_available: server.nftables_available,
@@ -431,10 +465,85 @@ async fn resolve_groups(
             name,
             strategy,
             cert_id,
-            members,
+            members: validated_members,
         });
     }
     Ok(groups)
+}
+
+/// 一个显式端口是否和该服务器上的节点 / 独立转发 / 其它链成员冲突。
+///
+/// 错误码与文案保持原样（前端已经翻译过）；自动分配的端口不需要走这里，
+/// 它从「已占用集合」里挑，天然避开这些冲突。
+async fn ensure_port_available(
+    state: &AppState,
+    server: &Server,
+    listen_port: i64,
+    exclude_chain_id: Option<&str>,
+) -> AppResult<()> {
+    if let Some(node) = repo::nodes::find_by_port(&state.db.pool, &server.id, listen_port).await? {
+        return Err(AppError::coded(
+            "forward.port_conflict_node",
+            Some(json!({
+                "port": listen_port,
+                "node": node.name,
+                "node_id": node.id,
+                "node_tag": node.tag,
+                "server_id": server.id,
+                "server_name": server.name,
+            })),
+            format!(
+                "监听端口 {} 与服务器「{}」上的节点「{}」（tag {}）冲突",
+                listen_port, server.name, node.name, node.tag
+            ),
+        ));
+    }
+    if let Some(forward) =
+        repo::forwards::find_by_listen_port(&state.db.pool, &server.id, listen_port, None).await?
+    {
+        return Err(AppError::coded(
+            "forward.port_conflict_forward",
+            Some(json!({
+                "port": listen_port,
+                "name": forward.name,
+                "id": forward.id,
+                "server_id": server.id,
+                "server_name": server.name,
+            })),
+            format!(
+                "监听端口 {} 已被服务器「{}」上的转发规则「{}」占用",
+                listen_port, server.name, forward.name
+            ),
+        ));
+    }
+    if let Some(conflict) = repo::chains::find_member_port_conflict(
+        &state.db.pool,
+        &server.id,
+        listen_port,
+        exclude_chain_id,
+    )
+    .await?
+    {
+        return Err(AppError::coded(
+            "chain.port_conflict_hop",
+            Some(json!({
+                "port": listen_port,
+                "chain_id": conflict.chain_id,
+                "name": conflict.chain_name,
+                "seq": conflict.seq + 1,
+                "server_id": server.id,
+                "server_name": server.name,
+            })),
+            format!(
+                "监听端口 {} 已被服务器「{}」上的链「{}」第 {} 组占用",
+                listen_port,
+                server.name,
+                conflict.chain_name,
+                conflict.seq + 1
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// 用已保存的组构造同样的校验结构（PATCH 不改组时仍要检查自连）。
@@ -1102,12 +1211,18 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
         }
         degraded |= group_degraded;
 
+        // 组级 `listen_port` 是便捷字段：单成员组就是该成员的端口；多成员组取
+        // 第一台（与兼容用的 `hops` 视图一致）。每个成员的精确端口仍在 `members`。
+        let group_listen_port = ordered_members(group)
+            .first()
+            .map(|member| member.listen_port);
         group_views.push(json!({
             "id": group.group.id,
             "seq": group.group.seq,
             "name": group.group.name,
             "strategy": group.group.strategy,
             "cert_id": group.group.cert_id,
+            "listen_port": group_listen_port,
             "degraded": group_degraded,
             "members": member_views,
         }));
@@ -1395,7 +1510,7 @@ pub async fn create(
     } else {
         groups
     };
-    let groups = resolve_groups(&state, &inputs, None).await?;
+    let groups = resolve_groups(&state, &inputs, None, None).await?;
     ensure_targets_safe(&groups, &target_host, target_port)?;
     validate_nftables_chain(&engine, &groups)?;
     validate_tunnel_chain(&engine, &protocol, &transport, &tunnel_security, &groups)?;
@@ -1554,7 +1669,15 @@ pub async fn update(
     };
     let replace_groups = group_input.is_some();
     let groups = match group_input {
-        Some(inputs) => resolve_groups(&state, &inputs, Some(&existing.chain.id)).await?,
+        Some(inputs) => {
+            resolve_groups(
+                &state,
+                &inputs,
+                Some(&existing.chain.id),
+                Some(&existing.groups),
+            )
+            .await?
+        }
         None => validated_from_existing(&existing.groups),
     };
     ensure_targets_safe(&groups, final_target_host, final_target_port)?;
@@ -1841,6 +1964,14 @@ mod tests {
         json!({
             "server_id": server_id,
             "listen_port": listen_port,
+            "priority": priority,
+        })
+    }
+
+    /// 中间组成员：省略 `listen_port`，由主控从端口池分配。
+    fn auto_port_member(server_id: &str, priority: i64) -> Value {
+        json!({
+            "server_id": server_id,
             "priority": priority,
         })
     }
@@ -2776,6 +2907,333 @@ mod tests {
             body["chain"]["groups"][0]["members"][0]["server_id"],
             fixture.c.as_str()
         );
+    }
+
+    /// 中间组省略端口：创建成功，端口由主控从 20000-29999 分配并写回。
+    #[tokio::test]
+    async fn intermediate_groups_get_ports_from_the_pool() {
+        let fixture = setup().await;
+        let uri = "/api/v1/chains";
+
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(groups_body(
+                "只填首尾",
+                "1.1.1.1",
+                443,
+                &[
+                    group(None, None, &[group_member(&fixture.a, 9001, 0)]),
+                    group(None, None, &[auto_port_member(&fixture.b, 0)]),
+                    group(None, None, &[auto_port_member(&fixture.c, 0)]),
+                ],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        let chain = &value["chain"];
+        assert_eq!(chain["groups"][0]["listen_port"], 9001, "入口端口原样保留");
+        for group in &chain["groups"].as_array().unwrap()[1..] {
+            let port = group["listen_port"].as_i64().unwrap();
+            assert!(
+                (chains::PORT_POOL_START..=chains::PORT_POOL_END).contains(&port),
+                "中间组端口 {port} 必须落在端口池内"
+            );
+            assert_eq!(
+                group["members"][0]["listen_port"].as_i64(),
+                Some(port),
+                "成员端口与组级字段一致"
+            );
+        }
+        // 两台不同的中间服务器都从池起点开始，各自拿到 20000。
+        assert_eq!(chain["groups"][1]["listen_port"], 20000);
+        assert_eq!(chain["groups"][2]["listen_port"], 20000);
+
+        // 列表/编辑读取同样的值：前端下次打开仍能看到实际分配的端口。
+        let chain_id = chain["id"].as_str().unwrap();
+        let (status, listed) =
+            request(&fixture.app, Some(&fixture.cookie), Method::GET, uri, None).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {listed}");
+        let item = listed["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == chain_id)
+            .unwrap();
+        assert_eq!(item["groups"][1]["listen_port"], 20000);
+        assert_eq!(item["groups"][2]["listen_port"], 20000);
+    }
+
+    /// 兼容简化契约：组级 `listen_port` + `server_ids`（不带 members）也能建链。
+    #[tokio::test]
+    async fn group_level_port_and_server_ids_shorthand_work() {
+        let fixture = setup().await;
+        let uri = "/api/v1/chains";
+
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(groups_body(
+                "简写请求",
+                "1.1.1.1",
+                443,
+                &[
+                    json!({"server_ids": [fixture.a], "listen_port": 9101}),
+                    json!({"server_ids": [fixture.b], "strategy": "failover"}),
+                ],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        let chain = &value["chain"];
+        assert_eq!(chain["groups"][0]["listen_port"], 9101);
+        assert_eq!(
+            chain["groups"][0]["members"][0]["server_id"],
+            fixture.a.as_str()
+        );
+        assert_eq!(chain["groups"][1]["strategy"], "failover");
+        assert_eq!(chain["groups"][1]["listen_port"], 20000);
+    }
+
+    /// 入口组仍然必须显式给端口：不允许静默改成池里的某个值。
+    #[tokio::test]
+    async fn entry_group_without_a_port_is_rejected() {
+        let fixture = setup().await;
+
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(groups_body(
+                "入口缺端口",
+                "1.1.1.1",
+                443,
+                &[
+                    group(None, None, &[auto_port_member(&fixture.a, 0)]),
+                    group(None, None, &[auto_port_member(&fixture.b, 0)]),
+                ],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {value}");
+        assert_eq!(value["code"], "chain.entry_port_required");
+    }
+
+    /// 同一台服务器上的两条链各自分配，不会撞同一个端口。
+    #[tokio::test]
+    async fn two_chains_on_the_same_server_get_distinct_ports() {
+        let fixture = setup().await;
+        let uri = "/api/v1/chains";
+
+        let body = |name: &str, entry: &str, entry_port: i64| {
+            groups_body(
+                name,
+                "1.1.1.1",
+                443,
+                &[
+                    group(None, None, &[group_member(entry, entry_port, 0)]),
+                    group(None, None, &[auto_port_member(&fixture.b, 0)]),
+                ],
+            )
+        };
+
+        let (status, first) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(body("第一条", &fixture.a, 9201)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {first}");
+        let (status, second) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(body("第二条", &fixture.c, 9202)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {second}");
+
+        let first_port = first["chain"]["groups"][1]["listen_port"].as_i64().unwrap();
+        let second_port = second["chain"]["groups"][1]["listen_port"]
+            .as_i64()
+            .unwrap();
+        assert_eq!(first_port, 20000);
+        assert_eq!(second_port, 20001, "第二条链必须跳过已被占用的 20000");
+    }
+
+    /// 自动分配要跳过已有独立转发 / 节点占用的端口。
+    #[tokio::test]
+    async fn auto_allocation_skips_ports_used_by_forwards_and_nodes() {
+        let fixture = setup().await;
+        let uri = "/api/v1/chains";
+
+        add_node(&fixture.state, &fixture.b, 20000).await;
+        repo::forwards::create(
+            &fixture.state.db.pool,
+            &fixture.b,
+            repo::forwards::NewForward {
+                name: "独立转发".into(),
+                listen_port: 20001,
+                target_host: "10.0.0.8".into(),
+                target_port: 443,
+                enabled: false,
+                engine: "native".into(),
+                protocol: "tcp".into(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(groups_body(
+                "跳过占用",
+                "1.1.1.1",
+                443,
+                &[
+                    group(None, None, &[group_member(&fixture.a, 9301, 0)]),
+                    group(None, None, &[auto_port_member(&fixture.b, 0)]),
+                ],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        assert_eq!(
+            value["chain"]["groups"][1]["listen_port"], 20002,
+            "20000 被节点占用、20001 被停用转发占用（停用也继续占端口）"
+        );
+    }
+
+    /// 端口池耗尽：400 + 稳定错误码，绝不回退到随机端口或其它范围。
+    #[tokio::test]
+    async fn exhausted_port_pool_returns_400() {
+        let fixture = setup().await;
+
+        for port in chains::PORT_POOL_START..=chains::PORT_POOL_END {
+            repo::forwards::create(
+                &fixture.state.db.pool,
+                &fixture.b,
+                repo::forwards::NewForward {
+                    name: format!("占位 {port}"),
+                    listen_port: port,
+                    target_host: "10.0.0.8".into(),
+                    target_port: 443,
+                    enabled: false,
+                    engine: "native".into(),
+                    protocol: "tcp".into(),
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(groups_body(
+                "池耗尽",
+                "1.1.1.1",
+                443,
+                &[
+                    group(None, None, &[group_member(&fixture.a, 9401, 0)]),
+                    group(None, None, &[auto_port_member(&fixture.b, 0)]),
+                ],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {value}");
+        assert_eq!(value["code"], "chain.port_pool_exhausted");
+        assert_eq!(value["params"]["server_id"], fixture.b.as_str());
+        assert_eq!(value["params"]["pool_start"], 20000);
+        assert_eq!(value["params"]["pool_end"], 29999);
+    }
+
+    /// 旧格式（每组显式带端口的 members）行为不变。
+    #[tokio::test]
+    async fn explicit_group_ports_are_kept_verbatim() {
+        let fixture = setup().await;
+
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(groups_body(
+                "旧格式",
+                "1.1.1.1",
+                443,
+                &[
+                    group(None, None, &[group_member(&fixture.a, 9501, 0)]),
+                    group(None, None, &[group_member(&fixture.b, 9502, 0)]),
+                ],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        assert_eq!(value["chain"]["groups"][0]["listen_port"], 9501);
+        assert_eq!(value["chain"]["groups"][1]["listen_port"], 9502);
+    }
+
+    /// 更新链：旧成员端口保持，新成员才分配；被删组随行删除自然释放。
+    #[tokio::test]
+    async fn update_keeps_existing_ports_and_allocates_only_for_new_groups() {
+        let fixture = setup().await;
+        let uri = "/api/v1/chains";
+
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(groups_body(
+                "更新前",
+                "1.1.1.1",
+                443,
+                &[
+                    group(None, None, &[group_member(&fixture.a, 9601, 0)]),
+                    group(None, None, &[group_member(&fixture.b, 9602, 0)]),
+                    group(None, None, &[group_member(&fixture.c, 9603, 0)]),
+                ],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+
+        // 三组旧成员都省略端口 → 保留原值；新增的 d 组 → 分配 20000。
+        let (status, updated) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::PATCH,
+            &format!("/api/v1/chains/{chain_id}"),
+            Some(json!({
+                "groups": [
+                    group(None, None, &[group_member(&fixture.a, 9601, 0)]),
+                    group(None, None, &[auto_port_member(&fixture.b, 0)]),
+                    group(None, None, &[auto_port_member(&fixture.c, 0)]),
+                    group(None, None, &[auto_port_member(&fixture.d, 0)]),
+                ]
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {updated}");
+        let groups = updated["chain"]["groups"].as_array().unwrap();
+        assert_eq!(groups[1]["listen_port"], 9602, "旧组端口必须保留");
+        assert_eq!(groups[2]["listen_port"], 9603, "旧组端口必须保留");
+        assert_eq!(groups[3]["listen_port"], 20000, "新增组才分配");
     }
 
     /// 组校验：策略枚举、组内成员数 1–8、组内/跨组重复服务器、组数与端口冲突。

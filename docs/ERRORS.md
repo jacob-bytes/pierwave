@@ -152,6 +152,28 @@
 | `chain.duplicate_server` | 同一台服务器（{server_id}）不能在一跳链里出现两次 | server_id |
 | `chain.port_conflict_hop` | 监听端口 {port} 已被服务器「{server_name}」上的链「{name}」第 {seq} 跳占用 | chain_id, name, port, seq, server_name |
 
+## 转发链端口自动分配（中英对照）/ Automatic chain port allocation
+
+中间组（seq ≥ 1）可以省略监听端口：主控在固定池 `20000..=29999` 里为每台服务器
+挑最小空闲端口，保存时落成具体值；入口组（seq 0）仍然必须显式填写。
+已占用集合 = 该服务器上的 `forwards.listen_port`、`nodes.port`、其它链的成员端口。
+
+Intermediate groups (seq ≥ 1) may omit their listen port: the master picks the
+lowest free port from the fixed `20000..=29999` pool for each server and persists
+the concrete value on save. The entry group (seq 0) must still provide one.
+Occupied = `forwards.listen_port`, `nodes.port`, and members of other chains on
+the same server.
+
+| code | 中文 | English | params |
+|---|---|---|---|
+| `chain.entry_port_required` | 入口组（第 1 组）必须填写监听端口 | The entry group (group 1) must provide a listen port | — |
+| `chain.port_pool_exhausted` | 服务器（{server_id}）的自动分配端口池 {pool_start}-{pool_end} 已耗尽；请先释放端口，或为这一跳手动填写端口 | The automatic port pool {pool_start}-{pool_end} on server {server_id} is exhausted; free a port or provide one manually | pool_end, pool_start, server_id |
+
+池范围常量在 `crates/domain/src/chains.rs`（`PORT_POOL_START` / `PORT_POOL_END`）；
+同一台服务器按「最小空闲」选择，池耗尽直接 400，不会换范围或随机挑端口。
+The pool bounds live in `crates/domain/src/chains.rs`; allocation is "lowest free"
+per server, and exhaustion is a hard 400 — never a silent range switch or random pick.
+
 ## Shadowsocks 节点校验（中英对照）
 
 新增的三个 SS 错误码需要同时提供英文文案。`web/src/i18n/{zh-CN,en}.ts` 的 `errors.*`

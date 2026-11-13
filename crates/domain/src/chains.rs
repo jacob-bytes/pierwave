@@ -34,6 +34,14 @@ pub const MIN_GROUP_MEMBERS: usize = 1;
 /// 一个组最多 8 台成员；再多的候选池对单条链没有收益，只会放大端口冲突面。
 pub const MAX_GROUP_MEMBERS: usize = 8;
 
+/// 中间跳自动分配监听端口的池起点（含）。
+///
+/// 池范围固定为 `20000..=29999`：[`PORT_POOL_START`]..=[`PORT_POOL_END`]。
+pub const PORT_POOL_START: i64 = 20_000;
+
+/// 中间跳自动分配监听端口的池终点（含）。
+pub const PORT_POOL_END: i64 = 29_999;
+
 /// 链名称最大字符数，与单跳转发保持一致。
 pub const NAME_MAX_CHARS: usize = crate::forwards::NAME_MAX_CHARS;
 
@@ -193,6 +201,47 @@ pub fn validate_group_member_count(count: usize, seq: i64) -> Result<(), DomainE
             seq + 1
         ),
     ))
+}
+
+/// 在固定端口池里挑一个最小可用端口。
+///
+/// `occupied` 是该 `server_id` 上已经被占用的端口集合（独立转发、节点、其它链
+/// 的成员，以及同一次保存里刚刚分配出去的结果）。函数本身不查库：调用方负责
+/// 按服务器准备好集合，并在分配成功后**立即**把结果并入集合，保证同一次保存
+/// 内不会把同一个端口分给两组。
+///
+/// 池耗尽时返回 `chain.port_pool_exhausted`（HTTP 400），不做随机挑选或回退：
+/// 「悄悄换一个范围」会让用户更难发现自己已经用光了一台机器的端口。
+pub fn allocate_port(server_id: &str, occupied: &HashSet<i64>) -> Result<i64, DomainError> {
+    (PORT_POOL_START..=PORT_POOL_END)
+        .find(|port| !occupied.contains(port))
+        .ok_or_else(|| {
+            DomainError::with_params(
+                "chain.port_pool_exhausted",
+                json!({
+                    "server_id": server_id,
+                    "pool_start": PORT_POOL_START,
+                    "pool_end": PORT_POOL_END,
+                }),
+                format!(
+                    "服务器（{server_id}）的自动分配端口池 {PORT_POOL_START}-{PORT_POOL_END} 已耗尽；请先释放端口，或为这一跳手动填写端口"
+                ),
+            )
+        })
+}
+
+/// 入口组（seq = 0）必须显式填写监听端口。
+///
+/// 入口端口是用户实际连接的公网入口，静默改动会让线上客户端直接失联；
+/// 因此只有中间组（seq >= 1）允许省略、由主控从端口池分配。
+pub fn ensure_entry_port(seq: i64, listen_port: Option<i64>) -> Result<(), DomainError> {
+    if seq == 0 && listen_port.is_none() {
+        return Err(DomainError::new(
+            "chain.entry_port_required",
+            "入口组（第 1 组）必须填写监听端口",
+        ));
+    }
+    Ok(())
 }
 
 /// 同一台服务器不能在同一个组里出现两次。
@@ -799,6 +848,61 @@ mod tests {
             PATH_MULTI,
             "只要有一个多成员组不是哈希，路径就不固定"
         );
+    }
+
+    #[test]
+    fn port_pool_allocates_the_lowest_free_port() {
+        let mut occupied = HashSet::new();
+        assert_eq!(
+            allocate_port("srv-a", &occupied).unwrap(),
+            PORT_POOL_START,
+            "空集时从池起点开始"
+        );
+
+        occupied.insert(PORT_POOL_START);
+        occupied.insert(PORT_POOL_START + 1);
+        assert_eq!(
+            allocate_port("srv-a", &occupied).unwrap(),
+            PORT_POOL_START + 2,
+            "跳过已占用端口，取最小的空闲值"
+        );
+
+        // 池外的端口不参与：小于起点 / 大于终点的占用不影响池内选择。
+        occupied.clear();
+        occupied.insert(PORT_POOL_START - 1);
+        occupied.insert(PORT_POOL_END + 1);
+        assert_eq!(allocate_port("srv-a", &occupied).unwrap(), PORT_POOL_START);
+    }
+
+    #[test]
+    fn port_pool_exhaustion_returns_a_coded_error() {
+        let occupied: HashSet<i64> = (PORT_POOL_START..=PORT_POOL_END).collect();
+        let error = allocate_port("srv-b", &occupied).unwrap_err();
+        assert_eq!(error.code, "chain.port_pool_exhausted");
+        assert_eq!(
+            error.params,
+            json!({
+                "server_id": "srv-b",
+                "pool_start": PORT_POOL_START,
+                "pool_end": PORT_POOL_END,
+            })
+        );
+        assert!(error.message.contains("20000-29999"), "{}", error.message);
+        assert!(error.message.contains("已耗尽"), "{}", error.message);
+    }
+
+    #[test]
+    fn entry_group_must_provide_its_port() {
+        assert_eq!(
+            ensure_entry_port(0, None).unwrap_err().code,
+            "chain.entry_port_required"
+        );
+        assert!(ensure_entry_port(0, Some(20000)).is_ok());
+        assert!(
+            ensure_entry_port(1, None).is_ok(),
+            "中间组允许省略端口，由主控分配"
+        );
+        assert!(ensure_entry_port(5, Some(20001)).is_ok());
     }
 
     #[test]
