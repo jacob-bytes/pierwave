@@ -1911,7 +1911,6 @@ mod tests {
         assert!(supervisor.status_handle().snapshot()[0].listening);
     }
 
-
     /// 等 UDP 端口可绑定（最多 2 秒）。关闭监听与内核释放之间有窗口。
     async fn wait_tcp_port_free(port: u16) -> bool {
         for _ in 0..100 {
