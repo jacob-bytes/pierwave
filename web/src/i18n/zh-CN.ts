@@ -259,11 +259,10 @@ const zhCN = {
       unknown: "无数据",
     },
     groups: {
-      title: "分组状态",
+      title: "服务器分组",
+      all: "全部节点",
       ungrouped: "未分组",
-      onlineOf: "{online}/{total} 在线",
-      uptime24h: "24h 可用率",
-      empty: "还没有分组数据",
+      emptyFilteredTitle: "该分组暂无节点",
     },
     table: {
       caption: "服务器状态列表",

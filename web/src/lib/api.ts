@@ -177,6 +177,10 @@ export interface PublicStatusServer {
   uptime_7d: number | null;
   /** 固定 24 个元素，从最早的小时到当前小时。 */
   buckets_24h: (PublicStatusBucket | null)[];
+  /**
+   * 所属分组；未分组为 null。旧后端不返回该字段（也能据此隐藏分组筛选）。
+   */
+  group_name?: string | null;
 }
 
 /** 公开状态页的分组聚合；`name = null` 是未分组。 */

@@ -5,11 +5,28 @@
  * 页面只负责把返回值映射成 token 与文案。
  */
 
+import { normalizeGroupName } from "./serverGroups.ts";
+
 /** 卡片右上角的状态：离线优先于「异常」，因为离线时 Xray 字段本就不可信。 */
 export type ServerState = "online" | "offline" | "abnormal";
 
 /** 工具栏的状态标签；`all` 是未筛选。 */
 export type StatusFilter = "all" | "online" | "offline" | "abnormal";
+
+/**
+ * 分组筛选：`null` = 全部节点；[`UNGROUPED_GROUP_KEY`] = 未分组；
+ * 其它值是已经归一化过的分组名（非空、去首尾空白）。
+ */
+export type StatusGroupFilter = string | null;
+
+/** 「未分组」在筛选状态里的键；分组名归一化后不可能为空，所以不冲突。 */
+export const UNGROUPED_GROUP_KEY = "";
+
+/** 分组标签行里的一项；`name = null` 是未分组，永远排在最后。 */
+export interface StatusGroupTab {
+  name: string | null;
+  count: number;
+}
 
 /** 公开页的两种版式。 */
 export type StatusView = "grid" | "list";
@@ -268,18 +285,62 @@ export function matchesServerQuery(
   return needle === "" || server.name.toLowerCase().includes(needle);
 }
 
+/**
+ * 从服务器列表派生分组标签。
+ *
+ * - 只有至少一个**具名分组**时才返回标签；全部未分组返回空数组，
+ *   页面据此不渲染整行（一个「全部节点 / 未分组」的切换没有意义）。
+ * - 具名分组按名称升序，未分组固定最后，与 `groupServers` 一致。
+ * - 计数是该组服务器数，不是在线数；同一列表里的空白差异会合并。
+ */
+export function statusGroupTabs(
+  servers: readonly { group_name?: string | null }[],
+): StatusGroupTab[] {
+  const named = new Map<string, number>();
+  let ungrouped = 0;
+
+  for (const server of servers) {
+    const name = normalizeGroupName(server.group_name);
+    if (name === null) {
+      ungrouped += 1;
+    } else {
+      named.set(name, (named.get(name) ?? 0) + 1);
+    }
+  }
+
+  if (named.size === 0) return [];
+
+  const tabs: StatusGroupTab[] = [...named.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([name, count]) => ({ name, count }));
+  if (ungrouped > 0) tabs.push({ name: null, count: ungrouped });
+  return tabs;
+}
+
+/** 一台服务器是否落在选中的分组里；`null`（全部）永远匹配。 */
+export function matchesGroupFilter(
+  server: { group_name?: string | null },
+  group: StatusGroupFilter,
+): boolean {
+  if (group === null) return true;
+  const name = normalizeGroupName(server.group_name) ?? UNGROUPED_GROUP_KEY;
+  return name === group;
+}
+
 /** 先按搜索、再按状态标签过滤；两个条件互不知道对方。 */
 export function filterPublicServers<
-  T extends StatusFields & { name: string },
+  T extends StatusFields & { name: string; group_name?: string | null },
 >(
   servers: readonly T[],
   filter: StatusFilter,
   query: string,
+  group: StatusGroupFilter = null,
 ): T[] {
   return servers.filter(
     (server) =>
       matchesServerQuery(server, query) &&
-      matchesStatusFilter(server, filter),
+      matchesStatusFilter(server, filter) &&
+      matchesGroupFilter(server, group),
   );
 }
 

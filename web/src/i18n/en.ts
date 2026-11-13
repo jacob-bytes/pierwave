@@ -264,11 +264,10 @@ const en = {
       unknown: "No data",
     },
     groups: {
-      title: "Groups",
+      title: "Server groups",
+      all: "All nodes",
       ungrouped: "Ungrouped",
-      onlineOf: "{online}/{total} online",
-      uptime24h: "24h uptime",
-      empty: "No group data yet",
+      emptyFilteredTitle: "No nodes in this group",
     },
     table: {
       caption: "Server status table",

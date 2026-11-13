@@ -12,8 +12,6 @@ import {
   SunIcon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { AvailabilityLegend } from "@/components/status/Availability";
-import { GroupOverview } from "@/components/status/GroupOverview";
 import { ServerCard } from "@/components/status/ServerCard";
 import { ServerTable } from "@/components/status/ServerTable";
 import { Summary } from "@/components/status/Summary";
@@ -28,10 +26,13 @@ import {
   DEFAULT_STATUS_VIEW,
   filterPublicServers,
   loadStatusView,
+  matchesGroupFilter,
   matchesServerQuery,
   persistStatusView,
   publicServerCounts,
+  statusGroupTabs,
   type StatusFilter,
+  type StatusGroupFilter,
   type StatusView,
 } from "@/lib/publicStatus";
 import { usePublicStatus } from "@/lib/queries";
@@ -247,17 +248,25 @@ function StatusSkeleton({ label }: { label: string }) {
 }
 
 /** 当前筛选没有结果：与「一台服务器都没有」分开，这里给一条出路。 */
-function FilterEmpty({ onClear }: { onClear: () => void }) {
+function FilterEmpty({
+  title,
+  description,
+  onClear,
+}: {
+  title: string;
+  description?: string;
+  onClear: () => void;
+}) {
   const { t } = useI18n();
 
   return (
     <div className="grid place-items-center rounded-xl border border-dashed border-border py-16 text-center">
-      <p className="text-sm font-medium">
-        {t("publicStatus.servers.emptyFilteredTitle")}
-      </p>
-      <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-        {t("publicStatus.servers.emptyFilteredDescription")}
-      </p>
+      <p className="text-sm font-medium">{title}</p>
+      {description ? (
+        <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+          {description}
+        </p>
+      ) : null}
       <Button variant="outline" size="sm" className="mt-3" onClick={onClear}>
         {t("publicStatus.toolbar.clearFilters")}
       </Button>
@@ -268,6 +277,7 @@ function FilterEmpty({ onClear }: { onClear: () => void }) {
 function StatusContent({ data }: { data: PublicStatus }) {
   const { t } = useI18n();
   const [filter, setFilter] = useState<StatusFilter>("all");
+  const [group, setGroup] = useState<StatusGroupFilter>(null);
   const [query, setQuery] = useState("");
   const [view, setView] = useState<StatusView>(() =>
     typeof window === "undefined"
@@ -284,16 +294,23 @@ function StatusContent({ data }: { data: PublicStatus }) {
 
   const clear = () => {
     setFilter("all");
+    setGroup(null);
     setQuery("");
   };
 
-  // 标签上的计数跟着搜索走，点下去才不会出现「写着 3、点开只剩 0」。
+  // 状态标签的计数跟着搜索与分组走，点下去才不会出现「写着 3、点开只剩 0」。
   const searched = data.servers.filter((server) =>
     matchesServerQuery(server, query),
   );
-  const counts = publicServerCounts(searched);
-  const filtered = filterPublicServers(data.servers, filter, query);
-  const narrowing = filter !== "all" || query.trim() !== "";
+  const counts = publicServerCounts(
+    searched.filter((server) => matchesGroupFilter(server, group)),
+  );
+  // 分组标签从全量服务器派生：计数是「该组服务器数」，不随搜索或状态标签缩水，
+  // 激活中的分组也不会因为搜索命中 0 而消失。
+  const groupTabs = statusGroupTabs(data.servers);
+  const filtered = filterPublicServers(data.servers, filter, query, group);
+  const narrowing =
+    filter !== "all" || query.trim() !== "" || group !== null;
 
   return (
     <>
@@ -303,8 +320,6 @@ function StatusContent({ data }: { data: PublicStatus }) {
         filter={filter}
         onFilter={setFilter}
       />
-
-      <GroupOverview groups={data.groups} />
 
       <h2 className="sr-only">{t("publicStatus.servers.title")}</h2>
       <div className="mt-2.5 space-y-2.5">
@@ -323,18 +338,33 @@ function StatusContent({ data }: { data: PublicStatus }) {
               total={data.servers.length}
               filter={filter}
               onFilter={setFilter}
+              groups={groupTabs}
+              group={group}
+              onGroup={setGroup}
               query={query}
               onQuery={setQuery}
               view={view}
               onView={changeView}
               narrowing={narrowing}
+              shown={filtered.length}
               onClear={clear}
             />
 
-            <AvailabilityLegend className="px-1" />
-
             {filtered.length === 0 ? (
-              <FilterEmpty onClear={clear} />
+              group !== null ? (
+                <FilterEmpty
+                  title={t("publicStatus.groups.emptyFilteredTitle")}
+                  onClear={clear}
+                />
+              ) : (
+                <FilterEmpty
+                  title={t("publicStatus.servers.emptyFilteredTitle")}
+                  description={t(
+                    "publicStatus.servers.emptyFilteredDescription",
+                  )}
+                  onClear={clear}
+                />
+              )
             ) : view === "list" ? (
               <ServerTable servers={filtered} />
             ) : (

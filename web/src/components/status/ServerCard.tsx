@@ -263,19 +263,19 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
         />
       </div>
 
-      {/* 底部：左边 7 天可用率，右边最后心跳（相对时间，hover 看绝对时间）；
-          下面贴着卡片底边的 24 格条，细、无边框，颜色与图例一致。 */}
+      {/* 底部：左边是点阵本身的说明（近 24 小时、每格 1 小时），右边才是 7 天可用率。
+          原来的写法把两个不同窗口的指标并排，看起来像同一件事。 */}
       <div className="mt-auto pt-4">
         <div className="flex min-w-0 items-baseline justify-between gap-2 text-xs">
-          <span className="inline-flex min-w-0 items-baseline gap-1.5 text-muted-foreground">
-            <span className="truncate">
-              {t("publicStatus.server.availability7d")}
-            </span>
-            <AvailabilityValue ratio={server.uptime_7d} />
-          </span>
-          {/* 最后心跳已经在副行出现过，这里不再重复；右侧留给可用率区间说明 */}
-          <span className="shrink-0 text-muted-foreground">
+          <span
+            className="min-w-0 truncate text-muted-foreground"
+            title={t("publicStatus.availability.legend")}
+          >
             {t("publicStatus.server.availability24hHint")}
+          </span>
+          <span className="inline-flex shrink-0 items-baseline gap-1.5 text-muted-foreground">
+            <span>{t("publicStatus.server.availability7d")}</span>
+            <AvailabilityValue ratio={server.uptime_7d} />
           </span>
         </div>
         <AvailabilityStrip server={server} className="mt-3" />

@@ -6,7 +6,13 @@ import {
   XIcon,
 } from "lucide-react";
 import { useI18n } from "@/i18n";
-import type { StatusFilter, StatusView } from "@/lib/publicStatus";
+import {
+  UNGROUPED_GROUP_KEY,
+  type StatusFilter,
+  type StatusGroupFilter,
+  type StatusGroupTab,
+  type StatusView,
+} from "@/lib/publicStatus";
 import { cn } from "@/lib/utils";
 
 type Segment<T extends string> = {
@@ -84,7 +90,51 @@ function Segmented<T extends string>({
 }
 
 /**
- * 汇总与列表之间的一行：状态标签、清除筛选、命中数量、搜索、视图切换。
+ * 分组标签：纯文字 + 计数，不画边框；激活态只换成主色。
+ * 与参考项目一致 —— 分组是列表的「位置」，不是需要围起来的控件。
+ */
+function GroupTab({
+  active,
+  onClick,
+  label,
+  count,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  count: number;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors max-sm:gap-1",
+        // 手机上这一行是页面第一个控件，给 32px 的点击高度与左右 padding；
+        // 桌面端保持纯文字行，靠容器的 14px 间距分隔。
+        "max-sm:h-8 max-sm:px-1.5",
+        "focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none",
+        active
+          ? "text-primary"
+          : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {label}
+      <span
+        className={cn(
+          "tnum min-w-[18px] rounded-full px-1 text-center type-micro font-medium",
+          active ? "bg-primary/15 text-primary" : "bg-muted text-foreground",
+        )}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * 汇总与列表之间的一行：分组标签、状态标签、清除筛选、命中数量、搜索、视图切换。
  * 与参考项目的 `Toolbar` 同一个信息层次 —— 这一行只放「作用于下方列表」
  * 的控件，不再重复汇总里已有的总数。
  */
@@ -93,25 +143,35 @@ export function Toolbar({
   total,
   filter,
   onFilter,
+  groups,
+  group,
+  onGroup,
   query,
   onQuery,
   view,
   onView,
   narrowing,
+  shown,
   onClear,
 }: {
-  /** 已经按搜索筛过的计数；标签上的数字与点下去看到的结果一致。 */
+  /** 已经按搜索与分组筛过的计数；标签上的数字与点下去看到的结果一致。 */
   counts: Record<StatusFilter, number>;
-  /** 服务器总数，只用于「已显示 / 总数」。 */
+  /** 服务器总数，只用于「已显示 / 总数」与「全部节点」的计数。 */
   total: number;
   filter: StatusFilter;
   onFilter: (filter: StatusFilter) => void;
+  /** 由服务器列表派生；为空表示没有任何具名分组，整行不渲染。 */
+  groups: StatusGroupTab[];
+  group: StatusGroupFilter;
+  onGroup: (group: StatusGroupFilter) => void;
   query: string;
   onQuery: (query: string) => void;
   view: StatusView;
   onView: (view: StatusView) => void;
-  /** 搜索或标签是否正在收窄列表：只在有隐藏时显示清除与计数。 */
+  /** 搜索、状态或分组是否正在收窄列表：只在有隐藏时显示清除与计数。 */
   narrowing: boolean;
+  /** 三个条件叠加后的实际条数，不能从 `counts[filter]` 反推。 */
+  shown: number;
   onClear: () => void;
 }) {
   const { t } = useI18n();
@@ -152,6 +212,39 @@ export function Toolbar({
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1">
+      {groups.length > 0 ? (
+        <>
+          <div
+            role="group"
+            aria-label={t("publicStatus.groups.title")}
+            className="flex min-h-8 shrink-0 flex-wrap items-center gap-3.5 max-sm:w-full max-sm:gap-0"
+          >
+            <GroupTab
+              active={group === null}
+              onClick={() => onGroup(null)}
+              label={t("publicStatus.groups.all")}
+              count={total}
+            />
+            {groups.map((tab) => {
+              const filterKey = tab.name ?? UNGROUPED_GROUP_KEY;
+              return (
+                <GroupTab
+                  key={`group:${tab.name ?? ""}`}
+                  active={group === filterKey}
+                  onClick={() => onGroup(filterKey)}
+                  label={tab.name ?? t("publicStatus.groups.ungrouped")}
+                  count={tab.count}
+                />
+              );
+            })}
+          </div>
+          <span
+            className="h-5 w-px shrink-0 bg-border max-sm:hidden"
+            aria-hidden="true"
+          />
+        </>
+      ) : null}
+
       <Segmented
         items={filters}
         value={filter}
@@ -168,9 +261,9 @@ export function Toolbar({
           >
             {t("publicStatus.toolbar.clearFilters")}
           </button>
-          <span className="tnum inline-flex h-8 items-center px-1 text-xs text-muted-foreground">
+          <span className="tnum inline-flex h-8 shrink-0 items-center px-1 text-xs whitespace-nowrap text-muted-foreground">
             {t("publicStatus.toolbar.shown", {
-              shown: counts[filter],
+              shown,
               total,
             })}
           </span>

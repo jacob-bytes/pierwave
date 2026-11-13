@@ -12,6 +12,7 @@ import {
   hasSamples,
   isPublicStatusPath,
   loadStatusView,
+  matchesGroupFilter,
   matchesServerQuery,
   matchesStatusFilter,
   parseStatusView,
@@ -22,7 +23,9 @@ import {
   serverSpecLine,
   serverState,
   STATUS_VIEW_STORAGE_KEY,
+  statusGroupTabs,
   statusLabelKey,
+  UNGROUPED_GROUP_KEY,
   uptimeLabelKey,
   uptimeParts,
 } from "./publicStatus.ts";
@@ -335,6 +338,104 @@ test("publicServerCounts counts every tab from the same list", () => {
   });
 });
 
+test("statusGroupTabs hides the row until a server is actually grouped", () => {
+  assert.deepEqual(statusGroupTabs([]), []);
+  assert.deepEqual(
+    statusGroupTabs([{ group_name: null }, {}, { group_name: "   " }]),
+    [],
+    "全部未分组时没有可筛选的分组，整行不渲染",
+  );
+});
+
+test("statusGroupTabs counts each group, sorts named groups and puts ungrouped last", () => {
+  assert.deepEqual(
+    statusGroupTabs([
+      { group_name: " 香港 " },
+      { group_name: "香港" },
+      { group_name: "日本" },
+      { group_name: null },
+      { group_name: "   " },
+      { group_name: "香港 01" },
+    ]),
+    [
+      { name: "日本", count: 1 },
+      { name: "香港", count: 2 },
+      { name: "香港 01", count: 1 },
+      { name: null, count: 2 },
+    ],
+  );
+});
+
+test("statusGroupTabs omits the ungrouped tab when every server belongs to a group", () => {
+  assert.deepEqual(
+    statusGroupTabs([
+      { group_name: "香港" },
+      { group_name: "香港" },
+      { group_name: "日本" },
+    ]),
+    [
+      { name: "日本", count: 1 },
+      { name: "香港", count: 2 },
+    ],
+  );
+});
+
+test("statusGroupTabs counts servers, not online servers", () => {
+  const tabs = statusGroupTabs([
+    { group_name: "香港", online: false },
+    { group_name: "香港", online: true },
+  ]);
+  assert.deepEqual(tabs, [{ name: "香港", count: 2 }]);
+});
+
+test("matchesGroupFilter treats null as all and blank names as ungrouped", () => {
+  assert.equal(matchesGroupFilter({ group_name: "香港" }, null), true);
+  assert.equal(matchesGroupFilter({ group_name: null }, null), true);
+  assert.equal(matchesGroupFilter({}, null), true);
+
+  assert.equal(matchesGroupFilter({ group_name: null }, UNGROUPED_GROUP_KEY), true);
+  assert.equal(matchesGroupFilter({}, UNGROUPED_GROUP_KEY), true);
+  assert.equal(matchesGroupFilter({ group_name: "  " }, UNGROUPED_GROUP_KEY), true);
+  assert.equal(matchesGroupFilter({ group_name: "香港" }, UNGROUPED_GROUP_KEY), false);
+
+  // 与 normalizeGroupName 一致：去空白，但大小写仍敏感。
+  assert.equal(matchesGroupFilter({ group_name: " 香港 " }, "香港"), true);
+  assert.equal(matchesGroupFilter({ group_name: "香港" }, "日本"), false);
+  assert.equal(matchesGroupFilter({ group_name: "hk" }, "HK"), false);
+});
+
+test("filterPublicServers intersects the group filter with status and search", () => {
+  const servers = [
+    SERVER({ id: "a", name: "HK 01", group_name: "香港" }),
+    SERVER({ id: "b", name: "HK 02", group_name: "香港", online: false }),
+    SERVER({ id: "c", name: "JP 01", group_name: "日本" }),
+    SERVER({ id: "d", name: "U 01", group_name: null }),
+  ];
+
+  assert.deepEqual(
+    filterPublicServers(servers, "all", "", "香港").map((s) => s.id),
+    ["a", "b"],
+  );
+  assert.deepEqual(
+    filterPublicServers(servers, "online", "", "香港").map((s) => s.id),
+    ["a"],
+  );
+  assert.deepEqual(
+    filterPublicServers(servers, "all", "hk", "香港").map((s) => s.id),
+    ["a", "b"],
+  );
+  assert.deepEqual(
+    filterPublicServers(servers, "all", "", UNGROUPED_GROUP_KEY).map((s) => s.id),
+    ["d"],
+  );
+  assert.deepEqual(filterPublicServers(servers, "all", "jp", "香港"), []);
+  // 不传分组时保持「全部」的旧行为。
+  assert.deepEqual(
+    filterPublicServers(servers, "all", "").map((s) => s.id),
+    ["a", "b", "c", "d"],
+  );
+});
+
 test("parseStatusView only accepts the two known layouts", () => {
   assert.equal(parseStatusView("grid"), "grid");
   assert.equal(parseStatusView("list"), "list");
@@ -419,6 +520,10 @@ test("status page dynamic i18n keys exist in both locales", () => {
     "availability.warn",
     "availability.down",
     "availability.unknown",
+    "groups.all",
+    "groups.ungrouped",
+    "groups.emptyFilteredTitle",
+    "groups.title",
   ];
   const pick = (dictionary, path) =>
     path.split(".").reduce((node, part) => node?.[part], dictionary);

@@ -106,32 +106,3 @@ export function AvailabilityStrip({
     </div>
   );
 }
-
-/** 页面顶部的一份图例；所有卡片共用，不重复占用每张卡的高度。 */
-export function AvailabilityLegend({ className }: { className?: string }) {
-  const { t } = useI18n();
-  const tones: AvailabilityTone[] = ["ok", "warn", "down", "unknown"];
-
-  return (
-    <div
-      className={cn(
-        "flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground",
-        className,
-      )}
-    >
-      {tones.map((tone) => (
-        <span key={tone} className="inline-flex items-center gap-1.5">
-          <span
-            aria-hidden="true"
-            className={cn(
-              "size-2 rounded-[2px]",
-              AVAILABILITY_BAR_CLASS[tone],
-            )}
-          />
-          {t(`publicStatus.availability.${tone}`)}
-        </span>
-      ))}
-      <span>{t("publicStatus.availability.legend")}</span>
-    </div>
-  );
-}
