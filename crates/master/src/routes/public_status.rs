@@ -611,6 +611,7 @@ mod tests {
             "last_seen",
             "latency_ms",
             "country_code",
+            "group_name",
             "os_name",
             "os_version",
             "virt",
