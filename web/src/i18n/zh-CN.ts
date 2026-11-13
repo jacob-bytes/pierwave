@@ -61,9 +61,9 @@ const zhCN = {
     requestFailed: "请求失败 ({status})",
     engine: {
       native: {
-        label: "自带",
-        short: "PierWave 自带 · TCP/UDP",
-        desc: "PierWave 自带实现：直接监听并转发，支持组内选路与降级；协议可选仅 TCP、仅 UDP 或同端口双开。",
+        label: "PierWave 核心",
+        short: "内置转发 · TCP/UDP",
+        desc: "PierWave 内置转发：直接监听并转发，支持组内选路与降级；协议可选仅 TCP、仅 UDP 或同端口双开。",
       },
       realm: {
         label: "realm",

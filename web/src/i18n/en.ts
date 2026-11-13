@@ -65,8 +65,8 @@ const en = {
     requestFailed: "Request failed ({status})",
     engine: {
       native: {
-        label: "Native",
-        short: "Built-in · TCP/UDP",
+        label: "PierWave Core",
+        short: "Built-in forwarding · TCP/UDP",
         desc: "PierWave's built-in implementation: listens and forwards directly, with in-group selection and failover; choose TCP only, UDP only, or both on the same port.",
       },
       realm: {

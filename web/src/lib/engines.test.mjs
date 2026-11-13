@@ -127,10 +127,10 @@ test("engineMeta falls back to a non-empty unknown label for future values", () 
 });
 
 test("engine labels are bilingual and match the badge copy", () => {
-  assert.equal(lookup(zhCN, "common.engine.native.label"), "自带");
+  assert.equal(lookup(zhCN, "common.engine.native.label"), "PierWave 核心");
   assert.equal(lookup(zhCN, "common.engine.realm.label"), "realm");
   assert.equal(lookup(zhCN, "common.engine.nftables.label"), "nftables");
-  assert.equal(lookup(en, "common.engine.native.label"), "Native");
+  assert.equal(lookup(en, "common.engine.native.label"), "PierWave Core");
   assert.equal(lookup(en, "common.engine.realm.label"), "realm");
   assert.equal(lookup(en, "common.engine.nftables.label"), "nftables");
 });
