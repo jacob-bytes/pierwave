@@ -100,6 +100,9 @@ const en = {
       tcp: "TCP",
       udp: "UDP",
       both: "TCP + UDP",
+      tcpHint: "Listen on TCP only",
+      udpHint: "Listen on UDP only",
+      bothHint: "Both on the same port",
     },
     protocolMode: {
       label: "Protocol",

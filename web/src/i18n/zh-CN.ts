@@ -95,6 +95,9 @@ const zhCN = {
       tcp: "TCP",
       udp: "UDP",
       both: "TCP + UDP",
+      tcpHint: "只监听 TCP",
+      udpHint: "只监听 UDP",
+      bothHint: "同端口两种协议",
     },
     protocolMode: {
       label: "协议模式",

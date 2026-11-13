@@ -1264,7 +1264,7 @@ export function ChainFormDialog({
                     </span>
                   </SelectValue>
                 </SelectTrigger>
-                <SelectContent className="w-56">
+                <SelectContent className="w-72">
                   {engineOptions.map((option) => (
                     <SelectItem
                       key={option.engine}
@@ -1272,9 +1272,14 @@ export function ChainFormDialog({
                       data-engine-option={option.engine}
                       data-tunnel-ready={option.available}
                     >
-                      <span className="flex items-center gap-1.5">
-                        {t(option.labelKey)}
-                        {option.experimental ? <ExperimentalTag /> : null}
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <span className="flex items-center gap-1.5">
+                          {t(option.labelKey)}
+                          {option.experimental ? <ExperimentalTag /> : null}
+                        </span>
+                        <span className="text-xs font-normal text-muted-foreground">
+                          {t(`common.engine.${option.engine}.short`)}
+                        </span>
                       </span>
                     </SelectItem>
                   ))}
@@ -1328,9 +1333,14 @@ export function ChainFormDialog({
                                 ? t("chains.tls.udpDisabledTitle")
                                 : t("common.udpRealmTitle")
                         }
-                        className="data-disabled:pointer-events-auto"
+                        className="items-start py-2 data-disabled:pointer-events-auto"
                       >
-                        {t(`common.protocolMode.${mode}`)}
+                        <span className="flex min-w-0 flex-col gap-0.5">
+                          <span>{t(`common.protocolMode.${mode}`)}</span>
+                          <span className="text-xs font-normal text-muted-foreground">
+                            {t(`common.protocolMode.${mode}Hint`)}
+                          </span>
+                        </span>
                       </SelectItem>
                     );
                   })}
