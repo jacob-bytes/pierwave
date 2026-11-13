@@ -179,6 +179,15 @@ export interface PublicStatusServer {
   buckets_24h: (PublicStatusBucket | null)[];
 }
 
+/** 公开状态页的分组聚合；`name = null` 是未分组。 */
+export interface PublicStatusGroup {
+  name: string | null;
+  servers: number;
+  online: number;
+  /** 0..1，窗口内没有采样时为 null。 */
+  uptime_24h: number | null;
+}
+
 /** P10：`GET /api/v1/public/status`，无需登录。 */
 export interface PublicStatus {
   panel_name: string;
@@ -186,6 +195,17 @@ export interface PublicStatus {
   generated_at: number;
   summary: PublicStatusSummary;
   servers: PublicStatusServer[];
+  /** 旧后端可能不返回；页面据此决定是否画分组聚合。 */
+  groups?: PublicStatusGroup[];
+}
+
+/** 主控生成的 Agent 运维命令；`install` 只在创建/重置后返回一次。 */
+export interface ServerCommands {
+  install: string | null;
+  upgrade: string;
+  uninstall: string;
+  stop: string;
+  restart: string;
 }
 
 export interface Server {
@@ -197,6 +217,11 @@ export interface Server {
   last_seen_at: number | null;
   config_version: number;
   created_at: number;
+
+  /** 分组名；null = 未分组。旧后端可能不返回该字段。 */
+  group_name?: string | null;
+  /** Agent 运维命令；旧后端可能不返回该字段。 */
+  commands?: ServerCommands;
 
   /* 以下字段来自 Agent 心跳；从未连过的服务器整组为 null。 */
   agent_version: string | null;
@@ -250,10 +275,18 @@ export interface UpdateServerInput {
   allow_agent_upgrade?: boolean;
   /** ISO 3166-1 alpha-2；空串 = 清空。 */
   country_code?: string;
+  /** 分组名；null = 清空分组。 */
+  group_name?: string | null;
 }
 
 export interface CreateServerResponse {
   server: Server;
+  token: string;
+  install_command: string;
+}
+
+/** `POST /api/v1/servers/{id}/token`：旧 token 立即失效，返回新的安装命令。 */
+export interface ResetServerTokenResponse {
   token: string;
   install_command: string;
 }
@@ -1344,17 +1377,25 @@ export const api = {
     xray_mode: string;
     /** ISO 3166-1 alpha-2；省略或空串 = 不填。 */
     country_code?: string;
+    /** 分组名；省略或 null = 未分组。 */
+    group_name?: string | null;
   }) =>
     request<CreateServerResponse>("/api/v1/servers", {
       method: "POST",
       body: JSON.stringify(input),
     }),
-  /** P4：服务器设置（目前开放「允许下发升级」与国家/地区）。后端可能暂时 404。 */
+  /** P4：服务器设置（目前开放「允许下发升级」、国家/地区与分组）。后端可能暂时 404。 */
   updateServer: (id: string, input: UpdateServerInput) =>
     request<{ server: Server }>(`/api/v1/servers/${encodeURIComponent(id)}`, {
       method: "PATCH",
       body: JSON.stringify(input),
     }),
+  /** 重置配对 token：旧 token 立即失效，已安装的 Agent 会断开。 */
+  resetServerToken: (id: string) =>
+    request<ResetServerTokenResponse>(
+      `/api/v1/servers/${encodeURIComponent(id)}/token`,
+      { method: "POST" },
+    ),
 
   /** P4：单台服务器的 Agent 升级任务与历史。后端可能暂时 404。 */
   agentUpgrades: {

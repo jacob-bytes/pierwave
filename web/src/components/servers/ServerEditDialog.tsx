@@ -23,6 +23,10 @@ import type { Server } from "@/lib/api";
 import { isCountryCode } from "@/lib/country";
 import { errorText, isNotFound } from "@/lib/errors";
 import { useUpdateServer } from "@/lib/queries";
+import {
+  GROUP_NAME_MAX_LENGTH,
+  normalizeGroupName,
+} from "@/lib/serverGroups";
 import { t } from "@/i18n";
 
 
@@ -52,6 +56,9 @@ export function ServerEditDialog({
   const [countryCode, setCountryCode] = useState(
     () => server.country_code ?? "",
   );
+  const [groupName, setGroupName] = useState(
+    () => normalizeGroupName(server.group_name) ?? "",
+  );
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -71,6 +78,8 @@ export function ServerEditDialog({
         input: {
           allow_agent_upgrade: allowUpgrade,
           country_code: normalizedCountry,
+          // 后端把空串当作「清空分组」；null 可能被当成「不改该字段」。
+          group_name: normalizeGroupName(groupName) ?? "",
         },
       });
       toast.success(t("servers.editDialog.saved"));
@@ -150,6 +159,21 @@ export function ServerEditDialog({
             >
               {t("servers.countryHint")}
             </p>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="server-group" className="text-sm">
+              {t("servers.group")}
+            </Label>
+            <Input
+              id="server-group"
+              value={groupName}
+              onChange={(event) => setGroupName(event.target.value)}
+              placeholder={t("servers.groupPlaceholder")}
+              maxLength={GROUP_NAME_MAX_LENGTH}
+              autoComplete="off"
+              disabled={updateServer.isPending}
+            />
           </div>
 
           <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-muted/30 p-3">

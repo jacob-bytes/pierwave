@@ -48,6 +48,7 @@ import {
   type PublicStatus,
   type RoutingRule,
   type RuleTemplate,
+  type ResetServerTokenResponse,
   type ResetSubscriptionResponse,
   type RestoreBackupResponse,
   type Server,
@@ -456,6 +457,23 @@ export function useUpdateServer() {
 }
 
 /**
+ * 重置服务器的配对 token。
+ *
+ * 旧 token 立即失效，已安装的 Agent 会断开；成功后刷新列表，
+ * 让新的一次性安装命令与后端状态对齐。
+ */
+export function useResetServerToken() {
+  const queryClient = useQueryClient();
+
+  return useMutation<ResetServerTokenResponse, Error, { id: string }>({
+    mutationFn: async ({ id }) => api.resetServerToken(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.servers });
+    },
+  });
+}
+
+/**
  * P4：单台服务器的升级历史。
  *
  * 后端可能暂时 404：不重试，由 Dialog 展示可重试的中文错误态；
@@ -595,6 +613,8 @@ export function useCreateServer() {
       xray_mode: string;
       /** ISO 3166-1 alpha-2；省略或空串 = 不填。 */
       country_code?: string;
+      /** 分组名；省略或 null = 未分组。 */
+      group_name?: string | null;
     }
   >({
     mutationFn: api.createServer,

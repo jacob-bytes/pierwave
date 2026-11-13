@@ -13,6 +13,7 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 import { AvailabilityLegend } from "@/components/status/Availability";
+import { GroupOverview } from "@/components/status/GroupOverview";
 import { ServerCard } from "@/components/status/ServerCard";
 import { ServerTable } from "@/components/status/ServerTable";
 import { Summary } from "@/components/status/Summary";
@@ -302,6 +303,8 @@ function StatusContent({ data }: { data: PublicStatus }) {
         filter={filter}
         onFilter={setFilter}
       />
+
+      <GroupOverview groups={data.groups} />
 
       <h2 className="sr-only">{t("publicStatus.servers.title")}</h2>
       <div className="mt-2.5 space-y-2.5">

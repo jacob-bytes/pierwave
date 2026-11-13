@@ -16,7 +16,10 @@ import {
   PencilIcon,
   PlusIcon,
   RefreshCwIcon,
+  RotateCcwIcon,
   ServerOffIcon,
+  SquareIcon,
+  TerminalIcon,
   TriangleAlertIcon,
   WaypointsIcon,
   WorkflowIcon,
@@ -34,7 +37,9 @@ import { AgentBatchUpgradeConfirmDialog } from "@/components/servers/AgentBatchU
 import { AgentBatchUpgradeProgressDialog } from "@/components/servers/AgentBatchUpgradeProgressDialog";
 import { AgentUpgradeDialog } from "@/components/servers/AgentUpgradeDialog";
 import { AgentUpgradeHistoryDialog } from "@/components/servers/AgentUpgradeHistoryDialog";
+import { ServerCommandsDialog } from "@/components/servers/ServerCommandsDialog";
 import { ServerEditDialog } from "@/components/servers/ServerEditDialog";
+import { ServerTokenResetDialog } from "@/components/servers/ServerTokenResetDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -111,6 +116,11 @@ import { isCountryCode } from "@/lib/country";
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
 import { useAllNodes, useCreateServer, useServers } from "@/lib/queries";
+import {
+  GROUP_NAME_MAX_LENGTH,
+  groupServers,
+  normalizeGroupName,
+} from "@/lib/serverGroups";
 import { isSpeedLimited } from "@/lib/speed";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -123,6 +133,9 @@ const COLUMN_COUNT = 11;
 const HEARTBEAT_STALE_MS = 90_000;
 const HEAD_CLASS =
   "h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground";
+/** 分组筛选：`all` 不筛选，`__ungrouped__` 只看未分组。 */
+const GROUP_FILTER_ALL = "all";
+const GROUP_FILTER_UNGROUPED = "__ungrouped__";
 
 function xrayModeLabel(mode: string): string {
   if (mode === "external") return t("servers.mode.external");
@@ -637,6 +650,26 @@ function EmptyRow({ onCreate }: { onCreate: () => void }) {
   );
 }
 
+function FilterEmptyRow({ onClear }: { onClear: () => void }) {
+  return (
+    <TableRow className="hover:bg-transparent">
+      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-8">
+        <EmptyState
+          size="sm"
+          icon={ServerOffIcon}
+          title={t("servers.filterEmptyTitle")}
+          description={t("servers.filterEmptyDesc")}
+          action={
+            <Button variant="outline" size="sm" onClick={onClear}>
+              {t("servers.filterEmptyClear")}
+            </Button>
+          }
+        />
+      </TableCell>
+    </TableRow>
+  );
+}
+
 function ErrorRow({
   message,
   onRetry,
@@ -683,9 +716,15 @@ export default function ServersPage() {
   const [editServerId, setEditServerId] = useState<string | null>(null);
   const [upgradeServerId, setUpgradeServerId] = useState<string | null>(null);
   const [historyServerId, setHistoryServerId] = useState<string | null>(null);
+  const [commandsServerId, setCommandsServerId] = useState<string | null>(null);
+  const [resetTokenServerId, setResetTokenServerId] = useState<string | null>(
+    null,
+  );
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [country, setCountry] = useState("");
+  const [group, setGroup] = useState("");
+  const [groupFilter, setGroupFilter] = useState(GROUP_FILTER_ALL);
   const [xrayMode, setXrayMode] = useState("external");
   const [copied, setCopied] = useState<"token" | "command" | null>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -720,6 +759,35 @@ export default function ServersPage() {
   }, []);
 
   const items = useMemo(() => servers.data ?? [], [servers.data]);
+  const serverGroups = useMemo(() => groupServers(items), [items]);
+  const groupOptions = useMemo(
+    () => serverGroups.map((group) => group.name),
+    [serverGroups],
+  );
+  // 分组在刷新后可能消失（被编辑或删除）：此时按「全部分组」渲染，
+  // 不额外跑一轮 setState effect。
+  const activeGroupFilter = useMemo(() => {
+    if (groupFilter === GROUP_FILTER_ALL) return GROUP_FILTER_ALL;
+    if (groupFilter === GROUP_FILTER_UNGROUPED) {
+      return groupOptions.includes(null) ? groupFilter : GROUP_FILTER_ALL;
+    }
+    return groupOptions.includes(groupFilter)
+      ? groupFilter
+      : GROUP_FILTER_ALL;
+  }, [groupFilter, groupOptions]);
+
+  const visibleItems = useMemo(() => {
+    if (activeGroupFilter === GROUP_FILTER_ALL) return items;
+    if (activeGroupFilter === GROUP_FILTER_UNGROUPED) {
+      return items.filter(
+        (server) => normalizeGroupName(server.group_name) === null,
+      );
+    }
+    return items.filter(
+      (server) => normalizeGroupName(server.group_name) === activeGroupFilter,
+    );
+  }, [items, activeGroupFilter]);
+
   const eligibleIds = useMemo(() => selectableServerIds(items), [items]);
   // 列表刷新后可能有关掉「允许下发升级」的行：从这里起就丢掉失效 id，
   // 不复用 effect，避免多一轮渲染。
@@ -782,7 +850,13 @@ export default function ServersPage() {
     items.find((server) => server.id === upgradeServerId) ?? null;
   const historyServer =
     items.find((server) => server.id === historyServerId) ?? null;
-  const onlineCount = items.filter((server) => server.status === "online").length;
+  const commandsServer =
+    items.find((server) => server.id === commandsServerId) ?? null;
+  const resetTokenServer =
+    items.find((server) => server.id === resetTokenServerId) ?? null;
+  const onlineCount = visibleItems.filter(
+    (server) => server.status === "online",
+  ).length;
   const serviceDownCount = items.filter(isServiceDown).length;
   const showError = servers.isError && !servers.data;
   const errorMessage = errorText(
@@ -795,6 +869,8 @@ export default function ServersPage() {
 
   function renderServerName(server: Server) {
     const serviceDown = isServiceDown(server);
+    const groupName = normalizeGroupName(server.group_name);
+
     return (
       <div className="flex items-center gap-2">
         <span
@@ -804,7 +880,17 @@ export default function ServersPage() {
             serviceDown ? "bg-destructive" : "bg-transparent",
           )}
         />
-        <div className="truncate font-medium">{server.name}</div>
+        <div className="min-w-0">
+          <div className="truncate font-medium">{server.name}</div>
+          {groupName ? (
+            <div
+              title={groupName}
+              className="max-w-40 truncate type-micro text-muted-foreground"
+            >
+              {groupName}
+            </div>
+          ) : null}
+        </div>
       </div>
     );
   }
@@ -930,6 +1016,39 @@ export default function ServersPage() {
               {t("servers.agentUpgrade.history")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => setCommandsServerId(server.id)}>
+              <TerminalIcon className="icon-sm" />
+              {t("servers.commands.action")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!server.commands?.stop}
+              title={
+                server.commands?.stop
+                  ? t("servers.commands.stop")
+                  : t("servers.commands.notReady")
+              }
+              onSelect={() => void copyServiceCommand(server, "stop")}
+            >
+              <SquareIcon className="icon-sm" />
+              {t("servers.commands.stop")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!server.commands?.restart}
+              title={
+                server.commands?.restart
+                  ? t("servers.commands.restart")
+                  : t("servers.commands.notReady")
+              }
+              onSelect={() => void copyServiceCommand(server, "restart")}
+            >
+              <RefreshCwIcon className="icon-sm" />
+              {t("servers.commands.restart")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => setResetTokenServerId(server.id)}>
+              <RotateCcwIcon className="icon-sm" />
+              {t("servers.tokenReset.action")}
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setEditServerId(server.id)}>
               <PencilIcon className="icon-sm" />
               {t("servers.agentUpgrade.edit")}
@@ -1019,6 +1138,7 @@ export default function ServersPage() {
     const serviceDown = isServiceDown(server);
     const selected = selectedIds.includes(server.id);
     const highlighted = highlightId === server.id;
+    const groupName = normalizeGroupName(server.group_name);
 
     return (
       <div key={server.id} id={`server-row-${server.id}`}>
@@ -1034,6 +1154,21 @@ export default function ServersPage() {
           badge={renderServerCheckbox(server, selected)}
           actions={renderServerActions(server)}
           fields={[
+            ...(groupName
+              ? [
+                  {
+                    label: t("servers.group"),
+                    value: (
+                      <span
+                        title={groupName}
+                        className="inline-block max-w-32 truncate align-bottom text-muted-foreground"
+                      >
+                        {groupName}
+                      </span>
+                    ),
+                  },
+                ]
+              : []),
             {
               label: t("servers.mode.column"),
               value: renderServerMode(server),
@@ -1095,6 +1230,7 @@ export default function ServersPage() {
         address: address.trim(),
         xray_mode: xrayMode,
         country_code: normalizedCountry,
+        group_name: normalizeGroupName(group) ?? undefined,
       },
       {
         onSuccess: (data) => {
@@ -1102,6 +1238,7 @@ export default function ServersPage() {
           setName("");
           setAddress("");
           setCountry("");
+          setGroup("");
           setCreated(data);
           setTokenOpen(true);
           toast.success(t("servers.createdToast", { name: data.server.name }));
@@ -1116,6 +1253,23 @@ export default function ServersPage() {
   function handleTokenOpenChange(open: boolean) {
     setTokenOpen(open);
     if (!open) setCopied(null);
+  }
+
+  /** 停止/重启只复制命令，不在浏览器里执行任何远程操作。 */
+  async function copyServiceCommand(
+    server: Server,
+    key: "stop" | "restart",
+  ) {
+    const command = server.commands?.[key];
+    if (!command) {
+      toast.error(t("servers.commands.notReady"));
+      return;
+    }
+    if (!(await copyText(command))) {
+      toast.error(t("servers.commands.copyFailed"));
+      return;
+    }
+    toast.success(t("servers.commands.executeHint"));
   }
 
   async function handleCopy(
@@ -1161,7 +1315,7 @@ export default function ServersPage() {
                   variant="secondary"
                   className="font-mono type-micro font-normal text-muted-foreground"
                 >
-                  {items.length}
+                  {visibleItems.length}
                 </Badge>
               ) : null}
             </CardTitle>
@@ -1170,9 +1324,42 @@ export default function ServersPage() {
                 <span className="text-xs text-muted-foreground">
                   {t("servers.onlineCount", {
                     online: onlineCount,
-                    total: items.length,
+                    total: visibleItems.length,
                   })}
                 </span>
+              ) : null}
+              {servers.data &&
+              serverGroups.some((group) => group.name !== null) ? (
+                <Select
+                  value={activeGroupFilter}
+                  onValueChange={setGroupFilter}
+                >
+                  <SelectTrigger
+                    className="h-8 w-36 text-xs"
+                    aria-label={t("servers.groupFilterAria")}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={GROUP_FILTER_ALL}>
+                      {t("servers.groupFilterAll")}
+                    </SelectItem>
+                    {serverGroups.map((group) =>
+                      group.name === null ? (
+                        <SelectItem
+                          key={GROUP_FILTER_UNGROUPED}
+                          value={GROUP_FILTER_UNGROUPED}
+                        >
+                          {t("servers.groupFilterUnassigned")}
+                        </SelectItem>
+                      ) : (
+                        <SelectItem key={group.name} value={group.name}>
+                          {group.name}
+                        </SelectItem>
+                      ),
+                    )}
+                  </SelectContent>
+                </Select>
               ) : null}
               {serviceDownCount > 0 ? (
                 <Badge
@@ -1280,8 +1467,12 @@ export default function ServersPage() {
                 />
               ) : items.length === 0 ? (
                 <EmptyRow onCreate={openCreateDialog} />
+              ) : visibleItems.length === 0 ? (
+                <FilterEmptyRow
+                  onClear={() => setGroupFilter(GROUP_FILTER_ALL)}
+                />
               ) : (
-                items.map(renderRow)
+                visibleItems.map(renderRow)
               )}
             </TableBody>
           </Table>
@@ -1316,8 +1507,24 @@ export default function ServersPage() {
                     </Button>
                   }
                 />
+              ) : visibleItems.length === 0 ? (
+                <EmptyState
+                  size="sm"
+                  icon={ServerOffIcon}
+                  title={t("servers.filterEmptyTitle")}
+                  description={t("servers.filterEmptyDesc")}
+                  action={
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setGroupFilter(GROUP_FILTER_ALL)}
+                    >
+                      {t("servers.filterEmptyClear")}
+                    </Button>
+                  }
+                />
               ) : (
-                items.map(renderCard)
+                visibleItems.map(renderCard)
               )}
             </div>
           ) : null}
@@ -1357,6 +1564,19 @@ export default function ServersPage() {
                 value={address}
                 onChange={(event) => setAddress(event.target.value)}
                 placeholder={t("servers.createDialog.addressPlaceholder")}
+                autoComplete="off"
+                disabled={create.isPending}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="server-group">{t("servers.group")}</Label>
+              <Input
+                id="server-group"
+                value={group}
+                onChange={(event) => setGroup(event.target.value)}
+                placeholder={t("servers.groupPlaceholder")}
+                maxLength={GROUP_NAME_MAX_LENGTH}
                 autoComplete="off"
                 disabled={create.isPending}
               />
@@ -1561,6 +1781,26 @@ export default function ServersPage() {
           server={historyServer}
           onOpenChange={(open) => {
             if (!open) setHistoryServerId(null);
+          }}
+        />
+      ) : null}
+
+      {commandsServer ? (
+        <ServerCommandsDialog
+          open
+          server={commandsServer}
+          onOpenChange={(open) => {
+            if (!open) setCommandsServerId(null);
+          }}
+        />
+      ) : null}
+
+      {resetTokenServer ? (
+        <ServerTokenResetDialog
+          open
+          server={resetTokenServer}
+          onOpenChange={(open) => {
+            if (!open) setResetTokenServerId(null);
           }}
         />
       ) : null}
