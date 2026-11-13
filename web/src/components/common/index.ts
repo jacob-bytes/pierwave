@@ -9,8 +9,14 @@ export {
 } from "./EngineBadge";
 export { PageHeader } from "./PageHeader";
 export type { PageHeaderProps } from "./PageHeader";
-export { SkeletonCard, SkeletonLine, SkeletonTable } from "./Skeleton";
+export {
+  PageSkeleton,
+  SkeletonCard,
+  SkeletonLine,
+  SkeletonTable,
+} from "./Skeleton";
 export type {
+  PageSkeletonProps,
   SkeletonCardProps,
   SkeletonLineProps,
   SkeletonTableProps,

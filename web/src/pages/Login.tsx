@@ -57,16 +57,17 @@ export default function LoginPage() {
 
       <div className="animate-enter relative w-full max-w-sm">
         <div className="mb-7 flex flex-col items-center gap-4 text-center">
-          {/* 品牌标识：图标 + 产品字标 + 一句定位 */}
-          <div className="flex items-center gap-2.5">
+          {/* 品牌标识：logo 与两行文字等高（40px），两行之间只留 2px。
+              缩进由 flex 布局自然产生，不再用 pl-* 对齐文字。 */}
+          <div className="flex min-w-0 items-center gap-2.5">
             <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
               <TerminalIcon className="icon-lg" aria-hidden="true" />
             </span>
-            <span className="text-left leading-tight">
-              <span className="block text-sm font-semibold tracking-tight">
+            <span className="flex min-w-0 flex-col text-left">
+              <span className="truncate text-base leading-tight font-semibold tracking-tight">
                 {panelName}
               </span>
-              <span className="mt-1 block max-w-[15rem] text-xs leading-normal text-muted-foreground">
+              <span className="mt-0.5 truncate text-xs leading-tight text-muted-foreground">
                 {t("login.brandSubtitle")}
               </span>
             </span>

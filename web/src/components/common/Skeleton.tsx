@@ -25,6 +25,40 @@ export function SkeletonLine({ className, ...props }: SkeletonLineProps) {
   );
 }
 
+export type PageSkeletonProps = {
+  /** 无障碍标签，传当前路由的「正在加载…」文案。 */
+  label: string;
+  className?: string;
+};
+
+/**
+ * 路由 / 页面级通用骨架：一个头部条 + 两行内容块。
+ *
+ * 不为每个路由单独定制：后台各页的头部都是标题 + 说明，内容都是成块的
+ * 卡片 / 表格，通用骨架能覆盖这个大致结构，避免加载时整页只转一个 spinner。
+ * 纯装饰的骨架块全部 `aria-hidden`，由外层 `role="status"` 朗读 label。
+ */
+export function PageSkeleton({ label, className }: PageSkeletonProps) {
+  return (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label={label}
+      data-slot="page-skeleton"
+      className={cn("w-full space-y-6", className)}
+    >
+      <div aria-hidden="true" className="space-y-2">
+        <SkeletonLine className="h-6 w-40" />
+        <SkeletonLine className="h-3.5 w-64 max-w-full" />
+      </div>
+      <div aria-hidden="true" className="space-y-4">
+        <Skeleton className="h-40 w-full rounded-xl" />
+        <Skeleton className="h-40 w-full rounded-xl" />
+      </div>
+    </div>
+  );
+}
+
 export type SkeletonCardProps = {
   /** 正文骨架行数，默认 3；标题区固定两行。 */
   lines?: number;

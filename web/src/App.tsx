@@ -2,6 +2,7 @@ import { lazy, Suspense, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Loader2Icon, RefreshCwIcon, TriangleAlertIcon } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import { PageSkeleton } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { isUnauthorized, useMe } from "@/lib/queries";
@@ -33,14 +34,17 @@ function Centered({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * 路由 chunk 加载时的页面级骨架：不再用全屏 spinner。
+ * 头部条 + 两行内容块与后台页面的大致结构一致；具体路由共用这一个骨架。
+ */
 function RouteFallback({ label }: { label: string }) {
   return (
-    <Centered>
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Loader2Icon className="size-4 animate-spin" />
-        {label}
+    <div className="flex min-h-full justify-center bg-background p-6">
+      <div className="w-full max-w-5xl">
+        <PageSkeleton label={label} />
       </div>
-    </Centered>
+    </div>
   );
 }
 

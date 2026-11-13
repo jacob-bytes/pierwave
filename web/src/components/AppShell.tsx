@@ -16,7 +16,6 @@ import {
   LanguagesIcon,
   LayoutDashboardIcon,
   Link2Icon,
-  Loader2Icon,
   LogOutIcon,
   MenuIcon,
   MonitorIcon,
@@ -38,6 +37,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { PageSkeleton } from "@/components/common";
 import { ChangePasswordDialog } from "@/components/settings/ChangePasswordDialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -142,14 +142,10 @@ function isItemActive(item: NavItem, pathname: string): boolean {
   return item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
 }
 
+/** 内容区 chunk 加载态：与 `RouteFallback` 共用同一个页面级骨架。 */
 function PageLoading() {
   const { t } = useI18n();
-  return (
-    <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-      <Loader2Icon className="icon-md animate-spin" />
-      {t("app.loadingPage")}
-    </div>
-  );
+  return <PageSkeleton label={t("app.loadingPage")} />;
 }
 
 function NavEntry({
