@@ -147,7 +147,9 @@ where
 }
 
 /// 首帧里的目标地址（SOCKS5 地址格式）。
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Hash` 只为 UDP 会话表服务（键是 `(QUIC 连接, 目标)`）；TCP 路径不依赖它。
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TargetAddr {
     /// IPv4 或 IPv6 字面量。
     Ip(SocketAddr),

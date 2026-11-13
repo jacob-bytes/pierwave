@@ -34,6 +34,18 @@ base64 = { workspace = true }
 # 体积影响见 crates/agent/README 或 PR 说明：默认 resolver 会带入
 # chacha20poly1305 / aes-gcm / curve25519-dalek 等纯 Rust crate。
 snow = "0.9"
+# P16.3 UDP over QUIC：QUIC datagram 中继（不把 UDP 塞进 TCP 流）。
+# 只用 ring 后端：workspace 的 rustls 已经固定 ring（default-features=false +
+# ["ring"]），quinn 的 `rustls-ring` 与它共用同一份 ring/provider；**不启用**
+# `rustls-aws-lc-rs` / `aws-lc-rs`，不引入 aws-lc（musl 静态构建负担）。
+# 体积影响（release, strip + thin LTO，同一台机器实测）：pierwave-agent
+# 6,008,272 → 6,782,336 字节（+774,064 字节 / +756 KiB / +12.9%）。新增的
+# 只有 quinn / quinn-proto / quinn-udp 等 crate，**没有 aws-lc**；详见 PR 说明。
+quinn = { version = "0.11", default-features = false, features = [
+    "runtime-tokio",
+    "rustls-ring",
+    "log",
+] }
 
 [dev-dependencies]
 ed25519-dalek = { workspace = true }

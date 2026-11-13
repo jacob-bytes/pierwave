@@ -45,6 +45,11 @@ mod adapter;
 mod framing;
 mod handshake;
 mod modes;
+// P16.3 的 UDP 中继（QUIC datagram）。本轮由测试驱动，尚未接进
+// `ForwardEngine` 的 UDP 路径（见 PR 说明的「未做事项」）；接线时删除这个
+// allow。TCP 路径完全不经过这个模块，行为不变。
+#[allow(dead_code)]
+mod quic;
 mod supervisor;
 mod whitelist;
 
@@ -70,6 +75,9 @@ use tokio_rustls::{TlsAcceptor, TlsConnector};
 
 use self::adapter::FrameIo;
 use self::handshake::{ClientHello, HandshakeError, ReplayCache, ServerHello};
+use self::quic::{
+    QuicUdpClient, QuicUdpLimits, QuicUdpServer, QuicUdpServerConfig, QuicUdpStatsHandle,
+};
 // 对外的帧/地址类型：上层（TunnelSupervisor）只需要这几个名字。
 use self::framing::FrameError;
 pub use self::framing::{Frame, FrameKind, TargetAddr, MAX_FRAME_PAYLOAD};
@@ -297,14 +305,28 @@ struct ServerInner {
     hops: HashMap<String, Vec<u8>>,
     max_connections: usize,
     metrics: Arc<Metrics>,
-    replay: Mutex<ReplayCache>,
+    /// 与 UDP/QUIC 路径共用：同一个 proof 不能既走 TCP 又走 QUIC。
+    replay: Arc<Mutex<ReplayCache>>,
     allowed_targets: Vec<TargetRule>,
+    /// 内核实际分配的监听地址（`bind` 里写端口 0 时也能读回来）。
+    /// UDP 中继要绑**同一个端口**，所以必须保存实际值而不是配置里的 0。
+    /// 只有启用 UDP 中继时才读；接线后删除 allow。
+    #[allow(dead_code)]
+    bound_addr: std::net::SocketAddr,
+    /// 启用 UDP 中继时要重新加载证书（TCP 的 `TlsAcceptor` 不暴露配置）。
+    /// 只有启用 UDP 中继时才读；接线后删除 allow。
+    #[allow(dead_code)]
+    cert_path: PathBuf,
+    #[allow(dead_code)]
+    key_path: PathBuf,
 }
 
 /// 隧道服务端。`bind` 后由 `serve` 跑 accept 循环；本类型可 clone 进任务。
 #[derive(Clone)]
 pub struct TunnelServer {
     inner: Arc<ServerInner>,
+    /// `Some` = 同一个端口上还跑着一个 QUIC UDP 中继（P16.3）。
+    quic: Option<Arc<QuicUdpServer>>,
 }
 
 impl TunnelServer {
@@ -333,8 +355,9 @@ impl TunnelServer {
                 config.bind
             )
         })?;
+        let bound_addr = listener.local_addr().unwrap_or(config.bind);
         tracing::info!(
-            bind = %listener.local_addr().unwrap_or(config.bind),
+            bind = %bound_addr,
             security = %effective_security,
             tls = tls.is_some(),
             hops = config.hops.len(),
@@ -348,9 +371,13 @@ impl TunnelServer {
                 hops: config.hops,
                 max_connections: config.max_connections,
                 metrics: Arc::new(Metrics::default()),
-                replay: Mutex::new(ReplayCache::new()),
+                replay: Arc::new(Mutex::new(ReplayCache::new())),
                 allowed_targets: config.allowed_targets,
+                bound_addr,
+                cert_path: config.cert_path,
+                key_path: config.key_path,
             }),
+            quic: None,
         };
         Ok((server, listener))
     }
@@ -361,8 +388,95 @@ impl TunnelServer {
         }
     }
 
-    /// accept 循环，永不正常返回。每条连接一个 task，连接槽由 RAII 守卫归还。
+    /// 在**同一个端口**（UDP）上启用 QUIC datagram 中继（P16.3）。
+    ///
+    /// `target_rules` 是 UDP 目标白名单：空列表拒绝一切（fail closed）；命中
+    /// 规则后才 `connect` 目标。TCP 路径（TLS/Noise + 帧协议）一字不改。
+    ///
+    /// 只有 TLS 模式支持：Noise 的 UDP 路径本轮不做，调用会明确失败，不会
+    /// 悄悄退化成明文或跳过认证。
+    ///
+    /// 本轮还没有调用点（ForwardEngine 的 UDP 路径未接线），先删掉 allow
+    /// 会让 `cargo check` 的 dead_code 把整条新路径当成错误；接线时一并删除。
+    #[allow(dead_code)]
+    pub async fn with_udp(self, target_rules: Vec<TargetRule>) -> Result<Self> {
+        self.attach_udp(target_rules, QuicUdpLimits::default())
+            .await
+    }
+
+    /// 测试用：与 [`Self::with_udp`] 相同，但注入会话超时 / 上限。
+    #[cfg(test)]
+    pub(crate) async fn with_udp_limits(
+        self,
+        target_rules: Vec<TargetRule>,
+        limits: QuicUdpLimits,
+    ) -> Result<Self> {
+        self.attach_udp(target_rules, limits).await
+    }
+
+    #[allow(dead_code)]
+    async fn attach_udp(
+        mut self,
+        target_rules: Vec<TargetRule>,
+        limits: QuicUdpLimits,
+    ) -> Result<Self> {
+        // QUIC 的 TLS 1.3 证书来自 P16.1 的 CA/属证书；Noise-only 监听没有
+        // 证书，本轮不能开 UDP。失败时 TCP 监听保持原样，由调用方决定是否继续。
+        if self.inner.cert_path.as_os_str().is_empty() || self.inner.key_path.as_os_str().is_empty()
+        {
+            bail!(
+                "UDP 中继需要 TLS 证书；Noise 的 UDP 路径本轮不做 / UDP relay requires TLS certificates; Noise over UDP is not implemented yet"
+            );
+        }
+        let server = QuicUdpServer::bind(QuicUdpServerConfig {
+            // 与 TCP 同 IP、同端口：QUIC 是 UDP，和 TCP 监听可以共存。
+            bind: self.inner.bound_addr,
+            cert_path: self.inner.cert_path.clone(),
+            key_path: self.inner.key_path.clone(),
+            hops: self.inner.hops.clone(),
+            allowed_targets: target_rules,
+            limits,
+            tcp_metrics: Arc::clone(&self.inner.metrics),
+            max_connections: self.inner.max_connections,
+            replay: Arc::clone(&self.inner.replay),
+        })?;
+        self.quic = Some(Arc::new(server));
+        Ok(self)
+    }
+
+    /// UDP 中继的计数句柄；没启用 UDP 时为 `None`。
+    #[allow(dead_code)]
+    pub fn udp_stats_handle(&self) -> Option<QuicUdpStatsHandle> {
+        self.quic.as_ref().map(|quic| quic.stats_handle())
+    }
+
+    /// 测试用：UDP 中继实际绑定的地址（验证与 TCP 端口一致）。
+    #[cfg(test)]
+    pub(crate) fn udp_bound_addr(&self) -> Option<std::net::SocketAddr> {
+        self.quic.as_ref().and_then(|quic| quic.bound_addr())
+    }
+
+    /// TCP accept 循环 +（可选）QUIC accept 循环，永不正常返回。
+    ///
+    /// 两条循环放在同一个 future 里而不是 `tokio::spawn`：调用方 abort 这个
+    /// 任务时，QUIC endpoint 会一起被 drop（UDP 端口立即释放），不会留下一个
+    /// 脱离监管的后台任务。
     pub async fn serve(self, listener: TcpListener) -> io::Result<()> {
+        match self.quic.clone() {
+            Some(quic) => {
+                let tcp = self.serve_tcp(listener);
+                tokio::pin!(tcp);
+                tokio::select! {
+                    result = &mut tcp => result,
+                    () = quic.serve() => tcp.await,
+                }
+            }
+            None => self.serve_tcp(listener).await,
+        }
+    }
+
+    /// TCP accept 循环；每条连接一个 task，连接槽由 RAII 守卫归还。
+    async fn serve_tcp(self, listener: TcpListener) -> io::Result<()> {
         loop {
             let (stream, peer) = match listener.accept().await {
                 Ok(accepted) => accepted,
@@ -748,6 +862,10 @@ pub struct TunnelClient {
     hop_id: String,
     hop_secret: Vec<u8>,
     config: Arc<ClientConfig>,
+    /// 显式信任根。TCP 与 QUIC（UDP 中继）共用同一份 CA；`None` 时是空信任根。
+    /// 只有 `with_udp` 会读；接线后删除 allow。
+    #[allow(dead_code)]
+    roots: Arc<RootCertStore>,
     security: TunnelSecurity,
     /// 客户端发起重协商的周期；测试可压到毫秒级。
     rekey_interval: Duration,
@@ -764,12 +882,16 @@ impl TunnelClient {
         hop_secret: Vec<u8>,
         roots: Option<Arc<RootCertStore>>,
     ) -> Self {
+        // None = 空信任根（fail closed）；保存下来给 QUIC 复用，避免从
+        // `ClientConfig` 里反推信任根（rustls 不提供这个接口）。
+        let roots = roots.unwrap_or_else(|| Arc::new(RootCertStore::empty()));
         Self {
             server_addr,
             server_name: Some(server_name),
             hop_id: hop_id.into(),
             hop_secret,
-            config: client_tls_config(roots),
+            config: client_tls_config(Some(Arc::clone(&roots))),
+            roots,
             security: TunnelSecurity::Tls,
             rekey_interval: DEFAULT_REKEY_INTERVAL,
             proof_timestamp: None,
@@ -810,10 +932,41 @@ impl TunnelClient {
             hop_id: hop_id.into(),
             hop_secret,
             config: client_tls_config(None),
+            roots: Arc::new(RootCertStore::empty()),
             security: TunnelSecurity::Noise,
             rekey_interval: DEFAULT_REKEY_INTERVAL,
             proof_timestamp: None,
         }
+    }
+
+    /// 启用 UDP 中继（P16.3）：在**同一个端口**上用 QUIC datagram 连服务端。
+    ///
+    /// `target_rules` 是候选目标列表（顺序即一致性哈希的桶顺序），
+    /// [`QuicUdpClient::send_from`] 按本地 UDP 客户端地址哈希选目标。
+    /// TCP 路径不受影响：返回的 [`QuicUdpClient`] 是独立的 QUIC 连接。
+    ///
+    /// 只有 TLS 模式支持；Noise 的 UDP 路径本轮不做，明确失败而不是退化。
+    ///
+    /// 本轮还没有调用点（ForwardEngine 的 UDP 路径未接线），allow 的删除
+    /// 时机与 [`TunnelServer::with_udp`] 相同。
+    #[allow(dead_code)]
+    pub async fn with_udp(&self, target_rules: Vec<TargetRule>) -> Result<QuicUdpClient> {
+        if self.security != TunnelSecurity::Tls {
+            bail!("Noise 模式的 UDP 中继本轮不做 / UDP relay over Noise is not implemented yet");
+        }
+        let server_name = self
+            .server_name
+            .clone()
+            .ok_or_else(|| anyhow!("UDP 中继需要服务器名 / UDP relay requires a server name"))?;
+        QuicUdpClient::connect(
+            self.server_addr,
+            server_name,
+            self.hop_id.clone(),
+            self.hop_secret.clone(),
+            Arc::clone(&self.roots),
+            &target_rules,
+        )
+        .await
     }
 
     /// 覆盖周期重协商间隔（会 clamp 到最小值，避免 0 造成重协商风暴）。
