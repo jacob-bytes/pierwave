@@ -2444,6 +2444,10 @@ const zhCN = {
     notObject: "config 必须是 JSON 对象（以 { 开头、} 结尾）",
   },
   errors: {
+    "chain.tunnel_hop_limit": "隧道链支持 2-6 跳",
+    "chain.tunnel_downstream_missing": "无法为这一跳推导出下一跳地址",
+    "chain.tunnel_udp_requires_two_hops": "隧道链的 UDP 中继目前只支持 2 跳",
+    "chain.tunnel_multihop_requires_upgrade": "多跳隧道需要 Agent 升级到协议 {required} 及以上；服务器：{server}",
     "forward.protocol_requires_agent_upgrade": "服务器「{server}」的 Agent 版本过低（{version}），不支持仅 UDP；请先升级到协议 {required} 及以上",
     "chain.protocol_requires_agent_upgrade": "以下服务器的 Agent 版本过低，不支持仅 UDP：{server}；请先升级到协议 {required} 及以上",
     "server.nic_address_unavailable": "无法按网卡下发该服务器（尚未上报网卡、网卡不存在或没有可用地址）",

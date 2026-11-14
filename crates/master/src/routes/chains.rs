@@ -764,152 +764,382 @@ pub(crate) fn derive_forwards_with_transports(
     derived
 }
 
-/// P16 隧道的链推导：2 跳链 → 入口 Dialer + 出口 Listener。
+/// 隧道链推导的失败原因。
 ///
-/// * 第 0 组（入口）每台成员一条 Dialer：公开监听自己的 `listen_port`，
-///   每来一条客户端连接就用 TLS 连第 1 组唯一成员的 `listen_port`；
-/// * 第 1 组（出口）唯一成员一条 Listener：接受隧道连接，只允许连链目标；
-/// * `hop_secret` 由主控按 `HMAC(master_secret, "tunnel/{chain_id}/{1}")`
-///   派生（`seq` = Listener 所在组），入口与出口拿到同一份；
-/// * `allowed_targets` 两侧都是链目标：Dialer 把它作为首帧请求，
-///   Listener 用它做白名单校验——任何一侧被篡改都连不到别的地址。
+/// 失败一律是**整链不下发**：多跳链只要有任何一跳推导不出来（缺下一跳成员、
+/// 下一跳地址为空等），都绝不能退化成 2 跳或「中间跳直连目标」——那会让用户
+/// 以为流量走了 n 跳，实际只走了一半。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TunnelDeriveError {
+    /// 稳定错误码（前端词典键；与 domain 的 `BlockedReason.code` 同一命名空间）。
+    pub code: &'static str,
+    /// 可读原因（中英双语）。
+    pub message: String,
+}
+
+impl std::fmt::Display for TunnelDeriveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl TunnelDeriveError {
+    fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+}
+
+/// 中间跳的下一跳参数（TunnelSpec.downstream）构造不出来时的错误。
+fn downstream_missing(seq: i64, why: &str) -> TunnelDeriveError {
+    TunnelDeriveError::new(
+        "chain.tunnel_downstream_missing",
+        format!(
+            "第 {} 跳缺少可用的下一跳（{why}）/ hop {} has no usable downstream ({why})",
+            seq + 1,
+            seq + 1
+        ),
+    )
+}
+
+/// P16 隧道的链推导：2–6 跳链 → 入口 Dialer + 中间 Listener+downstream + 出口 Listener。
 ///
-/// 返回值是 `(server_id, DesiredForward)`，与其它引擎的推导形状一致；
-/// 证书材料（路径/内容）由 `desired::render` 另外放进 `DesiredState.files`。
+/// * 第 0 组（入口）成员一条 Dialer：公开监听自己的 `listen_port`，每来一条
+///   客户端连接就连第 1 组唯一成员；
+/// * 第 i 组（1 ≤ i ≤ n-2）成员一条 Listener：接受上一跳的加密隧道，白名单
+///   校验首帧（链目标）后**不直连目标**，而是用 `downstream` 向第 i+1 组建一条
+///   新的加密隧道，帧层到帧层搬运；
+/// * 第 n-1 组（出口）成员一条 Listener：接受隧道，只允许连链目标。
+///
+/// 相邻两跳**各自**用一段独立的隧道：第 i 段（i 是 Listener 所在组序）的
+/// `hop_id = "{chain_id}:{i}"`、`hop_secret = HMAC(master_secret,
+/// "tunnel/{chain_id}/{i}")`。2 跳链因此与升级前逐字段一致（段 1）。
+///
+/// `hop_secret_b64` 是「按段序号取 base64 密钥」的纯函数；调用方传入主控
+/// 派生（见 `desired::render`），推导函数本身不碰数据库/时钟，便于单测。
+///
+/// 返回值是 `(server_id, DesiredForward)`；证书材料（路径/内容）由
+/// `desired::render` 另外放进 `DesiredState.files`。
 pub(crate) fn derive_tunnel_forwards(
     chain: &Chain,
     groups: &[ChainGroupWithMembers],
-    hop_secret_b64: &str,
-) -> Vec<(String, DesiredForward)> {
+    hop_secret_b64: &dyn Fn(i64) -> String,
+) -> Result<Vec<(String, DesiredForward)>, TunnelDeriveError> {
     let mut ordered: Vec<&ChainGroupWithMembers> = groups.iter().collect();
     ordered.sort_by_key(|group| group.group.seq);
-    let (Some(entry), Some(exit)) = (ordered.first(), ordered.get(1)) else {
-        return Vec::new();
-    };
-    let (Some(entry_member), Some(exit_member)) = (entry.members.first(), exit.members.first())
-    else {
-        return Vec::new();
-    };
-    // 隧道也是「跳间」，出口组开启内网地址时 Dialer 连出口的内网地址；
-    // allowed_targets 里的 remote 白名单必须与真实连接地址一致。
-    let exit_host = member_target_host(exit_member, exit.group.use_internal_address);
+    if ordered.len() < chains::TUNNEL_MIN_HOPS {
+        return Err(TunnelDeriveError::new(
+            "chain.tunnel_requires_two_hops",
+            format!(
+                "tunnel 引擎至少需要 2 跳（入口 Dialer + 出口 Listener），当前 {} 跳 / the tunnel engine needs at least 2 hops (entry dialer + exit listener), got {}",
+                ordered.len(),
+                ordered.len()
+            ),
+        ));
+    }
+    if ordered.len() > chains::TUNNEL_MAX_HOPS {
+        return Err(TunnelDeriveError::new(
+            "chain.tunnel_hop_limit",
+            format!(
+                "tunnel 引擎最多支持 {} 跳，当前 {} 跳 / the tunnel engine supports at most {} hops, got {}",
+                chains::TUNNEL_MAX_HOPS,
+                ordered.len(),
+                chains::TUNNEL_MAX_HOPS,
+                ordered.len()
+            ),
+        ));
+    }
 
-    let hop_id = format!("{}:{}", chain.id, exit.group.seq);
-    // `protocol = udp / both` 让隧道额外中继 UDP（P16.3）：两端同端口上
-    // 起 QUIC datagram。`tcp` 链保持 udp=false，行为与升级前逐字节一致。
-    let udp = protocol::allows_udp(&chain.protocol);
-    // Noise 模式不需要任何证书/CA 文件：路径留空，Agent 据此完全不读文件
-    // （空串是合法状态；TLS 模式仍按原路径下发，行为不变）。
+    // 先解析每一跳的「本跳监听地址」和「下一跳地址」，任何一跳缺成员/地址都
+    // 在写任何 forward 之前失败，不会产出半条链。
+    let mut hops: Vec<HopEndpoints> = Vec::with_capacity(ordered.len());
+    for (index, group) in ordered.iter().enumerate() {
+        let member = group.members.first().ok_or_else(|| {
+            downstream_missing(index as i64, "该跳没有成员 / the hop has no member")
+        })?;
+        let host = member_target_host(member, group.group.use_internal_address);
+        if host.trim().is_empty() {
+            return Err(TunnelDeriveError::new(
+                "chain.tunnel_downstream_missing",
+                format!(
+                    "第 {} 跳的地址为空，无法作为隧道对端 / hop {} has an empty address and cannot be a tunnel peer",
+                    index + 1,
+                    index + 1
+                ),
+            ));
+        }
+        hops.push(HopEndpoints {
+            group_seq: group.group.seq,
+            server_id: member.server_id.clone(),
+            host,
+            listen_port: member.listen_port,
+            member_count: group.members.len(),
+        });
+    }
+
     let noise = tunnel_mode::is_noise(&chain.tunnel_security);
     let security = if noise {
         TunnelSecurity::Noise
     } else {
         TunnelSecurity::Tls
     };
+    let ca_path = if noise {
+        String::new()
+    } else {
+        crate::tunnel_cert::ca_path()
+    };
     let final_target_rule = TunnelTargetRule {
         host: chain.target_host.clone(),
         ports: Some((chain.target_port as u16, chain.target_port as u16)),
     };
-    // Dialer：第一条约束 remote（下一跳 Listener），最后一条是每连接请求的
-    // 链目标；Listener：只允许链目标。这样两侧都是 fail closed。
-    let dialer_allowed = vec![
-        TunnelTargetRule {
-            host: exit_host.clone(),
-            ports: Some((
-                exit_member.listen_port as u16,
-                exit_member.listen_port as u16,
-            )),
-        },
-        final_target_rule.clone(),
-    ];
-    let listener_allowed = vec![final_target_rule];
+    // UDP 中继（P16.3）只在 2 跳链上有实现：中间跳的 QUIC endpoint 会直接连
+    // 链目标，3+ 跳会绕过后续跳。保存/下发门禁已经拒绝；这里再保证推导结果
+    // 不会给中间跳打开 UDP（防御性，绝不静默截短）。
+    let udp = ordered.len() == chains::TUNNEL_MIN_HOPS && protocol::allows_udp(&chain.protocol);
 
-    let mut derived = Vec::with_capacity(2);
-    derived.push((
-        entry_member.server_id.clone(),
-        DesiredForward {
-            id: chains::forward_id(
-                &chain.id,
-                entry.group.seq,
-                &entry_member.server_id,
-                entry.members.len(),
-            ),
-            listen_port: entry_member.listen_port,
-            target_host: exit_host.clone(),
-            target_port: exit_member.listen_port,
-            targets: Vec::new(),
-            strategy: Default::default(),
-            engine: ForwardEngine::Tunnel,
-            protocol: ForwardProtocol::Tcp,
-            udp: false,
-            listen_transport: None,
-            remote_transport: None,
-            disable_udp: false,
-            listen_host: None,
-            tunnel: Some(TunnelSpec {
-                role: TunnelRole::Dialer,
-                hop_id: hop_id.clone(),
-                listen: format!("0.0.0.0:{}", entry_member.listen_port),
-                remote: host_port(&exit_host, exit_member.listen_port),
-                security,
-                cert_pem_path: String::new(),
-                key_pem_path: String::new(),
-                ca_pem_path: if noise {
-                    String::new()
-                } else {
-                    crate::tunnel_cert::ca_path()
+    let mut derived = Vec::with_capacity(ordered.len());
+    for (index, hop) in hops.iter().enumerate() {
+        let forward_id =
+            chains::forward_id(&chain.id, hop.group_seq, &hop.server_id, hop.member_count);
+        if index == 0 {
+            let next = &hops[1];
+            let (hop_id, hop_secret) = segment(chain, hop_secret_b64, next.group_seq);
+            derived.push((
+                hop.server_id.clone(),
+                DesiredForward {
+                    id: forward_id,
+                    listen_port: hop.listen_port,
+                    target_host: next.host.clone(),
+                    target_port: next.listen_port,
+                    targets: Vec::new(),
+                    strategy: Default::default(),
+                    engine: ForwardEngine::Tunnel,
+                    protocol: ForwardProtocol::Tcp,
+                    udp: false,
+                    listen_transport: None,
+                    remote_transport: None,
+                    disable_udp: false,
+                    listen_host: None,
+                    tunnel: Some(TunnelSpec {
+                        role: TunnelRole::Dialer,
+                        hop_id,
+                        listen: format!("0.0.0.0:{}", hop.listen_port),
+                        remote: host_port(&next.host, next.listen_port),
+                        security,
+                        cert_pem_path: String::new(),
+                        key_pem_path: String::new(),
+                        ca_pem_path: ca_path.clone(),
+                        hop_secret,
+                        allowed_targets: vec![
+                            target_rule(&next.host, next.listen_port),
+                            final_target_rule.clone(),
+                        ],
+                        udp,
+                        downstream: None,
+                    }),
                 },
-                hop_secret: hop_secret_b64.to_string(),
-                allowed_targets: dialer_allowed,
-                udp,
-            }),
-        },
-    ));
-    derived.push((
-        exit_member.server_id.clone(),
-        DesiredForward {
-            id: chains::forward_id(
-                &chain.id,
-                exit.group.seq,
-                &exit_member.server_id,
-                exit.members.len(),
-            ),
-            listen_port: exit_member.listen_port,
-            target_host: chain.target_host.clone(),
-            target_port: chain.target_port,
-            targets: Vec::new(),
-            strategy: Default::default(),
-            engine: ForwardEngine::Tunnel,
-            protocol: ForwardProtocol::Tcp,
-            udp: false,
-            listen_transport: None,
-            remote_transport: None,
-            disable_udp: false,
-            listen_host: None,
-            tunnel: Some(TunnelSpec {
-                role: TunnelRole::Listener,
-                hop_id,
-                listen: format!("0.0.0.0:{}", exit_member.listen_port),
-                remote: String::new(),
-                security,
-                cert_pem_path: if noise {
-                    String::new()
+            ));
+            continue;
+        }
+
+        let last = index + 1 == hops.len();
+        let (hop_id, hop_secret) = segment(chain, hop_secret_b64, hop.group_seq);
+        // 每一跳的 Listener 白名单都只允许链目标：首帧请求是端到端的最终目标，
+        // 中间跳既校验它，也把它原样送给下一段（不在这里做地址改写）。
+        let allowed_targets = vec![final_target_rule.clone()];
+        let downstream = if last {
+            None
+        } else {
+            let next = &hops[index + 1];
+            let (next_hop_id, next_secret) = segment(chain, hop_secret_b64, next.group_seq);
+            // 内嵌 dialer 的白名单：第一条约束下一跳地址，最后一条是每连接
+            // 请求的链目标（与入口 Dialer 的语义完全一致）。
+            Some(Box::new(pierwave_proto::TunnelDownstream {
+                hop_id: next_hop_id,
+                remote: host_port(&next.host, next.listen_port),
+                hop_secret: next_secret,
+                ca_pem_path: ca_path.clone(),
+                allowed_targets: vec![
+                    target_rule(&next.host, next.listen_port),
+                    final_target_rule.clone(),
+                ],
+            }))
+        };
+        let (cert_pem_path, key_pem_path) = if noise {
+            (String::new(), String::new())
+        } else {
+            (
+                crate::tunnel_cert::cert_path(&hop.server_id),
+                crate::tunnel_cert::key_path(&hop.server_id),
+            )
+        };
+        derived.push((
+            hop.server_id.clone(),
+            DesiredForward {
+                id: forward_id,
+                listen_port: hop.listen_port,
+                target_host: if last {
+                    chain.target_host.clone()
                 } else {
-                    crate::tunnel_cert::cert_path(&exit_member.server_id)
+                    hops[index + 1].host.clone()
                 },
-                key_pem_path: if noise {
-                    String::new()
+                target_port: if last {
+                    chain.target_port
                 } else {
-                    crate::tunnel_cert::key_path(&exit_member.server_id)
+                    hops[index + 1].listen_port
                 },
-                ca_pem_path: String::new(),
-                hop_secret: hop_secret_b64.to_string(),
-                allowed_targets: listener_allowed,
-                udp,
-            }),
-        },
-    ));
-    derived
+                targets: Vec::new(),
+                strategy: Default::default(),
+                engine: ForwardEngine::Tunnel,
+                protocol: ForwardProtocol::Tcp,
+                udp: false,
+                listen_transport: None,
+                remote_transport: None,
+                disable_udp: false,
+                listen_host: None,
+                tunnel: Some(TunnelSpec {
+                    role: TunnelRole::Listener,
+                    hop_id,
+                    listen: format!("0.0.0.0:{}", hop.listen_port),
+                    remote: String::new(),
+                    security,
+                    cert_pem_path,
+                    key_pem_path,
+                    ca_pem_path: String::new(),
+                    hop_secret,
+                    allowed_targets,
+                    udp,
+                    downstream,
+                }),
+            },
+        ));
+    }
+    validate_tunnel_multihop_shape(chain, groups, &derived)?;
+    Ok(derived)
+}
+
+/// 一跳的解析结果：本跳成员地址/端口 + 本组序号。
+struct HopEndpoints {
+    group_seq: i64,
+    server_id: String,
+    host: String,
+    listen_port: i64,
+    member_count: usize,
+}
+
+/// 推导结果的完整性自检：3+ 跳链的每一跳都必须落在正确角色上，
+/// 中间跳必须带 `downstream` 且指向下一跳的 `hop_id`。
+///
+/// 这是「中间跳的 downstream 缺失 → 整链不下发」的最后一道闸：正常情况下
+/// [`derive_tunnel_forwards`] 不会产出残缺结果，但任何未来的改动（或手工
+/// 构造的期望态）都不能让一条 n 跳链悄悄退化成 n-1 跳。
+pub(crate) fn validate_tunnel_multihop_shape(
+    chain: &Chain,
+    groups: &[ChainGroupWithMembers],
+    derived: &[(String, DesiredForward)],
+) -> Result<(), TunnelDeriveError> {
+    let mut ordered: Vec<&ChainGroupWithMembers> = groups.iter().collect();
+    ordered.sort_by_key(|group| group.group.seq);
+    if ordered.len() <= chains::TUNNEL_MIN_HOPS {
+        return Ok(());
+    }
+    let mut by_id: HashMap<&str, &TunnelSpec> = HashMap::new();
+    for (_, forward) in derived {
+        if let Some(tunnel) = forward.tunnel.as_ref() {
+            by_id.insert(forward.id.as_str(), tunnel);
+        }
+    }
+    let tunnel_of = |index: usize| -> Result<&TunnelSpec, TunnelDeriveError> {
+        let group = ordered[index];
+        let member = group.members.first().ok_or_else(|| {
+            downstream_missing(index as i64, "该跳没有成员 / the hop has no member")
+        })?;
+        let id = chains::forward_id(
+            &chain.id,
+            group.group.seq,
+            &member.server_id,
+            group.members.len(),
+        );
+        by_id.get(id.as_str()).copied().ok_or_else(|| {
+            downstream_missing(
+                index as i64,
+                "推导结果缺少该跳 / the hop is missing from the derived set",
+            )
+        })
+    };
+
+    let entry = tunnel_of(0)?;
+    if entry.role != TunnelRole::Dialer || entry.downstream.is_some() {
+        return Err(downstream_missing(
+            0,
+            "入口跳必须是 Dialer 且没有 downstream / the entry hop must be a dialer without downstream",
+        ));
+    }
+    for index in 1..ordered.len() {
+        let tunnel = tunnel_of(index)?;
+        if tunnel.role != TunnelRole::Listener {
+            return Err(downstream_missing(
+                index as i64,
+                "中间/出口跳必须是 Listener / middle and exit hops must be listeners",
+            ));
+        }
+        if index + 1 == ordered.len() {
+            if tunnel.downstream.is_some() {
+                return Err(downstream_missing(
+                    index as i64,
+                    "出口跳不能有 downstream / the exit hop must not have downstream",
+                ));
+            }
+            continue;
+        }
+        let next = tunnel_of(index + 1)?;
+        let Some(downstream) = tunnel.downstream.as_ref() else {
+            return Err(downstream_missing(
+                index as i64,
+                "中间跳缺少 downstream，不能直连链目标 / the middle hop is missing downstream and must not dial the chain target",
+            ));
+        };
+        if downstream.remote.trim().is_empty() {
+            return Err(downstream_missing(
+                index as i64,
+                "downstream.remote 为空 / downstream.remote is empty",
+            ));
+        }
+        if downstream.hop_id != next.hop_id {
+            return Err(downstream_missing(
+                index as i64,
+                "downstream 的 hop_id 与下一跳不一致 / downstream hop_id does not match the next hop",
+            ));
+        }
+        if downstream.allowed_targets.last().is_none() {
+            return Err(downstream_missing(
+                index as i64,
+                "downstream 缺少目标白名单 / downstream has no target allowlist",
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// 第 `listener_seq` 段的 `(hop_id, hop_secret)`。
+fn segment(
+    chain: &Chain,
+    hop_secret_b64: &dyn Fn(i64) -> String,
+    listener_seq: i64,
+) -> (String, String) {
+    (
+        format!("{}:{}", chain.id, listener_seq),
+        hop_secret_b64(listener_seq),
+    )
+}
+
+fn target_rule(host: &str, port: i64) -> TunnelTargetRule {
+    TunnelTargetRule {
+        host: host.to_string(),
+        ports: Some((port as u16, port as u16)),
+    }
 }
 
 /// 拼接 `host:port`；IPv6 字面量必须加方括号，否则 Dialer 的
@@ -923,8 +1153,9 @@ fn host_port(host: &str, port: i64) -> String {
     }
 }
 
-/// tunnel 链的保存门禁：2 跳 / 每组 1 台 / 无 realm transport /
-/// UDP 中继仅在 TLS 模式 / 所有成员都明确上报 `tunnel_available = true`。
+/// tunnel 链的保存门禁：2–6 跳 / 每组 1 台 / 无 realm transport /
+/// UDP 中继仅在 TLS 的 2 跳链 / 3+ 跳要求每台 Agent 协议版本足够新 /
+/// 所有成员都明确上报 `tunnel_available = true`。
 ///
 /// 「未知」与 `false` 都拒绝：旧 Agent 收到 `engine = tunnel` 会因为不认识的
 /// 枚举值让整份期望态解析失败，必须在写路径挡住。保存后成员能力可能变化
@@ -940,12 +1171,29 @@ fn validate_tunnel_chain(
     if !engine::is_tunnel(engine_name) {
         return Ok(());
     }
-    if groups.len() != 2 {
+    if groups.len() < chains::TUNNEL_MIN_HOPS {
         return Err(AppError::coded(
             "chain.tunnel_requires_two_hops",
             Some(json!({ "hops": groups.len() })),
             format!(
-                "tunnel 引擎当前只支持 2 跳链（入口 Dialer + 出口 Listener），当前 {} 跳",
+                "tunnel 引擎至少需要 2 跳（入口 Dialer + 出口 Listener），当前 {} 跳 / the tunnel engine needs at least 2 hops (entry dialer + exit listener), got {}",
+                groups.len(),
+                groups.len()
+            ),
+        ));
+    }
+    if groups.len() > chains::TUNNEL_MAX_HOPS {
+        return Err(AppError::coded(
+            "chain.tunnel_hop_limit",
+            Some(json!({
+                "hops": groups.len(),
+                "max": chains::TUNNEL_MAX_HOPS,
+            })),
+            format!(
+                "tunnel 引擎最多支持 {} 跳，当前 {} 跳 / the tunnel engine supports at most {} hops, got {}",
+                chains::TUNNEL_MAX_HOPS,
+                groups.len(),
+                chains::TUNNEL_MAX_HOPS,
                 groups.len()
             ),
         ));
@@ -959,10 +1207,26 @@ fn validate_tunnel_chain(
             "chain.tunnel_single_member",
             Some(json!({ "seq": seq, "members": group.members.len() })),
             format!(
-                "tunnel 引擎当前只支持每组 1 台成员（第 {} 组有 {} 台）",
+                "tunnel 引擎当前只支持每组 1 台成员（第 {} 组有 {} 台）/ the tunnel engine supports exactly one member per group (group {} has {})",
+                seq + 1,
+                group.members.len(),
                 seq + 1,
                 group.members.len()
             ),
+        ));
+    }
+    // UDP 中继（P16.3）只在 2 跳链上实现：中间跳的 QUIC endpoint 会直接连
+    // 链目标，3+ 跳会绕过后续跳。保存时直接拒绝，避免下发一条「少走几跳」
+    // 的链（fail closed）。
+    if protocol::allows_udp(protocol) && groups.len() > chains::TUNNEL_MIN_HOPS {
+        return Err(AppError::coded(
+            "chain.tunnel_udp_requires_two_hops",
+            Some(json!({
+                "protocol": protocol,
+                "hops": groups.len(),
+                "max_hops": chains::TUNNEL_MIN_HOPS,
+            })),
+            "tunnel 的 UDP 中继当前只支持 2 跳链 / the tunnel UDP relay currently supports exactly 2 hops",
         ));
     }
     // UDP 中继（P16.3）走 QUIC + TLS 证书；Noise 的 UDP 本轮不做，保存时
@@ -981,8 +1245,42 @@ fn validate_tunnel_chain(
         return Err(AppError::coded(
             "chain.tunnel_transport_conflict",
             Some(json!({ "transport": transport })),
-            "tunnel 自带 TLS，不能再选择 realm 的 transport=tls",
+            "tunnel 自带 TLS，不能再选择 realm 的 transport=tls / the tunnel brings its own TLS and cannot reuse realm transport=tls",
         ));
+    }
+    // 3+ 跳：每一跳都要能解析 `downstream`，必须是协议版本足够新的 Agent。
+    // 旧 Agent 会忽略该字段、把中间跳当出口，静默截短跳数——保存即拒绝。
+    if groups.len() > chains::TUNNEL_MIN_HOPS {
+        let stale: Vec<&str> = groups
+            .iter()
+            .flat_map(|group| group.members.iter())
+            .filter(|member| {
+                !member
+                    .protocol_version
+                    .is_some_and(|version| version >= chains::TUNNEL_MULTIHOP_MIN_PROTOCOL_VERSION)
+            })
+            .map(|member| member.server_name.as_str())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        if !stale.is_empty() {
+            let mut stale = stale;
+            stale.sort_unstable();
+            return Err(AppError::coded(
+                "chain.tunnel_multihop_requires_upgrade",
+                Some(json!({
+                    "servers": stale,
+                    "required": chains::TUNNEL_MULTIHOP_MIN_PROTOCOL_VERSION,
+                })),
+                format!(
+                    "3+ 跳 tunnel 链需要每台服务器的 Agent 协议版本 ≥ {}（旧 Agent 会静默截短跳数）：{} / multi-hop tunnel chains require agent protocol >= {} (older agents would silently shorten the chain): {}",
+                    chains::TUNNEL_MULTIHOP_MIN_PROTOCOL_VERSION,
+                    stale.join("、"),
+                    chains::TUNNEL_MULTIHOP_MIN_PROTOCOL_VERSION,
+                    stale.join(", ")
+                ),
+            ));
+        }
     }
     let unsupported: Vec<&str> = groups
         .iter()
@@ -997,8 +1295,9 @@ fn validate_tunnel_chain(
             "chain.tunnel_unavailable",
             Some(json!({ "servers": unsupported })),
             format!(
-                "以下服务器的 Agent 不支持 tunnel 引擎（需要升级到带 tunnel 能力的版本）：{}",
-                unsupported.join("、")
+                "以下服务器的 Agent 不支持 tunnel 引擎（需要升级到带 tunnel 能力的版本）：{} / these servers run agents without tunnel support: {}",
+                unsupported.join("、"),
+                unsupported.join(", ")
             ),
         ));
     }
@@ -2003,7 +2302,9 @@ mod tests {
     use axum::Router;
     use tower::ServiceExt;
 
+    use base64::Engine as _;
     use pierwave_domain::chains::plan_from_certificates;
+    use pierwave_domain::credentials;
     use pierwave_domain::models::{Certificate, Chain};
     use pierwave_domain::Db;
 
@@ -4394,8 +4695,9 @@ mod tests {
             "0.8.3",
             &repo::servers::HealthSnapshot {
                 tunnel_available: value,
-                // 隧道能力只可能来自新版 Agent；仅 UDP 门禁同样要求 >= 16。
-                protocol_version: Some(16),
+                // 隧道能力只可能来自新版 Agent；多跳（3+）还要求 >= 24，
+                // 这里默认按当前线协议版本上报，旧 Agent 用例再显式调低。
+                protocol_version: Some(i64::from(pierwave_proto::PROTOCOL_VERSION)),
                 ..Default::default()
             },
         )
@@ -5844,10 +6146,14 @@ mod tests {
     }
 
     /// tunnel 链的保存门禁：旧 Agent（NULL）与明确不支持（false）都拒绝；
-    /// 跳数、成员数、transport 三类结构错误各有稳定 code；UDP 中继只在 TLS 模式。
+    /// 跳数、成员数、transport 三类结构错误各有稳定 code；UDP 中继只在 TLS 模式；
+    /// 3+ 跳要求每台 Agent 协议版本 >= 24。
     #[test]
     fn tunnel_chain_requires_capable_two_hop_single_member_tls_for_udp() {
         fn member(name: &str, tunnel: Option<bool>) -> ValidatedMember {
+            member_at(name, tunnel, i64::from(pierwave_proto::PROTOCOL_VERSION))
+        }
+        fn member_at(name: &str, tunnel: Option<bool>, version: i64) -> ValidatedMember {
             ValidatedMember {
                 server_id: format!("srv-{name}"),
                 server_name: name.into(),
@@ -5858,7 +6164,7 @@ mod tests {
                 weight: 1,
                 nftables_available: None,
                 tunnel_available: tunnel,
-                protocol_version: Some(22),
+                protocol_version: Some(version),
             }
         }
         fn coded(error: AppError) -> (String, String) {
@@ -5945,6 +6251,51 @@ mod tests {
         assert_eq!(
             coded(validate_tunnel_chain("tunnel", "tcp", "tls", "tls", &ok).unwrap_err()).0,
             "chain.tunnel_transport_conflict"
+        );
+
+        // 3–6 跳：新 Agent 放行；任何一跳旧 Agent 都整链拒绝，绝不截短。
+        let three_hop = vec![
+            group(vec![member("a", Some(true))]),
+            group(vec![member("b", Some(true))]),
+            group(vec![member("c", Some(true))]),
+        ];
+        assert!(
+            validate_tunnel_chain("tunnel", "tcp", "none", "tls", &three_hop).is_ok(),
+            "3 跳 + 新 Agent 必须允许保存"
+        );
+        let old_middle = vec![
+            group(vec![member("a", Some(true))]),
+            group(vec![member_at(
+                "b",
+                Some(true),
+                i64::from(pierwave_proto::TUNNEL_MULTIHOP_PROTOCOL_VERSION) - 1,
+            )]),
+            group(vec![member("c", Some(true))]),
+        ];
+        let (code, message) =
+            coded(validate_tunnel_chain("tunnel", "tcp", "none", "tls", &old_middle).unwrap_err());
+        assert_eq!(code, "chain.tunnel_multihop_requires_upgrade");
+        assert!(message.contains("b"), "报错必须点名旧版本服务器：{message}");
+        assert!(message.contains("24"), "报错必须给出最低版本：{message}");
+
+        // 6 跳是上限；7 跳被拒（正常 API 路径还会先被全局跳数校验拦住）。
+        let six_hop: Vec<ValidatedGroup> = (0..6)
+            .map(|index| group(vec![member(&format!("h{index}"), Some(true))]))
+            .collect();
+        assert!(validate_tunnel_chain("tunnel", "tcp", "none", "tls", &six_hop).is_ok());
+        let seven_hop: Vec<ValidatedGroup> = (0..7)
+            .map(|index| group(vec![member(&format!("h{index}"), Some(true))]))
+            .collect();
+        assert_eq!(
+            coded(validate_tunnel_chain("tunnel", "tcp", "none", "tls", &seven_hop).unwrap_err()).0,
+            "chain.tunnel_hop_limit"
+        );
+
+        // UDP 中继本轮只支持 2 跳：3 跳 + udp/both 拒绝。
+        assert_eq!(
+            coded(validate_tunnel_chain("tunnel", "both", "none", "tls", &three_hop).unwrap_err())
+                .0,
+            "chain.tunnel_udp_requires_two_hops"
         );
     }
 
@@ -6174,6 +6525,553 @@ mod tests {
                 .len(),
             before,
             "校验失败不能落库"
+        );
+    }
+
+    /// 3 跳 / 4 跳隧道：每一跳都拿到正确的角色与独立的加密段。
+    ///
+    /// * 入口（0）：Dialer，只带 ca.pem；
+    /// * 中间跳（1..n-2）：Listener + downstream，同时带 cert/key（0600）与
+    ///   ca.pem（0644），白名单只含链目标，downstream 白名单 = [下一跳, 链目标]；
+    /// * 出口（n-1）：Listener，无 downstream，只带 cert/key；
+    /// * 相邻两段 `hop_id` / `hop_secret` 都不同，且与文档里的派生一致。
+    #[tokio::test]
+    async fn three_and_four_hop_tunnel_chains_derive_independent_segments() {
+        let fixture = setup().await;
+        for server_id in [&fixture.a, &fixture.b, &fixture.c, &fixture.d] {
+            set_tunnel_capability(&fixture.state, server_id, Some(true)).await;
+        }
+        let uri = "/api/v1/chains";
+        let master = credentials::master_secret(&fixture.state.db.pool)
+            .await
+            .unwrap();
+
+        let topologies: [(usize, Vec<&String>, Vec<i64>); 2] = [
+            (
+                3,
+                vec![&fixture.a, &fixture.b, &fixture.c],
+                vec![19401, 19402, 19403],
+            ),
+            (
+                4,
+                vec![&fixture.a, &fixture.b, &fixture.c, &fixture.d],
+                vec![19501, 19502, 19503, 19504],
+            ),
+        ];
+        for (hops, servers, ports) in topologies {
+            let groups: Vec<Value> = servers
+                .iter()
+                .zip(ports.iter())
+                .map(|(server_id, port)| group(None, None, &[group_member(server_id, *port, 0)]))
+                .collect();
+            let mut body = groups_body(&format!("{hops} 跳隧道"), "1.1.1.1", 443, &groups);
+            body["engine"] = json!("tunnel");
+            body["protocol"] = json!("tcp");
+            body["transport"] = json!("none");
+            body["tunnel_security"] = json!("tls");
+            let (status, value) = request(
+                &fixture.app,
+                Some(&fixture.cookie),
+                Method::POST,
+                uri,
+                Some(body),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{hops} 跳: {value}");
+            assert!(
+                value["chain"]["blocked_code"].is_null(),
+                "新 Agent 的 {hops} 跳链不能 blocked：{value}"
+            );
+            let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+
+            let mut specs: Vec<TunnelSpec> = Vec::with_capacity(hops);
+            for (index, server_id) in servers.iter().enumerate() {
+                let server = repo::servers::find_by_id(&fixture.state.db.pool, server_id)
+                    .await
+                    .unwrap();
+                let rendered = crate::routes::desired::render(
+                    &fixture.state,
+                    &server,
+                    "https://panel.example.com",
+                )
+                .await
+                .unwrap();
+                assert!(
+                    rendered.warnings.is_empty(),
+                    "{hops} 跳: {:?}",
+                    rendered.warnings
+                );
+                let forward = rendered
+                    .forwards
+                    .iter()
+                    .find(|forward| {
+                        forward.id == chains::legacy_forward_id(&chain_id, index as i64)
+                    })
+                    .unwrap_or_else(|| panic!("{hops} 跳：第 {} 跳必须下发", index));
+                let spec = forward.tunnel.as_ref().expect("每一跳都必须带 tunnel 段");
+                // 每一跳都是独立加密隧道，绝不是明文 TCP。
+                assert_eq!(spec.security, TunnelSecurity::Tls);
+                assert!(!spec.hop_secret.is_empty(), "每一跳都必须有 hop_secret");
+                assert_eq!(
+                    spec.hop_id,
+                    format!("{chain_id}:{}", index.max(1)),
+                    "hop_id 必须按段编号"
+                );
+
+                if index == 0 {
+                    assert_eq!(spec.role, TunnelRole::Dialer);
+                    assert!(spec.downstream.is_none());
+                    assert_eq!(spec.remote, format!("10.0.0.2:{}", ports[1]));
+                    assert_eq!(spec.allowed_targets.len(), 2);
+                    assert_eq!(spec.allowed_targets[0].host, "10.0.0.2");
+                    assert_eq!(spec.allowed_targets[1].host, "1.1.1.1");
+                    assert!(
+                        rendered
+                            .files
+                            .iter()
+                            .any(|file| file.path.ends_with("/tunnel/ca.pem")
+                                && file.mode == 0o644),
+                        "入口 Dialer 必须拿到 ca.pem: {:?}",
+                        rendered.files
+                    );
+                    assert!(
+                        rendered
+                            .files
+                            .iter()
+                            .all(|file| !file.path.ends_with(".pem")
+                                || file.path.ends_with("/ca.pem")
+                                || file.path.ends_with(&format!("{}.pem", server_id))),
+                        "入口只能拿到 CA 与自己的属证书"
+                    );
+                } else if index + 1 == servers.len() {
+                    assert_eq!(spec.role, TunnelRole::Listener);
+                    assert!(spec.downstream.is_none());
+                    assert!(spec.remote.is_empty());
+                    assert_eq!(spec.allowed_targets.len(), 1, "出口白名单只含链目标");
+                    assert_eq!(spec.allowed_targets[0].host, "1.1.1.1");
+                    assert!(
+                        rendered
+                            .files
+                            .iter()
+                            .any(|file| file.path == spec.cert_pem_path && file.mode == 0o600),
+                        "出口必须拿到属证书（0600）"
+                    );
+                    assert!(
+                        rendered
+                            .files
+                            .iter()
+                            .any(|file| file.path == spec.key_pem_path && file.mode == 0o600),
+                        "出口必须拿到私钥（0600）"
+                    );
+                    assert!(
+                        rendered
+                            .files
+                            .iter()
+                            .all(|file| !file.path.ends_with("/ca.pem")),
+                        "出口不需要 CA: {:?}",
+                        rendered.files
+                    );
+                } else {
+                    assert_eq!(spec.role, TunnelRole::Listener);
+                    let downstream = spec
+                        .downstream
+                        .as_ref()
+                        .expect("中间跳必须有 downstream（否则会直连目标）");
+                    assert_eq!(
+                        downstream.remote,
+                        format!("10.0.0.{}:{}", index + 2, ports[index + 1])
+                    );
+                    assert_eq!(
+                        downstream.hop_id,
+                        format!("{chain_id}:{}", index + 1),
+                        "downstream 必须指向下一段的 hop_id"
+                    );
+                    assert_eq!(
+                        spec.allowed_targets.len(),
+                        1,
+                        "中间跳 Listener 的白名单只含链目标"
+                    );
+                    assert_eq!(spec.allowed_targets[0].host, "1.1.1.1");
+                    assert_eq!(
+                        downstream.allowed_targets.len(),
+                        2,
+                        "downstream 白名单 = [下一跳, 链目标]"
+                    );
+                    assert_eq!(
+                        downstream.allowed_targets[0].host,
+                        format!("10.0.0.{}", index + 2)
+                    );
+                    assert_eq!(downstream.allowed_targets[1].host, "1.1.1.1");
+                    // 中间跳既被上一跳连（cert/key），又主动连下一跳（ca.pem）。
+                    assert!(
+                        rendered
+                            .files
+                            .iter()
+                            .any(|file| file.path == spec.cert_pem_path && file.mode == 0o600),
+                        "中间跳必须拿到属证书"
+                    );
+                    assert!(
+                        rendered
+                            .files
+                            .iter()
+                            .any(|file| file.path == spec.key_pem_path && file.mode == 0o600),
+                        "中间跳必须拿到私钥"
+                    );
+                    assert!(
+                        rendered
+                            .files
+                            .iter()
+                            .any(|file| file.path.ends_with("/tunnel/ca.pem")
+                                && file.mode == 0o644),
+                        "中间跳必须拿到 CA 才能连下一跳: {:?}",
+                        rendered.files
+                    );
+                }
+                specs.push(spec.clone());
+            }
+
+            // 相邻两段必须用不同的密钥与 hop_id：一段泄漏不影响其它段。
+            assert_eq!(
+                specs[0].hop_secret, specs[1].hop_secret,
+                "入口与本跳共用第 1 段"
+            );
+            for index in 1..specs.len() - 1 {
+                assert_ne!(
+                    specs[index].hop_secret,
+                    specs[index].downstream.as_ref().unwrap().hop_secret,
+                    "中间跳的两段必须独立派生密钥"
+                );
+                assert_eq!(
+                    specs[index].downstream.as_ref().unwrap().hop_secret,
+                    specs[index + 1].hop_secret,
+                    "上一跳的 downstream 与下一跳 Listener 必须是同一段"
+                );
+                assert_eq!(
+                    specs[index].downstream.as_ref().unwrap().hop_id,
+                    specs[index + 1].hop_id
+                );
+            }
+            // 与文档里的派生公式逐段一致。
+            for seq in 1..=hops as i64 - 1 {
+                let expected = base64::engine::general_purpose::STANDARD
+                    .encode(credentials::tunnel_hop_secret(&master, &chain_id, seq));
+                let listener_index = usize::try_from(seq).unwrap();
+                assert_eq!(
+                    specs[listener_index].hop_secret, expected,
+                    "第 {seq} 段密钥必须等于 HMAC(master_secret, tunnel/{{chain}}/{{seq}})"
+                );
+            }
+        }
+
+        // UDP 中继只在 2 跳链上实现：3 跳 + udp/both 保存即拒绝。
+        let three_hop_udp = vec![
+            group(None, None, &[group_member(&fixture.a, 19601, 0)]),
+            group(None, None, &[group_member(&fixture.b, 19602, 0)]),
+            group(None, None, &[group_member(&fixture.c, 19603, 0)]),
+        ];
+        let mut body = groups_body("3 跳 UDP", "1.1.1.1", 443, &three_hop_udp);
+        body["engine"] = json!("tunnel");
+        body["protocol"] = json!("both");
+        body["transport"] = json!("none");
+        body["tunnel_security"] = json!("tls");
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{value}");
+        assert_eq!(value["code"], "chain.tunnel_udp_requires_two_hops");
+    }
+
+    /// 旧 Agent（协议 < 24）遇到 3+ 跳：保存拒绝、已存链整链不下发并给原因；
+    /// 同版本的 2 跳链行为不变（仍然正常下发）。
+    #[tokio::test]
+    async fn old_agent_rejects_multihop_tunnel_chain_instead_of_downgrading() {
+        let fixture = setup().await;
+        for server_id in [&fixture.a, &fixture.b, &fixture.c] {
+            set_tunnel_capability(&fixture.state, server_id, Some(true)).await;
+        }
+        // b 是旧 Agent：tunnel 能力有，但协议低于多跳最低版本，不认识 downstream。
+        let old_version = i64::from(pierwave_proto::TUNNEL_MULTIHOP_PROTOCOL_VERSION) - 1;
+        repo::servers::update_health(
+            &fixture.state.db.pool,
+            &fixture.b,
+            "0.8.3",
+            &repo::servers::HealthSnapshot {
+                tunnel_available: Some(true),
+                protocol_version: Some(old_version),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let three_hop = vec![
+            group(None, None, &[group_member(&fixture.a, 19701, 0)]),
+            group(None, None, &[group_member(&fixture.b, 19702, 0)]),
+            group(None, None, &[group_member(&fixture.c, 19703, 0)]),
+        ];
+        let mut body = groups_body("旧 Agent 3 跳", "1.1.1.1", 443, &three_hop);
+        body["engine"] = json!("tunnel");
+        body["protocol"] = json!("tcp");
+        body["transport"] = json!("none");
+        body["tunnel_security"] = json!("tls");
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{value}");
+        assert_eq!(value["code"], "chain.tunnel_multihop_requires_upgrade");
+        assert_eq!(
+            value["params"]["required"],
+            i64::from(pierwave_proto::TUNNEL_MULTIHOP_PROTOCOL_VERSION)
+        );
+        let servers = value["params"]["servers"].as_array().unwrap();
+        assert!(
+            servers.iter().any(|server| server == "jp-b"),
+            "必须点名旧版本服务器：{value}"
+        );
+        assert_eq!(
+            repo::chains::list(&fixture.state.db.pool)
+                .await
+                .unwrap()
+                .len(),
+            0,
+            "被拒绝的链不能落库"
+        );
+
+        // 2 跳链在同样的旧 Agent 上必须照常保存并下发（兼容红线）。
+        let two_hop = vec![
+            group(None, None, &[group_member(&fixture.a, 19711, 0)]),
+            group(None, None, &[group_member(&fixture.c, 19712, 0)]),
+        ];
+        let mut body = groups_body("旧 Agent 2 跳", "1.1.1.1", 443, &two_hop);
+        body["engine"] = json!("tunnel");
+        body["protocol"] = json!("tcp");
+        body["transport"] = json!("none");
+        body["tunnel_security"] = json!("tls");
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{value}");
+        let two_hop_id = value["chain"]["id"].as_str().unwrap().to_string();
+        let server_a = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.a)
+            .await
+            .unwrap();
+        let rendered =
+            crate::routes::desired::render(&fixture.state, &server_a, "https://panel.example.com")
+                .await
+                .unwrap();
+        assert!(rendered.warnings.is_empty(), "{:?}", rendered.warnings);
+        assert!(
+            rendered
+                .forwards
+                .iter()
+                .any(|forward| forward.id == chains::legacy_forward_id(&two_hop_id, 0)),
+            "2 跳链必须继续下发到旧 Agent"
+        );
+
+        // 绕过保存门禁直接写库（模拟历史数据）：渲染时必须整链跳过并给原因。
+        let stored = repo::chains::create(
+            &fixture.state.db.pool,
+            repo::chains::NewChain {
+                name: "历史 3 跳".into(),
+                target_host: "1.1.1.1".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "tunnel".into(),
+                protocol: "tcp".into(),
+                transport: "none".into(),
+                tunnel_security: "tls".into(),
+                groups: vec![
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: None,
+                        public_port: None,
+                        use_internal_address: false,
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: fixture.a.clone(),
+                            listen_port: 19721,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: None,
+                        public_port: None,
+                        use_internal_address: false,
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: fixture.b.clone(),
+                            listen_port: 19722,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: None,
+                        public_port: None,
+                        use_internal_address: false,
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: fixture.c.clone(),
+                            listen_port: 19723,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                ],
+            },
+        )
+        .await
+        .unwrap();
+        let rendered =
+            crate::routes::desired::render(&fixture.state, &server_a, "https://panel.example.com")
+                .await
+                .unwrap();
+        assert!(
+            rendered.warnings.iter().any(|warning| {
+                warning.contains("历史 3 跳")
+                    && warning.contains("Agent 协议版本")
+                    && warning.contains("jp-b")
+            }),
+            "必须给出可读原因：{:?}",
+            rendered.warnings
+        );
+        // 链列表/概览用同一套判定：blocked_code 必须是稳定键。
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            "/api/v1/chains",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{value}");
+        let item = value["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == stored.chain.id.as_str())
+            .expect("链仍在列表里");
+        assert_eq!(
+            item["blocked_code"], "chain.tunnel_multihop_requires_upgrade",
+            "{item}"
+        );
+        assert!(
+            rendered
+                .forwards
+                .iter()
+                .all(|forward| forward.id != chains::legacy_forward_id(&stored.chain.id, 0)),
+            "旧 Agent 的 3 跳链绝不能降级下发"
+        );
+    }
+
+    /// 中间跳的 downstream 推导不出来（下一跳地址为空）时整链不下发并给原因。
+    #[tokio::test]
+    async fn missing_downstream_skips_the_whole_chain_with_a_reason() {
+        let fixture = setup().await;
+        // 一台地址为空的服务器：能落库，但绝不能作为隧道对端。
+        let (empty, _) = repo::servers::create(&fixture.state.db.pool, "empty-e", "", "external")
+            .await
+            .unwrap();
+        for server_id in [&fixture.a, &empty.id, &fixture.b] {
+            set_tunnel_capability(&fixture.state, server_id, Some(true)).await;
+        }
+        let stored = repo::chains::create(
+            &fixture.state.db.pool,
+            repo::chains::NewChain {
+                name: "缺下一跳".into(),
+                target_host: "1.1.1.1".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "tunnel".into(),
+                protocol: "tcp".into(),
+                transport: "none".into(),
+                // Noise 跳过证书材料签发，确保走到推导这一步。
+                tunnel_security: "noise".into(),
+                groups: vec![
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: None,
+                        public_port: None,
+                        use_internal_address: false,
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: fixture.a.clone(),
+                            listen_port: 19801,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: None,
+                        public_port: None,
+                        use_internal_address: false,
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: empty.id.clone(),
+                            listen_port: 19802,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: None,
+                        public_port: None,
+                        use_internal_address: false,
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: fixture.b.clone(),
+                            listen_port: 19803,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                ],
+            },
+        )
+        .await
+        .unwrap();
+        let server_a = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.a)
+            .await
+            .unwrap();
+        let rendered =
+            crate::routes::desired::render(&fixture.state, &server_a, "https://panel.example.com")
+                .await
+                .unwrap();
+        assert!(
+            rendered.warnings.iter().any(|warning| {
+                warning.contains("缺下一跳")
+                    && warning.contains("第 2 跳")
+                    && warning.contains("chain.tunnel_downstream_missing")
+            }),
+            "必须给出「中间跳缺下一跳」的原因：{:?}",
+            rendered.warnings
+        );
+        assert!(
+            rendered
+                .forwards
+                .iter()
+                .all(|forward| forward.id != chains::legacy_forward_id(&stored.chain.id, 0)),
+            "缺 downstream 的链不能下发（绝不退化成直连目标）"
         );
     }
 }

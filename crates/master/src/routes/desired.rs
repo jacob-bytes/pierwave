@@ -303,10 +303,23 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
                     }
                 }
             };
-            let hop_secret_b64 = credentials::tunnel_hop_secret_b64(&secret, &chain.chain.id, 1);
-            for (server_id, forward) in
-                super::chains::derive_tunnel_forwards(&chain.chain, &chain.groups, &hop_secret_b64)
-            {
+            let chain_id = chain.chain.id.clone();
+            let derived =
+                match super::chains::derive_tunnel_forwards(&chain.chain, &chain.groups, &|seq| {
+                    credentials::tunnel_hop_secret_b64(&secret, &chain_id, seq)
+                }) {
+                    Ok(derived) => derived,
+                    Err(error) => {
+                        // 推导失败（缺成员/缺下一跳/跳数越界）= 整链不下发；
+                        // 绝不降级成更少跳数或让中间跳直连目标。
+                        warnings.push(format!(
+                            "链「{}」未下发：{}（{}）",
+                            chain.chain.name, error.message, error.code
+                        ));
+                        continue;
+                    }
+                };
+            for (server_id, forward) in derived {
                 if server_id != server.id {
                     continue;
                 }
@@ -338,6 +351,18 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
                                     content: cert.key_pem.clone(),
                                     mode: tunnel_cert::KEY_FILE_MODE,
                                 });
+                            }
+                            // 中间跳（Listener + downstream）自己也是 dialer：
+                            // 必须同时拿到 CA，否则连不了下一跳。
+                            if tunnel.downstream.is_some() {
+                                let ca_path = tunnel_cert::ca_path();
+                                if file_paths.insert(ca_path.clone()) {
+                                    files.push(ManagedFile {
+                                        path: ca_path,
+                                        content: assets.ca_pem.clone(),
+                                        mode: tunnel_cert::CA_FILE_MODE,
+                                    });
+                                }
                             }
                         }
                         desired_forwards.push(forward);
@@ -617,6 +642,16 @@ mod tests {
     use serde_json::json;
 
     use pierwave_domain::Db;
+
+    /// 领域层的多跳门禁与线协议常量必须一致（与 UDP 的同名断言同一目的）。
+    #[test]
+    fn domain_tunnel_multihop_min_protocol_matches_wire_constant() {
+        assert_eq!(
+            pierwave_domain::chains::TUNNEL_MULTIHOP_MIN_PROTOCOL_VERSION,
+            i64::from(pierwave_proto::TUNNEL_MULTIHOP_PROTOCOL_VERSION),
+            "主控门禁与线协议的多跳常量必须一致"
+        );
+    }
 
     #[test]
     fn fingerprint_is_stable_and_sensitive() {
@@ -1351,6 +1386,60 @@ mod tests {
         let expected = base64::engine::general_purpose::STANDARD
             .encode(credentials::tunnel_hop_secret(&secret, &chain.chain.id, 1));
         assert_eq!(dialer.hop_secret, expected);
+
+        // 2 跳配置与多跳改动前**逐字段**一致：TunnelSpec 只有新增的
+        // `downstream`，且 None 时序列化根本不出现这个键。
+        assert!(dialer.downstream.is_none());
+        assert!(listener.downstream.is_none());
+        let dialer_json = serde_json::to_value(dialer).unwrap();
+        assert_eq!(
+            dialer_json,
+            serde_json::json!({
+                "role": "dialer",
+                "hop_id": format!("{}:1", chain.chain.id),
+                "listen": "0.0.0.0:19401",
+                "remote": "10.0.0.2:19402",
+                "security": "tls",
+                "cert_pem_path": "",
+                "key_pem_path": "",
+                "ca_pem_path": "/usr/local/etc/pierwave/tunnel/ca.pem",
+                "hop_secret": expected,
+                "allowed_targets": [
+                    { "host": "10.0.0.2", "ports": [19402, 19402] },
+                    { "host": "1.1.1.1", "ports": [443, 443] },
+                ],
+                "udp": false,
+            }),
+            "2 跳 Dialer 的线协议字段必须与升级前完全一致"
+        );
+        assert!(
+            dialer_json.get("downstream").is_none(),
+            "2 跳配置不能出现 downstream 键"
+        );
+        let listener_json = serde_json::to_value(listener).unwrap();
+        assert_eq!(
+            listener_json,
+            serde_json::json!({
+                "role": "listener",
+                "hop_id": format!("{}:1", chain.chain.id),
+                "listen": "0.0.0.0:19402",
+                "remote": "",
+                "security": "tls",
+                "cert_pem_path": format!("/usr/local/etc/pierwave/tunnel/{}.pem", server_b.id),
+                "key_pem_path": format!("/usr/local/etc/pierwave/tunnel/{}.key", server_b.id),
+                "ca_pem_path": "",
+                "hop_secret": expected,
+                "allowed_targets": [
+                    { "host": "1.1.1.1", "ports": [443, 443] },
+                ],
+                "udp": false,
+            }),
+            "2 跳 Listener 的线协议字段必须与升级前完全一致"
+        );
+        assert!(
+            listener_json.get("downstream").is_none(),
+            "2 跳配置不能出现 downstream 键"
+        );
     }
 
     /// tunnel 链在成员能力未知时必须整链跳过（render 层门禁），并给出 warning。
@@ -1548,6 +1637,7 @@ mod tests {
             hop_secret: String::new(),
             allowed_targets: Vec::new(),
             udp: false,
+            downstream: None,
         };
         let make = |tunnel: Option<pierwave_proto::TunnelSpec>| DesiredForward {
             id: "fwd-1".into(),

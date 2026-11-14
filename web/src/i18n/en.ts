@@ -2588,6 +2588,10 @@ const en = {
     notObject: "config must be a JSON object (starting with { and ending with })",
   },
   errors: {
+    "chain.tunnel_hop_limit": "Tunnel chains support 2-6 hops",
+    "chain.tunnel_downstream_missing": "Could not derive the next hop for this hop",
+    "chain.tunnel_udp_requires_two_hops": "UDP relay over a tunnel chain is limited to 2 hops for now",
+    "chain.tunnel_multihop_requires_upgrade": "Multi-hop tunnels need agents on protocol {required} or newer; servers: {server}",
     "forward.protocol_requires_agent_upgrade": "Agent on \"{server}\" is too old (version {version}) for UDP-only; upgrade it to protocol {required} or newer",
     "chain.protocol_requires_agent_upgrade": "These servers run an Agent too old for UDP-only: {server}; upgrade them to protocol {required} or newer",
     "server.nic_address_unavailable": "This server cannot be dispatched over the selected NIC (not reported, missing, or has no usable address)",

@@ -128,6 +128,36 @@ pub struct TunnelServerConfig {
     pub max_connections: usize,
     /// 允许连接的目标白名单；空 = 拒绝一切（fail closed）。
     pub allowed_targets: Vec<TargetRule>,
+    /// 中间跳（3–6 跳链）的内嵌 dialer；`None` = 2 跳链的出口 Listener。
+    ///
+    /// 有值时 Listener 收到首帧、通过白名单后**不** `connect_target`，而是先用
+    /// 这个 dialer 向下一跳建一条新的加密隧道，再帧层到帧层双向搬运。
+    pub downstream: Option<DownstreamDialer>,
+}
+
+/// 中间跳的内嵌 dialer：一个已经解析好地址、加载好信任根的 [`TunnelClient`]，
+/// 加上它每连接请求的目标（downstream 白名单的最后一条 = 链目标）。
+///
+/// 与入口 Dialer 共用同一套 TLS/Noise 与白名单语义，区别只在于它的连接来自
+/// 上一跳的隧道而不是本地客户端。
+pub struct DownstreamDialer {
+    client: Arc<TunnelClient>,
+    target: TargetAddr,
+}
+
+impl DownstreamDialer {
+    pub fn new(client: Arc<TunnelClient>, target: TargetAddr) -> Self {
+        Self { client, target }
+    }
+}
+
+impl fmt::Debug for DownstreamDialer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // client 里有 hop_secret：只打目标地址，绝不打印密钥或握手材料。
+        f.debug_struct("DownstreamDialer")
+            .field("target", &self.target)
+            .finish_non_exhaustive()
+    }
 }
 
 impl TunnelServerConfig {
@@ -145,6 +175,7 @@ impl TunnelServerConfig {
             hops,
             max_connections: DEFAULT_MAX_CONNECTIONS,
             allowed_targets: Vec::new(),
+            downstream: None,
         }
     }
 
@@ -161,6 +192,7 @@ impl TunnelServerConfig {
             hops,
             max_connections: DEFAULT_MAX_CONNECTIONS,
             allowed_targets: Vec::new(),
+            downstream: None,
         }
     }
 }
@@ -176,6 +208,7 @@ impl fmt::Debug for TunnelServerConfig {
             .field("hops", &self.hops.keys().collect::<Vec<_>>())
             .field("max_connections", &self.max_connections)
             .field("allowed_targets", &self.allowed_targets)
+            .field("downstream", &self.downstream)
             .finish()
     }
 }
@@ -313,6 +346,8 @@ struct ServerInner {
     /// 启用 UDP 中继时要重新加载证书（TCP 的 `TlsAcceptor` 不暴露配置）。
     cert_path: PathBuf,
     key_path: PathBuf,
+    /// 中间跳的下一跳 dialer；`None` = 出口 Listener（2 跳链）。
+    downstream: Option<DownstreamDialer>,
 }
 
 /// 隧道服务端。`bind` 后由 `serve` 跑 accept 循环；本类型可 clone 进任务。
@@ -370,6 +405,7 @@ impl TunnelServer {
                 bound_addr,
                 cert_path: config.cert_path,
                 key_path: config.key_path,
+                downstream: config.downstream,
             }),
             quic: None,
         };
@@ -617,6 +653,30 @@ impl TunnelServer {
             ));
         }
 
+        // 中间跳：白名单校验通过后不直连目标，而是向下一跳建一条**新的**
+        // 加密隧道，帧层到帧层搬运。`downstream` 缺失的中间跳根本不会启动
+        // （见 supervisor），所以这里不存在「悄悄直连」的分支。
+        if let Some(downstream) = self.inner.downstream.as_ref() {
+            let connection = match downstream.client.connect(&downstream.target).await {
+                Ok(connection) => connection,
+                Err(error) => {
+                    // 下一跳不可达：明确回 CLOSE，让上一跳/客户端立即失败，
+                    // 绝不能退回 connect_target 或用明文继续。
+                    let _ = framing::write_frame(&mut stream, FrameKind::Close, &[]).await;
+                    return Err(error.context(format!(
+                        "中间跳连接下一跳 {:?} 失败 / middle hop failed to connect the next hop",
+                        downstream.target
+                    )));
+                }
+            };
+            tracing::debug!(
+                peer = %peer,
+                target = ?downstream.target,
+                "中间跳已连上下一跳，开始帧层搬运 / middle hop connected to the next hop, relaying frames"
+            );
+            return relay_frames(stream, connection, initial, peer).await;
+        }
+
         let upstream = match connect_target(&target).await {
             Ok(upstream) => upstream,
             Err(error) => {
@@ -752,6 +812,80 @@ async fn forward(
                             peer = %peer,
                             %error,
                             "隧道帧非法，断开连接 / invalid tunnel frame, disconnecting"
+                        );
+                    }
+                    Err(error.into())
+                }
+            }
+        }
+    }
+}
+
+/// 帧层 ↔ 帧层搬运（多跳链的中间跳）。
+///
+/// 两条连接各自完成过 TLS/Noise 握手：`inbound` 来自上一跳，`outbound` 是
+/// 本跳用 `downstream` 新建立的到下一跳的加密隧道。这里只搬 DATA 帧的
+/// payload；PING 由各自的 [`FrameIo`] 丢弃；CLOSE 仍是「立即断开」，
+/// 半关映射为对端写方向的 `shutdown`（TLS close_notify / Noise 半关）。
+async fn relay_frames(
+    inbound: BoxedStream,
+    outbound: TunnelConnection,
+    initial: Vec<u8>,
+    peer: std::net::SocketAddr,
+) -> Result<()> {
+    let mut inbound = FrameIo::new(inbound);
+    let mut outbound = outbound.into_frame_io();
+    if !initial.is_empty() {
+        outbound.write_all(&initial).await?;
+    }
+
+    let inbound_close = inbound.close_notify();
+    let inbound_closed = inbound.saw_close();
+    let outbound_close = outbound.close_notify();
+    let outbound_closed = outbound.saw_close();
+    let copy = tokio::io::copy_bidirectional_with_sizes(
+        &mut inbound,
+        &mut outbound,
+        COPY_BUF_SIZE,
+        COPY_BUF_SIZE,
+    );
+    tokio::pin!(copy);
+
+    tokio::select! {
+        biased;
+        _ = async {
+            if !inbound_closed {
+                inbound_close.notified().await;
+            }
+        } => {
+            tracing::debug!(%peer, "上一跳发送 CLOSE，立即断开 / previous hop sent CLOSE, closing immediately");
+            Ok(())
+        }
+        _ = async {
+            if !outbound_closed {
+                outbound_close.notified().await;
+            }
+        } => {
+            tracing::debug!(%peer, "下一跳发送 CLOSE，立即断开 / next hop sent CLOSE, closing immediately");
+            Ok(())
+        }
+        result = &mut copy => {
+            match result {
+                Ok((up, down)) => {
+                    tracing::debug!(
+                        %peer,
+                        up,
+                        down,
+                        "中间跳双向搬运结束 / middle hop relay finished"
+                    );
+                    Ok(())
+                }
+                Err(error) => {
+                    if error.kind() == io::ErrorKind::InvalidData {
+                        tracing::error!(
+                            %peer,
+                            %error,
+                            "中间跳帧非法，断开连接 / invalid tunnel frame on the middle hop, disconnecting"
                         );
                     }
                     Err(error.into())
@@ -1489,6 +1623,7 @@ mod tests {
                 // 回环测试统一允许 127.0.0.0/8 的任意端口；白名单拒绝路径由
                 // 单独的用例构造更严格的规则。
                 allowed_targets: vec![TargetRule::new("127.0.0.1", None)],
+                downstream: None,
             };
             let (server, listener) = TunnelServer::bind(config)
                 .await
@@ -1988,6 +2123,7 @@ mod tests {
             max_connections: DEFAULT_MAX_CONNECTIONS,
             // 只允许一个与 echo 无关的地址：请求 127.0.0.1 必须被拒绝。
             allowed_targets: vec![TargetRule::new("192.0.2.1", Some((1, 65535)))],
+            downstream: None,
         };
         let (server, listener) = TunnelServer::bind(config).await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -2078,6 +2214,7 @@ mod tests {
                 })
                 .collect(),
             udp: false,
+            downstream: None,
         }
     }
 

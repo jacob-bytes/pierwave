@@ -34,7 +34,8 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, Context, Result};
 use base64::Engine as _;
 use pierwave_proto::{
-    DesiredForward, ForwardEngine, ForwardStatus, TunnelRole, TunnelSecurity, TunnelSpec,
+    DesiredForward, ForwardEngine, ForwardStatus, TunnelDownstream, TunnelRole, TunnelSecurity,
+    TunnelSpec, TunnelTargetRule,
 };
 use rustls::pki_types::ServerName;
 use tokio::net::{lookup_host, TcpListener, TcpStream};
@@ -46,7 +47,9 @@ use super::udp_dialer::{self, DialerUdp, DialerUdpConfig};
 use crate::forward::ForwardStatusHandle;
 use crate::tunnel::framing::TargetAddr;
 use crate::tunnel::whitelist::{self, TargetRule};
-use crate::tunnel::{TunnelClient, TunnelServer, TunnelServerConfig, TunnelStatsHandle};
+use crate::tunnel::{
+    DownstreamDialer, TunnelClient, TunnelServer, TunnelServerConfig, TunnelStatsHandle,
+};
 
 /// 与 native / realm 一致的搬运缓冲；TLS record 16 KiB，32 KiB 覆盖两条。
 const COPY_BUF_SIZE: usize = 32 * 1024;
@@ -494,6 +497,18 @@ async fn start_endpoint(spec: &DesiredForward) -> Result<StartedEndpoint> {
                 Vec::new()
             };
             config.allowed_targets = allowed_targets;
+            // 中间跳：构建内嵌 dialer（下一跳地址、独立 hop_secret、CA 信任根）。
+            // 任何一步失败都让端点启动失败，绝不退化成「直连链目标」。
+            config.downstream = match tunnel.downstream.as_ref() {
+                Some(downstream) => Some(build_downstream(&tunnel, downstream).await.map_err(
+                    |error| {
+                        error.context(
+                            "隧道中间跳的 downstream 启动失败 / failed to start the middle-hop downstream",
+                        )
+                    },
+                )?),
+                None => None,
+            };
             let (server, listener) = TunnelServer::bind(config).await?;
             let bound_addr = listener.local_addr().context("读取隧道监听地址失败")?;
             // `udp = true` 时在同一个端口号上起 QUIC endpoint；绑定/证书失败
@@ -526,38 +541,24 @@ async fn start_endpoint(spec: &DesiredForward) -> Result<StartedEndpoint> {
             let bind: SocketAddr = tunnel.listen.parse().with_context(|| {
                 format!("监听地址非法 / invalid listen address: {}", tunnel.listen)
             })?;
-            let (remote, server_name) = resolve_remote(&tunnel.remote).await?;
-            // Dialer 只允许连「本链下一跳」：remote 必须命中 allowed_targets。
-            // 最后一条规则是每连接请求的目标（链目标），前面的规则用于约束 remote。
-            let allowed = target_rules(&tunnel);
-            let remote_target = remote_as_target(&tunnel.remote)?;
-            if !whitelist::allows(&allowed, &remote_target) {
-                bail!(
-                    "Dialer 的 remote {} 不在允许的目标列表内 / dialer remote is not allowlisted",
-                    tunnel.remote
-                );
-            }
-            let target = dial_target(&tunnel)?;
-            let client = match tunnel.security {
-                // TLS：CA 文件必须存在且可读。
-                TunnelSecurity::Tls => {
-                    let ca_path = tunnel.ca_pem_path.clone();
-                    TunnelClient::trusting_ca_file(
-                        remote,
-                        server_name,
-                        tunnel.hop_id.clone(),
-                        secret,
-                        std::path::Path::new(&ca_path),
-                    )?
-                }
-                // Noise：不需要 CA/SNI，只共享 hop_secret。
-                TunnelSecurity::Noise => TunnelClient::noise(remote, tunnel.hop_id.clone(), secret),
-            };
+            // 入口 Dialer 与中间跳的 downstream 共用同一套构建逻辑：
+            // 解析 remote、校验白名单、加载 CA、算出每连接请求的目标。
+            let built = build_dialer(
+                &tunnel.hop_id,
+                &tunnel.remote,
+                secret,
+                tunnel.security,
+                &tunnel.ca_pem_path,
+                &tunnel.allowed_targets,
+                "Dialer",
+            )
+            .await?;
+            let client = built.client;
+            let target = built.target;
             let listener = TcpListener::bind(bind).await.with_context(|| {
                 format!("绑定隧道入口 {bind} 失败 / failed to bind tunnel dialer")
             })?;
             let bound_addr = listener.local_addr().context("读取隧道入口地址失败")?;
-            let client = Arc::new(client);
             // UDP 入口与 TCP 入口同 IP、同端口号。候选目标**只传链目标那一条**：
             // 把含下一跳的整份白名单传进去，一致性哈希可能把 Listener 当后端。
             let udp = if tunnel.udp {
@@ -608,9 +609,7 @@ async fn start_endpoint(spec: &DesiredForward) -> Result<StartedEndpoint> {
 }
 
 fn validate_spec(spec: &TunnelSpec) -> Result<()> {
-    if spec.hop_id.trim().is_empty() || spec.hop_id.len() > 255 {
-        bail!("hop_id 长度非法（1..=255）/ invalid hop_id length (1..=255)");
-    }
+    validate_hop_id(&spec.hop_id)?;
     // 主控保存时已拒绝；Agent 再挡一次，避免旧/手工数据让端点起一半。
     if spec.udp && spec.security != TunnelSecurity::Tls {
         bail!("Noise 模式的 UDP 中继本轮不做 / UDP relay over Noise is not implemented yet");
@@ -625,8 +624,18 @@ fn validate_spec(spec: &TunnelSpec) -> Result<()> {
                     "Listener 缺少证书/私钥路径（证书缺失）/ listener is missing certificate/key paths (certificate missing)"
                 );
             }
+            if let Some(downstream) = spec.downstream.as_ref() {
+                // 中间跳的 QUIC 出口只会把数据报发给链目标；3+ 跳会绕过后续跳。
+                if spec.udp {
+                    bail!("UDP 中继不支持多跳中间跳 / the UDP relay does not support middle hops");
+                }
+                validate_downstream(spec, downstream)?;
+            }
         }
         TunnelRole::Dialer => {
+            if spec.downstream.is_some() {
+                bail!("Dialer 不能带 downstream / a dialer must not carry downstream");
+            }
             if spec.remote.trim().is_empty() {
                 bail!("Dialer 缺少 remote / dialer is missing remote address");
             }
@@ -639,9 +648,137 @@ fn validate_spec(spec: &TunnelSpec) -> Result<()> {
     Ok(())
 }
 
+fn validate_hop_id(hop_id: &str) -> Result<()> {
+    if hop_id.trim().is_empty() || hop_id.len() > 255 {
+        bail!("hop_id 长度非法（1..=255）/ invalid hop_id length (1..=255)");
+    }
+    Ok(())
+}
+
+/// 中间跳的 downstream 必须在启动前完整：地址、独立密钥、CA、目标白名单。
+///
+/// 相邻两段共用 `hop_id` / `hop_secret` 意味着整条链实际上只加密了一次
+/// （同一对 PSK、同一段握手），与「每一跳独立加密」的需求冲突——直接拒绝。
+fn validate_downstream(spec: &TunnelSpec, downstream: &TunnelDownstream) -> Result<()> {
+    validate_hop_id(&downstream.hop_id)?;
+    if downstream.remote.trim().is_empty() {
+        bail!("downstream 缺少 remote / downstream is missing the remote address");
+    }
+    if downstream.allowed_targets.is_empty() {
+        bail!(
+            "downstream 的 allowed_targets 为空，无法确定目标 / downstream has no allowed target"
+        );
+    }
+    if downstream.hop_id == spec.hop_id {
+        bail!(
+            "中间跳的两段必须使用不同的 hop_id / adjacent segments of a middle hop must use different hop_ids"
+        );
+    }
+    if downstream.hop_secret == spec.hop_secret {
+        bail!(
+            "中间跳的 hop_secret 必须按段独立派生 / adjacent segments of a middle hop must derive independent hop_secrets"
+        );
+    }
+    if spec.security == TunnelSecurity::Tls && downstream.ca_pem_path.trim().is_empty() {
+        bail!("downstream 缺少 ca_pem_path / downstream is missing the CA path");
+    }
+    Ok(())
+}
+
+/// 构建一个 dialer：解析对端、校验白名单、加载信任根、算出每连接目标。
+///
+/// 入口 Dialer（`label = "Dialer"`）与中间跳的 `downstream`（`label =
+/// "downstream"`）共用这一份逻辑，两边的白名单语义必须完全一致。
+async fn build_dialer(
+    hop_id: &str,
+    remote: &str,
+    secret: Vec<u8>,
+    security: TunnelSecurity,
+    ca_pem_path: &str,
+    allowed_targets: &[TunnelTargetRule],
+    label: &str,
+) -> Result<BuiltDialer> {
+    validate_hop_id(hop_id)?;
+    if remote.trim().is_empty() {
+        bail!("{label} 缺少 remote / {label} is missing the remote address");
+    }
+    let (addr, server_name) = resolve_remote(remote).await?;
+    // Dialer 只允许连「本链下一跳」：remote 必须命中 allowed_targets。
+    // 最后一条规则是每连接请求的目标（链目标），前面的规则用于约束 remote。
+    let allowed = target_rules_from(allowed_targets);
+    let remote_target = remote_as_target(remote)?;
+    if !whitelist::allows(&allowed, &remote_target) {
+        bail!(
+            "{label} 的 remote {remote} 不在允许的目标列表内 / {label} remote is not allowlisted"
+        );
+    }
+    let target = dial_target_from(allowed_targets, label)?;
+    let client = match security {
+        // TLS：CA 文件必须存在且可读。
+        TunnelSecurity::Tls => {
+            if ca_pem_path.trim().is_empty() {
+                bail!("{label} 缺少 ca_pem_path / {label} is missing the CA path");
+            }
+            TunnelClient::trusting_ca_file(
+                addr,
+                server_name,
+                hop_id.to_string(),
+                secret,
+                std::path::Path::new(ca_pem_path),
+            )?
+        }
+        // Noise：不需要 CA/SNI，只共享 hop_secret。
+        TunnelSecurity::Noise => TunnelClient::noise(addr, hop_id.to_string(), secret),
+    };
+    Ok(BuiltDialer {
+        client: Arc::new(client),
+        target,
+    })
+}
+
+/// 一个已构建好的 dialer。
+struct BuiltDialer {
+    client: Arc<TunnelClient>,
+    target: TargetAddr,
+}
+
+/// 中间跳的内嵌 dialer：用**下一段**的 hop_id/hop_secret/CA 连下一跳。
+async fn build_downstream(
+    spec: &TunnelSpec,
+    downstream: &TunnelDownstream,
+) -> Result<DownstreamDialer> {
+    let secret = base64::engine::general_purpose::STANDARD
+        .decode(&downstream.hop_secret)
+        .context(
+            "downstream.hop_secret 不是合法 base64 / downstream.hop_secret is not valid base64",
+        )?;
+    if secret.len() != 32 {
+        bail!(
+            "downstream.hop_secret 必须是 32 字节（base64 解码后 {} 字节）/ downstream.hop_secret must be 32 bytes, got {}",
+            secret.len(),
+            secret.len()
+        );
+    }
+    let built = build_dialer(
+        &downstream.hop_id,
+        &downstream.remote,
+        secret,
+        spec.security,
+        &downstream.ca_pem_path,
+        &downstream.allowed_targets,
+        "downstream",
+    )
+    .await?;
+    Ok(DownstreamDialer::new(built.client, built.target))
+}
+
 /// 把 proto 里的白名单规则转成 Agent 侧的匹配器。
 fn target_rules(spec: &TunnelSpec) -> Vec<TargetRule> {
-    spec.allowed_targets
+    target_rules_from(&spec.allowed_targets)
+}
+
+fn target_rules_from(rules: &[TunnelTargetRule]) -> Vec<TargetRule> {
+    rules
         .iter()
         .map(|rule| TargetRule::new(rule.host.clone(), rule.ports))
         .collect()
@@ -649,16 +786,20 @@ fn target_rules(spec: &TunnelSpec) -> Vec<TargetRule> {
 
 /// Dialer 每连接请求的目标：白名单的**最后一条**。
 ///
-/// 主控为 2 跳链生成两条规则：第一条是下一跳 Listener（约束 `remote`），
-/// 最后一条是链目标（真正请求给 Listener 的地址）。多条时取最后一条，
-/// 且必须有确定端口。
+/// 主控为多跳链的每个 dialer 生成两条规则：第一条是下一跳 Listener
+/// （约束 `remote`），最后一条是链目标（真正请求给 Listener 的地址）。
+/// 多条时取最后一条，且必须有确定端口。
 fn dial_target(spec: &TunnelSpec) -> Result<TargetAddr> {
-    let Some(rule) = spec.allowed_targets.last() else {
-        bail!("Dialer 的 allowed_targets 为空，无法确定隧道目标 / dialer has no allowed target");
+    dial_target_from(&spec.allowed_targets, "Dialer")
+}
+
+fn dial_target_from(rules: &[TunnelTargetRule], label: &str) -> Result<TargetAddr> {
+    let Some(rule) = rules.last() else {
+        bail!("{label} 的 allowed_targets 为空，无法确定隧道目标 / {label} has no allowed target");
     };
     let Some((port, _)) = rule.ports else {
         bail!(
-            "Dialer 的目标规则必须指定端口 / dialer target rule must specify a port: {}",
+            "{label} 的目标规则必须指定端口 / {label} target rule must specify a port: {}",
             rule.host
         );
     };
@@ -667,7 +808,7 @@ fn dial_target(spec: &TunnelSpec) -> Result<TargetAddr> {
     }
     let host = rule.host.trim().to_string();
     if host.is_empty() {
-        bail!("Dialer 的目标域名为空 / dialer target host is empty");
+        bail!("{label} 的目标域名为空 / {label} target host is empty");
     }
     Ok(TargetAddr::Domain { host, port })
 }
@@ -729,7 +870,8 @@ async fn resolve_remote(remote: &str) -> Result<(SocketAddr, ServerName<'static>
 
     let addrs: Vec<SocketAddr> = timeout(RESOLVE_TIMEOUT, lookup_host((host, port)))
         .await
-        .context("解析 remote 超时 / resolving remote timed out")??
+        .context("解析 remote 超时 / resolving remote timed out")?
+        .with_context(|| format!("解析 remote 失败 / failed to resolve remote: {host}:{port}"))?
         .collect();
     let addr = addrs
         .into_iter()
@@ -911,6 +1053,7 @@ mod tests {
                     })
                     .collect(),
                 udp: false,
+                downstream: None,
             }),
         }
     }
@@ -1056,6 +1199,36 @@ mod tests {
             }
         });
         (addr, task)
+    }
+
+    /// 带 accept 计数的目标服务：用于断言「downstream 不可达时绝不直连目标」。
+    async fn spawn_counted_echo() -> (SocketAddr, Arc<AtomicUsize>, JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&accepted);
+        let task = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                counter.fetch_add(1, Ordering::SeqCst);
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 4096];
+                    loop {
+                        match stream.read(&mut buf).await {
+                            Ok(0) | Err(_) => break,
+                            Ok(read) => {
+                                if stream.write_all(&buf[..read]).await.is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        });
+        (addr, accepted, task)
     }
 
     async fn roundtrip(port: u16, payload: &[u8]) -> Vec<u8> {
@@ -1851,5 +2024,513 @@ mod tests {
             .map(|failures| retry_delay(failures).as_secs())
             .collect();
         assert_eq!(delays, [15, 30, 60, 120, 240, 300, 300, 300]);
+    }
+
+    // ---------------------------------------------------------------
+    // 3–6 跳：中间跳既是 Listener 又是 Dialer
+    // ---------------------------------------------------------------
+
+    /// proto 白名单规则：精确 IP + 单端口（测试拓扑都是回环地址）。
+    fn proto_rule(addr: SocketAddr) -> TunnelTargetRule {
+        TunnelTargetRule {
+            host: addr.ip().to_string(),
+            ports: Some((addr.port(), addr.port())),
+        }
+    }
+
+    /// 构造一条 hop 的期望态：每个字段显式给出，避免多跳测试里串用默认值。
+    #[allow(clippy::too_many_arguments)]
+    fn tunnel_forward(
+        id: &str,
+        role: TunnelRole,
+        listen_port: u16,
+        hop_id: &str,
+        secret: &[u8],
+        remote: &str,
+        cert: &str,
+        key: &str,
+        ca: &str,
+        allowed: &[TunnelTargetRule],
+        downstream: Option<TunnelDownstream>,
+    ) -> DesiredForward {
+        DesiredForward {
+            id: id.into(),
+            listen_port: i64::from(listen_port),
+            target_host: String::new(),
+            target_port: 0,
+            targets: Vec::new(),
+            strategy: Default::default(),
+            engine: ForwardEngine::Tunnel,
+            protocol: Default::default(),
+            udp: false,
+            listen_transport: None,
+            remote_transport: None,
+            disable_udp: false,
+            listen_host: None,
+            tunnel: Some(TunnelSpec {
+                role,
+                hop_id: hop_id.into(),
+                listen: format!("127.0.0.1:{listen_port}"),
+                remote: remote.into(),
+                security: TunnelSecurity::Tls,
+                cert_pem_path: cert.into(),
+                key_pem_path: key.into(),
+                ca_pem_path: ca.into(),
+                hop_secret: base64_secret(secret),
+                allowed_targets: allowed.to_vec(),
+                udp: false,
+                downstream: downstream.map(Box::new),
+            }),
+        }
+    }
+
+    fn listen_addr(port: u16) -> SocketAddr {
+        format!("127.0.0.1:{port}").parse().unwrap()
+    }
+
+    /// 两段不同的 32 字节密钥：中间跳的两段必须独立。
+    const SEG_1: [u8; 32] = [0x11; 32];
+    const SEG_2: [u8; 32] = [0x22; 32];
+    const SEG_3: [u8; 32] = [0x33; 32];
+
+    /// 3 跳：入口 Dialer → 中间跳（Listener + downstream）→ 出口 Listener。
+    /// 数据必须穿过**两段**独立加密隧道到达目标并回显。
+    #[tokio::test]
+    async fn three_hop_tunnel_relays_through_two_encrypted_segments() {
+        let (echo_addr, echo_task) = spawn_echo().await;
+        let (_dir, cert, key, ca) = certs();
+        let cert = cert.display().to_string();
+        let key = key.display().to_string();
+        let ca = ca.display().to_string();
+
+        let entry_port = free_port();
+        let middle_port = free_port();
+        let exit_port = free_port();
+        let next1 = listen_addr(middle_port);
+        let next2 = listen_addr(exit_port);
+        let target = proto_rule(echo_addr);
+
+        let entry = tunnel_forward(
+            "three-entry",
+            TunnelRole::Dialer,
+            entry_port,
+            "chain-3:1",
+            &SEG_1,
+            &format!("127.0.0.1:{middle_port}"),
+            "",
+            "",
+            &ca,
+            &[proto_rule(next1), target.clone()],
+            None,
+        );
+        let middle = tunnel_forward(
+            "three-middle",
+            TunnelRole::Listener,
+            middle_port,
+            "chain-3:1",
+            &SEG_1,
+            "",
+            &cert,
+            &key,
+            "",
+            std::slice::from_ref(&target),
+            Some(TunnelDownstream {
+                hop_id: "chain-3:2".into(),
+                remote: format!("127.0.0.1:{exit_port}"),
+                hop_secret: base64_secret(&SEG_2),
+                ca_pem_path: ca.clone(),
+                allowed_targets: vec![proto_rule(next2), target.clone()],
+            }),
+        );
+        let exit = tunnel_forward(
+            "three-exit",
+            TunnelRole::Listener,
+            exit_port,
+            "chain-3:2",
+            &SEG_2,
+            "",
+            &cert,
+            &key,
+            "",
+            &[target],
+            None,
+        );
+
+        let mut supervisor = TunnelSupervisor::new();
+        supervisor.apply(&[entry, middle, exit]).await;
+        for id in ["three-entry", "three-middle", "three-exit"] {
+            let status = status_of(&supervisor, id);
+            assert!(status.listening, "{id}: {status:?}");
+            assert!(status.error.is_empty(), "{id}: {status:?}");
+        }
+
+        assert_eq!(
+            roundtrip(entry_port, b"three-hop-payload").await,
+            b"three-hop-payload",
+            "数据必须经两段加密隧道到达目标并回显"
+        );
+        // 中间跳真的接受了一条隧道连接（不是绕过去直连目标）。
+        let middle_stats = supervisor.running["three-middle"]
+            .stats
+            .as_ref()
+            .expect("Listener 必须有 stats")
+            .snapshot();
+        assert!(
+            middle_stats.total >= 1,
+            "中间跳必须真的接受过连接：{middle_stats:?}"
+        );
+        let exit_stats = supervisor.running["three-exit"]
+            .stats
+            .as_ref()
+            .expect("Listener 必须有 stats")
+            .snapshot();
+        assert!(
+            exit_stats.total >= 1,
+            "出口跳必须真的接受过连接：{exit_stats:?}"
+        );
+        println!("[3-hop] roundtrip ok; middle={middle_stats:?} exit={exit_stats:?}");
+
+        supervisor.apply(&[]).await;
+        echo_task.abort();
+    }
+
+    /// 4 跳：入口 → 中间 1 → 中间 2 → 出口，三段独立隧道全部跑通。
+    #[tokio::test]
+    async fn four_hop_tunnel_relays_through_three_encrypted_segments() {
+        let (echo_addr, echo_task) = spawn_echo().await;
+        let (_dir, cert, key, ca) = certs();
+        let cert = cert.display().to_string();
+        let key = key.display().to_string();
+        let ca = ca.display().to_string();
+
+        let entry_port = free_port();
+        let hop1_port = free_port();
+        let hop2_port = free_port();
+        let exit_port = free_port();
+        let next1 = listen_addr(hop1_port);
+        let next2 = listen_addr(hop2_port);
+        let next3 = listen_addr(exit_port);
+        let target = proto_rule(echo_addr);
+
+        let entry = tunnel_forward(
+            "four-entry",
+            TunnelRole::Dialer,
+            entry_port,
+            "chain-4:1",
+            &SEG_1,
+            &format!("127.0.0.1:{hop1_port}"),
+            "",
+            "",
+            &ca,
+            &[proto_rule(next1), target.clone()],
+            None,
+        );
+        let hop1 = tunnel_forward(
+            "four-hop1",
+            TunnelRole::Listener,
+            hop1_port,
+            "chain-4:1",
+            &SEG_1,
+            "",
+            &cert,
+            &key,
+            "",
+            std::slice::from_ref(&target),
+            Some(TunnelDownstream {
+                hop_id: "chain-4:2".into(),
+                remote: format!("127.0.0.1:{hop2_port}"),
+                hop_secret: base64_secret(&SEG_2),
+                ca_pem_path: ca.clone(),
+                allowed_targets: vec![proto_rule(next2), target.clone()],
+            }),
+        );
+        let hop2 = tunnel_forward(
+            "four-hop2",
+            TunnelRole::Listener,
+            hop2_port,
+            "chain-4:2",
+            &SEG_2,
+            "",
+            &cert,
+            &key,
+            "",
+            std::slice::from_ref(&target),
+            Some(TunnelDownstream {
+                hop_id: "chain-4:3".into(),
+                remote: format!("127.0.0.1:{exit_port}"),
+                hop_secret: base64_secret(&SEG_3),
+                ca_pem_path: ca.clone(),
+                allowed_targets: vec![proto_rule(next3), target.clone()],
+            }),
+        );
+        let exit = tunnel_forward(
+            "four-exit",
+            TunnelRole::Listener,
+            exit_port,
+            "chain-4:3",
+            &SEG_3,
+            "",
+            &cert,
+            &key,
+            "",
+            &[target],
+            None,
+        );
+
+        let mut supervisor = TunnelSupervisor::new();
+        supervisor.apply(&[entry, hop1, hop2, exit]).await;
+        for id in ["four-entry", "four-hop1", "four-hop2", "four-exit"] {
+            assert!(status_of(&supervisor, id).listening, "{id}: {id}");
+        }
+        assert_eq!(
+            roundtrip(entry_port, b"four-hop-payload").await,
+            b"four-hop-payload",
+            "数据必须经三段加密隧道到达目标并回显"
+        );
+        for id in ["four-hop1", "four-hop2", "four-exit"] {
+            let stats = supervisor.running[id]
+                .stats
+                .as_ref()
+                .expect("Listener 必须有 stats")
+                .snapshot();
+            assert!(stats.total >= 1, "{id} 必须真的接受过连接：{stats:?}");
+        }
+        println!("[4-hop] roundtrip ok");
+
+        supervisor.apply(&[]).await;
+        echo_task.abort();
+    }
+
+    /// 中间跳的下一跳不可达：连接必须 fail closed（回 CLOSE，客户端拿不到
+    /// 任何回显），绝不能退回直连链目标或明文。
+    #[tokio::test]
+    async fn unreachable_downstream_fails_closed_without_dialing_the_chain_target() {
+        let (echo_addr, accepted, echo_task) = spawn_counted_echo().await;
+        let (_dir, cert, key, ca) = certs();
+        let cert = cert.display().to_string();
+        let key = key.display().to_string();
+        let ca = ca.display().to_string();
+
+        let entry_port = free_port();
+        let middle_port = free_port();
+        // 拿一个刚释放的空闲端口：没有监听者，TCP connect 会立刻被拒。
+        let closed_port = free_port();
+        let next1 = listen_addr(middle_port);
+        let target = proto_rule(echo_addr);
+
+        let entry = tunnel_forward(
+            "dead-entry",
+            TunnelRole::Dialer,
+            entry_port,
+            "chain-dead:1",
+            &SEG_1,
+            &format!("127.0.0.1:{middle_port}"),
+            "",
+            "",
+            &ca,
+            &[proto_rule(next1), target.clone()],
+            None,
+        );
+        let middle = tunnel_forward(
+            "dead-middle",
+            TunnelRole::Listener,
+            middle_port,
+            "chain-dead:1",
+            &SEG_1,
+            "",
+            &cert,
+            &key,
+            "",
+            std::slice::from_ref(&target),
+            Some(TunnelDownstream {
+                hop_id: "chain-dead:2".into(),
+                remote: format!("127.0.0.1:{closed_port}"),
+                hop_secret: base64_secret(&SEG_2),
+                ca_pem_path: ca.clone(),
+                allowed_targets: vec![
+                    TunnelTargetRule {
+                        host: "127.0.0.1".into(),
+                        ports: Some((closed_port, closed_port)),
+                    },
+                    target.clone(),
+                ],
+            }),
+        );
+
+        let mut supervisor = TunnelSupervisor::new();
+        supervisor.apply(&[entry, middle]).await;
+        // 对端不可达是运行期事件：端点本身能起来，但每条连接都必须失败。
+        assert!(status_of(&supervisor, "dead-entry").listening);
+        assert!(status_of(&supervisor, "dead-middle").listening);
+
+        let mut client = TcpStream::connect(("127.0.0.1", entry_port))
+            .await
+            .expect("入口必须可连");
+        client
+            .write_all(b"must-not-reach-target")
+            .await
+            .expect("写入入口失败");
+        let mut echoed = [0u8; 32];
+        let read = timeout(Duration::from_secs(5), client.read(&mut echoed))
+            .await
+            .expect("等待失败返回超时");
+        match read {
+            Ok(0) | Err(_) => {}
+            Ok(read) => panic!("下一跳不可达时不能有回显，实际读到 {read} 字节"),
+        }
+        // 给「可能迟到的连接」留一点时间；目标一次都不能被连。
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            accepted.load(Ordering::SeqCst),
+            0,
+            "downstream 不可达时绝不能直连链目标"
+        );
+
+        supervisor.apply(&[]).await;
+        echo_task.abort();
+    }
+
+    /// 中间跳两段共用 hop_id / hop_secret 时端点必须拒绝启动（fail closed）：
+    /// 那等于整条链只加密了一次。
+    #[tokio::test]
+    async fn middleware_rejects_shared_hop_identity_between_segments() {
+        let (_dir, cert, key, ca) = certs();
+        let cert = cert.display().to_string();
+        let key = key.display().to_string();
+        let ca = ca.display().to_string();
+        let port = free_port();
+        let target = proto_rule("127.0.0.1:1".parse().unwrap());
+
+        let middle = tunnel_forward(
+            "shared-secret",
+            TunnelRole::Listener,
+            port,
+            "chain-shared:1",
+            &SEG_1,
+            "",
+            &cert,
+            &key,
+            "",
+            std::slice::from_ref(&target),
+            Some(TunnelDownstream {
+                // 与上一段相同：必须被拒绝。
+                hop_id: "chain-shared:1".into(),
+                remote: "127.0.0.1:1".into(),
+                hop_secret: base64_secret(&SEG_1),
+                ca_pem_path: ca,
+                allowed_targets: vec![
+                    TunnelTargetRule {
+                        host: "127.0.0.1".into(),
+                        ports: Some((1, 1)),
+                    },
+                    target.clone(),
+                ],
+            }),
+        );
+
+        let mut supervisor = TunnelSupervisor::new();
+        supervisor.apply(&[middle]).await;
+        let status = status_of(&supervisor, "shared-secret");
+        assert!(!status.listening, "{status:?}");
+        assert!(
+            status.error.contains("hop_id"),
+            "必须说清是 hop_id 冲突：{}",
+            status.error
+        );
+        supervisor.apply(&[]).await;
+    }
+
+    /// downstream 的对端解析不到（不可达的配置错误）：端点启动失败并给出原因，
+    /// 不能起一个「永远连不到下一跳」的假监听。
+    #[tokio::test]
+    async fn unresolvable_downstream_fails_to_start_with_a_reason() {
+        let (_dir, cert, key, ca) = certs();
+        let cert = cert.display().to_string();
+        let key = key.display().to_string();
+        let ca = ca.display().to_string();
+        let port = free_port();
+        let target = proto_rule("127.0.0.1:1".parse().unwrap());
+
+        let middle = tunnel_forward(
+            "downstream-unresolvable",
+            TunnelRole::Listener,
+            port,
+            "chain-unresolvable:1",
+            &SEG_1,
+            "",
+            &cert,
+            &key,
+            "",
+            std::slice::from_ref(&target),
+            Some(TunnelDownstream {
+                hop_id: "chain-unresolvable:2".into(),
+                // `.invalid` 是保留 TLD，DNS 必须解析失败。
+                remote: "tunnel-next-hop.invalid:19403".into(),
+                hop_secret: base64_secret(&SEG_2),
+                ca_pem_path: ca,
+                allowed_targets: vec![
+                    TunnelTargetRule {
+                        host: "tunnel-next-hop.invalid".into(),
+                        ports: Some((19403, 19403)),
+                    },
+                    target.clone(),
+                ],
+            }),
+        );
+
+        let mut supervisor = TunnelSupervisor::new();
+        supervisor.apply(&[middle]).await;
+        let status = status_of(&supervisor, "downstream-unresolvable");
+        assert!(!status.listening, "{status:?}");
+        assert!(
+            status.error.contains("解析 remote") || status.error.contains("resolving remote"),
+            "必须说明下一跳解析失败：{}",
+            status.error
+        );
+        supervisor.apply(&[]).await;
+    }
+
+    /// downstream 的 remote 不在它自己的白名单里：启动失败并给出可读原因。
+    #[tokio::test]
+    async fn downstream_remote_must_be_allowlisted() {
+        let (_dir, cert, key, ca) = certs();
+        let cert = cert.display().to_string();
+        let key = key.display().to_string();
+        let ca = ca.display().to_string();
+        let port = free_port();
+        let target = proto_rule("127.0.0.1:1".parse().unwrap());
+
+        let middle = tunnel_forward(
+            "downstream-deny",
+            TunnelRole::Listener,
+            port,
+            "chain-deny:1",
+            &SEG_1,
+            "",
+            &cert,
+            &key,
+            "",
+            std::slice::from_ref(&target),
+            Some(TunnelDownstream {
+                hop_id: "chain-deny:2".into(),
+                remote: "127.0.0.1:2".into(),
+                hop_secret: base64_secret(&SEG_2),
+                ca_pem_path: ca,
+                // 白名单只含链目标，不含下一跳 127.0.0.1:2。
+                allowed_targets: vec![target.clone()],
+            }),
+        );
+
+        let mut supervisor = TunnelSupervisor::new();
+        supervisor.apply(&[middle]).await;
+        let status = status_of(&supervisor, "downstream-deny");
+        assert!(!status.listening, "{status:?}");
+        assert!(
+            status.error.contains("不在允许的目标列表内")
+                && status.error.contains("not allowlisted"),
+            "必须说明 downstream 的 remote 未被白名单允许：{}",
+            status.error
+        );
+        supervisor.apply(&[]).await;
     }
 }

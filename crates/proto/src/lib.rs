@@ -5,7 +5,14 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 23;
+pub const PROTOCOL_VERSION: u32 = 24;
+
+/// 主控开始支持 3–6 跳隧道（`TunnelSpec.downstream`）的最低 Agent 协议版本。
+///
+/// 旧 Agent 不认识 `downstream` 字段，会把中间跳当成出口 Listener 直接用首帧
+/// 目标连出去——链路仍然加密，但**跳数被静默截短**。主控据此在保存/下发两条
+/// 路径上拒绝把 3+ 跳隧道下发到旧 Agent，绝不降级。
+pub const TUNNEL_MULTIHOP_PROTOCOL_VERSION: u32 = 24;
 
 /// 主控开始理解 `protocol = udp`（仅 UDP）的最低 Agent 协议版本。
 ///
@@ -330,6 +337,12 @@ impl std::fmt::Display for TunnelSecurity {
 /// * 出口服务器（第 1 跳）拿 [`TunnelRole::Listener`]：在 `listen` 上接受
 ///   TLS 隧道，首帧地址必须命中 `allowed_targets`，然后才连目标。
 ///
+/// 3–6 跳链在上面的基础上给**中间跳**（第 1..n-2 跳）加
+/// [`TunnelSpec::downstream`]：它同时是 Listener（接上一跳）和 Dialer
+/// （连下一跳），因此相邻每一段都是独立的加密隧道。入口 Dialer 与每一段的
+/// `hop_id` / `hop_secret` 都不同（按 `tunnel/{chain_id}/{seq}` 派生），
+/// 一段密钥泄漏不会影响其它段。
+///
 /// `hop_secret` 是 base64 的 32 字节 HMAC 密钥，由主控按
 /// `HMAC(master_secret, "tunnel/{chain_id}/{seq}")` 派生。证书/CA 的路径
 /// 由主控决定，并通过 `DesiredState.files` 同批下发。
@@ -366,6 +379,38 @@ pub struct TunnelSpec {
     /// 旧主控不下发时为 `false`，也就是纯 TCP 隧道，行为与升级前一致。
     #[serde(default)]
     pub udp: bool,
+    /// 中间跳的下一跳 dialer（P16 多跳，3–6 跳链）。
+    ///
+    /// * `None`：2 跳链的出口 Listener，或者入口 Dialer，行为与升级前完全
+    ///   一致；序列化时这个键**完全不出现**，2 跳配置逐字节不变；
+    /// * `Some`：中间跳（既被上一跳连、又主动连下一跳）。Listener 收到首帧、
+    ///   通过白名单校验后不再 `connect_target`，而是用这个内嵌 dialer 向下一跳
+    ///   建一条**新的加密隧道**，帧层到帧层双向搬运。
+    ///
+    /// 只有 `role = Listener` 才有意义；`role = Dialer` 时必须是 `None`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub downstream: Option<Box<TunnelDownstream>>,
+}
+
+/// 中间跳的下一跳参数（`TunnelSpec.downstream`）。
+///
+/// 安全模式（TLS/Noise）与链一致，沿用父级 [`TunnelSpec::security`]，不在这里
+/// 重复。TLS 模式必须有 `ca_pem_path`；Noise 模式三个证书路径都为空串。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TunnelDownstream {
+    /// 本段（中间跳 → 下一跳）的链路标识，与下一跳 Listener 的 `hop_id` 相同。
+    pub hop_id: String,
+    /// 下一跳 Listener 的地址（`host:port`）。
+    pub remote: String,
+    /// base64(32B) 的每段 HMAC 密钥；与下一跳 Listener 的 `hop_secret` 相同。
+    pub hop_secret: String,
+    /// 只信任的 CA（PEM）；TLS 模式必填，Noise 模式为空串。
+    #[serde(default)]
+    pub ca_pem_path: String,
+    /// 本条 dialer 的白名单：第一条约束 `remote`（下一跳），最后一条是每连接
+    /// 请求的目标（链目标）。空 = 拒绝一切（fail closed）。
+    #[serde(default)]
+    pub allowed_targets: Vec<TunnelTargetRule>,
 }
 
 /// 隧道目标白名单规则。
@@ -737,8 +782,12 @@ mod tests {
     #[test]
     fn forward_udp_defaults_to_false_for_old_masters() {
         assert_eq!(
-            PROTOCOL_VERSION, 23,
-            "新增 Heartbeat.protocol_version 必须升协议版本"
+            PROTOCOL_VERSION, 24,
+            "新增 TunnelSpec.downstream（3–6 跳）必须升协议版本"
+        );
+        assert_eq!(
+            TUNNEL_MULTIHOP_PROTOCOL_VERSION, 24,
+            "3–6 跳隧道从协议 24 开始支持"
         );
         assert_eq!(UDP_PROTOCOL_VERSION, 16, "仅 UDP 从协议 16 开始支持");
 
@@ -1089,6 +1138,7 @@ mod tests {
                 ports: Some((443, 443)),
             }],
             udp: false,
+            downstream: None,
         };
         let mut with_tunnel = forward.clone();
         with_tunnel.engine = ForwardEngine::Tunnel;
@@ -1103,6 +1153,11 @@ mod tests {
         assert_eq!(
             json["tunnel"]["allowed_targets"][0]["ports"],
             serde_json::json!([443, 443])
+        );
+        // 2 跳配置逐字节不变：downstream=None 时这个键不能出现在线上 JSON。
+        assert!(
+            json["tunnel"].get("downstream").is_none(),
+            "2 跳隧道不能出现 downstream 键：{json}"
         );
         let back: DesiredForward = serde_json::from_value(json).unwrap();
         assert_eq!(back, with_tunnel);
@@ -1159,6 +1214,59 @@ mod tests {
         assert_eq!(json["role"], "dialer");
         let back: TunnelSpec = serde_json::from_value(json).unwrap();
         assert_eq!(back.role, TunnelRole::Dialer);
+    }
+
+    /// 3–6 跳链的中间跳：`downstream` 是新增可选段，原样往返，
+    /// 旧主控报文解析成 `None`（2 跳行为不变）。
+    #[test]
+    fn tunnel_downstream_roundtrips_and_defaults_to_none() {
+        let mut spec = TunnelSpec {
+            role: TunnelRole::Listener,
+            hop_id: "c1:1".into(),
+            listen: "0.0.0.0:19402".into(),
+            remote: String::new(),
+            security: TunnelSecurity::Tls,
+            cert_pem_path: "/tunnel/srv-b.pem".into(),
+            key_pem_path: "/tunnel/srv-b.key".into(),
+            ca_pem_path: "/tunnel/ca.pem".into(),
+            hop_secret: "c2VjcmV0LTE=".into(),
+            allowed_targets: vec![TunnelTargetRule {
+                host: "1.1.1.1".into(),
+                ports: Some((443, 443)),
+            }],
+            udp: false,
+            downstream: None,
+        };
+        // 旧主控的中间跳报文没有 downstream：必须是 None，不能靠猜。
+        let back: TunnelSpec =
+            serde_json::from_value(serde_json::to_value(&spec).unwrap()).unwrap();
+        assert_eq!(back.downstream, None);
+
+        spec.downstream = Some(Box::new(TunnelDownstream {
+            hop_id: "c1:2".into(),
+            remote: "10.0.0.3:19403".into(),
+            hop_secret: "c2VjcmV0LTI=".into(),
+            ca_pem_path: "/tunnel/ca.pem".into(),
+            allowed_targets: vec![
+                TunnelTargetRule {
+                    host: "10.0.0.3".into(),
+                    ports: Some((19403, 19403)),
+                },
+                TunnelTargetRule {
+                    host: "1.1.1.1".into(),
+                    ports: Some((443, 443)),
+                },
+            ],
+        }));
+        let json = serde_json::to_value(&spec).unwrap();
+        assert_eq!(json["downstream"]["hop_id"], "c1:2");
+        assert_eq!(json["downstream"]["remote"], "10.0.0.3:19403");
+        assert_eq!(
+            json["downstream"]["allowed_targets"][0]["ports"],
+            serde_json::json!([19403, 19403])
+        );
+        let back: TunnelSpec = serde_json::from_value(json).unwrap();
+        assert_eq!(back, spec);
     }
 
     /// 心跳新增 `tunnel_available`：旧 Agent 缺失 = None，明确值原样往返。

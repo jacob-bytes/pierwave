@@ -54,6 +54,19 @@ pub const DEGRADED_AFTER_FAILURES: i64 = 2;
 /// 链推导出的 `DesiredForward.id` 前缀；与独立转发的 `fwd-` 前缀区分开。
 pub const FORWARD_ID_PREFIX: &str = "chain-";
 
+/// 隧道链最少 2 跳：入口 Dialer + 出口 Listener。
+pub const TUNNEL_MIN_HOPS: usize = 2;
+
+/// 隧道链最多 6 跳（中间跳 1..=4 个）；与全局 [`MAX_HOPS`] 一致。
+pub const TUNNEL_MAX_HOPS: usize = MAX_HOPS;
+
+/// 3+ 跳隧道需要的最低 Agent 线协议版本。
+///
+/// 旧 Agent 不认识 `TunnelSpec.downstream`，会把中间跳当成出口 Listener 直接
+/// 连首帧目标，静默截短跳数。与 `pierwave_proto::PROTOCOL_VERSION` 必须保持一致
+/// （master 有断言测试）。
+pub const TUNNEL_MULTIHOP_MIN_PROTOCOL_VERSION: i64 = 24;
+
 /// 组内选路策略的四个合法值（与 `PROTOCOL_VERSION = 12` 的线协议一致）。
 pub const STRATEGY_NAMES: [&str; 4] = ["round_robin", "failover", "lowest_latency", "ip_hashed"];
 
@@ -585,18 +598,33 @@ pub fn plan_from_certificates(
 
 /// tunnel 链的前置条件（保存与下发共用同一套判定）。
 ///
-/// P16.1 的拓扑是「入口 Dialer → 出口 Listener」：2 跳、每组一台成员。
-/// 多成员组需要每个成员一个 `remote`，而 [`pierver_proto::TunnelSpec::remote`]
-/// 只有一个地址，强行下发会导致只有第一台收到流量，所以先拒绝而不是静默降级。
+/// 拓扑是「入口 Dialer →（中间跳 Listener+Dialer）… → 出口 Listener」：
+/// 2–6 跳，每组一台成员。多成员组需要每个成员一个 `remote`，而
+/// [`pierwave_proto::TunnelSpec::remote`] 只有一个地址，强行下发会导致只有
+/// 第一台收到流量，所以先拒绝而不是静默降级。
+///
+/// 3+ 跳还需要每一跳都运行新协议 Agent：旧 Agent 不认识 `downstream`，会把
+/// 中间跳当成出口直接连目标，跳数被静默截短——这里整链拒绝下发。
 pub fn tunnel_blocked_reason(
     chain: &Chain,
     groups: &[ChainGroupWithMembers],
 ) -> Option<BlockedReason> {
-    if groups.len() != 2 {
+    if groups.len() < TUNNEL_MIN_HOPS {
         return Some(BlockedReason {
             code: "chain.tunnel_requires_two_hops".to_string(),
             message: format!(
-                "tunnel 引擎当前只支持 2 跳链（入口 Dialer + 出口 Listener），当前 {} 跳",
+                "tunnel 引擎至少需要 2 跳（入口 Dialer + 出口 Listener），当前 {} 跳 / the tunnel engine needs at least 2 hops (entry dialer + exit listener), got {}",
+                groups.len(),
+                groups.len()
+            ),
+        });
+    }
+    if groups.len() > TUNNEL_MAX_HOPS {
+        return Some(BlockedReason {
+            code: "chain.tunnel_hop_limit".to_string(),
+            message: format!(
+                "tunnel 引擎最多支持 {TUNNEL_MAX_HOPS} 跳，当前 {} 跳 / the tunnel engine supports at most {TUNNEL_MAX_HOPS} hops, got {}",
+                groups.len(),
                 groups.len()
             ),
         });
@@ -605,10 +633,20 @@ pub fn tunnel_blocked_reason(
         return Some(BlockedReason {
             code: "chain.tunnel_single_member".to_string(),
             message: format!(
-                "tunnel 引擎当前只支持每组 1 台成员（第 {} 组有 {} 台）",
+                "tunnel 引擎当前只支持每组 1 台成员（第 {} 组有 {} 台）/ the tunnel engine supports exactly one member per group (group {} has {})",
+                group.group.seq + 1,
+                group.members.len(),
                 group.group.seq + 1,
                 group.members.len()
             ),
+        });
+    }
+    // UDP 中继（P16.3）本轮只在 2 跳链上实现：中间跳的 QUIC endpoint 只会把
+    // 数据报发给链目标，3+ 跳会绕过后续跳。整链拒绝，绝不静默截短。
+    if groups.len() > TUNNEL_MIN_HOPS && protocol::allows_udp(&chain.protocol) {
+        return Some(BlockedReason {
+            code: "chain.tunnel_udp_requires_two_hops".to_string(),
+            message: "tunnel 的 UDP 中继当前只支持 2 跳链 / the tunnel UDP relay currently supports exactly 2 hops".to_string(),
         });
     }
     // Noise 的 UDP 中继本轮不做（QUIC 需要 TLS 证书）。保存路径已经拒绝，
@@ -622,8 +660,36 @@ pub fn tunnel_blocked_reason(
     if crate::hop_transport::is_tls(&chain.transport) {
         return Some(BlockedReason {
             code: "chain.tunnel_transport_conflict".to_string(),
-            message: "tunnel 自带 TLS，不能再选择 realm 的 transport=tls".to_string(),
+            message: "tunnel 自带 TLS，不能再选择 realm 的 transport=tls / the tunnel brings its own TLS and cannot reuse realm transport=tls".to_string(),
         });
+    }
+    // 3+ 跳：每一跳都必须由新协议 Agent 处理 `downstream`。未知版本按旧版
+    // 处理（与「tunnel 能力未知 = 不支持」同一保守口径）。
+    if groups.len() > TUNNEL_MIN_HOPS {
+        let stale: Vec<&str> = groups
+            .iter()
+            .flat_map(|group| group.members.iter())
+            .filter(|member| {
+                !member
+                    .server_protocol_version
+                    .is_some_and(|version| version >= TUNNEL_MULTIHOP_MIN_PROTOCOL_VERSION)
+            })
+            .map(|member| member.server_name.as_str())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        if !stale.is_empty() {
+            let mut stale = stale;
+            stale.sort_unstable();
+            return Some(BlockedReason {
+                code: "chain.tunnel_multihop_requires_upgrade".to_string(),
+                message: format!(
+                    "3+ 跳 tunnel 链需要每台服务器的 Agent 协议版本 ≥ {TUNNEL_MULTIHOP_MIN_PROTOCOL_VERSION}（旧 Agent 会静默截短跳数）：{} / multi-hop tunnel chains require agent protocol >= {TUNNEL_MULTIHOP_MIN_PROTOCOL_VERSION} (older agents would silently shorten the chain): {}",
+                    stale.join("、"),
+                    stale.join(", ")
+                ),
+            });
+        }
     }
     let mut names: Vec<&str> = groups
         .iter()
@@ -638,8 +704,9 @@ pub fn tunnel_blocked_reason(
         return Some(BlockedReason {
             code: "chain.tunnel_unavailable".to_string(),
             message: format!(
-                "以下服务器的 Agent 不支持 tunnel 引擎（需要升级到带 tunnel 能力的版本）：{}",
-                names.join("、")
+                "以下服务器的 Agent 不支持 tunnel 引擎（需要升级到带 tunnel 能力的版本）：{} / these servers run agents without tunnel support: {}",
+                names.join("、"),
+                names.join(", ")
             ),
         });
     }

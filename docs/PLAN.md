@@ -1935,9 +1935,8 @@ Agent 新增 tunnel.rs supervisor（与 native/realm 同层）
 >    每台服务器属证书，经 `DesiredState.files` 下发（cert/key 0600、
 >    ca.pem 0644）；`hop_secret = HMAC(master_secret, "tunnel/{chain_id}/{seq}")`。
 >
-> **当前限制**：tunnel 引擎只支持 2 跳、每组 1 台成员（多成员会把流量
-> 全部压到第一台，因此先拒绝而不是静默降级）；3+ 跳、UDP/QUIC
-> 仍按原计划留在后续阶段。
+> **当前限制**：每组 1 台成员（多成员会把流量全部压到第一台，因此先拒绝
+> 而不是静默降级）；3–6 跳已在 §8.4 交付；UDP/QUIC 仍按原计划留在后续阶段。
 >
 > **Status (2026-11, English)**: P16.1 framing/TLS/handshake landed in
 > `2d5fef0`. This round wires the tunnel into `ForwardEngine` /
@@ -2023,6 +2022,70 @@ P16.2 的 Noise 握手（`d393d4d`）最初只做到 Agent 侧 API，没有下�
 > the timestamp replay cache (one connection per client would otherwise collide
 > within the same second; TLS 1.3 channel protection already prevents replay).
 > `ForwardStatus.listening` now requires the UDP bind to succeed.
+
+### 8.4 P16 多跳（3–6 跳，2026-11）
+
+P16.1 的 tunnel 引擎只有「入口 Dialer + 出口 Listener」两个端点。本轮把它扩展成
+**2–6 跳**，每一跳之间都是一段独立的 TLS/Noise 隧道：
+
+* **线协议 v24**：`TunnelSpec` 增加可选 `downstream`（`hop_id` / `remote` /
+  `hop_secret` / `ca_pem_path` / `allowed_targets`）。`None` 时序列化**不出现**
+  这个键，2 跳配置与改动前逐字段一致（master 有 golden 断言 + proto 序列化测试）；
+* **中间跳**（第 1..n-2 跳）是 `role = Listener` + `downstream`：接受上一跳的
+  加密隧道、白名单校验首帧（链目标）后**不再 `connect_target`**，而是用内嵌
+  dialer 向下一跳建一条**新的加密隧道**，再帧层到帧层双向搬运。没有引入额外
+  的本地跳，也不监听第二个端口；
+* **逐段密钥**：第 i 段（i = Listener 所在组 seq）用
+  `hop_id = "{chain_id}:{i}"`、`hop_secret = HMAC(master_secret,
+  "tunnel/{chain_id}/{i}")`。相邻两段必须不同；中间跳的 `downstream.hop_id`
+  与自身 `hop_id` 相同、或两段 `hop_secret` 相同，Agent 启动前直接拒绝；
+* **白名单**：每跳 Listener 只允许链目标（首帧端到端请求最终目标，中间跳原样
+  转发、不改写地址）；每个 dialer（入口与 `downstream`）的白名单是
+  `[下一跳地址, 链目标]`，`remote` 必须命中第一条；
+* **证书**：每个 Listener（含中间跳）拿到自己的属证书 + 私钥（0600）；入口
+  Dialer 与中间跳的 downstream 需要 `ca.pem`（0644）。中间跳因此同时收到
+  cert/key 与 CA；
+* **门禁（保存 + 下发两条路径，绝不降级）**：
+  - 跳数 2..=6、每组 1 台成员；
+  - 3+ 跳要求每一跳的 Agent 协议版本 ≥ 24。旧 Agent 不认识 `downstream`，
+    会把中间跳当出口、静默截短跳数，因此保存返回
+    `chain.tunnel_multihop_requires_upgrade`，已存历史链在下发时整链跳过并
+    给出原因（`blocked_code` 同一套判定）；
+  - UDP 中继（P16.3）只在 2 跳链上实现，3+ 跳 + `udp/both` 返回
+    `chain.tunnel_udp_requires_two_hops`；
+  - 推导不出中间跳的下一跳（成员缺失、地址为空）→
+    `chain.tunnel_downstream_missing`，整链不下发；
+  - 运行期下一跳不可达：中间跳立即回 CLOSE 并断开，绝不 `connect_target`、
+    绝不回退明文/直连；
+  - 2 跳链与旧 Agent 的行为不变（同版本的 2 跳链继续正常下发）。
+* **测试**：Agent 内 3 跳 / 4 跳真实回环（数据经两段 / 三段 TLS 隧道到达
+  echo 并回显，中间跳与出口跳的 `TunnelStats.total >= 1`）；downstream 不可达
+  时目标 accept 计数为 0；共享 hop_id/hop_secret 与白名单外 remote 启动失败；
+  主控 3 跳 / 4 跳逐跳字段、逐段密钥派生、2 跳 golden、旧 Agent 拒绝下发。
+
+> **Status (2026-11, English)**: the tunnel engine now supports 2–6 hops with an
+> independent TLS/Noise tunnel between every pair of adjacent hops. Protocol v24
+> adds an optional `TunnelSpec.downstream` (`hop_id`, `remote`, `hop_secret`,
+> `ca_pem_path`, `allowed_targets`); when `None` the key is not serialized, so
+> 2-hop configs stay field-for-field identical (golden assertions in master and
+> a serialization test in proto). A middle hop is a `Listener` with
+> `downstream`: after the allowlist check it does **not** dial the chain target
+> itself; it opens a new encrypted tunnel to the next hop and relays frames to
+> frames, without adding a local hop or a second listen port. Each segment i
+> uses `hop_id = "{chain_id}:{i}"` and
+> `hop_secret = HMAC(master_secret, "tunnel/{chain_id}/{i}")`; a middle hop
+> whose two segments share an identity/hop secret is rejected before startup.
+> Listeners allow only the chain target; every dialer (entry and `downstream`)
+> allows `[next hop, chain target]` and its `remote` must match the first rule.
+> Every listener receives its own cert/key (0600); entry dialers and middle-hop
+> downstreams also get `ca.pem` (0644). Both the save and dispatch paths gate
+> on 2..=6 hops, one member per group, agent protocol >= 24 for 3+ hops
+> (`chain.tunnel_multihop_requires_upgrade`), and UDP only on 2-hop chains
+> (`chain.tunnel_udp_requires_two_hops`). A non-derivable downstream blocks the
+> whole chain (`chain.tunnel_downstream_missing`) and an unreachable next hop
+> fails closed with CLOSE — never a plaintext/direct fallback. Tests cover real
+> 3-hop/4-hop loopbacks, fail-closed unreachable/denied downstreams, per-segment
+> key derivation, the 2-hop golden config, and old-agent rejection.
 
 ### 9. 不做
 
