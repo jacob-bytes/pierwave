@@ -1,4 +1,5 @@
 use axum::extract::{Path, Query, State};
+use axum::http::HeaderMap;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -285,6 +286,7 @@ pub async fn update(
 
 pub async fn delete(
     State(state): State<AppState>,
+    headers: HeaderMap,
     user: CurrentUser,
     Path(id): Path<String>,
 ) -> AppResult<Json<Value>> {
@@ -298,7 +300,8 @@ pub async fn delete(
         ));
     }
     let removed = load_user(&state, &id).await?;
-    if !repo::users::delete(&state.db.pool, &id).await? {
+    let outcome = repo::users::delete(&state.db.pool, &id).await?;
+    if !outcome.deleted {
         return Err(AppError::not_found("user.not_found", None, "资源不存在"));
     }
     crate::audit::record(
@@ -310,9 +313,27 @@ pub async fn delete(
             "username": &removed.username,
             "role": &removed.role,
             "status": &removed.status,
+            "affected_servers": outcome.affected_servers.len(),
         }),
     )
     .await;
+
+    // 用户的套餐实例随外键级联删除：所有有启用节点的服务器都要重算授权。
+    if let Err(error) = crate::enforcement::mark_user_servers_dirty(&state, &id).await {
+        tracing::warn!(user_id = %id, error = %error, "用户删除后标记节点服务器失败");
+    }
+    // 该用户名下的自助转发/链所在的服务器需要立即下发，否则监听会残留。
+    let base = super::install::external_base(&headers);
+    for server_id in &outcome.affected_servers {
+        match super::forwards::load_server(&state, server_id).await {
+            Ok(server) => super::forwards::mark_dirty_and_apply(&state, &server, &base).await,
+            Err(error) => tracing::warn!(
+                server_id = %server_id,
+                error = %error,
+                "用户删除后加载服务器失败，跳过立即下发（已标脏，稍后重试）"
+            ),
+        }
+    }
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -1745,5 +1766,142 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(body["error"], "权限不足");
+    }
+    /// 删除用户必须同事务清掉 owner_user_id 名下的转发/链与运行状态，
+    /// 并把相关服务器标脏下发；旧行为只删 users 行，留下孤儿规则继续监听。
+    #[tokio::test]
+    async fn deleting_a_user_removes_owned_forwards_and_chains() {
+        let (app, state, admin) = setup().await;
+        let alice = repo::users::create(
+            &state.db.pool,
+            repo::users::NewUser {
+                username: "alice".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+                rule_template_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let (server, _token) = repo::servers::create(&state.db.pool, "hk", "1.2.3.4", "external")
+            .await
+            .unwrap();
+
+        let forward = repo::forwards::create_owned(
+            &state.db.pool,
+            &server.id,
+            repo::forwards::NewForward {
+                name: "alice-web".into(),
+                listen_port: 20000,
+                target_host: "10.0.0.8".into(),
+                target_port: 443,
+                enabled: true,
+                count_traffic: true,
+                engine: "native".into(),
+                protocol: "tcp".into(),
+            },
+            &alice.id,
+            10,
+        )
+        .await
+        .unwrap();
+        repo::forwards::save_status(
+            &state.db.pool,
+            &server.id,
+            &[repo::forwards::NewForwardStatus {
+                forward_id: pierwave_domain::forwards::desired_id(&forward.id),
+                listening: true,
+                error: String::new(),
+                target_ok: Some(true),
+                target_error: None,
+                targets: Vec::new(),
+                traffic_in: Some(10),
+                traffic_out: Some(20),
+            }],
+        )
+        .await
+        .unwrap();
+
+        let chain = repo::chains::create_owned(
+            &state.db.pool,
+            repo::chains::NewChain {
+                name: "alice-chain".into(),
+                target_host: "1.1.1.1".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "native".into(),
+                protocol: "tcp".into(),
+                transport: "none".into(),
+                tunnel_security: "tls".into(),
+                groups: vec![repo::chains::NewChainGroup {
+                    name: None,
+                    strategy: "round_robin".into(),
+                    cert_id: None,
+                    public_port: None,
+                    use_internal_address: false,
+                    members: vec![repo::chains::NewChainGroupMember {
+                        server_id: server.id.clone(),
+                        listen_port: 20001,
+                        priority: 0,
+                        weight: 1,
+                    }],
+                }],
+            },
+            "tpl-1",
+            &alice.id,
+            10,
+        )
+        .await
+        .unwrap();
+
+        // 链的 forward_status 用推导 id 投毒，删除后必须一并清掉。
+        sqlx::query(
+            "INSERT INTO forward_status (server_id, forward_id, listening, error, updated_at)
+             VALUES (?, ?, 1, '', 1)",
+        )
+        .bind(&server.id)
+        .bind(format!("chain-{}-0", chain.chain.id))
+        .execute(&state.db.pool)
+        .await
+        .unwrap();
+
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::DELETE,
+            &format!("/api/v1/users/{}", alice.id),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+
+        assert!(
+            repo::users::find_by_id(&state.db.pool, &alice.id)
+                .await
+                .is_err(),
+            "用户必须已删除"
+        );
+        assert_eq!(
+            repo::forwards::count_by_owner(&state.db.pool, &alice.id)
+                .await
+                .unwrap(),
+            0,
+            "用户删除后不能留下孤儿转发"
+        );
+        assert_eq!(
+            repo::chains::count_by_owner(&state.db.pool, &alice.id)
+                .await
+                .unwrap(),
+            0,
+            "用户删除后不能留下孤儿链"
+        );
+        let status_rows: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM forward_status WHERE server_id = ?")
+                .bind(&server.id)
+                .fetch_one(&state.db.pool)
+                .await
+                .unwrap();
+        assert_eq!(status_rows, 0, "forward_status 也要同事务清理");
     }
 }

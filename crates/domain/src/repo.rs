@@ -9,6 +9,34 @@ pub fn now() -> i64 {
     crate::time::now()
 }
 
+/// 显式 `BEGIN IMMEDIATE` 写事务。
+///
+/// 用于「先查后写」必须原子化的场景：端口分配 + 插入、配额复核 + 插入。
+/// 调用方（master）可以在事务内继续用 `&SqlitePool` 做只读查询（WAL 下读
+/// 不被阻塞，其它写会被本事务的写锁挡在 COMMIT 之后），最后用 [`Self::conn`]
+/// 把插入交给仓储函数；SQL 仍然全部留在这一层。
+pub struct WriteTx {
+    tx: sqlx::Transaction<'static, sqlx::Sqlite>,
+}
+
+impl WriteTx {
+    pub async fn begin(pool: &SqlitePool) -> anyhow::Result<Self> {
+        Ok(Self {
+            tx: pool.begin_with("BEGIN IMMEDIATE").await?,
+        })
+    }
+
+    /// 事务连接：只给本模块的 `*_in` 函数使用。
+    pub fn conn(&mut self) -> &mut sqlx::SqliteConnection {
+        &mut self.tx
+    }
+
+    pub async fn commit(self) -> anyhow::Result<()> {
+        self.tx.commit().await?;
+        Ok(())
+    }
+}
+
 /// 键值配置：订阅凭据派生的 master secret 等。
 pub mod settings {
     use super::*;
@@ -373,13 +401,74 @@ pub mod users {
         Ok(res.rows_affected() > 0)
     }
 
-    /// 返回是否真的删掉了一行；名下的会话与套餐实例由外键级联删除。
-    pub async fn delete(pool: &SqlitePool, id: &str) -> anyhow::Result<bool> {
-        let res = sqlx::query("DELETE FROM users WHERE id = ?")
+    /// 删除用户，并在**同一个 BEGIN IMMEDIATE 事务**里清理该用户名下的
+    /// 自助转发与链（它们只有 `owner_user_id` 逻辑归属，没有外键级联）。
+    ///
+    /// 返回受影响的服务器：调用方据此标脏并立即下发，否则 Agent 会一直
+    /// 保留已删除用户的转发监听，直到下一次全量对账。
+    pub async fn delete(pool: &SqlitePool, id: &str) -> anyhow::Result<UserDeleteOutcome> {
+        let mut tx = WriteTx::begin(pool).await?;
+
+        let affected_servers: Vec<String> = sqlx::query_scalar(
+            "SELECT server_id FROM forwards WHERE owner_user_id = ?
+             UNION
+             SELECT m.server_id
+               FROM chain_group_members m
+               JOIN chain_groups g ON g.id = m.group_id
+               JOIN chains c ON c.id = g.chain_id
+              WHERE c.owner_user_id = ?",
+        )
+        .bind(id)
+        .bind(id)
+        .fetch_all(&mut *tx.conn())
+        .await?;
+
+        // 先清运行状态：Agent 可能离线，forward_status 不会自己消失。
+        let forward_ids: Vec<String> =
+            sqlx::query_scalar("SELECT id FROM forwards WHERE owner_user_id = ?")
+                .bind(id)
+                .fetch_all(&mut *tx.conn())
+                .await?;
+        for forward_id in &forward_ids {
+            sqlx::query("DELETE FROM forward_status WHERE forward_id IN (?, ?)")
+                .bind(crate::forwards::desired_id(forward_id))
+                .bind(forward_id)
+                .execute(&mut *tx.conn())
+                .await?;
+        }
+        sqlx::query("DELETE FROM forwards WHERE owner_user_id = ?")
             .bind(id)
-            .execute(pool)
+            .execute(&mut *tx.conn())
             .await?;
-        Ok(res.rows_affected() > 0)
+
+        let chain_ids: Vec<String> =
+            sqlx::query_scalar("SELECT id FROM chains WHERE owner_user_id = ?")
+                .bind(id)
+                .fetch_all(&mut *tx.conn())
+                .await?;
+        for chain_id in &chain_ids {
+            sqlx::query("DELETE FROM forward_status WHERE forward_id LIKE ?")
+                .bind(format!("chain-{chain_id}-%"))
+                .execute(&mut *tx.conn())
+                .await?;
+        }
+        sqlx::query("DELETE FROM chains WHERE owner_user_id = ?")
+            .bind(id)
+            .execute(&mut *tx.conn())
+            .await?;
+
+        let removed = sqlx::query("DELETE FROM users WHERE id = ?")
+            .bind(id)
+            .execute(&mut *tx.conn())
+            .await?
+            .rows_affected()
+            > 0;
+        tx.commit().await?;
+
+        Ok(UserDeleteOutcome {
+            deleted: removed,
+            affected_servers,
+        })
     }
 
     pub async fn count(pool: &SqlitePool) -> anyhow::Result<i64> {
@@ -2511,6 +2600,10 @@ pub mod forwards {
 
     use super::*;
 
+    /// 「待对齐」基线：计费在服务器离线时打开，下一次采样只把基线对齐到
+    /// 新鲜心跳，不把离线期间的累计增量补记进套餐。
+    pub const PENDING_TRAFFIC_BASELINE: i64 = -1;
+
     pub struct NewForward {
         pub name: String,
         pub listen_port: i64,
@@ -2569,13 +2662,49 @@ pub mod forwards {
         pub latency_ms: Option<u32>,
     }
 
+    /// 在调用方已开启的 `BEGIN IMMEDIATE` 事务里插入规则。
+    ///
+    /// `quota_limit`：用户自助转发传 `Some`，在同一事务里复核配额；管理员
+    /// 创建传 `None`。返回新规则 id，由调用方 COMMIT 后再读回。
+    pub async fn create_in(
+        tx: &mut WriteTx,
+        server_id: &str,
+        input: NewForward,
+        owner_user_id: Option<&str>,
+        quota_limit: Option<i64>,
+    ) -> anyhow::Result<String> {
+        if let (Some(limit), Some(owner)) = (quota_limit, owner_user_id) {
+            let used: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM forwards WHERE owner_user_id = ?")
+                    .bind(owner)
+                    .fetch_one(&mut *tx.conn())
+                    .await?;
+            if used >= limit.max(0) {
+                let message = if limit <= 0 {
+                    "当前套餐没有开通自助转发配额".to_string()
+                } else {
+                    format!("转发规则数量已达套餐上限（{used}/{limit}）")
+                };
+                return Err(crate::error::DomainError::with_params(
+                    "me.forward_quota_exceeded",
+                    serde_json::json!({ "limit": limit.max(0), "used": used }),
+                    message,
+                )
+                .into());
+            }
+        }
+        insert_in_tx(tx.conn(), server_id, input, owner_user_id).await
+    }
+
     pub async fn create(
         pool: &SqlitePool,
         server_id: &str,
         input: NewForward,
     ) -> anyhow::Result<Forward> {
-        let mut tx = pool.begin().await?;
-        let id = insert_in_tx(&mut tx, server_id, input, None).await?;
+        // BEGIN IMMEDIATE：端口校验与插入必须在同一个写事务里，否则两个并发
+        // 请求会各自看到「端口空闲」，最后一个被唯一索引拒绝成 500。
+        let mut tx = WriteTx::begin(pool).await?;
+        let id = create_in(&mut tx, server_id, input, None, None).await?;
         tx.commit().await?;
         find_by_id(pool, &id)
             .await?
@@ -2587,6 +2716,7 @@ pub mod forwards {
     /// 配额在事务内重新数一遍（而不是只信调用方的预检），避免并发创建
     /// 各自都看到「还差一条」而多建。`quota_limit <= 0` 与「已满」都返回
     /// `me.forward_quota_exceeded`（400），由 master 的错误链原样带给前端。
+    /// 用 `BEGIN IMMEDIATE` 提前拿写锁，第二个请求会等第一个提交后再数配额。
     pub async fn create_owned(
         pool: &SqlitePool,
         server_id: &str,
@@ -2594,25 +2724,15 @@ pub mod forwards {
         owner_user_id: &str,
         quota_limit: i64,
     ) -> anyhow::Result<Forward> {
-        let mut tx = pool.begin().await?;
-        let used: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM forwards WHERE owner_user_id = ?")
-            .bind(owner_user_id)
-            .fetch_one(&mut *tx)
-            .await?;
-        if used >= quota_limit.max(0) {
-            let message = if quota_limit <= 0 {
-                "当前套餐没有开通自助转发配额".to_string()
-            } else {
-                format!("转发规则数量已达套餐上限（{used}/{quota_limit}）")
-            };
-            return Err(crate::error::DomainError::with_params(
-                "me.forward_quota_exceeded",
-                serde_json::json!({ "limit": quota_limit.max(0), "used": used }),
-                message,
-            )
-            .into());
-        }
-        let id = insert_in_tx(&mut tx, server_id, input, Some(owner_user_id)).await?;
+        let mut tx = WriteTx::begin(pool).await?;
+        let id = create_in(
+            &mut tx,
+            server_id,
+            input,
+            Some(owner_user_id),
+            Some(quota_limit),
+        )
+        .await?;
         tx.commit().await?;
         find_by_id(pool, &id)
             .await?
@@ -2620,18 +2740,29 @@ pub mod forwards {
     }
 
     async fn insert_in_tx(
-        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+        conn: &mut sqlx::SqliteConnection,
         server_id: &str,
         input: NewForward,
         owner_user_id: Option<&str>,
     ) -> anyhow::Result<String> {
         let id = Uuid::new_v4().to_string();
         let ts = now();
+        // 创建时 count_traffic=true 也要显式写基线：新规则正常从 0 开始，
+        // 若心跳里已经出现同 id（手工改库 / 旧数据）则对齐当前计数，
+        // 绝不把历史累计当成新规则的流量补记。
+        let (last_in, last_out) = if input.count_traffic {
+            current_counters(conn, server_id, &id)
+                .await?
+                .unwrap_or((0, 0))
+        } else {
+            (0, 0)
+        };
         sqlx::query(
             "INSERT INTO forwards
                 (id, server_id, name, listen_port, target_host, target_port, enabled, engine,
-                 protocol, udp, owner_user_id, count_traffic, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 protocol, udp, owner_user_id, count_traffic, last_traffic_in, last_traffic_out,
+                 created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(server_id)
@@ -2646,11 +2777,64 @@ pub mod forwards {
         .bind(i64::from(crate::protocol::is_both(&input.protocol)))
         .bind(owner_user_id)
         .bind(i64::from(input.count_traffic))
+        .bind(last_in)
+        .bind(last_out)
         .bind(ts)
         .bind(ts)
-        .execute(&mut **tx)
+        .execute(&mut *conn)
         .await?;
         Ok(id)
+    }
+
+    /// 心跳里某条规则当前的累计计数器；没有数据源时 `None`。
+    async fn current_counters(
+        conn: &mut sqlx::SqliteConnection,
+        server_id: &str,
+        forward_id: &str,
+    ) -> anyhow::Result<Option<(i64, i64)>> {
+        let desired = crate::forwards::desired_id(forward_id);
+        let row: Option<(i64, i64)> = sqlx::query_as(
+            "SELECT COALESCE(traffic_in, 0), COALESCE(traffic_out, 0)
+               FROM forward_status
+              WHERE server_id = ? AND forward_id IN (?, ?)
+              ORDER BY CASE WHEN forward_id = ? THEN 0 ELSE 1 END
+              LIMIT 1",
+        )
+        .bind(server_id)
+        .bind(&desired)
+        .bind(forward_id)
+        .bind(&desired)
+        .fetch_optional(&mut *conn)
+        .await?;
+        Ok(row)
+    }
+
+    async fn server_is_online(
+        conn: &mut sqlx::SqliteConnection,
+        server_id: &str,
+    ) -> anyhow::Result<bool> {
+        let status: Option<String> = sqlx::query_scalar("SELECT status FROM servers WHERE id = ?")
+            .bind(server_id)
+            .fetch_optional(&mut *conn)
+            .await?;
+        Ok(status.as_deref() == Some("online"))
+    }
+
+    /// 开启计费时的基线：
+    /// * 服务器在线（心跳可信）→ 对齐到当前累计计数，关闭期间的增量不计；
+    /// * 服务器离线 → 旧计数不可信，写「待对齐」标记，等重连后的第一轮
+    ///   采样再对齐；离线期间的累计增量绝不补记。
+    async fn baseline_when_enabling(
+        conn: &mut sqlx::SqliteConnection,
+        forward: &Forward,
+    ) -> anyhow::Result<(i64, i64)> {
+        if server_is_online(conn, &forward.server_id).await? {
+            Ok(current_counters(conn, &forward.server_id, &forward.id)
+                .await?
+                .unwrap_or((0, 0)))
+        } else {
+            Ok((PENDING_TRAFFIC_BASELINE, PENDING_TRAFFIC_BASELINE))
+        }
     }
 
     /// 某用户创建的转发条数（配额判定与列表页 quota 展示共用）。
@@ -2739,6 +2923,25 @@ pub mod forwards {
         id: &str,
         input: UpdateForward,
     ) -> anyhow::Result<Option<Forward>> {
+        // 计费开关 + 基线放在同一个 BEGIN IMMEDIATE 事务里：中途失败不会留下
+        // 「count_traffic=1 但基线仍是旧值」的窗口，也避免与采样器互相覆盖。
+        let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+        let existing = sqlx::query_as::<_, Forward>("SELECT * FROM forwards WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        let Some(existing) = existing else {
+            tx.rollback().await?;
+            return Ok(None);
+        };
+
+        let enabling = input.count_traffic == Some(true) && !existing.count_traffic;
+        let (last_in, last_out) = if enabling {
+            baseline_when_enabling(&mut tx, &existing).await?
+        } else {
+            (existing.last_traffic_in, existing.last_traffic_out)
+        };
+
         let res = sqlx::query(
             "UPDATE forwards SET
                 name = COALESCE(?, name),
@@ -2750,6 +2953,8 @@ pub mod forwards {
                 engine = COALESCE(?, engine),
                 protocol = COALESCE(?, protocol),
                 udp = COALESCE(?, udp),
+                last_traffic_in = ?,
+                last_traffic_out = ?,
                 updated_at = ?
              WHERE id = ?",
         )
@@ -2767,14 +2972,18 @@ pub mod forwards {
                 .as_deref()
                 .map(|protocol| i64::from(crate::protocol::is_both(protocol))),
         )
+        .bind(last_in)
+        .bind(last_out)
         .bind(now())
         .bind(id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
 
         if res.rows_affected() == 0 {
+            tx.rollback().await?;
             return Ok(None);
         }
+        tx.commit().await?;
         find_by_id(pool, id).await
     }
 
@@ -2848,33 +3057,6 @@ pub mod forwards {
         .bind(server_id)
         .fetch_all(pool)
         .await?)
-    }
-
-    /// 把计费基线对齐到当前心跳计数。
-    ///
-    /// 用户把 `count_traffic` 从关改到开时必须调用：否则下一次采样会把
-    /// 「关闭期间」的累计增量一次性补记进套餐——用户关掉计费就是想那段时间不算。
-    pub async fn reset_traffic_baseline(pool: &SqlitePool, forward_id: &str) -> anyhow::Result<()> {
-        let desired = crate::forwards::desired_id(forward_id);
-        let row: Option<(i64, i64)> = sqlx::query_as(
-            "SELECT COALESCE(fs.traffic_in, 0), COALESCE(fs.traffic_out, 0)
-               FROM forwards f
-               JOIN forward_status fs
-                 ON fs.server_id = f.server_id AND fs.forward_id = ?
-              WHERE f.id = ?",
-        )
-        .bind(&desired)
-        .bind(forward_id)
-        .fetch_optional(pool)
-        .await?;
-        let (last_in, last_out) = row.unwrap_or((0, 0));
-        sqlx::query("UPDATE forwards SET last_traffic_in = ?, last_traffic_out = ? WHERE id = ?")
-            .bind(last_in)
-            .bind(last_out)
-            .bind(forward_id)
-            .execute(pool)
-            .await?;
-        Ok(())
     }
 
     /// 用一次心跳里的 `forwards` 整体替换该服务器的状态缓存。
@@ -3013,6 +3195,7 @@ pub mod forwards {
 pub mod forward_traffic {
     use std::collections::HashMap;
 
+    use super::forwards::PENDING_TRAFFIC_BASELINE;
     use super::*;
 
     use crate::metering;
@@ -3037,6 +3220,8 @@ pub mod forward_traffic {
         last_out: i64,
         current_in: Option<i64>,
         current_out: Option<i64>,
+        /// 采样时服务器是否在线；离线时「待对齐」标记必须保持，不能用旧心跳对齐。
+        server_online: bool,
     }
 
     /// 列出所有「需要计费且本轮有计数器」的规则。
@@ -3052,13 +3237,16 @@ pub mod forward_traffic {
             owner_user_id: String,
             last_traffic_in: i64,
             last_traffic_out: i64,
+            server_online: bool,
         }
 
         let forwards = sqlx::query_as::<_, ForwardRow>(
-            "SELECT id, server_id, owner_user_id, last_traffic_in, last_traffic_out
-             FROM forwards
-             WHERE owner_user_id IS NOT NULL AND count_traffic = 1 AND enabled = 1
-             ORDER BY server_id ASC, created_at ASC, rowid ASC",
+            "SELECT f.id, f.server_id, f.owner_user_id, f.last_traffic_in, f.last_traffic_out,
+                    s.status = 'online' AS server_online
+             FROM forwards f
+             JOIN servers s ON s.id = f.server_id
+             WHERE f.owner_user_id IS NOT NULL AND f.count_traffic = 1 AND f.enabled = 1
+             ORDER BY f.server_id ASC, f.created_at ASC, f.rowid ASC",
         )
         .fetch_all(pool)
         .await?;
@@ -3105,6 +3293,7 @@ pub mod forward_traffic {
                     last_out: row.last_traffic_out,
                     current_in: status.0,
                     current_out: status.1,
+                    server_online: row.server_online,
                 })
             })
             .collect())
@@ -3167,11 +3356,22 @@ pub mod forward_traffic {
         candidate: &Candidate,
         now: i64,
     ) -> anyhow::Result<i64> {
+        let pending_in = candidate.last_in == PENDING_TRAFFIC_BASELINE;
+        let pending_out = candidate.last_out == PENDING_TRAFFIC_BASELINE;
+        // 服务器离线时心跳里的累计值是旧的；此时绝不能把「待对齐」消耗成
+        // 旧计数，否则重连后仍会把整段离线流量补记进来。
+        if (pending_in || pending_out) && !candidate.server_online {
+            return Ok(0);
+        }
+
         // 没有计数器的一侧保持旧基线不变；有计数器的一侧取非负当前值。
-        let new_last_in = candidate.current_in.map(|value| value.max(0));
-        let new_last_out = candidate.current_out.map(|value| value.max(0));
-        let last_in = new_last_in.unwrap_or(candidate.last_in);
-        let last_out = new_last_out.unwrap_or(candidate.last_out);
+        // 「待对齐」的一侧本轮只写基线、不产生增量：离线期间从旧计数涨到
+        // 当前计数的这段流量发生在计费开启之前，无法与开启后的部分区分，
+        // 宁可保守不补记，也不能把 1000→9000 全部算给用户。
+        let current_in = candidate.current_in.map(|value| value.max(0));
+        let current_out = candidate.current_out.map(|value| value.max(0));
+        let last_in = current_in.unwrap_or(candidate.last_in);
+        let last_out = current_out.unwrap_or(candidate.last_out);
         if last_in == candidate.last_in && last_out == candidate.last_out {
             return Ok(0);
         }
@@ -3193,14 +3393,20 @@ pub mod forward_traffic {
             return Ok(0);
         }
 
-        let delta_in = candidate
-            .current_in
-            .map(|current| crate::forwards::traffic_delta(candidate.last_in, current))
-            .unwrap_or(0);
-        let delta_out = candidate
-            .current_out
-            .map(|current| crate::forwards::traffic_delta(candidate.last_out, current))
-            .unwrap_or(0);
+        let delta_in = if pending_in {
+            0
+        } else {
+            current_in
+                .map(|current| crate::forwards::traffic_delta(candidate.last_in, current))
+                .unwrap_or(0)
+        };
+        let delta_out = if pending_out {
+            0
+        } else {
+            current_out
+                .map(|current| crate::forwards::traffic_delta(candidate.last_out, current))
+                .unwrap_or(0)
+        };
         let delta = delta_in.saturating_add(delta_out);
         if delta <= 0 {
             return Ok(0);
@@ -3463,25 +3669,37 @@ pub mod forward_traffic {
                 .unwrap()
         }
 
-        /// 计费开关重新打开时，基线必须对齐当前计数，不能补记关闭期间的流量。
+        /// 计费开关重新打开（服务器在线）时，基线必须对齐当前计数，
+        /// 不能补记关闭期间的流量。
         #[tokio::test]
-        async fn resetting_the_baseline_skips_the_period_when_metering_was_off() {
+        async fn enabling_metering_while_online_aligns_to_the_current_counter() {
             let pool = setup().await;
             let server = create_server(&pool).await;
             let user = create_user(&pool, "bob").await;
             let _package = bind_package(&pool, &user, Some(10_000)).await;
-            let fwd = create_forward(&pool, &server, Some(&user), true, 20001).await;
+            let fwd = create_forward(&pool, &server, Some(&user), false, 20001).await;
 
-            // 关闭计费期间，Agent 的累计计数已经涨到 500；此时用户重新打开计费。
-            save_counters(&pool, &server, &fwd.id, Some(500), Some(0)).await;
-            super::super::forwards::reset_traffic_baseline(&pool, &fwd.id)
+            super::super::servers::mark_online(&pool, &server)
                 .await
                 .unwrap();
+            // 关闭计费期间，Agent 的累计计数已经涨到 500；此时用户重新打开计费。
+            save_counters(&pool, &server, &fwd.id, Some(500), Some(0)).await;
+            super::super::forwards::update(
+                &pool,
+                &fwd.id,
+                super::super::forwards::UpdateForward {
+                    count_traffic: Some(true),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap()
+            .unwrap();
 
             assert_eq!(
                 forward(&pool, &fwd.id).await.last_traffic_in,
                 500,
-                "重置后基线应等于当前计数"
+                "开启计费时基线应等于当前计数"
             );
 
             let now = 1_700_000_000;
@@ -3492,6 +3710,72 @@ pub mod forward_traffic {
             save_counters(&pool, &server, &fwd.id, Some(560), Some(0)).await;
             let report = run_round(&pool, now + 60).await.unwrap();
             assert_eq!(report.bytes, 60);
+        }
+
+        /// 开启计费时服务器离线：基线必须是「待对齐」，离线期间的流量不能补记。
+        ///
+        /// 旧行为：基线直接取 forward_status 里的旧值 1000；服务器重连后累计
+        /// 计数器已经是 9000，下一次采样会把 8000 全部记进套餐。
+        #[tokio::test]
+        async fn enabling_metering_while_the_server_is_offline_waits_for_fresh_counters() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let user = create_user(&pool, "alice").await;
+            let package = bind_package(&pool, &user, Some(10_000)).await;
+            let fwd = create_forward(&pool, &server, Some(&user), false, 20000).await;
+
+            // 离线前最后一次心跳：累计 1000。
+            super::super::servers::mark_online(&pool, &server)
+                .await
+                .unwrap();
+            save_counters(&pool, &server, &fwd.id, Some(1000), Some(0)).await;
+            super::super::servers::mark_offline(&pool, &server)
+                .await
+                .unwrap();
+
+            // 离线期间开启计费：此刻的 1000 是旧心跳，不能当作基线。
+            let updated = super::super::forwards::update(
+                &pool,
+                &fwd.id,
+                super::super::forwards::UpdateForward {
+                    count_traffic: Some(true),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert!(updated.count_traffic);
+            assert_eq!(
+                forward(&pool, &fwd.id).await.last_traffic_in,
+                super::super::forwards::PENDING_TRAFFIC_BASELINE,
+                "离线时开启计费应标记为待对齐"
+            );
+
+            // 离线期间的采样不能把旧计数对齐成基线。
+            let now = 1_700_000_000;
+            let report = run_round(&pool, now).await.unwrap();
+            assert_eq!(report.bytes, 0);
+            assert_eq!(
+                forward(&pool, &fwd.id).await.last_traffic_in,
+                super::super::forwards::PENDING_TRAFFIC_BASELINE
+            );
+
+            // 重连：累计计数器已经到 9000。第一轮只对齐，不补记 1000→9000。
+            super::super::servers::mark_online(&pool, &server)
+                .await
+                .unwrap();
+            save_counters(&pool, &server, &fwd.id, Some(9000), Some(0)).await;
+            let report = run_round(&pool, now + 60).await.unwrap();
+            assert_eq!(report.bytes, 0, "重连后的第一轮只对齐基线");
+            assert_eq!(forward(&pool, &fwd.id).await.last_traffic_in, 9000);
+            assert_eq!(package_used(&pool, &package).await, 0);
+
+            // 之后的增量照常计费。
+            save_counters(&pool, &server, &fwd.id, Some(13_000), Some(0)).await;
+            let report = run_round(&pool, now + 120).await.unwrap();
+            assert_eq!(report.bytes, 4000);
+            assert_eq!(package_used(&pool, &package).await, 4000);
         }
 
         /// 首次采样：last=0、current=100 → 计 100，并推进基线。
@@ -4042,7 +4326,7 @@ pub mod chains {
     /// `template_id` / `owner_user_id` 只有用户自助建链时才非空；
     /// 管理员手建与历史路径传 `None`，落库形态与升级前一致。
     async fn insert_chain(
-        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+        conn: &mut sqlx::SqliteConnection,
         input: NewChain,
         template_id: Option<&str>,
         owner_user_id: Option<&str>,
@@ -4070,23 +4354,57 @@ pub mod chains {
         .bind(owner_user_id)
         .bind(ts)
         .bind(ts)
-        .execute(&mut **tx)
+        .execute(&mut *conn)
         .await?;
-        insert_groups(tx, &id, &input.groups).await?;
+        insert_groups(conn, &id, &input.groups).await?;
         Ok(id)
     }
 
+    /// 在调用方已开启的 `BEGIN IMMEDIATE` 事务里插入链与组。
+    ///
+    /// `quota_limit`：用户自助建链传 `Some`，在同一事务里复核配额；管理员
+    /// 建链传 `None`。返回新链 id，由调用方 COMMIT 后再读回完整视图。
+    pub async fn create_in(
+        tx: &mut WriteTx,
+        input: NewChain,
+        template_id: Option<&str>,
+        owner_user_id: Option<&str>,
+        quota_limit: Option<i64>,
+    ) -> anyhow::Result<String> {
+        if let (Some(limit), Some(owner)) = (quota_limit, owner_user_id) {
+            let used: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM chains WHERE owner_user_id = ?")
+                    .bind(owner)
+                    .fetch_one(&mut *tx.conn())
+                    .await?;
+            if used >= limit.max(0) {
+                let message = if limit <= 0 {
+                    "当前套餐没有开通自助建链配额".to_string()
+                } else {
+                    format!("链路数量已达套餐上限（{used}/{limit}）")
+                };
+                return Err(crate::error::DomainError::with_params(
+                    "me.chain_quota_exceeded",
+                    serde_json::json!({ "limit": limit.max(0), "used": used }),
+                    message,
+                )
+                .into());
+            }
+        }
+        insert_chain(tx.conn(), input, template_id, owner_user_id).await
+    }
+
     pub async fn create(pool: &SqlitePool, input: NewChain) -> anyhow::Result<ChainWithGroups> {
-        let mut tx = pool.begin().await?;
-        let id = insert_chain(&mut tx, input, None, None).await?;
+        let mut tx = WriteTx::begin(pool).await?;
+        let id = create_in(&mut tx, input, None, None, None).await?;
         tx.commit().await?;
         find_by_id(pool, &id)
             .await?
             .ok_or_else(|| anyhow::anyhow!("链创建后读取失败"))
     }
 
-    /// 用户自助建链：在**同一个事务**里检查配额并写入，避免并发请求把
-    /// `chain_limit` 撑破。
+    /// 用户自助建链：在**同一个 BEGIN IMMEDIATE 事务**里检查配额并写入，
+    /// 避免并发请求把 `chain_limit` 撑破。
     ///
     /// 配额口径与 [`super::forwards::create_owned`] 一致：按 `owner_user_id`
     /// 统计所有链（含停用），达到上限返回 `me.chain_quota_exceeded`（400）。
@@ -4097,25 +4415,15 @@ pub mod chains {
         owner_user_id: &str,
         quota_limit: i64,
     ) -> anyhow::Result<ChainWithGroups> {
-        let mut tx = pool.begin().await?;
-        let used: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM chains WHERE owner_user_id = ?")
-            .bind(owner_user_id)
-            .fetch_one(&mut *tx)
-            .await?;
-        if used >= quota_limit.max(0) {
-            let message = if quota_limit <= 0 {
-                "当前套餐没有开通自助建链配额".to_string()
-            } else {
-                format!("链路数量已达套餐上限（{used}/{quota_limit}）")
-            };
-            return Err(crate::error::DomainError::with_params(
-                "me.chain_quota_exceeded",
-                serde_json::json!({ "limit": quota_limit.max(0), "used": used }),
-                message,
-            )
-            .into());
-        }
-        let id = insert_chain(&mut tx, input, Some(template_id), Some(owner_user_id)).await?;
+        let mut tx = WriteTx::begin(pool).await?;
+        let id = create_in(
+            &mut tx,
+            input,
+            Some(template_id),
+            Some(owner_user_id),
+            Some(quota_limit),
+        )
+        .await?;
         tx.commit().await?;
         find_by_id(pool, &id)
             .await?
@@ -4301,12 +4609,11 @@ pub mod chains {
         Ok(by_chain)
     }
 
-    pub async fn update(
-        pool: &SqlitePool,
-        id: &str,
-        input: UpdateChain,
-    ) -> anyhow::Result<Option<ChainWithGroups>> {
-        let mut tx = pool.begin().await?;
+    /// 在调用方已开启的 `BEGIN IMMEDIATE` 事务里更新链与组。
+    ///
+    /// 返回 `false` = 链不存在；调用方不要 COMMIT，直接丢弃事务即可回滚。
+    pub async fn update_in(tx: &mut WriteTx, id: &str, input: UpdateChain) -> anyhow::Result<bool> {
+        let conn = tx.conn();
         let res = sqlx::query(
             "UPDATE chains SET
                 name = COALESCE(?, name),
@@ -4347,19 +4654,30 @@ pub mod chains {
         )
         .bind(now())
         .bind(id)
-        .execute(&mut *tx)
+        .execute(&mut *conn)
         .await?;
         if res.rows_affected() == 0 {
-            tx.rollback().await?;
-            return Ok(None);
+            return Ok(false);
         }
 
         if let Some(groups) = input.groups {
             sqlx::query("DELETE FROM chain_groups WHERE chain_id = ?")
                 .bind(id)
-                .execute(&mut *tx)
+                .execute(&mut *conn)
                 .await?;
-            insert_groups(&mut tx, id, &groups).await?;
+            insert_groups(conn, id, &groups).await?;
+        }
+        Ok(true)
+    }
+
+    pub async fn update(
+        pool: &SqlitePool,
+        id: &str,
+        input: UpdateChain,
+    ) -> anyhow::Result<Option<ChainWithGroups>> {
+        let mut tx = WriteTx::begin(pool).await?;
+        if !update_in(&mut tx, id, input).await? {
+            return Ok(None);
         }
         tx.commit().await?;
         find_by_id(pool, id).await
@@ -4379,6 +4697,27 @@ pub mod chains {
             .await?;
         tx.commit().await?;
         Ok(res.rows_affected() > 0)
+    }
+
+    /// 这台服务器被哪些链的成员引用（删除服务器前的守卫）。
+    ///
+    /// 同一台服务器在同一条链里只可能出现一次，所以按链去重后给用户看的
+    /// 名单不会重复；seq 用于告诉用户是哪一跳。
+    pub async fn server_references(
+        pool: &SqlitePool,
+        server_id: &str,
+    ) -> anyhow::Result<Vec<ChainServerReference>> {
+        Ok(sqlx::query_as::<_, ChainServerReference>(
+            "SELECT DISTINCT c.id AS chain_id, c.name AS chain_name, g.seq
+             FROM chain_group_members m
+             JOIN chain_groups g ON g.id = m.group_id
+             JOIN chains c ON c.id = g.chain_id
+             WHERE m.server_id = ?
+             ORDER BY g.seq ASC",
+        )
+        .bind(server_id)
+        .fetch_all(pool)
+        .await?)
     }
 
     /// 另一条链是否已经占用了这台服务器的这个监听端口（成员端口，不是组端口）。
@@ -4645,7 +4984,7 @@ pub mod chain_templates {
         chain_limit: i64,
         template_ids: &[String],
     ) -> anyhow::Result<bool> {
-        let mut tx = pool.begin().await?;
+        let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
         let res = sqlx::query("UPDATE packages SET chain_limit = ? WHERE id = ?")
             .bind(chain_limit)
             .bind(package_id)
@@ -5062,7 +5401,8 @@ pub mod packages {
 
     pub async fn create(pool: &SqlitePool, input: NewPackage) -> anyhow::Result<Package> {
         let id = Uuid::new_v4().to_string();
-        let mut tx = pool.begin().await?;
+        // 配额/范围写入必须原子：先拿写锁，避免两个创建请求交错写 package_nodes。
+        let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
         sqlx::query(
             "INSERT INTO packages
                 (id, name, quota_bytes, period_days, direction, node_ratio, speed_limit_kbps,
@@ -5209,7 +5549,7 @@ pub mod packages {
         forward_limit: i64,
         server_ids: &[String],
     ) -> anyhow::Result<bool> {
-        let mut tx = pool.begin().await?;
+        let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
         let res = sqlx::query("UPDATE packages SET forward_limit = ? WHERE id = ?")
             .bind(forward_limit)
             .bind(package_id)
@@ -5370,7 +5710,7 @@ pub mod packages {
             Patch::Null => (true, 0),
             Patch::Value(_) => (true, 1),
         };
-        let mut tx = pool.begin().await?;
+        let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
         let res = sqlx::query(
             "UPDATE packages SET
                 name = COALESCE(?, name),

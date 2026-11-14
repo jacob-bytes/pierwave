@@ -239,6 +239,9 @@ pub async fn create(
     forwards::validate_target_port(req.target_port)?;
     forwards::ensure_port_not_reserved(req.listen_port)?;
     forwards::ensure_not_self_loop("0.0.0.0", req.listen_port, &target_host, req.target_port)?;
+    // 端口冲突查询与插入在同一个 BEGIN IMMEDIATE 事务里；并发创建会排队，
+    // 而不是两个请求都通过检查后被唯一索引打成 500。
+    let mut write = repo::WriteTx::begin(&state.db.pool).await?;
     ensure_port_available(&state, &server_id, req.listen_port, None).await?;
     let engine = match req.engine.as_deref() {
         Some(raw) => engine::normalize(raw)?,
@@ -255,8 +258,8 @@ pub async fn create(
     ensure_tunnel_not_standalone(&engine)?;
 
     let forward_name_for_error = name.clone();
-    let forward = repo::forwards::create(
-        &state.db.pool,
+    let id = repo::forwards::create_in(
+        &mut write,
         &server_id,
         repo::forwards::NewForward {
             name,
@@ -268,9 +271,15 @@ pub async fn create(
             engine,
             protocol,
         },
+        None,
+        None,
     )
     .await
     .map_err(|error| map_port_conflict(error, req.listen_port, &forward_name_for_error))?;
+    write.commit().await?;
+    let forward = repo::forwards::find_by_id(&state.db.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("转发规则创建后读取失败")))?;
 
     crate::audit::record(
         &state,
@@ -465,15 +474,6 @@ pub async fn update(
         }),
     )
     .await;
-
-    // 计费开关从关到开：把基线对齐到当前计数，避免补记关闭期间的流量。
-    if forward.count_traffic && !existing.count_traffic {
-        if let Err(error) =
-            repo::forwards::reset_traffic_baseline(&state.db.pool, &forward.id).await
-        {
-            tracing::warn!("重置转发计费基线失败: {error}");
-        }
-    }
 
     let base = super::install::external_base(&headers);
     mark_dirty_and_apply(&state, &server, &base).await;
@@ -681,11 +681,13 @@ pub async fn me_create(
     };
     protocol::ensure_forward_agent_supported(&protocol, server.protocol_version, &server.name)?;
 
+    // 端口分配 + 配额复核 + 插入在同一个 BEGIN IMMEDIATE 事务里。
+    let mut write = repo::WriteTx::begin(&state.db.pool).await?;
     let listen_port = allocate_user_port(&state, &server, &target_host, req.target_port).await?;
     let name = forwards::default_owner_name(&target_host, req.target_port);
     let conflict_name = name.clone();
-    let forward = repo::forwards::create_owned(
-        &state.db.pool,
+    let id = repo::forwards::create_in(
+        &mut write,
         &server.id,
         repo::forwards::NewForward {
             name,
@@ -698,8 +700,8 @@ pub async fn me_create(
             engine: engine::DEFAULT.to_string(),
             protocol,
         },
-        &user.0.id,
-        allowance.limit,
+        Some(&user.0.id),
+        Some(allowance.limit),
     )
     .await
     .map_err(|error| match AppError::from_domain_chain(&error) {
@@ -707,6 +709,10 @@ pub async fn me_create(
         Some(domain) => domain,
         None => map_port_conflict(error, listen_port, &conflict_name),
     })?;
+    write.commit().await?;
+    let forward = repo::forwards::find_by_id(&state.db.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("转发规则创建后读取失败")))?;
     crate::audit::record(
         &state,
         &user.0,
@@ -771,13 +777,6 @@ pub async fn me_update(
     )
     .await?
     .ok_or_else(|| AppError::not_found("me.forward_not_found", None, "转发规则不存在"))?;
-
-    // 关 → 开：对齐基线，避免补记关闭期间的流量。
-    if forward.count_traffic && !existing.count_traffic {
-        if let Err(error) = repo::forwards::reset_traffic_baseline(&state.db.pool, &id).await {
-            tracing::warn!(%id, %error, "重置转发计费基线失败");
-        }
-    }
 
     let base = super::install::external_base(&headers);
     mark_dirty_and_apply(&state, &server, &base).await;
@@ -2383,6 +2382,179 @@ mod tests {
         assert_eq!(body["forward"]["count_traffic"], false);
     }
 
+    /// 所有「开启计费」路径在服务器离线时都必须写「待对齐」，不能沿用旧心跳。
+    ///
+    /// 覆盖管理员 PATCH、用户 PATCH 与创建时 count_traffic=true 三条路径。
+    #[tokio::test]
+    async fn enabling_metering_while_offline_pends_on_every_path() {
+        let (app, state, admin_cookie, server_id) = setup().await;
+
+        // 管理员 PATCH：先建一条不计费规则，保存一次旧心跳后把服务器标记离线。
+        let mut body = forward_body(18400);
+        body["count_traffic"] = json!(false);
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::POST,
+            &format!("/api/v1/servers/{server_id}/forwards"),
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let admin_id = body["forward"]["id"].as_str().unwrap().to_string();
+        repo::forwards::save_status(
+            &state.db.pool,
+            &server_id,
+            &[repo::forwards::NewForwardStatus {
+                forward_id: pierwave_domain::forwards::desired_id(&admin_id),
+                listening: true,
+                error: String::new(),
+                target_ok: Some(true),
+                target_error: None,
+                targets: Vec::new(),
+                traffic_in: Some(1000),
+                traffic_out: Some(0),
+            }],
+        )
+        .await
+        .unwrap();
+        repo::servers::mark_offline(&state.db.pool, &server_id)
+            .await
+            .unwrap();
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::PATCH,
+            &format!("/api/v1/forwards/{admin_id}"),
+            Some(json!({"count_traffic": true})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let stored = repo::forwards::find_by_id(&state.db.pool, &admin_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            stored.last_traffic_in,
+            pierwave_domain::repo::forwards::PENDING_TRAFFIC_BASELINE,
+            "管理员 PATCH 在离线时必须标记待对齐"
+        );
+
+        // 用户 PATCH：先建（默认计费）再关掉，保存旧心跳后离线，最后重新开启。
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+        let package =
+            create_forward_package(&state, "A", 2, std::slice::from_ref(&server_id)).await;
+        bind_user_to_package(&state, &alice_id, &package).await;
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(user_forward_body(&server_id, "10.0.0.8", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let user_id = body["forward"]["id"].as_str().unwrap().to_string();
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::PATCH,
+            &format!("/api/v1/me/forwards/{user_id}"),
+            Some(json!({"count_traffic": false})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+
+        repo::servers::mark_online(&state.db.pool, &server_id)
+            .await
+            .unwrap();
+        repo::forwards::save_status(
+            &state.db.pool,
+            &server_id,
+            &[repo::forwards::NewForwardStatus {
+                forward_id: pierwave_domain::forwards::desired_id(&user_id),
+                listening: true,
+                error: String::new(),
+                target_ok: Some(true),
+                target_error: None,
+                targets: Vec::new(),
+                traffic_in: Some(1000),
+                traffic_out: Some(0),
+            }],
+        )
+        .await
+        .unwrap();
+        repo::servers::mark_offline(&state.db.pool, &server_id)
+            .await
+            .unwrap();
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::PATCH,
+            &format!("/api/v1/me/forwards/{user_id}"),
+            Some(json!({"count_traffic": true})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let stored = repo::forwards::find_by_id(&state.db.pool, &user_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            stored.last_traffic_in,
+            pierwave_domain::repo::forwards::PENDING_TRAFFIC_BASELINE,
+            "用户 PATCH 在离线时必须标记待对齐"
+        );
+
+        // 创建时 count_traffic=true：新规则没有历史计数，基线从 0 开始。
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(user_forward_body(&server_id, "10.0.0.9", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let fresh_id = body["forward"]["id"].as_str().unwrap().to_string();
+        let stored = repo::forwards::find_by_id(&state.db.pool, &fresh_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            stored.last_traffic_in, 0,
+            "新规则从 0 开始计费，不能因离线而丢掉创建后的流量"
+        );
+
+        // 重连后，待对齐的两条规则只在第一轮对齐；新规则照常从 0 计。
+        repo::servers::mark_online(&state.db.pool, &server_id)
+            .await
+            .unwrap();
+        let statuses: Vec<_> = [&admin_id, &user_id, &fresh_id]
+            .into_iter()
+            .map(|id| repo::forwards::NewForwardStatus {
+                forward_id: pierwave_domain::forwards::desired_id(id),
+                listening: true,
+                error: String::new(),
+                target_ok: Some(true),
+                target_error: None,
+                targets: Vec::new(),
+                traffic_in: Some(9000),
+                traffic_out: Some(0),
+            })
+            .collect();
+        repo::forwards::save_status(&state.db.pool, &server_id, &statuses)
+            .await
+            .unwrap();
+        let report = repo::forward_traffic::run_round(&state.db.pool, 1_700_000_000)
+            .await
+            .unwrap();
+        assert_eq!(
+            report.bytes, 9000,
+            "只有离线创建的新规则计 9000；两条 PATCH 开启的规则第一轮只对齐"
+        );
+    }
+
     /// 自动分配遵守服务器端口策略与已占用端口；耗尽时是 400 而不是换池。
     #[tokio::test]
     async fn user_forward_ports_follow_the_server_port_policy() {
@@ -2786,5 +2958,60 @@ mod tests {
             let (status, _) = request(&app, None, method, &uri, body).await;
             assert_eq!(status, StatusCode::UNAUTHORIZED, "{uri}");
         }
+    }
+    /// 并发自助创建不能突破配额：两个请求同时到达时只能成功一条，
+    /// 另一条必须是可读的 400（而不是两个都插入或第二个变成 500）。
+    #[tokio::test]
+    async fn concurrent_user_forward_creates_cannot_exceed_the_quota() {
+        let (app, state, _admin_cookie, server_id) = setup().await;
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+        let package =
+            create_forward_package(&state, "单条", 1, std::slice::from_ref(&server_id)).await;
+        bind_user_to_package(&state, &alice_id, &package).await;
+
+        let first_body = user_forward_body(&server_id, "10.0.0.8", 443);
+        let second_body = user_forward_body(&server_id, "10.0.0.9", 8443);
+        let (first, second) = tokio::join!(
+            request(
+                &app,
+                Some(&alice_cookie),
+                Method::POST,
+                "/api/v1/me/forwards",
+                Some(first_body),
+            ),
+            request(
+                &app,
+                Some(&alice_cookie),
+                Method::POST,
+                "/api/v1/me/forwards",
+                Some(second_body),
+            ),
+        );
+
+        let mut statuses = [first.0, second.0];
+        statuses.sort();
+        assert_eq!(
+            statuses,
+            [StatusCode::OK, StatusCode::BAD_REQUEST],
+            "只能成功一条：first={:?} second={:?}",
+            first.1,
+            second.1
+        );
+        let rejected = if first.0 == StatusCode::BAD_REQUEST {
+            &first.1
+        } else {
+            &second.1
+        };
+        assert_eq!(
+            rejected["code"], "me.forward_quota_exceeded",
+            "失败原因必须是配额，而不是端口冲突/500：{rejected}"
+        );
+        assert_eq!(
+            repo::forwards::count_by_owner(&state.db.pool, &alice_id)
+                .await
+                .unwrap(),
+            1,
+            "并发创建不能写入两条"
+        );
     }
 }

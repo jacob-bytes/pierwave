@@ -20,6 +20,7 @@
 | `query.cursor_invalid` | before 游标无效 | — |
 | `event.cleanup_days_invalid` | 清理天数必须在 {min}-{max} 天之间，或选择全部 | max, min |
 | `request.no_update_fields` | 至少需要提供一个可更新字段 | — |
+| `request.busy` | 数据库繁忙，请稍后重试（并发写入未能在等待时间内完成） | — |
 | `user.not_found` | 用户不存在 | — |
 | `user.username_length_invalid` | 用户名长度必须在 {min}-{max} 个字符之间 | max, min |
 | `user.password_too_short` | 密码至少 {min} 位 | min |
@@ -29,6 +30,7 @@
 | `user.cannot_delete_self` | 不能删除自己 | — |
 | `user_package.not_found` | 套餐实例不存在 | — |
 | `server.not_found` | 服务器不存在 | — |
+| `server.in_use_by_chain` | 服务器「{server_name}」仍被链「{chains}」引用，请先修改或删除这些链 | chains, server_name |
 | `server.name_address_required` | 名称和地址不能为空 | — |
 | `server.name_required` | 服务器名称不能为空 | — |
 | `server.address_required` | 服务器地址不能为空 | — |
@@ -163,6 +165,7 @@
 | `chain.port_not_allowed` | 端口 {port} 不在服务器「{server}」允许的范围内 | port, server |
 | `chain.port_allowed_exhausted` | 服务器「{server}」允许的端口都已占用；请先释放端口，或为该跳手动填写允许范围内的端口 | server, server_id |
 | `chain.internal_address_missing` | 服务器「{server}」还没有填写内网地址，无法使用内网地址转发 | server |
+| `chain.group_empty` | 某一跳没有成员服务器，整条链未下发 | — |
 
 ## 转发链端口自动分配（中英对照）/ Automatic chain port allocation
 

@@ -224,6 +224,15 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
     let mut files: Vec<ManagedFile> = Vec::new();
     let mut file_paths: HashSet<String> = HashSet::new();
     for chain in &chains {
+        // 空成员组对所有引擎都是整链失败：与列表/概览的 blocked 判定同一套
+        // 规则，先于引擎分支挡住，避免隧道等专用推导给出不同的原因。
+        if let Some(reason) = chains::empty_group_blocked_reason(&chain.groups) {
+            warnings.push(format!(
+                "链「{}」未下发：{}（{}）",
+                chain.chain.name, reason.message, reason.code
+            ));
+            continue;
+        }
         // 内网地址缺失是整链失败：保存时已经 400，这里再挡一次手工改库 /
         // 后补空地址的情况——绝不把目标静默换回公网地址继续下发。
         if let Some(reason) = chains::internal_address_blocked_reason(&chain.groups) {
@@ -417,9 +426,23 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
             }
         }
 
-        for (server_id, forward) in
-            super::chains::derive_forwards_with_transports(&chain.chain, &chain.groups, &transports)
-        {
+        // 空成员组等整链问题由 blocked_reason 先挡住；这里再兜一层：
+        // 推导失败只写 warning 并跳过整条链，绝不能下发半条链。
+        let derived = match super::chains::derive_forwards_with_transports(
+            &chain.chain,
+            &chain.groups,
+            &transports,
+        ) {
+            Ok(derived) => derived,
+            Err(reason) => {
+                warnings.push(format!(
+                    "链「{}」未下发：{}（{}）",
+                    chain.chain.name, reason.message, reason.code
+                ));
+                continue;
+            }
+        };
+        for (server_id, forward) in derived {
             if server_id == server.id {
                 desired_forwards.push(forward);
             }

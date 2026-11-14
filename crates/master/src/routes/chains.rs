@@ -163,7 +163,14 @@ fn validate_internal_addresses(groups: &[ValidatedGroup]) -> AppResult<()> {
 pub(crate) fn derive_forwards(
     chain: &Chain,
     groups: &[ChainGroupWithMembers],
-) -> Vec<(String, DesiredForward)> {
+) -> Result<Vec<(String, DesiredForward)>, chains::BlockedReason> {
+    // 空成员组 = 整链不下发。若继续推导，上一跳会把「没有下一跳」回退成
+    // 直连最终目标，3 跳链静默变 2 跳；这里与 tunnel 的 downstream_missing
+    // 同口径，对所有引擎统一拒绝整链。
+    if let Some(reason) = chains::empty_group_blocked_reason(groups) {
+        return Err(reason);
+    }
+
     let mut ordered: Vec<&ChainGroupWithMembers> = groups.iter().collect();
     ordered.sort_by_key(|group| group.group.seq);
 
@@ -183,29 +190,32 @@ pub(crate) fn derive_forwards(
             Some(next) => {
                 let next_members = ordered_members(next);
                 let use_internal = next.group.use_internal_address;
-                match next_members.first() {
-                    Some(first) => {
-                        let targets = if next_members.len() > 1 {
-                            next_members
-                                .iter()
-                                .map(|member| ForwardTarget {
-                                    host: member_target_host(member, use_internal),
-                                    port: member.listen_port,
-                                    server_id: member.server_id.clone(),
-                                })
-                                .collect()
-                        } else {
-                            Vec::new()
-                        };
-                        (
-                            member_target_host(first, use_internal),
-                            first.listen_port,
-                            targets,
-                        )
-                    }
-                    // 数据损坏（组没有成员）：退回链目标，至少不让下发 panic。
-                    None => (chain.target_host.clone(), chain.target_port, Vec::new()),
-                }
+                // 前面已统一拒绝空组；这里保留防御性错误而不是 panic。
+                let first = next_members.first().ok_or_else(|| chains::BlockedReason {
+                    code: "chain.group_empty".to_string(),
+                    message: format!(
+                        "第 {} 跳没有成员服务器，整条链未下发 / hop {} has no member servers, so the whole chain was not delivered",
+                        next.group.seq + 1,
+                        next.group.seq + 1
+                    ),
+                })?;
+                let targets = if next_members.len() > 1 {
+                    next_members
+                        .iter()
+                        .map(|member| ForwardTarget {
+                            host: member_target_host(member, use_internal),
+                            port: member.listen_port,
+                            server_id: member.server_id.clone(),
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                (
+                    member_target_host(first, use_internal),
+                    first.listen_port,
+                    targets,
+                )
             }
             None => (chain.target_host.clone(), chain.target_port, Vec::new()),
         };
@@ -241,7 +251,7 @@ pub(crate) fn derive_forwards(
             ));
         }
     }
-    derived
+    Ok(derived)
 }
 
 fn default_enabled() -> bool {
@@ -737,10 +747,10 @@ pub(crate) fn derive_forwards_with_transports(
     chain: &Chain,
     groups: &[ChainGroupWithMembers],
     transports: &[hop_transport::HopTransport],
-) -> Vec<(String, DesiredForward)> {
-    let mut derived = derive_forwards(chain, groups);
+) -> Result<Vec<(String, DesiredForward)>, chains::BlockedReason> {
+    let mut derived = derive_forwards(chain, groups)?;
     if transports.is_empty() {
-        return derived;
+        return Ok(derived);
     }
 
     let mut ordered: Vec<&ChainGroupWithMembers> = groups.iter().collect();
@@ -762,7 +772,7 @@ pub(crate) fn derive_forwards_with_transports(
         forward.remote_transport = transport.remote.clone();
         forward.disable_udp = transport.disable_udp;
     }
-    derived
+    Ok(derived)
 }
 
 /// 隧道链推导的失败原因。
@@ -1980,6 +1990,9 @@ pub async fn create(
     } else {
         groups
     };
+    // 端口分配与插入必须在同一个 BEGIN IMMEDIATE 事务里：先拿写锁，再做
+    // 冲突查询/自动分配，最后用同一个连接插入；并发保存会排队而不是撞唯一索引。
+    let mut write = repo::WriteTx::begin(&state.db.pool).await?;
     let groups = resolve_groups(&state, &inputs, None, None).await?;
     validate_internal_addresses(&groups)?;
     ensure_targets_safe(&groups, &target_host, target_port)?;
@@ -1992,8 +2005,8 @@ pub async fn create(
     // 仅 UDP 从协议 16 开始支持；任意一跳的旧 Agent 都会把它悄悄变成 TCP。
     protocol::ensure_chain_agent_supported(&protocol, &member_protocol_versions(&groups))?;
 
-    let chain = repo::chains::create(
-        &state.db.pool,
+    let id = repo::chains::create_in(
+        &mut write,
         repo::chains::NewChain {
             name,
             target_host,
@@ -2005,8 +2018,15 @@ pub async fn create(
             tunnel_security,
             groups: new_groups(&groups),
         },
+        None,
+        None,
+        None,
     )
     .await?;
+    write.commit().await?;
+    let chain = repo::chains::find_by_id(&state.db.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("链创建后读取失败")))?;
 
     crate::audit::record(
         &state,
@@ -2100,6 +2120,8 @@ pub async fn update(
         ));
     }
 
+    // 与创建同口径：先拿写锁再读旧值、做端口分配与插入。
+    let mut write = repo::WriteTx::begin(&state.db.pool).await?;
     let existing = repo::chains::find_by_id(&state.db.pool, &id)
         .await?
         .ok_or_else(|| AppError::not_found("chain.not_found", None, "链不存在"))?;
@@ -2198,23 +2220,31 @@ pub async fn update(
         }
     }
 
-    let updated = repo::chains::update(
-        &state.db.pool,
-        &id,
-        repo::chains::UpdateChain {
-            name,
-            target_host,
-            target_port,
-            enabled,
-            engine,
-            protocol,
-            transport,
-            tunnel_security,
-            groups: replace_groups.then(|| new_groups(&groups)),
-        },
-    )
-    .await?
-    .ok_or_else(|| AppError::not_found("chain.not_found", None, "链不存在"))?;
+    let updated = {
+        let updated = repo::chains::update_in(
+            &mut write,
+            &id,
+            repo::chains::UpdateChain {
+                name,
+                target_host,
+                target_port,
+                enabled,
+                engine,
+                protocol,
+                transport,
+                tunnel_security,
+                groups: replace_groups.then(|| new_groups(&groups)),
+            },
+        )
+        .await?;
+        if !updated {
+            return Err(AppError::not_found("chain.not_found", None, "链不存在"));
+        }
+        write.commit().await?;
+        repo::chains::find_by_id(&state.db.pool, &id)
+            .await?
+            .ok_or_else(|| AppError::not_found("chain.not_found", None, "链不存在"))?
+    };
 
     let changes = crate::audit::diff(vec![
         (
@@ -2536,6 +2566,10 @@ pub async fn me_create(
     forwards::validate_target_port(req.target_port)?;
     let template_groups = chain_templates::parse_groups(&template.groups_json)?;
 
+    // 入口端口分配 + 中间端口分配 + 插入全部在同一个 BEGIN IMMEDIATE 里，
+    // 否则并发自助建链会抢到同一个端口。配额也在 create_in 里复核一次。
+    let mut write = repo::WriteTx::begin(&state.db.pool).await?;
+
     // 模板 → 链的组输入：入口组（seq 0）先按服务器端口策略分配，
     // 中间组留空由 resolve_groups 自动分配。
     let mut inputs: Vec<CreateChainGroup> = Vec::with_capacity(template_groups.len());
@@ -2608,8 +2642,8 @@ pub async fn me_create(
     protocol::ensure_chain_agent_supported(&config.protocol, &member_protocol_versions(&groups))?;
 
     let name = user_chain_name(&template.name, &target_host, req.target_port);
-    let chain = repo::chains::create_owned(
-        &state.db.pool,
+    let id = repo::chains::create_in(
+        &mut write,
         repo::chains::NewChain {
             name,
             target_host: target_host.clone(),
@@ -2621,9 +2655,9 @@ pub async fn me_create(
             tunnel_security: config.security.clone(),
             groups: new_groups(&groups),
         },
-        &template.id,
-        &user.0.id,
-        allowance.limit,
+        Some(&template.id),
+        Some(&user.0.id),
+        Some(allowance.limit),
     )
     .await
     .map_err(|error| match AppError::from_domain_chain(&error) {
@@ -2631,6 +2665,10 @@ pub async fn me_create(
         Some(domain) => domain,
         None => AppError::Internal(error),
     })?;
+    write.commit().await?;
+    let chain = repo::chains::find_by_id(&state.db.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("链创建后读取失败")))?;
 
     crate::audit::record(
         &state,
@@ -2974,7 +3012,7 @@ mod tests {
             ],
         )];
 
-        let derived = derive_forwards(&chain, &groups);
+        let derived = derive_forwards(&chain, &groups).unwrap();
         assert_eq!(derived.len(), 3, "组内每台成员各一条 forward");
         for (index, (server_id, forward)) in derived.iter().enumerate() {
             assert_eq!(server_id, &format!("srv-{}", ["a", "b", "c"][index]));
@@ -3009,7 +3047,7 @@ mod tests {
             ),
         ];
 
-        let derived = derive_forwards(&chain, &groups);
+        let derived = derive_forwards(&chain, &groups).unwrap();
         assert_eq!(derived.len(), 4, "1 台入口 + 3 台目标组成员");
 
         let entry = &derived[0];
@@ -3074,7 +3112,7 @@ mod tests {
             ),
         ];
 
-        let derived = derive_forwards(&chain, &groups);
+        let derived = derive_forwards(&chain, &groups).unwrap();
         assert_eq!(derived.len(), 4, "每条链 2 + 2 = 4 条 forward");
 
         for (server_id, forward) in &derived[..2] {
@@ -3118,7 +3156,7 @@ mod tests {
             test_group("c4", 1, "ip_hashed", &[("srv-c", "10.0.0.3", 9003, 0)]),
         ];
 
-        let derived = derive_forwards(&chain, &groups);
+        let derived = derive_forwards(&chain, &groups).unwrap();
         assert_eq!(derived.len(), 3);
         for (server_id, forward) in &derived[..2] {
             assert!(["srv-a", "srv-b"].contains(&server_id.as_str()));
@@ -3158,7 +3196,7 @@ mod tests {
             ),
         ];
 
-        let derived = derive_forwards(&chain, &groups);
+        let derived = derive_forwards(&chain, &groups).unwrap();
         assert_eq!(derived.len(), 3);
         assert_eq!(derived[0].0, "srv-a", "同组内 priority 小的先出");
         assert_eq!(derived[1].0, "srv-b");
@@ -4363,14 +4401,14 @@ mod tests {
             &[("srv-a", "10.0.0.1", 9001, 0)],
         )];
 
-        let derived = derive_forwards(&chain, &groups);
+        let derived = derive_forwards(&chain, &groups).unwrap();
         assert_eq!(derived.len(), 1);
         assert_eq!(derived[0].1.engine, ForwardEngine::Realm);
 
         // 非法的历史值按 native 读：不能因为一个脏值让整条链下发失败。
         chain.engine = "wireguard".into();
         assert_eq!(
-            derive_forwards(&chain, &groups)[0].1.engine,
+            derive_forwards(&chain, &groups).unwrap()[0].1.engine,
             ForwardEngine::Native
         );
     }
@@ -4386,7 +4424,7 @@ mod tests {
 
         // 缺省（历史数据）= 只开 TCP，行为与升级前一致。
         assert!(!chain.udp);
-        let derived = derive_forwards(&chain, &groups);
+        let derived = derive_forwards(&chain, &groups).unwrap();
         assert_eq!(derived.len(), 2);
         assert!(derived.iter().all(|(_, forward)| !forward.udp));
         assert!(
@@ -4399,7 +4437,7 @@ mod tests {
         // 开启后两跳都必须带 UDP：链级开关不允许只开一半。
         chain.protocol = "both".into();
         chain.udp = true;
-        let derived = derive_forwards(&chain, &groups);
+        let derived = derive_forwards(&chain, &groups).unwrap();
         assert_eq!(derived.len(), 2);
         assert!(
             derived.iter().all(|(_, forward)| forward.udp),
@@ -5695,7 +5733,7 @@ mod tests {
                 disable_udp: true,
             },
         ];
-        let derived = derive_forwards_with_transports(&chain, &groups, &transports);
+        let derived = derive_forwards_with_transports(&chain, &groups, &transports).unwrap();
         let by_port = |port: i64| {
             derived
                 .iter()
@@ -5732,7 +5770,7 @@ mod tests {
 
         // 明文链：传空 transport 列表，推导结果逐字段保持旧行为。
         let plain_chain = test_chain("c-plain");
-        let plain = derive_forwards_with_transports(&plain_chain, &groups, &[]);
+        let plain = derive_forwards_with_transports(&plain_chain, &groups, &[]).unwrap();
         assert!(plain
             .iter()
             .all(|(_, forward)| forward.listen_transport.is_none()
@@ -7114,7 +7152,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let derived = derive_forwards(&stored.chain, &stored.groups);
+        let derived = derive_forwards(&stored.chain, &stored.groups).unwrap();
         let entry = derived
             .iter()
             .find(|(server_id, _)| server_id == &fixture.a)
@@ -7151,6 +7189,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let entry = derive_forwards(&stored.chain, &stored.groups)
+            .unwrap()
             .into_iter()
             .find(|(server_id, _)| server_id == &fixture.a)
             .map(|(_, forward)| forward)
@@ -7740,5 +7779,177 @@ mod tests {
                 .all(|forward| forward.id != chains::legacy_forward_id(&stored.chain.id, 0)),
             "缺 downstream 的链不能下发（绝不退化成直连目标）"
         );
+    }
+    /// 删除被链引用的服务器必须拒绝；历史/手工数据留下的空成员组必须整链阻断。
+    ///
+    /// 旧行为：删除服务器级联删掉成员，native 链的推导把「没有下一跳」回退成
+    /// 直连最终目标，`blocked_reason` 返回 None——3 跳链静默变 2 跳。
+    #[tokio::test]
+    async fn referenced_server_delete_is_rejected_and_empty_groups_block_native_chains() {
+        let fixture = setup().await;
+        let new_group = |server_id: &str, seq: i64| repo::chains::NewChainGroup {
+            name: None,
+            strategy: "round_robin".into(),
+            cert_id: None,
+            public_port: None,
+            use_internal_address: false,
+            members: vec![repo::chains::NewChainGroupMember {
+                server_id: server_id.to_string(),
+                listen_port: 21000 + seq,
+                priority: 0,
+                weight: 1,
+            }],
+        };
+        let stored = repo::chains::create(
+            &fixture.state.db.pool,
+            repo::chains::NewChain {
+                name: "三跳 native".into(),
+                target_host: "1.1.1.1".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "native".into(),
+                protocol: "tcp".into(),
+                transport: "none".into(),
+                tunnel_security: "tls".into(),
+                groups: vec![
+                    new_group(&fixture.a, 0),
+                    new_group(&fixture.b, 1),
+                    new_group(&fixture.c, 2),
+                ],
+            },
+        )
+        .await
+        .unwrap();
+        let chain_id = stored.chain.id.clone();
+
+        // 被引用时 DELETE 服务器：409 + 可读原因，链保持不变。
+        let (status, body) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::DELETE,
+            &format!("/api/v1/servers/{}", fixture.b),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "unexpected: {body}");
+        assert_eq!(body["code"], "server.in_use_by_chain", "{body}");
+        assert!(
+            body["error"].as_str().unwrap().contains("链"),
+            "必须说明为什么不能删：{body}"
+        );
+        let intact = repo::chains::find_by_id(&fixture.state.db.pool, &chain_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(intact.groups.len(), 3);
+        assert_eq!(
+            intact.groups[1].members.len(),
+            1,
+            "被拒绝的删除不能级联删成员"
+        );
+
+        // 模拟历史数据 / 手工改库：直接级联删掉中间服务器，留下空成员组。
+        repo::servers::delete(&fixture.state.db.pool, &fixture.b)
+            .await
+            .unwrap();
+        let broken = repo::chains::find_by_id(&fixture.state.db.pool, &chain_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(broken.groups[1].members.len(), 0, "空组必须保留给视图解释");
+        let reason = chains::blocked_reason(&broken.chain, &broken.groups, &HashMap::new(), 0)
+            .expect("空成员组必须给出 blocked 原因");
+        assert_eq!(reason.code, "chain.group_empty");
+
+        // 期望态：不给入口服务器下发那条「直连目标」的降级链。
+        let server_a = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.a)
+            .await
+            .unwrap();
+        let rendered =
+            crate::routes::desired::render(&fixture.state, &server_a, "https://panel.example.com")
+                .await
+                .unwrap();
+        assert!(
+            rendered
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("三跳 native")
+                    && warning.contains("chain.group_empty")),
+            "必须给出整链阻断原因：{:?}",
+            rendered.warnings
+        );
+        assert!(
+            rendered
+                .forwards
+                .iter()
+                .all(|forward| !forward.id.starts_with(&format!("chain-{chain_id}-"))),
+            "空成员组的链不能下发任何一跳"
+        );
+    }
+
+    /// 并发建链：端口分配 + 插入必须是同一个 BEGIN IMMEDIATE 事务。
+    ///
+    /// 旧行为（只有查冲突 + 各自插入）在并发下会把两条链的中间跳写到同一
+    /// `(server_id, listen_port)`；迁移 0047 的唯一索引会拒绝其中一条。
+    #[tokio::test]
+    async fn concurrent_chain_creates_never_share_a_member_port() {
+        let fixture = setup().await;
+        let body = |name: &str, entry_port: i64| {
+            json!({
+                "name": name,
+                "target_host": "1.1.1.1",
+                "target_port": 443,
+                "groups": [
+                    {"members": [{"server_id": fixture.a, "listen_port": entry_port}]},
+                    {"members": [{"server_id": fixture.b}]},
+                ],
+            })
+        };
+
+        for round in 0..10_i64 {
+            let first = body(&format!("并发 A{round}"), 24000 + round * 2);
+            let second = body(&format!("并发 B{round}"), 24001 + round * 2);
+            let (first, second) = tokio::join!(
+                request(
+                    &fixture.app,
+                    Some(&fixture.cookie),
+                    Method::POST,
+                    "/api/v1/chains",
+                    Some(first),
+                ),
+                request(
+                    &fixture.app,
+                    Some(&fixture.cookie),
+                    Method::POST,
+                    "/api/v1/chains",
+                    Some(second),
+                ),
+            );
+            assert_eq!(first.0, StatusCode::OK, "round {round} A: {}", first.1);
+            assert_eq!(second.0, StatusCode::OK, "round {round} B: {}", second.1);
+            let first_port = first.1["chain"]["groups"][1]["members"][0]["listen_port"]
+                .as_i64()
+                .unwrap();
+            let second_port = second.1["chain"]["groups"][1]["members"][0]["listen_port"]
+                .as_i64()
+                .unwrap();
+            assert_ne!(
+                first_port, second_port,
+                "round {round} 两条链在同一台服务器上必须分到不同端口"
+            );
+        }
+
+        let duplicates: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM (
+                SELECT server_id, listen_port
+                  FROM chain_group_members
+                 GROUP BY server_id, listen_port
+                HAVING COUNT(*) > 1
+             )",
+        )
+        .fetch_one(&fixture.state.db.pool)
+        .await
+        .unwrap();
+        assert_eq!(duplicates, 0, "并发建链不能留下重复 (server, port)");
     }
 }

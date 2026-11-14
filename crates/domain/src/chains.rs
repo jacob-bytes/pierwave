@@ -742,6 +742,25 @@ pub fn tunnel_blocked_reason(
     None
 }
 
+/// 空成员组：整条链无法下发（与 tunnel 的 `tunnel_downstream_missing` 同口径）。
+///
+/// 保存路径会拒绝 0 成员的组；但删除服务器会级联删掉成员（历史数据 / 手工
+/// 改库也可能留下空组），此时如果继续推导，上一跳会「没有下一跳」并静默
+/// 回退成直连最终目标——跳数被悄悄截短。这里对**所有引擎**统一整链阻断。
+pub fn empty_group_blocked_reason(groups: &[ChainGroupWithMembers]) -> Option<BlockedReason> {
+    groups
+        .iter()
+        .find(|group| group.members.is_empty())
+        .map(|group| BlockedReason {
+            code: "chain.group_empty".to_string(),
+            message: format!(
+                "第 {} 跳没有成员服务器，整条链未下发 / hop {} has no member servers, so the whole chain was not delivered",
+                group.group.seq + 1,
+                group.group.seq + 1
+            ),
+        })
+}
+
 /// 链视图里的「为什么没下发」：能力或证书不满足时给用户看的原因。
 ///
 /// 这是**唯一**的 blocked 判定入口：链列表、创建/更新响应和概览的
@@ -755,6 +774,11 @@ pub fn blocked_reason(
     certs: &HashMap<&str, &Certificate>,
     now: i64,
 ) -> Option<BlockedReason> {
+    // 空成员组对所有引擎都是整链阻断：先于引擎/证书判定，避免 native 等
+    // 引擎在「没有下一跳」时静默回退成直连目标。
+    if let Some(reason) = empty_group_blocked_reason(groups) {
+        return Some(reason);
+    }
     // 内网地址缺失先于引擎判定：只要这一跳真要内网地址却拿不到，整链都不能下发。
     if let Some(reason) = internal_address_blocked_reason(groups) {
         return Some(reason);
@@ -815,6 +839,8 @@ pub fn blocked_reason(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::models::{ChainGroup, ChainGroupMember};
 
     use serde_json::json;
 
@@ -1152,5 +1178,85 @@ mod tests {
             aggregate_latency(&[point(1_000, 0, "a", 10)], 0).is_empty(),
             "非法桶宽不能 panic，也不能返回编造的点"
         );
+    }
+    fn empty_group(code: &str) -> ChainGroupWithMembers {
+        ChainGroupWithMembers {
+            group: ChainGroup {
+                id: "g-1".into(),
+                chain_id: code.into(),
+                seq: 1,
+                name: None,
+                strategy: "round_robin".into(),
+                cert_id: None,
+                public_port: None,
+                use_internal_address: false,
+            },
+            members: Vec::new(),
+        }
+    }
+
+    fn server(code: &str, seq: i64) -> ChainGroupWithMembers {
+        ChainGroupWithMembers {
+            group: ChainGroup {
+                id: format!("g-{seq}"),
+                chain_id: code.into(),
+                seq,
+                name: None,
+                strategy: "round_robin".into(),
+                cert_id: None,
+                public_port: None,
+                use_internal_address: false,
+            },
+            members: vec![ChainGroupMember {
+                group_id: format!("g-{seq}"),
+                chain_id: code.into(),
+                seq,
+                strategy: "round_robin".into(),
+                server_id: format!("srv-{seq}"),
+                server_name: format!("srv-{seq}"),
+                server_address: "10.0.0.1".into(),
+                server_internal_address: None,
+                listen_port: 20000 + seq,
+                priority: 0,
+                weight: 1,
+                realm_transport: None,
+                nftables_available: None,
+                tunnel_available: None,
+                server_protocol_version: None,
+                last_seen_at: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn an_empty_group_blocks_every_engine() {
+        let groups = vec![
+            server("native-chain", 0),
+            empty_group("native-chain"),
+            server("native-chain", 2),
+        ];
+        let reason = empty_group_blocked_reason(&groups).expect("空组必须阻断整链");
+        assert_eq!(reason.code, "chain.group_empty");
+        assert!(reason.message.contains("第 2 跳"), "{}", reason.message);
+
+        let chain = Chain {
+            id: "native-chain".into(),
+            name: "native".into(),
+            target_host: "1.1.1.1".into(),
+            target_port: 443,
+            enabled: true,
+            engine: "native".into(),
+            udp: false,
+            protocol: "tcp".into(),
+            transport: "none".into(),
+            tunnel_security: "tls".into(),
+            template_id: None,
+            owner_user_id: None,
+            created_at: 0,
+            updated_at: 0,
+        };
+        let reason = blocked_reason(&chain, &groups, &HashMap::new(), 0)
+            .expect("native 引擎也必须给出 blocked 原因");
+        assert_eq!(reason.code, "chain.group_empty");
     }
 }

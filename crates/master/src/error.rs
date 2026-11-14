@@ -64,9 +64,7 @@ impl AppError {
         Self::with_status(StatusCode::NOT_FOUND, code, params, message)
     }
 
-    /// 目前没有写站点返回 409；保留构造器是因为「已存在」类冲突属于稳定错误族，
-    /// 前端词典需要这一档，后续新增并发冲突接口时可直接使用。
-    #[allow(dead_code)]
+    /// 409：并发冲突（服务器仍被链引用、数据库写锁等待超时等）。
     pub fn conflict(code: &'static str, params: Option<Value>, message: impl Into<String>) -> Self {
         Self::with_status(StatusCode::CONFLICT, code, params, message)
     }
@@ -115,12 +113,37 @@ impl AppError {
 
 /// 所有 `?` 的默认入口：错误链里有 `DomainError` 就转成带 code 的 400，
 /// 其余保持原来的 500。
+/// SQLite 写锁等待超时（`database is locked` / `database table is locked`）。
+///
+/// 这类错误是并发争用而不是服务端 bug：映射成 409 + 可读文案，前端可以提示
+/// 「稍后重试」，而不是把 500 直接甩给用户。
+fn is_database_locked(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        let message = cause.to_string().to_ascii_lowercase();
+        if let Some(sqlx::Error::Database(database)) = cause.downcast_ref::<sqlx::Error>() {
+            if database.code().as_deref() == Some("5") {
+                return true;
+            }
+        }
+        message.contains("database is locked")
+            || message.contains("database table is locked")
+            || message.contains("database schema is locked")
+    })
+}
+
 impl From<anyhow::Error> for AppError {
     fn from(error: anyhow::Error) -> Self {
-        match Self::from_domain_chain(&error) {
-            Some(error) => error,
-            None => AppError::Internal(error),
+        if let Some(error) = Self::from_domain_chain(&error) {
+            return error;
         }
+        if is_database_locked(&error) {
+            return AppError::conflict(
+                "request.busy",
+                None,
+                "数据库繁忙，请稍后重试（并发写入未能在等待时间内完成）",
+            );
+        }
+        AppError::Internal(error)
     }
 }
 
@@ -135,7 +158,7 @@ impl From<sqlx::Error> for AppError {
     fn from(e: sqlx::Error) -> Self {
         match e {
             sqlx::Error::RowNotFound => AppError::NotFound,
-            other => AppError::Internal(other.into()),
+            other => AppError::from(anyhow::Error::new(other)),
         }
     }
 }
@@ -349,6 +372,29 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(body["code"], "routing_rule.match_required");
         assert!(body.get("params").is_none(), "{body}");
+    }
+
+    #[tokio::test]
+    async fn database_lock_errors_become_a_readable_409() {
+        for message in [
+            "database is locked",
+            "database table is locked",
+            "database schema is locked",
+        ] {
+            let (status, body) = render(AppError::from(anyhow::anyhow!(message.to_string()))).await;
+            assert_eq!(status, StatusCode::CONFLICT, "{message}");
+            assert_eq!(body["code"], "request.busy", "{message}: {body}");
+            assert!(
+                body["error"].as_str().unwrap().contains("稍后重试"),
+                "{message}: {body}"
+            );
+        }
+
+        // sqlx 包一层也必须在错误链里被识别，而不是变成 500。
+        let error = sqlx::Error::Protocol("database is locked".into());
+        let (status, body) = render(AppError::from(error)).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["code"], "request.busy");
     }
 
     #[tokio::test]

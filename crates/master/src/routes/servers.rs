@@ -832,24 +832,47 @@ pub async fn delete(
     Path(id): Path<String>,
 ) -> AppResult<Json<serde_json::Value>> {
     user.require_admin()?;
-    let removed = repo::servers::find_by_id(&state.db.pool, &id).await.ok();
+    let removed = load_server(&state, &id).await?;
+
+    // 被链成员引用时拒绝删除：级联删成员会留下空组，推导层只能整链阻断，
+    // 用户会看到一条「凭空坏掉」的链。让用户先改链/删链，比静默降级安全。
+    let references = repo::chains::server_references(&state.db.pool, &id).await?;
+    if !references.is_empty() {
+        let mut names: Vec<&str> = references
+            .iter()
+            .map(|reference| reference.chain_name.as_str())
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        return Err(AppError::conflict(
+            "server.in_use_by_chain",
+            Some(json!({
+                "server_name": &removed.name,
+                "chains": names,
+            })),
+            format!(
+                "服务器「{}」仍被链「{}」引用，请先修改或删除这些链",
+                removed.name,
+                names.join("、")
+            ),
+        ));
+    }
+
     if !repo::servers::delete(&state.db.pool, &id).await? {
         return Err(AppError::not_found("server.not_found", None, "资源不存在"));
     }
-    if let Some(removed) = removed {
-        crate::audit::record(
-            &state,
-            &user.0,
-            "server.delete",
-            &id,
-            json!({
-                "name": &removed.name,
-                "address": &removed.address,
-                "xray_mode": &removed.xray_mode,
-            }),
-        )
-        .await;
-    }
+    crate::audit::record(
+        &state,
+        &user.0,
+        "server.delete",
+        &id,
+        json!({
+            "name": &removed.name,
+            "address": &removed.address,
+            "xray_mode": &removed.xray_mode,
+        }),
+    )
+    .await;
     Ok(Json(json!({ "ok": true })))
 }
 

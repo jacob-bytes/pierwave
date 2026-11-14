@@ -511,7 +511,7 @@ mod tests {
                         use_internal_address: false,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: a.id.clone(),
-                            listen_port: 9001,
+                            listen_port: 9006,
                             priority: 0,
                             weight: 1,
                         }],
@@ -524,7 +524,7 @@ mod tests {
                         use_internal_address: false,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: b.id.clone(),
-                            listen_port: 9002,
+                            listen_port: 9007,
                             priority: 0,
                             weight: 1,
                         }],

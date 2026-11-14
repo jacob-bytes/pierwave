@@ -465,6 +465,22 @@ pub struct ChainWithGroups {
     pub groups: Vec<ChainGroupWithMembers>,
 }
 
+/// 删除用户的结果：是否真的删掉，以及需要重新下发期望态的服务器。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserDeleteOutcome {
+    pub deleted: bool,
+    /// 该用户名下的转发 / 链成员所在的服务器（去重、排序）。
+    pub affected_servers: Vec<String>,
+}
+
+/// 删除服务器前的引用：哪条链的哪一跳仍在使用这台服务器。
+#[derive(Debug, Clone, FromRow)]
+pub struct ChainServerReference {
+    pub chain_id: String,
+    pub chain_name: String,
+    pub seq: i64,
+}
+
 /// 另一条链已经占用了某台服务器的某个监听端口。
 #[derive(Debug, Clone, FromRow)]
 pub struct ChainMemberPortConflict {

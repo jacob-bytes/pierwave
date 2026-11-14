@@ -87,6 +87,32 @@ delta = current                           // current < last：计数器重置
   `forwards.last_traffic_in/out` 作为上次采样基线并用旧值做条件更新，
   并发两轮采样不会重复计同一段增量。
 
+
+### 开启计费时的基线（离线场景）
+
+`count_traffic` 从关到开必须与基线写在同一个 `BEGIN IMMEDIATE` 事务里：
+
+- 服务器**在线**：基线对齐到当前累计计数器，关闭期间的增量不计；
+- 服务器**离线**：心跳里的计数是旧的，此时基线写「待对齐」哨兵 `-1`，采样轮
+  遇到离线服务器整条跳过；重连后的第一轮只把基线对齐到新鲜计数，不补记
+  离线期间从旧计数涨到当前计数的那一段。
+
+离线期间「计费开启时刻」的计数器不可观测：`1000 → 5000`（开启前）与
+`5000 → 9000`（开启后）在重连时只剩一个 `9000`。因此这里**宁可少计 0，
+也不把 8000 全部补记**；之后的增量照常计费。创建时 `count_traffic=true`
+的新规则没有历史计数，基线从 0 开始，不受离线影响。
+
+English: turning `count_traffic` on writes the baseline in the same
+`BEGIN IMMEDIATE` transaction. When the server is online the baseline is aligned
+to the current counters; when it is offline the old heartbeat is not trustworthy,
+so both counters are set to a pending sentinel `-1`. Sampling skips offline
+servers and the first sample after reconnect only aligns the baseline, never
+back-fills the old counter range. The counter at the moment metering was enabled
+is not observable (only `9000` remains after reconnect for `1000 → 5000 → 9000`),
+so this deliberately under-counts that interval (0) instead of over-counting
+`8000`; later increments bill normally. A newly created rule with
+`count_traffic=true` has no history and starts from 0.
+
 English: single-hop forwards bypass Xray; the Agent reports cumulative
 `forward_status.traffic_in/out` per rule in heartbeats. The master samples every
 60 seconds and computes `current - last` (treating `current < last` as a counter
