@@ -19,4 +19,8 @@ export interface OverviewCardProps {
   todayBytes: number | null;
   /** 近 7 天日均；趋势未就绪 / 无数据时为 null，不显示占位 0。 */
   dailyAverageBytes: number | null;
+  /** 卡片右下角的次要账号信息。 */
+  username: string;
+  /** 打开「修改密码」对话框；入口只保留在这个次要位置。 */
+  onChangePassword: () => void;
 }

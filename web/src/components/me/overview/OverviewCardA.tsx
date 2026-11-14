@@ -1,5 +1,7 @@
-import { PackageIcon, TriangleAlertIcon } from "lucide-react";
+import { KeyRoundIcon, PackageIcon, TriangleAlertIcon } from "lucide-react";
 import { EmptyState } from "@/components/common";
+import { UsageBar } from "@/components/UsageBar";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatBytes } from "@/lib/format";
 import { OVERVIEW_TEXT_CLASS } from "@/lib/meOverview";
@@ -12,11 +14,40 @@ const RING_RADIUS = 52;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 /**
+ * 右下角的次要账号区：`修改密码` 是原「更多信息」里唯一保留的操作，
+ * 入口变小声即可，不另开卡片。
+ */
+function AccountFooter({
+  username,
+  onChangePassword,
+}: Pick<OverviewCardProps, "username" | "onChangePassword">) {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+      <p className="text-xs text-muted-foreground">
+        {t("me.currentAccount")}{" "}
+        <span className="font-mono text-foreground/80">{username}</span>
+      </p>
+      <Button
+        variant="ghost"
+        size="xs"
+        className="-mr-2 text-muted-foreground hover:text-foreground"
+        onClick={onChangePassword}
+      >
+        <KeyRoundIcon className="size-3" aria-hidden="true" />
+        {t("me.changePassword")}
+      </Button>
+    </div>
+  );
+}
+
+/**
  * 概览卡：环形指标。
  *
  * 左侧环形按「剩余占比」填充，环心只放剩余流量；右侧三块次要信息
  * （到期 / 套餐名 / 今日与日均用量）只靠间距分组，与环形垂直居中。
  * 窄屏竖排，sm 起铺成三列填满右侧，避免卡片右侧留白。
+ * 环下方是已用流量进度条；右下角只留账号与修改密码这类次要信息。
  * 低于阈值时环和数字一起切换到 warning / destructive，颜色仍只用现有 token。
  */
 export default function OverviewCardA({
@@ -28,6 +59,8 @@ export default function OverviewCardA({
   expiryTone,
   todayBytes,
   dailyAverageBytes,
+  username,
+  onChangePassword,
 }: OverviewCardProps) {
   const { t } = useI18n();
 
@@ -40,6 +73,12 @@ export default function OverviewCardA({
             title={t("me.overview.noPackage")}
             description={t("me.overview.noPackageDesc")}
           />
+          <div className="border-t border-border pt-3">
+            <AccountFooter
+              username={username}
+              onChangePassword={onChangePassword}
+            />
+          </div>
         </CardContent>
       </Card>
     );
@@ -174,6 +213,22 @@ export default function OverviewCardA({
             {t("me.overview.overQuota")}
           </p>
         ) : null}
+
+        {/* 已用流量进度条与账号/改密都属于次要信息，统一收在环下方，
+            不再单独开一张可折叠卡片。 */}
+        <div className="mt-5 space-y-3 border-t border-border pt-4">
+          <UsageBar
+            usedBytes={usage.used_bytes}
+            quotaBytes={plan.traffic_limit}
+            zeroAsUnlimited
+            overTone="warning"
+            label={t("me.overview.usage")}
+          />
+          <AccountFooter
+            username={username}
+            onChangePassword={onChangePassword}
+          />
+        </div>
       </CardContent>
     </Card>
   );
