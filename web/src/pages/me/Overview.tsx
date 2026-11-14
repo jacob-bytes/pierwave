@@ -19,7 +19,7 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import { meErrorText } from "@/lib/meError";
 import { useMeShellSummary } from "@/lib/meShell";
 import { ChangePasswordDialog } from "@/components/settings/ChangePasswordDialog";
-import { UsageBar } from "@/components/UsageBar";
+import { UsageBar, UsageTrack } from "@/components/UsageBar";
 import { EmptyState } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,7 +33,13 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import type { MeTraffic } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, usagePercent } from "@/lib/format";
+import {
+  OVERVIEW_BAR_TONE,
+  OVERVIEW_TEXT_CLASS,
+  daysTone,
+  trafficTone,
+} from "@/lib/meOverview";
 import { subscriptionUrl } from "@/lib/meSubscription";
 import { useMeTraffic } from "@/lib/queries";
 import { formatDate } from "@/lib/time";
@@ -146,6 +152,11 @@ export default function MeOverviewPage() {
   const limit = plan?.traffic_limit ?? null;
   const unlimited = limit === null || limit <= 0;
   const overQuota = !unlimited && usage.used_bytes >= limit;
+  const usedPercent = unlimited
+    ? null
+    : usagePercent(usage.used_bytes, limit);
+  const remainingTone = trafficTone(usage.remaining_bytes, limit);
+  const expiryTone = daysTone(usage.days_left);
   const daysLeft =
     usage.days_left === null
       ? t("me.overview.longTerm")
@@ -170,45 +181,61 @@ export default function MeOverviewPage() {
               description={t("me.overview.noPackageDesc")}
             />
           ) : (
-            <>
-              <div className="grid gap-6 sm:grid-cols-2">
-                <div className="min-w-0">
-                  <p className="text-xs text-muted-foreground">
-                    {t("me.overview.remainingTraffic")}
-                  </p>
-                  <p className="mt-1 text-4xl leading-none font-semibold tracking-tight tabular-nums">
-                    {usage.remaining_bytes === null
-                      ? t("me.overview.unlimited")
-                      : formatBytes(usage.remaining_bytes)}
-                  </p>
-                  <p className="mt-2 truncate text-xs text-muted-foreground">
-                    {plan.name} · {t("me.overview.used")}{" "}
-                    <span className="font-mono text-foreground/80">
-                      {formatBytes(usage.used_bytes)}
-                    </span>
-                  </p>
-                </div>
-                <div className="min-w-0 sm:text-right">
-                  <p className="text-xs text-muted-foreground">
-                    {t("me.overview.expiresAt")}
-                  </p>
-                  <p className="mt-1 text-4xl leading-none font-semibold tracking-tight tabular-nums">
-                    {daysLeft}
-                  </p>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {plan.expires_at
-                      ? formatDate(plan.expires_at)
-                      : t("common.longTermValid")}
-                  </p>
+            <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
+              <div className="flex min-w-0 flex-col">
+                <p className="text-xs text-muted-foreground">
+                  {t("me.overview.remainingTraffic")}
+                </p>
+                <p
+                  className={cn(
+                    "mt-1.5 text-4xl leading-none font-semibold tracking-tight tabular-nums",
+                    OVERVIEW_TEXT_CLASS[remainingTone],
+                  )}
+                >
+                  {usage.remaining_bytes === null
+                    ? t("me.overview.unlimited")
+                    : formatBytes(usage.remaining_bytes)}
+                </p>
+                <div className="mt-auto flex items-center gap-3 pt-3">
+                  {usedPercent === null ? null : (
+                    <UsageTrack
+                      percent={usedPercent}
+                      tone={OVERVIEW_BAR_TONE[remainingTone]}
+                      label={t("me.overview.usage")}
+                      className="min-w-0 flex-1"
+                    />
+                  )}
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
+                    {t("me.overview.used")} {formatBytes(usage.used_bytes)} /{" "}
+                    {formatBytes(limit, { zeroAsUnlimited: true })}
+                  </span>
                 </div>
               </div>
+              <div className="flex min-w-0 flex-col sm:text-right">
+                <p className="text-xs text-muted-foreground">
+                  {t("me.overview.expiresAt")}
+                </p>
+                <p
+                  className={cn(
+                    "mt-1.5 text-3xl leading-none font-semibold tracking-tight tabular-nums",
+                    OVERVIEW_TEXT_CLASS[expiryTone],
+                  )}
+                >
+                  {daysLeft}
+                </p>
+                {plan.expires_at !== null ? (
+                  <p className="mt-auto pt-3 text-xs text-muted-foreground tabular-nums">
+                    {formatDate(plan.expires_at)}
+                  </p>
+                ) : null}
+              </div>
               {overQuota ? (
-                <p className="mt-4 flex items-center gap-1.5 text-xs text-warning">
+                <p className="flex items-center gap-1.5 text-xs text-warning sm:col-span-2">
                   <TriangleAlertIcon className="size-3.5" />
                   {t("me.overview.overQuota")}
                 </p>
               ) : null}
-            </>
+            </div>
           )}
         </CardContent>
       </Card>
