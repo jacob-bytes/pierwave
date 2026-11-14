@@ -468,7 +468,8 @@ pub async fn update(
 
     // 计费开关从关到开：把基线对齐到当前计数，避免补记关闭期间的流量。
     if forward.count_traffic && !existing.count_traffic {
-        if let Err(error) = repo::forwards::reset_traffic_baseline(&state.db.pool, &forward.id).await
+        if let Err(error) =
+            repo::forwards::reset_traffic_baseline(&state.db.pool, &forward.id).await
         {
             tracing::warn!("重置转发计费基线失败: {error}");
         }

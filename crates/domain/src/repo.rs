@@ -2862,10 +2862,7 @@ pub mod forwards {
     ///
     /// 用户把 `count_traffic` 从关改到开时必须调用：否则下一次采样会把
     /// 「关闭期间」的累计增量一次性补记进套餐——用户关掉计费就是想那段时间不算。
-    pub async fn reset_traffic_baseline(
-        pool: &SqlitePool,
-        forward_id: &str,
-    ) -> anyhow::Result<()> {
+    pub async fn reset_traffic_baseline(pool: &SqlitePool, forward_id: &str) -> anyhow::Result<()> {
         let desired = crate::forwards::desired_id(forward_id);
         let row: Option<(i64, i64)> = sqlx::query_as(
             "SELECT COALESCE(fs.traffic_in, 0), COALESCE(fs.traffic_out, 0)
@@ -3478,7 +3475,9 @@ pub mod forward_traffic {
 
             // 关闭计费期间，Agent 的累计计数已经涨到 500；此时用户重新打开计费。
             save_counters(&pool, &server, &fwd.id, Some(500), Some(0)).await;
-            super::super::forwards::reset_traffic_baseline(&pool, &fwd.id).await.unwrap();
+            super::super::forwards::reset_traffic_baseline(&pool, &fwd.id)
+                .await
+                .unwrap();
 
             assert_eq!(
                 forward(&pool, &fwd.id).await.last_traffic_in,
