@@ -151,7 +151,7 @@ PASS 升级路径实测通过
    返回了 `None`。该函数 2s 超时、spawn 失败都折叠成 `None`（= 不支持），
    测试与生产都会把「探测失败」当成「不支持」。本 lane 不能改 `crates/`，仅报告。
    这正是 flaky 基线要抓的东西：同一份代码，换并行度就变结果。
-2. **`/api/v1/backup/info` 的 `db_bytes` 在 WAL 模式下只算主库文件（P2）**
+2. **`/api/v1/backup/info` 的 `db_bytes` 在 WAL 模式下只算主库文件（P2，**已在 v0.11.3 修复**：改用 `page_count × page_size`）**
    实测 `db_bytes=4096`，而同一时刻导出的快照解压后是 `479232` 字节。前端设置页
    （`web/src/components/settings/BackupCard.tsx`）直接展示这个数字，用户会看到 4 KB。
    建议按 `main + -wal` 统计，或读 `PRAGMA page_count * page_size`。

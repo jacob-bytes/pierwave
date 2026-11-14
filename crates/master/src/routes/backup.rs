@@ -21,6 +21,7 @@ use tokio::io::AsyncWriteExt;
 
 use pierwave_domain::backup::{self, MAX_BACKUP_BYTES};
 use pierwave_domain::error::DomainError;
+use pierwave_domain::repo;
 
 use crate::audit;
 use crate::auth::CurrentUser;
@@ -134,12 +135,15 @@ pub async fn restore(
 }
 
 /// `GET /api/v1/backup/info`：当前库大小与待恢复状态。
+///
+/// `db_bytes` 必须反映真实数据量：WAL 模式下主库文件可能只有 4 KB，直接
+/// `stat` 主库会把几百 KB 的数据报成 4 KB。这里用
+/// `PRAGMA page_count * page_size`（含 WAL 中已提交的页），口径与下载的
+/// `VACUUM INTO` 快照一致。
 pub async fn info(State(state): State<AppState>, user: CurrentUser) -> AppResult<Json<Value>> {
     user.require_admin()?;
     let db_path = backup_db_path(&state)?;
-    let db_bytes = std::fs::metadata(&db_path)
-        .map(|meta| meta.len())
-        .unwrap_or(0);
+    let db_bytes = repo::backup::database_bytes(&state.db.pool).await?;
     Ok(Json(json!({
         "db_bytes": db_bytes,
         "pending": pending_info(&db_path),
@@ -725,6 +729,82 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
         assert!(backup::pending_path(&dir.db_path()).exists());
+    }
+
+    /// 刚初始化（迁移 + 建管理员）的库：数值不为 0，也不能是几十 MB。
+    #[tokio::test]
+    async fn info_reports_sane_size_for_fresh_database() {
+        let (_dir, app, _state, cookie) = setup("info-fresh").await;
+
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::GET,
+            "/api/v1/backup/info",
+            Vec::new(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let db_bytes = json(&body)["db_bytes"].as_u64().unwrap();
+        assert!(db_bytes > 0, "刚初始化的库不应报 0：{db_bytes}");
+        assert!(
+            db_bytes < 64 * 1024 * 1024,
+            "刚初始化的库不应有几十 MB：{db_bytes}"
+        );
+    }
+
+    /// `db_bytes` 必须算上 WAL 里已提交、尚未 checkpoint 的数据。
+    ///
+    /// 复现路径：写入 1 MB 到 WAL（低于自动 checkpoint 阈值），主库文件仍很小，
+    /// 但 `/backup/info` 报的大小要与 `VACUUM INTO` 快照同量级。
+    #[tokio::test]
+    async fn info_counts_committed_wal_pages() {
+        let (dir, app, state, cookie) = setup("info-wal").await;
+        sqlx::query("CREATE TABLE wal_probe (payload BLOB)")
+            .execute(&state.db.pool)
+            .await
+            .unwrap();
+        let payload = vec![9u8; 32 * 1024];
+        for _ in 0..32 {
+            sqlx::query("INSERT INTO wal_probe (payload) VALUES (?)")
+                .bind(&payload)
+                .execute(&state.db.pool)
+                .await
+                .unwrap();
+        }
+
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::GET,
+            "/api/v1/backup/info",
+            Vec::new(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let db_bytes = json(&body)["db_bytes"].as_u64().unwrap();
+
+        let main_bytes = std::fs::metadata(dir.db_path()).unwrap().len();
+        let snapshot = dir.file("info-snapshot.db");
+        backup::create_snapshot(&state.db.pool, &snapshot)
+            .await
+            .unwrap();
+        let snapshot_bytes = std::fs::metadata(&snapshot).unwrap().len();
+
+        assert!(
+            db_bytes > main_bytes,
+            "db_bytes={db_bytes} 必须大于主库文件 {main_bytes}"
+        );
+        assert!(
+            db_bytes >= snapshot_bytes,
+            "db_bytes={db_bytes} 不应小于备份快照 {snapshot_bytes}"
+        );
+        assert!(
+            db_bytes <= snapshot_bytes * 2,
+            "与快照量级相差过大：db_bytes={db_bytes}, 快照={snapshot_bytes}"
+        );
+        // 1 MB 数据确实在库里：不能只报迁移后的空表页。
+        assert!(db_bytes >= 1024 * 1024, "db_bytes={db_bytes}");
     }
 
     #[tokio::test]

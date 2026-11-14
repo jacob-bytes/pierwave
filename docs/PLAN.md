@@ -723,6 +723,11 @@ GET    /api/v1/backup/info       -> { db_bytes, pending: null | { uploaded_at, b
 DELETE /api/v1/backup/restore    -> 取消待恢复
 ```
 
+`db_bytes` 是数据库的**逻辑大小** `PRAGMA page_count * page_size`（含 WAL 中已提交、
+尚未 checkpoint 的页），与下载的 `VACUUM INTO` 快照同一量级；不要用主库文件的
+`stat` 结果——WAL 模式下主库文件可能只有 4 KB，而数据都在 `-wal` 里。
+`pending.bytes` 是待恢复文件（未压缩的单个 `.db`）在磁盘上的实际字节数。
+
 ### 恢复为什么不在线替换
 
 热替换正在使用的 SQLite 文件会让连接池持有旧 inode，轻则数据错乱重则损坏。所以：

@@ -1750,7 +1750,7 @@ const en = {
       downloadHint: "The browser downloads a .db.gz snapshot directly.",
       pendingTitle: "A restore is waiting for a restart",
       pendingDesc:
-        "Uploaded {time} · {size}; current data is replaced only after the controller restarts.",
+        "Uploaded {time} · database size {size}; current data is replaced only after the controller restarts.",
       restoreTitle: "Restore data",
       restoreDesc:
         "Upload a .db or .db.gz file; it is staged on disk and replaces the current database only after the controller restarts.",

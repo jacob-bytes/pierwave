@@ -1656,7 +1656,7 @@ const zhCN = {
       download: "下载备份",
       downloadHint: "浏览器会直接下载 .db.gz 快照。",
       pendingTitle: "有恢复正在等待重启",
-      pendingDesc: "上传于 {time} · {size}；重启主控后才会替换当前数据。",
+      pendingDesc: "上传于 {time} · 数据库大小 {size}；重启主控后才会替换当前数据。",
       restoreTitle: "恢复数据",
       restoreDesc:
         "上传 .db 或 .db.gz；文件会先落盘，重启主控后才会替换当前数据库。",

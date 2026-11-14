@@ -538,4 +538,76 @@ mod tests {
         let outcome = apply_pending_restore(&dir.db_path()).await.unwrap();
         assert_eq!(outcome, RestoreOutcome::NoPending);
     }
+
+    /// 刚初始化（只跑完迁移）的库不是 0 字节，也不该是几十 MB。
+    #[tokio::test]
+    async fn database_bytes_is_sane_for_freshly_migrated_database() {
+        let dir = TestDir::new("fresh-bytes");
+        let db = open_db(&dir.db_path()).await;
+        db.migrate().await.unwrap();
+
+        let bytes = repo::backup::database_bytes(&db.pool).await.unwrap();
+        db.pool.close().await;
+
+        assert!(bytes > 0, "刚初始化的库不应报 0");
+        assert!(bytes >= 4096, "至少一个 SQLite 页：{bytes}");
+        assert!(
+            bytes < 64 * 1024 * 1024,
+            "刚初始化的库不应有几十 MB：{bytes}"
+        );
+    }
+
+    /// WAL 里已提交但未 checkpoint 的数据必须算进 `db_bytes`。
+    ///
+    /// 主库文件可能停在 4 KB，真实数据在 `-wal` 里；`page_count * page_size`
+    /// 要跟着数据走，并与 `VACUUM INTO` 快照（= 真正备份出去的内容）同量级。
+    #[tokio::test]
+    async fn database_bytes_includes_pages_committed_in_wal() {
+        let dir = TestDir::new("wal-bytes");
+        let db_path = dir.db_path();
+        let db = open_db(&db_path).await;
+        db.migrate().await.unwrap();
+
+        // 每行 32 KB，合计约 1 MB：低于 SQLite 默认 1000 页（4 MB）的
+        // 自动 checkpoint 阈值，所以这些页停留在 WAL 里，主库文件不长大。
+        sqlx::query("CREATE TABLE wal_probe (payload BLOB)")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        let payload = vec![7u8; 32 * 1024];
+        for _ in 0..32 {
+            sqlx::query("INSERT INTO wal_probe (payload) VALUES (?)")
+                .bind(&payload)
+                .execute(&db.pool)
+                .await
+                .unwrap();
+        }
+
+        let main_bytes = fs::metadata(&db_path).unwrap().len();
+        let wal_bytes = fs::metadata(dir.file("pierwave.db-wal"))
+            .map(|meta| meta.len())
+            .unwrap_or(0);
+        let logical = repo::backup::database_bytes(&db.pool).await.unwrap();
+
+        let snapshot = dir.file("wal-snapshot.db");
+        create_snapshot(&db.pool, &snapshot).await.unwrap();
+        let snapshot_bytes = fs::metadata(&snapshot).unwrap().len();
+        db.pool.close().await;
+
+        assert!(wal_bytes > 0, "写入应停留在 WAL 里");
+        assert!(
+            logical > main_bytes,
+            "db_bytes 必须大于主库文件：db_bytes={logical}, main={main_bytes}"
+        );
+        // 数据量下限：至少和备份出去的单文件快照一样大。
+        assert!(
+            logical >= snapshot_bytes,
+            "db_bytes 不应小于快照：db_bytes={logical}, snapshot={snapshot_bytes}"
+        );
+        // 量级一致：不能把 WAL 的历史版本全算进来（那会是 2 倍以上）。
+        assert!(
+            logical <= snapshot_bytes * 2,
+            "db_bytes 与快照量级相差过大：db_bytes={logical}, snapshot={snapshot_bytes}"
+        );
+    }
 }

@@ -9304,6 +9304,25 @@ pub mod backup {
                 .await?,
         )
     }
+
+    /// 数据库的逻辑大小（字节）= `page_count * page_size`。
+    ///
+    /// WAL 模式下主库文件可能停在 4 KB，已提交的数据还在 `-wal` 里；而
+    /// `PRAGMA page_count` 返回的是**当前连接可见的页数**（含 WAL 中已提交、
+    /// 尚未 checkpoint 的页），所以它才是「真实数据量」，与 `VACUUM INTO`
+    /// 快照的大小同一量级。
+    ///
+    /// 不用「主库 + `-wal` 文件大小」：WAL 会保留同一页的多个版本，直到
+    /// checkpoint 才回收，删数据后还会虚高，不能当作数据量展示。
+    pub async fn database_bytes(pool: &SqlitePool) -> anyhow::Result<u64> {
+        let page_count: i64 = sqlx::query_scalar("PRAGMA page_count")
+            .fetch_one(pool)
+            .await?;
+        let page_size: i64 = sqlx::query_scalar("PRAGMA page_size")
+            .fetch_one(pool)
+            .await?;
+        Ok(u64::try_from(page_count).unwrap_or(0) * u64::try_from(page_size).unwrap_or(0))
+    }
 }
 
 pub mod audit {
