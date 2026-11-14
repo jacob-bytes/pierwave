@@ -25,9 +25,13 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import type { Node } from "@/lib/api";
+import type { Node, Server } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { formatJsonObject, parseJsonConfig } from "@/lib/json";
+import {
+  isPortPolicyConstrained,
+  portPolicySummary,
+} from "@/lib/portPolicy";
 import { parsePublicPortInput } from "@/lib/publicPort";
 import {
   allowedSecurities,
@@ -73,6 +77,8 @@ interface NodeFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   serverId: string;
+  /** 当前服务器：用于在端口输入旁展示该服务器允许的端口范围。 */
+  server?: Server;
   mode: "create" | "edit";
   node?: Node;
 }
@@ -102,6 +108,7 @@ export function NodeFormDialog({
   open,
   onOpenChange,
   serverId,
+  server,
   mode,
   node,
 }: NodeFormDialogProps) {
@@ -171,6 +178,19 @@ export function NodeFormDialog({
   const transportOptions = allowedTransports(protocol);
   const securityOptions = allowedSecurities(protocol, transport);
   const comboValid = isCombinationAllowed(protocol, transport, security);
+
+  // 服务器端口约束：只在有约束时提示；最终仍由后端校验。
+  const portPolicy = server
+    ? {
+        port_start: server.port_start,
+        port_end: server.port_end,
+        port_allow: server.port_allow,
+      }
+    : null;
+  const portPolicyHint =
+    portPolicy && isPortPolicyConstrained(portPolicy)
+      ? portPolicySummary(portPolicy)
+      : undefined;
 
   const isSs = protocol === "shadowsocks";
   const ssMethod = form.watch("ss_method");
@@ -465,6 +485,7 @@ export function NodeFormDialog({
                   label={t("nodes.form.port")}
                   htmlFor="node-port"
                   required
+                  hint={portPolicyHint}
                   error={form.formState.errors.port?.message}
                 >
                   <Input

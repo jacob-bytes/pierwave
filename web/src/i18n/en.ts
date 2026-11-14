@@ -369,6 +369,30 @@ const en = {
       "Enter a two-letter uppercase code (such as CN / US / JP), or leave it empty.",
     group: "Group",
     groupPlaceholder: "Hong Kong",
+    portPolicy: {
+      section: "Allowed ports",
+      start: "Start port (optional)",
+      end: "End port (optional)",
+      startPlaceholder: "30000",
+      endPlaceholder: "31000",
+      allowLabel: "Additional allowed ports",
+      allowPlaceholder: "443, 8443 (comma or Enter)",
+      allowInvalid: "Ports must be integers between 1 and 65535",
+      rangeInvalid:
+        "Invalid port range: fill in both the start and end ports, with the start not greater than the end",
+      removeAria: "Remove port {port}",
+      hint: "When restricted, node ports and automatic chain allocation stay within this range",
+      range: "Ports {start}-{end}",
+      allow: "Ports: {count} custom",
+      rangeAndAllow: "Ports {start}-{end} · {count} custom",
+      summaryNone: "Ports are unrestricted",
+      summaryRange: "Allowed ports {start}-{end}",
+      summaryAllow: "Allowed custom ports: {ports}",
+      summaryBoth: "Allowed ports {start}-{end}; additionally allowed: {ports}",
+      internalAddress: "Internal address (optional)",
+      internalAddressDetail: "Internal address",
+      internalAddressPlaceholder: "10.0.0.2",
+    },
     groupFilterAll: "All groups",
     groupFilterUnassigned: "Ungrouped",
     groupFilterAria: "Filter servers by group",
@@ -2187,6 +2211,9 @@ const en = {
       moveMemberDown: "Move hop {group} member {member} down",
       removeMember: "Remove hop {group} member {member}",
       addMember: "Add a member",
+      useInternalAddress: "Use internal address",
+      useInternalAddressDisabled:
+        "Fill in an internal address for every member server in this hop to enable this",
       noServers: "No servers yet; add one on the Servers page first",
       submitCreate: "Create chain",
       submitSave: "Save changes",
@@ -2641,6 +2668,15 @@ const en = {
     "server.group_name_invalid":
       "The group name contains invalid characters (newlines and tabs are not allowed).",
     "server.xray_mode_unsupported": "Only external Xray mode is supported",
+    "server.port_range_invalid":
+      "Invalid port range: the start port must not be greater than the end port",
+    "server.port_allow_invalid": "Additional allowed ports must be integers between 1 and 65535",
+    "node.port_not_allowed":
+      "Port {port} is outside the range allowed by server “{server}”",
+    "chain.port_not_allowed":
+      "Port {port} is outside the range allowed by server “{server}”",
+    "chain.internal_address_missing":
+      "Server “{server}” has no internal address, so internal-address forwarding cannot be used",
     "agent.upgrade.version_unavailable": "Could not determine the latest version; specify a version explicitly",
     "agent.upgrade.version_invalid": "Invalid version format: {version}",
     "agent.upgrade.disabled": "Agent self-upgrade is disabled for this server; enable it first",

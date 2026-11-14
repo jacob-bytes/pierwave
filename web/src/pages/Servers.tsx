@@ -39,6 +39,7 @@ import { AgentUpgradeHistoryDialog } from "@/components/servers/AgentUpgradeHist
 import { ServerCommandsDialog } from "@/components/servers/ServerCommandsDialog";
 import { ServerEditDialog } from "@/components/servers/ServerEditDialog";
 import { ServerTokenResetDialog } from "@/components/servers/ServerTokenResetDialog";
+import { PortPolicyFields } from "@/components/servers/PortPolicyFields";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -114,6 +115,11 @@ import { copyText } from "@/lib/clipboard";
 import { isCountryCode } from "@/lib/country";
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
+import {
+  parsePortRangeInput,
+  portPolicyLabel,
+  portPolicySummary,
+} from "@/lib/portPolicy";
 import { useAllNodes, useCreateServer, useServers } from "@/lib/queries";
 import {
   GROUP_NAME_MAX_LENGTH,
@@ -454,6 +460,8 @@ function ServerDetailsPopover({ server }: { server: Server }) {
   const heartbeat = heartbeatInfo(server.health_at);
   const online = server.status === "online";
   const serviceDown = isServiceDown(server);
+  const portLabel = portPolicyLabel(server);
+  const internalAddress = server.internal_address?.trim() || null;
 
   return (
     <Popover>
@@ -492,6 +500,18 @@ function ServerDetailsPopover({ server }: { server: Server }) {
             label={t("servers.detail.configVersion")}
             value={`v${server.config_version}`}
           />
+          {portLabel ? (
+            <DetailRow
+              label={t("servers.portPolicy.section")}
+              value={portPolicySummary(server)}
+            />
+          ) : null}
+          {internalAddress ? (
+            <DetailRow
+              label={t("servers.portPolicy.internalAddressDetail")}
+              value={internalAddress}
+            />
+          ) : null}
           <DetailRow
             label={t("servers.detail.status")}
             value={
@@ -723,6 +743,9 @@ export default function ServersPage() {
   const [address, setAddress] = useState("");
   const [country, setCountry] = useState("");
   const [group, setGroup] = useState("");
+  const [portStart, setPortStart] = useState("");
+  const [portEnd, setPortEnd] = useState("");
+  const [portAllow, setPortAllow] = useState<number[]>([]);
   const [groupFilter, setGroupFilter] = useState(GROUP_FILTER_ALL);
   const [xrayMode, setXrayMode] = useState("external");
   const [copied, setCopied] = useState<"token" | "command" | null>(null);
@@ -869,6 +892,7 @@ export default function ServersPage() {
   function renderServerName(server: Server) {
     const serviceDown = isServiceDown(server);
     const groupName = normalizeGroupName(server.group_name);
+    const portLabel = portPolicyLabel(server);
 
     return (
       <div className="flex items-center gap-2">
@@ -888,6 +912,15 @@ export default function ServersPage() {
             >
               {groupName}
             </div>
+          ) : null}
+          {portLabel ? (
+            <Badge
+              variant="outline"
+              title={portPolicySummary(server)}
+              className="mt-0.5 h-4 px-1 type-micro font-normal whitespace-nowrap text-muted-foreground"
+            >
+              {portLabel}
+            </Badge>
           ) : null}
         </div>
       </div>
@@ -1114,6 +1147,9 @@ export default function ServersPage() {
     const selected = selectedIds.includes(server.id);
     const highlighted = highlightId === server.id;
     const groupName = normalizeGroupName(server.group_name);
+    const portLabel = portPolicyLabel(server);
+    const portSummary = portPolicySummary(server);
+    const internalAddress = server.internal_address?.trim() || null;
 
     return (
       <div key={server.id} id={`server-row-${server.id}`}>
@@ -1139,6 +1175,33 @@ export default function ServersPage() {
                         className="inline-block max-w-32 truncate align-bottom text-muted-foreground"
                       >
                         {groupName}
+                      </span>
+                    ),
+                  },
+                ]
+              : []),
+            ...(portLabel
+              ? [
+                  {
+                    label: t("servers.portPolicy.section"),
+                    value: (
+                      <span
+                        title={portSummary}
+                        className="inline-block max-w-40 truncate align-bottom text-muted-foreground"
+                      >
+                        {portLabel}
+                      </span>
+                    ),
+                  },
+                ]
+              : []),
+            ...(internalAddress
+              ? [
+                  {
+                    label: t("servers.portPolicy.internalAddressDetail"),
+                    value: (
+                      <span className="inline-block max-w-40 truncate align-bottom font-mono text-muted-foreground">
+                        {internalAddress}
                       </span>
                     ),
                   },
@@ -1199,6 +1262,12 @@ export default function ServersPage() {
       return;
     }
 
+    const portRange = parsePortRangeInput(portStart, portEnd);
+    if (!portRange) {
+      toast.error(t("servers.portPolicy.rangeInvalid"));
+      return;
+    }
+
     create.mutate(
       {
         name: name.trim(),
@@ -1206,6 +1275,9 @@ export default function ServersPage() {
         xray_mode: xrayMode,
         country_code: normalizedCountry,
         group_name: normalizeGroupName(group) ?? undefined,
+        port_start: portRange.start,
+        port_end: portRange.end,
+        port_allow: portAllow,
       },
       {
         onSuccess: (data) => {
@@ -1214,6 +1286,9 @@ export default function ServersPage() {
           setAddress("");
           setCountry("");
           setGroup("");
+          setPortStart("");
+          setPortEnd("");
+          setPortAllow([]);
           setCreated(data);
           setTokenOpen(true);
           toast.success(t("servers.createdToast", { name: data.server.name }));
@@ -1490,7 +1565,7 @@ export default function ServersPage() {
       </Card>
 
       <Dialog open={createOpen} onOpenChange={handleCreateOpenChange}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{t("servers.createDialog.title")}</DialogTitle>
             <DialogDescription>
@@ -1545,6 +1620,17 @@ export default function ServersPage() {
                 disabled={create.isPending}
               />
             </div>
+
+            <PortPolicyFields
+              idPrefix="server-create-port"
+              start={portStart}
+              end={portEnd}
+              allow={portAllow}
+              onStartChange={setPortStart}
+              onEndChange={setPortEnd}
+              onAllowChange={setPortAllow}
+              disabled={create.isPending}
+            />
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">

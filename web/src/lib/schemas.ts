@@ -512,6 +512,8 @@ export function chainFormSchema(t: TFunction) {
           cert_id: z.string(),
           // 入口组对外端口：隐藏字段，编辑时原样带回；空串 = 未设置。
           public_port: z.string(),
+          // 这一跳是否使用成员服务器的内网地址；默认 false。
+          use_internal_address: z.boolean(),
           members: z.array(
             z.object({
               server_id: z

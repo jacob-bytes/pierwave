@@ -130,8 +130,26 @@ function emptyGroup() {
     cert_id: "",
     // 入口组对外端口（NAT）；当前没有编辑入口，只用于编辑时原样带回。
     public_port: "",
+    // 默认关闭；只有该跳所有成员都填了内网地址时才允许开启。
+    use_internal_address: false,
     members: [emptyMember()],
   };
+}
+
+/**
+ * 这一跳能否开启「使用内网地址」：成员都选好了，且每台都填了内网地址。
+ * 任一成员缺失 / 未填地址都返回 false，避免保存后才被后端
+ * `chain.internal_address_missing` 拒绝。
+ */
+function canUseInternalAddress(
+  memberIds: readonly string[],
+  servers: readonly Server[],
+): boolean {
+  if (memberIds.length === 0) return false;
+  return memberIds.every((id) => {
+    const server = servers.find((item) => item.id === id);
+    return Boolean(server?.internal_address?.trim());
+  });
 }
 
 /** 根错误（组数 / 成员数）与数组错误（逐字段）在 RHF 里形状不同。 */
@@ -227,6 +245,33 @@ function GroupCard({
           .filter((server): server is Server => server !== undefined),
       )
     : [];
+
+  const useInternalAddress =
+    watch(`groups.${index}.use_internal_address`) ?? false;
+  const internalAddressReady = canUseInternalAddress(
+    members.map((member) => member.server_id),
+    servers,
+  );
+
+  // 成员被换成没有内网地址的服务器后，开关必须自动收回 false；
+  // 否则提交的是上一轮的勾选状态，后端会直接拒绝整条链。
+  // 服务器列表还在加载（或暂时为空）时不动它：否则编辑一条已开启的链，
+  // 会在数据到达前先把保存的值清掉。
+  useEffect(() => {
+    if (loadingServers || servers.length === 0) return;
+    if (useInternalAddress && !internalAddressReady) {
+      setValue(`groups.${index}.use_internal_address`, false, {
+        shouldDirty: true,
+      });
+    }
+  }, [
+    internalAddressReady,
+    useInternalAddress,
+    index,
+    setValue,
+    loadingServers,
+    servers.length,
+  ]);
 
   const errorGroups = Array.isArray(formState.errors.groups)
     ? (formState.errors.groups as unknown as (GroupFieldErrors | undefined)[])
@@ -839,6 +884,35 @@ function GroupCard({
             {t("chains.form.addMember")}
           </Button>
         ) : null}
+
+        <div className="flex items-center justify-between gap-2 rounded-md border border-border/70 bg-card/60 px-2 py-1.5">
+          <Label
+            htmlFor={`chain-group-${index}-internal-address`}
+            className="text-xs"
+          >
+            {t("chains.form.useInternalAddress")}
+          </Label>
+          <span
+            className="inline-flex items-center"
+            title={
+              internalAddressReady
+                ? undefined
+                : t("chains.form.useInternalAddressDisabled")
+            }
+          >
+            <Switch
+              id={`chain-group-${index}-internal-address`}
+              checked={useInternalAddress && internalAddressReady}
+              onCheckedChange={(checked) => {
+                setValue(`groups.${index}.use_internal_address`, checked, {
+                  shouldDirty: true,
+                  shouldTouch: true,
+                });
+              }}
+              disabled={pending || !internalAddressReady}
+            />
+          </span>
+        </div>
       </div>
       </div>
       ) : null}
@@ -904,6 +978,7 @@ export function ChainFormDialog({
         cert_id: index === 0 ? "" : (group.cert_id ?? ""),
         public_port:
           group.public_port == null ? "" : String(group.public_port),
+        use_internal_address: Boolean(group.use_internal_address),
         members:
           members.length > 0
             ? members.map((member) => ({
@@ -1078,6 +1153,8 @@ export function ChainFormDialog({
             tls && needsCert(index) ? group.cert_id.trim() : undefined,
           // 入口组的对外端口只用于展示；编辑时原样带回，避免保存后丢失。
           public_port: group.public_port,
+          // 内网地址开关随组提交；下面按当前成员列表再校验一次。
+          use_internal_address: group.use_internal_address,
           members: group.members.map((member, memberIndex) => ({
             server_id: member.server_id,
             // 中间跳在新建时为空；统一归一成 undefined，避免提交空串数字 0。
@@ -1096,6 +1173,13 @@ export function ChainFormDialog({
         ...(group.public_port !== undefined && group.public_port !== ""
           ? { public_port: Number(group.public_port) }
           : {}),
+        // 成员可能刚被换掉：以当前服务器列表为准，不信任表单里的旧勾选。
+        use_internal_address:
+          Boolean(group.use_internal_address) &&
+          canUseInternalAddress(
+            group.members.map((member) => member.server_id),
+            servers,
+          ),
         members: group.members,
       })),
     };

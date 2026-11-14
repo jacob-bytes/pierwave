@@ -278,6 +278,16 @@ export interface Server {
   virt: string | null;
   /** 管理员填写的国家/地区代码（ISO 3166-1 alpha-2）；null = 未填写。 */
   country_code: string | null;
+  /**
+   * 允许的端口范围（含边界）：两个都 null = 不限制，节点端口与链的自动分配
+   * 可以落在 1–65535 的任意端口。旧后端可能不返回该组字段。
+   */
+  port_start?: number | null;
+  port_end?: number | null;
+  /** 在范围之外额外允许的端口（1–65535）。旧后端可能不返回。 */
+  port_allow?: number[] | null;
+  /** 内网地址（如 10.0.0.2）；null / 缺失 = 未填写，链不能启用内网转发。 */
+  internal_address?: string | null;
 }
 
 export interface UpdateServerInput {
@@ -287,6 +297,14 @@ export interface UpdateServerInput {
   country_code?: string;
   /** 分组名；null = 清空分组。 */
   group_name?: string | null;
+  /** 端口范围起点；显式 null = 不限制。 */
+  port_start?: number | null;
+  /** 端口范围终点；显式 null = 不限制。 */
+  port_end?: number | null;
+  /** 额外允许的端口；空数组 = 没有额外端口。 */
+  port_allow?: number[];
+  /** 内网地址；空串 / null = 清空。 */
+  internal_address?: string | null;
 }
 
 export interface CreateServerResponse {
@@ -761,6 +779,11 @@ export interface ChainGroup {
    * 只用于列表 / 拓扑展示，不参与下发。
    */
   public_port?: number | null;
+  /**
+   * 这一跳是否使用成员服务器的内网地址转发；缺省 / 缺失 = false。
+   * 只有该跳所有成员都填了内网地址时才能开启。
+   */
+  use_internal_address?: boolean;
   /** 组内任一成员 degraded 即为 true。 */
   degraded: boolean;
   /** 按 `priority` 升序排列。 */
@@ -856,6 +879,8 @@ export interface ChainGroupInput {
   cert_id?: string | null;
   /** 入口组的公网展示端口；只用于展示，不参与下发。 */
   public_port?: number | null;
+  /** 这一跳是否使用内网地址转发；缺省 false。 */
+  use_internal_address?: boolean;
   /** 1–8 台，按 priority 顺序排列。 */
   members: ChainGroupMemberInput[];
 }
@@ -1419,6 +1444,12 @@ export const api = {
     country_code?: string;
     /** 分组名；省略或 null = 未分组。 */
     group_name?: string | null;
+    /** 端口范围起点；省略 / null = 不限制。 */
+    port_start?: number | null;
+    /** 端口范围终点；省略 / null = 不限制。 */
+    port_end?: number | null;
+    /** 额外允许的端口；省略 = 没有额外端口。 */
+    port_allow?: number[];
   }) =>
     request<CreateServerResponse>("/api/v1/servers", {
       method: "POST",

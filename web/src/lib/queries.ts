@@ -615,6 +615,12 @@ export function useCreateServer() {
       country_code?: string;
       /** 分组名；省略或 null = 未分组。 */
       group_name?: string | null;
+      /** 端口范围起点；省略 / null = 不限制。 */
+      port_start?: number | null;
+      /** 端口范围终点；省略 / null = 不限制。 */
+      port_end?: number | null;
+      /** 额外允许的端口；省略 = 没有额外端口。 */
+      port_allow?: number[];
     }
   >({
     mutationFn: api.createServer,

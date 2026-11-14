@@ -18,10 +18,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { CountrySelect } from "@/components/common/CountrySelect";
+import { PortPolicyFields } from "@/components/servers/PortPolicyFields";
 import { displayAgentVersion } from "@/lib/agentUpgrade";
 import type { Server } from "@/lib/api";
 import { isCountryCode } from "@/lib/country";
 import { errorText, isNotFound } from "@/lib/errors";
+import {
+  normalizePortPolicy,
+  parsePortRangeInput,
+} from "@/lib/portPolicy";
 import { useUpdateServer } from "@/lib/queries";
 import {
   GROUP_NAME_MAX_LENGTH,
@@ -59,6 +64,19 @@ export function ServerEditDialog({
   const [groupName, setGroupName] = useState(
     () => normalizeGroupName(server.group_name) ?? "",
   );
+  const [portStart, setPortStart] = useState(() =>
+    server.port_start == null ? "" : String(server.port_start),
+  );
+  const [portEnd, setPortEnd] = useState(() =>
+    server.port_end == null ? "" : String(server.port_end),
+  );
+  // 旧后端的 port_allow 可能缺失或含脏值：归一化后再进输入框。
+  const [portAllow, setPortAllow] = useState<number[]>(
+    () => normalizePortPolicy(server).allow,
+  );
+  const [internalAddress, setInternalAddress] = useState(
+    () => server.internal_address ?? "",
+  );
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -71,6 +89,12 @@ export function ServerEditDialog({
       return;
     }
 
+    const portRange = parsePortRangeInput(portStart, portEnd);
+    if (!portRange) {
+      setError(t("servers.portPolicy.rangeInvalid"));
+      return;
+    }
+
     setError(null);
     try {
       await updateServer.mutateAsync({
@@ -80,6 +104,12 @@ export function ServerEditDialog({
           country_code: normalizedCountry,
           // 后端把空串当作「清空分组」；null 可能被当成「不改该字段」。
           group_name: normalizeGroupName(groupName) ?? "",
+          // 两个都 null = 不限制；额外端口空数组 = 没有额外端口。
+          port_start: portRange.start,
+          port_end: portRange.end,
+          port_allow: portAllow,
+          // 空串 = 清空内网地址；不用空串占位，避免链侧把它当成已填写。
+          internal_address: internalAddress.trim() || null,
         },
       });
       toast.success(t("servers.editDialog.saved"));
@@ -101,7 +131,7 @@ export function ServerEditDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <span className="grid size-7 place-items-center rounded-md bg-primary/10 text-primary">
@@ -158,6 +188,34 @@ export function ServerEditDialog({
               maxLength={GROUP_NAME_MAX_LENGTH}
               autoComplete="off"
               disabled={updateServer.isPending}
+            />
+          </div>
+
+          <PortPolicyFields
+            idPrefix="server-edit-port"
+            start={portStart}
+            end={portEnd}
+            allow={portAllow}
+            onStartChange={setPortStart}
+            onEndChange={setPortEnd}
+            onAllowChange={setPortAllow}
+            disabled={updateServer.isPending}
+          />
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="server-internal-address" className="text-sm">
+              {t("servers.portPolicy.internalAddress")}
+            </Label>
+            <Input
+              id="server-internal-address"
+              value={internalAddress}
+              onChange={(event) => setInternalAddress(event.target.value)}
+              placeholder={t(
+                "servers.portPolicy.internalAddressPlaceholder",
+              )}
+              autoComplete="off"
+              disabled={updateServer.isPending}
+              className="font-mono"
             />
           </div>
 

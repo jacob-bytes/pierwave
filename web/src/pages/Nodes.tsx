@@ -548,6 +548,7 @@ export default function NodesPage() {
           key={`${formState.mode}-${formState.node?.id ?? "new"}`}
           open
           serverId={serverId}
+          server={server}
           mode={formState.mode}
           node={formState.node}
           onOpenChange={(open) => {
