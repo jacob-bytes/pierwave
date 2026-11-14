@@ -1,6 +1,5 @@
 import { KeyRoundIcon, PackageIcon, TriangleAlertIcon } from "lucide-react";
 import { EmptyState } from "@/components/common";
-import { UsageBar } from "@/components/UsageBar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatBytes } from "@/lib/format";
@@ -214,16 +213,8 @@ export default function OverviewCardA({
           </p>
         ) : null}
 
-        {/* 已用流量进度条与账号/改密都属于次要信息，统一收在环下方，
-            不再单独开一张可折叠卡片。 */}
-        <div className="mt-5 space-y-3 border-t border-border pt-4">
-          <UsageBar
-            usedBytes={usage.used_bytes}
-            quotaBytes={plan.traffic_limit}
-            zeroAsUnlimited
-            overTone="warning"
-            label={t("me.overview.usage")}
-          />
+        {/* 只留账号与改密：已用量由环形与右侧数字已经表达，再画一条进度条是重复。 */}
+        <div className="mt-5 border-t border-border pt-4">
           <AccountFooter
             username={username}
             onChangePassword={onChangePassword}
