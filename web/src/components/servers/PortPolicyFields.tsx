@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { XIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -55,6 +55,19 @@ export function PortPolicyFields({
   );
   const rangeInvalid =
     rangeDraft.trim() !== "" && parsePortRangeText(rangeDraft) === null;
+
+  // 外部值变化时（例如同一个对话框换了编辑对象）同步输入框；
+  // 用户正在输入的不合法中间态不会被覆盖，因为它在父级里是空值。
+  useEffect(() => {
+    const parsed = parsePortRangeText(rangeDraft);
+    const current = formatPortRangeText(start, end);
+    if (parsed === null) return;
+    if (formatPortRangeText(parsed.start, parsed.end) !== current) {
+      setRangeDraft(current);
+    }
+    // 只在外部值变化时同步，避免每次按键都把草稿重置。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [start, end]);
 
   function handleRangeChange(next: string) {
     setRangeDraft(next);
