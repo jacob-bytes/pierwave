@@ -138,7 +138,7 @@ const zhCN = {
     me: "我的",
     groups: {
       console: "资源",
-      account: "账号与订阅",
+      account: "账号",
       forwarding: "转发",
       management: "管理",
       system: "系统",
