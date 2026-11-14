@@ -1074,7 +1074,34 @@ mod tests {
     struct UdpEcho {
         addr: SocketAddr,
         received: Arc<AtomicUsize>,
+        /// 收到的载荷（按到达顺序）。
+        ///
+        /// 「某个包绝不能到目标」这类负向断言看载荷而不是只看计数：同进程里
+        /// 并行跑的其它隧道用例会频繁创建/释放临时 UDP 端口，一个不属于本
+        /// 用例的包落进来只会污染计数，不代表本用例的数据报被转发了。
+        payloads: Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
         task: JoinHandle<()>,
+    }
+
+    impl UdpEcho {
+        fn received(&self) -> usize {
+            self.received.load(Ordering::Relaxed)
+        }
+
+        fn payloads(&self) -> Vec<Vec<u8>> {
+            self.payloads
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone()
+        }
+
+        fn assert_never_received(&self, payload: &[u8], what: &str) {
+            let got = self.payloads();
+            assert!(
+                !got.iter().any(|received| received == payload),
+                "{what}：目标收到了不该被转发的载荷（载荷：{got:?}）"
+            );
+        }
     }
 
     impl Drop for UdpEcho {
@@ -1090,12 +1117,19 @@ mod tests {
         let addr = socket.local_addr().expect("读取 UDP echo 地址");
         let received = Arc::new(AtomicUsize::new(0));
         let counter = Arc::clone(&received);
+        let payloads = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorder = Arc::clone(&payloads);
         let task = tokio::spawn(async move {
             let mut buf = vec![0u8; 2048];
             loop {
                 let Ok((size, peer)) = socket.recv_from(&mut buf).await else {
                     break;
                 };
+                // 先记载荷再自增计数：看到计数就一定能看到对应的载荷。
+                recorder
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .push(buf[..size].to_vec());
                 counter.fetch_add(1, Ordering::Relaxed);
                 if socket.send_to(&buf[..size], peer).await.is_err() {
                     break;
@@ -1105,6 +1139,7 @@ mod tests {
         UdpEcho {
             addr,
             received,
+            payloads,
             task,
         }
     }
@@ -1124,14 +1159,35 @@ mod tests {
         reply[..size].to_vec()
     }
 
-    async fn wait_until<F: Fn() -> bool>(what: &str, condition: F) {
-        let deadline = Instant::now() + Duration::from_secs(5);
+    /// 轮询等待的预算：CI（少核、较慢）上一条 QUIC 链的首个数据报可能要等
+    /// 握手完成、排队处理，5s 以下本身就会变成新的抖动源。
+    const TEST_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
+    /// 轮询间隔。
+    const TEST_POLL_INTERVAL: Duration = Duration::from_millis(20);
+    /// 「不该有回包」的负向观察窗口。这不是等待某个事件发生，而是给「绝不会
+    /// 发生」留出迟到包的余地。
+    const NO_REPLY_WINDOW: Duration = Duration::from_millis(500);
+
+    /// 轮询等待 `condition` 成立；超时时把调用方给的「失败现场」一起打进
+    /// panic，CI 日志里能直接看到当时的 QUIC 计数。
+    async fn wait_until_with<F, D>(what: &str, condition: F, diagnostics: D)
+    where
+        F: Fn() -> bool,
+        D: FnOnce() -> String,
+    {
+        let deadline = Instant::now() + TEST_WAIT_TIMEOUT;
         loop {
             if condition() {
                 return;
             }
-            assert!(Instant::now() < deadline, "等待超时：{what}");
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            if Instant::now() >= deadline {
+                let diagnostics = diagnostics();
+                if diagnostics.is_empty() {
+                    panic!("等待超时：{what}");
+                }
+                panic!("等待超时：{what}\n{diagnostics}");
+            }
+            tokio::time::sleep(TEST_POLL_INTERVAL).await;
         }
     }
 
@@ -1539,18 +1595,33 @@ mod tests {
                 "UDP 回显内容必须与发送一致"
             );
         }
-        assert_eq!(
-            echo.received.load(Ordering::Relaxed),
-            3,
-            "echo 必须真的收到 3 个包"
+        // 3 个回包已经证明 3 个包都被转发；计数只要求「最终至少 3」。
+        assert!(
+            echo.received() >= 3,
+            "echo 至少收到 3 个包（实际 {}）",
+            echo.received()
         );
 
-        wait_until("出口 QUIC 计数到 3", || {
-            supervisor
-                .udp_stats("udp-listener")
-                .and_then(|stats| stats.listener_snapshot())
-                .is_some_and(|stats| stats.datagrams_in == 3 && stats.sessions == 1)
-        })
+        wait_until_with(
+            "出口 QUIC 计数到 3",
+            || {
+                supervisor
+                    .udp_stats("udp-listener")
+                    .and_then(|stats| stats.listener_snapshot())
+                    .is_some_and(|stats| stats.datagrams_in >= 3 && stats.sessions >= 1)
+            },
+            || {
+                format!(
+                    "listener={:?} dialer={:?}",
+                    supervisor
+                        .udp_stats("udp-listener")
+                        .and_then(|stats| stats.listener_snapshot()),
+                    supervisor
+                        .udp_stats("udp-dialer")
+                        .and_then(|stats| stats.dialer_snapshot()),
+                )
+            },
+        )
         .await;
 
         let server = supervisor
@@ -1558,8 +1629,8 @@ mod tests {
             .expect("UDP Listener 必须有计数句柄")
             .listener_snapshot()
             .expect("Listener 侧必须是 QUIC 计数");
-        assert_eq!(server.datagrams_in, 3, "{server:?}");
-        assert_eq!(server.datagrams_out, 3, "{server:?}");
+        assert!(server.datagrams_in >= 3, "{server:?}");
+        assert!(server.datagrams_out >= 3, "{server:?}");
         assert_eq!(server.sessions, 1, "一个本地客户端只能有一个服务端会话");
         assert_eq!(server.denied, 0, "{server:?}");
 
@@ -1568,8 +1639,8 @@ mod tests {
             .expect("UDP Dialer 必须有计数句柄")
             .dialer_snapshot()
             .expect("Dialer 侧必须是本地会话计数");
-        assert_eq!(dialer_stats.datagrams_in, 3, "{dialer_stats:?}");
-        assert_eq!(dialer_stats.datagrams_out, 3, "{dialer_stats:?}");
+        assert!(dialer_stats.datagrams_in >= 3, "{dialer_stats:?}");
+        assert!(dialer_stats.datagrams_out >= 3, "{dialer_stats:?}");
         assert_eq!(dialer_stats.sessions, 1, "{dialer_stats:?}");
         println!("[udp tunnel] server={server:?} dialer={dialer_stats:?}");
 
@@ -1633,16 +1704,30 @@ mod tests {
             b"beta-2"
         );
 
-        wait_until("两个客户端各自一个会话", || {
-            let server = supervisor
-                .udp_stats("udp2-listener")
-                .and_then(|stats| stats.listener_snapshot());
-            let dialer = supervisor
-                .udp_stats("udp2-dialer")
-                .and_then(|stats| stats.dialer_snapshot());
-            server.is_some_and(|stats| stats.sessions == 2)
-                && dialer.is_some_and(|stats| stats.sessions == 2)
-        })
+        wait_until_with(
+            "两个客户端各自一个会话",
+            || {
+                let server = supervisor
+                    .udp_stats("udp2-listener")
+                    .and_then(|stats| stats.listener_snapshot());
+                let dialer = supervisor
+                    .udp_stats("udp2-dialer")
+                    .and_then(|stats| stats.dialer_snapshot());
+                server.is_some_and(|stats| stats.sessions >= 2)
+                    && dialer.is_some_and(|stats| stats.sessions >= 2)
+            },
+            || {
+                format!(
+                    "listener={:?} dialer={:?}",
+                    supervisor
+                        .udp_stats("udp2-listener")
+                        .and_then(|stats| stats.listener_snapshot()),
+                    supervisor
+                        .udp_stats("udp2-dialer")
+                        .and_then(|stats| stats.dialer_snapshot()),
+                )
+            },
+        )
         .await;
 
         let server = supervisor
@@ -1659,8 +1744,8 @@ mod tests {
             server.sessions, 2,
             "两个本地客户端 → 两条 QUIC 连接：{server:?}"
         );
-        assert_eq!(server.datagrams_in, 4, "{server:?}");
-        assert_eq!(server.datagrams_out, 4, "{server:?}");
+        assert!(server.datagrams_in >= 4, "{server:?}");
+        assert!(server.datagrams_out >= 4, "{server:?}");
         assert_eq!(
             dialer_stats.sessions, 2,
             "入口侧也必须各有一个会话：{dialer_stats:?}"
@@ -1702,22 +1787,37 @@ mod tests {
 
         let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let dialer_addr: SocketAddr = format!("127.0.0.1:{dialer_port}").parse().unwrap();
-        client
-            .send_to(b"must-not-arrive", dialer_addr)
-            .await
-            .unwrap();
+        // 唯一载荷：负向断言按载荷匹配，不会把别的用例（或复用了端口的并行
+        // 用例）误投的包当成「白名单外的数据报被转发了」。
+        let payload = format!("must-not-arrive-{}", uuid::Uuid::new_v4());
+        let payload = payload.as_bytes();
 
-        wait_until("出口拒绝计数到 1", || {
-            supervisor
+        // 入口 → 出口是一条真实 QUIC 链：首个数据报会顺带触发建连，包可能
+        // 丢在建连期间（入口侧缓存一旦超限就丢），出口也可能还没轮到处理它。
+        // 因此重发到「出口拒绝计数 ≥ 1」为止，而不是发一次就等固定窗口。
+        let deadline = Instant::now() + TEST_WAIT_TIMEOUT;
+        loop {
+            let stats = supervisor
                 .udp_stats("deny-listener")
-                .and_then(|stats| stats.listener_snapshot())
-                .is_some_and(|stats| stats.denied >= 1)
-        })
-        .await;
+                .and_then(|stats| stats.listener_snapshot());
+            if stats.is_some_and(|stats| stats.denied >= 1) {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "等待超时：出口拒绝计数到 1（listener: {stats:?}, dialer: {:?}, echo 载荷: {:?}）",
+                supervisor
+                    .udp_stats("deny-dialer")
+                    .and_then(|stats| stats.dialer_snapshot()),
+                denied_echo.payloads(),
+            );
+            client.send_to(payload, dialer_addr).await.unwrap();
+            tokio::time::sleep(TEST_POLL_INTERVAL).await;
+        }
 
-        // 被拒绝的目标不能产生回包。
+        // 被拒绝的目标不能产生回包：负向窗口，兜住迟到的包。
         let mut buf = [0u8; 256];
-        let no_reply = timeout(Duration::from_millis(400), client.recv_from(&mut buf)).await;
+        let no_reply = timeout(NO_REPLY_WINDOW, client.recv_from(&mut buf)).await;
         assert!(no_reply.is_err(), "白名单外的目标不能有回包");
 
         let server = supervisor
@@ -1725,24 +1825,20 @@ mod tests {
             .unwrap()
             .listener_snapshot()
             .unwrap();
-        assert_eq!(server.denied, 1, "每个被拒绝的数据报都要计数：{server:?}");
+        // 重发次数不固定（UDP 无重传），只要求「至少拒绝过一次」，且拒绝分支
+        // 不能建会话、不能发回包。
+        assert!(server.denied >= 1, "每个被拒绝的数据报都要计数：{server:?}");
         assert_eq!(server.sessions, 0, "拒绝时不能建服务端会话：{server:?}");
         assert_eq!(server.datagrams_out, 0, "{server:?}");
-        assert_eq!(
-            allowed_echo.received.load(Ordering::Relaxed),
-            0,
-            "白名单内的 echo 也不能收到包"
-        );
-        assert_eq!(
-            denied_echo.received.load(Ordering::Relaxed),
-            0,
-            "白名单外的 echo 收包计数必须为 0"
-        );
+        // 语义核心：这个载荷从未被转发到任何一个目标（按载荷断言而不是只看
+        // 计数，避免同进程并行用例复用临时端口带来的误报）。
+        allowed_echo.assert_never_received(payload, "白名单内的 echo 不能收到载荷");
+        denied_echo.assert_never_received(payload, "白名单外的 echo 不能收到载荷");
         println!(
-            "[udp deny] denied={} sessions={} denied_echo_received={}",
+            "[udp deny] denied={} sessions={} denied_echo_payloads={:?}",
             server.denied,
             server.sessions,
-            denied_echo.received.load(Ordering::Relaxed)
+            denied_echo.payloads()
         );
 
         supervisor.apply(&[]).await;

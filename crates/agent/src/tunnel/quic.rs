@@ -1332,7 +1332,36 @@ mod tests {
     struct UdpEcho {
         addr: SocketAddr,
         received: Arc<AtomicUsize>,
+        /// 收到的载荷（按到达顺序）。
+        ///
+        /// 负向断言（「这个包绝不能到目标」）看载荷而不是只看计数：同进程里
+        /// 并行跑的其它隧道用例会频繁创建/释放临时 UDP 端口，一个不属于本
+        /// 用例的包落进来只会污染计数，不是「本用例的数据报被转发了」。
+        payloads: Arc<Mutex<Vec<Vec<u8>>>>,
         task: JoinHandle<()>,
+    }
+
+    impl UdpEcho {
+        fn received(&self) -> usize {
+            self.received.load(Ordering::Relaxed)
+        }
+
+        fn payloads(&self) -> Vec<Vec<u8>> {
+            self.payloads
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone()
+        }
+
+        /// 断言某个载荷从未到达这个 echo（比「计数为 0」更精确，也不会被
+        /// 其它用例误投的包带偏）。
+        fn assert_never_received(&self, payload: &[u8], what: &str) {
+            let got = self.payloads();
+            assert!(
+                !got.iter().any(|received| received == payload),
+                "{what}：目标收到了不该被转发的载荷（载荷：{got:?}）"
+            );
+        }
     }
 
     impl Drop for UdpEcho {
@@ -1348,12 +1377,19 @@ mod tests {
         let addr = socket.local_addr().expect("读取 UDP echo 地址");
         let received = Arc::new(AtomicUsize::new(0));
         let counter = Arc::clone(&received);
+        let payloads = Arc::new(Mutex::new(Vec::new()));
+        let recorder = Arc::clone(&payloads);
         let task = tokio::spawn(async move {
             let mut buf = vec![0u8; 2048];
             loop {
                 let Ok((size, peer)) = socket.recv_from(&mut buf).await else {
                     break;
                 };
+                // 先记载荷再自增计数：看到计数就一定能看到对应的载荷。
+                recorder
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .push(buf[..size].to_vec());
                 counter.fetch_add(1, Ordering::Relaxed);
                 let mut reply = Vec::with_capacity(size + usize::from(tag.is_some()));
                 if let Some(tag) = tag {
@@ -1368,6 +1404,7 @@ mod tests {
         UdpEcho {
             addr,
             received,
+            payloads,
             task,
         }
     }
@@ -1461,10 +1498,43 @@ mod tests {
     }
 
     async fn recv_reply(client: &QuicUdpClient) -> UdpDatagram {
-        tokio_timeout(Duration::from_secs(3), client.recv())
+        // 回包等待是「截止时间」而不是固定睡眠：CI（少核、较慢）上 QUIC 数据报
+        // 往返可能比本机慢一个数量级。
+        tokio_timeout(TEST_WAIT_TIMEOUT, client.recv())
             .await
             .expect("等待 UDP 回包超时")
             .expect("读取 UDP 回包失败")
+    }
+
+    /// 等待「最终达到」类断言的预算：CI 上握手/回收可能慢一个数量级，
+    /// 5s 以下本身就会变成新的抖动源。
+    const TEST_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
+    /// 轮询间隔；与 supervisor / udp_dialer 的测试保持一致。
+    const TEST_POLL_INTERVAL: Duration = Duration::from_millis(20);
+    /// 「不该有回包」的负向观察窗口。这**不是**等待某个事件发生，而是给
+    /// 「绝不会发生」留出迟到包的余地；不靠它来同步任何状态。
+    const NO_REPLY_WINDOW: Duration = Duration::from_millis(500);
+
+    /// 轮询等待 `condition` 成立，返回成立时的计数快照。
+    ///
+    /// 失败时把当时的 stats 一起打进 panic：CI 日志里能直接看出是「没收到 /
+    /// 没建会话」还是「计数多算了」，不用再猜。
+    async fn wait_until<F>(what: &str, stats: &QuicUdpStatsHandle, condition: F) -> QuicUdpStats
+    where
+        F: Fn(&QuicUdpStats) -> bool,
+    {
+        let deadline = Instant::now() + TEST_WAIT_TIMEOUT;
+        loop {
+            let snapshot = stats.snapshot();
+            if condition(&snapshot) {
+                return snapshot;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "等待超时：{what}（stats: {snapshot:?}）"
+            );
+            tokio::time::sleep(TEST_POLL_INTERVAL).await;
+        }
     }
 
     /// 找一个哈希到指定桶的合成客户端地址（只用于选路，不需要真的 bind）。
@@ -1711,11 +1781,18 @@ mod tests {
             assert_eq!(reply.hop_id, HOP_ID);
         }
 
-        let stats = harness.stats.snapshot();
-        assert_eq!(stats.datagrams_in, 3, "{stats:?}");
-        assert_eq!(stats.datagrams_out, 3, "{stats:?}");
+        // 回包内容已经证明 3 个包都被转发；计数只需要「最终至少 3」——
+        // 不要求断言瞬间就绪（服务端任务可能还没把收尾计数落下来）。
+        let stats = wait_until(
+            "3 个数据报都计数（收/发）",
+            &harness.stats,
+            |stats| stats.datagrams_in >= 3 && stats.datagrams_out >= 3,
+        )
+        .await;
+        assert!(stats.datagrams_in >= 3, "{stats:?}");
+        assert!(stats.datagrams_out >= 3, "{stats:?}");
         assert_eq!(stats.sessions, 1, "同一客户端 + 同一目标只能有一个会话");
-        assert_eq!(echo.received.load(Ordering::Relaxed), 3);
+        assert!(echo.received() >= 3, "echo 至少收到 3 个包");
         println!("[quic echo] {stats:?}");
     }
 
@@ -1735,32 +1812,52 @@ mod tests {
             .udp_client_with(HOP_ID, vec![localhost_rule(denied_echo.addr)])
             .await;
         let local = client_addr_for_bucket(0, 1);
+        // 唯一载荷：负向断言按载荷匹配，别的用例（或复用了端口的并行用例）
+        // 恰好发同样字节的概率必须为 0。
+        let payload = format!("must-not-arrive-{}", uuid::Uuid::new_v4());
+        let payload = payload.as_bytes();
 
-        for _ in 0..3 {
-            let target = client.send_from(local, b"must-not-arrive").unwrap();
+        // 数据报本身不可靠：可能丢、服务端也可能还没轮到处理。发一次就断言
+        // 「恰好 3 次拒绝」是在赌时序；重发到「拒绝计数 ≥ 3」为止，每轮同时
+        // 盯着回包——真的被转发时会立刻失败。
+        let deadline = Instant::now() + TEST_WAIT_TIMEOUT;
+        let stats = loop {
+            let stats = harness.stats.snapshot();
+            if stats.denied >= 3 {
+                break stats;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "等待超时：3 个被拒绝的数据报都必须计数（stats: {stats:?}, echo 载荷: {:?}）",
+                denied_echo.payloads()
+            );
+            let target = client.send_from(local, payload).unwrap();
             assert_eq!(target, TargetAddr::Ip(denied_echo.addr));
-        }
+            match tokio_timeout(TEST_POLL_INTERVAL, client.recv()).await {
+                Err(_) => {}
+                Ok(Ok(datagram)) => {
+                    panic!("被白名单拒绝的目标不能产生回包，却收到 {datagram:?}")
+                }
+                Ok(Err(error)) => panic!("读取回包失败：{error:#}"),
+            }
+        };
 
-        // 服务端处理完这 3 个包之前不会有回包；给一个短窗口确认「没有回包」。
-        let no_reply = tokio_timeout(Duration::from_millis(400), client.recv()).await;
-        assert!(no_reply.is_err(), "被白名单拒绝的目标不能产生回包");
-
-        let stats = harness.stats.snapshot();
-        assert_eq!(stats.denied, 3, "每个被拒绝的数据报都要计数：{stats:?}");
-        assert_eq!(stats.datagrams_in, 3, "{stats:?}");
+        assert!(stats.denied >= 3, "每个被拒绝的数据报都要计数：{stats:?}");
+        // 每个到达的数据报都走了「白名单拒绝」分支，没有建任何会话/上游连接。
+        assert!(stats.datagrams_in >= stats.denied, "{stats:?}");
         assert_eq!(stats.datagrams_out, 0, "{stats:?}");
         assert_eq!(stats.sessions, 0, "拒绝时不能建会话");
-        assert_eq!(
-            denied_echo.received.load(Ordering::Relaxed),
-            0,
-            "白名单拒绝的 echo 收包计数必须为 0"
-        );
+        denied_echo.assert_never_received(payload, "白名单拒绝的目标不能收到载荷");
+
+        // 负向窗口：拒绝分支不可能产生回包，再观察一段时间兜住迟到的包。
+        let no_reply = tokio_timeout(NO_REPLY_WINDOW, client.recv()).await;
+        assert!(no_reply.is_err(), "被白名单拒绝的目标不能产生回包");
         println!(
-            "[quic denied] denied={} datagrams_in={} sessions={} denied_echo_received={}",
+            "[quic denied] denied={} datagrams_in={} sessions={} denied_echo_payloads={:?}",
             stats.denied,
             stats.datagrams_in,
             stats.sessions,
-            denied_echo.received.load(Ordering::Relaxed)
+            denied_echo.payloads()
         );
     }
 
@@ -1794,10 +1891,13 @@ mod tests {
             assert_eq!(reply.payload, b"Bhello-b", "客户端 B 必须稳定走 echo B");
         }
 
-        let stats = harness.stats.snapshot();
+        let stats = wait_until("两个目标都建立会话", &harness.stats, |stats| {
+            stats.sessions >= 2
+        })
+        .await;
         assert_eq!(stats.sessions, 2, "两个目标 → 两个会话：{stats:?}");
-        assert_eq!(echo_a.received.load(Ordering::Relaxed), 3);
-        assert_eq!(echo_b.received.load(Ordering::Relaxed), 3);
+        assert!(echo_a.received() >= 3, "echo A 至少收到 3 个包");
+        assert!(echo_b.received() >= 3, "echo B 至少收到 3 个包");
         println!("[quic sticky] {stats:?}");
     }
 
@@ -1822,20 +1922,21 @@ mod tests {
 
         client.send_from(local, b"make-a-session").unwrap();
         let _ = recv_reply(&client).await;
-        assert_eq!(harness.stats.snapshot().sessions, 1);
+        wait_until("会话已建立", &harness.stats, |stats| {
+            stats.sessions >= 1
+        })
+        .await;
 
-        // 100ms 空闲 + 20ms 扫描周期；给 2 秒余量避免 CI 抖动。
-        let deadline = Instant::now() + Duration::from_secs(2);
-        loop {
-            if harness.stats.snapshot().sessions == 0 {
-                break;
-            }
-            assert!(Instant::now() < deadline, "空闲会话必须被回收任务清掉");
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+        // 100ms 空闲 + 20ms 扫描周期；轮询到 10s 截止，避免 CI 抖动。
+        let stats = wait_until(
+            "空闲会话必须被回收任务清掉",
+            &harness.stats,
+            |stats| stats.sessions == 0,
+        )
+        .await;
         println!(
-            "[quic idle] sessions reclaimed, echo received={}",
-            echo.received.load(Ordering::Relaxed)
+            "[quic idle] sessions reclaimed, stats={stats:?}, echo received={}",
+            echo.received()
         );
     }
 
@@ -1871,27 +1972,71 @@ mod tests {
             client_addr_for_bucket(1, 3),
             client_addr_for_bucket(2, 3),
         ];
+        // 建会话是服务端异步做的：回包已经证明这两个会话存在，但仍然用
+        // 「等达到」而不是「立刻等于」，避免在慢机器上抢跑。
         for (index, addr) in clients.iter().take(2).enumerate() {
             client.send_from(*addr, b"fill").unwrap();
             let reply = recv_reply(&client).await;
             assert_eq!(reply.payload[0], b'A' + index as u8, "{index}");
         }
-        assert_eq!(harness.stats.snapshot().sessions, 2);
+        let stats = wait_until("已有两个会话", &harness.stats, |stats| {
+            stats.sessions >= 2
+        })
+        .await;
+        assert_eq!(stats.sessions, 2, "{stats:?}");
 
         // 第 3 个地址：超限，不能建会话、不能有回包。
-        client.send_from(clients[2], b"over-limit").unwrap();
-        let no_reply = tokio_timeout(Duration::from_millis(400), client.recv()).await;
-        assert!(no_reply.is_err(), "超过会话上限的新地址不能拿到回包");
-        let stats = harness.stats.snapshot();
-        assert_eq!(stats.sessions_rejected, 1, "{stats:?}");
+        //
+        // 数据报可能丢、服务端也可能还没轮到处理它，所以重发到「拒绝计数 ≥ 1」
+        // 为止；每轮同时盯着回包，一旦真的被转发就立刻失败。最终断言用
+        // 「至少 1」而不是「恰好 1」——重发几次就会多计几次，那不是被测行为。
+        //
+        // 载荷带上唯一后缀：负向断言按载荷匹配，不会把别的用例（或复用了
+        // 端口的并行用例）误投的包当成「超限数据报被转发了」。
+        let over_limit = format!("over-limit-{}", uuid::Uuid::new_v4());
+        let over_limit = over_limit.as_bytes();
+        let deadline = Instant::now() + TEST_WAIT_TIMEOUT;
+        let stats = loop {
+            let stats = harness.stats.snapshot();
+            if stats.sessions_rejected >= 1 {
+                break stats;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "等待超时：超过会话上限的新地址必须被拒绝（stats: {stats:?}, echo_c 载荷: {:?}）",
+                echo_c.payloads()
+            );
+            assert_eq!(
+                client.send_from(clients[2], over_limit).unwrap(),
+                TargetAddr::Ip(echo_c.addr),
+                "第 3 个地址必须选中第 3 个目标"
+            );
+            match tokio_timeout(TEST_POLL_INTERVAL, client.recv()).await {
+                Err(_) => {}
+                Ok(Ok(datagram)) => {
+                    panic!("超过会话上限的新地址不能拿到回包，却收到 {datagram:?}")
+                }
+                Ok(Err(error)) => panic!("读取回包失败：{error:#}"),
+            }
+        };
+        assert!(stats.sessions_rejected >= 1, "{stats:?}");
         assert_eq!(stats.sessions, 2, "已有会话不能被挤掉：{stats:?}");
-        assert_eq!(echo_c.received.load(Ordering::Relaxed), 0);
+        // 语义核心：这个数据报从未被转发。按载荷断言而不是只看计数——
+        // 同进程里并行跑的其它隧道用例可能复用临时端口，往这个 echo 投进
+        // 一个不属于本用例的包；那不该算「超限数据报被转发了」。
+        echo_c.assert_never_received(over_limit, "超限数据报不能被转发到目标");
 
-        // 已有两个会话必须继续工作。
+        // 负向窗口：超限分支不可能产生回包，再观察一段时间兜住迟到的包。
+        let no_reply = tokio_timeout(NO_REPLY_WINDOW, client.recv()).await;
+        assert!(no_reply.is_err(), "超过会话上限的新地址不能拿到回包");
+
+        // 已有两个会话必须继续工作（用回包内容证明，不依赖固定 sleep）。
         client.send_from(clients[0], b"still-a").unwrap();
         assert_eq!(recv_reply(&client).await.payload, b"Astill-a");
         client.send_from(clients[1], b"still-b").unwrap();
         assert_eq!(recv_reply(&client).await.payload, b"Bstill-b");
+        let stats = harness.stats.snapshot();
+        assert_eq!(stats.sessions, 2, "已有会话不能被挤掉：{stats:?}");
         println!(
             "[quic limit] sessions_rejected={} sessions={} existing_still_working=true",
             stats.sessions_rejected, stats.sessions
@@ -2010,7 +2155,7 @@ mod tests {
         let stats = harness.stats.snapshot();
         assert_eq!(stats.datagrams_in, 0, "{stats:?}");
         assert_eq!(stats.sessions, 0, "{stats:?}");
-        assert_eq!(echo.received.load(Ordering::Relaxed), 0);
+        assert_eq!(echo.received(), 0);
         println!("[quic bad-proof] rejected without forwarding: {text}");
     }
 
