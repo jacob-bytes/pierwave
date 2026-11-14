@@ -375,6 +375,8 @@ const en = {
       end: "End port (optional)",
       startPlaceholder: "30000",
       endPlaceholder: "31000",
+      rangeLabel: "Port range (optional)",
+      rangePlaceholder: "30000-31000",
       allowLabel: "Additional allowed ports",
       allowPlaceholder: "443, 8443 (comma or Enter)",
       allowInvalid: "Ports must be integers between 1 and 65535",

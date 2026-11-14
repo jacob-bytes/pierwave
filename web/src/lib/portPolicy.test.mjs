@@ -9,6 +9,8 @@ import {
   isPortPolicyConstrained,
   normalizePortPolicy,
   parsePortAllow,
+  parsePortRangeText,
+  formatPortRangeText,
   parsePortRangeInput,
   portPolicyLabel,
   portPolicySummary,
@@ -256,4 +258,35 @@ test("the port-policy error codes are bilingual and carry the right params", () 
     ),
     'Port 80 is outside the range allowed by server “edge-1”',
   );
+});
+
+test("parsePortRangeText accepts a single field with a dash or tilde", () => {
+  assert.deepEqual(parsePortRangeText("30000-31000"), {
+    start: 30000,
+    end: 31000,
+  });
+  assert.deepEqual(parsePortRangeText(" 30000 ～ 31000 "), {
+    start: 30000,
+    end: 31000,
+  });
+  assert.deepEqual(parsePortRangeText("30000~31000"), {
+    start: 30000,
+    end: 31000,
+  });
+  assert.deepEqual(parsePortRangeText("8443"), { start: 8443, end: 8443 });
+  assert.deepEqual(parsePortRangeText(""), { start: null, end: null });
+  assert.equal(parsePortRangeText("30000-"), null);
+  assert.equal(parsePortRangeText("-31000"), null);
+  assert.equal(parsePortRangeText("31000-30000"), null);
+  assert.equal(parsePortRangeText("0-100"), null);
+  assert.equal(parsePortRangeText("a-b"), null);
+  assert.equal(parsePortRangeText("1-2-3"), null);
+});
+
+test("formatPortRangeText round-trips both field styles", () => {
+  assert.equal(formatPortRangeText(30000, 31000), "30000-31000");
+  assert.equal(formatPortRangeText("8443", "8443"), "8443");
+  assert.equal(formatPortRangeText(null, 31000), "");
+  assert.equal(formatPortRangeText("", ""), "");
+  assert.equal(formatPortRangeText("abc", "31000"), "");
 });

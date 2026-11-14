@@ -3,8 +3,10 @@ import { XIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  formatPortRangeText,
   invalidPortAllowTokens,
   parsePortAllow,
+  parsePortRangeText,
 } from "@/lib/portPolicy";
 import { useI18n } from "@/i18n";
 
@@ -46,6 +48,22 @@ export function PortPolicyFields({
   const { t } = useI18n();
   const [text, setText] = useState("");
   const [tagError, setTagError] = useState<string | null>(null);
+  // 范围输入自己保存原始文本，提交时再解析成 start/end；
+  // 这样用户能中途输入「30000-」而不被立刻改写。
+  const [rangeDraft, setRangeDraft] = useState(() =>
+    formatPortRangeText(start, end),
+  );
+  const rangeInvalid =
+    rangeDraft.trim() !== "" && parsePortRangeText(rangeDraft) === null;
+
+  function handleRangeChange(next: string) {
+    setRangeDraft(next);
+    const parsed = parsePortRangeText(next);
+    if (parsed) {
+      onStartChange(parsed.start === null ? "" : String(parsed.start));
+      onEndChange(parsed.end === null ? "" : String(parsed.end));
+    }
+  }
 
   function commit(raw: string) {
     if (raw.trim() === "") return;
@@ -69,40 +87,28 @@ export function PortPolicyFields({
         {t("servers.portPolicy.section")}
       </span>
 
-      <div className="grid gap-2 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label htmlFor={`${idPrefix}-start`} className="text-xs">
-            {t("servers.portPolicy.start")}
-          </Label>
-          <Input
-            id={`${idPrefix}-start`}
-            value={start}
-            onChange={(event) => onStartChange(event.target.value)}
-            placeholder={t("servers.portPolicy.startPlaceholder")}
-            inputMode="numeric"
-            autoComplete="off"
-            maxLength={5}
-            disabled={disabled}
-            className="h-8 font-mono tabular-nums"
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor={`${idPrefix}-end`} className="text-xs">
-            {t("servers.portPolicy.end")}
-          </Label>
-          <Input
-            id={`${idPrefix}-end`}
-            value={end}
-            onChange={(event) => onEndChange(event.target.value)}
-            placeholder={t("servers.portPolicy.endPlaceholder")}
-            inputMode="numeric"
-            autoComplete="off"
-            maxLength={5}
-            disabled={disabled}
-            className="h-8 font-mono tabular-nums"
-          />
-        </div>
+      {/* 起止合并成一个输入：范围本来就是一个概念，两个框还多占一行高度。 */}
+      <div className="space-y-1.5">
+        <Label htmlFor={`${idPrefix}-range`} className="text-xs">
+          {t("servers.portPolicy.rangeLabel")}
+        </Label>
+        <Input
+          id={`${idPrefix}-range`}
+          value={rangeDraft}
+          onChange={(event) => handleRangeChange(event.target.value)}
+          placeholder={t("servers.portPolicy.rangePlaceholder")}
+          inputMode="numeric"
+          autoComplete="off"
+          maxLength={12}
+          disabled={disabled}
+          className="h-8 font-mono tabular-nums"
+          aria-invalid={rangeInvalid}
+        />
+        {rangeInvalid ? (
+          <p role="alert" className="text-xs text-destructive">
+            {t("servers.portPolicy.rangeInvalid")}
+          </p>
+        ) : null}
       </div>
 
       <div className="space-y-1.5">

@@ -365,6 +365,8 @@ const zhCN = {
       end: "结束端口（可选）",
       startPlaceholder: "30000",
       endPlaceholder: "31000",
+      rangeLabel: "端口范围（可选）",
+      rangePlaceholder: "30000-31000",
       allowLabel: "额外允许的端口",
       allowPlaceholder: "443, 8443（逗号或回车添加）",
       allowInvalid: "端口必须是 1-65535 的整数",

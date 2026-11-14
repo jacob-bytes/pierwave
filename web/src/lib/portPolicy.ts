@@ -230,3 +230,37 @@ export function parsePortRangeInput(
   if (start === null || end === null || start > end) return null;
   return { start, end };
 }
+
+/**
+ * 单个输入框里的「端口范围」→ 提交值。
+ *
+ * 接受 `30000-31000`、`30000～31000`、`30000~31000`（含两侧空格）。
+ * 留空 = 不限制；只写一个端口视为 `n-n`（单端口范围）；其余一律返回 `null`。
+ */
+export function parsePortRangeText(
+  text: string,
+): { start: number | null; end: number | null } | null {
+  const raw = text.trim();
+  if (raw === "") return { start: null, end: null };
+  const parts = raw.split(/[-~～—]/).map((part) => part.trim());
+  if (parts.length === 1) {
+    const port = portNumber(parts[0]);
+    return port === null ? null : { start: port, end: port };
+  }
+  if (parts.length !== 2) return null;
+  const start = portNumber(parts[0]);
+  const end = portNumber(parts[1]);
+  if (start === null || end === null || start > end) return null;
+  return { start, end };
+}
+
+/** 反向：两个数值 → 输入框里该显示的文本。 */
+export function formatPortRangeText(
+  start: number | string | null | undefined,
+  end: number | string | null | undefined,
+): string {
+  const from = portNumber(start);
+  const to = portNumber(end);
+  if (from === null || to === null) return "";
+  return from === to ? `${from}` : `${from}-${to}`;
+}
