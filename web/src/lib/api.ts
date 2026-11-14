@@ -1432,6 +1432,59 @@ export interface NodeTrafficDetail {
   users: NodeTrafficUser[];
 }
 
+/** 转发日表对账：窗口合计（`bytes` 原始 / `weighted` 计费）。 */
+export interface ForwardUsageTotals {
+  bytes: number;
+  weighted: number;
+}
+
+/** 转发日表对账：一天一行，缺失日由后端补 0。 */
+export interface ForwardUsageDay {
+  day: string;
+  bytes: number;
+  weighted: number;
+}
+
+/**
+ * 按转发聚合的一行。
+ *
+ * 转发或用户删除后历史行仍会返回：`name` / `user_name` 回落为「已删除」，
+ * `forward_deleted` / `user_deleted` 供界面按当前语言显示。
+ */
+export interface ForwardUsageRow {
+  forward_id: string;
+  name: string;
+  forward_deleted?: boolean;
+  user_id: string;
+  user_name: string;
+  user_deleted?: boolean;
+  bytes: number;
+  weighted: number;
+}
+
+export interface ForwardUsage {
+  totals: ForwardUsageTotals;
+  /** 升序、连续；长度等于请求的 days。 */
+  days: ForwardUsageDay[];
+  by_forward: ForwardUsageRow[];
+}
+
+/** 用户端没有 `user_name`（自己看自己），其余字段与管理员一致。 */
+export interface MeForwardUsageRow {
+  forward_id: string;
+  name: string;
+  forward_deleted?: boolean;
+  user_id: string;
+  bytes: number;
+  weighted: number;
+}
+
+export interface MeForwardUsage {
+  totals: ForwardUsageTotals;
+  days: ForwardUsageDay[];
+  by_forward: MeForwardUsageRow[];
+}
+
 /** P4：用户自助契约，见 docs/PLAN.md「P4：用户端自助（本轮契约）」。 */
 export interface MeSummaryUser {
   id: string;
@@ -1665,6 +1718,26 @@ export const api = {
         `/api/v1/stats/nodes/${encodeURIComponent(nodeId)}?days=${encodeURIComponent(String(days))}&top=${encodeURIComponent(String(top))}`,
       ),
   },
+  /**
+   * 转发日表对账（管理员）：`days` 1..90，`user_id` / `forward_id` 可选。
+   * 只读；已删除的转发/用户保留行。
+   */
+  forwardTraffic: ({
+    days,
+    userId,
+    forwardId,
+  }: {
+    days: number;
+    userId?: string;
+    forwardId?: string;
+  }) => {
+    const params = new URLSearchParams({ days: String(days) });
+    if (userId) params.set("user_id", userId);
+    if (forwardId) params.set("forward_id", forwardId);
+    return request<ForwardUsage>(
+      `/api/v1/forward-traffic?${params.toString()}`,
+    );
+  },
   // 会话用户与自助接口共用 `me` 命名空间：api.me() / api.me.summary() / api.me.traffic(days)。
   me: Object.assign(
     () => request<{ user: SessionUser }>("/api/v1/auth/me"),
@@ -1673,6 +1746,11 @@ export const api = {
       traffic: (days: number) =>
         request<MeTraffic>(
           `/api/v1/me/traffic?days=${encodeURIComponent(String(days))}`,
+        ),
+      /** 自己的转发日表；不含 user_name，也不接受任何身份参数。 */
+      forwardTraffic: (days: number) =>
+        request<MeForwardUsage>(
+          `/api/v1/me/forward-traffic?days=${encodeURIComponent(String(days))}`,
         ),
       /** 自己的断流/恢复事件；limit 由后端夹在 1..=200。 */
       events: (limit: number) =>

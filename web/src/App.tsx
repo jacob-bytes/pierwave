@@ -22,6 +22,7 @@ const SettingsPage = lazy(() => import("@/pages/Settings"));
 const NodesPage = lazy(() => import("@/pages/Nodes"));
 const OutboundsPage = lazy(() => import("@/pages/Outbounds"));
 const ForwardsPage = lazy(() => import("@/pages/Forwards"));
+const ForwardUsagePage = lazy(() => import("@/pages/ForwardUsage"));
 const ChainsPage = lazy(() => import("@/pages/Chains"));
 const ChainTemplatesPage = lazy(() => import("@/pages/ChainTemplates"));
 const NodesIndexPage = lazy(() => import("@/pages/NodesIndex"));
@@ -154,6 +155,7 @@ function AuthenticatedApp() {
             <Route path="servers/:id/forwards" element={<ForwardsPage />} />
             <Route path="chains" element={<ChainsPage />} />
             <Route path="chain-templates" element={<ChainTemplatesPage />} />
+            <Route path="forward-usage" element={<ForwardUsagePage />} />
             <Route path="nodes" element={<NodesIndexPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="subscriptions" element={<SubscriptionsPage />} />

@@ -3474,19 +3474,14 @@ pub mod forward_traffic {
         // 日账本按 (day, forward_id) 累加：同一增量只会被一个事务认领，
         // 因此这里的 upsert 不会把同一段流量重复计两次。
         // `bytes` 永远记原始上下行之和（对账），`weighted` 才是配额口径。
-        sqlx::query(
-            "INSERT INTO forward_traffic_daily (day, forward_id, user_id, bytes, weighted)
-             VALUES (?, ?, ?, ?, ?)
-             ON CONFLICT(day, forward_id) DO UPDATE SET
-                bytes = forward_traffic_daily.bytes + excluded.bytes,
-                weighted = forward_traffic_daily.weighted + excluded.weighted",
+        upsert_daily(
+            conn,
+            day,
+            &candidate.forward_id,
+            &candidate.user_id,
+            delta,
+            weighted,
         )
-        .bind(day)
-        .bind(&candidate.forward_id)
-        .bind(&candidate.user_id)
-        .bind(delta)
-        .bind(weighted)
-        .execute(&mut *conn)
         .await?;
 
         // 没有生效套餐时只记日表，不往用户总量或任何实例上累加。
@@ -3587,6 +3582,199 @@ pub mod forward_traffic {
         .bind(user_id)
         .fetch_one(pool)
         .await?)
+    }
+
+    /// 转发/用户被删除后，历史行里名字的占位文案。
+    ///
+    /// 行必须保留（对账要能解释历史字节），所以不 COPY 名字、也不丢行；
+    /// 响应同时带 `forward_deleted` / `user_deleted`，前端按当前语言显示。
+    pub const DELETED_LABEL: &str = "已删除";
+
+    /// 对账窗口过滤器；`None` 与空串都表示不限制（与 HTTP 层留空一致）。
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct SummaryFilter<'a> {
+        pub user_id: Option<&'a str>,
+        pub forward_id: Option<&'a str>,
+    }
+
+    /// 直接 upsert 一天的一行（测试 / 运维脚本用；采样路径在事务里复用同一段 SQL）。
+    pub async fn accumulate_daily(
+        pool: &SqlitePool,
+        day: &str,
+        forward_id: &str,
+        user_id: &str,
+        bytes: i64,
+        weighted: i64,
+    ) -> anyhow::Result<()> {
+        let mut conn = pool.acquire().await?;
+        upsert_daily(&mut conn, day, forward_id, user_id, bytes, weighted).await
+    }
+
+    async fn upsert_daily(
+        conn: &mut sqlx::SqliteConnection,
+        day: &str,
+        forward_id: &str,
+        user_id: &str,
+        bytes: i64,
+        weighted: i64,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO forward_traffic_daily (day, forward_id, user_id, bytes, weighted)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(day, forward_id) DO UPDATE SET
+                bytes = forward_traffic_daily.bytes + excluded.bytes,
+                weighted = forward_traffic_daily.weighted + excluded.weighted",
+        )
+        .bind(day)
+        .bind(forward_id)
+        .bind(user_id)
+        .bind(bytes)
+        .bind(weighted)
+        .execute(conn)
+        .await?;
+        Ok(())
+    }
+
+    /// 对账视图：窗口合计 + 每日明细 + 按转发聚合。
+    ///
+    /// * 窗口是 UTC+8 自然日的闭区间 `[today-(days-1), today]`，`days` 夹到 1..=90；
+    /// * `days` 缺失的日期补 0（升序），前端不用自己补；
+    /// * 已删除的转发 / 用户仍保留行，名字回落为 [`DELETED_LABEL`]；
+    /// * `by_forward` 按 `weighted`、`bytes` 降序，最后按 id 稳定排序。
+    pub async fn summary(
+        pool: &SqlitePool,
+        now: i64,
+        days: i64,
+        filter: SummaryFilter<'_>,
+    ) -> anyhow::Result<ForwardTrafficSummary> {
+        let days = days.clamp(1, 90);
+        let (start, end) = super::stats::day_window(now, days);
+        let user_id = filter.user_id.filter(|value| !value.is_empty());
+        let forward_id = filter.forward_id.filter(|value| !value.is_empty());
+
+        let (total_bytes, total_weighted): (i64, i64) = sqlx::query_as(
+            "SELECT COALESCE(SUM(bytes), 0), COALESCE(SUM(weighted), 0)
+             FROM forward_traffic_daily
+             WHERE day >= ? AND day <= ?
+               AND (? IS NULL OR user_id = ?)
+               AND (? IS NULL OR forward_id = ?)",
+        )
+        .bind(&start)
+        .bind(&end)
+        .bind(user_id)
+        .bind(user_id)
+        .bind(forward_id)
+        .bind(forward_id)
+        .fetch_one(pool)
+        .await?;
+
+        #[derive(sqlx::FromRow)]
+        struct DayRow {
+            day: String,
+            bytes: i64,
+            weighted: i64,
+        }
+
+        let day_rows = sqlx::query_as::<_, DayRow>(
+            "SELECT day, COALESCE(SUM(bytes), 0) AS bytes,
+                    COALESCE(SUM(weighted), 0) AS weighted
+             FROM forward_traffic_daily
+             WHERE day >= ? AND day <= ?
+               AND (? IS NULL OR user_id = ?)
+               AND (? IS NULL OR forward_id = ?)
+             GROUP BY day
+             ORDER BY day ASC",
+        )
+        .bind(&start)
+        .bind(&end)
+        .bind(user_id)
+        .bind(user_id)
+        .bind(forward_id)
+        .bind(forward_id)
+        .fetch_all(pool)
+        .await?;
+        let mut by_day: HashMap<String, (i64, i64)> = day_rows
+            .into_iter()
+            .map(|row| (row.day, (row.bytes, row.weighted)))
+            .collect();
+
+        let today = crate::time::business_day(now);
+        let first = today - (days - 1);
+        let mut filled = Vec::with_capacity(days as usize);
+        for offset in 0..days {
+            let date = crate::time::business_date(crate::time::business_day_start(first + offset));
+            let (bytes, weighted) = by_day.remove(&date).unwrap_or((0, 0));
+            filled.push(ForwardTrafficDay {
+                day: date,
+                bytes,
+                weighted,
+            });
+        }
+
+        #[derive(sqlx::FromRow)]
+        struct GroupRow {
+            forward_id: String,
+            forward_name: Option<String>,
+            user_id: String,
+            user_name: Option<String>,
+            bytes: i64,
+            weighted: i64,
+        }
+
+        let group_rows = sqlx::query_as::<_, GroupRow>(
+            "SELECT t.forward_id AS forward_id,
+                    f.name AS forward_name,
+                    t.user_id AS user_id,
+                    u.username AS user_name,
+                    COALESCE(SUM(t.bytes), 0) AS bytes,
+                    COALESCE(SUM(t.weighted), 0) AS weighted
+             FROM forward_traffic_daily t
+             LEFT JOIN forwards f ON f.id = t.forward_id
+             LEFT JOIN users u ON u.id = t.user_id
+             WHERE t.day >= ? AND t.day <= ?
+               AND (? IS NULL OR t.user_id = ?)
+               AND (? IS NULL OR t.forward_id = ?)
+             GROUP BY t.forward_id, t.user_id
+             ORDER BY SUM(t.weighted) DESC, SUM(t.bytes) DESC,
+                      t.forward_id ASC, t.user_id ASC",
+        )
+        .bind(&start)
+        .bind(&end)
+        .bind(user_id)
+        .bind(user_id)
+        .bind(forward_id)
+        .bind(forward_id)
+        .fetch_all(pool)
+        .await?;
+
+        let by_forward = group_rows
+            .into_iter()
+            .map(|row| {
+                let forward_deleted = row.forward_name.is_none();
+                let user_deleted = row.user_name.is_none();
+                ForwardTrafficRow {
+                    forward_id: row.forward_id,
+                    name: row
+                        .forward_name
+                        .unwrap_or_else(|| DELETED_LABEL.to_string()),
+                    forward_deleted,
+                    user_id: row.user_id,
+                    user_name: row.user_name.unwrap_or_else(|| DELETED_LABEL.to_string()),
+                    user_deleted,
+                    bytes: row.bytes,
+                    weighted: row.weighted,
+                }
+            })
+            .collect();
+
+        Ok(ForwardTrafficSummary {
+            totals: ForwardTrafficTotals {
+                bytes: total_bytes,
+                weighted: total_weighted,
+            },
+            days: filled,
+            by_forward,
+        })
     }
 
     #[cfg(test)]
@@ -4164,6 +4352,184 @@ pub mod forward_traffic {
             assert_eq!(run_round(&pool, now).await.unwrap().bytes, 0);
             assert_eq!(daily_bytes(&pool, &day, &fwd.id).await.unwrap(), 100);
             assert_eq!(package_used(&pool, &package).await, 100);
+        }
+
+        fn at(rfc3339: &str) -> i64 {
+            chrono::DateTime::parse_from_rfc3339(rfc3339)
+                .unwrap()
+                .timestamp()
+        }
+
+        /// 窗口过滤、补零、合计与两种过滤器必须一致。
+        #[tokio::test]
+        async fn summary_filters_window_and_both_dimensions() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let alice = create_user(&pool, "alice").await;
+            let bob = create_user(&pool, "bob").await;
+            let alice_fwd = create_forward(&pool, &server, Some(&alice), true, 20000).await;
+            let bob_fwd = create_forward(&pool, &server, Some(&bob), true, 20001).await;
+
+            let now = at("2026-11-15T12:00:00+08:00");
+            let today = "2026-11-15";
+            let yesterday = "2026-11-14";
+            let outside = "2026-11-10";
+            accumulate_daily(&pool, today, &alice_fwd.id, &alice, 100, 120)
+                .await
+                .unwrap();
+            accumulate_daily(&pool, yesterday, &alice_fwd.id, &alice, 50, 60)
+                .await
+                .unwrap();
+            accumulate_daily(&pool, today, &bob_fwd.id, &bob, 7, 8)
+                .await
+                .unwrap();
+            // 窗口外（3 天从 11-13 起）的数据不能被带进来。
+            accumulate_daily(&pool, outside, &alice_fwd.id, &alice, 999, 999)
+                .await
+                .unwrap();
+
+            let report = summary(&pool, now, 3, SummaryFilter::default())
+                .await
+                .unwrap();
+            assert_eq!(
+                report
+                    .days
+                    .iter()
+                    .map(|row| row.day.as_str())
+                    .collect::<Vec<_>>(),
+                ["2026-11-13", yesterday, today]
+            );
+            assert_eq!(report.totals.bytes, 157);
+            assert_eq!(report.totals.weighted, 188);
+            assert_eq!(report.by_forward.len(), 2);
+            assert_eq!(report.by_forward[0].forward_id, alice_fwd.id);
+            assert_eq!(report.by_forward[0].bytes, 150);
+            assert_eq!(report.by_forward[0].weighted, 180);
+            assert_eq!(report.by_forward[1].forward_id, bob_fwd.id);
+
+            let scoped = summary(
+                &pool,
+                now,
+                3,
+                SummaryFilter {
+                    user_id: Some(&alice),
+                    forward_id: None,
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(scoped.totals.bytes, 150);
+            assert_eq!(scoped.totals.weighted, 180);
+            assert_eq!(scoped.by_forward.len(), 1);
+            assert_eq!(scoped.by_forward[0].user_id, alice);
+            assert_eq!(scoped.days[1].bytes, 50);
+            assert_eq!(scoped.days[1].weighted, 60);
+            assert_eq!(scoped.days[2].bytes, 100);
+            assert_eq!(scoped.days[2].weighted, 120);
+
+            let by_forward = summary(
+                &pool,
+                now,
+                3,
+                SummaryFilter {
+                    user_id: None,
+                    forward_id: Some(&bob_fwd.id),
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(by_forward.totals.bytes, 7);
+            assert_eq!(by_forward.by_forward.len(), 1);
+            assert_eq!(by_forward.by_forward[0].user_name, "bob");
+
+            // 空过滤器传空串等同不限制；空窗口仍补齐所有日期。
+            let empty = summary(
+                &pool,
+                now,
+                3,
+                SummaryFilter {
+                    user_id: Some(""),
+                    forward_id: Some(""),
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(empty.totals.bytes, 157);
+        }
+
+        /// 没有任何采样：合计 0、日期补齐、按转发为空。
+        #[tokio::test]
+        async fn summary_without_data_is_zero_filled() {
+            let pool = setup().await;
+            let now = at("2026-11-15T12:00:00+08:00");
+            let report = summary(&pool, now, 7, SummaryFilter::default())
+                .await
+                .unwrap();
+
+            assert_eq!(report.totals, ForwardTrafficTotals::default());
+            assert_eq!(report.days.len(), 7);
+            assert!(report
+                .days
+                .iter()
+                .all(|row| row.bytes == 0 && row.weighted == 0));
+            assert!(report.by_forward.is_empty());
+        }
+
+        /// 已删除的转发 / 用户不能让历史行消失：保留行并标记 deleted。
+        #[tokio::test]
+        async fn summary_keeps_rows_for_deleted_forwards_and_users() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let alice = create_user(&pool, "alice").await;
+            let bob = create_user(&pool, "bob").await;
+            let alice_fwd = create_forward(&pool, &server, Some(&alice), true, 20000).await;
+            let bob_fwd = create_forward(&pool, &server, Some(&bob), true, 20001).await;
+
+            let now = at("2026-11-15T12:00:00+08:00");
+            accumulate_daily(&pool, "2026-11-15", &alice_fwd.id, &alice, 10, 20)
+                .await
+                .unwrap();
+            accumulate_daily(&pool, "2026-11-15", &bob_fwd.id, &bob, 30, 40)
+                .await
+                .unwrap();
+
+            // 只删转发：用户仍在。
+            assert!(super::super::forwards::delete(&pool, &alice_fwd.id)
+                .await
+                .unwrap());
+            // 删用户：该用户名下的转发也会一并删除。
+            assert!(
+                super::super::users::delete(&pool, &bob)
+                    .await
+                    .unwrap()
+                    .deleted
+            );
+
+            let report = summary(&pool, now, 7, SummaryFilter::default())
+                .await
+                .unwrap();
+            assert_eq!(report.totals.bytes, 40, "删除不能让历史字节消失");
+            assert_eq!(report.by_forward.len(), 2);
+
+            let alice_row = report
+                .by_forward
+                .iter()
+                .find(|row| row.user_id == alice)
+                .expect("转发行必须保留");
+            assert!(alice_row.forward_deleted);
+            assert!(!alice_row.user_deleted);
+            assert_eq!(alice_row.name, DELETED_LABEL);
+            assert_eq!(alice_row.user_name, "alice");
+
+            let bob_row = report
+                .by_forward
+                .iter()
+                .find(|row| row.user_id == bob)
+                .expect("已删用户的行必须保留");
+            assert!(bob_row.forward_deleted);
+            assert!(bob_row.user_deleted);
+            assert_eq!(bob_row.name, DELETED_LABEL);
+            assert_eq!(bob_row.user_name, DELETED_LABEL);
         }
     }
 }

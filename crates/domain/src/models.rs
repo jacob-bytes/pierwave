@@ -1176,6 +1176,48 @@ pub struct NodeUserRow {
     pub weighted: i64,
 }
 
+/// 转发对账窗口的合计：`bytes` 是原始上下行之和，`weighted` 是计费值。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ForwardTrafficTotals {
+    pub bytes: i64,
+    pub weighted: i64,
+}
+
+/// 转发对账的一天；`day` 是 UTC+8 自然日，缺数据的天由仓储补 0。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ForwardTrafficDay {
+    pub day: String,
+    pub bytes: i64,
+    pub weighted: i64,
+}
+
+/// 按转发规则聚合的一行（窗口内）。
+///
+/// 转发或用户被删除后 `forward_traffic_daily` 的历史行仍在：JOIN 不到名字时
+/// `name` / `user_name` 回落为「已删除」，并用 `forward_deleted` / `user_deleted`
+/// 标记，前端可据此按当前语言显示，而不是丢掉整行。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ForwardTrafficRow {
+    pub forward_id: String,
+    pub name: String,
+    pub forward_deleted: bool,
+    pub user_id: String,
+    pub user_name: String,
+    pub user_deleted: bool,
+    pub bytes: i64,
+    pub weighted: i64,
+}
+
+/// `GET /api/v1/forward-traffic` 的完整响应。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ForwardTrafficSummary {
+    pub totals: ForwardTrafficTotals,
+    /// 窗口内每天一行（升序、缺失日补 0）。
+    pub days: Vec<ForwardTrafficDay>,
+    /// 窗口内按转发规则聚合；已删除的转发/用户保留行。
+    pub by_forward: Vec<ForwardTrafficRow>,
+}
+
 /// 一条断流事件：某用户被从某台服务器的下发配置中移除，或重新加回。
 ///
 /// `kind` 是 `removed` / `restored`；`message` 是落库时定稿的中文说明，前端直接

@@ -187,6 +187,52 @@ pub async fn traffic(
 }
 
 #[derive(Deserialize)]
+pub struct ForwardTrafficDaysQuery {
+    pub days: Option<String>,
+}
+
+/// `GET /api/v1/me/forward-traffic`：当前会话用户的转发日表（只读）。
+///
+/// 与管理员接口同一份仓储实现，但**不接受任何身份参数**：`user_id` 永远取自
+/// 会话，响应里也不含 `user_name`（用户看自己，不需要再回显一次名字）。
+pub async fn forward_traffic(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Query(query): Query<ForwardTrafficDaysQuery>,
+) -> AppResult<Json<Value>> {
+    let days = super::forwards::parse_forward_traffic_days(query.days.as_deref())?;
+    let report = repo::forward_traffic::summary(
+        &state.db.pool,
+        repo::now(),
+        days,
+        repo::forward_traffic::SummaryFilter {
+            user_id: Some(&user.0.id),
+            forward_id: None,
+        },
+    )
+    .await?;
+    let by_forward: Vec<Value> = report
+        .by_forward
+        .into_iter()
+        .map(|row| {
+            json!({
+                "forward_id": row.forward_id,
+                "name": row.name,
+                "forward_deleted": row.forward_deleted,
+                "user_id": row.user_id,
+                "bytes": row.bytes,
+                "weighted": row.weighted,
+            })
+        })
+        .collect();
+    Ok(Json(json!({
+        "totals": report.totals,
+        "days": report.days,
+        "by_forward": by_forward,
+    })))
+}
+
+#[derive(Deserialize)]
 pub struct ChangePassword {
     pub old_password: String,
     pub new_password: String,
@@ -1145,5 +1191,98 @@ mod tests {
 
         let (status, body) = get(&app, Some(&cookie), "/api/v1/me/events?limit=abc").await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    }
+
+    /// 用户侧转发对账：永远按会话用户过滤，不返回 `user_name`。
+    #[tokio::test]
+    async fn forward_traffic_is_scoped_to_the_session_user() {
+        let (app, state, cookie, alice_id) = setup().await;
+        let (server, _) = repo::servers::create(&state.db.pool, "hk-1", "1.2.3.4", "external")
+            .await
+            .unwrap();
+        let alice_fwd = repo::forwards::create_owned(
+            &state.db.pool,
+            &server.id,
+            repo::forwards::NewForward {
+                name: "alice-fwd".into(),
+                listen_port: 22001,
+                target_host: "10.0.0.8".into(),
+                target_port: 443,
+                enabled: true,
+                count_traffic: true,
+                engine: "native".into(),
+                protocol: "tcp".into(),
+            },
+            &alice_id,
+            10,
+        )
+        .await
+        .unwrap();
+        let bob = repo::users::create(
+            &state.db.pool,
+            repo::users::NewUser {
+                username: "bob".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+                rule_template_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let bob_fwd = repo::forwards::create_owned(
+            &state.db.pool,
+            &server.id,
+            repo::forwards::NewForward {
+                name: "bob-fwd".into(),
+                listen_port: 22002,
+                target_host: "10.0.0.8".into(),
+                target_port: 443,
+                enabled: true,
+                count_traffic: true,
+                engine: "native".into(),
+                protocol: "tcp".into(),
+            },
+            &bob.id,
+            10,
+        )
+        .await
+        .unwrap();
+
+        let today = time::business_date(repo::now());
+        repo::forward_traffic::accumulate_daily(
+            &state.db.pool,
+            &today,
+            &alice_fwd.id,
+            &alice_id,
+            100,
+            120,
+        )
+        .await
+        .unwrap();
+        repo::forward_traffic::accumulate_daily(&state.db.pool, &today, &bob_fwd.id, &bob.id, 7, 8)
+            .await
+            .unwrap();
+
+        let (status, body) = get(&app, Some(&cookie), "/api/v1/me/forward-traffic?days=3").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["totals"]["bytes"], 100);
+        assert_eq!(body["totals"]["weighted"], 120);
+        assert_eq!(body["days"].as_array().unwrap().len(), 3);
+        let rows = body["by_forward"].as_array().unwrap();
+        assert_eq!(rows.len(), 1, "只能看到自己的转发");
+        assert_eq!(rows[0]["forward_id"], alice_fwd.id);
+        assert_eq!(rows[0]["name"], "alice-fwd");
+        assert!(
+            rows[0].get("user_name").is_none(),
+            "用户端响应不返回 user_name: {body}"
+        );
+
+        let (status, body) = get(&app, Some(&cookie), "/api/v1/me/forward-traffic?days=0").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "forward_usage.days_invalid");
+
+        let (status, _) = get(&app, None, "/api/v1/me/forward-traffic").await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 }

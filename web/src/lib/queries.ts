@@ -40,12 +40,14 @@ import {
   type CreateUserInput,
   type EnforcementEvent,
   type Forward,
+  type ForwardUsage,
   type Health,
   type MeChain,
   type MeChainsResponse,
   type MeChainTemplatesResponse,
   type MeForward,
   type MeForwardsResponse,
+  type MeForwardUsage,
   type MeSummary,
   type MeTraffic,
   type Node,
@@ -96,6 +98,8 @@ export const queryKeys = {
   me: ["me"] as const,
   meSummary: ["me", "summary"] as const,
   meTraffic: (days: number) => ["me", "traffic", days] as const,
+  /** 用户自己的转发日表（近 N 天，只读）。 */
+  meForwardUsage: (days: number) => ["me", "forward-traffic", days] as const,
   meEvents: (limit: number) => ["me", "events", limit] as const,
   /** 用户自助转发：列表响应里同时带配额与可用服务器。 */
   myForwards: ["me", "forwards"] as const,
@@ -112,6 +116,8 @@ export const queryKeys = {
   /** 概览聚合（P14）：窗口天数进 key，切换窗口即换查询。 */
   overview: (days: number) => ["overview", days] as const,
   statsTraffic: (days: number) => ["stats", "traffic", days] as const,
+  /** 管理员转发日表对账；窗口天数进 key，切换窗口即换查询。 */
+  forwardUsage: (days: number) => ["forward-traffic", days] as const,
   statsNodes: (serverId: string, days: number) =>
     ["stats", "nodes", { serverId, days }] as const,
   statsNode: (nodeId: string, days: number, top: number) =>
@@ -248,6 +254,20 @@ export function useTraffic(days: number) {
 }
 
 /**
+ * 管理员转发日表对账：窗口合计 + 每日明细 + 按转发聚合。
+ * 只读；已删除的转发/用户由后端保留行，前端按当前语言显示占位名。
+ */
+export function useForwardUsage(days: number) {
+  return useQuery<ForwardUsage>({
+    queryKey: queryKeys.forwardUsage(days),
+    queryFn: () => api.forwardTraffic({ days }),
+    enabled: days > 0,
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+  });
+}
+
+/**
  * 单台服务器的节点流量列表（P2）。
  *
  * 后端可能暂时 404：这里不重试，由节点列表把失败降级成「—」，
@@ -293,6 +313,18 @@ export function useMeTraffic(days: number) {
     enabled: days > 0,
     placeholderData: keepPreviousData,
     staleTime: 60_000,
+  });
+}
+
+/** 用户自己的转发日表（近 N 天）；只读，后端只按会话用户过滤。 */
+export function useMyForwardUsage(days: number) {
+  return useQuery<MeForwardUsage>({
+    queryKey: queryKeys.meForwardUsage(days),
+    queryFn: () => api.me.forwardTraffic(days),
+    enabled: days > 0,
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
+    retry: false,
   });
 }
 

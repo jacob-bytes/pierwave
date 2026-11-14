@@ -10,6 +10,7 @@ import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
 import {
   BracesIcon,
+  ChartColumnIcon,
   CheckIcon,
   ChevronRightIcon,
   ChevronsUpDownIcon,
@@ -114,6 +115,11 @@ const forwardingNav: NavItem[] = [
     activeWhen: (pathname) =>
       pathname === "/chain-templates" ||
       pathname.startsWith("/chain-templates/"),
+  },
+  {
+    to: "/forward-usage",
+    labelKey: "nav.forwardUsage",
+    icon: ChartColumnIcon,
   },
 ];
 

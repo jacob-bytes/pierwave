@@ -157,3 +157,28 @@ is not observable (only `9000` remains after reconnect for `1000 → 5000 → 90
 so this deliberately under-counts that interval (0) instead of over-counting
 `8000`; later increments bill normally. A newly created rule with
 `count_traffic=true` has no history and starts from 0.
+
+## 7. 对账接口
+
+日表不再只写不读。管理员与用户各有一个**只读**接口，SQL 在
+`repo::forward_traffic::summary`：
+
+- `GET /api/v1/forward-traffic?days=7&user_id=&forward_id=`（仅管理员）
+- `GET /api/v1/me/forward-traffic?days=7`（普通用户，只按会话用户过滤，响应不含 `user_name`）
+
+`days` 必须是 1–90（缺省 7），越界或非整数一律 400（`forward_usage.days_invalid`）。
+`days` 数组按 UTC+8 自然日升序补齐，缺失日补 0；`totals` 是窗口合计；
+`by_forward` 按 `weighted`、`bytes` 降序。转发或用户被删除后，历史行**不丢**：
+`name` / `user_name` 回落为「已删除」，并带 `forward_deleted` / `user_deleted`
+标记，前端按当前语言显示。接口没有任何写路径，也不触发采样。
+
+English: the daily table now has read paths. Both endpoints are read-only and
+share `repo::forward_traffic::summary`. `days` must be 1–90 (default 7);
+anything else is a 400 (`forward_usage.days_invalid`). The `days` array is
+zero-filled in ascending UTC+8 day order, `totals` is the window sum, and
+`by_forward` is ordered by `weighted` then `bytes` descending. Rows are never
+dropped when a forward or user is deleted: `name` / `user_name` fall back to the
+backend placeholder 「已删除」 and `forward_deleted` / `user_deleted` let the UI
+render “Deleted” in English. The admin endpoint accepts optional `user_id` /
+`forward_id` filters; the user endpoint always scopes to the session user and
+omits `user_name`.

@@ -73,6 +73,8 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/forwards/{id}",
             patch(routes::forwards::update).delete(routes::forwards::delete),
         )
+        // 转发日表对账：只读，仅管理员。
+        .route("/api/v1/forward-traffic", get(routes::forwards::traffic))
         .route(
             "/api/v1/chains",
             get(routes::chains::list).post(routes::chains::create),
@@ -189,6 +191,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/subscriptions", get(routes::subscriptions::list))
         .route("/api/v1/me/summary", get(routes::me::summary))
         .route("/api/v1/me/traffic", get(routes::me::traffic))
+        .route(
+            "/api/v1/me/forward-traffic",
+            get(routes::me::forward_traffic),
+        )
         .route("/api/v1/me/events", get(routes::me::events))
         .route(
             "/api/v1/me/subscription/reset",

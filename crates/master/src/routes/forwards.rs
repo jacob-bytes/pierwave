@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::Json;
 use serde::Deserialize;
@@ -186,6 +186,69 @@ pub async fn list(
         }
     }
     Ok(Json(json!({ "items": items })))
+}
+
+const DEFAULT_FORWARD_TRAFFIC_DAYS: i64 = 7;
+const MAX_FORWARD_TRAFFIC_DAYS: i64 = 90;
+
+/// 转发对账的 `days`：缺省 7，给值就必须是 1..=90 的整数，否则 400。
+///
+/// 与 `/stats/nodes` 同款严格校验，不把越界值夹到边界：调用方拿到 90 天
+/// 却以为自己要的是 365 天，对账时会对不上。
+pub(crate) fn parse_forward_traffic_days(raw: Option<&str>) -> AppResult<i64> {
+    let Some(raw) = raw else {
+        return Ok(DEFAULT_FORWARD_TRAFFIC_DAYS);
+    };
+    let days = raw.trim().parse::<i64>().map_err(|_| {
+        AppError::coded(
+            "forward_usage.days_invalid",
+            Some(json!({ "min": 1, "max": MAX_FORWARD_TRAFFIC_DAYS })),
+            format!("days 必须是 1-{MAX_FORWARD_TRAFFIC_DAYS} 的整数"),
+        )
+    })?;
+    if !(1..=MAX_FORWARD_TRAFFIC_DAYS).contains(&days) {
+        return Err(AppError::coded(
+            "forward_usage.days_invalid",
+            Some(json!({ "min": 1, "max": MAX_FORWARD_TRAFFIC_DAYS })),
+            format!("days 必须在 1-{MAX_FORWARD_TRAFFIC_DAYS} 之间"),
+        ));
+    }
+    Ok(days)
+}
+
+#[derive(Deserialize)]
+pub struct ForwardTrafficQuery {
+    pub days: Option<String>,
+    /// 可选：只看某个用户的转发。留空 / 不传 = 全部。
+    pub user_id: Option<String>,
+    /// 可选：只看某条转发规则。留空 / 不传 = 全部。
+    pub forward_id: Option<String>,
+}
+
+fn non_empty(value: Option<&String>) -> Option<&str> {
+    value
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+/// `GET /api/v1/forward-traffic`（管理员）：转发日表对账视图。
+///
+/// 只读；返回窗口合计、按天明细（缺失日补 0）与按转发聚合。
+/// 已删除的转发 / 用户的历史行仍然保留，名字回落为「已删除」。
+pub async fn traffic(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Query(query): Query<ForwardTrafficQuery>,
+) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+    let days = parse_forward_traffic_days(query.days.as_deref())?;
+    let filter = repo::forward_traffic::SummaryFilter {
+        user_id: non_empty(query.user_id.as_ref()),
+        forward_id: non_empty(query.forward_id.as_ref()),
+    };
+    let report = repo::forward_traffic::summary(&state.db.pool, repo::now(), days, filter).await?;
+    Ok(Json(json!(report)))
 }
 
 #[derive(Deserialize)]
@@ -3013,5 +3076,255 @@ mod tests {
             1,
             "并发创建不能写入两条"
         );
+    }
+
+    // ---- 转发日表对账（GET /api/v1/forward-traffic）----
+
+    async fn create_plain_user(state: &AppState, username: &str) -> (String, String) {
+        let user = repo::users::create(
+            &state.db.pool,
+            repo::users::NewUser {
+                username: username.into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+                rule_template_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let (token, _) = repo::sessions::create(&state.db.pool, &user.id, 3600, None)
+            .await
+            .unwrap();
+        (user.id, format!("{}={token}", crate::auth::SESSION_COOKIE))
+    }
+
+    async fn create_owned_forward(
+        state: &AppState,
+        server_id: &str,
+        owner: &str,
+        port: i64,
+    ) -> String {
+        repo::forwards::create_owned(
+            &state.db.pool,
+            server_id,
+            repo::forwards::NewForward {
+                name: format!("fwd-{port}"),
+                listen_port: port,
+                target_host: "10.0.0.8".into(),
+                target_port: 443,
+                enabled: true,
+                count_traffic: true,
+                engine: "native".into(),
+                protocol: "tcp".into(),
+            },
+            owner,
+            10,
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    fn days_ago(days: i64) -> String {
+        pierwave_domain::time::business_date(repo::now() - days * 86_400)
+    }
+
+    #[tokio::test]
+    async fn forward_traffic_requires_admin_and_valid_days() {
+        let (app, state, admin_cookie, _server) = setup().await;
+        let uri = "/api/v1/forward-traffic?days=7";
+
+        let (status, _) = request(&app, None, Method::GET, uri, None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "未登录必须 401");
+
+        let (_plain_id, plain_cookie) = create_plain_user(&state, "plain").await;
+        let (status, body) = request(&app, Some(&plain_cookie), Method::GET, uri, None).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "非管理员必须 403: {body}");
+
+        for days in ["0", "91", "abc", "1.5"] {
+            let uri = format!("/api/v1/forward-traffic?days={days}");
+            let (status, body) = request(&app, Some(&admin_cookie), Method::GET, &uri, None).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}: {body}");
+            assert_eq!(body["code"], "forward_usage.days_invalid", "{body}");
+        }
+
+        // 缺省 days=7，空数据也要返回补齐的 7 天。
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::GET,
+            "/api/v1/forward-traffic",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["totals"]["bytes"], 0);
+        assert_eq!(body["totals"]["weighted"], 0);
+        assert_eq!(body["days"].as_array().unwrap().len(), 7);
+        assert_eq!(body["by_forward"], json!([]));
+
+        // 上界 90 合法，并且同样补齐所有日期。
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::GET,
+            "/api/v1/forward-traffic?days=90",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["days"].as_array().unwrap().len(), 90);
+    }
+
+    #[tokio::test]
+    async fn forward_traffic_filters_window_and_dimensions() {
+        let (app, state, admin_cookie, server_id) = setup().await;
+        let (alice_id, _) = create_plain_user(&state, "alice").await;
+        let (bob_id, _) = create_plain_user(&state, "bob").await;
+        let alice_fwd = create_owned_forward(&state, &server_id, &alice_id, 21001).await;
+        let bob_fwd = create_owned_forward(&state, &server_id, &bob_id, 21002).await;
+
+        let today = days_ago(0);
+        let yesterday = days_ago(1);
+        let outside = days_ago(10);
+        repo::forward_traffic::accumulate_daily(
+            &state.db.pool,
+            &today,
+            &alice_fwd,
+            &alice_id,
+            100,
+            120,
+        )
+        .await
+        .unwrap();
+        repo::forward_traffic::accumulate_daily(
+            &state.db.pool,
+            &yesterday,
+            &alice_fwd,
+            &alice_id,
+            50,
+            60,
+        )
+        .await
+        .unwrap();
+        repo::forward_traffic::accumulate_daily(&state.db.pool, &today, &bob_fwd, &bob_id, 7, 8)
+            .await
+            .unwrap();
+        repo::forward_traffic::accumulate_daily(
+            &state.db.pool,
+            &outside,
+            &alice_fwd,
+            &alice_id,
+            999,
+            999,
+        )
+        .await
+        .unwrap();
+
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::GET,
+            "/api/v1/forward-traffic?days=3",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["totals"]["bytes"], 157, "窗口外 999 不能计入");
+        assert_eq!(body["totals"]["weighted"], 188);
+        let days = body["days"].as_array().unwrap();
+        assert_eq!(days.len(), 3);
+        assert_eq!(days[1]["day"], yesterday);
+        assert_eq!(days[1]["bytes"], 50);
+        assert_eq!(days[2]["day"], today);
+        assert_eq!(days[2]["bytes"], 107);
+        assert_eq!(days[2]["weighted"], 128);
+        let rows = body["by_forward"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["forward_id"], alice_fwd, "按 weighted 降序");
+        assert_eq!(rows[0]["name"], format!("fwd-{}", 21001));
+        assert_eq!(rows[0]["user_name"], "alice");
+        assert_eq!(rows[0]["bytes"], 150);
+        assert_eq!(rows[0]["weighted"], 180);
+        assert_eq!(rows[0]["forward_deleted"], false);
+        assert_eq!(rows[0]["user_deleted"], false);
+
+        let query = format!("/api/v1/forward-traffic?days=3&user_id={alice_id}");
+        let (status, body) = request(&app, Some(&admin_cookie), Method::GET, &query, None).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["totals"]["bytes"], 150);
+        assert_eq!(body["by_forward"].as_array().unwrap().len(), 1);
+
+        let query = format!("/api/v1/forward-traffic?days=3&forward_id={bob_fwd}&user_id={bob_id}");
+        let (status, body) = request(&app, Some(&admin_cookie), Method::GET, &query, None).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["totals"]["bytes"], 7);
+        assert_eq!(body["totals"]["weighted"], 8);
+        assert_eq!(
+            body["by_forward"].as_array().unwrap()[0]["user_name"],
+            "bob"
+        );
+    }
+
+    #[tokio::test]
+    async fn forward_traffic_keeps_deleted_forward_and_user_rows() {
+        let (app, state, admin_cookie, server_id) = setup().await;
+        let (alice_id, _) = create_plain_user(&state, "alice").await;
+        let (bob_id, _) = create_plain_user(&state, "bob").await;
+        let alice_fwd = create_owned_forward(&state, &server_id, &alice_id, 21101).await;
+        let bob_fwd = create_owned_forward(&state, &server_id, &bob_id, 21102).await;
+        let today = days_ago(0);
+
+        repo::forward_traffic::accumulate_daily(
+            &state.db.pool,
+            &today,
+            &alice_fwd,
+            &alice_id,
+            10,
+            20,
+        )
+        .await
+        .unwrap();
+        repo::forward_traffic::accumulate_daily(&state.db.pool, &today, &bob_fwd, &bob_id, 30, 40)
+            .await
+            .unwrap();
+
+        // 只删转发：用户还在；删用户：用户名下转发一并删除。
+        repo::forwards::delete(&state.db.pool, &alice_fwd)
+            .await
+            .unwrap();
+        repo::users::delete(&state.db.pool, &bob_id).await.unwrap();
+
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::GET,
+            "/api/v1/forward-traffic?days=7",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["totals"]["bytes"], 40, "删除不能让历史行消失");
+        let rows = body["by_forward"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+
+        let alice_row = rows
+            .iter()
+            .find(|row| row["user_id"] == alice_id)
+            .expect("转发行必须保留");
+        assert_eq!(alice_row["name"], "已删除");
+        assert_eq!(alice_row["forward_deleted"], true);
+        assert_eq!(alice_row["user_name"], "alice");
+        assert_eq!(alice_row["user_deleted"], false);
+
+        let bob_row = rows
+            .iter()
+            .find(|row| row["user_id"] == bob_id)
+            .expect("已删用户的行必须保留");
+        assert_eq!(bob_row["name"], "已删除");
+        assert_eq!(bob_row["user_name"], "已删除");
+        assert_eq!(bob_row["forward_deleted"], true);
+        assert_eq!(bob_row["user_deleted"], true);
     }
 }
