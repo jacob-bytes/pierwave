@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { setCurrentLocale } from "../i18n/locale.ts";
+import { ApiError } from "./apiError.ts";
+import { errorText } from "./errors.ts";
 import {
   invalidPortAllowTokens,
   isPortAllowed,
@@ -184,4 +186,74 @@ test("the policy type accepts a fully missing backend payload", () => {
   assert.equal(portPolicyLabel(null), "");
   setCurrentLocale("zh-CN");
   assert.equal(portPolicySummary(null), "端口不受限制");
+});
+
+test("the port-policy error codes are bilingual and carry the right params", () => {
+  const exhausted = () =>
+    new ApiError(
+      "服务器「edge-1」允许的端口都已占用",
+      400,
+      "chain.port_allowed_exhausted",
+      { server: "edge-1", server_id: "srv-1" },
+    );
+
+  setCurrentLocale("zh-CN");
+  assert.equal(
+    errorText(exhausted(), "fallback"),
+    "服务器「edge-1」允许的端口都已占用；请先释放端口，或为该跳手动填写允许范围内的端口",
+  );
+  assert.equal(
+    errorText(
+      new ApiError("bad range", 400, "server.port_range_invalid"),
+      "fallback",
+    ),
+    "端口范围不合法：起始与结束端口必须同时填写或留空，且起始不大于结束（1-65535）",
+  );
+  assert.equal(
+    errorText(
+      new ApiError("bad allow", 400, "server.port_allow_invalid"),
+      "fallback",
+    ),
+    "额外允许的端口必须是 1-65535 的整数",
+  );
+  assert.equal(
+    errorText(
+      new ApiError("node port", 400, "node.port_not_allowed", {
+        port: 80,
+        server: "edge-1",
+      }),
+      "fallback",
+    ),
+    "端口 80 不在服务器「edge-1」允许的范围内",
+  );
+
+  setCurrentLocale("en");
+  assert.equal(
+    errorText(exhausted(), "fallback"),
+    'Every port allowed on server "edge-1" is in use; free one or provide an allowed port manually',
+  );
+  assert.equal(
+    errorText(
+      new ApiError("bad range", 400, "server.port_range_invalid"),
+      "fallback",
+    ),
+    "Invalid port range: start and end must be provided together or left empty, start ≤ end, both within 1-65535",
+  );
+  assert.equal(
+    errorText(
+      new ApiError("bad allow", 400, "server.port_allow_invalid"),
+      "fallback",
+    ),
+    "Additional allowed ports must be integers between 1 and 65535",
+  );
+  assert.equal(
+    errorText(
+      new ApiError("node port", 400, "node.port_not_allowed", {
+        port: 80,
+        server: "edge-1",
+      }),
+      "fallback",
+    ),
+    'Port 80 is outside the range allowed by server “edge-1”',
+  );
 });

@@ -369,7 +369,7 @@ const zhCN = {
       allowPlaceholder: "443, 8443（逗号或回车添加）",
       allowInvalid: "端口必须是 1-65535 的整数",
       rangeInvalid:
-        "端口范围不合法：请同时填写起始与结束端口，且起始端口不大于结束端口",
+        "端口范围不合法：起始与结束端口必须同时填写或留空，且起始不大于结束（1-65535）",
       removeAria: "移除端口 {port}",
       hint: "限制后，节点端口与链的自动分配都会落在这个范围内",
       range: "端口 {start}-{end}",
@@ -2479,6 +2479,8 @@ const zhCN = {
     "chain.duplicate_server": "同一台服务器不能在一个链里出现两次",
     "chain.port_conflict_hop": "监听端口 {port} 已被服务器「{server_name}」上的链「{name}」第 {seq} 组占用",
     "chain.port_pool_exhausted": "端口池已用尽：20000–29999 内没有可用端口，请先释放端口或删除不再使用的转发链",
+    "chain.port_allowed_exhausted":
+      "服务器「{server}」允许的端口都已占用；请先释放端口，或为该跳手动填写允许范围内的端口",
     "forward.not_found": "转发规则不存在",
     "forward.name_required": "转发名称不能为空",
     "forward.name_too_long": "转发名称最多 {max} 个字符",
@@ -2527,7 +2529,8 @@ const zhCN = {
     "server.group_name_invalid":
       "分组名称包含非法字符（不能包含换行、制表符等控制字符）",
     "server.xray_mode_unsupported": "目前只支持外置 Xray（external）",
-    "server.port_range_invalid": "端口范围不合法：起始端口必须不大于结束端口",
+    "server.port_range_invalid":
+      "端口范围不合法：起始与结束端口必须同时填写或留空，且起始不大于结束（1-65535）",
     "server.port_allow_invalid": "额外允许的端口必须是 1-65535 的整数",
     "node.port_not_allowed": "端口 {port} 不在服务器「{server}」允许的范围内",
     "chain.port_not_allowed": "端口 {port} 不在服务器「{server}」允许的范围内",

@@ -379,7 +379,7 @@ const en = {
       allowPlaceholder: "443, 8443 (comma or Enter)",
       allowInvalid: "Ports must be integers between 1 and 65535",
       rangeInvalid:
-        "Invalid port range: fill in both the start and end ports, with the start not greater than the end",
+        "Invalid port range: provide both the start and end ports or leave both empty, with start ≤ end and both within 1-65535",
       removeAria: "Remove port {port}",
       hint: "When restricted, node ports and automatic chain allocation stay within this range",
       range: "Ports {start}-{end}",
@@ -2620,6 +2620,8 @@ const en = {
     "chain.duplicate_server": "The same server cannot appear twice in one chain",
     "chain.port_conflict_hop": 'Listen port {port} is already used by group {seq} of chain "{name}" on server "{server_name}"',
     "chain.port_pool_exhausted": "The listen port pool is exhausted: no free port in 20000–29999. Release a port or delete unused forward chains.",
+    "chain.port_allowed_exhausted":
+      "Every port allowed on server \"{server}\" is in use; free one or provide an allowed port manually",
     "forward.not_found": "Forward rule not found",
     "forward.name_required": "Forward name is required",
     "forward.name_too_long": "Forward name must be at most {max} characters",
@@ -2669,7 +2671,7 @@ const en = {
       "The group name contains invalid characters (newlines and tabs are not allowed).",
     "server.xray_mode_unsupported": "Only external Xray mode is supported",
     "server.port_range_invalid":
-      "Invalid port range: the start port must not be greater than the end port",
+      "Invalid port range: start and end must be provided together or left empty, start ≤ end, both within 1-65535",
     "server.port_allow_invalid": "Additional allowed ports must be integers between 1 and 65535",
     "node.port_not_allowed":
       "Port {port} is outside the range allowed by server “{server}”",

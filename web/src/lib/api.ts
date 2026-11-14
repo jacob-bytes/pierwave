@@ -284,8 +284,11 @@ export interface Server {
    */
   port_start?: number | null;
   port_end?: number | null;
-  /** 在范围之外额外允许的端口（1–65535）。旧后端可能不返回。 */
-  port_allow?: number[] | null;
+  /**
+   * 在范围之外额外允许的端口（1–65535）。新后端总是返回升序去重后的数字
+   * 数组，未配置为 `[]`；旧后端可能不返回该字段，因此按可选处理。
+   */
+  port_allow?: number[];
   /** 内网地址（如 10.0.0.2）；null / 缺失 = 未填写，链不能启用内网转发。 */
   internal_address?: string | null;
 }
@@ -780,8 +783,9 @@ export interface ChainGroup {
    */
   public_port?: number | null;
   /**
-   * 这一跳是否使用成员服务器的内网地址转发；缺省 / 缺失 = false。
-   * 只有该跳所有成员都填了内网地址时才能开启。
+   * 这一跳是否使用成员服务器的内网地址被上一跳寻址。
+   * 新后端在链视图的 `groups[]` 里总是返回 bool；旧后端可能缺失，
+   * 展示层统一按 `false` 处理。
    */
   use_internal_address?: boolean;
   /** 组内任一成员 degraded 即为 true。 */
