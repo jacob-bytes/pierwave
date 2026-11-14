@@ -5,7 +5,7 @@
 //! ```text
 //! sub_uuid  = UUIDv4(HMAC-SHA256(master_secret, "v1/{user_id}/{node_id}")[..16])
 //! ss_key    = base64(HMAC-SHA256(master_secret, "ss2022/{user_id}/{node_id}"))
-//! email     = "{user_id}@{node_tag}"
+//! email     = "{user_id}@{node_tag}"   ← 只用于 Xray 的 stats 分桶
 //! ```
 //!
 //! * master secret 存 `settings(key = hmac_secret_v1)`，首次调用时随机生成；
@@ -59,6 +59,10 @@ pub fn sub_uuid(secret: &str, user_id: &str, node_id: &str) -> String {
 }
 
 /// Xray 流量统计用的 email，按 `{user_id}@{node_tag}` 聚合就能落到人和节点。
+///
+/// 注意：`traffic_daily.subject` **不是**这个 email。落库时 subject 直接写
+/// `user_id`（见 `repo::stats::traffic_trend_for_subject`，那里是精确相等比较），
+/// 所以对 `traffic_daily` 做查询或补数据时要用纯 user_id，别带 `@tag`。
 pub fn sub_email(user_id: &str, node_tag: &str) -> String {
     format!("{user_id}@{node_tag}")
 }

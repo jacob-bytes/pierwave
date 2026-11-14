@@ -25,6 +25,11 @@ import { t, useI18n } from "@/i18n";
 
 /** recharts 仍然只通过 lazy() 加载，不会进入主 chunk。 */
 const TrafficChart = lazy(() => import("@/components/overview/TrafficChart"));
+const TrafficLegend = lazy(() =>
+  import("@/components/overview/TrafficChart").then((m) => ({
+    default: m.TrafficLegend,
+  })),
+);
 
 const TRAFFIC_DAYS = 7;
 
@@ -43,6 +48,10 @@ function TrafficCard({ traffic }: { traffic: UseQueryResult<MeTraffic> }) {
           {t("me.traffic.desc")}
         </CardDescription>
         <CardAction>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <Suspense fallback={null}>
+            <TrafficLegend showCumulative />
+          </Suspense>
           <span
             className={cn(
               "inline-flex items-center rounded-full border border-border px-2 py-0.5 font-mono type-micro font-normal text-muted-foreground tabular-nums",
@@ -52,6 +61,7 @@ function TrafficCard({ traffic }: { traffic: UseQueryResult<MeTraffic> }) {
               ? "—"
               : t("me.traffic.total", { value: formatBytes(total) })}
           </span>
+          </div>
         </CardAction>
       </CardHeader>
       <CardContent>
@@ -85,7 +95,7 @@ function TrafficCard({ traffic }: { traffic: UseQueryResult<MeTraffic> }) {
           </div>
         ) : (
           <Suspense fallback={<Skeleton className="h-[248px] w-full" />}>
-            <TrafficChart days={traffic.data?.days ?? []} />
+            <TrafficChart days={traffic.data?.days ?? []} showLegend={false} />
           </Suspense>
         )}
       </CardContent>

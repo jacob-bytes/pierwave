@@ -38,6 +38,25 @@ function formatDayTick(value: string): string {
   return match ? `${Number(match[1])}/${Number(match[2])}` : value;
 }
 
+/**
+ * 图例：默认画在图表上方，也可以由调用方提到卡片头部（与总量徽标同一行）。
+ */
+export function TrafficLegend({ showCumulative }: { showCumulative: boolean }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <LegendDot color="var(--primary)" label={t("trafficChart.downlink")} />
+      <LegendDot
+        color="var(--muted-foreground)"
+        label={t("trafficChart.uplink")}
+        pattern
+      />
+      {showCumulative ? (
+        <LegendLine label={t("trafficChart.cumulative")} />
+      ) : null}
+    </div>
+  );
+}
+
 function LegendLine({ label }: { label: string }) {
   return (
     <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -227,7 +246,14 @@ function TrafficTooltip({ active, payload }: TrafficTooltipProps) {
  * 流量趋势图。recharts 体积较大，这个文件只被概览页与「我的」页
  * 用 `lazy()` 动态加载，不会进入主 chunk。
  */
-export default function TrafficChart({ days }: { days: TrafficDay[] }) {
+export default function TrafficChart({
+  days,
+  showLegend = true,
+}: {
+  days: TrafficDay[];
+  /** false 时由调用方自行渲染图例（例如放到卡片头部与总量徽标同一行）。 */
+  showLegend?: boolean;
+}) {
   // 每个图表实例的 pattern id 唯一，避免同页多图时互相引用。
   const patternId = `pw-traffic-uplink-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const dataTableId = `pw-traffic-data-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
@@ -258,17 +284,7 @@ export default function TrafficChart({ days }: { days: TrafficDay[] }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <LegendDot color="var(--primary)" label={t("trafficChart.downlink")} />
-        <LegendDot
-          color="var(--muted-foreground)"
-          label={t("trafficChart.uplink")}
-          pattern
-        />
-        {showCumulative ? (
-          <LegendLine label={t("trafficChart.cumulative")} />
-        ) : null}
-      </div>
+      {showLegend ? <TrafficLegend showCumulative={showCumulative} /> : null}
 
       <div className="h-[220px] w-full">
         <ResponsiveContainer width="100%" height="100%">
