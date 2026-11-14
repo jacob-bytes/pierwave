@@ -1891,11 +1891,13 @@ mod tests {
     async fn switching_to_udp_only_releases_the_tcp_listener() {
         let target = spawn_dual_echo().await;
         let mut supervisor = ForwardSupervisor::new("127.0.0.1");
-        supervisor.apply(&[rule("fwd", 0, target)]).await;
+        let port = next_test_port();
+        supervisor.apply(&[rule("fwd", port, target)]).await;
         let old_port = supervisor.bound_port("fwd").unwrap();
+        assert_eq!(old_port, port, "显式端口必须原样绑定");
         assert!(TcpStream::connect(("127.0.0.1", old_port)).await.is_ok());
 
-        let mut udp_only = rule("fwd", 0, target);
+        let mut udp_only = rule("fwd", port, target);
         udp_only.protocol = pierwave_proto::ForwardProtocol::Udp;
         supervisor.apply(&[udp_only]).await;
 
@@ -1909,6 +1911,17 @@ mod tests {
             "仅 UDP 模式不能占用 TCP 端口"
         );
         assert!(supervisor.status_handle().snapshot()[0].listening);
+    }
+
+    /// 取一个**不在内核 ephemeral 段**的端口给测试用（24000 起递增）。
+    ///
+    /// 之前这些用例用 `listen_port = 0` 让内核分配，然后断言「端口已释放」——
+    /// 但内核随时可能把刚释放的端口分给并行测试里的另一个监听，
+    /// 于是断言偶发失败（CI 上就撞到过）。固定段位 + 递增避免这种抢端口。
+    fn next_test_port() -> u16 {
+        use std::sync::atomic::AtomicU16;
+        static NEXT: AtomicU16 = AtomicU16::new(24_000);
+        NEXT.fetch_add(1, Ordering::Relaxed)
     }
 
     /// 等 UDP 端口可绑定（最多 2 秒）。关闭监听与内核释放之间有窗口。
