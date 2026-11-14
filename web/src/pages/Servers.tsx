@@ -36,6 +36,8 @@ import { AgentBatchUpgradeConfirmDialog } from "@/components/servers/AgentBatchU
 import { AgentBatchUpgradeProgressDialog } from "@/components/servers/AgentBatchUpgradeProgressDialog";
 import { AgentUpgradeDialog } from "@/components/servers/AgentUpgradeDialog";
 import { AgentUpgradeHistoryDialog } from "@/components/servers/AgentUpgradeHistoryDialog";
+import { NicBadge } from "@/components/servers/NicBadge";
+import { NicField } from "@/components/servers/NicField";
 import { ServerCommandsDialog } from "@/components/servers/ServerCommandsDialog";
 import { ServerEditDialog } from "@/components/servers/ServerEditDialog";
 import { ServerTokenResetDialog } from "@/components/servers/ServerTokenResetDialog";
@@ -115,6 +117,7 @@ import { copyText } from "@/lib/clipboard";
 import { isCountryCode } from "@/lib/country";
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
+import { nicLabel, nicState } from "@/lib/nic";
 import {
   parsePortRangeInput,
   portPolicyLabel,
@@ -482,6 +485,11 @@ function ServerDetailsPopover({ server }: { server: Server }) {
           <PopoverDescription className="truncate font-mono text-xs">
             {server.address}
           </PopoverDescription>
+          {nicLabel(server.nic_name) ? (
+            <div className="pt-1">
+              <NicBadge server={server} />
+            </div>
+          ) : null}
         </PopoverHeader>
         <dl className="flex flex-col gap-2 text-xs">
           <DetailRow
@@ -922,6 +930,12 @@ export default function ServersPage() {
               {portLabel}
             </Badge>
           ) : null}
+          {nicLabel(server.nic_name) ? (
+            <NicBadge
+              server={server}
+              className={cn("mt-0.5", portLabel && "ml-1")}
+            />
+          ) : null}
         </div>
       </div>
     );
@@ -1204,6 +1218,14 @@ export default function ServersPage() {
                         {internalAddress}
                       </span>
                     ),
+                  },
+                ]
+              : []),
+            ...(nicLabel(server.nic_name)
+              ? [
+                  {
+                    label: t("servers.nic.field"),
+                    value: <NicBadge server={server} compact />,
                   },
                 ]
               : []),
@@ -1620,6 +1642,15 @@ export default function ServersPage() {
                 disabled={create.isPending}
               />
             </div>
+
+            {/* 新服务器还没有上报过网卡：先占位并禁用，连入一次后即可编辑。 */}
+            <NicField
+              id="server-create-nic"
+              value={null}
+              interfaces={[]}
+              state={nicState({})}
+              onChange={() => undefined}
+            />
 
             <PortPolicyFields
               idPrefix="server-create-port"

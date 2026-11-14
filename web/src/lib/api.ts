@@ -212,6 +212,12 @@ export interface ServerCommands {
   restart: string;
 }
 
+/** Agent 上报的一块网卡；`addresses` 是该网卡上的 IP。 */
+export interface ServerInterface {
+  name: string;
+  addresses: string[];
+}
+
 export interface Server {
   id: string;
   name: string;
@@ -291,6 +297,15 @@ export interface Server {
   port_allow?: number[];
   /** 内网地址（如 10.0.0.2）；null / 缺失 = 未填写，链不能启用内网转发。 */
   internal_address?: string | null;
+  /**
+   * 选中的网卡名；null = 不限制。旧后端可能不返回该字段，
+   * 页面用 `lib/nic.ts` 统一归一化。
+   */
+  nic_name?: string | null;
+  /** Agent 最近一次上报的网卡；缺失 = 旧后端从未上报。 */
+  interfaces?: ServerInterface[];
+  /** 该服务器还未上报过网卡时为 true。 */
+  nic_unverified?: boolean;
 }
 
 export interface UpdateServerInput {
@@ -308,6 +323,8 @@ export interface UpdateServerInput {
   port_allow?: number[];
   /** 内网地址；空串 / null = 清空。 */
   internal_address?: string | null;
+  /** 网卡名；null = 不限制。 */
+  nic_name?: string | null;
 }
 
 export interface CreateServerResponse {
@@ -1454,6 +1471,8 @@ export const api = {
     port_end?: number | null;
     /** 额外允许的端口；省略 = 没有额外端口。 */
     port_allow?: number[];
+    /** 网卡名；省略 / null = 不限制。 */
+    nic_name?: string | null;
   }) =>
     request<CreateServerResponse>("/api/v1/servers", {
       method: "POST",

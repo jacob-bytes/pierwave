@@ -359,6 +359,16 @@ const zhCN = {
     countryInvalid: "请输入两位大写字母（如 CN / US / JP），或留空",
     group: "分组",
     groupPlaceholder: "香港",
+    nic: {
+      label: "网卡（可选）",
+      field: "网卡",
+      unlimited: "不限制",
+      badge: "网卡 {name}",
+      unverifiedHint: "该服务器尚未上报网卡，连接一次后可选",
+      emptyHint: "该服务器没有可用网卡",
+      unverifiedTitle: "该服务器尚未上报网卡，所选网卡尚未校验",
+      unknownTitle: "所选网卡不在服务器最近上报的列表中，请重新选择",
+    },
     portPolicy: {
       section: "允许的端口",
       start: "起始端口（可选）",
@@ -2534,6 +2544,9 @@ const zhCN = {
     "server.port_range_invalid":
       "端口范围不合法：起始与结束端口必须同时填写或留空，且起始不大于结束（1-65535）",
     "server.port_allow_invalid": "额外允许的端口必须是 1-65535 的整数",
+    "server.nic_unknown": "所选网卡不在该服务器上报的列表中，请刷新后重新选择",
+    "server.nic_name_not_found":
+      "网卡「{nic}」不在服务器最近上报的网卡列表中（可选：{interfaces}）",
     "node.port_not_allowed": "端口 {port} 不在服务器「{server}」允许的范围内",
     "chain.port_not_allowed": "端口 {port} 不在服务器「{server}」允许的范围内",
     "chain.internal_address_missing":

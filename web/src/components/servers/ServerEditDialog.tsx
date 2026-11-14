@@ -18,11 +18,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { CountrySelect } from "@/components/common/CountrySelect";
+import { NicField } from "@/components/servers/NicField";
 import { PortPolicyFields } from "@/components/servers/PortPolicyFields";
 import { displayAgentVersion } from "@/lib/agentUpgrade";
 import type { Server } from "@/lib/api";
 import { isCountryCode } from "@/lib/country";
 import { errorText, isNotFound } from "@/lib/errors";
+import { nicLabel, nicState } from "@/lib/nic";
 import {
   normalizePortPolicy,
   parsePortRangeInput,
@@ -64,6 +66,13 @@ export function ServerEditDialog({
   const [groupName, setGroupName] = useState(
     () => normalizeGroupName(server.group_name) ?? "",
   );
+  const [nicName, setNicName] = useState<string | null>(() =>
+    nicLabel(server.nic_name),
+  );
+  // 未上报 / 没有网卡时下拉禁用：此时不要把旧值随 PATCH 发回去，
+  // 否则只改其它设置也可能被后端以 `server.nic_unknown` 拒绝。
+  const nic = nicState(server);
+  const nicEditable = nic === "verified" || nic === "unset";
   const [portStart, setPortStart] = useState(() =>
     server.port_start == null ? "" : String(server.port_start),
   );
@@ -110,6 +119,8 @@ export function ServerEditDialog({
           port_allow: portAllow,
           // 空串 = 清空内网地址；不用空串占位，避免链侧把它当成已填写。
           internal_address: internalAddress.trim() || null,
+          // null = 不限制；不可校验时省略该字段，保留服务器上的原值。
+          ...(nicEditable ? { nic_name: nicName } : {}),
         },
       });
       toast.success(t("servers.editDialog.saved"));
@@ -190,6 +201,15 @@ export function ServerEditDialog({
               disabled={updateServer.isPending}
             />
           </div>
+
+          <NicField
+            id="server-edit-nic"
+            value={nicName}
+            interfaces={server.interfaces}
+            state={nic}
+            onChange={setNicName}
+            disabled={updateServer.isPending}
+          />
 
           <PortPolicyFields
             idPrefix="server-edit-port"

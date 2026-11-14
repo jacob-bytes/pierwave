@@ -369,6 +369,19 @@ const en = {
       "Enter a two-letter uppercase code (such as CN / US / JP), or leave it empty.",
     group: "Group",
     groupPlaceholder: "Hong Kong",
+    nic: {
+      label: "NIC (optional)",
+      field: "NIC",
+      unlimited: "Unrestricted",
+      badge: "NIC {name}",
+      unverifiedHint:
+        "This server has not reported its NICs yet; available after it connects once.",
+      emptyHint: "This server has no available NICs.",
+      unverifiedTitle:
+        "This server has not reported its NICs, so the selected NIC cannot be verified.",
+      unknownTitle:
+        "The selected NIC is not in the list this server last reported. Choose again.",
+    },
     portPolicy: {
       section: "Allowed ports",
       start: "Start port (optional)",
@@ -2675,6 +2688,10 @@ const en = {
     "server.port_range_invalid":
       "Invalid port range: start and end must be provided together or left empty, start ≤ end, both within 1-65535",
     "server.port_allow_invalid": "Additional allowed ports must be integers between 1 and 65535",
+    "server.nic_unknown":
+      "The selected NIC is not in the list reported by this server. Refresh and choose again.",
+    "server.nic_name_not_found":
+      "NIC \"{nic}\" is not in the server's most recently reported interface list (available: {interfaces}).",
     "node.port_not_allowed":
       "Port {port} is outside the range allowed by server “{server}”",
     "chain.port_not_allowed":

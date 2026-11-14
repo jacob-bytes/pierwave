@@ -621,6 +621,8 @@ export function useCreateServer() {
       port_end?: number | null;
       /** 额外允许的端口；省略 = 没有额外端口。 */
       port_allow?: number[];
+      /** 网卡名；省略 / null = 不限制。 */
+      nic_name?: string | null;
     }
   >({
     mutationFn: api.createServer,
