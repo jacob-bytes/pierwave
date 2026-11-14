@@ -1,8 +1,10 @@
-# 用户自助转发（第一期）/ User self-service port forwarding (phase 1)
+# 用户自助转发 / User self-service port forwarding
 
-> 本期不含流量计量：`forwards.count_traffic` 只保留列与默认值，不参与任何判断。
-> This phase does not meter traffic: `forwards.count_traffic` exists with its default
-> value only and is never read by business logic.
+> 第一期（0044）只做配额与白名单；第二期（0045）把 `count_traffic` 接上：
+> 开启计费的转发，其流量会从 Agent 心跳采样后计入创建者的套餐用量。
+> Phase 1 (0044) added quotas and the server whitelist; phase 2 (0045) wires up
+> `count_traffic`: traffic on billing-enabled rules is sampled from Agent
+> heartbeats and added to the owner's package usage.
 
 ## 规则 / Rules
 
@@ -70,6 +72,7 @@ name; an empty array when the quota is 0.
       "engine": "native",
       "protocol": "tcp",
       "udp": false,
+      "count_traffic": true,
       "owner_user_id": "user-uuid",
       "created_at": 1730000000,
       "updated_at": 1730000000
@@ -101,12 +104,67 @@ Returns the same `forward` shape plus `quota`. `protocol` is optional (default `
 `PATCH /api/v1/me/forwards/{id}`
 
 ```json
-{ "enabled": false }
+{ "enabled": false, "count_traffic": true }
 ```
+
+两个字段都可单独提交；不传 = 不改。`count_traffic` 只能改自己的规则，
+越权仍是 404 `me.forward_not_found`。用户新建的转发默认 `count_traffic = true`
+（之后可以关掉）。管理员创建的规则没有 `owner_user_id`，即使置 1 也不计费。
+
+Both fields can be patched independently; omitted = unchanged. `count_traffic`
+can only be changed on your own rules (404 otherwise). User-created forwards
+default to `count_traffic = true`; administrator-created rules have no owner and
+never bill even when set to 1.
 
 ### 删除 / Delete
 
 `DELETE /api/v1/me/forwards/{id}` → `{ "ok": true }`
+
+## 流量计量（第二期）/ Traffic metering (phase 2)
+
+主控后台每 **60 秒**跑一轮采样（`scheduler::spawn_forward_traffic_sampler`），
+只处理满足以下全部条件的规则：
+
+`owner_user_id IS NOT NULL AND count_traffic = 1 AND enabled = 1`。
+
+- 数据源是心跳缓存的 `forward_status.traffic_in/out`（Agent 侧的**累计字节**）。
+- `delta = current - last`；`current < last` 视为 Agent 重启 / 规则重建后的
+  计数器归零，本轮 `delta = current`，不回退、不记负数，并更新基线。
+- `delta` 累加到当天（UTC+8）的 `forward_traffic_daily(day, forward_id, user_id, bytes)`，
+  同时累加到创建者的 `users.used_bytes` 与当前生效套餐的
+  `user_packages.used_bytes`（按 `created_at` 瀑布分配，与 Xray 流量一致）。
+- 没有生效套餐时只记日表，不累计到用户/套餐（没有可归属的额度）。
+- 差值认领、日表 upsert、套餐累加在**同一个 `BEGIN IMMEDIATE` 事务**里完成；
+  `UPDATE ... WHERE last_traffic_in = ? AND last_traffic_out = ?` 做条件更新，
+  两轮采样并发也不会把同一份增量计两次。
+- 单条规则采样失败只记 warn 并跳过，不影响其它规则、心跳、断流或每日重置。
+
+`forward_traffic_daily` 与 `traffic_daily` **分账存储**：Xray 流量的既有口径
+一行都不改；两张日表最终都汇总到 `user_packages.used_bytes`，因此配额判定
+（`user_packages.used_bytes >= quota`）不需要改。
+
+Every **60 seconds** the master samples rules that satisfy all of:
+`owner_user_id IS NOT NULL AND count_traffic = 1 AND enabled = 1`.
+
+- Source: `forward_status.traffic_in/out` from Agent heartbeats (**cumulative bytes**).
+- `delta = current - last`. `current < last` means the counter reset (Agent
+  restart or rule rebuild); the delta becomes `current` (never negative) and the
+  baseline is updated.
+- The delta is upserted into the current UTC+8 day in
+  `forward_traffic_daily(day, forward_id, user_id, bytes)` and added to the
+  owner's `users.used_bytes` and active `user_packages.used_bytes` (waterfall by
+  `created_at`, same as Xray traffic).
+- Without an active package only the daily row is written (nothing to bill).
+- Claiming the delta, the daily upsert and the package update share one
+  `BEGIN IMMEDIATE` transaction; the conditional
+  `UPDATE ... WHERE last_traffic_in = ? AND last_traffic_out = ?` makes concurrent
+  sampling rounds safe.
+- A failure on one rule is logged and skipped; heartbeats, enforcement and daily
+  resets are unaffected.
+
+`forward_traffic_daily` is stored separately from `traffic_daily`: the existing
+Xray accounting is untouched, but both feed into `user_packages.used_bytes`, so
+quota checks stay unchanged.
 
 ## 审计 / Audit
 

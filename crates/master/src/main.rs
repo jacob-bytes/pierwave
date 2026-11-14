@@ -168,6 +168,8 @@ async fn main() -> anyhow::Result<()> {
     let _upgrade_batch_runner = scheduler::spawn_upgrade_batch_runner(state.clone());
     // 探针采样：每 5 分钟把服务器状态与健康字段落一行，公开状态页由此聚合。
     let _server_samples = scheduler::spawn_server_samples(state.clone());
+    // 转发流量：每 60 秒把 Agent 心跳的累计计数器差值计入日表与用户套餐。
+    let _forward_traffic = scheduler::spawn_forward_traffic_sampler(state.clone());
     // 管理员 Telegram Bot：默认关闭；每 30 秒读一次设置，启停/改配置自动生效。
     // 所有失败都只 warn，启动阶段不因 Bot 配置问题失败。
     let _telegram_bot = telegram_bot::spawn(state.clone());

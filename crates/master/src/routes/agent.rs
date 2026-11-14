@@ -1237,6 +1237,7 @@ mod tests {
                 target_host: "10.0.0.8".into(),
                 target_port: 443,
                 enabled: true,
+                count_traffic: false,
                 engine: "native".into(),
                 protocol: "tcp".into(),
             },

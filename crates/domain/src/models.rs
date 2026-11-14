@@ -211,6 +211,17 @@ pub struct Forward {
     /// 自助转发接口只按这一列过滤，绝不相信请求里的用户身份。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner_user_id: Option<String>,
+    /// 是否把这条规则的流量计入创建者套餐（迁移 0044，第二期开始生效）。
+    ///
+    /// 只有同时满足 `owner_user_id IS NOT NULL AND count_traffic = 1 AND enabled = 1`
+    /// 的规则才参与采样；管理员规则没有归属用户，即使置 1 也不会计费。
+    pub count_traffic: bool,
+    /// 上一次采样时的入方向累计字节（迁移 0045）；只用于算差值，不对外暴露。
+    #[serde(skip)]
+    pub last_traffic_in: i64,
+    /// 上一次采样时的出方向累计字节（迁移 0045）；只用于算差值，不对外暴露。
+    #[serde(skip)]
+    pub last_traffic_out: i64,
     pub created_at: i64,
     pub updated_at: i64,
 }

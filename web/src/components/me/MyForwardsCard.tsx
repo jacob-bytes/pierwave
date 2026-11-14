@@ -109,6 +109,7 @@ function ForwardRow({
   const update = useUpdateMyForward();
   const address = entryLabel(forward);
   const enabled = Boolean(forward.enabled);
+  const countTraffic = Boolean(forward.count_traffic);
   const target = formatForwardTarget(forward.target_host, forward.target_port);
 
   return (
@@ -178,6 +179,46 @@ function ForwardRow({
         <span className="w-8 text-xs text-muted-foreground">
           {enabled ? t("common.enabled") : t("common.disabled")}
         </span>
+        <div
+          className="flex items-center gap-1.5"
+          title={t("me.forwards.countTrafficHint")}
+        >
+          <Switch
+            size="sm"
+            checked={countTraffic}
+            disabled={update.isPending}
+            aria-label={t(
+              countTraffic
+                ? "me.forwards.countTrafficOffAria"
+                : "me.forwards.countTrafficOnAria",
+              { address },
+            )}
+            onCheckedChange={(checked) => {
+              update.mutate(
+                { id: forward.id, count_traffic: checked },
+                {
+                  onSuccess: () => {
+                    toast.success(
+                      checked
+                        ? t("me.forwards.countTrafficOnToast", { address })
+                        : t("me.forwards.countTrafficOffToast", { address }),
+                    );
+                  },
+                  onError: (error) => {
+                    toast.error(
+                      errorText(error, t("me.forwards.countTrafficError")),
+                    );
+                  },
+                },
+              );
+            }}
+          />
+          <span className="whitespace-nowrap text-xs text-muted-foreground">
+            {countTraffic
+              ? t("me.forwards.countTrafficOn")
+              : t("me.forwards.countTrafficOff")}
+          </span>
+        </div>
         <Button
           variant="ghost"
           size="icon-sm"

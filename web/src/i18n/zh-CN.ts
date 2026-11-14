@@ -1805,7 +1805,7 @@ const zhCN = {
     backServers: "服务器",
     unknownServer: "未知服务器",
     subtitle:
-      "转发由 Agent 直接实现，不经 Xray，因此不计入用户流量。",
+      "转发由 Agent 直接实现，不经 Xray；开启「计费」的规则，其流量会计入创建者的套餐用量。",
     applyHint: "保存后会自动下发，也可以手动重新应用",
     applyHintDesc:
       "转发规则保存时会立即下发一次；若 Agent 当时离线，可用右侧按钮重试，或等 Agent 重连后自动补发。",
@@ -2475,6 +2475,16 @@ const zhCN = {
       entry: "入口地址",
       target: "目标",
       enabled: "启用",
+      countTraffic: "计费",
+      countTrafficOn: "计费中",
+      countTrafficOff: "不计费",
+      countTrafficOnAria: "把 {address} 的流量计入套餐",
+      countTrafficOffAria: "停止把 {address} 的流量计入套餐",
+      countTrafficOnToast: "{address} 的流量将计入套餐",
+      countTrafficOffToast: "{address} 的流量不再计入套餐",
+      countTrafficError: "切换流量计费失败，请稍后重试",
+      countTrafficHint:
+        "开启后，这条转发的流量会从 Agent 心跳采样并累加到你的套餐用量。",
       toggleAria: "{action} {address}",
       enableAction: "启用",
       disableAction: "停用",

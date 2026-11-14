@@ -27,6 +27,12 @@ const SESSION_PURGE_INTERVAL: Duration = Duration::from_secs(60 * 60);
 const SERVER_SAMPLE_INTERVAL: Duration =
     Duration::from_secs(repo::server_samples::SAMPLE_INTERVAL_SECS as u64);
 
+/// 转发流量采样：60 秒一轮。
+///
+/// Agent 心跳默认 15 秒一次，60 秒足够把累计计数器转成稳定的增量；
+/// 计数器归零（Agent 重启 / 规则重建）由 `forwards::traffic_delta` 兜底。
+const FORWARD_TRAFFIC_SAMPLE_INTERVAL: Duration = Duration::from_secs(60);
+
 /// 执行一轮每日重置；有实例被清零时立刻标记所有服务器。
 ///
 /// 三重触发之一（另外两个是绑卡、改额度）：用户状态变了就直接走 30s 去抖，
@@ -350,6 +356,46 @@ pub fn spawn_server_samples(state: AppState) -> tokio::task::JoinHandle<()> {
             ticker.tick().await;
             if let Err(error) = run_sample_round(&state).await {
                 tracing::error!(error = %error, "服务器采样失败");
+            }
+        }
+    })
+}
+
+/// 执行一轮转发流量采样：把 Agent 心跳的累计计数器差值计入日表与用户套餐。
+///
+/// 这里只负责触发与日志；差值/重置/并发规则全在
+/// [`pierwave_domain::repo::forward_traffic`] 里，调度器不参与业务判断。
+pub async fn run_forward_traffic_round(
+    state: &AppState,
+) -> anyhow::Result<repo::forward_traffic::SampleReport> {
+    let report = repo::forward_traffic::run_round(&state.db.pool, time::now()).await?;
+    if report.bytes > 0 {
+        tracing::info!(
+            rules = report.rules,
+            bytes = report.bytes,
+            failed = report.failed,
+            "转发流量采样已计入用户套餐"
+        );
+    } else {
+        tracing::debug!(
+            rules = report.rules,
+            failed = report.failed,
+            "转发流量采样：本轮没有新增流量"
+        );
+    }
+    Ok(report)
+}
+
+/// 启动转发流量采样任务；第一次 tick 立即执行。
+pub fn spawn_forward_traffic_sampler(state: AppState) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(FORWARD_TRAFFIC_SAMPLE_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            ticker.tick().await;
+            if let Err(error) = run_forward_traffic_round(&state).await {
+                // 采样失败只记日志：不阻塞心跳、不影响断流/重置等其它任务。
+                tracing::error!(error = %error, "转发流量采样失败");
             }
         }
     })
@@ -971,6 +1017,129 @@ mod tests {
                 .len(),
             0,
             "触发失败不应留下升级记录"
+        );
+    }
+
+    // ---- 转发流量采样 ----
+
+    /// 心跳写入累计计数器 → 采样轮 → 套餐用量增长（与生产同一条链路）。
+    #[tokio::test]
+    async fn forward_traffic_round_turns_heartbeat_counters_into_package_usage() {
+        let state = setup_batch_state().await;
+        let user = repo::users::create(
+            &state.db.pool,
+            repo::users::NewUser {
+                username: "alice".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+                rule_template_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let package = repo::packages::create(
+            &state.db.pool,
+            repo::packages::NewPackage {
+                name: "计费卡".into(),
+                quota_bytes: Some(1_000_000),
+                period_days: None,
+                direction: "both".into(),
+                node_ratio: 2.0,
+                rule_template_id: None,
+                speed_limit_kbps: None,
+                node_ids: None,
+            },
+        )
+        .await
+        .unwrap();
+        let instance = repo::user_packages::create(
+            &state.db.pool,
+            &user.id,
+            repo::user_packages::NewUserPackage {
+                package_id: package.id.clone(),
+                quota_override: None,
+                expires_at: None,
+                reset_day: None,
+            },
+            &package,
+        )
+        .await
+        .unwrap();
+        let (server, _token) = repo::servers::create(&state.db.pool, "hk", "1.2.3.4", "external")
+            .await
+            .unwrap();
+        let forward = repo::forwards::create_owned(
+            &state.db.pool,
+            &server.id,
+            repo::forwards::NewForward {
+                name: "web".into(),
+                listen_port: 20000,
+                target_host: "10.0.0.8".into(),
+                target_port: 443,
+                enabled: true,
+                count_traffic: true,
+                engine: "native".into(),
+                protocol: "tcp".into(),
+            },
+            &user.id,
+            10,
+        )
+        .await
+        .unwrap();
+
+        // 第一次心跳：入 1 KiB、出 2 KiB 的累计值。
+        repo::forwards::save_status(
+            &state.db.pool,
+            &server.id,
+            &[repo::forwards::NewForwardStatus {
+                forward_id: pierwave_domain::forwards::desired_id(&forward.id),
+                listening: true,
+                error: String::new(),
+                target_ok: Some(true),
+                target_error: None,
+                targets: Vec::new(),
+                traffic_in: Some(1024),
+                traffic_out: Some(2048),
+            }],
+        )
+        .await
+        .unwrap();
+        let report = run_forward_traffic_round(&state).await.unwrap();
+        assert_eq!(report.bytes, 3072);
+        assert_eq!(report.failed, 0);
+
+        // 第二次心跳：累计值变成入 4 KiB、出 6 KiB → 只计新增的 7168。
+        repo::forwards::save_status(
+            &state.db.pool,
+            &server.id,
+            &[repo::forwards::NewForwardStatus {
+                forward_id: pierwave_domain::forwards::desired_id(&forward.id),
+                listening: true,
+                error: String::new(),
+                target_ok: Some(true),
+                target_error: None,
+                targets: Vec::new(),
+                traffic_in: Some(4096),
+                traffic_out: Some(6144),
+            }],
+        )
+        .await
+        .unwrap();
+        let report = run_forward_traffic_round(&state).await.unwrap();
+        assert_eq!(report.bytes, 7168);
+
+        let view = repo::user_packages::find_view_by_id(&state.db.pool, &instance.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(view.used_bytes, 10_240, "套餐用量 = 首轮 + 增量");
+        assert_eq!(
+            repo::users::find_by_id(&state.db.pool, &user.id)
+                .await
+                .unwrap()
+                .used_bytes,
+            10_240
         );
     }
 }

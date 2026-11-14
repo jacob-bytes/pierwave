@@ -202,6 +202,12 @@ pub struct CreateForward {
     /// `native` / `realm` / `nftables`；缺省 = `native`（与迁移默认值一致）。
     #[serde(default)]
     pub engine: Option<String>,
+    /// 是否把流量计入创建者套餐；缺省 `false`。
+    ///
+    /// 管理员创建的规则没有 `owner_user_id`，置 `true` 也不会计费；
+    /// 这里开放字段是为了让全局 PATCH 能改用户规则。
+    #[serde(default)]
+    pub count_traffic: bool,
     /// 监听协议：`tcp`（缺省）/ `udp` / `both`。
     ///
     /// 不传时由旧 `udp` 布尔位推导（`true` → `both`），保证升级前的客户端
@@ -258,6 +264,7 @@ pub async fn create(
             target_host,
             target_port: req.target_port,
             enabled: req.enabled,
+            count_traffic: req.count_traffic,
             engine,
             protocol,
         },
@@ -277,6 +284,7 @@ pub async fn create(
             "target_host": &forward.target_host,
             "target_port": forward.target_port,
             "enabled": forward.enabled,
+            "count_traffic": forward.count_traffic,
             "engine": &forward.engine,
             "protocol": &forward.protocol,
             "udp": forward.udp,
@@ -297,6 +305,8 @@ pub struct PatchForward {
     pub target_host: Option<String>,
     pub target_port: Option<i64>,
     pub enabled: Option<bool>,
+    /// 是否把流量计入创建者套餐；`None` = 不改。
+    pub count_traffic: Option<bool>,
     /// `native` / `realm` / `nftables`；`None` = 不改。
     pub engine: Option<String>,
     /// `tcp` / `udp` / `both`；`None` = 不改。
@@ -319,6 +329,7 @@ pub async fn update(
         && req.target_host.is_none()
         && req.target_port.is_none()
         && req.enabled.is_none()
+        && req.count_traffic.is_none()
         && req.engine.is_none()
         && req.protocol.is_none()
         && req.udp.is_none()
@@ -326,7 +337,7 @@ pub async fn update(
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 name / listen_port / target_host / target_port / enabled / engine / protocol / udp 之一",
+            "至少需要提供 name / listen_port / target_host / target_port / enabled / count_traffic / engine / protocol / udp 之一",
         ));
     }
 
@@ -396,6 +407,7 @@ pub async fn update(
             target_host,
             target_port: req.target_port,
             enabled: req.enabled,
+            count_traffic: req.count_traffic,
             engine,
             protocol,
         },
@@ -428,6 +440,11 @@ pub async fn update(
             json!(forward.target_port),
         ),
         ("enabled", json!(existing.enabled), json!(forward.enabled)),
+        (
+            "count_traffic",
+            json!(existing.count_traffic),
+            json!(forward.count_traffic),
+        ),
         ("engine", json!(&existing.engine), json!(&forward.engine)),
         (
             "protocol",
@@ -664,6 +681,8 @@ pub async fn me_create(
             target_host,
             target_port: req.target_port,
             enabled: true,
+            // 用户自助转发默认计费；之后可以在列表里单独关掉。
+            count_traffic: true,
             engine: engine::DEFAULT.to_string(),
             protocol,
         },
@@ -708,9 +727,11 @@ pub async fn me_create(
 #[derive(Deserialize)]
 pub struct PatchUserForward {
     pub enabled: Option<bool>,
+    /// 是否把这条转发的流量计入自己的套餐；`None` = 不改。
+    pub count_traffic: Option<bool>,
 }
 
-/// 用户只能改自己的启用状态；目标/端口/协议一律不开放。
+/// 用户只能改自己的启用状态与计费开关；目标/端口/协议一律不开放。
 pub async fn me_update(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -718,9 +739,13 @@ pub async fn me_update(
     Path(id): Path<String>,
     Json(req): Json<PatchUserForward>,
 ) -> AppResult<Json<Value>> {
-    let enabled = req
-        .enabled
-        .ok_or_else(|| AppError::coded("request.no_update_fields", None, "至少需要提供 enabled"))?;
+    if req.enabled.is_none() && req.count_traffic.is_none() {
+        return Err(AppError::coded(
+            "request.no_update_fields",
+            None,
+            "至少需要提供 enabled / count_traffic 之一",
+        ));
+    }
 
     let existing = load_owned_forward(&state, &user.0.id, &id).await?;
     let server = load_server(&state, &existing.server_id).await?;
@@ -728,7 +753,8 @@ pub async fn me_update(
         &state.db.pool,
         &id,
         repo::forwards::UpdateForward {
-            enabled: Some(enabled),
+            enabled: req.enabled,
+            count_traffic: req.count_traffic,
             ..Default::default()
         },
     )
@@ -2194,6 +2220,149 @@ mod tests {
             body["items"].as_array().unwrap().is_empty(),
             "用户列表不能出现管理员创建的转发"
         );
+    }
+
+    /// 计费开关：用户列表带 `count_traffic`，创建默认开启，且只能改自己的规则。
+    #[tokio::test]
+    async fn user_forwards_expose_and_toggle_count_traffic_only_for_the_owner() {
+        let (app, state, admin_cookie, server_id) = setup().await;
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+        let (_bob_id, bob_cookie) = make_user(&state, "bob").await;
+        let package =
+            create_forward_package(&state, "A", 1, std::slice::from_ref(&server_id)).await;
+        bind_user_to_package(&state, &alice_id, &package).await;
+
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(user_forward_body(&server_id, "10.0.0.8", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let id = body["forward"]["id"].as_str().unwrap().to_string();
+        assert_eq!(
+            body["forward"]["count_traffic"], true,
+            "用户自助转发默认计入套餐：{body}"
+        );
+
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::GET,
+            "/api/v1/me/forwards",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let item = body["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == id.as_str())
+            .expect("列表应包含刚创建的转发");
+        assert_eq!(item["count_traffic"], true);
+
+        // 别人的规则按「不存在」处理（404，不是 403）。
+        let uri = format!("/api/v1/me/forwards/{id}");
+        let (status, body) = request(
+            &app,
+            Some(&bob_cookie),
+            Method::PATCH,
+            &uri,
+            Some(json!({"count_traffic": true})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "unexpected: {body}");
+        assert_eq!(body["code"], "me.forward_not_found");
+
+        // 本人可以只改计费开关，不影响启用状态。
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::PATCH,
+            &uri,
+            Some(json!({"count_traffic": false})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["forward"]["count_traffic"], false);
+        assert_eq!(body["forward"]["enabled"], true, "只改计费不能顺手停用");
+
+        // 空 PATCH 仍是 400。
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::PATCH,
+            &uri,
+            Some(json!({})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "request.no_update_fields");
+
+        // 管理员列表能读到同一条规则的计费开关，也能通过全局 PATCH 改。
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::GET,
+            &format!("/api/v1/servers/{server_id}/forwards"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let admin_item = body["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == id.as_str())
+            .expect("管理员列表应包含用户转发");
+        assert_eq!(admin_item["count_traffic"], false);
+
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::PATCH,
+            &format!("/api/v1/forwards/{id}"),
+            Some(json!({"count_traffic": true})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["forward"]["count_traffic"], true);
+
+        // 管理员创建时也可以直接指定；旧请求缺省仍是 false。
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::POST,
+            &format!("/api/v1/servers/{server_id}/forwards"),
+            Some(json!({
+                "name": "管理员计费",
+                "listen_port": 8443,
+                "target_host": "10.0.0.8",
+                "target_port": 443,
+                "count_traffic": true,
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["forward"]["count_traffic"], true);
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::POST,
+            &format!("/api/v1/servers/{server_id}/forwards"),
+            Some(json!({
+                "name": "管理员默认",
+                "listen_port": 8444,
+                "target_host": "10.0.0.8",
+                "target_port": 443,
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["forward"]["count_traffic"], false);
     }
 
     /// 自动分配遵守服务器端口策略与已占用端口；耗尽时是 400 而不是换池。

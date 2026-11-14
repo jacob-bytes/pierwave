@@ -222,6 +222,25 @@ pub fn entry_address(address: &str, port: i64) -> String {
     format!("{host}:{port}")
 }
 
+/// 转发流量采样差值（只在这里定义一次，主控落库与单测共用）。
+///
+/// Agent 上报的是**累计字节**，主控每轮用 `current - last` 求增量：
+///
+/// * 正常递增：`current - last`；
+/// * 计数器重置（Agent 重启 / 规则重建）：`current < last` 时取 `current`，
+///   不回退、不记负数——否则一次重启会把套餐用量扣成负数；
+/// * 两边都做非负钳制：数据库里的 `last` 理论上是非负的，脏数据也不能让
+///   「回退」伪装成一次巨额增量。
+pub fn traffic_delta(last: i64, current: i64) -> i64 {
+    let last = last.max(0);
+    let current = current.max(0);
+    if current < last {
+        current
+    } else {
+        current - last
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -377,5 +396,29 @@ mod tests {
         for host in ["10.0.0.8", "example.com", "0.0.0.0"] {
             assert!(!is_loopback_host(host), "host={host}");
         }
+    }
+
+    #[test]
+    fn traffic_delta_accumulates_increments() {
+        // 首次采样：last = 0、current = 100 → 计 100。
+        assert_eq!(traffic_delta(0, 100), 100);
+        // 增量采样：last = 100、current = 250 → 计 150。
+        assert_eq!(traffic_delta(100, 250), 150);
+        // 没有新流量：计 0。
+        assert_eq!(traffic_delta(250, 250), 0);
+        // 进程刚启动、还没跑流量：计 0。
+        assert_eq!(traffic_delta(0, 0), 0);
+    }
+
+    #[test]
+    fn traffic_delta_treats_counter_reset_as_current() {
+        // 计数器重置：last = 250、current = 30 → 计 30（不是 -220）。
+        assert_eq!(traffic_delta(250, 30), 30);
+        // 恰好归零：本轮计 0，下一轮从新基线开始。
+        assert_eq!(traffic_delta(250, 0), 0);
+        // 脏的负 last 不能放大增量。
+        assert_eq!(traffic_delta(-100, 30), 30);
+        // 脏的负 current 按 0 处理，绝不产生负数。
+        assert_eq!(traffic_delta(100, -5), 0);
     }
 }

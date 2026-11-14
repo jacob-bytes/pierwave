@@ -704,6 +704,8 @@ export interface Forward {
    * 读写行为以 `protocol` 为准；新写入由后端按协议同步这一列。
    */
   udp: boolean;
+  /** 是否把流量计入创建者套餐；旧后端可能不返回。 */
+  count_traffic?: boolean;
   created_at: number;
   updated_at: number;
   /**
@@ -719,6 +721,8 @@ export interface CreateForwardInput {
   target_host: string;
   target_port: number;
   enabled?: boolean;
+  /** 是否把流量计入创建者套餐；缺省 = false。 */
+  count_traffic?: boolean;
   /** 缺省 = `native`；表单总是显式发送，以便 edit 能把引擎改回 native。 */
   engine?: ForwardEngine;
   /** 监听协议：`tcp`（缺省）/ `udp` / `both`；与 `udp` 同传时以它为准。 */
@@ -1366,6 +1370,8 @@ export interface MeForward {
   /** 自助转发只允许 TCP 或 TCP+UDP，不会出现 `udp`。 */
   protocol: ForwardProtocol;
   enabled: boolean;
+  /** 是否把这条转发的流量计入自己的套餐；旧后端可能不返回。 */
+  count_traffic?: boolean;
   created_at: number;
 }
 
@@ -1396,6 +1402,8 @@ export interface CreateMeForwardInput {
 
 export interface UpdateMeForwardInput {
   enabled?: boolean;
+  /** 是否把这条转发的流量计入自己的套餐。 */
+  count_traffic?: boolean;
 }
 
 /** 新建响应兼容 `{ forward }` / `{ item }` / 直接返回 item 三种形状。 */

@@ -1921,7 +1921,7 @@ const en = {
     backServers: "Servers",
     unknownServer: "Unknown server",
     subtitle:
-      "Forwarding is handled directly by the Agent, bypassing Xray, so it is not counted toward user traffic.",
+      "Forwarding is handled directly by the Agent, bypassing Xray; traffic on rules with billing enabled counts toward the owner's package usage.",
     applyHint: "Apply the config before changes take effect on the server",
     applyHintDesc:
       "Saving only writes to the controller database. Click the button on the right to deliver the latest forwarding rules to the Agent.",
@@ -2626,6 +2626,16 @@ const en = {
       entry: "Entry address",
       target: "Target",
       enabled: "Enabled",
+      countTraffic: "Billing",
+      countTrafficOn: "Billed",
+      countTrafficOff: "Not billed",
+      countTrafficOnAria: "Count traffic for {address} toward the package",
+      countTrafficOffAria: "Stop counting traffic for {address} toward the package",
+      countTrafficOnToast: "Traffic for {address} is now billed",
+      countTrafficOffToast: "Traffic for {address} is no longer billed",
+      countTrafficError: "Could not change traffic billing. Please try again.",
+      countTrafficHint:
+        "When enabled, this forward's traffic is sampled from Agent heartbeats and added to your package usage.",
       toggleAria: "{action} {address}",
       enableAction: "Enable",
       disableAction: "Disable",

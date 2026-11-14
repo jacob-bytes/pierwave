@@ -2517,6 +2517,8 @@ pub mod forwards {
         pub target_host: String,
         pub target_port: i64,
         pub enabled: bool,
+        /// 是否把流量计入创建者套餐；管理员创建（无 owner）时置 1 也不会计费。
+        pub count_traffic: bool,
         /// 已通过 `engine::normalize` 校验的引擎名（`native` / `realm` / `nftables`）。
         pub engine: String,
         /// 已通过 `protocol::normalize_forward` 校验的协议名（`tcp` / `udp` / `both`）。
@@ -2532,6 +2534,8 @@ pub mod forwards {
         pub target_host: Option<String>,
         pub target_port: Option<i64>,
         pub enabled: Option<bool>,
+        /// `None` = 不改；`Some` 直接覆盖计费开关。
+        pub count_traffic: Option<bool>,
         /// `None` = 不改；`Some` 必须已通过 `engine::normalize` 校验。
         pub engine: Option<String>,
         /// `None` = 不改；`Some` 必须已通过 `protocol::normalize_forward` 校验。
@@ -2626,8 +2630,8 @@ pub mod forwards {
         sqlx::query(
             "INSERT INTO forwards
                 (id, server_id, name, listen_port, target_host, target_port, enabled, engine,
-                 protocol, udp, owner_user_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 protocol, udp, owner_user_id, count_traffic, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(server_id)
@@ -2641,6 +2645,7 @@ pub mod forwards {
         // 旧 udp 列只作镜像：读路径以 protocol 为准。
         .bind(i64::from(crate::protocol::is_both(&input.protocol)))
         .bind(owner_user_id)
+        .bind(i64::from(input.count_traffic))
         .bind(ts)
         .bind(ts)
         .execute(&mut **tx)
@@ -2741,6 +2746,7 @@ pub mod forwards {
                 target_host = COALESCE(?, target_host),
                 target_port = COALESCE(?, target_port),
                 enabled = COALESCE(?, enabled),
+                count_traffic = COALESCE(?, count_traffic),
                 engine = COALESCE(?, engine),
                 protocol = COALESCE(?, protocol),
                 udp = COALESCE(?, udp),
@@ -2752,6 +2758,7 @@ pub mod forwards {
         .bind(input.target_host.map(|host| host.trim().to_string()))
         .bind(input.target_port)
         .bind(input.enabled.map(i64::from))
+        .bind(input.count_traffic.map(i64::from))
         .bind(input.engine.as_deref().map(crate::engine::from_db))
         .bind(input.protocol.as_deref().map(crate::protocol::from_db))
         .bind(
@@ -2963,6 +2970,626 @@ pub mod forwards {
             }
         }
         Ok(())
+    }
+}
+
+/// 转发流量采样（迁移 0045）：把 Agent 心跳里的累计计数器转成日账本与套餐用量。
+///
+/// 与 Xray 流量**分账存储**：这里只写 `forward_traffic_daily`，`traffic_daily`
+/// 一行都不碰；两者最终都汇总到 `user_packages.used_bytes`，配额判定口径不变。
+///
+/// 并发安全由两层保证：
+/// 1. 每条规则的计算 + 落库是一个 `BEGIN IMMEDIATE` 事务（SQLite 写锁串行化），
+///    不会出现「读到旧 last → 两个采样器都写日表」；
+/// 2. 更新 `last_traffic_*` 时带旧值做条件（CAS），即使外层快照过期，
+///    同一份增量也只会被一个事务认领（`rows_affected == 0` 直接放弃）。
+pub mod forward_traffic {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    use crate::metering;
+
+    /// 一轮采样的结果，调度器据此打日志/测试断言。
+    #[derive(Debug, Default, Clone, PartialEq, Eq)]
+    pub struct SampleReport {
+        /// 本轮实际检查过的规则数（含增量为 0、被 CAS 跳过的）。
+        pub rules: usize,
+        /// 本轮新增并计入套餐的字节总数。
+        pub bytes: i64,
+        /// 读取或写入失败、被跳过的规则数；单条失败不影响其它规则。
+        pub failed: usize,
+    }
+
+    /// 一条待采样规则：规则侧的旧基线与心跳侧的当前计数。
+    #[derive(Debug, Clone)]
+    struct Candidate {
+        forward_id: String,
+        user_id: String,
+        last_in: i64,
+        last_out: i64,
+        current_in: Option<i64>,
+        current_out: Option<i64>,
+    }
+
+    /// 列出所有「需要计费且本轮有计数器」的规则。
+    ///
+    /// 只处理 `owner_user_id IS NOT NULL AND count_traffic = 1 AND enabled = 1`。
+    /// 心跳 id 可能是期望态前缀 `fwd-<uuid>`，也可能是旧 Agent 上报的裸 uuid；
+    /// 与 `list_with_status` 同口径，优先认前缀形式。
+    async fn candidates(pool: &SqlitePool) -> anyhow::Result<Vec<Candidate>> {
+        #[derive(sqlx::FromRow)]
+        struct ForwardRow {
+            id: String,
+            server_id: String,
+            owner_user_id: String,
+            last_traffic_in: i64,
+            last_traffic_out: i64,
+        }
+
+        let forwards = sqlx::query_as::<_, ForwardRow>(
+            "SELECT id, server_id, owner_user_id, last_traffic_in, last_traffic_out
+             FROM forwards
+             WHERE owner_user_id IS NOT NULL AND count_traffic = 1 AND enabled = 1
+             ORDER BY server_id ASC, created_at ASC, rowid ASC",
+        )
+        .fetch_all(pool)
+        .await?;
+        if forwards.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        #[derive(sqlx::FromRow)]
+        struct StatusRow {
+            server_id: String,
+            forward_id: String,
+            traffic_in: Option<i64>,
+            traffic_out: Option<i64>,
+        }
+
+        // 计数只有 native 引擎才有；realm / nftables 上报 NULL，自然不在候选里。
+        let statuses = sqlx::query_as::<_, StatusRow>(
+            "SELECT server_id, forward_id, traffic_in, traffic_out
+             FROM forward_status
+             WHERE traffic_in IS NOT NULL OR traffic_out IS NOT NULL",
+        )
+        .fetch_all(pool)
+        .await?;
+        let mut by_key: HashMap<(String, String), (Option<i64>, Option<i64>)> = statuses
+            .into_iter()
+            .map(|row| {
+                (
+                    (row.server_id, row.forward_id),
+                    (row.traffic_in, row.traffic_out),
+                )
+            })
+            .collect();
+
+        Ok(forwards
+            .into_iter()
+            .filter_map(|row| {
+                let status = by_key
+                    .remove(&(row.server_id.clone(), crate::forwards::desired_id(&row.id)))
+                    .or_else(|| by_key.remove(&(row.server_id.clone(), row.id.clone())))?;
+                Some(Candidate {
+                    forward_id: row.id,
+                    user_id: row.owner_user_id,
+                    last_in: row.last_traffic_in,
+                    last_out: row.last_traffic_out,
+                    current_in: status.0,
+                    current_out: status.1,
+                })
+            })
+            .collect())
+    }
+
+    /// 跑一轮采样；单条规则的失败只记日志并计入 `failed`，不中断整轮。
+    ///
+    /// `now` 是业务日与 `users.updated_at` 的唯一来源（测试可注入历史时间）。
+    pub async fn run_round(pool: &SqlitePool, now: i64) -> anyhow::Result<SampleReport> {
+        let day = crate::time::business_date(now);
+        let mut report = SampleReport::default();
+        for candidate in candidates(pool).await? {
+            match sample_one(pool, &day, &candidate, now).await {
+                Ok(bytes) => {
+                    report.rules += 1;
+                    report.bytes = report.bytes.saturating_add(bytes);
+                }
+                Err(error) => {
+                    report.failed += 1;
+                    tracing::warn!(
+                        forward_id = %candidate.forward_id,
+                        user_id = %candidate.user_id,
+                        error = %error,
+                        "转发流量采样失败，已跳过该规则"
+                    );
+                }
+            }
+        }
+        Ok(report)
+    }
+
+    /// 单条规则：一个写事务里完成「认领增量 → 日表 upsert → 用户/套餐累加」。
+    async fn sample_one(
+        pool: &SqlitePool,
+        day: &str,
+        candidate: &Candidate,
+        now: i64,
+    ) -> anyhow::Result<i64> {
+        let mut conn = pool.acquire().await?;
+        sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+        let result = sample_in(&mut conn, day, candidate, now).await;
+        match result {
+            Ok(bytes) => {
+                if let Err(error) = sqlx::query("COMMIT").execute(&mut *conn).await {
+                    let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                    return Err(error.into());
+                }
+                Ok(bytes)
+            }
+            Err(error) => {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                Err(error)
+            }
+        }
+    }
+
+    async fn sample_in(
+        conn: &mut sqlx::SqliteConnection,
+        day: &str,
+        candidate: &Candidate,
+        now: i64,
+    ) -> anyhow::Result<i64> {
+        // 没有计数器的一侧保持旧基线不变；有计数器的一侧取非负当前值。
+        let new_last_in = candidate.current_in.map(|value| value.max(0));
+        let new_last_out = candidate.current_out.map(|value| value.max(0));
+        let last_in = new_last_in.unwrap_or(candidate.last_in);
+        let last_out = new_last_out.unwrap_or(candidate.last_out);
+        if last_in == candidate.last_in && last_out == candidate.last_out {
+            return Ok(0);
+        }
+
+        // 条件更新（CAS）：旧基线必须还是我们读到的值，否则说明另一轮已经认领。
+        let updated = sqlx::query(
+            "UPDATE forwards
+                SET last_traffic_in = ?, last_traffic_out = ?
+              WHERE id = ? AND last_traffic_in = ? AND last_traffic_out = ?",
+        )
+        .bind(last_in)
+        .bind(last_out)
+        .bind(&candidate.forward_id)
+        .bind(candidate.last_in)
+        .bind(candidate.last_out)
+        .execute(&mut *conn)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Ok(0);
+        }
+
+        let delta_in = candidate
+            .current_in
+            .map(|current| crate::forwards::traffic_delta(candidate.last_in, current))
+            .unwrap_or(0);
+        let delta_out = candidate
+            .current_out
+            .map(|current| crate::forwards::traffic_delta(candidate.last_out, current))
+            .unwrap_or(0);
+        let delta = delta_in.saturating_add(delta_out);
+        if delta <= 0 {
+            return Ok(0);
+        }
+
+        // 日账本按 (day, forward_id) 累加：同一增量只会被一个事务认领，
+        // 因此这里的 upsert 不会把同一段流量重复计两次。
+        sqlx::query(
+            "INSERT INTO forward_traffic_daily (day, forward_id, user_id, bytes)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(day, forward_id) DO UPDATE SET
+                bytes = forward_traffic_daily.bytes + excluded.bytes",
+        )
+        .bind(day)
+        .bind(&candidate.forward_id)
+        .bind(&candidate.user_id)
+        .bind(delta)
+        .execute(&mut *conn)
+        .await?;
+
+        // 套餐实例：按 created_at 顺序瀑布分配，与 Xray 流量完全一致。
+        // 没有生效套餐时只记日表，不往用户总量或任何实例上累加。
+        #[derive(sqlx::FromRow)]
+        struct BillableRow {
+            id: String,
+            used_bytes: i64,
+            quota_bytes: Option<i64>,
+            direction: String,
+            node_ratio: f64,
+        }
+
+        let rows = sqlx::query_as::<_, BillableRow>(
+            "SELECT up.id, up.used_bytes,
+                    COALESCE(up.quota_override, p.quota_bytes) AS quota_bytes,
+                    up.direction, up.node_ratio
+             FROM user_packages up
+             JOIN packages p ON p.id = up.package_id
+             WHERE up.user_id = ? AND up.status = 'active'
+             ORDER BY up.created_at ASC, up.rowid ASC",
+        )
+        .bind(&candidate.user_id)
+        .fetch_all(&mut *conn)
+        .await?;
+        if rows.is_empty() {
+            tracing::debug!(
+                user_id = %candidate.user_id,
+                forward_id = %candidate.forward_id,
+                "用户没有生效套餐，转发流量只记日表"
+            );
+            return Ok(delta);
+        }
+
+        // 账户总用量与 Xray 同口径累加；每日重置扣减时不会出现「套餐扣了、
+        // 用户总量没加」的不一致。只有确实有生效套餐时才累加。
+        sqlx::query("UPDATE users SET used_bytes = used_bytes + ?, updated_at = ? WHERE id = ?")
+            .bind(delta)
+            .bind(now)
+            .bind(&candidate.user_id)
+            .execute(&mut *conn)
+            .await?;
+
+        let instances: Vec<metering::BillableInstance> = rows
+            .into_iter()
+            .map(|row| metering::BillableInstance {
+                id: row.id,
+                used_bytes: row.used_bytes,
+                quota_bytes: row.quota_bytes,
+                direction: row.direction,
+                node_ratio: row.node_ratio,
+            })
+            .collect();
+        let allocations = metering::waterfall(delta as u64, &instances);
+        for (instance_id, amount) in &allocations {
+            let amount = i64::try_from(*amount).unwrap_or(i64::MAX);
+            sqlx::query("UPDATE user_packages SET used_bytes = used_bytes + ? WHERE id = ?")
+                .bind(amount)
+                .bind(instance_id)
+                .execute(&mut *conn)
+                .await?;
+        }
+
+        Ok(delta)
+    }
+
+    /// 某天某条规则累计的转发字节；测试与对账用。
+    pub async fn daily_bytes(
+        pool: &SqlitePool,
+        day: &str,
+        forward_id: &str,
+    ) -> anyhow::Result<i64> {
+        Ok(sqlx::query_scalar(
+            "SELECT bytes FROM forward_traffic_daily WHERE day = ? AND forward_id = ?",
+        )
+        .bind(day)
+        .bind(forward_id)
+        .fetch_optional(pool)
+        .await?
+        .unwrap_or(0))
+    }
+
+    /// 某用户某天的转发字节合计；用户侧对账用。
+    pub async fn daily_bytes_for_user(
+        pool: &SqlitePool,
+        day: &str,
+        user_id: &str,
+    ) -> anyhow::Result<i64> {
+        Ok(sqlx::query_scalar(
+            "SELECT COALESCE(SUM(bytes), 0) FROM forward_traffic_daily
+             WHERE day = ? AND user_id = ?",
+        )
+        .bind(day)
+        .bind(user_id)
+        .fetch_one(pool)
+        .await?)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        async fn setup() -> SqlitePool {
+            let db = crate::Db::connect("sqlite::memory:").await.unwrap();
+            db.migrate().await.unwrap();
+            db.pool
+        }
+
+        async fn create_server(pool: &SqlitePool) -> String {
+            super::super::servers::create(pool, "hk-1", "1.2.3.4", "external")
+                .await
+                .unwrap()
+                .0
+                .id
+        }
+
+        async fn create_user(pool: &SqlitePool, username: &str) -> String {
+            super::super::users::create(
+                pool,
+                super::super::users::NewUser {
+                    username: username.into(),
+                    password: "password123".into(),
+                    role: "user".into(),
+                    quota_bytes: None,
+                    rule_template_id: None,
+                },
+            )
+            .await
+            .unwrap()
+            .id
+        }
+
+        async fn bind_package(
+            pool: &SqlitePool,
+            user_id: &str,
+            quota_bytes: Option<i64>,
+        ) -> String {
+            let package = super::super::packages::create(
+                pool,
+                super::super::packages::NewPackage {
+                    name: "日卡".into(),
+                    quota_bytes,
+                    period_days: None,
+                    direction: "both".into(),
+                    node_ratio: 1.0,
+                    rule_template_id: None,
+                    speed_limit_kbps: None,
+                    node_ids: None,
+                },
+            )
+            .await
+            .unwrap();
+            super::super::user_packages::create(
+                pool,
+                user_id,
+                super::super::user_packages::NewUserPackage {
+                    package_id: package.id.clone(),
+                    quota_override: None,
+                    expires_at: None,
+                    reset_day: None,
+                },
+                &package,
+            )
+            .await
+            .unwrap()
+            .id
+        }
+
+        async fn create_forward(
+            pool: &SqlitePool,
+            server_id: &str,
+            owner: Option<&str>,
+            count_traffic: bool,
+            listen_port: i64,
+        ) -> crate::models::Forward {
+            let input = super::super::forwards::NewForward {
+                name: format!("fwd-{listen_port}"),
+                listen_port,
+                target_host: "10.0.0.8".into(),
+                target_port: 443,
+                enabled: true,
+                count_traffic,
+                engine: "native".into(),
+                protocol: "tcp".into(),
+            };
+            match owner {
+                Some(owner) => {
+                    super::super::forwards::create_owned(pool, server_id, input, owner, 10)
+                        .await
+                        .unwrap()
+                }
+                None => super::super::forwards::create(pool, server_id, input)
+                    .await
+                    .unwrap(),
+            }
+        }
+
+        async fn save_counters(
+            pool: &SqlitePool,
+            server_id: &str,
+            forward_id: &str,
+            traffic_in: Option<u64>,
+            traffic_out: Option<u64>,
+        ) {
+            super::super::forwards::save_status(
+                pool,
+                server_id,
+                &[super::super::forwards::NewForwardStatus {
+                    forward_id: crate::forwards::desired_id(forward_id),
+                    listening: true,
+                    error: String::new(),
+                    target_ok: Some(true),
+                    target_error: None,
+                    targets: Vec::new(),
+                    traffic_in,
+                    traffic_out,
+                }],
+            )
+            .await
+            .unwrap();
+        }
+
+        async fn package_used(pool: &SqlitePool, instance_id: &str) -> i64 {
+            super::super::user_packages::find_view_by_id(pool, instance_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .used_bytes
+        }
+
+        async fn user_used(pool: &SqlitePool, user_id: &str) -> i64 {
+            super::super::users::find_by_id(pool, user_id)
+                .await
+                .unwrap()
+                .used_bytes
+        }
+
+        async fn forward(pool: &SqlitePool, id: &str) -> crate::models::Forward {
+            super::super::forwards::find_by_id(pool, id)
+                .await
+                .unwrap()
+                .unwrap()
+        }
+
+        /// 首次采样：last=0、current=100 → 计 100，并推进基线。
+        #[tokio::test]
+        async fn first_sample_counts_the_whole_counter() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let user = create_user(&pool, "alice").await;
+            let package = bind_package(&pool, &user, Some(10_000)).await;
+            let fwd = create_forward(&pool, &server, Some(&user), true, 20000).await;
+            save_counters(&pool, &server, &fwd.id, Some(100), Some(0)).await;
+
+            let now = 1_700_000_000;
+            let day = crate::time::business_date(now);
+            let report = run_round(&pool, now).await.unwrap();
+            assert_eq!(report.bytes, 100);
+            assert_eq!(report.rules, 1);
+            assert_eq!(report.failed, 0);
+
+            let refreshed = forward(&pool, &fwd.id).await;
+            assert_eq!(refreshed.last_traffic_in, 100);
+            assert_eq!(refreshed.last_traffic_out, 0);
+            assert_eq!(daily_bytes(&pool, &day, &fwd.id).await.unwrap(), 100);
+            assert_eq!(package_used(&pool, &package).await, 100);
+            assert_eq!(user_used(&pool, &user).await, 100);
+        }
+
+        /// 增量采样：last=100、current=250 → 计 150；同一行 upsert 累加。
+        #[tokio::test]
+        async fn later_samples_count_only_the_increment_into_one_daily_row() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let user = create_user(&pool, "alice").await;
+            let package = bind_package(&pool, &user, Some(10_000)).await;
+            let fwd = create_forward(&pool, &server, Some(&user), true, 20000).await;
+            let now = 1_700_000_000;
+            let day = crate::time::business_date(now);
+
+            save_counters(&pool, &server, &fwd.id, Some(100), Some(0)).await;
+            assert_eq!(run_round(&pool, now).await.unwrap().bytes, 100);
+
+            save_counters(&pool, &server, &fwd.id, Some(250), Some(40)).await;
+            assert_eq!(run_round(&pool, now).await.unwrap().bytes, 190);
+
+            assert_eq!(daily_bytes(&pool, &day, &fwd.id).await.unwrap(), 290);
+            assert_eq!(daily_bytes_for_user(&pool, &day, &user).await.unwrap(), 290);
+            let rows: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM forward_traffic_daily WHERE day = ? AND forward_id = ?",
+            )
+            .bind(day)
+            .bind(&fwd.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(rows, 1, "同一天同一规则只能有一行");
+            assert_eq!(package_used(&pool, &package).await, 290);
+            let refreshed = forward(&pool, &fwd.id).await;
+            assert_eq!(refreshed.last_traffic_in, 250);
+            assert_eq!(refreshed.last_traffic_out, 40);
+        }
+
+        /// 计数器重置：last=250、current=30 → 计 30（不是 -220），基线跟着回退。
+        #[tokio::test]
+        async fn counter_reset_counts_current_instead_of_a_negative_delta() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let user = create_user(&pool, "alice").await;
+            let package = bind_package(&pool, &user, Some(10_000)).await;
+            let fwd = create_forward(&pool, &server, Some(&user), true, 20000).await;
+            let now = 1_700_000_000;
+            let day = crate::time::business_date(now);
+
+            save_counters(&pool, &server, &fwd.id, Some(250), Some(0)).await;
+            assert_eq!(run_round(&pool, now).await.unwrap().bytes, 250);
+
+            // Agent 重启：累计计数器从 0 重新开始，此时读到 30。
+            save_counters(&pool, &server, &fwd.id, Some(30), Some(0)).await;
+            assert_eq!(run_round(&pool, now).await.unwrap().bytes, 30);
+
+            let refreshed = forward(&pool, &fwd.id).await;
+            assert_eq!(refreshed.last_traffic_in, 30, "重置后基线必须回退到新计数");
+            assert_eq!(daily_bytes(&pool, &day, &fwd.id).await.unwrap(), 280);
+            assert_eq!(package_used(&pool, &package).await, 280);
+        }
+
+        /// count_traffic=0 与管理员创建（无 owner）都不计：日表与用量都不动。
+        #[tokio::test]
+        async fn unmetered_and_admin_rules_are_skipped() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let user = create_user(&pool, "alice").await;
+            let package = bind_package(&pool, &user, Some(10_000)).await;
+
+            let off = create_forward(&pool, &server, Some(&user), false, 20000).await;
+            save_counters(&pool, &server, &off.id, Some(500), Some(500)).await;
+            let admin = create_forward(&pool, &server, None, true, 20001).await;
+            save_counters(&pool, &server, &admin.id, Some(500), Some(500)).await;
+
+            let now = 1_700_000_000;
+            let day = crate::time::business_date(now);
+            let report = run_round(&pool, now).await.unwrap();
+            assert_eq!(report.bytes, 0);
+            assert_eq!(report.rules, 0, "两条规则都不在候选里");
+            assert_eq!(daily_bytes(&pool, &day, &off.id).await.unwrap(), 0);
+            assert_eq!(daily_bytes(&pool, &day, &admin.id).await.unwrap(), 0);
+            assert_eq!(package_used(&pool, &package).await, 0);
+            assert_eq!(user_used(&pool, &user).await, 0);
+            assert_eq!(forward(&pool, &off.id).await.last_traffic_in, 0);
+            assert_eq!(forward(&pool, &admin.id).await.last_traffic_in, 0);
+        }
+
+        /// 无生效套餐：只记日表，不累计到用户总量（没有可归属的套餐）。
+        #[tokio::test]
+        async fn traffic_without_an_active_package_only_lands_in_the_daily_table() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let user = create_user(&pool, "alice").await;
+            let fwd = create_forward(&pool, &server, Some(&user), true, 20000).await;
+            save_counters(&pool, &server, &fwd.id, Some(100), Some(0)).await;
+
+            let now = 1_700_000_000;
+            let day = crate::time::business_date(now);
+            assert_eq!(run_round(&pool, now).await.unwrap().bytes, 100);
+            assert_eq!(daily_bytes(&pool, &day, &fwd.id).await.unwrap(), 100);
+            assert_eq!(user_used(&pool, &user).await, 0);
+        }
+
+        /// 并发两轮采样只能认领同一份增量一次（事务 + 条件更新）。
+        #[tokio::test]
+        async fn concurrent_rounds_do_not_double_count() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let user = create_user(&pool, "alice").await;
+            let package = bind_package(&pool, &user, Some(10_000)).await;
+            let fwd = create_forward(&pool, &server, Some(&user), true, 20000).await;
+            save_counters(&pool, &server, &fwd.id, Some(100), Some(0)).await;
+
+            let now = 1_700_000_000;
+            let day = crate::time::business_date(now);
+            let (first, second) = tokio::join!(run_round(&pool, now), run_round(&pool, now));
+            let first = first.unwrap();
+            let second = second.unwrap();
+            assert_eq!(
+                first.bytes + second.bytes,
+                100,
+                "同一份 100 字节只能被认领一次：{first:?} / {second:?}"
+            );
+            assert_eq!(daily_bytes(&pool, &day, &fwd.id).await.unwrap(), 100);
+            assert_eq!(package_used(&pool, &package).await, 100);
+            assert_eq!(forward(&pool, &fwd.id).await.last_traffic_in, 100);
+
+            // 再跑一轮：没有新流量，什么都不变。
+            assert_eq!(run_round(&pool, now).await.unwrap().bytes, 0);
+            assert_eq!(daily_bytes(&pool, &day, &fwd.id).await.unwrap(), 100);
+            assert_eq!(package_used(&pool, &package).await, 100);
+        }
     }
 }
 
@@ -6520,6 +7147,7 @@ pub mod overview {
                     target_host: "1.1.1.1".into(),
                     target_port: 443,
                     enabled: true,
+                    count_traffic: false,
                     engine: "native".into(),
                     protocol: "tcp".into(),
                 },

@@ -372,19 +372,25 @@ export function useUpdateMyForward() {
   return useMutation<
     MeForward | null,
     Error,
-    { id: string; enabled: boolean },
+    { id: string; enabled?: boolean; count_traffic?: boolean },
     { previous?: MeForwardsResponse }
   >({
-    mutationFn: async ({ id, enabled }) =>
-      createdMyForward(await api.me.forwards.update(id, { enabled })),
-    onMutate: async ({ id, enabled }) => {
+    mutationFn: async ({ id, enabled, count_traffic }) =>
+      createdMyForward(await api.me.forwards.update(id, { enabled, count_traffic })),
+    onMutate: async ({ id, enabled, count_traffic }) => {
       await queryClient.cancelQueries({ queryKey });
       const previous = queryClient.getQueryData<MeForwardsResponse>(queryKey);
       if (previous) {
         queryClient.setQueryData<MeForwardsResponse>(queryKey, {
           ...previous,
           items: previous.items.map((item) =>
-            item.id === id ? { ...item, enabled } : item,
+            item.id === id
+              ? {
+                  ...item,
+                  ...(enabled !== undefined ? { enabled } : {}),
+                  ...(count_traffic !== undefined ? { count_traffic } : {}),
+                }
+              : item,
           ),
         });
       }
@@ -1155,6 +1161,9 @@ function applyForwardInput(forward: Forward, input: UpdateForwardInput): Forward
       ? { target_port: input.target_port }
       : {}),
     ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+    ...(input.count_traffic !== undefined
+      ? { count_traffic: input.count_traffic }
+      : {}),
     ...(input.engine !== undefined ? { engine: input.engine } : {}),
     // 协议是权威字段；旧的 udp 位只是镜像（both = true），与后端一致。
     ...(input.protocol !== undefined
