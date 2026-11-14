@@ -2884,7 +2884,6 @@ pub mod forwards {
     ///
     /// `target_fail_count` 是**连续** false 的计数：本轮 `Some(false)` 在上一轮
     /// 计数上 +1，其余情况（`Some(true)` / `None`）一律清零。
-
     pub async fn save_status(
         pool: &SqlitePool,
         server_id: &str,
