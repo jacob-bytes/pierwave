@@ -142,8 +142,12 @@ impl ForwardEngines {
     }
 
     /// 本机 realm 是否支持 transport（心跳上报；按二进制缓存，换二进制会重测）。
+    ///
+    /// 探测失败（超时 / 起不来 / 非零退出）是**未知**，上报 `null`：不能折叠成
+    /// `false`，否则主控会把「暂时探测不到」当成「realm 不支持 transport」，
+    /// 高负载时误伤整条加密链。
     async fn realm_transport(&mut self) -> Option<bool> {
-        self.realm.transport_capability().await
+        self.realm.transport_capability().await.as_known()
     }
 
     /// 心跳用的状态快照：两个引擎各读自己的句柄，不会互相覆盖。
@@ -1219,6 +1223,29 @@ mod tests {
         );
     }
 
+    /// 轮询到 `realm_transport()` 给出期望的确定结论（`Unknown` 返回 `None` 时重试）。
+    ///
+    /// 并发负载下新脚本的首次 exec 可能要几百 ms 到数秒；固定 sleep 会变成
+    /// 随机失败。每次探测内部有 5s 超时，这里给 30s 总预算、每 20ms 轮询。
+    #[cfg(unix)]
+    async fn wait_for_transport(
+        engines: &mut ForwardEngines,
+        expected: Option<bool>,
+    ) -> Option<bool> {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let value = engines.realm_transport().await;
+            if value == expected {
+                return value;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "realm 能力探测一直是 {value:?}（期望 {expected:?}），二进制可能一直不可执行"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
     /// 心跳里的 `realm_transport` 来自 `realm --version` 能力探测，
     /// 按二进制缓存；换掉二进制后必须重测（不能沿用 true）。
     #[cfg(unix)]
@@ -1255,7 +1282,7 @@ mod tests {
         let cfg: Config = toml::from_str(&toml).unwrap();
         let mut engines = ForwardEngines::new(&cfg);
         assert_eq!(
-            engines.realm_transport().await,
+            wait_for_transport(&mut engines, Some(true)).await,
             Some(true),
             "带 [transport] 必须上报 true"
         );
@@ -1263,7 +1290,7 @@ mod tests {
         // 运行中换成 slim/旧版：文件大小变化使缓存失效，必须变成 false。
         write("[brutal][batched-udp]");
         assert_eq!(
-            engines.realm_transport().await,
+            wait_for_transport(&mut engines, Some(false)).await,
             Some(false),
             "换二进制后不能继续沿用旧缓存"
         );
@@ -1280,6 +1307,15 @@ mod tests {
         );
         assert_eq!(hb.realm_transport, Some(false));
         assert_eq!(hb.realm_available, Some(true));
+
+        // 探测失败（非零退出）→ 未知：心跳必须是 null，不能折叠成 false。
+        std::fs::write(&script, "#!/bin/sh\nexit 1\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            engines.realm_transport().await,
+            None,
+            "探测失败必须上报 null（未知），不能谎报 false"
+        );
     }
 
     #[test]

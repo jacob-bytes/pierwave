@@ -71,15 +71,59 @@ pub const NOT_INSTALLED: &str = "realm 未安装";
 /// 或某个 endpoint 绑定失败（例如端口被别的程序抢走）。
 pub const NOT_LISTENING: &str = "realm 未监听端口";
 
-/// `realm --version` 的探测超时：版本输出应该立刻返回，卡住就按「无法判定」处理。
-const CAPABILITY_TIMEOUT: Duration = Duration::from_secs(30);
+/// `realm --version` 的探测超时。
+///
+/// 版本输出正常是毫秒级；这个值只是**防御性上限**，不是预期耗时。
+/// 实测高负载（并行跑测试、其它构建同时占 CPU、沙箱首次 exec 新脚本）时，
+/// 一次 `--version` 可能要几百毫秒到数秒，2s 会把「慢」误判成「探测失败」，
+/// 进而误伤加密链。这里留 5s 余量；即便真的超时也只算
+/// [`TransportCapability::Unknown`]，绝不会被当成「不支持」。
+const CAPABILITY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// 期望态里有 transport、但本机 realm 没有 `[transport]` feature 时的原因。
 /// 只出现在状态里，绝不渲染成「不带 transport 的明文配置」。
 pub const TRANSPORT_UNSUPPORTED: &str = "realm 不支持跳间加密（--version 未包含 [transport]）";
 
-/// 有 transport 规则但无法判定能力（二进制不可执行 / 命令失败 / 超时）。
-pub const TRANSPORT_UNKNOWN: &str = "无法判定 realm 是否支持跳间加密，已拒绝下发";
+/// 有 transport 规则但无法判定能力（二进制不可执行 / 命令失败 / 超时）时的日志前缀。
+///
+/// 这种情况**不拒绝下发**：机器高负载时探测超时 ≠ realm 缺 feature，拒绝会让
+/// 一条本来能用的加密链整条停摆。按未知处理——心跳把能力上报为 `null`（见
+/// [`TransportCapability::as_known`]），下一次探测成功后自动纠正；只有确定
+/// 「不支持」时才拒绝。
+pub const TRANSPORT_UNKNOWN: &str = "无法判定 realm 是否支持跳间加密";
+
+/// 本机 realm 的 `[transport]` 能力：三态。
+///
+/// 必须区分「确定不支持」与「探测失败」：把两者折叠成一个布尔值会在高负载
+/// 机器上把探测超时当成「realm 不支持 transport」，整条加密链被拒绝下发。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TransportCapability {
+    /// `--version` 输出含 `[transport]`。
+    Supported,
+    /// `--version` 正常退出，但输出不含 `[transport]`（slim/旧版 realm）。
+    Unsupported,
+    /// 无法判定：超时 / spawn 失败 / 非零退出。附可读原因（进日志）。
+    Unknown(String),
+}
+
+impl TransportCapability {
+    fn from_known(supported: bool) -> Self {
+        if supported {
+            Self::Supported
+        } else {
+            Self::Unsupported
+        }
+    }
+
+    /// 确定的能力值；`Unknown` → `None`（心跳字段可空，主控按「未知」显示）。
+    pub fn as_known(&self) -> Option<bool> {
+        match self {
+            Self::Supported => Some(true),
+            Self::Unsupported => Some(false),
+            Self::Unknown(_) => None,
+        }
+    }
+}
 
 /// 停止子进程时等待它退出的上限；超时就 abort（`kill_on_drop` 兜底杀掉）。
 const STOP_TIMEOUT: Duration = Duration::from_secs(5);
@@ -270,8 +314,10 @@ pub struct RealmSupervisor {
     log_level: String,
     /// 最近一次套用的 realm 规则（已排序，状态顺序与之对应）。
     rules: Vec<DesiredForward>,
-    /// `realm --version` 能力缓存：按二进制 `(size, mtime)` 失效。
+    /// `realm --version` 能力缓存：只保存**确定**结论，按二进制 `(size, mtime)` 失效。
     transport: Option<(BinaryStamp, bool)>,
+    /// 已经写进日志的 `Unknown` 原因：避免每个心跳周期刷同一条警告。
+    transport_unknown: Option<String>,
     /// 已落盘配置的内容哈希；`None` = 还没写过 / 上一轮已清空。
     content_hash: Option<u64>,
     process: Option<RunningRealm>,
@@ -300,6 +346,7 @@ impl RealmSupervisor {
             log_level: "warn".to_string(),
             rules: Vec::new(),
             transport: None,
+            transport_unknown: None,
             content_hash: None,
             process: None,
             probe: None,
@@ -321,17 +368,56 @@ impl RealmSupervisor {
     /// 本机 realm 是否支持 transport（`realm --version` 含 `[transport]`）。
     ///
     /// 缓存按二进制 `(size, mtime)` 失效：运行中换掉二进制后不会继续沿用 true。
-    /// `None` = 不存在 / 不可执行 / 命令失败，**不缓存**，下一轮心跳重试。
-    pub async fn transport_capability(&mut self) -> Option<bool> {
-        let stamp = binary_stamp(&self.bin)?;
+    /// 只有**确定**结论才写缓存：`Unknown` 不缓存（下一轮心跳重试），也不覆盖
+    /// 之前已知的结论。
+    pub async fn transport_capability(&mut self) -> TransportCapability {
+        let Some(stamp) = binary_stamp(&self.bin) else {
+            return self.unknown_transport(format!("realm 二进制不可用: {}", self.bin.display()));
+        };
         if let Some((cached, value)) = &self.transport {
             if *cached == stamp {
-                return Some(*value);
+                return TransportCapability::from_known(*value);
             }
         }
-        let value = detect_transport(&self.bin).await?;
-        self.transport = Some((stamp, value));
-        Some(value)
+        match detect_transport(&self.bin, CAPABILITY_TIMEOUT).await {
+            TransportCapability::Unknown(reason) => self.unknown_transport(reason),
+            known => {
+                if self.transport_unknown.take().is_some() {
+                    tracing::info!(
+                        bin = %self.bin.display(),
+                        ?known,
+                        "realm 能力探测恢复（上一轮无法判定，已纠正）"
+                    );
+                }
+                self.transport = Some((stamp, known == TransportCapability::Supported));
+                known
+            }
+        }
+    }
+
+    /// 记录一次「无法判定」：只在原因变化时打一条警告，避免每个心跳刷屏。
+    fn unknown_transport(&mut self, reason: String) -> TransportCapability {
+        if self.transport_unknown.as_deref() != Some(reason.as_str()) {
+            tracing::warn!(
+                bin = %self.bin.display(),
+                %reason,
+                "{TRANSPORT_UNKNOWN}；按未知处理：本轮不拒绝下发，心跳上报 null，下一次探测成功后自动纠正"
+            );
+            self.transport_unknown = Some(reason.clone());
+        }
+        TransportCapability::Unknown(reason)
+    }
+
+    /// 能力门禁：`Err` = 必须整轮拒绝（只发生在**确定**不支持时）。
+    ///
+    /// `Unknown` 一律放行：高负载下探测超时不能等同于「realm 不支持」，
+    /// 否则加密链会被无故拒绝。原因已在 [`Self::transport_capability`] 里
+    /// 写进日志，心跳侧把它上报为 `null`。
+    async fn transport_gate(&mut self) -> Result<(), &'static str> {
+        match self.transport_capability().await {
+            TransportCapability::Supported | TransportCapability::Unknown(_) => Ok(()),
+            TransportCapability::Unsupported => Err(TRANSPORT_UNSUPPORTED),
+        }
     }
 
     /// 收敛到期望列表。非 realm 规则会被忽略（分流在调用方做，这里防御一次）。
@@ -378,26 +464,20 @@ impl RealmSupervisor {
 
         // 能力门禁（防静默明文）：期望态里出现 transport 时，本机 realm 必须
         // 自带 `transport` feature。旧 Agent 会忽略字段、slim realm 会静默忽略
-        // transport，两者都会得到「面板说加密、实际明文」——这里宁可整轮拒绝，
-        // 也绝不渲染一份不带 transport 的明文配置。
+        // transport，两者都会得到「面板说加密、实际明文」——确定不支持时宁可
+        // 整轮拒绝，也绝不渲染一份不带 transport 的明文配置。
+        // 探测失败（Unknown）不拒绝：见 `transport_gate` / `unknown_transport`。
         if self.has_transport_rules() {
-            match self.transport_capability().await {
-                Some(true) => {}
-                capability => {
-                    let reason = match capability {
-                        Some(false) => TRANSPORT_UNSUPPORTED,
-                        _ => TRANSPORT_UNKNOWN,
-                    };
-                    tracing::error!(
-                        bin = %self.bin.display(),
-                        ?capability,
-                        "本机 realm 不支持跳间加密，已拒绝下发（不会回退明文）"
-                    );
-                    self.stop("realm 不支持 transport").await;
-                    self.content_hash = None;
-                    self.status.store(self.inactive_statuses(reason));
-                    return;
-                }
+            if let Err(reason) = self.transport_gate().await {
+                tracing::error!(
+                    bin = %self.bin.display(),
+                    reason,
+                    "本机 realm 不支持跳间加密，已拒绝下发（不会回退明文）"
+                );
+                self.stop("realm 不支持 transport").await;
+                self.content_hash = None;
+                self.status.store(self.inactive_statuses(reason));
+                return;
             }
         }
 
@@ -464,10 +544,31 @@ impl RealmSupervisor {
     ///
     /// 直播路径的 `apply` 只在主控下发期望态时才会被调用；realm 崩溃后如果
     /// 一直等下一次期望态，转发会静默停摆到下次 apply。心跳周期调用这里，
-    /// 最多一个心跳周期就自愈。配置没变且进程还活着时**什么都不做**
-    /// （不重写文件、不重启、不重新探测），因此可以安全地高频调用。
+    /// 最多一个心跳周期就自愈。配置没变且进程还活着时**不重写文件、不重启**
+    /// （能力探测走缓存，成本只有一次 `stat`），因此可以安全地高频调用。
+    /// 唯一的例外是能力从 `Unknown` 变成确定「不支持」：这时会主动停进程并上报。
     pub async fn ensure_running(&mut self) {
-        if self.rules.is_empty() || self.process_alive() {
+        if self.rules.is_empty() {
+            return;
+        }
+        // 能力核对放在最前面：上一轮 `Unknown` 时放行的配置，如果这一轮探测
+        // 确定「不支持」，必须停掉还在跑的进程并如实上报——不能让它继续以
+        // 明文形态跑着。确定结论按二进制缓存，进程活着时这里的成本只是一次
+        // `stat`；`Unknown` 不会停进程、也不会拒绝（原因已写日志）。
+        if self.has_transport_rules() && self.content_hash.is_some() {
+            if let Err(reason) = self.transport_gate().await {
+                tracing::error!(
+                    bin = %self.bin.display(),
+                    reason,
+                    "realm 能力已确认不支持 transport，停止进程并拒绝下发"
+                );
+                self.stop("realm 不支持 transport").await;
+                self.content_hash = None;
+                self.status.store(self.inactive_statuses(reason));
+                return;
+            }
+        }
+        if self.process_alive() {
             return;
         }
         // 还没成功写过配置（没装 realm / 写入失败）时不重试：原因已经写在
@@ -485,22 +586,6 @@ impl RealmSupervisor {
             // 存在但没有执行位：上一次 apply 已经把「启动失败」写进状态。
             // 这里不反复 spawn（会每 15 秒刷一行日志），等文件被修好再自愈。
             return;
-        }
-        // 运行中二进制被换成了 slim/旧版：即使旧配置还躺在磁盘上，也绝不能
-        // 重新拉起——realm 会静默忽略 transport，直接变成明文。
-        if self.has_transport_rules() {
-            match self.transport_capability().await {
-                Some(true) => {}
-                capability => {
-                    let reason = match capability {
-                        Some(false) => TRANSPORT_UNSUPPORTED,
-                        _ => TRANSPORT_UNKNOWN,
-                    };
-                    self.stop_probe();
-                    self.status.store(self.inactive_statuses(reason));
-                    return;
-                }
-            }
         }
         tracing::warn!(
             rules = self.rules.len(),
@@ -1165,32 +1250,59 @@ fn binary_stamp(path: &Path) -> Option<BinaryStamp> {
     })
 }
 
-/// 跑一次 `realm --version`，看输出是否包含 `[transport]`。
+/// 跑一次 `realm --version`，三态判定 transport 能力。
 ///
-/// 超时/启动失败/非零退出都返回 `None`（未知，按不支持处理），不缓存。
-async fn detect_transport(bin: &Path) -> Option<bool> {
+/// 只有**正常退出**的进程才能给出「不支持」的结论。超时 / 起不来 / 非零
+/// 退出一律是 [`TransportCapability::Unknown`] 并带上可读原因——绝不折叠成
+/// 「不支持」，否则机器负载高时会把一条本来能用的加密链整条拒掉。
+///
+/// `timeout` 由调用方传入（生产用 [`CAPABILITY_TIMEOUT`]，测试可注入短预算）。
+async fn detect_transport(bin: &Path, timeout: Duration) -> TransportCapability {
     let mut command = tokio::process::Command::new(bin);
     command
         .arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let started = Instant::now();
-    let output = match tokio::time::timeout(CAPABILITY_TIMEOUT, command.output()).await {
-        Err(_) => { eprintln!("DIAG detect {bin:?}: timeout after {:?}", started.elapsed()); return None; }
-        Ok(Err(e)) => { eprintln!("DIAG detect {bin:?}: spawn error {e:?}"); return None; }
-        Ok(Ok(o)) => {
-            eprintln!("DIAG detect {bin:?}: ok in {:?}", started.elapsed());
-            if !o.status.success() {
-                eprintln!("DIAG detect {bin:?}: status {:?} stderr={:?}", o.status, String::from_utf8_lossy(&o.stderr));
-                return None;
-            }
-            o
+        .stderr(Stdio::piped())
+        // 超时后 child 随 future 一起被丢弃；kill_on_drop 保证不会留下
+        // 一个卡死的 `realm --version` 进程。
+        .kill_on_drop(true);
+    let output = match tokio::time::timeout(timeout, command.output()).await {
+        Ok(Ok(output)) => output,
+        Ok(Err(error)) => {
+            return TransportCapability::Unknown(format!(
+                "无法执行 {} --version: {error}",
+                bin.display()
+            ));
+        }
+        Err(_) => {
+            return TransportCapability::Unknown(format!(
+                "{} --version 超时（上限 {timeout:?}）",
+                bin.display()
+            ));
         }
     };
+    if !output.status.success() {
+        let status = match output.status.code() {
+            Some(code) => format!("退出码 {code}"),
+            None => "被信号终止".to_string(),
+        };
+        // stderr 摘要：realm 起不来时通常在这里给出原因（缺动态库/权限等）。
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = stderr.trim().lines().next().unwrap_or_default();
+        return TransportCapability::Unknown(if detail.is_empty() {
+            format!("{} --version {status}", bin.display())
+        } else {
+            format!("{} --version {status}: {detail}", bin.display())
+        });
+    }
     let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
     text.push_str(&String::from_utf8_lossy(&output.stderr));
-    Some(text.contains("[transport]"))
+    if text.contains("[transport]") {
+        TransportCapability::Supported
+    } else {
+        TransportCapability::Unsupported
+    }
 }
 
 /// 探测用的下一跳列表：与 `rule_targets` 相同的顺序，额外带上 server_id。
@@ -1785,6 +1897,12 @@ mod tests {
         let (tls_port, tls_task) = spawn_self_signed_server(TEST_CERT_PEM, TEST_KEY_PEM).await;
 
         let mut supervisor = RealmSupervisor::new(&script, dir.path(), "127.0.0.1");
+        // 先把脚本的首次 exec 预热掉：否则环境抖动可能让能力探测超时（Unknown），
+        // 本轮就会按未知放行而不是走 Supported 路径，测的就不是本用例了。
+        assert_eq!(
+            wait_for_capability(&script).await,
+            TransportCapability::Supported
+        );
         let mut encrypted = realm_rule("chain-c1-1", 39122, &[("127.0.0.1", i64::from(tls_port))]);
         encrypted.remote_transport = Some("tls;sni=example.com".into());
         encrypted.disable_udp = true;
@@ -1794,9 +1912,9 @@ mod tests {
                 encrypted,
             ])
             .await;
-        wait_for_launches(&counter, 1).await;
+        wait_for_realm_ready(dir.path(), 1).await;
 
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
         loop {
             let statuses = supervisor.status_handle().snapshot();
             let plain = statuses.iter().find(|status| status.id == "chain-c1-0");
@@ -1839,33 +1957,26 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn tls_probe_reports_unknown_issuer_for_self_signed_next_hop() {
-        use std::os::unix::fs::PermissionsExt;
-
         use crate::tls_probe::tests::{spawn_self_signed_server, TEST_CERT_PEM, TEST_KEY_PEM};
 
         let (port, server_task) = spawn_self_signed_server(TEST_CERT_PEM, TEST_KEY_PEM).await;
         let dir = TempDir::new();
         let counter = dir.path().join("launches");
-        let script = dir.path().join("realm");
         // 带 --version 分支：否则能力门禁会判定「不支持 transport」而整轮拒绝。
-        std::fs::write(
-            &script,
-            format!(
-                "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo '2.9.6 [transport]'; exit 0; fi\necho x >> \"{}\"\nsleep 30\n",
-                counter.display()
-            ),
-        )
-        .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let script = fake_realm(dir.path(), "2.9.6 [transport]", Some(&counter));
 
         let mut supervisor = RealmSupervisor::new(&script, dir.path(), "127.0.0.1");
+        assert_eq!(
+            wait_for_capability(&script).await,
+            TransportCapability::Supported
+        );
         let mut rule = realm_rule("chain-c1-0", 39121, &[("127.0.0.1", i64::from(port))]);
         rule.remote_transport = Some("tls;sni=example.com".into());
         rule.disable_udp = true;
         supervisor.apply(std::slice::from_ref(&rule)).await;
-        wait_for_launches(&counter, 1).await;
+        wait_for_realm_ready(dir.path(), 1).await;
 
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
         loop {
             let statuses = supervisor.status_handle().snapshot();
             if statuses
@@ -2047,8 +2158,9 @@ mod tests {
         wait_for_launches(&counter, 1).await;
 
         // 同一份规则重复下发：不重启（哈希相同）。
+        // 这里是**反向断言**（确认没发生），只能用一个短的稳定窗口等脚本落计数。
         supervisor.apply(std::slice::from_ref(&rule)).await;
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
         assert_eq!(count_launches(&counter), 1, "内容哈希相同不能重启子进程");
 
         // 规则变化（换端口）：重启一次。
@@ -2082,7 +2194,8 @@ mod tests {
             .await;
 
         // spawn 后 150ms 宽限里脚本已经退出；状态由监视任务写入。
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        // 并发负载下进程调度会慢，轮询 15s（每 20ms 一次），不靠固定 sleep。
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
         loop {
             let statuses = supervisor.status_handle().snapshot();
             if statuses
@@ -2100,20 +2213,58 @@ mod tests {
         }
     }
 
+    /// 等待某个启动观测文件达到 `expected` 行；每 10ms 轮询，不用固定 sleep。
+    ///
+    /// 并发跑测试时新建脚本的首次 exec 会被沙箱扫描/进程调度拖慢（实测几百 ms
+    /// 到数秒），固定 sleep 会随机器负载变成随机失败；这里给 15s 余量。
     #[cfg(unix)]
-    async fn wait_for_launches(path: &Path, expected: usize) {
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    async fn wait_for_lines(path: &Path, expected: usize, what: &str) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
         loop {
-            if count_launches(path) >= expected {
+            let actual = count_launches(path);
+            if actual >= expected {
                 return;
             }
             assert!(
                 std::time::Instant::now() < deadline,
-                "等待假 realm 启动 {expected} 次超时（实际 {}）",
-                count_launches(path)
+                "等待{what} {expected} 次超时（实际 {actual}，观测文件 {}）",
+                path.display()
             );
-            tokio::time::sleep(Duration::from_millis(20)).await;
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
+    }
+
+    #[cfg(unix)]
+    async fn wait_for_launches(path: &Path, expected: usize) {
+        wait_for_lines(path, expected, "假 realm 启动").await;
+    }
+
+    /// 等假 realm 的 `--version` 真的能跑通（返回 `Unknown` 就重试）。
+    ///
+    /// 把「新脚本首次 exec 慢」从被测逻辑里剔除：supervisor 自己有 5s 超时 +
+    /// 三态兜底，但测试不该因为环境抖动把 Supported 判成 Unknown 而误测。
+    /// 每次尝试给 10s 预算，总预算 30s；返回最后一次的确定结论。
+    #[cfg(unix)]
+    async fn wait_for_capability(script: &Path) -> TransportCapability {
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            match detect_transport(script, Duration::from_secs(10)).await {
+                TransportCapability::Unknown(reason) => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "假 realm 的 --version 一直无法执行：{reason}"
+                    );
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                known => return known,
+            }
+        }
+    }
+
+    /// 等假 realm 真正启动（脚本启动后写 `realm-ready`），替代固定 sleep。
+    #[cfg(unix)]
+    async fn wait_for_realm_ready(dir: &Path, expected: usize) {
+        wait_for_lines(&dir.join("realm-ready"), expected, "假 realm ready").await;
     }
 
     #[cfg(unix)]
@@ -2184,7 +2335,7 @@ mod tests {
         wait_for_launches(&counter, 1).await;
 
         // 等监视任务把进程标记为已退出（状态里应能看到退出码）。
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
         while supervisor.process_alive() {
             assert!(std::time::Instant::now() < deadline, "等待 realm 退出超时");
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -2363,18 +2514,24 @@ remote = \"10.0.0.2:443\"\n";
         );
     }
 
+    /// 假 realm：`--version` 打印指定 feature 列表；正常启动先写观测文件再睡。
+    ///
+    /// 启动时先往 `realm-ready` 追加一行 pid：测试轮询它确认脚本真的起来了，
+    /// 而不是靠固定 sleep 猜启动时序。`counter`（可选）继续用于精确计数。
     #[cfg(unix)]
     fn fake_realm(dir: &Path, version: &str, counter: Option<&Path>) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
 
         let script = dir.join("realm");
+        let ready = dir.join("realm-ready");
         let count = counter
             .map(|path| format!("echo x >> \"{}\"\n", path.display()))
             .unwrap_or_default();
         std::fs::write(
             &script,
             format!(
-                "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"{version}\"\n  exit 0\nfi\n{count}sleep 30\n"
+                "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  echo \"{version}\"\n  exit 0\nfi\nprintf '%s\\n' \"$$\" >> \"{}\"\n{count}sleep 30\n",
+                ready.display()
             ),
         )
         .unwrap();
@@ -2382,36 +2539,185 @@ remote = \"10.0.0.2:443\"\n";
         script
     }
 
-    /// `realm --version` 的输出决定能力：含 `[transport]` 才是 true。
+    /// `realm --version` 的输出决定能力：含 `[transport]` 才是 Supported。
     #[cfg(unix)]
     #[tokio::test]
     async fn capability_probe_reads_the_transport_feature() {
         let dir = TempDir::new();
         let with = fake_realm(dir.path(), "2.9.6 [brutal][transport]", None);
-        assert_eq!(detect_transport(&with).await, Some(true));
+        assert_eq!(
+            wait_for_capability(&with).await,
+            TransportCapability::Supported,
+            "带 [transport] = Supported"
+        );
 
         let without = fake_realm(dir.path(), "2.9.6 [brutal][batched-udp]", None);
-        assert_eq!(detect_transport(&without).await, Some(false));
-
         assert_eq!(
-            detect_transport(&dir.path().join("no-such-realm")).await,
-            None,
+            wait_for_capability(&without).await,
+            TransportCapability::Unsupported,
+            "正常退出但输出不含 [transport] = Unsupported"
+        );
+
+        let missing = dir.path().join("no-such-realm");
+        assert!(
+            matches!(
+                detect_transport(&missing, Duration::from_secs(5)).await,
+                TransportCapability::Unknown(_)
+            ),
             "不存在 = 未知，不能当成支持"
         );
 
-        // 换二进制后缓存必须失效：同一个路径先 false 后 true。
+        // 换二进制后缓存必须失效：同一个路径先 Unsupported 后 Supported。
         let mut supervisor = RealmSupervisor::new(&without, dir.path(), "127.0.0.1");
-        assert_eq!(supervisor.transport_capability().await, Some(false));
+        assert_eq!(
+            supervisor.transport_capability().await,
+            TransportCapability::Unsupported
+        );
         fake_realm(
             dir.path(),
             "2.9.6 [brutal][transport]  # 更长的一行用于改变文件大小",
             None,
         );
         assert_eq!(
+            wait_for_capability(&without).await,
+            TransportCapability::Supported,
+            "换过的二进制本身要能探测到新结论"
+        );
+        assert_eq!(
             supervisor.transport_capability().await,
-            Some(true),
+            TransportCapability::Supported,
             "运行中换掉二进制后不能沿用旧缓存"
         );
+    }
+
+    /// 探测超时必须是 `Unknown`，不能折叠成「不支持」。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn capability_probe_timeout_is_unknown() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new();
+        let script = dir.path().join("realm");
+        // `--version` 永远不返回：模拟卡住的二进制。
+        std::fs::write(&script, "#!/bin/sh\nsleep 30\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        match detect_transport(&script, Duration::from_millis(300)).await {
+            TransportCapability::Unknown(reason) => {
+                assert!(reason.contains("超时"), "原因必须说明超时：{reason}");
+            }
+            other => panic!("超时必须映射成 Unknown：{other:?}"),
+        }
+    }
+
+    /// 非零退出是 `Unknown`（带退出码与 stderr 摘要），不是「不支持」。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn capability_probe_non_zero_exit_is_unknown() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new();
+        let script = dir.path().join("realm");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\necho 'cannot run: missing lib' >&2\nexit 3\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        match detect_transport(&script, Duration::from_secs(30)).await {
+            TransportCapability::Unknown(reason) => {
+                assert!(reason.contains("退出码 3"), "{reason}");
+                assert!(
+                    reason.contains("missing lib"),
+                    "stderr 摘要要带进原因：{reason}"
+                );
+            }
+            other => panic!("非零退出必须映射成 Unknown：{other:?}"),
+        }
+    }
+
+    /// spawn 失败（文件存在但不可执行）是 `Unknown`，不是「不支持」。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn capability_probe_spawn_failure_is_unknown() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new();
+        let script = dir.path().join("realm");
+        std::fs::write(&script, "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        match detect_transport(&script, Duration::from_secs(30)).await {
+            TransportCapability::Unknown(reason) => {
+                assert!(reason.contains("无法执行"), "原因必须说明起不来：{reason}");
+            }
+            other => panic!("起不来必须映射成 Unknown：{other:?}"),
+        }
+    }
+
+    /// 探测超时不能缩回「2 秒级」：并行负载下 2s 会把慢当成失败（线上 bug 的根因）。
+    #[test]
+    fn capability_timeout_leaves_room_for_loaded_hosts() {
+        assert!(
+            CAPABILITY_TIMEOUT >= Duration::from_secs(5),
+            "探测超时至少 5s，否则高负载下会把「慢」误判成「不支持」"
+        );
+    }
+
+    /// `Unknown` **不能**当成 Unsupported 拒绝下发：探测失败时按未知处理，
+    /// 配置照样落盘（带 transport），心跳把能力上报为 null 而不是 false。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unknown_capability_does_not_refuse_transport_config() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new();
+        let counter = dir.path().join("launches");
+        let script = dir.path().join("realm");
+        // `--version` 直接退出 1（探测失败）；正常启动照常计数并睡。
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then\n  exit 1\nfi\necho x >> \"{}\"\nsleep 30\n",
+                counter.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut supervisor = RealmSupervisor::new(&script, dir.path(), "127.0.0.1");
+        assert!(
+            matches!(
+                supervisor.transport_capability().await,
+                TransportCapability::Unknown(_)
+            ),
+            "非零退出必须先在心跳侧表现为未知"
+        );
+
+        supervisor
+            .apply(&[transport_rule("chain-c1-1", 30002)])
+            .await;
+        wait_for_launches(&counter, 1).await;
+
+        assert!(
+            dir.path().join(CONFIG_FILE_NAME).exists(),
+            "Unknown 不能拒绝落盘：拒绝下发才是 bug"
+        );
+        assert!(supervisor.process_alive(), "Unknown 放行后应正常拉起 realm");
+        let statuses = supervisor.status_handle().snapshot();
+        assert_eq!(statuses.len(), 1);
+        assert_ne!(
+            statuses[0].error, TRANSPORT_UNSUPPORTED,
+            "探测失败 ≠ 确定不支持，状态不能那么写"
+        );
+        assert_eq!(
+            supervisor.transport_capability().await.as_known(),
+            None,
+            "心跳必须上报「未知」（null），不能谎报 false"
+        );
+
+        supervisor.apply(&[]).await;
     }
 
     /// 核心防御：realm 不支持 transport 时，收到 transport 规则必须报错，
@@ -2423,6 +2729,11 @@ remote = \"10.0.0.2:443\"\n";
         let counter = dir.path().join("launches");
         let script = fake_realm(dir.path(), "2.9.6 [brutal][batched-udp]", Some(&counter));
         let mut supervisor = RealmSupervisor::new(&script, dir.path(), "127.0.0.1");
+        // 预热脚本的首次 exec，确保这里测的是「确定不支持」，不是环境抖动。
+        assert_eq!(
+            wait_for_capability(&script).await,
+            TransportCapability::Unsupported
+        );
 
         supervisor
             .apply(&[transport_rule("chain-c1-1", 30002)])
@@ -2455,11 +2766,15 @@ remote = \"10.0.0.2:443\"\n";
             Some(&counter),
         );
         let mut supervisor = RealmSupervisor::new(&script, dir.path(), "127.0.0.1");
+        assert_eq!(
+            wait_for_capability(&script).await,
+            TransportCapability::Supported
+        );
 
         supervisor
             .apply(&[transport_rule("chain-c1-1", 30002)])
             .await;
-        wait_for_launches(&counter, 1).await;
+        wait_for_realm_ready(dir.path(), 1).await;
 
         let toml = std::fs::read_to_string(dir.path().join(CONFIG_FILE_NAME)).unwrap();
         assert!(
@@ -2471,7 +2786,10 @@ remote = \"10.0.0.2:443\"\n";
             "{toml}"
         );
         assert!(toml.contains("network = { use_udp = false }"), "{toml}");
-        assert_eq!(supervisor.transport_capability().await, Some(true));
+        assert_eq!(
+            supervisor.transport_capability().await,
+            TransportCapability::Supported
+        );
         assert!(supervisor.process_alive());
 
         supervisor.apply(&[]).await;
