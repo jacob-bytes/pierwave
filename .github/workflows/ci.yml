@@ -4,14 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-  # 手动触发：目前只用于跑 flaky 基线（连跑 N 次测试）。
-  # 不放进 push，因为 10 次全量测试会把每次提交的反馈时间拉长到不可接受。
-  workflow_dispatch:
-    inputs:
-      flaky_runs:
-        description: "flaky 基线：连跑 cargo test --workspace 的次数"
-        required: false
-        default: "10"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -23,11 +15,8 @@ env:
   NPM_CONFIG_CACHE: ${{ github.workspace }}/.npm-cache
 
 jobs:
-  # Rust 侧：格式 / clippy / 单元测试 / 安装脚本自测。
-  # 与 web 拆成两个 job，让前端构建和 Rust 测试在不同 runner 上并行，
-  # 墙钟时间从「两者相加」变成「取较大者」。
-  rust:
-    name: fmt + clippy + test
+  check:
+    name: fmt + clippy + test + web build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +24,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -44,6 +37,16 @@ jobs:
             target
           key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: cargo-${{ runner.os }}-
+
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: .npm-cache
+          key: npm-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
+      - name: Frontend deps
+        run: make web-install
 
       # 拆成独立 step：CI 上失败时能一眼看出是哪一环，不用翻日志
       - name: Format
@@ -95,28 +98,6 @@ jobs:
       - name: Installer self-test
         run: make test-install
 
-  # 前端：只依赖 node_modules，不依赖 cargo。
-  # 与 rust job 并行，谁慢谁决定墙钟时间。
-  web:
-    name: web test + build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Cache npm
-        uses: actions/cache@v4
-        with:
-          path: .npm-cache
-          key: npm-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
-          restore-keys: npm-${{ runner.os }}-
-
-      - name: Frontend deps
-        run: make web-install
-
       - name: Web tests
         run: make web-test
 
@@ -159,56 +140,3 @@ jobs:
             [ -n "$line" ] && echo "::error::$line"
           done < failures.txt
           exit 0
-
-  # 手动触发的 flaky 基线：同一份代码连跑 N 次，任何一次失败都说明有竞态。
-  # 只在 workflow_dispatch 时运行，push / PR 不受影响。
-  flaky:
-    name: flaky baseline (manual)
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    env:
-      FLAKY_RUNS: ${{ github.event.inputs.flaky_runs || '10' }}
-      # 固定日志目录，失败时才能作为 artifact 上传
-      FLAKY_WORK: ${{ runner.temp }}/flaky-logs
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            .cargo-home
-            target
-          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-${{ runner.os }}-
-
-      - name: Flaky baseline
-        run: |
-          set -o pipefail
-          ./scripts/flaky-baseline.sh 2>&1 | tee /tmp/flaky.log
-
-      # 汇总表本身就在日志里；这里把失败行打成 annotation，不用点开日志也能看到。
-      - name: Flaky errors as annotations
-        if: failure()
-        run: |
-          {
-            echo "### flaky 基线失败"
-            echo '```'
-            tail -n 20 /tmp/flaky.log
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          grep -E "^(FAIL|汇总)" /tmp/flaky.log | head -5 | while IFS= read -r line; do
-            echo "::error::$line"
-          done
-          exit 0
-
-      - name: Upload flaky logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: flaky-logs
-          path: ${{ runner.temp }}/flaky-logs
-          if-no-files-found: warn
