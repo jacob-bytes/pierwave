@@ -100,6 +100,50 @@ pub async fn list(
     Ok(Json(json!({ "items": items })))
 }
 
+/// 超额用户数预检：概览「批量停用」对话框第一步展示影响范围。
+pub async fn count_over_quota_users(
+    State(state): State<AppState>,
+    user: CurrentUser,
+) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+    let count = repo::users::count_over_quota(&state.db.pool, repo::now()).await?;
+    Ok(Json(json!({ "count": count })))
+}
+
+/// 把所有当前超额的用户标记为 `disabled`。
+///
+/// 停用复用现有 `users.status` 语义：`authorization::eligible_pairs` 只注入
+/// `status = 'active'` 的用户，因此状态落库后同一条期望态渲染 / 下发路径就会
+/// 把这些账号的节点凭据移除（与手动停用用户完全一致，没有第二套撤销机制）。
+/// 批量场景统一用 `mark_all_servers_dirty` 触发一次去抖 apply。
+pub async fn batch_disable_over_quota_users(
+    State(state): State<AppState>,
+    user: CurrentUser,
+) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+
+    let disabled = repo::users::disable_over_quota(&state.db.pool, repo::now()).await?;
+
+    // 有账号被停用才需要重新渲染；失败只记日志，5 分钟对账仍会兜底。
+    if disabled > 0 {
+        if let Err(error) = crate::enforcement::mark_all_servers_dirty(&state).await {
+            tracing::error!(disabled, error = %error, "批量停用超额用户后标记期望态失败");
+        }
+    }
+
+    // detail 只留数量与判定阈值：不写用户名 / 用户 id。
+    crate::audit::record(
+        &state,
+        &user.0,
+        "user.bulk_disable_over_quota",
+        "users",
+        json!({ "disabled": disabled, "threshold": "used_bytes >= quota_bytes" }),
+    )
+    .await;
+
+    Ok(Json(json!({ "disabled": disabled })))
+}
+
 #[derive(Deserialize)]
 pub struct CreateUser {
     pub username: String,
@@ -1767,6 +1811,294 @@ mod tests {
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(body["error"], "权限不足");
     }
+
+    /// 批量停用超额用户：只动「仍超额且未停用」的账号，过期实例不算超额。
+    #[tokio::test]
+    async fn batch_disable_over_quota_only_disables_still_exceeded_users() {
+        let (app, state, admin) = setup().await;
+        let package_id = seed_package(&state, "月卡").await; // 额度 1000
+        let now = repo::now();
+        let tomorrow = now + 86_400;
+
+        // 实例用满（active、未过期）→ 停用。
+        let alice = seed_user(&state, "alice").await;
+        let alice_pkg = bind_instance(&state, &alice, &package_id, Some(tomorrow)).await;
+        repo::user_packages::set_used_bytes(&state.db.pool, &alice_pkg, 1000)
+            .await
+            .unwrap();
+
+        // 账户总额度用满（没有套餐实例）→ 停用。
+        let bob = seed_user(&state, "bob").await;
+        repo::users::update(
+            &state.db.pool,
+            &bob,
+            repo::users::UpdateUser {
+                quota_bytes: Patch::Value(500),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        repo::users::add_used_bytes(&state.db.pool, &bob, 500)
+            .await
+            .unwrap();
+
+        // 未用满 → 不动。
+        let carol = seed_user(&state, "carol").await;
+        let carol_pkg = bind_instance(&state, &carol, &package_id, Some(tomorrow)).await;
+        repo::user_packages::set_used_bytes(&state.db.pool, &carol_pkg, 999)
+            .await
+            .unwrap();
+
+        // 实例已过期但用满：属于 expired，不是超额 → 不动。
+        let erin = seed_user(&state, "erin").await;
+        let erin_pkg = bind_instance(&state, &erin, &package_id, Some(now - 3600)).await;
+        repo::user_packages::set_used_bytes(&state.db.pool, &erin_pkg, 1000)
+            .await
+            .unwrap();
+
+        // 已经停用的超额账号：保留原状，且不计入本次返回数量。
+        let dave = seed_user(&state, "dave").await;
+        let dave_pkg = bind_instance(&state, &dave, &package_id, Some(tomorrow)).await;
+        repo::user_packages::set_used_bytes(&state.db.pool, &dave_pkg, 1000)
+            .await
+            .unwrap();
+        repo::users::update(
+            &state.db.pool,
+            &dave,
+            repo::users::UpdateUser {
+                status: Some("disabled".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        // 有启用节点时，停用必须让凭据从授权集合里消失（与手动停用同一路径）。
+        let (server, _) = repo::servers::create(&state.db.pool, "hk", "1.2.3.4", "external")
+            .await
+            .unwrap();
+        repo::nodes::create(
+            &state.db.pool,
+            &server.id,
+            repo::nodes::NewNode {
+                tag: Some("hk-1".into()),
+                name: "hk-1".into(),
+                protocol: "vless".into(),
+                transport: "tcp".into(),
+                security: "none".into(),
+                port: 443,
+                public_port: None,
+                config_json: "{}".into(),
+                enabled: true,
+                cert_id: None,
+                bandwidth_kbps: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let pairs = repo::authorization::eligible_pairs(&state.db.pool, &server.id)
+            .await
+            .unwrap();
+        // 超额本身已经让 alice 从授权集合里消失（额度判定先于状态），停用是
+        // 把这个结果固定下来：之后即使管理员加额度也不会自动恢复。
+        assert!(
+            !pairs.iter().any(|pair| pair.user_id == alice),
+            "超额用户不应还在授权集合里"
+        );
+        assert!(
+            pairs.iter().any(|pair| pair.user_id == carol),
+            "未超额用户应有授权"
+        );
+
+        // 预检数量：alice + bob；已停用 / 已过期 / 未用满都不算。
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::GET,
+            "/api/v1/users/over-quota/count",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["count"], 2);
+
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::POST,
+            "/api/v1/users/batch-disable-over-quota",
+            Some(json!({})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["disabled"], 2);
+
+        let status_of = |id: &str| {
+            let pool = state.db.pool.clone();
+            let id = id.to_string();
+            async move { repo::users::find_by_id(&pool, &id).await.unwrap().status }
+        };
+        assert_eq!(status_of(&alice).await, "disabled");
+        assert_eq!(status_of(&bob).await, "disabled");
+        assert_eq!(status_of(&carol).await, "active", "未超额不能停用");
+        assert_eq!(status_of(&erin).await, "active", "过期实例不算超额");
+        assert_eq!(status_of(&dave).await, "disabled");
+
+        // 停用后授权集合里只剩未超额的 carol：节点凭据随之失效。
+        let pairs = repo::authorization::eligible_pairs(&state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert!(
+            !pairs.iter().any(|pair| pair.user_id == alice),
+            "停用后 alice 不能继续出现在授权集合里"
+        );
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].user_id, carol);
+
+        // 审计：动作用例固定，detail 只有数量和阈值，不含任何用户名 / id。
+        let entries = repo::audit::list(&state.db.pool, 20).await.unwrap();
+        let entry = entries
+            .iter()
+            .find(|entry| entry.action == "user.bulk_disable_over_quota")
+            .expect("缺少批量停用审计");
+        assert_eq!(entry.target.as_deref(), Some("users"));
+        let detail = entry.detail.as_ref().unwrap();
+        assert_eq!(detail["disabled"], 2);
+        assert_eq!(detail["threshold"], "used_bytes >= quota_bytes");
+        let serialized = detail.to_string();
+        for private in ["alice", "bob", "carol", "dave", "erin"] {
+            assert!(
+                !serialized.contains(private),
+                "审计 detail 不应包含用户隐私：{serialized}"
+            );
+        }
+        assert!(!serialized.contains(&alice));
+        assert!(!serialized.contains(&bob));
+
+        // 幂等：第二次执行没有人仍处于「超额且未停用」，返回 0。
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::POST,
+            "/api/v1/users/batch-disable-over-quota",
+            Some(json!({})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["disabled"], 0);
+
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::GET,
+            "/api/v1/users/over-quota/count",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["count"], 0);
+    }
+
+    /// 没有超额用户时返回 0；非管理员两个接口都 403。
+    #[tokio::test]
+    async fn batch_disable_over_quota_returns_zero_when_clean_and_rejects_non_admin() {
+        let (app, state, admin) = setup().await;
+
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::GET,
+            "/api/v1/users/over-quota/count",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["count"], 0);
+
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::POST,
+            "/api/v1/users/batch-disable-over-quota",
+            Some(json!({})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["disabled"], 0);
+
+        // 空跑也要留审计，detail 数量为 0。
+        let entries = repo::audit::list(&state.db.pool, 10).await.unwrap();
+        assert!(entries
+            .iter()
+            .any(|entry| entry.action == "user.bulk_disable_over_quota"
+                && entry.detail.as_ref().and_then(|d| d["disabled"].as_u64()) == Some(0)));
+
+        let normal = seed_user(&state, "bob").await;
+        let (token, _) = repo::sessions::create(&state.db.pool, &normal, 3600, None)
+            .await
+            .unwrap();
+        let cookie = format!("{}={token}", crate::auth::SESSION_COOKIE);
+        for (method, uri) in [
+            (Method::GET, "/api/v1/users/over-quota/count"),
+            (Method::POST, "/api/v1/users/batch-disable-over-quota"),
+        ] {
+            let (status, body) = request(&app, Some(&cookie), method, uri, Some(json!({}))).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{uri}");
+            assert_eq!(body["error"], "权限不足");
+        }
+        // 普通用户没有被误停用。
+        assert_eq!(
+            repo::users::find_by_id(&state.db.pool, &normal)
+                .await
+                .unwrap()
+                .status,
+            "active"
+        );
+    }
+
+    /// 并发两次：同一用户只被停用一次，两次返回的数量之和等于人数。
+    #[tokio::test]
+    async fn concurrent_batch_disable_over_quota_counts_each_user_once() {
+        let (app, state, admin) = setup().await;
+        let package_id = seed_package(&state, "月卡").await;
+        let alice = seed_user(&state, "alice").await;
+        let instance = bind_instance(&state, &alice, &package_id, Some(repo::now() + 86_400)).await;
+        repo::user_packages::set_used_bytes(&state.db.pool, &instance, 1000)
+            .await
+            .unwrap();
+
+        let (first, second) = tokio::join!(
+            request(
+                &app,
+                Some(&admin),
+                Method::POST,
+                "/api/v1/users/batch-disable-over-quota",
+                Some(json!({})),
+            ),
+            request(
+                &app,
+                Some(&admin),
+                Method::POST,
+                "/api/v1/users/batch-disable-over-quota",
+                Some(json!({})),
+            )
+        );
+
+        assert_eq!(first.0, StatusCode::OK, "第一次请求失败：{}", first.1);
+        assert_eq!(second.0, StatusCode::OK, "第二次请求失败：{}", second.1);
+        let total = first.1["disabled"].as_u64().unwrap() + second.1["disabled"].as_u64().unwrap();
+        assert_eq!(total, 1, "并发请求只能停用同一用户一次");
+        assert_eq!(
+            repo::users::find_by_id(&state.db.pool, &alice)
+                .await
+                .unwrap()
+                .status,
+            "disabled"
+        );
+    }
+
     /// 删除用户必须同事务清掉 owner_user_id 名下的转发/链与运行状态，
     /// 并把相关服务器标脏下发；旧行为只删 users 行，留下孤儿规则继续监听。
     #[tokio::test]

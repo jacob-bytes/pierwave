@@ -7,8 +7,12 @@ import {
   RENEW_DAYS_MIN,
   cleanupDaysFor,
   cleanupDialogReducer,
+  disableOverQuotaDialogReducer,
   initialCleanupDialogState,
+  initialDisableOverQuotaDialogState,
   initialRenewDialogState,
+  overQuotaResultNotice,
+  overQuotaScopeNotice,
   renewDialogReducer,
   validateRenewDays,
 } from "./overviewActions.ts";
@@ -149,4 +153,92 @@ test("cleanup dialog goes input -> confirm -> submit / back / reset", () => {
 test("cleanup dialog submit is ignored before reaching confirmation", () => {
   const state = initialCleanupDialogState();
   assert.deepEqual(cleanupDialogReducer(state, { type: "submit" }), state);
+});
+
+test("over-quota scope copy: 0 uses the dedicated empty message, N carries the count", () => {
+  assert.deepEqual(overQuotaScopeNotice(0), {
+    key: "overview.disableDialog.noTargets",
+  });
+  for (const invalid of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.deepEqual(overQuotaScopeNotice(invalid), {
+      key: "overview.disableDialog.noTargets",
+    });
+  }
+  assert.deepEqual(overQuotaScopeNotice(1), {
+    key: "overview.disableDialog.scope",
+    params: { n: 1 },
+  });
+  assert.deepEqual(overQuotaScopeNotice(12.9), {
+    key: "overview.disableDialog.scope",
+    params: { n: 12 },
+  });
+});
+
+test("over-quota result copy: 0 is an info result, N is a success result", () => {
+  assert.deepEqual(overQuotaResultNotice(0), {
+    tone: "info",
+    key: "overview.disableDialog.empty",
+  });
+  assert.deepEqual(overQuotaResultNotice(Number.NaN), {
+    tone: "info",
+    key: "overview.disableDialog.empty",
+  });
+  assert.deepEqual(overQuotaResultNotice(3), {
+    tone: "success",
+    key: "overview.disableDialog.success",
+    params: { n: 3 },
+  });
+});
+
+test("disable dialog starts at the count step and refuses 0 targets", () => {
+  let state = initialDisableOverQuotaDialogState();
+  assert.equal(state.stage, "count");
+  assert.equal(state.count, 0);
+
+  for (const count of [0, -1, Number.NaN]) {
+    assert.deepEqual(
+      disableOverQuotaDialogReducer(state, { type: "next", count }),
+      state,
+      String(count),
+    );
+  }
+
+  state = disableOverQuotaDialogReducer(state, { type: "next", count: 2 });
+  assert.equal(state.stage, "confirm");
+  assert.equal(state.count, 2, "确认页冻结进入时的人数");
+});
+
+test("disable dialog goes count -> confirm -> submit / failure / back / reset", () => {
+  let state = initialDisableOverQuotaDialogState();
+  state = disableOverQuotaDialogReducer(state, { type: "next", count: 4 });
+  assert.equal(state.stage, "confirm");
+  assert.equal(state.count, 4);
+
+  state = disableOverQuotaDialogReducer(state, { type: "submit" });
+  assert.equal(state.submitting, true);
+  assert.equal(state.error, null);
+
+  state = disableOverQuotaDialogReducer(state, {
+    type: "failure",
+    message: "network",
+  });
+  assert.equal(state.stage, "confirm");
+  assert.equal(state.submitting, false);
+  assert.equal(state.error, "network");
+
+  state = disableOverQuotaDialogReducer(state, { type: "back" });
+  assert.equal(state.stage, "count");
+  assert.equal(state.submitting, false);
+  assert.equal(state.error, null);
+
+  state = disableOverQuotaDialogReducer(state, { type: "reset" });
+  assert.deepEqual(state, initialDisableOverQuotaDialogState());
+});
+
+test("disable dialog submit is ignored before confirmation", () => {
+  const state = initialDisableOverQuotaDialogState();
+  assert.deepEqual(
+    disableOverQuotaDialogReducer(state, { type: "submit" }),
+    state,
+  );
 });

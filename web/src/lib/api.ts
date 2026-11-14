@@ -1705,6 +1705,16 @@ export interface CleanupEnforcementEventsResponse {
   deleted: number;
 }
 
+/** 概览页「超额用户」批量停用：对话框第一步的预检人数。 */
+export interface OverQuotaUserCountResponse {
+  count: number;
+}
+
+/** 概览页「超额用户」批量停用：只返回实际停用人数（0 = 没有可停用的）。 */
+export interface BatchDisableOverQuotaResponse {
+  disabled: number;
+}
+
 export interface ChangePasswordInput {
   old_password: string;
   new_password: string;
@@ -2275,4 +2285,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ days }),
     }),
+  /** 概览「超额用户」批量停用的预检数量（只读，不发任何写操作）。 */
+  overQuotaUserCount: () =>
+    request<OverQuotaUserCountResponse>("/api/v1/users/over-quota/count"),
+  /** 停用所有当前超额用户；已停用的不会重复计数。 */
+  batchDisableOverQuotaUsers: () =>
+    request<BatchDisableOverQuotaResponse>(
+      "/api/v1/users/batch-disable-over-quota",
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+      },
+    ),
 };

@@ -129,6 +129,14 @@ pub fn router(state: AppState) -> Router {
             patch(routes::users::update).delete(routes::users::delete),
         )
         .route(
+            "/api/v1/users/over-quota/count",
+            get(routes::users::count_over_quota_users),
+        )
+        .route(
+            "/api/v1/users/batch-disable-over-quota",
+            post(routes::users::batch_disable_over_quota_users),
+        )
+        .route(
             "/api/v1/users/{id}/packages",
             get(routes::users::list_user_packages).post(routes::users::create_user_package),
         )

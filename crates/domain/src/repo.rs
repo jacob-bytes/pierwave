@@ -378,6 +378,55 @@ pub mod users {
         find_by_id_opt(pool, id).await
     }
 
+    /// 「超额用户」的唯一判定，供预检计数与批量停用共用。
+    ///
+    /// 口径与 `UserView::quota_exceeded` / `models::package_status_at` 一致：
+    /// * 账户总额度：`quota_bytes` 非空且 `used_bytes >= quota_bytes`；
+    /// * 套餐实例：原始状态 active、**未过期**、生效额度 > 0 且用量已达额度
+    ///   （额度 0 = 不限；已过期实例属于 expired，不算超额）。
+    /// * 只匹配非 disabled 账号：重复 / 并发执行不会把同一个人算两次。
+    const OVER_QUOTA_PREDICATE: &str = "users.status <> 'disabled'
+         AND (
+             (users.quota_bytes IS NOT NULL AND users.used_bytes >= users.quota_bytes)
+             OR EXISTS (
+                 SELECT 1
+                 FROM user_packages up
+                 JOIN packages p ON p.id = up.package_id
+                 WHERE up.user_id = users.id
+                   AND up.status = 'active'
+                   AND (up.expires_at IS NULL OR up.expires_at > ?)
+                   AND COALESCE(up.quota_override, p.quota_bytes) > 0
+                   AND up.used_bytes >= COALESCE(up.quota_override, p.quota_bytes)
+             )
+         )";
+
+    /// 当前超额且仍未停用的用户数；批量停用对话框用它展示影响范围。
+    pub async fn count_over_quota(pool: &SqlitePool, now: i64) -> anyhow::Result<i64> {
+        Ok(sqlx::query_scalar(&format!(
+            "SELECT COUNT(*) FROM users WHERE {OVER_QUOTA_PREDICATE}"
+        ))
+        .bind(now)
+        .fetch_one(pool)
+        .await?)
+    }
+
+    /// 把所有当前超额的用户标记为 `disabled`，返回实际停用的人数。
+    ///
+    /// 单条条件 `UPDATE`：`WHERE status <> 'disabled'` 在写入时重新求值，
+    /// SQLite 会为同一条语句串行化写锁，所以并发两次只有一个请求能命中同一行，
+    /// 第二个请求看到的是已停用状态，计数为 0（幂等）。
+    pub async fn disable_over_quota(pool: &SqlitePool, now: i64) -> anyhow::Result<u64> {
+        let res = sqlx::query(&format!(
+            "UPDATE users SET status = 'disabled', updated_at = ?
+             WHERE {OVER_QUOTA_PREDICATE}"
+        ))
+        .bind(now)
+        .bind(now)
+        .execute(pool)
+        .await?;
+        Ok(res.rows_affected())
+    }
+
     /// 流量落库后累加用户总用量。用 SQL 自增而不是先读后写，避免并发上报互相覆盖。
     pub async fn add_used_bytes(pool: &SqlitePool, id: &str, delta: i64) -> anyhow::Result<()> {
         sqlx::query("UPDATE users SET used_bytes = used_bytes + ?, updated_at = ? WHERE id = ?")

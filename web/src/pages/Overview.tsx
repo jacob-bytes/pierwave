@@ -14,6 +14,7 @@ import {
   HistoryIcon,
   PackageIcon,
   PlusIcon,
+  PowerIcon,
   RefreshCwIcon,
   ServerIcon,
   ServerOffIcon,
@@ -45,6 +46,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { BatchDisableDialog } from "@/components/overview/BatchDisableDialog";
 import { BatchRenewDialog } from "@/components/overview/BatchRenewDialog";
 import { CleanupEventsDialog } from "@/components/overview/CleanupEventsDialog";
 import {
@@ -937,6 +939,7 @@ export default function OverviewPage() {
   // 其余进「查看全部」弹窗。告警多时不再把整列拉长。
   const [allAlertsOpen, setAllAlertsOpen] = useState(false);
   const [renewOpen, setRenewOpen] = useState(false);
+  const [disableOpen, setDisableOpen] = useState(false);
   const [cleanupOpen, setCleanupOpen] = useState(false);
   const alertItems: AlertItem[] = stats
     ? [
@@ -971,6 +974,20 @@ export default function OverviewPage() {
           count: stats.alerts.exhausted_instances,
           hint: t("overview.exhaustedHint"),
           tone: "destructive",
+          action: (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setAllAlertsOpen(false);
+                setDisableOpen(true);
+              }}
+            >
+              <PowerIcon />
+              {t("overview.disableAction")}
+            </Button>
+          ),
         },
         {
           key: "offline",
@@ -1328,6 +1345,9 @@ export default function OverviewPage() {
           onOpenChange={setRenewOpen}
           expiredCount={stats?.alerts.expired_instances ?? 0}
         />
+      ) : null}
+      {disableOpen ? (
+        <BatchDisableDialog open onOpenChange={setDisableOpen} />
       ) : null}
       {cleanupOpen ? (
         <CleanupEventsDialog open onOpenChange={setCleanupOpen} />

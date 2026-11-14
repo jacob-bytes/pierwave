@@ -146,6 +146,7 @@ const actionLabelKeys: Record<string, string> = {
   "user.create": "audit.action.userCreate",
   "user.update": "audit.action.userUpdate",
   "user.delete": "audit.action.userDelete",
+  "user.bulk_disable_over_quota": "audit.action.userBulkDisableOverQuota",
   "user_package.bind": "audit.action.userPackageBind",
   "user_package.update": "audit.action.userPackageUpdate",
   "user_package.unbind": "audit.action.userPackageUnbind",

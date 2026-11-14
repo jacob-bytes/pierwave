@@ -160,3 +160,90 @@ export function cleanupDialogReducer(
       };
   }
 }
+
+/** 非负整数人数：NaN / Infinity / 负数 / 小数都归一化成 0 或截断值。 */
+function normalizeCount(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.trunc(value);
+}
+
+export type DisableOverQuotaDialogStage = "count" | "confirm";
+
+export interface DisableOverQuotaDialogState {
+  stage: DisableOverQuotaDialogStage;
+  /** 进入确认页时冻结的人数；后台 refetch 不会改掉正在确认的文案。 */
+  count: number;
+  submitting: boolean;
+  error: string | null;
+}
+
+export type DisableOverQuotaDialogAction =
+  | { type: "reset" }
+  | { type: "next"; count: number }
+  | { type: "back" }
+  | { type: "submit" }
+  | { type: "failure"; message: string };
+
+/** 每次都从第一步（展示影响范围）开始。 */
+export function initialDisableOverQuotaDialogState(): DisableOverQuotaDialogState {
+  return { stage: "count", count: 0, submitting: false, error: null };
+}
+
+export function disableOverQuotaDialogReducer(
+  state: DisableOverQuotaDialogState,
+  action: DisableOverQuotaDialogAction,
+): DisableOverQuotaDialogState {
+  switch (action.type) {
+    case "reset":
+      return initialDisableOverQuotaDialogState();
+    case "next": {
+      // 0 人时没有可确认的操作：停在第一步，由 UI 提示「没有需要停用的用户」。
+      const count = normalizeCount(action.count);
+      return state.stage === "count" && count > 0
+        ? { ...state, stage: "confirm", count, error: null }
+        : state;
+    }
+    case "back":
+      return { ...state, stage: "count", submitting: false, error: null };
+    case "submit":
+      return state.stage === "confirm"
+        ? { ...state, submitting: true, error: null }
+        : state;
+    case "failure":
+      return {
+        ...state,
+        stage: "confirm",
+        submitting: false,
+        error: action.message,
+      };
+  }
+}
+
+/** 第一步的人数文案：0 单独一句，避免出现「将影响 0 个用户」。 */
+export function overQuotaScopeNotice(count: number): {
+  key: string;
+  params?: { n: number };
+} {
+  const n = normalizeCount(count);
+  return n === 0
+    ? { key: "overview.disableDialog.noTargets" }
+    : { key: "overview.disableDialog.scope", params: { n } };
+}
+
+export interface BatchResultNotice {
+  tone: "success" | "info";
+  key: string;
+  params?: { n: number };
+}
+
+/** 提交结果提示：停用了 N 人 / 没有需要停用的用户（0 不是错误）。 */
+export function overQuotaResultNotice(disabled: number): BatchResultNotice {
+  const n = normalizeCount(disabled);
+  return n === 0
+    ? { tone: "info", key: "overview.disableDialog.empty" }
+    : {
+        tone: "success",
+        key: "overview.disableDialog.success",
+        params: { n },
+      };
+}

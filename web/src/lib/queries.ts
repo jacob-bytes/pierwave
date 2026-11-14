@@ -16,6 +16,7 @@ import {
   type ApplyResult,
   type AuditListQuery,
   type BackupInfo,
+  type BatchDisableOverQuotaResponse,
   type BatchRenewExpiredResponse,
   type BindUserPackageInput,
   type Certificate,
@@ -55,6 +56,7 @@ import {
   type NodeTraffic,
   type NodeTrafficDetail,
   type Outbound,
+  type OverQuotaUserCountResponse,
   type OverviewData,
   type OverviewStats,
   type Package,
@@ -113,6 +115,8 @@ export const queryKeys = {
   /** P10：公开状态页；不需要登录态，单独缓存。 */
   publicStatus: ["public-status"] as const,
   statsOverview: ["stats", "overview"] as const,
+  /** 概览「超额用户」预检人数；对话框打开时才请求，和统计分开缓存。 */
+  overQuotaUsers: ["users", "over-quota", "count"] as const,
   /** 概览聚合（P14）：窗口天数进 key，切换窗口即换查询。 */
   overview: (days: number) => ["overview", days] as const,
   statsTraffic: (days: number) => ["stats", "traffic", days] as const,
@@ -886,6 +890,39 @@ export function useBatchRenewUserPackages() {
       void queryClient.invalidateQueries({ queryKey: ["overview"] });
       void queryClient.invalidateQueries({ queryKey: ["users"] });
       void queryClient.invalidateQueries({ queryKey: ["user"] });
+      invalidateSubscriptionViews(queryClient);
+    },
+  });
+}
+
+/**
+ * 概览「超额用户」预检人数。
+ *
+ * 只在对话框打开时请求；每次打开都重新取，避免拿旧数量去确认一次破坏性操作。
+ */
+export function useOverQuotaUserCount(enabled: boolean) {
+  return useQuery<OverQuotaUserCountResponse>({
+    queryKey: queryKeys.overQuotaUsers,
+    queryFn: api.overQuotaUserCount,
+    enabled,
+    staleTime: 0,
+  });
+}
+
+/** 停用所有当前超额用户；成功后用户、订阅与概览相关缓存都要失效。 */
+export function useBatchDisableOverQuotaUsers() {
+  const queryClient = useQueryClient();
+
+  return useMutation<BatchDisableOverQuotaResponse, Error, void>({
+    mutationFn: () => api.batchDisableOverQuotaUsers(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.statsOverview });
+      void queryClient.invalidateQueries({ queryKey: ["overview"] });
+      void queryClient.invalidateQueries({ queryKey: ["users"] });
+      void queryClient.invalidateQueries({ queryKey: ["user"] });
+      // 停用会移除节点凭据，断流记录与审计都会多出新行。
+      void queryClient.invalidateQueries({ queryKey: ["enforcement"] });
+      void queryClient.invalidateQueries({ queryKey: ["audit"] });
       invalidateSubscriptionViews(queryClient);
     },
   });

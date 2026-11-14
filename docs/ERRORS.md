@@ -627,14 +627,37 @@ bare IPs, no CIDR).
 
 ## 概览页批量操作（中英对照）/ Overview batch actions
 
-两个批量操作都要求管理员权限。`batch_renew` 只处理 `status = active` 且
+三个批量操作都要求管理员权限。`batch_renew` 只处理 `status = active` 且
 `expires_at <= now` 的实例，新的到期时间从**当前时间**起算；`event.cleanup`
-按 `created_at` 删除指定天数以前的记录，`days = null` 表示全部。
+按 `created_at` 删除指定天数以前的记录，`days = null` 表示全部；
+`batch-disable-over-quota` 把当前超额的账号 `users.status` 改成 `disabled`。
 
-Both actions are admin-only. `batch_renew` only touches instances with
+`batch-disable-over-quota` 的「超额」口径与用户视图 `quota_exceeded` /
+套餐实例 `package_status_at` 一致：账户总额度非空且 `used_bytes >= quota_bytes`，
+或存在一张 `status = active`、未过期、生效额度 > 0 且 `used_bytes >= 额度`
+的套餐实例（额度 0 = 不限，已过期实例属于 expired，不算超额）。只命中
+`status <> 'disabled'` 的账号，因此重复 / 并发执行是幂等的，返回实际改动人数。
+停用复用现有 `users.status` 语义：`authorization::eligible_pairs` 只注入
+`status = 'active'` 的用户，状态落库后沿用同一条期望态渲染 / 下发路径移除节点
+凭据（与手动停用用户相同，没有第二套撤销机制）；停用后需要手动重新启用。
+
+All three are admin-only. `batch_renew` only touches instances with
 `status = active` and `expires_at <= now`, and the new expiry is based on **now**;
 `event.cleanup` deletes records whose `created_at` is older than the given number
-of days, and `days = null` means "all".
+of days, and `days = null` means "all"; `batch-disable-over-quota` flips the
+`users.status` of currently over-quota accounts to `disabled`.
+
+The over-quota rule matches the user view's `quota_exceeded` and the instance's
+`package_status_at`: the account quota is set and `used_bytes >= quota_bytes`, or
+an instance with `status = active`, not expired, a positive effective quota and
+`used_bytes >= quota` exists (quota 0 = unlimited; expired instances are
+"expired", not "over quota"). Only accounts with `status <> 'disabled'` are
+matched, so repeated or concurrent calls are idempotent and the response reports
+the number actually changed. Disabling reuses the existing `users.status`
+semantics: `authorization::eligible_pairs` only injects `status = 'active'` users,
+so after the write the same desired-state render / dispatch path removes node
+credentials (identical to disabling a user by hand; there is no second revocation
+mechanism). Re-enabling is manual.
 
 | code | 中文 | English | params |
 |---|---|---|---|
@@ -647,6 +670,17 @@ of days, and `days = null` means "all".
   审计动作 `package_instance.batch_renew`，detail `{ days, updated }`。
 - `POST /api/v1/enforcement/events/cleanup`，body `{ "days": 1..3650 | null }`（缺省 = null = 全部），
   返回 `{ "deleted": n }`；审计动作 `event.cleanup`，detail `{ days, deleted }`。
+- `GET /api/v1/users/over-quota/count`，返回 `{ "count": n }`：批量停用对话框的预检人数，
+  只读，不写审计。
+- `POST /api/v1/users/batch-disable-over-quota`，body `{}`，返回 `{ "disabled": n }`
+  （没有超额用户时 `200 { "disabled": 0 }`）；审计动作 `user.bulk_disable_over_quota`，
+  detail `{ disabled, threshold }`，只有数量与判定阈值，不含用户名 / 用户 id。
+- `GET /api/v1/users/over-quota/count` returns `{ "count": n }`: the pre-check count
+  for the bulk-disable dialog. Read-only, no audit entry.
+- `POST /api/v1/users/batch-disable-over-quota` with body `{}` returns
+  `{ "disabled": n }` (`200 { "disabled": 0 }` when nobody is over quota). Audit
+  action `user.bulk_disable_over_quota`, detail `{ disabled, threshold }`, which
+  only carries the count and the threshold and never usernames or user ids.
 
 ## 用户自助转发（迁移 0044）/ User self-service forwarding
 
