@@ -2325,6 +2325,19 @@ const zhCN = {
     },
   },
   me: {
+    tabs: {
+      ariaLabel: "个人中心分页",
+      overview: "概览",
+      subscription: "我的订阅",
+      forwards: "我的转发",
+      packages: "套餐",
+    },
+    pages: {
+      overview: { title: "概览" },
+      subscription: { title: "我的订阅" },
+      forwards: { title: "我的转发" },
+      packages: { title: "套餐" },
+    },
     shortCode: "短码",
     onlyOwnData: "这里只显示你自己的数据",
     todayTraffic: "今日流量",
@@ -2371,6 +2384,11 @@ const zhCN = {
       daysLeft: "剩余天数",
       longTerm: "长期有效",
       days: "{n} 天",
+      remainingTraffic: "剩余流量",
+      expiresAt: "到期时间",
+      quickCopy: "复制订阅",
+      quickForwards: "去我的转发",
+      more: "更多信息",
     },
     subscription: {
       title: "我的订阅",
@@ -2397,6 +2415,16 @@ const zhCN = {
       resetMonthly: "每月 {day} 日",
       noReset: "不重置",
       ratio: "节点倍率 ×{ratio}",
+    },
+    packagesPage: {
+      current: "已开通套餐",
+      currentEmpty: "暂无生效套餐",
+      currentEmptyDesc: "过期的套餐已归入下方历史。",
+      history: "历史套餐",
+      historyEmpty: "暂无历史套餐",
+      historyEmptyDesc: "套餐过期后会归入这里。",
+      quota: "额度",
+      unlimited: "不限",
     },
     traffic: {
       title: "近 7 天用量",

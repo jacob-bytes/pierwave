@@ -2466,6 +2466,19 @@ const en = {
     },
   },
   me: {
+    tabs: {
+      ariaLabel: "Account center sections",
+      overview: "Overview",
+      subscription: "Subscription",
+      forwards: "Forwards",
+      packages: "Packages",
+    },
+    pages: {
+      overview: { title: "Overview" },
+      subscription: { title: "Subscription" },
+      forwards: { title: "Forwards" },
+      packages: { title: "Packages" },
+    },
     shortCode: "Short code",
     onlyOwnData: "Only your own data is shown here",
     todayTraffic: "Traffic today",
@@ -2517,6 +2530,11 @@ const en = {
       daysLeft: "Days left",
       longTerm: "No expiry",
       days: "{n} days",
+      remainingTraffic: "Traffic remaining",
+      expiresAt: "Expires",
+      quickCopy: "Copy subscription",
+      quickForwards: "Go to my forwards",
+      more: "More details",
     },
     subscription: {
       title: "My subscription",
@@ -2544,6 +2562,16 @@ const en = {
       resetMonthly: "Day {day} each month",
       noReset: "No reset",
       ratio: "Node ratio ×{ratio}",
+    },
+    packagesPage: {
+      current: "Active packages",
+      currentEmpty: "No active packages",
+      currentEmptyDesc: "Expired packages are listed under package history below.",
+      history: "Package history",
+      historyEmpty: "No package history",
+      historyEmptyDesc: "Expired packages are listed here.",
+      quota: "Quota",
+      unlimited: "Unlimited",
     },
     traffic: {
       title: "Usage, last 7 days",

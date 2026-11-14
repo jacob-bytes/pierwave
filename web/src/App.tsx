@@ -24,7 +24,11 @@ const OutboundsPage = lazy(() => import("@/pages/Outbounds"));
 const ForwardsPage = lazy(() => import("@/pages/Forwards"));
 const ChainsPage = lazy(() => import("@/pages/Chains"));
 const NodesIndexPage = lazy(() => import("@/pages/NodesIndex"));
-const MePage = lazy(() => import("@/pages/Me"));
+const MeShell = lazy(() => import("@/components/me/MeShell"));
+const MeOverviewPage = lazy(() => import("@/pages/me/Overview"));
+const MeSubscriptionPage = lazy(() => import("@/pages/me/Subscription"));
+const MeForwardsPage = lazy(() => import("@/pages/me/Forwards"));
+const MePackagesPage = lazy(() => import("@/pages/me/Packages"));
 
 function Centered({ children }: { children: ReactNode }) {
   return (
@@ -173,14 +177,23 @@ function AuthenticatedApp() {
             />
             <Route path="settings" element={<SettingsPage />} />
             {/* `/me` 对管理员同样保留：返回的是管理员自己的数据，侧栏不加入口。 */}
-            <Route path="me" element={<MePage />} />
+            <Route path="me" element={<MeShell />}>
+              <Route index element={<MeOverviewPage />} />
+              <Route path="subscription" element={<MeSubscriptionPage />} />
+              <Route path="forwards" element={<MeForwardsPage />} />
+              <Route path="packages" element={<MePackagesPage />} />
+            </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         ) : (
           // 普通用户只有自助视图：管理路由一律回 /me，避免看到 403 报错。
           <Route element={<AppShell user={user} />}>
-            <Route path="me" element={<MePage />} />
-            <Route path="me/subscription" element={<MePage />} />
+            <Route path="me" element={<MeShell />}>
+              <Route index element={<MeOverviewPage />} />
+              <Route path="subscription" element={<MeSubscriptionPage />} />
+              <Route path="forwards" element={<MeForwardsPage />} />
+              <Route path="packages" element={<MePackagesPage />} />
+            </Route>
             <Route index element={<Navigate to="/me" replace />} />
             <Route path="*" element={<Navigate to="/me" replace />} />
           </Route>

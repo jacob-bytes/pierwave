@@ -56,6 +56,7 @@ import {
 import { useDocumentTitle, useI18n } from "@/i18n";
 import type { SessionUser } from "@/lib/api";
 import { resolveLogsTab } from "@/lib/logsTabs";
+import { activeSection, sectionTitleKey } from "@/lib/meSections";
 import {
   DEFAULT_SETTINGS_TAB,
   resolveSettingsTab,
@@ -332,11 +333,12 @@ export default function AppShell({ user }: { user: SessionUser }) {
   const navGroups = user.role === "admin" ? adminNavGroups : userNavGroups;
   const homePath = user.role === "admin" ? "/" : "/me";
   const allNav = navGroups.flatMap((group) => group.items);
-  // 管理员侧栏不加入口，但 `/me` 仍然可访问；面包屑不能因此回落到「概览」。
-  const current =
-    pathname === "/me"
-      ? { to: "/me", labelKey: "nav.me", icon: UserRoundIcon }
-      : (allNav.find((item) => isItemActive(item, pathname)) ?? allNav[0]);
+  // `/me` 下的四个分页共用「我的」入口；面包屑的第二级显示具体分页。
+  // 管理员侧栏不加入口，但 `/me/*` 仍然可访问，不能因此回落到「概览」。
+  const meSection = activeSection(pathname);
+  const current = meSection
+    ? { to: "/me", labelKey: "nav.me", icon: UserRoundIcon }
+    : (allNav.find((item) => isItemActive(item, pathname)) ?? allNav[0]);
   const pageLabel = current ? t(current.labelKey) : t("app.defaultPage");
   // `/logs` 的 tab 决定面包屑第二级：日志 › 系统事件 / 操作审计。
   const logsTab =
@@ -352,7 +354,9 @@ export default function AppShell({ user }: { user: SessionUser }) {
     ? t(`logs.tabs.${logsTab}`)
     : settingsTab && settingsTab !== DEFAULT_SETTINGS_TAB
       ? t(`settings.tabs.${settingsTab}`)
-      : null;
+      : meSection && meSection.id !== "overview"
+        ? t(sectionTitleKey(meSection.id))
+        : null;
   const roleText = user.role === "admin" ? t("roles.admin") : t("roles.user");
   const rawVersion = health.data?.version?.trim();
   const versionLabel = rawVersion
@@ -498,7 +502,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
 
           {/* 手机上面包屑折叠成当前页标题，避免与刷新/账号按钮抢宽度。 */}
           <span className="min-w-0 truncate text-sm font-medium sm:hidden">
-            {pageLabel}
+            {pageSubLabel ?? pageLabel}
           </span>
 
           {/* 中间留空，把页面动作与账号菜单推到最右侧。 */}
