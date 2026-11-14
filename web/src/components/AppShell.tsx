@@ -96,10 +96,15 @@ const consoleNav: NavItem[] = [
   },
 ];
 
-const managementNav: NavItem[] = [
+/** 账号、订阅与套餐：都围绕「谁在用、买了什么」，单独一组。 */
+const accountNav: NavItem[] = [
   { to: "/users", labelKey: "nav.users", icon: UsersIcon },
   { to: "/subscriptions", labelKey: "nav.subscriptions", icon: Link2Icon },
   { to: "/packages", labelKey: "nav.packages", icon: PackageIcon },
+];
+
+/** 转发链与链模板：都是「流量怎么走」，单独一组。 */
+const forwardingNav: NavItem[] = [
   { to: "/chains", labelKey: "nav.chains", icon: WorkflowIcon },
   {
     to: "/chain-templates",
@@ -141,7 +146,8 @@ const userNav: NavItem[] = [
 
 const adminNavGroups: NavGroup[] = [
   { titleKey: "nav.groups.console", items: consoleNav },
-  { titleKey: "nav.groups.management", items: managementNav },
+  { titleKey: "nav.groups.account", items: accountNav },
+  { titleKey: "nav.groups.forwarding", items: forwardingNav },
   { titleKey: "nav.groups.system", items: systemNav },
 ];
 

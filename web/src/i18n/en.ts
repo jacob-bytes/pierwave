@@ -143,6 +143,8 @@ const en = {
     me: "My account",
     groups: {
       console: "Resources",
+      account: "Accounts & plans",
+      forwarding: "Forwarding",
       management: "Management",
       system: "System",
       selfService: "Self-service",
