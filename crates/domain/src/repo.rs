@@ -2850,14 +2850,6 @@ pub mod forwards {
         .await?)
     }
 
-    /// 用一次心跳里的 `forwards` 整体替换该服务器的状态缓存。
-    ///
-    /// 整体替换而不是 upsert：Agent 已经从期望态里删掉的规则不会再上报，
-    /// 只有先 DELETE 才能把上一轮的旧状态清掉。事务保证读不到中间态。
-    ///
-    /// `target_fail_count` 是**连续** false 的计数：本轮 `Some(false)` 在上一轮
-    /// 计数上 +1，其余情况（`Some(true)` / `None`）一律清零。
-
     /// 把计费基线对齐到当前心跳计数。
     ///
     /// 用户把 `count_traffic` 从关改到开时必须调用：否则下一次采样会把
@@ -2884,6 +2876,14 @@ pub mod forwards {
             .await?;
         Ok(())
     }
+
+    /// 用一次心跳里的 `forwards` 整体替换该服务器的状态缓存。
+    ///
+    /// 整体替换而不是 upsert：Agent 已经从期望态里删掉的规则不会再上报，
+    /// 只有先 DELETE 才能把上一轮的旧状态清掉。事务保证读不到中间态。
+    ///
+    /// `target_fail_count` 是**连续** false 的计数：本轮 `Some(false)` 在上一轮
+    /// 计数上 +1，其余情况（`Some(true)` / `None`）一律清零。
 
     pub async fn save_status(
         pool: &SqlitePool,
