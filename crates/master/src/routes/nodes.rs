@@ -11,6 +11,7 @@ use pierwave_domain::xray;
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
+use crate::routes::public_url::{self, PublicBaseKind};
 use crate::state::AppState;
 
 const PROTOCOLS: &[&str] = &["vless", "vmess", "trojan", "shadowsocks", "socks", "http"];
@@ -610,7 +611,7 @@ pub async fn apply(
     user.require_admin()?;
     let server = load_server(&state, &server_id).await?;
 
-    let base = super::install::external_base(&headers);
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
     let outcome = super::desired::apply(&state, &server, &base).await?;
     let warning_count = outcome.warnings.len();
     crate::audit::record(

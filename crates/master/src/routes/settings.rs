@@ -30,6 +30,13 @@ pub const DEFAULT_ALERT_EVENTS: &str = "server_offline,user_exhausted,chain_degr
 pub const DEFAULT_ALERT_COOLDOWN_SECS: i64 = 600;
 pub const MIN_ALERT_COOLDOWN_SECS: i64 = 0;
 pub const MAX_ALERT_COOLDOWN_SECS: i64 = 86_400;
+/// 版本更新检测：默认启用、每 6 小时一次、发现新版本时通过告警渠道通知。
+pub const DEFAULT_UPDATE_CHECK_ENABLED: bool = true;
+/// 间隔范围与调度器共用同一份常量，避免「设置允许 1–168、调度器夹到别的值」。
+pub const DEFAULT_UPDATE_CHECK_INTERVAL_HOURS: i64 = crate::updates::DEFAULT_INTERVAL_HOURS;
+pub const MIN_UPDATE_CHECK_INTERVAL_HOURS: i64 = crate::updates::MIN_INTERVAL_HOURS;
+pub const MAX_UPDATE_CHECK_INTERVAL_HOURS: i64 = crate::updates::MAX_INTERVAL_HOURS;
+pub const DEFAULT_UPDATE_CHECK_NOTIFY: bool = true;
 
 pub const MAX_TELEGRAM_TOKEN_CHARS: usize = 256;
 pub const MAX_TELEGRAM_CHAT_ID_CHARS: usize = 128;
@@ -46,6 +53,8 @@ const LOGIN_LOCK_SECS_KEY: &str = "login_lock_secs";
 const SESSION_TTL_HOURS_KEY: &str = "session_ttl_hours";
 const AGENT_UPGRADE_CONCURRENCY_KEY: &str = "agent_upgrade_concurrency";
 const PUBLIC_STATUS_ENABLED_KEY: &str = "public_status_enabled";
+const AGENT_BASE_URL_KEY: &str = "agent_base_url";
+const SUBSCRIPTION_BASE_URL_KEY: &str = "subscription_base_url";
 pub const TELEGRAM_BOT_TOKEN_KEY: &str = "telegram_bot_token";
 pub const TELEGRAM_CHAT_ID_KEY: &str = "telegram_chat_id";
 pub const TELEGRAM_ADMIN_CHAT_IDS_KEY: &str = "telegram_admin_chat_ids";
@@ -53,6 +62,9 @@ pub const TELEGRAM_BOT_ENABLED_KEY: &str = "telegram_bot_enabled";
 pub const WEBHOOK_URL_KEY: &str = "webhook_url";
 pub const ALERT_EVENTS_KEY: &str = "alert_events";
 pub const ALERT_COOLDOWN_SECS_KEY: &str = "alert_cooldown_secs";
+pub const UPDATE_CHECK_ENABLED_KEY: &str = "update_check_enabled";
+pub const UPDATE_CHECK_INTERVAL_HOURS_KEY: &str = "update_check_interval_hours";
+pub const UPDATE_CHECK_NOTIFY_KEY: &str = "update_check_notify";
 
 /// 设置页的白名单键；新增键必须同时改这里和 `docs/PLAN.md`。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,6 +76,10 @@ pub struct Settings {
     pub agent_upgrade_concurrency: i64,
     /// 0 = 关闭公开状态页；1 = 开启。
     pub public_status_enabled: i64,
+    /// Agent 纳管地址（安装命令、升级包 URL）；空 = 按请求头推导。
+    pub agent_base_url: String,
+    /// 订阅地址（订阅链接、二维码）；空 = 回退到 `agent_base_url`，再为空才看请求头。
+    pub subscription_base_url: String,
     /// 空 = 不启用 Telegram。
     pub telegram_bot_token: String,
     /// 空 = 不启用 Telegram；与 token 必须同时配置。
@@ -84,6 +100,12 @@ pub struct Settings {
     pub alert_events: String,
     /// 同类告警冷却秒数；0 = 不去抖。
     pub alert_cooldown_secs: i64,
+    /// 版本更新检测总开关；关闭后调度器不再请求 GitHub。
+    pub update_check_enabled: bool,
+    /// 检测间隔（小时），1–168；默认 6。
+    pub update_check_interval_hours: i64,
+    /// 发现新版本时是否通过已配置的告警渠道通知；默认开启。
+    pub update_check_notify: bool,
 }
 
 impl Default for Settings {
@@ -95,6 +117,8 @@ impl Default for Settings {
             session_ttl_hours: DEFAULT_SESSION_TTL_HOURS,
             agent_upgrade_concurrency: DEFAULT_AGENT_UPGRADE_CONCURRENCY,
             public_status_enabled: DEFAULT_PUBLIC_STATUS_ENABLED,
+            agent_base_url: String::new(),
+            subscription_base_url: String::new(),
             telegram_bot_token: String::new(),
             telegram_chat_id: String::new(),
             telegram_admin_chat_ids: String::new(),
@@ -102,6 +126,9 @@ impl Default for Settings {
             webhook_url: String::new(),
             alert_events: DEFAULT_ALERT_EVENTS.to_string(),
             alert_cooldown_secs: DEFAULT_ALERT_COOLDOWN_SECS,
+            update_check_enabled: DEFAULT_UPDATE_CHECK_ENABLED,
+            update_check_interval_hours: DEFAULT_UPDATE_CHECK_INTERVAL_HOURS,
+            update_check_notify: DEFAULT_UPDATE_CHECK_NOTIFY,
         }
     }
 }
@@ -119,6 +146,8 @@ impl Settings {
             "session_ttl_hours": self.session_ttl_hours,
             "agent_upgrade_concurrency": self.agent_upgrade_concurrency,
             "public_status_enabled": self.public_status_enabled,
+            "agent_base_url": self.agent_base_url,
+            "subscription_base_url": self.subscription_base_url,
             "telegram_bot_token": self.telegram_bot_token,
             "telegram_chat_id": self.telegram_chat_id,
             "telegram_admin_chat_ids": self.telegram_admin_chat_ids,
@@ -126,6 +155,9 @@ impl Settings {
             "webhook_url": self.webhook_url,
             "alert_events": self.alert_events,
             "alert_cooldown_secs": self.alert_cooldown_secs,
+            "update_check_enabled": self.update_check_enabled,
+            "update_check_interval_hours": self.update_check_interval_hours,
+            "update_check_notify": self.update_check_notify,
         })
     }
 }
@@ -175,6 +207,14 @@ pub async fn load(pool: &SqlitePool) -> Settings {
             defaults.public_status_enabled,
         )
         .await,
+        agent_base_url: read_text(pool, AGENT_BASE_URL_KEY, "", normalize_public_base_url).await,
+        subscription_base_url: read_text(
+            pool,
+            SUBSCRIPTION_BASE_URL_KEY,
+            "",
+            normalize_public_base_url,
+        )
+        .await,
         telegram_bot_token: read_text(pool, TELEGRAM_BOT_TOKEN_KEY, "", normalize_telegram_token)
             .await,
         telegram_chat_id: read_text(pool, TELEGRAM_CHAT_ID_KEY, "", normalize_telegram_chat_id)
@@ -203,6 +243,22 @@ pub async fn load(pool: &SqlitePool) -> Settings {
             defaults.alert_cooldown_secs,
         )
         .await,
+        update_check_enabled: read_bool(
+            pool,
+            UPDATE_CHECK_ENABLED_KEY,
+            defaults.update_check_enabled,
+        )
+        .await,
+        update_check_interval_hours: read_int(
+            pool,
+            UPDATE_CHECK_INTERVAL_HOURS_KEY,
+            MIN_UPDATE_CHECK_INTERVAL_HOURS,
+            MAX_UPDATE_CHECK_INTERVAL_HOURS,
+            defaults.update_check_interval_hours,
+        )
+        .await,
+        update_check_notify: read_bool(pool, UPDATE_CHECK_NOTIFY_KEY, defaults.update_check_notify)
+            .await,
     }
 }
 
@@ -339,6 +395,12 @@ pub async fn update(
                 PUBLIC_STATUS_ENABLED_KEY,
                 validate_int("公开状态页开关（0 关闭 / 1 开启）", value, 0, 1)?.to_string(),
             )),
+            AGENT_BASE_URL_KEY => {
+                updates.push((AGENT_BASE_URL_KEY, validate_public_base_url(value)?))
+            }
+            SUBSCRIPTION_BASE_URL_KEY => {
+                updates.push((SUBSCRIPTION_BASE_URL_KEY, validate_public_base_url(value)?))
+            }
             TELEGRAM_BOT_TOKEN_KEY => updates.push((
                 TELEGRAM_BOT_TOKEN_KEY,
                 validate_text(
@@ -401,6 +463,32 @@ pub async fn update(
                     MAX_ALERT_COOLDOWN_SECS,
                 )?
                 .to_string(),
+            )),
+            UPDATE_CHECK_ENABLED_KEY => updates.push((
+                UPDATE_CHECK_ENABLED_KEY,
+                if validate_bool("版本更新检测开关", value)? {
+                    "1".to_string()
+                } else {
+                    "0".to_string()
+                },
+            )),
+            UPDATE_CHECK_INTERVAL_HOURS_KEY => updates.push((
+                UPDATE_CHECK_INTERVAL_HOURS_KEY,
+                validate_int(
+                    "版本更新检测间隔（小时）",
+                    value,
+                    MIN_UPDATE_CHECK_INTERVAL_HOURS,
+                    MAX_UPDATE_CHECK_INTERVAL_HOURS,
+                )?
+                .to_string(),
+            )),
+            UPDATE_CHECK_NOTIFY_KEY => updates.push((
+                UPDATE_CHECK_NOTIFY_KEY,
+                if validate_bool("版本更新通知开关", value)? {
+                    "1".to_string()
+                } else {
+                    "0".to_string()
+                },
             )),
             other => {
                 return Err(AppError::coded(
@@ -533,6 +621,23 @@ pub fn parse_telegram_admin_chat_ids(raw: &str) -> Result<Vec<String>, String> {
 
 fn normalize_telegram_admin_chat_ids(raw: &str) -> Result<String, String> {
     Ok(parse_telegram_admin_chat_ids(raw)?.join(","))
+}
+
+/// 对外地址：空串合法（= 按请求头推导）；非空必须是纯 `http(s)://host[:port]`。
+fn validate_public_base_url(value: &Value) -> AppResult<String> {
+    let raw = value.as_str().ok_or_else(|| {
+        AppError::coded(
+            "settings.base_url_type_invalid",
+            None,
+            "对外地址必须是字符串 / Public address must be a string",
+        )
+    })?;
+    crate::routes::public_url::parse_public_base_url(raw)
+        .map_err(|error| AppError::coded(error.code(), None, error.message()))
+}
+
+fn normalize_public_base_url(raw: &str) -> Result<String, String> {
+    crate::routes::public_url::parse_public_base_url(raw).map_err(|error| error.message())
 }
 
 fn normalize_webhook_url(raw: &str) -> Result<String, String> {
@@ -745,6 +850,123 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn public_base_urls_default_empty_and_round_trip_trimmed() {
+        let (app, _state, admin, _bob) = setup().await;
+
+        let (_, _, body) = request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(body["items"]["agent_base_url"], "");
+        assert_eq!(body["items"]["subscription_base_url"], "");
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({
+                "agent_base_url": "  https://panel.example.com:8443  ",
+                "subscription_base_url": "  HTTP://sub.example.com  ",
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body["items"]["agent_base_url"],
+            "https://panel.example.com:8443"
+        );
+        assert_eq!(
+            body["items"]["subscription_base_url"], "http://sub.example.com",
+            "scheme 统一小写，首尾空白 trim"
+        );
+
+        // 清空同样合法：回到请求头推导。
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({"agent_base_url": "   ", "subscription_base_url": ""})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["items"]["agent_base_url"], "");
+        assert_eq!(body["items"]["subscription_base_url"], "");
+    }
+
+    #[tokio::test]
+    async fn invalid_public_base_urls_are_rejected_with_bilingual_codes() {
+        let (app, _state, admin, _bob) = setup().await;
+        let cases = [
+            ("agent_base_url", json!("panel.example.com")),
+            ("agent_base_url", json!("ftp://panel.example.com")),
+            ("agent_base_url", json!("https://panel.example.com/path")),
+            ("agent_base_url", json!("https://panel.example.com?x=1")),
+            ("agent_base_url", json!("https://panel.example.com#top")),
+            ("agent_base_url", json!("http://")),
+            ("agent_base_url", json!("http://:8787")),
+            ("agent_base_url", json!("http://panel.example.com:0")),
+            ("agent_base_url", json!("http://panel.example.com:70000")),
+            (
+                "agent_base_url",
+                json!("https://user:pass@panel.example.com"),
+            ),
+            ("subscription_base_url", json!("https://sub.example.com/")),
+            ("subscription_base_url", json!("sub.example.com")),
+            ("subscription_base_url", json!("http://")),
+            ("subscription_base_url", json!(123)),
+        ];
+        for (key, value) in cases {
+            let (status, _, body) = request(
+                &app,
+                Some(&admin),
+                Method::PATCH,
+                "/api/v1/settings",
+                Some(json!({ key: value })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{key}: {body}");
+            let code = body["code"].as_str().unwrap();
+            assert!(code.starts_with("settings.base_url_"), "{key}: {body}");
+            let message = body["error"].as_str().unwrap();
+            assert!(message.contains(" / "), "错误信息必须中英双语：{body}");
+        }
+
+        // 全量校验：非法地址不能把同一请求里的合法字段半截写库。
+        let (status, _, _) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({"panel_name": "临时名字", "agent_base_url": "nope"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let (_, _, body) = request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(body["items"]["panel_name"], "PierWave");
+        assert_eq!(body["items"]["agent_base_url"], "");
+    }
+
+    #[tokio::test]
+    async fn corrupt_public_base_urls_fall_back_to_empty_on_read() {
+        let (app, state, admin, _bob) = setup().await;
+        for (key, value) in [
+            ("agent_base_url", "https://panel.example.com/path"),
+            ("subscription_base_url", "ftp://sub.example.com"),
+        ] {
+            repo::settings::set(&state.db.pool, key, value)
+                .await
+                .unwrap();
+        }
+
+        let settings = load(&state.db.pool).await;
+        assert_eq!(settings.agent_base_url, "");
+        assert_eq!(settings.subscription_base_url, "");
+
+        let (_, _, body) = request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(body["items"]["agent_base_url"], "");
+        assert_eq!(body["items"]["subscription_base_url"], "");
+    }
+
+    #[tokio::test]
     async fn unknown_and_out_of_range_settings_are_rejected() {
         let (app, _state, admin, _bob) = setup().await;
 
@@ -840,6 +1062,90 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(load(&state.db.pool).await.agent_upgrade_concurrency, 1);
+    }
+
+    /// 版本更新检测：三项设置的默认值、范围校验与「手工改坏读取回落」。
+    ///
+    /// 间隔只接受 1–168 小时（0 会变成轮询风暴）；越界直接 400，不做静默夹紧，
+    /// 让调用方立刻发现自己传错了值。
+    #[tokio::test]
+    async fn update_check_settings_are_validated_and_read_falls_back() {
+        let (app, state, admin, _bob) = setup().await;
+
+        let (status, _, body) =
+            request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["items"]["update_check_enabled"], true, "默认启用");
+        assert_eq!(
+            body["items"]["update_check_interval_hours"], 6,
+            "默认 6 小时"
+        );
+        assert_eq!(body["items"]["update_check_notify"], true, "默认通知开");
+
+        for hours in [1, 6, 168] {
+            let (status, _, body) = request(
+                &app,
+                Some(&admin),
+                Method::PATCH,
+                "/api/v1/settings",
+                Some(json!({"update_check_interval_hours": hours})),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert_eq!(body["items"]["update_check_interval_hours"], hours);
+        }
+
+        for bad in [json!(0), json!(169), json!(-1), json!("6")] {
+            let (status, _, body) = request(
+                &app,
+                Some(&admin),
+                Method::PATCH,
+                "/api/v1/settings",
+                Some(json!({"update_check_interval_hours": bad.clone()})),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "payload: {bad}");
+            assert!(
+                body["error"].as_str().unwrap().contains("版本更新检测间隔"),
+                "错误信息要指出字段：{body}"
+            );
+        }
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({
+                "update_check_enabled": false,
+                "update_check_notify": false,
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["items"]["update_check_enabled"], false);
+        assert_eq!(body["items"]["update_check_notify"], false);
+
+        let (status, _, _) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({"update_check_enabled": "yes"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "布尔项必须是 true / false");
+
+        // 直接写库绕过接口（模拟手工改坏）：读取回落到默认值。
+        repo::settings::set(&state.db.pool, "update_check_interval_hours", "0")
+            .await
+            .unwrap();
+        repo::settings::set(&state.db.pool, "update_check_enabled", "wat")
+            .await
+            .unwrap();
+        let loaded = load(&state.db.pool).await;
+        assert_eq!(loaded.update_check_interval_hours, 6);
+        assert!(loaded.update_check_enabled);
     }
 
     #[tokio::test]

@@ -38,6 +38,7 @@ use pierwave_domain::{chain_templates, chains, engine, forwards, hop_transport, 
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
+use crate::routes::public_url::{self, PublicBaseKind};
 use crate::state::AppState;
 
 use pierwave_proto::{
@@ -2066,7 +2067,7 @@ pub async fn create(
     )
     .await;
 
-    let base = super::install::external_base(&headers);
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
     mark_servers_dirty_and_apply(&state, &base, &chain_server_ids(&chain)).await;
 
     let statuses = load_status_map(&state, std::slice::from_ref(&chain)).await?;
@@ -2308,7 +2309,7 @@ pub async fn update(
 
     let mut affected = chain_server_ids(&existing);
     affected.extend(chain_server_ids(&updated));
-    let base = super::install::external_base(&headers);
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
     mark_servers_dirty_and_apply(&state, &base, &affected).await;
 
     let statuses = load_status_map(&state, std::slice::from_ref(&updated)).await?;
@@ -2348,7 +2349,7 @@ pub async fn delete(
     )
     .await;
 
-    let base = super::install::external_base(&headers);
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
     mark_servers_dirty_and_apply(&state, &base, &chain_server_ids(&existing)).await;
 
     Ok(Json(json!({ "ok": true })))
@@ -2696,7 +2697,7 @@ pub async fn me_create(
     )
     .await;
 
-    let base = super::install::external_base(&headers);
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
     mark_servers_dirty_and_apply(&state, &base, &chain_server_ids(&chain)).await;
 
     let used_after = repo::chains::count_by_owner(&state.db.pool, &user.0.id).await?;
@@ -2741,7 +2742,7 @@ pub async fn me_delete(
     )
     .await;
 
-    let base = super::install::external_base(&headers);
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
     mark_servers_dirty_and_apply(&state, &base, &chain_server_ids(&existing)).await;
 
     Ok(Json(json!({ "ok": true })))

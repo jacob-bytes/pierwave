@@ -5,6 +5,7 @@
 //! 生效值按：用户绑定 → 当前套餐绑定 → 全局默认 → 内置规则（id/name 为 null）。
 
 use axum::extract::{Query, State};
+use axum::http::HeaderMap;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -15,6 +16,7 @@ use pierwave_domain::subscribe;
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
+use crate::routes::public_url::{self, PublicBaseKind};
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -35,6 +37,8 @@ struct SubscriptionRow {
     role: String,
     status: String,
     short_code: String,
+    /// 完整订阅地址：已按 `subscription_base_url` / `agent_base_url` / 请求头解析。
+    subscription_url: String,
     quota_bytes: Option<i64>,
     used_bytes: i64,
     created_at: i64,
@@ -52,6 +56,7 @@ struct SubscriptionRow {
 
 pub async fn list(
     State(state): State<AppState>,
+    headers: HeaderMap,
     user: CurrentUser,
     Query(query): Query<ListSubscriptionsQuery>,
 ) -> AppResult<Json<Value>> {
@@ -72,16 +77,19 @@ pub async fn list(
         .collect();
     let resolved = repo::rule_templates::resolve_for_users(&state.db.pool, &bindings).await?;
 
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Subscription).await;
     let items: Vec<SubscriptionRow> = users
         .into_iter()
         .map(|view| {
             let effective = subscribe::effective_rules(resolved.get(&view.id).cloned().flatten());
+            let subscription_url = public_url::subscription_url(&base, &view.short_code);
             SubscriptionRow {
                 id: view.id,
                 username: view.username,
                 role: view.role,
                 status: view.status,
                 short_code: view.short_code,
+                subscription_url,
                 quota_bytes: view.quota_bytes,
                 used_bytes: view.used_bytes,
                 created_at: view.created_at,
@@ -327,6 +335,28 @@ mod tests {
         assert_eq!(body["items"][0]["rule_template_name"], "用户模板");
         // 用户绑定值与生效值不能同时以同名 key 出现（否则 JSON 有重复键）。
         assert_eq!(body.to_string().matches("\"rule_template_id\"").count(), 1);
+    }
+
+    /// 每行直接带完整订阅地址：复制、二维码不再依赖前端自己的 origin。
+    #[tokio::test]
+    async fn subscription_rows_include_configured_absolute_url() {
+        let (app, state, admin) = setup().await;
+        let user = create_user(&state, "alice", None).await;
+        repo::settings::set(
+            &state.db.pool,
+            "subscription_base_url",
+            "https://sub.example.com",
+        )
+        .await
+        .unwrap();
+
+        let (status, body) = get(&app, Some(&admin), "/api/v1/subscriptions").await;
+        assert_eq!(status, StatusCode::OK);
+        let item = row(&body, "alice");
+        assert_eq!(
+            item["subscription_url"],
+            format!("https://sub.example.com/api/v1/sub/{}", user.short_code)
+        );
     }
 
     #[tokio::test]

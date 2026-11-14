@@ -22,6 +22,7 @@ import {
   NODE_TRANSPORTS,
 } from "@/lib/protocols";
 import { PROTOCOL_MODES } from "@/lib/protocolMode";
+import { isValidPublicBaseUrl } from "@/lib/publicBase";
 import { isValidPublicPortInput } from "@/lib/publicPort";
 import {
   findFirstOverlongRuleLine,
@@ -177,7 +178,7 @@ export type ChangePasswordValues = z.infer<
 >;
 
 /**
- * 设置页「常规」表单：面板名称 + Agent 升级并发。
+ * 设置页「常规」表单：面板名称、对外地址 + Agent 升级并发。
  *
  * 设置页拆成两个独立表单（常规 / 安全），各自只 PATCH 自己的键，
  * 避免保存一个 tab 时把另一个 tab 刚存的值覆盖回旧值。
@@ -195,6 +196,13 @@ export function settingsGeneralSchema(t: TFunction) {
       5,
       t("validation.upgradeConcurrencyRange"),
     ),
+    // 空串合法（= 按当前访问地址推导）；非法值在提交前就拦住。
+    agent_base_url: z
+      .string()
+      .refine(isValidPublicBaseUrl, t("validation.publicBaseUrl")),
+    subscription_base_url: z
+      .string()
+      .refine(isValidPublicBaseUrl, t("validation.publicBaseUrl")),
   });
 }
 

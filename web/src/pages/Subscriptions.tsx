@@ -95,16 +95,18 @@ function subscriptionListErrorText(error: unknown): string {
 }
 
 /**
- * 订阅地址由前端拼装，复制、打开和二维码都用同一个完整 URL。
+ * 订阅地址由后端返回（已按设置解析）；旧版后端缺字段时回退到当前 origin。
  *
  * 选中非默认模板时带 `?rule=<id>`；默认模板不加参数，保持链接简洁。
  */
 function subscriptionUrl(
-  shortCode: string,
+  user: Subscription,
   template: RuleTemplate | null,
   format: string,
 ): string {
-  const base = `${window.location.origin}/api/v1/sub/${encodeURIComponent(shortCode)}`;
+  const base =
+    user.subscription_url ||
+    `${window.location.origin}/api/v1/sub/${encodeURIComponent(user.short_code)}`;
   const params = new URLSearchParams();
   if (template && !template.is_default) params.set("rule", template.id);
   if (format && format !== "clash") params.set("target", format);
@@ -335,7 +337,7 @@ export default function SubscriptionsPage() {
   }
 
   function buildSubscriptionUrl(user: Subscription): string {
-    return subscriptionUrl(user.short_code, selectedTemplate(user.id), format);
+    return subscriptionUrl(user, selectedTemplate(user.id), format);
   }
 
   function renderSubscriptionIdentity(user: Subscription) {

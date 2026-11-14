@@ -194,6 +194,9 @@ pub fn router(state: AppState) -> Router {
             get(routes::settings::get).patch(routes::settings::update),
         )
         .route("/api/v1/alerts/test", post(routes::alerts::test))
+        // 版本更新：查询与手动检测，均仅管理员；版本源只认 GitHub Releases。
+        .route("/api/v1/updates", get(routes::updates::get))
+        .route("/api/v1/updates/check", post(routes::updates::check))
         // 公开订阅入口：不加鉴权，短码即凭证。
         .route("/api/v1/sub/{short_code}", get(routes::subscribe::get))
         .route("/api/v1/subscriptions", get(routes::subscriptions::list))

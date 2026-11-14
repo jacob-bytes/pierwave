@@ -23,7 +23,8 @@ pub struct InstallQuery {
     pub token: Option<String>,
 }
 
-/// 从反向代理头或 Host 推出对外的 base url，用于写进 Agent 配置。
+/// 未配置 `agent_base_url` / `subscription_base_url` 时的回退：从反向代理头或
+/// Host 推出对外 base url。对外链接请统一走 [`super::public_url`]，不要直接调用这里。
 pub fn external_base(headers: &HeaderMap) -> String {
     let scheme = headers
         .get("x-forwarded-proto")
@@ -62,7 +63,12 @@ pub async fn script(
         ));
     }
 
-    let base = external_base(&headers);
+    let base = super::public_url::resolve(
+        &state,
+        Some(&headers),
+        super::public_url::PublicBaseKind::Agent,
+    )
+    .await;
     let body = render_script(&base, token);
     Ok((
         StatusCode::OK,
@@ -394,14 +400,19 @@ mod tests {
 
     use pierwave_domain::Db;
 
-    async fn setup() -> (Router, String) {
+    async fn setup_state() -> (Router, String, crate::state::AppState) {
         let db = Db::connect("sqlite::memory:").await.unwrap();
         db.migrate().await.unwrap();
         let (_server, token) = repo::servers::create(&db.pool, "hk-1", "1.2.3.4", "external")
             .await
             .unwrap();
         let state = crate::state::AppState::new(db, "web/dist");
-        (crate::app::router(state), token)
+        (crate::app::router(state.clone()), token, state)
+    }
+
+    async fn setup() -> (Router, String) {
+        let (app, token, _state) = setup_state().await;
+        (app, token)
     }
 
     async fn get(app: &Router, uri: &str, host: &str) -> (StatusCode, String) {
@@ -450,6 +461,35 @@ mod tests {
             .await
             .unwrap();
         assert!(String::from_utf8_lossy(&bytes).contains("MASTER_URL='https://panel.example.com'"));
+    }
+
+    /// 反代把内网 Host 透进来时，配置过的 Agent 地址必须完全取代请求头。
+    #[tokio::test]
+    async fn configured_agent_base_ignores_internal_host() {
+        let (app, token, state) = setup_state().await;
+        repo::settings::set(
+            &state.db.pool,
+            "agent_base_url",
+            "https://panel.example.com",
+        )
+        .await
+        .unwrap();
+
+        let (status, body) = get(
+            &app,
+            &format!("/api/agent/install.sh?token={token}"),
+            "10.0.0.5:8787",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains("MASTER_URL='https://panel.example.com'"),
+            "{body}"
+        );
+        assert!(
+            !body.contains("10.0.0.5"),
+            "生成链接不能包含内网主机名：{body}"
+        );
     }
 
     #[tokio::test]

@@ -21,6 +21,7 @@ use pierwave_domain::{engine, forwards, protocol, repo};
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
+use crate::routes::public_url::{self, PublicBaseKind};
 use crate::state::AppState;
 
 pub(crate) async fn load_server(state: &AppState, id: &str) -> AppResult<Server> {
@@ -364,7 +365,7 @@ pub async fn create(
     )
     .await;
 
-    let base = super::install::external_base(&headers);
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
     mark_dirty_and_apply(&state, &server, &base).await;
 
     Ok(Json(json!({ "forward": forward })))
@@ -538,7 +539,7 @@ pub async fn update(
     )
     .await;
 
-    let base = super::install::external_base(&headers);
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
     mark_dirty_and_apply(&state, &server, &base).await;
 
     Ok(Json(json!({ "forward": forward })))
@@ -575,7 +576,7 @@ pub async fn delete(
     .await;
 
     let server = load_server(&state, &existing.server_id).await?;
-    let base = super::install::external_base(&headers);
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
     mark_dirty_and_apply(&state, &server, &base).await;
 
     Ok(Json(json!({ "ok": true })))
@@ -794,7 +795,7 @@ pub async fn me_create(
     )
     .await;
 
-    let base = super::install::external_base(&headers);
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
     mark_dirty_and_apply(&state, &server, &base).await;
 
     let used_after = repo::forwards::count_by_owner(&state.db.pool, &user.0.id).await?;
@@ -841,7 +842,7 @@ pub async fn me_update(
     .await?
     .ok_or_else(|| AppError::not_found("me.forward_not_found", None, "转发规则不存在"))?;
 
-    let base = super::install::external_base(&headers);
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
     mark_dirty_and_apply(&state, &server, &base).await;
 
     Ok(Json(json!({
@@ -881,7 +882,7 @@ pub async fn me_delete(
     .await;
 
     let server = load_server(&state, &existing.server_id).await?;
-    let base = super::install::external_base(&headers);
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
     mark_dirty_and_apply(&state, &server, &base).await;
 
     Ok(Json(json!({ "ok": true })))

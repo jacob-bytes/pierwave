@@ -14,6 +14,7 @@ use pierwave_proto::{
 };
 
 use crate::enforcement::RemovalCandidate;
+use crate::routes::public_url::{self, PublicBaseKind};
 use crate::state::AppState;
 
 pub async fn ws(
@@ -21,14 +22,13 @@ pub async fn ws(
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Response {
-    let base = super::install::external_base(&headers);
-    ws.on_upgrade(move |socket| handle(socket, state, base))
+    ws.on_upgrade(move |socket| handle(socket, state, headers))
 }
 
 /// Agent 反向连入：第一条消息必须是 Hello(token)。
 /// token 校验通过后下发 Ack；之后 socket 与广播通道并行处理：
 /// 一边收心跳/上报，一边把主控 apply 产生的期望态推下去。
-async fn handle(mut socket: WebSocket, state: AppState, base_url: String) {
+async fn handle(mut socket: WebSocket, state: AppState, headers: HeaderMap) {
     let Some(Ok(Message::Text(first))) = socket.recv().await else {
         return;
     };
@@ -91,6 +91,9 @@ async fn handle(mut socket: WebSocket, state: AppState, base_url: String) {
     // 重连补发：Agent 按版本号幂等，只有比本地已应用版本新才会真正重启 xray。
     // 配置装配与 apply 共用 routes::desired，保证补发的 client 凭据和上次下发的完全一致。
     if server.config_version > 0 {
+        // 每次补发都重新读设置：管理员改完对外地址后，已连接的 Agent 下一次重连
+        // 补发也会用新值，不把地址缓存到进程或连接上。
+        let base_url = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
         match super::desired::render(&state, &server, &base_url).await {
             Ok(rendered) => {
                 let desired = MasterMessage::Desired(DesiredState {

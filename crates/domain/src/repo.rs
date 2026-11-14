@@ -9529,3 +9529,239 @@ pub mod audit {
         Ok(page(pool, &Filter::default(), None, limit).await?.items)
     }
 }
+
+/// 更新检测结果：单行表 `update_check`（id = 1）。
+///
+/// 只存「上一次检测」这一份快照；失败时保留 `latest_version` / `release_url` /
+/// `released_at`，界面上的「最新版本」不会因为一次网络抖动变空。
+pub mod updates {
+    use super::*;
+
+    /// `update_check` 的一行；没有记录时返回全默认值（等价于「从未检测」）。
+    #[derive(Debug, Clone, Default, PartialEq, Eq, sqlx::FromRow)]
+    pub struct UpdateCheck {
+        /// 最近一次成功解析到的版本号（不含 `v` 前缀）；空串 = 从未成功。
+        pub latest_version: String,
+        pub release_url: String,
+        pub released_at: Option<i64>,
+        /// 最近一次检测时间（成功或失败都会写）。
+        pub checked_at: Option<i64>,
+        /// 最近一次失败的中英双语原因；空串 = 最近一次成功。
+        pub error: String,
+        /// 已经通过告警渠道通知过的版本；空串 = 还没通知过。
+        pub notified_version: String,
+    }
+
+    /// 某个 Agent 版本的服务器台数。
+    #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+    pub struct AgentVersionCount {
+        pub version: String,
+        pub count: i64,
+    }
+
+    /// 读取当前快照；表里没有行时返回默认值，不报错。
+    pub async fn load(pool: &SqlitePool) -> anyhow::Result<UpdateCheck> {
+        let row = sqlx::query_as::<_, UpdateCheck>(
+            "SELECT latest_version, release_url, released_at, checked_at, error, notified_version
+             FROM update_check WHERE id = 1",
+        )
+        .fetch_optional(pool)
+        .await?;
+        Ok(row.unwrap_or_default())
+    }
+
+    /// 写入一次成功检测；`notified_version` 保持原值，避免同一版本重复通知。
+    pub async fn save_success(
+        pool: &SqlitePool,
+        version: &str,
+        release_url: &str,
+        released_at: Option<i64>,
+        checked_at: i64,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO update_check
+                 (id, latest_version, release_url, released_at, checked_at, error, notified_version, updated_at)
+             VALUES (1, ?, ?, ?, ?, '', '', ?)
+             ON CONFLICT(id) DO UPDATE SET
+                 latest_version = excluded.latest_version,
+                 release_url = excluded.release_url,
+                 released_at = excluded.released_at,
+                 checked_at = excluded.checked_at,
+                 error = '',
+                 updated_at = excluded.updated_at",
+        )
+        .bind(version)
+        .bind(release_url)
+        .bind(released_at)
+        .bind(checked_at)
+        .bind(checked_at)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// 写入一次失败检测：只更新 `checked_at` / `error`，成功值原样保留。
+    pub async fn save_failure(
+        pool: &SqlitePool,
+        error: &str,
+        checked_at: i64,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO update_check (id, checked_at, error, updated_at)
+             VALUES (1, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET
+                 checked_at = excluded.checked_at,
+                 error = excluded.error,
+                 updated_at = excluded.updated_at",
+        )
+        .bind(checked_at)
+        .bind(error)
+        .bind(checked_at)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// 记下已经通知过的版本；下一轮同样的版本不再发送。
+    pub async fn mark_notified(pool: &SqlitePool, version: &str, at: i64) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO update_check (id, notified_version, updated_at) VALUES (1, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET
+                 notified_version = excluded.notified_version,
+                 updated_at = excluded.updated_at",
+        )
+        .bind(version)
+        .bind(at)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// 心跳上报的 Agent 版本分布；空版本与从未上报的服务器不计入。
+    ///
+    /// 排序：台数降序、版本号降序（版本号按数字段比较，`0.11.10 > 0.11.9`）。
+    pub async fn agent_versions(pool: &SqlitePool) -> anyhow::Result<Vec<AgentVersionCount>> {
+        let mut rows = sqlx::query_as::<_, AgentVersionCount>(
+            "SELECT agent_version AS version, COUNT(*) AS count
+             FROM servers
+             WHERE agent_version IS NOT NULL AND TRIM(agent_version) <> ''
+             GROUP BY agent_version",
+        )
+        .fetch_all(pool)
+        .await?;
+        rows.sort_by(|a, b| {
+            b.count
+                .cmp(&a.count)
+                .then_with(|| crate::updates::compare_versions(&b.version, &a.version).cmp(&0))
+        });
+        Ok(rows)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        use crate::Db;
+
+        async fn setup() -> SqlitePool {
+            let db = Db::connect("sqlite::memory:").await.unwrap();
+            db.migrate().await.unwrap();
+            db.pool
+        }
+
+        #[tokio::test]
+        async fn failure_keeps_the_last_success_values() {
+            let pool = setup().await;
+            assert_eq!(load(&pool).await.unwrap(), UpdateCheck::default());
+
+            save_success(
+                &pool,
+                "0.12.0",
+                "https://example.test/v0.12.0",
+                Some(100),
+                1_000,
+            )
+            .await
+            .unwrap();
+            save_failure(&pool, "网络失败 / network failed", 2_000)
+                .await
+                .unwrap();
+
+            let check = load(&pool).await.unwrap();
+            assert_eq!(check.latest_version, "0.12.0", "失败不能清掉上次成功值");
+            assert_eq!(check.release_url, "https://example.test/v0.12.0");
+            assert_eq!(check.released_at, Some(100));
+            assert_eq!(check.checked_at, Some(2_000), "失败也必须更新检测时间");
+            assert_eq!(check.error, "网络失败 / network failed");
+        }
+
+        #[tokio::test]
+        async fn success_clears_the_error_but_keeps_notified_version() {
+            let pool = setup().await;
+            save_success(&pool, "0.12.0", "u", None, 1_000)
+                .await
+                .unwrap();
+            mark_notified(&pool, "0.12.0", 1_000).await.unwrap();
+            save_failure(&pool, "boom / boom", 1_100).await.unwrap();
+            save_success(&pool, "0.13.0", "u2", None, 1_200)
+                .await
+                .unwrap();
+
+            let check = load(&pool).await.unwrap();
+            assert_eq!(check.latest_version, "0.13.0");
+            assert_eq!(check.error, "", "成功检测必须清掉上一次的错误");
+            assert_eq!(
+                check.notified_version, "0.12.0",
+                "成功检测不能重置通知记录，否则会重复发"
+            );
+        }
+
+        #[tokio::test]
+        async fn agent_versions_group_heartbeat_values() {
+            let pool = setup().await;
+            for (name, version) in [
+                ("a", Some("0.11.3")),
+                ("b", Some("0.11.3")),
+                ("c", Some("0.11.9")),
+                ("d", Some("0.11.10")),
+                ("e", None),
+                ("f", Some("  ")),
+            ] {
+                let (server, _token) =
+                    super::super::servers::create(&pool, name, "10.0.0.1", "external")
+                        .await
+                        .unwrap();
+                if let Some(version) = version {
+                    super::super::servers::update_health(
+                        &pool,
+                        &server.id,
+                        version,
+                        &super::super::servers::HealthSnapshot::default(),
+                    )
+                    .await
+                    .unwrap();
+                }
+            }
+
+            let rows = agent_versions(&pool).await.unwrap();
+            assert_eq!(
+                rows,
+                vec![
+                    AgentVersionCount {
+                        version: "0.11.3".into(),
+                        count: 2
+                    },
+                    AgentVersionCount {
+                        version: "0.11.10".into(),
+                        count: 1
+                    },
+                    AgentVersionCount {
+                        version: "0.11.9".into(),
+                        count: 1
+                    },
+                ],
+                "空版本不计入；台数降序后按版本号数字段降序"
+            );
+        }
+    }
+}

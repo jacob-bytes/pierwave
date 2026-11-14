@@ -402,6 +402,46 @@ pub fn spawn_forward_traffic_sampler(state: AppState) -> tokio::task::JoinHandle
     })
 }
 
+/// 启动版本更新检测：启动后先跑一次，之后按设置间隔（默认 6 小时）检查。
+///
+/// 调度器只用固定的 60 秒 tick 读设置：间隔是可配置的 1–168 小时，用
+/// `tokio::time::interval(6h)` 的话改设置必须重启才生效。真正的「是否到点」
+/// 判断在 [`crate::updates::run_due_check`] 里，这里只负责触发与日志。
+pub fn spawn_update_check(state: AppState) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        // 启动先跑一轮；失败只落库成 error（不重试、不影响其它任务）。
+        let settings = crate::routes::settings::load(&state.db.pool).await;
+        if settings.update_check_enabled {
+            match crate::updates::check_now(&state).await {
+                Ok(check) => tracing::info!(
+                    latest = %check.latest_version,
+                    error = %check.error,
+                    "版本更新检测完成"
+                ),
+                Err(error) => tracing::error!(error = %error, "版本更新检测失败"),
+            }
+        }
+        let mut ticker = tokio::time::interval(crate::updates::CHECK_TICK);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            ticker.tick().await;
+            match crate::updates::run_due_check(&state).await {
+                Ok(Some(check)) => tracing::info!(
+                    latest = %check.latest_version,
+                    error = %check.error,
+                    "版本更新检测完成"
+                ),
+                Ok(None) => tracing::debug!("版本更新检测：未启用或未到检测间隔"),
+                Err(error) => tracing::error!(error = %error, "版本更新检测失败"),
+            }
+        }
+    })
+}
+
+/// 执行一轮过期会话清理，返回删除条数。
+///
+/// 会话过期后 `user_for_token` 已经不会认它，这里只是把死行清出库，
+/// 避免 `sessions` 表随登录次数无限增长。
 pub async fn run_session_purge(state: &AppState) -> anyhow::Result<u64> {
     let purged = repo::sessions::purge_expired(&state.db.pool).await?;
     if purged > 0 {

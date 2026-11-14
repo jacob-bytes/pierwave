@@ -7,6 +7,7 @@ import type {
 } from "@/lib/agentUpgradeBatch";
 import { ApiError } from "@/lib/apiError";
 import type { ChainStrategy } from "@/lib/chains";
+import type { UpdatesResponse } from "@/lib/updates";
 
 export { ApiError } from "@/lib/apiError";
 
@@ -1214,6 +1215,8 @@ export interface Subscription {
   id: string;
   username: string;
   short_code: string;
+  /** 完整订阅地址；旧版后端可能不返回，前端回退到当前 origin。 */
+  subscription_url?: string | null;
   used_bytes: number;
   quota_bytes: number | null;
   package_count: number;
@@ -1554,7 +1557,7 @@ export interface MeNode {
 }
 
 export interface MeSubscription {
-  /** 后端可能返回站内相对地址，展示前统一转成绝对 URL。 */
+  /** 后端优先返回配置好的绝对地址；旧版后端可能返回站内相对路径。 */
   url: string;
   /** 订阅短码最后一次重置的 Unix 秒。 */
   updated_at: number;
@@ -1642,7 +1645,7 @@ export interface MeSummary {
   packages: UserPackageView[];
   /** 兼容字段：今日/本月流量。 */
   traffic: { today_bytes: number; month_bytes: number };
-  /** 兼容字段：与 `subscription.url` 相同的相对地址。 */
+  /** 兼容字段：与 `subscription.url` 相同的地址。 */
   subscription_url: string;
 }
 
@@ -1680,6 +1683,12 @@ export interface Settings {
    */
   agent_upgrade_concurrency: number;
   /**
+   * 对外地址：Agent 纳管（安装/升级）与订阅链接。空 = 按当前请求地址推导；
+   * 订阅为空时回退到 `agent_base_url`。旧版后端可能不返回这两个键。
+   */
+  agent_base_url?: string | null;
+  subscription_base_url?: string | null;
+  /**
    * P13：告警通知。旧版后端可能不返回这些键，设置页按空值 / 默认值处理。
    * Telegram 需要 Token 与 Chat ID 同时存在才会发送。
    */
@@ -1691,6 +1700,13 @@ export interface Settings {
   alert_events?: string | null;
   /** 同类告警去抖秒数，0–86400，默认 600。 */
   alert_cooldown_secs?: number | null;
+  /**
+   * P17：版本更新检测。旧版后端可能不返回这些键，设置页按默认值处理。
+   * `update_check_interval_hours` 范围 1–168。
+   */
+  update_check_enabled?: boolean | null;
+  update_check_interval_hours?: number | null;
+  update_check_notify?: boolean | null;
 }
 
 export type UpdateSettingsInput = Partial<Settings>;
@@ -1987,6 +2003,16 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify(input),
       }),
+  },
+
+  /**
+   * P17：版本更新。`get` 只读库（不联网），`check` 会立即请求一次
+   * GitHub Releases；两者都仅管理员可用。
+   */
+  updates: {
+    get: () => request<UpdatesResponse>("/api/v1/updates"),
+    check: () =>
+      request<UpdatesResponse>("/api/v1/updates/check", { method: "POST" }),
   },
 
   /**

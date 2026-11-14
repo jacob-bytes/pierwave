@@ -25,6 +25,7 @@ pub mod routing;
 pub mod subscribe;
 pub mod time;
 pub mod tunnel_security;
+pub mod updates;
 pub mod xray;
 
 use anyhow::Context;

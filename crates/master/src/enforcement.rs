@@ -27,6 +27,7 @@ use tokio::sync::Notify;
 use tokio::time::Instant;
 
 use crate::routes::desired;
+use crate::routes::public_url::{self, PublicBaseKind};
 use crate::state::AppState;
 
 /// 去抖窗口：同一台服务器在 30s 内最多 apply 一次。
@@ -399,7 +400,8 @@ async fn backfill_legacy_snapshot(
     };
     // 单台服务器被阻断（例如 nic_name 指向的网卡没有可用地址）不能让整轮
     // 对账失败；跳过它的旧快照回填，其它服务器照常处理。
-    let desired = match desired::render(state, &server, &desired::default_base_url()).await {
+    let base_url = public_url::resolve(state, None, PublicBaseKind::Agent).await;
+    let desired = match desired::render(state, &server, &base_url).await {
         Ok(desired) => desired,
         // 网卡阻断是单台服务器的状态，不应让整轮对账失败；其它错误保持原样上报。
         Err(error)
@@ -573,7 +575,8 @@ async fn apply_server(
     let version_before = server.config_version;
     let snapshot = repo::desired::get(&state.db.pool, &server.id).await?;
 
-    let desired = desired::render(state, server, &desired::default_base_url()).await?;
+    let base_url = public_url::resolve(state, None, PublicBaseKind::Agent).await;
+    let desired = desired::render(state, server, &base_url).await?;
     let fingerprint = desired::fingerprint(&desired.xray);
     if let Some(snapshot) = &snapshot {
         if snapshot.fingerprint == fingerprint && snapshot.config_version == version_before {

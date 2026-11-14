@@ -50,9 +50,9 @@ pub struct ApplyOutcome {
 ///
 /// 凭据在这里一次性派生（`Grant::new`），`xray::build_config` 保持纯函数。
 ///
-/// `base_url` 是对外可访问的主控地址（HTTP 请求里由 `external_base` 推出），
-/// Agent 升级计划里的三个 URL 都用它拼；后台任务没有请求上下文时用
-/// [`default_base_url`]。
+/// `base_url` 是对外可访问的主控地址（由 [`super::public_url::resolve`] 解析），
+/// Agent 升级计划里的三个 URL 都用它拼；后台任务没有请求上下文时由同一函数
+/// 回落到设置或 [`default_base_url`]。
 pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppResult<DesiredConfig> {
     // 网卡绑定先解析：未上报 / 网卡不存在 / 没有可用地址都必须阻断整台服务器的
     // 下发（返回 400），绝不生成一份监听 0.0.0.0 的「降级」配置。
@@ -932,6 +932,40 @@ mod tests {
             plan.sig_url,
             "https://panel.example.com/api/agent/release/0.6.0/SHA256SUMS-x86_64-unknown-linux-musl.sig"
         );
+    }
+
+    /// 后台 apply 没有请求头：设置里的 `agent_base_url` 必须直接进升级包 URL。
+    #[tokio::test]
+    async fn configured_agent_base_drives_background_upgrade_urls() {
+        let (state, server) = fixture(true, "0.5.0", Some("0.6.0")).await;
+        repo::settings::set(
+            &state.db.pool,
+            "agent_base_url",
+            "https://panel.example.com",
+        )
+        .await
+        .unwrap();
+        let base = crate::routes::public_url::resolve(
+            &state,
+            None,
+            crate::routes::public_url::PublicBaseKind::Agent,
+        )
+        .await;
+        let plan = render(&state, &server, &base)
+            .await
+            .unwrap()
+            .agent_upgrade
+            .expect("开启且更新时必须下发升级计划");
+        assert_eq!(
+            plan.asset_url,
+            "https://panel.example.com/api/agent/release/0.6.0/pierwave-agent-x86_64-unknown-linux-musl"
+        );
+        assert!(plan
+            .sums_url
+            .starts_with("https://panel.example.com/api/agent/release/"));
+        assert!(plan
+            .sig_url
+            .starts_with("https://panel.example.com/api/agent/release/"));
     }
 
     #[tokio::test]

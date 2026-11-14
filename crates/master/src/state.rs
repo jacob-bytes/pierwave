@@ -11,6 +11,7 @@ use tokio::sync::broadcast;
 use crate::alerts::Alerts;
 use crate::enforcement::Enforcer;
 use crate::throttle::LoginThrottle;
+use crate::updates::UpdateService;
 
 /// 每台服务器一条广播通道；没有 Agent 在线时发送方仍在，消息自然丢弃。
 const AGENT_CHANNEL_CAPACITY: usize = 64;
@@ -220,6 +221,8 @@ pub struct AppState {
     pub public_status: PublicStatusCache,
     /// 告警去抖状态 + 投递器；未配置渠道时所有通知都是 no-op。
     pub alerts: Alerts,
+    /// 版本更新检测：版本源（默认 GitHub Releases）+ 最近一次结果缓存。
+    pub updates: UpdateService,
 }
 
 impl AppState {
@@ -234,6 +237,7 @@ impl AppState {
             latest_version: LatestVersionCache::default(),
             public_status: PublicStatusCache::default(),
             alerts: Alerts::default(),
+            updates: UpdateService::default(),
         }
     }
 

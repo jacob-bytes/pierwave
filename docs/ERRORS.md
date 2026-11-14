@@ -150,6 +150,14 @@
 | `settings.panel_name_invalid` | 面板名称必须是字符串 | — |
 | `settings.panel_name_length_invalid` | 面板名称长度必须在 {min}-{max} 个字符之间 | max, min |
 | `settings.int_out_of_range` | {label}需在 {min}-{max} 之间的整数 | label, max, min |
+| `settings.base_url_type_invalid` | 对外地址必须是字符串 | — |
+| `settings.base_url_scheme_invalid` | 对外地址必须以 http:// 或 https:// 开头 | — |
+| `settings.base_url_host_missing` | 对外地址缺少有效主机名 | — |
+| `settings.base_url_whitespace_invalid` | 对外地址不能包含空白或控制字符 | — |
+| `settings.base_url_path_invalid` | 对外地址不能包含路径、查询或片段 | — |
+| `settings.base_url_userinfo_invalid` | 对外地址不能包含用户名或密码 | — |
+| `settings.base_url_port_invalid` | 端口必须是 1-65535 的整数 | — |
+| `settings.base_url_too_long` | 对外地址最多 512 个字符 | — |
 | `forward.self_loop` | 目标指向本机同一端口 {port}，会形成自连回环 | port |
 | `forward.engine_invalid` | 转发引擎「{engine}」无效，只支持 native / realm / nftables | allowed, engine |
 | `forward.nftables_unavailable` | 服务器「{server_name}」没有可用的 nftables（需要安装 nft 并以 root 运行） | available, server_id, server_name |

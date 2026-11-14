@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   ArrowUpCircleIcon,
+  Link2Icon,
   Loader2Icon,
   RefreshCwIcon,
   SaveIcon,
@@ -20,6 +21,7 @@ import { AlertsCard } from "@/components/settings/AlertsCard";
 import { BackupCard } from "@/components/settings/BackupCard";
 import { CertificatesPanel } from "@/components/settings/CertificatesPanel";
 import { RuleTemplatesPanel } from "@/components/settings/RuleTemplatesPanel";
+import { UpdatesCard } from "@/components/settings/UpdatesCard";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -37,6 +39,11 @@ import {
 } from "@/components/ui/tabs";
 import { ApiError, type Settings } from "@/lib/api";
 import { errorText } from "@/lib/errors";
+import {
+  agentInstallPreview,
+  resolvePublicBase,
+  subscriptionPreview,
+} from "@/lib/publicBase";
 import { useSettings, useUpdateSettings } from "@/lib/queries";
 import {
   settingsGeneralSchema,
@@ -74,6 +81,8 @@ function toGeneralFormValues(items: Settings): SettingsGeneralValues {
       items.agent_upgrade_concurrency == null
         ? "1"
         : String(items.agent_upgrade_concurrency),
+    agent_base_url: items.agent_base_url ?? "",
+    subscription_base_url: items.subscription_base_url ?? "",
   };
 }
 
@@ -276,6 +285,22 @@ function GeneralForm({ initial }: { initial: Settings }) {
     5,
   );
 
+  // 实时预览：两个输入都为空时展示当前访问地址，与后端回退顺序一致。
+  const accessBase = window.location.origin;
+  const agentBaseInput = form.watch("agent_base_url");
+  const subscriptionBaseInput = form.watch("subscription_base_url");
+  const agentPreview = agentInstallPreview(
+    resolvePublicBase(agentBaseInput, subscriptionBaseInput, "agent", accessBase),
+  );
+  const subscribePreview = subscriptionPreview(
+    resolvePublicBase(
+      agentBaseInput,
+      subscriptionBaseInput,
+      "subscription",
+      accessBase,
+    ),
+  );
+
   const onSubmit = form.handleSubmit(async (values) => {
     form.clearErrors("root");
     try {
@@ -283,6 +308,8 @@ function GeneralForm({ initial }: { initial: Settings }) {
       const items = await updateSettings.mutateAsync({
         panel_name: values.panel_name.trim(),
         agent_upgrade_concurrency: Number(values.agent_upgrade_concurrency),
+        agent_base_url: values.agent_base_url.trim(),
+        subscription_base_url: values.subscription_base_url.trim(),
       });
       // PATCH 返回的 items 是权威值：回填表单（同时清掉脏标记），缓存已由 hook 更新。
       form.reset(toGeneralFormValues(items));
@@ -328,6 +355,72 @@ function GeneralForm({ initial }: { initial: Settings }) {
               {...form.register("panel_name")}
             />
           </FormField>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-sm font-medium">
+            <Link2Icon className="size-4 text-muted-foreground" />
+            {t("settings.publicBase.title")}
+          </CardTitle>
+          <CardDescription className="text-xs">
+            {t("settings.publicBase.desc")}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <FormField
+            label={t("settings.publicBase.agent")}
+            htmlFor="settings-agent-base-url"
+            error={form.formState.errors.agent_base_url?.message}
+            className="max-w-md"
+          >
+            <Input
+              id="settings-agent-base-url"
+              autoComplete="off"
+              placeholder={t("settings.publicBase.agentPlaceholder")}
+              disabled={updateSettings.isPending}
+              aria-invalid={Boolean(form.formState.errors.agent_base_url)}
+              {...form.register("agent_base_url")}
+            />
+          </FormField>
+
+          <FormField
+            label={t("settings.publicBase.subscription")}
+            htmlFor="settings-subscription-base-url"
+            error={form.formState.errors.subscription_base_url?.message}
+            className="max-w-md"
+          >
+            <Input
+              id="settings-subscription-base-url"
+              autoComplete="off"
+              placeholder={t("settings.publicBase.subscriptionPlaceholder")}
+              disabled={updateSettings.isPending}
+              aria-invalid={Boolean(
+                form.formState.errors.subscription_base_url,
+              )}
+              {...form.register("subscription_base_url")}
+            />
+          </FormField>
+
+          <div className="max-w-2xl space-y-2 rounded-lg border bg-muted/30 p-3 text-xs">
+            <div className="space-y-1">
+              <p className="text-muted-foreground">
+                {t("settings.publicBase.agentPreview")}
+              </p>
+              <code className="block font-mono break-all text-foreground">
+                {agentPreview}
+              </code>
+            </div>
+            <div className="space-y-1">
+              <p className="text-muted-foreground">
+                {t("settings.publicBase.subscriptionPreview")}
+              </p>
+              <code className="block font-mono break-all text-foreground">
+                {subscribePreview}
+              </code>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -591,7 +684,9 @@ export default function SettingsPage() {
           <p className="text-xs text-muted-foreground">
             {t("settings.tabs.regularDesc")}
           </p>
-          <SettingsPanelState query={settings} cards={2}>
+          {/* P17：版本更新独立成卡，自己拉 /updates 并保存自己的三个设置项。 */}
+          <UpdatesCard />
+          <SettingsPanelState query={settings} cards={3}>
             {(items) => <GeneralForm initial={items} />}
           </SettingsPanelState>
         </TabsContent>

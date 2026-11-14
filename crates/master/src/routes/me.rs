@@ -5,6 +5,7 @@
 //! 可指向别人的入口。
 
 use axum::extract::{Query, State};
+use axum::http::HeaderMap;
 use axum::Json;
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
@@ -15,6 +16,7 @@ use pierwave_domain::{password, repo};
 
 use crate::auth::{CurrentUser, SESSION_COOKIE};
 use crate::error::{AppError, AppResult};
+use crate::routes::public_url::{self, PublicBaseKind};
 use crate::state::AppState;
 
 const DEFAULT_EVENTS_LIMIT: i64 = 20;
@@ -46,7 +48,11 @@ fn days_left(expires_at: Option<i64>, now: i64) -> Option<i64> {
 ///
 /// 返回形状是给「我的」页面用的；`packages` / `traffic` / `subscription_url`
 /// 是 P4 早期契约的字段，保留它们是为了旧前端在升级窗口内不白屏。
-pub async fn summary(State(state): State<AppState>, user: CurrentUser) -> AppResult<Json<Value>> {
+pub async fn summary(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    user: CurrentUser,
+) -> AppResult<Json<Value>> {
     let now = repo::now();
     let packages = repo::user_packages::list_views_by_user(&state.db.pool, &user.0.id).await?;
     let (today_bytes, month_bytes) =
@@ -125,6 +131,9 @@ pub async fn summary(State(state): State<AppState>, user: CurrentUser) -> AppRes
         .collect();
 
     let short_code = user.0.short_code.clone();
+    let subscription_base =
+        public_url::resolve(&state, Some(&headers), PublicBaseKind::Subscription).await;
+    let subscription_url = public_url::subscription_url(&subscription_base, &short_code);
     Ok(Json(json!({
         "user": {
             "id": user.0.id,
@@ -148,13 +157,13 @@ pub async fn summary(State(state): State<AppState>, user: CurrentUser) -> AppRes
         // 普通用户建自助转发时的服务器下拉；只含当前有权创建的服务器。
         "forward_servers": forward_servers,
         "subscription": {
-            "url": format!("/api/v1/sub/{short_code}"),
+            "url": subscription_url,
             "updated_at": user.0.short_code_updated_at,
         },
         // 兼容字段（P4 旧契约）；新页面只用上面的结构化字段。
         "packages": packages,
         "traffic": { "today_bytes": today_bytes, "month_bytes": month_bytes },
-        "subscription_url": format!("/api/v1/sub/{short_code}"),
+        "subscription_url": subscription_url,
     })))
 }
 
@@ -272,6 +281,7 @@ pub async fn events(
 /// 不记短码本身（短码泄漏等于送人流量，审计表不该成为泄漏面）。
 pub async fn reset_subscription(
     State(state): State<AppState>,
+    headers: HeaderMap,
     user: CurrentUser,
 ) -> AppResult<Json<Value>> {
     let (short_code, updated_at) = repo::users::reset_short_code(&state.db.pool, &user.0.id)
@@ -287,8 +297,9 @@ pub async fn reset_subscription(
     )
     .await;
 
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Subscription).await;
     Ok(Json(json!({
-        "url": format!("/api/v1/sub/{short_code}"),
+        "url": public_url::subscription_url(&base, &short_code),
         "updated_at": updated_at,
     })))
 }
@@ -340,7 +351,7 @@ mod tests {
     use super::*;
 
     use axum::body::Body;
-    use axum::http::{Method, Request, StatusCode};
+    use axum::http::{header, Method, Request, StatusCode};
     use axum::Router;
     use tower::ServiceExt;
 
@@ -376,7 +387,10 @@ mod tests {
     }
 
     async fn get(app: &Router, cookie: Option<&str>, uri: &str) -> (StatusCode, Value) {
-        let mut builder = Request::builder().method(Method::GET).uri(uri);
+        let mut builder = Request::builder()
+            .method(Method::GET)
+            .uri(uri)
+            .header(header::HOST, "panel.example.com");
         if let Some(cookie) = cookie {
             builder = builder.header("cookie", cookie);
         }
@@ -402,6 +416,7 @@ mod tests {
         let mut builder = Request::builder()
             .method(Method::POST)
             .uri(uri)
+            .header(header::HOST, "panel.example.com")
             .header("content-type", "application/json");
         if let Some(cookie) = cookie {
             builder = builder.header("cookie", cookie);
@@ -451,7 +466,7 @@ mod tests {
         assert!(body["subscription_url"]
             .as_str()
             .unwrap()
-            .starts_with("/api/v1/sub/"));
+            .contains("/api/v1/sub/"));
     }
 
     #[tokio::test]
@@ -1049,8 +1064,8 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
         let new_url = body["url"].as_str().unwrap();
-        assert!(new_url.starts_with("/api/v1/sub/"), "{body}");
-        let new_code = new_url.trim_start_matches("/api/v1/sub/").to_string();
+        assert!(new_url.contains("/api/v1/sub/"), "{body}");
+        let new_code = new_url.split("/api/v1/sub/").nth(1).unwrap().to_string();
         assert_ne!(new_code, old_code, "必须换一个新短码");
         assert!(body["updated_at"].as_i64().unwrap() > 0);
 
@@ -1088,6 +1103,81 @@ mod tests {
         assert_eq!(row.1.as_deref(), Some(alice_id.as_str()));
     }
 
+    /// `/me` 的订阅链接与订阅页共用同一套回退：订阅设置 → Agent 设置 → 请求头。
+    #[tokio::test]
+    async fn summary_subscription_url_follows_configured_bases() {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let state = AppState::new(db, "web/dist");
+        let (_, alice_cookie) = make_user(&state, "alice", "user").await;
+        let app = crate::app::router(state.clone());
+
+        // 两个都为空：请求头 Host 推导。
+        let (_, body) = get(&app, Some(&alice_cookie), "/api/v1/me/summary").await;
+        assert!(
+            body["subscription"]["url"]
+                .as_str()
+                .unwrap()
+                .starts_with("http://panel.example.com/api/v1/sub/"),
+            "{body}"
+        );
+
+        // 只配 Agent：订阅回退到 Agent 地址。
+        repo::settings::set(
+            &state.db.pool,
+            "agent_base_url",
+            "https://agent.example.com",
+        )
+        .await
+        .unwrap();
+        let (_, body) = get(&app, Some(&alice_cookie), "/api/v1/me/summary").await;
+        assert!(
+            body["subscription"]["url"]
+                .as_str()
+                .unwrap()
+                .starts_with("https://agent.example.com/api/v1/sub/"),
+            "{body}"
+        );
+
+        // 再配订阅：订阅地址覆盖 Agent 地址。
+        repo::settings::set(
+            &state.db.pool,
+            "subscription_base_url",
+            "https://sub.example.com",
+        )
+        .await
+        .unwrap();
+        let (_, body) = get(&app, Some(&alice_cookie), "/api/v1/me/summary").await;
+        assert!(
+            body["subscription"]["url"]
+                .as_str()
+                .unwrap()
+                .starts_with("https://sub.example.com/api/v1/sub/"),
+            "{body}"
+        );
+        assert_eq!(
+            body["subscription_url"], body["subscription"]["url"],
+            "兼容字段必须与结构化字段一致"
+        );
+
+        // 重置订阅短码后返回的链接同样走配置，而不是请求头。
+        let (status, body) = post(
+            &app,
+            Some(&alice_cookie),
+            "/api/v1/me/subscription/reset",
+            json!({}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(
+            body["url"]
+                .as_str()
+                .unwrap()
+                .starts_with("https://sub.example.com/api/v1/sub/"),
+            "{body}"
+        );
+    }
+
     /// 订阅链接必须能直接用于全部 13 种对用户展示的格式（前端只负责拼 `?target=`）。
     #[tokio::test]
     async fn subscription_url_works_for_every_supported_format() {
@@ -1110,7 +1200,7 @@ mod tests {
         let (status, body) = get(&app, Some(&alice_cookie), "/api/v1/me/summary").await;
         assert_eq!(status, StatusCode::OK, "{body}");
         let url = body["subscription"]["url"].as_str().unwrap().to_string();
-        let code = url.trim_start_matches("/api/v1/sub/").to_string();
+        let code = url.split("/api/v1/sub/").nth(1).unwrap().to_string();
 
         for format in [
             "clash",

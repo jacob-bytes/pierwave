@@ -11,6 +11,7 @@ mod state;
 mod telegram_bot;
 mod throttle;
 mod tunnel_cert;
+mod updates;
 
 use std::net::SocketAddr;
 
@@ -170,6 +171,8 @@ async fn main() -> anyhow::Result<()> {
     let _server_samples = scheduler::spawn_server_samples(state.clone());
     // 转发流量：每 60 秒把 Agent 心跳的累计计数器差值计入日表与用户套餐。
     let _forward_traffic = scheduler::spawn_forward_traffic_sampler(state.clone());
+    // 版本更新检测：启动后先跑一次，之后按设置间隔（默认 6 小时）检查 GitHub Releases。
+    let _update_check = scheduler::spawn_update_check(state.clone());
     // 管理员 Telegram Bot：默认关闭；每 30 秒读一次设置，启停/改配置自动生效。
     // 所有失败都只 warn，启动阶段不因 Bot 配置问题失败。
     let _telegram_bot = telegram_bot::spawn(state.clone());

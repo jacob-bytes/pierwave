@@ -86,6 +86,7 @@ import {
   type UserPackageView,
   type UserView,
 } from "@/lib/api";
+import type { UpdatesResponse } from "@/lib/updates";
 import { compareRoutingRules } from "@/lib/outbounds";
 import { hasPendingAgentUpgrade } from "@/lib/agentUpgrade";
 import { shouldPollAgentBatch } from "@/lib/agentUpgradeBatch";
@@ -168,6 +169,8 @@ export const queryKeys = {
   packages: ["packages"] as const,
   userPackages: (userId: string) => ["user", userId, "packages"] as const,
   settings: ["settings"] as const,
+  /** P17：版本更新状态（master 最新版本 + Agent 版本分布）。 */
+  updates: ["updates"] as const,
   /** P7：备份信息（当前库大小 + 待恢复状态），与设置分开缓存。 */
   backupInfo: ["backup", "info"] as const,
 };
@@ -532,6 +535,38 @@ export function useSettings() {
     queryFn: async () => (await api.settings.get()).items,
     retry: false,
     staleTime: 60_000,
+  });
+}
+
+/**
+ * P17：版本更新状态。
+ *
+ * 侧栏圆点与设置页卡片共用同一份缓存；非管理员传 `enabled: false`，
+ * 避免普通用户登录后就打一个 403。
+ */
+export function useUpdates(enabled = true) {
+  return useQuery<UpdatesResponse>({
+    queryKey: queryKeys.updates,
+    queryFn: api.updates.get,
+    enabled,
+    retry: false,
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+  });
+}
+
+/**
+ * P17：立即检测。返回值就是新的权威状态，直接覆盖缓存，
+ * 侧栏圆点与设置页卡片同时刷新。
+ */
+export function useCheckUpdates() {
+  const queryClient = useQueryClient();
+
+  return useMutation<UpdatesResponse, Error, void>({
+    mutationFn: api.updates.check,
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKeys.updates, data);
+    },
   });
 }
 

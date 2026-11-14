@@ -355,15 +355,58 @@ pub async fn notify(state: &AppState, kind: AlertKind, target_id: &str, title: &
         return;
     }
 
+    deliver(
+        state,
+        channels,
+        kind.as_str(),
+        target_id,
+        title,
+        body,
+        time::now(),
+    );
+}
+
+/// 发一条「不走 `alert_events` 白名单、不去抖」的通知，返回是否真的投递了。
+///
+/// 版本更新有自己的开关（`update_check_notify`），不应受告警事件勾选影响；
+/// 「同一版本只发一次」由调用方把版本号落库保证，这里不需要冷却窗口。
+/// 返回 `true` 表示至少配置了一个渠道并已投递——没有渠道时调用方不应记
+/// 「已通知」，否则管理员之后配置好渠道就永远收不到这条更新了。
+pub async fn notify_custom(
+    state: &AppState,
+    kind: &str,
+    target: &str,
+    title: &str,
+    body: &str,
+) -> bool {
+    let settings = settings::load(&state.db.pool).await;
+    let channels = configured_channels(&settings);
+    if channels.is_empty() {
+        return false;
+    }
+    deliver(state, channels, kind, target, title, body, time::now());
+    true
+}
+
+/// 真正把一条通知丢给所有渠道；网络投递与调用方解耦。
+fn deliver(
+    state: &AppState,
+    channels: Vec<ChannelConfig>,
+    kind: &str,
+    target: &str,
+    title: &str,
+    body: &str,
+    at: i64,
+) {
     let payload = OwnedPayload {
-        kind: kind.as_str().to_string(),
-        target: target_id.to_string(),
+        kind: kind.to_string(),
+        target: target.to_string(),
         title: title.to_string(),
         body: body.to_string(),
-        at: time::now(),
+        at,
     };
     let transport = state.alerts.transport.clone();
-    // 网络投递与调用方解耦：curl 最坏要等到 max-time，不能卡住 WS/心跳/断流。
+    // curl 最坏要等到 max-time，不能卡住 WS/心跳/断流/更新检测。
     tokio::spawn(async move {
         for channel in channels {
             let alert = OutgoingAlert {

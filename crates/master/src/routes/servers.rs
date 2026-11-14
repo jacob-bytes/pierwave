@@ -11,6 +11,7 @@ use pierwave_domain::repo;
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
+use crate::routes::public_url::{self, PublicBaseKind};
 use crate::state::AppState;
 
 /// 服务器分组名最大字符数；空串 = 未分组。
@@ -120,7 +121,7 @@ pub async fn list(
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
     let servers = repo::servers::list_with_node_stats(&state.db.pool).await?;
-    let base = super::install::external_base(&headers);
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
     let items = servers
         .iter()
         .map(|row| {
@@ -262,7 +263,7 @@ pub async fn create(
     )
     .await;
     // 明文 token 只在这里出现一次
-    let base = crate::routes::install::external_base(&headers);
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
     let command = install_command(&base, &token);
     let server = server_view(&server, &base, Some(&command))?;
     Ok(Json(json!({
@@ -572,7 +573,7 @@ pub async fn update(
     )
     .await;
 
-    let base = crate::routes::install::external_base(&headers);
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
     Ok(Json(
         json!({ "server": server_view(&server, &base, None)? }),
     ))
@@ -604,7 +605,7 @@ pub async fn rotate_token(
     )
     .await;
 
-    let base = crate::routes::install::external_base(&headers);
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
     Ok(Json(json!({
         "token": token,
         "install_command": install_command(&base, &token),
@@ -668,24 +669,20 @@ pub(crate) async fn resolve_upgrade_version(
 
 /// 触发单台 Agent 自升级；HTTP 单台接口与批量 runner 共用这一份逻辑。
 ///
-/// 后台任务没有请求头，下发计划里的主控地址按环境变量推断。
+/// 后台任务没有请求头：优先用设置里的 `agent_base_url`，为空才按环境变量推断。
 pub(crate) async fn trigger_single_upgrade(
     state: &AppState,
     server_id: &str,
     version: &str,
 ) -> AppResult<AgentUpgrade> {
-    trigger_single_upgrade_with_base(
-        state,
-        server_id,
-        version,
-        &super::desired::default_base_url(),
-    )
-    .await
+    let base_url = public_url::resolve(state, None, PublicBaseKind::Agent).await;
+    trigger_single_upgrade_with_base(state, server_id, version, &base_url).await
 }
 
 /// 同 [`trigger_single_upgrade`]，但显式指定主控对外地址。
 ///
-/// HTTP 入口用请求头里的 `Host` / `X-Forwarded-Proto`；批量 runner 走默认地址。
+/// HTTP 入口传 [`super::public_url::resolve`] 的结果；批量 runner 不传请求头，
+/// 由同一函数从设置或环境变量解析。
 pub(crate) async fn trigger_single_upgrade_with_base(
     state: &AppState,
     server_id: &str,
@@ -795,7 +792,7 @@ pub async fn trigger_agent_upgrade(
 
     // 前端拿不到版本列表，留空 = 使用最新 Release；结果缓存 5 分钟。
     let version = resolve_upgrade_version(&state, &req.version).await?;
-    let base = super::install::external_base(&headers);
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
     let upgrade = trigger_single_upgrade_with_base(&state, &id, &version, &base).await?;
 
     crate::audit::record(
@@ -1630,6 +1627,52 @@ mod tests {
         assert_eq!(
             listed["items"][0]["commands"]["stop"],
             "systemctl stop pierwave-agent"
+        );
+    }
+
+    /// 配置 Agent 对外地址后，安装命令与升级/卸载命令都改用配置值。
+    #[tokio::test]
+    async fn configured_agent_base_drives_install_and_static_commands() {
+        let (app, _state, cookie) = setup().await;
+        // 走管理员 PATCH，而不是直接写库：保存后的下一个请求必须立即生效。
+        let (status, saved) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            "/api/v1/settings",
+            serde_json::json!({"agent_base_url": "https://panel.example.com"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{saved}");
+
+        let (status, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"hk-1","address":"1.2.3.4"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{created}");
+
+        let token = created["token"].as_str().unwrap();
+        let install = created["install_command"].as_str().unwrap();
+        assert_eq!(
+            install,
+            format!("curl -fsSL https://panel.example.com/api/agent/install.sh?token={token} | sudo bash")
+        );
+        let commands = &created["server"]["commands"];
+        assert_eq!(
+            commands["upgrade"],
+            "curl -fsSL https://panel.example.com/api/agent/install.sh | sh -s -- upgrade"
+        );
+        assert_eq!(
+            commands["uninstall"],
+            "curl -fsSL https://panel.example.com/api/agent/install.sh | sh -s -- uninstall"
+        );
+        assert!(
+            !created.to_string().contains("127.0.0.1"),
+            "不能残留请求头推导的本地地址：{created}"
         );
     }
 

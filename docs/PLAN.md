@@ -339,13 +339,16 @@ GET   /api/v1/packages        items[] 含 node_ids / node_count
 ### 3. 设置页
 
 ```
-GET   /api/v1/settings   -> { items: { panel_name, login_max_attempts, login_lock_secs, session_ttl_hours } }
+GET   /api/v1/settings   -> { items: { panel_name, login_max_attempts, login_lock_secs, session_ttl_hours, agent_base_url, subscription_base_url } }
 PATCH /api/v1/settings   { ...部分字段 } -> { items }
 POST  /api/v1/me/password { old_password, new_password } -> { ok: true }
 ```
 
 - 全部走已有的 `settings` 表（key/value TEXT），缺失时回落到默认值。
 - `PATCH` 只接受白名单键，未知键 400；数值做范围校验（如 `login_max_attempts` 1–20）。
+- `agent_base_url` / `subscription_base_url`：空 = 按请求头（`X-Forwarded-Proto` + `Host`）推导；
+  订阅为空时回退到 `agent_base_url`；非空只接受 `http(s)://host[:port]`，不能带路径、查询或片段。
+  所有对外链接（安装/升级/订阅/二维码）统一走 `routes::public_url`，保存后立即生效。
 - 改密码后**吊销该用户的其它会话**（保留当前这条），避免旧设备一直在线。
 - 断流总开关仍由环境变量 `PIERWAVE_ENFORCE` 控制，本轮不做运行时可切（会牵扯 Enforcer 生命周期）。
 
@@ -2208,3 +2211,92 @@ UDP。QUIC 的握手固定是 TLS 1.3，不能像 TCP 那样塞 Noise 握手；�
 - 不做通用多路复用；
 - 不做 kTLS / 内核旁路；
 - 不替换客户端到入口那一段（Xray 继续负责）。
+
+## P17：版本更新检测（master / agent）
+
+版本源**只认 GitHub Releases**：`https://api.github.com/repos/jacob-bytes/pierwave/releases/latest`，
+不做自建清单。检测任务默认每 **6 小时**跑一次，启动后先跑一次；失败只记录状态、不重试。
+
+### 接口（仅管理员）
+
+```
+GET  /api/v1/updates        -> { master: {...}, agents: {...} }
+POST /api/v1/updates/check  -> 同 GET（立即请求一次 GitHub Releases）
+```
+
+```jsonc
+{
+  "master": {
+    "current": "0.11.3", "latest": "0.12.0", "update_available": true,
+    "release_url": "https://github.com/jacob-bytes/pierwave/releases/tag/v0.12.0",
+    "released_at": 1795168800, "checked_at": 1795200000, "error": null
+  },
+  "agents": {
+    "current_protocol": 25, "min_supported": 16,
+    "versions": [ { "version": "0.11.3", "count": 12 }, { "version": "0.11.1", "count": 2 } ]
+  }
+}
+```
+
+- `agents.versions` 来自心跳落库的 `servers.agent_version`，**不依赖外网**；
+  `min_supported` 取 `UDP_PROTOCOL_VERSION`（16），`current_protocol` 取 `PROTOCOL_VERSION`（25）。
+- 检测失败时 `error` 给中英双语可读原因（HTTP 状态、超时、JSON 格式等），
+  `latest` / `release_url` / `released_at` 保留上一次成功值，`checked_at` 照常更新。
+- 响应永不因为网络失败变成 5xx；只有数据库写失败才是 500。
+
+### 存储与通知
+
+- 迁移 `0049_update_check.sql`：单行表 `update_check`（`id = 1`），字段
+  `latest_version` / `release_url` / `released_at` / `checked_at` / `error` / `notified_version`；
+  重启后仍能显示「上次检测」。进程内另有一份缓存，避免每次 GET 都读库。
+- 发现新版本且版本号**变化**时，复用现有告警渠道（Telegram / Webhook）发一条；
+  `notified_version` 落库去重，同一版本只发一次。没有配置任何渠道时不记「已通知」，
+  之后配置好渠道仍会补发。
+- 检测串行化（进程内互斥），手动触发与定时任务同时跑也不会重复通知。
+
+### 设置项（沿用现有白名单）
+
+| 键 | 类型 | 默认 | 范围 |
+|---|---|---|---|
+| `update_check_enabled` | bool | `true` | 关闭后调度器不再请求 GitHub |
+| `update_check_interval_hours` | int | `6` | 1–168（越界 400） |
+| `update_check_notify` | bool | `true` | 是否通过告警渠道通知新版本 |
+
+### 前端
+
+- 侧栏底部版本号：管理员有新版时显示主色小圆点（8px），悬停/点击展开浮层；
+  普通用户看不到入口。浮层在移动端跟随侧栏宽度，不溢出屏幕。
+- 设置页「常规」tab 新增「版本更新」卡：master 当前/最新、Agent 版本分布、
+  上次检测时间、「立即检测」按钮与三个设置项。
+- 纯逻辑在 `web/src/lib/updates.ts`（版本比较、`hasUpdate`、圆点状态机、相对时间），
+  单测 `updates.test.mjs`；后端的版本比较与 GitHub 解析在 `pierwave_domain::updates`。
+
+> **Status (2026-11, English)**: master and agent update detection ships with
+> GitHub Releases as the only source. A background task runs on boot and then
+> every 6 hours (configurable 1–168h); failures only record an error and never
+> retry in a tight loop. Results are cached in memory and persisted in the
+> single-row `update_check` table (migration 0049) so "last checked" survives a
+> restart, and a failed check keeps the last successful version/URL/time. Both
+> endpoints are admin-only; agent version distribution comes from heartbeats and
+> never touches the network. A new version triggers exactly one notification on
+> the existing alert channels (Telegram/Webhook), deduplicated by a persisted
+> `notified_version`; when no channel is configured the version stays unnotified
+> so it can be delivered later. The sidebar shows an 8px primary dot for admins
+> only, with a hover/click popover that fits mobile widths, and the settings page
+> gains an updates card with the three toggles.
+
+截图（`docs/images/updates/`）：
+
+- `sidebar-update-{1440,390}-{light,dark}.png`：有新版（主色圆点 + 浮层）；
+- `sidebar-latest-{1440,390}-{light,dark}.png`：已是最新（无圆点）；
+- `sidebar-failed-{1440,390}-{light,dark}.png`：检测失败（圆点消失 + 原因 + 重新检测）；
+- `settings-card-{1440,390}-{light,dark}.png`：设置页「版本更新」卡。
+
+1440 的侧栏图是底部区域裁切（弹层比侧栏略宽）；390 是整屏截图，用来证明浮层不溢出屏幕。
+
+> **Screenshots**: `docs/images/updates/` holds the sidebar dot/popover in all
+> three states (update available / up to date / failed) at 1440 and 390 in both
+> light and dark themes, plus the settings "Updates" card at the same sizes.
+> The 1440 sidebar shots are cropped to the lower-left area (the popover is a
+> little wider than the sidebar); the 390 shots are full viewport captures that
+> show the popover never overflows the screen.

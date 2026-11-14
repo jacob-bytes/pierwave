@@ -42,6 +42,7 @@ import {
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PageSkeleton } from "@/components/common";
 import { ChangePasswordDialog } from "@/components/settings/ChangePasswordDialog";
+import { VersionUpdate } from "@/components/updates/VersionUpdate";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import {
@@ -244,6 +245,7 @@ function SidebarBody({
   navGroups,
   pathname,
   versionLabel,
+  isAdmin,
   onNavigate,
 }: {
   collapsed: boolean;
@@ -252,6 +254,8 @@ function SidebarBody({
   navGroups: NavGroup[];
   pathname: string;
   versionLabel: string;
+  /** 版本更新入口只给管理员；普通用户只看到版本号文本。 */
+  isAdmin: boolean;
   onNavigate?: () => void;
 }) {
   const { t } = useI18n();
@@ -315,12 +319,16 @@ function SidebarBody({
           collapsed ? "text-center" : "px-4",
         )}
       >
-        <p
-          className="font-mono type-micro text-muted-foreground"
-          title={`PierWave ${versionLabel}`}
-        >
-          {collapsed ? versionLabel : `PierWave ${versionLabel}`}
-        </p>
+        {isAdmin ? (
+          <VersionUpdate versionLabel={versionLabel} collapsed={collapsed} />
+        ) : (
+          <p
+            className="font-mono type-micro text-muted-foreground"
+            title={`PierWave ${versionLabel}`}
+          >
+            {collapsed ? versionLabel : `PierWave ${versionLabel}`}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -434,6 +442,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
           navGroups={navGroups}
           pathname={pathname}
           versionLabel={versionLabel}
+          isAdmin={user.role === "admin"}
         />
       </aside>
 
@@ -452,6 +461,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
             navGroups={navGroups}
             pathname={pathname}
             versionLabel={versionLabel}
+            isAdmin={user.role === "admin"}
             onNavigate={() => setMobileNavOpen(false)}
           />
           {/* 触屏没有 Escape，也不一定知道点遮罩能关：给一个显式关闭按钮。 */}
