@@ -390,6 +390,7 @@ mod tests {
             strategy: "round_robin".into(),
             cert_id,
             public_port: None,
+            use_internal_address: false,
             members: vec![repo::chains::NewChainGroupMember {
                 server_id: server_id.into(),
                 listen_port,
@@ -507,6 +508,7 @@ mod tests {
                         strategy: "round_robin".into(),
                         cert_id: None,
                         public_port: None,
+                        use_internal_address: false,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: a.id.clone(),
                             listen_port: 9001,
@@ -519,6 +521,7 @@ mod tests {
                         strategy: "round_robin".into(),
                         cert_id: Some(expired_cert.clone()),
                         public_port: None,
+                        use_internal_address: false,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: b.id.clone(),
                             listen_port: 9002,
@@ -582,6 +585,7 @@ mod tests {
                         strategy: "round_robin".into(),
                         cert_id: None,
                         public_port: None,
+                        use_internal_address: false,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: a.id.clone(),
                             listen_port: 9004,
@@ -594,6 +598,7 @@ mod tests {
                         strategy: "round_robin".into(),
                         cert_id: Some(valid_cert),
                         public_port: None,
+                        use_internal_address: false,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: b.id.clone(),
                             listen_port: 9005,

@@ -205,6 +205,15 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
     let mut files: Vec<ManagedFile> = Vec::new();
     let mut file_paths: HashSet<String> = HashSet::new();
     for chain in &chains {
+        // 内网地址缺失是整链失败：保存时已经 400，这里再挡一次手工改库 /
+        // 后补空地址的情况——绝不把目标静默换回公网地址继续下发。
+        if let Some(reason) = chains::internal_address_blocked_reason(&chain.groups) {
+            warnings.push(format!(
+                "链「{}」未下发：{}",
+                chain.chain.name, reason.message
+            ));
+            continue;
+        }
         if engine::is_nftables(&chain.chain.engine) {
             if let Some((seq, _)) = chain
                 .groups
@@ -826,6 +835,7 @@ mod tests {
                         strategy: "round_robin".into(),
                         cert_id: None,
                         public_port: None,
+                        use_internal_address: false,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: server_a.id.clone(),
                             listen_port: 9001,
@@ -838,6 +848,7 @@ mod tests {
                         strategy: "round_robin".into(),
                         cert_id: None,
                         public_port: None,
+                        use_internal_address: false,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: server_b.id.clone(),
                             listen_port: 9002,
@@ -1085,6 +1096,7 @@ mod tests {
                         strategy: "round_robin".into(),
                         cert_id: None,
                         public_port: None,
+                        use_internal_address: false,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: server_a.id.clone(),
                             listen_port: 19401,
@@ -1097,6 +1109,7 @@ mod tests {
                         strategy: "round_robin".into(),
                         cert_id: None,
                         public_port: None,
+                        use_internal_address: false,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: server_b.id.clone(),
                             listen_port: 19402,
@@ -1253,6 +1266,7 @@ mod tests {
                         strategy: "round_robin".into(),
                         cert_id: None,
                         public_port: None,
+                        use_internal_address: false,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: server_a.id.clone(),
                             listen_port: 19401,
@@ -1265,6 +1279,7 @@ mod tests {
                         strategy: "round_robin".into(),
                         cert_id: None,
                         public_port: None,
+                        use_internal_address: false,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: server_b.id.clone(),
                             listen_port: 19402,

@@ -749,6 +749,7 @@ mod tests {
                         strategy: "round_robin".into(),
                         cert_id: None,
                         public_port: None,
+                        use_internal_address: false,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: entry.clone(),
                             listen_port: 9001,
@@ -761,6 +762,7 @@ mod tests {
                         strategy: "round_robin".into(),
                         cert_id: Some(cert.id.clone()),
                         public_port: None,
+                        use_internal_address: false,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: exit.id.clone(),
                             listen_port: 9002,

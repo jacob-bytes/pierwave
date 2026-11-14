@@ -5,6 +5,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use pierwave_domain::models::{Patch, Server};
+use pierwave_domain::port_policy::PortPolicy;
 use pierwave_domain::repo;
 use pierwave_domain::xray;
 
@@ -287,6 +288,12 @@ pub async fn create(
     let transport = normalize_enum("传输方式", &req.transport, TRANSPORTS)?;
     let security = normalize_enum("安全类型", &req.security, SECURITIES)?;
     validate_port(req.port)?;
+    // 服务器配了允许端口集合时，节点端口必须落在集合内（空策略 = 不限制）。
+    PortPolicy::from_server(&server).ensure_allowed(
+        "node.port_not_allowed",
+        req.port,
+        &server.name,
+    )?;
     validate_public_port(req.public_port)?;
     ensure_public_port_available(&state, &server, req.public_port, None).await?;
     validate_bandwidth_kbps(req.bandwidth_kbps)?;
@@ -432,10 +439,27 @@ pub async fn update(
         .await?
         .ok_or_else(|| AppError::not_found("node.not_found", None, "资源不存在"))?;
 
+    let server = if req.port.is_some() || req.public_port.is_set() {
+        Some(load_server(&state, &existing.server_id).await?)
+    } else {
+        None
+    };
+
+    // 改端口同样要落在所属服务器的允许集合内；不限制时是 no-op。
+    if let Some(port) = req.port {
+        if let Some(server) = &server {
+            PortPolicy::from_server(server).ensure_allowed(
+                "node.port_not_allowed",
+                port,
+                &server.name,
+            )?;
+        }
+    }
+
     // 对外端口写入时才做冲突检查：同一公网地址上的显式 public_port 不能重复。
     if req.public_port.is_set() {
-        let server = load_server(&state, &existing.server_id).await?;
-        ensure_public_port_available(&state, &server, req.public_port.value(), Some(&existing.id))
+        let server = server.as_ref().expect("public_port 已设置时必已读取服务器");
+        ensure_public_port_available(&state, server, req.public_port.value(), Some(&existing.id))
             .await?;
     }
 
@@ -1717,5 +1741,109 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
         assert_eq!(body["code"], "node.public_port_conflict", "{body}");
+    }
+
+    /// 服务器配了允许端口集合后，节点创建/改端口都必须在集合内；
+    /// 空策略仍然完全不限制（旧行为）。
+    #[tokio::test]
+    async fn node_ports_must_stay_inside_the_server_port_policy() {
+        let (app, _state, cookie) = setup().await;
+
+        let (status, created) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/servers",
+            Some(json!({
+                "name": "hk-1",
+                "address": "1.2.3.4",
+                "port_start": 30000,
+                "port_end": 31000,
+                "port_allow": [443],
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{created}");
+        let server_id = created["server"]["id"].as_str().unwrap().to_string();
+        let nodes_uri = format!("/api/v1/servers/{server_id}/nodes");
+
+        // 443 在额外允许端口里，30000–31000 在区间里。
+        let mut allowed = vless_node();
+        allowed["port"] = json!(443);
+        let (status, body) =
+            request(&app, Some(&cookie), Method::POST, &nodes_uri, Some(allowed)).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let node_id = body["node"]["id"].as_str().unwrap().to_string();
+
+        // 8443 不在集合内：400 + 稳定 code + {port, server} 参数。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &nodes_uri,
+            Some(trojan_node()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "node.port_not_allowed", "{body}");
+        assert_eq!(body["params"]["port"], 8443, "{body}");
+        assert_eq!(body["params"]["server"], "hk-1", "{body}");
+
+        // 越界端口仍先用旧的 node.port_invalid，不被策略错误码覆盖。
+        let mut out_of_range = vless_node();
+        out_of_range["port"] = json!(70000);
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &nodes_uri,
+            Some(out_of_range),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "node.port_invalid", "{body}");
+
+        // PATCH 改端口同样校验。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &format!("/api/v1/nodes/{node_id}"),
+            Some(json!({"port": 8443})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "node.port_not_allowed", "{body}");
+
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &format!("/api/v1/nodes/{node_id}"),
+            Some(json!({"port": 30005})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["node"]["port"], 30005);
+
+        // 没有配置策略的服务器仍然不受限制。
+        let (_, plain) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/servers",
+            Some(json!({"name": "plain", "address": "5.6.7.8"})),
+        )
+        .await;
+        let plain_id = plain["server"]["id"].as_str().unwrap().to_string();
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &format!("/api/v1/servers/{plain_id}/nodes"),
+            Some(trojan_node()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
     }
 }

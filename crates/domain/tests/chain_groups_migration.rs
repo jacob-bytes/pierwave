@@ -143,6 +143,7 @@ async fn legacy_hops_become_single_member_groups() {
                     strategy: "round_robin".into(),
                     cert_id: None,
                     public_port: None,
+                    use_internal_address: false,
                     members: vec![repo::chains::NewChainGroupMember {
                         server_id: server_a.clone(),
                         listen_port: 9101,
@@ -155,6 +156,7 @@ async fn legacy_hops_become_single_member_groups() {
                     strategy: "round_robin".into(),
                     cert_id: Some("cert-hop1".into()),
                     public_port: None,
+                    use_internal_address: false,
                     members: vec![repo::chains::NewChainGroupMember {
                         server_id: server_b.clone(),
                         listen_port: 9102,

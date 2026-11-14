@@ -31,6 +31,7 @@ use pierwave_domain::chains::GroupStrategy;
 use pierwave_domain::models::{
     Chain, ChainGroupMember, ChainGroupWithMembers, ChainWithGroups, ForwardStatusRow, Server,
 };
+use pierwave_domain::port_policy::PortPolicy;
 use pierwave_domain::tunnel_security as tunnel_mode;
 use pierwave_domain::{chains, engine, forwards, hop_transport, protocol, repo};
 
@@ -48,6 +49,8 @@ struct ValidatedMember {
     server_id: String,
     server_name: String,
     server_address: String,
+    /// 该成员服务器的内网地址；组开关开启时用它替代 `server_address`。
+    server_internal_address: Option<String>,
     listen_port: i64,
     priority: i64,
     weight: i64,
@@ -65,6 +68,8 @@ struct ValidatedGroup {
     cert_id: Option<String>,
     /// 入口组的公网展示端口；只用于展示，不参与下发。
     public_port: Option<i64>,
+    /// 该组是否用成员服务器的内网地址被上一跳寻址。
+    use_internal_address: bool,
     members: Vec<ValidatedMember>,
 }
 
@@ -86,6 +91,59 @@ fn to_proto_strategy(strategy: GroupStrategy) -> ForwardStrategy {
         GroupStrategy::LowestLatency => ForwardStrategy::LowestLatency,
         GroupStrategy::IpHashed => ForwardStrategy::IpHashed,
     }
+}
+
+/// 一台成员作为「下一跳」时实际使用的地址。
+///
+/// 下一组开启 `use_internal_address` 时用该成员服务器的 `internal_address`；
+/// 保存路径已经保证它存在，期望态渲染也会用
+/// [`chains::internal_address_blocked_reason`] 挡住缺失的链。这里的公网回退
+/// 只针对手工改库 / 旧内存数据，正常 API 路径不会走到。
+fn member_target_host(member: &ChainGroupMember, use_internal_address: bool) -> String {
+    if !use_internal_address {
+        return member.server_address.clone();
+    }
+    member
+        .server_internal_address
+        .as_deref()
+        .map(str::trim)
+        .filter(|address| !address.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| member.server_address.clone())
+}
+
+/// 组开关开启时，该组每一台成员都必须有内网地址；否则保存直接 400。
+///
+/// 入口组（seq = 0）没有上一跳，开关本身不产生地址变化；这里仍按「该组
+/// 所有成员都填了」校验，保持前端「成员齐全才可勾选」的契约。
+fn validate_internal_addresses(groups: &[ValidatedGroup]) -> AppResult<()> {
+    for (seq, group) in groups.iter().enumerate() {
+        if !group.use_internal_address {
+            continue;
+        }
+        for member in &group.members {
+            let has_address = member
+                .server_internal_address
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|address| !address.is_empty());
+            if !has_address {
+                return Err(AppError::coded(
+                    "chain.internal_address_missing",
+                    Some(json!({
+                        "server": member.server_name,
+                        "server_id": member.server_id,
+                        "seq": seq,
+                    })),
+                    format!(
+                        "服务器「{}」还没有填写内网地址，无法使用内网地址转发",
+                        member.server_name
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// 纯推导：第 i 组每台成员各自得到一条 forward。
@@ -115,16 +173,20 @@ pub(crate) fn derive_forwards(
 
         // 下一组决定本组的目标。单成员组走兼容字段（targets 为空）；
         // 多成员组才填充 targets，让上一跳按策略选路。
+        //
+        // 内网地址开关属于**被寻址的那一组**：下一组开启时，本组下发的
+        // target 用下一组成员的 internal_address 替代公网 address。
         let (target_host, target_port, targets) = match next {
             Some(next) => {
                 let next_members = ordered_members(next);
+                let use_internal = next.group.use_internal_address;
                 match next_members.first() {
                     Some(first) => {
                         let targets = if next_members.len() > 1 {
                             next_members
                                 .iter()
                                 .map(|member| ForwardTarget {
-                                    host: member.server_address.clone(),
+                                    host: member_target_host(member, use_internal),
                                     port: member.listen_port,
                                     server_id: member.server_id.clone(),
                                 })
@@ -132,7 +194,11 @@ pub(crate) fn derive_forwards(
                         } else {
                             Vec::new()
                         };
-                        (first.server_address.clone(), first.listen_port, targets)
+                        (
+                            member_target_host(first, use_internal),
+                            first.listen_port,
+                            targets,
+                        )
                     }
                     // 数据损坏（组没有成员）：退回链目标，至少不让下发 panic。
                     None => (chain.target_host.clone(), chain.target_port, Vec::new()),
@@ -218,6 +284,13 @@ pub struct CreateChainGroup {
     /// 只用于链列表 / 拓扑的入口展示，不参与下发；非入口组即使传了也会被忽略。
     #[serde(default)]
     pub public_port: Option<i64>,
+    /// 该组是否用成员服务器的内网地址被上一跳寻址。
+    ///
+    /// 每组一个开关：开启后上一跳下发的 target 使用本组成员的
+    /// `servers.internal_address`；组内任一成员没填内网地址时保存 400。
+    /// 入口组（seq = 0）没有上一跳，开关保存后不产生地址变化。
+    #[serde(default)]
+    pub use_internal_address: bool,
     /// 组级监听端口（兼容契约）：成员自己没填时使用；中间组可省略。
     ///
     /// 多成员组的每个成员本来各有端口；组级值只是「都填同一个」的快捷写法，
@@ -297,6 +370,7 @@ fn groups_from_hops(hops: Vec<CreateChainHop>) -> Vec<CreateChainGroup> {
             strategy: None,
             cert_id: None,
             public_port: None,
+            use_internal_address: false,
             listen_port: None,
             server_ids: Vec::new(),
             members: vec![CreateChainMember {
@@ -422,6 +496,7 @@ async fn resolve_groups(
             None => GroupStrategy::default(),
         };
         let name = chains::normalize_group_name(input.name.as_deref())?;
+        let use_internal_address = input.use_internal_address;
         let cert_id = input
             .cert_id
             .as_deref()
@@ -441,11 +516,14 @@ async fn resolve_groups(
         for (index, member) in members.iter().enumerate() {
             let server_id = &server_ids_by_group[seq as usize][index];
             let server = load_server_for_hop(state, server_id).await?;
+            let port_policy = PortPolicy::from_server(&server);
 
             let listen_port = match member.listen_port {
                 Some(port) => {
                     forwards::validate_listen_port(port)?;
                     forwards::ensure_port_not_reserved(port)?;
+                    // 手填端口同样受服务器的允许集合约束；不限制时是 no-op。
+                    port_policy.ensure_allowed("chain.port_not_allowed", port, &server.name)?;
                     ensure_port_available(state, &server, port, exclude_chain_id).await?;
                     port
                 }
@@ -454,7 +532,8 @@ async fn resolve_groups(
                     chains::ensure_entry_port(seq, None)?;
                     if let Some(port) = existing_ports.get(server.id.as_str()).copied() {
                         // 更新链时保留旧端口；它已经在库里，跳过冲突检查以免
-                        // 历史数据/并发写入把正常的“保存”卡死。
+                        // 历史数据/并发写入把正常的“保存”卡死。端口策略只约束
+                        // 本次新选择（手填 / 自动分配）的端口。
                         forwards::validate_listen_port(port)?;
                         forwards::ensure_port_not_reserved(port)?;
                         port
@@ -470,7 +549,7 @@ async fn resolve_groups(
                                 .await?,
                             ),
                         };
-                        let port = chains::allocate_port(&server.id, occupied)?;
+                        let port = port_policy.allocate(&server.id, &server.name, occupied)?;
                         // 分配后立即加入集合：同一次保存内的后续组不会重复拿到它。
                         occupied.insert(port);
                         port
@@ -482,6 +561,7 @@ async fn resolve_groups(
                 server_id: server.id,
                 server_name: server.name,
                 server_address: server.address,
+                server_internal_address: server.internal_address,
                 listen_port,
                 priority: member.priority,
                 weight: member.weight,
@@ -495,6 +575,7 @@ async fn resolve_groups(
             strategy,
             cert_id,
             public_port,
+            use_internal_address,
             members: validated_members,
         });
     }
@@ -585,6 +666,7 @@ fn validated_from_existing(groups: &[ChainGroupWithMembers]) -> Vec<ValidatedGro
             strategy: GroupStrategy::from_db(&group.group.strategy),
             cert_id: group.group.cert_id.clone(),
             public_port: group.group.public_port,
+            use_internal_address: group.group.use_internal_address,
             members: group
                 .members
                 .iter()
@@ -592,6 +674,7 @@ fn validated_from_existing(groups: &[ChainGroupWithMembers]) -> Vec<ValidatedGro
                     server_id: member.server_id.clone(),
                     server_name: member.server_name.clone(),
                     server_address: member.server_address.clone(),
+                    server_internal_address: member.server_internal_address.clone(),
                     listen_port: member.listen_port,
                     priority: member.priority,
                     weight: member.weight,
@@ -690,6 +773,9 @@ pub(crate) fn derive_tunnel_forwards(
     else {
         return Vec::new();
     };
+    // 隧道也是「跳间」，出口组开启内网地址时 Dialer 连出口的内网地址；
+    // allowed_targets 里的 remote 白名单必须与真实连接地址一致。
+    let exit_host = member_target_host(exit_member, exit.group.use_internal_address);
 
     let hop_id = format!("{}:{}", chain.id, exit.group.seq);
     // `protocol = udp / both` 让隧道额外中继 UDP（P16.3）：两端同端口上
@@ -711,7 +797,7 @@ pub(crate) fn derive_tunnel_forwards(
     // 链目标；Listener：只允许链目标。这样两侧都是 fail closed。
     let dialer_allowed = vec![
         TunnelTargetRule {
-            host: exit_member.server_address.clone(),
+            host: exit_host.clone(),
             ports: Some((
                 exit_member.listen_port as u16,
                 exit_member.listen_port as u16,
@@ -732,7 +818,7 @@ pub(crate) fn derive_tunnel_forwards(
                 entry.members.len(),
             ),
             listen_port: entry_member.listen_port,
-            target_host: exit_member.server_address.clone(),
+            target_host: exit_host.clone(),
             target_port: exit_member.listen_port,
             targets: Vec::new(),
             strategy: Default::default(),
@@ -746,7 +832,7 @@ pub(crate) fn derive_tunnel_forwards(
                 role: TunnelRole::Dialer,
                 hop_id: hop_id.clone(),
                 listen: format!("0.0.0.0:{}", entry_member.listen_port),
-                remote: host_port(&exit_member.server_address, exit_member.listen_port),
+                remote: host_port(&exit_host, exit_member.listen_port),
                 security,
                 cert_pem_path: String::new(),
                 key_pem_path: String::new(),
@@ -1007,6 +1093,7 @@ fn new_groups(groups: &[ValidatedGroup]) -> Vec<repo::chains::NewChainGroup> {
             strategy: group.strategy.as_str().to_string(),
             cert_id: group.cert_id.clone(),
             public_port: group.public_port,
+            use_internal_address: group.use_internal_address,
             members: group
                 .members
                 .iter()
@@ -1255,6 +1342,7 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
             "strategy": group.group.strategy,
             "cert_id": group.group.cert_id,
             "public_port": group.group.public_port,
+            "use_internal_address": group.group.use_internal_address,
             "listen_port": group_listen_port,
             "degraded": group_degraded,
             "members": member_views,
@@ -1544,6 +1632,7 @@ pub async fn create(
         groups
     };
     let groups = resolve_groups(&state, &inputs, None, None).await?;
+    validate_internal_addresses(&groups)?;
     ensure_targets_safe(&groups, &target_host, target_port)?;
     validate_nftables_chain(&engine, &groups)?;
     validate_tunnel_chain(&engine, &protocol, &transport, &tunnel_security, &groups)?;
@@ -1594,6 +1683,7 @@ pub async fn create(
                 "strategy": &group.group.strategy,
                 "cert_id": &group.group.cert_id,
                 "public_port": group.group.public_port,
+                "use_internal_address": group.group.use_internal_address,
                 "members": group.members.iter().map(|member| json!({
                     "server_id": &member.server_id,
                     "listen_port": member.listen_port,
@@ -1714,6 +1804,7 @@ pub async fn update(
         }
         None => validated_from_existing(&existing.groups),
     };
+    validate_internal_addresses(&groups)?;
     ensure_targets_safe(&groups, final_target_host, final_target_port)?;
     let final_engine = engine.as_deref().unwrap_or(&existing.chain.engine);
     let final_transport = transport.as_deref().unwrap_or(&existing.chain.transport);
@@ -2082,6 +2173,7 @@ mod tests {
                 strategy: strategy.into(),
                 cert_id: None,
                 public_port: None,
+                use_internal_address: false,
             },
             members: members
                 .iter()
@@ -2094,6 +2186,7 @@ mod tests {
                         server_id: (*server_id).into(),
                         server_name: format!("server-{server_id}"),
                         server_address: (*address).into(),
+                        server_internal_address: None,
                         listen_port: *listen_port,
                         priority: *priority,
                         weight: 1,
@@ -4350,6 +4443,7 @@ mod tests {
                         strategy: "round_robin".into(),
                         cert_id: None,
                         public_port: None,
+                        use_internal_address: false,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: fixture.a.clone(),
                             listen_port: 9001,
@@ -4362,6 +4456,7 @@ mod tests {
                         strategy: "round_robin".into(),
                         cert_id: Some(cert.id.clone()),
                         public_port: None,
+                        use_internal_address: false,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: fixture.b.clone(),
                             listen_port: 9002,
@@ -4449,6 +4544,7 @@ mod tests {
                         strategy: "round_robin".into(),
                         cert_id: None,
                         public_port: None,
+                        use_internal_address: false,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: fixture.a.clone(),
                             listen_port: 9001,
@@ -4461,6 +4557,7 @@ mod tests {
                         strategy: "round_robin".into(),
                         cert_id: Some(expired.id.clone()),
                         public_port: None,
+                        use_internal_address: false,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: fixture.b.clone(),
                             listen_port: 9002,
@@ -5474,6 +5571,7 @@ mod tests {
                     strategy: "round_robin".into(),
                     cert_id: None,
                     public_port: None,
+                    use_internal_address: false,
                     members: vec![repo::chains::NewChainGroupMember {
                         server_id: fixture.a.clone(),
                         listen_port: 9001,
@@ -5511,6 +5609,7 @@ mod tests {
                 server_id: format!("srv-{name}"),
                 server_name: name.into(),
                 server_address: "10.0.0.1".into(),
+                server_internal_address: None,
                 listen_port: 19401,
                 priority: 0,
                 weight: 1,
@@ -5530,6 +5629,7 @@ mod tests {
                 strategy: GroupStrategy::RoundRobin,
                 cert_id: None,
                 public_port: None,
+                use_internal_address: false,
                 members,
             }
         }
@@ -5601,6 +5701,235 @@ mod tests {
         assert_eq!(
             coded(validate_tunnel_chain("tunnel", "tcp", "tls", "tls", &ok).unwrap_err()).0,
             "chain.tunnel_transport_conflict"
+        );
+    }
+
+    /// 服务器端口约束：链的手填端口与中间跳自动分配都只能用允许集合；
+    /// 集合耗尽时是 400，不换范围、不回退固定池。
+    #[tokio::test]
+    async fn server_port_policy_limits_manual_and_auto_allocated_chain_ports() {
+        let fixture = setup().await;
+        let uri = "/api/v1/chains";
+
+        // a 只额外允许 31000/31001；b 只允许 28000-28001。
+        repo::servers::set_port_policy(
+            &fixture.state.db.pool,
+            &fixture.a,
+            None,
+            None,
+            "[31000,31001]",
+        )
+        .await
+        .unwrap();
+        repo::servers::set_port_policy(
+            &fixture.state.db.pool,
+            &fixture.b,
+            Some(28000),
+            Some(28001),
+            "[]",
+        )
+        .await
+        .unwrap();
+
+        // 手填的入口端口不在允许集合内 → 400 chain.port_not_allowed。
+        let body = groups_body(
+            "手填越界",
+            "1.1.1.1",
+            443,
+            &[group(None, None, &[group_member(&fixture.a, 8443, 0)])],
+        );
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{value}");
+        assert_eq!(value["code"], "chain.port_not_allowed", "{value}");
+        assert_eq!(value["params"]["port"], 8443, "{value}");
+        assert_eq!(value["params"]["server"], "hk-a", "{value}");
+
+        // 中间跳省略端口：只能从 b 的允许集合里拿到 28000（不是旧池 20000）。
+        let body = groups_body(
+            "受限自动分配",
+            "1.1.1.1",
+            443,
+            &[
+                group(None, None, &[group_member(&fixture.a, 31000, 0)]),
+                group(None, None, &[auto_port_member(&fixture.b, 0)]),
+            ],
+        );
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{value}");
+        let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+        let stored = repo::chains::find_by_id(&fixture.state.db.pool, &chain_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            stored.groups[1].members[0].listen_port, 28000,
+            "自动分配必须落在服务器的允许集合内"
+        );
+
+        // 占满 b 的两个允许端口后，自动分配必须硬失败。
+        add_node(&fixture.state, &fixture.b, 28000).await;
+        add_node(&fixture.state, &fixture.b, 28001).await;
+        let body = groups_body(
+            "受限耗尽",
+            "1.1.1.1",
+            443,
+            &[
+                group(None, None, &[group_member(&fixture.a, 31001, 0)]),
+                group(None, None, &[auto_port_member(&fixture.b, 0)]),
+            ],
+        );
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{value}");
+        assert_eq!(value["code"], "chain.port_allowed_exhausted", "{value}");
+        assert_eq!(value["params"]["server"], "jp-b", "{value}");
+    }
+
+    /// 内网地址：开关属于「被寻址的那一组」，上一跳的 target 用该组成员
+    /// 服务器的 internal_address；成员缺地址时保存 400，默认关闭时行为不变。
+    #[tokio::test]
+    async fn use_internal_address_changes_the_previous_hops_target() {
+        let fixture = setup().await;
+        let uri = "/api/v1/chains";
+
+        repo::servers::set_internal_address(&fixture.state.db.pool, &fixture.b, Some("10.9.0.2"))
+            .await
+            .unwrap();
+        repo::servers::set_internal_address(&fixture.state.db.pool, &fixture.c, Some("10.9.0.3"))
+            .await
+            .unwrap();
+
+        let body = groups_body(
+            "内网链",
+            "1.1.1.1",
+            443,
+            &[
+                json!({"members": [group_member(&fixture.a, 5101, 0)]}),
+                json!({
+                    "use_internal_address": true,
+                    "members": [
+                        group_member(&fixture.b, 5102, 0),
+                        group_member(&fixture.c, 5103, 1),
+                    ],
+                }),
+            ],
+        );
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{value}");
+        assert_eq!(
+            value["chain"]["groups"][1]["use_internal_address"], true,
+            "链视图必须带出组开关：{value}"
+        );
+        let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+        let stored = repo::chains::find_by_id(&fixture.state.db.pool, &chain_id)
+            .await
+            .unwrap()
+            .unwrap();
+        let derived = derive_forwards(&stored.chain, &stored.groups);
+        let entry = derived
+            .iter()
+            .find(|(server_id, _)| server_id == &fixture.a)
+            .map(|(_, forward)| forward)
+            .expect("入口组必须有下发配置");
+        assert_eq!(entry.target_host, "10.9.0.2", "兼容字段也走内网地址");
+        assert_eq!(entry.target_port, 5102);
+        assert_eq!(entry.targets.len(), 2, "多成员下一跳要逐个给地址");
+        assert_eq!(entry.targets[0].host, "10.9.0.2");
+        assert_eq!(entry.targets[1].host, "10.9.0.3");
+
+        // 默认 false：target 仍是服务器的公网 address，旧行为不变。
+        let body = groups_body(
+            "公网链",
+            "1.1.1.1",
+            443,
+            &[
+                json!({"members": [group_member(&fixture.a, 5201, 0)]}),
+                json!({"members": [group_member(&fixture.b, 5202, 0)]}),
+            ],
+        );
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{value}");
+        let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+        let stored = repo::chains::find_by_id(&fixture.state.db.pool, &chain_id)
+            .await
+            .unwrap()
+            .unwrap();
+        let entry = derive_forwards(&stored.chain, &stored.groups)
+            .into_iter()
+            .find(|(server_id, _)| server_id == &fixture.a)
+            .map(|(_, forward)| forward)
+            .unwrap();
+        assert_eq!(entry.target_host, "10.0.0.2", "默认必须保持公网地址");
+
+        // 成员缺内网地址：保存 400，且不能落库。
+        let before = repo::chains::list(&fixture.state.db.pool)
+            .await
+            .unwrap()
+            .len();
+        let body = groups_body(
+            "缺内网地址",
+            "1.1.1.1",
+            443,
+            &[
+                json!({"members": [group_member(&fixture.a, 5301, 0)]}),
+                json!({
+                    "use_internal_address": true,
+                    "members": [group_member(&fixture.d, 5302, 0)],
+                }),
+            ],
+        );
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{value}");
+        assert_eq!(value["code"], "chain.internal_address_missing", "{value}");
+        assert_eq!(value["params"]["server"], "us-d", "{value}");
+        assert_eq!(
+            repo::chains::list(&fixture.state.db.pool)
+                .await
+                .unwrap()
+                .len(),
+            before,
+            "校验失败不能落库"
         );
     }
 }

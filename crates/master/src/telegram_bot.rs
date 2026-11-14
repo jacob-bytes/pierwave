@@ -1049,6 +1049,7 @@ mod tests {
                     strategy: chain_rules::GroupStrategy::RoundRobin.as_str().to_string(),
                     cert_id: None,
                     public_port: None,
+                    use_internal_address: false,
                     members: vec![chains_repo::NewChainGroupMember {
                         server_id: server.id.clone(),
                         listen_port: 8443,

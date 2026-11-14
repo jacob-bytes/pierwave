@@ -35,6 +35,8 @@
 | `server.group_name_too_long` | 分组名称最多 {max} 个字符 | max |
 | `server.group_name_invalid` | 分组名称包含非法字符 | value |
 | `server.xray_mode_unsupported` | 目前只支持外置 Xray（external） | — |
+| `server.port_range_invalid` | 端口范围不合法：起止必须同时填写、在 1-65535 之间，且起始不大于结束 | — |
+| `server.port_allow_invalid` | 额外允许的端口必须是 1-65535 的整数 | — |
 | `agent.upgrade.version_unavailable` | 无法获取最新版本，请显式指定 version | — |
 | `agent.upgrade.version_invalid` | 版本号格式不合法：{version} | version |
 | `agent.upgrade.disabled` | 该服务器未开启 Agent 自升级，请先开启 | — |
@@ -54,6 +56,7 @@
 | `node.name_required` | 节点名称不能为空 | — |
 | `node.name_too_long` | 节点名称最多 {max} 个字符 | max |
 | `node.port_invalid` | 端口必须在 {min}-{max} 之间 | max, min |
+| `node.port_not_allowed` | 端口 {port} 不在服务器「{server}」允许的范围内 | port, server |
 | `node.public_port_invalid` | 对外端口必须在 {min}-{max} 之间 | max, min |
 | `node.public_port_conflict` | 对外端口 {public_port} 已被服务器「{server_name}」上的节点「{node_name}」占用 | address, node_id, node_name, node_tag, public_port, server_id, server_name |
 | `node.tag_too_long` | tag 不能超过 {max} 个字符 | max |
@@ -153,24 +156,30 @@
 | `chain.hop_count_invalid` | 链必须包含 {min}-{max} 跳（当前 {count} 跳） | count, max, min |
 | `chain.duplicate_server` | 同一台服务器（{server_id}）不能在一跳链里出现两次 | server_id |
 | `chain.port_conflict_hop` | 监听端口 {port} 已被服务器「{server_name}」上的链「{name}」第 {seq} 跳占用 | chain_id, name, port, seq, server_name |
+| `chain.port_not_allowed` | 端口 {port} 不在服务器「{server}」允许的范围内 | port, server |
+| `chain.port_allowed_exhausted` | 服务器「{server}」允许的端口都已占用；请先释放端口，或为该跳手动填写允许范围内的端口 | server, server_id |
+| `chain.internal_address_missing` | 服务器「{server}」还没有填写内网地址，无法使用内网地址转发 | server |
 
 ## 转发链端口自动分配（中英对照）/ Automatic chain port allocation
 
-中间组（seq ≥ 1）可以省略监听端口：主控在固定池 `20000..=29999` 里为每台服务器
-挑最小空闲端口，保存时落成具体值；入口组（seq 0）仍然必须显式填写。
+中间组（seq ≥ 1）可以省略监听端口：主控为每台服务器挑最小空闲端口，保存时落成
+具体值；入口组（seq 0）仍然必须显式填写。服务器**没有**配置允许端口集合时沿用
+固定池 `20000..=29999`；配置了集合（见下节）时只在集合内挑，耗尽直接 400。
 已占用集合 = 该服务器上的 `forwards.listen_port`、`nodes.port`、其它链的成员端口。
 
 Intermediate groups (seq ≥ 1) may omit their listen port: the master picks the
-lowest free port from the fixed `20000..=29999` pool for each server and persists
-the concrete value on save. The entry group (seq 0) must still provide one.
-Occupied = `forwards.listen_port`, `nodes.port`, and members of other chains on
-the same server.
+lowest free port for each server and persists the concrete value on save. The
+entry group (seq 0) must still provide one. Servers **without** a port policy keep
+the fixed `20000..=29999` pool; with a policy, allocation only picks ports inside
+the allowed set and exhausts with a hard 400. Occupied = `forwards.listen_port`,
+`nodes.port`, and members of other chains on the same server.
 
 | code | 中文 | English | params |
 |---|---|---|---|
 | `chain.entry_port_required` | 入口组（第 1 组）必须填写监听端口 | The entry group (group 1) must provide a listen port | — |
 | `chain.public_port_invalid` | 对外端口必须在 {min}-{max} 之间 | Public port must be between {min} and {max} | max, min |
 | `chain.port_pool_exhausted` | 服务器（{server_id}）的自动分配端口池 {pool_start}-{pool_end} 已耗尽；请先释放端口，或为这一跳手动填写端口 | The automatic port pool {pool_start}-{pool_end} on server {server_id} is exhausted; free a port or provide one manually | pool_end, pool_start, server_id |
+| `chain.port_allowed_exhausted` | 服务器「{server}」允许的端口都已占用；请先释放端口，或为该跳手动填写允许范围内的端口 | Every port allowed on server "{server}" is in use; free one or provide an allowed port manually | server, server_id |
 
 池范围常量在 `crates/domain/src/chains.rs`（`PORT_POOL_START` / `PORT_POOL_END`）；
 同一台服务器按「最小空闲」选择，池耗尽直接 400，不会换范围或随机挑端口。
@@ -416,3 +425,102 @@ Agent 仍然只按 `nodes.port` / `chain_group_members.listen_port` 监听。列
 > same **explicit** `public_port` (`node.public_port_conflict`; `params.server_name` names the
 > conflicting server). `NULL` means "same as this host's listen port" and is not compared
 > across hosts. Only the entry group (`seq = 0`) uses `chain_groups.public_port`.
+
+## 服务器允许端口与内网地址（迁移 0041）/ Allowed ports and internal address (migration 0041)
+
+`servers` 新增三列描述允许端口集合：`port_start` / `port_end`（闭区间）与
+`port_allow_json`（区间之外额外允许的端口，JSON 数组文本，默认 `'[]'`）。
+允许集合 = `[port_start, port_end] ∪ port_allow`；三者都为空 = **不限制**，与
+迁移前完全一致。`servers.internal_address` 是跳间寻址可用的内网地址，`NULL` = 未填写。
+
+Migration `0041` adds three columns describing the allowed-port set: `port_start` /
+`port_end` (inclusive range) and `port_allow_json` (extra ports outside the range, a
+JSON array, default `'[]'`). Allowed = `[port_start, port_end] ∪ port_allow`; all
+empty means **unrestricted**, exactly as before. `servers.internal_address` is the
+optional private address used for hop-to-hop addressing (`NULL` = not configured).
+
+写路径 / Write path:
+
+- `port_start` / `port_end` 必须**同时**填写或同时留空；值在 `1..=65535`；`start > end`
+  一律 400 `server.port_range_invalid`；
+- `port_allow` 的每一项必须在 `1..=65535`，否则 400 `server.port_allow_invalid`；
+  服务端保存前会去重升序，响应里以数组 `port_allow` 返回；
+- `PATCH /api/v1/servers/{id}` 对四个字段都是三态：缺省 = 不改、`null` = 清空、
+  值 = 覆盖；`internal_address` 去首尾空白，空串按清空处理；
+- 端口策略只约束**写路径**。收紧策略不会自动改写已有节点/链；只有下次重新选择端口
+  （节点改端口、链手填或自动分配端口）时才会被新策略拦下。
+
+- `port_start` / `port_end` must be provided **together** or omitted together, be within
+  `1..=65535`, and `start > end` is 400 `server.port_range_invalid`.
+- Every `port_allow` entry must be within `1..=65535` (400 `server.port_allow_invalid`);
+  entries are deduped and sorted on save and returned as the `port_allow` array.
+- On `PATCH /api/v1/servers/{id}` all four fields are tri-state: omitted = unchanged,
+  `null` = clear, value = replace. `internal_address` is trimmed and an empty string clears it.
+- The policy only constrains the **write path**. Tightening it never rewrites existing
+  nodes/chains; they are rejected the next time a port is selected again (node port
+  change, manual chain port, or automatic chain allocation).
+
+三处执行点 / Three enforcement points:
+
+1. 节点创建/修改：`nodes.port` 必须在允许集合内，否则 400 `node.port_not_allowed`
+   （参数 `port`、`server`）；越界端口仍优先报旧码 `node.port_invalid`。
+2. 链的自动端口分配：从该服务器的允许集合里挑最小空闲端口；集合耗尽 400
+   `chain.port_allowed_exhausted`；未配置集合时仍是 `20000..=29999`（`chain.port_pool_exhausted`）。
+3. 链的手填端口（入口与中间跳）：不在允许集合内 400 `chain.port_not_allowed`。
+
+1. Node create/update: `nodes.port` must be allowed (`node.port_not_allowed`, params
+   `port` / `server`); out-of-range values keep the older `node.port_invalid` code.
+2. Automatic chain allocation: picks the lowest free port from the server's allowed set
+   and fails with `chain.port_allowed_exhausted`; without a policy the legacy
+   `20000..=29999` pool and `chain.port_pool_exhausted` are unchanged.
+3. Manually entered chain ports (entry and intermediate hops): `chain.port_not_allowed`.
+
+| code | 中文 | English | params |
+|---|---|---|---|
+| `server.port_range_invalid` | 端口范围不合法：起止必须同时填写、在 1-65535 之间，且起始不大于结束 | Invalid port range: start and end must be provided together, both within 1-65535, and start must not exceed end | end, max, min, start |
+| `server.port_allow_invalid` | 额外允许的端口必须是 1-65535 的整数 | Additional allowed ports must be integers between 1 and 65535 | max, min, port |
+| `node.port_not_allowed` | 端口 {port} 不在服务器「{server}」允许的范围内 | Port {port} is not allowed on server "{server}" | port, server |
+| `chain.port_not_allowed` | 端口 {port} 不在服务器「{server}」允许的范围内 | Port {port} is not allowed on server "{server}" | port, server |
+| `chain.port_allowed_exhausted` | 服务器「{server}」允许的端口都已占用；请先释放端口，或为该跳手动填写允许范围内的端口 | Every port allowed on server "{server}" is in use; free one or provide an allowed port manually | server, server_id |
+| `chain.internal_address_missing` | 服务器「{server}」还没有填写内网地址，无法使用内网地址转发 | Server "{server}" has no internal address, so internal-address forwarding cannot be used | server |
+
+### 跳间内网地址 / Hop-to-hop internal address
+
+`chain_groups.use_internal_address INTEGER NOT NULL DEFAULT 0` 是**每组一个开关**
+（迁移 0041）。语义：**该组被上一跳寻址时，使用该组成员的
+`servers.internal_address` 替代公网 `address`**。因此校验对象是该组自己的成员：
+任一成员没有内网地址 → 保存链 400 `chain.internal_address_missing`（参数
+`server` / `server_id` / `seq`），不会静默回退公网。入口组（`seq = 0`）没有上一跳，
+开关保存后不产生任何地址变化（前端可以禁用该开关）。默认 `false` 时下发结果与
+升级前逐字节一致。
+
+`chain_groups.use_internal_address INTEGER NOT NULL DEFAULT 0` is a **per-group**
+switch (migration `0041`). Semantics: when the previous hop addresses this group, the
+group members' `servers.internal_address` replaces their public `address`. Validation
+therefore covers the group's own members: if any member has no internal address the
+chain save fails with 400 `chain.internal_address_missing` (params `server` /
+`server_id` / `seq`) instead of silently falling back to the public address. The entry
+group (`seq = 0`) has no previous hop, so its switch has no routing effect after save
+(the UI may disable it). With the default `false` the dispatched state is byte-identical
+to before this change.
+
+推导示例 / Derived target example (2 hops, group `seq = 1` has the switch on and its
+member server has `internal_address = 10.9.0.2`):
+
+```json
+{
+  "id": "chain-<chain_id>-0",
+  "listen_port": 5101,
+  "target_host": "10.9.0.2",
+  "target_port": 5102,
+  "targets": []
+}
+```
+
+多成员组会把 `targets` 里每个成员的 `host` 都换成各自的内网地址 / For multi-member
+groups every entry in `targets` uses that member's own internal address.
+
+下发时的兜底 / Dispatch guard: if the internal address disappears later (manual DB
+edit / cleared server field), the chain is treated as **blocked** (`blocked_reason` /
+`chain.internal_address_missing`) and the desired state skips the whole chain — it is
+never rendered with the public address.

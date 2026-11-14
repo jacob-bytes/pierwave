@@ -1467,6 +1467,7 @@ mod tests {
                     strategy: "round_robin".into(),
                     cert_id: None,
                     public_port: None,
+                    use_internal_address: false,
                     members: vec![repo::chains::NewChainGroupMember {
                         server_id: server.id.clone(),
                         listen_port: 8443,

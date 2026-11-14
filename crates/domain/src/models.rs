@@ -85,6 +85,25 @@ pub struct Server {
     ///
     /// 只是展示维度：公开探针页按它聚合，不参与鉴权或期望态下发。
     pub group_name: Option<String>,
+    /// 允许的端口区间起点（含）；`None` = 该侧不设边界。
+    ///
+    /// 与 [`Server::port_end`]、[`Server::port_allow_json`] 一起构成允许集合：
+    /// 区间 ∪ 额外端口；三者都为空才是「不限制」（旧行为）。写路径由
+    /// [`crate::port_policy::PortPolicy`] 统一校验。
+    pub port_start: Option<i64>,
+    /// 允许的端口区间终点（含）；`None` = 该侧不设边界。
+    pub port_end: Option<i64>,
+    /// 区间之外额外允许的端口，JSON 数组文本（库内是 TEXT）。
+    ///
+    /// 对外序列化成 `port_allow` 数组；非法/损坏的值按空数组处理，避免
+    /// 一个坏字段把响应变成 500。
+    #[serde(rename = "port_allow", serialize_with = "port_allow_json_as_value")]
+    pub port_allow_json: String,
+    /// 链路跳间寻址使用的内网地址；`None` = 未填写。
+    ///
+    /// 只有收到该服务器作为下一跳的链路组显式开启 `use_internal_address` 时
+    /// 才生效；没有填写就必须在保存链时 400，绝不静默回退公网地址。
+    pub internal_address: Option<String>,
 }
 
 /// 服务器 + 该服务器的节点统计（列表页只读聚合，不落库）。
@@ -267,6 +286,12 @@ pub struct ChainGroup {
     /// 仅 `seq = 0` 有意义，且**只用于展示**（链列表 / 拓扑入口列）；
     /// 链下发仍然只用 `chain_group_members.listen_port`。
     pub public_port: Option<i64>,
+    /// 该组是否用**成员服务器的内网地址**被上一跳寻址。
+    ///
+    /// 每组一个开关：开启后，上一跳下发的 target 使用本组成员的
+    /// `servers.internal_address`；本组任一成员没填内网地址时保存链直接 400。
+    /// 入口组（seq = 0）没有上一跳，开关不产生地址变化。默认 false = 旧行为。
+    pub use_internal_address: bool,
 }
 
 /// 组内一个成员 + 推导/展示所需的服务器字段。
@@ -282,6 +307,9 @@ pub struct ChainGroupMember {
     pub server_name: String,
     /// 下一跳 target 用；只给下发/校验，不直接出现在 API 响应里。
     pub server_address: String,
+    /// 该成员服务器的内网地址；`None` = 未填写。组开关开启时用它替代
+    /// [`ChainGroupMember::server_address`] 作为上一跳的 target。
+    pub server_internal_address: Option<String>,
     pub listen_port: i64,
     /// 主备用：小的优先。
     pub priority: i64,
@@ -543,6 +571,21 @@ where
 {
     let value =
         serde_json::from_str::<serde_json::Value>(raw).unwrap_or_else(|_| serde_json::json!({}));
+    value.serialize(serializer)
+}
+
+/// `servers.port_allow_json`（TEXT）→ 响应里的 `port_allow` 数组。
+///
+/// 损坏的值按空数组输出，避免一个坏字段让整台服务器的响应变成 500；
+/// 写路径总是写规范化的升序数组（见 [`crate::port_policy::PortPolicy`]）。
+fn port_allow_json_as_value<S>(raw: &str, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let value = serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .filter(serde_json::Value::is_array)
+        .unwrap_or_else(|| serde_json::json!([]));
     value.serialize(serializer)
 }
 

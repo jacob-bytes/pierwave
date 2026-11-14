@@ -4,7 +4,8 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use pierwave_domain::models::{AgentUpgrade, Server};
+use pierwave_domain::models::{AgentUpgrade, Patch, Server};
+use pierwave_domain::port_policy::{self, PortPolicy};
 use pierwave_domain::release;
 use pierwave_domain::repo;
 
@@ -77,6 +78,38 @@ pub(crate) fn normalize_group_name(raw: Option<&str>) -> AppResult<Option<String
     Ok(Some(name.to_string()))
 }
 
+/// 内网地址：去首尾空白；空串 = 清空（落 NULL）。地址格式不做 DNS/IP 校验，
+/// 管理员可能填内部域名或 IPv6，这里只保证「空白 = 没有」这一条。
+pub(crate) fn normalize_internal_address(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+/// 把允许端口策略写回服务器，并同步内存里的响应字段。
+async fn save_port_policy(
+    state: &AppState,
+    server: &mut Server,
+    policy: &PortPolicy,
+    internal_address: Option<String>,
+) -> AppResult<()> {
+    repo::servers::set_port_policy(
+        &state.db.pool,
+        &server.id,
+        policy.start,
+        policy.end,
+        &policy.allow_json(),
+    )
+    .await?;
+    repo::servers::set_internal_address(&state.db.pool, &server.id, internal_address.as_deref())
+        .await?;
+    server.port_start = policy.start;
+    server.port_end = policy.end;
+    server.port_allow_json = policy.allow_json();
+    server.internal_address = internal_address;
+    Ok(())
+}
+
 pub async fn list(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -111,6 +144,18 @@ pub struct CreateServer {
     /// 分组名；空串 = 未分组，最长 32 个字符。
     #[serde(default)]
     pub group_name: Option<String>,
+    /// 允许的端口区间起点（含）；省略 / null = 该侧不设边界。
+    #[serde(default)]
+    pub port_start: Option<i64>,
+    /// 允许的端口区间终点（含）。
+    #[serde(default)]
+    pub port_end: Option<i64>,
+    /// 区间外额外允许的端口；省略 / null = 没有额外端口。
+    #[serde(default)]
+    pub port_allow: Option<Vec<i64>>,
+    /// 跳间寻址用的内网地址；省略 / null = 未填写。
+    #[serde(default)]
+    pub internal_address: Option<String>,
 }
 
 fn default_xray_mode() -> String {
@@ -167,7 +212,13 @@ pub async fn create(
         ));
     }
     let group_name = normalize_group_name(req.group_name.as_deref())?;
-    let (server, token) = repo::servers::create_with_country_and_group(
+    let port_policy = PortPolicy::validated(
+        req.port_start,
+        req.port_end,
+        req.port_allow.as_deref().unwrap_or_default(),
+    )?;
+    let internal_address = normalize_internal_address(req.internal_address.as_deref());
+    let (mut server, token) = repo::servers::create_with_country_and_group(
         &state.db.pool,
         name,
         address,
@@ -176,6 +227,7 @@ pub async fn create(
         group_name.as_deref(),
     )
     .await?;
+    save_port_policy(&state, &mut server, &port_policy, internal_address).await?;
     // 明文 token 不落审计：它只该在创建响应里出现一次。
     crate::audit::record(
         &state,
@@ -187,6 +239,11 @@ pub async fn create(
             "address": &server.address,
             "xray_mode": &server.xray_mode,
             "group_name": &server.group_name,
+            "port_start": server.port_start,
+            "port_end": server.port_end,
+            "port_allow": serde_json::from_str::<Value>(&server.port_allow_json)
+                .unwrap_or_else(|_| json!([])),
+            "internal_address": &server.internal_address,
         }),
     )
     .await;
@@ -216,6 +273,18 @@ pub struct PatchServer {
     /// Web 编辑弹窗用 null 表示清空分组，不能和「不改」混为一谈。
     #[serde(default, deserialize_with = "deserialize_present_group_name")]
     pub group_name: Option<Option<String>>,
+    /// 端口区间起点：缺省 = 不改，`null` = 清空，数字 = 设置。
+    #[serde(default)]
+    pub port_start: Patch<i64>,
+    /// 端口区间终点：缺省 = 不改，`null` = 清空，数字 = 设置。
+    #[serde(default)]
+    pub port_end: Patch<i64>,
+    /// 额外允许端口：缺省 = 不改，`null` = 清空，数组 = 整体替换。
+    #[serde(default)]
+    pub port_allow: Patch<Vec<i64>>,
+    /// 内网地址：缺省 = 不改，`null` / 空串 = 清空。
+    #[serde(default)]
+    pub internal_address: Patch<String>,
 }
 
 fn deserialize_present_group_name<'de, D>(
@@ -277,11 +346,15 @@ pub async fn update(
         && req.allow_agent_upgrade.is_none()
         && req.country_code.is_none()
         && req.group_name.is_none()
+        && !req.port_start.is_set()
+        && !req.port_end.is_set()
+        && !req.port_allow.is_set()
+        && !req.internal_address.is_set()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 name / address / xray_mode / allow_agent_upgrade / country_code / group_name 之一",
+            "至少需要提供 name / address / xray_mode / allow_agent_upgrade / country_code / group_name / port_start / port_end / port_allow / internal_address 之一",
         ));
     }
 
@@ -295,6 +368,57 @@ pub async fn update(
     };
 
     let before = repo::servers::find_by_id(&state.db.pool, &id).await.ok();
+
+    // 端口策略是三态 PATCH：缺省沿用旧值、null 清空、数字/数组覆盖。
+    // 先合成最终值再校验，避免「只改一半」产生非法区间。
+    let policy_changed =
+        req.port_start.is_set() || req.port_end.is_set() || req.port_allow.is_set();
+    let internal_changed = req.internal_address.is_set();
+    let current = if policy_changed || internal_changed {
+        Some(
+            repo::servers::find_by_id(&state.db.pool, &id)
+                .await
+                .map_err(|error| match error.downcast_ref::<sqlx::Error>() {
+                    Some(sqlx::Error::RowNotFound) => {
+                        AppError::not_found("server.not_found", None, "资源不存在")
+                    }
+                    _ => AppError::Internal(error),
+                })?,
+        )
+    } else {
+        None
+    };
+    let policy = if policy_changed {
+        let current = current.as_ref().expect("policy_changed 时必已读取服务器");
+        let port_start = match req.port_start {
+            Patch::Missing => current.port_start,
+            Patch::Null => None,
+            Patch::Value(port) => Some(port),
+        };
+        let port_end = match req.port_end {
+            Patch::Missing => current.port_end,
+            Patch::Null => None,
+            Patch::Value(port) => Some(port),
+        };
+        let port_allow = match &req.port_allow {
+            Patch::Missing => Some(port_policy::parse_allow_json_vec(&current.port_allow_json)),
+            Patch::Null => Some(Vec::new()),
+            Patch::Value(ports) => Some(ports.clone()),
+        };
+        Some(PortPolicy::validated(
+            port_start,
+            port_end,
+            port_allow.as_deref().unwrap_or_default(),
+        )?)
+    } else {
+        None
+    };
+    let internal_address = if internal_changed {
+        normalize_internal_address(req.internal_address.value().as_deref())
+    } else {
+        None
+    };
+
     let mut server = repo::servers::update(
         &state.db.pool,
         &id,
@@ -314,6 +438,24 @@ pub async fn update(
     if let Some(group) = group_name {
         repo::servers::set_group_name(&state.db.pool, &id, group.as_deref()).await?;
         server.group_name = group;
+    }
+    if let Some(policy) = &policy {
+        repo::servers::set_port_policy(
+            &state.db.pool,
+            &id,
+            policy.start,
+            policy.end,
+            &policy.allow_json(),
+        )
+        .await?;
+        server.port_start = policy.start;
+        server.port_end = policy.end;
+        server.port_allow_json = policy.allow_json();
+    }
+    if internal_changed {
+        repo::servers::set_internal_address(&state.db.pool, &id, internal_address.as_deref())
+            .await?;
+        server.internal_address = internal_address;
     }
 
     let changes = crate::audit::diff(vec![
@@ -350,6 +492,31 @@ pub async fn update(
                 .as_ref()
                 .and_then(|server| server.group_name.as_deref())),
             json!(server.group_name.as_deref()),
+        ),
+        (
+            "port_start",
+            json!(before.as_ref().and_then(|server| server.port_start)),
+            json!(server.port_start),
+        ),
+        (
+            "port_end",
+            json!(before.as_ref().and_then(|server| server.port_end)),
+            json!(server.port_end),
+        ),
+        (
+            "port_allow",
+            json!(before
+                .as_ref()
+                .map(|server| port_policy::parse_allow_json_vec(&server.port_allow_json))
+                .unwrap_or_default()),
+            json!(port_policy::parse_allow_json_vec(&server.port_allow_json)),
+        ),
+        (
+            "internal_address",
+            json!(before
+                .as_ref()
+                .and_then(|server| server.internal_address.as_deref())),
+            json!(server.internal_address.as_deref()),
         ),
     ]);
     crate::audit::record(
@@ -1725,5 +1892,120 @@ mod tests {
             body["items"][0]["latency_ms"].is_null(),
             "没有探测结果时必须序列化为 null：{body}"
         );
+    }
+
+    /// 端口策略与内网地址：创建/修改都校验，`port_allow` 对外是数组，
+    /// PATCH 用三态区分「不改 / 清空 / 覆盖」。
+    #[tokio::test]
+    async fn port_policy_and_internal_address_round_trip_and_validate() {
+        let (app, _state, cookie) = setup().await;
+        let uri = "/api/v1/servers";
+
+        for body in [
+            json!({"name":"p1","address":"1.2.3.4","port_start":31000,"port_end":30000}),
+            json!({"name":"p1","address":"1.2.3.4","port_start":30000}),
+            json!({"name":"p1","address":"1.2.3.4","port_start":0,"port_end":100}),
+            json!({"name":"p1","address":"1.2.3.4","port_start":30000,"port_end":70000}),
+        ] {
+            let (status, value) = send(&app, &cookie, Method::POST, uri, body).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{value}");
+            assert_eq!(value["code"], "server.port_range_invalid", "{value}");
+        }
+
+        for allow in [json!([0]), json!([70000]), json!([443, -1])] {
+            let (status, value) = send(
+                &app,
+                &cookie,
+                Method::POST,
+                uri,
+                json!({"name":"p1","address":"1.2.3.4","port_allow": allow}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{value}");
+            assert_eq!(value["code"], "server.port_allow_invalid", "{value}");
+        }
+
+        let (status, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            uri,
+            json!({
+                "name": "hk-1",
+                "address": "1.2.3.4",
+                "port_start": 30000,
+                "port_end": 31000,
+                "port_allow": [8443, 443, 8443],
+                "internal_address": " 10.0.0.9 ",
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{created}");
+        let server = &created["server"];
+        assert_eq!(server["port_start"], 30000);
+        assert_eq!(server["port_end"], 31000);
+        assert_eq!(
+            server["port_allow"],
+            json!([443, 8443]),
+            "对外必须是升序去重的数组：{created}"
+        );
+        assert_eq!(server["internal_address"], "10.0.0.9");
+        let id = server["id"].as_str().unwrap().to_string();
+
+        // PATCH 只改内网地址：端口策略原样保留。
+        let patch_uri = format!("/api/v1/servers/{id}");
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &patch_uri,
+            json!({"internal_address": "10.0.0.10"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        assert_eq!(patched["server"]["port_start"], 30000);
+        assert_eq!(patched["server"]["port_allow"], json!([443, 8443]));
+        assert_eq!(patched["server"]["internal_address"], "10.0.0.10");
+
+        // 显式 null 清空区间，额外端口继续保留。
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &patch_uri,
+            json!({"port_start": null, "port_end": null}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        assert!(patched["server"]["port_start"].is_null());
+        assert!(patched["server"]["port_end"].is_null());
+        assert_eq!(patched["server"]["port_allow"], json!([443, 8443]));
+
+        // 非法组合（只给一边 / 倒置）必须 400，且不落库。
+        for body in [
+            json!({"port_start": 32000}),
+            json!({"port_start": 32000, "port_end": 31000}),
+        ] {
+            let (status, value) =
+                send(&app, &cookie, Method::PATCH, &patch_uri, body.clone()).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{value}");
+            assert_eq!(value["code"], "server.port_range_invalid", "{value}");
+        }
+        let (status, listed) = send(&app, &cookie, Method::GET, uri, Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{listed}");
+        assert!(listed["items"][0]["port_start"].is_null(), "{listed}");
+
+        // 清空额外端口 + 内网地址。
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &patch_uri,
+            json!({"port_allow": null, "internal_address": null}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        assert_eq!(patched["server"]["port_allow"], json!([]));
+        assert!(patched["server"]["internal_address"].is_null());
     }
 }

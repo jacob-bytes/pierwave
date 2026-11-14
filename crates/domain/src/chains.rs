@@ -418,6 +418,38 @@ pub fn is_degraded(target_fail_count: i64) -> bool {
     target_fail_count >= DEGRADED_AFTER_FAILURES
 }
 
+/// 组开关开启、但该组成员缺少内网地址时的整链阻断原因。
+///
+/// 保存路径已经 400 拦住；这里再算一次用于两件事：
+/// * 链列表 / 概览显示 blocked；
+/// * 期望态渲染时整链跳过——绝不静默回退公网地址。
+///
+/// 入口组（seq = 0）没有上一跳，开关不产生地址变化，因此不参与判定。
+pub fn internal_address_blocked_reason(groups: &[ChainGroupWithMembers]) -> Option<BlockedReason> {
+    for group in groups {
+        if group.group.seq == 0 || !group.group.use_internal_address {
+            continue;
+        }
+        for member in &group.members {
+            if member
+                .server_internal_address
+                .as_deref()
+                .map(str::trim)
+                .is_none_or(str::is_empty)
+            {
+                return Some(BlockedReason {
+                    code: "chain.internal_address_missing".to_string(),
+                    message: format!(
+                        "服务器「{}」还没有填写内网地址，无法使用内网地址转发",
+                        member.server_name
+                    ),
+                });
+            }
+        }
+    }
+    None
+}
+
 /// 一条链在视图里「为什么没下发」的结构化原因。
 ///
 /// `code` 是前端词典的稳定键，`message` 是中文兜底文案；两者都由
@@ -601,6 +633,10 @@ pub fn blocked_reason(
     certs: &HashMap<&str, &Certificate>,
     now: i64,
 ) -> Option<BlockedReason> {
+    // 内网地址缺失先于引擎判定：只要这一跳真要内网地址却拿不到，整链都不能下发。
+    if let Some(reason) = internal_address_blocked_reason(groups) {
+        return Some(reason);
+    }
     if engine::is_tunnel(&chain.engine) {
         return tunnel_blocked_reason(chain, groups);
     }

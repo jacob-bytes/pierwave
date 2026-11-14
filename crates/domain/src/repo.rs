@@ -992,6 +992,43 @@ pub mod servers {
         Ok(())
     }
 
+    /// 覆盖允许端口策略。`allow_json` 必须是规范化后的 JSON 数组文本
+    /// （升序、去重；见 `crate::port_policy::PortPolicy::allow_json`）。
+    pub async fn set_port_policy(
+        pool: &SqlitePool,
+        id: &str,
+        port_start: Option<i64>,
+        port_end: Option<i64>,
+        allow_json: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE servers
+                SET port_start = ?, port_end = ?, port_allow_json = ?
+              WHERE id = ?",
+        )
+        .bind(port_start)
+        .bind(port_end)
+        .bind(allow_json)
+        .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// 设置（或清空）跳间寻址用的内网地址。`None` = 清空。
+    pub async fn set_internal_address(
+        pool: &SqlitePool,
+        id: &str,
+        internal_address: Option<&str>,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE servers SET internal_address = ? WHERE id = ?")
+            .bind(internal_address)
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
     /// 设置（或清空）期望的 Agent 版本。`None` = 不升级。
     pub async fn set_agent_target_version(
         pool: &SqlitePool,
@@ -2969,6 +3006,8 @@ pub mod chains {
         pub cert_id: Option<String>,
         /// 入口组的公网展示端口；`None` = 与入口成员 `listen_port` 相同。
         pub public_port: Option<i64>,
+        /// 该组是否用成员服务器的内网地址被上一跳寻址（每组一个开关）。
+        pub use_internal_address: bool,
         pub members: Vec<NewChainGroupMember>,
     }
 
@@ -3014,7 +3053,8 @@ pub mod chains {
         chain_id: &str,
     ) -> anyhow::Result<Vec<ChainGroupWithMembers>> {
         let groups = sqlx::query_as::<_, ChainGroup>(
-            "SELECT id, chain_id, seq, name, strategy, cert_id, public_port
+            "SELECT id, chain_id, seq, name, strategy, cert_id, public_port,
+                    use_internal_address
              FROM chain_groups
              WHERE chain_id = ?
              ORDER BY seq ASC, rowid ASC",
@@ -3029,6 +3069,7 @@ pub mod chains {
         let members = sqlx::query_as::<_, ChainGroupMember>(
             "SELECT m.group_id, g.chain_id, g.seq, g.strategy,
                     m.server_id, s.name AS server_name, s.address AS server_address,
+                    s.internal_address AS server_internal_address,
                     m.listen_port, m.priority, m.weight, s.realm_transport,
                     s.nftables_available, s.tunnel_available, s.last_seen_at
              FROM chain_group_members m
@@ -3073,8 +3114,9 @@ pub mod chains {
             let group_id = Uuid::new_v4().to_string();
             sqlx::query(
                 "INSERT INTO chain_groups
-                    (id, chain_id, seq, name, strategy, cert_id, public_port)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (id, chain_id, seq, name, strategy, cert_id, public_port,
+                     use_internal_address)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&group_id)
             .bind(chain_id)
@@ -3083,6 +3125,7 @@ pub mod chains {
             .bind(&group.strategy)
             .bind(group.cert_id.as_deref())
             .bind(group.public_port)
+            .bind(i64::from(group.use_internal_address))
             .execute(&mut *conn)
             .await?;
 
@@ -3241,7 +3284,8 @@ pub mod chains {
         pool: &SqlitePool,
     ) -> anyhow::Result<HashMap<String, Vec<ChainGroupWithMembers>>> {
         let groups = sqlx::query_as::<_, ChainGroup>(
-            "SELECT id, chain_id, seq, name, strategy, cert_id, public_port
+            "SELECT id, chain_id, seq, name, strategy, cert_id, public_port,
+                    use_internal_address
              FROM chain_groups
              ORDER BY chain_id ASC, seq ASC, rowid ASC",
         )
@@ -3254,6 +3298,7 @@ pub mod chains {
         let members = sqlx::query_as::<_, ChainGroupMember>(
             "SELECT m.group_id, g.chain_id, g.seq, g.strategy,
                     m.server_id, s.name AS server_name, s.address AS server_address,
+                    s.internal_address AS server_internal_address,
                     m.listen_port, m.priority, m.weight, s.realm_transport,
                     s.nftables_available, s.tunnel_available, s.last_seen_at
              FROM chain_group_members m
@@ -6169,6 +6214,7 @@ pub mod overview {
                         strategy: "round_robin".into(),
                         cert_id: None,
                         public_port: None,
+                        use_internal_address: false,
                         members: vec![super::super::chains::NewChainGroupMember {
                             server_id: server.id.clone(),
                             listen_port: 9001,
