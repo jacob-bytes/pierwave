@@ -62,6 +62,11 @@ export function PortPolicyFields({
     if (parsed) {
       onStartChange(parsed.start === null ? "" : String(parsed.start));
       onEndChange(parsed.end === null ? "" : String(parsed.end));
+    } else {
+      // 解析失败必须把父级的值清空：否则提交时会拿上一次的合法值静默提交，
+      // 用户看到「输入了 30000-」，保存下来的却是旧范围。
+      onStartChange("");
+      onEndChange("");
     }
   }
 
