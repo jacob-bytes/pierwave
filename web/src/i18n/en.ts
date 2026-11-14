@@ -938,6 +938,7 @@ const en = {
       formatHint: "Copy, QR code and open link all use this format",
       formats: {
         clash: "Clash / mihomo",
+        mihomo: "mihomo",
         stash: "Stash",
         surge: "Surge",
         egern: "Egern",
@@ -951,6 +952,8 @@ const en = {
       formatDescriptions: {
         egern:
           "Surge-compatible: exported as a Surge profile with an Egern header; proprietary Egern fields would need a dedicated adapter",
+        mihomo:
+          "Complete config with DNS, IPv6 and selector + auto proxy groups",
       },
       ruleTemplateFollow: "Follow binding ({name})",
       ruleTemplateFollowShort: "Follow: {name}",

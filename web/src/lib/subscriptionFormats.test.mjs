@@ -13,6 +13,7 @@ globalThis.window = { location: { origin: "https://panel.example" } };
 test("SUBSCRIPTION_FORMATS matches the backend exporter registry order", () => {
   assert.deepEqual(SUBSCRIPTION_FORMATS, [
     "clash",
+    "mihomo",
     "stash",
     "surge",
     "egern",
@@ -26,8 +27,8 @@ test("SUBSCRIPTION_FORMATS matches the backend exporter registry order", () => {
   assert.equal(DEFAULT_SUBSCRIPTION_FORMAT, "clash");
 });
 
-test("registry has 10 unique ids and egern builds a target URL", () => {
-  assert.equal(SUBSCRIPTION_FORMATS.length, 10);
+test("registry has 11 unique ids and egern builds a target URL", () => {
+  assert.equal(SUBSCRIPTION_FORMATS.length, 11);
   assert.equal(
     new Set(SUBSCRIPTION_FORMATS).size,
     SUBSCRIPTION_FORMATS.length,
@@ -37,6 +38,11 @@ test("registry has 10 unique ids and egern builds a target URL", () => {
   assert.equal(
     SUBSCRIPTION_FORMAT_DESCRIPTIONS.egern,
     "subscriptions.formatDescriptions.egern",
+  );
+  // mihomo 是完整配置，和 clash（片段式骨架）不同，下拉里需要一句区分。
+  assert.equal(
+    SUBSCRIPTION_FORMAT_DESCRIPTIONS.mihomo,
+    "subscriptions.formatDescriptions.mihomo",
   );
   assert.equal(
     withSubscriptionFormat("https://panel.example/api/v1/sub/abc", "egern"),

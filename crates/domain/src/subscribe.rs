@@ -475,6 +475,7 @@ pub trait Exporter: Send + Sync {
 
 static EXPORTERS: &[&dyn Exporter] = &[
     &ClashExporter,
+    &MihomoExporter,
     &StashExporter,
     &SurgeExporter,
     &EgernExporter,
@@ -574,15 +575,7 @@ impl Exporter for ClashExporter {
         out.push_str("mode: rule\n");
         out.push_str("log-level: info\n\n");
 
-        out.push_str("proxies:");
-        if ctx.nodes.is_empty() {
-            out.push_str(" []\n");
-        } else {
-            out.push('\n');
-            for node in ctx.nodes {
-                out.push_str(&clash_proxy(node));
-            }
-        }
+        out.push_str(&clash_proxies_section(ctx.nodes));
         out.push('\n');
 
         out.push_str(&clash_groups(ctx.nodes));
@@ -594,6 +587,23 @@ impl Exporter for ClashExporter {
         }
         Ok(out)
     }
+}
+
+/// `proxies:` 段，Clash 与 mihomo 共用。
+///
+/// 端口、密码、SNI、传输层等字段全在 [`clash_proxy`] 里，mihomo 只换配置骨架，
+/// 节点表达不复制第二份——否则两个 YAML 格式迟早漂移。
+fn clash_proxies_section(nodes: &[SubNode]) -> String {
+    let mut out = String::from("proxies:");
+    if nodes.is_empty() {
+        out.push_str(" []\n");
+    } else {
+        out.push('\n');
+        for node in nodes {
+            out.push_str(&clash_proxy(node));
+        }
+    }
+    out
 }
 
 /// 规则原样作为 YAML 双引号标量输出（与旧版 `  - "GEOIP,CN,DIRECT"` 逐字节一致）。
@@ -858,6 +868,142 @@ fn push_alpn(out: &mut String, node: &SubNode) {
     {
         out.push_str(&format!("      - {}\n", yaml_string(item)));
     }
+}
+
+// ---------------------------------------------------------------------------
+// mihomo（完整配置）
+// ---------------------------------------------------------------------------
+
+/// mihomo 的代理组名。规则里的 `PROXY` / `AUTO` / 地区组都归到「节点选择」，
+/// 因为这份配置只生成两个组；不映射就会让客户端报「未知策略」。
+const MIHOMO_SELECT_GROUP: &str = "节点选择";
+const MIHOMO_AUTO_GROUP: &str = "自动选择";
+const MIHOMO_TEST_URL: &str = "http://www.gstatic.com/generate_204";
+
+/// mihomo 的**完整**配置（不是片段）：`mixed-port` / `dns` / `proxies` /
+/// `proxy-groups` / `rules` 一次给全，可直接导入。
+///
+/// 节点表达与 Clash 共用 [`clash_proxy`]（端口、密码、SNI、REALITY、传输层），
+/// 本渲染器只负责骨架、两个固定分组和规则策略名映射。无节点时仍输出合法骨架：
+/// `proxies: []`、两个组保留但 `proxies: []`、规则仍指向存在的组。
+pub struct MihomoExporter;
+
+impl Exporter for MihomoExporter {
+    fn id(&self) -> &'static str {
+        "mihomo"
+    }
+
+    fn content_type(&self) -> &'static str {
+        "text/yaml; charset=utf-8"
+    }
+
+    fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
+        let mut out = String::new();
+        out.push_str("mixed-port: 7890\n");
+        out.push_str("allow-lan: false\n");
+        out.push_str("mode: rule\n");
+        out.push_str("log-level: info\n");
+        out.push_str("ipv6: true\n\n");
+
+        out.push_str("dns:\n");
+        out.push_str("  enable: true\n");
+        out.push_str("  enhanced-mode: fake-ip\n");
+        out.push_str("  fake-ip-range: 198.18.0.1/16\n");
+        out.push_str("  nameserver:\n");
+        out.push_str("    - https://223.5.5.5/dns-query\n");
+        out.push_str("    - https://1.1.1.1/dns-query\n\n");
+
+        // 与 clash 逐字段一致；节点名也来自同一个 `SubNode::name`（端点已去重）。
+        out.push_str(&clash_proxies_section(ctx.nodes));
+        out.push('\n');
+
+        out.push_str("proxy-groups:\n");
+        out.push_str(&format!(
+            "  - name: {}\n    type: select\n",
+            yaml_string(MIHOMO_SELECT_GROUP)
+        ));
+        let mut select_members: Vec<&str> = Vec::new();
+        if !ctx.nodes.is_empty() {
+            select_members.push(MIHOMO_AUTO_GROUP);
+        }
+        select_members.extend(node_names(ctx.nodes));
+        push_mihomo_group_proxies(&mut out, &select_members);
+
+        out.push_str(&format!(
+            "  - name: {}\n    type: url-test\n    url: {}\n    interval: 300\n",
+            yaml_string(MIHOMO_AUTO_GROUP),
+            yaml_string(MIHOMO_TEST_URL)
+        ));
+        push_mihomo_group_proxies(&mut out, &node_names(ctx.nodes));
+        out.push('\n');
+
+        out.push_str("rules:\n");
+        for rule in mihomo_rules(ctx) {
+            out.push_str(&format!("  - {}\n", yaml_string(&rule)));
+        }
+        Ok(out)
+    }
+}
+
+/// 组内成员用 flow 序列：空组输出 `proxies: []`，有成员时逐个双引号转义。
+///
+/// 节点名可能含 `,`、`]`、`"`，只有走 [`yaml_string`] 才不会把 flow 序列截断。
+fn push_mihomo_group_proxies(out: &mut String, members: &[&str]) {
+    out.push_str("    proxies: [");
+    for (index, member) in members.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&yaml_string(member));
+    }
+    out.push_str("]\n");
+}
+
+/// 把规则模板映射成 mihomo 可用的规则。
+///
+/// 策略名必须指向本配置里真实存在的出站或组：`DIRECT` / `REJECT` 原样保留，
+/// 其余（`PROXY`、`AUTO`、地区组名）统一指向「节点选择」。mihomo 不认识的
+/// 规则类型（例如没有 providers 的 `RULE-SET`）直接跳过并告警，避免整份配置被拒收。
+fn mihomo_rules(ctx: &SubContext<'_>) -> Vec<String> {
+    let mut rules: Vec<String> = rules_or_default(ctx)
+        .iter()
+        .filter_map(|rule| mihomo_rule(rule))
+        .collect();
+    // 模板里的规则一条都表达不了时回落到内置两条，保证 rules 段永不为空。
+    if rules.is_empty() {
+        rules = default_rules()
+            .iter()
+            .filter_map(|rule| mihomo_rule(rule))
+            .collect();
+    }
+    rules
+}
+
+fn mihomo_rule(rule: &str) -> Option<String> {
+    let (kind, value, policy, no_resolve) = parse_rule(rule)?;
+    if !matches!(
+        kind.as_str(),
+        "DOMAIN" | "DOMAIN-SUFFIX" | "DOMAIN-KEYWORD" | "GEOIP" | "IP-CIDR" | "IP-CIDR6" | "MATCH"
+    ) {
+        tracing::warn!(rule = %rule, "规则类型无法在 mihomo 里安全表达，跳过该条规则");
+        return None;
+    }
+    let policy = match policy.to_ascii_uppercase().as_str() {
+        "DIRECT" => "DIRECT",
+        "REJECT" | "REJECT-DROP" => "REJECT",
+        _ => MIHOMO_SELECT_GROUP,
+    };
+    let mut line = kind;
+    if let Some(value) = value {
+        line.push(',');
+        line.push_str(&value);
+    }
+    line.push(',');
+    line.push_str(policy);
+    if no_resolve {
+        line.push_str(",no-resolve");
+    }
+    Some(line)
 }
 
 // ---------------------------------------------------------------------------
@@ -2383,6 +2529,269 @@ mod tests {
     }
 
     #[test]
+    fn mihomo_yaml_has_complete_structure_and_two_group_types() {
+        let nodes = fixtures();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let body = MihomoExporter.render(&ctx).unwrap();
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&body).expect("必须是合法 YAML");
+
+        // 顶层小节顺序（人眼与客户端都按这个顺序读）。
+        let positions: Vec<usize> = ["mixed-port:", "dns:", "proxies:", "proxy-groups:", "rules:"]
+            .iter()
+            .map(|key| {
+                body.find(key)
+                    .unwrap_or_else(|| panic!("缺少顶层小节 {key}：{body}"))
+            })
+            .collect();
+        assert!(
+            positions.windows(2).all(|pair| pair[0] < pair[1]),
+            "顶层小节顺序不对：{positions:?}"
+        );
+
+        assert_eq!(parsed["mixed-port"].as_i64(), Some(7890));
+        assert_eq!(parsed["allow-lan"].as_bool(), Some(false));
+        assert_eq!(parsed["mode"].as_str(), Some("rule"));
+        assert_eq!(parsed["log-level"].as_str(), Some("info"));
+        assert_eq!(parsed["ipv6"].as_bool(), Some(true));
+
+        let dns = &parsed["dns"];
+        assert_eq!(dns["enable"].as_bool(), Some(true));
+        assert_eq!(dns["enhanced-mode"].as_str(), Some("fake-ip"));
+        assert_eq!(dns["fake-ip-range"].as_str(), Some("198.18.0.1/16"));
+        let nameservers: Vec<&str> = dns["nameserver"]
+            .as_sequence()
+            .expect("nameserver 必须是列表")
+            .iter()
+            .filter_map(serde_yaml::Value::as_str)
+            .collect();
+        assert_eq!(
+            nameservers,
+            vec!["https://223.5.5.5/dns-query", "https://1.1.1.1/dns-query"]
+        );
+
+        assert_eq!(parsed["proxies"].as_sequence().unwrap().len(), 2);
+
+        let groups = parsed["proxy-groups"]
+            .as_sequence()
+            .expect("proxy-groups 必须是列表");
+        assert_eq!(groups.len(), 2, "只应有两个固定分组：{groups:?}");
+
+        let select = &groups[0];
+        assert_eq!(select["name"].as_str(), Some("节点选择"));
+        assert_eq!(select["type"].as_str(), Some("select"));
+        assert_eq!(
+            yaml_strings(&select["proxies"]),
+            vec!["自动选择", "香港-REALITY", "日本-WS-TLS"]
+        );
+
+        let auto = &groups[1];
+        assert_eq!(auto["name"].as_str(), Some("自动选择"));
+        assert_eq!(auto["type"].as_str(), Some("url-test"));
+        assert_eq!(
+            auto["url"].as_str(),
+            Some("http://www.gstatic.com/generate_204")
+        );
+        assert_eq!(auto["interval"].as_i64(), Some(300));
+        assert_eq!(
+            yaml_strings(&auto["proxies"]),
+            vec!["香港-REALITY", "日本-WS-TLS"]
+        );
+
+        assert_eq!(
+            yaml_strings(&parsed["rules"]),
+            vec!["GEOIP,CN,DIRECT", "MATCH,节点选择"]
+        );
+
+        assert_eq!(MihomoExporter.id(), "mihomo");
+        assert_eq!(MihomoExporter.content_type(), "text/yaml; charset=utf-8");
+    }
+
+    #[test]
+    fn mihomo_single_node_keeps_both_groups_and_switches_to_the_select_group() {
+        let nodes = vec![fixtures().remove(0)];
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let body = MihomoExporter.render(&ctx).unwrap();
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&body).expect("必须是合法 YAML");
+
+        assert_eq!(parsed["proxies"].as_sequence().unwrap().len(), 1);
+        let groups = parsed["proxy-groups"].as_sequence().unwrap();
+        assert_eq!(groups.len(), 2);
+        assert_eq!(
+            yaml_strings(&groups[0]["proxies"]),
+            vec!["自动选择", "香港-REALITY"]
+        );
+        assert_eq!(yaml_strings(&groups[1]["proxies"]), vec!["香港-REALITY"]);
+        assert_eq!(
+            yaml_strings(&parsed["rules"]),
+            vec!["GEOIP,CN,DIRECT", "MATCH,节点选择"]
+        );
+    }
+
+    #[test]
+    fn mihomo_multiple_nodes_preserve_order_in_every_group() {
+        let mut nodes = fixtures();
+        nodes.push(node(
+            "美国-VMess",
+            "vmess",
+            "ws",
+            "tls",
+            443,
+            &[
+                ("uuid", "33333333-3333-4333-8333-333333333333"),
+                ("alter_id", "0"),
+                ("sni", "us.example.com"),
+                ("path", "/vm"),
+                ("host", "us.example.com"),
+            ],
+        ));
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let body = MihomoExporter.render(&ctx).unwrap();
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&body).expect("必须是合法 YAML");
+
+        let expected = vec!["香港-REALITY", "日本-WS-TLS", "美国-VMess"];
+        assert_eq!(parsed["proxies"].as_sequence().unwrap().len(), 3);
+        let groups = parsed["proxy-groups"].as_sequence().unwrap();
+        assert_eq!(
+            yaml_strings(&groups[0]["proxies"]),
+            vec!["自动选择", "香港-REALITY", "日本-WS-TLS", "美国-VMess"]
+        );
+        assert_eq!(yaml_strings(&groups[1]["proxies"]), expected);
+    }
+
+    /// 无节点也必须是「能导入」的完整配置，而不是空文件或缺字段的骨架。
+    #[test]
+    fn mihomo_without_nodes_is_still_an_importable_config() {
+        let nodes: Vec<SubNode> = Vec::new();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let body = MihomoExporter.render(&ctx).unwrap();
+        let parsed: serde_yaml::Value =
+            serde_yaml::from_str(&body).expect("空节点也必须是合法 YAML");
+
+        assert_eq!(parsed["proxies"].as_sequence().unwrap().len(), 0);
+
+        let groups = parsed["proxy-groups"].as_sequence().unwrap();
+        assert_eq!(groups.len(), 2, "空节点时两个组仍必须存在");
+        for group in groups {
+            let proxies = group["proxies"]
+                .as_sequence()
+                .unwrap_or_else(|| panic!("组的 proxies 必须是列表（不能是 null）：{group:?}"));
+            assert!(proxies.is_empty(), "空节点时组应为空：{group:?}");
+        }
+        // 组仍然存在，所以 MATCH 指向它依然合法；顺序与有节点时一致。
+        assert_eq!(
+            yaml_strings(&parsed["rules"]),
+            vec!["GEOIP,CN,DIRECT", "MATCH,节点选择"]
+        );
+    }
+
+    /// 防止 mihomo 与 clash 各写一份节点表达后逐渐漂移：proxies 必须逐字段一致。
+    #[test]
+    fn mihomo_proxies_match_clash_field_by_field() {
+        let mut nodes = fixtures();
+        nodes.push(node(
+            "美国-VMess",
+            "vmess",
+            "ws",
+            "tls",
+            443,
+            &[
+                ("uuid", "33333333-3333-4333-8333-333333333333"),
+                ("alter_id", "0"),
+                ("sni", "us.example.com"),
+                ("path", "/vm"),
+                ("host", "us.example.com"),
+            ],
+        ));
+        nodes.push(node(
+            "其他-ss",
+            "ss",
+            "tcp",
+            "none",
+            8388,
+            &[("method", "aes-256-gcm"), ("password", "secret")],
+        ));
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+
+        let clash: serde_yaml::Value =
+            serde_yaml::from_str(&ClashExporter.render(&ctx).unwrap()).unwrap();
+        let mihomo: serde_yaml::Value =
+            serde_yaml::from_str(&MihomoExporter.render(&ctx).unwrap()).unwrap();
+
+        assert_eq!(
+            mihomo["proxies"], clash["proxies"],
+            "mihomo 的 proxies 段必须与 clash 逐字段一致"
+        );
+        // 节点名（含去重后的名字）也必须来自同一处，组里引用的就是 proxies 里的名字。
+        assert_eq!(mihomo["proxies"][0]["name"].as_str(), Some("香港-REALITY"));
+    }
+
+    /// 节点名里的 `:`、`#`、空格、引号、反斜杠、逗号都不能破坏 YAML。
+    #[test]
+    fn mihomo_escapes_yaml_special_characters_in_node_names() {
+        let names = [
+            "香港: 01 # 主力",
+            "美国 \"Quoted\" 节点",
+            "日本 \\ 反斜杠",
+            "逗号, 方括号] 冒号: 井号#",
+            "带\"引号\"和,逗号的: #名字",
+        ];
+        let nodes: Vec<SubNode> = names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| {
+                node(
+                    name,
+                    "vless",
+                    "tcp",
+                    "tls",
+                    443 + index as u16,
+                    &[
+                        ("uuid", "11111111-1111-4111-8111-111111111111"),
+                        ("sni", "example.com"),
+                    ],
+                )
+            })
+            .collect();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let body = MihomoExporter.render(&ctx).unwrap();
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&body)
+            .unwrap_or_else(|error| panic!("特殊字符节点名破坏了 YAML：{error}\n{body}"));
+
+        let parsed_proxy_names: Vec<&str> = parsed["proxies"]
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .filter_map(|proxy| proxy["name"].as_str())
+            .collect();
+        assert_eq!(parsed_proxy_names, names);
+
+        let groups = parsed["proxy-groups"].as_sequence().unwrap();
+        let expected_auto: Vec<&str> = std::iter::once("自动选择")
+            .chain(names.iter().copied())
+            .collect();
+        assert_eq!(yaml_strings(&groups[0]["proxies"]), expected_auto);
+        assert_eq!(yaml_strings(&groups[1]["proxies"]), names);
+
+        // 双引号名字在原始文本里必须转义，而不是裸写。
+        assert!(body.contains("\\\"Quoted\\\""), "{body}");
+    }
+
+    fn yaml_strings(value: &serde_yaml::Value) -> Vec<&str> {
+        value
+            .as_sequence()
+            .unwrap_or_else(|| panic!("期望 YAML 列表：{value:?}"))
+            .iter()
+            .filter_map(serde_yaml::Value::as_str)
+            .collect()
+    }
+
+    #[test]
     fn uri_export_has_one_line_per_node_with_right_scheme() {
         let nodes = fixtures();
         let rules = default_rules();
@@ -2524,8 +2933,8 @@ mod tests {
             let rules = default_rules();
             let ctx = sub_context(&nodes, &rules);
 
-            // Clash / Stash（同一份 YAML）。
-            for id in ["clash", "stash"] {
+            // Clash / mihomo / Stash（同一份 proxies 生成器）。
+            for id in ["clash", "mihomo", "stash"] {
                 let body = find_exporter(id).unwrap().render(&ctx).unwrap();
                 let yaml: serde_yaml::Value = serde_yaml::from_str(&body).unwrap();
                 let proxy = &yaml["proxies"][0];
@@ -2912,6 +3321,7 @@ mod tests {
         }
         for expected in [
             "clash",
+            "mihomo",
             "stash",
             "surge",
             "egern",
@@ -3535,6 +3945,7 @@ mod tests {
             exporter_ids(),
             vec![
                 "clash",
+                "mihomo",
                 "stash",
                 "surge",
                 "egern",
@@ -3571,6 +3982,33 @@ mod tests {
                         .and_then(serde_yaml::Value::as_sequence)
                         .unwrap_or_else(|| panic!("{id} 缺少 proxies：{body}"));
                     assert!(proxies.is_empty(), "{id} 空节点不应有代理：{body}");
+                }
+                "mihomo" => {
+                    let yaml: serde_yaml::Value =
+                        serde_yaml::from_str(&body).unwrap_or_else(|error| {
+                            panic!("{id} 空节点不是合法 YAML：{error}\n{body}")
+                        });
+                    assert!(
+                        yaml.get("proxies")
+                            .and_then(serde_yaml::Value::as_sequence)
+                            .unwrap_or_else(|| panic!("{id} 缺少 proxies：{body}"))
+                            .is_empty(),
+                        "{id} 空节点不应有代理：{body}"
+                    );
+                    let groups = yaml
+                        .get("proxy-groups")
+                        .and_then(serde_yaml::Value::as_sequence)
+                        .unwrap_or_else(|| panic!("{id} 缺少 proxy-groups：{body}"));
+                    assert_eq!(groups.len(), 2, "{id} 空节点仍应保留两个组：{body}");
+                    for group in groups {
+                        assert!(
+                            group
+                                .get("proxies")
+                                .and_then(serde_yaml::Value::as_sequence)
+                                .is_some_and(|proxies| proxies.is_empty()),
+                            "{id} 空节点时组 proxies 必须是 []：{group:?}"
+                        );
+                    }
                 }
                 "singbox" => {
                     let parsed: Value = serde_json::from_str(&body).unwrap_or_else(|error| {

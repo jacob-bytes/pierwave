@@ -9,6 +9,7 @@
  */
 export const SUBSCRIPTION_FORMATS = [
   "clash",
+  "mihomo",
   "stash",
   "surge",
   "egern",
@@ -32,6 +33,7 @@ export const SUBSCRIPTION_FORMAT_DESCRIPTIONS: Partial<
   Record<SubscriptionFormat, string>
 > = {
   egern: "subscriptions.formatDescriptions.egern",
+  mihomo: "subscriptions.formatDescriptions.mihomo",
 };
 
 /** 默认格式：链接保持干净，不带 `target`。 */

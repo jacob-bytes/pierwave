@@ -900,6 +900,7 @@ const zhCN = {
       formatHint: "复制、二维码与打开链接都会使用这个格式",
       formats: {
         clash: "Clash / mihomo",
+        mihomo: "mihomo",
         stash: "Stash",
         surge: "Surge",
         egern: "Egern",
@@ -913,6 +914,7 @@ const zhCN = {
       formatDescriptions: {
         egern:
           "Surge 兼容：按 Surge profile 导出，文件头带 Egern 标识；若 Egern 要求专有字段，需要单独适配",
+        mihomo: "完整配置：含 DNS、IPv6，以及「节点选择 / 自动选择」两个分组",
       },
       ruleTemplateFollow: "跟随绑定（{name}）",
       ruleTemplateFollowShort: "跟随：{name}",

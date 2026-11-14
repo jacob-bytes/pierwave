@@ -532,12 +532,13 @@ mod tests {
         // 注册表顺序稳定：不能因为换成 HashMap 而让 400 文案顺序漂移。
         assert!(
             error.contains(
-                "clash / stash / surge / egern / surfboard / loon / qx / singbox / uri / shadowrocket / v2ray"
+                "clash / mihomo / stash / surge / egern / surfboard / loon / qx / singbox / uri / shadowrocket / v2ray"
             ),
             "supported 列表顺序不稳定: {error}"
         );
         for supported in [
             "clash",
+            "mihomo",
             "stash",
             "surge",
             "egern",
@@ -583,6 +584,26 @@ mod tests {
         assert!(body.starts_with("#!MANAGED-CONFIG\n"), "{body}");
         assert!(body.contains("[Proxy]"), "{body}");
         assert!(body.contains("[Rule]"), "{body}");
+
+        // ?target=mihomo：完整 YAML（含 dns / ipv6 / 两个固定分组）。
+        let (status, headers, body) = get(
+            &app,
+            &format!("/api/v1/sub/{short_code}?target=mihomo"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            header_str(&headers, "content-type"),
+            Some("text/yaml; charset=utf-8")
+        );
+        assert!(body.starts_with("mixed-port: 7890\n"), "{body}");
+        assert!(body.contains("\nipv6: true\n"), "{body}");
+        assert!(body.contains("\nproxy-groups:\n"), "{body}");
+        assert!(
+            body.contains("\n    - https://1.1.1.1/dns-query\n"),
+            "{body}"
+        );
 
         // UA 嗅探：Egern 自带 UA 也选 egern。
         let (status, _headers, body) = get(
@@ -877,6 +898,16 @@ mod tests {
         let (status, _headers, body) = get(&app, &format!("/api/v1/sub/{short_code}"), None).await;
         assert_eq!(status, StatusCode::OK);
         assert!(body.contains("\"香港-REALITY (2)\""));
+
+        // mihomo 与 clash 共用端点里 `dedupe_names` 的结果，名字必须同样带序号。
+        let (status, _headers, mihomo) = get(
+            &app,
+            &format!("/api/v1/sub/{short_code}?target=mihomo"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(mihomo.contains("\"香港-REALITY (2)\""), "{mihomo}");
     }
 
     #[tokio::test]

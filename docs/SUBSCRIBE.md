@@ -107,6 +107,7 @@ Surge / sing-box 等第二轮补——它们的差异主要在配置文件骨架
 | id | 目标客户端 | 形态 |
 |---|---|---|
 | `clash` | mihomo / Clash Verge | YAML：`proxies` + `proxy-groups` + `rules` |
+| `mihomo` | mihomo / Clash Meta | **完整** YAML：`ipv6` + `dns` + `proxies` + `proxy-groups` + `rules`，可直接导入 |
 | `stash` | Stash | Clash 兼容 YAML，首行加 `# stash` |
 | `surge` | Surge | INI：`[Proxy]` / `[Proxy Group]` / `[Rule]` |
 | `egern` | Egern（iOS） | **Surge 兼容** INI：复用 Surge 生成器，文件头加 Egern 标识 |
@@ -154,6 +155,55 @@ Surge / sing-box 等第二轮补——它们的差异主要在配置文件骨架
 ```
 
 `?target=surge` 不带以上三行，正文与 `egern` 去掉文件头后逐字节一致（单测覆盖）。
+
+### 5.2 `mihomo`：完整可导入配置 / Complete, directly-importable config
+
+`?target=clash` 一直是「兼容骨架」：顶层只有 `mixed-port` / `allow-lan` / `mode` /
+`log-level`，没有 `ipv6`、`dns`，分组是 `PROXY` / `AUTO` / 地区组。`?target=mihomo`
+输出的是**完整配置**，客户端可直接导入：
+
+| 顶层 | 内容 |
+|---|---|
+| `mixed-port` / `allow-lan` / `mode` / `log-level` | `7890` / `false` / `rule` / `info` |
+| `ipv6` | `true` |
+| `dns` | `fake-ip`，`198.18.0.1/16`，阿里 + Cloudflare DoH |
+| `proxies` | 与 `clash` **逐字段相同**（共用 `clash_proxy`，不复制第二份节点表达） |
+| `proxy-groups` | `节点选择`（`select`，含 `自动选择` + 每个节点）、`自动选择`（`url-test`，300s） |
+| `rules` | 默认 `GEOIP,CN,DIRECT` + `MATCH,节点选择` |
+
+关键约定：
+
+- **节点名同源**：与 `clash` 用同一个 `SubNode::name`，也就是端点 `dedupe_names`
+  处理后的名字（跨服务器重名会追加 ` (2)`），组里引用的名字与 `proxies` 里的逐字节一致。
+- **无节点也合法**：`proxies: []`；两个组仍存在，但组内 `proxies: []`；规则仍是
+  `GEOIP,CN,DIRECT` + `MATCH,节点选择`（组存在，所以引用合法），能直接导入。
+- **规则策略映射**：`DIRECT` 保留，`REJECT` / `REJECT-DROP` 映射为 `REJECT`；
+  `PROXY`、`AUTO` 以及地区组名统一映射到 `节点选择`（这份配置只有两个组）。
+  mihomo 无法安全表达的类型（例如没有 `rule-providers` 的 `RULE-SET`）跳过并告警；
+  一条都映射不了时回落到内置两条，`rules:` 段永不为空。
+- **转义**：节点名与规则全部走 `yaml_string` 的双引号转义，`:`、`#`、空格、引号、
+  反斜杠、逗号、`]` 都不会破坏 YAML（含 flow 序列里的组内成员）。
+- **内容协商**：`?target=mihomo`，`Content-Type: text/yaml; charset=utf-8`。
+  UA 嗅探保持旧行为（`mihomo` UA 仍选 `clash`），要完整配置需显式带 `?target=mihomo`。
+
+> `?target=clash` has always been a minimal compatible skeleton: `mixed-port`, `allow-lan`,
+> `mode`, `log-level`, no `ipv6` / `dns`, with `PROXY` / `AUTO` / region groups.
+> `?target=mihomo` emits a **complete** config that can be imported as-is: `ipv6: true`,
+> a fake-ip `dns` block, the same `proxies` as `clash` (shared `clash_proxy`, not a second
+> implementation), a `节点选择` selector group, a `自动选择` url-test group, and rules that
+> map onto those groups.
+>
+> Node names come from the same `SubNode::name` as `clash`, i.e. after the endpoint's
+> `dedupe_names` (` (2)` suffix for duplicates across servers), so group members match the
+> `proxies` entries byte for byte. With no nodes the config is still importable: `proxies: []`,
+> both groups kept with `proxies: []`, and the same `GEOIP,CN,DIRECT` + `MATCH,节点选择`
+> rules. Policies are mapped (`DIRECT` kept, `REJECT*` → `REJECT`, everything else →
+> `节点选择`); rule types mihomo cannot express safely are skipped with a warning, falling
+> back to the built-in rules if none survive. Every name and rule goes through the
+> double-quote escaping helper, so `:`, `#`, spaces, quotes, backslashes, commas and `]`
+> cannot break the YAML. `Content-Type` is `text/yaml; charset=utf-8`. UA sniffing keeps its
+> previous behaviour (`mihomo` UA → `clash`); request the complete config explicitly with
+> `?target=mihomo`.
 
 ## 6. 分组策略
 
