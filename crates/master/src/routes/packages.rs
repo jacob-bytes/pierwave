@@ -83,6 +83,39 @@ pub(crate) fn validate_forward_limit(limit: i64) -> AppResult<()> {
     Ok(())
 }
 
+/// 自助建链配额：0 = 不允许，负数没有意义。
+pub(crate) fn validate_chain_limit(limit: i64) -> AppResult<()> {
+    if limit < 0 {
+        return Err(AppError::coded(
+            "package.chain_limit_invalid",
+            Some(json!({ "min": 0 })),
+            "自助建链条数不能为负数（0 表示不允许）",
+        ));
+    }
+    Ok(())
+}
+
+/// 自助建链模板白名单：去空白、去重。
+fn normalize_chain_template_ids(ids: Vec<String>) -> AppResult<Vec<String>> {
+    normalize_id_list(ids, "package.chain_template_invalid", "链模板 id 不能为空")
+}
+
+/// 白名单里的模板必须真实存在；否则 400 而不是等外键报 500。
+async fn validate_chain_template_id_list(
+    state: &AppState,
+    template_ids: &[String],
+) -> AppResult<()> {
+    let missing = repo::chain_templates::missing_ids(&state.db.pool, template_ids).await?;
+    if !missing.is_empty() {
+        return Err(AppError::coded(
+            "package.chain_template_not_found",
+            Some(json!({ "template_ids": &missing })),
+            format!("链模板不存在：{}", missing.join("、")),
+        ));
+    }
+    Ok(())
+}
+
 /// 白名单里的服务器必须真实存在；否则 400 而不是等外键报 500。
 async fn validate_forward_server_id_list(state: &AppState, server_ids: &[String]) -> AppResult<()> {
     let missing = repo::servers::missing_ids(&state.db.pool, server_ids).await?;
@@ -266,6 +299,12 @@ pub struct CreatePackage {
     /// 允许自助转发落地的服务器；缺省 `[]` = 一台都不允许。
     #[serde(default)]
     pub forward_server_ids: Vec<String>,
+    /// 每个用户最多能创建多少条自助链；缺省 0 = 不允许。
+    #[serde(default)]
+    pub chain_limit: i64,
+    /// 允许用户自助使用的链模板；缺省 `[]` = 一个都不允许。
+    #[serde(default)]
+    pub chain_template_ids: Vec<String>,
 }
 
 fn default_direction() -> String {
@@ -297,6 +336,7 @@ pub async fn create(
     validate_node_ratio(req.node_ratio)?;
     validate_speed_limit_kbps(req.speed_limit_kbps)?;
     validate_forward_limit(req.forward_limit)?;
+    validate_chain_limit(req.chain_limit)?;
 
     let node_ids = normalize_create_node_ids(req.node_ids)?;
     if let Some(node_ids) = &node_ids {
@@ -304,6 +344,8 @@ pub async fn create(
     }
     let forward_server_ids = normalize_forward_server_ids(req.forward_server_ids)?;
     validate_forward_server_id_list(&state, &forward_server_ids).await?;
+    let chain_template_ids = normalize_chain_template_ids(req.chain_template_ids)?;
+    validate_chain_template_id_list(&state, &chain_template_ids).await?;
     let rule_template_id =
         validate_optional_rule_template_id(&state, req.rule_template_id.as_deref()).await?;
 
@@ -335,6 +377,19 @@ pub async fn create(
             "套餐创建后写入自助转发规则失败"
         )));
     }
+    // 迁移 0046 的自助建链规则同样单独写：默认 0 / 空表 = 「不允许自助建链」。
+    if !repo::chain_templates::set_package_templates(
+        &state.db.pool,
+        &package.id,
+        req.chain_limit,
+        &chain_template_ids,
+    )
+    .await?
+    {
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "套餐创建后写入自助建链规则失败"
+        )));
+    }
     let package = repo::packages::find_by_id(&state.db.pool, &package.id)
         .await?
         .ok_or_else(|| AppError::not_found("package.not_found", None, "资源不存在"))?;
@@ -360,6 +415,8 @@ pub async fn create(
             "node_ids": &package.node_ids,
             "forward_limit": package.forward_limit,
             "forward_server_ids": &package.forward_server_ids,
+            "chain_limit": package.chain_limit,
+            "chain_template_ids": &package.chain_template_ids,
         }),
     )
     .await;
@@ -391,6 +448,12 @@ pub struct UpdatePackage {
     /// `None` = 不动；数组（含 `[]`）= 全量替换白名单。
     #[serde(default)]
     pub forward_server_ids: Option<Vec<String>>,
+    /// `None` = 不动；`0` = 关闭自助建链；正数 = 每用户条数上限。
+    #[serde(default)]
+    pub chain_limit: Option<i64>,
+    /// `None` = 不动；数组（含 `[]`）= 全量替换模板白名单。
+    #[serde(default)]
+    pub chain_template_ids: Option<Vec<String>>,
 }
 
 pub async fn update(
@@ -411,6 +474,8 @@ pub async fn update(
         && !req.rule_template_id.is_set()
         && req.forward_limit.is_none()
         && req.forward_server_ids.is_none()
+        && req.chain_limit.is_none()
+        && req.chain_template_ids.is_none()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
@@ -448,6 +513,9 @@ pub async fn update(
     if let Some(forward_limit) = req.forward_limit {
         validate_forward_limit(forward_limit)?;
     }
+    if let Some(chain_limit) = req.chain_limit {
+        validate_chain_limit(chain_limit)?;
+    }
 
     let node_ids = normalize_patch_node_ids(req.node_ids)?;
     if let Patch::Value(node_ids) = &node_ids {
@@ -459,6 +527,13 @@ pub async fn update(
     };
     if let Some(server_ids) = &forward_server_ids {
         validate_forward_server_id_list(&state, server_ids).await?;
+    }
+    let chain_template_ids = match req.chain_template_ids.clone() {
+        Some(ids) => Some(normalize_chain_template_ids(ids)?),
+        None => None,
+    };
+    if let Some(template_ids) = &chain_template_ids {
+        validate_chain_template_id_list(&state, template_ids).await?;
     }
     let rule_template_id = match req.rule_template_id {
         Patch::Missing => Patch::Missing,
@@ -500,6 +575,27 @@ pub async fn update(
             .unwrap_or(package.forward_server_ids.as_slice());
         if !repo::packages::set_forward_rules(&state.db.pool, &id, forward_limit, server_ids)
             .await?
+        {
+            return Err(AppError::not_found("package.not_found", None, "资源不存在"));
+        }
+        package = repo::packages::find_by_id(&state.db.pool, &id)
+            .await?
+            .ok_or_else(|| AppError::not_found("package.not_found", None, "资源不存在"))?;
+    }
+
+    // 自助建链规则同样单独写（迁移 0046），未传的两项保持原值。
+    if req.chain_limit.is_some() || chain_template_ids.is_some() {
+        let chain_limit = req.chain_limit.unwrap_or(package.chain_limit);
+        let template_ids = chain_template_ids
+            .as_deref()
+            .unwrap_or(package.chain_template_ids.as_slice());
+        if !repo::chain_templates::set_package_templates(
+            &state.db.pool,
+            &id,
+            chain_limit,
+            template_ids,
+        )
+        .await?
         {
             return Err(AppError::not_found("package.not_found", None, "资源不存在"));
         }
@@ -567,6 +663,18 @@ pub async fn update(
                 .map(|package| package.forward_server_ids.clone())),
             json!(&package.forward_server_ids),
         ),
+        (
+            "chain_limit",
+            json!(before_package.as_ref().map(|package| package.chain_limit)),
+            json!(package.chain_limit),
+        ),
+        (
+            "chain_template_ids",
+            json!(before_package
+                .as_ref()
+                .map(|package| package.chain_template_ids.clone())),
+            json!(&package.chain_template_ids),
+        ),
     ]);
     crate::audit::record(
         &state,
@@ -599,6 +707,17 @@ pub async fn update(
                     .as_ref()
                     .map(|package| package.forward_server_ids.clone()),
                 "to": &package.forward_server_ids,
+            },
+            // 自助建链额度/模板白名单同样摊平，方便回查。
+            "chain_limit": {
+                "from": before_package.as_ref().map(|package| package.chain_limit),
+                "to": package.chain_limit,
+            },
+            "chain_template_ids": {
+                "from": before_package
+                    .as_ref()
+                    .map(|package| package.chain_template_ids.clone()),
+                "to": &package.chain_template_ids,
             },
         }),
     )

@@ -341,8 +341,50 @@ pub struct Chain {
     /// 只对 `engine = tunnel` 有意义；历史行由迁移 0038 默认成 `tls`，
     /// 读路径遇到未知值回落 `tls`（见 [`crate::tunnel_security`]）。
     pub tunnel_security: String,
+    /// 用户自助建链时使用的链模板 id；`None` = 管理员手建。
+    ///
+    /// 不设外键：模板删除后既有链仍然可用（Agent 侧只认 groups），
+    /// 保留 id 只是为了审计与「来自哪个模板」的展示。
+    pub template_id: Option<String>,
+    /// 创建者；`None` = 管理员创建（历史行全部为 NULL，行为不变）。
+    ///
+    /// 用户端列表/删除都按它过滤；管理员链列表仍能看到全部，并标注来源。
+    pub owner_user_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+/// 一条链模板：管理员预先定义的「链形态」。
+///
+/// 用户建链时只选模板 + 填目标，模板里的组、引擎、加密方式原样展开；
+/// `groups_json` 是 `[{ seq, strategy, server_ids }]` 的 JSON 文本。
+#[derive(Debug, Clone, FromRow)]
+pub struct ChainTemplate {
+    pub id: String,
+    pub name: String,
+    /// `native` / `realm` / `nftables` / `tunnel`。
+    pub engine: String,
+    /// 隧道安全模式：`tls`（默认）/ `noise`；仅 `engine = tunnel` 有意义。
+    pub security: String,
+    /// realm 跳间加密：`none`（默认）/ `tls`；模板当前只允许 `none`。
+    pub transport: String,
+    /// 链的监听协议：`tcp`（默认）/ `udp` / `both`。
+    pub protocol: String,
+    /// `[{ seq, strategy, server_ids }]`；解析与校验见 [`crate::chain_templates`]。
+    pub groups_json: String,
+    pub enabled: bool,
+    pub created_at: i64,
+}
+
+/// 模板里的一组（写进 `groups_json` 的形态）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChainTemplateGroup {
+    /// 组在链里的顺序，0 = 入口组。
+    pub seq: i64,
+    /// 选路策略（`round_robin` / `failover` / `lowest_latency` / `ip_hashed`）。
+    pub strategy: String,
+    /// 组内成员服务器；同一组内与整条模板内都不能重复。
+    pub server_ids: Vec<String>,
 }
 
 /// 链里的一「组」：组内 1..N 台服务器，由上一跳按 `strategy` 选一台。
@@ -697,6 +739,8 @@ pub struct Package {
     pub rule_template_id: Option<String>,
     /// 每个用户最多能创建多少条自助转发；0 = 不允许（迁移 0044 默认值）。
     pub forward_limit: i64,
+    /// 每个用户最多能创建多少条自助链；0 = 不允许（迁移 0046 默认值）。
+    pub chain_limit: i64,
     pub created_at: i64,
     /// 当前仍引用该套餐模板的实例数。
     ///
@@ -723,6 +767,12 @@ pub struct Package {
     /// 所有套餐都是空表，升级后默认就是「不允许任何服务器」。
     #[sqlx(skip)]
     pub forward_server_ids: Vec<String>,
+    /// 允许用户自助使用的链模板 id（升序）；空 = 一个都不允许。
+    ///
+    /// 与自助转发白名单同一套语义：迁移 0046 之前没有行，升级后默认就是
+    /// 「不允许任何模板」。
+    #[sqlx(skip)]
+    pub chain_template_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize)]

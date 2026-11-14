@@ -83,6 +83,26 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/chains/{id}/latency", get(routes::chains::latency))
         .route(
+            "/api/v1/chain-templates",
+            get(routes::chain_templates::list).post(routes::chain_templates::create),
+        )
+        .route(
+            "/api/v1/chain-templates/{id}",
+            patch(routes::chain_templates::update).delete(routes::chain_templates::delete),
+        )
+        .route(
+            "/api/v1/me/chain-templates",
+            get(routes::chain_templates::me_list),
+        )
+        .route(
+            "/api/v1/me/chains",
+            get(routes::chains::me_list).post(routes::chains::me_create),
+        )
+        .route(
+            "/api/v1/me/chains/{id}",
+            axum::routing::delete(routes::chains::me_delete),
+        )
+        .route(
             "/api/v1/servers/{id}/outbounds",
             get(routes::outbounds::list).post(routes::outbounds::create),
         )

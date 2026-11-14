@@ -4037,15 +4037,23 @@ pub mod chains {
         Ok(())
     }
 
-    pub async fn create(pool: &SqlitePool, input: NewChain) -> anyhow::Result<ChainWithGroups> {
+    /// 在事务里写入链 + 组，返回新链 id。
+    ///
+    /// `template_id` / `owner_user_id` 只有用户自助建链时才非空；
+    /// 管理员手建与历史路径传 `None`，落库形态与升级前一致。
+    async fn insert_chain(
+        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+        input: NewChain,
+        template_id: Option<&str>,
+        owner_user_id: Option<&str>,
+    ) -> anyhow::Result<String> {
         let id = Uuid::new_v4().to_string();
         let ts = now();
-        let mut tx = pool.begin().await?;
         sqlx::query(
             "INSERT INTO chains
                 (id, name, target_host, target_port, enabled, engine, protocol, udp, transport,
-                 tunnel_security, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 tunnel_security, template_id, owner_user_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(input.name.trim())
@@ -4058,15 +4066,89 @@ pub mod chains {
         .bind(i64::from(crate::protocol::is_both(&input.protocol)))
         .bind(crate::hop_transport::from_db(&input.transport))
         .bind(crate::tunnel_security::from_db(&input.tunnel_security))
+        .bind(template_id)
+        .bind(owner_user_id)
         .bind(ts)
         .bind(ts)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
-        insert_groups(&mut tx, &id, &input.groups).await?;
+        insert_groups(tx, &id, &input.groups).await?;
+        Ok(id)
+    }
+
+    pub async fn create(pool: &SqlitePool, input: NewChain) -> anyhow::Result<ChainWithGroups> {
+        let mut tx = pool.begin().await?;
+        let id = insert_chain(&mut tx, input, None, None).await?;
         tx.commit().await?;
         find_by_id(pool, &id)
             .await?
             .ok_or_else(|| anyhow::anyhow!("链创建后读取失败"))
+    }
+
+    /// 用户自助建链：在**同一个事务**里检查配额并写入，避免并发请求把
+    /// `chain_limit` 撑破。
+    ///
+    /// 配额口径与 [`super::forwards::create_owned`] 一致：按 `owner_user_id`
+    /// 统计所有链（含停用），达到上限返回 `me.chain_quota_exceeded`（400）。
+    pub async fn create_owned(
+        pool: &SqlitePool,
+        input: NewChain,
+        template_id: &str,
+        owner_user_id: &str,
+        quota_limit: i64,
+    ) -> anyhow::Result<ChainWithGroups> {
+        let mut tx = pool.begin().await?;
+        let used: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM chains WHERE owner_user_id = ?")
+            .bind(owner_user_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        if used >= quota_limit.max(0) {
+            let message = if quota_limit <= 0 {
+                "当前套餐没有开通自助建链配额".to_string()
+            } else {
+                format!("链路数量已达套餐上限（{used}/{quota_limit}）")
+            };
+            return Err(crate::error::DomainError::with_params(
+                "me.chain_quota_exceeded",
+                serde_json::json!({ "limit": quota_limit.max(0), "used": used }),
+                message,
+            )
+            .into());
+        }
+        let id = insert_chain(&mut tx, input, Some(template_id), Some(owner_user_id)).await?;
+        tx.commit().await?;
+        find_by_id(pool, &id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("链创建后读取失败"))
+    }
+
+    /// 用户自己的链数量（含停用），用于配额展示与预检查。
+    pub async fn count_by_owner(pool: &SqlitePool, owner_user_id: &str) -> anyhow::Result<i64> {
+        Ok(
+            sqlx::query_scalar("SELECT COUNT(*) FROM chains WHERE owner_user_id = ?")
+                .bind(owner_user_id)
+                .fetch_one(pool)
+                .await?,
+        )
+    }
+
+    /// 用户自己的链列表：只按 `owner_user_id` 过滤，排序与管理员列表一致。
+    pub async fn list_by_owner(
+        pool: &SqlitePool,
+        owner_user_id: &str,
+    ) -> anyhow::Result<Vec<ChainWithGroups>> {
+        let chains = sqlx::query_as::<_, Chain>(
+            "SELECT * FROM chains WHERE owner_user_id = ?
+             ORDER BY created_at ASC, rowid ASC",
+        )
+        .bind(owner_user_id)
+        .fetch_all(pool)
+        .await?;
+        let mut items = Vec::with_capacity(chains.len());
+        for chain in chains {
+            items.push(assemble(pool, chain).await?);
+        }
+        Ok(items)
     }
 
     pub async fn find_by_id(
@@ -4363,6 +4445,314 @@ pub mod chains {
 ///
 /// 排序口径固定为 `created_at, rowid`：配置生成要求「按创建顺序」，
 /// 同一秒创建的多行再由 rowid 兜底，保证每次渲染顺序一致。
+pub mod chain_templates {
+    use sqlx::QueryBuilder;
+
+    use super::*;
+
+    pub struct NewChainTemplate {
+        pub name: String,
+        pub engine: String,
+        pub security: String,
+        pub transport: String,
+        pub protocol: String,
+        /// 已规范化（seq 连续、成员不重复）的 `[{ seq, strategy, server_ids }]`。
+        pub groups_json: String,
+        pub enabled: bool,
+    }
+
+    #[derive(Default)]
+    pub struct UpdateChainTemplate {
+        pub name: Option<String>,
+        pub engine: Option<String>,
+        pub security: Option<String>,
+        pub transport: Option<String>,
+        pub protocol: Option<String>,
+        pub groups_json: Option<String>,
+        pub enabled: Option<bool>,
+    }
+
+    pub async fn create(
+        pool: &SqlitePool,
+        input: NewChainTemplate,
+    ) -> anyhow::Result<ChainTemplate> {
+        let id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO chain_templates
+                (id, name, engine, security, transport, protocol, groups_json, enabled,
+                 created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(input.name.trim())
+        .bind(crate::engine::from_db(&input.engine))
+        .bind(crate::tunnel_security::from_db(&input.security))
+        .bind(crate::hop_transport::from_db(&input.transport))
+        .bind(crate::protocol::from_db(&input.protocol))
+        .bind(&input.groups_json)
+        .bind(i64::from(input.enabled))
+        .bind(now())
+        .execute(pool)
+        .await?;
+        find_by_id(pool, &id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("链模板创建后读取失败"))
+    }
+
+    pub async fn find_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<ChainTemplate>> {
+        Ok(
+            sqlx::query_as::<_, ChainTemplate>("SELECT * FROM chain_templates WHERE id = ?")
+                .bind(id)
+                .fetch_optional(pool)
+                .await?,
+        )
+    }
+
+    /// 管理员列表：按创建时间升序，最新创建的排后面（与链列表一致）。
+    pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<ChainTemplate>> {
+        Ok(sqlx::query_as::<_, ChainTemplate>(
+            "SELECT * FROM chain_templates ORDER BY created_at ASC, rowid ASC",
+        )
+        .fetch_all(pool)
+        .await?)
+    }
+
+    /// 按 id 批量读取（用户链展示模板名用），不过滤 enabled。
+    pub async fn list_by_ids(
+        pool: &SqlitePool,
+        ids: &[String],
+    ) -> anyhow::Result<Vec<ChainTemplate>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut builder = QueryBuilder::new("SELECT * FROM chain_templates WHERE id IN (");
+        let mut separated = builder.separated(", ");
+        for id in ids {
+            separated.push_bind(id.clone());
+        }
+        separated.push_unseparated(") ORDER BY created_at ASC, rowid ASC");
+        Ok(builder
+            .build_query_as::<ChainTemplate>()
+            .fetch_all(pool)
+            .await?)
+    }
+
+    /// 用户可见模板：只返回启用的模板，且 id 必须在套餐白名单里。
+    ///
+    /// 白名单由 [`chain_allowance`] 算出；空列表直接返回空，避免生成
+    /// `IN ()` 这种非法 SQL。
+    pub async fn list_enabled_by_ids(
+        pool: &SqlitePool,
+        ids: &[String],
+    ) -> anyhow::Result<Vec<ChainTemplate>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut builder =
+            QueryBuilder::new("SELECT * FROM chain_templates WHERE enabled = 1 AND id IN (");
+        let mut separated = builder.separated(", ");
+        for id in ids {
+            separated.push_bind(id.clone());
+        }
+        separated.push_unseparated(") ORDER BY created_at ASC, rowid ASC");
+        Ok(builder
+            .build_query_as::<ChainTemplate>()
+            .fetch_all(pool)
+            .await?)
+    }
+
+    pub async fn update(
+        pool: &SqlitePool,
+        id: &str,
+        input: UpdateChainTemplate,
+    ) -> anyhow::Result<Option<ChainTemplate>> {
+        let res = sqlx::query(
+            "UPDATE chain_templates SET
+                name = COALESCE(?, name),
+                engine = COALESCE(?, engine),
+                security = COALESCE(?, security),
+                transport = COALESCE(?, transport),
+                protocol = COALESCE(?, protocol),
+                groups_json = COALESCE(?, groups_json),
+                enabled = COALESCE(?, enabled)
+             WHERE id = ?",
+        )
+        .bind(input.name.map(|name| name.trim().to_string()))
+        .bind(input.engine.as_deref().map(crate::engine::from_db))
+        .bind(
+            input
+                .security
+                .as_deref()
+                .map(crate::tunnel_security::from_db),
+        )
+        .bind(
+            input
+                .transport
+                .as_deref()
+                .map(crate::hop_transport::from_db),
+        )
+        .bind(input.protocol.as_deref().map(crate::protocol::from_db))
+        .bind(input.groups_json)
+        .bind(input.enabled.map(i64::from))
+        .bind(id)
+        .execute(pool)
+        .await?;
+        if res.rows_affected() == 0 {
+            return Ok(None);
+        }
+        find_by_id(pool, id).await
+    }
+
+    /// 删除模板；`package_chain_templates` 与它的外键级联会自动清理。
+    ///
+    /// 用户链的 `chains.template_id` 没有外键，删除模板不会连带删除链——
+    /// 链仍按已展开的 groups 下发，只是不再关联模板。
+    pub async fn delete(pool: &SqlitePool, id: &str) -> anyhow::Result<bool> {
+        let res = sqlx::query("DELETE FROM chain_templates WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    /// 批量找出不存在的模板 id（保留输入顺序）。
+    pub async fn missing_ids(pool: &SqlitePool, ids: &[String]) -> anyhow::Result<Vec<String>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut builder = QueryBuilder::new("SELECT id FROM chain_templates WHERE id IN (");
+        let mut separated = builder.separated(", ");
+        for id in ids {
+            separated.push_bind(id.clone());
+        }
+        separated.push_unseparated(")");
+        let found: Vec<String> = builder.build_query_scalar().fetch_all(pool).await?;
+        let found: std::collections::HashSet<&str> = found.iter().map(String::as_str).collect();
+        Ok(ids
+            .iter()
+            .filter(|id| !found.contains(id.as_str()))
+            .cloned()
+            .collect())
+    }
+
+    /// 覆盖写套餐的自助建链规则（`chain_limit` + 模板白名单）。
+    ///
+    /// 调用方负责先校验模板 id 存在；本函数只做写入，返回套餐是否存在。
+    /// 与节点范围一样是一次全量替换，`[]` 才是「一个模板都不给」。
+    pub async fn set_package_templates(
+        pool: &SqlitePool,
+        package_id: &str,
+        chain_limit: i64,
+        template_ids: &[String],
+    ) -> anyhow::Result<bool> {
+        let mut tx = pool.begin().await?;
+        let res = sqlx::query("UPDATE packages SET chain_limit = ? WHERE id = ?")
+            .bind(chain_limit)
+            .bind(package_id)
+            .execute(&mut *tx)
+            .await?;
+        if res.rows_affected() == 0 {
+            return Ok(false);
+        }
+        sqlx::query("DELETE FROM package_chain_templates WHERE package_id = ?")
+            .bind(package_id)
+            .execute(&mut *tx)
+            .await?;
+        for template_id in template_ids {
+            sqlx::query(
+                "INSERT INTO package_chain_templates (package_id, template_id)
+                 VALUES (?, ?)",
+            )
+            .bind(package_id)
+            .bind(template_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    /// 用户当前生效的自助建链额度与模板白名单。
+    ///
+    /// 每次写入都现查，**不缓存**；状态判定复用
+    /// [`crate::models::package_status_at`]，停用 / 过期 / 用尽的套餐都不发放。
+    /// 语义与 [`super::packages::forward_allowance`] 完全一致。
+    pub async fn chain_allowance(
+        pool: &SqlitePool,
+        user_id: &str,
+        now: i64,
+    ) -> anyhow::Result<crate::chain_templates::ChainTemplateAllowance> {
+        let rows = sqlx::query_as::<_, (String, i64, Option<i64>, Option<i64>, i64)>(
+            "SELECT p.id, p.chain_limit, up.expires_at,
+                    COALESCE(up.quota_override, p.quota_bytes) AS quota_bytes,
+                    up.used_bytes
+             FROM user_packages up
+             JOIN packages p ON p.id = up.package_id
+             WHERE up.user_id = ? AND up.status = 'active'",
+        )
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?;
+
+        let mut grants: Vec<(i64, Vec<String>)> = Vec::new();
+        for (package_id, chain_limit, expires_at, quota_bytes, used_bytes) in rows {
+            if crate::models::package_status_at("active", expires_at, quota_bytes, used_bytes, now)
+                != "active"
+            {
+                continue;
+            }
+            // 不发放条数的套餐不需要白名单，省一次查询也避免误放行。
+            let template_ids: Vec<String> = if chain_limit > 0 {
+                sqlx::query_scalar(
+                    "SELECT template_id FROM package_chain_templates
+                     WHERE package_id = ? ORDER BY template_id ASC",
+                )
+                .bind(&package_id)
+                .fetch_all(pool)
+                .await?
+            } else {
+                Vec::new()
+            };
+            grants.push((chain_limit, template_ids));
+        }
+        Ok(crate::chain_templates::ChainTemplateAllowance::from_grants(
+            &grants,
+        ))
+    }
+
+    /// 批量补齐套餐的模板白名单；与节点/转发白名单分开查，避免 JOIN 放大行数。
+    pub(super) async fn fill_package_templates(
+        pool: &SqlitePool,
+        packages: &mut [Package],
+    ) -> anyhow::Result<()> {
+        if packages.is_empty() {
+            return Ok(());
+        }
+        let mut builder = QueryBuilder::new(
+            "SELECT package_id, template_id FROM package_chain_templates
+             WHERE package_id IN (",
+        );
+        let mut separated = builder.separated(", ");
+        for package in packages.iter() {
+            separated.push_bind(package.id.clone());
+        }
+        separated.push_unseparated(") ORDER BY package_id ASC, template_id ASC");
+        let rows = builder
+            .build_query_as::<(String, String)>()
+            .fetch_all(pool)
+            .await?;
+        let mut by_id: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for (package_id, template_id) in rows {
+            by_id.entry(package_id).or_default().push(template_id);
+        }
+        for package in packages.iter_mut() {
+            package.chain_template_ids = by_id.remove(&package.id).unwrap_or_default();
+        }
+        Ok(())
+    }
+}
+
 pub mod outbounds {
     use super::*;
 
@@ -4774,7 +5164,8 @@ pub mod packages {
             package.node_scope = if explicit { "custom" } else { "all" }.to_string();
             package.node_ids = node_ids;
         }
-        fill_forward_servers(pool, packages).await
+        fill_forward_servers(pool, packages).await?;
+        super::chain_templates::fill_package_templates(pool, packages).await
     }
 
     /// 批量补齐自助转发服务器白名单；与节点范围分开查，避免 JOIN 放大行数。
@@ -4912,8 +5303,8 @@ pub mod packages {
     pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<Package>> {
         let mut items = sqlx::query_as::<_, Package>(
             "SELECT p.id, p.name, p.quota_bytes, p.period_days, p.direction, p.node_ratio,
-                    p.speed_limit_kbps, p.rule_template_id, p.forward_limit, p.created_at,
-                    COUNT(up.id) AS user_count
+                    p.speed_limit_kbps, p.rule_template_id, p.forward_limit, p.chain_limit,
+                    p.created_at, COUNT(up.id) AS user_count
              FROM packages p
              LEFT JOIN user_packages up ON up.package_id = p.id
              GROUP BY p.id

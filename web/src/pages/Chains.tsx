@@ -912,6 +912,15 @@ export default function ChainsPage() {
           {chain.name}
         </span>
         <div className="flex min-w-0 flex-wrap items-center gap-1">
+            {chain.source === "user" ? (
+              <Badge
+                variant="outline"
+                className="h-4 shrink-0 border-border/80 bg-muted/40 px-1.5 type-micro font-normal text-muted-foreground"
+                title={t("chains.list.userSourceTitle")}
+              >
+                {t("chains.list.userSource")}
+              </Badge>
+            ) : null}
             {chain.path_mode === "single" ? (
               <Badge
                 variant="outline"

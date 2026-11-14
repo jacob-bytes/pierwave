@@ -29,11 +29,12 @@ use serde_json::{json, Value};
 
 use pierwave_domain::chains::GroupStrategy;
 use pierwave_domain::models::{
-    Chain, ChainGroupMember, ChainGroupWithMembers, ChainWithGroups, ForwardStatusRow, Server,
+    Chain, ChainGroupMember, ChainGroupWithMembers, ChainTemplate, ChainWithGroups,
+    ForwardStatusRow, Server,
 };
 use pierwave_domain::port_policy::PortPolicy;
 use pierwave_domain::tunnel_security as tunnel_mode;
-use pierwave_domain::{chains, engine, forwards, hop_transport, protocol, repo};
+use pierwave_domain::{chain_templates, chains, engine, forwards, hop_transport, protocol, repo};
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -1727,6 +1728,11 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
         "udp": chain.chain.udp,
         "transport": chain.chain.transport,
         "tunnel_security": chain.chain.tunnel_security,
+        // 用户自助建链的归属：管理员列表仍展示全部链，但用 `source` 明确区分，
+        // 不会把用户链混成管理员手建的链。
+        "template_id": chain.chain.template_id,
+        "owner_user_id": chain.chain.owner_user_id,
+        "source": if chain.chain.owner_user_id.is_some() { "user" } else { "admin" },
         "degraded": degraded,
         // single | multi | hash：前端据此决定是否画「合计」。
         "path_mode": path_mode,
@@ -2318,6 +2324,391 @@ pub async fn delete(
     Ok(Json(json!({ "ok": true })))
 }
 
+// ---------------------------------------------------------------------------
+// 用户自助建链：`/api/v1/me/chains`
+//
+// 与管理端共用同一套校验/端口分配/下发实现，只多了四件事：
+// 1. 身份只来自会话，绝不接受请求里的 user_id；
+// 2. 额度与模板白名单每次现查套餐（不缓存）；
+// 3. 链形态完全来自模板，用户只提供 target_host / target_port；
+// 4. 入口端口由服务器端口策略自动分配（中间跳沿用链的自动分配）。
+// ---------------------------------------------------------------------------
+
+fn chain_quota_error(limit: i64, used: i64) -> AppError {
+    let limit = limit.max(0);
+    let message = if limit == 0 {
+        "当前套餐没有开通自助建链配额".to_string()
+    } else {
+        format!("链路数量已达套餐上限（{used}/{limit}）")
+    };
+    AppError::coded(
+        "me.chain_quota_exceeded",
+        Some(json!({ "limit": limit, "used": used })),
+        message,
+    )
+}
+
+/// 模板不在当前套餐白名单里（或已停用）：403。
+///
+/// 与自助转发的服务器白名单同口径：这是个「允许不允许」的问题，
+/// 用 403 而不是 404，前端能直接提示「联系管理员开通」。
+fn template_not_allowed(template: &ChainTemplate) -> AppError {
+    AppError::forbidden(
+        "me.chain_template_not_allowed",
+        Some(json!({
+            "template_id": &template.id,
+            "template_name": &template.name,
+        })),
+        format!("当前套餐不允许使用链模板「{}」", template.name),
+    )
+}
+
+/// 取一条属于当前用户的链；不属于自己时按「不存在」处理。
+///
+/// 用 404 而不是 403：否则可以靠错误码枚举出别人链的 id 是否存在。
+async fn load_owned_chain(
+    state: &AppState,
+    owner_user_id: &str,
+    id: &str,
+) -> AppResult<ChainWithGroups> {
+    match repo::chains::find_by_id(&state.db.pool, id).await? {
+        Some(chain) if chain.chain.owner_user_id.as_deref() == Some(owner_user_id) => Ok(chain),
+        _ => Err(AppError::not_found(
+            "me.chain_not_found",
+            None,
+            "链路不存在",
+        )),
+    }
+}
+
+/// 自动生成用户链名称：模板名 + 目标，超出 64 字符时回落到纯目标。
+fn user_chain_name(template_name: &str, target_host: &str, target_port: i64) -> String {
+    let target = format!("{target_host}:{target_port}");
+    let budget = chains::NAME_MAX_CHARS.saturating_sub(target.chars().count() + 3);
+    let prefix: String = template_name.trim().chars().take(budget).collect();
+    if prefix.is_empty() {
+        return forwards::default_owner_name(target_host, target_port);
+    }
+    let name = format!("{prefix} · {target}");
+    name.chars()
+        .take(chains::NAME_MAX_CHARS)
+        .collect::<String>()
+}
+
+/// 模板 id → 名称；用于用户链列表展示「来自哪个模板」。
+async fn template_name_map(
+    state: &AppState,
+    chains_list: &[ChainWithGroups],
+) -> AppResult<HashMap<String, String>> {
+    let mut ids: Vec<String> = chains_list
+        .iter()
+        .filter_map(|chain| chain.chain.template_id.clone())
+        .collect();
+    ids.sort();
+    ids.dedup();
+    Ok(repo::chain_templates::list_by_ids(&state.db.pool, &ids)
+        .await?
+        .into_iter()
+        .map(|template| (template.id, template.name))
+        .collect())
+}
+
+/// 用户视角的链视图：入口地址 + 每组服务器与端口，不含证书/内网地址等管理字段。
+fn user_chain_json(
+    chain: &ChainWithGroups,
+    template_name: Option<&str>,
+    blocked: Option<&chains::BlockedReason>,
+) -> Value {
+    let entry = chain
+        .groups
+        .first()
+        .and_then(|group| ordered_members(group).first().copied());
+    json!({
+        "id": &chain.chain.id,
+        "name": &chain.chain.name,
+        "template_id": &chain.chain.template_id,
+        "template_name": template_name,
+        "target_host": &chain.chain.target_host,
+        "target_port": chain.chain.target_port,
+        "engine": &chain.chain.engine,
+        "security": &chain.chain.tunnel_security,
+        "transport": &chain.chain.transport,
+        "protocol": &chain.chain.protocol,
+        "enabled": chain.chain.enabled,
+        // 入口 = 第一组的第一台成员；已拼好「服务器地址:分配端口」。
+        "entry_address": entry.map(|member| forwards::entry_address(&member.server_address, member.listen_port)),
+        "entry_server_id": entry.map(|member| &member.server_id),
+        "entry_server_name": entry.map(|member| &member.server_name),
+        "groups": chain.groups.iter().map(|group| json!({
+            "seq": group.group.seq,
+            "strategy": &group.group.strategy,
+            "servers": ordered_members(group).iter().map(|member| json!({
+                "server_id": &member.server_id,
+                "server_name": &member.server_name,
+                "listen_port": member.listen_port,
+            })).collect::<Vec<_>>(),
+        })).collect::<Vec<_>>(),
+        "blocked_code": blocked.map(|reason| reason.code.as_str()),
+        "blocked_reason": blocked.map(|reason| reason.message.as_str()),
+        "created_at": chain.chain.created_at,
+        "updated_at": chain.chain.updated_at,
+    })
+}
+
+pub async fn me_list(State(state): State<AppState>, user: CurrentUser) -> AppResult<Json<Value>> {
+    let now = repo::now();
+    let allowance = repo::chain_templates::chain_allowance(&state.db.pool, &user.0.id, now).await?;
+    let used = repo::chains::count_by_owner(&state.db.pool, &user.0.id).await?;
+    let chains_list = repo::chains::list_by_owner(&state.db.pool, &user.0.id).await?;
+    let names = template_name_map(&state, &chains_list).await?;
+    let blocked = repo::chains::blocked_reasons(&state.db.pool, &chains_list, now).await?;
+
+    let items: Vec<Value> = chains_list
+        .iter()
+        .map(|chain| {
+            let template_name = chain
+                .chain
+                .template_id
+                .as_ref()
+                .and_then(|id| names.get(id))
+                .map(String::as_str);
+            user_chain_json(chain, template_name, blocked.get(&chain.chain.id))
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "items": items,
+        "quota": { "limit": allowance.limit, "used": used },
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct CreateUserChain {
+    #[serde(default)]
+    pub template_id: String,
+    #[serde(default)]
+    pub target_host: String,
+    pub target_port: i64,
+}
+
+/// 用户自助建链：模板 → groups → 自动端口 → 下发。
+///
+/// 顺序（与自助转发一致）：
+/// 1. 完全没配额 → 400 `me.chain_quota_exceeded`；
+/// 2. 模板不在套餐白名单 / 已停用 → 403 `me.chain_template_not_allowed`；
+/// 3. 白名单通过但已满 → 400。
+///
+/// 入口组每个成员各自从所在服务器的端口策略里分配端口；中间组省略端口，
+/// 由 `resolve_groups` 走链既有的自动分配（同样受端口策略约束）。
+pub async fn me_create(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    user: CurrentUser,
+    Json(req): Json<CreateUserChain>,
+) -> AppResult<Json<Value>> {
+    let now = repo::now();
+    let allowance = repo::chain_templates::chain_allowance(&state.db.pool, &user.0.id, now).await?;
+    let used = repo::chains::count_by_owner(&state.db.pool, &user.0.id).await?;
+
+    if allowance.limit <= 0 {
+        return Err(chain_quota_error(allowance.limit, used));
+    }
+    if !allowance.allows_template(&req.template_id) {
+        // 模板 id 为空 / 不存在 / 未授权都走同一条 403：这里没有可枚举的资源。
+        return Err(AppError::forbidden(
+            "me.chain_template_not_allowed",
+            Some(json!({ "template_id": &req.template_id })),
+            "当前套餐不允许使用该链模板",
+        ));
+    }
+    if used >= allowance.limit {
+        return Err(chain_quota_error(allowance.limit, used));
+    }
+
+    let template = repo::chain_templates::find_by_id(&state.db.pool, &req.template_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("chain_template.not_found", None, "链模板不存在"))?;
+    if !template.enabled {
+        return Err(template_not_allowed(&template));
+    }
+
+    let target_host = forwards::normalize_target_host(&req.target_host)?;
+    forwards::validate_target_port(req.target_port)?;
+    let template_groups = chain_templates::parse_groups(&template.groups_json)?;
+
+    // 模板 → 链的组输入：入口组（seq 0）先按服务器端口策略分配，
+    // 中间组留空由 resolve_groups 自动分配。
+    let mut inputs: Vec<CreateChainGroup> = Vec::with_capacity(template_groups.len());
+    for group in &template_groups {
+        let mut members = Vec::with_capacity(group.server_ids.len());
+        for (index, server_id) in group.server_ids.iter().enumerate() {
+            let server = load_server_for_hop(&state, server_id).await?;
+            let listen_port = if group.seq == 0 {
+                Some(
+                    super::forwards::allocate_user_port(
+                        &state,
+                        &server,
+                        &target_host,
+                        req.target_port,
+                    )
+                    .await?,
+                )
+            } else {
+                None
+            };
+            members.push(CreateChainMember {
+                server_id: server.id,
+                listen_port,
+                priority: index as i64,
+                weight: 1,
+            });
+        }
+        inputs.push(CreateChainGroup {
+            name: None,
+            strategy: Some(group.strategy.clone()),
+            cert_id: None,
+            public_port: None,
+            use_internal_address: false,
+            listen_port: None,
+            server_ids: Vec::new(),
+            members,
+        });
+    }
+
+    let groups = resolve_groups(&state, &inputs, None, None).await?;
+    validate_internal_addresses(&groups)?;
+    ensure_targets_safe(&groups, &target_host, req.target_port)?;
+
+    // 模板写路径已经校验过组合；这里用同一套链校验函数再跑一遍，
+    // 防止模板被手工改库后绕过写路径。
+    let config = chain_templates::validate_config(
+        &template.engine,
+        &template.security,
+        &template.transport,
+        &template.protocol,
+        &template_groups,
+    )?;
+    validate_nftables_chain(&config.engine, &groups)?;
+    validate_tunnel_chain(
+        &config.engine,
+        &config.protocol,
+        &config.transport,
+        &config.security,
+        &groups,
+    )?;
+    validate_transport(
+        &state,
+        &config.transport,
+        &config.engine,
+        &config.protocol,
+        &groups,
+    )
+    .await?;
+    protocol::ensure_realm_supported(&config.protocol, &config.engine)?;
+    protocol::ensure_chain_agent_supported(&config.protocol, &member_protocol_versions(&groups))?;
+
+    let name = user_chain_name(&template.name, &target_host, req.target_port);
+    let chain = repo::chains::create_owned(
+        &state.db.pool,
+        repo::chains::NewChain {
+            name,
+            target_host: target_host.clone(),
+            target_port: req.target_port,
+            enabled: true,
+            engine: config.engine.clone(),
+            protocol: config.protocol.clone(),
+            transport: config.transport.clone(),
+            tunnel_security: config.security.clone(),
+            groups: new_groups(&groups),
+        },
+        &template.id,
+        &user.0.id,
+        allowance.limit,
+    )
+    .await
+    .map_err(|error| match AppError::from_domain_chain(&error) {
+        // 并发下配额可能刚好被另一条请求抢走：仍按 400 返回，不能变成 500。
+        Some(domain) => domain,
+        None => AppError::Internal(error),
+    })?;
+
+    crate::audit::record(
+        &state,
+        &user.0,
+        "user_chain.create",
+        &chain.chain.id,
+        json!({
+            // 只放 id 与链事实，不放用户名/邮箱等隐私字段。
+            "chain_id": &chain.chain.id,
+            "template_id": &template.id,
+            "template_name": &template.name,
+            "target_host": &chain.chain.target_host,
+            "target_port": chain.chain.target_port,
+            "engine": &chain.chain.engine,
+            "protocol": &chain.chain.protocol,
+            "groups": chain.groups.iter().map(|group| json!({
+                "seq": group.group.seq,
+                "strategy": &group.group.strategy,
+                "members": group.members.iter().map(|member| json!({
+                    "server_id": &member.server_id,
+                    "listen_port": member.listen_port,
+                })).collect::<Vec<_>>(),
+            })).collect::<Vec<_>>(),
+        }),
+    )
+    .await;
+
+    let base = super::install::external_base(&headers);
+    mark_servers_dirty_and_apply(&state, &base, &chain_server_ids(&chain)).await;
+
+    let used_after = repo::chains::count_by_owner(&state.db.pool, &user.0.id).await?;
+    let blocked = chain_blocked_reason(&state, &chain).await?;
+    Ok(Json(json!({
+        "chain": user_chain_json(&chain, Some(&template.name), blocked.as_ref()),
+        "quota": { "limit": allowance.limit, "used": used_after },
+    })))
+}
+
+pub async fn me_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    user: CurrentUser,
+    Path(id): Path<String>,
+) -> AppResult<Json<Value>> {
+    let existing = load_owned_chain(&state, &user.0.id, &id).await?;
+    if !repo::chains::delete(&state.db.pool, &id).await? {
+        return Err(AppError::not_found(
+            "me.chain_not_found",
+            None,
+            "链路不存在",
+        ));
+    }
+
+    crate::audit::record(
+        &state,
+        &user.0,
+        "user_chain.delete",
+        &existing.chain.id,
+        json!({
+            "chain_id": &existing.chain.id,
+            "template_id": &existing.chain.template_id,
+            "target_host": &existing.chain.target_host,
+            "target_port": existing.chain.target_port,
+            "entry_listen_port": existing
+                .groups
+                .first()
+                .and_then(|group| ordered_members(group).first().copied())
+                .map(|member| member.listen_port),
+        }),
+    )
+    .await;
+
+    let base = super::install::external_base(&headers);
+    mark_servers_dirty_and_apply(&state, &base, &chain_server_ids(&existing)).await;
+
+    Ok(Json(json!({ "ok": true })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2507,6 +2898,8 @@ mod tests {
             udp: false,
             transport: "none".into(),
             tunnel_security: "tls".into(),
+            template_id: None,
+            owner_user_id: None,
             created_at: 0,
             updated_at: 0,
         }

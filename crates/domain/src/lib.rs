@@ -3,6 +3,7 @@
 
 pub mod backup;
 pub mod certificate;
+pub mod chain_templates;
 pub mod chains;
 pub mod country;
 pub mod credentials;

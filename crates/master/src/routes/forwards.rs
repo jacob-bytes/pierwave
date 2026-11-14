@@ -564,7 +564,10 @@ async fn load_owned_forward(
 /// 复用链的分配器（[`PortPolicy::allocate`]）：不限制时用 20000-29999 池，
 /// 有限制时只在「区间 ∪ 额外端口」里挑。保留端口（API 10085 / SSH 22）与
 /// 回环目标端口会先并入占用集合，避免刚分到就撞门禁。
-async fn allocate_user_port(
+///
+/// 用户自助转发与自助链的入口组共用这一份实现：两者都是「用户不能指定端口，
+/// 由后端按服务器策略分配」。
+pub(crate) async fn allocate_user_port(
     state: &AppState,
     server: &Server,
     target_host: &str,

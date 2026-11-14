@@ -854,6 +854,15 @@ export interface Chain {
   blocked_code?: string | null;
   /** 链被跳过时的原因原文；非空时列表在链名旁显示 warning。 */
   blocked_reason?: string | null;
+  /**
+   * 链的来源：`admin`（管理员手建）/ `user`（用户通过链模板自助创建）。
+   * 旧后端不返回该字段，展示层按 `admin` 处理。
+   */
+  source?: "admin" | "user";
+  /** 用户自助建链时使用的模板 id；管理员手建为 null。 */
+  template_id?: string | null;
+  /** 用户自助建链的创建者；管理员手建为 null。 */
+  owner_user_id?: string | null;
   /** 任一组 / 成员 degraded 即为 true。 */
   degraded: boolean;
   /**
@@ -936,6 +945,112 @@ export interface CreateChainInput {
 }
 
 export type UpdateChainInput = Partial<CreateChainInput>;
+
+/**
+ * 链模板：管理员预先定义一条链的形态，用户只选模板 + 填目标。
+ *
+ * `servers` 是后端按 `server_ids` 带出的名字快照（免去前端再查一次
+ * 服务器列表）；`server_ids` 仍然保留，编辑时用它回填。
+ */
+export interface ChainTemplateGroup {
+  seq: number;
+  strategy: ChainStrategy;
+  server_ids: string[];
+  servers: { id: string; name: string }[];
+}
+
+export interface ChainTemplate {
+  id: string;
+  name: string;
+  engine: ForwardEngine;
+  /** 隧道安全模式；非 tunnel 引擎此值无意义（后端默认 tls）。 */
+  security: TunnelSecurity;
+  /** realm 跳间加密；模板当前只允许 `none`。 */
+  transport: "none" | "tls";
+  protocol: ForwardProtocol;
+  enabled: boolean;
+  created_at: number;
+  groups: ChainTemplateGroup[];
+}
+
+export interface ChainTemplateGroupInput {
+  /** 缺省按数组顺序；后端会重排并重新编号为 0..n-1。 */
+  seq?: number;
+  strategy?: ChainStrategy;
+  server_ids: string[];
+}
+
+export interface CreateChainTemplateInput {
+  name: string;
+  engine?: ForwardEngine;
+  security?: TunnelSecurity;
+  transport?: "none" | "tls";
+  protocol?: ForwardProtocol;
+  enabled?: boolean;
+  groups: ChainTemplateGroupInput[];
+}
+
+export type UpdateChainTemplateInput = Partial<CreateChainTemplateInput>;
+
+/**
+ * 用户自助建链（`/api/v1/me/chains`）。
+ *
+ * 链的形态完全来自模板，用户只提供目标；入口地址已经由后端拼好
+ * 「服务器地址:自动分配端口」。
+ */
+export interface MeChainGroup {
+  seq: number;
+  strategy: ChainStrategy;
+  servers: { server_id: string; server_name: string; listen_port: number }[];
+}
+
+export interface MeChain {
+  id: string;
+  name: string;
+  template_id: string | null;
+  template_name: string | null;
+  target_host: string;
+  target_port: number;
+  engine: ForwardEngine;
+  security: TunnelSecurity;
+  transport: string;
+  protocol: ForwardProtocol;
+  enabled: boolean;
+  entry_address: string | null;
+  entry_server_id: string | null;
+  entry_server_name: string | null;
+  groups: MeChainGroup[];
+  blocked_code?: string | null;
+  blocked_reason?: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface MeChainQuota {
+  limit: number;
+  used: number;
+}
+
+export interface MeChainsResponse {
+  items: MeChain[];
+  quota: MeChainQuota;
+}
+
+export interface MeChainTemplatesResponse {
+  items: ChainTemplate[];
+  quota: MeChainQuota;
+}
+
+export interface CreateMeChainInput {
+  template_id: string;
+  target_host: string;
+  target_port: number;
+}
+
+export interface CreateMeChainResponse {
+  chain: MeChain;
+  quota: MeChainQuota;
+}
 
 export interface ApplyResult {
   config_version: number;
@@ -1075,6 +1190,16 @@ export interface Package {
    * 旧版后端不会返回该字段，统一按空数组兜底。
    */
   forward_server_ids?: string[];
+  /**
+   * 每个用户可自助创建的链路上限；0 / 缺失 = 当前套餐不支持自助建链。
+   * 旧版后端不会返回该字段，表单与展示统一按 0 兜底。
+   */
+  chain_limit?: number;
+  /**
+   * 允许用户自助使用的链模板 id；空数组 = 一个都不允许。
+   * 旧版后端不会返回该字段，统一按空数组兜底。
+   */
+  chain_template_ids?: string[];
 }
 
 /**
@@ -1153,6 +1278,16 @@ export interface CreatePackageInput {
    * 编辑时总是发送数组，避免「不选」与「不改」混淆。
    */
   forward_server_ids?: string[];
+  /**
+   * 自助建链条数上限。0 = 不支持自助建链（省略也按 0 处理）。
+   * 编辑时显式传 0 才能把旧值清掉，因此表单总是发送该字段。
+   */
+  chain_limit?: number;
+  /**
+   * 允许自助使用的链模板 id；`[]` = 一个都不允许。
+   * 编辑时总是发送数组，避免「不选」与「不改」混淆。
+   */
+  chain_template_ids?: string[];
 }
 
 export type UpdatePackageInput = Partial<CreatePackageInput>;
@@ -1575,6 +1710,23 @@ export const api = {
             { method: "DELETE" },
           ),
       },
+      /** 用户自助建链：模板来自套餐白名单，端口由后端分配。 */
+      chains: {
+        list: () => request<MeChainsResponse>("/api/v1/me/chains"),
+        create: (input: CreateMeChainInput) =>
+          request<CreateMeChainResponse>("/api/v1/me/chains", {
+            method: "POST",
+            body: JSON.stringify(input),
+          }),
+        remove: (id: string) =>
+          request<{ ok: true }>(
+            `/api/v1/me/chains/${encodeURIComponent(id)}`,
+            { method: "DELETE" },
+          ),
+      },
+      /** 当前套餐允许使用的链模板（含服务器名与配额快照）。 */
+      chainTemplates: () =>
+        request<MeChainTemplatesResponse>("/api/v1/me/chain-templates"),
     },
   ),
   login: (username: string, password: string) =>
@@ -1869,6 +2021,31 @@ export const api = {
     latency: (id: string, hours: number) =>
       request<{ points: ChainLatencyPoint[] }>(
         `/api/v1/chains/${encodeURIComponent(id)}/latency?hours=${hours}`,
+      ),
+  },
+
+  /**
+   * 链模板（管理员）：只定义链形态，不参与下发；写操作不会触发 apply。
+   */
+  chainTemplates: {
+    list: () => request<{ items: ChainTemplate[] }>("/api/v1/chain-templates"),
+    create: (input: CreateChainTemplateInput) =>
+      request<{ template: ChainTemplate }>("/api/v1/chain-templates", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    update: (id: string, input: UpdateChainTemplateInput) =>
+      request<{ template: ChainTemplate }>(
+        `/api/v1/chain-templates/${encodeURIComponent(id)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(input),
+        },
+      ),
+    remove: (id: string) =>
+      request<{ ok: true }>(
+        `/api/v1/chain-templates/${encodeURIComponent(id)}`,
+        { method: "DELETE" },
       ),
   },
 

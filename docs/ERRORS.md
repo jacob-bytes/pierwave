@@ -688,3 +688,58 @@ is ignored. Port-pool exhaustion reuses the chain allocation codes:
 - 审计动作 `user_forward.create` / `user_forward.delete`，`target` 是转发 id，
   `detail` 只含 `forward_id`、`server_id`、`server_name`、`listen_port`、
   `target_host`、`target_port`、`protocol`，**不含用户名/邮箱**。
+
+## 链模板与用户自助建链（迁移 0046）/ Chain templates and user self-service chains
+
+管理员先定义链模板（跳 / 引擎 / 加密方式），用户在套餐授权范围内选模板并填写
+`target_host` / `target_port`；入口端口由服务器端口策略自动分配，用户不能指定。
+模板组里的服务器必须真实存在；模板**不携带证书**，因此 `transport = tls` 在模板层
+直接拒绝（realm 的跳间 TLS 每跳都需要证书，模板无法展开成合法链）。
+
+Administrators define chain templates (hops / engine / security) first; users pick an
+authorized template and supply `target_host` / `target_port`. The entry port is
+allocated by the server port policy and cannot be supplied by the client. Every server
+referenced by the template must exist. Templates carry **no certificates**, so
+`transport = tls` is rejected at the template level (realm hop TLS needs a certificate
+on every hop and could never be expanded from a template).
+
+| code | 中文 | English | params |
+|---|---|---|---|
+| `me.chain_quota_exceeded` | 链路数量已达套餐上限（{used}/{limit}）；limit = 0 表示当前套餐未开通 | Chain quota reached ({used}/{limit}); limit = 0 means the package does not allow chains | limit, used |
+| `me.chain_template_not_allowed` | 当前套餐不允许使用链模板「{template_name}」 | The current package does not allow chain template "{template_name}" | template_id, template_name |
+| `me.chain_not_found` | 链路不存在（不存在或不属于当前用户） | Chain not found (missing or not owned by the current user) | — |
+| `chain_template.not_found` | 链模板不存在 | Chain template not found | — |
+| `chain_template.name_required` | 链模板名称不能为空 | Chain template name is required | — |
+| `chain_template.name_too_long` | 链模板名称最多 {max} 个字符 | Chain template name must be at most {max} characters | max |
+| `chain_template.groups_invalid` | 链模板的组配置无效 | The chain template groups are invalid | reason |
+| `chain_template.server_required` | 第 {seq} 跳的服务器不能为空 | Hop {seq} must include a server | seq |
+| `chain_template.server_not_found` | 服务器不存在：{server_ids} | Server not found: {server_ids} | server_ids |
+| `chain_template.transport_unsupported` | 链模板不支持跳间加密（模板不携带证书） | Chain templates cannot enable hop TLS (no certificates) | — |
+| `chain_template.security_requires_tunnel` | 只有 tunnel 引擎的链模板才能使用 noise 安全模式 | Only tunnel templates can use the noise security mode | engine, security |
+| `package.chain_limit_invalid` | 自助建链条数不能为负数（0 表示不允许） | Chain limit must not be negative (0 means not allowed) | min |
+| `package.chain_template_invalid` | 链模板 id 不能为空 | Template id must not be empty | — |
+| `package.chain_template_not_found` | 链模板不存在：{template_ids} | Chain template not found: {template_ids} | template_ids |
+
+引擎 / 安全模式 / 协议组合复用链既有错误码：`forward.engine_invalid`、
+`chain.tunnel_security_invalid`、`chain.transport_invalid`、`chain.protocol_invalid`、
+`chain.hop_count_invalid`、`chain.group_member_count_invalid`、`chain.strategy_invalid`、
+`chain.duplicate_server`、`chain.duplicate_group_member`、`chain.nftables_multi_target`、
+`chain.tunnel_*`。端口耗尽复用 `chain.port_pool_exhausted` / `chain.port_allowed_exhausted`。
+
+Engine / security / protocol combinations reuse the existing chain codes listed above.
+Port exhaustion reuses `chain.port_pool_exhausted` / `chain.port_allowed_exhausted`.
+
+接口 / Endpoints:
+
+- 管理员：`GET/POST /api/v1/chain-templates`、`PATCH/DELETE /api/v1/chain-templates/{id}`；
+  审计动作 `chain_template.create` / `chain_template.update` / `chain_template.delete`。
+- 用户：`GET /api/v1/me/chain-templates`（启用中 + 生效套餐白名单，带服务器名与
+  `quota{limit,used}`）、`GET/POST /api/v1/me/chains`、`DELETE /api/v1/me/chains/{id}`。
+- 套餐创建/更新接受 `chain_limit` 与 `chain_template_ids: string[]`（全量替换）。
+- `POST /api/v1/me/chains` body `{ template_id, target_host, target_port }`，
+  返回 `{ chain, quota }`；越权访问别人的链一律 **404 `me.chain_not_found`**。
+- 审计 `user_chain.create` / `user_chain.delete`，detail 只含链路事实，不含用户名/邮箱。
+- 管理员 `GET /api/v1/chains` 仍返回全部链，并新增 `source`（`admin` / `user`）、
+  `owner_user_id`、`template_id`，用户链不会被误认为是管理员手建的链。
+
+See `docs/CHAIN-TEMPLATES.md` for the full contract and the creation flow.

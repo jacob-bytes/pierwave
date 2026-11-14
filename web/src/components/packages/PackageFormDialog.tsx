@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ChainTemplateMultiSelectField } from "@/components/chains/ChainTemplateMultiSelectField";
 import { PackageNodeScopeField } from "@/components/packages/PackageNodeScopeField";
 import { ServerMultiSelectField } from "@/components/servers/ServerMultiSelectField";
 import type { CreatePackageInput, Package } from "@/lib/api";
@@ -93,6 +94,8 @@ export function PackageFormDialog({
           rule_template_id: packageItem.rule_template_id ?? "",
           forward_limit: String(packageItem.forward_limit ?? 0),
           forward_server_ids: packageItem.forward_server_ids ?? [],
+          chain_limit: String(packageItem.chain_limit ?? 0),
+          chain_template_ids: packageItem.chain_template_ids ?? [],
         }
       : {
           name: "",
@@ -106,6 +109,8 @@ export function PackageFormDialog({
           rule_template_id: "",
           forward_limit: "0",
           forward_server_ids: [],
+          chain_limit: "0",
+          chain_template_ids: [],
         },
   });
 
@@ -148,6 +153,9 @@ export function PackageFormDialog({
         ? Number(values.forward_limit)
         : 0,
       forward_server_ids: values.forward_server_ids,
+      // 空串 = 0（不支持自助建链）；编辑时也要显式发送，才能把旧值清掉。
+      chain_limit: values.chain_limit.trim() ? Number(values.chain_limit) : 0,
+      chain_template_ids: values.chain_template_ids,
       ...scopeFields,
     };
 
@@ -408,6 +416,42 @@ export function PackageFormDialog({
                 name="forward_server_ids"
                 render={({ field }) => (
                   <ServerMultiSelectField
+                    value={field.value}
+                    onChange={field.onChange}
+                    disabled={pending}
+                  />
+                )}
+              />
+            </FormField>
+          </div>
+
+          <div className="space-y-4 border-t border-border pt-4">
+            <FormField
+              label={t("packages.form.chainLimit")}
+              htmlFor="package-chain-limit"
+              hint={t("packages.form.chainLimitHint")}
+              error={form.formState.errors.chain_limit?.message}
+            >
+              <Input
+                id="package-chain-limit"
+                inputMode="numeric"
+                autoComplete="off"
+                disabled={pending}
+                aria-invalid={Boolean(form.formState.errors.chain_limit)}
+                className="font-mono tabular-nums"
+                {...form.register("chain_limit")}
+              />
+            </FormField>
+
+            <FormField
+              label={t("packages.form.chainTemplates")}
+              hint={t("packages.form.chainTemplatesHint")}
+            >
+              <Controller
+                control={form.control}
+                name="chain_template_ids"
+                render={({ field }) => (
+                  <ChainTemplateMultiSelectField
                     value={field.value}
                     onChange={field.onChange}
                     disabled={pending}

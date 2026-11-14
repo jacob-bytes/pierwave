@@ -9,6 +9,7 @@ import {
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
 import {
+  BracesIcon,
   CheckIcon,
   ChevronRightIcon,
   ChevronsUpDownIcon,
@@ -100,6 +101,15 @@ const managementNav: NavItem[] = [
   { to: "/subscriptions", labelKey: "nav.subscriptions", icon: Link2Icon },
   { to: "/packages", labelKey: "nav.packages", icon: PackageIcon },
   { to: "/chains", labelKey: "nav.chains", icon: WorkflowIcon },
+  {
+    to: "/chain-templates",
+    labelKey: "nav.chainTemplates",
+    icon: BracesIcon,
+    // `/chains` 是 `/chain-templates` 的前缀，这里按完整路径点亮。
+    activeWhen: (pathname) =>
+      pathname === "/chain-templates" ||
+      pathname.startsWith("/chain-templates/"),
+  },
 ];
 
 const systemNav: NavItem[] = [

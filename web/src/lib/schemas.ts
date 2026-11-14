@@ -266,6 +266,16 @@ export function packageFormSchema(t: TFunction) {
       }, t("validation.forwardLimitRange")),
       /** 允许自助转发的服务器；空数组 = 一个都不允许。 */
       forward_server_ids: z.array(z.string()),
+      /** 自助建链条数（文本）；空串 = 0（不支持）。 */
+      chain_limit: z.string().refine((value) => {
+        const trimmed = value.trim();
+        if (!trimmed) return true;
+        if (!/^\d+$/.test(trimmed)) return false;
+        const parsed = Number(trimmed);
+        return Number.isSafeInteger(parsed) && parsed >= 0;
+      }, t("validation.chainLimitRange")),
+      /** 允许自助使用的链模板；空数组 = 一个都不允许。 */
+      chain_template_ids: z.array(z.string()),
     })
     .superRefine((values, ctx) => {
       // 「一个都不给」用空数组表达，是合法状态；只有「指定」才要求至少一个。

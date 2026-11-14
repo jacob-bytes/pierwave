@@ -22,11 +22,14 @@ import {
   type ChangePasswordInput,
   type Chain,
   type ChainLatencyPoint,
+  type ChainTemplate,
   type CleanupEnforcementEventsResponse,
   type CreateAgentUpgradeBatchInput,
   type CreateCertificateInput,
   type CreateChainInput,
+  type CreateChainTemplateInput,
   type CreateForwardInput,
+  type CreateMeChainInput,
   type CreateMeForwardInput,
   type CreateNodeInput,
   type CreateOutboundInput,
@@ -38,6 +41,9 @@ import {
   type EnforcementEvent,
   type Forward,
   type Health,
+  type MeChain,
+  type MeChainsResponse,
+  type MeChainTemplatesResponse,
   type MeForward,
   type MeForwardsResponse,
   type MeSummary,
@@ -62,6 +68,7 @@ import {
   type Subscription,
   type TrafficStats,
   type UpdateChainInput,
+  type UpdateChainTemplateInput,
   type UpdateForwardInput,
   type UpdateNodeInput,
   type UpdateOutboundInput,
@@ -92,6 +99,12 @@ export const queryKeys = {
   meEvents: (limit: number) => ["me", "events", limit] as const,
   /** 用户自助转发：列表响应里同时带配额与可用服务器。 */
   myForwards: ["me", "forwards"] as const,
+  /** 用户自助建链：列表 + 配额。 */
+  myChains: ["me", "chains"] as const,
+  /** 用户可见链模板：启用中 + 套餐白名单。 */
+  myChainTemplates: ["me", "chain-templates"] as const,
+  /** 管理员链模板列表。 */
+  chainTemplates: ["chain-templates"] as const,
   health: ["health"] as const,
   /** P10：公开状态页；不需要登录态，单独缓存。 */
   publicStatus: ["public-status"] as const,
@@ -416,6 +429,58 @@ export function useDeleteMyForward() {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.myForwards,
       });
+    },
+  });
+}
+
+/** 用户自助建链列表：`items` + 配额。 */
+export function useMyChains() {
+  return useQuery<MeChainsResponse>({
+    queryKey: queryKeys.myChains,
+    queryFn: api.me.chains.list,
+    staleTime: 10_000,
+    retry: false,
+  });
+}
+
+/** 当前套餐允许使用的链模板（含服务器名）；配额为 0 时 items 为空。 */
+export function useMyChainTemplates() {
+  return useQuery<MeChainTemplatesResponse>({
+    queryKey: queryKeys.myChainTemplates,
+    queryFn: api.me.chainTemplates,
+    staleTime: 10_000,
+    retry: false,
+  });
+}
+
+export function useCreateMyChain() {
+  const queryClient = useQueryClient();
+
+  return useMutation<MeChain, Error, CreateMeChainInput>({
+    mutationFn: async (input) => (await api.me.chains.create(input)).chain,
+    onSuccess: () => {
+      // 列表与模板配额都要刷新：新链会让 used 加一，模板列表里的配额快照
+      // 也由同一个 used 计算。
+      void queryClient.invalidateQueries({ queryKey: queryKeys.myChains });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.myChainTemplates,
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.servers });
+    },
+  });
+}
+
+export function useDeleteMyChain() {
+  const queryClient = useQueryClient();
+
+  return useMutation<{ ok: true }, Error, string>({
+    mutationFn: (id) => api.me.chains.remove(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.myChains });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.myChainTemplates,
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.servers });
     },
   });
 }
@@ -1330,6 +1395,60 @@ export function useDeleteChain() {
   return useMutation<{ ok: true }, Error, string>({
     mutationFn: (id) => api.chains.remove(id),
     onSuccess: () => invalidateChainViews(queryClient),
+  });
+}
+
+/**
+ * 管理员链模板：只定义链形态，写操作不影响任何已下发的链，因此不需要
+ * 刷新服务器或链列表；但删除模板会级联清掉套餐白名单，要一并失效套餐缓存。
+ */
+export function useChainTemplates() {
+  return useQuery<ChainTemplate[]>({
+    queryKey: queryKeys.chainTemplates,
+    queryFn: async () => (await api.chainTemplates.list()).items,
+    staleTime: 5_000,
+    retry: false,
+  });
+}
+
+function invalidateChainTemplateViews(
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
+  void queryClient.invalidateQueries({ queryKey: queryKeys.chainTemplates });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.myChainTemplates });
+  void queryClient.invalidateQueries({ queryKey: queryKeys.packages });
+}
+
+export function useCreateChainTemplate() {
+  const queryClient = useQueryClient();
+
+  return useMutation<ChainTemplate, Error, CreateChainTemplateInput>({
+    mutationFn: async (input) =>
+      (await api.chainTemplates.create(input)).template,
+    onSuccess: () => invalidateChainTemplateViews(queryClient),
+  });
+}
+
+export function useUpdateChainTemplate() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    ChainTemplate,
+    Error,
+    { id: string; input: UpdateChainTemplateInput }
+  >({
+    mutationFn: async ({ id, input }) =>
+      (await api.chainTemplates.update(id, input)).template,
+    onSuccess: () => invalidateChainTemplateViews(queryClient),
+  });
+}
+
+export function useDeleteChainTemplate() {
+  const queryClient = useQueryClient();
+
+  return useMutation<{ ok: true }, Error, string>({
+    mutationFn: (id) => api.chainTemplates.remove(id),
+    onSuccess: () => invalidateChainTemplateViews(queryClient),
   });
 }
 
