@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  chainHealthRows,
+  chainHealthStatus,
   cumulativeAxisUnit,
   cumulativeSeries,
   formatCumulativeTick,
   formatShare,
+  protocolTrend,
   sortProtocols,
   topServers,
+  topUsers,
   visibleAlerts,
 } from "./overview.ts";
 
@@ -221,4 +225,210 @@ test("formatCumulativeTick prints axis numbers in the selected unit", () => {
   assert.equal(formatCumulativeTick(1024 ** 4, "TB"), "1");
   assert.equal(formatCumulativeTick(1024 ** 4 * 1.5, "TB"), "1.5");
   assert.equal(formatCumulativeTick(Number.NaN, "GB"), "—");
+});
+
+const protocolSeries = (protocol, entries) => ({
+  protocol,
+  days: entries.map(([day, bytes]) => ({ day, bytes })),
+});
+
+test("protocolTrend turns the series into one row per day and one column per protocol", () => {
+  const trend = protocolTrend([
+    protocolSeries("vless", [
+      ["2026-11-14", 10],
+      ["2026-11-15", 0],
+    ]),
+    protocolSeries("trojan", [
+      ["2026-11-14", 5],
+      ["2026-11-15", 7],
+    ]),
+  ]);
+
+  assert.deepEqual(
+    trend.lines.map((line) => line.protocol),
+    ["trojan", "vless"],
+    "按窗口内下行总量降序",
+  );
+  assert.deepEqual(trend.rows, [
+    { day: "2026-11-14", p0: 5, p1: 10 },
+    { day: "2026-11-15", p0: 7, p1: 0 },
+  ]);
+});
+
+test("protocolTrend gives every line its own dash pattern, not just colour", () => {
+  const trend = protocolTrend([
+    protocolSeries("vless", [["2026-11-15", 3]]),
+    protocolSeries("vmess", [["2026-11-15", 2]]),
+    protocolSeries("trojan", [["2026-11-15", 1]]),
+  ]);
+
+  assert.equal(trend.lines[0].dash, undefined, "第一条是实线");
+  assert.equal(trend.lines[1].dash, "6 3");
+  assert.equal(trend.lines[2].dash, "2 3");
+  assert.ok(
+    trend.lines.every((line, index) => line.key === `p${index}`),
+    "dataKey 不能直接用协议名",
+  );
+});
+
+test("protocolTrend sorts by downlink and merges the tail into other", () => {
+  const trend = protocolTrend(
+    [
+      protocolSeries("http", [["2026-11-15", 10]]),
+      protocolSeries("vless", [["2026-11-15", 60]]),
+      protocolSeries("vmess", [["2026-11-15", 50]]),
+      protocolSeries("trojan", [["2026-11-15", 40]]),
+      protocolSeries("ss", [["2026-11-15", 30]]),
+      protocolSeries("socks", [["2026-11-15", 20]]),
+    ],
+    4,
+  );
+
+  assert.deepEqual(
+    trend.lines.map((line) => line.protocol),
+    ["vless", "vmess", "trojan", "ss", "other"],
+  );
+  assert.equal(trend.rows[0].p0, 60);
+  assert.equal(trend.rows[0].p4, 30, "other = http 10 + socks 20");
+});
+
+test("protocolTrend fills missing days and never draws all-zero lines", () => {
+  const trend = protocolTrend([
+    protocolSeries("vless", [["2026-11-15", 10]]),
+    protocolSeries("trojan", [
+      ["2026-11-14", 5],
+      ["2026-11-15", 0],
+    ]),
+    protocolSeries("empty", [
+      ["2026-11-14", 0],
+      ["2026-11-15", 0],
+    ]),
+  ]);
+
+  assert.deepEqual(
+    trend.lines.map((line) => line.protocol),
+    ["vless", "trojan"],
+  );
+  assert.deepEqual(trend.rows, [
+    { day: "2026-11-14", p0: 0, p1: 5 },
+    { day: "2026-11-15", p0: 10, p1: 0 },
+  ]);
+});
+
+test("protocolTrend tolerates empty, missing and malformed input", () => {
+  assert.deepEqual(protocolTrend(undefined), { lines: [], rows: [] });
+  assert.deepEqual(protocolTrend([]), { lines: [], rows: [] });
+  assert.deepEqual(protocolTrend([protocolSeries("", [["2026-11-15", 1]])]), {
+    lines: [],
+    rows: [],
+  });
+  assert.deepEqual(
+    protocolTrend([
+      protocolSeries("vless", [
+        ["2026-11-15", Number.NaN],
+        ["", 10],
+      ]),
+    ]),
+    { lines: [], rows: [] },
+  );
+  assert.deepEqual(protocolTrend([protocolSeries("vless", [])], 0), {
+    lines: [],
+    rows: [],
+  });
+});
+
+const chain = (overrides = {}) => ({
+  id: overrides.id ?? "c1",
+  name: overrides.name ?? "港-日",
+  enabled: overrides.enabled ?? true,
+  degraded: overrides.degraded ?? false,
+  blocked_reason: overrides.blocked_reason ?? null,
+  groups: overrides.groups ?? [
+    {
+      seq: 0,
+      members: [
+        { server_name: "hk-01", listen_port: 443, priority: 0 },
+      ],
+    },
+  ],
+});
+
+test("chainHealthStatus prefers disabled, then blocked, then degraded", () => {
+  assert.equal(
+    chainHealthStatus(chain({ enabled: false, blocked_reason: "x" })),
+    "disabled",
+  );
+  assert.equal(
+    chainHealthStatus(chain({ blocked_reason: "证书已过期" })),
+    "blocked",
+  );
+  assert.equal(chainHealthStatus(chain({ degraded: true })), "degraded");
+  assert.equal(chainHealthStatus(chain()), "ok");
+  assert.equal(chainHealthStatus(chain({ blocked_reason: "   " })), "ok");
+});
+
+test("chainHealthRows puts problems first and caps at five", () => {
+  const rows = chainHealthRows([
+    chain({ id: "ok-1", name: "正常链" }),
+    chain({ id: "blocked", name: "阻断链", blocked_reason: "证书已过期" }),
+    chain({ id: "disabled", name: "停用链", enabled: false }),
+    chain({ id: "degraded", name: "降级链", degraded: true }),
+    chain({ id: "ok-2", name: "正常链 2" }),
+    chain({ id: "ok-3", name: "正常链 3" }),
+  ]);
+
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ["blocked", "degraded", "disabled", "ok-1", "ok-2"],
+  );
+  assert.ok(rows.every((row) => row.hops === 1));
+  assert.ok(rows.every((row) => row.entry === "hk-01:443"));
+  assert.equal(rows[0].reason, "证书已过期", "阻断原因带在行上供 tooltip 用");
+  assert.equal(rows[1].reason, null);
+});
+
+test("chainHealthRows reports hops and entry address, with safe fallbacks", () => {
+  const rows = chainHealthRows([
+    chain({
+      id: "two-hop",
+      groups: [
+        {
+          seq: 0,
+          members: [{ server_name: "hk-01", listen_port: 8443, priority: 0 }],
+        },
+        { seq: 1, members: [{ server_name: "jp-01", listen_port: 9001, priority: 0 }] },
+      ],
+    }),
+    chain({ id: "empty", name: "  ", groups: [] }),
+  ]);
+
+  assert.equal(rows[0].hops, 2);
+  assert.equal(rows[0].entry, "hk-01:8443");
+  assert.equal(rows[1].name, "—");
+  assert.equal(rows[1].hops, 0);
+  assert.equal(rows[1].entry, "—");
+  assert.deepEqual(chainHealthRows(undefined), []);
+  assert.deepEqual(chainHealthRows([], 5), []);
+});
+
+test("topUsers sorts by traffic, drops empty rows and caps at five", () => {
+  const users = [
+    { user_id: "u1", username: "a", traffic_7d: 20 },
+    { user_id: "u2", username: "b", traffic_7d: 50 },
+    { user_id: "", username: "broken", traffic_7d: 999 },
+    { user_id: "u3", username: "c", traffic_7d: 0 },
+    { user_id: "u4", username: "d", traffic_7d: 40 },
+    { user_id: "u5", username: "e", traffic_7d: 30 },
+    { user_id: "u6", username: "f", traffic_7d: 10 },
+  ];
+
+  const top = topUsers(users);
+
+  assert.deepEqual(
+    top.map((user) => user.username),
+    ["b", "d", "e", "a", "f"],
+  );
+  assert.equal(top.length, 5);
+  assert.deepEqual(topUsers(undefined), []);
+  assert.deepEqual(topUsers([], 5), []);
 });

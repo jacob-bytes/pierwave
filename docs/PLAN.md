@@ -188,6 +188,54 @@ GET /api/v1/stats/traffic?days=7 -> {
 
 `date` 为 UTC+8 自然日；缺数据的日期要补 0 而不是跳过（前端画图更简单）。
 
+### 概览聚合（`GET /api/v1/overview?days=7`，管理员）
+
+`days` 缺省 7，必须是 1–90 的整数，否则 400 `query.days_invalid`。
+一个请求返回概览页的全部卡片，避免每块各自 loading：
+
+```jsonc
+{
+  "kpi": { "servers_online": 1, "servers_total": 2, "nodes": 2,
+           "traffic_today": 0, "traffic_month": 0, "uptime_24h": 0.99 },
+  "series": [ { "day": "2026-11-09", "uplink": 0, "downlink": 0 } ],
+  // 协议下行趋势：最多 4 个协议 + other；days 升序、缺日补 0
+  "protocol_series": [
+    { "protocol": "vless", "days": [ { "day": "2026-11-09", "bytes": 0 } ] },
+    { "protocol": "other", "days": [ { "day": "2026-11-09", "bytes": 0 } ] }
+  ],
+  "protocols": [ { "protocol": "vless", "nodes": 1, "traffic_7d": 123 } ],
+  "chains": { "total": 1, "degraded": 0, "blocked": 0,
+              "forwards_total": 0, "forwards_failing": 0,
+              "handshake_failures": 0 },
+  "top": [ { "kind": "server", "name": "hk-01", "traffic_7d": 123,
+             "load1": 0.4, "online": true } ],
+  "top_users": [ { "user_id": "…", "username": "alice", "traffic_7d": 456 } ]
+}
+```
+
+口径：
+
+- `protocol_series` 与 `protocols` 复用同一次 `traffic_node_daily` 聚合：
+  用 `(server_id, node_tag)` JOIN `nodes` 得到协议。`traffic_daily.subject`
+  是**纯 `user_id`**（新上报路径不再写 `user@tag`），不能按 `@` 拆；
+  迁移前的历史行（subject 仍带 `@` 且没有对应节点切片）才按 tag 兜底。
+  删掉的节点归入 `unknown`。
+- `protocol_series` 只取**下行**原始字节，按下行总量降序；最多 4 个协议，
+  第 5 个起合并成 `other`（没有第 5 个协议时不出现 `other`）。只画线不估算，
+  没有下行的协议不产生全 0 的线。
+- `top_users` 直接 `JOIN users ON users.id = traffic_daily.subject`，最多 5 条；
+  归因失败回落的原始 email 关联不到用户，不参与排名。
+- 查询次数固定，不随服务器 / 链 / 用户数量增长（没有 N+1），见
+  `pierwave_domain::repo::overview::snapshot`。
+
+**EN.** `GET /api/v1/overview?days=7` (admin) returns every overview card in one
+response. `protocol_series` gives the daily **downlink** per protocol (at most
+4 protocols plus `other`, ascending days, missing days zero-filled) and is built
+from `traffic_node_daily` joined to `nodes` — the subject in `traffic_daily` is a
+bare `user_id`, not `user@tag`. `top_users` joins `traffic_daily.subject` to
+`users.id` and returns at most 5 users by raw 7-day traffic. Both share the same
+window as the other cards; query count is constant (no N+1).
+
 ### 订阅管理页要用的数据
 
 不需要新接口：`GET /api/v1/users` 已包含 `short_code`、`packages`、`used_bytes`、`quota_bytes`。

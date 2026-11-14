@@ -5,10 +5,15 @@
  * NaN）都在这里归一化，避免分母为零或把 NaN 传进 recharts。
  */
 import type {
+  Chain,
   OverviewChains,
   OverviewProtocol,
+  OverviewProtocolSeries,
   OverviewTopItem,
-} from "./api";
+  OverviewTopUser,
+} from "./api.ts";
+import { entryMember, formatMemberEndpoint } from "./chains.ts";
+import { lineDashArray, lineOpacity } from "./chainTopology.ts";
 
 const GIB = 1024 ** 3;
 const TIB = 1024 ** 4;
@@ -162,4 +167,203 @@ export function formatCumulativeTick(
   const scaled = value / (unit === "TB" ? TIB : GIB);
   const digits = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
   return scaled.toFixed(digits).replace(/\.?0+$/, "") || "0";
+}
+
+/** 协议趋势的保留桶：后端把第 5 个及以后的协议合并到 `other`。 */
+export const OTHER_PROTOCOL = "other";
+
+export interface ProtocolTrendLine {
+  /** recharts 的 dataKey；协议名不直接当 key，避免特殊字符影响取数。 */
+  key: string;
+  protocol: string;
+  /** 线型（实线 / 虚线 / 点线…），与延迟趋势图共用同一套。 */
+  dash: string | undefined;
+  opacity: number;
+}
+
+export interface ProtocolTrendPoint {
+  day: string;
+  [key: string]: string | number;
+}
+
+export interface ProtocolTrend {
+  lines: ProtocolTrendLine[];
+  rows: ProtocolTrendPoint[];
+}
+
+/**
+ * 把协议趋势拍平成 recharts 需要的数据：一行一个自然日，一列一条协议。
+ *
+ * 后端已经按下行降序、补齐日期、最多 4 + other；这里再防御一次：
+ * - 丢弃非有限值 / 非正的字节与空的协议名，避免画出全 0 的噪音线；
+ * - 日期取并集升序，某条线缺某天按 0 计；
+ * - 超过 `limit` 条时把尾部协议合并进 `other`，保证最多 `limit + 1` 条线。
+ */
+export function protocolTrend(
+  series: readonly OverviewProtocolSeries[] | null | undefined,
+  limit = 4,
+): ProtocolTrend {
+  const max = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 0;
+  if (!series?.length || max === 0) return { lines: [], rows: [] };
+
+  const normalized = series
+    .map((row) => {
+      const protocol =
+        typeof row.protocol === "string" ? row.protocol.trim() : "";
+      const byDay = new Map<string, number>();
+      for (const point of row.days ?? []) {
+        const day = typeof point.day === "string" ? point.day : "";
+        const bytes = Number.isFinite(point.bytes) ? point.bytes : 0;
+        if (!day || bytes <= 0) continue;
+        byDay.set(day, (byDay.get(day) ?? 0) + bytes);
+      }
+      let total = 0;
+      for (const bytes of byDay.values()) total += bytes;
+      return { protocol, byDay, total };
+    })
+    .filter((row) => row.protocol !== "" && row.total > 0)
+    .sort(
+      (a, b) => b.total - a.total || a.protocol.localeCompare(b.protocol),
+    );
+  if (normalized.length === 0) return { lines: [], rows: [] };
+
+  const days = [
+    ...new Set(normalized.flatMap((row) => [...row.byDay.keys()])),
+  ].sort();
+  if (days.length === 0) return { lines: [], rows: [] };
+
+  const buckets = normalized.slice(0, max).map((row) => ({
+    protocol: row.protocol,
+    byDay: row.byDay,
+  }));
+  const overflow = normalized.slice(max);
+  if (overflow.length > 0) {
+    const other = new Map<string, number>();
+    for (const row of overflow) {
+      for (const [day, bytes] of row.byDay) {
+        other.set(day, (other.get(day) ?? 0) + bytes);
+      }
+    }
+    buckets.push({ protocol: OTHER_PROTOCOL, byDay: other });
+  }
+
+  const lines: ProtocolTrendLine[] = buckets.map((bucket, index) => ({
+    key: `p${index}`,
+    protocol: bucket.protocol,
+    dash: lineDashArray(index),
+    opacity: lineOpacity(index),
+  }));
+
+  const rows: ProtocolTrendPoint[] = days.map((day) => {
+    const point: ProtocolTrendPoint = { day };
+    buckets.forEach((bucket, index) => {
+      point[`p${index}`] = bucket.byDay.get(day) ?? 0;
+    });
+    return point;
+  });
+
+  return { lines, rows };
+}
+
+/** 链路健康卡的四种状态：阻断（配置无法下发）优先于降级与停用。 */
+export type ChainHealthStatus = "blocked" | "degraded" | "disabled" | "ok";
+
+export interface ChainHealthRow {
+  id: string;
+  name: string;
+  hops: number;
+  status: ChainHealthStatus;
+  /** 入口地址：`服务器名:监听端口`（与转发链列表一致）。 */
+  entry: string;
+  /** 阻断原因（后端原文）；只有 `blocked` 状态有值。 */
+  reason: string | null;
+}
+
+const CHAIN_HEALTH_PRIORITY: Record<ChainHealthStatus, number> = {
+  blocked: 0,
+  degraded: 1,
+  disabled: 2,
+  ok: 3,
+};
+
+/**
+ * 单条链的健康状态。
+ *
+ * 停用优先于阻断：链已停用就不会下发，此时 `blocked_reason` 只是配置备注，
+ * 不能把一条没有在跑的链标成「阻断」（与转发链列表的 `chainStatus` 同顺序）。
+ */
+export function chainHealthStatus(
+  chain: Pick<Chain, "enabled" | "degraded" | "blocked_reason">,
+): ChainHealthStatus {
+  if (!chain.enabled) return "disabled";
+  if ((chain.blocked_reason ?? "").trim() !== "") return "blocked";
+  if (chain.degraded) return "degraded";
+  return "ok";
+}
+
+/**
+ * 链路健康卡的行：按「有问题优先」排序（阻断 → 降级 → 停用 → 正常），
+ * 同组保持后端顺序；最多 `limit` 条。入口取第一组的第一台成员。
+ */
+export function chainHealthRows(
+  chains: readonly Chain[] | null | undefined,
+  limit = 5,
+): ChainHealthRow[] {
+  const max = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 0;
+  if (!chains?.length || max === 0) return [];
+
+  return chains
+    .map((chain, index) => ({
+      chain,
+      index,
+      status: chainHealthStatus(chain),
+    }))
+    .sort(
+      (a, b) =>
+        CHAIN_HEALTH_PRIORITY[a.status] - CHAIN_HEALTH_PRIORITY[b.status] ||
+        a.index - b.index,
+    )
+    .slice(0, max)
+    .map(({ chain, status }) => {
+      const groups = Array.isArray(chain.groups) ? chain.groups : [];
+      const entry = entryMember(groups);
+      const reason = (chain.blocked_reason ?? "").trim();
+      return {
+        id: chain.id,
+        name: (chain.name ?? "").trim() || "—",
+        hops: groups.length,
+        status,
+        entry: entry ? formatMemberEndpoint(entry) : "—",
+        reason: status === "blocked" && reason !== "" ? reason : null,
+      };
+    });
+}
+
+/**
+ * Top 用户：后端已按 7 天下行+上行之和降序且最多 5 条；这里再防御一次
+ * （丢掉没有流量 / 缺 id 的行，重排并截断）。
+ */
+export function topUsers(
+  users: readonly OverviewTopUser[] | null | undefined,
+  limit = 5,
+): OverviewTopUser[] {
+  const max = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 0;
+  if (!users?.length || max === 0) return [];
+
+  return users
+    .filter(
+      (user) =>
+        typeof user.user_id === "string" &&
+        user.user_id.trim() !== "" &&
+        typeof user.username === "string",
+    )
+    .map((user, index) => ({
+      user,
+      index,
+      traffic: Number.isFinite(user.traffic_7d) ? user.traffic_7d : 0,
+    }))
+    .filter((entry) => entry.traffic > 0)
+    .sort((a, b) => b.traffic - a.traffic || a.index - b.index)
+    .slice(0, max)
+    .map(({ user }) => user);
 }

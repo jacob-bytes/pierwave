@@ -7978,9 +7978,12 @@ pub mod stats {
 ///   只保留契约要求的 `day/uplink/downlink`；
 /// * `protocols.traffic_7d` / `top.traffic_7d` 用原始上下行之和（与趋势图同口径），
 ///   窗口长度 = `days`（默认 7，故字段名固定为 `traffic_7d`）；
-/// * 协议归属在 SQL 里拆 `subject = "{user_id}@{node_tag}"`：节点 tag 只允许
-///   `[a-z0-9_-]`，不会含 `@`，按第一个（也是唯一一个）`@` 切分即可。删掉的节点
-///   JOIN 不到，流量归入 `unknown` 而不是丢弃；
+/// * 协议归属**不能**拆 `traffic_daily.subject`：新写入的 subject 是纯 `user_id`
+///   （见 `routes/agent.rs`），没有节点 tag。归属从节点切片
+///   `traffic_node_daily` 的 `(server_id, node_tag)` JOIN `nodes` 得到；只有迁移
+///   前的历史行（subject 仍为 `"{user_id}@{node_tag}"` 且没有对应节点切片）才按
+///   `@` 拆 tag 兜底。删掉的节点 JOIN 不到，流量归入 `unknown` 而不是丢弃；
+///   `protocol_series` 与 `protocols` 复用同一次聚合，两个卡片的口径必然一致；
 /// * `chains.blocked` 与链列表的 `blocked_reason` **同口径**：配置层面无法下发
 ///   （nftables 能力不足 / 多目标不支持 / TLS 证书或跳间能力不满足）才计数，
 ///   `listening = 0` 属于运行态健康，不再计入。判定统一走
@@ -7995,6 +7998,12 @@ pub mod overview {
 
     /// Top 卡片最多返回的服务器数。
     const TOP_SERVERS: i64 = 5;
+    /// Top 用户卡片最多返回的行数。
+    const TOP_USERS: i64 = 5;
+    /// 协议趋势最多单独画几条线；其余协议合并成 `other`。
+    const TOP_PROTOCOLS: usize = 4;
+    /// 超出 [`TOP_PROTOCOLS`] 的协议合并到这个桶。
+    const OTHER_PROTOCOL: &str = "other";
 
     #[derive(Debug, Clone, PartialEq, Serialize)]
     pub struct Kpi {
@@ -8023,6 +8032,29 @@ pub mod overview {
         pub traffic_7d: i64,
     }
 
+    /// 协议趋势里的单日点：某协议当天的**下行**原始字节。
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+    pub struct ProtocolDayPoint {
+        pub day: String,
+        pub bytes: i64,
+    }
+
+    /// 一条协议的逐日下行趋势；`days` 升序且补齐窗口内的所有自然日。
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+    pub struct ProtocolSeriesRow {
+        pub protocol: String,
+        pub days: Vec<ProtocolDayPoint>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+    pub struct TopUserRow {
+        /// `traffic_daily.subject` 本身就是用户 id（不是 `user@tag`）。
+        pub user_id: String,
+        pub username: String,
+        /// 窗口内原始上下行之和（与 `top.traffic_7d` 同口径）。
+        pub traffic_7d: i64,
+    }
+
     #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
     pub struct ChainRow {
         pub total: i64,
@@ -8048,14 +8080,30 @@ pub mod overview {
     pub struct OverviewSnapshot {
         pub kpi: Kpi,
         pub series: Vec<SeriesPoint>,
+        /// 按天的协议下行趋势：最多 4 个协议 + `other`（没有第 5 个协议时不出现）。
+        pub protocol_series: Vec<ProtocolSeriesRow>,
         pub protocols: Vec<ProtocolRow>,
         pub chains: ChainRow,
         pub top: Vec<TopRow>,
+        /// Top 用户（最多 5 条）；`traffic_daily.subject` 直接按用户 id 关联，不拆 `@`。
+        pub top_users: Vec<TopUserRow>,
     }
 
-    /// 查询次数固定、与数据量无关（没有 N+1）：概览主体 9 条；
-    /// `chains.blocked` 走 [`super::chains::count_blocked`] 的 3 条结构查询
-    /// + 最多 1 条证书批量查询（无链时只 1 条）。
+    /// 一次 `traffic_node_daily` + 历史兜底的聚合结果（按天、按协议）。
+    ///
+    /// 只在这里拼一次「协议归属」的 SQL：`protocols` 与 `protocol_series`
+    /// 都消费它，避免两张卡各写一套口径而在页面上对不上。
+    #[derive(Debug, Clone, sqlx::FromRow)]
+    struct ProtocolTrafficRow {
+        day: String,
+        protocol: String,
+        uplink: i64,
+        downlink: i64,
+    }
+
+    /// 查询次数固定、与数据量无关（没有 N+1）：概览主体 11 条；
+    /// 有链时 `chains` 部分再追加 groups / members 各 1 条，
+    /// 链用到证书时再加 1 条证书批量查询（最多 14 条）。
     pub async fn snapshot(
         pool: &SqlitePool,
         now: i64,
@@ -8097,6 +8145,9 @@ pub mod overview {
             })
             .collect();
 
+        // 协议归属只聚合一次：分布卡（7 天合计）与趋势卡（按天）共用。
+        let protocol_traffic = protocol_traffic(pool, now, days).await?;
+
         Ok(OverviewSnapshot {
             kpi: Kpi {
                 servers_online,
@@ -8107,9 +8158,11 @@ pub mod overview {
                 uptime_24h: mean_uptime_24h(pool, now).await?,
             },
             series,
-            protocols: protocol_rows(pool, now, days).await?,
+            protocol_series: protocol_series(&protocol_traffic, now, days),
+            protocols: protocol_rows(pool, &protocol_traffic).await?,
             chains: chain_row(pool, now).await?,
             top: top_servers(pool, now, days).await?,
+            top_users: top_users(pool, now, days).await?,
         })
     }
 
@@ -8132,39 +8185,74 @@ pub mod overview {
         })
     }
 
-    /// 协议分布：节点数来自 `nodes`，流量用**一条** `GROUP BY` 聚合
-    /// `traffic_daily`。两者在 Rust 里按协议合并，保证「配了但没流量」的协议
-    /// 以 `traffic_7d = 0` 出现，已删节点的流量落到 `unknown`。
-    async fn protocol_rows(
+    /// 窗口内「按天 × 协议」的原始流量，供协议分布与协议趋势共用。
+    ///
+    /// 归属规则（重要）：
+    /// * 新数据：`traffic_node_daily` 带 `(server_id, node_tag)`，JOIN `nodes`
+    ///   得到协议。`traffic_daily.subject` 是纯 `user_id`，反推不出协议；
+    /// * 历史数据：迁移前写入的 `subject` 还是 `"{user_id}@{node_tag}"`，且没有
+    ///   对应的节点切片时，按 `@` 拆 tag 兜底；
+    /// * `NOT EXISTS` 防止「归因失败但带 @ 的原始 email」被算两次——那条路径
+    ///   同时写了 `traffic_daily` 和 `user_id = ''` 的节点切片。
+    async fn protocol_traffic(
         pool: &SqlitePool,
         now: i64,
         days: i64,
-    ) -> anyhow::Result<Vec<ProtocolRow>> {
+    ) -> anyhow::Result<Vec<ProtocolTrafficRow>> {
         let (start_date, end_date) = super::stats::day_window(now, days);
+        Ok(sqlx::query_as::<_, ProtocolTrafficRow>(
+            "WITH effective AS (
+                 SELECT t.day AS day,
+                        COALESCE(n.protocol, 'unknown') AS protocol,
+                        t.uplink AS uplink,
+                        t.downlink AS downlink
+                 FROM traffic_node_daily t
+                 LEFT JOIN nodes n
+                   ON n.server_id = t.server_id AND n.tag = t.node_tag
+                 WHERE t.day >= ? AND t.day <= ?
+                 UNION ALL
+                 SELECT t.day,
+                        COALESCE(n.protocol, 'unknown'),
+                        t.uplink,
+                        t.downlink
+                 FROM traffic_daily t
+                 LEFT JOIN nodes n
+                   ON n.server_id = t.server_id
+                  AND n.tag = substr(t.subject, instr(t.subject, '@') + 1)
+                 WHERE t.day >= ? AND t.day <= ?
+                   AND instr(t.subject, '@') > 0
+                   AND NOT EXISTS (
+                     SELECT 1 FROM traffic_node_daily nd
+                     WHERE nd.day = t.day
+                       AND nd.server_id = t.server_id
+                       AND nd.node_tag = substr(t.subject, instr(t.subject, '@') + 1)
+                   )
+             )
+             SELECT day, protocol,
+                    COALESCE(SUM(uplink), 0) AS uplink,
+                    COALESCE(SUM(downlink), 0) AS downlink
+             FROM effective
+             GROUP BY day, protocol",
+        )
+        .bind(&start_date)
+        .bind(&end_date)
+        .bind(&start_date)
+        .bind(&end_date)
+        .fetch_all(pool)
+        .await?)
+    }
+
+    /// 协议分布：节点数来自 `nodes`，流量来自 [`protocol_traffic`]。
+    /// 两者在 Rust 里按协议合并，保证「配了但没流量」的协议以
+    /// `traffic_7d = 0` 出现，已删节点的流量落到 `unknown`。
+    async fn protocol_rows(
+        pool: &SqlitePool,
+        traffic: &[ProtocolTrafficRow],
+    ) -> anyhow::Result<Vec<ProtocolRow>> {
         let node_counts: Vec<(String, i64)> =
             sqlx::query_as("SELECT protocol, COUNT(*) FROM nodes GROUP BY protocol")
                 .fetch_all(pool)
                 .await?;
-        // `instr(subject, '@')` 取第一个 @：节点 tag 的字符集不允许 @，
-        // 所以它同时就是最后一个 @（与 METERING §3 的切分规则一致）。
-        let traffic: Vec<(String, i64)> = sqlx::query_as(
-            "SELECT COALESCE(n.protocol, 'unknown') AS protocol,
-                    COALESCE(SUM(t.uplink + t.downlink), 0) AS traffic
-             FROM traffic_daily t
-             LEFT JOIN nodes n
-               ON n.server_id = t.server_id
-              AND n.tag = CASE
-                    WHEN instr(t.subject, '@') > 0
-                    THEN substr(t.subject, instr(t.subject, '@') + 1)
-                    ELSE ''
-                  END
-             WHERE t.day >= ? AND t.day <= ?
-             GROUP BY COALESCE(n.protocol, 'unknown')",
-        )
-        .bind(&start_date)
-        .bind(&end_date)
-        .fetch_all(pool)
-        .await?;
 
         let mut by_protocol: HashMap<String, ProtocolRow> = node_counts
             .into_iter()
@@ -8179,14 +8267,15 @@ pub mod overview {
                 )
             })
             .collect();
-        for (protocol, traffic_7d) in traffic {
+        for row in traffic {
+            let bytes = row.uplink.saturating_add(row.downlink);
             by_protocol
-                .entry(protocol.clone())
-                .and_modify(|row| row.traffic_7d = traffic_7d)
+                .entry(row.protocol.clone())
+                .and_modify(|entry| entry.traffic_7d += bytes)
                 .or_insert(ProtocolRow {
-                    protocol,
+                    protocol: row.protocol.clone(),
                     nodes: 0,
-                    traffic_7d,
+                    traffic_7d: bytes,
                 });
         }
         let mut rows: Vec<ProtocolRow> = by_protocol.into_values().collect();
@@ -8196,6 +8285,131 @@ pub mod overview {
                 .then_with(|| a.protocol.cmp(&b.protocol))
         });
         Ok(rows)
+    }
+
+    /// 协议趋势：按协议汇总窗口内下行，取前 [`TOP_PROTOCOLS`] 个；其余合并成
+    /// `other`（只有真的存在第 5 个协议时才出现）。每条线补齐窗口内每一天。
+    ///
+    /// 只有上行、没有下行的协议不会画线：趋势图画的是下行，全 0 的线只是噪音。
+    fn protocol_series(
+        traffic: &[ProtocolTrafficRow],
+        now: i64,
+        days: i64,
+    ) -> Vec<ProtocolSeriesRow> {
+        let mut totals: HashMap<String, i64> = HashMap::new();
+        let mut daily: HashMap<String, HashMap<String, i64>> = HashMap::new();
+        for row in traffic {
+            if row.downlink <= 0 {
+                continue;
+            }
+            *totals.entry(row.protocol.clone()).or_default() += row.downlink;
+            *daily
+                .entry(row.protocol.clone())
+                .or_default()
+                .entry(row.day.clone())
+                .or_default() += row.downlink;
+        }
+        if totals.is_empty() {
+            return Vec::new();
+        }
+
+        let mut ranked: Vec<(String, i64)> = totals.into_iter().collect();
+        ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+        let window = window_days(now, days);
+        let point = |by_day: &HashMap<String, i64>| {
+            window
+                .iter()
+                .map(|day| ProtocolDayPoint {
+                    day: day.clone(),
+                    bytes: *by_day.get(day).unwrap_or(&0),
+                })
+                .collect::<Vec<_>>()
+        };
+
+        let mut rows = Vec::new();
+        for (protocol, _) in ranked.iter().take(TOP_PROTOCOLS) {
+            // `other` 是保留桶，统一在下面追加，避免出现两条 other。
+            if protocol.as_str() == OTHER_PROTOCOL {
+                continue;
+            }
+            rows.push(ProtocolSeriesRow {
+                protocol: protocol.clone(),
+                days: point(&daily.remove(protocol).unwrap_or_default()),
+            });
+        }
+
+        let overflow: Vec<&(String, i64)> = ranked.iter().skip(TOP_PROTOCOLS).collect();
+        let has_other = !overflow.is_empty()
+            || ranked
+                .iter()
+                .take(TOP_PROTOCOLS)
+                .any(|(protocol, _)| protocol.as_str() == OTHER_PROTOCOL);
+        if has_other {
+            let mut other = daily.remove(OTHER_PROTOCOL).unwrap_or_default();
+            for (protocol, _) in overflow {
+                if let Some(by_day) = daily.remove(protocol) {
+                    for (day, bytes) in by_day {
+                        *other.entry(day).or_default() += bytes;
+                    }
+                }
+            }
+            rows.push(ProtocolSeriesRow {
+                protocol: OTHER_PROTOCOL.into(),
+                days: point(&other),
+            });
+        }
+        rows
+    }
+
+    /// 窗口内的 UTC+8 自然日（升序），与 `stats::fill_days` 的补齐顺序一致。
+    fn window_days(now: i64, days: i64) -> Vec<String> {
+        let days = days.clamp(1, 90);
+        let today = crate::time::business_day(now);
+        let first = today - (days - 1);
+        (0..days)
+            .map(|offset| {
+                crate::time::business_date(crate::time::business_day_start(first + offset))
+            })
+            .collect()
+    }
+
+    /// Top 用户：`traffic_daily.subject` 就是用户 id（不是 `user@tag`），直接
+    /// JOIN `users`；归因失败时回落的原始 email 自然 JOIN 不到，不参与排名。
+    async fn top_users(pool: &SqlitePool, now: i64, days: i64) -> anyhow::Result<Vec<TopUserRow>> {
+        let (start_date, end_date) = super::stats::day_window(now, days);
+
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            user_id: String,
+            username: String,
+            traffic_7d: i64,
+        }
+        let rows = sqlx::query_as::<_, Row>(
+            "SELECT u.id AS user_id, u.username AS username,
+                    COALESCE(SUM(t.uplink + t.downlink), 0) AS traffic_7d
+             FROM traffic_daily t
+             JOIN users u ON u.id = t.subject
+             WHERE t.day >= ? AND t.day <= ?
+             GROUP BY u.id, u.username
+             HAVING SUM(t.uplink + t.downlink) > 0
+             ORDER BY traffic_7d DESC, u.id ASC
+             LIMIT ?",
+        )
+        .bind(&start_date)
+        .bind(&end_date)
+        .bind(TOP_USERS)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| TopUserRow {
+                user_id: row.user_id,
+                username: row.username,
+                traffic_7d: row.traffic_7d,
+            })
+            .collect())
     }
 
     /// 链路健康：一次 CTE 把链 → 组 → 成员 → 心跳状态对齐，算降级；
@@ -8362,6 +8576,48 @@ pub mod overview {
             .unwrap();
         }
 
+        /// 现代上报路径同时写两张表：`traffic_daily.subject = user_id`，
+        /// `traffic_node_daily` 带 `(node_tag, user_id)`。
+        async fn seed_node(
+            pool: &SqlitePool,
+            day: &str,
+            server_id: &str,
+            node_tag: &str,
+            user_id: &str,
+            bytes: (u64, u64, u64),
+        ) {
+            super::super::traffic::accumulate_node_daily(
+                pool,
+                day,
+                server_id,
+                super::super::traffic::NodeTrafficDelta {
+                    node_tag,
+                    user_id,
+                    uplink: bytes.0,
+                    downlink: bytes.1,
+                    weighted: bytes.2,
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        async fn add_user(pool: &SqlitePool, username: &str) -> String {
+            super::super::users::create(
+                pool,
+                super::super::users::NewUser {
+                    username: username.into(),
+                    password: "password123".into(),
+                    role: "user".into(),
+                    quota_bytes: None,
+                    rule_template_id: None,
+                },
+            )
+            .await
+            .unwrap()
+            .id
+        }
+
         #[tokio::test]
         async fn protocols_group_by_protocol_and_bucket_deleted_nodes_as_unknown() {
             let pool = setup().await;
@@ -8394,6 +8650,190 @@ pub mod overview {
                     // 配了但窗口内没有流量：仍然返回，流量为 0。
                     ("vmess", 1, 0),
                 ]
+            );
+        }
+
+        /// 现代数据：`traffic_daily.subject` 是纯 `user_id`，协议只能从节点切片
+        /// `traffic_node_daily` 归因；迁移前的 `user@tag` 历史行走兜底，且不能被
+        /// 「归因失败同时写两张表」的路径算两次。
+        #[tokio::test]
+        async fn protocol_series_uses_node_slice_and_keeps_legacy_fallback() {
+            let pool = setup().await;
+            let (server, _) = super::super::servers::create(&pool, "hk-1", "10.0.0.1", "external")
+                .await
+                .unwrap();
+            add_node(&pool, &server.id, "v1", "vless").await;
+            add_node(&pool, &server.id, "t1", "trojan").await;
+            let alice = add_user(&pool, "alice").await;
+
+            let now = at("2026-11-15T12:00:00+08:00");
+            // 现代：subject 是 user_id，节点切片带 tag。
+            seed(&pool, "2026-11-15", &server.id, &alice, (100, 0, 100)).await;
+            seed_node(&pool, "2026-11-15", &server.id, "v1", &alice, (100, 0, 100)).await;
+            seed(&pool, "2026-11-14", &server.id, &alice, (0, 7, 7)).await;
+            seed_node(&pool, "2026-11-14", &server.id, "t1", &alice, (0, 7, 7)).await;
+            // 历史：只有 traffic_daily（subject 带 @），没有节点切片。
+            seed(&pool, "2026-11-13", &server.id, "bob@v1", (0, 3, 3)).await;
+            // 归因失败路径：原始 email 与 user_id='' 的节点切片同时存在，只算一次。
+            seed(&pool, "2026-11-12", &server.id, "carol@v1", (0, 11, 11)).await;
+            seed_node(&pool, "2026-11-12", &server.id, "v1", "", (0, 11, 11)).await;
+
+            let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
+
+            let protocols: Vec<(&str, i64)> = snapshot
+                .protocols
+                .iter()
+                .map(|row| (row.protocol.as_str(), row.traffic_7d))
+                .collect();
+            assert_eq!(
+                protocols,
+                vec![("vless", 114), ("trojan", 7)],
+                "现代 + 历史兜底都归到真实协议；unknown 不应出现"
+            );
+
+            let rows: Vec<(&str, Vec<(&str, i64)>)> = snapshot
+                .protocol_series
+                .iter()
+                .map(|row| {
+                    (
+                        row.protocol.as_str(),
+                        row.days
+                            .iter()
+                            .map(|day| (day.day.as_str(), day.bytes))
+                            .collect(),
+                    )
+                })
+                .collect();
+            assert_eq!(
+                rows.iter().map(|(p, _)| *p).collect::<Vec<_>>(),
+                vec!["vless", "trojan"],
+                "下行总量降序"
+            );
+            assert_eq!(
+                rows[0].1,
+                vec![
+                    ("2026-11-09", 0),
+                    ("2026-11-10", 0),
+                    ("2026-11-11", 0),
+                    ("2026-11-12", 11),
+                    ("2026-11-13", 3),
+                    ("2026-11-14", 0),
+                    // 11-15 只有上行：趋势按 0 计，但分布卡仍计入上行。
+                    ("2026-11-15", 0),
+                ]
+            );
+            assert_eq!(
+                rows[1].1,
+                vec![
+                    ("2026-11-09", 0),
+                    ("2026-11-10", 0),
+                    ("2026-11-11", 0),
+                    ("2026-11-12", 0),
+                    ("2026-11-13", 0),
+                    ("2026-11-14", 7),
+                    ("2026-11-15", 0),
+                ]
+            );
+        }
+
+        #[tokio::test]
+        async fn protocol_series_keeps_four_protocols_and_buckets_the_rest_into_other() {
+            let pool = setup().await;
+            let (server, _) = super::super::servers::create(&pool, "hk-1", "10.0.0.1", "external")
+                .await
+                .unwrap();
+            let alice = add_user(&pool, "alice").await;
+            let now = at("2026-11-15T12:00:00+08:00");
+            let today = crate::time::business_date(now);
+
+            let protocols = ["vless", "vmess", "trojan", "ss", "socks", "http"];
+            for (index, protocol) in protocols.iter().enumerate() {
+                let tag = format!("n{index}");
+                add_node(&pool, &server.id, &tag, protocol).await;
+                let downlink = (protocols.len() - index) as u64 * 10;
+                seed_node(
+                    &pool,
+                    &today,
+                    &server.id,
+                    &tag,
+                    &alice,
+                    (0, downlink, downlink),
+                )
+                .await;
+            }
+
+            let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
+
+            let rows: Vec<(&str, i64)> = snapshot
+                .protocol_series
+                .iter()
+                .map(|row| {
+                    (
+                        row.protocol.as_str(),
+                        row.days.last().map(|day| day.bytes).unwrap_or(0),
+                    )
+                })
+                .collect();
+            assert_eq!(
+                rows,
+                vec![
+                    ("vless", 60),
+                    ("vmess", 50),
+                    ("trojan", 40),
+                    ("ss", 30),
+                    // 其余两个协议合并：socks 20 + http 10。
+                    ("other", 30),
+                ]
+            );
+            assert!(snapshot
+                .protocol_series
+                .iter()
+                .all(|row| row.days.len() == 7));
+            assert_eq!(snapshot.protocol_series.len(), 5, "最多 4 个协议 + other");
+            // 分布卡仍然逐协议展开，不合并 other。
+            assert_eq!(snapshot.protocols.len(), 6);
+        }
+
+        #[tokio::test]
+        async fn top_users_join_subject_as_user_id_and_keep_five() {
+            let pool = setup().await;
+            let (server, _) = super::super::servers::create(&pool, "hk-1", "10.0.0.1", "external")
+                .await
+                .unwrap();
+            let now = at("2026-11-15T12:00:00+08:00");
+            let today = crate::time::business_date(now);
+
+            let mut ids = Vec::new();
+            for index in 1..=6 {
+                let id = add_user(&pool, &format!("u{index}")).await;
+                seed(
+                    &pool,
+                    &today,
+                    &server.id,
+                    &id,
+                    (index as u64 * 10, 0, index as u64 * 10),
+                )
+                .await;
+                ids.push(id);
+            }
+            // 归因失败的原始 email 不是 user id：JOIN 不到，不能进 Top。
+            seed(&pool, &today, &server.id, "ghost@node", (999, 999, 1998)).await;
+            // 窗口外不计。
+            seed(&pool, "2026-10-01", &server.id, &ids[0], (999, 999, 1998)).await;
+
+            let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
+            let rows: Vec<(&str, &str, i64)> = snapshot
+                .top_users
+                .iter()
+                .map(|row| (row.user_id.as_str(), row.username.as_str(), row.traffic_7d))
+                .collect();
+
+            assert_eq!(rows.len(), 5);
+            assert_eq!(rows[0], (ids[5].as_str(), "u6", 60), "按 7 天原始流量降序");
+            assert_eq!(rows[4], (ids[1].as_str(), "u2", 20));
+            assert!(
+                rows.iter().all(|(user_id, _, _)| *user_id != "ghost@node"),
+                "原始 email 不能当成用户"
             );
         }
 
@@ -8753,7 +9193,9 @@ pub mod overview {
                 .iter()
                 .all(|point| point.uplink == 0 && point.downlink == 0));
             assert!(snapshot.protocols.is_empty());
+            assert!(snapshot.protocol_series.is_empty());
             assert!(snapshot.top.is_empty());
+            assert!(snapshot.top_users.is_empty());
             assert_eq!(snapshot.chains, ChainRow::default());
         }
 

@@ -47,16 +47,27 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { BatchRenewDialog } from "@/components/overview/BatchRenewDialog";
 import { CleanupEventsDialog } from "@/components/overview/CleanupEventsDialog";
-import { ApiError, type OverviewProtocol, type OverviewTopItem } from "@/lib/api";
+import {
+  ApiError,
+  type Chain,
+  type OverviewProtocol,
+  type OverviewProtocolSeries,
+  type OverviewTopItem,
+  type OverviewTopUser,
+} from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
 import {
+  chainHealthRows,
   formatShare,
   sortProtocols,
   topServers,
+  topUsers,
   visibleAlerts,
+  type ChainHealthStatus,
 } from "@/lib/overview";
 import {
+  useChains,
   useEnforcementEvents,
   useOverview,
   useOverviewStats,
@@ -69,6 +80,9 @@ import { t, useI18n } from "@/i18n";
 /** recharts 只在概览页内部按需加载，避免拖大主 chunk。 */
 const TrafficChart = lazy(
   () => import("@/components/overview/TrafficChart"),
+);
+const ProtocolTrendChart = lazy(
+  () => import("@/components/overview/ProtocolTrendChart"),
 );
 
 const TRAFFIC_DAYS = 7;
@@ -197,6 +211,22 @@ function OverviewSkeleton() {
             ))}
           </CardContent>
         </Card>
+      </section>
+      <section className="grid gap-4 xl:grid-cols-3">
+        <Card className="gap-4 xl:col-span-2">
+          <CardHeader>
+            <Skeleton className="h-4 w-24" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-[220px] w-full" />
+          </CardContent>
+        </Card>
+        <SkeletonCard lines={5} />
+      </section>
+      <section className="grid gap-4 xl:grid-cols-3">
+        <SkeletonCard lines={4} />
+        <SkeletonCard lines={5} />
+        <SkeletonCard lines={5} />
       </section>
     </>
   );
@@ -512,6 +542,263 @@ function TopCard({
   );
 }
 
+function ProtocolTrendCard({
+  series,
+  isPending,
+  error,
+  retrying,
+  onRetry,
+  className,
+}: {
+  series: OverviewProtocolSeries[] | undefined;
+  isPending: boolean;
+  error: unknown;
+  retrying: boolean;
+  onRetry: () => void;
+  className?: string;
+}) {
+  return (
+    <Card className={cn("gap-4", className)}>
+      <CardHeader>
+        <CardTitle className="text-sm font-medium">
+          {t("overview.protocolTrend")}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isPending ? (
+          <Skeleton className="h-[220px] w-full" />
+        ) : error ? (
+          <PanelError
+            message={statsErrorText(error)}
+            retrying={retrying}
+            onRetry={onRetry}
+          />
+        ) : (
+          <Suspense fallback={<Skeleton className="h-[220px] w-full" />}>
+            <ProtocolTrendChart series={series ?? []} />
+          </Suspense>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** 链路健康卡的状态样式；阻断用 destructive，降级用 warning，与链列表一致。 */
+const CHAIN_HEALTH_META: Record<
+  ChainHealthStatus,
+  { labelKey: string; titleKey?: string; dot: string; text: string }
+> = {
+  blocked: {
+    labelKey: "overview.chainBlocked",
+    dot: "bg-destructive",
+    text: "text-destructive",
+  },
+  degraded: {
+    labelKey: "chains.status.degraded",
+    titleKey: "chains.status.degradedTitle",
+    dot: "bg-warning",
+    text: "text-warning",
+  },
+  disabled: {
+    labelKey: "chains.status.disabled",
+    titleKey: "chains.status.disabledTitle",
+    dot: "bg-muted-foreground/40",
+    text: "text-muted-foreground",
+  },
+  ok: {
+    labelKey: "chains.status.ok",
+    titleKey: "chains.status.okTitle",
+    dot: "bg-primary",
+    text: "text-primary",
+  },
+};
+
+function ChainHealthCard({
+  chains,
+  isPending,
+  error,
+  retrying,
+  onRetry,
+  className,
+}: {
+  chains: Chain[] | undefined;
+  isPending: boolean;
+  error: unknown;
+  retrying: boolean;
+  onRetry: () => void;
+  className?: string;
+}) {
+  const rows = chainHealthRows(chains);
+
+  return (
+    <Card className={cn("flex flex-col gap-0", className)}>
+      <CardHeader className="border-b border-border pb-4">
+        <CardTitle className="text-sm font-medium">
+          {t("overview.chainHealth")}
+        </CardTitle>
+      </CardHeader>
+      {isPending ? (
+        <CardContent className="flex flex-col gap-3 p-4" aria-hidden="true">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div key={index} className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-3">
+                <Skeleton className="h-3.5 w-24" />
+                <Skeleton className="h-3 w-12" />
+              </div>
+              <Skeleton className="h-3 w-32" />
+            </div>
+          ))}
+        </CardContent>
+      ) : error ? (
+        <PanelError
+          message={errorText(error, t("chains.loadError"))}
+          retrying={retrying}
+          onRetry={onRetry}
+        />
+      ) : rows.length === 0 ? (
+        <EmptyState
+          size="sm"
+          icon={WaypointsIcon}
+          title={t("overview.chainHealthEmpty")}
+          className="py-10"
+        />
+      ) : (
+        <CardContent className="p-2">
+          <ul className="flex flex-col gap-0.5">
+            {rows.map((row) => {
+              const meta = CHAIN_HEALTH_META[row.status];
+              const statusTitle =
+                row.reason ?? (meta.titleKey ? t(meta.titleKey) : undefined);
+              return (
+                <li key={row.id}>
+                  <Link
+                    to="/chains"
+                    className="group flex flex-col gap-1 rounded-md px-2.5 py-2.5 transition-colors duration-150 hover:bg-muted/40"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="min-w-0 flex-1 truncate text-sm"
+                        title={row.name}
+                      >
+                        {row.name}
+                      </span>
+                      <span
+                        className={cn(
+                          "flex shrink-0 items-center gap-1.5 text-xs",
+                          meta.text,
+                        )}
+                        title={statusTitle}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={cn("size-1.5 rounded-full", meta.dot)}
+                        />
+                        {t(meta.labelKey)}
+                      </span>
+                    </div>
+                    <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground tabular-nums">
+                      <span className="shrink-0">
+                        {t(
+                          row.hops === 1
+                            ? "overview.chainHopsOne"
+                            : "overview.chainHops",
+                          { n: row.hops },
+                        )}
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span
+                        className="truncate font-mono"
+                        title={`${t("overview.chainEntry")} ${row.entry}`}
+                      >
+                        {row.entry}
+                      </span>
+                    </div>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+function TopUsersCard({
+  users,
+  isPending,
+  error,
+  retrying,
+  onRetry,
+  className,
+}: {
+  users: OverviewTopUser[] | undefined;
+  isPending: boolean;
+  error: unknown;
+  retrying: boolean;
+  onRetry: () => void;
+  className?: string;
+}) {
+  const rows = topUsers(users);
+
+  return (
+    <Card className={cn("flex flex-col gap-0", className)}>
+      <CardHeader className="border-b border-border pb-4">
+        <CardTitle className="text-sm font-medium">
+          {t("overview.topUsers")}
+        </CardTitle>
+      </CardHeader>
+      {isPending ? (
+        <CardContent className="flex flex-col gap-3 p-4" aria-hidden="true">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div key={index} className="flex items-center gap-3">
+              <Skeleton className="h-3.5 flex-1" />
+              <Skeleton className="h-3 w-14" />
+            </div>
+          ))}
+        </CardContent>
+      ) : error ? (
+        <PanelError
+          message={statsErrorText(error)}
+          retrying={retrying}
+          onRetry={onRetry}
+        />
+      ) : rows.length === 0 ? (
+        <EmptyState
+          size="sm"
+          icon={UsersIcon}
+          title={t("overview.topUsersEmpty")}
+          className="py-10"
+        />
+      ) : (
+        <CardContent className="flex flex-1 flex-col p-2">
+          <ul className="flex flex-1 flex-col justify-between gap-0.5">
+            {rows.map((user) => (
+              <li key={user.user_id}>
+                <Link
+                  to="/users"
+                  className="group flex items-center gap-3 rounded-md px-2.5 py-3.5 transition-colors duration-150 hover:bg-muted/40"
+                >
+                  <span
+                    className="min-w-0 flex-1 truncate text-sm"
+                    title={user.username}
+                  >
+                    {user.username}
+                  </span>
+                  <span className="shrink-0 font-mono text-xs tabular-nums">
+                    {formatBytes(user.traffic_7d)}
+                  </span>
+                  <ChevronRightIcon className="icon-sm text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
 type AlertTone = "warning" | "destructive";
 
 const alertToneClasses: Record<AlertTone, string> = {
@@ -606,16 +893,22 @@ export default function OverviewPage() {
   const overview = useOverviewStats();
   const aggregate = useOverview(TRAFFIC_DAYS);
   const traffic = useTraffic(TRAFFIC_DAYS);
+  // 链路健康卡复用链列表接口，前端只做聚合，不新增后端契约。
+  const chains = useChains();
   const events = useEnforcementEvents(50);
   const recentRemoved =
     events.data?.filter((event) => event.kind === "removed").length ?? 0;
   const refreshing =
-    overview.isFetching || aggregate.isFetching || traffic.isFetching;
+    overview.isFetching ||
+    aggregate.isFetching ||
+    traffic.isFetching ||
+    chains.isFetching;
 
   function refreshAll() {
     void overview.refetch();
     void aggregate.refetch();
     void traffic.refetch();
+    void chains.refetch();
   }
 
   const stats = overview.data;
@@ -876,8 +1169,26 @@ export default function OverviewPage() {
             />
           </section>
 
-          {/* 这里保持默认 stretch：告警卡高、Top 5 矮，让 Top 5 的行均分剩余高度，
-              两卡底部对齐且卡片内部不出现大片空白。告警超过 ALERT_PREVIEW 条进弹窗。 */}
+          <section className="grid gap-4 xl:grid-cols-3">
+            <ProtocolTrendCard
+              series={aggregate.data?.protocol_series}
+              isPending={aggregate.isPending}
+              error={aggregate.isError ? aggregate.error : null}
+              retrying={aggregate.isFetching}
+              onRetry={() => void aggregate.refetch()}
+              className="xl:col-span-2"
+            />
+            <ChainHealthCard
+              chains={chains.data}
+              isPending={chains.isPending}
+              error={chains.isError ? chains.error : null}
+              retrying={chains.isFetching}
+              onRetry={() => void chains.refetch()}
+            />
+          </section>
+
+          {/* 这里保持默认 stretch：告警卡高、两个 Top 5 矮，让列表行均分剩余高度，
+              三卡底部对齐且卡片内部不出现大片空白。告警超过 ALERT_PREVIEW 条进弹窗。 */}
           <section className="grid gap-4 xl:grid-cols-3">
             <Card className="gap-0">
               <CardHeader className="border-b border-border pb-4">
@@ -973,7 +1284,13 @@ export default function OverviewPage() {
               error={aggregate.isError ? aggregate.error : null}
               retrying={aggregate.isFetching}
               onRetry={() => void aggregate.refetch()}
-              className="xl:col-span-2"
+            />
+            <TopUsersCard
+              users={aggregate.data?.top_users}
+              isPending={aggregate.isPending}
+              error={aggregate.isError ? aggregate.error : null}
+              retrying={aggregate.isFetching}
+              onRetry={() => void aggregate.refetch()}
             />
           </section>
         </>

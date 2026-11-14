@@ -188,7 +188,18 @@ mod tests {
             .map(String::as_str)
             .collect();
         keys.sort_unstable();
-        assert_eq!(keys, vec!["chains", "kpi", "protocols", "series", "top"]);
+        assert_eq!(
+            keys,
+            vec![
+                "chains",
+                "kpi",
+                "protocol_series",
+                "protocols",
+                "series",
+                "top",
+                "top_users",
+            ]
+        );
 
         assert_eq!(body["kpi"]["servers_online"], 1);
         assert_eq!(body["kpi"]["servers_total"], 1);
@@ -222,6 +233,26 @@ mod tests {
         assert_eq!(protocols[2]["nodes"], 1);
         assert_eq!(protocols[2]["traffic_7d"], 0);
 
+        // 协议趋势：历史 `user@tag` 行按 tag 兜底归因；每天补 0、按下行降序。
+        let protocol_series = body["protocol_series"].as_array().unwrap();
+        assert_eq!(protocol_series.len(), 2);
+        assert_eq!(protocol_series[0]["protocol"], "unknown");
+        let unknown_days = protocol_series[0]["days"].as_array().unwrap();
+        assert_eq!(unknown_days.len(), 7);
+        assert_eq!(unknown_days.last().unwrap()["day"], today);
+        assert_eq!(unknown_days.last().unwrap()["bytes"], 5);
+        assert_eq!(protocol_series[1]["protocol"], "vless");
+        assert_eq!(
+            protocol_series[1]["days"]
+                .as_array()
+                .unwrap()
+                .last()
+                .unwrap()["bytes"],
+            2
+        );
+        // 这个用例的流量 subject 都是历史格式，关联不到 users.id。
+        assert!(body["top_users"].as_array().unwrap().is_empty());
+
         assert_eq!(body["chains"]["total"], 0);
         assert_eq!(body["chains"]["degraded"], 0);
         assert_eq!(body["chains"]["blocked"], 0);
@@ -236,6 +267,67 @@ mod tests {
         assert_eq!(top[0]["traffic_7d"], 13);
         assert_eq!(top[0]["online"], true);
         assert!(top[0]["load1"].is_null());
+    }
+
+    /// Top 用户按 `traffic_daily.subject = users.id` 直接关联：subject 是纯
+    /// user_id（不是 `user@tag`），归因失败的原始 email 不参与排名。
+    #[tokio::test]
+    async fn overview_top_users_uses_user_id_subjects() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+
+        let bob = users::create(
+            pool,
+            users::NewUser {
+                username: "bob".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+                rule_template_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let today = time::business_date(repo::now());
+        traffic::accumulate_daily(pool, &today, "server-1", &bob.id, 100, 50, 150)
+            .await
+            .unwrap();
+        traffic::accumulate_daily(pool, &today, "server-1", "ghost@node", 999, 999, 1998)
+            .await
+            .unwrap();
+        // 窗口外的用户：7 天榜不该出现，90 天榜里应该出现。
+        let carol = users::create(
+            pool,
+            users::NewUser {
+                username: "carol".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+                rule_template_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let long_ago = time::business_date(repo::now() - 30 * 86_400);
+        traffic::accumulate_daily(pool, &long_ago, "server-1", &carol.id, 500, 500, 1000)
+            .await
+            .unwrap();
+
+        let (status, body) = request(&app, Some(&admin), "/api/v1/overview?days=7").await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+
+        let rows = body["top_users"].as_array().unwrap();
+        assert_eq!(rows.len(), 1, "原始 email 与窗口外用户都不能进榜");
+        assert_eq!(rows[0]["user_id"], bob.id);
+        assert_eq!(rows[0]["username"], "bob");
+        assert_eq!(rows[0]["traffic_7d"], 150, "原始上下行之和");
+
+        let (status, body) = request(&app, Some(&admin), "/api/v1/overview?days=90").await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let rows = body["top_users"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0]["username"], "carol");
+        assert_eq!(rows[0]["traffic_7d"], 1000);
     }
 
     #[tokio::test]
@@ -309,7 +401,9 @@ mod tests {
         assert_eq!(body["kpi"]["uptime_24h"], 0.0);
         assert_eq!(body["series"].as_array().unwrap().len(), 7);
         assert!(body["protocols"].as_array().unwrap().is_empty());
+        assert!(body["protocol_series"].as_array().unwrap().is_empty());
         assert!(body["top"].as_array().unwrap().is_empty());
+        assert!(body["top_users"].as_array().unwrap().is_empty());
         assert_eq!(body["chains"]["total"], 0);
         assert_eq!(body["chains"]["handshake_failures"], 0);
     }

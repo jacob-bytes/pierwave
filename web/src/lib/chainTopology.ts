@@ -341,3 +341,16 @@ export function lineDashArray(index: number): string | undefined {
   if (!Number.isFinite(index) || index < 0) return undefined;
   return LINE_DASHES[Math.floor(index) % LINE_DASHES.length];
 }
+
+/**
+ * 同色多线时的透明度阶梯：与线型一起使用，颜色本身不变。
+ *
+ * 只靠透明度区分不够，但在线型已经能区分顺序的前提下，透明度能让主次更清楚；
+ * 超过 5 条线后保持最低透明度，不继续变淡到看不见。
+ */
+export const LINE_OPACITIES = [1, 0.72, 0.5, 0.34, 0.22] as const;
+
+export function lineOpacity(index: number): number {
+  if (!Number.isFinite(index) || index < 0) return 1;
+  return LINE_OPACITIES[Math.min(Math.floor(index), LINE_OPACITIES.length - 1)];
+}

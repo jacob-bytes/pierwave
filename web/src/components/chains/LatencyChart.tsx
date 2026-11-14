@@ -9,15 +9,14 @@ import {
 } from "recharts";
 import { ActivityIcon } from "lucide-react";
 import type { ChainLatencyPoint } from "@/lib/api";
-import { bucketLabel, groupLatencyBySeq, lineDashArray } from "@/lib/chainTopology";
+import {
+  bucketLabel,
+  groupLatencyBySeq,
+  lineDashArray,
+  lineOpacity,
+} from "@/lib/chainTopology";
 import { useI18n } from "@/i18n";
 
-/** 只用主色，靠透明度区分不同的跳；不引入新的色相。 */
-const LINE_OPACITIES = [1, 0.72, 0.5, 0.34, 0.22];
-
-function lineOpacity(index: number): number {
-  return LINE_OPACITIES[Math.min(index, LINE_OPACITIES.length - 1)];
-}
 
 interface LatencyRow {
   ts: number;

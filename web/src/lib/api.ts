@@ -1358,6 +1358,25 @@ export interface OverviewProtocol {
   traffic_7d: number;
 }
 
+/** 协议趋势的单日点：该协议当天的下行原始字节。 */
+export interface OverviewProtocolDay {
+  day: string;
+  bytes: number;
+}
+
+/** 协议趋势：最多 4 个协议 + `other`；`days` 已按升序补齐窗口内每一天。 */
+export interface OverviewProtocolSeries {
+  protocol: string;
+  days: OverviewProtocolDay[];
+}
+
+/** Top 用户：`user_id` 直接对应 `users.id`（后端不拆 `user@tag`）。 */
+export interface OverviewTopUser {
+  user_id: string;
+  username: string;
+  traffic_7d: number;
+}
+
 /** 转发链健康度；概览告警卡只消费 `degraded` 与 `handshake_failures`。 */
 export interface OverviewChains {
   total: number;
@@ -1386,11 +1405,18 @@ export interface OverviewTopItem {
 export interface OverviewData {
   kpi: OverviewKpi;
   series: OverviewSeriesPoint[];
+  /**
+   * 按天的协议下行趋势，最多 4 个协议 + `other`（只有存在第 5 个协议时才出现）。
+   * 已按下行总量降序；`days` 升序且补齐窗口内所有自然日。
+   */
+  protocol_series: OverviewProtocolSeries[];
   /** 后端已按 `traffic_7d` 降序；前端仍会做一次防御性排序。 */
   protocols: OverviewProtocol[];
   chains: OverviewChains;
   /** 最多 5 条。 */
   top: OverviewTopItem[];
+  /** Top 用户，最多 5 条；窗口内没有流量时为空。 */
+  top_users: OverviewTopUser[];
 }
 
 /**
