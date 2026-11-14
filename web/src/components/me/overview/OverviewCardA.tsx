@@ -1,6 +1,5 @@
-import { KeyRoundIcon, PackageIcon, TriangleAlertIcon } from "lucide-react";
+import { PackageIcon, TriangleAlertIcon } from "lucide-react";
 import { EmptyState } from "@/components/common";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatBytes } from "@/lib/format";
 import { OVERVIEW_TEXT_CLASS } from "@/lib/meOverview";
@@ -16,30 +15,6 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
  * 右下角的次要账号区：`修改密码` 是原「更多信息」里唯一保留的操作，
  * 入口变小声即可，不另开卡片。
  */
-function AccountFooter({
-  username,
-  onChangePassword,
-}: Pick<OverviewCardProps, "username" | "onChangePassword">) {
-  const { t } = useI18n();
-  return (
-    <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
-      <p className="text-xs text-muted-foreground">
-        {t("me.currentAccount")}{" "}
-        <span className="font-mono text-foreground/80">{username}</span>
-      </p>
-      <Button
-        variant="ghost"
-        size="xs"
-        className="-mr-2 text-muted-foreground hover:text-foreground"
-        onClick={onChangePassword}
-      >
-        <KeyRoundIcon className="size-3" aria-hidden="true" />
-        {t("me.changePassword")}
-      </Button>
-    </div>
-  );
-}
-
 /**
  * 概览卡：环形指标。
  *
@@ -59,7 +34,6 @@ export default function OverviewCardA({
   todayBytes,
   dailyAverageBytes,
   username,
-  onChangePassword,
 }: OverviewCardProps) {
   const { t } = useI18n();
 
@@ -72,12 +46,10 @@ export default function OverviewCardA({
             title={t("me.overview.noPackage")}
             description={t("me.overview.noPackageDesc")}
           />
-          <div className="border-t border-border pt-3">
-            <AccountFooter
-              username={username}
-              onChangePassword={onChangePassword}
-            />
-          </div>
+          <p className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">
+            {t("me.currentAccount")}{" "}
+            <span className="font-mono text-foreground/80">{username}</span>
+          </p>
         </CardContent>
       </Card>
     );
@@ -177,6 +149,10 @@ export default function OverviewCardA({
               <p className="truncate text-sm text-muted-foreground">
                 {plan.name}
               </p>
+              <p className="mt-1 truncate text-xs text-muted-foreground">
+                {t("me.currentAccount")}{" "}
+                <span className="font-mono text-foreground/80">{username}</span>
+              </p>
             </div>
 
             {todayBytes === null && dailyAverageBytes === null ? null : (
@@ -213,13 +189,7 @@ export default function OverviewCardA({
           </p>
         ) : null}
 
-        {/* 只留账号与改密：已用量由环形与右侧数字已经表达，再画一条进度条是重复。 */}
-        <div className="mt-5 border-t border-border pt-4">
-          <AccountFooter
-            username={username}
-            onChangePassword={onChangePassword}
-          />
-        </div>
+
       </CardContent>
     </Card>
   );
