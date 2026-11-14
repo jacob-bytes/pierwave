@@ -11,7 +11,6 @@ import {
   CopyIcon,
   GaugeIcon,
   KeyRoundIcon,
-  PackageIcon,
   RefreshCwIcon,
   TriangleAlertIcon,
 } from "lucide-react";
@@ -19,8 +18,7 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import { meErrorText } from "@/lib/meError";
 import { useMeShellSummary } from "@/lib/meShell";
 import { ChangePasswordDialog } from "@/components/settings/ChangePasswordDialog";
-import { UsageBar, UsageTrack } from "@/components/UsageBar";
-import { EmptyState } from "@/components/common";
+import { UsageBar } from "@/components/UsageBar";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -34,16 +32,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { MeTraffic } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { formatBytes, usagePercent } from "@/lib/format";
-import {
-  OVERVIEW_BAR_TONE,
-  OVERVIEW_TEXT_CLASS,
-  daysTone,
-  trafficTone,
-} from "@/lib/meOverview";
+import { dailyAverage, daysTone, trafficTone } from "@/lib/meOverview";
 import { subscriptionUrl } from "@/lib/meSubscription";
 import { useMeTraffic } from "@/lib/queries";
-import { formatDate } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import type { OverviewCardProps } from "@/components/me/overview/types";
+import OverviewCardA from "@/components/me/overview/OverviewCardA";
 import { t, useI18n } from "@/i18n";
 
 /** recharts 仍然只通过 lazy() 加载，不会进入主 chunk。 */
@@ -157,10 +151,21 @@ export default function MeOverviewPage() {
     : usagePercent(usage.used_bytes, limit);
   const remainingTone = trafficTone(usage.remaining_bytes, limit);
   const expiryTone = daysTone(usage.days_left);
-  const daysLeft =
-    usage.days_left === null
-      ? t("me.overview.longTerm")
-      : t("me.overview.days", { n: usage.days_left });
+
+  const cardProps: OverviewCardProps = {
+    plan,
+    usage,
+    overQuota,
+    usedPercent,
+    remainingTone,
+    expiryTone,
+    // 今日计费流量由 summary 直接给出；拿不到就隐藏该项，不画占位 0。
+    todayBytes: Number.isFinite(summary.traffic.today_bytes)
+      ? summary.traffic.today_bytes
+      : null,
+    // 日均来自页面已请求的 7 天趋势；未加载 / 查询失败时为 null。
+    dailyAverageBytes: dailyAverage(traffic.data?.days),
+  };
 
   async function handleCopy() {
     if (await copyText(subscriptionUrl(summary))) {
@@ -172,73 +177,7 @@ export default function MeOverviewPage() {
 
   return (
     <div className="space-y-4">
-      <Card className="gap-4">
-        <CardContent>
-          {!plan ? (
-            <EmptyState
-              icon={PackageIcon}
-              title={t("me.overview.noPackage")}
-              description={t("me.overview.noPackageDesc")}
-            />
-          ) : (
-            <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
-              <div className="flex min-w-0 flex-col">
-                <p className="text-xs text-muted-foreground">
-                  {t("me.overview.remainingTraffic")}
-                </p>
-                <p
-                  className={cn(
-                    "mt-1.5 text-4xl leading-none font-semibold tracking-tight tabular-nums",
-                    OVERVIEW_TEXT_CLASS[remainingTone],
-                  )}
-                >
-                  {usage.remaining_bytes === null
-                    ? t("me.overview.unlimited")
-                    : formatBytes(usage.remaining_bytes)}
-                </p>
-                <div className="mt-auto flex items-center gap-3 pt-3">
-                  {usedPercent === null ? null : (
-                    <UsageTrack
-                      percent={usedPercent}
-                      tone={OVERVIEW_BAR_TONE[remainingTone]}
-                      label={t("me.overview.usage")}
-                      className="min-w-0 flex-1"
-                    />
-                  )}
-                  <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
-                    {t("me.overview.used")} {formatBytes(usage.used_bytes)} /{" "}
-                    {formatBytes(limit, { zeroAsUnlimited: true })}
-                  </span>
-                </div>
-              </div>
-              <div className="flex min-w-0 flex-col sm:text-right">
-                <p className="text-xs text-muted-foreground">
-                  {t("me.overview.expiresAt")}
-                </p>
-                <p
-                  className={cn(
-                    "mt-1.5 text-3xl leading-none font-semibold tracking-tight tabular-nums",
-                    OVERVIEW_TEXT_CLASS[expiryTone],
-                  )}
-                >
-                  {daysLeft}
-                </p>
-                {plan.expires_at !== null ? (
-                  <p className="mt-auto pt-3 text-xs text-muted-foreground tabular-nums">
-                    {formatDate(plan.expires_at)}
-                  </p>
-                ) : null}
-              </div>
-              {overQuota ? (
-                <p className="flex items-center gap-1.5 text-xs text-warning sm:col-span-2">
-                  <TriangleAlertIcon className="size-3.5" />
-                  {t("me.overview.overQuota")}
-                </p>
-              ) : null}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <OverviewCardA {...cardProps} />
 
       <div className="grid grid-cols-2 gap-2">
         <Button variant="outline" onClick={() => void handleCopy()}>

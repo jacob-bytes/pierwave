@@ -3,8 +3,8 @@ import test from "node:test";
 import {
   LOW_DAYS_LEFT,
   LOW_TRAFFIC_RATIO,
-  OVERVIEW_BAR_TONE,
   OVERVIEW_TEXT_CLASS,
+  dailyAverage,
   daysTone,
   trafficTone,
 } from "./meOverview.ts";
@@ -63,9 +63,48 @@ test("tone maps only reuse existing warning / destructive tokens", () => {
   assert.equal(OVERVIEW_TEXT_CLASS.default, "");
   assert.equal(OVERVIEW_TEXT_CLASS.warning, "text-warning");
   assert.equal(OVERVIEW_TEXT_CLASS.destructive, "text-destructive");
-  assert.deepEqual(OVERVIEW_BAR_TONE, {
-    default: "primary",
-    warning: "warning",
-    destructive: "destructive",
-  });
+});
+
+test("dailyAverage returns null when the window has no data", () => {
+  // 没有序列（未加载 / 查询失败）时不能画成 0。
+  assert.equal(dailyAverage([]), null);
+  assert.equal(dailyAverage(null), null);
+  assert.equal(dailyAverage(undefined), null);
+});
+
+test("dailyAverage divides by every day of the window, zeros included", () => {
+  // 只有 1 天时，日均就是当天的值。
+  assert.equal(dailyAverage([{ weighted: 800 }]), 800);
+  // 0 是「缺失日补 0」的真实数据，仍占分母，不能被当成没数据丢掉。
+  assert.equal(dailyAverage([{ weighted: 0 }]), 0);
+  assert.equal(
+    dailyAverage([
+      { weighted: 700 },
+      { weighted: 0 },
+      { weighted: 0 },
+      { weighted: 100 },
+    ]),
+    200,
+  );
+  // 7 天窗口：总和 / 7，而不是「有流量的天数」。
+  assert.equal(
+    dailyAverage([
+      0, 0, 0, 0, 0, 0, 1200,
+    ].map((weighted) => ({ weighted }))),
+    1200 / 7,
+  );
+});
+
+test("dailyAverage skips corrupted entries instead of blanking the metric", () => {
+  // 非有限值不参与求和与分母，其他天仍能给出日均。
+  assert.equal(
+    dailyAverage([
+      { weighted: 100 },
+      { weighted: Number.NaN },
+      { weighted: 300 },
+    ]),
+    200,
+  );
+  assert.equal(dailyAverage([{ weighted: Number.POSITIVE_INFINITY }]), null);
+  assert.equal(dailyAverage([{ weighted: Number.NEGATIVE_INFINITY }]), null);
 });

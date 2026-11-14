@@ -1,5 +1,5 @@
 /**
- * 用户端概览卡的状态色判定（纯逻辑，便于单测）。
+ * 用户端概览卡的纯逻辑：状态色判定与右侧日均用量（便于单测）。
  *
  * 阈值只表达「额度快用完了 / 快到期了」，与站内 `Meter` 的
  * 「占用越高越显眼」是同一套语义，不引入新色相：
@@ -57,12 +57,31 @@ export const OVERVIEW_TEXT_CLASS: Record<OverviewTone, string> = {
   destructive: "text-destructive",
 };
 
-/** 进度条填充色：与数字同一档，复用站内已有的 warning / destructive。 */
-export const OVERVIEW_BAR_TONE: Record<
-  OverviewTone,
-  "primary" | "warning" | "destructive"
-> = {
-  default: "primary",
-  warning: "warning",
-  destructive: "destructive",
-};
+/** 概览右侧「近 N 天日均」用到的逐日流量形状（`TrafficDay` 的结构子集）。 */
+export interface DailyTraffic {
+  weighted: number;
+}
+
+/**
+ * 近 N 天日均计费流量：窗口内总和 / 有数据的天数。
+ *
+ * 后端按「缺失日补 0」返回连续序列，所以 0 也是真实数据、必须计入分母；
+ * 序列为空（还没加载或查询失败）时返回 `null`，由调用方隐藏该项，
+ * 而不是把「没数据」画成 0。非有限值（脏数据）跳过，避免整项变成 NaN。
+ */
+export function dailyAverage(
+  days: readonly DailyTraffic[] | null | undefined,
+): number | null {
+  if (!days || days.length === 0) return null;
+
+  let sum = 0;
+  let counted = 0;
+  for (const day of days) {
+    const value = day?.weighted;
+    if (typeof value !== "number" || !Number.isFinite(value)) continue;
+    sum += value;
+    counted += 1;
+  }
+
+  return counted === 0 ? null : sum / counted;
+}
