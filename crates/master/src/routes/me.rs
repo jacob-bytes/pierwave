@@ -1042,7 +1042,7 @@ mod tests {
         assert_eq!(row.1.as_deref(), Some(alice_id.as_str()));
     }
 
-    /// 订阅链接必须能直接用于全部 11 种对用户展示的格式（前端只负责拼 `?target=`）。
+    /// 订阅链接必须能直接用于全部 13 种对用户展示的格式（前端只负责拼 `?target=`）。
     #[tokio::test]
     async fn subscription_url_works_for_every_supported_format() {
         let db = Db::connect("sqlite::memory:").await.unwrap();
@@ -1078,6 +1078,8 @@ mod tests {
             "singbox",
             "shadowrocket",
             "v2ray",
+            "singbox-full",
+            "surge-full",
         ] {
             let (status, _, rendered) = sub_get(&app, &code, Some(format)).await;
             assert_eq!(status, StatusCode::OK, "格式 {format} 应可用：{rendered}");

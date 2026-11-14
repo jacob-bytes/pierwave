@@ -261,3 +261,105 @@ vless://11111111-1111-4111-8111-111111111111@203.0.113.10:443?encryption=none&ty
 dmxlc3M6Ly8xMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTFAMjAzLjAuMTEzLjEwOjQ0Mz9lbmNyeXB0aW9uPW5vbmUmdHlwZT13cyZzZWN1cml0eT10bHMmcGF0aD0lMkZ3cyZob3N0PWNkbi5leGFtcGxlLmNvbSZzbmk9ZXhhbXBsZS5jb20jZ29sZGVuLW5vZGUK
 === v2ray ===
 dmxlc3M6Ly8xMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTFAMjAzLjAuMTEzLjEwOjQ0Mz9lbmNyeXB0aW9uPW5vbmUmdHlwZT13cyZzZWN1cml0eT10bHMmcGF0aD0lMkZ3cyZob3N0PWNkbi5leGFtcGxlLmNvbSZzbmk9ZXhhbXBsZS5jb20jZ29sZGVuLW5vZGUK
+=== singbox-full ===
+{
+  "dns": {
+    "final": "dns-remote",
+    "servers": [
+      {
+        "detour": "direct",
+        "server": "223.5.5.5",
+        "tag": "dns-local",
+        "type": "https"
+      },
+      {
+        "detour": "selector",
+        "server": "1.1.1.1",
+        "tag": "dns-remote",
+        "type": "https"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 7890,
+      "tag": "mixed-in",
+      "type": "mixed"
+    }
+  ],
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "outbounds": [
+    {
+      "server": "203.0.113.10",
+      "server_port": 443,
+      "tag": "golden-node",
+      "tls": {
+        "enabled": true,
+        "server_name": "example.com"
+      },
+      "transport": {
+        "headers": {
+          "Host": "cdn.example.com"
+        },
+        "path": "/ws",
+        "type": "ws"
+      },
+      "type": "vless",
+      "uuid": "11111111-1111-4111-8111-111111111111"
+    },
+    {
+      "interval": "5m",
+      "outbounds": [
+        "golden-node"
+      ],
+      "tag": "AUTO",
+      "tolerance": 50,
+      "type": "urltest",
+      "url": "http://www.gstatic.com/generate_204"
+    },
+    {
+      "default": "AUTO",
+      "outbounds": [
+        "AUTO",
+        "direct"
+      ],
+      "tag": "selector",
+      "type": "selector"
+    },
+    {
+      "tag": "direct",
+      "type": "direct"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": true,
+    "final": "selector",
+    "rules": []
+  }
+}
+=== surge-full ===
+[General]
+loglevel = notify
+dns-server = 223.5.5.5, 1.1.1.1
+skip-proxy = 127.0.0.1, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/10, localhost, *.local
+bypass-system = true
+ipv6 = false
+test-timeout = 5
+internet-test-url = http://www.gstatic.com/generate_204
+proxy-test-url = http://www.gstatic.com/generate_204
+
+[Proxy]
+golden-node = vless, 203.0.113.10, 443, username=11111111-1111-4111-8111-111111111111, tls=true, sni=example.com, ws=true, ws-path=/ws, ws-headers=Host:cdn.example.com, udp-relay=true
+
+[Proxy Group]
+PROXY = select, AUTO, 其他, DIRECT
+AUTO = url-test, golden-node, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50
+其他 = url-test, golden-node, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50
+
+[Rule]
+FINAL,PROXY
+

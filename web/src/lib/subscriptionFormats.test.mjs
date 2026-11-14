@@ -23,12 +23,14 @@ test("SUBSCRIPTION_FORMATS matches the backend exporter registry order", () => {
     "singbox",
     "shadowrocket",
     "v2ray",
+    "singbox-full",
+    "surge-full",
   ]);
   assert.equal(DEFAULT_SUBSCRIPTION_FORMAT, "clash");
 });
 
-test("registry has 11 unique ids and egern builds a target URL", () => {
-  assert.equal(SUBSCRIPTION_FORMATS.length, 11);
+test("registry has 13 unique ids and egern builds a target URL", () => {
+  assert.equal(SUBSCRIPTION_FORMATS.length, 13);
   assert.equal(
     new Set(SUBSCRIPTION_FORMATS).size,
     SUBSCRIPTION_FORMATS.length,
@@ -43,6 +45,15 @@ test("registry has 11 unique ids and egern builds a target URL", () => {
   assert.equal(
     SUBSCRIPTION_FORMAT_DESCRIPTIONS.mihomo,
     "subscriptions.formatDescriptions.mihomo",
+  );
+  // 两个完整配置格式同样需要一句区分。
+  assert.equal(
+    SUBSCRIPTION_FORMAT_DESCRIPTIONS["singbox-full"],
+    "subscriptions.formatDescriptions.singboxFull",
+  );
+  assert.equal(
+    SUBSCRIPTION_FORMAT_DESCRIPTIONS["surge-full"],
+    "subscriptions.formatDescriptions.surgeFull",
   );
   assert.equal(
     withSubscriptionFormat("https://panel.example/api/v1/sub/abc", "egern"),

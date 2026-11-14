@@ -118,6 +118,8 @@ Surge / sing-box 等第二轮补——它们的差异主要在配置文件骨架
 | `uri` | 通用 / v2rayN | 每行一条 `vless://` / `vmess://` / `trojan://` / `ss://` |
 | `shadowrocket` | Shadowrocket | base64 的 URI 列表 |
 | `v2ray` | V2RayN / NG | base64 的 URI 列表（与 `shadowrocket` 同族） |
+| `singbox-full` | sing-box | **完整** JSON：`log` + `dns` + `inbounds`(mixed) + `outbounds` + `route`，可直接 `sing-box run -c` |
+| `surge-full` | Surge | **完整** profile：`[General]` + `[Proxy]` + `[Proxy Group]` + `[Rule]` |
 
 > **关于 `egern` 的假设（Assumption）**
 >
@@ -204,6 +206,94 @@ Surge / sing-box 等第二轮补——它们的差异主要在配置文件骨架
 > cannot break the YAML. `Content-Type` is `text/yaml; charset=utf-8`. UA sniffing keeps its
 > previous behaviour (`mihomo` UA → `clash`); request the complete config explicitly with
 > `?target=mihomo`.
+
+### 5.3 `singbox-full`：完整可运行配置 / Complete, runnable config
+
+`?target=singbox` 只输出片段（`log.level` + `outbounds` + `route`）；`?target=singbox-full`
+补成可直接 `sing-box run -c` 的完整配置（面向 sing-box 1.12+ 的新配置格式）：
+
+| 顶层 | 内容 |
+|---|---|
+| `log` | `level: info`，`timestamp: true` |
+| `dns` | 两个 `type: https` 的 DoH server：国内走 `detour: direct`，其余走 `detour: selector`；`final: dns-remote` |
+| `inbounds` | 一条 `mixed`：`127.0.0.1:7890` |
+| `outbounds` | 节点出站 + `AUTO`（`urltest`）+ `selector` + `direct` |
+| `route` | 规则模板映射出的 `rules`、`final`、`auto_detect_interface: true` |
+
+关键约定：
+
+- **节点字段同源**：节点出站复用 `singbox_outbound`，分组复用同一份生成逻辑，
+  所以 `server` / `server_port` / `uuid` / `password` / `method` / `tls.server_name`
+  与 `?target=clash` 的 `proxies` 逐字段一致（解析后比较，单测覆盖）。
+- **不用 legacy 特殊出站**：sing-box 1.13 移除了 `block` / `dns` 特殊出站，完整配置
+  把 `REJECT` 规则映射成 `action: reject`；`MATCH,REJECT` 不能当 `route.final`，改成
+  末尾一条无条件 `reject` 规则，`final` 仍指向真实存在的 `selector`。
+- **无节点也合法**：五个顶层小节都在，`selector` 只含 `direct`，`route.final` 指向它，
+  DNS `detour` 指向真实存在的出站；不会输出空文件或缺字段的骨架。
+- **转义**：节点名与组引用都走 `serde_json`，引号、反斜杠、换行不会破坏 JSON。
+- **内容协商**：`?target=singbox-full`，`Content-Type: application/json; charset=utf-8`；
+  UA 嗅探保持旧行为（`sing-box` UA 仍选 `singbox` 片段），要完整配置需显式带 `target`。
+- 兼容性边界：`?target=singbox` 片段为了保持逐字节兼容，仍保留 legacy `block` 出站
+  （sing-box 1.13+ 会拒绝该字段）；新版本客户端请用 `singbox-full`。
+
+> `?target=singbox` only emits a fragment (`log.level` + `outbounds` + `route`);
+> `?target=singbox-full` completes it into a config that can be run directly with
+> `sing-box run -c`, targeting the sing-box 1.12+ config format: `log` (level + timestamp),
+> two `type: https` DoH servers (domestic via `detour: direct`, the rest via
+> `detour: selector`), a `mixed` inbound on `127.0.0.1:7890`, node outbounds plus `AUTO`
+> (urltest), `selector` and `direct`, and a `route` with the mapped rules, `final` and
+> `auto_detect_interface`.
+>
+> Node outbounds reuse `singbox_outbound` and the grouping logic is shared, so `server`,
+> `server_port`, `uuid`, `password`, `method` and `tls.server_name` match the `proxies` of
+> `?target=clash` field by field (verified by parsing both in tests). Legacy special
+> outbounds are not emitted — sing-box 1.13 removed `block` / `dns` — so `REJECT` rules
+> become `action: reject`, and `MATCH,REJECT` (which cannot be `route.final`) becomes a
+> trailing unconditional `reject` rule while `final` keeps pointing at a real `selector`.
+> With no nodes all five top-level sections are still present, `selector` contains only
+> `direct`, `route.final` points at it and every DNS `detour` refers to an existing outbound
+> — never an empty file or a skeleton with missing fields. Names go through `serde_json`,
+> so quotes, backslashes and newlines cannot break the JSON. `Content-Type` is
+> `application/json; charset=utf-8`; UA sniffing keeps its previous behaviour (`sing-box`
+> UA → the `singbox` fragment), so request the full config explicitly. Compatibility
+> boundary: the `singbox` fragment keeps its legacy `block` outbound for byte-for-byte
+> compatibility (rejected by sing-box 1.13+); use `singbox-full` with newer clients.
+
+### 5.4 `surge-full`：四段齐全的完整 profile / Complete four-section profile
+
+`?target=surge` 是片段（`[Proxy]` / `[Proxy Group]` / `[Rule]`）；`?target=surge-full`
+补上 `[General]`，四段齐全，可直接导入：
+
+| 段落 | 内容 |
+|---|---|
+| `[General]` | `loglevel` / `dns-server` / `skip-proxy` / `bypass-system` / `ipv6` / `test-timeout` / 两条测速 URL |
+| `[Proxy]` | 节点行（与 `surge` 逐字节相同） |
+| `[Proxy Group]` | `PROXY`（select）+ `AUTO`（url-test）+ 地区组 |
+| `[Rule]` | 规则模板映射 + 兜底 `FINAL,PROXY` |
+
+关键约定：
+
+- **正文同源**：`[Proxy]` / `[Proxy Group]` / `[Rule]` 直接复用 `render_ini(IniFlavor::Surge)`，
+  去掉 `[General]` 后与 `?target=surge` 逐字节一致（单测覆盖），不存在第二份节点映射。
+- **与 clash 字段一致**：解析 `[Proxy]` 行后，`server` / `port` / `username`(uuid) /
+  `password` / `sni` / `encrypt-method` 与 clash 的 `proxies` 逐字段一致。
+- **无节点也合法**：四段都在，`[Proxy]` 为空，`PROXY = select, DIRECT`，规则仍以
+  `FINAL,PROXY` 结尾（策略存在，引用合法）。
+- **转义**：节点名走 `ini_name`（`,` → `，`、`=` → `＝`、换行/制表 → 空格），
+  组内引用用同一套转义后的名字，节点行不会被逗号或等号截断。
+- **内容协商**：`?target=surge-full`，`Content-Type: text/plain; charset=utf-8`。
+
+> `?target=surge` is a fragment (`[Proxy]` / `[Proxy Group]` / `[Rule]`); `?target=surge-full`
+> adds `[General]` so all four sections are present and the profile can be imported as-is.
+> The other three sections reuse `render_ini(IniFlavor::Surge)`, so stripping `[General]`
+> leaves a body byte-identical to `?target=surge` (covered by a unit test) — there is no
+> second node mapping. Parsing the `[Proxy]` lines shows `server`, `port`, `username` (uuid),
+> `password`, `sni` and `encrypt-method` match clash's `proxies` field by field. With no
+> nodes all four sections remain, `[Proxy]` is empty, `PROXY = select, DIRECT`, and the rules
+> still end with `FINAL,PROXY` (the policy exists, so the reference is valid). Names go
+> through `ini_name` (`,` → `，`, `=` → `＝`, newlines/tabs → spaces) and group members use
+> the same escaped names, so a comma or equals sign cannot truncate a proxy line.
+> `Content-Type` is `text/plain; charset=utf-8`.
 
 ## 6. 分组策略
 

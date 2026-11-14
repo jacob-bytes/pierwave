@@ -486,6 +486,10 @@ static EXPORTERS: &[&dyn Exporter] = &[
     &UriExporter,
     &ShadowrocketExporter,
     &V2RayExporter,
+    // 完整配置格式追加在末尾：注册表顺序被 400 文案、前端下拉与 golden 输出依赖，
+    // 只追加不插队，既有格式的内容与顺序都不变。
+    &SingboxFullExporter,
+    &SurgeFullExporter,
 ];
 
 /// 已注册的渲染器；新增格式 = 加一个文件 + 这里加一行。
@@ -1826,6 +1830,47 @@ impl Exporter for SurgeExporter {
     }
 }
 
+/// `[General]` 段：日志级别、DNS、局域网绕行与测速地址。
+///
+/// 与节点无关，所以无节点时这份 profile 仍可导入；不含任何 `443` 之类的端口字面量。
+const SURGE_GENERAL_SECTION: &str = concat!(
+    "[General]\n",
+    "loglevel = notify\n",
+    "dns-server = 223.5.5.5, 1.1.1.1\n",
+    "skip-proxy = 127.0.0.1, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/10, localhost, *.local\n",
+    "bypass-system = true\n",
+    "ipv6 = false\n",
+    "test-timeout = 5\n",
+    "internet-test-url = http://www.gstatic.com/generate_204\n",
+    "proxy-test-url = http://www.gstatic.com/generate_204\n",
+    "\n",
+);
+
+/// Surge 的**完整**配置（不是片段）：`[General]` / `[Proxy]` / `[Proxy Group]` /
+/// `[Rule]` 四段齐全，可直接导入。
+///
+/// 节点行、分组与规则全部复用 [`render_ini`]（`IniFlavor::Surge`）——也就是
+/// `?target=surge` 的同一份生成逻辑，不复制第二份协议映射；本渲染器只补 `[General]`
+/// 段。`?target=surge` 的片段输出保持逐字节不变。空节点时仍输出四段齐全的最小
+/// profile（`[Proxy]` 为空、`PROXY = select, DIRECT`、`FINAL,PROXY`）。
+pub struct SurgeFullExporter;
+
+impl Exporter for SurgeFullExporter {
+    fn id(&self) -> &'static str {
+        "surge-full"
+    }
+
+    fn content_type(&self) -> &'static str {
+        "text/plain; charset=utf-8"
+    }
+
+    fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
+        let output = render_ini(IniFlavor::Surge, ctx);
+        log_skipped(self.id(), output.skipped_nodes, output.skipped_rules);
+        Ok(format!("{SURGE_GENERAL_SECTION}{}", output.body))
+    }
+}
+
 /// Egern（iOS）订阅。
 ///
 /// **假设（assumption）**：Egern 官方支持导入 Surge 配置，我们在无法访问其完整
@@ -2076,7 +2121,18 @@ fn singbox_rule(rule: &str, has_nodes: bool) -> Option<(Value, Option<String>)> 
     Some((condition, None))
 }
 
-fn render_singbox(ctx: &SubContext<'_>) -> SingboxOutput {
+/// 节点出站 + 固定分组（`AUTO` / `selector` / `direct`）。
+///
+/// `singbox`（片段）与 `singbox-full`（完整配置）共用这一份节点与分组表达；
+/// 片段另加 legacy `block` 出站（保持原有逐字节输出），完整配置改用
+/// `action: reject` 规则动作——sing-box 1.13 起移除了 legacy 特殊出站。
+struct SingboxCore {
+    outbounds: Vec<Value>,
+    has_nodes: bool,
+    skipped_nodes: usize,
+}
+
+fn singbox_core(ctx: &SubContext<'_>) -> SingboxCore {
     let mut outbounds: Vec<Value> = Vec::new();
     let mut node_tags: Vec<&str> = Vec::new();
     let mut skipped_nodes = 0;
@@ -2123,9 +2179,19 @@ fn render_singbox(ctx: &SubContext<'_>) -> SingboxOutput {
         }));
     }
     outbounds.push(json!({ "type": "direct", "tag": "direct" }));
-    outbounds.push(json!({ "type": "block", "tag": "blocker" }));
 
-    let has_nodes = !node_tags.is_empty();
+    SingboxCore {
+        has_nodes: !node_tags.is_empty(),
+        outbounds,
+        skipped_nodes,
+    }
+}
+
+/// 规则模板 → (`route.rules`, `route.final`)；`MATCH` 映射成 `route.final`。
+///
+/// 片段与完整配置共用：两边映射出来的规则必须完全一致，否则同一个模板在两种
+/// 订阅里会走不同的出口。
+fn singbox_route(ctx: &SubContext<'_>, has_nodes: bool) -> (Vec<Value>, String) {
     let mut route_rules: Vec<Value> = Vec::new();
     let mut final_outbound = "selector".to_string();
     for rule in rules_or_default(ctx) {
@@ -2139,6 +2205,16 @@ fn render_singbox(ctx: &SubContext<'_>) -> SingboxOutput {
             route_rules.push(condition);
         }
     }
+    (route_rules, final_outbound)
+}
+
+fn render_singbox(ctx: &SubContext<'_>) -> SingboxOutput {
+    let core = singbox_core(ctx);
+    let (route_rules, final_outbound) = singbox_route(ctx, core.has_nodes);
+
+    // 片段保持升级前的输出：legacy `block` 出站仍在。
+    let mut outbounds = core.outbounds;
+    outbounds.push(json!({ "type": "block", "tag": "blocker" }));
 
     let document = json!({
         "log": { "level": "info" },
@@ -2151,7 +2227,88 @@ fn render_singbox(ctx: &SubContext<'_>) -> SingboxOutput {
     let body = serde_json::to_string_pretty(&document).unwrap_or_else(|_| "{}".to_string());
     SingboxOutput {
         body,
-        skipped_nodes,
+        skipped_nodes: core.skipped_nodes,
+    }
+}
+
+/// 完整配置的规则：复用 [`singbox_route`]，只把 `REJECT` 从 legacy `blocker`
+/// 出站换成 1.11+ 的 `action: reject` 规则动作。
+///
+/// `MATCH,REJECT` 无法作为 `route.final`（它不是出站），改成末尾一条无条件的
+/// `reject` 规则，语义等价。
+fn singbox_full_route(ctx: &SubContext<'_>, has_nodes: bool) -> (Vec<Value>, String) {
+    let (route_rules, mut final_outbound) = singbox_route(ctx, has_nodes);
+    let mut rules: Vec<Value> = route_rules
+        .into_iter()
+        .map(|mut rule| {
+            if rule.get("outbound").and_then(Value::as_str) == Some("blocker") {
+                if let Some(object) = rule.as_object_mut() {
+                    object.remove("outbound");
+                    object.insert("action".into(), json!("reject"));
+                }
+            }
+            rule
+        })
+        .collect();
+    if final_outbound == "blocker" {
+        final_outbound = "selector".to_string();
+        rules.push(json!({ "action": "reject" }));
+    }
+    (rules, final_outbound)
+}
+
+/// sing-box 的**完整**配置：`log` / `dns` / `inbounds`（mixed）/ `outbounds` /
+/// `route` 一次给全，可直接 `sing-box run -c`。
+///
+/// 节点与分组表达复用 [`singbox_core`]（同一个 [`singbox_outbound`]），所以节点字段
+/// 与 `?target=singbox` 逐字段一致，不存在第二份协议映射。与片段的两处差异是为了
+/// 跟上 sing-box 1.12+：DNS 用新的 server 格式，`REJECT` 用规则动作而不是 legacy
+/// `block` 出站。空节点时仍是合法可运行的配置：`selector` 只含 `direct`，DNS 仍
+/// 指向真实存在的出站。
+fn render_singbox_full(ctx: &SubContext<'_>) -> SingboxOutput {
+    let core = singbox_core(ctx);
+    let (route_rules, final_outbound) = singbox_full_route(ctx, core.has_nodes);
+
+    // DNS 取向与 mihomo 一致：国内 DoH 走 direct、其余走 selector；两个 DoH 地址
+    // 都是 IP 字面量，不会触发自举解析。`type: https` 是 sing-box 1.12+ 的新格式。
+    let document = json!({
+        "log": { "level": "info", "timestamp": true },
+        "dns": {
+            "servers": [
+                {
+                    "type": "https",
+                    "tag": "dns-local",
+                    "server": "223.5.5.5",
+                    "detour": "direct",
+                },
+                {
+                    "type": "https",
+                    "tag": "dns-remote",
+                    "server": "1.1.1.1",
+                    "detour": "selector",
+                },
+            ],
+            "final": "dns-remote",
+        },
+        "inbounds": [
+            {
+                "type": "mixed",
+                "tag": "mixed-in",
+                "listen": "127.0.0.1",
+                "listen_port": 7890,
+            },
+        ],
+        "outbounds": core.outbounds,
+        "route": {
+            "rules": route_rules,
+            "final": final_outbound,
+            "auto_detect_interface": true,
+        },
+    });
+    let body = serde_json::to_string_pretty(&document).unwrap_or_else(|_| "{}".to_string());
+    SingboxOutput {
+        body,
+        skipped_nodes: core.skipped_nodes,
     }
 }
 
@@ -2168,6 +2325,29 @@ impl Exporter for SingboxExporter {
 
     fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
         let output = render_singbox(ctx);
+        log_skipped(self.id(), output.skipped_nodes, 0);
+        Ok(output.body)
+    }
+}
+
+/// sing-box 的**完整**配置（`log` / `dns` / `inbounds` / `outbounds` / `route`），
+/// 可直接 `sing-box run -c`。
+///
+/// 与 `singbox` 的片段格式共用 [`singbox_core`] 与 [`singbox_route`]，差别只有 DNS、
+/// mixed 入站与 `auto_detect_interface`；既有片段输出逐字节不变。
+pub struct SingboxFullExporter;
+
+impl Exporter for SingboxFullExporter {
+    fn id(&self) -> &'static str {
+        "singbox-full"
+    }
+
+    fn content_type(&self) -> &'static str {
+        "application/json; charset=utf-8"
+    }
+
+    fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
+        let output = render_singbox_full(ctx);
         log_skipped(self.id(), output.skipped_nodes, 0);
         Ok(output.body)
     }
@@ -2970,8 +3150,8 @@ mod tests {
                 assert_eq!(text.trim(), uri_line, "{id} 必须复用同一条 ss:// URI");
             }
 
-            // Surge / Egern / Surfboard / Loon 的 INI 节点行。
-            for id in ["surge", "egern", "surfboard", "loon"] {
+            // Surge / Egern / Surfboard / Loon / surge-full 的 INI 节点行。
+            for id in ["surge", "egern", "surfboard", "loon", "surge-full"] {
                 let body = find_exporter(id).unwrap().render(&ctx).unwrap();
                 assert!(
                     body.contains(&format!("encrypt-method={method}")),
@@ -2991,20 +3171,22 @@ mod tests {
                 "qx 的 password 不是客户端可用的形态：{qx}"
             );
 
-            // sing-box 的 outbound。
-            let singbox = find_exporter("singbox").unwrap().render(&ctx).unwrap();
-            let parsed: Value = serde_json::from_str(&singbox).unwrap();
-            let outbound = parsed["outbounds"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|outbound| outbound["type"] == "ss")
-                .unwrap_or_else(|| panic!("singbox 缺少 ss 出站：{singbox}"));
-            assert_eq!(outbound["method"], method);
-            assert_eq!(
-                outbound["password"], expected,
-                "singbox 的 password 不是客户端可用的形态"
-            );
+            // sing-box 的 outbound（片段与完整配置共用同一份节点表达）。
+            for id in ["singbox", "singbox-full"] {
+                let singbox = find_exporter(id).unwrap().render(&ctx).unwrap();
+                let parsed: Value = serde_json::from_str(&singbox).unwrap();
+                let outbound = parsed["outbounds"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|outbound| outbound["type"] == "ss")
+                    .unwrap_or_else(|| panic!("{id} 缺少 ss 出站：{singbox}"));
+                assert_eq!(outbound["method"], method, "{id}");
+                assert_eq!(
+                    outbound["password"], expected,
+                    "{id} 的 password 不是客户端可用的形态"
+                );
+            }
         }
     }
 
@@ -3895,6 +4077,378 @@ mod tests {
         assert!(!tags.contains(&"kcp-节点"));
     }
 
+    // -----------------------------------------------------------------
+    // 完整配置：singbox-full / surge-full
+    // -----------------------------------------------------------------
+
+    /// 四个协议各一条，用于「与 clash 的 proxies 逐字段一致」的断言。
+    fn full_config_nodes() -> Vec<SubNode> {
+        let mut nodes = fixtures();
+        nodes.push(node(
+            "美国-VMess",
+            "vmess",
+            "ws",
+            "tls",
+            443,
+            &[
+                ("uuid", "33333333-3333-4333-8333-333333333333"),
+                ("alter_id", "0"),
+                ("sni", "us.example.com"),
+                ("path", "/vm"),
+                ("host", "us.example.com"),
+            ],
+        ));
+        nodes.push(node(
+            "其他-SS",
+            "ss",
+            "tcp",
+            "none",
+            8388,
+            &[("method", "aes-256-gcm"), ("password", "secret")],
+        ));
+        nodes
+    }
+
+    fn outbound_tags(parsed: &Value) -> Vec<&str> {
+        parsed["outbounds"]
+            .as_array()
+            .unwrap_or_else(|| panic!("outbounds 必须是列表：{parsed}"))
+            .iter()
+            .filter_map(|outbound| outbound["tag"].as_str())
+            .collect()
+    }
+
+    /// 完整配置里所有被引用的出站（route.final、规则、组、DNS detour）都必须真实存在，
+    /// 否则客户端会整份拒收——这比「JSON 能解析」更接近「能 run」。
+    fn assert_singbox_references_resolve(parsed: &Value) {
+        let tags = outbound_tags(parsed);
+        let mut referenced: Vec<&str> = vec![parsed["route"]["final"]
+            .as_str()
+            .unwrap_or_else(|| panic!("route.final 必须是字符串：{parsed}"))];
+        for rule in parsed["route"]["rules"].as_array().unwrap() {
+            // `REJECT` 规则是 `action: reject`，没有 outbound；只校验真正指向出站的规则。
+            if let Some(outbound) = rule["outbound"].as_str() {
+                referenced.push(outbound);
+            }
+        }
+        for outbound in parsed["outbounds"].as_array().unwrap() {
+            if let Some(members) = outbound["outbounds"].as_array() {
+                for member in members {
+                    referenced.push(member.as_str().unwrap());
+                }
+            }
+        }
+        for tag in referenced {
+            assert!(tags.contains(&tag), "引用了不存在的出站 {tag}：{tags:?}");
+        }
+        for server in parsed["dns"]["servers"].as_array().unwrap() {
+            let detour = server["detour"].as_str().unwrap();
+            assert!(
+                tags.contains(&detour),
+                "DNS detour 指向不存在的出站 {detour}：{tags:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn singbox_full_json_has_log_dns_inbounds_outbounds_route() {
+        let nodes = full_config_nodes();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let body = SingboxFullExporter.render(&ctx).unwrap();
+        let parsed: Value = serde_json::from_str(&body).expect("singbox-full 必须是合法 JSON");
+
+        for key in ["log", "dns", "inbounds", "outbounds", "route"] {
+            assert!(parsed.get(key).is_some(), "缺少顶层小节 {key}：{body}");
+        }
+        assert_eq!(parsed["log"]["level"], "info");
+        assert_eq!(parsed["log"]["timestamp"], true);
+
+        // DNS：两个 DoH 服务（sing-box 1.12+ 的 `type: https` 新格式），
+        // final 指向其中真实存在的 tag。
+        let servers = parsed["dns"]["servers"].as_array().unwrap();
+        assert_eq!(servers.len(), 2);
+        for server in servers {
+            assert_eq!(server["type"], "https", "{server:?}");
+            assert!(server["server"].as_str().is_some(), "{server:?}");
+        }
+        assert!(servers
+            .iter()
+            .any(|server| server["tag"] == parsed["dns"]["final"]));
+
+        // 入站：mixed，监听 7890。
+        let inbounds = parsed["inbounds"].as_array().unwrap();
+        assert_eq!(inbounds.len(), 1);
+        assert_eq!(inbounds[0]["type"], "mixed");
+        assert_eq!(inbounds[0]["listen"], "127.0.0.1");
+        assert_eq!(inbounds[0]["listen_port"], 7890);
+
+        // 节点出站：四个协议各一条，tag 与 clash 的 name 同源。
+        let node_outbounds: Vec<&Value> = parsed["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|outbound| {
+                matches!(
+                    outbound["type"].as_str(),
+                    Some("vless" | "vmess" | "trojan" | "ss")
+                )
+            })
+            .collect();
+        assert_eq!(node_outbounds.len(), nodes.len(), "{body}");
+
+        let tags = outbound_tags(&parsed);
+        for expected in ["AUTO", "selector", "direct"] {
+            assert!(tags.contains(&expected), "缺少出站 {expected}：{tags:?}");
+        }
+        // 完整配置不能带 legacy 特殊出站（sing-box 1.13 起已移除）。
+        assert!(
+            !parsed["outbounds"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|outbound| outbound["type"] == "block" || outbound["tag"] == "blocker"),
+            "singbox-full 不应输出 legacy block 出站：{body}"
+        );
+        let auto = parsed["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|outbound| outbound["tag"] == "AUTO")
+            .unwrap();
+        let auto_members: Vec<&str> = auto["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|member| member.as_str().unwrap())
+            .collect();
+        let node_names: Vec<&str> = nodes.iter().map(|node| node.name.as_str()).collect();
+        assert_eq!(auto_members, node_names);
+
+        assert_eq!(parsed["route"]["final"], "selector");
+        assert_eq!(parsed["route"]["auto_detect_interface"], true);
+        assert_eq!(parsed["route"]["rules"][0]["geoip"][0], "cn");
+        assert_eq!(parsed["route"]["rules"][0]["outbound"], "direct");
+        assert_singbox_references_resolve(&parsed);
+
+        assert_eq!(SingboxFullExporter.id(), "singbox-full");
+        assert_eq!(
+            SingboxFullExporter.content_type(),
+            "application/json; charset=utf-8"
+        );
+    }
+
+    #[test]
+    fn singbox_full_single_node_keeps_the_complete_skeleton() {
+        let nodes = vec![fixtures().remove(0)];
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let body = SingboxFullExporter.render(&ctx).unwrap();
+        let parsed: Value = serde_json::from_str(&body).expect("必须是合法 JSON");
+
+        let node_outbounds: Vec<&Value> = parsed["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|outbound| outbound["type"] == "vless")
+            .collect();
+        assert_eq!(node_outbounds.len(), 1);
+        assert_eq!(node_outbounds[0]["tag"], "香港-REALITY");
+
+        let auto = parsed["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|outbound| outbound["tag"] == "AUTO")
+            .unwrap();
+        assert_eq!(auto["outbounds"], json!(["香港-REALITY"]));
+        assert!(parsed["inbounds"].as_array().is_some());
+        assert_eq!(parsed["route"]["final"], "selector");
+        assert_singbox_references_resolve(&parsed);
+    }
+
+    /// 无节点也必须是「能 run」的最小配置：五段齐全、出站引用全部可解析。
+    #[test]
+    fn singbox_full_without_nodes_is_still_runnable() {
+        let nodes: Vec<SubNode> = Vec::new();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let body = SingboxFullExporter.render(&ctx).unwrap();
+        let parsed: Value =
+            serde_json::from_str(&body).expect("空节点 singbox-full 也必须是合法 JSON");
+
+        for key in ["log", "dns", "inbounds", "outbounds", "route"] {
+            assert!(parsed.get(key).is_some(), "缺少顶层小节 {key}：{body}");
+        }
+        let tags = outbound_tags(&parsed);
+        assert_eq!(tags, vec!["selector", "direct"]);
+
+        let selector = &parsed["outbounds"][0];
+        assert_eq!(selector["type"], "selector");
+        assert_eq!(selector["outbounds"], json!(["direct"]));
+        assert_eq!(selector["default"], "direct");
+
+        assert_eq!(parsed["inbounds"][0]["type"], "mixed");
+        assert_eq!(parsed["route"]["final"], "selector");
+        assert_eq!(parsed["route"]["rules"][0]["outbound"], "direct");
+        assert_singbox_references_resolve(&parsed);
+    }
+
+    /// 防止 singbox-full 与 clash 各写一份节点表达后逐渐漂移：关键字段必须一致。
+    #[test]
+    fn singbox_full_matches_clash_field_by_field() {
+        let nodes = full_config_nodes();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+
+        let clash: serde_yaml::Value =
+            serde_yaml::from_str(&ClashExporter.render(&ctx).unwrap()).unwrap();
+        let full: Value = serde_json::from_str(&SingboxFullExporter.render(&ctx).unwrap()).unwrap();
+        let outbounds = full["outbounds"].as_array().unwrap();
+
+        for proxy in clash["proxies"].as_sequence().unwrap() {
+            let name = proxy["name"].as_str().unwrap();
+            let outbound = outbounds
+                .iter()
+                .find(|outbound| outbound["tag"] == name)
+                .unwrap_or_else(|| panic!("singbox-full 缺少节点出站 {name}"));
+            assert_eq!(
+                outbound["server"].as_str(),
+                proxy["server"].as_str(),
+                "{name} 的 server 与 clash 不一致"
+            );
+            assert_eq!(
+                outbound["server_port"].as_u64(),
+                proxy["port"].as_u64(),
+                "{name} 的 port 与 clash 不一致"
+            );
+            match proxy["type"].as_str().unwrap() {
+                "vless" | "vmess" => assert_eq!(
+                    outbound["uuid"].as_str(),
+                    proxy["uuid"].as_str(),
+                    "{name} 的 uuid 与 clash 不一致"
+                ),
+                "trojan" | "ss" => assert_eq!(
+                    outbound["password"].as_str(),
+                    proxy["password"].as_str(),
+                    "{name} 的 password 与 clash 不一致"
+                ),
+                other => panic!("未覆盖的协议 {other}"),
+            }
+            if proxy["type"].as_str() == Some("ss") {
+                assert_eq!(
+                    outbound["method"].as_str(),
+                    proxy["cipher"].as_str(),
+                    "{name} 的 method 与 clash 不一致"
+                );
+            }
+            let sni = proxy["servername"]
+                .as_str()
+                .or_else(|| proxy["sni"].as_str());
+            if let Some(sni) = sni {
+                assert_eq!(
+                    outbound["tls"]["server_name"].as_str(),
+                    Some(sni),
+                    "{name} 的 sni 与 clash 不一致"
+                );
+            }
+        }
+    }
+
+    /// JSON 里节点名的引号、反斜杠、换行必须转义，且组引用同一个名字。
+    #[test]
+    fn singbox_full_escapes_json_special_characters_in_node_names() {
+        let names = [
+            "香港 \"引号\" 节点",
+            "日本 \\ 反斜杠",
+            "美国\n换行",
+            "逗号, 方括号] 冒号: #",
+        ];
+        let nodes: Vec<SubNode> = names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| {
+                node(
+                    name,
+                    "vless",
+                    "tcp",
+                    "tls",
+                    443 + index as u16,
+                    &[
+                        ("uuid", "11111111-1111-4111-8111-111111111111"),
+                        ("sni", "example.com"),
+                    ],
+                )
+            })
+            .collect();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let body = SingboxFullExporter.render(&ctx).unwrap();
+        let parsed: Value = serde_json::from_str(&body)
+            .unwrap_or_else(|error| panic!("特殊字符节点名破坏了 JSON：{error}\n{body}"));
+
+        let parsed_names: Vec<&str> = parsed["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|outbound| outbound["type"] == "vless")
+            .map(|outbound| outbound["tag"].as_str().unwrap())
+            .collect();
+        assert_eq!(parsed_names, names);
+
+        let auto = parsed["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|outbound| outbound["tag"] == "AUTO")
+            .unwrap();
+        let auto_members: Vec<&str> = auto["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|member| member.as_str().unwrap())
+            .collect();
+        assert_eq!(auto_members, names);
+
+        assert!(body.contains("\\\"引号\\\""), "{body}");
+        assert!(body.contains("美国\\n换行"), "{body}");
+    }
+
+    /// `REJECT` 不能用 legacy `block` 出站（1.13 移除）：规则要映射成
+    /// `action: reject`，`MATCH,REJECT` 则落到末尾一条无条件 reject 规则。
+    #[test]
+    fn singbox_full_maps_reject_rules_to_rule_actions() {
+        let nodes = fixtures();
+        let rules = vec![
+            "DOMAIN-SUFFIX,ads.example,REJECT".to_string(),
+            "MATCH,DIRECT".to_string(),
+        ];
+        let ctx = sub_context(&nodes, &rules);
+        let body = SingboxFullExporter.render(&ctx).unwrap();
+        let parsed: Value = serde_json::from_str(&body).expect("必须是合法 JSON");
+
+        let reject = &parsed["route"]["rules"][0];
+        assert_eq!(reject["domain_suffix"][0], "ads.example");
+        assert_eq!(reject["action"], "reject");
+        assert!(reject.get("outbound").is_none(), "{reject:?}");
+        assert!(
+            !body.contains("blocker"),
+            "不应再引用 legacy blocker：{body}"
+        );
+        assert_singbox_references_resolve(&parsed);
+
+        // 模板以 `MATCH,REJECT` 收尾时，final 不能是 blockers：改成末尾 reject 规则。
+        let rules = vec!["MATCH,REJECT".to_string()];
+        let ctx = sub_context(&nodes, &rules);
+        let body = SingboxFullExporter.render(&ctx).unwrap();
+        let parsed: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(parsed["route"]["final"], "selector");
+        let last = parsed["route"]["rules"].as_array().unwrap().last().unwrap();
+        assert_eq!(last["action"], "reject");
+        assert!(last.get("outbound").is_none(), "{last:?}");
+        assert_singbox_references_resolve(&parsed);
+    }
+
     #[test]
     fn shadowrocket_is_padded_base64_of_the_uri_list() {
         let nodes = fixtures();
@@ -3956,6 +4510,8 @@ mod tests {
                 "uri",
                 "shadowrocket",
                 "v2ray",
+                "singbox-full",
+                "surge-full",
             ]
         );
     }
@@ -4010,9 +4566,9 @@ mod tests {
                         );
                     }
                 }
-                "singbox" => {
+                "singbox" | "singbox-full" => {
                     let parsed: Value = serde_json::from_str(&body).unwrap_or_else(|error| {
-                        panic!("singbox 空节点不是合法 JSON：{error}\n{body}")
+                        panic!("{id} 空节点不是合法 JSON：{error}\n{body}")
                     });
                     let tags: Vec<&str> = parsed["outbounds"]
                         .as_array()
@@ -4020,11 +4576,26 @@ mod tests {
                         .iter()
                         .filter_map(|outbound| outbound["tag"].as_str())
                         .collect();
-                    for expected in ["direct", "blocker", "selector"] {
-                        assert!(tags.contains(&expected), "singbox 缺少 {expected}");
+                    for expected in ["direct", "selector"] {
+                        assert!(tags.contains(&expected), "{id} 缺少 {expected}");
+                    }
+                    // 片段保持 legacy `blocker`；完整配置改用规则动作。
+                    assert_eq!(
+                        tags.contains(&"blocker"),
+                        id == "singbox",
+                        "{id} 的 blocker 出站与格式约定不一致：{tags:?}"
+                    );
+                    if id == "singbox-full" {
+                        for key in ["log", "dns", "inbounds", "route"] {
+                            assert!(
+                                parsed.get(key).is_some(),
+                                "{id} 空节点缺少顶层小节 {key}：{body}"
+                            );
+                        }
+                        assert_singbox_references_resolve(&parsed);
                     }
                 }
-                "surge" | "egern" | "surfboard" | "loon" => {
+                "surge" | "surge-full" | "egern" | "surfboard" | "loon" => {
                     assert!(body.contains("[Proxy]"), "{id} 缺少 [Proxy]");
                     assert!(body.contains("[Proxy Group]"), "{id} 缺少 [Proxy Group]");
                     assert!(body.contains("[Rule]"), "{id} 缺少 [Rule]");
@@ -4035,6 +4606,9 @@ mod tests {
                             .starts_with("FINAL,"),
                         "{id} 缺少 FINAL：{body}"
                     );
+                    if id == "surge-full" {
+                        assert!(body.contains("[General]"), "{id} 缺少 [General]");
+                    }
                 }
                 "qx" => {
                     for section in ["[server_local]", "[policy]", "[filter_local]"] {
@@ -4136,6 +4710,250 @@ mod tests {
         assert!(output.body.contains("public-key=public-key-abc"));
         assert!(output.body.contains("short-id=abcd1234"));
         assert_eq!(output.body.lines().last(), Some("FINAL,PROXY"));
+    }
+
+    // -----------------------------------------------------------------
+    // surge-full：四段齐全的完整 profile
+    // -----------------------------------------------------------------
+
+    /// 解析 surge-full 的 `[Proxy]` 段：`name = proto, host, port, k=v, ...` → 字段表。
+    ///
+    /// 只取 `[Proxy]` 与 `[Proxy Group]` 之间，避免把 `[General]` 的 `key = value` 行
+    /// 也算成节点。
+    fn surge_proxy_fields(body: &str) -> BTreeMap<String, BTreeMap<String, String>> {
+        let proxy_section = body
+            .split_once("[Proxy]\n")
+            .map(|(_, rest)| rest)
+            .and_then(|rest| rest.split_once("\n[Proxy Group]").map(|(proxy, _)| proxy))
+            .unwrap_or_else(|| panic!("缺少 [Proxy] / [Proxy Group] 段：{body}"));
+        let mut proxies = BTreeMap::new();
+        for line in proxy_section.lines().filter(|line| !line.trim().is_empty()) {
+            let (name, rest) = line
+                .split_once(" = ")
+                .unwrap_or_else(|| panic!("节点行格式不对：{line}"));
+            let mut parts = rest.split(", ");
+            let protocol = parts.next().unwrap_or_default();
+            let server = parts.next().unwrap_or_default();
+            let port = parts
+                .next()
+                .unwrap_or_else(|| panic!("节点行缺少端口：{line}"));
+            let mut fields = BTreeMap::from([
+                ("protocol".to_string(), protocol.to_string()),
+                ("server".to_string(), server.to_string()),
+                ("port".to_string(), port.to_string()),
+            ]);
+            for part in parts {
+                let (key, value) = part
+                    .split_once('=')
+                    .unwrap_or_else(|| panic!("字段格式不对：{part}"));
+                fields.insert(key.to_string(), value.to_string());
+            }
+            proxies.insert(name.to_string(), fields);
+        }
+        proxies
+    }
+
+    #[test]
+    fn surge_full_has_all_four_sections_and_reuses_the_surge_body() {
+        let nodes = full_config_nodes();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let body = SurgeFullExporter.render(&ctx).unwrap();
+        let surge = SurgeExporter.render(&ctx).unwrap();
+
+        assert!(body.starts_with("[General]\n"), "{body}");
+        let positions: Vec<usize> = ["[General]\n", "[Proxy]\n", "[Proxy Group]\n", "[Rule]\n"]
+            .iter()
+            .map(|section| {
+                body.find(section)
+                    .unwrap_or_else(|| panic!("缺少段落 {section}：{body}"))
+            })
+            .collect();
+        assert!(
+            positions.windows(2).all(|pair| pair[0] < pair[1]),
+            "段落顺序不对：{positions:?}"
+        );
+
+        assert!(body.contains("loglevel = notify"), "{body}");
+        assert!(body.contains("dns-server = 223.5.5.5, 1.1.1.1"), "{body}");
+        assert!(
+            body.contains("proxy-test-url = http://www.gstatic.com/generate_204"),
+            "{body}"
+        );
+
+        // 节点行、分组、规则与 ?target=surge 共用同一份正文，没有第二份映射。
+        assert_eq!(
+            body.strip_prefix(SURGE_GENERAL_SECTION).unwrap(),
+            surge,
+            "surge-full 的正文必须与 surge 逐字节一致"
+        );
+        let proxies = surge_proxy_fields(&body);
+        assert_eq!(proxies.len(), nodes.len());
+        assert!(
+            body.contains("PROXY = select, AUTO, 香港, 日本, 美国, 其他, DIRECT"),
+            "{body}"
+        );
+        assert!(
+            body.contains("AUTO = url-test, 香港-REALITY, 日本-WS-TLS, 美国-VMess, 其他-SS"),
+            "{body}"
+        );
+        assert!(body.contains("GEOIP,CN,DIRECT"), "{body}");
+        assert_eq!(body.lines().last(), Some("FINAL,PROXY"));
+
+        assert_eq!(SurgeFullExporter.id(), "surge-full");
+        assert_eq!(
+            SurgeFullExporter.content_type(),
+            "text/plain; charset=utf-8"
+        );
+    }
+
+    #[test]
+    fn surge_full_single_node_keeps_four_sections_and_final() {
+        let nodes = vec![fixtures().remove(0)];
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let body = SurgeFullExporter.render(&ctx).unwrap();
+
+        let proxies = surge_proxy_fields(&body);
+        assert_eq!(proxies.len(), 1);
+        assert!(proxies.contains_key("香港-REALITY"));
+        assert!(
+            body.contains("PROXY = select, AUTO, 香港, DIRECT"),
+            "{body}"
+        );
+        assert!(body.contains("[Proxy]\n香港-REALITY = vless, "), "{body}");
+        assert_eq!(body.lines().last(), Some("FINAL,PROXY"));
+    }
+
+    /// 无节点也必须是能导入的最小 profile，而不是空文件。
+    #[test]
+    fn surge_full_without_nodes_is_still_an_importable_profile() {
+        let nodes: Vec<SubNode> = Vec::new();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let body = SurgeFullExporter.render(&ctx).unwrap();
+
+        for section in ["[General]", "[Proxy]", "[Proxy Group]", "[Rule]"] {
+            assert!(body.contains(section), "缺少段落 {section}：{body}");
+        }
+        assert!(body.contains("[Proxy]\n\n[Proxy Group]"), "{body}");
+        assert!(body.contains("PROXY = select, DIRECT"), "{body}");
+        assert!(!body.contains("AUTO = url-test"), "{body}");
+        assert!(body.contains("loglevel = notify"), "{body}");
+        assert!(body.contains("GEOIP,CN,DIRECT"), "{body}");
+        assert_eq!(body.lines().last(), Some("FINAL,PROXY"));
+    }
+
+    /// 与 clash 的 proxies 逐字段一致：server / port / password / uuid / sni。
+    #[test]
+    fn surge_full_matches_clash_field_by_field() {
+        let nodes = full_config_nodes();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+
+        let clash: serde_yaml::Value =
+            serde_yaml::from_str(&ClashExporter.render(&ctx).unwrap()).unwrap();
+        let body = SurgeFullExporter.render(&ctx).unwrap();
+        let proxies = surge_proxy_fields(&body);
+
+        for proxy in clash["proxies"].as_sequence().unwrap() {
+            let name = proxy["name"].as_str().unwrap();
+            let fields = proxies
+                .get(name)
+                .unwrap_or_else(|| panic!("surge-full 缺少节点 {name}：{proxies:?}"));
+            assert_eq!(
+                fields["server"],
+                proxy["server"].as_str().unwrap(),
+                "{name} 的 server 与 clash 不一致"
+            );
+            assert_eq!(
+                fields["port"],
+                proxy["port"].as_u64().unwrap().to_string(),
+                "{name} 的 port 与 clash 不一致"
+            );
+            match proxy["type"].as_str().unwrap() {
+                "vless" | "vmess" => assert_eq!(
+                    fields["username"],
+                    proxy["uuid"].as_str().unwrap(),
+                    "{name} 的 uuid 与 clash 不一致"
+                ),
+                "trojan" | "ss" => assert_eq!(
+                    fields["password"],
+                    proxy["password"].as_str().unwrap(),
+                    "{name} 的 password 与 clash 不一致"
+                ),
+                other => panic!("未覆盖的协议 {other}"),
+            }
+            if proxy["type"].as_str() == Some("ss") {
+                assert_eq!(
+                    fields["encrypt-method"],
+                    proxy["cipher"].as_str().unwrap(),
+                    "{name} 的 method 与 clash 不一致"
+                );
+            }
+            let sni = proxy["servername"]
+                .as_str()
+                .or_else(|| proxy["sni"].as_str());
+            if let Some(sni) = sni {
+                assert_eq!(
+                    fields.get("sni").map(String::as_str),
+                    Some(sni),
+                    "{name} 的 sni 与 clash 不一致"
+                );
+            }
+        }
+    }
+
+    /// INI 的节点名转义：逗号会截断字段、等号会成为键值分隔，换行/制表会破行。
+    /// 转义后节点名与组内引用必须逐字节一致。
+    #[test]
+    fn surge_full_escapes_ini_special_characters_in_node_names() {
+        let names = [
+            "香港, 01",
+            "美国 = 主力",
+            "日本\t制表",
+            "美国\n换行",
+            "带\"引号\"和: 井号#",
+        ];
+        let nodes: Vec<SubNode> = names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| {
+                node(
+                    name,
+                    "vless",
+                    "tcp",
+                    "tls",
+                    443 + index as u16,
+                    &[
+                        ("uuid", "11111111-1111-4111-8111-111111111111"),
+                        ("sni", "example.com"),
+                    ],
+                )
+            })
+            .collect();
+        let rules = default_rules();
+        let ctx = sub_context(&nodes, &rules);
+        let body = SurgeFullExporter.render(&ctx).unwrap();
+
+        let expected: Vec<String> = names.iter().map(|name| ini_name(name)).collect();
+        let proxies = surge_proxy_fields(&body);
+        assert_eq!(
+            proxies.len(),
+            names.len(),
+            "特殊字符节点名把节点行截断了：{body}"
+        );
+        // 每个节点名都按 `ini_name` 的规则转义后出现在 `[Proxy]` 里。
+        for name in &expected {
+            assert!(proxies.contains_key(name), "缺少节点 {name}：{body}");
+        }
+
+        // 组内成员引用的是同一套转义后的名字。
+        let auto_line = format!("AUTO = url-test, {}", expected.join(", "));
+        assert!(body.contains(&auto_line), "{body}");
+        assert!(body.contains("美国 ＝ 主力"), "{body}");
+        assert!(body.contains("美国 换行"), "{body}");
+        assert!(!body.contains("美国 = 主力"), "{body}");
     }
 
     // -----------------------------------------------------------------

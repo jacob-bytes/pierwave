@@ -956,11 +956,16 @@ const zhCN = {
         singbox: "sing-box",
         shadowrocket: "Shadowrocket",
         v2ray: "V2Ray",
+        "singbox-full": "sing-box（完整配置）",
+        "surge-full": "Surge（完整配置）",
       },
       formatDescriptions: {
         egern:
           "Surge 兼容：按 Surge profile 导出，文件头带 Egern 标识；若 Egern 要求专有字段，需要单独适配",
         mihomo: "完整配置：含 DNS、IPv6，以及「节点选择 / 自动选择」两个分组",
+        singboxFull:
+          "完整配置：含 DNS、mixed 入站与路由，可直接 sing-box run -c",
+        surgeFull: "完整配置：含 [General] / [Proxy] / [Proxy Group] / [Rule] 四段",
       },
       ruleTemplateFollow: "跟随绑定（{name}）",
       ruleTemplateFollowShort: "跟随：{name}",

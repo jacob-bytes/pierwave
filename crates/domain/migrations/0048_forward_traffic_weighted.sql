@@ -1,0 +1,22 @@
+-- 转发流量按套餐口径加权（迁移 0048）。
+--
+-- 在此之前 forward_traffic_daily 只有 `bytes`（上行 + 下行），采样时直接拿
+-- 原始字节做瀑布分配：套餐的 `direction` 与 `node_ratio` 被查出来却没用，
+-- 与 Xray 路径的口径不一致。本迁移只加一列：
+--
+-- * `bytes`    —— 继续记**原始**上下行之和，用于对账（不受方向/倍率影响）；
+-- * `weighted` —— 按 `billing_terms` 取方向、`weighted_bytes` 乘倍率后的值，
+--                 参与 `users.used_bytes` / `user_packages.used_bytes` 累加。
+--
+-- 历史行默认 0 且不追算：升级前没有保存当时的节点倍率与方向快照，任何
+-- 事后推算都会把「现在的套餐」套到「过去的流量」上，比留 0 更不准确。
+--
+-- 迁移只追加：不改 0001–0047。
+ALTER TABLE forward_traffic_daily ADD COLUMN weighted INTEGER NOT NULL DEFAULT 0;
+
+-- English: forwards billing now uses the same terms as Xray traffic.
+-- `bytes` keeps the raw uplink+downlink sum for reconciliation; `weighted` holds
+-- the value after direction selection and node ratio, and that is what feeds
+-- `users.used_bytes` / `user_packages.used_bytes`. Historical rows default to 0
+-- and are not back-filled: the direction/ratio in effect at the time was never
+-- stored, so recomputing it with today's package would be worse than zero.

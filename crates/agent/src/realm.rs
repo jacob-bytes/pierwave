@@ -72,7 +72,7 @@ pub const NOT_INSTALLED: &str = "realm 未安装";
 pub const NOT_LISTENING: &str = "realm 未监听端口";
 
 /// `realm --version` 的探测超时：版本输出应该立刻返回，卡住就按「无法判定」处理。
-const CAPABILITY_TIMEOUT: Duration = Duration::from_secs(2);
+const CAPABILITY_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// 期望态里有 transport、但本机 realm 没有 `[transport]` feature 时的原因。
 /// 只出现在状态里，绝不渲染成「不带 transport 的明文配置」。
@@ -1175,13 +1175,19 @@ async fn detect_transport(bin: &Path) -> Option<bool> {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let output = tokio::time::timeout(CAPABILITY_TIMEOUT, command.output())
-        .await
-        .ok()?
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
+    let started = Instant::now();
+    let output = match tokio::time::timeout(CAPABILITY_TIMEOUT, command.output()).await {
+        Err(_) => { eprintln!("DIAG detect {bin:?}: timeout after {:?}", started.elapsed()); return None; }
+        Ok(Err(e)) => { eprintln!("DIAG detect {bin:?}: spawn error {e:?}"); return None; }
+        Ok(Ok(o)) => {
+            eprintln!("DIAG detect {bin:?}: ok in {:?}", started.elapsed());
+            if !o.status.success() {
+                eprintln!("DIAG detect {bin:?}: status {:?} stderr={:?}", o.status, String::from_utf8_lossy(&o.stderr));
+                return None;
+            }
+            o
+        }
+    };
     let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
     text.push_str(&String::from_utf8_lossy(&output.stderr));
     Some(text.contains("[transport]"))

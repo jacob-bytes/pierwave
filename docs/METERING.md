@@ -66,11 +66,12 @@ email 格式 `{user_id}@{node_tag}`，按**最后一个 `@`** 切分（UUID 里�
 - 用尽自动断流（要改 inbound，属于「限速/封禁」那一层）；
 - 外部订阅用量合并。
 
-## 6. 转发流量（第二期，迁移 0045）
+## 6. 转发流量（第二期，迁移 0045 / 0048）
 
 单跳转发不经过 Xray，Agent 在心跳里上报每条规则的**累计字节**
-`forward_status.traffic_in/out`。主控每 60 秒采样一次
-（`scheduler::spawn_forward_traffic_sampler`）：
+`forward_status.traffic_in/out`。方向与 Xray 对齐：`traffic_in` = 客户端 → 目标
+（上行 / uplink），`traffic_out` = 目标 → 客户端（下行 / downlink）。主控每 60 秒
+采样一次（`scheduler::spawn_forward_traffic_sampler`）：
 
 ```
 delta = current - last                    // 正常递增
@@ -79,14 +80,58 @@ delta = current                           // current < last：计数器重置
 
 - 只处理 `owner_user_id IS NOT NULL AND count_traffic = 1 AND enabled = 1`；
   管理员规则（无 owner）与关闭计费的规则不参与。
-- 差值按 UTC+8 自然日写 `forward_traffic_daily(day, forward_id, user_id, bytes)`；
-  与 `traffic_daily` 分账，Xray 口径不变。
-- 同一个 delta 累加到 `users.used_bytes` 与生效套餐的
-  `user_packages.used_bytes`（瀑布分配）；无生效套餐时只记日表。
-- 「认领差值 + 日表 upsert + 用户/套餐累加」在一个 `BEGIN IMMEDIATE` 事务内，
+- **计费口径与 Xray 完全一致，而且用同一份实现**（不复制换算逻辑）：
+  1. `metering::billing_terms(&instances)` 取生效套餐的 `(direction, node_ratio)`；
+  2. `metering::weighted_bytes(delta_in, delta_out, direction, node_ratio)`：
+     先按方向取数 → 再乘 ratio → 四舍五入到整数；
+  3. `metering::waterfall(weighted, &instances)` 做实例瀑布分配。
+
+  顺序固定为「方向取数 → 乘 ratio → 累加」，与
+  `crates/master/src/routes/agent.rs::record_delta` 的 Xray 路径逐字节一致。
+- 日表 `forward_traffic_daily(day, forward_id, user_id, bytes, weighted)`（迁移 0048）：
+  - `bytes`：**原始**上下行之和，供对账；不受 direction / ratio 影响。
+  - `weighted`：按上述口径换算后的值，参与配额。
+  - 升级前的历史行 `weighted` 默认 0，**不追算**：当时的方向/倍率没有留存快照，
+    用今天的套餐去回填只会张冠李戴。
+- 配额：`users.used_bytes` 与生效套餐的 `user_packages.used_bytes` 只累加
+  **weighted**（瀑布分配，与 Xray 相同）；没有生效套餐时只写日表两列，不累加。
+- 「认领差值 + 日表 upsert + 用户/套餐累加」在同一个 `BEGIN IMMEDIATE` 事务内，
   `forwards.last_traffic_in/out` 作为上次采样基线并用旧值做条件更新，
   并发两轮采样不会重复计同一段增量。
 
+### 为什么日表要同时留 `bytes` 与 `weighted`
+
+`bytes` 回答「这条规则实际搬了多少字节」：对账（nftables / realm 计数、用户申诉、
+跨表核对）只认它，任何一次 `node_ratio` 调整都不会改写历史原始量。
+`weighted` 回答「按套餐口径占多少额度」：配额判定与用量展示只认它。
+两者合成一列时，倍率一变历史数字就跟着变，且无法解释差值来自哪里。
+历史行不追算也是同一原则：宁可显示 0（升级前没有加权数据），也不伪造。
+
+English: single-hop forwards bypass Xray; the Agent reports cumulative
+`forward_status.traffic_in/out` per rule in heartbeats. `traffic_in` is the
+client-to-target (uplink) direction and `traffic_out` is target-to-client
+(downlink), matching Xray. Every 60 seconds the master computes
+`current - last` (treating `current < last` as a counter reset, delta =
+`current`). Only owned rules with `count_traffic = 1` and `enabled = 1` are
+sampled. The billing terms are identical to the Xray path and share the same
+implementation: `metering::billing_terms` picks `(direction, node_ratio)` from
+the active package, `metering::weighted_bytes` selects bytes by direction, then
+multiplies by the ratio and rounds, and `metering::waterfall` allocates the
+weighted value. The order is always "direction → ratio → accumulate";
+`crates/master/src/routes/agent.rs::record_delta` uses the exact same functions,
+so both paths agree byte for byte.
+
+`forward_traffic_daily` keeps `bytes` (the raw uplink+downlink sum, used for
+reconciliation and independent of direction/ratio) and `weighted` (the billed
+value, used for quota). Rows written before migration 0048 default `weighted`
+to 0 and are not back-filled: the direction/ratio in effect at the time was
+never stored, so replaying today's package over old traffic would misattribute
+it. Only `weighted` feeds `users.used_bytes` and the active package's
+`user_packages.used_bytes` (waterfall, same as Xray); without an active package
+both columns are still written but nothing is accumulated. Claiming the delta,
+the daily upsert and the allocation share one `BEGIN IMMEDIATE` transaction
+with a conditional update on `forwards.last_traffic_in/out`, so concurrent
+rounds cannot double-count the same delta.
 
 ### 开启计费时的基线（离线场景）
 
@@ -112,14 +157,3 @@ is not observable (only `9000` remains after reconnect for `1000 → 5000 → 90
 so this deliberately under-counts that interval (0) instead of over-counting
 `8000`; later increments bill normally. A newly created rule with
 `count_traffic=true` has no history and starts from 0.
-
-English: single-hop forwards bypass Xray; the Agent reports cumulative
-`forward_status.traffic_in/out` per rule in heartbeats. The master samples every
-60 seconds and computes `current - last` (treating `current < last` as a counter
-reset, delta = `current`). Only owned rules with `count_traffic = 1` and
-`enabled = 1` are sampled. Deltas go to `forward_traffic_daily` (separate from
-`traffic_daily`, so Xray accounting is untouched) and to `users.used_bytes` plus
-the active package's `user_packages.used_bytes` via waterfall allocation. Each
-rule's claim/upsert/allocation is one `BEGIN IMMEDIATE` transaction with a
-conditional update on `forwards.last_traffic_in/out`, so concurrent rounds
-cannot double-count the same delta.

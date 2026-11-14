@@ -369,12 +369,13 @@ pub async fn run_forward_traffic_round(
     state: &AppState,
 ) -> anyhow::Result<repo::forward_traffic::SampleReport> {
     let report = repo::forward_traffic::run_round(&state.db.pool, time::now()).await?;
-    if report.bytes > 0 {
+    if report.bytes > 0 || report.weighted > 0 {
         tracing::info!(
             rules = report.rules,
             bytes = report.bytes,
+            weighted = report.weighted,
             failed = report.failed,
-            "转发流量采样已计入用户套餐"
+            "转发流量采样完成"
         );
     } else {
         tracing::debug!(
@@ -1106,7 +1107,10 @@ mod tests {
         .await
         .unwrap();
         let report = run_forward_traffic_round(&state).await.unwrap();
-        assert_eq!(report.bytes, 3072);
+        // 套餐 node_ratio = 2.0、direction = both：
+        // 原始 3072 字节，加权 6144 字节。
+        assert_eq!(report.bytes, 3072, "日表 bytes 记原始值");
+        assert_eq!(report.weighted, 6144, "套餐用量记加权值");
         assert_eq!(report.failed, 0);
 
         // 第二次心跳：累计值变成入 4 KiB、出 6 KiB → 只计新增的 7168。
@@ -1128,18 +1132,19 @@ mod tests {
         .unwrap();
         let report = run_forward_traffic_round(&state).await.unwrap();
         assert_eq!(report.bytes, 7168);
+        assert_eq!(report.weighted, 14_336, "7168 × 2.0");
 
         let view = repo::user_packages::find_view_by_id(&state.db.pool, &instance.id)
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(view.used_bytes, 10_240, "套餐用量 = 首轮 + 增量");
+        assert_eq!(view.used_bytes, 20_480, "套餐用量 = 首轮 + 增量（加权）");
         assert_eq!(
             repo::users::find_by_id(&state.db.pool, &user.id)
                 .await
                 .unwrap()
                 .used_bytes,
-            10_240
+            20_480
         );
     }
 }

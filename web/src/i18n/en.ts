@@ -1000,12 +1000,18 @@ const en = {
         singbox: "sing-box",
         shadowrocket: "Shadowrocket",
         v2ray: "V2Ray",
+        "singbox-full": "sing-box (full config)",
+        "surge-full": "Surge (full config)",
       },
       formatDescriptions: {
         egern:
           "Surge-compatible: exported as a Surge profile with an Egern header; proprietary Egern fields would need a dedicated adapter",
         mihomo:
           "Complete config with DNS, IPv6 and selector + auto proxy groups",
+        singboxFull:
+          "Complete config with DNS, a mixed inbound and routing; ready for sing-box run -c",
+        surgeFull:
+          "Complete profile with [General] / [Proxy] / [Proxy Group] / [Rule]",
       },
       ruleTemplateFollow: "Follow binding ({name})",
       ruleTemplateFollowShort: "Follow: {name}",

@@ -19,6 +19,8 @@ export const SUBSCRIPTION_FORMATS = [
   "singbox",
   "shadowrocket",
   "v2ray",
+  "singbox-full",
+  "surge-full",
 ] as const;
 
 export type SubscriptionFormat = (typeof SUBSCRIPTION_FORMATS)[number];
@@ -34,6 +36,8 @@ export const SUBSCRIPTION_FORMAT_DESCRIPTIONS: Partial<
 > = {
   egern: "subscriptions.formatDescriptions.egern",
   mihomo: "subscriptions.formatDescriptions.mihomo",
+  "singbox-full": "subscriptions.formatDescriptions.singboxFull",
+  "surge-full": "subscriptions.formatDescriptions.surgeFull",
 };
 
 /** 默认格式：链接保持干净，不带 `target`。 */

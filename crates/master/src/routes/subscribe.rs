@@ -532,7 +532,7 @@ mod tests {
         // 注册表顺序稳定：不能因为换成 HashMap 而让 400 文案顺序漂移。
         assert!(
             error.contains(
-                "clash / mihomo / stash / surge / egern / surfboard / loon / qx / singbox / uri / shadowrocket / v2ray"
+                "clash / mihomo / stash / surge / egern / surfboard / loon / qx / singbox / uri / shadowrocket / v2ray / singbox-full / surge-full"
             ),
             "supported 列表顺序不稳定: {error}"
         );
@@ -549,6 +549,8 @@ mod tests {
             "shadowrocket",
             "uri",
             "v2ray",
+            "singbox-full",
+            "surge-full",
         ] {
             assert!(error.contains(supported), "缺少格式 {supported}: {error}");
         }
@@ -604,6 +606,43 @@ mod tests {
             body.contains("\n    - https://1.1.1.1/dns-query\n"),
             "{body}"
         );
+
+        // ?target=singbox-full：完整 JSON（log / dns / inbounds / outbounds / route）。
+        let (status, headers, body) = get(
+            &app,
+            &format!("/api/v1/sub/{short_code}?target=singbox-full"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            header_str(&headers, "content-type"),
+            Some("application/json; charset=utf-8")
+        );
+        let parsed: serde_json::Value =
+            serde_json::from_str(&body).expect("singbox-full 必须是合法 JSON");
+        for key in ["log", "dns", "inbounds", "outbounds", "route"] {
+            assert!(parsed.get(key).is_some(), "缺少顶层小节 {key}: {body}");
+        }
+        assert_eq!(parsed["inbounds"][0]["type"], "mixed");
+        assert_eq!(parsed["route"]["final"], "selector");
+
+        // ?target=surge-full：四段齐全的完整 profile。
+        let (status, headers, body) = get(
+            &app,
+            &format!("/api/v1/sub/{short_code}?target=surge-full"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            header_str(&headers, "content-type"),
+            Some("text/plain; charset=utf-8")
+        );
+        assert!(body.starts_with("[General]\n"), "{body}");
+        for section in ["[Proxy]", "[Proxy Group]", "[Rule]"] {
+            assert!(body.contains(section), "缺少段落 {section}: {body}");
+        }
 
         // UA 嗅探：Egern 自带 UA 也选 egern。
         let (status, _headers, body) = get(
@@ -908,6 +947,21 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK);
         assert!(mihomo.contains("\"香港-REALITY (2)\""), "{mihomo}");
+
+        // 两个完整配置格式同样复用 `dedupe_names` 的结果。
+        for target in ["singbox-full", "surge-full"] {
+            let (status, _headers, body) = get(
+                &app,
+                &format!("/api/v1/sub/{short_code}?target={target}"),
+                None,
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert!(
+                body.contains("香港-REALITY (2)"),
+                "{target} 必须复用去重后的节点名：{body}"
+            );
+        }
     }
 
     #[tokio::test]

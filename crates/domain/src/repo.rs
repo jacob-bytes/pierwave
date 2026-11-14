@@ -3187,6 +3187,11 @@ pub mod forwards {
 /// 与 Xray 流量**分账存储**：这里只写 `forward_traffic_daily`，`traffic_daily`
 /// 一行都不碰；两者最终都汇总到 `user_packages.used_bytes`，配额判定口径不变。
 ///
+/// **计费口径与 Xray 路径完全一致**：先取生效套餐实例的 `billing_terms`
+/// （方向, 节点倍率），再用同一个 `metering::weighted_bytes` 把上下行增量换算
+/// 成计费字节，最后才做瀑布累加。日表里 `bytes` 记原始上下行之和（对账用，
+/// 迁移 0048），`weighted` 记换算后的值（参与配额）。
+///
 /// 并发安全由两层保证：
 /// 1. 每条规则的计算 + 落库是一个 `BEGIN IMMEDIATE` 事务（SQLite 写锁串行化），
 ///    不会出现「读到旧 last → 两个采样器都写日表」；
@@ -3205,8 +3210,12 @@ pub mod forward_traffic {
     pub struct SampleReport {
         /// 本轮实际检查过的规则数（含增量为 0、被 CAS 跳过的）。
         pub rules: usize,
-        /// 本轮新增并计入套餐的字节总数。
+        /// 本轮认领的**原始**字节总数（上行 + 下行，未加权）。对账口径，
+        /// 与 `forward_traffic_daily.bytes` 的增量一致。
         pub bytes: i64,
+        /// 本轮按套餐口径（方向 × 节点倍率）换算后**计入配额**的字节总数。
+        /// 与 Xray 路径同一实现：`metering::billing_terms` + `weighted_bytes`。
+        pub weighted: i64,
         /// 读取或写入失败、被跳过的规则数；单条失败不影响其它规则。
         pub failed: usize,
     }
@@ -3307,9 +3316,10 @@ pub mod forward_traffic {
         let mut report = SampleReport::default();
         for candidate in candidates(pool).await? {
             match sample_one(pool, &day, &candidate, now).await {
-                Ok(bytes) => {
+                Ok((bytes, weighted)) => {
                     report.rules += 1;
                     report.bytes = report.bytes.saturating_add(bytes);
+                    report.weighted = report.weighted.saturating_add(weighted);
                 }
                 Err(error) => {
                     report.failed += 1;
@@ -3325,23 +3335,26 @@ pub mod forward_traffic {
         Ok(report)
     }
 
-    /// 单条规则：一个写事务里完成「认领增量 → 日表 upsert → 用户/套餐累加」。
+    /// 单条规则：一个写事务里完成「认领增量 → 按套餐口径换算 →
+    /// 日表 upsert（原始 + 加权）→ 用户/套餐累加」。
+    ///
+    /// 返回 `(原始字节, 加权字节)`；两者都为正的增量对应日表同一行的两列。
     async fn sample_one(
         pool: &SqlitePool,
         day: &str,
         candidate: &Candidate,
         now: i64,
-    ) -> anyhow::Result<i64> {
+    ) -> anyhow::Result<(i64, i64)> {
         let mut conn = pool.acquire().await?;
         sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
         let result = sample_in(&mut conn, day, candidate, now).await;
         match result {
-            Ok(bytes) => {
+            Ok(sample) => {
                 if let Err(error) = sqlx::query("COMMIT").execute(&mut *conn).await {
                     let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
                     return Err(error.into());
                 }
-                Ok(bytes)
+                Ok(sample)
             }
             Err(error) => {
                 let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
@@ -3355,13 +3368,13 @@ pub mod forward_traffic {
         day: &str,
         candidate: &Candidate,
         now: i64,
-    ) -> anyhow::Result<i64> {
+    ) -> anyhow::Result<(i64, i64)> {
         let pending_in = candidate.last_in == PENDING_TRAFFIC_BASELINE;
         let pending_out = candidate.last_out == PENDING_TRAFFIC_BASELINE;
         // 服务器离线时心跳里的累计值是旧的；此时绝不能把「待对齐」消耗成
         // 旧计数，否则重连后仍会把整段离线流量补记进来。
         if (pending_in || pending_out) && !candidate.server_online {
-            return Ok(0);
+            return Ok((0, 0));
         }
 
         // 没有计数器的一侧保持旧基线不变；有计数器的一侧取非负当前值。
@@ -3373,7 +3386,7 @@ pub mod forward_traffic {
         let last_in = current_in.unwrap_or(candidate.last_in);
         let last_out = current_out.unwrap_or(candidate.last_out);
         if last_in == candidate.last_in && last_out == candidate.last_out {
-            return Ok(0);
+            return Ok((0, 0));
         }
 
         // 条件更新（CAS）：旧基线必须还是我们读到的值，否则说明另一轮已经认领。
@@ -3390,9 +3403,11 @@ pub mod forward_traffic {
         .execute(&mut *conn)
         .await?;
         if updated.rows_affected() == 0 {
-            return Ok(0);
+            return Ok((0, 0));
         }
 
+        // `traffic_in` 是客户端 → 目标（上行），`traffic_out` 是目标 → 客户端
+        // （下行），与 Xray 的 uplink / downlink 同方向。
         let delta_in = if pending_in {
             0
         } else {
@@ -3409,26 +3424,12 @@ pub mod forward_traffic {
         };
         let delta = delta_in.saturating_add(delta_out);
         if delta <= 0 {
-            return Ok(0);
+            return Ok((0, 0));
         }
 
-        // 日账本按 (day, forward_id) 累加：同一增量只会被一个事务认领，
-        // 因此这里的 upsert 不会把同一段流量重复计两次。
-        sqlx::query(
-            "INSERT INTO forward_traffic_daily (day, forward_id, user_id, bytes)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT(day, forward_id) DO UPDATE SET
-                bytes = forward_traffic_daily.bytes + excluded.bytes",
-        )
-        .bind(day)
-        .bind(&candidate.forward_id)
-        .bind(&candidate.user_id)
-        .bind(delta)
-        .execute(&mut *conn)
-        .await?;
-
         // 套餐实例：按 created_at 顺序瀑布分配，与 Xray 流量完全一致。
-        // 没有生效套餐时只记日表，不往用户总量或任何实例上累加。
+        // 口径也必须一致：先 `billing_terms` 取方向/倍率，再交给**同一个**
+        // `metering::weighted_bytes` 换算；这里不复制换算逻辑。
         #[derive(sqlx::FromRow)]
         struct BillableRow {
             id: String,
@@ -3450,24 +3451,6 @@ pub mod forward_traffic {
         .bind(&candidate.user_id)
         .fetch_all(&mut *conn)
         .await?;
-        if rows.is_empty() {
-            tracing::debug!(
-                user_id = %candidate.user_id,
-                forward_id = %candidate.forward_id,
-                "用户没有生效套餐，转发流量只记日表"
-            );
-            return Ok(delta);
-        }
-
-        // 账户总用量与 Xray 同口径累加；每日重置扣减时不会出现「套餐扣了、
-        // 用户总量没加」的不一致。只有确实有生效套餐时才累加。
-        sqlx::query("UPDATE users SET used_bytes = used_bytes + ?, updated_at = ? WHERE id = ?")
-            .bind(delta)
-            .bind(now)
-            .bind(&candidate.user_id)
-            .execute(&mut *conn)
-            .await?;
-
         let instances: Vec<metering::BillableInstance> = rows
             .into_iter()
             .map(|row| metering::BillableInstance {
@@ -3478,20 +3461,71 @@ pub mod forward_traffic {
                 node_ratio: row.node_ratio,
             })
             .collect();
-        let allocations = metering::waterfall(delta as u64, &instances);
-        for (instance_id, amount) in &allocations {
-            let amount = i64::try_from(*amount).unwrap_or(i64::MAX);
-            sqlx::query("UPDATE user_packages SET used_bytes = used_bytes + ? WHERE id = ?")
-                .bind(amount)
-                .bind(instance_id)
-                .execute(&mut *conn)
-                .await?;
+
+        let (direction, node_ratio) = metering::billing_terms(&instances);
+        let weighted = metering::weighted_bytes(
+            u64::try_from(delta_in).unwrap_or(0),
+            u64::try_from(delta_out).unwrap_or(0),
+            direction,
+            node_ratio,
+        );
+        let weighted = i64::try_from(weighted).unwrap_or(i64::MAX);
+
+        // 日账本按 (day, forward_id) 累加：同一增量只会被一个事务认领，
+        // 因此这里的 upsert 不会把同一段流量重复计两次。
+        // `bytes` 永远记原始上下行之和（对账），`weighted` 才是配额口径。
+        sqlx::query(
+            "INSERT INTO forward_traffic_daily (day, forward_id, user_id, bytes, weighted)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(day, forward_id) DO UPDATE SET
+                bytes = forward_traffic_daily.bytes + excluded.bytes,
+                weighted = forward_traffic_daily.weighted + excluded.weighted",
+        )
+        .bind(day)
+        .bind(&candidate.forward_id)
+        .bind(&candidate.user_id)
+        .bind(delta)
+        .bind(weighted)
+        .execute(&mut *conn)
+        .await?;
+
+        // 没有生效套餐时只记日表，不往用户总量或任何实例上累加。
+        if instances.is_empty() {
+            tracing::debug!(
+                user_id = %candidate.user_id,
+                forward_id = %candidate.forward_id,
+                "用户没有生效套餐，转发流量只记日表"
+            );
+            return Ok((delta, weighted));
         }
 
-        Ok(delta)
+        // 账户总用量与 Xray 同口径：累加**加权后**的字节。每日重置扣减时
+        // 不会出现「套餐扣了、用户总量没加」的不一致。
+        if weighted > 0 {
+            sqlx::query(
+                "UPDATE users SET used_bytes = used_bytes + ?, updated_at = ? WHERE id = ?",
+            )
+            .bind(weighted)
+            .bind(now)
+            .bind(&candidate.user_id)
+            .execute(&mut *conn)
+            .await?;
+
+            let allocations = metering::waterfall(u64::try_from(weighted).unwrap_or(0), &instances);
+            for (instance_id, amount) in &allocations {
+                let amount = i64::try_from(*amount).unwrap_or(i64::MAX);
+                sqlx::query("UPDATE user_packages SET used_bytes = used_bytes + ? WHERE id = ?")
+                    .bind(amount)
+                    .bind(instance_id)
+                    .execute(&mut *conn)
+                    .await?;
+            }
+        }
+
+        Ok((delta, weighted))
     }
 
-    /// 某天某条规则累计的转发字节；测试与对账用。
+    /// 某天某条规则累计的**原始**转发字节（上下行之和，未加权）；对账用。
     pub async fn daily_bytes(
         pool: &SqlitePool,
         day: &str,
@@ -3507,7 +3541,23 @@ pub mod forward_traffic {
         .unwrap_or(0))
     }
 
-    /// 某用户某天的转发字节合计；用户侧对账用。
+    /// 某天某条规则累计的**加权**转发字节（方向 × 节点倍率）；配额口径。
+    pub async fn daily_weighted(
+        pool: &SqlitePool,
+        day: &str,
+        forward_id: &str,
+    ) -> anyhow::Result<i64> {
+        Ok(sqlx::query_scalar(
+            "SELECT weighted FROM forward_traffic_daily WHERE day = ? AND forward_id = ?",
+        )
+        .bind(day)
+        .bind(forward_id)
+        .fetch_optional(pool)
+        .await?
+        .unwrap_or(0))
+    }
+
+    /// 某用户某天的**原始**转发字节合计；用户侧对账用。
     pub async fn daily_bytes_for_user(
         pool: &SqlitePool,
         day: &str,
@@ -3515,6 +3565,22 @@ pub mod forward_traffic {
     ) -> anyhow::Result<i64> {
         Ok(sqlx::query_scalar(
             "SELECT COALESCE(SUM(bytes), 0) FROM forward_traffic_daily
+             WHERE day = ? AND user_id = ?",
+        )
+        .bind(day)
+        .bind(user_id)
+        .fetch_one(pool)
+        .await?)
+    }
+
+    /// 某用户某天的**加权**转发字节合计；与配额累加口径一致。
+    pub async fn daily_weighted_for_user(
+        pool: &SqlitePool,
+        day: &str,
+        user_id: &str,
+    ) -> anyhow::Result<i64> {
+        Ok(sqlx::query_scalar(
+            "SELECT COALESCE(SUM(weighted), 0) FROM forward_traffic_daily
              WHERE day = ? AND user_id = ?",
         )
         .bind(day)
@@ -3562,14 +3628,24 @@ pub mod forward_traffic {
             user_id: &str,
             quota_bytes: Option<i64>,
         ) -> String {
+            bind_package_with(pool, user_id, quota_bytes, "both", 1.0).await
+        }
+
+        async fn bind_package_with(
+            pool: &SqlitePool,
+            user_id: &str,
+            quota_bytes: Option<i64>,
+            direction: &str,
+            node_ratio: f64,
+        ) -> String {
             let package = super::super::packages::create(
                 pool,
                 super::super::packages::NewPackage {
                     name: "日卡".into(),
                     quota_bytes,
                     period_days: None,
-                    direction: "both".into(),
-                    node_ratio: 1.0,
+                    direction: direction.into(),
+                    node_ratio,
                     rule_template_id: None,
                     speed_limit_kbps: None,
                     node_ids: None,
@@ -3887,7 +3963,8 @@ pub mod forward_traffic {
             assert_eq!(forward(&pool, &admin.id).await.last_traffic_in, 0);
         }
 
-        /// 无生效套餐：只记日表，不累计到用户总量（没有可归属的套餐）。
+        /// 无生效套餐：只记日表（bytes + weighted），不累计到用户总量
+        /// 或任何套餐实例（没有可归属的额度）。
         #[tokio::test]
         async fn traffic_without_an_active_package_only_lands_in_the_daily_table() {
             let pool = setup().await;
@@ -3898,9 +3975,165 @@ pub mod forward_traffic {
 
             let now = 1_700_000_000;
             let day = crate::time::business_date(now);
-            assert_eq!(run_round(&pool, now).await.unwrap().bytes, 100);
+            let report = run_round(&pool, now).await.unwrap();
+            assert_eq!(report.bytes, 100);
+            // 没有实例时 billing_terms 退回 1 倍双向，加权值与原始值相等。
+            assert_eq!(report.weighted, 100);
             assert_eq!(daily_bytes(&pool, &day, &fwd.id).await.unwrap(), 100);
+            assert_eq!(daily_weighted(&pool, &day, &fwd.id).await.unwrap(), 100);
             assert_eq!(user_used(&pool, &user).await, 0);
+        }
+
+        /// direction=download：只计下行；上行只进日表 `bytes`（对账），
+        /// 不进 `weighted`、不占额度。
+        #[tokio::test]
+        async fn download_direction_bills_only_downlink() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let user = create_user(&pool, "alice").await;
+            let package = bind_package_with(&pool, &user, Some(10_000), "download", 1.0).await;
+            let fwd = create_forward(&pool, &server, Some(&user), true, 20000).await;
+            save_counters(&pool, &server, &fwd.id, Some(1000), Some(400)).await;
+
+            let now = 1_700_000_000;
+            let day = crate::time::business_date(now);
+            let report = run_round(&pool, now).await.unwrap();
+            assert_eq!(report.bytes, 1400, "原始字节 = 上行 + 下行");
+            assert_eq!(report.weighted, 400, "只计下行");
+            assert_eq!(daily_bytes(&pool, &day, &fwd.id).await.unwrap(), 1400);
+            assert_eq!(daily_weighted(&pool, &day, &fwd.id).await.unwrap(), 400);
+            assert_eq!(
+                daily_bytes_for_user(&pool, &day, &user).await.unwrap(),
+                1400
+            );
+            assert_eq!(
+                daily_weighted_for_user(&pool, &day, &user).await.unwrap(),
+                400
+            );
+            assert_eq!(package_used(&pool, &package).await, 400);
+            assert_eq!(user_used(&pool, &user).await, 400);
+        }
+
+        /// direction=upload：只计上行；下行只进日表 `bytes`。
+        #[tokio::test]
+        async fn upload_direction_bills_only_uplink() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let user = create_user(&pool, "alice").await;
+            let package = bind_package_with(&pool, &user, Some(10_000), "upload", 1.0).await;
+            let fwd = create_forward(&pool, &server, Some(&user), true, 20000).await;
+            save_counters(&pool, &server, &fwd.id, Some(1000), Some(400)).await;
+
+            let now = 1_700_000_000;
+            let day = crate::time::business_date(now);
+            let report = run_round(&pool, now).await.unwrap();
+            assert_eq!(report.bytes, 1400);
+            assert_eq!(report.weighted, 1000, "只计上行");
+            assert_eq!(daily_bytes(&pool, &day, &fwd.id).await.unwrap(), 1400);
+            assert_eq!(daily_weighted(&pool, &day, &fwd.id).await.unwrap(), 1000);
+            assert_eq!(package_used(&pool, &package).await, 1000);
+            assert_eq!(user_used(&pool, &user).await, 1000);
+        }
+
+        /// direction=both + ratio=1：回归——加权值必须与原始值逐字节相等。
+        #[tokio::test]
+        async fn both_direction_with_ratio_one_keeps_weighted_equal_to_bytes() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let user = create_user(&pool, "alice").await;
+            let package = bind_package_with(&pool, &user, Some(10_000), "both", 1.0).await;
+            let fwd = create_forward(&pool, &server, Some(&user), true, 20000).await;
+            save_counters(&pool, &server, &fwd.id, Some(1000), Some(400)).await;
+
+            let now = 1_700_000_000;
+            let day = crate::time::business_date(now);
+            let report = run_round(&pool, now).await.unwrap();
+            assert_eq!(report.bytes, 1400, "上下行之和");
+            assert_eq!(report.weighted, report.bytes, "1 倍双向：加权即原始值");
+            assert_eq!(daily_bytes(&pool, &day, &fwd.id).await.unwrap(), 1400);
+            assert_eq!(daily_weighted(&pool, &day, &fwd.id).await.unwrap(), 1400);
+            assert_eq!(package_used(&pool, &package).await, 1400);
+            assert_eq!(user_used(&pool, &user).await, 1400);
+        }
+
+        /// node_ratio=2.0：加权后翻倍；日表 `bytes` 仍是原始值（对账不被污染）。
+        #[tokio::test]
+        async fn node_ratio_doubles_the_weighted_value_but_not_daily_bytes() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let user = create_user(&pool, "alice").await;
+            let package = bind_package_with(&pool, &user, Some(10_000), "both", 2.0).await;
+            let fwd = create_forward(&pool, &server, Some(&user), true, 20000).await;
+            save_counters(&pool, &server, &fwd.id, Some(1000), Some(400)).await;
+
+            let now = 1_700_000_000;
+            let day = crate::time::business_date(now);
+            let report = run_round(&pool, now).await.unwrap();
+            assert_eq!(report.bytes, 1400, "原始值不受倍率影响");
+            assert_eq!(report.weighted, 2800, "1400 × 2.0");
+            assert_eq!(daily_bytes(&pool, &day, &fwd.id).await.unwrap(), 1400);
+            assert_eq!(daily_weighted(&pool, &day, &fwd.id).await.unwrap(), 2800);
+            assert_eq!(package_used(&pool, &package).await, 2800);
+            assert_eq!(user_used(&pool, &user).await, 2800);
+        }
+
+        /// 与 Xray 路径**同一实现**：用 Xray 路径的 `billing_terms` +
+        /// `weighted_bytes` 对同一组输入求值，结果必须与转发采样落库的
+        /// `weighted` 与套餐用量完全相等。
+        #[tokio::test]
+        async fn forward_weighting_matches_the_xray_path_functions() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let user = create_user(&pool, "alice").await;
+            let package = bind_package_with(&pool, &user, Some(10_000), "download", 2.5).await;
+            let fwd = create_forward(&pool, &server, Some(&user), true, 20000).await;
+            let (uplink, downlink) = (1000_u64, 400_u64);
+            save_counters(&pool, &server, &fwd.id, Some(uplink), Some(downlink)).await;
+
+            let now = 1_700_000_000;
+            let day = crate::time::business_date(now);
+            run_round(&pool, now).await.unwrap();
+
+            // 这段就是 crates/master/src/routes/agent.rs::record_delta 的换算：
+            let instances = super::super::user_packages::list_billable(&pool, &user)
+                .await
+                .unwrap();
+            let (direction, node_ratio) = metering::billing_terms(&instances);
+            let xray_weighted = metering::weighted_bytes(uplink, downlink, direction, node_ratio);
+            assert_eq!(xray_weighted, 1000, "下行 400 × 2.5");
+
+            assert_eq!(
+                daily_weighted(&pool, &day, &fwd.id).await.unwrap(),
+                i64::try_from(xray_weighted).unwrap(),
+                "转发路径与 Xray 路径必须共用同一换算实现"
+            );
+            assert_eq!(package_used(&pool, &package).await, 1000);
+            assert_eq!(user_used(&pool, &user).await, 1000);
+        }
+
+        /// 迁移 0048：升级前写入的历史行没有加权数据，`weighted` 默认 0，
+        /// 不追算（否则会把今天的套餐口径套到过去的流量上）。
+        #[tokio::test]
+        async fn historical_rows_default_weighted_to_zero() {
+            let pool = setup().await;
+            sqlx::query(
+                "INSERT INTO forward_traffic_daily (day, forward_id, user_id, bytes)
+                 VALUES ('2025-01-01', 'fwd-old', 'user-old', 900)",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            assert_eq!(
+                daily_bytes(&pool, "2025-01-01", "fwd-old").await.unwrap(),
+                900
+            );
+            assert_eq!(
+                daily_weighted(&pool, "2025-01-01", "fwd-old")
+                    .await
+                    .unwrap(),
+                0
+            );
         }
 
         /// 并发两轮采样只能认领同一份增量一次（事务 + 条件更新）。

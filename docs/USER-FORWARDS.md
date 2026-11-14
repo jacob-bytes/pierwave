@@ -127,13 +127,20 @@ never bill even when set to 1.
 
 `owner_user_id IS NOT NULL AND count_traffic = 1 AND enabled = 1`。
 
-- 数据源是心跳缓存的 `forward_status.traffic_in/out`（Agent 侧的**累计字节**）。
+- 数据源是心跳缓存的 `forward_status.traffic_in/out`（Agent 侧的**累计字节**）；
+  `traffic_in` = 客户端 → 目标（上行），`traffic_out` = 目标 → 客户端（下行）。
 - `delta = current - last`；`current < last` 视为 Agent 重启 / 规则重建后的
   计数器归零，本轮 `delta = current`，不回退、不记负数，并更新基线。
-- `delta` 累加到当天（UTC+8）的 `forward_traffic_daily(day, forward_id, user_id, bytes)`，
-  同时累加到创建者的 `users.used_bytes` 与当前生效套餐的
+- 计费口径与 Xray **完全一致且共用同一实现**：`metering::billing_terms` 取
+  `(direction, node_ratio)`，`metering::weighted_bytes` 先按方向取数、再乘倍率
+  （四舍五入），最后 `metering::waterfall` 累加。
+- `delta` 按 UTC+8 自然日写 `forward_traffic_daily(day, forward_id, user_id,
+  bytes, weighted)`（迁移 0048）：`bytes` 是**原始**上下行之和（对账用），
+  `weighted` 是换算后的计费值（配额用）。升级前的历史行 `weighted` 默认 0、
+  不追算。
+- `weighted` 累加到创建者的 `users.used_bytes` 与当前生效套餐的
   `user_packages.used_bytes`（按 `created_at` 瀑布分配，与 Xray 流量一致）。
-- 没有生效套餐时只记日表，不累计到用户/套餐（没有可归属的额度）。
+- 没有生效套餐时只记日表（两列都写），不累计到用户/套餐（没有可归属的额度）。
 - 差值认领、日表 upsert、套餐累加在**同一个 `BEGIN IMMEDIATE` 事务**里完成；
   `UPDATE ... WHERE last_traffic_in = ? AND last_traffic_out = ?` 做条件更新，
   两轮采样并发也不会把同一份增量计两次。
@@ -146,15 +153,25 @@ never bill even when set to 1.
 Every **60 seconds** the master samples rules that satisfy all of:
 `owner_user_id IS NOT NULL AND count_traffic = 1 AND enabled = 1`.
 
-- Source: `forward_status.traffic_in/out` from Agent heartbeats (**cumulative bytes**).
+- Source: `forward_status.traffic_in/out` from Agent heartbeats (**cumulative
+  bytes**); `traffic_in` is client → target (uplink), `traffic_out` is
+  target → client (downlink).
 - `delta = current - last`. `current < last` means the counter reset (Agent
   restart or rule rebuild); the delta becomes `current` (never negative) and the
   baseline is updated.
+- Billing terms are identical to Xray and share the same implementation:
+  `metering::billing_terms` selects `(direction, node_ratio)`,
+  `metering::weighted_bytes` selects bytes by direction and multiplies the ratio
+  (rounding), then `metering::waterfall` allocates.
 - The delta is upserted into the current UTC+8 day in
-  `forward_traffic_daily(day, forward_id, user_id, bytes)` and added to the
-  owner's `users.used_bytes` and active `user_packages.used_bytes` (waterfall by
-  `created_at`, same as Xray traffic).
-- Without an active package only the daily row is written (nothing to bill).
+  `forward_traffic_daily(day, forward_id, user_id, bytes, weighted)` (migration
+  0048): `bytes` is the raw uplink+downlink sum (reconciliation) and `weighted`
+  is the billed value (quota). Historical rows default `weighted` to 0 and are
+  not back-filled.
+- `weighted` is added to the owner's `users.used_bytes` and the active
+  `user_packages.used_bytes` (waterfall by `created_at`, same as Xray traffic).
+- Without an active package both daily columns are written but nothing is
+  accumulated for the user or package.
 - Claiming the delta, the daily upsert and the package update share one
   `BEGIN IMMEDIATE` transaction; the conditional
   `UPDATE ... WHERE last_traffic_in = ? AND last_traffic_out = ?` makes concurrent
