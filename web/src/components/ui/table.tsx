@@ -145,15 +145,13 @@ type StickySide = "left" | "right";
 /**
  * 横向滚动时固定首列 / 操作列。
  *
- * `border-collapse: collapse` 下 sticky 列的边框会跟着滚动消失，
- * 因此分隔线用 inset box-shadow 补，而不是 border。背景色由
- * index.css 按表头 / 行状态设置，避免半透明背景透出滚动内容。
+ * 不画分隔线：整张表靠行边框分隔，再加一条竖线会让固定的两列看起来
+ * 像独立的「侧栏」，与表格主体割裂。固定列只需要不透明背景（由
+ * index.css 按表头 / 行状态设置），滚动内容不会透出来。
  */
 const stickyClasses: Record<StickySide, string> = {
-  left:
-    "sticky left-0 z-20 shadow-[inset_-1px_0_0_var(--border)]",
-  right:
-    "sticky right-0 z-20 shadow-[inset_1px_0_0_var(--border)]",
+  left: "sticky left-0 z-20",
+  right: "sticky right-0 z-20",
 };
 
 function TableHead({
