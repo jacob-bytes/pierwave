@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 21;
+pub const PROTOCOL_VERSION: u32 = 22;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +25,56 @@ pub struct ServerAck {
     pub protocol_version: u32,
     pub config_version: i64,
     pub heartbeat_secs: u64,
+}
+
+/// Agent 本机的一块网卡。
+///
+/// `addresses` 只放 IP 字面量（v4 / v6），**不带 CIDR 前缀**：主控要把它
+/// 直接写进 Xray 的 `listen` / `sendThrough`，带 `/24` 会让配置非法。
+/// 旧主控会忽略整个字段（`#[serde(default)]`）。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NetworkInterface {
+    /// 网卡名，例如 `eth0` / `ens3`。
+    pub name: String,
+    /// 本机该网卡的 IP（v4 / v6），不含 CIDR。
+    #[serde(default)]
+    pub addresses: Vec<String>,
+}
+
+impl NetworkInterface {
+    /// 选一个可以写进 Xray 配置的地址：优先 IPv4，其次 IPv6。
+    ///
+    /// 跳过 unspecified（`0.0.0.0` / `::`）与 link-local（`169.254.0.0/16` /
+    /// `fe80::/10`）：前者等于「没限制」，后者离开本链路就不可达，都不能
+    /// 用来实现「限定从某块网卡出入流量」。没有可用地址时返回 `None`，
+    /// 调用方必须把服务器标成 blocked，绝不回退 `0.0.0.0`。
+    pub fn preferred_address(&self) -> Option<&str> {
+        let parsed: Vec<(&str, std::net::IpAddr)> = self
+            .addresses
+            .iter()
+            .filter_map(|raw| {
+                raw.trim()
+                    .parse::<std::net::IpAddr>()
+                    .ok()
+                    .map(|ip| (raw.trim(), ip))
+            })
+            .collect();
+        parsed
+            .iter()
+            .find(|(_, ip)| match ip {
+                std::net::IpAddr::V4(addr) => !addr.is_unspecified() && !addr.is_link_local(),
+                std::net::IpAddr::V6(_) => false,
+            })
+            .or_else(|| {
+                parsed.iter().find(|(_, ip)| match ip {
+                    std::net::IpAddr::V6(addr) => {
+                        !addr.is_unspecified() && !addr.is_unicast_link_local()
+                    }
+                    std::net::IpAddr::V4(_) => false,
+                })
+            })
+            .map(|(raw, _)| *raw)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,6 +132,19 @@ pub struct Heartbeat {
     /// `None` = 这轮没探测成功或旧 Agent 不认识该字段。
     #[serde(default)]
     pub latency_ms: Option<u32>,
+    /// 本机网卡（名称 + 地址），供主控做「限定从某块网卡出入流量」的配置注入。
+    ///
+    /// 旧 Agent 没有该字段 → 空数组。空数组本身无法区分「旧 Agent」
+    /// 与「新 Agent 采集失败」，所以另带 [`Heartbeat::interfaces_reported`]。
+    #[serde(default)]
+    pub interfaces: Vec<NetworkInterface>,
+    /// 本 Agent 是否支持网卡上报：新版每次心跳都写 `true`（即使采集失败、
+    /// `interfaces` 为空）；旧 Agent 没有该字段 → `false`。
+    ///
+    /// 主控用 `true` 推进 `servers.interfaces_reported_at`，从而区分
+    /// 「从未上报」（`nic_unverified = true`）与「上报过但当前没有网卡」。
+    #[serde(default)]
+    pub interfaces_reported: bool,
     pub uptime_secs: u64,
     pub load1: f32,
     pub mem_used: u64,
@@ -166,6 +229,13 @@ pub struct DesiredForward {
     /// `None` = 明文出站。
     #[serde(default)]
     pub remote_transport: Option<String>,
+    /// 这条规则在本机监听的地址；`None` = 沿用 Agent 的全局 `forward_bind`。
+    ///
+    /// 主控给服务器配置了 `nic_name` 时才会下发具体地址（例如 `10.0.0.2`），
+    /// 让链路/隧道的入口只在这块网卡上监听。旧主控不下发时为 `None`，
+    /// Agent 的行为与升级前逐字节一致。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub listen_host: Option<String>,
     /// `true` = 该端点的 realm 配置必须写 `network = { use_udp = false }`。
     ///
     /// UDP 不走 transport，加密端点必须显式关掉，否则同端口仍会明文转发 UDP。
@@ -653,8 +723,8 @@ mod tests {
     #[test]
     fn forward_udp_defaults_to_false_for_old_masters() {
         assert_eq!(
-            PROTOCOL_VERSION, 21,
-            "新增 ForwardStatus.traffic_in/out、tunnel 能力、TunnelSpec/TunnelSecurity 与 TunnelSpec.udp 必须升协议版本"
+            PROTOCOL_VERSION, 22,
+            "新增 Heartbeat.interfaces 与 DesiredForward.listen_host 必须升协议版本"
         );
 
         // 旧主控的 JSON 没有 udp：必须解析成 false，也就是「只监听 TCP」，
@@ -1101,5 +1171,82 @@ mod tests {
         assert_eq!(json["tunnel_available"], true);
         let back: Heartbeat = serde_json::from_value(json).unwrap();
         assert_eq!(back.tunnel_available, Some(true));
+    }
+
+    #[test]
+    fn old_heartbeat_has_no_interfaces_and_new_one_roundtrips() {
+        let old = r#"{
+            "seq": 1,
+            "uptime_secs": 1,
+            "load1": 0.0,
+            "mem_used": 0,
+            "mem_total": 0,
+            "disk_used": 0,
+            "disk_total": 0,
+            "xray_running": false,
+            "nginx_running": false
+        }"#;
+        let hb: Heartbeat = serde_json::from_str(old).unwrap();
+        assert!(
+            hb.interfaces.is_empty(),
+            "旧 Agent 没有 interfaces 时必须解析成空数组，不能报错"
+        );
+        assert!(
+            !hb.interfaces_reported,
+            "旧 Agent 没有 interfaces_reported 时必须解析成 false"
+        );
+
+        let hb = Heartbeat {
+            interfaces_reported: true,
+            interfaces: vec![NetworkInterface {
+                name: "eth0".into(),
+                addresses: vec!["10.0.0.2".into(), "2001:db8::2".into()],
+            }],
+            ..hb
+        };
+        let json = serde_json::to_value(&hb).unwrap();
+        assert_eq!(json["interfaces"][0]["name"], "eth0");
+        assert_eq!(
+            json["interfaces"][0]["addresses"][0], "10.0.0.2",
+            "线协议里地址不能带 CIDR"
+        );
+        let back: Heartbeat = serde_json::from_value(json).unwrap();
+        assert_eq!(back.interfaces, hb.interfaces);
+        assert!(back.interfaces_reported);
+    }
+
+    #[test]
+    fn preferred_interface_address_skips_unspecified_and_link_local() {
+        let iface = NetworkInterface {
+            name: "eth0".into(),
+            addresses: vec![
+                "fe80::1".into(),
+                "0.0.0.0".into(),
+                "169.254.10.1".into(),
+                "2001:db8::2".into(),
+                "10.0.0.2".into(),
+            ],
+        };
+        assert_eq!(
+            iface.preferred_address(),
+            Some("10.0.0.2"),
+            "有 IPv4 时必须优先 IPv4，并跳过 link-local / unspecified"
+        );
+
+        let v6_only = NetworkInterface {
+            name: "eth0".into(),
+            addresses: vec!["fe80::1".into(), "2001:db8::2".into()],
+        };
+        assert_eq!(v6_only.preferred_address(), Some("2001:db8::2"));
+
+        let none = NetworkInterface {
+            name: "eth0".into(),
+            addresses: vec!["fe80::1".into(), "0.0.0.0".into(), "not-an-ip".into()],
+        };
+        assert_eq!(
+            none.preferred_address(),
+            None,
+            "没有可用地址时不能回退 0.0.0.0"
+        );
     }
 }

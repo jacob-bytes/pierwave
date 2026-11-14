@@ -37,6 +37,8 @@
 | `server.xray_mode_unsupported` | 目前只支持外置 Xray（external） | — |
 | `server.port_range_invalid` | 端口范围不合法：起止必须同时填写、在 1-65535 之间，且起始不大于结束 | — |
 | `server.port_allow_invalid` | 额外允许的端口必须是 1-65535 的整数 | — |
+| `server.nic_name_not_found` | 网卡「{nic}」不在服务器最近上报的网卡列表中 | nic, interfaces |
+| `server.nic_address_unavailable` | 无法按网卡下发该服务器（未上报 / 网卡不存在 / 没有可用地址） | — |
 | `agent.upgrade.version_unavailable` | 无法获取最新版本，请显式指定 version | — |
 | `agent.upgrade.version_invalid` | 版本号格式不合法：{version} | version |
 | `agent.upgrade.disabled` | 该服务器未开启 Agent 自升级，请先开启 | — |
@@ -524,3 +526,53 @@ groups every entry in `targets` uses that member's own internal address.
 edit / cleared server field), the chain is treated as **blocked** (`blocked_reason` /
 `chain.internal_address_missing`) and the desired state skips the whole chain — it is
 never rendered with the public address.
+
+## 网卡绑定（迁移 0042）/ NIC pinning (migration 0042)
+
+`servers.nic_name TEXT NULL` 限定服务器从某块网卡出入流量（`NULL` = 不限制，旧行为）。
+`servers.interfaces_json TEXT NOT NULL DEFAULT '[]'` 保存 Agent 最近一次心跳上报的
+网卡列表（JSON 数组，地址不带 CIDR）。
+
+Migration `0042` adds `servers.nic_name` (NULL = unrestricted, the old behaviour) and
+`servers.interfaces_json` (the most recent agent-reported NIC list, a JSON array with
+bare IPs, no CIDR).
+
+写路径 / Write path:
+
+- 创建与 `PATCH /api/v1/servers/{id}` 都接受 `nic_name`；`null` / 空串 = 不限制；
+- 服务器最近上报过网卡列表（包括上报为空列表）→ `nic_name` 必须命中，否则 400
+  `server.nic_name_not_found`（参数 `nic`、`interfaces`）；上报为空表示「当前没有
+  可用网卡」，任何选择都不成立；
+- 从未上报（新服务器 / 离线 / 旧 Agent）→ **允许保存**，响应里带
+  `nic_unverified: true`，提示前端「网卡尚未验证」；
+- 响应里的 `nic_unverified` 表示「该服务器**从未**上报过网卡」，与是否选择网卡无关：
+  - 从未上报 → `interfaces: []`、`nic_unverified: true`（前端提示「尚未上报网卡」）；
+  - 上报过但没有网卡 → `interfaces: []`、`nic_unverified: false`（前端显示无可用网卡）；
+  - 上报过且有网卡 → `interfaces: [...]`、`nic_unverified: false`。
+- 下发时期望态按网卡地址注入：每个节点入站 `listen` 从 `0.0.0.0` 改成网卡地址，
+  每个出站写 `streamSettings.sockopt.sendThrough`；链路/隧道/转发的入口监听也
+  换成网卡地址。网卡不存在或没有可用地址（只有 `0.0.0.0` / link-local）→
+  400 `server.nic_address_unavailable`，**该服务器整台不下发**，绝不回退 `0.0.0.0`。
+- `nic_name` 为 `NULL` 时不下发任何新字段，Xray 配置与升级前逐字节一致。
+
+- `create` and `PATCH /api/v1/servers/{id}` accept `nic_name`; `null` / empty =
+  unrestricted. Once the server has reported interfaces (including an empty list), the
+  name must match (400 `server.nic_name_not_found`, params `nic` / `interfaces`); an
+  empty report means "no usable NIC", so every selection is rejected.
+- `nic_unverified` means the server has **never** reported interfaces, independent of
+  whether a NIC is selected: never reported → `interfaces: []` +
+  `nic_unverified: true`; reported but empty → `[]` + `false`; reported with NICs →
+  `[...]` + `false`.
+- Dispatch pins the server to that NIC: every node inbound `listen` changes from
+  `0.0.0.0` to the NIC address, every outbound gets
+  `streamSettings.sockopt.sendThrough`, and chain/tunnel/forward listeners use the NIC
+  address too. A missing NIC or one without a usable address (only `0.0.0.0` /
+  link-local) is 400 `server.nic_address_unavailable` and the whole server is **not
+  dispatched**; there is no `0.0.0.0` fallback.
+- With `nic_name` NULL no new field is emitted: the Xray config is byte-identical
+  to before this change (covered by a golden test).
+
+| code | 中文 | English | params |
+|---|---|---|---|
+| `server.nic_name_not_found` | 网卡「{nic}」不在服务器最近上报的网卡列表中 | NIC "{nic}" is not in the server's most recently reported interface list | interfaces, nic |
+| `server.nic_address_unavailable` | 无法按网卡下发该服务器（未上报 / 网卡不存在 / 没有可用地址，不会回退 0.0.0.0） | The server cannot be dispatched with this NIC (not reported / missing / no usable address; no 0.0.0.0 fallback) | — |

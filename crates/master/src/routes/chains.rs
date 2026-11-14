@@ -232,6 +232,7 @@ pub(crate) fn derive_forwards(
                     listen_transport: None,
                     remote_transport: None,
                     disable_udp: false,
+                    listen_host: None,
                     tunnel: None,
                 },
             ));
@@ -828,6 +829,7 @@ pub(crate) fn derive_tunnel_forwards(
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            listen_host: None,
             tunnel: Some(TunnelSpec {
                 role: TunnelRole::Dialer,
                 hop_id: hop_id.clone(),
@@ -867,6 +869,7 @@ pub(crate) fn derive_tunnel_forwards(
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            listen_host: None,
             tunnel: Some(TunnelSpec {
                 role: TunnelRole::Listener,
                 hop_id,

@@ -47,6 +47,9 @@ fn server_view(server: &Server, base: &str, install: Option<&str>) -> AppResult<
     let mut value = serde_json::to_value(server)
         .map_err(|error| AppError::Internal(anyhow::Error::from(error)))?;
     value["commands"] = commands_view(base, install);
+    // 前端据此提示「网卡尚未验证」：nic_name 已保存，但 Agent 还没上报过
+    // 网卡列表，无法确认它存在（也无法据此下发配置）。
+    value["nic_unverified"] = json!(crate::nic::is_unverified(server.interfaces_reported_at));
     Ok(value)
 }
 
@@ -156,6 +159,9 @@ pub struct CreateServer {
     /// 跳间寻址用的内网地址；省略 / null = 未填写。
     #[serde(default)]
     pub internal_address: Option<String>,
+    /// 限定出入流量的网卡名；省略 / null / 空串 = 不限制。
+    #[serde(default)]
+    pub nic_name: Option<String>,
 }
 
 fn default_xray_mode() -> String {
@@ -218,6 +224,7 @@ pub async fn create(
         req.port_allow.as_deref().unwrap_or_default(),
     )?;
     let internal_address = normalize_internal_address(req.internal_address.as_deref());
+    let nic_name = crate::nic::normalize_nic_name(req.nic_name.as_deref());
     let (mut server, token) = repo::servers::create_with_country_and_group(
         &state.db.pool,
         name,
@@ -228,6 +235,12 @@ pub async fn create(
     )
     .await?;
     save_port_policy(&state, &mut server, &port_policy, internal_address).await?;
+    // 新服务器还没有心跳，网卡列表为空：允许先保存 nic_name，响应里由
+    // `server_view` 标成 `nic_unverified`，等 Agent 首次上报后再校验。
+    if let Some(name) = &nic_name {
+        repo::servers::set_nic_name(&state.db.pool, &server.id, Some(name)).await?;
+        server.nic_name = Some(name.clone());
+    }
     // 明文 token 不落审计：它只该在创建响应里出现一次。
     crate::audit::record(
         &state,
@@ -244,6 +257,7 @@ pub async fn create(
             "port_allow": serde_json::from_str::<Value>(&server.port_allow_json)
                 .unwrap_or_else(|_| json!([])),
             "internal_address": &server.internal_address,
+            "nic_name": &server.nic_name,
         }),
     )
     .await;
@@ -285,6 +299,9 @@ pub struct PatchServer {
     /// 内网地址：缺省 = 不改，`null` / 空串 = 清空。
     #[serde(default)]
     pub internal_address: Patch<String>,
+    /// 限定网卡：缺省 = 不改，`null` / 空串 = 不限制，值 = 必须存在于最近上报列表。
+    #[serde(default)]
+    pub nic_name: Patch<String>,
 }
 
 fn deserialize_present_group_name<'de, D>(
@@ -350,11 +367,12 @@ pub async fn update(
         && !req.port_end.is_set()
         && !req.port_allow.is_set()
         && !req.internal_address.is_set()
+        && !req.nic_name.is_set()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 name / address / xray_mode / allow_agent_upgrade / country_code / group_name / port_start / port_end / port_allow / internal_address 之一",
+            "至少需要提供 name / address / xray_mode / allow_agent_upgrade / country_code / group_name / port_start / port_end / port_allow / internal_address / nic_name 之一",
         ));
     }
 
@@ -374,7 +392,8 @@ pub async fn update(
     let policy_changed =
         req.port_start.is_set() || req.port_end.is_set() || req.port_allow.is_set();
     let internal_changed = req.internal_address.is_set();
-    let current = if policy_changed || internal_changed {
+    let nic_changed = req.nic_name.is_set();
+    let current = if policy_changed || internal_changed || nic_changed {
         Some(
             repo::servers::find_by_id(&state.db.pool, &id)
                 .await
@@ -418,6 +437,20 @@ pub async fn update(
     } else {
         None
     };
+    // 网卡校验：已上报过列表就必须命中；尚未上报（空列表）允许保存，
+    // 仅标记 nic_unverified，绝不把未验证的名字当成已确认。
+    let nic_name = if nic_changed {
+        crate::nic::normalize_nic_name(req.nic_name.value().as_deref())
+    } else {
+        None
+    };
+    if let (Some(name), Some(current)) = (nic_name.as_deref(), current.as_ref()) {
+        crate::nic::validate(
+            &current.interfaces_json,
+            current.interfaces_reported_at.is_some(),
+            name,
+        )?;
+    }
 
     let mut server = repo::servers::update(
         &state.db.pool,
@@ -456,6 +489,10 @@ pub async fn update(
         repo::servers::set_internal_address(&state.db.pool, &id, internal_address.as_deref())
             .await?;
         server.internal_address = internal_address;
+    }
+    if nic_changed {
+        repo::servers::set_nic_name(&state.db.pool, &id, nic_name.as_deref()).await?;
+        server.nic_name = nic_name;
     }
 
     let changes = crate::audit::diff(vec![
@@ -517,6 +554,13 @@ pub async fn update(
                 .as_ref()
                 .and_then(|server| server.internal_address.as_deref())),
             json!(server.internal_address.as_deref()),
+        ),
+        (
+            "nic_name",
+            json!(before
+                .as_ref()
+                .and_then(|server| server.nic_name.as_deref())),
+            json!(server.nic_name.as_deref()),
         ),
     ]);
     crate::audit::record(
@@ -2007,5 +2051,177 @@ mod tests {
         assert_eq!(status, StatusCode::OK, "{patched}");
         assert_eq!(patched["server"]["port_allow"], json!([]));
         assert!(patched["server"]["internal_address"].is_null());
+    }
+
+    /// 网卡：未上报时允许保存并标 nic_unverified；上报后必须命中列表，
+    /// 未知网卡 400 且不落库；服务器 JSON 能看到最近上报的列表。
+    #[tokio::test]
+    async fn nic_name_validation_and_unverified_flag() {
+        let (app, state, cookie) = setup().await;
+
+        let (status, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            json!({"name":"hk-1","address":"1.2.3.4","nic_name":" eth0 "}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{created}");
+        let id = created["server"]["id"].as_str().unwrap().to_string();
+        assert_eq!(created["server"]["nic_name"], "eth0", "网卡名要 trim");
+        assert_eq!(
+            created["server"]["nic_unverified"], true,
+            "新服务器没有心跳，必须提示网卡未验证"
+        );
+        assert_eq!(created["server"]["interfaces"], json!([]));
+
+        // 上报过但当前没有网卡：interfaces 仍为空，但不再提示「尚未上报」。
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.9.5",
+            &repo::servers::HealthSnapshot {
+                interfaces_json: "[]".into(),
+                interfaces_reported: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let (status, reported_empty) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            json!({"name":"hk-1"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{reported_empty}");
+        assert_eq!(reported_empty["server"]["interfaces"], json!([]));
+        assert_eq!(
+            reported_empty["server"]["nic_unverified"], false,
+            "上报过空列表 = 没有可用网卡，不是尚未上报"
+        );
+        // 上报过但列表为空：任何网卡都不存在于列表里，必须拒绝。
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            json!({"nic_name":"eth0"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "server.nic_name_not_found", "{body}");
+
+        // 模拟心跳上报：eth0 有地址，eth1 没有地址。
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.9.5",
+            &repo::servers::HealthSnapshot {
+                interfaces_json:
+                    r#"[{"name":"eth0","addresses":["10.0.0.2"]},{"name":"eth1","addresses":[]}]"#
+                        .into(),
+                interfaces_reported: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let patch_uri = format!("/api/v1/servers/{id}");
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &patch_uri,
+            json!({"nic_name":"eth9"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "server.nic_name_not_found", "{body}");
+        assert!(
+            body["params"]["interfaces"]
+                .as_str()
+                .unwrap()
+                .contains("eth0"),
+            "{body}"
+        );
+        assert_eq!(
+            repo::servers::find_by_id(&state.db.pool, &id)
+                .await
+                .unwrap()
+                .nic_name
+                .as_deref(),
+            Some("eth0"),
+            "400 时不能把未知网卡写进库"
+        );
+
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &patch_uri,
+            json!({"nic_name":"eth1"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        assert_eq!(patched["server"]["nic_name"], "eth1");
+        assert_eq!(
+            patched["server"]["nic_unverified"], false,
+            "已上报且命中时不再是 unverified"
+        );
+        assert_eq!(patched["server"]["interfaces"][0]["name"], "eth0");
+        assert_eq!(
+            patched["server"]["interfaces"][0]["addresses"][0],
+            "10.0.0.2"
+        );
+
+        // 列表页同样带出 interfaces 与 nic_unverified。
+        let (status, listed) =
+            send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{listed}");
+        assert_eq!(listed["items"][0]["interfaces"][1]["name"], "eth1");
+        assert_eq!(listed["items"][0]["nic_unverified"], false);
+
+        // null = 取消限制。
+        let (status, cleared) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &patch_uri,
+            json!({"nic_name":null}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{cleared}");
+        assert!(cleared["server"]["nic_name"].is_null());
+        assert_eq!(cleared["server"]["nic_unverified"], false);
+
+        // 从未上报过的服务器：PATCH 保存 nic_name 也允许，只提示 unverified。
+        let (status, fresh) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            json!({"name":"hk-2","address":"5.6.7.8"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{fresh}");
+        let fresh_id = fresh["server"]["id"].as_str().unwrap();
+        assert_eq!(fresh["server"]["nic_unverified"], true);
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{fresh_id}"),
+            json!({"nic_name":"eth0"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        assert_eq!(patched["server"]["nic_name"], "eth0");
+        assert_eq!(patched["server"]["nic_unverified"], true);
+        assert_eq!(patched["server"]["interfaces"], json!([]));
     }
 }

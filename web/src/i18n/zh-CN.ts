@@ -2444,6 +2444,7 @@ const zhCN = {
     notObject: "config 必须是 JSON 对象（以 { 开头、} 结尾）",
   },
   errors: {
+    "server.nic_address_unavailable": "无法按网卡下发该服务器（尚未上报网卡、网卡不存在或没有可用地址）",
     "chain.entry_port_required": "入口组（第 1 组）必须填写监听端口",
     "chain.public_port_invalid": "对外端口必须在 {min}-{max} 之间",
     "chain.tunnel_udp_requires_tls": "tunnel 的 UDP 中继需要 TLS 安全模式（Noise 的 UDP 本轮不做）",

@@ -2588,6 +2588,7 @@ const en = {
     notObject: "config must be a JSON object (starting with { and ending with })",
   },
   errors: {
+    "server.nic_address_unavailable": "This server cannot be dispatched over the selected NIC (not reported, missing, or has no usable address)",
     "chain.entry_port_required": "The entry group (group 1) must provide a listen port",
     "chain.public_port_invalid": "Public port must be between {min} and {max}",
     "chain.tunnel_udp_requires_tls": "The tunnel UDP relay requires the TLS security mode (Noise over UDP is not implemented yet)",

@@ -892,6 +892,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            listen_host: None,
             tunnel: Some(TunnelSpec {
                 role,
                 hop_id: HOP_ID.into(),

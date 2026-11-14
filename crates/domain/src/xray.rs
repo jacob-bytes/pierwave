@@ -103,6 +103,12 @@ pub struct ServerPlan<'a> {
     pub outbounds: &'a [Outbound],
     /// 启用的路由规则，按 `sort_order, created_at`；api 规则由生成器固定放首位。
     pub rules: &'a [RoutingRule],
+    /// 服务器限定网卡地址；`None` = 不限制（旧行为，生成结果逐字节不变）。
+    ///
+    /// 有值时：每个节点入站的 `listen` 从 `0.0.0.0` 改成该地址，每个出站的
+    /// `streamSettings.sockopt.sendThrough` 也写成该地址。API 入站固定
+    /// `127.0.0.1`，不参与改动。
+    pub listen_address: Option<&'a str>,
 }
 
 impl<'a> ServerPlan<'a> {
@@ -117,6 +123,7 @@ impl<'a> ServerPlan<'a> {
             certs: &[],
             outbounds: &[],
             rules: &[],
+            listen_address: None,
         }
     }
 }
@@ -205,20 +212,22 @@ fn buffer_size_kb(kbps: i64) -> i64 {
 fn build_config_impl(plan: &ServerPlan, nodes: &[Node]) -> Value {
     // 套餐档位 -> Xray level（1..N）。level 0 固定留给「没配限速」的用户。
     let tiers = speed_tiers(plan.grants);
-    let mut inbounds: Vec<Value> = nodes
-        .iter()
-        .enumerate()
-        .map(|(index, node)| {
-            build_inbound(
-                plan.server_name,
-                index,
-                node,
-                plan.grants,
-                plan.certs,
-                &tiers,
-            )
-        })
-        .collect();
+    let mut inbounds: Vec<Value> = Vec::with_capacity(nodes.len() + 1);
+    for (index, node) in nodes.iter().enumerate() {
+        let mut inbound = build_inbound(
+            plan.server_name,
+            index,
+            node,
+            plan.grants,
+            plan.certs,
+            &tiers,
+        );
+        // 只有显式配置了网卡时才改 listen；None 时完全不动，保证旧配置逐字节一致。
+        if let Some(address) = plan.listen_address.map(str::trim).filter(|a| !a.is_empty()) {
+            pin_inbound_listen(&mut inbound, address);
+        }
+        inbounds.push(inbound);
+    }
     inbounds.push(api_inbound());
 
     let custom = custom_outbounds(plan.outbounds);
@@ -230,6 +239,11 @@ fn build_config_impl(plan: &ServerPlan, nodes: &[Node]) -> Value {
 
     let mut outbounds = builtin_outbounds();
     outbounds.extend(custom);
+    if let Some(address) = plan.listen_address.map(str::trim).filter(|a| !a.is_empty()) {
+        for outbound in &mut outbounds {
+            pin_outbound_send_through(outbound, address);
+        }
+    }
 
     let mut rules = vec![api_rule()];
     rules.extend(plan.rules.iter().filter_map(|rule| {
@@ -285,6 +299,57 @@ fn build_config_impl(plan: &ServerPlan, nodes: &[Node]) -> Value {
             "rules": rules
         }
     })
+}
+
+/// 把节点入站的 `listen` 固定到网卡地址。
+///
+/// 只改「未指定 / `0.0.0.0` / `::`」的入站：管理员在节点片段里显式写了
+/// `127.0.0.1` 之类具体地址的监听保持不变（那是刻意的本机监听）。
+fn pin_inbound_listen(inbound: &mut Value, address: &str) {
+    let Some(object) = inbound.as_object_mut() else {
+        return;
+    };
+    let unspecified = match object.get("listen") {
+        None | Some(Value::Null) => true,
+        Some(Value::String(raw)) => raw
+            .trim()
+            .parse::<std::net::IpAddr>()
+            .map(|ip| ip.is_unspecified())
+            .unwrap_or_else(|_| raw.trim().is_empty()),
+        Some(_) => true,
+    };
+    if unspecified {
+        object.insert("listen".into(), Value::String(address.to_string()));
+    }
+}
+
+/// 把出站写死到网卡地址：`streamSettings.sockopt.sendThrough`。
+///
+/// 每个出站都要写（包括内置的 direct / blocked / api），否则路由到某个
+/// 自定义出站时会绕开网卡限制。已有 `streamSettings` 的额外字段原样保留。
+fn pin_outbound_send_through(outbound: &mut Value, address: &str) {
+    let Some(object) = outbound.as_object_mut() else {
+        return;
+    };
+    let stream = object
+        .entry("streamSettings")
+        .or_insert_with(|| Value::Object(Map::new()));
+    if !stream.is_object() {
+        *stream = Value::Object(Map::new());
+    }
+    let stream = stream
+        .as_object_mut()
+        .expect("上一行已保证 streamSettings 是对象");
+    let sockopt = stream
+        .entry("sockopt")
+        .or_insert_with(|| Value::Object(Map::new()));
+    if !sockopt.is_object() {
+        *sockopt = Value::Object(Map::new());
+    }
+    sockopt
+        .as_object_mut()
+        .expect("上一行已保证 sockopt 是对象")
+        .insert("sendThrough".into(), Value::String(address.to_string()));
 }
 
 /// 内置出站：直连、黑洞、API 通道。
@@ -2047,6 +2112,7 @@ mod tests {
             certs: &[],
             outbounds: &[],
             rules: &[],
+            listen_address: None,
         };
         let cfg = build_config(&plan);
         let inbound = &cfg["inbounds"][0];
@@ -2073,6 +2139,7 @@ mod tests {
             certs: &[],
             outbounds: &[],
             rules: &[],
+            listen_address: None,
         };
         let cfg = build_config(&plan);
         assert_eq!(cfg["inbounds"][0]["streamSettings"]["network"], "tcp");
@@ -2151,6 +2218,7 @@ mod tests {
             certs: &[],
             outbounds: &[],
             rules: &[],
+            listen_address: None,
         });
         let levels = config["policy"]["levels"].as_object().unwrap();
         assert_eq!(levels.len(), 2, "level 0 + 一个 50Mbps 档");
@@ -2196,5 +2264,114 @@ mod tests {
         // 异常大输入有上限，但正常档位不会碰到。
         assert_eq!(buffer_size_kb(i64::MAX), 1_048_576);
         assert!(buffer_size_kb(20_000) < buffer_size_kb(40_000));
+    }
+
+    /// 限定网卡：节点入站 listen 改成网卡地址，出站写 sendThrough；
+    /// API 入站与显式回环监听保持不动。
+    #[test]
+    fn nic_address_pins_inbound_listen_and_outbound_send_through() {
+        let implicit = node(
+            "implicit",
+            "vless",
+            "tcp",
+            "none",
+            443,
+            r#"{"settings": {"clients": [], "decryption": "none"}}"#,
+        );
+        let wildcard = node(
+            "wildcard",
+            "vless",
+            "tcp",
+            "none",
+            8443,
+            r#"{"listen": "0.0.0.0", "settings": {"clients": [], "decryption": "none"}}"#,
+        );
+        let loopback = node(
+            "loopback",
+            "vless",
+            "tcp",
+            "none",
+            9443,
+            r#"{"listen": "127.0.0.1", "settings": {"clients": [], "decryption": "none"}}"#,
+        );
+        let outbound = Outbound {
+            id: "o-1".into(),
+            server_id: "server-1".into(),
+            tag: "relay".into(),
+            protocol: "freedom".into(),
+            config_json: r#"{"streamSettings":{"sockopt":{"mark":7},"network":"tcp"}}"#.into(),
+            enabled: 1,
+            created_at: 1,
+        };
+        let nodes = [implicit, wildcard, loopback];
+        let plan = ServerPlan {
+            outbounds: std::slice::from_ref(&outbound),
+            listen_address: Some("10.0.0.2"),
+            ..ServerPlan::new("hk-1", &nodes, &[])
+        };
+        let config = build_config(&plan);
+
+        let inbounds = config["inbounds"].as_array().unwrap();
+        let find = |tag: &str| {
+            inbounds
+                .iter()
+                .find(|inbound| inbound["tag"] == tag)
+                .unwrap()
+        };
+        assert_eq!(find("implicit")["listen"], "10.0.0.2");
+        assert_eq!(
+            find("wildcard")["listen"],
+            "10.0.0.2",
+            "0.0.0.0 必须被网卡地址替换"
+        );
+        assert_eq!(
+            find("loopback")["listen"],
+            "127.0.0.1",
+            "显式回环监听是刻意的本机监听，不能被改写"
+        );
+        assert_eq!(find("api")["listen"], "127.0.0.1", "API 入站永远只绑回环");
+
+        for outbound in config["outbounds"].as_array().unwrap() {
+            assert_eq!(
+                outbound["streamSettings"]["sockopt"]["sendThrough"], "10.0.0.2",
+                "每个出站都必须写 sendThrough：{}",
+                outbound["tag"]
+            );
+        }
+        // 自定义出站的其它 sockopt 字段必须保留。
+        let relay = config["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|outbound| outbound["tag"] == "relay")
+            .unwrap();
+        assert_eq!(relay["streamSettings"]["sockopt"]["mark"], 7);
+        assert_eq!(relay["streamSettings"]["network"], "tcp");
+    }
+
+    /// 没有网卡：生成的配置与升级前完全一致——不凭空多出 listen / streamSettings。
+    #[test]
+    fn no_nic_address_keeps_legacy_config_shape() {
+        let n = node(
+            "vless",
+            "vless",
+            "tcp",
+            "none",
+            443,
+            r#"{"settings": {"clients": [], "decryption": "none"}}"#,
+        );
+        let config = build("hk-1", &[n], &[]);
+
+        assert!(
+            config["inbounds"][0].get("listen").is_none(),
+            "没有网卡时不能写 listen（由 Xray 默认 0.0.0.0）"
+        );
+        for outbound in config["outbounds"].as_array().unwrap() {
+            assert!(
+                outbound.get("streamSettings").is_none(),
+                "没有网卡时不能凭空加 streamSettings：{}",
+                outbound["tag"]
+            );
+        }
     }
 }

@@ -832,6 +832,11 @@ pub mod servers {
         pub nftables_available: Option<bool>,
         /// P16 隧道引擎是否可用；None = 旧 Agent 未上报（按不支持处理）。
         pub tunnel_available: Option<bool>,
+        /// 最近一次心跳上报的网卡列表（JSON 数组文本）；`[]` = 上报过但没有网卡。
+        pub interfaces_json: String,
+        /// 本心跳是否来自支持网卡上报的新 Agent；旧 Agent = false，
+        /// 此时不覆盖已有的网卡列表与 `interfaces_reported_at`。
+        pub interfaces_reported: bool,
     }
 
     /// 返回 (服务器, 明文配对 token)。token 只在创建时可见一次。
@@ -1029,6 +1034,20 @@ pub mod servers {
         Ok(())
     }
 
+    /// 设置（或清空）限定出入流量的网卡名。`None` = 不限制。
+    pub async fn set_nic_name(
+        pool: &SqlitePool,
+        id: &str,
+        nic_name: Option<&str>,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE servers SET nic_name = ? WHERE id = ?")
+            .bind(nic_name)
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
     /// 设置（或清空）期望的 Agent 版本。`None` = 不升级。
     pub async fn set_agent_target_version(
         pool: &SqlitePool,
@@ -1138,6 +1157,8 @@ pub mod servers {
                 realm_transport = ?,
                 nftables_available = ?,
                 tunnel_available = ?,
+                interfaces_json = CASE WHEN ? THEN ? ELSE interfaces_json END,
+                interfaces_reported_at = CASE WHEN ? THEN ? ELSE interfaces_reported_at END,
                 xray_running = ?,
                 nginx_running = ?,
                 load1 = ?,
@@ -1160,6 +1181,10 @@ pub mod servers {
         .bind(health.realm_transport)
         .bind(health.nftables_available)
         .bind(health.tunnel_available)
+        .bind(health.interfaces_reported)
+        .bind(&health.interfaces_json)
+        .bind(health.interfaces_reported)
+        .bind(now())
         .bind(health.xray_running)
         .bind(health.nginx_running)
         .bind(health.load1)

@@ -104,6 +104,21 @@ pub struct Server {
     /// 只有收到该服务器作为下一跳的链路组显式开启 `use_internal_address` 时
     /// 才生效；没有填写就必须在保存链时 400，绝不静默回退公网地址。
     pub internal_address: Option<String>,
+    /// 限定出入流量的网卡名；`None` = 不限制（旧行为）。
+    ///
+    /// 有值时主控把 xray 入站的 `listen`、出站的 `sendThrough` 以及链路/隧道
+    /// 转发的监听地址都固定到该网卡地址；网卡没有可用地址时整个服务器阻断下发。
+    pub nic_name: Option<String>,
+    /// Agent 最近一次心跳上报的网卡列表，JSON 数组文本（地址不带 CIDR）。
+    ///
+    /// 默认 `'[]'` = 尚未上报；响应里序列化成 `interfaces` 数组。
+    #[serde(rename = "interfaces", serialize_with = "interfaces_json_as_value")]
+    pub interfaces_json: String,
+    /// 最近一次新版 Agent 明确上报网卡的时间（Unix 秒）；`None` = 从未上报。
+    ///
+    /// 与 `interfaces_json` 配合区分三种状态：从未上报（NULL，前端提示
+    /// 「尚未上报网卡」）、已上报但当前无网卡（空数组 + 时间戳）、已上报有网卡。
+    pub interfaces_reported_at: Option<i64>,
 }
 
 /// 服务器 + 该服务器的节点统计（列表页只读聚合，不落库）。
@@ -579,6 +594,19 @@ where
 /// 损坏的值按空数组输出，避免一个坏字段让整台服务器的响应变成 500；
 /// 写路径总是写规范化的升序数组（见 [`crate::port_policy::PortPolicy`]）。
 fn port_allow_json_as_value<S>(raw: &str, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let value = serde_json::from_str::<serde_json::Value>(raw)
+        .ok()
+        .filter(serde_json::Value::is_array)
+        .unwrap_or_else(|| serde_json::json!([]));
+    value.serialize(serializer)
+}
+
+/// 网卡列表的对外形态：JSON 数组；损坏的值按空数组输出，避免一个坏字段
+/// 把整台服务器的响应变成 500（与 `port_allow` 的处理一致）。
+fn interfaces_json_as_value<S>(raw: &str, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {

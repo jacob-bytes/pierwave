@@ -1,5 +1,6 @@
 mod config;
 mod forward;
+mod network;
 mod nftables;
 mod probe;
 mod realm;
@@ -22,7 +23,8 @@ use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use pierwave_proto::{
     AgentHello, AgentMessage, AgentUpgradePlan, ApplyResult, DesiredForward, DesiredState,
-    ForwardEngine, ForwardStatus, Heartbeat, MasterMessage, TrafficReport, PROTOCOL_VERSION,
+    ForwardEngine, ForwardStatus, Heartbeat, MasterMessage, NetworkInterface, TrafficReport,
+    PROTOCOL_VERSION,
 };
 use tokio_tungstenite::tungstenite::Message;
 
@@ -502,6 +504,8 @@ async fn run_once(
                             "realm_transport": realm_transport,
                             "latency_ms": probe_cache.load(),
                             "forwards": forwards,
+                            "interfaces": network::collect_or_warn(),
+                            "interfaces_reported": true,
                         });
                         ws.send(Message::Text(fallback.to_string())).await.ok();
                     }
@@ -513,12 +517,14 @@ async fn run_once(
                 forwards.reconcile().await;
                 seq += 1;
                 let realm_transport = forwards.realm_transport().await;
+                let interfaces = network::collect_or_warn();
                 let hb = AgentMessage::Heartbeat(sample_heartbeat(
                     seq,
                     uptime_start.elapsed().as_secs(),
                     probe_cache.load(),
                     forwards.status_snapshot(),
                     system_info,
+                    interfaces,
                     EngineCapabilities {
                         realm_available: realm::is_available(Path::new(&cfg.realm_bin)),
                         realm_transport,
@@ -929,6 +935,7 @@ fn sample_heartbeat(
     latency_ms: Option<u32>,
     forwards: Vec<ForwardStatus>,
     system_info: &system_info::SystemInfo,
+    interfaces: Vec<NetworkInterface>,
     engines: EngineCapabilities,
 ) -> Heartbeat {
     let (load1, mem_used, mem_total) = read_load_and_mem();
@@ -946,6 +953,8 @@ fn sample_heartbeat(
         tunnel_available: Some(engines.tunnel_available),
         latency_ms,
         forwards,
+        interfaces,
+        interfaces_reported: true,
         uptime_secs,
         load1,
         mem_used,
@@ -1114,6 +1123,10 @@ mod tests {
             Some(23),
             forwards.clone(),
             &system_info,
+            vec![NetworkInterface {
+                name: "eth0".into(),
+                addresses: vec!["10.0.0.2".into()],
+            }],
             caps(Path::new(realm::DEFAULT_BIN), None, false),
         );
         assert_eq!(hb.arch, std::env::consts::ARCH);
@@ -1122,6 +1135,10 @@ mod tests {
         assert_eq!(hb.os_version.as_deref(), Some("12"));
         assert_eq!(hb.virt.as_deref(), Some("kvm"));
         assert_eq!(hb.latency_ms, Some(23), "心跳应带上缓存的探测结果");
+        assert_eq!(hb.interfaces.len(), 1, "心跳应带上网卡列表");
+        assert_eq!(hb.interfaces[0].name, "eth0");
+        assert_eq!(hb.interfaces[0].addresses, vec!["10.0.0.2"]);
+        assert!(hb.interfaces_reported, "新 Agent 必须标记支持网卡上报");
         assert_eq!(hb.forwards, forwards, "心跳应带上每条转发的监听状态");
         assert_eq!(
             hb.forwards[0].target_ok,
@@ -1135,6 +1152,7 @@ mod tests {
             None,
             Vec::new(),
             &system_info::SystemInfo::default(),
+            Vec::new(),
             caps(Path::new(realm::DEFAULT_BIN), None, false),
         );
         assert_eq!(missing.latency_ms, None, "探测失败必须上报 null");
@@ -1157,6 +1175,7 @@ mod tests {
             None,
             Vec::new(),
             &system_info,
+            Vec::new(),
             caps(&bin, None, false),
         );
         assert_eq!(
@@ -1177,6 +1196,7 @@ mod tests {
             None,
             Vec::new(),
             &system_info,
+            Vec::new(),
             caps(&bin, Some(true), true),
         );
         assert_eq!(installed.realm_available, Some(true));
@@ -1193,6 +1213,7 @@ mod tests {
             None,
             Vec::new(),
             &system_info,
+            Vec::new(),
             caps(&bin, None, false),
         );
         assert_eq!(
@@ -1258,6 +1279,7 @@ mod tests {
             None,
             Vec::new(),
             &system_info::SystemInfo::default(),
+            Vec::new(),
             caps(&script, engines.realm_transport().await, false),
         );
         assert_eq!(hb.realm_transport, Some(false));
@@ -1460,6 +1482,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            listen_host: None,
             tunnel: None,
         };
         let state = DesiredState {
@@ -1486,6 +1509,7 @@ mod tests {
             None,
             supervisor.status_snapshot(),
             &system_info::SystemInfo::default(),
+            Vec::new(),
             caps(Path::new(realm::DEFAULT_BIN), None, false),
         );
         assert_eq!(hb.forwards, status, "心跳必须带上 supervisor 的监听状态");
@@ -1537,6 +1561,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            listen_host: None,
             tunnel: None,
         };
         let realm_rule = DesiredForward {
@@ -1552,6 +1577,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            listen_host: None,
             tunnel: None,
         };
         let state = DesiredState {
@@ -1640,6 +1666,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            listen_host: None,
             tunnel: None,
         };
         let realm_rule = DesiredForward {
@@ -1655,6 +1682,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            listen_host: None,
             tunnel: None,
         };
 
@@ -1827,6 +1855,7 @@ mod tests {
                 listen_transport: None,
                 remote_transport: None,
                 disable_udp: false,
+                listen_host: None,
                 tunnel: None,
             }],
             nodes: Vec::new(),
@@ -1906,6 +1935,7 @@ mod tests {
                 listen_transport: None,
                 remote_transport: None,
                 disable_udp: false,
+                listen_host: None,
                 tunnel: None,
             }],
             nodes: Vec::new(),

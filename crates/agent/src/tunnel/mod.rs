@@ -2106,6 +2106,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            listen_host: None,
             tunnel: Some(tunnel_spec(
                 TunnelRole::Listener,
                 &format!("127.0.0.1:{listener_port}"),
@@ -2129,6 +2130,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            listen_host: None,
             tunnel: Some(tunnel_spec(
                 TunnelRole::Dialer,
                 &format!("127.0.0.1:{dialer_port}"),

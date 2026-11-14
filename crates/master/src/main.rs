@@ -4,6 +4,7 @@ mod audit;
 mod auth;
 mod enforcement;
 mod error;
+mod nic;
 mod routes;
 mod scheduler;
 mod state;

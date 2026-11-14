@@ -393,6 +393,26 @@ impl ForwardSupervisor {
         self.running.get(id).map(|running| running.bound_port)
     }
 
+    /// 一条规则实际使用的监听地址：规则自带 `listen_host` 时优先，否则退回
+    /// 全局 `forward_bind`。空白值按「没有」处理，避免主控脏数据把监听变成 `:port`。
+    fn bind_host_for(&self, spec: &DesiredForward) -> String {
+        spec.listen_host
+            .as_deref()
+            .map(str::trim)
+            .filter(|host| !host.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| self.bind_host.clone())
+    }
+
+    /// 日志用的 `host:port`：IPv6 自动补方括号。
+    fn host_port(host: &str, port: i64) -> String {
+        if host.contains(':') && !host.starts_with('[') {
+            format!("[{host}]:{port}")
+        } else {
+            format!("{host}:{port}")
+        }
+    }
+
     /// 收敛到期望列表。空列表 = 关闭所有监听。
     ///
     /// 幂等：同样的列表重复调用不会重建监听；但绑定失败的规则会在每次
@@ -413,9 +433,9 @@ impl ForwardSupervisor {
         //     已验收的 TCP 服务不能因为补一个 UDP 监听就短暂拒绝新连接。
         //     仅当规则当前有 TCP、且新规则仍要 TCP 时才走这条快速路径；
         //     udp-only 与 tcp-only 之间的切换必须重建（补/拆 TCP 监听）。
-        let bind_host = self.bind_host.clone();
         let mut udp_retry_failed: Vec<(String, String)> = Vec::new();
         for spec in wanted.iter().copied() {
+            let bind_host = self.bind_host_for(spec);
             let Some(running) = self.running.get_mut(&spec.id) else {
                 continue;
             };
@@ -454,7 +474,10 @@ impl ForwardSupervisor {
                     Err(error) => {
                         udp_retry_failed.push((
                             spec.id.clone(),
-                            format!("UDP 监听 {bind_host}:{port} 失败: {error}"),
+                            format!(
+                                "UDP 监听 {} 失败: {error}",
+                                Self::host_port(&bind_host, i64::from(port))
+                            ),
                         ));
                     }
                 }
@@ -523,7 +546,7 @@ impl ForwardSupervisor {
             let protocol = spec.effective_protocol();
             let wants_tcp = protocol.allows_tcp();
             let wants_udp = protocol.allows_udp();
-            let listen = format!("{}:{}", self.bind_host, spec.listen_port);
+            let bind_host = self.bind_host_for(spec);
             // `targets` 为空 = 旧主控的单目标兼容格式，归一化成一个成员。
             // 这样 accept 循环只有一条「先选、再连」的路径。
             let legacy_single = spec.targets.is_empty();
@@ -536,11 +559,14 @@ impl ForwardSupervisor {
                 self.failed.insert(spec.id.clone(), reason);
                 continue;
             };
+            let listen = Self::host_port(&bind_host, spec.listen_port);
 
             // TCP 与 UDP 是两套独立的端口空间，同端口号可以共存。
             // 先绑 TCP（若需要），UDP 再复用内核分配给 TCP 的实际端口号。
+            // 用 `(host, port)` 元组而不是拼字符串：IPv6 字面量必须加方括号，
+            // 交给标准库解析比手拼更稳。
             let listener = if wants_tcp {
-                match TcpListener::bind(&listen).await {
+                match TcpListener::bind((bind_host.as_str(), bound_port)).await {
                     Ok(listener) => match listener.local_addr() {
                         Ok(local_addr) => {
                             bound_port = local_addr.port();
@@ -570,10 +596,10 @@ impl ForwardSupervisor {
             // 任一被选中的协议绑定失败都算这条规则没起来（listening=false），
             // 不会留下「TCP 通了但 UDP 没通」这种自相矛盾的状态。
             let udp_forward = if wants_udp {
-                let udp_listen = format!("{}:{}", self.bind_host, bound_port);
+                let udp_listen = Self::host_port(&bind_host, i64::from(bound_port));
                 match udp::start(
                     spec.id.clone(),
-                    &self.bind_host,
+                    &bind_host,
                     bound_port,
                     targets.clone(),
                     failures.clone(),
@@ -997,6 +1023,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            listen_host: None,
             tunnel: None,
         }
     }
@@ -1030,6 +1057,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            listen_host: None,
             tunnel: None,
         }
     }
@@ -2217,5 +2245,43 @@ mod tests {
         assert_eq!(failed.server_id, format!("srv-{}", refused.port()));
         assert!(!failed.ok, "连不上的目标必须 ok=false");
         assert_eq!(failed.latency_ms, None, "失败不能写成 0ms");
+    }
+
+    /// 每条规则可以自带监听地址；空白值回落全局 forward_bind。
+    #[test]
+    fn per_rule_listen_host_overrides_global_bind() {
+        let supervisor = ForwardSupervisor::new("0.0.0.0");
+        let mut spec = rule("fwd", 0, "127.0.0.1:9".parse().unwrap());
+        assert_eq!(supervisor.bind_host_for(&spec), "0.0.0.0");
+
+        spec.listen_host = Some("127.0.0.1".into());
+        assert_eq!(supervisor.bind_host_for(&spec), "127.0.0.1");
+
+        spec.listen_host = Some("  ".into());
+        assert_eq!(supervisor.bind_host_for(&spec), "0.0.0.0");
+
+        assert_eq!(
+            ForwardSupervisor::host_port("2001:db8::2", 8443),
+            "[2001:db8::2]:8443",
+            "IPv6 日志地址必须加方括号"
+        );
+    }
+
+    /// 带 listen_host 的规则实际绑定到该地址（而不是 0.0.0.0）。
+    #[tokio::test]
+    async fn rule_with_listen_host_binds_specific_address() {
+        let mut supervisor = ForwardSupervisor::new("0.0.0.0");
+        let mut spec = rule("fwd-listen-host", 0, "127.0.0.1:9".parse().unwrap());
+        spec.listen_host = Some("127.0.0.1".into());
+        supervisor.apply(std::slice::from_ref(&spec)).await;
+
+        let status = supervisor.status_handle().snapshot();
+        assert_eq!(status.len(), 1);
+        assert!(
+            status[0].listening,
+            "必须能在 127.0.0.1 上绑定：{:?}",
+            status[0].error
+        );
+        supervisor.apply(&[]).await;
     }
 }

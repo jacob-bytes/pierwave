@@ -547,7 +547,8 @@ impl RealmSupervisor {
     async fn probe_statuses(&self) -> Vec<ForwardStatus> {
         let mut statuses = Vec::with_capacity(self.rules.len());
         for rule in &self.rules {
-            let listening = probe_listening(&self.bind_host, rule.listen_port).await;
+            let listening =
+                probe_listening(rule_bind_host(rule, &self.bind_host), rule.listen_port).await;
             statuses.push(ForwardStatus {
                 id: rule.id.clone(),
                 listening,
@@ -937,6 +938,16 @@ async fn run_probe_loop(specs: Vec<ProbeSpec>, status: RealmStatusHandle) {
     }
 }
 
+/// 一条规则实际监听的地址：规则自带 `listen_host` 时优先，否则用全局
+/// `forward_bind`。空白值按「没有」处理。
+fn rule_bind_host<'a>(rule: &'a DesiredForward, fallback: &'a str) -> &'a str {
+    rule.listen_host
+        .as_deref()
+        .map(str::trim)
+        .filter(|host| !host.is_empty())
+        .unwrap_or(fallback)
+}
+
 /// 按 realm 的配置模型渲染一份 TOML。
 ///
 /// 协议由每条规则的 `protocol` 决定：`both` 打开全局 `use_udp`，`tcp` 关闭它并给
@@ -1026,7 +1037,10 @@ pub fn render_config(
         let _ = writeln!(
             out,
             "listen = \"{}\"",
-            toml_escape(&format_addr(bind_host, rule.listen_port))
+            toml_escape(&format_addr(
+                rule_bind_host(rule, bind_host),
+                rule.listen_port
+            ))
         );
         let _ = writeln!(
             out,
@@ -1296,6 +1310,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            listen_host: None,
             tunnel: None,
         };
         for (host, port) in targets {
@@ -2216,6 +2231,7 @@ mod tests {
             ),
             remote_transport: Some("tls;sni=hop1.example.com".into()),
             disable_udp: true,
+            listen_host: None,
             ..realm_rule(id, listen_port, &[("10.0.0.3", 30003)])
         }
     }
@@ -2453,5 +2469,17 @@ remote = \"10.0.0.2:443\"\n";
         assert!(supervisor.process_alive());
 
         supervisor.apply(&[]).await;
+    }
+
+    /// 规则自带 listen_host 时只改这一条 endpoint 的 listen，
+    /// 其它规则继续沿用全局 bind_host。
+    #[test]
+    fn render_config_uses_per_rule_listen_host() {
+        let mut pinned = realm_rule("pinned", 30001, &[("10.0.0.8", 443)]);
+        pinned.listen_host = Some("10.0.0.2".into());
+        let fallback = realm_rule("fallback", 30002, &[("10.0.0.9", 443)]);
+        let toml = render_config(&[pinned, fallback], "0.0.0.0", "warn").unwrap();
+        assert!(toml.contains("listen = \"10.0.0.2:30001\""), "{toml}");
+        assert!(toml.contains("listen = \"0.0.0.0:30002\""), "{toml}");
     }
 }

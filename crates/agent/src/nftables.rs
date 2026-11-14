@@ -414,13 +414,6 @@ pub fn is_available(bin: &Path) -> bool {
 /// 用 `fib daddr type local` 限定目的地址是本机，避免把本机访问外网的普通连接
 /// 也 DNAT 掉。指定了具体 `forward_bind` 时改用 `ip daddr` / `ip6 daddr`。
 pub fn render_script(rules: &[(DesiredForward, SocketAddr)], bind_host: &str) -> String {
-    let bind = bind_host.trim();
-    let matcher = match bind.parse::<IpAddr>() {
-        Ok(IpAddr::V4(addr)) if !addr.is_unspecified() => format!("ip daddr {addr}"),
-        Ok(IpAddr::V6(addr)) if !addr.is_unspecified() => format!("ip6 daddr {addr}"),
-        _ => "fib daddr type local".to_string(),
-    };
-
     let mut lines = vec![format!("table inet {TABLE} {{")];
     for (chain, hook, priority) in [
         ("prerouting", "prerouting", "dstnat"),
@@ -431,6 +424,15 @@ pub fn render_script(rules: &[(DesiredForward, SocketAddr)], bind_host: &str) ->
             "        type nat hook {hook} priority {priority}; policy accept;"
         ));
         for (rule, target) in rules {
+            // 规则自带 listen_host 时只匹配该网卡地址；没有时退回全局 bind_host。
+            let bind = rule
+                .listen_host
+                .as_deref()
+                .map(str::trim)
+                .filter(|host| !host.is_empty())
+                .unwrap_or(bind_host)
+                .trim();
+            let matcher = daddr_matcher(bind);
             let dnat = match target.ip() {
                 IpAddr::V4(_) => format!("dnat ip to {}:{}", target.ip(), target.port()),
                 IpAddr::V6(_) => format!("dnat ip6 to [{}]:{}", target.ip(), target.port()),
@@ -457,6 +459,15 @@ pub fn render_script(rules: &[(DesiredForward, SocketAddr)], bind_host: &str) ->
     }
     lines.push("}".to_string());
     lines.join("\n") + "\n"
+}
+
+/// 监听地址 → nft `daddr` 匹配串。未指定 / `0.0.0.0` 时匹配「本机地址」。
+fn daddr_matcher(bind: &str) -> String {
+    match bind.parse::<IpAddr>() {
+        Ok(IpAddr::V4(addr)) if !addr.is_unspecified() => format!("ip daddr {addr}"),
+        Ok(IpAddr::V6(addr)) if !addr.is_unspecified() => format!("ip6 daddr {addr}"),
+        _ => "fib daddr type local".to_string(),
+    }
 }
 
 /// 解析一条规则的唯一目标。
@@ -601,6 +612,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            listen_host: None,
             tunnel: None,
         }
     }
@@ -881,5 +893,21 @@ exit 0"#,
         assert!(supervisor.status_handle().snapshot().is_empty());
         let calls = std::fs::read_to_string(log).unwrap();
         assert!(calls.contains("delete table inet pierwave"), "{calls}");
+    }
+
+    /// 规则自带 listen_host 时，DNAT 只匹配该网卡地址，而不是所有本机地址。
+    #[test]
+    fn per_rule_listen_host_selects_that_daddr() {
+        let mut spec = rule("f1", 8080, "1.2.3.4", 80);
+        spec.listen_host = Some("10.0.0.2".into());
+        let script = render_script(&[(spec, "1.2.3.4:80".parse().unwrap())], "0.0.0.0");
+        assert!(
+            script.contains("ip daddr 10.0.0.2 tcp dport 8080"),
+            "{script}"
+        );
+        assert!(
+            !script.contains("fib daddr type local tcp dport 8080"),
+            "指定网卡后不能继续匹配所有本机地址：{script}"
+        );
     }
 }

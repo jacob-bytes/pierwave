@@ -54,6 +54,13 @@ pub struct ApplyOutcome {
 /// Agent 升级计划里的三个 URL 都用它拼；后台任务没有请求上下文时用
 /// [`default_base_url`]。
 pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppResult<DesiredConfig> {
+    // 网卡绑定先解析：未上报 / 网卡不存在 / 没有可用地址都必须阻断整台服务器的
+    // 下发（返回 400），绝不生成一份监听 0.0.0.0 的「降级」配置。
+    let nic_address = crate::nic::resolve(
+        &server.name,
+        server.nic_name.as_deref(),
+        &server.interfaces_json,
+    )?;
     let nodes = repo::nodes::list_enabled_by_server(&state.db.pool, &server.id).await?;
     let outbounds = repo::outbounds::list_enabled_by_server(&state.db.pool, &server.id).await?;
     let rules = repo::routing_rules::list_enabled_by_server(&state.db.pool, &server.id).await?;
@@ -135,6 +142,7 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
         certs: &node_certs,
         outbounds: &outbounds,
         rules: &rules,
+        listen_address: nic_address.as_deref(),
     };
     let (xray, mut warnings) = xray::build_config_checked_with_certs(&plan);
     // 节点告警只用于算「实际生效的节点数」，链告警不能算进去。
@@ -190,6 +198,7 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            listen_host: None,
             tunnel: None,
         });
     }
@@ -395,6 +404,9 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
         }
     }
 
+    // 链路/隧道/独立转发的入口监听同样固定到网卡地址；None 时一个字段都不改。
+    pin_forwards_to_nic(&mut desired_forwards, nic_address.as_deref());
+
     Ok(DesiredConfig {
         xray,
         node_count: nodes.len() - node_warning_count,
@@ -406,6 +418,23 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
         forwards: desired_forwards,
         agent_upgrade: upgrade_plan(state, server, base_url),
     })
+}
+
+/// 把每条转发的入口监听固定到网卡地址。
+///
+/// `listen_host` 驱动 native / realm / nftables 的监听；隧道的 `TunnelSpec.listen`
+/// 是独立字符串，也要换 host（IPv6 由 [`crate::nic::pin_listen_host`] 补方括号）。
+/// `None` 时一个字段都不改，保证未配置网卡的服务器逐字节不变。
+fn pin_forwards_to_nic(forwards: &mut [DesiredForward], address: Option<&str>) {
+    let Some(address) = address else {
+        return;
+    };
+    for forward in forwards {
+        forward.listen_host = Some(address.to_string());
+        if let Some(tunnel) = &mut forward.tunnel {
+            tunnel.listen = crate::nic::pin_listen_host(&tunnel.listen, address);
+        }
+    }
 }
 
 /// 后台任务没有请求头，按环境变量推出对外地址。
@@ -1043,6 +1072,7 @@ mod tests {
                         listen_transport: None,
                         remote_transport: None,
                         disable_udp: false,
+                        listen_host: None,
                         tunnel: None,
                     }]
                 );
@@ -1309,5 +1339,218 @@ mod tests {
             "{:?}",
             rendered.warnings
         );
+    }
+
+    async fn set_interfaces(state: &AppState, server_id: &str, interfaces: &str) {
+        repo::servers::update_health(
+            &state.db.pool,
+            server_id,
+            "0.9.5",
+            &repo::servers::HealthSnapshot {
+                interfaces_json: interfaces.to_string(),
+                interfaces_reported: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    fn sample_node() -> repo::nodes::NewNode {
+        repo::nodes::NewNode {
+            tag: Some("vless-1".into()),
+            name: "vless-1".into(),
+            protocol: "vless".into(),
+            transport: "tcp".into(),
+            security: "none".into(),
+            port: 443,
+            public_port: None,
+            config_json: r#"{"settings":{"clients":[],"decryption":"none"}}"#.into(),
+            enabled: true,
+            cert_id: None,
+            bandwidth_kbps: None,
+        }
+    }
+
+    /// 网卡地址同时注入 xray（入站 listen / 出站 sendThrough）与转发 listen_host。
+    #[tokio::test]
+    async fn nic_address_pins_xray_and_forward_listen_addresses() {
+        let (state, server) = fixture(false, "0.9.5", None).await;
+        repo::nodes::create(&state.db.pool, &server.id, sample_node())
+            .await
+            .unwrap();
+        repo::forwards::create(
+            &state.db.pool,
+            &server.id,
+            repo::forwards::NewForward {
+                name: "入口".into(),
+                listen_port: 18443,
+                target_host: "10.0.0.8".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "native".into(),
+                protocol: "tcp".into(),
+            },
+        )
+        .await
+        .unwrap();
+        set_interfaces(
+            &state,
+            &server.id,
+            r#"[{"name":"eth0","addresses":["10.0.0.2","2001:db8::2"]}]"#,
+        )
+        .await;
+        repo::servers::set_nic_name(&state.db.pool, &server.id, Some("eth0"))
+            .await
+            .unwrap();
+        let server = repo::servers::find_by_id(&state.db.pool, &server.id)
+            .await
+            .unwrap();
+
+        let desired = render(&state, &server, "https://panel.example.com")
+            .await
+            .unwrap();
+        let inbounds = desired.xray["inbounds"].as_array().unwrap();
+        let node = inbounds
+            .iter()
+            .find(|inbound| inbound["tag"] != "api")
+            .unwrap();
+        assert_eq!(node["listen"], "10.0.0.2");
+        let api = inbounds
+            .iter()
+            .find(|inbound| inbound["tag"] == "api")
+            .unwrap();
+        assert_eq!(api["listen"], "127.0.0.1", "API 入站永远只绑回环");
+        for outbound in desired.xray["outbounds"].as_array().unwrap() {
+            assert_eq!(
+                outbound["streamSettings"]["sockopt"]["sendThrough"], "10.0.0.2",
+                "每个出站都必须走网卡：{}",
+                outbound["tag"]
+            );
+        }
+        assert_eq!(desired.forwards.len(), 1);
+        assert_eq!(
+            desired.forwards[0].listen_host.as_deref(),
+            Some("10.0.0.2"),
+            "独立转发的监听地址也必须固定到网卡"
+        );
+    }
+
+    /// 隧道 listen 是独立字符串：IPv6 要补方括号；None 时一个字段都不许改。
+    #[test]
+    fn pin_forwards_to_nic_handles_tunnel_listen_and_legacy_none() {
+        let tunnel = pierwave_proto::TunnelSpec {
+            role: pierwave_proto::TunnelRole::Listener,
+            hop_id: "hop-1".into(),
+            listen: "0.0.0.0:19401".into(),
+            remote: String::new(),
+            security: pierwave_proto::TunnelSecurity::Tls,
+            cert_pem_path: String::new(),
+            key_pem_path: String::new(),
+            ca_pem_path: String::new(),
+            hop_secret: String::new(),
+            allowed_targets: Vec::new(),
+            udp: false,
+        };
+        let make = |tunnel: Option<pierwave_proto::TunnelSpec>| DesiredForward {
+            id: "fwd-1".into(),
+            listen_port: 19401,
+            target_host: "10.0.0.8".into(),
+            target_port: 443,
+            targets: Vec::new(),
+            strategy: Default::default(),
+            engine: ForwardEngine::Tunnel,
+            udp: false,
+            protocol: ForwardProtocol::Tcp,
+            listen_transport: None,
+            remote_transport: None,
+            listen_host: None,
+            disable_udp: false,
+            tunnel,
+        };
+        let legacy = make(Some(tunnel.clone()));
+        let mut pinned = vec![legacy.clone()];
+        pin_forwards_to_nic(&mut pinned, Some("2001:db8::2"));
+        assert_eq!(pinned[0].listen_host.as_deref(), Some("2001:db8::2"));
+        assert_eq!(
+            pinned[0].tunnel.as_ref().unwrap().listen,
+            "[2001:db8::2]:19401"
+        );
+
+        let mut untouched = vec![legacy.clone()];
+        pin_forwards_to_nic(&mut untouched, None);
+        assert_eq!(untouched, vec![legacy], "没有网卡时转发必须逐字段不变");
+    }
+
+    /// 网卡没有可用地址：整台服务器阻断，错误里写清原因，绝不回退 0.0.0.0。
+    #[tokio::test]
+    async fn nic_without_usable_address_blocks_the_server() {
+        let (state, server) = fixture(false, "0.9.5", None).await;
+        set_interfaces(&state, &server.id, r#"[{"name":"eth1","addresses":[]}]"#).await;
+        repo::servers::set_nic_name(&state.db.pool, &server.id, Some("eth1"))
+            .await
+            .unwrap();
+        let server = repo::servers::find_by_id(&state.db.pool, &server.id)
+            .await
+            .unwrap();
+
+        let error = match render(&state, &server, "https://panel.example.com").await {
+            Ok(_) => panic!("没有可用地址时不能生成期望态"),
+            Err(error) => error,
+        };
+        let text = error.to_string();
+        assert!(
+            text.contains("eth1") && text.contains("没有可用地址"),
+            "{text}"
+        );
+        match error {
+            crate::error::AppError::Coded { code, .. } => {
+                assert_eq!(code, "server.nic_address_unavailable")
+            }
+            other => panic!("必须是带 code 的 400：{other:?}"),
+        }
+    }
+
+    /// 尚未上报网卡：同样阻断下发（不能猜地址），但允许保存由写路径负责。
+    #[tokio::test]
+    async fn unreported_interfaces_block_dispatch() {
+        let (state, server) = fixture(false, "0.9.5", None).await;
+        repo::servers::set_nic_name(&state.db.pool, &server.id, Some("eth0"))
+            .await
+            .unwrap();
+        let server = repo::servers::find_by_id(&state.db.pool, &server.id)
+            .await
+            .unwrap();
+        let error = match render(&state, &server, "https://panel.example.com").await {
+            Ok(_) => panic!("尚未上报网卡时不能生成期望态"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("尚未上报"), "{error}");
+    }
+
+    /// 旧 Agent（没有 interfaces、服务器没配 nic_name）：配置形状与升级前一致。
+    #[tokio::test]
+    async fn no_nic_keeps_legacy_xray_shape() {
+        let (state, server) = fixture(false, "0.9.5", None).await;
+        repo::nodes::create(&state.db.pool, &server.id, sample_node())
+            .await
+            .unwrap();
+        let server = repo::servers::find_by_id(&state.db.pool, &server.id)
+            .await
+            .unwrap();
+        let desired = render(&state, &server, "https://panel.example.com")
+            .await
+            .unwrap();
+        let inbound = desired.xray["inbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|inbound| inbound["tag"] != "api")
+            .unwrap();
+        assert!(inbound.get("listen").is_none());
+        for outbound in desired.xray["outbounds"].as_array().unwrap() {
+            assert!(outbound.get("streamSettings").is_none(), "{outbound}");
+        }
+        assert!(desired.forwards.is_empty());
     }
 }

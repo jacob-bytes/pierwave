@@ -15,6 +15,11 @@ anyhow = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
 tower-http = { workspace = true }
+# P17 网卡绑定：`if-addrs` 只是 getifaddrs 的薄封装，不引入 tokio/rustls 那类大依赖。
+# 体积实测（release + strip + thin LTO，同一台机器，macOS x86_64）：去掉依赖并让
+# `network::collect()` 返回空数组后是 7,270,192 字节，恢复后是 7,270,624 字节，
+# 即 **+432 字节**（约 +0.006%）。
+if-addrs = "0.13"
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }

@@ -110,7 +110,9 @@ async fn handle(mut socket: WebSocket, state: AppState, base_url: String) {
                     "resynced desired state on connect"
                 );
             }
-            Err(e) => tracing::error!(error = %e, "load nodes for resync failed"),
+            // 网卡未上报/无可用地址等阻断原因会走到这里：不补发任何配置，
+            // 等服务器信息修好后下一次 apply 再下发。
+            Err(e) => tracing::error!(error = %e, "render desired state for resync failed"),
         }
     }
 
@@ -186,6 +188,8 @@ async fn send_json(socket: &mut WebSocket, message: &MasterMessage) -> bool {
 async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: &str, text: &str) {
     match serde_json::from_str::<AgentMessage>(text) {
         Ok(AgentMessage::Heartbeat(hb)) => {
+            // 先序列化网卡列表再逐个 move hb 的字段，避免部分移动。
+            let interfaces_json = crate::nic::encode_interfaces(&hb.interfaces);
             let health = repo::servers::HealthSnapshot {
                 arch: hb.arch,
                 os_name: hb.os_name,
@@ -204,6 +208,8 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
                 disk_total: hb.disk_total as i64,
                 uptime_secs: hb.uptime_secs as i64,
                 latency_ms: hb.latency_ms.map(i64::from),
+                interfaces_json,
+                interfaces_reported: hb.interfaces_reported,
             };
             // 心跳自带的版本优先：Agent 升级重启后，第一个心跳就能把新版本带上来，
             // 不用等下次重连才更新 UI。
@@ -1250,6 +1256,8 @@ mod tests {
                 tunnel_available: None,
                 forwards,
                 latency_ms: None,
+                interfaces: Vec::new(),
+                interfaces_reported: false,
                 uptime_secs: 1,
                 load1: 0.0,
                 mem_used: 0,
@@ -1504,6 +1512,8 @@ mod tests {
                     traffic_out: None,
                 }],
                 latency_ms: None,
+                interfaces: Vec::new(),
+                interfaces_reported: false,
                 uptime_secs: 1,
                 load1: 0.0,
                 mem_used: 0,
@@ -2646,5 +2656,68 @@ mod upgrade_tests {
             .unwrap()
             .unwrap();
         assert_eq!(latest.status, "pending");
+    }
+
+    /// 心跳里的网卡列表：新 Agent 落库并记录上报时间，服务器 JSON 里可见；
+    /// 旧 Agent（没有新字段）不覆盖最近一次上报，行为与升级前一致。
+    #[tokio::test]
+    async fn heartbeat_interfaces_are_persisted_and_serialized() {
+        let (state, server_id) = fixture().await;
+
+        let send = |interfaces: Option<serde_json::Value>| {
+            let mut heartbeat = serde_json::json!({
+                "type": "heartbeat",
+                "seq": 1,
+                "agent_version": "0.9.5",
+                "uptime_secs": 1,
+                "load1": 0.0,
+                "mem_used": 0,
+                "mem_total": 0,
+                "disk_used": 0,
+                "disk_total": 0,
+                "xray_running": true,
+                "nginx_running": true,
+            });
+            // None 模拟旧 Agent：两个字段整个缺失。
+            if let Some(interfaces) = interfaces {
+                heartbeat["interfaces"] = interfaces;
+                heartbeat["interfaces_reported"] = serde_json::json!(true);
+            }
+            let text = heartbeat.to_string();
+            let state = state.clone();
+            let server_id = server_id.clone();
+            async move {
+                handle_agent_message(&state, &server_id, "0.9.5", &text).await;
+            }
+        };
+
+        send(Some(serde_json::json!([
+            {"name": "eth0", "addresses": ["10.0.0.2", "2001:db8::2"]},
+            {"name": "eth1", "addresses": []}
+        ])))
+        .await;
+        let row = repo::servers::find_by_id(&state.db.pool, &server_id)
+            .await
+            .unwrap();
+        assert_eq!(row.nic_name, None, "心跳不能自己启用网卡限制");
+        assert!(
+            row.interfaces_reported_at.is_some(),
+            "新版 Agent 上报后必须记录时间戳"
+        );
+        let value = serde_json::to_value(&row).unwrap();
+        assert_eq!(value["interfaces"][0]["name"], "eth0");
+        assert_eq!(value["interfaces"][0]["addresses"][0], "10.0.0.2");
+        assert_eq!(value["interfaces"][1]["name"], "eth1");
+
+        // 旧 Agent 的心跳不带新字段：不能清掉最近一次上报（行为与升级前一致）。
+        send(None).await;
+        let row = repo::servers::find_by_id(&state.db.pool, &server_id)
+            .await
+            .unwrap();
+        assert_eq!(
+            row.interfaces_json,
+            "[{\"name\":\"eth0\",\"addresses\":[\"10.0.0.2\",\"2001:db8::2\"]},{\"name\":\"eth1\",\"addresses\":[]}]"
+        );
+        assert!(row.interfaces_reported_at.is_some());
     }
 }

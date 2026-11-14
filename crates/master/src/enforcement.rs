@@ -397,7 +397,27 @@ async fn backfill_legacy_snapshot(
     let Ok(server) = repo::servers::find_by_id(&state.db.pool, server_id).await else {
         return Ok(None);
     };
-    let desired = desired::render(state, &server, &desired::default_base_url()).await?;
+    // 单台服务器被阻断（例如 nic_name 指向的网卡没有可用地址）不能让整轮
+    // 对账失败；跳过它的旧快照回填，其它服务器照常处理。
+    let desired = match desired::render(state, &server, &desired::default_base_url()).await {
+        Ok(desired) => desired,
+        // 网卡阻断是单台服务器的状态，不应让整轮对账失败；其它错误保持原样上报。
+        Err(error)
+            if matches!(
+                &error,
+                crate::error::AppError::Coded { code, .. }
+                    if *code == "server.nic_address_unavailable"
+            ) =>
+        {
+            tracing::warn!(
+                server = %server.name,
+                error = %error,
+                "网卡不可用，跳过旧快照回填"
+            );
+            return Ok(None);
+        }
+        Err(error) => return Err(error.into()),
+    };
     if snapshot.config_version != server.config_version
         || snapshot.fingerprint != desired::fingerprint(&desired.xray)
     {
