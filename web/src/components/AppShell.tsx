@@ -277,7 +277,7 @@ function SidebarBody({
         )}
       </Link>
 
-      <nav className="flex-1 overflow-y-auto p-3">
+      <nav className="flex-1 overflow-y-auto overscroll-y-contain p-3">
         {navGroups.map((group, index) => (
           <div key={group.titleKey}>
             {collapsed ? (
@@ -408,7 +408,18 @@ export default function AppShell({ user }: { user: SessionUser }) {
   }
 
   return (
-    <div className="flex h-full bg-background text-foreground">
+    /*
+     * 整个后台只有「内容区」一个滚动容器，文档本身必须永远不可滚动。
+     *
+     * `relative` + `overflow-hidden` 不是装饰：shadcn Checkbox 会渲染一个
+     * `position: absolute` 的隐藏 input（Radix 的 BubbleInput），而 `main`
+     * 是 static 定位。绝对定位元素会以更外层（这里是初始包含块）为包含块，
+     * 从而逃出 `main` 的 overflow 裁剪，把文档撑高几十到几百像素。文档一旦
+     * 可滚动，触控板 / 滚轮在 `main` 边界继续滚就会滚到文档上：顶栏、侧栏、
+     * 内容区一起被推出视口，底部露出 body 底色，松手也不复原。
+     * 根容器定位 + 裁剪后，这类逃逸元素被约束在 shell 内，文档高度恒等于视口。
+     */
+    <div className="relative flex h-full overflow-hidden bg-background text-foreground">
       <aside
         className={cn(
           // 侧栏跟页面底同色，内容区再抬一档（bg-card/40），形成「深 → 浅」两层。
@@ -648,7 +659,7 @@ export default function AppShell({ user }: { user: SessionUser }) {
           </DropdownMenu>
         </header>
 
-        <main className="min-h-0 flex-1 overflow-y-auto p-6">
+        <main className="relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-6">
           {/*
             每个路由一个独立边界：渲染异常只影响当前页，切换路径时
             通过 key 重新挂载，上一页的错误状态不会残留。
