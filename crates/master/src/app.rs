@@ -175,6 +175,14 @@ pub fn router(state: AppState) -> Router {
             post(routes::me::reset_subscription),
         )
         .route("/api/v1/me/password", post(routes::me::change_password))
+        .route(
+            "/api/v1/me/forwards",
+            get(routes::forwards::me_list).post(routes::forwards::me_create),
+        )
+        .route(
+            "/api/v1/me/forwards/{id}",
+            patch(routes::forwards::me_update).delete(routes::forwards::me_delete),
+        )
         .route("/api/agent/install.sh", get(routes::install::script))
         .route("/api/agent/download/{file}", get(routes::install::download))
         .route("/api/agent/release/{*rest}", get(routes::install::release))

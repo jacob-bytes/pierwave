@@ -801,6 +801,8 @@ pub mod sessions {
 }
 
 pub mod servers {
+    use sqlx::QueryBuilder;
+
     use super::*;
 
     /// Agent 心跳里与本项目相关的健康指标。
@@ -1083,6 +1085,28 @@ pub mod servers {
                 .fetch_all(pool)
                 .await?,
         )
+    }
+
+    /// 这批服务器 id 里哪些不存在；套餐自助转发白名单校验用。
+    ///
+    /// 外键会在写入时报错，但业务层需要的是「400 + 中文提示」，所以先查一次。
+    pub async fn missing_ids(pool: &SqlitePool, ids: &[String]) -> anyhow::Result<Vec<String>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut builder = QueryBuilder::new("SELECT id FROM servers WHERE id IN (");
+        let mut separated = builder.separated(", ");
+        for id in ids {
+            separated.push_bind(id.clone());
+        }
+        separated.push_unseparated(")");
+        let found: Vec<String> = builder.build_query_scalar().fetch_all(pool).await?;
+        let found: std::collections::HashSet<&str> = found.iter().map(String::as_str).collect();
+        Ok(ids
+            .iter()
+            .filter(|id| !found.contains(id.as_str()))
+            .cloned()
+            .collect())
     }
 
     /// 列表页专用：服务器 + 每台的节点统计。
@@ -2546,13 +2570,64 @@ pub mod forwards {
         server_id: &str,
         input: NewForward,
     ) -> anyhow::Result<Forward> {
+        let mut tx = pool.begin().await?;
+        let id = insert_in_tx(&mut tx, server_id, input, None).await?;
+        tx.commit().await?;
+        find_by_id(pool, &id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("转发规则创建后读取失败"))
+    }
+
+    /// 用户自助创建：`owner_user_id` 落到规则上，并在同一事务里复核配额。
+    ///
+    /// 配额在事务内重新数一遍（而不是只信调用方的预检），避免并发创建
+    /// 各自都看到「还差一条」而多建。`quota_limit <= 0` 与「已满」都返回
+    /// `me.forward_quota_exceeded`（400），由 master 的错误链原样带给前端。
+    pub async fn create_owned(
+        pool: &SqlitePool,
+        server_id: &str,
+        input: NewForward,
+        owner_user_id: &str,
+        quota_limit: i64,
+    ) -> anyhow::Result<Forward> {
+        let mut tx = pool.begin().await?;
+        let used: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM forwards WHERE owner_user_id = ?")
+            .bind(owner_user_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        if used >= quota_limit.max(0) {
+            let message = if quota_limit <= 0 {
+                "当前套餐没有开通自助转发配额".to_string()
+            } else {
+                format!("转发规则数量已达套餐上限（{used}/{quota_limit}）")
+            };
+            return Err(crate::error::DomainError::with_params(
+                "me.forward_quota_exceeded",
+                serde_json::json!({ "limit": quota_limit.max(0), "used": used }),
+                message,
+            )
+            .into());
+        }
+        let id = insert_in_tx(&mut tx, server_id, input, Some(owner_user_id)).await?;
+        tx.commit().await?;
+        find_by_id(pool, &id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("转发规则创建后读取失败"))
+    }
+
+    async fn insert_in_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+        server_id: &str,
+        input: NewForward,
+        owner_user_id: Option<&str>,
+    ) -> anyhow::Result<String> {
         let id = Uuid::new_v4().to_string();
         let ts = now();
         sqlx::query(
             "INSERT INTO forwards
                 (id, server_id, name, listen_port, target_host, target_port, enabled, engine,
-                 protocol, udp, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 protocol, udp, owner_user_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(server_id)
@@ -2565,13 +2640,36 @@ pub mod forwards {
         .bind(crate::protocol::from_db(&input.protocol))
         // 旧 udp 列只作镜像：读路径以 protocol 为准。
         .bind(i64::from(crate::protocol::is_both(&input.protocol)))
+        .bind(owner_user_id)
         .bind(ts)
         .bind(ts)
-        .execute(pool)
+        .execute(&mut **tx)
         .await?;
-        find_by_id(pool, &id)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("转发规则创建后读取失败"))
+        Ok(id)
+    }
+
+    /// 某用户创建的转发条数（配额判定与列表页 quota 展示共用）。
+    pub async fn count_by_owner(pool: &SqlitePool, owner_user_id: &str) -> anyhow::Result<i64> {
+        Ok(
+            sqlx::query_scalar("SELECT COUNT(*) FROM forwards WHERE owner_user_id = ?")
+                .bind(owner_user_id)
+                .fetch_one(pool)
+                .await?,
+        )
+    }
+
+    /// 用户自助列表：只按 `owner_user_id` 过滤，排序与管理员列表一致。
+    pub async fn list_by_owner(
+        pool: &SqlitePool,
+        owner_user_id: &str,
+    ) -> anyhow::Result<Vec<Forward>> {
+        Ok(sqlx::query_as::<_, Forward>(
+            "SELECT * FROM forwards WHERE owner_user_id = ?
+             ORDER BY created_at ASC, rowid ASC",
+        )
+        .bind(owner_user_id)
+        .fetch_all(pool)
+        .await?)
     }
 
     pub async fn find_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<Forward>> {
@@ -3991,7 +4089,120 @@ pub mod packages {
             package.node_scope = if explicit { "custom" } else { "all" }.to_string();
             package.node_ids = node_ids;
         }
+        fill_forward_servers(pool, packages).await
+    }
+
+    /// 批量补齐自助转发服务器白名单；与节点范围分开查，避免 JOIN 放大行数。
+    async fn fill_forward_servers(
+        pool: &SqlitePool,
+        packages: &mut [Package],
+    ) -> anyhow::Result<()> {
+        if packages.is_empty() {
+            return Ok(());
+        }
+        let mut builder = QueryBuilder::new(
+            "SELECT package_id, server_id FROM package_forward_servers
+             WHERE package_id IN (",
+        );
+        let mut separated = builder.separated(", ");
+        for package in packages.iter() {
+            separated.push_bind(package.id.clone());
+        }
+        separated.push_unseparated(") ORDER BY package_id ASC, server_id ASC");
+        let rows = builder
+            .build_query_as::<(String, String)>()
+            .fetch_all(pool)
+            .await?;
+        let mut by_id: HashMap<String, Vec<String>> = HashMap::new();
+        for (package_id, server_id) in rows {
+            by_id.entry(package_id).or_default().push(server_id);
+        }
+        for package in packages.iter_mut() {
+            package.forward_server_ids = by_id.remove(&package.id).unwrap_or_default();
+        }
         Ok(())
+    }
+
+    /// 覆盖写套餐的自助转发规则（`forward_limit` + 服务器白名单）。
+    ///
+    /// 调用方负责先校验 server id 存在；本函数只做写入，返回套餐是否存在。
+    /// 与节点范围一样是一次全量替换，`[]` 才是「一台都不给」。
+    pub async fn set_forward_rules(
+        pool: &SqlitePool,
+        package_id: &str,
+        forward_limit: i64,
+        server_ids: &[String],
+    ) -> anyhow::Result<bool> {
+        let mut tx = pool.begin().await?;
+        let res = sqlx::query("UPDATE packages SET forward_limit = ? WHERE id = ?")
+            .bind(forward_limit)
+            .bind(package_id)
+            .execute(&mut *tx)
+            .await?;
+        if res.rows_affected() == 0 {
+            return Ok(false);
+        }
+        sqlx::query("DELETE FROM package_forward_servers WHERE package_id = ?")
+            .bind(package_id)
+            .execute(&mut *tx)
+            .await?;
+        for server_id in server_ids {
+            sqlx::query(
+                "INSERT INTO package_forward_servers (package_id, server_id) VALUES (?, ?)",
+            )
+            .bind(package_id)
+            .bind(server_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(true)
+    }
+
+    /// 用户当前生效的自助转发额度与服务器白名单。
+    ///
+    /// 每次写入都现查，**不缓存**：管理员改套餐后下一条请求立即按新值判定。
+    /// 状态判定复用 [`crate::models::package_status_at`]：停用 / 过期 / 用尽
+    /// 的套餐都不发条数，也不放行服务器。
+    pub async fn forward_allowance(
+        pool: &SqlitePool,
+        user_id: &str,
+        now: i64,
+    ) -> anyhow::Result<crate::forwards::ForwardAllowance> {
+        let rows = sqlx::query_as::<_, (String, i64, Option<i64>, Option<i64>, i64)>(
+            "SELECT p.id, p.forward_limit, up.expires_at,
+                    COALESCE(up.quota_override, p.quota_bytes) AS quota_bytes,
+                    up.used_bytes
+             FROM user_packages up
+             JOIN packages p ON p.id = up.package_id
+             WHERE up.user_id = ? AND up.status = 'active'",
+        )
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?;
+
+        let mut grants: Vec<(i64, Vec<String>)> = Vec::new();
+        for (package_id, forward_limit, expires_at, quota_bytes, used_bytes) in rows {
+            if crate::models::package_status_at("active", expires_at, quota_bytes, used_bytes, now)
+                != "active"
+            {
+                continue;
+            }
+            // 只在确实发放条数时才需要白名单，省一次查询也避免误放行。
+            let server_ids: Vec<String> = if forward_limit > 0 {
+                sqlx::query_scalar(
+                    "SELECT server_id FROM package_forward_servers
+                     WHERE package_id = ? ORDER BY server_id ASC",
+                )
+                .bind(&package_id)
+                .fetch_all(pool)
+                .await?
+            } else {
+                Vec::new()
+            };
+            grants.push((forward_limit, server_ids));
+        }
+        Ok(crate::forwards::ForwardAllowance::from_grants(&grants))
     }
 
     pub async fn find_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<Package>> {
@@ -4016,7 +4227,8 @@ pub mod packages {
     pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<Package>> {
         let mut items = sqlx::query_as::<_, Package>(
             "SELECT p.id, p.name, p.quota_bytes, p.period_days, p.direction, p.node_ratio,
-                    p.speed_limit_kbps, p.rule_template_id, p.created_at, COUNT(up.id) AS user_count
+                    p.speed_limit_kbps, p.rule_template_id, p.forward_limit, p.created_at,
+                    COUNT(up.id) AS user_count
              FROM packages p
              LEFT JOIN user_packages up ON up.package_id = p.id
              GROUP BY p.id

@@ -27,6 +27,7 @@ import {
   type CreateCertificateInput,
   type CreateChainInput,
   type CreateForwardInput,
+  type CreateMeForwardInput,
   type CreateNodeInput,
   type CreateOutboundInput,
   type CreatePackageInput,
@@ -37,6 +38,8 @@ import {
   type EnforcementEvent,
   type Forward,
   type Health,
+  type MeForward,
+  type MeForwardsResponse,
   type MeSummary,
   type MeTraffic,
   type Node,
@@ -87,6 +90,8 @@ export const queryKeys = {
   meSummary: ["me", "summary"] as const,
   meTraffic: (days: number) => ["me", "traffic", days] as const,
   meEvents: (limit: number) => ["me", "events", limit] as const,
+  /** 用户自助转发：列表响应里同时带配额与可用服务器。 */
+  myForwards: ["me", "forwards"] as const,
   health: ["health"] as const,
   /** P10：公开状态页；不需要登录态，单独缓存。 */
   publicStatus: ["public-status"] as const,
@@ -297,6 +302,114 @@ export function useResetSubscription() {
     mutationFn: () => api.me.resetSubscription(),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.me });
+    },
+  });
+}
+
+/** 新建 / PATCH 的响应可能是 `{ forward }`、`{ item }` 或 item 本身。 */
+function createdMyForward(
+  response: Partial<MeForward> & {
+    forward?: MeForward;
+    item?: MeForward;
+  },
+): MeForward | null {
+  if (response.forward) return response.forward;
+  if (response.item) return response.item;
+  return typeof response.id === "string" ? (response as MeForward) : null;
+}
+
+/** 用户自助转发列表：`items` + 配额 + 可用服务器（旧后端可能没有后者）。 */
+export function useMyForwards() {
+  return useQuery<MeForwardsResponse>({
+    queryKey: queryKeys.myForwards,
+    queryFn: api.me.forwards.list,
+    staleTime: 10_000,
+    retry: false,
+  });
+}
+
+export function useCreateMyForward() {
+  const queryClient = useQueryClient();
+
+  return useMutation<MeForward | null, Error, CreateMeForwardInput>({
+    mutationFn: async (input) =>
+      createdMyForward(await api.me.forwards.create(input)),
+    onSuccess: (created) => {
+      // 先本地插入，成功对话框能立即拿到入口地址；随后再拉权威值。
+      if (created) {
+        queryClient.setQueryData<MeForwardsResponse>(
+          queryKeys.myForwards,
+          (previous) =>
+            previous
+              ? {
+                  ...previous,
+                  items: [
+                    created,
+                    ...previous.items.filter((item) => item.id !== created.id),
+                  ],
+                  quota: {
+                    ...previous.quota,
+                    used: Math.min(
+                      previous.quota.used + 1,
+                      previous.quota.limit,
+                    ),
+                  },
+                }
+              : previous,
+        );
+      }
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.myForwards,
+      });
+    },
+  });
+}
+
+export function useUpdateMyForward() {
+  const queryClient = useQueryClient();
+  const queryKey = queryKeys.myForwards;
+
+  return useMutation<
+    MeForward | null,
+    Error,
+    { id: string; enabled: boolean },
+    { previous?: MeForwardsResponse }
+  >({
+    mutationFn: async ({ id, enabled }) =>
+      createdMyForward(await api.me.forwards.update(id, { enabled })),
+    onMutate: async ({ id, enabled }) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<MeForwardsResponse>(queryKey);
+      if (previous) {
+        queryClient.setQueryData<MeForwardsResponse>(queryKey, {
+          ...previous,
+          items: previous.items.map((item) =>
+            item.id === id ? { ...item, enabled } : item,
+          ),
+        });
+      }
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKey, context.previous);
+      }
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey });
+    },
+  });
+}
+
+export function useDeleteMyForward() {
+  const queryClient = useQueryClient();
+
+  return useMutation<{ ok: true }, Error, string>({
+    mutationFn: (id) => api.me.forwards.remove(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.myForwards,
+      });
     },
   });
 }

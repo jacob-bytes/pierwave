@@ -7,13 +7,16 @@
 //! * 每次写操作都标脏并立即下发一次，转发规则不必等 30 秒去抖；
 //! * 运行时状态来自 Agent 心跳缓存（`forward_status`），列表里合并成 `runtime`。
 
+use std::collections::HashMap;
+
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use pierwave_domain::models::Server;
+use pierwave_domain::models::{Server, UserForwardView};
+use pierwave_domain::port_policy::PortPolicy;
 use pierwave_domain::{engine, forwards, protocol, repo};
 
 use crate::auth::CurrentUser;
@@ -478,6 +481,295 @@ pub async fn delete(
             "target_port": existing.target_port,
             "engine": &existing.engine,
             "udp": existing.udp,
+        }),
+    )
+    .await;
+
+    let server = load_server(&state, &existing.server_id).await?;
+    let base = super::install::external_base(&headers);
+    mark_dirty_and_apply(&state, &server, &base).await;
+
+    Ok(Json(json!({ "ok": true })))
+}
+
+// ---------------------------------------------------------------------------
+// 用户自助转发：`/api/v1/me/forwards`
+//
+// 与管理端共用同一套校验/端口分配/下发实现，只多了三件事：
+// 1. 身份只来自会话，绝不接受请求里的 user_id；
+// 2. 额度与服务器白名单每次现查套餐（不缓存）；
+// 3. 监听端口由服务器端口策略自动分配，用户不能指定。
+// ---------------------------------------------------------------------------
+
+fn quota_error(limit: i64, used: i64) -> AppError {
+    let limit = limit.max(0);
+    let message = if limit == 0 {
+        "当前套餐没有开通自助转发配额".to_string()
+    } else {
+        format!("转发规则数量已达套餐上限（{used}/{limit}）")
+    };
+    AppError::coded(
+        "me.forward_quota_exceeded",
+        Some(json!({ "limit": limit, "used": used })),
+        message,
+    )
+}
+
+/// 取一条属于当前用户的转发；不属于自己时按「不存在」处理。
+///
+/// 用 404 而不是 403：否则可以靠错误码枚举出别人转发 id 是否存在。
+async fn load_owned_forward(
+    state: &AppState,
+    owner_user_id: &str,
+    id: &str,
+) -> AppResult<pierwave_domain::models::Forward> {
+    match repo::forwards::find_by_id(&state.db.pool, id).await? {
+        Some(forward) if forward.owner_user_id.as_deref() == Some(owner_user_id) => Ok(forward),
+        _ => Err(AppError::not_found(
+            "me.forward_not_found",
+            None,
+            "转发规则不存在",
+        )),
+    }
+}
+
+/// 按服务器端口策略自动分配一个空闲端口。
+///
+/// 复用链的分配器（[`PortPolicy::allocate`]）：不限制时用 20000-29999 池，
+/// 有限制时只在「区间 ∪ 额外端口」里挑。保留端口（API 10085 / SSH 22）与
+/// 回环目标端口会先并入占用集合，避免刚分到就撞门禁。
+async fn allocate_user_port(
+    state: &AppState,
+    server: &Server,
+    target_host: &str,
+    target_port: i64,
+) -> AppResult<i64> {
+    let policy = PortPolicy::from_server(server);
+    let mut occupied =
+        repo::chains::occupied_listen_ports(&state.db.pool, &server.id, None).await?;
+    occupied.extend(forwards::RESERVED_PORTS.iter().copied());
+    if forwards::is_loopback_host(target_host) {
+        occupied.insert(target_port);
+    }
+    let listen_port = policy.allocate(&server.id, &server.name, &occupied)?;
+    forwards::ensure_port_not_reserved(listen_port)?;
+    forwards::ensure_not_self_loop("0.0.0.0", listen_port, target_host, target_port)?;
+    Ok(listen_port)
+}
+
+/// 用户自己的转发列表：只按 `owner_user_id = 会话用户` 过滤。
+pub async fn me_list(State(state): State<AppState>, user: CurrentUser) -> AppResult<Json<Value>> {
+    let allowance =
+        repo::packages::forward_allowance(&state.db.pool, &user.0.id, repo::now()).await?;
+    let used = repo::forwards::count_by_owner(&state.db.pool, &user.0.id).await?;
+    let servers: HashMap<String, Server> = repo::servers::list(&state.db.pool)
+        .await?
+        .into_iter()
+        .map(|server| (server.id.clone(), server))
+        .collect();
+
+    let mut items = Vec::new();
+    for forward in repo::forwards::list_by_owner(&state.db.pool, &user.0.id).await? {
+        // 外键 ON DELETE CASCADE 保证服务器一定还在；真出现脏数据时跳过，
+        // 不让一条孤立行把整页变成 500。
+        let Some(server) = servers.get(&forward.server_id) else {
+            tracing::warn!(
+                forward_id = %forward.id,
+                server_id = %forward.server_id,
+                "用户转发的服务器不存在，已跳过"
+            );
+            continue;
+        };
+        let mut view = UserForwardView::new(forward, server);
+        // 与管理员列表同口径：仅 UDP 遇到旧 Agent 时标 blocked。
+        if let Err(error) = protocol::ensure_forward_agent_supported(
+            &view.forward.protocol,
+            server.protocol_version,
+            &server.name,
+        ) {
+            view.blocked_code = Some(error.code.to_string());
+            view.blocked_reason = Some(error.message);
+        }
+        items.push(view);
+    }
+
+    Ok(Json(json!({
+        "items": items,
+        "quota": { "limit": allowance.limit, "used": used },
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct CreateUserForward {
+    #[serde(default)]
+    pub server_id: String,
+    #[serde(default)]
+    pub target_host: String,
+    pub target_port: i64,
+    /// `tcp`（缺省）/ `both`；`udp` 仍受 Agent 能力门禁约束。
+    ///
+    /// 有意不接受 `listen_port` / `engine` / `name`：端口由服务端分配，
+    /// 引擎固定 native，名称由目标自动生成。
+    #[serde(default)]
+    pub protocol: Option<String>,
+}
+
+pub async fn me_create(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    user: CurrentUser,
+    Json(req): Json<CreateUserForward>,
+) -> AppResult<Json<Value>> {
+    let server = load_server(&state, &req.server_id).await?;
+    let allowance =
+        repo::packages::forward_allowance(&state.db.pool, &user.0.id, repo::now()).await?;
+    let used = repo::forwards::count_by_owner(&state.db.pool, &user.0.id).await?;
+
+    // 顺序：完全没配额 → 400；有配额但服务器不在白名单 → 403；
+    // 白名单通过但已满 → 400。两种失败原因不混在一条文案里。
+    if allowance.limit <= 0 {
+        return Err(quota_error(allowance.limit, used));
+    }
+    if !allowance.allows_server(&server.id) {
+        return Err(AppError::forbidden(
+            "me.forward_server_not_allowed",
+            Some(json!({
+                "server_id": &server.id,
+                "server_name": &server.name,
+            })),
+            format!("当前套餐不允许在服务器「{}」上创建转发", server.name),
+        ));
+    }
+    if used >= allowance.limit {
+        return Err(quota_error(allowance.limit, used));
+    }
+
+    let target_host = forwards::normalize_target_host(&req.target_host)?;
+    forwards::validate_target_port(req.target_port)?;
+    let protocol = match req.protocol.as_deref() {
+        Some(raw) => protocol::normalize_forward(raw)?,
+        None => protocol::DEFAULT.to_string(),
+    };
+    protocol::ensure_forward_agent_supported(&protocol, server.protocol_version, &server.name)?;
+
+    let listen_port = allocate_user_port(&state, &server, &target_host, req.target_port).await?;
+    let name = forwards::default_owner_name(&target_host, req.target_port);
+    let conflict_name = name.clone();
+    let forward = repo::forwards::create_owned(
+        &state.db.pool,
+        &server.id,
+        repo::forwards::NewForward {
+            name,
+            listen_port,
+            target_host,
+            target_port: req.target_port,
+            enabled: true,
+            engine: engine::DEFAULT.to_string(),
+            protocol,
+        },
+        &user.0.id,
+        allowance.limit,
+    )
+    .await
+    .map_err(|error| match AppError::from_domain_chain(&error) {
+        // 并发下配额可能刚好被另一条请求抢走：仍按 400 返回，不能变成 500。
+        Some(domain) => domain,
+        None => map_port_conflict(error, listen_port, &conflict_name),
+    })?;
+
+    crate::audit::record(
+        &state,
+        &user.0,
+        "user_forward.create",
+        &forward.id,
+        json!({
+            // 只放 id 与规则事实，不放用户名/邮箱等隐私字段。
+            "forward_id": &forward.id,
+            "server_id": &forward.server_id,
+            "server_name": &server.name,
+            "listen_port": forward.listen_port,
+            "target_host": &forward.target_host,
+            "target_port": forward.target_port,
+            "protocol": &forward.protocol,
+        }),
+    )
+    .await;
+
+    let base = super::install::external_base(&headers);
+    mark_dirty_and_apply(&state, &server, &base).await;
+
+    let used_after = repo::forwards::count_by_owner(&state.db.pool, &user.0.id).await?;
+    Ok(Json(json!({
+        "forward": UserForwardView::new(forward, &server),
+        "quota": { "limit": allowance.limit, "used": used_after },
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct PatchUserForward {
+    pub enabled: Option<bool>,
+}
+
+/// 用户只能改自己的启用状态；目标/端口/协议一律不开放。
+pub async fn me_update(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    user: CurrentUser,
+    Path(id): Path<String>,
+    Json(req): Json<PatchUserForward>,
+) -> AppResult<Json<Value>> {
+    let enabled = req
+        .enabled
+        .ok_or_else(|| AppError::coded("request.no_update_fields", None, "至少需要提供 enabled"))?;
+
+    let existing = load_owned_forward(&state, &user.0.id, &id).await?;
+    let server = load_server(&state, &existing.server_id).await?;
+    let forward = repo::forwards::update(
+        &state.db.pool,
+        &id,
+        repo::forwards::UpdateForward {
+            enabled: Some(enabled),
+            ..Default::default()
+        },
+    )
+    .await?
+    .ok_or_else(|| AppError::not_found("me.forward_not_found", None, "转发规则不存在"))?;
+
+    let base = super::install::external_base(&headers);
+    mark_dirty_and_apply(&state, &server, &base).await;
+
+    Ok(Json(json!({
+        "forward": UserForwardView::new(forward, &server),
+    })))
+}
+
+pub async fn me_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    user: CurrentUser,
+    Path(id): Path<String>,
+) -> AppResult<Json<Value>> {
+    let existing = load_owned_forward(&state, &user.0.id, &id).await?;
+    if !repo::forwards::delete(&state.db.pool, &id).await? {
+        return Err(AppError::not_found(
+            "me.forward_not_found",
+            None,
+            "转发规则不存在",
+        ));
+    }
+
+    crate::audit::record(
+        &state,
+        &user.0,
+        "user_forward.delete",
+        &existing.id,
+        json!({
+            "forward_id": &existing.id,
+            "server_id": &existing.server_id,
+            "listen_port": existing.listen_port,
+            "target_host": &existing.target_host,
+            "target_port": existing.target_port,
+            "protocol": &existing.protocol,
         }),
     )
     .await;
@@ -1564,5 +1856,748 @@ mod tests {
         let (status, body) = request(&app, Some(&cookie), Method::DELETE, uri, None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(body["code"], "forward.not_found");
+    }
+
+    // ------------------------------------------------------------------
+    // 用户自助转发（迁移 0044）：配额 / 白名单 / 端口自动分配 / 归属
+    // ------------------------------------------------------------------
+
+    async fn make_user(state: &AppState, username: &str) -> (String, String) {
+        let user = repo::users::create(
+            &state.db.pool,
+            repo::users::NewUser {
+                username: username.into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+                rule_template_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let (token, _) = repo::sessions::create(&state.db.pool, &user.id, 3600, None)
+            .await
+            .unwrap();
+        (user.id, format!("{}={token}", crate::auth::SESSION_COOKIE))
+    }
+
+    async fn add_server(state: &AppState, name: &str, address: &str) -> String {
+        repo::servers::create(&state.db.pool, name, address, "external")
+            .await
+            .unwrap()
+            .0
+            .id
+    }
+
+    async fn create_forward_package(
+        state: &AppState,
+        name: &str,
+        forward_limit: i64,
+        server_ids: &[String],
+    ) -> String {
+        let package = repo::packages::create(
+            &state.db.pool,
+            repo::packages::NewPackage {
+                name: name.into(),
+                quota_bytes: None,
+                period_days: None,
+                direction: "both".into(),
+                node_ratio: 1.0,
+                speed_limit_kbps: None,
+                rule_template_id: None,
+                node_ids: None,
+            },
+        )
+        .await
+        .unwrap();
+        repo::packages::set_forward_rules(&state.db.pool, &package.id, forward_limit, server_ids)
+            .await
+            .unwrap();
+        package.id
+    }
+
+    async fn bind_user_to_package(state: &AppState, user_id: &str, package_id: &str) {
+        bind_user_to_package_until(state, user_id, package_id, None).await;
+    }
+
+    async fn bind_user_to_package_until(
+        state: &AppState,
+        user_id: &str,
+        package_id: &str,
+        expires_at: Option<i64>,
+    ) {
+        let package = repo::packages::find_by_id(&state.db.pool, package_id)
+            .await
+            .unwrap()
+            .unwrap();
+        repo::user_packages::create(
+            &state.db.pool,
+            user_id,
+            repo::user_packages::NewUserPackage {
+                package_id: package.id.clone(),
+                quota_override: None,
+                expires_at,
+                reset_day: None,
+            },
+            &package,
+        )
+        .await
+        .unwrap();
+    }
+
+    fn user_forward_body(server_id: &str, host: &str, port: i64) -> Value {
+        json!({
+            "server_id": server_id,
+            "target_host": host,
+            "target_port": port,
+        })
+    }
+
+    /// 条数由套餐 `forward_limit` 限制；服务器必须在该套餐白名单里；
+    /// 端口自动分配且请求里的 `listen_port` 被忽略。
+    #[tokio::test]
+    async fn user_forwards_use_package_quota_and_whitelist() {
+        let (app, state, _admin_cookie, server_a) = setup().await;
+        let server_b = add_server(&state, "hk-2", "5.6.7.8").await;
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+        let package_id =
+            create_forward_package(&state, "两张卡", 2, std::slice::from_ref(&server_a)).await;
+        bind_user_to_package(&state, &alice_id, &package_id).await;
+
+        // 不在套餐白名单：403，且不消耗配额。
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(user_forward_body(&server_b, "10.0.0.8", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "unexpected: {body}");
+        assert_eq!(body["code"], "me.forward_server_not_allowed");
+        assert_eq!(body["params"]["server_id"], server_b.as_str());
+
+        // 第一条：即使请求里带 listen_port 也必须被忽略，由服务端分配。
+        let mut body = user_forward_body(&server_a, "10.0.0.8", 443);
+        body["listen_port"] = json!(12345);
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let first = &body["forward"];
+        let first_id = first["id"].as_str().unwrap().to_string();
+        assert_ne!(first["listen_port"], 12345, "用户不能指定端口");
+        let first_port = first["listen_port"].as_i64().unwrap();
+        assert_eq!(first["protocol"], "tcp", "缺省协议必须是 tcp");
+        assert_eq!(first["engine"], "native");
+        assert_eq!(first["owner_user_id"], alice_id.as_str());
+        assert_eq!(first["server_name"], "hk-1");
+        assert_eq!(
+            first["entry_address"],
+            format!("1.2.3.4:{first_port}"),
+            "用户视角必须直接带出入口地址"
+        );
+        assert_eq!(body["quota"], json!({"limit": 2, "used": 1}));
+
+        // 第二条：换一个目标地址，端口不能与第一条重复。
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(user_forward_body(&server_a, "10.0.0.9", 8443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let second_port = body["forward"]["listen_port"].as_i64().unwrap();
+        assert_ne!(first_port, second_port, "自动分配不能重复");
+
+        // 第三条：400 + 稳定错误码与插值参数。
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(user_forward_body(&server_a, "10.0.0.10", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "me.forward_quota_exceeded");
+        assert_eq!(body["params"], json!({"limit": 2, "used": 2}));
+
+        // 列表只含自己的两条，并带 quota / entry_address。
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::GET,
+            "/api/v1/me/forwards",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let items = body["items"].as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(body["quota"], json!({"limit": 2, "used": 2}));
+        for item in items {
+            assert_eq!(item["server_id"], server_a.as_str());
+            assert_eq!(
+                item["entry_address"],
+                format!("1.2.3.4:{}", item["listen_port"].as_i64().unwrap())
+            );
+        }
+        assert!(items.iter().any(|item| item["id"] == first_id.as_str()));
+    }
+
+    /// 用户只能看/改/删自己的；管理员仍可用原管理端接口删任意规则。
+    #[tokio::test]
+    async fn user_forwards_are_scoped_to_the_owner_and_admin_keeps_access() {
+        let (app, state, admin_cookie, server_id) = setup().await;
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+        let (bob_id, bob_cookie) = make_user(&state, "bob").await;
+        let alice_package =
+            create_forward_package(&state, "A", 1, std::slice::from_ref(&server_id)).await;
+        let bob_package =
+            create_forward_package(&state, "B", 1, std::slice::from_ref(&server_id)).await;
+        bind_user_to_package(&state, &alice_id, &alice_package).await;
+        bind_user_to_package(&state, &bob_id, &bob_package).await;
+
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(user_forward_body(&server_id, "10.0.0.8", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let id = body["forward"]["id"].as_str().unwrap().to_string();
+
+        // 别人的列表为空。
+        let (status, body) = request(
+            &app,
+            Some(&bob_cookie),
+            Method::GET,
+            "/api/v1/me/forwards",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert!(body["items"].as_array().unwrap().is_empty());
+
+        // 别人的改/删都按「不存在」处理，不能靠错误码探测 id。
+        let uri = format!("/api/v1/me/forwards/{id}");
+        let (status, body) = request(
+            &app,
+            Some(&bob_cookie),
+            Method::PATCH,
+            &uri,
+            Some(json!({"enabled": false})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "unexpected: {body}");
+        assert_eq!(body["code"], "me.forward_not_found");
+        let (status, body) = request(&app, Some(&bob_cookie), Method::DELETE, &uri, None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "unexpected: {body}");
+        assert_eq!(body["code"], "me.forward_not_found");
+
+        // 本人可以停用/启用。
+        for enabled in [false, true] {
+            let (status, body) = request(
+                &app,
+                Some(&alice_cookie),
+                Method::PATCH,
+                &uri,
+                Some(json!({"enabled": enabled})),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+            assert_eq!(body["forward"]["enabled"], enabled);
+        }
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::PATCH,
+            &uri,
+            Some(json!({})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "request.no_update_fields");
+
+        // 管理员列表能看出归属，也能删任意一条。
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::GET,
+            &format!("/api/v1/servers/{server_id}/forwards"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let item = body["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == id.as_str())
+            .expect("管理员列表应包含用户转发");
+        assert_eq!(item["owner_user_id"], alice_id.as_str());
+
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::DELETE,
+            &format!("/api/v1/forwards/{id}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::GET,
+            "/api/v1/me/forwards",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert!(body["items"].as_array().unwrap().is_empty());
+
+        // 管理员创建的规则 owner_user_id 为空，且旧响应形状不出现该字段。
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::POST,
+            &format!("/api/v1/servers/{server_id}/forwards"),
+            Some(forward_body(8443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert!(
+            body["forward"].get("owner_user_id").is_none(),
+            "管理员创建的规则不应多出 owner 字段：{body}"
+        );
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::GET,
+            "/api/v1/me/forwards",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert!(
+            body["items"].as_array().unwrap().is_empty(),
+            "用户列表不能出现管理员创建的转发"
+        );
+    }
+
+    /// 自动分配遵守服务器端口策略与已占用端口；耗尽时是 400 而不是换池。
+    #[tokio::test]
+    async fn user_forward_ports_follow_the_server_port_policy() {
+        let (app, state, _admin_cookie, server_id) = setup().await;
+        repo::servers::set_port_policy(&state.db.pool, &server_id, Some(30000), Some(30002), "[]")
+            .await
+            .unwrap();
+        // 30000 已被节点占用：自动分配必须绕开。
+        add_node(&state, &server_id, 30000).await;
+
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+        let package_id =
+            create_forward_package(&state, "三张卡", 3, std::slice::from_ref(&server_id)).await;
+        bind_user_to_package(&state, &alice_id, &package_id).await;
+
+        let mut ports = Vec::new();
+        for host in ["10.0.0.8", "10.0.0.9"] {
+            let mut body = user_forward_body(&server_id, host, 443);
+            body["listen_port"] = json!(12345);
+            let (status, response) = request(
+                &app,
+                Some(&alice_cookie),
+                Method::POST,
+                "/api/v1/me/forwards",
+                Some(body),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "unexpected: {response}");
+            ports.push(response["forward"]["listen_port"].as_i64().unwrap());
+        }
+        assert_eq!(ports, vec![30001, 30002], "只能从允许区间里取空闲端口");
+
+        // 允许集合已满：400（复用链的分配耗尽错误码），不会回退到 20000 池。
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(user_forward_body(&server_id, "10.0.0.10", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "chain.port_allowed_exhausted");
+    }
+
+    /// 套餐 API 接受并返回 `forward_limit` / `forward_server_ids`；
+    /// 改套餐后下一条请求立即按新值判定（无缓存）。
+    #[tokio::test]
+    async fn package_forward_rules_roundtrip_and_take_effect_immediately() {
+        let (app, state, admin_cookie, server_id) = setup().await;
+        let server_b = add_server(&state, "hk-2", "5.6.7.8").await;
+
+        // 非法配额 / 不存在的服务器都不能落库。
+        for (body, code) in [
+            (
+                json!({"name": "负数", "forward_limit": -1}),
+                "package.forward_limit_invalid",
+            ),
+            (
+                json!({"name": "坏服务器", "forward_limit": 1, "forward_server_ids": ["nope"]}),
+                "package.forward_server_not_found",
+            ),
+        ] {
+            let (status, response) = request(
+                &app,
+                Some(&admin_cookie),
+                Method::POST,
+                "/api/v1/packages",
+                Some(body),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {response}");
+            assert_eq!(response["code"], code);
+        }
+
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::POST,
+            "/api/v1/packages",
+            Some(json!({
+                "name": "自助卡",
+                "forward_limit": 1,
+                "forward_server_ids": [server_id.clone()],
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["package"]["forward_limit"], 1);
+        assert_eq!(
+            body["package"]["forward_server_ids"],
+            json!([server_id.clone()])
+        );
+        let package_id = body["package"]["id"].as_str().unwrap().to_string();
+
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+        bind_user_to_package(&state, &alice_id, &package_id).await;
+
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(user_forward_body(&server_id, "10.0.0.8", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(user_forward_body(&server_id, "10.0.0.9", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "me.forward_quota_exceeded");
+
+        // 改成 2：立即可再建一条。
+        let package_uri = format!("/api/v1/packages/{package_id}");
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::PATCH,
+            &package_uri,
+            Some(json!({"forward_limit": 2})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["package"]["forward_limit"], 2);
+        assert_eq!(
+            body["package"]["forward_server_ids"],
+            json!([server_id.clone()]),
+            "只改配额时白名单必须保持不变"
+        );
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(user_forward_body(&server_id, "10.0.0.9", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+
+        // 清空白名单：即使还有条数也不允许再建（403 先于配额判定）。
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::PATCH,
+            &package_uri,
+            Some(json!({"forward_server_ids": []})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["package"]["forward_server_ids"], json!([]));
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(user_forward_body(&server_id, "10.0.0.10", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "unexpected: {body}");
+        assert_eq!(body["code"], "me.forward_server_not_allowed");
+
+        // 关闭配额：立即 400，而不是继续沿用旧值。
+        let (status, _) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::PATCH,
+            &package_uri,
+            Some(json!({"forward_limit": 0, "forward_server_ids": [server_b]})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(user_forward_body(&server_id, "10.0.0.10", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "me.forward_quota_exceeded");
+        assert_eq!(body["params"]["limit"], 0);
+    }
+
+    /// 只有生效中（未过期 / 未停用 / 未用尽）的套餐才发放额度。
+    #[tokio::test]
+    async fn only_active_packages_grant_forward_quota() {
+        let (app, state, _admin_cookie, server_id) = setup().await;
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+
+        // 过期套餐：limit 再大也不生效。
+        let expired =
+            create_forward_package(&state, "过期卡", 5, std::slice::from_ref(&server_id)).await;
+        bind_user_to_package_until(&state, &alice_id, &expired, Some(repo::now() - 60)).await;
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(user_forward_body(&server_id, "10.0.0.8", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "me.forward_quota_exceeded");
+        assert_eq!(body["params"], json!({"limit": 0, "used": 0}));
+
+        // 生效套餐：limit 1 可用。
+        let active =
+            create_forward_package(&state, "生效卡", 1, std::slice::from_ref(&server_id)).await;
+        bind_user_to_package(&state, &alice_id, &active).await;
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(user_forward_body(&server_id, "10.0.0.8", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+
+        // 停用该套餐实例：下一条请求立即不再授权。
+        let views = repo::user_packages::list_views_by_user(&state.db.pool, &alice_id)
+            .await
+            .unwrap();
+        let instance = views
+            .iter()
+            .find(|view| view.package_id == active)
+            .expect("套餐实例必须存在");
+        repo::user_packages::update(
+            &state.db.pool,
+            &instance.id,
+            repo::user_packages::UpdateUserPackage {
+                status: Some("disabled".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(user_forward_body(&server_id, "10.0.0.9", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "me.forward_quota_exceeded");
+        assert_eq!(body["params"]["limit"], 0, "停用套餐不再发条数");
+    }
+
+    /// 协议：缺省 tcp、允许 both；udp 沿用 Agent 能力门禁。
+    #[tokio::test]
+    async fn user_forward_protocol_defaults_and_udp_gate() {
+        let (app, state, _admin_cookie, server_id) = setup().await;
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+        let package_id =
+            create_forward_package(&state, "协议卡", 10, std::slice::from_ref(&server_id)).await;
+        bind_user_to_package(&state, &alice_id, &package_id).await;
+
+        let mut body = user_forward_body(&server_id, "10.0.0.8", 443);
+        body["protocol"] = json!("both");
+        let (status, response) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {response}");
+        assert_eq!(response["forward"]["protocol"], "both");
+
+        // Agent 协议未知：仅 UDP 必须 400（旧 Agent 会静默只监听 TCP）。
+        let udp_body = |port: i64| {
+            let mut body = user_forward_body(&server_id, "10.0.0.9", port);
+            body["protocol"] = json!("udp");
+            body
+        };
+        let (status, response) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(udp_body(8443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {response}");
+        assert_eq!(response["code"], "forward.protocol_requires_agent_upgrade");
+
+        repo::servers::update_health(
+            &state.db.pool,
+            &server_id,
+            "0.9.0",
+            &repo::servers::HealthSnapshot {
+                protocol_version: Some(16),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let (status, response) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(udp_body(8443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {response}");
+        assert_eq!(response["forward"]["protocol"], "udp");
+    }
+
+    /// 审计只记 id / 目标 / 端口，不写用户名等隐私字段。
+    #[tokio::test]
+    async fn user_forward_audit_has_no_user_privacy() {
+        let (app, state, _admin_cookie, server_id) = setup().await;
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+        let package_id =
+            create_forward_package(&state, "审计卡", 1, std::slice::from_ref(&server_id)).await;
+        bind_user_to_package(&state, &alice_id, &package_id).await;
+
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/forwards",
+            Some(user_forward_body(&server_id, "10.0.0.8", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let id = body["forward"]["id"].as_str().unwrap().to_string();
+        let listen_port = body["forward"]["listen_port"].as_i64().unwrap();
+        let (status, _) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::DELETE,
+            &format!("/api/v1/me/forwards/{id}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        type AuditDetailRow = (String, Option<String>, Option<String>, Option<String>);
+        let rows: Vec<AuditDetailRow> = sqlx::query_as(
+            "SELECT action, target, detail, actor_id FROM audit_log
+             WHERE action LIKE 'user_forward.%' ORDER BY created_at ASC, rowid ASC",
+        )
+        .fetch_all(&state.db.pool)
+        .await
+        .unwrap();
+        assert_eq!(rows.len(), 2, "创建和删除各一条审计");
+        let actions: Vec<&str> = rows.iter().map(|row| row.0.as_str()).collect();
+        assert_eq!(actions, vec!["user_forward.create", "user_forward.delete"]);
+        for (_action, target, detail, actor_id) in rows {
+            assert_eq!(
+                target.as_deref(),
+                Some(id.as_str()),
+                "target 必须是 forward id"
+            );
+            assert_eq!(actor_id.as_deref(), Some(alice_id.as_str()));
+            let detail = detail.unwrap();
+            assert!(!detail.contains("alice"), "detail 不能出现用户名：{detail}");
+            assert!(detail.contains(&id), "detail 必须带 forward id：{detail}");
+            assert!(
+                detail.contains(&listen_port.to_string()),
+                "detail 必须带端口：{detail}"
+            );
+            assert!(detail.contains("10.0.0.8"), "detail 必须带目标：{detail}");
+        }
+    }
+
+    /// 未登录访问 `/me/forwards` 一律 401。
+    #[tokio::test]
+    async fn user_forward_endpoints_require_login() {
+        let (app, _state, _admin_cookie, server_id) = setup().await;
+        for (method, uri, body) in [
+            (Method::GET, "/api/v1/me/forwards".to_string(), None),
+            (
+                Method::POST,
+                "/api/v1/me/forwards".to_string(),
+                Some(user_forward_body(&server_id, "10.0.0.8", 443)),
+            ),
+            (
+                Method::PATCH,
+                "/api/v1/me/forwards/00000000-0000-0000-0000-000000000000".to_string(),
+                Some(json!({"enabled": false})),
+            ),
+            (
+                Method::DELETE,
+                "/api/v1/me/forwards/00000000-0000-0000-0000-000000000000".to_string(),
+                None,
+            ),
+        ] {
+            let (status, _) = request(&app, None, method, &uri, body).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "{uri}");
+        }
     }
 }

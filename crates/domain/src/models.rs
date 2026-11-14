@@ -206,6 +206,11 @@ pub struct Forward {
     /// 监听的协议：`tcp`（默认）/ `udp` / `both`。迁移 0034 之前的 `udp`
     /// 布尔位只在迁移里作为来源，之后不再参与行为判断。
     pub protocol: String,
+    /// 创建者用户 id（迁移 0044）；`None` = 管理员创建。
+    ///
+    /// 自助转发接口只按这一列过滤，绝不相信请求里的用户身份。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_user_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -264,6 +269,39 @@ pub struct ForwardView {
     /// 与 `blocked_code` 配套的中文兜底说明；列表直接展示给用户。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blocked_reason: Option<String>,
+}
+
+/// 用户自助转发的对外视图：规则 + 服务器展示信息 + 入口地址。
+///
+/// `entry_address` = `服务器地址:自动分配的监听端口`，用户不需要再做拼接。
+/// 只返回给 `/api/v1/me/forwards`，管理员仍用 [`ForwardView`]（形状不变）。
+#[derive(Debug, Clone, Serialize)]
+pub struct UserForwardView {
+    #[serde(flatten)]
+    pub forward: Forward,
+    pub server_name: String,
+    pub server_address: String,
+    /// `服务器地址:监听端口`；IPv6 会带方括号。
+    pub entry_address: String,
+    /// 与管理员列表同口径的「仅 UDP + 旧 Agent」门禁提示。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked_reason: Option<String>,
+}
+
+impl UserForwardView {
+    /// 用规则和所属服务器拼出用户视角；不查库。
+    pub fn new(forward: Forward, server: &Server) -> Self {
+        Self {
+            entry_address: crate::forwards::entry_address(&server.address, forward.listen_port),
+            server_name: server.name.clone(),
+            server_address: server.address.clone(),
+            forward,
+            blocked_code: None,
+            blocked_reason: None,
+        }
+    }
 }
 
 /// 一条线性多跳链。跳（组）的配置在 `chain_groups`，这里只放链级字段。
@@ -646,6 +684,8 @@ pub struct Package {
     pub speed_limit_kbps: Option<i64>,
     /// 套餐级规则模板绑定；`null` = 套餐内用户未单独指定时跟随全局默认。
     pub rule_template_id: Option<String>,
+    /// 每个用户最多能创建多少条自助转发；0 = 不允许（迁移 0044 默认值）。
+    pub forward_limit: i64,
     pub created_at: i64,
     /// 当前仍引用该套餐模板的实例数。
     ///
@@ -666,6 +706,12 @@ pub struct Package {
     /// 「全部」和「一个都不给」，这个字段把意图直接暴露出来。
     #[sqlx(skip)]
     pub node_scope: String,
+    /// 允许自助转发落地的服务器 id（升序）；空 = 一台都不允许。
+    ///
+    /// 与节点范围不同，这里没有「未设置 = 全部」的历史语义：迁移 0044 之前
+    /// 所有套餐都是空表，升级后默认就是「不允许任何服务器」。
+    #[sqlx(skip)]
+    pub forward_server_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize)]

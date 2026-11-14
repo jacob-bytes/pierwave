@@ -644,3 +644,47 @@ of days, and `days = null` means "all".
   审计动作 `package_instance.batch_renew`，detail `{ days, updated }`。
 - `POST /api/v1/enforcement/events/cleanup`，body `{ "days": 1..3650 | null }`（缺省 = null = 全部），
   返回 `{ "deleted": n }`；审计动作 `event.cleanup`，detail `{ days, deleted }`。
+
+## 用户自助转发（迁移 0044）/ User self-service forwarding
+
+用户只能管理 `owner_user_id = 会话用户` 的转发。条数取**生效中套餐**的
+`forward_limit` 最大值（无套餐 = 0，多套餐不累加）；目标服务器必须同时出现在
+「`forward_limit > 0` 且生效中」的套餐 `package_forward_servers` 并集里。
+监听端口由服务器端口策略自动分配，请求里带 `listen_port` 会被忽略。
+端口池耗尽时复用链的分配错误码：不限制时是 `chain.port_pool_exhausted`，
+有范围/白名单时是 `chain.port_allowed_exhausted`。
+
+Users may only manage forwards whose `owner_user_id` equals the session user.
+The quota is the **maximum** `forward_limit` among active packages (no package = 0;
+multiple packages do not stack), and the target server must be in the union of the
+`package_forward_servers` of active packages with `forward_limit > 0`. The listen
+port is allocated by the server port policy and any client-supplied `listen_port`
+is ignored. Port-pool exhaustion reuses the chain allocation codes:
+`chain.port_pool_exhausted` without a policy, `chain.port_allowed_exhausted` with one.
+
+| code | 中文 | English | params |
+|---|---|---|---|
+| `me.forward_quota_exceeded` | 转发规则数量已达套餐上限（{used}/{limit}）；limit = 0 表示当前套餐未开通 | Forward quota reached ({used}/{limit}); limit = 0 means the current package does not allow forwarding | limit, used |
+| `me.forward_server_not_allowed` | 当前套餐不允许在服务器「{server_name}」上创建转发 | The current package does not allow forwarding on server "{server_name}" | server_id, server_name |
+| `me.forward_not_found` | 转发规则不存在（不存在或不属于当前用户） | Forward not found (missing or not owned by the current user) | — |
+| `package.forward_limit_invalid` | 自助转发条数不能为负数（0 表示不允许） | Forward limit must not be negative (0 means not allowed) | min |
+| `package.forward_server_invalid` | 服务器 id 不能为空 | Server id must not be empty | — |
+| `package.forward_server_not_found` | 服务器不存在：{server_ids} | Server not found: {server_ids} | server_ids |
+
+接口 / Endpoints:
+
+- `GET /api/v1/me/summary` 顶层带 `forward_servers: [{ id, name }]`：与创建接口用
+  **同一份额度快照**（生效中且 `forward_limit > 0` 的套餐白名单并集、去重、按名称排序），
+  `forward_limit = 0` 时为空数组。前端据此渲染服务器下拉。
+- `GET /api/v1/me/forwards` → `{ items: [...], quota: { limit, used } }`；
+  每项在转发字段之外带 `server_name`、`server_address`、`entry_address`（`地址:端口`）。
+- `POST /api/v1/me/forwards`，body `{ server_id, target_host, target_port, protocol? }`：
+  `protocol` 缺省 `tcp`，允许 `tcp` / `both`；`udp` 仍受 Agent 能力门禁
+  （`forward.protocol_requires_agent_upgrade`）。返回 `{ forward, quota }`。
+- `PATCH /api/v1/me/forwards/{id}`，body `{ enabled }`（只允许改启用状态）。
+- `DELETE /api/v1/me/forwards/{id}` → `{ ok: true }`。
+- 越权修改/删除别人的规则返回 **404 `me.forward_not_found`**，不返回 403：
+  避免用错误码枚举他人规则 id。
+- 审计动作 `user_forward.create` / `user_forward.delete`，`target` 是转发 id，
+  `detail` 只含 `forward_id`、`server_id`、`server_name`、`listen_port`、
+  `target_host`、`target_port`、`protocol`，**不含用户名/邮箱**。

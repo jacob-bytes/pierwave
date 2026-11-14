@@ -1061,6 +1061,16 @@ export interface Package {
    * 旧版后端可能暂时不返回该字段，展示层统一按 `null` 处理。
    */
   rule_template_id: string | null;
+  /**
+   * 每个用户可自助创建的转发条数上限；0 / 缺失 = 当前套餐不支持自助转发。
+   * 旧版后端不会返回该字段，表单与展示统一按 0 兜底。
+   */
+  forward_limit?: number;
+  /**
+   * 允许用户自助创建转发的服务器 id；空数组 = 一个都不允许。
+   * 旧版后端不会返回该字段，统一按空数组兜底。
+   */
+  forward_server_ids?: string[];
 }
 
 /**
@@ -1129,6 +1139,16 @@ export interface CreatePackageInput {
    * 省略 = 不改；`null` = 清空并回落到全局默认；字符串 = 绑定。
    */
   rule_template_id?: string | null;
+  /**
+   * 自助转发条数上限。0 = 不支持自助转发（省略也按 0 处理）。
+   * 编辑时显式传 0 才能把旧值清掉，因此表单总是发送该字段。
+   */
+  forward_limit?: number;
+  /**
+   * 允许自助转发的服务器 id；`[]` = 一个都不允许。
+   * 编辑时总是发送数组，避免「不选」与「不改」混淆。
+   */
+  forward_server_ids?: string[];
 }
 
 export type UpdatePackageInput = Partial<CreatePackageInput>;
@@ -1322,6 +1342,68 @@ export interface MeSubscription {
   updated_at: number;
 }
 
+/**
+ * 用户自助转发（`/api/v1/me/forwards`）。
+ *
+ * 与管理员侧 `Forward` 不同：这里只暴露用户需要看到的入口地址与目标，
+ * 不含引擎、运行时错误等管理字段；`entry_address` 例如 `203.0.113.10:24123`。
+ */
+export interface MeForwardServer {
+  id: string;
+  name: string;
+}
+
+export interface MeForward {
+  id: string;
+  server_id: string;
+  server_name: string;
+  /** 系统自动分配的监听端口。 */
+  listen_port: number;
+  /** 完整入口地址（含端口）；后端可能暂未返回时展示层用 `entryLabel` 兜底。 */
+  entry_address: string;
+  target_host: string;
+  target_port: number;
+  /** 自助转发只允许 TCP 或 TCP+UDP，不会出现 `udp`。 */
+  protocol: ForwardProtocol;
+  enabled: boolean;
+  created_at: number;
+}
+
+export interface MeForwardQuota {
+  used: number;
+  /** 0 = 当前套餐不支持自助转发。 */
+  limit: number;
+}
+
+/**
+ * 列表响应。`servers` / `available_servers` 是允许创建转发的服务器，
+ * 供后端未在 `/me/summary` 里返回 `forward_servers` 时兜底。
+ */
+export interface MeForwardsResponse {
+  items: MeForward[];
+  quota: MeForwardQuota;
+  servers?: MeForwardServer[] | null;
+  available_servers?: MeForwardServer[] | null;
+}
+
+export interface CreateMeForwardInput {
+  server_id: string;
+  target_host: string;
+  target_port: number;
+  /** 缺省 = `tcp`；用户侧只提供 TCP / TCP+UDP。 */
+  protocol?: "tcp" | "both";
+}
+
+export interface UpdateMeForwardInput {
+  enabled?: boolean;
+}
+
+/** 新建响应兼容 `{ forward }` / `{ item }` / 直接返回 item 三种形状。 */
+export interface CreateMeForwardResponse {
+  forward?: MeForward;
+  item?: MeForward;
+}
+
 export interface MeSummary {
   user: MeSummaryUser;
   /** 没有任何套餐实例时为 null。 */
@@ -1329,6 +1411,11 @@ export interface MeSummary {
   usage: MeUsage;
   nodes: MeNode[];
   subscription: MeSubscription;
+  /**
+   * 当前套餐允许自助转发的服务器。后端未返回时回落到
+   * `GET /api/v1/me/forwards` 的 `servers` / `available_servers`。
+   */
+  forward_servers?: MeForwardServer[] | null;
   /** 兼容字段：套餐明细（quota_override=0 表示显式不限）。 */
   packages: UserPackageView[];
   /** 兼容字段：今日/本月流量。 */
@@ -1458,6 +1545,28 @@ export const api = {
           method: "POST",
           body: JSON.stringify(input),
         }),
+      /** 用户自助转发：列表带配额，写操作立即生效。 */
+      forwards: {
+        list: () => request<MeForwardsResponse>("/api/v1/me/forwards"),
+        create: (input: CreateMeForwardInput) =>
+          request<CreateMeForwardResponse>("/api/v1/me/forwards", {
+            method: "POST",
+            body: JSON.stringify(input),
+          }),
+        update: (id: string, input: UpdateMeForwardInput) =>
+          request<CreateMeForwardResponse>(
+            `/api/v1/me/forwards/${encodeURIComponent(id)}`,
+            {
+              method: "PATCH",
+              body: JSON.stringify(input),
+            },
+          ),
+        remove: (id: string) =>
+          request<{ ok: true }>(
+            `/api/v1/me/forwards/${encodeURIComponent(id)}`,
+            { method: "DELETE" },
+          ),
+      },
     },
   ),
   login: (username: string, password: string) =>

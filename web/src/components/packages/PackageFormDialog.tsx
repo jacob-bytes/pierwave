@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PackageNodeScopeField } from "@/components/packages/PackageNodeScopeField";
+import { ServerMultiSelectField } from "@/components/servers/ServerMultiSelectField";
 import type { CreatePackageInput, Package } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { bytesToGbInput, parseGbInput } from "@/lib/format";
@@ -90,6 +91,8 @@ export function PackageFormDialog({
           node_scope: packageNodeScope(packageItem),
           node_ids: packageItem.node_ids,
           rule_template_id: packageItem.rule_template_id ?? "",
+          forward_limit: String(packageItem.forward_limit ?? 0),
+          forward_server_ids: packageItem.forward_server_ids ?? [],
         }
       : {
           name: "",
@@ -101,6 +104,8 @@ export function PackageFormDialog({
           node_scope: "all",
           node_ids: [],
           rule_template_id: "",
+          forward_limit: "0",
+          forward_server_ids: [],
         },
   });
 
@@ -138,6 +143,11 @@ export function PackageFormDialog({
       speed_limit_kbps: mbpsInputToKbps(values.speed_limit_mbps),
       // 空选项 → 显式 null（回落到全局默认），而不是省略字段。
       rule_template_id: ruleTemplateInputValue(values.rule_template_id),
+      // 空串 = 0（不支持自助转发）；编辑时也要显式发送，才能把旧值清掉。
+      forward_limit: values.forward_limit.trim()
+        ? Number(values.forward_limit)
+        : 0,
+      forward_server_ids: values.forward_server_ids,
       ...scopeFields,
     };
 
@@ -365,6 +375,42 @@ export function PackageFormDialog({
                         ),
                       });
                     }}
+                  />
+                )}
+              />
+            </FormField>
+          </div>
+
+          <div className="space-y-4 border-t border-border pt-4">
+            <FormField
+              label={t("packages.form.forwardLimit")}
+              htmlFor="package-forward-limit"
+              hint={t("packages.form.forwardLimitHint")}
+              error={form.formState.errors.forward_limit?.message}
+            >
+              <Input
+                id="package-forward-limit"
+                inputMode="numeric"
+                autoComplete="off"
+                disabled={pending}
+                aria-invalid={Boolean(form.formState.errors.forward_limit)}
+                className="font-mono tabular-nums"
+                {...form.register("forward_limit")}
+              />
+            </FormField>
+
+            <FormField
+              label={t("packages.form.forwardServers")}
+              hint={t("packages.form.forwardServersHint")}
+            >
+              <Controller
+                control={form.control}
+                name="forward_server_ids"
+                render={({ field }) => (
+                  <ServerMultiSelectField
+                    value={field.value}
+                    onChange={field.onChange}
+                    disabled={pending}
                   />
                 )}
               />

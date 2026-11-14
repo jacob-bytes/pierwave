@@ -16,22 +16,32 @@ const DIRECTIONS: &[&str] = &["both", "upload", "download"];
 
 /// 去空白、去重。
 fn normalize_node_id_list(ids: Vec<String>) -> AppResult<Vec<String>> {
+    normalize_id_list(ids, "package.node_scope_invalid", "节点 id 不能为空")
+}
+
+/// 去空白、去重；`empty_code` 让调用方区分「节点范围」与「转发服务器白名单」。
+fn normalize_id_list(
+    ids: Vec<String>,
+    empty_code: &'static str,
+    empty_message: &'static str,
+) -> AppResult<Vec<String>> {
     let mut seen = HashSet::new();
     let mut out = Vec::with_capacity(ids.len());
     for id in ids {
         let id = id.trim();
         if id.is_empty() {
-            return Err(AppError::coded(
-                "package.node_scope_invalid",
-                None,
-                "节点 id 不能为空",
-            ));
+            return Err(AppError::coded(empty_code, None, empty_message));
         }
         if seen.insert(id.to_string()) {
             out.push(id.to_string());
         }
     }
     Ok(out)
+}
+
+/// 自助转发服务器白名单：去空白、去重。
+fn normalize_forward_server_ids(ids: Vec<String>) -> AppResult<Vec<String>> {
+    normalize_id_list(ids, "package.forward_server_invalid", "服务器 id 不能为空")
 }
 
 /// 新建：`None` 与 `Some([])` 语义不同（全部 vs 一个都不给），不能合并。
@@ -56,6 +66,31 @@ async fn validate_node_id_list(state: &AppState, node_ids: &[String]) -> AppResu
             "package.node_not_found",
             Some(json!({ "node_ids": &missing })),
             format!("节点不存在：{}", missing.join("、")),
+        ));
+    }
+    Ok(())
+}
+
+/// 自助转发配额：0 = 不允许，负数没有意义。
+pub(crate) fn validate_forward_limit(limit: i64) -> AppResult<()> {
+    if limit < 0 {
+        return Err(AppError::coded(
+            "package.forward_limit_invalid",
+            Some(json!({ "min": 0 })),
+            "自助转发条数不能为负数（0 表示不允许）",
+        ));
+    }
+    Ok(())
+}
+
+/// 白名单里的服务器必须真实存在；否则 400 而不是等外键报 500。
+async fn validate_forward_server_id_list(state: &AppState, server_ids: &[String]) -> AppResult<()> {
+    let missing = repo::servers::missing_ids(&state.db.pool, server_ids).await?;
+    if !missing.is_empty() {
+        return Err(AppError::coded(
+            "package.forward_server_not_found",
+            Some(json!({ "server_ids": &missing })),
+            format!("服务器不存在：{}", missing.join("、")),
         ));
     }
     Ok(())
@@ -225,6 +260,12 @@ pub struct CreatePackage {
     /// 套餐级规则模板；缺省 / `null` = 不绑定（跟随全局默认）。
     #[serde(default)]
     pub rule_template_id: Option<String>,
+    /// 每个用户最多能创建多少条自助转发；缺省 0 = 不允许。
+    #[serde(default)]
+    pub forward_limit: i64,
+    /// 允许自助转发落地的服务器；缺省 `[]` = 一台都不允许。
+    #[serde(default)]
+    pub forward_server_ids: Vec<String>,
 }
 
 fn default_direction() -> String {
@@ -255,11 +296,14 @@ pub async fn create(
     let direction = validate_direction(&req.direction)?;
     validate_node_ratio(req.node_ratio)?;
     validate_speed_limit_kbps(req.speed_limit_kbps)?;
+    validate_forward_limit(req.forward_limit)?;
 
     let node_ids = normalize_create_node_ids(req.node_ids)?;
     if let Some(node_ids) = &node_ids {
         validate_node_id_list(&state, node_ids).await?;
     }
+    let forward_server_ids = normalize_forward_server_ids(req.forward_server_ids)?;
+    validate_forward_server_id_list(&state, &forward_server_ids).await?;
     let rule_template_id =
         validate_optional_rule_template_id(&state, req.rule_template_id.as_deref()).await?;
 
@@ -277,6 +321,23 @@ pub async fn create(
         },
     )
     .await?;
+    // 迁移 0044 的两列单独写：`packages::create` 的既有调用方（其它模块的测试/
+    // 内部流程）不需要感知新字段，默认值 0 / 空表就是「不允许自助转发」。
+    if !repo::packages::set_forward_rules(
+        &state.db.pool,
+        &package.id,
+        req.forward_limit,
+        &forward_server_ids,
+    )
+    .await?
+    {
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "套餐创建后写入自助转发规则失败"
+        )));
+    }
+    let package = repo::packages::find_by_id(&state.db.pool, &package.id)
+        .await?
+        .ok_or_else(|| AppError::not_found("package.not_found", None, "资源不存在"))?;
 
     let scope = repo::packages::node_scope(&state.db.pool, &package.id).await?;
     mark_dirty_if_scope_changed(&state, &package.id, None, scope).await;
@@ -297,6 +358,8 @@ pub async fn create(
             "node_scope": &package.node_scope,
             "node_count": package.node_count,
             "node_ids": &package.node_ids,
+            "forward_limit": package.forward_limit,
+            "forward_server_ids": &package.forward_server_ids,
         }),
     )
     .await;
@@ -322,6 +385,12 @@ pub struct UpdatePackage {
     /// 三态：缺失 = 不动；`null` = 解绑；具体 id = 绑定。
     #[serde(default)]
     pub rule_template_id: Patch<String>,
+    /// `None` = 不动；`0` = 关闭自助转发；正数 = 每用户条数上限。
+    #[serde(default)]
+    pub forward_limit: Option<i64>,
+    /// `None` = 不动；数组（含 `[]`）= 全量替换白名单。
+    #[serde(default)]
+    pub forward_server_ids: Option<Vec<String>>,
 }
 
 pub async fn update(
@@ -340,6 +409,8 @@ pub async fn update(
         && !req.speed_limit_kbps.is_set()
         && !req.node_ids.is_set()
         && !req.rule_template_id.is_set()
+        && req.forward_limit.is_none()
+        && req.forward_server_ids.is_none()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
@@ -374,10 +445,20 @@ pub async fn update(
     if req.speed_limit_kbps.is_set() {
         validate_speed_limit_kbps(req.speed_limit_kbps.value())?;
     }
+    if let Some(forward_limit) = req.forward_limit {
+        validate_forward_limit(forward_limit)?;
+    }
 
     let node_ids = normalize_patch_node_ids(req.node_ids)?;
     if let Patch::Value(node_ids) = &node_ids {
         validate_node_id_list(&state, node_ids).await?;
+    }
+    let forward_server_ids = match req.forward_server_ids.clone() {
+        Some(ids) => Some(normalize_forward_server_ids(ids)?),
+        None => None,
+    };
+    if let Some(server_ids) = &forward_server_ids {
+        validate_forward_server_id_list(&state, server_ids).await?;
     }
     let rule_template_id = match req.rule_template_id {
         Patch::Missing => Patch::Missing,
@@ -409,6 +490,23 @@ pub async fn update(
     )
     .await?
     .ok_or_else(|| AppError::not_found("package.not_found", None, "资源不存在"))?;
+
+    // 自助转发规则单独写（迁移 0044），未传的两项保持原值。
+    let mut package = package;
+    if req.forward_limit.is_some() || forward_server_ids.is_some() {
+        let forward_limit = req.forward_limit.unwrap_or(package.forward_limit);
+        let server_ids = forward_server_ids
+            .as_deref()
+            .unwrap_or(package.forward_server_ids.as_slice());
+        if !repo::packages::set_forward_rules(&state.db.pool, &id, forward_limit, server_ids)
+            .await?
+        {
+            return Err(AppError::not_found("package.not_found", None, "资源不存在"));
+        }
+        package = repo::packages::find_by_id(&state.db.pool, &id)
+            .await?
+            .ok_or_else(|| AppError::not_found("package.not_found", None, "资源不存在"))?;
+    }
 
     let after = repo::packages::node_scope(&state.db.pool, &id).await?;
     mark_dirty_if_scope_changed(&state, &id, before_scope, after).await;
@@ -457,6 +555,18 @@ pub async fn update(
                 .and_then(|package| package.rule_template_id.clone())),
             json!(package.rule_template_id),
         ),
+        (
+            "forward_limit",
+            json!(before_package.as_ref().map(|package| package.forward_limit)),
+            json!(package.forward_limit),
+        ),
+        (
+            "forward_server_ids",
+            json!(before_package
+                .as_ref()
+                .map(|package| package.forward_server_ids.clone())),
+            json!(&package.forward_server_ids),
+        ),
     ]);
     crate::audit::record(
         &state,
@@ -478,6 +588,17 @@ pub async fn update(
             "node_ids": {
                 "from": before_package.as_ref().map(|package| package.node_ids.clone()),
                 "to": &package.node_ids,
+            },
+            // 自助转发额度/白名单同样摊平，方便回查「谁把配额改了」。
+            "forward_limit": {
+                "from": before_package.as_ref().map(|package| package.forward_limit),
+                "to": package.forward_limit,
+            },
+            "forward_server_ids": {
+                "from": before_package
+                    .as_ref()
+                    .map(|package| package.forward_server_ids.clone()),
+                "to": &package.forward_server_ids,
             },
         }),
     )

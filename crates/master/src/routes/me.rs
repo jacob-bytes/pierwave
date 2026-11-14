@@ -85,12 +85,11 @@ pub async fn summary(State(state): State<AppState>, user: CurrentUser) -> AppRes
     // 节点可见性与订阅端点走同一套授权 SQL，套餐节点范围不会两处漂移。
     let allowed =
         repo::authorization::eligible_node_ids_for_user(&state.db.pool, &user.0.id).await?;
-    let server_names: std::collections::HashMap<String, String> =
-        repo::servers::list(&state.db.pool)
-            .await?
-            .into_iter()
-            .map(|server| (server.id, server.name))
-            .collect();
+    let servers = repo::servers::list(&state.db.pool).await?;
+    let server_names: std::collections::HashMap<String, String> = servers
+        .iter()
+        .map(|server| (server.id.clone(), server.name.clone()))
+        .collect();
     let mut nodes = Vec::new();
     for row in repo::nodes::list_enabled_with_server(&state.db.pool).await? {
         if !allowed.contains(&row.node.id) {
@@ -105,6 +104,25 @@ pub async fn summary(State(state): State<AppState>, user: CurrentUser) -> AppRes
             "server_name": server_names.get(&row.node.server_id).cloned().unwrap_or_default(),
         }));
     }
+
+    // 自助转发可选的服务器：与创建转发用**同一份**额度快照，避免出现
+    // 「下拉里有服务器、但配额是 0」的矛盾状态。limit = 0 时一律返回空。
+    let forward_allowance =
+        repo::packages::forward_allowance(&state.db.pool, &user.0.id, now).await?;
+    let mut forward_servers: Vec<&pierwave_domain::models::Server> = if forward_allowance.limit > 0
+    {
+        servers
+            .iter()
+            .filter(|server| forward_allowance.allows_server(&server.id))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    forward_servers.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
+    let forward_servers: Vec<Value> = forward_servers
+        .into_iter()
+        .map(|server| json!({ "id": server.id, "name": server.name }))
+        .collect();
 
     let short_code = user.0.short_code.clone();
     Ok(Json(json!({
@@ -127,6 +145,8 @@ pub async fn summary(State(state): State<AppState>, user: CurrentUser) -> AppRes
             "status": status,
         },
         "nodes": nodes,
+        // 普通用户建自助转发时的服务器下拉；只含当前有权创建的服务器。
+        "forward_servers": forward_servers,
         "subscription": {
             "url": format!("/api/v1/sub/{short_code}"),
             "updated_at": user.0.short_code_updated_at,
@@ -729,6 +749,66 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN, "越权必须在后端拒绝");
+    }
+
+    /// 自助转发下拉：只返回生效中套餐白名单的并集，且配额为 0 时为空。
+    #[tokio::test]
+    async fn summary_lists_only_forward_servers_from_active_packages() {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let state = AppState::new(db, "web/dist");
+        let (alice_id, alice_cookie) = make_user(&state, "alice", "user").await;
+
+        let (server_x, _node_x) = make_server_node(&state, "hk-b", "x").await;
+        let (server_y, _node_y) = make_server_node(&state, "hk-a", "y").await;
+        let (server_z, _node_z) = make_server_node(&state, "hk-z", "z").await;
+        let app = crate::app::router(state.clone());
+
+        // 无套餐：空数组。
+        let (status, body) = get(&app, Some(&alice_cookie), "/api/v1/me/summary").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["forward_servers"], json!([]));
+
+        // 套餐 A 允许 X、套餐 B 允许 Y：取并集，按名称排序。
+        let package_a = give_package(&state, &alice_id, "A", Some(1_000), None, None).await;
+        repo::packages::set_forward_rules(
+            &state.db.pool,
+            &package_a.package_id,
+            2,
+            std::slice::from_ref(&server_x),
+        )
+        .await
+        .unwrap();
+        let package_b = give_package(&state, &alice_id, "B", Some(1_000), None, None).await;
+        repo::packages::set_forward_rules(
+            &state.db.pool,
+            &package_b.package_id,
+            3,
+            std::slice::from_ref(&server_y),
+        )
+        .await
+        .unwrap();
+        // 套餐 C 虽然列了 Z，但 forward_limit = 0：不能出现在下拉里。
+        let package_c = give_package(&state, &alice_id, "C", Some(1_000), None, None).await;
+        repo::packages::set_forward_rules(
+            &state.db.pool,
+            &package_c.package_id,
+            0,
+            std::slice::from_ref(&server_z),
+        )
+        .await
+        .unwrap();
+
+        let (status, body) = get(&app, Some(&alice_cookie), "/api/v1/me/summary").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body["forward_servers"],
+            json!([
+                { "id": server_y, "name": "hk-a" },
+                { "id": server_x, "name": "hk-b" },
+            ]),
+            "多套餐取并集、按名称排序，且不能泄漏未授权服务器：{body}"
+        );
     }
 
     /// 管理员访问 `/me/*` 不报错，并且返回的是管理员自己的数据。

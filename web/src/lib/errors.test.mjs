@@ -175,3 +175,49 @@ test("hasErrorCode probes the dictionary without comparing translated text", () 
     assert.equal(hasErrorCode("agent.upgrade.not_newer"), true);
   });
 });
+
+test("self-service forward errors translate in both languages with backend params", () => {
+  const quota = () =>
+    new ApiError(
+      "转发规则数量已达套餐上限（2/2）",
+      400,
+      "me.forward_quota_exceeded",
+      { limit: 2, used: 2 },
+    );
+  const notAllowed = () =>
+    new ApiError(
+      "当前套餐不允许在服务器「hk-1」上创建转发",
+      403,
+      "me.forward_server_not_allowed",
+      { server_id: "s1", server_name: "hk-1" },
+    );
+  const notFound = () =>
+    new ApiError("转发规则不存在", 404, "me.forward_not_found");
+
+  withLocale("zh-CN", () => {
+    assert.equal(
+      errorText(quota(), "fallback"),
+      "自助转发配额不足（已用 2 / 上限 2）；请删除不再使用的转发，或联系管理员调整套餐",
+    );
+    assert.equal(
+      errorText(notAllowed(), "fallback"),
+      "当前套餐不允许在服务器「hk-1」上创建转发",
+    );
+    assert.equal(errorText(notFound(), "fallback"), "转发规则不存在或已被删除");
+  });
+
+  withLocale("en", () => {
+    assert.equal(
+      errorText(quota(), "fallback"),
+      "Self-service forward quota exceeded (2 used / 2 allowed); delete an existing forward or ask an administrator to adjust your package",
+    );
+    assert.equal(
+      errorText(notAllowed(), "fallback"),
+      'Your current package does not allow forwards on server "hk-1"',
+    );
+    assert.equal(
+      errorText(notFound(), "fallback"),
+      "The forward does not exist or has already been deleted",
+    );
+  });
+});

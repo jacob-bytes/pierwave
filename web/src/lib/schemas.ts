@@ -256,6 +256,16 @@ export function packageFormSchema(t: TFunction) {
       node_ids: z.array(z.string()),
       /** P6：套餐默认规则模板。空串 = 不设置（回落到全局默认）。 */
       rule_template_id: z.string(),
+      /** 自助转发条数（文本）；空串 = 0（不支持）。 */
+      forward_limit: z.string().refine((value) => {
+        const trimmed = value.trim();
+        if (!trimmed) return true;
+        if (!/^\d+$/.test(trimmed)) return false;
+        const parsed = Number(trimmed);
+        return Number.isSafeInteger(parsed) && parsed >= 0;
+      }, t("validation.forwardLimitRange")),
+      /** 允许自助转发的服务器；空数组 = 一个都不允许。 */
+      forward_server_ids: z.array(z.string()),
     })
     .superRefine((values, ctx) => {
       // 「一个都不给」用空数组表达，是合法状态；只有「指定」才要求至少一个。
@@ -459,6 +469,34 @@ export function forwardFormSchema(t: TFunction) {
 }
 
 export type ForwardFormValues = z.infer<ReturnType<typeof forwardFormSchema>>;
+
+/**
+ * 用户自助转发：用户只选服务器、目标与协议；入口端口由系统分配，
+ * 因此没有 name / listen_port / engine 字段。
+ */
+export const MY_FORWARD_PROTOCOLS = ["tcp", "both"] as const;
+
+export type MyForwardProtocol = (typeof MY_FORWARD_PROTOCOLS)[number];
+
+export function myForwardFormSchema(t: TFunction) {
+  return z.object({
+    server_id: z
+      .string()
+      .trim()
+      .min(1, t("validation.selectForwardServer")),
+    target_host: z
+      .string()
+      .trim()
+      .min(1, t("validation.forwardTargetRequired"))
+      .max(255, t("validation.forwardTargetMax")),
+    target_port: requiredIntField(1, 65535, t("validation.portRange")),
+    protocol: z.enum(MY_FORWARD_PROTOCOLS),
+  });
+}
+
+export type MyForwardFormValues = z.infer<
+  ReturnType<typeof myForwardFormSchema>
+>;
 
 /**
  * 转发链表单：组是动态数组，每组又有自己的成员动态数组。

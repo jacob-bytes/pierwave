@@ -6,6 +6,8 @@
 //! 保留端口写死：API 入站固定监听 10085，SSH 默认 22。两者都不能被转发占用，
 //! 否则 Agent 一旦监听成功就会顶掉主控或远程登录。
 
+use std::collections::BTreeSet;
+
 use serde_json::json;
 
 use crate::error::DomainError;
@@ -130,11 +132,7 @@ pub fn ensure_not_self_loop(
         return Ok(());
     }
     let wildcard = matches!(listen_host.trim(), "0.0.0.0" | "[::]" | "::" | "");
-    let target_is_loopback = matches!(
-        target_host.trim().to_ascii_lowercase().as_str(),
-        "127.0.0.1" | "localhost" | "::1" | "[::1]"
-    );
-    if wildcard && target_is_loopback {
+    if wildcard && is_loopback_host(target_host) {
         return Err(DomainError::with_params(
             "forward.self_loop",
             json!({ "port": listen_port }),
@@ -144,6 +142,84 @@ pub fn ensure_not_self_loop(
         ));
     }
     Ok(())
+}
+
+/// 目标地址是否是本机回环（不解析 DNS，只认最常见的几种写法）。
+///
+/// 自动分配端口时用它决定是否要避开目标端口，避免刚分到的监听端口
+/// 立刻被 [`ensure_not_self_loop`] 判成自连。
+pub fn is_loopback_host(host: &str) -> bool {
+    matches!(
+        host.trim().to_ascii_lowercase().as_str(),
+        "127.0.0.1" | "localhost" | "::1" | "[::1]"
+    )
+}
+
+/// 自助转发的生效额度快照（迁移 0044）。
+///
+/// 由 master 在每次写入前从库里现算，**不做缓存**：管理员改套餐后立即生效。
+/// `server_ids` 已升序去重。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ForwardAllowance {
+    /// 生效中套餐里最大的 `forward_limit`；无套餐 / 全部为 0 时是 0。
+    pub limit: i64,
+    /// 允许落地的服务器并集。
+    pub server_ids: Vec<String>,
+}
+
+impl ForwardAllowance {
+    /// `grants` 只应包含**生效中**的套餐：`(forward_limit, 服务器白名单)`。
+    ///
+    /// 白名单只合并 `forward_limit > 0` 的套餐：不发放条数的套餐不应该
+    /// 顺带把服务器放行（否则「限额 0 + 白名单」会让用户能借用别的套餐的额度
+    /// 落到一台本不该开放的服务器上）。
+    pub fn from_grants(grants: &[(i64, Vec<String>)]) -> Self {
+        let limit = grants.iter().map(|(limit, _)| *limit).max().unwrap_or(0);
+        let mut server_ids = BTreeSet::new();
+        for (grant_limit, servers) in grants {
+            if *grant_limit <= 0 {
+                continue;
+            }
+            server_ids.extend(servers.iter().filter(|id| !id.is_empty()).cloned());
+        }
+        Self {
+            limit,
+            server_ids: server_ids.into_iter().collect(),
+        }
+    }
+
+    /// 是否允许在该服务器上创建转发。
+    ///
+    /// 白名单只有几台服务器，线性比较足够；不依赖「调用方一定按升序构造」，
+    /// 避免以后手工构造 `ForwardAllowance` 时静默漏判。
+    pub fn allows_server(&self, server_id: &str) -> bool {
+        self.server_ids.iter().any(|id| id == server_id)
+    }
+}
+
+/// 自动给用户创建的转发起一个名字（用户不需要填名称）。
+///
+/// 取 `目标地址:目标端口`，超出名称上限时按字符截断；名称只用于管理端
+/// 列表与审计展示，不参与任何路由判断。
+pub fn default_owner_name(target_host: &str, target_port: i64) -> String {
+    let suffix = format!(":{target_port}");
+    let budget = NAME_MAX_CHARS.saturating_sub(suffix.chars().count());
+    let host: String = target_host.trim().chars().take(budget).collect();
+    format!("{host}{suffix}")
+}
+
+/// 用户视角的入口地址：`服务器地址:自动分配端口`。
+///
+/// 服务器地址按「主机名 / IPv4 / 未加方括号的 IPv6」处理；IPv6 会补方括号，
+/// 保证前端可以直接展示或复制进客户端。
+pub fn entry_address(address: &str, port: i64) -> String {
+    let address = address.trim();
+    let host = if address.starts_with('[') || address.matches(':').count() < 2 {
+        address.to_string()
+    } else {
+        format!("[{address}]")
+    };
+    format!("{host}:{port}")
 }
 
 #[cfg(test)]
@@ -238,5 +314,68 @@ mod tests {
                 .code,
             "forward.name_too_long"
         );
+    }
+
+    #[test]
+    fn allowance_takes_the_max_limit_and_unions_whitelists() {
+        // 多套餐取最大值，白名单取并集（升序去重）。
+        let allowance = ForwardAllowance::from_grants(&[
+            (2, vec!["srv-b".into(), "srv-a".into()]),
+            (5, vec!["srv-c".into(), "srv-a".into()]),
+            (1, vec!["srv-z".into()]),
+        ]);
+        assert_eq!(allowance.limit, 5);
+        assert_eq!(
+            allowance.server_ids,
+            vec!["srv-a", "srv-b", "srv-c", "srv-z"]
+        );
+        assert!(allowance.allows_server("srv-b"));
+        assert!(!allowance.allows_server("srv-x"));
+
+        // 没有套餐 / 全部 limit = 0：条数为 0，且没有任何服务器被放行。
+        let none = ForwardAllowance::from_grants(&[]);
+        assert_eq!(none, ForwardAllowance::default());
+        assert!(!none.allows_server("srv-a"));
+
+        let zero = ForwardAllowance::from_grants(&[(0, vec!["srv-a".into()])]);
+        assert_eq!(zero.limit, 0);
+        assert!(
+            zero.server_ids.is_empty(),
+            "限额 0 的套餐不能顺带放行服务器"
+        );
+        assert!(!zero.allows_server("srv-a"));
+
+        // 过滤空 id，避免空串被当成一台服务器。
+        let dirty = ForwardAllowance::from_grants(&[(1, vec![String::new(), "srv-a".into()])]);
+        assert_eq!(dirty.server_ids, vec!["srv-a"]);
+    }
+
+    #[test]
+    fn entry_address_brackets_ipv6_and_keeps_hosts_plain() {
+        assert_eq!(entry_address("203.0.113.7", 20000), "203.0.113.7:20000");
+        assert_eq!(
+            entry_address(" hk.example.com ", 8443),
+            "hk.example.com:8443"
+        );
+        assert_eq!(entry_address("2001:db8::1", 20000), "[2001:db8::1]:20000");
+        assert_eq!(entry_address("[2001:db8::1]", 20000), "[2001:db8::1]:20000");
+    }
+
+    #[test]
+    fn default_owner_name_uses_target_and_is_truncated() {
+        assert_eq!(default_owner_name(" 10.0.0.8 ", 443), "10.0.0.8:443");
+        let long = default_owner_name(&"a".repeat(TARGET_HOST_MAX_CHARS), 443);
+        assert_eq!(long.chars().count(), NAME_MAX_CHARS);
+        assert!(long.ends_with("443"), "截断后至少保留端口：{long}");
+    }
+
+    #[test]
+    fn loopback_hosts_are_recognized() {
+        for host in ["127.0.0.1", " localhost ", "::1", "[::1]"] {
+            assert!(is_loopback_host(host), "host={host}");
+        }
+        for host in ["10.0.0.8", "example.com", "0.0.0.0"] {
+            assert!(!is_loopback_host(host), "host={host}");
+        }
     }
 }

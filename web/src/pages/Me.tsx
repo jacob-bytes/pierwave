@@ -26,6 +26,7 @@ import {
   type PackageStatusTone,
 } from "@/components/packages/packageTone";
 import { ChangePasswordDialog } from "@/components/settings/ChangePasswordDialog";
+import { MyForwardsCard } from "@/components/me/MyForwardsCard";
 import { SubscriptionQrDialog } from "@/components/subscriptions/SubscriptionQrDialog";
 import { UsageBar } from "@/components/UsageBar";
 import {
@@ -915,6 +916,8 @@ export default function MePage() {
       <StatusAlerts summary={data} />
 
       <OverviewCard summary={data} />
+
+      <MyForwardsCard summary={data} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <SubscriptionCard
