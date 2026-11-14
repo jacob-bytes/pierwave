@@ -22,6 +22,7 @@ import {
   NODE_TRANSPORTS,
 } from "@/lib/protocols";
 import { PROTOCOL_MODES } from "@/lib/protocolMode";
+import { isValidPublicPortInput } from "@/lib/publicPort";
 import {
   findFirstOverlongRuleLine,
   parseRuleLines,
@@ -318,6 +319,13 @@ export function nodeFormSchema(t: TFunction) {
         const parsed = Number(trimmed);
         return parsed >= 1 && parsed <= 65535;
       }, t("validation.portRange")),
+      /** 对外端口（NAT）：空串 = 与端口相同；有值必须在 1–65535。 */
+      public_port: z
+        .string()
+        .refine(
+          (value) => isValidPublicPortInput(value),
+          t("validation.publicPortRange"),
+        ),
       /** 带宽上限（Mbps 文本）；空串 / 0 = 不限。提交时由 `mbpsInputToKbps` 转 kbps。 */
       bandwidth_mbps: z
         .string()
@@ -502,6 +510,8 @@ export function chainFormSchema(t: TFunction) {
           strategy: z.enum(CHAIN_STRATEGIES),
           // 仅 tls 链的 seq >= 1 组必填；入口组提交时会被省略。
           cert_id: z.string(),
+          // 入口组对外端口：隐藏字段，编辑时原样带回；空串 = 未设置。
+          public_port: z.string(),
           members: z.array(
             z.object({
               server_id: z

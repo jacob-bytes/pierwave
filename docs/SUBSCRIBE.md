@@ -18,6 +18,19 @@ Clash YAML / URI 列表 / Surge / ... ← 每种格式一个实现
 （`uuid` / `password` / `sni` / `path` / `host` / `flow` / `service_name` …）。
 各协议的差异装进 `params: BTreeMap<String, String>`，渲染器只认视图。
 
+### 1.1 对外端口（NAT）/ Public-facing port
+
+订阅里的端口是 `nodes.public_port ?? nodes.port`，不是 Agent 的监听端口：
+NAT 机器上两者往往不同（内网 443 → 公网 40001）。所有导出器都必须走
+`SubNode::effective_port()`；`public_port = NULL` 时输出与旧版逐字节一致，
+有 golden 测试锁定（`crates/domain/testdata/subscribe_golden_public_port_null.txt`）。
+Agent 侧只认 `nodes.port`，下发配置不受影响。
+
+> The subscription port is `nodes.public_port ?? nodes.port`, not the Agent's listen port.
+> On NAT hosts these differ (internal 443 → public 40001). Every exporter must use
+> `SubNode::effective_port()`; with `public_port = NULL` the output is byte-identical to the
+> legacy output, locked by a golden test. The Agent still listens on `nodes.port` only.
+
 ## 2. 凭据：每个 (user, node) 一个子账户
 
 妙妙屋的做法是「相同节点会创建独立子账户，流量、连接数和到期时间分别计算」。

@@ -133,6 +133,7 @@ mod tests {
                 transport: "tcp".into(),
                 security: "none".into(),
                 port: 443,
+                public_port: None,
                 config_json: "{}".into(),
                 enabled: true,
                 cert_id: None,
@@ -388,6 +389,7 @@ mod tests {
             name: None,
             strategy: "round_robin".into(),
             cert_id,
+            public_port: None,
             members: vec![repo::chains::NewChainGroupMember {
                 server_id: server_id.into(),
                 listen_port,
@@ -504,6 +506,7 @@ mod tests {
                         name: None,
                         strategy: "round_robin".into(),
                         cert_id: None,
+                        public_port: None,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: a.id.clone(),
                             listen_port: 9001,
@@ -515,6 +518,7 @@ mod tests {
                         name: None,
                         strategy: "round_robin".into(),
                         cert_id: Some(expired_cert.clone()),
+                        public_port: None,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: b.id.clone(),
                             listen_port: 9002,
@@ -577,6 +581,7 @@ mod tests {
                         name: None,
                         strategy: "round_robin".into(),
                         cert_id: None,
+                        public_port: None,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: a.id.clone(),
                             listen_port: 9004,
@@ -588,6 +593,7 @@ mod tests {
                         name: None,
                         strategy: "round_robin".into(),
                         cert_id: Some(valid_cert),
+                        public_port: None,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: b.id.clone(),
                             listen_port: 9005,

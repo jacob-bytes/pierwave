@@ -1562,6 +1562,7 @@ const zhCN = {
     list: "节点列表",
     desc: "开关会直接保存启用状态；停用的节点不会被写入下发的配置。",
     tableCaption: "节点列表",
+    portPairTitle: "内网端口 → 对外端口",
     columns: {
       name: "名称",
       protocol: "协议",
@@ -1627,6 +1628,9 @@ const zhCN = {
       protocol: "协议",
       protocolPlaceholder: "选择协议",
       port: "端口",
+      publicPort: "对外端口（可选）",
+      publicPortPlaceholder: "留空 = 与端口相同",
+      publicPortHint: "NAT 机器需把内网端口映射到这个公网端口",
       bandwidth: "带宽上限（Mbps）",
       bandwidthPlaceholder: "例如 100（留空或 0 = 不限）",
       bandwidthHint:
@@ -1913,6 +1917,7 @@ const zhCN = {
       groupCountOneMember: "{groups} 跳 · 1 台",
       groupCountOneGroupOneMember: "1 跳 · 1 台",
       entryHint: "客户端连接第一跳的第一台成员",
+      portPairHint: "内网端口 → 对外端口",
       noEntry: "未配置入口",
       expandAria: "展开「{name}」的链路拓扑",
       collapseAria: "收起「{name}」的链路拓扑",
@@ -2401,6 +2406,7 @@ const zhCN = {
   },
   errors: {
     "chain.entry_port_required": "入口组（第 1 组）必须填写监听端口",
+    "chain.public_port_invalid": "对外端口必须在 {min}-{max} 之间",
     "chain.tunnel_udp_requires_tls": "tunnel 的 UDP 中继需要 TLS 安全模式（Noise 的 UDP 本轮不做）",
     "chain.latency_hours_invalid": "hours 必须是 1-168 之间的整数（默认 24）",
     "chain.protocol_invalid": "不支持的链转发协议「{protocol}」（可选 tcp / udp / both）",
@@ -2513,6 +2519,9 @@ const zhCN = {
     "node.name_required": "节点名称不能为空",
     "node.name_too_long": "节点名称最多 {max} 个字符",
     "node.port_invalid": "端口必须在 {min}-{max} 之间",
+    "node.public_port_invalid": "对外端口必须在 {min}-{max} 之间",
+    "node.public_port_conflict":
+      "对外端口 {public_port} 已被服务器「{server_name}」上的节点「{node_name}」占用",
     "node.tag_too_long": "tag 不能超过 {max} 个字符",
     "node.tag_conflict": "该服务器下已存在相同的 tag",
     "node.config_invalid": "config 必须是 JSON 对象",
@@ -2606,6 +2615,7 @@ const zhCN = {
     nodeNameRequired: "请输入节点名称",
     nodeNameMax: "节点名称最多 64 个字符",
     portRange: "端口需为 1–65535 的整数",
+    publicPortRange: "对外端口需为 1–65535 的整数，留空表示与端口相同",
     forwardNameRequired: "请输入转发名称",
     forwardNameMax: "转发名称最多 64 个字符",
     forwardTargetRequired: "请输入目标地址",

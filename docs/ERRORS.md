@@ -54,6 +54,8 @@
 | `node.name_required` | 节点名称不能为空 | — |
 | `node.name_too_long` | 节点名称最多 {max} 个字符 | max |
 | `node.port_invalid` | 端口必须在 {min}-{max} 之间 | max, min |
+| `node.public_port_invalid` | 对外端口必须在 {min}-{max} 之间 | max, min |
+| `node.public_port_conflict` | 对外端口 {public_port} 已被服务器「{server_name}」上的节点「{node_name}」占用 | address, node_id, node_name, node_tag, public_port, server_id, server_name |
 | `node.tag_too_long` | tag 不能超过 {max} 个字符 | max |
 | `node.tag_conflict` | 该服务器下已存在相同的 tag | — |
 | `node.config_invalid` | config 必须是 JSON 对象 | — |
@@ -167,6 +169,7 @@ the same server.
 | code | 中文 | English | params |
 |---|---|---|---|
 | `chain.entry_port_required` | 入口组（第 1 组）必须填写监听端口 | The entry group (group 1) must provide a listen port | — |
+| `chain.public_port_invalid` | 对外端口必须在 {min}-{max} 之间 | Public port must be between {min} and {max} | max, min |
 | `chain.port_pool_exhausted` | 服务器（{server_id}）的自动分配端口池 {pool_start}-{pool_end} 已耗尽；请先释放端口，或为这一跳手动填写端口 | The automatic port pool {pool_start}-{pool_end} on server {server_id} is exhausted; free a port or provide one manually | pool_end, pool_start, server_id |
 
 池范围常量在 `crates/domain/src/chains.rs`（`PORT_POOL_START` / `PORT_POOL_END`）；
@@ -385,3 +388,31 @@ nftables 只为所选协议生成 DNAT 规则；realm 的 `both` 写 `use_udp = 
 > On the public status page, named groups in `groups` are sorted by name and ungrouped servers (`name: null`) come last.
 > `uptime_24h` is the arithmetic mean of the member servers' 24h uptimes; it is `null` when the
 > group has no samples, never `0`.
+
+## 对外端口（NAT）/ Public-facing port (NAT)
+
+`nodes.public_port` 与 `chain_groups.public_port` 都**只影响展示与订阅**，不改变监听：
+Agent 仍然只按 `nodes.port` / `chain_group_members.listen_port` 监听。列为 `NULL` 时
+行为与引入该字段前完全一致（订阅逐字节不变、链入口显示监听端口）。
+
+| code | 中文 | English | params |
+|---|---|---|---|
+| `node.public_port_invalid` | 对外端口必须在 {min}-{max} 之间 | Public port must be between {min} and {max} | max, min |
+| `node.public_port_conflict` | 对外端口 {public_port} 已被服务器「{server_name}」上的节点「{node_name}」占用 | Public port {public_port} is already used by node "{node_name}" on server "{server_name}" | address, node_id, node_name, node_tag, public_port, server_id, server_name |
+| `chain.public_port_invalid` | 对外端口必须在 {min}-{max} 之间 | Public port must be between {min} and {max} | max, min |
+
+- 取值必须在 `1..=65535`，否则 400 `node.public_port_invalid` / `chain.public_port_invalid`；
+- 同一 `servers.address` 上，两个节点不能拥有相同的**显式** `public_port`，否则 400
+  `node.public_port_conflict`，`params.server_name` 是冲突节点所属服务器名；
+- `NULL` 表示「与本机监听端口相同」，属于各自主机的端口空间，本轮不与其它节点的
+  显式对外端口比较；
+- `chain_groups.public_port` 只对入口组（`seq = 0`）有意义，其它组传了也会被忽略。
+
+> `nodes.public_port` and `chain_groups.public_port` are **presentation/subscription only**;
+> the Agent keeps listening on `nodes.port` / `chain_group_members.listen_port`. A `NULL`
+> column preserves the exact old behaviour (byte-identical subscriptions and the entry port
+> shown as before). Values must be `1..=65535` (`node.public_port_invalid` /
+> `chain.public_port_invalid`). On the same `servers.address`, two nodes may not share the
+> same **explicit** `public_port` (`node.public_port_conflict`; `params.server_name` names the
+> conflicting server). `NULL` means "same as this host's listen port" and is not compared
+> across hosts. Only the entry group (`seq = 0`) uses `chain_groups.public_port`.

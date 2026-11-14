@@ -879,6 +879,7 @@ mod tests {
                 transport: "tcp".into(),
                 security: "none".into(),
                 port: 443,
+                public_port: None,
                 config_json: "{}".into(),
                 enabled: true,
                 cert_id: None,
@@ -1047,6 +1048,7 @@ mod tests {
                     name: None,
                     strategy: chain_rules::GroupStrategy::RoundRobin.as_str().to_string(),
                     cert_id: None,
+                    public_port: None,
                     members: vec![chains_repo::NewChainGroupMember {
                         server_id: server.id.clone(),
                         listen_port: 8443,

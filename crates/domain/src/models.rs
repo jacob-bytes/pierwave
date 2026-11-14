@@ -262,6 +262,11 @@ pub struct ChainGroup {
     pub strategy: String,
     /// 该组 realm 监听使用的证书 id；`None` = 明文。入口组（seq = 0）必须为 `None`。
     pub cert_id: Option<String>,
+    /// 入口组的公网展示端口；`None` = 与入口成员的 `listen_port` 相同。
+    ///
+    /// 仅 `seq = 0` 有意义，且**只用于展示**（链列表 / 拓扑入口列）；
+    /// 链下发仍然只用 `chain_group_members.listen_port`。
+    pub public_port: Option<i64>,
 }
 
 /// 组内一个成员 + 推导/展示所需的服务器字段。
@@ -385,6 +390,11 @@ pub struct Node {
     pub transport: String,
     pub security: String,
     pub port: i64,
+    /// 订阅里给用户看的对外端口；`None` = 与 [`Node::port`] 相同。
+    ///
+    /// NAT 机器上监听端口（`port`）与公网端口往往不同；这里只影响订阅与展示，
+    /// Agent 仍然只按 `port` 监听。
+    pub public_port: Option<i64>,
     /// 库里存的是 JSON 文本；对外直接暴露成 JSON 对象，前端不用二次 parse。
     #[serde(rename = "config", serialize_with = "config_json_as_value")]
     pub config_json: String,

@@ -559,6 +559,7 @@ mod tests {
                 transport: "tcp".into(),
                 security: "none".into(),
                 port,
+                public_port: None,
                 config_json: "{}".into(),
                 enabled: true,
                 cert_id: None,

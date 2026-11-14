@@ -63,6 +63,8 @@ struct ValidatedGroup {
     strategy: GroupStrategy,
     /// 该组监听证书 id；入口组（seq = 0）必须为 `None`。
     cert_id: Option<String>,
+    /// 入口组的公网展示端口；只用于展示，不参与下发。
+    public_port: Option<i64>,
     members: Vec<ValidatedMember>,
 }
 
@@ -211,6 +213,11 @@ pub struct CreateChainGroup {
     /// 该组 realm 监听证书；入口组（第一组）不允许填写。空串视为未填。
     #[serde(default)]
     pub cert_id: Option<String>,
+    /// 入口组的公网展示端口（可选）；`null` / 省略 = 与入口成员监听端口相同。
+    ///
+    /// 只用于链列表 / 拓扑的入口展示，不参与下发；非入口组即使传了也会被忽略。
+    #[serde(default)]
+    pub public_port: Option<i64>,
     /// 组级监听端口（兼容契约）：成员自己没填时使用；中间组可省略。
     ///
     /// 多成员组的每个成员本来各有端口；组级值只是「都填同一个」的快捷写法，
@@ -289,6 +296,7 @@ fn groups_from_hops(hops: Vec<CreateChainHop>) -> Vec<CreateChainGroup> {
             name: None,
             strategy: None,
             cert_id: None,
+            public_port: None,
             listen_port: None,
             server_ids: Vec::new(),
             members: vec![CreateChainMember {
@@ -340,6 +348,19 @@ async fn load_server_for_hop(state: &AppState, server_id: &str) -> AppResult<Ser
             }
             _ => AppError::Internal(error),
         })
+}
+
+/// 入口组对外端口只做范围校验：它不参与监听，也不与节点端口比较。
+fn validate_public_port(port: i64) -> AppResult<()> {
+    if (1..=65535).contains(&port) {
+        Ok(())
+    } else {
+        Err(AppError::coded(
+            "chain.public_port_invalid",
+            Some(json!({ "min": 1, "max": 65535 })),
+            "对外端口必须在 1-65535 之间",
+        ))
+    }
 }
 
 /// 校验组列表：组数、成员数、重复服务器、策略、端口范围/保留端口，以及与该服务器上
@@ -407,6 +428,14 @@ async fn resolve_groups(
             .map(str::trim)
             .filter(|cert| !cert.is_empty())
             .map(str::to_string);
+        // 组级 public_port 只对入口组有意义；中间组的值没有展示位置，直接忽略。
+        let public_port = match input.public_port {
+            Some(port) if seq == 0 => {
+                validate_public_port(port)?;
+                Some(port)
+            }
+            _ => None,
+        };
 
         let mut validated_members = Vec::with_capacity(members.len());
         for (index, member) in members.iter().enumerate() {
@@ -465,6 +494,7 @@ async fn resolve_groups(
             name,
             strategy,
             cert_id,
+            public_port,
             members: validated_members,
         });
     }
@@ -554,6 +584,7 @@ fn validated_from_existing(groups: &[ChainGroupWithMembers]) -> Vec<ValidatedGro
             name: group.group.name.clone(),
             strategy: GroupStrategy::from_db(&group.group.strategy),
             cert_id: group.group.cert_id.clone(),
+            public_port: group.group.public_port,
             members: group
                 .members
                 .iter()
@@ -975,6 +1006,7 @@ fn new_groups(groups: &[ValidatedGroup]) -> Vec<repo::chains::NewChainGroup> {
             name: group.name.clone(),
             strategy: group.strategy.as_str().to_string(),
             cert_id: group.cert_id.clone(),
+            public_port: group.public_port,
             members: group
                 .members
                 .iter()
@@ -1222,6 +1254,7 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
             "name": group.group.name,
             "strategy": group.group.strategy,
             "cert_id": group.group.cert_id,
+            "public_port": group.group.public_port,
             "listen_port": group_listen_port,
             "degraded": group_degraded,
             "members": member_views,
@@ -1560,6 +1593,7 @@ pub async fn create(
                 "name": &group.group.name,
                 "strategy": &group.group.strategy,
                 "cert_id": &group.group.cert_id,
+                "public_port": group.group.public_port,
                 "members": group.members.iter().map(|member| json!({
                     "server_id": &member.server_id,
                     "listen_port": member.listen_port,
@@ -2004,6 +2038,7 @@ mod tests {
                 transport: "tcp".into(),
                 security: "none".into(),
                 port,
+                public_port: None,
                 config_json: "{}".into(),
                 enabled: true,
                 cert_id: None,
@@ -2046,6 +2081,7 @@ mod tests {
                 name: None,
                 strategy: strategy.into(),
                 cert_id: None,
+                public_port: None,
             },
             members: members
                 .iter()
@@ -2907,6 +2943,51 @@ mod tests {
             body["chain"]["groups"][0]["members"][0]["server_id"],
             fixture.c.as_str()
         );
+    }
+
+    /// 入口组对外端口只用于展示：API 带出该值，监听端口 / 下发字段不变。
+    #[tokio::test]
+    async fn entry_group_public_port_is_display_only() {
+        let fixture = setup().await;
+        let uri = "/api/v1/chains";
+
+        let mut entry = group(None, None, &[group_member(&fixture.a, 9001, 0)]);
+        entry["public_port"] = json!(40001);
+        let mut middle = group(None, None, &[group_member(&fixture.b, 9002, 0)]);
+        // 非入口组即使传了也不会落库，避免出现没有展示位置的脏值。
+        middle["public_port"] = json!(40002);
+
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(groups_body("NAT 入口", "1.1.1.1", 443, &[entry, middle])),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        let chain = &value["chain"];
+        assert_eq!(chain["groups"][0]["public_port"], 40001);
+        assert_eq!(chain["groups"][0]["listen_port"], 9001);
+        assert_eq!(chain["groups"][0]["members"][0]["listen_port"], 9001);
+        assert!(
+            chain["groups"][1]["public_port"].is_null(),
+            "非入口组的 public_port 必须被忽略：{chain}"
+        );
+
+        // 范围错误返回稳定的 400 code。
+        let mut bad = group(None, None, &[group_member(&fixture.a, 9011, 0)]);
+        bad["public_port"] = json!(70_000);
+        let (status, body) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            uri,
+            Some(groups_body("坏端口", "1.1.1.1", 443, &[bad])),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "chain.public_port_invalid", "{body}");
     }
 
     /// 中间组省略端口：创建成功，端口由主控从 20000-29999 分配并写回。
@@ -4268,6 +4349,7 @@ mod tests {
                         name: None,
                         strategy: "round_robin".into(),
                         cert_id: None,
+                        public_port: None,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: fixture.a.clone(),
                             listen_port: 9001,
@@ -4279,6 +4361,7 @@ mod tests {
                         name: None,
                         strategy: "round_robin".into(),
                         cert_id: Some(cert.id.clone()),
+                        public_port: None,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: fixture.b.clone(),
                             listen_port: 9002,
@@ -4365,6 +4448,7 @@ mod tests {
                         name: None,
                         strategy: "round_robin".into(),
                         cert_id: None,
+                        public_port: None,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: fixture.a.clone(),
                             listen_port: 9001,
@@ -4376,6 +4460,7 @@ mod tests {
                         name: None,
                         strategy: "round_robin".into(),
                         cert_id: Some(expired.id.clone()),
+                        public_port: None,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: fixture.b.clone(),
                             listen_port: 9002,
@@ -5388,6 +5473,7 @@ mod tests {
                     name: None,
                     strategy: "round_robin".into(),
                     cert_id: None,
+                    public_port: None,
                     members: vec![repo::chains::NewChainGroupMember {
                         server_id: fixture.a.clone(),
                         listen_port: 9001,
@@ -5443,6 +5529,7 @@ mod tests {
                 name: None,
                 strategy: GroupStrategy::RoundRobin,
                 cert_id: None,
+                public_port: None,
                 members,
             }
         }

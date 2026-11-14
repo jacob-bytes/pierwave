@@ -551,6 +551,7 @@ mod tests {
             transport: "tcp".into(),
             security: "none".into(),
             port,
+            public_port: None,
             config_json: json!({
                 "settings": {"clients": []},
                 "stream": {"network": "tcp", "security": "none"}

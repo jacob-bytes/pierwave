@@ -528,6 +528,7 @@ mod tests {
                 transport: "tcp".into(),
                 security: "none".into(),
                 port: 443,
+                public_port: None,
                 config_json: json!({"settings": {"clients": [], "decryption": "none"}}).to_string(),
                 enabled: true,
                 cert_id: None,

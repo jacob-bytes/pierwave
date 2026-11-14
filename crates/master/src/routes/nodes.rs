@@ -66,6 +66,60 @@ fn validate_port(port: i64) -> AppResult<()> {
     }
 }
 
+/// 对外端口：可空；有值时必须在 1-65535。
+fn validate_public_port(public_port: Option<i64>) -> AppResult<()> {
+    match public_port {
+        None => Ok(()),
+        Some(port) if (1..=65535).contains(&port) => Ok(()),
+        Some(_) => Err(AppError::coded(
+            "node.public_port_invalid",
+            Some(json!({ "min": 1, "max": 65535 })),
+            "对外端口必须在 1-65535 之间",
+        )),
+    }
+}
+
+/// 同一 `servers.address` 上的显式对外端口不能重复（NAT 共用公网 IP）。
+///
+/// 只比较显式 `public_port`：`NULL` 表示「与本机监听端口相同」，属于各自主机的
+/// 端口空间，本轮不与别人的显式对外端口比较（需求明确排除）。
+async fn ensure_public_port_available(
+    state: &AppState,
+    server: &Server,
+    public_port: Option<i64>,
+    exclude_node_id: Option<&str>,
+) -> AppResult<()> {
+    let Some(public_port) = public_port else {
+        return Ok(());
+    };
+    let Some(conflict) = repo::nodes::find_public_port_conflict(
+        &state.db.pool,
+        &server.address,
+        public_port,
+        exclude_node_id,
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+    Err(AppError::coded(
+        "node.public_port_conflict",
+        Some(json!({
+            "public_port": public_port,
+            "server_name": conflict.server_name,
+            "server_id": conflict.server_id,
+            "node_name": conflict.node_name,
+            "node_id": conflict.node_id,
+            "node_tag": conflict.node_tag,
+            "address": server.address,
+        })),
+        format!(
+            "对外端口 {public_port} 已被服务器「{}」上的节点「{}」占用",
+            conflict.server_name, conflict.node_name
+        ),
+    ))
+}
+
 /// 带宽上限：0 = 不限；上限 10 Gbps。`None`（未配置）同样表示不限。
 fn validate_bandwidth_kbps(bandwidth_kbps: Option<i64>) -> AppResult<()> {
     match bandwidth_kbps {
@@ -181,6 +235,9 @@ pub struct CreateNode {
     #[serde(default = "default_security")]
     pub security: String,
     pub port: i64,
+    /// 订阅里的对外端口；缺省 / `null` = 与 `port` 相同。
+    #[serde(default)]
+    pub public_port: Option<i64>,
     #[serde(default = "default_config")]
     pub config: Value,
     #[serde(default = "default_enabled")]
@@ -216,7 +273,7 @@ pub async fn create(
     Json(req): Json<CreateNode>,
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
-    load_server(&state, &server_id).await?;
+    let server = load_server(&state, &server_id).await?;
 
     let name = req.name.trim();
     if name.is_empty() {
@@ -230,6 +287,8 @@ pub async fn create(
     let transport = normalize_enum("传输方式", &req.transport, TRANSPORTS)?;
     let security = normalize_enum("安全类型", &req.security, SECURITIES)?;
     validate_port(req.port)?;
+    validate_public_port(req.public_port)?;
+    ensure_public_port_available(&state, &server, req.public_port, None).await?;
     validate_bandwidth_kbps(req.bandwidth_kbps)?;
     ensure_object(&req.config)?;
     validate_shadowsocks(&protocol, &req.config)?;
@@ -270,6 +329,7 @@ pub async fn create(
             transport,
             security,
             port: req.port,
+            public_port: req.public_port,
             config_json: req.config.to_string(),
             enabled: req.enabled,
             cert_id,
@@ -292,6 +352,7 @@ pub async fn create(
             "transport": &node.transport,
             "security": &node.security,
             "port": node.port,
+            "public_port": node.public_port,
             "enabled": node.enabled != 0,
             "cert_id": &node.cert_id,
             "bandwidth_kbps": node.bandwidth_kbps,
@@ -310,6 +371,9 @@ pub struct PatchNode {
     pub name: Option<String>,
     /// 允许改端口：改完不 apply 不生效，前端会提示
     pub port: Option<i64>,
+    /// 三态：不传 = 不改，`null` = 恢复与 `port` 相同，数字 = 指定对外端口。
+    #[serde(default)]
+    pub public_port: Patch<i64>,
     /// 带宽上限（kbps）：不传 = 不改，0 = 取消限速。
     pub bandwidth_kbps: Option<i64>,
     /// 三态：不传 = 不改，`null` = 解绑，字符串 = 绑定证书。
@@ -329,12 +393,13 @@ pub async fn update(
         && req.name.is_none()
         && req.port.is_none()
         && req.bandwidth_kbps.is_none()
+        && !req.public_port.is_set()
         && !req.cert_id.is_set()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 enabled / config / name / port / bandwidth_kbps / cert_id 之一",
+            "至少需要提供 enabled / config / name / port / public_port / bandwidth_kbps / cert_id 之一",
         ));
     }
     if let Some(config) = &req.config {
@@ -343,6 +408,7 @@ pub async fn update(
     if let Some(port) = req.port {
         validate_port(port)?;
     }
+    validate_public_port(req.public_port.value())?;
     validate_bandwidth_kbps(req.bandwidth_kbps)?;
     let name = match req.name.as_deref().map(str::trim) {
         Some("") => {
@@ -365,6 +431,13 @@ pub async fn update(
     let existing = repo::nodes::find_by_id(&state.db.pool, &id)
         .await?
         .ok_or_else(|| AppError::not_found("node.not_found", None, "资源不存在"))?;
+
+    // 对外端口写入时才做冲突检查：同一公网地址上的显式 public_port 不能重复。
+    if req.public_port.is_set() {
+        let server = load_server(&state, &existing.server_id).await?;
+        ensure_public_port_available(&state, &server, req.public_port.value(), Some(&existing.id))
+            .await?;
+    }
 
     // 协议不允许 PATCH，SS 的 settings 规则以库里已有的 protocol 为准。
     if let Some(config) = &req.config {
@@ -425,6 +498,7 @@ pub async fn update(
         config_json: req.config.map(|config| config.to_string()),
         name,
         port: req.port,
+        public_port: req.public_port,
         cert_id,
         bandwidth_kbps: req.bandwidth_kbps,
         ..Default::default()
@@ -441,6 +515,11 @@ pub async fn update(
             json!(node.enabled != 0),
         ),
         ("port", json!(existing.port), json!(node.port)),
+        (
+            "public_port",
+            json!(existing.public_port),
+            json!(node.public_port),
+        ),
         ("name", json!(existing.name), json!(node.name)),
         ("cert_id", json!(existing.cert_id), json!(node.cert_id)),
         (
@@ -1453,6 +1532,7 @@ mod tests {
                 transport: "tcp".into(),
                 security: "none".into(),
                 port: 443,
+                public_port: None,
                 config_json: "{}".into(),
                 enabled: true,
                 cert_id: None,
@@ -1474,5 +1554,168 @@ mod tests {
         assert_eq!(items[0]["server_id"], server.id);
         assert_eq!(items[0]["name"], "香港-01");
         assert_eq!(items[0]["port"], 443);
+    }
+
+    async fn create_server_via_repo(state: &AppState, name: &str, address: &str) -> String {
+        repo::servers::create(&state.db.pool, name, address, "external")
+            .await
+            .unwrap()
+            .0
+            .id
+    }
+
+    #[tokio::test]
+    async fn public_port_is_optional_validated_and_can_be_cleared() {
+        let (app, state, cookie) = setup().await;
+        let server_id = create_server_via_repo(&state, "nat-1", "203.0.113.7").await;
+        let nodes_uri = format!("/api/v1/servers/{server_id}/nodes");
+
+        // 省略 = NULL，旧行为不变。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &nodes_uri,
+            Some(vless_node()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(
+            body["node"]["public_port"].is_null(),
+            "省略 public_port 时必须落成 NULL：{body}"
+        );
+        let legacy_id = body["node"]["id"].as_str().unwrap().to_string();
+
+        // 设置对外端口：监听端口不变，订阅字段带出去。
+        let mut with_public = vless_node();
+        with_public["public_port"] = json!(40002);
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &nodes_uri,
+            Some(with_public),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["node"]["port"], 443);
+        assert_eq!(body["node"]["public_port"], 40002);
+
+        // 清空：null = 恢复与 port 相同。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &format!("/api/v1/nodes/{legacy_id}"),
+            Some(json!({"public_port": 40001})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["node"]["public_port"], 40001);
+
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &format!("/api/v1/nodes/{legacy_id}"),
+            Some(json!({"public_port": null})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body["node"]["public_port"].is_null());
+
+        // 越界 / 0 都要 400，且不能落库。
+        for invalid in [0_i64, -1, 65_536] {
+            let mut bad = trojan_node();
+            bad["public_port"] = json!(invalid);
+            let (status, body) =
+                request(&app, Some(&cookie), Method::POST, &nodes_uri, Some(bad)).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+            assert_eq!(body["code"], "node.public_port_invalid", "{body}");
+        }
+    }
+
+    #[tokio::test]
+    async fn public_port_conflict_is_scoped_to_the_same_address() {
+        let (app, state, cookie) = setup().await;
+        let a = create_server_via_repo(&state, "nat-a", "203.0.113.9").await;
+        let b = create_server_via_repo(&state, "nat-b", "203.0.113.9").await;
+        let other = create_server_via_repo(&state, "other", "198.51.100.1").await;
+
+        let mut first = vless_node();
+        first["public_port"] = json!(40001);
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &format!("/api/v1/servers/{a}/nodes"),
+            Some(first),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let first_id = body["node"]["id"].as_str().unwrap().to_string();
+
+        // 同一公网 IP 的另一台服务器再占用 40001 → 400，并点名冲突服务器。
+        let mut second = trojan_node();
+        second["public_port"] = json!(40001);
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &format!("/api/v1/servers/{b}/nodes"),
+            Some(second.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "node.public_port_conflict", "{body}");
+        assert_eq!(body["params"]["public_port"], 40001);
+        assert_eq!(
+            body["params"]["server_name"], "nat-a",
+            "必须给出冲突的服务器名：{body}"
+        );
+
+        // 不同地址：同号端口合法。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &format!("/api/v1/servers/{other}/nodes"),
+            Some(second.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+
+        // 同一节点 PATCH 成自己的值：不算冲突。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &format!("/api/v1/nodes/{first_id}"),
+            Some(json!({"public_port": 40001})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+
+        // 把 b 上已有的节点改成冲突值也要拒绝。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &format!("/api/v1/servers/{b}/nodes"),
+            Some(trojan_node()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let b_node = body["node"]["id"].as_str().unwrap().to_string();
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &format!("/api/v1/nodes/{b_node}"),
+            Some(json!({"public_port": 40001})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "node.public_port_conflict", "{body}");
     }
 }

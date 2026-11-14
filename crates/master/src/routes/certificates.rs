@@ -626,6 +626,7 @@ mod tests {
                 transport: "ws".into(),
                 security: "tls".into(),
                 port: 8443,
+                public_port: None,
                 config_json: json!({
                     "settings": {"clients": []},
                     "stream": {"network": "ws", "security": "tls"}
@@ -747,6 +748,7 @@ mod tests {
                         name: None,
                         strategy: "round_robin".into(),
                         cert_id: None,
+                        public_port: None,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: entry.clone(),
                             listen_port: 9001,
@@ -758,6 +760,7 @@ mod tests {
                         name: None,
                         strategy: "round_robin".into(),
                         cert_id: Some(cert.id.clone()),
+                        public_port: None,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: exit.id.clone(),
                             listen_port: 9002,

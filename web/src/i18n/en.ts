@@ -1648,6 +1648,7 @@ const en = {
     list: "Node list",
     desc: "The switch saves the enabled state immediately; disabled nodes are not written into the delivered config.",
     tableCaption: "Node list",
+    portPairTitle: "Internal port → public port",
     columns: {
       name: "Name",
       protocol: "Protocol",
@@ -1718,6 +1719,9 @@ const en = {
       protocol: "Protocol",
       protocolPlaceholder: "Select a protocol",
       port: "Port",
+      publicPort: "Public port (optional)",
+      publicPortPlaceholder: "Blank = same as port",
+      publicPortHint: "NAT machines must map the internal port to this public port",
       bandwidth: "Bandwidth limit (Mbps)",
       bandwidthPlaceholder: "e.g. 100 (blank or 0 = unlimited)",
       bandwidthHint:
@@ -2023,6 +2027,7 @@ const en = {
       groupCountOneMember: "{groups} hops · 1 server",
       groupCountOneGroupOneMember: "1 hop · 1 server",
       entryHint: "Clients connect to the first member of the first hop",
+      portPairHint: "Internal port → public port",
       noEntry: "No entry member",
       expandAria: "Expand the chain topology of “{name}”",
       collapseAria: "Collapse the chain topology of “{name}”",
@@ -2542,6 +2547,7 @@ const en = {
   },
   errors: {
     "chain.entry_port_required": "The entry group (group 1) must provide a listen port",
+    "chain.public_port_invalid": "Public port must be between {min} and {max}",
     "chain.tunnel_udp_requires_tls": "The tunnel UDP relay requires the TLS security mode (Noise over UDP is not implemented yet)",
     "chain.latency_hours_invalid": "hours must be an integer between 1 and 168 (default 24)",
     "chain.protocol_invalid": "Unsupported chain protocol \"{protocol}\" (choose tcp, udp or both)",
@@ -2654,6 +2660,9 @@ const en = {
     "node.name_required": "Node name is required",
     "node.name_too_long": "Node name must be at most {max} characters",
     "node.port_invalid": "Port must be between {min} and {max}",
+    "node.public_port_invalid": "Public port must be between {min} and {max}",
+    "node.public_port_conflict":
+      "Public port {public_port} is already used by node “{node_name}” on server “{server_name}”",
     "node.tag_too_long": "Tag must be at most {max} characters",
     "node.tag_conflict": "A node with this tag already exists on this server",
     "node.config_invalid": "config must be a JSON object",
@@ -2748,6 +2757,7 @@ const en = {
     nodeNameRequired: "Enter a node name",
     nodeNameMax: "Node name must be at most 64 characters",
     portRange: "Port must be an integer from 1 to 65535",
+    publicPortRange: "Public port must be an integer from 1 to 65535; leave blank to use the port above",
     forwardNameRequired: "Enter a forward name",
     forwardNameMax: "Forward name must be at most 64 characters",
     forwardTargetRequired: "Enter a target host",

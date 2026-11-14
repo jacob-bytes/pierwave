@@ -128,6 +128,8 @@ function emptyGroup() {
     name: "",
     strategy: DEFAULT_CHAIN_STRATEGY,
     cert_id: "",
+    // 入口组对外端口（NAT）；当前没有编辑入口，只用于编辑时原样带回。
+    public_port: "",
     members: [emptyMember()],
   };
 }
@@ -900,6 +902,8 @@ export function ChainFormDialog({
         strategy: normalizeStrategy(group.strategy),
         // 入口组（index 0）即使有历史脏数据也不回填证书：后端口径同样禁止。
         cert_id: index === 0 ? "" : (group.cert_id ?? ""),
+        public_port:
+          group.public_port == null ? "" : String(group.public_port),
         members:
           members.length > 0
             ? members.map((member) => ({
@@ -1072,6 +1076,8 @@ export function ChainFormDialog({
           // 入口组始终不带证书；非 tls 链也不保留证书绑定。
           cert_id:
             tls && needsCert(index) ? group.cert_id.trim() : undefined,
+          // 入口组的对外端口只用于展示；编辑时原样带回，避免保存后丢失。
+          public_port: group.public_port,
           members: group.members.map((member, memberIndex) => ({
             server_id: member.server_id,
             // 中间跳在新建时为空；统一归一成 undefined，避免提交空串数字 0。
@@ -1087,6 +1093,9 @@ export function ChainFormDialog({
         name: group.name,
         strategy: group.strategy,
         ...(group.cert_id !== undefined ? { cert_id: group.cert_id } : {}),
+        ...(group.public_port !== undefined && group.public_port !== ""
+          ? { public_port: Number(group.public_port) }
+          : {}),
         members: group.members,
       })),
     };

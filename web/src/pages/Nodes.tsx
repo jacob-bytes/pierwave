@@ -55,6 +55,7 @@ import { ApiError, type Node, type NodeTraffic } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
 import { nodeSummary } from "@/lib/protocols";
+import { portPairLabel } from "@/lib/publicPort";
 import {
   useApplyServer,
   useNodeTraffic,
@@ -476,7 +477,15 @@ export default function NodesPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
-                      {node.port}
+                      <span
+                        title={
+                          node.public_port == null
+                            ? undefined
+                            : t("nodes.portPairTitle")
+                        }
+                      >
+                        {portPairLabel(node.port, node.public_port)}
+                      </span>
                     </TableCell>
                     <TableCell className="px-4 py-2.5">
                       <NodeTrafficCell

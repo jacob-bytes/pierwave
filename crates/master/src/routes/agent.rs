@@ -1466,6 +1466,7 @@ mod tests {
                     name: None,
                     strategy: "round_robin".into(),
                     cert_id: None,
+                    public_port: None,
                     members: vec![repo::chains::NewChainGroupMember {
                         server_id: server.id.clone(),
                         listen_port: 8443,
@@ -1588,6 +1589,7 @@ mod enforcement_tests {
                 transport: "tcp".into(),
                 security: "none".into(),
                 port: 443,
+                public_port: None,
                 config_json: json!({
                     "settings": {"clients": [], "decryption": "none"},
                     "stream": {"network": "tcp", "security": "none"}

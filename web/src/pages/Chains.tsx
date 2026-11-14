@@ -70,7 +70,6 @@ import {
   chainStatus,
   degradedGroups,
   entryMember,
-  formatMemberEndpoint,
   groupIsDegraded,
   groupKind,
   hopListeningState,
@@ -106,6 +105,7 @@ import {
 } from "@/lib/engines";
 import { errorText } from "@/lib/errors";
 import { formatForwardTarget } from "@/lib/forwards";
+import { portPairLabel } from "@/lib/publicPort";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { useChains, useServers, useUpdateChain } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -457,14 +457,20 @@ function GroupMemberRow({
   index,
   inUse,
   isLastHop,
+  publicPort,
 }: {
   member: ChainGroupMember;
   index: number;
   inUse: boolean;
   isLastHop: boolean;
+  /** 入口组的对外端口；其它组 / 未设置时为 null。 */
+  publicPort?: number | null;
 }) {
   const { t } = useI18n();
-  const endpoint = formatMemberEndpoint(member);
+  const endpoint = `${member.server_name.trim()}:${portPairLabel(
+    member.listen_port,
+    publicPort,
+  )}`;
   const error = member.error.trim();
   const tlsError = targetErrorKey(member.target_error);
   const degraded = Boolean(member.degraded);
@@ -672,6 +678,7 @@ function GroupCard({
               index={index}
               inUse={inUse}
               isLastHop={isLastHop}
+              publicPort={isEntry ? group.public_port : null}
             />
           ))
         )}
@@ -984,10 +991,21 @@ export default function ChainsPage() {
   }
 
   function renderChainEntry(chain: Chain) {
+    const entryGroup = orderGroups(chain.groups)[0];
     const entry = entryMember(chain.groups);
     return entry ? (
-      <span className="break-all font-mono text-xs" title={t("chains.list.entryHint")}>
-        {formatMemberEndpoint(entry)}
+      <span
+        className="break-all font-mono text-xs"
+        title={
+          entryGroup?.public_port == null
+            ? t("chains.list.entryHint")
+            : `${t("chains.list.entryHint")} · ${t(
+                "chains.list.portPairHint",
+              )}`
+        }
+      >
+        {entry.server_name.trim()}:
+        {portPairLabel(entry.listen_port, entryGroup?.public_port)}
       </span>
     ) : (
       <span className="text-xs text-muted-foreground">

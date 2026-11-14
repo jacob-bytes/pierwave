@@ -471,6 +471,11 @@ export interface Node {
   transport: string;
   security: string;
   port: number;
+  /**
+   * 订阅里给用户看的对外端口；`null` / 缺失 = 与 `port` 相同。
+   * 只影响订阅与展示，Agent 仍然按 `port` 监听。
+   */
+  public_port?: number | null;
   config: Record<string, unknown>;
   /** 后端目前序列化为 0/1，统一在展示层用 Boolean() 归一。 */
   enabled: boolean | number;
@@ -507,6 +512,11 @@ export interface CreateNodeInput {
   transport: string;
   security: string;
   port: number;
+  /**
+   * 订阅里给用户看的对外端口；`null` / 缺失 = 与 `port` 相同。
+   * 只影响订阅与展示，Agent 仍然按 `port` 监听。
+   */
+  public_port?: number | null;
   config: Record<string, unknown>;
   enabled?: boolean;
   /** TLS 节点必填；其它安全层必须省略。 */
@@ -518,6 +528,8 @@ export interface CreateNodeInput {
 export interface UpdateNodeInput {
   name?: string;
   port?: number;
+  /** 三态：省略 = 不改，`null` = 清空（与 port 相同），数字 = 指定对外端口。 */
+  public_port?: number | null;
   enabled?: boolean;
   config?: Record<string, unknown>;
   /** 节点带宽上限（kbps）；省略 = 不改，0 = 取消限速。 */
@@ -744,6 +756,11 @@ export interface ChainGroup {
   strategy: string;
   /** 该组 realm 监听证书；入口组（seq 0）始终为 null。 */
   cert_id: string | null;
+  /**
+   * 入口组的公网展示端口；`null` = 与成员 `listen_port` 相同。
+   * 只用于列表 / 拓扑展示，不参与下发。
+   */
+  public_port?: number | null;
   /** 组内任一成员 degraded 即为 true。 */
   degraded: boolean;
   /** 按 `priority` 升序排列。 */
@@ -837,6 +854,8 @@ export interface ChainGroupInput {
   strategy: ChainStrategy;
   /** 该组 realm 监听证书；入口组必须省略，tls 链的 seq >= 1 组必填。 */
   cert_id?: string | null;
+  /** 入口组的公网展示端口；只用于展示，不参与下发。 */
+  public_port?: number | null;
   /** 1–8 台，按 priority 顺序排列。 */
   members: ChainGroupMemberInput[];
 }

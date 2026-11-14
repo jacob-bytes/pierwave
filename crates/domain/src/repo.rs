@@ -1191,6 +1191,7 @@ pub mod servers {
                     transport: "tcp".into(),
                     security: "none".into(),
                     port,
+                    public_port: None,
                     config_json: "{}".into(),
                     enabled,
                     cert_id: None,
@@ -1918,6 +1919,16 @@ pub mod nodes {
 
     use super::*;
 
+    /// 同一 `servers.address` 上重复的显式对外端口；用于 400 提示冲突的服务器名。
+    #[derive(Debug, Clone, sqlx::FromRow)]
+    pub struct PublicPortConflict {
+        pub node_id: String,
+        pub node_name: String,
+        pub node_tag: String,
+        pub server_id: String,
+        pub server_name: String,
+    }
+
     pub struct NewNode {
         /// 留空时自动生成 `<protocol>-<随机后缀>`。
         pub tag: Option<String>,
@@ -1926,6 +1937,8 @@ pub mod nodes {
         pub transport: String,
         pub security: String,
         pub port: i64,
+        /// 订阅里的对外端口；`None` = 与 `port` 相同。
+        pub public_port: Option<i64>,
         pub config_json: String,
         pub enabled: bool,
         pub cert_id: Option<String>,
@@ -1941,6 +1954,8 @@ pub mod nodes {
         pub transport: Option<String>,
         pub security: Option<String>,
         pub port: Option<i64>,
+        /// 三态：缺失 = 不改，`Null` = 恢复与 `port` 相同，`Value` = 指定对外端口。
+        pub public_port: Patch<i64>,
         pub config_json: Option<String>,
         pub enabled: Option<bool>,
         /// 三态：缺失 = 不改，`Null` = 解绑，`Value` = 绑定指定证书。
@@ -1964,9 +1979,9 @@ pub mod nodes {
         };
         sqlx::query(
             "INSERT INTO nodes
-                (id, server_id, tag, name, protocol, transport, security, port, config_json,
-                 enabled, cert_id, bandwidth_kbps, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (id, server_id, tag, name, protocol, transport, security, port, public_port,
+                 config_json, enabled, cert_id, bandwidth_kbps, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(server_id)
@@ -1976,6 +1991,7 @@ pub mod nodes {
         .bind(input.transport.trim().to_ascii_lowercase())
         .bind(input.security.trim().to_ascii_lowercase())
         .bind(input.port)
+        .bind(input.public_port)
         .bind(&input.config_json)
         .bind(i64::from(input.enabled))
         .bind(&input.cert_id)
@@ -2011,6 +2027,40 @@ pub mod nodes {
         )
         .bind(server_id)
         .bind(port)
+        .fetch_optional(pool)
+        .await?)
+    }
+
+    /// 同一公网地址上，另一个节点是否已经占用了这个**显式**对外端口。
+    ///
+    /// NAT 共用 IP 时，两台服务器上的节点可能把不同的内网端口映射到同一个公网端口，
+    /// 用户侧最终连的是同一个 `address:public_port`，必须提前拒绝。
+    ///
+    /// 只比较显式写入的 `public_port`：`NULL` 表示「与自己的 `port` 相同」，
+    /// 它属于各自主机的端口空间，本轮不拿它和别的节点的显式对外端口比较
+    /// （不同主机、端口空间不同）。
+    ///
+    /// `exclude_node_id` 用于 PATCH：节点自己的值不算冲突。
+    pub async fn find_public_port_conflict(
+        pool: &SqlitePool,
+        address: &str,
+        public_port: i64,
+        exclude_node_id: Option<&str>,
+    ) -> anyhow::Result<Option<PublicPortConflict>> {
+        Ok(sqlx::query_as::<_, PublicPortConflict>(
+            "SELECT n.id AS node_id, n.name AS node_name, n.tag AS node_tag,
+                    s.id AS server_id, s.name AS server_name
+             FROM nodes n
+             JOIN servers s ON s.id = n.server_id
+             WHERE s.address = ?
+               AND n.public_port = ?
+               AND n.id <> COALESCE(?, '')
+             ORDER BY s.created_at ASC, s.rowid ASC, n.created_at ASC, n.rowid ASC
+             LIMIT 1",
+        )
+        .bind(address.trim())
+        .bind(public_port)
+        .bind(exclude_node_id)
         .fetch_optional(pool)
         .await?)
     }
@@ -2091,6 +2141,7 @@ pub mod nodes {
                 transport = COALESCE(?, transport),
                 security = COALESCE(?, security),
                 port = COALESCE(?, port),
+                public_port = CASE WHEN ? THEN ? ELSE public_port END,
                 config_json = COALESCE(?, config_json),
                 enabled = COALESCE(?, enabled),
                 cert_id = CASE WHEN ? THEN ? ELSE cert_id END,
@@ -2103,6 +2154,8 @@ pub mod nodes {
         .bind(input.transport)
         .bind(input.security)
         .bind(input.port)
+        .bind(i64::from(input.public_port.is_set()))
+        .bind(input.public_port.value())
         .bind(input.config_json)
         .bind(input.enabled.map(i64::from))
         .bind(i64::from(input.cert_id.is_set()))
@@ -2147,6 +2200,143 @@ pub mod nodes {
             .execute(pool)
             .await?;
         Ok(res.rows_affected() > 0)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        async fn setup() -> SqlitePool {
+            let db = crate::Db::connect("sqlite::memory:").await.unwrap();
+            db.migrate().await.unwrap();
+            db.pool
+        }
+
+        async fn create_server(pool: &SqlitePool, name: &str, address: &str) -> String {
+            super::super::servers::create(pool, name, address, "external")
+                .await
+                .unwrap()
+                .0
+                .id
+        }
+
+        async fn create_node(
+            pool: &SqlitePool,
+            server_id: &str,
+            port: i64,
+            public_port: Option<i64>,
+        ) -> Node {
+            create(
+                pool,
+                server_id,
+                NewNode {
+                    tag: Some(format!("n-{port}")),
+                    name: format!("节点-{port}"),
+                    protocol: "vless".into(),
+                    transport: "tcp".into(),
+                    security: "none".into(),
+                    port,
+                    public_port,
+                    config_json: "{}".into(),
+                    enabled: true,
+                    cert_id: None,
+                    bandwidth_kbps: None,
+                },
+            )
+            .await
+            .unwrap()
+        }
+
+        #[tokio::test]
+        async fn public_port_round_trips_and_can_be_cleared() {
+            let pool = setup().await;
+            let server = create_server(&pool, "hk-1", "1.2.3.4").await;
+
+            // NULL：旧行为，必须原样读回 None。
+            let node = create_node(&pool, &server, 443, None).await;
+            assert_eq!(node.public_port, None);
+            let read = find_by_id(&pool, &node.id).await.unwrap().unwrap();
+            assert_eq!(read.public_port, None, "NULL 落库后必须仍是 NULL");
+
+            // 设置对外端口。
+            let updated = update(
+                &pool,
+                &node.id,
+                UpdateNode {
+                    public_port: Patch::Value(40001),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(updated.public_port, Some(40001));
+            assert_eq!(updated.port, 443, "监听端口不能被对外端口覆盖");
+            assert_eq!(
+                find_by_id(&pool, &node.id)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .public_port,
+                Some(40001)
+            );
+
+            // Null = 恢复与 port 相同。
+            let cleared = update(
+                &pool,
+                &node.id,
+                UpdateNode {
+                    public_port: Patch::Null,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(cleared.public_port, None);
+        }
+
+        #[tokio::test]
+        async fn public_port_conflict_is_scoped_to_the_same_address() {
+            let pool = setup().await;
+            let a = create_server(&pool, "nat-a", "203.0.113.9").await;
+            let b = create_server(&pool, "nat-b", "203.0.113.9").await;
+            let other = create_server(&pool, "other", "198.51.100.1").await;
+
+            let first = create_node(&pool, &a, 443, Some(40001)).await;
+            let second = create_node(&pool, &b, 8443, Some(40001)).await;
+            create_node(&pool, &other, 443, Some(40001)).await;
+
+            let conflict = find_public_port_conflict(&pool, "203.0.113.9", 40001, None)
+                .await
+                .unwrap()
+                .expect("同一公网地址 + 同一显式对外端口必须冲突");
+            assert_eq!(conflict.node_id, first.id, "按创建顺序返回第一个冲突");
+            assert_eq!(conflict.server_name, "nat-a");
+
+            // 排除自己后仍能找到另一个冲突节点。
+            let conflict = find_public_port_conflict(&pool, "203.0.113.9", 40001, Some(&first.id))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(conflict.node_id, second.id);
+
+            // 不同地址的同名端口不冲突。
+            assert!(
+                find_public_port_conflict(&pool, "198.51.100.2", 40001, None)
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+
+            // NULL 不参与显式对外端口冲突。
+            let null_node = create_node(&pool, &a, 9000, None).await;
+            assert!(find_public_port_conflict(&pool, "203.0.113.9", 9000, None)
+                .await
+                .unwrap()
+                .is_none());
+            assert_eq!(null_node.public_port, None);
+        }
     }
 }
 
@@ -2777,6 +2967,8 @@ pub mod chains {
         pub strategy: String,
         /// 该组监听证书 id；入口组（seq = 0）必须为 `None`。
         pub cert_id: Option<String>,
+        /// 入口组的公网展示端口；`None` = 与入口成员 `listen_port` 相同。
+        pub public_port: Option<i64>,
         pub members: Vec<NewChainGroupMember>,
     }
 
@@ -2822,7 +3014,7 @@ pub mod chains {
         chain_id: &str,
     ) -> anyhow::Result<Vec<ChainGroupWithMembers>> {
         let groups = sqlx::query_as::<_, ChainGroup>(
-            "SELECT id, chain_id, seq, name, strategy, cert_id
+            "SELECT id, chain_id, seq, name, strategy, cert_id, public_port
              FROM chain_groups
              WHERE chain_id = ?
              ORDER BY seq ASC, rowid ASC",
@@ -2880,8 +3072,9 @@ pub mod chains {
         for (seq, group) in groups.iter().enumerate() {
             let group_id = Uuid::new_v4().to_string();
             sqlx::query(
-                "INSERT INTO chain_groups (id, chain_id, seq, name, strategy, cert_id)
-                 VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO chain_groups
+                    (id, chain_id, seq, name, strategy, cert_id, public_port)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&group_id)
             .bind(chain_id)
@@ -2889,6 +3082,7 @@ pub mod chains {
             .bind(group.name.as_deref())
             .bind(&group.strategy)
             .bind(group.cert_id.as_deref())
+            .bind(group.public_port)
             .execute(&mut *conn)
             .await?;
 
@@ -3047,7 +3241,7 @@ pub mod chains {
         pool: &SqlitePool,
     ) -> anyhow::Result<HashMap<String, Vec<ChainGroupWithMembers>>> {
         let groups = sqlx::query_as::<_, ChainGroup>(
-            "SELECT id, chain_id, seq, name, strategy, cert_id
+            "SELECT id, chain_id, seq, name, strategy, cert_id, public_port
              FROM chain_groups
              ORDER BY chain_id ASC, seq ASC, rowid ASC",
         )
@@ -5684,6 +5878,7 @@ pub mod overview {
                     transport: "tcp".into(),
                     security: "none".into(),
                     port: 443,
+                    public_port: None,
                     config_json: "{}".into(),
                     enabled: true,
                     cert_id: None,
@@ -5973,6 +6168,7 @@ pub mod overview {
                         name: None,
                         strategy: "round_robin".into(),
                         cert_id: None,
+                        public_port: None,
                         members: vec![super::super::chains::NewChainGroupMember {
                             server_id: server.id.clone(),
                             listen_port: 9001,

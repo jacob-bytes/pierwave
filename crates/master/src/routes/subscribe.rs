@@ -269,6 +269,7 @@ mod tests {
                 transport: "tcp".into(),
                 security: "reality".into(),
                 port: 443,
+                public_port: None,
                 config_json: json!({
                     "settings": {"clients": [], "decryption": "none"},
                     "stream": {
@@ -300,6 +301,7 @@ mod tests {
                 transport: "ws".into(),
                 security: "tls".into(),
                 port: 8443,
+                public_port: None,
                 config_json: json!({
                     "settings": {"clients": []},
                     "stream": {
@@ -329,6 +331,7 @@ mod tests {
                 transport: "ws".into(),
                 security: "tls".into(),
                 port: 9443,
+                public_port: None,
                 config_json: json!({}).to_string(),
                 enabled: false,
                 cert_id: None,
@@ -704,6 +707,7 @@ mod tests {
                 transport: "tcp".into(),
                 security: "none".into(),
                 port: 8388,
+                public_port: None,
                 config_json: json!({
                     "settings": {
                         "method": "2022-blake3-aes-128-gcm",
@@ -780,6 +784,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn subscription_uses_the_public_port_and_keeps_null_unchanged() {
+        let (app, state, short_code) = setup().await;
+        let server = servers::list(&state.db.pool).await.unwrap().remove(0);
+        let nodes = repo::nodes::list_enabled_by_server(&state.db.pool, &server.id)
+            .await
+            .unwrap();
+        let reality = nodes
+            .iter()
+            .find(|node| node.tag == "hk-reality")
+            .cloned()
+            .unwrap();
+
+        // NULL：旧行为，443 原样出现。
+        let (status, _, body) =
+            get(&app, &format!("/api/v1/sub/{short_code}?target=uri"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains(&format!("{}:443", ADDRESS)),
+            "public_port = NULL 时必须继续输出监听端口：{body}"
+        );
+        assert!(!body.contains(":40001"), "{body}");
+
+        // 设置对外端口后，订阅里的连接地址切换为公网端口，监听端口不变。
+        repo::nodes::update(
+            &state.db.pool,
+            &reality.id,
+            repo::nodes::UpdateNode {
+                public_port: pierwave_domain::models::Patch::Value(40001),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let (status, _, body) =
+            get(&app, &format!("/api/v1/sub/{short_code}?target=uri"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains(&format!("{}:40001", ADDRESS)),
+            "订阅必须使用对外端口：{body}"
+        );
+        assert!(!body.contains(&format!("{}:443", ADDRESS)), "{body}");
+
+        // Clash 同样使用对外端口。
+        let (status, _, body) = get(&app, &format!("/api/v1/sub/{short_code}"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("    port: 40001\n"), "{body}");
+        assert!(!body.contains("    port: 443\n"), "{body}");
+
+        // 落库后监听端口保持原值：对外端口只影响订阅，不影响下发。
+        let stored = repo::nodes::find_by_id(&state.db.pool, &reality.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.port, 443, "对外端口不能改变监听端口");
+        assert_eq!(stored.public_port, Some(40001));
+    }
+
+    #[tokio::test]
     async fn duplicate_node_names_across_servers_are_made_unique() {
         let (app, state, short_code) = setup().await;
 
@@ -797,6 +860,7 @@ mod tests {
                 transport: "tcp".into(),
                 security: "tls".into(),
                 port: 443,
+                public_port: None,
                 config_json: json!({
                     "settings": {"clients": []},
                     "stream": {"network": "tcp", "security": "tls", "tlsSettings": {"serverName": "a.com"}}

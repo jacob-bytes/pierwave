@@ -1120,6 +1120,7 @@ mod tests {
             transport: transport.into(),
             security: security.into(),
             port,
+            public_port: None,
             config_json: config_json.into(),
             enabled: 1,
             created_at: 1,

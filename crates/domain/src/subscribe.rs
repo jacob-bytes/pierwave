@@ -36,6 +36,11 @@ pub struct SubNode {
     /// 地址（服务器 `address` 字段，可能是域名或 IP）。
     pub server: String,
     pub port: u16,
+    /// 对外（公网）端口；`None` = 与 [`SubNode::port`] 相同。
+    ///
+    /// NAT 机器上 `port` 是 Agent 实际监听的端口，`public_port` 才是用户真正能连到的
+    /// 端口。所有导出器必须走 [`SubNode::effective_port`]，不能直接读 `port`。
+    pub public_port: Option<u16>,
     /// `tcp` / `ws` / `grpc` / `h2` / ...
     pub transport: String,
     /// `none` / `tls` / `reality`。
@@ -59,6 +64,13 @@ fn ss_method(settings: Option<&Value>) -> String {
 impl SubNode {
     pub fn param(&self, key: &str) -> Option<&str> {
         self.params.get(key).map(String::as_str)
+    }
+
+    /// 订阅里给用户的端口：对外端口优先，`None` 时与监听端口相同。
+    ///
+    /// 所有导出器都只能通过这里取端口；监听端口仍由 Agent 按 `port` 使用。
+    pub fn effective_port(&self) -> u16 {
+        self.public_port.unwrap_or(self.port)
     }
 
     /// Shadowsocks 的**客户端密码**。
@@ -99,6 +111,19 @@ impl SubNode {
             tracing::warn!(node = %node.id, port = node.port, "节点端口非法，订阅跳过该节点");
             return None;
         };
+        // 对外端口只影响订阅。脏数据（0 / 越界）回落到监听端口并记 warn：
+        // 订阅是公开端点，不能因为一个展示字段把整条节点打挂。
+        let public_port = node
+            .public_port
+            .and_then(|value| u16::try_from(value).ok())
+            .filter(|value| *value > 0);
+        if node.public_port.is_some() && public_port.is_none() {
+            tracing::warn!(
+                node = %node.id,
+                public_port = node.public_port.unwrap_or_default(),
+                "节点对外端口非法，订阅回落到监听端口"
+            );
+        }
 
         let protocol = match node.protocol.trim().to_ascii_lowercase().as_str() {
             "vless" => "vless",
@@ -360,6 +385,7 @@ impl SubNode {
             protocol: protocol.to_string(),
             server: server.to_string(),
             port,
+            public_port,
             transport,
             security,
             params,
@@ -582,7 +608,7 @@ fn clash_proxy(node: &SubNode) -> String {
     out.push_str(&format!("  - name: {}\n", yaml_string(&node.name)));
     out.push_str(&format!("    type: {}\n", node.protocol));
     out.push_str(&format!("    server: {}\n", yaml_string(&node.server)));
-    out.push_str(&format!("    port: {}\n", node.port));
+    out.push_str(&format!("    port: {}\n", node.effective_port()));
 
     match node.protocol.as_str() {
         "vless" => {
@@ -886,7 +912,7 @@ fn render_vless(node: &SubNode) -> String {
         "vless://{}@{}:{}{}#{}",
         node.param("uuid").unwrap_or_default(),
         uri_host(&node.server),
-        node.port,
+        node.effective_port(),
         query.finish(),
         percent_encode(&node.name)
     )
@@ -897,7 +923,7 @@ fn render_vmess(node: &SubNode) -> String {
         "v": "2",
         "ps": node.name,
         "add": node.server,
-        "port": node.port.to_string(),
+        "port": node.effective_port().to_string(),
         "id": node.param("uuid").unwrap_or_default(),
         "aid": node.param("alter_id").unwrap_or("0"),
         "scy": "auto",
@@ -949,7 +975,7 @@ fn render_trojan(node: &SubNode) -> String {
         "trojan://{}@{}:{}{}#{}",
         percent_encode(node.param("password").unwrap_or_default()),
         uri_host(&node.server),
-        node.port,
+        node.effective_port(),
         query.finish(),
         percent_encode(&node.name)
     )
@@ -963,7 +989,7 @@ fn render_ss(node: &SubNode) -> String {
     format!(
         "ss://{userinfo}@{}:{}#{}",
         uri_host(&node.server),
-        node.port,
+        node.effective_port(),
         percent_encode(&node.name)
     )
 }
@@ -1202,25 +1228,25 @@ fn family_node_line(flavor: IniFlavor, node: &SubNode) -> Option<String> {
         "vless" => vec![
             "vless".into(),
             host,
-            node.port.to_string(),
+            node.effective_port().to_string(),
             format!("username={}", node.param("uuid").unwrap_or_default()),
         ],
         "vmess" => vec![
             "vmess".into(),
             host,
-            node.port.to_string(),
+            node.effective_port().to_string(),
             format!("username={}", node.param("uuid").unwrap_or_default()),
         ],
         "trojan" => vec![
             "trojan".into(),
             host,
-            node.port.to_string(),
+            node.effective_port().to_string(),
             format!("password={}", node.param("password").unwrap_or_default()),
         ],
         "ss" => vec![
             "ss".into(),
             host,
-            node.port.to_string(),
+            node.effective_port().to_string(),
             format!(
                 "encrypt-method={}",
                 node.param("method").unwrap_or(xray::SS_DEFAULT_METHOD)
@@ -1295,7 +1321,7 @@ fn qx_node_line(node: &SubNode) -> Option<String> {
     if !ini_supported(IniFlavor::Qx, node) {
         return None;
     }
-    let host_port = format!("{}:{}", uri_host(&node.server), node.port);
+    let host_port = format!("{}:{}", uri_host(&node.server), node.effective_port());
     let mut parts: Vec<String> = match node.protocol.as_str() {
         "vless" => vec![
             format!("vless={host_port}"),
@@ -1769,7 +1795,7 @@ fn singbox_outbound(node: &SubNode) -> Option<Value> {
         "type": node.protocol,
         "tag": node.name,
         "server": node.server,
-        "server_port": node.port,
+        "server_port": node.effective_port(),
     });
     match node.protocol.as_str() {
         "vless" => {
@@ -2151,6 +2177,7 @@ mod tests {
             protocol: protocol.into(),
             server: "203.0.113.10".into(),
             port,
+            public_port: None,
             transport: transport.into(),
             security: security.into(),
             params: params
@@ -3673,6 +3700,107 @@ mod tests {
         assert_eq!(output.body.lines().last(), Some("FINAL,PROXY"));
     }
 
+    // -----------------------------------------------------------------
+    // 对外端口（public_port）：只改订阅展示，不改监听
+    // -----------------------------------------------------------------
+
+    /// 固定单节点：金标准输出要求它不随测试数据漂移。
+    fn golden_nodes() -> Vec<SubNode> {
+        vec![node(
+            "golden-node",
+            "vless",
+            "ws",
+            "tls",
+            443,
+            &[
+                ("uuid", "11111111-1111-4111-8111-111111111111"),
+                ("sni", "example.com"),
+                ("path", "/ws"),
+                ("host", "cdn.example.com"),
+            ],
+        )]
+    }
+
+    fn golden_subscription() -> String {
+        let nodes = golden_nodes();
+        let rules = vec!["MATCH,PROXY".to_string()];
+        let ctx = sub_context(&nodes, &rules);
+        let mut out = String::new();
+        for exporter in exporters() {
+            let body = exporter
+                .render(&ctx)
+                .unwrap_or_else(|error| panic!("{} 渲染失败：{error}", exporter.id()));
+            out.push_str(&format!("=== {} ===\n{body}\n", exporter.id()));
+        }
+        out
+    }
+
+    /// 金标准：`public_port = NULL` 时所有导出格式必须与引入该字段前逐字节一致。
+    #[test]
+    fn public_port_null_is_byte_identical_to_the_golden_output() {
+        const GOLDEN: &str = include_str!("../testdata/subscribe_golden_public_port_null.txt");
+        assert_eq!(golden_subscription(), GOLDEN);
+    }
+
+    /// 每个导出格式都必须使用对外端口，而不是监听端口。
+    #[test]
+    fn public_port_overrides_the_port_in_every_exporter() {
+        let mut nodes = golden_nodes();
+        nodes[0].public_port = Some(40001);
+        let rules = vec!["MATCH,PROXY".to_string()];
+        let ctx = sub_context(&nodes, &rules);
+
+        for exporter in exporters() {
+            let id = exporter.id();
+            let mut body = exporter
+                .render(&ctx)
+                .unwrap_or_else(|error| panic!("{id} 渲染失败：{error}"));
+            // shadowrocket / v2ray 是 base64 包裹的 URI 列表，先解码再断言。
+            if matches!(id, "shadowrocket" | "v2ray") {
+                body = String::from_utf8(STANDARD.decode(body).unwrap()).unwrap();
+            }
+            assert!(
+                body.contains("40001"),
+                "{id} 必须输出对外端口 40001：{body}"
+            );
+            assert!(!body.contains("443"), "{id} 不应再输出监听端口 443：{body}");
+        }
+    }
+
+    #[test]
+    fn public_port_is_read_from_the_node_and_invalid_values_fall_back() {
+        let raw = fragment_node(
+            "public-1",
+            "NAT-节点",
+            "vless",
+            "tcp",
+            "none",
+            443,
+            json!({
+                "settings": {"clients": [], "decryption": "none"},
+                "stream": {"network": "tcp", "security": "none"}
+            }),
+        );
+        let mut raw = raw;
+        raw.public_port = Some(40001);
+        let sub = SubNode::from_node(&raw, "203.0.113.10", "user-1", "secret").unwrap();
+        assert_eq!(sub.port, 443, "监听端口保持原值");
+        assert_eq!(sub.effective_port(), 40001);
+
+        // NULL = 与监听端口相同。
+        raw.public_port = None;
+        let sub = SubNode::from_node(&raw, "203.0.113.10", "user-1", "secret").unwrap();
+        assert_eq!(sub.effective_port(), 443);
+
+        // 脏值回落到监听端口，而不是把节点从订阅里丢掉。
+        for invalid in [0_i64, -1, 65_536] {
+            raw.public_port = Some(invalid);
+            let sub = SubNode::from_node(&raw, "203.0.113.10", "user-1", "secret")
+                .expect("非法对外端口不能让节点从订阅里消失");
+            assert_eq!(sub.effective_port(), 443, "非法值 {invalid} 应回落");
+        }
+    }
+
     fn fragment_node(
         id: &str,
         name: &str,
@@ -3691,6 +3819,7 @@ mod tests {
             transport: transport.into(),
             security: security.into(),
             port,
+            public_port: None,
             config_json: config.to_string(),
             enabled: 1,
             created_at: 1,

@@ -28,6 +28,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { Node } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { formatJsonObject, parseJsonConfig } from "@/lib/json";
+import { parsePublicPortInput } from "@/lib/publicPort";
 import {
   allowedSecurities,
   allowedTransports,
@@ -123,6 +124,8 @@ export function NodeFormDialog({
       security: initial.security,
       cert_id: node?.cert_id ?? "",
       port: node ? String(node.port) : "443",
+      public_port:
+        node?.public_port == null ? "" : String(node.public_port),
       bandwidth_mbps: kbpsToMbpsInput(node?.bandwidth_kbps),
       enabled: node ? Boolean(node.enabled) : true,
       ss_method: initialSs.method,
@@ -319,6 +322,13 @@ export function NodeFormDialog({
     }
 
     const port = Number(values.port);
+    const publicPort = parsePublicPortInput(values.public_port);
+    if (publicPort === undefined) {
+      form.setError("public_port", {
+        message: t("validation.publicPortRange"),
+      });
+      return;
+    }
     // 单位换算只在 lib/speed.ts 里发生，这里已经拿到的就是 kbps。
     const bandwidthKbps = mbpsInputToKbps(values.bandwidth_mbps);
     // 只有 TLS 节点才带 cert_id；其余安全层必须完全省略，否则后端会 400。
@@ -341,6 +351,7 @@ export function NodeFormDialog({
           input: {
             name: values.name,
             port,
+            public_port: publicPort,
             enabled: values.enabled,
             config,
             bandwidth_kbps: bandwidthKbps,
@@ -355,6 +366,7 @@ export function NodeFormDialog({
           transport: values.transport,
           security: values.security,
           port,
+          public_port: publicPort,
           config,
           enabled: values.enabled,
           bandwidth_kbps: bandwidthKbps,
@@ -465,6 +477,23 @@ export function NodeFormDialog({
                   />
                 </FormField>
               </div>
+
+              <FormField
+                label={t("nodes.form.publicPort")}
+                htmlFor="node-public-port"
+                hint={t("nodes.form.publicPortHint")}
+                error={form.formState.errors.public_port?.message}
+              >
+                <Input
+                  id="node-public-port"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder={t("nodes.form.publicPortPlaceholder")}
+                  disabled={pending}
+                  aria-invalid={Boolean(form.formState.errors.public_port)}
+                  {...form.register("public_port")}
+                />
+              </FormField>
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <FormField

@@ -825,6 +825,7 @@ mod tests {
                         name: None,
                         strategy: "round_robin".into(),
                         cert_id: None,
+                        public_port: None,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: server_a.id.clone(),
                             listen_port: 9001,
@@ -836,6 +837,7 @@ mod tests {
                         name: None,
                         strategy: "round_robin".into(),
                         cert_id: None,
+                        public_port: None,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: server_b.id.clone(),
                             listen_port: 9002,
@@ -1082,6 +1084,7 @@ mod tests {
                         name: None,
                         strategy: "round_robin".into(),
                         cert_id: None,
+                        public_port: None,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: server_a.id.clone(),
                             listen_port: 19401,
@@ -1093,6 +1096,7 @@ mod tests {
                         name: None,
                         strategy: "round_robin".into(),
                         cert_id: None,
+                        public_port: None,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: server_b.id.clone(),
                             listen_port: 19402,
@@ -1248,6 +1252,7 @@ mod tests {
                         name: None,
                         strategy: "round_robin".into(),
                         cert_id: None,
+                        public_port: None,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: server_a.id.clone(),
                             listen_port: 19401,
@@ -1259,6 +1264,7 @@ mod tests {
                         name: None,
                         strategy: "round_robin".into(),
                         cert_id: None,
+                        public_port: None,
                         members: vec![repo::chains::NewChainGroupMember {
                             server_id: server_b.id.clone(),
                             listen_port: 19402,

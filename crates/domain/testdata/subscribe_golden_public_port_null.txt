@@ -1,0 +1,220 @@
+=== clash ===
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+
+proxies:
+  - name: "golden-node"
+    type: vless
+    server: "203.0.113.10"
+    port: 443
+    uuid: "11111111-1111-4111-8111-111111111111"
+    udp: true
+    tls: true
+    servername: "example.com"
+    network: ws
+    ws-opts:
+      path: "/ws"
+      headers:
+        Host: "cdn.example.com"
+
+proxy-groups:
+  - name: "PROXY"
+    type: select
+    proxies:
+      - "AUTO"
+      - "其他"
+      - "DIRECT"
+  - name: "AUTO"
+    type: url-test
+    url: "http://www.gstatic.com/generate_204"
+    interval: 300
+    tolerance: 50
+    proxies:
+      - "golden-node"
+  - name: "其他"
+    type: url-test
+    url: "http://www.gstatic.com/generate_204"
+    interval: 300
+    tolerance: 50
+    proxies:
+      - "golden-node"
+
+rules:
+  - "MATCH,PROXY"
+
+=== stash ===
+# stash
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+
+proxies:
+  - name: "golden-node"
+    type: vless
+    server: "203.0.113.10"
+    port: 443
+    uuid: "11111111-1111-4111-8111-111111111111"
+    udp: true
+    tls: true
+    servername: "example.com"
+    network: ws
+    ws-opts:
+      path: "/ws"
+      headers:
+        Host: "cdn.example.com"
+
+proxy-groups:
+  - name: "PROXY"
+    type: select
+    proxies:
+      - "AUTO"
+      - "其他"
+      - "DIRECT"
+  - name: "AUTO"
+    type: url-test
+    url: "http://www.gstatic.com/generate_204"
+    interval: 300
+    tolerance: 50
+    proxies:
+      - "golden-node"
+  - name: "其他"
+    type: url-test
+    url: "http://www.gstatic.com/generate_204"
+    interval: 300
+    tolerance: 50
+    proxies:
+      - "golden-node"
+
+rules:
+  - "MATCH,PROXY"
+
+=== surge ===
+[Proxy]
+golden-node = vless, 203.0.113.10, 443, username=11111111-1111-4111-8111-111111111111, tls=true, sni=example.com, ws=true, ws-path=/ws, ws-headers=Host:cdn.example.com, udp-relay=true
+
+[Proxy Group]
+PROXY = select, AUTO, 其他, DIRECT
+AUTO = url-test, golden-node, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50
+其他 = url-test, golden-node, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50
+
+[Rule]
+FINAL,PROXY
+
+=== egern ===
+#!MANAGED-CONFIG
+# Egern（Surge 兼容）：按 Surge 格式输出；若 Egern 后续要求专有字段，需要单独适配。
+# Egern (Surge-compatible): exported as a Surge profile; if Egern later requires proprietary fields, a dedicated adapter is needed.
+[Proxy]
+golden-node = vless, 203.0.113.10, 443, username=11111111-1111-4111-8111-111111111111, tls=true, sni=example.com, ws=true, ws-path=/ws, ws-headers=Host:cdn.example.com, udp-relay=true
+
+[Proxy Group]
+PROXY = select, AUTO, 其他, DIRECT
+AUTO = url-test, golden-node, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50
+其他 = url-test, golden-node, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50
+
+[Rule]
+FINAL,PROXY
+
+=== surfboard ===
+[Proxy]
+golden-node = vless, 203.0.113.10, 443, username=11111111-1111-4111-8111-111111111111, tls=true, sni=example.com, ws=true, ws-path=/ws, ws-headers=Host:cdn.example.com, udp-relay=true
+
+[Proxy Group]
+PROXY = select, AUTO, 其他, DIRECT
+AUTO = url-test, golden-node, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50
+其他 = url-test, golden-node, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50
+
+[Rule]
+FINAL,PROXY
+
+=== loon ===
+[Proxy]
+golden-node = vless, 203.0.113.10, 443, username=11111111-1111-4111-8111-111111111111, tls=true, sni=example.com, obfs=ws, obfs-uri=/ws, obfs-host=cdn.example.com
+
+[Proxy Group]
+PROXY = select, AUTO, 其他, DIRECT
+AUTO = url-test, golden-node, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50
+其他 = url-test, golden-node, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50
+
+[Rule]
+FINAL,PROXY
+
+=== qx ===
+[server_local]
+vless=203.0.113.10:443, method=none, password=11111111-1111-4111-8111-111111111111, obfs=wss, obfs-uri=/ws, obfs-host=cdn.example.com, udp-relay=true, tag=golden-node
+
+[policy]
+static=PROXY, AUTO, 其他, direct
+url-latency-benchmark=AUTO, golden-node, check-interval=300, tolerance=50
+url-latency-benchmark=其他, golden-node, check-interval=300, tolerance=50
+
+[filter_local]
+final, PROXY
+
+=== singbox ===
+{
+  "log": {
+    "level": "info"
+  },
+  "outbounds": [
+    {
+      "server": "203.0.113.10",
+      "server_port": 443,
+      "tag": "golden-node",
+      "tls": {
+        "enabled": true,
+        "server_name": "example.com"
+      },
+      "transport": {
+        "headers": {
+          "Host": "cdn.example.com"
+        },
+        "path": "/ws",
+        "type": "ws"
+      },
+      "type": "vless",
+      "uuid": "11111111-1111-4111-8111-111111111111"
+    },
+    {
+      "interval": "5m",
+      "outbounds": [
+        "golden-node"
+      ],
+      "tag": "AUTO",
+      "tolerance": 50,
+      "type": "urltest",
+      "url": "http://www.gstatic.com/generate_204"
+    },
+    {
+      "default": "AUTO",
+      "outbounds": [
+        "AUTO",
+        "direct"
+      ],
+      "tag": "selector",
+      "type": "selector"
+    },
+    {
+      "tag": "direct",
+      "type": "direct"
+    },
+    {
+      "tag": "blocker",
+      "type": "block"
+    }
+  ],
+  "route": {
+    "final": "selector",
+    "rules": []
+  }
+}
+=== uri ===
+vless://11111111-1111-4111-8111-111111111111@203.0.113.10:443?encryption=none&type=ws&security=tls&path=%2Fws&host=cdn.example.com&sni=example.com#golden-node
+
+=== shadowrocket ===
+dmxlc3M6Ly8xMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTFAMjAzLjAuMTEzLjEwOjQ0Mz9lbmNyeXB0aW9uPW5vbmUmdHlwZT13cyZzZWN1cml0eT10bHMmcGF0aD0lMkZ3cyZob3N0PWNkbi5leGFtcGxlLmNvbSZzbmk9ZXhhbXBsZS5jb20jZ29sZGVuLW5vZGUK
+=== v2ray ===
+dmxlc3M6Ly8xMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTFAMjAzLjAuMTEzLjEwOjQ0Mz9lbmNyeXB0aW9uPW5vbmUmdHlwZT13cyZzZWN1cml0eT10bHMmcGF0aD0lMkZ3cyZob3N0PWNkbi5leGFtcGxlLmNvbSZzbmk9ZXhhbXBsZS5jb20jZ29sZGVuLW5vZGUK
