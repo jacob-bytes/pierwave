@@ -2444,6 +2444,7 @@ const zhCN = {
     notObject: "config 必须是 JSON 对象（以 { 开头、} 结尾）",
   },
   errors: {
+    "chain.tunnel_noise_udp_requires_upgrade": "Noise 模式的 UDP 中继需要 Agent 升级到协议 {required} 及以上；服务器：{server}",
     "chain.tunnel_hop_limit": "隧道链支持 2-6 跳",
     "chain.tunnel_downstream_missing": "无法为这一跳推导出下一跳地址",
     "chain.tunnel_udp_requires_two_hops": "隧道链的 UDP 中继目前只支持 2 跳",
@@ -2453,7 +2454,6 @@ const zhCN = {
     "server.nic_address_unavailable": "无法按网卡下发该服务器（尚未上报网卡、网卡不存在或没有可用地址）",
     "chain.entry_port_required": "入口组（第 1 组）必须填写监听端口",
     "chain.public_port_invalid": "对外端口必须在 {min}-{max} 之间",
-    "chain.tunnel_udp_requires_tls": "tunnel 的 UDP 中继需要 TLS 安全模式（Noise 的 UDP 本轮不做）",
     "chain.latency_hours_invalid": "hours 必须是 1-168 之间的整数（默认 24）",
     "chain.protocol_invalid": "不支持的链转发协议「{protocol}」（可选 tcp / udp / both）",
     "chain.protocol_udp_with_tls": "加密链只走 TCP，不能选择仅 UDP",

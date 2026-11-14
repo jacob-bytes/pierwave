@@ -1522,6 +1522,7 @@ dependencies = [
  "pierwave-domain",
  "pierwave-proto",
  "quinn",
+ "rcgen",
  "rustls",
  "serde",
  "serde_json",

@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 24;
+pub const PROTOCOL_VERSION: u32 = 25;
 
 /// 主控开始支持 3–6 跳隧道（`TunnelSpec.downstream`）的最低 Agent 协议版本。
 ///
@@ -13,6 +13,14 @@ pub const PROTOCOL_VERSION: u32 = 24;
 /// 目标连出去——链路仍然加密，但**跳数被静默截短**。主控据此在保存/下发两条
 /// 路径上拒绝把 3+ 跳隧道下发到旧 Agent，绝不降级。
 pub const TUNNEL_MULTIHOP_PROTOCOL_VERSION: u32 = 24;
+
+/// 主控开始支持 **Noise 模式 + UDP 中继**（QUIC 用 hop_secret 派生的自签证书 +
+/// 指纹固定）的最低 Agent 协议版本。
+///
+/// 协议 24 及更早的 Agent 收到 `security = noise` + `udp = true` 会让整个
+/// 端点启动失败（旧代码在 `validate_spec` 直接拒绝）。主控据此在保存/下发
+/// 两条路径上要求两端都升级，绝不悄悄把 UDP 关掉或退化成 TLS/明文。
+pub const TUNNEL_NOISE_UDP_PROTOCOL_VERSION: u32 = 25;
 
 /// 主控开始理解 `protocol = udp`（仅 UDP）的最低 Agent 协议版本。
 ///
@@ -377,6 +385,10 @@ pub struct TunnelSpec {
     /// 由链的 `protocol = udp / both` 推导：`true` 时 Dialer 在 `listen`
     /// 端口上额外绑一个 UDP 监听，Listener 在同一端口上起 QUIC endpoint。
     /// 旧主控不下发时为 `false`，也就是纯 TCP 隧道，行为与升级前一致。
+    ///
+    /// `tls` 模式用主控 CA 签发的证书校验 QUIC；`noise` 模式（协议 25 起）
+    /// 用 `hop_secret` 确定性派生的自签证书 + 指纹固定，不需要证书文件。
+    /// 旧主控不会下发 `noise + udp`（保存/下发双重门禁）。
     #[serde(default)]
     pub udp: bool,
     /// 中间跳的下一跳 dialer（P16 多跳，3–6 跳链）。
@@ -782,12 +794,16 @@ mod tests {
     #[test]
     fn forward_udp_defaults_to_false_for_old_masters() {
         assert_eq!(
-            PROTOCOL_VERSION, 24,
-            "新增 TunnelSpec.downstream（3–6 跳）必须升协议版本"
+            PROTOCOL_VERSION, 25,
+            "Noise + UDP（QUIC 派生证书 + 指纹固定）必须升协议版本"
         );
         assert_eq!(
             TUNNEL_MULTIHOP_PROTOCOL_VERSION, 24,
             "3–6 跳隧道从协议 24 开始支持"
+        );
+        assert_eq!(
+            TUNNEL_NOISE_UDP_PROTOCOL_VERSION, 25,
+            "Noise + UDP 从协议 25 开始支持"
         );
         assert_eq!(UDP_PROTOCOL_VERSION, 16, "仅 UDP 从协议 16 开始支持");
 

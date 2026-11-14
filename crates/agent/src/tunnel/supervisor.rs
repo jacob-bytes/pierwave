@@ -610,10 +610,8 @@ async fn start_endpoint(spec: &DesiredForward) -> Result<StartedEndpoint> {
 
 fn validate_spec(spec: &TunnelSpec) -> Result<()> {
     validate_hop_id(&spec.hop_id)?;
-    // 主控保存时已拒绝；Agent 再挡一次，避免旧/手工数据让端点起一半。
-    if spec.udp && spec.security != TunnelSecurity::Tls {
-        bail!("Noise 模式的 UDP 中继本轮不做 / UDP relay over Noise is not implemented yet");
-    }
+    // Noise + UDP 是合法组合：QUIC 走 TLS 1.3，证书由 hop_secret 确定性派生，
+    // 客户端固定其指纹（见 `tunnel/pinned.rs`）。这里不再按安全模式拒绝。
     match spec.role {
         TunnelRole::Listener => {
             // Noise 模式不读证书路径：空串 / 不存在的路径都是合法状态。
@@ -1615,6 +1613,86 @@ mod tests {
 
         supervisor.apply(&[]).await;
         echo_task.abort();
+    }
+
+    /// Noise + UDP：两端都不读证书，QUIC 用 hop_secret 派生的自签证书 +
+    /// 指纹固定；3 个数据报必须完整回显。
+    #[tokio::test]
+    async fn noise_udp_tunnel_echoes_three_datagrams_without_certificates() {
+        let echo = spawn_udp_echo().await;
+        let listener_port = free_port();
+        let dialer_port = free_port();
+        let listener_addr: SocketAddr = format!("127.0.0.1:{listener_port}").parse().unwrap();
+        let remote = format!("127.0.0.1:{listener_port}");
+        let allowed = [listener_addr, echo.addr];
+
+        let listener = with_tunnel_udp(noise_spec(
+            "noise-udp-listener",
+            TunnelRole::Listener,
+            listener_port,
+            "",
+            &[echo.addr],
+        ));
+        let dialer = with_tunnel_udp(noise_spec(
+            "noise-udp-dialer",
+            TunnelRole::Dialer,
+            dialer_port,
+            &remote,
+            &allowed,
+        ));
+
+        let mut supervisor = TunnelSupervisor::new();
+        supervisor.apply(&[listener, dialer]).await;
+        assert!(status_of(&supervisor, "noise-udp-listener").listening);
+        assert!(status_of(&supervisor, "noise-udp-dialer").listening);
+
+        let client = UdpSocket::bind("127.0.0.1:0").await.expect("客户端绑定");
+        let dialer_addr: SocketAddr = format!("127.0.0.1:{dialer_port}").parse().unwrap();
+        for payload in [b"noise-first".as_slice(), b"noise-second", b"noise-third"] {
+            assert_eq!(
+                udp_roundtrip(&client, dialer_addr, payload).await,
+                payload,
+                "Noise 模式的 UDP 回显内容必须与发送一致"
+            );
+        }
+        assert!(
+            echo.received() >= 3,
+            "echo 至少收到 3 个包（实际 {}）",
+            echo.received()
+        );
+
+        wait_until_with(
+            "Noise 出口 QUIC 计数到 3",
+            || {
+                supervisor
+                    .udp_stats("noise-udp-listener")
+                    .and_then(|stats| stats.listener_snapshot())
+                    .is_some_and(|stats| stats.datagrams_in >= 3 && stats.sessions >= 1)
+            },
+            || {
+                format!(
+                    "listener={:?} dialer={:?}",
+                    supervisor
+                        .udp_stats("noise-udp-listener")
+                        .and_then(|stats| stats.listener_snapshot()),
+                    supervisor
+                        .udp_stats("noise-udp-dialer")
+                        .and_then(|stats| stats.dialer_snapshot()),
+                )
+            },
+        )
+        .await;
+
+        let server = supervisor
+            .udp_stats("noise-udp-listener")
+            .expect("UDP Listener 必须有计数句柄")
+            .listener_snapshot()
+            .expect("Listener 侧必须是 QUIC 计数");
+        assert_eq!(server.sessions, 1, "{server:?}");
+        assert_eq!(server.denied, 0, "{server:?}");
+        println!("[noise udp tunnel] server={server:?}");
+
+        supervisor.apply(&[]).await;
     }
 
     /// 退避：连续失败时下一次允许重建的时间按 15s→30s→60s… 递增；

@@ -67,6 +67,14 @@ pub const TUNNEL_MAX_HOPS: usize = MAX_HOPS;
 /// （master 有断言测试）。
 pub const TUNNEL_MULTIHOP_MIN_PROTOCOL_VERSION: i64 = 24;
 
+/// Noise 模式 + UDP 中继需要的最低 Agent 线协议版本。
+///
+/// Noise 的 QUIC 用 `hop_secret` 确定性派生的自签证书 + 指纹固定（协议 25）。
+/// 协议 24 及更早的 Agent 会直接拒绝 `noise + udp`、让整个端点启动失败，所以
+/// 主控必须在保存/下发两条路径上要求两端都升级，绝不悄悄关掉 UDP 或降级。
+/// 与 `pierwave_proto::TUNNEL_NOISE_UDP_PROTOCOL_VERSION` 必须一致（master 有断言）。
+pub const TUNNEL_NOISE_UDP_MIN_PROTOCOL_VERSION: i64 = 25;
+
 /// 组内选路策略的四个合法值（与 `PROTOCOL_VERSION = 12` 的线协议一致）。
 pub const STRATEGY_NAMES: [&str; 4] = ["round_robin", "failover", "lowest_latency", "ip_hashed"];
 
@@ -649,13 +657,34 @@ pub fn tunnel_blocked_reason(
             message: "tunnel 的 UDP 中继当前只支持 2 跳链 / the tunnel UDP relay currently supports exactly 2 hops".to_string(),
         });
     }
-    // Noise 的 UDP 中继本轮不做（QUIC 需要 TLS 证书）。保存路径已经拒绝，
-    // 下发路径再挡一次：手工改库或旧数据不能让 Agent 起一个必然失败的端点。
+    // Noise + UDP 从协议 25 开始支持（QUIC 用 hop_secret 派生的证书 + 指纹固定）。
+    // 旧 Agent 会让整个端点启动失败；保存路径已拒绝，下发路径再挡一次：手工
+    // 改库或旧数据不能把一条注定失败的链下发下去，也绝不能悄悄关掉 UDP。
     if protocol::allows_udp(&chain.protocol) && tunnel_security::is_noise(&chain.tunnel_security) {
-        return Some(BlockedReason {
-            code: "chain.tunnel_udp_requires_tls".to_string(),
-            message: "tunnel 的 UDP 中继需要 TLS 安全模式 / the tunnel UDP relay requires the TLS security mode（Noise 的 UDP 本轮不做 / Noise over UDP is not implemented yet）".to_string(),
-        });
+        let stale: Vec<&str> = groups
+            .iter()
+            .flat_map(|group| group.members.iter())
+            .filter(|member| {
+                !member
+                    .server_protocol_version
+                    .is_some_and(|version| version >= TUNNEL_NOISE_UDP_MIN_PROTOCOL_VERSION)
+            })
+            .map(|member| member.server_name.as_str())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        if !stale.is_empty() {
+            let mut stale = stale;
+            stale.sort_unstable();
+            return Some(BlockedReason {
+                code: "chain.tunnel_noise_udp_requires_upgrade".to_string(),
+                message: format!(
+                    "Noise 模式的 UDP 中继需要每台服务器的 Agent 协议版本 ≥ {TUNNEL_NOISE_UDP_MIN_PROTOCOL_VERSION}（旧 Agent 无法在 QUIC 上完成 PSK 认证）：{} / the Noise-mode UDP relay requires agent protocol >= {TUNNEL_NOISE_UDP_MIN_PROTOCOL_VERSION} (older agents cannot authenticate over QUIC): {}",
+                    stale.join("、"),
+                    stale.join(", ")
+                ),
+            });
+        }
     }
     if crate::hop_transport::is_tls(&chain.transport) {
         return Some(BlockedReason {

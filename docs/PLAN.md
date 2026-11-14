@@ -1816,7 +1816,7 @@ kaminari 0.14 sources are the basis for the design; re-check them whenever realm
 | 模式 | 证书 | 认证 | 说明 |
 |---|---|---|---|
 | `tls` | 自签，主控签发 | CA 链 | **默认**。解决"必须买公网证书、90 天人工换"的痛点 |
-| `noise` | 无 | PSK（Noise IK） | 完全不要证书。用 `snow` crate，WireGuard 同一套握手 |
+| `noise` | 无 CA | PSK（Noise IK） | TCP 不要证书；UDP/QUIC 用 `hop_secret` 派生的自签证书 + 指纹固定（见 §8.5），不是 CA |
 | ~~`pinned`~~ | — | — | **不做**：换证书必须两端同步更新，硬耦合，收益不如 CA |
 
 两种模式共用同一个监听端口，握手首字节区分：
@@ -1985,9 +1985,9 @@ P16.2 的 Noise 握手（`d393d4d`）最初只做到 Agent 侧 API，没有下�
 * **线协议 v21**：`TunnelSpec` 增加 `#[serde(default)] udp: bool`；旧主控报文
   解析成 `false`（纯 TCP 隧道），升级 Agent 行为不变。主控对
   `protocol = udp / both` 的 tunnel 链下发 `udp = true`，`tcp` 链保持不变；
-* **保存门禁**：`noise + udp` 返回 `chain.tunnel_udp_requires_tls`（Noise 的
-  UDP 本轮不做）；`protocol = udp / both` 在 TLS 模式下合法。下发路径的
-  `tunnel_blocked_reason` 用同一判定再挡一次；
+* **保存门禁（历史）**：本节交付时 `noise + udp` 返回
+  `chain.tunnel_udp_requires_tls`（Noise 的 UDP 当时不做）；该限制已被 §8.5
+  取代，现在 `noise + udp` 在协议 25+ 的 Agent 上合法；
 * **出口跳（Listener）**：`TunnelServer::with_udp(chain_target_rules)` 在隧道
   端口上起 QUIC endpoint，白名单**只含链目标**；UDP 绑定或证书失败 =
   端点启动失败（`ForwardStatus.listening = false`）；
@@ -2005,14 +2005,14 @@ P16.2 的 Noise 握手（`d393d4d`）最初只做到 Agent 侧 API，没有下�
 * **测试**：两端 tunnel + 本地 UDP echo（3 包全回显、`datagrams_in == 3`）、
   两个不同源地址客户端各自会话（`sessions == 2`，互不串包）、空闲回收后
   会话归零、白名单外目标 `denied` 增加且 echo 收包为 0、`noise + udp` 在
-  主控 400。
+  主控 400（历史行为，§8.5 已放开）。
 
 > **Status (2026-11, English)**: `79a691f` shipped the QUIC datagram relay
 > without a production call site. This round wires it into the tunnel engine
 > with **no datagram-format change**: protocol v21 adds
 > `TunnelSpec.udp` (default `false`), derived from chain `protocol = udp /
-> both`; `noise + udp` is rejected with `chain.tunnel_udp_requires_tls` on both
-> save and dispatch. The exit hop starts a QUIC endpoint on the tunnel port with
+> both`; `noise + udp` was rejected with `chain.tunnel_udp_requires_tls` on
+> both save and dispatch (superseded by §8.5). The exit hop starts a QUIC endpoint on the tunnel port with
 > an allowlist containing only the chain target. The entry hop binds UDP on the
 > same port and keeps one QUIC connection **per local client** (replies carry
 > only the target address), buffers up to 8 datagrams while connecting, reclaims
@@ -2086,6 +2086,68 @@ P16.1 的 tunnel 引擎只有「入口 Dialer + 出口 Listener」两个端点�
 > fails closed with CLOSE — never a plaintext/direct fallback. Tests cover real
 > 3-hop/4-hop loopbacks, fail-closed unreachable/denied downstreams, per-segment
 > key derivation, the 2-hop golden config, and old-agent rejection.
+
+### 8.5 P16.5 Noise + UDP：派生自签证书 + 指纹固定（2026-11）
+
+§8.3 把 QUIC 的证书写死成「主控 CA 签发的属证书」，因此 Noise 模式无法开
+UDP。QUIC 的握手固定是 TLS 1.3，不能像 TCP 那样塞 Noise 握手；本轮用
+**无 CA 的证书固定**补齐（实现见 `crates/agent/src/tunnel/pinned.rs`）：
+
+* **派生**（两个 HMAC 标签做域分离）：
+  ```text
+  seed        = HMAC-SHA256(hop_secret, "pierwave/tunnel/quic/ed25519-seed/v1")
+  private_key = Ed25519(seed)（PKCS#8，交给 rcgen/ring）
+  serial      = HMAC-SHA256(hop_secret, "pierwave/tunnel/quic/serial/v1")[..20]
+  certificate = self_signed(private_key, 固定 DN / 固定有效期 / serial)
+  fingerprint = SHA-256(DER(certificate))
+  ```
+  有效期固定 `2020-01-01 .. 2120-01-01`、DN 与 key usage 是常量、Ed25519
+  签名本身确定性——因此**同一 `hop_secret` → 同一证书 DER → 同一指纹**，
+  两端独立计算一致，不需要交换任何额外材料；
+* **服务端**：`TunnelServerConfig.security = noise` 时不再要求证书文件，
+  QUIC endpoint 用派生证书 + 私钥起 TLS 1.3；TLS 模式仍读主控 CA 属证书；
+* **客户端**：Noise 模式挂自定义 `PinnedCertVerifier`：`verify_server_cert`
+  只接受指纹等于本地派生值的对端；`verify_tls12/13_signature` 仍走 rustls 的
+  真实验签（只有公开证书、没有私钥的冒充者过不了 `CertificateVerify`）。
+  **没有** `insecure` / 跳过校验开关；空 `hop_secret`、派生失败、指纹不匹配
+  一律 fail closed 并给可读原因；
+* **单 hop 限制**：QUIC 的 TLS 握手早于应用层 hop 认证，监听端无法在多个
+  hop 之间选择出示哪张派生证书，因此 Noise + UDP 要求监听端**恰好一个
+  hop**（生产下发路径本来就是每段一个 hop）；多 hop 时 `with_udp` 启动失败，
+  不猜、不退化成信任任意证书；
+* **保存/下发门禁**：协议 v25 新增
+  `TUNNEL_NOISE_UDP_PROTOCOL_VERSION = 25`。`noise + udp` 在保存与下发两条
+  路径上都要求每台成员 Agent 协议版本 ≥ 25；旧 Agent（≤ 24）会拒绝该组合并
+  让整个端点启动失败，所以返回 `chain.tunnel_noise_udp_requires_upgrade`
+  整链拒绝，绝不悄悄关掉 UDP 或降级成 TLS/明文；
+* **测试**：派生确定性（同一 secret 同一 DER/指纹）、不同 secret 不同指纹、
+  空 secret 拒绝；Noise + UDP 回环 3 个数据报全回显且 `datagrams_in/out == 3`；
+  错误 `hop_secret` 在 QUIC 握手阶段失败且错误点名「指纹不匹配」，不转发任何
+  数据报；`tls + udp` 既有用例全部保留（回归）；主控保存放行、PATCH 放行、
+  旧 Agent 保存 400 + 已存链 `blocked_code` 整链跳过。
+* **安全边界**：指纹固定只解决「对端是否持有同一个 hop_secret」，不提供
+  前向保密之外的新保证；`hop_secret` 泄漏 = 可冒充该跳（与 Noise/TCP 一致）。
+  指纹算法/标签/DN/有效期/rcgen 版本变化都会换指纹，**两端必须同版本升级**，
+  否则以「指纹不匹配」失败，不会降级。
+
+> **Status (2026-11, English)**: §8.3 hard-wired QUIC to the master-owned CA,
+> so Noise could not carry UDP. QUIC always uses TLS 1.3, so this round adds
+> **certificate pinning without a CA**. A self-signed ed25519 certificate is
+> derived deterministically from `hop_secret` (HMAC-separated seed and serial;
+> fixed DN/validity; Ed25519 signatures are deterministic), so both ends compute
+> the same DER and SHA-256 fingerprint without exchanging anything. The Noise
+> QUIC client uses a custom rustls verifier that accepts only that fingerprint
+> and still performs real `CertificateVerify` signature checks; there is no
+> insecure/skip-verification switch. Because QUIC's TLS handshake precedes the
+> application-level hop handshake, a Noise UDP listener must have exactly one
+> hop (production always does) and fails closed otherwise. Protocol v25 adds
+> `TUNNEL_NOISE_UDP_PROTOCOL_VERSION = 25`; both save and dispatch reject
+> `noise + udp` unless every member agent is >= 25
+> (`chain.tunnel_noise_udp_requires_upgrade`), instead of silently dropping UDP
+> or downgrading. Tests cover deterministic derivation, different secrets,
+> empty secret, a 3-datagram Noise+UDP loopback, a wrong-secret handshake
+> failure with a readable fingerprint error, TLS+UDP regressions, save/PATCH
+> acceptance, and old-agent rejection on both save and dispatch.
 
 ### 9. 不做
 

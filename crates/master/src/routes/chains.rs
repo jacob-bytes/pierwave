@@ -1229,17 +1229,42 @@ fn validate_tunnel_chain(
             "tunnel 的 UDP 中继当前只支持 2 跳链 / the tunnel UDP relay currently supports exactly 2 hops",
         ));
     }
-    // UDP 中继（P16.3）走 QUIC + TLS 证书；Noise 的 UDP 本轮不做，保存时
-    // 直接拒绝，避免下发一个 Agent 必然启动失败的端点（fail closed）。
+    // Noise + UDP（协议 25）：QUIC 用 hop_secret 派生的自签证书 + 指纹固定。
+    // 协议 24 及更早的 Agent 会直接拒绝该组合并让端点启动失败；保存时要求
+    // 每台成员都已升级，避免下发一条注定失败的链（fail closed）。
     if protocol::allows_udp(protocol) && tunnel_mode::is_noise(tunnel_security) {
-        return Err(AppError::coded(
-            "chain.tunnel_udp_requires_tls",
-            Some(json!({
-                "protocol": protocol,
-                "tunnel_security": tunnel_mode::NOISE,
-            })),
-            "tunnel 的 UDP 中继需要 TLS 安全模式 / the tunnel UDP relay requires the TLS security mode（Noise 的 UDP 本轮不做 / Noise over UDP is not implemented yet）",
-        ));
+        let stale: Vec<&str> = groups
+            .iter()
+            .flat_map(|group| group.members.iter())
+            .filter(|member| {
+                !member
+                    .protocol_version
+                    .is_some_and(|version| version >= chains::TUNNEL_NOISE_UDP_MIN_PROTOCOL_VERSION)
+            })
+            .map(|member| member.server_name.as_str())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        if !stale.is_empty() {
+            let mut stale = stale;
+            stale.sort_unstable();
+            return Err(AppError::coded(
+                "chain.tunnel_noise_udp_requires_upgrade",
+                Some(json!({
+                    "servers": stale,
+                    "required": chains::TUNNEL_NOISE_UDP_MIN_PROTOCOL_VERSION,
+                    "protocol": protocol,
+                    "tunnel_security": tunnel_mode::NOISE,
+                })),
+                format!(
+                    "Noise 模式的 UDP 中继需要每台服务器的 Agent 协议版本 ≥ {}（旧 Agent 无法在 QUIC 上完成 PSK 认证）：{} / the Noise-mode UDP relay requires agent protocol >= {} (older agents cannot authenticate over QUIC): {}",
+                    chains::TUNNEL_NOISE_UDP_MIN_PROTOCOL_VERSION,
+                    stale.join("、"),
+                    chains::TUNNEL_NOISE_UDP_MIN_PROTOCOL_VERSION,
+                    stale.join(", ")
+                ),
+            ));
+        }
     }
     if hop_transport::is_tls(transport) {
         return Err(AppError::coded(
@@ -5977,49 +6002,104 @@ mod tests {
         }
     }
 
-    /// Noise + UDP 必须被明确拒绝（400），不能落库；TLS + TCP 的 Noise 隧道
-    /// 仍然可用，证明拒绝只针对 UDP 中继。
+    /// Noise + UDP（协议 25）：保存放行，下发仍然不带任何证书文件，
+    /// 两跳的 `TunnelSpec.udp` 都是 true、`security = noise`。
     #[tokio::test]
-    async fn noise_tunnel_chain_cannot_enable_udp() {
+    async fn noise_tunnel_chain_can_enable_udp_and_dispatches_no_certificate_files() {
         let fixture = setup().await;
         for server_id in [&fixture.a, &fixture.b] {
             set_tunnel_capability(&fixture.state, server_id, Some(true)).await;
         }
 
-        let body = json!({
-            "name": "noise udp 隧道",
-            "target_host": "1.1.1.1",
-            "target_port": 443,
-            "engine": "tunnel",
-            "protocol": "both",
-            "transport": "none",
-            "tunnel_security": "noise",
-            "groups": [
-                group(None, None, &[group_member(&fixture.a, 19601, 0)]),
-                group(None, None, &[group_member(&fixture.b, 19602, 0)]),
-            ],
-        });
-        let (status, value) = request(
-            &fixture.app,
-            Some(&fixture.cookie),
-            Method::POST,
-            "/api/v1/chains",
-            Some(body),
-        )
-        .await;
-        assert_eq!(status, StatusCode::BAD_REQUEST, "{value}");
-        assert_eq!(value["code"], "chain.tunnel_udp_requires_tls", "{value}");
-        assert_eq!(value["params"]["tunnel_security"], "noise");
-        assert_eq!(value["params"]["protocol"], "both");
-        let chains = repo::chains::list(&fixture.state.db.pool).await.unwrap();
-        assert!(
-            chains
-                .iter()
-                .all(|chain| chain.chain.name != "noise udp 隧道"),
-            "被拒绝的链不能落库"
-        );
+        for (protocol, entry_port, exit_port) in [("both", 19601, 19602), ("udp", 19611, 19612)] {
+            let body = json!({
+                "name": format!("noise udp 隧道-{protocol}"),
+                "target_host": "1.1.1.1",
+                "target_port": 443,
+                "engine": "tunnel",
+                "protocol": protocol,
+                "transport": "none",
+                "tunnel_security": "noise",
+                "groups": [
+                    group(None, None, &[group_member(&fixture.a, entry_port, 0)]),
+                    group(None, None, &[group_member(&fixture.b, exit_port, 0)]),
+                ],
+            });
+            let (status, value) = request(
+                &fixture.app,
+                Some(&fixture.cookie),
+                Method::POST,
+                "/api/v1/chains",
+                Some(body),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{protocol}: {value}");
+            assert_eq!(value["chain"]["protocol"], protocol, "{value}");
+            assert_eq!(value["chain"]["tunnel_security"], "noise", "{value}");
+            let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
 
-        // TLS + both 先保存成功，再 PATCH 成 noise：也必须被拒，原值不变。
+            let server_a = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.a)
+                .await
+                .unwrap();
+            let rendered_a = crate::routes::desired::render(
+                &fixture.state,
+                &server_a,
+                "https://panel.example.com",
+            )
+            .await
+            .unwrap();
+            assert!(rendered_a.warnings.is_empty(), "{:?}", rendered_a.warnings);
+            let entry = rendered_a
+                .forwards
+                .iter()
+                .find(|forward| forward.id == chains::legacy_forward_id(&chain_id, 0))
+                .expect("入口 Dialer 必须在服务器 A 的期望态里");
+            let dialer = entry.tunnel.as_ref().expect("entry 必须带 tunnel 段");
+            assert_eq!(dialer.security, TunnelSecurity::Noise);
+            assert!(dialer.udp, "{protocol}: Noise 入口跳必须开启 UDP 中继");
+            assert!(
+                dialer.cert_pem_path.is_empty()
+                    && dialer.key_pem_path.is_empty()
+                    && dialer.ca_pem_path.is_empty(),
+                "Noise + UDP 不能带证书路径：{dialer:?}"
+            );
+            assert!(
+                rendered_a
+                    .files
+                    .iter()
+                    .all(|file| !file.path.contains("/tunnel/")),
+                "Noise + UDP 链不能下发隧道证书：{:?}",
+                rendered_a.files
+            );
+
+            let server_b = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.b)
+                .await
+                .unwrap();
+            let rendered_b = crate::routes::desired::render(
+                &fixture.state,
+                &server_b,
+                "https://panel.example.com",
+            )
+            .await
+            .unwrap();
+            assert!(rendered_b.warnings.is_empty(), "{:?}", rendered_b.warnings);
+            let exit = rendered_b
+                .forwards
+                .iter()
+                .find(|forward| forward.id == chains::legacy_forward_id(&chain_id, 1))
+                .expect("出口 Listener 必须在服务器 B 的期望态里");
+            let listener = exit.tunnel.as_ref().expect("exit 必须带 tunnel 段");
+            assert_eq!(listener.security, TunnelSecurity::Noise);
+            assert!(listener.udp, "{protocol}: Noise 出口跳必须开启 UDP 中继");
+            assert!(
+                listener.cert_pem_path.is_empty()
+                    && listener.key_pem_path.is_empty()
+                    && listener.ca_pem_path.is_empty(),
+                "Noise + UDP 不能带证书路径：{listener:?}"
+            );
+        }
+
+        // 已存的 TLS + both 链 PATCH 成 noise：现在允许，且原协议不变。
         let ok_body = json!({
             "name": "tls udp 隧道",
             "target_host": "1.1.1.1",
@@ -6052,25 +6132,194 @@ mod tests {
             Some(json!({ "tunnel_security": "noise" })),
         )
         .await;
-        assert_eq!(status, StatusCode::BAD_REQUEST, "{value}");
-        assert_eq!(value["code"], "chain.tunnel_udp_requires_tls", "{value}");
+        assert_eq!(status, StatusCode::OK, "{value}");
+        assert_eq!(value["chain"]["tunnel_security"], "noise");
+        assert_eq!(value["chain"]["protocol"], "both");
         let stored = repo::chains::find_by_id(&fixture.state.db.pool, &chain_id)
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(stored.chain.tunnel_security, "tls", "非法组合不能落库");
+        assert_eq!(stored.chain.tunnel_security, "noise");
+        assert_eq!(stored.chain.protocol, "both");
+    }
 
-        // Noise + TCP 仍然允许（拒绝只针对 UDP 中继）。
+    /// 旧 Agent（协议 < 25）不支持 Noise + UDP：保存拒绝、已存链整链不下发并
+    /// 给出稳定 blocked_code；Noise + TCP 在同一台旧 Agent 上继续可用。
+    #[tokio::test]
+    async fn old_agent_rejects_noise_udp_tunnel_chain_instead_of_dropping_udp() {
+        let fixture = setup().await;
+        for server_id in [&fixture.a, &fixture.b] {
+            set_tunnel_capability(&fixture.state, server_id, Some(true)).await;
+        }
+        let old_version = i64::from(pierwave_proto::TUNNEL_NOISE_UDP_PROTOCOL_VERSION) - 1;
+        repo::servers::update_health(
+            &fixture.state.db.pool,
+            &fixture.b,
+            "0.9.6",
+            &repo::servers::HealthSnapshot {
+                tunnel_available: Some(true),
+                protocol_version: Some(old_version),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let body = json!({
+            "name": "旧 Agent noise udp",
+            "target_host": "1.1.1.1",
+            "target_port": 443,
+            "engine": "tunnel",
+            "protocol": "both",
+            "transport": "none",
+            "tunnel_security": "noise",
+            "groups": [
+                group(None, None, &[group_member(&fixture.a, 19801, 0)]),
+                group(None, None, &[group_member(&fixture.b, 19802, 0)]),
+            ],
+        });
         let (status, value) = request(
             &fixture.app,
             Some(&fixture.cookie),
-            Method::PATCH,
-            &format!("/api/v1/chains/{chain_id}"),
-            Some(json!({ "protocol": "tcp", "tunnel_security": "noise" })),
+            Method::POST,
+            "/api/v1/chains",
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{value}");
+        assert_eq!(
+            value["code"], "chain.tunnel_noise_udp_requires_upgrade",
+            "{value}"
+        );
+        assert_eq!(
+            value["params"]["required"],
+            i64::from(pierwave_proto::TUNNEL_NOISE_UDP_PROTOCOL_VERSION)
+        );
+        let servers = value["params"]["servers"].as_array().unwrap();
+        assert!(
+            servers.iter().any(|server| server == "jp-b"),
+            "必须点名旧版本服务器：{value}"
+        );
+        assert!(
+            repo::chains::list(&fixture.state.db.pool)
+                .await
+                .unwrap()
+                .iter()
+                .all(|chain| chain.chain.name != "旧 Agent noise udp"),
+            "被拒绝的链不能落库"
+        );
+
+        // Noise + TCP 在旧 Agent 上不受影响（兼容红线）。
+        let tcp_body = json!({
+            "name": "旧 Agent noise tcp",
+            "target_host": "1.1.1.1",
+            "target_port": 443,
+            "engine": "tunnel",
+            "protocol": "tcp",
+            "transport": "none",
+            "tunnel_security": "noise",
+            "groups": [
+                group(None, None, &[group_member(&fixture.a, 19811, 0)]),
+                group(None, None, &[group_member(&fixture.b, 19812, 0)]),
+            ],
+        });
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(tcp_body),
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{value}");
-        assert_eq!(value["chain"]["tunnel_security"], "noise");
+
+        // 绕过保存门禁直接写库（模拟历史数据）：渲染整链跳过并给原因。
+        let stored = repo::chains::create(
+            &fixture.state.db.pool,
+            repo::chains::NewChain {
+                name: "历史 noise udp".into(),
+                target_host: "1.1.1.1".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "tunnel".into(),
+                protocol: "both".into(),
+                transport: "none".into(),
+                tunnel_security: "noise".into(),
+                groups: vec![
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: None,
+                        public_port: None,
+                        use_internal_address: false,
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: fixture.a.clone(),
+                            listen_port: 19821,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: None,
+                        public_port: None,
+                        use_internal_address: false,
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: fixture.b.clone(),
+                            listen_port: 19822,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                ],
+            },
+        )
+        .await
+        .unwrap();
+
+        let server_a = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.a)
+            .await
+            .unwrap();
+        let rendered =
+            crate::routes::desired::render(&fixture.state, &server_a, "https://panel.example.com")
+                .await
+                .unwrap();
+        assert!(
+            rendered.warnings.iter().any(|warning| {
+                warning.contains("历史 noise udp")
+                    && warning.contains("Agent 协议版本")
+                    && warning.contains("jp-b")
+            }),
+            "必须给出可读原因：{:?}",
+            rendered.warnings
+        );
+        assert!(
+            rendered
+                .forwards
+                .iter()
+                .all(|forward| forward.id != chains::legacy_forward_id(&stored.chain.id, 0)),
+            "旧 Agent 的 noise + udp 链绝不能降级成 TCP 下发"
+        );
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            "/api/v1/chains",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{value}");
+        let item = value["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == stored.chain.id.as_str())
+            .expect("链仍在列表里");
+        assert_eq!(
+            item["blocked_code"], "chain.tunnel_noise_udp_requires_upgrade",
+            "{item}"
+        );
     }
 
     /// 非法 tunnel_security：POST / PATCH 都必须 400 + 稳定 code。
@@ -6146,8 +6395,8 @@ mod tests {
     }
 
     /// tunnel 链的保存门禁：旧 Agent（NULL）与明确不支持（false）都拒绝；
-    /// 跳数、成员数、transport 三类结构错误各有稳定 code；UDP 中继只在 TLS 模式；
-    /// 3+ 跳要求每台 Agent 协议版本 >= 24。
+    /// 跳数、成员数、transport 三类结构错误各有稳定 code；UDP 中继两种安全模式
+    /// 都支持（Noise + UDP 要求协议 >= 25）；3+ 跳要求每台 Agent 协议版本 >= 24。
     #[test]
     fn tunnel_chain_requires_capable_two_hop_single_member_tls_for_udp() {
         fn member(name: &str, tunnel: Option<bool>) -> ValidatedMember {
@@ -6192,23 +6441,45 @@ mod tests {
         // 非 tunnel 引擎完全不触发这些约束。
         assert!(validate_tunnel_chain("native", "both", "tls", "tls", &[]).is_ok());
 
-        // UDP 中继（udp / both）在 TLS 模式下合法；Noise + UDP 必须拒绝。
+        // UDP 中继（udp / both）在 TLS 与 Noise 两种模式下都合法。
         assert!(validate_tunnel_chain("tunnel", "both", "none", "tls", &ok).is_ok());
         assert!(validate_tunnel_chain("tunnel", "udp", "none", "tls", &ok).is_ok());
-        let (code, message) =
-            coded(validate_tunnel_chain("tunnel", "both", "none", "noise", &ok).unwrap_err());
-        assert_eq!(code, "chain.tunnel_udp_requires_tls");
         assert!(
-            message.contains("TLS") && message.contains("Noise"),
-            "报错必须点名 TLS 与 Noise：{message}"
+            validate_tunnel_chain("tunnel", "both", "none", "noise", &ok).is_ok(),
+            "协议 25 的 Agent 必须允许 Noise + UDP"
         );
-        assert_eq!(
-            coded(validate_tunnel_chain("tunnel", "udp", "none", "noise", &ok).unwrap_err()).0,
-            "chain.tunnel_udp_requires_tls"
+        assert!(
+            validate_tunnel_chain("tunnel", "udp", "none", "noise", &ok).is_ok(),
+            "协议 25 的 Agent 必须允许 Noise + 仅 UDP"
         );
         assert!(
             validate_tunnel_chain("tunnel", "tcp", "none", "noise", &ok).is_ok(),
             "Noise + TCP 隧道必须继续可用"
+        );
+
+        // Noise + UDP 需要协议 25；旧 Agent 保存即拒绝，并点名服务器与最低版本。
+        let old_noise_noise = vec![
+            group(vec![member("a", Some(true))]),
+            group(vec![member_at(
+                "b",
+                Some(true),
+                i64::from(pierwave_proto::TUNNEL_NOISE_UDP_PROTOCOL_VERSION) - 1,
+            )]),
+        ];
+        for protocol in ["both", "udp"] {
+            let (code, message) = coded(
+                validate_tunnel_chain("tunnel", protocol, "none", "noise", &old_noise_noise)
+                    .unwrap_err(),
+            );
+            assert_eq!(code, "chain.tunnel_noise_udp_requires_upgrade");
+            assert!(
+                message.contains("Noise") && message.contains("25") && message.contains("b"),
+                "报错必须点名 Noise、最低版本与旧服务器：{message}"
+            );
+        }
+        assert!(
+            validate_tunnel_chain("tunnel", "tcp", "none", "noise", &old_noise_noise).is_ok(),
+            "旧 Agent 的 Noise + TCP 必须继续可用"
         );
 
         let unknown = vec![

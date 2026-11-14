@@ -31,6 +31,9 @@
 //!   不存在回退 `webpki-roots` 或 `insecure` 开关；
 //! - Noise 静态密钥对与 PSK 都由 `hop_secret` 经 HMAC 域分离派生，两端可独立
 //!   复现；临时密钥由 `snow` 每次握手生成，静态材料只用于认证；
+//! - Noise + UDP（QUIC）必须走 TLS 1.3：两端由 `hop_secret` 派生同一张
+//!   ed25519 自签证书，客户端固定其 SHA-256 指纹（见 [`pinned`]）；没有 CA，
+//!   也没有跳过校验的分支；
 //! - TLS 握手版本精确匹配，失败回 `ServerHello{ok:false, reason}` 后立即断开；
 //! - 未知首字节 fail-closed；帧长度硬上限 64 KiB，超限断开并记 error。
 //!
@@ -47,6 +50,7 @@ mod handshake;
 mod modes;
 // P16.3 的 UDP 中继（QUIC datagram）：出口侧（QUIC server）在本模块，
 // 入口侧（本地 UDP 会话表）在 `udp_dialer`。TCP 路径完全不经过这两个模块。
+mod pinned;
 mod quic;
 mod supervisor;
 mod udp_dialer;
@@ -57,7 +61,7 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -75,7 +79,8 @@ use tokio_rustls::{TlsAcceptor, TlsConnector};
 use self::adapter::FrameIo;
 use self::handshake::{ClientHello, HandshakeError, ReplayCache, ServerHello};
 use self::quic::{
-    QuicUdpClient, QuicUdpLimits, QuicUdpServer, QuicUdpServerConfig, QuicUdpStatsHandle,
+    QuicUdpClient, QuicUdpLimits, QuicUdpServer, QuicUdpServerConfig, QuicUdpServerIdentity,
+    QuicUdpStatsHandle, QuicUdpTrust,
 };
 // 对外的帧/地址类型：上层（TunnelSupervisor）只需要这几个名字。
 use self::framing::FrameError;
@@ -330,6 +335,8 @@ impl Drop for ActiveGuard {
 }
 
 struct ServerInner {
+    /// 配置里的安全模式。UDP/QUIC 用它决定证书来源（TLS 文件还是 hop 派生）。
+    security: TunnelSecurity,
     /// `None` = 本监听没有加载证书，TLS 首字节会被明确拒绝。
     tls: Option<TlsAcceptor>,
     /// Noise 模式可接受的 hop（含由 hop_secret 派生的静态材料）。
@@ -395,6 +402,7 @@ impl TunnelServer {
 
         let server = Self {
             inner: Arc::new(ServerInner {
+                security: config.security,
                 tls,
                 noise_hops,
                 hops: config.hops,
@@ -423,8 +431,9 @@ impl TunnelServer {
     /// `target_rules` 是 UDP 目标白名单：空列表拒绝一切（fail closed）；命中
     /// 规则后才 `connect` 目标。TCP 路径（TLS/Noise + 帧协议）一字不改。
     ///
-    /// 只有 TLS 模式支持：Noise 的 UDP 路径本轮不做，调用会明确失败，不会
-    /// 悄悄退化成明文或跳过认证。
+    /// 两种安全模式都支持：`tls` 用证书文件，`noise` 用唯一 hop 的
+    /// `hop_secret` 现场派生自签证书（客户端固定其指纹）。任何凭据问题都在
+    /// 绑定前失败，绝不悄悄退化成明文或跳过认证。
     ///
     pub async fn with_udp(self, target_rules: Vec<TargetRule>) -> Result<Self> {
         self.attach_udp(target_rules, QuicUdpLimits::default())
@@ -446,19 +455,42 @@ impl TunnelServer {
         target_rules: Vec<TargetRule>,
         limits: QuicUdpLimits,
     ) -> Result<Self> {
-        // QUIC 的 TLS 1.3 证书来自 P16.1 的 CA/属证书；Noise-only 监听没有
-        // 证书，本轮不能开 UDP。失败时 TCP 监听保持原样，由调用方决定是否继续。
-        if self.inner.cert_path.as_os_str().is_empty() || self.inner.key_path.as_os_str().is_empty()
-        {
-            bail!(
-                "UDP 中继需要 TLS 证书；Noise 的 UDP 路径本轮不做 / UDP relay requires TLS certificates; Noise over UDP is not implemented yet"
-            );
-        }
+        // 证书来源由安全模式决定，不存在「缺证书就退化成不校验」的分支。
+        // 失败时 TCP 监听保持原样，由调用方决定是否继续。
+        let identity = match self.inner.security {
+            TunnelSecurity::Tls => {
+                if self.inner.cert_path.as_os_str().is_empty()
+                    || self.inner.key_path.as_os_str().is_empty()
+                {
+                    bail!(
+                        "TLS 模式的 UDP 中继需要证书和私钥 / the TLS-mode UDP relay requires a certificate and a private key"
+                    );
+                }
+                QuicUdpServerIdentity::TlsFiles {
+                    cert_path: self.inner.cert_path.clone(),
+                    key_path: self.inner.key_path.clone(),
+                }
+            }
+            TunnelSecurity::Noise => {
+                // QUIC 的 TLS 握手早于 hop 认证，服务端无法从多个 hop 中选证书。
+                // 生产下发路径每段恰好一个 hop；多 hop 明确失败，绝不猜。
+                let mut secrets = self.inner.hops.values();
+                let (Some(secret), None) = (secrets.next(), secrets.next()) else {
+                    bail!(
+                        "Noise 模式的 UDP 中继要求监听端恰好一个 hop（当前 {} 个）/ the Noise-mode UDP relay requires exactly one hop on the listener (got {})",
+                        self.inner.hops.len(),
+                        self.inner.hops.len()
+                    );
+                };
+                QuicUdpServerIdentity::NoiseSecret {
+                    hop_secret: secret.clone(),
+                }
+            }
+        };
         let server = QuicUdpServer::bind(QuicUdpServerConfig {
             // 与 TCP 同 IP、同端口：QUIC 是 UDP，和 TCP 监听可以共存。
             bind: self.inner.bound_addr,
-            cert_path: self.inner.cert_path.clone(),
-            key_path: self.inner.key_path.clone(),
+            identity,
             hops: self.inner.hops.clone(),
             allowed_targets: target_rules,
             limits,
@@ -987,6 +1019,12 @@ pub struct TunnelClient {
     /// 显式信任根。TCP 与 QUIC（UDP 中继）共用同一份 CA；`None` 时是空信任根。
     roots: Arc<RootCertStore>,
     security: TunnelSecurity,
+    /// Noise 模式下从 `hop_secret` 派生的 QUIC 证书指纹（惰性计算一次）。
+    ///
+    /// 入口侧每个本地 UDP 客户端都会调一次 `with_udp`；把派生结果缓存下来，
+    /// 避免每个连接都重新签发一张证书。`Err` 存成字符串是因为 `anyhow::Error`
+    /// 不能 clone，而失败原因要能重复返回给每个调用方。
+    noise_quic_pin: OnceLock<std::result::Result<[u8; 32], String>>,
     /// 客户端发起重协商的周期；测试可压到毫秒级。
     rekey_interval: Duration,
     /// 仅测试用：覆盖 ClientHello 的时间戳，用来验证服务端的窗口/重放。
@@ -1013,6 +1051,7 @@ impl TunnelClient {
             config: client_tls_config(Some(Arc::clone(&roots))),
             roots,
             security: TunnelSecurity::Tls,
+            noise_quic_pin: OnceLock::new(),
             rekey_interval: DEFAULT_REKEY_INTERVAL,
             proof_timestamp: None,
         }
@@ -1054,6 +1093,7 @@ impl TunnelClient {
             config: client_tls_config(None),
             roots: Arc::new(RootCertStore::empty()),
             security: TunnelSecurity::Noise,
+            noise_quic_pin: OnceLock::new(),
             rekey_interval: DEFAULT_REKEY_INTERVAL,
             proof_timestamp: None,
         }
@@ -1065,27 +1105,47 @@ impl TunnelClient {
     /// [`QuicUdpClient::send_from`] 按本地 UDP 客户端地址哈希选目标。
     /// TCP 路径不受影响：返回的 [`QuicUdpClient`] 是独立的 QUIC 连接。
     ///
-    /// 只有 TLS 模式支持；Noise 的 UDP 路径本轮不做，明确失败而不是退化。
+    /// `tls` 用显式 CA；`noise` 用 `hop_secret` 派生证书的指纹固定，不读
+    /// 证书路径、也不交换额外材料。任何派生失败都直接返回错误（fail closed）。
     ///
     /// 入口侧（[`udp_dialer`]）**每个本地 UDP 客户端建一条这样的连接**：
     /// 回包只带目标地址，只有「一条连接 = 一个客户端」才能把回包送对人。
     pub async fn with_udp(&self, target_rules: Vec<TargetRule>) -> Result<QuicUdpClient> {
-        if self.security != TunnelSecurity::Tls {
-            bail!("Noise 模式的 UDP 中继本轮不做 / UDP relay over Noise is not implemented yet");
-        }
-        let server_name = self
-            .server_name
-            .clone()
-            .ok_or_else(|| anyhow!("UDP 中继需要服务器名 / UDP relay requires a server name"))?;
+        let (server_name, trust) = match self.security {
+            TunnelSecurity::Tls => {
+                let server_name = self.server_name.clone().ok_or_else(|| {
+                    anyhow!("UDP 中继需要服务器名 / UDP relay requires a server name")
+                })?;
+                (server_name, QuicUdpTrust::Ca(Arc::clone(&self.roots)))
+            }
+            TunnelSecurity::Noise => (
+                pinned::noise_server_name(),
+                QuicUdpTrust::Pinned(self.noise_quic_fingerprint()?),
+            ),
+        };
         QuicUdpClient::connect(
             self.server_addr,
             server_name,
             self.hop_id.clone(),
             self.hop_secret.clone(),
-            Arc::clone(&self.roots),
+            trust,
             &target_rules,
         )
         .await
+    }
+
+    /// Noise 模式的 QUIC 证书指纹：只派生一次，失败原因缓存后重复返回。
+    fn noise_quic_fingerprint(&self) -> Result<[u8; 32]> {
+        match self.noise_quic_pin.get_or_init(|| {
+            pinned::derive_identity(&self.hop_secret)
+                .map(|identity| identity.fingerprint())
+                .map_err(|error| format!("{error:#}"))
+        }) {
+            Ok(fingerprint) => Ok(*fingerprint),
+            Err(message) => bail!(
+                "Noise 模式的 QUIC 证书派生失败 / failed to derive the Noise QUIC certificate: {message}"
+            ),
+        }
     }
 
     /// 覆盖周期重协商间隔（会 clamp 到最小值，避免 0 造成重协商风暴）。

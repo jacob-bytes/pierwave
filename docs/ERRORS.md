@@ -293,25 +293,38 @@ lane; this backend change guarantees stable `code`/`params` plus the Chinese fal
 > `transport`. Invalid values are rejected with 400 on write and fall back to `tls` on read;
 > Noise dispatches an empty certificate-path set and no tunnel files.
 
-### 隧道 UDP 中继（P16.3）/ Tunnel UDP relay
+### 隧道 UDP 中继（P16.3 / P16.5）/ Tunnel UDP relay
 
 `engine = tunnel` 且链的 `protocol = udp / both` 时，两端在同一个端口号上起
-QUIC datagram 中继（`TunnelSpec.udp = true`）。UDP 中继使用 TLS 1.3 证书；
-Noise 模式没有证书，因此 Noise + UDP 在保存与下发两处都 **fail closed**，不会
-退化成明文或悄悄关掉 UDP。
+QUIC datagram 中继（`TunnelSpec.udp = true`）。QUIC 固定走 TLS 1.3，两种安全
+模式的证书来源不同：
+
+* `tls`：主控 CA 签发的属证书，客户端用显式 CA 校验；
+* `noise`（协议 25 起）：两端由 `hop_secret` 确定性派生同一张 ed25519 自签
+  证书，客户端固定其 SHA-256 指纹（无 CA、无额外材料交换、无 insecure 开关）。
+
+Noise + UDP 要求两端 Agent 协议版本 ≥ 25（旧 Agent 会拒绝该组合并让端点启动
+失败）。保存与下发两条路径都会检查，绝不悄悄关掉 UDP、降级成 TLS 或明文。
+`chain.tunnel_udp_requires_tls` 是历史错误码（§8.5 之前用于拒绝 noise + udp），
+现在不再产生，保留在此仅供旧日志/旧前端识别。
 
 | code | 中文 | English | params |
 |---|---|---|---|
-| `chain.tunnel_udp_requires_tls` | tunnel 的 UDP 中继需要 TLS 安全模式（Noise 的 UDP 本轮不做） | The tunnel UDP relay requires the TLS security mode (Noise over UDP is not implemented yet) | protocol, tunnel_security |
+| `chain.tunnel_noise_udp_requires_upgrade` | Noise 模式的 UDP 中继需要每台服务器的 Agent 协议版本 ≥ {required}（旧 Agent 无法在 QUIC 上完成 PSK 认证）：{server} | The Noise-mode UDP relay requires agent protocol >= {required} (older agents cannot authenticate over QUIC): {server} | servers, required, protocol, tunnel_security |
 
 `POST/PATCH /api/v1/chains` 返回 400 + 该 code；已存在的链如果被手工改成
-noise + udp，下发时整链跳过并给出同一个 `blocked_code`。
+noise + udp 且成员版本过旧，下发时整链跳过并给出同一个 `blocked_code`。
 
 > With `engine = tunnel` and `protocol = udp / both`, both hops run a QUIC
-> datagram relay on the same port number (`TunnelSpec.udp = true`). The relay
-> uses TLS 1.3 certificates, so Noise + UDP is rejected on both the write path
-> (400 with the code above) and the dispatch path (the chain is blocked with
-> the same `blocked_code`) instead of silently degrading.
+> datagram relay on the same port number (`TunnelSpec.udp = true`). QUIC always
+> uses TLS 1.3; `tls` chains use the master-owned CA, while `noise` chains
+> (protocol 25+) derive a self-signed ed25519 certificate from `hop_secret` on
+> both ends and pin its SHA-256 fingerprint — no CA, no extra material, and no
+> insecure switch. Noise + UDP requires every member agent to be protocol >= 25;
+> the write and dispatch paths both enforce it instead of silently dropping UDP
+> or downgrading to TLS/plaintext. `chain.tunnel_udp_requires_tls` is a retired
+> code (used before §8.5); it is kept here only so old logs/frontends can still
+> recognise it.
 
 ### 转发协议模式（P15.4）/ Forward protocol mode
 

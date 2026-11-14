@@ -653,6 +653,16 @@ mod tests {
         );
     }
 
+    /// 领域层的 Noise+UDP 门禁与线协议常量必须一致。
+    #[test]
+    fn domain_tunnel_noise_udp_min_protocol_matches_wire_constant() {
+        assert_eq!(
+            pierwave_domain::chains::TUNNEL_NOISE_UDP_MIN_PROTOCOL_VERSION,
+            i64::from(pierwave_proto::TUNNEL_NOISE_UDP_PROTOCOL_VERSION),
+            "主控门禁与线协议的 Noise+UDP 常量必须一致"
+        );
+    }
+
     #[test]
     fn fingerprint_is_stable_and_sensitive() {
         let a = json!({"inbounds": [{"tag": "hk-1", "port": 443}]});

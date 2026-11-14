@@ -65,19 +65,26 @@
 //! 若要单连接复用，下一版协议（换 ALPN）需要在头部加一个 client 地址字段，
 //! 服务端原样回显。
 //!
-//! # 本轮范围
+//! # 安全模式
 //!
-//! * 只做 TLS 模式；Noise 的 UDP 路径（PSK 认证 + 无证书）本轮不做，
-//!   [`TunnelClient::with_udp`] 在 Noise 模式下明确失败；
-//! * 入口侧的 UDP 监听与会话表在 [`super::udp_dialer`]；出口侧是
-//!   [`TunnelServer::with_udp`]（白名单只含链目标）。
+//! QUIC 只跑 TLS 1.3，所以两种隧道安全模式在这里都表现为「TLS 1.3 + 证书」，
+//! 区别只在信任来源：
+//!
+//! * `tls`：主控 CA 签发的属证书，客户端用显式 CA 校验证书链；
+//! * `noise`：两端由 `hop_secret` **确定性派生**同一张 ed25519 自签证书，
+//!   客户端用 [`super::pinned::PinnedCertVerifier`] 只信任该证书的 SHA-256
+//!   指纹（见 `pinned.rs`）。没有 CA、没有额外材料交换，也没有 `insecure`。
+//!
+//! 入口侧的 UDP 监听与会话表在 [`super::udp_dialer`]；出口侧是
+//! [`TunnelServer::with_udp`]（白名单只含链目标）。
 //!
 //! # 安全边界
 //!
 //! * 不自己实现任何 AEAD/KDF：QUIC 的握手与包保护全部由 `quinn` +
 //!   rustls（**ring** 后端）完成；
-//! * 没有 `insecure` 开关：QUIC 客户端只信任显式传入的 CA（空信任根 =
-//!   必定失败），服务端证书沿用 P16.1 的 CA/属证书；
+//! * 没有 `insecure` 开关：`tls` 客户端只信任显式传入的 CA（空信任根 =
+//!   必定失败），`noise` 客户端只信任由本地 `hop_secret` 派生出的证书指纹；
+//!   两种模式都做真实的 TLS 1.3 握手签名校验；
 //! * 认证失败、未知 hop、datagram 截断/非法地址、hop 不匹配一律丢弃或关连接；
 //! * 单条 datagram 的实际上限由 QUIC 路径 MTU 决定（通常 ~1200 字节），
 //!   超过上限客户端在发送前就返回可读错误，不静默截断。
@@ -101,6 +108,7 @@ use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
 use super::handshake::{self, ClientHello, HandshakeError, ServerHello};
+use super::pinned;
 use super::whitelist::{self, TargetRule};
 use super::{Metrics, TargetAddr, HANDSHAKE_TIMEOUT};
 
@@ -468,12 +476,34 @@ struct QuicUdpCtx {
     max_connections: usize,
 }
 
+/// QUIC 服务端的身份来源。两者都走 TLS 1.3，区别只在证书从哪里来。
+pub(super) enum QuicUdpServerIdentity {
+    /// `tls` 模式：主控 CA 签发的属证书 + 私钥（PEM 文件）。
+    TlsFiles {
+        cert_path: PathBuf,
+        key_path: PathBuf,
+    },
+    /// `noise` 模式：由唯一 hop 的 `hop_secret` 确定性派生的自签证书。
+    ///
+    /// 为什么要求唯一 hop：QUIC 的 TLS 握手早于应用层 hop 认证，服务端在
+    /// 出示证书时还不知道对端是哪个 hop。监听端有多个 hop 时无法选择证书，
+    /// 只能 fail closed（见 [`super::pinned`] 的模块文档）。
+    NoiseSecret { hop_secret: Vec<u8> },
+}
+
+/// QUIC 客户端的信任来源。
+pub(super) enum QuicUdpTrust {
+    /// `tls` 模式：显式 CA 信任根（空信任根 = 必定失败）。
+    Ca(Arc<RootCertStore>),
+    /// `noise` 模式：只接受指纹等于该值的对端证书。
+    Pinned([u8; 32]),
+}
+
 /// [`QuicUdpServer::bind`] 的配置。
 pub(super) struct QuicUdpServerConfig {
     /// UDP 监听地址；通常与 TCP 隧道监听同 IP、同端口（协议不同，可共存）。
     pub(super) bind: SocketAddr,
-    pub(super) cert_path: PathBuf,
-    pub(super) key_path: PathBuf,
+    pub(super) identity: QuicUdpServerIdentity,
     pub(super) hops: HashMap<String, Vec<u8>>,
     /// 目标白名单；空 = 拒绝一切（fail closed）。
     pub(super) allowed_targets: Vec<TargetRule>,
@@ -498,8 +528,25 @@ impl QuicUdpServer {
     /// 证书/私钥不合法、端口被占用时**在返回前**失败，调用方据此决定是否
     /// 继续只跑 TCP。
     pub(super) fn bind(config: QuicUdpServerConfig) -> Result<Self> {
-        let certificates = super::load_certificates(&config.cert_path)?;
-        let key = super::load_private_key(&config.key_path)?;
+        // 两种模式的证书都只能来自预期来源：TLS 读主控下发的文件，Noise 由
+        // hop_secret 现场派生。任何一步失败都在绑定前返回，绝不回退成
+        // 「不校验证书」或「信任任意自签证书」。
+        let (certificates, key, derived) = match config.identity {
+            QuicUdpServerIdentity::TlsFiles {
+                cert_path,
+                key_path,
+            } => (
+                super::load_certificates(&cert_path)?,
+                super::load_private_key(&key_path)?,
+                false,
+            ),
+            QuicUdpServerIdentity::NoiseSecret { hop_secret } => {
+                let identity = pinned::derive_identity(&hop_secret).context(
+                    "Noise 模式的 QUIC 证书派生失败 / failed to derive the Noise QUIC certificate",
+                )?;
+                (vec![identity.certificate().clone()], identity.key(), true)
+            }
+        };
         let crypto = quic_server_crypto(certificates, key)?;
         let mut server_config = ServerConfig::with_crypto(Arc::new(crypto));
         server_config.transport_config(Arc::new(datagram_transport()));
@@ -518,6 +565,7 @@ impl QuicUdpServer {
             hops = config.hops.len(),
             allowed_targets = config.allowed_targets.len(),
             max_sessions = config.limits.max_sessions,
+            noise = derived,
             "UDP 中继（QUIC）监听已就绪 / UDP relay (QUIC) listener ready"
         );
 
@@ -1075,6 +1123,27 @@ fn quic_client_crypto(roots: Arc<RootCertStore>) -> Result<QuicClientConfig> {
         .map_err(|error| anyhow!("QUIC TLS 配置无效 / invalid QUIC TLS config: {error}"))
 }
 
+/// 客户端 QUIC 用的 rustls 配置（Noise/PSK）：只固定派生证书的指纹。
+///
+/// 不用 `with_root_certificates`（没有 CA），而是
+/// `with_custom_certificate_verifier` 挂上 [`pinned::PinnedCertVerifier`]。
+/// `dangerous()` 只是 rustls 对「自定义校验器」的 API 命名，校验强度由
+/// 校验器实现决定；这里既不跳过指纹，也不跳过握手签名。
+fn quic_client_crypto_pinned(fingerprint: [u8; 32]) -> Result<QuicClientConfig> {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let mut tls = rustls::ClientConfig::builder_with_provider(provider)
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .map_err(|error| anyhow!("QUIC 只支持 TLS 1.3 / QUIC requires TLS 1.3: {error}"))?
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(pinned::PinnedCertVerifier::new(fingerprint)))
+        .with_no_client_auth();
+    tls.alpn_protocols = vec![ALPN.to_vec()];
+    // 0-RTT 会绕过重放保护，UDP 中继不需要它。
+    tls.enable_early_data = false;
+    QuicClientConfig::try_from(Arc::new(tls))
+        .map_err(|error| anyhow!("QUIC TLS 配置无效 / invalid QUIC TLS config: {error}"))
+}
+
 /// UDP 中继的 QUIC 客户端。
 ///
 /// 一条 QUIC 连接承载一条隧道；UDP 载荷只走 datagram。
@@ -1088,16 +1157,23 @@ pub struct QuicUdpClient {
 
 impl QuicUdpClient {
     /// 连上 QUIC 服务端并完成 hop 认证。
-    pub async fn connect(
+    ///
+    /// `trust` 决定客户端如何认证服务端：`tls` 用显式 CA 校验证书链，
+    /// `noise` 用本地从 `hop_secret` 派生的证书指纹做固定。
+    pub(super) async fn connect(
         server_addr: SocketAddr,
         server_name: ServerName<'static>,
         hop_id: String,
         hop_secret: Vec<u8>,
-        roots: Arc<RootCertStore>,
+        trust: QuicUdpTrust,
         target_rules: &[TargetRule],
     ) -> Result<Self> {
         let targets = targets_from_rules(target_rules)?;
-        let crypto = quic_client_crypto(roots)?;
+        let pinned = matches!(trust, QuicUdpTrust::Pinned(_));
+        let crypto = match trust {
+            QuicUdpTrust::Ca(roots) => quic_client_crypto(roots)?,
+            QuicUdpTrust::Pinned(fingerprint) => quic_client_crypto_pinned(fingerprint)?,
+        };
         let mut client_config = quinn::ClientConfig::new(Arc::new(crypto));
         client_config.transport_config(Arc::new(datagram_transport()));
 
@@ -1117,9 +1193,14 @@ impl QuicUdpClient {
         })?;
         let connection = match timeout(HANDSHAKE_TIMEOUT, connecting).await {
             Ok(Ok(connection)) => connection,
-            Ok(Err(error)) => bail!(
-                "QUIC 握手失败 / QUIC handshake failed: {error}（证书不受信任、SNI 不匹配或对端不是 QUIC / untrusted certificate, SNI mismatch, or the peer is not QUIC）"
-            ),
+            Ok(Err(error)) => {
+                let hint = if pinned {
+                    "证书指纹与 hop_secret 派生值不一致（PSK 不匹配或对端不是本链）/ certificate fingerprint does not match the value derived from hop_secret (PSK mismatch or wrong peer)"
+                } else {
+                    "证书不受信任、SNI 不匹配或对端不是 QUIC / untrusted certificate, SNI mismatch, or the peer is not QUIC"
+                };
+                bail!("QUIC 握手失败 / QUIC handshake failed: {error}（{hint}）")
+            }
             Err(_) => bail!(
                 "QUIC 握手超时（{}s）/ QUIC handshake timed out after {}s",
                 HANDSHAKE_TIMEOUT.as_secs(),
@@ -2159,30 +2240,135 @@ mod tests {
         println!("[quic bad-proof] rejected without forwarding: {text}");
     }
 
-    /// Noise 模式没有 UDP 路径：必须明确失败，而不是悄悄退化。
-    #[tokio::test]
-    async fn noise_mode_refuses_udp_relay() {
-        let tunnel =
-            TunnelClient::noise("127.0.0.1:9".parse().unwrap(), HOP_ID, HOP_SECRET.to_vec());
-        let error = tunnel
-            .with_udp(vec![TargetRule::new("127.0.0.1", Some((1, 1)))])
-            .await
-            .expect_err("Noise 模式必须拒绝 UDP 中继");
-        assert!(format!("{error:#}").contains("Noise"), "{error:#}");
+    /// Noise + UDP 的 QUIC 服务端：只用 hop_secret 派生证书，不需要任何证书文件。
+    struct NoiseHarness {
+        addr: SocketAddr,
+        stats: QuicUdpStatsHandle,
+        task: JoinHandle<()>,
+    }
 
+    impl NoiseHarness {
+        async fn start() -> Self {
+            Self::start_with(
+                vec![TargetRule::new("127.0.0.1", None)],
+                QuicUdpLimits::default(),
+            )
+            .await
+        }
+
+        async fn start_with(udp_allowed: Vec<TargetRule>, limits: QuicUdpLimits) -> Self {
+            let mut hops = HashMap::new();
+            hops.insert(HOP_ID.to_string(), HOP_SECRET.to_vec());
+            let mut config = TunnelServerConfig::noise("127.0.0.1:0".parse().unwrap(), hops);
+            config.allowed_targets = vec![TargetRule::new("127.0.0.1", None)];
+
+            let (server, listener) = TunnelServer::bind(config)
+                .await
+                .expect("Noise 隧道服务端必须能启动");
+            let addr = listener.local_addr().expect("读取监听地址");
+            let server = server
+                .with_udp_limits(udp_allowed, limits)
+                .await
+                .expect("Noise 模式的 UDP 中继必须能启动（派生证书 + 指纹固定）");
+            let stats = server
+                .udp_stats_handle()
+                .expect("启用了 UDP 就必须有 stats");
+            let task = tokio::spawn(async move {
+                let _ = server.serve(listener).await;
+            });
+            Self { addr, stats, task }
+        }
+
+        async fn udp_client(&self, rules: Vec<TargetRule>) -> QuicUdpClient {
+            TunnelClient::noise(self.addr, HOP_ID, HOP_SECRET.to_vec())
+                .with_udp(rules)
+                .await
+                .expect("Noise QUIC 客户端必须能连上")
+        }
+    }
+
+    impl Drop for NoiseHarness {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    /// Noise + UDP 回环：3 个数据报全部经「派生证书 + 指纹固定」的 QUIC 隧道回显。
+    #[tokio::test]
+    async fn noise_udp_tunnel_echoes_three_datagrams() {
+        let echo = spawn_udp_echo(None).await;
+        let harness = NoiseHarness::start().await;
+        let client = harness.udp_client(vec![localhost_rule(echo.addr)]).await;
+        let local = client_addr_for_bucket(0, 1);
+
+        for payload in [b"noise-first".as_slice(), b"noise-second", b"noise-third"] {
+            let target = client.send_from(local, payload).expect("发送数据报失败");
+            assert_eq!(target, TargetAddr::Ip(echo.addr));
+            let reply = recv_reply(&client).await;
+            assert_eq!(reply.payload, payload, "Noise 模式回显内容必须与发送一致");
+            assert_eq!(reply.hop_id, HOP_ID);
+        }
+
+        let stats = wait_until(
+            "Noise 模式 3 个数据报都计数（收/发）",
+            &harness.stats,
+            |stats| stats.datagrams_in >= 3 && stats.datagrams_out >= 3,
+        )
+        .await;
+        assert_eq!(stats.sessions, 1, "同一客户端 + 同一目标只能有一个会话");
+        assert!(echo.received() >= 3, "echo 至少收到 3 个包");
+        println!("[noise quic echo] {stats:?}");
+    }
+
+    /// 错误的 hop_secret：派生证书指纹不同，QUIC 握手必须在任何数据报转发前失败，
+    /// 且错误里要能看出是「指纹不匹配」而不是泛泛的 TLS 失败。
+    #[tokio::test]
+    async fn noise_udp_wrong_hop_secret_fails_with_a_readable_fingerprint_error() {
+        let echo = spawn_udp_echo(None).await;
+        let harness = NoiseHarness::start().await;
+        let wrong = TunnelClient::noise(
+            harness.addr,
+            HOP_ID,
+            b"wrong-hop-secret-32-bytes!!!!!!!".to_vec(),
+        );
+        let error = wrong
+            .with_udp(vec![localhost_rule(echo.addr)])
+            .await
+            .expect_err("错误的 hop_secret 必须让 QUIC 握手失败");
+        let text = format!("{error:#}");
+        assert!(
+            text.contains("指纹") && text.contains("fingerprint"),
+            "错误必须点名指纹不匹配：{text}"
+        );
+
+        let stats = harness.stats.snapshot();
+        assert_eq!(stats.datagrams_in, 0, "{stats:?}");
+        assert_eq!(stats.sessions, 0, "{stats:?}");
+        assert_eq!(echo.received(), 0, "握手失败时一个数据报都不能被转发");
+        println!("[noise quic bad-secret] {text}");
+    }
+
+    /// 监听端有多个 hop 时无法在 TLS 握手阶段选择证书：必须明确失败，不能猜。
+    #[tokio::test]
+    async fn noise_udp_server_requires_exactly_one_hop() {
         let mut hops = HashMap::new();
-        hops.insert(HOP_ID.to_string(), HOP_SECRET.to_vec());
-        let mut config = TunnelServerConfig::noise("127.0.0.1:0".parse().unwrap(), hops);
-        config.allowed_targets = vec![TargetRule::new("127.0.0.1", None)];
+        hops.insert("hop-a".to_string(), HOP_SECRET.to_vec());
+        hops.insert("hop-b".to_string(), HOP_SECRET.to_vec());
+        let config = TunnelServerConfig::noise("127.0.0.1:0".parse().unwrap(), hops);
         let (server, _listener) = TunnelServer::bind(config).await.unwrap();
         let error = match server
             .with_udp(vec![TargetRule::new("127.0.0.1", None)])
             .await
         {
-            Ok(_) => panic!("Noise 服务端必须拒绝 UDP 中继"),
+            Ok(_) => panic!("多 hop 的 Noise UDP 服务端必须拒绝启动"),
             Err(error) => error,
         };
-        assert!(format!("{error:#}").contains("TLS"), "{error:#}");
+        let text = format!("{error:#}");
+        assert!(
+            text.contains("恰好一个 hop") && text.contains("exactly one hop"),
+            "错误必须说明单 hop 限制：{text}"
+        );
+        println!("[noise quic multi-hop] {text}");
     }
 
     /// QUIC 的初始套件必须来自 ring provider（不引入 aws-lc）。
