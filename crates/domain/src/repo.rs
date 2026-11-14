@@ -4357,6 +4357,50 @@ pub mod user_packages {
         find_view_by_id(pool, id).await
     }
 
+    /// 批量续期所有**已过期**的实例，返回实际改动的行数。
+    ///
+    /// 到期时间统一按 `now + days×86400` 计算：基准是「现在」，不是原到期
+    /// 时间（`expires_at + days×86400` 会让过期很久的卡仍然过期）。
+    ///
+    /// 并发保证：条件 `expires_at <= now` 在写入时重新求值，单条 `UPDATE`
+    /// 在 SQLite 里是原子的；再加 `BEGIN IMMEDIATE` 提前拿写锁，第二个请求
+    /// 会等第一个提交后再读，看到的是已经顺延的新值，因此同一实例只会顺延
+    /// 一次，而不是把两次请求的天数叠加。
+    pub async fn batch_renew_expired(
+        pool: &SqlitePool,
+        days: i64,
+        now: i64,
+    ) -> anyhow::Result<u64> {
+        let extension = days.max(0).saturating_mul(crate::time::SECONDS_PER_DAY);
+        let new_expires_at = now.saturating_add(extension);
+
+        let mut conn = pool.acquire().await?;
+        sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
+        let updated = match sqlx::query(
+            "UPDATE user_packages
+             SET expires_at = ?
+             WHERE status = 'active'
+               AND expires_at IS NOT NULL
+               AND expires_at <= ?",
+        )
+        .bind(new_expires_at)
+        .bind(now)
+        .execute(&mut *conn)
+        .await
+        {
+            Ok(result) => result.rows_affected(),
+            Err(error) => {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                return Err(error.into());
+            }
+        };
+        if let Err(error) = sqlx::query("COMMIT").execute(&mut *conn).await {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            return Err(error.into());
+        }
+        Ok(updated)
+    }
+
     /// 流量采集落库后更新实例用量；`exhausted` 判定与订阅授权都依赖它。
     pub async fn set_used_bytes(
         pool: &SqlitePool,
@@ -4750,8 +4794,19 @@ pub mod enforcement {
         pool: &SqlitePool,
         input: NewEvent<'_>,
     ) -> anyhow::Result<EnforcementEvent> {
+        insert_event_at(pool, input, now()).await
+    }
+
+    /// 指定事件时间的写入入口：测试构造历史记录、运维回填使用。
+    ///
+    /// 生产路径统一走 [`insert_event`]（取当前时间）；这里显式接收
+    /// `created_at`，避免测试为了造「N 天以前」的数据去 sleep 或直接写 SQL。
+    pub async fn insert_event_at(
+        pool: &SqlitePool,
+        input: NewEvent<'_>,
+        created_at: i64,
+    ) -> anyhow::Result<EnforcementEvent> {
         let id = Uuid::new_v4().to_string();
-        let created_at = now();
         sqlx::query(
             "INSERT INTO enforcement_events
                 (id, kind, user_id, username, server_id, server_name, reason, message, created_at)
@@ -4780,6 +4835,30 @@ pub mod enforcement {
             message: input.message.to_string(),
             created_at,
         })
+    }
+
+    /// 批量删除断流/恢复事件，返回删除条数。`cutoff = None` 表示全部删除。
+    ///
+    /// `DELETE` 条件只依赖已落库的 `created_at`，重复调用天然幂等：第二次
+    /// 找不到同一行就返回 0，不会因为并发点两次而多删或报错。
+    pub async fn delete_events_before(
+        pool: &SqlitePool,
+        cutoff: Option<i64>,
+    ) -> anyhow::Result<u64> {
+        let result = match cutoff {
+            Some(cutoff) => {
+                sqlx::query("DELETE FROM enforcement_events WHERE created_at < ?")
+                    .bind(cutoff)
+                    .execute(pool)
+                    .await?
+            }
+            None => {
+                sqlx::query("DELETE FROM enforcement_events")
+                    .execute(pool)
+                    .await?
+            }
+        };
+        Ok(result.rows_affected())
     }
 
     pub async fn list_events(

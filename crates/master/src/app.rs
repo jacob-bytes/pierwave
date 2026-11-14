@@ -115,6 +115,10 @@ pub fn router(state: AppState) -> Router {
             patch(routes::users::update_user_package).delete(routes::users::delete_user_package),
         )
         .route(
+            "/api/v1/user-packages/batch-renew",
+            post(routes::users::batch_renew_user_packages),
+        )
+        .route(
             "/api/v1/packages",
             get(routes::packages::list).post(routes::packages::create),
         )
@@ -150,6 +154,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/enforcement/events",
             get(routes::enforcement::events),
+        )
+        .route(
+            "/api/v1/enforcement/events/cleanup",
+            post(routes::enforcement::cleanup),
         )
         .route(
             "/api/v1/settings",

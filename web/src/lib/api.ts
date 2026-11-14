@@ -1386,6 +1386,16 @@ export interface Settings {
 
 export type UpdateSettingsInput = Partial<Settings>;
 
+/** 概览页「过期套餐实例」批量续期：只返回实际改动行数。 */
+export interface BatchRenewExpiredResponse {
+  updated: number;
+}
+
+/** 概览页「最近断流」清理：只返回实际删除行数。 */
+export interface CleanupEnforcementEventsResponse {
+  deleted: number;
+}
+
 export interface ChangePasswordInput {
   old_password: string;
   new_password: string;
@@ -1537,6 +1547,15 @@ export const api = {
     events: (limit: number) =>
       request<{ items: EnforcementEvent[] }>(
         `/api/v1/enforcement/events?limit=${encodeURIComponent(String(limit))}`,
+      ),
+    /** `days = null` 表示清理全部；后端返回实际删除条数。 */
+    cleanup: (days: number | null) =>
+      request<CleanupEnforcementEventsResponse>(
+        "/api/v1/enforcement/events/cleanup",
+        {
+          method: "POST",
+          body: JSON.stringify({ days }),
+        },
       ),
   },
 
@@ -1851,5 +1870,11 @@ export const api = {
   unbindUserPackage: (id: string) =>
     request<{ ok: true }>(`/api/v1/user-packages/${encodeURIComponent(id)}`, {
       method: "DELETE",
+    }),
+  /** 对所有已过期实例续期；天数由后端再次校验为 1-365。 */
+  batchRenewUserPackages: (days: number) =>
+    request<BatchRenewExpiredResponse>("/api/v1/user-packages/batch-renew", {
+      method: "POST",
+      body: JSON.stringify({ days }),
     }),
 };

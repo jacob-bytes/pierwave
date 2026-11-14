@@ -18,6 +18,7 @@
 | `query.limit_invalid` | limit 必须是整数 | — |
 | `query.limit_out_of_range` | limit 必须在 1-{max} 之间 | max |
 | `query.cursor_invalid` | before 游标无效 | — |
+| `event.cleanup_days_invalid` | 清理天数必须在 {min}-{max} 天之间，或选择全部 | max, min |
 | `request.no_update_fields` | 至少需要提供一个可更新字段 | — |
 | `user.not_found` | 用户不存在 | — |
 | `user.username_length_invalid` | 用户名长度必须在 {min}-{max} 个字符之间 | max, min |
@@ -95,6 +96,7 @@
 | `package.node_scope_invalid` | 节点 id 不能为空 | — |
 | `package.node_not_found` | 节点不存在：{node_ids} | node_ids |
 | `package.in_use` | 该套餐还有 {references} 个用户在用，无法删除 | references |
+| `package_instance.batch_renew_days_invalid` | 续期天数必须在 {min}-{max} 天之间 | max, min |
 | `rule_template.not_found` | 规则模板不存在 | — |
 | `rule_template.reference_not_found` | 引用的规则模板不存在 | — |
 | `rule_template.name_required` | 规则模板名称不能为空 | — |
@@ -619,3 +621,26 @@ bare IPs, no CIDR).
 |---|---|---|---|
 | `server.nic_name_not_found` | 网卡「{nic}」不在服务器最近上报的网卡列表中 | NIC "{nic}" is not in the server's most recently reported interface list | interfaces, nic |
 | `server.nic_address_unavailable` | 无法按网卡下发该服务器（未上报 / 网卡不存在 / 没有可用地址，不会回退 0.0.0.0） | The server cannot be dispatched with this NIC (not reported / missing / no usable address; no 0.0.0.0 fallback) | — |
+
+## 概览页批量操作（中英对照）/ Overview batch actions
+
+两个批量操作都要求管理员权限。`batch_renew` 只处理 `status = active` 且
+`expires_at <= now` 的实例，新的到期时间从**当前时间**起算；`event.cleanup`
+按 `created_at` 删除指定天数以前的记录，`days = null` 表示全部。
+
+Both actions are admin-only. `batch_renew` only touches instances with
+`status = active` and `expires_at <= now`, and the new expiry is based on **now**;
+`event.cleanup` deletes records whose `created_at` is older than the given number
+of days, and `days = null` means "all".
+
+| code | 中文 | English | params |
+|---|---|---|---|
+| `package_instance.batch_renew_days_invalid` | 续期天数必须在 {min}-{max} 天之间 | Renewal days must be between {min} and {max} | max, min |
+| `event.cleanup_days_invalid` | 清理天数必须在 {min}-{max} 天之间，或选择全部 | Cleanup days must be between {min} and {max}, or choose all | max, min |
+
+接口 / Endpoints:
+
+- `POST /api/v1/user-packages/batch-renew`，body `{ "days": 1..365 }`，返回 `{ "updated": n }`；
+  审计动作 `package_instance.batch_renew`，detail `{ days, updated }`。
+- `POST /api/v1/enforcement/events/cleanup`，body `{ "days": 1..3650 | null }`（缺省 = null = 全部），
+  返回 `{ "deleted": n }`；审计动作 `event.cleanup`，detail `{ days, deleted }`。

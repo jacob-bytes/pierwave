@@ -16,11 +16,13 @@ import {
   type ApplyResult,
   type AuditListQuery,
   type BackupInfo,
+  type BatchRenewExpiredResponse,
   type BindUserPackageInput,
   type Certificate,
   type ChangePasswordInput,
   type Chain,
   type ChainLatencyPoint,
+  type CleanupEnforcementEventsResponse,
   type CreateAgentUpgradeBatchInput,
   type CreateCertificateInput,
   type CreateChainInput,
@@ -640,6 +642,36 @@ export function useEnforcementEvents(limit: number) {
     enabled: limit > 0,
     placeholderData: keepPreviousData,
     staleTime: 15_000,
+  });
+}
+
+/** 清理断流 / 恢复历史；`days = null` 表示全部。 */
+export function useCleanupEnforcementEvents() {
+  const queryClient = useQueryClient();
+
+  return useMutation<CleanupEnforcementEventsResponse, Error, number | null>({
+    mutationFn: (days) => api.enforcement.cleanup(days),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["enforcement"] });
+      // 审计页也会多一条 event.cleanup。
+      void queryClient.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
+/** 批量续期所有已过期套餐实例；成功后概览告警与用户套餐视图都要刷新。 */
+export function useBatchRenewUserPackages() {
+  const queryClient = useQueryClient();
+
+  return useMutation<BatchRenewExpiredResponse, Error, number>({
+    mutationFn: (days) => api.batchRenewUserPackages(days),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.statsOverview });
+      void queryClient.invalidateQueries({ queryKey: ["overview"] });
+      void queryClient.invalidateQueries({ queryKey: ["users"] });
+      void queryClient.invalidateQueries({ queryKey: ["user"] });
+      invalidateSubscriptionViews(queryClient);
+    },
   });
 }
 

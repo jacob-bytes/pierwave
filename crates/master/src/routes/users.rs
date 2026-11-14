@@ -505,6 +505,61 @@ pub async fn update_user_package(
     Ok(Json(json!({ "item": item })))
 }
 
+/// 批量续期允许的天数范围；与前端输入校验保持一致。
+const BATCH_RENEW_MIN_DAYS: i64 = 1;
+const BATCH_RENEW_MAX_DAYS: i64 = 365;
+
+#[derive(Deserialize)]
+pub struct BatchRenewUserPackages {
+    pub days: i64,
+}
+
+/// 对所有**已过期**的套餐实例续期。
+///
+/// 到期时间从请求处理时刻（`now`）起顺延，而不是从原到期时间起算；重复/
+/// 并发请求不会把同一实例顺延两次（见
+/// [`repo::user_packages::batch_renew_expired`] 的并发说明）。
+pub async fn batch_renew_user_packages(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Json(req): Json<BatchRenewUserPackages>,
+) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+
+    if !(BATCH_RENEW_MIN_DAYS..=BATCH_RENEW_MAX_DAYS).contains(&req.days) {
+        return Err(AppError::coded(
+            "package_instance.batch_renew_days_invalid",
+            Some(json!({
+                "min": BATCH_RENEW_MIN_DAYS,
+                "max": BATCH_RENEW_MAX_DAYS,
+            })),
+            format!("续期天数必须在 {BATCH_RENEW_MIN_DAYS}-{BATCH_RENEW_MAX_DAYS} 天之间"),
+        ));
+    }
+
+    let updated =
+        repo::user_packages::batch_renew_expired(&state.db.pool, req.days, repo::now()).await?;
+
+    // 过期实例恢复可用后，Agent 侧要重新注入这些用户；失败只记日志，
+    // 5 分钟对账仍会兜底。
+    if updated > 0 {
+        if let Err(error) = crate::enforcement::mark_all_servers_dirty(&state).await {
+            tracing::error!(updated, error = %error, "批量续期后标记期望态失败");
+        }
+    }
+
+    crate::audit::record(
+        &state,
+        &user.0,
+        "package_instance.batch_renew",
+        "user_packages",
+        json!({ "days": req.days, "updated": updated }),
+    )
+    .await;
+
+    Ok(Json(json!({ "updated": updated })))
+}
+
 pub async fn delete_user_package(
     State(state): State<AppState>,
     user: CurrentUser,
@@ -1437,5 +1492,258 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK);
         assert!(body["package"]["rule_template_id"].is_null());
+    }
+
+    async fn seed_package(state: &AppState, name: &str) -> String {
+        repo::packages::create(
+            &state.db.pool,
+            repo::packages::NewPackage {
+                name: name.into(),
+                quota_bytes: Some(1000),
+                period_days: None,
+                direction: "both".into(),
+                node_ratio: 1.0,
+                speed_limit_kbps: None,
+                rule_template_id: None,
+                node_ids: None,
+            },
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    async fn seed_user(state: &AppState, username: &str) -> String {
+        repo::users::create(
+            &state.db.pool,
+            repo::users::NewUser {
+                username: username.into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+                rule_template_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    async fn bind_instance(
+        state: &AppState,
+        user_id: &str,
+        package_id: &str,
+        expires_at: Option<i64>,
+    ) -> String {
+        let package = repo::packages::find_by_id(&state.db.pool, package_id)
+            .await
+            .unwrap()
+            .unwrap();
+        repo::user_packages::create(
+            &state.db.pool,
+            user_id,
+            repo::user_packages::NewUserPackage {
+                package_id: package_id.to_string(),
+                quota_override: None,
+                expires_at,
+                reset_day: None,
+            },
+            &package,
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    #[tokio::test]
+    async fn batch_renew_only_extends_expired_active_from_now_and_records_audit() {
+        let (app, state, admin) = setup().await;
+        let package_id = seed_package(&state, "月卡").await;
+        let user_id = seed_user(&state, "alice").await;
+
+        let now = repo::now();
+        let expired_a = bind_instance(&state, &user_id, &package_id, Some(now - 3600)).await;
+        let expired_b = bind_instance(&state, &user_id, &package_id, Some(now - 10 * 86_400)).await;
+        let future_expiry = now + 86_400;
+        let future = bind_instance(&state, &user_id, &package_id, Some(future_expiry)).await;
+        let exhausted = bind_instance(&state, &user_id, &package_id, Some(future_expiry)).await;
+        repo::user_packages::set_used_bytes(&state.db.pool, &exhausted, 1000)
+            .await
+            .unwrap();
+        let permanent = bind_instance(&state, &user_id, &package_id, None).await;
+        let disabled = bind_instance(&state, &user_id, &package_id, Some(now - 3600)).await;
+        repo::user_packages::update(
+            &state.db.pool,
+            &disabled,
+            repo::user_packages::UpdateUserPackage {
+                status: Some("disabled".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let before = repo::now();
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::POST,
+            "/api/v1/user-packages/batch-renew",
+            Some(json!({ "days": 30 })),
+        )
+        .await;
+        let after = repo::now();
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["updated"], 2, "只续期两张 active 且已过期的实例");
+
+        let views = repo::user_packages::list_views_by_user(&state.db.pool, &user_id)
+            .await
+            .unwrap();
+        let view = |id: &str| views.iter().find(|item| item.id == id).unwrap();
+
+        // 基准必须是「现在」：若从原到期时间起算，过期卡仍会落在 now 之前。
+        let lower = before + 30 * 86_400;
+        let upper = after + 30 * 86_400;
+        for id in [&expired_a, &expired_b] {
+            let item = view(id);
+            let expires_at = item.expires_at.expect("续期后应有到期时间");
+            assert!(
+                expires_at >= lower && expires_at <= upper,
+                "续期基准不是当前时间：expires_at={expires_at}, lower={lower}, upper={upper}"
+            );
+            assert_eq!(item.status, "active");
+        }
+
+        assert_eq!(
+            view(&future).expires_at,
+            Some(future_expiry),
+            "未过期实例不应被改动"
+        );
+        assert_eq!(
+            view(&exhausted).expires_at,
+            Some(future_expiry),
+            "只用尽但未过期的实例不应被续期"
+        );
+        assert_eq!(view(&permanent).expires_at, None, "永久实例不应被改动");
+        assert_eq!(view(&disabled).status, "disabled");
+
+        // 审计落库，detail 只有天数和数量，不含用户隐私数据。
+        let entries = repo::audit::list(&state.db.pool, 20).await.unwrap();
+        let entry = entries
+            .iter()
+            .find(|entry| {
+                entry.action == "package_instance.batch_renew"
+                    && entry
+                        .detail
+                        .as_ref()
+                        .and_then(|detail| detail["updated"].as_u64())
+                        == Some(2)
+            })
+            .expect("缺少批量续期审计");
+        let detail = entry.detail.as_ref().unwrap();
+        assert_eq!(detail["days"], 30);
+        assert_eq!(detail["updated"], 2);
+        let serialized = detail.to_string();
+        assert!(!serialized.contains("alice"));
+        assert!(!serialized.contains(&user_id));
+        assert!(entry.target.as_deref() == Some("user_packages"));
+
+        // 再次点击：所有实例都已不满足「已过期」，返回 0 且不再叠加天数。
+        let renewed = view(&expired_a).expires_at;
+        let (status, body) = request(
+            &app,
+            Some(&admin),
+            Method::POST,
+            "/api/v1/user-packages/batch-renew",
+            Some(json!({ "days": 7 })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["updated"], 0);
+        let views = repo::user_packages::list_views_by_user(&state.db.pool, &user_id)
+            .await
+            .unwrap();
+        let again = views.iter().find(|item| item.id == expired_a).unwrap();
+        assert_eq!(again.expires_at, renewed, "重复调用不得叠加续期天数");
+    }
+
+    #[tokio::test]
+    async fn concurrent_batch_renew_extends_each_instance_only_once() {
+        let (app, state, admin) = setup().await;
+        let package_id = seed_package(&state, "月卡").await;
+        let user_id = seed_user(&state, "alice").await;
+        let expired = bind_instance(&state, &user_id, &package_id, Some(repo::now() - 3600)).await;
+
+        let body = json!({ "days": 30 });
+        let before = repo::now();
+        let (first, second) = tokio::join!(
+            request(
+                &app,
+                Some(&admin),
+                Method::POST,
+                "/api/v1/user-packages/batch-renew",
+                Some(body.clone()),
+            ),
+            request(
+                &app,
+                Some(&admin),
+                Method::POST,
+                "/api/v1/user-packages/batch-renew",
+                Some(body),
+            )
+        );
+        let after = repo::now();
+
+        assert_eq!(first.0, StatusCode::OK, "第一次请求失败：{}", first.1);
+        assert_eq!(second.0, StatusCode::OK, "第二次请求失败：{}", second.1);
+        let total = first.1["updated"].as_u64().unwrap() + second.1["updated"].as_u64().unwrap();
+        assert_eq!(total, 1, "两个并发请求只能有一个命中同一实例");
+
+        let views = repo::user_packages::list_views_by_user(&state.db.pool, &user_id)
+            .await
+            .unwrap();
+        let expires_at = views
+            .iter()
+            .find(|item| item.id == expired)
+            .unwrap()
+            .expires_at
+            .unwrap();
+        assert!(
+            expires_at >= before + 30 * 86_400 && expires_at <= after + 30 * 86_400,
+            "并发请求把天数叠加了：expires_at={expires_at}"
+        );
+    }
+
+    #[tokio::test]
+    async fn batch_renew_rejects_invalid_days_and_non_admin() {
+        let (app, state, admin) = setup().await;
+        for days in [0, 366, -1] {
+            let (status, body) = request(
+                &app,
+                Some(&admin),
+                Method::POST,
+                "/api/v1/user-packages/batch-renew",
+                Some(json!({ "days": days })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+            assert_eq!(body["code"], "package_instance.batch_renew_days_invalid");
+        }
+
+        let normal = seed_user(&state, "bob").await;
+        let (token, _) = repo::sessions::create(&state.db.pool, &normal, 3600, None)
+            .await
+            .unwrap();
+        let cookie = format!("{}={token}", crate::auth::SESSION_COOKIE);
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/user-packages/batch-renew",
+            Some(json!({ "days": 30 })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(body["error"], "权限不足");
     }
 }

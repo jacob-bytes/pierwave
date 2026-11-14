@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
   ActivityIcon,
+  CalendarPlusIcon,
   ChartColumnIcon,
   CheckCircle2Icon,
   ChevronRightIcon,
@@ -16,6 +17,7 @@ import {
   RefreshCwIcon,
   ServerIcon,
   ServerOffIcon,
+  Trash2Icon,
   TriangleAlertIcon,
   UsersIcon,
   WaypointsIcon,
@@ -43,6 +45,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { BatchRenewDialog } from "@/components/overview/BatchRenewDialog";
+import { CleanupEventsDialog } from "@/components/overview/CleanupEventsDialog";
 import { ApiError, type OverviewProtocol, type OverviewTopItem } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
@@ -526,6 +530,8 @@ interface AlertItem {
   count: number;
   hint: string;
   tone: AlertTone;
+  /** 行尾的批量操作入口；目前只有「过期套餐实例」带。 */
+  action?: ReactNode;
 }
 
 function AlertRow({
@@ -535,6 +541,7 @@ function AlertRow({
   count,
   hint,
   tone,
+  action,
   onNavigate,
 }: {
   to: string;
@@ -543,48 +550,53 @@ function AlertRow({
   count: number;
   hint: string;
   tone: AlertTone;
+  /** 行尾的批量操作入口；按钮不能嵌在 Link 里，所以单独作为兄弟节点。 */
+  action?: ReactNode;
   /** 在弹窗里点击后关掉弹窗。 */
   onNavigate?: () => void;
 }) {
   const active = count > 0;
 
   return (
-    <Link
-      to={to}
-      onClick={onNavigate}
-      className="group flex items-center gap-3 rounded-md px-2.5 py-2.5 transition-colors duration-150 hover:bg-muted/40"
-    >
-      <div
-        className={cn(
-          "grid size-8 shrink-0 place-items-center rounded-md",
-          active ? alertToneClasses[tone] : "bg-muted text-muted-foreground",
-        )}
+    <div className="group flex items-center rounded-md transition-colors duration-150 hover:bg-muted/40">
+      <Link
+        to={to}
+        onClick={onNavigate}
+        className="flex min-w-0 flex-1 items-center gap-3 px-2.5 py-2.5"
       >
-        <Icon className="icon-md" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <p
+        <div
           className={cn(
-            "truncate text-sm",
-            !active && "text-muted-foreground",
+            "grid size-8 shrink-0 place-items-center rounded-md",
+            active ? alertToneClasses[tone] : "bg-muted text-muted-foreground",
           )}
         >
-          {label}
-        </p>
-        <p className="truncate text-xs text-muted-foreground">
-          {active ? hint : t("common.none")}
-        </p>
-      </div>
-      <span
-        className={cn(
-          "font-mono text-sm tabular-nums",
-          active ? "text-foreground" : "text-muted-foreground",
-        )}
-      >
-        {count}
-      </span>
-      <ChevronRightIcon className="icon-sm text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5" />
-    </Link>
+          <Icon className="icon-md" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p
+            className={cn(
+              "truncate text-sm",
+              !active && "text-muted-foreground",
+            )}
+          >
+            {label}
+          </p>
+          <p className="truncate text-xs text-muted-foreground">
+            {active ? hint : t("common.none")}
+          </p>
+        </div>
+        <span
+          className={cn(
+            "font-mono text-sm tabular-nums",
+            active ? "text-foreground" : "text-muted-foreground",
+          )}
+        >
+          {count}
+        </span>
+        <ChevronRightIcon className="icon-sm text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5" />
+      </Link>
+      {action ? <div className="shrink-0 pr-1.5">{action}</div> : null}
+    </div>
   );
 }
 
@@ -630,6 +642,9 @@ export default function OverviewPage() {
 
   // 告警项统一成一个数组：卡片里只展示前 ALERT_PREVIEW 条（与右侧 Top 5 高度对齐），
   // 其余进「查看全部」弹窗。告警多时不再把整列拉长。
+  const [allAlertsOpen, setAllAlertsOpen] = useState(false);
+  const [renewOpen, setRenewOpen] = useState(false);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
   const alertItems: AlertItem[] = stats
     ? [
         {
@@ -640,6 +655,20 @@ export default function OverviewPage() {
           count: stats.alerts.expired_instances,
           hint: t("overview.expiredHint"),
           tone: "warning",
+          action: (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setAllAlertsOpen(false);
+                setRenewOpen(true);
+              }}
+            >
+              <CalendarPlusIcon />
+              {t("overview.renewAction")}
+            </Button>
+          ),
         },
         {
           key: "exhausted",
@@ -693,7 +722,6 @@ export default function OverviewPage() {
     : [];
   const previewAlerts = alertItems.slice(0, ALERT_PREVIEW);
   const hiddenAlertCount = alertItems.length - previewAlerts.length;
-  const [allAlertsOpen, setAllAlertsOpen] = useState(false);
 
   return (
     <div className="animate-enter space-y-6">
@@ -886,6 +914,7 @@ export default function OverviewPage() {
                     count={alert.count}
                     hint={alert.hint}
                     tone={alert.tone}
+                    action={alert.action}
                   />
                 ))}
                 {hiddenAlertCount > 0 ? (
@@ -901,24 +930,39 @@ export default function OverviewPage() {
                   </button>
                 ) : null}
                 {recentRemoved > 0 ? (
-                  <Link
-                    to="/events"
-                    className="mt-1 flex items-center justify-between rounded-md px-2.5 py-2 text-xs text-muted-foreground transition-colors duration-150 hover:bg-muted/40 hover:text-foreground"
-                  >
-                    <span className="flex items-center gap-2">
-                      <HistoryIcon className="icon-sm" />
-                      {t(
-                        recentRemoved === 1
-                          ? "overview.recentRemovedOne"
-                          : "overview.recentRemoved",
-                        { n: recentRemoved },
-                      )}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      {t("overview.viewRecords")}
-                      <ChevronRightIcon className="icon-sm" />
-                    </span>
-                  </Link>
+                  <div className="mt-1 flex items-center rounded-md transition-colors duration-150 hover:bg-muted/40">
+                    <Link
+                      to="/events"
+                      className="flex min-w-0 flex-1 items-center justify-between gap-2 px-2.5 py-2 text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground"
+                    >
+                      <span className="flex min-w-0 items-center gap-2">
+                        <HistoryIcon className="icon-sm shrink-0" />
+                        <span className="truncate">
+                          {t(
+                            recentRemoved === 1
+                              ? "overview.recentRemovedOne"
+                              : "overview.recentRemoved",
+                            { n: recentRemoved },
+                          )}
+                        </span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-1">
+                        {t("overview.viewRecords")}
+                        <ChevronRightIcon className="icon-sm" />
+                      </span>
+                    </Link>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="mr-1 shrink-0 text-muted-foreground"
+                      title={t("overview.cleanupAria")}
+                      onClick={() => setCleanupOpen(true)}
+                    >
+                      <Trash2Icon />
+                      {t("overview.cleanupAction")}
+                    </Button>
+                  </div>
                 ) : null}
               </CardContent>
             </Card>
@@ -960,6 +1004,17 @@ export default function OverviewPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {renewOpen ? (
+        <BatchRenewDialog
+          open
+          onOpenChange={setRenewOpen}
+          expiredCount={stats?.alerts.expired_instances ?? 0}
+        />
+      ) : null}
+      {cleanupOpen ? (
+        <CleanupEventsDialog open onOpenChange={setCleanupOpen} />
+      ) : null}
     </div>
   );
 }
