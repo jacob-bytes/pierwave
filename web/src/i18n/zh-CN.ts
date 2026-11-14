@@ -2444,6 +2444,8 @@ const zhCN = {
     notObject: "config 必须是 JSON 对象（以 { 开头、} 结尾）",
   },
   errors: {
+    "forward.protocol_requires_agent_upgrade": "服务器「{server}」的 Agent 版本过低（{version}），不支持仅 UDP；请先升级到协议 {required} 及以上",
+    "chain.protocol_requires_agent_upgrade": "以下服务器的 Agent 版本过低，不支持仅 UDP：{server}；请先升级到协议 {required} 及以上",
     "server.nic_address_unavailable": "无法按网卡下发该服务器（尚未上报网卡、网卡不存在或没有可用地址）",
     "chain.entry_port_required": "入口组（第 1 组）必须填写监听端口",
     "chain.public_port_invalid": "对外端口必须在 {min}-{max} 之间",

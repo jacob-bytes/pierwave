@@ -192,6 +192,8 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
             let interfaces_json = crate::nic::encode_interfaces(&hb.interfaces);
             let health = repo::servers::HealthSnapshot {
                 arch: hb.arch,
+                // 0 = 旧 Agent 未上报；仓储只在 > 0 时覆盖已有值。
+                protocol_version: Some(hb.protocol_version as i64),
                 os_name: hb.os_name,
                 os_version: hb.os_version,
                 virt: hb.virt,
@@ -1245,6 +1247,7 @@ mod tests {
         let heartbeat =
             |seq: u64, forwards: Vec<pierwave_proto::ForwardStatus>| pierwave_proto::Heartbeat {
                 seq,
+                protocol_version: pierwave_proto::PROTOCOL_VERSION,
                 agent_version: "0.5.7".into(),
                 arch: "x86_64".into(),
                 os_name: None,
@@ -1302,6 +1305,14 @@ mod tests {
             }],
         )
         .await;
+        // 心跳里的协议版本必须落库，仅 UDP 门禁才能拿到真实能力。
+        assert_eq!(
+            repo::servers::find_by_id(&fixture.state.db.pool, &server.id)
+                .await
+                .unwrap()
+                .protocol_version,
+            Some(pierwave_proto::PROTOCOL_VERSION as i64)
+        );
         let views = repo::forwards::list_with_status(&fixture.state.db.pool, &server.id)
             .await
             .unwrap();
@@ -1492,6 +1503,7 @@ mod tests {
         let send = |seq: u64, target_ok: bool| {
             let heartbeat = pierwave_proto::Heartbeat {
                 seq,
+                protocol_version: pierwave_proto::PROTOCOL_VERSION,
                 agent_version: "0.5.7".into(),
                 arch: "x86_64".into(),
                 os_name: None,

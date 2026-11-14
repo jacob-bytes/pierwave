@@ -942,6 +942,7 @@ fn sample_heartbeat(
     let disk = read_disk();
     Heartbeat {
         seq,
+        protocol_version: PROTOCOL_VERSION,
         agent_version: env!("CARGO_PKG_VERSION").to_string(),
         arch: std::env::consts::ARCH.to_string(),
         os_name: system_info.os_name.clone(),
@@ -1035,11 +1036,6 @@ fn hostname() -> String {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "unknown".into())
-}
-
-#[allow(dead_code)]
-fn _protocol_version() -> u32 {
-    PROTOCOL_VERSION
 }
 
 #[cfg(test)]

@@ -26,6 +26,13 @@ pub const BOTH: &str = "both";
 /// 合法的协议名，错误提示里按顺序展示。
 pub const NAMES: [&str; 3] = [TCP, UDP, BOTH];
 
+/// 「仅 UDP」需要的最低 Agent 线协议版本。
+///
+/// `protocol = udp` 从协议 16（v0.8.0）开始支持；旧 Agent 会忽略该字段，
+/// 按旧的 `udp` 镜像位只监听 TCP，导致静默失效。与
+/// `pierwave_proto::UDP_PROTOCOL_VERSION` 必须保持一致（master 有断言测试）。
+pub const UDP_MIN_PROTOCOL_VERSION: i64 = 16;
+
 /// 新建转发/链时没填 `protocol` 的默认值。
 pub const DEFAULT: &str = TCP;
 
@@ -130,6 +137,78 @@ pub fn ensure_tls_compatible(protocol: &str, transport: &str) -> Result<(), Doma
     ))
 }
 
+/// 该协议版本是否理解 `protocol = udp`。
+///
+/// `None`（旧 Agent 未上报 / 从未连过）一律按不支持处理；`tcp` / `both`
+/// 不调用这个判断，旧 Agent 能正确理解它们。
+pub fn agent_supports_udp(version: Option<i64>) -> bool {
+    version.is_some_and(|version| version >= UDP_MIN_PROTOCOL_VERSION)
+}
+
+/// 单跳转发保存前的「仅 UDP」能力门禁，错误码
+/// `forward.protocol_requires_agent_upgrade`。
+///
+/// 只在 `protocol = udp` 时生效；`tcp` / `both` 对旧 Agent 完全不变。
+pub fn ensure_forward_agent_supported(
+    protocol: &str,
+    version: Option<i64>,
+    server: &str,
+) -> Result<(), DomainError> {
+    if !is_udp_only(protocol) || agent_supports_udp(version) {
+        return Ok(());
+    }
+    let current = version.filter(|version| *version > 0).unwrap_or(0);
+    Err(DomainError::with_params(
+        "forward.protocol_requires_agent_upgrade",
+        json!({
+            "server": server,
+            "required": UDP_MIN_PROTOCOL_VERSION,
+            "protocol": UDP,
+            "version": current,
+        }),
+        format!(
+            "服务器「{server}」的 Agent 版本过旧（协议版本 {current}，需要 ≥ {UDP_MIN_PROTOCOL_VERSION}），仅 UDP 转发需要先升级 Agent / server \"{server}\" runs an agent that is too old for UDP-only forwarding (protocol {current}, requires >= {UDP_MIN_PROTOCOL_VERSION}); upgrade the agent first"
+        ),
+    ))
+}
+
+/// 链保存前的「仅 UDP」能力门禁，错误码
+/// `chain.protocol_requires_agent_upgrade`。
+///
+/// 链的每一跳都要自己监听，所以**任意**成员版本过低都会拒绝整条链。
+/// `servers` 由调用方从成员服务器读出来，未知（NULL）按不支持处理。
+pub fn ensure_chain_agent_supported(
+    protocol: &str,
+    servers: &[(&str, Option<i64>)],
+) -> Result<(), DomainError> {
+    if !is_udp_only(protocol) {
+        return Ok(());
+    }
+    let mut stale: Vec<&str> = Vec::new();
+    for (name, version) in servers {
+        if !agent_supports_udp(*version) && !stale.contains(name) {
+            stale.push(name);
+        }
+    }
+    if stale.is_empty() {
+        return Ok(());
+    }
+    Err(DomainError::with_params(
+        "chain.protocol_requires_agent_upgrade",
+        json!({
+            "server": stale.join("、"),
+            "servers": stale,
+            "required": UDP_MIN_PROTOCOL_VERSION,
+            "protocol": UDP,
+        }),
+        format!(
+            "以下服务器的 Agent 版本过旧（需要协议版本 ≥ {UDP_MIN_PROTOCOL_VERSION}），无法使用仅 UDP 链：{} / the following servers run agents too old for a UDP-only chain (protocol >= {UDP_MIN_PROTOCOL_VERSION} required): {}",
+            stale.join("、"),
+            stale.join(", ")
+        ),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,5 +297,62 @@ mod tests {
             "both 交给既有的 chain.tls_udp_unsupported 拦截"
         );
         assert!(ensure_tls_compatible(UDP, crate::hop_transport::NONE).is_ok());
+    }
+
+    #[test]
+    fn udp_only_requires_agent_protocol_16() {
+        assert_eq!(UDP_MIN_PROTOCOL_VERSION, 16);
+        assert!(!agent_supports_udp(None), "未知版本必须按不支持处理");
+        assert!(!agent_supports_udp(Some(0)), "0 = 旧 Agent");
+        assert!(!agent_supports_udp(Some(15)), "15 是旧 Agent");
+        assert!(agent_supports_udp(Some(16)), "16 起支持仅 UDP");
+        assert!(agent_supports_udp(Some(22)));
+
+        let error =
+            ensure_forward_agent_supported(UDP, None, "hk-1").expect_err("未知版本必须拒绝");
+        assert_eq!(error.code, "forward.protocol_requires_agent_upgrade");
+        assert_eq!(error.params["server"], "hk-1");
+        assert_eq!(error.params["required"], 16);
+        assert_eq!(error.params["version"], 0);
+        assert_eq!(error.params["protocol"], "udp");
+        assert!(error.message.contains("升级 Agent"), "{}", error.message);
+
+        let error = ensure_forward_agent_supported(UDP, Some(15), "hk-1").expect_err("15 必须拒绝");
+        assert_eq!(error.params["version"], 15);
+
+        assert!(ensure_forward_agent_supported(UDP, Some(16), "hk-1").is_ok());
+        assert!(ensure_forward_agent_supported(UDP, Some(22), "hk-1").is_ok());
+        // tcp / both 旧 Agent 能正确理解，任何时候都放行。
+        for protocol in [TCP, BOTH] {
+            for version in [None, Some(0), Some(15), Some(16)] {
+                assert!(
+                    ensure_forward_agent_supported(protocol, version, "hk-1").is_ok(),
+                    "{protocol} / {version:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn udp_only_chain_requires_every_member_on_protocol_16() {
+        let servers = [("hk-a", Some(22)), ("jp-b", Some(16))];
+        assert!(ensure_chain_agent_supported(UDP, &servers).is_ok());
+        assert!(ensure_chain_agent_supported(TCP, &[("hk-a", None)]).is_ok());
+        assert!(ensure_chain_agent_supported(BOTH, &[("hk-a", Some(15))]).is_ok());
+
+        let error = ensure_chain_agent_supported(
+            UDP,
+            &[("hk-a", Some(22)), ("jp-b", Some(15)), ("sg-c", None)],
+        )
+        .expect_err("任意成员过旧都要拒绝整条链");
+        assert_eq!(error.code, "chain.protocol_requires_agent_upgrade");
+        assert_eq!(error.params["servers"], json!(["jp-b", "sg-c"]));
+        assert_eq!(error.params["server"], "jp-b、sg-c");
+        assert_eq!(error.params["required"], 16);
+        assert!(
+            error.message.contains("Agent 版本过旧"),
+            "{}",
+            error.message
+        );
     }
 }

@@ -325,6 +325,8 @@ noise + udp，下发时整链跳过并给出同一个 `blocked_code`。
 | `chain.protocol_invalid` | 链的转发协议「{protocol}」无效，只支持 tcp / udp / both | Invalid chain protocol "{protocol}"; expected tcp / udp / both | allowed, protocol |
 | `forward.protocol_udp_requires_native` | realm 引擎固定同时转发 TCP 与 UDP，不支持仅 UDP；请改用 native 或 nftables 引擎 | The realm engine always forwards both TCP and UDP; use the native or nftables engine for UDP-only | engine, feature, protocol |
 | `chain.protocol_udp_with_tls` | 加密链只走 TCP，不能选择仅 UDP | Encrypted chains are TCP-only; UDP-only is not supported | protocol, transport |
+| `forward.protocol_requires_agent_upgrade` | 服务器「{server}」的 Agent 版本过旧（协议版本 {version}，需要 ≥ {required}），仅 UDP 转发需要先升级 Agent | Server "{server}" runs an agent that is too old for UDP-only forwarding (protocol {version}, requires >= {required}); upgrade the agent first | protocol, required, server, version |
+| `chain.protocol_requires_agent_upgrade` | 以下服务器的 Agent 版本过旧（需要协议版本 ≥ {required}），无法使用仅 UDP 链：{server} | The following servers run agents too old for a UDP-only chain (protocol >= {required} required): {server} | protocol, required, server, servers |
 
 行为矩阵（写路径）/ Behaviour matrix (write path):
 
@@ -334,8 +336,36 @@ noise + udp，下发时整链跳过并给出同一个 `blocked_code`。
 | `protocol = udp` 且 `engine = realm` | `forward.protocol_udp_requires_native`（转发与链共用） |
 | `protocol = udp` 且链 `transport = tls` | `chain.protocol_udp_with_tls` |
 | `protocol = both` 且链 `transport = tls` | `chain.tls_udp_unsupported`（UDP 不走 transport） |
+| `protocol = udp` 且成员 Agent 协议未知（NULL）或 < 16 | `forward.protocol_requires_agent_upgrade` / `chain.protocol_requires_agent_upgrade` |
+| `protocol = tcp / both` 且旧 Agent | 照常保存与下发（旧 Agent 能正确理解） |
 | 只传旧字段 `udp = true` | 归一化为 `protocol = both`（旧客户端兼容） |
 | 只传旧字段 `udp = false` | 归一化为 `protocol = tcp` |
+
+#### 仅 UDP 的旧 Agent 门禁 / UDP-only agent gate
+
+`protocol = udp` 从协议 16（v0.8.0）开始支持。旧 Agent 会忽略该字段，按旧的
+`udp` 镜像位只监听 TCP——面板看起来规则已下发，实际一条监听都没有。因此主控
+在两条路径上 fail closed：
+
+1. **保存**：`POST/PATCH` 的最终协议是 `udp` 时，目标服务器（链为每一跳）的
+   `servers.protocol_version` 必须 `>= 16`；未知（NULL，旧 Agent / 从未连过）
+   与 15 一律 400，`params` 带 `server` 与 `required`（16）。
+2. **下发**：已保存的历史 `udp` 规则遇到旧 Agent 时**不下发**并给 warning，
+   转发列表给出 `blocked_code` / `blocked_reason`，链列表同样显示 blocked；
+   绝不降级成 TCP，等 Agent 升级后自动恢复。
+
+`tcp` / `both` 不受影响。心跳把 Agent 编译期的协议版本写入
+`servers.protocol_version`；旧 Agent 缺省 `0` 不会覆盖已经上报过的值。
+迁移 `0043_server_protocol_version.sql` 只追加列，历史行保持 NULL。
+
+> `protocol = udp` has been supported since protocol 16 (v0.8.0). Old agents
+> ignore the field and only listen on TCP via the legacy `udp` mirror bit, so
+> the panel looks configured while nothing is listening. The master fails
+> closed on both paths: saving UDP-only requires the target server (every hop
+> for chains) to report `protocol_version >= 16`, and historical UDP-only rules
+> are skipped (with a warning / `blocked_reason`) instead of being degraded to
+> TCP. `tcp` / `both` are unaffected; a legacy heartbeat with `0` never
+> overwrites a previously reported version.
 
 迁移 `0034_forward_protocol.sql`：`udp = 1 → both`，`udp = 0 → tcp`；`udp` 列保留，
 但读写行为只认 `protocol`。Agent 侧：native 按所选协议绑定（仅 UDP 时完全不绑 TCP）；

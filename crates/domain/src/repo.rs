@@ -808,6 +808,11 @@ pub mod servers {
     pub struct HealthSnapshot {
         /// CPU 架构（`x86_64` / `aarch64`）；空串 = 旧 Agent 没上报。
         pub arch: String,
+        /// Agent 编译进去的线协议版本；`None` / `Some(0)` = 旧 Agent 未上报。
+        ///
+        /// 落库时只有 `> 0` 才覆盖：旧 Agent 的心跳不能让一台曾经由新 Agent
+        /// 上报过的服务器退回「未知」，否则已保存的仅 UDP 规则会被误判。
+        pub protocol_version: Option<i64>,
         pub xray_running: bool,
         pub nginx_running: bool,
         pub load1: f64,
@@ -1150,6 +1155,7 @@ pub mod servers {
                 health_at = ?,
                 agent_version = ?,
                 arch = ?,
+                protocol_version = CASE WHEN ? > 0 THEN ? ELSE protocol_version END,
                 os_name = ?,
                 os_version = ?,
                 virt = ?,
@@ -1174,6 +1180,8 @@ pub mod servers {
         .bind(now())
         .bind(agent_version)
         .bind(&health.arch)
+        .bind(health.protocol_version)
+        .bind(health.protocol_version)
         .bind(&health.os_name)
         .bind(&health.os_version)
         .bind(&health.virt)
@@ -1313,6 +1321,72 @@ pub mod servers {
             assert_eq!(rows[0].node_count, 0);
             assert_eq!(rows[0].node_enabled_count, 0);
             assert!(rows[0].node_protocols.is_empty());
+        }
+
+        /// 心跳里的 Agent 协议版本落库；旧 Agent 的 0 不能把已知值改回未知。
+        #[tokio::test]
+        async fn heartbeat_protocol_version_is_stored_and_zero_does_not_overwrite() {
+            let pool = setup().await;
+            let server = create_server(&pool, "hk-1").await;
+            assert_eq!(
+                find_by_id(&pool, &server).await.unwrap().protocol_version,
+                None,
+                "从未上报必须是 NULL（未知），不能编造 0"
+            );
+
+            // 新 Agent（协议 22）上报后落库。
+            update_health(
+                &pool,
+                &server,
+                "0.9.0",
+                &HealthSnapshot {
+                    protocol_version: Some(22),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                find_by_id(&pool, &server).await.unwrap().protocol_version,
+                Some(22)
+            );
+
+            // 旧 Agent 心跳缺省 0：不能覆盖已经上报过的版本。
+            for stale in [Some(0), None] {
+                update_health(
+                    &pool,
+                    &server,
+                    "0.7.0",
+                    &HealthSnapshot {
+                        protocol_version: stale,
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+                assert_eq!(
+                    find_by_id(&pool, &server).await.unwrap().protocol_version,
+                    Some(22),
+                    "stale={stale:?} 不能把已知版本改回未知"
+                );
+            }
+
+            // 明确上报的版本 15 是真实值，可以覆盖（用于展示「Agent 过旧」）。
+            update_health(
+                &pool,
+                &server,
+                "0.7.0",
+                &HealthSnapshot {
+                    protocol_version: Some(15),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                find_by_id(&pool, &server).await.unwrap().protocol_version,
+                Some(15)
+            );
         }
 
         /// 停用节点计入总数与协议统计，但不计入启用数。
@@ -2646,7 +2720,14 @@ pub mod forwards {
                         degraded: crate::chains::is_degraded(status.target_fail_count),
                         updated_at: status.updated_at,
                     });
-                ForwardView { forward, runtime }
+                ForwardView {
+                    forward,
+                    runtime,
+                    // blocked_code / blocked_reason 由 master 按服务器能力补；
+                    // 仓储只负责拼规则与运行态，不查服务器表。
+                    blocked_code: None,
+                    blocked_reason: None,
+                }
             })
             .collect())
     }
@@ -3096,7 +3177,8 @@ pub mod chains {
                     m.server_id, s.name AS server_name, s.address AS server_address,
                     s.internal_address AS server_internal_address,
                     m.listen_port, m.priority, m.weight, s.realm_transport,
-                    s.nftables_available, s.tunnel_available, s.last_seen_at
+                    s.nftables_available, s.tunnel_available,
+                    s.protocol_version AS server_protocol_version, s.last_seen_at
              FROM chain_group_members m
              JOIN chain_groups g ON g.id = m.group_id
              JOIN servers s ON s.id = m.server_id
@@ -3325,7 +3407,8 @@ pub mod chains {
                     m.server_id, s.name AS server_name, s.address AS server_address,
                     s.internal_address AS server_internal_address,
                     m.listen_port, m.priority, m.weight, s.realm_transport,
-                    s.nftables_available, s.tunnel_available, s.last_seen_at
+                    s.nftables_available, s.tunnel_available,
+                    s.protocol_version AS server_protocol_version, s.last_seen_at
              FROM chain_group_members m
              JOIN chain_groups g ON g.id = m.group_id
              JOIN servers s ON s.id = m.server_id

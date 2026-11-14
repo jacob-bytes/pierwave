@@ -112,6 +112,11 @@ sudo make verify-runtime ARGS="--forward-port 18443 --iface eth0 --rate-mbps 100
 
 **验收**：旧 Agent 的服务器保存 udp-only → 400 且提示升级；render 不为它生成 udp-only 规则。
 
+**状态**：已实现。心跳带 `protocol_version` 并落库（迁移
+`0043_server_protocol_version.sql`）；保存门禁见 `crates/master/src/routes/{forwards,chains}.rs`，
+下发门禁见 `crates/master/src/routes/desired.rs`，错误码
+`forward.protocol_requires_agent_upgrade` / `chain.protocol_requires_agent_upgrade`。
+
 ## 待办：转发链改为「只填首尾，中间自动规划」
 
 **问题**：不同的落地节点常共用相同的中间跳，现在是每建一条链都要从头填满每一跳，

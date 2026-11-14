@@ -169,8 +169,19 @@ pub async fn list(
     Path(server_id): Path<String>,
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
-    load_server(&state, &server_id).await?;
-    let items = repo::forwards::list_with_status(&state.db.pool, &server_id).await?;
+    let server = load_server(&state, &server_id).await?;
+    let mut items = repo::forwards::list_with_status(&state.db.pool, &server_id).await?;
+    // 已保存的仅 UDP 规则遇到旧 Agent：列表直接标 blocked，并与下发路径同样跳过。
+    for item in &mut items {
+        if let Err(error) = protocol::ensure_forward_agent_supported(
+            &item.forward.protocol,
+            server.protocol_version,
+            &server.name,
+        ) {
+            item.blocked_code = Some(error.code.to_string());
+            item.blocked_reason = Some(error.message);
+        }
+    }
     Ok(Json(json!({ "items": items })))
 }
 
@@ -229,6 +240,8 @@ pub async fn create(
         None => protocol::from_legacy_udp(req.udp).to_string(),
     };
     protocol::ensure_realm_supported(&protocol, &engine)?;
+    // 仅 UDP 从协议 16 开始支持；旧 Agent 会忽略 protocol 只监听 TCP，必须 400。
+    protocol::ensure_forward_agent_supported(&protocol, server.protocol_version, &server.name)?;
     ensure_nftables_supported(&server, &engine)?;
     ensure_tunnel_not_standalone(&engine)?;
 
@@ -338,6 +351,15 @@ pub async fn update(
     let final_engine = engine.as_deref().unwrap_or(&existing.engine);
     let final_protocol = protocol.as_deref().unwrap_or(&existing.protocol);
     protocol::ensure_realm_supported(final_protocol, final_engine)?;
+    // 只有请求明确把协议改成 udp 时才要求新版 Agent；历史 udp 规则仍允许
+    // 改名 / 停用 / 删除，渲染层按同一规则跳过而不是把用户锁死。
+    if protocol.is_some() {
+        protocol::ensure_forward_agent_supported(
+            final_protocol,
+            server.protocol_version,
+            &server.name,
+        )?;
+    }
     ensure_nftables_supported(&server, final_engine)?;
     ensure_tunnel_not_standalone(final_engine)?;
     if let Some(port) = req.target_port {
@@ -481,6 +503,15 @@ mod tests {
 
     use pierwave_domain::Db;
     use pierwave_proto::{DesiredForward, MasterMessage};
+
+    #[test]
+    fn domain_udp_min_protocol_version_matches_wire_constant() {
+        assert_eq!(
+            protocol::UDP_MIN_PROTOCOL_VERSION as u32,
+            pierwave_proto::UDP_PROTOCOL_VERSION,
+            "领域层门禁与线协议常量必须一致"
+        );
+    }
 
     async fn setup() -> (Router, AppState, String, String) {
         let db = Db::connect("sqlite::memory:").await.unwrap();
@@ -1269,6 +1300,18 @@ mod tests {
         let (app, state, cookie, server_id) = setup().await;
         let uri = format!("/api/v1/servers/{server_id}/forwards");
         let mut subscription = state.hub.subscribe(&server_id);
+        // 仅 UDP 需要 Agent 协议 >= 16；本用例先用新 Agent。
+        repo::servers::update_health(
+            &state.db.pool,
+            &server_id,
+            "0.9.0",
+            &repo::servers::HealthSnapshot {
+                protocol_version: Some(16),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
 
         // 缺省 = tcp，期望态也必须是 tcp（不是旧 udp 镜像位的推断结果）。
         let (status, body) = request(
@@ -1359,6 +1402,147 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK, "unexpected: {body}");
         assert_eq!(body["forward"]["protocol"], "both");
+    }
+
+    /// 仅 UDP 的 Agent 能力门禁：未知（NULL）/ 15 拒绝保存，tcp / both 不受影响，
+    /// 16 起放行；历史 udp-only 规则在旧 Agent 下进列表 blocked。
+    #[tokio::test]
+    async fn udp_only_requires_agent_protocol_16() {
+        let (app, state, cookie, server_id) = setup().await;
+        let uri = format!("/api/v1/servers/{server_id}/forwards");
+
+        async fn set_version(state: &AppState, server_id: &str, version: Option<i64>) {
+            repo::servers::update_health(
+                &state.db.pool,
+                server_id,
+                "0.9.0",
+                &repo::servers::HealthSnapshot {
+                    protocol_version: version,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        let udp_body = |port: i64| {
+            let mut body = forward_body(port);
+            body["protocol"] = json!("udp");
+            body
+        };
+
+        // 从未上报 = 未知：必须拒绝，不能当成新 Agent。
+        let (status, value) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &uri,
+            Some(udp_body(18443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {value}");
+        assert_eq!(value["code"], "forward.protocol_requires_agent_upgrade");
+        assert_eq!(value["params"]["server"], "hk-1");
+        assert_eq!(value["params"]["required"], 16);
+        assert_eq!(value["params"]["version"], 0);
+        assert!(
+            value["error"].as_str().unwrap().contains("升级 Agent"),
+            "{value}"
+        );
+
+        // 协议 15：旧 Agent，仍然拒绝。
+        set_version(&state, &server_id, Some(15)).await;
+        let (status, value) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &uri,
+            Some(udp_body(18444)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {value}");
+        assert_eq!(value["code"], "forward.protocol_requires_agent_upgrade");
+        assert_eq!(value["params"]["version"], 15);
+
+        // tcp / both 旧 Agent 能正确理解：必须照常保存。
+        let mut tcp_id = String::new();
+        for (port, protocol) in [(18445, "tcp"), (18446, "both")] {
+            let mut body = forward_body(port);
+            body["protocol"] = json!(protocol);
+            let (status, value) =
+                request(&app, Some(&cookie), Method::POST, &uri, Some(body)).await;
+            assert_eq!(status, StatusCode::OK, "{protocol} unexpected: {value}");
+            if protocol == "tcp" {
+                tcp_id = value["forward"]["id"].as_str().unwrap().to_string();
+            }
+        }
+
+        // 协议 16：放行。
+        set_version(&state, &server_id, Some(16)).await;
+        let (status, value) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            &uri,
+            Some(udp_body(18447)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        let udp_id = value["forward"]["id"].as_str().unwrap().to_string();
+
+        // 已保存的 udp-only 规则遇到旧 Agent（版本回退 / 换机）：列表 blocked。
+        set_version(&state, &server_id, Some(15)).await;
+        let (status, value) = request(&app, Some(&cookie), Method::GET, &uri, None).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        let item = value["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == udp_id.as_str())
+            .expect("udp-only 规则仍在列表里");
+        assert_eq!(
+            item["blocked_code"],
+            "forward.protocol_requires_agent_upgrade"
+        );
+        assert!(
+            item["blocked_reason"]
+                .as_str()
+                .unwrap()
+                .contains("升级 Agent"),
+            "{item}"
+        );
+        // tcp / both 规则不标 blocked（旧响应形状不变）。
+        let tcp_item = value["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["listen_port"] == 18445)
+            .unwrap();
+        assert!(tcp_item.get("blocked_reason").is_none(), "{tcp_item}");
+
+        // 历史 udp-only 规则仍可停用（不能把用户锁死），渲染层继续跳过。
+        let (status, value) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &format!("/api/v1/forwards/{udp_id}"),
+            Some(json!({"enabled": false})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        assert_eq!(value["forward"]["enabled"], false);
+
+        // PATCH 把 tcp 规则改成 udp：保存路径同样要门禁。
+        let (status, value) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &format!("/api/v1/forwards/{tcp_id}"),
+            Some(json!({"protocol": "udp"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {value}");
+        assert_eq!(value["code"], "forward.protocol_requires_agent_upgrade");
     }
 
     // 避免「只读 token 未使用」的假警告：`admin_id` 在 setup 里只用于建会话。

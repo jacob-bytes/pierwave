@@ -2588,6 +2588,8 @@ const en = {
     notObject: "config must be a JSON object (starting with { and ending with })",
   },
   errors: {
+    "forward.protocol_requires_agent_upgrade": "Agent on \"{server}\" is too old (version {version}) for UDP-only; upgrade it to protocol {required} or newer",
+    "chain.protocol_requires_agent_upgrade": "These servers run an Agent too old for UDP-only: {server}; upgrade them to protocol {required} or newer",
     "server.nic_address_unavailable": "This server cannot be dispatched over the selected NIC (not reported, missing, or has no usable address)",
     "chain.entry_port_required": "The entry group (group 1) must provide a listen port",
     "chain.public_port_invalid": "Public port must be between {min} and {max}",

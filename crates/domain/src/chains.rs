@@ -450,6 +450,32 @@ pub fn internal_address_blocked_reason(groups: &[ChainGroupWithMembers]) -> Opti
     None
 }
 
+/// 仅 UDP 链遇到旧 Agent 时的整链阻断原因。
+///
+/// `protocol = udp` 需要每一跳的 Agent 协议版本 `>= 16`；旧 Agent 会忽略
+/// `protocol` 而按旧的 `udp` 镜像位只监听 TCP，链会静默失效。保存路径用
+/// [`protocol::ensure_chain_agent_supported`] 直接 400，这里给列表/概览与
+/// 下发路径提供同一套判定（未知版本按不支持处理）。
+pub fn agent_protocol_blocked_reason(
+    chain: &Chain,
+    groups: &[ChainGroupWithMembers],
+) -> Option<BlockedReason> {
+    if !protocol::is_udp_only(&chain.protocol) {
+        return None;
+    }
+    let servers: Vec<(&str, Option<i64>)> = groups
+        .iter()
+        .flat_map(|group| group.members.iter())
+        .map(|member| (member.server_name.as_str(), member.server_protocol_version))
+        .collect();
+    protocol::ensure_chain_agent_supported(&chain.protocol, &servers)
+        .err()
+        .map(|error| BlockedReason {
+            code: error.code.to_string(),
+            message: error.message,
+        })
+}
+
 /// 一条链在视图里「为什么没下发」的结构化原因。
 ///
 /// `code` 是前端词典的稳定键，`message` 是中文兜底文案；两者都由
@@ -635,6 +661,10 @@ pub fn blocked_reason(
 ) -> Option<BlockedReason> {
     // 内网地址缺失先于引擎判定：只要这一跳真要内网地址却拿不到，整链都不能下发。
     if let Some(reason) = internal_address_blocked_reason(groups) {
+        return Some(reason);
+    }
+    // 仅 UDP 需要每一跳的 Agent 协议 >= 16；旧 Agent 会把它悄悄变成 TCP。
+    if let Some(reason) = agent_protocol_blocked_reason(chain, groups) {
         return Some(reason);
     }
     if engine::is_tunnel(&chain.engine) {

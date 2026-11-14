@@ -58,6 +58,8 @@ struct ValidatedMember {
     nftables_available: Option<bool>,
     /// 该服务器是否明确支持 P16 隧道；未知按不支持处理。
     tunnel_available: Option<bool>,
+    /// 该服务器上报的 Agent 线协议版本；未知按不支持仅 UDP 处理。
+    protocol_version: Option<i64>,
 }
 
 /// 一条已通过校验的组。
@@ -568,6 +570,7 @@ async fn resolve_groups(
                 weight: member.weight,
                 nftables_available: server.nftables_available,
                 tunnel_available: server.tunnel_available,
+                protocol_version: server.protocol_version,
             });
         }
 
@@ -681,9 +684,22 @@ fn validated_from_existing(groups: &[ChainGroupWithMembers]) -> Vec<ValidatedGro
                     weight: member.weight,
                     nftables_available: member.nftables_available,
                     tunnel_available: member.tunnel_available,
+                    protocol_version: member.server_protocol_version,
                 })
                 .collect(),
         })
+        .collect()
+}
+
+/// 把每台成员服务器的 Agent 协议版本摊平成门禁函数的输入。
+///
+/// 链的每一跳都自己监听，所以「仅 UDP」要求**所有**成员都 >= 16；
+/// 未知（None）由领域层按不支持处理。
+fn member_protocol_versions(groups: &[ValidatedGroup]) -> Vec<(&str, Option<i64>)> {
+    groups
+        .iter()
+        .flat_map(|group| group.members.iter())
+        .map(|member| (member.server_name.as_str(), member.protocol_version))
         .collect()
 }
 
@@ -1643,6 +1659,8 @@ pub async fn create(
     // TLS + UDP 的冲突优先于「realm 固定双开」：用户选了加密链时，
     // 更具体的 chain.protocol_udp_with_tls 才是能指导修复的错误。
     protocol::ensure_realm_supported(&protocol, &engine)?;
+    // 仅 UDP 从协议 16 开始支持；任意一跳的旧 Agent 都会把它悄悄变成 TCP。
+    protocol::ensure_chain_agent_supported(&protocol, &member_protocol_versions(&groups))?;
 
     let chain = repo::chains::create(
         &state.db.pool,
@@ -1840,6 +1858,14 @@ pub async fn update(
         )
         .await?;
         protocol::ensure_realm_supported(final_protocol, final_engine)?;
+        // 只有请求明确把协议改成 udp 时才要求新版 Agent；历史 udp 链仍允许
+        // 改名 / 停用 / 删除，渲染层按同一规则跳过而不是把用户锁死。
+        if protocol.is_some() {
+            protocol::ensure_chain_agent_supported(
+                final_protocol,
+                &member_protocol_versions(&groups),
+            )?;
+        }
     }
 
     let updated = repo::chains::update(
@@ -2196,6 +2222,8 @@ mod tests {
                         realm_transport: Some(true),
                         nftables_available: Some(true),
                         tunnel_available: Some(true),
+                        // 测试 fixture 默认按新 Agent 处理；旧 Agent 门禁用例单独覆盖。
+                        server_protocol_version: Some(22),
                         // 测试 fixture 不关心心跳时间；链视图必须能处理 null。
                         last_seen_at: None,
                     },
@@ -3911,6 +3939,20 @@ mod tests {
         use pierwave_proto::ForwardProtocol;
 
         let fixture = setup().await;
+        // 仅 UDP 需要每一跳的 Agent 协议 >= 16；本用例先用新 Agent。
+        for server_id in [&fixture.a, &fixture.b] {
+            repo::servers::update_health(
+                &fixture.state.db.pool,
+                server_id,
+                "0.9.0",
+                &repo::servers::HealthSnapshot {
+                    protocol_version: Some(16),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
         let two_groups = |base: i64| {
             vec![
                 group(
@@ -4031,6 +4073,202 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK, "unexpected: {value}");
         assert_eq!(value["chain"]["protocol"], "both");
+    }
+
+    /// 仅 UDP 链的 Agent 能力门禁：未知 / 15 拒绝保存（任意一跳），both / tcp
+    /// 不受影响，16 起放行；历史 udp-only 链在旧 Agent 下 blocked 且整链不下发。
+    #[tokio::test]
+    async fn udp_only_chain_requires_every_member_on_protocol_16() {
+        let fixture = setup().await;
+
+        async fn set_version(state: &AppState, server_id: &str, version: Option<i64>) {
+            repo::servers::update_health(
+                &state.db.pool,
+                server_id,
+                "0.9.0",
+                &repo::servers::HealthSnapshot {
+                    protocol_version: version,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        let two_groups = |base: i64| {
+            vec![
+                group(
+                    None,
+                    Some("round_robin"),
+                    &[group_member(&fixture.a, base, 0)],
+                ),
+                group(
+                    None,
+                    Some("round_robin"),
+                    &[group_member(&fixture.b, base + 1, 0)],
+                ),
+            ]
+        };
+        let mut udp = groups_body("仅 UDP 链", "1.1.1.1", 443, &two_groups(9701));
+        udp["protocol"] = json!("udp");
+
+        // 未知（NULL）与 15：拒绝，params 里要有服务器名与 required。
+        for version in [None, Some(15)] {
+            for server_id in [&fixture.a, &fixture.b] {
+                set_version(&fixture.state, server_id, version).await;
+            }
+            let (status, value) = request(
+                &fixture.app,
+                Some(&fixture.cookie),
+                Method::POST,
+                "/api/v1/chains",
+                Some(udp.clone()),
+            )
+            .await;
+            assert_eq!(
+                status,
+                StatusCode::BAD_REQUEST,
+                "version={version:?} unexpected: {value}"
+            );
+            assert_eq!(value["code"], "chain.protocol_requires_agent_upgrade");
+            assert_eq!(value["params"]["required"], 16);
+            assert!(
+                value["params"]["server"].as_str().unwrap().contains("hk-a"),
+                "{value}"
+            );
+            assert!(
+                value["params"]["server"].as_str().unwrap().contains("jp-b"),
+                "{value}"
+            );
+        }
+
+        // 只有一跳是新 Agent：仍然拒绝整条链。
+        set_version(&fixture.state, &fixture.a, Some(16)).await;
+        set_version(&fixture.state, &fixture.b, Some(15)).await;
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(udp.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {value}");
+        assert_eq!(value["code"], "chain.protocol_requires_agent_upgrade");
+
+        // both / tcp 旧 Agent 能正确理解：照常保存。
+        for (index, protocol) in ["both", "tcp"].into_iter().enumerate() {
+            set_version(&fixture.state, &fixture.a, Some(15)).await;
+            set_version(&fixture.state, &fixture.b, None).await;
+            let mut body = groups_body(
+                protocol,
+                "1.1.1.1",
+                443,
+                &two_groups(9721 + index as i64 * 100),
+            );
+            body["protocol"] = json!(protocol);
+            let (status, value) = request(
+                &fixture.app,
+                Some(&fixture.cookie),
+                Method::POST,
+                "/api/v1/chains",
+                Some(body),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{protocol} unexpected: {value}");
+        }
+
+        // 每跳都 >= 16：放行。
+        for server_id in [&fixture.a, &fixture.b] {
+            set_version(&fixture.state, server_id, Some(16)).await;
+        }
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(udp),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+
+        // 已保存的 udp-only 链遇到旧 Agent：列表 blocked、渲染整链跳过。
+        set_version(&fixture.state, &fixture.b, Some(15)).await;
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            "/api/v1/chains",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        let item = value["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == chain_id.as_str())
+            .expect("链仍在列表里");
+        assert_eq!(
+            item["blocked_code"],
+            "chain.protocol_requires_agent_upgrade"
+        );
+        assert!(
+            item["blocked_reason"]
+                .as_str()
+                .unwrap()
+                .contains("Agent 版本过旧"),
+            "{item}"
+        );
+
+        let server = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.a)
+            .await
+            .unwrap();
+        let rendered =
+            super::super::desired::render(&fixture.state, &server, "https://panel.example.com")
+                .await
+                .unwrap();
+        assert!(
+            !rendered
+                .forwards
+                .iter()
+                .any(|forward| forward.id.starts_with(&format!("chain-{chain_id}-"))),
+            "旧 Agent 的 udp-only 链不能下发：{:?}",
+            rendered.forwards
+        );
+        assert!(
+            rendered
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("Agent 版本过旧")),
+            "{:?}",
+            rendered.warnings
+        );
+
+        // PATCH 把 tcp 链改成 udp：同样在保存路径拦住。
+        let mut body = groups_body("改 udp", "1.1.1.1", 443, &two_groups(9741));
+        body["protocol"] = json!("tcp");
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        let tcp_chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::PATCH,
+            &format!("/api/v1/chains/{tcp_chain_id}"),
+            Some(json!({"protocol": "udp"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {value}");
+        assert_eq!(value["code"], "chain.protocol_requires_agent_upgrade");
     }
 
     #[tokio::test]
@@ -4156,6 +4394,8 @@ mod tests {
             "0.8.3",
             &repo::servers::HealthSnapshot {
                 tunnel_available: value,
+                // 隧道能力只可能来自新版 Agent；仅 UDP 门禁同样要求 >= 16。
+                protocol_version: Some(16),
                 ..Default::default()
             },
         )
@@ -5618,6 +5858,7 @@ mod tests {
                 weight: 1,
                 nftables_available: None,
                 tunnel_available: tunnel,
+                protocol_version: Some(22),
             }
         }
         fn coded(error: AppError) -> (String, String) {

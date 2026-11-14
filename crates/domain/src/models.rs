@@ -61,6 +61,11 @@ pub struct Server {
     pub agent_target_version: Option<String>,
     /// Agent 上报的 CPU 架构（x86_64 / aarch64）；空串 = 未知。
     pub arch: String,
+    /// Agent 上报的线协议版本；`None` = 旧 Agent / 从未上报。
+    ///
+    /// `protocol = udp` 需要 `>= 16`。未知一律按不支持处理：旧 Agent 会忽略
+    /// `protocol` 而只按 `udp` 镜像位监听 TCP，静默失效必须堵住。
+    pub protocol_version: Option<i64>,
     /// Agent 从 `/etc/os-release` 读到的发行版名称；NULL = 旧 Agent 或读不到。
     pub os_name: Option<String>,
     /// Agent 从 `/etc/os-release` 读到的版本号；NULL = 旧 Agent 或读不到。
@@ -251,6 +256,14 @@ pub struct ForwardView {
     #[serde(flatten)]
     pub forward: Forward,
     pub runtime: Option<ForwardRuntime>,
+    /// 配置层面无法下发时的稳定错误码（当前只有「仅 UDP + 旧 Agent」）。
+    ///
+    /// `None` 时字段完全不出现，旧响应形状逐字节不变。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked_code: Option<String>,
+    /// 与 `blocked_code` 配套的中文兜底说明；列表直接展示给用户。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blocked_reason: Option<String>,
 }
 
 /// 一条线性多跳链。跳（组）的配置在 `chain_groups`，这里只放链级字段。
@@ -339,6 +352,9 @@ pub struct ChainGroupMember {
     /// 该成员所在服务器的 P16 隧道能力缓存（NULL = 未知）。
     /// tunnel 链下发前逐台检查，未知按不支持处理（旧 Agent 直接拒绝保存）。
     pub tunnel_available: Option<bool>,
+    /// 该成员所在服务器上报的 Agent 线协议版本（NULL = 未上报 / 旧 Agent）。
+    /// 仅 UDP 链要求每一跳都 `>= 16`，未知按不支持处理。
+    pub server_protocol_version: Option<i64>,
     /// 该成员所在服务器的最后一次心跳（Unix 秒）；`None` = 从未连过。
     /// 链视图把它格式化成 ISO8601 字符串对外返回。
     pub last_seen_at: Option<i64>,

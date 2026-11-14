@@ -172,6 +172,16 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
             ));
             continue;
         }
+        // 仅 UDP 需要 Agent 协议 >= 16：旧 Agent 会忽略 protocol 只监听 TCP，
+        // 宁可不下发也不能静默降级（保留规则，等 Agent 升级后自动恢复）。
+        if let Err(error) = protocol::ensure_forward_agent_supported(
+            &forward.protocol,
+            server.protocol_version,
+            &server.name,
+        ) {
+            warnings.push(format!("转发「{}」未下发：{}", forward.name, error.message));
+            continue;
+        }
         // 旧 Agent 不认识 nftables 枚举值：能力未确认时不发，避免整份期望态解析失败。
         if engine::is_nftables(engine_name) && server.nftables_available != Some(true) {
             warnings.push(format!(
@@ -217,6 +227,15 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
         // 内网地址缺失是整链失败：保存时已经 400，这里再挡一次手工改库 /
         // 后补空地址的情况——绝不把目标静默换回公网地址继续下发。
         if let Some(reason) = chains::internal_address_blocked_reason(&chain.groups) {
+            warnings.push(format!(
+                "链「{}」未下发：{}",
+                chain.chain.name, reason.message
+            ));
+            continue;
+        }
+        // 仅 UDP 链要求每一跳的 Agent 协议 >= 16；旧 Agent 会把它悄悄变成 TCP，
+        // 整链跳过而不是降级。
+        if let Some(reason) = chains::agent_protocol_blocked_reason(&chain.chain, &chain.groups) {
             warnings.push(format!(
                 "链「{}」未下发：{}",
                 chain.chain.name, reason.message
@@ -696,6 +715,84 @@ mod tests {
             .unwrap();
         assert_eq!(desired.forwards.len(), 1);
         assert_eq!(desired.forwards[0].engine, ForwardEngine::Nftables);
+    }
+
+    /// 旧 Agent 的仅 UDP 转发：不下发、给 warning，绝不降级成 TCP。
+    #[tokio::test]
+    async fn udp_only_forward_is_skipped_for_old_agent() {
+        let (state, server) = fixture(false, "0.9.0", None).await;
+        assert_eq!(server.protocol_version, None, "fixture 默认未上报");
+        repo::forwards::create(
+            &state.db.pool,
+            &server.id,
+            repo::forwards::NewForward {
+                name: "仅 UDP".into(),
+                listen_port: 18443,
+                target_host: "10.0.0.8".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "native".into(),
+                protocol: "udp".into(),
+            },
+        )
+        .await
+        .unwrap();
+
+        // 从未上报 / 明确 15：都不下发，也不生成 TCP 规则。
+        for version in [None, Some(15)] {
+            repo::servers::update_health(
+                &state.db.pool,
+                &server.id,
+                "0.9.0",
+                &repo::servers::HealthSnapshot {
+                    protocol_version: version,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            let server = repo::servers::find_by_id(&state.db.pool, &server.id)
+                .await
+                .unwrap();
+            let desired = render(&state, &server, "https://panel.example.com")
+                .await
+                .unwrap();
+            assert!(
+                desired.forwards.is_empty(),
+                "version={version:?} 时不能下发（更不能降级成 TCP）：{:?}",
+                desired.forwards
+            );
+            assert!(
+                desired
+                    .warnings
+                    .iter()
+                    .any(|warning| warning.contains("升级 Agent")),
+                "version={version:?} warnings={:?}",
+                desired.warnings
+            );
+        }
+
+        // 协议 16 起恢复正常下发，协议保持 udp。
+        repo::servers::update_health(
+            &state.db.pool,
+            &server.id,
+            "0.9.0",
+            &repo::servers::HealthSnapshot {
+                protocol_version: Some(16),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let server = repo::servers::find_by_id(&state.db.pool, &server.id)
+            .await
+            .unwrap();
+        let desired = render(&state, &server, "https://panel.example.com")
+            .await
+            .unwrap();
+        assert_eq!(desired.forwards.len(), 1);
+        assert_eq!(desired.forwards[0].protocol, ForwardProtocol::Udp);
+        assert!(!desired.forwards[0].udp, "仅 UDP 不能误标旧镜像位");
     }
 
     #[tokio::test]

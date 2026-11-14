@@ -5,7 +5,13 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 22;
+pub const PROTOCOL_VERSION: u32 = 23;
+
+/// 主控开始理解 `protocol = udp`（仅 UDP）的最低 Agent 协议版本。
+///
+/// 旧 Agent 会忽略 `DesiredForward.protocol`，只按旧的 `udp` 镜像位监听 TCP；
+/// 主控据此在保存/下发两条路径上做能力门禁，绝不静默降级。
+pub const UDP_PROTOCOL_VERSION: u32 = 16;
 
 /// Agent 建连后的第一条消息。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,6 +86,14 @@ impl NetworkInterface {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Heartbeat {
     pub seq: u64,
+    /// Agent 自己编译进去的线协议版本。
+    ///
+    /// 旧 Agent 没有该字段 → `0`（未知）。主控据此判断「仅 UDP」能力：
+    /// `protocol = udp` 需要 `>= UDP_PROTOCOL_VERSION`（16），旧 Agent 会忽略
+    /// `DesiredForward.protocol` 而只按 `udp` 镜像位监听 TCP，必须挡在保存和
+    /// 下发两条路径上。
+    #[serde(default)]
+    pub protocol_version: u32,
     /// Agent 版本。心跳也带一份，主控才能在「重连间隙」和「升级后」感知版本变化；
     /// 缺省为空串，兼容不认识这个字段的旧 Agent。
     #[serde(default)]
@@ -723,9 +737,10 @@ mod tests {
     #[test]
     fn forward_udp_defaults_to_false_for_old_masters() {
         assert_eq!(
-            PROTOCOL_VERSION, 22,
-            "新增 Heartbeat.interfaces 与 DesiredForward.listen_host 必须升协议版本"
+            PROTOCOL_VERSION, 23,
+            "新增 Heartbeat.protocol_version 必须升协议版本"
         );
+        assert_eq!(UDP_PROTOCOL_VERSION, 16, "仅 UDP 从协议 16 开始支持");
 
         // 旧主控的 JSON 没有 udp：必须解析成 false，也就是「只监听 TCP」，
         // 升级 Agent 不能因此凭空多开一个 UDP 端口。
@@ -1147,6 +1162,36 @@ mod tests {
     }
 
     /// 心跳新增 `tunnel_available`：旧 Agent 缺失 = None，明确值原样往返。
+    #[test]
+    fn heartbeat_protocol_version_defaults_to_zero_for_old_agents() {
+        // 旧 Agent 的心跳没有 protocol_version：必须解析成 0（未知），
+        // 主控据此拒绝仅 UDP，绝不能把「未知」当成新版本。
+        let old = r#"{
+            "seq": 1,
+            "uptime_secs": 1,
+            "load1": 0.0,
+            "mem_used": 0,
+            "mem_total": 0,
+            "disk_used": 0,
+            "disk_total": 0,
+            "xray_running": false,
+            "nginx_running": false
+        }"#;
+        let hb: Heartbeat = serde_json::from_str(old).unwrap();
+        assert_eq!(hb.protocol_version, 0, "旧 Agent 缺省必须是 0");
+
+        // 新 Agent 带上版本后必须能往返，且不影响其它可选字段。
+        let hb = Heartbeat {
+            protocol_version: PROTOCOL_VERSION,
+            ..hb
+        };
+        let json = serde_json::to_value(&hb).unwrap();
+        assert_eq!(json["protocol_version"], PROTOCOL_VERSION);
+        let back: Heartbeat = serde_json::from_value(json).unwrap();
+        assert_eq!(back.protocol_version, PROTOCOL_VERSION);
+        assert_eq!(back.interfaces, hb.interfaces);
+    }
+
     #[test]
     fn heartbeat_tunnel_availability_is_optional() {
         let old = r#"{
