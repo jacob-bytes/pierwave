@@ -2857,6 +2857,37 @@ pub mod forwards {
     ///
     /// `target_fail_count` 是**连续** false 的计数：本轮 `Some(false)` 在上一轮
     /// 计数上 +1，其余情况（`Some(true)` / `None`）一律清零。
+
+    /// 把计费基线对齐到当前心跳计数。
+    ///
+    /// 用户把 `count_traffic` 从关改到开时必须调用：否则下一次采样会把
+    /// 「关闭期间」的累计增量一次性补记进套餐——用户关掉计费就是想那段时间不算。
+    pub async fn reset_traffic_baseline(
+        pool: &SqlitePool,
+        forward_id: &str,
+    ) -> anyhow::Result<()> {
+        let desired = crate::forwards::desired_id(forward_id);
+        let row: Option<(i64, i64)> = sqlx::query_as(
+            "SELECT COALESCE(fs.traffic_in, 0), COALESCE(fs.traffic_out, 0)
+               FROM forwards f
+               JOIN forward_status fs
+                 ON fs.server_id = f.server_id AND fs.forward_id = ?
+              WHERE f.id = ?",
+        )
+        .bind(&desired)
+        .bind(forward_id)
+        .fetch_optional(pool)
+        .await?;
+        let (last_in, last_out) = row.unwrap_or((0, 0));
+        sqlx::query("UPDATE forwards SET last_traffic_in = ?, last_traffic_out = ? WHERE id = ?")
+            .bind(last_in)
+            .bind(last_out)
+            .bind(forward_id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn save_status(
         pool: &SqlitePool,
         server_id: &str,
@@ -3434,6 +3465,35 @@ pub mod forward_traffic {
                 .await
                 .unwrap()
                 .unwrap()
+        }
+
+        /// 计费开关重新打开时，基线必须对齐当前计数，不能补记关闭期间的流量。
+        #[tokio::test]
+        async fn resetting_the_baseline_skips_the_period_when_metering_was_off() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let user = create_user(&pool, "bob").await;
+            let _package = bind_package(&pool, &user, Some(10_000)).await;
+            let fwd = create_forward(&pool, &server, Some(&user), true, 20001).await;
+
+            // 关闭计费期间，Agent 的累计计数已经涨到 500；此时用户重新打开计费。
+            save_counters(&pool, &server, &fwd.id, Some(500), Some(0)).await;
+            super::super::forwards::reset_traffic_baseline(&pool, &fwd.id).await.unwrap();
+
+            assert_eq!(
+                forward(&pool, &fwd.id).await.last_traffic_in,
+                500,
+                "重置后基线应等于当前计数"
+            );
+
+            let now = 1_700_000_000;
+            let report = run_round(&pool, now).await.unwrap();
+            assert_eq!(report.bytes, 0, "关闭期间的历史流量不能被补记");
+
+            // 之后的新增量仍要照常计费。
+            save_counters(&pool, &server, &fwd.id, Some(560), Some(0)).await;
+            let report = run_round(&pool, now + 60).await.unwrap();
+            assert_eq!(report.bytes, 60);
         }
 
         /// 首次采样：last=0、current=100 → 计 100，并推进基线。

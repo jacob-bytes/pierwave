@@ -466,6 +466,14 @@ pub async fn update(
     )
     .await;
 
+    // 计费开关从关到开：把基线对齐到当前计数，避免补记关闭期间的流量。
+    if forward.count_traffic && !existing.count_traffic {
+        if let Err(error) = repo::forwards::reset_traffic_baseline(&state.db.pool, &forward.id).await
+        {
+            tracing::warn!("重置转发计费基线失败: {error}");
+        }
+    }
+
     let base = super::install::external_base(&headers);
     mark_dirty_and_apply(&state, &server, &base).await;
 
@@ -695,7 +703,6 @@ pub async fn me_create(
         Some(domain) => domain,
         None => map_port_conflict(error, listen_port, &conflict_name),
     })?;
-
     crate::audit::record(
         &state,
         &user.0,
@@ -760,6 +767,13 @@ pub async fn me_update(
     )
     .await?
     .ok_or_else(|| AppError::not_found("me.forward_not_found", None, "转发规则不存在"))?;
+
+    // 关 → 开：对齐基线，避免补记关闭期间的流量。
+    if forward.count_traffic && !existing.count_traffic {
+        if let Err(error) = repo::forwards::reset_traffic_baseline(&state.db.pool, &id).await {
+            tracing::warn!(%id, %error, "重置转发计费基线失败");
+        }
+    }
 
     let base = super::install::external_base(&headers);
     mark_dirty_and_apply(&state, &server, &base).await;
