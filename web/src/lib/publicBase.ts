@@ -113,3 +113,62 @@ export function subscriptionPreview(
 ): string {
   return `${base.replace(/\/+$/, "")}/api/v1/sub/${shortCode}`;
 }
+
+/**
+ * 地址为空或非法时，示例链接使用的占位域名。
+ *
+ * 设置页不再用「当前访问地址」（通常是 127.0.0.1）兜底：面板可能部署在
+ * 内网或反代后面，拿本地地址当示例只会误导用户。
+ */
+export const EXAMPLE_PLACEHOLDER_BASE = "https://your-domain.com";
+
+export type ExampleUrls = {
+  /** 安装命令示例：只取决于 Agent 纳管地址。 */
+  installCommand: string;
+  /** 订阅链接示例：订阅地址优先，留空时回退 Agent 纳管地址。 */
+  subscriptionLink: string;
+};
+
+/** 示例用的基础地址：空值返回 `empty`，非法值返回 `invalid`，尾斜杠先去掉。 */
+function exampleBase(
+  raw: string | null | undefined,
+):
+  | { state: "empty" }
+  | { state: "invalid" }
+  | { state: "valid"; base: string } {
+  const trimmed = (raw ?? "").trim().replace(/\/+$/, "");
+  if (trimmed === "") return { state: "empty" };
+  const normalized = normalizePublicBaseUrl(trimmed);
+  if (!normalized) return { state: "invalid" };
+  return { state: "valid", base: normalized };
+}
+
+/**
+ * 设置页「对外地址」的两个示例链接。
+ *
+ * 跟随输入框的实时值（不要求已保存），规则与后端回退顺序一致：
+ * - 安装命令：Agent 纳管地址；空或非法时用占位域名。
+ * - 订阅链接：订阅地址；订阅留空时回退有效 Agent 地址；否则用占位域名。
+ * 非法地址直接跳过，绝不在半截输入上拼 `/api/...`。
+ */
+export function exampleUrls(
+  agentBaseUrl: string | null | undefined,
+  subscriptionBaseUrl: string | null | undefined,
+): ExampleUrls {
+  const agent = exampleBase(agentBaseUrl);
+  const subscription = exampleBase(subscriptionBaseUrl);
+  const agentBase = agent.state === "valid" ? agent.base : null;
+  const subscriptionBase =
+    subscription.state === "valid"
+      ? subscription.base
+      : subscription.state === "empty"
+        ? agentBase
+        : null;
+
+  return {
+    installCommand: agentInstallPreview(agentBase ?? EXAMPLE_PLACEHOLDER_BASE),
+    subscriptionLink: subscriptionPreview(
+      subscriptionBase ?? EXAMPLE_PLACEHOLDER_BASE,
+    ),
+  };
+}

@@ -42,11 +42,7 @@ import {
 } from "@/components/ui/tabs";
 import { ApiError, type Settings } from "@/lib/api";
 import { errorText } from "@/lib/errors";
-import {
-  agentInstallPreview,
-  resolvePublicBase,
-  subscriptionPreview,
-} from "@/lib/publicBase";
+import { exampleUrls } from "@/lib/publicBase";
 import { useSettings, useUpdateSettings } from "@/lib/queries";
 import {
   settingsGeneralSchema,
@@ -303,21 +299,11 @@ function GeneralForm({ initial }: { initial: Settings }) {
     5,
   );
 
-  // 实时预览：两个输入都为空时展示当前访问地址，与后端回退顺序一致。
-  const accessBase = window.location.origin;
+  // 实时预览：跟随输入框的当前值（含尚未保存的编辑），
+  // 空值或非法值用占位域名，不回退到当前访问地址。
   const agentBaseInput = form.watch("agent_base_url");
   const subscriptionBaseInput = form.watch("subscription_base_url");
-  const agentPreview = agentInstallPreview(
-    resolvePublicBase(agentBaseInput, subscriptionBaseInput, "agent", accessBase),
-  );
-  const subscribePreview = subscriptionPreview(
-    resolvePublicBase(
-      agentBaseInput,
-      subscriptionBaseInput,
-      "subscription",
-      accessBase,
-    ),
-  );
+  const examples = exampleUrls(agentBaseInput, subscriptionBaseInput);
 
   const onSubmit = form.handleSubmit(async (values) => {
     form.clearErrors("root");
@@ -349,12 +335,11 @@ function GeneralForm({ initial }: { initial: Settings }) {
   return (
     <form className="space-y-6" onSubmit={onSubmit}>
       {/*
+        卡片顺序：面板 → 版本更新 → 对外地址 → Agent 升级。
         每个分组一张独立卡片（标题 + 说明 + 内容），卡片之间用纵向间距分隔；
         组内仍是「标签在上、控件在下」的两列网格：≥1024px 两列，窄屏单列。
         版本更新的两个设置项也在这里，由底部同一条保存栏统一提交。
       */}
-      <UpdatesSection form={form} saving={updateSettings.isPending} />
-
       <SettingsGroup
         icon={SlidersHorizontalIcon}
         title={t("settings.panel.title")}
@@ -377,6 +362,8 @@ function GeneralForm({ initial }: { initial: Settings }) {
           />
         </FormField>
       </SettingsGroup>
+
+      <UpdatesSection form={form} saving={updateSettings.isPending} />
 
       <SettingsGroup
         icon={Link2Icon}
@@ -424,20 +411,20 @@ function GeneralForm({ initial }: { initial: Settings }) {
         >
           <InfoNoteRow
             label={t("settings.publicBase.agentPreview")}
-            code={agentPreview}
+            code={examples.installCommand}
             action={
               <CopyButton
-                value={agentPreview}
+                value={examples.installCommand}
                 label={t("settings.publicBase.agentPreview")}
               />
             }
           />
           <InfoNoteRow
             label={t("settings.publicBase.subscriptionPreview")}
-            code={subscribePreview}
+            code={examples.subscriptionLink}
             action={
               <CopyButton
-                value={subscribePreview}
+                value={examples.subscriptionLink}
                 label={t("settings.publicBase.subscriptionPreview")}
               />
             }
