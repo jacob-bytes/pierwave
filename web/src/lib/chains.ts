@@ -21,11 +21,56 @@ export const CHAIN_STRATEGIES = [
   "failover",
   "lowest_latency",
   "ip_hashed",
+  "weighted",
+  "least_conn",
 ] as const;
 
 export type ChainStrategy = (typeof CHAIN_STRATEGIES)[number];
 
 export const DEFAULT_CHAIN_STRATEGY: ChainStrategy = "round_robin";
+
+/** 与后端 `chains::WEIGHT_MIN` / `WEIGHT_MAX` / 迁移默认值保持一致。 */
+export const CHAIN_WEIGHT_MIN = 1;
+export const CHAIN_WEIGHT_MAX = 100;
+export const DEFAULT_CHAIN_WEIGHT = 1;
+
+/** 只有加权策略读取成员权重。 */
+export function strategyUsesWeight(strategy: string | null | undefined): boolean {
+  return normalizeStrategy(strategy) === "weighted";
+}
+
+/**
+ * 成员权重输入是否可见：只在「加权 + 多成员组」时出现。
+ *
+ * 单成员组没有可分配的对象，权重没有意义；隐藏输入也不提交，后端保持缺省 1。
+ */
+export function weightFieldVisible(
+  strategy: string | null | undefined,
+  memberCount: number,
+): boolean {
+  return strategyUsesWeight(strategy) && memberCount > 1;
+}
+
+/** 严格解析权重：必须是 1–100 的整数；非法 / 空串返回 null（不猜一个值）。 */
+export function parseWeight(
+  raw: string | number | null | undefined,
+): number | null {
+  const text = String(raw ?? "").trim();
+  if (!/^\d+$/.test(text)) return null;
+  const weight = Number(text);
+  return Number.isInteger(weight) &&
+    weight >= CHAIN_WEIGHT_MIN &&
+    weight <= CHAIN_WEIGHT_MAX
+    ? weight
+    : null;
+}
+
+/** 提交前的权重归一化：非法值回落 1（与后端列默认值一致）。 */
+export function normalizeWeight(
+  raw: string | number | null | undefined,
+): number {
+  return parseWeight(raw) ?? DEFAULT_CHAIN_WEIGHT;
+}
 
 /** 与后端 `chains::MIN_HOPS` / `MAX_HOPS` 保持一致。 */
 export const CHAIN_MIN_GROUPS = 1;
@@ -98,7 +143,7 @@ export function hopTargetState(
   return targetOk ? "reachable" : "unreachable";
 }
 
-/** 后端只接受四个 snake_case 策略值；未知值按轮询展示（与领域层回落一致）。 */
+/** 后端只接受六个 snake_case 策略值；未知值按轮询展示（与领域层回落一致）。 */
 export function isChainStrategy(value: unknown): value is ChainStrategy {
   return (
     typeof value === "string" &&

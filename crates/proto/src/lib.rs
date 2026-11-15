@@ -5,7 +5,15 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 26;
+pub const PROTOCOL_VERSION: u32 = 27;
+
+/// 主控开始支持加权 / 最少连接选路（`ForwardStrategy::Weighted` /
+/// `ForwardStrategy::LeastConn` + `ForwardTarget.weight`）的最低 Agent 协议版本。
+///
+/// 旧 Agent 的 `ForwardStrategy` 枚举没有这两个变体，收到后会让**整份期望态**
+/// 反序列化失败（同一台服务器上的所有转发一起消失）。主控据此在保存/下发
+/// 两条路径上要求整条链的 Agent 都升级，绝不静默降级成轮询。
+pub const CHAIN_STRATEGY_PROTOCOL_VERSION: u32 = 27;
 
 /// 主控开始支持 3–6 跳隧道（`TunnelSpec.downstream`）的最低 Agent 协议版本。
 ///
@@ -565,6 +573,18 @@ pub struct ForwardTarget {
     /// 用于把运行状态回报给主控（哪个成员在接流量）。
     #[serde(default)]
     pub server_id: String,
+    /// 加权选路里的相对权重（1–100，缺省 1）。
+    ///
+    /// 协议 27 起下发；旧 Agent 的 serde 会忽略这个不认识的字段，因此
+    /// **只有** `strategy = weighted` 才会让旧 Agent 解析失败。主控在
+    /// 保存/下发两条路径上都做了版本门禁，不会把 `weighted` 发给旧 Agent。
+    #[serde(default = "default_target_weight")]
+    pub weight: u32,
+}
+
+/// `ForwardTarget.weight` 的缺省值：1（等权）。
+pub const fn default_target_weight() -> u32 {
+    1
 }
 
 /// 组内选路策略。Agent 侧按连接执行。
@@ -580,6 +600,27 @@ pub enum ForwardStrategy {
     LowestLatency,
     /// 按客户端 IP 做一致性哈希，同一来源尽量落到同一台。
     IpHashed,
+    /// 按成员 `weight` 做平滑加权随机（协议 27 起）。
+    ///
+    /// 不是朴素独立随机：每个权重窗口内按权重精确分块后再洗牌，短期不会
+    /// 连续压到同一台，长期比例收敛到权重占比（不是严格逐次比例）。
+    Weighted,
+    /// 选当前活跃连接数最少的成员，平局按轮询（协议 27 起）。
+    LeastConn,
+}
+
+impl ForwardStrategy {
+    /// 是否会用到 [`ForwardTarget::weight`]。只有加权策略读取权重。
+    pub const fn uses_weight(self) -> bool {
+        matches!(self, Self::Weighted)
+    }
+
+    /// 是否只有协议 27+ 的 Agent 才认识。
+    ///
+    /// 主控的保存/下发门禁与前端提示都以它为准；不要在各处手写变体列表。
+    pub const fn requires_agent_v27(self) -> bool {
+        matches!(self, Self::Weighted | Self::LeastConn)
+    }
 }
 
 /// Agent 回报的转发运行状态（心跳里带）。
@@ -831,8 +872,12 @@ mod tests {
     #[test]
     fn forward_udp_defaults_to_false_for_old_masters() {
         assert_eq!(
-            PROTOCOL_VERSION, 26,
-            "网卡累计字节 / 探测窗口计数是新增心跳字段，必须升协议版本"
+            PROTOCOL_VERSION, 27,
+            "加权 / 最少连接策略是新增枚举变体与成员字段，必须升协议版本"
+        );
+        assert_eq!(
+            CHAIN_STRATEGY_PROTOCOL_VERSION, 27,
+            "新策略与 ForwardTarget.weight 从协议 27 开始支持"
         );
         assert_eq!(
             TUNNEL_MULTIHOP_PROTOCOL_VERSION, 24,
@@ -1516,6 +1561,125 @@ mod tests {
             none.preferred_address(),
             None,
             "没有可用地址时不能回退 0.0.0.0"
+        );
+    }
+
+    /// 协议 26 的 Agent 结构快照：用来证明「新字段对旧 Agent 是未知字段」。
+    ///
+    /// 刻意不加 `deny_unknown_fields`——旧代码就是这样，serde 默认忽略未知键。
+    #[derive(Debug, Deserialize)]
+    struct LegacyV26ForwardTarget {
+        host: String,
+        port: i64,
+        #[serde(default)]
+        server_id: String,
+    }
+
+    /// 协议 26 的 `ForwardStrategy`（没有 weighted / least_conn）。
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    enum LegacyV26Strategy {
+        RoundRobin,
+        Failover,
+        LowestLatency,
+        IpHashed,
+    }
+
+    #[test]
+    fn forward_target_weight_defaults_and_roundtrips() {
+        // 旧主控的成员没有 weight：必须解析成 1，等价于等权，不能报错。
+        let old = r#"{"host":"10.0.0.2","port":9002,"server_id":"srv-b"}"#;
+        let target: ForwardTarget = serde_json::from_str(old).unwrap();
+        assert_eq!(target.weight, 1, "旧主控不下发 weight 时缺省 1");
+
+        let weighted = ForwardTarget {
+            weight: 7,
+            ..target
+        };
+        let json = serde_json::to_value(&weighted).unwrap();
+        assert_eq!(json["weight"], 7, "主控必须把成员权重原样下发给新 Agent");
+        let back: ForwardTarget = serde_json::from_value(json).unwrap();
+        assert_eq!(back, weighted);
+    }
+
+    /// 旧 Agent（协议 26）解析新报文：`weight` 是未知字段，必须被忽略，
+    /// 整份期望态不能因此失败。
+    #[test]
+    fn v26_agent_ignores_unknown_target_weight() {
+        let target = ForwardTarget {
+            host: "10.0.0.2".into(),
+            port: 9002,
+            server_id: "srv-b".into(),
+            weight: 42,
+        };
+        let json = serde_json::to_string(&target).unwrap();
+        let legacy: LegacyV26ForwardTarget =
+            serde_json::from_str(&json).expect("旧 Agent 必须忽略未知字段 weight");
+        assert_eq!(legacy.host, "10.0.0.2");
+        assert_eq!(legacy.port, 9002);
+        assert_eq!(legacy.server_id, "srv-b");
+    }
+
+    /// 旧枚举不认识新策略：这正是保存/下发必须门禁、绝不可静默降级的原因。
+    /// 新 Agent 必须认识全部 6 个值。
+    #[test]
+    fn v26_agent_rejects_new_strategies_but_supports_old_ones() {
+        for raw in ["round_robin", "failover", "lowest_latency", "ip_hashed"] {
+            let old: LegacyV26Strategy = serde_json::from_value(serde_json::json!(raw)).unwrap();
+            let new: ForwardStrategy = serde_json::from_value(serde_json::json!(raw)).unwrap();
+            assert_eq!(
+                format!("{old:?}"),
+                format!("{new:?}"),
+                "旧策略 {raw} 的语义在新旧版本间必须一致"
+            );
+        }
+        for raw in ["weighted", "least_conn"] {
+            assert!(
+                serde_json::from_value::<LegacyV26Strategy>(serde_json::json!(raw)).is_err(),
+                "协议 26 的 Agent 不认识 {raw}：主控必须挡在保存/下发之前"
+            );
+            let expected = match raw {
+                "weighted" => ForwardStrategy::Weighted,
+                "least_conn" => ForwardStrategy::LeastConn,
+                other => panic!("unexpected strategy {other}"),
+            };
+            let strategy: ForwardStrategy = serde_json::from_value(serde_json::json!(raw)).unwrap();
+            assert_eq!(strategy, expected);
+        }
+    }
+
+    #[test]
+    fn new_strategies_are_multi_member_only_and_require_v27() {
+        assert_eq!(
+            CHAIN_STRATEGY_PROTOCOL_VERSION, PROTOCOL_VERSION,
+            "当前协议版本就是支持新策略的最低版本"
+        );
+        for strategy in [ForwardStrategy::Weighted, ForwardStrategy::LeastConn] {
+            assert!(strategy.requires_agent_v27(), "{strategy:?} 需要协议 27");
+        }
+        for strategy in [
+            ForwardStrategy::RoundRobin,
+            ForwardStrategy::Failover,
+            ForwardStrategy::LowestLatency,
+            ForwardStrategy::IpHashed,
+        ] {
+            assert!(
+                !strategy.requires_agent_v27(),
+                "{strategy:?} 在协议 26 及更早已存在"
+            );
+        }
+        assert!(ForwardStrategy::Weighted.uses_weight());
+        assert!(!ForwardStrategy::LeastConn.uses_weight());
+        assert!(!ForwardStrategy::RoundRobin.uses_weight());
+
+        // 线上的 snake_case 名字必须稳定（数据库 / API / 前端共用）。
+        assert_eq!(
+            serde_json::to_value(ForwardStrategy::Weighted).unwrap(),
+            serde_json::json!("weighted")
+        );
+        assert_eq!(
+            serde_json::to_value(ForwardStrategy::LeastConn).unwrap(),
+            serde_json::json!("least_conn")
         );
     }
 }

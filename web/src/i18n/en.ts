@@ -2422,6 +2422,14 @@ const en = {
         label: "IP hash",
         desc: "IP hash: hash the client IP so the same source always lands on the same member.",
       },
+      weighted: {
+        label: "Weighted",
+        desc: "Smooth weighted random: distribute connections by member weight (1-100), so heavier members get more; it is neither a strict ratio nor plain random.",
+      },
+      least_conn: {
+        label: "Least connections",
+        desc: "Prefer the member with the fewest active connections, breaking ties by round robin; best when connection durations differ a lot.",
+      },
       unknown: {
         label: "Unknown strategy",
         desc: "The backend returned an unknown strategy; it is treated as round robin when saved.",
@@ -2480,6 +2488,9 @@ const en = {
       member: "Member {seq}",
       priorityHint:
         "Order is priority: upper members are preferred (used by failover and round robin)",
+      memberWeight: "Weight {weight}",
+      memberWeightHint:
+        "Weighted member weight: smooth weighted random, not a strict ratio",
       emptyMembers: "This hop has no members yet",
       currentPath: "Current path",
       sourceHashed: "Hashed by source",
@@ -2620,6 +2631,10 @@ const en = {
       memberServerAria: "Server for hop {group}, member {member}",
       memberPortPlaceholder: "Port",
       memberPortAria: "Listen port for hop {group}, member {member}",
+      memberWeight: "Weight",
+      memberWeightAria: "Weight for hop {group}, member {member}",
+      memberWeightHint:
+        "Weight {min}-{max}; smooth weighted random, not a strict ratio.",
       moveGroupUp: "Move hop {seq} up",
       moveGroupDown: "Move hop {seq} down",
       removeGroup: "Remove hop {seq}",
@@ -3278,7 +3293,12 @@ const en = {
     "node.ss_key_invalid": "Invalid Shadowsocks key for {method}: 2022 methods need a base64 key of the exact length; legacy AEAD needs at least 8 characters",
     "node.ss_network_invalid": "Unsupported Shadowsocks network: {network} (allowed: tcp / udp / tcp,udp)",
     "forward.engine_invalid": "Unsupported forward engine \"{engine}\" (choose native, realm or nftables)",
-    "chain.strategy_invalid": "Unknown routing strategy (choose round robin, failover, lowest latency or IP hash)",
+    "chain.strategy_invalid":
+      "Unknown routing strategy (choose round robin, failover, lowest latency, IP hash, weighted or least connections)",
+    "chain.strategy_requires_agent_upgrade":
+      "Weighted / least-connection routing requires agent protocol >= {required} on every server (older agents cannot parse the new strategy and would fail the whole desired state): {server}",
+    "chain.weight_invalid":
+      "Member weight in group {seq} must be between {min} and {max} (got {weight})",
     "chain.group_member_count_invalid": "Each group needs {min}-{max} servers (currently {count})",
     "chain.duplicate_group_member": "The same server cannot appear twice in one group",
     "chain.group_name_too_long": "Group name must be at most {max} characters",
@@ -3503,6 +3523,7 @@ const en = {
     chainGroupMinMembers: "A group needs at least 2 members; use Single node for one server",
     chainGroupNameMax: "Hop name must be at most 64 characters",
     chainMemberDuplicate: "The same server cannot appear twice in one hop",
+    chainMemberWeight: "Member weight must be an integer between 1 and 100",
     chainServerDuplicate:
       "The same server cannot appear twice in the chain (already used in group {seq})",
     chainTlsMinGroups: "Hop encryption needs at least 2 groups",

@@ -96,7 +96,15 @@ fn to_proto_strategy(strategy: GroupStrategy) -> ForwardStrategy {
         GroupStrategy::Failover => ForwardStrategy::Failover,
         GroupStrategy::LowestLatency => ForwardStrategy::LowestLatency,
         GroupStrategy::IpHashed => ForwardStrategy::IpHashed,
+        GroupStrategy::Weighted => ForwardStrategy::Weighted,
+        GroupStrategy::LeastConn => ForwardStrategy::LeastConn,
     }
+}
+
+/// 成员权重落到线协议前的夹紧：写路径已校验 1–100，这里兜底历史脏数据 /
+/// 手工改库，绝不让 0 或负数进入加权选路（否则该成员永远选不中）。
+fn proto_weight(weight: i64) -> u32 {
+    u32::try_from(weight.clamp(chains::WEIGHT_MIN, chains::WEIGHT_MAX)).unwrap_or(1)
 }
 
 /// 一台成员作为「下一跳」时实际使用的地址。
@@ -180,8 +188,19 @@ pub(crate) fn derive_forwards(
     let mut derived = Vec::new();
     for (index, group) in ordered.iter().enumerate() {
         let next = ordered.get(index + 1).copied();
+        // 执行选路的是**上一跳**，所以策略取下一组。单成员组没有选路空间：
+        // 新策略（协议 27 才有）不回传旧 Agent 不认识的枚举值，归一成默认值；
+        // 行为完全等价（只有一个目标可选），不是把多成员组降级成轮询。
+        // 已存在的老策略（failover 等）仍原样透传，保持升级前的报文不变。
         let strategy = next
-            .map(|next| to_proto_strategy(GroupStrategy::from_db(&next.group.strategy)))
+            .map(|next| {
+                let parsed = GroupStrategy::from_db(&next.group.strategy);
+                if next.members.len() > 1 || !parsed.requires_agent_v27() {
+                    to_proto_strategy(parsed)
+                } else {
+                    ForwardStrategy::default()
+                }
+            })
             .unwrap_or_default();
 
         // 下一组决定本组的目标。单成员组走兼容字段（targets 为空）；
@@ -209,6 +228,9 @@ pub(crate) fn derive_forwards(
                             host: member_target_host(member, use_internal),
                             port: member.listen_port,
                             server_id: member.server_id.clone(),
+                            // 加权策略读它；历史行 weight 由迁移默认 1。
+                            // 写路径已校验 1–100，读路径仍夹紧，避免手改库产生非法值。
+                            weight: proto_weight(member.weight),
                         })
                         .collect()
                 } else {
@@ -532,6 +554,8 @@ async fn resolve_groups(
         let mut validated_members = Vec::with_capacity(members.len());
         for (index, member) in members.iter().enumerate() {
             let server_id = &server_ids_by_group[seq as usize][index];
+            // 加权策略读这个值；范围与前端 / 迁移默认值保持一致（1–100）。
+            chains::validate_weight(member.weight, seq)?;
             let server = load_server_for_hop(state, server_id).await?;
             let port_policy = PortPolicy::from_server(&server);
 
@@ -715,6 +739,28 @@ fn member_protocol_versions(groups: &[ValidatedGroup]) -> Vec<(&str, Option<i64>
         .flat_map(|group| group.members.iter())
         .map(|member| (member.server_name.as_str(), member.protocol_version))
         .collect()
+}
+
+/// 加权 / 最少连接的保存门禁：整条链每一台成员都必须 >= 协议 27。
+///
+/// 旧 Agent 的 `ForwardStrategy` 枚举没有新变体，收到后整份期望态解析失败
+/// （同一台服务器上的所有转发一起消失）。未知版本（NULL）按旧版处理，
+/// 与 UDP / tunnel 的能力门禁同一口径；绝不把策略静默降级成轮询。
+fn validate_strategy_agents(groups: &[ValidatedGroup]) -> AppResult<()> {
+    let strategies: Vec<(GroupStrategy, usize)> = groups
+        .iter()
+        .map(|group| (group.strategy, group.members.len()))
+        .collect();
+    if !chains::strategy_needs_new_agent(&strategies) {
+        return Ok(());
+    }
+    let servers: Vec<(&str, Option<i64>)> = groups
+        .iter()
+        .flat_map(|group| group.members.iter())
+        .map(|member| (member.server_name.as_str(), member.protocol_version))
+        .collect();
+    chains::ensure_chain_strategy_supported(true, &servers)?;
+    Ok(())
 }
 
 /// 自连回环检查：每组每台成员的任何目标（下一组所有成员，或最终 target）
@@ -2291,6 +2337,8 @@ pub async fn create(
     protocol::ensure_realm_supported(&protocol, &engine)?;
     // 仅 UDP 从协议 16 开始支持；任意一跳的旧 Agent 都会把它悄悄变成 TCP。
     protocol::ensure_chain_agent_supported(&protocol, &member_protocol_versions(&groups))?;
+    // 加权 / 最少连接需要整条链的 Agent >= 27；未知按旧版处理。
+    validate_strategy_agents(&groups)?;
 
     let id = repo::chains::create_in(
         &mut write,
@@ -2467,6 +2515,11 @@ pub async fn update(
     };
     validate_internal_addresses(&groups)?;
     ensure_targets_safe(&groups, final_target_host, final_target_port)?;
+    // 只有替换组时才校验新策略；改名 / 停用一条历史链不能被旧 Agent 锁死
+    // （下发路径会按同一规则把整链标成 blocked）。
+    if replace_groups {
+        validate_strategy_agents(&groups)?;
+    }
     let final_engine = engine.as_deref().unwrap_or(&existing.chain.engine);
     let final_transport = transport.as_deref().unwrap_or(&existing.chain.transport);
     let final_protocol = protocol.as_deref().unwrap_or(&existing.chain.protocol);
@@ -2929,6 +2982,8 @@ pub async fn me_create(
     .await?;
     protocol::ensure_realm_supported(&config.protocol, &config.engine)?;
     protocol::ensure_chain_agent_supported(&config.protocol, &member_protocol_versions(&groups))?;
+    // 模板可以选加权 / 最少连接：创建时同样要求整条链的 Agent >= 27。
+    validate_strategy_agents(&groups)?;
 
     let name = user_chain_name(&template.name, &target_host, req.target_port);
     let id = repo::chains::create_in(
@@ -3286,6 +3341,7 @@ mod tests {
             host: host.into(),
             port,
             server_id: server_id.into(),
+            weight: 1,
         }
     }
 
@@ -3467,6 +3523,52 @@ mod tests {
         assert!(derived[2].1.targets.is_empty());
         assert_eq!(derived[2].1.target_host, "1.1.1.1");
         assert_eq!(derived[2].1.id, "chain-c4-1", "单成员的目标组也应沿用旧 id");
+    }
+
+    /// 单成员组选新策略：没有选路空间，推导归一成默认值，不把旧 Agent
+    /// 不认识的枚举值放到线上；多成员组才原样下发新策略。
+    #[test]
+    fn derive_normalizes_new_strategy_for_single_member_next_groups() {
+        let chain = test_chain("c6");
+        let single = vec![
+            test_group("c6", 0, "round_robin", &[("srv-a", "10.0.0.1", 9001, 0)]),
+            test_group("c6", 1, "weighted", &[("srv-b", "10.0.0.2", 9002, 0)]),
+        ];
+        let derived = derive_forwards(&chain, &single).unwrap();
+        assert_eq!(
+            derived[0].1.strategy,
+            ForwardStrategy::RoundRobin,
+            "单成员组的 weighted 不下发（行为与轮询完全一致）"
+        );
+
+        let multi = vec![
+            test_group("c6", 0, "round_robin", &[("srv-a", "10.0.0.1", 9001, 0)]),
+            test_group(
+                "c6",
+                1,
+                "weighted",
+                &[
+                    ("srv-b", "10.0.0.2", 9002, 0),
+                    ("srv-c", "10.0.0.3", 9003, 1),
+                ],
+            ),
+        ];
+        let derived = derive_forwards(&chain, &multi).unwrap();
+        assert_eq!(
+            derived[0].1.strategy,
+            ForwardStrategy::Weighted,
+            "多成员组必须原样下发加权策略"
+        );
+        assert_eq!(derived[0].1.targets.len(), 2);
+        assert_eq!(
+            derived[0]
+                .1
+                .targets
+                .iter()
+                .map(|target| target.weight)
+                .collect::<Vec<_>>(),
+            vec![1, 1]
+        );
     }
 
     /// 组按 seq 排序、成员按 priority 排序；传入乱序也要串对。
@@ -5325,6 +5427,457 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {value}");
         assert_eq!(value["code"], "chain.protocol_requires_agent_upgrade");
+    }
+
+    /// 组内成员（显式权重）：加权用例用。
+    fn group_member_weight(server_id: &str, listen_port: i64, priority: i64, weight: i64) -> Value {
+        json!({
+            "server_id": server_id,
+            "listen_port": listen_port,
+            "priority": priority,
+            "weight": weight,
+        })
+    }
+
+    /// 加权 / 最少连接：保存门禁、列表 blocked、下发跳过，且**绝不**降级成轮询。
+    #[tokio::test]
+    async fn weighted_and_least_conn_require_v27_agents_and_history_blocks() {
+        let fixture = setup().await;
+
+        async fn set_version(state: &AppState, server_id: &str, version: Option<i64>) {
+            repo::servers::update_health(
+                &state.db.pool,
+                server_id,
+                "0.12.0",
+                &repo::servers::HealthSnapshot {
+                    protocol_version: version,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        for server_id in [&fixture.a, &fixture.b, &fixture.c, &fixture.d] {
+            set_version(&fixture.state, server_id, Some(27)).await;
+        }
+
+        let weighted_groups = |base: i64| {
+            vec![
+                group(
+                    None,
+                    Some("round_robin"),
+                    &[group_member(&fixture.a, base, 0)],
+                ),
+                group(
+                    None,
+                    Some("weighted"),
+                    &[
+                        group_member_weight(&fixture.b, base + 1, 0, 1),
+                        group_member_weight(&fixture.c, base + 2, 1, 5),
+                    ],
+                ),
+            ]
+        };
+
+        // 新 Agent：保存成功，响应回显策略与逐个成员的权重。
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(groups_body(
+                "加权链",
+                "1.1.1.1",
+                443,
+                &weighted_groups(9801),
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+        assert_eq!(value["chain"]["groups"][1]["strategy"], "weighted");
+        assert_eq!(value["chain"]["groups"][1]["members"][0]["weight"], 1);
+        assert_eq!(value["chain"]["groups"][1]["members"][1]["weight"], 5);
+
+        // 主控下发的成员必须带 weight，且入口跳的策略取下一组。
+        let entry_server = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.a)
+            .await
+            .unwrap();
+        let rendered = super::super::desired::render(
+            &fixture.state,
+            &entry_server,
+            "https://panel.example.com",
+        )
+        .await
+        .unwrap();
+        let entry = rendered
+            .forwards
+            .iter()
+            .find(|forward| forward.id == format!("chain-{chain_id}-0"))
+            .expect("入口跳必须下发");
+        assert_eq!(entry.strategy, ForwardStrategy::Weighted);
+        assert_eq!(
+            entry
+                .targets
+                .iter()
+                .map(|target| target.weight)
+                .collect::<Vec<_>>(),
+            vec![1, 5],
+            "加权成员必须把 weight 下发到 Agent"
+        );
+
+        // 成员 Agent 降级到 26：历史链列表 blocked、下发整链跳过。
+        set_version(&fixture.state, &fixture.c, Some(26)).await;
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            "/api/v1/chains",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        let item = value["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == chain_id.as_str())
+            .expect("链仍在列表里");
+        assert_eq!(
+            item["blocked_code"], "chain.strategy_requires_agent_upgrade",
+            "{item}"
+        );
+        assert!(
+            item["blocked_reason"]
+                .as_str()
+                .unwrap()
+                .contains("Agent 协议版本"),
+            "{item}"
+        );
+        assert_eq!(
+            item["groups"][1]["strategy"], "weighted",
+            "blocked 不等于降级：列表里的策略必须仍是 weighted"
+        );
+
+        let rendered = super::super::desired::render(
+            &fixture.state,
+            &entry_server,
+            "https://panel.example.com",
+        )
+        .await
+        .unwrap();
+        assert!(
+            !rendered
+                .forwards
+                .iter()
+                .any(|forward| forward.id.starts_with(&format!("chain-{chain_id}-"))),
+            "旧 Agent 的加权链不能下发：{:?}",
+            rendered.forwards
+        );
+        assert!(
+            rendered
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("加权")),
+            "{:?}",
+            rendered.warnings
+        );
+
+        // 旧 Agent 保存加权 / 最少连接：400，绝不静默降级。
+        for strategy in ["weighted", "least_conn"] {
+            let body = groups_body(
+                "旧 Agent 策略",
+                "1.1.1.1",
+                443,
+                &[
+                    group(
+                        None,
+                        Some("round_robin"),
+                        &[group_member(&fixture.a, 9811, 0)],
+                    ),
+                    group(
+                        None,
+                        Some(strategy),
+                        &[
+                            group_member(&fixture.b, 9812, 0),
+                            group_member(&fixture.c, 9813, 1),
+                        ],
+                    ),
+                ],
+            );
+            let (status, value) = request(
+                &fixture.app,
+                Some(&fixture.cookie),
+                Method::POST,
+                "/api/v1/chains",
+                Some(body),
+            )
+            .await;
+            assert_eq!(
+                status,
+                StatusCode::BAD_REQUEST,
+                "{strategy} unexpected: {value}"
+            );
+            assert_eq!(value["code"], "chain.strategy_requires_agent_upgrade");
+            assert_eq!(value["params"]["required"], 27);
+            assert!(
+                value["params"]["server"].as_str().unwrap().contains("sg-c"),
+                "{value}"
+            );
+        }
+
+        // PATCH 把已有组替换成加权：同样在保存路径拦住。
+        set_version(&fixture.state, &fixture.c, Some(27)).await;
+        let mut tcp_groups = weighted_groups(9821);
+        tcp_groups[1] = group(
+            None,
+            Some("round_robin"),
+            &[
+                group_member_weight(&fixture.b, 9822, 0, 1),
+                group_member_weight(&fixture.c, 9823, 1, 1),
+            ],
+        );
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(groups_body("可 PATCH 链", "1.1.1.1", 443, &tcp_groups)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        let patch_chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+
+        set_version(&fixture.state, &fixture.c, Some(26)).await;
+        let mut patched = weighted_groups(9831);
+        patched[1] = group(
+            None,
+            Some("weighted"),
+            &[
+                group_member_weight(&fixture.b, 9832, 0, 2),
+                group_member_weight(&fixture.c, 9833, 1, 3),
+            ],
+        );
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::PATCH,
+            &format!("/api/v1/chains/{patch_chain_id}"),
+            Some(json!({ "groups": patched })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {value}");
+        assert_eq!(value["code"], "chain.strategy_requires_agent_upgrade");
+    }
+
+    /// 权重范围 1–100；least_conn 对多成员组有效，单成员组也允许（只是没有可选性）。
+    #[tokio::test]
+    async fn member_weight_is_validated_and_least_conn_saves_for_new_agents() {
+        let fixture = setup().await;
+        for server_id in [&fixture.a, &fixture.b, &fixture.c] {
+            repo::servers::update_health(
+                &fixture.state.db.pool,
+                server_id,
+                "0.12.0",
+                &repo::servers::HealthSnapshot {
+                    protocol_version: Some(27),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        for weight in [0, -1, 101] {
+            let body = groups_body(
+                "非法权重",
+                "1.1.1.1",
+                443,
+                &[
+                    group(
+                        None,
+                        Some("round_robin"),
+                        &[group_member(&fixture.a, 9841, 0)],
+                    ),
+                    group(
+                        None,
+                        Some("weighted"),
+                        &[
+                            group_member_weight(&fixture.b, 9842, 0, weight),
+                            group_member_weight(&fixture.c, 9843, 1, 1),
+                        ],
+                    ),
+                ],
+            );
+            let (status, value) = request(
+                &fixture.app,
+                Some(&fixture.cookie),
+                Method::POST,
+                "/api/v1/chains",
+                Some(body),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "weight={weight}: {value}");
+            assert_eq!(value["code"], "chain.weight_invalid");
+        }
+
+        // 单成员组选 least_conn：保存直接通过（策略值仍会下发，但 Agent 只看到 1 个目标）。
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(groups_body(
+                "单成员 least_conn",
+                "1.1.1.1",
+                443,
+                &[
+                    group(
+                        None,
+                        Some("round_robin"),
+                        &[group_member(&fixture.a, 9851, 0)],
+                    ),
+                    group(
+                        None,
+                        Some("least_conn"),
+                        &[group_member_weight(&fixture.b, 9852, 0, 100)],
+                    ),
+                ],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        assert_eq!(
+            value["chain"]["groups"][1]["members"][0]["weight"], 100,
+            "边界值 100 必须合法"
+        );
+
+        // 单成员组 + 旧 Agent：没有选路空间，保存直接通过；推导归一成默认策略。
+        repo::servers::update_health(
+            &fixture.state.db.pool,
+            &fixture.b,
+            "0.12.0",
+            &repo::servers::HealthSnapshot {
+                protocol_version: Some(26),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(groups_body(
+                "单成员 weighted + 旧 Agent",
+                "1.1.1.1",
+                443,
+                &[
+                    group(
+                        None,
+                        Some("round_robin"),
+                        &[group_member(&fixture.a, 9871, 0)],
+                    ),
+                    group(
+                        None,
+                        Some("weighted"),
+                        &[group_member_weight(&fixture.b, 9872, 0, 5)],
+                    ),
+                ],
+            )),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "单成员组没有选路空间，不应要求升级：{value}"
+        );
+        let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+        let entry_server = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.a)
+            .await
+            .unwrap();
+        let rendered = super::super::desired::render(
+            &fixture.state,
+            &entry_server,
+            "https://panel.example.com",
+        )
+        .await
+        .unwrap();
+        let entry = rendered
+            .forwards
+            .iter()
+            .find(|forward| forward.id == format!("chain-{chain_id}-0"))
+            .expect("入口跳必须下发");
+        assert_eq!(
+            entry.strategy,
+            ForwardStrategy::RoundRobin,
+            "单成员组的 weighted 归一成默认策略，旧 Agent 也能解析"
+        );
+    }
+
+    /// 旧客户端 / 历史链不带 weight：落库与下发都必须是列默认值 1。
+    #[tokio::test]
+    async fn legacy_chain_without_weights_defaults_to_one() {
+        let fixture = setup().await;
+        let (status, value) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(groups_body(
+                "旧客户端链",
+                "1.1.1.1",
+                443,
+                &[
+                    group(
+                        None,
+                        Some("round_robin"),
+                        &[group_member(&fixture.a, 9861, 0)],
+                    ),
+                    group(
+                        None,
+                        Some("round_robin"),
+                        &[
+                            group_member(&fixture.b, 9862, 0),
+                            group_member(&fixture.c, 9863, 1),
+                        ],
+                    ),
+                ],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {value}");
+        let chain_id = value["chain"]["id"].as_str().unwrap().to_string();
+        for member in value["chain"]["groups"][1]["members"].as_array().unwrap() {
+            assert_eq!(member["weight"], 1, "缺省权重必须是 1：{member}");
+        }
+
+        let entry_server = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.a)
+            .await
+            .unwrap();
+        let rendered = super::super::desired::render(
+            &fixture.state,
+            &entry_server,
+            "https://panel.example.com",
+        )
+        .await
+        .unwrap();
+        let entry = rendered
+            .forwards
+            .iter()
+            .find(|forward| forward.id == format!("chain-{chain_id}-0"))
+            .expect("入口跳必须下发");
+        assert_eq!(
+            entry
+                .targets
+                .iter()
+                .map(|target| target.weight)
+                .collect::<Vec<_>>(),
+            vec![1, 1],
+            "旧链的成员权重下发时也必须缺省 1"
+        );
     }
 
     #[tokio::test]

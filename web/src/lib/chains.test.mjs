@@ -4,6 +4,9 @@ import {
   CHAIN_MAX_GROUPS,
   CHAIN_MIN_GROUPS,
   CHAIN_STRATEGIES,
+  CHAIN_WEIGHT_MAX,
+  CHAIN_WEIGHT_MIN,
+  DEFAULT_CHAIN_WEIGHT,
   GROUP_MAX_MEMBERS,
   GROUP_MIN_MEMBERS,
   chainGroupSummary,
@@ -22,9 +25,13 @@ import {
   hopTargetState,
   isChainStrategy,
   normalizeStrategy,
+  normalizeWeight,
   orderGroups,
   orderHops,
   orderMembers,
+  parseWeight,
+  strategyUsesWeight,
+  weightFieldVisible,
 } from "./chains.ts";
 
 const hop = (seq, overrides = {}) => ({
@@ -144,25 +151,68 @@ test("group limits match the backend contract", () => {
     "failover",
     "lowest_latency",
     "ip_hashed",
+    "weighted",
+    "least_conn",
   ]);
 });
 
-test("isChainStrategy accepts only the four documented values", () => {
+test("isChainStrategy accepts all six documented values", () => {
   for (const strategy of CHAIN_STRATEGIES) {
     assert.equal(isChainStrategy(strategy), true);
   }
+  assert.equal(isChainStrategy("weighted"), true);
+  assert.equal(isChainStrategy("least_conn"), true);
   assert.equal(isChainStrategy("RoundRobin"), false);
   assert.equal(isChainStrategy("random"), false);
+  assert.equal(isChainStrategy("leastconn"), false);
   assert.equal(isChainStrategy(null), false);
   assert.equal(isChainStrategy(1), false);
 });
 
-test("normalizeStrategy falls back to round robin for unknown db values", () => {
+test("normalizeStrategy keeps new strategies and falls back for unknown db values", () => {
   assert.equal(normalizeStrategy("failover"), "failover");
   assert.equal(normalizeStrategy("ip_hashed"), "ip_hashed");
+  assert.equal(normalizeStrategy("weighted"), "weighted");
+  assert.equal(normalizeStrategy("least_conn"), "least_conn");
   assert.equal(normalizeStrategy("legacy"), "round_robin");
   assert.equal(normalizeStrategy(null), "round_robin");
   assert.equal(normalizeStrategy(undefined), "round_robin");
+});
+
+test("weight controls are only available for weighted multi-member groups", () => {
+  assert.equal(strategyUsesWeight("weighted"), true);
+  assert.equal(strategyUsesWeight("least_conn"), false);
+  assert.equal(strategyUsesWeight("round_robin"), false);
+
+  assert.equal(weightFieldVisible("weighted", 2), true);
+  assert.equal(weightFieldVisible("weighted", 8), true);
+  assert.equal(
+    weightFieldVisible("weighted", 1),
+    false,
+    "单成员组没有可分配的对象，不显示权重",
+  );
+  assert.equal(
+    weightFieldVisible("least_conn", 3),
+    false,
+    "只有加权策略读取权重",
+  );
+});
+
+test("member weight must be an integer between 1 and 100", () => {
+  assert.equal(CHAIN_WEIGHT_MIN, 1);
+  assert.equal(CHAIN_WEIGHT_MAX, 100);
+  assert.equal(DEFAULT_CHAIN_WEIGHT, 1);
+
+  for (const weight of [1, 2, 50, 100]) {
+    assert.equal(parseWeight(weight), weight);
+    assert.equal(parseWeight(String(weight)), weight);
+  }
+  for (const weight of [0, -1, 101, 1.5, "", "abc", null, undefined]) {
+    assert.equal(parseWeight(weight), null, `weight=${String(weight)}`);
+  }
+  assert.equal(normalizeWeight("7"), 7);
+  assert.equal(normalizeWeight("0"), 1, "非法权重提交前回落缺省 1");
+  assert.equal(normalizeWeight(undefined), 1);
 });
 
 test("orderGroups sorts by seq without mutating the input", () => {

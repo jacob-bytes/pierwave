@@ -77,6 +77,7 @@ import {
   hopTargetState,
   orderGroups,
   orderMembers,
+  weightFieldVisible,
   type ChainStatus,
   type HopListeningState,
   type HopTargetState,
@@ -494,6 +495,7 @@ function GroupMemberRow({
   inUse,
   isLastHop,
   publicPort,
+  showWeight,
 }: {
   member: ChainGroupMember;
   index: number;
@@ -501,6 +503,8 @@ function GroupMemberRow({
   isLastHop: boolean;
   /** 入口组的对外端口；其它组 / 未设置时为 null。 */
   publicPort?: number | null;
+  /** 加权 + 多成员组：成员行展示权重。 */
+  showWeight?: boolean;
 }) {
   const { t } = useI18n();
   const endpoint = `${member.server_name.trim()}:${portPairLabel(
@@ -546,6 +550,14 @@ function GroupMemberRow({
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
+          {showWeight ? (
+            <span
+              className="type-micro tabular-nums text-muted-foreground"
+              title={t("chains.detail.memberWeightHint")}
+            >
+              {t("chains.detail.memberWeight", { weight: member.weight })}
+            </span>
+          ) : null}
           <span
             className={cn(
               "type-micro tabular-nums",
@@ -625,6 +637,8 @@ function GroupCard({
   const degraded = groupIsDegraded(group);
   const kind = groupKind(group);
   const single = kind === "single";
+  // 只有加权 + 多成员组才有权重语义；其它组不显示，避免制造「权重生效了」的错觉。
+  const showWeight = weightFieldVisible(group.strategy, members.length);
   const inUse = memberInUse(pathMode, members.length);
   const name = group.name?.trim() || t("chains.detail.unnamedGroup");
   const trafficTotals = sumHopTraffic(members);
@@ -715,6 +729,7 @@ function GroupCard({
               inUse={inUse}
               isLastHop={isLastHop}
               publicPort={isEntry ? group.public_port : null}
+              showWeight={showWeight}
             />
           ))
         )}

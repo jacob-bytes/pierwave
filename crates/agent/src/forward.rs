@@ -430,6 +430,19 @@ impl ForwardSupervisor {
         self.running.get(id).map(|running| running.bound_port)
     }
 
+    /// 测试辅助：读某条规则各候选目标的活跃连接数（验证守卫无泄漏）。
+    #[cfg(test)]
+    pub(crate) fn active_connections(&self, id: &str) -> Option<Vec<usize>> {
+        self.running.get(id).map(|running| {
+            running
+                .runtime
+                .selector
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .active_snapshot()
+        })
+    }
+
     /// 一条规则实际使用的监听地址：规则自带 `listen_host` 时优先，否则退回
     /// 全局 `forward_bind`。空白值按「没有」处理，避免主控脏数据把监听变成 `:port`。
     fn bind_host_for(&self, spec: &DesiredForward) -> String {
@@ -687,7 +700,9 @@ impl ForwardSupervisor {
                 legacy_single,
                 udp: wants_udp,
                 strategy: spec.strategy,
-                selector: Arc::new(Mutex::new(Selector::new())),
+                // 权重与活跃连接计数按这条规则的候选目标初始化；
+                // 规则重建时连同 Selector 一起丢弃，旧计数随守卫释放。
+                selector: Arc::new(Mutex::new(Selector::for_targets(&targets))),
                 status: self.status.clone(),
                 probe_requests: probe_tx,
                 connect_failures: failures,
@@ -833,6 +848,7 @@ fn resolve_targets(spec: &DesiredForward) -> Vec<ForwardTarget> {
             host: spec.target_host.clone(),
             port: spec.target_port,
             server_id: String::new(),
+            weight: pierwave_proto::default_target_weight(),
         }]
     } else {
         spec.targets.clone()
@@ -976,18 +992,27 @@ async fn handle_connection(runtime: ForwardRuntime, client: TcpStream, peer: Soc
     } else {
         runtime.status.healthy_targets(&runtime.id)
     };
-    let picked = runtime
-        .selector
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .pick(runtime.strategy, peer.ip(), &health);
-    let Some(index) = picked else {
-        // 没有健康目标：直接关闭客户端（drop 即 FIN/RST），不 panic。
-        tracing::debug!(id = %runtime.id, %peer, "没有健康目标，关闭新连接");
-        return;
+    // 选路与连接计数必须原子完成：`least_conn` 看到的是「已选中且尚未关闭」
+    // 的连接数，避免并发 accept 同时选中同一台。守卫在这里拿到，活到
+    // `handle_connection` 结束——成功、连接失败、超时或 panic 解栈都由 Drop 归零。
+    let (index, _active) = {
+        let mut selector = runtime
+            .selector
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(index) = selector.pick(runtime.strategy, peer.ip(), &health) else {
+            // 没有健康目标：直接关闭客户端（drop 即 FIN/RST），不 panic。
+            tracing::debug!(id = %runtime.id, %peer, "没有健康目标，关闭新连接");
+            return;
+        };
+        let Some(guard) = selector.track(index) else {
+            // 选择器的下标一定来自 targets；真越界只能记日志并关闭本次连接。
+            tracing::error!(id = %runtime.id, index, "选择器返回了越界目标");
+            return;
+        };
+        (index, guard)
     };
     let Some(target) = runtime.targets.get(index) else {
-        // 选择器的下标一定来自 targets；真越界只能记日志并关闭本次连接。
         tracing::error!(id = %runtime.id, index, "选择器返回了越界目标");
         return;
     };
@@ -1084,6 +1109,7 @@ mod tests {
             host: addr.ip().to_string(),
             port: i64::from(addr.port()),
             server_id: format!("srv-{}", addr.port()),
+            weight: 1,
         }
     }
 
@@ -1397,6 +1423,46 @@ mod tests {
             .snapshot()
             .iter()
             .all(|status| status.listening));
+    }
+
+    /// 连接计数必须由 RAII 守卫闭环：目标不可达（错误路径）时，
+    /// 每次连接尝试结束后计数都要回到 0，否则 `least_conn` 会永久偏斜。
+    #[tokio::test]
+    async fn failed_connections_do_not_leak_least_conn_counters() {
+        let dead_target = SocketAddr::from(([127, 0, 0, 1], 0));
+        let mut supervisor = ForwardSupervisor::new("127.0.0.1");
+        supervisor.apply(&[rule("counted", 0, dead_target)]).await;
+        let listen_port = supervisor.bound_port("counted").unwrap();
+        let failures = supervisor
+            .running
+            .get("counted")
+            .unwrap()
+            .runtime
+            .connect_failures
+            .clone();
+
+        for attempt in 1..=3u64 {
+            let client = TcpStream::connect(("127.0.0.1", listen_port))
+                .await
+                .unwrap();
+            // 目标端口 0 会立刻拒绝；守卫在该连接 task 返回时释放。
+            drop(client);
+
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while failures.load(Ordering::Relaxed) < attempt && Instant::now() < deadline {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            assert!(
+                failures.load(Ordering::Relaxed) >= attempt,
+                "第 {attempt} 次连接失败必须被计数"
+            );
+            // 失败计数已经写回，连接 task 的守卫也必然已经 drop。
+            assert_eq!(
+                supervisor.active_connections("counted"),
+                Some(vec![0]),
+                "第 {attempt} 次连接失败后活跃连接数必须归零"
+            );
+        }
     }
 
     #[tokio::test]

@@ -771,11 +771,13 @@ mod tests {
                 host: "1.1.1.1".into(),
                 port: 80,
                 server_id: "a".into(),
+                weight: 1,
             },
             ForwardTarget {
                 host: "2.2.2.2".into(),
                 port: 80,
                 server_id: "b".into(),
+                weight: 1,
             },
         ];
         assert_eq!(

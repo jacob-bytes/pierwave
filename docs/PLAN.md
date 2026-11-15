@@ -1061,7 +1061,7 @@ through `--config -` on stdin, never in argv. A supervisor task re-reads setting
 
 | 引擎 | TCP | UDP | 负载均衡 | 链路加密（ws/tls） | 状态精度 |
 |---|:--:|:--:|:--:|:--:|---|
-| `native`（现有） | ✅ | ✅ 同端口会话表（按客户端地址哈希） | ✅ 4 种策略 | ❌ | 端口级（listening / target_ok；UDP 的 target_ok 为未知） |
+| `native`（现有） | ✅ | ✅ 同端口会话表（按客户端地址哈希） | ✅ 6 种策略（轮询 / 主备 / 最低延迟 / IP 哈希 / 加权 / 最少连接） | ❌ | 端口级（listening / target_ok；UDP 的 target_ok 为未知） |
 | `realm`（集成） | ✅ | ✅ `batched-udp` | ✅ roundrobin / iphash + 权重 | ✅ Kaminari ws/tls/wss | 进程级 + 端口探测 |
 | `tunnel`（自研，规划） | ✅ | 规划 | 复用 native 策略 | ✅ 自己的加密 | 端口级 |
 

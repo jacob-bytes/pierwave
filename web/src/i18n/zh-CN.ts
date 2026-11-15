@@ -2284,6 +2284,14 @@ const zhCN = {
         label: "IP 哈希",
         desc: "同一来源固定一台：按客户端 IP 做哈希，同一来源始终落到同一台成员。",
       },
+      weighted: {
+        label: "加权",
+        desc: "平滑加权随机：按成员权重（1-100）分配连接，权重越大分到越多；不是严格比例，也不是朴素随机。",
+      },
+      least_conn: {
+        label: "最少连接",
+        desc: "当前活跃连接数最少的成员优先，平局按轮询；适合连接耗时差异大的组。",
+      },
       unknown: {
         label: "未知策略",
         desc: "后端返回了未识别的策略；保存时会按轮询处理。",
@@ -2340,6 +2348,8 @@ const zhCN = {
       member: "成员 {seq}",
       priorityHint:
         "组内顺序即优先级：靠上的成员优先（主备 / 轮询都按它）",
+      memberWeight: "权重 {weight}",
+      memberWeightHint: "加权成员权重：平滑加权随机，不是严格比例",
       emptyMembers: "这一跳还没有成员",
       currentPath: "当前路径",
       sourceHashed: "按来源分流",
@@ -2471,6 +2481,9 @@ const zhCN = {
       memberServerAria: "第 {group} 跳第 {member} 台成员的服务器",
       memberPortPlaceholder: "端口",
       memberPortAria: "第 {group} 跳第 {member} 台成员的监听端口",
+      memberWeight: "权重",
+      memberWeightAria: "第 {group} 跳第 {member} 台成员的权重",
+      memberWeightHint: "权重范围 {min}-{max}；平滑加权随机，不是严格比例。",
       moveGroupUp: "上移第 {seq} 跳",
       moveGroupDown: "下移第 {seq} 跳",
       removeGroup: "删除第 {seq} 跳",
@@ -3097,7 +3110,12 @@ const zhCN = {
     "node.ss_key_invalid": "Shadowsocks 密钥不合法：{method}",
     "node.ss_network_invalid": "不支持的 Shadowsocks 网络类型：{network}",
     "forward.engine_invalid": "不支持的转发引擎「{engine}」（可选 native / realm / nftables）",
-    "chain.strategy_invalid": "选路策略不能识别（可选：轮询 / 主备 / 最低延迟 / IP 哈希）",
+    "chain.strategy_invalid":
+      "选路策略不能识别（可选：轮询 / 主备 / 最低延迟 / IP 哈希 / 加权 / 最少连接）",
+    "chain.strategy_requires_agent_upgrade":
+      "加权 / 最少连接选路需要每台服务器的 Agent 协议版本 ≥ {required}（旧 Agent 不认识新策略，会导致整份期望态解析失败）：{server}",
+    "chain.weight_invalid":
+      "第 {seq} 组的成员权重必须在 {min}-{max} 之间（当前 {weight}）",
     "chain.group_member_count_invalid": "每组必须有 {min}-{max} 台服务器（当前 {count} 台）",
     "chain.duplicate_group_member": "同一台服务器不能在同一组出现两次",
     "chain.group_name_too_long": "组名最多 {max} 个字符",
@@ -3316,6 +3334,7 @@ const zhCN = {
     chainGroupMinMembers: "分组至少需要 2 台成员；只有 1 台请选择单节点",
     chainGroupNameMax: "跳名称最多 64 个字符",
     chainMemberDuplicate: "同一台服务器不能在同一跳里重复出现",
+    chainMemberWeight: "成员权重必须是 1-100 的整数",
     chainServerDuplicate: "同一台服务器不能重复出现（已在第 {seq} 组使用）",
     chainTlsMinGroups: "跳间加密至少需要 2 组",
     chainTlsCertRequired: "请选择这一组的证书",

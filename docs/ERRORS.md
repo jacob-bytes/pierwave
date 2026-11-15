@@ -339,6 +339,42 @@ noise + udp 且成员版本过旧，下发时整链跳过并给出同一个 `blo
 > code (used before §8.5); it is kept here only so old logs/frontends can still
 > recognise it.
 
+### 组选路策略（加权 / 最少连接）/ Group routing strategy
+
+链的每个组有一个 `strategy`：`round_robin`（默认）、`failover`、`lowest_latency`、
+`ip_hashed`、`weighted`、`least_conn`。后两个从**线协议 27** 开始支持；成员权重
+在 `chain_group_members.weight`（1–100，缺省 1，历史行由迁移 0026 的默认值给出）。
+
+`weighted` 是**平滑加权随机**：按权重把健康成员展开成一个权重块并洗牌，块内每个
+成员出现的次数严格等于权重。短期不会连续压到同一台，长期比例收敛到权重占比，
+但**不是逐次严格比例**。`least_conn` 选当前活跃连接数最少的成员，平局按轮询；
+连接计数由 Agent 的 RAII 守卫维护（建立 +1，关闭 / 超时 / 错误 -1）。
+
+| code | 中文 | English | params |
+|---|---|---|---|
+| `chain.strategy_invalid` | 选路策略「{strategy}」无效，只支持 {allowed} | Invalid routing strategy "{strategy}"; expected {allowed} | allowed, strategy |
+| `chain.weight_invalid` | 第 {seq} 组的成员权重必须在 {min}-{max} 之间（当前 {weight}） | Member weight in group {seq} must be between {min} and {max} (got {weight}) | max, min, seq, weight |
+| `chain.strategy_requires_agent_upgrade` | 加权 / 最少连接选路需要每台服务器的 Agent 协议版本 ≥ {required}（旧 Agent 不认识新策略，会导致整份期望态解析失败）：{server} | Weighted / least-connection routing requires agent protocol >= {required} on every server (older agents cannot parse the new strategy and would fail the whole desired state): {server} | required, server, servers |
+
+行为 / Behaviour:
+
+| 场景 / Case | 结果 / Result |
+|---|---|
+| `strategy = weighted` 且成员 `weight` 不在 1–100 | `chain.weight_invalid` |
+| `strategy = weighted / least_conn` 且链上任意成员 Agent 协议未知或 < 27 | 保存 400 `chain.strategy_requires_agent_upgrade`；历史链在下发时整链跳过并标 blocked |
+| 单成员组使用 `weighted / least_conn` | 通过校验；推导时归一成默认策略（没有选路空间，行为等价），不要求升级 |
+| 入口组（seq 0）使用新策略 | 入口组策略永不下发，不要求升级 |
+| 旧 Agent（协议 < 27） | 不认识新枚举变体：**绝不**降级成轮询，整条链拒绝保存 / 不下载 |
+| 新字段 `ForwardTarget.weight` 发给旧 Agent | 未知字段被 serde 忽略，不影响其它策略的解析（有协议单测） |
+
+Weighted is a **smooth weighted random** schedule: each weight window contains exactly
+`weight` slots per member after shuffling, so short windows do not hammer a single
+member and the long-run ratio converges to the weights — it is **not** a strict
+per-request ratio. Least-connections counts active connections with an RAII guard
+(+1 when a connection is accepted, -1 on close / timeout / error). Both strategies
+require every member agent to speak protocol 27+; the write and dispatch paths both
+fail closed instead of silently downgrading to round robin.
+
 ### 转发协议模式（P15.4）/ Forward protocol mode
 
 转发与链的 `protocol` 只有 `tcp`（默认）/ `udp` / `both` 三种取值。写路径严格校验，

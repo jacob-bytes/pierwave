@@ -251,6 +251,15 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
             ));
             continue;
         }
+        // 加权 / 最少连接只有协议 27+ 的 Agent 认识；历史链遇到旧 Agent 时
+        // 整链跳过。**绝不**把策略静默降级成轮询（与列表 blocked 同一规则）。
+        if let Some(reason) = chains::strategy_blocked_reason(&chain.groups) {
+            warnings.push(format!(
+                "链「{}」未下发：{}",
+                chain.chain.name, reason.message
+            ));
+            continue;
+        }
         if engine::is_nftables(&chain.chain.engine) {
             if let Some((seq, _)) = chain
                 .groups
@@ -665,6 +674,16 @@ mod tests {
     use serde_json::json;
 
     use pierwave_domain::Db;
+
+    /// 领域层的加权 / 最少连接门禁与线协议常量必须一致。
+    #[test]
+    fn domain_chain_strategy_min_protocol_matches_wire_constant() {
+        assert_eq!(
+            pierwave_domain::chains::STRATEGY_MIN_PROTOCOL_VERSION,
+            i64::from(pierwave_proto::CHAIN_STRATEGY_PROTOCOL_VERSION),
+            "主控门禁与线协议的策略常量必须一致"
+        );
+    }
 
     /// 领域层的多跳门禁与线协议常量必须一致（与 UDP 的同名断言同一目的）。
     #[test]

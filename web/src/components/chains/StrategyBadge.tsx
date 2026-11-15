@@ -3,7 +3,9 @@ import {
   FingerprintIcon,
   GaugeIcon,
   RefreshCwIcon,
+  ScaleIcon,
   ShieldCheckIcon,
+  WaypointsIcon,
   type LucideIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +41,14 @@ const STRATEGY_META: Record<
   },
   ip_hashed: {
     icon: FingerprintIcon,
+    tone: "border-border/80 bg-muted/40 text-foreground",
+  },
+  weighted: {
+    icon: ScaleIcon,
+    tone: "border-primary/35 bg-primary/10 text-primary",
+  },
+  least_conn: {
+    icon: WaypointsIcon,
     tone: "border-border/80 bg-muted/40 text-foreground",
   },
 };

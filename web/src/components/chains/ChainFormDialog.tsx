@@ -54,13 +54,18 @@ import {
   CHAIN_MAX_GROUPS,
   CHAIN_MIN_GROUPS,
   CHAIN_STRATEGIES,
+  CHAIN_WEIGHT_MAX,
+  CHAIN_WEIGHT_MIN,
   DEFAULT_CHAIN_STRATEGY,
+  DEFAULT_CHAIN_WEIGHT,
   GROUP_MAX_MEMBERS,
   GROUP_MIN_GROUP_MEMBERS,
   groupKind,
   normalizeStrategy,
+  normalizeWeight,
   orderGroups,
   orderMembers,
+  weightFieldVisible,
   type ChainStrategy,
 } from "@/lib/chains";
 import {
@@ -109,6 +114,7 @@ interface ChainFormDialogProps {
 interface MemberFieldErrors {
   server_id?: { message?: string };
   listen_port?: { message?: string };
+  weight?: { message?: string };
 }
 
 interface GroupFieldErrors {
@@ -119,7 +125,11 @@ interface GroupFieldErrors {
 }
 
 function emptyMember() {
-  return { server_id: "", listen_port: "" };
+  return {
+    server_id: "",
+    listen_port: "",
+    weight: String(DEFAULT_CHAIN_WEIGHT),
+  };
 }
 
 function emptyGroup() {
@@ -227,6 +237,8 @@ function GroupCard({
   const single = kind === "single";
   const strategy = watch(`groups.${index}.strategy`);
   const selectedStrategy: ChainStrategy = normalizeStrategy(strategy);
+  // 权重只在「加权 + 多成员组」时出现：单成员组没有可分配的对象。
+  const weightVisible = weightFieldVisible(selectedStrategy, members.length);
   const groupName = (watch(`groups.${index}.name`) ?? "").trim();
   const isEntry = index === 0;
   const isLast = index === groupCount - 1;
@@ -306,7 +318,7 @@ function GroupCard({
 
   function setMemberField(
     memberIndex: number,
-    field: "server_id" | "listen_port",
+    field: "server_id" | "listen_port" | "weight",
     value: string,
   ) {
     setValue(`groups.${index}.members.${memberIndex}.${field}`, value, {
@@ -326,6 +338,7 @@ function GroupCard({
         {
           server_id: first.server_id,
           listen_port: first.listen_port,
+          weight: first.weight,
         },
       ]);
     } else if (members.length < GROUP_MIN_GROUP_MEMBERS) {
@@ -658,6 +671,7 @@ function GroupCard({
             const memberError = memberErrors?.[memberIndex];
             const serverError = memberError?.server_id?.message;
             const portError = memberError?.listen_port?.message;
+            const weightError = memberError?.weight?.message;
             const memberSeq = memberIndex + 1;
             const isFirstMember = memberIndex === 0;
             const isLastMember = memberIndex === fields.length - 1;
@@ -736,9 +750,19 @@ function GroupCard({
 
                 <div
                   className={cn(
-                    "grid grid-cols-1 gap-2",
-                    showPortField && "sm:grid-cols-[minmax(0,1fr)_7rem]",
-                    showSavedPort && "sm:grid-cols-[minmax(0,1fr)_auto]",
+                    "grid grid-cols-1 items-end gap-2",
+                    showPortField &&
+                      weightVisible &&
+                      "sm:grid-cols-[minmax(0,1fr)_7rem_5rem]",
+                    showPortField &&
+                      !weightVisible &&
+                      "sm:grid-cols-[minmax(0,1fr)_7rem]",
+                    showSavedPort &&
+                      weightVisible &&
+                      "sm:grid-cols-[minmax(0,1fr)_auto_5rem]",
+                    showSavedPort &&
+                      !weightVisible &&
+                      "sm:grid-cols-[minmax(0,1fr)_auto]",
                   )}
                 >
                   <div className="space-y-1">
@@ -834,6 +858,54 @@ function GroupCard({
                           {t("chains.autoPortReadonly", { port: savedPort })}
                         </span>
                       </div>
+                    </div>
+                  ) : null}
+
+                  {weightVisible ? (
+                    <div className="space-y-1">
+                      <Label
+                        htmlFor={`chain-group-${index}-member-${memberIndex}-weight`}
+                        className="type-micro text-muted-foreground"
+                      >
+                        {t("chains.form.memberWeight")}
+                      </Label>
+                      <Input
+                        id={`chain-group-${index}-member-${memberIndex}-weight`}
+                        value={
+                          members[memberIndex]?.weight ??
+                          String(DEFAULT_CHAIN_WEIGHT)
+                        }
+                        onChange={(event) =>
+                          setMemberField(
+                            memberIndex,
+                            "weight",
+                            event.target.value,
+                          )
+                        }
+                        onBlur={() => {
+                          if (formState.isSubmitted) void trigger();
+                        }}
+                        inputMode="numeric"
+                        autoComplete="off"
+                        placeholder={String(DEFAULT_CHAIN_WEIGHT)}
+                        title={t("chains.form.memberWeightHint", {
+                          min: CHAIN_WEIGHT_MIN,
+                          max: CHAIN_WEIGHT_MAX,
+                        })}
+                        aria-required
+                        aria-label={t("chains.form.memberWeightAria", {
+                          group: seq,
+                          member: memberSeq,
+                        })}
+                        aria-invalid={Boolean(weightError)}
+                        className="font-mono tabular-nums"
+                        disabled={pending}
+                      />
+                      {weightError ? (
+                        <p role="alert" className="text-xs text-destructive">
+                          {weightError}
+                        </p>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -984,6 +1056,8 @@ export function ChainFormDialog({
             ? members.map((member) => ({
                 server_id: member.server_id,
                 listen_port: String(member.listen_port),
+                // 旧后端 / 旧链没有 weight：按契约缺省 1 回填。
+                weight: String(member.weight ?? DEFAULT_CHAIN_WEIGHT),
               }))
             : [emptyMember()],
       };
@@ -1163,6 +1237,10 @@ export function ChainFormDialog({
                 ? undefined
                 : Number(member.listen_port),
             priority: memberIndex,
+            // 只有加权 + 多成员组才提交 weight；其它情况交给后端缺省 1。
+            ...(weightFieldVisible(group.strategy, group.members.length)
+              ? { weight: normalizeWeight(member.weight) }
+              : {}),
           })),
         })),
       ).map((group) => ({

@@ -850,7 +850,7 @@ export interface ChainGroupMember {
   listen_port: number;
   /** 组内顺序：小的优先（主备），同优先级保持配置顺序（轮询）。 */
   priority: number;
-  /** 预留给加权，本轮只存不用。 */
+  /** 加权策略的相对权重（1–100，缺省 1）；其它策略忽略。 */
   weight: number;
   /** 推导出的转发规则 id，用于和心跳状态对齐。 */
   forward_id: string;
@@ -903,7 +903,7 @@ export interface ChainGroup {
   seq: number;
   /** 可选展示名。 */
   name: string | null;
-  /** `round_robin` | `failover` | `lowest_latency` | `ip_hashed`。 */
+  /** `round_robin` | `failover` | `lowest_latency` | `ip_hashed` | `weighted` | `least_conn`。 */
   strategy: string;
   /** 该组 realm 监听证书；入口组（seq 0）始终为 null。 */
   cert_id: string | null;
@@ -1055,6 +1055,11 @@ export interface ChainGroupMemberInput {
   listen_port?: number;
   /** 组内顺序，0 = 最高优先级。 */
   priority: number;
+  /**
+   * 成员权重（1–100，缺省 1），只在 `strategy = weighted` 且多成员组时有意义。
+   * 单成员组 / 其它策略不提交，后端保持缺省 1。
+   */
+  weight?: number;
 }
 
 export interface ChainGroupInput {

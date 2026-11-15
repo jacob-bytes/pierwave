@@ -1442,6 +1442,7 @@ mod tests {
                 host: (*host).into(),
                 port: *port,
                 server_id: String::new(),
+                weight: pierwave_proto::default_target_weight(),
             });
         }
         if let Some((host, port)) = targets.first() {

@@ -96,6 +96,14 @@ Insufficient samples never raise an alert.
   `rx_bps` / `tx_bps`、`forward_probe_counters`、`forward_probe_samples`、
   `chain_degradation`。
 - 旧 Agent 不报数据时，主控全程保持 NULL，前端显示 `—`；**任何地方都不会把未知写成 0**。
+- `PROTOCOL_VERSION` 27（链选路）：`ForwardStrategy` 新增 `weighted` / `least_conn`，
+  `ForwardTarget` 新增 `weight`（缺省 1）。`weight` 对旧 Agent 是未知字段（serde 忽略）；
+  新枚举变体旧 Agent 不认识，保存与下发两条路径都要求整链协议 ≥ 27（见 `docs/ERRORS.md`）。
+
+English: `PROTOCOL_VERSION` is 26 for the telemetry fields above; 27 adds the weighted /
+least-connections chain strategies and `ForwardTarget.weight` (default 1). Old agents ignore
+the unknown `weight` field, but not the new enum variants, so both the write and dispatch
+paths require protocol >= 27 for the whole chain (see `docs/ERRORS.md`).
 
 English: `PROTOCOL_VERSION` is 26. `Heartbeat` gains `net_rx_bytes`, `net_tx_bytes`,
 `net_at`; `ForwardStatus` gains `probe_attempts` and `probe_failures`. All are optional and

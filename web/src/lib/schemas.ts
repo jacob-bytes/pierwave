@@ -1,7 +1,12 @@
 import { z } from "zod";
 import type { TFunction } from "@/i18n";
 import { portFieldVisible } from "@/lib/chainPorts";
-import { CHAIN_STRATEGIES, collectGroupIssues } from "@/lib/chains";
+import {
+  CHAIN_STRATEGIES,
+  collectGroupIssues,
+  parseWeight,
+  weightFieldVisible,
+} from "@/lib/chains";
 import { CHAIN_TRANSPORTS, validateTls } from "@/lib/chainTls";
 import {
   CHAIN_ENGINES,
@@ -608,6 +613,8 @@ export function chainFormSchema(t: TFunction) {
               // 入口组（seq 0）在 superRefine 里校验；中间跳（seq ≥ 1）的端口
               // 由后端自动分配，不校验也不提交，避免历史脏数据卡住保存。
               listen_port: z.string(),
+              // 加权策略的成员权重；只在「加权 + 多成员组」时渲染与校验。
+              weight: z.string(),
             }),
           ),
         }),
@@ -624,17 +631,29 @@ export function chainFormSchema(t: TFunction) {
           });
         }
         // 入口组仍然手填端口；中间跳的端口由后端分配，不校验也不提交。
-        if (!portFieldVisible(index)) return;
-        group.members.forEach((member, memberIndex) => {
-          const raw = member.listen_port.trim();
-          const port = Number(raw);
-          if (/^\d+$/.test(raw) && port >= 1 && port <= 65535) return;
-          ctx.addIssue({
-            code: "custom",
-            path: ["groups", index, "members", memberIndex, "listen_port"],
-            message: t("validation.portRange"),
+        if (portFieldVisible(index)) {
+          group.members.forEach((member, memberIndex) => {
+            const raw = member.listen_port.trim();
+            const port = Number(raw);
+            if (/^\d+$/.test(raw) && port >= 1 && port <= 65535) return;
+            ctx.addIssue({
+              code: "custom",
+              path: ["groups", index, "members", memberIndex, "listen_port"],
+              message: t("validation.portRange"),
+            });
           });
-        });
+        }
+        // 加权 + 多成员组：成员权重必须是 1–100 的整数；单成员组不渲染也不校验。
+        if (weightFieldVisible(group.strategy, group.members.length)) {
+          group.members.forEach((member, memberIndex) => {
+            if (parseWeight(member.weight) !== null) return;
+            ctx.addIssue({
+              code: "custom",
+              path: ["groups", index, "members", memberIndex, "weight"],
+              message: t("validation.chainMemberWeight"),
+            });
+          });
+        }
       });
       // 纯规则在 `collectGroupIssues` 里单测；这里只负责翻译文案与错误层级。
       for (const issue of collectGroupIssues(values.groups)) {

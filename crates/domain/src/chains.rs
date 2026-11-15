@@ -75,8 +75,28 @@ pub const TUNNEL_MULTIHOP_MIN_PROTOCOL_VERSION: i64 = 24;
 /// 与 `pierwave_proto::TUNNEL_NOISE_UDP_PROTOCOL_VERSION` 必须一致（master 有断言）。
 pub const TUNNEL_NOISE_UDP_MIN_PROTOCOL_VERSION: i64 = 25;
 
-/// 组内选路策略的四个合法值（与 `PROTOCOL_VERSION = 12` 的线协议一致）。
-pub const STRATEGY_NAMES: [&str; 4] = ["round_robin", "failover", "lowest_latency", "ip_hashed"];
+/// 组内选路策略的六个合法值（与 `PROTOCOL_VERSION = 27` 的线协议一致）。
+pub const STRATEGY_NAMES: [&str; 6] = [
+    "round_robin",
+    "failover",
+    "lowest_latency",
+    "ip_hashed",
+    "weighted",
+    "least_conn",
+];
+
+/// 成员权重下限（含）。
+pub const WEIGHT_MIN: i64 = 1;
+
+/// 成员权重上限（含）。
+pub const WEIGHT_MAX: i64 = 100;
+
+/// 加权 / 最少连接需要的最低 Agent 线协议版本。
+///
+/// 旧 Agent 的 `ForwardStrategy` 没有这两个变体，收到后会让整份期望态解析失败
+/// （同一台服务器上的所有转发一起消失）。与
+/// `pierwave_proto::CHAIN_STRATEGY_PROTOCOL_VERSION` 必须一致（master 有断言）。
+pub const STRATEGY_MIN_PROTOCOL_VERSION: i64 = 27;
 
 /// 领域层的选路策略。
 ///
@@ -93,6 +113,10 @@ pub enum GroupStrategy {
     LowestLatency,
     /// 按客户端 IP 做一致性哈希。
     IpHashed,
+    /// 按成员权重做平滑加权随机（协议 27 起）。
+    Weighted,
+    /// 选当前活跃连接数最少的成员，平局按轮询（协议 27 起）。
+    LeastConn,
 }
 
 impl GroupStrategy {
@@ -102,16 +126,25 @@ impl GroupStrategy {
             Self::Failover => "failover",
             Self::LowestLatency => "lowest_latency",
             Self::IpHashed => "ip_hashed",
+            Self::Weighted => "weighted",
+            Self::LeastConn => "least_conn",
         }
     }
 
-    /// 严格解析：只接受四个 snake_case 枚举值（大小写不敏感会掩盖配置错误）。
+    /// 是否只有协议 27+ 的 Agent 才认识。
+    pub const fn requires_agent_v27(self) -> bool {
+        matches!(self, Self::Weighted | Self::LeastConn)
+    }
+
+    /// 严格解析：只接受六个 snake_case 枚举值（大小写不敏感会掩盖配置错误）。
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         match raw.trim() {
             "round_robin" => Ok(Self::RoundRobin),
             "failover" => Ok(Self::Failover),
             "lowest_latency" => Ok(Self::LowestLatency),
             "ip_hashed" => Ok(Self::IpHashed),
+            "weighted" => Ok(Self::Weighted),
+            "least_conn" => Ok(Self::LeastConn),
             other => Err(DomainError::with_params(
                 "chain.strategy_invalid",
                 json!({ "strategy": other, "allowed": STRATEGY_NAMES }),
@@ -124,9 +157,89 @@ impl GroupStrategy {
     }
 
     /// 从数据库里读出的策略：非法值回落到轮询，保证旧数据不会让整条链下发失败。
+    ///
+    /// 注意：新策略（weighted / least_conn）能被正常解析，**不会**走到回落；
+    /// 旧 Agent 无法理解它们时由 [`strategy_blocked_reason`] 整链阻断，
+    /// 绝不静默降级成轮询。
     pub fn from_db(raw: &str) -> Self {
         Self::parse(raw).unwrap_or_default()
     }
+}
+
+/// 成员权重必须是 1–100 的整数。
+///
+/// 历史行 / 旧链没有显式权重时由迁移与列默认值给出 1，因此旧数据天然通过。
+/// 错误码 `chain.weight_invalid` 由前端词典翻译。
+pub fn validate_weight(weight: i64, seq: i64) -> Result<(), DomainError> {
+    if (WEIGHT_MIN..=WEIGHT_MAX).contains(&weight) {
+        return Ok(());
+    }
+    Err(DomainError::with_params(
+        "chain.weight_invalid",
+        json!({
+            "weight": weight,
+            "min": WEIGHT_MIN,
+            "max": WEIGHT_MAX,
+            "seq": seq,
+        }),
+        format!(
+            "第 {} 组的成员权重必须在 {WEIGHT_MIN}-{WEIGHT_MAX} 之间（当前 {weight}）/ member weight in group {} must be between {WEIGHT_MIN} and {WEIGHT_MAX} (got {weight})",
+            seq + 1,
+            seq + 1
+        ),
+    ))
+}
+
+/// 这条链的某个策略是否需要协议 27+ 的 Agent。
+///
+/// 输入是 `(策略, 组成员数)`：
+/// * 入口组（seq = 0）的策略永远不下发（执行选路的是上一跳），不参与门禁；
+/// * **单成员组没有选路空间**，主控推导时会把新策略归一成默认值，不把
+///   旧 Agent 不认识的枚举值放到线上（行为等价，不是降级）；
+/// * 多成员组的新策略会原样下发给上一跳，旧 Agent 会让整份期望态解析失败。
+pub fn strategy_needs_new_agent(groups: &[(GroupStrategy, usize)]) -> bool {
+    groups
+        .iter()
+        .enumerate()
+        .any(|(seq, (strategy, member_count))| {
+            seq >= 1 && *member_count > 1 && strategy.requires_agent_v27()
+        })
+}
+
+/// 链保存前的策略能力门禁，错误码 `chain.strategy_requires_agent_upgrade`。
+///
+/// `needs_upgrade` 由 [`strategy_needs_new_agent`] 得出；`servers` 是整条链的
+/// `(服务器名, Agent 协议版本)`。未知（NULL）按旧版处理，与其它能力门禁同一口径。
+pub fn ensure_chain_strategy_supported(
+    needs_upgrade: bool,
+    servers: &[(&str, Option<i64>)],
+) -> Result<(), DomainError> {
+    if !needs_upgrade {
+        return Ok(());
+    }
+    let mut stale: Vec<&str> = Vec::new();
+    for (name, version) in servers {
+        let supported = version.is_some_and(|version| version >= STRATEGY_MIN_PROTOCOL_VERSION);
+        if !supported && !stale.contains(name) {
+            stale.push(name);
+        }
+    }
+    if stale.is_empty() {
+        return Ok(());
+    }
+    Err(DomainError::with_params(
+        "chain.strategy_requires_agent_upgrade",
+        json!({
+            "server": stale.join("、"),
+            "servers": stale,
+            "required": STRATEGY_MIN_PROTOCOL_VERSION,
+        }),
+        format!(
+            "加权 / 最少连接选路需要每台服务器的 Agent 协议版本 ≥ {STRATEGY_MIN_PROTOCOL_VERSION}（旧 Agent 不认识新策略，会导致整份期望态解析失败）：{} / weighted / least-connection routing requires agent protocol >= {STRATEGY_MIN_PROTOCOL_VERSION} on every server (older agents cannot parse the new strategy and would fail the whole desired state): {}",
+            stale.join("、"),
+            stale.join(", ")
+        ),
+    ))
 }
 
 /// 旧版单跳 id：`chain-<chain_id>-<seq>`。
@@ -497,6 +610,39 @@ pub fn agent_protocol_blocked_reason(
         })
 }
 
+/// 加权 / 最少连接遇到旧 Agent 时的整链阻断原因。
+///
+/// 旧 Agent 的 `ForwardStrategy` 枚举没有新变体，整份期望态会解析失败；
+/// 保存路径用 [`ensure_chain_strategy_supported`] 直接 400，这里给列表/概览
+/// 与下发路径提供同一套判定（未知版本按旧版处理）。**绝不**把新策略降级成轮询。
+pub fn strategy_blocked_reason(groups: &[ChainGroupWithMembers]) -> Option<BlockedReason> {
+    let mut ordered: Vec<&ChainGroupWithMembers> = groups.iter().collect();
+    ordered.sort_by_key(|group| group.group.seq);
+    let strategies: Vec<(GroupStrategy, usize)> = ordered
+        .iter()
+        .map(|group| {
+            (
+                GroupStrategy::from_db(&group.group.strategy),
+                group.members.len(),
+            )
+        })
+        .collect();
+    if !strategy_needs_new_agent(&strategies) {
+        return None;
+    }
+    let servers: Vec<(&str, Option<i64>)> = ordered
+        .iter()
+        .flat_map(|group| group.members.iter())
+        .map(|member| (member.server_name.as_str(), member.server_protocol_version))
+        .collect();
+    ensure_chain_strategy_supported(true, &servers)
+        .err()
+        .map(|error| BlockedReason {
+            code: error.code.to_string(),
+            message: error.message,
+        })
+}
+
 /// 一条链在视图里「为什么没下发」的结构化原因。
 ///
 /// `code` 是前端词典的稳定键，`message` 是中文兜底文案；两者都由
@@ -787,6 +933,11 @@ pub fn blocked_reason(
     if let Some(reason) = agent_protocol_blocked_reason(chain, groups) {
         return Some(reason);
     }
+    // 加权 / 最少连接只有协议 27+ 的 Agent 认识；历史链遇到旧 Agent 时整链
+    // 阻断，绝不把策略静默降级成轮询。
+    if let Some(reason) = strategy_blocked_reason(groups) {
+        return Some(reason);
+    }
     if engine::is_tunnel(&chain.engine) {
         return tunnel_blocked_reason(chain, groups);
     }
@@ -923,7 +1074,7 @@ mod tests {
     }
 
     #[test]
-    fn strategies_accept_exactly_the_four_wire_values() {
+    fn strategies_accept_exactly_the_six_wire_values() {
         assert_eq!(
             GroupStrategy::parse("round_robin").unwrap(),
             GroupStrategy::RoundRobin
@@ -941,15 +1092,32 @@ mod tests {
             GroupStrategy::parse("ip_hashed").unwrap(),
             GroupStrategy::IpHashed
         );
+        assert_eq!(
+            GroupStrategy::parse("weighted").unwrap(),
+            GroupStrategy::Weighted,
+            "加权策略必须能被严格解析"
+        );
+        assert_eq!(
+            GroupStrategy::parse("least_conn").unwrap(),
+            GroupStrategy::LeastConn,
+            "最少连接策略必须能被严格解析"
+        );
         assert_eq!(GroupStrategy::default(), GroupStrategy::RoundRobin);
         assert_eq!(GroupStrategy::RoundRobin.as_str(), "round_robin");
+        assert_eq!(GroupStrategy::Weighted.as_str(), "weighted");
+        assert_eq!(GroupStrategy::LeastConn.as_str(), "least_conn");
 
-        for bad in ["", "RoundRobin", "round-robin", "random", "weighted"] {
+        for bad in ["", "RoundRobin", "round-robin", "random", "weight"] {
             let error = GroupStrategy::parse(bad).unwrap_err();
             assert_eq!(error.code, "chain.strategy_invalid", "bad={bad:?}");
             assert!(
                 error.message.contains("只支持 round_robin / failover"),
                 "{}",
+                error.message
+            );
+            assert!(
+                error.message.contains("weighted") && error.message.contains("least_conn"),
+                "错误文案必须列出全部 6 个合法值：{}",
                 error.message
             );
         }
@@ -958,6 +1126,169 @@ mod tests {
             GroupStrategy::RoundRobin,
             "旧数据里的非法策略回落到轮询，不能拖垮整条链"
         );
+        assert_eq!(
+            GroupStrategy::from_db("weighted"),
+            GroupStrategy::Weighted,
+            "合法的新策略不能被 from_db 回落"
+        );
+    }
+
+    #[test]
+    fn member_weight_must_be_between_one_and_one_hundred() {
+        for weight in [WEIGHT_MIN, 2, 50, WEIGHT_MAX] {
+            assert!(validate_weight(weight, 1).is_ok(), "weight={weight}");
+        }
+        for weight in [0, -1, WEIGHT_MAX + 1, i64::MAX] {
+            let error = validate_weight(weight, 1).unwrap_err();
+            assert_eq!(error.code, "chain.weight_invalid", "weight={weight}");
+            assert_eq!(
+                error.params,
+                json!({
+                    "weight": weight,
+                    "min": WEIGHT_MIN,
+                    "max": WEIGHT_MAX,
+                    "seq": 1,
+                })
+            );
+            assert!(error.message.contains("第 2 组"), "{}", error.message);
+            assert!(
+                error.message.contains("1-100"),
+                "文案必须写清范围：{}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn new_strategies_require_protocol_27_agents() {
+        // 入口组的策略永远不下发：单组链用 weighted 不需要新 Agent。
+        assert!(!strategy_needs_new_agent(&[(GroupStrategy::Weighted, 1)]));
+        assert!(!strategy_needs_new_agent(&[
+            (GroupStrategy::RoundRobin, 1),
+            (GroupStrategy::Failover, 1),
+        ]));
+        assert!(
+            !strategy_needs_new_agent(&[
+                (GroupStrategy::RoundRobin, 1),
+                (GroupStrategy::Weighted, 1),
+            ]),
+            "单成员组没有选路空间：新策略推导时归一成默认值，不要求升级"
+        );
+        assert!(strategy_needs_new_agent(&[
+            (GroupStrategy::RoundRobin, 1),
+            (GroupStrategy::Weighted, 2),
+        ]));
+        assert!(
+            strategy_needs_new_agent(&[
+                (GroupStrategy::RoundRobin, 1),
+                (GroupStrategy::LeastConn, 2),
+            ]),
+            "最少连接同样只有协议 27+ 认识"
+        );
+
+        let servers = [("hk-a", Some(27)), ("jp-b", Some(27))];
+        assert!(ensure_chain_strategy_supported(false, &servers).is_ok());
+        assert!(
+            ensure_chain_strategy_supported(true, &servers).is_ok(),
+            "全部 >= 27 时放行"
+        );
+
+        for version in [None, Some(0), Some(26)] {
+            let servers = [("hk-a", Some(27)), ("jp-b", version)];
+            let error = ensure_chain_strategy_supported(true, &servers).unwrap_err();
+            assert_eq!(error.code, "chain.strategy_requires_agent_upgrade");
+            assert_eq!(error.params["required"], STRATEGY_MIN_PROTOCOL_VERSION);
+            assert_eq!(error.params["servers"], json!(["jp-b"]));
+            assert!(
+                error.message.contains("jp-b") && error.message.contains("27"),
+                "文案必须点名服务器与所需版本：{}",
+                error.message
+            );
+            assert!(
+                error.message.contains("protocol >= 27"),
+                "错误文案必须中英双语：{}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn historical_new_strategy_chain_is_blocked_not_downgraded() {
+        let mut groups = vec![server("strategy-chain", 0), server("strategy-chain", 1)];
+        // 多成员组才会把新策略真正放到线上；复制一台同组候选。
+        let mut second = groups[1].members[0].clone();
+        second.server_id = "srv-1b".into();
+        second.server_name = "srv-1b".into();
+        groups[1].members.push(second);
+        groups[1].group.strategy = "weighted".into();
+        for member in &mut groups[1].members {
+            member.strategy = "weighted".into();
+            member.server_protocol_version = Some(26);
+        }
+
+        let reason = strategy_blocked_reason(&groups).expect("旧 Agent 必须整链阻断");
+        assert_eq!(reason.code, "chain.strategy_requires_agent_upgrade");
+        assert_eq!(
+            GroupStrategy::from_db(&groups[1].group.strategy),
+            GroupStrategy::Weighted,
+            "阻断不等于降级：策略本身必须仍然可读"
+        );
+
+        // Agent 升级后恢复下发。
+        groups[0].members[0].server_protocol_version = Some(27);
+        for member in &mut groups[1].members {
+            member.server_protocol_version = Some(27);
+        }
+        assert!(
+            strategy_blocked_reason(&groups).is_none(),
+            "整条链都 >= 27 时必须恢复"
+        );
+
+        // 入口组的 weighted 永不下发，不因旧 Agent 阻断。
+        groups[1].group.strategy = "round_robin".into();
+        for member in &mut groups[1].members {
+            member.strategy = "round_robin".into();
+        }
+        groups[0].group.strategy = "weighted".into();
+        groups[0].members[0].strategy = "weighted".into();
+        groups[0].members[0].server_protocol_version = Some(26);
+        assert!(
+            strategy_blocked_reason(&groups).is_none(),
+            "入口组策略不参与下发"
+        );
+    }
+
+    #[test]
+    fn blocked_reason_uses_the_strategy_gate() {
+        let mut groups = vec![server("blocked-strategy", 0), server("blocked-strategy", 1)];
+        let mut second = groups[1].members[0].clone();
+        second.server_id = "srv-1b".into();
+        second.server_name = "srv-1b".into();
+        groups[1].members.push(second);
+        groups[1].group.strategy = "least_conn".into();
+        for member in &mut groups[1].members {
+            member.strategy = "least_conn".into();
+            member.server_protocol_version = Some(26);
+        }
+        let chain = Chain {
+            id: "blocked-strategy".into(),
+            name: "strategy".into(),
+            target_host: "1.1.1.1".into(),
+            target_port: 443,
+            enabled: true,
+            engine: "native".into(),
+            udp: false,
+            protocol: "tcp".into(),
+            transport: "none".into(),
+            tunnel_security: "tls".into(),
+            template_id: None,
+            owner_user_id: None,
+            created_at: 0,
+            updated_at: 0,
+        };
+        let reason = blocked_reason(&chain, &groups, &HashMap::new(), 0)
+            .expect("列表与下发必须看到同一个阻断原因");
+        assert_eq!(reason.code, "chain.strategy_requires_agent_upgrade");
     }
 
     #[test]

@@ -620,6 +620,7 @@ mod tests {
                 host: addr.ip().to_string(),
                 port: i64::from(addr.port()),
                 server_id: format!("srv-{}", addr.port()),
+                weight: 1,
             })
             .collect::<Vec<_>>()
             .into()
@@ -1030,6 +1031,7 @@ mod tests {
             host: "127.0.0.1".into(),
             port: 70_000,
             server_id: "srv".into(),
+            weight: 1,
         };
         assert_eq!(
             connect_upstream(&target).await.unwrap_err().kind(),
