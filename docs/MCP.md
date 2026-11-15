@@ -8,7 +8,7 @@
 
 `pierwave-mcp` 是一个 **只读** 的 [MCP](https://modelcontextprotocol.io/) stdio 服务：
 它通过逐行 JSON-RPC 2.0 与 MCP 客户端通信，直接以只读方式打开主控的 SQLite 数据库，
-提供 5 个查询工具。它不经过主控 HTTP API，也没有任何写入、重启或下发配置的能力。
+提供 5 个查询工具。stdio 模式不经过主控 HTTP API；HTTP 模式由主控的 `POST /mcp` 暴露同一套只读工具。两种模式都没有任何写入、重启或下发配置的能力。
 
 ### 构建
 
@@ -85,6 +85,60 @@ Claude Desktop（`claude_desktop_config.json`）或 Cursor（`~/.cursor/mcp.json
 
 任何支持 stdio MCP 的客户端都可以直接启动该命令。传输格式是**一行一个 JSON 对象**，
 每个请求的响应也是一行。
+
+### HTTP 接入（Streamable HTTP）
+
+不能启动本地进程的 MCP 客户端可以直接连主控的 `POST /mcp`。它和 stdio 模式
+共用同一套工具实现与结果形状，只是把传输换成了 HTTP。
+
+- **认证**：`Authorization: Bearer pwt_...`。token 在「设置 → 安全 → API 访问」创建，
+  明文只显示一次；库里只存 SHA-256 哈希。
+- **scope**：`read` 就够用（所有工具只读），`admin` 也可以。缺失、无效、过期或已吊销
+  返回 `401`；scope 被改成未知值返回 `403`。
+- **传输**：一次 POST 一条 JSON-RPC 消息。请求返回 `application/json`；
+  通知（没有 `id`）返回 `202` + 空 body。不提供服务端 SSE 流。
+- **错误形状**：认证、限流、解析错误全部是 JSON-RPC `error` 对象，不会出现 HTML 错误页。
+  实现自定义错误码：`-32001` 未认证、`-32003` scope 不足、`-32004` 限流、`-32005` 方法不允许。
+- **限流**：每个 token 每分钟 120 次，与普通 API 共用额度；超出返回 `429`，
+  带 `Retry-After` 头，`error.code = -32004`。
+
+```bash
+TOKEN=pwt_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# initialize
+curl -s http://127.0.0.1:8787/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+
+# tools/list
+curl -s http://127.0.0.1:8787/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+
+# tools/call
+curl -s http://127.0.0.1:8787/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_servers","arguments":{}}}'
+```
+
+![MCP curl 示例](images/api-tokens/mcp-curl.png)
+
+#### HTTP 的工具复用方式与取舍
+
+HTTP 入口**没有**另写一套查询：
+
+1. `crates/mcp/src/tools.rs` 继续拥有工具目录、参数校验与派发；
+2. 主控把现有的 `SqlitePool` 包成 `pierwave_mcp::Database`（`Database::from_pool`），
+   再调用同一个 `Server::handle_message`；
+3. master 里没有任何 SQL，工具 SQL 仍然只出现在 `crates/mcp/src/db.rs`（全部 `SELECT`）。
+
+代价是 master 依赖 `pierwave-mcp` 这个轻量 crate，且共享的是同一个连接池；
+收益是 stdio 与 HTTP 的工具 schema、参数错误、返回字段**逐字节一致**，
+不会出现两份会漂移的查询实现。`Database::from_pool` 只通过工具派发使用，
+工具代码的只读性由 `db.rs` 的写关键字扫描测试兜底。
 
 ### 协议
 
@@ -372,7 +426,8 @@ get_status_summary
 
 ### 限制与安全
 
-- 没有鉴权：只应在可信的本机/本用户环境运行；不要把数据库文件或 MCP 服务暴露到公网。
+- stdio 模式没有鉴权：只应在可信的本机/本用户环境运行；不要把数据库文件暴露到公网。
+  HTTP 模式（`POST /mcp`）必须带 API Token，且只读；仍建议放在反向代理/TLS 后面。
 - 需要数据库文件的读权限；如果主控使用 WAL 模式，还需要能读取同目录的 `-wal` / `-shm`。
 - 不支持 `:memory:`；MCP 必须连接文件型数据库。
 - 只读工具不会触发断流、下发、重启或任何副作用；它不能代替主控的管理操作。
@@ -383,8 +438,9 @@ get_status_summary
 
 `pierwave-mcp` is a **read-only** [MCP](https://modelcontextprotocol.io/) stdio
 server. It speaks line-delimited JSON-RPC 2.0, opens the master's SQLite database
-in read-only mode, and exposes five query tools. It never calls the master HTTP
-API and has no ability to write, restart anything, or push configuration.
+in read-only mode, and exposes five query tools. The stdio mode never calls the
+master HTTP API; the HTTP mode exposes the same read-only tools at `POST /mcp` on
+the master. Neither mode can write, restart anything, or push configuration.
 
 ### Build
 
@@ -461,6 +517,68 @@ Passing the path through the environment:
 
 Any MCP client that supports stdio can launch the command directly. The transport
 is one JSON object per line; each response is one line as well.
+
+### HTTP access (Streamable HTTP)
+
+MCP clients that cannot launch a local process can talk to the master at
+`POST /mcp`. It shares the exact same tool implementation and result shape as the
+stdio mode; only the transport changes.
+
+- **Auth**: `Authorization: Bearer pwt_...`. Create the token under
+  Settings → Security → API access; the plaintext is shown once and only a
+  SHA-256 hash is stored.
+- **Scope**: `read` is enough (every tool is read-only); `admin` also works.
+  Missing, invalid, expired or revoked tokens return `401`; a token whose scope
+  was manually changed to an unknown value returns `403`.
+- **Transport**: one JSON-RPC message per POST. Requests return `application/json`;
+  notifications (no `id`) return `202` with an empty body. No server-side SSE stream.
+- **Error shape**: auth, rate-limit and parse failures are JSON-RPC `error`
+  objects — never an HTML error page. Implementation-defined codes: `-32001`
+  unauthorized, `-32003` insufficient scope, `-32004` rate limited, `-32005`
+  method not allowed.
+- **Rate limit**: 120 requests per minute per token, shared with the regular API.
+  Over the limit returns `429` with `Retry-After` and `error.code = -32004`.
+
+```bash
+TOKEN=pwt_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# initialize
+curl -s http://127.0.0.1:8787/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+
+# tools/list
+curl -s http://127.0.0.1:8787/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
+
+# tools/call
+curl -s http://127.0.0.1:8787/mcp \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_servers","arguments":{}}}'
+```
+
+![MCP curl example](images/api-tokens/mcp-curl.png)
+
+#### Why the HTTP transport reuses the stdio tools
+
+The HTTP entry point does **not** add a second query layer:
+
+1. `crates/mcp/src/tools.rs` keeps owning the tool catalog, argument validation
+   and dispatch;
+2. the master wraps its existing `SqlitePool` as `pierwave_mcp::Database`
+   (`Database::from_pool`) and calls the same `Server::handle_message`;
+3. there is no SQL in the master. Tool SQL stays in `crates/mcp/src/db.rs`
+   (all `SELECT`).
+
+The cost is that the master depends on the small `pierwave-mcp` crate and shares
+its connection pool; the benefit is that stdio and HTTP have byte-identical tool
+schemas, argument errors and result fields — no second implementation to drift.
+`Database::from_pool` is only used through tool dispatch, and the read-only rule
+is guarded by the write-keyword scan test for `db.rs`.
 
 ### Protocol
 
@@ -758,8 +876,10 @@ Output: server total/online, node total/enabled, and today's/month's weighted tr
 
 ### Limitations and safety
 
-- No authentication: run it only on a trusted local host/user; never expose the DB
-  file or the MCP service to the public internet.
+- The stdio mode has no authentication: run it only on a trusted local host/user
+  and never expose the DB file to the public internet. The HTTP mode (`POST /mcp`)
+  requires an API token and is read-only; putting it behind a reverse proxy/TLS is
+  still recommended.
 - The process needs read access to the database file. With WAL mode it also needs to
   read the adjacent `-wal` / `-shm` files.
 - `:memory:` is not supported; MCP needs a file-backed database.

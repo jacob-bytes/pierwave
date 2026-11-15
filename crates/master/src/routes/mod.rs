@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod alerts;
+pub mod api_tokens;
 pub mod audit;
 pub mod auth;
 pub mod backup;
@@ -10,6 +11,7 @@ pub mod desired;
 pub mod enforcement;
 pub mod forwards;
 pub mod install;
+pub mod mcp;
 pub mod me;
 pub mod nodes;
 pub mod outbounds;

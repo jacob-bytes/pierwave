@@ -1,5 +1,6 @@
 import { t } from "@/i18n";
 import type { AgentUpgradeStatus } from "@/lib/agentUpgrade";
+import type { ApiTokenScope } from "@/lib/apiTokens";
 import type { AlertTestResult } from "@/lib/alerts";
 import type {
   AgentUpgradeBatchItemStatus,
@@ -1964,6 +1965,33 @@ export interface Settings {
 
 export type UpdateSettingsInput = Partial<Settings>;
 
+/** 作用域化 API Token（管理端列表；永远不含明文/哈希）。 */
+export interface ApiTokenRow {
+  id: string;
+  name: string;
+  scope: ApiTokenScope;
+  created_at: number;
+  /** 从未使用时为 null；由后端批量异步写回。 */
+  last_used_at: number | null;
+  /** null = 永久有效。 */
+  expires_at: number | null;
+  /** null = 未吊销。 */
+  revoked_at: number | null;
+}
+
+export interface CreateApiTokenInput {
+  name: string;
+  scope: ApiTokenScope;
+  /** Unix 秒；不传 = 永久有效。 */
+  expires_at?: number | null;
+}
+
+/** 创建响应里的 `token` 明文只出现这一次。 */
+export interface CreateApiTokenResponse {
+  token: string;
+  item: ApiTokenRow;
+}
+
 /** 概览页「过期套餐实例」批量续期：只返回实际改动行数。 */
 export interface BatchRenewExpiredResponse {
   updated: number;
@@ -2288,6 +2316,20 @@ export const api = {
   },
 
   /** 面板设置：仅管理员可读写；后端可能尚未上线，页面按 404 兜底。 */
+  apiTokens: {
+    list: () => request<{ items: ApiTokenRow[] }>("/api/v1/api-tokens"),
+    create: (input: CreateApiTokenInput) =>
+      request<CreateApiTokenResponse>("/api/v1/api-tokens", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    revoke: (id: string) =>
+      request<{ ok: true; changed: boolean }>(
+        `/api/v1/api-tokens/${encodeURIComponent(id)}`,
+        { method: "DELETE" },
+      ),
+  },
+
   settings: {
     get: () => request<{ items: Settings }>("/api/v1/settings"),
     patch: (input: UpdateSettingsInput) =>

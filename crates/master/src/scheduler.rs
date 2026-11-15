@@ -525,6 +525,23 @@ pub async fn run_session_purge(state: &AppState) -> anyhow::Result<u64> {
 }
 
 /// 启动过期会话清理任务；第一次 tick 立即执行，所以启动时就会先扫一遍。
+/// API Token 的 `last_used_at` 批量写回：每 10 秒一轮。
+///
+/// 鉴权热路径只写内存（见 `crate::api_token`），这里统一落库；
+/// 失败只记日志并丢掉这一批，`last_used_at` 是展示字段，不影响鉴权。
+pub fn spawn_api_token_usage_flush(state: AppState) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(crate::api_token::FLUSH_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            ticker.tick().await;
+            if let Err(error) = state.api_token_usage.flush(&state.db.pool).await {
+                tracing::warn!(error = %error, "API Token last_used_at 批量写回失败");
+            }
+        }
+    })
+}
+
 pub fn spawn_session_purge(state: AppState) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(SESSION_PURGE_INTERVAL);

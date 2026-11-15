@@ -1,4 +1,5 @@
 mod alerts;
+mod api_token;
 mod app;
 mod audit;
 mod auth;
@@ -180,6 +181,8 @@ async fn main() -> anyhow::Result<()> {
     let _update_check = scheduler::spawn_update_check(state.clone());
     // 异地备份：每 60 秒看一次设置，到点把备份 PUT 到 WebDAV。
     let _remote_backup = scheduler::spawn_remote_backup(state.clone());
+    // API Token 的 last_used_at：每 10 秒把内存缓冲批量写回一次库。
+    let _api_token_usage = scheduler::spawn_api_token_usage_flush(state.clone());
     // 管理员 Telegram Bot：默认关闭；每 30 秒读一次设置，启停/改配置自动生效。
     // 所有失败都只 warn，启动阶段不因 Bot 配置问题失败。
     let _telegram_bot = telegram_bot::spawn(state.clone());

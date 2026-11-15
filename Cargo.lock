@@ -1576,6 +1576,7 @@ dependencies = [
  "futures-util",
  "if-addrs",
  "pierwave-domain",
+ "pierwave-mcp",
  "pierwave-proto",
  "rcgen",
  "serde",

@@ -11,6 +11,7 @@ use serde_json::Value;
 use tokio::sync::broadcast;
 
 use crate::alerts::Alerts;
+use crate::api_token::{ApiTokenRateLimiter, ApiTokenUsage};
 use crate::enforcement::Enforcer;
 use crate::tcping::Registry as TcpingRegistry;
 use crate::throttle::LoginThrottle;
@@ -267,6 +268,10 @@ pub struct AppState {
     pub tcping: TcpingRegistry,
     /// 异地备份（WebDAV）的进程内互斥与重试参数。
     pub remote_backup: RemoteBackupRuntime,
+    /// API Token 每 token 每分钟限流（进程内）。
+    pub api_token_throttle: Arc<ApiTokenRateLimiter>,
+    /// API Token 的 `last_used_at` 写回缓冲；调度器批量落库。
+    pub api_token_usage: Arc<ApiTokenUsage>,
 }
 
 impl AppState {
@@ -284,6 +289,8 @@ impl AppState {
             updates: UpdateService::default(),
             tcping: TcpingRegistry::default(),
             remote_backup: RemoteBackupRuntime::default(),
+            api_token_throttle: Arc::new(ApiTokenRateLimiter::default()),
+            api_token_usage: Arc::new(ApiTokenUsage::default()),
         }
     }
 

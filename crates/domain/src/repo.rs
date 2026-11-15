@@ -1171,6 +1171,148 @@ pub mod sessions {
     }
 }
 
+/// 作用域化 API Token（迁移 0054）。
+///
+/// 与 Agent token / 会话 token 一致：库里只存 SHA-256 哈希，明文只在创建时
+/// 由 [`create`] 返回一次。查询/认证都按哈希比对，任何列表接口都不会带回明文。
+pub mod api_tokens {
+    use super::*;
+    use crate::models::ApiToken;
+
+    /// 明文前缀；鉴权侧只接受带这个前缀的 Bearer。
+    pub const PREFIX: &str = "pwt_";
+    /// 只读 scope：仅允许 GET/HEAD/OPTIONS。
+    pub const SCOPE_READ: &str = "read";
+    /// 管理员 scope：等同管理员会话。
+    pub const SCOPE_ADMIN: &str = "admin";
+    /// 名称长度上限（与设置页其它名称字段一致的小上限）。
+    pub const MAX_NAME_CHARS: usize = 64;
+
+    /// 生成明文：`pwt_` + 两个 UUIDv4 的十六进制（64 字符），足够长且无需 rand。
+    pub fn generate_plaintext() -> String {
+        format!(
+            "{PREFIX}{}{}",
+            Uuid::new_v4().simple(),
+            Uuid::new_v4().simple()
+        )
+    }
+
+    /// 落库哈希：SHA-256 十六进制，与 Agent token / 会话 token 同一种方式。
+    pub fn hash_token(token: &str) -> String {
+        crate::password::sha256_hex(token)
+    }
+
+    /// 创建 token；返回 `(行, 明文)`。明文只在这里出现，调用方必须只返回一次。
+    pub async fn create(
+        pool: &SqlitePool,
+        name: &str,
+        scope: &str,
+        expires_at: Option<i64>,
+    ) -> anyhow::Result<(ApiToken, String)> {
+        let plaintext = generate_plaintext();
+        let token_hash = hash_token(&plaintext);
+        let id = Uuid::new_v4().to_string();
+        let ts = now();
+        sqlx::query(
+            "INSERT INTO api_tokens
+                 (id, name, token_hash, scope, created_at, last_used_at, expires_at, revoked_at)
+             VALUES (?, ?, ?, ?, ?, NULL, ?, NULL)",
+        )
+        .bind(&id)
+        .bind(name)
+        .bind(&token_hash)
+        .bind(scope)
+        .bind(ts)
+        .bind(expires_at)
+        .execute(pool)
+        .await?;
+
+        let row = get(pool, &id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("api_tokens 写入后读取失败：{id}"))?;
+        Ok((row, plaintext))
+    }
+
+    /// 管理端列表：包含已吊销/已过期的行，按创建时间倒序（最新在前）。
+    pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<ApiToken>> {
+        Ok(sqlx::query_as::<_, ApiToken>(
+            "SELECT id, name, token_hash, scope, created_at, last_used_at, expires_at, revoked_at
+             FROM api_tokens
+             ORDER BY created_at DESC, rowid DESC",
+        )
+        .fetch_all(pool)
+        .await?)
+    }
+
+    pub async fn get(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<ApiToken>> {
+        Ok(sqlx::query_as::<_, ApiToken>(
+            "SELECT id, name, token_hash, scope, created_at, last_used_at, expires_at, revoked_at
+             FROM api_tokens WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?)
+    }
+
+    /// 鉴权：只返回「未吊销且未过期」的 token。`now` 由 SQLite 绑定为参数，
+    /// 方便测试用固定时间戳构造过期/未过期。
+    pub async fn find_active_by_token(
+        pool: &SqlitePool,
+        token: &str,
+        at: i64,
+    ) -> anyhow::Result<Option<ApiToken>> {
+        let hash = hash_token(token);
+        Ok(sqlx::query_as::<_, ApiToken>(
+            "SELECT id, name, token_hash, scope, created_at, last_used_at, expires_at, revoked_at
+             FROM api_tokens
+             WHERE token_hash = ?
+               AND revoked_at IS NULL
+               AND (expires_at IS NULL OR expires_at > ?)",
+        )
+        .bind(hash)
+        .bind(at)
+        .fetch_optional(pool)
+        .await?)
+    }
+
+    /// 吊销：幂等（已吊销的行不重复写 `revoked_at`）。
+    /// 返回是否真的从「生效」变成了「吊销」。
+    pub async fn revoke(pool: &SqlitePool, id: &str) -> anyhow::Result<bool> {
+        let res =
+            sqlx::query("UPDATE api_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL")
+                .bind(now())
+                .bind(id)
+                .execute(pool)
+                .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    /// 批量写 `last_used_at`：鉴权热路径只在内存里聚合，调度器定期把
+    /// `(id, 时间戳)` 批量落库，避免每个请求都写一次库。
+    pub async fn touch_many(pool: &SqlitePool, updates: &[(String, i64)]) -> anyhow::Result<()> {
+        if updates.is_empty() {
+            return Ok(());
+        }
+        let mut tx = WriteTx::begin(pool).await?;
+        for (id, at) in updates {
+            sqlx::query("UPDATE api_tokens SET last_used_at = ? WHERE id = ?")
+                .bind(at)
+                .bind(id)
+                .execute(tx.conn())
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// token 总行数（测试用）。
+    pub async fn count(pool: &SqlitePool) -> anyhow::Result<i64> {
+        Ok(sqlx::query_scalar("SELECT COUNT(*) FROM api_tokens")
+            .fetch_one(pool)
+            .await?)
+    }
+}
+
 pub mod servers {
     use sqlx::QueryBuilder;
 

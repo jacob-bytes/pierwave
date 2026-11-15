@@ -1,4 +1,5 @@
-use axum::routing::{get, patch, post};
+use axum::extract::DefaultBodyLimit;
+use axum::routing::{delete, get, patch, post};
 use axum::Router;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
@@ -31,6 +32,23 @@ pub fn router(state: AppState) -> Router {
             post(routes::backup::remote_run),
         )
         .route("/api/v1/auth/login", post(routes::auth::login))
+        // API Token：列表 / 创建（明文只返回一次）/ 吊销；仅管理员。
+        .route(
+            "/api/v1/api-tokens",
+            get(routes::api_tokens::list).post(routes::api_tokens::create),
+        )
+        .route(
+            "/api/v1/api-tokens/{id}",
+            delete(routes::api_tokens::revoke),
+        )
+        // MCP Streamable HTTP：POST 单条 JSON-RPC；认证错误也是 JSON-RPC 形状。
+        .route(
+            "/mcp",
+            post(routes::mcp::http)
+                .get(routes::mcp::method_not_allowed)
+                .delete(routes::mcp::method_not_allowed)
+                .layer(DefaultBodyLimit::max(1024 * 1024)),
+        )
         .route("/api/v1/auth/logout", post(routes::auth::logout))
         .route("/api/v1/auth/me", get(routes::auth::me))
         .route(
@@ -253,6 +271,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/agent/download/{file}", get(routes::install::download))
         .route("/api/agent/release/{*rest}", get(routes::install::release))
         .route("/api/agent/ws", get(routes::agent::ws))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::auth::api_token_middleware,
+        ))
         .with_state(state)
         .fallback_service(static_files)
         .layer(TraceLayer::new_for_http())

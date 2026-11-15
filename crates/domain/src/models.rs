@@ -34,6 +34,27 @@ pub struct Session {
     pub created_at: i64,
 }
 
+/// 作用域化 API Token（迁移 0054）。
+///
+/// 明文只在创建时返回一次；这里只有哈希，序列化时也会被跳过，
+/// 因此任何列表/详情响应都不可能泄露哈希或明文。
+#[derive(Debug, Clone, FromRow, Serialize)]
+pub struct ApiToken {
+    pub id: String,
+    pub name: String,
+    #[serde(skip)]
+    pub token_hash: String,
+    /// `read`（默认）或 `admin`。
+    pub scope: String,
+    pub created_at: i64,
+    /// 最近一次通过 Bearer 使用的时间（异步批量写回）；NULL = 从未使用。
+    pub last_used_at: Option<i64>,
+    /// NULL = 永久有效。
+    pub expires_at: Option<i64>,
+    /// NULL = 未吊销。
+    pub revoked_at: Option<i64>,
+}
+
 #[derive(Debug, Clone, FromRow, Serialize)]
 pub struct Server {
     pub id: String,

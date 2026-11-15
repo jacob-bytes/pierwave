@@ -2443,7 +2443,7 @@ mod enforcement_tests {
         let package_id = package_template(&fixture.state, 10_000).await;
         let _ = crate::routes::users::create_user_package(
             axum::extract::State(fixture.state.clone()),
-            crate::auth::CurrentUser(admin),
+            crate::auth::CurrentUser(admin, None),
             axum::extract::Path(user_id.clone()),
             axum::Json(crate::routes::users::CreateUserPackage {
                 package_id,
@@ -2504,7 +2504,7 @@ mod enforcement_tests {
         // 管理员改额度：route 里直接 mark，不等 5 分钟对账。
         let _ = crate::routes::users::update_user_package(
             axum::extract::State(fixture.state.clone()),
-            crate::auth::CurrentUser(admin),
+            crate::auth::CurrentUser(admin, None),
             axum::extract::Path(instance_id),
             axum::Json(crate::routes::users::UpdateUserPackage {
                 expires_at: Patch::Missing,

@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 pierwave-domain = { path = "../domain" }
+pierwave-mcp = { path = "../mcp" }
 pierwave-proto = { path = "../proto" }
 anyhow = { workspace = true }
 axum = { workspace = true }

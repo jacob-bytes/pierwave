@@ -89,6 +89,18 @@ impl Database {
         Ok(Self { pool })
     }
 
+    /// Wrap an existing pool for tool dispatch (used by the master's HTTP
+    /// `/mcp` endpoint).
+    ///
+    /// The caller keeps ownership of the pool and must only route read-only
+    /// tool calls through this handle: every SQL statement in this module is
+    /// `SELECT`-only (a test scans this file for write keywords). This avoids a
+    /// second set of tool queries in the master while still sharing the exact
+    /// same tool catalog / result shape with the stdio transport.
+    pub fn from_pool(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+
     /// The underlying read-only pool (used by tests to prove writes fail).
     pub fn pool(&self) -> &SqlitePool {
         &self.pool

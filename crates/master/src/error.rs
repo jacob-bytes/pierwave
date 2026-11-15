@@ -85,6 +85,20 @@ impl AppError {
         Self::with_status(StatusCode::SERVICE_UNAVAILABLE, code, params, message)
     }
 
+    /// 429：API Token 限流。`retry_after` 同时进响应头与 `params`。
+    pub fn too_many_requests(
+        code: &'static str,
+        retry_after: u64,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::with_status(
+            StatusCode::TOO_MANY_REQUESTS,
+            code,
+            Some(json!({ "retry_after_secs": retry_after })),
+            message,
+        )
+    }
+
     /// 502：上游依赖（这里指远端 WebDAV）返回失败或不可达。
     pub fn bad_gateway(
         code: &'static str,
@@ -243,7 +257,25 @@ impl IntoResponse for AppError {
                 code,
                 params,
                 message,
-            } => (*status, message.clone(), Some(*code), params.clone(), None),
+            } => {
+                // 429 的 `retry_after_secs` 同时写回 `Retry-After` 头，
+                // 客户端不必解析 body 就能按建议重试。
+                let retry_after = (*status == StatusCode::TOO_MANY_REQUESTS)
+                    .then(|| {
+                        params
+                            .as_ref()
+                            .and_then(|params| params.get("retry_after_secs"))
+                            .and_then(Value::as_u64)
+                    })
+                    .flatten();
+                (
+                    *status,
+                    message.clone(),
+                    Some(*code),
+                    params.clone(),
+                    retry_after,
+                )
+            }
             AppError::Internal(e) => {
                 tracing::error!(error = %e, "internal error");
                 (

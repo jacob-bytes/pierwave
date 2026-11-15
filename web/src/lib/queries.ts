@@ -14,6 +14,7 @@ import {
   type AgentUpgradeInput,
   type AlertTestResponse,
   type ApplyResult,
+  type ApiTokenRow,
   type AuditListQuery,
   type BackupInfo,
   type BatchDisableOverQuotaResponse,
@@ -27,6 +28,8 @@ import {
   type ChainTemplate,
   type CleanupEnforcementEventsResponse,
   type CreateAgentUpgradeBatchInput,
+  type CreateApiTokenInput,
+  type CreateApiTokenResponse,
   type CreateCertificateInput,
   type CreateChainInput,
   type CreateChainTemplateInput,
@@ -181,6 +184,8 @@ export const queryKeys = {
   packages: ["packages"] as const,
   userPackages: (userId: string) => ["user", userId, "packages"] as const,
   settings: ["settings"] as const,
+  /** 作用域化 API Token 列表（只含元数据，不含明文）。 */
+  apiTokens: ["api-tokens"] as const,
   /** P17：版本更新状态（master 最新版本 + Agent 版本分布）。 */
   updates: ["updates"] as const,
   /** P7：备份信息（当前库大小 + 待恢复状态），与设置分开缓存。 */
@@ -543,6 +548,38 @@ export function useDeleteMyChain() {
  *
  * 后端接口可能尚未上线：不重试，由设置页把 404 兜底成中文并给「重试」按钮。
  */
+/**
+ * API Token 管理：列表只返回元数据；明文只在创建 mutation 的返回值里出现。
+ */
+export function useApiTokens() {
+  return useQuery<ApiTokenRow[]>({
+    queryKey: queryKeys.apiTokens,
+    queryFn: async () => (await api.apiTokens.list()).items,
+    retry: false,
+    staleTime: 10_000,
+  });
+}
+
+export function useCreateApiToken() {
+  const queryClient = useQueryClient();
+  return useMutation<CreateApiTokenResponse, Error, CreateApiTokenInput>({
+    mutationFn: api.apiTokens.create,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.apiTokens });
+    },
+  });
+}
+
+export function useRevokeApiToken() {
+  const queryClient = useQueryClient();
+  return useMutation<{ ok: true; changed: boolean }, Error, string>({
+    mutationFn: api.apiTokens.revoke,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.apiTokens });
+    },
+  });
+}
+
 export function useSettings() {
   return useQuery<Settings>({
     queryKey: queryKeys.settings,

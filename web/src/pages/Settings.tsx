@@ -23,6 +23,7 @@ import {
   SkeletonCard,
 } from "@/components/common";
 import { AlertsCard } from "@/components/settings/AlertsCard";
+import { ApiTokensCard } from "@/components/settings/ApiTokensCard";
 import { BackupCard } from "@/components/settings/BackupCard";
 import { RemoteBackupCard } from "@/components/settings/RemoteBackupCard";
 import { CertificatesPanel } from "@/components/settings/CertificatesPanel";
@@ -709,6 +710,8 @@ export default function SettingsPage() {
           <SettingsPanelState query={settings} cards={1}>
             {(items) => <SecurityForm initial={items} />}
           </SettingsPanelState>
+          {/* API Token 独立于设置表单：自己拉列表、自己创建/吊销。 */}
+          <ApiTokensCard />
         </TabsContent>
 
         <TabsContent
