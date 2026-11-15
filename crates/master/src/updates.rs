@@ -469,13 +469,13 @@ mod tests {
 
     #[tokio::test]
     async fn successful_check_records_the_release() {
-        let (state, _transport) = setup(vec![Ok(release_json("0.12.0"))]).await;
+        let (state, _transport) = setup(vec![Ok(release_json("99.0.0"))]).await;
 
         let check = check_now(&state).await.unwrap();
-        assert_eq!(check.latest_version, "0.12.0", "必须去掉 tag 的 v 前缀");
+        assert_eq!(check.latest_version, "99.0.0", "必须去掉 tag 的 v 前缀");
         assert_eq!(
             check.release_url,
-            "https://github.com/jacob-bytes/pierwave/releases/tag/v0.12.0"
+            "https://github.com/jacob-bytes/pierwave/releases/tag/v99.0.0"
         );
         assert_eq!(check.released_at, Some(1_795_168_800));
         assert!(check.checked_at.is_some());
@@ -483,7 +483,7 @@ mod tests {
 
         let body = view(&state).await.unwrap();
         assert_eq!(body["master"]["current"], current_version());
-        assert_eq!(body["master"]["latest"], "0.12.0");
+        assert_eq!(body["master"]["latest"], "99.0.0");
         assert_eq!(body["master"]["update_available"], true);
         assert_eq!(body["master"]["error"], Value::Null);
         assert_eq!(body["agents"]["current_protocol"], 25);
@@ -493,7 +493,7 @@ mod tests {
     #[tokio::test]
     async fn failed_check_keeps_the_last_success_values() {
         let (state, _transport) = setup(vec![
-            Ok(release_json("0.12.0")),
+            Ok(release_json("99.0.0")),
             Err(updates::UpdateError::Http(503)),
         ])
         .await;
@@ -501,7 +501,7 @@ mod tests {
         check_now(&state).await.unwrap();
         let check = check_now(&state).await.unwrap();
 
-        assert_eq!(check.latest_version, "0.12.0", "失败不能清掉上次成功值");
+        assert_eq!(check.latest_version, "99.0.0", "失败不能清掉上次成功值");
         assert!(check.error.contains("HTTP 503"), "{}", check.error);
         assert!(
             check.error.contains("GitHub Releases responded"),
@@ -509,21 +509,21 @@ mod tests {
             check.error
         );
         let body = view(&state).await.unwrap();
-        assert_eq!(body["master"]["latest"], "0.12.0");
+        assert_eq!(body["master"]["latest"], "99.0.0");
         assert_eq!(body["master"]["update_available"], true);
         assert!(body["master"]["error"].as_str().unwrap().contains("503"));
     }
 
     #[tokio::test]
     async fn the_same_version_is_notified_only_once() {
-        let (state, transport) = setup(vec![Ok(release_json("0.12.0"))]).await;
+        let (state, transport) = setup(vec![Ok(release_json("99.0.0"))]).await;
         configure_webhook(&state).await;
 
         check_now(&state).await.unwrap();
         let sent = transport.wait_for(1).await;
         assert_eq!(sent[0].kind, "update_available");
         assert_eq!(sent[0].target, "master");
-        assert!(sent[0].title.contains("0.12.0"), "{}", sent[0].title);
+        assert!(sent[0].title.contains("99.0.0"), "{}", sent[0].title);
 
         // 同一版本再检测两次：不能重复发。
         check_now(&state).await.unwrap();
@@ -533,28 +533,28 @@ mod tests {
             .await;
 
         let check = repo::updates::load(&state.db.pool).await.unwrap();
-        assert_eq!(check.notified_version, "0.12.0");
+        assert_eq!(check.notified_version, "99.0.0");
     }
 
     #[tokio::test]
     async fn a_newer_version_is_notified_again() {
         let (state, transport) =
-            setup(vec![Ok(release_json("0.12.0")), Ok(release_json("0.13.0"))]).await;
+            setup(vec![Ok(release_json("99.0.0")), Ok(release_json("99.1.0"))]).await;
         configure_webhook(&state).await;
 
         check_now(&state).await.unwrap();
         check_now(&state).await.unwrap();
 
         let sent = transport.wait_for(2).await;
-        assert!(sent[1].title.contains("0.13.0"), "{}", sent[1].title);
+        assert!(sent[1].title.contains("99.1.0"), "{}", sent[1].title);
         let check = repo::updates::load(&state.db.pool).await.unwrap();
-        assert_eq!(check.notified_version, "0.13.0");
+        assert_eq!(check.notified_version, "99.1.0");
     }
 
     /// 事件勾选后才通知：`alert_events` 是唯一事实来源，默认值里已包含它。
     #[tokio::test]
     async fn update_event_checked_sends_the_notification() {
-        let (state, transport) = setup(vec![Ok(release_json("0.12.0"))]).await;
+        let (state, transport) = setup(vec![Ok(release_json("99.0.0"))]).await;
         configure_webhook(&state).await;
         configure_events(&state, "server_offline,update_available").await;
 
@@ -562,13 +562,13 @@ mod tests {
         let sent = transport.wait_for(1).await;
         assert_eq!(sent[0].kind, "update_available");
         assert_eq!(sent[0].target, "master");
-        assert!(sent[0].title.contains("0.12.0"), "{}", sent[0].title);
+        assert!(sent[0].title.contains("99.0.0"), "{}", sent[0].title);
     }
 
     /// 取消勾选后不通知，也不能记为「已通知」——重新勾选要能补发这一条。
     #[tokio::test]
     async fn update_event_unchecked_stops_the_notification() {
-        let (state, transport) = setup(vec![Ok(release_json("0.12.0"))]).await;
+        let (state, transport) = setup(vec![Ok(release_json("99.0.0"))]).await;
         configure_webhook(&state).await;
         configure_events(&state, "server_offline,user_exhausted").await;
         // 旧开关保持默认开启：它不能再把通知强行打开。
@@ -594,7 +594,7 @@ mod tests {
                 .await
                 .unwrap()
                 .notified_version,
-            "0.12.0"
+            "99.0.0"
         );
     }
 
@@ -602,7 +602,7 @@ mod tests {
     /// 「不勾选 update_available」，所以升级用户的选择照样延续）。
     #[tokio::test]
     async fn legacy_switch_does_not_override_the_event_list() {
-        let (state, transport) = setup(vec![Ok(release_json("0.12.0"))]).await;
+        let (state, transport) = setup(vec![Ok(release_json("99.0.0"))]).await;
         configure_webhook(&state).await;
         repo::settings::set(&state.db.pool, "update_check_notify", "0")
             .await
@@ -616,7 +616,7 @@ mod tests {
 
     #[tokio::test]
     async fn without_a_channel_the_version_stays_unnotified() {
-        let (state, transport) = setup(vec![Ok(release_json("0.12.0"))]).await;
+        let (state, transport) = setup(vec![Ok(release_json("99.0.0"))]).await;
 
         check_now(&state).await.unwrap();
         transport
@@ -629,7 +629,7 @@ mod tests {
         let sent = transport.wait_for(1).await;
         assert_eq!(sent[0].kind, "update_available");
         let check = repo::updates::load(&state.db.pool).await.unwrap();
-        assert_eq!(check.notified_version, "0.12.0");
+        assert_eq!(check.notified_version, "99.0.0");
     }
 
     #[tokio::test]
@@ -657,14 +657,14 @@ mod tests {
         db.migrate().await.unwrap();
         let mut state = AppState::new(db, "web/dist");
         state.updates = UpdateService::new(Arc::new(StaticFetcher::new(vec![Ok(release_json(
-            "0.12.0",
+            "99.0.0",
         ))])));
         check_now(&state).await.unwrap();
 
         // 新进程：内存缓存为空，但库里还有上次检测。
         state.updates.clear_cache();
         let snapshot = snapshot(&state).await.unwrap();
-        assert_eq!(snapshot.latest_version, "0.12.0");
+        assert_eq!(snapshot.latest_version, "99.0.0");
         assert!(snapshot.checked_at.is_some());
     }
 
@@ -680,7 +680,7 @@ mod tests {
 
     #[tokio::test]
     async fn due_check_respects_the_enable_switch_and_interval() {
-        let (state, _transport) = setup(vec![Ok(release_json("0.12.0"))]).await;
+        let (state, _transport) = setup(vec![Ok(release_json("99.0.0"))]).await;
 
         assert!(
             run_due_check(&state).await.unwrap().is_some(),

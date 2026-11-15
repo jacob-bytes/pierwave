@@ -185,16 +185,16 @@ mod tests {
 
     #[tokio::test]
     async fn manual_check_runs_and_returns_the_new_version() {
-        let (app, _state, admin, _bob) = setup(vec![Ok(release_json("0.12.0"))]).await;
+        let (app, _state, admin, _bob) = setup(vec![Ok(release_json("99.0.0"))]).await;
 
         let (status, body) =
             request(&app, Some(&admin), Method::POST, "/api/v1/updates/check").await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(body["master"]["latest"], "0.12.0");
+        assert_eq!(body["master"]["latest"], "99.0.0");
         assert_eq!(body["master"]["update_available"], true);
         assert_eq!(
             body["master"]["release_url"],
-            "https://github.com/jacob-bytes/pierwave/releases/tag/v0.12.0"
+            "https://github.com/jacob-bytes/pierwave/releases/tag/v99.0.0"
         );
         assert_eq!(body["master"]["released_at"], 1_795_168_800);
         assert!(body["master"]["checked_at"].as_i64().unwrap() > 0);
@@ -209,7 +209,7 @@ mod tests {
     #[tokio::test]
     async fn a_failed_manual_check_keeps_the_previous_version_and_explains_why() {
         let (app, _state, admin, _bob) = setup(vec![
-            Ok(release_json("0.12.0")),
+            Ok(release_json("99.0.0")),
             Err(updates::UpdateError::Timeout),
         ])
         .await;
@@ -218,7 +218,7 @@ mod tests {
         let (status, body) =
             request(&app, Some(&admin), Method::POST, "/api/v1/updates/check").await;
         assert_eq!(status, StatusCode::OK, "检测失败不能变成 500：{body}");
-        assert_eq!(body["master"]["latest"], "0.12.0", "保留上一次成功值");
+        assert_eq!(body["master"]["latest"], "99.0.0", "保留上一次成功值");
         assert_eq!(body["master"]["update_available"], true);
         let error = body["master"]["error"].as_str().unwrap();
         assert!(error.contains("超时"), "{error}");
@@ -227,7 +227,7 @@ mod tests {
 
     #[tokio::test]
     async fn non_admins_get_403_on_both_endpoints() {
-        let (app, _state, _admin, bob) = setup(vec![Ok(release_json("0.12.0"))]).await;
+        let (app, _state, _admin, bob) = setup(vec![Ok(release_json("99.0.0"))]).await;
 
         let (status, _) = request(&app, Some(&bob), Method::GET, "/api/v1/updates").await;
         assert_eq!(status, StatusCode::FORBIDDEN);
