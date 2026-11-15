@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 25;
+pub const PROTOCOL_VERSION: u32 = 26;
 
 /// 主控开始支持 3–6 跳隧道（`TunnelSpec.downstream`）的最低 Agent 协议版本。
 ///
@@ -174,6 +174,24 @@ pub struct Heartbeat {
     /// 「从未上报」（`nic_unverified = true`）与「上报过但当前没有网卡」。
     #[serde(default)]
     pub interfaces_reported: bool,
+    /// 本机所有**非 `lo`** 网卡自内核启动以来的累计接收字节数（协议 26 起）。
+    ///
+    /// 与 [`Heartbeat::net_tx_bytes`]、[`Heartbeat::net_at`] 是同一次采集的
+    /// 快照；主控用两次心跳的差值 / 时间差算「当前速率」。`None` = 旧 Agent
+    /// （协议 < 26）或平台不支持（macOS 没有 `/proc/net/dev`）。
+    ///
+    /// **只用于展示，不参与计费**：计费走 Xray / 转发规则的独立计数器。
+    #[serde(default)]
+    pub net_rx_bytes: Option<u64>,
+    /// 同 [`Heartbeat::net_rx_bytes`]，发送方向（本机发出）。
+    #[serde(default)]
+    pub net_tx_bytes: Option<u64>,
+    /// 上面两个计数器的采集时刻（Unix 秒）。
+    ///
+    /// 必须与计数器同时上报：主控用 `net_at` 的差值做分母，缺失时无法算速率，
+    /// 只能保持「无数据」而不是猜一个值。
+    #[serde(default)]
+    pub net_at: Option<i64>,
     pub uptime_secs: u64,
     pub load1: f32,
     pub mem_used: u64,
@@ -607,6 +625,21 @@ pub struct ForwardStatus {
     /// 只有 native 的 TCP 双向拷贝能同时给出两个方向。
     #[serde(default)]
     pub traffic_out: Option<u64>,
+    /// 自监听启动以来对**每个目标**做的 TCP 探测累计次数（协议 26 起）。
+    ///
+    /// 主控用相邻两次心跳的差值算出「这一段窗口内探了多少次」，再和
+    /// `probe_failures` 的差值一起聚合成可用率 / 丢包近似。
+    /// `None` = 旧 Agent、该规则不做目标探测（UDP / 仅 UDP 协议）或还没探过；
+    /// 绝不能把未知写成 0。
+    #[serde(default)]
+    pub probe_attempts: Option<u64>,
+    /// 上述探测中失败（含超时）的累计次数。
+    ///
+    /// 失败率 = `Δprobe_failures / Δprobe_attempts`，是**探测失败率**，
+    /// 只近似丢包（真实丢包率需要业务报文统计，见 docs/TELEMETRY.md）。
+    /// `None` = 未知，绝不等于 0。
+    #[serde(default)]
+    pub probe_failures: Option<u64>,
 }
 
 /// 一个目标最近一轮 TCP 握手探测的结果。
@@ -762,6 +795,8 @@ mod tests {
             targets: Vec::new(),
             traffic_in: Some(1024),
             traffic_out: Some(2048),
+            probe_attempts: None,
+            probe_failures: None,
         };
         let json = serde_json::to_value(&new).unwrap();
         assert_eq!(json["listening"], true);
@@ -784,6 +819,8 @@ mod tests {
             targets: Vec::new(),
             traffic_in: None,
             traffic_out: None,
+            probe_attempts: None,
+            probe_failures: None,
         };
         let json = serde_json::to_value(&status).unwrap();
         assert_eq!(json["target_error"], serde_json::Value::Null, "{json}");
@@ -794,8 +831,8 @@ mod tests {
     #[test]
     fn forward_udp_defaults_to_false_for_old_masters() {
         assert_eq!(
-            PROTOCOL_VERSION, 25,
-            "Noise + UDP（QUIC 派生证书 + 指纹固定）必须升协议版本"
+            PROTOCOL_VERSION, 26,
+            "网卡累计字节 / 探测窗口计数是新增心跳字段，必须升协议版本"
         );
         assert_eq!(
             TUNNEL_MULTIHOP_PROTOCOL_VERSION, 24,
@@ -960,6 +997,8 @@ mod tests {
             ],
             traffic_in: None,
             traffic_out: None,
+            probe_attempts: None,
+            probe_failures: None,
         };
         let json = serde_json::to_value(&status).unwrap();
         assert_eq!(json["targets"][0]["server_id"], "srv-a");
@@ -991,6 +1030,8 @@ mod tests {
             targets: Vec::new(),
             traffic_in: Some(0),
             traffic_out: None,
+            probe_attempts: None,
+            probe_failures: None,
         };
         let json = serde_json::to_value(&status).unwrap();
         assert_eq!(json["traffic_in"], 0, "0 是「已统计但确实是 0 字节」");
@@ -1382,6 +1423,65 @@ mod tests {
         let back: Heartbeat = serde_json::from_value(json).unwrap();
         assert_eq!(back.interfaces, hb.interfaces);
         assert!(back.interfaces_reported);
+    }
+
+    #[test]
+    fn heartbeat_net_counters_are_optional_and_roundtrip() {
+        // 旧 Agent（协议 < 26）的报文没有这三个字段：必须解析成 None，
+        // 主控据此保持 NULL，前端显示 `—`，绝不能当成 0 字节。
+        let old = r#"{
+            "seq": 3,
+            "uptime_secs": 1,
+            "load1": 0.0,
+            "mem_used": 0,
+            "mem_total": 0,
+            "disk_used": 0,
+            "disk_total": 0,
+            "xray_running": true,
+            "nginx_running": true
+        }"#;
+        let hb: Heartbeat = serde_json::from_str(old).unwrap();
+        assert_eq!(hb.net_rx_bytes, None);
+        assert_eq!(hb.net_tx_bytes, None);
+        assert_eq!(hb.net_at, None);
+
+        // 新 Agent 的 0 是「确实累计 0 字节」，与 None（未知）必须能区分。
+        let hb = Heartbeat {
+            net_rx_bytes: Some(0),
+            net_tx_bytes: Some(1024),
+            net_at: Some(1_700_000_000),
+            ..hb
+        };
+        let json = serde_json::to_value(&hb).unwrap();
+        assert_eq!(json["net_rx_bytes"], 0);
+        assert_eq!(json["net_tx_bytes"], 1024);
+        assert_eq!(json["net_at"], 1_700_000_000_i64);
+        let back: Heartbeat = serde_json::from_value(json).unwrap();
+        assert_eq!(back.net_rx_bytes, hb.net_rx_bytes);
+        assert_eq!(back.net_tx_bytes, hb.net_tx_bytes);
+        assert_eq!(back.net_at, hb.net_at);
+    }
+
+    /// 探测窗口计数同样是可选字段：旧 Agent 缺省为 None，
+    /// 「有值但为 0」与「没有数据源」不能混淆。
+    #[test]
+    fn forward_status_probe_counters_are_optional() {
+        let old = r#"{"id":"fwd-1","listening":true,"error":"","target_ok":true}"#;
+        let status: ForwardStatus = serde_json::from_str(old).unwrap();
+        assert_eq!(status.probe_attempts, None);
+        assert_eq!(status.probe_failures, None);
+
+        let status = ForwardStatus {
+            probe_attempts: Some(120),
+            probe_failures: Some(3),
+            ..status
+        };
+        let json = serde_json::to_value(&status).unwrap();
+        assert_eq!(json["probe_attempts"], 120);
+        assert_eq!(json["probe_failures"], 3);
+        let back: ForwardStatus = serde_json::from_value(json).unwrap();
+        assert_eq!(back.probe_attempts, Some(120));
+        assert_eq!(back.probe_failures, Some(3));
     }
 
     #[test]

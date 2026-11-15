@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use futures_util::{SinkExt, StreamExt};
@@ -488,6 +488,7 @@ async fn run_once(
                     Ok(MasterMessage::Ping) => {
                         let realm_transport = forwards.realm_transport().await;
                         let forwards = forwards.status_snapshot();
+                        let (net_rx_bytes, net_tx_bytes, net_at) = net_heartbeat_fields();
                         let fallback = serde_json::json!({
                             "type": "heartbeat",
                             "seq": 0,
@@ -510,6 +511,9 @@ async fn run_once(
                             "forwards": forwards,
                             "interfaces": network::collect_or_warn(),
                             "interfaces_reported": true,
+                            "net_rx_bytes": net_rx_bytes,
+                            "net_tx_bytes": net_tx_bytes,
+                            "net_at": net_at,
                         });
                         ws.send(Message::Text(fallback.to_string())).await.ok();
                     }
@@ -933,6 +937,30 @@ struct EngineCapabilities {
     tunnel_available: bool,
 }
 
+/// 心跳里的网卡累计收发字节 + 采集时刻。
+///
+/// 平台不支持（macOS 无 `/proc/net/dev`）或读取失败时三项都是 `None`：
+/// 心跳照常发，主控显示 `—`，绝不编造 0。`net_at` 与计数器必须同一次采集，
+/// 否则主控算出的速率会被采样间隔误差放大。
+fn net_heartbeat_fields() -> (Option<u64>, Option<u64>, Option<i64>) {
+    match network::collect_net_counters() {
+        Some(counters) => (
+            Some(counters.rx_bytes),
+            Some(counters.tx_bytes),
+            Some(unix_now()),
+        ),
+        None => (None, None, None),
+    }
+}
+
+/// 当前 Unix 秒（采集时刻用）。系统时钟早于 1970 时退回 0。
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 fn sample_heartbeat(
     seq: u64,
     uptime_secs: u64,
@@ -944,6 +972,7 @@ fn sample_heartbeat(
 ) -> Heartbeat {
     let (load1, mem_used, mem_total) = read_load_and_mem();
     let disk = read_disk();
+    let (net_rx_bytes, net_tx_bytes, net_at) = net_heartbeat_fields();
     Heartbeat {
         seq,
         protocol_version: PROTOCOL_VERSION,
@@ -960,6 +989,9 @@ fn sample_heartbeat(
         forwards,
         interfaces,
         interfaces_reported: true,
+        net_rx_bytes,
+        net_tx_bytes,
+        net_at,
         uptime_secs,
         load1,
         mem_used,
@@ -1115,6 +1147,8 @@ mod tests {
             targets: Vec::new(),
             traffic_in: None,
             traffic_out: None,
+            probe_attempts: None,
+            probe_failures: None,
         }];
         let system_info = system_info_fixture();
         let hb = sample_heartbeat(

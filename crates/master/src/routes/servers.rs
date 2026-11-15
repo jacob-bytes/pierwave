@@ -1436,6 +1436,51 @@ mod tests {
             .contains("不支持的 CPU 架构"));
     }
 
+    /// 列表里的当前速率：有两次心跳 → 数值；旧 Agent / 回绕 → null（前端 —）。
+    #[tokio::test]
+    async fn server_list_exposes_net_rate_and_keeps_it_null_without_data() {
+        let (app, state, cookie) = setup().await;
+        let id = seed_server(&state, false, "0.13.2").await;
+
+        // 旧 Agent：三个字段都没上报 → JSON 必须是 null。
+        let (status, body) = send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(
+            body["items"][0]["net_rx_bps"].is_null(),
+            "没有速率时必须 null，不能是 0：{body}"
+        );
+        assert!(body["items"][0]["net_tx_bps"].is_null());
+
+        // 两次心跳：60 秒 +12.3 MB / +1.2 MB → 205000 / 20000 B/s。
+        repo::servers::update_net_counters(&state.db.pool, &id, 1_000, 2_000, 1_000)
+            .await
+            .unwrap();
+        repo::servers::update_net_counters(
+            &state.db.pool,
+            &id,
+            1_000 + 12_300_000,
+            2_000 + 1_200_000,
+            1_060,
+        )
+        .await
+        .unwrap();
+        let (status, body) = send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let rx = body["items"][0]["net_rx_bps"].as_f64().unwrap();
+        let tx = body["items"][0]["net_tx_bps"].as_f64().unwrap();
+        assert!((rx - 205_000.0).abs() < 1e-6, "{body}");
+        assert!((tx - 20_000.0).abs() < 1e-6, "{body}");
+
+        // 计数回绕：本次差值被丢弃，速率回到 null（不是负数 / 尖峰）。
+        repo::servers::update_net_counters(&state.db.pool, &id, 10, 10, 1_120)
+            .await
+            .unwrap();
+        let (status, body) = send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body["items"][0]["net_rx_bps"].is_null(), "{body}");
+        assert!(body["items"][0]["net_tx_bps"].is_null(), "{body}");
+    }
+
     /// API 契约：`allow_agent_upgrade` 必须是 boolean，不是 0/1。
     #[tokio::test]
     async fn server_view_serializes_allow_agent_upgrade_as_boolean() {

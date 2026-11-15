@@ -24,6 +24,7 @@ pub mod reset;
 pub mod routing;
 pub mod subscribe;
 pub mod subscription_template;
+pub mod telemetry;
 pub mod time;
 pub mod tunnel_security;
 pub mod updates;

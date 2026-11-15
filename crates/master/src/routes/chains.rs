@@ -34,7 +34,9 @@ use pierwave_domain::models::{
 };
 use pierwave_domain::port_policy::PortPolicy;
 use pierwave_domain::tunnel_security as tunnel_mode;
-use pierwave_domain::{chain_templates, chains, engine, forwards, hop_transport, protocol, repo};
+use pierwave_domain::{
+    chain_templates, chains, engine, forwards, hop_transport, protocol, repo, telemetry,
+};
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -1497,6 +1499,154 @@ fn member_forward_id(chain_id: &str, member: &ChainGroupMember, member_count: us
     chains::forward_id(chain_id, member.seq, &member.server_id, member_count)
 }
 
+/// 链列表 / 详情展示可用率的窗口：24 小时。
+const AVAILABILITY_WINDOW_SECS: i64 = 86_400;
+
+/// 一条链里所有成员的转发 id（每台成员一条，顺序与 groups 一致）。
+fn chain_forward_ids(chain: &ChainWithGroups) -> Vec<String> {
+    chain
+        .groups
+        .iter()
+        .flat_map(|group| group.members.iter())
+        .map(|member| member_forward_id(&chain.chain.id, member, chain_member_count(chain, member)))
+        .collect()
+}
+
+/// 成员所在组的成员数（`forward_id` 的组成部分）。
+fn chain_member_count(chain: &ChainWithGroups, member: &ChainGroupMember) -> usize {
+    chain
+        .groups
+        .iter()
+        .find(|group| group.group.id == member.group_id)
+        .map(|group| group.members.len())
+        .unwrap_or(1)
+}
+
+/// 链降级告警策略：阈值默认 99%、连续 3 次，均可由环境变量覆盖。
+///
+/// `PIERWAVE_CHAIN_AVAILABILITY_THRESHOLD`（百分比 0..=100）/
+/// `PIERWAVE_CHAIN_DEGRADED_STREAK`（1..=100）。非法值回落默认值。
+fn probe_policy() -> telemetry::DegradationPolicy {
+    let threshold = std::env::var("PIERWAVE_CHAIN_AVAILABILITY_THRESHOLD").ok();
+    let streak = std::env::var("PIERWAVE_CHAIN_DEGRADED_STREAK").ok();
+    telemetry::DegradationPolicy::from_raw(threshold.as_deref(), streak.as_deref())
+}
+
+/// 一次查出若干链在 24h 窗口内的逐 forward 探测计数。
+///
+/// 固定 1 条 SQL；没有样本的 forward 不在 map 里，读路径据此输出 null。
+async fn load_probe_totals(
+    state: &AppState,
+    chains_list: &[ChainWithGroups],
+) -> AppResult<HashMap<String, telemetry::ProbeCounts>> {
+    let mut ids: Vec<String> = chains_list.iter().flat_map(chain_forward_ids).collect();
+    ids.sort();
+    ids.dedup();
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let now = repo::now();
+    Ok(repo::chain_probe::totals_for_forwards(
+        &state.db.pool,
+        &ids,
+        now - AVAILABILITY_WINDOW_SECS,
+        now + telemetry::PROBE_BUCKET_SECS,
+    )
+    .await?)
+}
+
+/// 心跳后的可用率告警评估（旁路，失败只 debug）。
+///
+/// 只看**已启用**且包含这台服务器的链；窗口是最近 15 分钟（比 24h 更灵敏，
+/// 见 `telemetry::DEGRADED_WINDOW_SECS`）。连续 N 次低于阈值才发一次
+/// `chain_degraded`，恢复后重新武装。不新增事件类型。
+pub(crate) async fn evaluate_availability_alerts_for_server(state: &AppState, server_id: &str) {
+    let policy = probe_policy();
+    let chains_list: Vec<ChainWithGroups> = match repo::chains::list(&state.db.pool).await {
+        Ok(list) => list
+            .into_iter()
+            .filter(|chain| {
+                chain.chain.enabled
+                    && chain
+                        .groups
+                        .iter()
+                        .flat_map(|group| group.members.iter())
+                        .any(|member| member.server_id == server_id)
+            })
+            .collect(),
+        Err(error) => {
+            tracing::warn!(error = %error, "可用率告警：读取链列表失败");
+            return;
+        }
+    };
+    if chains_list.is_empty() {
+        return;
+    }
+    let now = repo::now();
+    for chain in chains_list {
+        let ids = chain_forward_ids(&chain);
+        let totals = match repo::chain_probe::totals_for_forwards(
+            &state.db.pool,
+            &ids,
+            now - telemetry::DEGRADED_WINDOW_SECS,
+            now + telemetry::PROBE_BUCKET_SECS,
+        )
+        .await
+        {
+            Ok(totals) => totals,
+            Err(error) => {
+                tracing::warn!(error = %error, chain = %chain.chain.name, "可用率告警：读取探测样本失败");
+                continue;
+            }
+        };
+        let health =
+            telemetry::probe_health(telemetry::fold_probe_counts(totals.values().copied()));
+        let before = match repo::chain_probe::degradation(&state.db.pool, &chain.chain.id).await {
+            Ok(state) => state,
+            Err(error) => {
+                tracing::warn!(error = %error, "可用率告警：读取降级状态失败");
+                continue;
+            }
+        };
+        let (next, should_alert) = telemetry::observe_degradation(before, health, policy);
+        if next != before {
+            if let Err(error) =
+                repo::chain_probe::save_degradation(&state.db.pool, &chain.chain.id, next, now)
+                    .await
+            {
+                tracing::warn!(error = %error, "可用率告警：写入降级状态失败");
+                continue;
+            }
+        }
+        if !should_alert {
+            continue;
+        }
+        let Some(availability) = health.availability else {
+            continue;
+        };
+        crate::alerts::notify(
+            state,
+            crate::alerts::AlertKind::ChainDegraded,
+            &chain.chain.id,
+            "转发链可用率下降 / Relay chain availability degraded",
+            &format!(
+                "链 {} 最近 {} 分钟可用率 {:.2}%（探测失败率近似），连续 {} 次低于阈值 {:.2}% / Chain {} availability is {:.2}% over the last {} minutes (probe failure approximation), below the {:.2}% threshold for {} consecutive checks",
+                chain.chain.name,
+                telemetry::DEGRADED_WINDOW_SECS / 60,
+                availability * 100.0,
+                next.consecutive_below,
+                policy.threshold_percent,
+                chain.chain.name,
+                availability * 100.0,
+                telemetry::DEGRADED_WINDOW_SECS / 60,
+                policy.threshold_percent,
+                next.consecutive_below,
+            ),
+        )
+        .await;
+    }
+}
+
 async fn load_status_map(
     state: &AppState,
     chains_list: &[ChainWithGroups],
@@ -1587,7 +1737,11 @@ fn chain_target_latency(
 ///
 /// 同时保留旧的 `hops` 数组（每组取排序后的第一台成员），让尚未升级的前端
 /// 仍能展示/编辑单成员链；多成员组请读 `groups`。
-fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusRow>) -> Value {
+fn chain_json(
+    chain: &ChainWithGroups,
+    statuses: &HashMap<String, ForwardStatusRow>,
+    probe_totals: &HashMap<String, telemetry::ProbeCounts>,
+) -> Value {
     let mut group_views = Vec::with_capacity(chain.groups.len());
     let mut hop_views = Vec::with_capacity(chain.groups.len());
     let mut degraded = false;
@@ -1622,6 +1776,9 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
             let status = statuses.get(&forward_id);
             let member_degraded =
                 status.is_some_and(|row| chains::is_degraded(row.target_fail_count));
+            // 24h 可用率：样本不足时两项都是 None（前端显示 `—`），不是 0。
+            let member_counts = probe_totals.get(&forward_id).copied().unwrap_or_default();
+            let member_health = telemetry::probe_health(member_counts);
             group_degraded |= member_degraded;
             // 第 i 跳成员：取上一跳（可能多台）对它的实测 RTT，取最小值。
             let latency_ms = previous_group.and_then(|previous| {
@@ -1681,6 +1838,10 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
                 "latency_ms": latency_ms,
                 // 仅最后一跳：本成员 → 链目标的实测 RTT；其它组为 null。
                 "target_latency_ms": target_latency_ms,
+                // 24h 可用率 / 探测失败率；口径见 docs/TELEMETRY.md。
+                "availability_24h": member_health.availability,
+                "loss_24h": member_health.loss,
+                "probe_attempts_24h": member_counts.attempts,
             }));
         }
         degraded |= group_degraded;
@@ -1728,6 +1889,14 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
         None
     };
 
+    // 链级可用率：所有成员的探测次数加权合并，不能对成员可用率取算术平均。
+    let chain_counts = telemetry::fold_probe_counts(
+        chain_forward_ids(chain)
+            .iter()
+            .filter_map(|forward_id| probe_totals.get(forward_id).copied()),
+    );
+    let chain_health = telemetry::probe_health(chain_counts);
+
     json!({
         "id": chain.chain.id,
         "name": chain.chain.name,
@@ -1751,6 +1920,12 @@ fn chain_json(chain: &ChainWithGroups, statuses: &HashMap<String, ForwardStatusR
         "total_latency_ms": total_latency_ms,
         "groups": group_views,
         "hops": hop_views,
+        // 24h 可用率（0..1）/ 探测失败率（0..1）；样本不足都是 null。
+        "availability_24h": chain_health.availability,
+        "loss_24h": chain_health.loss,
+        "probe_attempts_24h": chain_counts.attempts,
+        // 与告警同源的阈值：前端据此决定可用率的颜色，不硬编码 99。
+        "availability_threshold_percent": probe_policy().threshold_percent,
         "created_at": chain.chain.created_at,
         "updated_at": chain.chain.updated_at,
     })
@@ -1799,18 +1974,24 @@ pub async fn list(State(state): State<AppState>, user: CurrentUser) -> AppResult
     user.require_admin()?;
     let chains_list = repo::chains::list(&state.db.pool).await?;
     let statuses = load_status_map(&state, &chains_list).await?;
+    // 可用率：一次 QUERY 读完所有成员的 24h 探测计数，逐链只做纯聚合。
+    let probe_totals = load_probe_totals(&state, &chains_list).await?;
     // 一次批量读证书，逐链只做纯判定；不要退回循环里按链查库。
     let blocked = repo::chains::blocked_reasons(&state.db.pool, &chains_list, repo::now()).await?;
     let mut items = Vec::with_capacity(chains_list.len());
     for chain in &chains_list {
-        let mut view = chain_json(chain, &statuses);
+        let mut view = chain_json(chain, &statuses, &probe_totals);
         if let Some(reason) = blocked.get(&chain.chain.id) {
             view["blocked_code"] = json!(reason.code);
             view["blocked_reason"] = json!(reason.message);
         }
         items.push(view);
     }
-    Ok(Json(json!({ "items": items })))
+    Ok(Json(json!({
+        "items": items,
+        // 可用率列的颜色阈值与告警阈值同源，前端不用硬编码 99。
+        "availability_threshold_percent": probe_policy().threshold_percent,
+    })))
 }
 
 /// 延迟历史的时间窗口：1..=168 小时（默认 24）。
@@ -1944,6 +2125,111 @@ pub async fn latency(
     Ok(Json(json!({ "points": points })))
 }
 
+fn invalid_availability_hours() -> AppError {
+    AppError::coded(
+        "chain.availability_hours_invalid",
+        Some(json!({"min": LATENCY_MIN_HOURS, "max": LATENCY_MAX_HOURS})),
+        format!(
+            "hours 必须是 {LATENCY_MIN_HOURS}-{LATENCY_MAX_HOURS} 之间的整数（默认 {LATENCY_DEFAULT_HOURS}）"
+        ),
+    )
+}
+
+fn parse_availability_hours(raw: Option<&str>) -> AppResult<i64> {
+    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
+        return Ok(LATENCY_DEFAULT_HOURS);
+    };
+    let hours = raw
+        .parse::<i64>()
+        .map_err(|_| invalid_availability_hours())?;
+    if !(LATENCY_MIN_HOURS..=LATENCY_MAX_HOURS).contains(&hours) {
+        return Err(invalid_availability_hours());
+    }
+    Ok(hours)
+}
+
+/// `GET /api/v1/chains/{id}/availability?hours=24`
+///
+/// 链的可用率趋势。口径：Agent 每 30 秒对每个目标做一次 TCP 探测，主控把
+/// 相邻心跳的累计次数差成 5 分钟桶；**丢包 = 探测失败率**（近似，不是业务
+/// 报文丢包）。样本不足（少于 `telemetry::MIN_PROBE_ATTEMPTS`）的窗口在
+/// `summary` 里是 null，前端显示 `—`；趋势点只要桶里有探测就给出比例，
+/// 因此比 summary 更细，但同样不能读成「真实丢包」。
+pub async fn availability(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<String>,
+    Query(query): Query<LatencyQuery>,
+) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+    let hours = parse_availability_hours(query.hours.as_deref())?;
+    let chain = repo::chains::find_by_id(&state.db.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::not_found("chain.not_found", None, "链不存在"))?;
+
+    let now = repo::now();
+    let since = now - hours * 60 * 60;
+    let forward_ids = chain_forward_ids(&chain);
+    let bucket_rows = repo::chain_probe::buckets_for_forwards(
+        &state.db.pool,
+        &forward_ids,
+        since,
+        // 包含当前 5 分钟桶：桶起点 <= now，用 now + 桶宽兜住整点边界。
+        now + telemetry::PROBE_BUCKET_SECS,
+    )
+    .await?;
+    let merged =
+        telemetry::merge_probe_buckets(bucket_rows.into_iter().map(|row| telemetry::ProbeBucket {
+            ts: row.ts,
+            attempts: row.attempts,
+            failures: row.failures,
+        }));
+    let points: Vec<Value> = merged
+        .into_iter()
+        .map(|bucket| {
+            // 趋势点不套样本门槛：一个 5 分钟桶天然只有个位数探测，
+            // 用 24h 的门槛会把整条趋势清空。attempts = 0 的桶不出现。
+            let loss =
+                (bucket.attempts > 0).then(|| bucket.failures as f64 / bucket.attempts as f64);
+            json!({
+                "ts": bucket.ts,
+                "attempts": bucket.attempts,
+                "failures": bucket.failures,
+                "loss": loss,
+                "availability": loss.map(|loss| 1.0 - loss),
+            })
+        })
+        .collect();
+
+    let totals = repo::chain_probe::totals_for_forwards(
+        &state.db.pool,
+        &forward_ids,
+        since,
+        now + telemetry::PROBE_BUCKET_SECS,
+    )
+    .await?;
+    let counts = telemetry::fold_probe_counts(totals.values().copied());
+    let health = telemetry::probe_health(counts);
+    let policy = probe_policy();
+    Ok(Json(json!({
+        "points": points,
+        "summary": {
+            "hours": hours,
+            "attempts": counts.attempts,
+            "failures": counts.failures,
+            "availability": health.availability,
+            "loss": health.loss,
+            "min_attempts": telemetry::MIN_PROBE_ATTEMPTS,
+        },
+        // 告警口径：前端把「探测失败率近似」与阈值一起展示。
+        "policy": {
+            "threshold_percent": policy.threshold_percent,
+            "streak": policy.streak,
+            "window_secs": telemetry::DEGRADED_WINDOW_SECS,
+        },
+    })))
+}
+
 pub async fn create(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2071,7 +2357,8 @@ pub async fn create(
     mark_servers_dirty_and_apply(&state, &base, &chain_server_ids(&chain)).await;
 
     let statuses = load_status_map(&state, std::slice::from_ref(&chain)).await?;
-    let mut view = chain_json(&chain, &statuses);
+    let probe_totals = load_probe_totals(&state, std::slice::from_ref(&chain)).await?;
+    let mut view = chain_json(&chain, &statuses, &probe_totals);
     if let Some(reason) = chain_blocked_reason(&state, &chain).await? {
         view["blocked_code"] = json!(reason.code);
         view["blocked_reason"] = json!(reason.message);
@@ -2313,7 +2600,8 @@ pub async fn update(
     mark_servers_dirty_and_apply(&state, &base, &affected).await;
 
     let statuses = load_status_map(&state, std::slice::from_ref(&updated)).await?;
-    let mut view = chain_json(&updated, &statuses);
+    let probe_totals = load_probe_totals(&state, std::slice::from_ref(&updated)).await?;
+    let mut view = chain_json(&updated, &statuses, &probe_totals);
     if let Some(reason) = chain_blocked_reason(&state, &updated).await? {
         view["blocked_code"] = json!(reason.code);
         view["blocked_reason"] = json!(reason.message);
@@ -3439,6 +3727,8 @@ mod tests {
                             targets: Vec::new(),
                             traffic_in: None,
                             traffic_out: None,
+                            probe_attempts: None,
+                            probe_failures: None,
                         }],
                     )
                     .await
@@ -3739,6 +4029,8 @@ mod tests {
                         targets: Vec::new(),
                         traffic_in: None,
                         traffic_out: None,
+                        probe_attempts: None,
+                        probe_failures: None,
                     }],
                 )
                 .await
@@ -5813,6 +6105,8 @@ mod tests {
                     .collect(),
                 traffic_in: None,
                 traffic_out: None,
+                probe_attempts: None,
+                probe_failures: None,
             }],
         )
         .await
@@ -6181,6 +6475,8 @@ mod tests {
                 }],
                 traffic_in: Some(1_024),
                 traffic_out: Some(2_048),
+                probe_attempts: None,
+                probe_failures: None,
             }],
         )
         .await
@@ -7956,5 +8252,156 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(duplicates, 0, "并发建链不能留下重复 (server, port)");
+    }
+
+    /// 链列表的可用率列 + 详情趋势接口：
+    /// * 没有探样本 → null（前端 `—`），不是 0；
+    /// * 样本足够 → 1 - SUM(failures)/SUM(attempts)；
+    /// * 样本不足 → null；
+    /// * 趋势点按 5 分钟桶给出 loss，不套 24h 门槛。
+    #[tokio::test]
+    async fn chain_availability_is_null_without_samples_and_weighted_by_attempts() {
+        let fixture = setup().await;
+        let now = repo::now();
+
+        let (status, body) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(chain_body("avail", "1.1.1.1", 443, &[(&fixture.a, 9001)])),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let chain_id = body["chain"]["id"].as_str().unwrap().to_string();
+        let forward_id = chains::forward_id(&chain_id, 0, &fixture.a, 1);
+
+        // 没有任何探测：列表与详情都必须输出 null。
+        let (_, list) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            "/api/v1/chains",
+            None,
+        )
+        .await;
+        assert_eq!(list["availability_threshold_percent"], 99.0);
+        assert!(
+            list["items"][0]["availability_24h"].is_null(),
+            "没有样本必须是 null（前端 —）：{list}"
+        );
+        assert!(list["items"][0]["loss_24h"].is_null());
+        assert_eq!(list["items"][0]["probe_attempts_24h"], 0);
+
+        // 两个 5 分钟桶：400 次探测、1 次失败 → 99.75% / 0.25%。
+        repo::chain_probe::record_sample(
+            &fixture.state.db.pool,
+            now - 600,
+            &fixture.a,
+            &forward_id,
+            200,
+            0,
+        )
+        .await
+        .unwrap();
+        repo::chain_probe::record_sample(
+            &fixture.state.db.pool,
+            now - 300,
+            &fixture.a,
+            &forward_id,
+            200,
+            1,
+        )
+        .await
+        .unwrap();
+
+        let (_, list) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            "/api/v1/chains",
+            None,
+        )
+        .await;
+        let item = &list["items"][0];
+        let availability = item["availability_24h"].as_f64().unwrap();
+        assert!((availability - 0.9975).abs() < 1e-9, "{item}");
+        assert!((item["loss_24h"].as_f64().unwrap() - 0.0025).abs() < 1e-9);
+        assert_eq!(item["probe_attempts_24h"], 400);
+        assert!(
+            (item["groups"][0]["members"][0]["availability_24h"]
+                .as_f64()
+                .unwrap()
+                - 0.9975)
+                .abs()
+                < 1e-9,
+            "成员的可用率也要带出来：{item}"
+        );
+
+        let (status, trend) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            &format!("/api/v1/chains/{chain_id}/availability?hours=24"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{trend}");
+        assert_eq!(trend["summary"]["attempts"], 400);
+        assert_eq!(trend["summary"]["failures"], 1);
+        assert!((trend["summary"]["availability"].as_f64().unwrap() - 0.9975).abs() < 1e-9);
+        let points = trend["points"].as_array().unwrap();
+        assert_eq!(points.len(), 2, "{trend}");
+        assert!((points[1]["loss"].as_f64().unwrap() - 0.005).abs() < 1e-9);
+        assert_eq!(trend["policy"]["threshold_percent"], 99.0);
+        assert_eq!(trend["policy"]["streak"], 3);
+
+        // 样本不足：另一条链只有 10 次探测 → 仍是 null，不是 100%。
+        let (status, body) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(chain_body(
+                "avail-small",
+                "1.1.1.1",
+                443,
+                &[(&fixture.b, 9002)],
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let small_chain_id = body["chain"]["id"].as_str().unwrap().to_string();
+        let small_forward_id = chains::forward_id(&small_chain_id, 0, &fixture.b, 1);
+        repo::chain_probe::record_sample(
+            &fixture.state.db.pool,
+            now - 60,
+            &fixture.b,
+            &small_forward_id,
+            10,
+            10,
+        )
+        .await
+        .unwrap();
+        let (_, list) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            "/api/v1/chains",
+            None,
+        )
+        .await;
+        let small = list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == json!(small_chain_id))
+            .unwrap();
+        assert!(
+            small["availability_24h"].is_null(),
+            "样本不足必须是 null，不能显示 0% 或 100%：{small}"
+        );
+        assert!(small["loss_24h"].is_null());
+        assert_eq!(small["probe_attempts_24h"], 10);
     }
 }

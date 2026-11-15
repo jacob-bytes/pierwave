@@ -87,6 +87,10 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/chains/{id}/latency", get(routes::chains::latency))
         .route(
+            "/api/v1/chains/{id}/availability",
+            get(routes::chains::availability),
+        )
+        .route(
             "/api/v1/chain-templates",
             get(routes::chain_templates::list).post(routes::chain_templates::create),
         )

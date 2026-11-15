@@ -228,6 +228,16 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
             {
                 tracing::error!(error = %e, "heartbeat write failed");
             }
+            // 网卡累计计数 → 当前速率。三个字段缺一不可：没有 net_at 就没有
+            // 分母，宁可保持「无数据」也不猜。旧 Agent 没有这些字段 → 整段跳过。
+            if let (Some(rx), Some(tx), Some(at)) = (hb.net_rx_bytes, hb.net_tx_bytes, hb.net_at) {
+                if let Err(e) =
+                    repo::servers::update_net_counters(&state.db.pool, server_id, rx, tx, at).await
+                {
+                    // 只影响展示，不能把心跳判成失败。
+                    tracing::warn!(error = %e, "网卡速率写入失败（不影响心跳）");
+                }
+            }
             // 转发运行状态是观测值：每轮心跳整体覆盖该服务器的缓存。
             // 规则本身在 forwards 表里，这里只负责「上一轮说在监听，这一轮是否还在」。
             let forward_status: Vec<repo::forwards::NewForwardStatus> = hb
@@ -252,6 +262,9 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
                     // 旧 Agent 没有流量字段 → None → 链路视图 null，不能当 0。
                     traffic_in: status.traffic_in,
                     traffic_out: status.traffic_out,
+                    // 旧 Agent 没有探测计数 → None：可用率显示 `—`，不是 0%。
+                    probe_attempts: status.probe_attempts,
+                    probe_failures: status.probe_failures,
                 })
                 .collect();
             // 链降级是「状态跃迁」事件：save 前后各算一次，只在 false → true 时通知。
@@ -302,6 +315,10 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
                         tracing::warn!(error = %error, "读取链降级状态失败（心跳后）")
                     }
                 }
+                // 可用率口径的降级：最近窗口的探测失败率连续 N 次低于阈值。
+                // 与上面的「目标连续不可达」是两条独立判定，共用
+                // `chain_degraded` 事件类型（需求明确不新增事件类型）。
+                super::chains::evaluate_availability_alerts_for_server(state, server_id).await;
             }
             settle_agent_upgrade(state, server_id, version, time::now()).await;
             tracing::debug!(seq = hb.seq, xray = hb.xray_running, "heartbeat");
@@ -1224,6 +1241,97 @@ mod tests {
         );
     }
 
+    /// 心跳里的网卡累计计数 → 当前速率；HTTP 列表必须给出 null 或真实数值。
+    #[tokio::test]
+    async fn heartbeat_net_counters_become_rate_and_stay_null_without_data() {
+        let fixture = fixture().await;
+        let (server, _) =
+            repo::servers::create(&fixture.state.db.pool, "hk-net", "1.2.3.4", "external")
+                .await
+                .unwrap();
+
+        let send = |seq: u64, rx: Option<u64>, tx: Option<u64>, at: Option<i64>| {
+            let mut heartbeat = serde_json::json!({
+                "type": "heartbeat",
+                "seq": seq,
+                "agent_version": "0.13.2",
+                "uptime_secs": 1,
+                "load1": 0.0,
+                "mem_used": 0,
+                "mem_total": 0,
+                "disk_used": 0,
+                "disk_total": 0,
+                "xray_running": true,
+                "nginx_running": true,
+            });
+            if let Some(rx) = rx {
+                heartbeat["net_rx_bytes"] = serde_json::json!(rx);
+            }
+            if let Some(tx) = tx {
+                heartbeat["net_tx_bytes"] = serde_json::json!(tx);
+            }
+            if let Some(at) = at {
+                heartbeat["net_at"] = serde_json::json!(at);
+            }
+            let text = heartbeat.to_string();
+            let state = fixture.state.clone();
+            let server_id = server.id.clone();
+            async move {
+                handle_agent_message(&state, &server_id, "0.13.2", &text).await;
+            }
+        };
+
+        // 旧 Agent：没有三个字段 → 列表必须是 null（前端显示 —，不是 0）。
+        send(1, None, None, None).await;
+        let row = repo::servers::find_by_id(&fixture.state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert_eq!(row.net_rx_bps, None);
+        assert_eq!(row.net_tx_bps, None);
+
+        // 首次上报：只建立基线。
+        send(2, Some(1_000), Some(2_000), Some(1_000)).await;
+        let row = repo::servers::find_by_id(&fixture.state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert_eq!(row.net_rx_bps, None, "第一次心跳没有基线");
+
+        // 60 秒后：+12.3 MB / +1.2 MB → 205000 / 20000 B/s。
+        send(
+            3,
+            Some(1_000 + 12_300_000),
+            Some(2_000 + 1_200_000),
+            Some(1_060),
+        )
+        .await;
+        let row = repo::servers::find_by_id(&fixture.state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert!((row.net_rx_bps.unwrap() - 205_000.0).abs() < 1e-6);
+        assert!((row.net_tx_bps.unwrap() - 20_000.0).abs() < 1e-6);
+
+        // 时间差 0：丢弃，不能除零。
+        send(
+            4,
+            Some(1_000 + 12_400_000),
+            Some(2_000 + 1_200_000),
+            Some(1_060),
+        )
+        .await;
+        let row = repo::servers::find_by_id(&fixture.state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert_eq!(row.net_rx_bps, None, "时间差为 0 必须清空而不是除零");
+
+        // 计数回绕：丢弃该次差值，不能写负数 / 异常峰值。
+        send(5, Some(500), Some(400), Some(1_120)).await;
+        let row = repo::servers::find_by_id(&fixture.state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert_eq!(row.net_rx_bps, None);
+        assert_eq!(row.net_tx_bps, None);
+    }
+
     /// 心跳里的 forwards 必须落到 forward_status，并整体覆盖上一轮；
     /// 空心跳 = Agent 已没有转发，旧状态要被清掉。
     #[tokio::test]
@@ -1267,6 +1375,9 @@ mod tests {
                 latency_ms: None,
                 interfaces: Vec::new(),
                 interfaces_reported: false,
+                net_rx_bytes: None,
+                net_tx_bytes: None,
+                net_at: None,
                 uptime_secs: 1,
                 load1: 0.0,
                 mem_used: 0,
@@ -1308,6 +1419,8 @@ mod tests {
                 ],
                 traffic_in: Some(4096),
                 traffic_out: Some(8192),
+                probe_attempts: None,
+                probe_failures: None,
             }],
         )
         .await;
@@ -1377,6 +1490,8 @@ mod tests {
                 targets: Vec::new(),
                 traffic_in: None,
                 traffic_out: None,
+                probe_attempts: None,
+                probe_failures: None,
             }],
         )
         .await;
@@ -1528,10 +1643,15 @@ mod tests {
                     targets: Vec::new(),
                     traffic_in: None,
                     traffic_out: None,
+                    probe_attempts: None,
+                    probe_failures: None,
                 }],
                 latency_ms: None,
                 interfaces: Vec::new(),
                 interfaces_reported: false,
+                net_rx_bytes: None,
+                net_tx_bytes: None,
+                net_at: None,
                 uptime_secs: 1,
                 load1: 0.0,
                 mem_used: 0,
@@ -1574,6 +1694,141 @@ mod tests {
             .await;
         send(5, false).await;
         send(6, false).await;
+        let sent = transport.wait_for(2).await;
+        assert_eq!(sent[1].kind, "chain_degraded");
+    }
+
+    /// 可用率告警：最近 15 分钟探测失败率连续 N 次低于阈值才发一次，
+    /// 恢复后重新武装；不新增事件类型（复用 chain_degraded）。
+    #[tokio::test]
+    async fn chain_availability_alert_requires_streak_and_rearms() {
+        let mut fixture = fixture().await;
+        let transport = Arc::new(RecordingTransport::default());
+        fixture.state.alerts = Alerts::new(transport.clone());
+        repo::settings::set(
+            &fixture.state.db.pool,
+            "webhook_url",
+            "https://example.test/hook",
+        )
+        .await
+        .unwrap();
+        // 去重交给「连续 N 次 + 已告警」状态机，不靠冷却窗口。
+        repo::settings::set(&fixture.state.db.pool, "alert_cooldown_secs", "0")
+            .await
+            .unwrap();
+
+        let (server, _token) =
+            repo::servers::create(&fixture.state.db.pool, "hk-1", "1.2.3.4", "external")
+                .await
+                .unwrap();
+        let chain = repo::chains::create(
+            &fixture.state.db.pool,
+            repo::chains::NewChain {
+                name: "relay".into(),
+                target_host: "10.0.0.9".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "native".into(),
+                protocol: "tcp".into(),
+                transport: "none".into(),
+                tunnel_security: "tls".into(),
+                groups: vec![repo::chains::NewChainGroup {
+                    name: None,
+                    strategy: "round_robin".into(),
+                    cert_id: None,
+                    public_port: None,
+                    use_internal_address: false,
+                    members: vec![repo::chains::NewChainGroupMember {
+                        server_id: server.id.clone(),
+                        listen_port: 8443,
+                        priority: 0,
+                        weight: 1,
+                    }],
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        let forward_id = pierwave_domain::chains::forward_id(&chain.chain.id, 0, &server.id, 1);
+
+        // 最近窗口 95% 可用（100 次探测 5 次失败）→ 低于默认 99%。
+        repo::chain_probe::record_sample(
+            &fixture.state.db.pool,
+            repo::now() - 60,
+            &server.id,
+            &forward_id,
+            100,
+            5,
+        )
+        .await
+        .unwrap();
+
+        let evaluate = || {
+            let state = fixture.state.clone();
+            let server_id = server.id.clone();
+            async move {
+                crate::routes::chains::evaluate_availability_alerts_for_server(&state, &server_id)
+                    .await;
+            }
+        };
+
+        // 第 1、2 次：连续次数不够，不发。
+        evaluate().await;
+        evaluate().await;
+        transport
+            .assert_no_more(0, std::time::Duration::from_millis(100))
+            .await;
+
+        // 第 3 次：触发一次 chain_degraded。
+        evaluate().await;
+        let sent = transport.wait_for(1).await;
+        assert_eq!(sent[0].kind, "chain_degraded");
+        assert_eq!(sent[0].target, chain.chain.id);
+        assert!(
+            sent[0].body.contains("可用率") && sent[0].body.contains("探测失败率近似"),
+            "告警正文必须写清口径：{}",
+            sent[0].body
+        );
+
+        // 仍然不健康：同一轮故障不能刷屏。
+        evaluate().await;
+        transport
+            .assert_no_more(1, std::time::Duration::from_millis(100))
+            .await;
+
+        // 恢复（大量成功探测把窗口拉回 99% 以上）→ 状态清零、重新武装。
+        repo::chain_probe::record_sample(
+            &fixture.state.db.pool,
+            repo::now() - 30,
+            &server.id,
+            &forward_id,
+            5_000,
+            0,
+        )
+        .await
+        .unwrap();
+        evaluate().await;
+        transport
+            .assert_no_more(1, std::time::Duration::from_millis(100))
+            .await;
+
+        // 新的故障：窗口 6100 次 105 次失败（98.3%）→ 再连续 3 次后重新告警。
+        repo::chain_probe::record_sample(
+            &fixture.state.db.pool,
+            repo::now() - 20,
+            &server.id,
+            &forward_id,
+            1_000,
+            100,
+        )
+        .await
+        .unwrap();
+        evaluate().await;
+        evaluate().await;
+        transport
+            .assert_no_more(1, std::time::Duration::from_millis(100))
+            .await;
+        evaluate().await;
         let sent = transport.wait_for(2).await;
         assert_eq!(sent[1].kind, "chain_degraded");
     }

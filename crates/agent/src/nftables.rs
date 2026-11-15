@@ -214,6 +214,8 @@ impl NftablesSupervisor {
                         targets: Vec::new(),
                         traffic_in: None,
                         traffic_out: None,
+                        probe_attempts: None,
+                        probe_failures: None,
                     })
                     .collect(),
             );
@@ -251,6 +253,8 @@ impl NftablesSupervisor {
                             targets: Vec::new(),
                             traffic_in: None,
                             traffic_out: None,
+                            probe_attempts: None,
+                            probe_failures: None,
                         },
                         None => ForwardStatus {
                             id: rule.id.clone(),
@@ -261,6 +265,8 @@ impl NftablesSupervisor {
                             targets: Vec::new(),
                             traffic_in: None,
                             traffic_out: None,
+                            probe_attempts: None,
+                            probe_failures: None,
                         },
                     })
                     .collect();
@@ -375,6 +381,8 @@ impl NftablesSupervisor {
                 targets: Vec::new(),
                 traffic_in: None,
                 traffic_out: None,
+                probe_attempts: None,
+                probe_failures: None,
             })
             .collect()
     }

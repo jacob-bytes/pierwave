@@ -234,6 +234,8 @@ impl RealmStatusHandle {
                 targets: Vec::new(),
                 traffic_in: None,
                 traffic_out: None,
+                probe_attempts: None,
+                probe_failures: None,
             })
             .collect();
         self.store(statuses);
@@ -648,6 +650,8 @@ impl RealmSupervisor {
                 targets: Vec::new(),
                 traffic_in: None,
                 traffic_out: None,
+                probe_attempts: None,
+                probe_failures: None,
             });
         }
         statuses
@@ -672,6 +676,8 @@ impl RealmSupervisor {
                 targets: Vec::new(),
                 traffic_in: None,
                 traffic_out: None,
+                probe_attempts: None,
+                probe_failures: None,
             })
             .collect()
     }
@@ -1703,6 +1709,8 @@ mod tests {
             targets: Vec::new(),
             traffic_in: None,
             traffic_out: None,
+            probe_attempts: None,
+            probe_failures: None,
         }]);
         assert_eq!(
             handle.snapshot()[0].target_ok,

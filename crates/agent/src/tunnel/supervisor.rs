@@ -412,6 +412,8 @@ impl TunnelSupervisor {
                     targets: Vec::new(),
                     traffic_in: None,
                     traffic_out: None,
+                    probe_attempts: None,
+                    probe_failures: None,
                 },
                 None => ForwardStatus {
                     id: id.clone(),
@@ -424,6 +426,8 @@ impl TunnelSupervisor {
                     targets: Vec::new(),
                     traffic_in: None,
                     traffic_out: None,
+                    probe_attempts: None,
+                    probe_failures: None,
                 },
             })
             .collect();

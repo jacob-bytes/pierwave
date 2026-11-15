@@ -1348,6 +1348,8 @@ mod tests {
                 targets: Vec::new(),
                 traffic_in: None,
                 traffic_out: None,
+                probe_attempts: None,
+                probe_failures: None,
             }],
         )
         .await
@@ -1376,6 +1378,8 @@ mod tests {
                 targets: Vec::new(),
                 traffic_in: None,
                 traffic_out: None,
+                probe_attempts: None,
+                probe_failures: None,
             }],
         )
         .await
@@ -2484,6 +2488,8 @@ mod tests {
                 targets: Vec::new(),
                 traffic_in: Some(1000),
                 traffic_out: Some(0),
+                probe_attempts: None,
+                probe_failures: None,
             }],
         )
         .await
@@ -2550,6 +2556,8 @@ mod tests {
                 targets: Vec::new(),
                 traffic_in: Some(1000),
                 traffic_out: Some(0),
+                probe_attempts: None,
+                probe_failures: None,
             }],
         )
         .await
@@ -2611,6 +2619,8 @@ mod tests {
                 targets: Vec::new(),
                 traffic_in: Some(9000),
                 traffic_out: Some(0),
+                probe_attempts: None,
+                probe_failures: None,
             })
             .collect();
         repo::forwards::save_status(&state.db.pool, &server_id, &statuses)

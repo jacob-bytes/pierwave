@@ -23,6 +23,7 @@ import {
   type ChangePasswordInput,
   type Chain,
   type ChainLatencyPoint,
+  type ChainProbeResponse,
   type ChainTemplate,
   type CleanupEnforcementEventsResponse,
   type CreateAgentUpgradeBatchInput,
@@ -166,6 +167,8 @@ export const queryKeys = {
   /** 延迟历史：时间窗进 key，切换窗口即换查询并重新请求。 */
   chainLatency: (chainId: string, hours: number) =>
     ["chains", chainId, "latency", hours] as const,
+  chainProbe: (chainId: string, hours: number) =>
+    ["chains", chainId, "availability", hours] as const,
   routingRules: (serverId: string) =>
     ["routing-rules", serverId] as const,
   certificates: ["certificates"] as const,
@@ -1650,6 +1653,25 @@ export function useChainLatency(
     queryFn: async () => (await api.chains.latency(chainId, hours)).points,
     enabled: enabled && Boolean(chainId),
     // 切换时间窗必须重新请求；延迟历史本身是低频数据，不额外缓存旧窗口。
+    staleTime: 0,
+    retry: false,
+  });
+}
+
+/**
+ * 一条链的可用率 / 丢包（探测失败率近似）趋势。
+ *
+ * 与延迟趋势一致：只有展开面板时才发请求；切窗口换 key 重新拉取。
+ */
+export function useChainProbe(
+  chainId: string,
+  hours: number,
+  enabled = true,
+) {
+  return useQuery<ChainProbeResponse>({
+    queryKey: queryKeys.chainProbe(chainId, hours),
+    queryFn: async () => api.chains.availability(chainId, hours),
+    enabled: enabled && Boolean(chainId),
     staleTime: 0,
     retry: false,
   });

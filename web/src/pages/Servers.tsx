@@ -117,6 +117,7 @@ import { copyText } from "@/lib/clipboard";
 import { isCountryCode } from "@/lib/country";
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
+import { formatRatePairText, rateParts } from "@/lib/netRate";
 import { nicLabel, nicState } from "@/lib/nic";
 import {
   parsePortRangeInput,
@@ -136,11 +137,11 @@ import { t, useI18n } from "@/i18n";
 import { useIsDesktop } from "@/lib/useIsDesktop";
 import { CountrySelect } from "@/components/common/CountrySelect";
 
-const COLUMN_COUNT = 11;
+const COLUMN_COUNT = 12;
 /** 心跳超过这个时长没有更新就不该再当作实时数据。 */
 const HEARTBEAT_STALE_MS = 90_000;
 const HEAD_CLASS =
-  "h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground";
+  "h-9 px-3 text-xs font-medium tracking-wide text-muted-foreground";
 /** 分组筛选：`all` 不筛选，`__ungrouped__` 只看未分组。 */
 const GROUP_FILTER_ALL = "all";
 const GROUP_FILTER_UNGROUPED = "__ungrouped__";
@@ -350,6 +351,72 @@ function MemoryCell({ server }: { server: Server }) {
   );
 }
 
+/**
+ * 一个方向的速率：数值优先、单位弱化。
+ *
+ * `null` = 没有数据（旧 Agent / 首次心跳 / 回绕被丢弃），返回 `null` 让上层
+ * 决定是否显示 `—`；真正测到的 0 会渲染成 `0 B/s`。
+ */
+function RatePartsView({ bps }: { bps: number | null | undefined }) {
+  const parts = rateParts(bps);
+  if (!parts) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  return (
+    <span className="inline-flex items-baseline gap-0.5 font-mono tabular-nums">
+      <span className="text-xs text-foreground">{parts.value}</span>
+      <span className="type-micro text-muted-foreground">{parts.unit}</span>
+    </span>
+  );
+}
+
+/**
+ * 「当前速率」单元格。
+ *
+ * 离线时最后一次心跳的速率已经过期，不再当作实时数据展示（与 Xray 状态同一
+ * 口径）；两侧都没有有效速率时只显示一个 `—`，绝不写 0。
+ */
+function RateCell({ server }: { server: Server }) {
+  const online = server.status === "online";
+  const rx = online ? server.net_rx_bps : null;
+  const tx = online ? server.net_tx_bps : null;
+  const hasData = rateParts(rx) !== null || rateParts(tx) !== null;
+  const title = online
+    ? (formatRatePairText(rx, tx) ?? t("servers.detail.rateUnknown"))
+    : t("servers.detail.rateOffline");
+
+  if (!hasData) {
+    return (
+      <span
+        className="inline-flex items-center text-xs text-muted-foreground"
+        title={title}
+      >
+        —
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className="inline-flex flex-col items-start gap-0.5"
+      title={t("servers.detail.rateHint")}
+    >
+      <span className="inline-flex items-center gap-1 whitespace-nowrap">
+        <span className="text-xs text-muted-foreground" aria-hidden="true">
+          ↓
+        </span>
+        <RatePartsView bps={rx} />
+      </span>
+      <span className="inline-flex items-center gap-1 whitespace-nowrap">
+        <span className="text-xs text-muted-foreground" aria-hidden="true">
+          ↑
+        </span>
+        <RatePartsView bps={tx} />
+      </span>
+    </span>
+  );
+}
+
 function VersionCell({ server }: { server: Server }) {
   const version = server.agent_version;
   const pending = hasPendingAgentUpgrade(server);
@@ -553,6 +620,23 @@ function ServerDetailsPopover({ server }: { server: Server }) {
                 : t("servers.latencyValue", { ms: server.latency_ms })
             }
             tone={server.latency_ms === null ? "muted" : "default"}
+          />
+          <DetailRow
+            label={t("servers.detail.rate")}
+            value={
+              online
+                ? (formatRatePairText(
+                    server.net_rx_bps,
+                    server.net_tx_bps,
+                  ) ?? t("servers.detail.rateUnknown"))
+                : t("servers.detail.rateOffline")
+            }
+            tone={
+              online &&
+              (server.net_rx_bps !== null || server.net_tx_bps !== null)
+                ? "default"
+                : "muted"
+            }
           />
           <DetailRow
             label={t("servers.detail.memory")}
@@ -1110,43 +1194,46 @@ export default function ServersPage() {
         <TableCell
           sticky="left"
           className={cn(
-            "w-10 px-4 py-2.5",
+            "w-10 px-3 py-2.5",
             highlighted && "border-l border-primary/40",
           )}
         >
           {renderServerCheckbox(server, selected)}
         </TableCell>
-        <TableCell className="max-w-56 px-4 py-2.5">
+        <TableCell className="max-w-56 px-3 py-2.5">
           {renderServerName(server)}
         </TableCell>
-        <TableCell className="hidden px-4 py-2.5 font-mono text-xs text-muted-foreground lg:table-cell">
+        <TableCell className="hidden px-3 py-2.5 font-mono text-xs text-muted-foreground lg:table-cell">
           {server.address}
         </TableCell>
-        <TableCell className="hidden px-4 py-2.5 text-xs text-muted-foreground lg:table-cell">
+        <TableCell className="hidden px-3 py-2.5 text-xs text-muted-foreground lg:table-cell">
           {renderServerMode(server)}
         </TableCell>
-        <TableCell className="px-4 py-2.5">
+        <TableCell className="px-3 py-2.5">
           <StatusBadge server={server} />
         </TableCell>
-        <TableCell className="px-4 py-2.5">
+        <TableCell className="px-3 py-2.5">
           <XrayStatus server={server} />
         </TableCell>
-        <TableCell className="px-4 py-2.5 text-xs text-muted-foreground">
+        <TableCell className="px-3 py-2.5 text-xs text-muted-foreground">
           <HeartbeatText healthAt={server.health_at} />
         </TableCell>
-        <TableCell className="hidden px-4 py-2.5 xl:table-cell">
+        <TableCell className="hidden px-3 py-2.5 xl:table-cell">
           <VersionCell server={server} />
         </TableCell>
-        <TableCell className="hidden px-4 py-2.5 xl:table-cell">
+        <TableCell className="hidden px-3 py-2.5 xl:table-cell">
           {renderServerLoad(server)}
         </TableCell>
-        <TableCell className="hidden px-4 py-2.5 xl:table-cell">
+        <TableCell className="hidden px-3 py-2.5 xl:table-cell">
           <MemoryCell server={server} />
+        </TableCell>
+        <TableCell className="hidden px-3 py-2.5 xl:table-cell">
+          <RateCell server={server} />
         </TableCell>
         <TableCell
           sticky="right"
           className={cn(
-            "px-4 py-2.5",
+            "px-3 py-2.5",
             highlighted && "border-r border-primary/40",
           )}
         >
@@ -1256,6 +1343,10 @@ export default function ServersPage() {
             {
               label: t("servers.detail.memory"),
               value: <MemoryCell server={server} />,
+            },
+            {
+              label: t("servers.detail.rate"),
+              value: <RateCell server={server} />,
             },
           ]}
         />
@@ -1477,7 +1568,7 @@ export default function ServersPage() {
           ) : null}
           {isDesktop ? (
           <div className={cn(servers.isPending && "hidden")}>
-          <Table className="min-w-[780px] xl:min-w-[1140px]">
+          <Table className="min-w-[780px] xl:min-w-[1100px]">
             <TableCaption className="sr-only">{t("servers.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
@@ -1509,6 +1600,9 @@ export default function ServersPage() {
                 </TableHead>
                 <TableHead className={cn(HEAD_CLASS, "hidden xl:table-cell")}>
                   {t("servers.detail.memory")}
+                </TableHead>
+                <TableHead className={cn(HEAD_CLASS, "hidden xl:table-cell")}>
+                  {t("servers.detail.rate")}
                 </TableHead>
                 <TableHead sticky="right" className={HEAD_CLASS}>{t("common.actions")}</TableHead>
               </TableRow>

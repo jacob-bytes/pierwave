@@ -1583,6 +1583,69 @@ pub mod servers {
         Ok(())
     }
 
+    /// 心跳里的网卡累计计数 → 当前速率（只用于展示）。
+    ///
+    /// 纯计算在 [`crate::telemetry::net_rate`]：这里只负责读上一份基线、
+    /// 把新计数写回、并把算出的速率落到 `net_rx_bps / net_tx_bps`。
+    ///
+    /// * 第一次上报（没有基线）→ 只存基线，速率保持 NULL；
+    /// * 计数回绕 / 时间差 `<= 0` / 异常峰值 → **清空**速率（NULL），
+    ///   绝不写负数或尖峰；下一次心跳以新计数重新开始；
+    /// * 写入失败只返回错误，由调用方记日志，不影响心跳的其它字段。
+    pub async fn update_net_counters(
+        pool: &SqlitePool,
+        id: &str,
+        rx_bytes: u64,
+        tx_bytes: u64,
+        at: i64,
+    ) -> anyhow::Result<()> {
+        let previous: Option<(Option<i64>, Option<i64>, Option<i64>)> =
+            sqlx::query_as("SELECT net_rx_bytes, net_tx_bytes, net_at FROM servers WHERE id = ?")
+                .bind(id)
+                .fetch_optional(pool)
+                .await?;
+        let Some((previous_rx, previous_tx, previous_at)) = previous else {
+            return Ok(());
+        };
+        // 负数只可能来自历史脏数据；按「没有基线」处理，避免 u64 转换回绕。
+        let baseline = match (previous_rx, previous_tx, previous_at) {
+            (Some(rx), Some(tx), Some(at)) if rx >= 0 && tx >= 0 => {
+                Some(crate::telemetry::NetCounters {
+                    rx_bytes: rx as u64,
+                    tx_bytes: tx as u64,
+                    at,
+                })
+            }
+            _ => None,
+        };
+        let rate = crate::telemetry::net_rate(
+            baseline,
+            crate::telemetry::NetCounters {
+                rx_bytes,
+                tx_bytes,
+                at,
+            },
+        );
+        sqlx::query(
+            "UPDATE servers SET
+                net_rx_bytes = ?,
+                net_tx_bytes = ?,
+                net_at = ?,
+                net_rx_bps = ?,
+                net_tx_bps = ?
+             WHERE id = ?",
+        )
+        .bind(rx_bytes.min(i64::MAX as u64) as i64)
+        .bind(tx_bytes.min(i64::MAX as u64) as i64)
+        .bind(at)
+        .bind(rate.map(|rate| rate.rx_bps))
+        .bind(rate.map(|rate| rate.tx_bps))
+        .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
     /// 配置版本原子 +1，返回新版本。apply 时调用。
     pub async fn bump_config_version(pool: &SqlitePool, id: &str) -> anyhow::Result<i64> {
         let version = sqlx::query_scalar::<_, i64>(
@@ -1778,6 +1841,53 @@ pub mod servers {
                 vec!["vless", "vmess"],
                 "停用节点的协议仍参与统计"
             );
+        }
+
+        /// 网速：首次心跳只存基线；第二次算差值；时间差 0 / 计数回绕都丢空。
+        #[tokio::test]
+        async fn update_net_counters_computes_rate_and_discards_unusable_deltas() {
+            let pool = setup().await;
+            let id = create_server(&pool, "hk-1").await;
+
+            // 第一次心跳：累计 1000 / 2000，没有基线 → 速率为 NULL。
+            update_net_counters(&pool, &id, 1_000, 2_000, 1_000)
+                .await
+                .unwrap();
+            let server = find_by_id(&pool, &id).await.unwrap();
+            assert_eq!(server.net_rx_bps, None, "首次上报不能凭空算速率");
+            assert_eq!(server.net_tx_bps, None);
+
+            // 60 秒后入 +12.3MB、出 +1.2MB → 205000 / 20000 B/s。
+            update_net_counters(&pool, &id, 1_000 + 12_300_000, 2_000 + 1_200_000, 1_060)
+                .await
+                .unwrap();
+            let server = find_by_id(&pool, &id).await.unwrap();
+            assert!((server.net_rx_bps.unwrap() - 205_000.0).abs() < 1e-6);
+            assert!((server.net_tx_bps.unwrap() - 20_000.0).abs() < 1e-6);
+
+            // 同一秒再来一次：时间差为 0 → 清空速率，而不是除零。
+            update_net_counters(&pool, &id, 1_000 + 12_400_000, 2_000 + 1_200_000, 1_060)
+                .await
+                .unwrap();
+            let server = find_by_id(&pool, &id).await.unwrap();
+            assert_eq!(server.net_rx_bps, None, "时间差为 0 必须无数据");
+            assert_eq!(server.net_tx_bps, None);
+
+            // 机器重启：计数回绕 → 丢弃该次差值，且不能写负数。
+            update_net_counters(&pool, &id, 500, 400, 1_120)
+                .await
+                .unwrap();
+            let server = find_by_id(&pool, &id).await.unwrap();
+            assert_eq!(server.net_rx_bps, None, "回绕必须丢弃");
+            assert_eq!(server.net_tx_bps, None);
+
+            // 回绕后的下一轮：以新计数为基线继续算。
+            update_net_counters(&pool, &id, 500 + 6_000, 400 + 3_000, 1_180)
+                .await
+                .unwrap();
+            let server = find_by_id(&pool, &id).await.unwrap();
+            assert!((server.net_rx_bps.unwrap() - 100.0).abs() < 1e-6);
+            assert!((server.net_tx_bps.unwrap() - 50.0).abs() < 1e-6);
         }
     }
 }
@@ -2930,6 +3040,10 @@ pub mod forwards {
         pub traffic_in: Option<u64>,
         /// Agent 统计的出方向累计字节；nftables / realm 为 `None`。
         pub traffic_out: Option<u64>,
+        /// 自监听启动以来累计的目标探测次数；`None` = 未探测 / 旧 Agent。
+        pub probe_attempts: Option<u64>,
+        /// 上述探测中失败的累计次数；`None` = 未知（绝不是 0）。
+        pub probe_failures: Option<u64>,
     }
 
     /// 心跳里一个 target 的探测结果（与线协议的 `TargetProbe` 同形，
@@ -3373,6 +3487,19 @@ pub mod forwards {
         .into_iter()
         .collect();
 
+        // 探测计数的上一轮基线：保存的是 Agent 自监听启动以来的**累计值**，
+        // 本函数负责差分（`super::chain_probe::record_sample`）。
+        let probe_baseline: HashMap<String, (i64, i64)> = sqlx::query_as(
+            "SELECT forward_id, attempts, failures FROM forward_probe_counters
+             WHERE server_id = ?",
+        )
+        .bind(server_id)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|(id, attempts, failures)| (id, (attempts, failures)))
+        .collect();
+
         let ts = now();
         let mut tx = pool.begin().await?;
         sqlx::query("DELETE FROM forward_status WHERE server_id = ?")
@@ -3468,6 +3595,75 @@ pub mod forwards {
                 super::latency::purge_before(pool, ts - super::latency::RETENTION_SECS).await
             {
                 tracing::warn!(error = %error, "清理过期延迟样本失败");
+            }
+        }
+
+        // 探测窗口计数：同样属于观测数据，失败只 warn，不影响心跳状态。
+        //
+        // 累计值 → 增量：第一次观测只记基线（0 次），Agent 重启导致计数变小时
+        // 也只换基线。这样「回绕」不会被记成负数或巨大的失败数。
+        let mut probe_recorded = false;
+        for status in statuses {
+            let (Some(attempts), Some(failures)) = (status.probe_attempts, status.probe_failures)
+            else {
+                continue;
+            };
+            let attempts = attempts.min(i64::MAX as u64) as i64;
+            let failures = failures.min(i64::MAX as u64) as i64;
+            if failures < 0 || failures > attempts {
+                tracing::warn!(
+                    forward_id = %status.forward_id,
+                    attempts,
+                    failures,
+                    "探测计数不自洽，跳过这一轮的可用率样本"
+                );
+                continue;
+            }
+            let (delta_attempts, delta_failures) = match probe_baseline.get(&status.forward_id) {
+                Some((previous_attempts, previous_failures))
+                    if attempts >= *previous_attempts && failures >= *previous_failures =>
+                {
+                    (attempts - previous_attempts, failures - previous_failures)
+                }
+                // 第一次观测 / 计数器回绕（Agent 重启、规则重建）：只换基线。
+                _ => (0, 0),
+            };
+            if delta_attempts > 0 || delta_failures > 0 {
+                match super::chain_probe::record_sample(
+                    pool,
+                    ts,
+                    server_id,
+                    &status.forward_id,
+                    delta_attempts,
+                    delta_failures,
+                )
+                .await
+                {
+                    Ok(()) => probe_recorded = true,
+                    Err(error) => {
+                        tracing::warn!(error = %error, "写入探测样本失败（不影响心跳状态）")
+                    }
+                }
+            }
+            if let Err(error) = super::chain_probe::save_counters(
+                pool,
+                server_id,
+                &status.forward_id,
+                attempts,
+                failures,
+                ts,
+            )
+            .await
+            {
+                tracing::warn!(error = %error, "更新探测计数基线失败");
+            }
+        }
+        if probe_recorded {
+            if let Err(error) =
+                super::chain_probe::purge_before(pool, ts - crate::telemetry::PROBE_RETENTION_SECS)
+                    .await
+            {
+                tracing::warn!(error = %error, "清理过期探测样本失败");
             }
         }
         Ok(())
@@ -4394,6 +4590,8 @@ pub mod forward_traffic {
                     targets: Vec::new(),
                     traffic_in,
                     traffic_out,
+                    probe_attempts: None,
+                    probe_failures: None,
                 }],
             )
             .await
@@ -5297,6 +5495,101 @@ pub mod forward_traffic {
             assert_eq!(bob_row.name, DELETED_LABEL);
             assert_eq!(bob_row.user_name, DELETED_LABEL);
         }
+
+        /// 探测窗口计数：累计值差分成 5 分钟桶；首次观测 / 计数回绕都不记增量。
+        #[tokio::test]
+        async fn save_status_records_probe_deltas_and_discards_wraps() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let forward_id = "chain-demo-0-srv-a".to_string();
+            let status = |attempts: Option<u64>, failures: Option<u64>| {
+                super::super::forwards::NewForwardStatus {
+                    forward_id: forward_id.clone(),
+                    listening: true,
+                    error: String::new(),
+                    target_ok: Some(true),
+                    target_error: None,
+                    targets: Vec::new(),
+                    traffic_in: None,
+                    traffic_out: None,
+                    probe_attempts: attempts,
+                    probe_failures: failures,
+                }
+            };
+
+            // 第一次观测：只有累计值，没有基线 → 不写样本（不能把历史全算进一个桶）。
+            super::super::forwards::save_status(&pool, &server, &[status(Some(40), Some(2))])
+                .await
+                .unwrap();
+            let now = super::super::now();
+            let totals = super::super::chain_probe::totals_for_forwards(
+                &pool,
+                std::slice::from_ref(&forward_id),
+                0,
+                now + 1_000,
+            )
+            .await
+            .unwrap();
+            assert!(totals.is_empty(), "首次上报只建立基线");
+
+            // 第二次：40 → 60、2 → 3，增量 20 / 1。
+            super::super::forwards::save_status(&pool, &server, &[status(Some(60), Some(3))])
+                .await
+                .unwrap();
+            let totals = super::super::chain_probe::totals_for_forwards(
+                &pool,
+                std::slice::from_ref(&forward_id),
+                0,
+                now + 1_000,
+            )
+            .await
+            .unwrap();
+            let counts = totals.get(&forward_id).copied().unwrap();
+            assert_eq!((counts.attempts, counts.failures), (20, 1));
+
+            // 回绕（Agent 重启）：计数变小 → 不记负数，只换基线。
+            super::super::forwards::save_status(&pool, &server, &[status(Some(5), Some(0))])
+                .await
+                .unwrap();
+            let totals = super::super::chain_probe::totals_for_forwards(
+                &pool,
+                std::slice::from_ref(&forward_id),
+                0,
+                now + 1_000,
+            )
+            .await
+            .unwrap();
+            assert_eq!(totals.get(&forward_id).copied().unwrap().attempts, 20);
+
+            // 回绕后继续累计：5 → 15、0 → 1，增量 10 / 1。
+            super::super::forwards::save_status(&pool, &server, &[status(Some(15), Some(1))])
+                .await
+                .unwrap();
+            let totals = super::super::chain_probe::totals_for_forwards(
+                &pool,
+                std::slice::from_ref(&forward_id),
+                0,
+                now + 1_000,
+            )
+            .await
+            .unwrap();
+            let counts = totals.get(&forward_id).copied().unwrap();
+            assert_eq!((counts.attempts, counts.failures), (30, 2));
+
+            // 旧 Agent（None）不产生样本，也不能把已有基线清掉。
+            super::super::forwards::save_status(&pool, &server, &[status(None, None)])
+                .await
+                .unwrap();
+            let totals = super::super::chain_probe::totals_for_forwards(
+                &pool,
+                std::slice::from_ref(&forward_id),
+                0,
+                now + 1_000,
+            )
+            .await
+            .unwrap();
+            assert_eq!(totals.get(&forward_id).copied().unwrap().attempts, 30);
+        }
     }
 }
 
@@ -5514,6 +5807,211 @@ pub mod latency {
             assert_eq!(rows[0].latency_ms, 10);
             assert_eq!(rows[1].latency_ms, 20);
         }
+    }
+}
+
+/// 转发链可用率 / 丢包近似的观测存储。
+///
+/// 口径见 `crate::telemetry`：样本是 Agent 上报的**目标探测**次数与失败次数，
+/// 5 分钟一个桶、只存增量。「丢包率」是探测失败率，不是业务报文丢包率。
+///
+/// 写入入口是 [`super::forwards::save_status`]（心跳路径），读接口被链列表 /
+/// 链详情 / 告警共用。观测写入失败绝不能反过来把心跳判成失败。
+pub mod chain_probe {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    /// 5 分钟桶的探测增量。
+    #[derive(Debug, Clone, sqlx::FromRow)]
+    pub struct ProbeBucketRow {
+        pub forward_id: String,
+        pub ts: i64,
+        pub attempts: i64,
+        pub failures: i64,
+    }
+
+    /// 记录一条 forward 在 5 分钟桶里的探测增量。
+    ///
+    /// 同一 `(ts, server_id, forward_id)` 的心跳增量累加（upsert），所以
+    /// 每秒来一次心跳也不会丢数据。`ts` 由调用方传入（生产是当前时间）。
+    pub async fn record_sample(
+        pool: &SqlitePool,
+        ts: i64,
+        server_id: &str,
+        forward_id: &str,
+        attempts: i64,
+        failures: i64,
+    ) -> anyhow::Result<()> {
+        if attempts <= 0 && failures <= 0 {
+            return Ok(());
+        }
+        let bucket = ts - ts.rem_euclid(crate::telemetry::PROBE_BUCKET_SECS);
+        sqlx::query(
+            "INSERT INTO forward_probe_samples (ts, server_id, forward_id, attempts, failures)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(ts, server_id, forward_id) DO UPDATE SET
+                attempts = forward_probe_samples.attempts + excluded.attempts,
+                failures = forward_probe_samples.failures + excluded.failures",
+        )
+        .bind(bucket)
+        .bind(server_id)
+        .bind(forward_id)
+        .bind(attempts.max(0))
+        .bind(failures.max(0))
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// 保存 Agent 上报的累计探测计数（下一轮差分用）。
+    pub async fn save_counters(
+        pool: &SqlitePool,
+        server_id: &str,
+        forward_id: &str,
+        attempts: i64,
+        failures: i64,
+        at: i64,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO forward_probe_counters
+                (server_id, forward_id, attempts, failures, updated_at)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(server_id, forward_id) DO UPDATE SET
+                attempts = excluded.attempts,
+                failures = excluded.failures,
+                updated_at = excluded.updated_at",
+        )
+        .bind(server_id)
+        .bind(forward_id)
+        .bind(attempts.max(0))
+        .bind(failures.max(0))
+        .bind(at)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// 一批 forward 在 `[since, until)` 内的探测总数，按 forward 聚合。
+    ///
+    /// 一次 `IN (...)` 查完；没有样本的 forward 不出现在结果里（读路径据此
+    /// 输出 `None`，绝不补 0）。
+    pub async fn totals_for_forwards(
+        pool: &SqlitePool,
+        forward_ids: &[String],
+        since: i64,
+        until: i64,
+    ) -> anyhow::Result<HashMap<String, crate::telemetry::ProbeCounts>> {
+        if forward_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let mut builder = sqlx::QueryBuilder::new(
+            "SELECT forward_id, SUM(attempts) AS attempts, SUM(failures) AS failures
+               FROM forward_probe_samples
+              WHERE ts >= ",
+        );
+        builder.push_bind(since);
+        builder.push(" AND ts < ");
+        builder.push_bind(until);
+        builder.push(" AND forward_id IN (");
+        let mut separated = builder.separated(", ");
+        for id in forward_ids {
+            separated.push_bind(id.clone());
+        }
+        separated.push_unseparated(")");
+        builder.push(" GROUP BY forward_id");
+        let rows: Vec<(String, i64, i64)> = builder.build_query_as().fetch_all(pool).await?;
+        Ok(rows
+            .into_iter()
+            .map(|(forward_id, attempts, failures)| {
+                (
+                    forward_id,
+                    crate::telemetry::ProbeCounts { attempts, failures },
+                )
+            })
+            .collect())
+    }
+
+    /// 一批 forward 在 `[since, until)` 内的 5 分钟桶。
+    pub async fn buckets_for_forwards(
+        pool: &SqlitePool,
+        forward_ids: &[String],
+        since: i64,
+        until: i64,
+    ) -> anyhow::Result<Vec<ProbeBucketRow>> {
+        if forward_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut builder = sqlx::QueryBuilder::new(
+            "SELECT forward_id, ts, attempts, failures
+               FROM forward_probe_samples
+              WHERE ts >= ",
+        );
+        builder.push_bind(since);
+        builder.push(" AND ts < ");
+        builder.push_bind(until);
+        builder.push(" AND forward_id IN (");
+        let mut separated = builder.separated(", ");
+        for id in forward_ids {
+            separated.push_bind(id.clone());
+        }
+        separated.push_unseparated(")");
+        builder.push(" ORDER BY ts ASC, forward_id ASC");
+        Ok(builder.build_query_as().fetch_all(pool).await?)
+    }
+
+    /// 删除早于 `cutoff` 的探测桶，返回删除行数。
+    pub async fn purge_before(pool: &SqlitePool, cutoff: i64) -> anyhow::Result<u64> {
+        let result = sqlx::query("DELETE FROM forward_probe_samples WHERE ts < ?")
+            .bind(cutoff)
+            .execute(pool)
+            .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// 读取一条链的降级状态机状态；从未观测过 = 默认状态。
+    pub async fn degradation(
+        pool: &SqlitePool,
+        chain_id: &str,
+    ) -> anyhow::Result<crate::telemetry::DegradationState> {
+        let row: Option<(i64, i64)> = sqlx::query_as(
+            "SELECT consecutive_below, alerted FROM chain_degradation WHERE chain_id = ?",
+        )
+        .bind(chain_id)
+        .fetch_optional(pool)
+        .await?;
+        Ok(row
+            .map(
+                |(consecutive_below, alerted)| crate::telemetry::DegradationState {
+                    consecutive_below,
+                    alerted: alerted != 0,
+                },
+            )
+            .unwrap_or_default())
+    }
+
+    /// 写回降级状态机状态。
+    pub async fn save_degradation(
+        pool: &SqlitePool,
+        chain_id: &str,
+        state: crate::telemetry::DegradationState,
+        at: i64,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO chain_degradation (chain_id, consecutive_below, alerted, updated_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(chain_id) DO UPDATE SET
+                consecutive_below = excluded.consecutive_below,
+                alerted = excluded.alerted,
+                updated_at = excluded.updated_at",
+        )
+        .bind(chain_id)
+        .bind(state.consecutive_below)
+        .bind(i64::from(state.alerted))
+        .bind(at)
+        .execute(pool)
+        .await?;
+        Ok(())
     }
 }
 
@@ -8233,10 +8731,11 @@ pub mod server_samples {
         let recorded = sqlx::query(
             "INSERT INTO server_samples
                 (server_id, ts, online, load1, mem_used, mem_total, disk_used, disk_total,
-                 latency_ms)
+                 latency_ms, rx_bps, tx_bps)
              SELECT id, ?, CASE WHEN status = 'online' THEN 1 ELSE 0 END,
                     COALESCE(load1, 0), COALESCE(mem_used, 0), COALESCE(mem_total, 0),
-                    COALESCE(disk_used, 0), COALESCE(disk_total, 0), latency_ms
+                    COALESCE(disk_used, 0), COALESCE(disk_total, 0), latency_ms,
+                    net_rx_bps, net_tx_bps
              FROM servers
              WHERE true
              ON CONFLICT(server_id, ts) DO UPDATE SET
@@ -8246,7 +8745,9 @@ pub mod server_samples {
                 mem_total = excluded.mem_total,
                 disk_used = excluded.disk_used,
                 disk_total = excluded.disk_total,
-                latency_ms = excluded.latency_ms",
+                latency_ms = excluded.latency_ms,
+                rx_bps = excluded.rx_bps,
+                tx_bps = excluded.tx_bps",
         )
         .bind(ts)
         .execute(&mut *tx)
@@ -9817,6 +10318,8 @@ pub mod overview {
                         targets: Vec::new(),
                         traffic_in: None,
                         traffic_out: None,
+                        probe_attempts: None,
+                        probe_failures: None,
                     },
                     super::super::forwards::NewForwardStatus {
                         forward_id: "fwd-a".into(),
@@ -9827,6 +10330,8 @@ pub mod overview {
                         targets: Vec::new(),
                         traffic_in: None,
                         traffic_out: None,
+                        probe_attempts: None,
+                        probe_failures: None,
                     },
                     super::super::forwards::NewForwardStatus {
                         forward_id: "fwd-b".into(),
@@ -9837,6 +10342,8 @@ pub mod overview {
                         targets: Vec::new(),
                         traffic_in: None,
                         traffic_out: None,
+                        probe_attempts: None,
+                        probe_failures: None,
                     },
                     super::super::forwards::NewForwardStatus {
                         forward_id: "fwd-c".into(),
@@ -9847,6 +10354,8 @@ pub mod overview {
                         targets: Vec::new(),
                         traffic_in: None,
                         traffic_out: None,
+                        probe_attempts: None,
+                        probe_failures: None,
                     },
                 ],
             )
@@ -9912,6 +10421,8 @@ pub mod overview {
                 targets: Vec::new(),
                 traffic_in: None,
                 traffic_out: None,
+                probe_attempts: None,
+                probe_failures: None,
             };
 
             // 第一次失败：不降级（连续两次才算）。
@@ -9944,6 +10455,8 @@ pub mod overview {
                     targets: Vec::new(),
                     traffic_in: None,
                     traffic_out: None,
+                    probe_attempts: None,
+                    probe_failures: None,
                 }],
             )
             .await

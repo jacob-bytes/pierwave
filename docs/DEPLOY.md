@@ -54,6 +54,8 @@ PIERWAVE_ADMIN_PASSWORD='换成强密码' ./pierwave-master
 | `PIERWAVE_ADMIN_PASSWORD` | 随机 | 仅首次建库时生效，密码会打印在日志里 |
 | `PIERWAVE_AGENT_DIST` | 未设置 | agent 二进制目录；设置后 `/api/agent/download/*` 才可用 |
 | `PIERWAVE_ENFORCE` | 开 | 设为 `0` 关闭超额断流 |
+| `PIERWAVE_CHAIN_AVAILABILITY_THRESHOLD` | `99` | 链可用率告警阈值（百分比 0–100）/ Chain availability alert threshold (percent, 0–100) |
+| `PIERWAVE_CHAIN_DEGRADED_STREAK` | `3` | 连续多少次心跳低于阈值才告警（1–100）/ Consecutive low-availability checks before alerting (1–100) |
 
 登录限流的阈值、锁定时长、会话有效期、面板名称都在「设置」页里改（存 `settings` 表），不用重启。
 

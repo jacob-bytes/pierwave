@@ -58,6 +58,14 @@ pub struct Server {
     pub uptime_secs: Option<i64>,
     /// Agent 到公网探测目标的 TCP 握手 RTT（毫秒）；None = 探测失败或旧 Agent。
     pub latency_ms: Option<i64>,
+    /// 最近一次由两次心跳算出的接收速率（字节/秒）。
+    ///
+    /// `None` = 旧 Agent（协议 < 26）未上报、首次心跳还没有基线、或计数回绕
+    /// 导致本次差值被丢弃。前端必须显示 `—`，不能显示 0。
+    /// **只用于展示，不参与计费。**
+    pub net_rx_bps: Option<f64>,
+    /// 同 [`Server::net_rx_bps`]，发送方向。
+    pub net_tx_bps: Option<f64>,
     pub health_at: Option<i64>,
     /// 是否允许下发 Agent 升级计划。
     pub allow_agent_upgrade: bool,
@@ -1156,6 +1164,10 @@ pub struct ServerSample {
     pub disk_total: i64,
     /// 采样时刻的 TCP 握手 RTT（毫秒）；NULL = 当时没有有效探测结果。
     pub latency_ms: Option<i64>,
+    /// 采样时刻的接收速率（字节/秒）；NULL = 当时没有可用速率（旧 Agent / 回绕被丢弃）。
+    pub rx_bps: Option<f64>,
+    /// 采样时刻的发送速率（字节/秒）；NULL 的含义同上。
+    pub tx_bps: Option<f64>,
 }
 
 /// 一台服务器在 24h / 7d 窗口内的可用率；没有采样时对应字段为 `None`。

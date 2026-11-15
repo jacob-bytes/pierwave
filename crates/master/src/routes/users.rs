@@ -2188,6 +2188,8 @@ mod tests {
                 targets: Vec::new(),
                 traffic_in: Some(10),
                 traffic_out: Some(20),
+                probe_attempts: None,
+                probe_failures: None,
             }],
         )
         .await

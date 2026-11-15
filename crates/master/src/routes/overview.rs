@@ -572,6 +572,8 @@ mod tests {
                 targets: Vec::new(),
                 traffic_in: None,
                 traffic_out: None,
+                probe_attempts: None,
+                probe_failures: None,
             }],
         )
         .await

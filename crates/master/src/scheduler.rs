@@ -1148,6 +1148,8 @@ mod tests {
                 targets: Vec::new(),
                 traffic_in: Some(1024),
                 traffic_out: Some(2048),
+                probe_attempts: None,
+                probe_failures: None,
             }],
         )
         .await
@@ -1172,6 +1174,8 @@ mod tests {
                 targets: Vec::new(),
                 traffic_in: Some(4096),
                 traffic_out: Some(6144),
+                probe_attempts: None,
+                probe_failures: None,
             }],
         )
         .await

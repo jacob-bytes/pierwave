@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/dialog";
 import { ChainFormDialog } from "@/components/chains/ChainFormDialog";
 import { ChainLatencyTrend } from "@/components/chains/ChainLatencyTrend";
+import { ChainProbeHealth } from "@/components/chains/ChainProbeHealth";
 import { DeleteChainDialog } from "@/components/chains/DeleteChainDialog";
 import { StrategyBadge } from "@/components/chains/StrategyBadge";
 import { Badge } from "@/components/ui/badge";
@@ -99,6 +100,12 @@ import {
 } from "@/lib/chainTopology";
 import { isTlsTransport } from "@/lib/chainTls";
 import {
+  availabilityLabel,
+  availabilityTone,
+  DEFAULT_AVAILABILITY_THRESHOLD_PERCENT,
+  lossLabel,
+} from "@/lib/chainProbe";
+import {
   chainEngineMissing,
   chainServersMissingRealm,
   engineMissing,
@@ -112,7 +119,7 @@ import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
 import { useIsDesktop } from "@/lib/useIsDesktop";
 
-const CHAIN_COLUMN_COUNT = 7;
+const CHAIN_COLUMN_COUNT = 8;
 const HEAD_CLASS =
   "h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground";
 
@@ -383,6 +390,35 @@ function MemberTargetStatus({ member }: { member: ChainGroupMember }) {
  * realm 链报「realm 未安装」时链本身未必降级（target_ok 没失败），
  * 所以额外用 warning 提示「引擎缺失」，避免把环境问题看成链路健康。
  */
+/** 列表「可用率」单元格：数值优先，低于阈值用 warning，无数据用 `—`。 */
+function AvailabilityCell({ chain }: { chain: Chain }) {
+  const { t } = useI18n();
+  const threshold =
+    chain.availability_threshold_percent ??
+    DEFAULT_AVAILABILITY_THRESHOLD_PERCENT;
+  const availability = chain.availability_24h ?? null;
+  const tone = availabilityTone(availability, threshold);
+  const title =
+    availability === null
+      ? t("chains.detail.probe.insufficient")
+      : `${t("chains.detail.probe.availabilityTitle")} · ${t(
+          "chains.detail.probe.loss",
+        )} ${lossLabel(chain.loss_24h)}`;
+
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center font-mono text-xs tabular-nums",
+        tone === "warning" && "text-warning",
+        tone === "muted" && "text-muted-foreground",
+      )}
+      title={title}
+    >
+      {availabilityLabel(availability)}
+    </span>
+  );
+}
+
 function ChainStatusCell({ chain }: { chain: Chain }) {
   const { t } = useI18n();
   const status = chainStatus(chain.enabled, chain.degraded);
@@ -1099,6 +1135,9 @@ export default function ChainsPage() {
             <ChainStatusCell chain={chain} />
           </TableCell>
           <TableCell className="px-4 py-2.5">
+            <AvailabilityCell chain={chain} />
+          </TableCell>
+          <TableCell className="px-4 py-2.5">
             <ChainEnabledSwitch chain={chain} />
           </TableCell>
           <TableCell sticky="right" className="px-4 py-2.5">
@@ -1130,6 +1169,10 @@ export default function ChainsPage() {
           {
             label: t("chains.list.columns.status"),
             value: <ChainStatusCell chain={chain} />,
+          },
+          {
+            label: t("chains.list.columns.availability"),
+            value: <AvailabilityCell chain={chain} />,
           },
           {
             label: t("chains.list.columns.enabled"),
@@ -1210,7 +1253,7 @@ export default function ChainsPage() {
           ) : null}
           {isDesktop ? (
           <div className={cn(chains.isPending && "hidden")}>
-          <Table className="min-w-[880px]">
+          <Table className="min-w-[960px]">
             <TableCaption className="sr-only">
               {t("chains.list.tableCaption")}
             </TableCaption>
@@ -1222,6 +1265,7 @@ export default function ChainsPage() {
                   t("chains.list.columns.entry"),
                   t("chains.list.columns.target"),
                   t("chains.list.columns.status"),
+                  t("chains.list.columns.availability"),
                   t("chains.list.columns.enabled"),
                   t("common.actions"),
                 ].map((label, index, columns) => (
@@ -1361,6 +1405,9 @@ export default function ChainsPage() {
               )}
             >
               <ChainGroupsDetail chain={topologyChain} />
+              <div className="mt-3">
+                <ChainProbeHealth key={`probe-${topologyChain.id}`} chain={topologyChain} />
+              </div>
               <div className="mt-3">
                 <ChainLatencyTrend
                   key={topologyChain.id}

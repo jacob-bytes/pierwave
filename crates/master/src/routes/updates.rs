@@ -173,7 +173,10 @@ mod tests {
         assert_eq!(body["master"]["update_available"], false);
         assert_eq!(body["master"]["checked_at"], Value::Null);
         assert_eq!(body["master"]["error"], Value::Null);
-        assert_eq!(body["agents"]["current_protocol"], 25);
+        assert_eq!(
+            body["agents"]["current_protocol"],
+            i64::from(pierwave_proto::PROTOCOL_VERSION)
+        );
         assert_eq!(body["agents"]["min_supported"], 16);
         assert_eq!(
             body["agents"]["versions"],

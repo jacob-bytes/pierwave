@@ -556,6 +556,11 @@ const en = {
       load: "Load (1 min)",
       latency: "Network latency",
       latencyHint: "TCP handshake RTT from the Agent to the public probe target",
+      rate: "Current rate",
+      rateHint:
+        "Net device byte delta between two heartbeats divided by elapsed time; display only, never used for billing",
+      rateUnknown: "Not reported by this agent yet",
+      rateOffline: "Server offline; the last rate is no longer live",
       memory: "Memory",
       lastHeartbeat: "Last heartbeat",
       lastSeen: "Last seen",
@@ -2438,6 +2443,7 @@ const en = {
         entry: "Entry",
         target: "Target",
         status: "Status",
+        availability: "Availability",
         enabled: "Enabled",
       },
       groupCount: "{groups} hops · {members} servers",
@@ -2491,6 +2497,23 @@ const en = {
       latencyError: "Could not load latency history. Try again shortly.",
       latencyAria: "Latency trend by hop",
       hopTrafficTitle: "Cumulative traffic for this hop since the listener started",
+      probe: {
+        availability: "Availability",
+        availabilityTitle: "24-hour availability, weighted by probe attempts",
+        loss: "Packet loss",
+        lossTitle:
+          "Probe failure approximation: the Agent probes each target every 30 s; failed attempts / total attempts",
+        note: "Packet loss is approximated by the probe failure rate, not measured on user traffic.",
+        attempts: "{count} probes in 24h",
+        insufficient: "Not enough probe samples to show availability yet",
+        trend: "Availability / loss trend",
+        windowAria: "Availability trend time window",
+        empty: "No probe samples yet",
+        error: "Could not load availability history. Try again shortly.",
+        aria: "Probe failure rate (packet loss approximation) trend",
+        threshold:
+          "Below {threshold}% counts as degraded; alerts after {streak} consecutive checks",
+      },
     },
     status: {
       ok: "Healthy",

@@ -257,6 +257,14 @@ export interface Server {
   uptime_secs: number | null;
   /** Agent 到公网探测目标的 TCP 握手 RTT（毫秒）；null = 未上报或探测失败。 */
   latency_ms: number | null;
+  /**
+   * 当前接收速率（字节/秒），由两次心跳的累计字节差 / 时间差算出。
+   * null = 旧 Agent / 首次心跳 / 计数回绕被丢弃；页面必须显示 `—`，
+   * 不能显示 0。**只用于展示，不参与计费。**
+   */
+  net_rx_bps?: number | null;
+  /** 当前发送速率（字节/秒）；null 的含义同 `net_rx_bps`。 */
+  net_tx_bps?: number | null;
   /** 最后一次心跳的 Unix 秒。 */
   health_at: number | null;
   /** Agent 上报的 CPU 架构；空串 = 未知。 */
@@ -873,6 +881,15 @@ export interface ChainGroupMember {
   target_latency_ms: number | null;
   /** 连续 2 次 target_ok=false 后为 true；不是实时探测结果。 */
   degraded: boolean;
+  /**
+   * 24h 可用率（0..1）；null = 样本不足或旧 Agent 未上报（显示 `—`）。
+   * 丢包口径是**探测失败率近似**，见 `chains.probe.note`。
+   */
+  availability_24h?: number | null;
+  /** 24h 探测失败率（0..1，丢包近似）；null 的含义同上。 */
+  loss_24h?: number | null;
+  /** 24h 内进入统计的探测次数；旧后端可能缺失。 */
+  probe_attempts_24h?: number;
   /** Agent 返回的监听失败原因；无错误时为空串。 */
   error: string;
   /** 最近一次上报的 Unix 秒；null = 未上报。 */
@@ -967,6 +984,17 @@ export interface Chain {
    * 多路径 / 缺任何一段 / 空链均为 null。
    */
   total_latency_ms?: number | null;
+  /**
+   * 24h 可用率（0..1）；null = 样本不足 / 旧 Agent（显示 `—`，不是 0%）。
+   * 「丢包」= 探测失败率，口径见 `chains.probe.note`。
+   */
+  availability_24h?: number | null;
+  /** 24h 探测失败率（0..1，丢包近似）；null 的含义同上。 */
+  loss_24h?: number | null;
+  /** 24h 内进入统计的探测次数。 */
+  probe_attempts_24h?: number;
+  /** 告警阈值（百分比）；后端可配，前端据此决定可用率的颜色。 */
+  availability_threshold_percent?: number;
   /** 按 `seq` 升序排列；前端只读这个字段，不再读兼容用的 `hops`。 */
   groups: ChainGroup[];
   created_at: number;
@@ -984,6 +1012,38 @@ export interface ChainLatencyPoint {
   seq: number;
   server_id: string;
   latency_ms: number;
+}
+
+/**
+ * `GET /api/v1/chains/{id}/availability` 的一个 5 分钟桶。
+ *
+ * `loss` / `availability` 是探测失败率（近似丢包）与 1 - loss；桶里没有探测时
+ * 不会出现这个点（不补 0）。**不是**业务报文的真实丢包率。
+ */
+export interface ChainProbePoint {
+  ts: number;
+  attempts: number;
+  failures: number;
+  loss: number | null;
+  availability: number | null;
+}
+
+/** 可用率趋势：`summary` 是同一窗口的加权汇总，样本不足时为 null。 */
+export interface ChainProbeResponse {
+  points: ChainProbePoint[];
+  summary: {
+    hours: number;
+    attempts: number;
+    failures: number;
+    availability: number | null;
+    loss: number | null;
+    min_attempts: number;
+  };
+  policy: {
+    threshold_percent: number;
+    streak: number;
+    window_secs: number;
+  };
 }
 
 export interface ChainGroupMemberInput {
@@ -2294,6 +2354,11 @@ export const api = {
       request<{ ok: true }>(`/api/v1/chains/${encodeURIComponent(id)}`, {
         method: "DELETE",
       }),
+    /** 可用率趋势：`hours` 为 1..168；`loss` 是探测失败率近似。 */
+    availability: (id: string, hours: number) =>
+      request<ChainProbeResponse>(
+        `/api/v1/chains/${encodeURIComponent(id)}/availability?hours=${hours}`,
+      ),
     /** 延迟历史：`hours` 为 1..168，空数据返回 `{ points: [] }`。 */
     latency: (id: string, hours: number) =>
       request<{ points: ChainLatencyPoint[] }>(

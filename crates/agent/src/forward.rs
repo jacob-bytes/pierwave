@@ -67,6 +67,19 @@ struct StatusState {
     /// 规则 id → TCP 双向累计字节。只在 `native` 且有 TCP 监听时存在；
     /// UDP-only / realm / nftables 没有这里的条目，心跳上报 null。
     traffic: HashMap<String, TrafficCounters>,
+    /// 规则 id → 自监听启动以来的目标探测累计次数 / 失败次数。
+    ///
+    /// 只有真正跑探测循环的规则（TCP 且不带 UDP）才有条目；其它规则心跳上报
+    /// `None`，主控显示 `—` 而不是 0%。累计值由主控做差分，避免心跳丢失时
+    /// 丢掉一个采样窗口。
+    probes: HashMap<String, ProbeCounters>,
+}
+
+/// 一条规则的目标探测累计计数。
+#[derive(Debug, Clone, Copy, Default)]
+struct ProbeCounters {
+    attempts: u64,
+    failures: u64,
 }
 
 /// 一条 native 转发规则的累计字节计数器（连接任务写、心跳读）。
@@ -137,6 +150,13 @@ impl ForwardStatusHandle {
                             .collect()
                     })
                     .unwrap_or_default();
+                // 探测累计计数：只有真正在跑探测循环的规则才有；监听失败 /
+                // UDP-only / realm 的规则保持 None，主控显示 `—` 而不是 0%。
+                if state.target_health.contains_key(&status.id) {
+                    let probes = state.probes.get(&status.id).copied().unwrap_or_default();
+                    status.probe_attempts = Some(probes.attempts);
+                    status.probe_failures = Some(probes.failures);
+                }
                 status
             })
             .collect()
@@ -152,6 +172,7 @@ impl ForwardStatusHandle {
         // 已经不在期望态里的规则不能留下探测/流量缓存。
         state.target_health.retain(|id, _| ids.contains(id));
         state.traffic.retain(|id, _| ids.contains(id));
+        state.probes.retain(|id, _| ids.contains(id));
     }
 
     /// 为一条 native 规则注册计数器（重复调用返回同一组 Arc，累计值不丢）。
@@ -174,19 +195,35 @@ impl ForwardStatusHandle {
             .remove(id);
     }
 
-    /// 新规则接管监听前先建好逐目标槽位（全部未探测）。
+    /// 新规则接管监听前先建好逐目标槽位（全部未探测），并清零探测计数。
+    ///
+    /// 计数口径是「自本次监听启动以来」，规则重建时旧计数不能带过来。
     fn init_target_health(&self, id: &str, targets: &[ForwardTarget]) {
-        self.inner
+        let mut state = self
+            .inner
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .target_health
-            .insert(
-                id.to_string(),
-                targets
-                    .iter()
-                    .map(|target| TargetSlot::new(&target.server_id))
-                    .collect(),
-            );
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.target_health.insert(
+            id.to_string(),
+            targets
+                .iter()
+                .map(|target| TargetSlot::new(&target.server_id))
+                .collect(),
+        );
+        state
+            .probes
+            .insert(id.to_string(), ProbeCounters::default());
+    }
+
+    /// 累加一轮目标探测的次数与失败次数（心跳据此上报累计计数）。
+    fn record_probe(&self, id: &str, attempts: u64, failures: u64) {
+        let mut state = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let counters = state.probes.entry(id.to_string()).or_default();
+        counters.attempts = counters.attempts.saturating_add(attempts);
+        counters.failures = counters.failures.saturating_add(failures);
     }
 
     fn set_target_health(&self, id: &str, index: usize, health: TargetHealth) {
@@ -731,6 +768,8 @@ impl ForwardSupervisor {
                     targets: Vec::new(),
                     traffic_in: None,
                     traffic_out: None,
+                    probe_attempts: None,
+                    probe_failures: None,
                 },
                 Some(_) => ForwardStatus {
                     id: id.clone(),
@@ -742,6 +781,8 @@ impl ForwardSupervisor {
                     targets: Vec::new(),
                     traffic_in: None,
                     traffic_out: None,
+                    probe_attempts: None,
+                    probe_failures: None,
                 },
                 None => ForwardStatus {
                     id: id.clone(),
@@ -757,6 +798,8 @@ impl ForwardSupervisor {
                     targets: Vec::new(),
                     traffic_in: None,
                     traffic_out: None,
+                    probe_attempts: None,
+                    probe_failures: None,
                 },
             })
             .collect();
@@ -820,6 +863,12 @@ async fn probe_targets(id: &str, targets: &[ForwardTarget], status: &ForwardStat
     )
     .await;
     let healthy = measured.iter().filter(|latency| latency.is_some()).count();
+    // 失败率是「探测失败率」：每次目标探测都进分母，失败/超时进分子。
+    status.record_probe(
+        id,
+        targets.len() as u64,
+        targets.len().saturating_sub(healthy) as u64,
+    );
     for (index, latency) in measured.into_iter().enumerate() {
         status.set_target_health(
             id,
@@ -854,6 +903,8 @@ async fn target_health_loop(
             Some(index) = probe_requests.recv() => {
                 let Some(target) = targets.get(index) else { continue };
                 let latency = probe_target(&target.host, target.port).await;
+                // 连接失败后的补测同样计入探测窗口：它是一次真实探测。
+                status.record_probe(&id, 1, u64::from(latency.is_none()));
                 status.set_target_health(
                     &id,
                     index,
@@ -2245,6 +2296,51 @@ mod tests {
         assert_eq!(failed.server_id, format!("srv-{}", refused.port()));
         assert!(!failed.ok, "连不上的目标必须 ok=false");
         assert_eq!(failed.latency_ms, None, "失败不能写成 0ms");
+    }
+
+    /// 探测窗口计数：累计次数随每轮探测增长，失败数只数失败的目标；
+    /// 不跑探测的规则（带 UDP / UDP-only）必须上报 None 而不是 0。
+    #[tokio::test]
+    async fn status_snapshot_reports_probe_window_counters() {
+        let live = spawn_tagged_echo(b'P').await;
+        let refused = {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            listener.local_addr().unwrap()
+        };
+        let mut supervisor = ForwardSupervisor::new("127.0.0.1");
+        let spec = grouped_rule(
+            "fwd-probes",
+            0,
+            vec![live, refused],
+            ForwardStrategy::RoundRobin,
+        );
+        supervisor.apply(&[spec]).await;
+        wait_for_all_targets_probed(&supervisor, "fwd-probes").await;
+
+        let status = supervisor
+            .status_handle()
+            .snapshot()
+            .into_iter()
+            .find(|status| status.id == "fwd-probes")
+            .expect("规则必须有状态");
+        let attempts = status.probe_attempts.expect("跑探测的规则必须上报累计次数");
+        let failures = status.probe_failures.expect("跑探测的规则必须上报失败次数");
+        assert!(attempts >= 2, "两个目标至少各探一次，实际 {attempts}");
+        assert!(failures >= 1, "连不上的目标必须计入失败，实际 {failures}");
+        assert!(failures <= attempts);
+
+        // 带 UDP 的规则不做 TCP 目标探测：不能把「没探测」写成 0 次。
+        let mut udp = udp_rule("fwd-udp-probes", 0, live);
+        udp.listen_host = Some("127.0.0.1".into());
+        supervisor.apply(&[udp]).await;
+        let udp_status = supervisor
+            .status_handle()
+            .snapshot()
+            .into_iter()
+            .find(|status| status.id == "fwd-udp-probes")
+            .expect("UDP 规则必须有状态");
+        assert_eq!(udp_status.probe_attempts, None);
+        assert_eq!(udp_status.probe_failures, None);
     }
 
     /// 每条规则可以自带监听地址；空白值回落全局 forward_bind。
