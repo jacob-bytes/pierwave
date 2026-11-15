@@ -90,6 +90,12 @@ CARGO_HOME=$PWD/.cargo-home cargo test -p pierwave-domain
 3. **测试先于实现**：新增需求必须先补单元测试（或继承测试），再写业务代码。
    测试要覆盖边界与失败路径，而不只是 happy path。
 
+### 发布说明的格式
+
+tag 的 annotated 消息里必须有一行以 `feat:` / `fix:` / `docs:` / `chore:` /
+`refactor:` / `perf:` / `test:` 之一开头（可带 `(scope)`），release 工作流会检查。
+这条检查只防「空说明」，不是限制类型——改文档的版本就该写 `docs:`。
+
 ### 发版动作的硬约束（含子 agent）
 
 以下是**项目所有者专属**的动作，任何 agent（含所有子 agent / lane）**一律不得执行**：

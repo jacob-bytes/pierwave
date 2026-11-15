@@ -91,8 +91,10 @@ jobs:
           git fetch --tags --force origin "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
           git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > release-notes.md
           cat release-notes.md
-          if ! grep -qE '^(feat|fix): ' release-notes.md; then
-            echo "::error::发布说明必须是 annotated tag 的消息，且以 'feat: ' 或 'fix: ' 开头"
+          # 类型前缀沿用 conventional commits；这条检查只防「空说明」，
+          # 不再限制具体类型，否则改文档的版本只能谎称 fix。
+          if ! grep -qE '^(feat|fix|docs|chore|refactor|perf|test)(\([a-z-]+\))?: ' release-notes.md; then
+            echo "::error::发布说明必须是 annotated tag 的消息，并以 feat / fix / docs / chore / refactor / perf / test 之一加冒号开头"
             exit 1
           fi
 
