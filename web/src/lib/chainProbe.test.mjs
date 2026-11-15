@@ -6,6 +6,7 @@ import {
   availabilityTone,
   bucketLoss,
   lossLabel,
+  memberAvailability,
   probeAttemptsLabel,
 } from "./chainProbe.ts";
 
@@ -60,4 +61,22 @@ test("probeAttemptsLabel compacts large counts", () => {
   assert.equal(probeAttemptsLabel(12_345), "12k");
   assert.equal(probeAttemptsLabel(null), "—");
   assert.equal(probeAttemptsLabel(-1), "—");
+});
+
+test("memberAvailability labels 99.2% / — and flags only below the threshold", () => {
+  assert.deepEqual(memberAvailability(0.992), {
+    label: "99.2%",
+    tone: "default",
+  });
+  assert.deepEqual(memberAvailability(0.989), {
+    label: "98.9%",
+    tone: "warning",
+  });
+  assert.deepEqual(memberAvailability(null), { label: "—", tone: "muted" });
+  assert.deepEqual(memberAvailability(undefined), { label: "—", tone: "muted" });
+  // 阈值来自链视图，成员徽标必须跟着它走，不能硬编码 99。
+  assert.equal(memberAvailability(0.98, 97).tone, "default");
+  assert.equal(memberAvailability(0.98, 99).tone, "warning");
+  // 边界：等于阈值不告警。
+  assert.equal(memberAvailability(0.99, 99).tone, "default");
 });

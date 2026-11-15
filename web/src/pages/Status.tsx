@@ -234,6 +234,15 @@ function ServerCardSkeleton() {
           <SkeletonLine className="h-3 w-16" />
           <SkeletonLine className="h-3 w-10" />
         </div>
+        {/* 底部「当前速率 / 累计流量」两行，与真实卡片同高。 */}
+        <div className="mt-3 grid grid-cols-[auto_auto_auto] items-baseline justify-start gap-x-3 gap-y-1.5 border-t border-border pt-2.5">
+          <Skeleton className="size-3" />
+          <SkeletonLine className="h-3 w-16" />
+          <SkeletonLine className="h-3 w-12" />
+          <Skeleton className="size-3" />
+          <SkeletonLine className="h-3 w-16" />
+          <SkeletonLine className="h-3 w-12" />
+        </div>
       </div>
     </Card>
   );

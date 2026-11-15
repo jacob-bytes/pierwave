@@ -270,6 +270,55 @@ mod tests {
         assert_eq!(top[0]["traffic_7d"], 13);
         assert_eq!(top[0]["online"], true);
         assert!(top[0]["load1"].is_null());
+        assert!(
+            top[0]["server_id"]
+                .as_str()
+                .is_some_and(|id| !id.is_empty()),
+            "Top 行必须带服务器 id：{body}"
+        );
+        assert!(
+            top[0]["rates"].as_array().unwrap().is_empty(),
+            "没有采样时 rates 必须是空数组，不能补 0：{body}"
+        );
+    }
+
+    /// 概览 Top 服务器的 sparkline 序列通过 HTTP 契约下发：
+    /// 有采样时返回 `rates[]`，每点是 `{ ts, rx_bps, tx_bps }`。
+    #[tokio::test]
+    async fn overview_top_servers_carry_rate_series_points() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+
+        let (server, _) = servers::create(pool, "香港-01", "10.0.0.1", "external")
+            .await
+            .unwrap();
+        // 两次计数上报：建立基线 → 60 秒 +5 MB / +1 MB。
+        let now = repo::now();
+        repo::servers::update_net_counters(pool, &server.id, 1_000, 2_000, now)
+            .await
+            .unwrap();
+        repo::servers::update_net_counters(
+            pool,
+            &server.id,
+            1_000 + 5_000_000,
+            2_000 + 1_000_000,
+            now + 60,
+        )
+        .await
+        .unwrap();
+        // 采样调度器把当前速率抄进 server_samples。
+        repo::server_samples::record_round(pool, now).await.unwrap();
+
+        let (status, body) = request(&app, Some(&admin), "/api/v1/overview?days=7").await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let rates = body["top"][0]["rates"].as_array().unwrap();
+        assert_eq!(rates.len(), 1, "{body}");
+        let point = &rates[0];
+        assert_eq!(point["ts"], now - now.rem_euclid(300), "{body}");
+        let rx = point["rx_bps"].as_f64().unwrap();
+        let tx = point["tx_bps"].as_f64().unwrap();
+        assert!((rx - 5_000_000.0 / 60.0).abs() < 1e-6, "{body}");
+        assert!((tx - 1_000_000.0 / 60.0).abs() < 1e-6, "{body}");
     }
 
     /// Top 用户按 `traffic_daily.subject = users.id` 直接关联：subject 是纯

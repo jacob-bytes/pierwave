@@ -244,6 +244,14 @@ const en = {
       disk: "Disk",
       notReported: "Not reported",
       noSample: "No samples",
+      rate: "Current rate",
+      rateHint:
+        "Cumulative byte delta between the last two heartbeats divided by elapsed time; display only, never billed",
+      trafficTotal: "Total traffic",
+      trafficTotalHint:
+        "Cumulative non-loopback bytes since the agent booted (resets on reboot); not billing traffic",
+      trafficRx: "Down",
+      trafficTx: "Up",
       xrayRunning: "Xray running",
       xrayStopped: "Xray stopped",
       latency: "Latency {ms} ms",
@@ -342,6 +350,8 @@ const en = {
     topUsers: "Top users by traffic",
     topUsersEmpty: "No user traffic yet",
     loadValue: "Load {value}",
+    sparklineAria: "Receive/send rate trend for {name} over the last hour",
+    sparklineEmpty: "Not enough samples to draw a trend",
     panelLoadFailed: "Failed to load data",
     alerts: "Alerts",
     alertsDesc: "Items that need your attention. Click to jump.",

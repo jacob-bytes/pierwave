@@ -105,6 +105,7 @@ import {
   availabilityTone,
   DEFAULT_AVAILABILITY_THRESHOLD_PERCENT,
   lossLabel,
+  memberAvailability,
 } from "@/lib/chainProbe";
 import {
   chainEngineMissing,
@@ -385,6 +386,49 @@ function MemberTargetStatus({ member }: { member: ChainGroupMember }) {
 }
 
 /**
+ * 成员级 24h 可用率徽标。
+ *
+ * 只换文字色（低于阈值 → `--warning`），不新增色相；没有数据（样本不足 /
+ * 旧 Agent）显示 `—` 而非 0%。阈值与链级一致，由后端随链视图下发。
+ * title 里带上探测次数，避免把「一次探测」与「一整天的统计」混为一谈。
+ */
+function MemberAvailabilityBadge({
+  member,
+  threshold,
+}: {
+  member: ChainGroupMember;
+  threshold: number;
+}) {
+  const { t } = useI18n();
+  const { label, tone } = memberAvailability(member.availability_24h, threshold);
+  const title =
+    member.availability_24h === null || member.availability_24h === undefined
+      ? t("chains.detail.probe.insufficient")
+      : `${t("chains.detail.probe.availabilityTitle")} · ${t(
+          "chains.detail.probe.attempts",
+          { count: member.probe_attempts_24h ?? 0 },
+        )}`;
+
+  return (
+    <Badge
+      variant="outline"
+      title={title}
+      className={cn(
+        "h-4 px-1.5 type-micro font-normal tabular-nums",
+        tone === "warning"
+          ? "border-warning/40 bg-warning/10 text-warning"
+          : tone === "muted"
+            ? "border-border/60 bg-muted/30 text-muted-foreground"
+            : "border-border/60 bg-muted/30 text-foreground",
+      )}
+    >
+      <span className="sr-only">{t("chains.detail.probe.availability")}</span>
+      {label}
+    </Badge>
+  );
+}
+
+/**
  * 整链状态列。降级时逐条列出「第 N 组 组名」，
  * 不用展开就能看到坏在哪一组；展开行的成员卡片给出同样的信息与错误原文。
  *
@@ -496,6 +540,7 @@ function GroupMemberRow({
   isLastHop,
   publicPort,
   showWeight,
+  availabilityThreshold,
 }: {
   member: ChainGroupMember;
   index: number;
@@ -505,6 +550,8 @@ function GroupMemberRow({
   publicPort?: number | null;
   /** 加权 + 多成员组：成员行展示权重。 */
   showWeight?: boolean;
+  /** 链级可用率阈值（百分比）；成员徽标的 warning 判定与链列表同源。 */
+  availabilityThreshold: number;
 }) {
   const { t } = useI18n();
   const endpoint = `${member.server_name.trim()}:${portPairLabel(
@@ -558,6 +605,10 @@ function GroupMemberRow({
               {t("chains.detail.memberWeight", { weight: member.weight })}
             </span>
           ) : null}
+          <MemberAvailabilityBadge
+            member={member}
+            threshold={availabilityThreshold}
+          />
           <span
             className={cn(
               "type-micro tabular-nums",
@@ -625,12 +676,15 @@ function GroupCard({
   isLastHop,
   pathMode,
   highlight,
+  availabilityThreshold,
 }: {
   group: ChainGroup;
   isEntry: boolean;
   isLastHop: boolean;
   pathMode: string;
   highlight: boolean;
+  /** 链级可用率阈值（百分比），逐成员徽标共用。 */
+  availabilityThreshold: number;
 }) {
   const { t } = useI18n();
   const members = orderMembers(group.members);
@@ -730,6 +784,7 @@ function GroupCard({
               isLastHop={isLastHop}
               publicPort={isEntry ? group.public_port : null}
               showWeight={showWeight}
+              availabilityThreshold={availabilityThreshold}
             />
           ))
         )}
@@ -750,6 +805,10 @@ function ChainGroupsDetail({ chain }: { chain: Chain }) {
   const protocol = protocolBadge(chain.protocol);
   const lastGroup = groups[groups.length - 1];
   const lastTargetLatency = targetLatency(lastGroup);
+  // 成员徽标的阈值与链列表同源：后端可配，缺省 99。
+  const availabilityThreshold =
+    chain.availability_threshold_percent ??
+    DEFAULT_AVAILABILITY_THRESHOLD_PERCENT;
 
   return (
     <div className="rounded-lg border border-border bg-muted/25 p-3">
@@ -795,6 +854,7 @@ function ChainGroupsDetail({ chain }: { chain: Chain }) {
                   isLastHop={index === groups.length - 1}
                   pathMode={pathMode}
                   highlight={singlePath}
+                  availabilityThreshold={availabilityThreshold}
                 />
                 <HopArrow
                   latencyMs={next ? segmentLatency(next) : lastTargetLatency}

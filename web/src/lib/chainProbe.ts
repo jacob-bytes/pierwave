@@ -60,6 +60,22 @@ export function availabilityTone(
   return percent < threshold ? "warning" : "default";
 }
 
+/** 成员行徽标：`99.2%` / `—`，颜色只看链级阈值（缺省 99%）。 */
+export interface MemberAvailability {
+  label: string;
+  tone: AvailabilityTone;
+}
+
+export function memberAvailability(
+  value: number | null | undefined,
+  thresholdPercent: number = DEFAULT_AVAILABILITY_THRESHOLD_PERCENT,
+): MemberAvailability {
+  return {
+    label: availabilityLabel(value),
+    tone: availabilityTone(value, thresholdPercent),
+  };
+}
+
 /**
  * 趋势点的丢包率（0..1）：桶的探测次数为 0 时是 `null`。
  *

@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   formatRate,
   formatRatePairText,
+  formatTrafficTotal,
   rateParts,
 } from "./netRate.ts";
 
@@ -48,4 +49,14 @@ test("formatRatePairText renders both directions and never invents values", () =
     null,
     "两侧都没有数据时不给文案",
   );
+});
+
+test("formatTrafficTotal formats cumulative bytes and keeps real zero", () => {
+  assert.equal(formatTrafficTotal(0), "0 B", "0 是有效计数，不能显示成 —");
+  assert.equal(formatTrafficTotal(1_536), "1.5 KB");
+  assert.equal(formatTrafficTotal(1.48 * 1024 ** 3), "1.48 GB");
+  assert.equal(formatTrafficTotal(null), null);
+  assert.equal(formatTrafficTotal(undefined), null);
+  assert.equal(formatTrafficTotal(Number.NaN), null);
+  assert.equal(formatTrafficTotal(-1), null, "负字节只可能是脏数据");
 });

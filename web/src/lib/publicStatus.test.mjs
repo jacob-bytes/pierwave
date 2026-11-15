@@ -47,7 +47,7 @@ test("statusLabelKey maps every state to its translated label", () => {
   assert.equal(statusLabelKey("abnormal"), "publicStatus.server.abnormal");
 });
 
-test("serverSpecLine joins os and virt, skipping missing parts", () => {
+test("serverSpecLine joins os, virt and arch, skipping missing parts", () => {
   assert.equal(
     serverSpecLine({
       os_name: "Debian GNU/Linux",
@@ -55,8 +55,8 @@ test("serverSpecLine joins os and virt, skipping missing parts", () => {
       virt: "kvm",
       arch: "x86_64",
     }),
-    "Debian GNU/Linux 12 · kvm",
-    "架构不进入副行（与 Xray、延迟同行会挤到换行）",
+    "Debian GNU/Linux 12 · kvm · x86_64",
+    "参考卡的信息层次：OS · 虚拟化 · 架构",
   );
   assert.equal(
     serverSpecLine({
@@ -65,7 +65,7 @@ test("serverSpecLine joins os and virt, skipping missing parts", () => {
       virt: null,
       arch: "x86_64",
     }),
-    "Debian GNU/Linux 12",
+    "Debian GNU/Linux 12 · x86_64",
     "缺虚拟化时跳过，不留空段",
   );
   assert.equal(
@@ -75,8 +75,8 @@ test("serverSpecLine joins os and virt, skipping missing parts", () => {
       virt: "vmware",
       arch: "aarch64",
     }),
-    "vmware",
-    "缺 OS 时仍显示虚拟化",
+    "vmware · aarch64",
+    "缺 OS 时仍显示虚拟化与架构",
   );
   assert.equal(
     serverSpecLine({
@@ -506,6 +506,12 @@ test("status page dynamic i18n keys exist in both locales", () => {
     "server.xrayRunning",
     "server.xrayStopped",
     "server.latency",
+    "server.rate",
+    "server.rateHint",
+    "server.trafficTotal",
+    "server.trafficTotalHint",
+    "server.trafficRx",
+    "server.trafficTx",
     "server.uptimeDaysHours",
     "server.uptimeDays",
     "server.uptimeHoursMinutes",

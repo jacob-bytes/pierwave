@@ -9369,6 +9369,11 @@ pub mod overview {
 
     /// Top 卡片最多返回的服务器数。
     const TOP_SERVERS: i64 = 5;
+    /// 每台 Top 服务器返回的网速采样点数：5 分钟一个点，12 个点 = 最近 1 小时。
+    ///
+    /// 与 `server_samples::SAMPLE_INTERVAL_SECS` 对齐；只给 mini 折线用，
+    /// 不足 3 个有效点时前端不画线（显示 `—`）。
+    const RATE_SERIES_POINTS: usize = 12;
     /// Top 用户卡片最多返回的行数。
     const TOP_USERS: i64 = 5;
     /// 协议趋势最多单独画几条线；其余协议合并成 `other`。
@@ -9439,12 +9444,25 @@ pub mod overview {
 
     #[derive(Debug, Clone, PartialEq, Serialize)]
     pub struct TopRow {
+        /// 服务器 id；前端用它做稳定 key，也便于后续按服务器追问更多采样。
+        pub server_id: String,
         /// 目前只有 `server`；保留字段供后续扩展节点维度。
         pub kind: &'static str,
         pub name: String,
         pub traffic_7d: i64,
         pub load1: Option<f64>,
         pub online: bool,
+        /// 最近 [`RATE_SERIES_POINTS`] 个网速采样点，按 `ts` 升序；
+        /// 没有可用采样时是空数组（前端显示 `—`，不画 0）。
+        pub rates: Vec<RatePoint>,
+    }
+
+    /// 一个网速采样点：上行 / 下行都是字节/秒；某一侧可能为 NULL。
+    #[derive(Debug, Clone, PartialEq, Serialize)]
+    pub struct RatePoint {
+        pub ts: i64,
+        pub rx_bps: Option<f64>,
+        pub tx_bps: Option<f64>,
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -9853,18 +9871,23 @@ pub mod overview {
 
     /// Top 服务器：窗口内原始上下行之和降序。LEFT JOIN 保证零流量服务器也参与
     /// 排序（服务器少于 5 台时它们会出现在列表尾部），但不会为了凑数硬填。
+    ///
+    /// 每行附带最近 1 小时的网速采样（`rates`），供概览页的 mini 折线使用：
+    /// 固定再加 1 条 SQL（按 top 的 server id 批量查），不做 N+1。
     async fn top_servers(pool: &SqlitePool, now: i64, days: i64) -> anyhow::Result<Vec<TopRow>> {
         let (start_date, end_date) = super::stats::day_window(now, days);
 
         #[derive(sqlx::FromRow)]
         struct Row {
+            id: String,
             name: String,
             traffic_7d: i64,
             load1: Option<f64>,
             online: bool,
         }
         let rows = sqlx::query_as::<_, Row>(
-            "SELECT s.name AS name,
+            "SELECT s.id AS id,
+                    s.name AS name,
                     COALESCE(SUM(t.uplink + t.downlink), 0) AS traffic_7d,
                     s.load1 AS load1,
                     s.status = 'online' AS online
@@ -9881,16 +9904,80 @@ pub mod overview {
         .fetch_all(pool)
         .await?;
 
+        let ids: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
+        let mut rates = load_rate_series(pool, &ids, now).await?;
+
         Ok(rows
             .into_iter()
             .map(|row| TopRow {
+                server_id: row.id.clone(),
                 kind: "server",
                 name: row.name,
                 traffic_7d: row.traffic_7d,
                 load1: row.load1,
                 online: row.online,
+                rates: rates.remove(&row.id).unwrap_or_default(),
             })
             .collect())
+    }
+
+    /// 批量取若干服务器最近 [`RATE_SERIES_POINTS`] 个网速采样。
+    ///
+    /// - 只查 `server_samples`，不碰 `servers` 的瞬时速率；
+    /// - 两个方向都为 NULL 的采样点是「当时没有数据」，直接跳过，
+    ///   避免前端把未知画成 0；
+    /// - 结果按 `ts` 升序，最多保留最后 N 个点（窗口多取 2 个采样周期，
+    ///   防止整 5 分钟对齐造成少一个点）。
+    async fn load_rate_series(
+        pool: &SqlitePool,
+        server_ids: &[String],
+        now: i64,
+    ) -> anyhow::Result<HashMap<String, Vec<RatePoint>>> {
+        if server_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let since =
+            now - (RATE_SERIES_POINTS as i64 + 2) * super::server_samples::SAMPLE_INTERVAL_SECS;
+
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            server_id: String,
+            ts: i64,
+            rx_bps: Option<f64>,
+            tx_bps: Option<f64>,
+        }
+
+        // id 来自库内（不是用户输入）；仍走绑定参数，避免拼接注入。
+        let mut builder = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+            "SELECT server_id, ts, rx_bps, tx_bps FROM server_samples WHERE ts >= ",
+        );
+        builder.push_bind(since);
+        builder.push(" AND server_id IN (");
+        let mut separated = builder.separated(", ");
+        for id in server_ids {
+            separated.push_bind(id);
+        }
+        separated.push_unseparated(") ORDER BY server_id ASC, ts ASC");
+
+        let rows = builder.build_query_as::<Row>().fetch_all(pool).await?;
+        let mut by_server: HashMap<String, Vec<RatePoint>> = HashMap::new();
+        for row in rows {
+            if row.rx_bps.is_none() && row.tx_bps.is_none() {
+                continue;
+            }
+            by_server.entry(row.server_id).or_default().push(RatePoint {
+                ts: row.ts,
+                rx_bps: row.rx_bps,
+                tx_bps: row.tx_bps,
+            });
+        }
+        for points in by_server.values_mut() {
+            if points.len() > RATE_SERIES_POINTS {
+                let excess = points.len() - RATE_SERIES_POINTS;
+                points.drain(0..excess);
+            }
+        }
+        Ok(by_server)
     }
 
     #[cfg(test)]
@@ -9990,6 +10077,30 @@ pub mod overview {
             .await
             .unwrap()
             .id
+        }
+
+        /// 直接写一条网速采样：`record_round` 只能抄 `servers` 的当前速率，
+        /// 测「最近 N 个点」需要构造一条时间序列。
+        async fn add_rate_sample(
+            pool: &SqlitePool,
+            server_id: &str,
+            ts: i64,
+            rx_bps: Option<f64>,
+            tx_bps: Option<f64>,
+        ) {
+            sqlx::query(
+                "INSERT INTO server_samples
+                    (server_id, ts, online, load1, mem_used, mem_total, disk_used, disk_total,
+                     rx_bps, tx_bps)
+                 VALUES (?, ?, 1, 0, 0, 0, 0, 0, ?, ?)",
+            )
+            .bind(server_id)
+            .bind(ts)
+            .bind(rx_bps)
+            .bind(tx_bps)
+            .execute(pool)
+            .await
+            .unwrap();
         }
 
         #[tokio::test]
@@ -10332,6 +10443,68 @@ pub mod overview {
             assert_eq!(names, vec!["busy", "other", "idle"]);
             assert_eq!(snapshot.top[2].name, "idle");
             assert_eq!(snapshot.top[2].traffic_7d, 0);
+        }
+
+        /// Top 服务器的 sparkline 序列：最近 12 个有效点、时间升序、
+        /// 两侧都为 NULL 的采样点跳过（不能把「没有数据」画成 0）。
+        #[tokio::test]
+        async fn top_servers_include_recent_rate_series_in_time_order() {
+            let pool = setup().await;
+            let now = at("2026-11-15T12:00:00+08:00");
+            let (server, _) = super::super::servers::create(&pool, "hk-1", "10.0.0.1", "external")
+                .await
+                .unwrap();
+
+            // 15 个有效点 + 1 个两侧都是 NULL 的点（应被跳过）。
+            for index in 0..15_i64 {
+                let ts = now - (14 - index) * 300;
+                add_rate_sample(
+                    &pool,
+                    &server.id,
+                    ts,
+                    Some(index as f64 * 1_000.0),
+                    Some(index as f64 * 500.0),
+                )
+                .await;
+            }
+            add_rate_sample(&pool, &server.id, now - 7 * 300 + 60, None, None).await;
+            // 窗口外的老点不参与。
+            add_rate_sample(
+                &pool,
+                &server.id,
+                now - 18_000,
+                Some(9_999.0),
+                Some(9_999.0),
+            )
+            .await;
+
+            let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
+            assert_eq!(snapshot.top.len(), 1);
+            let rates = &snapshot.top[0].rates;
+            assert_eq!(rates.len(), 12, "最多返回 12 个点");
+            assert!(
+                rates.windows(2).all(|pair| pair[0].ts < pair[1].ts),
+                "必须按时间升序"
+            );
+            // 15 个点里保留最后 12 个：index 3..=14，最早一个的 rx = 3000。
+            assert_eq!(rates[0].rx_bps, Some(3_000.0));
+            assert_eq!(rates[0].tx_bps, Some(1_500.0));
+            assert_eq!(rates[11].rx_bps, Some(14_000.0));
+            assert_eq!(rates[11].ts, now);
+        }
+
+        /// 没有任何采样时 `rates` 是空数组，不是 12 个 0。
+        #[tokio::test]
+        async fn top_servers_rate_series_is_empty_without_samples() {
+            let pool = setup().await;
+            let now = at("2026-11-15T12:00:00+08:00");
+            super::super::servers::create(&pool, "hk-1", "10.0.0.1", "external")
+                .await
+                .unwrap();
+
+            let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
+            assert_eq!(snapshot.top.len(), 1);
+            assert!(snapshot.top[0].rates.is_empty(), "没有采样时必须是空数组");
         }
 
         #[tokio::test]

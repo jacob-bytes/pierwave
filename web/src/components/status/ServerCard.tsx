@@ -1,4 +1,4 @@
-import { GlobeIcon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, GlobeIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Meter } from "@/components/status/Meter";
@@ -11,6 +11,7 @@ import {
   normalizeCountryCode,
 } from "@/lib/country";
 import { formatBytePair } from "@/lib/format";
+import { formatRate, formatTrafficTotal } from "@/lib/netRate";
 import {
   availabilityPercent,
   availabilityTone,
@@ -105,6 +106,69 @@ export function StatusChip({
   );
 }
 
+/**
+ * 底部「↓ 当前速率 / 累计流量」两行。
+ *
+ * 数据来源见 `docs/TELEMETRY.md`：速率是两次心跳的累计字节差 / 时间差；
+ * 累计值是 Agent 自开机以来的非 lo 网卡计数（服务器重启会归零）。
+ * 没有数据一律显示 `—`，绝不用 0 冒充。
+ *
+ * 离线时速率不显示：`servers.net_rx_bps` 是掉线前最后一次算出的值，
+ * 写在「离线」卡片上会被读成实时读数。累计值仍保留（它是历史计数）。
+ */
+function TrafficFooter({ server }: { server: PublicStatusServer }) {
+  const { t } = useI18n();
+  const online = serverState(server) !== "offline";
+  const rxRate = formatRate(online ? server.net_rx_bps : null);
+  const txRate = formatRate(online ? server.net_tx_bps : null);
+  const rxTotal = formatTrafficTotal(server.net_rx_bytes);
+  const txTotal = formatTrafficTotal(server.net_tx_bytes);
+
+  const cellClass = (value: string | null) =>
+    cn(
+      "tnum truncate text-xs",
+      value === null ? "text-muted-foreground" : "text-foreground",
+    );
+
+  return (
+    <div className="mt-3 grid grid-cols-[auto_auto_auto] items-baseline justify-start gap-x-3 gap-y-1.5 border-t border-border pt-2.5">
+      <ArrowDownIcon
+        className="size-3 shrink-0 self-center text-muted-foreground"
+        aria-hidden="true"
+      />
+      <span
+        className={cellClass(rxRate)}
+        title={t("publicStatus.server.rateHint")}
+      >
+        {rxRate ?? "—"}
+      </span>
+      <span
+        className="tnum truncate text-xs text-muted-foreground"
+        title={t("publicStatus.server.trafficTotalHint")}
+      >
+        {rxTotal ?? "—"}
+      </span>
+
+      <ArrowUpIcon
+        className="size-3 shrink-0 self-center text-muted-foreground"
+        aria-hidden="true"
+      />
+      <span
+        className={cellClass(txRate)}
+        title={t("publicStatus.server.rateHint")}
+      >
+        {txRate ?? "—"}
+      </span>
+      <span
+        className="tnum truncate text-xs text-muted-foreground"
+        title={t("publicStatus.server.trafficTotalHint")}
+      >
+        {txTotal ?? "—"}
+      </span>
+    </div>
+  );
+}
+
 export function ServerCard({ server }: { server: PublicStatusServer }) {
   const { t, locale } = useI18n();
   const state = serverState(server);
@@ -115,16 +179,6 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
     const parts = uptimeParts(server.uptime_secs);
     return parts ? t(uptimeLabelKey(parts), parts) : null;
   })();
-
-  // 离线时 Xray 字段是掉线前的残留，不写进副行。
-  const xray =
-    state !== "offline" && server.xray_running !== null
-      ? t(
-          server.xray_running
-            ? "publicStatus.server.xrayRunning"
-            : "publicStatus.server.xrayStopped",
-        )
-      : null;
 
   // 延迟同理：null / 探测失败整项不显示，绝不用 0 ms 占位；
   // 离线时保留的是掉线前最后一次心跳的旧值，也不当作实时质量展示。
@@ -192,21 +246,18 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
         <StatusChip state={state} uptime={uptimeDuration} className="ml-auto" />
       </div>
 
-      {/* 一行元信息：发行版 · 虚拟化 · 架构 · Xray 状态 · 延迟。
-          缺哪项就跳过（全缺整行不渲染），不出现空的 “· ·”。
-          最后心跳不再展示：卡片右上角已有「在线 12 天」，重复且噪音。 */}
-      {spec || xray || latency !== null ? (
+      {/* 副行：发行版 版本 · 虚拟化 · 架构（缺失项跳过）。延迟在最右，
+          用 truncate 吃掉 OS 的一段，不把整行顶成两行。 */}
+      {spec || latency !== null ? (
         <p
-          className="mt-1 flex min-w-0 flex-wrap items-center gap-x-1 text-xs text-muted-foreground"
-          title={[spec, xray].filter(Boolean).join(" · ") || undefined}
+          className="mt-1 flex min-w-0 items-baseline gap-x-1 text-xs text-muted-foreground"
+          title={
+            [spec, latency !== null ? `${latency} ms` : null]
+              .filter(Boolean)
+              .join(" · ") || undefined
+          }
         >
           {spec ? <span className="truncate">{spec}</span> : null}
-          {xray ? (
-            <>
-              {spec ? <span aria-hidden="true">·</span> : null}
-              <span className="shrink-0">{xray}</span>
-            </>
-          ) : null}
           {latency !== null ? (
             <>
               <span aria-hidden="true">·</span>
@@ -221,9 +272,21 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
         </p>
       ) : null}
 
-      {/* 2×2 指标。内存与硬盘有真实总量，画百分比条；24h 可用率用图例的
-          色阶；负载没有可归一化的分母（API 不公开核数），只给原始值。 */}
+      {/* 2×2 指标，顺序照参考卡：负载 / 内存，硬盘 / 24h 可用率。
+          内存与硬盘有真实总量，画百分比条；可用率用图例的色阶；
+          负载没有可归一化的分母（API 不公开核数），只给原始值。 */}
       <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-4">
+        <Meter
+          label={t("publicStatus.server.load")}
+          value={load === null ? "—" : load.toFixed(2)}
+          muted={load === null}
+          foot={
+            load === null
+              ? t("publicStatus.server.notReported")
+              : t("publicStatus.server.loadHint")
+          }
+          emptyLabel={t("publicStatus.server.notReported")}
+        />
         <Meter
           label={t("publicStatus.server.memory")}
           percent={memPercent}
@@ -250,28 +313,17 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
           }
           emptyLabel={t("publicStatus.server.noSample")}
         />
-        <Meter
-          label={t("publicStatus.server.load")}
-          value={load === null ? "—" : load.toFixed(2)}
-          muted={load === null}
-          foot={
-            load === null
-              ? t("publicStatus.server.notReported")
-              : t("publicStatus.server.loadHint")
-          }
-          emptyLabel={t("publicStatus.server.notReported")}
-        />
       </div>
 
       {/* 点阵紧跟在「24h 可用率」下面，所以它不需要自己的标签；
-          7 天可用率是另一个窗口，单独一行放在最底部，不和点阵并排。
-          之前把两者摆在同一行，读起来像点阵同时代表 24 小时和 7 天。 */}
+          7 天可用率是另一个窗口，单独一行放在最底部，不和点阵并排。 */}
       <div className="mt-auto pt-4">
         <AvailabilityStrip server={server} className="mt-3" />
         <div className="mt-2 flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
           <span>{t("publicStatus.server.availability7d")}</span>
           <AvailabilityValue ratio={server.uptime_7d} />
         </div>
+        <TrafficFooter server={server} />
       </div>
     </Card>
   );

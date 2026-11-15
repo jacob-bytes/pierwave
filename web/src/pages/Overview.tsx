@@ -49,6 +49,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { BatchDisableDialog } from "@/components/overview/BatchDisableDialog";
 import { BatchRenewDialog } from "@/components/overview/BatchRenewDialog";
 import { CleanupEventsDialog } from "@/components/overview/CleanupEventsDialog";
+import { RateSparkline } from "@/components/overview/Sparkline";
 import {
   ApiError,
   type Chain,
@@ -505,11 +506,17 @@ function TopCard({
                 <li key={`${item.name}-${index}`}>
                   <Link
                     to="/servers"
-                    className="group flex items-center gap-3 rounded-md px-2.5 py-3.5 transition-colors duration-150 hover:bg-muted/40"
+                    className="group flex items-center gap-2 rounded-md px-2.5 py-3.5 transition-colors duration-150 hover:bg-muted/40 sm:gap-3"
                   >
                     <span className="min-w-0 flex-1 truncate text-sm">
                       {item.name}
                     </span>
+                    {/* 只用线型表达最近 1 小时的趋势；采样不足显示 —。 */}
+                    <RateSparkline
+                      name={item.name}
+                      points={item.rates}
+                      className="w-14 sm:w-[72px]"
+                    />
                     <span className="shrink-0 font-mono text-xs tabular-nums">
                       {formatBytes(item.traffic_7d)}
                     </span>
@@ -524,9 +531,10 @@ function TopCard({
                           : "bg-muted-foreground/40",
                       )}
                     />
+                    {/* 窄屏优先保住名称与趋势：负载在手机上隐藏，桌面端仍显示。 */}
                     <span
                       title={t("overview.loadValue", { value: load })}
-                      className="w-12 shrink-0 text-right font-mono text-xs text-muted-foreground tabular-nums"
+                      className="hidden w-12 shrink-0 text-right font-mono text-xs text-muted-foreground tabular-nums sm:block"
                     >
                       {load}
                     </span>

@@ -34,6 +34,19 @@ struct PublicServer {
     disk_total: Option<i64>,
     uptime_secs: Option<i64>,
     last_seen: Option<i64>,
+    /// 最近一次由两次心跳算出的当前速率（字节/秒）；没有可用数据（旧 Agent、
+    /// 首次心跳、计数回绕被丢弃）为 null。前端显示 `—`，绝不显示 0。
+    net_rx_bps: Option<f64>,
+    /// 同 [`PublicServer::net_rx_bps`]，发送方向。
+    net_tx_bps: Option<f64>,
+    /// Agent 上报的**累计**接收字节（自开机以来，非 `lo` 网卡）。
+    ///
+    /// 取的是 `servers.net_rx_bytes` 基线列 —— 它就是最近一次心跳的累计值，
+    /// 不是计费流量。服务器重启后计数会归零，所以页面标注「自开机以来」，
+    /// 不把它说成「总流量」。
+    net_rx_bytes: Option<i64>,
+    /// 同 [`PublicServer::net_rx_bytes`]，发送方向。
+    net_tx_bytes: Option<i64>,
     /// Agent 到公网探测目标的 TCP 握手 RTT（毫秒）；探测失败或旧 Agent 为 null。
     latency_ms: Option<i64>,
     /// 管理员填写的国家/地区代码（ISO 3166-1 alpha-2）；未填写为 null。
@@ -181,6 +194,10 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
                 disk_total: server.disk_total,
                 uptime_secs: server.uptime_secs,
                 last_seen: server.last_seen_at,
+                net_rx_bps: server.net_rx_bps,
+                net_tx_bps: server.net_tx_bps,
+                net_rx_bytes: server.net_rx_bytes,
+                net_tx_bytes: server.net_tx_bytes,
                 latency_ms: server.latency_ms,
                 country_code: server.country_code.clone(),
                 group_name: server.group_name.clone(),
@@ -612,6 +629,10 @@ mod tests {
             "disk_total",
             "uptime_secs",
             "last_seen",
+            "net_rx_bps",
+            "net_tx_bps",
+            "net_rx_bytes",
+            "net_tx_bytes",
             "latency_ms",
             "country_code",
             "group_name",
@@ -751,5 +772,61 @@ mod tests {
         state.public_status.clear();
         let (_, fresh, _) = get(&app, "/api/v1/public/status").await;
         assert_eq!(fresh["summary"]["servers_total"], 2);
+    }
+
+    /// 公开页的实时速率与累计流量：第一次心跳只有累计基线（速率 null），
+    /// 第二次心跳才算得出速率；累计值直接复用同一份心跳计数。
+    #[tokio::test]
+    async fn public_status_exposes_current_rate_and_cumulative_bytes() {
+        let (app, state) = setup().await;
+        let id = seed_server(&state, "edge-1", "203.0.113.9").await;
+
+        // 第一次上报：只建立基线，速率必须是 null（不能是 0）。
+        repo::servers::update_net_counters(&state.db.pool, &id, 1_000, 2_000, 1_000)
+            .await
+            .unwrap();
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let server = &body["servers"][0];
+        assert!(server["net_rx_bps"].is_null(), "{body}");
+        assert!(server["net_tx_bps"].is_null(), "{body}");
+        assert_eq!(server["net_rx_bytes"], 1_000);
+        assert_eq!(server["net_tx_bytes"], 2_000);
+
+        // 第二次上报：60 秒 +12.3 MB / +1.2 MB → 205000 / 20000 B/s。
+        state.public_status.clear();
+        repo::servers::update_net_counters(
+            &state.db.pool,
+            &id,
+            1_000 + 12_300_000,
+            2_000 + 1_200_000,
+            1_060,
+        )
+        .await
+        .unwrap();
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let server = &body["servers"][0];
+        let rx = server["net_rx_bps"].as_f64().unwrap();
+        let tx = server["net_tx_bps"].as_f64().unwrap();
+        assert!((rx - 205_000.0).abs() < 1e-6, "{body}");
+        assert!((tx - 20_000.0).abs() < 1e-6, "{body}");
+        assert_eq!(server["net_rx_bytes"], 12_301_000);
+        assert_eq!(server["net_tx_bytes"], 1_202_000);
+    }
+
+    /// 没有心跳数据（旧 Agent / 从未连过）时四个字段都是 null，绝不写 0。
+    #[tokio::test]
+    async fn public_status_net_fields_are_null_without_agent_data() {
+        let (app, state) = setup().await;
+        seed_server(&state, "edge-1", "203.0.113.9").await;
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let server = &body["servers"][0];
+        for key in ["net_rx_bps", "net_tx_bps", "net_rx_bytes", "net_tx_bytes"] {
+            assert!(server[key].is_null(), "{key} 必须是 null：{body}");
+            assert_ne!(server[key], 0, "{key} 不能被写成 0：{body}");
+        }
     }
 }

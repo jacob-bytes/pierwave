@@ -207,8 +207,10 @@ GET /api/v1/stats/traffic?days=7 -> {
   "chains": { "total": 1, "degraded": 0, "blocked": 0,
               "forwards_total": 0, "forwards_failing": 0,
               "handshake_failures": 0 },
-  "top": [ { "kind": "server", "name": "hk-01", "traffic_7d": 123,
-             "load1": 0.4, "online": true } ],
+  "top": [ { "kind": "server", "server_id": "…", "name": "hk-01", "traffic_7d": 123,
+             "load1": 0.4, "online": true,
+             // 最近 1 小时网速采样（5 分钟一点，升序，最多 12 点）
+             "rates": [ { "ts": 1794744000, "rx_bps": 288.0, "tx_bps": 2150.0 } ] } ],
   "top_users": [ { "user_id": "…", "username": "alice", "traffic_7d": 456 } ]
 }
 ```
@@ -225,16 +227,22 @@ GET /api/v1/stats/traffic?days=7 -> {
   没有下行的协议不产生全 0 的线。
 - `top_users` 直接 `JOIN users ON users.id = traffic_daily.subject`，最多 5 条；
   归因失败回落的原始 email 关联不到用户，不参与排名。
+- `top[].rates` 是 `server_samples` 里最近 12 个 5 分钟采样（约 1 小时），
+  按 `ts` 升序；两侧速率都为 NULL 的采样点不返回。前端有效点 < 3 时
+  不画线、显示 `—`（见 `docs/TELEMETRY.md`）。
 - 查询次数固定，不随服务器 / 链 / 用户数量增长（没有 N+1），见
-  `pierwave_domain::repo::overview::snapshot`。
+  `pierwave_domain::repo::overview::snapshot`（`rates` 额外固定 1 条批量查询）。
 
 **EN.** `GET /api/v1/overview?days=7` (admin) returns every overview card in one
 response. `protocol_series` gives the daily **downlink** per protocol (at most
 4 protocols plus `other`, ascending days, missing days zero-filled) and is built
 from `traffic_node_daily` joined to `nodes` — the subject in `traffic_daily` is a
 bare `user_id`, not `user@tag`. `top_users` joins `traffic_daily.subject` to
-`users.id` and returns at most 5 users by raw 7-day traffic. Both share the same
-window as the other cards; query count is constant (no N+1).
+`users.id` and returns at most 5 users by raw 7-day traffic. `top[].rates` carries
+the last 12 five-minute `server_samples` rate points in ascending time order
+(points with both directions NULL are omitted; fewer than 3 valid points renders
+`—`). Both share the same window as the other cards; query count is constant
+(no N+1, plus one batched query for `rates`).
 
 ### 订阅管理页要用的数据
 
@@ -848,11 +856,16 @@ GET /api/v1/public/status
      summary: { servers_total, servers_online, nodes_total, traffic_today, traffic_month },
      servers: [ { id, name, online, xray_running, load1, mem_used, mem_total,
                   disk_used, disk_total, uptime_secs, last_seen,
+                  net_rx_bps, net_tx_bps,       // 当前速率（字节/秒），无数据 = null
+                  net_rx_bytes, net_tx_bytes,   // 自开机以来的累计字节，无数据 = null
                   uptime_24h, uptime_7d,           // 0..1，无采样时为 null
                   buckets_24h: [ { ts, online_ratio } ] } ] }
 ```
 
 - **不返回服务器地址、用户数、套餐等敏感信息**；
+- 速率与累计字节都是**只读展示**：速率来自相邻两次心跳的累计字节差；
+  累计字节是 Agent 自开机以来的非 `lo` 网卡计数（重启归零），不参与计费；
+  没有数据时一律 `null`（前端 `—`），绝不写 0，更不暴露价格 / 续费 / 到期；
 - 设置项 `public_status_enabled`（默认 1）可整体关闭，关闭时 404；
 - 结果缓存 30 秒，避免被打爆。
 

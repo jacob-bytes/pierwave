@@ -192,6 +192,20 @@ export interface PublicStatusServer {
   uptime_secs: number | null;
   last_seen: number | null;
   /**
+   * 最近一次心跳算出的当前速率（字节/秒）。
+   * null = 旧 Agent 未上报、首次心跳、或计数回绕被丢弃；显示 `—`，不是 `0 B/s`。
+   */
+  net_rx_bps?: number | null;
+  /** 同 `net_rx_bps`，发送方向。 */
+  net_tx_bps?: number | null;
+  /**
+   * Agent 上报的累计接收字节（自开机以来，非 lo 网卡）。
+   * null = 没有心跳数据；服务器重启后计数会归零，页面标注「自开机以来」。
+   */
+  net_rx_bytes?: number | null;
+  /** 同 `net_rx_bytes`，发送方向。 */
+  net_tx_bytes?: number | null;
+  /**
    * Agent 到公网探测目标的 TCP 握手 RTT（毫秒）。
    * null = 这轮探测失败或旧 Agent 不上报；前端不显示该项。
    */
@@ -1603,13 +1617,28 @@ export interface OverviewChains {
   handshake_failures: number;
 }
 
+/** Top 服务器 mini 折线的一个点：5 分钟采样，字节/秒；某一侧可能为 null。 */
+export interface OverviewRatePoint {
+  /** 5 分钟桶起点（Unix 秒），后端按升序返回。 */
+  ts: number;
+  rx_bps: number | null;
+  tx_bps: number | null;
+}
+
 /** Top 5 条目；当前契约只返回 `kind: "server"`。 */
 export interface OverviewTopItem {
   kind: "server";
+  /** 服务器 id；旧后端可能不返回。 */
+  server_id?: string;
   name: string;
   traffic_7d: number;
   load1: number | null;
   online: boolean;
+  /**
+   * 最近 1 小时的网速采样（最多 12 点，升序）。
+   * 旧后端可能不返回；不足 3 个有效点时前端不画线。
+   */
+  rates?: OverviewRatePoint[];
 }
 
 /**

@@ -66,6 +66,15 @@ pub struct Server {
     pub net_rx_bps: Option<f64>,
     /// 同 [`Server::net_rx_bps`]，发送方向。
     pub net_tx_bps: Option<f64>,
+    /// Agent 最近一次心跳上报的**累计**接收字节（自开机以来，非 `lo` 网卡）。
+    ///
+    /// 它同时是下一次速率差分的基线；只给公开探针页展示「累计流量」用，
+    /// 不进入管理端 JSON（`#[serde(skip)]`），也不参与计费。
+    #[serde(skip)]
+    pub net_rx_bytes: Option<i64>,
+    /// 同 [`Server::net_rx_bytes`]，发送方向。
+    #[serde(skip)]
+    pub net_tx_bytes: Option<i64>,
     pub health_at: Option<i64>,
     /// 是否允许下发 Agent 升级计划。
     pub allow_agent_upgrade: bool,

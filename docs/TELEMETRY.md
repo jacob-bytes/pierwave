@@ -35,6 +35,50 @@ only establishes a baseline; agents older than protocol 26 do not report these f
 the master keeps NULL. The value is instantaneous and **display-only**; billing still
 uses the Xray and per-forward cumulative counters.
 
+### 1.1 公开探针页：速率 + 累计流量 / Public status page: rate + totals
+
+- 公开接口 `GET /api/v1/public/status` 每台服务器返回四个只读字段：
+  - `net_rx_bps` / `net_tx_bps`：与管理端同源的当前速率（字节/秒）。
+  - `net_rx_bytes` / `net_tx_bytes`：**复用** `servers.net_rx_bytes` /
+    `net_tx_bytes` 基线列，也就是 Agent 最近一次心跳的累计收发字节
+    （自开机以来、非 `lo` 网卡）。没有另建聚合表：这两列本来就是
+    「最近一份累计计数」，速率差分也靠它。
+- **口径边界**：累计值是「自开机以来」，不是生命周期总量——服务器重启后
+  Agent 的网卡计数归零。卡片 tooltip 写明这一点；不要把它当计费流量或「总流量」。
+  没有心跳数据时四个字段都是 `null`，前端显示 `—`，绝不写 0。
+- 离线服务器的速率不展示（`servers.net_rx_bps` 是掉线前最后一次算出的值，
+  画在「离线」卡上会被读成实时读数）；累计值仍展示，因为那是历史计数。
+- 公开页**不显示**价格 / 续费 / 到期：主控没有这些字段，也不在公开白名单里。
+
+English: the public status endpoint exposes `net_rx_bps` / `net_tx_bps` (same
+current rate as the admin API) and `net_rx_bytes` / `net_tx_bytes` **reused from the
+existing `servers` baseline columns** — the latest cumulative heartbeat counters since
+boot (non-`lo` only). No extra aggregation table is added: those columns already hold
+the latest cumulative counters used for the rate delta. The total is "since boot", not
+lifetime (a reboot resets the agent counters), and the card tooltip says so. Missing
+data is `null` (UI `—`), never 0. Offline servers hide the rate (the last value would be
+mistaken for a live reading) but keep the cumulative totals. The public page shows no
+price / renewal / expiry fields at all.
+
+### 1.2 Top 服务器 sparkline / Top-server sparkline
+
+- `GET /api/v1/overview` 的 `top[]` 每行新增 `server_id` 与 `rates[]`：
+  `server_samples` 中最近 **12** 个 5 分钟采样（约 1 小时），按 `ts` 升序。
+- `rx_bps` / `tx_bps` 任一侧为 NULL 的点保留为**缺口**；两侧都为 NULL 的采样点
+  不返回（没有速率信息的点对趋势没有意义，也不能画成 0）。
+- 没有采样时 `rates` 是空数组；前端有效点 **< 3** 时不画线、显示 `—`。
+- 图表只用线型：实线 = 下行（主色），虚线 = 上行（次要文字色）；无坐标轴、
+  无 tooltip、无图例，数值仍由同一行的流量 / 负载文字承担。
+
+English: each `top[]` row in `GET /api/v1/overview` now carries `server_id` and
+`rates[]`: the last **12** five-minute `server_samples` points (about one hour) in
+ascending `ts` order. A NULL on one side is kept as a gap; points with both sides NULL
+are omitted (never drawn as zero). No samples yields an empty array, and the frontend
+draws nothing (`—`) with fewer than 3 valid points. The mini chart is line-only: solid
+= downlink (primary), dashed = uplink (muted foreground), no axes, no tooltip, no
+legend — the row's numbers still carry the values.
+
+
 ## 2. 可用率 / 丢包：探测口径 / Availability & loss: probe semantics
 
 - Agent 每 30 秒对转发规则的目标做一次 TCP 握手探测（多成员组逐目标探测）。
@@ -52,6 +96,10 @@ uses the Xray and per-forward cumulative counters.
 - 趋势接口 `GET /api/v1/chains/{id}/availability?hours=1..168` 按 5 分钟桶返回
   `points[]`（`attempts` / `failures` / `loss` / `availability`），不套 24h 样本门槛，
   没有探测的桶不出现（不补 0）。
+- 链详情（拓扑弹窗）的**成员行**直接消费接口已有的 `groups[].members[].availability_24h`，
+  显示成员级徽标：`99.2%` / `100%` / `—`。低于链级阈值（默认 99%）只用 `--warning`
+  文字色，没有数据用 `--muted-foreground`；不新增色相。**链列表保持链级加权可用率**，
+  两者口径不同，不要互相替代。
 
 English: Every 30 seconds the agent performs a TCP handshake probe against each forward
 target. Since protocol 26 `ForwardStatus` carries cumulative `probe_attempts` /
@@ -64,7 +112,12 @@ failure rate** — it measures failed TCP handshakes, not loss on user traffic; 
 rules are never probed and therefore have no availability. Fewer than 20 probes in the
 window yields `null` (UI `—`); `0%` means "measured and everything failed". The trend
 endpoint returns per-5-minute points without the 24h minimum, and buckets without probes
-are omitted rather than filled with 0.
+are omitted rather than filled with 0. The chain-detail topology dialog shows a
+**per-member** availability badge from the existing `groups[].members[].availability_24h`
+(`99.2%`, `100%`, or `—`): below the chain-level threshold (99% by default) it uses the
+`--warning` text color, missing data stays muted, and no new hue is introduced. The chain
+list keeps the chain-level weighted availability — the two are different scopes and do not
+replace each other.
 
 ## 3. 降级告警 / Degradation alerts
 
@@ -118,15 +171,20 @@ nothing the master keeps NULL and the UI shows `—`; unknown data is never rend
   无基线；可用率 100% / 0% / 样本不足 / 探测失败率；告警连续次数与恢复。
 - `crates/domain/src/repo.rs`：两次心跳算速率、首次上报只建基线、探测增量、回绕、旧
   Agent 不产生样本。
-- `crates/master`：服务器列表速率 HTTP JSON（数值 / null）、链列表可用率与趋势接口、
-  告警只发一次。
-- `web/src/lib/{netRate,chainProbe}.test.mjs`：格式化与边界（`—` 与 `0` 的区别）。
+- `crates/master`：服务器列表速率 HTTP JSON（数值 / null）、公开页速率与累计字节
+  HTTP JSON（有 / 无数据）、概览 `top[].rates`（点、时间排序、空数组）、链列表可用率
+  与趋势接口、告警只发一次。
+- `web/src/lib/{netRate,chainProbe,sparkline}.test.mjs`：速率 / 累计流量格式化、
+  sparkline 点归一化（少于 3 点、null 缺口、共享 y 轴）、成员可用率徽标状态
+  （`99.2%` / `—` / 阈值 warning），以及 `—` 与 `0` 的区别。
 
 English: protocol compatibility tests, pure telemetry math (delta, zero elapsed, wrap,
 implausible peak, missing baseline, 100%/0%/insufficient/rates, alert streak & re-arm),
-repository tests for baseline/delta/wrap, master HTTP tests for the server list JSON and
-chain availability endpoints, and frontend pure-logic tests for formatting and the
-`—` vs `0` distinction.
+repository tests for baseline/delta/wrap plus the overview rate series (point count,
+ascending time, empty list), master HTTP tests for the server list JSON, the public rate /
+cumulative JSON and the chain availability endpoints, and frontend pure-logic tests for
+rate / total formatting, sparkline normalization (fewer than 3 points, null gaps, shared
+y scale) and member availability badge states, including the `—` vs `0` distinction.
 
 ## 6. 截图 / Screenshots
 
@@ -164,3 +222,44 @@ threshold (99% by default) uses the warning color; insufficient samples show `�
 趋势图按 5 分钟桶展示探测失败率（虚线是阈值）；面板底部固定标注「丢包为探测失败率近似」。
 The chart shows the probe failure rate per 5-minute bucket (dashed line = threshold); the
 panel always states that packet loss is a probe failure approximation.
+
+### 公开探针页卡片 / Public status cards
+
+![公开探针页（深色，桌面）/ Public status (dark, desktop)](images/status-rate/status-desktop-dark.png)
+![公开探针页（亮色，桌面）/ Public status (light, desktop)](images/status-rate/status-desktop-light.png)
+![公开探针页（深色，移动端）/ Public status (dark, mobile)](images/status-rate/status-mobile-dark.png)
+![公开探针页（亮色，移动端）/ Public status (light, mobile)](images/status-rate/status-mobile-light.png)
+
+本轮截图取自 4 台服务器 / 1 条链的演示数据。卡片按参考项目的信息层次重排：
+名称 + 国旗 + 在线时长 pill → `OS · 虚拟化 · 架构` → 负载 / 内存 / 硬盘 / 24h 可用率 →
+24 格可用率 + 7 天可用率 → 分隔线下的「↓ 当前速率 + 累计流量 / ↑ 当前速率 + 累计流量」。
+没有数据的指标一律 `—`；离线卡片保留累计值但不显示掉线前的旧速率。
+These screenshots use demo data with 4 servers and 1 chain. The card follows the
+reference information hierarchy: name + flag + uptime pill, `OS · virt · arch`, load /
+memory / disk / 24h availability, the 24-cell availability strip + 7-day availability,
+then the divider line with down/up current rate and cumulative traffic. Missing data is
+always `—`; offline cards keep cumulative totals but never show the pre-disconnect rate.
+
+### 概览 Top 服务器 sparkline / Top-server sparkline
+
+![概览 Top 服务器（深色，桌面）/ Top servers (dark, desktop)](images/status-rate/overview-sparkline-desktop-dark.png)
+![概览 Top 服务器（亮色，桌面）/ Top servers (light, desktop)](images/status-rate/overview-sparkline-desktop-light.png)
+![概览 Top 服务器（深色，移动端）/ Top servers (dark, mobile)](images/status-rate/overview-sparkline-mobile-dark.png)
+![概览 Top 服务器（亮色，移动端）/ Top servers (light, mobile)](images/status-rate/overview-sparkline-mobile-light.png)
+
+实线 = 下行、虚线 = 上行，共用同一 y 轴；无坐标轴 / tooltip。采样不足 3 个有效点的
+服务器显示 `—`（示例中是法兰克福那台旧 Agent）。Solid = downlink, dashed = uplink on a
+shared y scale, with no axes or tooltip. Servers with fewer than 3 valid samples show `—`
+(the Frankfurt old-agent row in the example).
+
+### 链详情成员可用率 / Per-member availability in chain details
+
+![链详情成员可用率（深色，桌面）/ Member availability (dark, desktop)](images/status-rate/chain-member-availability-desktop-dark.png)
+![链详情成员可用率（亮色，桌面）/ Member availability (light, desktop)](images/status-rate/chain-member-availability-desktop-light.png)
+![链详情成员可用率（深色，移动端）/ Member availability (dark, mobile)](images/status-rate/chain-member-availability-mobile-dark.png)
+![链详情成员可用率（亮色，移动端）/ Member availability (light, mobile)](images/status-rate/chain-member-availability-mobile-light.png)
+
+成员行显示 24h 可用率徽标：低于链级阈值（示例中 98.7% < 99%）用 warning 文字色，
+没有样本显示 `—`；链列表的可用率仍是链级加权值。Each member row shows its 24h
+availability badge: below the chain threshold (98.7% < 99% in the example) uses the warning
+color, missing samples render `—`, and the chain list keeps its chain-level weighted value.

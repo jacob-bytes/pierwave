@@ -8,6 +8,8 @@
  * * 只做展示，不参与计费。
  */
 
+import { formatByteValue } from "./bytes.ts";
+
 const RATE_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"] as const;
 
 /** 拆分后的速率：`value` 是数字（数值优先），`unit` 单独给弱化样式用。 */
@@ -64,4 +66,19 @@ export function formatRatePairText(
   const tx = formatRate(txBps);
   if (rx === null && tx === null) return null;
   return `↓ ${rx ?? "—"} · ↑ ${tx ?? "—"}`;
+}
+
+/**
+ * 累计字节 → 展示文本（`1.48 GB`）；`null` / 负数 / 非有限值是「没有数据」，
+ * 返回 `null` 由调用方渲染 `—`。真实测到的 `0 B` 是有效数据。
+ *
+ * 注意：这是 Agent 自开机以来的网卡累计值，服务器重启会归零；
+ * UI 用「累计流量 / 自开机以来」说明边界，不说成「总流量」。
+ */
+export function formatTrafficTotal(
+  bytes: number | null | undefined,
+): string | null {
+  if (bytes === null || bytes === undefined) return null;
+  if (!Number.isFinite(bytes) || bytes < 0) return null;
+  return formatByteValue(bytes);
 }
