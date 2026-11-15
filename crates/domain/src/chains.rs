@@ -98,6 +98,16 @@ pub const WEIGHT_MAX: i64 = 100;
 /// `pierwave_proto::CHAIN_STRATEGY_PROTOCOL_VERSION` 必须一致（master 有断言）。
 pub const STRATEGY_MIN_PROTOCOL_VERSION: i64 = 27;
 
+/// nftables 多目标选路需要的最低 Agent 线协议版本。
+///
+/// 旧 Agent 的 nftables 引擎只接受单目标：收到多成员组会在 apply 时逐条报
+/// `暂不支持多目标选路`，但主控仍会以为配置下发成功。主控据此在保存/下发
+/// 两条路径上要求整条链的 Agent 升级，绝不静默降级成「只发第一个目标」。
+///
+/// 与线协议版本一起递增：多目标规则完全由 Agent 从 `DesiredForward.targets`
+/// 推导，不需要新增协议字段；版本号就是能力信号。
+pub const NFTABLES_MULTI_TARGET_MIN_PROTOCOL_VERSION: i64 = 29;
+
 /// 领域层的选路策略。
 ///
 /// 故意不直接复用 `pierwave_proto::ForwardStrategy`：domain 不依赖线协议，
@@ -242,7 +252,175 @@ pub fn ensure_chain_strategy_supported(
     ))
 }
 
-/// 旧版单跳 id：`chain-<chain_id>-<seq>`。
+/// nftables 多目标能实现的选路策略。
+///
+/// 内核 DNAT 只有 `numgen` / `jhash` 两类选择器：
+/// * `round_robin`：`numgen inc mod N`；
+/// * `weighted`：`numgen random mod Σweight` + 区间；
+/// * `ip_hashed`：`jhash ip saddr mod N`（IPv6 用 `jhash ip6 saddr`）。
+///
+/// `failover` / `lowest_latency` 需要健康探测与故障回切，`least_conn` 需要
+/// 每目标连接计数——这三者都在用户态，内核没有对应原语，必须明确拒绝。
+/// 单成员组没有选路空间，策略不影响结果，不受这个矩阵限制。
+pub fn nftables_strategy_supported(strategy: GroupStrategy) -> bool {
+    matches!(
+        strategy,
+        GroupStrategy::RoundRobin | GroupStrategy::Weighted | GroupStrategy::IpHashed
+    )
+}
+
+/// 不支持时的可读原因（中文 + English），写进错误与 blocked 视图。
+pub fn nftables_strategy_reason(strategy: GroupStrategy) -> &'static str {
+    match strategy {
+        GroupStrategy::Failover => {
+            "主备（failover）需要探测目标健康并在故障时回切，内核 DNAT 没有健康探测原语 / failover needs target health probes and fail-back, which kernel DNAT does not have"
+        }
+        GroupStrategy::LowestLatency => {
+            "最低延迟（lowest_latency）需要主控探测每台目标的延迟，内核 DNAT 拿不到该信号 / lowest-latency needs per-target latency probes, which kernel DNAT cannot see"
+        }
+        GroupStrategy::LeastConn => {
+            "最少连接（least_conn）需要每目标连接计数，内核没有连接计数原语 / least-conn needs per-target connection counters, which the kernel does not provide"
+        }
+        _ => "该策略无法由 nftables 多目标实现 / this strategy cannot be implemented by nftables multi-target",
+    }
+}
+
+/// 链里是否有「需要选路的 nftables 多成员组」。
+///
+/// 输入是 `(策略, 成员数)`，按 seq 顺序。入口组（seq 0）的多成员是各自独立
+/// 入口，不需要上一跳选路；只有 seq >= 1 且成员数 > 1 才会生成 vmap。
+pub fn nftables_multi_target_groups(
+    groups: &[(GroupStrategy, usize)],
+) -> Vec<(usize, GroupStrategy, usize)> {
+    groups
+        .iter()
+        .enumerate()
+        .filter(|(seq, (_, member_count))| *seq >= 1 && *member_count > 1)
+        .map(|(seq, (strategy, member_count))| (seq, *strategy, *member_count))
+        .collect()
+}
+
+/// 保存前的 nftables 多目标策略门禁，错误码 `chain.nftables_strategy_unsupported`。
+///
+/// 只检查真正需要选路的组；单成员组保留任意策略（没有选路空间，行为等价）。
+pub fn ensure_nftables_groups_supported(
+    groups: &[(GroupStrategy, usize)],
+) -> Result<(), DomainError> {
+    for (seq, strategy, member_count) in nftables_multi_target_groups(groups) {
+        if nftables_strategy_supported(strategy) {
+            continue;
+        }
+        return Err(DomainError::with_params(
+            "chain.nftables_strategy_unsupported",
+            json!({
+                "seq": seq + 1,
+                "strategy": strategy.as_str(),
+                "count": member_count,
+                "reason": nftables_strategy_reason(strategy),
+            }),
+            format!(
+                "nftables 引擎的第 {} 组有 {member_count} 个目标，但不支持「{}」选路：{} / nftables group {} has {member_count} targets but does not support the {} strategy: {}",
+                seq + 1,
+                strategy.as_str(),
+                nftables_strategy_reason(strategy),
+                seq + 1,
+                strategy.as_str(),
+                nftables_strategy_reason(strategy)
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// 保存前的 nftables 多目标 Agent 门禁，错误码
+/// `chain.nftables_multi_target_requires_agent_upgrade`。
+///
+/// 只要链里有需要选路的 nftables 多成员组，整条链的 Agent 都必须 >= 29：
+/// 旧 Agent 会拒绝多目标并让该规则未监听。未知（NULL）按旧版处理，与其它
+/// 能力门禁同一口径。
+pub fn ensure_nftables_agent_supported(
+    groups: &[(GroupStrategy, usize)],
+    servers: &[(&str, Option<i64>)],
+) -> Result<(), DomainError> {
+    let multi = nftables_multi_target_groups(groups);
+    if multi.is_empty() {
+        return Ok(());
+    }
+    let mut stale: Vec<&str> = Vec::new();
+    for (name, version) in servers {
+        let supported =
+            version.is_some_and(|version| version >= NFTABLES_MULTI_TARGET_MIN_PROTOCOL_VERSION);
+        if !supported && !stale.contains(name) {
+            stale.push(name);
+        }
+    }
+    if stale.is_empty() {
+        return Ok(());
+    }
+    Err(DomainError::with_params(
+        "chain.nftables_multi_target_requires_agent_upgrade",
+        json!({
+            "server": stale.join("、"),
+            "servers": stale,
+            "required": NFTABLES_MULTI_TARGET_MIN_PROTOCOL_VERSION,
+        }),
+        format!(
+            "nftables 多目标选路需要每台服务器的 Agent 协议版本 ≥ {NFTABLES_MULTI_TARGET_MIN_PROTOCOL_VERSION}（旧 Agent 会拒绝多目标，导致该端口不转发）：{} / nftables multi-target routing requires agent protocol >= {NFTABLES_MULTI_TARGET_MIN_PROTOCOL_VERSION} on every server (older agents reject multi-target rules and leave the port unforwarded): {}",
+            stale.join("、"),
+            stale.join(", ")
+        ),
+    ))
+}
+
+/// 保存/模板路径的统一入口：先查策略矩阵，再查 Agent 版本。
+pub fn validate_nftables_multi_target(
+    groups: &[(GroupStrategy, usize)],
+    servers: &[(&str, Option<i64>)],
+) -> Result<(), DomainError> {
+    ensure_nftables_groups_supported(groups)?;
+    ensure_nftables_agent_supported(groups, servers)
+}
+
+/// 视图/下发路径的 nftables 多目标阻断原因。
+///
+/// 这里是唯一判定入口：链列表、创建/更新响应、期望态渲染与概览都调用它。
+/// 顺序是「策略不支持」先于「Agent 太旧」：配置本身错了，升级 Agent 也没用。
+pub fn nftables_multi_target_blocked_reason(
+    groups: &[ChainGroupWithMembers],
+) -> Option<BlockedReason> {
+    let mut ordered: Vec<&ChainGroupWithMembers> = groups.iter().collect();
+    ordered.sort_by_key(|group| group.group.seq);
+    let strategies: Vec<(GroupStrategy, usize)> = ordered
+        .iter()
+        .map(|group| {
+            (
+                GroupStrategy::from_db(&group.group.strategy),
+                group.members.len(),
+            )
+        })
+        .collect();
+    if let Some(reason) = ensure_nftables_groups_supported(&strategies)
+        .err()
+        .map(|error| BlockedReason {
+            code: error.code.to_string(),
+            message: error.message,
+        })
+    {
+        return Some(reason);
+    }
+    let servers: Vec<(&str, Option<i64>)> = ordered
+        .iter()
+        .flat_map(|group| group.members.iter())
+        .map(|member| (member.server_name.as_str(), member.server_protocol_version))
+        .collect();
+    ensure_nftables_agent_supported(&strategies, &servers)
+        .err()
+        .map(|error| BlockedReason {
+            code: error.code.to_string(),
+            message: error.message,
+        })
+}
+
 ///
 /// 单成员组继续使用它，迁移后的链因此与旧版下发**逐字节一致**：
 /// Agent 按 id 收敛，不会因为升级而重建监听、也不会丢上一轮的健康状态。
@@ -980,18 +1158,11 @@ pub fn blocked_reason(
         return tunnel_blocked_reason(chain, groups);
     }
     if engine::is_nftables(&chain.engine) {
-        if let Some((seq, _)) = groups
-            .iter()
-            .enumerate()
-            .find(|(seq, group)| *seq >= 1 && group.members.len() > 1)
-        {
-            return Some(BlockedReason {
-                code: "chain.nftables_multi_target".to_string(),
-                message: format!(
-                    "nftables 引擎暂不支持第 {} 组的多成员选路，请改成单成员组",
-                    seq + 1
-                ),
-            });
+        // 多目标：先在策略矩阵里拒绝不可实现的策略，再要求整链 Agent >= 29。
+        // 旧版这里一律拒绝所有非入口多成员组；现在 round_robin / weighted /
+        // ip_hashed 可以选路，只有无法用内核原语实现的策略才 blocking。
+        if let Some(reason) = nftables_multi_target_blocked_reason(groups) {
+            return Some(reason);
         }
         let mut names: Vec<&str> = groups
             .iter()
@@ -1596,6 +1767,212 @@ mod tests {
                 last_seen_at: None,
             }],
         }
+    }
+
+    fn multi_member_group(
+        code: &str,
+        seq: i64,
+        strategy: &str,
+        version: Option<i64>,
+    ) -> ChainGroupWithMembers {
+        let mut group = server(code, seq);
+        group.group.strategy = strategy.into();
+        let mut second = group.members[0].clone();
+        second.server_id = format!("srv-{seq}-b");
+        second.server_name = format!("srv-{seq}-b");
+        second.priority = 1;
+        for member in [&mut group.members[0], &mut second] {
+            member.strategy = strategy.into();
+            member.server_protocol_version = version;
+        }
+        group.members.push(second);
+        group
+    }
+
+    fn engine_chain(code: &str, engine: &str) -> Chain {
+        Chain {
+            id: code.into(),
+            name: engine.into(),
+            target_host: "1.1.1.1".into(),
+            target_port: 443,
+            enabled: true,
+            engine: engine.into(),
+            udp: false,
+            protocol: "tcp".into(),
+            proxy_protocol: false,
+            transport: "none".into(),
+            tunnel_security: "tls".into(),
+            template_id: None,
+            owner_user_id: None,
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    #[test]
+    fn nftables_strategy_matrix_matches_the_kernel_primitives() {
+        assert!(nftables_strategy_supported(GroupStrategy::RoundRobin));
+        assert!(nftables_strategy_supported(GroupStrategy::Weighted));
+        assert!(nftables_strategy_supported(GroupStrategy::IpHashed));
+        for strategy in [
+            GroupStrategy::Failover,
+            GroupStrategy::LowestLatency,
+            GroupStrategy::LeastConn,
+        ] {
+            assert!(!nftables_strategy_supported(strategy), "{strategy:?}");
+            assert!(
+                nftables_strategy_reason(strategy).contains("内核")
+                    || nftables_strategy_reason(strategy).contains("kernel"),
+                "{strategy:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn nftables_multi_target_groups_skip_entry_and_single_member_groups() {
+        let groups = nftables_multi_target_groups(&[
+            (GroupStrategy::Failover, 3),
+            (GroupStrategy::Failover, 1),
+            (GroupStrategy::RoundRobin, 2),
+        ]);
+        assert_eq!(
+            groups,
+            vec![(2, GroupStrategy::RoundRobin, 2)],
+            "入口组多成员只是独立入口；单成员组没有选路空间"
+        );
+    }
+
+    #[test]
+    fn nftables_rejects_unimplementable_multi_target_strategies() {
+        for strategy in [
+            GroupStrategy::Failover,
+            GroupStrategy::LowestLatency,
+            GroupStrategy::LeastConn,
+        ] {
+            let error =
+                ensure_nftables_groups_supported(&[(GroupStrategy::RoundRobin, 1), (strategy, 2)])
+                    .unwrap_err();
+            assert_eq!(error.code, "chain.nftables_strategy_unsupported");
+            assert_eq!(error.params["seq"], 2);
+            assert_eq!(error.params["strategy"], strategy.as_str());
+            assert_eq!(error.params["count"], 2);
+            assert!(
+                error.message.contains(strategy.as_str()),
+                "{}",
+                error.message
+            );
+            assert!(
+                error.message.contains("内核") || error.message.contains("kernel"),
+                "{}",
+                error.message
+            );
+        }
+        // 单成员组保留任意策略：没有选路空间，和旧配置完全一致。
+        assert!(ensure_nftables_groups_supported(&[
+            (GroupStrategy::Failover, 1),
+            (GroupStrategy::LeastConn, 1),
+        ])
+        .is_ok());
+    }
+
+    #[test]
+    fn nftables_multi_target_requires_agent_29() {
+        let groups = [
+            (GroupStrategy::RoundRobin, 1),
+            (GroupStrategy::RoundRobin, 2),
+        ];
+        let error =
+            ensure_nftables_agent_supported(&groups, &[("old", Some(28)), ("new", Some(29))])
+                .unwrap_err();
+        assert_eq!(
+            error.code,
+            "chain.nftables_multi_target_requires_agent_upgrade"
+        );
+        assert_eq!(error.params["servers"], json!(["old"]));
+        assert_eq!(
+            error.params["required"],
+            NFTABLES_MULTI_TARGET_MIN_PROTOCOL_VERSION
+        );
+        assert!(error.message.contains("old"), "{}", error.message);
+        assert!(ensure_nftables_agent_supported(&groups, &[("new", Some(29))]).is_ok());
+        assert!(
+            ensure_nftables_agent_supported(&groups, &[("unknown", None)]).is_err(),
+            "未知版本按旧版处理"
+        );
+        // 单成员组不需要多目标能力，旧 Agent 仍可保存。
+        assert!(ensure_nftables_agent_supported(
+            &[(GroupStrategy::RoundRobin, 1)],
+            &[("old", Some(28))]
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn nftables_blocked_reason_prefers_strategy_error_over_agent_upgrade() {
+        let groups = vec![
+            server("nft-chain", 0),
+            multi_member_group("nft-chain", 1, "least_conn", Some(28)),
+        ];
+        let reason =
+            nftables_multi_target_blocked_reason(&groups).expect("least_conn 多目标必须 blocked");
+        assert_eq!(reason.code, "chain.nftables_strategy_unsupported");
+        assert!(reason.message.contains("least_conn"), "{}", reason.message);
+
+        let groups = vec![
+            server("nft-chain", 0),
+            multi_member_group("nft-chain", 1, "round_robin", Some(28)),
+        ];
+        let reason =
+            nftables_multi_target_blocked_reason(&groups).expect("旧 Agent 多目标必须 blocked");
+        assert_eq!(
+            reason.code,
+            "chain.nftables_multi_target_requires_agent_upgrade"
+        );
+
+        let mut groups = vec![
+            server("nft-chain", 0),
+            multi_member_group("nft-chain", 1, "round_robin", Some(29)),
+        ];
+        groups[0].members[0].server_protocol_version = Some(29);
+        assert!(nftables_multi_target_blocked_reason(&groups).is_none());
+    }
+
+    #[test]
+    fn blocked_reason_wires_the_nftables_matrix_not_a_blanket_rejection() {
+        let chain = engine_chain("nft-chain", "nftables");
+        let mut groups = vec![
+            server("nft-chain", 0),
+            multi_member_group("nft-chain", 1, "round_robin", Some(29)),
+        ];
+        groups[0].members[0].server_protocol_version = Some(29);
+        // 能力未知（成员 nftables_available 为 None）会先被可用性门禁挡住；
+        // 这里只确认 reason 不再是旧的 chain.nftables_multi_target。
+        let reason = blocked_reason(&chain, &groups, &HashMap::new(), 0).unwrap();
+        assert_eq!(reason.code, "chain.nftables_unavailable");
+
+        let mut available = groups;
+        for group in &mut available {
+            for member in &mut group.members {
+                member.nftables_available = Some(true);
+            }
+        }
+        assert!(blocked_reason(&chain, &available, &HashMap::new(), 0).is_none());
+    }
+
+    #[test]
+    fn blocked_reason_still_rejects_unsupported_nftables_strategies() {
+        let chain = engine_chain("nft-chain", "nftables");
+        let mut groups = vec![
+            server("nft-chain", 0),
+            multi_member_group("nft-chain", 1, "failover", Some(29)),
+        ];
+        for group in &mut groups {
+            for member in &mut group.members {
+                member.nftables_available = Some(true);
+            }
+        }
+        let reason = blocked_reason(&chain, &groups, &HashMap::new(), 0).unwrap();
+        assert_eq!(reason.code, "chain.nftables_strategy_unsupported");
     }
 
     #[test]

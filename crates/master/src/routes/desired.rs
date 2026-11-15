@@ -285,16 +285,12 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
             continue;
         }
         if engine::is_nftables(&chain.chain.engine) {
-            if let Some((seq, _)) = chain
-                .groups
-                .iter()
-                .enumerate()
-                .find(|(seq, group)| *seq >= 1 && group.members.len() > 1)
-            {
+            // 多目标：策略矩阵 + Agent >= 29 与保存路径共用同一套判定。
+            // 旧版这里一律拒绝所有非入口多成员组，现在支持内核能实现的策略。
+            if let Some(reason) = chains::nftables_multi_target_blocked_reason(&chain.groups) {
                 warnings.push(format!(
-                    "链「{}」未下发：nftables 引擎暂不支持第 {} 组的多成员选路",
-                    chain.chain.name,
-                    seq + 1
+                    "链「{}」未下发：{}",
+                    chain.chain.name, reason.message
                 ));
                 continue;
             }
@@ -706,6 +702,16 @@ mod tests {
             pierwave_domain::chains::STRATEGY_MIN_PROTOCOL_VERSION,
             i64::from(pierwave_proto::CHAIN_STRATEGY_PROTOCOL_VERSION),
             "主控门禁与线协议的策略常量必须一致"
+        );
+    }
+
+    /// 领域层的 nftables 多目标门禁与线协议常量必须一致。
+    #[test]
+    fn domain_nftables_multi_target_protocol_matches_wire_constant() {
+        assert_eq!(
+            pierwave_domain::chains::NFTABLES_MULTI_TARGET_MIN_PROTOCOL_VERSION,
+            i64::from(pierwave_proto::NFTABLES_MULTI_TARGET_PROTOCOL_VERSION),
+            "主控门禁与线协议的多目标常量必须一致"
         );
     }
 
@@ -1566,6 +1572,147 @@ mod tests {
         assert!(
             listener_json.get("downstream").is_none(),
             "2 跳配置不能出现 downstream 键"
+        );
+    }
+
+    /// nftables 链的多目标：新 Agent 必须收到 2 个 targets + 策略；
+    /// 旧 Agent（协议 28）整链跳过并给 warning，绝不降级成单目标。
+    #[tokio::test]
+    async fn nftables_chain_multi_target_is_delivered_only_to_new_agents() {
+        let (state, server_a) = fixture(false, "", None).await;
+        let (server_b, _) = repo::servers::create(&state.db.pool, "jp-1", "10.0.0.2", "external")
+            .await
+            .unwrap();
+        let (server_c, _) = repo::servers::create(&state.db.pool, "jp-2", "10.0.0.3", "external")
+            .await
+            .unwrap();
+
+        for server in [&server_a, &server_b, &server_c] {
+            repo::servers::update_health(
+                &state.db.pool,
+                &server.id,
+                "0.13.4",
+                &repo::servers::HealthSnapshot {
+                    nftables_available: Some(true),
+                    protocol_version: Some(29),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        let chain = repo::chains::create(
+            &state.db.pool,
+            repo::chains::NewChain {
+                name: "nft 多目标".into(),
+                target_host: "1.1.1.1".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "nftables".into(),
+                protocol: "both".into(),
+                transport: "none".into(),
+                tunnel_security: "tls".into(),
+                groups: vec![
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: None,
+                        public_port: None,
+                        use_internal_address: false,
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: server_a.id.clone(),
+                            listen_port: 9001,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: None,
+                        public_port: None,
+                        use_internal_address: false,
+                        members: vec![
+                            repo::chains::NewChainGroupMember {
+                                server_id: server_b.id.clone(),
+                                listen_port: 9002,
+                                priority: 0,
+                                weight: 1,
+                            },
+                            repo::chains::NewChainGroupMember {
+                                server_id: server_c.id.clone(),
+                                listen_port: 9003,
+                                priority: 1,
+                                weight: 1,
+                            },
+                        ],
+                    },
+                ],
+                proxy_protocol: false,
+            },
+        )
+        .await
+        .unwrap();
+
+        let server_a = repo::servers::find_by_id(&state.db.pool, &server_a.id)
+            .await
+            .unwrap();
+        let rendered = render(&state, &server_a, "https://panel.example.com")
+            .await
+            .unwrap();
+        let entry = rendered
+            .forwards
+            .iter()
+            .find(|forward| {
+                forward.id == pierwave_domain::chains::legacy_forward_id(&chain.chain.id, 0)
+            })
+            .expect("链入口必须在期望态里");
+        assert_eq!(entry.engine, ForwardEngine::Nftables);
+        assert_eq!(entry.strategy, pierwave_proto::ForwardStrategy::RoundRobin);
+        assert_eq!(entry.targets.len(), 2, "多目标必须原样下发，不能只发第一个");
+        assert_eq!(entry.targets[0].host, "10.0.0.2");
+        assert_eq!(entry.targets[1].host, "10.0.0.3");
+        assert_eq!(entry.targets[0].weight, 1);
+
+        // 旧 Agent：整链跳过 + warning，绝不能降级成单目标。
+        repo::servers::update_health(
+            &state.db.pool,
+            &server_c.id,
+            "0.13.4",
+            &repo::servers::HealthSnapshot {
+                nftables_available: Some(true),
+                protocol_version: Some(28),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let server_a = repo::servers::find_by_id(&state.db.pool, &server_a.id)
+            .await
+            .unwrap();
+        let rendered = render(&state, &server_a, "https://panel.example.com")
+            .await
+            .unwrap();
+        assert!(
+            rendered
+                .forwards
+                .iter()
+                .all(|forward| !forward.id.starts_with(&format!(
+                    "{}{}",
+                    pierwave_domain::chains::FORWARD_ID_PREFIX,
+                    chain.chain.id
+                ))),
+            "旧 Agent 不能收到这条链的任何一跳（更不能降级成单目标）：{:?}",
+            rendered.forwards
+        );
+        assert!(
+            rendered
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("nftables 多目标选路")),
+            "{:?}",
+            rendered.warnings
         );
     }
 

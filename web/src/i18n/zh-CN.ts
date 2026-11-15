@@ -2604,7 +2604,9 @@ const zhCN = {
         "这些服务器没有可用的 nftables：{servers}。需要安装 nft 并以 root 运行；能力未知时不能保存 nftables 规则。",
       tunnelNotAvailable:
         "该组服务器暂不支持 tunnel：{servers}。需要升级到带 tunnel 能力的 Agent；能力未知或为 false 时不能保存 tunnel 链。",
-      nftablesSingleOnly: "nftables 引擎下非入口组只能单节点",
+      nftablesStrategyHint:
+        "nftables 多目标由内核 numgen / jhash 选路，只支持轮询、加权、IP 哈希；主备 / 最低延迟 / 最少连接需要用户态探测与连接计数，无法实现。",
+      nftablesStrategyUnsupported: "需要用户态探测，nftables 多目标无法实现",
       groups: "链路节点",
       groupsHint:
         "每一跳可以是单节点（1 台）或分组（1-8 台）；同一台服务器不能在同一条链里重复。中间跳不需要填端口，由系统自动分配。",
@@ -3277,7 +3279,10 @@ const zhCN = {
     "chain.tls_realm_unsupported": "以下服务器的 realm 未启用 transport（需要升级 Agent / 换官方 realm）：{servers}",
     "forward.nftables_unavailable": "服务器「{server_name}」没有可用的 nftables（需要安装 nft 并以 root 运行）",
     "chain.nftables_unavailable": "以下服务器的 nftables 不可用（需要安装 nft 并以 root 运行）：{servers}",
-    "chain.nftables_multi_target": "nftables 引擎暂不支持第 {seq} 组的多成员选路，请改成单成员组",
+    "chain.nftables_strategy_unsupported":
+      "nftables 多目标不支持「{strategy}」选路：{reason}",
+    "chain.nftables_multi_target_requires_agent_upgrade":
+      "nftables 多目标选路需要每台服务器的 Agent 协议版本 ≥ {required}，请先升级：{server}",
     "chain.tunnel_requires_two_hops": "tunnel 引擎只支持 2 跳链（入口 Dialer + 出口 Listener），当前 {hops} 跳",
     "chain.tunnel_single_member": "tunnel 引擎只支持每组 1 台成员（该组有 {members} 台）",
     "chain.tunnel_tcp_only": "tunnel 引擎只支持 TCP（当前 {protocol}）",
@@ -3528,7 +3533,7 @@ const zhCN = {
     chainTlsEntryCertForbidden: "入口组不需要证书",
     chainTlsUdpConflict: "跳间加密需要关闭 UDP 转发",
     chainNftablesMultiMembers:
-      "nftables 引擎暂不支持非入口组的多成员选路，请把该组改成单节点",
+      "nftables 多目标只支持轮询、加权、IP 哈希；主备 / 最低延迟 / 最少连接需要用户态探测，内核 DNAT 无法实现",
     chainTunnelTwoHops: "tunnel 引擎必须正好 2 跳（当前 {count} 跳）",
     chainTunnelSingleMember:
       "tunnel 引擎的每一跳只能有 1 台成员（第 {seq} 跳有 {count} 台）",

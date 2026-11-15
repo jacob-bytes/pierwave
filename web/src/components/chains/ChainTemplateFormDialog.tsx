@@ -28,7 +28,11 @@ import type {
   CreateChainTemplateInput,
   ForwardEngine,
 } from "@/lib/api";
-import { CHAIN_STRATEGIES, type ChainStrategy } from "@/lib/chains";
+import {
+  CHAIN_STRATEGIES,
+  nftablesStrategySupported,
+  type ChainStrategy,
+} from "@/lib/chains";
 import { errorText } from "@/lib/errors";
 import {
   useCreateChainTemplate,
@@ -333,13 +337,31 @@ export function ChainTemplateFormDialog({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {CHAIN_STRATEGIES.map((value) => (
-                        <SelectItem key={value} value={value}>
-                          {t(`chains.strategy.${value}.label`)}
-                        </SelectItem>
-                      ))}
+                      {CHAIN_STRATEGIES.map((value) => {
+                        const unsupported =
+                          engine === "nftables" &&
+                          index >= 1 &&
+                          group.server_ids.length > 1 &&
+                          !nftablesStrategySupported(value);
+                        return (
+                          <SelectItem
+                            key={value}
+                            value={value}
+                            disabled={unsupported}
+                          >
+                            {t(`chains.strategy.${value}.label`)}
+                          </SelectItem>
+                        );
+                      })}
                     </SelectContent>
                   </Select>
+                  {engine === "nftables" &&
+                  index >= 1 &&
+                  group.server_ids.length > 1 ? (
+                    <p className="type-micro leading-normal text-muted-foreground">
+                      {t("chains.form.nftablesStrategyHint")}
+                    </p>
+                  ) : null}
                 </FormField>
 
                 <ServerMultiSelectField

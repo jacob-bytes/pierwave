@@ -1458,27 +1458,27 @@ async fn validate_transport(
 
 /// nftables 链的结构 / 能力门禁（保存与视图共用）。
 ///
-/// * nftables 的 DNAT 只支持单目标；seq >= 1 的多成员组需要选路，当前不下发；
+/// * `seq >= 1` 的多成员组需要选路：只有 `round_robin` / `weighted` /
+///   `ip_hashed` 能由内核 `numgen`/`jhash` 实现；`failover` / `lowest_latency`
+///   / `least_conn` 明确拒绝（`chain.nftables_strategy_unsupported`）；
+/// * 多目标还要求链上每台 Agent 协议版本 >= 29：旧 Agent 只认单目标，
+///   会拒绝多目标并让端口不转发——绝不降级成「只发第一个目标」；
 /// * 链上任意成员服务器没有明确上报 `nftables_available = true` 都拒绝，
 ///   避免旧 Agent 收到不认识的枚举值。
 fn validate_nftables_chain(engine_name: &str, groups: &[ValidatedGroup]) -> AppResult<()> {
     if !engine::is_nftables(engine_name) {
         return Ok(());
     }
-    if let Some((seq, _)) = groups
+    let strategies: Vec<(GroupStrategy, usize)> = groups
         .iter()
-        .enumerate()
-        .find(|(seq, group)| *seq >= 1 && group.members.len() > 1)
-    {
-        return Err(AppError::coded(
-            "chain.nftables_multi_target",
-            Some(json!({ "seq": seq + 1, "count": groups[seq].members.len() })),
-            format!(
-                "nftables 引擎暂不支持第 {} 组的多成员选路，请改成单成员组",
-                seq + 1
-            ),
-        ));
-    }
+        .map(|group| (group.strategy, group.members.len()))
+        .collect();
+    let servers: Vec<(&str, Option<i64>)> = groups
+        .iter()
+        .flat_map(|group| group.members.iter())
+        .map(|member| (member.server_name.as_str(), member.protocol_version))
+        .collect();
+    chains::validate_nftables_multi_target(&strategies, &servers)?;
     let unsupported: Vec<&str> = groups
         .iter()
         .flat_map(|group| group.members.iter())
@@ -4298,12 +4298,16 @@ mod tests {
         assert!(body["items"].as_array().unwrap().is_empty());
     }
 
-    /// nftables 链：能力 + 单成员组两个门禁，成功后视图不带 blocked_reason。
+    /// nftables 链：能力 + 多目标策略矩阵 + Agent >= 29 三道门禁。
+    ///
+    /// 成功后视图不带 blocked_reason；旧 Agent / 不可实现策略都必须明确拒绝，
+    /// 绝不能把多成员组降级成单目标。
     #[tokio::test]
-    async fn nftables_chain_requires_capability_and_single_member_groups() {
+    async fn nftables_chain_requires_capability_strategy_and_new_agents() {
         let fixture = setup().await;
-        set_nftables_capability(&fixture.state, &fixture.a, Some(true)).await;
-        set_nftables_capability(&fixture.state, &fixture.b, Some(true)).await;
+        for server in [&fixture.a, &fixture.b, &fixture.c, &fixture.d] {
+            set_nftables_health(&fixture.state, server, Some(true), Some(29)).await;
+        }
 
         let mut body = groups_body(
             "nft 链",
@@ -4350,7 +4354,7 @@ mod tests {
             .unwrap();
         assert!(item.get("blocked_reason").is_none(), "{item}");
 
-        // 第 2 组多成员：nftables 当前不支持选路。
+        // 第 2 组多成员 round_robin：内核 numgen + vmap 可以实现，保存成功。
         let mut multi = groups_body(
             "nft 多成员",
             "10.0.0.9",
@@ -4377,14 +4381,98 @@ mod tests {
             Some(&fixture.cookie),
             Method::POST,
             "/api/v1/chains",
-            Some(multi),
+            Some(multi.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {response}");
+        assert_eq!(
+            response["chain"]["groups"][1]["strategy"], "round_robin",
+            "多成员组的策略要原样保存"
+        );
+
+        // 旧 Agent（协议 28）不能下发多目标：保存拒绝，列表 blocked，绝不降级。
+        set_nftables_health(&fixture.state, &fixture.c, Some(true), Some(28)).await;
+        let mut old_agent = multi.clone();
+        old_agent["name"] = json!("nft 旧 Agent 多成员");
+        old_agent["groups"][0]["members"][0]["listen_port"] = json!(30031);
+        old_agent["groups"][1]["members"][0]["listen_port"] = json!(30032);
+        old_agent["groups"][1]["members"][1]["listen_port"] = json!(30033);
+        let (status, response) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(old_agent),
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {response}");
-        assert_eq!(response["code"], "chain.nftables_multi_target");
+        assert_eq!(
+            response["code"],
+            "chain.nftables_multi_target_requires_agent_upgrade"
+        );
+        assert!(
+            response["error"].as_str().unwrap().contains("29"),
+            "{response}"
+        );
+
+        let (_, list) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            "/api/v1/chains",
+            None,
+        )
+        .await;
+        let blocked = list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["name"] == "nft 多成员")
+            .unwrap();
+        assert_eq!(
+            blocked["blocked_code"], "chain.nftables_multi_target_requires_agent_upgrade",
+            "{blocked}"
+        );
+
+        // 内核做不到的策略：明确拒绝并给出可读理由，而不是悄悄只发第一个目标。
+        for (index, strategy) in ["failover", "lowest_latency", "least_conn"]
+            .into_iter()
+            .enumerate()
+        {
+            set_nftables_health(&fixture.state, &fixture.c, Some(true), Some(29)).await;
+            let mut unsupported = multi.clone();
+            unsupported["name"] = json!(format!("nft {strategy} 多成员"));
+            unsupported["groups"][1]["strategy"] = json!(strategy);
+            let base = 30041 + index as i64 * 10;
+            unsupported["groups"][0]["members"][0]["listen_port"] = json!(base);
+            unsupported["groups"][1]["members"][0]["listen_port"] = json!(base + 1);
+            unsupported["groups"][1]["members"][1]["listen_port"] = json!(base + 2);
+            let (status, response) = request(
+                &fixture.app,
+                Some(&fixture.cookie),
+                Method::POST,
+                "/api/v1/chains",
+                Some(unsupported),
+            )
+            .await;
+            assert_eq!(
+                status,
+                StatusCode::BAD_REQUEST,
+                "strategy={strategy} unexpected: {response}"
+            );
+            assert_eq!(
+                response["code"], "chain.nftables_strategy_unsupported",
+                "strategy={strategy} unexpected: {response}"
+            );
+            assert_eq!(response["params"]["strategy"], strategy);
+            assert!(
+                response["error"].as_str().unwrap().contains("内核"),
+                "strategy={strategy} error must explain the kernel limitation: {response}"
+            );
+        }
 
         // 能力不满足：已保存的链在视图里给出 blocked_reason；新保存直接拒绝。
-        set_nftables_capability(&fixture.state, &fixture.b, None).await;
+        set_nftables_health(&fixture.state, &fixture.b, None, Some(29)).await;
         let (_, list) = request(
             &fixture.app,
             Some(&fixture.cookie),
@@ -6350,13 +6438,21 @@ mod tests {
         .unwrap()
     }
 
-    async fn set_nftables_capability(state: &AppState, server_id: &str, value: Option<bool>) {
+    /// 同时写 nftables 能力与协议版本：一次心跳就是一个快照，
+    /// 分开写会让后一次把前一次的可选字段覆盖成 NULL。
+    async fn set_nftables_health(
+        state: &AppState,
+        server_id: &str,
+        available: Option<bool>,
+        version: Option<i64>,
+    ) {
         repo::servers::update_health(
             &state.db.pool,
             server_id,
-            "0.8.0",
+            "0.13.4",
             &repo::servers::HealthSnapshot {
-                nftables_available: value,
+                nftables_available: available,
+                protocol_version: version,
                 ..Default::default()
             },
         )

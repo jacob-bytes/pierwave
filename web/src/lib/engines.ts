@@ -12,6 +12,8 @@
 
 import type { ForwardEngine } from "./api.ts";
 
+import { normalizeStrategy, nftablesStrategySupported } from "./chains.ts";
+
 /** 独立转发的引擎白名单；顺序也是表单里的展示顺序。 */
 export const FORWARD_ENGINES = [
   "native",
@@ -527,19 +529,29 @@ export function nftablesMissingOnServer(
 }
 
 /**
- * nftables 链暂不支持「非入口组多成员选路」。
+ * nftables 链里「有多个目标、但所选策略无法由内核实现」的组下标。
  *
- * 返回有问题的组下标（0 起；seq >= 1 且 members > 1），后端写路径同样会拒绝。
- * 入口组可以多成员：它们各自是独立入口，不需要上一跳选路。
+ * 返回有问题的组下标（0 起；seq >= 1、members > 1 且策略不在
+ * round_robin / weighted / ip_hashed 之内），后端写路径同样会拒绝。
+ * 入口组可以多成员：它们各自是独立入口，不需要上一跳选路；单成员组也没有
+ * 选路空间，策略不参与判定。
  */
 export function nftablesMultiMemberGroups(
   engine: unknown,
-  groups: readonly { members: readonly unknown[] }[],
+  groups: readonly {
+    strategy?: string | null;
+    members: readonly unknown[];
+  }[],
 ): number[] {
   if (normalizeEngine(engine) !== "nftables") return [];
   return groups
     .map((group, index) => ({ group, index }))
-    .filter(({ group, index }) => index >= 1 && group.members.length > 1)
+    .filter(
+      ({ group, index }) =>
+        index >= 1 &&
+        group.members.length > 1 &&
+        !nftablesStrategySupported(normalizeStrategy(group.strategy)),
+    )
     .map(({ index }) => index);
 }
 

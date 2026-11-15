@@ -614,13 +614,18 @@ test("nftablesMissingOnServer only applies to the nftables engine", () => {
   );
 });
 
-test("nftablesMultiMemberGroups only flags non-entry groups", () => {
+test("nftablesMultiMemberGroups flags only kernel-unimplementable strategies", () => {
   const groups = [
-    { members: [{}, {}] }, // entry group: allowed
-    { members: [{}] }, // single: fine
-    { members: [{}, {}] }, // non-entry multi: rejected
+    { strategy: "failover", members: [{}, {}] }, // entry group: allowed
+    { strategy: "failover", members: [{}] }, // single: no selection
+    { strategy: "round_robin", members: [{}, {}] }, // supported
+    { strategy: "weighted", members: [{}, {}] }, // supported
+    { strategy: "ip_hashed", members: [{}, {}] }, // supported
+    { strategy: "failover", members: [{}, {}] }, // rejected
+    { strategy: "least_conn", members: [{}, {}] }, // rejected
+    { strategy: "lowest_latency", members: [{}, {}] }, // rejected
   ];
-  assert.deepEqual(nftablesMultiMemberGroups("nftables", groups), [2]);
+  assert.deepEqual(nftablesMultiMemberGroups("nftables", groups), [5, 6, 7]);
   assert.deepEqual(nftablesMultiMemberGroups("native", groups), []);
   assert.deepEqual(nftablesMultiMemberGroups("realm", groups), []);
 });

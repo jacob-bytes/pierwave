@@ -4,21 +4,33 @@
 //! 不经过用户态搬运，也不需要为每条规则开 socket。表名固定为 `inet pierwave`；
 //! 每次 apply 只重建这一张表，绝不触碰系统里的其它 nftables 表。
 //!
-//! 当前只支持单目标（`targets` 为空或只有一个）。多成员组的选路需要
-//! `jhash`/map 语法，留到后续在真实 Linux 上验证后再加；主控写路径已经拒绝
-//! nftables 链的非入口多成员组。
+//! 多目标选路在**一张独立的 vmap** 里完成，规则本身只做端口匹配：
 //!
-//! 能力判定：`nft list tables` 必须成功（二进制存在 + CAP_NET_ADMIN）。
+//! * `round_robin`：`numgen inc mod N vmap { 0 : dnat … }`；
+//! * `weighted`：`numgen random mod Σweight vmap { 0-2 : …, 3-9 : … }`（区间即权重）；
+//! * `ip_hashed`：`jhash ip saddr mod N vmap …`（IPv6 用 `jhash ip6 saddr`）；
+//! * `failover` / `lowest_latency` / `least_conn` 依赖健康探测或连接计数，
+//!   内核 DNAT 没有这些原语，主控保存时就拒绝；Agent 侧仍防御性拒绝，绝不
+//!   静默只发第一个目标。
+//!
+//! nftables 的命名 map 无法用 `numgen` 的整数键（nft 至今没有对应的 key 类型），
+//! 所以这里生成的是匿名 vmap：它是内核里独立的一张 verdict map，但随表一起
+//! 原子重建，语义上仍是「单独一张 map」。不要为了命名 map 去 `meta mark set`，
+//! 那会污染用户自己的策略路由 mark。
+//!
+//! 能力判定：`nft list tables` 必须成功（二进制存在 + CAP_NET_ADMIN），并且
+//! `nft -c` 能解析多目标探针脚本（numgen / vmap / jhash 语法可用）。
 //! 失败时所有 nftables 规则上报 `listening=false`，native / realm 规则不受影响。
 
 use std::collections::{HashMap, HashSet};
+use std::io::Write;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use pierwave_proto::{DesiredForward, ForwardEngine, ForwardStatus};
+use pierwave_proto::{DesiredForward, ForwardEngine, ForwardStatus, ForwardStrategy};
 
 /// 默认的 nft 可执行文件；安装脚本不打包 nft，使用发行版包管理器安装。
 pub const DEFAULT_BIN: &str = "nft";
@@ -32,13 +44,49 @@ pub const SCRIPT_FILE_NAME: &str = "nftables.nft";
 /// 没有可用的 nft / 权限时，每条 nftables 规则的错误原文。
 pub const NOT_AVAILABLE: &str = "nftables 不可用（需要安装 nft 并以 root 运行）";
 
-/// 多目标（组内选路）暂不支持时的错误原文。
-pub const MULTI_TARGET_UNSUPPORTED: &str = "nftables 暂不支持多目标选路";
+/// `nft -c` 语法探针失败时的错误原文：nft 能列表演示但解析不了多目标规则。
+pub const NOT_AVAILABLE_SYNTAX: &str = "nftables 不可用（`nft -c` 语法探测失败：当前 nft/内核不支持 numgen/vmap 多目标选路）；nftables unavailable (`nft -c` probe failed: this nft/kernel cannot parse numgen/vmap multi-target rules)";
+
+/// 多目标但策略无法由内核 DNAT 实现时的错误原文。
+pub const STRATEGY_UNSUPPORTED: &str =
+    "nftables 多目标不支持该选路策略 / nftables multi-target does not support this strategy";
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const ERROR_LIMIT: usize = 500;
 
-/// 心跳可无锁读取的 nftables 规则状态快照。
+/// `nft -c` 探针：只检查语法与内核表达式可用性，不提交任何规则。
+///
+/// 覆盖三种能实现的多目标选路（round_robin / weighted / ip_hashed）以及
+/// IPv4/IPv6 的 family 匹配。表名/链名带 `probe` 前缀，避免与真实表冲突。
+pub const SYNTAX_PROBE: &str = "\
+table inet pierwave_probe {
+    chain probe {
+        type nat hook prerouting priority dstnat; policy accept;
+        fib daddr type local meta nfproto ipv4 tcp dport 1 counter numgen inc mod 2 vmap { 0 : dnat ip to 127.0.0.1:1, 1 : dnat ip to 127.0.0.2:2 }
+        fib daddr type local meta nfproto ipv4 tcp dport 2 counter numgen random mod 3 vmap { 0-1 : dnat ip to 127.0.0.1:1, 2 : dnat ip to 127.0.0.2:2 }
+        fib daddr type local meta nfproto ipv4 tcp dport 3 counter jhash ip saddr mod 2 vmap { 0 : dnat ip to 127.0.0.1:1, 1 : dnat ip to 127.0.0.2:2 }
+        fib daddr type local meta nfproto ipv6 tcp dport 3 counter jhash ip6 saddr mod 2 vmap { 0 : dnat ip6 to [::1]:1, 1 : dnat ip6 to [::2]:2 }
+    }
+}
+";
+
+/// 一个已解析的目标：地址 + 权重（只有 weighted 读取权重）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedEndpoint {
+    pub addr: SocketAddr,
+    pub weight: u32,
+}
+
+impl ResolvedEndpoint {
+    fn new(addr: SocketAddr, weight: u32) -> Self {
+        Self {
+            addr,
+            // 与主控的 1–100 同一口径；历史脏数据也不能让某个成员永远选不中。
+            weight: weight.clamp(1, 100),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct NftablesStatusHandle {
     inner: Arc<Mutex<NftablesStatusState>>,
@@ -174,22 +222,26 @@ impl NftablesSupervisor {
             return;
         }
 
-        if !self.available() {
-            tracing::warn!(
-                bin = %self.bin.display(),
-                "nftables 不可用，nftables 规则保持未监听（native / realm 不受影响）"
-            );
-            self.needs_retry = true;
-            self.status
-                .store(self.inactive_statuses(NOT_AVAILABLE, &self.rules));
-            return;
-        }
+        let Some(reason) = unavailable_reason(&self.bin) else {
+            return self.apply_resolved().await;
+        };
+        tracing::warn!(
+            bin = %self.bin.display(),
+            reason = %reason,
+            "nftables 不可用，nftables 规则保持未监听（native / realm 不受影响）"
+        );
+        self.needs_retry = true;
+        self.status
+            .store(self.inactive_statuses(&reason, &self.rules));
+    }
 
-        let mut resolved: Vec<(DesiredForward, SocketAddr)> = Vec::new();
+    /// 能力探测通过后的实际收敛：解析全部目标、生成脚本、原子重建自有表。
+    async fn apply_resolved(&mut self) {
+        let mut resolved: Vec<(DesiredForward, Vec<ResolvedEndpoint>)> = Vec::new();
         let mut errors: HashMap<String, String> = HashMap::new();
         for rule in &self.rules {
-            match resolve_target(rule).await {
-                Ok(addr) => resolved.push((rule.clone(), addr)),
+            match resolve_targets(rule).await {
+                Ok(targets) => resolved.push((rule.clone(), targets)),
                 Err(error) => {
                     errors.insert(rule.id.clone(), error);
                 }
@@ -292,19 +344,19 @@ impl NftablesSupervisor {
         if self.rules.is_empty() {
             return;
         }
-        if !self.available() {
-            let rules = self.rules.clone();
-            self.status
-                .store(self.inactive_statuses(NOT_AVAILABLE, &rules));
+        if self.available() {
+            if self.needs_retry || !table_exists(&self.bin).await {
+                let rules = self.rules.clone();
+                self.apply(&rules).await;
+            } else {
+                // 表没变也要读一次 counter：流量持续增长，心跳必须看到最新值。
+                self.refresh_traffic().await;
+            }
             return;
         }
-        if self.needs_retry || !table_exists(&self.bin).await {
-            let rules = self.rules.clone();
-            self.apply(&rules).await;
-        } else {
-            // 表没变也要读一次 counter：流量持续增长，心跳必须看到最新值。
-            self.refresh_traffic().await;
-        }
+        let reason = unavailable_reason(&self.bin).unwrap_or_else(|| NOT_AVAILABLE.to_string());
+        let rules = self.rules.clone();
+        self.status.store(self.inactive_statuses(&reason, &rules));
     }
 
     /// 读 `nft -j list table inet pierwave` 的计数器并写回状态句柄。
@@ -388,32 +440,100 @@ impl NftablesSupervisor {
     }
 }
 
-/// `nft` 路径是否可用：必须是可执行文件，且 `nft list tables` 成功。
+/// `nft` 路径是否可用：可执行文件 + `nft list tables` + `nft -c` 语法探针。
 ///
 /// `list tables` 不需要 root 吗？读表本身受 CAP_NET_ADMIN 限制；成功就说明
 /// 进程确实有权限，这比只看文件存在更准确。
+///
+/// 多目标规则依赖 `numgen` / `vmap` / `jhash`：nft 二进制能列表演示不代表
+/// 它能解析这些表达式（或内核不支持）。这里用 `nft -c` 跑一段探针脚本，
+/// 不提交任何规则；失败时整条 nftables 规则上报可读错误，而不是等到 apply
+/// 才炸掉内核对账。
 pub fn is_available(bin: &Path) -> bool {
+    unavailable_reason(bin).is_none()
+}
+
+/// 不可用原因；`None` = 可用。心跳、apply、reconcile 共用同一套判定。
+pub fn unavailable_reason(bin: &Path) -> Option<String> {
     let Ok(metadata) = std::fs::metadata(bin) else {
-        return false;
+        return Some(NOT_AVAILABLE.to_string());
     };
     if !metadata.is_file() {
-        return false;
+        return Some(NOT_AVAILABLE.to_string());
     }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         if metadata.permissions().mode() & 0o111 == 0 {
-            return false;
+            return Some(NOT_AVAILABLE.to_string());
         }
     }
-    std::process::Command::new(bin)
+    let listed = std::process::Command::new(bin)
         .args(["list", "tables"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
         .map(|status| status.success())
-        .unwrap_or(false)
+        .unwrap_or(false);
+    if !listed {
+        return Some(NOT_AVAILABLE.to_string());
+    }
+    if !syntax_available(bin) {
+        return Some(NOT_AVAILABLE_SYNTAX.to_string());
+    }
+    None
+}
+
+/// `nft -c -f -`：只做语义/语法检查，不提交事务。
+///
+/// 探针脚本通过 stdin 传入，不落盘、不依赖 state_dir；超时/启动失败都算不可用。
+fn syntax_available(bin: &Path) -> bool {
+    let mut child = match std::process::Command::new(bin)
+        .args(["-c", "-f", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(_) => return false,
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        if stdin.write_all(SYNTAX_PROBE.as_bytes()).is_err() {
+            let _ = child.wait();
+            return false;
+        }
+    }
+    child.wait().map(|status| status.success()).unwrap_or(false)
+}
+
+/// 这条策略能否由内核 DNAT 实现多目标选路。
+///
+/// `failover` / `lowest_latency` 需要健康探测与故障回切，`least_conn` 需要
+/// 连接计数——这些都在用户态，内核没有对应原语。单目标时策略不影响结果，
+/// 调用方只在 `targets.len() > 1` 时检查。
+pub fn supports_strategy(strategy: ForwardStrategy) -> bool {
+    matches!(
+        strategy,
+        ForwardStrategy::RoundRobin | ForwardStrategy::Weighted | ForwardStrategy::IpHashed
+    )
+}
+
+/// 不支持时的可读原因（保存/下发路径应该更早拒绝；这里是 Agent 的防御）。
+pub fn unsupported_strategy_reason(strategy: ForwardStrategy) -> &'static str {
+    match strategy {
+        ForwardStrategy::Failover => {
+            "nftables 多目标不支持主备（failover）：内核 DNAT 无法探测目标健康并回切 / nftables multi-target does not support failover: kernel DNAT cannot probe target health or fail back"
+        }
+        ForwardStrategy::LowestLatency => {
+            "nftables 多目标不支持最低延迟（lowest_latency）：内核 DNAT 拿不到目标探测延迟 / nftables multi-target does not support lowest-latency: kernel DNAT has no target latency signal"
+        }
+        ForwardStrategy::LeastConn => {
+            "nftables 多目标不支持最少连接（least_conn）：内核没有连接计数原语 / nftables multi-target does not support least-conn: the kernel has no per-target connection counter"
+        }
+        _ => STRATEGY_UNSUPPORTED,
+    }
 }
 
 /// 纯脚本生成：`resolved` 是「规则 + 已解析目标」，顺序由调用方保证。
@@ -421,7 +541,7 @@ pub fn is_available(bin: &Path) -> bool {
 /// 生成的规则同时放进 `prerouting`（外部入站）和 `output`（本机发起）两条链；
 /// 用 `fib daddr type local` 限定目的地址是本机，避免把本机访问外网的普通连接
 /// 也 DNAT 掉。指定了具体 `forward_bind` 时改用 `ip daddr` / `ip6 daddr`。
-pub fn render_script(rules: &[(DesiredForward, SocketAddr)], bind_host: &str) -> String {
+pub fn render_script(rules: &[(DesiredForward, Vec<ResolvedEndpoint>)], bind_host: &str) -> String {
     let mut lines = vec![format!("table inet {TABLE} {{")];
     for (chain, hook, priority) in [
         ("prerouting", "prerouting", "dstnat"),
@@ -431,7 +551,7 @@ pub fn render_script(rules: &[(DesiredForward, SocketAddr)], bind_host: &str) ->
         lines.push(format!(
             "        type nat hook {hook} priority {priority}; policy accept;"
         ));
-        for (rule, target) in rules {
+        for (rule, targets) in rules {
             // 规则自带 listen_host 时只匹配该网卡地址；没有时退回全局 bind_host。
             let bind = rule
                 .listen_host
@@ -441,32 +561,147 @@ pub fn render_script(rules: &[(DesiredForward, SocketAddr)], bind_host: &str) ->
                 .unwrap_or(bind_host)
                 .trim();
             let matcher = daddr_matcher(bind);
-            let dnat = match target.ip() {
-                IpAddr::V4(_) => format!("dnat ip to {}:{}", target.ip(), target.port()),
-                IpAddr::V6(_) => format!("dnat ip6 to [{}]:{}", target.ip(), target.port()),
-            };
             // 读路径以 protocol 为准；旧主控的 udp=true 由 effective_protocol
             // 还原成 both。只生成所选协议的规则：仅 UDP 时不能留下 tcp dnat。
             let protocol = rule.effective_protocol();
-            // `counter` 必须在 dnat 之前：这样每条规则都会累计命中字节，
-            // 心跳用 `nft -j list table` 读回（nft 默认不计数）。
-            if protocol.allows_tcp() {
-                lines.push(format!(
-                    "        {matcher} tcp dport {} counter {dnat}",
-                    rule.listen_port
-                ));
-            }
-            if protocol.allows_udp() {
-                lines.push(format!(
-                    "        {matcher} udp dport {} counter {dnat}",
-                    rule.listen_port
-                ));
+            for action in target_actions(rule.strategy, targets) {
+                // `counter` 必须在选路/dnat 之前：这样每条规则都会累计命中字节，
+                // 心跳用 `nft -j list table` 读回（nft 默认不计数）。
+                let guard = if action.family_guard.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {}", action.family_guard)
+                };
+                if protocol.allows_tcp() {
+                    lines.push(format!(
+                        "        {matcher}{guard} tcp dport {} counter {}",
+                        rule.listen_port, action.action
+                    ));
+                }
+                if protocol.allows_udp() {
+                    lines.push(format!(
+                        "        {matcher}{guard} udp dport {} counter {}",
+                        rule.listen_port, action.action
+                    ));
+                }
             }
         }
         lines.push("    }".to_string());
     }
     lines.push("}".to_string());
     lines.join("\n") + "\n"
+}
+
+/// 一条规则在某一协议上要生成的 (family 守卫, 动作)。
+struct TargetAction {
+    /// 空串 = 不守卫；否则形如 `meta nfproto ipv4`。
+    family_guard: String,
+    /// `dnat ip to …` 或 `numgen … vmap { … }`。
+    action: String,
+}
+
+/// 把已解析目标变成 nft 动作。
+///
+/// * 单目标：保持旧版 `dnat …` 一行，不引入 vmap；
+/// * 多目标：按地址族拆开（v4 / v6），各自生成一个 vmap；即使只有一种族也
+///   加 `meta nfproto` 守卫，避免 v6 客户端被 DNAT 到 v4 目标；
+/// * round_robin / weighted / ip_hashed 是三套选择器，互不复用。
+fn target_actions(strategy: ForwardStrategy, targets: &[ResolvedEndpoint]) -> Vec<TargetAction> {
+    // 防御性去重：同名成员 / 同一域名解析到同一地址时，vmap 的重复键会让
+    // nft 直接报错。正常路径已在 resolve_targets 去重。
+    let mut unique: Vec<&ResolvedEndpoint> = Vec::with_capacity(targets.len());
+    for target in targets {
+        if !unique.iter().any(|existing| existing.addr == target.addr) {
+            unique.push(target);
+        }
+    }
+    if unique.len() <= 1 {
+        return unique
+            .iter()
+            .map(|target| TargetAction {
+                family_guard: String::new(),
+                action: render_dnat(target),
+            })
+            .collect();
+    }
+
+    let mut v4: Vec<&ResolvedEndpoint> = Vec::new();
+    let mut v6: Vec<&ResolvedEndpoint> = Vec::new();
+    for target in unique {
+        match target.addr.ip() {
+            IpAddr::V4(_) => v4.push(target),
+            IpAddr::V6(_) => v6.push(target),
+        }
+    }
+
+    let mut actions = Vec::with_capacity(2);
+    if !v4.is_empty() {
+        actions.push(TargetAction {
+            family_guard: "meta nfproto ipv4".to_string(),
+            action: render_selector(strategy, &v4, false),
+        });
+    }
+    if !v6.is_empty() {
+        actions.push(TargetAction {
+            family_guard: "meta nfproto ipv6".to_string(),
+            action: render_selector(strategy, &v6, true),
+        });
+    }
+    actions
+}
+
+/// 生成选择器：round_robin / weighted 用 numgen，ip_hashed 用 jhash。
+fn render_selector(strategy: ForwardStrategy, targets: &[&ResolvedEndpoint], ipv6: bool) -> String {
+    match strategy {
+        ForwardStrategy::IpHashed => {
+            let key = if ipv6 { "ip6 saddr" } else { "ip saddr" };
+            let entries = targets
+                .iter()
+                .enumerate()
+                .map(|(index, target)| format!("{index} : {}", render_dnat(target)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("jhash {key} mod {} vmap {{ {entries} }}", targets.len())
+        }
+        ForwardStrategy::Weighted => {
+            let total: u32 = targets.iter().map(|target| target.weight).sum();
+            let mut next = 0u32;
+            let entries = targets
+                .iter()
+                .map(|target| {
+                    let start = next;
+                    next += target.weight;
+                    let end = next - 1;
+                    let key = if start == end {
+                        start.to_string()
+                    } else {
+                        format!("{start}-{end}")
+                    };
+                    format!("{key} : {}", render_dnat(target))
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("numgen random mod {total} vmap {{ {entries} }}")
+        }
+        // 其余多目标策略在保存/下发路径已经拒绝；这里退回轮询是最安全的可实现
+        // 语义，但**绝不**只发第一个目标。
+        _ => {
+            let entries = targets
+                .iter()
+                .enumerate()
+                .map(|(index, target)| format!("{index} : {}", render_dnat(target)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("numgen inc mod {} vmap {{ {entries} }}", targets.len())
+        }
+    }
+}
+
+fn render_dnat(target: &ResolvedEndpoint) -> String {
+    match target.addr.ip() {
+        IpAddr::V4(_) => format!("dnat ip to {}:{}", target.addr.ip(), target.addr.port()),
+        IpAddr::V6(_) => format!("dnat ip6 to [{}]:{}", target.addr.ip(), target.addr.port()),
+    }
 }
 
 /// 监听地址 → nft `daddr` 匹配串。未指定 / `0.0.0.0` 时匹配「本机地址」。
@@ -478,28 +713,53 @@ fn daddr_matcher(bind: &str) -> String {
     }
 }
 
-/// 解析一条规则的唯一目标。
+/// 解析一条规则的全部目标；域名在 apply 时解析（与旧单目标行为一致）。
 ///
-/// 单成员组 / 独立转发走 `target_host:target_port`；主控已经拒绝 nftables 的
-/// 多成员组，这里防御一次，避免生成「只选第一个成员」的静默错误。
-pub async fn resolve_target(rule: &DesiredForward) -> Result<SocketAddr, String> {
-    if rule.targets.len() > 1 {
-        return Err(MULTI_TARGET_UNSUPPORTED.to_string());
+/// 顺序由主控保证（priority 升序），这里保持输入顺序。同一地址只保留一次，
+/// 避免 vmap 出现重复键；只留第一个权重。任一名成员解析失败都让整条规则失败：
+/// 静默少发一个目标会改变流量分配，且用户看不出「目标池少了一台」。
+pub async fn resolve_targets(rule: &DesiredForward) -> Result<Vec<ResolvedEndpoint>, String> {
+    let multi = rule.targets.len() > 1;
+    if multi && !supports_strategy(rule.strategy) {
+        return Err(unsupported_strategy_reason(rule.strategy).to_string());
     }
-    let (host, port) = match rule.targets.first() {
-        Some(target) => (target.host.as_str(), target.port),
-        None => (rule.target_host.as_str(), rule.target_port),
+    let entries: Vec<(&str, i64, u32)> = if rule.targets.is_empty() {
+        vec![(rule.target_host.as_str(), rule.target_port, 1)]
+    } else {
+        rule.targets
+            .iter()
+            .map(|target| (target.host.as_str(), target.port, target.weight))
+            .collect()
     };
-    let port = u16::try_from(port).map_err(|_| format!("目标端口不合法：{port}"))?;
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        return Ok(SocketAddr::new(ip, port));
+    if entries.is_empty() {
+        return Err(format!(
+            "规则 {} 没有目标地址（targets 为空且兼容字段为空）",
+            rule.id
+        ));
     }
-    let mut resolved = tokio::net::lookup_host((host, port))
-        .await
-        .map_err(|error| format!("解析目标 {host}:{port} 失败：{error}"))?;
-    resolved
-        .next()
-        .ok_or_else(|| format!("目标 {host}:{port} 没有解析结果"))
+
+    let mut resolved: Vec<ResolvedEndpoint> = Vec::with_capacity(entries.len());
+    for (host, port, weight) in entries {
+        let port = u16::try_from(port).map_err(|_| format!("目标端口不合法：{port}"))?;
+        let addr = if let Ok(ip) = host.parse::<IpAddr>() {
+            SocketAddr::new(ip, port)
+        } else {
+            let mut addrs = tokio::net::lookup_host((host, port))
+                .await
+                .map_err(|error| format!("解析目标 {host}:{port} 失败：{error}"))?;
+            addrs
+                .next()
+                .ok_or_else(|| format!("目标 {host}:{port} 没有解析结果"))?
+        };
+        if resolved.iter().any(|existing| existing.addr == addr) {
+            continue;
+        }
+        resolved.push(ResolvedEndpoint::new(addr, weight));
+    }
+    if resolved.is_empty() {
+        return Err(format!("规则 {} 没有可用的目标地址", rule.id));
+    }
+    Ok(resolved)
 }
 
 async fn run_nft(bin: &Path, args: &[&str]) -> Result<(), String> {
@@ -526,11 +786,27 @@ async fn run_nft_capture(bin: &Path, args: &[&str]) -> Result<String, String> {
     Err(format!("nft {} 失败：{text}", args.join(" ")))
 }
 
+/// 规则表达式里是否真的包含 dnat。
+///
+/// 单目标规则是顶层 `{"dnat": …}`；多目标规则把它藏在
+/// `vmap.data.set[*][1]` 的 verdict 里，所以必须递归找，不能只看第一层。
+/// 只用于识别「这条规则是 DNAT」，不解析目标本身。
+fn contains_dnat(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Object(map) => {
+            map.contains_key("dnat") || map.values().any(contains_dnat)
+        }
+        serde_json::Value::Array(items) => items.iter().any(contains_dnat),
+        _ => false,
+    }
+}
+
 /// 解析 `nft -j list table inet pierwave` 里每条 dnat 规则的 counter。
 ///
 /// 返回 `(listen_port, "tcp"/"udp") -> bytes`，同一端口的两条链
 /// （prerouting / output）与同一协议的多条规则累加。只统计同时带
-/// `dnat` 与 `counter` 的规则；其它规则（用户手改的表等）一律忽略。
+/// `dnat`（含 vmap 里的 dnat verdict）与 `counter` 的规则；其它规则
+/// （用户手改的表等）一律忽略。
 pub fn parse_counters(raw: &str) -> Result<HashMap<(i64, String), u64>, String> {
     let value: serde_json::Value =
         serde_json::from_str(raw).map_err(|error| format!("nft JSON 解析失败：{error}"))?;
@@ -547,7 +823,7 @@ pub fn parse_counters(raw: &str) -> Result<HashMap<(i64, String), u64>, String> 
         else {
             continue;
         };
-        if !exprs.iter().any(|expr| expr.get("dnat").is_some()) {
+        if !exprs.iter().any(contains_dnat) {
             continue;
         }
         let mut protocol: Option<String> = None;
@@ -626,13 +902,31 @@ mod tests {
         }
     }
 
+    fn ep(addr: &str) -> ResolvedEndpoint {
+        ResolvedEndpoint::new(addr.parse().unwrap(), 1)
+    }
+
+    fn multi_targets() -> Vec<ForwardTarget> {
+        vec![
+            ForwardTarget {
+                host: "1.1.1.1".into(),
+                port: 80,
+                server_id: "a".into(),
+                weight: 1,
+            },
+            ForwardTarget {
+                host: "2.2.2.2".into(),
+                port: 8080,
+                server_id: "b".into(),
+                weight: 1,
+            },
+        ]
+    }
+
     #[test]
     fn renders_ipv4_rules_for_both_chains_and_protocols() {
         let script = render_script(
-            &[(
-                rule("f1", 8080, "1.2.3.4", 80),
-                "1.2.3.4:80".parse().unwrap(),
-            )],
+            &[(rule("f1", 8080, "1.2.3.4", 80), vec![ep("1.2.3.4:80")])],
             "0.0.0.0",
         );
         assert!(script.contains("table inet pierwave {"), "{script}");
@@ -658,7 +952,7 @@ mod tests {
         let script = render_script(
             &[(
                 rule("f1", 8443, "2001:db8::1", 443),
-                "[2001:db8::1]:443".parse().unwrap(),
+                vec![ep("[2001:db8::1]:443")],
             )],
             "10.0.0.5",
         );
@@ -676,7 +970,7 @@ mod tests {
         let mut spec = rule("f1", 8080, "1.2.3.4", 80);
         spec.protocol = pierwave_proto::ForwardProtocol::Tcp;
         spec.udp = false;
-        let script = render_script(&[(spec, "1.2.3.4:80".parse().unwrap())], "0.0.0.0");
+        let script = render_script(&[(spec, vec![ep("1.2.3.4:80")])], "0.0.0.0");
         assert!(script.contains("tcp dport 8080"));
         assert!(!script.contains("udp dport 8080"), "{script}");
     }
@@ -686,7 +980,7 @@ mod tests {
         let mut spec = rule("f1", 8080, "1.2.3.4", 80);
         spec.protocol = pierwave_proto::ForwardProtocol::Udp;
         spec.udp = false;
-        let script = render_script(&[(spec, "1.2.3.4:80".parse().unwrap())], "0.0.0.0");
+        let script = render_script(&[(spec, vec![ep("1.2.3.4:80")])], "0.0.0.0");
         assert!(
             script.contains("udp dport 8080 counter dnat ip to 1.2.3.4:80"),
             "{script}"
@@ -702,7 +996,7 @@ mod tests {
         let mut spec = rule("f1", 8080, "1.2.3.4", 80);
         spec.protocol = pierwave_proto::ForwardProtocol::Both;
         spec.udp = true;
-        let script = render_script(&[(spec, "1.2.3.4:80".parse().unwrap())], "0.0.0.0");
+        let script = render_script(&[(spec, vec![ep("1.2.3.4:80")])], "0.0.0.0");
         for protocol in ["tcp", "udp"] {
             assert_eq!(
                 script.matches(&format!("{protocol} dport 8080")).count(),
@@ -710,6 +1004,133 @@ mod tests {
                 "prerouting 与 output 各一条 {protocol}：{script}"
             );
         }
+    }
+
+    /// golden：2 目标 round_robin 生成 `numgen inc mod 2 vmap`，两条链 × 两种协议。
+    #[test]
+    fn renders_round_robin_vmap_for_two_targets() {
+        let script = render_script(
+            &[(
+                rule("f1", 8080, "1.2.3.4", 80),
+                vec![ep("1.1.1.1:80"), ep("2.2.2.2:8080")],
+            )],
+            "0.0.0.0",
+        );
+        let expected = "\
+table inet pierwave {
+    chain prerouting {
+        type nat hook prerouting priority dstnat; policy accept;
+        fib daddr type local meta nfproto ipv4 tcp dport 8080 counter numgen inc mod 2 vmap { 0 : dnat ip to 1.1.1.1:80, 1 : dnat ip to 2.2.2.2:8080 }
+        fib daddr type local meta nfproto ipv4 udp dport 8080 counter numgen inc mod 2 vmap { 0 : dnat ip to 1.1.1.1:80, 1 : dnat ip to 2.2.2.2:8080 }
+    }
+    chain output {
+        type nat hook output priority -100; policy accept;
+        fib daddr type local meta nfproto ipv4 tcp dport 8080 counter numgen inc mod 2 vmap { 0 : dnat ip to 1.1.1.1:80, 1 : dnat ip to 2.2.2.2:8080 }
+        fib daddr type local meta nfproto ipv4 udp dport 8080 counter numgen inc mod 2 vmap { 0 : dnat ip to 1.1.1.1:80, 1 : dnat ip to 2.2.2.2:8080 }
+    }
+}
+";
+        assert_eq!(script, expected);
+    }
+
+    #[test]
+    fn renders_three_targets_and_mixed_tcp_udp_ports() {
+        let mut tcp = rule("tcp", 8080, "1.1.1.1", 80);
+        tcp.protocol = pierwave_proto::ForwardProtocol::Tcp;
+        tcp.udp = false;
+        let mut udp = rule("udp", 9090, "1.1.1.1", 80);
+        udp.protocol = pierwave_proto::ForwardProtocol::Udp;
+        udp.udp = false;
+        let targets = vec![ep("1.1.1.1:80"), ep("2.2.2.2:81"), ep("3.3.3.3:82")];
+        let script = render_script(&[(tcp, targets.clone()), (udp, targets)], "0.0.0.0");
+        assert_eq!(
+            script.matches("numgen inc mod 3 vmap").count(),
+            4,
+            "TCP + UDP × 两条链：{script}"
+        );
+        assert!(script.contains("0 : dnat ip to 1.1.1.1:80"));
+        assert!(script.contains("1 : dnat ip to 2.2.2.2:81"));
+        assert!(script.contains("2 : dnat ip to 3.3.3.3:82"));
+        assert_eq!(script.matches("tcp dport 8080").count(), 2);
+        assert_eq!(script.matches("udp dport 9090").count(), 2);
+        assert!(
+            !script.contains("udp dport 8080") && !script.contains("tcp dport 9090"),
+            "混合协议不能串台：{script}"
+        );
+    }
+
+    #[test]
+    fn renders_weighted_ranges_from_member_weights() {
+        let targets = vec![
+            ResolvedEndpoint::new("1.1.1.1:80".parse().unwrap(), 3),
+            ResolvedEndpoint::new("2.2.2.2:80".parse().unwrap(), 7),
+        ];
+        let script = render_script(
+            &[(
+                {
+                    let mut spec = rule("f1", 8080, "1.1.1.1", 80);
+                    spec.strategy = ForwardStrategy::Weighted;
+                    spec
+                },
+                targets,
+            )],
+            "0.0.0.0",
+        );
+        assert!(
+            script.contains(
+                "numgen random mod 10 vmap { 0-2 : dnat ip to 1.1.1.1:80, 3-9 : dnat ip to 2.2.2.2:80 }"
+            ),
+            "{script}"
+        );
+    }
+
+    #[test]
+    fn renders_ip_hashed_with_family_guards() {
+        let targets = vec![ep("1.1.1.1:80"), ep("[2001:db8::1]:80")];
+        let script = render_script(
+            &[(
+                {
+                    let mut spec = rule("f1", 8080, "1.1.1.1", 80);
+                    spec.strategy = ForwardStrategy::IpHashed;
+                    spec
+                },
+                targets,
+            )],
+            "0.0.0.0",
+        );
+        assert!(
+            script.contains(
+                "meta nfproto ipv4 tcp dport 8080 counter jhash ip saddr mod 1 vmap { 0 : dnat ip to 1.1.1.1:80 }"
+            ),
+            "{script}"
+        );
+        assert!(
+            script.contains(
+                "meta nfproto ipv6 tcp dport 8080 counter jhash ip6 saddr mod 1 vmap { 0 : dnat ip6 to [2001:db8::1]:80 }"
+            ),
+            "{script}"
+        );
+        assert!(
+            !script.contains("jhash ip saddr mod 2"),
+            "v4 / v6 目标要分别取模，不能把不同地址族混进同一张 vmap：{script}"
+        );
+    }
+
+    /// 同一地址出现两次（成员填了相同 IP）只保留一个 vmap 键，避免 nft 报重复。
+    #[test]
+    fn deduplicates_identical_endpoints() {
+        let script = render_script(
+            &[(
+                rule("f1", 8080, "1.2.3.4", 80),
+                vec![ep("1.1.1.1:80"), ep("1.1.1.1:80")],
+            )],
+            "0.0.0.0",
+        );
+        assert!(
+            script.contains("counter dnat ip to 1.1.1.1:80"),
+            "去重后退化成单目标：{script}"
+        );
+        assert!(!script.contains("vmap"), "{script}");
     }
 
     /// nft -j 的真实形状：每个 rule 的 expr 里含 match(payload dport) +
@@ -750,6 +1171,37 @@ mod tests {
         );
     }
 
+    /// 多目标规则的 dnat 藏在 vmap 的 verdict 里，计数器仍必须命中；
+    /// 否则 nftables 链切到多目标后流量面板会突然全空。
+    #[test]
+    fn parses_counters_for_vmap_dnat_rules() {
+        let raw = r#"{"nftables":[
+            {"rule":{"family":"inet","table":"pierwave","chain":"prerouting","expr":[
+                {"match":{"op":"==","left":{"payload":{"protocol":"tcp","field":"dport"}},"right":8080}},
+                {"counter":{"packets":4,"bytes":4000}},
+                {"vmap":{"key":{"numgen":{"mod":2,"type":"inc"}},"data":{"set":[
+                    [0,{"dnat":{"addr":"1.1.1.1","port":80}}],
+                    [1,{"dnat":{"addr":"2.2.2.2","port":8080}}]
+                ]}}}
+            ]}},
+            {"rule":{"family":"inet","table":"pierwave","chain":"prerouting","expr":[
+                {"match":{"op":"==","left":{"payload":{"protocol":"tcp","field":"dport"}},"right":9090}},
+                {"counter":{"packets":4,"bytes":4000}},
+                {"vmap":{"key":{"numgen":{"mod":2,"type":"inc"}},"data":{"set":[
+                    [0,{"accept":null}],
+                    [1,{"accept":null}]
+                ]}}}
+            ]}}
+        ]}"#;
+        let counters = parse_counters(raw).unwrap();
+        assert_eq!(counters.get(&(8080, "tcp".to_string())), Some(&4000));
+        assert_eq!(
+            counters.get(&(9090, "tcp".to_string())),
+            None,
+            "vmap 里没有 dnat 的规则不是转发流量"
+        );
+    }
+
     #[test]
     fn rejects_malformed_counter_json_instead_of_panicking() {
         assert!(parse_counters("not json").is_err());
@@ -758,33 +1210,62 @@ mod tests {
 
     #[tokio::test]
     async fn resolves_ip_literals_without_dns() {
-        let addr = resolve_target(&rule("f1", 8080, "1.2.3.4", 80))
+        let targets = resolve_targets(&rule("f1", 8080, "1.2.3.4", 80))
             .await
             .unwrap();
-        assert_eq!(addr, "1.2.3.4:80".parse().unwrap());
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].addr, "1.2.3.4:80".parse().unwrap());
     }
 
     #[tokio::test]
-    async fn rejects_multi_target_rules() {
+    async fn resolves_every_target_in_order() {
         let mut spec = rule("f1", 8080, "1.2.3.4", 80);
-        spec.targets = vec![
-            ForwardTarget {
-                host: "1.1.1.1".into(),
-                port: 80,
-                server_id: "a".into(),
-                weight: 1,
-            },
-            ForwardTarget {
-                host: "2.2.2.2".into(),
-                port: 80,
-                server_id: "b".into(),
-                weight: 1,
-            },
-        ];
+        spec.targets = multi_targets();
+        let targets = resolve_targets(&spec).await.unwrap();
         assert_eq!(
-            resolve_target(&spec).await.unwrap_err(),
-            MULTI_TARGET_UNSUPPORTED
+            targets.iter().map(|t| t.addr).collect::<Vec<_>>(),
+            vec![
+                "1.1.1.1:80".parse().unwrap(),
+                "2.2.2.2:8080".parse().unwrap()
+            ]
         );
+    }
+
+    #[tokio::test]
+    async fn rejects_unimplementable_multi_target_strategies() {
+        for strategy in [
+            ForwardStrategy::Failover,
+            ForwardStrategy::LowestLatency,
+            ForwardStrategy::LeastConn,
+        ] {
+            let mut spec = rule("f1", 8080, "1.2.3.4", 80);
+            spec.targets = multi_targets();
+            spec.strategy = strategy;
+            let error = resolve_targets(&spec).await.unwrap_err();
+            assert!(
+                error.contains(&format!("{strategy:?}").to_lowercase()) || error.contains("多目标"),
+                "strategy={strategy:?} error={error}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn single_target_keeps_working_for_every_strategy() {
+        for strategy in [
+            ForwardStrategy::RoundRobin,
+            ForwardStrategy::Failover,
+            ForwardStrategy::LowestLatency,
+            ForwardStrategy::IpHashed,
+            ForwardStrategy::Weighted,
+            ForwardStrategy::LeastConn,
+        ] {
+            let mut spec = rule("f1", 8080, "1.2.3.4", 80);
+            spec.strategy = strategy;
+            assert!(
+                resolve_targets(&spec).await.is_ok(),
+                "单目标没有选路空间，不能被策略门禁挡住：{strategy:?}"
+            );
+        }
     }
 
     struct TempDir(PathBuf);
@@ -831,6 +1312,73 @@ mod tests {
         assert_eq!(status[0].target_ok, None, "内核转发无法做目标探测");
         let script = std::fs::read_to_string(dir.path().join(SCRIPT_FILE_NAME)).unwrap();
         assert!(script.contains("table inet pierwave"), "{script}");
+    }
+
+    /// `nft -c` 语法探测失败（nft 太旧 / 内核不支持 numgen/vmap）时必须给出
+    /// 可读错误并保持未监听，不能 panic，也不能误报 listening=true。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn syntax_probe_failure_reports_readable_error() {
+        let dir = TempDir::new();
+        let bin = fake_nft(
+            dir.path(),
+            r#"if [ "$1" = "-c" ]; then
+  echo "Error: syntax error, unexpected vmap" >&2
+  exit 1
+fi
+exit 0"#,
+        );
+        let mut supervisor = NftablesSupervisor::new(bin, dir.path(), "0.0.0.0");
+        assert!(!supervisor.available(), "nft -c 失败时能力必须是不可用");
+        supervisor.apply(&[rule("f1", 8080, "1.2.3.4", 80)]).await;
+        let status = supervisor.status_handle().snapshot();
+        assert_eq!(status.len(), 1);
+        assert!(!status[0].listening);
+        assert!(
+            status[0].error.contains("nft -c") && status[0].error.contains("numgen/vmap"),
+            "错误必须说明是语法探测失败：{}",
+            status[0].error
+        );
+    }
+
+    /// 多目标规则真正落盘：2 个目标必须出现在 vmap 里，而不是只取第一个。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn applies_multi_target_vmap_to_the_state_file() {
+        let dir = TempDir::new();
+        let bin = fake_nft(dir.path(), "exit 0");
+        let mut supervisor = NftablesSupervisor::new(bin, dir.path(), "0.0.0.0");
+        let mut spec = rule("f1", 8080, "1.1.1.1", 80);
+        spec.targets = multi_targets();
+        supervisor.apply(&[spec]).await;
+        assert!(supervisor.status_handle().snapshot()[0].listening);
+        let script = std::fs::read_to_string(dir.path().join(SCRIPT_FILE_NAME)).unwrap();
+        assert!(
+            script.contains(
+                "numgen inc mod 2 vmap { 0 : dnat ip to 1.1.1.1:80, 1 : dnat ip to 2.2.2.2:8080 }"
+            ),
+            "{script}"
+        );
+    }
+
+    /// nft -c 探针必须通过 stdin 收到合法脚本（而不是空文件），否则老 nft
+    /// 的空 stdin 会直接成功，探测就形同虚设。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn syntax_probe_feeds_the_script_to_stdin() {
+        let dir = TempDir::new();
+        let log = dir.path().join("stdin");
+        let bin = fake_nft(
+            dir.path(),
+            &format!(
+                "if [ \"$1\" = \"-c\" ]; then cat > {}; fi\nexit 0",
+                log.display()
+            ),
+        );
+        assert!(is_available(&bin));
+        let probe = std::fs::read_to_string(log).unwrap();
+        assert!(probe.contains("numgen inc mod 2 vmap"), "{probe}");
+        assert!(probe.contains("jhash ip saddr mod 2"), "{probe}");
     }
 
     /// 表里的 counter 必须按 (端口, 协议) 汇总到对应规则：both 规则取
@@ -911,7 +1459,7 @@ exit 0"#,
     fn per_rule_listen_host_selects_that_daddr() {
         let mut spec = rule("f1", 8080, "1.2.3.4", 80);
         spec.listen_host = Some("10.0.0.2".into());
-        let script = render_script(&[(spec, "1.2.3.4:80".parse().unwrap())], "0.0.0.0");
+        let script = render_script(&[(spec, vec![ep("1.2.3.4:80")])], "0.0.0.0");
         assert!(
             script.contains("ip daddr 10.0.0.2 tcp dport 8080"),
             "{script}"

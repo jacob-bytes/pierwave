@@ -215,10 +215,25 @@ MeowX 客户端、许可证体系。
   避免旧 Agent 收到不认识的枚举值。
 - 优雅退出（SIGTERM / SIGINT）删除自有表；被 SIGKILL 时表会残留，
   下次 Agent 启动/apply 会重建，卸载时仍建议手动 `nft delete table inet pierwave`。
-- 链限制：nftables 暂不支持非入口组的多成员选路，保存时返回
-  `chain.nftables_multi_target`；入口组可以多成员（各自是独立入口）。
+- 多目标选路（协议 29 起）：同一入口端口按策略把新连接分配到多个目标，
+  规则里只出现一张 vmap，目标池随表一起原子重建：
+  | 策略 | nftables 多目标 | 实现 / 拒绝理由 |
+  |---|---|---|
+  | `round_robin` | ✅ | `numgen inc mod N vmap` |
+  | `weighted` | ✅ | `numgen random mod Σweight vmap`，区间即权重 |
+  | `ip_hashed` | ✅ | `jhash ip saddr`（IPv6 用 `jhash ip6 saddr`） |
+  | `failover` | ❌ | 需要健康探测与故障回切，内核 DNAT 没有该原语 |
+  | `lowest_latency` | ❌ | 需要逐目标延迟探测，内核拿不到该信号 |
+  | `least_conn` | ❌ | 需要每目标连接计数，内核没有连接计数原语 |
+  不可实现的策略在保存时返回 `chain.nftables_strategy_unsupported`；
+  旧 Agent（协议 < 29）保存时返回
+  `chain.nftables_multi_target_requires_agent_upgrade`，下发时整链 blocked，
+  **绝不降级成单目标**。
+- 能力探测：`nft list tables` 之外再用 `nft -c -f -` 跑一段
+  `numgen`/`vmap`/`jhash` 探针；语法不可用时把可读原因写进规则状态，
+  而不是等到 apply 崩溃。入口组可以多成员（各自是独立入口）。
 
-**仍需补**：多目标 `jhash`/map 选路、Linux 上真实 `nft -c`/端到端回归、
+**仍需补**：Linux 上真实 `nft -c`/端到端回归（CI 需要 sudo）、
 内核 counters 的可观测性。
 
 ### 为什么值得做
@@ -236,7 +251,7 @@ MeowX 客户端、许可证体系。
 - 独立表：`nft add table inet pierwave`，所有规则只在这个表里增删；
   **绝不动系统其它表**，删除只 `delete table inet pierwave`；
 - 规则：`prerouting`（外部入站）与 `output`（本机发起）两条链，`dnat to <target>`；
-- 多目标：`numgen` / `jhash` 做源地址哈希（**待实现**；当前单目标）；
+- 多目标：`numgen`（轮询/加权）+ `jhash`（源地址哈希）生成 vmap（协议 29 起）；
 - TCP + UDP 天然都支持，没有"两种协议两套实现"的问题；
 - 需要 root / `CAP_NET_ADMIN`；没有权限时该引擎规则报「引擎不可用」而不是静默失败。
 
@@ -259,12 +274,17 @@ MeowX 客户端、许可证体系。
 **English summary.** The nftables MVP uses a dedicated `inet pierwave` table with
 `prerouting` and `output` NAT chains, rebuilds only its own table on every apply, and supports
 single-target TCP/UDP rules (hostnames resolved at apply time). The Agent reports
-`nftables_available` only when `nft list tables` succeeds; the master refuses to save or deliver
-nftables rules to older/unknown agents. Target probing is not possible (`target_ok` is null), and
-multi-member selection outside the entry group is rejected for now (`chain.nftables_multi_target`).
-Graceful shutdown deletes the table; a SIGKILL leaves it behind until the next apply. Remaining:
-`jhash`/map multi-target selection, real Linux `nft -c` and end-to-end verification, and kernel
-counter observability.
+`nftables_available` only when `nft list tables` succeeds **and** an `nft -c` probe can parse
+`numgen`/`vmap`/`jhash`; the master refuses to save or deliver nftables rules to older/unknown
+agents. Multi-target selection (protocol 29) uses a generated vmap: `round_robin` via
+`numgen inc`, `weighted` via `numgen random` with weight ranges, and `ip_hashed` via
+`jhash ip saddr` (IPv6 uses `jhash ip6 saddr`). `failover`, `lowest_latency` and `least_conn`
+are rejected at save time (`chain.nftables_strategy_unsupported`) because kernel DNAT has no
+health probes or connection counters; older agents are rejected with
+`chain.nftables_multi_target_requires_agent_upgrade` instead of silently falling back to a
+single target. Target probing is still not possible (`target_ok` is null). Graceful shutdown
+deletes the table; a SIGKILL leaves it behind until the next apply. Remaining: real Linux
+`nft -c` and end-to-end verification, and kernel counter observability.
 
 ## 待办：尚未实现但已评估的功能（2026-11 对照盘点）
 

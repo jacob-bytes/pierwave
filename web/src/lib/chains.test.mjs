@@ -24,6 +24,7 @@ import {
   hopListeningState,
   hopTargetState,
   isChainStrategy,
+  nftablesStrategySupported,
   normalizeStrategy,
   normalizeWeight,
   orderGroups,
@@ -402,4 +403,16 @@ test("groupKind treats one unnamed default-strategy member as a single node", ()
   assert.equal(groupKind({ strategy: "failover", members: [member] }), "group");
   assert.equal(groupKind({ members: [member, { ...member, server_id: "b" }] }), "group");
   assert.equal(groupKind({ members: [] }), "group");
+});
+
+test("nftablesStrategySupported mirrors the kernel-supported strategies", () => {
+  for (const supported of ["round_robin", "weighted", "ip_hashed"]) {
+    assert.equal(nftablesStrategySupported(supported), true, supported);
+  }
+  for (const unsupported of ["failover", "lowest_latency", "least_conn"]) {
+    assert.equal(nftablesStrategySupported(unsupported), false, unsupported);
+  }
+  // 未知值按默认轮询处理，与 normalizeStrategy 的回落一致。
+  assert.equal(nftablesStrategySupported("garbage"), true);
+  assert.equal(nftablesStrategySupported(undefined), true);
 });

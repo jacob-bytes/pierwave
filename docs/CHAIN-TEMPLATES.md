@@ -17,7 +17,7 @@
 - 引擎 / 安全模式 / 协议组合复用链的既有校验函数与错误码：
   `engine` ∈ `native | realm | nftables | tunnel`，`security` ∈ `tls | noise`
   （`noise` 只允许 tunnel），`protocol` ∈ `tcp | udp | both`。
-  隧道 2–6 跳且每组 1 台；nftables 中间组不能多成员；realm 不接受仅 UDP。
+  隧道 2–6 跳且每组 1 台；nftables 多成员组只允许轮询 / 加权 / IP 哈希；realm 不接受仅 UDP。
 - 模板组里引用的服务器必须真实存在（`chain_template.server_not_found`）。
 - 归属：`chains.owner_user_id` 过滤用户列表；别人的链返回 404
   `me.chain_not_found`（不返回 403，避免枚举 id）。
@@ -34,8 +34,8 @@
 - Templates carry no certificates: `transport` must be `none`; `transport = tls`
   is rejected during template CRUD.
 - Engine / security / protocol combinations reuse the chain validators and error
-  codes. Tunnel: 2–6 hops, exactly one member per group. nftables: no multi-member
-  middle groups. realm does not accept UDP-only.
+  codes. Tunnel: 2–6 hops, exactly one member per group. nftables: multi-member
+  middle groups must use round robin, weighted or IP hashing. realm does not accept UDP-only.
 - Every server referenced by a template must exist.
 - Ownership: user lists are filtered by `chains.owner_user_id`; touching someone
   else's chain returns 404 `me.chain_not_found` (never 403, to avoid id enumeration).

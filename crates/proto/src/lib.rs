@@ -5,7 +5,16 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 28;
+pub const PROTOCOL_VERSION: u32 = 29;
+
+/// 主控开始支持 **nftables 多目标选路**（`DesiredForward.targets` 里超过一个
+/// 成员 + `strategy = round_robin / weighted / ip_hashed`）的最低 Agent 协议版本。
+///
+/// 多目标规则完全由 Agent 从既有 `targets` / `strategy` 推导，没有新增字段；
+/// 但旧 Agent 的 nftables 引擎只接受单目标，收到多成员组会让规则未监听。
+/// 主控据此在保存/下发两条路径上要求整条链的 Agent 升级，绝不静默降级成
+/// 「只发第一个目标」（那会让其余目标永远收不到流量）。
+pub const NFTABLES_MULTI_TARGET_PROTOCOL_VERSION: u32 = 29;
 
 /// 主控开始支持 **PROXY protocol v2 透传**（`DesiredForward.proxy_protocol`）
 /// 的最低 Agent 协议版本。
@@ -150,7 +159,8 @@ pub struct Heartbeat {
     #[serde(default)]
     pub realm_available: Option<bool>,
     /// 本机是否具备可用的 nftables 引擎（`nft` 可执行且当前进程有
-    /// CAP_NET_ADMIN；心跳时实际执行一次 `nft list tables` 判定）。
+    /// CAP_NET_ADMIN；心跳时实际执行一次 `nft list tables`，并额外用
+    /// `nft -c` 探测 `numgen`/`vmap`/`jhash` 多目标语法是否可用）。
     ///
     /// `None` = 旧 Agent 未上报；`Some(false)` = 明确不可用。
     /// 主控只有看到 `Some(true)` 才允许保存/下发 nftables 规则，避免旧 Agent
@@ -892,8 +902,12 @@ mod tests {
     #[test]
     fn forward_udp_defaults_to_false_for_old_masters() {
         assert_eq!(
-            PROTOCOL_VERSION, 28,
-            "PROXY protocol v2 透传是新增字段，必须升协议版本"
+            PROTOCOL_VERSION, 29,
+            "nftables 多目标选路是新增语义，必须升协议版本"
+        );
+        assert_eq!(
+            NFTABLES_MULTI_TARGET_PROTOCOL_VERSION, 29,
+            "nftables 多目标从协议 29 开始支持"
         );
         assert_eq!(
             PROXY_PROTOCOL_VERSION, 28,

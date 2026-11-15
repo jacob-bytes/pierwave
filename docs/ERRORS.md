@@ -170,7 +170,8 @@
 | `forward.engine_invalid` | 转发引擎「{engine}」无效，只支持 native / realm / nftables | allowed, engine |
 | `forward.nftables_unavailable` | 服务器「{server_name}」没有可用的 nftables（需要安装 nft 并以 root 运行） | available, server_id, server_name |
 | `chain.nftables_unavailable` | 以下服务器的 nftables 不可用（需要安装 nft 并以 root 运行）：{servers} | servers |
-| `chain.nftables_multi_target` | nftables 引擎暂不支持第 {seq} 组的多成员选路，请改成单成员组 | count, seq |
+| `chain.nftables_strategy_unsupported` | nftables 多目标不支持「{strategy}」选路：{reason} | count, reason, seq, strategy |
+| `chain.nftables_multi_target_requires_agent_upgrade` | nftables 多目标选路需要每台服务器的 Agent 协议版本 ≥ {required}，请先升级：{server} | required, server, servers |
 | `chain.not_found` | 链不存在 | — |
 | `chain.latency_hours_invalid` | hours 必须是 1-168 之间的整数（默认 24） | min, max |
 | `chain.name_required` | 链名称不能为空 | — |
@@ -474,6 +475,47 @@ fail closed instead of silently downgrading to round robin.
 但读写行为只认 `protocol`。Agent 侧：native 按所选协议绑定（仅 UDP 时完全不绑 TCP）；
 nftables 只为所选协议生成 DNAT 规则；realm 的 `both` 写 `use_udp = true`，`tcp` 写
 `use_udp = false` 并给端点加 `network = { use_udp = false }`。
+
+### nftables 多目标选路 / nftables multi-target routing
+
+nftables 引擎的同一入口端口可以按策略把新连接分配到多个目标（协议 29 起）：
+
+| 策略 / Strategy | 支持 / Supported | 生成规则 / Generated rule | 拒绝理由 / Reason |
+|---|---|---|---|
+| `round_robin` | ✅ | `numgen inc mod N vmap { 0 : dnat …, 1 : dnat … }` | — |
+| `weighted` | ✅ | `numgen random mod Σweight vmap { 0-2 : …, 3-9 : … }` | — |
+| `ip_hashed` | ✅ | `jhash ip saddr mod N vmap …`；IPv6 用 `jhash ip6 saddr` | — |
+| `failover` | ❌ | — | 需要健康探测与故障回切，内核 DNAT 没有该原语 / needs health probes and fail-back; kernel DNAT has none |
+| `lowest_latency` | ❌ | — | 需要逐目标延迟探测，内核拿不到该信号 / needs per-target latency probes, invisible to kernel DNAT |
+| `least_conn` | ❌ | — | 需要每目标连接计数，内核没有连接计数原语 / needs per-target connection counters; the kernel has none |
+
+- 目标池写在**一张独立的 vmap** 里，规则本身只做端口匹配；multi-target 规则按地址族
+  拆成 `meta nfproto ipv4` / `ipv6` 两条，避免 v6 客户端被 DNAT 到 v4 目标。
+  nft 至今不支持 `numgen` 整数键的**命名** map（没有对应 key 类型），所以生成的是
+  匿名 vmap；它仍是内核里独立的一张 verdict map，随 `inet pierwave` 表原子重建。
+  不要为了命名 map 去 `meta mark set`，那会污染用户自己的策略路由 mark。
+- 域名目标在 apply 时解析（与单目标一致）；任一目标解析失败会让整条规则失败，绝不静默
+  少发一个目标。重复地址去重后只保留一个 vmap 键。
+- TCP / UDP 可以同端口混用：每条规则只生成所选协议的 vmap 行。
+- 旧 Agent（协议 < 29）只认单目标：保存时返回
+  `chain.nftables_multi_target_requires_agent_upgrade`，下发时整链 blocked，
+  **绝不降级成单目标**（降级会让部分流量永远落到已删除/未升级的目标）。
+- 能力探测：`nft list tables` 成功后还要用 `nft -c -f -` 跑一段
+  `numgen`/`vmap`/`jhash` 探针；探针失败时规则状态里是
+  “`nft -c` 语法探测失败”的可读错误，而不是进程崩溃。
+
+> The nftables engine can distribute new connections from one entry port across several
+> targets (protocol 29). `round_robin`, `weighted` and `ip_hashed` are generated as a vmap
+> (`numgen inc` / `numgen random` with weight ranges / `jhash ip saddr`, IPv6 uses
+> `jhash ip6 saddr`); `failover`, `lowest_latency` and `least_conn` are rejected with
+> `chain.nftables_strategy_unsupported` because kernel DNAT has no health probes or
+> connection counters. The target pool lives in a dedicated vmap; multi-target rules are split
+> into `meta nfproto ipv4` / `ipv6` rules. Domains resolve at apply time, duplicate addresses
+> are deduplicated, and any resolution failure fails the whole rule rather than silently
+> dropping a target. Older agents (protocol < 29) are blocked at save and delivery with
+> `chain.nftables_multi_target_requires_agent_upgrade`; the master never downgrades to a single
+> target. Availability additionally requires an `nft -c` probe over `numgen`/`vmap`/`jhash`;
+> a failed probe is reported as a readable rule error.
 
 ### 链路延迟历史与每跳流量 / Chain latency history and per-hop traffic
 
@@ -845,8 +887,8 @@ on every hop and could never be expanded from a template).
 引擎 / 安全模式 / 协议组合复用链既有错误码：`forward.engine_invalid`、
 `chain.tunnel_security_invalid`、`chain.transport_invalid`、`chain.protocol_invalid`、
 `chain.hop_count_invalid`、`chain.group_member_count_invalid`、`chain.strategy_invalid`、
-`chain.duplicate_server`、`chain.duplicate_group_member`、`chain.nftables_multi_target`、
-`chain.tunnel_*`。端口耗尽复用 `chain.port_pool_exhausted` / `chain.port_allowed_exhausted`。
+`chain.duplicate_server`、`chain.duplicate_group_member`、
+`chain.nftables_strategy_unsupported`、`chain.tunnel_*`。端口耗尽复用 `chain.port_pool_exhausted` / `chain.port_allowed_exhausted`。
 
 Engine / security / protocol combinations reuse the existing chain codes listed above.
 Port exhaustion reuses `chain.port_pool_exhausted` / `chain.port_allowed_exhausted`.

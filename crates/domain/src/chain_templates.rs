@@ -126,7 +126,7 @@ pub struct TemplateConfig {
 /// * `engine::normalize`、`protocol::normalize_chain`、`hop_transport::normalize`、
 ///   `tunnel_security::normalize`；
 /// * 隧道：2–6 跳、每组 1 台、UDP 只支持 2 跳（`chain.tunnel_*`）；
-/// * nftables：中间组不能多成员（`chain.nftables_multi_target`）；
+/// * nftables：多成员组的策略必须能由内核原语实现（`chain.nftables_strategy_unsupported`）；
 /// * realm 固定双开（`forward.protocol_udp_requires_native`）。
 ///
 /// `groups` 必须已经过 [`normalize_groups`]（这里再查一次组数，防止调用方
@@ -211,21 +211,19 @@ pub fn validate_config(
             ));
         }
     } else if engine::is_nftables(&engine) {
-        if let Some((seq, group)) = groups
+        // 多目标能否实现取决于策略：round_robin / weighted / ip_hashed 可以，
+        // failover / lowest_latency / least_conn 依赖用户态健康探测或连接计数，
+        // 必须明确拒绝而不是静默只发第一个目标。
+        let strategies: Vec<(GroupStrategy, usize)> = groups
             .iter()
-            .enumerate()
-            .find(|(seq, group)| *seq >= 1 && group.server_ids.len() > 1)
-        {
-            return Err(DomainError::with_params(
-                "chain.nftables_multi_target",
-                json!({ "seq": seq + 1, "count": group.server_ids.len() }),
-                format!(
-                    "nftables 引擎暂不支持第 {} 组的多成员选路，请改成单成员组 / the nftables engine does not support multi-member groups (group {})",
-                    seq + 1,
-                    seq + 1
-                ),
-            ));
-        }
+            .map(|group| {
+                (
+                    GroupStrategy::from_db(&group.strategy),
+                    group.server_ids.len(),
+                )
+            })
+            .collect();
+        chains::ensure_nftables_groups_supported(&strategies)?;
     }
 
     protocol::ensure_realm_supported(&protocol, &engine)?;
@@ -463,15 +461,25 @@ mod tests {
     }
 
     #[test]
-    fn nftables_templates_reject_multi_member_middle_groups() {
-        let groups =
-            normalize_groups(vec![group(0, "", &["a"]), group(1, "", &["b", "c"])]).unwrap();
-        assert_eq!(
-            validate_config("nftables", "tls", "none", "tcp", &groups)
-                .unwrap_err()
-                .code,
-            "chain.nftables_multi_target"
-        );
+    fn nftables_templates_accept_only_kernel_implementable_strategies() {
+        for strategy in ["round_robin", "weighted", "ip_hashed"] {
+            let groups =
+                normalize_groups(vec![group(0, "", &["a"]), group(1, strategy, &["b", "c"])])
+                    .unwrap();
+            assert!(
+                validate_config("nftables", "tls", "none", "tcp", &groups).is_ok(),
+                "{strategy} 应该能由 nftables 多目标实现"
+            );
+        }
+        for strategy in ["failover", "lowest_latency", "least_conn"] {
+            let groups =
+                normalize_groups(vec![group(0, "", &["a"]), group(1, strategy, &["b", "c"])])
+                    .unwrap();
+            let error = validate_config("nftables", "tls", "none", "tcp", &groups).unwrap_err();
+            assert_eq!(error.code, "chain.nftables_strategy_unsupported");
+            assert_eq!(error.params["strategy"], strategy);
+            assert_eq!(error.params["seq"], 2);
+        }
 
         let entry_multi =
             normalize_groups(vec![group(0, "", &["a", "b"]), group(1, "", &["c"])]).unwrap();

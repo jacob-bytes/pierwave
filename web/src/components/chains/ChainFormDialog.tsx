@@ -61,6 +61,7 @@ import {
   GROUP_MAX_MEMBERS,
   GROUP_MIN_GROUP_MEMBERS,
   groupKind,
+  nftablesStrategySupported,
   normalizeStrategy,
   normalizeWeight,
   orderGroups,
@@ -262,6 +263,11 @@ function GroupCard({
       )
     : [];
 
+  // nftables 的多目标选路由内核 numgen/jhash 完成：只有轮询/加权/IP 哈希可行。
+  // 多成员组出现后，策略下拉里不可实现的项要禁用并说明原因（截图验收点）。
+  const nftablesMultiTarget =
+    nftablesEngine && !isEntry && members.length > 1;
+
   const useInternalAddress =
     watch(`groups.${index}.use_internal_address`) ?? false;
   const internalAddressReady = canUseInternalAddress(
@@ -347,6 +353,16 @@ function GroupCard({
       ]);
     } else if (members.length < GROUP_MIN_GROUP_MEMBERS) {
       append(emptyMember());
+    }
+    // 从单节点切到分组时，旧策略可能是 nftables 多目标做不到的；先归一到
+    // 轮询，避免用户一勾就得到一个必然被后端拒绝的组合（仍可再手动改）。
+    if (
+      next === "group" &&
+      nftablesEngine &&
+      !isEntry &&
+      !nftablesStrategySupported(selectedStrategy)
+    ) {
+      setGroupField("strategy", DEFAULT_CHAIN_STRATEGY);
     }
     form.clearErrors(`groups.${index}`);
   }
@@ -508,12 +524,7 @@ function GroupCard({
             size="xs"
             variant={!single ? "secondary" : "ghost"}
             aria-pressed={!single}
-            title={
-              nftablesEngine && !isEntry
-                ? t("chains.form.nftablesSingleOnly")
-                : undefined
-            }
-            disabled={pending || (nftablesEngine && !isEntry)}
+            disabled={pending}
             onClick={() => setKind("group")}
             className="h-6 rounded-sm px-2 type-micro"
           >
@@ -570,21 +581,37 @@ function GroupCard({
               </SelectValue>
             </SelectTrigger>
             <SelectContent className="w-44">
-              {strategyOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  <span className="flex min-w-0 flex-col gap-0.5 whitespace-normal">
-                    <span className="font-medium">{option.label}</span>
-                    <span className="type-micro leading-normal text-muted-foreground">
-                      {option.desc}
+              {strategyOptions.map((option) => {
+                const unsupported =
+                  nftablesMultiTarget &&
+                  !nftablesStrategySupported(option.value);
+                return (
+                  <SelectItem
+                    key={option.value}
+                    value={option.value}
+                    disabled={unsupported}
+                  >
+                    <span className="flex min-w-0 flex-col gap-0.5 whitespace-normal">
+                      <span className="font-medium">{option.label}</span>
+                      <span className="type-micro leading-normal text-muted-foreground">
+                        {unsupported
+                          ? t("chains.form.nftablesStrategyUnsupported")
+                          : option.desc}
+                      </span>
                     </span>
-                  </span>
-                </SelectItem>
-              ))}
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
           {groupErrors?.strategy?.message ? (
             <p role="alert" className="text-xs text-destructive">
               {groupErrors.strategy.message}
+            </p>
+          ) : null}
+          {nftablesMultiTarget ? (
+            <p className="type-micro leading-normal text-muted-foreground">
+              {t("chains.form.nftablesStrategyHint")}
             </p>
           ) : null}
         </div>

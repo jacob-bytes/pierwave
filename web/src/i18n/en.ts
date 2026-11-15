@@ -2762,8 +2762,10 @@ const en = {
         "These servers have no usable nftables: {servers}. Install nft and run as root; saving nftables rules is blocked while the capability is unknown.",
       tunnelNotAvailable:
         "These servers in this group do not support tunnel yet: {servers}. Upgrade the agent first; tunnel chains cannot be saved while the capability is unknown or false.",
-      nftablesSingleOnly:
-        "With the nftables engine, only the entry group can have multiple members",
+      nftablesStrategyHint:
+        "nftables multi-target selects with kernel numgen / jhash, so only round robin, weighted and IP hashing are available; failover, lowest latency and least connections need user-space probes and connection counters.",
+      nftablesStrategyUnsupported:
+        "Needs user-space probes; nftables multi-target cannot implement it",
       groups: "Chain hops",
       groupsHint:
         "Each hop can be a single node (1 server) or a group (1-8 servers); the same server cannot appear twice in one chain. Intermediate hops need no port: it is assigned automatically.",
@@ -3472,7 +3474,10 @@ const en = {
     "chain.tls_realm_unsupported": "These servers run a realm without the transport feature (upgrade the agent or use the official realm): {servers}",
     "forward.nftables_unavailable": "Server \"{server_name}\" has no usable nftables (install nft and run as root)",
     "chain.nftables_unavailable": "These servers have no usable nftables (install nft and run as root): {servers}",
-    "chain.nftables_multi_target": "The nftables engine does not support multi-member selection in group {seq}; use a single-member group",
+    "chain.nftables_strategy_unsupported":
+      "nftables multi-target does not support the {strategy} strategy: {reason}",
+    "chain.nftables_multi_target_requires_agent_upgrade":
+      "nftables multi-target routing requires agent protocol >= {required} on every server; upgrade these first: {server}",
     "chain.tunnel_requires_two_hops": "The tunnel engine only supports 2-hop chains (entry dialer + exit listener); currently {hops} hops",
     "chain.tunnel_single_member": "The tunnel engine only supports one member per group (this group has {members})",
     "chain.tunnel_tcp_only": "The tunnel engine only supports TCP (currently {protocol})",
@@ -3732,7 +3737,7 @@ const en = {
     chainTlsEntryCertForbidden: "The entry group does not need a certificate",
     chainTlsUdpConflict: "Hop encryption requires UDP forwarding to be off",
     chainNftablesMultiMembers:
-      "The nftables engine does not support multi-member selection outside the entry group; use a single node for that group",
+      "nftables multi-target supports round robin, weighted and IP hashing only; failover, lowest latency and least connections need user-space probes that kernel DNAT cannot do",
     chainTunnelTwoHops:
       "The tunnel engine requires exactly 2 hops (currently {count})",
     chainTunnelSingleMember:

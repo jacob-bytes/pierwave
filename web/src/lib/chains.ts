@@ -29,6 +29,26 @@ export type ChainStrategy = (typeof CHAIN_STRATEGIES)[number];
 
 export const DEFAULT_CHAIN_STRATEGY: ChainStrategy = "round_robin";
 
+/**
+ * nftables 多目标能实现的策略（与后端 `chains::nftables_strategy_supported` 一致）。
+ *
+ * 内核 DNAT 只有 `numgen`（轮询/加权随机）与 `jhash`（源地址哈希）两类原语；
+ * 主备 / 最低延迟 / 最少连接需要用户态健康探测或连接计数，必须明确拒绝。
+ */
+export const NFTABLES_MULTI_TARGET_STRATEGIES = [
+  "round_robin",
+  "weighted",
+  "ip_hashed",
+] as const satisfies readonly ChainStrategy[];
+
+export function nftablesStrategySupported(
+  strategy: string | null | undefined,
+): boolean {
+  return (NFTABLES_MULTI_TARGET_STRATEGIES as readonly string[]).includes(
+    normalizeStrategy(strategy),
+  );
+}
+
 /** 与后端 `chains::WEIGHT_MIN` / `WEIGHT_MAX` / 迁移默认值保持一致。 */
 export const CHAIN_WEIGHT_MIN = 1;
 export const CHAIN_WEIGHT_MAX = 100;
