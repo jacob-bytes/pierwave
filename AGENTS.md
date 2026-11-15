@@ -50,6 +50,18 @@ CARGO_HOME=$PWD/.cargo-home cargo test -p pierwave-domain
 - 列表页四态（loading / empty / error / 正常）是硬要求，不是可选优化。
 - 不写死颜色，全部走 `--background` 这类 CSS 变量。
 
+### 布局自检（提交前端改动前必做）
+
+**功能上了线不等于交互成立。** 每加一个控件，先回答三个问题：
+
+1. **它属于哪一侧？** 标题左、动作与筛选右；`justify-between` 里出现第三个子元素时，
+   一定会把某个控件挤到中间，看起来像没对齐。
+2. **它和谁同组？** 筛选、刷新、导出属于同一组，放同一个 flex 容器，不各自散落。
+3. **别人看起来会不会误判？** 只读的参考信息（示例、提示）不能长得像输入框；
+   危险动作（删除、恢复）不能和常驻动作并排且等距。
+
+做不到就地改布局，不要只把控件塞进去。UI 是给人看的，不是给功能清单打勾的。
+
 ### 少写解释性文案（UI 层）
 
 > **Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.**

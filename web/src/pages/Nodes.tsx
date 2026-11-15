@@ -486,21 +486,21 @@ export default function NodesPage() {
                   {t("nodes.clearFilters")}
                 </Button>
               ) : null}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void nodes.refetch()}
+                disabled={nodes.isFetching}
+              >
+                <RefreshCwIcon
+                  className={cn(
+                    "size-3.5",
+                    nodes.isFetching && "animate-spin",
+                  )}
+                />
+                {t("common.refresh")}
+              </Button>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void nodes.refetch()}
-              disabled={nodes.isFetching}
-            >
-              <RefreshCwIcon
-                className={cn(
-                  "size-3.5",
-                  nodes.isFetching && "animate-spin",
-                )}
-              />
-              {t("common.refresh")}
-            </Button>
           </div>
           <CardDescription className="text-xs">
             {t("nodes.desc")}
