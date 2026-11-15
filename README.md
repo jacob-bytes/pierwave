@@ -2,184 +2,159 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-A Rust control plane for [Xray](https://github.com/XTLS/Xray-core) fleets: panel, subscription
-delivery, traffic metering and quota enforcement — with agents that dial **outbound** to the master,
-so your servers never expose an inbound management port.
+A Rust control plane for Xray: a master, an agent on every host, and a web UI. Agents dial **out** to the
+master, so servers behind NAT never expose an inbound management port. Configuration is shipped as desired
+state and converged locally; master and agent are each a single binary.
 
-![Overview](docs/images/en/overview.png)
+![Overview: servers, users, traffic and chain health](docs/images/readme/en/overview.png)
 
-## Why
+## What it solves
 
-Running Xray on more than a couple of servers is rarely about installing Xray. The hard parts are:
-which node runs where, how much each user consumed, and what happens when the quota is gone.
-PierWave puts all of that behind one control plane:
+Running Xray on a few hosts is rarely about installing Xray. The hard parts are which node runs where, how
+much each user consumed, and what happens when the quota runs out. PierWave puts all of it behind one control plane:
 
-- **Servers only dial out.** Agents connect to the master over WebSocket — no management port on
-  each box, works behind NAT.
-- **Desired state, not commands.** The master ships a full config; the agent validates it
-  (`xray -test`), backs up, swaps atomically, and rolls back on failure.
-- **Derived credentials.** Each `(user, node)` UUID is derived with HMAC — nothing to store, and the
-  exact same value appears in the subscription and in the server config.
-- **One billing source of truth.** Xray stats → deltas → weighted by direction × node ratio → daily
-  ledger. Exhausted users are evicted from the config automatically and restored within ~30s after
-  a top-up.
-- **Subscriptions that work out of the box.** Clash/mihomo YAML and URI list, with the
-  `Subscription-Userinfo` header clients use to show quota.
+- **Agents only dial out.** A reverse WebSocket means no management port per server, and NAT is a non-issue.
+- **Desired state, not commands.** The master ships a full config; the agent validates, backs up, swaps atomically and rolls back on failure.
+- **Derived credentials.** Every `(user, node)` UUID is HMAC-derived and never stored, so subscriptions and server configs agree.
+
+## Features
+
+### Servers and agents
+- One-time token on create (only the hash is stored); rotate it to reissue the install command.
+- The agent dials out over WebSocket; heartbeats carry version, load, memory, disk, NICs and traffic counters.
+- NIC pinning, allowed port ranges and extra ports, internal addresses for hop dialing; batch upgrades verify Ed25519 + SHA256.
+
+### Nodes
+- Protocol × transport × security: vless/vmess/trojan/shadowsocks/socks/http, tcp/ws/grpc/http/h2/quic/kcp/httpupgrade/xhttp, none/tls/reality.
+- TLS certificates ship with desired state (keys 0600); REALITY public keys are derived. Nodes carry tags, a region and a bandwidth cap.
+- NAT: set a separate public port; subscriptions and probes use `public_port`, while the agent still listens on `port`.
+
+### Subscriptions
+- 14 formats: clash/mihomo/stash/surge/egern/surfboard/loon/qx/singbox/uri/shadowrocket/v2ray, plus singbox-full/surge-full.
+- `?target=` wins, otherwise UA sniffing; `Subscription-Userinfo` lets clients show quota and expiry.
+- Subscription templates make proxy groups declarative (select/url-test/fallback/load-balance, filtered by tag/region/protocol); rule templates bind to users or packages.
+
+### Users and packages
+- Several package instances per user, each with its own quota, expiry and reset day; billing is waterfall by creation order.
+- Direction (both/upload/download) × node ratio, through one conversion path.
+- Exhausted or expired instances leave the server config and return after renewal; the overview renews expired instances and disables over-quota users in bulk.
+
+### Forwarding and chains
+- Four engines: native, realm (supervised subprocess), nftables (kernel DNAT), tunnel (our own TLS/Noise relay).
+- 1–6 hops, single hosts or groups; six strategies: round-robin, failover, lowest latency, IP hash, weighted, least-connections.
+- Ports are auto-allocated; chain templates plus user self-service chains. Single-hop forwards are metered and reconciled daily.
+
+### Observability
+- Overview: online servers, today/month traffic, protocol mix and trend, top servers/users, chain health and alerts.
+- Public status page without login: 24h/7d availability, load/memory/disk, current rate and totals; it can be disabled.
+- Rates are heartbeat counter deltas; availability approximates TCP probe success. Alerts go to Telegram/webhook (six events, cooldowns).
+
+### Operations
+- Backups are one SQLite snapshot (`VACUUM INTO` + gzip), optionally uploaded to WebDAV and pruned by retention.
+- Update checks cover master and agent versions; audit log, read-only MCP stdio server and an admin Telegram bot.
 
 ## Architecture
 
 ```
-        ┌─────────── pierwave-master ───────────┐
-        │  axum API · sessions · static SPA     │
-        │  subscription render · metering       │
-        │  enforcement reconcile                │
-        └───────▲───────────────────┬───────────┘
-                │ desired state /    │ WebSocket (outbound from agent)
-                │ heartbeat / traffic│
-        ┌───────┴────────┐   ┌──────▼─────────┐
-        │ pierwave-agent │   │ pierwave-agent │
-        │ reconciler     │   │ ...            │
-        └───────┬────────┘   └────────────────┘
-                │ local gRPC :10085
-             xray-core
+        browser / subscription clients
+                    │ HTTPS
+       ┌────────────▼────────────────────────┐
+       │ pierwave-master                     │
+       │ axum API · SPA · subscriptions ·    │
+       │ scheduler / enforcement             │
+       └───────┬─────────────────────▲───────┘
+               │ desired state + files│ heartbeat / traffic / probes
+               │ (agent dials in)     │
+       ┌───────▼────────┐    ┌────────┴────────┐
+       │ pierwave-agent │    │ pierwave-agent  │
+       └───────┬────────┘    └────────┬────────┘
+               │ local stats API        │
+           xray-core               xray-core
 ```
 
-| crate | responsibility |
-|---|---|
-| `crates/proto` | wire protocol between master and agent (versioned, additive-only) |
-| `crates/domain` | models, SQL, business rules (no axum dependency) |
-| `crates/master` | HTTP API, auth, SPA hosting, agent WebSocket |
-| `crates/agent` | connects to master, converges configs, reports health and traffic |
-| `web` | React 19 + TypeScript + Tailwind 4 + shadcn/ui |
+The master only renders desired state: node configs, certificate files, forwards and tunnels. The agent runs
+`xray -test`, writes certificates with their target modes, swaps the config atomically and keeps the old one on
+failure. Heartbeats carry facts only; the agent's single action is "converge to desired state".
 
 ## Screens
 
-| Servers | Nodes |
+| Public status | Servers |
 |---|---|
-| ![Servers](docs/images/en/servers.png) | ![Nodes](docs/images/en/nodes.png) |
+| ![Public status page](docs/images/readme/en/status.png) | ![Server list](docs/images/readme/en/servers.png) |
 
-| Outbounds & routing | Subscriptions |
+| Forward chains | Subscription templates |
 |---|---|
-| ![Outbounds & routing](docs/images/en/outbounds.png) | ![Subscriptions](docs/images/en/subscriptions.png) |
+| ![Forward chains](docs/images/readme/en/chains.png) | ![Subscription templates](docs/images/readme/en/subscription-templates.png) |
 
-| Users | Audit log |
-|---|---|
-| ![Users](docs/images/en/users.png) | ![Audit log](docs/images/en/audit.png) |
+The user view returns only the signed-in user's data: quota, subscription link, self-service forwards and packages.
 
-| Rule templates | Public status |
-|---|---|
-| ![Rule templates](docs/images/en/rules.png) | ![Public status](docs/images/en/status.png) |
+![User view](docs/images/readme/en/me.png)
 
 ## Quick start
 
-```bash
-make web-install      # first run: frontend dependencies
-make web-build        # builds web/dist (served by the master)
-make run              # http://127.0.0.1:8787
-```
-
-The first start creates an `admin` account; the password is printed in the log
-(or set `PIERWAVE_ADMIN_PASSWORD` before starting).
-
-For frontend hot reload: `make web-dev` (:5173, `/api` is proxied to the master).
-
-## Install
-
-Two supported ways to run the **master**. The **agent** always runs on the target host, never in a
-container: it supervises the local `xray` process, writes `/etc/xray/config.json` and restarts a
-systemd unit — none of that works from inside a container.
-
-### Option A: Docker (fastest)
+### Docker
 
 ```bash
 git clone https://github.com/jacob-bytes/pierwave.git && cd pierwave
-cp .env.example .env          # set PIERWAVE_ADMIN_PASSWORD (>= 12 chars)
+cp .env.example .env      # set PIERWAVE_ADMIN_PASSWORD
 docker compose up -d
-docker compose logs -f        # shows the URL and the generated password
 ```
 
-The panel listens on `http://<host>:8787`; the database and the agent release cache live in
-`./data` (bind-mounted), so recreating the container keeps your data.
-`docker compose down` stops it; deleting `./data` deletes everything.
+The panel listens on `http://<host>:8787`; the database and agent release cache live in `./data` (bind-mounted),
+so recreating the container keeps your data. Do not containerize the agent: it supervises the host's xray
+process and systemd unit.
 
-### Option B: systemd (one script)
+### systemd
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jacob-bytes/pierwave/main/scripts/install.sh \
-  -o /tmp/pierwave-install.sh
-sudo bash /tmp/pierwave-install.sh install
+git clone https://github.com/jacob-bytes/pierwave.git && cd pierwave
+sudo bash scripts/install.sh install
+sudo scripts/install.sh status
 ```
 
-Verified downloads (Ed25519 signature over `SHA256SUMS`), a dedicated systemd unit, a random admin
-password printed once, and a health check after start. Subcommands:
+The script verifies the release (Ed25519 + SHA256), writes the systemd unit, generates an admin password, prints it once and runs a health check. Later:
 
 ```bash
-sudo pierwave-install.sh status      # state, version, paths, health
-sudo pierwave-install.sh upgrade     # newest release; downgrades are refused
-sudo pierwave-install.sh upgrade --version v0.5.1
-sudo pierwave-install.sh restart | stop | start | logs
-sudo pierwave-install.sh uninstall   # keeps /var/lib/pierwave unless --purge
+sudo scripts/install.sh upgrade
+sudo scripts/install.sh uninstall --purge   # also deletes the data directory
 ```
 
-Files: binary `/usr/local/bin/pierwave-master`, config `/etc/pierwave/pierwave.env` (0600),
-data `/var/lib/pierwave`, unit `pierwave-master.service`.
+### Install an agent
 
-### Installing an agent
-
-Create a server in the panel, copy the one-time command, run it on the target host:
+Create a server in the panel, copy the one-time command and run it on the target host:
 
 ```bash
-curl -fsSL http://<master>/api/agent/install.sh?token=<token> | sudo bash
+curl -fsSL https://<master>/api/agent/install.sh?token=<token> | sudo bash
 ```
 
-The installer picks the right architecture, downloads the agent, writes
-`/etc/pierwave-agent/config.toml` (0600), installs a systemd unit and starts it.
-Prebuilt Linux binaries (musl, x86_64 / aarch64) are published on the
-[Releases](https://github.com/jacob-bytes/pierwave/releases) page. Drop `pierwave-agent-<target>`
-into the directory `PIERWAVE_AGENT_DIST` points to and the install command works as-is.
-See [docs/DEPLOY.md](docs/DEPLOY.md) for building from source instead.
+The installer picks the architecture, downloads the agent, writes `/etc/pierwave-agent/config.toml` (0600),
+installs a systemd unit and starts it. Prebuilt Linux binaries (musl, x86_64 / aarch64) are on the
+[Releases](https://github.com/jacob-bytes/pierwave/releases) page; drop `pierwave-agent-<target>` into the
+`PIERWAVE_AGENT_DIST` directory for offline installs. Paths, environment variables and reverse-proxy
+requirements are in [docs/DEPLOY.md](docs/DEPLOY.md).
 
-## Configuration (master)
+## Security
 
-| variable | default | description |
-|---|---|---|
-| `PIERWAVE_ADDR` | `127.0.0.1:8787` | listen address |
-| `PIERWAVE_DB` | `sqlite://data/pierwave.db?mode=rwc` | database |
-| `PIERWAVE_WEB_DIR` | `web/dist` | SPA assets |
-| `PIERWAVE_ADMIN_PASSWORD` | random | only used when the database is created |
-| `PIERWAVE_AGENT_DIST` | unset | directory holding agent binaries |
-| `PIERWAVE_ENFORCE` | on | `0` disables quota enforcement |
+Server tokens are stored as hashes only; per-`(user, node)` credentials are HMAC-derived; a chain whose
+certificates or capabilities are missing is rejected as a whole (fail closed), never downgraded to plaintext.
 
-Login throttling, session lifetime and the panel name live in the settings page (stored in the
-database, no restart needed).
+## Documentation
 
-## Status
-
-Working: node/inbound management, desired-state delivery with rollback, users and package
-instances (multiple cards per user with independent quotas), subscription delivery, traffic metering
-and enforcement, certificate upload and deployment, audit log with a dedicated UI, configurable subscription rule templates, per-server outbounds and routing rules,
-port forwarding and multi-hop relay chains (native / realm / nftables engines; realm chains support hop-to-hop TLS), self-service page for end users,
-bilingual UI (English / 简体中文).
-
-Not implemented yet: ACME issuance, per-user rate limiting, nginx certificate deployment,
-multi-master/HA. Certificates must be uploaded manually; for plain `IP:port` deployments REALITY is
-the recommended transport since it needs no certificate.
+- [Deployment](docs/DEPLOY.md) · [Plan](docs/PLAN.md) · [Metering](docs/METERING.md)
+- [Subscriptions](docs/SUBSCRIBE.md) · [Chain templates](docs/CHAIN-TEMPLATES.md) · [Telemetry](docs/TELEMETRY.md)
+- [Error codes](docs/ERRORS.md) · [MCP](docs/MCP.md) · [User forwards](docs/USER-FORWARDS.md)
 
 ## Development
 
 ```bash
-make check    # fmt + clippy(-D warnings) + tests + frontend build
-make e2e      # end-to-end: starts master + agent, verifies delivery, metering, subscription loop
+make check    # fmt + clippy(-D warnings) + test + web build + web test
+make e2e      # real master + agent: delivery, metering and subscription loop
 ```
-
-Conventions live in [AGENTS.md](AGENTS.md); design notes are under `docs/`
-([PLAN](docs/PLAN.md) · [METERING](docs/METERING.md) · [SUBSCRIBE](docs/SUBSCRIBE.md) · [CERTS](docs/CERTS.md) · [DEPLOY](docs/DEPLOY.md)).
 
 ## License
 
-[AGPL-3.0](LICENSE). You may self-host, modify and redistribute; if you run a modified version as a
-network service, AGPL requires you to publish those modifications. Commercial licensing is
-available on request.
+[AGPL-3.0](LICENSE). You may self-host, modify and redistribute; a modified version run as a network service
+must publish its changes. Commercial licensing is available on request.
 
-Before contributing, read [CONTRIBUTING.md](CONTRIBUTING.md): submitting a PR means agreeing to
-license your contribution under AGPL-3.0 and granting the maintainer a right to relicense.
+Before contributing, read [CONTRIBUTING.md](CONTRIBUTING.md): submitting a PR means licensing your contribution
+under AGPL-3.0 and granting the maintainer a right to relicense.

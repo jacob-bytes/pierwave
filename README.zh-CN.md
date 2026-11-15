@@ -2,166 +2,159 @@
 
 [English](README.md) | **简体中文**
 
-Rust 写的 Xray 代理控制面：**主控 + Agent 分离**，Agent 反向连入，服务器不需要开放任何入站端口。
-面板、订阅分发、流量计费、超额断流在一套二进制里跑完。
+用 Rust 写的 Xray 代理面板：主控（master）+ Agent + Web UI。Agent 反向连入主控，服务器不必开放管理端口，
+配置以期望态下发并由 Agent 收敛，NAT 后的机器也能管。主控与 Agent 都是单二进制。
 
-![概览](docs/images/zh/overview.png)
+![概览：服务器、用户、流量与链路健康](docs/images/readme/zh/overview.png)
 
 ## 它解决什么
 
-多台服务器跑 Xray 时，真正麻烦的不是装 Xray，而是：谁在跑哪个节点、给谁用了多少流量、用完了怎么断。
-PierWave 把这些收进一个控制面：
+多机跑 Xray，麻烦的不是装 Xray，而是节点与用户怎么对应、流量怎么算、用完怎么断；PierWave 把这些收进一个控制面：
 
-- **服务器只管连出来** —— Agent 主动连主控（WebSocket），不用在每台机器上开管理端口，也不怕 NAT
-- **配置是期望态** —— 主控下发完整配置，Agent 校验（`xray -test`）→ 备份 → 原子替换 → 失败回滚
-- **凭据是派生的** —— 每个「用户 × 节点」的 UUID 由 HMAC 派生，不用存表；同一份值同时出现在订阅和服务端配置里
-- **计费有唯一口径** —— Xray stats → 增量 → 方向×节点倍率加权 → 日账本；超额自动断流，续费 30 秒内恢复
-- **订阅开箱可用** —— Clash/mihomo YAML 与 URI 两种输出，带 `Subscription-Userinfo` 流量头
+- **只有 Agent 连出来**：WebSocket 反向连接，不在每台服务器上开管理端口，也不怕 NAT。
+- **下发期望态**：主控给完整配置，Agent 校验、备份、原子替换，失败回滚；没有逐条命令 RPC。
+- **凭据是派生的**：每个「用户 × 节点」的 UUID 由 HMAC 派生，不存表；订阅与服务端配置同源。
+
+## 功能
+
+### 服务器与 Agent
+- 建服务器时发一次性 token（只存哈希），安装命令只出现一次；丢失可重置令牌。
+- Agent 反向 WebSocket 连入，心跳上报版本、负载、内存、磁盘、网卡与流量计数。
+- 可绑定网卡、限定允许端口区间与额外端口、填写跳间内网地址；批量升级的产物走 Ed25519 签名与 SHA256 校验。
+
+### 节点
+- 协议 × 传输 × 安全层：vless / vmess / trojan / shadowsocks / socks / http，tcp / ws / grpc / http / h2 / quic / kcp / httpupgrade / xhttp，none / tls / reality。
+- TLS 证书随期望态下发（私钥 0600），REALITY 公钥由私钥反推；节点可打标签、标地区、设带宽上限。
+- NAT 部署可单独填对外端口：订阅与探测用 `public_port`，Agent 仍监听 `port`。
+
+### 订阅
+- 14 种客户端格式：clash / mihomo / stash / surge / egern / surfboard / loon / qx / singbox / uri / shadowrocket / v2ray，以及 singbox-full / surge-full。
+- `?target=` 指定格式，否则按 UA 嗅探；响应带 `Subscription-Userinfo`，客户端直接显示流量与到期。
+- 订阅模板把代理组变成声明式数据（select / url-test / fallback / load-balance，按标签、地区、协议筛选），规则模板可绑到用户或套餐。
+
+### 用户与套餐
+- 一个用户可挂多张套餐实例，各自额度、到期日、重置日；扣费按创建顺序瀑布分配。
+- 方向（双向 / 仅上行 / 仅下行）× 节点倍率，换算口径只有一处实现。
+- 额度用尽或到期会自动从服务器配置移除（断流），续费后对账恢复；过期实例可在概览批量续期，超额用户可批量停用。
+
+### 转发与链
+- 四种引擎：native（Agent 自建转发）、realm（受管子进程）、nftables（内核 DNAT）、tunnel（自研 TLS/Noise 帧中继）。
+- 1–6 跳，每跳可单机或分组；六种选路：轮询、主备、最低延迟、IP 哈希、加权、最少连接。
+- 入口与中间端口自动分配，链模板 + 用户自助建链；单跳转发同样做流量计量与日表对账。
+
+### 可观测
+- 概览汇总在线率、今日/本月流量、协议分布与趋势、Top 服务器与用户、链路健康。
+- 公开探针页无需登录：24h/7d 可用率、负载/内存/磁盘、当前速率与累计流量，可整体关闭。
+- 速率由心跳的网卡计数差分算出，可用率是 TCP 探测成功率的近似；告警走 Telegram / Webhook，6 类事件带冷却去抖。
+
+### 运维
+- 备份是 SQLite 单文件快照（VACUUM INTO + gzip），可定时上传 WebDAV，并按保留份数清理自己的文件。
+- 版本更新检测覆盖主控与 Agent 版本分布，审计日志记录管理动作；另有只读 MCP stdio 服务与管理员 Telegram Bot（`/status`、`/servers`、`/user`、`/chain`）。
 
 ## 架构
 
 ```
-        ┌─────────── pierwave-master ───────────┐
-        │  axum API · 会话鉴权 · 静态 SPA         │
-        │  订阅渲染 · 计费账本 · 断流对账         │
-        └───────▲───────────────────┬───────────┘
-                │ 期望态 / 心跳 / 流量 │ WebSocket（反向连入）
-        ┌───────┴────────┐   ┌──────▼─────────┐
-        │ pierwave-agent │   │ pierwave-agent │
-        │ 收敛器 + 监督   │   │ ...            │
-        └───────┬────────┘   └────────────────┘
-                │ 本地 gRPC :10085
-             xray-core
+        浏览器 / 订阅客户端
+               │ HTTPS
+       ┌───────▼─────────────────────────────┐
+       │ pierwave-master                     │
+       │ axum API · SPA · 订阅渲染 · 调度器   │
+       └───────┬─────────────────────▲───────┘
+               │ 期望态 + 文件        │ 心跳 / 流量 / 探测
+               │ （Agent 反向 WS）    │
+       ┌───────▼────────┐    ┌────────┴────────┐
+       │ pierwave-agent │    │ pierwave-agent  │
+       └───────┬────────┘    └────────┬────────┘
+               │ 本地 stats API        │
+           xray-core               xray-core
 ```
 
-| crate | 职责 |
-|---|---|
-| `crates/proto` | 主控 ↔ Agent 线协议，版本化、只增不改 |
-| `crates/domain` | 数据模型、SQL、业务规则（不依赖 axum） |
-| `crates/master` | HTTP API、鉴权、SPA 托管、Agent WS |
-| `crates/agent` | 连主控、收敛配置、上报心跳与流量 |
-| `web` | React 19 + TypeScript + Tailwind 4 + shadcn/ui |
+主控只生成 DesiredState：节点配置、证书文件、转发与隧道。Agent 先跑 `xray -test`，
+按目标权限落盘证书，再原子替换配置，失败保留旧配置；心跳只上报事实，Agent 侧唯一的动作是「收敛到期望态」。
 
 ## 界面
 
-| 服务器 | 节点 |
+| 公开探针 | 服务器 |
 |---|---|
-| ![服务器](docs/images/zh/servers.png) | ![节点](docs/images/zh/nodes.png) |
+| ![公开探针页](docs/images/readme/zh/status.png) | ![服务器列表](docs/images/readme/zh/servers.png) |
 
-| 出站与路由 | 订阅 |
+| 转发链 | 订阅模板 |
 |---|---|
-| ![出站与路由](docs/images/zh/outbounds.png) | ![订阅](docs/images/zh/subscriptions.png) |
+| ![转发链](docs/images/readme/zh/chains.png) | ![订阅模板](docs/images/readme/zh/subscription-templates.png) |
 
-| 用户 | 审计日志 |
-|---|---|
-| ![用户](docs/images/zh/users.png) | ![审计日志](docs/images/zh/audit.png) |
+用户端只返回当前登录用户的数据：额度、订阅链接、自助转发与套餐。
 
-| 规则模板 | 公开状态页 |
-|---|---|
-| ![规则模板](docs/images/zh/rules.png) | ![公开状态页](docs/images/zh/status.png) |
+![用户端](docs/images/readme/zh/me.png)
 
 ## 快速开始
 
-```bash
-make web-install      # 首次：装前端依赖
-make web-build        # 产出 web/dist（master 直接托管）
-make run              # http://127.0.0.1:8787
-```
-
-首次启动创建管理员 `admin`，密码打印在日志里（或启动前设 `PIERWAVE_ADMIN_PASSWORD`）。
-开发时热更新：`make web-dev`（:5173，`/api` 已代理）。
-
-## 安装
-
-**主控**有两种装法。**Agent 永远跑在被控服务器上，不要放进容器**——它要守护本机的 `xray`
-进程、写 `/etc/xray/config.json`、重启 systemd 服务，这些在容器里都做不到。
-
-### 方式 A：Docker（最快）
-
+### Docker
 ```bash
 git clone https://github.com/jacob-bytes/pierwave.git && cd pierwave
-cp .env.example .env          # 填 PIERWAVE_ADMIN_PASSWORD（至少 12 位）
+cp .env.example .env      # 填 PIERWAVE_ADMIN_PASSWORD
 docker compose up -d
-docker compose logs -f        # 查看访问地址与生成的密码
 ```
 
-面板地址 `http://<主机>:8787`；数据库与 Agent 发布缓存都在 `./data`（bind mount），
-删容器不丢数据。`docker compose down` 停止服务，删掉 `./data` 才是真的删库。
+面板在 `http://<主机>:8787`；数据库与 Agent 发布缓存都在 `./data`（bind mount），重建容器不丢数据。
+Agent 不要放进容器：它要守护宿主机的 xray 进程与 systemd 服务。
 
-### 方式 B：systemd（一个脚本）
+### systemd
+```bash
+git clone https://github.com/jacob-bytes/pierwave.git && cd pierwave
+sudo bash scripts/install.sh install
+sudo scripts/install.sh status
+```
+
+脚本会校验发布产物（Ed25519 签名 + SHA256）、写 systemd unit、生成管理员密码并打印一次，
+启动后做健康检查。后续：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jacob-bytes/pierwave/main/scripts/install.sh \
-  -o /tmp/pierwave-install.sh
-sudo bash /tmp/pierwave-install.sh install
+sudo scripts/install.sh upgrade
+sudo scripts/install.sh uninstall --purge   # 连数据一起删，谨慎
 ```
 
-会校验下载产物（Ed25519 签名 + SHA256）、装 systemd unit、随机生成管理员密码并打印一次，
-启动后自动做健康检查。子命令：
-
-```bash
-sudo pierwave-install.sh status      # 状态、版本、路径、健康检查
-sudo pierwave-install.sh upgrade     # 升级到最新版；降级会被拒绝
-sudo pierwave-install.sh upgrade --version v0.5.1
-sudo pierwave-install.sh restart | stop | start | logs
-sudo pierwave-install.sh uninstall   # 默认保留 /var/lib/pierwave，--purge 才删
-```
-
-文件位置：二进制 `/usr/local/bin/pierwave-master`、配置 `/etc/pierwave/pierwave.env`（0600）、
-数据 `/var/lib/pierwave`、unit `pierwave-master.service`。
+文件位置：二进制 `/usr/local/bin/pierwave-master`、配置 `/etc/pierwave/pierwave.env`（0600）、数据 `/var/lib/pierwave`、unit `pierwave-master.service`。
 
 ### 安装 Agent
-
-在面板里新建服务器，复制一次性命令，到目标主机执行：
+在面板「服务器 → 添加」复制一次性命令，到目标主机执行：
 
 ```bash
-curl -fsSL http://<主控地址>/api/agent/install.sh?token=<token> | sudo bash
+curl -fsSL https://<主控地址>/api/agent/install.sh?token=<token> | sudo bash
 ```
 
-脚本按架构下载 agent、写 `/etc/pierwave-agent/config.toml`（0600）、装 systemd 并启动。
+脚本按架构下载 Agent、写 `/etc/pierwave-agent/config.toml`（0600）、装 systemd 并启动。
+预编译的 Linux 二进制（musl，x86_64 / aarch64）在
+[Releases](https://github.com/jacob-bytes/pierwave/releases) 页；把 `pierwave-agent-<target>`
+放进 `PIERWAVE_AGENT_DIST` 指向的目录即可离线安装。
 
-预编译的 Linux 二进制（musl，x86_64 / aarch64）发布在
-[Releases](https://github.com/jacob-bytes/pierwave/releases) 页。把 `pierwave-agent-<target>`
-放进 `PIERWAVE_AGENT_DIST` 指向的目录，安装命令即可直接使用。
-从源码交叉编译的步骤见 [docs/DEPLOY.md](docs/DEPLOY.md)。
+端口、数据库、前端目录等环境变量与反代要求见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 
-## 配置（master）
+## 安全说明
 
-| 变量 | 默认 | 说明 |
-|---|---|---|
-| `PIERWAVE_ADDR` | `127.0.0.1:8787` | 监听地址 |
-| `PIERWAVE_DB` | `sqlite://data/pierwave.db?mode=rwc` | 数据库 |
-| `PIERWAVE_WEB_DIR` | `web/dist` | SPA 产物 |
-| `PIERWAVE_ADMIN_PASSWORD` | 随机 | 仅首次建库生效 |
-| `PIERWAVE_AGENT_DIST` | 未设置 | agent 二进制目录 |
-| `PIERWAVE_ENFORCE` | 开 | `0` 关闭超额断流 |
+服务器 token 只存哈希；每个「用户 × 节点」凭据由 HMAC 派生；链路证书或能力不满足时整链拒绝下发
+（fail closed），绝不回落到明文。
 
-登录限流阈值、会话有效期、面板名称在「设置」页改，存库、不用重启。
+## 文档
 
-## 状态
-
-已可用：节点/入站管理、期望态下发与回滚、用户与套餐实例（多卡独立额度）、订阅分发、
-流量计量与断流、证书上传与部署、审计日志（含界面）、可配置的订阅规则模板、按服务器配置的出站与路由规则、
-端口转发与多跳转发链（native / realm / nftables 三种引擎；realm 链支持跳间 TLS）、用户自助页、中英文界面。
-
-未做：ACME 自动签发、按用户限速、nginx 证书部署、多主控/高可用。
-证书目前需手动上传；纯 IP:port 部署建议用 REALITY（不需要证书）。
+- [部署与运维](docs/DEPLOY.md)
+- [施工计划](docs/PLAN.md)
+- [流量计量](docs/METERING.md)
+- [订阅与客户端格式](docs/SUBSCRIBE.md)
+- [转发链模板与用户自助](docs/CHAIN-TEMPLATES.md)
+- [实时速率与可用率](docs/TELEMETRY.md)
+- [错误码](docs/ERRORS.md)
+- [只读 MCP](docs/MCP.md)
 
 ## 开发
 
 ```bash
-make check    # fmt + clippy(-D warnings) + test + web build
-make e2e      # 端到端：起 master + agent，验证下发、计量、订阅闭环
+make check    # fmt + clippy(-D warnings) + test + web build + web test
+make e2e      # 起真实 master + agent，验证下发、计量、订阅闭环
 ```
 
-工程约定见 [AGENTS.md](AGENTS.md)，设计文档在 `docs/`（[PLAN](docs/PLAN.md) · [METERING](docs/METERING.md) · [SUBSCRIBE](docs/SUBSCRIBE.md) · [CERTS](docs/CERTS.md) · [DEPLOY](docs/DEPLOY.md)）。
+工程约定见 [AGENTS.md](AGENTS.md)；用户自助转发见 [docs/USER-FORWARDS.md](docs/USER-FORWARDS.md)。
 
-## 许可证
+## 许可证与贡献
 
-[AGPL-3.0](LICENSE)。
-
-你可以自建、修改、二次分发；但如果把 PierWave（或它的修改版）作为网络服务对外提供，
-必须按 AGPL-3.0 公开你的修改。商业授权请联系维护者。
-
-贡献代码前请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)：提交即表示同意以 AGPL-3.0 授权，
-并授予维护者再许可权。
+[AGPL-3.0](LICENSE)。可以自建、修改、再分发；如果把修改版作为网络服务对外提供，需按 AGPL-3.0 公开修改。商业授权请联系维护者。
+提交前请读 [CONTRIBUTING.md](CONTRIBUTING.md)：提交 PR 即表示同意以 AGPL-3.0 授权，并授予维护者再许可权。
