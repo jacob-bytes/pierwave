@@ -17,6 +17,7 @@ import {
   normalizeAlertTestResults,
   parseAlertEvents,
   serializeAlertEvents,
+  toggleAlertEvent,
 } from "./alerts.ts";
 
 test("defaults match the alert design", () => {
@@ -27,13 +28,71 @@ test("defaults match the alert design", () => {
     "server_offline",
     "user_exhausted",
     "chain_degraded",
+    "update_available",
   ]);
   assert.deepEqual(ALERT_EVENTS, [
     "server_offline",
     "user_exhausted",
     "chain_degraded",
     "upgrade_failed",
+    "update_available",
   ]);
+});
+
+test("the event list has exactly five entries and new releases default on", () => {
+  assert.equal(ALERT_EVENTS.length, 5);
+  assert.equal(new Set(ALERT_EVENTS).size, 5, "事件不能重复");
+  assert.equal(ALERT_EVENTS.includes("update_available"), true);
+  assert.equal(DEFAULT_ALERT_EVENTS.includes("update_available"), true);
+  // 迁移后的旧数据（四事件）不会把新事件悄悄打开。
+  assert.equal(
+    parseAlertEvents(
+      "server_offline,user_exhausted,chain_degraded,upgrade_failed",
+    ).includes("update_available"),
+    false,
+  );
+});
+
+test("toggleAlertEvent adds/removes events in canonical order", () => {
+  const initial = ["server_offline", "chain_degraded"];
+  const added = toggleAlertEvent(initial, "update_available", true);
+  assert.deepEqual(added, [
+    "server_offline",
+    "chain_degraded",
+    "update_available",
+  ]);
+  assert.notEqual(added, initial, "必须返回新数组，表单才会置脏");
+  assert.deepEqual(initial, ["server_offline", "chain_degraded"], "不改原数组");
+
+  assert.deepEqual(
+    toggleAlertEvent(added, "update_available", false),
+    ["server_offline", "chain_degraded"],
+  );
+  assert.deepEqual(toggleAlertEvent([], "upgrade_failed", true), [
+    "upgrade_failed",
+  ]);
+  assert.deepEqual(toggleAlertEvent([], "upgrade_failed", false), []);
+  // 未知值与重复值被丢掉，顺序按 ALERT_EVENTS 重排。
+  assert.deepEqual(
+    toggleAlertEvent(["update_available", "nope", "server_offline"], "update_available", true),
+    ["server_offline", "update_available"],
+  );
+});
+
+test("event selection survives a save and reload round trip", () => {
+  // 「勾选 → 保存（序列化）→ 回显（解析）」之后勾选状态必须一致。
+  const selected = toggleAlertEvent(
+    ["server_offline", "update_available"],
+    "update_available",
+    false,
+  );
+  const stored = serializeAlertEvents(selected);
+  assert.equal(stored, "server_offline");
+  assert.deepEqual(parseAlertEvents(stored), selected);
+
+  const all = toggleAlertEvent(ALERT_EVENTS, "update_available", true);
+  assert.equal(serializeAlertEvents(all), ALERT_EVENTS.join(","));
+  assert.deepEqual(parseAlertEvents(serializeAlertEvents(all)), all);
 });
 
 test("parseAlertEvents treats a missing key as defaults and empty string as none", () => {
@@ -256,4 +315,16 @@ test("every alert event has a label and description in both locales", () => {
       `en ${event}Desc`,
     );
   }
+});
+
+test("notification labels are renamed in both locales", () => {
+  assert.equal(zh.settings.tabs.alerts, "通知");
+  assert.equal(en.settings.tabs.alerts, "Notifications");
+  assert.equal(zh.settings.alerts.events.title, "事件");
+  assert.equal(en.settings.alerts.events.title, "Events");
+  assert.equal(zh.settings.alerts.events.update_available, "发现新版本");
+  assert.equal(en.settings.alerts.events.update_available, "New release");
+  // 常规页「版本更新」卡不再有通知开关，旧文案随字段一起删除。
+  assert.equal("notify" in zh.settings.updates, false);
+  assert.equal("notify" in en.settings.updates, false);
 });

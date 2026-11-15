@@ -37,15 +37,18 @@ import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
 /**
- * 常规 tab 的「版本更新」分组。
+ * 常规 tab 的「版本更新」卡片。
  *
- * 数据来自 `GET /api/v1/updates`（管理员）；三个设置项属于「常规」表单，
+ * 数据来自 `GET /api/v1/updates`（管理员）；两个设置项属于「常规」表单，
  * 由页面底部同一条保存栏随整份表单一次提交，这里不再有自己的保存按钮。
  * 组头只放标题与说明；只读信息占用内容网格的第一行两列——左列是 master
  * 的当前 / 最新与检测状态，右列是 Agent 版本分布，与下面的设置项字段对齐。
  * 设置项是「标签在上、控件在下」的两列网格，「立即检测」是自己右对齐的操作行。
  * 版本源只有 GitHub Releases，检测失败时保留上一次成功的最新版本，
  * 只把失败原因画在 master 列，不把整个分组变成错误态、也不影响右列。
+ *
+ * 「发现新版本时通知」不在这里：它是通知页事件列表里的一个事件
+ * （`update_available`），与其它告警事件共用同一份开关。
  */
 
 /** 设置接口的错误文案：403/404 给可操作说明，其余走后端错误码翻译。 */
@@ -176,27 +179,6 @@ export function UpdatesSection({
             disabled={saving}
             onCheckedChange={(next) => {
               form.setValue("update_check_enabled", next === true, {
-                shouldDirty: true,
-                shouldTouch: true,
-              });
-            }}
-          />
-        </div>
-      </FormField>
-
-      {/* 通知依赖自动检测、是另一件事，独占一行，不与其它开关挤成一对。 */}
-      <FormField
-        label={t("settings.updates.notify")}
-        htmlFor="settings-update-notify"
-        className={SETTINGS_FULL_ROW}
-      >
-        <div className="flex h-8 items-center">
-          <Switch
-            id="settings-update-notify"
-            checked={form.watch("update_check_notify")}
-            disabled={saving}
-            onCheckedChange={(next) => {
-              form.setValue("update_check_notify", next === true, {
                 shouldDirty: true,
                 shouldTouch: true,
               });

@@ -1,5 +1,13 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 /**
@@ -12,10 +20,11 @@ import { cn } from "@/lib/utils";
 export const SETTINGS_FULL_ROW = "lg:col-span-2";
 
 /**
- * 设置页的分组：标题 + 说明在上，两列字段网格在下。
+ * 设置页的分组：一个分组 = 一张独立卡片（标题 + 说明 + 内容）。
  *
- * 分组之间只用一条 `border-t`（站内统一无竖线），组内不再画线。
- * 放在同一张 `Card` 里由页面组合，避免退化成卡片堆叠。
+ * 不同配置内容之间不再用横线分隔：卡片之间由父容器的纵向间距分开，
+ * 组内仍是「标签在上、控件在下」的两列网格。版本更新卡、通知页各分组、
+ * 备份页各分组都用同一套结构，四个 tab 视觉统一。
  */
 export function SettingsGroup({
   icon: Icon,
@@ -36,36 +45,27 @@ export function SettingsGroup({
   children: ReactNode;
 }) {
   return (
-    <section
-      className={cn(
-        "border-t border-border px-5 py-5 first:border-t-0",
-        className,
-      )}
-    >
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
-        <div className="min-w-0">
-          <h2 className="flex items-center gap-2 text-sm font-medium">
-            <Icon className="size-4 shrink-0 text-muted-foreground" />
-            {title}
-          </h2>
-          {description ? (
-            <p className="mt-1 max-w-xl text-xs text-muted-foreground">
-              {description}
-            </p>
-          ) : null}
-        </div>
-        {action ? (
-          <div className="min-w-0 lg:shrink-0 lg:text-right">{action}</div>
+    <Card className={className}>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm font-medium">
+          <Icon className="size-4 shrink-0 text-muted-foreground" />
+          {title}
+        </CardTitle>
+        {description ? (
+          <CardDescription className="text-xs">{description}</CardDescription>
         ) : null}
-      </div>
-      <div
-        className={cn(
-          "mt-4 grid grid-cols-1 gap-x-5 gap-y-5 lg:grid-cols-2",
-          contentClassName,
-        )}
-      >
-        {children}
-      </div>
-    </section>
+        {action ? <CardAction>{action}</CardAction> : null}
+      </CardHeader>
+      <CardContent>
+        <div
+          className={cn(
+            "grid grid-cols-1 gap-x-5 gap-y-5 lg:grid-cols-2",
+            contentClassName,
+          )}
+        >
+          {children}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

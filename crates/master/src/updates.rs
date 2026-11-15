@@ -5,7 +5,8 @@
 //!
 //! 1. 拉取并解析最新 Release（解析逻辑在 `pierwave_domain::updates`）；
 //! 2. 把结果写库（失败也写，但保留上一次成功值）+ 内存缓存；
-//! 3. 版本变化时通过现有告警渠道发一条，并把「已通知的版本」落库去重。
+//! 3. 版本变化时通过现有告警渠道发一条（开关是 `alert_events` 里的
+//!    `update_available` 事件），并把「已通知的版本」落库去重。
 //!
 //! 网络请求走系统 `curl` 子进程，与告警投递保持同一套取舍（不引入 HTTP
 //! 客户端依赖），但**必须**带超时与 `User-Agent`——GitHub API 会拒绝没有
@@ -21,6 +22,7 @@ use serde_json::{json, Value};
 use pierwave_domain::repo::updates::{AgentVersionCount, UpdateCheck};
 use pierwave_domain::{repo, time, updates};
 
+use crate::alerts::{event_enabled, AlertKind};
 use crate::routes::settings;
 use crate::state::AppState;
 
@@ -281,6 +283,8 @@ async fn record_failure(
 
 /// 有新版本且这个版本还没通知过时，走现有告警渠道发一条。
 ///
+/// 开关以 `alert_events` 里的 `update_available` 事件为准（与其它告警事件同一份
+/// 白名单、同一个通知页）；旧的 `update_check_notify` 只保留接口兼容，不参与判断。
 /// 返回是否写入了「已通知」记录（写库后调用方需要重新读快照）。
 async fn maybe_notify(
     state: &AppState,
@@ -294,7 +298,7 @@ async fn maybe_notify(
         return Ok(false);
     }
     let settings = settings::load(&state.db.pool).await;
-    if !settings.update_check_notify {
+    if !event_enabled(&settings, AlertKind::UpdateAvailable) {
         return Ok(false);
     }
 
@@ -457,6 +461,12 @@ mod tests {
             .unwrap();
     }
 
+    async fn configure_events(state: &AppState, events: &str) {
+        repo::settings::set(&state.db.pool, "alert_events", events)
+            .await
+            .unwrap();
+    }
+
     #[tokio::test]
     async fn successful_check_records_the_release() {
         let (state, _transport) = setup(vec![Ok(release_json("0.12.0"))]).await;
@@ -541,13 +551,28 @@ mod tests {
         assert_eq!(check.notified_version, "0.13.0");
     }
 
+    /// 事件勾选后才通知：`alert_events` 是唯一事实来源，默认值里已包含它。
     #[tokio::test]
-    async fn notify_switch_off_stops_the_notification() {
+    async fn update_event_checked_sends_the_notification() {
         let (state, transport) = setup(vec![Ok(release_json("0.12.0"))]).await;
         configure_webhook(&state).await;
-        repo::settings::set(&state.db.pool, "update_check_notify", "0")
-            .await
-            .unwrap();
+        configure_events(&state, "server_offline,update_available").await;
+
+        check_now(&state).await.unwrap();
+        let sent = transport.wait_for(1).await;
+        assert_eq!(sent[0].kind, "update_available");
+        assert_eq!(sent[0].target, "master");
+        assert!(sent[0].title.contains("0.12.0"), "{}", sent[0].title);
+    }
+
+    /// 取消勾选后不通知，也不能记为「已通知」——重新勾选要能补发这一条。
+    #[tokio::test]
+    async fn update_event_unchecked_stops_the_notification() {
+        let (state, transport) = setup(vec![Ok(release_json("0.12.0"))]).await;
+        configure_webhook(&state).await;
+        configure_events(&state, "server_offline,user_exhausted").await;
+        // 旧开关保持默认开启：它不能再把通知强行打开。
+        assert!(settings::load(&state.db.pool).await.update_check_notify);
 
         check_now(&state).await.unwrap();
         transport
@@ -558,6 +583,35 @@ mod tests {
             check.notified_version, "",
             "关闭通知时不能记为已通知，否则重新打开就永远收不到"
         );
+
+        // 重新勾选后，同一版本仍要补发（notified_version 还是空的）。
+        configure_events(&state, "server_offline,update_available").await;
+        check_now(&state).await.unwrap();
+        let sent = transport.wait_for(1).await;
+        assert_eq!(sent[0].kind, "update_available");
+        assert_eq!(
+            repo::updates::load(&state.db.pool)
+                .await
+                .unwrap()
+                .notified_version,
+            "0.12.0"
+        );
+    }
+
+    /// 旧 `update_check_notify = 0` 不再覆盖事件列表（迁移 0050 会把旧值映射成
+    /// 「不勾选 update_available」，所以升级用户的选择照样延续）。
+    #[tokio::test]
+    async fn legacy_switch_does_not_override_the_event_list() {
+        let (state, transport) = setup(vec![Ok(release_json("0.12.0"))]).await;
+        configure_webhook(&state).await;
+        repo::settings::set(&state.db.pool, "update_check_notify", "0")
+            .await
+            .unwrap();
+        configure_events(&state, "update_available").await;
+
+        check_now(&state).await.unwrap();
+        let sent = transport.wait_for(1).await;
+        assert_eq!(sent[0].kind, "update_available");
     }
 
     #[tokio::test]

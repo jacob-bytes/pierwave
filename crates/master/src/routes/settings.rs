@@ -24,18 +24,22 @@ pub const MIN_AGENT_UPGRADE_CONCURRENCY: i64 = 1;
 pub const MAX_AGENT_UPGRADE_CONCURRENCY: i64 = 5;
 /// 公开状态页总开关：默认开启；0 = 关闭（接口返回 404）。
 pub const DEFAULT_PUBLIC_STATUS_ENABLED: i64 = 1;
-/// 默认开启的三类告警；升级失败默认关闭（噪音较大，且升级本身有 UI 状态）。
-pub const DEFAULT_ALERT_EVENTS: &str = "server_offline,user_exhausted,chain_degraded";
+/// 默认开启的四类告警；升级失败默认关闭（噪音较大，且升级本身有 UI 状态）。
+/// `update_available` 默认开启，与旧的 `update_check_notify` 默认值一致。
+pub const DEFAULT_ALERT_EVENTS: &str =
+    "server_offline,user_exhausted,chain_degraded,update_available";
 /// 同类告警默认冷却 600 秒；0 = 不去抖。
 pub const DEFAULT_ALERT_COOLDOWN_SECS: i64 = 600;
 pub const MIN_ALERT_COOLDOWN_SECS: i64 = 0;
 pub const MAX_ALERT_COOLDOWN_SECS: i64 = 86_400;
-/// 版本更新检测：默认启用、每 6 小时一次、发现新版本时通过告警渠道通知。
+/// 版本更新检测：默认启用、每 6 小时一次；通知开关已迁到 `alert_events`
+/// 的 `update_available` 事件（见迁移 0050），这里是新装实例的初值。
 pub const DEFAULT_UPDATE_CHECK_ENABLED: bool = true;
 /// 间隔范围与调度器共用同一份常量，避免「设置允许 1–168、调度器夹到别的值」。
 pub const DEFAULT_UPDATE_CHECK_INTERVAL_HOURS: i64 = crate::updates::DEFAULT_INTERVAL_HOURS;
 pub const MIN_UPDATE_CHECK_INTERVAL_HOURS: i64 = crate::updates::MIN_INTERVAL_HOURS;
 pub const MAX_UPDATE_CHECK_INTERVAL_HOURS: i64 = crate::updates::MAX_INTERVAL_HOURS;
+/// **兼容保留**：只给旧前端读写；通知路径已改用 `update_available` 事件。
 pub const DEFAULT_UPDATE_CHECK_NOTIFY: bool = true;
 
 pub const MAX_TELEGRAM_TOKEN_CHARS: usize = 256;
@@ -104,7 +108,9 @@ pub struct Settings {
     pub update_check_enabled: bool,
     /// 检测间隔（小时），1–168；默认 6。
     pub update_check_interval_hours: i64,
-    /// 发现新版本时是否通过已配置的告警渠道通知；默认开启。
+    /// **兼容保留**：发现新版本是否通知，已迁到 `alert_events` 的
+    /// `update_available` 事件（唯一事实来源）。这里仍读写该键，避免旧前端
+    /// 报 `settings.unknown_key`；通知路径不再读它，迁移 0050 只读一次。
     pub update_check_notify: bool,
 }
 
@@ -1080,7 +1086,18 @@ mod tests {
             body["items"]["update_check_interval_hours"], 6,
             "默认 6 小时"
         );
-        assert_eq!(body["items"]["update_check_notify"], true, "默认通知开");
+        assert_eq!(
+            body["items"]["update_check_notify"], true,
+            "兼容保留的旧开关默认仍是 true，与 update_available 事件默认勾选一致"
+        );
+        assert!(
+            body["items"]["alert_events"]
+                .as_str()
+                .unwrap()
+                .split(',')
+                .any(|event| event == "update_available"),
+            "版本更新通知的唯一开关是 alert_events 里的 update_available：{body}"
+        );
 
         for hours in [1, 6, 168] {
             let (status, _, body) = request(
@@ -1233,8 +1250,9 @@ mod tests {
         assert_eq!(body["items"]["telegram_chat_id"], "");
         assert_eq!(body["items"]["webhook_url"], "");
         assert_eq!(
-            body["items"]["alert_events"], "server_offline,user_exhausted,chain_degraded",
-            "升级失败默认不开启"
+            body["items"]["alert_events"],
+            "server_offline,user_exhausted,chain_degraded,update_available",
+            "升级失败默认不开启；发现新版本默认开启"
         );
         assert_eq!(body["items"]["alert_cooldown_secs"], 600);
 

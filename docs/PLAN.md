@@ -952,7 +952,7 @@ CREATE TABLE chain_hops (          -- 按 seq 升序；seq=0 是入口
 | `telegram_bot_token` | 空 | 空 = 不启用 |
 | `telegram_chat_id` | 空 | 群或个人 id |
 | `webhook_url` | 空 | POST JSON |
-| `alert_events` | `server_offline,user_exhausted,chain_degraded` | 逗号分隔 |
+| `alert_events` | `server_offline,user_exhausted,chain_degraded,update_available` | 逗号分隔；`update_available` = 发现新版本 |
 | `alert_cooldown_secs` | `600` | 同类告警去抖 |
 
 ### 事件与去抖
@@ -970,6 +970,27 @@ CREATE TABLE chain_hops (          -- 按 seq 升序；seq=0 是入口
 - 用户因额度/过期被断流（enforcement 移除）
 - 转发链降级（degraded 由 false → true）
 - Agent 升级失败（超时巡检标记 failed）
+- 发现新版本（`update_available`，同一版本只通知一次，见 P17）
+
+### 前端（设置页「通知」tab）
+
+- 每个分组一张独立卡片：Telegram / Webhook / 事件 / 发送测试消息；常规、安全、通知、
+  备份四个 tab 统一，卡片之间用纵向间距分隔，组内仍是「标签在上、控件在下」的两列网格。
+- 「事件」列表 5 项：服务器离线、用户断流、转发链降级、升级失败、发现新版本
+  （`update_available`，默认勾选；勾选即通过已配置渠道发送，见 P17）。
+- 「发现新版本时通知」不在常规页的版本更新卡里：它只是这里的一个事件。
+
+### 截图（`docs/images/settings/`）
+
+- `notifications-{1440,390}-{light,dark}.png`：通知页（事件 5 项，默认勾选「发现新版本」）；
+- `general-{1440,390}-{light,dark}.png`：常规页（版本更新卡没有通知开关）；
+- `security-…` / `backup-…`：安全、备份 tab 的独立卡片布局。
+
+> **Screenshots (English)**: `docs/images/settings/` holds the notifications tab
+> (five events, "New release" checked by default), the general tab (no notify
+> switch in the updates card), and the security/backup tabs, each at 1440 and
+> 390 in both light and dark themes. Every group is its own card; the two-column
+> field grid stays inside each card.
 
 ### 接口
 
@@ -2252,6 +2273,14 @@ POST /api/v1/updates/check  -> 同 GET（立即请求一次 GitHub Releases）
 - 发现新版本且版本号**变化**时，复用现有告警渠道（Telegram / Webhook）发一条；
   `notified_version` 落库去重，同一版本只发一次。没有配置任何渠道时不记「已通知」，
   之后配置好渠道仍会补发。
+- 通知开关是 `alert_events` 里的 `update_available` 事件（默认勾选），与其它事件
+  共用设置页「通知」tab 的事件列表——**事件列表是唯一事实来源**。
+- 迁移 `0050_alert_events_update_available.sql`：把旧 `update_check_notify` 的历史值
+  一次性映射进 `alert_events`——其它事件原样保留，`update_available` 勾选 ⇔ 旧开关
+  不是显式关闭（缺省 = 开启）。从未保存过事件列表且关掉旧开关的用户补一条不含新
+  事件的旧默认值；空列表 + 旧开关开启时只勾选新事件（旧行为里版本通知本来就还
+  会发）；空列表 + 旧开关关闭保持为空。`update_check_notify` 键保留接口兼容
+  （旧前端仍可读写），通知路径不再读它。
 - 检测串行化（进程内互斥），手动触发与定时任务同时跑也不会重复通知。
 
 ### 设置项（沿用现有白名单）
@@ -2260,14 +2289,15 @@ POST /api/v1/updates/check  -> 同 GET（立即请求一次 GitHub Releases）
 |---|---|---|---|
 | `update_check_enabled` | bool | `true` | 关闭后调度器不再请求 GitHub |
 | `update_check_interval_hours` | int | `6` | 1–168（越界 400） |
-| `update_check_notify` | bool | `true` | 是否通过告警渠道通知新版本 |
+| `update_check_notify` | bool | `true` | **兼容保留**：通知开关已迁到 `alert_events` 的 `update_available` 事件，见迁移 0050 |
 
 ### 前端
 
 - 侧栏底部版本号：管理员有新版时显示主色小圆点（8px），悬停/点击展开浮层；
   普通用户看不到入口。浮层在移动端跟随侧栏宽度，不溢出屏幕。
-- 设置页「常规」tab 新增「版本更新」卡：master 当前/最新、Agent 版本分布、
-  上次检测时间、「立即检测」按钮与三个设置项。
+- 设置页「常规」tab 的「版本更新」卡：master 当前/最新、Agent 版本分布、
+  上次检测时间、「立即检测」按钮与两个设置项（自动检测 / 检测间隔）。
+  「发现新版本时通知」不在这里，而是通知页「事件」列表里的「发现新版本」。
 - 纯逻辑在 `web/src/lib/updates.ts`（版本比较、`hasUpdate`、圆点状态机、相对时间），
   单测 `updates.test.mjs`；后端的版本比较与 GitHub 解析在 `pierwave_domain::updates`。
 
@@ -2281,9 +2311,13 @@ POST /api/v1/updates/check  -> 同 GET（立即请求一次 GitHub Releases）
 > never touches the network. A new version triggers exactly one notification on
 > the existing alert channels (Telegram/Webhook), deduplicated by a persisted
 > `notified_version`; when no channel is configured the version stays unnotified
-> so it can be delivered later. The sidebar shows an 8px primary dot for admins
-> only, with a hover/click popover that fits mobile widths, and the settings page
-> gains an updates card with the three toggles.
+> so it can be delivered later. The switch for that notification is the
+> `update_available` entry in `alert_events` (checked by default), so the
+> notification page owns it; migration 0050 maps the legacy
+> `update_check_notify` value once, and the legacy key is kept for API
+> compatibility only. The sidebar shows an 8px primary dot for admins only,
+> with a hover/click popover that fits mobile widths, and the settings page
+> gains an updates card with the automatic-check and interval settings.
 
 截图（`docs/images/updates/`）：
 

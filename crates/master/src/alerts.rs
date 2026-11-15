@@ -27,20 +27,26 @@ use crate::routes::settings::{self, Settings};
 use crate::state::AppState;
 
 /// 告警事件类型；名字与设置项 `alert_events` 里的逗号分隔项一一对应。
+///
+/// `update_available` 是版本更新的通知事件：它和其余事件共用同一份
+/// `alert_events` 白名单与投递渠道（设置项 `update_check_notify` 只保留接口
+/// 兼容，通知路径不再读它）。新增事件必须同时改前端 `ALERT_EVENTS`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AlertKind {
     ServerOffline,
     UserExhausted,
     ChainDegraded,
     UpgradeFailed,
+    UpdateAvailable,
 }
 
 impl AlertKind {
-    pub const ALL: [AlertKind; 4] = [
+    pub const ALL: [AlertKind; 5] = [
         AlertKind::ServerOffline,
         AlertKind::UserExhausted,
         AlertKind::ChainDegraded,
         AlertKind::UpgradeFailed,
+        AlertKind::UpdateAvailable,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -49,6 +55,7 @@ impl AlertKind {
             AlertKind::UserExhausted => "user_exhausted",
             AlertKind::ChainDegraded => "chain_degraded",
             AlertKind::UpgradeFailed => "upgrade_failed",
+            AlertKind::UpdateAvailable => "update_available",
         }
     }
 
@@ -67,8 +74,10 @@ pub fn parse_alert_events(raw: &str) -> Result<Vec<AlertKind>, String> {
         if name.is_empty() {
             continue;
         }
-        let kind = AlertKind::from_name(name)
-            .ok_or_else(|| format!("未知的告警事件：{name}（可用：server_offline,user_exhausted,chain_degraded,upgrade_failed）"))?;
+        let kind = AlertKind::from_name(name).ok_or_else(|| {
+            let available: Vec<&str> = AlertKind::ALL.iter().map(|kind| kind.as_str()).collect();
+            format!("未知的告警事件：{name}（可用：{}）", available.join(","))
+        })?;
         if !kinds.contains(&kind) {
             kinds.push(kind);
         }
@@ -329,7 +338,10 @@ fn configured_channels(settings: &Settings) -> Vec<ChannelConfig> {
     channels
 }
 
-fn alert_enabled(settings: &Settings, kind: AlertKind) -> bool {
+/// 某个事件是否在 `alert_events` 白名单里。
+///
+/// 版本更新的「发现新版本」也走这里：`alert_events` 是事件开关的唯一事实来源。
+pub fn event_enabled(settings: &Settings, kind: AlertKind) -> bool {
     parse_alert_events(&settings.alert_events)
         .map(|events| events.contains(&kind))
         .unwrap_or(false)
@@ -344,7 +356,7 @@ pub async fn notify(state: &AppState, kind: AlertKind, target_id: &str, title: &
     if channels.is_empty() {
         return;
     }
-    if !alert_enabled(&settings, kind) {
+    if !event_enabled(&settings, kind) {
         return;
     }
     let cooldown = u64::try_from(settings.alert_cooldown_secs).unwrap_or(0);
@@ -366,10 +378,10 @@ pub async fn notify(state: &AppState, kind: AlertKind, target_id: &str, title: &
     );
 }
 
-/// 发一条「不走 `alert_events` 白名单、不去抖」的通知，返回是否真的投递了。
+/// 发一条不去抖的通知，返回是否真的投递了。
 ///
-/// 版本更新有自己的开关（`update_check_notify`），不应受告警事件勾选影响；
-/// 「同一版本只发一次」由调用方把版本号落库保证，这里不需要冷却窗口。
+/// 事件开关由调用方先用 [`event_enabled`] 判断（版本更新读 `update_available`
+/// 事件）；「同一版本只发一次」由调用方把版本号落库保证，这里不需要冷却窗口。
 /// 返回 `true` 表示至少配置了一个渠道并已投递——没有渠道时调用方不应记
 /// 「已通知」，否则管理员之后配置好渠道就永远收不到这条更新了。
 pub async fn notify_custom(
@@ -935,6 +947,11 @@ mod tests {
             AlertKind::from_name("upgrade_failed"),
             Some(AlertKind::UpgradeFailed)
         );
+        assert_eq!(
+            AlertKind::from_name("update_available"),
+            Some(AlertKind::UpdateAvailable),
+            "版本更新通知也是 alert_events 里的一个事件"
+        );
         assert_eq!(AlertKind::from_name("nope"), None);
 
         let parsed =
@@ -949,6 +966,42 @@ mod tests {
         );
         assert!(parse_alert_events("server_offline,wat").is_err());
         assert!(parse_alert_events("").unwrap().is_empty());
+
+        // 未知名字的报错要把新事件也列出来，否则管理员不知道为什么存不进去。
+        let error = parse_alert_events("wat").unwrap_err();
+        assert!(error.contains("update_available"), "{error}");
+    }
+
+    #[test]
+    fn update_available_is_the_last_event_and_round_trips() {
+        assert_eq!(
+            AlertKind::ALL.last().copied(),
+            Some(AlertKind::UpdateAvailable),
+            "序列化顺序必须与前端 ALERT_EVENTS 一致（新事件排最后）"
+        );
+        let all = format_alert_events(&AlertKind::ALL);
+        assert_eq!(
+            all,
+            "server_offline,user_exhausted,chain_degraded,upgrade_failed,update_available"
+        );
+        assert_eq!(parse_alert_events(&all).unwrap(), AlertKind::ALL.to_vec());
+    }
+
+    #[test]
+    fn event_enabled_reads_only_the_event_list() {
+        let mut settings = Settings::default();
+        assert!(
+            event_enabled(&settings, AlertKind::UpdateAvailable),
+            "默认开启：新事件默认勾选"
+        );
+
+        settings.alert_events = "server_offline".to_string();
+        assert!(!event_enabled(&settings, AlertKind::UpdateAvailable));
+
+        // 旧开关不再参与判断：事件列表是唯一事实来源。
+        settings.update_check_notify = false;
+        settings.alert_events = "update_available".to_string();
+        assert!(event_enabled(&settings, AlertKind::UpdateAvailable));
     }
 
     #[test]

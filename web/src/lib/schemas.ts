@@ -179,12 +179,13 @@ export type ChangePasswordValues = z.infer<
 >;
 
 /**
- * 设置页「常规」表单：面板名称、对外地址、Agent 升级并发与版本更新。
+ * 设置页「常规」表单：面板名称、对外地址、Agent 升级并发与版本更新检测。
  *
  * 设置页拆成两个独立表单（常规 / 安全），各自只 PATCH 自己的键，
  * 避免保存一个 tab 时把另一个 tab 刚存的值覆盖回旧值。
  * 数值字段先用字符串承接，提交时再转数字；并发范围与后端白名单一致（1–5）。
- * 版本更新的三个设置项也在本表单内，由底部同一条保存栏一次提交。
+ * 版本更新的两个设置项也在本表单内，由底部同一条保存栏一次提交；
+ * 「发现新版本时通知」已移到通知页的事件列表，不在这里提交。
  */
 export function settingsGeneralSchema(t: TFunction) {
   return z.object({
@@ -212,7 +213,6 @@ export function settingsGeneralSchema(t: TFunction) {
         (value) => parseUpdateInterval(value) !== null,
         t("settings.updates.intervalInvalid"),
       ),
-    update_check_notify: z.boolean(),
   });
 }
 

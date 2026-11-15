@@ -3,6 +3,7 @@
  *
  * 这里只放与 React / 网络无关的规则：
  * - `alert_events` 是逗号分隔的白名单值，必须按契约顺序解析与序列化；
+ *   「发现新版本」（`update_available`）也是其中一项，是版本通知的唯一开关；
  * - Webhook 只接受 http(s) 绝对地址；
  * - 已保存的 Bot Token 只用「掩码 + 末 4 位」回显，任何时候都不展示完整值；
  * - 测试结果按 telegram / webhook 固定顺序展示，未知渠道保留原样兜底。
@@ -14,15 +15,22 @@ export const ALERT_EVENTS = [
   "user_exhausted",
   "chain_degraded",
   "upgrade_failed",
+  "update_available",
 ] as const;
 
 export type AlertEvent = (typeof ALERT_EVENTS)[number];
 
-/** 后端缺省值（见 docs/PLAN.md）：升级失败默认不通知。 */
+/**
+ * 后端缺省值（见 docs/PLAN.md）：升级失败默认不通知。
+ *
+ * `update_available`（发现新版本）默认勾选，与旧的 `update_check_notify`
+ * 默认开启一致；它和其余事件共用同一份 `alert_events`，是版本通知的唯一开关。
+ */
 export const DEFAULT_ALERT_EVENTS: readonly AlertEvent[] = [
   "server_offline",
   "user_exhausted",
   "chain_degraded",
+  "update_available",
 ];
 
 export const DEFAULT_ALERT_COOLDOWN_SECS = 600;
@@ -75,6 +83,26 @@ export function parseAlertEvents(
 export function serializeAlertEvents(events: readonly string[]): string {
   const selected = new Set(events);
   return ALERT_EVENTS.filter((event) => selected.has(event)).join(",");
+}
+
+/**
+ * 勾选 / 取消一个事件，返回按契约顺序排列的新数组。
+ *
+ * 组件因此只需要「把返回值写回表单」：引用变化即置脏，顺序与
+ * [`ALERT_EVENTS`] 一致，保存后回显（`parseAlertEvents`）与勾选状态对得上。
+ * 未知值被丢弃，避免旧数据把未知事件带进提交。
+ */
+export function toggleAlertEvent(
+  events: readonly string[],
+  event: AlertEvent,
+  checked: boolean,
+): AlertEvent[] {
+  const selected = new Set<AlertEvent>(
+    events.filter((value): value is AlertEvent => isAlertEvent(value)),
+  );
+  if (checked) selected.add(event);
+  else selected.delete(event);
+  return ALERT_EVENTS.filter((kind) => selected.has(kind));
 }
 
 /**

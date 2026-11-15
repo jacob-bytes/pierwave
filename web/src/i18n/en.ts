@@ -1585,9 +1585,9 @@ const en = {
         "Panel name, public addresses, and how many Agent upgrades run at once.",
       security: "Security",
       securityDesc: "Failure limit, lock duration and session lifetime.",
-      alerts: "Alerts",
+      alerts: "Notifications",
       alertsDesc:
-        "Configure Telegram / Webhook channels and alert events, and send a test message.",
+        "Configure Telegram / Webhook channels and events, and send a test message.",
       backup: "Backup & restore",
       backupDesc:
         "Download a snapshot of the current database, or upload a backup to replace all data.",
@@ -1673,15 +1673,12 @@ const en = {
       interval: "Check interval (hours)",
       intervalHint: "1–168 hours; 6 by default.",
       intervalInvalid: "Interval must be between 1 and 168 hours",
-      notify: "Notify when a new version is available",
       count: "{n} servers",
       updateAvailable: "Update available",
       upToDate: "Up to date",
       release: "View release",
     },
     alerts: {
-      title: "Alert notifications",
-      desc: "Get notified via Telegram or Webhook when a server goes offline, a user is cut off, a forward chain degrades, or an Agent upgrade fails. Applies to events after saving.",
       notReady404:
         "The alert settings API is not ready yet (the backend may still be deploying). Please try again later.",
       notReady:
@@ -1724,8 +1721,8 @@ const en = {
         placeholder: "https://example.com/hooks/pierwave",
       },
       events: {
-        title: "Alert events",
-        desc: "Only the selected event types are sent; if none are selected, no alerts are sent.",
+        title: "Events",
+        desc: "Only the selected events are sent; if none are selected, no notifications are sent.",
         server_offline: "Server offline",
         server_offlineDesc:
           "When a server loses its WebSocket connection to the controller.",
@@ -1737,6 +1734,9 @@ const en = {
           "When any hop in a forward chain cannot reach its target.",
         upgrade_failed: "Upgrade failed",
         upgrade_failedDesc: "When an Agent upgrade fails or times out.",
+        update_available: "New release",
+        update_availableDesc:
+          "When a newer master version is found; each version is announced once.",
       },
       cooldown: "Cooldown (seconds)",
       cooldownHint:
@@ -1778,8 +1778,6 @@ const en = {
       },
     },
     backup: {
-      title: "Backup & restore",
-      desc: "A backup is a single SQLite database file; restoring overwrites all data and takes effect after the controller restarts.",
       loadFailed: "Backup info failed to load",
       loadError:
         "Could not load backup info. Check your network, or whether the controller is running.",

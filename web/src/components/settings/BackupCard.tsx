@@ -29,13 +29,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -302,7 +296,7 @@ function RestoreForm() {
         </Alert>
       ) : null}
 
-      {/* 上传是破坏性操作：自己一行、靠左，和上方的下载按钮隔着一条分组线。 */}
+      {/* 上传是破坏性操作：自己一行、靠左；下载在另一张卡里，不与它并排。 */}
       <div className={cn(SETTINGS_FULL_ROW, "flex flex-wrap items-center gap-3")}>
         <Button
           type="button"
@@ -325,10 +319,13 @@ function RestoreForm() {
 }
 
 /**
- * P7：备份与恢复卡片，见 docs/PLAN.md「P7：备份与恢复」。
+ * P7：备份与恢复，见 docs/PLAN.md「P7：备份与恢复」。
  *
  * 下载走同源直链，浏览器自己带 Cookie；恢复必须把文件作为原始字节 POST，
  * 不能套 FormData。上传前在本地挡掉错误扩展名、空文件与 >512 MB。
+ *
+ * 与其它 tab 同一套结构：每个分组一张独立卡片（数据库大小与下载 / 恢复数据），
+ * 破坏性按钮不与下载并排。
  */
 export function BackupCard() {
   useI18n();
@@ -355,25 +352,20 @@ export function BackupCard() {
     });
   };
 
-  return (
-    /* 与其它 tab 同一套卡片结构：卡头 + 若干分组（组间 border-t）。
-       数据库大小（只读）与下载同组；上传恢复单独一组，破坏性按钮不与下载并排。 */
-    <Card className="gap-0 py-0">
-      <CardHeader className="px-5 pt-5">
-        <CardTitle className="flex items-center gap-2 text-sm font-medium">
-          <DatabaseBackupIcon className="size-4 text-muted-foreground" />
-          {t("settings.backup.title")}
-        </CardTitle>
-        <CardDescription className="text-xs">
-          {t("settings.backup.desc")}
-        </CardDescription>
-      </CardHeader>
-      {info.isPending ? (
-        <CardContent className="px-5 py-5">
+  if (info.isPending) {
+    return (
+      <Card>
+        <CardContent>
           <BackupSkeleton />
         </CardContent>
-      ) : info.isError ? (
-        <CardContent className="space-y-3 px-5 py-5">
+      </Card>
+    );
+  }
+
+  if (info.isError) {
+    return (
+      <Card>
+        <CardContent className="space-y-3">
           <Alert
             variant="destructive"
             className="border-destructive/25 bg-destructive/10"
@@ -397,95 +389,95 @@ export function BackupCard() {
             {t("common.retry")}
           </Button>
         </CardContent>
-      ) : (
-        <>
-          {/* 当前库大小（只读值 + 它包含什么）与下载并排：同一组的两栏。 */}
-          <SettingsGroup
-            icon={DatabaseBackupIcon}
-            title={t("settings.backup.sizeLabel")}
-          >
-            <div className="space-y-1">
-              <p className="text-sm font-medium tabular-nums">
-                {formatBytes(info.data.db_bytes, { unlimitedLabel: "—" })}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {t("settings.backup.sizeHint")}
-              </p>
-            </div>
+      </Card>
+    );
+  }
 
-            <div className="space-y-2">
-              <Button variant="outline" size="sm" asChild>
-                <a href={api.backup.downloadUrl} download>
-                  <DownloadIcon />
-                  {t("settings.backup.download")}
-                </a>
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                {t("settings.backup.downloadHint")}
-              </p>
-            </div>
-          </SettingsGroup>
+  return (
+    <div className="space-y-6">
+      {/* 当前库大小与下载并排：同一张卡的两栏。 */}
+      <SettingsGroup
+        icon={DatabaseBackupIcon}
+        title={t("settings.backup.sizeLabel")}
+        description={t("settings.backup.sizeHint")}
+      >
+        <div className="space-y-1">
+          <p className="text-sm font-medium tabular-nums">
+            {formatBytes(info.data.db_bytes, { unlimitedLabel: "—" })}
+          </p>
+        </div>
 
-          <SettingsGroup
-            icon={UploadIcon}
-            title={t("settings.backup.restoreTitle")}
-            description={t("settings.backup.restoreDesc")}
-          >
-            {pending ? (
-              <>
-                <div className={SETTINGS_FULL_ROW}>
-                  <PendingNotice pending={pending} />
+        <div className="space-y-2">
+          <Button variant="outline" size="sm" asChild>
+            <a href={api.backup.downloadUrl} download>
+              <DownloadIcon />
+              {t("settings.backup.download")}
+            </a>
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            {t("settings.backup.downloadHint")}
+          </p>
+        </div>
+      </SettingsGroup>
+
+      <SettingsGroup
+        icon={UploadIcon}
+        title={t("settings.backup.restoreTitle")}
+        description={t("settings.backup.restoreDesc")}
+      >
+        {pending ? (
+          <>
+            <div className={SETTINGS_FULL_ROW}>
+              <PendingNotice pending={pending} />
+            </div>
+            <div
+              className={cn(
+                SETTINGS_FULL_ROW,
+                "space-y-3 rounded-lg border border-primary/25 bg-primary/10 p-3",
+              )}
+            >
+              <div className="flex items-start gap-2">
+                <CheckCircle2Icon className="mt-0.5 size-4 text-primary" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-primary">
+                    {t("settings.backup.uploadSuccessTitle")}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t("settings.backup.uploadSuccessDesc")}
+                  </p>
+                  <p
+                    className="mt-1 text-xs text-muted-foreground"
+                    title={formatRelativeTime(pending.uploaded_at)}
+                  >
+                    {t("settings.backup.pendingDesc", {
+                      time: formatAbsoluteTime(pending.uploaded_at),
+                      size: formatBytes(pending.bytes, {
+                        unlimitedLabel: "—",
+                      }),
+                    })}
+                  </p>
                 </div>
-                <div
-                  className={cn(
-                    SETTINGS_FULL_ROW,
-                    "space-y-3 rounded-lg border border-primary/25 bg-primary/10 p-3",
-                  )}
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setCancelError(null);
+                    setCancelOpen(true);
+                  }}
                 >
-                  <div className="flex items-start gap-2">
-                    <CheckCircle2Icon className="mt-0.5 size-4 text-primary" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-primary">
-                        {t("settings.backup.uploadSuccessTitle")}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {t("settings.backup.uploadSuccessDesc")}
-                      </p>
-                      <p
-                        className="mt-1 text-xs text-muted-foreground"
-                        title={formatRelativeTime(pending.uploaded_at)}
-                      >
-                        {t("settings.backup.pendingDesc", {
-                          time: formatAbsoluteTime(pending.uploaded_at),
-                          size: formatBytes(pending.bytes, {
-                            unlimitedLabel: "—",
-                          }),
-                        })}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex justify-end">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setCancelError(null);
-                        setCancelOpen(true);
-                      }}
-                    >
-                      <Undo2Icon />
-                      {t("settings.backup.cancelRestore")}
-                    </Button>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <RestoreForm />
-            )}
-          </SettingsGroup>
-        </>
-      )}
+                  <Undo2Icon />
+                  {t("settings.backup.cancelRestore")}
+                </Button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <RestoreForm />
+        )}
+      </SettingsGroup>
 
       <AlertDialog
         open={cancelOpen}
@@ -538,6 +530,6 @@ export function BackupCard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Card>
+    </div>
   );
 }

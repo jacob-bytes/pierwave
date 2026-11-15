@@ -82,13 +82,12 @@ function toGeneralFormValues(items: Settings): SettingsGeneralValues {
         : String(items.agent_upgrade_concurrency),
     agent_base_url: items.agent_base_url ?? "",
     subscription_base_url: items.subscription_base_url ?? "",
-    // 版本更新的三个设置项；旧后端缺键时与卡片原先的默认值一致。
+    // 版本更新的两个设置项；旧后端缺键时与卡片原先的默认值一致。
     update_check_enabled: items.update_check_enabled ?? true,
     update_check_interval_hours:
       items.update_check_interval_hours == null
         ? String(DEFAULT_UPDATE_INTERVAL_HOURS)
         : String(items.update_check_interval_hours),
-    update_check_notify: items.update_check_notify ?? true,
   };
 }
 
@@ -319,7 +318,7 @@ function GeneralForm({ initial }: { initial: Settings }) {
     form.clearErrors("root");
     try {
       // 只 PATCH 常规 tab 的键：不提交整份对象，避免覆盖安全 tab 刚存的值。
-      // 版本更新的三个设置项也并在这里，由底部同一条保存栏一次提交。
+      // 版本更新的两个设置项也并在这里，由底部同一条保存栏一次提交。
       const items = await updateSettings.mutateAsync({
         panel_name: values.panel_name.trim(),
         agent_upgrade_concurrency: Number(values.agent_upgrade_concurrency),
@@ -327,7 +326,6 @@ function GeneralForm({ initial }: { initial: Settings }) {
         subscription_base_url: values.subscription_base_url.trim(),
         update_check_enabled: values.update_check_enabled,
         update_check_interval_hours: Number(values.update_check_interval_hours),
-        update_check_notify: values.update_check_notify,
       });
       // PATCH 返回的 items 是权威值：回填表单（同时清掉脏标记），缓存已由 hook 更新。
       form.reset(toGeneralFormValues(items));
@@ -346,121 +344,119 @@ function GeneralForm({ initial }: { initial: Settings }) {
   return (
     <form className="space-y-6" onSubmit={onSubmit}>
       {/*
-        一张卡 + 组间 border-t，组内是「标签在上、控件在下」的两列网格：
-        ≥1024px 两列，窄屏单列。版本更新的三个设置项也在这里，
-        由底部同一条保存栏统一提交。
+        每个分组一张独立卡片（标题 + 说明 + 内容），卡片之间用纵向间距分隔；
+        组内仍是「标签在上、控件在下」的两列网格：≥1024px 两列，窄屏单列。
+        版本更新的两个设置项也在这里，由底部同一条保存栏统一提交。
       */}
-      <Card className="gap-0 py-0">
-        <UpdatesSection form={form} saving={updateSettings.isPending} />
+      <UpdatesSection form={form} saving={updateSettings.isPending} />
 
-        <SettingsGroup
-          icon={SlidersHorizontalIcon}
-          title={t("settings.panel.title")}
-          description={t("settings.panel.desc")}
+      <SettingsGroup
+        icon={SlidersHorizontalIcon}
+        title={t("settings.panel.title")}
+        description={t("settings.panel.desc")}
+      >
+        <FormField
+          label={t("settings.panel.name")}
+          htmlFor="settings-panel-name"
+          required
+          hint={t("settings.panel.nameHint")}
+          error={form.formState.errors.panel_name?.message}
         >
-          <FormField
-            label={t("settings.panel.name")}
-            htmlFor="settings-panel-name"
-            required
-            hint={t("settings.panel.nameHint")}
-            error={form.formState.errors.panel_name?.message}
-          >
-            <Input
-              id="settings-panel-name"
-              autoComplete="off"
-              placeholder={t("settings.panel.namePlaceholder")}
-              disabled={updateSettings.isPending}
-              aria-invalid={Boolean(form.formState.errors.panel_name)}
-              {...form.register("panel_name")}
-            />
-          </FormField>
-        </SettingsGroup>
+          <Input
+            id="settings-panel-name"
+            autoComplete="off"
+            placeholder={t("settings.panel.namePlaceholder")}
+            disabled={updateSettings.isPending}
+            aria-invalid={Boolean(form.formState.errors.panel_name)}
+            {...form.register("panel_name")}
+          />
+        </FormField>
+      </SettingsGroup>
 
-        <SettingsGroup
-          icon={Link2Icon}
-          title={t("settings.publicBase.title")}
-          description={t("settings.publicBase.desc")}
+      <SettingsGroup
+        icon={Link2Icon}
+        title={t("settings.publicBase.title")}
+        description={t("settings.publicBase.desc")}
+      >
+        <FormField
+          label={t("settings.publicBase.agent")}
+          htmlFor="settings-agent-base-url"
+          hint={t("settings.publicBase.agentHint")}
+          error={form.formState.errors.agent_base_url?.message}
         >
-          <FormField
-            label={t("settings.publicBase.agent")}
-            htmlFor="settings-agent-base-url"
-            hint={t("settings.publicBase.agentHint")}
-            error={form.formState.errors.agent_base_url?.message}
-          >
-            <Input
-              id="settings-agent-base-url"
-              autoComplete="off"
-              placeholder={t("settings.publicBase.agentPlaceholder")}
-              disabled={updateSettings.isPending}
-              aria-invalid={Boolean(form.formState.errors.agent_base_url)}
-              {...form.register("agent_base_url")}
-            />
-          </FormField>
+          <Input
+            id="settings-agent-base-url"
+            autoComplete="off"
+            placeholder={t("settings.publicBase.agentPlaceholder")}
+            disabled={updateSettings.isPending}
+            aria-invalid={Boolean(form.formState.errors.agent_base_url)}
+            {...form.register("agent_base_url")}
+          />
+        </FormField>
 
-          <FormField
-            label={t("settings.publicBase.subscription")}
-            htmlFor="settings-subscription-base-url"
-            hint={t("settings.publicBase.subscriptionHint")}
-            error={form.formState.errors.subscription_base_url?.message}
-          >
-            <Input
-              id="settings-subscription-base-url"
-              autoComplete="off"
-              placeholder={t("settings.publicBase.subscriptionPlaceholder")}
-              disabled={updateSettings.isPending}
-              aria-invalid={Boolean(
-                form.formState.errors.subscription_base_url,
-              )}
-              {...form.register("subscription_base_url")}
-            />
-          </FormField>
+        <FormField
+          label={t("settings.publicBase.subscription")}
+          htmlFor="settings-subscription-base-url"
+          hint={t("settings.publicBase.subscriptionHint")}
+          error={form.formState.errors.subscription_base_url?.message}
+        >
+          <Input
+            id="settings-subscription-base-url"
+            autoComplete="off"
+            placeholder={t("settings.publicBase.subscriptionPlaceholder")}
+            disabled={updateSettings.isPending}
+            aria-invalid={Boolean(
+              form.formState.errors.subscription_base_url,
+            )}
+            {...form.register("subscription_base_url")}
+          />
+        </FormField>
 
-          {/* 示例链接是只读预览，行太长：独占一整行，标签在上、链接在下。 */}
-          <div className={cn(SETTINGS_FULL_ROW, "space-y-3 text-xs")}>
-            <div>
-              <p className="text-muted-foreground">
-                {t("settings.publicBase.agentPreview")}
-              </p>
-              <code className="mt-1 block font-mono break-all text-foreground">
-                {agentPreview}
-              </code>
-            </div>
-            <div>
-              <p className="text-muted-foreground">
-                {t("settings.publicBase.subscriptionPreview")}
-              </p>
-              <code className="mt-1 block font-mono break-all text-foreground">
-                {subscribePreview}
-              </code>
-            </div>
+        {/* 示例链接是只读预览，行太长：独占一整行，标签在上、链接在下。 */}
+        <div className={cn(SETTINGS_FULL_ROW, "space-y-3 text-xs")}>
+          <div>
+            <p className="text-muted-foreground">
+              {t("settings.publicBase.agentPreview")}
+            </p>
+            <code className="mt-1 block font-mono break-all text-foreground">
+              {agentPreview}
+            </code>
           </div>
-        </SettingsGroup>
+          <div>
+            <p className="text-muted-foreground">
+              {t("settings.publicBase.subscriptionPreview")}
+            </p>
+            <code className="mt-1 block font-mono break-all text-foreground">
+              {subscribePreview}
+            </code>
+          </div>
+        </div>
+      </SettingsGroup>
 
-        <SettingsGroup
-          icon={ArrowUpCircleIcon}
-          title={t("settings.agentUpgrade.title")}
-          description={t("settings.agentUpgrade.desc")}
+      <SettingsGroup
+        icon={ArrowUpCircleIcon}
+        title={t("settings.agentUpgrade.title")}
+        description={t("settings.agentUpgrade.desc")}
+      >
+        <FormField
+          label={t("settings.agentUpgrade.concurrency")}
+          htmlFor="settings-agent-upgrade-concurrency"
+          required
+          hint={concurrencyHint}
+          error={form.formState.errors.agent_upgrade_concurrency?.message}
         >
-          <FormField
-            label={t("settings.agentUpgrade.concurrency")}
-            htmlFor="settings-agent-upgrade-concurrency"
-            required
-            hint={concurrencyHint}
-            error={form.formState.errors.agent_upgrade_concurrency?.message}
-          >
-            <Input
-              id="settings-agent-upgrade-concurrency"
-              inputMode="numeric"
-              placeholder="1"
-              disabled={updateSettings.isPending}
-              aria-invalid={Boolean(
-                form.formState.errors.agent_upgrade_concurrency,
-              )}
-              {...form.register("agent_upgrade_concurrency")}
-            />
-          </FormField>
-        </SettingsGroup>
-      </Card>
+          <Input
+            id="settings-agent-upgrade-concurrency"
+            inputMode="numeric"
+            placeholder="1"
+            disabled={updateSettings.isPending}
+            aria-invalid={Boolean(
+              form.formState.errors.agent_upgrade_concurrency,
+            )}
+            {...form.register("agent_upgrade_concurrency")}
+          />
+        </FormField>
+      </SettingsGroup>
 
       <FormRootError message={form.formState.errors.root?.message} />
 
@@ -527,69 +523,65 @@ function SecurityForm({ initial }: { initial: Settings }) {
 
   return (
     <form className="space-y-6" onSubmit={onSubmit}>
-      {/* 与常规 tab 同一套布局：一张卡 + 分组，组内两列、字段内部上下堆叠。 */}
-      <Card className="gap-0 py-0">
-        <SettingsGroup
-          icon={ShieldCheckIcon}
-          title={t("settings.security.title")}
-          description={t("settings.security.desc")}
+      {/* 与常规 tab 同一套布局：每个分组一张独立卡片，组内两列、字段内部上下堆叠。 */}
+      <SettingsGroup
+        icon={ShieldCheckIcon}
+        title={t("settings.security.title")}
+        description={t("settings.security.desc")}
+      >
+        {/* 失败上限与锁定时长是同一套登录限流策略，并排；会话有效期是另一件事，独占一行。 */}
+        <FormField
+          label={t("settings.security.attempts")}
+          htmlFor="settings-login-max-attempts"
+          required
+          hint={attemptsHint}
+          error={form.formState.errors.login_max_attempts?.message}
         >
-          {/* 失败上限与锁定时长是同一套登录限流策略，并排；会话有效期是另一件事，独占一行。 */}
-          <FormField
-            label={t("settings.security.attempts")}
-            htmlFor="settings-login-max-attempts"
-            required
-            hint={attemptsHint}
-            error={form.formState.errors.login_max_attempts?.message}
-          >
-            <Input
-              id="settings-login-max-attempts"
-              inputMode="numeric"
-              placeholder="5"
-              disabled={updateSettings.isPending}
-              aria-invalid={Boolean(
-                form.formState.errors.login_max_attempts,
-              )}
-              {...form.register("login_max_attempts")}
-            />
-          </FormField>
+          <Input
+            id="settings-login-max-attempts"
+            inputMode="numeric"
+            placeholder="5"
+            disabled={updateSettings.isPending}
+            aria-invalid={Boolean(form.formState.errors.login_max_attempts)}
+            {...form.register("login_max_attempts")}
+          />
+        </FormField>
 
-          <FormField
-            label={t("settings.security.lock")}
-            htmlFor="settings-login-lock-secs"
-            required
-            hint={lockHint}
-            error={form.formState.errors.login_lock_secs?.message}
-          >
-            <Input
-              id="settings-login-lock-secs"
-              inputMode="numeric"
-              placeholder="900"
-              disabled={updateSettings.isPending}
-              aria-invalid={Boolean(form.formState.errors.login_lock_secs)}
-              {...form.register("login_lock_secs")}
-            />
-          </FormField>
+        <FormField
+          label={t("settings.security.lock")}
+          htmlFor="settings-login-lock-secs"
+          required
+          hint={lockHint}
+          error={form.formState.errors.login_lock_secs?.message}
+        >
+          <Input
+            id="settings-login-lock-secs"
+            inputMode="numeric"
+            placeholder="900"
+            disabled={updateSettings.isPending}
+            aria-invalid={Boolean(form.formState.errors.login_lock_secs)}
+            {...form.register("login_lock_secs")}
+          />
+        </FormField>
 
-          {/* 会话有效期与登录限流是两件事：不并排，自己占一行（右列留空）。 */}
-          <FormField
-            label={t("settings.security.session")}
-            htmlFor="settings-session-ttl-hours"
-            required
-            hint={sessionHint}
-            error={form.formState.errors.session_ttl_hours?.message}
-          >
-            <Input
-              id="settings-session-ttl-hours"
-              inputMode="numeric"
-              placeholder="24"
-              disabled={updateSettings.isPending}
-              aria-invalid={Boolean(form.formState.errors.session_ttl_hours)}
-              {...form.register("session_ttl_hours")}
-            />
-          </FormField>
-        </SettingsGroup>
-      </Card>
+        {/* 会话有效期与登录限流是两件事：不并排，自己占一行（右列留空）。 */}
+        <FormField
+          label={t("settings.security.session")}
+          htmlFor="settings-session-ttl-hours"
+          required
+          hint={sessionHint}
+          error={form.formState.errors.session_ttl_hours?.message}
+        >
+          <Input
+            id="settings-session-ttl-hours"
+            inputMode="numeric"
+            placeholder="24"
+            disabled={updateSettings.isPending}
+            aria-invalid={Boolean(form.formState.errors.session_ttl_hours)}
+            {...form.register("session_ttl_hours")}
+          />
+        </FormField>
+      </SettingsGroup>
 
       <FormRootError message={form.formState.errors.root?.message} />
 
@@ -693,7 +685,7 @@ export default function SettingsPage() {
           <p className="text-xs text-muted-foreground">
             {t("settings.tabs.regularDesc")}
           </p>
-          {/* 版本更新分组由 GeneralForm 内部渲染，三个设置项随同一份表单提交。 */}
+          {/* 版本更新卡由 GeneralForm 内部渲染，两个设置项随同一份表单提交。 */}
           <SettingsPanelState query={settings} cards={1} lines={8}>
             {(items) => <GeneralForm initial={items} />}
           </SettingsPanelState>

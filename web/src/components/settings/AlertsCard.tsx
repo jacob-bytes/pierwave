@@ -27,13 +27,7 @@ import {
   AlertTitle,
 } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -49,6 +43,7 @@ import {
   normalizeAlertTestResults,
   parseAlertEvents,
   serializeAlertEvents,
+  toggleAlertEvent,
   type AlertChannelConfig,
   type AlertEvent,
   type AlertTestResult,
@@ -145,8 +140,9 @@ function AlertsSkeleton() {
           <Skeleton className="h-3 w-56" />
         </div>
       ))}
+      {/* 5 个事件占位（服务器离线 / 用户断流 / 转发链降级 / 升级失败 / 发现新版本）。 */}
       <div className="grid gap-2 sm:grid-cols-2">
-        {[0, 1, 2, 3].map((index) => (
+        {[0, 1, 2, 3, 4].map((index) => (
           <Skeleton key={index} className="h-16 w-full" />
         ))}
       </div>
@@ -240,12 +236,9 @@ function AlertsForm({ initial }: { initial: Settings }) {
   const dirty = form.formState.isDirty;
 
   const toggleEvent = (event: AlertEvent, checked: boolean) => {
-    const next = new Set(form.getValues("alert_events") ?? []);
-    if (checked) next.add(event);
-    else next.delete(event);
     form.setValue(
       "alert_events",
-      ALERT_EVENTS.filter((kind) => next.has(kind)),
+      toggleAlertEvent(form.getValues("alert_events") ?? [], event, checked),
       { shouldDirty: true, shouldValidate: true },
     );
   };
@@ -311,7 +304,7 @@ function AlertsForm({ initial }: { initial: Settings }) {
   };
 
   return (
-    <form onSubmit={onSubmit}>
+    <form className="space-y-6" onSubmit={onSubmit}>
       <SettingsGroup
         icon={SendIcon}
         title={t("settings.alerts.telegram.title")}
@@ -546,7 +539,7 @@ function AlertsForm({ initial }: { initial: Settings }) {
         ) : null}
       </SettingsGroup>
 
-      <section className="space-y-3 border-t border-border px-5 py-5">
+      <div className="space-y-3">
         <FormRootError message={form.formState.errors.root?.message} />
 
         <div className="flex flex-wrap items-center justify-end gap-3">
@@ -571,39 +564,36 @@ function AlertsForm({ initial }: { initial: Settings }) {
               : t("settings.alerts.save")}
           </Button>
         </div>
-      </section>
+      </div>
     </form>
   );
 }
 
 /**
- * 告警通知卡片：独立四态（加载 / 空 / 错误 / 正常）。
+ * 通知设置：独立四态（加载 / 空 / 错误 / 正常）。
  *
  * 设置查询与主表单共用 `["settings"]` 缓存，所以不会多打一次请求；
- * 但卡的加载与错误态独立呈现，后端暂时 404 时也能单独重试。
+ * 但加载与错误态独立呈现，后端暂时 404 时也能单独重试。正常态下每个分组
+ * 是一张独立卡片（Telegram / Webhook / 事件 / 测试），底部一条保存栏。
  */
 export function AlertsCard() {
   useI18n();
   const settings = useSettings();
 
-  return (
-    /* 与其它 tab 同一套卡片结构：卡头 + 若干分组（组间 border-t）+ 底部保存栏。 */
-    <Card className="gap-0 py-0">
-      <CardHeader className="px-5 pt-5">
-        <CardTitle className="flex items-center gap-2 text-sm font-medium">
-          <BellRingIcon className="size-4 text-muted-foreground" />
-          {t("settings.alerts.title")}
-        </CardTitle>
-        <CardDescription className="text-xs">
-          {t("settings.alerts.desc")}
-        </CardDescription>
-      </CardHeader>
-      {settings.isPending ? (
-        <CardContent className="px-5 py-5">
+  if (settings.isPending) {
+    return (
+      <Card>
+        <CardContent>
           <AlertsSkeleton />
         </CardContent>
-      ) : settings.isError ? (
-        <CardContent className="space-y-3 px-5 py-5">
+      </Card>
+    );
+  }
+
+  if (settings.isError) {
+    return (
+      <Card>
+        <CardContent className="space-y-3">
           <Alert
             variant="destructive"
             className="border-destructive/25 bg-destructive/10"
@@ -630,8 +620,14 @@ export function AlertsCard() {
             {t("common.retry")}
           </Button>
         </CardContent>
-      ) : !settings.data || Object.keys(settings.data).length === 0 ? (
-        <CardContent className="flex flex-col items-center gap-3 px-5 py-10 text-center">
+      </Card>
+    );
+  }
+
+  if (!settings.data || Object.keys(settings.data).length === 0) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
           <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
             <BellRingIcon className="size-5" />
           </div>
@@ -656,9 +652,9 @@ export function AlertsCard() {
             {t("common.retry")}
           </Button>
         </CardContent>
-      ) : (
-        <AlertsForm initial={settings.data} />
-      )}
-    </Card>
-  );
+      </Card>
+    );
+  }
+
+  return <AlertsForm initial={settings.data} />;
 }
