@@ -1,3 +1,4 @@
+export { CopyButton } from "./CopyButton";
 export { EmptyState } from "./EmptyState";
 export type { EmptyStateProps } from "./EmptyState";
 export {
@@ -7,6 +8,8 @@ export {
   TunnelSecurityBadge,
   UdpBadge,
 } from "./EngineBadge";
+export { InfoNote, InfoNoteRow } from "./InfoNote";
+export type { InfoNoteProps, InfoNoteRowProps } from "./InfoNote";
 export { PageHeader } from "./PageHeader";
 export type { PageHeaderProps } from "./PageHeader";
 export {

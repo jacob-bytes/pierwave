@@ -8,9 +8,11 @@ import {
   formatVersion,
   hasUpdate,
   isNewerVersion,
+  MASTER_UPGRADE_COMMAND,
   parseUpdateInterval,
   pickBilingual,
   releaseDateText,
+  shouldShowUpgradeHint,
   showsUpdateDot,
   UPDATE_INTERVAL_MAX_HOURS,
   UPDATE_INTERVAL_MIN_HOURS,
@@ -217,4 +219,38 @@ test("update interval rejects empty, non-numeric and out-of-range input", () => 
   for (const raw of ["", "   ", "0", "169", "-1", "1.5", "6h", "abc", "1e3"]) {
     assert.equal(parseUpdateInterval(raw), null, raw);
   }
+});
+
+test("master upgrade hint only shows for a confirmed newer release", () => {
+  assert.equal(shouldShowUpgradeHint(payload().master), true);
+  // 已是最新 / 后端标记但版本并不更新：都不提示。
+  assert.equal(
+    shouldShowUpgradeHint(
+      payload({ latest: "0.11.3", update_available: false }).master,
+    ),
+    false,
+  );
+  assert.equal(
+    shouldShowUpgradeHint(payload({ update_available: false }).master),
+    false,
+  );
+  assert.equal(shouldShowUpgradeHint(payload({ latest: null }).master), false);
+  assert.equal(
+    shouldShowUpgradeHint(payload({ latest: "0.11.3" }).master),
+    false,
+  );
+  // 检测失败时即使保留着上一次成功的最新版本，也不给升级命令。
+  assert.equal(
+    shouldShowUpgradeHint(
+      payload({ error: "HTTP 503 / HTTP 503" }).master,
+    ),
+    false,
+  );
+});
+
+test("master upgrade command uses the repo installer's upgrade subcommand", () => {
+  assert.match(
+    MASTER_UPGRADE_COMMAND,
+    /^curl -fsSL https:\/\/raw\.githubusercontent\.com\/jacob-bytes\/pierwave\/main\/scripts\/install\.sh \| sudo bash -s -- upgrade$/,
+  );
 });

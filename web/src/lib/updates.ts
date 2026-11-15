@@ -55,6 +55,16 @@ export const UPDATE_INTERVAL_MIN_HOURS = 1;
 export const UPDATE_INTERVAL_MAX_HOURS = 168;
 export const DEFAULT_UPDATE_INTERVAL_HOURS = 6;
 
+/**
+ * master 升级命令。
+ *
+ * 来源：仓库 `scripts/install.sh`（master 分支的一键安装脚本）。
+ * 脚本没有默认动作——不带参数只打印 usage 并退出，所以必须显式传
+ * `-s -- upgrade`；`upgrade` 子命令会拒绝降级、备份数据库并保留旧二进制。
+ */
+export const MASTER_UPGRADE_COMMAND =
+  "curl -fsSL https://raw.githubusercontent.com/jacob-bytes/pierwave/main/scripts/install.sh | sudo bash -s -- upgrade";
+
 /** 输入文本 → 合法检测间隔；空串、非数字或越界都返回 null。 */
 export function parseUpdateInterval(raw: string): number | null {
   const trimmed = raw.trim();
@@ -163,6 +173,24 @@ export function hasUpdate(
   if (!latest || !latest.trim()) return false;
   if (!parseVersion(latest) || !parseVersion(current)) return false;
   return isNewerVersion(latest, current);
+}
+
+/**
+ * 是否展示「升级 master」提示块。
+ *
+ * 只有确认存在更新时才显示：后端 `update_available` 标记、版本确实更新、
+ * 且最近一次检测没有失败（失败时保留的旧「最新版本」不足以给出升级建议）。
+ */
+export function shouldShowUpgradeHint(
+  master: Pick<
+    MasterUpdateView,
+    "update_available" | "latest" | "current" | "error"
+  >,
+): boolean {
+  if (master.error) return false;
+  return Boolean(
+    master.update_available && hasUpdate(master.latest, master.current),
+  );
 }
 
 /** 展示用版本号：统一带 `v` 前缀；空值显示占位符。 */

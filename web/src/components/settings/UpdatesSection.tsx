@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import type { UseFormReturn } from "react-hook-form";
 import { toast } from "sonner";
+import { CopyButton, InfoNote, InfoNoteRow } from "@/components/common";
 import { FormField } from "@/components/FormField";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -27,8 +28,10 @@ import {
   DEFAULT_UPDATE_INTERVAL_HOURS,
   formatVersion,
   hasUpdate,
+  MASTER_UPGRADE_COMMAND,
   parseUpdateInterval,
   pickBilingual,
+  shouldShowUpgradeHint,
   updateErrorText,
   type AgentUpdateView,
   type MasterUpdateView,
@@ -149,6 +152,27 @@ export function UpdatesSection({
           <AgentsInfo agents={updates.data.agents} />
         </>
       )}
+
+      {/* 确认有新版本时才给升级命令；已最新或检测失败都不提示。 */}
+      {!updates.isError &&
+      updates.data &&
+      shouldShowUpgradeHint(updates.data.master) ? (
+        <InfoNote
+          className={SETTINGS_FULL_ROW}
+          title={t("settings.updates.upgradeTitle")}
+          action={
+            <CopyButton
+              value={MASTER_UPGRADE_COMMAND}
+              label={t("settings.updates.upgradeTitle")}
+            />
+          }
+        >
+          <InfoNoteRow code={MASTER_UPGRADE_COMMAND} />
+          <p className="text-muted-foreground">
+            {t("settings.updates.upgradeAgentHint")}
+          </p>
+        </InfoNote>
+      ) : null}
 
       {/* 检测间隔与自动检测是同一件事（怎么检测 / 检不检），并排。 */}
       <FormField

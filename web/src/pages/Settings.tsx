@@ -16,7 +16,12 @@ import type { LucideIcon } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { FormField, FormRootError } from "@/components/FormField";
-import { SkeletonCard } from "@/components/common";
+import {
+  CopyButton,
+  InfoNote,
+  InfoNoteRow,
+  SkeletonCard,
+} from "@/components/common";
 import { AlertsCard } from "@/components/settings/AlertsCard";
 import { BackupCard } from "@/components/settings/BackupCard";
 import { CertificatesPanel } from "@/components/settings/CertificatesPanel";
@@ -412,25 +417,32 @@ function GeneralForm({ initial }: { initial: Settings }) {
           />
         </FormField>
 
-        {/* 示例链接是只读预览，行太长：独占一整行，标签在上、链接在下。 */}
-        <div className={cn(SETTINGS_FULL_ROW, "space-y-3 text-xs")}>
-          <div>
-            <p className="text-muted-foreground">
-              {t("settings.publicBase.agentPreview")}
-            </p>
-            <code className="mt-1 block font-mono break-all text-foreground">
-              {agentPreview}
-            </code>
-          </div>
-          <div>
-            <p className="text-muted-foreground">
-              {t("settings.publicBase.subscriptionPreview")}
-            </p>
-            <code className="mt-1 block font-mono break-all text-foreground">
-              {subscribePreview}
-            </code>
-          </div>
-        </div>
+        {/* 示例链接是只读参考，不是输入项：独占一整行，用提示块与表单字段区分。 */}
+        <InfoNote
+          className={SETTINGS_FULL_ROW}
+          title={t("settings.publicBase.examples")}
+        >
+          <InfoNoteRow
+            label={t("settings.publicBase.agentPreview")}
+            code={agentPreview}
+            action={
+              <CopyButton
+                value={agentPreview}
+                label={t("settings.publicBase.agentPreview")}
+              />
+            }
+          />
+          <InfoNoteRow
+            label={t("settings.publicBase.subscriptionPreview")}
+            code={subscribePreview}
+            action={
+              <CopyButton
+                value={subscribePreview}
+                label={t("settings.publicBase.subscriptionPreview")}
+              />
+            }
+          />
+        </InfoNote>
       </SettingsGroup>
 
       <SettingsGroup

@@ -46,6 +46,7 @@ const zhCN = {
     refresh: "刷新",
     copy: "复制",
     copied: "已复制",
+    copyFailed: "复制失败，请手动选择文本复制",
     none: "暂无",
     viewAll: "查看全部",
     details: "详情",
@@ -1556,8 +1557,9 @@ const zhCN = {
       subscription: "订阅地址",
       subscriptionPlaceholder: "https://sub.example.com",
       subscriptionHint: "留空则使用 Agent 纳管地址。",
-      agentPreview: "安装命令示例",
-      subscriptionPreview: "订阅链接示例",
+      examples: "示例",
+      agentPreview: "安装命令",
+      subscriptionPreview: "订阅链接",
     },
     agentUpgrade: {
       title: "Agent 升级",
@@ -1595,6 +1597,8 @@ const zhCN = {
       updateAvailable: "有新版本",
       upToDate: "已是最新",
       release: "查看 Release",
+      upgradeTitle: "升级命令",
+      upgradeAgentHint: "Agent 请在「服务器」页批量升级。",
     },
     alerts: {
       notReady404: "告警设置接口尚未就绪（后端可能还在部署），请稍后重试",

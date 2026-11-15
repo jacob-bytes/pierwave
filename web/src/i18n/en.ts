@@ -50,6 +50,7 @@ const en = {
     refresh: "Refresh",
     copy: "Copy",
     copied: "Copied",
+    copyFailed: "Could not copy. Select the text and copy it manually.",
     none: "None",
     viewAll: "View all",
     details: "Details",
@@ -1636,8 +1637,9 @@ const en = {
       subscription: "Subscription address",
       subscriptionPlaceholder: "https://sub.example.com",
       subscriptionHint: "Defaults to the Agent address when empty.",
-      agentPreview: "Install command example",
-      subscriptionPreview: "Subscription link example",
+      examples: "Example",
+      agentPreview: "Install command",
+      subscriptionPreview: "Subscription link",
     },
     agentUpgrade: {
       title: "Agent upgrades",
@@ -1677,6 +1679,8 @@ const en = {
       updateAvailable: "Update available",
       upToDate: "Up to date",
       release: "View release",
+      upgradeTitle: "Upgrade command",
+      upgradeAgentHint: "Upgrade Agents in bulk from the Servers page.",
     },
     alerts: {
       notReady404:
