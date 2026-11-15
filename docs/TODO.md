@@ -265,3 +265,62 @@ multi-member selection outside the entry group is rejected for now (`chain.nftab
 Graceful shutdown deletes the table; a SIGKILL leaves it behind until the next apply. Remaining:
 `jhash`/map multi-target selection, real Linux `nft -c` and end-to-end verification, and kernel
 counter observability.
+
+## 待办：尚未实现但已评估的功能（2026-11 对照盘点）
+
+优先级从上到下。每项都经过一次与参考产品的对照评估，标注了**不做的替代理由**。
+
+### 安全与账号
+
+1. **面板 TOTP 两步验证**（S）：密码泄露即面板被接管，这是当前唯一的安全纵深缺口。
+   实施时必须同时提供**恢复码**与**服务端紧急关闭开关**（环境变量/CLI），否则管理员会被锁死。
+   可选开启，默认关闭。暂缓，未排期。
+2. **API Token（作用域化）+ 只读 HTTP MCP**（M）：现在脚本/CI/AI 只能直连 SQLite。
+   默认只读、可撤销、审计、限流。
+
+### 运维可靠性
+
+3. **定时异地备份**（M，先 WebDAV，后 S3）：主控整机故障时本地备份同归于尽。
+   需注意凭据存储、备份含证书私钥、保留策略只删自己前缀。
+4. **证书外部签发 Webhook + 到期告警**（S）：不做 ACME（已明确不做），
+   但让 certbot/acme.sh/Certimate 能推证书进来，并新增 `cert_expiring` 告警（7/3/1 天）。
+
+### 可观测与告警
+
+5. **服务器实时网速**（S）：心跳增加网卡累计字节，主控算速率；只做展示，**不参与计费**。
+6. **告警事件扩充 + 每日摘要**（S）：现有 5 类只覆盖「坏了」，缺登录失败、订阅获取、
+   每日流量、到期提醒等日常运营信息。通知里不得包含订阅链接或密码。
+7. **转发链可用率 / 丢包**（S–M）：现在只有延迟与「降级」布尔值，无法区分「慢」和「丢」。
+   丢包只能用探测成功率近似，UI 必须标口径。
+
+### 转发能力
+
+8. **转发链加权 / 最少连接策略**（S–M）：`weight` 字段已落库但「只存不用」。
+   需升协议版本并对旧 Agent 拒绝保存。
+9. **透传客户端真实 IP（PROXY protocol v2）**（M）：落地需要知道真实来源时才有价值。
+
+### 订阅与节点
+
+10. **订阅模板第三轮**（S–M）：Egern/Surfboard/Loon/QX/V2Ray 等格式接入模板；
+    `include_auto` 扩展到 fallback/load-balance；按套餐维度预览。
+
+### 已明确不做（记录理由，避免反复讨论）
+
+- 内嵌 Xray / 精确按用户限速 / 连接数限制 / 在线用户追踪：需改数据面，违背「外置 Xray + 期望态」。
+- ACME 自动签发与多 DNS 提供商：成本高、依赖外部账号；用外部签发 + Webhook 覆盖。
+- 面板内安装/启停 Xray/Nginx、在线改 config、扫描入站：命令式 RPC，与期望态模型冲突。
+- 联邦分享服务器 / 拼车市场 / 邀请码：单运营者自建形态下不成立。
+- 外部订阅导入 / 聚合订阅：外部节点无法按 Xray 计数计费，会分叉出第二套事实源。
+- 入口 DNS / 分线路解析 / DDNS 更新：依赖外部 DNS 厂商 API，测试困难。
+- 节点测速（iperf3/mihomo 内核）：需额外内核或临时服务，结果受线路影响大。
+- Agent HTTP/Pull 连接模式：反向 WebSocket 已解决 NAT，再加主控监听只会扩大攻击面。
+- PostgreSQL 双库 / 面板内自更新：SQLite + install.sh 是有意取舍，自更新有 brick 风险。
+
+**English summary.** Backlog of evaluated-but-unbuilt work. Security: TOTP (needs recovery codes
+plus an emergency off switch), scoped API tokens with read-only MCP. Reliability: scheduled
+off-site backups (WebDAV first), certificate webhook ingestion with expiry alerts. Observability:
+server throughput from heartbeat counters (display only), more alert kinds with a daily digest,
+chain availability/loss metrics. Forwarding: weighted and least-connection strategies (the `weight`
+column exists but is unused), PROXY protocol v2. Subscriptions: more client formats for templates.
+The "deliberately not built" list records why each was rejected so the same discussion does not
+restart every time.
