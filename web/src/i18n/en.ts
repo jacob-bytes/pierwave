@@ -1657,6 +1657,7 @@ const en = {
       forbidden: "Only administrators can view update status",
       notReady404: "The update API is not available yet. Try again later.",
       current: "Current",
+      currentVersion: "Current version",
       latest: "Latest",
       notChecked: "Not checked yet",
       lastChecked: "Last checked {time}",

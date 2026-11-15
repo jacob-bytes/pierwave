@@ -1575,6 +1575,7 @@ const zhCN = {
       forbidden: "只有管理员可以查看版本信息",
       notReady404: "版本更新接口尚未就绪，请稍后重试",
       current: "当前",
+      currentVersion: "当前版本",
       latest: "最新",
       notChecked: "尚未检测",
       lastChecked: "上次检测 {time}",
