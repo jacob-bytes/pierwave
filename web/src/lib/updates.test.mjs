@@ -4,12 +4,16 @@ import { setCurrentLocale } from "../i18n/locale.ts";
 import {
   checkedAtText,
   compareVersions,
+  DEFAULT_UPDATE_INTERVAL_HOURS,
   formatVersion,
   hasUpdate,
   isNewerVersion,
+  parseUpdateInterval,
   pickBilingual,
   releaseDateText,
   showsUpdateDot,
+  UPDATE_INTERVAL_MAX_HOURS,
+  UPDATE_INTERVAL_MIN_HOURS,
   updateBadgeState,
   updateErrorText,
 } from "./updates.ts";
@@ -196,5 +200,21 @@ test("relative-time wording follows the current locale", () => {
     assert.equal(checkedAtText(null, NOW), "Not checked yet");
   } finally {
     setCurrentLocale("zh-CN");
+  }
+});
+
+test("update interval accepts the documented 1–168 hour window", () => {
+  assert.equal(UPDATE_INTERVAL_MIN_HOURS, 1);
+  assert.equal(UPDATE_INTERVAL_MAX_HOURS, 168);
+  assert.equal(DEFAULT_UPDATE_INTERVAL_HOURS, 6);
+  assert.equal(parseUpdateInterval("1"), 1);
+  assert.equal(parseUpdateInterval("6"), 6);
+  assert.equal(parseUpdateInterval("168"), 168);
+  assert.equal(parseUpdateInterval(" 24 "), 24);
+});
+
+test("update interval rejects empty, non-numeric and out-of-range input", () => {
+  for (const raw of ["", "   ", "0", "169", "-1", "1.5", "6h", "abc", "1e3"]) {
+    assert.equal(parseUpdateInterval(raw), null, raw);
   }
 });

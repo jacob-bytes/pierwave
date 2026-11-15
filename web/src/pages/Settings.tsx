@@ -56,6 +56,7 @@ import {
   settingsTabParam,
   type SettingsTabId,
 } from "@/lib/settingsTabs";
+import { DEFAULT_UPDATE_INTERVAL_HOURS } from "@/lib/updates";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
@@ -83,6 +84,13 @@ function toGeneralFormValues(items: Settings): SettingsGeneralValues {
         : String(items.agent_upgrade_concurrency),
     agent_base_url: items.agent_base_url ?? "",
     subscription_base_url: items.subscription_base_url ?? "",
+    // 版本更新的三个设置项；旧后端缺键时与卡片原先的默认值一致。
+    update_check_enabled: items.update_check_enabled ?? true,
+    update_check_interval_hours:
+      items.update_check_interval_hours == null
+        ? String(DEFAULT_UPDATE_INTERVAL_HOURS)
+        : String(items.update_check_interval_hours),
+    update_check_notify: items.update_check_notify ?? true,
   };
 }
 
@@ -249,11 +257,11 @@ function SettingsPanelState({
 }
 
 /** 每个 tab 自己的保存条；提交键只由所在表单决定。 */
-function SaveBar({ pending }: { pending: boolean }) {
+function SaveBar({ pending, dirty }: { pending: boolean; dirty: boolean }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-3">
       <p className="text-xs text-muted-foreground">{t("settings.saveHint")}</p>
-      <Button type="submit" disabled={pending}>
+      <Button type="submit" disabled={pending || !dirty}>
         {pending ? (
           <Loader2Icon className="animate-spin" />
         ) : (
@@ -305,11 +313,15 @@ function GeneralForm({ initial }: { initial: Settings }) {
     form.clearErrors("root");
     try {
       // 只 PATCH 常规 tab 的键：不提交整份对象，避免覆盖安全 tab 刚存的值。
+      // 版本更新的三个设置项也并在这里，由底部同一条保存栏一次提交。
       const items = await updateSettings.mutateAsync({
         panel_name: values.panel_name.trim(),
         agent_upgrade_concurrency: Number(values.agent_upgrade_concurrency),
         agent_base_url: values.agent_base_url.trim(),
         subscription_base_url: values.subscription_base_url.trim(),
+        update_check_enabled: values.update_check_enabled,
+        update_check_interval_hours: Number(values.update_check_interval_hours),
+        update_check_notify: values.update_check_notify,
       });
       // PATCH 返回的 items 是权威值：回填表单（同时清掉脏标记），缓存已由 hook 更新。
       form.reset(toGeneralFormValues(items));
@@ -327,6 +339,9 @@ function GeneralForm({ initial }: { initial: Settings }) {
 
   return (
     <form className="space-y-6" onSubmit={onSubmit}>
+      {/* 版本更新卡在常规 tab 顶部；三个设置项属于本表单，底部保存栏统一提交。 */}
+      <UpdatesCard form={form} saving={updateSettings.isPending} />
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-sm font-medium">
@@ -459,7 +474,10 @@ function GeneralForm({ initial }: { initial: Settings }) {
 
       <FormRootError message={form.formState.errors.root?.message} />
 
-      <SaveBar pending={updateSettings.isPending} />
+      <SaveBar
+        pending={updateSettings.isPending}
+        dirty={form.formState.isDirty}
+      />
     </form>
   );
 }
@@ -587,7 +605,10 @@ function SecurityForm({ initial }: { initial: Settings }) {
         </CardContent>
       </Card>
 
-      <SaveBar pending={updateSettings.isPending} />
+      <SaveBar
+        pending={updateSettings.isPending}
+        dirty={form.formState.isDirty}
+      />
     </form>
   );
 }
@@ -684,9 +705,8 @@ export default function SettingsPage() {
           <p className="text-xs text-muted-foreground">
             {t("settings.tabs.regularDesc")}
           </p>
-          {/* P17：版本更新独立成卡，自己拉 /updates 并保存自己的三个设置项。 */}
-          <UpdatesCard />
-          <SettingsPanelState query={settings} cards={3}>
+          {/* 版本更新卡由 GeneralForm 内部渲染，三个设置项随同一份表单提交。 */}
+          <SettingsPanelState query={settings} cards={4}>
             {(items) => <GeneralForm initial={items} />}
           </SettingsPanelState>
         </TabsContent>

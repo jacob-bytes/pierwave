@@ -50,6 +50,22 @@ export type UpdateBadgeState =
   | "update"
   | "error";
 
+/** 自动检测间隔的允许范围（小时），与后端白名单一致。 */
+export const UPDATE_INTERVAL_MIN_HOURS = 1;
+export const UPDATE_INTERVAL_MAX_HOURS = 168;
+export const DEFAULT_UPDATE_INTERVAL_HOURS = 6;
+
+/** 输入文本 → 合法检测间隔；空串、非数字或越界都返回 null。 */
+export function parseUpdateInterval(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const value = Number(trimmed);
+  return value >= UPDATE_INTERVAL_MIN_HOURS &&
+    value <= UPDATE_INTERVAL_MAX_HOURS
+    ? value
+    : null;
+}
+
 interface ParsedVersion {
   core: number[];
   /** `-rc.1` 里的 `rc.1`；null = 正式版。 */
