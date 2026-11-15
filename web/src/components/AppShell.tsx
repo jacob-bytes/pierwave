@@ -88,6 +88,14 @@ type NavGroup = {
 const consoleNav: NavItem[] = [
   { to: "/", labelKey: "nav.overview", icon: LayoutDashboardIcon, end: true },
   {
+    to: "/nodes",
+    labelKey: "nav.nodes",
+    icon: NetworkIcon,
+    activeWhen: (pathname) =>
+      pathname === "/nodes" ||
+      /^\/servers\/[^/]+\/nodes(?:\/|$)/.test(pathname),
+  },
+  {
     to: "/servers",
     labelKey: "nav.servers",
     icon: ServerIcon,
@@ -125,14 +133,6 @@ const forwardingNav: NavItem[] = [
 ];
 
 const systemNav: NavItem[] = [
-  {
-    to: "/nodes",
-    labelKey: "nav.nodes",
-    icon: NetworkIcon,
-    activeWhen: (pathname) =>
-      pathname === "/nodes" ||
-      /^\/servers\/[^/]+\/nodes(?:\/|$)/.test(pathname),
-  },
   { to: "/logs", labelKey: "nav.logs", icon: ScrollTextIcon },
   { to: "/settings", labelKey: "nav.settings", icon: SettingsIcon },
 ];
