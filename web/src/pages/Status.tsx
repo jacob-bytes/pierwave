@@ -203,7 +203,7 @@ function MeterSkeleton() {
 }
 
 /**
- * 与 `ServerCard` 同构的骨架：标题行 + 副行 + 2×2 指标 + 底部可用率点阵。
+ * 与 `ServerCard` 同构的骨架：标题行 + 副行 + 2×2 指标 + 实时速率 + 底部点阵。
  * 结构一致，加载结束换成真数据时不会整块跳动。
  */
 function ServerCardSkeleton() {
@@ -224,8 +224,25 @@ function ServerCardSkeleton() {
         ))}
       </div>
 
-      <div className="mt-auto pt-4">
-        <div className="mt-3 grid grid-cols-[repeat(24,minmax(0,1fr))] gap-0.5">
+      {/* 实时速率的四个格子（两行两列），与真实卡片同一个可换行栅格。 */}
+      <div className="mt-4 border-t border-border pt-2.5">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-[repeat(auto-fit,minmax(7.5rem,1fr))]">
+          {Array.from({ length: 4 }, (_, index) => (
+            <div key={index} className="flex items-center gap-2">
+              {index % 2 === 0 ? (
+                <Skeleton className="size-3 shrink-0" />
+              ) : null}
+              <SkeletonLine
+                className={index % 2 === 0 ? "h-3 w-16" : "h-3 w-12"}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-3 border-t border-border" />
+      <div className="mt-auto pt-3">
+        <div className="grid grid-cols-[repeat(24,minmax(0,1fr))] gap-0.5">
           {Array.from({ length: 24 }, (_, index) => (
             <Skeleton key={index} className="h-1.5 rounded-[2px]" />
           ))}
@@ -233,15 +250,6 @@ function ServerCardSkeleton() {
         <div className="mt-2 flex items-baseline justify-between gap-2">
           <SkeletonLine className="h-3 w-16" />
           <SkeletonLine className="h-3 w-10" />
-        </div>
-        {/* 底部「当前速率 / 累计流量」两行，与真实卡片同高。 */}
-        <div className="mt-3 grid grid-cols-[auto_auto_auto] items-baseline justify-start gap-x-3 gap-y-1.5 border-t border-border pt-2.5">
-          <Skeleton className="size-3" />
-          <SkeletonLine className="h-3 w-16" />
-          <SkeletonLine className="h-3 w-12" />
-          <Skeleton className="size-3" />
-          <SkeletonLine className="h-3 w-16" />
-          <SkeletonLine className="h-3 w-12" />
         </div>
       </div>
     </Card>

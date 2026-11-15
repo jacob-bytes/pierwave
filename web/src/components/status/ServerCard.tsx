@@ -1,4 +1,9 @@
-import { ArrowDownIcon, ArrowUpIcon, GlobeIcon } from "lucide-react";
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  GlobeIcon,
+  type LucideIcon,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Meter } from "@/components/status/Meter";
@@ -106,8 +111,48 @@ export function StatusChip({
   );
 }
 
+/** 实时速率区的一个格子：一个值（当前速率或累计值）。 */
+type TrafficStat = {
+  key: string;
+  /** 方向图标只挂在每个方向的第一格上，累计值跟着同一行走。 */
+  icon?: LucideIcon;
+  /** 无障碍名称（下行 / 下行累计流量）；图标本身对读屏隐藏。 */
+  label: string;
+  value: string | null;
+  hint: string;
+  /** 累计值用次要色；速率只有缺数据时才转次要色。 */
+  muted?: boolean;
+};
+
+function TrafficCell({ stat }: { stat: TrafficStat }) {
+  const Icon = stat.icon;
+
+  return (
+    <div className="flex min-w-0 items-baseline gap-x-2">
+      {Icon ? (
+        <Icon
+          className="size-3 shrink-0 self-center text-muted-foreground"
+          aria-hidden="true"
+        />
+      ) : null}
+      <span className="sr-only">{stat.label}</span>
+      <span
+        className={cn(
+          "tnum min-w-0 truncate text-xs",
+          stat.muted || stat.value === null
+            ? "text-muted-foreground"
+            : "text-foreground",
+        )}
+        title={stat.hint}
+      >
+        {stat.value ?? "—"}
+      </span>
+    </div>
+  );
+}
+
 /**
- * 底部「↓ 当前速率 / 累计流量」两行。
+ * 实时速率与累计流量（`↓ 速率 累计 / ↑ 速率 累计`）。
  *
  * 数据来源见 `docs/TELEMETRY.md`：速率是两次心跳的累计字节差 / 时间差；
  * 累计值是 Agent 自开机以来的非 lo 网卡计数（服务器重启会归零）。
@@ -115,56 +160,63 @@ export function StatusChip({
  *
  * 离线时速率不显示：`servers.net_rx_bps` 是掉线前最后一次算出的值，
  * 写在「离线」卡片上会被读成实时读数。累计值仍保留（它是历史计数）。
+ *
+ * 布局：每个值是一个格子，当前是两列（下行速率 / 下行累计、上行速率 /
+ * 上行累计）；手机两列固定，sm 以上按可用宽度 auto-fit。以后加「连接数 /
+ * 今日流量」只需要往 `stats` 里追加格子，行数会自然增长；不要把行数写死。
  */
 function TrafficFooter({ server }: { server: PublicStatusServer }) {
   const { t } = useI18n();
   const online = serverState(server) !== "offline";
+  const rateHint = t("publicStatus.server.rateHint");
+  const totalHint = t("publicStatus.server.trafficTotalHint");
   const rxRate = formatRate(online ? server.net_rx_bps : null);
   const txRate = formatRate(online ? server.net_tx_bps : null);
   const rxTotal = formatTrafficTotal(server.net_rx_bytes);
   const txTotal = formatTrafficTotal(server.net_tx_bytes);
 
-  const cellClass = (value: string | null) =>
-    cn(
-      "tnum truncate text-xs",
-      value === null ? "text-muted-foreground" : "text-foreground",
-    );
+  const stats: TrafficStat[] = [
+    {
+      key: "rx-rate",
+      icon: ArrowDownIcon,
+      label: t("publicStatus.server.trafficRx"),
+      value: rxRate,
+      hint: rateHint,
+    },
+    {
+      key: "rx-total",
+      label: `${t("publicStatus.server.trafficRx")} ${t("publicStatus.server.trafficTotal")}`,
+      value: rxTotal,
+      hint: totalHint,
+      muted: true,
+    },
+    {
+      key: "tx-rate",
+      icon: ArrowUpIcon,
+      label: t("publicStatus.server.trafficTx"),
+      value: txRate,
+      hint: rateHint,
+    },
+    {
+      key: "tx-total",
+      label: `${t("publicStatus.server.trafficTx")} ${t("publicStatus.server.trafficTotal")}`,
+      value: txTotal,
+      hint: totalHint,
+      muted: true,
+    },
+  ];
 
   return (
-    <div className="mt-3 grid grid-cols-[auto_auto_auto] items-baseline justify-start gap-x-3 gap-y-1.5 border-t border-border pt-2.5">
-      <ArrowDownIcon
-        className="size-3 shrink-0 self-center text-muted-foreground"
-        aria-hidden="true"
-      />
-      <span
-        className={cellClass(rxRate)}
-        title={t("publicStatus.server.rateHint")}
+    <div className="mt-4 border-t border-border pt-2.5">
+      <div
+        role="group"
+        aria-label={t("publicStatus.server.rate")}
+        className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-[repeat(auto-fit,minmax(7.5rem,1fr))]"
       >
-        {rxRate ?? "—"}
-      </span>
-      <span
-        className="tnum truncate text-xs text-muted-foreground"
-        title={t("publicStatus.server.trafficTotalHint")}
-      >
-        {rxTotal ?? "—"}
-      </span>
-
-      <ArrowUpIcon
-        className="size-3 shrink-0 self-center text-muted-foreground"
-        aria-hidden="true"
-      />
-      <span
-        className={cellClass(txRate)}
-        title={t("publicStatus.server.rateHint")}
-      >
-        {txRate ?? "—"}
-      </span>
-      <span
-        className="tnum truncate text-xs text-muted-foreground"
-        title={t("publicStatus.server.trafficTotalHint")}
-      >
-        {txTotal ?? "—"}
-      </span>
+        {stats.map((stat) => (
+          <TrafficCell key={stat.key} stat={stat} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -315,15 +367,19 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
         />
       </div>
 
-      {/* 点阵紧跟在「24h 可用率」下面，所以它不需要自己的标签；
-          7 天可用率是另一个窗口，单独一行放在最底部，不和点阵并排。 */}
-      <div className="mt-auto pt-4">
-        <AvailabilityStrip server={server} className="mt-3" />
+      {/* 实时速率紧跟四个指标。它和点阵之间用卡片里同一条 border-t 分开，
+          不引入新的边框样式。 */}
+      <TrafficFooter server={server} />
+
+      {/* 点阵是卡片最后一块：先分隔线，再点阵；7 天可用率跟着点阵走，
+          单独一行，不和点阵并排。 */}
+      <div className="mt-3 border-t border-border" aria-hidden="true" />
+      <div className="mt-auto pt-3">
+        <AvailabilityStrip server={server} />
         <div className="mt-2 flex items-baseline justify-between gap-2 text-xs text-muted-foreground">
           <span>{t("publicStatus.server.availability7d")}</span>
           <AvailabilityValue ratio={server.uptime_7d} />
         </div>
-        <TrafficFooter server={server} />
       </div>
     </Card>
   );
