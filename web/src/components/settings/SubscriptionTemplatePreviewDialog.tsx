@@ -19,7 +19,12 @@ import {
 import type { SubscriptionTemplate } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { usePreviewSubscriptionTemplate, useUsers } from "@/lib/queries";
-import { previewDisabled } from "@/lib/subscriptionTemplates";
+import {
+  TEMPLATE_PREVIEW_FORMATS,
+  previewDisabled,
+  resolvePreviewFormat,
+  type TemplatePreviewFormat,
+} from "@/lib/subscriptionTemplates";
 import { t, useI18n } from "@/i18n";
 
 interface SubscriptionTemplatePreviewDialogProps {
@@ -38,8 +43,10 @@ export function SubscriptionTemplatePreviewDialog({
   const users = useUsers("");
   const preview = usePreviewSubscriptionTemplate();
   const [userId, setUserId] = useState("");
+  const [format, setFormat] = useState<TemplatePreviewFormat>("mihomo");
   const [result, setResult] = useState<{
     yaml: string;
+    format?: string;
     warnings: string[];
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +62,7 @@ export function SubscriptionTemplatePreviewDialog({
   function run() {
     setError(null);
     preview.mutate(
-      { id: template.id, userId },
+      { id: template.id, userId, target: format },
       {
         onSuccess: (data) => setResult(data),
         onError: (caught) =>
@@ -63,6 +70,11 @@ export function SubscriptionTemplatePreviewDialog({
       },
     );
   }
+
+  const renderedFormat = resolvePreviewFormat(result?.format ?? format);
+  const formatLabel = renderedFormat
+    ? t(`subscriptionTemplates.preview.formats.${renderedFormat}`)
+    : (result?.format ?? format);
 
   return (
     <Dialog
@@ -116,6 +128,39 @@ export function SubscriptionTemplatePreviewDialog({
                 {items.map((user) => (
                   <SelectItem key={user.id} value={user.id}>
                     <span className="truncate">{user.username}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="w-44 space-y-1.5">
+            <label
+              className="text-xs font-medium text-muted-foreground"
+              htmlFor="subscription-template-preview-format"
+            >
+              {t("subscriptionTemplates.preview.format")}
+            </label>
+            <Select
+              value={format}
+              onValueChange={(value) => {
+                const next = resolvePreviewFormat(value);
+                if (!next) return;
+                setFormat(next);
+                setResult(null);
+                setError(null);
+              }}
+              disabled={preview.isPending}
+            >
+              <SelectTrigger
+                id="subscription-template-preview-format"
+                className="w-full"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TEMPLATE_PREVIEW_FORMATS.map((item) => (
+                  <SelectItem key={item} value={item}>
+                    {t(`subscriptionTemplates.preview.formats.${item}`)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -177,8 +222,11 @@ export function SubscriptionTemplatePreviewDialog({
               )}
             </div>
             <div className="space-y-1.5">
-              <p className="text-xs font-medium text-muted-foreground">
-                {t("subscriptionTemplates.preview.yaml")}
+              <p
+                className="text-xs font-medium text-muted-foreground"
+                data-testid="subscription-template-preview-format-label"
+              >
+                {t("subscriptionTemplates.preview.output")} · {formatLabel}
               </p>
               <pre className="max-h-96 overflow-auto rounded-lg border border-border bg-muted/20 p-3 font-mono type-micro leading-normal">
                 {result.yaml}

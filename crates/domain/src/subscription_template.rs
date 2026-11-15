@@ -15,13 +15,20 @@ use serde_json::Value;
 
 use crate::subscribe::SubNode;
 
-/// 模板里一个代理组的类型。只有这两种在 Clash / mihomo 里有稳定表达。
+/// 模板里一个代理组的类型。
+///
+/// 四种都在 Clash / mihomo / Stash 里有稳定表达；Surge 与 sing-box 的表达能力
+/// 见 [`group_capabilities`]，无法表达的组合由 [`plan_for_format`] 跳过并 warning。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GroupKind {
     #[serde(rename = "select")]
     Select,
     #[serde(rename = "url-test")]
     UrlTest,
+    #[serde(rename = "fallback")]
+    Fallback,
+    #[serde(rename = "load-balance")]
+    LoadBalance,
 }
 
 impl GroupKind {
@@ -29,11 +36,46 @@ impl GroupKind {
         match self {
             GroupKind::Select => "select",
             GroupKind::UrlTest => "url-test",
+            GroupKind::Fallback => "fallback",
+            GroupKind::LoadBalance => "load-balance",
+        }
+    }
+
+    /// 自动测速类组：成员全是节点，命中 0 个节点必须跳过（客户端不接受空组）。
+    ///
+    /// `select` 不在其中：它可以只靠自动选择组或 `DIRECT` 存活。
+    pub fn is_auto(self) -> bool {
+        matches!(
+            self,
+            GroupKind::UrlTest | GroupKind::Fallback | GroupKind::LoadBalance
+        )
+    }
+}
+
+/// `load-balance` 的负载均衡策略；缺省 `round-robin`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum LoadBalanceStrategy {
+    #[default]
+    #[serde(rename = "round-robin")]
+    RoundRobin,
+    #[serde(rename = "consistent-hashing")]
+    ConsistentHashing,
+}
+
+impl LoadBalanceStrategy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LoadBalanceStrategy::RoundRobin => "round-robin",
+            LoadBalanceStrategy::ConsistentHashing => "consistent-hashing",
         }
     }
 }
 
-/// 一个筛选条件。三个数组都是「空 = 不限制」，彼此之间是 **AND**。
+/// 一个筛选条件。
+///
+/// 包含条件（`tags` / `regions` / `protocols` / `name_contains`）之间是 **AND**；
+/// 排除条件（`exclude_*`）**优先于**包含条件：任何一条排除命中，节点就不进该组。
+/// 所有数组「空 = 不限制」，空条件 `{}` 仍表示全部节点。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GroupFilter {
@@ -43,16 +85,57 @@ pub struct GroupFilter {
     pub regions: Vec<String>,
     #[serde(default)]
     pub protocols: Vec<String>,
+    #[serde(default)]
+    pub exclude_tags: Vec<String>,
+    #[serde(default)]
+    pub exclude_regions: Vec<String>,
+    #[serde(default)]
+    pub exclude_protocols: Vec<String>,
+    /// 节点名的大小写不敏感子串匹配；**不是正则**（避免性能与注入问题）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name_contains: Option<String>,
 }
 
 impl GroupFilter {
-    /// 空 filter（`{}`）= 命中全部节点。
-    pub fn is_empty(&self) -> bool {
-        self.tags.is_empty() && self.regions.is_empty() && self.protocols.is_empty()
+    fn name_needle(&self) -> Option<&str> {
+        self.name_contains
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
     }
 
-    /// filter 内条件全部满足才算命中（AND）。
+    /// 空 filter（`{}`）= 命中全部节点。
+    pub fn is_empty(&self) -> bool {
+        self.tags.is_empty()
+            && self.regions.is_empty()
+            && self.protocols.is_empty()
+            && self.exclude_tags.is_empty()
+            && self.exclude_regions.is_empty()
+            && self.exclude_protocols.is_empty()
+            && self.name_needle().is_none()
+    }
+
+    /// 排除条件优先：命中任意一条排除就整条 filter 不命中。
+    fn excluded(&self, node: &SubNode) -> bool {
+        self.exclude_tags
+            .iter()
+            .any(|tag| node.tags.iter().any(|item| item == tag))
+            || self.exclude_regions.iter().any(|region| {
+                node.region
+                    .as_deref()
+                    .is_some_and(|item| item.eq_ignore_ascii_case(region))
+            })
+            || self
+                .exclude_protocols
+                .iter()
+                .any(|protocol| node.protocol.eq_ignore_ascii_case(protocol))
+    }
+
+    /// filter 内条件全部满足才算命中（AND），排除条件优先。
     pub fn matches(&self, node: &SubNode) -> bool {
+        if self.excluded(node) {
+            return false;
+        }
         if self.is_empty() {
             return true;
         }
@@ -73,7 +156,12 @@ impl GroupFilter {
                 .protocols
                 .iter()
                 .any(|protocol| node.protocol.eq_ignore_ascii_case(protocol));
-        tags_ok && regions_ok && protocols_ok
+        // 子串匹配用 Unicode 小写：ASCII 大小写与全角/半角之外的非 ASCII 也不区分大小写。
+        let name_ok = match self.name_needle() {
+            Some(needle) => node.name.to_lowercase().contains(&needle.to_lowercase()),
+            None => true,
+        };
+        tags_ok && regions_ok && protocols_ok && name_ok
     }
 }
 
@@ -89,9 +177,14 @@ pub struct SubscriptionGroup {
     /// 仅 `select` 有意义：是否把模板里的自动选择组放在成员第一位。
     #[serde(default)]
     pub include_auto: bool,
-    /// 仅 `url-test` 有意义：测速间隔（秒），缺省 300。
+    /// 自动测速类组（`url-test` / `fallback` / `load-balance`）的测速间隔（秒），缺省 300。
+    /// `select` 会把它清空。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interval: Option<u32>,
+    /// 仅 `load-balance` 有意义：负载均衡策略，缺省 `round-robin`。
+    /// 其它组类型会把它清空，避免落库后语义含糊。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<LoadBalanceStrategy>,
 }
 
 /// 校验失败的机器可读描述；master 直接翻成带 code 的 400。
@@ -125,24 +218,80 @@ pub const MAX_FILTER_VALUES: usize = 16;
 pub const MAX_TAG_CHARS: usize = 24;
 /// 单个地区在模板条件里的上限（与节点 region 一致）。
 pub const MAX_REGION_CHARS: usize = 8;
-/// url-test 的测速间隔范围（秒）。
+/// `name_contains` 子串长度上限：只做子串，不做正则。
+pub const MAX_NAME_CONTAINS_CHARS: usize = 64;
+/// 自动测速类组的测速间隔范围（秒）。
 pub const MIN_INTERVAL_SECS: u32 = 10;
 pub const MAX_INTERVAL_SECS: u32 = 86_400;
 
 const PROTOCOLS: &[&str] = &["vless", "vmess", "trojan", "ss"];
 
-fn trim_dedupe(values: &[String]) -> Vec<String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FilterValueKind {
+    Tag,
+    Region,
+    Protocol,
+}
+
+/// filter 里一个数组的规范化：trim、去空、去重、协议小写并校验。
+fn normalize_filter_values(
+    group: &str,
+    field: &'static str,
+    values: &[String],
+    kind: FilterValueKind,
+) -> Result<Vec<String>, TemplateProblem> {
+    if values.len() > MAX_FILTER_VALUES {
+        return Err(TemplateProblem::new(
+            "subscription_template.too_many_values",
+            serde_json::json!({ "name": group, "field": field, "max": MAX_FILTER_VALUES }),
+            format!("代理组「{group}」的筛选条件 {field} 最多 {MAX_FILTER_VALUES} 项"),
+        ));
+    }
     let mut out: Vec<String> = Vec::with_capacity(values.len());
     for value in values {
         let value = value.trim();
         if value.is_empty() {
             continue;
         }
-        if !out.iter().any(|item| item == value) {
-            out.push(value.to_string());
+        let value = match kind {
+            FilterValueKind::Protocol => value.to_ascii_lowercase(),
+            FilterValueKind::Tag | FilterValueKind::Region => value.to_string(),
+        };
+        if kind == FilterValueKind::Protocol && !PROTOCOLS.contains(&value.as_str()) {
+            return Err(TemplateProblem::new(
+                "subscription_template.filter_protocol_invalid",
+                serde_json::json!({ "name": group, "protocol": value, "allowed": PROTOCOLS }),
+                format!(
+                    "代理组「{group}」的协议条件不支持 {value}（可选：{}）",
+                    PROTOCOLS.join(" / ")
+                ),
+            ));
+        }
+        let max = match kind {
+            FilterValueKind::Tag => Some(MAX_TAG_CHARS),
+            FilterValueKind::Region => Some(MAX_REGION_CHARS),
+            FilterValueKind::Protocol => None,
+        };
+        if let Some(max) = max {
+            if value.chars().count() > max {
+                let label = match kind {
+                    FilterValueKind::Tag => "标签",
+                    FilterValueKind::Region => "地区",
+                    FilterValueKind::Protocol => "协议",
+                };
+                return Err(TemplateProblem::new(
+                    "subscription_template.filter_value_too_long",
+                    serde_json::json!({ "name": group, "field": field, "max": max }),
+                    format!("代理组「{group}」的{label}条件超过 {max} 个字符"),
+                ));
+            }
+        }
+        // 协议先小写再去重：`VLESS` 与 `vless` 是同一个条件。
+        if !out.iter().any(|item| item == &value) {
+            out.push(value);
         }
     }
-    out
+    Ok(out)
 }
 
 /// 逐字段 trim / 去重 / 校验；返回的就是落库与渲染共用的规范形态。
@@ -220,72 +369,65 @@ pub fn normalize_groups(
 
         let mut filters = Vec::with_capacity(group.filters.len());
         for filter in &group.filters {
-            for (field, values) in [
-                ("tags", &filter.tags),
-                ("regions", &filter.regions),
-                ("protocols", &filter.protocols),
-            ] {
-                if values.len() > MAX_FILTER_VALUES {
-                    return Err(TemplateProblem::new(
-                        "subscription_template.too_many_values",
-                        serde_json::json!({ "name": name, "field": field, "max": MAX_FILTER_VALUES }),
-                        format!("代理组「{name}」的筛选条件 {field} 最多 {MAX_FILTER_VALUES} 项"),
-                    ));
-                }
-            }
-            for tag in filter
-                .tags
-                .iter()
-                .map(|tag| tag.trim())
-                .filter(|tag| !tag.is_empty())
+            let tags = normalize_filter_values(name, "tags", &filter.tags, FilterValueKind::Tag)?;
+            let regions =
+                normalize_filter_values(name, "regions", &filter.regions, FilterValueKind::Region)?;
+            let protocols = normalize_filter_values(
+                name,
+                "protocols",
+                &filter.protocols,
+                FilterValueKind::Protocol,
+            )?;
+            let exclude_tags = normalize_filter_values(
+                name,
+                "exclude_tags",
+                &filter.exclude_tags,
+                FilterValueKind::Tag,
+            )?;
+            let exclude_regions = normalize_filter_values(
+                name,
+                "exclude_regions",
+                &filter.exclude_regions,
+                FilterValueKind::Region,
+            )?;
+            let exclude_protocols = normalize_filter_values(
+                name,
+                "exclude_protocols",
+                &filter.exclude_protocols,
+                FilterValueKind::Protocol,
+            )?;
+            let name_contains = match filter
+                .name_contains
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
             {
-                if tag.chars().count() > MAX_TAG_CHARS {
-                    return Err(TemplateProblem::new(
-                        "subscription_template.filter_value_too_long",
-                        serde_json::json!({ "name": name, "field": "tags", "max": MAX_TAG_CHARS }),
-                        format!("代理组「{name}」的标签条件超过 {MAX_TAG_CHARS} 个字符"),
-                    ));
+                Some(value) => {
+                    if value.chars().count() > MAX_NAME_CONTAINS_CHARS {
+                        return Err(TemplateProblem::new(
+                            "subscription_template.filter_value_too_long",
+                            serde_json::json!({
+                                "name": name,
+                                "field": "name_contains",
+                                "max": MAX_NAME_CONTAINS_CHARS,
+                            }),
+                            format!(
+                                "代理组「{name}」的节点名子串条件超过 {MAX_NAME_CONTAINS_CHARS} 个字符"
+                            ),
+                        ));
+                    }
+                    Some(value.to_string())
                 }
-            }
-            for region in filter
-                .regions
-                .iter()
-                .map(|region| region.trim())
-                .filter(|region| !region.is_empty())
-            {
-                if region.chars().count() > MAX_REGION_CHARS {
-                    return Err(TemplateProblem::new(
-                        "subscription_template.filter_value_too_long",
-                        serde_json::json!({ "name": name, "field": "regions", "max": MAX_REGION_CHARS }),
-                        format!("代理组「{name}」的地区条件超过 {MAX_REGION_CHARS} 个字符"),
-                    ));
-                }
-            }
-            for protocol in &filter.protocols {
-                let protocol = protocol.trim().to_ascii_lowercase();
-                if !PROTOCOLS.contains(&protocol.as_str()) {
-                    return Err(TemplateProblem::new(
-                        "subscription_template.filter_protocol_invalid",
-                        serde_json::json!({ "name": name, "protocol": protocol, "allowed": PROTOCOLS }),
-                        format!(
-                            "代理组「{name}」的协议条件不支持 {protocol}（可选：{}）",
-                            PROTOCOLS.join(" / ")
-                        ),
-                    ));
-                }
-            }
-            // 协议先小写再去重：`VLESS` 与 `vless` 是同一个条件。
-            let mut protocols: Vec<String> = Vec::new();
-            for protocol in &filter.protocols {
-                let protocol = protocol.trim().to_ascii_lowercase();
-                if !protocol.is_empty() && !protocols.contains(&protocol) {
-                    protocols.push(protocol);
-                }
-            }
+                None => None,
+            };
             filters.push(GroupFilter {
-                tags: trim_dedupe(&filter.tags),
-                regions: trim_dedupe(&filter.regions),
+                tags,
+                regions,
                 protocols,
+                exclude_tags,
+                exclude_regions,
+                exclude_protocols,
+                name_contains,
             });
         }
 
@@ -310,9 +452,15 @@ pub fn normalize_groups(
             kind: group.kind,
             filters,
             include_auto: group.include_auto,
-            // select 不写 interval，避免落库后语义含糊。
-            interval: if group.kind == GroupKind::UrlTest {
+            // select 不写 interval，避免落库后语义含糊；自动测速类组保留。
+            interval: if group.kind.is_auto() {
                 group.interval
+            } else {
+                None
+            },
+            // 只有 load-balance 有策略；缺省显式落成 round-robin，其它类型清空。
+            strategy: if group.kind == GroupKind::LoadBalance {
+                Some(group.strategy.unwrap_or_default())
             } else {
                 None
             },
@@ -334,6 +482,8 @@ pub struct PlannedGroup {
     /// `select` 的完整成员（含自动选择组名与 `DIRECT`）。
     pub members: Vec<String>,
     pub interval: Option<u32>,
+    /// 仅 `load-balance`：负载均衡策略。
+    pub strategy: Option<LoadBalanceStrategy>,
 }
 
 /// 一次渲染的分组计划。
@@ -377,19 +527,20 @@ fn matching_nodes(group: &SubscriptionGroup, nodes: &[SubNode]) -> Vec<String> {
 /// 把模板 + 节点落成可渲染的分组计划。
 ///
 /// 规则：
-/// 1. 先算每个组命中的节点；`url-test` 命中 0 个 → 跳过并 warning；
+/// 1. 先算每个组命中的节点；自动测速类组（`url-test` / `fallback` / `load-balance`）
+///    命中 0 个 → 跳过并 warning；
 /// 2. `select` 的成员 = 自动选择组（若 `include_auto` 且存在存活的 url-test 组）
 ///    + 命中节点 + `DIRECT`；命中 0 个节点且没有自动选择组 → 跳过并 warning；
 /// 3. 所有组都跳过 → `groups` 为空，调用方回落硬编码分组。
 pub fn plan_groups(groups: &[SubscriptionGroup], nodes: &[SubNode]) -> GroupPlan {
     let mut warnings = Vec::new();
 
-    // 自动选择组 = 模板里第一个存活的 url-test 组。
+    // 自动选择组 = 模板里第一个存活的 url-test 组（保持第一轮的语义）。
     let mut survivors: Vec<Option<Vec<String>>> = Vec::with_capacity(groups.len());
     for group in groups {
         let matched = matching_nodes(group, nodes);
         match group.kind {
-            GroupKind::UrlTest if matched.is_empty() => {
+            kind if kind.is_auto() && matched.is_empty() => {
                 warnings.push(format!(
                     "代理组「{}」没有命中任何节点，已跳过 / Group \"{}\" matched no nodes and was skipped",
                     group.name, group.name
@@ -412,13 +563,16 @@ pub fn plan_groups(groups: &[SubscriptionGroup], nodes: &[SubNode]) -> GroupPlan
             continue;
         };
         match group.kind {
-            GroupKind::UrlTest => planned.push(PlannedGroup {
-                name: group.name.clone(),
-                kind: group.kind,
-                members: matched.clone(),
-                node_members: matched,
-                interval: group.interval,
-            }),
+            GroupKind::UrlTest | GroupKind::Fallback | GroupKind::LoadBalance => {
+                planned.push(PlannedGroup {
+                    name: group.name.clone(),
+                    kind: group.kind,
+                    members: matched.clone(),
+                    node_members: matched,
+                    interval: group.interval,
+                    strategy: group.strategy,
+                });
+            }
             GroupKind::Select => {
                 let mut members = Vec::new();
                 if group.include_auto {
@@ -445,6 +599,7 @@ pub fn plan_groups(groups: &[SubscriptionGroup], nodes: &[SubNode]) -> GroupPlan
                     members,
                     node_members: matched,
                     interval: None,
+                    strategy: None,
                 });
             }
         }
@@ -461,6 +616,122 @@ pub fn plan_groups(groups: &[SubscriptionGroup], nodes: &[SubNode]) -> GroupPlan
         groups: planned,
         warnings,
     }
+}
+
+/// 某个导出格式能表达哪些代理组。
+///
+/// `select` / `url-test` 在所有模板感知的格式里都成立，所以只需要描述
+/// `fallback` / `load-balance` 的差异：
+///
+/// | 格式 | fallback | load-balance | consistent-hashing |
+/// |---|---|---|---|
+/// | clash / mihomo / stash | ✅ | ✅ | ✅ |
+/// | surge / surge-full | ✅ | ✅（仅 round-robin） | ❌ 跳过并 warning |
+/// | singbox / singbox-full | ✅ | ⚠️ 用 urltest 近似（warning） | ⚠️ 近似 |
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GroupCapabilities {
+    pub fallback: bool,
+    pub load_balance: bool,
+    pub load_balance_consistent_hashing: bool,
+    /// 没有原生 load-balance 时是否允许用 urltest 近似（sing-box）。
+    pub load_balance_as_url_test: bool,
+}
+
+/// 支持订阅模板的导出格式（其余格式保持第一轮行为：忽略模板）。
+pub const TEMPLATE_FORMATS: &[&str] = &[
+    "clash",
+    "mihomo",
+    "stash",
+    "surge",
+    "surge-full",
+    "singbox",
+    "singbox-full",
+];
+
+pub fn is_template_format(format: &str) -> bool {
+    TEMPLATE_FORMATS
+        .iter()
+        .any(|item| item.eq_ignore_ascii_case(format.trim()))
+}
+
+pub fn group_capabilities(format: &str) -> GroupCapabilities {
+    match format.trim().to_ascii_lowercase().as_str() {
+        "clash" | "mihomo" | "stash" => GroupCapabilities {
+            fallback: true,
+            load_balance: true,
+            load_balance_consistent_hashing: true,
+            load_balance_as_url_test: false,
+        },
+        "surge" | "surge-full" => GroupCapabilities {
+            fallback: true,
+            load_balance: true,
+            // Surge 的 load-balance 是轮询，没有 strategy 字段。
+            load_balance_consistent_hashing: false,
+            load_balance_as_url_test: false,
+        },
+        "singbox" | "singbox-full" => GroupCapabilities {
+            fallback: true,
+            load_balance: true,
+            load_balance_consistent_hashing: true,
+            load_balance_as_url_test: true,
+        },
+        // 不认识 / 不支持模板的格式：不做过滤，由渲染器忽略模板（行为不变）。
+        _ => GroupCapabilities {
+            fallback: true,
+            load_balance: true,
+            load_balance_consistent_hashing: true,
+            load_balance_as_url_test: false,
+        },
+    }
+}
+
+/// 把计划裁剪成目标格式真正能表达的分组；不能表达的组跳过并给出 warning。
+///
+/// 渲染器与预览接口共用这一个函数：预览里看到的 warning 就是渲染时跳过的组，
+/// 不会出现「预览说跳过了、实际却输出了」的偏差。
+pub fn plan_for_format(plan: &GroupPlan, format: &str) -> GroupPlan {
+    let capabilities = group_capabilities(format);
+    let mut filtered = GroupPlan {
+        groups: Vec::with_capacity(plan.groups.len()),
+        warnings: plan.warnings.clone(),
+    };
+    for group in &plan.groups {
+        let supported = match group.kind {
+            GroupKind::Select | GroupKind::UrlTest => true,
+            GroupKind::Fallback => capabilities.fallback,
+            GroupKind::LoadBalance => {
+                capabilities.load_balance
+                    && (capabilities.load_balance_consistent_hashing
+                        || group.strategy != Some(LoadBalanceStrategy::ConsistentHashing))
+            }
+        };
+        if !supported {
+            filtered.warnings.push(format!(
+                "代理组「{}」的类型 {} 无法在 {} 中表达，已跳过 / Group \"{}\" of type {} cannot be expressed in {}; skipped",
+                group.name,
+                group.kind.as_str(),
+                format,
+                group.name,
+                group.kind.as_str(),
+                format,
+            ));
+            continue;
+        }
+        if group.kind == GroupKind::LoadBalance && capabilities.load_balance_as_url_test {
+            filtered.warnings.push(format!(
+                "代理组「{}」是 load-balance，{} 没有该组类型，已用 urltest 近似 / Group \"{}\" is load-balance, which {} cannot express; approximated with urltest",
+                group.name, format, group.name, format,
+            ));
+        }
+        filtered.groups.push(group.clone());
+    }
+    if filtered.groups.is_empty() && !plan.groups.is_empty() {
+        filtered.warnings.push(format!(
+            "模板里没有任何组能在 {} 中表达，已回落到内置分组 / No template group can be expressed in {}; falling back to the built-in groups",
+            format, format,
+        ));
+    }
+    filtered
 }
 
 #[cfg(test)]
@@ -496,6 +767,29 @@ mod tests {
             tags: tags.iter().map(|tag| tag.to_string()).collect(),
             regions: regions.iter().map(|region| region.to_string()).collect(),
             protocols: protocols.iter().map(|item| item.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    fn group(name: &str, kind: GroupKind, filters: Vec<GroupFilter>) -> SubscriptionGroup {
+        SubscriptionGroup {
+            name: name.into(),
+            kind,
+            filters,
+            include_auto: false,
+            interval: None,
+            strategy: None,
+        }
+    }
+
+    fn load_balance(name: &str, strategy: Option<LoadBalanceStrategy>) -> SubscriptionGroup {
+        SubscriptionGroup {
+            name: name.into(),
+            kind: GroupKind::LoadBalance,
+            filters: vec![filter(&[], &[], &[])],
+            include_auto: false,
+            interval: None,
+            strategy,
         }
     }
 
@@ -524,6 +818,88 @@ mod tests {
     }
 
     #[test]
+    fn exclusions_take_priority_over_includes_inside_one_filter() {
+        let nodes = nodes();
+        // 包含「香港」但排除标签「中转」→ 香港-1 出局，香港-2 仍在。
+        let exclude_tag = GroupFilter {
+            tags: vec!["香港".into()],
+            exclude_tags: vec!["中转".into()],
+            ..Default::default()
+        };
+        assert!(!exclude_tag.matches(&nodes[0]));
+        assert!(exclude_tag.matches(&nodes[1]));
+
+        // 排除地区大小写不敏感，且优先于包含地区。
+        let exclude_region = GroupFilter {
+            regions: vec!["HK".into()],
+            exclude_regions: vec!["hk".into()],
+            ..Default::default()
+        };
+        assert!(!exclude_region.matches(&nodes[0]));
+        assert!(!exclude_region.matches(&nodes[1]));
+
+        // 排除协议同样大小写不敏感。
+        let exclude_protocol = GroupFilter {
+            protocols: vec!["vless".into()],
+            exclude_protocols: vec!["VLESS".into()],
+            ..Default::default()
+        };
+        assert!(!exclude_protocol.matches(&nodes[0]));
+        assert!(!exclude_protocol.matches(&nodes[2]));
+
+        // 只有排除条件时：全部节点减去被排除的那些（仍然不是 `{}`）。
+        let exclude_only = GroupFilter {
+            exclude_tags: vec!["香港".into()],
+            ..Default::default()
+        };
+        assert!(!exclude_only.is_empty());
+        assert!(!exclude_only.matches(&nodes[0]));
+        assert!(!exclude_only.matches(&nodes[1]));
+        assert!(exclude_only.matches(&nodes[2]));
+    }
+
+    #[test]
+    fn name_contains_is_a_case_insensitive_substring_not_a_regex() {
+        let hk = node("HK-01 香港", "vless", &[], Some("HK"));
+        let jp = node("JP-01 日本", "vless", &[], Some("JP"));
+        let dotted = node("a.*b-节点", "vless", &[], None);
+
+        let lower = GroupFilter {
+            name_contains: Some("hk".into()),
+            ..Default::default()
+        };
+        assert!(lower.matches(&hk), "小写 needle 应命中大写节点名");
+        assert!(!lower.matches(&jp));
+
+        let upper = GroupFilter {
+            name_contains: Some("HK".into()),
+            ..Default::default()
+        };
+        assert!(upper.matches(&hk));
+
+        // 子串而不是前缀：`-01` 命中中间位置。
+        let middle = GroupFilter {
+            name_contains: Some("-01".into()),
+            ..Default::default()
+        };
+        assert!(middle.matches(&hk));
+        // 中文子串同样按普通子串处理。
+        assert!(GroupFilter {
+            name_contains: Some("香港".into()),
+            ..Default::default()
+        }
+        .matches(&hk));
+
+        // 不是正则：`.*` 只匹配名字里真的出现「.*」的节点。
+        let regex_like = GroupFilter {
+            name_contains: Some(".*".into()),
+            ..Default::default()
+        };
+        assert!(!regex_like.matches(&hk), "`.*` 不能被当成正则");
+        assert!(regex_like.matches(&dotted));
+    }
+
+    #[test]
     fn filters_are_or_and_members_keep_node_order_without_duplicates() {
         let nodes = nodes();
         let group = SubscriptionGroup {
@@ -536,6 +912,7 @@ mod tests {
             ],
             include_auto: false,
             interval: None,
+            strategy: None,
         };
         let plan = plan_groups(&[group], &nodes);
         assert!(plan.warnings.is_empty(), "{:?}", plan.warnings);
@@ -559,6 +936,7 @@ mod tests {
             filters: vec![filter(&[], &["HK"], &[])],
             include_auto: false,
             interval: Some(120),
+            strategy: None,
         };
         let select = SubscriptionGroup {
             name: "节点选择".into(),
@@ -566,6 +944,7 @@ mod tests {
             filters: vec![filter(&["日本"], &[], &[])],
             include_auto: true,
             interval: None,
+            strategy: None,
         };
         let plan = plan_groups(&[select, auto], &nodes);
         assert_eq!(plan.groups[0].name, "节点选择");
@@ -579,7 +958,45 @@ mod tests {
     }
 
     #[test]
-    fn empty_groups_are_skipped_with_a_warning() {
+    fn new_group_kinds_plan_members_interval_and_strategy() {
+        let nodes = nodes();
+        let groups = vec![
+            group(
+                "故障转移",
+                GroupKind::Fallback,
+                vec![filter(&[], &["HK"], &[])],
+            ),
+            SubscriptionGroup {
+                interval: Some(60),
+                ..load_balance("负载均衡", Some(LoadBalanceStrategy::ConsistentHashing))
+            },
+            group(
+                "空备用",
+                GroupKind::Fallback,
+                vec![filter(&["韩国"], &[], &[])],
+            ),
+        ];
+        let plan = plan_groups(&groups, &nodes);
+        assert_eq!(plan.groups.len(), 2, "{:?}", plan.warnings);
+        assert_eq!(plan.groups[0].kind, GroupKind::Fallback);
+        assert_eq!(plan.groups[0].members, vec!["香港-1", "香港-2"]);
+        assert_eq!(plan.groups[1].kind, GroupKind::LoadBalance);
+        assert_eq!(
+            plan.groups[1].strategy,
+            Some(LoadBalanceStrategy::ConsistentHashing)
+        );
+        assert_eq!(plan.groups[1].interval, Some(60));
+        assert!(
+            plan.warnings
+                .iter()
+                .any(|warning| warning.contains("空备用")),
+            "空 fallback 组必须跳过并 warning：{:?}",
+            plan.warnings
+        );
+    }
+
+    #[test]
+    fn empty_auto_groups_are_skipped_with_a_warning() {
         let nodes = nodes();
         let empty = SubscriptionGroup {
             name: "韩国".into(),
@@ -587,6 +1004,7 @@ mod tests {
             filters: vec![filter(&["韩国"], &[], &[])],
             include_auto: false,
             interval: None,
+            strategy: None,
         };
         let select = SubscriptionGroup {
             name: "节点选择".into(),
@@ -594,6 +1012,7 @@ mod tests {
             filters: vec![filter(&["香港"], &[], &[])],
             include_auto: false,
             interval: None,
+            strategy: None,
         };
         let plan = plan_groups(&[empty, select], &nodes);
         assert_eq!(plan.groups.len(), 1);
@@ -605,13 +1024,11 @@ mod tests {
     #[test]
     fn all_groups_empty_falls_back_with_a_warning() {
         let nodes = nodes();
-        let groups = vec![SubscriptionGroup {
-            name: "韩国".into(),
-            kind: GroupKind::Select,
-            filters: vec![filter(&["韩国"], &[], &[])],
-            include_auto: false,
-            interval: None,
-        }];
+        let groups = vec![group(
+            "韩国",
+            GroupKind::Select,
+            vec![filter(&["韩国"], &[], &[])],
+        )];
         let plan = plan_groups(&groups, &nodes);
         assert!(plan.is_empty());
         assert_eq!(plan.policy_target(), None);
@@ -620,13 +1037,11 @@ mod tests {
 
         // 没有节点时同样回落，而不是生成空组。
         let plan = plan_groups(
-            &[SubscriptionGroup {
-                name: "全部".into(),
-                kind: GroupKind::UrlTest,
-                filters: vec![GroupFilter::default()],
-                include_auto: false,
-                interval: None,
-            }],
+            &[group(
+                "全部",
+                GroupKind::UrlTest,
+                vec![GroupFilter::default()],
+            )],
             &[],
         );
         assert!(plan.is_empty());
@@ -641,6 +1056,7 @@ mod tests {
             filters: vec![filter(&["香港"], &[], &[])],
             include_auto: true,
             interval: None,
+            strategy: None,
         };
         let plan = plan_groups(&[select], &nodes);
         assert_eq!(plan.groups[0].members, vec!["香港-1", "香港-2", "DIRECT"]);
@@ -656,13 +1072,7 @@ mod tests {
     #[test]
     fn select_hit_only_direct_is_skipped() {
         let nodes = nodes();
-        let select = SubscriptionGroup {
-            name: "韩国".into(),
-            kind: GroupKind::Select,
-            filters: vec![filter(&["韩国"], &[], &[])],
-            include_auto: false,
-            interval: None,
-        };
+        let select = group("韩国", GroupKind::Select, vec![filter(&["韩国"], &[], &[])]);
         let plan = plan_groups(&[select], &nodes);
         assert!(plan.is_empty());
     }
@@ -676,17 +1086,20 @@ mod tests {
                 tags: vec![" 香港 ".into(), "香港".into(), "".into()],
                 regions: vec![" HK ".into()],
                 protocols: vec!["VLESS".into(), "vless".into()],
+                ..Default::default()
             }],
             include_auto: false,
             interval: Some(120),
+            strategy: Some(LoadBalanceStrategy::ConsistentHashing),
         }];
         let normalized = normalize_groups(&groups).unwrap();
         assert_eq!(normalized[0].name, "节点选择");
         assert_eq!(normalized[0].filters[0].tags, vec!["香港"]);
         assert_eq!(normalized[0].filters[0].regions, vec!["HK"]);
         assert_eq!(normalized[0].filters[0].protocols, vec!["vless"]);
-        // select 不保留 interval。
+        // select 不保留 interval / strategy。
         assert_eq!(normalized[0].interval, None);
+        assert_eq!(normalized[0].strategy, None);
 
         let mut bad = groups.clone();
         bad[0].name = " ".into();
@@ -736,14 +1149,200 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_group_names_are_rejected() {
-        let group = SubscriptionGroup {
-            name: "节点选择".into(),
-            kind: GroupKind::Select,
-            filters: vec![GroupFilter::default()],
+    fn normalize_excludes_name_contains_and_strategy() {
+        let groups = vec![SubscriptionGroup {
+            name: " 负载 ".into(),
+            kind: GroupKind::LoadBalance,
+            filters: vec![GroupFilter {
+                exclude_tags: vec![" 中转 ".into(), "中转".into(), "".into()],
+                exclude_regions: vec![" us ".into()],
+                exclude_protocols: vec!["VLESS".into(), "ss".into()],
+                name_contains: Some("  HK ".into()),
+                ..Default::default()
+            }],
             include_auto: false,
-            interval: None,
+            interval: Some(120),
+            strategy: None,
+        }];
+        let normalized = normalize_groups(&groups).unwrap();
+        assert_eq!(normalized[0].name, "负载");
+        assert_eq!(normalized[0].filters[0].exclude_tags, vec!["中转"]);
+        assert_eq!(normalized[0].filters[0].exclude_regions, vec!["us"]);
+        assert_eq!(
+            normalized[0].filters[0].exclude_protocols,
+            vec!["vless", "ss"]
+        );
+        assert_eq!(
+            normalized[0].filters[0].name_contains.as_deref(),
+            Some("HK")
+        );
+        // load-balance 保留 interval，strategy 缺省落成 round-robin。
+        assert_eq!(normalized[0].interval, Some(120));
+        assert_eq!(
+            normalized[0].strategy,
+            Some(LoadBalanceStrategy::RoundRobin)
+        );
+
+        // fallback 也属于自动测速类组，保留 interval；strategy 清空。
+        let fallback = SubscriptionGroup {
+            name: "备用".into(),
+            filters: vec![GroupFilter::default()],
+            interval: Some(30),
+            strategy: Some(LoadBalanceStrategy::ConsistentHashing),
+            ..group("备用", GroupKind::Fallback, vec![])
         };
+        let normalized = normalize_groups(&[fallback]).unwrap();
+        assert_eq!(normalized[0].interval, Some(30));
+        assert_eq!(normalized[0].strategy, None);
+
+        // 排除协议同样校验白名单。
+        let bad = SubscriptionGroup {
+            filters: vec![GroupFilter {
+                exclude_protocols: vec!["kcp".into()],
+                ..Default::default()
+            }],
+            ..group("坏", GroupKind::Select, vec![])
+        };
+        assert_eq!(
+            normalize_groups(&[bad]).unwrap_err().code,
+            "subscription_template.filter_protocol_invalid"
+        );
+
+        // name_contains 有长度上限。
+        let bad = SubscriptionGroup {
+            filters: vec![GroupFilter {
+                name_contains: Some("x".repeat(MAX_NAME_CONTAINS_CHARS + 1)),
+                ..Default::default()
+            }],
+            ..group("坏", GroupKind::Select, vec![])
+        };
+        let error = normalize_groups(&[bad]).unwrap_err();
+        assert_eq!(error.code, "subscription_template.filter_value_too_long");
+        assert_eq!(error.params["field"], "name_contains");
+    }
+
+    /// 第一轮写进库里的 `groups_json` 没有新字段，必须按默认值继续可用。
+    #[test]
+    fn legacy_groups_json_deserializes_with_defaults() {
+        let legacy = r#"[
+            {"name":"节点选择","type":"select","filters":[{"tags":["香港"]}],"include_auto":true},
+            {"name":"自动选择","type":"url-test","filters":[{}],"interval":120}
+        ]"#;
+        let groups: Vec<SubscriptionGroup> = serde_json::from_str(legacy).unwrap();
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].filters[0].tags, vec!["香港"]);
+        assert!(groups[0].filters[0].exclude_tags.is_empty());
+        assert!(groups[0].filters[0].exclude_regions.is_empty());
+        assert!(groups[0].filters[0].exclude_protocols.is_empty());
+        assert!(groups[0].filters[0].name_contains.is_none());
+        assert_eq!(groups[0].strategy, None);
+        assert_eq!(groups[1].interval, Some(120));
+        // 旧模板原样再次规范化后语义不变。
+        let normalized = normalize_groups(&groups).unwrap();
+        assert_eq!(normalized, groups);
+
+        // 新字段可以正常反序列化并回写。
+        let extended = r#"[
+            {"name":"负载","type":"load-balance","strategy":"consistent-hashing",
+             "filters":[{"exclude_regions":["US"],"name_contains":"HK"}]}
+        ]"#;
+        let groups: Vec<SubscriptionGroup> = serde_json::from_str(extended).unwrap();
+        assert_eq!(
+            groups[0].strategy,
+            Some(LoadBalanceStrategy::ConsistentHashing)
+        );
+        assert_eq!(groups[0].filters[0].exclude_regions, vec!["US"]);
+        assert_eq!(groups[0].filters[0].name_contains.as_deref(), Some("HK"));
+        let encoded = serde_json::to_string(&normalize_groups(&groups).unwrap()).unwrap();
+        assert!(
+            encoded.contains("\"strategy\":\"consistent-hashing\""),
+            "{encoded}"
+        );
+    }
+
+    #[test]
+    fn plan_for_format_skips_or_approximates_what_a_client_cannot_express() {
+        let nodes = nodes();
+        let groups = vec![
+            group(
+                "故障转移",
+                GroupKind::Fallback,
+                vec![filter(&[], &["HK"], &[])],
+            ),
+            load_balance("负载均衡", Some(LoadBalanceStrategy::ConsistentHashing)),
+        ];
+        let plan = plan_groups(&groups, &nodes);
+
+        // Clash / mihomo / Stash 四种组都原生支持。
+        for format in ["clash", "mihomo", "stash"] {
+            let filtered = plan_for_format(&plan, format);
+            assert_eq!(filtered.groups.len(), 2, "{format}");
+            assert_eq!(filtered.warnings, plan.warnings, "{format}");
+            assert!(
+                filtered
+                    .warnings
+                    .iter()
+                    .all(|warning| !warning.contains("urltest")),
+                "{format} 不应出现近似 warning"
+            );
+        }
+
+        // Surge 的 load-balance 没有 strategy 字段：consistent-hashing 无法表达 → 跳过。
+        let surge = plan_for_format(&plan, "surge");
+        assert_eq!(surge.groups.len(), 1);
+        assert_eq!(surge.groups[0].name, "故障转移");
+        assert!(
+            surge.warnings.iter().any(|warning| {
+                warning.contains("负载均衡")
+                    && warning.contains("load-balance")
+                    && warning.contains("surge")
+            }),
+            "{:?}",
+            surge.warnings
+        );
+
+        // round-robin 的 load-balance 在 Surge 里可以表达。
+        let round_robin = plan_groups(
+            &[load_balance("轮询", Some(LoadBalanceStrategy::RoundRobin))],
+            &nodes,
+        );
+        assert_eq!(plan_for_format(&round_robin, "surge").groups.len(), 1);
+
+        // sing-box 没有 load-balance：保留组并用 urltest 近似，同时 warning。
+        let singbox = plan_for_format(&plan, "singbox");
+        assert_eq!(singbox.groups.len(), 2);
+        assert!(
+            singbox
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("urltest")),
+            "{:?}",
+            singbox.warnings
+        );
+
+        // 唯一一个组被跳过时必须回落，并说明原因。
+        let only_load_balance = plan_groups(
+            &[load_balance(
+                "只有负载均衡",
+                Some(LoadBalanceStrategy::ConsistentHashing),
+            )],
+            &nodes,
+        );
+        let filtered = plan_for_format(&only_load_balance, "surge");
+        assert!(filtered.is_empty());
+        assert!(
+            filtered
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("回落到内置分组")),
+            "{:?}",
+            filtered.warnings
+        );
+    }
+
+    #[test]
+    fn duplicate_group_names_are_rejected() {
+        let group = group("节点选择", GroupKind::Select, vec![GroupFilter::default()]);
         let error = normalize_groups(&[group.clone(), group]).unwrap_err();
         assert_eq!(error.code, "subscription_template.group_name_taken");
     }

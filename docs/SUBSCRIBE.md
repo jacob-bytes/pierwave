@@ -309,7 +309,13 @@ Surge / sing-box 等第二轮补——它们的差异主要在配置文件骨架
 ### 6.1 订阅模板（迁移 0052）/ Subscription templates (migration 0052)
 
 写死的 `PROXY` / `AUTO` / 按中文名猜地区只覆盖最朴素的场景。模板把「分组」变成
-管理员可配置的声明式数据，**只对 `mihomo` 与 `clash` 生效**，其余导出器保持原样。
+管理员可配置的声明式数据。第一轮只对 `mihomo` 与 `clash` 生效；第二轮（§6.2）把
+`stash` / `singbox` / `singbox-full` / `surge` / `surge-full` 也接入，其余导出器保持原样。
+
+> The hard-coded `PROXY` / `AUTO` / name-guessed region groups only cover simple cases.
+> Templates turn grouping into declarative admin-managed data. Round one applied **only to
+> `mihomo` and `clash`**; round two (§6.2) also wires up `stash`, `singbox`, `singbox-full`,
+> `surge` and `surge-full`, while every other exporter stays unchanged.
 
 ```
 subscription_templates(id, name, groups_json, created_at, updated_at)
@@ -390,6 +396,194 @@ POST        /api/v1/subscription-templates/{id}/preview   { "user_id": "..." }
 > card. Admins manage templates through `/api/v1/subscription-templates`, and
 > `POST /{id}/preview` renders the `mihomo` config for a real user together with the
 > template warnings.
+
+### 6.2 订阅模板第二轮：新组类型、排除条件与多格式 / Round two: new group kinds, exclusions, more formats
+
+#### 6.2.1 `groups_json` 新结构（只增字段）/ New `groups_json` shape (additive only)
+
+```jsonc
+[
+  {
+    "name": "故障转移",
+    "type": "fallback",                 // select | url-test | fallback | load-balance
+    "filters": [
+      {
+        "tags": ["香港"],                 // 包含条件之间 AND
+        "regions": ["HK"],
+        "protocols": ["vless"],
+        "name_contains": "HK",           // 大小写不敏感子串；不是正则
+        "exclude_tags": ["中转"],         // 排除优先：命中任意一条就出局
+        "exclude_regions": ["US"],
+        "exclude_protocols": ["ss"]
+      }
+    ],
+    "interval": 60                       // 自动测速类组：url-test / fallback / load-balance
+  },
+  {
+    "name": "负载均衡",
+    "type": "load-balance",
+    "strategy": "consistent-hashing",    // round-robin（缺省）| consistent-hashing
+    "filters": [{}]
+  }
+]
+```
+
+向后兼容：
+
+- 新字段全部带默认值：旧模板（第一轮写入的 `groups_json`）反序列化后
+  `exclude_*` 为空、`name_contains` 为 `None`、`strategy` 为 `None`，语义不变；
+- `select` 仍会把 `interval` / `strategy` 清空；`load-balance` 未写 `strategy`
+  时在落库前显式规范化为 `round-robin`；
+- **不需要数据库迁移**：表结构没变，只是 `groups_json` 里多了可选键；
+- 校验仍是「声明式、不允许脚本」：未知字段在反序列化阶段被拒绝，
+  `type` 只接受四种值，`name_contains` 有 64 字符上限。
+
+> All new fields have defaults. Templates written in round one deserialize with empty
+> `exclude_*`, no `name_contains` and no `strategy`, so their behaviour is unchanged.
+> `select` still drops `interval` / `strategy`; `load-balance` without `strategy` is
+> normalized to `round-robin` before writing. **No database migration is needed**: the
+> table is unchanged, only optional keys are added inside `groups_json`. Validation stays
+> declarative (no scripts): unknown fields are rejected at deserialization, `type` accepts
+> exactly four values, and `name_contains` is capped at 64 characters.
+
+排除语义：同一个 filter 内先看排除条件，命中任意一条 `exclude_*` 就不进该组；
+没被排除时才按 `tags` / `regions` / `protocols` / `name_contains` 做 AND。
+只有排除条件（例如 `{"exclude_tags":["测试"]}`）仍是合法 filter，表示「全部节点
+减去测试标签」。`{}` 依旧表示全部节点。
+
+> Exclusions are evaluated first inside a filter: any matching `exclude_*` drops the node
+> from the group. Only then are `tags` / `regions` / `protocols` / `name_contains` AND-ed.
+> A filter with exclusions only (e.g. `{"exclude_tags":["test"]}`) is valid and means
+> "all nodes except those tagged test". `{}` still means all nodes.
+
+#### 6.2.2 各格式的表达能力 / What each format can express
+
+| 格式 | select | url-test | fallback | load-balance | consistent-hashing |
+|---|---|---|---|---|---|
+| `clash` / `mihomo` | ✅ | ✅ | ✅ | ✅ `strategy` | ✅ |
+| `stash` | ✅ | ✅ | ✅ | ✅ `strategy`（与 Clash 同形） | ✅ |
+| `surge` / `surge-full` | ✅ | ✅ | ✅ | ✅ 轮询语法 | ❌ 跳过该组 + warning |
+| `singbox` / `singbox-full` | ✅ `selector` | ✅ `urltest` | ✅ `fallback` | ⚠️ 用 `urltest` 近似 + warning | ⚠️ 近似 |
+
+无法表达的组合**跳过该组并 warning**，绝不输出会被客户端整份拒收的配置；如果所有组
+都被跳过（或模板本来就没有命中节点），渲染层回落到内置 `PROXY` / `AUTO` / 地区组，
+输出与没有模板时逐字节一致。`stash` 直接复用 Clash 生成器（首行 `# stash` 标识），
+Stash 与 Clash 的组字段差异（`strategy` 等）目前同形，所以没有第二份 YAML 逻辑。
+其它格式（`egern` / `surfboard` / `loon` / `qx` / `uri` / `shadowrocket` / `v2ray`）
+本轮不接模板，行为与第一轮一致。
+
+> Combinations a client cannot express are **skipped with a warning** — never emitted as an
+> invalid config. If every group is skipped (or no group matches any node), rendering falls
+> back to the built-in `PROXY` / `AUTO` / region groups, byte-identical to having no
+> template. `stash` reuses the Clash generator (with a leading `# stash` marker); Stash and
+> Clash currently share the same group fields (`strategy`, …), so there is no second YAML
+> implementation. Other formats (`egern`, `surfboard`, `loon`, `qx`, `uri`, `shadowrocket`,
+> `v2ray`) do not consume templates in this round and keep their round-one behaviour.
+
+#### 6.2.3 真实渲染片段 / Real rendered snippets
+
+Clash / mihomo / stash（Templates → `proxy-groups`）：
+
+```yaml
+proxy-groups:
+  - name: "故障转移"
+    type: fallback
+    url: "http://www.gstatic.com/generate_204"
+    interval: 60
+    proxies:
+      - "香港-1"
+  - name: "负载均衡"
+    type: load-balance
+    url: "http://www.gstatic.com/generate_204"
+    interval: 300
+    strategy: consistent-hashing
+    proxies:
+      - "日本-1"
+```
+
+Surge / surge-full（`[Proxy Group]`）：
+
+```text
+故障转移 = fallback, 香港-1, url=http://www.gstatic.com/generate_204, interval=60
+负载均衡 = load-balance, 日本-1, url=http://www.gstatic.com/generate_204, interval=300
+```
+
+surge 会把 `MATCH,PROXY` 映射成 `FINAL,故障转移` 这类指向真实组的兜底规则；
+`load-balance + consistent-hashing` 在 Surge 下被跳过，`warnings` 里会看到：
+
+```text
+代理组「负载均衡」的类型 load-balance 无法在 surge 中表达，已跳过 / Group "负载均衡" of type load-balance cannot be expressed in surge; skipped
+```
+
+sing-box / sing-box-full（`outbounds`，组按模板顺序输出）：
+
+```json
+{
+  "type": "fallback",
+  "tag": "故障转移",
+  "outbounds": ["香港-1"],
+  "url": "http://www.gstatic.com/generate_204",
+  "interval": "60s"
+}
+```
+
+`load-balance` 在 sing-box 里没有原生类型，输出 `"type": "urltest"`，并附 warning：
+
+```text
+代理组「负载均衡」是 load-balance，singbox 没有该组类型，已用 urltest 近似 / Group "负载均衡" is load-balance, which singbox cannot express; approximated with urltest
+```
+
+> The snippets above are also covered by unit tests for all four formats (clash / mihomo /
+> stash, surge / surge-full, singbox / singbox-full). Surge maps `MATCH,PROXY` to a
+> `FINAL,<real group>` fallback; `load-balance + consistent-hashing` is skipped there with
+> the warning shown above. sing-box has no native load-balance, so it is emitted as
+> `urltest` with the approximation warning.
+
+#### 6.2.4 预览接口 / Preview API
+
+`POST /api/v1/subscription-templates/{id}/preview` 新增可选 `target`（兼容别名
+`format`）：
+
+```jsonc
+{ "user_id": "...", "target": "sing-box" }
+→ { "yaml": "...", "format": "singbox", "warnings": ["..."] }
+```
+
+- 缺省仍渲染 `mihomo`（`format: "mihomo"`），`yaml` 字段名保持不变；
+- 模糊匹配大小写、空格、下划线：`Mihomo` / `Clash` / `Clash Meta` / `Stash` /
+  `sing-box` / `sing box full` / `Surge` / `surge full` 都能解析；
+  可切换格式至少覆盖 `mihomo` / `clash` / `stash` / `singbox` / `singbox-full` /
+  `surge` / `surge-full`；
+- `warnings` 与真实渲染共用 `plan_for_format`：空组、格式无法表达的组
+  （跳过）、`load-balance` 被近似、全空回落都会原样返回；
+- 不支持模板的格式（`loon` / 未知 id）返回 400
+  `subscription_template.preview_format_unsupported`，而不是把 YAML 塞回去；
+- **按套餐预览本轮未做**：预览仍然只接受 `user_id`。
+
+> The preview endpoint gains an optional `target` (alias `format`); omitting it still
+> renders `mihomo` and keeps the `yaml` key. Format matching is case-, space- and
+> underscore-insensitive and covers at least `mihomo`, `clash`, `stash`, `singbox`,
+> `singbox-full`, `surge` and `surge-full`. Warnings come from the same `plan_for_format`
+> used by real rendering, so skipped groups / approximations / fallbacks match the output.
+> Formats without template support (e.g. `loon`, unknown ids) return 400
+> `subscription_template.preview_format_unsupported`. **Previewing by package is not
+> implemented in this round**: the endpoint still takes `user_id` only.
+
+#### 6.2.5 编辑器 / Editor
+
+- **拖拽排序**：组顺序就是输出顺序；卡片左侧手柄可拖，另提供上移/下移按钮
+  （键盘与触屏可用）。后端不做额外排序，`proxy-groups` / `[Proxy Group]` /
+  `outbounds` 都保持模板声明顺序。
+- **复制模板**：列表里的复制按钮把模板复制成**草稿**（名称为 `<原名>（副本）`，
+  自动避让重名），打开新建对话框；保存前不写库，改副本不影响原件。
+- **按套餐预览**：未做（见 6.2.4）。
+- **预览切格式**：预览对话框里可选上述 7 种格式，切换后重新生成。
+
+> Drag-and-drop reorders groups (plus up/down buttons for keyboard and touch); the output
+> keeps the template order. Duplicate opens the create dialog prefilled with a fresh draft
+> named `<name> (copy)` and a de-duplicated name — nothing is written until saved, and
+> editing the copy never touches the original. Previewing by package is not implemented;
+> the preview dialog can switch between the seven formats listed above.
 
 ## 7. 闭环：服务端也要有同一份凭据（下一轮）
 

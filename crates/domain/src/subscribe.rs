@@ -21,7 +21,7 @@ use serde_json::{json, Value};
 use crate::credentials;
 use crate::models::{Node, RuleTemplate};
 use crate::reality;
-use crate::subscription_template::{GroupKind, GroupPlan};
+use crate::subscription_template::{plan_for_format, GroupKind, GroupPlan};
 use crate::xray;
 
 // ---------------------------------------------------------------------------
@@ -588,28 +588,54 @@ impl Exporter for ClashExporter {
     }
 
     fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
-        let mut out = String::new();
-        out.push_str("mixed-port: 7890\n");
-        out.push_str("allow-lan: false\n");
-        out.push_str("mode: rule\n");
-        out.push_str("log-level: info\n\n");
+        Ok(render_clash_like(ctx, self.id()))
+    }
+}
 
-        out.push_str(&clash_proxies_section(ctx.nodes));
-        out.push('\n');
+/// Clash 兼容 YAML 的正文；`clash` 与 `stash` 共用，只有文件头不同。
+///
+/// `format` 只影响「这个格式能表达哪些组」的判断（见
+/// [`crate::subscription_template::plan_for_format`]），不影响节点表达。
+fn render_clash_like(ctx: &SubContext<'_>, format: &str) -> String {
+    let mut out = String::new();
+    out.push_str("mixed-port: 7890\n");
+    out.push_str("allow-lan: false\n");
+    out.push_str("mode: rule\n");
+    out.push_str("log-level: info\n\n");
 
-        let plan = active_plan(ctx);
-        match plan {
-            Some(plan) => out.push_str(&clash_plan_groups(plan)),
-            None => out.push_str(&clash_groups(ctx.nodes)),
-        }
-        out.push_str("\nrules:\n");
-        let rules = match plan {
-            Some(plan) => clash_template_rules(ctx, plan),
-            None if ctx.rules.is_empty() => default_rules(),
-            None => ctx.rules.to_vec(),
-        };
-        push_clash_rules(&mut out, &rules);
-        Ok(out)
+    out.push_str(&clash_proxies_section(ctx.nodes));
+    out.push('\n');
+
+    let plan = templated_plan(ctx, format);
+    match &plan {
+        Some(plan) => out.push_str(&clash_plan_groups(plan)),
+        None => out.push_str(&clash_groups(ctx.nodes)),
+    }
+    out.push_str("\nrules:\n");
+    let rules = match &plan {
+        Some(plan) => clash_template_rules(ctx, plan),
+        None if ctx.rules.is_empty() => default_rules(),
+        None => ctx.rules.to_vec(),
+    };
+    push_clash_rules(&mut out, &rules);
+    out
+}
+
+/// 目标格式实际生效的模板计划。
+///
+/// * 没有模板 / 计划为空 → `None`，调用方走原来的硬编码分组（逐字节兼容）；
+/// * 格式表达不了的组由 [`plan_for_format`] 跳过并记 warn，预览接口用同一个
+///   函数生成 warning，两边不会漂移。
+fn templated_plan(ctx: &SubContext<'_>, format: &str) -> Option<GroupPlan> {
+    let plan = ctx.groups.filter(|plan| !plan.is_empty())?;
+    let filtered = plan_for_format(plan, format);
+    for warning in &filtered.warnings {
+        tracing::warn!(format, warning = %warning, "订阅模板告警");
+    }
+    if filtered.is_empty() {
+        None
+    } else {
+        Some(filtered)
     }
 }
 
@@ -835,26 +861,40 @@ fn clash_groups(nodes: &[SubNode]) -> String {
     out
 }
 
-/// 订阅模板是否真的生效：`None` 或「所有组都没命中」都算未生效。
-///
-/// 未生效时必须走原有硬编码分组，保证输出与升级前逐字节一致。
-fn active_plan<'a>(ctx: &'a SubContext<'_>) -> Option<&'a GroupPlan> {
-    ctx.groups.filter(|plan| !plan.is_empty())
-}
-
 /// 模板分组（Clash 骨架）：块状 `proxies:` 列表，与旧 `clash_groups` 风格一致。
 fn clash_plan_groups(plan: &GroupPlan) -> String {
     let mut out = String::from("proxy-groups:\n");
     for group in &plan.groups {
         out.push_str(&format!("  - name: {}\n", yaml_string(&group.name)));
         out.push_str(&format!("    type: {}\n", group.kind.as_str()));
-        if group.kind == GroupKind::UrlTest {
-            out.push_str(&format!("    url: {}\n", yaml_string(MIHOMO_TEST_URL)));
-            out.push_str(&format!(
-                "    interval: {}\n",
-                group.interval.unwrap_or(DEFAULT_INTERVAL_SECS)
-            ));
-            out.push_str("    tolerance: 50\n");
+        match group.kind {
+            GroupKind::UrlTest => {
+                out.push_str(&format!("    url: {}\n", yaml_string(MIHOMO_TEST_URL)));
+                out.push_str(&format!(
+                    "    interval: {}\n",
+                    group.interval.unwrap_or(DEFAULT_INTERVAL_SECS)
+                ));
+                out.push_str("    tolerance: 50\n");
+            }
+            GroupKind::Fallback => {
+                out.push_str(&format!("    url: {}\n", yaml_string(MIHOMO_TEST_URL)));
+                out.push_str(&format!(
+                    "    interval: {}\n",
+                    group.interval.unwrap_or(DEFAULT_INTERVAL_SECS)
+                ));
+            }
+            GroupKind::LoadBalance => {
+                out.push_str(&format!("    url: {}\n", yaml_string(MIHOMO_TEST_URL)));
+                out.push_str(&format!(
+                    "    interval: {}\n",
+                    group.interval.unwrap_or(DEFAULT_INTERVAL_SECS)
+                ));
+                out.push_str(&format!(
+                    "    strategy: {}\n",
+                    group.strategy.unwrap_or_default().as_str()
+                ));
+            }
+            GroupKind::Select => {}
         }
         out.push_str("    proxies:\n");
         for member in &group.members {
@@ -870,12 +910,33 @@ fn mihomo_plan_groups(plan: &GroupPlan) -> String {
     for group in &plan.groups {
         out.push_str(&format!("  - name: {}\n", yaml_string(&group.name)));
         out.push_str(&format!("    type: {}\n", group.kind.as_str()));
-        if group.kind == GroupKind::UrlTest {
-            out.push_str(&format!("    url: {}\n", yaml_string(MIHOMO_TEST_URL)));
-            out.push_str(&format!(
-                "    interval: {}\n",
-                group.interval.unwrap_or(DEFAULT_INTERVAL_SECS)
-            ));
+        match group.kind {
+            GroupKind::UrlTest => {
+                out.push_str(&format!("    url: {}\n", yaml_string(MIHOMO_TEST_URL)));
+                out.push_str(&format!(
+                    "    interval: {}\n",
+                    group.interval.unwrap_or(DEFAULT_INTERVAL_SECS)
+                ));
+            }
+            GroupKind::Fallback => {
+                out.push_str(&format!("    url: {}\n", yaml_string(MIHOMO_TEST_URL)));
+                out.push_str(&format!(
+                    "    interval: {}\n",
+                    group.interval.unwrap_or(DEFAULT_INTERVAL_SECS)
+                ));
+            }
+            GroupKind::LoadBalance => {
+                out.push_str(&format!("    url: {}\n", yaml_string(MIHOMO_TEST_URL)));
+                out.push_str(&format!(
+                    "    interval: {}\n",
+                    group.interval.unwrap_or(DEFAULT_INTERVAL_SECS)
+                ));
+                out.push_str(&format!(
+                    "    strategy: {}\n",
+                    group.strategy.unwrap_or_default().as_str()
+                ));
+            }
+            GroupKind::Select => {}
         }
         let members: Vec<&str> = group.members.iter().map(String::as_str).collect();
         push_mihomo_group_proxies(&mut out, &members);
@@ -1091,8 +1152,8 @@ impl Exporter for MihomoExporter {
         out.push_str(&clash_proxies_section(ctx.nodes));
         out.push('\n');
 
-        let plan = active_plan(ctx);
-        match plan {
+        let plan = templated_plan(ctx, self.id());
+        match &plan {
             Some(plan) => out.push_str(&mihomo_plan_groups(plan)),
             None => {
                 out.push_str("proxy-groups:\n");
@@ -1118,7 +1179,7 @@ impl Exporter for MihomoExporter {
         out.push('\n');
 
         out.push_str("rules:\n");
-        let rules = match plan {
+        let rules = match &plan {
             Some(plan) => mihomo_template_rules(ctx, plan),
             None => mihomo_rules(ctx),
         };
@@ -1394,10 +1455,11 @@ impl Query {
 // ---------------------------------------------------------------------------
 
 /// Stash 的配置骨架与 Clash 几乎一致：`proxies` / `proxy-groups` / `rules`，
-/// 只是 Stash 识别首行注释为客户端标记，AUTO 组用 `url-test`（Clash 生成器已是）。
+/// 只是 Stash 识别首行注释为客户端标记。
 ///
-/// 复用 `ClashExporter` 而不复制一份生成器：以后 Clash 侧新增传输表达时，
-/// Stash 自动跟上，不会出现两份逐渐漂移的 YAML 逻辑。
+/// 分组类型（`select` / `url-test` / `fallback` / `load-balance` + `strategy`）
+/// 与 mihomo 同形，所以直接复用 [`render_clash_like`]，只在文件头加标识；
+/// 以后 Clash 侧新增传输表达时 Stash 自动跟上，不会出现两份逐渐漂移的 YAML 逻辑。
 pub struct StashExporter;
 
 impl Exporter for StashExporter {
@@ -1410,7 +1472,7 @@ impl Exporter for StashExporter {
     }
 
     fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
-        Ok(format!("# stash\n{}", ClashExporter.render(ctx)?))
+        Ok(format!("# stash\n{}", render_clash_like(ctx, self.id())))
     }
 }
 
@@ -1728,7 +1790,16 @@ fn push_test_group(out: &mut String, flavor: IniFlavor, name: &str, members: &[&
     }
 }
 
-fn push_ini_groups(out: &mut String, flavor: IniFlavor, nodes: &[&SubNode]) {
+fn push_ini_groups(
+    out: &mut String,
+    flavor: IniFlavor,
+    nodes: &[&SubNode],
+    plan: Option<&GroupPlan>,
+) {
+    if let Some(plan) = plan {
+        push_surge_plan_groups(out, plan);
+        return;
+    }
     let groups = region_groups(nodes);
     let has_nodes = !nodes.is_empty();
     let direct = if flavor.is_qx() { "direct" } else { "DIRECT" };
@@ -1750,6 +1821,48 @@ fn push_ini_groups(out: &mut String, flavor: IniFlavor, nodes: &[&SubNode]) {
     push_test_group(out, flavor, "AUTO", nodes);
     for (region, members) in &groups {
         push_test_group(out, flavor, region, members);
+    }
+}
+
+/// Surge 的模板分组：`name = <type>, member, ...`。
+///
+/// 不重排成员：组顺序与成员顺序都来自模板/节点原始顺序。`load-balance` 的
+/// `consistent-hashing` 在 [`plan_for_format`] 阶段就被跳过了（Surge 只有轮询），
+/// 所以这里只会看到 `round-robin` 语义的 load-balance。
+fn push_surge_plan_groups(out: &mut String, plan: &GroupPlan) {
+    for group in &plan.groups {
+        let members: Vec<String> = group
+            .members
+            .iter()
+            .map(|member| {
+                if member.eq_ignore_ascii_case("DIRECT") || member.eq_ignore_ascii_case("REJECT") {
+                    member.to_ascii_uppercase()
+                } else {
+                    ini_name(member)
+                }
+            })
+            .collect();
+        let mut line = format!(
+            "{} = {}, {}",
+            ini_name(&group.name),
+            group.kind.as_str(),
+            members.join(", ")
+        );
+        match group.kind {
+            GroupKind::Select => {}
+            GroupKind::UrlTest => line.push_str(&format!(
+                ", url={}, interval={}, tolerance=50",
+                MIHOMO_TEST_URL,
+                group.interval.unwrap_or(DEFAULT_INTERVAL_SECS)
+            )),
+            GroupKind::Fallback | GroupKind::LoadBalance => line.push_str(&format!(
+                ", url={}, interval={}",
+                MIHOMO_TEST_URL,
+                group.interval.unwrap_or(DEFAULT_INTERVAL_SECS)
+            )),
+        }
+        out.push_str(&line);
+        out.push('\n');
     }
 }
 
@@ -1815,9 +1928,41 @@ fn qx_rule_kind(kind: &str) -> Option<&'static str> {
 
 /// 只把策略名映射到本格式真实存在的出站/策略，映射不到就跳过整条规则，
 /// 不生成客户端会报「未知策略」的条目。
-fn ini_policy(flavor: IniFlavor, raw: &str, nodes: &[&SubNode]) -> Option<String> {
+///
+/// 模板生效时（只可能是 Surge），策略名必须指向本 profile 里真实存在的组：
+/// `DIRECT` / `REJECT*` 保留，模板组名原样（按 INI 规则转义），其余旧策略名
+/// （`PROXY` / `AUTO` / 地区组）统一映射到兜底组，避免引用不存在的策略。
+fn ini_policy(
+    flavor: IniFlavor,
+    raw: &str,
+    nodes: &[&SubNode],
+    plan: Option<&GroupPlan>,
+) -> Option<String> {
     let upper = raw.to_ascii_uppercase();
     let qx = flavor.is_qx();
+    if let Some(plan) = plan {
+        if plan.groups.is_empty() {
+            return None;
+        }
+        return match upper.as_str() {
+            "DIRECT" => Some(if qx { "direct" } else { "DIRECT" }.to_string()),
+            "REJECT" | "REJECT-DROP" => Some(if qx { "reject" } else { "REJECT" }.to_string()),
+            _ if plan
+                .groups
+                .iter()
+                .any(|group| group.name.eq_ignore_ascii_case(raw.trim())) =>
+            {
+                Some(ini_name(
+                    plan.groups
+                        .iter()
+                        .find(|group| group.name.eq_ignore_ascii_case(raw.trim()))?
+                        .name
+                        .as_str(),
+                ))
+            }
+            _ => plan.policy_target().map(ini_name),
+        };
+    }
     match upper.as_str() {
         "DIRECT" => Some(if qx { "direct" } else { "DIRECT" }.to_string()),
         "REJECT" | "REJECT-DROP" => Some(if qx { "reject" } else { "REJECT" }.to_string()),
@@ -1840,9 +1985,14 @@ fn ini_policy(flavor: IniFlavor, raw: &str, nodes: &[&SubNode]) -> Option<String
 }
 
 /// 返回 `(规则行, 是否 FINAL)`；`None` 表示该格式映射不了。
-fn ini_rule_line(flavor: IniFlavor, rule: &str, nodes: &[&SubNode]) -> Option<(String, bool)> {
+fn ini_rule_line(
+    flavor: IniFlavor,
+    rule: &str,
+    nodes: &[&SubNode],
+    plan: Option<&GroupPlan>,
+) -> Option<(String, bool)> {
     let (kind, value, policy_raw, no_resolve) = parse_rule(rule)?;
-    let policy = ini_policy(flavor, &policy_raw, nodes)?;
+    let policy = ini_policy(flavor, &policy_raw, nodes, plan)?;
     let qx = flavor.is_qx();
     if kind == "MATCH" {
         let line = if qx {
@@ -1890,11 +2040,12 @@ fn push_ini_rules(
     flavor: IniFlavor,
     rules: &[String],
     nodes: &[&SubNode],
+    plan: Option<&GroupPlan>,
 ) -> usize {
     let mut skipped = 0;
     let mut final_written = false;
     for rule in rules {
-        let mapped = ini_rule_line(flavor, rule, nodes);
+        let mapped = ini_rule_line(flavor, rule, nodes, plan);
         let Some((line, is_final)) = mapped else {
             tracing::warn!(client = flavor.id(), rule = %rule, "规则模板映射不了，跳过该条规则");
             skipped += 1;
@@ -1919,7 +2070,9 @@ fn push_ini_rules(
     skipped
 }
 
-fn render_ini(flavor: IniFlavor, ctx: &SubContext<'_>) -> IniOutput {
+/// `plan` 只有 Surge 会传：Surge 是第一轮之外新增的模板感知格式，其它 INI
+/// 客户端（Egern / Surfboard / Loon / Quantumult X）保持原行为，忽略模板。
+fn render_ini(flavor: IniFlavor, ctx: &SubContext<'_>, plan: Option<&GroupPlan>) -> IniOutput {
     let mut proxies: Vec<(&SubNode, String)> = Vec::new();
     for node in ctx.nodes {
         let line = if flavor.is_qx() {
@@ -1958,7 +2111,7 @@ fn render_ini(flavor: IniFlavor, ctx: &SubContext<'_>) -> IniOutput {
     } else {
         "[Proxy Group]\n"
     });
-    push_ini_groups(&mut body, flavor, &rendered);
+    push_ini_groups(&mut body, flavor, &rendered, plan);
     body.push('\n');
     body.push_str(if flavor.is_qx() {
         "[filter_local]\n"
@@ -1967,7 +2120,7 @@ fn render_ini(flavor: IniFlavor, ctx: &SubContext<'_>) -> IniOutput {
     });
 
     let rules = rules_or_default(ctx);
-    let skipped_rules = push_ini_rules(&mut body, flavor, &rules, &rendered);
+    let skipped_rules = push_ini_rules(&mut body, flavor, &rules, &rendered, plan);
     IniOutput {
         body,
         skipped_nodes,
@@ -1987,8 +2140,9 @@ fn render_surge_compatible(
     client: &'static str,
     header: &str,
     ctx: &SubContext<'_>,
+    plan: Option<&GroupPlan>,
 ) -> anyhow::Result<String> {
-    let output = render_ini(IniFlavor::Surge, ctx);
+    let output = render_ini(IniFlavor::Surge, ctx, plan);
     log_skipped(client, output.skipped_nodes, output.skipped_rules);
     Ok(format!("{header}{}", output.body))
 }
@@ -2006,7 +2160,8 @@ impl Exporter for SurgeExporter {
 
     fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
         // Surge 正文不加文件头，保持升级前的逐字节输出。
-        render_surge_compatible(self.id(), "", ctx)
+        let plan = templated_plan(ctx, self.id());
+        render_surge_compatible(self.id(), "", ctx, plan.as_ref())
     }
 }
 
@@ -2045,7 +2200,8 @@ impl Exporter for SurgeFullExporter {
     }
 
     fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
-        let output = render_ini(IniFlavor::Surge, ctx);
+        let plan = templated_plan(ctx, self.id());
+        let output = render_ini(IniFlavor::Surge, ctx, plan.as_ref());
         log_skipped(self.id(), output.skipped_nodes, output.skipped_rules);
         Ok(format!("{SURGE_GENERAL_SECTION}{}", output.body))
     }
@@ -2079,7 +2235,8 @@ impl Exporter for EgernExporter {
     }
 
     fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
-        render_surge_compatible(self.id(), EGERN_HEADER, ctx)
+        // Egern 是 Surge 兼容格式，但本轮不接入订阅模板（其它格式保持原行为）。
+        render_surge_compatible(self.id(), EGERN_HEADER, ctx, None)
     }
 }
 
@@ -2095,7 +2252,7 @@ impl Exporter for SurfboardExporter {
     }
 
     fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
-        let output = render_ini(IniFlavor::Surfboard, ctx);
+        let output = render_ini(IniFlavor::Surfboard, ctx, None);
         log_skipped(self.id(), output.skipped_nodes, output.skipped_rules);
         Ok(output.body)
     }
@@ -2113,7 +2270,7 @@ impl Exporter for LoonExporter {
     }
 
     fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
-        let output = render_ini(IniFlavor::Loon, ctx);
+        let output = render_ini(IniFlavor::Loon, ctx, None);
         log_skipped(self.id(), output.skipped_nodes, output.skipped_rules);
         Ok(output.body)
     }
@@ -2131,7 +2288,7 @@ impl Exporter for QxExporter {
     }
 
     fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
-        let output = render_ini(IniFlavor::Qx, ctx);
+        let output = render_ini(IniFlavor::Qx, ctx, None);
         log_skipped(self.id(), output.skipped_nodes, output.skipped_rules);
         Ok(output.body)
     }
@@ -2275,15 +2432,15 @@ fn singbox_outbound(node: &SubNode) -> Option<Value> {
 }
 
 /// 规则 → sing-box route rule；`MATCH` 映射成 `route.final`（不是一条 rule）。
-fn singbox_rule(rule: &str, has_nodes: bool) -> Option<(Value, Option<String>)> {
+///
+/// `policy` 负责把规则里的策略名解析成**本配置里真实存在的出站 tag**；
+/// 解析不到就跳过整条规则，不生成客户端会报「未知出站」的条目。
+fn singbox_rule_with(
+    rule: &str,
+    policy: impl Fn(&str) -> Option<String>,
+) -> Option<(Value, Option<String>)> {
     let (kind, value, policy_raw, _no_resolve) = parse_rule(rule)?;
-    let outbound = match policy_raw.to_ascii_uppercase().as_str() {
-        "DIRECT" => "direct".to_string(),
-        "REJECT" | "REJECT-DROP" => "blocker".to_string(),
-        "PROXY" => "selector".to_string(),
-        "AUTO" if has_nodes => "AUTO".to_string(),
-        _ => return None,
-    };
+    let outbound = policy(&policy_raw)?;
     if kind == "MATCH" {
         return Some((Value::Null, Some(outbound)));
     }
@@ -2301,7 +2458,32 @@ fn singbox_rule(rule: &str, has_nodes: bool) -> Option<(Value, Option<String>)> 
     Some((condition, None))
 }
 
-/// 节点出站 + 固定分组（`AUTO` / `selector` / `direct`）。
+fn singbox_builtin_policy(raw: &str, has_nodes: bool) -> Option<String> {
+    match raw.trim().to_ascii_uppercase().as_str() {
+        "DIRECT" => Some("direct".to_string()),
+        "REJECT" | "REJECT-DROP" => Some("blocker".to_string()),
+        "PROXY" => Some("selector".to_string()),
+        "AUTO" if has_nodes => Some("AUTO".to_string()),
+        _ => None,
+    }
+}
+
+/// 模板生效时的策略 → 出站 tag：模板组名原样，其余旧策略名映射到兜底组。
+fn singbox_plan_policy(raw: &str, plan: &GroupPlan) -> Option<String> {
+    let upper = raw.trim().to_ascii_uppercase();
+    match upper.as_str() {
+        "DIRECT" => Some("direct".to_string()),
+        "REJECT" | "REJECT-DROP" => Some("blocker".to_string()),
+        _ => plan
+            .groups
+            .iter()
+            .find(|group| group.name.eq_ignore_ascii_case(raw.trim()))
+            .map(|group| group.name.clone())
+            .or_else(|| plan.policy_target().map(str::to_string)),
+    }
+}
+
+/// 节点出站 + 分组（模板生效时用模板组，否则固定 `AUTO` / `selector` / `direct`）。
 ///
 /// `singbox`（片段）与 `singbox-full`（完整配置）共用这一份节点与分组表达；
 /// 片段另加 legacy `block` 出站（保持原有逐字节输出），完整配置改用
@@ -2310,9 +2492,58 @@ struct SingboxCore {
     outbounds: Vec<Value>,
     has_nodes: bool,
     skipped_nodes: usize,
+    /// 目标格式裁剪后的模板计划；`None` = 没有模板或全被跳过，走固定分组。
+    plan: Option<GroupPlan>,
 }
 
-fn singbox_core(ctx: &SubContext<'_>) -> SingboxCore {
+/// 模板组 → sing-box group outbound。
+///
+/// * `select` → `selector`（成员里的 `DIRECT` 映射成 `direct` 出站）；
+/// * `url-test` → `urltest`；
+/// * `fallback` → `fallback`；
+/// * `load-balance` → 没有原生类型，用 `urltest` 近似（warning 由
+///   [`plan_for_format`] 给出，不在这里重复判断）。
+fn singbox_group_outbound(group: &crate::subscription_template::PlannedGroup) -> Value {
+    let members: Vec<String> = group
+        .members
+        .iter()
+        .map(|member| {
+            if member.eq_ignore_ascii_case("DIRECT") {
+                "direct".to_string()
+            } else if member.eq_ignore_ascii_case("REJECT") {
+                "blocker".to_string()
+            } else {
+                member.clone()
+            }
+        })
+        .collect();
+    match group.kind {
+        GroupKind::Select => json!({
+            "type": "selector",
+            "tag": group.name,
+            // plan 保证 select 至少有一个成员（节点 / 自动组 / DIRECT）。
+            "outbounds": members,
+            "default": members.first().cloned().unwrap_or_else(|| "direct".to_string()),
+        }),
+        GroupKind::UrlTest | GroupKind::LoadBalance => json!({
+            "type": "urltest",
+            "tag": group.name,
+            "outbounds": group.node_members,
+            "url": MIHOMO_TEST_URL,
+            "interval": format!("{}s", group.interval.unwrap_or(DEFAULT_INTERVAL_SECS)),
+            "tolerance": 50,
+        }),
+        GroupKind::Fallback => json!({
+            "type": "fallback",
+            "tag": group.name,
+            "outbounds": group.node_members,
+            "url": MIHOMO_TEST_URL,
+            "interval": format!("{}s", group.interval.unwrap_or(DEFAULT_INTERVAL_SECS)),
+        }),
+    }
+}
+
+fn singbox_core(ctx: &SubContext<'_>, format: &str) -> SingboxCore {
     let mut outbounds: Vec<Value> = Vec::new();
     let mut node_tags: Vec<&str> = Vec::new();
     let mut skipped_nodes = 0;
@@ -2335,28 +2566,47 @@ fn singbox_core(ctx: &SubContext<'_>) -> SingboxCore {
         }
     }
 
-    if !node_tags.is_empty() {
-        outbounds.push(json!({
-            "type": "urltest",
-            "tag": "AUTO",
-            "outbounds": node_tags,
-            "url": "http://www.gstatic.com/generate_204",
-            "interval": "5m",
-            "tolerance": 50,
-        }));
-        outbounds.push(json!({
-            "type": "selector",
-            "tag": "selector",
-            "outbounds": ["AUTO", "direct"],
-            "default": "AUTO",
-        }));
-    } else {
-        outbounds.push(json!({
-            "type": "selector",
-            "tag": "selector",
-            "outbounds": ["direct"],
-            "default": "direct",
-        }));
+    let plan = templated_plan(ctx, format);
+    match &plan {
+        Some(plan) => {
+            // 模板组按声明顺序输出；组里引用的节点/组名与 outbound tag 同源。
+            for group in &plan.groups {
+                outbounds.push(singbox_group_outbound(group));
+            }
+            // `selector` 仍保留：DNS detour 与兜底规则都引用它，且它是规则
+            // 映射不到模板组时的安全落点。
+            let target = plan.policy_target().unwrap_or("direct").to_string();
+            outbounds.push(json!({
+                "type": "selector",
+                "tag": "selector",
+                "outbounds": [target, "direct"],
+                "default": target,
+            }));
+        }
+        None if !node_tags.is_empty() => {
+            outbounds.push(json!({
+                "type": "urltest",
+                "tag": "AUTO",
+                "outbounds": node_tags,
+                "url": "http://www.gstatic.com/generate_204",
+                "interval": "5m",
+                "tolerance": 50,
+            }));
+            outbounds.push(json!({
+                "type": "selector",
+                "tag": "selector",
+                "outbounds": ["AUTO", "direct"],
+                "default": "AUTO",
+            }));
+        }
+        None => {
+            outbounds.push(json!({
+                "type": "selector",
+                "tag": "selector",
+                "outbounds": ["direct"],
+                "default": "direct",
+            }));
+        }
     }
     outbounds.push(json!({ "type": "direct", "tag": "direct" }));
 
@@ -2364,18 +2614,27 @@ fn singbox_core(ctx: &SubContext<'_>) -> SingboxCore {
         has_nodes: !node_tags.is_empty(),
         outbounds,
         skipped_nodes,
+        plan,
     }
 }
 
 /// 规则模板 → (`route.rules`, `route.final`)；`MATCH` 映射成 `route.final`。
 ///
 /// 片段与完整配置共用：两边映射出来的规则必须完全一致，否则同一个模板在两种
-/// 订阅里会走不同的出口。
-fn singbox_route(ctx: &SubContext<'_>, has_nodes: bool) -> (Vec<Value>, String) {
+/// 订阅里会走不同的出口。模板生效时策略指向模板组，否则沿用固定出站。
+fn singbox_route(
+    ctx: &SubContext<'_>,
+    has_nodes: bool,
+    plan: Option<&GroupPlan>,
+) -> (Vec<Value>, String) {
     let mut route_rules: Vec<Value> = Vec::new();
     let mut final_outbound = "selector".to_string();
     for rule in rules_or_default(ctx) {
-        let Some((condition, final_policy)) = singbox_rule(&rule, has_nodes) else {
+        let mapped = match plan {
+            Some(plan) => singbox_rule_with(&rule, |raw| singbox_plan_policy(raw, plan)),
+            None => singbox_rule_with(&rule, |raw| singbox_builtin_policy(raw, has_nodes)),
+        };
+        let Some((condition, final_policy)) = mapped else {
             tracing::warn!(rule = %rule, "规则模板映射不了 sing-box 规则，跳过该条规则");
             continue;
         };
@@ -2389,8 +2648,8 @@ fn singbox_route(ctx: &SubContext<'_>, has_nodes: bool) -> (Vec<Value>, String) 
 }
 
 fn render_singbox(ctx: &SubContext<'_>) -> SingboxOutput {
-    let core = singbox_core(ctx);
-    let (route_rules, final_outbound) = singbox_route(ctx, core.has_nodes);
+    let core = singbox_core(ctx, "singbox");
+    let (route_rules, final_outbound) = singbox_route(ctx, core.has_nodes, core.plan.as_ref());
 
     // 片段保持升级前的输出：legacy `block` 出站仍在。
     let mut outbounds = core.outbounds;
@@ -2416,8 +2675,12 @@ fn render_singbox(ctx: &SubContext<'_>) -> SingboxOutput {
 ///
 /// `MATCH,REJECT` 无法作为 `route.final`（它不是出站），改成末尾一条无条件的
 /// `reject` 规则，语义等价。
-fn singbox_full_route(ctx: &SubContext<'_>, has_nodes: bool) -> (Vec<Value>, String) {
-    let (route_rules, mut final_outbound) = singbox_route(ctx, has_nodes);
+fn singbox_full_route(
+    ctx: &SubContext<'_>,
+    has_nodes: bool,
+    plan: Option<&GroupPlan>,
+) -> (Vec<Value>, String) {
+    let (route_rules, mut final_outbound) = singbox_route(ctx, has_nodes, plan);
     let mut rules: Vec<Value> = route_rules
         .into_iter()
         .map(|mut rule| {
@@ -2446,8 +2709,8 @@ fn singbox_full_route(ctx: &SubContext<'_>, has_nodes: bool) -> (Vec<Value>, Str
 /// `block` 出站。空节点时仍是合法可运行的配置：`selector` 只含 `direct`，DNS 仍
 /// 指向真实存在的出站。
 fn render_singbox_full(ctx: &SubContext<'_>) -> SingboxOutput {
-    let core = singbox_core(ctx);
-    let (route_rules, final_outbound) = singbox_full_route(ctx, core.has_nodes);
+    let core = singbox_core(ctx, "singbox-full");
+    let (route_rules, final_outbound) = singbox_full_route(ctx, core.has_nodes, core.plan.as_ref());
 
     // DNS 取向与 mihomo 一致：国内 DoH 走 direct、其余走 selector；两个 DoH 地址
     // 都是 IP 字面量，不会触发自举解析。`type: https` 是 sing-box 1.12+ 的新格式。
@@ -2670,7 +2933,8 @@ mod tests {
 
     use crate::models::Node;
     use crate::subscription_template::{
-        plan_groups, GroupFilter, GroupKind, GroupPlan, SubscriptionGroup,
+        plan_for_format, plan_groups, GroupFilter, GroupKind, GroupPlan, LoadBalanceStrategy,
+        SubscriptionGroup,
     };
 
     fn node(
@@ -3792,7 +4056,7 @@ mod tests {
         let nodes = fixtures();
         let rules = default_rules();
         let ctx = sub_context(&nodes, &rules);
-        let output = render_ini(IniFlavor::Surge, &ctx);
+        let output = render_ini(IniFlavor::Surge, &ctx, None);
         let body = &output.body;
 
         assert_eq!(output.skipped_nodes, 0);
@@ -3836,7 +4100,7 @@ mod tests {
             "MATCH,PROXY".to_string(),
         ];
         let ctx = sub_context(&nodes, &rules);
-        let output = render_ini(IniFlavor::Surge, &ctx);
+        let output = render_ini(IniFlavor::Surge, &ctx, None);
 
         assert!(output.body.contains("DOMAIN-SUFFIX,example.com,DIRECT"));
         assert!(output.body.contains("IP-CIDR,10.0.0.0/8,DIRECT,no-resolve"));
@@ -3867,7 +4131,7 @@ mod tests {
         ];
         let rules = default_rules();
         let ctx = sub_context(&nodes, &rules);
-        let output = render_ini(IniFlavor::Surge, &ctx);
+        let output = render_ini(IniFlavor::Surge, &ctx, None);
 
         assert_eq!(output.skipped_nodes, 1);
         assert!(!output.body.contains("gRPC-不支持"));
@@ -3879,7 +4143,7 @@ mod tests {
         let nodes: Vec<SubNode> = Vec::new();
         let rules = default_rules();
         let ctx = sub_context(&nodes, &rules);
-        let output = render_ini(IniFlavor::Surge, &ctx);
+        let output = render_ini(IniFlavor::Surge, &ctx, None);
 
         assert_eq!(output.skipped_nodes, 0);
         assert!(output.body.contains("[Proxy]\n\n[Proxy Group]"));
@@ -3971,7 +4235,7 @@ mod tests {
         ];
         let rules = default_rules();
         let ctx = sub_context(&nodes, &rules);
-        let output = render_ini(IniFlavor::Surfboard, &ctx);
+        let output = render_ini(IniFlavor::Surfboard, &ctx, None);
 
         assert_eq!(output.skipped_nodes, 1);
         assert!(output.body.contains("香港-REALITY = vless, "));
@@ -4024,7 +4288,7 @@ mod tests {
         ];
         let rules = default_rules();
         let ctx = sub_context(&nodes, &rules);
-        let output = render_ini(IniFlavor::Loon, &ctx);
+        let output = render_ini(IniFlavor::Loon, &ctx, None);
 
         // Loon 不支持 REALITY：该节点跳过并计数。
         assert_eq!(output.skipped_nodes, 1);
@@ -4088,7 +4352,7 @@ mod tests {
             "MATCH,PROXY".to_string(),
         ];
         let ctx = sub_context(&nodes, &rules);
-        let output = render_ini(IniFlavor::Qx, &ctx);
+        let output = render_ini(IniFlavor::Qx, &ctx, None);
         let body = &output.body;
 
         // REALITY 在 Quantumult X 里无法表达，跳过并计数。
@@ -4118,7 +4382,7 @@ mod tests {
             "MATCH,UNKNOWN-POLICY".to_string(),
         ];
         let ctx = sub_context(&nodes, &rules);
-        let output = render_ini(IniFlavor::Qx, &ctx);
+        let output = render_ini(IniFlavor::Qx, &ctx, None);
 
         assert!(!output.body.contains("RULE-SET"));
         assert_eq!(output.skipped_rules, 2);
@@ -4130,7 +4394,7 @@ mod tests {
         let nodes: Vec<SubNode> = Vec::new();
         let rules = default_rules();
         let ctx = sub_context(&nodes, &rules);
-        let output = render_ini(IniFlavor::Qx, &ctx);
+        let output = render_ini(IniFlavor::Qx, &ctx, None);
 
         assert!(output.body.contains("[server_local]\n\n[policy]"));
         assert!(output.body.contains("static=PROXY, direct"));
@@ -4884,7 +5148,7 @@ mod tests {
         )];
         let rules = default_rules();
         let ctx = sub_context(&nodes, &rules);
-        let output = render_ini(IniFlavor::Surge, &ctx);
+        let output = render_ini(IniFlavor::Surge, &ctx, None);
 
         assert_eq!(output.skipped_nodes, 0);
         let proxy_section = output.body.split("[Proxy Group]").next().unwrap();
@@ -5318,9 +5582,11 @@ mod tests {
                     tags: vec!["香港".into()],
                     regions: vec!["HK".into()],
                     protocols: vec!["vless".into()],
+                    ..Default::default()
                 }],
                 include_auto: true,
                 interval: None,
+                strategy: None,
             },
             SubscriptionGroup {
                 name: "自动选择".into(),
@@ -5328,18 +5594,19 @@ mod tests {
                 filters: vec![GroupFilter::default()],
                 include_auto: false,
                 interval: Some(120),
+                strategy: None,
             },
         ]
     }
 
     /// `groups = None` 与空的 `GroupPlan` 必须逐字节相等：模板不存在或组全不命中时，
-    /// clash / mihomo 输出必须与升级前完全一致。
+    /// 所有导出格式的输出都必须与升级前完全一致。
     #[test]
     fn empty_group_plan_renders_byte_identical_to_no_plan() {
         let nodes = fixtures();
         let rules = vec!["MATCH,PROXY".to_string()];
         let empty = GroupPlan::default();
-        for exporter in [&ClashExporter as &dyn Exporter, &MihomoExporter] {
+        for exporter in exporters() {
             let legacy = exporter
                 .render(&sub_context(&nodes, &rules))
                 .expect("legacy 渲染失败");
@@ -5461,9 +5728,11 @@ mod tests {
                 tags: vec!["韩国".into()],
                 regions: vec![],
                 protocols: vec![],
+                ..Default::default()
             }],
             include_auto: false,
             interval: None,
+            strategy: None,
         }];
         let plan = plan_groups(&groups, &nodes);
         assert!(plan.is_empty());
@@ -5491,6 +5760,7 @@ mod tests {
             filters: vec![GroupFilter::default()],
             include_auto: false,
             interval: None,
+            strategy: None,
         }];
         let plan = plan_groups(&groups, &nodes);
         let rules = vec!["MATCH,PROXY".to_string()];
@@ -5503,5 +5773,304 @@ mod tests {
         };
         let yaml = ClashExporter.render(&ctx).unwrap();
         assert!(yaml.contains("MATCH,自动选择"), "{yaml}");
+    }
+
+    // -----------------------------------------------------------------------
+    // 第二轮：fallback / load-balance / 排除条件 / 多格式
+    // -----------------------------------------------------------------------
+
+    fn new_kind_groups() -> Vec<SubscriptionGroup> {
+        vec![
+            SubscriptionGroup {
+                name: "节点选择".into(),
+                kind: GroupKind::Select,
+                filters: vec![GroupFilter::default()],
+                include_auto: false,
+                interval: None,
+                strategy: None,
+            },
+            SubscriptionGroup {
+                name: "故障转移".into(),
+                kind: GroupKind::Fallback,
+                filters: vec![GroupFilter {
+                    regions: vec!["HK".into()],
+                    ..Default::default()
+                }],
+                include_auto: false,
+                interval: Some(60),
+                strategy: None,
+            },
+            SubscriptionGroup {
+                name: "负载均衡".into(),
+                kind: GroupKind::LoadBalance,
+                filters: vec![GroupFilter {
+                    regions: vec!["JP".into()],
+                    ..Default::default()
+                }],
+                include_auto: false,
+                interval: Some(120),
+                strategy: Some(LoadBalanceStrategy::RoundRobin),
+            },
+        ]
+    }
+
+    fn template_ctx<'a>(
+        plan: &'a GroupPlan,
+        nodes: &'a [SubNode],
+        rules: &'a [String],
+    ) -> SubContext<'a> {
+        SubContext {
+            nodes,
+            user_label: "alice",
+            traffic: None,
+            rules,
+            groups: Some(plan),
+        }
+    }
+
+    /// 四种新组类型在 clash / mihomo / stash 里的 YAML 表达。
+    #[test]
+    fn new_group_kinds_render_in_clash_mihomo_and_stash() {
+        let nodes = template_nodes();
+        let plan = plan_groups(&new_kind_groups(), &nodes);
+        let rules = vec!["GEOIP,CN,DIRECT".to_string(), "MATCH,PROXY".to_string()];
+        let ctx = template_ctx(&plan, &nodes, &rules);
+
+        for id in ["clash", "mihomo", "stash"] {
+            let body = find_exporter(id).unwrap().render(&ctx).unwrap();
+            let yaml = body.strip_prefix("# stash\n").unwrap_or(&body);
+            let parsed: serde_yaml::Value = serde_yaml::from_str(yaml)
+                .unwrap_or_else(|error| panic!("{id} 不是合法 YAML：{error}\n{body}"));
+            let groups = parsed["proxy-groups"].as_sequence().unwrap();
+            let names: Vec<&str> = groups
+                .iter()
+                .filter_map(|group| group["name"].as_str())
+                .collect();
+            assert_eq!(names, vec!["节点选择", "故障转移", "负载均衡"], "{id}");
+
+            assert_eq!(groups[0]["type"].as_str(), Some("select"), "{id}");
+            assert_eq!(
+                yaml_strings(&groups[0]["proxies"]),
+                vec!["香港-1", "日本-1", "DIRECT"],
+                "{id}"
+            );
+
+            assert_eq!(groups[1]["type"].as_str(), Some("fallback"), "{id}");
+            assert_eq!(groups[1]["interval"].as_i64(), Some(60), "{id}");
+            assert_eq!(yaml_strings(&groups[1]["proxies"]), vec!["香港-1"], "{id}");
+
+            assert_eq!(groups[2]["type"].as_str(), Some("load-balance"), "{id}");
+            assert_eq!(groups[2]["strategy"].as_str(), Some("round-robin"), "{id}");
+            assert_eq!(groups[2]["interval"].as_i64(), Some(120), "{id}");
+            assert_eq!(yaml_strings(&groups[2]["proxies"]), vec!["日本-1"], "{id}");
+
+            assert_eq!(
+                yaml_strings(&parsed["rules"]),
+                vec!["GEOIP,CN,DIRECT", "MATCH,节点选择"],
+                "{id} 的规则必须指向模板里真实存在的组"
+            );
+        }
+    }
+
+    /// Surge / surge-full：`select` / `fallback` / `load-balance` 的 INI 语法。
+    #[test]
+    fn new_group_kinds_render_in_surge_and_surge_full() {
+        let nodes = template_nodes();
+        let plan = plan_groups(&new_kind_groups(), &nodes);
+        let rules = vec!["GEOIP,CN,DIRECT".to_string(), "MATCH,PROXY".to_string()];
+        let ctx = template_ctx(&plan, &nodes, &rules);
+
+        let surge = SurgeExporter.render(&ctx).unwrap();
+        let group_section = surge
+            .split_once("[Proxy Group]\n")
+            .and_then(|(_, rest)| rest.split_once("\n[Rule]"))
+            .map(|(groups, _)| groups)
+            .unwrap_or_else(|| panic!("缺少 [Proxy Group]：{surge}"));
+        let group_lines: Vec<&str> = group_section
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .collect();
+        assert_eq!(
+            group_lines,
+            vec![
+                "节点选择 = select, 香港-1, 日本-1, DIRECT",
+                "故障转移 = fallback, 香港-1, url=http://www.gstatic.com/generate_204, interval=60",
+                "负载均衡 = load-balance, 日本-1, url=http://www.gstatic.com/generate_204, interval=120",
+            ],
+            "{surge}"
+        );
+        assert_eq!(surge.lines().last(), Some("FINAL,节点选择"));
+        assert!(surge.contains("GEOIP,CN,DIRECT"), "{surge}");
+
+        let full = SurgeFullExporter.render(&ctx).unwrap();
+        assert!(full.starts_with("[General]\n"), "{full}");
+        assert_eq!(
+            full.strip_prefix(SURGE_GENERAL_SECTION).unwrap(),
+            surge,
+            "surge-full 的正文必须与 surge 逐字节一致"
+        );
+    }
+
+    /// sing-box：selector / urltest / fallback；load-balance 用 urltest 近似。
+    #[test]
+    fn new_group_kinds_render_in_singbox_and_singbox_full() {
+        let nodes = template_nodes();
+        let plan = plan_groups(&new_kind_groups(), &nodes);
+        let rules = vec!["GEOIP,CN,DIRECT".to_string(), "MATCH,PROXY".to_string()];
+        let ctx = template_ctx(&plan, &nodes, &rules);
+
+        for id in ["singbox", "singbox-full"] {
+            let body = find_exporter(id).unwrap().render(&ctx).unwrap();
+            let parsed: Value = serde_json::from_str(&body)
+                .unwrap_or_else(|error| panic!("{id} 不是合法 JSON：{error}\n{body}"));
+            let outbounds = parsed["outbounds"].as_array().unwrap();
+            let by_tag = |tag: &str| {
+                outbounds
+                    .iter()
+                    .find(|outbound| outbound["tag"].as_str() == Some(tag))
+                    .unwrap_or_else(|| panic!("{id} 缺少出站 {tag}：{body}"))
+            };
+            assert_eq!(by_tag("节点选择")["type"], "selector", "{id}");
+            assert_eq!(
+                by_tag("节点选择")["outbounds"].as_array().map(Vec::len),
+                Some(3),
+                "{id}"
+            );
+            assert_eq!(by_tag("故障转移")["type"], "fallback", "{id}");
+            assert_eq!(by_tag("故障转移")["outbounds"][0], "香港-1", "{id}");
+            assert_eq!(by_tag("故障转移")["interval"], "60s", "{id}");
+            // sing-box 没有 load-balance：近似成 urltest。
+            assert_eq!(by_tag("负载均衡")["type"], "urltest", "{id}");
+            assert_eq!(by_tag("负载均衡")["outbounds"][0], "日本-1", "{id}");
+            assert_eq!(by_tag("负载均衡")["interval"], "120s", "{id}");
+            // 兜底 selector 指向第一个 select 组，规则也指向它。
+            assert_eq!(by_tag("selector")["default"], "节点选择", "{id}");
+            assert_eq!(parsed["route"]["final"], "节点选择", "{id}");
+            assert!(
+                parsed["route"]["rules"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|rule| rule["outbound"] == "direct"),
+                "{id} 的 DIRECT 规则丢失：{body}"
+            );
+            if id == "singbox-full" {
+                assert_singbox_references_resolve(&parsed);
+            }
+        }
+
+        // 近似行为本身要能在计划里看到 warning（预览接口返回的就是它）。
+        let filtered = plan_for_format(&plan, "singbox");
+        assert!(
+            filtered
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("urltest")),
+            "{:?}",
+            filtered.warnings
+        );
+    }
+
+    /// Surge 无法表达 `load-balance + consistent-hashing`：跳过该组，回落内置分组。
+    #[test]
+    fn surge_skips_consistent_hashing_and_falls_back_to_builtin_groups() {
+        let nodes = template_nodes();
+        let groups = vec![SubscriptionGroup {
+            name: "一致哈希".into(),
+            kind: GroupKind::LoadBalance,
+            filters: vec![GroupFilter::default()],
+            include_auto: false,
+            interval: None,
+            strategy: Some(LoadBalanceStrategy::ConsistentHashing),
+        }];
+        let plan = plan_groups(&groups, &nodes);
+        let rules = vec!["MATCH,PROXY".to_string()];
+        let ctx = template_ctx(&plan, &nodes, &rules);
+        let body = SurgeExporter.render(&ctx).unwrap();
+
+        assert!(
+            !body.contains("一致哈希"),
+            "无法表达的组不能出现在配置里：{body}"
+        );
+        assert!(
+            body.contains("PROXY = select,"),
+            "唯一组被跳过时必须回落内置分组：{body}"
+        );
+        assert_eq!(body.lines().last(), Some("FINAL,PROXY"), "{body}");
+
+        // warning 由 plan_for_format 生成，预览接口原样返回。
+        let filtered = plan_for_format(&plan, "surge");
+        assert!(filtered.is_empty());
+        assert!(
+            filtered
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("一致哈希")
+                    && warning.contains("load-balance")
+                    && warning.contains("surge")),
+            "{:?}",
+            filtered.warnings
+        );
+        assert!(
+            filtered
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("回落到内置分组")),
+            "{:?}",
+            filtered.warnings
+        );
+    }
+
+    /// 组顺序 = 输出顺序：交换声明顺序后，三种 YAML/INI/JSON 输出同步改变。
+    #[test]
+    fn group_order_follows_the_template_order_after_reordering() {
+        let nodes = template_nodes();
+        let mut groups = new_kind_groups();
+        groups.swap(0, 1);
+        let plan = plan_groups(&groups, &nodes);
+        let rules = vec!["MATCH,节点选择".to_string()];
+        let ctx = template_ctx(&plan, &nodes, &rules);
+
+        let clash: serde_yaml::Value =
+            serde_yaml::from_str(&ClashExporter.render(&ctx).unwrap()).unwrap();
+        let clash_names: Vec<&str> = clash["proxy-groups"]
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .filter_map(|group| group["name"].as_str())
+            .collect();
+        assert_eq!(clash_names, vec!["故障转移", "节点选择", "负载均衡"]);
+
+        let surge = SurgeExporter.render(&ctx).unwrap();
+        let surge_names: Vec<&str> = surge
+            .split_once("[Proxy Group]\n")
+            .and_then(|(_, rest)| rest.split_once("\n[Rule]"))
+            .map(|(groups, _)| groups)
+            .unwrap()
+            .lines()
+            .filter(|line| line.contains(" = "))
+            .map(|line| line.split_once(" = ").unwrap().0)
+            .collect();
+        assert_eq!(surge_names, vec!["故障转移", "节点选择", "负载均衡"]);
+
+        let singbox: Value = serde_json::from_str(&SingboxExporter.render(&ctx).unwrap()).unwrap();
+        let tags: Vec<&str> = singbox["outbounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|outbound| outbound["tag"].as_str())
+            .collect();
+        let positions: Vec<usize> = ["故障转移", "节点选择", "负载均衡"]
+            .iter()
+            .map(|name| {
+                tags.iter()
+                    .position(|tag| tag == name)
+                    .unwrap_or_else(|| panic!("缺少出站 {name}：{tags:?}"))
+            })
+            .collect();
+        assert!(
+            positions.windows(2).all(|pair| pair[0] < pair[1]),
+            "sing-box 组顺序必须与模板一致：{positions:?}"
+        );
     }
 }

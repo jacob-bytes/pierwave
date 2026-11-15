@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DEFAULT_INTERVAL_SECS,
+  MAX_NAME_CONTAINS_CHARS,
   MAX_REGION_CHARS,
   MAX_TAG_CHARS,
+  copyTemplateDraft,
   draftFromTemplate,
   emptyFilterDraft,
   emptyGroupDraft,
@@ -11,8 +13,11 @@ import {
   groupFilterSummary,
   groupsFromDraft,
   joinList,
+  moveGroup,
   previewDisabled,
+  resolvePreviewFormat,
   splitList,
+  uniqueTemplateName,
   validateTemplateDraft,
 } from "./subscriptionTemplates.ts";
 
@@ -72,7 +77,14 @@ test("a group without any filter is rejected; an empty filter means all nodes", 
   draft.groups[0].filters = [emptyFilterDraft()];
   assert.deepEqual(validateTemplateDraft(draft), []);
   assert.deepEqual(groupsFromDraft(draft.groups)[0].filters, [
-    { tags: [], regions: [], protocols: [] },
+    {
+      tags: [],
+      regions: [],
+      protocols: [],
+      exclude_tags: [],
+      exclude_regions: [],
+      exclude_protocols: [],
+    },
   ]);
 });
 
@@ -134,7 +146,16 @@ test("groupsFromDraft produces the declarative payload and drops select interval
   assert.deepEqual(groups[0], {
     name: "节点选择",
     type: "select",
-    filters: [{ tags: ["香港", "中转"], regions: ["HK"], protocols: ["vless"] }],
+    filters: [
+      {
+        tags: ["香港", "中转"],
+        regions: ["HK"],
+        protocols: ["vless"],
+        exclude_tags: [],
+        exclude_regions: [],
+        exclude_protocols: [],
+      },
+    ],
     include_auto: true,
   });
   assert.equal(groups[1].interval, 120);
@@ -175,6 +196,9 @@ test("draftFromTemplate round-trips a saved template", () => {
         tags: filter.tags ?? [],
         regions: filter.regions ?? [],
         protocols: filter.protocols ?? [],
+        exclude_tags: filter.exclude_tags ?? [],
+        exclude_regions: filter.exclude_regions ?? [],
+        exclude_protocols: filter.exclude_protocols ?? [],
       })),
     })),
   );
@@ -234,4 +258,217 @@ test("subscription template binding sentinel helpers", async () => {
   assert.equal(subscriptionTemplateFromSelectValue("tpl"), "tpl");
   assert.equal(subscriptionTemplateInputValue(""), null);
   assert.equal(subscriptionTemplateInputValue(" tpl "), "tpl");
+});
+
+// ---------------------------------------------------------------------------
+// 第二轮：排除条件 / name_contains / 新组类型 / 拖拽 / 复制 / 预览格式
+// ---------------------------------------------------------------------------
+
+test("filters emit exclusion conditions and a trimmed name_contains substring", () => {
+  const group = {
+    ...emptyGroupDraft(),
+    name: "香港-可用",
+    filters: [
+      {
+        ...emptyFilterDraft(),
+        tags: "香港",
+        excludeTags: "中转, 测试，中转",
+        excludeRegions: "US",
+        excludeProtocols: ["ss"],
+        nameContains: " HK ",
+      },
+    ],
+  };
+  const payload = groupsFromDraft([group])[0];
+  assert.deepEqual(payload.filters[0], {
+    tags: ["香港"],
+    regions: [],
+    protocols: [],
+    exclude_tags: ["中转", "测试"],
+    exclude_regions: ["US"],
+    exclude_protocols: ["ss"],
+    name_contains: "HK",
+  });
+
+  // 空的 name_contains 不写进 payload（空 = 不限制）。
+  const empty = groupsFromDraft([
+    { ...group, filters: [{ ...emptyFilterDraft(), nameContains: "  " }] },
+  ])[0];
+  assert.equal("name_contains" in empty.filters[0], false);
+});
+
+test("load-balance strategy defaults to round-robin and is dropped for other kinds", () => {
+  const loadBalance = { ...emptyGroupDraft(), name: "负载", type: "load-balance" };
+  assert.equal(groupsFromDraft([loadBalance])[0].strategy, "round-robin");
+  loadBalance.strategy = "consistent-hashing";
+  assert.equal(groupsFromDraft([loadBalance])[0].strategy, "consistent-hashing");
+
+  const fallback = { ...emptyGroupDraft(), name: "备用", type: "fallback" };
+  assert.equal(groupsFromDraft([fallback])[0].strategy, undefined);
+  assert.equal(groupsFromDraft([fallback])[0].include_auto, false);
+
+  const select = { ...emptyGroupDraft(), name: "选择", includeAuto: true };
+  assert.equal(groupsFromDraft([select])[0].strategy, undefined);
+  assert.equal(groupsFromDraft([select])[0].include_auto, true);
+});
+
+test("fallback and load-balance validate their interval like url-test", () => {
+  for (const type of ["url-test", "fallback", "load-balance"]) {
+    const draft = emptyTemplateDraft();
+    draft.name = "模板";
+    draft.groups[0] = { ...emptyGroupDraft(), name: "自动", type, interval: "5" };
+    assert.equal(validateTemplateDraft(draft)[0].code, "intervalInvalid", type);
+    draft.groups[0].interval = "120";
+    assert.deepEqual(validateTemplateDraft(draft), [], type);
+  }
+});
+
+test("name_contains and exclusion values are length-checked", () => {
+  const draft = emptyTemplateDraft();
+  draft.name = "模板";
+  draft.groups[0].name = "节点选择";
+  draft.groups[0].filters[0].nameContains = "x".repeat(MAX_NAME_CONTAINS_CHARS + 1);
+  assert.equal(validateTemplateDraft(draft)[0].code, "nameContainsTooLong");
+
+  draft.groups[0].filters[0].nameContains = "";
+  draft.groups[0].filters[0].excludeTags = "x".repeat(MAX_TAG_CHARS + 1);
+  assert.equal(validateTemplateDraft(draft)[0].code, "tagTooLong");
+
+  draft.groups[0].filters[0].excludeTags = "";
+  draft.groups[0].filters[0].excludeRegions = "y".repeat(MAX_REGION_CHARS + 1);
+  assert.equal(validateTemplateDraft(draft)[0].code, "regionTooLong");
+});
+
+test("draftFromTemplate keeps exclusions, name_contains and strategy", () => {
+  const template = {
+    id: "tpl",
+    name: "负载",
+    created_at: 0,
+    updated_at: 0,
+    groups: [
+      {
+        name: "哈希负载",
+        type: "load-balance",
+        strategy: "consistent-hashing",
+        interval: 60,
+        filters: [
+          {
+            tags: ["香港"],
+            exclude_tags: ["中转"],
+            exclude_regions: ["US"],
+            exclude_protocols: ["ss"],
+            name_contains: "HK",
+          },
+        ],
+      },
+    ],
+  };
+  const draft = draftFromTemplate(template);
+  assert.equal(draft.groups[0].strategy, "consistent-hashing");
+  assert.equal(draft.groups[0].interval, "60");
+  assert.equal(draft.groups[0].filters[0].excludeTags, "中转");
+  assert.equal(draft.groups[0].filters[0].excludeRegions, "US");
+  assert.deepEqual(draft.groups[0].filters[0].excludeProtocols, ["ss"]);
+  assert.equal(draft.groups[0].filters[0].nameContains, "HK");
+
+  const payload = groupsFromDraft(draft.groups)[0];
+  assert.deepEqual(payload, {
+    name: "哈希负载",
+    type: "load-balance",
+    filters: [
+      {
+        tags: ["香港"],
+        regions: [],
+        protocols: [],
+        exclude_tags: ["中转"],
+        exclude_regions: ["US"],
+        exclude_protocols: ["ss"],
+        name_contains: "HK",
+      },
+    ],
+    include_auto: false,
+    interval: 60,
+    strategy: "consistent-hashing",
+  });
+});
+
+test("moveGroup reorders groups and tolerates invalid indexes", () => {
+  const groups = ["a", "b", "c", "d"];
+  assert.deepEqual(moveGroup(groups, 0, 2), ["b", "c", "a", "d"]);
+  assert.deepEqual(moveGroup(groups, 3, 0), ["d", "a", "b", "c"]);
+  assert.deepEqual(moveGroup(groups, 1, 1), groups);
+  assert.deepEqual(moveGroup(groups, -1, 2), groups);
+  assert.deepEqual(moveGroup(groups, 0, 9), groups);
+  // 原数组不被修改（React state 依赖这一点）。
+  assert.deepEqual(groups, ["a", "b", "c", "d"]);
+});
+
+test("copied template draft gets a unique name and is independent from the original", () => {
+  const template = {
+    id: "tpl",
+    name: "常用",
+    created_at: 0,
+    updated_at: 0,
+    groups: [
+      {
+        name: "节点选择",
+        type: "select",
+        filters: [{ tags: ["香港"], name_contains: "HK" }],
+        include_auto: true,
+      },
+    ],
+  };
+  const copy = copyTemplateDraft(template, ["常用"]);
+  assert.equal(copy.name, "常用 (copy)");
+  assert.equal(copy.groups[0].name, "节点选择");
+
+  // 改副本不影响原件（组、filter、名称都是独立对象）。
+  copy.groups[0].name = "副本组";
+  copy.groups[0].filters[0].tags = "日本";
+  copy.groups[0].filters[0].nameContains = "JP";
+  copy.groups.push(emptyGroupDraft());
+  assert.equal(template.groups.length, 1);
+  assert.equal(template.groups[0].name, "节点选择");
+  assert.deepEqual(template.groups[0].filters[0].tags, ["香港"]);
+  assert.equal(template.groups[0].filters[0].name_contains, "HK");
+
+  assert.equal(uniqueTemplateName("常用", ["常用"]), "常用 (copy)");
+  assert.equal(
+    uniqueTemplateName("常用", ["常用", "常用 (copy)"]),
+    "常用 (copy) 2",
+  );
+  assert.equal(
+    copyTemplateDraft(template, ["常用", "常用 (copy)"]).name,
+    "常用 (copy) 2",
+  );
+});
+
+test("preview format fuzzy matching covers at least five exporters", () => {
+  const cases = [
+    ["", "mihomo"],
+    ["mihomo", "mihomo"],
+    ["Clash", "clash"],
+    ["Clash Meta", "mihomo"],
+    ["Stash", "stash"],
+    ["sing-box", "singbox"],
+    ["sing box full", "singbox-full"],
+    ["Surge", "surge"],
+    ["surge full", "surge-full"],
+    ["SING_BOX", "singbox"],
+  ];
+  for (const [input, expected] of cases) {
+    assert.equal(resolvePreviewFormat(input), expected, input);
+  }
+  assert.equal(resolvePreviewFormat("loon"), null);
+  assert.equal(resolvePreviewFormat("not-a-client"), null);
+});
+
+test("groupFilterSummary shows exclusions and name_contains", () => {
+  assert.deepEqual(
+    groupFilterSummary([
+      { exclude_tags: ["中转"], name_contains: "HK" },
+      { exclude_regions: ["US"], exclude_protocols: ["ss"] },
+    ]),
+    ["!#中转 ~HK", "!@US !ss"],
+  );
 });

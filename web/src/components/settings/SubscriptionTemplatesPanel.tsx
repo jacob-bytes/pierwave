@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  CopyIcon,
   EyeIcon,
   ListFilterIcon,
   PencilIcon,
@@ -33,7 +34,10 @@ import {
 import type { SubscriptionTemplate } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { useSubscriptionTemplates } from "@/lib/queries";
-import { groupFilterSummary } from "@/lib/subscriptionTemplates";
+import {
+  copyTemplateDraft,
+  groupFilterSummary,
+} from "@/lib/subscriptionTemplates";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
@@ -44,7 +48,8 @@ const HEAD_CLASS =
 
 type FormState =
   | { mode: "create" }
-  | { mode: "edit"; template: SubscriptionTemplate };
+  | { mode: "edit"; template: SubscriptionTemplate }
+  | { mode: "copy"; template: SubscriptionTemplate };
 
 /** 组名 + 条件摘要：`节点选择 · #香港 @HK vless / 自动选择 · *`。 */
 function groupSummary(template: SubscriptionTemplate): string {
@@ -252,6 +257,20 @@ export function SubscriptionTemplatesPanel() {
                         variant="ghost"
                         size="icon"
                         className="size-7"
+                        aria-label={t("subscriptionTemplates.copyAria", {
+                          name: template.name,
+                        })}
+                        title={t("subscriptionTemplates.copyAria", {
+                          name: template.name,
+                        })}
+                        onClick={() => setFormState({ mode: "copy", template })}
+                      >
+                        <CopyIcon className="size-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
                         aria-label={t("subscriptionTemplates.editAria", {
                           name: template.name,
                         })}
@@ -286,9 +305,26 @@ export function SubscriptionTemplatesPanel() {
       </CardContent>
 
       <SubscriptionTemplateFormDialog
-        key={formState?.mode === "edit" ? formState.template.id : "create"}
+        key={
+          formState?.mode === "edit"
+            ? `edit-${formState.template.id}`
+            : formState?.mode === "copy"
+              ? `copy-${formState.template.id}`
+              : "create"
+        }
         open={formState !== null}
-        template={formState?.mode === "edit" ? formState.template : undefined}
+        template={
+          formState?.mode === "edit" ? formState.template : undefined
+        }
+        initialDraft={
+          formState?.mode === "copy"
+            ? copyTemplateDraft(
+                formState.template,
+                items.map((template) => template.name),
+                t("subscriptionTemplates.copySuffix"),
+              )
+            : undefined
+        }
         onOpenChange={(open) => {
           if (!open) setFormState(null);
         }}

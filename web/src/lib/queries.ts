@@ -1092,15 +1092,15 @@ export function useDeleteSubscriptionTemplate() {
   });
 }
 
-/** 预览不写库、不进缓存：每次调用都按当前用户实时渲染。 */
+/** 预览不写库、不进缓存：每次调用都按当前用户与目标格式实时渲染。 */
 export function usePreviewSubscriptionTemplate() {
   return useMutation<
     SubscriptionTemplatePreview,
     Error,
-    { id: string; userId: string }
+    { id: string; userId: string; target?: string }
   >({
-    mutationFn: ({ id, userId }) =>
-      api.subscriptionTemplates.preview(id, userId),
+    mutationFn: ({ id, userId, target }) =>
+      api.subscriptionTemplates.preview(id, userId, target),
   });
 }
 

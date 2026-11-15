@@ -19,7 +19,9 @@ use pierwave_domain::repo::subscription_templates::{
     NewSubscriptionTemplate, UpdateSubscriptionTemplate,
 };
 use pierwave_domain::subscribe::{self, SubContext};
-use pierwave_domain::subscription_template::{normalize_groups, SubscriptionGroup};
+use pierwave_domain::subscription_template::{
+    is_template_format, normalize_groups, plan_for_format, SubscriptionGroup, TEMPLATE_FORMATS,
+};
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -236,12 +238,59 @@ pub async fn delete(
 #[derive(Deserialize)]
 pub struct PreviewSubscriptionTemplate {
     pub user_id: String,
+    /// 导出格式；缺省 `mihomo`（与第一轮预览一致）。
+    ///
+    /// 前端可以传 `sing-box` / `surge full` 这类模糊写法，由
+    /// [`resolve_preview_format`] 归一成注册表里的 id。
+    #[serde(default, alias = "format")]
+    pub target: Option<String>,
 }
 
-/// 用真实用户渲染 mihomo 完整配置，返回 `yaml` + `warnings`。
+/// 预览支持的导出格式：只有能表达订阅模板的格式才有意义。
+///
+/// 模糊匹配至少覆盖 clash / mihomo / stash / singbox / singbox-full /
+/// surge / surge-full；未注册或/不支持模板的格式返回 `None`，由调用方给 400。
+fn resolve_preview_format(raw: Option<&str>) -> Option<&'static str> {
+    let raw = raw.map(str::trim).filter(|value| !value.is_empty());
+    let Some(raw) = raw else {
+        return Some("mihomo");
+    };
+    let normalized = raw.to_ascii_lowercase().replace([' ', '_'], "-");
+    // 精确 id 优先（`singbox-full` / `surge-full` / `mihomo` …）。
+    let resolved = if let Some(exporter) = subscribe::find_exporter(&normalized) {
+        exporter.id()
+    } else if normalized.contains("sing") {
+        if normalized.contains("full") {
+            "singbox-full"
+        } else {
+            "singbox"
+        }
+    } else if normalized.contains("surge") {
+        if normalized.contains("full") {
+            "surge-full"
+        } else {
+            "surge"
+        }
+    } else if normalized.contains("stash") {
+        "stash"
+    } else if normalized.contains("mihomo") || normalized.contains("clash-meta") {
+        "mihomo"
+    } else if normalized.contains("clash") {
+        "clash"
+    } else {
+        return None;
+    };
+    is_template_format(resolved).then_some(resolved)
+}
+
+/// 用真实用户渲染目标格式的订阅，返回 `yaml` + `format` + `warnings`。
 ///
 /// 模板不存在 → 404；用户不存在 → 404。用户没有可用节点不是错误，
 /// 会渲染出 `proxies: []` 并附 warning。
+///
+/// `warnings` 同时包含模板告警（空组、格式无法表达的组、load-balance 近似）
+/// 与「该用户当前没有可用节点」的提示；渲染器与这里共用
+/// [`plan_for_format`]，所以预览里说被跳过的组不会偷偷出现在输出里。
 pub async fn preview(
     State(state): State<AppState>,
     user: CurrentUser,
@@ -249,6 +298,17 @@ pub async fn preview(
     Json(req): Json<PreviewSubscriptionTemplate>,
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
+
+    let target = resolve_preview_format(req.target.as_deref()).ok_or_else(|| {
+        AppError::coded(
+            "subscription_template.preview_format_unsupported",
+            Some(json!({ "supported": TEMPLATE_FORMATS })),
+            format!(
+                "预览不支持该导出格式（可选：{}）",
+                TEMPLATE_FORMATS.join(" / ")
+            ),
+        )
+    })?;
 
     let template = repo::subscription_templates::find_by_id(&state.db.pool, &id)
         .await?
@@ -272,6 +332,7 @@ pub async fn preview(
         );
     }
     let plan = pierwave_domain::subscription_template::plan_groups(&template.groups, &nodes);
+    let plan = plan_for_format(&plan, target);
     warnings.extend(plan.warnings.iter().cloned());
 
     let ctx = SubContext {
@@ -281,12 +342,13 @@ pub async fn preview(
         rules: &effective_rules.rules,
         groups: Some(&plan),
     };
-    let exporter = subscribe::select_exporter(Some("mihomo"), None)
-        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("mihomo 导出器未注册")))?;
+    let exporter = subscribe::find_exporter(target)
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("{target} 导出器未注册")))?;
     let yaml = exporter.render(&ctx)?;
 
     Ok(Json(json!({
         "yaml": yaml,
+        "format": target,
         "warnings": warnings,
     })))
 }
@@ -708,6 +770,145 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn preview_switches_export_format_fuzzily_and_reports_skips() {
+        let (app, state, cookie, _admin) = setup().await;
+        let user = seed_user_with_node(&state).await;
+        let id = create_template(
+            &state,
+            "格式预览",
+            json!([
+                {"name":"香港组","type":"select","filters":[{"regions":["HK"]}]},
+                {"name":"故障转移","type":"fallback","filters":[{}]},
+                {"name":"哈希负载","type":"load-balance","strategy":"consistent-hashing","filters":[{}]}
+            ]),
+        )
+        .await;
+
+        // 模糊写法（大小写 / 空格 / 连字符）都能解析到注册表 id。
+        for (target, expected) in [
+            ("Mihomo", "mihomo"),
+            ("clash", "clash"),
+            ("Clash Meta", "mihomo"),
+            ("Stash", "stash"),
+            ("sing-box", "singbox"),
+            ("sing box full", "singbox-full"),
+            ("surge", "surge"),
+            ("Surge Full", "surge-full"),
+        ] {
+            let (status, body) = request(
+                &app,
+                &cookie,
+                Method::POST,
+                &format!("/api/v1/subscription-templates/{id}/preview"),
+                Some(json!({ "user_id": user.id, "target": target })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{target}: {body}");
+            assert_eq!(body["format"], expected, "{target}: {body}");
+        }
+
+        // 缺省 target 保持第一轮行为：mihomo。
+        let (status, body) = request(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/subscription-templates/{id}/preview"),
+            Some(json!({ "user_id": user.id })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["format"], "mihomo");
+
+        // clash 能表达全部组：没有跳过 warning。
+        let (_, body) = request(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/subscription-templates/{id}/preview"),
+            Some(json!({ "user_id": user.id, "target": "clash" })),
+        )
+        .await;
+        let warnings = body["warnings"].as_array().unwrap();
+        assert!(
+            warnings
+                .iter()
+                .all(|warning| !warning.as_str().unwrap().contains("已跳过")),
+            "clash 不应跳过任何组：{warnings:?}"
+        );
+
+        // Surge 无法表达 consistent-hashing 的 load-balance：跳过并 warning。
+        let (status, body) = request(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/subscription-templates/{id}/preview"),
+            Some(json!({ "user_id": user.id, "target": "surge" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let surge = body["yaml"].as_str().unwrap();
+        assert!(surge.contains("故障转移 = fallback"), "{surge}");
+        assert!(
+            !surge.contains("哈希负载"),
+            "跳过的组不能出现在输出里：{surge}"
+        );
+        let warnings = body["warnings"].as_array().unwrap();
+        assert!(
+            warnings.iter().any(|warning| {
+                let warning = warning.as_str().unwrap();
+                warning.contains("哈希负载") && warning.contains("load-balance")
+            }),
+            "{warnings:?}"
+        );
+
+        // sing-box 没有 load-balance：保留组并用 urltest 近似，同时 warning。
+        let (status, body) = request(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/subscription-templates/{id}/preview"),
+            Some(json!({ "user_id": user.id, "target": "sing-box" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let singbox: Value = serde_json::from_str(body["yaml"].as_str().unwrap()).unwrap();
+        assert!(
+            singbox["outbounds"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|outbound| outbound["tag"] == "哈希负载" && outbound["type"] == "urltest"),
+            "{singbox}"
+        );
+        assert!(
+            body["warnings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|warning| { warning.as_str().unwrap().contains("urltest") }),
+            "{}",
+            body["warnings"]
+        );
+
+        // 不支持模板的格式（loon / 未知）明确 400，而不是把 YAML 塞回去。
+        for target in ["loon", "not-a-client"] {
+            let (status, body) = request(
+                &app,
+                &cookie,
+                Method::POST,
+                &format!("/api/v1/subscription-templates/{id}/preview"),
+                Some(json!({ "user_id": user.id, "target": target })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{target}: {body}");
+            assert_eq!(
+                body["code"], "subscription_template.preview_format_unsupported",
+                "{target}: {body}"
+            );
+        }
     }
 
     #[tokio::test]

@@ -501,17 +501,33 @@ export interface CreateRuleTemplateInput {
 export type UpdateRuleTemplateInput = Partial<CreateRuleTemplateInput>;
 
 /**
- * 订阅模板（迁移 0052）：声明式代理组，决定 mihomo / clash 的 `proxy-groups`。
+ * 订阅模板（迁移 0052）：声明式代理组，决定 mihomo / clash / stash /
+ * sing-box / surge 的代理组。
  *
  * 不允许脚本：未知字段会被后端拒绝。`filters` 内条件 AND，多个 filter 之间 OR；
- * 空条件 `{}` 表示全部节点。组命中 0 个节点时后端跳过该组并给 warning。
+ * 空条件 `{}` 表示全部节点。排除条件优先于包含条件。组命中 0 个节点、或目标
+ * 格式无法表达该组类型时，后端跳过该组并给 warning。
  */
-export type SubscriptionGroupKind = "select" | "url-test";
+export type SubscriptionGroupKind =
+  | "select"
+  | "url-test"
+  | "fallback"
+  | "load-balance";
+
+export type SubscriptionLoadBalanceStrategy =
+  | "round-robin"
+  | "consistent-hashing";
 
 export interface SubscriptionGroupFilter {
   tags?: string[];
   regions?: string[];
   protocols?: string[];
+  /** 排除条件优先于包含条件；空数组 = 不排除。 */
+  exclude_tags?: string[];
+  exclude_regions?: string[];
+  exclude_protocols?: string[];
+  /** 节点名的大小写不敏感子串匹配（不是正则）。 */
+  name_contains?: string | null;
 }
 
 export interface SubscriptionGroup {
@@ -520,8 +536,10 @@ export interface SubscriptionGroup {
   filters: SubscriptionGroupFilter[];
   /** 仅 select：把模板里第一个存活的 url-test 组放进成员首位。 */
   include_auto?: boolean;
-  /** 仅 url-test：测速间隔（秒），缺省 300。 */
+  /** 自动测速类组：测速间隔（秒），缺省 300。 */
   interval?: number | null;
+  /** 仅 load-balance：负载均衡策略，缺省 round-robin。 */
+  strategy?: SubscriptionLoadBalanceStrategy | null;
 }
 
 export interface SubscriptionTemplate {
@@ -541,7 +559,10 @@ export type UpdateSubscriptionTemplateInput =
   Partial<CreateSubscriptionTemplateInput>;
 
 export interface SubscriptionTemplatePreview {
+  /** 渲染结果；JSON / INI / YAML 都在这一个字段里。 */
   yaml: string;
+  /** 实际渲染的导出格式 id（后端归一后的值）。 */
+  format?: string;
   warnings: string[];
 }
 
@@ -2083,10 +2104,13 @@ export const api = {
         `/api/v1/subscription-templates/${encodeURIComponent(id)}`,
         { method: "DELETE" },
       ),
-    preview: (id: string, userId: string) =>
+    preview: (id: string, userId: string, target?: string) =>
       request<SubscriptionTemplatePreview>(
         `/api/v1/subscription-templates/${encodeURIComponent(id)}/preview`,
-        { method: "POST", body: JSON.stringify({ user_id: userId }) },
+        {
+          method: "POST",
+          body: JSON.stringify({ user_id: userId, target: target ?? null }),
+        },
       ),
   },
 
