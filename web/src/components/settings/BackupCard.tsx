@@ -39,8 +39,11 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  SettingsGroup,
+  SETTINGS_FULL_ROW,
+} from "@/components/settings/SettingsGroup";
 import { api, ApiError, type BackupPending } from "@/lib/api";
 import {
   BACKUP_ACCEPT,
@@ -56,6 +59,7 @@ import {
   useRestoreBackup,
 } from "@/lib/queries";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
+import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
 /** 备份接口与后端并行开发：404/403/413 给中文说明，不写 mock 数据。 */
@@ -197,17 +201,9 @@ function RestoreForm() {
   const uploadDisabled = !file || !confirmed || restoreBackup.isPending;
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h3 className="text-sm font-medium">
-          {t("settings.backup.restoreTitle")}
-        </h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {t("settings.backup.restoreDesc")}
-        </p>
-      </div>
-
-      <div className="space-y-2">
+    <>
+      {/* 文件选择是整行：文件名可能很长，半列会截断到看不清选的是哪个文件。 */}
+      <div className={cn(SETTINGS_FULL_ROW, "space-y-2")}>
         <Label htmlFor="settings-backup-file">
           {t("settings.backup.chooseFile")}
         </Label>
@@ -233,7 +229,12 @@ function RestoreForm() {
       </div>
 
       {file ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/30 px-3 py-2">
+        <div
+          className={cn(
+            SETTINGS_FULL_ROW,
+            "flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/30 px-3 py-2",
+          )}
+        >
           <p className="min-w-0 truncate text-xs font-medium">
             {t("settings.backup.selectedFile", {
               name: file.name,
@@ -254,12 +255,20 @@ function RestoreForm() {
       ) : null}
 
       {fileError ? (
-        <p className="text-xs text-destructive" role="alert">
+        <p
+          className={cn(SETTINGS_FULL_ROW, "text-xs text-destructive")}
+          role="alert"
+        >
           {fileError}
         </p>
       ) : null}
 
-      <div className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/5 p-3">
+      <div
+        className={cn(
+          SETTINGS_FULL_ROW,
+          "flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/5 p-3",
+        )}
+      >
         <Checkbox
           id="settings-backup-confirm"
           className="mt-0.5"
@@ -283,14 +292,18 @@ function RestoreForm() {
       {uploadError ? (
         <Alert
           variant="destructive"
-          className="border-destructive/25 bg-destructive/10"
+          className={cn(
+            SETTINGS_FULL_ROW,
+            "border-destructive/25 bg-destructive/10",
+          )}
         >
           <TriangleAlertIcon />
           <AlertDescription>{uploadError}</AlertDescription>
         </Alert>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-3">
+      {/* 上传是破坏性操作：自己一行、靠左，和上方的下载按钮隔着一条分组线。 */}
+      <div className={cn(SETTINGS_FULL_ROW, "flex flex-wrap items-center gap-3")}>
         <Button
           type="button"
           variant="destructive"
@@ -307,7 +320,7 @@ function RestoreForm() {
             : t("settings.backup.upload")}
         </Button>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -343,8 +356,10 @@ export function BackupCard() {
   };
 
   return (
-    <Card>
-      <CardHeader>
+    /* 与其它 tab 同一套卡片结构：卡头 + 若干分组（组间 border-t）。
+       数据库大小（只读）与下载同组；上传恢复单独一组，破坏性按钮不与下载并排。 */
+    <Card className="gap-0 py-0">
+      <CardHeader className="px-5 pt-5">
         <CardTitle className="flex items-center gap-2 text-sm font-medium">
           <DatabaseBackupIcon className="size-4 text-muted-foreground" />
           {t("settings.backup.title")}
@@ -353,108 +368,124 @@ export function BackupCard() {
           {t("settings.backup.desc")}
         </CardDescription>
       </CardHeader>
-      <CardContent className="max-w-2xl space-y-5">
-        {info.isPending ? (
+      {info.isPending ? (
+        <CardContent className="px-5 py-5">
           <BackupSkeleton />
-        ) : info.isError ? (
-          <div className="space-y-3">
-            <Alert
-              variant="destructive"
-              className="border-destructive/25 bg-destructive/10"
-            >
-              <TriangleAlertIcon />
-              <AlertTitle>{t("settings.backup.loadFailed")}</AlertTitle>
-              <AlertDescription>
-                {backupErrorText(info.error, t("settings.backup.loadError"))}
-              </AlertDescription>
-            </Alert>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void info.refetch()}
-              disabled={info.isFetching}
-            >
-              <RefreshCwIcon
-                className={info.isFetching ? "animate-spin" : undefined}
-              />
-              {t("common.retry")}
-            </Button>
-          </div>
-        ) : (
-          <>
-            {pending ? <PendingNotice pending={pending} /> : null}
-
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs text-muted-foreground">
-                  {t("settings.backup.sizeLabel")}
-                </p>
-                <p className="mt-0.5 text-sm font-medium">
-                  {formatBytes(info.data.db_bytes, { unlimitedLabel: "—" })}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t("settings.backup.sizeHint")}
-                </p>
-              </div>
-              <div className="text-right">
-                <Button variant="outline" size="sm" asChild>
-                  <a href={api.backup.downloadUrl} download>
-                    <DownloadIcon />
-                    {t("settings.backup.download")}
-                  </a>
-                </Button>
-                <p className="mt-1 max-w-60 text-xs text-muted-foreground">
-                  {t("settings.backup.downloadHint")}
-                </p>
-              </div>
+        </CardContent>
+      ) : info.isError ? (
+        <CardContent className="space-y-3 px-5 py-5">
+          <Alert
+            variant="destructive"
+            className="border-destructive/25 bg-destructive/10"
+          >
+            <TriangleAlertIcon />
+            <AlertTitle>{t("settings.backup.loadFailed")}</AlertTitle>
+            <AlertDescription>
+              {backupErrorText(info.error, t("settings.backup.loadError"))}
+            </AlertDescription>
+          </Alert>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void info.refetch()}
+            disabled={info.isFetching}
+          >
+            <RefreshCwIcon
+              className={info.isFetching ? "animate-spin" : undefined}
+            />
+            {t("common.retry")}
+          </Button>
+        </CardContent>
+      ) : (
+        <>
+          {/* 当前库大小（只读值 + 它包含什么）与下载并排：同一组的两栏。 */}
+          <SettingsGroup
+            icon={DatabaseBackupIcon}
+            title={t("settings.backup.sizeLabel")}
+          >
+            <div className="space-y-1">
+              <p className="text-sm font-medium tabular-nums">
+                {formatBytes(info.data.db_bytes, { unlimitedLabel: "—" })}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {t("settings.backup.sizeHint")}
+              </p>
             </div>
 
-            <Separator />
+            <div className="space-y-2">
+              <Button variant="outline" size="sm" asChild>
+                <a href={api.backup.downloadUrl} download>
+                  <DownloadIcon />
+                  {t("settings.backup.download")}
+                </a>
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                {t("settings.backup.downloadHint")}
+              </p>
+            </div>
+          </SettingsGroup>
 
+          <SettingsGroup
+            icon={UploadIcon}
+            title={t("settings.backup.restoreTitle")}
+            description={t("settings.backup.restoreDesc")}
+          >
             {pending ? (
-              <div className="space-y-3 rounded-lg border border-primary/25 bg-primary/10 p-3">
-                <div className="flex items-start gap-2">
-                  <CheckCircle2Icon className="mt-0.5 size-4 text-primary" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-primary">
-                      {t("settings.backup.uploadSuccessTitle")}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {t("settings.backup.uploadSuccessDesc")}
-                    </p>
-                    <p
-                      className="mt-1 text-xs text-muted-foreground"
-                      title={formatRelativeTime(pending.uploaded_at)}
+              <>
+                <div className={SETTINGS_FULL_ROW}>
+                  <PendingNotice pending={pending} />
+                </div>
+                <div
+                  className={cn(
+                    SETTINGS_FULL_ROW,
+                    "space-y-3 rounded-lg border border-primary/25 bg-primary/10 p-3",
+                  )}
+                >
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2Icon className="mt-0.5 size-4 text-primary" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-primary">
+                        {t("settings.backup.uploadSuccessTitle")}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t("settings.backup.uploadSuccessDesc")}
+                      </p>
+                      <p
+                        className="mt-1 text-xs text-muted-foreground"
+                        title={formatRelativeTime(pending.uploaded_at)}
+                      >
+                        {t("settings.backup.pendingDesc", {
+                          time: formatAbsoluteTime(pending.uploaded_at),
+                          size: formatBytes(pending.bytes, {
+                            unlimitedLabel: "—",
+                          }),
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setCancelError(null);
+                        setCancelOpen(true);
+                      }}
                     >
-                      {t("settings.backup.pendingDesc", {
-                        time: formatAbsoluteTime(pending.uploaded_at),
-                        size: formatBytes(pending.bytes, { unlimitedLabel: "—" }),
-                      })}
-                    </p>
+                      <Undo2Icon />
+                      {t("settings.backup.cancelRestore")}
+                    </Button>
                   </div>
                 </div>
-                <div className="flex justify-end">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setCancelError(null);
-                      setCancelOpen(true);
-                    }}
-                  >
-                    <Undo2Icon />
-                    {t("settings.backup.cancelRestore")}
-                  </Button>
-                </div>
-              </div>
+              </>
             ) : (
               <RestoreForm />
             )}
-          </>
-        )}
-      </CardContent>
+          </SettingsGroup>
+        </>
+      )}
 
       <AlertDialog
         open={cancelOpen}

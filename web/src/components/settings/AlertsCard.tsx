@@ -18,6 +18,10 @@ import {
 import { toast } from "sonner";
 import { FormField, FormRootError } from "@/components/FormField";
 import {
+  SettingsGroup,
+  SETTINGS_FULL_ROW,
+} from "@/components/settings/SettingsGroup";
+import {
   Alert,
   AlertDescription,
   AlertTitle,
@@ -33,7 +37,6 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, type Settings } from "@/lib/api";
 import {
@@ -308,24 +311,17 @@ function AlertsForm({ initial }: { initial: Settings }) {
   };
 
   return (
-    <form className="space-y-5" onSubmit={onSubmit}>
-      <div className="space-y-4">
-        <div>
-          <h3 className="flex items-center gap-2 text-sm font-medium">
-            <SendIcon className="size-4 text-muted-foreground" />
-            {t("settings.alerts.telegram.title")}
-          </h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t("settings.alerts.telegram.desc")}
-          </p>
-        </div>
-
+    <form onSubmit={onSubmit}>
+      <SettingsGroup
+        icon={SendIcon}
+        title={t("settings.alerts.telegram.title")}
+        description={t("settings.alerts.telegram.desc")}
+      >
         <FormField
           label={t("settings.alerts.telegram.token")}
           htmlFor="settings-alert-telegram-token"
           hint={savedTokenHint}
           error={form.formState.errors.telegram_bot_token?.message}
-          className="max-w-md"
         >
           <div className="relative">
             <Input
@@ -370,7 +366,6 @@ function AlertsForm({ initial }: { initial: Settings }) {
           htmlFor="settings-alert-telegram-chat-id"
           hint={t("settings.alerts.telegram.chatIdHint")}
           error={form.formState.errors.telegram_chat_id?.message}
-          className="max-w-md"
         >
           <Input
             id="settings-alert-telegram-chat-id"
@@ -384,32 +379,28 @@ function AlertsForm({ initial }: { initial: Settings }) {
         </FormField>
 
         {telegramIncomplete ? (
-          <div className="flex max-w-md items-start gap-2 rounded-lg border border-warning/25 bg-warning/10 px-3 py-2 text-xs text-warning">
+          <div
+            className={cn(
+              SETTINGS_FULL_ROW,
+              "flex items-start gap-2 rounded-lg border border-warning/25 bg-warning/10 px-3 py-2 text-xs text-warning",
+            )}
+          >
             <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
             <p>{t("settings.alerts.telegram.incomplete")}</p>
           </div>
         ) : null}
-      </div>
+      </SettingsGroup>
 
-      <Separator />
-
-      <div className="space-y-4">
-        <div>
-          <h3 className="flex items-center gap-2 text-sm font-medium">
-            <WebhookIcon className="size-4 text-muted-foreground" />
-            {t("settings.alerts.webhook.title")}
-          </h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t("settings.alerts.webhook.desc")}
-          </p>
-        </div>
-
+      <SettingsGroup
+        icon={WebhookIcon}
+        title={t("settings.alerts.webhook.title")}
+        description={t("settings.alerts.webhook.desc")}
+      >
         <FormField
           label={t("settings.alerts.webhook.url")}
           htmlFor="settings-alert-webhook-url"
           hint={t("settings.alerts.webhook.urlHint")}
           error={form.formState.errors.webhook_url?.message}
-          className="max-w-md"
         >
           <Input
             id="settings-alert-webhook-url"
@@ -423,91 +414,91 @@ function AlertsForm({ initial }: { initial: Settings }) {
             {...form.register("webhook_url")}
           />
         </FormField>
-      </div>
+      </SettingsGroup>
 
-      <Separator />
-
-      <fieldset className="space-y-3">
-        <legend className="flex items-center gap-2 text-sm font-medium">
-          <BellRingIcon className="size-4 text-muted-foreground" />
-          {t("settings.alerts.events.title")}
-        </legend>
-        <p className="text-xs text-muted-foreground">
-          {t("settings.alerts.events.desc")}
-        </p>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {ALERT_EVENTS.map((event) => {
-            const id = `settings-alert-event-${event}`;
-            const checked = events.includes(event);
-            return (
-              <div
-                key={event}
-                className="flex items-start gap-2 rounded-lg border bg-muted/20 p-3 transition-colors duration-100 hover:bg-muted/40"
-              >
-                <Checkbox
-                  id={id}
-                  className="mt-0.5"
-                  checked={checked}
-                  disabled={updateSettings.isPending}
-                  onCheckedChange={(next) => toggleEvent(event, next === true)}
-                />
-                <div className="min-w-0 space-y-0.5">
-                  <Label
-                    htmlFor={id}
-                    className="cursor-pointer text-sm font-medium"
-                  >
-                    {t(`settings.alerts.events.${event}`)}
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    {t(`settings.alerts.events.${event}Desc`)}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </fieldset>
-
-      <Separator />
-
-      <FormField
-        label={t("settings.alerts.cooldown")}
-        htmlFor="settings-alert-cooldown"
-        required
-        hint={t("settings.alerts.cooldownHint")}
-        error={form.formState.errors.alert_cooldown_secs?.message}
-        className="max-w-md"
+      <SettingsGroup
+        icon={BellRingIcon}
+        title={t("settings.alerts.events.title")}
+        description={t("settings.alerts.events.desc")}
       >
-        <div className="flex items-center gap-2">
-          <Input
-            id="settings-alert-cooldown"
-            inputMode="numeric"
-            placeholder="600"
-            className="max-w-40"
-            disabled={updateSettings.isPending}
-            aria-invalid={Boolean(
-              form.formState.errors.alert_cooldown_secs,
-            )}
-            {...form.register("alert_cooldown_secs")}
-          />
-          <TimerIcon className="size-4 text-muted-foreground" aria-hidden="true" />
-        </div>
-      </FormField>
+        <fieldset className={cn(SETTINGS_FULL_ROW, "space-y-2")}>
+          <legend className="sr-only">
+            {t("settings.alerts.events.title")}
+          </legend>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {ALERT_EVENTS.map((event) => {
+              const id = `settings-alert-event-${event}`;
+              const checked = events.includes(event);
+              return (
+                <div
+                  key={event}
+                  className="flex items-start gap-2 rounded-lg border bg-muted/20 p-3 transition-colors duration-100 hover:bg-muted/40"
+                >
+                  <Checkbox
+                    id={id}
+                    className="mt-0.5"
+                    checked={checked}
+                    disabled={updateSettings.isPending}
+                    onCheckedChange={(next) =>
+                      toggleEvent(event, next === true)
+                    }
+                  />
+                  <div className="min-w-0 space-y-0.5">
+                    <Label
+                      htmlFor={id}
+                      className="cursor-pointer text-sm font-medium"
+                    >
+                      {t(`settings.alerts.events.${event}`)}
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      {t(`settings.alerts.events.${event}Desc`)}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </fieldset>
 
-      <Separator />
+        <FormField
+          label={t("settings.alerts.cooldown")}
+          htmlFor="settings-alert-cooldown"
+          required
+          hint={t("settings.alerts.cooldownHint")}
+          error={form.formState.errors.alert_cooldown_secs?.message}
+          className={SETTINGS_FULL_ROW}
+        >
+          <div className="flex items-center gap-2">
+            <Input
+              id="settings-alert-cooldown"
+              inputMode="numeric"
+              placeholder="600"
+              className="max-w-40"
+              disabled={updateSettings.isPending}
+              aria-invalid={Boolean(
+                form.formState.errors.alert_cooldown_secs,
+              )}
+              {...form.register("alert_cooldown_secs")}
+            />
+            <TimerIcon
+              className="size-4 text-muted-foreground"
+              aria-hidden="true"
+            />
+          </div>
+        </FormField>
+      </SettingsGroup>
 
-      <div className="space-y-3">
-        <div>
-          <h3 className="flex items-center gap-2 text-sm font-medium">
-            <SendIcon className="size-4 text-muted-foreground" />
-            {t("settings.alerts.test.title")}
-          </h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {t("settings.alerts.test.desc")}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
+      <SettingsGroup
+        icon={SendIcon}
+        title={t("settings.alerts.test.title")}
+        description={t("settings.alerts.test.desc")}
+      >
+        <div
+          className={cn(
+            SETTINGS_FULL_ROW,
+            "flex flex-wrap items-center gap-3",
+          )}
+        >
           <Button
             type="button"
             variant="outline"
@@ -538,40 +529,49 @@ function AlertsForm({ initial }: { initial: Settings }) {
         {testError ? (
           <Alert
             variant="destructive"
-            className="border-destructive/25 bg-destructive/10"
+            className={cn(
+              SETTINGS_FULL_ROW,
+              "border-destructive/25 bg-destructive/10",
+            )}
           >
             <TriangleAlertIcon />
             <AlertDescription>{testError}</AlertDescription>
           </Alert>
         ) : null}
 
-        {testResults ? <TestResults results={testResults} /> : null}
-      </div>
+        {testResults ? (
+          <div className={SETTINGS_FULL_ROW}>
+            <TestResults results={testResults} />
+          </div>
+        ) : null}
+      </SettingsGroup>
 
-      <FormRootError message={form.formState.errors.root?.message} />
+      <section className="space-y-3 border-t border-border px-5 py-5">
+        <FormRootError message={form.formState.errors.root?.message} />
 
-      <Separator />
-
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        <p
-          className={cn(
-            "mr-auto text-xs",
-            dirty ? "text-warning" : "text-muted-foreground",
-          )}
-        >
-          {dirty ? t("settings.alerts.dirtyHint") : t("settings.alerts.saveHint")}
-        </p>
-        <Button type="submit" disabled={updateSettings.isPending}>
-          {updateSettings.isPending ? (
-            <Loader2Icon className="animate-spin" />
-          ) : (
-            <SaveIcon />
-          )}
-          {updateSettings.isPending
-            ? t("settings.alerts.saving")
-            : t("settings.alerts.save")}
-        </Button>
-      </div>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <p
+            className={cn(
+              "mr-auto text-xs",
+              dirty ? "text-warning" : "text-muted-foreground",
+            )}
+          >
+            {dirty
+              ? t("settings.alerts.dirtyHint")
+              : t("settings.alerts.saveHint")}
+          </p>
+          <Button type="submit" disabled={updateSettings.isPending}>
+            {updateSettings.isPending ? (
+              <Loader2Icon className="animate-spin" />
+            ) : (
+              <SaveIcon />
+            )}
+            {updateSettings.isPending
+              ? t("settings.alerts.saving")
+              : t("settings.alerts.save")}
+          </Button>
+        </div>
+      </section>
     </form>
   );
 }
@@ -587,8 +587,9 @@ export function AlertsCard() {
   const settings = useSettings();
 
   return (
-    <Card>
-      <CardHeader>
+    /* 与其它 tab 同一套卡片结构：卡头 + 若干分组（组间 border-t）+ 底部保存栏。 */
+    <Card className="gap-0 py-0">
+      <CardHeader className="px-5 pt-5">
         <CardTitle className="flex items-center gap-2 text-sm font-medium">
           <BellRingIcon className="size-4 text-muted-foreground" />
           {t("settings.alerts.title")}
@@ -597,67 +598,67 @@ export function AlertsCard() {
           {t("settings.alerts.desc")}
         </CardDescription>
       </CardHeader>
-      <CardContent className="max-w-2xl space-y-5">
-        {settings.isPending ? (
+      {settings.isPending ? (
+        <CardContent className="px-5 py-5">
           <AlertsSkeleton />
-        ) : settings.isError ? (
-          <div className="space-y-3">
-            <Alert
-              variant="destructive"
-              className="border-destructive/25 bg-destructive/10"
-            >
-              <TriangleAlertIcon />
-              <AlertTitle>{t("settings.alerts.loadFailed")}</AlertTitle>
-              <AlertDescription>
-                {alertsSettingsErrorText(
-                  settings.error,
-                  t("settings.alerts.loadError"),
-                )}
-              </AlertDescription>
-            </Alert>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void settings.refetch()}
-              disabled={settings.isFetching}
-            >
-              <RefreshCwIcon
-                className={settings.isFetching ? "animate-spin" : undefined}
-              />
-              {t("common.retry")}
-            </Button>
+        </CardContent>
+      ) : settings.isError ? (
+        <CardContent className="space-y-3 px-5 py-5">
+          <Alert
+            variant="destructive"
+            className="border-destructive/25 bg-destructive/10"
+          >
+            <TriangleAlertIcon />
+            <AlertTitle>{t("settings.alerts.loadFailed")}</AlertTitle>
+            <AlertDescription>
+              {alertsSettingsErrorText(
+                settings.error,
+                t("settings.alerts.loadError"),
+              )}
+            </AlertDescription>
+          </Alert>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void settings.refetch()}
+            disabled={settings.isFetching}
+          >
+            <RefreshCwIcon
+              className={settings.isFetching ? "animate-spin" : undefined}
+            />
+            {t("common.retry")}
+          </Button>
+        </CardContent>
+      ) : !settings.data || Object.keys(settings.data).length === 0 ? (
+        <CardContent className="flex flex-col items-center gap-3 px-5 py-10 text-center">
+          <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
+            <BellRingIcon className="size-5" />
           </div>
-        ) : !settings.data || Object.keys(settings.data).length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-10 text-center">
-            <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">
-              <BellRingIcon className="size-5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium">
-                {t("settings.alerts.emptyTitle")}
-              </p>
-              <p className="mt-1 max-w-md text-xs text-muted-foreground">
-                {t("settings.alerts.emptyDesc")}
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void settings.refetch()}
-              disabled={settings.isFetching}
-            >
-              <RefreshCwIcon
-                className={settings.isFetching ? "animate-spin" : undefined}
-              />
-              {t("common.retry")}
-            </Button>
+          <div>
+            <p className="text-sm font-medium">
+              {t("settings.alerts.emptyTitle")}
+            </p>
+            <p className="mt-1 max-w-md text-xs text-muted-foreground">
+              {t("settings.alerts.emptyDesc")}
+            </p>
           </div>
-        ) : (
-          <AlertsForm initial={settings.data} />
-        )}
-      </CardContent>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void settings.refetch()}
+            disabled={settings.isFetching}
+          >
+            <RefreshCwIcon
+              className={settings.isFetching ? "animate-spin" : undefined}
+            />
+            {t("common.retry")}
+          </Button>
+        </CardContent>
+      ) : (
+        <AlertsForm initial={settings.data} />
+      )}
     </Card>
   );
 }

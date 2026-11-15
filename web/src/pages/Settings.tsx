@@ -21,15 +21,13 @@ import { AlertsCard } from "@/components/settings/AlertsCard";
 import { BackupCard } from "@/components/settings/BackupCard";
 import { CertificatesPanel } from "@/components/settings/CertificatesPanel";
 import { RuleTemplatesPanel } from "@/components/settings/RuleTemplatesPanel";
-import { UpdatesCard } from "@/components/settings/UpdatesCard";
-import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  SettingsGroup,
+  SETTINGS_FULL_ROW,
+} from "@/components/settings/SettingsGroup";
+import { UpdatesSection } from "@/components/settings/UpdatesSection";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Tabs,
@@ -152,11 +150,17 @@ function sessionDurationText(hours: number): string {
   return t("settings.duration.hoursWithDaysRest", { hours, days, rest });
 }
 
-function SettingsSkeleton({ cards = 2 }: { cards?: number }) {
+function SettingsSkeleton({
+  cards = 2,
+  lines = 3,
+}: {
+  cards?: number;
+  lines?: number;
+}) {
   return (
     <div className="space-y-6" aria-busy="true">
       {Array.from({ length: cards }, (_, index) => (
-        <SkeletonCard key={index} lines={3} />
+        <SkeletonCard key={index} lines={lines} />
       ))}
     </div>
   );
@@ -225,13 +229,15 @@ function RetryButton({ query }: { query: SettingsQuery }) {
 function SettingsPanelState({
   query,
   cards,
+  lines,
   children,
 }: {
   query: SettingsQuery;
   cards: number;
+  lines?: number;
   children: (items: Settings) => ReactNode;
 }) {
-  if (query.isPending) return <SettingsSkeleton cards={cards} />;
+  if (query.isPending) return <SettingsSkeleton cards={cards} lines={lines} />;
   if (query.isError) {
     return (
       <StateCard
@@ -339,27 +345,25 @@ function GeneralForm({ initial }: { initial: Settings }) {
 
   return (
     <form className="space-y-6" onSubmit={onSubmit}>
-      {/* 版本更新卡在常规 tab 顶部；三个设置项属于本表单，底部保存栏统一提交。 */}
-      <UpdatesCard form={form} saving={updateSettings.isPending} />
+      {/*
+        一张卡 + 组间 border-t，组内是「标签在上、控件在下」的两列网格：
+        ≥1024px 两列，窄屏单列。版本更新的三个设置项也在这里，
+        由底部同一条保存栏统一提交。
+      */}
+      <Card className="gap-0 py-0">
+        <UpdatesSection form={form} saving={updateSettings.isPending} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm font-medium">
-            <SlidersHorizontalIcon className="size-4 text-muted-foreground" />
-            {t("settings.panel.title")}
-          </CardTitle>
-          <CardDescription className="text-xs">
-            {t("settings.panel.desc")}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+        <SettingsGroup
+          icon={SlidersHorizontalIcon}
+          title={t("settings.panel.title")}
+          description={t("settings.panel.desc")}
+        >
           <FormField
             label={t("settings.panel.name")}
             htmlFor="settings-panel-name"
             required
             hint={t("settings.panel.nameHint")}
             error={form.formState.errors.panel_name?.message}
-            className="max-w-md"
           >
             <Input
               id="settings-panel-name"
@@ -370,25 +374,18 @@ function GeneralForm({ initial }: { initial: Settings }) {
               {...form.register("panel_name")}
             />
           </FormField>
-        </CardContent>
-      </Card>
+        </SettingsGroup>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm font-medium">
-            <Link2Icon className="size-4 text-muted-foreground" />
-            {t("settings.publicBase.title")}
-          </CardTitle>
-          <CardDescription className="text-xs">
-            {t("settings.publicBase.desc")}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5">
+        <SettingsGroup
+          icon={Link2Icon}
+          title={t("settings.publicBase.title")}
+          description={t("settings.publicBase.desc")}
+        >
           <FormField
             label={t("settings.publicBase.agent")}
             htmlFor="settings-agent-base-url"
+            hint={t("settings.publicBase.agentHint")}
             error={form.formState.errors.agent_base_url?.message}
-            className="max-w-md"
           >
             <Input
               id="settings-agent-base-url"
@@ -403,8 +400,8 @@ function GeneralForm({ initial }: { initial: Settings }) {
           <FormField
             label={t("settings.publicBase.subscription")}
             htmlFor="settings-subscription-base-url"
+            hint={t("settings.publicBase.subscriptionHint")}
             error={form.formState.errors.subscription_base_url?.message}
-            className="max-w-md"
           >
             <Input
               id="settings-subscription-base-url"
@@ -418,45 +415,38 @@ function GeneralForm({ initial }: { initial: Settings }) {
             />
           </FormField>
 
-          <div className="max-w-2xl space-y-2 rounded-lg border bg-muted/30 p-3 text-xs">
-            <div className="space-y-1">
+          {/* 示例链接是只读预览，行太长：独占一整行，标签在上、链接在下。 */}
+          <div className={cn(SETTINGS_FULL_ROW, "space-y-3 text-xs")}>
+            <div>
               <p className="text-muted-foreground">
                 {t("settings.publicBase.agentPreview")}
               </p>
-              <code className="block font-mono break-all text-foreground">
+              <code className="mt-1 block font-mono break-all text-foreground">
                 {agentPreview}
               </code>
             </div>
-            <div className="space-y-1">
+            <div>
               <p className="text-muted-foreground">
                 {t("settings.publicBase.subscriptionPreview")}
               </p>
-              <code className="block font-mono break-all text-foreground">
+              <code className="mt-1 block font-mono break-all text-foreground">
                 {subscribePreview}
               </code>
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </SettingsGroup>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm font-medium">
-            <ArrowUpCircleIcon className="size-4 text-muted-foreground" />
-            {t("settings.agentUpgrade.title")}
-          </CardTitle>
-          <CardDescription className="text-xs">
-            {t("settings.agentUpgrade.desc")}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+        <SettingsGroup
+          icon={ArrowUpCircleIcon}
+          title={t("settings.agentUpgrade.title")}
+          description={t("settings.agentUpgrade.desc")}
+        >
           <FormField
             label={t("settings.agentUpgrade.concurrency")}
             htmlFor="settings-agent-upgrade-concurrency"
             required
             hint={concurrencyHint}
             error={form.formState.errors.agent_upgrade_concurrency?.message}
-            className="max-w-md"
           >
             <Input
               id="settings-agent-upgrade-concurrency"
@@ -469,7 +459,7 @@ function GeneralForm({ initial }: { initial: Settings }) {
               {...form.register("agent_upgrade_concurrency")}
             />
           </FormField>
-        </CardContent>
+        </SettingsGroup>
       </Card>
 
       <FormRootError message={form.formState.errors.root?.message} />
@@ -537,17 +527,14 @@ function SecurityForm({ initial }: { initial: Settings }) {
 
   return (
     <form className="space-y-6" onSubmit={onSubmit}>
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm font-medium">
-            <ShieldCheckIcon className="size-4 text-muted-foreground" />
-            {t("settings.security.title")}
-          </CardTitle>
-          <CardDescription className="text-xs">
-            {t("settings.security.desc")}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="max-w-2xl space-y-5">
+      {/* 与常规 tab 同一套布局：一张卡 + 分组，组内两列、字段内部上下堆叠。 */}
+      <Card className="gap-0 py-0">
+        <SettingsGroup
+          icon={ShieldCheckIcon}
+          title={t("settings.security.title")}
+          description={t("settings.security.desc")}
+        >
+          {/* 失败上限与锁定时长是同一套登录限流策略，并排；会话有效期是另一件事，独占一行。 */}
           <FormField
             label={t("settings.security.attempts")}
             htmlFor="settings-login-max-attempts"
@@ -584,6 +571,7 @@ function SecurityForm({ initial }: { initial: Settings }) {
             />
           </FormField>
 
+          {/* 会话有效期与登录限流是两件事：不并排，自己占一行（右列留空）。 */}
           <FormField
             label={t("settings.security.session")}
             htmlFor="settings-session-ttl-hours"
@@ -600,10 +588,10 @@ function SecurityForm({ initial }: { initial: Settings }) {
               {...form.register("session_ttl_hours")}
             />
           </FormField>
-
-          <FormRootError message={form.formState.errors.root?.message} />
-        </CardContent>
+        </SettingsGroup>
       </Card>
+
+      <FormRootError message={form.formState.errors.root?.message} />
 
       <SaveBar
         pending={updateSettings.isPending}
@@ -705,8 +693,8 @@ export default function SettingsPage() {
           <p className="text-xs text-muted-foreground">
             {t("settings.tabs.regularDesc")}
           </p>
-          {/* 版本更新卡由 GeneralForm 内部渲染，三个设置项随同一份表单提交。 */}
-          <SettingsPanelState query={settings} cards={4}>
+          {/* 版本更新分组由 GeneralForm 内部渲染，三个设置项随同一份表单提交。 */}
+          <SettingsPanelState query={settings} cards={1} lines={8}>
             {(items) => <GeneralForm initial={items} />}
           </SettingsPanelState>
         </TabsContent>
