@@ -1191,6 +1191,8 @@ mod tests {
             created_at: 1,
             cert_id: None,
             bandwidth_kbps: None,
+            tags: "[]".to_string(),
+            region: None,
         }
     }
 

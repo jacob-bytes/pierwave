@@ -37,6 +37,7 @@ import {
   type CreatePackageInput,
   type CreateRoutingRuleInput,
   type CreateRuleTemplateInput,
+  type CreateSubscriptionTemplateInput,
   type CreateServerResponse,
   type CreateUserInput,
   type EnforcementEvent,
@@ -63,6 +64,8 @@ import {
   type PublicStatus,
   type RoutingRule,
   type RuleTemplate,
+  type SubscriptionTemplate,
+  type SubscriptionTemplatePreview,
   type ResetServerTokenResponse,
   type ResetSubscriptionResponse,
   type RestoreBackupResponse,
@@ -79,6 +82,7 @@ import {
   type UpdatePackageInput,
   type UpdateRoutingRuleInput,
   type UpdateRuleTemplateInput,
+  type UpdateSubscriptionTemplateInput,
   type UpdateServerInput,
   type UpdateSettingsInput,
   type UpdateUserInput,
@@ -150,6 +154,7 @@ export const queryKeys = {
       query.target ?? "",
     ] as const,
   ruleTemplates: ["rule-templates"] as const,
+  subscriptionTemplates: ["subscription-templates"] as const,
   nodes: (serverId: string) => ["nodes", serverId] as const,
   /** 全局节点列表：不属于任何单台服务器，单独一个 key。 */
   allNodes: ["nodes", "all"] as const,
@@ -1032,6 +1037,70 @@ export function useDeleteRuleTemplate() {
   return useMutation<{ ok: true }, Error, string>({
     mutationFn: (id) => api.ruleTemplates.remove(id),
     onSuccess: () => invalidateRuleTemplates(queryClient),
+  });
+}
+
+export function useSubscriptionTemplates() {
+  return useQuery<SubscriptionTemplate[]>({
+    queryKey: queryKeys.subscriptionTemplates,
+    queryFn: async () => (await api.subscriptionTemplates.list()).items,
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
+function invalidateSubscriptionTemplates(
+  queryClient: ReturnType<typeof useQueryClient>,
+) {
+  void queryClient.invalidateQueries({
+    queryKey: queryKeys.subscriptionTemplates,
+  });
+}
+
+export function useCreateSubscriptionTemplate() {
+  const queryClient = useQueryClient();
+
+  return useMutation<SubscriptionTemplate, Error, CreateSubscriptionTemplateInput>(
+    {
+      mutationFn: async (input) =>
+        (await api.subscriptionTemplates.create(input)).template,
+      onSuccess: () => invalidateSubscriptionTemplates(queryClient),
+    },
+  );
+}
+
+export function useUpdateSubscriptionTemplate() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    SubscriptionTemplate,
+    Error,
+    { id: string; input: UpdateSubscriptionTemplateInput }
+  >({
+    mutationFn: async ({ id, input }) =>
+      (await api.subscriptionTemplates.update(id, input)).template,
+    onSuccess: () => invalidateSubscriptionTemplates(queryClient),
+  });
+}
+
+export function useDeleteSubscriptionTemplate() {
+  const queryClient = useQueryClient();
+
+  return useMutation<{ ok: true }, Error, string>({
+    mutationFn: (id) => api.subscriptionTemplates.remove(id),
+    onSuccess: () => invalidateSubscriptionTemplates(queryClient),
+  });
+}
+
+/** 预览不写库、不进缓存：每次调用都按当前用户实时渲染。 */
+export function usePreviewSubscriptionTemplate() {
+  return useMutation<
+    SubscriptionTemplatePreview,
+    Error,
+    { id: string; userId: string }
+  >({
+    mutationFn: ({ id, userId }) =>
+      api.subscriptionTemplates.preview(id, userId),
   });
 }
 

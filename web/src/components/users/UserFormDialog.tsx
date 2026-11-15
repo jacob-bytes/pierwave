@@ -27,8 +27,16 @@ import type { UpdateUserInput, UserView } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { bytesToGbInput, parseGbInput } from "@/lib/format";
 import { ruleTemplateInputValue } from "@/lib/ruleBindings";
-import { useCreateUser, useMe, useRuleTemplates, useUpdateUser } from "@/lib/queries";
+import { SubscriptionTemplateBindingField } from "@/components/subscriptions/SubscriptionTemplateBindingField";
+import {
+  useCreateUser,
+  useMe,
+  useRuleTemplates,
+  useSubscriptionTemplates,
+  useUpdateUser,
+} from "@/lib/queries";
 import { ruleTemplateErrorText } from "@/lib/ruleTemplates";
+import { subscriptionTemplateInputValue } from "@/lib/subscriptionTemplates";
 import {
   userFormSchema,
   type UserFormMode,
@@ -59,6 +67,12 @@ export function UserFormDialog({
     ruleTemplates.isError && templates.length === 0
       ? ruleTemplateErrorText(ruleTemplates.error)
       : null;
+  const subscriptionTemplates = useSubscriptionTemplates();
+  const subTemplates = subscriptionTemplates.data ?? [];
+  const subscriptionTemplateError =
+    subscriptionTemplates.isError && subTemplates.length === 0
+      ? errorText(subscriptionTemplates.error, t("subscriptionTemplates.loadError"))
+      : null;
   const pending =
     mode === "create" ? createUser.isPending : updateUser.isPending;
   const isSelf = mode === "edit" && Boolean(user) && user?.id === me.data?.id;
@@ -74,6 +88,7 @@ export function UserFormDialog({
             role: user.role,
             quota_gb: bytesToGbInput(user.quota_bytes),
             rule_template_id: user.rule_template_id ?? "",
+            subscription_template_id: user.subscription_template_id ?? "",
           }
         : {
             username: "",
@@ -81,6 +96,7 @@ export function UserFormDialog({
             role: "user",
             quota_gb: "",
             rule_template_id: "",
+            subscription_template_id: "",
           },
   });
 
@@ -95,6 +111,10 @@ export function UserFormDialog({
       const quotaBytes = parseGbInput(values.quota_gb);
       // 空选项 → 显式 null（回落到套餐 / 全局默认），而不是省略字段。
       const ruleTemplateId = ruleTemplateInputValue(values.rule_template_id);
+      // 空选项 → 显式 null（跟随套餐 / 内置分组），而不是省略字段。
+      const subscriptionTemplateId = subscriptionTemplateInputValue(
+        values.subscription_template_id,
+      );
 
       if (mode === "create") {
         await createUser.mutateAsync({
@@ -103,6 +123,7 @@ export function UserFormDialog({
           role: values.role,
           quota_bytes: quotaBytes,
           rule_template_id: ruleTemplateId,
+          subscription_template_id: subscriptionTemplateId,
         });
         toast.success(t("users.form.created", { name: values.username }));
       } else if (user) {
@@ -110,6 +131,7 @@ export function UserFormDialog({
           role: values.role,
           quota_bytes: quotaBytes,
           rule_template_id: ruleTemplateId,
+          subscription_template_id: subscriptionTemplateId,
         };
         if (values.password) input.password = values.password;
         await updateUser.mutateAsync({ id: user.id, input });
@@ -251,6 +273,33 @@ export function UserFormDialog({
                   loadingLabel={t("users.form.ruleTemplateLoading")}
                   currentLabel={t("users.form.ruleTemplateCurrent")}
                   ariaLabel={t("users.form.ruleTemplate")}
+                />
+              )}
+            />
+          </FormField>
+
+          <FormField
+            label={t("users.form.subscriptionTemplate")}
+            htmlFor="user-subscription-template"
+            hint={t("users.form.subscriptionTemplateHint")}
+            error={form.formState.errors.subscription_template_id?.message}
+          >
+            <Controller
+              control={form.control}
+              name="subscription_template_id"
+              render={({ field }) => (
+                <SubscriptionTemplateBindingField
+                  id="user-subscription-template"
+                  value={field.value}
+                  onChange={field.onChange}
+                  templates={subTemplates}
+                  pending={subscriptionTemplates.isPending}
+                  error={subscriptionTemplateError}
+                  disabled={pending}
+                  inheritLabel={t("users.form.subscriptionTemplateInherit")}
+                  loadingLabel={t("users.form.subscriptionTemplateLoading")}
+                  currentLabel={t("users.form.subscriptionTemplateCurrent")}
+                  ariaLabel={t("users.form.subscriptionTemplate")}
                 />
               )}
             />

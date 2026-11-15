@@ -26,6 +26,7 @@ import { AlertsCard } from "@/components/settings/AlertsCard";
 import { BackupCard } from "@/components/settings/BackupCard";
 import { CertificatesPanel } from "@/components/settings/CertificatesPanel";
 import { RuleTemplatesPanel } from "@/components/settings/RuleTemplatesPanel";
+import { SubscriptionTemplatesPanel } from "@/components/settings/SubscriptionTemplatesPanel";
 import {
   SettingsGroup,
   SETTINGS_FULL_ROW,
@@ -620,6 +621,11 @@ const SETTINGS_TABS = [
     descKey: "settings.tabs.templatesDesc",
   },
   {
+    value: "subscription-templates",
+    labelKey: "settings.tabs.subscriptionTemplates",
+    descKey: "settings.tabs.subscriptionTemplatesDesc",
+  },
+  {
     value: "certificates",
     labelKey: "settings.tabs.certificates",
     descKey: "settings.tabs.certificatesDesc",
@@ -741,6 +747,18 @@ export default function SettingsPage() {
           </p>
           {/* 原 /rules 页：列表、对话框与四态整体搬进 tab，内部逻辑不变。 */}
           <RuleTemplatesPanel />
+        </TabsContent>
+
+        <TabsContent
+          value="subscription-templates"
+          forceMount
+          aria-label={t("settings.tabs.subscriptionTemplates")}
+          className="space-y-4 data-[state=inactive]:hidden"
+        >
+          <p className="text-xs text-muted-foreground">
+            {t("settings.tabs.subscriptionTemplatesDesc")}
+          </p>
+          <SubscriptionTemplatesPanel />
         </TabsContent>
 
         <TabsContent

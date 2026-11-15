@@ -23,6 +23,7 @@ pub mod repo;
 pub mod reset;
 pub mod routing;
 pub mod subscribe;
+pub mod subscription_template;
 pub mod time;
 pub mod tunnel_security;
 pub mod updates;
@@ -133,6 +134,7 @@ impl Db {
                 role: "admin".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await?;

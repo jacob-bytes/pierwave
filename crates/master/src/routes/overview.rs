@@ -84,6 +84,7 @@ mod tests {
                 role: "admin".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -138,6 +139,8 @@ mod tests {
                 enabled: true,
                 cert_id: None,
                 bandwidth_kbps: None,
+                tags: Vec::new(),
+                region: None,
             },
         )
         .await
@@ -284,6 +287,7 @@ mod tests {
                 role: "user".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -304,6 +308,7 @@ mod tests {
                 role: "user".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -374,6 +379,7 @@ mod tests {
                 role: "user".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await

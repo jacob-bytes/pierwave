@@ -71,6 +71,7 @@ import {
   type SsSettings,
 } from "@/lib/shadowsocks";
 import { kbpsToMbpsInput, mbpsInputToKbps } from "@/lib/speed";
+import { joinList, splitList } from "@/lib/subscriptionTemplates";
 import { t, useI18n } from "@/i18n";
 
 interface NodeFormDialogProps {
@@ -134,6 +135,8 @@ export function NodeFormDialog({
       public_port:
         node?.public_port == null ? "" : String(node.public_port),
       bandwidth_mbps: kbpsToMbpsInput(node?.bandwidth_kbps),
+      tags: joinList(node?.tags),
+      region: node?.region ?? "",
       enabled: node ? Boolean(node.enabled) : true,
       ss_method: initialSs.method,
       ss_password: initialSs.password,
@@ -375,6 +378,8 @@ export function NodeFormDialog({
             enabled: values.enabled,
             config,
             bandwidth_kbps: bandwidthKbps,
+            tags: splitList(values.tags),
+            region: values.region.trim() === "" ? null : values.region.trim(),
             ...certBinding,
           },
         });
@@ -390,6 +395,8 @@ export function NodeFormDialog({
           config,
           enabled: values.enabled,
           bandwidth_kbps: bandwidthKbps,
+          tags: splitList(values.tags),
+          region: values.region.trim() === "" ? null : values.region.trim(),
           ...certBinding,
         });
         toast.success(t("nodes.form.created", { name: created.name }));
@@ -757,6 +764,37 @@ export function NodeFormDialog({
                     Mbps
                   </span>
                 </div>
+              </FormField>
+
+              <FormField
+                label={t("nodes.form.tags")}
+                htmlFor="node-tags"
+                hint={t("nodes.form.tagsHint")}
+                error={form.formState.errors.tags?.message}
+              >
+                <Input
+                  id="node-tags"
+                  autoComplete="off"
+                  placeholder={t("nodes.form.tagsPlaceholder")}
+                  disabled={pending}
+                  aria-invalid={Boolean(form.formState.errors.tags)}
+                  {...form.register("tags")}
+                />
+              </FormField>
+
+              <FormField
+                label={t("nodes.form.region")}
+                htmlFor="node-region"
+                error={form.formState.errors.region?.message}
+              >
+                <Input
+                  id="node-region"
+                  autoComplete="off"
+                  placeholder={t("nodes.form.regionPlaceholder")}
+                  disabled={pending}
+                  aria-invalid={Boolean(form.formState.errors.region)}
+                  {...form.register("region")}
+                />
               </FormField>
 
               {!comboValid ? (

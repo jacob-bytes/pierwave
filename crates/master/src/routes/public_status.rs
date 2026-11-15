@@ -579,6 +579,8 @@ mod tests {
                 enabled: true,
                 cert_id: None,
                 bandwidth_kbps: None,
+                tags: Vec::new(),
+                region: None,
             },
         )
         .await

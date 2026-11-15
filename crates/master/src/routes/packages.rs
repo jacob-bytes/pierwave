@@ -267,6 +267,37 @@ pub(crate) async fn validate_optional_rule_template_id(
     }
 }
 
+/// 订阅模板绑定：必须真实存在；空 id 视为非法。
+pub(crate) async fn validate_subscription_template_id(
+    state: &AppState,
+    id: &str,
+) -> AppResult<String> {
+    let id = id.trim();
+    if id.is_empty()
+        || repo::subscription_templates::find_by_id(&state.db.pool, id)
+            .await?
+            .is_none()
+    {
+        return Err(AppError::coded(
+            "subscription_template.reference_not_found",
+            Some(json!({ "id": id })),
+            format!("订阅模板不存在：{id}"),
+        ));
+    }
+    Ok(id.to_string())
+}
+
+/// 可空版本：`None` = 不绑定（用户未绑定时回落硬编码分组）。
+pub(crate) async fn validate_optional_subscription_template_id(
+    state: &AppState,
+    id: Option<&str>,
+) -> AppResult<Option<String>> {
+    match id {
+        Some(id) => Ok(Some(validate_subscription_template_id(state, id).await?)),
+        None => Ok(None),
+    }
+}
+
 pub async fn list(State(state): State<AppState>, user: CurrentUser) -> AppResult<Json<Value>> {
     user.require_admin()?;
     let items = repo::packages::list(&state.db.pool).await?;
@@ -293,6 +324,9 @@ pub struct CreatePackage {
     /// 套餐级规则模板；缺省 / `null` = 不绑定（跟随全局默认）。
     #[serde(default)]
     pub rule_template_id: Option<String>,
+    /// 套餐级订阅模板；缺省 / `null` = 不绑定（用户未绑定时回落硬编码分组）。
+    #[serde(default)]
+    pub subscription_template_id: Option<String>,
     /// 每个用户最多能创建多少条自助转发；缺省 0 = 不允许。
     #[serde(default)]
     pub forward_limit: i64,
@@ -348,6 +382,9 @@ pub async fn create(
     validate_chain_template_id_list(&state, &chain_template_ids).await?;
     let rule_template_id =
         validate_optional_rule_template_id(&state, req.rule_template_id.as_deref()).await?;
+    let subscription_template_id =
+        validate_optional_subscription_template_id(&state, req.subscription_template_id.as_deref())
+            .await?;
 
     let package = repo::packages::create(
         &state.db.pool,
@@ -359,6 +396,7 @@ pub async fn create(
             node_ratio: req.node_ratio,
             speed_limit_kbps: req.speed_limit_kbps,
             rule_template_id,
+            subscription_template_id,
             node_ids,
         },
     )
@@ -410,6 +448,7 @@ pub async fn create(
             "node_ratio": package.node_ratio,
             "speed_limit_kbps": package.speed_limit_kbps,
             "rule_template_id": package.rule_template_id,
+            "subscription_template_id": package.subscription_template_id,
             "node_scope": &package.node_scope,
             "node_count": package.node_count,
             "node_ids": &package.node_ids,
@@ -442,6 +481,9 @@ pub struct UpdatePackage {
     /// 三态：缺失 = 不动；`null` = 解绑；具体 id = 绑定。
     #[serde(default)]
     pub rule_template_id: Patch<String>,
+    /// 三态：缺失 = 不动；`null` = 解绑；具体 id = 绑定。
+    #[serde(default)]
+    pub subscription_template_id: Patch<String>,
     /// `None` = 不动；`0` = 关闭自助转发；正数 = 每用户条数上限。
     #[serde(default)]
     pub forward_limit: Option<i64>,
@@ -472,6 +514,7 @@ pub async fn update(
         && !req.speed_limit_kbps.is_set()
         && !req.node_ids.is_set()
         && !req.rule_template_id.is_set()
+        && !req.subscription_template_id.is_set()
         && req.forward_limit.is_none()
         && req.forward_server_ids.is_none()
         && req.chain_limit.is_none()
@@ -540,6 +583,11 @@ pub async fn update(
         Patch::Null => Patch::Null,
         Patch::Value(id) => Patch::Value(validate_rule_template_id(&state, &id).await?),
     };
+    let subscription_template_id = match req.subscription_template_id {
+        Patch::Missing => Patch::Missing,
+        Patch::Null => Patch::Null,
+        Patch::Value(id) => Patch::Value(validate_subscription_template_id(&state, &id).await?),
+    };
 
     // 审计与「范围是否变化」都要变更前快照：一次查询同时拿到 node_scope/node_count。
     let before_package = repo::packages::find_by_id(&state.db.pool, &id).await?;
@@ -560,6 +608,7 @@ pub async fn update(
             node_ratio: req.node_ratio,
             speed_limit_kbps: req.speed_limit_kbps,
             rule_template_id,
+            subscription_template_id,
             node_ids,
         },
     )
@@ -800,6 +849,8 @@ mod tests {
             enabled: true,
             cert_id: None,
             bandwidth_kbps: None,
+            tags: Vec::new(),
+            region: None,
         }
     }
 
@@ -822,6 +873,7 @@ mod tests {
                 role: "admin".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -911,6 +963,7 @@ mod tests {
                 role: "user".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -1110,6 +1163,7 @@ mod tests {
                 role: "user".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -1523,6 +1577,7 @@ mod tests {
                 direction: "both".into(),
                 node_ratio: 1.0,
                 rule_template_id: None,
+                subscription_template_id: None,
                 speed_limit_kbps: None,
                 node_ids: None,
             },
@@ -1541,6 +1596,7 @@ mod tests {
                 direction: "both".into(),
                 node_ratio: 1.0,
                 rule_template_id: None,
+                subscription_template_id: None,
                 speed_limit_kbps: None,
                 node_ids: Some(Vec::new()),
             },

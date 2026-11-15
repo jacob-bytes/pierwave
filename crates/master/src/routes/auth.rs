@@ -177,6 +177,7 @@ mod tests {
                 role: "admin".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await

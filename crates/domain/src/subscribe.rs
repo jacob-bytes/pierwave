@@ -21,6 +21,7 @@ use serde_json::{json, Value};
 use crate::credentials;
 use crate::models::{Node, RuleTemplate};
 use crate::reality;
+use crate::subscription_template::{GroupKind, GroupPlan};
 use crate::xray;
 
 // ---------------------------------------------------------------------------
@@ -45,6 +46,10 @@ pub struct SubNode {
     pub transport: String,
     /// `none` / `tls` / `reality`。
     pub security: String,
+    /// 节点标签（迁移 0052）；订阅模板的 filter 用它命中节点。
+    pub tags: Vec<String>,
+    /// 节点地区（迁移 0052），如 `HK`；`None` = 未设置。
+    pub region: Option<String>,
     /// 已命名的协议参数，见 `docs/SUBSCRIBE.md` §1。
     pub params: BTreeMap<String, String>,
 }
@@ -388,6 +393,13 @@ impl SubNode {
             public_port,
             transport,
             security,
+            tags: node.tag_list(),
+            region: node
+                .region
+                .as_deref()
+                .map(str::trim)
+                .filter(|region| !region.is_empty())
+                .map(str::to_string),
             params,
         })
     }
@@ -400,6 +412,9 @@ pub struct SubContext<'a> {
     pub traffic: Option<TrafficInfo>,
     /// Clash `rules:` 段。URI 渲染器不读它，所以切换规则模板不影响 URI 订阅。
     pub rules: &'a [String],
+    /// 订阅模板生成的分组计划。`None` / 空计划 = 沿用硬编码分组，
+    /// 输出必须与升级前逐字节一致（golden 覆盖）。
+    pub groups: Option<&'a GroupPlan>,
 }
 
 /// 内置兜底规则：与旧版写死的两条完全一致。
@@ -582,13 +597,18 @@ impl Exporter for ClashExporter {
         out.push_str(&clash_proxies_section(ctx.nodes));
         out.push('\n');
 
-        out.push_str(&clash_groups(ctx.nodes));
-        out.push_str("\nrules:\n");
-        if ctx.rules.is_empty() {
-            push_clash_rules(&mut out, &default_rules());
-        } else {
-            push_clash_rules(&mut out, ctx.rules);
+        let plan = active_plan(ctx);
+        match plan {
+            Some(plan) => out.push_str(&clash_plan_groups(plan)),
+            None => out.push_str(&clash_groups(ctx.nodes)),
         }
+        out.push_str("\nrules:\n");
+        let rules = match plan {
+            Some(plan) => clash_template_rules(ctx, plan),
+            None if ctx.rules.is_empty() => default_rules(),
+            None => ctx.rules.to_vec(),
+        };
+        push_clash_rules(&mut out, &rules);
         Ok(out)
     }
 }
@@ -815,6 +835,156 @@ fn clash_groups(nodes: &[SubNode]) -> String {
     out
 }
 
+/// 订阅模板是否真的生效：`None` 或「所有组都没命中」都算未生效。
+///
+/// 未生效时必须走原有硬编码分组，保证输出与升级前逐字节一致。
+fn active_plan<'a>(ctx: &'a SubContext<'_>) -> Option<&'a GroupPlan> {
+    ctx.groups.filter(|plan| !plan.is_empty())
+}
+
+/// 模板分组（Clash 骨架）：块状 `proxies:` 列表，与旧 `clash_groups` 风格一致。
+fn clash_plan_groups(plan: &GroupPlan) -> String {
+    let mut out = String::from("proxy-groups:\n");
+    for group in &plan.groups {
+        out.push_str(&format!("  - name: {}\n", yaml_string(&group.name)));
+        out.push_str(&format!("    type: {}\n", group.kind.as_str()));
+        if group.kind == GroupKind::UrlTest {
+            out.push_str(&format!("    url: {}\n", yaml_string(MIHOMO_TEST_URL)));
+            out.push_str(&format!(
+                "    interval: {}\n",
+                group.interval.unwrap_or(DEFAULT_INTERVAL_SECS)
+            ));
+            out.push_str("    tolerance: 50\n");
+        }
+        out.push_str("    proxies:\n");
+        for member in &group.members {
+            out.push_str(&format!("      - {}\n", yaml_string(member)));
+        }
+    }
+    out
+}
+
+/// 模板分组（mihomo 完整配置）：组内成员用 flow 序列，与旧实现风格一致。
+fn mihomo_plan_groups(plan: &GroupPlan) -> String {
+    let mut out = String::from("proxy-groups:\n");
+    for group in &plan.groups {
+        out.push_str(&format!("  - name: {}\n", yaml_string(&group.name)));
+        out.push_str(&format!("    type: {}\n", group.kind.as_str()));
+        if group.kind == GroupKind::UrlTest {
+            out.push_str(&format!("    url: {}\n", yaml_string(MIHOMO_TEST_URL)));
+            out.push_str(&format!(
+                "    interval: {}\n",
+                group.interval.unwrap_or(DEFAULT_INTERVAL_SECS)
+            ));
+        }
+        let members: Vec<&str> = group.members.iter().map(String::as_str).collect();
+        push_mihomo_group_proxies(&mut out, &members);
+    }
+    out
+}
+
+/// url-test 的默认测速间隔（秒），与旧 `AUTO` 组一致。
+const DEFAULT_INTERVAL_SECS: u32 = 300;
+
+/// 规则里的策略是否可以原样保留：`DIRECT` / `REJECT*`，以及模板里真实存在的组名。
+fn keeps_policy(policy: &str, plan: &GroupPlan) -> bool {
+    let upper = policy.trim().to_ascii_uppercase();
+    matches!(upper.as_str(), "DIRECT" | "REJECT" | "REJECT-DROP")
+        || plan
+            .groups
+            .iter()
+            .any(|group| group.name.eq_ignore_ascii_case(policy.trim()))
+}
+
+/// Clash 规则：只改策略列，规则类型原样保留。
+///
+/// 模板生效时旧策略名（`PROXY` / `AUTO` / 地区组）不再存在，必须映射到第一个
+/// select 组，否则客户端会报「未知策略」。`no-resolve` 之类的尾部参数不动。
+fn clash_template_rules(ctx: &SubContext<'_>, plan: &GroupPlan) -> Vec<String> {
+    let target = plan
+        .policy_target()
+        .unwrap_or(MIHOMO_SELECT_GROUP)
+        .to_string();
+    rules_or_default(ctx)
+        .iter()
+        .map(|rule| remap_rule_policy(rule, &target, plan))
+        .collect()
+}
+
+fn remap_rule_policy(rule: &str, target: &str, plan: &GroupPlan) -> String {
+    let mut parts: Vec<&str> = rule.split(',').collect();
+    let Some(last) = parts.last() else {
+        return rule.to_string();
+    };
+    let policy_index = if last.trim().eq_ignore_ascii_case("no-resolve") {
+        parts.len().checked_sub(2)
+    } else {
+        parts.len().checked_sub(1)
+    };
+    let Some(index) = policy_index else {
+        return rule.to_string();
+    };
+    let policy = parts[index].trim();
+    if keeps_policy(policy, plan) {
+        parts[index] = policy;
+        return parts.join(",");
+    }
+    parts[index] = target;
+    parts.join(",")
+}
+
+/// mihomo 规则：在旧 [`mihomo_rule`] 的类型白名单之上，把策略映射到模板里的组名。
+fn mihomo_template_rules(ctx: &SubContext<'_>, plan: &GroupPlan) -> Vec<String> {
+    let target = plan.policy_target().map(str::to_string);
+    let mut rules: Vec<String> = rules_or_default(ctx)
+        .iter()
+        .filter_map(|rule| mihomo_template_rule(rule, plan, target.as_deref()))
+        .collect();
+    if rules.is_empty() {
+        rules = default_rules()
+            .iter()
+            .filter_map(|rule| mihomo_template_rule(rule, plan, target.as_deref()))
+            .collect();
+    }
+    rules
+}
+
+fn mihomo_template_rule(rule: &str, plan: &GroupPlan, target: Option<&str>) -> Option<String> {
+    let (kind, value, policy, no_resolve) = parse_rule(rule)?;
+    if !matches!(
+        kind.as_str(),
+        "DOMAIN" | "DOMAIN-SUFFIX" | "DOMAIN-KEYWORD" | "GEOIP" | "IP-CIDR" | "IP-CIDR6" | "MATCH"
+    ) {
+        tracing::warn!(rule = %rule, "规则类型无法在 mihomo 里安全表达，跳过该条规则");
+        return None;
+    }
+    let upper = policy.trim().to_ascii_uppercase();
+    let policy = match upper.as_str() {
+        "DIRECT" => "DIRECT".to_string(),
+        "REJECT" | "REJECT-DROP" => "REJECT".to_string(),
+        // 规则模板直接写了模板里的组名 → 保留；其余旧策略名映射到兜底组。
+        _ if plan
+            .groups
+            .iter()
+            .any(|group| group.name.eq_ignore_ascii_case(policy.trim())) =>
+        {
+            policy.trim().to_string()
+        }
+        _ => target.unwrap_or(MIHOMO_SELECT_GROUP).to_string(),
+    };
+    let mut line = kind;
+    if let Some(value) = value {
+        line.push(',');
+        line.push_str(&value);
+    }
+    line.push(',');
+    line.push_str(&policy);
+    if no_resolve {
+        line.push_str(",no-resolve");
+    }
+    Some(line)
+}
+
 fn node_names(nodes: &[SubNode]) -> Vec<&str> {
     nodes.iter().map(|node| node.name.as_str()).collect()
 }
@@ -921,28 +1091,38 @@ impl Exporter for MihomoExporter {
         out.push_str(&clash_proxies_section(ctx.nodes));
         out.push('\n');
 
-        out.push_str("proxy-groups:\n");
-        out.push_str(&format!(
-            "  - name: {}\n    type: select\n",
-            yaml_string(MIHOMO_SELECT_GROUP)
-        ));
-        let mut select_members: Vec<&str> = Vec::new();
-        if !ctx.nodes.is_empty() {
-            select_members.push(MIHOMO_AUTO_GROUP);
-        }
-        select_members.extend(node_names(ctx.nodes));
-        push_mihomo_group_proxies(&mut out, &select_members);
+        let plan = active_plan(ctx);
+        match plan {
+            Some(plan) => out.push_str(&mihomo_plan_groups(plan)),
+            None => {
+                out.push_str("proxy-groups:\n");
+                out.push_str(&format!(
+                    "  - name: {}\n    type: select\n",
+                    yaml_string(MIHOMO_SELECT_GROUP)
+                ));
+                let mut select_members: Vec<&str> = Vec::new();
+                if !ctx.nodes.is_empty() {
+                    select_members.push(MIHOMO_AUTO_GROUP);
+                }
+                select_members.extend(node_names(ctx.nodes));
+                push_mihomo_group_proxies(&mut out, &select_members);
 
-        out.push_str(&format!(
-            "  - name: {}\n    type: url-test\n    url: {}\n    interval: 300\n",
-            yaml_string(MIHOMO_AUTO_GROUP),
-            yaml_string(MIHOMO_TEST_URL)
-        ));
-        push_mihomo_group_proxies(&mut out, &node_names(ctx.nodes));
+                out.push_str(&format!(
+                    "  - name: {}\n    type: url-test\n    url: {}\n    interval: 300\n",
+                    yaml_string(MIHOMO_AUTO_GROUP),
+                    yaml_string(MIHOMO_TEST_URL)
+                ));
+                push_mihomo_group_proxies(&mut out, &node_names(ctx.nodes));
+            }
+        }
         out.push('\n');
 
         out.push_str("rules:\n");
-        for rule in mihomo_rules(ctx) {
+        let rules = match plan {
+            Some(plan) => mihomo_template_rules(ctx, plan),
+            None => mihomo_rules(ctx),
+        };
+        for rule in rules {
             out.push_str(&format!("  - {}\n", yaml_string(&rule)));
         }
         Ok(out)
@@ -2489,6 +2669,9 @@ mod tests {
     use super::*;
 
     use crate::models::Node;
+    use crate::subscription_template::{
+        plan_groups, GroupFilter, GroupKind, GroupPlan, SubscriptionGroup,
+    };
 
     fn node(
         name: &str,
@@ -2506,6 +2689,8 @@ mod tests {
             public_port: None,
             transport: transport.into(),
             security: security.into(),
+            tags: Vec::new(),
+            region: None,
             params: params
                 .iter()
                 .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
@@ -2554,6 +2739,7 @@ mod tests {
             user_label: "alice",
             traffic: None,
             rules: &rules,
+            groups: None,
         };
         let yaml = ClashExporter.render(&ctx).unwrap();
         let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).expect("必须是合法 YAML");
@@ -2649,6 +2835,7 @@ mod tests {
             user_label: "alice",
             traffic: None,
             rules: &rules,
+            groups: None,
         };
         let yaml = ClashExporter.render(&ctx).unwrap();
         let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
@@ -2673,6 +2860,7 @@ mod tests {
             user_label: "alice",
             traffic: None,
             rules: &custom,
+            groups: None,
         };
         let yaml = ClashExporter.render(&ctx).unwrap();
         let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
@@ -2695,6 +2883,7 @@ mod tests {
             user_label: "alice",
             traffic: None,
             rules: &empty,
+            groups: None,
         };
         let yaml = ClashExporter.render(&ctx).unwrap();
         let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
@@ -2980,6 +3169,7 @@ mod tests {
             user_label: "alice",
             traffic: None,
             rules: &rules,
+            groups: None,
         };
         let body = UriExporter.render(&ctx).unwrap();
         let lines: Vec<&str> = body.lines().filter(|line| !line.is_empty()).collect();
@@ -3031,6 +3221,7 @@ mod tests {
             user_label: "alice",
             traffic: None,
             rules: &rules,
+            groups: None,
         };
         let body = UriExporter.render(&ctx).unwrap();
         let lines: Vec<&str> = body.lines().collect();
@@ -3545,6 +3736,7 @@ mod tests {
             user_label: "alice",
             traffic: None,
             rules,
+            groups: None,
         }
     }
 
@@ -5081,6 +5273,235 @@ mod tests {
             created_at: 1,
             cert_id: None,
             bandwidth_kbps: None,
+            tags: "[]".to_string(),
+            region: None,
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // 订阅模板（迁移 0052）
+    // -----------------------------------------------------------------------
+
+    fn template_nodes() -> Vec<SubNode> {
+        let mut hk = node(
+            "香港-1",
+            "vless",
+            "tcp",
+            "reality",
+            443,
+            &[
+                ("uuid", "11111111-1111-4111-8111-111111111111"),
+                ("public_key", "public-key-abc"),
+            ],
+        );
+        hk.tags = vec!["香港".into(), "中转".into()];
+        hk.region = Some("HK".into());
+        let mut jp = node(
+            "日本-1",
+            "trojan",
+            "ws",
+            "tls",
+            8443,
+            &[("password", "22222222-2222-4222-8222-222222222222")],
+        );
+        jp.tags = vec!["日本".into()];
+        jp.region = Some("JP".into());
+        vec![hk, jp]
+    }
+
+    fn template_groups() -> Vec<SubscriptionGroup> {
+        vec![
+            SubscriptionGroup {
+                name: "节点选择".into(),
+                kind: GroupKind::Select,
+                filters: vec![GroupFilter {
+                    tags: vec!["香港".into()],
+                    regions: vec!["HK".into()],
+                    protocols: vec!["vless".into()],
+                }],
+                include_auto: true,
+                interval: None,
+            },
+            SubscriptionGroup {
+                name: "自动选择".into(),
+                kind: GroupKind::UrlTest,
+                filters: vec![GroupFilter::default()],
+                include_auto: false,
+                interval: Some(120),
+            },
+        ]
+    }
+
+    /// `groups = None` 与空的 `GroupPlan` 必须逐字节相等：模板不存在或组全不命中时，
+    /// clash / mihomo 输出必须与升级前完全一致。
+    #[test]
+    fn empty_group_plan_renders_byte_identical_to_no_plan() {
+        let nodes = fixtures();
+        let rules = vec!["MATCH,PROXY".to_string()];
+        let empty = GroupPlan::default();
+        for exporter in [&ClashExporter as &dyn Exporter, &MihomoExporter] {
+            let legacy = exporter
+                .render(&sub_context(&nodes, &rules))
+                .expect("legacy 渲染失败");
+            let ctx = SubContext {
+                nodes: &nodes,
+                user_label: "alice",
+                traffic: None,
+                rules: &rules,
+                groups: Some(&empty),
+            };
+            let planned = exporter.render(&ctx).expect("空计划渲染失败");
+            assert_eq!(
+                legacy,
+                planned,
+                "{} 空计划必须回落硬编码分组",
+                exporter.id()
+            );
+        }
+    }
+
+    #[test]
+    fn template_groups_replace_clash_groups_and_remap_rule_policies() {
+        let nodes = template_nodes();
+        let plan = plan_groups(&template_groups(), &nodes);
+        let rules = vec![
+            "GEOIP,CN,DIRECT".to_string(),
+            "DOMAIN-SUFFIX,example.com,日本".to_string(),
+            "MATCH,PROXY".to_string(),
+        ];
+        let ctx = SubContext {
+            nodes: &nodes,
+            user_label: "alice",
+            traffic: None,
+            rules: &rules,
+            groups: Some(&plan),
+        };
+        let yaml = ClashExporter.render(&ctx).unwrap();
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).expect("合法 YAML");
+        let groups = parsed["proxy-groups"].as_sequence().expect("proxy-groups");
+        assert_eq!(groups.len(), 2, "{yaml}");
+        assert_eq!(groups[0]["name"], "节点选择");
+        assert_eq!(groups[0]["type"], "select");
+        let members: Vec<&str> = groups[0]["proxies"]
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .map(|member| member.as_str().unwrap())
+            .collect();
+        assert_eq!(members, vec!["自动选择", "香港-1", "DIRECT"]);
+        assert_eq!(groups[1]["name"], "自动选择");
+        assert_eq!(groups[1]["type"], "url-test");
+        assert_eq!(groups[1]["interval"], 120);
+        let auto_members: Vec<&str> = groups[1]["proxies"]
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .map(|member| member.as_str().unwrap())
+            .collect();
+        assert_eq!(auto_members, vec!["香港-1", "日本-1"]);
+
+        // 规则：DIRECT 保留；引用了模板里不存在的组（日本）→ 第一个 select 组；
+        // MATCH,PROXY 同样映射。
+        let rules: Vec<&str> = parsed["rules"]
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .map(|rule| rule.as_str().unwrap())
+            .collect();
+        assert_eq!(
+            rules,
+            vec![
+                "GEOIP,CN,DIRECT",
+                "DOMAIN-SUFFIX,example.com,节点选择",
+                "MATCH,节点选择"
+            ]
+        );
+    }
+
+    #[test]
+    fn template_groups_drive_mihomo_with_flow_members_and_rules() {
+        let nodes = template_nodes();
+        let plan = plan_groups(&template_groups(), &nodes);
+        let rules = vec!["GEOIP,CN,DIRECT".to_string(), "MATCH,PROXY".to_string()];
+        let ctx = SubContext {
+            nodes: &nodes,
+            user_label: "alice",
+            traffic: None,
+            rules: &rules,
+            groups: Some(&plan),
+        };
+        let yaml = MihomoExporter.render(&ctx).unwrap();
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
+        let groups = parsed["proxy-groups"].as_sequence().unwrap();
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0]["name"], "节点选择");
+        assert_eq!(
+            groups[0]["proxies"].clone(),
+            serde_yaml::from_str::<serde_yaml::Value>("[\"自动选择\", \"香港-1\", \"DIRECT\"]")
+                .unwrap()
+        );
+        assert_eq!(groups[1]["interval"], 120);
+        let rules: Vec<&str> = parsed["rules"]
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .map(|rule| rule.as_str().unwrap())
+            .collect();
+        assert_eq!(rules, vec!["GEOIP,CN,DIRECT", "MATCH,节点选择"]);
+    }
+
+    /// 所有组都不命中 → 渲染层回落硬编码分组，不是输出空 proxy-groups。
+    #[test]
+    fn all_groups_empty_falls_back_to_hardcoded_groups() {
+        let nodes = template_nodes();
+        let groups = vec![SubscriptionGroup {
+            name: "韩国".into(),
+            kind: GroupKind::Select,
+            filters: vec![GroupFilter {
+                tags: vec!["韩国".into()],
+                regions: vec![],
+                protocols: vec![],
+            }],
+            include_auto: false,
+            interval: None,
+        }];
+        let plan = plan_groups(&groups, &nodes);
+        assert!(plan.is_empty());
+        assert!(!plan.warnings.is_empty());
+        let rules = vec!["MATCH,PROXY".to_string()];
+        let ctx = SubContext {
+            nodes: &nodes,
+            user_label: "alice",
+            traffic: None,
+            rules: &rules,
+            groups: Some(&plan),
+        };
+        let legacy = ClashExporter.render(&sub_context(&nodes, &rules)).unwrap();
+        assert_eq!(ClashExporter.render(&ctx).unwrap(), legacy);
+        assert!(legacy.contains("name: \"PROXY\""), "{legacy}");
+    }
+
+    /// 只有 url-test 组时，兜底规则指向第一个组，而不是引用不存在的 PROXY。
+    #[test]
+    fn pure_url_test_template_points_rules_at_the_first_group() {
+        let nodes = template_nodes();
+        let groups = vec![SubscriptionGroup {
+            name: "自动选择".into(),
+            kind: GroupKind::UrlTest,
+            filters: vec![GroupFilter::default()],
+            include_auto: false,
+            interval: None,
+        }];
+        let plan = plan_groups(&groups, &nodes);
+        let rules = vec!["MATCH,PROXY".to_string()];
+        let ctx = SubContext {
+            nodes: &nodes,
+            user_label: "alice",
+            traffic: None,
+            rules: &rules,
+            groups: Some(&plan),
+        };
+        let yaml = ClashExporter.render(&ctx).unwrap();
+        assert!(yaml.contains("MATCH,自动选择"), "{yaml}");
     }
 }

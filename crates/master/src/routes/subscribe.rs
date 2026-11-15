@@ -15,6 +15,7 @@ use sqlx::SqlitePool;
 
 use pierwave_domain::models::User;
 use pierwave_domain::subscribe::{self, SubContext, SubNode, TrafficInfo};
+use pierwave_domain::subscription_template;
 use pierwave_domain::{credentials, repo};
 
 use crate::error::{AppError, AppResult};
@@ -55,21 +56,24 @@ pub async fn get(
     let effective_rules = rules_for(&state.db.pool, &user, query.rule.as_deref()).await?;
 
     let secret = credentials::master_secret(&state.db.pool).await?;
-    let mut nodes = Vec::new();
-    // 没有可用套餐、或套餐范围里一个节点都没有的用户仍然 200，但 proxies 为空
-    // （与「未绑定套餐」的 FAQ 语义一致）。可见节点集合直接复用下发配置的
-    // `authorization::eligible_pairs`，套餐节点范围不会在订阅端再写一遍。
-    let allowed = repo::authorization::eligible_node_ids_for_user(&state.db.pool, &user.id).await?;
-    for row in repo::nodes::list_enabled_with_server(&state.db.pool).await? {
-        if !allowed.contains(&row.node.id) {
-            continue;
-        }
-        // 缺字段/脏片段的节点在这里被跳过并记 warn，订阅本身照常渲染。
-        if let Some(node) = SubNode::from_node(&row.node, &row.server_address, &user.id, &secret) {
-            nodes.push(node);
+    let nodes = subscription_nodes(&state.db.pool, &user.id, &secret).await?;
+
+    // 订阅模板：用户级 > 最近绑定了模板的生效套餐 > 无模板（硬编码分组）。
+    // 模板不存在/组全空时 `plan` 为空，渲染层自动回落，输出与升级前一致。
+    let template = repo::subscription_templates::resolve_for_user(
+        &state.db.pool,
+        &user.id,
+        user.subscription_template_id.as_deref(),
+    )
+    .await?;
+    let plan = template
+        .as_ref()
+        .map(|template| subscription_template::plan_groups(&template.groups, &nodes));
+    if let Some(plan) = &plan {
+        for warning in &plan.warnings {
+            tracing::warn!(user = %user.id, warning = %warning, "订阅模板告警");
         }
     }
-    dedupe_names(&mut nodes);
 
     let traffic = traffic_for(&state.db.pool, &user).await?;
     let ctx = SubContext {
@@ -77,6 +81,7 @@ pub async fn get(
         user_label: &user.username,
         traffic: Some(traffic),
         rules: &effective_rules.rules,
+        groups: plan.as_ref(),
     };
 
     let user_agent = headers
@@ -117,6 +122,33 @@ pub async fn get(
     Ok(response)
 }
 
+/// 订阅里该用户可见的节点（含跨服务器重名去重）。
+///
+/// 抽出来给订阅端点和模板预览共用：预览必须与真实订阅看到同一批节点，
+/// 否则管理员在预览里调好的分组到用户手上会缺节点。
+pub(crate) async fn subscription_nodes(
+    pool: &SqlitePool,
+    user_id: &str,
+    secret: &str,
+) -> AppResult<Vec<SubNode>> {
+    let mut nodes = Vec::new();
+    // 没有可用套餐、或套餐范围里一个节点都没有的用户仍然 200，但 proxies 为空
+    // （与「未绑定套餐」的 FAQ 语义一致）。可见节点集合直接复用下发配置的
+    // `authorization::eligible_pairs`，套餐节点范围不会在订阅端再写一遍。
+    let allowed = repo::authorization::eligible_node_ids_for_user(pool, user_id).await?;
+    for row in repo::nodes::list_enabled_with_server(pool).await? {
+        if !allowed.contains(&row.node.id) {
+            continue;
+        }
+        // 缺字段/脏片段的节点在这里被跳过并记 warn，订阅本身照常渲染。
+        if let Some(node) = SubNode::from_node(&row.node, &row.server_address, user_id, secret) {
+            nodes.push(node);
+        }
+    }
+    dedupe_names(&mut nodes);
+    Ok(nodes)
+}
+
 /// 订阅规则的五级解析：
 ///
 /// 1. `?rule=<id>`（最高优先级，临时覆盖）
@@ -127,7 +159,7 @@ pub async fn get(
 ///
 /// 指定了不存在的模板直接 404：静默回落到默认会让用户以为自定义规则生效了。
 /// 2–4 级的绑定指向不存在的模板时视为未绑定继续回落，**不报错**。
-async fn rules_for(
+pub(crate) async fn rules_for(
     pool: &SqlitePool,
     user: &User,
     rule: Option<&str>,
@@ -219,6 +251,7 @@ mod tests {
                 role: "user".into(),
                 quota_bytes: Some(10_000),
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -234,6 +267,7 @@ mod tests {
                 direction: "both".into(),
                 node_ratio: 1.0,
                 rule_template_id: None,
+                subscription_template_id: None,
 
                 speed_limit_kbps: None,
                 node_ids: None,
@@ -286,6 +320,8 @@ mod tests {
                 enabled: true,
                 cert_id: None,
                 bandwidth_kbps: None,
+                tags: Vec::new(),
+                region: None,
             },
         )
         .await
@@ -315,6 +351,8 @@ mod tests {
                 enabled: true,
                 cert_id: None,
                 bandwidth_kbps: None,
+                tags: Vec::new(),
+                region: None,
             },
         )
         .await
@@ -336,6 +374,8 @@ mod tests {
                 enabled: false,
                 cert_id: None,
                 bandwidth_kbps: None,
+                tags: Vec::new(),
+                region: None,
             },
         )
         .await
@@ -419,6 +459,7 @@ mod tests {
                 role: "user".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -448,6 +489,7 @@ mod tests {
                 role: "user".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -485,6 +527,7 @@ mod tests {
                 role: "user".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -779,6 +822,8 @@ mod tests {
                 enabled: true,
                 cert_id: None,
                 bandwidth_kbps: None,
+                tags: Vec::new(),
+                region: None,
             },
         )
         .await
@@ -929,6 +974,8 @@ mod tests {
                 enabled: true,
                 cert_id: None,
                 bandwidth_kbps: None,
+                tags: Vec::new(),
+                region: None,
             },
         )
         .await
@@ -1234,6 +1281,7 @@ mod tests {
                 direction: "both".into(),
                 node_ratio: 1.0,
                 rule_template_id: None,
+                subscription_template_id: None,
                 speed_limit_kbps: None,
                 node_ids: None,
             },
@@ -1283,6 +1331,7 @@ mod tests {
                 direction: "both".into(),
                 node_ratio: 1.0,
                 rule_template_id: None,
+                subscription_template_id: None,
                 speed_limit_kbps: None,
                 node_ids: None,
             },
@@ -1474,5 +1523,213 @@ mod tests {
             body.contains("rules:\n  - \"GEOIP,CN,DIRECT\"\n  - \"MATCH,PROXY\"\n"),
             "没有默认模板时应回落到内置规则：{body}"
         );
+    }
+
+    async fn create_subscription_template(
+        state: &AppState,
+        name: &str,
+        group_name: &str,
+    ) -> String {
+        use pierwave_domain::repo::subscription_templates::NewSubscriptionTemplate;
+        use pierwave_domain::subscription_template::SubscriptionGroup;
+        let groups: Vec<SubscriptionGroup> = serde_json::from_value(json!([
+            {"name": group_name, "type": "select", "filters": [{}]}
+        ]))
+        .unwrap();
+        repo::subscription_templates::create(
+            &state.db.pool,
+            NewSubscriptionTemplate {
+                name: name.into(),
+                groups,
+            },
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    async fn bind_user_subscription_template(
+        state: &AppState,
+        user_id: &str,
+        template: Option<&str>,
+    ) {
+        repo::users::update(
+            &state.db.pool,
+            user_id,
+            repo::users::UpdateUser {
+                subscription_template_id: match template {
+                    Some(id) => Patch::Value(id.to_string()),
+                    None => Patch::Null,
+                },
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn bind_package_subscription_template(
+        state: &AppState,
+        package_id: &str,
+        template: Option<&str>,
+    ) {
+        packages::update(
+            &state.db.pool,
+            package_id,
+            packages::UpdatePackage {
+                subscription_template_id: match template {
+                    Some(id) => Patch::Value(id.to_string()),
+                    None => Patch::Null,
+                },
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn new_package_with_template(
+        state: &AppState,
+        name: &str,
+        template: Option<&str>,
+    ) -> pierwave_domain::models::Package {
+        packages::create(
+            &state.db.pool,
+            packages::NewPackage {
+                name: name.into(),
+                quota_bytes: Some(10_000),
+                period_days: None,
+                direction: "both".into(),
+                node_ratio: 1.0,
+                rule_template_id: None,
+                subscription_template_id: template.map(str::to_string),
+                speed_limit_kbps: None,
+                node_ids: None,
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    /// 绑定优先级：用户 > 套餐 > 无模板；无模板时必须与升级前逐字节一致。
+    #[tokio::test]
+    async fn subscription_template_binding_priority_and_fallback() {
+        let (app, state, short_code) = setup().await;
+        let uri = format!("/api/v1/sub/{short_code}?target=clash");
+        let alice = user_by_name(&state, "alice").await;
+        let package = only_package(&state).await;
+
+        let (_, _, baseline) = get(&app, &uri, None).await;
+        assert!(baseline.contains("name: \"PROXY\""), "{baseline}");
+
+        let package_template = create_subscription_template(&state, "套餐模板", "套餐组").await;
+        bind_package_subscription_template(&state, &package.id, Some(&package_template)).await;
+        let (_, _, body) = get(&app, &uri, None).await;
+        assert!(body.contains("套餐组"), "套餐绑定应生效：{body}");
+        assert!(body.contains("MATCH,套餐组"), "{body}");
+
+        let user_template = create_subscription_template(&state, "用户模板", "用户组").await;
+        bind_user_subscription_template(&state, &alice.id, Some(&user_template)).await;
+        let (_, _, body) = get(&app, &uri, None).await;
+        assert!(body.contains("用户组"), "用户绑定应压过套餐：{body}");
+        assert!(!body.contains("套餐组"), "套餐绑定不应同时生效：{body}");
+        assert!(body.contains("MATCH,用户组"), "{body}");
+
+        // 解绑用户 → 回到套餐绑定。
+        bind_user_subscription_template(&state, &alice.id, None).await;
+        let (_, _, body) = get(&app, &uri, None).await;
+        assert!(body.contains("套餐组"), "解绑用户后应回落到套餐：{body}");
+        assert!(!body.contains("用户组"), "{body}");
+
+        // 解绑套餐 → 无模板，输出必须与基线逐字节一致。
+        bind_package_subscription_template(&state, &package.id, None).await;
+        let (_, _, body) = get(&app, &uri, None).await;
+        assert_eq!(body, baseline, "无模板时必须逐字节等于升级前的输出");
+        assert!(body.contains("name: \"PROXY\""), "{body}");
+    }
+
+    /// 多个生效套餐时，取「绑定列非空的最新创建」那一个，而不是最新实例的列。
+    #[tokio::test]
+    async fn latest_bound_package_template_wins() {
+        let (app, state, short_code) = setup().await;
+        let uri = format!("/api/v1/sub/{short_code}?target=clash");
+        let alice = user_by_name(&state, "alice").await;
+
+        let old_package = only_package(&state).await;
+        let old_template = create_subscription_template(&state, "旧模板", "旧组").await;
+        bind_package_subscription_template(&state, &old_package.id, Some(&old_template)).await;
+
+        // 更新的套餐也绑了模板。
+        let new_template = create_subscription_template(&state, "新模板", "新组").await;
+        let new_package = new_package_with_template(&state, "新套餐", Some(&new_template)).await;
+        user_packages::create(
+            &state.db.pool,
+            &alice.id,
+            user_packages::NewUserPackage {
+                package_id: new_package.id.clone(),
+                quota_override: None,
+                expires_at: None,
+                reset_day: None,
+            },
+            &new_package,
+        )
+        .await
+        .unwrap();
+
+        let (_, _, body) = get(&app, &uri, None).await;
+        assert!(body.contains("新组"), "应取最新绑定模板的套餐：{body}");
+        assert!(!body.contains("旧组"), "{body}");
+
+        // 最新创建的套餐没绑模板：不能盖掉旧套餐明确配置过的模板
+        // （这正是与规则模板「先取当前套餐再看绑定」的差异所在）。
+        let unbound_latest = new_package_with_template(&state, "最新套餐", None).await;
+        user_packages::create(
+            &state.db.pool,
+            &alice.id,
+            user_packages::NewUserPackage {
+                package_id: unbound_latest.id.clone(),
+                quota_override: None,
+                expires_at: None,
+                reset_day: None,
+            },
+            &unbound_latest,
+        )
+        .await
+        .unwrap();
+        let (_, _, body) = get(&app, &uri, None).await;
+        assert!(
+            body.contains("新组"),
+            "未绑模板的新套餐不应覆盖旧绑定：{body}"
+        );
+    }
+
+    /// 模板的组全部不命中：回落硬编码分组，而不是输出空 proxy-groups。
+    #[tokio::test]
+    async fn all_template_groups_empty_falls_back_to_hardcoded() {
+        let (app, state, short_code) = setup().await;
+        let uri = format!("/api/v1/sub/{short_code}?target=clash");
+        let alice = user_by_name(&state, "alice").await;
+
+        let (_, _, baseline) = get(&app, &uri, None).await;
+        use pierwave_domain::repo::subscription_templates::NewSubscriptionTemplate;
+        use pierwave_domain::subscription_template::SubscriptionGroup;
+        let groups: Vec<SubscriptionGroup> = serde_json::from_value(json!([
+            {"name": "韩国", "type": "select", "filters": [{"regions": ["KR"]}]}
+        ]))
+        .unwrap();
+        let template = repo::subscription_templates::create(
+            &state.db.pool,
+            NewSubscriptionTemplate {
+                name: "不命中".into(),
+                groups,
+            },
+        )
+        .await
+        .unwrap()
+        .id;
+        bind_user_subscription_template(&state, &alice.id, Some(&template)).await;
+
+        let (_, _, body) = get(&app, &uri, None).await;
+        assert_eq!(body, baseline, "组全空时应逐字节等于硬编码输出");
     }
 }

@@ -1,4 +1,4 @@
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::Json;
 use serde::Deserialize;
@@ -27,6 +27,55 @@ const TRANSPORTS: &[&str] = &[
     "xhttp",
 ];
 const SECURITIES: &[&str] = &["none", "tls", "reality"];
+
+/// 节点标签上限（与订阅模板的筛选条件一致）。
+const MAX_TAGS: usize = 8;
+const MAX_TAG_CHARS: usize = 24;
+const MAX_REGION_CHARS: usize = 8;
+
+/// trim、丢空、去重（保持输入顺序），并校验单条与总量上限。
+fn normalize_tags(raw: Vec<String>) -> AppResult<Vec<String>> {
+    if raw.len() > MAX_TAGS {
+        return Err(AppError::coded(
+            "node.tags_too_many",
+            Some(json!({ "max": MAX_TAGS })),
+            format!("标签最多 {MAX_TAGS} 个"),
+        ));
+    }
+    let mut tags: Vec<String> = Vec::with_capacity(raw.len());
+    for tag in raw {
+        let tag = tag.trim();
+        if tag.is_empty() {
+            continue;
+        }
+        if tag.chars().count() > MAX_TAG_CHARS {
+            return Err(AppError::coded(
+                "node.tag_too_long",
+                Some(json!({ "max": MAX_TAG_CHARS, "tag": tag })),
+                format!("标签「{tag}」超过 {MAX_TAG_CHARS} 个字符"),
+            ));
+        }
+        if !tags.iter().any(|item| item == tag) {
+            tags.push(tag.to_string());
+        }
+    }
+    Ok(tags)
+}
+
+/// 地区单值：trim 后空串视为未设置；超长直接拒绝。
+fn normalize_region(raw: Option<&str>) -> AppResult<Option<String>> {
+    let Some(region) = raw.map(str::trim).filter(|region| !region.is_empty()) else {
+        return Ok(None);
+    };
+    if region.chars().count() > MAX_REGION_CHARS {
+        return Err(AppError::coded(
+            "node.region_too_long",
+            Some(json!({ "max": MAX_REGION_CHARS, "region": region })),
+            format!("地区「{region}」超过 {MAX_REGION_CHARS} 个字符"),
+        ));
+    }
+    Ok(Some(region.to_string()))
+}
 
 async fn load_server(state: &AppState, id: &str) -> AppResult<Server> {
     repo::servers::find_by_id(&state.db.pool, id)
@@ -214,14 +263,48 @@ fn validate_shadowsocks(protocol: &str, config: &Value) -> AppResult<()> {
     }
 }
 
+/// 列表筛选：`?tag=` 精确匹配标签，`?region=` 精确匹配地区（大小写不敏感）。
+#[derive(Deserialize, Default)]
+pub struct NodeListQuery {
+    #[serde(default)]
+    pub tag: Option<String>,
+    #[serde(default)]
+    pub region: Option<String>,
+}
+
+fn matches_filter(node: &pierwave_domain::models::Node, query: &NodeListQuery) -> bool {
+    let tag_ok = query
+        .tag
+        .as_deref()
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+        .is_none_or(|tag| node.tag_list().iter().any(|item| item == tag));
+    let region_ok = query
+        .region
+        .as_deref()
+        .map(str::trim)
+        .filter(|region| !region.is_empty())
+        .is_none_or(|region| {
+            node.region
+                .as_deref()
+                .is_some_and(|item| item.eq_ignore_ascii_case(region))
+        });
+    tag_ok && region_ok
+}
+
 pub async fn list(
     State(state): State<AppState>,
     user: CurrentUser,
     Path(server_id): Path<String>,
+    Query(query): Query<NodeListQuery>,
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
     load_server(&state, &server_id).await?;
-    let items = repo::nodes::list_by_server(&state.db.pool, &server_id).await?;
+    let items: Vec<_> = repo::nodes::list_by_server(&state.db.pool, &server_id)
+        .await?
+        .into_iter()
+        .filter(|node| matches_filter(node, &query))
+        .collect();
     Ok(Json(json!({ "items": items })))
 }
 
@@ -250,6 +333,12 @@ pub struct CreateNode {
     /// 节点带宽上限（kbps）；缺省 / 0 = 不限。
     #[serde(default)]
     pub bandwidth_kbps: Option<i64>,
+    /// 标签（字符串数组）；trim、去重，单个 ≤24 字符、最多 8 个。
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// 地区单值（如 `HK`）；空串 / 缺省 = 未设置。
+    #[serde(default)]
+    pub region: Option<String>,
 }
 
 fn default_transport() -> String {
@@ -298,6 +387,8 @@ pub async fn create(
     validate_public_port(req.public_port)?;
     ensure_public_port_available(&state, &server, req.public_port, None).await?;
     validate_bandwidth_kbps(req.bandwidth_kbps)?;
+    let tags = normalize_tags(req.tags)?;
+    let region = normalize_region(req.region.as_deref())?;
     ensure_object(&req.config)?;
     validate_shadowsocks(&protocol, &req.config)?;
     let cert_id = normalize_cert_id(req.cert_id.as_deref())?;
@@ -342,6 +433,8 @@ pub async fn create(
             enabled: req.enabled,
             cert_id,
             bandwidth_kbps: req.bandwidth_kbps,
+            tags,
+            region,
         },
     )
     .await?;
@@ -364,6 +457,8 @@ pub async fn create(
             "enabled": node.enabled != 0,
             "cert_id": &node.cert_id,
             "bandwidth_kbps": node.bandwidth_kbps,
+            "tags": &node.tags,
+            "region": &node.region,
         }),
     )
     .await;
@@ -387,6 +482,12 @@ pub struct PatchNode {
     /// 三态：不传 = 不改，`null` = 解绑，字符串 = 绑定证书。
     #[serde(default)]
     pub cert_id: Patch<String>,
+    /// 标签：不传 = 不改，`[]` = 清空。
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+    /// 三态：不传 = 不改，`null` = 清空，字符串 = 设置地区。
+    #[serde(default)]
+    pub region: Patch<String>,
 }
 
 pub async fn update(
@@ -403,11 +504,13 @@ pub async fn update(
         && req.bandwidth_kbps.is_none()
         && !req.public_port.is_set()
         && !req.cert_id.is_set()
+        && req.tags.is_none()
+        && !req.region.is_set()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 enabled / config / name / port / public_port / bandwidth_kbps / cert_id 之一",
+            "至少需要提供 enabled / config / name / port / public_port / bandwidth_kbps / cert_id / tags / region 之一",
         ));
     }
     if let Some(config) = &req.config {
@@ -418,6 +521,18 @@ pub async fn update(
     }
     validate_public_port(req.public_port.value())?;
     validate_bandwidth_kbps(req.bandwidth_kbps)?;
+    let tags = req.tags.clone().map(normalize_tags).transpose()?;
+    let region = if req.region.is_set() {
+        match &req.region {
+            Patch::Value(value) => match normalize_region(Some(value))? {
+                Some(region) => Patch::Value(region),
+                None => Patch::Null,
+            },
+            Patch::Null | Patch::Missing => Patch::Null,
+        }
+    } else {
+        Patch::Missing
+    };
     let name = match req.name.as_deref().map(str::trim) {
         Some("") => {
             return Err(AppError::coded(
@@ -526,6 +641,8 @@ pub async fn update(
         public_port: req.public_port,
         cert_id,
         bandwidth_kbps: req.bandwidth_kbps,
+        tags,
+        region,
         ..Default::default()
     };
     let node = repo::nodes::update(&state.db.pool, &id, update)
@@ -552,6 +669,8 @@ pub async fn update(
             json!(existing.bandwidth_kbps),
             json!(node.bandwidth_kbps),
         ),
+        ("tags", json!(existing.tags), json!(node.tags)),
+        ("region", json!(existing.region), json!(node.region)),
         ("config", json!(false), json!(config_changed)),
     ]);
     crate::audit::record(
@@ -631,9 +750,17 @@ pub async fn apply(
 }
 
 /// 全局节点列表：跨服务器，供套餐范围选择器用。
-pub async fn list_all(State(state): State<AppState>, user: CurrentUser) -> AppResult<Json<Value>> {
+pub async fn list_all(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Query(query): Query<NodeListQuery>,
+) -> AppResult<Json<Value>> {
     user.require_admin()?;
-    let items = repo::nodes::list_all(&state.db.pool).await?;
+    let items: Vec<_> = repo::nodes::list_all(&state.db.pool)
+        .await?
+        .into_iter()
+        .filter(|item| matches_filter(&item.node, &query))
+        .collect();
     Ok(Json(json!({ "items": items })))
 }
 
@@ -660,6 +787,7 @@ mod tests {
                 role: "admin".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -901,6 +1029,7 @@ mod tests {
                 role: "user".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -914,6 +1043,7 @@ mod tests {
                 direction: "both".into(),
                 node_ratio: 1.0,
                 rule_template_id: None,
+                subscription_template_id: None,
 
                 speed_limit_kbps: None,
                 node_ids: None,
@@ -943,6 +1073,7 @@ mod tests {
                 role: "user".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -1085,6 +1216,7 @@ mod tests {
                 role: "user".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -1099,6 +1231,7 @@ mod tests {
                 node_ratio: 1.0,
                 speed_limit_kbps: Some(50_000),
                 rule_template_id: None,
+                subscription_template_id: None,
                 node_ids: None,
             },
         )
@@ -1439,6 +1572,7 @@ mod tests {
                 role: "user".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -1562,6 +1696,8 @@ mod tests {
                 enabled: true,
                 cert_id: None,
                 bandwidth_kbps: None,
+                tags: Vec::new(),
+                region: None,
             },
         )
         .await

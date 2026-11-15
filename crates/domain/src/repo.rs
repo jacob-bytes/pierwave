@@ -191,6 +191,8 @@ pub mod users {
         pub quota_bytes: Option<i64>,
         /// 用户级规则模板绑定；`None` = 跟随套餐 / 全局默认。
         pub rule_template_id: Option<String>,
+        /// 用户级订阅模板绑定；`None` = 跟随套餐 / 硬编码分组。
+        pub subscription_template_id: Option<String>,
     }
 
     #[derive(Debug, Default)]
@@ -201,6 +203,8 @@ pub mod users {
         pub quota_bytes: Patch<i64>,
         /// 缺失 = 不改；`Patch::Null` = 解绑（跟随套餐 / 默认）；`Patch::Value` = 绑定。
         pub rule_template_id: Patch<String>,
+        /// 缺失 = 不改；`Patch::Null` = 解绑（跟随套餐 / 无模板）；`Patch::Value` = 绑定。
+        pub subscription_template_id: Patch<String>,
     }
 
     pub async fn create(pool: &SqlitePool, input: NewUser) -> anyhow::Result<User> {
@@ -211,8 +215,8 @@ pub mod users {
         sqlx::query(
             "INSERT INTO users
                 (id, username, password_hash, role, status, short_code, short_code_updated_at,
-                 quota_bytes, rule_template_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)",
+                 quota_bytes, rule_template_id, subscription_template_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&input.username)
@@ -222,6 +226,7 @@ pub mod users {
         .bind(ts)
         .bind(input.quota_bytes)
         .bind(input.rule_template_id)
+        .bind(input.subscription_template_id)
         .bind(ts)
         .bind(ts)
         .execute(pool)
@@ -352,12 +357,15 @@ pub mod users {
         let quota = input.quota_bytes.value();
         let rule_set = input.rule_template_id.is_set();
         let rule = input.rule_template_id.value();
+        let sub_set = input.subscription_template_id.is_set();
+        let sub = input.subscription_template_id.value();
         let res = sqlx::query(
             "UPDATE users SET
                 role = COALESCE(?, role),
                 status = COALESCE(?, status),
                 quota_bytes = CASE WHEN ? THEN ? ELSE quota_bytes END,
                 rule_template_id = CASE WHEN ? THEN ? ELSE rule_template_id END,
+                subscription_template_id = CASE WHEN ? THEN ? ELSE subscription_template_id END,
                 updated_at = ?
              WHERE id = ?",
         )
@@ -367,6 +375,8 @@ pub mod users {
         .bind(quota)
         .bind(rule_set)
         .bind(rule)
+        .bind(sub_set)
+        .bind(sub)
         .bind(now())
         .bind(id)
         .execute(pool)
@@ -839,6 +849,201 @@ pub mod rule_templates {
                 })
             }
         }
+    }
+}
+
+pub mod subscription_templates {
+    use std::collections::{HashMap, HashSet};
+
+    use sqlx::QueryBuilder;
+
+    use super::*;
+    use crate::models::{SubscriptionTemplate, SubscriptionTemplateRow};
+
+    pub struct NewSubscriptionTemplate {
+        pub name: String,
+        /// 已过 [`crate::subscription_template::normalize_groups`] 的规范形态。
+        pub groups: Vec<crate::subscription_template::SubscriptionGroup>,
+    }
+
+    #[derive(Debug, Default)]
+    pub struct UpdateSubscriptionTemplate {
+        pub name: Option<String>,
+        pub groups: Option<Vec<crate::subscription_template::SubscriptionGroup>>,
+    }
+
+    fn encode_groups(
+        groups: &[crate::subscription_template::SubscriptionGroup],
+    ) -> anyhow::Result<String> {
+        Ok(serde_json::to_string(groups)?)
+    }
+
+    fn from_rows(rows: Vec<SubscriptionTemplateRow>) -> Vec<SubscriptionTemplate> {
+        rows.into_iter().map(SubscriptionTemplate::from).collect()
+    }
+
+    /// 按名称排序，顺序稳定；前端不需要再排。
+    pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<SubscriptionTemplate>> {
+        let rows = sqlx::query_as::<_, SubscriptionTemplateRow>(
+            "SELECT id, name, groups_json, created_at, updated_at
+             FROM subscription_templates
+             ORDER BY created_at ASC, rowid ASC",
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(from_rows(rows))
+    }
+
+    pub async fn find_by_id(
+        pool: &SqlitePool,
+        id: &str,
+    ) -> anyhow::Result<Option<SubscriptionTemplate>> {
+        let row = sqlx::query_as::<_, SubscriptionTemplateRow>(
+            "SELECT id, name, groups_json, created_at, updated_at
+             FROM subscription_templates WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+        Ok(row.map(SubscriptionTemplate::from))
+    }
+
+    /// 名称唯一性预检：返回已有行，路由据此给出 400 而不是等数据库报错。
+    pub async fn find_by_name(
+        pool: &SqlitePool,
+        name: &str,
+    ) -> anyhow::Result<Option<SubscriptionTemplate>> {
+        let row = sqlx::query_as::<_, SubscriptionTemplateRow>(
+            "SELECT id, name, groups_json, created_at, updated_at
+             FROM subscription_templates WHERE name = ?",
+        )
+        .bind(name)
+        .fetch_optional(pool)
+        .await?;
+        Ok(row.map(SubscriptionTemplate::from))
+    }
+
+    async fn find_by_ids(
+        pool: &SqlitePool,
+        ids: &[String],
+    ) -> anyhow::Result<HashMap<String, SubscriptionTemplate>> {
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let mut builder = QueryBuilder::new(
+            "SELECT id, name, groups_json, created_at, updated_at
+             FROM subscription_templates WHERE id IN (",
+        );
+        let mut separated = builder.separated(", ");
+        for id in ids {
+            separated.push_bind(id.clone());
+        }
+        separated.push_unseparated(")");
+        let rows = builder
+            .build_query_as::<SubscriptionTemplateRow>()
+            .fetch_all(pool)
+            .await?;
+        Ok(from_rows(rows)
+            .into_iter()
+            .map(|template| (template.id.clone(), template))
+            .collect())
+    }
+
+    /// 解析一个用户实际生效的订阅模板。
+    ///
+    /// 优先级：用户绑定 → **最新创建的、绑定了模板的生效套餐** → `None`（硬编码分组）。
+    ///
+    /// 与规则模板不同，这里没有全局默认模板：没有模板就必须输出与升级前逐字节
+    /// 一致的硬编码分组，所以「无模板」是正常状态而不是回落目标。
+    ///
+    /// 绑定指向不存在的模板时视为未绑定继续回落——外键 `SET NULL` 已经会清列，
+    /// 这里再兜一层，兼容外键关闭期间留下的脏 id。
+    pub async fn resolve_for_user(
+        pool: &SqlitePool,
+        user_id: &str,
+        user_binding: Option<&str>,
+    ) -> anyhow::Result<Option<SubscriptionTemplate>> {
+        let package_binding =
+            super::user_packages::current_subscription_template_ids(pool, &[user_id.to_string()])
+                .await?
+                .remove(user_id);
+
+        let mut candidates: HashSet<String> = HashSet::new();
+        if let Some(binding) = user_binding {
+            candidates.insert(binding.to_string());
+        }
+        if let Some(binding) = &package_binding {
+            candidates.insert(binding.clone());
+        }
+        let templates = find_by_ids(pool, &candidates.into_iter().collect::<Vec<_>>()).await?;
+
+        // 用户绑定优先；用户绑定指向不存在的模板时继续看套餐（视为未绑定）。
+        if let Some(template) = user_binding.and_then(|id| templates.get(id)) {
+            return Ok(Some(template.clone()));
+        }
+        if let Some(template) = package_binding.and_then(|id| templates.get(&id).cloned()) {
+            return Ok(Some(template));
+        }
+        Ok(None)
+    }
+
+    pub async fn create(
+        pool: &SqlitePool,
+        input: NewSubscriptionTemplate,
+    ) -> anyhow::Result<SubscriptionTemplate> {
+        let id = Uuid::new_v4().to_string();
+        let groups = encode_groups(&input.groups)?;
+        let ts = now();
+        sqlx::query(
+            "INSERT INTO subscription_templates
+                (id, name, groups_json, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(&input.name)
+        .bind(&groups)
+        .bind(ts)
+        .bind(ts)
+        .execute(pool)
+        .await?;
+        find_by_id(pool, &id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("订阅模板创建后读取失败"))
+    }
+
+    pub async fn update(
+        pool: &SqlitePool,
+        id: &str,
+        input: UpdateSubscriptionTemplate,
+    ) -> anyhow::Result<Option<SubscriptionTemplate>> {
+        let groups = input.groups.as_deref().map(encode_groups).transpose()?;
+        let res = sqlx::query(
+            "UPDATE subscription_templates SET
+                name = COALESCE(?, name),
+                groups_json = COALESCE(?, groups_json),
+                updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(input.name)
+        .bind(groups)
+        .bind(now())
+        .bind(id)
+        .execute(pool)
+        .await?;
+        if res.rows_affected() == 0 {
+            return Ok(None);
+        }
+        find_by_id(pool, id).await
+    }
+
+    /// 删除模板；绑定列由外键 `ON DELETE SET NULL` 自动清空，订阅回落硬编码分组。
+    pub async fn delete(pool: &SqlitePool, id: &str) -> anyhow::Result<bool> {
+        let removed = sqlx::query("DELETE FROM subscription_templates WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?
+            .rows_affected();
+        Ok(removed > 0)
     }
 }
 
@@ -1428,6 +1633,8 @@ pub mod servers {
                     enabled,
                     cert_id: None,
                     bandwidth_kbps: None,
+                    tags: Vec::new(),
+                    region: None,
                 },
             )
             .await
@@ -2242,6 +2449,10 @@ pub mod nodes {
         pub cert_id: Option<String>,
         /// 带宽上限（kbps）；`None` / 0 = 不限。
         pub bandwidth_kbps: Option<i64>,
+        /// 标签（已 trim/去重/校验），落库为 JSON 数组文本。
+        pub tags: Vec<String>,
+        /// 地区单值；`None` = 未设置。
+        pub region: Option<String>,
     }
 
     #[derive(Default)]
@@ -2260,6 +2471,10 @@ pub mod nodes {
         pub cert_id: Patch<String>,
         /// `None` = 不改；`Some(0)` = 取消限速。
         pub bandwidth_kbps: Option<i64>,
+        /// `None` = 不改；`Some([])` = 清空标签。
+        pub tags: Option<Vec<String>>,
+        /// 三态：缺失 = 不改，`Null` = 清空地区，`Value` = 设置地区。
+        pub region: Patch<String>,
     }
 
     pub async fn create(
@@ -2278,8 +2493,8 @@ pub mod nodes {
         sqlx::query(
             "INSERT INTO nodes
                 (id, server_id, tag, name, protocol, transport, security, port, public_port,
-                 config_json, enabled, cert_id, bandwidth_kbps, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 config_json, enabled, cert_id, bandwidth_kbps, tags, region, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(server_id)
@@ -2294,6 +2509,8 @@ pub mod nodes {
         .bind(i64::from(input.enabled))
         .bind(&input.cert_id)
         .bind(input.bandwidth_kbps)
+        .bind(serde_json::to_string(&input.tags)?)
+        .bind(input.region)
         .bind(now())
         .execute(pool)
         .await?;
@@ -2443,7 +2660,9 @@ pub mod nodes {
                 config_json = COALESCE(?, config_json),
                 enabled = COALESCE(?, enabled),
                 cert_id = CASE WHEN ? THEN ? ELSE cert_id END,
-                bandwidth_kbps = COALESCE(?, bandwidth_kbps)
+                bandwidth_kbps = COALESCE(?, bandwidth_kbps),
+                tags = COALESCE(?, tags),
+                region = CASE WHEN ? THEN ? ELSE region END
              WHERE id = ?",
         )
         .bind(input.tag)
@@ -2459,6 +2678,15 @@ pub mod nodes {
         .bind(i64::from(input.cert_id.is_set()))
         .bind(input.cert_id.value())
         .bind(input.bandwidth_kbps)
+        .bind(
+            input
+                .tags
+                .as_deref()
+                .map(serde_json::to_string)
+                .transpose()?,
+        )
+        .bind(i64::from(input.region.is_set()))
+        .bind(input.region.value())
         .bind(id)
         .execute(pool)
         .await?;
@@ -2539,6 +2767,8 @@ pub mod nodes {
                     enabled: true,
                     cert_id: None,
                     bandwidth_kbps: None,
+                    tags: Vec::new(),
+                    region: None,
                 },
             )
             .await
@@ -4061,6 +4291,7 @@ pub mod forward_traffic {
                     role: "user".into(),
                     quota_bytes: None,
                     rule_template_id: None,
+                    subscription_template_id: None,
                 },
             )
             .await
@@ -4092,6 +4323,7 @@ pub mod forward_traffic {
                     direction: direction.into(),
                     node_ratio,
                     rule_template_id: None,
+                    subscription_template_id: None,
                     speed_limit_kbps: None,
                     node_ids: None,
                 },
@@ -6511,6 +6743,8 @@ pub mod packages {
         pub speed_limit_kbps: Option<i64>,
         /// 套餐级规则模板绑定；`None` = 不绑定（跟随全局默认）。
         pub rule_template_id: Option<String>,
+        /// 套餐级订阅模板绑定；`None` = 不绑定（用户未绑定时回落硬编码分组）。
+        pub subscription_template_id: Option<String>,
         /// `None` = 未设范围（可见全部节点）；`Some([])` = 显式一个都不给。
         pub node_ids: Option<Vec<String>>,
     }
@@ -6528,6 +6762,8 @@ pub mod packages {
         pub speed_limit_kbps: Patch<i64>,
         /// 缺失 = 不改；`Patch::Null` = 解绑；`Patch::Value` = 绑定。
         pub rule_template_id: Patch<String>,
+        /// 缺失 = 不改；`Patch::Null` = 解绑；`Patch::Value` = 绑定。
+        pub subscription_template_id: Patch<String>,
         /// 节点范围三态：缺失 = 不动；`Null` = 恢复全部；`Value([])` = 一个都不给。
         pub node_ids: Patch<Vec<String>>,
     }
@@ -6539,8 +6775,8 @@ pub mod packages {
         sqlx::query(
             "INSERT INTO packages
                 (id, name, quota_bytes, period_days, direction, node_ratio, speed_limit_kbps,
-                 rule_template_id, created_at, node_scope_explicit)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 rule_template_id, subscription_template_id, created_at, node_scope_explicit)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&input.name)
@@ -6550,6 +6786,7 @@ pub mod packages {
         .bind(input.node_ratio)
         .bind(input.speed_limit_kbps)
         .bind(input.rule_template_id)
+        .bind(input.subscription_template_id)
         .bind(now())
         .bind(i64::from(input.node_ids.is_some()))
         .execute(&mut *tx)
@@ -6776,7 +7013,8 @@ pub mod packages {
     pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<Package>> {
         let mut items = sqlx::query_as::<_, Package>(
             "SELECT p.id, p.name, p.quota_bytes, p.period_days, p.direction, p.node_ratio,
-                    p.speed_limit_kbps, p.rule_template_id, p.forward_limit, p.chain_limit,
+                    p.speed_limit_kbps, p.rule_template_id, p.subscription_template_id,
+                    p.forward_limit, p.chain_limit,
                     p.created_at, COUNT(up.id) AS user_count
              FROM packages p
              LEFT JOIN user_packages up ON up.package_id = p.id
@@ -6837,6 +7075,8 @@ pub mod packages {
         let speed_limit = input.speed_limit_kbps.value();
         let rule_set = input.rule_template_id.is_set();
         let rule = input.rule_template_id.value();
+        let sub_set = input.subscription_template_id.is_set();
+        let sub = input.subscription_template_id.value();
         // Missing = 不动；Null = 恢复全部（explicit=0，清行）；Value = 显式范围（explicit=1）。
         let (scope_set, scope_explicit) = match &input.node_ids {
             Patch::Missing => (false, 0),
@@ -6853,6 +7093,7 @@ pub mod packages {
                 node_ratio = COALESCE(?, node_ratio),
                 speed_limit_kbps = CASE WHEN ? THEN ? ELSE speed_limit_kbps END,
                 rule_template_id = CASE WHEN ? THEN ? ELSE rule_template_id END,
+                subscription_template_id = CASE WHEN ? THEN ? ELSE subscription_template_id END,
                 node_scope_explicit = CASE WHEN ? THEN ? ELSE node_scope_explicit END
              WHERE id = ?",
         )
@@ -6867,6 +7108,8 @@ pub mod packages {
         .bind(speed_limit)
         .bind(rule_set)
         .bind(rule)
+        .bind(sub_set)
+        .bind(sub)
         .bind(scope_set)
         .bind(scope_explicit)
         .bind(id)
@@ -7041,6 +7284,47 @@ pub mod user_packages {
             separated.push_bind(user_id.clone());
         }
         separated.push_unseparated(")) WHERE rn = 1 AND rule_template_id IS NOT NULL");
+        let rows = builder
+            .build_query_as::<(String, String)>()
+            .fetch_all(pool)
+            .await?;
+        Ok(rows.into_iter().collect())
+    }
+
+    /// 每个用户「最近一个绑定了订阅模板的生效套餐」的绑定。
+    ///
+    /// 与规则模板不同：规则模板取「当前套餐」再看它有没有绑定；订阅模板直接在所有
+    /// 生效实例里找 `subscription_template_id` 非空的最新一条。理由是用户可能同时持有
+    /// 新旧两张卡，新卡没配模板、旧卡配了——模板是「分组长相」，沿用旧卡上明确配置过的
+    /// 那套比突然回落硬编码更符合预期。同一时刻只返回一条，避免结果依赖套餐顺序。
+    pub async fn current_subscription_template_ids(
+        pool: &SqlitePool,
+        user_ids: &[String],
+    ) -> anyhow::Result<HashMap<String, String>> {
+        if user_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let now = super::now();
+        let mut builder = QueryBuilder::new(
+            "SELECT user_id, subscription_template_id FROM (
+                SELECT up.user_id AS user_id,
+                       p.subscription_template_id AS subscription_template_id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY up.user_id
+                           ORDER BY up.created_at DESC, up.rowid DESC
+                       ) AS rn
+                FROM user_packages up
+                JOIN packages p ON p.id = up.package_id
+                WHERE up.status = 'active'
+                  AND (up.expires_at IS NULL OR up.expires_at > ",
+        );
+        builder.push_bind(now);
+        builder.push(") AND p.subscription_template_id IS NOT NULL AND up.user_id IN (");
+        let mut separated = builder.separated(", ");
+        for user_id in user_ids {
+            separated.push_bind(user_id.clone());
+        }
+        separated.push_unseparated(")) WHERE rn = 1");
         let rows = builder
             .build_query_as::<(String, String)>()
             .fetch_all(pool)
@@ -9090,6 +9374,8 @@ pub mod overview {
                     enabled: true,
                     cert_id: None,
                     bandwidth_kbps: None,
+                    tags: Vec::new(),
+                    region: None,
                 },
             )
             .await
@@ -9145,6 +9431,7 @@ pub mod overview {
                     role: "user".into(),
                     quota_bytes: None,
                     rule_template_id: None,
+                    subscription_template_id: None,
                 },
             )
             .await

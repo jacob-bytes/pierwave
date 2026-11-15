@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -40,6 +40,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -254,6 +255,8 @@ export default function NodesPage() {
   const [deleteTarget, setDeleteTarget] = useState<Node | null>(null);
   const [trafficTarget, setTrafficTarget] = useState<Node | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [tagFilter, setTagFilter] = useState("");
+  const [regionFilter, setRegionFilter] = useState("");
 
   const server = servers.data?.find((item) => item.id === serverId);
   const items = nodes.data ?? [];
@@ -262,6 +265,24 @@ export default function NodesPage() {
     nodes.error,
     t("nodes.loadError"),
   );
+  // 列表页的标签 / 地区筛选：纯前端过滤已加载的节点，不发额外请求。
+  const filtersActive =
+    tagFilter.trim() !== "" || regionFilter.trim() !== "";
+  const visibleItems = useMemo(() => {
+    const tag = tagFilter.trim();
+    const region = regionFilter.trim();
+    return items.filter((node) => {
+      if (tag !== "" && !(node.tags ?? []).includes(tag)) return false;
+      if (
+        region !== "" &&
+        !(node.region ?? "").toLowerCase().includes(region.toLowerCase())
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [items, tagFilter, regionFilter]);
+
   const trafficByNode = new Map<string, NodeTraffic>(
     (traffic.data ?? []).map((item) => [item.node_id, item]),
   );
@@ -388,6 +409,35 @@ export default function NodesPage() {
                 </Badge>
               ) : null}
             </CardTitle>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                value={tagFilter}
+                onChange={(event) => setTagFilter(event.target.value)}
+                placeholder={t("nodes.filterTagPlaceholder")}
+                aria-label={t("nodes.filterTag")}
+                className="h-8 w-32"
+              />
+              <Input
+                value={regionFilter}
+                onChange={(event) => setRegionFilter(event.target.value)}
+                placeholder={t("nodes.filterRegionPlaceholder")}
+                aria-label={t("nodes.filterRegion")}
+                className="h-8 w-28"
+              />
+              {filtersActive ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setTagFilter("");
+                    setRegionFilter("");
+                  }}
+                >
+                  <XIcon className="size-3.5" />
+                  {t("nodes.clearFilters")}
+                </Button>
+              ) : null}
+            </div>
             <Button
               variant="outline"
               size="sm"
@@ -449,8 +499,31 @@ export default function NodesPage() {
                 />
               ) : items.length === 0 ? (
                 <EmptyRow onCreate={() => setFormState({ mode: "create" })} />
+              ) : visibleItems.length === 0 ? (
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={COLUMN_COUNT} className="px-4 py-8">
+                    <EmptyState
+                      size="sm"
+                      icon={NetworkIcon}
+                      title={t("nodes.filteredEmptyTitle")}
+                      description={t("nodes.filteredEmptyDesc")}
+                      action={
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setTagFilter("");
+                            setRegionFilter("");
+                          }}
+                        >
+                          {t("nodes.clearFilters")}
+                        </Button>
+                      }
+                    />
+                  </TableCell>
+                </TableRow>
               ) : (
-                items.map((node) => (
+                visibleItems.map((node) => (
                   <TableRow key={node.id}>
                     <TableCell className="max-w-56 px-4 py-2.5">
                       <div className="flex min-w-0 items-center gap-2">
@@ -460,8 +533,24 @@ export default function NodesPage() {
                         <SsMethodBadge node={node} />
                         <SpeedLimitBadge kbps={node.bandwidth_kbps} />
                       </div>
-                      <div className="truncate font-mono type-micro text-muted-foreground">
-                        {node.tag}
+                      <div className="flex min-w-0 flex-wrap items-center gap-1 font-mono type-micro text-muted-foreground">
+                        <span className="truncate">{node.tag}</span>
+                        {node.region ? (
+                          <Badge
+                            variant="outline"
+                            className="h-4 border-border/70 px-1 font-mono text-[10px] font-normal"
+                          >
+                            {node.region}
+                          </Badge>
+                        ) : null}
+                        {(node.tags ?? []).map((tag) => (
+                          <span
+                            key={tag}
+                            className="rounded-full bg-muted px-1.5 text-[10px]"
+                          >
+                            {tag}
+                          </span>
+                        ))}
                       </div>
                     </TableCell>
                     <TableCell className="px-4 py-2.5">

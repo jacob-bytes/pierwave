@@ -306,6 +306,91 @@ Surge / sing-box 等第二轮补——它们的差异主要在配置文件骨架
 
 规则集第一版只做「国内直连 + 其余走 PROXY」，复杂的路由留给后面的「覆写管理」。
 
+### 6.1 订阅模板（迁移 0052）/ Subscription templates (migration 0052)
+
+写死的 `PROXY` / `AUTO` / 按中文名猜地区只覆盖最朴素的场景。模板把「分组」变成
+管理员可配置的声明式数据，**只对 `mihomo` 与 `clash` 生效**，其余导出器保持原样。
+
+```
+subscription_templates(id, name, groups_json, created_at, updated_at)
+users.subscription_template_id / packages.subscription_template_id
+nodes.tags (JSON 数组) / nodes.region (单值)
+```
+
+`groups_json` 结构与语义：
+
+```jsonc
+[
+  { "name": "节点选择", "type": "select",
+    "filters": [ { "tags": ["香港"], "regions": ["HK"], "protocols": ["vless"] } ],
+    "include_auto": true },
+  { "name": "自动选择", "type": "url-test", "filters": [ {} ], "interval": 300 }
+]
+```
+
+- **声明式，不允许脚本**：未知字段在反序列化阶段被拒绝（`deny_unknown_fields`），
+  组类型只接受 `select` / `url-test`；校验在写入前完成（组名必填且唯一、每组至少
+  一个 filter、filter 值长度上限、`url-test` 的 `interval` 在 10–86400 秒）。
+- **AND / OR**：一个 filter 内的 `tags` / `regions` / `protocols` 必须同时命中
+  （空数组 = 不限制；空对象 `{}` = 全部节点）；多个 filter 之间是 **OR**，
+  按声明顺序拼接后去重。
+- **成员顺序**：始终按节点在订阅里的原始顺序（`created_at`），不按 filter 重排。
+  `select` 的成员 = 自动选择组（`include_auto` 且模板里存在存活的 url-test 组）
+  + 各 filter 命中的节点 + `DIRECT`；`url-test` 的成员 = 命中的节点。
+- **空组跳过**：命中 0 个节点的组不会生成（Clash/mihomo 会拒绝 `proxies: []`），
+  并在预览接口的 `warnings` 里说明；`select` 即使只命中 `DIRECT` 也算空组。
+- **全空回落**：模板存在但所有组都没命中时，回落旧硬编码分组（`PROXY` / `AUTO` /
+  地区组），输出与升级前逐字节一致；没有任何模板时同理（golden 覆盖）。
+- **规则策略映射**：模板生效时，`rules` 仍来自规则模板，但策略列会映射到
+  第一个存活的 `select` 组（没有 select 时映射到第一个组），避免引用不存在的
+  `PROXY` / 地区组；`DIRECT` / `REJECT*` 与模板里真实存在的组名保持原样。
+- **绑定优先级**：`user.subscription_template_id` > 最近创建的、绑定了模板的生效套餐
+  > 无模板。多个生效套餐时取「`subscription_template_id` 非空的最新创建」那一个，
+  而不是「最新套餐的绑定列」——新卡没配模板时不应覆盖旧卡上明确配置过的分组。
+
+管理接口（管理员）：
+
+```
+GET/POST    /api/v1/subscription-templates
+PATCH/DELETE/api/v1/subscription-templates/{id}
+POST        /api/v1/subscription-templates/{id}/preview   { "user_id": "..." }
+            → { "yaml": "...", "warnings": ["..."] }
+```
+
+预览用真实用户的节点与规则模板渲染 `mihomo` 完整配置，返回的就是用户拿到的内容；
+`warnings` 同时包含模板告警（空组、`include_auto` 无可用自动组、全空回落）与
+「该用户当前没有可用节点」的提示。
+
+> The hard-coded `PROXY` / `AUTO` / name-guessed region groups only cover simple cases.
+> Templates turn grouping into declarative admin-managed data, and apply **only to
+> `mihomo` and `clash`** — every other exporter is unchanged.
+>
+> `groups_json` is declarative, never scripted: unknown fields are rejected at
+> deserialization (`deny_unknown_fields`), group types are limited to `select` /
+> `url-test`, and validation runs before writing (group name required and unique, at
+> least one filter per group, per-value length caps, `url-test` interval 10–86400s).
+> Conditions inside one filter (`tags` / `regions` / `protocols`) are AND-ed (an empty
+> array means "no restriction"; `{}` means all nodes); filters are OR-ed in declaration
+> order and de-duplicated. Members always keep the subscription's node order. `select`
+> members are the auto group (when `include_auto` is set and a surviving `url-test`
+> group exists) plus matched nodes plus `DIRECT`; `url-test` members are the matched
+> nodes. A group with zero matching nodes is skipped (Clash/mihomo reject
+> `proxies: []`) and reported in the preview's `warnings`; a `select` that only has
+> `DIRECT` counts as empty. If a template exists but no group matches, rendering falls
+> back to the legacy hard-coded groups — byte-identical to before the feature (golden
+> test), exactly like having no template at all. Rules still come from the rule
+> template, but when a template is active the policy column is remapped to the first
+> surviving `select` group (or the first group when there is no `select`), while
+> `DIRECT` / `REJECT*` and real group names are preserved.
+>
+> Binding priority: `user.subscription_template_id` > the latest created active package
+> that actually has a template > no template. With multiple active packages the newest
+> one **whose binding is non-null** wins, not simply the newest package's column: a new
+> card without a template must not override groups explicitly configured on an older
+> card. Admins manage templates through `/api/v1/subscription-templates`, and
+> `POST /{id}/preview` renders the `mihomo` config for a real user together with the
+> template warnings.
+
 ## 7. 闭环：服务端也要有同一份凭据（下一轮）
 
 派生凭据只解决了「发给客户端的那一份」。**服务器 inbound 里必须有匹配的 client，否则用户连不上。**

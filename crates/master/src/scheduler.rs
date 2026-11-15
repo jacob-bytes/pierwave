@@ -535,6 +535,7 @@ mod tests {
                 role: "user".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -1078,6 +1079,7 @@ mod tests {
                 role: "user".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -1091,6 +1093,7 @@ mod tests {
                 direction: "both".into(),
                 node_ratio: 2.0,
                 rule_template_id: None,
+                subscription_template_id: None,
                 speed_limit_kbps: None,
                 node_ids: None,
             },

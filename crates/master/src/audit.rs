@@ -94,6 +94,7 @@ mod tests {
             quota_bytes: None,
             used_bytes: 0,
             rule_template_id: None,
+            subscription_template_id: None,
             created_at: 0,
             updated_at: 0,
         }

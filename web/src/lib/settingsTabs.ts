@@ -14,6 +14,7 @@ export const SETTINGS_TAB_IDS = [
   "alerts",
   "backup",
   "templates",
+  "subscription-templates",
   "certificates",
 ] as const;
 

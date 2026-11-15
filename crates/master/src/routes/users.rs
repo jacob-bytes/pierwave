@@ -155,6 +155,9 @@ pub struct CreateUser {
     /// 用户级规则模板；缺省 / `null` = 跟随套餐 / 全局默认。
     #[serde(default)]
     pub rule_template_id: Option<String>,
+    /// 用户级订阅模板；缺省 / `null` = 跟随套餐 / 无模板（硬编码分组）。
+    #[serde(default)]
+    pub subscription_template_id: Option<String>,
 }
 
 pub async fn create(
@@ -169,6 +172,11 @@ pub async fn create(
     validate_quota_bytes(req.quota_bytes)?;
     let rule_template_id =
         validate_optional_rule_template_id(&state, req.rule_template_id.as_deref()).await?;
+    let subscription_template_id = super::packages::validate_optional_subscription_template_id(
+        &state,
+        req.subscription_template_id.as_deref(),
+    )
+    .await?;
     let role = match req.role.as_deref() {
         Some(role) => normalize_enum("角色", role, ROLES)?,
         None => "user".to_string(),
@@ -189,6 +197,7 @@ pub async fn create(
             role,
             quota_bytes: req.quota_bytes,
             rule_template_id,
+            subscription_template_id,
         },
     )
     .await?;
@@ -203,6 +212,7 @@ pub async fn create(
             "role": &created.role,
             "quota_bytes": created.quota_bytes,
             "rule_template_id": created.rule_template_id,
+            "subscription_template_id": created.subscription_template_id,
         }),
     )
     .await;
@@ -220,6 +230,9 @@ pub struct UpdateUser {
     /// 三态：缺失 = 不改；`null` = 解绑；具体 id = 绑定。
     #[serde(default)]
     pub rule_template_id: Patch<String>,
+    /// 三态：缺失 = 不改；`null` = 解绑；具体 id = 绑定。
+    #[serde(default)]
+    pub subscription_template_id: Patch<String>,
 }
 
 pub async fn update(
@@ -235,6 +248,7 @@ pub async fn update(
         && req.password.is_none()
         && !req.quota_bytes.is_set()
         && !req.rule_template_id.is_set()
+        && !req.subscription_template_id.is_set()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
@@ -261,6 +275,13 @@ pub async fn update(
         Patch::Missing => Patch::Missing,
         Patch::Null => Patch::Null,
         Patch::Value(id) => Patch::Value(validate_rule_template_id(&state, &id).await?),
+    };
+    let subscription_template_id = match req.subscription_template_id {
+        Patch::Missing => Patch::Missing,
+        Patch::Null => Patch::Null,
+        Patch::Value(id) => {
+            Patch::Value(super::packages::validate_subscription_template_id(&state, &id).await?)
+        }
     };
 
     // 防止管理员把自己锁在门外。
@@ -290,6 +311,7 @@ pub async fn update(
             status,
             quota_bytes: req.quota_bytes,
             rule_template_id,
+            subscription_template_id,
         },
     )
     .await?
@@ -314,6 +336,11 @@ pub async fn update(
             "rule_template_id",
             json!(before.rule_template_id),
             json!(updated.rule_template_id),
+        ),
+        (
+            "subscription_template_id",
+            json!(before.subscription_template_id),
+            json!(updated.subscription_template_id),
         ),
         ("password", json!(false), json!(req.password.is_some())),
     ]);
@@ -680,6 +707,7 @@ mod tests {
                 role: "admin".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -958,6 +986,7 @@ mod tests {
                 role: "user".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -1262,6 +1291,7 @@ mod tests {
                 role: "user".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -1275,6 +1305,7 @@ mod tests {
                 direction: "both".into(),
                 node_ratio: 1.0,
                 rule_template_id: None,
+                subscription_template_id: None,
 
                 speed_limit_kbps: None,
                 node_ids: None,
@@ -1380,6 +1411,7 @@ mod tests {
                     role: "user".into(),
                     quota_bytes: None,
                     rule_template_id: None,
+                    subscription_template_id: None,
                 },
             )
             .await
@@ -1571,6 +1603,7 @@ mod tests {
                 node_ratio: 1.0,
                 speed_limit_kbps: None,
                 rule_template_id: None,
+                subscription_template_id: None,
                 node_ids: None,
             },
         )
@@ -1588,6 +1621,7 @@ mod tests {
                 role: "user".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await
@@ -1894,6 +1928,8 @@ mod tests {
                 enabled: true,
                 cert_id: None,
                 bandwidth_kbps: None,
+                tags: Vec::new(),
+                region: None,
             },
         )
         .await
@@ -2113,6 +2149,7 @@ mod tests {
                 role: "user".into(),
                 quota_bytes: None,
                 rule_template_id: None,
+                subscription_template_id: None,
             },
         )
         .await

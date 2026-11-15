@@ -500,6 +500,51 @@ export interface CreateRuleTemplateInput {
 
 export type UpdateRuleTemplateInput = Partial<CreateRuleTemplateInput>;
 
+/**
+ * 订阅模板（迁移 0052）：声明式代理组，决定 mihomo / clash 的 `proxy-groups`。
+ *
+ * 不允许脚本：未知字段会被后端拒绝。`filters` 内条件 AND，多个 filter 之间 OR；
+ * 空条件 `{}` 表示全部节点。组命中 0 个节点时后端跳过该组并给 warning。
+ */
+export type SubscriptionGroupKind = "select" | "url-test";
+
+export interface SubscriptionGroupFilter {
+  tags?: string[];
+  regions?: string[];
+  protocols?: string[];
+}
+
+export interface SubscriptionGroup {
+  name: string;
+  type: SubscriptionGroupKind;
+  filters: SubscriptionGroupFilter[];
+  /** 仅 select：把模板里第一个存活的 url-test 组放进成员首位。 */
+  include_auto?: boolean;
+  /** 仅 url-test：测速间隔（秒），缺省 300。 */
+  interval?: number | null;
+}
+
+export interface SubscriptionTemplate {
+  id: string;
+  name: string;
+  groups: SubscriptionGroup[];
+  created_at: number;
+  updated_at: number;
+}
+
+export interface CreateSubscriptionTemplateInput {
+  name: string;
+  groups: SubscriptionGroup[];
+}
+
+export type UpdateSubscriptionTemplateInput =
+  Partial<CreateSubscriptionTemplateInput>;
+
+export interface SubscriptionTemplatePreview {
+  yaml: string;
+  warnings: string[];
+}
+
 /** 节点：config 是后端直接返回的 JSON 对象，不需要前端再 parse。 */
 export interface Node {
   id: string;
@@ -528,6 +573,10 @@ export interface Node {
   created_at: number;
   /** 后端暂时只回 created_at；保留字段以便主控补充更新时间后零改动接入。 */
   updated_at?: number;
+  /** 节点标签；订阅模板的筛选条件用它命中节点。迁移 0052。 */
+  tags?: string[];
+  /** 节点地区单值（如 `HK`）；null = 未设置。 */
+  region?: string | null;
 }
 
 /**
@@ -562,6 +611,10 @@ export interface CreateNodeInput {
   cert_id?: string | null;
   /** 节点带宽上限（kbps）；0 / 省略 = 不限。 */
   bandwidth_kbps?: number | null;
+  /** 标签（trim、去重；单个 ≤24 字符、最多 8 个）。 */
+  tags?: string[];
+  /** 地区单值（≤8 字符）；空串 / 省略 = 未设置。 */
+  region?: string | null;
 }
 
 export interface UpdateNodeInput {
@@ -578,6 +631,10 @@ export interface UpdateNodeInput {
    * 但后端只接受「TLS 节点绑定 / 非 TLS 节点不携带」，解绑得先改安全层。
    */
   cert_id?: string | null;
+  /** 标签：省略 = 不改，`[]` = 清空。 */
+  tags?: string[];
+  /** 三态：省略 = 不改，`null` = 清空，字符串 = 设置地区。 */
+  region?: string | null;
 }
 
 /** P3：出站与路由，见 docs/PLAN.md「P3：出站与路由（可视化）」。 */
@@ -1144,6 +1201,8 @@ export interface UserView {
    * 旧版后端可能暂时不返回该字段，展示层统一按 `null` 处理。
    */
   rule_template_id: string | null;
+  /** 用户绑定的订阅模板；`null` = 跟随套餐 / 无模板（硬编码分组）。 */
+  subscription_template_id?: string | null;
 }
 
 /** 后端返回的节点范围意图；UI 的三态见 `lib/schemas.ts` 的 `PackageNodeScope`。 */
@@ -1181,6 +1240,8 @@ export interface Package {
    * 旧版后端可能暂时不返回该字段，展示层统一按 `null` 处理。
    */
   rule_template_id: string | null;
+  /** 套餐的订阅模板；`null` = 不绑定（用户未绑定时回落硬编码分组）。 */
+  subscription_template_id?: string | null;
   /**
    * 每个用户可自助创建的转发条数上限；0 / 缺失 = 当前套餐不支持自助转发。
    * 旧版后端不会返回该字段，表单与展示统一按 0 兜底。
@@ -1235,6 +1296,8 @@ export interface CreateUserInput {
    * `null` = 显式不绑定（跟随套餐 / 全局默认）；省略 = 使用后端默认值。
    */
   rule_template_id?: string | null;
+  /** 订阅模板绑定；省略 / `null` = 不绑定。 */
+  subscription_template_id?: string | null;
 }
 
 export interface UpdateUserInput {
@@ -1249,6 +1312,8 @@ export interface UpdateUserInput {
    * - 字符串 = 绑定到该模板。
    */
   rule_template_id?: string | null;
+  /** 订阅模板绑定，三态同上：省略 = 不改，`null` = 清空，字符串 = 绑定。 */
+  subscription_template_id?: string | null;
 }
 
 export interface CreatePackageInput {
@@ -1271,6 +1336,8 @@ export interface CreatePackageInput {
    * 省略 = 不改；`null` = 清空并回落到全局默认；字符串 = 绑定。
    */
   rule_template_id?: string | null;
+  /** 套餐默认订阅模板；省略 = 不改，`null` = 清空，字符串 = 绑定。 */
+  subscription_template_id?: string | null;
   /**
    * 自助转发条数上限。0 = 不支持自助转发（省略也按 0 处理）。
    * 编辑时显式传 0 才能把旧值清掉，因此表单总是发送该字段。
@@ -1992,6 +2059,34 @@ export const api = {
       request<{ ok: true }>(
         `/api/v1/rule-templates/${encodeURIComponent(id)}`,
         { method: "DELETE" },
+      ),
+  },
+
+  /** 管理员维护的订阅模板（mihomo / clash 的 proxy-groups）；预览按真实用户渲染。 */
+  subscriptionTemplates: {
+    list: () =>
+      request<{ items: SubscriptionTemplate[] }>(
+        "/api/v1/subscription-templates",
+      ),
+    create: (input: CreateSubscriptionTemplateInput) =>
+      request<{ template: SubscriptionTemplate }>(
+        "/api/v1/subscription-templates",
+        { method: "POST", body: JSON.stringify(input) },
+      ),
+    update: (id: string, input: UpdateSubscriptionTemplateInput) =>
+      request<{ template: SubscriptionTemplate }>(
+        `/api/v1/subscription-templates/${encodeURIComponent(id)}`,
+        { method: "PATCH", body: JSON.stringify(input) },
+      ),
+    remove: (id: string) =>
+      request<{ ok: true }>(
+        `/api/v1/subscription-templates/${encodeURIComponent(id)}`,
+        { method: "DELETE" },
+      ),
+    preview: (id: string, userId: string) =>
+      request<SubscriptionTemplatePreview>(
+        `/api/v1/subscription-templates/${encodeURIComponent(id)}/preview`,
+        { method: "POST", body: JSON.stringify({ user_id: userId }) },
       ),
   },
 

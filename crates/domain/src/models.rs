@@ -2,6 +2,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use sqlx::FromRow;
 
+use crate::subscription_template::SubscriptionGroup;
+
 #[derive(Debug, Clone, FromRow, Serialize)]
 pub struct User {
     pub id: String,
@@ -17,6 +19,8 @@ pub struct User {
     pub used_bytes: i64,
     /// 用户级规则模板绑定；`null` = 跟随当前套餐 / 全局默认。
     pub rule_template_id: Option<String>,
+    /// 用户级订阅模板绑定；`null` = 跟随当前套餐 / 无模板（硬编码分组）。
+    pub subscription_template_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -576,6 +580,18 @@ pub struct Node {
     pub cert_id: Option<String>,
     /// 节点带宽上限（kbps）。`None` / `0` = 不限；由 Agent 用 tc 精确限速。
     pub bandwidth_kbps: Option<i64>,
+    /// 节点标签（迁移 0052）：库里是 JSON 数组文本，对外序列化成字符串数组。
+    #[serde(serialize_with = "string_array_json_as_value")]
+    pub tags: String,
+    /// 节点地区（迁移 0052）：单值，如 `HK`；`None` = 未设置。
+    pub region: Option<String>,
+}
+
+impl Node {
+    /// 解析后的标签列表；脏数据退化成空数组而不是让订阅 500。
+    pub fn tag_list(&self) -> Vec<String> {
+        serde_json::from_str(&self.tags).unwrap_or_default()
+    }
 }
 
 /// 服务器上的一条自定义出站。
@@ -709,6 +725,18 @@ pub struct NodeWithServer {
     pub server_address: String,
 }
 
+/// `nodes.tags`（TEXT，JSON 数组）→ 响应里的字符串数组；脏数据按空数组输出。
+fn string_array_json_as_value<S>(raw: &str, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let value = serde_json::from_str::<Value>(raw)
+        .ok()
+        .filter(Value::is_array)
+        .unwrap_or_else(|| serde_json::json!([]));
+    value.serialize(serializer)
+}
+
 fn config_json_as_value<S>(raw: &str, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
@@ -759,6 +787,8 @@ pub struct Package {
     pub speed_limit_kbps: Option<i64>,
     /// 套餐级规则模板绑定；`null` = 套餐内用户未单独指定时跟随全局默认。
     pub rule_template_id: Option<String>,
+    /// 套餐级订阅模板绑定；`null` = 不指定，用户未单独绑定则回落硬编码分组。
+    pub subscription_template_id: Option<String>,
     /// 每个用户最多能创建多少条自助转发；0 = 不允许（迁移 0044 默认值）。
     pub forward_limit: i64,
     /// 每个用户最多能创建多少条自助链；0 = 不允许（迁移 0046 默认值）。
@@ -948,6 +978,39 @@ impl From<RuleTemplateRow> for RuleTemplate {
     }
 }
 
+/// 订阅模板的库行：`groups_json` 是原始 JSON 文本。
+#[derive(Debug, Clone, FromRow)]
+pub struct SubscriptionTemplateRow {
+    pub id: String,
+    pub name: String,
+    pub groups_json: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// 订阅模板对外视图：`groups` 已解析成声明式分组数组。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SubscriptionTemplate {
+    pub id: String,
+    pub name: String,
+    pub groups: Vec<SubscriptionGroup>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl From<SubscriptionTemplateRow> for SubscriptionTemplate {
+    fn from(row: SubscriptionTemplateRow) -> Self {
+        Self {
+            id: row.id,
+            name: row.name,
+            // 写入前都过校验，脏数据（手工改库）退化成空数组而不是 500。
+            groups: serde_json::from_str(&row.groups_json).unwrap_or_default(),
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
 /// 用户列表/详情视图：用户本体 + 名下所有套餐实例（一次查询装配）。
 #[derive(Debug, Clone, Serialize)]
 pub struct UserView {
@@ -960,6 +1023,8 @@ pub struct UserView {
     pub used_bytes: i64,
     /// 用户级规则模板绑定；订阅解析从这一级开始（`?rule=` 之后）。
     pub rule_template_id: Option<String>,
+    /// 用户级订阅模板绑定；订阅解析从这一级开始。
+    pub subscription_template_id: Option<String>,
     pub created_at: i64,
     /// 名下套餐实例数；与 `packages.len()` 一致，方便前端分页/汇总时少算一次。
     pub package_count: i64,
@@ -988,6 +1053,7 @@ impl From<(User, Vec<UserPackageView>)> for UserView {
             quota_bytes: user.quota_bytes,
             used_bytes: user.used_bytes,
             rule_template_id: user.rule_template_id,
+            subscription_template_id: user.subscription_template_id,
             created_at: user.created_at,
             package_count: packages.len() as i64,
             quota_exceeded: user
@@ -1307,6 +1373,7 @@ mod view_tests {
                 quota_bytes: None,
                 used_bytes: 0,
                 rule_template_id: None,
+                subscription_template_id: None,
                 created_at: 0,
                 updated_at: 0,
             },

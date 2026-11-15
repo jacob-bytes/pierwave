@@ -15,6 +15,7 @@ test("SETTINGS_TAB_IDS keeps the documented order", () => {
     "alerts",
     "backup",
     "templates",
+    "subscription-templates",
     "certificates",
   ]);
   assert.equal(DEFAULT_SETTINGS_TAB, "general");
@@ -25,6 +26,7 @@ test("merged rule template and certificate tabs stay addressable", () => {
   assert.equal(resolveSettingsTab("templates"), "templates");
   assert.equal(resolveSettingsTab("certificates"), "certificates");
   assert.equal(settingsTabParam("templates"), "templates");
+  assert.equal(settingsTabParam("subscription-templates"), "subscription-templates");
   assert.equal(settingsTabParam("certificates"), "certificates");
   // 两个新 tab 都不是默认 tab，URL 必须保留参数，刷新后仍停在同一页。
   assert.notEqual(settingsTabParam("templates"), null);

@@ -23,6 +23,7 @@ pub mod servers;
 pub mod settings;
 pub mod stats;
 pub mod subscribe;
+pub mod subscription_templates;
 pub mod subscriptions;
 pub mod system;
 pub mod updates;

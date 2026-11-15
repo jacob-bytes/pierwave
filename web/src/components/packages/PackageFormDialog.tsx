@@ -29,7 +29,14 @@ import type { CreatePackageInput, Package } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { bytesToGbInput, parseGbInput } from "@/lib/format";
 import { ruleTemplateInputValue } from "@/lib/ruleBindings";
-import { useCreatePackage, useRuleTemplates, useUpdatePackage } from "@/lib/queries";
+import { SubscriptionTemplateBindingField } from "@/components/subscriptions/SubscriptionTemplateBindingField";
+import { subscriptionTemplateInputValue } from "@/lib/subscriptionTemplates";
+import {
+  useCreatePackage,
+  useRuleTemplates,
+  useSubscriptionTemplates,
+  useUpdatePackage,
+} from "@/lib/queries";
 import { ruleTemplateErrorText } from "@/lib/ruleTemplates";
 import {
   packageFormSchema,
@@ -71,6 +78,15 @@ export function PackageFormDialog({
     ruleTemplates.isError && templates.length === 0
       ? ruleTemplateErrorText(ruleTemplates.error)
       : null;
+  const subscriptionTemplates = useSubscriptionTemplates();
+  const subTemplates = subscriptionTemplates.data ?? [];
+  const subscriptionTemplateError =
+    subscriptionTemplates.isError && subTemplates.length === 0
+      ? errorText(
+          subscriptionTemplates.error,
+          t("subscriptionTemplates.loadError"),
+        )
+      : null;
   const editing = Boolean(packageItem);
   const pending = editing
     ? updatePackage.isPending
@@ -92,6 +108,7 @@ export function PackageFormDialog({
           node_scope: packageNodeScope(packageItem),
           node_ids: packageItem.node_ids,
           rule_template_id: packageItem.rule_template_id ?? "",
+          subscription_template_id: packageItem.subscription_template_id ?? "",
           forward_limit: String(packageItem.forward_limit ?? 0),
           forward_server_ids: packageItem.forward_server_ids ?? [],
           chain_limit: String(packageItem.chain_limit ?? 0),
@@ -107,6 +124,7 @@ export function PackageFormDialog({
           node_scope: "all",
           node_ids: [],
           rule_template_id: "",
+          subscription_template_id: "",
           forward_limit: "0",
           forward_server_ids: [],
           chain_limit: "0",
@@ -148,6 +166,10 @@ export function PackageFormDialog({
       speed_limit_kbps: mbpsInputToKbps(values.speed_limit_mbps),
       // 空选项 → 显式 null（回落到全局默认），而不是省略字段。
       rule_template_id: ruleTemplateInputValue(values.rule_template_id),
+      // 空选项 → 显式 null（使用内置分组），而不是省略字段。
+      subscription_template_id: subscriptionTemplateInputValue(
+        values.subscription_template_id,
+      ),
       // 空串 = 0（不支持自助转发）；编辑时也要显式发送，才能把旧值清掉。
       forward_limit: values.forward_limit.trim()
         ? Number(values.forward_limit)
@@ -346,6 +368,39 @@ export function PackageFormDialog({
                   loadingLabel={t("packages.form.ruleTemplateLoading")}
                   currentLabel={t("packages.form.ruleTemplateCurrent")}
                   ariaLabel={t("packages.form.ruleTemplate")}
+                />
+              )}
+            />
+          </FormField>
+
+          <FormField
+            label={t("packages.form.subscriptionTemplate")}
+            htmlFor="package-subscription-template"
+            hint={t("packages.form.subscriptionTemplateHint")}
+            error={form.formState.errors.subscription_template_id?.message}
+          >
+            <Controller
+              control={form.control}
+              name="subscription_template_id"
+              render={({ field }) => (
+                <SubscriptionTemplateBindingField
+                  id="package-subscription-template"
+                  value={field.value}
+                  onChange={field.onChange}
+                  templates={subTemplates}
+                  pending={subscriptionTemplates.isPending}
+                  error={subscriptionTemplateError}
+                  disabled={pending}
+                  inheritLabel={t(
+                    "packages.form.subscriptionTemplateInherit",
+                  )}
+                  loadingLabel={t(
+                    "packages.form.subscriptionTemplateLoading",
+                  )}
+                  currentLabel={t(
+                    "packages.form.subscriptionTemplateCurrent",
+                  )}
+                  ariaLabel={t("packages.form.subscriptionTemplate")}
                 />
               )}
             />

@@ -165,6 +165,19 @@ pub fn router(state: AppState) -> Router {
             patch(routes::rule_templates::update).delete(routes::rule_templates::delete),
         )
         .route(
+            "/api/v1/subscription-templates",
+            get(routes::subscription_templates::list).post(routes::subscription_templates::create),
+        )
+        .route(
+            "/api/v1/subscription-templates/{id}",
+            patch(routes::subscription_templates::update)
+                .delete(routes::subscription_templates::delete),
+        )
+        .route(
+            "/api/v1/subscription-templates/{id}/preview",
+            post(routes::subscription_templates::preview),
+        )
+        .route(
             "/api/v1/certificates",
             get(routes::certificates::list).post(routes::certificates::create),
         )

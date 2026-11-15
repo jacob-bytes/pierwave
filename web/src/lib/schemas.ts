@@ -23,6 +23,7 @@ import {
 } from "@/lib/protocols";
 import { PROTOCOL_MODES } from "@/lib/protocolMode";
 import { isValidPublicBaseUrl } from "@/lib/publicBase";
+import { splitList } from "@/lib/subscriptionTemplates";
 import { isValidPublicPortInput } from "@/lib/publicPort";
 import {
   findFirstOverlongRuleLine,
@@ -112,6 +113,7 @@ export function userFormSchema(t: TFunction, mode: "create" | "edit") {
        * 提交时由 `ruleTemplateInputValue` 转成显式 `null`。
        */
       rule_template_id: z.string(),
+      subscription_template_id: z.string(),
     })
     .superRefine((values, ctx) => {
       if (mode === "create" && values.password.length < 8) {
@@ -274,6 +276,7 @@ export function packageFormSchema(t: TFunction) {
       node_ids: z.array(z.string()),
       /** P6：套餐默认规则模板。空串 = 不设置（回落到全局默认）。 */
       rule_template_id: z.string(),
+      subscription_template_id: z.string(),
       /** 自助转发条数（文本）；空串 = 0（不支持）。 */
       forward_limit: z.string().refine((value) => {
         const trimmed = value.trim();
@@ -372,12 +375,29 @@ export function nodeFormSchema(t: TFunction) {
           t("nodes.form.bandwidthRange"),
         ),
       enabled: z.boolean(),
+      /** 标签（逗号分隔文本，提交时拆成数组）；最多 8 个、单个 ≤24 字符。 */
+      tags: z
+        .string()
+        .refine(
+          (value) => splitList(value).length <= 8,
+          t("validation.nodeTagsMax"),
+        ),
+      /** 地区单值（≤8 字符）；空串 = 未设置。 */
+      region: z.string().trim().max(8, t("validation.nodeRegionMax")),
       /** Shadowsocks 专有字段；非 SS 协议下隐藏，提交时也不写进 config。 */
       ss_method: z.string(),
       ss_password: z.string(),
       ss_network: z.string(),
     })
     .superRefine((values, ctx) => {
+      // 单个标签也有长度上限，逐项检查而不是只看总数。
+      if (splitList(values.tags).some((tag) => Array.from(tag).length > 24)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["tags"],
+          message: t("validation.nodeTagMax"),
+        });
+      }
       if (
         !isCombinationAllowed(values.protocol, values.transport, values.security)
       ) {
