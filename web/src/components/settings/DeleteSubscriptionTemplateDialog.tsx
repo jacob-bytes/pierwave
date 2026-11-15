@@ -20,6 +20,7 @@ import {
 import type { SubscriptionTemplate } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { useDeleteSubscriptionTemplate } from "@/lib/queries";
+import { templateUsage } from "@/lib/subscriptionTemplates";
 import { t } from "@/i18n";
 
 interface DeleteSubscriptionTemplateDialogProps {
@@ -35,6 +36,7 @@ export function DeleteSubscriptionTemplateDialog({
 }: DeleteSubscriptionTemplateDialogProps) {
   const deleteTemplate = useDeleteSubscriptionTemplate();
   const [error, setError] = useState<string | null>(null);
+  const usage = templateUsage(template.usage);
 
   return (
     <AlertDialog
@@ -54,6 +56,14 @@ export function DeleteSubscriptionTemplateDialog({
           </AlertDialogTitle>
           <AlertDialogDescription>
             {t("subscriptionTemplates.delete.desc", { name: template.name })}
+            {usage.inUse ? (
+              <span className="mt-2 block font-medium text-destructive">
+                {t("subscriptionTemplates.delete.unbind", {
+                  users: usage.users,
+                  packages: usage.packages,
+                })}
+              </span>
+            ) : null}
           </AlertDialogDescription>
         </AlertDialogHeader>
 

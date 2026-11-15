@@ -109,6 +109,40 @@ export interface RestoreBackupResponse {
   pending?: BackupPending | null;
 }
 
+/** 异地备份（WebDAV）远端目录里的一个文件。 */
+export interface RemoteBackupFile {
+  name: string;
+  size: number;
+  /** 修改时间（Unix 秒）；PROPFIND 没给该字段时为 null。 */
+  modified: number | null;
+}
+
+/** `GET /api/v1/backup/remote`。 */
+export interface RemoteBackupStatus {
+  /** 上次成功上传的 Unix 秒；从未成功时为 null。 */
+  last_success_at: number | null;
+  /** 上次失败的 Unix 秒；从未失败时为 null。 */
+  last_failure_at?: number | null;
+  /** 最近一次失败原因（后端已对密码打码）；没有错误时为 null。 */
+  last_error: string | null;
+  /** 最近 30 个本产品写入的备份，最新在前。 */
+  files: RemoteBackupFile[];
+}
+
+/** `POST /api/v1/backup/remote/test`：连接失败也是 200 + ok:false。 */
+export interface RemoteBackupTestResult {
+  ok: boolean;
+  error?: string | null;
+}
+
+/** `POST /api/v1/backup/remote/run`：上传成功的结果。 */
+export interface RemoteBackupRunResult {
+  ok: boolean;
+  file: { name: string; size: number; uploaded_at: number };
+  deleted?: string[];
+  files?: RemoteBackupFile[];
+}
+
 export interface SessionUser {
   id: string;
   username: string;
@@ -542,12 +576,23 @@ export interface SubscriptionGroup {
   name: string;
   type: SubscriptionGroupKind;
   filters: SubscriptionGroupFilter[];
-  /** 仅 select：把模板里第一个存活的 url-test 组放进成员首位。 */
+  /**
+   * 仅 select：把模板里第一个存活的自动组放进成员首位。
+   * 自动组按 url-test > fallback > load-balance 的优先级挑选。
+   */
   include_auto?: boolean;
   /** 自动测速类组：测速间隔（秒），缺省 300。 */
   interval?: number | null;
   /** 仅 load-balance：负载均衡策略，缺省 round-robin。 */
   strategy?: SubscriptionLoadBalanceStrategy | null;
+}
+
+/** 模板被谁引用：列表展示与删除确认都需要它。 */
+export interface SubscriptionTemplateUsage {
+  /** 直接绑定该模板的用户数。 */
+  users: number;
+  /** 绑定该模板的套餐数（不是套餐实例数）。 */
+  packages: number;
 }
 
 export interface SubscriptionTemplate {
@@ -556,6 +601,8 @@ export interface SubscriptionTemplate {
   groups: SubscriptionGroup[];
   created_at: number;
   updated_at: number;
+  /** 旧版后端可能不返回；展示层按 0 兜底。 */
+  usage?: SubscriptionTemplateUsage;
 }
 
 export interface CreateSubscriptionTemplateInput {
@@ -1873,6 +1920,17 @@ export interface Settings {
   update_check_enabled?: boolean | null;
   update_check_interval_hours?: number | null;
   update_check_notify?: boolean | null;
+  /**
+   * 异地备份（WebDAV）。`backup_webdav_password` 后端永远返回空串，
+   * 是否已保存看 `backup_webdav_has_password`；保存时留空 = 保持不变。
+   */
+  backup_webdav_enabled?: boolean | null;
+  backup_webdav_url?: string | null;
+  backup_webdav_username?: string | null;
+  backup_webdav_password?: string | null;
+  backup_webdav_has_password?: boolean | null;
+  backup_webdav_interval_hours?: number | null;
+  backup_webdav_keep?: number | null;
 }
 
 export type UpdateSettingsInput = Partial<Settings>;
@@ -2182,12 +2240,20 @@ export const api = {
         `/api/v1/subscription-templates/${encodeURIComponent(id)}`,
         { method: "DELETE" },
       ),
-    preview: (id: string, userId: string, target?: string) =>
+    preview: (
+      id: string,
+      subject: { userId?: string; packageId?: string },
+      target?: string,
+    ) =>
       request<SubscriptionTemplatePreview>(
         `/api/v1/subscription-templates/${encodeURIComponent(id)}/preview`,
         {
           method: "POST",
-          body: JSON.stringify({ user_id: userId, target: target ?? null }),
+          body: JSON.stringify({
+            user_id: subject.userId ?? null,
+            package_id: subject.packageId ?? null,
+            target: target ?? null,
+          }),
         },
       ),
   },
@@ -2240,6 +2306,18 @@ export const api = {
       uploadBinary<RestoreBackupResponse>("/api/v1/backup/restore", file),
     cancelRestore: () =>
       request<{ ok: true }>("/api/v1/backup/restore", { method: "DELETE" }),
+    /** 异地备份（WebDAV）：状态、测试连接、立即上传。 */
+    remote: {
+      status: () => request<RemoteBackupStatus>("/api/v1/backup/remote"),
+      test: () =>
+        request<RemoteBackupTestResult>("/api/v1/backup/remote/test", {
+          method: "POST",
+        }),
+      run: () =>
+        request<RemoteBackupRunResult>("/api/v1/backup/remote/run", {
+          method: "POST",
+        }),
+    },
   },
 
   // 节点按服务器归属管理；`listAll` 是跨服务器的全局列表（套餐范围选择器用）。

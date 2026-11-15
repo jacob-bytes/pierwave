@@ -85,6 +85,15 @@ impl AppError {
         Self::with_status(StatusCode::SERVICE_UNAVAILABLE, code, params, message)
     }
 
+    /// 502：上游依赖（这里指远端 WebDAV）返回失败或不可达。
+    pub fn bad_gateway(
+        code: &'static str,
+        params: Option<Value>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::with_status(StatusCode::BAD_GATEWAY, code, params, message)
+    }
+
     fn with_status(
         status: StatusCode,
         code: &'static str,

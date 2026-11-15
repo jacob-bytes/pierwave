@@ -14,9 +14,12 @@ import {
   groupsFromDraft,
   joinList,
   moveGroup,
+  parsePreviewSubject,
   previewDisabled,
+  previewSubjectValue,
   resolvePreviewFormat,
   splitList,
+  templateUsage,
   uniqueTemplateName,
   validateTemplateDraft,
 } from "./subscriptionTemplates.ts";
@@ -212,21 +215,21 @@ test("draftFromTemplate round-trips a saved template", () => {
   assert.equal(dirty.groups[0].filters.length, 1);
 });
 
-test("preview button is disabled without a saved template or a selected user", () => {
+test("preview button is disabled without a saved template or a selected subject", () => {
   assert.equal(
-    previewDisabled({ pending: false, hasTemplate: true, hasUser: true }),
+    previewDisabled({ pending: false, hasTemplate: true, hasSubject: true }),
     false,
   );
   assert.equal(
-    previewDisabled({ pending: false, hasTemplate: false, hasUser: true }),
+    previewDisabled({ pending: false, hasTemplate: false, hasSubject: true }),
     true,
   );
   assert.equal(
-    previewDisabled({ pending: false, hasTemplate: true, hasUser: false }),
+    previewDisabled({ pending: false, hasTemplate: true, hasSubject: false }),
     true,
   );
   assert.equal(
-    previewDisabled({ pending: true, hasTemplate: true, hasUser: true }),
+    previewDisabled({ pending: true, hasTemplate: true, hasSubject: true }),
     true,
   );
 });
@@ -443,7 +446,7 @@ test("copied template draft gets a unique name and is independent from the origi
   );
 });
 
-test("preview format fuzzy matching covers at least five exporters", () => {
+test("preview format fuzzy matching covers every template-aware exporter", () => {
   const cases = [
     ["", "mihomo"],
     ["mihomo", "mihomo"],
@@ -455,12 +458,58 @@ test("preview format fuzzy matching covers at least five exporters", () => {
     ["Surge", "surge"],
     ["surge full", "surge-full"],
     ["SING_BOX", "singbox"],
+    // 第三轮接入的三种格式：精确 id 与模糊写法都要能解析。
+    ["Surfboard", "surfboard"],
+    ["surf board", "surfboard"],
+    ["Loon", "loon"],
+    ["Egern", "egern"],
   ];
   for (const [input, expected] of cases) {
     assert.equal(resolvePreviewFormat(input), expected, input);
   }
-  assert.equal(resolvePreviewFormat("loon"), null);
+  // 不支持模板分组的格式仍然返回 null，预览会给出 400 而不是塞回 YAML。
+  assert.equal(resolvePreviewFormat("qx"), null);
+  assert.equal(resolvePreviewFormat("shadowrocket"), null);
   assert.equal(resolvePreviewFormat("not-a-client"), null);
+});
+
+test("templateUsage treats missing or dirty counts as unused", () => {
+  assert.deepEqual(templateUsage(undefined), {
+    users: 0,
+    packages: 0,
+    inUse: false,
+  });
+  assert.deepEqual(templateUsage({ users: 3, packages: 2 }), {
+    users: 3,
+    packages: 2,
+    inUse: true,
+  });
+  // 只有套餐绑定时也算使用中。
+  assert.deepEqual(templateUsage({ users: 0, packages: 1 }), {
+    users: 0,
+    packages: 1,
+    inUse: true,
+  });
+  // 负数是脏数据，展示层归零。
+  assert.deepEqual(templateUsage({ users: -1, packages: -2 }), {
+    users: 0,
+    packages: 0,
+    inUse: false,
+  });
+});
+
+test("preview subject values round-trip user and package ids", () => {
+  const user = { kind: "user", id: "u-1" };
+  const pkg = { kind: "package", id: "p-2" };
+  assert.equal(previewSubjectValue(user), "user:u-1");
+  assert.equal(previewSubjectValue(pkg), "package:p-2");
+  assert.deepEqual(parsePreviewSubject("user:u-1"), user);
+  assert.deepEqual(parsePreviewSubject("package:p-2"), pkg);
+  // 空 id / 未知前缀都不能成为合法预览对象。
+  assert.equal(parsePreviewSubject("user:"), null);
+  assert.equal(parsePreviewSubject(":u-1"), null);
+  assert.equal(parsePreviewSubject("group:g-1"), null);
+  assert.equal(parsePreviewSubject(""), null);
 });
 
 test("groupFilterSummary shows exclusions and name_contains", () => {

@@ -576,14 +576,177 @@ sing-box / sing-box-full（`outbounds`，组按模板顺序输出）：
   `outbounds` 都保持模板声明顺序。
 - **复制模板**：列表里的复制按钮把模板复制成**草稿**（名称为 `<原名>（副本）`，
   自动避让重名），打开新建对话框；保存前不写库，改副本不影响原件。
-- **按套餐预览**：未做（见 6.2.4）。
-- **预览切格式**：预览对话框里可选上述 7 种格式，切换后重新生成。
+- **按套餐预览**：第三轮已实现（见 §6.3.4）；选择器里用户与套餐分组展示。
+- **预览切格式**：预览对话框里可选上述 7 种格式（第三轮增至 10 种），切换后重新生成。
 
 > Drag-and-drop reorders groups (plus up/down buttons for keyboard and touch); the output
 > keeps the template order. Duplicate opens the create dialog prefilled with a fresh draft
 > named `<name> (copy)` and a de-duplicated name — nothing is written until saved, and
-> editing the copy never touches the original. Previewing by package is not implemented;
-> the preview dialog can switch between the seven formats listed above.
+> editing the copy never touches the original. Previewing by package is implemented in
+> round three (§6.3.4); the picker groups users and packages. The preview dialog can switch
+> between the seven formats above (ten in round three).
+
+### 6.3 订阅模板第三轮：更多格式、`include_auto` 扩展、按套餐预览与使用计数 / Round three: more formats, wider `include_auto`, package preview and usage counts
+
+#### 6.3.1 新增接入的格式 / Newly template-aware formats
+
+在第二轮的基础上，`surfboard` / `loon` / `egern` 也开始消费订阅模板。它们都复用已有的
+INI 渲染器，**没有第二份节点映射**：`surfboard` / `loon` 走 `render_ini`，`egern` 继续
+复用 Surge 兼容正文（文件头不变）。
+
+各格式的表达能力（`subscription_template::group_capabilities`）：
+
+| 格式 | select | url-test | fallback | load-balance | consistent-hashing |
+|---|---|---|---|---|---|
+| `clash` / `mihomo` / `stash` | ✅ | ✅ | ✅ | ✅ `strategy` | ✅ |
+| `surge` / `surge-full` | ✅ | ✅ | ✅ | ✅ 轮询 | ❌ 跳过 + warning |
+| `egern` | ✅ | ✅ | ✅ | ✅ 轮询（与 Surge 同一份 profile） | ❌ 跳过 + warning |
+| `surfboard` | ✅ | ✅ | ✅ | ❌ 只有随机分配，整类跳过 + warning | ❌ 跳过 + warning |
+| `loon` | ✅ | ✅ | ✅ | ✅ `algorithm=Round-Robin` | ❌ 跳过 + warning（只有 Random / PCC / Round-Robin） |
+| `singbox` / `singbox-full` | ✅ `selector` | ✅ `urltest` | ✅ `fallback` | ⚠️ 用 `urltest` 近似 + warning | ⚠️ 近似 |
+
+无法表达的组合**跳过该组并 warning**，绝不输出会被客户端整份拒收的配置；所有组都被
+跳过时，渲染层回落到内置 `PROXY` / `AUTO` / 地区组，输出与没有模板时逐字节一致。
+
+> `surfboard`, `loon` and `egern` now consume subscription templates too, reusing the
+> existing INI renderer — there is no second node mapping (`surfboard` / `loon` go through
+> `render_ini`, `egern` keeps reusing the Surge-compatible body and its header). Combinations
+> a client cannot express are skipped with a warning and never emitted as an invalid config:
+> Surfboard's `load-balance` is random-only, so the whole group kind is skipped; Loon can
+> express round-robin (`algorithm=Round-Robin`) but has no consistent-hashing algorithm;
+> Egern shares Surge's capability boundary. If every group is skipped, rendering falls back
+> to the built-in groups byte-identically to having no template.
+
+#### 6.3.2 `include_auto` 的新语义 / Wider `include_auto`
+
+`select` 组开启 `include_auto` 后，不再只找「第一个存活的 `url-test` 组」，而是按
+**`url-test` > `fallback` > `load-balance`** 的优先级取第一个存活的自动组；同一类型内
+仍按模板声明顺序取第一个。旧模板只会写 `url-test`，所以行为与第一轮逐字节一致。
+
+「存活」是**按目标格式**判定的：如果模板里的自动组在当前格式里无法表达（例如
+Surfboard 里的 `load-balance`），`select` 的成员会重新挑选下一个可表达的自动组；
+一个都没有时把该成员移除并 warning，**绝不留下指向不存在组的引用**。
+
+> `include_auto` no longer stops at the first surviving `url-test` group: it picks the
+> first surviving auto group in the order **url-test > fallback > load-balance** (declaration
+> order within one kind). Templates written in round one only contain `url-test`, so their
+> behaviour is byte-identical to before. "Surviving" is evaluated **per target format**:
+> when the template's auto group cannot be expressed by that format (e.g. `load-balance`
+> in Surfboard), the `select` members are rebuilt with the next expressible auto group; if
+> none survives the member is removed with a warning, so no member ever points at a group
+> that was not emitted.
+
+#### 6.3.3 渲染片段 / Rendered snippets
+
+Surfboard（`[Proxy Group]`，`load-balance` 被跳过）：
+
+```text
+节点选择 = select, 故障转移, 香港-1, 日本-1, DIRECT
+故障转移 = fallback, 香港-1, url=http://www.gstatic.com/generate_204, interval=60
+```
+
+```text
+代理组「负载均衡」的类型 load-balance 无法在 surfboard 中表达，已跳过 / Group "负载均衡" of type load-balance cannot be expressed in surfboard; skipped
+```
+
+Loon（轮询显式写 `algorithm=Round-Robin`）：
+
+```text
+节点选择 = select, 故障转移, 香港-1, 日本-1, DIRECT
+故障转移 = fallback, 香港-1, url=http://www.gstatic.com/generate_204, interval=60
+负载均衡 = load-balance, 香港-1, 日本-1, url=http://www.gstatic.com/generate_204, interval=90, algorithm=Round-Robin
+```
+
+`load-balance + consistent-hashing` 在 Loon 下被跳过：
+
+```text
+代理组「负载均衡」的类型 load-balance 无法在 loon 中表达，已跳过 / Group "负载均衡" of type load-balance cannot be expressed in loon; skipped
+```
+
+Egern（Surge 兼容：去掉 `#!MANAGED-CONFIG` 与两行注释后与 `?target=surge` 逐字节一致）：
+
+```text
+#!MANAGED-CONFIG
+# Egern（Surge 兼容）：按 Surge 格式输出；若 Egern 后续要求专有字段，需要单独适配。
+# Egern (Surge-compatible): exported as a Surge profile; if Egern later requires proprietary fields, a dedicated adapter is needed.
+[Proxy]
+...
+[Proxy Group]
+节点选择 = select, 故障转移, 香港-1, 日本-1, DIRECT
+故障转移 = fallback, 香港-1, url=http://www.gstatic.com/generate_204, interval=60
+```
+
+> The snippets above are locked by unit tests, one per new format, each including a group
+> that is skipped with a warning. Egern's body (after stripping the managed-config header)
+> is byte-identical to `?target=surge`.
+
+#### 6.3.4 按套餐预览 / Preview by package
+
+`POST /api/v1/subscription-templates/{id}/preview` 现在接受 `user_id` **或**
+`package_id`，二选一：
+
+```jsonc
+{ "package_id": "...", "target": "loon" }
+→ { "yaml": "...", "format": "loon", "warnings": ["..."] }
+```
+
+- 同时给 `user_id` 与 `package_id` → 400
+  `subscription_template.preview_target_conflict`；一个都不给 → 400
+  `subscription_template.preview_target_required`；套餐不存在 → 404 `package.not_found`。
+- 按套餐预览使用**该套餐的节点范围**（`packages.node_scope` → `package_nodes`；
+  未设范围 = 全部 enabled 节点）与**套餐自己的规则模板绑定**
+  （`packages.rule_template_id` → 默认模板 → 内置两条）；被预览的分组仍然是路径里的
+  模板 `id`，不会被套餐上的订阅模板绑定覆盖。
+- 套餐预览没有具体用户，节点凭据是用确定性占位值派生的（`package-preview:{id}`），
+  真实用户凭据按 `(user, node)` 派生，永远不同；预览的 `warnings` 会明确提示这一点。
+
+> The preview endpoint now accepts `user_id` **or** `package_id` (exactly one). Passing
+> both is a 400 `preview_target_conflict`; passing neither is a 400
+> `preview_target_required`; an unknown package is a 404 `package.not_found`. A package
+> preview uses that package's node scope (`node_scope` / `package_nodes`; unset = all
+> enabled nodes) and its own rule-template binding (`rule_template_id` → default template
+> → built-in rules); the groups still come from the template `id` in the path, never from
+> the package's subscription-template binding. There is no user, so node credentials are
+> deterministic placeholders (`package-preview:{id}`) — real credentials are derived per
+> `(user, node)` and always differ; the response warnings state this explicitly.
+
+#### 6.3.5 使用计数与删除确认 / Usage counts and delete confirmation
+
+`GET /api/v1/subscription-templates` 的每一项新增 `usage`：
+
+```jsonc
+{ "id": "...", "name": "...", "groups": [], "created_at": 0, "updated_at": 0,
+  "usage": { "users": 3, "packages": 1 } }
+```
+
+- 计数来自一条聚合 SQL（`repo::subscription_templates::usage_counts`），**不需要数据库迁移**；
+  前端列表显示「被 N 个用户 / M 个套餐使用」，未使用时显示「未被使用」。
+- 删除确认框在仍被使用时追加一句「删除后会解绑 N 个用户与 M 个套餐，它们的订阅立即
+  回落到内置分组」；实际解绑仍由外键 `ON DELETE SET NULL` 完成，后端行为不变。
+
+> Each list item gains `usage` (`users` / `packages`) from a single aggregate query
+> (`usage_counts`) — **no migration**. The list shows "used by N users / M packages" (or
+> "not in use"), and the delete confirmation adds an explicit unbind sentence when the
+> template is still referenced. The actual unbinding is still done by
+> `ON DELETE SET NULL`; backend deletion behaviour is unchanged.
+
+#### 6.3.6 仍不支持模板分组的格式 / Formats that still ignore templates
+
+| 格式 | 原因 |
+|---|---|
+| `qx`（Quantumult X） | `[policy]` 只有 `static` / `url-latency-benchmark`，没有 `fallback` / `load-balance`；混合模板只能静默降级，所以保持原行为。 |
+| `uri` | 每行一条 URI，本身没有分组概念。 |
+| `shadowrocket` / `v2ray` | base64 的 URI 列表，同样没有分组概念。 |
+
+这些格式**忽略**模板：有模板与无模板的输出逐字节一致（单测覆盖）。预览接口对它们返回
+400 `subscription_template.preview_format_unsupported`，不会把 YAML 塞回去。
+
+> `qx` only has `static` / `url-latency-benchmark` and cannot express fallback or
+> load-balance, so a mixed template would silently degrade; URI-list formats (`uri`,
+> `shadowrocket`, `v2ray`) have no grouping concept at all. These formats ignore templates,
+> so their output is byte-identical with or without one (covered by unit tests), and the
+> preview endpoint returns 400 `subscription_template.preview_format_unsupported` instead of
+> returning the wrong format.
 
 ## 7. 闭环：服务端也要有同一份凭据（下一轮）
 

@@ -1797,7 +1797,7 @@ fn push_ini_groups(
     plan: Option<&GroupPlan>,
 ) {
     if let Some(plan) = plan {
-        push_surge_plan_groups(out, plan);
+        push_ini_plan_groups(out, flavor, plan);
         return;
     }
     let groups = region_groups(nodes);
@@ -1824,12 +1824,19 @@ fn push_ini_groups(
     }
 }
 
-/// Surge 的模板分组：`name = <type>, member, ...`。
+/// 模板分组：`name = <type>, member, ...`。
 ///
-/// 不重排成员：组顺序与成员顺序都来自模板/节点原始顺序。`load-balance` 的
-/// `consistent-hashing` 在 [`plan_for_format`] 阶段就被跳过了（Surge 只有轮询），
-/// 所以这里只会看到 `round-robin` 语义的 load-balance。
-fn push_surge_plan_groups(out: &mut String, plan: &GroupPlan) {
+/// 不重排成员：组顺序与成员顺序都来自模板/节点原始顺序。无法表达的组在
+/// [`plan_for_format`] 阶段就被跳过了，所以这里只会看到目标格式真正支持的组。
+///
+/// 各 INI 客户端的差异只在组类型参数上：
+///
+/// | 格式 | url-test | fallback | load-balance |
+/// |---|---|---|---|
+/// | surge / egern | `url` + `interval` + `tolerance` | `url` + `interval` | `url` + `interval`（轮询） |
+/// | surfboard | `url` + `interval` + `tolerance` | `url` + `interval` | 不可表达（已跳过） |
+/// | loon | `url` + `interval` + `tolerance` | `url` + `interval` | `url` + `interval` + `algorithm=Round-Robin` |
+fn push_ini_plan_groups(out: &mut String, flavor: IniFlavor, plan: &GroupPlan) {
     for group in &plan.groups {
         let members: Vec<String> = group
             .members
@@ -1842,6 +1849,7 @@ fn push_surge_plan_groups(out: &mut String, plan: &GroupPlan) {
                 }
             })
             .collect();
+        let interval = group.interval.unwrap_or(DEFAULT_INTERVAL_SECS);
         let mut line = format!(
             "{} = {}, {}",
             ini_name(&group.name),
@@ -1851,15 +1859,18 @@ fn push_surge_plan_groups(out: &mut String, plan: &GroupPlan) {
         match group.kind {
             GroupKind::Select => {}
             GroupKind::UrlTest => line.push_str(&format!(
-                ", url={}, interval={}, tolerance=50",
-                MIHOMO_TEST_URL,
-                group.interval.unwrap_or(DEFAULT_INTERVAL_SECS)
+                ", url={MIHOMO_TEST_URL}, interval={interval}, tolerance=50"
             )),
-            GroupKind::Fallback | GroupKind::LoadBalance => line.push_str(&format!(
-                ", url={}, interval={}",
-                MIHOMO_TEST_URL,
-                group.interval.unwrap_or(DEFAULT_INTERVAL_SECS)
-            )),
+            GroupKind::Fallback => {
+                line.push_str(&format!(", url={MIHOMO_TEST_URL}, interval={interval}"));
+            }
+            GroupKind::LoadBalance => {
+                line.push_str(&format!(", url={MIHOMO_TEST_URL}, interval={interval}"));
+                // Loon 的 load-balance 默认算法不是轮询，必须显式声明才对得上模板。
+                if flavor == IniFlavor::Loon {
+                    line.push_str(", algorithm=Round-Robin");
+                }
+            }
         }
         out.push_str(&line);
         out.push('\n');
@@ -2070,8 +2081,10 @@ fn push_ini_rules(
     skipped
 }
 
-/// `plan` 只有 Surge 会传：Surge 是第一轮之外新增的模板感知格式，其它 INI
-/// 客户端（Egern / Surfboard / Loon / Quantumult X）保持原行为，忽略模板。
+/// `plan` 由模板感知的 INI 格式传入（surge / surge-full / egern / surfboard / loon）；
+/// Quantumult X 仍忽略模板：它能表达 `select` / `url-test`，但没有
+/// `fallback` / `load-balance`，混合模板会被静默降级，所以本轮保持原行为
+/// （见 `docs/SUBSCRIBE.md` §6.3）。
 fn render_ini(flavor: IniFlavor, ctx: &SubContext<'_>, plan: Option<&GroupPlan>) -> IniOutput {
     let mut proxies: Vec<(&SubNode, String)> = Vec::new();
     for node in ctx.nodes {
@@ -2235,8 +2248,10 @@ impl Exporter for EgernExporter {
     }
 
     fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
-        // Egern 是 Surge 兼容格式，但本轮不接入订阅模板（其它格式保持原行为）。
-        render_surge_compatible(self.id(), EGERN_HEADER, ctx, None)
+        // Egern 是 Surge 兼容格式：分组能力与 Surge 相同（`plan_for_format` 用
+        // egern 自己的 id 判定），正文复用同一份 Surge INI 生成逻辑。
+        let plan = templated_plan(ctx, self.id());
+        render_surge_compatible(self.id(), EGERN_HEADER, ctx, plan.as_ref())
     }
 }
 
@@ -2252,7 +2267,10 @@ impl Exporter for SurfboardExporter {
     }
 
     fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
-        let output = render_ini(IniFlavor::Surfboard, ctx, None);
+        // Surfboard 的 load-balance 只有随机分配，无法表达轮询/一致性哈希：
+        // `plan_for_format` 会把这类组跳过并 warning，绝不输出会被拒收的配置。
+        let plan = templated_plan(ctx, self.id());
+        let output = render_ini(IniFlavor::Surfboard, ctx, plan.as_ref());
         log_skipped(self.id(), output.skipped_nodes, output.skipped_rules);
         Ok(output.body)
     }
@@ -2270,7 +2288,10 @@ impl Exporter for LoonExporter {
     }
 
     fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
-        let output = render_ini(IniFlavor::Loon, ctx, None);
+        // Loon 支持 url-test / fallback / load-balance（轮询用 `algorithm=Round-Robin`
+        // 显式声明）；一致性哈希没有对应算法，由 `plan_for_format` 跳过。
+        let plan = templated_plan(ctx, self.id());
+        let output = render_ini(IniFlavor::Loon, ctx, plan.as_ref());
         log_skipped(self.id(), output.skipped_nodes, output.skipped_rules);
         Ok(output.body)
     }
@@ -2288,6 +2309,8 @@ impl Exporter for QxExporter {
     }
 
     fn render(&self, ctx: &SubContext<'_>) -> anyhow::Result<String> {
+        // Quantumult X 不接模板：它只有 `static` / `url-latency-benchmark`，
+        // 没有 fallback / load-balance，混合模板只能静默降级，所以保持原行为。
         let output = render_ini(IniFlavor::Qx, ctx, None);
         log_skipped(self.id(), output.skipped_nodes, output.skipped_rules);
         Ok(output.body)
@@ -6072,5 +6095,181 @@ mod tests {
             positions.windows(2).all(|pair| pair[0] < pair[1]),
             "sing-box 组顺序必须与模板一致：{positions:?}"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // 第三轮：surfboard / loon / egern 接入模板
+    // -----------------------------------------------------------------------
+
+    /// 第三轮模板：`select`（include_auto）+ `fallback` + 一致性哈希 `load-balance`。
+    ///
+    /// 三种新格式对 `consistent-hashing` 都表达不了，所以每个格式的测试都会看到
+    /// 「跳过 + warning」，同时 `select` 的自动组成员必须仍然指向存在的组。
+    fn round_three_groups(strategy: LoadBalanceStrategy) -> Vec<SubscriptionGroup> {
+        vec![
+            SubscriptionGroup {
+                name: "节点选择".into(),
+                kind: GroupKind::Select,
+                filters: vec![GroupFilter::default()],
+                include_auto: true,
+                interval: None,
+                strategy: None,
+            },
+            SubscriptionGroup {
+                name: "故障转移".into(),
+                kind: GroupKind::Fallback,
+                filters: vec![GroupFilter {
+                    regions: vec!["HK".into()],
+                    ..Default::default()
+                }],
+                include_auto: false,
+                interval: Some(60),
+                strategy: None,
+            },
+            SubscriptionGroup {
+                name: "负载均衡".into(),
+                kind: GroupKind::LoadBalance,
+                filters: vec![GroupFilter::default()],
+                include_auto: false,
+                interval: Some(90),
+                strategy: Some(strategy),
+            },
+        ]
+    }
+
+    fn ini_group_lines(body: &str) -> Vec<&str> {
+        body.split_once("[Proxy Group]\n")
+            .and_then(|(_, rest)| rest.split_once("\n[Rule]"))
+            .map(|(groups, _)| {
+                groups
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .collect()
+            })
+            .unwrap_or_else(|| panic!("缺少 [Proxy Group]：{body}"))
+    }
+
+    /// Surfboard：`select` / `fallback` 写成 Surfboard 的 INI 语法；
+    /// `load-balance` 只有随机分配，属于「无法表达」→ 跳过 + warning。
+    #[test]
+    fn surfboard_wires_templates_and_skips_load_balance() {
+        let nodes = template_nodes();
+        let plan = plan_groups(&round_three_groups(LoadBalanceStrategy::RoundRobin), &nodes);
+        let rules = vec!["GEOIP,CN,DIRECT".to_string(), "MATCH,PROXY".to_string()];
+        let ctx = template_ctx(&plan, &nodes, &rules);
+        let body = SurfboardExporter.render(&ctx).unwrap();
+
+        assert_eq!(
+            ini_group_lines(&body),
+            vec![
+                "节点选择 = select, 故障转移, 香港-1, 日本-1, DIRECT",
+                "故障转移 = fallback, 香港-1, url=http://www.gstatic.com/generate_204, interval=60",
+            ],
+            "{body}"
+        );
+        assert!(
+            !body.contains("load-balance"),
+            "Surfboard 表达不了 load-balance，不能输出该组：{body}"
+        );
+        assert_eq!(body.lines().last(), Some("FINAL,节点选择"), "{body}");
+
+        let filtered = plan_for_format(&plan, "surfboard");
+        assert!(
+            filtered.warnings.iter().any(|warning| {
+                warning.contains("负载均衡")
+                    && warning.contains("load-balance")
+                    && warning.contains("surfboard")
+            }),
+            "{:?}",
+            filtered.warnings
+        );
+    }
+
+    /// Loon：轮询 `load-balance` 用 `algorithm=Round-Robin` 精确表达；
+    /// 一致性哈希没有对应算法 → 跳过，且 `select` 的自动组成员同步移除。
+    #[test]
+    fn loon_wires_templates_with_explicit_round_robin() {
+        let nodes = template_nodes();
+        let plan = plan_groups(&round_three_groups(LoadBalanceStrategy::RoundRobin), &nodes);
+        let rules = vec!["MATCH,PROXY".to_string()];
+        let ctx = template_ctx(&plan, &nodes, &rules);
+        let body = LoonExporter.render(&ctx).unwrap();
+
+        assert_eq!(
+            ini_group_lines(&body),
+            vec![
+                "节点选择 = select, 故障转移, 香港-1, 日本-1, DIRECT",
+                "故障转移 = fallback, 香港-1, url=http://www.gstatic.com/generate_204, interval=60",
+                "负载均衡 = load-balance, 香港-1, 日本-1, url=http://www.gstatic.com/generate_204, interval=90, algorithm=Round-Robin",
+            ],
+            "{body}"
+        );
+        assert_eq!(body.lines().last(), Some("FINAL,节点选择"), "{body}");
+
+        // 一致性哈希：组被跳过；select 之前把「负载均衡」当自动组，必须一起移除。
+        let hash_plan = plan_groups(
+            &round_three_groups(LoadBalanceStrategy::ConsistentHashing),
+            &nodes,
+        );
+        let ctx = template_ctx(&hash_plan, &nodes, &rules);
+        let body = LoonExporter.render(&ctx).unwrap();
+        assert!(!body.contains("负载均衡"), "{body}");
+        assert!(
+            ini_group_lines(&body)[0]
+                .contains("节点选择 = select, 故障转移, 香港-1, 日本-1, DIRECT"),
+            "自动组被跳过时不能留下悬空引用：{body}"
+        );
+        let filtered = plan_for_format(&hash_plan, "loon");
+        assert!(
+            filtered.warnings.iter().any(|warning| {
+                warning.contains("负载均衡") && warning.contains("load-balance")
+            }),
+            "{:?}",
+            filtered.warnings
+        );
+    }
+
+    /// Egern：Surge 兼容 profile，分组能力与 Surge 相同（一致性哈希跳过）。
+    #[test]
+    fn egern_wires_templates_with_surge_compatible_groups() {
+        let nodes = template_nodes();
+        let plan = plan_groups(
+            &round_three_groups(LoadBalanceStrategy::ConsistentHashing),
+            &nodes,
+        );
+        let rules = vec!["MATCH,PROXY".to_string()];
+        let ctx = template_ctx(&plan, &nodes, &rules);
+
+        let egern = EgernExporter.render(&ctx).unwrap();
+        let surge = SurgeExporter.render(&ctx).unwrap();
+        assert_eq!(
+            egern.strip_prefix(EGERN_HEADER).unwrap(),
+            surge,
+            "Egern 复用 Surge 正文，分组表达不能漂移"
+        );
+        assert!(egern.contains("故障转移 = fallback"), "{egern}");
+        assert!(
+            !egern.contains("负载均衡"),
+            "一致性哈希在 Egern/Surge 里必须跳过：{egern}"
+        );
+        assert_eq!(egern.lines().last(), Some("FINAL,节点选择"), "{egern}");
+    }
+
+    /// QX / Shadowrocket / V2Ray 仍不接模板：有模板与无模板的输出逐字节一致。
+    #[test]
+    fn formats_without_template_support_stay_byte_identical() {
+        let nodes = template_nodes();
+        let plan = plan_groups(&round_three_groups(LoadBalanceStrategy::RoundRobin), &nodes);
+        let rules = vec!["MATCH,PROXY".to_string()];
+        let legacy = sub_context(&nodes, &rules);
+        let planned = template_ctx(&plan, &nodes, &rules);
+        for id in ["qx", "shadowrocket", "v2ray", "uri"] {
+            let exporter = find_exporter(id).unwrap();
+            assert_eq!(
+                exporter.render(&legacy).unwrap(),
+                exporter.render(&planned).unwrap(),
+                "{id} 本轮不支持模板分组，输出必须保持原样"
+            );
+        }
     }
 }

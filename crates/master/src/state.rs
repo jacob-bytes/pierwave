@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
+
 use pierwave_domain::Db;
 use pierwave_proto::MasterMessage;
 use serde_json::Value;
@@ -24,6 +26,43 @@ pub const DEFAULT_RELEASE_SOURCE: &str =
 /// 查询最新版本的默认 GitHub API 地址。
 pub const DEFAULT_LATEST_URL: &str =
     "https://api.github.com/repos/jacob-bytes/pierwave/releases/latest";
+
+/// 异地备份的进程内并发保护与重试参数。
+///
+/// 锁只保护「同一时刻一次上传」；重试次数固定 3 次（指数退避），退避基数
+/// 放在这里是为了让测试能把它压到毫秒级，不依赖真实等待。
+#[derive(Clone)]
+pub struct RemoteBackupRuntime {
+    lock: Arc<AsyncMutex<()>>,
+    /// 最多尝试次数（含首次）。
+    pub max_attempts: usize,
+    /// 指数退避基数：base, 2×base, 4×base…
+    pub retry_delay: Duration,
+}
+
+impl Default for RemoteBackupRuntime {
+    fn default() -> Self {
+        Self {
+            lock: Arc::new(AsyncMutex::new(())),
+            max_attempts: 3,
+            retry_delay: Duration::from_secs(2),
+        }
+    }
+}
+
+impl RemoteBackupRuntime {
+    /// 非阻塞取锁：拿到返回 guard，已有上传在进行时返回 `None`。
+    pub fn try_acquire(&self) -> Option<OwnedMutexGuard<()>> {
+        self.lock.clone().try_lock_owned().ok()
+    }
+
+    /// 测试：把退避压到毫秒级，避免单测真的等 2s + 4s。
+    #[cfg(test)]
+    pub fn fast_retry(mut self) -> Self {
+        self.retry_delay = Duration::from_millis(1);
+        self
+    }
+}
 
 /// 最新版本缓存 5 分钟：前端「留空 = 最新」不应该每次点击都打 GitHub。
 const LATEST_VERSION_TTL: Duration = Duration::from_secs(300);
@@ -226,6 +265,8 @@ pub struct AppState {
     pub updates: UpdateService,
     /// 节点 TCPing 的每节点并发/频控状态；结果只在内存里，不落库。
     pub tcping: TcpingRegistry,
+    /// 异地备份（WebDAV）的进程内互斥与重试参数。
+    pub remote_backup: RemoteBackupRuntime,
 }
 
 impl AppState {
@@ -242,6 +283,7 @@ impl AppState {
             alerts: Alerts::default(),
             updates: UpdateService::default(),
             tcping: TcpingRegistry::default(),
+            remote_backup: RemoteBackupRuntime::default(),
         }
     }
 

@@ -2334,3 +2334,96 @@ POST /api/v1/updates/check  -> 同 GET（立即请求一次 GitHub Releases）
 > The 1440 sidebar shots are cropped to the lower-left area (the popover is a
 > little wider than the sidebar); the 390 shots are full viewport captures that
 > show the popover never overflows the screen.
+
+## P18：异地备份（WebDAV，第一期）
+
+把「备份与恢复」里手动下载的备份，按间隔自动上传到 WebDAV，并在远端按保留策略
+清理本产品写入的旧文件。第一期只做 WebDAV（含 Nextcloud/ownCloud 的 DAV 地址），
+S3/OSS/B2 等对象存储不在本期范围。
+
+### 接口（仅管理员）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/v1/backup/remote` | `{ last_success_at, last_failure_at, last_error, files[:30] }`；`files` 实时 PROPFIND，远端不可达时返回空数组 |
+| POST | `/api/v1/backup/remote/test` | 测试已保存的配置；失败是业务结果（200 + `ok:false` + 打码原因） |
+| POST | `/api/v1/backup/remote/run` | 立即生成快照并上传；成功返回文件名/大小/保留策略删除列表 |
+
+状态暂存在 `settings` 表（`backup_webdav_last_*` 内部键，不在设置白名单里，也不经 API 暴露），
+不新增迁移；历史文件列表始终以远端 PROPFIND 为准。
+
+### 设置项
+
+| 键 | 类型 | 默认 | 范围 / 约束 |
+|---|---|---|---|
+| `backup_webdav_enabled` | bool | `false` | 开启时必须有地址与密码 |
+| `backup_webdav_url` | string | `""` | http(s)，不带用户名密码/query/fragment；末尾 `/` 去掉 |
+| `backup_webdav_username` | string | `""` | 可选；不能含冒号（Basic 认证分隔符） |
+| `backup_webdav_password` | string | `""` | 不回显；`GET /settings` 只返回 `backup_webdav_has_password`，保存留空 = 保持不变 |
+| `backup_webdav_interval_hours` | int | `24` | 1–168；调度器每 60 秒判断是否到点 |
+| `backup_webdav_keep` | int | `7` | 1–30；只删同前缀、时间戳格式合法的旧文件 |
+
+密码与 Telegram Bot Token 一样明文存 `settings` 表，但**绝不回显、绝不进日志**。
+
+### 行为
+
+- 调度器每 60 秒读一次设置；`last_attempt_at + interval` 到点才执行，改设置无需重启。
+- 备份走与下载相同的 `VACUUM INTO` → gzip 路径，文件名
+  `pierwave-backup-{yyyyMMdd-HHmmss}.db.gz`，PUT 到 `{url}/{name}`。
+- 失败按 2s → 4s 指数退避重试，最多 3 次；仍失败则记录 `last_failure_at` 与打码后的
+  `last_error`，并走现有告警渠道发 `backup_failed`（默认开启）。手动触发失败只返回错误，
+  不发告警。
+- 保留策略：PROPFIND 后只选 `pierwave-backup-YYYYMMDD-HHMMSS.db.gz`，按文件名倒序保留
+  最近 N 份，其余 DELETE；远端目录里其它文件（含相似前缀）永远不会被删除。
+- 并发：`AppState::RemoteBackupRuntime` 的进程内异步互斥锁，定时与「立即备份」同时只允许
+  一个；拿不到锁立即返回 409 `backup.remote_busy`，不排队。
+
+### WebDAV 客户端
+
+系统 `curl` 子进程（与告警投递同一模式，不新增 HTTP 依赖）：
+
+- 凭据通过 `--config -` 从 stdin 传入（不进 argv，`ps` 看不到密码）；
+- `--proto =http,https`；不传 `-k/--insecure`，HTTPS 证书校验保持开启；
+- PROPFIND 的 XML 用容错解析（命名空间前缀无关、截断不 panic），只取
+  `href/getcontentlength/getlastmodified`；
+- 非 2xx 映射成可读原因（401/403/404/405/507），所有错误先对密码打码；
+- 测试用本地 axum 假服务器模拟 PROPFIND/PUT/DELETE，不联网。
+
+### 前端
+
+设置页「备份与恢复」tab 新增「异地备份」卡：开关、地址、用户名、密码（占位
+「已保存（留空不修改）」）、间隔、保留份数、保存、测试连接、立即备份、上次成功/失败时间、
+打码错误与最近文件列表（名称/大小/时间，最多 30 条）。纯逻辑在
+`web/src/lib/remoteBackup.ts`，单测 `remoteBackup.test.mjs`。
+
+> **Status (2026-11, English)**: the first phase ships WebDAV only. An admin enables
+> off-site backup in Settings → Backup & restore, fills in the DAV URL, optional
+> username and password, interval (1–168 h) and copies to keep (1–30). A scheduler
+> tick every 60 s uploads `pierwave-backup-YYYYMMDD-HHMMSS.db.gz` when due; failures
+> retry three times with exponential backoff and then record a redacted error and
+> raise the `backup_failed` alert (on by default). Retention only ever deletes files
+> matching this product's exact name pattern — foreign files in the same directory
+> are never touched. The password is write-only: `GET /settings` returns only
+> `backup_webdav_has_password`, and an empty value on save keeps the current one.
+> Uploads are serialized by a process-wide async mutex; a concurrent manual run gets
+> HTTP 409 `backup.remote_busy`. The WebDAV client shells out to `curl` with
+> credentials on stdin (never argv), keeps certificate verification on, and is
+> covered by tests against a local axum fake server. No migration was needed: the
+> status timestamps live in internal `settings` keys. S3-compatible object storage
+> is intentionally out of scope for this phase.
+
+### 截图
+
+`docs/images/remote-backup/`：
+
+- `remote-backup-{light,dark}-{1440,390}.png`：设置卡（已配置 + 已成功上传）；
+- `remote-backup-test-{light,dark}-1440.png`：点「测试连接」后的成功结果；
+- `remote-backup-run-{light,dark}-1440.png`：点「立即备份」后的上传结果（含保留策略删除条数）；
+- `remote-backup-run-light-390.png`：手机宽度下的上传结果。
+
+> **Screenshots**: `docs/images/remote-backup/` holds the off-site backup card in
+> light and dark at 1440 and 390 CSS pixels, plus the result of the real
+> "Test connection" PROPFIND and the real "Back up now" upload (which also shows
+> the retention deletion count). The 390 shots use a taller viewport (390 × 1500)
+> because the card itself is taller than a phone screen; the width and responsive
+> layout are still the 390 breakpoint.

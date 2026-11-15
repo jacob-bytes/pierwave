@@ -11,6 +11,7 @@ import type {
   SubscriptionGroupKind,
   SubscriptionLoadBalanceStrategy,
   SubscriptionTemplate,
+  SubscriptionTemplateUsage,
 } from "./api.ts";
 
 /** 与后端一致：单个组名上限。 */
@@ -399,13 +400,59 @@ export function validateTemplateDraft(draft: TemplateDraft): DraftError[] {
   return errors;
 }
 
-/** 预览按钮：只有已保存的模板 + 选中的用户 + 空闲状态才可点。 */
+/**
+ * 模板使用情况：0 / 缺失都算「未被使用」，负数按脏数据归零。
+ *
+ * 列表显示「被 N 个用户 / M 个套餐使用」，删除确认只在 `inUse` 时追加解绑说明。
+ */
+export interface TemplateUsageSummary {
+  users: number;
+  packages: number;
+  inUse: boolean;
+}
+
+export function templateUsage(
+  usage?: SubscriptionTemplateUsage | null,
+): TemplateUsageSummary {
+  const users = Math.max(0, usage?.users ?? 0);
+  const packages = Math.max(0, usage?.packages ?? 0);
+  return { users, packages, inUse: users > 0 || packages > 0 };
+}
+
+/** 预览对象：用户或套餐（与后端 `user_id` / `package_id` 二选一对应）。 */
+export type PreviewSubjectKind = "user" | "package";
+
+export interface PreviewSubject {
+  kind: PreviewSubjectKind;
+  id: string;
+}
+
+/**
+ * 下拉框里的预览对象值：`user:<id>` / `package:<id>`。
+ *
+ * 用前缀而不是两个独立状态，是因为用户与套餐共用一个下拉框（分组展示），
+ * 选中的值必须能直接判断走哪个 API 字段。id 是 UUID，不会包含 `:`。
+ */
+export function previewSubjectValue(subject: PreviewSubject): string {
+  return `${subject.kind}:${subject.id}`;
+}
+
+export function parsePreviewSubject(value: string): PreviewSubject | null {
+  const index = value.indexOf(":");
+  if (index <= 0) return null;
+  const kind = value.slice(0, index);
+  if (kind !== "user" && kind !== "package") return null;
+  const id = value.slice(index + 1).trim();
+  return id === "" ? null : { kind, id };
+}
+
+/** 预览按钮：只有已保存的模板 + 选中的用户/套餐 + 空闲状态才可点。 */
 export function previewDisabled(state: {
   pending: boolean;
   hasTemplate: boolean;
-  hasUser: boolean;
+  hasSubject: boolean;
 }): boolean {
-  return state.pending || !state.hasTemplate || !state.hasUser;
+  return state.pending || !state.hasTemplate || !state.hasSubject;
 }
 
 /**
@@ -420,6 +467,9 @@ export const TEMPLATE_PREVIEW_FORMATS = [
   "surge-full",
   "singbox",
   "singbox-full",
+  "surfboard",
+  "loon",
+  "egern",
 ] as const;
 
 export type TemplatePreviewFormat = (typeof TEMPLATE_PREVIEW_FORMATS)[number];
@@ -436,6 +486,11 @@ export function resolvePreviewFormat(input: string): TemplatePreviewFormat | nul
   ) {
     return normalized as TemplatePreviewFormat;
   }
+  if (normalized.includes("surfboard") || normalized.includes("surf-board")) {
+    return "surfboard";
+  }
+  if (normalized.includes("loon")) return "loon";
+  if (normalized.includes("egern")) return "egern";
   if (normalized.includes("sing")) {
     return normalized.includes("full") ? "singbox-full" : "singbox";
   }

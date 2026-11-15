@@ -15,6 +15,7 @@ export const ALERT_EVENTS = [
   "user_exhausted",
   "chain_degraded",
   "upgrade_failed",
+  "backup_failed",
   "update_available",
 ] as const;
 
@@ -30,6 +31,7 @@ export const DEFAULT_ALERT_EVENTS: readonly AlertEvent[] = [
   "server_offline",
   "user_exhausted",
   "chain_degraded",
+  "backup_failed",
   "update_available",
 ];
 

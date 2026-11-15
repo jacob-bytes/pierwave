@@ -1592,6 +1592,7 @@ const en = {
     columns: {
       name: "Name",
       groups: "Proxy groups",
+      usage: "Usage",
       updatedAt: "Updated",
       actions: "Actions",
     },
@@ -1599,9 +1600,11 @@ const en = {
     templateCount: "{n} templates",
     templateCountOne: "{n} template",
     groupCountOne: "{n} group",
+    usageCount: "Used by {users} users / {packages} packages",
+    usageNone: "Not in use",
     emptyTitle: "No subscription templates yet",
     emptyDesc:
-      "Create a template and bind it to a user or package; clash / mihomo / stash / sing-box / surge subscriptions will render their proxy groups from it.",
+      "Create a template and bind it to a user or package; clash / mihomo / stash / sing-box / surge / surfboard / loon / egern subscriptions will render their proxy groups from it.",
     emptyAction: "New subscription template",
     loadFailed: "Could not load subscription templates",
     loadError:
@@ -1617,6 +1620,8 @@ const en = {
     delete: {
       title: "Delete subscription template",
       desc: "Delete “{name}”? Users and packages bound to it are unbound automatically and subscriptions fall back to the built-in groups.",
+      unbind:
+        "Deleting it unbinds {users} users and {packages} packages; their subscriptions fall back to the built-in groups immediately.",
       action: "Delete",
       success: "Subscription template “{name}” deleted",
       error: "Could not delete the subscription template. Please try again.",
@@ -1624,9 +1629,11 @@ const en = {
     },
     preview: {
       title: "Preview subscription",
-      desc: "Pick a user and an export format to render a config from their real nodes.",
-      user: "User",
-      userPlaceholder: "Select a user",
+      desc: "Pick a user or package and an export format to render a config from its real nodes.",
+      subject: "Preview subject",
+      subjectPlaceholder: "Select a user or package",
+      usersGroup: "Users",
+      packagesGroup: "Packages",
       format: "Export format",
       output: "Preview output",
       formats: {
@@ -1637,6 +1644,9 @@ const en = {
         "surge-full": "Surge (full profile)",
         singbox: "sing-box (fragment)",
         "singbox-full": "sing-box (full config)",
+        surfboard: "Surfboard (Surge-compatible)",
+        loon: "Loon (INI)",
+        egern: "Egern (Surge-compatible)",
       },
       run: "Render preview",
       running: "Rendering…",
@@ -1644,8 +1654,8 @@ const en = {
       noWarnings: "No warnings",
       yaml: "mihomo config",
       error: "Could not render the preview. Please try again.",
-      noUsers: "No users yet",
-      loadUsersError: "Could not load users. Please try again.",
+      noSubjects: "No users or packages yet",
+      loadSubjectsError: "Could not load users or packages. Please try again.",
     },
     form: {
       createTitle: "New subscription template",
@@ -1674,7 +1684,7 @@ const en = {
       },
       includeAuto: "Include the auto-select group",
       includeAutoHint:
-        "Puts the first matching url-test group of the template first in the member list.",
+        "Puts the first matching auto group first in the member list, priority url-test > fallback > load-balance.",
       filters: "Filters",
       filterHint:
         "Tags / regions / protocols / name substring inside one filter must all match; filters are OR-ed. Exclusions win; leave empty for all nodes.",
@@ -1758,7 +1768,7 @@ const en = {
       subscriptionTemplates: "Subscription templates",
       "subscription-templates": "Subscription templates",
       subscriptionTemplatesDesc:
-        "Manage the clash / mihomo / stash / sing-box / surge proxy groups; the built-in PROXY / AUTO groups apply when none is specified.",
+        "Manage the clash / mihomo / stash / sing-box / surge / surfboard / loon / egern proxy groups; the built-in PROXY / AUTO groups apply when none is specified.",
       certificates: "Certificates",
       certificatesDesc:
         "Manage certificates used by TLS nodes; upload one and bind it in the node form.",
@@ -1902,6 +1912,9 @@ const en = {
           "When any hop in a forward chain cannot reach its target.",
         upgrade_failed: "Upgrade failed",
         upgrade_failedDesc: "When an Agent upgrade fails or times out.",
+        backup_failed: "Off-site backup failed",
+        backup_failedDesc:
+          "When a WebDAV backup fails three upload attempts in a row; on by default.",
         update_available: "New release",
         update_availableDesc:
           "When a newer master version is found; each version is announced once.",
@@ -1991,6 +2004,67 @@ const en = {
         "The file is larger than {size} and cannot be uploaded; compress or trim the backup first.",
       emptyFile: "This file is empty; choose a valid backup file.",
       unsupportedFile: "Only .db or .db.gz files are supported.",
+      remote: {
+        title: "Off-site backup",
+        desc: "Upload backups to WebDAV on a schedule; only files written by this product are pruned.",
+        enabled: "Enable off-site backup",
+        url: "WebDAV URL",
+        urlPlaceholder:
+          "https://dav.example.com/remote.php/dav/files/user/pierwave",
+        username: "Username",
+        usernamePlaceholder: "Optional",
+        password: "Password",
+        passwordPlaceholder: "Enter the password",
+        passwordSavedPlaceholder: "Saved (leave blank to keep)",
+        interval: "Interval (hours)",
+        keep: "Copies to keep",
+        save: "Save settings",
+        saving: "Saving…",
+        saved: "Off-site backup settings saved",
+        saveError: "Could not save the off-site backup settings. Please try again.",
+        saveFirstHint:
+          "Testing and backing up now use the saved settings.",
+        test: "Test connection",
+        testing: "Testing…",
+        testOk: "Connection succeeded",
+        testFailed: "Connection failed",
+        run: "Back up now",
+        running: "Uploading…",
+        runOk: "Uploaded {name} ({size})",
+        runDeleted: " and pruned {n} old backup(s)",
+        statusTitle: "Backup status",
+        lastSuccess: "Last success",
+        lastFailure: "Last failure",
+        never: "No successful upload yet",
+        errorTitle: "Last failure",
+        filesTitle: "Recent files",
+        filesEmpty: "No backups written by this product yet.",
+        filesLoadFailed: "Could not read remote files",
+        filesLoadError:
+          "Could not read the remote backup list. Check your network, or whether the controller is running.",
+        filesHint:
+          "Only files written by this product are listed; other files are never listed or deleted.",
+        unknownTime: "—",
+        validation: {
+          scheme: "The URL must start with http:// or https://",
+          host: "The URL needs a valid host name",
+          credentials: "The URL cannot contain a username or password",
+          query: "The URL cannot contain a query string or fragment",
+          whitespace: "The URL cannot contain whitespace",
+          port: "The port must be between 1 and 65535",
+          interval: "The interval must be a whole number between 1 and 168 hours",
+          keep: "Copies to keep must be a whole number between 1 and 30",
+          urlInvalid:
+            "Invalid WebDAV URL: it must start with http(s), include a host, and contain no credentials or query string",
+          usernameInvalid:
+            "The WebDAV username is at most 256 characters and cannot contain a colon or control characters",
+          passwordInvalid:
+            "The WebDAV password is at most 512 characters and cannot contain control characters",
+          urlRequired: "A WebDAV URL is required before enabling off-site backup",
+          passwordRequired:
+            "A WebDAV password is required before enabling off-site backup",
+        },
+      },
     },
     duration: {
       hours: "{n} hours",
@@ -3439,6 +3513,15 @@ const en = {
     "routing_rule.outbound_not_found": "Outbound tag “{tag}” does not exist",
     "routing_rule.inbound_not_found": "Inbound node tag “{tag}” does not exist",
     "routing_rule.match_required": "A routing rule needs at least one of inbound, domain or IP",
+    "backup.remote_busy": "An upload is already running; please try again later",
+    "backup.remote_not_configured": "WebDAV URL or password is not configured",
+    "backup.remote_upload_failed": "Off-site backup upload failed: {detail}",
+    "settings.backup_webdav_url_invalid": "Invalid WebDAV URL",
+    "settings.backup_webdav_username_invalid": "Invalid WebDAV username",
+    "settings.backup_webdav_password_invalid": "Invalid WebDAV password",
+    "settings.backup_webdav_url_required": "A WebDAV URL is required before enabling off-site backup",
+    "settings.backup_webdav_password_required":
+      "A WebDAV password is required before enabling off-site backup",
     "backup.restore_no_pending": "There is no pending restore",
     "backup.in_memory_unsupported": "Backup and restore are not supported for in-memory databases",
     "backup.restore_bad_header": "The backup file is not a valid SQLite database",

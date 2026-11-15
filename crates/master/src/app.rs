@@ -20,6 +20,16 @@ pub fn router(state: AppState) -> Router {
             post(routes::backup::restore).delete(routes::backup::cancel_restore),
         )
         .route("/api/v1/backup/info", get(routes::backup::info))
+        // 异地备份（WebDAV）：状态只读；测试与立即上传都是管理员动作。
+        .route("/api/v1/backup/remote", get(routes::backup::remote_status))
+        .route(
+            "/api/v1/backup/remote/test",
+            post(routes::backup::remote_test),
+        )
+        .route(
+            "/api/v1/backup/remote/run",
+            post(routes::backup::remote_run),
+        )
         .route("/api/v1/auth/login", post(routes::auth::login))
         .route("/api/v1/auth/logout", post(routes::auth::logout))
         .route("/api/v1/auth/me", get(routes::auth::me))

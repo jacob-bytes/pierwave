@@ -24,6 +24,7 @@ import {
 } from "@/components/common";
 import { AlertsCard } from "@/components/settings/AlertsCard";
 import { BackupCard } from "@/components/settings/BackupCard";
+import { RemoteBackupCard } from "@/components/settings/RemoteBackupCard";
 import { CertificatesPanel } from "@/components/settings/CertificatesPanel";
 import { RuleTemplatesPanel } from "@/components/settings/RuleTemplatesPanel";
 import { SubscriptionTemplatesPanel } from "@/components/settings/SubscriptionTemplatesPanel";
@@ -734,6 +735,8 @@ export default function SettingsPage() {
           </p>
           {/* P7：备份与恢复独立于设置表单，自己拉 info 并处理四态。 */}
           <BackupCard />
+          {/* 异地备份（WebDAV）：独立卡片，自己拉设置与远端状态。 */}
+          <RemoteBackupCard />
         </TabsContent>
 
         <TabsContent

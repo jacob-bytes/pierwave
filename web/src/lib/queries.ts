@@ -69,6 +69,9 @@ import {
   type SubscriptionTemplatePreview,
   type ResetServerTokenResponse,
   type ResetSubscriptionResponse,
+  type RemoteBackupRunResult,
+  type RemoteBackupStatus,
+  type RemoteBackupTestResult,
   type RestoreBackupResponse,
   type Server,
   type SessionUser,
@@ -182,6 +185,8 @@ export const queryKeys = {
   updates: ["updates"] as const,
   /** P7：备份信息（当前库大小 + 待恢复状态），与设置分开缓存。 */
   backupInfo: ["backup", "info"] as const,
+  /** 异地备份（WebDAV）状态；上传/保存后手动失效。 */
+  remoteBackup: ["backup", "remote"] as const,
 };
 
 /** 401 统一由 QueryCache / MutationCache 的全局 onError 处理。 */
@@ -614,6 +619,39 @@ export function useBackupInfo() {
     queryFn: api.backup.info,
     retry: false,
     staleTime: 15_000,
+  });
+}
+
+/**
+ * 异地备份（WebDAV）状态：上次成功/失败、错误与最近文件。
+ *
+ * 后端可能暂时 404（旧版本）：不重试，由卡片展示错误态与「重试」。
+ */
+export function useRemoteBackupStatus() {
+  return useQuery<RemoteBackupStatus>({
+    queryKey: queryKeys.remoteBackup,
+    queryFn: api.backup.remote.status,
+    retry: false,
+    staleTime: 15_000,
+  });
+}
+
+/** 测试已保存的 WebDAV 配置；失败是业务结果，不抛错。 */
+export function useTestRemoteBackup() {
+  return useMutation<RemoteBackupTestResult, Error, void>({
+    mutationFn: api.backup.remote.test,
+  });
+}
+
+/** 立即生成并上传一次备份；成功后刷新状态与文件列表。 */
+export function useRunRemoteBackup() {
+  const queryClient = useQueryClient();
+
+  return useMutation<RemoteBackupRunResult, Error, void>({
+    mutationFn: api.backup.remote.run,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.remoteBackup });
+    },
   });
 }
 
@@ -1096,15 +1134,15 @@ export function useDeleteSubscriptionTemplate() {
   });
 }
 
-/** 预览不写库、不进缓存：每次调用都按当前用户与目标格式实时渲染。 */
+/** 预览不写库、不进缓存：每次调用都按当前用户/套餐与目标格式实时渲染。 */
 export function usePreviewSubscriptionTemplate() {
   return useMutation<
     SubscriptionTemplatePreview,
     Error,
-    { id: string; userId: string; target?: string }
+    { id: string; userId?: string; packageId?: string; target?: string }
   >({
-    mutationFn: ({ id, userId, target }) =>
-      api.subscriptionTemplates.preview(id, userId, target),
+    mutationFn: ({ id, userId, packageId, target }) =>
+      api.subscriptionTemplates.preview(id, { userId, packageId }, target),
   });
 }
 

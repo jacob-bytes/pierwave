@@ -8,6 +8,7 @@ use axum::Json;
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
 
+use pierwave_domain::remote_backup;
 use pierwave_domain::repo;
 
 use crate::auth::CurrentUser;
@@ -24,10 +25,11 @@ pub const MIN_AGENT_UPGRADE_CONCURRENCY: i64 = 1;
 pub const MAX_AGENT_UPGRADE_CONCURRENCY: i64 = 5;
 /// 公开状态页总开关：默认开启；0 = 关闭（接口返回 404）。
 pub const DEFAULT_PUBLIC_STATUS_ENABLED: i64 = 1;
-/// 默认开启的四类告警；升级失败默认关闭（噪音较大，且升级本身有 UI 状态）。
-/// `update_available` 默认开启，与旧的 `update_check_notify` 默认值一致。
+/// 默认开启的五类告警；升级失败默认关闭（噪音较大，且升级本身有 UI 状态）。
+/// `update_available` 默认开启，与旧的 `update_check_notify` 默认值一致；
+/// `backup_failed`（异地备份连续 3 次失败）默认开启——备份是数据安全底线。
 pub const DEFAULT_ALERT_EVENTS: &str =
-    "server_offline,user_exhausted,chain_degraded,update_available";
+    "server_offline,user_exhausted,chain_degraded,backup_failed,update_available";
 /// 同类告警默认冷却 600 秒；0 = 不去抖。
 pub const DEFAULT_ALERT_COOLDOWN_SECS: i64 = 600;
 pub const MIN_ALERT_COOLDOWN_SECS: i64 = 0;
@@ -41,6 +43,19 @@ pub const MIN_UPDATE_CHECK_INTERVAL_HOURS: i64 = crate::updates::MIN_INTERVAL_HO
 pub const MAX_UPDATE_CHECK_INTERVAL_HOURS: i64 = crate::updates::MAX_INTERVAL_HOURS;
 /// **兼容保留**：只给旧前端读写；通知路径已改用 `update_available` 事件。
 pub const DEFAULT_UPDATE_CHECK_NOTIFY: bool = true;
+
+/// 异地备份（WebDAV）：默认关闭；间隔与保留份数复用领域层常量，
+/// 保证「设置允许的范围」与「保留策略使用的范围」永远一致。
+pub const DEFAULT_BACKUP_WEBDAV_ENABLED: bool = false;
+pub const DEFAULT_BACKUP_WEBDAV_INTERVAL_HOURS: i64 = remote_backup::DEFAULT_INTERVAL_HOURS;
+pub const MIN_BACKUP_WEBDAV_INTERVAL_HOURS: i64 = remote_backup::MIN_INTERVAL_HOURS;
+pub const MAX_BACKUP_WEBDAV_INTERVAL_HOURS: i64 = remote_backup::MAX_INTERVAL_HOURS;
+pub const DEFAULT_BACKUP_WEBDAV_KEEP: i64 = remote_backup::DEFAULT_KEEP;
+pub const MIN_BACKUP_WEBDAV_KEEP: i64 = remote_backup::MIN_KEEP;
+pub const MAX_BACKUP_WEBDAV_KEEP: i64 = remote_backup::MAX_KEEP;
+/// 用户名与密码的长度上限来自领域层，保留策略/客户端共用同一份约束。
+pub const MAX_BACKUP_WEBDAV_USERNAME_CHARS: usize = remote_backup::MAX_USERNAME_CHARS;
+pub const MAX_BACKUP_WEBDAV_PASSWORD_CHARS: usize = remote_backup::MAX_PASSWORD_CHARS;
 
 pub const MAX_TELEGRAM_TOKEN_CHARS: usize = 256;
 pub const MAX_TELEGRAM_CHAT_ID_CHARS: usize = 128;
@@ -69,6 +84,12 @@ pub const ALERT_COOLDOWN_SECS_KEY: &str = "alert_cooldown_secs";
 pub const UPDATE_CHECK_ENABLED_KEY: &str = "update_check_enabled";
 pub const UPDATE_CHECK_INTERVAL_HOURS_KEY: &str = "update_check_interval_hours";
 pub const UPDATE_CHECK_NOTIFY_KEY: &str = "update_check_notify";
+pub const BACKUP_WEBDAV_ENABLED_KEY: &str = "backup_webdav_enabled";
+pub const BACKUP_WEBDAV_URL_KEY: &str = "backup_webdav_url";
+pub const BACKUP_WEBDAV_USERNAME_KEY: &str = "backup_webdav_username";
+pub const BACKUP_WEBDAV_PASSWORD_KEY: &str = "backup_webdav_password";
+pub const BACKUP_WEBDAV_INTERVAL_HOURS_KEY: &str = "backup_webdav_interval_hours";
+pub const BACKUP_WEBDAV_KEEP_KEY: &str = "backup_webdav_keep";
 
 /// 设置页的白名单键；新增键必须同时改这里和 `docs/PLAN.md`。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,6 +133,18 @@ pub struct Settings {
     /// `update_available` 事件（唯一事实来源）。这里仍读写该键，避免旧前端
     /// 报 `settings.unknown_key`；通知路径不再读它，迁移 0050 只读一次。
     pub update_check_notify: bool,
+    /// 异地备份（WebDAV）总开关；开启后调度器按间隔上传。
+    pub backup_webdav_enabled: bool,
+    /// WebDAV 目录地址；空 = 未配置。
+    pub backup_webdav_url: String,
+    /// WebDAV 用户名；空 = 匿名（多数服务器会拒绝）。
+    pub backup_webdav_username: String,
+    /// WebDAV 密码。**只在本进程内使用，绝不出现在 `as_json()` / 日志里。**
+    pub backup_webdav_password: String,
+    /// 上传间隔（小时），1–168，默认 24。
+    pub backup_webdav_interval_hours: i64,
+    /// 远端保留份数，1–30，默认 7。
+    pub backup_webdav_keep: i64,
 }
 
 impl Default for Settings {
@@ -135,6 +168,12 @@ impl Default for Settings {
             update_check_enabled: DEFAULT_UPDATE_CHECK_ENABLED,
             update_check_interval_hours: DEFAULT_UPDATE_CHECK_INTERVAL_HOURS,
             update_check_notify: DEFAULT_UPDATE_CHECK_NOTIFY,
+            backup_webdav_enabled: DEFAULT_BACKUP_WEBDAV_ENABLED,
+            backup_webdav_url: String::new(),
+            backup_webdav_username: String::new(),
+            backup_webdav_password: String::new(),
+            backup_webdav_interval_hours: DEFAULT_BACKUP_WEBDAV_INTERVAL_HOURS,
+            backup_webdav_keep: DEFAULT_BACKUP_WEBDAV_KEEP,
         }
     }
 }
@@ -164,6 +203,14 @@ impl Settings {
             "update_check_enabled": self.update_check_enabled,
             "update_check_interval_hours": self.update_check_interval_hours,
             "update_check_notify": self.update_check_notify,
+            "backup_webdav_enabled": self.backup_webdav_enabled,
+            "backup_webdav_url": self.backup_webdav_url,
+            "backup_webdav_username": self.backup_webdav_username,
+            // 密码永远不回显：只告诉前端「已保存」，留空保存表示保持不变。
+            "backup_webdav_password": "",
+            "backup_webdav_has_password": !self.backup_webdav_password.is_empty(),
+            "backup_webdav_interval_hours": self.backup_webdav_interval_hours,
+            "backup_webdav_keep": self.backup_webdav_keep,
         })
     }
 }
@@ -265,6 +312,47 @@ pub async fn load(pool: &SqlitePool) -> Settings {
         .await,
         update_check_notify: read_bool(pool, UPDATE_CHECK_NOTIFY_KEY, defaults.update_check_notify)
             .await,
+        backup_webdav_enabled: read_bool(
+            pool,
+            BACKUP_WEBDAV_ENABLED_KEY,
+            defaults.backup_webdav_enabled,
+        )
+        .await,
+        backup_webdav_url: read_text(
+            pool,
+            BACKUP_WEBDAV_URL_KEY,
+            "",
+            remote_backup::normalize_webdav_url,
+        )
+        .await,
+        backup_webdav_username: read_text(
+            pool,
+            BACKUP_WEBDAV_USERNAME_KEY,
+            "",
+            normalize_backup_webdav_username,
+        )
+        .await,
+        // 密码不做任何规范化：用户设置的原样保存，读回也原样使用。
+        backup_webdav_password: read_text(pool, BACKUP_WEBDAV_PASSWORD_KEY, "", |raw| {
+            Ok(raw.to_string())
+        })
+        .await,
+        backup_webdav_interval_hours: read_int(
+            pool,
+            BACKUP_WEBDAV_INTERVAL_HOURS_KEY,
+            MIN_BACKUP_WEBDAV_INTERVAL_HOURS,
+            MAX_BACKUP_WEBDAV_INTERVAL_HOURS,
+            defaults.backup_webdav_interval_hours,
+        )
+        .await,
+        backup_webdav_keep: read_int(
+            pool,
+            BACKUP_WEBDAV_KEEP_KEY,
+            MIN_BACKUP_WEBDAV_KEEP,
+            MAX_BACKUP_WEBDAV_KEEP,
+            defaults.backup_webdav_keep,
+        )
+        .await,
     }
 }
 
@@ -496,11 +584,97 @@ pub async fn update(
                     "0".to_string()
                 },
             )),
+            BACKUP_WEBDAV_ENABLED_KEY => updates.push((
+                BACKUP_WEBDAV_ENABLED_KEY,
+                if validate_bool("异地备份开关", value)? {
+                    "1".to_string()
+                } else {
+                    "0".to_string()
+                },
+            )),
+            BACKUP_WEBDAV_URL_KEY => updates.push((
+                BACKUP_WEBDAV_URL_KEY,
+                validate_text(
+                    "WebDAV 地址",
+                    value,
+                    "settings.backup_webdav_url_invalid",
+                    remote_backup::normalize_webdav_url,
+                )?,
+            )),
+            BACKUP_WEBDAV_USERNAME_KEY => updates.push((
+                BACKUP_WEBDAV_USERNAME_KEY,
+                validate_text(
+                    "WebDAV 用户名",
+                    value,
+                    "settings.backup_webdav_username_invalid",
+                    normalize_backup_webdav_username,
+                )?,
+            )),
+            // 留空 = 保持不变：不把空串写库，避免一次保存清掉密码。
+            BACKUP_WEBDAV_PASSWORD_KEY => {
+                if let Some(raw) = validate_optional_password(value)? {
+                    updates.push((BACKUP_WEBDAV_PASSWORD_KEY, raw));
+                }
+            }
+            BACKUP_WEBDAV_INTERVAL_HOURS_KEY => updates.push((
+                BACKUP_WEBDAV_INTERVAL_HOURS_KEY,
+                validate_int(
+                    "异地备份间隔（小时）",
+                    value,
+                    MIN_BACKUP_WEBDAV_INTERVAL_HOURS,
+                    MAX_BACKUP_WEBDAV_INTERVAL_HOURS,
+                )?
+                .to_string(),
+            )),
+            BACKUP_WEBDAV_KEEP_KEY => updates.push((
+                BACKUP_WEBDAV_KEEP_KEY,
+                validate_int(
+                    "异地备份保留份数",
+                    value,
+                    MIN_BACKUP_WEBDAV_KEEP,
+                    MAX_BACKUP_WEBDAV_KEEP,
+                )?
+                .to_string(),
+            )),
             other => {
                 return Err(AppError::coded(
                     "settings.unknown_key",
                     Some(json!({ "key": other })),
                     format!("未知的设置项：{other}"),
+                ));
+            }
+        }
+    }
+
+    // 部分更新也要保证「开启时有地址与密码」：用写库前的有效值检查。
+    if updates.iter().any(|(key, _)| {
+        matches!(
+            *key,
+            BACKUP_WEBDAV_ENABLED_KEY | BACKUP_WEBDAV_URL_KEY | BACKUP_WEBDAV_PASSWORD_KEY
+        )
+    }) {
+        let mut effective = load(&state.db.pool).await;
+        for (key, value) in &updates {
+            match *key {
+                BACKUP_WEBDAV_ENABLED_KEY => effective.backup_webdav_enabled = value == "1",
+                BACKUP_WEBDAV_URL_KEY => effective.backup_webdav_url = value.clone(),
+                BACKUP_WEBDAV_PASSWORD_KEY => effective.backup_webdav_password = value.clone(),
+                _ => {}
+            }
+        }
+        if effective.backup_webdav_enabled {
+            if effective.backup_webdav_url.is_empty() {
+                return Err(AppError::coded(
+                    "settings.backup_webdav_url_required",
+                    None,
+                    "开启异地备份前必须填写 WebDAV 地址 / A WebDAV URL is required",
+                ));
+            }
+            if effective.backup_webdav_password.is_empty() {
+                return Err(AppError::coded(
+                    "settings.backup_webdav_password_required",
+                    None,
+                    "开启异地备份前必须填写 WebDAV 密码 / A WebDAV password is required",
                 ));
             }
         }
@@ -679,6 +853,58 @@ fn normalize_alert_events(raw: &str) -> Result<String, String> {
     }
     let events = crate::alerts::parse_alert_events(raw)?;
     Ok(crate::alerts::format_alert_events(&events))
+}
+
+/// WebDAV 用户名：trim、长度上限、不允许冒号（Basic 认证的分隔符）。
+fn normalize_backup_webdav_username(raw: &str) -> Result<String, String> {
+    let value = raw.trim();
+    if value.chars().count() > MAX_BACKUP_WEBDAV_USERNAME_CHARS {
+        return Err(format!(
+            "WebDAV 用户名最多 {MAX_BACKUP_WEBDAV_USERNAME_CHARS} 个字符"
+        ));
+    }
+    if value.contains(':') {
+        return Err("WebDAV 用户名不能包含冒号".to_string());
+    }
+    if value.chars().any(char::is_control) {
+        return Err("WebDAV 用户名不能包含控制字符".to_string());
+    }
+    Ok(value.to_string())
+}
+
+/// 密码：空串（或纯空白）= 保持原值；否则原样保存。
+///
+/// 允许空格（密码里可能是短语），只挡换行与控制字符——它们会破坏
+/// curl 的 stdin 配置格式。
+fn validate_optional_password(value: &Value) -> AppResult<Option<String>> {
+    let raw = value.as_str().ok_or_else(|| {
+        AppError::coded(
+            "settings.backup_webdav_password_invalid",
+            None,
+            "WebDAV 密码必须是字符串 / WebDAV password must be a string",
+        )
+    })?;
+    if raw.trim().is_empty() {
+        return Ok(None);
+    }
+    if raw.chars().count() > MAX_BACKUP_WEBDAV_PASSWORD_CHARS {
+        return Err(AppError::coded(
+            "settings.backup_webdav_password_invalid",
+            None,
+            format!(
+                "WebDAV 密码最多 {MAX_BACKUP_WEBDAV_PASSWORD_CHARS} 个字符 / \
+                 WebDAV password is too long"
+            ),
+        ));
+    }
+    if raw.chars().any(|character| character.is_control()) {
+        return Err(AppError::coded(
+            "settings.backup_webdav_password_invalid",
+            None,
+            "WebDAV 密码不能包含控制字符 / WebDAV password cannot contain control characters",
+        ));
+    }
+    Ok(Some(raw.to_string()))
 }
 
 fn validate_int(label: &str, value: &Value, min: i64, max: i64) -> AppResult<i64> {
@@ -1253,8 +1479,8 @@ mod tests {
         assert_eq!(body["items"]["webhook_url"], "");
         assert_eq!(
             body["items"]["alert_events"],
-            "server_offline,user_exhausted,chain_degraded,update_available",
-            "升级失败默认不开启；发现新版本默认开启"
+            "server_offline,user_exhausted,chain_degraded,backup_failed,update_available",
+            "升级失败默认不开启；异地备份失败与发现新版本默认开启"
         );
         assert_eq!(body["items"]["alert_cooldown_secs"], 600);
 
@@ -1418,6 +1644,213 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(load(&state.db.pool).await.public_status_enabled, 1);
+    }
+
+    /// 异地备份：默认值、地址规范化、密码不回显、留空保持不变。
+    #[tokio::test]
+    async fn backup_webdav_settings_never_echo_the_password() {
+        let (app, state, admin, _bob) = setup().await;
+
+        let (_, _, body) = request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(body["items"]["backup_webdav_enabled"], false, "默认关闭");
+        assert_eq!(body["items"]["backup_webdav_url"], "");
+        assert_eq!(body["items"]["backup_webdav_username"], "");
+        assert_eq!(body["items"]["backup_webdav_password"], "");
+        assert_eq!(body["items"]["backup_webdav_has_password"], false);
+        assert_eq!(body["items"]["backup_webdav_interval_hours"], 24);
+        assert_eq!(body["items"]["backup_webdav_keep"], 7);
+
+        let secret = "s3cret-pass";
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({
+                "backup_webdav_enabled": true,
+                "backup_webdav_url": "  https://dav.example.com/remote.php/dav/files/user/pierwave/  ",
+                "backup_webdav_username": "  pierwave  ",
+                "backup_webdav_password": secret,
+                "backup_webdav_interval_hours": 12,
+                "backup_webdav_keep": 3,
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body["items"]["backup_webdav_url"],
+            "https://dav.example.com/remote.php/dav/files/user/pierwave",
+            "地址要 trim、去掉末尾斜杠"
+        );
+        assert_eq!(body["items"]["backup_webdav_username"], "pierwave");
+        assert_eq!(
+            body["items"]["backup_webdav_password"], "",
+            "密码绝不能出现在 API 响应里"
+        );
+        assert_eq!(body["items"]["backup_webdav_has_password"], true);
+        assert_eq!(body["items"]["backup_webdav_interval_hours"], 12);
+        assert_eq!(body["items"]["backup_webdav_keep"], 3);
+        assert!(
+            !body.to_string().contains(secret),
+            "响应体任何位置都不能出现密码：{body}"
+        );
+
+        // 密码已落库（客户端要用），但只存在服务端。
+        assert_eq!(load(&state.db.pool).await.backup_webdav_password, secret);
+
+        // 留空保存 = 保持不变，不能把已保存的密码清掉。
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({"backup_webdav_password": ""})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["items"]["backup_webdav_has_password"], true);
+        assert_eq!(load(&state.db.pool).await.backup_webdav_password, secret);
+
+        // 显式换成新密码才覆盖。
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({"backup_webdav_password": "new-pass"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(!body.to_string().contains("new-pass"), "{body}");
+        assert_eq!(
+            load(&state.db.pool).await.backup_webdav_password,
+            "new-pass"
+        );
+    }
+
+    /// 异地备份：URL、间隔、保留份数、用户名/密码的校验与「开启前置条件」。
+    #[tokio::test]
+    async fn backup_webdav_settings_validate_inputs_and_enable_preconditions() {
+        let (app, _state, admin, _bob) = setup().await;
+
+        let cases = [
+            ("backup_webdav_url", json!("ftp://dav.example.com/dav")),
+            ("backup_webdav_url", json!("dav.example.com/dav")),
+            (
+                "backup_webdav_url",
+                json!("https://user:pass@dav.example.com/dav"),
+            ),
+            (
+                "backup_webdav_url",
+                json!("https://dav.example.com/dav?x=1"),
+            ),
+            ("backup_webdav_interval_hours", json!(0)),
+            ("backup_webdav_interval_hours", json!(169)),
+            ("backup_webdav_interval_hours", json!("24")),
+            ("backup_webdav_keep", json!(0)),
+            ("backup_webdav_keep", json!(31)),
+            ("backup_webdav_keep", json!("7")),
+            ("backup_webdav_username", json!("a:b")),
+            ("backup_webdav_username", json!(123)),
+            ("backup_webdav_password", json!("line\nbreak")),
+            ("backup_webdav_password", json!(123)),
+            ("backup_webdav_enabled", json!("true")),
+        ];
+        for (key, value) in cases {
+            let (status, _, body) = request(
+                &app,
+                Some(&admin),
+                Method::PATCH,
+                "/api/v1/settings",
+                Some(json!({ key: value.clone() })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{key}={value}: {body}");
+            assert!(
+                body["code"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .starts_with("settings."),
+                "{key}={value}: {body}"
+            );
+        }
+
+        // 开启时必须同时具备地址与密码。
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({"backup_webdav_enabled": true})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "settings.backup_webdav_url_required");
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({
+                "backup_webdav_enabled": true,
+                "backup_webdav_url": "https://dav.example.com/dav",
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "settings.backup_webdav_password_required");
+
+        // 同一个请求里补齐地址与密码：允许。
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({
+                "backup_webdav_enabled": true,
+                "backup_webdav_url": "http://10.0.0.5:8080/dav",
+                "backup_webdav_password": "pass",
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["items"]["backup_webdav_enabled"], true);
+        assert_eq!(
+            body["items"]["backup_webdav_url"], "http://10.0.0.5:8080/dav",
+            "内网允许 http"
+        );
+    }
+
+    /// 库里被手工改坏时，读取回落到默认值，不影响主控启动与其它设置。
+    #[tokio::test]
+    async fn corrupt_backup_webdav_settings_fall_back_to_defaults() {
+        let (_app, state, _admin, _bob) = setup().await;
+        for (key, value) in [
+            ("backup_webdav_enabled", "maybe"),
+            ("backup_webdav_url", "ftp://dav.example.com"),
+            ("backup_webdav_username", "a:b"),
+            ("backup_webdav_interval_hours", "0"),
+            ("backup_webdav_keep", "99"),
+        ] {
+            repo::settings::set(&state.db.pool, key, value)
+                .await
+                .unwrap();
+        }
+        let settings = load(&state.db.pool).await;
+        assert!(!settings.backup_webdav_enabled);
+        assert_eq!(settings.backup_webdav_url, "");
+        assert_eq!(settings.backup_webdav_username, "");
+        assert_eq!(settings.backup_webdav_interval_hours, 24);
+        assert_eq!(settings.backup_webdav_keep, 7);
+        // 密码不做规范化：手工写入的值仍然原样读回（可能被用于连接）。
+        repo::settings::set(&state.db.pool, "backup_webdav_password", "raw-pass")
+            .await
+            .unwrap();
+        assert_eq!(
+            load(&state.db.pool).await.backup_webdav_password,
+            "raw-pass"
+        );
     }
 
     #[tokio::test]

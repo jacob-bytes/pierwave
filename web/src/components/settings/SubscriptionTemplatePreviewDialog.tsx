@@ -12,16 +12,24 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import type { SubscriptionTemplate } from "@/lib/api";
 import { errorText } from "@/lib/errors";
-import { usePreviewSubscriptionTemplate, useUsers } from "@/lib/queries";
+import {
+  usePackages,
+  usePreviewSubscriptionTemplate,
+  useUsers,
+} from "@/lib/queries";
 import {
   TEMPLATE_PREVIEW_FORMATS,
+  parsePreviewSubject,
   previewDisabled,
+  previewSubjectValue,
   resolvePreviewFormat,
   type TemplatePreviewFormat,
 } from "@/lib/subscriptionTemplates";
@@ -33,7 +41,7 @@ interface SubscriptionTemplatePreviewDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-/** 用真实用户渲染 mihomo 配置，并展示模板 warning。 */
+/** 用真实用户或套餐渲染目标格式的配置，并展示模板 warning。 */
 export function SubscriptionTemplatePreviewDialog({
   template,
   open,
@@ -41,8 +49,9 @@ export function SubscriptionTemplatePreviewDialog({
 }: SubscriptionTemplatePreviewDialogProps) {
   useI18n();
   const users = useUsers("");
+  const packages = usePackages();
   const preview = usePreviewSubscriptionTemplate();
-  const [userId, setUserId] = useState("");
+  const [subject, setSubject] = useState("");
   const [format, setFormat] = useState<TemplatePreviewFormat>("mihomo");
   const [result, setResult] = useState<{
     yaml: string;
@@ -51,7 +60,11 @@ export function SubscriptionTemplatePreviewDialog({
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const items = users.data ?? [];
+  const userItems = users.data ?? [];
+  const packageItems = packages.data ?? [];
+  const subjectItemsPending = users.isPending || packages.isPending;
+  const subjectItemsEmpty =
+    !subjectItemsPending && userItems.length === 0 && packageItems.length === 0;
 
   function reset() {
     setResult(null);
@@ -60,9 +73,17 @@ export function SubscriptionTemplatePreviewDialog({
   }
 
   function run() {
+    const target = parsePreviewSubject(subject);
+    if (!target) return;
     setError(null);
     preview.mutate(
-      { id: template.id, userId, target: format },
+      {
+        id: template.id,
+        // 后端 user_id / package_id 二选一：这里只送选中的那一个。
+        userId: target.kind === "user" ? target.id : undefined,
+        packageId: target.kind === "package" ? target.id : undefined,
+        target: format,
+      },
       {
         onSuccess: (data) => setResult(data),
         onError: (caught) =>
@@ -93,43 +114,74 @@ export function SubscriptionTemplatePreviewDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="flex min-w-0 flex-wrap items-end gap-3">
           <div className="min-w-0 flex-1 space-y-1.5">
             <label
               className="text-xs font-medium text-muted-foreground"
-              htmlFor="subscription-template-preview-user"
+              htmlFor="subscription-template-preview-subject"
             >
-              {t("subscriptionTemplates.preview.user")}
+              {t("subscriptionTemplates.preview.subject")}
             </label>
             <Select
-              value={userId}
+              value={subject}
               onValueChange={(value) => {
-                setUserId(value);
+                setSubject(value);
                 setResult(null);
                 setError(null);
               }}
-              disabled={preview.isPending || items.length === 0}
+              disabled={preview.isPending || subjectItemsEmpty}
             >
               <SelectTrigger
-                id="subscription-template-preview-user"
+                id="subscription-template-preview-subject"
                 className="w-full"
               >
                 <SelectValue
                   placeholder={
-                    users.isPending
+                    subjectItemsPending
                       ? t("subscriptionTemplates.loading")
-                      : items.length === 0
-                        ? t("subscriptionTemplates.preview.noUsers")
-                        : t("subscriptionTemplates.preview.userPlaceholder")
+                      : subjectItemsEmpty
+                        ? t("subscriptionTemplates.preview.noSubjects")
+                        : t("subscriptionTemplates.preview.subjectPlaceholder")
                   }
                 />
               </SelectTrigger>
               <SelectContent>
-                {items.map((user) => (
-                  <SelectItem key={user.id} value={user.id}>
-                    <span className="truncate">{user.username}</span>
-                  </SelectItem>
-                ))}
+                {userItems.length > 0 ? (
+                  <SelectGroup>
+                    <SelectLabel>
+                      {t("subscriptionTemplates.preview.usersGroup")}
+                    </SelectLabel>
+                    {userItems.map((user) => (
+                      <SelectItem
+                        key={user.id}
+                        value={previewSubjectValue({
+                          kind: "user",
+                          id: user.id,
+                        })}
+                      >
+                        <span className="truncate">{user.username}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ) : null}
+                {packageItems.length > 0 ? (
+                  <SelectGroup>
+                    <SelectLabel>
+                      {t("subscriptionTemplates.preview.packagesGroup")}
+                    </SelectLabel>
+                    {packageItems.map((item) => (
+                      <SelectItem
+                        key={item.id}
+                        value={previewSubjectValue({
+                          kind: "package",
+                          id: item.id,
+                        })}
+                      >
+                        <span className="truncate">{item.name}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ) : null}
               </SelectContent>
             </Select>
           </div>
@@ -172,7 +224,7 @@ export function SubscriptionTemplatePreviewDialog({
             disabled={previewDisabled({
               pending: preview.isPending,
               hasTemplate: Boolean(template.id),
-              hasUser: userId !== "",
+              hasSubject: parsePreviewSubject(subject) !== null,
             })}
           >
             {preview.isPending ? (
@@ -186,10 +238,12 @@ export function SubscriptionTemplatePreviewDialog({
           </Button>
         </div>
 
-        {users.isError && items.length === 0 ? (
+        {(users.isError || packages.isError) &&
+        userItems.length === 0 &&
+        packageItems.length === 0 ? (
           <p className="flex items-start gap-1.5 type-micro text-muted-foreground">
             <TriangleAlertIcon className="mt-0.5 size-3 shrink-0 text-destructive" />
-            <span>{t("subscriptionTemplates.preview.loadUsersError")}</span>
+            <span>{t("subscriptionTemplates.preview.loadSubjectsError")}</span>
           </p>
         ) : null}
 
@@ -201,8 +255,8 @@ export function SubscriptionTemplatePreviewDialog({
         ) : null}
 
         {result ? (
-          <div className="space-y-3">
-            <div className="space-y-1.5">
+          <div className="min-w-0 space-y-3">
+            <div className="min-w-0 space-y-1.5">
               <p className="text-xs font-medium text-muted-foreground">
                 {t("subscriptionTemplates.preview.warnings")}
               </p>
@@ -211,24 +265,24 @@ export function SubscriptionTemplatePreviewDialog({
                   {t("subscriptionTemplates.preview.noWarnings")}
                 </p>
               ) : (
-                <ul className="space-y-1 rounded-lg border border-border bg-muted/20 p-2.5 text-xs text-muted-foreground">
+                <ul className="min-w-0 space-y-1 rounded-lg border border-border bg-muted/20 p-2.5 text-xs text-muted-foreground">
                   {result.warnings.map((warning, index) => (
-                    <li key={index} className="flex items-start gap-1.5">
+                    <li key={index} className="flex min-w-0 items-start gap-1.5">
                       <TriangleAlertIcon className="mt-0.5 size-3 shrink-0 text-amber-500" />
-                      <span>{warning}</span>
+                      <span className="min-w-0 break-words">{warning}</span>
                     </li>
                   ))}
                 </ul>
               )}
             </div>
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <p
                 className="text-xs font-medium text-muted-foreground"
                 data-testid="subscription-template-preview-format-label"
               >
                 {t("subscriptionTemplates.preview.output")} · {formatLabel}
               </p>
-              <pre className="max-h-96 overflow-auto rounded-lg border border-border bg-muted/20 p-3 font-mono type-micro leading-normal">
+              <pre className="max-h-96 min-w-0 overflow-auto rounded-lg border border-border bg-muted/20 p-3 font-mono type-micro leading-normal">
                 {result.yaml}
               </pre>
             </div>

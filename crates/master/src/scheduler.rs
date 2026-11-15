@@ -405,6 +405,75 @@ pub fn spawn_forward_traffic_sampler(state: AppState) -> tokio::task::JoinHandle
     })
 }
 
+/// 异地备份巡检间隔：60 秒读一次设置，到点才真正生成并上传。
+///
+/// 用固定 tick + 「是否到点」判断，而不是按间隔重建定时器：改设置立即生效，
+/// 不需要重启主控。真正的判断在 [`crate::remote_backup::is_due`]。
+pub const REMOTE_BACKUP_TICK: Duration = Duration::from_secs(60);
+
+/// 一轮异地备份巡检的结果；日志与测试都靠它区分状态。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoteBackupRound {
+    /// 未开启，或地址/密码未配置。
+    Disabled,
+    /// 已开启但还没到间隔。
+    NotDue,
+    /// 已有上传在进行（手动触发占着锁）。
+    Busy,
+    Uploaded(crate::remote_backup::UploadOutcome),
+    Failed(String),
+}
+
+/// 执行一轮异地备份巡检：只在「已开启 + 已配置 + 到点 + 没人在传」时上传。
+pub async fn run_remote_backup_round(state: &AppState) -> anyhow::Result<RemoteBackupRound> {
+    let settings = crate::routes::settings::load(&state.db.pool).await;
+    if !settings.backup_webdav_enabled
+        || settings.backup_webdav_url.is_empty()
+        || settings.backup_webdav_password.is_empty()
+    {
+        return Ok(RemoteBackupRound::Disabled);
+    }
+    let meta = crate::remote_backup::load_meta(&state.db.pool).await;
+    if !crate::remote_backup::is_due(&meta, settings.backup_webdav_interval_hours, time::now()) {
+        return Ok(RemoteBackupRound::NotDue);
+    }
+    match crate::remote_backup::run_now(state, crate::remote_backup::Trigger::Schedule).await {
+        Ok(outcome) => Ok(RemoteBackupRound::Uploaded(outcome)),
+        Err(crate::remote_backup::RunError::Busy) => Ok(RemoteBackupRound::Busy),
+        Err(crate::remote_backup::RunError::NotConfigured(_)) => Ok(RemoteBackupRound::Disabled),
+        Err(crate::remote_backup::RunError::Failed(message)) => {
+            Ok(RemoteBackupRound::Failed(message))
+        }
+    }
+}
+
+/// 启动异地备份巡检；第一次 tick 立即执行，所以开启后最多等 60 秒。
+pub fn spawn_remote_backup(state: AppState) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(REMOTE_BACKUP_TICK);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            ticker.tick().await;
+            match run_remote_backup_round(&state).await {
+                Ok(RemoteBackupRound::Uploaded(outcome)) => tracing::info!(
+                    file = outcome.file_name,
+                    bytes = outcome.bytes,
+                    deleted = outcome.deleted.len(),
+                    "异地备份已上传"
+                ),
+                Ok(RemoteBackupRound::Failed(message)) => {
+                    tracing::warn!(error = %message, "异地备份上传失败")
+                }
+                Ok(RemoteBackupRound::Busy) => {
+                    tracing::debug!("异地备份：已有上传在进行，跳过本轮")
+                }
+                Ok(_) => tracing::debug!("异地备份：未启用或未到间隔"),
+                Err(error) => tracing::error!(error = %error, "异地备份巡检失败"),
+            }
+        }
+    })
+}
+
 /// 启动版本更新检测：启动后先跑一次，之后按设置间隔（默认 6 小时）检查。
 ///
 /// 调度器只用固定的 60 秒 tick 读设置：间隔是可配置的 1–168 小时，用
@@ -549,6 +618,48 @@ mod tests {
                 .unwrap();
         }
         AppState::new(db, "web/dist")
+    }
+
+    #[tokio::test]
+    async fn remote_backup_round_is_inert_until_enabled_and_due() {
+        let state = setup_batch_state().await;
+
+        // 默认关闭：什么都不做，也不生成备份。
+        assert_eq!(
+            run_remote_backup_round(&state).await.unwrap(),
+            RemoteBackupRound::Disabled
+        );
+
+        // 开启但缺地址/密码：仍按未配置处理（不会每 60 秒刷错误）。
+        repo::settings::set(&state.db.pool, "backup_webdav_enabled", "1")
+            .await
+            .unwrap();
+        assert_eq!(
+            run_remote_backup_round(&state).await.unwrap(),
+            RemoteBackupRound::Disabled
+        );
+
+        for (key, value) in [
+            ("backup_webdav_url", "https://dav.example.com/dav"),
+            ("backup_webdav_password", "pass"),
+            ("backup_webdav_interval_hours", "24"),
+        ] {
+            repo::settings::set(&state.db.pool, key, value)
+                .await
+                .unwrap();
+        }
+        // 刚尝试过：还没到间隔，必须返回 NotDue 且不联网。
+        repo::settings::set(
+            &state.db.pool,
+            crate::remote_backup::LAST_ATTEMPT_KEY,
+            &pierwave_domain::time::now().to_string(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            run_remote_backup_round(&state).await.unwrap(),
+            RemoteBackupRound::NotDue
+        );
     }
 
     #[tokio::test]

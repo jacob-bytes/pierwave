@@ -37,12 +37,13 @@ import { useSubscriptionTemplates } from "@/lib/queries";
 import {
   copyTemplateDraft,
   groupFilterSummary,
+  templateUsage,
 } from "@/lib/subscriptionTemplates";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
-const COLUMN_COUNT = 4;
+const COLUMN_COUNT = 5;
 const HEAD_CLASS =
   "h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground";
 
@@ -59,6 +60,26 @@ function groupSummary(template: SubscriptionTemplate): string {
       return `${group.name} · ${filters}`;
     })
     .join(" / ");
+}
+
+/** 列表里的「被 N 个用户 / M 个套餐使用」；未使用时明确显示「未被使用」。 */
+function UsageCell({ template }: { template: SubscriptionTemplate }) {
+  const usage = templateUsage(template.usage);
+  if (!usage.inUse) {
+    return (
+      <span className="type-micro text-muted-foreground">
+        {t("subscriptionTemplates.usageNone")}
+      </span>
+    );
+  }
+  return (
+    <span className="type-micro">
+      {t("subscriptionTemplates.usageCount", {
+        users: usage.users,
+        packages: usage.packages,
+      })}
+    </span>
+  );
 }
 
 function EmptyRow({ onCreate }: { onCreate: () => void }) {
@@ -187,6 +208,9 @@ export function SubscriptionTemplatesPanel() {
                 {t("subscriptionTemplates.columns.groups")}
               </TableHead>
               <TableHead className={HEAD_CLASS}>
+                {t("subscriptionTemplates.columns.usage")}
+              </TableHead>
+              <TableHead className={HEAD_CLASS}>
                 {t("subscriptionTemplates.columns.updatedAt")}
               </TableHead>
               <TableHead className={cn(HEAD_CLASS, "text-right")}>
@@ -230,6 +254,9 @@ export function SubscriptionTemplatesPanel() {
                     >
                       {groupSummary(template)}
                     </p>
+                  </TableCell>
+                  <TableCell className="px-4 py-3">
+                    <UsageCell template={template} />
                   </TableCell>
                   <TableCell
                     className="px-4 py-3 type-micro text-muted-foreground"

@@ -19,6 +19,7 @@ pub mod port_policy;
 pub mod protocol;
 pub mod reality;
 pub mod release;
+pub mod remote_backup;
 pub mod repo;
 pub mod reset;
 pub mod routing;

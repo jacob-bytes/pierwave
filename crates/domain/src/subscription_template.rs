@@ -484,6 +484,12 @@ pub struct PlannedGroup {
     pub interval: Option<u32>,
     /// 仅 `load-balance`：负载均衡策略。
     pub strategy: Option<LoadBalanceStrategy>,
+    /// 仅 `select`：是否把自动组放在成员第一位。
+    ///
+    /// [`plan_for_format`] 需要它来**按目标格式**重新挑选自动组：模板里的自动组
+    /// 可能被该格式跳过（例如 Surfboard 表达不了 `load-balance`），此时直接照抄
+    /// [`Self::members`] 会引用一个不存在的组。
+    pub include_auto: bool,
 }
 
 /// 一次渲染的分组计划。
@@ -529,13 +535,15 @@ fn matching_nodes(group: &SubscriptionGroup, nodes: &[SubNode]) -> Vec<String> {
 /// 规则：
 /// 1. 先算每个组命中的节点；自动测速类组（`url-test` / `fallback` / `load-balance`）
 ///    命中 0 个 → 跳过并 warning；
-/// 2. `select` 的成员 = 自动选择组（若 `include_auto` 且存在存活的 url-test 组）
-///    + 命中节点 + `DIRECT`；命中 0 个节点且没有自动选择组 → 跳过并 warning；
+/// 2. `select` 的成员 = 自动组（若 `include_auto` 且存在存活的自动组）
+///    + 命中节点 + `DIRECT`；命中 0 个节点且没有自动组 → 跳过并 warning；
 /// 3. 所有组都跳过 → `groups` 为空，调用方回落硬编码分组。
+///
+/// 自动组的挑选顺序是 **url-test > fallback > load-balance**，同一类型内按模板声明
+/// 顺序取第一个存活的组。旧模板只有 url-test，所以行为与第一轮完全一致。
 pub fn plan_groups(groups: &[SubscriptionGroup], nodes: &[SubNode]) -> GroupPlan {
     let mut warnings = Vec::new();
 
-    // 自动选择组 = 模板里第一个存活的 url-test 组（保持第一轮的语义）。
     let mut survivors: Vec<Option<Vec<String>>> = Vec::with_capacity(groups.len());
     for group in groups {
         let matched = matching_nodes(group, nodes);
@@ -551,11 +559,21 @@ pub fn plan_groups(groups: &[SubscriptionGroup], nodes: &[SubNode]) -> GroupPlan
         }
     }
 
-    let auto_name = groups
-        .iter()
-        .zip(&survivors)
-        .find(|(group, matched)| group.kind == GroupKind::UrlTest && matched.is_some())
-        .map(|(group, _)| group.name.clone());
+    // 自动组：按 url-test > fallback > load-balance 的优先级，取第一个存活的组。
+    // 旧模板（只有 url-test）行为不变；fallback / load-balance 只在前者不存在时兜底。
+    let auto_name = [
+        GroupKind::UrlTest,
+        GroupKind::Fallback,
+        GroupKind::LoadBalance,
+    ]
+    .iter()
+    .find_map(|kind| {
+        groups
+            .iter()
+            .zip(&survivors)
+            .find(|(group, matched)| group.kind == *kind && matched.is_some())
+            .map(|(group, _)| group.name.clone())
+    });
 
     let mut planned = Vec::new();
     for (index, group) in groups.iter().enumerate() {
@@ -571,6 +589,7 @@ pub fn plan_groups(groups: &[SubscriptionGroup], nodes: &[SubNode]) -> GroupPlan
                     node_members: matched,
                     interval: group.interval,
                     strategy: group.strategy,
+                    include_auto: false,
                 });
             }
             GroupKind::Select => {
@@ -579,7 +598,7 @@ pub fn plan_groups(groups: &[SubscriptionGroup], nodes: &[SubNode]) -> GroupPlan
                     match &auto_name {
                         Some(auto) => members.push(auto.clone()),
                         None => warnings.push(format!(
-                            "代理组「{}」开启了 include_auto，但模板里没有命中节点的 url-test 组 / Group \"{}\" has include_auto but no url-test group matched any node",
+                            "代理组「{}」开启了 include_auto，但模板里没有命中节点的 url-test / fallback / load-balance 组 / Group \"{}\" has include_auto but no url-test / fallback / load-balance group matched any node",
                             group.name, group.name
                         )),
                     }
@@ -600,6 +619,7 @@ pub fn plan_groups(groups: &[SubscriptionGroup], nodes: &[SubNode]) -> GroupPlan
                     node_members: matched,
                     interval: None,
                     strategy: None,
+                    include_auto: group.include_auto,
                 });
             }
         }
@@ -626,7 +646,9 @@ pub fn plan_groups(groups: &[SubscriptionGroup], nodes: &[SubNode]) -> GroupPlan
 /// | 格式 | fallback | load-balance | consistent-hashing |
 /// |---|---|---|---|
 /// | clash / mihomo / stash | ✅ | ✅ | ✅ |
-/// | surge / surge-full | ✅ | ✅（仅 round-robin） | ❌ 跳过并 warning |
+/// | surge / surge-full / egern | ✅ | ✅（仅 round-robin） | ❌ 跳过并 warning |
+/// | surfboard | ✅ | ❌ 只有随机分配，无法表达轮询/哈希 | ❌ 跳过并 warning |
+/// | loon | ✅ | ✅（仅 round-robin，`algorithm=Round-Robin`） | ❌ 跳过并 warning |
 /// | singbox / singbox-full | ✅ | ⚠️ 用 urltest 近似（warning） | ⚠️ 近似 |
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GroupCapabilities {
@@ -637,7 +659,9 @@ pub struct GroupCapabilities {
     pub load_balance_as_url_test: bool,
 }
 
-/// 支持订阅模板的导出格式（其余格式保持第一轮行为：忽略模板）。
+/// 支持订阅模板的导出格式（其余格式保持原行为：忽略模板）。
+///
+/// 顺序只追加不插队：400 文案与前端格式下拉都按这个顺序展示。
 pub const TEMPLATE_FORMATS: &[&str] = &[
     "clash",
     "mihomo",
@@ -646,6 +670,10 @@ pub const TEMPLATE_FORMATS: &[&str] = &[
     "surge-full",
     "singbox",
     "singbox-full",
+    // 第三轮接入的 Surge 家族与 Loon。
+    "surfboard",
+    "loon",
+    "egern",
 ];
 
 pub fn is_template_format(format: &str) -> bool {
@@ -662,10 +690,27 @@ pub fn group_capabilities(format: &str) -> GroupCapabilities {
             load_balance_consistent_hashing: true,
             load_balance_as_url_test: false,
         },
-        "surge" | "surge-full" => GroupCapabilities {
+        "surge" | "surge-full" | "egern" => GroupCapabilities {
             fallback: true,
             load_balance: true,
-            // Surge 的 load-balance 是轮询，没有 strategy 字段。
+            // Surge 的 load-balance 是轮询，没有 strategy 字段；Egern 复用同一份
+            // Surge 兼容 profile，能力边界与 Surge 相同。
+            load_balance_consistent_hashing: false,
+            load_balance_as_url_test: false,
+        },
+        "surfboard" => GroupCapabilities {
+            fallback: true,
+            // Surfboard 的 load-balance 只有随机分配，语法里没有 url / interval /
+            // strategy，既不是轮询也不是一致性哈希，所以整类跳过而不是假装支持。
+            load_balance: false,
+            load_balance_consistent_hashing: false,
+            load_balance_as_url_test: false,
+        },
+        "loon" => GroupCapabilities {
+            fallback: true,
+            // Loon 支持 load-balance，但算法只有 Random / PCC / Round-Robin；
+            // 轮询可以精确表达，一致性哈希没有对应算法。
+            load_balance: true,
             load_balance_consistent_hashing: false,
             load_balance_as_url_test: false,
         },
@@ -685,27 +730,54 @@ pub fn group_capabilities(format: &str) -> GroupCapabilities {
     }
 }
 
+fn group_supported(group: &PlannedGroup, capabilities: GroupCapabilities) -> bool {
+    match group.kind {
+        GroupKind::Select | GroupKind::UrlTest => true,
+        GroupKind::Fallback => capabilities.fallback,
+        GroupKind::LoadBalance => {
+            capabilities.load_balance
+                && (capabilities.load_balance_consistent_hashing
+                    || group.strategy != Some(LoadBalanceStrategy::ConsistentHashing))
+        }
+    }
+}
+
+/// 目标格式里第一个存活的自动组，优先级 url-test > fallback > load-balance。
+///
+/// 与 [`plan_groups`] 同一套语义，只是把「能否在目标格式里表达」也算进「存活」：
+/// `include_auto` 的成员引用必须指向真正会输出的组，否则客户端会看到未知策略。
+fn surviving_auto_name(plan: &GroupPlan, capabilities: GroupCapabilities) -> Option<String> {
+    [
+        GroupKind::UrlTest,
+        GroupKind::Fallback,
+        GroupKind::LoadBalance,
+    ]
+    .iter()
+    .find_map(|kind| {
+        plan.groups
+            .iter()
+            .find(|group| group.kind == *kind && group_supported(group, capabilities))
+            .map(|group| group.name.clone())
+    })
+}
+
 /// 把计划裁剪成目标格式真正能表达的分组；不能表达的组跳过并给出 warning。
 ///
 /// 渲染器与预览接口共用这一个函数：预览里看到的 warning 就是渲染时跳过的组，
 /// 不会出现「预览说跳过了、实际却输出了」的偏差。
+///
+/// `select` 的 `include_auto` 成员会**按目标格式重新挑选**：模板里的自动组可能被
+/// 这个格式跳过（例如 Surfboard 表达不了 `load-balance`），照抄原成员会引用一个
+/// 不存在的组；重新挑选保证成员的每个引用都真实存在。
 pub fn plan_for_format(plan: &GroupPlan, format: &str) -> GroupPlan {
     let capabilities = group_capabilities(format);
+    let auto_name = surviving_auto_name(plan, capabilities);
     let mut filtered = GroupPlan {
         groups: Vec::with_capacity(plan.groups.len()),
         warnings: plan.warnings.clone(),
     };
     for group in &plan.groups {
-        let supported = match group.kind {
-            GroupKind::Select | GroupKind::UrlTest => true,
-            GroupKind::Fallback => capabilities.fallback,
-            GroupKind::LoadBalance => {
-                capabilities.load_balance
-                    && (capabilities.load_balance_consistent_hashing
-                        || group.strategy != Some(LoadBalanceStrategy::ConsistentHashing))
-            }
-        };
-        if !supported {
+        if !group_supported(group, capabilities) {
             filtered.warnings.push(format!(
                 "代理组「{}」的类型 {} 无法在 {} 中表达，已跳过 / Group \"{}\" of type {} cannot be expressed in {}; skipped",
                 group.name,
@@ -723,7 +795,34 @@ pub fn plan_for_format(plan: &GroupPlan, format: &str) -> GroupPlan {
                 group.name, format, group.name, format,
             ));
         }
-        filtered.groups.push(group.clone());
+        if group.kind != GroupKind::Select || !group.include_auto {
+            filtered.groups.push(group.clone());
+            continue;
+        }
+
+        // `select` + `include_auto`：重建成员，只引用目标格式真正会输出的自动组。
+        let planned_auto = plan
+            .groups
+            .iter()
+            .find(|candidate| {
+                candidate.kind.is_auto()
+                    && group.members.iter().any(|member| member == &candidate.name)
+            })
+            .map(|candidate| candidate.name.clone());
+        let mut fixed = group.clone();
+        fixed.members.clear();
+        match (&auto_name, &planned_auto) {
+            (Some(auto), _) => fixed.members.push(auto.clone()),
+            (None, Some(dropped)) => filtered.warnings.push(format!(
+                "代理组「{}」的自动组「{}」无法在 {} 中表达，已从成员里移除 / The auto group \"{}\" of group \"{}\" cannot be expressed in {}; removed from its members",
+                group.name, dropped, format, dropped, group.name, format,
+            )),
+            // 计划本身就没有自动组：plan_groups 已经给过 include_auto 的 warning。
+            (None, None) => {}
+        }
+        fixed.members.extend(fixed.node_members.iter().cloned());
+        fixed.members.push("DIRECT".to_string());
+        filtered.groups.push(fixed);
     }
     if filtered.groups.is_empty() && !plan.groups.is_empty() {
         filtered.warnings.push(format!(
@@ -1338,6 +1437,146 @@ mod tests {
             "{:?}",
             filtered.warnings
         );
+    }
+
+    #[test]
+    fn include_auto_prefers_url_test_then_fallback_then_load_balance() {
+        let nodes = nodes();
+        let select = SubscriptionGroup {
+            name: "节点选择".into(),
+            kind: GroupKind::Select,
+            filters: vec![filter(&["香港"], &[], &[])],
+            include_auto: true,
+            interval: None,
+            strategy: None,
+        };
+        let auto = |name: &str, kind: GroupKind| SubscriptionGroup {
+            name: name.into(),
+            kind,
+            filters: vec![GroupFilter::default()],
+            include_auto: false,
+            interval: None,
+            strategy: None,
+        };
+
+        // 三类自动组都在 → 永远优先 url-test，与声明顺序无关。
+        let plan = plan_groups(
+            &[
+                select.clone(),
+                auto("负载均衡", GroupKind::LoadBalance),
+                auto("故障转移", GroupKind::Fallback),
+                auto("自动选择", GroupKind::UrlTest),
+            ],
+            &nodes,
+        );
+        assert_eq!(
+            plan.groups[0].members,
+            vec!["自动选择", "香港-1", "香港-2", "DIRECT"],
+            "url-test 必须优先于 fallback / load-balance"
+        );
+
+        // 没有 url-test → fallback 接棒。
+        let plan = plan_groups(
+            &[
+                select.clone(),
+                auto("负载均衡", GroupKind::LoadBalance),
+                auto("故障转移", GroupKind::Fallback),
+            ],
+            &nodes,
+        );
+        assert_eq!(plan.groups[0].members[0], "故障转移", "{:?}", plan.warnings);
+
+        // 只有 load-balance → 用它兜底。
+        let plan = plan_groups(&[select, auto("负载均衡", GroupKind::LoadBalance)], &nodes);
+        assert_eq!(plan.groups[0].members[0], "负载均衡", "{:?}", plan.warnings);
+    }
+
+    /// 自动组被目标格式跳过时，`select` 的成员必须跟着剔除，不能留下悬空引用。
+    #[test]
+    fn plan_for_format_reselects_include_auto_per_format() {
+        let nodes = nodes();
+        let select = SubscriptionGroup {
+            name: "节点选择".into(),
+            kind: GroupKind::Select,
+            filters: vec![filter(&["香港"], &[], &[])],
+            include_auto: true,
+            interval: None,
+            strategy: None,
+        };
+        let load_balance = SubscriptionGroup {
+            name: "负载均衡".into(),
+            kind: GroupKind::LoadBalance,
+            filters: vec![GroupFilter::default()],
+            include_auto: false,
+            interval: None,
+            strategy: Some(LoadBalanceStrategy::RoundRobin),
+        };
+        let plan = plan_groups(&[select.clone(), load_balance.clone()], &nodes);
+        assert_eq!(plan.groups[0].members[0], "负载均衡");
+
+        // Clash / Loon 能表达轮询 load-balance：自动组成员保留。
+        for format in ["clash", "mihomo", "stash", "loon"] {
+            let filtered = plan_for_format(&plan, format);
+            assert_eq!(filtered.groups[0].members[0], "负载均衡", "{format}");
+        }
+
+        // Surfboard 表达不了 load-balance：组被跳过，select 的成员必须同步移除。
+        let filtered = plan_for_format(&plan, "surfboard");
+        assert_eq!(filtered.groups.len(), 1, "{:?}", filtered.groups);
+        assert_eq!(
+            filtered.groups[0].members,
+            vec!["香港-1", "香港-2", "DIRECT"],
+            "悬空的自动组引用会让客户端报未知策略"
+        );
+        assert_eq!(filtered.warnings.len(), plan.warnings.len() + 2);
+        assert!(
+            filtered
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("自动组") && warning.contains("surfboard")),
+            "{:?}",
+            filtered.warnings
+        );
+
+        // 有 url-test 时不会被 fallback / load-balance 的跳过影响。
+        let with_url_test = SubscriptionGroup {
+            name: "自动选择".into(),
+            kind: GroupKind::UrlTest,
+            filters: vec![GroupFilter::default()],
+            include_auto: false,
+            interval: None,
+            strategy: None,
+        };
+        let plan = plan_groups(&[select, load_balance, with_url_test], &nodes);
+        let filtered = plan_for_format(&plan, "surfboard");
+        assert_eq!(filtered.groups[0].members[0], "自动选择");
+        assert!(
+            filtered.warnings.iter().any(|warning| {
+                warning.contains("负载均衡") && warning.contains("已跳过")
+            }),
+            "{:?}",
+            filtered.warnings
+        );
+    }
+
+    #[test]
+    fn round_three_formats_declare_their_real_capabilities() {
+        for format in ["surfboard", "loon", "egern"] {
+            assert!(is_template_format(format), "{format} 必须支持订阅模板");
+        }
+        // Egern 复用 Surge 兼容 profile，能力边界必须与 Surge 一致。
+        assert_eq!(
+            group_capabilities("egern"),
+            group_capabilities("surge"),
+            "egern 与 surge 表达同一份 profile"
+        );
+        assert!(!group_capabilities("egern").load_balance_consistent_hashing);
+        // Loon 只有 Random / PCC / Round-Robin。
+        assert!(group_capabilities("loon").load_balance);
+        assert!(!group_capabilities("loon").load_balance_consistent_hashing);
+        // Surfboard 的 load-balance 只有随机分配，整类跳过。
+        assert!(!group_capabilities("surfboard").load_balance);
+        assert!(group_capabilities("surfboard").fallback);
     }
 
     #[test]

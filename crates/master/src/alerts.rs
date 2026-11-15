@@ -37,15 +37,17 @@ pub enum AlertKind {
     UserExhausted,
     ChainDegraded,
     UpgradeFailed,
+    BackupFailed,
     UpdateAvailable,
 }
 
 impl AlertKind {
-    pub const ALL: [AlertKind; 5] = [
+    pub const ALL: [AlertKind; 6] = [
         AlertKind::ServerOffline,
         AlertKind::UserExhausted,
         AlertKind::ChainDegraded,
         AlertKind::UpgradeFailed,
+        AlertKind::BackupFailed,
         AlertKind::UpdateAvailable,
     ];
 
@@ -55,6 +57,7 @@ impl AlertKind {
             AlertKind::UserExhausted => "user_exhausted",
             AlertKind::ChainDegraded => "chain_degraded",
             AlertKind::UpgradeFailed => "upgrade_failed",
+            AlertKind::BackupFailed => "backup_failed",
             AlertKind::UpdateAvailable => "update_available",
         }
     }
@@ -952,6 +955,11 @@ mod tests {
             Some(AlertKind::UpdateAvailable),
             "版本更新通知也是 alert_events 里的一个事件"
         );
+        assert_eq!(
+            AlertKind::from_name("backup_failed"),
+            Some(AlertKind::BackupFailed),
+            "异地备份连续失败是新增的告警事件"
+        );
         assert_eq!(AlertKind::from_name("nope"), None);
 
         let parsed =
@@ -982,7 +990,7 @@ mod tests {
         let all = format_alert_events(&AlertKind::ALL);
         assert_eq!(
             all,
-            "server_offline,user_exhausted,chain_degraded,upgrade_failed,update_available"
+            "server_offline,user_exhausted,chain_degraded,upgrade_failed,backup_failed,update_available"
         );
         assert_eq!(parse_alert_events(&all).unwrap(), AlertKind::ALL.to_vec());
     }

@@ -28,28 +28,75 @@ use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
-/// `GET /api/v1/backup`：下载 gzip 压缩的一致性快照。
-pub async fn export(State(state): State<AppState>, user: CurrentUser) -> AppResult<Response> {
-    user.require_admin()?;
-    let db_path = backup_db_path(&state)?;
+/// 已压缩好的一份备份；`_guard` 在 Drop 时删除临时文件。
+pub(crate) struct BackupArchive {
+    pub(crate) path: PathBuf,
+    pub(crate) bytes: u64,
+    pub(crate) db_bytes: u64,
+    pub(crate) filename: String,
+    _guard: TempFile,
+}
+
+impl BackupArchive {
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub(crate) fn bytes(&self) -> u64 {
+        self.bytes
+    }
+
+    pub(crate) fn filename(&self) -> &str {
+        &self.filename
+    }
+}
+
+/// 生成一份 gzip 压缩的一致性快照并落盘。
+///
+/// 下载与异地上传共用同一条路径：`VACUUM INTO` 临时快照 → gzip 临时文件。
+/// 返回的 [`BackupArchive`] 持有临时文件守卫，调用方用完即自动清理。
+pub(crate) async fn create_backup_archive(state: &AppState) -> AppResult<BackupArchive> {
+    let db_path = backup_db_path(state)?;
     let dir = parent_dir(&db_path);
     let timestamp = backup::filename_timestamp();
-    let snapshot = dir.join(format!(
-        ".pierwave-backup-{timestamp}-{}.tmp",
-        uuid::Uuid::new_v4()
-    ));
-    // Drop 时删除：VACUUM INTO 失败、gzip 失败或正常返回都不会留下临时文件。
-    let _guard = TempFile::new(snapshot.clone());
+    let token = uuid::Uuid::new_v4();
+    let snapshot = dir.join(format!(".pierwave-backup-{timestamp}-{token}.tmp"));
+    let snapshot_guard = TempFile::new(snapshot.clone());
 
     backup::create_snapshot(&state.db.pool, &snapshot).await?;
     let db_bytes = std::fs::metadata(&snapshot)?.len();
 
+    let gz_path = dir.join(format!(".pierwave-backup-{timestamp}-{token}.db.gz.tmp"));
+    let guard = TempFile::new(gz_path.clone());
     let gzip_source = snapshot.clone();
-    let gz = tokio::task::spawn_blocking(move || gzip_file(&gzip_source))
+    let gzip_target = gz_path.clone();
+    tokio::task::spawn_blocking(move || gzip_file_to(&gzip_source, &gzip_target))
         .await
         .map_err(|error| AppError::Internal(anyhow::anyhow!("压缩备份失败：{error}")))??;
+    // 快照只用于生成 gzip，落盘完成后立刻删掉（不依赖后续执行流）。
+    drop(snapshot_guard);
 
-    let filename = format!("pierwave-backup-{timestamp}.db.gz");
+    let bytes = std::fs::metadata(&gz_path)?.len();
+    Ok(BackupArchive {
+        path: gz_path,
+        bytes,
+        db_bytes,
+        filename: format!(
+            "{}-{timestamp}.db.gz",
+            pierwave_domain::remote_backup::REMOTE_BACKUP_PREFIX
+        ),
+        _guard: guard,
+    })
+}
+
+/// `GET /api/v1/backup`：下载 gzip 压缩的一致性快照。
+pub async fn export(State(state): State<AppState>, user: CurrentUser) -> AppResult<Response> {
+    user.require_admin()?;
+    let archive = create_backup_archive(&state).await?;
+    let gz = tokio::fs::read(archive.path()).await?;
+    let filename = archive.filename().to_string();
+    let db_bytes = archive.db_bytes;
+
     audit::record(
         &state,
         &user.0,
@@ -180,6 +227,113 @@ pub async fn cancel_restore(
     Ok(Json(json!({ "cancelled": true })))
 }
 
+/// `GET /api/v1/backup/remote`：异地备份状态与最近文件列表。
+///
+/// `last_success_at` / `last_error` 来自持久化状态；`files` 实时 PROPFIND，
+/// 远端不可达时返回空列表而不是让整个设置卡报错。
+pub async fn remote_status(
+    State(state): State<AppState>,
+    user: CurrentUser,
+) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+    let settings = crate::routes::settings::load(&state.db.pool).await;
+    let meta = crate::remote_backup::load_meta(&state.db.pool).await;
+    let files = crate::remote_backup::list_managed_files(&settings).await;
+    Ok(Json(remote_status_json(&meta, &files)))
+}
+
+fn remote_status_json(
+    meta: &crate::remote_backup::RemoteBackupMeta,
+    files: &[pierwave_domain::remote_backup::RemoteFile],
+) -> Value {
+    let files: Vec<Value> = files
+        .iter()
+        .map(|file| {
+            json!({
+                "name": file.name,
+                "size": file.size,
+                "modified": file.modified,
+            })
+        })
+        .collect();
+    json!({
+        "last_success_at": meta.last_success_at,
+        "last_failure_at": meta.last_failure_at,
+        "last_error": if meta.last_error.is_empty() {
+            Value::Null
+        } else {
+            Value::String(meta.last_error.clone())
+        },
+        "files": files,
+    })
+}
+
+/// `POST /api/v1/backup/remote/test`：测试已保存的 WebDAV 配置。
+///
+/// 连接失败是**业务结果**（200 + `ok: false`），不是接口错误：卡片要显示原因。
+pub async fn remote_test(
+    State(state): State<AppState>,
+    user: CurrentUser,
+) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+    let settings = crate::routes::settings::load(&state.db.pool).await;
+    match crate::remote_backup::test_connection(&settings).await {
+        Ok(()) => Ok(Json(json!({ "ok": true, "error": Value::Null }))),
+        Err(crate::remote_backup::RunError::NotConfigured(message)) => Err(AppError::coded(
+            "backup.remote_not_configured",
+            None,
+            message,
+        )),
+        Err(crate::remote_backup::RunError::Failed(message)) => {
+            Ok(Json(json!({ "ok": false, "error": message })))
+        }
+        Err(crate::remote_backup::RunError::Busy) => Err(AppError::conflict(
+            "backup.remote_busy",
+            None,
+            "已有备份正在上传，请稍后重试 / An upload is already running",
+        )),
+    }
+}
+
+/// `POST /api/v1/backup/remote/run`：立即生成并上传一次备份。
+pub async fn remote_run(
+    State(state): State<AppState>,
+    user: CurrentUser,
+) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+    let outcome = crate::remote_backup::run_now(&state, crate::remote_backup::Trigger::Manual)
+        .await
+        .map_err(crate::remote_backup::RunError::into_app_error)?;
+
+    audit::record(
+        &state,
+        &user.0,
+        "backup.remote.upload",
+        "backup",
+        json!({
+            "file": outcome.file_name,
+            "bytes": outcome.bytes,
+            "deleted": outcome.deleted.len(),
+        }),
+    )
+    .await;
+
+    Ok(Json(json!({
+        "ok": true,
+        "file": {
+            "name": outcome.file_name,
+            "size": outcome.bytes,
+            "uploaded_at": outcome.uploaded_at,
+        },
+        "deleted": outcome.deleted,
+        "files": outcome.files.iter().map(|file| json!({
+            "name": file.name,
+            "size": file.size,
+            "modified": file.modified,
+        })).collect::<Vec<Value>>(),
+    })))
+}
+
 fn backup_db_path(state: &AppState) -> AppResult<PathBuf> {
     state.db.file_path().map(Path::to_path_buf).ok_or_else(|| {
         AppError::coded(
@@ -286,11 +440,24 @@ fn is_gzip(path: &Path) -> AppResult<bool> {
     }
 }
 
-fn gzip_file(path: &Path) -> AppResult<Vec<u8>> {
-    let mut input = std::fs::File::open(path)?;
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-    std::io::copy(&mut input, &mut encoder)?;
-    Ok(encoder.finish()?)
+/// gzip 到目标文件并 sync；失败时把半成品删掉，避免残留临时文件。
+fn gzip_file_to(source: &Path, target: &Path) -> AppResult<()> {
+    let result = (|| -> std::io::Result<()> {
+        let mut input = std::fs::File::open(source)?;
+        let output = std::fs::File::create(target)?;
+        let mut encoder = GzEncoder::new(output, Compression::default());
+        std::io::copy(&mut input, &mut encoder)?;
+        let output = encoder.finish()?;
+        output.sync_all()?;
+        Ok(())
+    })();
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            let _ = std::fs::remove_file(target);
+            Err(error.into())
+        }
+    }
 }
 
 /// gzip 解压到临时文件，返回解压后字节数；超过上限直接拒绝（防 zip bomb）。
@@ -422,7 +589,9 @@ mod tests {
         let (token, _) = repo::sessions::create(&db.pool, &admin.id, 3600, None)
             .await
             .unwrap();
-        let state = AppState::new(db, "web/dist");
+        let mut state = AppState::new(db, "web/dist");
+        // 重试退避压到毫秒级：单测不真的等 2s + 4s。
+        state.remote_backup = crate::state::RemoteBackupRuntime::default().fast_retry();
         let app = crate::app::router(state.clone());
         (
             dir,
@@ -806,6 +975,379 @@ mod tests {
         );
         // 1 MB 数据确实在库里：不能只报迁移后的空表页。
         assert!(db_bytes >= 1024 * 1024, "db_bytes={db_bytes}");
+    }
+
+    // ---- 异地备份（WebDAV）----
+
+    async fn configure_webdav(state: &AppState, url: &str, password: &str, keep: i64) {
+        for (key, value) in [
+            ("backup_webdav_enabled", "1".to_string()),
+            ("backup_webdav_url", url.to_string()),
+            ("backup_webdav_username", "pierwave".to_string()),
+            ("backup_webdav_password", password.to_string()),
+            ("backup_webdav_interval_hours", "24".to_string()),
+            ("backup_webdav_keep", keep.to_string()),
+        ] {
+            repo::settings::set(&state.db.pool, key, &value)
+                .await
+                .unwrap();
+        }
+    }
+
+    fn dav_file(name: &str, size: usize) -> (String, (Vec<u8>, i64)) {
+        (name.to_string(), (vec![0u8; size], 1_767_225_600))
+    }
+
+    fn gzip_magic(bytes: &[u8]) -> bool {
+        bytes.len() >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b
+    }
+
+    #[tokio::test]
+    async fn remote_upload_puts_snapshot_and_only_prunes_same_prefix() {
+        let fake = crate::webdav_fake::FakeDav::start(crate::webdav_fake::FakeState {
+            files: [
+                dav_file("pierwave-backup-20260101-000000.db.gz", 1),
+                dav_file("pierwave-backup-20260102-000000.db.gz", 1),
+                dav_file("pierwave-backup-20260103-000000.db.gz", 1),
+                dav_file("pierwave-backup-20260104-000000.db.gz", 1),
+                // 非本产品写入的文件：无论如何都不能删。
+                dav_file("notes.txt", 3),
+                dav_file("pierwave-backup-manual.db.gz", 5),
+            ]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        })
+        .await;
+        let (dir, app, state, cookie) = setup("remote-upload").await;
+        configure_webdav(&state, &fake.base_url, "s3cret", 2).await;
+
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/remote/run",
+            Vec::new(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let payload = json(&body);
+        assert_eq!(payload["ok"], true);
+        let name = payload["file"]["name"].as_str().unwrap();
+        assert!(
+            name.starts_with("pierwave-backup-") && name.ends_with(".db.gz"),
+            "文件名必须符合契约：{name}"
+        );
+        assert!(payload["file"]["size"].as_u64().unwrap() > 0);
+        assert_eq!(
+            payload["deleted"].as_array().unwrap().len(),
+            3,
+            "4 份旧备份 + 新上传，keep=2 时应删 3 份：{payload}"
+        );
+
+        {
+            let fake_state = fake.state();
+            assert_eq!(
+                fake_state.files.len(),
+                4,
+                "远端应剩 2 份本产品备份 + 2 份别人的文件：{:?}",
+                fake_state.files.keys().collect::<Vec<_>>()
+            );
+            assert!(fake_state.files.contains_key(name), "新备份必须已在远端");
+            assert!(fake_state.files.contains_key("notes.txt"));
+            assert!(fake_state
+                .files
+                .contains_key("pierwave-backup-manual.db.gz"));
+            for deleted in [
+                "pierwave-backup-20260101-000000.db.gz",
+                "pierwave-backup-20260102-000000.db.gz",
+                "pierwave-backup-20260103-000000.db.gz",
+            ] {
+                assert!(
+                    !fake_state.files.contains_key(deleted),
+                    "旧备份应被删除：{deleted}"
+                );
+            }
+            assert!(fake_state
+                .files
+                .contains_key("pierwave-backup-20260104-000000.db.gz"));
+            let uploaded = &fake_state.files[name].0;
+            assert!(gzip_magic(uploaded), "上传的必须是 gzip");
+            let raw = gunzip(uploaded);
+            assert!(
+                raw.starts_with(backup::SQLITE_MAGIC),
+                "解压后必须是 SQLite 数据库"
+            );
+        }
+
+        // 状态接口：成功时间、无错误、最近文件不超过 30 条。
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::GET,
+            "/api/v1/backup/remote",
+            Vec::new(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let status_payload = json(&body);
+        assert!(status_payload["last_success_at"].as_i64().unwrap() > 0);
+        assert!(status_payload["last_error"].is_null());
+        let files = status_payload["files"].as_array().unwrap();
+        assert_eq!(files.len(), 2, "只列本产品的备份：{status_payload}");
+        assert!(files.iter().all(|file| file["name"]
+            .as_str()
+            .unwrap()
+            .starts_with("pierwave-backup-")));
+        assert!(files[0]["size"].as_u64().unwrap() > 0);
+        assert!(files[0]["modified"].as_i64().is_some());
+
+        assert!(
+            leftover_temp_files(&dir.path).is_empty(),
+            "上传结束后不能留下临时文件：{:?}",
+            leftover_temp_files(&dir.path)
+        );
+
+        let actions: Vec<String> = repo::audit::list(&state.db.pool, 50)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.action)
+            .collect();
+        assert!(
+            actions.contains(&"backup.remote.upload".to_string()),
+            "立即备份要进审计：{actions:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn remote_test_connection_reports_success_and_failure_safely() {
+        let fake =
+            crate::webdav_fake::FakeDav::start(crate::webdav_fake::FakeState::default()).await;
+        let (_dir, app, state, cookie) = setup("remote-test").await;
+
+        // 未配置：返回可读的 400，而不是 500。
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/remote/test",
+            Vec::new(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(json(&body)["code"], "backup.remote_not_configured");
+
+        configure_webdav(&state, &fake.base_url, "hunter2-secret", 7).await;
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/remote/test",
+            Vec::new(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json(&body)["ok"], true);
+
+        // 认证失败：200 + ok:false + 打码原因（测试连接失败是业务结果）。
+        fake.state().fail_requests = 1;
+        fake.state().fail_status = 401;
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/remote/test",
+            Vec::new(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let payload = json(&body);
+        assert_eq!(payload["ok"], false);
+        let error = payload["error"].as_str().unwrap();
+        assert!(error.contains("401"), "{error}");
+        assert!(
+            !error.contains("hunter2-secret"),
+            "错误信息不能泄露密码：{error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn remote_upload_retries_with_backoff_then_succeeds() {
+        let fake = crate::webdav_fake::FakeDav::start(crate::webdav_fake::FakeState {
+            fail_requests: 2,
+            fail_status: 500,
+            ..Default::default()
+        })
+        .await;
+        let (_dir, app, state, cookie) = setup("remote-retry").await;
+        configure_webdav(&state, &fake.base_url, "pass", 7).await;
+
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/remote/run",
+            Vec::new(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let put_attempts = fake
+            .state()
+            .requests
+            .iter()
+            .filter(|line| line.starts_with("PUT "))
+            .count();
+        assert_eq!(put_attempts, 3, "失败两次后第三次成功，共 3 次尝试");
+    }
+
+    #[tokio::test]
+    async fn remote_upload_failure_records_status_and_alerts() {
+        let fake = crate::webdav_fake::FakeDav::start(crate::webdav_fake::FakeState {
+            fail_requests: 99,
+            fail_status: 500,
+            ..Default::default()
+        })
+        .await;
+        let (_dir, _app, mut state, _cookie) = setup("remote-fail").await;
+        configure_webdav(&state, &fake.base_url, "very-secret-pass", 7).await;
+        repo::settings::set(&state.db.pool, "webhook_url", "https://example.test/hook")
+            .await
+            .unwrap();
+        repo::settings::set(&state.db.pool, "alert_events", "backup_failed")
+            .await
+            .unwrap();
+        repo::settings::set(&state.db.pool, "alert_cooldown_secs", "0")
+            .await
+            .unwrap();
+        let transport = std::sync::Arc::new(crate::alerts::RecordingTransport::default());
+        state.alerts = crate::alerts::Alerts::new(transport.clone());
+
+        let round = crate::scheduler::run_remote_backup_round(&state)
+            .await
+            .unwrap();
+        match round {
+            crate::scheduler::RemoteBackupRound::Failed(message) => {
+                assert!(message.contains("500"), "{message}");
+                assert!(
+                    !message.contains("very-secret-pass"),
+                    "失败原因不能泄露密码：{message}"
+                );
+            }
+            other => panic!("应失败，实际 {other:?}"),
+        }
+
+        let meta = crate::remote_backup::load_meta(&state.db.pool).await;
+        assert!(meta.last_failure_at.unwrap() > 0, "失败时间要落库");
+        assert!(
+            meta.last_attempt_at.unwrap() > 0,
+            "尝试时间要落库，避免间隔内反复重试"
+        );
+        assert!(meta.last_success_at.is_none());
+        assert!(meta.last_error.contains("500"), "{}", meta.last_error);
+        assert!(!meta.last_error.contains("very-secret-pass"));
+
+        // 最多 3 次尝试。
+        let put_attempts = fake
+            .state()
+            .requests
+            .iter()
+            .filter(|line| line.starts_with("PUT "))
+            .count();
+        assert_eq!(put_attempts, 3);
+
+        let sent = transport.wait_for(1).await;
+        assert_eq!(sent[0].kind, "backup_failed");
+        assert_eq!(sent[0].target, "backup");
+        assert!(
+            !sent[0].body.contains("very-secret-pass"),
+            "告警正文不能泄露密码：{}",
+            sent[0].body
+        );
+    }
+
+    #[tokio::test]
+    async fn remote_upload_is_mutually_exclusive() {
+        let fake = crate::webdav_fake::FakeDav::start(crate::webdav_fake::FakeState {
+            delay: std::time::Duration::from_millis(300),
+            ..Default::default()
+        })
+        .await;
+        let (_dir, app, state, cookie) = setup("remote-busy").await;
+        configure_webdav(&state, &fake.base_url, "pass", 7).await;
+
+        let first = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/remote/run",
+            Vec::new(),
+        );
+        let second = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/remote/run",
+            Vec::new(),
+        );
+        let ((first_status, _, first_body), (second_status, _, second_body)) =
+            tokio::join!(first, second);
+
+        let statuses = [first_status, second_status];
+        assert!(
+            statuses.contains(&StatusCode::OK),
+            "两个并发请求必须有一个成功：{} / {}",
+            String::from_utf8_lossy(&first_body),
+            String::from_utf8_lossy(&second_body)
+        );
+        let busy = if first_status == StatusCode::CONFLICT {
+            &first_body
+        } else {
+            assert_eq!(
+                second_status,
+                StatusCode::CONFLICT,
+                "另一个必须被互斥挡住：{}",
+                String::from_utf8_lossy(&second_body)
+            );
+            &second_body
+        };
+        assert_eq!(json(busy)["code"], "backup.remote_busy");
+    }
+
+    #[tokio::test]
+    async fn remote_status_is_admin_only() {
+        let (_dir, app, state, _cookie) = setup("remote-auth").await;
+        let (status, _, _) =
+            request(&app, None, Method::GET, "/api/v1/backup/remote", Vec::new()).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        let bob = repo::users::create(
+            &state.db.pool,
+            NewUser {
+                username: "bob".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+                rule_template_id: None,
+                subscription_template_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let (token, _) = repo::sessions::create(&state.db.pool, &bob.id, 3600, None)
+            .await
+            .unwrap();
+        let bob_cookie = format!("{}={token}", crate::auth::SESSION_COOKIE);
+        let (status, _, body) = request(
+            &app,
+            Some(&bob_cookie),
+            Method::GET,
+            "/api/v1/backup/remote",
+            Vec::new(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(json(&body)["code"], "auth.forbidden");
     }
 
     #[tokio::test]

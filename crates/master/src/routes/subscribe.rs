@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde_json::json;
 use sqlx::SqlitePool;
 
-use pierwave_domain::models::User;
+use pierwave_domain::models::{Package, User};
 use pierwave_domain::subscribe::{self, SubContext, SubNode, TrafficInfo};
 use pierwave_domain::subscription_template;
 use pierwave_domain::{credentials, repo};
@@ -176,6 +176,51 @@ pub(crate) async fn rules_for(
             repo::rule_templates::resolve_for_user(pool, &user.id, user.rule_template_id.as_deref())
                 .await?
         }
+    };
+    Ok(subscribe::effective_rules(template))
+}
+
+/// 某个套餐覆盖的订阅节点（第三轮「按套餐预览」用）。
+///
+/// 节点范围与真实授权共用 [`repo::authorization::eligible_node_ids_for_package`]：
+/// 未设范围 = 全部 enabled 节点，显式范围 = 只取 `package_nodes` 里的节点。
+///
+/// 套餐预览没有具体用户，凭据用确定性的**预览占位值**
+/// （`package-preview:{package_id}` 作为派生用的 user 维度）；真实用户的凭据按
+/// `(user, node)` 派生，永远与这里不同，不要把预览里的 UUID 当可用凭据。
+pub(crate) async fn subscription_nodes_for_package(
+    pool: &SqlitePool,
+    package_id: &str,
+    secret: &str,
+) -> AppResult<Vec<SubNode>> {
+    let allowed = repo::authorization::eligible_node_ids_for_package(pool, package_id).await?;
+    let preview_user = format!("package-preview:{package_id}");
+    let mut nodes = Vec::new();
+    for row in repo::nodes::list_enabled_with_server(pool).await? {
+        if !allowed.contains(&row.node.id) {
+            continue;
+        }
+        if let Some(node) =
+            SubNode::from_node(&row.node, &row.server_address, &preview_user, secret)
+        {
+            nodes.push(node);
+        }
+    }
+    dedupe_names(&mut nodes);
+    Ok(nodes)
+}
+
+/// 套餐自己的规则模板绑定（按套餐预览用）。
+///
+/// 没有用户可回落，所以顺序是：`packages.rule_template_id` → `is_default = 1`
+/// → 内置两条。绑定指向不存在的模板时视为未绑定继续回落，与 [`rules_for`] 一致。
+pub(crate) async fn rules_for_package(
+    pool: &SqlitePool,
+    package: &Package,
+) -> AppResult<subscribe::EffectiveRules> {
+    let template = match package.rule_template_id.as_deref() {
+        Some(id) => repo::rule_templates::find_by_id(pool, id).await?,
+        None => repo::rule_templates::find_default(pool).await?,
     };
     Ok(subscribe::effective_rules(template))
 }

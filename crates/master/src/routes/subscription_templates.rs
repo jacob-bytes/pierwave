@@ -88,7 +88,27 @@ fn map_name_conflict(error: anyhow::Error) -> AppError {
 
 pub async fn list(State(state): State<AppState>, user: CurrentUser) -> AppResult<Json<Value>> {
     user.require_admin()?;
-    let items = repo::subscription_templates::list(&state.db.pool).await?;
+    let templates = repo::subscription_templates::list(&state.db.pool).await?;
+    // 使用计数一次聚合取出：列表要显示「被 N 个用户 / M 个套餐使用」，
+    // 删除前管理员也需要知道会解绑多少对象。
+    let usage = repo::subscription_templates::usage_counts(&state.db.pool).await?;
+    let items: Vec<Value> = templates
+        .into_iter()
+        .map(|template| {
+            let counts = usage.get(&template.id).copied().unwrap_or_default();
+            json!({
+                "id": template.id,
+                "name": template.name,
+                "groups": template.groups,
+                "created_at": template.created_at,
+                "updated_at": template.updated_at,
+                "usage": {
+                    "users": counts.users,
+                    "packages": counts.packages,
+                },
+            })
+        })
+        .collect();
     Ok(Json(json!({ "items": items })))
 }
 
@@ -237,7 +257,12 @@ pub async fn delete(
 
 #[derive(Deserialize)]
 pub struct PreviewSubscriptionTemplate {
-    pub user_id: String,
+    /// 按用户预览；与 `package_id` **二选一**，同时给 400。
+    #[serde(default)]
+    pub user_id: Option<String>,
+    /// 按套餐预览：用该套餐的节点范围与规则模板绑定渲染；与 `user_id` 二选一。
+    #[serde(default)]
+    pub package_id: Option<String>,
     /// 导出格式；缺省 `mihomo`（与第一轮预览一致）。
     ///
     /// 前端可以传 `sing-box` / `surge full` 这类模糊写法，由
@@ -246,10 +271,49 @@ pub struct PreviewSubscriptionTemplate {
     pub target: Option<String>,
 }
 
+/// 预览对象：真实用户或套餐（互斥）。
+enum PreviewSubject {
+    User(pierwave_domain::models::User),
+    Package(pierwave_domain::models::Package),
+}
+
+/// `user_id` / `package_id` 必须且只能给一个。
+async fn resolve_preview_subject(
+    state: &AppState,
+    user_id: Option<&str>,
+    package_id: Option<&str>,
+) -> AppResult<PreviewSubject> {
+    let user_id = user_id.map(str::trim).filter(|value| !value.is_empty());
+    let package_id = package_id.map(str::trim).filter(|value| !value.is_empty());
+    match (user_id, package_id) {
+        (Some(_), Some(_)) => Err(AppError::coded(
+            "subscription_template.preview_target_conflict",
+            Some(json!({ "fields": ["user_id", "package_id"] })),
+            "user_id 与 package_id 只能二选一",
+        )),
+        (None, None) => Err(AppError::coded(
+            "subscription_template.preview_target_required",
+            None,
+            "需要提供 user_id 或 package_id",
+        )),
+        (Some(id), None) => Ok(PreviewSubject::User(
+            repo::users::find_by_id_opt(&state.db.pool, id)
+                .await?
+                .ok_or_else(|| AppError::not_found("user.not_found", None, "资源不存在"))?,
+        )),
+        (None, Some(id)) => Ok(PreviewSubject::Package(
+            repo::packages::find_by_id(&state.db.pool, id)
+                .await?
+                .ok_or_else(|| AppError::not_found("package.not_found", None, "资源不存在"))?,
+        )),
+    }
+}
+
 /// 预览支持的导出格式：只有能表达订阅模板的格式才有意义。
 ///
 /// 模糊匹配至少覆盖 clash / mihomo / stash / singbox / singbox-full /
-/// surge / surge-full；未注册或/不支持模板的格式返回 `None`，由调用方给 400。
+/// surge / surge-full / surfboard / loon / egern；未注册或/不支持模板的格式
+/// 返回 `None`，由调用方给 400。
 fn resolve_preview_format(raw: Option<&str>) -> Option<&'static str> {
     let raw = raw.map(str::trim).filter(|value| !value.is_empty());
     let Some(raw) = raw else {
@@ -283,14 +347,19 @@ fn resolve_preview_format(raw: Option<&str>) -> Option<&'static str> {
     is_template_format(resolved).then_some(resolved)
 }
 
-/// 用真实用户渲染目标格式的订阅，返回 `yaml` + `format` + `warnings`。
+/// 用真实用户或套餐渲染目标格式的订阅，返回 `yaml` + `format` + `warnings`。
 ///
-/// 模板不存在 → 404；用户不存在 → 404。用户没有可用节点不是错误，
-/// 会渲染出 `proxies: []` 并附 warning。
+/// `user_id` 与 `package_id` 二选一：同时给 → 400，一个都不给 → 400。
+/// 模板不存在 → 404；用户 / 套餐不存在 → 404。没有可用节点不是错误，
+/// 会渲染出空 `proxies` / 回落分组并附 warning。
+///
+/// 按套餐预览用该套餐的节点范围（`packages.node_scope` → `package_nodes`）与
+/// 规则模板绑定，分组仍然来自路径里的模板 `id`；没有具体用户，所以凭据是
+/// 确定性的预览占位值。
 ///
 /// `warnings` 同时包含模板告警（空组、格式无法表达的组、load-balance 近似）
-/// 与「该用户当前没有可用节点」的提示；渲染器与这里共用
-/// [`plan_for_format`]，所以预览里说被跳过的组不会偷偷出现在输出里。
+/// 与「没有可用节点」的提示；渲染器与这里共用 [`plan_for_format`]，所以预览里
+/// 说被跳过的组不会偷偷出现在输出里。
 pub async fn preview(
     State(state): State<AppState>,
     user: CurrentUser,
@@ -315,19 +384,45 @@ pub async fn preview(
         .ok_or_else(|| {
             AppError::not_found("subscription_template.not_found", None, "资源不存在")
         })?;
-    let target_user = repo::users::find_by_id_opt(&state.db.pool, req.user_id.trim())
-        .await?
-        .ok_or_else(|| AppError::not_found("user.not_found", None, "资源不存在"))?;
+    let subject =
+        resolve_preview_subject(&state, req.user_id.as_deref(), req.package_id.as_deref()).await?;
 
     let secret = credentials::master_secret(&state.db.pool).await?;
-    let nodes =
-        super::subscribe::subscription_nodes(&state.db.pool, &target_user.id, &secret).await?;
-    let effective_rules = super::subscribe::rules_for(&state.db.pool, &target_user, None).await?;
+    let (nodes, effective_rules, label) = match &subject {
+        PreviewSubject::User(target_user) => {
+            let nodes =
+                super::subscribe::subscription_nodes(&state.db.pool, &target_user.id, &secret)
+                    .await?;
+            let rules = super::subscribe::rules_for(&state.db.pool, target_user, None).await?;
+            (nodes, rules, target_user.username.clone())
+        }
+        PreviewSubject::Package(package) => {
+            let nodes = super::subscribe::subscription_nodes_for_package(
+                &state.db.pool,
+                &package.id,
+                &secret,
+            )
+            .await?;
+            let rules = super::subscribe::rules_for_package(&state.db.pool, package).await?;
+            (nodes, rules, package.name.clone())
+        }
+    };
 
     let mut warnings = Vec::new();
     if nodes.is_empty() {
+        warnings.push(match &subject {
+            PreviewSubject::User(_) => {
+                "该用户当前没有可用节点，渲染结果只有空 proxies / 回落分组 / This user has no available nodes; the preview renders empty proxies / fallback groups"
+            }
+            PreviewSubject::Package(_) => {
+                "该套餐当前没有可用节点，渲染结果只有空 proxies / 回落分组 / This package has no available nodes; the preview renders empty proxies / fallback groups"
+            }
+        }
+        .to_string());
+    }
+    if matches!(subject, PreviewSubject::Package(_)) {
         warnings.push(
-            "该用户当前没有可用节点，渲染结果只有空 proxies / 回落分组 / This user has no available nodes; the preview renders empty proxies / fallback groups"
+            "按套餐预览没有具体用户，节点凭据是为该套餐派生的预览占位值 / A package preview has no user; node credentials are deterministic placeholders derived for the package"
                 .to_string(),
         );
     }
@@ -337,7 +432,7 @@ pub async fn preview(
 
     let ctx = SubContext {
         nodes: &nodes,
-        user_label: &target_user.username,
+        user_label: &label,
         traffic: None,
         rules: &effective_rules.rules,
         groups: Some(&plan),
@@ -797,6 +892,10 @@ mod tests {
             ("sing box full", "singbox-full"),
             ("surge", "surge"),
             ("Surge Full", "surge-full"),
+            // 第三轮接入的三种格式。
+            ("Surfboard", "surfboard"),
+            ("Loon", "loon"),
+            ("Egern", "egern"),
         ] {
             let (status, body) = request(
                 &app,
@@ -893,8 +992,8 @@ mod tests {
             body["warnings"]
         );
 
-        // 不支持模板的格式（loon / 未知）明确 400，而不是把 YAML 塞回去。
-        for target in ["loon", "not-a-client"] {
+        // 不支持模板的格式（qx / 未知）明确 400，而不是把 YAML 塞回去。
+        for target in ["qx", "uri", "shadowrocket", "not-a-client"] {
             let (status, body) = request(
                 &app,
                 &cookie,
@@ -909,6 +1008,345 @@ mod tests {
                 "{target}: {body}"
             );
         }
+    }
+
+    /// 列表要带「被 N 个用户 / M 个套餐使用」的计数；删除后外键自动解绑。
+    #[tokio::test]
+    async fn list_reports_usage_counts_and_delete_unbinds_references() {
+        let (app, state, cookie, _admin) = setup().await;
+        let id = create_template(&state, "使用中", groups()).await;
+
+        let bound_user = repo::users::create(
+            &state.db.pool,
+            NewUser {
+                username: "bound-user".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+                rule_template_id: None,
+                subscription_template_id: Some(id.clone()),
+            },
+        )
+        .await
+        .unwrap();
+        let bound_package = repo::packages::create(
+            &state.db.pool,
+            repo::packages::NewPackage {
+                name: "绑定模板的套餐".into(),
+                quota_bytes: None,
+                period_days: None,
+                direction: "both".into(),
+                node_ratio: 1.0,
+                speed_limit_kbps: None,
+                rule_template_id: None,
+                subscription_template_id: Some(id.clone()),
+                node_ids: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let (status, body) = request(
+            &app,
+            &cookie,
+            Method::GET,
+            "/api/v1/subscription-templates",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let items = body["items"].as_array().unwrap();
+        assert_eq!(items.len(), 1, "{body}");
+        assert_eq!(items[0]["usage"]["users"], 1, "{body}");
+        assert_eq!(items[0]["usage"]["packages"], 1, "{body}");
+        // 既有字段必须保持原样（前端仍按 groups / created_at 渲染）。
+        assert_eq!(items[0]["groups"].as_array().unwrap().len(), 2);
+        assert!(items[0]["created_at"].as_i64().is_some());
+
+        let (status, _body) = request(
+            &app,
+            &cookie,
+            Method::DELETE,
+            &format!("/api/v1/subscription-templates/{id}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            repo::users::find_by_id_opt(&state.db.pool, &bound_user.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .subscription_template_id
+                .is_none(),
+            "删除模板必须让用户绑定解绑"
+        );
+        assert!(
+            repo::packages::find_by_id(&state.db.pool, &bound_package.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .subscription_template_id
+                .is_none(),
+            "删除模板必须让套餐绑定解绑"
+        );
+
+        // 新建一个没人使用的模板：usage 必须显式给 0，而不是缺字段。
+        create_template(&state, "未使用", groups()).await;
+        let (_, body) = request(
+            &app,
+            &cookie,
+            Method::GET,
+            "/api/v1/subscription-templates",
+            None,
+        )
+        .await;
+        let items = body["items"].as_array().unwrap();
+        assert_eq!(items.len(), 1, "{body}");
+        assert_eq!(items[0]["usage"]["users"], 0, "{body}");
+        assert_eq!(items[0]["usage"]["packages"], 0, "{body}");
+    }
+
+    /// 两个节点 + 「全部节点」套餐 + 「仅日本」套餐；用于按套餐预览的范围对比。
+    async fn seed_scope_fixtures(state: &AppState) -> (String, String, String) {
+        let user = repo::users::create(
+            &state.db.pool,
+            NewUser {
+                username: "scope-user".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+                rule_template_id: None,
+                subscription_template_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let (server, _token) =
+            repo::servers::create(&state.db.pool, "scope-1", "203.0.113.50", "external")
+                .await
+                .unwrap();
+        repo::nodes::create(
+            &state.db.pool,
+            &server.id,
+            repo::nodes::NewNode {
+                tag: Some("hk-scope".into()),
+                name: "香港-SCOPE".into(),
+                protocol: "vless".into(),
+                transport: "tcp".into(),
+                security: "reality".into(),
+                port: 443,
+                public_port: None,
+                config_json: json!({
+                    "settings": {"clients": []},
+                    "stream": {
+                        "network": "tcp",
+                        "security": "reality",
+                        "realitySettings": {
+                            "serverNames": ["www.example.com"],
+                            "publicKey": "scope-public-key",
+                            "shortIds": ["abcd1234"]
+                        }
+                    }
+                })
+                .to_string(),
+                enabled: true,
+                cert_id: None,
+                bandwidth_kbps: None,
+                tags: vec!["香港".into()],
+                region: Some("HK".into()),
+            },
+        )
+        .await
+        .unwrap();
+        let jp = repo::nodes::create(
+            &state.db.pool,
+            &server.id,
+            repo::nodes::NewNode {
+                tag: Some("jp-scope".into()),
+                name: "日本-SCOPE".into(),
+                protocol: "trojan".into(),
+                transport: "ws".into(),
+                security: "none".into(),
+                port: 8443,
+                public_port: None,
+                config_json: json!({
+                    "settings": {"clients": [{"password": "scope-password"}]},
+                    "stream": {
+                        "network": "ws",
+                        "security": "none",
+                        "wsSettings": {"path": "/ws"}
+                    }
+                })
+                .to_string(),
+                enabled: true,
+                cert_id: None,
+                bandwidth_kbps: None,
+                tags: vec!["日本".into()],
+                region: Some("JP".into()),
+            },
+        )
+        .await
+        .unwrap();
+
+        let all = repo::packages::create(
+            &state.db.pool,
+            repo::packages::NewPackage {
+                name: "全部节点".into(),
+                quota_bytes: None,
+                period_days: None,
+                direction: "both".into(),
+                node_ratio: 1.0,
+                speed_limit_kbps: None,
+                rule_template_id: None,
+                subscription_template_id: None,
+                node_ids: None,
+            },
+        )
+        .await
+        .unwrap();
+        repo::user_packages::create(
+            &state.db.pool,
+            &user.id,
+            repo::user_packages::NewUserPackage {
+                package_id: all.id.clone(),
+                quota_override: None,
+                expires_at: None,
+                reset_day: None,
+            },
+            &all,
+        )
+        .await
+        .unwrap();
+        let restricted = repo::packages::create(
+            &state.db.pool,
+            repo::packages::NewPackage {
+                name: "仅日本".into(),
+                quota_bytes: None,
+                period_days: None,
+                direction: "both".into(),
+                node_ratio: 1.0,
+                speed_limit_kbps: None,
+                rule_template_id: None,
+                subscription_template_id: None,
+                node_ids: Some(vec![jp.id.clone()]),
+            },
+        )
+        .await
+        .unwrap();
+        (user.id, all.id, restricted.id)
+    }
+
+    /// 按套餐预览：节点范围来自套餐，与按用户预览可以不同；同时给两个 id → 400。
+    #[tokio::test]
+    async fn preview_by_package_uses_its_node_scope() {
+        let (app, state, cookie, _admin) = setup().await;
+        let (user_id, all_package, restricted_package) = seed_scope_fixtures(&state).await;
+        let id = create_template(
+            &state,
+            "范围预览",
+            json!([
+                {"name":"节点选择","type":"select","filters":[{}]}
+            ]),
+        )
+        .await;
+
+        // 按用户：套餐覆盖全部节点 → 两个节点都在。
+        let (status, body) = request(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/subscription-templates/{id}/preview"),
+            Some(json!({ "user_id": user_id })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let yaml = body["yaml"].as_str().unwrap();
+        assert!(yaml.contains("香港-SCOPE"), "{yaml}");
+        assert!(yaml.contains("日本-SCOPE"), "{yaml}");
+
+        // 按套餐：只有显式范围里的日本节点。
+        let (status, body) = request(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/subscription-templates/{id}/preview"),
+            Some(json!({ "package_id": restricted_package })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let yaml = body["yaml"].as_str().unwrap();
+        assert!(yaml.contains("日本-SCOPE"), "{yaml}");
+        assert!(
+            !yaml.contains("香港-SCOPE"),
+            "套餐范围外的节点不能出现在预览里：{yaml}"
+        );
+        assert!(
+            body["warnings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|warning| warning.as_str().unwrap().contains("占位值")),
+            "占位凭据必须显式说明：{}",
+            body["warnings"]
+        );
+
+        // 未设范围的套餐覆盖全部节点，与用户预览一致。
+        let (status, body) = request(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/subscription-templates/{id}/preview"),
+            Some(json!({ "package_id": all_package })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let yaml = body["yaml"].as_str().unwrap();
+        assert!(
+            yaml.contains("香港-SCOPE") && yaml.contains("日本-SCOPE"),
+            "{yaml}"
+        );
+
+        // user_id / package_id 二选一：同时给、都不给都是 400。
+        let (status, body) = request(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/subscription-templates/{id}/preview"),
+            Some(json!({ "user_id": user_id, "package_id": all_package })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(
+            body["code"], "subscription_template.preview_target_conflict",
+            "{body}"
+        );
+
+        let (status, body) = request(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/subscription-templates/{id}/preview"),
+            Some(json!({})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(
+            body["code"], "subscription_template.preview_target_required",
+            "{body}"
+        );
+
+        // 套餐不存在 → 404 package.not_found，而不是回落到用户分支。
+        let (status, body) = request(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/subscription-templates/{id}/preview"),
+            Some(json!({ "package_id": "does-not-exist" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert_eq!(body["code"], "package.not_found", "{body}");
     }
 
     #[tokio::test]

@@ -5,6 +5,7 @@ mod auth;
 mod enforcement;
 mod error;
 mod nic;
+mod remote_backup;
 mod routes;
 mod scheduler;
 mod state;
@@ -13,6 +14,9 @@ mod telegram_bot;
 mod throttle;
 mod tunnel_cert;
 mod updates;
+mod webdav;
+#[cfg(test)]
+mod webdav_fake;
 
 use std::net::SocketAddr;
 
@@ -174,6 +178,8 @@ async fn main() -> anyhow::Result<()> {
     let _forward_traffic = scheduler::spawn_forward_traffic_sampler(state.clone());
     // 版本更新检测：启动后先跑一次，之后按设置间隔（默认 6 小时）检查 GitHub Releases。
     let _update_check = scheduler::spawn_update_check(state.clone());
+    // 异地备份：每 60 秒看一次设置，到点把备份 PUT 到 WebDAV。
+    let _remote_backup = scheduler::spawn_remote_backup(state.clone());
     // 管理员 Telegram Bot：默认关闭；每 30 秒读一次设置，启停/改配置自动生效。
     // 所有失败都只 warn，启动阶段不因 Bot 配置问题失败。
     let _telegram_bot = telegram_bot::spawn(state.clone());

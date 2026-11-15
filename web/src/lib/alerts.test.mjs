@@ -28,6 +28,7 @@ test("defaults match the alert design", () => {
     "server_offline",
     "user_exhausted",
     "chain_degraded",
+    "backup_failed",
     "update_available",
   ]);
   assert.deepEqual(ALERT_EVENTS, [
@@ -35,13 +36,20 @@ test("defaults match the alert design", () => {
     "user_exhausted",
     "chain_degraded",
     "upgrade_failed",
+    "backup_failed",
     "update_available",
   ]);
 });
 
-test("the event list has exactly five entries and new releases default on", () => {
-  assert.equal(ALERT_EVENTS.length, 5);
-  assert.equal(new Set(ALERT_EVENTS).size, 5, "事件不能重复");
+test("the event list has exactly six entries and new events default on", () => {
+  assert.equal(ALERT_EVENTS.length, 6);
+  assert.equal(new Set(ALERT_EVENTS).size, 6, "事件不能重复");
+  assert.equal(
+    DEFAULT_ALERT_EVENTS.includes("backup_failed"),
+    true,
+    "异地备份失败默认开启",
+  );
+  assert.equal(ALERT_EVENTS[ALERT_EVENTS.length - 1], "update_available");
   assert.equal(ALERT_EVENTS.includes("update_available"), true);
   assert.equal(DEFAULT_ALERT_EVENTS.includes("update_available"), true);
   // 迁移后的旧数据（四事件）不会把新事件悄悄打开。

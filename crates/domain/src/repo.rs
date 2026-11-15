@@ -1045,6 +1045,34 @@ pub mod subscription_templates {
             .rows_affected();
         Ok(removed > 0)
     }
+
+    /// 模板的引用计数：多少用户 / 多少套餐正绑定它。
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+    pub struct TemplateUsage {
+        pub users: i64,
+        pub packages: i64,
+    }
+
+    /// 一次聚合查出所有模板的引用计数（列表接口用，避免每行两条 COUNT）。
+    ///
+    /// 删除时外键 `ON DELETE SET NULL` 会自动解绑，但管理员需要先看到影响面，
+    /// 所以计数必须和列表一起返回；不存在的模板不会出现在结果里。
+    pub async fn usage_counts(pool: &SqlitePool) -> anyhow::Result<HashMap<String, TemplateUsage>> {
+        let rows = sqlx::query_as::<_, (String, i64, i64)>(
+            "SELECT t.id,
+                    (SELECT COUNT(*) FROM users u
+                     WHERE u.subscription_template_id = t.id),
+                    (SELECT COUNT(*) FROM packages p
+                     WHERE p.subscription_template_id = t.id)
+             FROM subscription_templates t",
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, users, packages)| (id, TemplateUsage { users, packages }))
+            .collect())
+    }
 }
 
 pub mod sessions {
@@ -8309,6 +8337,30 @@ pub mod authorization {
         let packages = super::user_packages::list_views_by_user(pool, user_id).await?;
         let now = super::now();
         Ok(packages.iter().any(|item| item.is_usable_at(now)))
+    }
+
+    /// 单个套餐覆盖的 enabled 节点 id（按套餐预览用）。
+    ///
+    /// 节点范围条件与 [`eligible_pairs_for_user`] 完全一致：`node_scope_explicit = 0`
+    /// 表示全部 enabled 节点，否则只取 `package_nodes` 里显式列出的节点。这里刻意
+    /// 不涉及用户账户额度 / 套餐有效期：预览回答的是「这个套餐覆盖哪些节点」。
+    pub async fn eligible_node_ids_for_package(
+        pool: &SqlitePool,
+        package_id: &str,
+    ) -> anyhow::Result<HashSet<String>> {
+        let rows = sqlx::query_as::<_, (String,)>(
+            "SELECT n.id
+             FROM nodes n
+             JOIN packages p ON p.id = ?
+             WHERE n.enabled = 1
+               AND (p.node_scope_explicit = 0
+                    OR EXISTS (SELECT 1 FROM package_nodes pn
+                               WHERE pn.package_id = p.id AND pn.node_id = n.id))",
+        )
+        .bind(package_id)
+        .fetch_all(pool)
+        .await?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 }
 

@@ -21,6 +21,11 @@
 | `event.cleanup_days_invalid` | 清理天数必须在 {min}-{max} 天之间，或选择全部 | max, min |
 | `request.no_update_fields` | 至少需要提供一个可更新字段 | — |
 | `request.busy` | 数据库繁忙，请稍后重试（并发写入未能在等待时间内完成） | — |
+| `settings.backup_webdav_url_invalid` | WebDAV 地址不合法 | — |
+| `settings.backup_webdav_username_invalid` | WebDAV 用户名不合法 | — |
+| `settings.backup_webdav_password_invalid` | WebDAV 密码不合法 | — |
+| `settings.backup_webdav_url_required` | 启用异地备份前必须填写 WebDAV 地址 | — |
+| `settings.backup_webdav_password_required` | 启用异地备份前必须填写 WebDAV 密码 | — |
 | `user.not_found` | 用户不存在 | — |
 | `user.username_length_invalid` | 用户名长度必须在 {min}-{max} 个字符之间 | max, min |
 | `user.password_too_short` | 密码至少 {min} 位 | min |
@@ -131,6 +136,9 @@
 | `backup.restore_invalid` | 备份文件校验失败 | — |
 | `backup.restore_bad_gzip` | gzip 解压失败 | — |
 | `backup.restore_read_failed` | 读取上传内容失败 | — |
+| `backup.remote_busy` | 已有备份正在上传，请稍后重试 | — |
+| `backup.remote_not_configured` | 尚未配置 WebDAV 地址或密码 | — |
+| `backup.remote_upload_failed` | 异地备份上传失败：{detail} | detail |
 | `release.key_length_invalid` | 密钥长度必须是 32 字节 | actual, expected |
 | `release.public_key_invalid` | 公钥格式不合法 | — |
 | `release.signature_length_invalid` | 签名长度不合法 | actual, expected |
