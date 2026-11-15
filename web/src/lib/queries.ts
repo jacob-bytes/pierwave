@@ -73,6 +73,7 @@ import {
   type SessionUser,
   type Settings,
   type Subscription,
+  type TcpingResult,
   type TrafficStats,
   type UpdateChainInput,
   type UpdateChainTemplateInput,
@@ -1228,6 +1229,16 @@ export function useDeleteNode(serverId: string) {
         queryKey: queryKeys.certificates,
       });
     },
+  });
+}
+
+/**
+ * 节点 TCPing：结果不落库，也不进 query cache——页面自己持有每行状态，
+ * 保留到下次刷新。后端对同一节点 5 秒内复用结果，重复点击不会放大探测。
+ */
+export function useTcpingNode() {
+  return useMutation<TcpingResult, Error, string>({
+    mutationFn: (id) => api.tcpingNode(id),
   });
 }
 

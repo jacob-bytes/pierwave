@@ -8,6 +8,7 @@ mod nic;
 mod routes;
 mod scheduler;
 mod state;
+mod tcping;
 mod telegram_bot;
 mod throttle;
 mod tunnel_cert;

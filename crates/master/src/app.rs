@@ -64,6 +64,8 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/nodes/{id}",
             patch(routes::nodes::update).delete(routes::nodes::delete),
         )
+        // 实时 TCPing：结果不落库，只写审计；仅管理员。
+        .route("/api/v1/nodes/{id}/tcping", post(routes::nodes::tcping))
         .route("/api/v1/servers/{id}/apply", post(routes::nodes::apply))
         .route(
             "/api/v1/servers/{id}/forwards",

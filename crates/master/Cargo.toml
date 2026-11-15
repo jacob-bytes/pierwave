@@ -33,6 +33,9 @@ time = "0.3"
 # 新增的体积主要是 ring（master 之前没有直接依赖它，但 rustls 已经在
 # workspace 里用了同一个 ring 版本，最终二进制增量约数百 KB）。
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
+# 节点 TCPing 的「主控与服务器同网」判定：读本机网卡与掩码。与 Agent 用同一个
+# 轻量 getifaddrs 封装，不引入 tokio/rustls 那类大依赖。
+if-addrs = "0.13"
 
 [dev-dependencies]
 base64 = { workspace = true }

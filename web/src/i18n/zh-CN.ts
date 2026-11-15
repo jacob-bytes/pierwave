@@ -1312,6 +1312,7 @@ const zhCN = {
       nodeCreate: "创建节点",
       nodeUpdate: "修改节点",
       nodeDelete: "删除节点",
+      nodeTcping: "探测节点",
       certificateUpload: "上传证书",
       certificateDelete: "删除证书",
       settingsUpdate: "修改设置",
@@ -1908,6 +1909,13 @@ const zhCN = {
     desc: "开关会直接保存启用状态；停用的节点不会被写入下发的配置。",
     tableCaption: "节点列表",
     portPairTitle: "内网端口 → 对外端口",
+    tcping: {
+      probe: "探测节点可达性",
+      probeAria: "探测节点 {name} 的可达性",
+      probing: "正在探测…",
+      unreachable: "不可达",
+      failureFallback: "探测失败，请稍后重试",
+    },
     columns: {
       name: "名称",
       protocol: "协议",

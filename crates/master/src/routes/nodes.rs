@@ -13,6 +13,7 @@ use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
 use crate::routes::public_url::{self, PublicBaseKind};
 use crate::state::AppState;
+use crate::tcping as reachability;
 
 const PROTOCOLS: &[&str] = &["vless", "vmess", "trojan", "shadowsocks", "socks", "http"];
 const TRANSPORTS: &[&str] = &[
@@ -687,6 +688,58 @@ pub async fn update(
     .await;
 
     Ok(Json(json!({ "node": node })))
+}
+
+/// 实时节点可达性探测（TCPing）。
+///
+/// 只允许管理员。成功和失败都返回 200：不可达是正常结果，不是服务端错误。
+/// 同一节点同一时刻只跑一次探测，5 秒窗口内复用上次结果（因此没有 429）；
+/// 结果不落库，只有真正发起探测时才写一条 `node.tcping` 审计。
+pub async fn tcping(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<String>,
+) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+    let node = repo::nodes::find_by_id(&state.db.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::not_found("node.not_found", None, "资源不存在"))?;
+    let server = load_server(&state, &node.server_id).await?;
+
+    // 内网地址只在「主控与服务器同网」时优先；判定读本机网卡，不试探目标。
+    let interfaces = reachability::local_interfaces();
+    let same_lan = reachability::same_lan(server.internal_address.as_deref(), &interfaces);
+    let target = reachability::select_target(
+        reachability::TargetInput {
+            server_address: &server.address,
+            internal_address: server.internal_address.as_deref(),
+            port: node.port,
+            public_port: node.public_port,
+        },
+        same_lan,
+    );
+    // 只记地址来源（internal/public），不记明文地址。
+    tracing::debug!(
+        node_id = %node.id,
+        source = target.source.as_str(),
+        "node tcping"
+    );
+
+    let (result, fresh) = state
+        .tcping
+        .run(&node.id, || reachability::probe(&target))
+        .await;
+    if fresh {
+        crate::audit::record(
+            &state,
+            &user.0,
+            "node.tcping",
+            &node.id,
+            result.audit_detail(),
+        )
+        .await;
+    }
+    Ok(Json(json!(result)))
 }
 
 pub async fn delete(
@@ -1982,5 +2035,254 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
+    }
+
+    async fn create_server_with(
+        app: &Router,
+        cookie: &str,
+        name: &str,
+        address: &str,
+        internal_address: Option<&str>,
+    ) -> String {
+        let mut payload = json!({"name": name, "address": address});
+        if let Some(internal) = internal_address {
+            payload["internal_address"] = json!(internal);
+        }
+        let (status, body) = request(
+            app,
+            Some(cookie),
+            Method::POST,
+            "/api/v1/servers",
+            Some(payload),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        body["server"]["id"].as_str().unwrap().to_string()
+    }
+
+    async fn create_tcp_node(
+        app: &Router,
+        cookie: &str,
+        server_id: &str,
+        port: u16,
+        public_port: Option<u16>,
+    ) -> String {
+        let mut payload = vless_node();
+        payload["port"] = json!(port);
+        if let Some(public_port) = public_port {
+            payload["public_port"] = json!(public_port);
+        }
+        let (status, body) = request(
+            app,
+            Some(cookie),
+            Method::POST,
+            &format!("/api/v1/servers/{server_id}/nodes"),
+            Some(payload),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        body["node"]["id"].as_str().unwrap().to_string()
+    }
+
+    /// 本地监听端口：listener 活着时 TCP 握手必然成功。
+    async fn listening_port() -> (tokio::net::TcpListener, u16) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        (listener, port)
+    }
+
+    /// 端口 1 是保留端口，普通进程不会监听：连接它稳定得到 Connection refused。
+    /// 不用「先 bind 再 drop」拿端口，避免与并行测试的临时监听端口撞车。
+    const CLOSED_PORT: u16 = 1;
+
+    async fn tcping_call(app: &Router, cookie: &str, node_id: &str) -> (StatusCode, Value) {
+        request(
+            app,
+            Some(cookie),
+            Method::POST,
+            &format!("/api/v1/nodes/{node_id}/tcping"),
+            None,
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn tcping_reports_reachable_and_unreachable_without_500() {
+        let (app, _state, cookie) = setup().await;
+        let server_id = create_server_with(&app, &cookie, "hk", "127.0.0.1", None).await;
+
+        let (listener, port) = listening_port().await;
+        let node_id = create_tcp_node(&app, &cookie, &server_id, port, None).await;
+        let (status, body) = tcping_call(&app, &cookie, &node_id).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["reachable"], true, "{body}");
+        assert!(
+            body["latency_ms"].as_u64().is_some_and(|ms| ms < 3_000),
+            "成功必须带非负延迟：{body}"
+        );
+        assert_eq!(body["address"], format!("127.0.0.1:{port}"));
+        assert!(body["checked_at"].as_i64().is_some());
+        assert!(body.get("error").is_none(), "成功不应带 error：{body}");
+        drop(listener);
+
+        let dead = CLOSED_PORT;
+        let node_id = create_tcp_node(&app, &cookie, &server_id, dead, None).await;
+        let (status, body) = tcping_call(&app, &cookie, &node_id).await;
+        assert_eq!(status, StatusCode::OK, "不可达必须返回 200：{body}");
+        assert_eq!(body["reachable"], false, "{body}");
+        assert!(body.get("latency_ms").is_none(), "失败不带延迟：{body}");
+        let error = body["error"].as_str().unwrap();
+        assert!(
+            error.contains("拒绝") || error.to_ascii_lowercase().contains("refused"),
+            "失败原因要可读：{error}"
+        );
+        assert_eq!(body["address"], format!("127.0.0.1:{dead}"));
+    }
+
+    #[tokio::test]
+    async fn tcping_uses_public_port_for_nat_nodes() {
+        let (app, _state, cookie) = setup().await;
+        let server_id = create_server_with(&app, &cookie, "nat", "127.0.0.1", None).await;
+        let (_listener, public_port) = listening_port().await;
+        let listen_port = CLOSED_PORT;
+
+        // 监听端口不通、对外端口才通：NAT 场景必须探测 public_port。
+        let node_id =
+            create_tcp_node(&app, &cookie, &server_id, listen_port, Some(public_port)).await;
+        let (status, body) = tcping_call(&app, &cookie, &node_id).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["reachable"], true, "{body}");
+        assert_eq!(body["address"], format!("127.0.0.1:{public_port}"));
+        assert!(
+            !body["address"]
+                .as_str()
+                .unwrap()
+                .ends_with(&format!(":{listen_port}")),
+            "不能探测节点监听端口：{body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn tcping_prefers_internal_address_only_when_master_shares_the_network() {
+        let (app, _state, cookie) = setup().await;
+        let (_listener, port) = listening_port().await;
+
+        // 内网地址是回环：主控必然在 127.0.0.0/8 内，算同网。
+        let same_network =
+            create_server_with(&app, &cookie, "lan", "203.0.113.10", Some("127.0.0.1")).await;
+        let node_id = create_tcp_node(&app, &cookie, &same_network, port, None).await;
+        let (status, body) = tcping_call(&app, &cookie, &node_id).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["reachable"], true, "{body}");
+        assert_eq!(
+            body["address"],
+            format!("127.0.0.1:{port}"),
+            "同网必须优先内网地址：{body}"
+        );
+
+        // 内网地址是 TEST-NET-3：主控不在该网段，回落到公网 address。
+        let different_network =
+            create_server_with(&app, &cookie, "wan", "127.0.0.1", Some("198.51.100.77")).await;
+        let node_id = create_tcp_node(&app, &cookie, &different_network, port, None).await;
+        let (status, body) = tcping_call(&app, &cookie, &node_id).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["reachable"], true, "{body}");
+        assert_eq!(
+            body["address"],
+            format!("127.0.0.1:{port}"),
+            "不同网时不能用内网地址：{body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn tcping_requires_admin_and_returns_404_for_unknown_nodes() {
+        let (app, state, cookie) = setup().await;
+        let server_id = create_server_with(&app, &cookie, "hk", "127.0.0.1", None).await;
+        let (_listener, port) = listening_port().await;
+        let node_id = create_tcp_node(&app, &cookie, &server_id, port, None).await;
+
+        // 未登录 → 401。
+        let (status, _) = request(
+            &app,
+            None,
+            Method::POST,
+            &format!("/api/v1/nodes/{node_id}/tcping"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        // 普通用户 → 403。
+        let user = repo::users::create(
+            &state.db.pool,
+            repo::users::NewUser {
+                username: "alice".into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+                rule_template_id: None,
+                subscription_template_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let (token, _) = repo::sessions::create(&state.db.pool, &user.id, 3600, None)
+            .await
+            .unwrap();
+        let user_cookie = format!("{}={token}", crate::auth::SESSION_COOKIE);
+        let (status, body) = tcping_call(&app, &user_cookie, &node_id).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert_eq!(body["code"], "auth.forbidden");
+
+        // 不存在的节点 → 404，不能落到 500。
+        let (status, body) = tcping_call(&app, &cookie, "missing-node").await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert_eq!(body["code"], "node.not_found");
+    }
+
+    #[tokio::test]
+    async fn tcping_reuses_results_within_five_seconds_and_audits_only_real_probes() {
+        let (app, state, cookie) = setup().await;
+        let server_id = create_server_with(&app, &cookie, "hk", "127.0.0.1", None).await;
+        let (listener, port) = listening_port().await;
+        let node_id = create_tcp_node(&app, &cookie, &server_id, port, None).await;
+
+        let (status, first) = tcping_call(&app, &cookie, &node_id).await;
+        assert_eq!(status, StatusCode::OK, "{first}");
+        assert_eq!(first["reachable"], true, "{first}");
+
+        // 关掉监听端口：如果第二次真的探测就会变成不可达。
+        drop(listener);
+        let (status, second) = tcping_call(&app, &cookie, &node_id).await;
+        assert_eq!(status, StatusCode::OK, "{second}");
+        assert_eq!(
+            second["reachable"], true,
+            "5 秒内必须复用上次结果，不能重新探测：{second}"
+        );
+        assert_eq!(second["checked_at"], first["checked_at"]);
+        assert_eq!(second["address"], first["address"]);
+
+        // 只有第一次真实探测写审计；detail 只有结果、没有地址明文。
+        let page = repo::audit::page(
+            &state.db.pool,
+            &repo::audit::Filter {
+                action_prefixes: vec!["node.tcping".into()],
+                ..Default::default()
+            },
+            None,
+            20,
+        )
+        .await
+        .unwrap();
+        assert_eq!(page.items.len(), 1, "缓存命中不应重复写审计");
+        assert_eq!(page.items[0].action, "node.tcping");
+        assert_eq!(page.items[0].target.as_deref(), Some(node_id.as_str()));
+        let detail = page.items[0].detail.as_ref().unwrap();
+        assert_eq!(detail["reachable"], true);
+        assert!(detail["latency_ms"].as_u64().is_some());
+        assert!(
+            detail.get("address").is_none(),
+            "审计 detail 不能带地址明文：{detail}"
+        );
     }
 }

@@ -159,6 +159,7 @@ const actionLabelKeys: Record<string, string> = {
   "node.create": "audit.action.nodeCreate",
   "node.update": "audit.action.nodeUpdate",
   "node.delete": "audit.action.nodeDelete",
+  "node.tcping": "audit.action.nodeTcping",
   "certificate.upload": "audit.action.certificateUpload",
   "certificate.delete": "audit.action.certificateDelete",
   "rule_template.create": "audit.action.ruleTemplateCreate",

@@ -1376,6 +1376,7 @@ const en = {
       nodeCreate: "Create node",
       nodeUpdate: "Update node",
       nodeDelete: "Delete node",
+      nodeTcping: "Probe node",
       certificateUpload: "Upload certificate",
       certificateDelete: "Delete certificate",
       settingsUpdate: "Update settings",
@@ -2017,6 +2018,13 @@ const en = {
     desc: "The switch saves the enabled state immediately; disabled nodes are not written into the delivered config.",
     tableCaption: "Node list",
     portPairTitle: "Internal port → public port",
+    tcping: {
+      probe: "Probe reachability",
+      probeAria: "Probe reachability for node {name}",
+      probing: "Probing…",
+      unreachable: "Unreachable",
+      failureFallback: "Probe failed. Please try again.",
+    },
     columns: {
       name: "Name",
       protocol: "Protocol",

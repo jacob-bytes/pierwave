@@ -10,6 +10,7 @@ use tokio::sync::broadcast;
 
 use crate::alerts::Alerts;
 use crate::enforcement::Enforcer;
+use crate::tcping::Registry as TcpingRegistry;
 use crate::throttle::LoginThrottle;
 use crate::updates::UpdateService;
 
@@ -223,6 +224,8 @@ pub struct AppState {
     pub alerts: Alerts,
     /// 版本更新检测：版本源（默认 GitHub Releases）+ 最近一次结果缓存。
     pub updates: UpdateService,
+    /// 节点 TCPing 的每节点并发/频控状态；结果只在内存里，不落库。
+    pub tcping: TcpingRegistry,
 }
 
 impl AppState {
@@ -238,6 +241,7 @@ impl AppState {
             public_status: PublicStatusCache::default(),
             alerts: Alerts::default(),
             updates: UpdateService::default(),
+            tcping: TcpingRegistry::default(),
         }
     }
 

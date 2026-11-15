@@ -16,6 +16,10 @@ import {
 import { EmptyState, SkeletonTable } from "@/components/common";
 import { DeleteNodeDialog } from "@/components/nodes/DeleteNodeDialog";
 import { NodeFormDialog } from "@/components/nodes/NodeFormDialog";
+import {
+  NodeTcpingAction,
+  NodeTcpingResult,
+} from "@/components/nodes/NodeTcping";
 import { SsMethodBadge } from "@/components/nodes/SsMethodBadge";
 import { SpeedLimitBadge } from "@/components/SpeedLimitBadge";
 import {
@@ -43,6 +47,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -62,14 +67,24 @@ import {
   useNodeTraffic,
   useNodes,
   useServers,
+  useTcpingNode,
   useUpdateNode,
 } from "@/lib/queries";
+import {
+  beginTcping,
+  failTcping,
+  isTcpingLoading,
+  settleTcping,
+  type TcpingState,
+} from "@/lib/tcping";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
 const COLUMN_COUNT = 7;
 const TRAFFIC_DAYS = 7;
+/** 空状态；每行结果由页面级 map 保留，筛选/刷新列表都不会丢。 */
+const IDLE_TCPING: TcpingState = { status: "idle" };
 
 /** 详情 Sheet 含趋势图，按需加载，避免图表进入节点列表的同步依赖。 */
 const NodeTrafficSheet = lazy(() =>
@@ -257,6 +272,11 @@ export default function NodesPage() {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [tagFilter, setTagFilter] = useState("");
   const [regionFilter, setRegionFilter] = useState("");
+  // TCPing 结果不落库、不轮询；按节点 id 保留到下次刷新页面。
+  const [tcpingStates, setTcpingStates] = useState<Record<string, TcpingState>>(
+    {},
+  );
+  const tcping = useTcpingNode();
 
   const server = servers.data?.find((item) => item.id === serverId);
   const items = nodes.data ?? [];
@@ -292,6 +312,33 @@ export default function NodesPage() {
       : errorText(traffic.error, t("nodes.traffic.loadError"))
     : undefined;
 
+  function handleTcping(node: Node) {
+    const current = tcpingStates[node.id] ?? IDLE_TCPING;
+    if (isTcpingLoading(current)) return;
+
+    setTcpingStates((previous) => ({
+      ...previous,
+      [node.id]: beginTcping(previous[node.id] ?? IDLE_TCPING),
+    }));
+    tcping.mutate(node.id, {
+      onSuccess: (result) => {
+        // 不可达也是正常 200 结果，统一走 settle，不会误报成请求失败。
+        setTcpingStates((previous) => ({
+          ...previous,
+          [node.id]: settleTcping(result),
+        }));
+      },
+      onError: (error) => {
+        setTcpingStates((previous) => ({
+          ...previous,
+          [node.id]: failTcping(
+            errorText(error, t("nodes.tcping.failureFallback")),
+          ),
+        }));
+      },
+    });
+  }
+
   function handleApply() {
     if (!serverId || apply.isPending) return;
 
@@ -314,7 +361,9 @@ export default function NodesPage() {
     });
   }
 
+  // TooltipProvider 只在本页：Radix Tooltip 不进入应用根部，避免首屏 chunk 变大。
   return (
+    <TooltipProvider delayDuration={200}>
     <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
@@ -525,7 +574,7 @@ export default function NodesPage() {
               ) : (
                 visibleItems.map((node) => (
                   <TableRow key={node.id}>
-                    <TableCell className="max-w-56 px-4 py-2.5">
+                    <TableCell className="max-w-64 px-4 py-2.5">
                       <div className="flex min-w-0 items-center gap-2">
                         <div className="min-w-0 flex-1 truncate font-medium">
                           {node.name}
@@ -533,24 +582,37 @@ export default function NodesPage() {
                         <SsMethodBadge node={node} />
                         <SpeedLimitBadge kbps={node.bandwidth_kbps} />
                       </div>
-                      <div className="flex min-w-0 flex-wrap items-center gap-1 font-mono type-micro text-muted-foreground">
-                        <span className="truncate">{node.tag}</span>
-                        {node.region ? (
-                          <Badge
-                            variant="outline"
-                            className="h-4 border-border/70 px-1 font-mono text-[10px] font-normal"
-                          >
-                            {node.region}
-                          </Badge>
-                        ) : null}
-                        {(node.tags ?? []).map((tag) => (
-                          <span
-                            key={tag}
-                            className="rounded-full bg-muted px-1.5 text-[10px]"
-                          >
-                            {tag}
-                          </span>
-                        ))}
+                      {/* 移动端行内空间不足：结果放到名称下方一行。 */}
+                      <NodeTcpingResult
+                        state={tcpingStates[node.id] ?? IDLE_TCPING}
+                        className="mt-0.5 md:hidden"
+                      />
+                      <div className="mt-0.5 flex items-center gap-1">
+                        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 font-mono type-micro text-muted-foreground">
+                          <span className="truncate">{node.tag}</span>
+                          {node.region ? (
+                            <Badge
+                              variant="outline"
+                              className="h-4 border-border/70 px-1 font-mono text-[10px] font-normal"
+                            >
+                              {node.region}
+                            </Badge>
+                          ) : null}
+                          {(node.tags ?? []).map((tag) => (
+                            <span
+                              key={tag}
+                              className="rounded-full bg-muted px-1.5 text-[10px]"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                        <NodeTcpingAction
+                          node={node}
+                          state={tcpingStates[node.id] ?? IDLE_TCPING}
+                          onProbe={() => handleTcping(node)}
+                          className="shrink-0"
+                        />
                       </div>
                     </TableCell>
                     <TableCell className="px-4 py-2.5">
@@ -672,5 +734,6 @@ export default function NodesPage() {
         </Suspense>
       ) : null}
     </div>
+    </TooltipProvider>
   );
 }

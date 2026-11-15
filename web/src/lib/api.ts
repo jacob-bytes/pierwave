@@ -566,6 +566,19 @@ export interface SubscriptionTemplatePreview {
   warnings: string[];
 }
 
+/** 节点 TCPing 的实时结果；不落库，页面自己保留到下次刷新。 */
+export interface TcpingResult {
+  reachable: boolean;
+  /** 成功时的 TCP 握手耗时（毫秒）；失败时缺省。 */
+  latency_ms?: number | null;
+  /** 失败时的可读原因（后端返回中英双语）；成功时缺省。 */
+  error?: string | null;
+  /** 实际探测的 `host:port`。 */
+  address: string;
+  /** 探测完成的 Unix 秒。 */
+  checked_at: number;
+}
+
 /** 节点：config 是后端直接返回的 JSON 对象，不需要前端再 parse。 */
 export interface Node {
   id: string;
@@ -2190,6 +2203,11 @@ export const api = {
   deleteNode: (id: string) =>
     request<{ ok: true }>(`/api/v1/nodes/${encodeURIComponent(id)}`, {
       method: "DELETE",
+    }),
+  /** 实时 TCPing；不可达也是 200 + `reachable: false`。 */
+  tcpingNode: (id: string) =>
+    request<TcpingResult>(`/api/v1/nodes/${encodeURIComponent(id)}/tcping`, {
+      method: "POST",
     }),
   applyServer: (serverId: string) =>
     request<ApplyResult>(

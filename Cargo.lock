@@ -1574,6 +1574,7 @@ dependencies = [
  "chrono",
  "flate2",
  "futures-util",
+ "if-addrs",
  "pierwave-domain",
  "pierwave-proto",
  "rcgen",
