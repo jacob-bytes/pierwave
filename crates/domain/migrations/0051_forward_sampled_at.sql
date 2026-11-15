@@ -1,0 +1,28 @@
+-- 转发流量的采样窗口起点（迁移 0051）。
+--
+-- 0045 只保存了「上一次采样的累计计数器」（last_traffic_in/out），没有保存
+-- 「上一次采样发生在什么时候」。于是采样器只能把一次增量整体记到**本轮采样
+-- 所在的业务日**：跨 UTC+8 零点的一次采样全部落到新一天；主控停机 / 服务器
+-- 离线多天后重连，整段增量会被记到「重连那天」。
+--
+-- 本迁移只加一列：
+-- * `last_sampled_at` —— 上一次**成功认领增量**时的 Unix 秒；0 = 从未采样。
+--   采样窗口取 `[last_sampled_at, now)`，按窗口落在各 UTC+8 自然日的秒数
+--   比例把增量分摊到实际覆盖的每一天（四舍五入，余数补给最后一天）。
+--   首次采样（0）把窗口视为 `[now - 采样周期, now)`。
+--
+-- 历史行默认 0：升级后的第一轮按「首次采样」处理，不会把升级前的历史
+-- 流量补记进套餐，也不会因为不知道窗口而 panic。
+--
+-- 迁移只追加：不改 0001–0050。
+ALTER TABLE forwards ADD COLUMN last_sampled_at INTEGER NOT NULL DEFAULT 0;
+
+-- English: forwards now remember when the last increment was claimed.
+-- `last_sampled_at` is the Unix timestamp of the last successful sample
+-- (0 = never sampled). The sampling window is `[last_sampled_at, now)` and
+-- the increment is split across the UTC+8 calendar days it covered by the
+-- fraction of seconds falling in each day (rounded to whole bytes, remainder
+-- to the last day). A first sample (0) uses `[now - sample period, now)`.
+-- Existing rows default to 0, so the first round after the upgrade is treated
+-- as a first sample: no historical traffic is back-filled and no window of
+-- unknown length is guessed.

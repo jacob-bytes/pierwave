@@ -1226,13 +1226,13 @@ mod tests {
     /// 轮询到 `realm_transport()` 给出期望的确定结论（`Unknown` 返回 `None` 时重试）。
     ///
     /// 并发负载下新脚本的首次 exec 可能要几百 ms 到数秒；固定 sleep 会变成
-    /// 随机失败。每次探测内部有 5s 超时，这里给 30s 总预算、每 20ms 轮询。
+    /// 随机失败。每次探测内部有 5s 超时，这里给 15s 总预算、每 20ms 轮询。
     #[cfg(unix)]
     async fn wait_for_transport(
         engines: &mut ForwardEngines,
         expected: Option<bool>,
     ) -> Option<bool> {
-        let deadline = Instant::now() + Duration::from_secs(30);
+        let deadline = Instant::now() + Duration::from_secs(15);
         loop {
             let value = engines.realm_transport().await;
             if value == expected {
@@ -1976,15 +1976,34 @@ mod tests {
         let outcome = apply_state(&state, &cfg, &mut engines).await;
         assert!(outcome.result.ok, "realm 未监听不影响 apply 结果");
 
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while !marker.exists() {
-            assert!(Instant::now() < deadline, "等待假 realm 启动超时");
+        // 假 realm 用 `echo present > marker` 写观测文件：shell 重定向会**先创建**
+        // 文件、再写入内容，只等 `exists()` 可能读到空文件；这里等**内容非空**。
+        //
+        // 5s 不够：并行跑测试时新脚本的首次 exec 会被进程调度/沙箱扫描拖慢，
+        // 实测可达数秒（本仓库其它用例已为此留 15s）。超时时把观测文件的
+        // 存在性、内容和脚本路径一起带出来，避免只剩一句“超时”没法定位。
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let seen = loop {
+            match std::fs::read_to_string(&marker) {
+                Ok(text) if !text.trim().is_empty() => break text,
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => panic!("读取假 realm 观测文件失败（{}）：{error}", marker.display()),
+            }
+            assert!(
+                Instant::now() < deadline,
+                "等待假 realm 启动超时（15s）：观测文件 {} 存在={}，脚本 {}",
+                marker.display(),
+                marker.exists(),
+                script.display()
+            );
             tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        };
         assert_eq!(
-            read(&marker).trim(),
+            seen.trim(),
             "present",
-            "realm 启动时证书文件必须已经落盘"
+            "realm 启动时证书文件必须已经落盘（假 realm 判定：{}）",
+            seen.trim()
         );
     }
 }

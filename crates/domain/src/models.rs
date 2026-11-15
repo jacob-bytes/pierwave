@@ -222,6 +222,12 @@ pub struct Forward {
     /// 上一次采样时的出方向累计字节（迁移 0045）；只用于算差值，不对外暴露。
     #[serde(skip)]
     pub last_traffic_out: i64,
+    /// 上一次**成功认领增量**的 Unix 秒（迁移 0051）；0 = 从未采样。
+    ///
+    /// 采样窗口是 `[last_sampled_at, now)`，增量按窗口落在各 UTC+8 自然日的
+    /// 秒数比例分摊。与累计计数器一样只用于内部记账，不对外暴露。
+    #[serde(skip)]
+    pub last_sampled_at: i64,
     pub created_at: i64,
     pub updated_at: i64,
 }

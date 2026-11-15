@@ -1806,6 +1806,18 @@ mod tests {
         }
     }
 
+    /// 从 `时间戳超出 ±300s 窗口（偏差 401s）` / `… (skew 401s)` 里取出偏差秒数。
+    ///
+    /// 只用于断言下界：偏差取决于服务端校验时刻，客户端签名后跨不跨秒边界都会
+    /// 让它变化，所以测试不能把某个精确值当契约。
+    fn reported_skew_secs(text: &str) -> Option<u64> {
+        ["偏差 ", "skew "].iter().find_map(|marker| {
+            let rest = text.split(marker).nth(1)?;
+            let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+            digits.parse().ok()
+        })
+    }
+
     /// 绕过 `TunnelClient` 的裸 TLS 连接，用于构造「客户端实现错误」的帧。
     async fn raw_tls_connect(addr: SocketAddr) -> TlsStream<TcpStream> {
         let roots = Arc::new(roots_from_pem(CA_PEM).expect("CA 夹具必须合法"));
@@ -1917,7 +1929,13 @@ mod tests {
     async fn stale_proof_is_rejected() {
         let harness = Harness::start(DEFAULT_MAX_CONNECTIONS).await;
         let mut client = client_with_fixture_ca(harness.addr);
-        client.proof_timestamp = Some(handshake::unix_now().saturating_sub(400));
+        // 服务端用**校验时刻**的 `unix_now()` 算偏差：客户端签名后只要跨过
+        // 一个秒边界（或 TLS 握手/调度慢一点），报出来的偏差就是 401、402…
+        // 而不是 400。把 400 当成精确值是在赌两次取时钟之间不跨秒，10 线程
+        // 并行时偶发失败。这里只断言「确实超出 ±300s 窗口」，并把实际偏差
+        // 与签名时间戳写进失败信息，便于将来定位。
+        let sent_timestamp = handshake::unix_now().saturating_sub(400);
+        client.proof_timestamp = Some(sent_timestamp);
 
         let error = client
             .connect(&TargetAddr::Ip("127.0.0.1:9".parse().expect("固定地址")))
@@ -1926,7 +1944,14 @@ mod tests {
             .expect("时间戳偏移 400s 必须被拒绝");
         let text = format!("{error:#}");
         assert!(text.contains("时间戳"), "{text}");
-        assert!(text.contains("400"), "{text}");
+        assert!(text.contains("timestamp"), "{text}");
+        assert!(text.contains("±300s"), "错误信息必须说明窗口大小：{text}");
+        let skew = reported_skew_secs(&text)
+            .unwrap_or_else(|| panic!("错误信息里没有可解析的偏差秒数：{text}"));
+        assert!(
+            skew >= 400,
+            "签名时间戳 {sent_timestamp} 必须落在 ±300s 窗口外（实际偏差 {skew}s）：{text}"
+        );
 
         wait_for_active(&harness.stats, 0).await;
     }

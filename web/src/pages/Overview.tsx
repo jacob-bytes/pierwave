@@ -142,31 +142,29 @@ function KpiCard({
   return (
     <Card size="sm" className="h-full gap-3">
       <CardHeader className="grid-cols-[1fr_auto] items-center gap-2">
-        <CardDescription className="text-xs">{label}</CardDescription>
-        <div className="grid size-7 place-items-center rounded-md bg-primary/10 text-primary">
+        {/* 标签用普通文本而不是 CardDescription：后者会触发卡头的两行网格，
+            在只有标签 + 图标时多出一条 8px 空行。 */}
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <div className="grid size-6 place-items-center rounded-md bg-primary/10 text-primary">
           <Icon className="icon-sm" />
         </div>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col">
-        <div className="flex items-baseline text-[28px] leading-tight font-medium tracking-tight tabular-nums">
+        {/* leading-none 收紧 28px 数字的行距，字号与字重不变。 */}
+        <div className="flex items-baseline text-[28px] leading-none font-medium tracking-tight tabular-nums">
           {value}
         </div>
-        {/* 底部对齐：有变化率时不会把同一行的其它卡片撑得高低不一。 */}
-        <div className="mt-auto pt-2">
+        {/* 底部对齐：有变化率时不会把同一行的其它卡片撑得高低不一。
+            宽屏把变化率并到说明同一行（说明靠左、变化率靠右），
+            放不下时才换行，避免四张卡被多出来的一行整体撑高。 */}
+        <div className="mt-auto flex flex-col gap-y-0.5 pt-2 sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-between sm:gap-x-3 sm:gap-y-0">
           {deltaText ? (
             // 流量涨跌本身没有好坏：保持 muted，不用绿 / 红，也不加图标。
-            <p className="text-xs text-muted-foreground tabular-nums">
+            <p className="text-xs text-muted-foreground tabular-nums sm:ml-auto sm:whitespace-nowrap">
               {deltaText}
             </p>
           ) : null}
-          <p
-            className={cn(
-              "text-xs text-muted-foreground",
-              deltaText && "mt-0.5",
-            )}
-          >
-            {hint}
-          </p>
+          <p className="text-xs text-muted-foreground sm:order-first sm:whitespace-nowrap">{hint}</p>
         </div>
       </CardContent>
     </Card>
@@ -186,7 +184,7 @@ function KpiSkeletons() {
 function OverviewSkeleton() {
   return (
     <>
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
         <KpiSkeletons />
       </section>
       <section className="grid gap-4 xl:grid-cols-3">
@@ -1065,7 +1063,7 @@ export default function OverviewPage() {
         <EmptyOverview />
       ) : stats ? (
         <>
-          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
             <KpiCard
               label={t("overview.onlineServers")}
               icon={ServerIcon}

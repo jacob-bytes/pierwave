@@ -1509,6 +1509,31 @@ mod tests {
             udp_allowed: Vec<TargetRule>,
             limits: QuicUdpLimits,
         ) -> Self {
+            // TCP 监听和 QUIC UDP 必须用**同一个数字端口**（QUIC 是 UDP，可与
+            // TCP 共存），但 TCP/UDP 的端口空间是分开分配的：并行用例里任何
+            // `UdpSocket::bind(0)` 都可能刚好拿到这个数字（本用例先起的 echo
+            // 也会），`with_udp_limits` 就会报 AddrInUse。这是测试环境的端口
+            // 竞争，不是产品行为；换一个端口重试即可，超时后把完整错误抛出。
+            let deadline = Instant::now() + Duration::from_secs(15);
+            loop {
+                match Self::try_start_with(tcp_allowed.clone(), udp_allowed.clone(), limits).await {
+                    Ok(harness) => return harness,
+                    Err(error) => {
+                        assert!(
+                            Instant::now() < deadline,
+                            "启动测试隧道失败（TCP/UDP 同号端口竞争，已重试到 15s）：{error:#}"
+                        );
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                }
+            }
+        }
+
+        async fn try_start_with(
+            tcp_allowed: Vec<TargetRule>,
+            udp_allowed: Vec<TargetRule>,
+            limits: QuicUdpLimits,
+        ) -> Result<Self> {
             let dir = TempDir::new();
             let cert_path = dir.write("server.pem", SERVER_CERT_PEM);
             let key_path = dir.write("server-key.pem", SERVER_KEY_PEM);
@@ -1523,29 +1548,29 @@ mod tests {
 
             let (server, listener) = TunnelServer::bind(config)
                 .await
-                .expect("测试隧道服务端必须能启动");
-            let addr = listener.local_addr().expect("读取监听地址");
+                .context("测试隧道服务端必须能启动")?;
+            let addr = listener.local_addr().context("读取监听地址")?;
             let server = server
                 .with_udp_limits(udp_allowed, limits)
                 .await
-                .expect("UDP 中继必须能启动");
+                .context("UDP 中继必须能启动")?;
             let udp_addr = server
                 .udp_bound_addr()
-                .expect("启用了 UDP 就必须有 UDP 监听地址");
+                .context("启用了 UDP 就必须有 UDP 监听地址")?;
             let stats = server
                 .udp_stats_handle()
-                .expect("启用了 UDP 就必须有 stats");
+                .context("启用了 UDP 就必须有 stats")?;
             let task = tokio::spawn(async move {
                 let _ = server.serve(listener).await;
             });
-            Self {
+            Ok(Self {
                 addr,
                 udp_addr,
                 stats,
                 task,
                 ca_path,
                 _dir: dir,
-            }
+            })
         }
 
         async fn start() -> Self {
@@ -2257,6 +2282,27 @@ mod tests {
         }
 
         async fn start_with(udp_allowed: Vec<TargetRule>, limits: QuicUdpLimits) -> Self {
+            // 与 `Harness::start_with` 相同：TCP/UDP 同号端口在并行测试里会被
+            // 别的 UDP socket 抢走，重试换端口而不是把 AddrInUse 当成真失败。
+            let deadline = Instant::now() + Duration::from_secs(15);
+            loop {
+                match Self::try_start_with(udp_allowed.clone(), limits).await {
+                    Ok(harness) => return harness,
+                    Err(error) => {
+                        assert!(
+                            Instant::now() < deadline,
+                            "启动 Noise 测试隧道失败（TCP/UDP 同号端口竞争，已重试到 15s）：{error:#}"
+                        );
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                }
+            }
+        }
+
+        async fn try_start_with(
+            udp_allowed: Vec<TargetRule>,
+            limits: QuicUdpLimits,
+        ) -> Result<Self> {
             let mut hops = HashMap::new();
             hops.insert(HOP_ID.to_string(), HOP_SECRET.to_vec());
             let mut config = TunnelServerConfig::noise("127.0.0.1:0".parse().unwrap(), hops);
@@ -2264,19 +2310,19 @@ mod tests {
 
             let (server, listener) = TunnelServer::bind(config)
                 .await
-                .expect("Noise 隧道服务端必须能启动");
-            let addr = listener.local_addr().expect("读取监听地址");
+                .context("Noise 隧道服务端必须能启动")?;
+            let addr = listener.local_addr().context("读取监听地址")?;
             let server = server
                 .with_udp_limits(udp_allowed, limits)
                 .await
-                .expect("Noise 模式的 UDP 中继必须能启动（派生证书 + 指纹固定）");
+                .context("Noise 模式的 UDP 中继必须能启动（派生证书 + 指纹固定）")?;
             let stats = server
                 .udp_stats_handle()
-                .expect("启用了 UDP 就必须有 stats");
+                .context("启用了 UDP 就必须有 stats")?;
             let task = tokio::spawn(async move {
                 let _ = server.serve(listener).await;
             });
-            Self { addr, stats, task }
+            Ok(Self { addr, stats, task })
         }
 
         async fn udp_client(&self, rules: Vec<TargetRule>) -> QuicUdpClient {

@@ -66,7 +66,7 @@ email 格式 `{user_id}@{node_tag}`，按**最后一个 `@`** 切分（UUID 里�
 - 用尽自动断流（要改 inbound，属于「限速/封禁」那一层）；
 - 外部订阅用量合并。
 
-## 6. 转发流量（第二期，迁移 0045 / 0048）
+## 6. 转发流量（第二期，迁移 0045 / 0048 / 0051）
 
 单跳转发不经过 Xray，Agent 在心跳里上报每条规则的**累计字节**
 `forward_status.traffic_in/out`。方向与 Xray 对齐：`traffic_in` = 客户端 → 目标
@@ -91,13 +91,15 @@ delta = current                           // current < last：计数器重置
 - 日表 `forward_traffic_daily(day, forward_id, user_id, bytes, weighted)`（迁移 0048）：
   - `bytes`：**原始**上下行之和，供对账；不受 direction / ratio 影响。
   - `weighted`：按上述口径换算后的值，参与配额。
+  - 一次增量会按采样窗口分摊到它实际覆盖的每一天（迁移 0051，见下节
+    「采样窗口与跨天分摊」）。
   - 升级前的历史行 `weighted` 默认 0，**不追算**：当时的方向/倍率没有留存快照，
     用今天的套餐去回填只会张冠李戴。
 - 配额：`users.used_bytes` 与生效套餐的 `user_packages.used_bytes` 只累加
   **weighted**（瀑布分配，与 Xray 相同）；没有生效套餐时只写日表两列，不累加。
 - 「认领差值 + 日表 upsert + 用户/套餐累加」在同一个 `BEGIN IMMEDIATE` 事务内，
-  `forwards.last_traffic_in/out` 作为上次采样基线并用旧值做条件更新，
-  并发两轮采样不会重复计同一段增量。
+  `forwards.last_traffic_in/out` 作为上次采样基线、`forwards.last_sampled_at`
+  作为窗口起点，并用旧值做条件更新（CAS），并发两轮采样不会重复计同一段增量。
 
 ### 为什么日表要同时留 `bytes` 与 `weighted`
 
@@ -130,8 +132,90 @@ it. Only `weighted` feeds `users.used_bytes` and the active package's
 `user_packages.used_bytes` (waterfall, same as Xray); without an active package
 both columns are still written but nothing is accumulated. Claiming the delta,
 the daily upsert and the allocation share one `BEGIN IMMEDIATE` transaction
-with a conditional update on `forwards.last_traffic_in/out`, so concurrent
-rounds cannot double-count the same delta.
+with a conditional update on `forwards.last_traffic_in/out` and
+`forwards.last_sampled_at`, so concurrent rounds cannot double-count the same
+delta.
+
+### 采样窗口与跨天分摊（迁移 0051）
+
+Agent 只上报**累计计数器**，没有「每个字节发生在哪一秒」的信息；主控能确定的
+只有「上一轮采样」到「这一轮采样」之间这段窗口的总增量。因此一次增量按下面的
+规则分摊到它实际覆盖的 UTC+8 自然日：
+
+- 窗口 = `[forwards.last_sampled_at, now)`。`last_sampled_at = 0`（从未采样，
+  迁移 0051 带过来的历史行也是 0）按 `[now - 60s, now)` 处理，不回溯、不 panic；
+- 按窗口落在各天的**秒数占比**切分，四舍五入到整字节，**余数补给最后一天**：
+  各天 `bytes` 之和严格等于本轮认领的增量，不丢字节、不凭空造字节；
+- `weighted` 用**同一组**秒数权重独立切分，各天之和严格等于本轮认领的总额；
+  `users.used_bytes` / `user_packages.used_bytes` 仍然只累加一次总额；
+- 窗口跨度 > 7 天时仍按比例分摊，但每轮在日志里 warn 一次（提示这是估算）；
+  窗口超过 400 天（只可能来自脏数据或极端时钟跳变）裁剪到最近 400 天，
+  只影响「摊到哪几天」，总量不变；
+- 计数器没有变化（本轮没认领到增量）时**不推进** `last_sampled_at`，窗口保持
+  打开。这样服务器离线 / 主控停机多天后重连，那段增量才会摊到离线实际覆盖的
+  每一天，而不是全记到重连当天；
+- 计数器归零（`current < last`）时 `delta = current`，这段 `current` 按整个窗口
+  均速分摊——重启发生在窗口内的哪一刻不可观测，这是同一估算的一部分。
+
+**这是按均匀速率的估算，不是真实时间归因。** 适用场景：正常 60 秒采样
+（误差可忽略）、跨零点的一次采样、离线数小时到数天后的重连。误差来源：窗口内
+流量通常不是匀速的（夜间空闲、白天突发、下载高峰），秒数比例会把高峰期的字节
+摊到空闲时段；窗口越长误差越大（所以 > 7 天要 warn）；计数器重置时整段
+`current` 被均摊在窗口内。我们**不做**别的近似：不按小时流量画像分配（没有每个
+字节的时序数据，画像只会凭空造数据）；不拆到比自然日更细的粒度（对外口径只有
+日账本，多出来的精度无法解释）；不沿用「整段记到本轮采样日」的旧行为（跨零点
+与重连时会系统性错账）；也不用心跳间隔做插值（心跳同样只有累计值，只会引入
+更多状态与竞态）。
+
+升级影响：`last_sampled_at` 默认 0，升级后第一轮按「首次采样」处理，只记
+`[now - 60s, now)` 的窗口，升级前的历史流量不回填。跨天分摊只改变「记在哪一
+天」：用户 / 套餐用量与增量总额保持不变，只有日表 `day` 维度的数字（以及按天
+查询的对账视图）会从「全记采样日」变成「按窗口分摊」。
+
+English: Agents only report cumulative counters, so the master cannot see in
+which second a byte moved. It only knows the total increment between the
+previous sample and `now`, and allocates that increment across the UTC+8 days
+the sampling window actually covers:
+
+- window `[forwards.last_sampled_at, now)`. `last_sampled_at = 0` (never
+  sampled; rows carried over by migration 0051 also start at 0) means
+  `[now - 60s, now)` — no back-fill and no panic;
+- split by the fraction of seconds each day falls inside the window, rounded
+  to whole bytes, remainder to the last day, so the per-day `bytes` sum equals
+  the claimed delta exactly: no byte lost, none invented;
+- `weighted` is split independently with the same second weights, so its
+  per-day sum equals the claimed total; `users.used_bytes` /
+  `user_packages.used_bytes` still accumulate the total exactly once;
+- spans longer than 7 days are still split proportionally but log one warning
+  per round (flagging the estimate); spans longer than 400 days (only possible
+  with corrupt data or extreme clock jumps) are clamped to the latest 400 days,
+  which changes allocation only, never the total;
+- a round that claims no delta does **not** advance `last_sampled_at`, keeping
+  the window open. That is why an increment after hours or days offline spreads
+  over the days it actually covers instead of landing on the reconnect day;
+- on a counter reset (`current < last`) the delta is `current`, spread evenly
+  over the whole window — the restart instant is unobservable and is part of
+  the same estimate.
+
+**This is a uniform-rate estimate, not true time attribution.** It applies to
+normal 60-second sampling (negligible error), a single sample crossing
+midnight, and reconnects after hours or days. Error sources: traffic is not
+uniform inside the window (idle nights, daytime bursts, download peaks), so
+byte-seconds get smeared into idle time; longer windows are worse (hence the
+> 7 day warning); on a counter reset the whole `current` is smeared over the
+window. We deliberately do **not** use an hourly traffic profile (no per-byte
+timing data exists; a profile would invent one), split finer than a calendar
+day (the external accounting unit is the daily table), keep the old "all bytes
+to the sample day" behaviour (systematically wrong across midnight and
+reconnects), or interpolate between heartbeats (heartbeats only carry
+cumulative counters too and would add state and races).
+
+Upgrade impact: `last_sampled_at` defaults to 0, so the first round after the
+upgrade is treated as a first sample covering `[now - 60s, now)`; nothing from
+before the upgrade is back-filled. Splitting only changes which day a byte
+lands on: user/package totals and the increment total stay the same, while
+day-level rows (and day-window reports) move from the sample day to the days
+the window covers.
 
 ### 开启计费时的基线（离线场景）
 

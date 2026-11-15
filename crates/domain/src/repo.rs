@@ -2810,8 +2810,8 @@ pub mod forwards {
             "INSERT INTO forwards
                 (id, server_id, name, listen_port, target_host, target_port, enabled, engine,
                  protocol, udp, owner_user_id, count_traffic, last_traffic_in, last_traffic_out,
-                 created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 last_sampled_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(server_id)
@@ -2828,6 +2828,9 @@ pub mod forwards {
         .bind(i64::from(input.count_traffic))
         .bind(last_in)
         .bind(last_out)
+        // 采样窗口从创建时刻算起：新规则的累计计数器从 0 开始（或已对齐到
+        // 当前计数），窗口不应该回溯到规则存在之前。
+        .bind(if input.count_traffic { ts } else { 0 })
         .bind(ts)
         .bind(ts)
         .execute(&mut *conn)
@@ -2990,6 +2993,14 @@ pub mod forwards {
         } else {
             (existing.last_traffic_in, existing.last_traffic_out)
         };
+        let ts = now();
+        // 开启计费时窗口从这一刻算起：关闭期间可能已经过去很久，绝不能把
+        // 重新开启后的第一段增量回溯摊到关闭期间的那些天。
+        let last_sampled_at = if enabling {
+            ts
+        } else {
+            existing.last_sampled_at
+        };
 
         let res = sqlx::query(
             "UPDATE forwards SET
@@ -3004,6 +3015,7 @@ pub mod forwards {
                 udp = COALESCE(?, udp),
                 last_traffic_in = ?,
                 last_traffic_out = ?,
+                last_sampled_at = ?,
                 updated_at = ?
              WHERE id = ?",
         )
@@ -3023,7 +3035,8 @@ pub mod forwards {
         )
         .bind(last_in)
         .bind(last_out)
-        .bind(now())
+        .bind(last_sampled_at)
+        .bind(ts)
         .bind(id)
         .execute(&mut *tx)
         .await?;
@@ -3269,6 +3282,20 @@ pub mod forward_traffic {
         pub failed: usize,
     }
 
+    /// 首次采样（`last_sampled_at = 0`，或时间戳不可用）时假设的窗口长度，
+    /// 同时是调度器 `FORWARD_TRAFFIC_SAMPLE_INTERVAL` 的来源（60 秒）。
+    ///
+    /// 窗口只影响「这段增量摊到哪几天」，不影响增量总额。
+    pub const SAMPLE_PERIOD_SECS: i64 = 60;
+
+    /// 窗口超过 7 天时记一次 warn：秒数比例是「均匀速率」估算，窗口越长，
+    /// 把全部流量摊到每一天的误差越大。
+    pub const LONG_WINDOW_SECS: i64 = 7 * crate::time::SECONDS_PER_DAY;
+
+    /// 窗口的兜底上限（天）。正常离线不会超过这个量级；只可能来自脏数据
+    /// 或极端时钟跳变。裁剪只改变「摊到哪几天」，总和仍是原增量。
+    pub const MAX_WINDOW_DAYS: i64 = 400;
+
     /// 一条待采样规则：规则侧的旧基线与心跳侧的当前计数。
     #[derive(Debug, Clone)]
     struct Candidate {
@@ -3276,6 +3303,8 @@ pub mod forward_traffic {
         user_id: String,
         last_in: i64,
         last_out: i64,
+        /// 上一次成功认领增量时的 Unix 秒；0 = 从未采样。
+        last_sampled_at: i64,
         current_in: Option<i64>,
         current_out: Option<i64>,
         /// 采样时服务器是否在线；离线时「待对齐」标记必须保持，不能用旧心跳对齐。
@@ -3295,12 +3324,13 @@ pub mod forward_traffic {
             owner_user_id: String,
             last_traffic_in: i64,
             last_traffic_out: i64,
+            last_sampled_at: i64,
             server_online: bool,
         }
 
         let forwards = sqlx::query_as::<_, ForwardRow>(
             "SELECT f.id, f.server_id, f.owner_user_id, f.last_traffic_in, f.last_traffic_out,
-                    s.status = 'online' AS server_online
+                    f.last_sampled_at, s.status = 'online' AS server_online
              FROM forwards f
              JOIN servers s ON s.id = f.server_id
              WHERE f.owner_user_id IS NOT NULL AND f.count_traffic = 1 AND f.enabled = 1
@@ -3349,6 +3379,7 @@ pub mod forward_traffic {
                     user_id: row.owner_user_id,
                     last_in: row.last_traffic_in,
                     last_out: row.last_traffic_out,
+                    last_sampled_at: row.last_sampled_at,
                     current_in: status.0,
                     current_out: status.1,
                     server_online: row.server_online,
@@ -3359,12 +3390,12 @@ pub mod forward_traffic {
 
     /// 跑一轮采样；单条规则的失败只记日志并计入 `failed`，不中断整轮。
     ///
-    /// `now` 是业务日与 `users.updated_at` 的唯一来源（测试可注入历史时间）。
+    /// `now` 是业务日、采样窗口终点与 `users.updated_at` 的唯一来源
+    /// （测试可注入历史时间）。
     pub async fn run_round(pool: &SqlitePool, now: i64) -> anyhow::Result<SampleReport> {
-        let day = crate::time::business_date(now);
         let mut report = SampleReport::default();
         for candidate in candidates(pool).await? {
-            match sample_one(pool, &day, &candidate, now).await {
+            match sample_one(pool, &candidate, now).await {
                 Ok((bytes, weighted)) => {
                     report.rules += 1;
                     report.bytes = report.bytes.saturating_add(bytes);
@@ -3385,18 +3416,17 @@ pub mod forward_traffic {
     }
 
     /// 单条规则：一个写事务里完成「认领增量 → 按套餐口径换算 →
-    /// 日表 upsert（原始 + 加权）→ 用户/套餐累加」。
+    /// 窗口内按天分摊 → 日表 upsert（原始 + 加权）→ 用户/套餐累加」。
     ///
-    /// 返回 `(原始字节, 加权字节)`；两者都为正的增量对应日表同一行的两列。
+    /// 返回 `(原始字节, 加权字节)`；两者都为正的增量对应日表多行的两列之和。
     async fn sample_one(
         pool: &SqlitePool,
-        day: &str,
         candidate: &Candidate,
         now: i64,
     ) -> anyhow::Result<(i64, i64)> {
         let mut conn = pool.acquire().await?;
         sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await?;
-        let result = sample_in(&mut conn, day, candidate, now).await;
+        let result = sample_in(&mut conn, candidate, now).await;
         match result {
             Ok(sample) => {
                 if let Err(error) = sqlx::query("COMMIT").execute(&mut *conn).await {
@@ -3414,7 +3444,6 @@ pub mod forward_traffic {
 
     async fn sample_in(
         conn: &mut sqlx::SqliteConnection,
-        day: &str,
         candidate: &Candidate,
         now: i64,
     ) -> anyhow::Result<(i64, i64)> {
@@ -3435,20 +3464,27 @@ pub mod forward_traffic {
         let last_in = current_in.unwrap_or(candidate.last_in);
         let last_out = current_out.unwrap_or(candidate.last_out);
         if last_in == candidate.last_in && last_out == candidate.last_out {
+            // 计数器没动：**不推进** `last_sampled_at`。离线 / 空闲期间窗口
+            // 起点必须停在最后一次真正认领增量的时刻，这样重连后的那段增量
+            // 才会按实际覆盖的天数分摊，而不是全记到重连当天。
             return Ok((0, 0));
         }
 
         // 条件更新（CAS）：旧基线必须还是我们读到的值，否则说明另一轮已经认领。
+        // `last_sampled_at` 与计数器一起推进：窗口的终点就是本轮 `now`。
         let updated = sqlx::query(
             "UPDATE forwards
-                SET last_traffic_in = ?, last_traffic_out = ?
-              WHERE id = ? AND last_traffic_in = ? AND last_traffic_out = ?",
+                SET last_traffic_in = ?, last_traffic_out = ?, last_sampled_at = ?
+              WHERE id = ? AND last_traffic_in = ? AND last_traffic_out = ?
+                AND last_sampled_at = ?",
         )
         .bind(last_in)
         .bind(last_out)
+        .bind(now)
         .bind(&candidate.forward_id)
         .bind(candidate.last_in)
         .bind(candidate.last_out)
+        .bind(candidate.last_sampled_at)
         .execute(&mut *conn)
         .await?;
         if updated.rows_affected() == 0 {
@@ -3520,18 +3556,63 @@ pub mod forward_traffic {
         );
         let weighted = i64::try_from(weighted).unwrap_or(i64::MAX);
 
+        // 采样窗口 `[last_sampled_at, now)`；首次采样按一个采样周期。
+        let (window_start, window_end, first_sample, clamped) =
+            sampling_window(candidate.last_sampled_at, now);
+        let window_secs = window_end - window_start;
+        if first_sample {
+            tracing::debug!(
+                forward_id = %candidate.forward_id,
+                window_secs = window_secs,
+                "转发流量首次采样：窗口按一个采样周期估算"
+            );
+        }
+        if clamped {
+            tracing::warn!(
+                forward_id = %candidate.forward_id,
+                window_start = window_start,
+                window_days = MAX_WINDOW_DAYS,
+                "转发流量采样窗口超过兜底上限，已裁剪到最近 {} 天（总量不变）",
+                MAX_WINDOW_DAYS
+            );
+        }
+        if window_secs > LONG_WINDOW_SECS {
+            // 「一次增量按窗口均速摊到每天」只是估算：Agent 只上报累计值，
+            // 真实的字节发生在窗口内的哪一秒不可观测。
+            tracing::warn!(
+                forward_id = %candidate.forward_id,
+                user_id = %candidate.user_id,
+                window_start = window_start,
+                window_end = window_end,
+                window_days = window_secs / crate::time::SECONDS_PER_DAY,
+                "转发流量采样窗口超过 7 天：按均匀速率估算分摊到每天，不是真实时间归因"
+            );
+        }
+
+        let shares = split_across_days(window_start, window_end, delta, weighted);
+        if shares.len() > 1 {
+            tracing::debug!(
+                forward_id = %candidate.forward_id,
+                days = shares.len(),
+                "转发流量增量跨天，已按秒数比例分摊"
+            );
+        }
+
         // 日账本按 (day, forward_id) 累加：同一增量只会被一个事务认领，
         // 因此这里的 upsert 不会把同一段流量重复计两次。
-        // `bytes` 永远记原始上下行之和（对账），`weighted` 才是配额口径。
-        upsert_daily(
-            conn,
-            day,
-            &candidate.forward_id,
-            &candidate.user_id,
-            delta,
-            weighted,
-        )
-        .await?;
+        // `bytes` 永远记原始上下行之和（对账），`weighted` 才是配额口径；
+        // 两个总量分别按同一组秒数权重切分，各天之和严格等于认领的增量。
+        for share in &shares {
+            upsert_daily(
+                conn,
+                &share.day,
+                &candidate.forward_id,
+                &candidate.user_id,
+                share.bytes,
+                share.weighted,
+            )
+            .await?;
+        }
 
         // 没有生效套餐时只记日表，不往用户总量或任何实例上累加。
         if instances.is_empty() {
@@ -3567,6 +3648,133 @@ pub mod forward_traffic {
         }
 
         Ok((delta, weighted))
+    }
+
+    /// 一次增量按 UTC+8 自然日分摊后的一天。
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct DayIncrement {
+        day: String,
+        /// 原始字节（`forward_traffic_daily.bytes` 的增量）。
+        bytes: i64,
+        /// 加权字节（`forward_traffic_daily.weighted` 的增量）。
+        weighted: i64,
+    }
+
+    /// 解析采样窗口，返回 `(start, end, 是否按首次采样处理, 是否被兜底裁剪)`。
+    ///
+    /// * `0 < last_sampled_at < now` → `[last_sampled_at, now)`；
+    /// * `0`（从未采样）/ 未来时间（时钟回拨）/ 等于 `now` →
+    ///   `[now - 采样周期, now)`，绝不让窗口变成 0 或负数；
+    /// * 超过 [`MAX_WINDOW_DAYS`] 的窗口裁剪到最近这么多天：只影响「摊到哪
+    ///   几天」，认领的增量总量不变。
+    fn sampling_window(last_sampled_at: i64, now: i64) -> (i64, i64, bool, bool) {
+        if last_sampled_at <= 0 || last_sampled_at >= now {
+            return (now - SAMPLE_PERIOD_SECS, now, true, false);
+        }
+        let floor = now - MAX_WINDOW_DAYS * crate::time::SECONDS_PER_DAY;
+        if last_sampled_at < floor {
+            return (floor, now, false, true);
+        }
+        (last_sampled_at, now, false, false)
+    }
+
+    /// 窗口覆盖的每个 UTC+8 自然日及落在其中的秒数（升序）。
+    fn window_day_weights(start: i64, end: i64) -> Vec<(String, i64)> {
+        let mut days = Vec::new();
+        let mut cursor = start;
+        while cursor < end {
+            let day = crate::time::business_day(cursor);
+            let day_end = crate::time::business_day_start(day + 1);
+            let segment_end = end.min(day_end);
+            let seconds = segment_end - cursor;
+            if seconds > 0 {
+                days.push((crate::time::business_date(cursor), seconds));
+            }
+            cursor = segment_end;
+        }
+        days
+    }
+
+    /// 按权重把 `total` 分成整数份：前 n-1 份四舍五入，余数补给最后一份。
+    ///
+    /// 权重是各天落在窗口内的秒数，所以结果就是「按秒数占比四舍五入」。
+    /// 正常数据下最后一份总是 >= 0；极端舍入（窗口末日只有几秒、前面的
+    /// 份额恰好都进位）可能让「补余数」变成负数，此时从当前最大的一份里
+    /// 借回来——仍然保证 `sum == total` 且没有负数，不丢字节、不造字节。
+    fn allocate_by_weight(total: i64, weights: &[i64]) -> Vec<i64> {
+        if weights.is_empty() {
+            return Vec::new();
+        }
+        let total = total.max(0);
+        let sum: i128 = weights.iter().map(|weight| *weight as i128).sum();
+        if sum <= 0 {
+            let mut parts = vec![0; weights.len()];
+            parts[weights.len() - 1] = total;
+            return parts;
+        }
+
+        let mut parts = Vec::with_capacity(weights.len());
+        let mut allocated: i128 = 0;
+        for weight in &weights[..weights.len() - 1] {
+            // 正数四舍五入：(a + sum/2) / sum；用 i128 避免 total × 秒数溢出。
+            let share = (total as i128 * *weight as i128 + sum / 2) / sum;
+            let share = share as i64;
+            parts.push(share);
+            allocated += share as i128;
+        }
+
+        let mut last = total - allocated as i64;
+        if last < 0 {
+            let mut deficit = -last;
+            while deficit > 0 {
+                let Some((index, value)) = parts
+                    .iter()
+                    .enumerate()
+                    .max_by_key(|(_, value)| **value)
+                    .map(|(index, value)| (index, *value))
+                else {
+                    break;
+                };
+                if value == 0 {
+                    break;
+                }
+                let take = value.min(deficit);
+                parts[index] -= take;
+                deficit -= take;
+            }
+            last = 0;
+        }
+        parts.push(last);
+        parts
+    }
+
+    /// 把一次增量按窗口落在各天的秒数比例切分。
+    ///
+    /// `bytes` 与 `weighted` 用**同一组**秒数权重分别切分：两个总量各自严格
+    /// 等于认领值（日表各天之和 == 采样增量），且逐天比例一致。加权值不逐天
+    /// 重新乘倍率，避免每天各舍入一次后总和与配额累加值对不上。
+    fn split_across_days(start: i64, end: i64, bytes: i64, weighted: i64) -> Vec<DayIncrement> {
+        let weights = window_day_weights(start, end);
+        if weights.is_empty() {
+            return vec![DayIncrement {
+                day: crate::time::business_date(end.max(start)),
+                bytes,
+                weighted,
+            }];
+        }
+        let seconds: Vec<i64> = weights.iter().map(|(_, seconds)| *seconds).collect();
+        let byte_parts = allocate_by_weight(bytes, &seconds);
+        let weighted_parts = allocate_by_weight(weighted, &seconds);
+        weights
+            .into_iter()
+            .zip(byte_parts)
+            .zip(weighted_parts)
+            .map(|(((day, _), bytes), weighted)| DayIncrement {
+                day,
+                bytes,
+                weighted,
+            })
+            .collect()
     }
 
     /// 某天某条规则累计的**原始**转发字节（上下行之和，未加权）；对账用。
@@ -3960,6 +4168,31 @@ pub mod forward_traffic {
             .unwrap();
         }
 
+        /// 人为指定上一轮采样的计数器与窗口起点（模拟跨零点 / 离线多天）。
+        ///
+        /// 直接改库是为了精确控制窗口：正常路径下 `last_sampled_at` 只会由
+        /// 采样器推进，测试不需要真的等上几天。
+        async fn set_sampling_window(
+            pool: &SqlitePool,
+            forward_id: &str,
+            last_in: i64,
+            last_out: i64,
+            last_sampled_at: i64,
+        ) {
+            sqlx::query(
+                "UPDATE forwards
+                    SET last_traffic_in = ?, last_traffic_out = ?, last_sampled_at = ?
+                  WHERE id = ?",
+            )
+            .bind(last_in)
+            .bind(last_out)
+            .bind(last_sampled_at)
+            .bind(forward_id)
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+
         async fn package_used(pool: &SqlitePool, instance_id: &str) -> i64 {
             super::super::user_packages::find_view_by_id(pool, instance_id)
                 .await
@@ -4111,6 +4344,10 @@ pub mod forward_traffic {
             let refreshed = forward(&pool, &fwd.id).await;
             assert_eq!(refreshed.last_traffic_in, 100);
             assert_eq!(refreshed.last_traffic_out, 0);
+            assert_eq!(
+                refreshed.last_sampled_at, now,
+                "首次采样（last_sampled_at=0）必须把窗口推进到本轮 now"
+            );
             assert_eq!(daily_bytes(&pool, &day, &fwd.id).await.unwrap(), 100);
             assert_eq!(package_used(&pool, &package).await, 100);
             assert_eq!(user_used(&pool, &user).await, 100);
@@ -4401,6 +4638,254 @@ pub mod forward_traffic {
             assert_eq!(run_round(&pool, now).await.unwrap().bytes, 0);
             assert_eq!(daily_bytes(&pool, &day, &fwd.id).await.unwrap(), 100);
             assert_eq!(package_used(&pool, &package).await, 100);
+        }
+
+        /// 纯逻辑：按秒数比例四舍五入，余数补给最后一天，总和严格不变。
+        #[test]
+        fn weight_allocation_rounds_and_puts_the_remainder_last() {
+            assert_eq!(allocate_by_weight(1201, &[600, 600]), vec![601, 600]);
+            assert_eq!(
+                allocate_by_weight(1003, &[43200, 86400, 86400, 43200]),
+                vec![167, 334, 334, 168]
+            );
+            assert_eq!(allocate_by_weight(0, &[10, 20]), vec![0, 0]);
+            assert_eq!(allocate_by_weight(7, &[]), Vec::<i64>::new());
+        }
+
+        /// 极端舍入：「补余数」为负时从最大的一份借回，仍然不丢字节、不造字节。
+        #[test]
+        fn weight_allocation_never_loses_or_invents_bytes() {
+            let parts = allocate_by_weight(2, &[1001, 1001, 997, 1]);
+            assert_eq!(parts.iter().sum::<i64>(), 2);
+            assert!(parts.iter().all(|part| *part >= 0));
+        }
+
+        /// 窗口解析：0 / 未来时间 / 等于 now 都退回一个采样周期；
+        /// 超长窗口裁剪到兜底上限，但终点仍是 now。
+        #[test]
+        fn sampling_window_handles_first_sample_clock_skew_and_huge_spans() {
+            let now = 1_700_000_000;
+            assert_eq!(
+                sampling_window(0, now),
+                (now - SAMPLE_PERIOD_SECS, now, true, false)
+            );
+            assert_eq!(
+                sampling_window(now + 10, now),
+                (now - SAMPLE_PERIOD_SECS, now, true, false),
+                "时钟回拨不能产生反向窗口"
+            );
+            assert_eq!(
+                sampling_window(now, now),
+                (now - SAMPLE_PERIOD_SECS, now, true, false)
+            );
+            assert_eq!(
+                sampling_window(now - 60, now),
+                (now - 60, now, false, false)
+            );
+
+            let too_old = now - (MAX_WINDOW_DAYS + 1) * crate::time::SECONDS_PER_DAY;
+            let (start, end, first, clamped) = sampling_window(too_old, now);
+            assert!(!first && clamped);
+            assert_eq!(end, now);
+            assert_eq!(start, now - MAX_WINDOW_DAYS * crate::time::SECONDS_PER_DAY);
+        }
+
+        /// 窗口覆盖的 UTC+8 天数：23:50 → 00:10 是两天各 600 秒。
+        #[test]
+        fn window_day_weights_cover_utc_plus_eight_days() {
+            let start = at("2026-11-14T23:50:00+08:00");
+            let end = at("2026-11-15T00:10:00+08:00");
+            assert_eq!(
+                window_day_weights(start, end),
+                vec![
+                    ("2026-11-14".to_string(), 600),
+                    ("2026-11-15".to_string(), 600)
+                ]
+            );
+        }
+
+        /// 回归：窗口完全落在某一天内 → 全部记该天，不产生相邻天的行。
+        #[tokio::test]
+        async fn window_inside_one_business_day_keeps_everything_there() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let user = create_user(&pool, "alice").await;
+            let package = bind_package(&pool, &user, Some(10_000)).await;
+            let fwd = create_forward(&pool, &server, Some(&user), true, 20000).await;
+
+            let start = at("2026-11-15T09:00:00+08:00");
+            let now = at("2026-11-15T09:01:00+08:00");
+            set_sampling_window(&pool, &fwd.id, 0, 0, start).await;
+            save_counters(&pool, &server, &fwd.id, Some(1234), Some(0)).await;
+
+            let report = run_round(&pool, now).await.unwrap();
+            assert_eq!(report.bytes, 1234);
+            assert_eq!(report.weighted, 1234);
+            assert_eq!(
+                daily_bytes(&pool, "2026-11-15", &fwd.id).await.unwrap(),
+                1234
+            );
+            assert_eq!(
+                daily_weighted(&pool, "2026-11-15", &fwd.id).await.unwrap(),
+                1234
+            );
+            assert_eq!(
+                daily_bytes(&pool, "2026-11-14", &fwd.id).await.unwrap(),
+                0,
+                "窗口之外的天不能凭空多出行"
+            );
+            assert_eq!(package_used(&pool, &package).await, 1234);
+            assert_eq!(user_used(&pool, &user).await, 1234);
+            assert_eq!(forward(&pool, &fwd.id).await.last_sampled_at, now);
+        }
+
+        /// 跨 UTC+8 零点的一次采样：23:50 → 00:10 各占 600 秒，
+        /// 1201 字节拆成 601 / 600（四舍五入 + 余数补最后一天），
+        /// `weighted` 用同一组秒数比例，两天之和都等于原增量。
+        #[tokio::test]
+        async fn crossing_midnight_splits_the_increment_by_seconds() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let user = create_user(&pool, "alice").await;
+            let package = bind_package(&pool, &user, Some(10_000)).await;
+            let fwd = create_forward(&pool, &server, Some(&user), true, 20000).await;
+
+            let start = at("2026-11-14T23:50:00+08:00");
+            let now = at("2026-11-15T00:10:00+08:00");
+            set_sampling_window(&pool, &fwd.id, 0, 0, start).await;
+            save_counters(&pool, &server, &fwd.id, Some(1201), Some(0)).await;
+
+            let report = run_round(&pool, now).await.unwrap();
+            assert_eq!(report.bytes, 1201);
+            let first = daily_bytes(&pool, "2026-11-14", &fwd.id).await.unwrap();
+            let second = daily_bytes(&pool, "2026-11-15", &fwd.id).await.unwrap();
+            assert_eq!((first, second), (601, 600), "按秒数占比四舍五入");
+            assert_eq!(
+                first + second,
+                report.bytes,
+                "两天之和必须等于原增量，不丢不造"
+            );
+            // both + ratio=1：同一组权重切分，weighted 与 bytes 逐天相等。
+            assert_eq!(
+                daily_weighted(&pool, "2026-11-14", &fwd.id).await.unwrap(),
+                first
+            );
+            assert_eq!(
+                daily_weighted(&pool, "2026-11-15", &fwd.id).await.unwrap(),
+                second
+            );
+            assert_eq!(package_used(&pool, &package).await, 1201);
+            assert_eq!(user_used(&pool, &user).await, 1201);
+            assert_eq!(forward(&pool, &fwd.id).await.last_sampled_at, now);
+        }
+
+        /// 离线 3 天后重连：窗口跨 4 个 UTC+8 自然日（各 12h / 24h / 24h / 12h），
+        /// 1003 字节按秒数比例分成 167 / 334 / 334 / 168，余数落在最后一天。
+        /// `weighted`（ratio=2.0）用同一组比例：334 / 669 / 669 / 334。
+        #[tokio::test]
+        async fn offline_three_days_spreads_the_increment_over_four_days() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let user = create_user(&pool, "alice").await;
+            let package = bind_package_with(&pool, &user, Some(10_000), "both", 2.0).await;
+            let fwd = create_forward(&pool, &server, Some(&user), true, 20000).await;
+
+            let start = at("2026-11-14T12:00:00+08:00");
+            let now = at("2026-11-17T12:00:00+08:00");
+            set_sampling_window(&pool, &fwd.id, 0, 0, start).await;
+            save_counters(&pool, &server, &fwd.id, Some(1003), Some(0)).await;
+
+            let report = run_round(&pool, now).await.unwrap();
+            assert_eq!(report.bytes, 1003);
+            assert_eq!(report.weighted, 2006, "1003 × 2.0");
+
+            let expected = [
+                ("2026-11-14", 167_i64, 334_i64),
+                ("2026-11-15", 334, 669),
+                ("2026-11-16", 334, 669),
+                ("2026-11-17", 168, 334),
+            ];
+            let mut bytes_sum = 0;
+            let mut weighted_sum = 0;
+            for (day, bytes, weighted) in expected {
+                let actual_bytes = daily_bytes(&pool, day, &fwd.id).await.unwrap();
+                let actual_weighted = daily_weighted(&pool, day, &fwd.id).await.unwrap();
+                assert_eq!(actual_bytes, bytes, "{day} 原始字节");
+                assert_eq!(actual_weighted, weighted, "{day} 加权字节");
+                bytes_sum += actual_bytes;
+                weighted_sum += actual_weighted;
+            }
+            assert_eq!(bytes_sum, 1003, "四天之和必须等于原增量");
+            assert_eq!(weighted_sum, 2006, "加权值也不能在分摊中丢失");
+            assert_eq!(
+                daily_bytes(&pool, "2026-11-17", &fwd.id).await.unwrap(),
+                168,
+                "余数补给最后一天"
+            );
+            // 用户/套餐总量与拆分前一致：只累加一次总 weighted。
+            assert_eq!(package_used(&pool, &package).await, 2006);
+            assert_eq!(user_used(&pool, &user).await, 2006);
+            assert_eq!(forward(&pool, &fwd.id).await.last_sampled_at, now);
+        }
+
+        /// 没有新流量时不推进窗口起点：离线 / 空闲期间窗口保持打开，
+        /// 重连后的增量才能按实际覆盖的天数分摊。
+        #[tokio::test]
+        async fn a_zero_delta_round_keeps_the_window_start() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let user = create_user(&pool, "alice").await;
+            let _package = bind_package(&pool, &user, Some(10_000)).await;
+            let fwd = create_forward(&pool, &server, Some(&user), true, 20000).await;
+
+            let start = at("2026-11-14T12:00:00+08:00");
+            set_sampling_window(&pool, &fwd.id, 0, 0, start).await;
+            save_counters(&pool, &server, &fwd.id, Some(0), Some(0)).await;
+
+            let report = run_round(&pool, start + 3600).await.unwrap();
+            assert_eq!(report.bytes, 0);
+            assert_eq!(
+                forward(&pool, &fwd.id).await.last_sampled_at,
+                start,
+                "没有认领增量就不能把窗口往前推"
+            );
+        }
+
+        /// 并发两轮采样：跨天分摊也只认领一次，不会把同一段增量摊两遍。
+        #[tokio::test]
+        async fn concurrent_rounds_do_not_duplicate_a_multi_day_split() {
+            let pool = setup().await;
+            let server = create_server(&pool).await;
+            let user = create_user(&pool, "alice").await;
+            let package = bind_package(&pool, &user, Some(10_000)).await;
+            let fwd = create_forward(&pool, &server, Some(&user), true, 20000).await;
+
+            let start = at("2026-11-14T12:00:00+08:00");
+            let now = at("2026-11-17T12:00:00+08:00");
+            set_sampling_window(&pool, &fwd.id, 0, 0, start).await;
+            save_counters(&pool, &server, &fwd.id, Some(1003), Some(0)).await;
+
+            let (first, second) = tokio::join!(run_round(&pool, now), run_round(&pool, now));
+            let first = first.unwrap();
+            let second = second.unwrap();
+            assert_eq!(
+                first.bytes + second.bytes,
+                1003,
+                "跨天分摊同样只能被一个事务认领：{first:?} / {second:?}"
+            );
+
+            let mut total = 0;
+            for day in ["2026-11-14", "2026-11-15", "2026-11-16", "2026-11-17"] {
+                total += daily_bytes(&pool, day, &fwd.id).await.unwrap();
+            }
+            assert_eq!(total, 1003);
+            assert_eq!(
+                daily_bytes(&pool, "2026-11-17", &fwd.id).await.unwrap(),
+                168
+            );
+            assert_eq!(package_used(&pool, &package).await, 1003);
+            assert_eq!(user_used(&pool, &user).await, 1003);
+            assert_eq!(forward(&pool, &fwd.id).await.last_sampled_at, now);
         }
 
         fn at(rfc3339: &str) -> i64 {

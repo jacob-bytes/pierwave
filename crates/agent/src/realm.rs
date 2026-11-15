@@ -1897,10 +1897,12 @@ mod tests {
         let (tls_port, tls_task) = spawn_self_signed_server(TEST_CERT_PEM, TEST_KEY_PEM).await;
 
         let mut supervisor = RealmSupervisor::new(&script, dir.path(), "127.0.0.1");
-        // 先把脚本的首次 exec 预热掉：否则环境抖动可能让能力探测超时（Unknown），
-        // 本轮就会按未知放行而不是走 Supported 路径，测的就不是本用例了。
+        // 先让 supervisor 自己观察到确定的 Supported（生产里心跳先探测、apply
+        // 读缓存）。只预热脚本不够：apply 内部的探测仍有 5s 上限，高负载下会
+        // 返回 Unknown（按设计放行但按未知处理），后续的 transport 断言就失去
+        // 确定性。
         assert_eq!(
-            wait_for_capability(&script).await,
+            wait_for_supervisor_capability(&mut supervisor, TransportCapability::Supported).await,
             TransportCapability::Supported
         );
         let mut encrypted = realm_rule("chain-c1-1", 39122, &[("127.0.0.1", i64::from(tls_port))]);
@@ -1967,7 +1969,7 @@ mod tests {
 
         let mut supervisor = RealmSupervisor::new(&script, dir.path(), "127.0.0.1");
         assert_eq!(
-            wait_for_capability(&script).await,
+            wait_for_supervisor_capability(&mut supervisor, TransportCapability::Supported).await,
             TransportCapability::Supported
         );
         let mut rule = realm_rule("chain-c1-0", 39121, &[("127.0.0.1", i64::from(port))]);
@@ -2243,12 +2245,12 @@ mod tests {
     ///
     /// 把「新脚本首次 exec 慢」从被测逻辑里剔除：supervisor 自己有 5s 超时 +
     /// 三态兜底，但测试不该因为环境抖动把 Supported 判成 Unknown 而误测。
-    /// 每次尝试给 10s 预算，总预算 30s；返回最后一次的确定结论。
+    /// 每次尝试给 5s 预算，总预算 15s；返回最后一次的确定结论。
     #[cfg(unix)]
     async fn wait_for_capability(script: &Path) -> TransportCapability {
-        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
         loop {
-            match detect_transport(script, Duration::from_secs(10)).await {
+            match detect_transport(script, Duration::from_secs(5)).await {
                 TransportCapability::Unknown(reason) => {
                     assert!(
                         std::time::Instant::now() < deadline,
@@ -2258,6 +2260,36 @@ mod tests {
                 }
                 known => return known,
             }
+        }
+    }
+
+    /// 等 supervisor 自己得到**确定**的能力结论（生产里心跳先探测、apply 再读缓存）。
+    ///
+    /// 单次探测内部的预算只有 [`CAPABILITY_TIMEOUT`]（5s）：并行负载下新脚本的
+    /// 首次 exec 可能超过它，此时结论是 `Unknown`（不缓存、也不拒绝）。测试若只
+    /// 预热一次脚本就假设 apply 里的探测一定成功，就会偶发把「这次探测慢」当成
+    /// 「能力不支持」。这里轮询 supervisor 自己的探测直到确定结论；`Unknown`
+    /// 可重试，其它结论说明测试前提不成立，直接失败。
+    #[cfg(unix)]
+    async fn wait_for_supervisor_capability(
+        supervisor: &mut RealmSupervisor,
+        expected: TransportCapability,
+    ) -> TransportCapability {
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        loop {
+            let got = supervisor.transport_capability().await;
+            if got == expected {
+                return got;
+            }
+            assert!(
+                matches!(got, TransportCapability::Unknown(_)),
+                "realm 能力探测得到 {got:?}，期望 {expected:?}"
+            );
+            assert!(
+                std::time::Instant::now() < deadline,
+                "等待 realm 能力确定为 {expected:?} 超时（最后一次：{got:?}）"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
         }
     }
 
@@ -2570,7 +2602,7 @@ remote = \"10.0.0.2:443\"\n";
         // 换二进制后缓存必须失效：同一个路径先 Unsupported 后 Supported。
         let mut supervisor = RealmSupervisor::new(&without, dir.path(), "127.0.0.1");
         assert_eq!(
-            supervisor.transport_capability().await,
+            wait_for_supervisor_capability(&mut supervisor, TransportCapability::Unsupported).await,
             TransportCapability::Unsupported
         );
         fake_realm(
@@ -2584,7 +2616,7 @@ remote = \"10.0.0.2:443\"\n";
             "换过的二进制本身要能探测到新结论"
         );
         assert_eq!(
-            supervisor.transport_capability().await,
+            wait_for_supervisor_capability(&mut supervisor, TransportCapability::Supported).await,
             TransportCapability::Supported,
             "运行中换掉二进制后不能沿用旧缓存"
         );
@@ -2729,9 +2761,11 @@ remote = \"10.0.0.2:443\"\n";
         let counter = dir.path().join("launches");
         let script = fake_realm(dir.path(), "2.9.6 [brutal][batched-udp]", Some(&counter));
         let mut supervisor = RealmSupervisor::new(&script, dir.path(), "127.0.0.1");
-        // 预热脚本的首次 exec，确保这里测的是「确定不支持」，不是环境抖动。
+        // 先让 supervisor 自己得到确定的 Unsupported：apply 读的正是这份缓存
+        // （生产里心跳先探测）。单次探测有 5s 上限，高负载下会是 Unknown，而
+        // Unknown 按设计放行——那测的就不是「确定不支持时拒绝」了。
         assert_eq!(
-            wait_for_capability(&script).await,
+            wait_for_supervisor_capability(&mut supervisor, TransportCapability::Unsupported).await,
             TransportCapability::Unsupported
         );
 
@@ -2767,7 +2801,7 @@ remote = \"10.0.0.2:443\"\n";
         );
         let mut supervisor = RealmSupervisor::new(&script, dir.path(), "127.0.0.1");
         assert_eq!(
-            wait_for_capability(&script).await,
+            wait_for_supervisor_capability(&mut supervisor, TransportCapability::Supported).await,
             TransportCapability::Supported
         );
 

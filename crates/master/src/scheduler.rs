@@ -31,7 +31,10 @@ const SERVER_SAMPLE_INTERVAL: Duration =
 ///
 /// Agent 心跳默认 15 秒一次，60 秒足够把累计计数器转成稳定的增量；
 /// 计数器归零（Agent 重启 / 规则重建）由 `forwards::traffic_delta` 兜底。
-const FORWARD_TRAFFIC_SAMPLE_INTERVAL: Duration = Duration::from_secs(60);
+/// 周期同时是「首次采样」与时钟回拨时的兜底窗口长度，所以从领域层取同一
+/// 个常量，避免两处写死 60 后悄悄漂移。
+const FORWARD_TRAFFIC_SAMPLE_INTERVAL: Duration =
+    Duration::from_secs(repo::forward_traffic::SAMPLE_PERIOD_SECS as u64);
 
 /// 执行一轮每日重置；有实例被清零时立刻标记所有服务器。
 ///
