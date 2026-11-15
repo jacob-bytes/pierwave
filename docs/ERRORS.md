@@ -183,6 +183,42 @@
 | `chain.port_allowed_exhausted` | 服务器「{server}」允许的端口都已占用；请先释放端口，或为该跳手动填写允许范围内的端口 | server, server_id |
 | `chain.internal_address_missing` | 服务器「{server}」还没有填写内网地址，无法使用内网地址转发 | server |
 | `chain.group_empty` | 某一跳没有成员服务器，整条链未下发 | — |
+| `chain.groups_missing` | 链已启用但没有任何成员组，整条链未下发 | — |
+| `chain.enabled_without_groups` | 链没有成员组，也没有可恢复的停用快照，无法启用 | chain_id |
+| `chain.proxy_protocol_requires_single_hop` | PROXY protocol v2 只能在单跳链上开启 | hops |
+| `me.chain_groups_missing` | 链的拓扑信息已丢失，请删除后重新创建 | chain_id |
+
+## API Token / API tokens
+
+read scope 只允许**非敏感 REST GET**；写操作、敏感 GET 与 `/mcp` 都会被拒绝。
+`/mcp` 的错误是 JSON-RPC 形状，稳定应用码放在 `error.data.code`，其余接口放在响应体的 `code`。
+
+A read-scoped token may only issue **non-sensitive REST GETs**; writes, sensitive GETs
+and `/mcp` are rejected. `/mcp` errors use the JSON-RPC shape and carry the stable app
+code in `error.data.code`; every other endpoint puts it in the response `code`.
+
+| code | 中文 | English | params |
+|---|---|---|---|
+| `api_token.invalid` | API Token 无效、已过期或已吊销 | Invalid, expired or revoked API token | — |
+| `api_token.read_only` | 只读 API Token 不能执行写操作 | A read-only API token cannot perform writes | — |
+| `api_token.sensitive_endpoint` | 该接口包含敏感数据，read scope 不可访问 | This endpoint contains sensitive data and is not available to read-scoped tokens | — |
+| `api_token.admin_scope_required` | 该操作需要 admin scope 的 API Token | This operation requires an admin-scoped API token | — |
+| `api_token.mcp_requires_admin` | MCP 需要 admin scope 的 API Token；read scope 只能访问 REST 的非敏感 GET | MCP requires an admin-scoped API token; read scope can only access non-sensitive REST GETs | — |
+| `api_token.rate_limited` | API Token 请求过于频繁，请稍后再试 | API token rate limit exceeded | — |
+| `api_token.scope_invalid` | scope 只能是 {allowed} | Scope must be one of: {allowed} | allowed |
+| `api_token.name_invalid` | 名称需在 1-{max} 个字符之间 | Name must be 1-{max} characters | max |
+| `api_token.expires_at_invalid` | 过期时间必须晚于当前时间 | Expires at must be in the future | now |
+| `api_token.not_found` | API Token 不存在 | API token not found | — |
+
+`api_token.mcp_requires_admin` 只出现在 `POST /mcp` 的 JSON-RPC error 里（HTTP 403，
+`error.code = -32003`，`error.data.code = "api_token.mcp_requires_admin"`）；客户端要按
+应用码判断，而不是解析双语 message。详见 [MCP.md](./MCP.md#http-接入streamable-http)
+与 [API-TOKENS.md](./API-TOKENS.md)。
+
+`api_token.mcp_requires_admin` only appears in the JSON-RPC error from `POST /mcp`
+(HTTP 403, `error.code = -32003`, `error.data.code = "api_token.mcp_requires_admin"`).
+Clients must branch on the app code, not parse the bilingual message. See
+[MCP.md](./MCP.md#http-access-streamable-http) and [API-TOKENS.md](./API-TOKENS.md).
 
 ## 转发链端口自动分配（中英对照）/ Automatic chain port allocation
 
@@ -384,6 +420,30 @@ per-request ratio. Least-connections counts active connections with an RAII guar
 require every member agent to speak protocol 27+; the write and dispatch paths both
 fail closed instead of silently downgrading to round robin.
 
+### 空拓扑、停用与启用 / Empty topology, disable and enable
+
+组可以被删掉（用户停用会删组以释放端口），所以「`enabled = true` 但没有组」是真实可能
+出现的状态。主控对它的规则是 fail closed：
+
+| 状态 / State | 结果 / Result |
+|---|---|
+| `enabled = true` 且 0 组 | 列表 / 概览 `blocked_code = chain.groups_missing`；下发整链跳过并写 warning |
+| `enabled = false` 且 0 组 | **不算 blocked**（不参与下发，谈不上失败）；列表 `blocked_code = null` |
+| 某一跳 0 成员 | `chain.group_empty`，同样整链 blocked（历史 / 级联删除后可能出现） |
+| 用户停用一条有组的链 | 组形态写入 `chains.disabled_groups_json`；**只有 groups 非空时才写**，绝不用空快照覆盖好快照 |
+| 用户启用 / 管理员启用 | 按快照重建组与端口（管理员 `PATCH enabled` 遇到 0 组时复用同一重建逻辑） |
+| 启用成功 | 清空 `disabled_groups_json`，避免陈旧快照在下次启用时复活 |
+| 启用时既无组也无快照 | 400 `chain.enabled_without_groups`；用户自助路径是 400 `me.chain_groups_missing` |
+
+An empty chain (`enabled = true`, zero groups) is **blocked**, not silently accepted:
+the list/overview expose `blocked_code = chain.groups_missing`, and the desired-state
+renderer skips the whole chain with a warning. A **disabled** zero-group chain is not
+blocked (it is simply not part of dispatch). Disabling snapshots the group topology only
+when groups are non-empty, so an empty state never overwrites a good snapshot; enabling
+(user or admin) rebuilds groups and reallocates ports from that snapshot and then clears
+it. Enabling with neither groups nor a snapshot returns `chain.enabled_without_groups`.
+A hop with zero members remains `chain.group_empty`.
+
 ### 转发协议模式（P15.4）/ Forward protocol mode
 
 转发与链的 `protocol` 只有 `tcp`（默认）/ `udp` / `both` 三种取值。写路径严格校验，
@@ -448,16 +508,19 @@ fail closed instead of silently downgrading to round robin.
 
 `proxy_protocol = true` 让 Agent 在连上目标后、转发首字节前写一个 PROXY v2 头，
 落地因此能看到真实来源 IP。它**只能由用户显式开启**：目标服务不认这个头时会
-把它当垃圾数据，连接直接失败。三条硬约束（转发与链共用同一个判定）：
+把它当垃圾数据，连接直接失败。四条硬约束（单跳要求只作用于链；转发天然单跳）：
 
-1. **仅 TCP**：`protocol = udp / both` 直接 400（UDP 数据报没有「首包前」）；
-2. **仅 native 引擎**：realm / nftables / tunnel 不在用户态持有到目标的连接；
-3. **Agent 协议 ≥ 28**：旧 Agent 会**静默忽略**该字段（serde 未知键），
+1. **单跳链**：链的 `groups.len()` 必须为 1，否则 400
+   `chain.proxy_protocol_requires_single_hop`。多跳链里只有最后一跳写头，而它连的是
+   上一跳——落地看到的是**上一跳地址**，不是客户端地址，和「真实来源」的承诺不符；
+   历史多跳 + 开关的链在下发时整链 blocked，绝不静默下发。
+2. **仅 TCP**：`protocol = udp / both` 直接 400（UDP 数据报没有「首包前」）；
+3. **仅 native 引擎**：realm / nftables / tunnel 不在用户态持有到目标的连接；
+4. **Agent 协议 ≥ 28**：旧 Agent 会**静默忽略**该字段（serde 未知键），
    所以保存与下发两条路径都 fail closed；历史配置遇到旧 Agent 时列表 blocked，
    绝不把开关降级成 false。
 
-链的开关只作用于**最后一跳**（真正连链目标的那一跳）；中间跳下发的
-`DesiredForward.proxy_protocol` 永远是 `false`，也不受旧 Agent 影响。
+链的开关只作用于**唯一一跳**（单跳链；真正连链目标的那一跳）。
 迁移 `0056_proxy_protocol.sql` 只追加 `forwards.proxy_protocol` /
 `chains.proxy_protocol` 两列，历史行默认 0。
 
@@ -465,9 +528,11 @@ fail closed instead of silently downgrading to round robin.
 > after connecting to the target and before the first payload byte, so the
 > landing server sees the real client address. It is strictly opt-in: a target
 > that does not understand the header treats it as garbage. The master rejects
-> UDP (`udp` / `both`), non-native engines, and agents older than protocol 28
-> (old agents silently ignore the unknown field). The chain flag applies to the
-> final hop only; middle hops always get `false`. Migration
+> multi-hop chains (`chain.proxy_protocol_requires_single_hop`; a multi-hop
+> landing only sees the previous hop, not the client), UDP (`udp` / `both`),
+> non-native engines, and agents older than protocol 28 (old agents silently
+> ignore the unknown field). Historical multi-hop chains with the flag on are
+> blocked at dispatch and never delivered silently. Migration
 > `0056_proxy_protocol.sql` only appends two columns, defaulting historical rows
 > to 0.
 

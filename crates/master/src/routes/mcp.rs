@@ -1,6 +1,6 @@
 //! MCP Streamable HTTP 入口：`POST /mcp`。
 //!
-//! 传输层只做三件事：认证（API Token，read 或 admin scope）、把 JSON-RPC
+//! 传输层只做三件事：认证（API Token，**必须是 admin scope**）、把 JSON-RPC
 //! 消息交给 `pierwave-mcp` 的同一套工具实现、把结果按 JSON-RPC 形状返回。
 //! 认证/限流的错误也是 JSON-RPC error（不是 HTML/纯文本），客户端可以按
 //! JSON-RPC 统一处理。
@@ -92,17 +92,17 @@ pub async fn http(State(state): State<AppState>, headers: HeaderMap, body: Bytes
         }
     };
 
-    // `read` 足够（工具全是只读）；admin 也允许。scope 被手工改坏时按
-    // 「scope 不足」拒绝，而不是猜测它的权限。
-    let scope = principal.scope.as_str();
-    if scope != pierwave_domain::repo::api_tokens::SCOPE_READ
-        && scope != pierwave_domain::repo::api_tokens::SCOPE_ADMIN
-    {
-        return error_response(
+    // MCP 一律要求 admin：这 5 个工具虽然只读，但返回服务器地址、用户清单与
+    // 链拓扑，和 REST 的敏感 GET 是同一份数据。read scope 只能走 REST 的
+    // 非敏感 GET，否则 `/mcp` 就成了绕过敏感名单的后门。
+    // scope 被手工改坏的 token 也按同一规则拒绝（不放宽到「猜它能读什么」）。
+    if principal.scope != pierwave_domain::repo::api_tokens::SCOPE_ADMIN {
+        return error_response_coded(
             StatusCode::FORBIDDEN,
             id,
             FORBIDDEN,
-            "API Token scope 不足 / insufficient API token scope",
+            Some("api_token.mcp_requires_admin"),
+            "MCP 需要 admin scope 的 API Token（read scope 只能走 REST 的非敏感 GET） / MCP requires an admin-scoped API token (read scope is limited to non-sensitive REST GETs)",
         );
     }
 
@@ -143,12 +143,28 @@ fn error_response(
     code: i64,
     message: impl Into<String>,
 ) -> Response {
+    error_response_coded(status, id, code, None, message)
+}
+
+/// 与 [`error_response`] 相同，额外在 `error.data.code` 里带稳定的应用错误码，
+/// 客户端不必解析双语 message 才能区分「read scope 被拒」与其它 403。
+fn error_response_coded(
+    status: StatusCode,
+    id: Value,
+    code: i64,
+    app_code: Option<&str>,
+    message: impl Into<String>,
+) -> Response {
+    let mut error = json!({ "code": code, "message": message.into() });
+    if let Some(app_code) = app_code {
+        error["data"] = json!({ "code": app_code });
+    }
     (
         status,
         Json(json!({
             "jsonrpc": "2.0",
             "id": id,
-            "error": { "code": code, "message": message.into() }
+            "error": error
         })),
     )
         .into_response()
@@ -210,7 +226,7 @@ mod tests {
     #[tokio::test]
     async fn initialize_and_tools_list_have_the_jsonrpc_shape() {
         let (app, state) = setup().await;
-        let token = token(&state, "read").await;
+        let token = token(&state, "admin").await;
 
         let (status, _text, body) = post(
             &app,
@@ -276,7 +292,7 @@ mod tests {
     #[tokio::test]
     async fn tools_call_runs_the_shared_read_only_implementation() {
         let (app, state) = setup().await;
-        let token = token(&state, "read").await;
+        let token = token(&state, "admin").await;
 
         let (status, _text, body) = post(
             &app,
@@ -332,6 +348,52 @@ mod tests {
             .contains("list_servers"));
     }
 
+    /// read scope 不能走 `/mcp`：MCP 工具返回服务器地址/用户清单/链拓扑，
+    /// 与 REST 的敏感 GET 同名同级。错误必须是 JSON-RPC，并带稳定应用码。
+    #[tokio::test]
+    async fn read_scope_is_rejected_with_the_mcp_requires_admin_code() {
+        let (app, state) = setup().await;
+        let read = token(&state, "read").await;
+
+        let (status, text, body) = post(
+            &app,
+            Some(&read),
+            json!({"jsonrpc": "2.0", "id": 11, "method": "initialize", "params": {}}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(!text.trim_start().starts_with('<'), "不能返回 HTML：{text}");
+        assert_eq!(body["jsonrpc"], "2.0");
+        assert_eq!(body["id"], 11);
+        assert_eq!(body["error"]["code"], super::FORBIDDEN);
+        assert_eq!(
+            body["error"]["data"]["code"],
+            "api_token.mcp_requires_admin"
+        );
+        assert!(
+            body["error"]["message"].as_str().unwrap().contains(" / "),
+            "{body}"
+        );
+
+        // tools/call 同样在传输层拒绝，绝不执行敏感工具。
+        let (status, _text, body) = post(
+            &app,
+            Some(&read),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 12,
+                "method": "tools/call",
+                "params": { "name": "list_servers", "arguments": {} }
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(
+            body["error"]["data"]["code"],
+            "api_token.mcp_requires_admin"
+        );
+    }
+
     #[tokio::test]
     async fn missing_or_insufficient_token_returns_jsonrpc_errors_not_html() {
         let (app, state) = setup().await;
@@ -356,7 +418,7 @@ mod tests {
     #[tokio::test]
     async fn notifications_are_acknowledged_with_202_and_get_is_method_not_allowed() {
         let (app, state) = setup().await;
-        let token = token(&state, "read").await;
+        let token = token(&state, "admin").await;
 
         let response = app
             .clone()
@@ -398,7 +460,7 @@ mod tests {
     #[tokio::test]
     async fn malformed_json_returns_parse_error_in_jsonrpc_shape() {
         let (app, state) = setup().await;
-        let token = token(&state, "read").await;
+        let token = token(&state, "admin").await;
         let response = app
             .clone()
             .oneshot(

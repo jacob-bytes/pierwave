@@ -178,7 +178,7 @@ pub(crate) fn derive_forwards(
     // 空成员组 = 整链不下发。若继续推导，上一跳会把「没有下一跳」回退成
     // 直连最终目标，3 跳链静默变 2 跳；这里与 tunnel 的 downstream_missing
     // 同口径，对所有引擎统一拒绝整链。
-    if let Some(reason) = chains::empty_group_blocked_reason(groups) {
+    if let Some(reason) = chains::empty_group_blocked_reason(chain, groups) {
         return Err(reason);
     }
 
@@ -2366,6 +2366,9 @@ pub async fn create(
     // TLS + UDP 的冲突优先于「realm 固定双开」：用户选了加密链时，
     // 更具体的 chain.protocol_udp_with_tls 才是能指导修复的错误。
     protocol::ensure_realm_supported(&protocol, &engine)?;
+    // PROXY protocol v2 只在单跳链上成立：多跳的落地只能看到上一跳地址。
+    // 先于「仅 UDP」与 Agent 门禁校验，让「多跳」这个根因先被说清楚。
+    protocol::ensure_chain_proxy_protocol_single_hop(proxy_protocol, groups.len())?;
     // PROXY protocol v2 只作用于最后一跳：只要求最后一跳的 Agent >= 28。
     // 先于「仅 UDP」门禁校验，让 proxy + UDP 的冲突返回更具体的错误码。
     protocol::ensure_chain_proxy_protocol(
@@ -2536,6 +2539,8 @@ pub async fn update(
         .as_deref()
         .unwrap_or(&existing.chain.target_host);
     let final_target_port = target_port.unwrap_or(existing.chain.target_port);
+    let final_enabled = enabled.unwrap_or(existing.chain.enabled);
+    let was_enabled = existing.chain.enabled;
 
     // 新字段优先；只传旧 hops 时转成「每组一台」。
     let group_input = match (groups, hops) {
@@ -2544,7 +2549,7 @@ pub async fn update(
         (None, None) => None,
     };
     let replace_groups = group_input.is_some();
-    let groups = match group_input {
+    let mut groups = match group_input {
         Some(inputs) => {
             resolve_groups(
                 &state,
@@ -2556,6 +2561,40 @@ pub async fn update(
         }
         None => validated_from_existing(&existing.groups),
     };
+    let mut rebuilt = false;
+    // 管理员启用一条「组被用户停用删空」的链：请求里没带 groups 时按停用快照
+    // 重建拓扑。没有快照就明确 400，绝不把一条 enabled 空链写回去。
+    if final_enabled && existing.groups.is_empty() && !replace_groups {
+        let topology =
+            match repo::chains::disabled_groups_json(&state.db.pool, &existing.chain.id).await? {
+                Some(raw) => parse_topology(&raw),
+                None => None,
+            };
+        let topology = topology.ok_or_else(|| {
+            AppError::coded(
+                "chain.enabled_without_groups",
+                Some(json!({ "chain_id": &existing.chain.id })),
+                "链没有成员组，也没有可恢复的停用快照，无法启用：请先为链添加成员组 / the chain has no groups and no disabled snapshot to restore; add member groups before enabling it",
+            )
+        })?;
+        groups = rebuild_groups_from_topology(
+            &state,
+            &existing.chain.id,
+            &topology,
+            final_target_host,
+            final_target_port,
+        )
+        .await?;
+        rebuilt = true;
+    }
+    if final_enabled && groups.is_empty() {
+        return Err(AppError::coded(
+            "chain.enabled_without_groups",
+            Some(json!({ "chain_id": &existing.chain.id })),
+            "启用的链必须至少有一个成员组 / an enabled chain needs at least one group",
+        ));
+    }
+    let replace_groups = replace_groups || rebuilt;
     validate_internal_addresses(&groups)?;
     ensure_targets_safe(&groups, final_target_host, final_target_port)?;
     // 只有替换组时才校验新策略；改名 / 停用一条历史链不能被旧 Agent 锁死
@@ -2578,6 +2617,7 @@ pub async fn update(
     if final_proxy_protocol
         && (proxy_protocol.is_some() || protocol.is_some() || engine.is_some() || replace_groups)
     {
+        protocol::ensure_chain_proxy_protocol_single_hop(true, groups.len())?;
         protocol::ensure_chain_proxy_protocol(
             true,
             final_protocol,
@@ -2633,8 +2673,10 @@ pub async fn update(
                 transport,
                 tunnel_security,
                 groups: replace_groups.then(|| new_groups(&groups)),
-                // 停用快照只由用户自助 PATCH 维护；管理员路径保持原语义。
+                // 停用快照只由用户自助 PATCH 写入；管理员启用成功后清空它，
+                // 避免陈旧快照在链再次停用/启用时复活。
                 disabled_groups_json: None,
+                clear_disabled_groups: final_enabled && (!was_enabled || rebuilt),
             },
         )
         .await?;
@@ -3210,6 +3252,40 @@ fn parse_topology(raw: &str) -> Option<ChainTopology> {
         .filter(|topology| !topology.groups.is_empty())
 }
 
+/// 快照 → 可落库的组：入口每个成员重新分配端口，中间组交给 `resolve_groups`。
+///
+/// 用户自助「启用」与管理端「启用一条被用户停用的链」共用这一段逻辑，保证
+/// 两边都不会把空组写回一条 enabled 链。端口分配与建链同一口径：
+/// 排除本链（`exclude_chain_id`），按服务器端口策略取最小空闲端口。
+async fn rebuild_groups_from_topology(
+    state: &AppState,
+    chain_id: &str,
+    topology: &ChainTopology,
+    target_host: &str,
+    target_port: i64,
+) -> AppResult<Vec<ValidatedGroup>> {
+    let mut inputs = topology_to_inputs(topology);
+    if let Some(entry) = inputs.first_mut() {
+        for member in &mut entry.members {
+            let server = load_server_for_hop(state, &member.server_id).await?;
+            member.listen_port = Some(
+                super::forwards::allocate_user_port_excluding(
+                    state,
+                    &server,
+                    target_host,
+                    target_port,
+                    Some(chain_id),
+                )
+                .await?,
+            );
+        }
+    }
+    let resolved = resolve_groups(state, &inputs, Some(chain_id), None).await?;
+    validate_internal_addresses(&resolved)?;
+    ensure_targets_safe(&resolved, target_host, target_port)?;
+    Ok(resolved)
+}
+
 #[derive(Deserialize)]
 pub struct PatchUserChain {
     pub name: Option<String>,
@@ -3289,10 +3365,14 @@ pub async fn me_update(
     let groups = if !final_enabled {
         if was_enabled {
             // 停用：先快照拓扑，再删组（唯一索引随之释放端口）。
-            disabled_groups_json = Some(
-                serde_json::to_string(&topology_from_groups(&existing.groups))
-                    .map_err(|error| AppError::Internal(error.into()))?,
-            );
+            // 只有真的有组才写快照：已处于「enabled 但组为空」的异常态时，
+            // 空快照会覆盖上一次停用留下的好快照，启用时拓扑就永远回不来了。
+            if !existing.groups.is_empty() {
+                disabled_groups_json = Some(
+                    serde_json::to_string(&topology_from_groups(&existing.groups))
+                        .map_err(|error| AppError::Internal(error.into()))?,
+                );
+            }
             Some(Vec::new())
         } else {
             // 已经停用：只改名称/目标，不重复删组（也不覆盖快照）。
@@ -3318,34 +3398,24 @@ pub async fn me_update(
                 "链的拓扑信息已丢失，请删除后重新创建",
             )
         })?;
-
-        let mut inputs = topology_to_inputs(&topology);
-        // 入口组：每台成员各自按所在服务器的端口策略重新分配（与建链同一函数）。
-        if let Some(entry) = inputs.first_mut() {
-            for member in &mut entry.members {
-                let server = load_server_for_hop(&state, &member.server_id).await?;
-                member.listen_port = Some(
-                    super::forwards::allocate_user_port_excluding(
-                        &state,
-                        &server,
-                        &final_target_host,
-                        final_target_port,
-                        Some(&existing.chain.id),
-                    )
-                    .await?,
-                );
-            }
-        }
-        let resolved = resolve_groups(&state, &inputs, Some(&existing.chain.id), None).await?;
-        validate_internal_addresses(&resolved)?;
-        ensure_targets_safe(&resolved, &final_target_host, final_target_port)?;
-        Some(new_groups(&resolved))
+        Some(new_groups(
+            &rebuild_groups_from_topology(
+                &state,
+                &existing.chain.id,
+                &topology,
+                &final_target_host,
+                final_target_port,
+            )
+            .await?,
+        ))
     } else {
         // 保持启用：组与端口一个都不动，只校验新目标不会形成自连。
         let resolved = validated_from_existing(&existing.groups);
         ensure_targets_safe(&resolved, &final_target_host, final_target_port)?;
         None
     };
+    // 启用成功（含从异常空组重建）后清空快照：陈旧快照不能在下次启用时复活。
+    let clear_disabled_groups = final_enabled && (!was_enabled || rebuilt);
 
     let updated = {
         let updated = repo::chains::update_in(
@@ -3358,6 +3428,7 @@ pub async fn me_update(
                 enabled,
                 groups,
                 disabled_groups_json,
+                clear_disabled_groups,
                 ..Default::default()
             },
         )
@@ -9225,6 +9296,93 @@ mod tests {
         );
     }
 
+    /// enabled + 0 组：blocked（chain.groups_missing）+ 不下发 + warning；
+    /// disabled + 0 组：不 blocked，也不参与下发（列表里没有它）。
+    #[tokio::test]
+    async fn zero_group_chain_is_blocked_only_when_enabled() {
+        let fixture = setup().await;
+        let create = |name: &str, enabled: bool| repo::chains::NewChain {
+            name: name.into(),
+            target_host: "1.1.1.1".into(),
+            target_port: 443,
+            enabled,
+            engine: "native".into(),
+            protocol: "tcp".into(),
+            proxy_protocol: false,
+            transport: "none".into(),
+            tunnel_security: "tls".into(),
+            groups: Vec::new(),
+        };
+        let enabled_chain = repo::chains::create(&fixture.state.db.pool, create("启用空链", true))
+            .await
+            .unwrap();
+        let disabled_chain =
+            repo::chains::create(&fixture.state.db.pool, create("停用空链", false))
+                .await
+                .unwrap();
+
+        let (status, body) = request(
+            &fixture.app,
+            Some(&fixture.cookie),
+            Method::GET,
+            "/api/v1/chains",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let items = body["items"].as_array().unwrap();
+        let enabled_view = items
+            .iter()
+            .find(|item| item["id"] == enabled_chain.chain.id.as_str())
+            .expect("启用的空链必须出现在列表里");
+        assert_eq!(
+            enabled_view["blocked_code"], "chain.groups_missing",
+            "enabled + 0 组必须是 blocked：{enabled_view}"
+        );
+        let disabled_view = items
+            .iter()
+            .find(|item| item["id"] == disabled_chain.chain.id.as_str())
+            .expect("停用的空链也必须出现在列表里");
+        assert!(
+            disabled_view["blocked_code"].is_null(),
+            "用户停用的链不算 blocked：{disabled_view}"
+        );
+        assert_eq!(
+            repo::chains::count_blocked(&fixture.state.db.pool, repo::now())
+                .await
+                .unwrap(),
+            1,
+            "概览计数只算启用的空链"
+        );
+
+        // 期望态：启用的空链整链跳过并写 warning；停用链根本不进列表。
+        let server = repo::servers::find_by_id(&fixture.state.db.pool, &fixture.a)
+            .await
+            .unwrap();
+        let rendered =
+            crate::routes::desired::render(&fixture.state, &server, "https://panel.example.com")
+                .await
+                .unwrap();
+        assert!(rendered.forwards.is_empty(), "0 组链不能下发任何一跳");
+        assert!(
+            rendered
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("启用空链")
+                    && warning.contains("chain.groups_missing")),
+            "必须写清楚整链未下发的原因：{:?}",
+            rendered.warnings
+        );
+        assert!(
+            rendered
+                .warnings
+                .iter()
+                .all(|warning| !warning.contains("停用空链")),
+            "停用的链不参与下发，也不该被报成失败：{:?}",
+            rendered.warnings
+        );
+    }
+
     /// 并发建链：端口分配 + 插入必须是同一个 BEGIN IMMEDIATE 事务。
     ///
     /// 旧行为（只有查冲突 + 各自插入）在并发下会把两条链的中间跳写到同一
@@ -9442,12 +9600,31 @@ mod tests {
         assert_eq!(small["probe_attempts_24h"], 10);
     }
 
-    /// 链的 PROXY protocol v2：只对最后一跳置位；保存门禁只看最后一跳的 Agent。
+    /// PROXY v2 只对真正连目标的最后一跳有意义；多跳链已在校验层拒绝，
+    /// 单跳时开关直接落在唯一一跳上。
     #[test]
-    fn proxy_protocol_applies_only_to_the_last_hop() {
+    fn proxy_protocol_only_applies_to_the_single_hop() {
         let mut chain = test_chain("c-proxy");
         chain.proxy_protocol = true;
-        let groups = vec![
+        let single = vec![test_group(
+            "c-proxy",
+            0,
+            "round_robin",
+            &[("srv-a", "10.0.0.1", 9001, 0)],
+        )];
+        let derived = derive_forwards(&chain, &single).unwrap();
+        assert_eq!(derived.len(), 1);
+        assert!(derived[0].1.proxy_protocol, "单跳链必须写头");
+        assert_eq!(derived[0].1.target_host, chain.target_host);
+
+        // 关闭开关时报文逐字节不变（升级前行为）。
+        let mut off = chain.clone();
+        off.proxy_protocol = false;
+        let derived = derive_forwards(&off, &single).unwrap();
+        assert!(derived.iter().all(|(_, forward)| !forward.proxy_protocol));
+
+        // 多跳 + 开关 = 整链 blocked，不静默下发（落地只会看到上一跳地址）。
+        let multi = vec![
             test_group(
                 "c-proxy",
                 0,
@@ -9460,26 +9637,10 @@ mod tests {
                 "round_robin",
                 &[("srv-b", "10.0.0.2", 9002, 0)],
             ),
-            test_group(
-                "c-proxy",
-                2,
-                "round_robin",
-                &[("srv-c", "10.0.0.3", 9003, 0)],
-            ),
         ];
-        let derived = derive_forwards(&chain, &groups).unwrap();
-        assert_eq!(derived.len(), 3);
-        assert!(!derived[0].1.proxy_protocol, "入口跳不能写头");
-        assert!(!derived[1].1.proxy_protocol, "中间跳不能写头");
-        assert!(derived[2].1.proxy_protocol, "只有最后一跳写头");
-        // 目标字段也必须只有最后一跳指向链目标。
-        assert_eq!(derived[2].1.target_host, chain.target_host);
-
-        // 关闭开关时所有跳都是 false（升级前报文逐字节不变）。
-        let mut off = chain.clone();
-        off.proxy_protocol = false;
-        let derived = derive_forwards(&off, &groups).unwrap();
-        assert!(derived.iter().all(|(_, forward)| !forward.proxy_protocol));
+        let reason = chains::blocked_reason(&chain, &multi, &HashMap::new(), 0)
+            .expect("多跳 + PROXY 必须 blocked");
+        assert_eq!(reason.code, "chain.proxy_protocol_requires_single_hop");
     }
 
     /// 链保存：旧 Agent（最后一跳）/ UDP / 非 native 都拒绝；历史配置列表 blocked。
@@ -9491,7 +9652,6 @@ mod tests {
             state,
             cookie,
             a,
-            b,
             ..
         } = fixture;
         async fn set_version(state: &AppState, server_id: &str, version: i64) {
@@ -9507,15 +9667,13 @@ mod tests {
             .await
             .unwrap();
         }
+        // 单跳链：PROXY v2 只允许这种形态。
         let body = |extra: Value| {
             let mut body = groups_body(
                 "proxy-chain",
                 "1.1.1.1",
                 443,
-                &[
-                    group(None, None, &[group_member(&a, 9001, 0)]),
-                    group(None, None, &[group_member(&b, 9002, 0)]),
-                ],
+                &[group(None, None, &[group_member(&a, 9001, 0)])],
             );
             body["proxy_protocol"] = json!(true);
             if let Value::Object(extra) = extra {
@@ -9527,8 +9685,7 @@ mod tests {
         };
 
         // 最后一跳 Agent 27：保存 400，错误码明确。
-        set_version(&state, &a, 28).await;
-        set_version(&state, &b, 27).await;
+        set_version(&state, &a, 27).await;
         let (status, response) = request(
             &app,
             Some(&cookie),
@@ -9545,7 +9702,7 @@ mod tests {
         assert_eq!(response["params"]["required"], 28);
 
         // 最后一跳 Agent 28，但 both / realm：分别被协议与引擎门禁拒绝。
-        set_version(&state, &b, 28).await;
+        set_version(&state, &a, 28).await;
         let (status, response) = request(
             &app,
             Some(&cookie),
@@ -9568,7 +9725,7 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {response}");
         assert_eq!(response["code"], "chain.proxy_protocol_requires_native");
 
-        // TCP + native + 最后一跳 28：保存成功，开关落库并平铺到响应。
+        // TCP + native + 单跳 + Agent 28：保存成功，开关落库并平铺到响应。
         let (status, response) = request(
             &app,
             Some(&cookie),
@@ -9582,7 +9739,7 @@ mod tests {
         let chain_id = response["chain"]["id"].as_str().unwrap().to_string();
 
         // 历史配置遇到最后一跳旧 Agent：列表 blocked，但开关不能降级。
-        set_version(&state, &b, 27).await;
+        set_version(&state, &a, 27).await;
         let (status, response) =
             request(&app, Some(&cookie), Method::GET, "/api/v1/chains", None).await;
         assert_eq!(status, StatusCode::OK, "unexpected: {response}");
@@ -9597,5 +9754,139 @@ mod tests {
             "chain.proxy_protocol_requires_agent_upgrade"
         );
         assert_eq!(chain["proxy_protocol"], true, "开关不能被静默改回 false");
+    }
+
+    /// 多跳链拒绝开启 PROXY v2；历史多跳 + 开关键整链 blocked、不下发。
+    #[tokio::test]
+    async fn proxy_protocol_on_multi_hop_chains_is_rejected_and_blocked() {
+        let fixture = setup().await;
+        let Fixture {
+            app,
+            state,
+            cookie,
+            a,
+            b,
+            ..
+        } = fixture;
+        for server_id in [&a, &b] {
+            repo::servers::update_health(
+                &state.db.pool,
+                server_id,
+                "0.9.0",
+                &repo::servers::HealthSnapshot {
+                    protocol_version: Some(28),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+        let multi = || {
+            let mut body = groups_body(
+                "multi-proxy",
+                "1.1.1.1",
+                443,
+                &[
+                    group(None, None, &[group_member(&a, 9001, 0)]),
+                    group(None, None, &[group_member(&b, 9002, 0)]),
+                ],
+            );
+            body["proxy_protocol"] = json!(true);
+            body
+        };
+
+        // 写路径：多跳 + 开关 = 400，错误码能直接指导用户改成单跳。
+        let (status, response) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(multi()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {response}");
+        assert_eq!(response["code"], "chain.proxy_protocol_requires_single_hop");
+        assert_eq!(response["params"]["hops"], 2);
+
+        // 历史 / 手工改库：已有 2 跳 + proxy_protocol=true。
+        let stored = repo::chains::create(
+            &state.db.pool,
+            repo::chains::NewChain {
+                name: "历史多跳 PROXY".into(),
+                target_host: "1.1.1.1".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "native".into(),
+                protocol: "tcp".into(),
+                proxy_protocol: true,
+                transport: "none".into(),
+                tunnel_security: "tls".into(),
+                groups: vec![
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: None,
+                        public_port: None,
+                        use_internal_address: false,
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: a.clone(),
+                            listen_port: 9101,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                    repo::chains::NewChainGroup {
+                        name: None,
+                        strategy: "round_robin".into(),
+                        cert_id: None,
+                        public_port: None,
+                        use_internal_address: false,
+                        members: vec![repo::chains::NewChainGroupMember {
+                            server_id: b.clone(),
+                            listen_port: 9102,
+                            priority: 0,
+                            weight: 1,
+                        }],
+                    },
+                ],
+            },
+        )
+        .await
+        .unwrap();
+        let (status, response) =
+            request(&app, Some(&cookie), Method::GET, "/api/v1/chains", None).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {response}");
+        let view = response["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|chain| chain["id"] == stored.chain.id.as_str())
+            .expect("历史链必须仍在列表里");
+        assert_eq!(
+            view["blocked_code"],
+            "chain.proxy_protocol_requires_single_hop"
+        );
+        assert_eq!(view["proxy_protocol"], true, "开关不能被静默改回 false");
+
+        // 下发：整链跳过并写 warning，绝不带着「假的真实来源」下发。
+        let server = repo::servers::find_by_id(&state.db.pool, &a).await.unwrap();
+        let rendered = crate::routes::desired::render(&state, &server, "https://panel.example.com")
+            .await
+            .unwrap();
+        assert!(
+            rendered.forwards.iter().all(|forward| !forward
+                .id
+                .starts_with(&format!("chain-{}-", stored.chain.id))),
+            "历史多跳 PROXY 链不能下发任何一跳"
+        );
+        assert!(
+            rendered
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("历史多跳 PROXY")
+                    && warning.contains("chain.proxy_protocol_requires_single_hop")),
+            "必须写清楚整链阻断原因：{:?}",
+            rendered.warnings
+        );
     }
 }

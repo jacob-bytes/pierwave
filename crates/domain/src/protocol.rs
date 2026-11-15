@@ -303,6 +303,27 @@ pub fn ensure_chain_proxy_protocol(
     ))
 }
 
+/// PROXY v2 的承诺是「落地看到真实来源」，这只有**单跳**链成立。
+///
+/// 多跳链里只有最后一跳写头，而它连的是上一跳，落地看到的是中转服务器地址，
+/// 不是客户端地址。与其发一份「看起来开了、语义却是错的」配置，不如直接拒绝：
+/// 保存路径 400，历史数据在下发时整链 blocked。
+pub fn ensure_chain_proxy_protocol_single_hop(
+    enabled: bool,
+    hops: usize,
+) -> Result<(), DomainError> {
+    if !enabled || hops <= 1 {
+        return Ok(());
+    }
+    Err(DomainError::with_params(
+        "chain.proxy_protocol_requires_single_hop",
+        json!({ "hops": hops }),
+        format!(
+            "PROXY protocol v2 只能在单跳链上开启（当前 {hops} 跳）：多跳链的落地只能看到上一跳地址，真实来源请改用单跳链 / PROXY protocol v2 is only supported on single-hop chains (currently {hops} hops): on a multi-hop chain the landing only sees the previous hop, so use a single-hop chain for the real source address"
+        ),
+    ))
+}
+
 fn ensure_proxy_protocol_tcp(
     protocol_name: &str,
     code: &'static str,
@@ -557,5 +578,15 @@ mod tests {
             .expect_err("realm 不能注入 v2 头");
         assert_eq!(error.code, "chain.proxy_protocol_requires_native");
         assert!(ensure_chain_proxy_protocol(false, UDP, "realm", &[]).is_ok());
+    }
+
+    #[test]
+    fn chain_proxy_protocol_requires_a_single_hop() {
+        assert!(ensure_chain_proxy_protocol_single_hop(true, 1).is_ok());
+        assert!(ensure_chain_proxy_protocol_single_hop(false, 3).is_ok());
+        let error = ensure_chain_proxy_protocol_single_hop(true, 2).expect_err("多跳必须拒绝");
+        assert_eq!(error.code, "chain.proxy_protocol_requires_single_hop");
+        assert_eq!(error.params["hops"], 2);
+        assert!(error.message.contains(" / "), "{}", error.message);
     }
 }

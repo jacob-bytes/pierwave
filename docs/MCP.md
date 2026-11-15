@@ -93,12 +93,16 @@ Claude Desktop（`claude_desktop_config.json`）或 Cursor（`~/.cursor/mcp.json
 
 - **认证**：`Authorization: Bearer pwt_...`。token 在「设置 → 安全 → API 访问」创建，
   明文只显示一次；库里只存 SHA-256 哈希。
-- **scope**：`read` 就够用（所有工具只读），`admin` 也可以。缺失、无效、过期或已吊销
-  返回 `401`；scope 被改成未知值返回 `403`。
+- **scope：必须是 `admin`**。这 5 个工具虽然只读，但返回服务器地址、用户清单与链拓扑，
+  和 REST 的敏感 GET 是同一份数据。**read token 只能走 REST 的非敏感 GET，不能用于 MCP**：
+  用 read scope 调用 `/mcp`（含 `initialize` / `tools/list` / `tools/call`）一律返回 `403`
+  JSON-RPC 错误，`error.data.code = "api_token.mcp_requires_admin"`。缺失、无效、过期或
+  已吊销返回 `401`；scope 被改成未知值同样按「不是 admin」拒绝。
 - **传输**：一次 POST 一条 JSON-RPC 消息。请求返回 `application/json`；
   通知（没有 `id`）返回 `202` + 空 body。不提供服务端 SSE 流。
 - **错误形状**：认证、限流、解析错误全部是 JSON-RPC `error` 对象，不会出现 HTML 错误页。
   实现自定义错误码：`-32001` 未认证、`-32003` scope 不足、`-32004` 限流、`-32005` 方法不允许。
+  需要区分的业务错误会额外带 `error.data.code`（例如 `api_token.mcp_requires_admin`）。
 - **限流**：每个 token 每分钟 120 次，与普通 API 共用额度；超出返回 `429`，
   带 `Retry-After` 头，`error.code = -32004`。
 
@@ -427,7 +431,7 @@ get_status_summary
 ### 限制与安全
 
 - stdio 模式没有鉴权：只应在可信的本机/本用户环境运行；不要把数据库文件暴露到公网。
-  HTTP 模式（`POST /mcp`）必须带 API Token，且只读；仍建议放在反向代理/TLS 后面。
+  HTTP 模式（`POST /mcp`）必须带 **admin scope** 的 API Token，且只读；仍建议放在反向代理/TLS 后面。
 - 需要数据库文件的读权限；如果主控使用 WAL 模式，还需要能读取同目录的 `-wal` / `-shm`。
 - 不支持 `:memory:`；MCP 必须连接文件型数据库。
 - 只读工具不会触发断流、下发、重启或任何副作用；它不能代替主控的管理操作。
@@ -527,15 +531,21 @@ stdio mode; only the transport changes.
 - **Auth**: `Authorization: Bearer pwt_...`. Create the token under
   Settings → Security → API access; the plaintext is shown once and only a
   SHA-256 hash is stored.
-- **Scope**: `read` is enough (every tool is read-only); `admin` also works.
-  Missing, invalid, expired or revoked tokens return `401`; a token whose scope
-  was manually changed to an unknown value returns `403`.
+- **Scope: `admin` is required.** The five tools are read-only, but they return
+  server addresses, the user list and chain topology — the same data as the
+  sensitive REST GETs. **A read-scoped token can only use non-sensitive REST
+  GETs and must not use MCP**: calling `/mcp` (`initialize`, `tools/list` or
+  `tools/call`) with a read token returns a `403` JSON-RPC error with
+  `error.data.code = "api_token.mcp_requires_admin"`. Missing, invalid, expired
+  or revoked tokens return `401`; a token whose scope was manually changed to an
+  unknown value is rejected as "not admin" too.
 - **Transport**: one JSON-RPC message per POST. Requests return `application/json`;
   notifications (no `id`) return `202` with an empty body. No server-side SSE stream.
 - **Error shape**: auth, rate-limit and parse failures are JSON-RPC `error`
   objects — never an HTML error page. Implementation-defined codes: `-32001`
   unauthorized, `-32003` insufficient scope, `-32004` rate limited, `-32005`
-  method not allowed.
+  method not allowed. Business errors that need to be distinguished also carry
+  `error.data.code` (for example `api_token.mcp_requires_admin`).
 - **Rate limit**: 120 requests per minute per token, shared with the regular API.
   Over the limit returns `429` with `Retry-After` and `error.code = -32004`.
 
@@ -878,8 +888,8 @@ Output: server total/online, node total/enabled, and today's/month's weighted tr
 
 - The stdio mode has no authentication: run it only on a trusted local host/user
   and never expose the DB file to the public internet. The HTTP mode (`POST /mcp`)
-  requires an API token and is read-only; putting it behind a reverse proxy/TLS is
-  still recommended.
+  requires an **admin-scoped** API token and is read-only; putting it behind a
+  reverse proxy/TLS is still recommended.
 - The process needs read access to the database file. With WAL mode it also needs to
   read the adjacent `-wal` / `-shm` files.
 - `:memory:` is not supported; MCP needs a file-backed database.

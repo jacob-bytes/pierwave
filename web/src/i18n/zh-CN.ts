@@ -109,7 +109,9 @@ const zhCN = {
       label: "PROXY protocol v2",
       hint: "目标服务需支持 PROXY protocol v2，否则会连接失败。",
       chainHint:
-        "只对最后一跳生效，中间跳不写头。目标服务需支持 PROXY protocol v2，否则会连接失败。",
+        "只在单跳链上生效：连上目标后写 PROXY v2 头。目标服务需支持 PROXY protocol v2，否则会连接失败。",
+      chainHintMultiHop:
+        "多跳链上落地只能看到上一跳地址，真实来源请用单跳；已启用多跳链的 PROXY protocol v2 会整链阻断。",
       badge: "PROXY v2",
       badgeTitle: "已开启 PROXY protocol v2：落地可看到真实来源 IP",
     },
@@ -1799,7 +1801,8 @@ const zhCN = {
       scope: {
         read: "read（只读）",
         admin: "admin（管理员）",
-        readHint: "read 只能访问非敏感只读接口；写操作与敏感 GET 都会返回 403。",
+        readHint:
+          "read 只能访问非敏感只读接口（REST GET）；写操作与敏感 GET 返回 403，也不能用于 MCP。",
         adminHint: "admin 等同管理员，可以读写；请只发给可信的脚本。",
       },
     },
@@ -3213,6 +3216,17 @@ const zhCN = {
     notObject: "config 必须是 JSON 对象（以 { 开头、} 结尾）",
   },
   errors: {
+    "api_token.invalid": "API Token 无效、已过期或已吊销",
+    "api_token.read_only": "只读 API Token 不能执行写操作",
+    "api_token.sensitive_endpoint": "该接口包含敏感数据，read scope 不可访问",
+    "api_token.admin_scope_required": "该操作需要 admin scope 的 API Token",
+    "api_token.rate_limited": "API Token 请求过于频繁，请稍后再试",
+    "api_token.scope_invalid": "scope 只能是 {allowed}",
+    "api_token.name_invalid": "名称需在 1-{max} 个字符之间",
+    "api_token.expires_at_invalid": "过期时间必须晚于当前时间",
+    "api_token.not_found": "API Token 不存在",
+    "api_token.mcp_requires_admin":
+      "MCP 需要 admin scope 的 API Token；read scope 只能访问 REST 的非敏感 GET",
     "me.forward_quota_exceeded":
       "自助转发配额不足（已用 {used} / 上限 {limit}）；请删除不再使用的转发，或联系管理员调整套餐",
     "me.forward_server_not_allowed":
@@ -3222,6 +3236,7 @@ const zhCN = {
       "自助建链配额不足（已用 {used} / 上限 {limit}）；请删除不再使用的链路，或联系管理员调整套餐",
     "me.chain_template_not_allowed": "当前套餐不允许使用链模板「{template_name}」",
     "me.chain_not_found": "链路不存在或已被删除",
+    "me.chain_groups_missing": "链的拓扑信息已丢失，请删除后重新创建",
     "chain_template.name_required": "链模板名称不能为空",
     "chain_template.name_too_long": "链模板名称最多 {max} 个字符",
     "chain_template.groups_invalid": "链模板的组配置无效",
@@ -3242,6 +3257,11 @@ const zhCN = {
     "chain.tunnel_hop_limit": "隧道链支持 2-6 跳",
     "chain.tunnel_downstream_missing": "无法为这一跳推导出下一跳地址",
     "chain.group_empty": "某一跳没有成员服务器，整条链未下发",
+    "chain.groups_missing": "链已启用但没有任何成员组，整条链未下发",
+    "chain.enabled_without_groups":
+      "链没有成员组，也没有可恢复的停用快照，无法启用；请先为链添加成员组",
+    "chain.proxy_protocol_requires_single_hop":
+      "PROXY protocol v2 只能在单跳链上开启；多跳链的落地只能看到上一跳地址，真实来源请改用单跳链",
     "server.in_use_by_chain": "服务器「{server_name}」仍被链「{chains}」引用，请先修改或删除这些链",
     "request.busy": "数据库繁忙，请稍后重试",
     "chain.tunnel_udp_requires_two_hops": "隧道链的 UDP 中继目前只支持 2 跳",

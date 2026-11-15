@@ -6267,8 +6267,13 @@ pub mod chains {
         /// 停用时的组形态快照（JSON）；`None` = 不改。
         ///
         /// 用户自助链停用会删掉组与成员以释放端口，启用时靠这份快照重建
-        /// 拓扑并重新分配端口。管理员路径不使用它。
+        /// 拓扑并重新分配端口。管理员启用一条组为空的链时也读取它；启用成功
+        /// 后由 `clear_disabled_groups` 清空。
         pub disabled_groups_json: Option<String>,
+        /// 启用成功后清空快照（写 NULL），避免陈旧快照在下次停用前被复活。
+        ///
+        /// 与 `disabled_groups_json` 同时给出时以「清空」为准。
+        pub clear_disabled_groups: bool,
     }
 
     async fn load_groups(
@@ -6695,7 +6700,8 @@ pub mod chains {
                 proxy_protocol = COALESCE(?, proxy_protocol),
                 transport = COALESCE(?, transport),
                 tunnel_security = COALESCE(?, tunnel_security),
-                disabled_groups_json = COALESCE(?, disabled_groups_json),
+                disabled_groups_json = CASE WHEN ? THEN NULL
+                    ELSE COALESCE(?, disabled_groups_json) END,
                 updated_at = ?
              WHERE id = ?",
         )
@@ -6724,6 +6730,7 @@ pub mod chains {
                 .as_deref()
                 .map(crate::tunnel_security::from_db),
         )
+        .bind(input.clear_disabled_groups)
         .bind(input.disabled_groups_json)
         .bind(now())
         .bind(id)

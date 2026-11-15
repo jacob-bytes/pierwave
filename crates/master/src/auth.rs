@@ -204,14 +204,29 @@ pub const SENSITIVE_READ_PREFIXES: &[&str] = &[
     "/api/v1/subscriptions",
 ];
 
+/// read scope 只拒绝「集合前缀之下还有具体资源」的敏感详情路径。
+///
+/// 与 [`SENSITIVE_READ_PREFIXES`] 的区别：集合本身（列表）不含敏感字段，
+/// 可以给 read token 用；只有详情才返回敏感数据。当前用于 Agent 升级批次：
+/// 列表只有版本/状态/计数，详情才带 `server_name` 与 `agent_version`。
+pub const SENSITIVE_READ_DETAIL_PREFIXES: &[&str] = &["/api/v1/agent-upgrades/batches"];
+
 /// 是否为 read scope 不可访问的敏感路径。
 pub fn is_sensitive_read_path(path: &str) -> bool {
-    SENSITIVE_READ_PREFIXES.iter().any(|prefix| {
-        path == *prefix
+    let matches_prefix = |prefix: &str| {
+        path == prefix
             || path
                 .strip_prefix(prefix)
                 .is_some_and(|rest| rest.starts_with('/'))
-    })
+    };
+    SENSITIVE_READ_PREFIXES
+        .iter()
+        .any(|prefix| matches_prefix(prefix))
+        // 详情前缀要求后面还有一段非空路径：集合列表本身不敏感。
+        || SENSITIVE_READ_DETAIL_PREFIXES.iter().any(|prefix| {
+            path.strip_prefix(prefix)
+                .is_some_and(|rest| rest.starts_with('/') && rest.len() > 1)
+        })
 }
 
 /// 对 `/api/v1/*` 生效的 Bearer 中间件：与 Cookie 会话并行。

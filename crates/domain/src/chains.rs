@@ -834,6 +834,13 @@ pub fn proxy_protocol_blocked_reason(
     if !chain.proxy_protocol {
         return None;
     }
+    // 多跳 + PROXY v2 的承诺不成立：落地只能看到上一跳地址。历史数据整链阻断。
+    if let Err(error) = protocol::ensure_chain_proxy_protocol_single_hop(true, groups.len()) {
+        return Some(BlockedReason {
+            code: error.code.to_string(),
+            message: error.message,
+        });
+    }
     let mut ordered: Vec<&ChainGroupWithMembers> = groups.iter().collect();
     ordered.sort_by_key(|group| group.group.seq);
     let last_hop: Vec<(&str, Option<i64>)> = ordered
@@ -1099,12 +1106,29 @@ pub fn tunnel_blocked_reason(
     None
 }
 
-/// 空成员组：整条链无法下发（与 tunnel 的 `tunnel_downstream_missing` 同口径）。
+/// 空拓扑：整条链无法下发（与 tunnel 的 `tunnel_downstream_missing` 同口径）。
 ///
-/// 保存路径会拒绝 0 成员的组；但删除服务器会级联删掉成员（历史数据 / 手工
-/// 改库也可能留下空组），此时如果继续推导，上一跳会「没有下一跳」并静默
-/// 回退成直连最终目标——跳数被悄悄截短。这里对**所有引擎**统一整链阻断。
-pub fn empty_group_blocked_reason(groups: &[ChainGroupWithMembers]) -> Option<BlockedReason> {
+/// 两种情况都算「配置层面整链无法下发」：
+/// 1. **启用但 0 组**（`chain.groups_missing`）：用户停用会把组删空，管理员
+///    误启用 / 历史数据也可能留下这种行；继续下发等于没有任何监听，必须
+///    明确 blocked，而不是悄悄当成一条空链。
+/// 2. **某一跳没有成员**（`chain.group_empty`）：保存路径会拒绝 0 成员的组；
+///    但删除服务器会级联删掉成员（历史数据 / 手工改库也可能留下空组），此时
+///    如果继续推导，上一跳会「没有下一跳」并静默回退成直连最终目标——跳数被
+///    悄悄截短。这里对**所有引擎**统一整链阻断。
+///
+/// 停用（`enabled = false`）的链不参与下发，不算 blocked；由 [`blocked_reason`]
+/// 在入口处提前返回。
+pub fn empty_group_blocked_reason(
+    chain: &Chain,
+    groups: &[ChainGroupWithMembers],
+) -> Option<BlockedReason> {
+    if chain.enabled && groups.is_empty() {
+        return Some(BlockedReason {
+            code: "chain.groups_missing".to_string(),
+            message: "链已启用但没有任何成员组，整条链未下发 / the chain is enabled but has no groups, so the whole chain was not delivered".to_string(),
+        });
+    }
     groups
         .iter()
         .find(|group| group.members.is_empty())
@@ -1131,9 +1155,15 @@ pub fn blocked_reason(
     certs: &HashMap<&str, &Certificate>,
     now: i64,
 ) -> Option<BlockedReason> {
-    // 空成员组对所有引擎都是整链阻断：先于引擎/证书判定，避免 native 等
-    // 引擎在「没有下一跳」时静默回退成直连目标。
-    if let Some(reason) = empty_group_blocked_reason(groups) {
+    // 停用的链不参与任何下发：它的组可能已被用户停用删空，也可能因为证书
+    // 过期/引擎能力暂时不满足；这些都不是「blocked」。启用时再按下面的规则
+    // 重新判定。用户停用（enabled=false）的链因此不会在列表里显示红标。
+    if !chain.enabled {
+        return None;
+    }
+    // 空成员组 / 启用但 0 组对所有引擎都是整链阻断：先于引擎/证书判定，避免
+    // native 等引擎在「没有下一跳」时静默回退成直连目标。
+    if let Some(reason) = empty_group_blocked_reason(chain, groups) {
         return Some(reason);
     }
     // 内网地址缺失先于引擎判定：只要这一跳真要内网地址却拿不到，整链都不能下发。
@@ -1977,15 +2007,6 @@ mod tests {
 
     #[test]
     fn an_empty_group_blocks_every_engine() {
-        let groups = vec![
-            server("native-chain", 0),
-            empty_group("native-chain"),
-            server("native-chain", 2),
-        ];
-        let reason = empty_group_blocked_reason(&groups).expect("空组必须阻断整链");
-        assert_eq!(reason.code, "chain.group_empty");
-        assert!(reason.message.contains("第 2 跳"), "{}", reason.message);
-
         let chain = Chain {
             id: "native-chain".into(),
             name: "native".into(),
@@ -2003,8 +2024,55 @@ mod tests {
             created_at: 0,
             updated_at: 0,
         };
+        let groups = vec![
+            server("native-chain", 0),
+            empty_group("native-chain"),
+            server("native-chain", 2),
+        ];
+        let reason = empty_group_blocked_reason(&chain, &groups).expect("空组必须阻断整链");
+        assert_eq!(reason.code, "chain.group_empty");
+        assert!(reason.message.contains("第 2 跳"), "{}", reason.message);
+
         let reason = blocked_reason(&chain, &groups, &HashMap::new(), 0)
             .expect("native 引擎也必须给出 blocked 原因");
         assert_eq!(reason.code, "chain.group_empty");
+    }
+
+    /// enabled + 0 组是 blocked；disabled + 0 组不算 blocked（不参与下发）。
+    #[test]
+    fn a_zero_group_chain_is_blocked_only_when_enabled() {
+        let mut chain = Chain {
+            id: "empty-chain".into(),
+            name: "empty".into(),
+            target_host: "1.1.1.1".into(),
+            target_port: 443,
+            enabled: true,
+            engine: "native".into(),
+            udp: false,
+            protocol: "tcp".into(),
+            proxy_protocol: false,
+            transport: "none".into(),
+            tunnel_security: "tls".into(),
+            template_id: None,
+            owner_user_id: None,
+            created_at: 0,
+            updated_at: 0,
+        };
+        let reason = empty_group_blocked_reason(&chain, &[]).expect("启用但 0 组必须阻断");
+        assert_eq!(reason.code, "chain.groups_missing");
+        assert_eq!(
+            blocked_reason(&chain, &[], &HashMap::new(), 0).map(|reason| reason.code),
+            Some("chain.groups_missing".to_string())
+        );
+
+        chain.enabled = false;
+        assert!(
+            empty_group_blocked_reason(&chain, &[]).is_none(),
+            "停用的 0 组链不算 blocked"
+        );
+        assert!(
+            blocked_reason(&chain, &[], &HashMap::new(), 0).is_none(),
+            "停用链不参与下发，任何 blocked 判定都应跳过"
+        );
     }
 }

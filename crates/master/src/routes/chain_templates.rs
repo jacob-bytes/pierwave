@@ -1494,6 +1494,246 @@ mod tests {
         }));
     }
 
+    /// 用户停用 → 管理员启用 → 用户停用 → 用户启用：任何一步都不能把拓扑写丢。
+    ///
+    /// 用户停用会删组并留下快照；管理员启用必须按快照重建，而不是把空组写回
+    /// 一条 enabled 链。启用成功后快照要清空，避免下一次停用前被陈旧快照复活。
+    #[tokio::test]
+    async fn user_disable_admin_enable_then_user_disable_enable_keeps_topology() {
+        let Fixture {
+            app,
+            state,
+            a,
+            b,
+            admin_cookie,
+            ..
+        } = setup().await;
+        let template =
+            create_template(&state, "港日", "native", "tls", "tcp", &[&[&a], &[&b]]).await;
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+        bind_package(
+            &state,
+            "单链套餐",
+            1,
+            std::slice::from_ref(&template),
+            &alice_id,
+        )
+        .await;
+
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/chains",
+            Some(chain_body(&template, "10.9.9.9", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let chain_id = body["chain"]["id"].as_str().unwrap().to_string();
+        assert_eq!(body["chain"]["entry_address"], "10.0.0.1:20000");
+        assert_eq!(body["chain"]["groups"].as_array().unwrap().len(), 2);
+        let chain_uri = format!("/api/v1/chains/{chain_id}");
+
+        async fn snapshot(state: &AppState, chain_id: &str) -> Option<String> {
+            repo::chains::disabled_groups_json(&state.db.pool, chain_id)
+                .await
+                .unwrap()
+        }
+
+        // 1) 用户停用：组被删、快照落库、端口释放。
+        let (status, body) =
+            patch_chain(&app, &alice_cookie, &chain_id, json!({ "enabled": false })).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["chain"]["groups"], json!([]));
+        assert!(
+            snapshot(&state, &chain_id).await.is_some(),
+            "停用必须留下快照"
+        );
+        assert!(desired_forwards(&state, &a).await.is_empty());
+        assert!(desired_forwards(&state, &b).await.is_empty());
+
+        // 2) 管理员启用：按快照重建 2 组，端口重新分配且可用。
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::PATCH,
+            &chain_uri,
+            Some(json!({ "enabled": true })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["chain"]["enabled"], true);
+        assert_eq!(
+            body["chain"]["groups"].as_array().unwrap().len(),
+            2,
+            "管理员启用必须按快照重建组：{body}"
+        );
+        assert_eq!(
+            body["chain"]["groups"][0]["members"][0]["listen_port"],
+            20000
+        );
+        assert!(
+            snapshot(&state, &chain_id).await.is_none(),
+            "启用后快照必须清空"
+        );
+        let entry = desired_forwards(&state, &a).await;
+        assert_eq!(entry.len(), 1, "入口服务器必须收到重建后的跳");
+        assert_eq!(entry[0].listen_port, 20000);
+        assert_eq!(entry[0].target_host, "10.0.0.2");
+        let exit = desired_forwards(&state, &b).await;
+        assert_eq!(exit.len(), 1, "出口服务器必须收到重建后的跳");
+        assert_eq!(exit[0].listen_port, 20000);
+        assert_eq!(exit[0].target_host, "10.9.9.9");
+
+        // 3) 用户再次停用：快照重新落库，仍然不能被空组覆盖。
+        let (status, body) =
+            patch_chain(&app, &alice_cookie, &chain_id, json!({ "enabled": false })).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["chain"]["groups"], json!([]));
+        assert!(snapshot(&state, &chain_id).await.is_some());
+
+        // 4) 用户启用：按快照恢复完整拓扑，端口可用。
+        let (status, body) =
+            patch_chain(&app, &alice_cookie, &chain_id, json!({ "enabled": true })).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["chain"]["enabled"], true);
+        assert_eq!(body["chain"]["entry_address"], "10.0.0.1:20000");
+        assert_eq!(body["chain"]["groups"].as_array().unwrap().len(), 2);
+        assert!(snapshot(&state, &chain_id).await.is_none());
+        let entry = desired_forwards(&state, &a).await;
+        assert_eq!(entry.len(), 1);
+        assert_eq!(entry[0].listen_port, 20000);
+        assert_eq!(entry[0].target_host, "10.0.0.2");
+        let exit = desired_forwards(&state, &b).await;
+        assert_eq!(exit.len(), 1);
+        assert_eq!(exit[0].listen_port, 20000);
+        assert_eq!(exit[0].target_host, "10.9.9.9");
+    }
+
+    /// 停用分支绝不能用空组覆盖好快照：链处于「enabled 但组为空」的异常态时，
+    /// 用户再点停用不能把上一次留下的拓扑快照写成 `{"groups":[]}`。
+    #[tokio::test]
+    async fn user_disable_never_overwrites_a_good_snapshot_with_an_empty_one() {
+        let Fixture {
+            app, state, a, b, ..
+        } = setup().await;
+        let template =
+            create_template(&state, "港日", "native", "tls", "tcp", &[&[&a], &[&b]]).await;
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+        bind_package(
+            &state,
+            "单链套餐",
+            1,
+            std::slice::from_ref(&template),
+            &alice_id,
+        )
+        .await;
+
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/chains",
+            Some(chain_body(&template, "10.9.9.9", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let chain_id = body["chain"]["id"].as_str().unwrap().to_string();
+
+        // 用户停用：留下含 2 组的快照。
+        let (status, body) =
+            patch_chain(&app, &alice_cookie, &chain_id, json!({ "enabled": false })).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let good = repo::chains::disabled_groups_json(&state.db.pool, &chain_id)
+            .await
+            .unwrap()
+            .expect("必须留下快照");
+        assert_eq!(
+            serde_json::from_str::<Value>(&good).unwrap()["groups"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+
+        // 模拟旧版本 bug / 手工改库留下的「enabled 但组为空」异常态。
+        repo::chains::update(
+            &state.db.pool,
+            &chain_id,
+            repo::chains::UpdateChain {
+                enabled: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        // 再停用：不能写入空快照。
+        let (status, body) =
+            patch_chain(&app, &alice_cookie, &chain_id, json!({ "enabled": false })).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(
+            repo::chains::disabled_groups_json(&state.db.pool, &chain_id)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some(good.as_str()),
+            "空组停用必须保留原来的好快照"
+        );
+
+        // 用户启用：按好快照恢复 2 组拓扑。
+        let (status, body) =
+            patch_chain(&app, &alice_cookie, &chain_id, json!({ "enabled": true })).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["chain"]["groups"].as_array().unwrap().len(), 2);
+    }
+
+    /// 管理员启用的链既没组也没快照：400 明确报错，绝不落一条 enabled 空链。
+    #[tokio::test]
+    async fn enabling_a_chain_without_groups_or_snapshot_is_rejected() {
+        let Fixture {
+            app,
+            state,
+            admin_cookie,
+            ..
+        } = setup().await;
+        let chain = repo::chains::create(
+            &state.db.pool,
+            repo::chains::NewChain {
+                name: "空链".into(),
+                target_host: "10.9.9.9".into(),
+                target_port: 443,
+                enabled: false,
+                engine: "native".into(),
+                protocol: "tcp".into(),
+                proxy_protocol: false,
+                transport: "none".into(),
+                tunnel_security: "tls".into(),
+                groups: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::PATCH,
+            &format!("/api/v1/chains/{}", chain.chain.id),
+            Some(json!({ "enabled": true })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "chain.enabled_without_groups");
+        let stored = repo::chains::find_by_id(&state.db.pool, &chain.chain.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            !stored.chain.enabled,
+            "失败必须回滚：链不能变成 enabled 空链"
+        );
+    }
+
     /// 管理员停用的链仍保留旧组：用户重新启用时不能把自己的旧端口算成占用，
     /// 否则窄端口策略（只允许一个端口）下会误报 port_allowed_exhausted。
     #[tokio::test]

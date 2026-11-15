@@ -21,6 +21,16 @@ test("proxyProtocolAvailable treats unknown values as unavailable", () => {
   assert.equal(proxyProtocolAvailable(null, null), false);
 });
 
+test("proxyProtocolAvailable only allows a single hop", () => {
+  assert.equal(proxyProtocolAvailable("tcp", "native", 1), true);
+  assert.equal(proxyProtocolAvailable("tcp", "native", 2), false);
+  assert.equal(proxyProtocolAvailable("tcp", "native", 3), false);
+  // 0 组（尚未配置）不算单跳：开关保持禁用，避免提交一个必然 400 的组合。
+  assert.equal(proxyProtocolAvailable("tcp", "native", 0), false);
+  assert.equal(normalizeProxyProtocol(true, "tcp", "native", 2), false);
+  assert.equal(normalizeProxyProtocol(true, "tcp", "native", 1), true);
+});
+
 test("normalizeProxyProtocol only submits true for valid combinations", () => {
   assert.equal(normalizeProxyProtocol(true, "tcp", "native"), true);
   assert.equal(normalizeProxyProtocol(false, "tcp", "native"), false);

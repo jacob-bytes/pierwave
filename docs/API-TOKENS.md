@@ -7,7 +7,8 @@
 ## 简体中文
 
 API Token 用于脚本、CI 与 MCP 等非浏览器客户端。它和浏览器 Cookie 会话**并行**：
-同一个 `Authorization: Bearer pwt_...` 既能访问 `/api/v1/*`，也能访问 `/mcp`。
+同一个 `Authorization: Bearer pwt_...` 既能访问 `/api/v1/*`，也能访问 `/mcp`；但
+**`/mcp` 只接受 admin scope**，read scope 仅限 REST 的非敏感 GET。
 
 ### 创建与保管
 
@@ -27,8 +28,13 @@ API Token 用于脚本、CI 与 MCP 等非浏览器客户端。它和浏览器 C
 
 | scope | 权限 |
 |---|---|
-| `read`（默认） | 只能访问**非敏感** `GET`/`HEAD`/`OPTIONS`；写操作返回 `403 api_token.read_only`，敏感 GET 返回 `403 api_token.sensitive_endpoint` |
-| `admin` | 等同管理员会话，可读写 |
+| `read`（默认） | 只能访问**非敏感**的 REST `GET`/`HEAD`/`OPTIONS`；写操作返回 `403 api_token.read_only`，敏感 GET 返回 `403 api_token.sensitive_endpoint`，**不能用于 MCP**（`403 api_token.mcp_requires_admin`） |
+| `admin` | 等同管理员会话，可读写；MCP 必须使用 admin |
+
+**read token 只能走 REST 的非敏感 GET，MCP 一律需要 admin。** `/mcp` 的 5 个工具虽然只读，
+但返回服务器地址、用户清单与链拓扑，与 REST 敏感 GET 是同一份数据；因此 read scope 调用
+`/mcp` 一律返回 JSON-RPC `403`，`error.data.code = "api_token.mcp_requires_admin"`。
+把 MCP 当成「只读所以 read 够用」的旧用法会失效，请改用 admin scope 的 token。
 
 「仅管理员」指 Cookie 管理员或 **admin scope** 的 token；read scope 连 token 列表也不能看
 （返回 `403 api_token.sensitive_endpoint`）。
@@ -48,11 +54,14 @@ API Token 用于脚本、CI 与 MCP 等非浏览器客户端。它和浏览器 C
 | `/api/v1/servers`、`/api/v1/nodes`、`/api/v1/outbounds` | 服务器地址、节点/出站配置（可能含客户端凭据、Reality 私钥、上游账号密码） |
 | `/api/v1/forwards`、`/api/v1/chains`、`/api/v1/chain-templates`、`/api/v1/routing-rules` | 转发目标、链拓扑与路由编排 |
 | `/api/v1/users`、`/api/v1/subscriptions` | 用户清单与订阅短码（短码本身就是订阅凭据） |
+| `/api/v1/agent-upgrades/batches/{id}` | 批次详情包含服务器名与当前 Agent 版本 |
 
 匹配规则是「等于前缀或以 `前缀/` 开头」，所以 `/api/v1/servers/{id}/nodes`
 也会被拒绝，而 `/api/v1/overview`、`/api/v1/stats/*`、`/api/v1/forward-traffic`
-等聚合/统计接口仍可读。名单集中定义在 `crates/master/src/auth.rs` 的
-`SENSITIVE_READ_PREFIXES`；新增敏感 GET 时把前缀加进这个常量即可。
+等聚合/统计接口仍可读。`/api/v1/agent-upgrades/batches` 只有**详情**（带服务器名与
+Agent 版本）被拒绝，批次列表仍可读。名单集中定义在 `crates/master/src/auth.rs` 的
+`SENSITIVE_READ_PREFIXES` / `SENSITIVE_READ_DETAIL_PREFIXES`；新增敏感 GET 时把前缀
+加进对应常量即可。
 
 ### 鉴权与限流
 
@@ -98,7 +107,8 @@ MCP 的 HTTP 接入见 [MCP.md](./MCP.md#http-接入streamable-http)。
 
 API tokens are for scripts, CI and MCP clients. They work **alongside** browser
 cookie sessions: the same `Authorization: Bearer pwt_...` header works for both
-`/api/v1/*` and `/mcp`.
+`/api/v1/*` and `/mcp`, but **`/mcp` only accepts the admin scope** — read scope is
+limited to non-sensitive REST GETs.
 
 ### Creation and storage
 
@@ -121,8 +131,15 @@ cookie sessions: the same `Authorization: Bearer pwt_...` header works for both
 
 | scope | Permission |
 |---|---|
-| `read` (default) | Only **non-sensitive** `GET`/`HEAD`/`OPTIONS`; writes return `403 api_token.read_only`, sensitive GETs return `403 api_token.sensitive_endpoint` |
-| `admin` | Equivalent to an administrator session; read and write |
+| `read` (default) | Only **non-sensitive** REST `GET`/`HEAD`/`OPTIONS`; writes return `403 api_token.read_only`, sensitive GETs return `403 api_token.sensitive_endpoint`, and it **cannot be used for MCP** (`403 api_token.mcp_requires_admin`) |
+| `admin` | Equivalent to an administrator session; read and write; required for MCP |
+
+**A read token can only use non-sensitive REST GETs; MCP always requires admin.** The
+five `/mcp` tools are read-only, but they return server addresses, the user list and
+chain topology — the same data as the sensitive REST GETs. A read-scoped token calling
+`/mcp` therefore gets a JSON-RPC `403` with
+`error.data.code = "api_token.mcp_requires_admin"`. The old "read is enough because MCP
+is read-only" usage no longer works; use an admin-scoped token.
 
 "Administrators only" means an administrator cookie session or an **admin-scoped**
 token. A read-scoped token cannot even list tokens
@@ -144,12 +161,15 @@ unaffected):
 | `/api/v1/servers`, `/api/v1/nodes`, `/api/v1/outbounds` | Server addresses and node/outbound configs (may contain client credentials, Reality keys, upstream passwords) |
 | `/api/v1/forwards`, `/api/v1/chains`, `/api/v1/chain-templates`, `/api/v1/routing-rules` | Forward targets, chain topology and routing topology |
 | `/api/v1/users`, `/api/v1/subscriptions` | User inventory and subscription short codes (a short code is itself a subscription credential) |
+| `/api/v1/agent-upgrades/batches/{id}` | Batch detail contains server names and current agent versions |
 
 Matching is "equal to the prefix or starts with `prefix/`", so
 `/api/v1/servers/{id}/nodes` is denied too, while aggregate endpoints such as
 `/api/v1/overview`, `/api/v1/stats/*` and `/api/v1/forward-traffic` remain readable.
-The list lives in `SENSITIVE_READ_PREFIXES` in `crates/master/src/auth.rs`; add new
-sensitive GETs there.
+For `/api/v1/agent-upgrades/batches`, only the **detail** (which carries server names
+and agent versions) is denied; the batch list remains readable. The lists live in
+`SENSITIVE_READ_PREFIXES` / `SENSITIVE_READ_DETAIL_PREFIXES` in
+`crates/master/src/auth.rs`; add new sensitive GETs there.
 
 ### Auth and rate limiting
 

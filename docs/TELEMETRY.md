@@ -154,16 +154,21 @@ Insufficient samples never raise an alert.
   新枚举变体旧 Agent 不认识，保存与下发两条路径都要求整链协议 ≥ 27（见 `docs/ERRORS.md`）。
 - `PROTOCOL_VERSION` 28（PROXY protocol v2）：`DesiredForward` 新增
   `proxy_protocol`（`#[serde(default)]`，缺省 false）。旧 Agent 会**静默忽略**该字段，
-  因此保存/下发都要求 Agent 协议 ≥ 28；开关只对 TCP + native 生效，链只作用于
-  最后一跳。迁移 `0056_proxy_protocol.sql` 只追加两列（见 `docs/ERRORS.md`）。
+  因此保存/下发都要求 Agent 协议 ≥ 28；开关只对 TCP + native 生效，链上**只允许单跳**：
+  多跳链的落地只能看到上一跳地址，保存时 400 `chain.proxy_protocol_requires_single_hop`，
+  历史多跳 + 开关的链在下发时整链 blocked、不静默下发。迁移 `0056_proxy_protocol.sql`
+  只追加两列（见 `docs/ERRORS.md`）。
 
 English: `PROTOCOL_VERSION` is 26 for the telemetry fields above; 27 adds the weighted /
 least-connections chain strategies and `ForwardTarget.weight` (default 1). Old agents ignore
 the unknown `weight` field, but not the new enum variants, so both the write and dispatch
 paths require protocol >= 27 for the whole chain (see `docs/ERRORS.md`). Protocol 28 adds
 `DesiredForward.proxy_protocol` (default false); old agents silently ignore it, so both
-paths require protocol >= 28. The switch is TCP + native only and a chain applies it to the
-final hop only. Migration `0056_proxy_protocol.sql` only appends two columns.
+paths require protocol >= 28. The switch is TCP + native only, and a chain may use it
+**only with a single hop**: a multi-hop landing only sees the previous hop, so saving
+returns 400 `chain.proxy_protocol_requires_single_hop` and historical multi-hop chains
+with the flag on are blocked at dispatch, never delivered silently. Migration
+`0056_proxy_protocol.sql` only appends two columns.
 
 English: `PROTOCOL_VERSION` is 26. `Heartbeat` gains `net_rx_bytes`, `net_tx_bytes`,
 `net_at`; `ForwardStatus` gains `probe_attempts` and `probe_failures`. All are optional and

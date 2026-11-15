@@ -1152,6 +1152,7 @@ export function ChainFormDialog({
   const proxyAvailable = proxyProtocolAvailable(
     selectedProtocol,
     selectedEngine,
+    watchedGroups.length,
   );
 
   // 引擎 / 加密方式改动可能让当前协议失效：
@@ -1172,7 +1173,8 @@ export function ChainFormDialog({
     form,
   ]);
 
-  // 协议 / 引擎切到不再支持 PROXY v2 时立即收回开关。
+  // 协议 / 引擎 / 跳数切到不再支持 PROXY v2 时立即收回开关。
+  // 多跳链上落地只看得到上一跳地址，后端会拒绝；界面不能留下一个禁用但开启的状态。
   useEffect(() => {
     if (proxyAvailable || !form.getValues("proxy_protocol")) return;
     form.setValue("proxy_protocol", false, {
@@ -1261,6 +1263,7 @@ export function ChainFormDialog({
         values.proxy_protocol,
         values.protocol,
         values.engine,
+        values.groups.length,
       ),
       // 入口组照常发送 listen_port；中间跳整个去掉，交给后端从端口池分配。
       groups: stripAutoPorts(
@@ -1853,7 +1856,11 @@ export function ChainFormDialog({
           <FormField
             label={t("common.proxyProtocol.label")}
             htmlFor="chain-proxy-protocol"
-            hint={t("common.proxyProtocol.chainHint")}
+            hint={
+              watchedGroups.length > 1
+                ? t("common.proxyProtocol.chainHintMultiHop")
+                : t("common.proxyProtocol.chainHint")
+            }
             error={form.formState.errors.proxy_protocol?.message}
           >
             <div className="flex items-center gap-2.5">

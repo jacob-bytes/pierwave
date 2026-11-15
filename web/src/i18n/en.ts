@@ -115,7 +115,9 @@ const en = {
       hint:
         "The target service must support PROXY protocol v2, or connections will fail.",
       chainHint:
-        "Applies to the final hop only; middle hops never write the header. The target service must support PROXY protocol v2, or connections will fail.",
+        "Single-hop chains only: writes the PROXY v2 header after connecting to the target. The target service must support PROXY protocol v2, or connections will fail.",
+      chainHintMultiHop:
+        "On a multi-hop chain the landing only sees the previous hop; use a single-hop chain for the real source. Enabling this on a multi-hop chain blocks the whole chain.",
       badge: "PROXY v2",
       badgeTitle: "PROXY protocol v2 is on: the landing server sees the real client IP",
     },
@@ -1887,7 +1889,8 @@ const en = {
       scope: {
         read: "read (read-only)",
         admin: "admin (administrator)",
-        readHint: "read can only access non-sensitive read-only endpoints; writes and sensitive GETs return 403.",
+        readHint:
+          "read can only access non-sensitive REST GETs; writes and sensitive GETs return 403, and it cannot be used for MCP.",
         adminHint: "admin is equivalent to an administrator and can write; only give it to trusted scripts.",
       },
     },
@@ -3406,6 +3409,18 @@ const en = {
     notObject: "config must be a JSON object (starting with { and ending with })",
   },
   errors: {
+    "api_token.invalid": "Invalid, expired or revoked API token",
+    "api_token.read_only": "A read-only API token cannot perform writes",
+    "api_token.sensitive_endpoint":
+      "This endpoint contains sensitive data and is not available to read-scoped tokens",
+    "api_token.admin_scope_required": "This operation requires an admin-scoped API token",
+    "api_token.rate_limited": "API token rate limit exceeded. Please try again later.",
+    "api_token.scope_invalid": "Scope must be one of: {allowed}",
+    "api_token.name_invalid": "Name must be 1-{max} characters",
+    "api_token.expires_at_invalid": "Expires at must be in the future",
+    "api_token.not_found": "API token not found",
+    "api_token.mcp_requires_admin":
+      "MCP requires an admin-scoped API token; read scope can only access non-sensitive REST GETs",
     "me.forward_quota_exceeded":
       "Self-service forward quota exceeded ({used} used / {limit} allowed); delete an existing forward or ask an administrator to adjust your package",
     "me.forward_server_not_allowed":
@@ -3416,6 +3431,8 @@ const en = {
     "me.chain_template_not_allowed":
       "The current package does not allow chain template “{template_name}”",
     "me.chain_not_found": "The chain does not exist or has already been deleted",
+    "me.chain_groups_missing":
+      "The chain topology was lost; delete it and create a new chain",
     "chain_template.name_required": "Chain template name is required",
     "chain_template.name_too_long": "Chain template name must be at most {max} characters",
     "chain_template.groups_invalid": "The chain template groups are invalid",
@@ -3437,6 +3454,12 @@ const en = {
     "chain.tunnel_hop_limit": "Tunnel chains support 2-6 hops",
     "chain.tunnel_downstream_missing": "Could not derive the next hop for this hop",
     "chain.group_empty": "A hop has no member servers, so the whole chain was not delivered",
+    "chain.groups_missing":
+      "The chain is enabled but has no groups, so the whole chain was not delivered",
+    "chain.enabled_without_groups":
+      "The chain has no groups and no disabled snapshot to restore; add member groups before enabling it",
+    "chain.proxy_protocol_requires_single_hop":
+      "PROXY protocol v2 is only available on single-hop chains; a multi-hop landing only sees the previous hop, so use a single-hop chain for the real source address",
     "server.in_use_by_chain": "Server “{server_name}” is still used by chain “{chains}”; edit or delete those chains first",
     "request.busy": "The database is busy. Please try again.",
     "chain.tunnel_udp_requires_two_hops": "UDP relay over a tunnel chain is limited to 2 hops for now",

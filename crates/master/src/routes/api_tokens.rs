@@ -585,6 +585,15 @@ mod http_tests {
         let (server, _) = repo::servers::create(&state.db.pool, "hk", "10.0.0.1", "external")
             .await
             .unwrap();
+        let batch = repo::upgrade_batches::create(
+            &state.db.pool,
+            std::slice::from_ref(&server.id),
+            "0.13.4",
+            true,
+            1,
+        )
+        .await
+        .unwrap();
         let paths = [
             "/api/v1/backup".to_string(),
             "/api/v1/backup/info".to_string(),
@@ -599,6 +608,7 @@ mod http_tests {
             "/api/v1/chain-templates".to_string(),
             "/api/v1/users".to_string(),
             "/api/v1/subscriptions".to_string(),
+            format!("/api/v1/agent-upgrades/batches/{}", batch.id),
             format!("/api/v1/servers/{}/nodes", server.id),
             format!("/api/v1/servers/{}/outbounds", server.id),
             format!("/api/v1/servers/{}/routing-rules", server.id),
@@ -631,6 +641,13 @@ mod http_tests {
             "/api/v1/chain-templates"
         ));
         assert!(crate::auth::is_sensitive_read_path("/api/v1/routing-rules"));
+        assert!(crate::auth::is_sensitive_read_path(
+            "/api/v1/agent-upgrades/batches/abc"
+        ));
+        // 集合列表本身不含服务器名/版本，read token 仍可读。
+        assert!(!crate::auth::is_sensitive_read_path(
+            "/api/v1/agent-upgrades/batches"
+        ));
         assert!(!crate::auth::is_sensitive_read_path("/api/v1/overview"));
         assert!(!crate::auth::is_sensitive_read_path(
             "/api/v1/stats/traffic"
@@ -652,6 +669,15 @@ mod http_tests {
         let (server, _) = repo::servers::create(&state.db.pool, "hk", "10.0.0.1", "external")
             .await
             .unwrap();
+        let batch = repo::upgrade_batches::create(
+            &state.db.pool,
+            std::slice::from_ref(&server.id),
+            "0.13.4",
+            true,
+            1,
+        )
+        .await
+        .unwrap();
         let paths = [
             "/api/v1/certificates".to_string(),
             "/api/v1/audit".to_string(),
@@ -663,6 +689,7 @@ mod http_tests {
             "/api/v1/chain-templates".to_string(),
             "/api/v1/users".to_string(),
             "/api/v1/subscriptions".to_string(),
+            format!("/api/v1/agent-upgrades/batches/{}", batch.id),
             format!("/api/v1/servers/{}/nodes", server.id),
             format!("/api/v1/servers/{}/outbounds", server.id),
             format!("/api/v1/servers/{}/routing-rules", server.id),

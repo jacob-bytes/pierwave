@@ -241,7 +241,7 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
     for chain in &chains {
         // 空成员组对所有引擎都是整链失败：与列表/概览的 blocked 判定同一套
         // 规则，先于引擎分支挡住，避免隧道等专用推导给出不同的原因。
-        if let Some(reason) = chains::empty_group_blocked_reason(&chain.groups) {
+        if let Some(reason) = chains::empty_group_blocked_reason(&chain.chain, &chain.groups) {
             warnings.push(format!(
                 "链「{}」未下发：{}（{}）",
                 chain.chain.name, reason.message, reason.code
@@ -279,8 +279,8 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
         // 绝不发出一个会静默丢掉真实 IP 的配置。
         if let Some(reason) = chains::proxy_protocol_blocked_reason(&chain.chain, &chain.groups) {
             warnings.push(format!(
-                "链「{}」未下发：{}",
-                chain.chain.name, reason.message
+                "链「{}」未下发：{}（{}）",
+                chain.chain.name, reason.message, reason.code
             ));
             continue;
         }
