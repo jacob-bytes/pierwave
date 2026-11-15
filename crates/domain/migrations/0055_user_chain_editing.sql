@@ -1,0 +1,17 @@
+-- 用户自助链的停用 / 启用：停用时删除链的组与成员，真正释放监听端口
+-- （chain_group_members 上有 (server_id, listen_port) 唯一索引，只有删行才能
+-- 让别的链复用它）；停用前的组形态以 JSON 快照保存，启用时按快照重建并
+-- 重新分配端口。
+--
+-- 只追加：不改 0001–0054。
+-- * `disabled_groups_json` 只在用户停用自己链的那一刻写入；管理员停用的链
+--   仍保留原组行，行为不变。
+-- * 历史行一律为 NULL。
+--
+-- English: disabling a self-service chain deletes its groups and members so the
+-- listen ports are really released (chain_group_members has a unique
+-- (server_id, listen_port) index), while the pre-disable topology is snapshotted
+-- here as JSON. Enabling rebuilds the groups from that snapshot and allocates
+-- fresh ports. Admin-disabled chains keep their rows, so their behavior is
+-- unchanged; all existing rows stay NULL.
+ALTER TABLE chains ADD COLUMN disabled_groups_json TEXT;

@@ -1193,13 +1193,472 @@ mod tests {
             (Method::POST, "/api/v1/me/chains".to_string()),
             (Method::GET, "/api/v1/me/chain-templates".to_string()),
             (
+                Method::PATCH,
+                "/api/v1/me/chains/00000000-0000-0000-0000-000000000000".to_string(),
+            ),
+            (
                 Method::DELETE,
                 "/api/v1/me/chains/00000000-0000-0000-0000-000000000000".to_string(),
             ),
         ] {
-            let body = (method == Method::POST).then(|| json!({}));
+            let body = matches!(method, Method::POST | Method::PATCH).then(|| json!({}));
             let (status, _) = request(&app, None, method, &uri, body).await;
             assert_eq!(status, StatusCode::UNAUTHORIZED, "uri={uri}");
         }
+    }
+
+    /// 下发到某台服务器的全部链转发（按 listen_port 找最直观）。
+    async fn desired_forwards(
+        state: &AppState,
+        server_id: &str,
+    ) -> Vec<pierwave_proto::DesiredForward> {
+        let server = repo::servers::find_by_id(&state.db.pool, server_id)
+            .await
+            .unwrap();
+        crate::routes::desired::render(state, &server, "https://panel.example.com")
+            .await
+            .unwrap()
+            .forwards
+    }
+
+    async fn patch_chain(
+        app: &Router,
+        cookie: &str,
+        chain_id: &str,
+        body: Value,
+    ) -> (StatusCode, Value) {
+        request(
+            app,
+            Some(cookie),
+            Method::PATCH,
+            &format!("/api/v1/me/chains/{chain_id}"),
+            Some(body),
+        )
+        .await
+    }
+
+    /// 改目标：入口端口一个都不变，出口服务器的下发目标立刻变化；
+    /// 编辑不吃配额；审计只记字段名，不落目标明文。
+    #[tokio::test]
+    async fn user_chain_target_edit_keeps_entry_port_and_reaches_desired_state() {
+        let Fixture {
+            app, state, a, b, ..
+        } = setup().await;
+        let template =
+            create_template(&state, "港日", "native", "tls", "tcp", &[&[&a], &[&b]]).await;
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+        bind_package(
+            &state,
+            "单链套餐",
+            1,
+            std::slice::from_ref(&template),
+            &alice_id,
+        )
+        .await;
+
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/chains",
+            Some(chain_body(&template, "10.9.9.9", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let chain_id = body["chain"]["id"].as_str().unwrap().to_string();
+        assert_eq!(body["chain"]["entry_address"], "10.0.0.1:20000");
+        assert_eq!(
+            body["chain"]["groups"][1]["servers"][0]["listen_port"],
+            20000
+        );
+
+        // 改目标前：出口服务器 b 的下发目标是旧目标。
+        let exit_before = desired_forwards(&state, &b).await;
+        assert_eq!(exit_before.len(), 1);
+        assert_eq!(exit_before[0].target_host, "10.9.9.9");
+        assert_eq!(exit_before[0].target_port, 443);
+
+        let (status, body) = patch_chain(
+            &app,
+            &alice_cookie,
+            &chain_id,
+            json!({ "target_host": "10.9.9.10", "target_port": 8443 }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["chain"]["target_host"], "10.9.9.10");
+        assert_eq!(body["chain"]["target_port"], 8443);
+        // 入口端口保持不变：现有客户端不能失联。
+        assert_eq!(body["chain"]["entry_address"], "10.0.0.1:20000");
+        assert_eq!(
+            body["chain"]["groups"][0]["servers"][0]["listen_port"],
+            20000
+        );
+        assert_eq!(
+            body["chain"]["groups"][1]["servers"][0]["listen_port"],
+            20000
+        );
+        // 编辑不计入配额。
+        assert_eq!(body["quota"], json!({ "limit": 1, "used": 1 }));
+
+        // 出口服务器的下发目标立即变化；入口服务器仍指向中转 b。
+        let exit_after = desired_forwards(&state, &b).await;
+        assert_eq!(exit_after.len(), 1);
+        assert_eq!(exit_after[0].target_host, "10.9.9.10");
+        assert_eq!(exit_after[0].target_port, 8443);
+        assert_eq!(exit_after[0].listen_port, 20000, "出口端口也不应变化");
+        let entry_after = desired_forwards(&state, &a).await;
+        assert_eq!(entry_after.len(), 1);
+        assert_eq!(entry_after[0].target_host, "10.0.0.2");
+        assert_eq!(entry_after[0].listen_port, 20000);
+
+        // 配额仍是 1：编辑后再建一条照样 400。
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/chains",
+            Some(chain_body(&template, "10.9.9.11", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "me.chain_quota_exceeded");
+
+        // 审计：只记字段名与启用状态，不落目标明文。
+        let entries = repo::audit::list(&state.db.pool, 50).await.unwrap();
+        let update = entries
+            .iter()
+            .find(|entry| entry.action == "user_chain.update")
+            .expect("缺少 user_chain.update 审计");
+        assert_eq!(update.target.as_deref(), Some(chain_id.as_str()));
+        let detail = update.detail.as_ref().unwrap();
+        assert_eq!(detail["fields"], json!(["target_host", "target_port"]));
+        assert_eq!(detail["enabled"], true);
+        let detail_text = detail.to_string();
+        assert!(
+            !detail_text.contains("10.9.9.10"),
+            "审计不应记录目标明文: {detail_text}"
+        );
+        assert!(!detail_text.contains("alice"), "detail={detail_text}");
+    }
+
+    /// 停用：组与成员被删除，端口真正释放给下一条链；记录/配额保留。
+    /// 启用：重新分配端口（这里是 20001），列表数据与下发保持一致。
+    #[tokio::test]
+    async fn user_chain_disable_releases_port_and_enable_reallocates() {
+        let Fixture {
+            app, state, a, b, ..
+        } = setup().await;
+        let template =
+            create_template(&state, "港日", "native", "tls", "tcp", &[&[&a], &[&b]]).await;
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+        bind_package(
+            &state,
+            "双链套餐",
+            2,
+            std::slice::from_ref(&template),
+            &alice_id,
+        )
+        .await;
+
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/chains",
+            Some(chain_body(&template, "10.9.9.9", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let first_id = body["chain"]["id"].as_str().unwrap().to_string();
+        assert_eq!(body["chain"]["entry_address"], "10.0.0.1:20000");
+
+        // 停用：入口地址消失（组已删除），记录还在，配额计数不变。
+        let (status, body) =
+            patch_chain(&app, &alice_cookie, &first_id, json!({ "enabled": false })).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["chain"]["enabled"], false);
+        assert_eq!(body["chain"]["entry_address"], Value::Null);
+        assert_eq!(body["chain"]["groups"], json!([]));
+        assert_eq!(body["quota"], json!({ "limit": 2, "used": 1 }));
+        assert!(
+            desired_forwards(&state, &a).await.is_empty(),
+            "停用后入口服务器不应再收到该链"
+        );
+        assert!(desired_forwards(&state, &b).await.is_empty());
+
+        // 端口已释放：第二条链拿到同一个 20000。
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/chains",
+            Some(chain_body(&template, "10.9.9.10", 8443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let second_id = body["chain"]["id"].as_str().unwrap().to_string();
+        assert_eq!(
+            body["chain"]["entry_address"], "10.0.0.1:20000",
+            "停用链的端口必须可被另一条链复用"
+        );
+        assert_eq!(body["quota"], json!({ "limit": 2, "used": 2 }));
+
+        // 停用期间仍可改目标；端口冲突检查跳过（组已释放）。
+        let (status, body) = patch_chain(
+            &app,
+            &alice_cookie,
+            &first_id,
+            json!({ "target_host": "10.9.9.20", "target_port": 9443 }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["chain"]["target_host"], "10.9.9.20");
+
+        // 启用：端口重新分配（20000 已被第二条占用 → 20001）。
+        let (status, body) =
+            patch_chain(&app, &alice_cookie, &first_id, json!({ "enabled": true })).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["chain"]["enabled"], true);
+        assert_eq!(body["chain"]["entry_address"], "10.0.0.1:20001");
+        assert_eq!(
+            body["chain"]["groups"][0]["servers"][0]["listen_port"],
+            20001
+        );
+        assert_eq!(
+            body["chain"]["groups"][1]["servers"][0]["listen_port"],
+            20001
+        );
+
+        // 列表数据与 PATCH 响应一致（UI 重取列表后端口不跳变）。
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::GET,
+            "/api/v1/me/chains",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let items = body["items"].as_array().unwrap();
+        let first = items
+            .iter()
+            .find(|item| item["id"] == first_id.as_str())
+            .unwrap();
+        let second = items
+            .iter()
+            .find(|item| item["id"] == second_id.as_str())
+            .unwrap();
+        assert_eq!(first["entry_address"], "10.0.0.1:20001");
+        assert_eq!(first["target_host"], "10.9.9.20");
+        assert_eq!(second["entry_address"], "10.0.0.1:20000");
+        assert_eq!(body["quota"], json!({ "limit": 2, "used": 2 }));
+
+        // 下发：两台服务器各两条链，端口互不重叠。
+        let mut ports: Vec<i64> = desired_forwards(&state, &a)
+            .await
+            .iter()
+            .map(|forward| forward.listen_port)
+            .collect();
+        ports.sort_unstable();
+        assert_eq!(ports, vec![20000, 20001]);
+        let exits = desired_forwards(&state, &b).await;
+        assert_eq!(exits.len(), 2);
+        assert!(exits
+            .iter()
+            .any(|forward| forward.target_host == "10.9.9.20"));
+        assert!(exits
+            .iter()
+            .any(|forward| forward.target_host == "10.9.9.10"));
+
+        // 两条审计都在：停用 + 启用都走 user_chain.update。
+        let entries = repo::audit::list(&state.db.pool, 50).await.unwrap();
+        let updates: Vec<_> = entries
+            .iter()
+            .filter(|entry| entry.action == "user_chain.update")
+            .collect();
+        assert!(
+            updates.len() >= 3,
+            "应有改目标 / 停用 / 启用三条审计，实际 {}",
+            updates.len()
+        );
+        assert!(updates.iter().any(|entry| {
+            entry.detail.as_ref().is_some_and(|detail| {
+                detail["fields"] == json!(["enabled"]) && detail["enabled"] == false
+            })
+        }));
+        assert!(updates.iter().any(|entry| {
+            entry.detail.as_ref().is_some_and(|detail| {
+                detail["fields"] == json!(["enabled"]) && detail["enabled"] == true
+            })
+        }));
+    }
+
+    /// 管理员停用的链仍保留旧组：用户重新启用时不能把自己的旧端口算成占用，
+    /// 否则窄端口策略（只允许一个端口）下会误报 port_allowed_exhausted。
+    #[tokio::test]
+    async fn user_chain_enable_reuses_its_own_port_under_a_narrow_policy() {
+        let Fixture {
+            app,
+            state,
+            a,
+            b,
+            admin_cookie,
+            ..
+        } = setup().await;
+        let policy = PortPolicy::validated(Some(21_000), Some(21_000), &[]).unwrap();
+        repo::servers::set_port_policy(
+            &state.db.pool,
+            &a,
+            Some(21_000),
+            Some(21_000),
+            &policy.allow_json(),
+        )
+        .await
+        .unwrap();
+
+        let template =
+            create_template(&state, "港日", "native", "tls", "tcp", &[&[&a], &[&b]]).await;
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+        bind_package(
+            &state,
+            "单链套餐",
+            1,
+            std::slice::from_ref(&template),
+            &alice_id,
+        )
+        .await;
+
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/chains",
+            Some(chain_body(&template, "10.9.9.9", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let chain_id = body["chain"]["id"].as_str().unwrap().to_string();
+        assert_eq!(body["chain"]["entry_address"], "10.0.0.1:21000");
+
+        // 管理员停用：管理员路径保留组与端口行（与用户停用不同）。
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::PATCH,
+            &format!("/api/v1/chains/{chain_id}"),
+            Some(json!({ "enabled": false })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["chain"]["enabled"], false);
+        assert_eq!(
+            body["chain"]["groups"].as_array().unwrap().len(),
+            2,
+            "管理员停用不改组"
+        );
+
+        // 用户重新启用：自己的旧 21000 必须先被排除，再参与分配。
+        let (status, body) =
+            patch_chain(&app, &alice_cookie, &chain_id, json!({ "enabled": true })).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["chain"]["entry_address"], "10.0.0.1:21000");
+        assert_eq!(
+            body["chain"]["groups"][0]["servers"][0]["listen_port"],
+            21_000
+        );
+    }
+
+    /// 归属 404 + 非法目标 400 + 启用的链不允许空目标 + 空 PATCH 400。
+    #[tokio::test]
+    async fn user_chain_edit_is_owner_scoped_and_validates_input() {
+        let Fixture {
+            app,
+            state,
+            a,
+            b,
+            admin_cookie,
+            ..
+        } = setup().await;
+        let template =
+            create_template(&state, "港日", "native", "tls", "tcp", &[&[&a], &[&b]]).await;
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+        let (_bob_id, bob_cookie) = make_user(&state, "bob").await;
+        bind_package(
+            &state,
+            "单链套餐",
+            1,
+            std::slice::from_ref(&template),
+            &alice_id,
+        )
+        .await;
+
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/chains",
+            Some(chain_body(&template, "10.9.9.9", 443)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let chain_id = body["chain"]["id"].as_str().unwrap().to_string();
+
+        // 别人的链：一律 404，不暴露 403。
+        let (status, body) =
+            patch_chain(&app, &bob_cookie, &chain_id, json!({ "name": "抢过来" })).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "unexpected: {body}");
+        assert_eq!(body["code"], "me.chain_not_found");
+
+        // 管理员（非 owner）走用户接口同样 404：归属过滤对所有人生效。
+        let (status, body) = patch_chain(
+            &app,
+            &admin_cookie,
+            &chain_id,
+            json!({ "name": "管理员改名" }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "unexpected: {body}");
+        assert_eq!(body["code"], "me.chain_not_found");
+
+        // 空目标 / 非法端口 / 空 PATCH。
+        for (payload, code) in [
+            (
+                json!({ "target_host": "   " }),
+                "forward.target_host_required",
+            ),
+            (json!({ "target_port": 0 }), "forward.target_port_invalid"),
+            (
+                json!({ "target_port": 70_000 }),
+                "forward.target_port_invalid",
+            ),
+            (json!({}), "request.no_update_fields"),
+        ] {
+            let (status, body) = patch_chain(&app, &alice_cookie, &chain_id, payload).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+            assert_eq!(body["code"], code);
+        }
+
+        // 停用后允许暂不填目标，但启用时目标不可为空。
+        let (status, body) =
+            patch_chain(&app, &alice_cookie, &chain_id, json!({ "enabled": false })).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let (status, body) =
+            patch_chain(&app, &alice_cookie, &chain_id, json!({ "target_host": "" })).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["chain"]["target_host"], "");
+        let (status, body) =
+            patch_chain(&app, &alice_cookie, &chain_id, json!({ "enabled": true })).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "forward.target_host_required");
+
+        // 失败后链仍是停用状态，端口没有被偷偷占用。
+        let chain = repo::chains::find_by_id(&state.db.pool, &chain_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!chain.chain.enabled);
+        assert!(chain.groups.is_empty());
+        assert!(desired_forwards(&state, &a).await.is_empty());
     }
 }

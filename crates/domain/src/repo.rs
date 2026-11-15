@@ -6252,6 +6252,11 @@ pub mod chains {
         pub tunnel_security: Option<String>,
         /// `None` = 不改组；`Some` = 整体替换。
         pub groups: Option<Vec<NewChainGroup>>,
+        /// 停用时的组形态快照（JSON）；`None` = 不改。
+        ///
+        /// 用户自助链停用会删掉组与成员以释放端口，启用时靠这份快照重建
+        /// 拓扑并重新分配端口。管理员路径不使用它。
+        pub disabled_groups_json: Option<String>,
     }
 
     async fn load_groups(
@@ -6506,6 +6511,23 @@ pub mod chains {
         }
     }
 
+    /// 用户停用链时保存的组形态快照；`None` = 没有快照（管理员停用/历史行）。
+    ///
+    /// 只读文本，不在这里解析：解析失败由调用方按「没有快照」处理，
+    /// 避免一行脏 JSON 把整个 PATCH 变成 500。
+    pub async fn disabled_groups_json(
+        pool: &SqlitePool,
+        id: &str,
+    ) -> anyhow::Result<Option<String>> {
+        Ok(
+            sqlx::query_scalar("SELECT disabled_groups_json FROM chains WHERE id = ?")
+                .bind(id)
+                .fetch_optional(pool)
+                .await?
+                .flatten(),
+        )
+    }
+
     async fn list_where(
         pool: &SqlitePool,
         enabled_only: bool,
@@ -6658,6 +6680,7 @@ pub mod chains {
                 udp = COALESCE(?, udp),
                 transport = COALESCE(?, transport),
                 tunnel_security = COALESCE(?, tunnel_security),
+                disabled_groups_json = COALESCE(?, disabled_groups_json),
                 updated_at = ?
              WHERE id = ?",
         )
@@ -6685,6 +6708,7 @@ pub mod chains {
                 .as_deref()
                 .map(crate::tunnel_security::from_db),
         )
+        .bind(input.disabled_groups_json)
         .bind(now())
         .bind(id)
         .execute(&mut *conn)
@@ -6730,6 +6754,17 @@ pub mod chains {
             .await?;
         tx.commit().await?;
         Ok(res.rows_affected() > 0)
+    }
+
+    /// 链停用 / 重新启用时清掉它推导出的运行态：Agent 不会为已移除的转发
+    /// 继续上报，旧行会一直显示成 `listening`。与 [`delete`] 同一口径，
+    /// 由调用方放进同一个写事务。
+    pub async fn clear_forward_status_in(tx: &mut WriteTx, chain_id: &str) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM forward_status WHERE forward_id LIKE ?")
+            .bind(format!("chain-{chain_id}-%"))
+            .execute(tx.conn())
+            .await?;
+        Ok(())
     }
 
     /// 这台服务器被哪些链的成员引用（删除服务器前的守卫）。

@@ -1266,6 +1266,17 @@ export interface CreateMeChainInput {
   target_port: number;
 }
 
+/**
+ * 编辑自己的链路。只允许名称 / 目标 / 启用状态：
+ * 模板、groups 与入口端口由系统固定，换模板必须删除重建。
+ */
+export interface UpdateMeChainInput {
+  name?: string;
+  target_host?: string;
+  target_port?: number;
+  enabled?: boolean;
+}
+
 export interface CreateMeChainResponse {
   chain: MeChain;
   quota: MeChainQuota;
@@ -2129,6 +2140,14 @@ export const api = {
             method: "POST",
             body: JSON.stringify(input),
           }),
+        update: (id: string, input: UpdateMeChainInput) =>
+          request<CreateMeChainResponse>(
+            `/api/v1/me/chains/${encodeURIComponent(id)}`,
+            {
+              method: "PATCH",
+              body: JSON.stringify(input),
+            },
+          ),
         remove: (id: string) =>
           request<{ ok: true }>(
             `/api/v1/me/chains/${encodeURIComponent(id)}`,

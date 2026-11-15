@@ -24,7 +24,7 @@ use std::net::IpAddr;
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::Json;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use pierwave_domain::chains::GroupStrategy;
@@ -2575,6 +2575,8 @@ pub async fn update(
                 transport,
                 tunnel_security,
                 groups: replace_groups.then(|| new_groups(&groups)),
+                // 停用快照只由用户自助 PATCH 维护；管理员路径保持原语义。
+                disabled_groups_json: None,
             },
         )
         .await?;
@@ -3048,6 +3050,317 @@ pub async fn me_create(
     Ok(Json(json!({
         "chain": user_chain_json(&chain, Some(&template.name), blocked.as_ref()),
         "quota": { "limit": allowance.limit, "used": used_after },
+    })))
+}
+
+// ---------------------------------------------------------------------------
+// 用户编辑自己的链：`PATCH /api/v1/me/chains/{id}`
+//
+// 只允许改 name / target_host / target_port / enabled：
+// * 改目标：组与入口端口原样保留，只换出口；
+// * 停用：把组形态存进 `chains.disabled_groups_json`，然后删掉组与成员，
+//   让 (server_id, listen_port) 唯一索引真正释放端口；链记录与配额计数保留；
+// * 启用：按快照（或管理员停用时留下的组）重建拓扑，重新分配端口。
+//
+// 任何写失败都发生在 COMMIT 之前，事务回滚后旧配置原样可用；COMMIT 之后
+// 只做审计与立即下发（下发失败由脏标记对账兜底，与转发/建链同一口径）。
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize)]
+struct ChainTopology {
+    groups: Vec<ChainTopologyGroup>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ChainTopologyGroup {
+    name: Option<String>,
+    strategy: String,
+    cert_id: Option<String>,
+    public_port: Option<i64>,
+    use_internal_address: bool,
+    members: Vec<ChainTopologyMember>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ChainTopologyMember {
+    server_id: String,
+    priority: i64,
+    weight: i64,
+}
+
+/// 停用前把拓扑压成快照：**不含端口**，启用时重新分配。
+fn topology_from_groups(groups: &[ChainGroupWithMembers]) -> ChainTopology {
+    ChainTopology {
+        groups: groups
+            .iter()
+            .map(|group| ChainTopologyGroup {
+                name: group.group.name.clone(),
+                strategy: group.group.strategy.clone(),
+                cert_id: group.group.cert_id.clone(),
+                public_port: group.group.public_port,
+                use_internal_address: group.group.use_internal_address,
+                members: ordered_members(group)
+                    .iter()
+                    .map(|member| ChainTopologyMember {
+                        server_id: member.server_id.clone(),
+                        priority: member.priority,
+                        weight: member.weight,
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+/// 快照 → 组输入。入口端口由调用方重新分配，中间组留给 `resolve_groups`。
+fn topology_to_inputs(topology: &ChainTopology) -> Vec<CreateChainGroup> {
+    topology
+        .groups
+        .iter()
+        .map(|group| CreateChainGroup {
+            name: group.name.clone(),
+            strategy: Some(group.strategy.clone()),
+            cert_id: group.cert_id.clone(),
+            public_port: group.public_port,
+            use_internal_address: group.use_internal_address,
+            listen_port: None,
+            server_ids: Vec::new(),
+            members: group
+                .members
+                .iter()
+                .map(|member| CreateChainMember {
+                    server_id: member.server_id.clone(),
+                    listen_port: None,
+                    priority: member.priority,
+                    weight: member.weight,
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+/// 解析停用快照；脏 JSON / 空组一律按「没有快照」处理，由调用方报可读错误。
+fn parse_topology(raw: &str) -> Option<ChainTopology> {
+    serde_json::from_str::<ChainTopology>(raw)
+        .ok()
+        .filter(|topology| !topology.groups.is_empty())
+}
+
+#[derive(Deserialize)]
+pub struct PatchUserChain {
+    pub name: Option<String>,
+    pub target_host: Option<String>,
+    pub target_port: Option<i64>,
+    pub enabled: Option<bool>,
+}
+
+pub async fn me_update(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    user: CurrentUser,
+    Path(id): Path<String>,
+    Json(req): Json<PatchUserChain>,
+) -> AppResult<Json<Value>> {
+    let PatchUserChain {
+        name: raw_name,
+        target_host: raw_target_host,
+        target_port,
+        enabled,
+    } = req;
+
+    if raw_name.is_none() && raw_target_host.is_none() && target_port.is_none() && enabled.is_none()
+    {
+        return Err(AppError::coded(
+            "request.no_update_fields",
+            None,
+            "至少需要提供 name / target_host / target_port / enabled 之一",
+        ));
+    }
+
+    let existing = load_owned_chain(&state, &user.0.id, &id).await?;
+
+    let name = match raw_name.as_deref() {
+        Some(raw) => Some(chains::normalize_name(raw)?),
+        None => None,
+    };
+    let final_enabled = enabled.unwrap_or(existing.chain.enabled);
+    let target_host = match raw_target_host.as_deref() {
+        Some(raw) if raw.trim().is_empty() => {
+            // 只有停用的链允许暂不填目标；启用时会在下面再次拒绝。
+            if final_enabled {
+                return Err(AppError::coded(
+                    "forward.target_host_required",
+                    None,
+                    "目标地址不能为空",
+                ));
+            }
+            Some(String::new())
+        }
+        Some(raw) => Some(forwards::normalize_target_host(raw)?),
+        None => None,
+    };
+    if let Some(port) = target_port {
+        forwards::validate_target_port(port)?;
+    }
+    let final_target_host = target_host
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or(existing.chain.target_host.trim())
+        .to_string();
+    let final_target_port = target_port.unwrap_or(existing.chain.target_port);
+    if final_enabled && final_target_host.is_empty() {
+        return Err(AppError::coded(
+            "forward.target_host_required",
+            None,
+            "目标地址不能为空",
+        ));
+    }
+
+    // 先拿写锁再读旧值 / 重新分配端口，和建链同口径，避免并发抢同一个端口。
+    let mut write = repo::WriteTx::begin(&state.db.pool).await?;
+
+    let was_enabled = existing.chain.enabled;
+    let mut disabled_groups_json: Option<String> = None;
+    let mut rebuilt = false;
+    let groups = if !final_enabled {
+        if was_enabled {
+            // 停用：先快照拓扑，再删组（唯一索引随之释放端口）。
+            disabled_groups_json = Some(
+                serde_json::to_string(&topology_from_groups(&existing.groups))
+                    .map_err(|error| AppError::Internal(error.into()))?,
+            );
+            Some(Vec::new())
+        } else {
+            // 已经停用：只改名称/目标，不重复删组（也不覆盖快照）。
+            None
+        }
+    } else if !was_enabled || existing.groups.is_empty() {
+        // 启用，或链处于「已启用但组被删空」的异常态（例如管理员误启用）：
+        // 按拓扑重建并重新分配端口，可能拿到不同端口。
+        rebuilt = true;
+        // 管理员改过组时以库里的组为准；只有用户停用删空的链才回落到快照。
+        let topology = if !existing.groups.is_empty() {
+            Some(topology_from_groups(&existing.groups))
+        } else {
+            match repo::chains::disabled_groups_json(&state.db.pool, &existing.chain.id).await? {
+                Some(raw) => parse_topology(&raw),
+                None => None,
+            }
+        };
+        let topology = topology.ok_or_else(|| {
+            AppError::coded(
+                "me.chain_groups_missing",
+                Some(json!({ "chain_id": &existing.chain.id })),
+                "链的拓扑信息已丢失，请删除后重新创建",
+            )
+        })?;
+
+        let mut inputs = topology_to_inputs(&topology);
+        // 入口组：每台成员各自按所在服务器的端口策略重新分配（与建链同一函数）。
+        if let Some(entry) = inputs.first_mut() {
+            for member in &mut entry.members {
+                let server = load_server_for_hop(&state, &member.server_id).await?;
+                member.listen_port = Some(
+                    super::forwards::allocate_user_port_excluding(
+                        &state,
+                        &server,
+                        &final_target_host,
+                        final_target_port,
+                        Some(&existing.chain.id),
+                    )
+                    .await?,
+                );
+            }
+        }
+        let resolved = resolve_groups(&state, &inputs, Some(&existing.chain.id), None).await?;
+        validate_internal_addresses(&resolved)?;
+        ensure_targets_safe(&resolved, &final_target_host, final_target_port)?;
+        Some(new_groups(&resolved))
+    } else {
+        // 保持启用：组与端口一个都不动，只校验新目标不会形成自连。
+        let resolved = validated_from_existing(&existing.groups);
+        ensure_targets_safe(&resolved, &final_target_host, final_target_port)?;
+        None
+    };
+
+    let updated = {
+        let updated = repo::chains::update_in(
+            &mut write,
+            &id,
+            repo::chains::UpdateChain {
+                name,
+                target_host,
+                target_port,
+                enabled,
+                groups,
+                disabled_groups_json,
+                ..Default::default()
+            },
+        )
+        .await?;
+        if !updated {
+            return Err(AppError::not_found(
+                "me.chain_not_found",
+                None,
+                "链路不存在",
+            ));
+        }
+        // 停用 / 重新启用 / 重建都会让旧的运行态失效（Agent 不再为旧端口上报）。
+        if final_enabled != was_enabled || rebuilt {
+            repo::chains::clear_forward_status_in(&mut write, &id).await?;
+        }
+        // 写失败（含端口分配失败）在这里之前就已返回，事务被丢弃 = 旧配置回滚保留。
+        write.commit().await?;
+        repo::chains::find_by_id(&state.db.pool, &id)
+            .await?
+            .ok_or_else(|| AppError::not_found("me.chain_not_found", None, "链路不存在"))?
+    };
+
+    // 审计只记录「改了哪些字段」与启用状态，不落目标明文。
+    let mut fields: Vec<&str> = Vec::new();
+    if updated.chain.name != existing.chain.name {
+        fields.push("name");
+    }
+    if updated.chain.target_host != existing.chain.target_host {
+        fields.push("target_host");
+    }
+    if updated.chain.target_port != existing.chain.target_port {
+        fields.push("target_port");
+    }
+    if updated.chain.enabled != existing.chain.enabled {
+        fields.push("enabled");
+    }
+    crate::audit::record(
+        &state,
+        &user.0,
+        "user_chain.update",
+        &updated.chain.id,
+        json!({
+            "chain_id": &updated.chain.id,
+            "fields": fields,
+            "enabled": updated.chain.enabled,
+        }),
+    )
+    .await;
+
+    let mut affected = chain_server_ids(&existing);
+    affected.extend(chain_server_ids(&updated));
+    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    mark_servers_dirty_and_apply(&state, &base, &affected).await;
+
+    let template_name = match updated.chain.template_id.as_deref() {
+        Some(template_id) => repo::chain_templates::find_by_id(&state.db.pool, template_id)
+            .await?
+            .map(|template| template.name),
+        None => None,
+    };
+    let now = repo::now();
+    let allowance = repo::chain_templates::chain_allowance(&state.db.pool, &user.0.id, now).await?;
+    let used = repo::chains::count_by_owner(&state.db.pool, &user.0.id).await?;
+    let blocked = chain_blocked_reason(&state, &updated).await?;
+    Ok(Json(json!({
+        "chain": user_chain_json(&updated, template_name.as_deref(), blocked.as_ref()),
+        "quota": { "limit": allowance.limit, "used": used },
     })))
 }
 

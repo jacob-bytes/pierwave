@@ -3275,6 +3275,24 @@ const en = {
       deleteAction: "Delete",
       deleted: "Chain deleted",
       deleteError: "Could not delete the chain. Please try again.",
+      editAria: "Edit chain {address}",
+      editTitle: "Edit chain",
+      editDesc:
+        "The template and entry port are fixed by the system; delete and recreate to switch templates.",
+      editSubmit: "Save changes",
+      editError: "Could not save the chain. Please try again.",
+      updated: "Chain updated",
+      targetUpdated: "Target updated to {target}",
+      enabledNotice:
+        "Chain enabled. New entry address: {address}; the entry port may have changed.",
+      disabledNotice: "Chain disabled; its ports have been released",
+      disableConfirmTitle: "Disable chain?",
+      disableConfirmDesc:
+        "Disabling removes this chain from the server and disconnects connected clients; the entry port may change when you re-enable it.",
+      disableConfirmAction: "Disable",
+      enableHint:
+        "Enabling allocates a new entry port, which may differ from the previous one.",
+      statusDisabled: "Disabled",
       created: "Chain created: {address}",
       form: {
         title: "New chain",
@@ -3282,6 +3300,8 @@ const en = {
         template: "Chain template",
         templatePlaceholder: "Choose a template",
         templateRequired: "Choose a chain template",
+        name: "Name",
+        nameRequired: "Enter a chain name",
         entryServer: "Entry server: {server}",
         targetHost: "Target host",
         targetHostPlaceholder: "e.g. 10.0.0.8 or example.com",

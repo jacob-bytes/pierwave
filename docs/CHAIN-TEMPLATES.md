@@ -64,13 +64,19 @@ CREATE TABLE package_chain_templates (
 );
 ALTER TABLE chains ADD COLUMN template_id TEXT;
 ALTER TABLE chains ADD COLUMN owner_user_id TEXT;
+-- 迁移 0055：用户停用链时保存的组形态快照（不含端口）；管理员停用的链不写。
+ALTER TABLE chains ADD COLUMN disabled_groups_json TEXT;
 ```
 
 `security` 对应链的 `tunnel_security`（`tls` / `noise`），`transport` 对应
 realm 的跳间加密（`none` / `tls`）；两个维度不要混用。`groups_json` 落库前会
-排序并重新编号为 `0..n-1`。
+排序并重新编号为 `0..n-1`。`disabled_groups_json` 只在用户停用链时写入：
+`{ groups: [{ name, strategy, cert_id, public_port, use_internal_address,
+members: [{ server_id, priority, weight }] }] }`，**不含端口**，启用时重新分配。
 `security` maps to the chain's `tunnel_security`; `transport` maps to realm hop
 TLS. `groups_json` is sorted and renumbered to `0..n-1` before it is stored.
+`disabled_groups_json` is written only when a user disables a chain; it holds the
+topology without ports, so enabling can allocate fresh ones.
 
 ## 一条用户链的创建流程 / Creation flow
 
@@ -202,7 +208,43 @@ Response includes `groups[].servers` with names so the UI needn't re-query.
 成功返回 `{ "chain": {...同上...}, "quota": { "limit": 2, "used": 1 } }`。
 `listen_port` / `engine` / `security` 一律不接受，端口与形态都由后端决定。
 
+`PATCH /api/v1/me/chains/{id}`（迁移 0055）→ `{ "chain": {...}, "quota": {...} }`
+
+```json
+{ "name": "香港出口", "target_host": "10.0.0.9", "target_port": 8443, "enabled": true }
+```
+
+可编辑字段只有 `name` / `target_host` / `target_port` / `enabled`；模板、groups、
+成员与入口端口**不接受**修改（换模板 = 换整条链，入口端口变化会让现有客户端失联，
+请删除后重建）。
+
+- **改目标**：组与入口端口原样保留，只改出口；保存后立即重建期望态并下发。
+- **停用**：把组形态快照到 `chains.disabled_groups_json`，删掉 `chain_groups` /
+  `chain_group_members`（`(server_id, listen_port)` 唯一索引随之释放端口），
+  链记录与配额计数保留；生效中的链停用需要前端二次确认。
+- **启用**：按快照（用户停用）或现有组（管理员停用）重建拓扑，入口组按服务器
+  端口策略**重新分配**端口，可能拿到不同端口；中间组同样重新分配。
+- **配额**：编辑不计入配额，只有删除才释放配额（与现状一致）。
+- **校验**：目标地址/端口范围沿用自助转发（`forward.target_host_required` /
+  `forward.target_port_invalid`）；启用的链目标不可为空；停用的链端口冲突检查
+  直接跳过（它此时不占端口）；别人的链仍返回 404 `me.chain_not_found`。
+- **回滚**：快照、删组、端口重分配、字段更新都在同一个 `BEGIN IMMEDIATE`
+  事务里；任何一步失败都不 COMMIT，旧配置原样可用。
+
 `DELETE /api/v1/me/chains/{id}` → `{ "ok": true }`
+
+English: `PATCH /api/v1/me/chains/{id}` edits only `name` / `target_host` /
+`target_port` / `enabled`. Template, groups, members and the entry port are
+rejected — switching templates means deleting and recreating. A target change
+keeps every entry port and re-renders the desired state immediately. Disabling
+snapshots the topology into `chains.disabled_groups_json` and deletes the groups
+and members, so the unique `(server_id, listen_port)` index really frees the
+ports while the record and quota count stay. Enabling rebuilds the topology from
+the snapshot (or from existing groups for admin-disabled chains) and allocates
+fresh ports, which may differ. Edits never consume quota. Validation reuses the
+self-service forward rules, an enabled chain may not have an empty target, port
+conflict checks are skipped while disabled, and other users' chains are 404.
+All writes share one transaction, so a failure rolls back to the old config.
 
 ### 套餐 / Packages
 
@@ -225,6 +267,9 @@ Response includes `groups[].servers` with names so the UI needn't re-query.
 - `user_chain.create` / `user_chain.delete`：`target` = 链 id，detail 只含
   `chain_id`、`template_id`、`target_host/port`、`engine`、`protocol`、逐组成员
   与端口，**不含用户名/邮箱**。
+- `user_chain.update`：`target` = 链 id，detail 只含 `chain_id`、变化字段名数组
+  （`name` / `target_host` / `target_port` / `enabled`）与 `enabled` 终值，
+  **不记录目标明文**。
 
 ## 前端 / Frontend
 
@@ -233,17 +278,23 @@ Response includes `groups[].servers` with names so the UI needn't re-query.
 - 套餐表单新增「自助建链条数」与「允许的链模板」多选（只列出模板名与路径）。
 - 用户端「我的转发」页追加「我的链路」区块：列表（四态）+ 配额 +
   「选模板 + 填目标」新建 + 删除；入口地址可一键复制。
+- 每行新增「编辑」：对话框只含名称、目标与启用开关；停用要二次确认并说明
+  「会从服务器移除、重新启用时入口端口可能变化」；启用成功提示带新入口地址，
+  改目标成功提示带新目标（入口端口不变，因此不显示）。
 - 管理员链列表对用户链标注 `source = user`（UI 可据 `source` 显示来源）。
 
 ## 未做 / Not in this iteration
 
 - 模板不携带证书，因此不支持跳间 TLS 模板；需要 TLS 的链仍由管理员手建。
-- 用户不能修改已建链路的目标 / 停用；只能删除后重建（配额按删除后重算）。
+- 用户仍不能修改模板 / groups / 成员 / 入口端口（只能删除后重建）；停用中的链
+  在列表里不展示原端口（组已释放），但仍保留记录与配额计数。
 - 模板不绑定单台服务器能力快照：每次建链现查端口策略与 Agent 能力。
 - 套餐删除仍受既有「有用户在用」保护；删除模板会级联清掉套餐授权，
   但不会删除已创建的链。
 
-English: templates cannot carry certificates (no hop TLS templates); users cannot
-edit or disable a chain (delete and recreate instead); server capabilities and port
-policies are re-checked at creation time; deleting a template cascades to package
-grants but never deletes existing chains.
+English: templates cannot carry certificates (no hop TLS templates); users still
+cannot edit the template, groups, members or the entry port (delete and recreate
+instead), and a disabled chain no longer shows its old entry port (its groups are
+released) while its record and quota count stay; server capabilities and port
+policies are re-checked at creation time and again when re-enabling; deleting a
+template cascades to package grants but never deletes existing chains.

@@ -85,6 +85,7 @@ import {
   type UpdateChainInput,
   type UpdateChainTemplateInput,
   type UpdateForwardInput,
+  type UpdateMeChainInput,
   type UpdateNodeInput,
   type UpdateOutboundInput,
   type UpdatePackageInput,
@@ -519,6 +520,27 @@ export function useCreateMyChain() {
     onSuccess: () => {
       // 列表与模板配额都要刷新：新链会让 used 加一，模板列表里的配额快照
       // 也由同一个 used 计算。
+      void queryClient.invalidateQueries({ queryKey: queryKeys.myChains });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.myChainTemplates,
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.servers });
+    },
+  });
+}
+
+export function useUpdateMyChain() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    MeChain,
+    Error,
+    { id: string; input: UpdateMeChainInput }
+  >({
+    mutationFn: async ({ id, input }) =>
+      (await api.me.chains.update(id, input)).chain,
+    onSuccess: () => {
+      // 启用会重新分配端口、停用会让列表显示「已停用」：两处配额快照都要刷新。
       void queryClient.invalidateQueries({ queryKey: queryKeys.myChains });
       void queryClient.invalidateQueries({
         queryKey: queryKeys.myChainTemplates,

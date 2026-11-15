@@ -136,7 +136,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route(
             "/api/v1/me/chains/{id}",
-            axum::routing::delete(routes::chains::me_delete),
+            axum::routing::patch(routes::chains::me_update).delete(routes::chains::me_delete),
         )
         .route(
             "/api/v1/servers/{id}/outbounds",

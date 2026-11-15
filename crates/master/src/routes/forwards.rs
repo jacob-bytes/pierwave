@@ -637,9 +637,23 @@ pub(crate) async fn allocate_user_port(
     target_host: &str,
     target_port: i64,
 ) -> AppResult<i64> {
+    allocate_user_port_excluding(state, server, target_host, target_port, None).await
+}
+
+/// 与 [`allocate_user_port`] 相同，但把「自己这条链」从占用集合里排除。
+///
+/// 重新启用链时用：管理员停用的链可能还留着旧组行，若把旧端口算成占用，
+/// 窄端口策略（例如只允许一个端口）下会误报 `chain.port_allowed_exhausted`。
+pub(crate) async fn allocate_user_port_excluding(
+    state: &AppState,
+    server: &Server,
+    target_host: &str,
+    target_port: i64,
+    exclude_chain_id: Option<&str>,
+) -> AppResult<i64> {
     let policy = PortPolicy::from_server(server);
     let mut occupied =
-        repo::chains::occupied_listen_ports(&state.db.pool, &server.id, None).await?;
+        repo::chains::occupied_listen_ports(&state.db.pool, &server.id, exclude_chain_id).await?;
     occupied.extend(forwards::RESERVED_PORTS.iter().copied());
     if forwards::is_loopback_host(target_host) {
         occupied.insert(target_port);

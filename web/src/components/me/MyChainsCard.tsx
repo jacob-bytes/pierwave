@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import {
   BracesIcon,
   CopyIcon,
+  PencilIcon,
   PlusIcon,
   RefreshCwIcon,
   Trash2Icon,
@@ -45,6 +46,7 @@ import {
 import { useDeleteMyChain, useMyChains, useMyChainTemplates } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
+import { MyChainEditDialog } from "@/components/me/MyChainEditDialog";
 import { MyChainFormDialog } from "@/components/me/MyChainFormDialog";
 
 function ChainQuotaBadge({ quota }: { quota: MeChainQuota }) {
@@ -74,7 +76,15 @@ async function copyAddress(address: string) {
   }
 }
 
-function ChainRow({ chain, onDelete }: { chain: MeChain; onDelete: () => void }) {
+function ChainRow({
+  chain,
+  onEdit,
+  onDelete,
+}: {
+  chain: MeChain;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
   const { t } = useI18n();
   const address = chainEntryLabel(chain);
   const path = chainPath(chain);
@@ -104,6 +114,11 @@ function ChainRow({ chain, onDelete }: { chain: MeChain; onDelete: () => void })
               {chain.template_name}
             </Badge>
           ) : null}
+          {!chain.enabled ? (
+            <Badge variant="secondary" className="font-normal">
+              {t("me.chains.statusDisabled")}
+            </Badge>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span>
@@ -122,6 +137,15 @@ function ChainRow({ chain, onDelete }: { chain: MeChain; onDelete: () => void })
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={t("me.chains.editAria", { address })}
+          title={t("common.edit")}
+          onClick={onEdit}
+        >
+          <PencilIcon className="size-3.5 text-muted-foreground" />
+        </Button>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -149,6 +173,7 @@ export function MyChainsCard() {
   const templates = useMyChainTemplates();
   const remove = useDeleteMyChain();
   const [formOpen, setFormOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<MeChain | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<MeChain | null>(null);
 
   const data = chains.data;
@@ -281,6 +306,7 @@ export function MyChainsCard() {
                 <ChainRow
                   key={chain.id}
                   chain={chain}
+                  onEdit={() => setEditTarget(chain)}
                   onDelete={() => setDeleteTarget(chain)}
                 />
               ))}
@@ -288,6 +314,17 @@ export function MyChainsCard() {
           </div>
         )}
       </CardContent>
+
+      {editTarget ? (
+        <MyChainEditDialog
+          key={editTarget.id}
+          open
+          chain={editTarget}
+          onOpenChange={(next) => {
+            if (!next) setEditTarget(null);
+          }}
+        />
+      ) : null}
 
       {formOpen ? (
         <MyChainFormDialog
