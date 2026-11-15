@@ -33,6 +33,13 @@ pub const NAMES: [&str; 3] = [TCP, UDP, BOTH];
 /// `pierwave_proto::UDP_PROTOCOL_VERSION` 必须保持一致（master 有断言测试）。
 pub const UDP_MIN_PROTOCOL_VERSION: i64 = 16;
 
+/// PROXY protocol v2 透传需要的最低 Agent 线协议版本。
+///
+/// 旧 Agent 不认识 `DesiredForward.proxy_protocol`，serde 会**静默忽略**：
+/// 转发照常工作，但落地拿不到真实来源 IP。与
+/// `pierwave_proto::PROXY_PROTOCOL_VERSION` 必须保持一致（master 有断言测试）。
+pub const PROXY_PROTOCOL_MIN_PROTOCOL_VERSION: i64 = 28;
+
 /// 新建转发/链时没填 `protocol` 的默认值。
 pub const DEFAULT: &str = TCP;
 
@@ -209,6 +216,127 @@ pub fn ensure_chain_agent_supported(
     ))
 }
 
+/// 该 Agent 是否支持 PROXY protocol v2 透传。
+///
+/// 未知版本（`None` / `0`）一律按不支持处理；该能力是**显式开启**的，
+/// 静默失效（开关打开但落地收不到 IP）比拒绝保存更危险。
+pub fn agent_supports_proxy_protocol(version: Option<i64>) -> bool {
+    version.is_some_and(|version| version >= PROXY_PROTOCOL_MIN_PROTOCOL_VERSION)
+}
+
+/// 单跳转发保存路径的 PROXY protocol v2 门禁。
+///
+/// 三条硬约束，任一不满足都返回 400，绝不把 `proxy_protocol = true` 写进库：
+///
+/// * 只支持 TCP：`udp` / `both` 的 UDP 数据报没有「首包前插头」的位置；
+/// * 只有 native 引擎能在用户态注入头（realm / nftables / tunnel 都不行）；
+/// * Agent 协议必须是 28+，否则旧 Agent 会静默忽略该字段。
+pub fn ensure_forward_proxy_protocol(
+    enabled: bool,
+    protocol_name: &str,
+    engine_name: &str,
+    version: Option<i64>,
+    server: &str,
+) -> Result<(), DomainError> {
+    if !enabled {
+        return Ok(());
+    }
+    ensure_proxy_protocol_tcp(protocol_name, "forward.proxy_protocol_requires_tcp", "转发")?;
+    ensure_proxy_protocol_native(
+        engine_name,
+        "forward.proxy_protocol_requires_native",
+        "转发",
+    )?;
+    if agent_supports_proxy_protocol(version) {
+        return Ok(());
+    }
+    let current = version.filter(|version| *version > 0).unwrap_or(0);
+    Err(DomainError::with_params(
+        "forward.proxy_protocol_requires_agent_upgrade",
+        json!({
+            "server": server,
+            "required": PROXY_PROTOCOL_MIN_PROTOCOL_VERSION,
+            "version": current,
+        }),
+        format!(
+            "服务器「{server}」的 Agent 版本过旧（协议版本 {current}，需要 ≥ {PROXY_PROTOCOL_MIN_PROTOCOL_VERSION}），PROXY protocol v2 需要先升级 Agent / server \"{server}\" runs an agent that is too old for PROXY protocol v2 (protocol {current}, requires >= {PROXY_PROTOCOL_MIN_PROTOCOL_VERSION}); upgrade the agent first"
+        ),
+    ))
+}
+
+/// 链保存路径的 PROXY protocol v2 门禁。
+///
+/// 只有**最后一跳**真正连链目标，因此只要求最后一跳成员的 Agent 升级；
+/// 中间跳不写头，旧 Agent 也不会受影响。协议 / 引擎约束与单跳转发一致。
+pub fn ensure_chain_proxy_protocol(
+    enabled: bool,
+    protocol_name: &str,
+    engine_name: &str,
+    last_hop: &[(&str, Option<i64>)],
+) -> Result<(), DomainError> {
+    if !enabled {
+        return Ok(());
+    }
+    ensure_proxy_protocol_tcp(protocol_name, "chain.proxy_protocol_requires_tcp", "链")?;
+    ensure_proxy_protocol_native(engine_name, "chain.proxy_protocol_requires_native", "链")?;
+    let mut stale: Vec<&str> = Vec::new();
+    for (name, version) in last_hop {
+        if !agent_supports_proxy_protocol(*version) && !stale.contains(name) {
+            stale.push(name);
+        }
+    }
+    if stale.is_empty() {
+        return Ok(());
+    }
+    Err(DomainError::with_params(
+        "chain.proxy_protocol_requires_agent_upgrade",
+        json!({
+            "server": stale.join("、"),
+            "servers": stale,
+            "required": PROXY_PROTOCOL_MIN_PROTOCOL_VERSION,
+        }),
+        format!(
+            "最后一跳的 Agent 版本过旧（需要协议版本 ≥ {PROXY_PROTOCOL_MIN_PROTOCOL_VERSION}），无法开启 PROXY protocol v2：{} / the final hop runs agents too old for PROXY protocol v2 (protocol >= {PROXY_PROTOCOL_MIN_PROTOCOL_VERSION} required): {}",
+            stale.join("、"),
+            stale.join(", ")
+        ),
+    ))
+}
+
+fn ensure_proxy_protocol_tcp(
+    protocol_name: &str,
+    code: &'static str,
+    label: &str,
+) -> Result<(), DomainError> {
+    if !allows_udp(protocol_name) {
+        return Ok(());
+    }
+    Err(DomainError::with_params(
+        code,
+        json!({ "protocol": from_db(protocol_name), "proxy_protocol": true }),
+        format!(
+            "{label}的 PROXY protocol v2 只对 TCP 生效，不能和 UDP 同时开启 / PROXY protocol v2 for {label} only works over TCP and cannot be combined with UDP"
+        ),
+    ))
+}
+
+fn ensure_proxy_protocol_native(
+    engine_name: &str,
+    code: &'static str,
+    label: &str,
+) -> Result<(), DomainError> {
+    if engine::is_native(engine_name) {
+        return Ok(());
+    }
+    Err(DomainError::with_params(
+        code,
+        json!({ "engine": engine::from_db(engine_name) }),
+        format!(
+            "{label}只有在 native 引擎下才能写 PROXY protocol v2 头（realm / nftables / tunnel 无法注入首包） / PROXY protocol v2 for {label} requires the native engine (realm / nftables / tunnel cannot inject the header)"
+        ),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -354,5 +482,80 @@ mod tests {
             "{}",
             error.message
         );
+    }
+
+    #[test]
+    fn proxy_protocol_requires_agent_28() {
+        assert_eq!(PROXY_PROTOCOL_MIN_PROTOCOL_VERSION, 28);
+        assert!(!agent_supports_proxy_protocol(None), "未知版本按不支持");
+        assert!(!agent_supports_proxy_protocol(Some(0)));
+        assert!(!agent_supports_proxy_protocol(Some(27)), "27 是旧 Agent");
+        assert!(agent_supports_proxy_protocol(Some(28)));
+        assert!(agent_supports_proxy_protocol(Some(30)));
+
+        let error = ensure_forward_proxy_protocol(true, TCP, "native", Some(27), "hk-1")
+            .expect_err("旧 Agent 必须拒绝");
+        assert_eq!(error.code, "forward.proxy_protocol_requires_agent_upgrade");
+        assert_eq!(error.params["server"], "hk-1");
+        assert_eq!(error.params["required"], 28);
+        assert_eq!(error.params["version"], 27);
+        assert!(error.message.contains("升级 Agent"), "{}", error.message);
+
+        assert!(ensure_forward_proxy_protocol(false, TCP, "native", Some(27), "hk-1").is_ok());
+        assert!(ensure_forward_proxy_protocol(true, TCP, "native", Some(28), "hk-1").is_ok());
+    }
+
+    #[test]
+    fn proxy_protocol_rejects_udp_and_non_native_engines() {
+        let error = ensure_forward_proxy_protocol(true, UDP, "native", Some(28), "hk-1")
+            .expect_err("仅 UDP 不能开 PROXY protocol");
+        assert_eq!(error.code, "forward.proxy_protocol_requires_tcp");
+        assert_eq!(error.params["protocol"], "udp");
+
+        let error = ensure_forward_proxy_protocol(true, BOTH, "native", Some(28), "hk-1")
+            .expect_err("both 也不能开 PROXY protocol");
+        assert_eq!(error.code, "forward.proxy_protocol_requires_tcp");
+
+        for engine_name in [engine::REALM, engine::NFTABLES, engine::TUNNEL] {
+            let error = ensure_forward_proxy_protocol(true, TCP, engine_name, Some(28), "hk-1")
+                .expect_err("非 native 引擎不能开 PROXY protocol");
+            assert_eq!(
+                error.code, "forward.proxy_protocol_requires_native",
+                "{engine_name}"
+            );
+            assert_eq!(error.params["engine"], engine_name);
+        }
+        assert!(ensure_forward_proxy_protocol(true, TCP, "native", Some(28), "hk-1").is_ok());
+    }
+
+    #[test]
+    fn chain_proxy_protocol_only_checks_the_last_hop() {
+        // 最后一跳新 Agent：通过；中间跳旧 Agent 不影响。
+        // 调用方只传最后一跳的版本：中间跳旧 Agent 不参与判定。
+        assert!(
+            ensure_chain_proxy_protocol(true, TCP, "native", &[("exit-new", Some(28))]).is_ok(),
+            "只有最后一跳需要支持 v2"
+        );
+
+        let error = ensure_chain_proxy_protocol(
+            true,
+            TCP,
+            "native",
+            &[("exit-a", Some(27)), ("exit-b", None)],
+        )
+        .expect_err("最后一跳过旧必须拒绝");
+        assert_eq!(error.code, "chain.proxy_protocol_requires_agent_upgrade");
+        assert_eq!(error.params["servers"], json!(["exit-a", "exit-b"]));
+        assert_eq!(error.params["server"], "exit-a、exit-b");
+        assert_eq!(error.params["required"], 28);
+
+        let error = ensure_chain_proxy_protocol(true, BOTH, "realm", &[("exit", Some(28))])
+            .expect_err("UDP + realm 同样拒绝");
+        assert_eq!(error.code, "chain.proxy_protocol_requires_tcp");
+
+        let error = ensure_chain_proxy_protocol(true, TCP, "realm", &[("exit", Some(28))])
+            .expect_err("realm 不能注入 v2 头");
+        assert_eq!(error.code, "chain.proxy_protocol_requires_native");
+        assert!(ensure_chain_proxy_protocol(false, UDP, "realm", &[]).is_ok());
     }
 }

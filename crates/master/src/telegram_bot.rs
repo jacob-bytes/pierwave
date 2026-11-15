@@ -1061,6 +1061,7 @@ mod tests {
                         weight: 1,
                     }],
                 }],
+                proxy_protocol: false,
             },
         )
         .await

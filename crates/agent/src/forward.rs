@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use pierwave_proto::{DesiredForward, ForwardStatus, ForwardStrategy, ForwardTarget, TargetProbe};
-use tokio::io::copy_bidirectional;
+use tokio::io::{copy_bidirectional, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -313,6 +313,11 @@ struct ForwardRuntime {
     legacy_single: bool,
     /// 这条规则同时监听 UDP。UDP 规则不做 TCP 目标探测，TCP 连接也不做健康门控。
     udp: bool,
+    /// `true` = 连上目标后、转发首字节前写一个 PROXY protocol v2 头。
+    ///
+    /// 只对 TCP 有意义；UDP 转发没有「首包前」这个位置，主控已在保存时拒绝
+    /// 该组合，这里不会再对 UDP 数据报做任何改写。
+    proxy_protocol: bool,
     strategy: ForwardStrategy,
     selector: Arc<Mutex<Selector>>,
     status: ForwardStatusHandle,
@@ -596,6 +601,15 @@ impl ForwardSupervisor {
             let protocol = spec.effective_protocol();
             let wants_tcp = protocol.allows_tcp();
             let wants_udp = protocol.allows_udp();
+            // 主控写路径已拒绝 UDP + PROXY protocol；这里再显式告警一次，
+            // 避免手工构造的期望态看起来「生效了」，实际 UDP 侧拿不到真实 IP。
+            if spec.proxy_protocol && wants_udp {
+                tracing::warn!(
+                    id = %spec.id,
+                    protocol = protocol.as_str(),
+                    "PROXY protocol v2 只对 TCP 生效：UDP 部分不会收到 PROXY 头"
+                );
+            }
             let bind_host = self.bind_host_for(spec);
             // `targets` 为空 = 旧主控的单目标兼容格式，归一化成一个成员。
             // 这样 accept 循环只有一条「先选、再连」的路径。
@@ -699,6 +713,7 @@ impl ForwardSupervisor {
                 targets: targets.clone(),
                 legacy_single,
                 udp: wants_udp,
+                proxy_protocol: spec.proxy_protocol,
                 strategy: spec.strategy,
                 // 权重与活跃连接计数按这条规则的候选目标初始化；
                 // 规则重建时连同 Selector 一起丢弃，旧计数随守卫释放。
@@ -1017,7 +1032,7 @@ async fn handle_connection(runtime: ForwardRuntime, client: TcpStream, peer: Soc
         return;
     };
     let target_label = format!("{}:{}", target.host, target.port);
-    match proxy(client, &target.host, target.port).await {
+    match proxy(client, &target.host, target.port, runtime.proxy_protocol).await {
         Ok((up, down)) => {
             // 累计字节：up = 客户端 → 目标（入方向），down = 目标 → 客户端。
             // 心跳只读原子量，不阻塞连接收尾。
@@ -1052,8 +1067,17 @@ async fn handle_connection(runtime: ForwardRuntime, client: TcpStream, peer: Soc
     }
 }
 
-/// 一条连接：连目标 → 双向拷贝；任一方向结束/出错都由 `copy_bidirectional` 收尾。
-async fn proxy(client: TcpStream, target_host: &str, target_port: i64) -> io::Result<(u64, u64)> {
+/// 一条连接：连目标 →（可选）写 PROXY v2 头 → 双向拷贝。
+///
+/// 头只在 `proxy_protocol = true` 时写一次，位置严格在目标连接建立之后、
+/// 任何客户端载荷之前；关闭时一个字节也不多发，报文与升级前完全一致。
+/// 任一方向结束/出错都由 `copy_bidirectional` 收尾。
+async fn proxy(
+    client: TcpStream,
+    target_host: &str,
+    target_port: i64,
+    proxy_protocol: bool,
+) -> io::Result<(u64, u64)> {
     let mut client = client;
     let port = u16::try_from(target_port).map_err(|_| {
         io::Error::new(
@@ -1073,6 +1097,15 @@ async fn proxy(client: TcpStream, target_host: &str, target_port: i64) -> io::Re
             ))
         }
     };
+    if proxy_protocol {
+        // 源 = 入口连接的 peer；目的 = 实际连上的目标（域名此时已解析成 IP）。
+        let source = client.peer_addr()?;
+        let destination = upstream.peer_addr()?;
+        let header = crate::proxy_protocol::v2_header(source, destination)?;
+        // 只写一次；写失败说明目标已断开，交给上层按连接失败计数。
+        upstream.write_all(&header).await?;
+        upstream.flush().await?;
+    }
     copy_bidirectional(&mut client, &mut upstream).await
 }
 
@@ -1099,6 +1132,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            proxy_protocol: false,
             listen_host: None,
             tunnel: None,
         }
@@ -1134,6 +1168,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            proxy_protocol: false,
             listen_host: None,
             tunnel: None,
         }
@@ -2445,5 +2480,76 @@ mod tests {
             status[0].error
         );
         supervisor.apply(&[]).await;
+    }
+
+    /// 连上目标后、转发首字节前，只写一次 PROXY v2 头；客户端载荷紧跟其后。
+    #[tokio::test]
+    async fn proxy_protocol_header_is_written_once_before_payload() {
+        // 目标端：先读固定长度的 v2 头，再读客户端载荷；中间不再出现第二个头。
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target_addr = target.local_addr().unwrap();
+        let target_task = tokio::spawn(async move {
+            let (mut upstream, _) = target.accept().await.unwrap();
+            let mut header = vec![0u8; 28];
+            upstream.read_exact(&mut header).await.unwrap();
+            let mut payload = [0u8; 5];
+            upstream.read_exact(&mut payload).await.unwrap();
+            (header, payload)
+        });
+
+        // 模拟入口侧连接：gateway 的 accept 端交给 proxy，测试持有另一端写载荷。
+        let gateway = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let gateway_addr = gateway.local_addr().unwrap();
+        let mut client_end = TcpStream::connect(gateway_addr).await.unwrap();
+        let (accepted, _) = gateway.accept().await.unwrap();
+        let proxy_task = tokio::spawn(async move {
+            proxy(accepted, "127.0.0.1", i64::from(target_addr.port()), true).await
+        });
+
+        client_end.write_all(b"hello").await.unwrap();
+        let (header, payload) = tokio::time::timeout(Duration::from_secs(3), target_task)
+            .await
+            .expect("目标端必须收到头与载荷")
+            .unwrap();
+        assert_eq!(&header[..12], b"\r\n\r\n\0\r\nQUIT\n", "必须是 v2 签名");
+        assert_eq!(header[12], 0x21, "version 2 + PROXY");
+        assert_eq!(header[13], 0x11, "IPv4 + TCP");
+        assert_eq!(&payload, b"hello", "载荷必须紧跟唯一一个头");
+        // 源地址是入口连接的 peer（127.0.0.1），目的地址是目标。
+        assert_eq!(&header[16..20], &[127, 0, 0, 1]);
+
+        drop(client_end);
+        let _ = tokio::time::timeout(Duration::from_secs(3), proxy_task).await;
+    }
+
+    /// 关闭开关时一个头字节也不发：目标收到的第一个字节就是客户端载荷。
+    #[tokio::test]
+    async fn proxy_protocol_off_sends_no_header() {
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target_addr = target.local_addr().unwrap();
+        let target_task = tokio::spawn(async move {
+            let (mut upstream, _) = target.accept().await.unwrap();
+            let mut first = [0u8; 5];
+            upstream.read_exact(&mut first).await.unwrap();
+            first
+        });
+
+        let gateway = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let gateway_addr = gateway.local_addr().unwrap();
+        let mut client_end = TcpStream::connect(gateway_addr).await.unwrap();
+        let (accepted, _) = gateway.accept().await.unwrap();
+        let proxy_task = tokio::spawn(async move {
+            proxy(accepted, "127.0.0.1", i64::from(target_addr.port()), false).await
+        });
+
+        client_end.write_all(b"hello").await.unwrap();
+        let first = tokio::time::timeout(Duration::from_secs(3), target_task)
+            .await
+            .expect("目标端必须收到载荷")
+            .unwrap();
+        assert_eq!(&first, b"hello", "关闭时不能多发任何头字节");
+
+        drop(client_end);
+        let _ = tokio::time::timeout(Duration::from_secs(3), proxy_task).await;
     }
 }

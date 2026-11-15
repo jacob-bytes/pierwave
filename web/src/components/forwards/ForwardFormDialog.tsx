@@ -33,6 +33,10 @@ import {
   normalizeProtocol,
   protocolAvailable,
 } from "@/lib/protocolMode";
+import {
+  normalizeProxyProtocol,
+  proxyProtocolAvailable,
+} from "@/lib/proxyProtocol";
 import { useCreateForward, useUpdateForward } from "@/lib/queries";
 import { forwardFormSchema, type ForwardFormValues } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
@@ -81,11 +85,16 @@ export function ForwardFormDialog({
       engine: normalizeForwardEngine(forward?.engine),
       // 旧数据 / 旧后端没有 protocol：旧 udp:true 按 both 回填，否则 tcp。
       protocol: normalizeProtocol(forward?.protocol, forward?.udp),
+      proxy_protocol: Boolean(forward?.proxy_protocol),
     },
   });
   const selectedEngine = form.watch("engine");
   const selectedProtocol = form.watch("protocol");
   const availability = protocolAvailable(selectedEngine);
+  const proxyAvailable = proxyProtocolAvailable(
+    selectedProtocol,
+    selectedEngine,
+  );
   // 静态事实：这台服务器明确没装 realm 时，保存前就告诉用户；
   // `null` / 缺失（旧 Agent）不提示，避免误报。不阻止保存。
   const realmUnavailable = realmMissingOnServer(selectedEngine, server);
@@ -109,6 +118,16 @@ export function ForwardFormDialog({
     form,
   ]);
 
+  // 协议 / 引擎切到不再支持 PROXY v2 时立即收回开关，避免提交一个必然 400 的组合。
+  useEffect(() => {
+    if (proxyAvailable || !form.getValues("proxy_protocol")) return;
+    form.setValue("proxy_protocol", false, {
+      shouldDirty: true,
+      shouldTouch: true,
+      shouldValidate: form.formState.isSubmitted,
+    });
+  }, [proxyAvailable, form]);
+
   // 切换语言后重新校验，让已经显示的错误跟着换语言。
   useEffect(() => {
     if (form.formState.isSubmitted) void form.trigger();
@@ -130,6 +149,11 @@ export function ForwardFormDialog({
       protocol: protocolAvailable(values.engine)[values.protocol]
         ? values.protocol
         : DEFAULT_PROTOCOL,
+      proxy_protocol: normalizeProxyProtocol(
+        values.proxy_protocol,
+        values.protocol,
+        values.engine,
+      ),
     };
 
     try {
@@ -398,6 +422,33 @@ export function ForwardFormDialog({
                 );
               })}
             </RadioGroup>
+          </FormField>
+
+          <FormField
+            label={t("common.proxyProtocol.label")}
+            htmlFor="forward-proxy-protocol"
+            hint={t("common.proxyProtocol.hint")}
+            error={form.formState.errors.proxy_protocol?.message}
+          >
+            <div className="flex items-center gap-2.5">
+              <Controller
+                control={form.control}
+                name="proxy_protocol"
+                render={({ field }) => (
+                  <Switch
+                    id="forward-proxy-protocol"
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={pending || !proxyAvailable}
+                  />
+                )}
+              />
+              <span className="text-xs text-muted-foreground">
+                {form.watch("proxy_protocol")
+                  ? t("common.enabled")
+                  : t("common.disabled")}
+              </span>
+            </div>
           </FormField>
 
           <FormField

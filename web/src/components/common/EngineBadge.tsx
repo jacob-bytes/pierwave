@@ -2,6 +2,7 @@ import { LockIcon, TriangleAlertIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { engineMeta } from "@/lib/engines";
 import { normalizeProtocol, protocolLabelKey } from "@/lib/protocolMode";
+import { proxyProtocolBadgeVisible } from "@/lib/proxyProtocol";
 import {
   normalizeTunnelSecurity,
   securityBadgeKey,
@@ -139,6 +140,37 @@ export function ProtocolBadge({
       )}
     >
       {t(protocolLabelKey(mode))}
+    </Badge>
+  );
+}
+
+/**
+ * PROXY protocol v2 标记：只在后端明确 `proxy_protocol = true` 时显示。
+ *
+ * 它代表「落地能看到真实来源 IP」；旧后端缺失 / false 都不显示，不占位。
+ */
+export function ProxyProtocolBadge({
+  value,
+  className,
+}: {
+  value: unknown;
+  className?: string;
+}) {
+  const { t } = useI18n();
+  if (!proxyProtocolBadgeVisible(value)) return null;
+
+  return (
+    <Badge
+      variant="outline"
+      title={t("common.proxyProtocol.badgeTitle")}
+      data-proxy-protocol="true"
+      className={cn(
+        "h-5 px-1.5 type-micro font-normal whitespace-nowrap",
+        ENGINE_TONES.realm,
+        className,
+      )}
+    >
+      {t("common.proxyProtocol.badge")}
     </Badge>
   );
 }

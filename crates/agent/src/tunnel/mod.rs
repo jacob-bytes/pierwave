@@ -2328,6 +2328,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            proxy_protocol: false,
             listen_host: None,
             tunnel: Some(tunnel_spec(
                 TunnelRole::Listener,
@@ -2352,6 +2353,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            proxy_protocol: false,
             listen_host: None,
             tunnel: Some(tunnel_spec(
                 TunnelRole::Dialer,

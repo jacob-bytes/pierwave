@@ -88,6 +88,10 @@ import {
   protocolAvailable,
 } from "@/lib/protocolMode";
 import {
+  normalizeProxyProtocol,
+  proxyProtocolAvailable,
+} from "@/lib/proxyProtocol";
+import {
   useAllNodes,
   useCertificates,
   useCreateChain,
@@ -1075,6 +1079,8 @@ export function ChainFormDialog({
       engine: normalizeEngine(chain?.engine),
       // 旧数据 / 旧后端没有 protocol：旧 udp:true 按 both 回填，否则 tcp。
       protocol: normalizeProtocol(chain?.protocol, chain?.udp),
+      // 只作用于最后一跳；旧后端没有该字段时按关闭回填。
+      proxy_protocol: Boolean(chain?.proxy_protocol),
       // 旧数据 / 旧后端没有 transport：按契约缺省 none 回填。
       transport: normalizeTransport(chain?.transport),
       // 旧数据 / 旧后端没有 tunnel_security：按契约缺省 tls 回填。
@@ -1116,6 +1122,10 @@ export function ChainFormDialog({
   const canTls = tlsAvailable(selectedEngine, watchedGroups.length);
   const selectedProtocol = form.watch("protocol");
   const availability = protocolAvailable(selectedEngine, selectedTransport);
+  const proxyAvailable = proxyProtocolAvailable(
+    selectedProtocol,
+    selectedEngine,
+  );
 
   // 引擎 / 加密方式改动可能让当前协议失效：
   // realm 不接受仅 UDP；TLS 只走 TCP（UDP 与 both 都不行）。
@@ -1134,6 +1144,16 @@ export function ChainFormDialog({
     selectedProtocol,
     form,
   ]);
+
+  // 协议 / 引擎切到不再支持 PROXY v2 时立即收回开关。
+  useEffect(() => {
+    if (proxyAvailable || !form.getValues("proxy_protocol")) return;
+    form.setValue("proxy_protocol", false, {
+      shouldDirty: true,
+      shouldTouch: true,
+      shouldValidate: form.formState.isSubmitted,
+    });
+  }, [proxyAvailable, form]);
 
   // 已选成员指向的服务器（按当前服务器列表解析；已被删掉的跳过）。
   const selectedServers = useMemo(() => {
@@ -1210,6 +1230,11 @@ export function ChainFormDialog({
       ]
         ? values.protocol
         : DEFAULT_PROTOCOL,
+      proxy_protocol: normalizeProxyProtocol(
+        values.proxy_protocol,
+        values.protocol,
+        values.engine,
+      ),
       // 入口组照常发送 listen_port；中间跳整个去掉，交给后端从端口池分配。
       groups: stripAutoPorts(
         values.groups.map((group, index) => ({
@@ -1796,6 +1821,33 @@ export function ChainFormDialog({
                 </span>
               )}
             />
+          </FormField>
+
+          <FormField
+            label={t("common.proxyProtocol.label")}
+            htmlFor="chain-proxy-protocol"
+            hint={t("common.proxyProtocol.chainHint")}
+            error={form.formState.errors.proxy_protocol?.message}
+          >
+            <div className="flex items-center gap-2.5">
+              <Controller
+                control={form.control}
+                name="proxy_protocol"
+                render={({ field }) => (
+                  <Switch
+                    id="chain-proxy-protocol"
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={pending || !proxyAvailable}
+                  />
+                )}
+              />
+              <span className="text-xs text-muted-foreground">
+                {form.watch("proxy_protocol")
+                  ? t("common.enabled")
+                  : t("common.disabled")}
+              </span>
+            </div>
           </FormField>
 
           <FormField

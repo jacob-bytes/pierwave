@@ -185,6 +185,20 @@ pub async fn list(
             item.blocked_code = Some(error.code.to_string());
             item.blocked_reason = Some(error.message);
         }
+        // 历史 PROXY protocol 配置遇到旧 Agent / 非 TCP / 非 native：同样 blocked，
+        // 绝不在列表里假装它还能透传客户端 IP。
+        if item.blocked_code.is_none() && item.forward.proxy_protocol {
+            if let Err(error) = protocol::ensure_forward_proxy_protocol(
+                true,
+                &item.forward.protocol,
+                &item.forward.engine,
+                server.protocol_version,
+                &server.name,
+            ) {
+                item.blocked_code = Some(error.code.to_string());
+                item.blocked_reason = Some(error.message);
+            }
+        }
     }
     Ok(Json(json!({ "items": items })))
 }
@@ -281,6 +295,11 @@ pub struct CreateForward {
     /// 旧字段：是否同时监听同端口的 UDP；仅在没传 `protocol` 时生效。
     #[serde(default)]
     pub udp: bool,
+    /// 是否在连上目标后先写 PROXY protocol v2 头（协议 28）。
+    ///
+    /// 只允许 TCP + native 引擎；旧 Agent 会静默忽略该字段，保存时直接 400。
+    #[serde(default)]
+    pub proxy_protocol: bool,
 }
 
 fn default_enabled() -> bool {
@@ -316,6 +335,15 @@ pub async fn create(
         None => protocol::from_legacy_udp(req.udp).to_string(),
     };
     protocol::ensure_realm_supported(&protocol, &engine)?;
+    // PROXY protocol v2 只对 TCP / native 有实现；旧 Agent 会静默忽略该字段。
+    // 先于「仅 UDP」门禁校验，让 proxy + UDP 的冲突返回更具体的错误码。
+    protocol::ensure_forward_proxy_protocol(
+        req.proxy_protocol,
+        &protocol,
+        &engine,
+        server.protocol_version,
+        &server.name,
+    )?;
     // 仅 UDP 从协议 16 开始支持；旧 Agent 会忽略 protocol 只监听 TCP，必须 400。
     protocol::ensure_forward_agent_supported(&protocol, server.protocol_version, &server.name)?;
     ensure_nftables_supported(&server, &engine)?;
@@ -334,6 +362,7 @@ pub async fn create(
             count_traffic: req.count_traffic,
             engine,
             protocol,
+            proxy_protocol: req.proxy_protocol,
         },
         None,
         None,
@@ -361,6 +390,7 @@ pub async fn create(
             "engine": &forward.engine,
             "protocol": &forward.protocol,
             "udp": forward.udp,
+            "proxy_protocol": forward.proxy_protocol,
         }),
     )
     .await;
@@ -387,6 +417,8 @@ pub struct PatchForward {
     /// 旧字段：`None` = 不改；`Some(true)` → `both`、`Some(false)` → `tcp`。
     /// 同时传 `protocol` 时以 `protocol` 为准。
     pub udp: Option<bool>,
+    /// PROXY protocol v2 开关；`None` = 不改。
+    pub proxy_protocol: Option<bool>,
 }
 
 pub async fn update(
@@ -406,11 +438,12 @@ pub async fn update(
         && req.engine.is_none()
         && req.protocol.is_none()
         && req.udp.is_none()
+        && req.proxy_protocol.is_none()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 name / listen_port / target_host / target_port / enabled / count_traffic / engine / protocol / udp 之一",
+            "至少需要提供 name / listen_port / target_host / target_port / enabled / count_traffic / engine / protocol / udp / proxy_protocol 之一",
         ));
     }
 
@@ -438,6 +471,20 @@ pub async fn update(
     let final_engine = engine.as_deref().unwrap_or(&existing.engine);
     let final_protocol = protocol.as_deref().unwrap_or(&existing.protocol);
     protocol::ensure_realm_supported(final_protocol, final_engine)?;
+    // 只有请求真正改动 PROXY 开关（或同时改协议/引擎）时才复核；历史开关
+    // 打开但 Agent 较旧的规则仍允许改名/停用，渲染层按同一规则跳过。
+    let final_proxy_protocol = req.proxy_protocol.unwrap_or(existing.proxy_protocol);
+    if final_proxy_protocol
+        && (req.proxy_protocol.is_some() || protocol.is_some() || engine.is_some())
+    {
+        protocol::ensure_forward_proxy_protocol(
+            true,
+            final_protocol,
+            final_engine,
+            server.protocol_version,
+            &server.name,
+        )?;
+    }
     // 只有请求明确把协议改成 udp 时才要求新版 Agent；历史 udp 规则仍允许
     // 改名 / 停用 / 删除，渲染层按同一规则跳过而不是把用户锁死。
     if protocol.is_some() {
@@ -483,6 +530,7 @@ pub async fn update(
             count_traffic: req.count_traffic,
             engine,
             protocol,
+            proxy_protocol: req.proxy_protocol,
         },
     )
     .await
@@ -525,6 +573,11 @@ pub async fn update(
             json!(&forward.protocol),
         ),
         ("udp", json!(existing.udp), json!(forward.udp)),
+        (
+            "proxy_protocol",
+            json!(existing.proxy_protocol),
+            json!(forward.proxy_protocol),
+        ),
     ]);
     crate::audit::record(
         &state,
@@ -777,6 +830,7 @@ pub async fn me_create(
             count_traffic: true,
             engine: engine::DEFAULT.to_string(),
             protocol,
+            proxy_protocol: false,
         },
         Some(&user.0.id),
         Some(allowance.limit),
@@ -923,6 +977,11 @@ mod tests {
             protocol::UDP_MIN_PROTOCOL_VERSION as u32,
             pierwave_proto::UDP_PROTOCOL_VERSION,
             "领域层门禁与线协议常量必须一致"
+        );
+        assert_eq!(
+            protocol::PROXY_PROTOCOL_MIN_PROTOCOL_VERSION as u32,
+            pierwave_proto::PROXY_PROTOCOL_VERSION,
+            "PROXY protocol 门禁与线协议常量必须一致"
         );
     }
 
@@ -3149,6 +3208,7 @@ mod tests {
                 count_traffic: true,
                 engine: "native".into(),
                 protocol: "tcp".into(),
+                proxy_protocol: false,
             },
             owner,
             10,
@@ -3358,5 +3418,96 @@ mod tests {
         assert_eq!(bob_row["user_name"], "已删除");
         assert_eq!(bob_row["forward_deleted"], true);
         assert_eq!(bob_row["user_deleted"], true);
+    }
+
+    /// PROXY protocol v2：旧 Agent / UDP 组合 / 非 native 引擎都必须拒绝保存；
+    /// 新 Agent 保存后开关原样进期望态；历史配置遇到旧 Agent 进列表 blocked，
+    /// 且绝不把开关静默改回 false。
+    #[tokio::test]
+    async fn proxy_protocol_requires_tcp_native_and_agent_28() {
+        let (app, state, cookie, server_id) = setup().await;
+        let uri = format!("/api/v1/servers/{server_id}/forwards");
+        let mut subscription = state.hub.subscribe(&server_id);
+
+        async fn set_version(state: &AppState, server_id: &str, version: i64) {
+            repo::servers::update_health(
+                &state.db.pool,
+                server_id,
+                "0.9.0",
+                &repo::servers::HealthSnapshot {
+                    protocol_version: Some(version),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        // 旧 Agent（27）：保存被拒，错误码必须是明确的「需要升级 Agent」。
+        set_version(&state, &server_id, 27).await;
+        let mut body = forward_body(8443);
+        body["proxy_protocol"] = json!(true);
+        let (status, body) = request(&app, Some(&cookie), Method::POST, &uri, Some(body)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(
+            body["code"], "forward.proxy_protocol_requires_agent_upgrade",
+            "旧 Agent 必须拒绝而不是静默忽略"
+        );
+        assert_eq!(body["params"]["required"], 28);
+        assert_eq!(body["params"]["version"], 27);
+
+        // 旧 Agent + UDP 组合：协议冲突比「升级 Agent」更具体，必须优先返回。
+        let mut old_both = forward_body(8446);
+        old_both["proxy_protocol"] = json!(true);
+        old_both["protocol"] = json!("both");
+        let (status, body) = request(&app, Some(&cookie), Method::POST, &uri, Some(old_both)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "forward.proxy_protocol_requires_tcp");
+
+        // 新 Agent（28）：UDP 组合与非 native 引擎仍被拒绝。
+        set_version(&state, &server_id, 28).await;
+        let mut both = forward_body(8444);
+        both["proxy_protocol"] = json!(true);
+        both["protocol"] = json!("both");
+        let (status, body) = request(&app, Some(&cookie), Method::POST, &uri, Some(both)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "forward.proxy_protocol_requires_tcp");
+
+        let mut realm = forward_body(8445);
+        realm["proxy_protocol"] = json!(true);
+        realm["engine"] = json!("realm");
+        let (status, body) = request(&app, Some(&cookie), Method::POST, &uri, Some(realm)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "forward.proxy_protocol_requires_native");
+
+        // TCP + native：正常保存，并在期望态里带 proxy_protocol=true。
+        let mut good = forward_body(9443);
+        good["proxy_protocol"] = json!(true);
+        let (status, body) = request(&app, Some(&cookie), Method::POST, &uri, Some(good)).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["forward"]["proxy_protocol"], true);
+        let id = body["forward"]["id"].as_str().unwrap().to_string();
+        let sent = next_forwards(&mut subscription.receiver).await;
+        let desired = sent
+            .iter()
+            .find(|forward| forward.id == pierwave_domain::forwards::desired_id(&id))
+            .expect("开启 PROXY protocol 的规则必须下发");
+        assert!(desired.proxy_protocol);
+
+        // 历史配置遇到旧 Agent：列表 blocked，但开关仍是 true（不静默降级）。
+        set_version(&state, &server_id, 27).await;
+        let (status, body) = request(&app, Some(&cookie), Method::GET, &uri, None).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let item = body["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == id.as_str())
+            .expect("规则必须仍在列表里");
+        assert_eq!(
+            item["blocked_code"], "forward.proxy_protocol_requires_agent_upgrade",
+            "历史配置必须标 blocked，不能假装能透传"
+        );
+        assert_eq!(item["proxy_protocol"], true, "开关不能被静默改回 false");
     }
 }

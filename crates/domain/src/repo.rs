@@ -3177,6 +3177,8 @@ pub mod forwards {
         ///
         /// 旧的 `udp` 列由仓储按它同步写成镜像值，只用于兼容旧 API/旧 Agent。
         pub protocol: String,
+        /// 是否在连上目标后先写 PROXY protocol v2 头（协议 28）。
+        pub proxy_protocol: bool,
     }
 
     #[derive(Default)]
@@ -3193,6 +3195,8 @@ pub mod forwards {
         /// `None` = 不改；`Some` 必须已通过 `protocol::normalize_forward` 校验。
         /// 改动时仓储会同步旧的 `udp` 镜像列。
         pub protocol: Option<String>,
+        /// `None` = 不改；`Some` 直接覆盖 PROXY protocol v2 开关。
+        pub proxy_protocol: Option<bool>,
     }
 
     /// 心跳里一条转发状态落库前的形态（领域层不依赖 proto）。
@@ -3323,9 +3327,9 @@ pub mod forwards {
         sqlx::query(
             "INSERT INTO forwards
                 (id, server_id, name, listen_port, target_host, target_port, enabled, engine,
-                 protocol, udp, owner_user_id, count_traffic, last_traffic_in, last_traffic_out,
-                 last_sampled_at, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 protocol, udp, proxy_protocol, owner_user_id, count_traffic, last_traffic_in,
+                 last_traffic_out, last_sampled_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(server_id)
@@ -3338,6 +3342,7 @@ pub mod forwards {
         .bind(crate::protocol::from_db(&input.protocol))
         // 旧 udp 列只作镜像：读路径以 protocol 为准。
         .bind(i64::from(crate::protocol::is_both(&input.protocol)))
+        .bind(i64::from(input.proxy_protocol))
         .bind(owner_user_id)
         .bind(i64::from(input.count_traffic))
         .bind(last_in)
@@ -3527,6 +3532,7 @@ pub mod forwards {
                 engine = COALESCE(?, engine),
                 protocol = COALESCE(?, protocol),
                 udp = COALESCE(?, udp),
+                proxy_protocol = COALESCE(?, proxy_protocol),
                 last_traffic_in = ?,
                 last_traffic_out = ?,
                 last_sampled_at = ?,
@@ -3547,6 +3553,7 @@ pub mod forwards {
                 .as_deref()
                 .map(|protocol| i64::from(crate::protocol::is_both(protocol))),
         )
+        .bind(input.proxy_protocol.map(i64::from))
         .bind(last_in)
         .bind(last_out)
         .bind(last_sampled_at)
@@ -4728,6 +4735,7 @@ pub mod forward_traffic {
                 count_traffic,
                 engine: "native".into(),
                 protocol: "tcp".into(),
+                proxy_protocol: false,
             };
             match owner {
                 Some(owner) => {
@@ -6228,6 +6236,8 @@ pub mod chains {
         ///
         /// 旧的 `udp` 列由仓储按它同步写成镜像值，只用于兼容旧 API/旧 Agent。
         pub protocol: String,
+        /// 是否让最后一跳写 PROXY protocol v2 头（协议 28）。
+        pub proxy_protocol: bool,
         /// 已通过 `hop_transport::normalize` 校验的加密模式（`none` / `tls`）。
         pub transport: String,
         /// 已通过 `tunnel_security::normalize` 校验的隧道安全模式（`tls` / `noise`）。
@@ -6246,6 +6256,8 @@ pub mod chains {
         /// `None` = 不改；`Some` 必须已通过 `protocol::normalize_chain` 校验。
         /// 改动时仓储会同步旧的 `udp` 镜像列。
         pub protocol: Option<String>,
+        /// `None` = 不改；`Some` 直接覆盖最后一跳的 PROXY protocol v2 开关。
+        pub proxy_protocol: Option<bool>,
         /// `None` = 不改；`Some` 必须已通过 `hop_transport::normalize` 校验。
         pub transport: Option<String>,
         /// `None` = 不改；`Some` 必须已通过 `tunnel_security::normalize` 校验。
@@ -6373,9 +6385,10 @@ pub mod chains {
         let ts = now();
         sqlx::query(
             "INSERT INTO chains
-                (id, name, target_host, target_port, enabled, engine, protocol, udp, transport,
-                 tunnel_security, template_id, owner_user_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (id, name, target_host, target_port, enabled, engine, protocol, udp,
+                 proxy_protocol, transport, tunnel_security, template_id, owner_user_id,
+                 created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(input.name.trim())
@@ -6386,6 +6399,7 @@ pub mod chains {
         .bind(crate::protocol::from_db(&input.protocol))
         // 旧 udp 列只作镜像：读路径以 protocol 为准。
         .bind(i64::from(crate::protocol::is_both(&input.protocol)))
+        .bind(i64::from(input.proxy_protocol))
         .bind(crate::hop_transport::from_db(&input.transport))
         .bind(crate::tunnel_security::from_db(&input.tunnel_security))
         .bind(template_id)
@@ -6678,6 +6692,7 @@ pub mod chains {
                 engine = COALESCE(?, engine),
                 protocol = COALESCE(?, protocol),
                 udp = COALESCE(?, udp),
+                proxy_protocol = COALESCE(?, proxy_protocol),
                 transport = COALESCE(?, transport),
                 tunnel_security = COALESCE(?, tunnel_security),
                 disabled_groups_json = COALESCE(?, disabled_groups_json),
@@ -6696,6 +6711,7 @@ pub mod chains {
                 .as_deref()
                 .map(|protocol| i64::from(crate::protocol::is_both(protocol))),
         )
+        .bind(input.proxy_protocol.map(i64::from))
         .bind(
             input
                 .transport
@@ -10702,6 +10718,7 @@ pub mod overview {
                     count_traffic: false,
                     engine: "native".into(),
                     protocol: "tcp".into(),
+                    proxy_protocol: false,
                 },
             )
             .await
@@ -10794,6 +10811,7 @@ pub mod overview {
                     enabled: true,
                     engine: "native".into(),
                     protocol: "tcp".into(),
+                    proxy_protocol: false,
                     transport: "none".into(),
                     tunnel_security: "tls".into(),
                     groups: vec![super::super::chains::NewChainGroup {

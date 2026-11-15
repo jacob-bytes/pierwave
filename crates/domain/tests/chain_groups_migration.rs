@@ -135,6 +135,7 @@ async fn legacy_hops_become_single_member_groups() {
             enabled: true,
             engine: "realm".into(),
             protocol: "tcp".into(),
+            proxy_protocol: false,
             transport: "tls".into(),
             tunnel_security: "tls".into(),
             groups: vec![

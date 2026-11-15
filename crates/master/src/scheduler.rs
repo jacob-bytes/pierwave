@@ -1256,6 +1256,7 @@ mod tests {
                 count_traffic: true,
                 engine: "native".into(),
                 protocol: "tcp".into(),
+                proxy_protocol: false,
             },
             &user.id,
             10,

@@ -4,6 +4,7 @@ export type { EmptyStateProps } from "./EmptyState";
 export {
   EngineBadge,
   ProtocolBadge,
+  ProxyProtocolBadge,
   TlsBadge,
   TunnelSecurityBadge,
   UdpBadge,

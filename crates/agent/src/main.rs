@@ -3,6 +3,7 @@ mod forward;
 mod network;
 mod nftables;
 mod probe;
+mod proxy_protocol;
 mod realm;
 mod selector;
 mod system_info;
@@ -1548,6 +1549,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            proxy_protocol: false,
             listen_host: None,
             tunnel: None,
         };
@@ -1627,6 +1629,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            proxy_protocol: false,
             listen_host: None,
             tunnel: None,
         };
@@ -1643,6 +1646,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            proxy_protocol: false,
             listen_host: None,
             tunnel: None,
         };
@@ -1732,6 +1736,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            proxy_protocol: false,
             listen_host: None,
             tunnel: None,
         };
@@ -1748,6 +1753,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            proxy_protocol: false,
             listen_host: None,
             tunnel: None,
         };
@@ -1921,6 +1927,7 @@ mod tests {
                 listen_transport: None,
                 remote_transport: None,
                 disable_udp: false,
+                proxy_protocol: false,
                 listen_host: None,
                 tunnel: None,
             }],
@@ -2001,6 +2008,7 @@ mod tests {
                 listen_transport: None,
                 remote_transport: None,
                 disable_udp: false,
+                proxy_protocol: false,
                 listen_host: None,
                 tunnel: None,
             }],

@@ -866,6 +866,11 @@ export interface Forward {
    * 读写行为以 `protocol` 为准；新写入由后端按协议同步这一列。
    */
   udp: boolean;
+  /**
+   * 连上目标后、转发首字节前先写 PROXY protocol v2 头。
+   * 旧后端不返回该字段，按 false 处理；只有 TCP + native 才可能为 true。
+   */
+  proxy_protocol?: boolean;
   /** 是否把流量计入创建者套餐；旧后端可能不返回。 */
   count_traffic?: boolean;
   created_at: number;
@@ -894,6 +899,8 @@ export interface CreateForwardInput {
    * `true` → `both`、`false` → `tcp`。
    */
   udp?: boolean;
+  /** 是否写 PROXY protocol v2 头；只允许 TCP + native。 */
+  proxy_protocol?: boolean;
 }
 
 export type UpdateForwardInput = Partial<CreateForwardInput>;
@@ -1014,6 +1021,11 @@ export interface Chain {
    * 读写行为以 `protocol` 为准。
    */
   udp: boolean;
+  /**
+   * 最后一跳是否写 PROXY protocol v2 头；中间跳永远不写。
+   * 旧后端不返回该字段，按 false 处理。
+   */
+  proxy_protocol?: boolean;
   /** 跳间加密模式：`none`（明文）或 `tls`；旧后端缺失按 `none` 处理。 */
   transport: string;
   /**
@@ -1152,6 +1164,8 @@ export interface CreateChainInput {
    * `true` → `both`、`false` → `tcp`。
    */
   udp?: boolean;
+  /** 只作用于最后一跳：连上链目标后先写 PROXY protocol v2 头。 */
+  proxy_protocol?: boolean;
   /** `none`（缺省，明文）或 `tls`；tls 只允许 realm 且至少 2 组。 */
   transport?: "none" | "tls";
   /**

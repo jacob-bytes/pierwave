@@ -27,6 +27,7 @@ import {
   NODE_TRANSPORTS,
 } from "@/lib/protocols";
 import { PROTOCOL_MODES } from "@/lib/protocolMode";
+import { proxyProtocolAvailable } from "@/lib/proxyProtocol";
 import { isValidPublicBaseUrl } from "@/lib/publicBase";
 import { splitList } from "@/lib/subscriptionTemplates";
 import { isValidPublicPortInput } from "@/lib/publicPort";
@@ -518,6 +519,19 @@ export function forwardFormSchema(t: TFunction) {
     engine: z.enum(FORWARD_ENGINES),
     // 监听协议：tcp / udp / both；不合法组合在表单里已被禁用并回落 tcp。
     protocol: z.enum(PROTOCOL_MODES),
+    // 目标必须支持 PROXY protocol v2；只在 TCP + native 下允许。
+    proxy_protocol: z.boolean(),
+  }).superRefine((values, ctx) => {
+    if (
+      values.proxy_protocol &&
+      !proxyProtocolAvailable(values.protocol, values.engine)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["proxy_protocol"],
+        message: t("validation.proxyProtocolTcpOnly"),
+      });
+    }
   });
 }
 
@@ -587,6 +601,8 @@ export function chainFormSchema(t: TFunction) {
       engine: z.enum(CHAIN_ENGINES),
       // 监听协议：tcp / udp / both；realm 禁用仅 UDP，tls 禁用 UDP 两种。
       protocol: z.enum(PROTOCOL_MODES),
+      // 只作用于最后一跳；只允许 TCP + native。
+      proxy_protocol: z.boolean(),
       // 跳间加密：none（缺省）/ tls；tls 的前置条件在 superRefine 里查。
       transport: z.enum(CHAIN_TRANSPORTS),
       // 隧道加密：tls（缺省）/ noise，仅 engine=tunnel 时显示并提交。
@@ -733,6 +749,17 @@ export function chainFormSchema(t: TFunction) {
             });
             break;
         }
+      }
+
+      if (
+        values.proxy_protocol &&
+        !proxyProtocolAvailable(values.protocol, values.engine)
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["proxy_protocol"],
+          message: t("validation.proxyProtocolTcpOnly"),
+        });
       }
 
       // nftables 的 DNAT 一次只能选一个目标：非入口组必须单成员。

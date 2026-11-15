@@ -1353,6 +1353,7 @@ mod tests {
                 count_traffic: false,
                 engine: "native".into(),
                 protocol: "tcp".into(),
+                proxy_protocol: false,
             },
         )
         .await
@@ -1615,6 +1616,7 @@ mod tests {
                         weight: 1,
                     }],
                 }],
+                proxy_protocol: false,
             },
         )
         .await
@@ -1745,6 +1747,7 @@ mod tests {
                         weight: 1,
                     }],
                 }],
+                proxy_protocol: false,
             },
         )
         .await

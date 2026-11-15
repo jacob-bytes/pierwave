@@ -71,6 +71,14 @@ pub fn is_realm(engine: &str) -> bool {
     from_db(engine) == REALM
 }
 
+/// 是否是 Agent 自带的 native 引擎。
+///
+/// 只有 native 在用户态持有目标连接，能插入 PROXY protocol 头；
+/// 读路径的 `from_db` 已把未知值回落 native，与实际下发行为一致。
+pub fn is_native(engine: &str) -> bool {
+    from_db(engine) == NATIVE
+}
+
 /// 是否是内核 nftables 引擎。
 pub fn is_nftables(engine: &str) -> bool {
     from_db(engine) == NFTABLES

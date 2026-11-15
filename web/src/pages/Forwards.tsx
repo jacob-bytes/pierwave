@@ -17,6 +17,7 @@ import {
   EmptyState,
   EngineBadge,
   ProtocolBadge,
+  ProxyProtocolBadge,
   SkeletonTable,
 } from "@/components/common";
 import { DeleteForwardDialog } from "@/components/forwards/DeleteForwardDialog";
@@ -501,6 +502,9 @@ export default function ForwardsPage() {
                           <ProtocolBadge
                             protocol={forward.protocol}
                             legacyUdp={forward.udp}
+                          />
+                          <ProxyProtocolBadge
+                            value={forward.proxy_protocol}
                           />
                         </div>
                       </TableCell>

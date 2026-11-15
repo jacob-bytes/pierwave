@@ -23,6 +23,7 @@ import {
   MobileDataCard,
   PageHeader,
   ProtocolBadge,
+  ProxyProtocolBadge,
   SkeletonCard,
   SkeletonTable,
   TlsBadge,
@@ -1069,6 +1070,7 @@ export default function ChainsPage() {
               protocol={chain.protocol}
               legacyUdp={chain.udp}
             />
+            <ProxyProtocolBadge value={chain.proxy_protocol} />
           {isTlsTransport(chain.transport) ? <TlsBadge /> : null}
         </div>
       </div>

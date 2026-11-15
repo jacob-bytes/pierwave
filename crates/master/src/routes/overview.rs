@@ -605,6 +605,7 @@ mod tests {
                 transport: "none".into(),
                 tunnel_security: "tls".into(),
                 groups: one_group(&a.id, 9001, None),
+                proxy_protocol: false,
             },
         )
         .await
@@ -681,6 +682,7 @@ mod tests {
                         }],
                     },
                 ],
+                proxy_protocol: false,
             },
         )
         .await
@@ -704,6 +706,7 @@ mod tests {
                 transport: "none".into(),
                 tunnel_security: "tls".into(),
                 groups: one_group(&c.id, 9003, None),
+                proxy_protocol: false,
             },
         )
         .await
@@ -758,6 +761,7 @@ mod tests {
                         }],
                     },
                 ],
+                proxy_protocol: false,
             },
         )
         .await

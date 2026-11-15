@@ -774,6 +774,7 @@ mod tests {
                         }],
                     },
                 ],
+                proxy_protocol: false,
             },
         )
         .await

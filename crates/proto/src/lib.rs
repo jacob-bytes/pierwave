@@ -5,7 +5,16 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 27;
+pub const PROTOCOL_VERSION: u32 = 28;
+
+/// 主控开始支持 **PROXY protocol v2 透传**（`DesiredForward.proxy_protocol`）
+/// 的最低 Agent 协议版本。
+///
+/// 旧 Agent 的 `DesiredForward` 没有该字段，serde 会把未知键**静默忽略**：
+/// 期望态照常解析、端口照常监听，但落地永远收不到真实来源 IP——这是最危险
+/// 的「看起来成功了」。主控据此在保存/下发两条路径上要求该 Agent 升级，
+/// 绝不静默忽略。
+pub const PROXY_PROTOCOL_VERSION: u32 = 28;
 
 /// 主控开始支持加权 / 最少连接选路（`ForwardStrategy::Weighted` /
 /// `ForwardStrategy::LeastConn` + `ForwardTarget.weight`）的最低 Agent 协议版本。
@@ -297,6 +306,17 @@ pub struct DesiredForward {
     /// 旧主控不下发时为 `false`，保持原有行为（全局 `use_udp = true`）。
     #[serde(default)]
     pub disable_udp: bool,
+    /// `true` = 连上目标后、转发第一个字节前，先写一个 PROXY protocol v2 头，
+    /// 让落地看到入口连接的真实来源地址（协议 28 起）。
+    ///
+    /// 旧主控不下发时为 `false`，报文与升级前逐字节一致；旧 Agent 会把这个
+    /// 未知字段**静默忽略**（serde 默认行为），因此主控必须在保存/下发两条
+    /// 路径上做版本门禁（[`PROXY_PROTOCOL_VERSION`]），绝不能静默失效。
+    ///
+    /// 只对 TCP 生效，且必须由用户显式开启：目标服务不认 v2 头时会把头当
+    /// 垃圾数据，连接会失败。
+    #[serde(default)]
+    pub proxy_protocol: bool,
     /// P16 隧道参数；`Some` 时 `engine` 必须是 [`ForwardEngine::Tunnel`]。
     ///
     /// 旧主控不下发该字段（`None`），行为与升级前完全一致。
@@ -872,8 +892,12 @@ mod tests {
     #[test]
     fn forward_udp_defaults_to_false_for_old_masters() {
         assert_eq!(
-            PROTOCOL_VERSION, 27,
-            "加权 / 最少连接策略是新增枚举变体与成员字段，必须升协议版本"
+            PROTOCOL_VERSION, 28,
+            "PROXY protocol v2 透传是新增字段，必须升协议版本"
+        );
+        assert_eq!(
+            PROXY_PROTOCOL_VERSION, 28,
+            "PROXY protocol v2 从协议 28 开始支持"
         );
         assert_eq!(
             CHAIN_STRATEGY_PROTOCOL_VERSION, 27,
@@ -913,6 +937,10 @@ mod tests {
         assert_eq!(forward.listen_transport, None);
         assert_eq!(forward.remote_transport, None);
         assert!(!forward.disable_udp);
+        assert!(
+            !forward.proxy_protocol,
+            "旧主控不下发 proxy_protocol 时必须按 false 处理，不能偷偷开启"
+        );
 
         // 新主控显式开启时按布尔值往返，不能丢字段。
         let enabled = DesiredForward {
@@ -1602,6 +1630,52 @@ mod tests {
         assert_eq!(back, weighted);
     }
 
+    /// 协议 27 的 Agent 结构快照：没有 `proxy_protocol` 字段。
+    ///
+    /// 旧代码就是这样——没有 `deny_unknown_fields`，serde 默认忽略未知键。
+    /// 用它证明「新主控下发 proxy_protocol=true 时旧 Agent 不会整份解析失败」，
+    /// 同时也说明为什么必须在保存/下发前做版本门禁（否则开关会被静默丢掉）。
+    #[derive(Debug, Deserialize)]
+    struct LegacyV27Forward {
+        id: String,
+        listen_port: i64,
+        #[serde(default)]
+        udp: bool,
+    }
+
+    #[test]
+    fn proxy_protocol_defaults_off_and_roundtrips() {
+        // 旧主控 / 旧配置没有该字段：必须解析成 false（不改变既有转发行为）。
+        let old = r#"{
+            "id": "fwd-1",
+            "listen_port": 8443,
+            "target_host": "10.0.0.8",
+            "target_port": 443
+        }"#;
+        let forward: DesiredForward = serde_json::from_str(old).unwrap();
+        assert!(!forward.proxy_protocol, "缺省必须是关闭");
+
+        // 新主控显式开启：布尔值必须原样往返。
+        let enabled = DesiredForward {
+            proxy_protocol: true,
+            ..forward
+        };
+        let json = serde_json::to_value(&enabled).unwrap();
+        assert_eq!(json["proxy_protocol"], true);
+        let back: DesiredForward = serde_json::from_value(json).unwrap();
+        assert!(back.proxy_protocol);
+        assert_eq!(back, enabled);
+
+        // 协议 27 的旧 Agent：未知字段被忽略，整份报文仍能解析；
+        // 这正是「静默失效」的风险，主控必须挡在保存/下发之前。
+        let legacy: LegacyV27Forward =
+            serde_json::from_value(serde_json::to_value(&enabled).unwrap())
+                .expect("旧 Agent 必须容忍未知的 proxy_protocol 字段");
+        assert_eq!(legacy.id, "fwd-1");
+        assert_eq!(legacy.listen_port, 8443);
+        assert!(!legacy.udp);
+    }
+
     /// 旧 Agent（协议 26）解析新报文：`weight` 是未知字段，必须被忽略，
     /// 整份期望态不能因此失败。
     #[test]
@@ -1651,8 +1725,8 @@ mod tests {
     #[test]
     fn new_strategies_are_multi_member_only_and_require_v27() {
         assert_eq!(
-            CHAIN_STRATEGY_PROTOCOL_VERSION, PROTOCOL_VERSION,
-            "当前协议版本就是支持新策略的最低版本"
+            CHAIN_STRATEGY_PROTOCOL_VERSION, 27,
+            "新策略的最低版本是 27，不随之后的协议版本一起上移"
         );
         for strategy in [ForwardStrategy::Weighted, ForwardStrategy::LeastConn] {
             assert!(strategy.requires_agent_v27(), "{strategy:?} 需要协议 27");

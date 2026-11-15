@@ -1434,6 +1434,7 @@ mod tests {
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            proxy_protocol: false,
             listen_host: None,
             tunnel: None,
         };
@@ -2429,6 +2430,7 @@ mod tests {
             ),
             remote_transport: Some("tls;sni=hop1.example.com".into()),
             disable_udp: true,
+            proxy_protocol: false,
             listen_host: None,
             ..realm_rule(id, listen_port, &[("10.0.0.3", 30003)])
         }

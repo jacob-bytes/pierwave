@@ -110,6 +110,15 @@ const en = {
       udp: "UDP only",
       both: "TCP + UDP",
     },
+    proxyProtocol: {
+      label: "PROXY protocol v2",
+      hint:
+        "The target service must support PROXY protocol v2, or connections will fail.",
+      chainHint:
+        "Applies to the final hop only; middle hops never write the header. The target service must support PROXY protocol v2, or connections will fail.",
+      badge: "PROXY v2",
+      badgeTitle: "PROXY protocol v2 is on: the landing server sees the real client IP",
+    },
   },
   status: {
     active: "Active",
@@ -3432,6 +3441,12 @@ const en = {
     "chain.tunnel_multihop_requires_upgrade": "Multi-hop tunnels need agents on protocol {required} or newer; servers: {server}",
     "forward.protocol_requires_agent_upgrade": "Agent on \"{server}\" is too old (version {version}) for UDP-only; upgrade it to protocol {required} or newer",
     "chain.protocol_requires_agent_upgrade": "These servers run an Agent too old for UDP-only: {server}; upgrade them to protocol {required} or newer",
+    "forward.proxy_protocol_requires_agent_upgrade": "Agent on \"{server}\" is too old (version {version}) for PROXY protocol v2; upgrade it to protocol {required} or newer",
+    "chain.proxy_protocol_requires_agent_upgrade": "The final hop runs an Agent too old for PROXY protocol v2: {server}; upgrade them to protocol {required} or newer",
+    "forward.proxy_protocol_requires_tcp": "PROXY protocol v2 only works over TCP and cannot be combined with UDP",
+    "chain.proxy_protocol_requires_tcp": "PROXY protocol v2 only works over TCP; the whole chain cannot use UDP",
+    "forward.proxy_protocol_requires_native": "PROXY protocol v2 requires the native engine (realm / nftables / tunnel cannot inject the header)",
+    "chain.proxy_protocol_requires_native": "PROXY protocol v2 requires a native-engine chain (realm / nftables / tunnel cannot inject the header)",
     "server.nic_address_unavailable": "This server cannot be dispatched over the selected NIC (not reported, missing, or has no usable address)",
     "chain.entry_port_required": "The entry group (group 1) must provide a listen port",
     "chain.public_port_invalid": "Public port must be between {min} and {max}",
@@ -3697,6 +3712,8 @@ const en = {
     forwardNameMax: "Forward name must be at most 64 characters",
     forwardTargetRequired: "Enter a target host",
     forwardTargetMax: "Target host must be at most 255 characters",
+    proxyProtocolTcpOnly:
+      "PROXY protocol v2 is only available with TCP + the native engine",
     chainNameRequired: "Enter a chain name",
     chainNameMax: "Chain name must be at most 64 characters",
     chainTargetRequired: "Enter a target host",

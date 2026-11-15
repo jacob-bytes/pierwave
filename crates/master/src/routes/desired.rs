@@ -190,6 +190,20 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
             ));
             continue;
         }
+        // PROXY protocol v2：旧 Agent 会静默忽略该字段，历史配置也只能跳过，
+        // 绝不发出去让用户误以为落地已经拿到真实 IP。
+        if forward.proxy_protocol {
+            if let Err(error) = protocol::ensure_forward_proxy_protocol(
+                true,
+                &forward.protocol,
+                engine_name,
+                server.protocol_version,
+                &server.name,
+            ) {
+                warnings.push(format!("转发「{}」未下发：{}", forward.name, error.message));
+                continue;
+            }
+        }
         desired_forwards.push(DesiredForward {
             // 独立转发用 `fwd-<uuid>`；链推导用 `chain-<id>-<seq>`，两套前缀不会撞。
             id: pierwave_domain::forwards::desired_id(&forward.id),
@@ -208,6 +222,7 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
             listen_transport: None,
             remote_transport: None,
             disable_udp: false,
+            proxy_protocol: forward.proxy_protocol,
             listen_host: None,
             tunnel: None,
         });
@@ -254,6 +269,15 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
         // 加权 / 最少连接只有协议 27+ 的 Agent 认识；历史链遇到旧 Agent 时
         // 整链跳过。**绝不**把策略静默降级成轮询（与列表 blocked 同一规则）。
         if let Some(reason) = chains::strategy_blocked_reason(&chain.groups) {
+            warnings.push(format!(
+                "链「{}」未下发：{}",
+                chain.chain.name, reason.message
+            ));
+            continue;
+        }
+        // PROXY protocol v2：历史配置遇到旧 Agent / UDP / 非 native 时整链跳过，
+        // 绝不发出一个会静默丢掉真实 IP 的配置。
+        if let Some(reason) = chains::proxy_protocol_blocked_reason(&chain.chain, &chain.groups) {
             warnings.push(format!(
                 "链「{}」未下发：{}",
                 chain.chain.name, reason.message
@@ -763,6 +787,7 @@ mod tests {
                 count_traffic: false,
                 engine: "nftables".into(),
                 protocol: "tcp".into(),
+                proxy_protocol: false,
             },
         )
         .await
@@ -822,6 +847,7 @@ mod tests {
                 count_traffic: false,
                 engine: "native".into(),
                 protocol: "udp".into(),
+                proxy_protocol: false,
             },
         )
         .await
@@ -1062,6 +1088,7 @@ mod tests {
                 count_traffic: false,
                 engine: "native".into(),
                 protocol: "tcp".into(),
+                proxy_protocol: false,
             },
         )
         .await
@@ -1107,6 +1134,7 @@ mod tests {
                         }],
                     },
                 ],
+                proxy_protocol: false,
             },
         )
         .await
@@ -1181,6 +1209,7 @@ mod tests {
                 count_traffic: false,
                 engine: "realm".into(),
                 protocol: "tcp".into(),
+                proxy_protocol: false,
             },
         )
         .await
@@ -1197,6 +1226,7 @@ mod tests {
                 count_traffic: false,
                 engine: "native".into(),
                 protocol: "tcp".into(),
+                proxy_protocol: false,
             },
         )
         .await
@@ -1241,6 +1271,7 @@ mod tests {
                 count_traffic: false,
                 engine: "native".into(),
                 protocol: "tcp".into(),
+                proxy_protocol: false,
             },
         )
         .await
@@ -1257,6 +1288,7 @@ mod tests {
                 count_traffic: false,
                 engine: "native".into(),
                 protocol: "tcp".into(),
+                proxy_protocol: false,
             },
         )
         .await
@@ -1297,6 +1329,7 @@ mod tests {
                         listen_transport: None,
                         remote_transport: None,
                         disable_udp: false,
+                        proxy_protocol: false,
                         listen_host: None,
                         tunnel: None,
                     }]
@@ -1373,6 +1406,7 @@ mod tests {
                         }],
                     },
                 ],
+                proxy_protocol: false,
             },
         )
         .await
@@ -1597,6 +1631,7 @@ mod tests {
                         }],
                     },
                 ],
+                proxy_protocol: false,
             },
         )
         .await
@@ -1672,6 +1707,7 @@ mod tests {
                 count_traffic: false,
                 engine: "native".into(),
                 protocol: "tcp".into(),
+                proxy_protocol: false,
             },
         )
         .await
@@ -1749,6 +1785,7 @@ mod tests {
             remote_transport: None,
             listen_host: None,
             disable_udp: false,
+            proxy_protocol: false,
             tunnel,
         };
         let legacy = make(Some(tunnel.clone()));

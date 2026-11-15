@@ -643,6 +643,39 @@ pub fn strategy_blocked_reason(groups: &[ChainGroupWithMembers]) -> Option<Block
         })
 }
 
+/// 链开启 PROXY protocol v2、但当前配置/Agent 不支持时的整链阻断原因。
+///
+/// 只有**最后一跳**真正连链目标，因此只检查最后一跳成员；中间跳即使 Agent
+/// 较旧也没有影响（它们下发的 `proxy_protocol` 永远是 false）。历史配置在
+/// 保存时没被拦住的（手工改库 / 旧版本写入），列表与下发都走这一条规则跳过，
+/// 绝不静默忽略开关。
+pub fn proxy_protocol_blocked_reason(
+    chain: &Chain,
+    groups: &[ChainGroupWithMembers],
+) -> Option<BlockedReason> {
+    if !chain.proxy_protocol {
+        return None;
+    }
+    let mut ordered: Vec<&ChainGroupWithMembers> = groups.iter().collect();
+    ordered.sort_by_key(|group| group.group.seq);
+    let last_hop: Vec<(&str, Option<i64>)> = ordered
+        .last()
+        .map(|group| {
+            group
+                .members
+                .iter()
+                .map(|member| (member.server_name.as_str(), member.server_protocol_version))
+                .collect()
+        })
+        .unwrap_or_default();
+    protocol::ensure_chain_proxy_protocol(true, &chain.protocol, &chain.engine, &last_hop)
+        .err()
+        .map(|error| BlockedReason {
+            code: error.code.to_string(),
+            message: error.message,
+        })
+}
+
 /// 一条链在视图里「为什么没下发」的结构化原因。
 ///
 /// `code` 是前端词典的稳定键，`message` 是中文兜底文案；两者都由
@@ -927,6 +960,11 @@ pub fn blocked_reason(
     }
     // 内网地址缺失先于引擎判定：只要这一跳真要内网地址却拿不到，整链都不能下发。
     if let Some(reason) = internal_address_blocked_reason(groups) {
+        return Some(reason);
+    }
+    // PROXY protocol v2：只检查最后一跳的 Agent，且只允许 TCP + native。
+    // 先于「仅 UDP」门禁，让 proxy + UDP 的历史配置显示更具体的原因。
+    if let Some(reason) = proxy_protocol_blocked_reason(chain, groups) {
         return Some(reason);
     }
     // 仅 UDP 需要每一跳的 Agent 协议 >= 16；旧 Agent 会把它悄悄变成 TCP。
@@ -1279,6 +1317,7 @@ mod tests {
             engine: "native".into(),
             udp: false,
             protocol: "tcp".into(),
+            proxy_protocol: false,
             transport: "none".into(),
             tunnel_security: "tls".into(),
             template_id: None,
@@ -1579,6 +1618,7 @@ mod tests {
             engine: "native".into(),
             udp: false,
             protocol: "tcp".into(),
+            proxy_protocol: false,
             transport: "none".into(),
             tunnel_security: "tls".into(),
             template_id: None,

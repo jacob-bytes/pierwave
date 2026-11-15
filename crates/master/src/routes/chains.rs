@@ -266,6 +266,9 @@ pub(crate) fn derive_forwards(
                     protocol: ForwardProtocol::from_name(&chain.protocol),
                     // 旧 `udp` 位继续填镜像值：只用于兼容旧 Agent。
                     udp: protocol::is_both(&chain.protocol),
+                    // 只有最后一跳真正连链目标，才由它写 PROXY v2 头；
+                    // 中间跳保持 false（它们连的是下一跳，不是落地）。
+                    proxy_protocol: chain.proxy_protocol && next.is_none(),
                     // transport 由 derive_forwards_with_transports 叠加：明文链保持 None。
                     listen_transport: None,
                     remote_transport: None,
@@ -365,6 +368,11 @@ pub struct CreateChain {
     /// 旧字段：整条链是否同时监听 UDP；仅在没传 `protocol` 时生效。
     #[serde(default)]
     pub udp: bool,
+    /// 是否让**最后一跳**写 PROXY protocol v2 头（协议 28）。
+    ///
+    /// 只允许 TCP + native；中间跳永远不写头（它们不直接连链目标）。
+    #[serde(default)]
+    pub proxy_protocol: bool,
     /// 跳间加密模式：`none`（缺省，明文）或 `tls`。
     #[serde(default)]
     pub transport: Option<String>,
@@ -391,6 +399,8 @@ pub struct PatchChain {
     /// 旧字段：`None` = 不改；`Some(true)` → `both`、`Some(false)` → `tcp`。
     /// 同时传 `protocol` 时以 `protocol` 为准。
     pub udp: Option<bool>,
+    /// PROXY protocol v2（只作用于最后一跳）；`None` = 不改。
+    pub proxy_protocol: Option<bool>,
     /// `none` / `tls`；`None` = 不改。
     pub transport: Option<String>,
     /// `tls` / `noise`；`None` = 不改。
@@ -741,6 +751,23 @@ fn member_protocol_versions(groups: &[ValidatedGroup]) -> Vec<(&str, Option<i64>
         .collect()
 }
 
+/// 最后一跳的 Agent 协议版本：PROXY protocol v2 只要求真正连目标的那一跳。
+///
+/// `resolve_groups` 的输出顺序就是组顺序（seq 从 0 递增），最后一个元素即
+/// 最后一跳；中间跳即使 Agent 较旧也不影响该开关。
+fn last_hop_protocol_versions(groups: &[ValidatedGroup]) -> Vec<(&str, Option<i64>)> {
+    groups
+        .last()
+        .map(|group| {
+            group
+                .members
+                .iter()
+                .map(|member| (member.server_name.as_str(), member.protocol_version))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// 加权 / 最少连接的保存门禁：整条链每一台成员都必须 >= 协议 27。
 ///
 /// 旧 Agent 的 `ForwardStrategy` 枚举没有新变体，收到后整份期望态解析失败
@@ -999,6 +1026,7 @@ pub(crate) fn derive_tunnel_forwards(
                         udp,
                         downstream: None,
                     }),
+                    proxy_protocol: false,
                 },
             ));
             continue;
@@ -1073,6 +1101,7 @@ pub(crate) fn derive_tunnel_forwards(
                     udp,
                     downstream,
                 }),
+                proxy_protocol: false,
             },
         ));
     }
@@ -1952,6 +1981,7 @@ fn chain_json(
         "engine": chain.chain.engine,
         "protocol": chain.chain.protocol,
         "udp": chain.chain.udp,
+        "proxy_protocol": chain.chain.proxy_protocol,
         "transport": chain.chain.transport,
         "tunnel_security": chain.chain.tunnel_security,
         // 用户自助建链的归属：管理员列表仍展示全部链，但用 `source` 明确区分，
@@ -2292,6 +2322,7 @@ pub async fn create(
         engine: raw_engine,
         protocol: raw_protocol,
         udp,
+        proxy_protocol,
         transport: raw_transport,
         tunnel_security: raw_tunnel_security,
         hops,
@@ -2335,6 +2366,14 @@ pub async fn create(
     // TLS + UDP 的冲突优先于「realm 固定双开」：用户选了加密链时，
     // 更具体的 chain.protocol_udp_with_tls 才是能指导修复的错误。
     protocol::ensure_realm_supported(&protocol, &engine)?;
+    // PROXY protocol v2 只作用于最后一跳：只要求最后一跳的 Agent >= 28。
+    // 先于「仅 UDP」门禁校验，让 proxy + UDP 的冲突返回更具体的错误码。
+    protocol::ensure_chain_proxy_protocol(
+        proxy_protocol,
+        &protocol,
+        &engine,
+        &last_hop_protocol_versions(&groups),
+    )?;
     // 仅 UDP 从协议 16 开始支持；任意一跳的旧 Agent 都会把它悄悄变成 TCP。
     protocol::ensure_chain_agent_supported(&protocol, &member_protocol_versions(&groups))?;
     // 加权 / 最少连接需要整条链的 Agent >= 27；未知按旧版处理。
@@ -2349,6 +2388,7 @@ pub async fn create(
             enabled,
             engine,
             protocol,
+            proxy_protocol,
             transport,
             tunnel_security,
             groups: new_groups(&groups),
@@ -2376,6 +2416,7 @@ pub async fn create(
             "engine": &chain.chain.engine,
             "protocol": &chain.chain.protocol,
             "udp": chain.chain.udp,
+            "proxy_protocol": chain.chain.proxy_protocol,
             "transport": &chain.chain.transport,
             "tunnel_security": &chain.chain.tunnel_security,
             "hops": chain.groups.iter().map(|group| json!({
@@ -2431,6 +2472,7 @@ pub async fn update(
         engine: raw_engine,
         protocol: raw_protocol,
         udp,
+        proxy_protocol,
         transport: raw_transport,
         tunnel_security: raw_tunnel_security,
         hops,
@@ -2444,6 +2486,7 @@ pub async fn update(
         && raw_engine.is_none()
         && raw_protocol.is_none()
         && udp.is_none()
+        && proxy_protocol.is_none()
         && raw_transport.is_none()
         && raw_tunnel_security.is_none()
         && hops.is_none()
@@ -2452,7 +2495,7 @@ pub async fn update(
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 name / target_host / target_port / enabled / engine / protocol / udp / transport / tunnel_security / groups / hops 之一",
+            "至少需要提供 name / target_host / target_port / enabled / engine / protocol / udp / proxy_protocol / transport / tunnel_security / groups / hops 之一",
         ));
     }
 
@@ -2523,11 +2566,25 @@ pub async fn update(
     let final_engine = engine.as_deref().unwrap_or(&existing.chain.engine);
     let final_transport = transport.as_deref().unwrap_or(&existing.chain.transport);
     let final_protocol = protocol.as_deref().unwrap_or(&existing.chain.protocol);
+    let final_proxy_protocol = proxy_protocol.unwrap_or(existing.chain.proxy_protocol);
     let final_tunnel_security = tunnel_security
         .as_deref()
         .unwrap_or(&existing.chain.tunnel_security);
     // 只在「安全相关的字段真的被改」时校验证书内容：证书过期后仍然要允许
     // 用户改名/停用/删除这条链，否则会被卡在一个无法自救的状态里。
+    // PROXY 开关只在「真正改动它 / 改协议 / 改引擎 / 换组」时复核；历史配置
+    // 遇到旧 Agent 仍允许改名/停用，渲染层按同一规则把整链标成 blocked。
+    // 先于「仅 UDP」门禁校验，让 proxy + UDP 的冲突返回更具体的错误码。
+    if final_proxy_protocol
+        && (proxy_protocol.is_some() || protocol.is_some() || engine.is_some() || replace_groups)
+    {
+        protocol::ensure_chain_proxy_protocol(
+            true,
+            final_protocol,
+            final_engine,
+            &last_hop_protocol_versions(&groups),
+        )?;
+    }
     let security_changed = raw_transport.is_some()
         || raw_tunnel_security.is_some()
         || engine.is_some()
@@ -2572,6 +2629,7 @@ pub async fn update(
                 enabled,
                 engine,
                 protocol,
+                proxy_protocol,
                 transport,
                 tunnel_security,
                 groups: replace_groups.then(|| new_groups(&groups)),
@@ -2621,6 +2679,11 @@ pub async fn update(
             json!(&updated.chain.protocol),
         ),
         ("udp", json!(existing.chain.udp), json!(updated.chain.udp)),
+        (
+            "proxy_protocol",
+            json!(existing.chain.proxy_protocol),
+            json!(updated.chain.proxy_protocol),
+        ),
         (
             "transport",
             json!(&existing.chain.transport),
@@ -3000,6 +3063,7 @@ pub async fn me_create(
             transport: config.transport.clone(),
             tunnel_security: config.security.clone(),
             groups: new_groups(&groups),
+            proxy_protocol: false,
         },
         Some(&template.id),
         Some(&user.0.id),
@@ -3594,6 +3658,7 @@ mod tests {
             engine: "native".into(),
             protocol: "tcp".into(),
             udp: false,
+            proxy_protocol: false,
             transport: "none".into(),
             tunnel_security: "tls".into(),
             template_id: None,
@@ -4030,6 +4095,7 @@ mod tests {
                 count_traffic: false,
                 engine: "native".into(),
                 protocol: "tcp".into(),
+                proxy_protocol: false,
             },
         )
         .await
@@ -4762,6 +4828,7 @@ mod tests {
                 count_traffic: false,
                 engine: "native".into(),
                 protocol: "tcp".into(),
+                proxy_protocol: false,
             },
         )
         .await
@@ -4808,6 +4875,7 @@ mod tests {
                     count_traffic: false,
                     engine: "native".into(),
                     protocol: "tcp".into(),
+                    proxy_protocol: false,
                 },
             )
             .await
@@ -6632,6 +6700,7 @@ mod tests {
                         }],
                     },
                 ],
+                proxy_protocol: false,
             },
         )
         .await
@@ -6733,6 +6802,7 @@ mod tests {
                         }],
                     },
                 ],
+                proxy_protocol: false,
             },
         )
         .await
@@ -7874,6 +7944,7 @@ mod tests {
                         }],
                     },
                 ],
+                proxy_protocol: false,
             },
         )
         .await
@@ -7974,6 +8045,7 @@ mod tests {
                         weight: 1,
                     }],
                 }],
+                proxy_protocol: false,
             },
         )
         .await
@@ -8809,6 +8881,7 @@ mod tests {
                         }],
                     },
                 ],
+                proxy_protocol: false,
             },
         )
         .await
@@ -8919,6 +8992,7 @@ mod tests {
                         }],
                     },
                 ],
+                proxy_protocol: false,
             },
         )
         .await
@@ -8983,6 +9057,7 @@ mod tests {
                     new_group(&fixture.b, 1),
                     new_group(&fixture.c, 2),
                 ],
+                proxy_protocol: false,
             },
         )
         .await
@@ -9269,5 +9344,162 @@ mod tests {
         );
         assert!(small["loss_24h"].is_null());
         assert_eq!(small["probe_attempts_24h"], 10);
+    }
+
+    /// 链的 PROXY protocol v2：只对最后一跳置位；保存门禁只看最后一跳的 Agent。
+    #[test]
+    fn proxy_protocol_applies_only_to_the_last_hop() {
+        let mut chain = test_chain("c-proxy");
+        chain.proxy_protocol = true;
+        let groups = vec![
+            test_group(
+                "c-proxy",
+                0,
+                "round_robin",
+                &[("srv-a", "10.0.0.1", 9001, 0)],
+            ),
+            test_group(
+                "c-proxy",
+                1,
+                "round_robin",
+                &[("srv-b", "10.0.0.2", 9002, 0)],
+            ),
+            test_group(
+                "c-proxy",
+                2,
+                "round_robin",
+                &[("srv-c", "10.0.0.3", 9003, 0)],
+            ),
+        ];
+        let derived = derive_forwards(&chain, &groups).unwrap();
+        assert_eq!(derived.len(), 3);
+        assert!(!derived[0].1.proxy_protocol, "入口跳不能写头");
+        assert!(!derived[1].1.proxy_protocol, "中间跳不能写头");
+        assert!(derived[2].1.proxy_protocol, "只有最后一跳写头");
+        // 目标字段也必须只有最后一跳指向链目标。
+        assert_eq!(derived[2].1.target_host, chain.target_host);
+
+        // 关闭开关时所有跳都是 false（升级前报文逐字节不变）。
+        let mut off = chain.clone();
+        off.proxy_protocol = false;
+        let derived = derive_forwards(&off, &groups).unwrap();
+        assert!(derived.iter().all(|(_, forward)| !forward.proxy_protocol));
+    }
+
+    /// 链保存：旧 Agent（最后一跳）/ UDP / 非 native 都拒绝；历史配置列表 blocked。
+    #[tokio::test]
+    async fn proxy_protocol_chain_requires_final_hop_agent_28_and_tcp() {
+        let fixture = setup().await;
+        let Fixture {
+            app,
+            state,
+            cookie,
+            a,
+            b,
+            ..
+        } = fixture;
+        async fn set_version(state: &AppState, server_id: &str, version: i64) {
+            repo::servers::update_health(
+                &state.db.pool,
+                server_id,
+                "0.9.0",
+                &repo::servers::HealthSnapshot {
+                    protocol_version: Some(version),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        }
+        let body = |extra: Value| {
+            let mut body = groups_body(
+                "proxy-chain",
+                "1.1.1.1",
+                443,
+                &[
+                    group(None, None, &[group_member(&a, 9001, 0)]),
+                    group(None, None, &[group_member(&b, 9002, 0)]),
+                ],
+            );
+            body["proxy_protocol"] = json!(true);
+            if let Value::Object(extra) = extra {
+                for (key, value) in extra {
+                    body[key] = value;
+                }
+            }
+            body
+        };
+
+        // 最后一跳 Agent 27：保存 400，错误码明确。
+        set_version(&state, &a, 28).await;
+        set_version(&state, &b, 27).await;
+        let (status, response) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(body(json!({}))),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {response}");
+        assert_eq!(
+            response["code"],
+            "chain.proxy_protocol_requires_agent_upgrade"
+        );
+        assert_eq!(response["params"]["required"], 28);
+
+        // 最后一跳 Agent 28，但 both / realm：分别被协议与引擎门禁拒绝。
+        set_version(&state, &b, 28).await;
+        let (status, response) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(body(json!({"protocol": "both"}))),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {response}");
+        assert_eq!(response["code"], "chain.proxy_protocol_requires_tcp");
+
+        let (status, response) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(body(json!({"engine": "realm"}))),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {response}");
+        assert_eq!(response["code"], "chain.proxy_protocol_requires_native");
+
+        // TCP + native + 最后一跳 28：保存成功，开关落库并平铺到响应。
+        let (status, response) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(body(json!({}))),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {response}");
+        assert_eq!(response["chain"]["proxy_protocol"], true);
+        let chain_id = response["chain"]["id"].as_str().unwrap().to_string();
+
+        // 历史配置遇到最后一跳旧 Agent：列表 blocked，但开关不能降级。
+        set_version(&state, &b, 27).await;
+        let (status, response) =
+            request(&app, Some(&cookie), Method::GET, "/api/v1/chains", None).await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {response}");
+        let chain = response["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|chain| chain["id"] == chain_id.as_str())
+            .expect("链必须仍在列表里");
+        assert_eq!(
+            chain["blocked_code"],
+            "chain.proxy_protocol_requires_agent_upgrade"
+        );
+        assert_eq!(chain["proxy_protocol"], true, "开关不能被静默改回 false");
     }
 }

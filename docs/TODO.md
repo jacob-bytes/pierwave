@@ -297,7 +297,8 @@ counter observability.
 
 8. **转发链加权 / 最少连接策略**（S–M）：`weight` 字段已落库但「只存不用」。
    需升协议版本并对旧 Agent 拒绝保存。
-9. **透传客户端真实 IP（PROXY protocol v2）**（M）：落地需要知道真实来源时才有价值。
+9. ~~**透传客户端真实 IP（PROXY protocol v2）**（M）~~：已实现（协议 28）；只支持
+   TCP + native，链只作用于最后一跳，见 `docs/ERRORS.md`。
 
 ### 订阅与节点
 

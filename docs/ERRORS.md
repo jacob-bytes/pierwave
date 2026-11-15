@@ -397,6 +397,12 @@ fail closed instead of silently downgrading to round robin.
 | `chain.protocol_udp_with_tls` | 加密链只走 TCP，不能选择仅 UDP | Encrypted chains are TCP-only; UDP-only is not supported | protocol, transport |
 | `forward.protocol_requires_agent_upgrade` | 服务器「{server}」的 Agent 版本过旧（协议版本 {version}，需要 ≥ {required}），仅 UDP 转发需要先升级 Agent | Server "{server}" runs an agent that is too old for UDP-only forwarding (protocol {version}, requires >= {required}); upgrade the agent first | protocol, required, server, version |
 | `chain.protocol_requires_agent_upgrade` | 以下服务器的 Agent 版本过旧（需要协议版本 ≥ {required}），无法使用仅 UDP 链：{server} | The following servers run agents too old for a UDP-only chain (protocol >= {required} required): {server} | protocol, required, server, servers |
+| `forward.proxy_protocol_requires_agent_upgrade` | 服务器「{server}」的 Agent 版本过低（{version}），无法透传 PROXY protocol v2；请先升级到协议 {required} 及以上 | Agent on "{server}" is too old (version {version}) for PROXY protocol v2; upgrade it to protocol {required} or newer | required, server, version |
+| `chain.proxy_protocol_requires_agent_upgrade` | 最后一跳的 Agent 版本过低，无法透传 PROXY protocol v2：{server}；请先升级到协议 {required} 及以上 | The final hop runs an Agent too old for PROXY protocol v2: {server}; upgrade them to protocol {required} or newer | required, server, servers |
+| `forward.proxy_protocol_requires_tcp` | PROXY protocol v2 只对 TCP 生效，不能和 UDP 同时开启 | PROXY protocol v2 only works over TCP and cannot be combined with UDP | protocol, proxy_protocol |
+| `chain.proxy_protocol_requires_tcp` | PROXY protocol v2 只对 TCP 生效，整条链不能使用 UDP | PROXY protocol v2 only works over TCP; the whole chain cannot use UDP | protocol, proxy_protocol |
+| `forward.proxy_protocol_requires_native` | PROXY protocol v2 只能在 native 引擎下开启（realm / nftables / tunnel 无法注入首包） | PROXY protocol v2 requires the native engine (realm / nftables / tunnel cannot inject the header) | engine |
+| `chain.proxy_protocol_requires_native` | PROXY protocol v2 只能在 native 引擎的链上开启（realm / nftables / tunnel 无法注入首包） | PROXY protocol v2 requires a native-engine chain (realm / nftables / tunnel cannot inject the header) | engine |
 
 行为矩阵（写路径）/ Behaviour matrix (write path):
 
@@ -436,6 +442,33 @@ fail closed instead of silently downgrading to round robin.
 > are skipped (with a warning / `blocked_reason`) instead of being degraded to
 > TCP. `tcp` / `both` are unaffected; a legacy heartbeat with `0` never
 > overwrites a previously reported version.
+
+#### PROXY protocol v2 门禁 / PROXY protocol v2 gate
+
+`proxy_protocol = true` 让 Agent 在连上目标后、转发首字节前写一个 PROXY v2 头，
+落地因此能看到真实来源 IP。它**只能由用户显式开启**：目标服务不认这个头时会
+把它当垃圾数据，连接直接失败。三条硬约束（转发与链共用同一个判定）：
+
+1. **仅 TCP**：`protocol = udp / both` 直接 400（UDP 数据报没有「首包前」）；
+2. **仅 native 引擎**：realm / nftables / tunnel 不在用户态持有到目标的连接；
+3. **Agent 协议 ≥ 28**：旧 Agent 会**静默忽略**该字段（serde 未知键），
+   所以保存与下发两条路径都 fail closed；历史配置遇到旧 Agent 时列表 blocked，
+   绝不把开关降级成 false。
+
+链的开关只作用于**最后一跳**（真正连链目标的那一跳）；中间跳下发的
+`DesiredForward.proxy_protocol` 永远是 `false`，也不受旧 Agent 影响。
+迁移 `0056_proxy_protocol.sql` 只追加 `forwards.proxy_protocol` /
+`chains.proxy_protocol` 两列，历史行默认 0。
+
+> `proxy_protocol = true` makes the agent write one PROXY protocol v2 header
+> after connecting to the target and before the first payload byte, so the
+> landing server sees the real client address. It is strictly opt-in: a target
+> that does not understand the header treats it as garbage. The master rejects
+> UDP (`udp` / `both`), non-native engines, and agents older than protocol 28
+> (old agents silently ignore the unknown field). The chain flag applies to the
+> final hop only; middle hops always get `false`. Migration
+> `0056_proxy_protocol.sql` only appends two columns, defaulting historical rows
+> to 0.
 
 迁移 `0034_forward_protocol.sql`：`udp = 1 → both`，`udp = 0 → tcp`；`udp` 列保留，
 但读写行为只认 `protocol`。Agent 侧：native 按所选协议绑定（仅 UDP 时完全不绑 TCP）；

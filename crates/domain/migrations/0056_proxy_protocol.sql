@@ -1,0 +1,21 @@
+-- PROXY protocol v2 透传开关（协议 28）。
+--
+-- 入口 → 落地的 TCP 转发需要把真实来源地址告诉落地（Xray / Web / 游戏服务器）。
+-- `proxy_protocol = 1` 时 Agent 在连上目标后、转发第一个字节前写一个 v2 头。
+--
+-- 只追加：不改 0001–0055。
+-- * 历史行一律 0（关闭）：升级不会改变任何既有转发的报文。
+-- * forwards 与 chains 各一列；链的开关只作用于**最后一跳**（真正连目标的那一跳），
+--   中间跳仍写 0。
+-- * 该能力只对 TCP 生效；UDP / both 在写路径直接 400，历史脏数据由下发路径
+--   按 blocked 跳过，绝不静默降级。
+--
+-- English: opt-in PROXY protocol v2 for TCP forwards (protocol 28). When enabled,
+-- the agent writes one v2 header after connecting to the target and before the
+-- first payload byte, so the landing server sees the real client address.
+-- Existing rows default to 0 (off) and their wire behavior is unchanged. The
+-- chain flag only applies to the final hop; middle hops stay off. UDP/both are
+-- rejected on the write path, and historical rows are skipped (blocked) instead
+-- of silently degrading.
+ALTER TABLE forwards ADD COLUMN proxy_protocol INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE chains ADD COLUMN proxy_protocol INTEGER NOT NULL DEFAULT 0;

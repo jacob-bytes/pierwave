@@ -248,6 +248,11 @@ pub struct Forward {
     /// 监听的协议：`tcp`（默认）/ `udp` / `both`。迁移 0034 之前的 `udp`
     /// 布尔位只在迁移里作为来源，之后不再参与行为判断。
     pub protocol: String,
+    /// 是否在连上目标后先写 PROXY protocol v2 头（迁移 0056 / 协议 28）。
+    ///
+    /// 只在 `protocol = tcp`、`engine = native` 且 Agent 协议 >= 28 时可用；
+    /// 写路径拒绝其它组合，读路径（列表/下发）按 blocked 跳过历史脏数据。
+    pub proxy_protocol: bool,
     /// 创建者用户 id（迁移 0044）；`None` = 管理员创建。
     ///
     /// 自助转发接口只按这一列过滤，绝不相信请求里的用户身份。
@@ -320,7 +325,7 @@ pub struct ForwardView {
     #[serde(flatten)]
     pub forward: Forward,
     pub runtime: Option<ForwardRuntime>,
-    /// 配置层面无法下发时的稳定错误码（当前只有「仅 UDP + 旧 Agent」）。
+    /// 配置层面无法下发时的稳定错误码（仅 UDP / PROXY protocol 遇到旧 Agent 等）。
     ///
     /// `None` 时字段完全不出现，旧响应形状逐字节不变。
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -382,6 +387,11 @@ pub struct Chain {
     pub udp: bool,
     /// 整条链的协议：`tcp`（默认）/ `udp` / `both`，推导时原样透传到每一跳。
     pub protocol: String,
+    /// 是否让**最后一跳**在连上链目标后先写 PROXY protocol v2 头（迁移 0056）。
+    ///
+    /// 只有真正连目标的那一跳有意义；中间跳下发的 `DesiredForward.proxy_protocol`
+    /// 永远是 `false`。写路径拒绝 UDP / 非 native 引擎 / 旧 Agent。
+    pub proxy_protocol: bool,
     /// 跳间加密模式：`none`（默认，明文）或 `tls`（单向 TLS）。
     pub transport: String,
     /// P16 隧道引擎的安全模式：`tls`（默认，自有 CA）或 `noise`（Noise/PSK）。
