@@ -4,6 +4,10 @@
 //! 游戏服务器）看到真实的客户端地址。**必须由用户显式开启**：不认这个头的
 //! 服务端会把它当成垃圾数据，连接直接失败。
 //!
+//! 头里的 `src` 是客户端连接的 `peer_addr()`，`dst` 是**同一个客户端连接的
+//! `local_addr()`（入口监听地址）**——也就是客户端原本要连的目的地址，
+//! 不是后端的 `peer_addr()`。
+//!
 //! 只实现 v2 / PROXY 命令 / TCP over IPv4 或 IPv6，不实现 LOCAL / UNIX / UDP：
 //! UDP 转发在写路径就被拒绝（UDP 没有「首包前」这个位置）。
 //!
@@ -34,10 +38,11 @@ pub const V2_FAMILY_TCP6: u8 = 0x21;
 
 /// 构造一个 v2 PROXY 头。
 ///
-/// `source` 是入口连接的 peer（真实客户端），`destination` 是实际连上的目标
-/// 地址（用 `TcpStream::peer_addr()`，因此域名也已经是解析后的 IP）。
+/// `source` 是入口连接的 peer（真实客户端）；`destination` 是同一条客户端
+/// 连接的 `local_addr()`，也就是入口监听地址（客户端原本要连的地址），
+/// **不是**后端的 `TcpStream::peer_addr()`。
 ///
-/// 两个地址的族不一致时（例如客户端 IPv6、目标 IPv4），把 IPv4 一侧映射成
+/// 两个地址的族不一致时（例如客户端 IPv6、入口监听 IPv4），把 IPv4 一侧映射成
 /// IPv4-mapped IPv6 后统一发 TCP6：PROXY v2 的 family 只有一个，混合族无法
 /// 原样表达；映射后落地仍能拿回原始 IPv4 地址，且不会丢掉来源。
 pub fn v2_header(source: SocketAddr, destination: SocketAddr) -> io::Result<Vec<u8>> {
@@ -93,12 +98,15 @@ mod tests {
             .join(" ")
     }
 
-    /// 精确字节：IPv4 + TCP，源 192.0.2.1:12345 → 目标 198.51.100.7:443。
+    /// 精确字节：IPv4 + TCP，客户端 192.0.2.1:12345 → 入口监听 198.51.100.7:443。
+    ///
+    /// dst 是客户端连接的 `local_addr()`（入口监听地址），不是后端目标地址；
+    /// 这里的 198.51.100.7:443 就代表入口侧，实现里不能再拿 upstream 去填。
     #[test]
     fn ipv4_header_is_byte_exact() {
         let source: SocketAddr = "192.0.2.1:12345".parse().unwrap();
-        let destination: SocketAddr = "198.51.100.7:443".parse().unwrap();
-        let header = v2_header(source, destination).unwrap();
+        let entry_local: SocketAddr = "198.51.100.7:443".parse().unwrap();
+        let header = v2_header(source, entry_local).unwrap();
         assert_eq!(header.len(), 28, "16 字节固定前缀 + 12 字节地址");
         assert_eq!(
             hex(&header),
@@ -108,14 +116,21 @@ mod tests {
         assert_eq!(&header[..12], &V2_SIGNATURE);
         assert_eq!(header[12], 0x21, "version 2 + PROXY");
         assert_eq!(header[13], 0x11, "AF_INET + STREAM");
+        assert_eq!(&header[20..24], &[198, 51, 100, 7], "dst = 入口监听地址");
+        assert_eq!(
+            &header[26..28],
+            &443u16.to_be_bytes(),
+            "dst port = 入口端口"
+        );
     }
 
-    /// 精确字节：IPv6 + TCP，源 2001:db8::1:23456 → 目标 2001:db8::2:8443。
+    /// 精确字节：IPv6 + TCP，客户端 [2001:db8::1]:23456 → 入口监听
+    /// [2001:db8::2]:8443。dst 同样是入口 `local_addr()`，不是后端目标。
     #[test]
     fn ipv6_header_is_byte_exact() {
         let source: SocketAddr = "[2001:db8::1]:23456".parse().unwrap();
-        let destination: SocketAddr = "[2001:db8::2]:8443".parse().unwrap();
-        let header = v2_header(source, destination).unwrap();
+        let entry_local: SocketAddr = "[2001:db8::2]:8443".parse().unwrap();
+        let header = v2_header(source, entry_local).unwrap();
         assert_eq!(header.len(), 52, "16 字节固定前缀 + 36 字节地址");
         let expected = "0d 0a 0d 0a 00 0d 0a 51 55 49 54 0a 21 21 00 24 \
              20 01 0d b8 00 00 00 00 00 00 00 00 00 00 00 01 \
@@ -123,6 +138,15 @@ mod tests {
              5b a0 20 fb";
         assert_eq!(hex(&header), expected);
         assert_eq!(header[13], 0x21, "AF_INET6 + STREAM");
+        let IpAddr::V6(entry_ip) = entry_local.ip() else {
+            unreachable!("entry_local 是 IPv6 地址");
+        };
+        assert_eq!(&header[32..48], &entry_ip.octets(), "dst = 入口监听地址");
+        assert_eq!(
+            &header[50..52],
+            &8443u16.to_be_bytes(),
+            "dst port = 入口端口"
+        );
     }
 
     /// 混合地址族：统一映射成 IPv4-mapped IPv6，family=TCP6，来源不丢。

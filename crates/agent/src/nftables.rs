@@ -13,6 +13,10 @@
 //!   内核 DNAT 没有这些原语，主控保存时就拒绝；Agent 侧仍防御性拒绝，绝不
 //!   静默只发第一个目标。
 //!
+//! 按地址族拆开后，某族只剩 1 个有效目标时**直接生成普通 `dnat`**，不带
+//! vmap / `numgen` / `jhash`：`mod 1` 在老内核上会返回 `ERANGE`。只有 ≥2 个
+//! 目标的那一族才使用 vmap。
+//!
 //! nftables 的命名 map 无法用 `numgen` 的整数键（nft 至今没有对应的 key 类型），
 //! 所以这里生成的是匿名 vmap：它是内核里独立的一张 verdict map，但随表一起
 //! 原子重建，语义上仍是「单独一张 map」。不要为了命名 map 去 `meta mark set`，
@@ -603,8 +607,9 @@ struct TargetAction {
 /// 把已解析目标变成 nft 动作。
 ///
 /// * 单目标：保持旧版 `dnat …` 一行，不引入 vmap；
-/// * 多目标：按地址族拆开（v4 / v6），各自生成一个 vmap；即使只有一种族也
-///   加 `meta nfproto` 守卫，避免 v6 客户端被 DNAT 到 v4 目标；
+/// * 多目标：按地址族拆开（v4 / v6），各自生成一个动作；某族只有 1 个目标时
+///   直接 `dnat …`，只有 ≥2 个目标才用 vmap——`mod 1` 在老内核上会 `ERANGE`；
+///   即使只有一种族也加 `meta nfproto` 守卫，避免 v6 客户端被 DNAT 到 v4 目标；
 /// * round_robin / weighted / ip_hashed 是三套选择器，互不复用。
 fn target_actions(strategy: ForwardStrategy, targets: &[ResolvedEndpoint]) -> Vec<TargetAction> {
     // 防御性去重：同名成员 / 同一域名解析到同一地址时，vmap 的重复键会让
@@ -636,18 +641,31 @@ fn target_actions(strategy: ForwardStrategy, targets: &[ResolvedEndpoint]) -> Ve
 
     let mut actions = Vec::with_capacity(2);
     if !v4.is_empty() {
-        actions.push(TargetAction {
-            family_guard: "meta nfproto ipv4".to_string(),
-            action: render_selector(strategy, &v4, false),
-        });
+        actions.push(family_action(strategy, &v4, false, "meta nfproto ipv4"));
     }
     if !v6.is_empty() {
-        actions.push(TargetAction {
-            family_guard: "meta nfproto ipv6".to_string(),
-            action: render_selector(strategy, &v6, true),
-        });
+        actions.push(family_action(strategy, &v6, true, "meta nfproto ipv6"));
     }
     actions
+}
+
+/// 一个地址族的动作：单目标用普通 dnat，≥2 个目标才用 vmap 选择器。
+///
+/// 单目标族绝不能走 `render_selector`：那会生成 `mod 1`，老内核直接 ERANGE。
+fn family_action(
+    strategy: ForwardStrategy,
+    targets: &[&ResolvedEndpoint],
+    ipv6: bool,
+    family_guard: &str,
+) -> TargetAction {
+    TargetAction {
+        family_guard: family_guard.to_string(),
+        action: if targets.len() == 1 {
+            render_dnat(targets[0])
+        } else {
+            render_selector(strategy, targets, ipv6)
+        },
+    }
 }
 
 /// 生成选择器：round_robin / weighted 用 numgen，ip_hashed 用 jhash。
@@ -1084,8 +1102,10 @@ table inet pierwave {
         );
     }
 
+    /// 两族各只有 1 个目标：必须生成两条普通 `dnat`（带族守卫），
+    /// 不能出现 `jhash … mod 1` —— 老内核会因 `modulus <= 1` 返回 ERANGE。
     #[test]
-    fn renders_ip_hashed_with_family_guards() {
+    fn two_single_target_families_render_plain_dnat() {
         let targets = vec![ep("1.1.1.1:80"), ep("[2001:db8::1]:80")];
         let script = render_script(
             &[(
@@ -1099,21 +1119,205 @@ table inet pierwave {
             "0.0.0.0",
         );
         assert!(
+            script.contains("meta nfproto ipv4 tcp dport 8080 counter dnat ip to 1.1.1.1:80"),
+            "{script}"
+        );
+        assert!(
+            script
+                .contains("meta nfproto ipv6 tcp dport 8080 counter dnat ip6 to [2001:db8::1]:80"),
+            "{script}"
+        );
+        assert!(
+            !script.contains("jhash"),
+            "单目标族不能生成 jhash：{script}"
+        );
+        assert!(!script.contains("vmap"), "单目标族不能生成 vmap：{script}");
+        assert!(
+            !contains_modulus_one(&script),
+            "单目标族不能生成 mod 1：{script}"
+        );
+    }
+
+    /// IpHashed 的多目标族仍生成 `jhash … vmap`；同规则里另一族只有 1 个
+    /// 目标时必须退回普通 dnat（B7），不能生成 `jhash … mod 1`。
+    #[test]
+    fn ip_hashed_uses_vmap_only_for_the_multi_target_family() {
+        let mut spec = rule("f1", 8080, "1.1.1.1", 80);
+        spec.strategy = ForwardStrategy::IpHashed;
+        spec.protocol = pierwave_proto::ForwardProtocol::Tcp;
+        spec.udp = false;
+        let script = render_script(
+            &[(
+                spec,
+                vec![ep("1.1.1.1:80"), ep("2.2.2.2:80"), ep("[2001:db8::1]:443")],
+            )],
+            "0.0.0.0",
+        );
+        assert!(
             script.contains(
-                "meta nfproto ipv4 tcp dport 8080 counter jhash ip saddr mod 1 vmap { 0 : dnat ip to 1.1.1.1:80 }"
+                "meta nfproto ipv4 tcp dport 8080 counter jhash ip saddr mod 2 vmap { 0 : dnat ip to 1.1.1.1:80, 1 : dnat ip to 2.2.2.2:80 }"
             ),
             "{script}"
         );
         assert!(
-            script.contains(
-                "meta nfproto ipv6 tcp dport 8080 counter jhash ip6 saddr mod 1 vmap { 0 : dnat ip6 to [2001:db8::1]:80 }"
-            ),
+            script
+                .contains("meta nfproto ipv6 tcp dport 8080 counter dnat ip6 to [2001:db8::1]:443"),
             "{script}"
         );
         assert!(
-            !script.contains("jhash ip saddr mod 2"),
-            "v4 / v6 目标要分别取模，不能把不同地址族混进同一张 vmap：{script}"
+            !contains_modulus_one(&script),
+            "多目标族用 mod 2，单目标族退回普通 dnat：{script}"
         );
+    }
+
+    /// golden：单族单目标 = 普通 `dnat`，不带 vmap / numgen / jhash。
+    #[test]
+    fn golden_single_family_single_target_is_plain_dnat() {
+        let mut spec = rule("f1", 8080, "1.1.1.1", 80);
+        spec.protocol = pierwave_proto::ForwardProtocol::Tcp;
+        spec.udp = false;
+        let script = render_script(&[(spec, vec![ep("1.1.1.1:80")])], "0.0.0.0");
+        let expected = "\
+table inet pierwave {
+    chain prerouting {
+        type nat hook prerouting priority dstnat; policy accept;
+        fib daddr type local tcp dport 8080 counter dnat ip to 1.1.1.1:80
+    }
+    chain output {
+        type nat hook output priority -100; policy accept;
+        fib daddr type local tcp dport 8080 counter dnat ip to 1.1.1.1:80
+    }
+}
+";
+        assert_eq!(script, expected);
+        assert!(!script.contains("vmap"), "{script}");
+        assert!(!script.contains("numgen"), "{script}");
+        assert!(!script.contains("jhash"), "{script}");
+    }
+
+    /// golden：两族各单目标 = 每个 chain 两条普通 `dnat`（各带族守卫）。
+    #[test]
+    fn golden_two_single_target_families_are_two_plain_dnat() {
+        let mut spec = rule("f1", 8080, "1.1.1.1", 80);
+        spec.protocol = pierwave_proto::ForwardProtocol::Tcp;
+        spec.udp = false;
+        let script = render_script(
+            &[(spec, vec![ep("1.1.1.1:80"), ep("[2001:db8::1]:443")])],
+            "0.0.0.0",
+        );
+        let expected = "\
+table inet pierwave {
+    chain prerouting {
+        type nat hook prerouting priority dstnat; policy accept;
+        fib daddr type local meta nfproto ipv4 tcp dport 8080 counter dnat ip to 1.1.1.1:80
+        fib daddr type local meta nfproto ipv6 tcp dport 8080 counter dnat ip6 to [2001:db8::1]:443
+    }
+    chain output {
+        type nat hook output priority -100; policy accept;
+        fib daddr type local meta nfproto ipv4 tcp dport 8080 counter dnat ip to 1.1.1.1:80
+        fib daddr type local meta nfproto ipv6 tcp dport 8080 counter dnat ip6 to [2001:db8::1]:443
+    }
+}
+";
+        assert_eq!(script, expected);
+        assert!(!script.contains("vmap"), "{script}");
+        assert!(
+            !contains_modulus_one(&script),
+            "两族各单目标不能生成 mod 1：{script}"
+        );
+    }
+
+    /// golden：一族 2 个 + 另一族 1 个 = 一条 vmap + 一条普通 dnat（每个 chain）。
+    #[test]
+    fn golden_two_plus_one_targets_are_one_vmap_and_one_plain_dnat() {
+        let mut spec = rule("f1", 8080, "1.1.1.1", 80);
+        spec.protocol = pierwave_proto::ForwardProtocol::Tcp;
+        spec.udp = false;
+        let script = render_script(
+            &[(
+                spec,
+                vec![
+                    ep("1.1.1.1:80"),
+                    ep("2.2.2.2:8080"),
+                    ep("[2001:db8::1]:443"),
+                ],
+            )],
+            "0.0.0.0",
+        );
+        let expected = "\
+table inet pierwave {
+    chain prerouting {
+        type nat hook prerouting priority dstnat; policy accept;
+        fib daddr type local meta nfproto ipv4 tcp dport 8080 counter numgen inc mod 2 vmap { 0 : dnat ip to 1.1.1.1:80, 1 : dnat ip to 2.2.2.2:8080 }
+        fib daddr type local meta nfproto ipv6 tcp dport 8080 counter dnat ip6 to [2001:db8::1]:443
+    }
+    chain output {
+        type nat hook output priority -100; policy accept;
+        fib daddr type local meta nfproto ipv4 tcp dport 8080 counter numgen inc mod 2 vmap { 0 : dnat ip to 1.1.1.1:80, 1 : dnat ip to 2.2.2.2:8080 }
+        fib daddr type local meta nfproto ipv6 tcp dport 8080 counter dnat ip6 to [2001:db8::1]:443
+    }
+}
+";
+        assert_eq!(script, expected);
+        assert_eq!(script.matches("vmap").count(), 2, "两条 chain 各一条 vmap");
+        assert_eq!(
+            script
+                .matches("meta nfproto ipv6 tcp dport 8080 counter dnat ip6")
+                .count(),
+            2,
+            "v6 单目标族在每个 chain 各一条普通 dnat"
+        );
+        assert!(
+            !contains_modulus_one(&script),
+            "脚本中不能出现 mod 1：{script}"
+        );
+    }
+
+    /// 对多种目标组合 × 多种策略循环断言：生成脚本里永不出现 `mod 1`
+    /// （按空白切词判断，避免误伤 `mod 10` 这类合法模数）。
+    #[test]
+    fn never_emits_modulus_one_for_any_target_combination() {
+        let combinations: Vec<Vec<&str>> = vec![
+            vec!["1.1.1.1:80"],
+            vec!["[2001:db8::1]:80"],
+            vec!["1.1.1.1:80", "2.2.2.2:80"],
+            vec!["[2001:db8::1]:80", "[2001:db8::2]:80"],
+            vec!["1.1.1.1:80", "[2001:db8::1]:80"],
+            vec!["1.1.1.1:80", "2.2.2.2:80", "[2001:db8::1]:80"],
+            vec!["1.1.1.1:80", "[2001:db8::1]:80", "[2001:db8::2]:80"],
+            vec![
+                "1.1.1.1:80",
+                "2.2.2.2:80",
+                "[2001:db8::1]:80",
+                "[2001:db8::2]:80",
+            ],
+        ];
+        for strategy in [
+            ForwardStrategy::RoundRobin,
+            ForwardStrategy::Weighted,
+            ForwardStrategy::IpHashed,
+        ] {
+            for combination in &combinations {
+                let mut spec = rule("f1", 8080, "1.1.1.1", 80);
+                spec.strategy = strategy;
+                let targets: Vec<ResolvedEndpoint> =
+                    combination.iter().map(|addr| ep(addr)).collect();
+                let script = render_script(&[(spec, targets)], "0.0.0.0");
+                assert!(
+                    !contains_modulus_one(&script),
+                    "strategy={strategy:?} targets={combination:?} 生成了 mod 1：\n{script}"
+                );
+            }
+        }
+    }
+
+    /// 按空白切词判断是否出现 `mod 1`，不会把 `mod 10` / `mod 1-2` 误判。
+    fn contains_modulus_one(script: &str) -> bool {
+        script
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .windows(2)
+            .any(|pair| pair[0] == "mod" && pair[1] == "1")
     }
 
     /// 同一地址出现两次（成员填了相同 IP）只保留一个 vmap 键，避免 nft 报重复。

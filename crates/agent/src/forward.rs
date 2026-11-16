@@ -1067,10 +1067,46 @@ async fn handle_connection(runtime: ForwardRuntime, client: TcpStream, peer: Soc
     }
 }
 
+/// 构造入口侧的 PROXY v2 头。
+///
+/// `source` 是客户端连接的 `peer_addr()`；`entry_local` 必须来自**同一条客户端
+/// 连接**的 `local_addr()`，即入口监听地址——v2 规范里的 dst 是「客户端原本
+/// 要连的地址」，不是后端 `upstream.peer_addr()`。
+///
+/// 入口本地地址在极少数情况下取不到（连接已重置等）。这时返回 `None`，让
+/// 调用方跳过发送：宁可不发头，也不能发一个 dst 错误或全 0 的头，把落地端
+/// 对客户端来源的判断带偏。
+fn proxy_v2_header(source: SocketAddr, entry_local: io::Result<SocketAddr>) -> Option<Vec<u8>> {
+    let destination = match entry_local {
+        Ok(destination) => destination,
+        Err(error) => {
+            tracing::warn!(
+                %source,
+                %error,
+                "无法读取入口连接的本地地址（local_addr），跳过 PROXY v2 头"
+            );
+            return None;
+        }
+    };
+    match crate::proxy_protocol::v2_header(source, destination) {
+        Ok(header) => Some(header),
+        Err(error) => {
+            tracing::warn!(
+                %source,
+                %destination,
+                %error,
+                "PROXY v2 头构造失败，跳过发送"
+            );
+            None
+        }
+    }
+}
+
 /// 一条连接：连目标 →（可选）写 PROXY v2 头 → 双向拷贝。
 ///
 /// 头只在 `proxy_protocol = true` 时写一次，位置严格在目标连接建立之后、
 /// 任何客户端载荷之前；关闭时一个字节也不多发，报文与升级前完全一致。
+/// 头的 dst 用入口连接的 `local_addr()`，不是上游目标地址。
 /// 任一方向结束/出错都由 `copy_bidirectional` 收尾。
 async fn proxy(
     client: TcpStream,
@@ -1098,13 +1134,14 @@ async fn proxy(
         }
     };
     if proxy_protocol {
-        // 源 = 入口连接的 peer；目的 = 实际连上的目标（域名此时已解析成 IP）。
+        // 源 = 入口连接的 peer；dst = 同一条客户端连接的 local_addr（入口监听
+        // 地址），即客户端原本要连的目的地址，不能用 upstream.peer_addr()。
         let source = client.peer_addr()?;
-        let destination = upstream.peer_addr()?;
-        let header = crate::proxy_protocol::v2_header(source, destination)?;
-        // 只写一次；写失败说明目标已断开，交给上层按连接失败计数。
-        upstream.write_all(&header).await?;
-        upstream.flush().await?;
+        if let Some(header) = proxy_v2_header(source, client.local_addr()) {
+            // 只写一次；写失败说明目标已断开，交给上层按连接失败计数。
+            upstream.write_all(&header).await?;
+            upstream.flush().await?;
+        }
     }
     copy_bidirectional(&mut client, &mut upstream).await
 }
@@ -1112,7 +1149,7 @@ async fn proxy(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::SocketAddr;
+    use std::net::{IpAddr, SocketAddr};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     /// 测试统一用 `listen_port = 0`：让内核在 bind 的同一刻分配端口，
@@ -2515,11 +2552,169 @@ mod tests {
         assert_eq!(header[12], 0x21, "version 2 + PROXY");
         assert_eq!(header[13], 0x11, "IPv4 + TCP");
         assert_eq!(&payload, b"hello", "载荷必须紧跟唯一一个头");
-        // 源地址是入口连接的 peer（127.0.0.1），目的地址是目标。
-        assert_eq!(&header[16..20], &[127, 0, 0, 1]);
+        // src = 客户端 peer；dst = 客户端连接的 local_addr（入口监听地址），
+        // 不是后端 target_addr。
+        assert_eq!(&header[16..20], &[127, 0, 0, 1], "src = 客户端 peer");
+        assert_eq!(&header[20..24], &[127, 0, 0, 1], "dst = 入口监听地址");
+        assert_eq!(
+            u16::from_be_bytes([header[26], header[27]]),
+            gateway_addr.port(),
+            "dst port 必须是入口端口"
+        );
+        assert_ne!(
+            u16::from_be_bytes([header[26], header[27]]),
+            target_addr.port(),
+            "dst 不能是后端端口"
+        );
 
         drop(client_end);
         let _ = tokio::time::timeout(Duration::from_secs(3), proxy_task).await;
+    }
+
+    /// B5 golden（IPv4，真实 socket）：后端与入口端口不同，dst 必须等于
+    /// 客户端连接的 local_addr（入口端口），而不是 upstream 的后端端口。
+    #[tokio::test]
+    async fn proxy_v2_ipv4_destination_is_entry_local_addr_not_backend() {
+        let backend = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let backend_addr = backend.local_addr().unwrap();
+        let backend_task = tokio::spawn(async move {
+            let (mut upstream, _) = backend.accept().await.unwrap();
+            let mut header = vec![0u8; 28];
+            upstream.read_exact(&mut header).await.unwrap();
+            header
+        });
+
+        let entry = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let entry_addr = entry.local_addr().unwrap();
+        assert_ne!(
+            entry_addr.port(),
+            backend_addr.port(),
+            "用例要求入口与后端是两个不同的真实端口"
+        );
+        let mut client = TcpStream::connect(entry_addr).await.unwrap();
+        let (accepted, peer) = entry.accept().await.unwrap();
+        let proxy_task = tokio::spawn(async move {
+            proxy(accepted, "127.0.0.1", i64::from(backend_addr.port()), true).await
+        });
+
+        client.write_all(b"x").await.unwrap();
+        let header = tokio::time::timeout(Duration::from_secs(3), backend_task)
+            .await
+            .expect("后端必须收到 PROXY 头")
+            .unwrap();
+
+        assert_eq!(header[13], 0x11, "IPv4 + TCP");
+        assert_eq!(&header[16..20], &[127, 0, 0, 1], "src = 客户端 peer");
+        assert_eq!(
+            &header[20..24],
+            &[127, 0, 0, 1],
+            "dst = 入口监听地址（不是后端）"
+        );
+        assert_eq!(
+            u16::from_be_bytes([header[24], header[25]]),
+            peer.port(),
+            "src port = 客户端端口"
+        );
+        assert_eq!(
+            u16::from_be_bytes([header[26], header[27]]),
+            entry_addr.port(),
+            "dst port 必须是入口端口"
+        );
+        assert_ne!(
+            u16::from_be_bytes([header[26], header[27]]),
+            backend_addr.port(),
+            "dst 不能是后端端口"
+        );
+
+        drop(client);
+        let _ = tokio::time::timeout(Duration::from_secs(3), proxy_task).await;
+    }
+
+    /// B5 golden（IPv6，真实 socket）：dst 同样是入口 `local_addr()`，
+    /// 不是后端的 peer 地址；family 必须是 TCP6。
+    #[tokio::test]
+    async fn proxy_v2_ipv6_destination_is_entry_local_addr_not_backend() {
+        let backend = TcpListener::bind("[::1]:0").await.unwrap();
+        let backend_addr = backend.local_addr().unwrap();
+        let backend_task = tokio::spawn(async move {
+            let (mut upstream, _) = backend.accept().await.unwrap();
+            let mut header = vec![0u8; 52];
+            upstream.read_exact(&mut header).await.unwrap();
+            header
+        });
+
+        let entry = TcpListener::bind("[::1]:0").await.unwrap();
+        let entry_addr = entry.local_addr().unwrap();
+        assert_ne!(
+            entry_addr.port(),
+            backend_addr.port(),
+            "用例要求入口与后端是两个不同的真实端口"
+        );
+        let mut client = TcpStream::connect(entry_addr).await.unwrap();
+        let (accepted, peer) = entry.accept().await.unwrap();
+        let proxy_task = tokio::spawn(async move {
+            proxy(accepted, "::1", i64::from(backend_addr.port()), true).await
+        });
+
+        client.write_all(b"x").await.unwrap();
+        let header = tokio::time::timeout(Duration::from_secs(3), backend_task)
+            .await
+            .expect("后端必须收到 PROXY 头")
+            .unwrap();
+
+        assert_eq!(header[13], 0x21, "IPv6 + TCP");
+        let IpAddr::V6(peer_ip) = peer.ip() else {
+            unreachable!("入口监听 ::1，客户端 peer 必须是 IPv6");
+        };
+        let IpAddr::V6(entry_ip) = entry_addr.ip() else {
+            unreachable!("入口监听 ::1");
+        };
+        assert_eq!(&header[16..32], &peer_ip.octets(), "src = 客户端 peer");
+        assert_eq!(&header[32..48], &entry_ip.octets(), "dst = 入口监听地址");
+        assert_eq!(
+            u16::from_be_bytes([header[48], header[49]]),
+            peer.port(),
+            "src port = 客户端端口"
+        );
+        assert_eq!(
+            u16::from_be_bytes([header[50], header[51]]),
+            entry_addr.port(),
+            "dst port 必须是入口端口"
+        );
+        assert_ne!(
+            u16::from_be_bytes([header[50], header[51]]),
+            backend_addr.port(),
+            "dst 不能是后端端口"
+        );
+
+        drop(client);
+        let _ = tokio::time::timeout(Duration::from_secs(3), proxy_task).await;
+    }
+
+    /// 边界：入口连接的 `local_addr()` 取不到时，必须跳过发送并 warn，
+    /// 不能生成 dst 错误或全 0 的头。
+    #[test]
+    fn proxy_v2_header_is_skipped_when_entry_local_addr_is_unavailable() {
+        let source: SocketAddr = "192.0.2.1:12345".parse().unwrap();
+        let error = io::Error::new(io::ErrorKind::NotConnected, "local_addr 不可用");
+        assert!(
+            proxy_v2_header(source, Err(error)).is_none(),
+            "local_addr 取不到时必须返回 None（调用方跳过发送）"
+        );
+    }
+
+    /// 正常路径：dst 由传入的入口 local_addr 决定，与源地址相互独立。
+    #[test]
+    fn proxy_v2_header_uses_entry_local_addr_as_destination() {
+        let source: SocketAddr = "192.0.2.1:12345".parse().unwrap();
+        let entry: SocketAddr = "203.0.113.9:8443".parse().unwrap();
+        let header = proxy_v2_header(source, Ok(entry)).expect("local_addr 可见时必须生成头");
+        assert_eq!(&header[20..24], &[203, 0, 113, 9]);
+        assert_eq!(
+            u16::from_be_bytes([header[26], header[27]]),
+            entry.port(),
+            "dst port 必须取自入口 local_addr"
+        );
     }
 
     /// 关闭开关时一个头字节也不发：目标收到的第一个字节就是客户端载荷。
