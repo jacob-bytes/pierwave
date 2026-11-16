@@ -1,0 +1,282 @@
+{
+  "reports": [
+    {
+      "kind": "interaction",
+      "loaded": [
+        "/api/v1/stats/overview",
+        "/api/v1/overview?days=7",
+        "/api/v1/stats/traffic?days=7"
+      ],
+      "afterSwitching": [
+        "/api/v1/stats/overview",
+        "/api/v1/overview?days=7",
+        "/api/v1/stats/traffic?days=7"
+      ],
+      "defaults": {
+        "trend": [
+          {
+            "text": "总流量",
+            "selected": true,
+            "tabindex": "-1"
+          },
+          {
+            "text": "协议",
+            "selected": false,
+            "tabindex": "-1"
+          }
+        ],
+        "distribution": [
+          {
+            "text": "协议",
+            "selected": true,
+            "tabindex": "-1"
+          },
+          {
+            "text": "套餐",
+            "selected": false,
+            "tabindex": "-1"
+          }
+        ],
+        "leaderboard": [
+          {
+            "text": "服务器",
+            "selected": true,
+            "tabindex": "-1"
+          },
+          {
+            "text": "节点",
+            "selected": false,
+            "tabindex": "-1"
+          },
+          {
+            "text": "用户",
+            "selected": false,
+            "tabindex": "-1"
+          }
+        ]
+      },
+      "errors": [],
+      "emptyFallbacks": true
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-default-light-1440.png",
+      "state": "default",
+      "stateLabel": "总流量 / 协议 / 服务器",
+      "theme": "light",
+      "width": 1440,
+      "contentHeight": 1381,
+      "screens": 1.53,
+      "errors": []
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-trend-protocol-light-1440.png",
+      "state": "trend-protocol",
+      "stateLabel": "趋势 → 协议",
+      "theme": "light",
+      "width": 1440,
+      "contentHeight": 1381,
+      "screens": 1.53,
+      "errors": []
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-dist-package-light-1440.png",
+      "state": "dist-package",
+      "stateLabel": "分布 → 套餐",
+      "theme": "light",
+      "width": 1440,
+      "contentHeight": 1381,
+      "screens": 1.53,
+      "errors": []
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-board-node-light-1440.png",
+      "state": "board-node",
+      "stateLabel": "榜单 → 节点",
+      "theme": "light",
+      "width": 1440,
+      "contentHeight": 1408,
+      "screens": 1.56,
+      "errors": []
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-board-user-light-1440.png",
+      "state": "board-user",
+      "stateLabel": "榜单 → 用户",
+      "theme": "light",
+      "width": 1440,
+      "contentHeight": 1408,
+      "screens": 1.56,
+      "errors": []
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-default-light-390.png",
+      "state": "default",
+      "stateLabel": "总流量 / 协议 / 服务器",
+      "theme": "light",
+      "width": 390,
+      "contentHeight": 2063,
+      "screens": 2.29,
+      "errors": []
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-trend-protocol-light-390.png",
+      "state": "trend-protocol",
+      "stateLabel": "趋势 → 协议",
+      "theme": "light",
+      "width": 390,
+      "contentHeight": 2063,
+      "screens": 2.29,
+      "errors": []
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-dist-package-light-390.png",
+      "state": "dist-package",
+      "stateLabel": "分布 → 套餐",
+      "theme": "light",
+      "width": 390,
+      "contentHeight": 2124,
+      "screens": 2.36,
+      "errors": []
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-board-node-light-390.png",
+      "state": "board-node",
+      "stateLabel": "榜单 → 节点",
+      "theme": "light",
+      "width": 390,
+      "contentHeight": 2196,
+      "screens": 2.44,
+      "errors": []
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-board-user-light-390.png",
+      "state": "board-user",
+      "stateLabel": "榜单 → 用户",
+      "theme": "light",
+      "width": 390,
+      "contentHeight": 2196,
+      "screens": 2.44,
+      "errors": []
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-default-dark-1440.png",
+      "state": "default",
+      "stateLabel": "总流量 / 协议 / 服务器",
+      "theme": "dark",
+      "width": 1440,
+      "contentHeight": 1381,
+      "screens": 1.53,
+      "errors": []
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-trend-protocol-dark-1440.png",
+      "state": "trend-protocol",
+      "stateLabel": "趋势 → 协议",
+      "theme": "dark",
+      "width": 1440,
+      "contentHeight": 1381,
+      "screens": 1.53,
+      "errors": []
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-dist-package-dark-1440.png",
+      "state": "dist-package",
+      "stateLabel": "分布 → 套餐",
+      "theme": "dark",
+      "width": 1440,
+      "contentHeight": 1381,
+      "screens": 1.53,
+      "errors": []
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-board-node-dark-1440.png",
+      "state": "board-node",
+      "stateLabel": "榜单 → 节点",
+      "theme": "dark",
+      "width": 1440,
+      "contentHeight": 1408,
+      "screens": 1.56,
+      "errors": []
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-board-user-dark-1440.png",
+      "state": "board-user",
+      "stateLabel": "榜单 → 用户",
+      "theme": "dark",
+      "width": 1440,
+      "contentHeight": 1408,
+      "screens": 1.56,
+      "errors": []
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-default-dark-390.png",
+      "state": "default",
+      "stateLabel": "总流量 / 协议 / 服务器",
+      "theme": "dark",
+      "width": 390,
+      "contentHeight": 2063,
+      "screens": 2.29,
+      "errors": []
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-trend-protocol-dark-390.png",
+      "state": "trend-protocol",
+      "stateLabel": "趋势 → 协议",
+      "theme": "dark",
+      "width": 390,
+      "contentHeight": 2063,
+      "screens": 2.29,
+      "errors": []
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-dist-package-dark-390.png",
+      "state": "dist-package",
+      "stateLabel": "分布 → 套餐",
+      "theme": "dark",
+      "width": 390,
+      "contentHeight": 2124,
+      "screens": 2.36,
+      "errors": []
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-board-node-dark-390.png",
+      "state": "board-node",
+      "stateLabel": "榜单 → 节点",
+      "theme": "dark",
+      "width": 390,
+      "contentHeight": 2196,
+      "screens": 2.44,
+      "errors": []
+    },
+    {
+      "kind": "shot",
+      "file": "/Users/jlthzy/Documents/mmrust/web/screenshots/overview-aggregate//overview-board-user-dark-390.png",
+      "state": "board-user",
+      "stateLabel": "榜单 → 用户",
+      "theme": "dark",
+      "width": 390,
+      "contentHeight": 2196,
+      "screens": 2.44,
+      "errors": []
+    }
+  ]
+}
