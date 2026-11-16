@@ -734,6 +734,62 @@ export interface NodeSummary extends Node {
   server_address: string;
 }
 
+/**
+ * 节点列表的服务端筛选与分页参数（服务器内列表与全局列表共用）。
+ *
+ * `serverId` 只对全局 `GET /api/v1/nodes` 有意义；服务器内列表以路径为准。
+ * 所有字段可选，空串 / 省略表示不过滤；`page` 从 1 开始，`perPage` 上限 200。
+ */
+export interface NodeListQuery {
+  tag?: string;
+  region?: string;
+  protocol?: string;
+  serverId?: string;
+  enabled?: boolean;
+  page?: number;
+  perPage?: number;
+}
+
+/** 分页响应：`total` 是筛选后的总条数，不是本页条数。 */
+export interface Paged<T> {
+  items: T[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+/** 把筛选参数拼成 query string；空值省略，`page=1` 也省略。 */
+function nodeListParams(query: NodeListQuery = {}): string {
+  const params = new URLSearchParams();
+  const text = (value: string | undefined) => {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : undefined;
+  };
+  const tag = text(query.tag);
+  const region = text(query.region);
+  const protocol = text(query.protocol);
+  const serverId = text(query.serverId);
+  if (tag) params.set("tag", tag);
+  if (region) params.set("region", region);
+  if (protocol) params.set("protocol", protocol);
+  if (serverId) params.set("server_id", serverId);
+  if (typeof query.enabled === "boolean") {
+    params.set("enabled", String(query.enabled));
+  }
+  if (typeof query.page === "number" && Number.isFinite(query.page) && query.page > 1) {
+    params.set("page", String(Math.floor(query.page)));
+  }
+  if (
+    typeof query.perPage === "number" &&
+    Number.isFinite(query.perPage) &&
+    query.perPage > 0
+  ) {
+    params.set("per_page", String(Math.floor(query.perPage)));
+  }
+  const qs = params.toString();
+  return qs === "" ? "" : `?${qs}`;
+}
+
 export interface CreateNodeInput {
   name: string;
   protocol: string;
@@ -1709,6 +1765,23 @@ export interface OverviewTopItem {
  * 既有的 `/api/v1/stats/overview` 继续供第一行 KPI 与告警计数使用，
  * 新接口失败时不会拖垮整页。
  */
+/** 节点流量 Top：字段来自 `traffic_node_daily` JOIN `nodes` / `servers`。 */
+export interface OverviewTopNode {
+  node_id: string;
+  name: string;
+  protocol: string;
+  server_name: string;
+  traffic_7d: number;
+}
+
+/** 套餐用量分布：按用户当前套餐实例归集窗口内流量。 */
+export interface OverviewPackageSplit {
+  package_id: string;
+  name: string;
+  users: number;
+  traffic_7d: number;
+}
+
 export interface OverviewData {
   kpi: OverviewKpi;
   series: OverviewSeriesPoint[];
@@ -1724,6 +1797,10 @@ export interface OverviewData {
   top: OverviewTopItem[];
   /** Top 用户，最多 5 条；窗口内没有流量时为空。 */
   top_users: OverviewTopUser[];
+  /** 节点流量 Top，最多 5 条；没有节点流量时是空数组（不补 0）。 */
+  top_nodes: OverviewTopNode[];
+  /** 套餐用量分布，最多 5 条，按流量降序；没有套餐流量时是空数组。 */
+  package_split: OverviewPackageSplit[];
 }
 
 /**
@@ -2485,13 +2562,15 @@ export const api = {
   },
 
   // 节点按服务器归属管理；`listAll` 是跨服务器的全局列表（套餐范围选择器用）。
+  // 两个入口都支持服务端筛选与分页，响应形如 `{ items, total, page, per_page }`。
   nodes: Object.assign(
-    (serverId: string) =>
-      request<{ items: Node[] }>(
-        `/api/v1/servers/${encodeURIComponent(serverId)}/nodes`,
+    (serverId: string, query: NodeListQuery = {}) =>
+      request<Paged<Node>>(
+        `/api/v1/servers/${encodeURIComponent(serverId)}/nodes${nodeListParams(query)}`,
       ),
     {
-      listAll: () => request<{ items: NodeSummary[] }>("/api/v1/nodes"),
+      listAll: (query: NodeListQuery = {}) =>
+        request<Paged<NodeSummary>>(`/api/v1/nodes${nodeListParams(query)}`),
     },
   ),
   createNode: (serverId: string, input: CreateNodeInput) =>

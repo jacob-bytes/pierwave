@@ -264,33 +264,102 @@ fn validate_shadowsocks(protocol: &str, config: &Value) -> AppResult<()> {
     }
 }
 
-/// 列表筛选：`?tag=` 精确匹配标签，`?region=` 精确匹配地区（大小写不敏感）。
+/// 列表筛选与分页：
+/// * `?tag=` 精确匹配标签；
+/// * `?region=` 精确匹配地区（大小写不敏感）；
+/// * `?protocol=` 精确匹配协议（大小写不敏感）；
+/// * `?server_id=` 只用于全局列表；服务器内列表以路径参数为准；
+/// * `?enabled=true|false|1|0`；
+/// * `?page=`（默认 1，>= 1）、`?per_page=`（默认 50，1..=200）。
+///
+/// 所有筛选条件可组合（AND）；非法分页参数返回 400 而不是静默夹到边界。
 #[derive(Deserialize, Default)]
 pub struct NodeListQuery {
     #[serde(default)]
     pub tag: Option<String>,
     #[serde(default)]
     pub region: Option<String>,
+    #[serde(default)]
+    pub protocol: Option<String>,
+    #[serde(default)]
+    pub server_id: Option<String>,
+    #[serde(default)]
+    pub enabled: Option<String>,
+    #[serde(default)]
+    pub page: Option<String>,
+    #[serde(default)]
+    pub per_page: Option<String>,
 }
 
-fn matches_filter(node: &pierwave_domain::models::Node, query: &NodeListQuery) -> bool {
-    let tag_ok = query
-        .tag
-        .as_deref()
-        .map(str::trim)
-        .filter(|tag| !tag.is_empty())
-        .is_none_or(|tag| node.tag_list().iter().any(|item| item == tag));
-    let region_ok = query
-        .region
-        .as_deref()
-        .map(str::trim)
-        .filter(|region| !region.is_empty())
-        .is_none_or(|region| {
-            node.region
-                .as_deref()
-                .is_some_and(|item| item.eq_ignore_ascii_case(region))
-        });
-    tag_ok && region_ok
+/// 分页默认值与上限：与前端 `NODE_PAGE_SIZE` 对齐。
+const DEFAULT_PER_PAGE: i64 = 50;
+const MAX_PER_PAGE: i64 = 200;
+
+/// trim 后空串视为未设置；筛选参数一律走这条归一化。
+fn query_text(raw: Option<&str>) -> Option<String> {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn parse_page(raw: Option<&str>) -> AppResult<i64> {
+    let Some(raw) = query_text(raw) else {
+        return Ok(1);
+    };
+    match raw.parse::<i64>() {
+        Ok(page) if page >= 1 => Ok(page),
+        _ => Err(AppError::coded(
+            "query.page_invalid",
+            Some(json!({ "min": 1 })),
+            "page 必须是大于等于 1 的整数",
+        )),
+    }
+}
+
+fn parse_per_page(raw: Option<&str>) -> AppResult<i64> {
+    let Some(raw) = query_text(raw) else {
+        return Ok(DEFAULT_PER_PAGE);
+    };
+    match raw.parse::<i64>() {
+        Ok(per_page) if (1..=MAX_PER_PAGE).contains(&per_page) => Ok(per_page),
+        _ => Err(AppError::coded(
+            "query.per_page_invalid",
+            Some(json!({ "min": 1, "max": MAX_PER_PAGE })),
+            format!("per_page 必须是 1-{MAX_PER_PAGE} 的整数"),
+        )),
+    }
+}
+
+fn parse_enabled(raw: Option<&str>) -> AppResult<Option<bool>> {
+    let Some(value) = query_text(raw) else {
+        return Ok(None);
+    };
+    match value.to_ascii_lowercase().as_str() {
+        "true" | "1" => Ok(Some(true)),
+        "false" | "0" => Ok(Some(false)),
+        _ => Err(AppError::coded(
+            "query.enabled_invalid",
+            Some(json!({
+                "value": value,
+                "allowed": ["true", "false", "1", "0"],
+            })),
+            format!("enabled 只接受 true / false / 1 / 0：{value}"),
+        )),
+    }
+}
+
+/// 把 query 归一化成仓储层筛选条件；`server_id` 由调用方决定来源。
+fn node_filter(
+    query: &NodeListQuery,
+    server_id: Option<String>,
+) -> AppResult<repo::nodes::NodeFilter> {
+    Ok(repo::nodes::NodeFilter {
+        server_id,
+        tag: query_text(query.tag.as_deref()),
+        region: query_text(query.region.as_deref()),
+        protocol: query_text(query.protocol.as_deref()).map(|value| value.to_ascii_lowercase()),
+        enabled: parse_enabled(query.enabled.as_deref())?,
+    })
 }
 
 pub async fn list(
@@ -301,12 +370,16 @@ pub async fn list(
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
     load_server(&state, &server_id).await?;
-    let items: Vec<_> = repo::nodes::list_by_server(&state.db.pool, &server_id)
-        .await?
-        .into_iter()
-        .filter(|node| matches_filter(node, &query))
-        .collect();
-    Ok(Json(json!({ "items": items })))
+    // 服务器内列表以路径参数为准，忽略 query 里的 server_id（避免两处不一致）。
+    let filter = node_filter(&query, Some(server_id))?;
+    let page = repo::nodes::list_page(
+        &state.db.pool,
+        &filter,
+        parse_page(query.page.as_deref())?,
+        parse_per_page(query.per_page.as_deref())?,
+    )
+    .await?;
+    Ok(Json(json!(page)))
 }
 
 #[derive(Deserialize)]
@@ -802,19 +875,25 @@ pub async fn apply(
     ))
 }
 
-/// 全局节点列表：跨服务器，供套餐范围选择器用。
+/// 全局节点列表：跨服务器，供套餐范围选择器与建链「从节点选择」用。
+///
+/// 支持与服务器内列表相同的筛选，另加 `?server_id=`；响应同样是
+/// `{ items, total, page, per_page }`（默认 50 条/页）。
 pub async fn list_all(
     State(state): State<AppState>,
     user: CurrentUser,
     Query(query): Query<NodeListQuery>,
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
-    let items: Vec<_> = repo::nodes::list_all(&state.db.pool)
-        .await?
-        .into_iter()
-        .filter(|item| matches_filter(&item.node, &query))
-        .collect();
-    Ok(Json(json!({ "items": items })))
+    let filter = node_filter(&query, query_text(query.server_id.as_deref()))?;
+    let page = repo::nodes::list_all_page(
+        &state.db.pool,
+        &filter,
+        parse_page(query.page.as_deref())?,
+        parse_per_page(query.per_page.as_deref())?,
+    )
+    .await?;
+    Ok(Json(json!(page)))
 }
 
 #[cfg(test)]
@@ -1768,6 +1847,268 @@ mod tests {
         assert_eq!(items[0]["server_id"], server.id);
         assert_eq!(items[0]["name"], "香港-01");
         assert_eq!(items[0]["port"], 443);
+        assert_eq!(body["total"], 1);
+        assert_eq!(body["page"], 1);
+        assert_eq!(body["per_page"], 50);
+    }
+
+    /// 节点列表的服务端筛选：tag / region / protocol / enabled / server_id
+    /// 全部可组合，且分页元数据（total / page / per_page）与筛选后的集合一致。
+    #[tokio::test]
+    async fn node_list_filters_compose_and_paginate_on_the_server() {
+        let (app, state, cookie) = setup().await;
+        let server_a = create_server_via_repo(&state, "hk-1", "1.2.3.4").await;
+        let server_b = create_server_via_repo(&state, "jp-1", "5.6.7.8").await;
+
+        struct Seed<'a> {
+            server: &'a str,
+            tag: &'a str,
+            protocol: &'a str,
+            enabled: bool,
+            tags: &'a [&'a str],
+            region: Option<&'a str>,
+        }
+
+        let seeds = [
+            Seed {
+                server: &server_a,
+                tag: "a-vless",
+                protocol: "vless",
+                enabled: true,
+                tags: &["hk", "direct"],
+                region: Some("HK"),
+            },
+            Seed {
+                server: &server_a,
+                tag: "a-trojan",
+                protocol: "trojan",
+                enabled: false,
+                tags: &["hk"],
+                region: Some("HK"),
+            },
+            Seed {
+                server: &server_a,
+                tag: "a-jp",
+                protocol: "vless",
+                enabled: true,
+                tags: &["jp"],
+                region: Some("JP"),
+            },
+            Seed {
+                server: &server_b,
+                tag: "b-vless",
+                protocol: "vless",
+                enabled: true,
+                tags: &["hk", "direct"],
+                region: Some("HK"),
+            },
+            Seed {
+                server: &server_b,
+                tag: "b-ss",
+                protocol: "shadowsocks",
+                enabled: true,
+                tags: &[],
+                region: None,
+            },
+        ];
+        for (index, seed) in seeds.iter().enumerate() {
+            repo::nodes::create(
+                &state.db.pool,
+                seed.server,
+                repo::nodes::NewNode {
+                    tag: Some(seed.tag.into()),
+                    name: format!("node-{index}"),
+                    protocol: seed.protocol.into(),
+                    transport: "tcp".into(),
+                    security: "none".into(),
+                    port: 10000 + index as i64,
+                    public_port: None,
+                    config_json: "{}".into(),
+                    enabled: seed.enabled,
+                    cert_id: None,
+                    bandwidth_kbps: None,
+                    tags: seed.tags.iter().map(|tag| (*tag).to_string()).collect(),
+                    region: seed.region.map(str::to_string),
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        let server_uri = format!("/api/v1/servers/{server_a}/nodes");
+
+        // tag 命中 tags 数组（不是 node.tag 本身）。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::GET,
+            &format!("{server_uri}?tag=hk"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["total"], 2, "{body}");
+        assert_eq!(body["items"].as_array().unwrap().len(), 2);
+
+        // 组合筛选：region 大小写不敏感 + protocol + enabled 都是 AND。
+        let (_, body) = request(
+            &app,
+            Some(&cookie),
+            Method::GET,
+            &format!("{server_uri}?tag=hk&region=hk&protocol=VLESS&enabled=true"),
+            None,
+        )
+        .await;
+        assert_eq!(body["total"], 1, "{body}");
+        assert_eq!(body["items"][0]["tag"], "a-vless");
+
+        // 停用节点可以被单独筛出。
+        let (_, body) = request(
+            &app,
+            Some(&cookie),
+            Method::GET,
+            &format!("{server_uri}?enabled=false"),
+            None,
+        )
+        .await;
+        assert_eq!(body["total"], 1, "{body}");
+        assert_eq!(body["items"][0]["tag"], "a-trojan");
+
+        // 精确匹配 node.tag 不应命中（筛选的是标签列表）。
+        let (_, body) = request(
+            &app,
+            Some(&cookie),
+            Method::GET,
+            &format!("{server_uri}?tag=a-vless"),
+            None,
+        )
+        .await;
+        assert_eq!(body["total"], 0, "{body}");
+        assert!(body["items"].as_array().unwrap().is_empty());
+
+        // 全局列表：server_id 过滤 + 标签 + 协议组合；保留 server_name。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::GET,
+            "/api/v1/nodes?tag=hk&protocol=vless",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["total"], 2, "{body}");
+        let tags: Vec<&str> = body["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["tag"].as_str().unwrap())
+            .collect();
+        assert_eq!(tags, vec!["a-vless", "b-vless"]);
+        assert_eq!(body["items"][0]["server_name"], "hk-1");
+        assert_eq!(body["items"][1]["server_name"], "jp-1");
+
+        let (_, body) = request(
+            &app,
+            Some(&cookie),
+            Method::GET,
+            &format!("/api/v1/nodes?server_id={server_b}&enabled=true"),
+            None,
+        )
+        .await;
+        assert_eq!(body["total"], 2, "{body}");
+        assert_eq!(
+            body["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|item| item["tag"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["b-vless", "b-ss"]
+        );
+
+        // 分页：第 2 页 + 每页 2 条，total 仍是筛选后的 3。
+        let (_, body) = request(
+            &app,
+            Some(&cookie),
+            Method::GET,
+            &format!("{server_uri}?page=2&per_page=2"),
+            None,
+        )
+        .await;
+        assert_eq!(body["total"], 3, "{body}");
+        assert_eq!(body["page"], 2);
+        assert_eq!(body["per_page"], 2);
+        assert_eq!(body["items"].as_array().unwrap().len(), 1);
+        assert_eq!(body["items"][0]["tag"], "a-jp");
+
+        // 越界页：200 + 空 items，total 不丢。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::GET,
+            &format!("{server_uri}?page=9&per_page=2"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["total"], 3);
+        assert_eq!(body["page"], 9);
+        assert!(body["items"].as_array().unwrap().is_empty());
+
+        // 边界值：0 与 200 合法上限之外都 400。
+        for uri in [
+            format!("{server_uri}?page=0"),
+            format!("{server_uri}?page=-1"),
+            format!("{server_uri}?page=abc"),
+        ] {
+            let (status, body) = request(&app, Some(&cookie), Method::GET, &uri, None).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}: {body}");
+            assert_eq!(body["code"], "query.page_invalid", "{uri}: {body}");
+        }
+        for per_page in ["0", "-1", "201", "abc"] {
+            let uri = format!("{server_uri}?per_page={per_page}");
+            let (status, body) = request(&app, Some(&cookie), Method::GET, &uri, None).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}: {body}");
+            assert_eq!(body["code"], "query.per_page_invalid", "{uri}: {body}");
+            assert_eq!(body["params"]["max"], 200, "{uri}: {body}");
+        }
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::GET,
+            &format!("{server_uri}?per_page=200&page=1"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["per_page"], 200);
+        assert_eq!(body["total"], 3);
+
+        // enabled 只接受 true/false/1/0。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::GET,
+            &format!("{server_uri}?enabled=maybe"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "query.enabled_invalid", "{body}");
+        assert_eq!(body["params"]["value"], "maybe");
+
+        // 不存在的组合返回空集合，不是错误。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::GET,
+            &format!("{server_uri}?protocol=vmess&region=US"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["total"], 0);
+        assert!(body["items"].as_array().unwrap().is_empty());
     }
 
     async fn create_server_via_repo(state: &AppState, name: &str, address: &str) -> String {

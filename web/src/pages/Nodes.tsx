@@ -1,5 +1,5 @@
-import { lazy, Suspense, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   ArrowLeftIcon,
@@ -63,9 +63,18 @@ import { formatBytes } from "@/lib/format";
 import { nodeSummary } from "@/lib/protocols";
 import { portPairLabel } from "@/lib/publicPort";
 import {
+  clampNodePage,
+  hasNodeFilters,
+  NODE_PAGE_SIZE,
+  nodePageCount,
+  nodePageSummary,
+  parseNodeFilters,
+  serializeNodeFilters,
+} from "@/lib/nodeFilters";
+import {
   useApplyServer,
+  useNodePage,
   useNodeTraffic,
-  useNodes,
   useServers,
   useTcpingNode,
   useUpdateNode,
@@ -258,8 +267,19 @@ function NodeEnabledSwitch({
 export default function NodesPage() {
   useI18n();
   const { id: serverId = "" } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const servers = useServers();
-  const nodes = useNodes(serverId);
+  // 筛选与页码都放在 URL 里：可收藏、刷新保持；`?tag=&region=&page=`。
+  const filters = parseNodeFilters(searchParams);
+  // 输入框 → 300ms 防抖 → 请求；页码变化不带防抖（翻页要立刻响应）。
+  const [debouncedTag, setDebouncedTag] = useState(filters.tag);
+  const [debouncedRegion, setDebouncedRegion] = useState(filters.region);
+  const nodes = useNodePage(serverId, {
+    tag: debouncedTag,
+    region: debouncedRegion,
+    page: filters.page,
+    perPage: NODE_PAGE_SIZE,
+  });
   const traffic = useNodeTraffic(serverId, TRAFFIC_DAYS);
   const apply = useApplyServer(serverId);
 
@@ -270,8 +290,6 @@ export default function NodesPage() {
   const [deleteTarget, setDeleteTarget] = useState<Node | null>(null);
   const [trafficTarget, setTrafficTarget] = useState<Node | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const [tagFilter, setTagFilter] = useState("");
-  const [regionFilter, setRegionFilter] = useState("");
   // TCPing 结果不落库、不轮询；按节点 id 保留到下次刷新页面。
   const [tcpingStates, setTcpingStates] = useState<Record<string, TcpingState>>(
     {},
@@ -279,29 +297,64 @@ export default function NodesPage() {
   const tcping = useTcpingNode();
 
   const server = servers.data?.find((item) => item.id === serverId);
-  const items = nodes.data ?? [];
+  const items = nodes.data?.items ?? [];
+  const total = nodes.data?.total ?? 0;
+  const pages = nodePageCount(total, NODE_PAGE_SIZE);
+  const pageSummary = nodePageSummary(filters.page, NODE_PAGE_SIZE, total);
+  const filtersActive = hasNodeFilters(filters);
   const showError = nodes.isError && !nodes.data;
   const errorMessage = errorText(
     nodes.error,
     t("nodes.loadError"),
   );
-  // 列表页的标签 / 地区筛选：纯前端过滤已加载的节点，不发额外请求。
-  const filtersActive =
-    tagFilter.trim() !== "" || regionFilter.trim() !== "";
-  const visibleItems = useMemo(() => {
-    const tag = tagFilter.trim();
-    const region = regionFilter.trim();
-    return items.filter((node) => {
-      if (tag !== "" && !(node.tags ?? []).includes(tag)) return false;
-      if (
-        region !== "" &&
-        !(node.region ?? "").toLowerCase().includes(region.toLowerCase())
-      ) {
-        return false;
-      }
-      return true;
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedTag(filters.tag);
+      setDebouncedRegion(filters.region);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [filters.tag, filters.region]);
+
+  // 数据变化后纠偏页码：删除节点 / 收窄筛选导致当前页越界时回到最后一页。
+  useEffect(() => {
+    if (!nodes.data) return;
+    const lastPage = nodePageCount(nodes.data.total, NODE_PAGE_SIZE);
+    if (filters.page > lastPage) {
+      setSearchParams(
+        serializeNodeFilters({ ...filters, page: lastPage }),
+        { replace: true },
+      );
+    }
+  }, [nodes.data, filters.page, filters.tag, filters.region, setSearchParams]);
+
+  function updateFilters(next: Partial<typeof filters>) {
+    setSearchParams(
+      serializeNodeFilters({
+        tag: next.tag ?? filters.tag,
+        region: next.region ?? filters.region,
+        page: next.page ?? filters.page,
+      }),
+      { replace: true },
+    );
+  }
+
+  function clearFilters() {
+    setDebouncedTag("");
+    setDebouncedRegion("");
+    setSearchParams(serializeNodeFilters({ tag: "", region: "", page: 1 }), {
+      replace: true,
     });
-  }, [items, tagFilter, regionFilter]);
+  }
+
+  function goToPage(nextPage: number) {
+    setSearchParams(
+      serializeNodeFilters({
+        ...filters,
+        page: clampNodePage(nextPage, total, NODE_PAGE_SIZE),
+      }),
+    );
+  }
 
   const trafficByNode = new Map<string, NodeTraffic>(
     (traffic.data ?? []).map((item) => [item.node_id, item]),
@@ -453,35 +506,39 @@ export default function NodesPage() {
                 <Badge
                   variant="secondary"
                   className="font-mono type-micro font-normal text-muted-foreground"
+                  title={t("nodes.listTotalTitle")}
                 >
-                  {items.length}
+                  {total}
                 </Badge>
+              ) : null}
+              {nodes.data && !showError ? (
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {t("nodes.pageStatus", {
+                    page: pageSummary.page,
+                    pages: pageSummary.pages,
+                  })}
+                </span>
               ) : null}
             </CardTitle>
             <div className="flex flex-wrap items-center gap-2">
               <Input
-                value={tagFilter}
-                onChange={(event) => setTagFilter(event.target.value)}
+                value={filters.tag}
+                onChange={(event) => updateFilters({ tag: event.target.value, page: 1 })}
                 placeholder={t("nodes.filterTagPlaceholder")}
                 aria-label={t("nodes.filterTag")}
                 className="h-8 w-32"
               />
               <Input
-                value={regionFilter}
-                onChange={(event) => setRegionFilter(event.target.value)}
+                value={filters.region}
+                onChange={(event) =>
+                  updateFilters({ region: event.target.value, page: 1 })
+                }
                 placeholder={t("nodes.filterRegionPlaceholder")}
                 aria-label={t("nodes.filterRegion")}
                 className="h-8 w-28"
               />
               {filtersActive ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setTagFilter("");
-                    setRegionFilter("");
-                  }}
-                >
+                <Button variant="ghost" size="sm" onClick={clearFilters}>
                   <XIcon className="size-3.5" />
                   {t("nodes.clearFilters")}
                 </Button>
@@ -547,32 +604,31 @@ export default function NodesPage() {
                   onRetry={() => void nodes.refetch()}
                 />
               ) : items.length === 0 ? (
-                <EmptyRow onCreate={() => setFormState({ mode: "create" })} />
-              ) : visibleItems.length === 0 ? (
-                <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={COLUMN_COUNT} className="px-4 py-8">
-                    <EmptyState
-                      size="sm"
-                      icon={NetworkIcon}
-                      title={t("nodes.filteredEmptyTitle")}
-                      description={t("nodes.filteredEmptyDesc")}
-                      action={
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setTagFilter("");
-                            setRegionFilter("");
-                          }}
-                        >
-                          {t("nodes.clearFilters")}
-                        </Button>
-                      }
-                    />
-                  </TableCell>
-                </TableRow>
+                filtersActive ? (
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={COLUMN_COUNT} className="px-4 py-8">
+                      <EmptyState
+                        size="sm"
+                        icon={NetworkIcon}
+                        title={t("nodes.filteredEmptyTitle")}
+                        description={t("nodes.filteredEmptyDesc")}
+                        action={
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={clearFilters}
+                          >
+                            {t("nodes.clearFilters")}
+                          </Button>
+                        }
+                      />
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  <EmptyRow onCreate={() => setFormState({ mode: "create" })} />
+                )
               ) : (
-                visibleItems.map((node) => (
+                items.map((node) => (
                   <TableRow key={node.id}>
                     <TableCell className="max-w-64 px-4 py-2.5">
                       <div className="flex min-w-0 items-center gap-2">
@@ -691,6 +747,41 @@ export default function NodesPage() {
               )}
             </TableBody>
           </Table>
+          {nodes.data && !showError ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2.5">
+              <p className="text-xs text-muted-foreground tabular-nums">
+                {t("nodes.pageRange", {
+                  from: pageSummary.from,
+                  to: pageSummary.to,
+                  total: pageSummary.total,
+                })}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => goToPage(pageSummary.page - 1)}
+                  disabled={pageSummary.page <= 1 || nodes.isFetching}
+                >
+                  {t("nodes.pagePrev")}
+                </Button>
+                <span className="min-w-16 text-center text-xs text-muted-foreground tabular-nums">
+                  {t("nodes.pageStatus", {
+                    page: pageSummary.page,
+                    pages: pageSummary.pages,
+                  })}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => goToPage(pageSummary.page + 1)}
+                  disabled={pageSummary.page >= pages || nodes.isFetching}
+                >
+                  {t("nodes.pageNext")}
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

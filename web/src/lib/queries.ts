@@ -58,6 +58,7 @@ import {
   type MeSummary,
   type MeTraffic,
   type Node,
+  type NodeListQuery,
   type NodeSummary,
   type NodeTraffic,
   type NodeTrafficDetail,
@@ -66,6 +67,7 @@ import {
   type OverviewData,
   type OverviewStats,
   type Package,
+  type Paged,
   type PublicStatus,
   type RecentLogin,
   type RevokeOtherSessionsResponse,
@@ -1282,11 +1284,68 @@ export function usePreviewSubscriptionTemplate() {
   });
 }
 
+/** 服务端分页上限；列表页与选择器都用它作为「一次尽量多取」的页大小。 */
+const NODE_MAX_PER_PAGE = 200;
+
+/**
+ * 逐页取完某个节点列表。
+ *
+ * 后端把两个入口都改成默认 50 条/页后，旧调用方（路由规则、套餐节点范围、
+ * 建链选择器）仍然需要「全部节点」的语义；这里按 total 翻页合并，避免
+ * 节点超过一页时被静默截断。空库 / 只有一页时只发一次请求。
+ */
+async function fetchAllNodes<T>(
+  fetchPage: (page: number, perPage: number) => Promise<Paged<T>>,
+): Promise<T[]> {
+  const first = await fetchPage(1, NODE_MAX_PER_PAGE);
+  const items = [...first.items];
+  const pages =
+    first.per_page > 0 ? Math.ceil(first.total / first.per_page) : 1;
+  for (let page = 2; page <= pages; page += 1) {
+    const next = await fetchPage(page, NODE_MAX_PER_PAGE);
+    items.push(...next.items);
+    if (next.items.length === 0) break;
+  }
+  return items;
+}
+
+/** 单台服务器的全部节点；旧调用方（路由规则表单）仍拿到数组。 */
 export function useNodes(serverId: string) {
   return useQuery<Node[]>({
     queryKey: queryKeys.nodes(serverId),
-    queryFn: async () => (await api.nodes(serverId)).items,
+    queryFn: () =>
+      fetchAllNodes((page, perPage) =>
+        api.nodes(serverId, { page, perPage }),
+      ),
     enabled: Boolean(serverId),
+    staleTime: 5_000,
+  });
+}
+
+/**
+ * 节点列表页：服务端筛选 + 分页，返回 `{ items, total, page, per_page }`。
+ *
+ * 筛选条件进 query key，切换标签 / 地区 / 页码就是另一条查询；
+ * `keepPreviousData` 让翻页和输入防抖期间不闪回骨架。
+ */
+export function useNodePage(serverId: string, query: NodeListQuery = {}) {
+  return useQuery<Paged<Node>>({
+    queryKey: [
+      ...queryKeys.nodes(serverId),
+      "page",
+      query.tag ?? "",
+      query.region ?? "",
+      query.protocol ?? "",
+      query.enabled ?? "any",
+      query.page ?? 1,
+      query.perPage ?? 50,
+    ],
+    queryFn: () => api.nodes(serverId, query),
+    enabled: Boolean(serverId),
+    // 同一台服务器内换筛选 / 翻页时保留旧数据避免闪骨架；
+    // 切换服务器时不能沿用上一台的数据，否则短暂显示错误的节点。
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[1] === serverId ? previousData : undefined,
     staleTime: 5_000,
   });
 }
@@ -1296,11 +1355,13 @@ export function useNodes(serverId: string) {
  *
  * 后端接口可能暂时 404：这里不重试，由调用方展示中文错误与「重试」，
  * 并保证「全部节点」这类不依赖该列表的范围仍然可以保存。
+ * 接口默认 50 条/页，这里按 total 逐页取完，保持「全部节点」语义。
  */
 export function useAllNodes() {
   return useQuery<NodeSummary[]>({
     queryKey: queryKeys.allNodes,
-    queryFn: async () => (await api.nodes.listAll()).items,
+    queryFn: () =>
+      fetchAllNodes((page, perPage) => api.nodes.listAll({ page, perPage })),
     staleTime: 30_000,
     retry: false,
   });

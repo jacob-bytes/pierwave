@@ -2795,6 +2795,7 @@ fn saturating_i64(value: u64) -> i64 {
 pub mod nodes {
     use std::collections::HashSet;
 
+    use serde::Serialize;
     use sqlx::QueryBuilder;
 
     use super::*;
@@ -3001,6 +3002,123 @@ pub mod nodes {
         )
         .fetch_all(pool)
         .await?)
+    }
+
+    /// 节点列表筛选条件；全部为 `None` 表示不过滤（旧行为）。
+    ///
+    /// 值由调用方先做 trim / 小写归一；凭证比较规则固定：
+    /// * `tag`：命中节点 `tags` 数组中的某一项（精确匹配，大小写敏感）；
+    /// * `region`：精确匹配且大小写不敏感（与旧版前端过滤一致）；
+    /// * `protocol`：大小写不敏感；
+    /// * `enabled`：按启用状态精确匹配，停用节点不会被漏掉。
+    #[derive(Debug, Clone, Default, PartialEq, Eq)]
+    pub struct NodeFilter {
+        pub server_id: Option<String>,
+        pub tag: Option<String>,
+        pub region: Option<String>,
+        pub protocol: Option<String>,
+        pub enabled: Option<bool>,
+    }
+
+    impl NodeFilter {
+        /// 单条节点是否满足全部筛选条件（条件之间是 AND）。
+        pub fn matches(&self, node: &Node) -> bool {
+            if let Some(server_id) = &self.server_id {
+                if node.server_id != *server_id {
+                    return false;
+                }
+            }
+            if let Some(protocol) = &self.protocol {
+                if !node.protocol.eq_ignore_ascii_case(protocol) {
+                    return false;
+                }
+            }
+            if let Some(tag) = &self.tag {
+                if !node.tag_list().iter().any(|item| item == tag) {
+                    return false;
+                }
+            }
+            if let Some(region) = &self.region {
+                if !node
+                    .region
+                    .as_deref()
+                    .is_some_and(|item| item.eq_ignore_ascii_case(region))
+                {
+                    return false;
+                }
+            }
+            if let Some(enabled) = self.enabled {
+                if (node.enabled != 0) != enabled {
+                    return false;
+                }
+            }
+            true
+        }
+    }
+
+    /// 一页节点；`total` 是筛选后的总条数（不是本页条数）。
+    #[derive(Debug, Clone, PartialEq, Serialize)]
+    pub struct NodePage<T> {
+        pub items: Vec<T>,
+        pub total: i64,
+        pub page: i64,
+        pub per_page: i64,
+    }
+
+    /// 对已筛选的完整集合做内存分页：page 从 1 开始，越界页返回空 `items`
+    /// 但保留正确的 `total`。`per_page` 在这里再夹一次；HTTP 层负责拒绝非法值。
+    fn paginate<T>(items: Vec<T>, page: i64, per_page: i64) -> NodePage<T> {
+        let total = items.len() as i64;
+        let page = page.max(1);
+        let per_page = per_page.clamp(1, 200);
+        let skip = usize::try_from((page - 1).saturating_mul(per_page)).unwrap_or(usize::MAX);
+        NodePage {
+            items: items
+                .into_iter()
+                .skip(skip)
+                .take(per_page as usize)
+                .collect(),
+            total,
+            page,
+            per_page,
+        }
+    }
+
+    /// 单台服务器（或某台服务器下）的节点分页。
+    ///
+    /// 筛选仍在内存里做：`nodes.tags` 是 JSON 数组文本，精确匹配标签需要
+    /// JSON1 解析，而节点总量很小；保持与旧版 `matches_filter` 完全一致的
+    /// 语义（精确标签、大小写不敏感地区）比多写几条动态 SQL 更不容易分叉。
+    pub async fn list_page(
+        pool: &SqlitePool,
+        filter: &NodeFilter,
+        page: i64,
+        per_page: i64,
+    ) -> anyhow::Result<NodePage<Node>> {
+        let rows: Vec<Node> =
+            sqlx::query_as::<_, Node>("SELECT * FROM nodes ORDER BY created_at ASC, rowid ASC")
+                .fetch_all(pool)
+                .await?;
+        let matched: Vec<Node> = rows
+            .into_iter()
+            .filter(|node| filter.matches(node))
+            .collect();
+        Ok(paginate(matched, page, per_page))
+    }
+
+    /// 跨服务器全局列表分页；每行额外带 `server_name` / `server_address`。
+    pub async fn list_all_page(
+        pool: &SqlitePool,
+        filter: &NodeFilter,
+        page: i64,
+        per_page: i64,
+    ) -> anyhow::Result<NodePage<crate::models::NodeListItem>> {
+        let matched: Vec<crate::models::NodeListItem> = list_all(pool)
+            .await?
+            .into_iter()
+            .filter(|item| filter.matches(&item.node))
+            .collect();
+        Ok(paginate(matched, page, per_page))
     }
 
     pub async fn list_enabled_with_server(
@@ -9671,6 +9789,10 @@ pub mod overview {
     const RATE_SERIES_POINTS: usize = 12;
     /// Top 用户卡片最多返回的行数。
     const TOP_USERS: i64 = 5;
+    /// 节点流量 Top 卡片最多返回的节点数。
+    const TOP_NODES: i64 = 5;
+    /// 套餐用量分布最多返回的套餐数。
+    const TOP_PACKAGES: i64 = 5;
     /// 协议趋势最多单独画几条线；其余协议合并成 `other`。
     const TOP_PROTOCOLS: usize = 4;
     /// 超出 [`TOP_PROTOCOLS`] 的协议合并到这个桶。
@@ -9726,6 +9848,29 @@ pub mod overview {
         pub traffic_7d: i64,
     }
 
+    /// 节点流量 Top：窗口内按 `(server_id, node_tag)` 聚合，JOIN `nodes` 补齐
+    /// 名称/协议、JOIN `servers` 补齐服务器名。已删除节点 JOIN 不到，自然不进榜。
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+    pub struct TopNodeRow {
+        pub node_id: String,
+        pub name: String,
+        pub protocol: String,
+        pub server_name: String,
+        /// 窗口内原始上下行之和；没有流量的节点不进榜（不补 0）。
+        pub traffic_7d: i64,
+    }
+
+    /// 套餐用量分布：`traffic_daily.subject` 是用户 id，按用户当前套餐实例归集到
+    /// 套餐模板。`users` 是该套餐下窗口内有流量的用户数，`traffic_7d` 为原始
+    /// 上下行之和。没有任何流量的套餐不进榜（不补 0）。
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+    pub struct PackageSplitRow {
+        pub package_id: String,
+        pub name: String,
+        pub users: i64,
+        pub traffic_7d: i64,
+    }
+
     #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
     pub struct ChainRow {
         pub total: i64,
@@ -9771,6 +9916,10 @@ pub mod overview {
         pub top: Vec<TopRow>,
         /// Top 用户（最多 5 条）；`traffic_daily.subject` 直接按用户 id 关联，不拆 `@`。
         pub top_users: Vec<TopUserRow>,
+        /// 节点流量 Top（最多 5 条）；没有 `traffic_node_daily` 数据时是空数组。
+        pub top_nodes: Vec<TopNodeRow>,
+        /// 套餐用量分布（最多 5 条，按流量降序）；没有任何套餐流量时是空数组。
+        pub package_split: Vec<PackageSplitRow>,
     }
 
     /// 一次 `traffic_node_daily` + 历史兜底的聚合结果（按天、按协议）。
@@ -9785,9 +9934,9 @@ pub mod overview {
         downlink: i64,
     }
 
-    /// 查询次数固定、与数据量无关（没有 N+1）：概览主体 11 条；
+    /// 查询次数固定、与数据量无关（没有 N+1）：概览主体 13 条；
     /// 有链时 `chains` 部分再追加 groups / members 各 1 条，
-    /// 链用到证书时再加 1 条证书批量查询（最多 14 条）。
+    /// 链用到证书时再加 1 条证书批量查询（最多 16 条）。
     pub async fn snapshot(
         pool: &SqlitePool,
         now: i64,
@@ -9847,6 +9996,8 @@ pub mod overview {
             chains: chain_row(pool, now).await?,
             top: top_servers(pool, now, days).await?,
             top_users: top_users(pool, now, days).await?,
+            top_nodes: top_nodes(pool, now, days).await?,
+            package_split: package_split(pool, now, days).await?,
         })
     }
 
@@ -10091,6 +10242,122 @@ pub mod overview {
             .map(|row| TopUserRow {
                 user_id: row.user_id,
                 username: row.username,
+                traffic_7d: row.traffic_7d,
+            })
+            .collect())
+    }
+
+    /// 节点流量 Top：窗口内按 `(server_id, node_tag)` 聚合，再按节点 id 汇总
+    /// （同一节点在多天的切片合并）。只返回窗口内真实有流量的节点：
+    /// 没流量的节点、已删除的节点都不补 0，直接不进榜。
+    async fn top_nodes(pool: &SqlitePool, now: i64, days: i64) -> anyhow::Result<Vec<TopNodeRow>> {
+        let (start_date, end_date) = super::stats::day_window(now, days);
+
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            node_id: String,
+            name: String,
+            protocol: String,
+            server_name: String,
+            traffic_7d: i64,
+        }
+        let rows = sqlx::query_as::<_, Row>(
+            "SELECT n.id AS node_id, n.name AS name, n.protocol AS protocol,
+                    s.name AS server_name,
+                    COALESCE(SUM(t.uplink + t.downlink), 0) AS traffic_7d
+             FROM traffic_node_daily t
+             JOIN nodes n
+               ON n.server_id = t.server_id AND n.tag = t.node_tag
+             JOIN servers s ON s.id = n.server_id
+             WHERE t.day >= ? AND t.day <= ?
+             GROUP BY n.id, n.name, n.protocol, s.name
+             HAVING SUM(t.uplink + t.downlink) > 0
+             ORDER BY traffic_7d DESC, n.id ASC
+             LIMIT ?",
+        )
+        .bind(&start_date)
+        .bind(&end_date)
+        .bind(TOP_NODES)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| TopNodeRow {
+                node_id: row.node_id,
+                name: row.name,
+                protocol: row.protocol,
+                server_name: row.server_name,
+                traffic_7d: row.traffic_7d,
+            })
+            .collect())
+    }
+
+    /// 套餐用量分布：先把每个用户归到「当前套餐实例」，再把窗口内
+    /// `traffic_daily`（subject = user id）的流量按套餐汇总。
+    ///
+    /// 一个用户可能同时持有新旧多张卡：这里固定取最近一条**生效**实例
+    /// （没有生效实例时回落到最近一条），保证同一份流量只归一个套餐，
+    /// 不会因为 JOIN 多实例被重复计数。
+    ///
+    /// 只返回有流量的套餐（`HAVING SUM > 0`），空库 / 无流量时是空数组。
+    async fn package_split(
+        pool: &SqlitePool,
+        now: i64,
+        days: i64,
+    ) -> anyhow::Result<Vec<PackageSplitRow>> {
+        let (start_date, end_date) = super::stats::day_window(now, days);
+
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            package_id: String,
+            name: String,
+            users: i64,
+            traffic_7d: i64,
+        }
+        let rows = sqlx::query_as::<_, Row>(
+            "WITH current_instance AS (
+                 SELECT up.user_id AS user_id,
+                        up.package_id AS package_id,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY up.user_id
+                            ORDER BY (up.status = 'active') DESC,
+                                     up.created_at DESC,
+                                     up.rowid DESC
+                        ) AS rn
+                 FROM user_packages up
+             ),
+             user_traffic AS (
+                 SELECT subject AS user_id,
+                        COALESCE(SUM(uplink + downlink), 0) AS bytes
+                 FROM traffic_daily
+                 WHERE day >= ? AND day <= ?
+                 GROUP BY subject
+                 HAVING SUM(uplink + downlink) > 0
+             )
+             SELECT p.id AS package_id, p.name AS name,
+                    COUNT(*) AS users,
+                    COALESCE(SUM(ut.bytes), 0) AS traffic_7d
+             FROM packages p
+             JOIN current_instance c ON c.package_id = p.id AND c.rn = 1
+             JOIN user_traffic ut ON ut.user_id = c.user_id
+             GROUP BY p.id, p.name
+             HAVING SUM(ut.bytes) > 0
+             ORDER BY traffic_7d DESC, p.id ASC
+             LIMIT ?",
+        )
+        .bind(&start_date)
+        .bind(&end_date)
+        .bind(TOP_PACKAGES)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| PackageSplitRow {
+                package_id: row.package_id,
+                name: row.name,
+                users: row.users,
                 traffic_7d: row.traffic_7d,
             })
             .collect())

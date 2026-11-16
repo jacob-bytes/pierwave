@@ -67,7 +67,9 @@ mod tests {
     use serde_json::Value;
     use tower::ServiceExt;
 
-    use pierwave_domain::repo::{nodes, servers, sessions, traffic, users};
+    use pierwave_domain::repo::{
+        nodes, packages, servers, sessions, traffic, user_packages, users,
+    };
     use pierwave_domain::time;
     use pierwave_domain::Db;
 
@@ -123,7 +125,12 @@ mod tests {
         (status, value)
     }
 
-    async fn add_node(pool: &sqlx::SqlitePool, server_id: &str, tag: &str, protocol: &str) {
+    async fn add_node(
+        pool: &sqlx::SqlitePool,
+        server_id: &str,
+        tag: &str,
+        protocol: &str,
+    ) -> String {
         nodes::create(
             pool,
             server_id,
@@ -144,7 +151,92 @@ mod tests {
             },
         )
         .await
+        .unwrap()
+        .id
+    }
+
+    async fn seed_node_traffic(
+        pool: &sqlx::SqlitePool,
+        day: &str,
+        server_id: &str,
+        node_tag: &str,
+        uplink: i64,
+        downlink: i64,
+    ) {
+        traffic::accumulate_node_daily(
+            pool,
+            day,
+            server_id,
+            traffic::NodeTrafficDelta {
+                node_tag,
+                user_id: "",
+                uplink: uplink as u64,
+                downlink: downlink as u64,
+                weighted: (uplink + downlink) as u64,
+            },
+        )
+        .await
         .unwrap();
+    }
+
+    async fn create_package(
+        pool: &sqlx::SqlitePool,
+        name: &str,
+    ) -> pierwave_domain::models::Package {
+        packages::create(
+            pool,
+            packages::NewPackage {
+                name: name.into(),
+                quota_bytes: Some(10_000),
+                period_days: Some(30),
+                direction: "both".into(),
+                node_ratio: 1.0,
+                rule_template_id: None,
+                subscription_template_id: None,
+                speed_limit_kbps: None,
+                node_ids: None,
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn bind_package(
+        pool: &sqlx::SqlitePool,
+        user_id: &str,
+        package: &pierwave_domain::models::Package,
+    ) -> String {
+        user_packages::create(
+            pool,
+            user_id,
+            user_packages::NewUserPackage {
+                package_id: package.id.clone(),
+                quota_override: None,
+                expires_at: None,
+                reset_day: None,
+            },
+            package,
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    async fn add_user(pool: &sqlx::SqlitePool, username: &str) -> String {
+        users::create(
+            pool,
+            users::NewUser {
+                username: username.into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes: None,
+                rule_template_id: None,
+                subscription_template_id: None,
+            },
+        )
+        .await
+        .unwrap()
+        .id
     }
 
     #[tokio::test]
@@ -196,10 +288,12 @@ mod tests {
             vec![
                 "chains",
                 "kpi",
+                "package_split",
                 "protocol_series",
                 "protocols",
                 "series",
                 "top",
+                "top_nodes",
                 "top_users",
             ]
         );
@@ -255,6 +349,9 @@ mod tests {
         );
         // 这个用例的流量 subject 都是历史格式，关联不到 users.id。
         assert!(body["top_users"].as_array().unwrap().is_empty());
+        // 没有 traffic_node_daily 切片 / 套餐实例：两张新卡必须是空数组，不能补 0。
+        assert!(body["top_nodes"].as_array().unwrap().is_empty());
+        assert!(body["package_split"].as_array().unwrap().is_empty());
 
         assert_eq!(body["chains"]["total"], 0);
         assert_eq!(body["chains"]["degraded"], 0);
@@ -384,10 +481,178 @@ mod tests {
         assert_eq!(rows[0]["traffic_7d"], 1000);
     }
 
+    /// 节点流量 Top：按 `traffic_node_daily` 的 `(server_id, node_tag)` 聚合，
+    /// JOIN `nodes` / `servers` 补齐名称与协议；无流量、已删除节点都不补 0。
+    #[tokio::test]
+    async fn overview_top_nodes_aggregate_and_sort_without_filling_zero() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+
+        let (hk, _) = servers::create(pool, "香港-01", "10.0.0.1", "external")
+            .await
+            .unwrap();
+        let (jp, _) = servers::create(pool, "日本-01", "10.0.0.2", "external")
+            .await
+            .unwrap();
+        let today = time::business_date(repo::now());
+
+        let vless_hk = add_node(pool, &hk.id, "hk-vless", "vless").await;
+        let trojan_hk = add_node(pool, &hk.id, "hk-trojan", "trojan").await;
+        let vmess_jp = add_node(pool, &jp.id, "jp-vmess", "vmess").await;
+        let vless_jp = add_node(pool, &jp.id, "jp-vless", "vless").await;
+        // 有节点但窗口内没有流量：不能出现在 Top 里。
+        add_node(pool, &hk.id, "hk-idle", "vless").await;
+
+        seed_node_traffic(pool, &today, &hk.id, "hk-vless", 100, 50).await;
+        seed_node_traffic(pool, &today, &hk.id, "hk-trojan", 200, 100).await;
+        // 同一天同一节点分两个用户切片：必须合并后再排序。
+        seed_node_traffic(pool, &today, &jp.id, "jp-vmess", 120, 80).await;
+        seed_node_traffic(pool, &today, &jp.id, "jp-vless", 30, 20).await;
+        // 已删除节点：JOIN 不到 nodes，不能进榜。
+        let ghost = add_node(pool, &hk.id, "hk-ghost", "vless").await;
+        seed_node_traffic(pool, &today, &hk.id, "hk-ghost", 9_999, 9_999).await;
+        nodes::delete(pool, &ghost).await.unwrap();
+
+        let (status, body) = request(&app, Some(&admin), "/api/v1/overview?days=7").await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+
+        let rows = body["top_nodes"].as_array().unwrap();
+        assert_eq!(rows.len(), 4, "无流量节点与已删除节点都不进榜：{body}");
+        assert_eq!(rows[0]["node_id"], trojan_hk);
+        assert_eq!(rows[0]["name"], "hk-trojan");
+        assert_eq!(rows[0]["protocol"], "trojan");
+        assert_eq!(rows[0]["server_name"], "香港-01");
+        assert_eq!(rows[0]["traffic_7d"], 300);
+        assert_eq!(rows[1]["node_id"], vmess_jp);
+        assert_eq!(rows[1]["traffic_7d"], 200);
+        assert_eq!(rows[2]["node_id"], vless_hk);
+        assert_eq!(rows[2]["traffic_7d"], 150);
+        assert_eq!(rows[3]["node_id"], vless_jp);
+        assert_eq!(rows[3]["traffic_7d"], 50);
+        assert!(
+            rows.iter()
+                .all(|row| row["traffic_7d"].as_i64().unwrap() > 0),
+            "不能为了凑数补 0：{body}"
+        );
+
+        // 窗口外（30 天前）的流量不计入 7 天榜。
+        let long_ago = time::business_date(repo::now() - 30 * 86_400);
+        seed_node_traffic(pool, &long_ago, &hk.id, "hk-vless", 10_000, 10_000).await;
+        let (_, body) = request(&app, Some(&admin), "/api/v1/overview?days=7").await;
+        assert_eq!(body["top_nodes"][2]["traffic_7d"], 150, "{body}");
+    }
+
+    /// 套餐用量分布：`traffic_daily.subject` 按 user id 归到「当前套餐」；
+    /// 一个用户多张卡时只归最近一条，避免同一份流量被重复计数。
+    #[tokio::test]
+    async fn overview_package_split_attributes_each_user_to_one_package() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+
+        let month = create_package(pool, "月卡").await;
+        let quarter = create_package(pool, "季卡").await;
+        let today = time::business_date(repo::now());
+
+        let alice = add_user(pool, "alice").await;
+        let bob = add_user(pool, "bob").await;
+        let carol = add_user(pool, "carol").await;
+        let dave = add_user(pool, "dave").await;
+
+        // alice 先买月卡、后换季卡：流量只算到季卡。
+        bind_package(pool, &alice, &month).await;
+        bind_package(pool, &alice, &quarter).await;
+        bind_package(pool, &bob, &month).await;
+        // carol 有月卡但窗口内没有流量：不能把月卡的 users 算成 2。
+        bind_package(pool, &carol, &month).await;
+        // dave 没有套餐：他的流量不能出现在任何套餐下。
+
+        for (user, uplink, downlink) in [
+            (&alice, 60, 40),
+            (&bob, 300, 200),
+            (&carol, 0, 0),
+            (&dave, 999, 999),
+        ] {
+            traffic::accumulate_daily(
+                pool,
+                &today,
+                "server-1",
+                user,
+                uplink,
+                downlink,
+                uplink + downlink,
+            )
+            .await
+            .unwrap();
+        }
+
+        let (status, body) = request(&app, Some(&admin), "/api/v1/overview?days=7").await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+
+        let rows = body["package_split"].as_array().unwrap();
+        assert_eq!(rows.len(), 2, "无流量的套餐不进榜：{body}");
+        assert_eq!(rows[0]["package_id"], month.id);
+        assert_eq!(rows[0]["name"], "月卡");
+        assert_eq!(rows[0]["users"], 1, "只有真正有流量的 bob：{body}");
+        assert_eq!(rows[0]["traffic_7d"], 500);
+        assert_eq!(rows[1]["package_id"], quarter.id);
+        assert_eq!(rows[1]["users"], 1);
+        assert_eq!(rows[1]["traffic_7d"], 100);
+
+        // 不同套餐的排序按流量降序，而不是按创建顺序。
+        assert!(rows[0]["traffic_7d"].as_i64() > rows[1]["traffic_7d"].as_i64());
+    }
+
+    /// 两张新卡都有 5 条上限：第 6 名之后的真实数据直接截断，不补 0。
+    #[tokio::test]
+    async fn overview_top_nodes_and_packages_are_capped_at_five() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let (server, _) = servers::create(pool, "cap", "10.0.0.9", "external")
+            .await
+            .unwrap();
+        let today = time::business_date(repo::now());
+
+        for index in 0..6 {
+            let tag = format!("node-{index}");
+            add_node(pool, &server.id, &tag, "vless").await;
+            seed_node_traffic(pool, &today, &server.id, &tag, (index + 1) as i64 * 10, 0).await;
+
+            let package = create_package(pool, &format!("套餐-{index}")).await;
+            let user = add_user(pool, &format!("user-{index}")).await;
+            bind_package(pool, &user, &package).await;
+            let traffic = (6 - index) as u64 * 100;
+            traffic::accumulate_daily(pool, &today, "server-1", &user, traffic, 0, traffic)
+                .await
+                .unwrap();
+        }
+
+        let (status, body) = request(&app, Some(&admin), "/api/v1/overview?days=7").await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+
+        let nodes = body["top_nodes"].as_array().unwrap();
+        assert_eq!(nodes.len(), 5);
+        let node_traffic: Vec<i64> = nodes
+            .iter()
+            .map(|row| row["traffic_7d"].as_i64().unwrap())
+            .collect();
+        assert_eq!(node_traffic, vec![60, 50, 40, 30, 20]);
+
+        let packages = body["package_split"].as_array().unwrap();
+        assert_eq!(packages.len(), 5);
+        let package_traffic: Vec<i64> = packages
+            .iter()
+            .map(|row| row["traffic_7d"].as_i64().unwrap())
+            .collect();
+        assert_eq!(package_traffic, vec![600, 500, 400, 300, 200]);
+        assert!(
+            packages.iter().all(|row| row["users"] == 1),
+            "每张卡都只有一个用户：{body}"
+        );
+    }
+
     #[tokio::test]
     async fn overview_days_defaults_to_seven_and_accepts_the_full_range() {
         let (app, _state, admin) = setup().await;
-
         let (status, body) = request(&app, Some(&admin), "/api/v1/overview").await;
         assert_eq!(status, StatusCode::OK, "body: {body}");
         assert_eq!(body["series"].as_array().unwrap().len(), 7);
@@ -459,6 +724,8 @@ mod tests {
         assert!(body["protocol_series"].as_array().unwrap().is_empty());
         assert!(body["top"].as_array().unwrap().is_empty());
         assert!(body["top_users"].as_array().unwrap().is_empty());
+        assert!(body["top_nodes"].as_array().unwrap().is_empty());
+        assert!(body["package_split"].as_array().unwrap().is_empty());
         assert_eq!(body["chains"]["total"], 0);
         assert_eq!(body["chains"]["handshake_failures"], 0);
     }
