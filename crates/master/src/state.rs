@@ -13,6 +13,8 @@ use tokio::sync::broadcast;
 use crate::alerts::Alerts;
 use crate::api_token::{ApiTokenRateLimiter, ApiTokenUsage};
 use crate::enforcement::Enforcer;
+use crate::login_watch::LoginWatch;
+use crate::session_touch::SessionTouch;
 use crate::tcping::Registry as TcpingRegistry;
 use crate::throttle::LoginThrottle;
 use crate::updates::UpdateService;
@@ -254,6 +256,10 @@ pub struct AppState {
     pub enforcement: Enforcer,
     /// 登录失败限流；阈值每次登录时从设置表刷新。
     pub login_throttle: Arc<LoginThrottle>,
+    /// 连续失败计数（登录失败告警）；与限流分开，成功登录时清零。
+    pub login_watch: LoginWatch,
+    /// 会话 `last_seen_at` 的低频写回节流（默认 60 秒）。
+    pub session_touch: SessionTouch,
     /// Agent 发布产物的缓存/回源配置。
     pub agent_release: AgentReleaseConfig,
     /// 「最新版本」缓存（5 分钟）。
@@ -282,6 +288,8 @@ impl AppState {
             hub: AgentHub::default(),
             enforcement: Enforcer::from_env(),
             login_throttle: Arc::new(LoginThrottle::default()),
+            login_watch: LoginWatch::default(),
+            session_touch: SessionTouch::default(),
             agent_release: AgentReleaseConfig::from_env(),
             latest_version: LatestVersionCache::default(),
             public_status: PublicStatusCache::default(),

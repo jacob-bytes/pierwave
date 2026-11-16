@@ -109,7 +109,7 @@ const CATEGORY_ACTION_PREFIX: Record<Exclude<Category, "all">, string> = {
   chain: "chain",
   forward: "forward",
   backup: "backup",
-  system: "settings,password,config.apply,agent.upgrade",
+  system: "settings,password,config.apply,agent.upgrade,auth",
 };
 
 const CATEGORIES: { value: Category; labelKey: string }[] = [
@@ -168,6 +168,11 @@ const actionLabelKeys: Record<string, string> = {
   "settings.update": "audit.action.settingsUpdate",
   "password.change": "audit.action.passwordChange",
   "user.reset_subscription": "audit.action.userResetSubscription",
+  "auth.login": "audit.action.authLogin",
+  "auth.login_failed": "audit.action.authLoginFailed",
+  "auth.logout": "audit.action.authLogout",
+  "auth.session_kick": "audit.action.authSessionKick",
+  "auth.sessions_kick_others": "audit.action.authSessionsKickOthers",
   "config.apply": "audit.action.configApply",
 };
 
@@ -187,6 +192,9 @@ function actionLabel(action: string): string {
 function actionTone(action: string): Tone {
   // 删除优先于分类：任何资源的 delete 都用 destructive，避免被 primary 抢走。
   if (action.endsWith(".delete")) return "destructive";
+  // 登录失败是安全信号，单独用危险色；其它登录动作按系统类处理。
+  if (action === "auth.login_failed") return "destructive";
+  if (action.startsWith("auth.")) return "warning";
   if (
     action.startsWith("settings.") ||
     action.startsWith("password.") ||
@@ -264,6 +272,22 @@ function summarizeAudit(
     items.push(t("audit.summary.subscriptionReset"));
   }
 
+  if (action === "auth.login_failed") {
+    const record = isRecord(detail) ? detail : {};
+    const username =
+      typeof record.username === "string" ? record.username : "—";
+    const reason =
+      typeof record.reason === "string" && record.reason
+        ? t(`audit.reason.${record.reason}`)
+        : "—";
+    items.push(t("audit.summary.loginFailed", { username, reason }));
+  } else if (action.startsWith("auth.")) {
+    const ip = isRecord(detail) ? detail.ip : null;
+    if (typeof ip === "string" && ip) {
+      items.push(t("audit.summary.loginFromIp", { ip }));
+    }
+  }
+
   for (const item of formatChanges(detail, resolve)) {
     items.push(formatChangeText(item));
   }
@@ -312,7 +336,7 @@ function resolveTarget(
     return { label: t("audit.target.settings"), resolved: true };
   }
 
-  const names = action.startsWith("user.")
+  const names = action.startsWith("user.") || action.startsWith("auth.")
     ? maps.users
     : action.startsWith("package.")
       ? maps.packages

@@ -1,4 +1,6 @@
-use axum::extract::{FromRequestParts, Request, State};
+use std::convert::Infallible;
+
+use axum::extract::{FromRequestParts, OptionalFromRequestParts, Request, State};
 use axum::http::header;
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, Method};
@@ -60,6 +62,32 @@ impl ApiTokenPrincipal {
 /// 保留 `(pub User)` 的元组形状，现有 handler 的 `user.0` 全部不用改。
 pub struct CurrentUser(pub User, pub Option<ApiTokenPrincipal>);
 
+/// 当前 Cookie 会话的身份（会话 id）。
+///
+/// 由 [`CurrentUser`] 在鉴权时写入请求扩展，避免为「标记当前会话」再查一次库。
+/// **提取器顺序有要求**：handler 参数里 [`CurrentUser`] 必须排在
+/// [`CurrentSession`] 前面；API Token 请求没有 Cookie 会话，值为 `None`。
+#[derive(Debug, Clone)]
+pub struct SessionMeta {
+    pub session_id: String,
+}
+
+/// 读取 [`CurrentUser`] 写入的会话身份；没有（API Token）时为 `None`。
+pub struct CurrentSession(pub Option<SessionMeta>);
+
+impl FromRequestParts<AppState> for CurrentSession {
+    type Rejection = Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        Ok(CurrentSession(
+            parts.extensions.get::<SessionMeta>().cloned(),
+        ))
+    }
+}
+
 impl CurrentUser {
     /// 只要求「管理员权限」：Cookie 管理员、admin scope token，以及
     /// read scope token 的只读请求都通过（写请求已被中间件提前拦成 403）。
@@ -110,10 +138,51 @@ impl FromRequestParts<AppState> for CurrentUser {
             .get(SESSION_COOKIE)
             .map(|c| c.value().to_string())
             .ok_or(AppError::Unauthorized)?;
-        let user = repo::sessions::user_for_token(&state.db.pool, &token)
+        let authenticated = repo::sessions::authenticate(&state.db.pool, &token)
             .await?
             .ok_or(AppError::Unauthorized)?;
-        Ok(CurrentUser(user, None))
+
+        // 低频写回 last_seen_at：默认 60 秒最多一次，失败只记日志，不影响请求。
+        let now = repo::now();
+        if state.session_touch.should_touch(
+            &authenticated.session_id,
+            authenticated.session_last_seen_at,
+            now,
+        ) {
+            if let Err(error) =
+                repo::sessions::touch(&state.db.pool, &authenticated.session_id, now).await
+            {
+                tracing::warn!(
+                    session_id = %authenticated.session_id,
+                    error = %error,
+                    "更新会话最近活跃时间失败（已忽略）"
+                );
+            }
+        }
+        parts.extensions.insert(SessionMeta {
+            session_id: authenticated.session_id,
+        });
+
+        Ok(CurrentUser(authenticated.user, None))
+    }
+}
+
+/// `Option<CurrentUser>`：登出这类「没有有效会话也要清 Cookie」的入口使用。
+///
+/// axum 0.8 的 `Option<T>` 要求 `T: OptionalFromRequestParts`；这里把
+/// 认证失败降级成 `None`（不返回 401），handler 自己决定是否写审计。
+impl OptionalFromRequestParts<AppState> for CurrentUser {
+    type Rejection = Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Option<Self>, Self::Rejection> {
+        Ok(
+            <Self as FromRequestParts<AppState>>::from_request_parts(parts, state)
+                .await
+                .ok(),
+        )
     }
 }
 

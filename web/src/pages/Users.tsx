@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   KeyRoundIcon,
+  MonitorSmartphoneIcon,
   MoreHorizontalIcon,
   PackageIcon,
   PencilIcon,
@@ -28,6 +29,7 @@ import {
 import { UserFormDialog } from "@/components/users/UserFormDialog";
 import { ResetPasswordDialog } from "@/components/users/ResetPasswordDialog";
 import { UserPackagesSheet } from "@/components/users/UserPackagesSheet";
+import { UserSessionsDialog } from "@/components/users/UserSessionsDialog";
 import { statusToneClasses } from "@/components/packages/packageTone";
 import { PackageStatusBadge } from "@/components/packages/PackageStatusBadge";
 import { UsageBar } from "@/components/UsageBar";
@@ -397,6 +399,7 @@ export default function UsersPage() {
   const [resetUser, setResetUser] = useState<UserView | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<UserView | null>(null);
   const [packagesUser, setPackagesUser] = useState<UserView | null>(null);
+  const [sessionsUser, setSessionsUser] = useState<UserView | null>(null);
 
   // 浏览器前进/后退改变 ?q 时同步输入框；用 render 期间的派生状态避免额外 effect 渲染。
   if (q !== trackedQ) {
@@ -593,6 +596,10 @@ export default function UsersPage() {
           <DropdownMenuItem onSelect={() => setPackagesUser(user)}>
             <PackageIcon className="icon-sm" />
             {t("users.actions.managePackages")}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setSessionsUser(user)}>
+            <MonitorSmartphoneIcon className="icon-sm" />
+            {t("users.actions.sessions")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
@@ -912,6 +919,17 @@ export default function UsersPage() {
           user={packagesUser}
           onOpenChange={(open) => {
             if (!open) setPackagesUser(null);
+          }}
+        />
+      ) : null}
+
+      {sessionsUser ? (
+        <UserSessionsDialog
+          key={sessionsUser.id}
+          open
+          user={sessionsUser}
+          onOpenChange={(open) => {
+            if (!open) setSessionsUser(null);
           }}
         />
       ) : null}

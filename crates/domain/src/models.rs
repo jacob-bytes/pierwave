@@ -32,6 +32,33 @@ pub struct Session {
     pub token_hash: String,
     pub expires_at: i64,
     pub created_at: i64,
+    /// 签发时的 User-Agent；老会话或非浏览器客户端可能为空。
+    pub user_agent: Option<String>,
+    /// 签发时的客户端 IP；老会话为空。
+    pub ip: Option<String>,
+    /// 最近一次活跃时间（Unix 秒）；主控按低频节流写回。
+    pub last_seen_at: Option<i64>,
+}
+
+/// 一次成功认证的会话身份：用户 + 会话 id/最近活跃时间。
+///
+/// 只用于主控内部（鉴权提取器与低频 `last_seen_at` 写回），
+/// `token_hash` 不参与查询结果也不对外暴露。
+#[derive(Debug, Clone, FromRow)]
+pub struct SessionAuth {
+    #[sqlx(flatten)]
+    pub user: User,
+    pub session_id: String,
+    pub session_last_seen_at: Option<i64>,
+}
+
+/// 用户端「最近登录」的一行：只放可展示字段，不含 token / 密码。
+#[derive(Debug, Clone, Serialize)]
+pub struct LoginRecord {
+    pub id: String,
+    pub ip: Option<String>,
+    pub user_agent: Option<String>,
+    pub created_at: i64,
 }
 
 /// 作用域化 API Token（迁移 0054）。

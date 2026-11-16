@@ -965,12 +965,16 @@ CREATE TABLE chain_hops (          -- 按 seq 升序；seq=0 是入口
 | `telegram_bot_token` | 空 | 空 = 不启用 |
 | `telegram_chat_id` | 空 | 群或个人 id |
 | `webhook_url` | 空 | POST JSON |
-| `alert_events` | `server_offline,user_exhausted,chain_degraded,update_available` | 逗号分隔；`update_available` = 发现新版本 |
+| `alert_events` | `server_offline,user_exhausted,chain_degraded,backup_failed,update_available,login_failed,login_new_ip` | 逗号分隔；`update_available` = 发现新版本；`login_failed` / `login_new_ip` = 登录异常（见 `docs/SESSIONS.md`） |
 | `alert_cooldown_secs` | `600` | 同类告警去抖 |
 
 ### 事件与去抖
 
 去抖键 `(kind, target_id)`：冷却期内同一对象同一类只发一条，避免反复上下线刷屏。
+
+`login_failed` 的阈值复用 `login_max_attempts`（默认 5），统计窗口固定 10 分钟；
+`login_new_ip` 用 `login_ips` 表按 `(user, ip)` 去重。两者默认开启，迁移 0057
+只向已有非空 `alert_events` 追加，显式空列表保持为空。
 
 ### 投递
 

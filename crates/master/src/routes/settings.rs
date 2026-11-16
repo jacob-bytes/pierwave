@@ -25,11 +25,12 @@ pub const MIN_AGENT_UPGRADE_CONCURRENCY: i64 = 1;
 pub const MAX_AGENT_UPGRADE_CONCURRENCY: i64 = 5;
 /// 公开状态页总开关：默认开启；0 = 关闭（接口返回 404）。
 pub const DEFAULT_PUBLIC_STATUS_ENABLED: i64 = 1;
-/// 默认开启的五类告警；升级失败默认关闭（噪音较大，且升级本身有 UI 状态）。
+/// 默认开启的七类告警；升级失败默认关闭（噪音较大，且升级本身有 UI 状态）。
 /// `update_available` 默认开启，与旧的 `update_check_notify` 默认值一致；
 /// `backup_failed`（异地备份连续 3 次失败）默认开启——备份是数据安全底线。
-pub const DEFAULT_ALERT_EVENTS: &str =
-    "server_offline,user_exhausted,chain_degraded,backup_failed,update_available";
+/// `login_failed` / `login_new_ip` 也默认开启：前者是撞库的第一信号，后者
+/// 是账号被盗用的第一信号；管理员可以在设置页单独关掉。
+pub const DEFAULT_ALERT_EVENTS: &str = "server_offline,user_exhausted,chain_degraded,backup_failed,update_available,login_failed,login_new_ip";
 /// 同类告警默认冷却 600 秒；0 = 不去抖。
 pub const DEFAULT_ALERT_COOLDOWN_SECS: i64 = 600;
 pub const MIN_ALERT_COOLDOWN_SECS: i64 = 0;
@@ -1479,8 +1480,8 @@ mod tests {
         assert_eq!(body["items"]["webhook_url"], "");
         assert_eq!(
             body["items"]["alert_events"],
-            "server_offline,user_exhausted,chain_degraded,backup_failed,update_available",
-            "升级失败默认不开启；异地备份失败与发现新版本默认开启"
+            "server_offline,user_exhausted,chain_degraded,backup_failed,update_available,login_failed,login_new_ip",
+            "升级失败默认不开启；异地备份失败、发现新版本与两类登录告警默认开启"
         );
         assert_eq!(body["items"]["alert_cooldown_secs"], 600);
 

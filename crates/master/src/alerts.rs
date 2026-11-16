@@ -39,16 +39,22 @@ pub enum AlertKind {
     UpgradeFailed,
     BackupFailed,
     UpdateAvailable,
+    /// 同一用户名连续登录失败达到阈值（默认 5 次 / 10 分钟）。
+    LoginFailed,
+    /// 某用户第一次从某个 IP 登录成功。
+    LoginNewIp,
 }
 
 impl AlertKind {
-    pub const ALL: [AlertKind; 6] = [
+    pub const ALL: [AlertKind; 8] = [
         AlertKind::ServerOffline,
         AlertKind::UserExhausted,
         AlertKind::ChainDegraded,
         AlertKind::UpgradeFailed,
         AlertKind::BackupFailed,
         AlertKind::UpdateAvailable,
+        AlertKind::LoginFailed,
+        AlertKind::LoginNewIp,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -59,6 +65,8 @@ impl AlertKind {
             AlertKind::UpgradeFailed => "upgrade_failed",
             AlertKind::BackupFailed => "backup_failed",
             AlertKind::UpdateAvailable => "update_available",
+            AlertKind::LoginFailed => "login_failed",
+            AlertKind::LoginNewIp => "login_new_ip",
         }
     }
 
@@ -981,18 +989,30 @@ mod tests {
     }
 
     #[test]
-    fn update_available_is_the_last_event_and_round_trips() {
+    fn login_events_are_last_and_round_trip() {
         assert_eq!(
             AlertKind::ALL.last().copied(),
-            Some(AlertKind::UpdateAvailable),
+            Some(AlertKind::LoginNewIp),
             "序列化顺序必须与前端 ALERT_EVENTS 一致（新事件排最后）"
         );
         let all = format_alert_events(&AlertKind::ALL);
         assert_eq!(
             all,
-            "server_offline,user_exhausted,chain_degraded,upgrade_failed,backup_failed,update_available"
+            "server_offline,user_exhausted,chain_degraded,upgrade_failed,backup_failed,update_available,login_failed,login_new_ip"
         );
         assert_eq!(parse_alert_events(&all).unwrap(), AlertKind::ALL.to_vec());
+    }
+
+    #[test]
+    fn login_alert_names_are_recognised() {
+        assert_eq!(
+            AlertKind::from_name("login_failed"),
+            Some(AlertKind::LoginFailed)
+        );
+        assert_eq!(
+            AlertKind::from_name("login_new_ip"),
+            Some(AlertKind::LoginNewIp)
+        );
     }
 
     #[test]

@@ -3,6 +3,10 @@ import { RefreshCwIcon, TriangleAlertIcon } from "lucide-react";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { meErrorText } from "@/lib/meError";
 import { useMeShellSummary } from "@/lib/meShell";
+import {
+  LoginDevicesCard,
+  RecentLoginsCard,
+} from "@/components/me/LoginDevicesCard";
 import { ChangePasswordDialog } from "@/components/settings/ChangePasswordDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -150,6 +154,11 @@ export default function MeOverviewPage() {
       />
 
       <TrafficCard traffic={traffic} />
+
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <LoginDevicesCard />
+        <RecentLoginsCard />
+      </div>
 
       <ChangePasswordDialog
         open={passwordOpen}

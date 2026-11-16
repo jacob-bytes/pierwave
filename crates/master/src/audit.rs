@@ -44,6 +44,21 @@ pub async fn record_system(
     write(pool, None, action, &target.into(), &detail).await;
 }
 
+/// 登录失败等「可能没有 actor」的审计。
+///
+/// `actor_id` 只在用户名存在时给出（便于在用户审计里聚合），未知用户名传
+/// `None`；`target` 用用户名，`detail` 里也保留用户名，便于排查撞库。
+/// **detail 绝不能包含密码**（调用方自己保证，测试会检查）。
+pub async fn record_anonymous(
+    state: &AppState,
+    actor_id: Option<&str>,
+    action: &str,
+    target: impl Into<String>,
+    detail: Value,
+) {
+    write(&state.db.pool, actor_id, action, &target.into(), &detail).await;
+}
+
 async fn write(
     pool: &SqlitePool,
     actor_id: Option<&str>,

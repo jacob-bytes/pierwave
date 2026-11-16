@@ -51,6 +51,21 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/auth/logout", post(routes::auth::logout))
         .route("/api/v1/auth/me", get(routes::auth::me))
+        // 登录设备：用户端只看/踢自己的；管理员入口在用户资源下面。
+        .route(
+            "/api/v1/sessions",
+            get(routes::sessions::list).delete(routes::sessions::revoke_others),
+        )
+        .route("/api/v1/sessions/{id}", delete(routes::sessions::revoke))
+        .route(
+            "/api/v1/users/{id}/sessions",
+            get(routes::sessions::admin_list),
+        )
+        .route(
+            "/api/v1/users/{id}/sessions/{session_id}",
+            delete(routes::sessions::admin_revoke),
+        )
+        .route("/api/v1/me/logins", get(routes::sessions::recent_logins))
         .route(
             "/api/v1/servers",
             get(routes::servers::list).post(routes::servers::create),

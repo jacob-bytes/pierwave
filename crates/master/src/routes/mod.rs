@@ -22,6 +22,7 @@ pub mod public_url;
 pub mod routing_rules;
 pub mod rule_templates;
 pub mod servers;
+pub mod sessions;
 pub mod settings;
 pub mod stats;
 pub mod subscribe;

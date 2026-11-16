@@ -151,6 +151,42 @@ export interface SessionUser {
   short_code: string;
 }
 
+/**
+ * 登录设备（会话）列表项。
+ *
+ * 后端只返回原始 `user_agent` / `ip` 与时间戳，设备名由前端
+ * `lib/sessions.ts` 解析；`current` 由服务端按 Cookie token 哈希标记。
+ */
+export interface LoginSession {
+  id: string;
+  user_id: string;
+  user_agent: string | null;
+  ip: string | null;
+  created_at: number;
+  last_seen_at: number | null;
+  expires_at: number;
+  current: boolean;
+}
+
+/** 用户端「最近登录」：只含自己的成功登录。 */
+export interface RecentLogin {
+  id: string;
+  ip: string | null;
+  user_agent: string | null;
+  created_at: number;
+}
+
+export interface RevokeSessionResponse {
+  ok: true;
+  /** 被踢的是当前会话：Cookie 已由后端清除，前端应跳登录页。 */
+  current: boolean;
+}
+
+export interface RevokeOtherSessionsResponse {
+  ok: true;
+  revoked: number;
+}
+
 export interface Health {
   status: string;
   version: string;
@@ -2179,6 +2215,30 @@ export const api = {
       body: JSON.stringify({ username, password }),
     }),
   logout: () => request<{ ok: true }>("/api/v1/auth/logout", { method: "POST" }),
+  /** 登录设备（会话）管理：用户端只看/踢自己，管理员入口在 `users` 下。 */
+  sessions: {
+    list: () => request<{ items: LoginSession[] }>("/api/v1/sessions"),
+    revoke: (id: string) =>
+      request<RevokeSessionResponse>(
+        `/api/v1/sessions/${encodeURIComponent(id)}`,
+        { method: "DELETE" },
+      ),
+    revokeOthers: () =>
+      request<RevokeOtherSessionsResponse>("/api/v1/sessions?others=1", {
+        method: "DELETE",
+      }),
+    /** 自己的最近 5 条成功登录。 */
+    recentLogins: () => request<{ items: RecentLogin[] }>("/api/v1/me/logins"),
+    adminList: (userId: string) =>
+      request<{ user: { id: string; username: string }; items: LoginSession[] }>(
+        `/api/v1/users/${encodeURIComponent(userId)}/sessions`,
+      ),
+    adminRevoke: (userId: string, sessionId: string) =>
+      request<RevokeSessionResponse>(
+        `/api/v1/users/${encodeURIComponent(userId)}/sessions/${encodeURIComponent(sessionId)}`,
+        { method: "DELETE" },
+      ),
+  },
   servers: () => request<{ items: Server[] }>("/api/v1/servers"),
   createServer: (input: {
     name: string;

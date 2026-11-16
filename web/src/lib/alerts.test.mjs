@@ -30,6 +30,8 @@ test("defaults match the alert design", () => {
     "chain_degraded",
     "backup_failed",
     "update_available",
+    "login_failed",
+    "login_new_ip",
   ]);
   assert.deepEqual(ALERT_EVENTS, [
     "server_offline",
@@ -38,25 +40,35 @@ test("defaults match the alert design", () => {
     "upgrade_failed",
     "backup_failed",
     "update_available",
+    "login_failed",
+    "login_new_ip",
   ]);
 });
 
-test("the event list has exactly six entries and new events default on", () => {
-  assert.equal(ALERT_EVENTS.length, 6);
-  assert.equal(new Set(ALERT_EVENTS).size, 6, "事件不能重复");
+test("the event list has exactly eight entries and the login events default on", () => {
+  assert.equal(ALERT_EVENTS.length, 8);
+  assert.equal(new Set(ALERT_EVENTS).size, 8, "事件不能重复");
   assert.equal(
     DEFAULT_ALERT_EVENTS.includes("backup_failed"),
     true,
     "异地备份失败默认开启",
   );
-  assert.equal(ALERT_EVENTS[ALERT_EVENTS.length - 1], "update_available");
+  assert.equal(ALERT_EVENTS[ALERT_EVENTS.length - 1], "login_new_ip");
   assert.equal(ALERT_EVENTS.includes("update_available"), true);
   assert.equal(DEFAULT_ALERT_EVENTS.includes("update_available"), true);
+  assert.equal(DEFAULT_ALERT_EVENTS.includes("login_failed"), true);
+  assert.equal(DEFAULT_ALERT_EVENTS.includes("login_new_ip"), true);
   // 迁移后的旧数据（四事件）不会把新事件悄悄打开。
   assert.equal(
     parseAlertEvents(
       "server_offline,user_exhausted,chain_degraded,upgrade_failed",
     ).includes("update_available"),
+    false,
+  );
+  assert.equal(
+    parseAlertEvents(
+      "server_offline,user_exhausted,chain_degraded,upgrade_failed",
+    ).includes("login_failed"),
     false,
   );
 });

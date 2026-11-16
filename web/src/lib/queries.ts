@@ -54,6 +54,7 @@ import {
   type MeForward,
   type MeForwardsResponse,
   type MeForwardUsage,
+  type LoginSession,
   type MeSummary,
   type MeTraffic,
   type Node,
@@ -66,6 +67,9 @@ import {
   type OverviewStats,
   type Package,
   type PublicStatus,
+  type RecentLogin,
+  type RevokeOtherSessionsResponse,
+  type RevokeSessionResponse,
   type RoutingRule,
   type RuleTemplate,
   type SubscriptionTemplate,
@@ -117,6 +121,11 @@ export const queryKeys = {
   /** 用户自己的转发日表（近 N 天，只读）。 */
   meForwardUsage: (days: number) => ["me", "forward-traffic", days] as const,
   meEvents: (limit: number) => ["me", "events", limit] as const,
+  /** 登录设备：用户自己的会话列表与最近登录。 */
+  sessions: ["sessions"] as const,
+  recentLogins: ["me", "logins"] as const,
+  /** 管理员查看某用户的会话。 */
+  userSessions: (userId: string) => ["user", userId, "sessions"] as const,
   /** 用户自助转发：列表响应里同时带配额与可用服务器。 */
   myForwards: ["me", "forwards"] as const,
   /** 用户自助建链：列表 + 配额。 */
@@ -363,6 +372,74 @@ export function useMeEvents(limit: number) {
     enabled: limit > 0,
     staleTime: 30_000,
     retry: false,
+  });
+}
+
+/**
+ * 登录设备（会话）列表：`["sessions"]` 与「最近登录」分开失效，
+ * 踢设备不会让登录历史闪一下空态。
+ */
+export function useSessions() {
+  return useQuery<LoginSession[]>({
+    queryKey: queryKeys.sessions,
+    queryFn: async () => (await api.sessions.list()).items,
+    staleTime: 15_000,
+  });
+}
+
+/** 自己的最近 5 条成功登录。 */
+export function useRecentLogins() {
+  return useQuery<RecentLogin[]>({
+    queryKey: queryKeys.recentLogins,
+    queryFn: async () => (await api.sessions.recentLogins()).items,
+    staleTime: 30_000,
+  });
+}
+
+/** 踢掉一条会话；被踢的是当前会话时调用方负责跳登录页。 */
+export function useRevokeSession() {
+  const queryClient = useQueryClient();
+  return useMutation<RevokeSessionResponse, Error, string>({
+    mutationFn: (id) => api.sessions.revoke(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
+    },
+  });
+}
+
+/** 退出其他设备：保留当前会话。 */
+export function useRevokeOtherSessions() {
+  const queryClient = useQueryClient();
+  return useMutation<RevokeOtherSessionsResponse, Error, void>({
+    mutationFn: () => api.sessions.revokeOthers(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
+    },
+  });
+}
+
+/** 管理员查看某用户的会话；对话框关闭时 `enabled=false` 不请求。 */
+export function useUserSessions(userId: string, enabled = true) {
+  return useQuery<LoginSession[]>({
+    queryKey: queryKeys.userSessions(userId),
+    queryFn: async () => (await api.sessions.adminList(userId)).items,
+    enabled: enabled && userId.length > 0,
+    staleTime: 10_000,
+    retry: false,
+  });
+}
+
+/** 管理员踢掉某用户的一条会话。 */
+export function useAdminRevokeSession(userId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<RevokeSessionResponse, Error, string>({
+    mutationFn: (sessionId) => api.sessions.adminRevoke(userId, sessionId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.userSessions(userId),
+      });
+      void queryClient.invalidateQueries({ queryKey: ["audit"] });
+    },
   });
 }
 

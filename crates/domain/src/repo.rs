@@ -1079,19 +1079,34 @@ pub mod sessions {
     use super::*;
 
     /// 返回 (明文 token, 过期时间)。明文只出现在 Set-Cookie 里。
+    ///
+    /// 保留四参数签名给既有调用方（测试、内部签发）；登录路径改用
+    /// [`create_with_client`] 把 UA 与 IP 一起落库。
     pub async fn create(
         pool: &SqlitePool,
         user_id: &str,
         ttl_secs: i64,
         user_agent: Option<&str>,
     ) -> anyhow::Result<(String, i64)> {
+        create_with_client(pool, user_id, ttl_secs, user_agent, None).await
+    }
+
+    /// 签发会话并记录客户端信息；`last_seen_at` 初值 = 创建时间。
+    pub async fn create_with_client(
+        pool: &SqlitePool,
+        user_id: &str,
+        ttl_secs: i64,
+        user_agent: Option<&str>,
+        ip: Option<&str>,
+    ) -> anyhow::Result<(String, i64)> {
         let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
         let token_hash = crate::password::sha256_hex(&token);
         let ts = now();
         let expires_at = ts + ttl_secs;
         sqlx::query(
-            "INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at, user_agent)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sessions
+                 (id, user_id, token_hash, expires_at, created_at, user_agent, ip, last_seen_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(Uuid::new_v4().to_string())
         .bind(user_id)
@@ -1099,23 +1114,46 @@ pub mod sessions {
         .bind(expires_at)
         .bind(ts)
         .bind(user_agent)
+        .bind(ip)
+        .bind(ts)
         .execute(pool)
         .await?;
         Ok((token, expires_at))
     }
 
-    pub async fn user_for_token(pool: &SqlitePool, token: &str) -> anyhow::Result<Option<User>> {
+    /// 按 token 查出用户与会话身份（会话 id、最近活跃时间）。
+    ///
+    /// 主控鉴权提取器用它判断「当前会话是哪一条」，并按低频节流写回
+    /// `last_seen_at`。查询不返回 token_hash，避免把哈希带进请求上下文。
+    pub async fn authenticate(
+        pool: &SqlitePool,
+        token: &str,
+    ) -> anyhow::Result<Option<SessionAuth>> {
         let hash = crate::password::sha256_hex(token);
-        let user = sqlx::query_as::<_, User>(
-            "SELECT u.* FROM users u
+        Ok(sqlx::query_as::<_, SessionAuth>(
+            "SELECT u.*, s.id AS session_id, s.last_seen_at AS session_last_seen_at
+             FROM users u
              JOIN sessions s ON s.user_id = u.id
              WHERE s.token_hash = ? AND s.expires_at > ? AND u.status = 'active'",
         )
         .bind(hash)
         .bind(now())
         .fetch_optional(pool)
-        .await?;
-        Ok(user)
+        .await?)
+    }
+
+    pub async fn user_for_token(pool: &SqlitePool, token: &str) -> anyhow::Result<Option<User>> {
+        Ok(authenticate(pool, token).await?.map(|row| row.user))
+    }
+
+    /// 低频写回最近活跃时间；调用方负责节流（默认 60 秒一次）。
+    pub async fn touch(pool: &SqlitePool, session_id: &str, at: i64) -> anyhow::Result<()> {
+        sqlx::query("UPDATE sessions SET last_seen_at = ? WHERE id = ?")
+            .bind(at)
+            .bind(session_id)
+            .execute(pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn delete_by_token(pool: &SqlitePool, token: &str) -> anyhow::Result<()> {
@@ -1155,7 +1193,7 @@ pub mod sessions {
     /// 某用户的全部会话，按创建时间正序（最新一条在最后）。
     pub async fn list_for_user(pool: &SqlitePool, user_id: &str) -> anyhow::Result<Vec<Session>> {
         Ok(sqlx::query_as::<_, Session>(
-            "SELECT id, user_id, token_hash, expires_at, created_at
+            "SELECT id, user_id, token_hash, expires_at, created_at, user_agent, ip, last_seen_at
              FROM sessions WHERE user_id = ? ORDER BY created_at ASC, rowid ASC",
         )
         .bind(user_id)
@@ -1163,11 +1201,68 @@ pub mod sessions {
         .await?)
     }
 
+    /// 按会话 id 查一行；用于踢出前判断归属与「是否为当前会话」。
+    pub async fn find_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<Session>> {
+        Ok(sqlx::query_as::<_, Session>(
+            "SELECT id, user_id, token_hash, expires_at, created_at, user_agent, ip, last_seen_at
+             FROM sessions WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?)
+    }
+
+    /// 删除指定会话；返回是否真的删掉了一行。
+    pub async fn delete_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<bool> {
+        let res = sqlx::query("DELETE FROM sessions WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    /// 只删除属于 `user_id` 的会话；用于普通用户的越权保护（别人的 id 返回 0）。
+    pub async fn delete_for_user(
+        pool: &SqlitePool,
+        id: &str,
+        user_id: &str,
+    ) -> anyhow::Result<bool> {
+        let res = sqlx::query("DELETE FROM sessions WHERE id = ? AND user_id = ?")
+            .bind(id)
+            .bind(user_id)
+            .execute(pool)
+            .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
     /// 会话总行数（调度器清理的测试用）。
     pub async fn count(pool: &SqlitePool) -> anyhow::Result<i64> {
         Ok(sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
             .fetch_one(pool)
             .await?)
+    }
+}
+
+/// 用户成功登录过的 IP（迁移 0057）；「新 IP 登录」告警靠它去重。
+pub mod login_ips {
+    use super::*;
+
+    /// 记录一次成功登录的 IP；返回 `true` 表示这是该用户第一次从这个 IP 登录。
+    pub async fn record(
+        pool: &SqlitePool,
+        user_id: &str,
+        ip: &str,
+        at: i64,
+    ) -> anyhow::Result<bool> {
+        let res = sqlx::query(
+            "INSERT OR IGNORE INTO login_ips (user_id, ip, first_seen_at) VALUES (?, ?, ?)",
+        )
+        .bind(user_id)
+        .bind(ip)
+        .bind(at)
+        .execute(pool)
+        .await?;
+        Ok(res.rows_affected() == 1)
     }
 }
 
@@ -11239,6 +11334,46 @@ pub mod audit {
     /// 旧的「取最新 `limit` 条」入口，保持给既有调用方使用。
     pub async fn list(pool: &SqlitePool, limit: i64) -> anyhow::Result<Vec<AuditEntry>> {
         Ok(page(pool, &Filter::default(), None, limit).await?.items)
+    }
+
+    /// 用户端「最近登录」：只取本人成功登录的审计行，最新在前。
+    ///
+    /// IP / UA 存在 `detail` JSON 里；这里解析成结构化字段返回，前端不需要
+    /// 二次 parse。筛选条件固定为 `actor_id = 本人 AND action = 'auth.login'`，
+    /// 不接受任何身份参数。
+    pub async fn recent_logins(
+        pool: &SqlitePool,
+        user_id: &str,
+        limit: i64,
+    ) -> anyhow::Result<Vec<LoginRecord>> {
+        let limit = limit.clamp(1, 50);
+        let rows = sqlx::query_as::<_, (String, Option<String>, i64)>(
+            "SELECT id, detail, created_at FROM audit_log
+             WHERE actor_id = ? AND action = 'auth.login'
+             ORDER BY created_at DESC, id DESC LIMIT ?",
+        )
+        .bind(user_id)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|(id, detail, created_at)| {
+                let detail = detail
+                    .as_deref()
+                    .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+                    .unwrap_or(Value::Null);
+                let field =
+                    |name: &str| detail.get(name).and_then(Value::as_str).map(str::to_string);
+                LoginRecord {
+                    id,
+                    ip: field("ip"),
+                    user_agent: field("user_agent"),
+                    created_at,
+                }
+            })
+            .collect())
     }
 }
 

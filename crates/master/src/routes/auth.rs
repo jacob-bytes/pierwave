@@ -81,37 +81,117 @@ fn client_ip(headers: &HeaderMap, extensions: &Extensions) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
+/// UA 存库上限：够区分设备，又不给审计表塞一整段离谱的请求头。
+const MAX_USER_AGENT_CHARS: usize = 512;
+
+fn user_agent(headers: &HeaderMap) -> Option<String> {
+    let raw = headers
+        .get(axum::http::header::USER_AGENT)
+        .and_then(|value| value.to_str().ok())?
+        .trim();
+    if raw.is_empty() {
+        return None;
+    }
+    Some(raw.chars().take(MAX_USER_AGENT_CHARS).collect())
+}
+
+/// 写进 sessions.ip / 告警里的 IP：`unknown` 不落库，避免把占位符当真实 IP。
+fn stored_ip(ip: &str) -> Option<String> {
+    let ip = ip.trim();
+    if ip.is_empty() || ip == "unknown" {
+        None
+    } else {
+        Some(ip.to_string())
+    }
+}
+
+/// 登录失败审计：记用户名（含未知用户）、原因分类与 IP，**绝不记密码**。
+async fn audit_login_failure(
+    state: &AppState,
+    user_id: Option<&str>,
+    username: &str,
+    ip: &str,
+    reason: &str,
+) {
+    let target = user_id.unwrap_or(username);
+    crate::audit::record_anonymous(
+        state,
+        user_id,
+        "auth.login_failed",
+        target,
+        json!({
+            "username": username,
+            "reason": reason,
+            "ip": ip,
+        }),
+    )
+    .await;
+}
+
+/// 连续失败达到阈值时发一次 `login_failed`；渠道层再做冷却。
+async fn maybe_alert_login_failure(state: &AppState, threshold: u32, username: &str, ip: &str) {
+    if !state.login_watch.record_failure(
+        username,
+        threshold,
+        crate::login_watch::LOGIN_FAILURE_WINDOW,
+    ) {
+        return;
+    }
+    crate::alerts::notify(
+        state,
+        crate::alerts::AlertKind::LoginFailed,
+        username,
+        "连续登录失败 / Repeated login failures",
+        &format!(
+            "用户 {username} 在 10 分钟内连续失败 {threshold} 次（最近 IP：{ip}）/ \
+             User {username} failed {threshold} times within 10 minutes (latest IP: {ip})"
+        ),
+    )
+    .await;
+}
+
 pub async fn login(
     State(state): State<AppState>,
     ip: ClientIp,
+    headers: HeaderMap,
     jar: CookieJar,
     Json(req): Json<LoginRequest>,
 ) -> AppResult<(CookieJar, Json<serde_json::Value>)> {
     // 阈值每次登录都从设置表取一次：设置页改完不需要重启。
     let settings = settings::load(&state.db.pool).await;
+    let max_attempts = settings.login_max_attempts.clamp(1, 20) as u32;
     state.login_throttle.configure(
-        settings.login_max_attempts.clamp(1, 20) as u32,
+        max_attempts,
         settings.login_lock_secs.clamp(60, 86400) as u64,
     );
 
-    let key = Key::new(req.username.trim(), ip.0);
+    let username = req.username.trim();
+    let key = Key::new(username, ip.0.clone());
     if let Err(retry_after) = state.login_throttle.check(&key) {
+        audit_login_failure(&state, None, username, &ip.0, "rate_limited").await;
+        maybe_alert_login_failure(&state, max_attempts, username, &ip.0).await;
         return Err(AppError::TooManyAttempts(retry_after));
     }
 
-    let user = match repo::users::find_by_username(&state.db.pool, &req.username).await? {
+    let user = match repo::users::find_by_username(&state.db.pool, username).await? {
         Some(user) => user,
         None => {
             // 未知用户与密码错误走同一条失败路径，不泄露账号是否存在。
             state.login_throttle.record_failure(&key);
+            audit_login_failure(&state, None, username, &ip.0, "unknown_user").await;
+            maybe_alert_login_failure(&state, max_attempts, username, &ip.0).await;
             return Err(AppError::InvalidCredentials);
         }
     };
     if !password::verify(&req.password, &user.password_hash) {
         state.login_throttle.record_failure(&key);
+        audit_login_failure(&state, Some(&user.id), username, &ip.0, "bad_password").await;
+        maybe_alert_login_failure(&state, max_attempts, username, &ip.0).await;
         return Err(AppError::InvalidCredentials);
     }
     if user.status != "active" {
+        audit_login_failure(&state, Some(&user.id), username, &ip.0, "disabled").await;
+        maybe_alert_login_failure(&state, max_attempts, username, &ip.0).await;
         return Err(AppError::forbidden(
             "auth.account_disabled",
             None,
@@ -120,8 +200,52 @@ pub async fn login(
     }
 
     state.login_throttle.clear(&key);
+    state.login_watch.clear(username);
+
     let ttl_secs = settings.session_ttl_secs();
-    let (token, _) = repo::sessions::create(&state.db.pool, &user.id, ttl_secs, None).await?;
+    let agent = user_agent(&headers);
+    let ip_value = stored_ip(&ip.0);
+    let (token, _) = repo::sessions::create_with_client(
+        &state.db.pool,
+        &user.id,
+        ttl_secs,
+        agent.as_deref(),
+        ip_value.as_deref(),
+    )
+    .await?;
+
+    // 成功登录后记录 IP；首次出现的 IP 触发一次 `login_new_ip`。
+    let new_ip = match ip_value.as_deref() {
+        Some(ip) => repo::login_ips::record(&state.db.pool, &user.id, ip, repo::now()).await?,
+        None => false,
+    };
+    crate::audit::record(
+        &state,
+        &user,
+        "auth.login",
+        &user.id,
+        json!({
+            "ip": ip_value.clone(),
+            "user_agent": agent.clone(),
+            "new_ip": new_ip,
+        }),
+    )
+    .await;
+    if new_ip {
+        let ip = ip_value.as_deref().unwrap_or("unknown");
+        crate::alerts::notify(
+            &state,
+            crate::alerts::AlertKind::LoginNewIp,
+            &user.id,
+            "新 IP 登录 / New IP sign-in",
+            &format!(
+                "用户 {} 从新 IP {ip} 登录成功 / User {} signed in from a new IP {ip}",
+                user.username, user.username
+            ),
+        )
+        .await;
+    }
+
     let body = json!({
         "user": SessionUser {
             id: user.id.clone(),
@@ -136,9 +260,23 @@ pub async fn login(
 pub async fn logout(
     State(state): State<AppState>,
     jar: CookieJar,
+    user: Option<CurrentUser>,
+    session: crate::auth::CurrentSession,
 ) -> AppResult<(CookieJar, Json<serde_json::Value>)> {
     if let Some(cookie) = jar.get(SESSION_COOKIE) {
         repo::sessions::delete_by_token(&state.db.pool, cookie.value()).await?;
+        if let Some(user) = user {
+            crate::audit::record(
+                &state,
+                &user.0,
+                "auth.logout",
+                &user.0.id,
+                json!({
+                    "session_id": session.0.map(|meta| meta.session_id),
+                }),
+            )
+            .await;
+        }
     }
     Ok((jar.add(clear_cookie()), Json(json!({ "ok": true }))))
 }

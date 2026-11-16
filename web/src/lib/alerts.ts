@@ -17,6 +17,8 @@ export const ALERT_EVENTS = [
   "upgrade_failed",
   "backup_failed",
   "update_available",
+  "login_failed",
+  "login_new_ip",
 ] as const;
 
 export type AlertEvent = (typeof ALERT_EVENTS)[number];
@@ -33,6 +35,8 @@ export const DEFAULT_ALERT_EVENTS: readonly AlertEvent[] = [
   "chain_degraded",
   "backup_failed",
   "update_available",
+  "login_failed",
+  "login_new_ip",
 ];
 
 export const DEFAULT_ALERT_COOLDOWN_SECS = 600;
