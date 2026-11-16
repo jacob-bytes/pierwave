@@ -203,6 +203,7 @@ pub async fn login(
     state.login_watch.clear(username);
 
     let ttl_secs = settings.session_ttl_secs();
+    let secure_cookie = crate::auth::request_is_https(&headers);
     let agent = user_agent(&headers);
     let ip_value = stored_ip(&ip.0);
     let (token, _) = repo::sessions::create_with_client(
@@ -254,7 +255,10 @@ pub async fn login(
             short_code: user.short_code.clone(),
         }
     });
-    Ok((jar.add(session_cookie(token, ttl_secs)), Json(body)))
+    Ok((
+        jar.add(session_cookie(token, ttl_secs, secure_cookie)),
+        Json(body),
+    ))
 }
 
 pub async fn logout(
@@ -331,14 +335,28 @@ mod tests {
         password: &str,
         forwarded_for: &str,
     ) -> (StatusCode, HeaderMap, Value) {
+        login_with_proto(app, username, password, forwarded_for, None).await
+    }
+
+    async fn login_with_proto(
+        app: &Router,
+        username: &str,
+        password: &str,
+        forwarded_for: &str,
+        forwarded_proto: Option<&str>,
+    ) -> (StatusCode, HeaderMap, Value) {
+        let mut builder = Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/auth/login")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header("x-forwarded-for", forwarded_for);
+        if let Some(proto) = forwarded_proto {
+            builder = builder.header("x-forwarded-proto", proto);
+        }
         let response = app
             .clone()
             .oneshot(
-                Request::builder()
-                    .method(Method::POST)
-                    .uri("/api/v1/auth/login")
-                    .header(header::CONTENT_TYPE, "application/json")
-                    .header("x-forwarded-for", forwarded_for)
+                builder
                     .body(Body::from(
                         json!({"username": username, "password": password}).to_string(),
                     ))
@@ -353,6 +371,44 @@ mod tests {
             .unwrap();
         let body = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
         (status, headers, body)
+    }
+
+    #[tokio::test]
+    async fn login_sets_secure_cookie_when_forwarded_https() {
+        let (app, _state) = setup().await;
+        let (status, headers, body) =
+            login_with_proto(&app, "admin", "devpass", "203.0.113.10", Some("https")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+
+        let cookie = headers
+            .get(header::SET_COOKIE)
+            .expect("登录成功必须 Set-Cookie")
+            .to_str()
+            .unwrap();
+        assert!(
+            cookie.contains("Secure"),
+            "HTTPS 反代下必须加 Secure：{cookie}"
+        );
+        assert!(cookie.contains("HttpOnly"), "{cookie}");
+        assert!(cookie.contains("SameSite=Lax"), "{cookie}");
+    }
+
+    #[tokio::test]
+    async fn login_cookie_is_not_secure_on_plain_http() {
+        let (app, _state) = setup().await;
+        let (status, headers, body) =
+            login_with_proto(&app, "admin", "devpass", "203.0.113.11", None).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+
+        let cookie = headers
+            .get(header::SET_COOKIE)
+            .expect("登录成功必须 Set-Cookie")
+            .to_str()
+            .unwrap();
+        assert!(
+            !cookie.contains("Secure"),
+            "纯 HTTP 不能加 Secure，否则本地登录失效：{cookie}"
+        );
     }
 
     #[tokio::test]

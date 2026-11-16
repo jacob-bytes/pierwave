@@ -130,8 +130,11 @@ fn default_realm_log_level() -> String {
 fn default_nft_bin() -> String {
     crate::nftables::DEFAULT_BIN.into()
 }
+/// Agent 的状态目录默认值；受管文件白名单在配置为空时回退到这里。
+pub(crate) const DEFAULT_STATE_DIR: &str = "/var/lib/pierwave-agent";
+
 fn default_state_dir() -> String {
-    "/var/lib/pierwave-agent".into()
+    DEFAULT_STATE_DIR.into()
 }
 fn default_probe_target() -> String {
     "1.1.1.1:443".into()

@@ -5,6 +5,7 @@
 
 use axum::http::HeaderMap;
 
+use crate::error::{AppError, AppResult};
 use crate::routes::desired;
 use crate::routes::install::external_base;
 use crate::routes::settings::{self, Settings};
@@ -174,7 +175,7 @@ fn validate_port(port: &str) -> Result<(), BaseUrlError> {
     }
 }
 
-/// 读取设置并算出当前请求应使用的 base。
+/// 读取设置并算出当前请求应使用的 base（不可失败；后台任务与旧调用方用）。
 pub async fn resolve(
     state: &AppState,
     headers: Option<&HeaderMap>,
@@ -182,6 +183,20 @@ pub async fn resolve(
 ) -> String {
     let settings = settings::load(&state.db.pool).await;
     public_base(headers, &settings, kind)
+}
+
+/// 读取设置并算出当前**请求**应使用的 base；请求头推导的地址不合法时返回 400。
+///
+/// 所有把 base 拼进安装命令 / 订阅链接 / 升级地址的 HTTP 入口都必须走这里：
+/// `Host` 是客户端可控字符串，直接插进 shell 命令或 URL 就是注入面。
+pub async fn resolve_checked(
+    state: &AppState,
+    headers: &HeaderMap,
+    kind: PublicBaseKind,
+) -> AppResult<String> {
+    let settings = settings::load(&state.db.pool).await;
+    public_base_checked(headers, &settings, kind)
+        .map_err(|error: BaseUrlError| AppError::coded(error.code(), None, error.message()))
 }
 
 /// 纯函数：配置优先，其次请求头，最后后台任务的默认地址。
@@ -193,7 +208,35 @@ pub fn public_base(
     settings: &Settings,
     kind: PublicBaseKind,
 ) -> String {
-    let configured = match kind {
+    let configured = configured_base(settings, kind);
+    if !configured.is_empty() {
+        return configured.trim_end_matches('/').to_string();
+    }
+    match headers {
+        Some(headers) => external_base(headers),
+        None => desired::default_base_url(),
+    }
+}
+
+/// 同 [`public_base`]，但把请求头推导出的地址当作不可信输入校验。
+///
+/// 管理员显式配置的 `agent_base_url` / `subscription_base_url` 在保存时已经
+/// 用 [`parse_public_base_url`] 校验过，这里直接采信；只有回退到 `Host` 时才
+/// 可能拿到恶意值。
+pub fn public_base_checked(
+    headers: &HeaderMap,
+    settings: &Settings,
+    kind: PublicBaseKind,
+) -> Result<String, BaseUrlError> {
+    let configured = configured_base(settings, kind);
+    if !configured.is_empty() {
+        return Ok(configured.trim_end_matches('/').to_string());
+    }
+    parse_public_base_url(&external_base(headers))
+}
+
+fn configured_base(settings: &Settings, kind: PublicBaseKind) -> &str {
+    match kind {
         PublicBaseKind::Agent => settings.agent_base_url.trim(),
         PublicBaseKind::Subscription => {
             let subscription = settings.subscription_base_url.trim();
@@ -203,13 +246,6 @@ pub fn public_base(
                 subscription
             }
         }
-    };
-    if !configured.is_empty() {
-        return configured.trim_end_matches('/').to_string();
-    }
-    match headers {
-        Some(headers) => external_base(headers),
-        None => desired::default_base_url(),
     }
 }
 
@@ -323,6 +359,48 @@ mod tests {
         assert_eq!(
             public_base(None, &settings, PublicBaseKind::Subscription),
             "https://sub.example.com"
+        );
+    }
+
+    /// 请求头推导的 base 必须走同一套对外地址规则：恶意 Host 返回错误码。
+    #[test]
+    fn checked_base_rejects_unsafe_host_headers() {
+        let settings = Settings::default();
+        for host in [
+            "evil';id;#",
+            "$(id)",
+            "panel.example.com extra",
+            "evil;id",
+            "panel.example.com/x",
+            "user@panel.example.com",
+        ] {
+            let error = public_base_checked(&headers(host), &settings, PublicBaseKind::Agent)
+                .expect_err(host);
+            assert!(
+                error.message().contains(" / "),
+                "错误信息必须中英双语：{}",
+                error.message()
+            );
+        }
+    }
+
+    /// 管理员配置的地址保存时已校验，checked 版本必须原样采信、忽略恶意 Host。
+    #[test]
+    fn checked_base_prefers_configured_value_over_host() {
+        let settings = configured("https://panel.example.com", "");
+        assert_eq!(
+            public_base_checked(&headers("evil';id;#"), &settings, PublicBaseKind::Agent)
+                .as_deref(),
+            Ok("https://panel.example.com")
+        );
+        assert_eq!(
+            public_base_checked(
+                &headers("panel.example.com"),
+                &Settings::default(),
+                PublicBaseKind::Subscription
+            )
+            .as_deref(),
+            Ok("http://panel.example.com")
         );
     }
 

@@ -93,7 +93,16 @@ async fn handle(mut socket: WebSocket, state: AppState, headers: HeaderMap) {
     if server.config_version > 0 {
         // 每次补发都重新读设置：管理员改完对外地址后，已连接的 Agent 下一次重连
         // 补发也会用新值，不把地址缓存到进程或连接上。
-        let base_url = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+        // 连接已经建立，不能在这里回 400；非法 Host 回退到默认对外地址并记日志，
+        // 避免把客户端可控字符串拼进升级下载地址。
+        let base_url =
+            match public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await {
+                Ok(base) => base,
+                Err(error) => {
+                    tracing::warn!(%error, "非法 Host，期望态回退到默认对外地址");
+                    super::desired::default_base_url()
+                }
+            };
         match super::desired::render(&state, &server, &base_url).await {
             Ok(rendered) => {
                 let desired = MasterMessage::Desired(DesiredState {

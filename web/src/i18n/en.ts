@@ -1769,7 +1769,7 @@ const en = {
     "api_token.invalid": "Invalid, expired or revoked API token",
     "api_token.read_only": "A read-only API token cannot perform writes",
     "api_token.sensitive_endpoint":
-      "This endpoint contains sensitive data and is not available to read-scoped tokens",
+      "This endpoint is outside the read-scope allowlist (read is limited to health checks and public status)",
     "api_token.admin_scope_required": "This operation requires an admin-scoped API token",
     "api_token.rate_limited": "API token rate limit exceeded. Please try again later.",
     "api_token.scope_invalid": "Scope must be one of: {allowed}",
@@ -1909,7 +1909,7 @@ const en = {
       expiryInvalid: "Choose a date after today",
       lastUsedNever: "Never",
       emptyTitle: "No API tokens yet",
-      emptyDesc: "Create one to use the read-only API and MCP.",
+      emptyDesc: "Use read for health checks and monitoring probes; create an admin-scoped token for business data or MCP.",
       emptyAction: "Create token",
       loadFailed: "Failed to load API tokens",
       loadError: "Could not load API tokens. Check your network, or whether the controller is running.",
@@ -1923,7 +1923,7 @@ const en = {
         read: "read (read-only)",
         admin: "admin (administrator)",
         readHint:
-          "read can only access non-sensitive REST GETs; writes and sensitive GETs return 403, and it cannot be used for MCP.",
+          "read can only access /api/v1/health and /api/v1/public/status (the latter is public anyway); every other endpoint returns 403, and it cannot be used for MCP. Use it for health checks and monitoring probes, not business data.",
         adminHint: "admin is equivalent to an administrator and can write; only give it to trusted scripts.",
       },
     },
@@ -3500,7 +3500,7 @@ const en = {
     "api_token.invalid": "Invalid, expired or revoked API token",
     "api_token.read_only": "A read-only API token cannot perform writes",
     "api_token.sensitive_endpoint":
-      "This endpoint contains sensitive data and is not available to read-scoped tokens",
+      "This endpoint is outside the read-scope allowlist (read is limited to health checks and public status)",
     "api_token.admin_scope_required": "This operation requires an admin-scoped API token",
     "api_token.rate_limited": "API token rate limit exceeded. Please try again later.",
     "api_token.scope_invalid": "Scope must be one of: {allowed}",
@@ -3508,7 +3508,7 @@ const en = {
     "api_token.expires_at_invalid": "Expires at must be in the future",
     "api_token.not_found": "API token not found",
     "api_token.mcp_requires_admin":
-      "MCP requires an admin-scoped API token; read scope can only access non-sensitive REST GETs",
+      "MCP requires an admin-scoped API token; read scope only allows /api/v1/health and /api/v1/public/status",
     "me.forward_quota_exceeded":
       "Self-service forward quota exceeded ({used} used / {limit} allowed); delete an existing forward or ask an administrator to adjust your package",
     "me.forward_server_not_allowed":

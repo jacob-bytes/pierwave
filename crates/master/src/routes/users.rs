@@ -395,7 +395,7 @@ pub async fn delete(
         tracing::warn!(user_id = %id, error = %error, "用户删除后标记节点服务器失败");
     }
     // 该用户名下的自助转发/链所在的服务器需要立即下发，否则监听会残留。
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await?;
     for server_id in &outcome.affected_servers {
         match super::forwards::load_server(&state, server_id).await {
             Ok(server) => super::forwards::mark_dirty_and_apply(&state, &server, &base).await,

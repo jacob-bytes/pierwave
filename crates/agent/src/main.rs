@@ -20,8 +20,9 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use futures_util::{SinkExt, StreamExt};
+use pierwave_domain::fs_security;
 use pierwave_proto::{
     AgentHello, AgentMessage, AgentUpgradePlan, ApplyResult, DesiredForward, DesiredState,
     ForwardEngine, ForwardStatus, Heartbeat, MasterMessage, NetworkInterface, TrafficReport,
@@ -201,6 +202,10 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|| "/etc/pierwave-agent/config.toml".into());
     let cfg = Config::load(std::path::Path::new(&path))?;
     tracing::info!(%path, master = %cfg.master_url, "agent starting");
+
+    // 启动自检：升级前落下的秘密文件可能是 0644（旧版本按 umask 写），
+    // 这里统一 warn + 收紧，避免同机其它用户读到 token / 私钥 / 配置。
+    harden_existing_secret_files(&cfg, Path::new(&path));
 
     // 发行版 / 虚拟化在进程生命周期内不会变：只在这里采集一次，心跳只读缓存。
     // 这样每 15 秒的心跳不会 fork `systemd-detect-virt`。
@@ -598,7 +603,7 @@ async fn apply_state(
     cfg: &Config,
     forwards: &mut ForwardEngines,
 ) -> ApplyOutcome {
-    if let Err(e) = apply_files(state) {
+    if let Err(e) = apply_files(state, cfg) {
         tracing::error!(version = state.version, error = %e, "apply files failed");
         return ApplyOutcome {
             result: ApplyResult {
@@ -706,14 +711,175 @@ async fn run_agent_upgrade(
     .await
 }
 
+/// 启动时收紧已存在的秘密文件：config.toml（含 token）、xray 配置及其备份、
+/// realm.toml、nftables 脚本，以及 state_dir 本身。
+///
+/// 失败只 `warn`：文件可能不存在（首次启动）、或被只读挂载保护；收紧失败
+/// 不应该让 Agent 起不来，但必须留下日志让管理员知道。
+fn harden_existing_secret_files(cfg: &Config, config_path: &Path) {
+    let backup_suffix = match cfg.backup_suffix.as_deref() {
+        Some(suffix) if !suffix.is_empty() => suffix,
+        _ => DEFAULT_BACKUP_SUFFIX,
+    };
+    let xray_config = Path::new(&cfg.xray_config_path);
+    let state_dir = Path::new(&cfg.state_dir);
+    let paths = [
+        config_path.to_path_buf(),
+        xray_config.to_path_buf(),
+        with_suffix(xray_config, backup_suffix),
+        state_dir.join(realm::CONFIG_FILE_NAME),
+        state_dir.join(nftables::SCRIPT_FILE_NAME),
+    ];
+    for path in paths {
+        if let Err(error) = fs_security::ensure_private_file(&path) {
+            tracing::warn!(
+                path = %path.display(),
+                %error,
+                "收紧文件权限失败（继续运行）"
+            );
+        }
+    }
+    if let Err(error) = fs_security::ensure_private_dir(state_dir) {
+        tracing::warn!(
+            path = %state_dir.display(),
+            %error,
+            "收紧状态目录权限失败（继续运行）"
+        );
+    }
+}
+
+/// 受管文件允许落盘的固定根目录（主控下发的证书 / 隧道材料都在这两处）。
+const XRAY_CONFIG_ROOT: &str = "/usr/local/etc/xray";
+const PIERWAVE_CONFIG_ROOT: &str = "/usr/local/etc/pierwave";
+
+/// 受管文件允许的根目录：两个固定目录 + Agent 的 state_dir。
+///
+/// `state_dir` 为空或不是绝对路径时回退到内置默认目录并写日志：白名单不能
+/// 因为一条配置写成 `state_dir = ""` 就退化成「任意路径可写」。
+fn allowed_file_roots(cfg: &Config) -> Vec<PathBuf> {
+    let mut roots = vec![
+        PathBuf::from(XRAY_CONFIG_ROOT),
+        PathBuf::from(PIERWAVE_CONFIG_ROOT),
+    ];
+    let configured = cfg.state_dir.trim();
+    let state_dir = if configured.is_empty() {
+        tracing::warn!(
+            default = config::DEFAULT_STATE_DIR,
+            "state_dir 为空，受管文件白名单回退到默认目录 / state_dir is empty; falling back to the default directory"
+        );
+        PathBuf::from(config::DEFAULT_STATE_DIR)
+    } else {
+        match normalize_absolute_path(Path::new(configured)) {
+            Some(path) => path,
+            None => {
+                tracing::warn!(
+                    configured,
+                    default = config::DEFAULT_STATE_DIR,
+                    "state_dir 必须是绝对路径且不能包含 `..`，白名单回退到默认目录 / state_dir must be an absolute path without `..`; falling back to the default directory"
+                );
+                PathBuf::from(config::DEFAULT_STATE_DIR)
+            }
+        }
+    };
+    roots.push(state_dir);
+    roots
+}
+
+/// 词法规范化：只保留根与普通组件，拒绝 `..`（不做 IO，不跟随符号链接）。
+fn normalize_absolute_path(path: &Path) -> Option<PathBuf> {
+    if !path.is_absolute() {
+        return None;
+    }
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::RootDir => normalized.push(Path::new("/")),
+            std::path::Component::Normal(part) => normalized.push(part),
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir | std::path::Component::Prefix(_) => return None,
+        }
+    }
+    normalized.is_absolute().then_some(normalized)
+}
+
+/// `.key` / `privkey.pem` / 名字里带 private/secret 的一律按私钥处理。
+fn looks_like_private_key(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    let name = name.to_ascii_lowercase();
+    // `*.key` / `privkey.pem` / `private-*`，以及 OpenSSH 的 `id_rsa` / `id_ed25519`。
+    name.contains("key")
+        || name.contains("private")
+        || name.contains("secret")
+        || name.starts_with("id_")
+}
+
+/// 校验单条受管文件路径，返回规范化后的落盘路径。
+///
+/// 规则：绝对路径、无 `..`、不以 `/` 结尾、规范化后位于某个允许根目录内；
+/// 私钥类文件的 mode 必须不宽于 0600（无 group/other 位、无可执行位）。
+fn validate_managed_file(file: &pierwave_proto::ManagedFile, roots: &[PathBuf]) -> Result<PathBuf> {
+    let raw = file.path.as_str();
+    if raw.is_empty() {
+        bail!("受管文件路径为空 / managed file path is empty");
+    }
+    let path = Path::new(raw);
+    if !path.is_absolute() {
+        bail!("受管文件路径必须是绝对路径 / managed file path must be an absolute path: {raw}");
+    }
+    if raw.ends_with('/') {
+        bail!("受管文件路径不能以 / 结尾 / managed file path must not end with /: {raw}");
+    }
+    if path
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        bail!("受管文件路径不能包含 `..` / managed file path must not contain `..`: {raw}");
+    }
+    let Some(normalized) = normalize_absolute_path(path) else {
+        bail!("受管文件路径不合法 / invalid managed file path: {raw}");
+    };
+    if !roots.iter().any(|root| normalized.starts_with(root)) {
+        let allowed = roots
+            .iter()
+            .map(|root| root.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        bail!(
+            "受管文件路径不在允许的目录内 / managed file path is outside the allowed roots: {raw}（允许 / allowed: {allowed}）"
+        );
+    }
+    if looks_like_private_key(&normalized) {
+        // mode == 0（旧主控没给）按 0600 处理，保持与 write_file_with_mode 一致。
+        let mode = if file.mode == 0 { 0o600 } else { file.mode };
+        if mode & 0o7777 & !0o600 != 0 {
+            bail!(
+                "私钥文件权限过宽，必须不宽于 0600 / private key mode is too permissive, must be 0600 or stricter: {raw}（mode {mode:04o}）"
+            );
+        }
+    }
+    Ok(normalized)
+}
+
 /// 其它受管文件同样「写临时文件 → rename」，但不参与 xray 校验。
 ///
 /// 权限必须按 `ManagedFile.mode` 落：证书私钥是 0600，忽略 mode 会按 umask
 /// 写成 0644，同机其它用户就能读到。临时文件按目标 mode 创建，写完再校正
 /// （umask 只会去掉权限位，创建时就不会比目标更宽），最后 fsync + rename。
-fn apply_files(state: &DesiredState) -> Result<()> {
-    for f in &state.files {
-        let path = Path::new(&f.path);
+fn apply_files(state: &DesiredState, cfg: &Config) -> Result<()> {
+    apply_files_with_roots(state, &allowed_file_roots(cfg))
+}
+
+fn apply_files_with_roots(state: &DesiredState, roots: &[PathBuf]) -> Result<()> {
+    // 先校验全部文件再动手：任何一条不合法都整体失败，不留下半套证书。
+    let targets = state
+        .files
+        .iter()
+        .map(|file| validate_managed_file(file, roots))
+        .collect::<Result<Vec<_>>>()?;
+    for (f, path) in state.files.iter().zip(targets) {
+        let path = path.as_path();
         let tmp = with_suffix(path, ".tmp");
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
             std::fs::create_dir_all(parent)
@@ -780,7 +946,7 @@ fn apply_xray_atomic(
     }
 
     // a. 新配置写在同目录的 `.new`，保证后续 rename 原子
-    std::fs::write(&new_path, content)
+    fs_security::write_private_file(&new_path, content)
         .with_context(|| format!("写入临时配置失败: {}", new_path.display()))?;
 
     // b. 校验失败：删掉 `.new` 原样返回，线上文件一行都不动
@@ -795,6 +961,9 @@ fn apply_xray_atomic(
     if has_backup {
         std::fs::copy(path, &backup_path)
             .with_context(|| format!("备份现有配置失败: {}", backup_path.display()))?;
+        // 旧配置可能是升级前留下的 0644；备份同样含凭据，必须一并收紧。
+        fs_security::ensure_private_file(&backup_path)
+            .with_context(|| format!("收紧配置备份权限失败: {}", backup_path.display()))?;
     }
 
     // d. 原子替换
@@ -802,6 +971,8 @@ fn apply_xray_atomic(
         let _ = std::fs::remove_file(&new_path);
         return Err(anyhow::anyhow!("替换配置失败（{}）: {e}", path.display()));
     }
+    fs_security::ensure_private_file(path)
+        .with_context(|| format!("收紧配置文件权限失败: {}", path.display()))?;
 
     // e. 重启失败：有备份就还原，原本没有配置则删掉刚写入的文件
     if let Err(restart_err) = restart_xray(restart_command) {
@@ -1099,6 +1270,17 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
         }
+    }
+
+    /// 测试用配置：把 state_dir 指向临时目录，从而把它纳入受管文件白名单。
+    fn cfg_with_state_dir(state_dir: &Path) -> Config {
+        let toml = format!(
+            "master_url = \"http://127.0.0.1:8787\"\n\
+             token = \"t\"\n\
+             state_dir = \"{}\"\n",
+            state_dir.display()
+        );
+        toml::from_str(&toml).unwrap()
     }
 
     fn caps(
@@ -1423,6 +1605,70 @@ mod tests {
 
         assert_eq!(read(&with_suffix(&live, ".old")), "old-config");
         assert!(!with_suffix(&live, ".bak").exists());
+    }
+
+    /// xray 配置里含用户凭据/私钥引用：线上文件与备份都必须是 0600，
+    /// 即使上一版配置是 0644 也要在替换时一并收紧。
+    #[cfg(unix)]
+    #[test]
+    fn xray_config_and_backup_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new();
+        let live = dir.path().join("config.json");
+        std::fs::write(&live, "old-config").unwrap();
+        std::fs::set_permissions(&live, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        apply_xray_atomic(&live, b"new-config", "true", ".bak", "true").unwrap();
+
+        let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&live), 0o600, "xray 配置必须是 0600");
+        assert_eq!(
+            mode(&with_suffix(&live, ".bak")),
+            0o600,
+            "xray 配置备份必须是 0600"
+        );
+    }
+
+    /// 升级前的旧文件大多是 0644：启动自检必须自动收紧，而不是要求用户手动 chmod。
+    #[cfg(unix)]
+    #[test]
+    fn startup_hardening_tightens_legacy_wide_files() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new();
+        let config = dir.path().join("config.toml");
+        let xray = dir.path().join("xray/config.json");
+        let backup = with_suffix(&xray, ".bak");
+        let state_dir = dir.path().join("state");
+        let realm_config = state_dir.join(realm::CONFIG_FILE_NAME);
+        let nft_script = state_dir.join(nftables::SCRIPT_FILE_NAME);
+        std::fs::create_dir_all(xray.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(&state_dir).unwrap();
+
+        let toml = format!(
+            "master_url = \"http://127.0.0.1:8787\"\n\
+             token = \"t\"\n\
+             xray_config_path = \"{}\"\n\
+             state_dir = \"{}\"\n",
+            xray.display(),
+            state_dir.display()
+        );
+        let cfg: Config = toml::from_str(&toml).unwrap();
+
+        for path in [&config, &xray, &backup, &realm_config, &nft_script] {
+            std::fs::write(path, b"secret").unwrap();
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        std::fs::set_permissions(&state_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        harden_existing_secret_files(&cfg, &config);
+
+        let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        for path in [&config, &xray, &backup, &realm_config, &nft_script] {
+            assert_eq!(mode(path), 0o600, "{} 启动后必须是 0600", path.display());
+        }
+        assert_eq!(mode(&state_dir), 0o700, "state_dir 必须是 0700");
     }
 
     #[test]
@@ -1831,7 +2077,7 @@ mod tests {
             nodes: Vec::new(),
         };
 
-        apply_files(&state).unwrap();
+        apply_files(&state, &cfg_with_state_dir(dir.path())).unwrap();
 
         assert_eq!(read(&cert), "CERT");
         assert_eq!(read(&key), "KEY");
@@ -1863,10 +2109,152 @@ mod tests {
             nodes: Vec::new(),
         };
 
-        apply_files(&state).unwrap();
+        apply_files(&state, &cfg_with_state_dir(dir.path())).unwrap();
 
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600, "缺省权限必须保守处理");
+    }
+
+    fn desired_with_files(files: Vec<pierwave_proto::ManagedFile>) -> DesiredState {
+        DesiredState {
+            version: 1,
+            xray: serde_json::json!({}),
+            files,
+            agent_upgrade: None,
+            forwards: Vec::new(),
+            nodes: Vec::new(),
+        }
+    }
+
+    fn managed(path: impl Into<String>, content: &str, mode: u32) -> pierwave_proto::ManagedFile {
+        pierwave_proto::ManagedFile {
+            path: path.into(),
+            content: content.into(),
+            mode,
+        }
+    }
+
+    /// 白名单之外的路径必须在动手之前整体拒绝：包括第一个文件合法、第二个非法。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn rejects_paths_outside_whitelist_without_creating_anything() {
+        let dir = TempDir::new();
+        let cfg = cfg_with_state_dir(dir.path());
+        let legal = dir.path().join("certs/should-not-exist.pem");
+
+        for (raw, reason) in [
+            ("/etc/cron.d/x", "允许"),
+            ("../../root/.ssh/authorized_keys", "绝对路径"),
+            ("/tmp/x", "允许"),
+            ("/usr/local/etc/xray/../../root/.ssh/authorized_keys", ".."),
+        ] {
+            let state = desired_with_files(vec![
+                managed(legal.display().to_string(), "CERT", 0o600),
+                managed(raw, "evil", 0o600),
+            ]);
+            let error = apply_files(&state, &cfg).unwrap_err().to_string();
+            assert!(error.contains(reason), "错误里要说明原因（{raw}）：{error}");
+            assert!(!legal.exists(), "任一文件不合法时不能写入任何文件（{raw}）");
+            assert!(!Path::new(raw).exists(), "非法路径不能被创建：{raw}");
+        }
+    }
+
+    /// 三个允许根目录都要能通过校验；state_dir 下真实写盘。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn accepts_the_three_allowed_roots() {
+        let dir = TempDir::new();
+        let cfg = cfg_with_state_dir(dir.path());
+        let roots = allowed_file_roots(&cfg);
+
+        for (path, mode) in [
+            ("/usr/local/etc/xray/certs/a.pem".to_string(), 0o644),
+            ("/usr/local/etc/pierwave/tunnel/srv.key".to_string(), 0o600),
+            (dir.path().join("certs/b.pem").display().to_string(), 0o644),
+        ] {
+            validate_managed_file(&managed(path.clone(), "x", mode), &roots)
+                .unwrap_or_else(|error| panic!("合法路径被拒（{path}）：{error}"));
+        }
+
+        // state_dir 根真实写盘（测试沙箱不可写 /usr/local/etc）。
+        let target = dir.path().join("certs/written.pem");
+        let state = desired_with_files(vec![managed(target.display().to_string(), "CERT", 0o644)]);
+        apply_files(&state, &cfg).unwrap();
+        assert_eq!(read(&target), "CERT");
+    }
+
+    /// 写盘逻辑对三个根目录一致：用临时目录重映射后逐个验证。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn writes_files_under_each_allowed_root() {
+        let dir = TempDir::new();
+        let roots = vec![
+            dir.path().join("xray"),
+            dir.path().join("pierwave"),
+            dir.path().join("state"),
+        ];
+        let files: Vec<_> = roots
+            .iter()
+            .enumerate()
+            .map(|(index, root)| {
+                managed(
+                    root.join(format!("f{index}.pem")).display().to_string(),
+                    "DATA",
+                    0o644,
+                )
+            })
+            .collect();
+        apply_files_with_roots(&desired_with_files(files), &roots).unwrap();
+        for (index, root) in roots.iter().enumerate() {
+            assert_eq!(read(&root.join(format!("f{index}.pem"))), "DATA");
+        }
+    }
+
+    /// 私钥类路径必须 ≤ 0600：group/other 可读或带执行位都拒绝。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn rejects_over_permissive_private_keys() {
+        let dir = TempDir::new();
+        let cfg = cfg_with_state_dir(dir.path());
+
+        for mode in [0o644, 0o640, 0o604, 0o601, 0o700] {
+            let key = dir.path().join(format!("certs/key-{mode:o}.key"));
+            let state =
+                desired_with_files(vec![managed(key.display().to_string(), "PRIVATE", mode)]);
+            let error = apply_files(&state, &cfg).unwrap_err().to_string();
+            assert!(
+                error.contains("0600"),
+                "私钥权限过宽必须拒绝（mode {mode:04o}）：{error}"
+            );
+            assert!(!key.exists(), "被拒绝的私钥不能落盘");
+        }
+
+        let key = dir.path().join("certs/ok.key");
+        let state = desired_with_files(vec![managed(key.display().to_string(), "KEY", 0o600)]);
+        apply_files(&state, &cfg).unwrap();
+        let mode = {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::metadata(&key).unwrap().permissions().mode() & 0o777
+        };
+        assert_eq!(mode, 0o600);
+    }
+
+    /// state_dir 为空 / 相对路径时回退到内置默认目录（并在日志里说明）。
+    #[test]
+    fn empty_or_relative_state_dir_falls_back_to_default() {
+        for state_dir in ["", "relative/state"] {
+            let toml = format!(
+                "master_url = \"http://127.0.0.1:8787\"\n\
+                 token = \"t\"\n\
+                 state_dir = \"{state_dir}\"\n"
+            );
+            let cfg: Config = toml::from_str(&toml).unwrap();
+            let roots = allowed_file_roots(&cfg);
+            assert!(
+                roots.contains(&PathBuf::from(config::DEFAULT_STATE_DIR)),
+                "state_dir={state_dir:?} 时必须回退到默认目录：{roots:?}"
+            );
+        }
     }
 
     /// 文件写失败 → 整轮 apply 失败，且**不能碰 realm**：旧进程继续用旧证书跑。

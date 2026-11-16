@@ -236,9 +236,9 @@ pub async fn authenticate_api_token(
 
 /// read scope **明确拒绝**的敏感 GET 路径前缀。
 ///
-/// read 的「只读」不等于「可以看所有数据」：数据库导出、证书/节点配置、
-/// 审计、设置里的 Telegram token 都包含凭据或基础设施拓扑。这里集中列名单，
-/// 不让策略散落在各个 handler 里；新增敏感接口时把前缀加到这里。
+/// 注意：read scope 的实际策略是 [`READ_SCOPE_ALLOWED_PATHS`] 的默认拒绝，
+/// 不是「只挡这些前缀」。这份名单保留为纵深防御与可读的敏感面清单：
+/// 即使未来有人把某个接口加进 allowlist，只要它在这里，仍然会被拒绝。
 ///
 /// 匹配规则是「等于前缀或以 `前缀/` 开头」，所以 `/api/v1/servers` 不会
 /// 误伤 `/api/v1/serversX`，也不会漏掉 `/api/v1/servers/{id}/nodes`。
@@ -261,8 +261,16 @@ pub const SENSITIVE_READ_PREFIXES: &[&str] = &[
     "/api/v1/outbounds",
     // 转发目标地址与端口。
     "/api/v1/forwards",
+    // 转发日流量含用户名与目标地址，和 `/forwards` 同类。
+    "/api/v1/forward-traffic",
     // 链拓扑、目标与成员健康。
     "/api/v1/chains",
+    // 概览聚合含服务器/节点/用户流量排名，属于运营拓扑。
+    "/api/v1/overview",
+    // 统计聚合含 Top 用户、节点流量与节点详情。
+    "/api/v1/stats",
+    // 断流/超限事件含用户名、服务器名与原因。
+    "/api/v1/enforcement",
     // 链模板里包含目标地址与成员编排。
     "/api/v1/chain-templates",
     // 路由规则属于网络拓扑。
@@ -273,11 +281,23 @@ pub const SENSITIVE_READ_PREFIXES: &[&str] = &[
     "/api/v1/subscriptions",
 ];
 
+/// read scope 的**唯一允许路径**：健康检查与公开状态页。
+///
+/// read token 的定位是「健康检查与监控探针」，不是「能看大部分数据的只读
+/// 账号」。除这两个路径外的所有 `/api/v1/*` GET 一律 403；要读业务数据请用
+/// admin scope。`/api/v1/public/status` 本身无需登录，列在这里只是为了让
+/// read token 的语义完整、可被测试直接断言。
+pub const READ_SCOPE_ALLOWED_PATHS: &[&str] = &["/api/v1/health", "/api/v1/public/status"];
+
+/// 路径是否在 read scope 的白名单内（精确匹配，不接受尾斜杠/子路径）。
+pub fn is_read_scope_allowed_path(path: &str) -> bool {
+    READ_SCOPE_ALLOWED_PATHS.contains(&path)
+}
+
 /// read scope 只拒绝「集合前缀之下还有具体资源」的敏感详情路径。
 ///
-/// 与 [`SENSITIVE_READ_PREFIXES`] 的区别：集合本身（列表）不含敏感字段，
-/// 可以给 read token 用；只有详情才返回敏感数据。当前用于 Agent 升级批次：
-/// 列表只有版本/状态/计数，详情才带 `server_name` 与 `agent_version`。
+/// 与 [`SENSITIVE_READ_PREFIXES`] 的区别：详情才返回敏感数据。这是纵深防御
+/// 名单，不是 read scope 的主策略；主策略见 [`READ_SCOPE_ALLOWED_PATHS`]。
 pub const SENSITIVE_READ_DETAIL_PREFIXES: &[&str] = &["/api/v1/agent-upgrades/batches"];
 
 /// 是否为 read scope 不可访问的敏感路径。
@@ -303,7 +323,9 @@ pub fn is_sensitive_read_path(path: &str) -> bool {
 /// - 没有 `Authorization: Bearer pwt_...`：原样放行，交给 Cookie 提权器；
 /// - 有：认证成功就写入 [`ApiTokenPrincipal`] 扩展；
 /// - `read` scope 的非安全方法（POST/PATCH/PUT/DELETE）直接 403
-///   `api_token.read_only`，不会进入 handler。
+///   `api_token.read_only`，不会进入 handler；
+/// - `read` scope 只允许 [`READ_SCOPE_ALLOWED_PATHS`]（健康检查/公开状态），
+///   其余 GET 一律 403 `api_token.sensitive_endpoint`。
 ///
 /// `/mcp` 不经过这里：它需要返回 JSON-RPC 形状的错误，由 handler 自己做认证。
 pub async fn api_token_middleware(
@@ -359,11 +381,12 @@ pub async fn api_token_middleware(
             )
             .into_response();
         }
-        if is_sensitive_read_path(request.uri().path()) {
+        let path = request.uri().path();
+        if !is_read_scope_allowed_path(path) || is_sensitive_read_path(path) {
             return AppError::forbidden(
                 "api_token.sensitive_endpoint",
                 None,
-                "该接口包含敏感数据，read scope 不可访问 / this endpoint contains sensitive data and is not available to read-scoped tokens",
+                "该接口不在 read scope 的白名单内（read 仅用于健康检查/公开状态） / this endpoint is outside the read-scope allowlist (read is limited to health checks and public status)",
             )
             .into_response();
         }
@@ -373,14 +396,30 @@ pub async fn api_token_middleware(
     next.run(request).await
 }
 
+/// 请求是否经由 HTTPS 反代进来。
+///
+/// 主控自身只监听 HTTP，TLS 通常由同机反向代理终止；因此这里只认
+/// `X-Forwarded-Proto` 的第一段（与 `ClientIp` 的信任边界一致）。直接
+/// HTTP 访问时返回 `false`，不会把 Cookie 标成 Secure 导致本地登录失效。
+pub fn request_is_https(headers: &HeaderMap) -> bool {
+    headers
+        .get("x-forwarded-proto")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .is_some_and(|proto| proto.eq_ignore_ascii_case("https"))
+}
+
 /// 会话 Cookie 的 `Max-Age` 必须与服务端 `sessions.expires_at` 一致，
 /// 否则会出现「服务端已过期、浏览器还留着 Cookie」的假登录态。
 pub fn session_cookie(
     token: String,
     ttl_secs: i64,
+    secure: bool,
 ) -> axum_extra::extract::cookie::Cookie<'static> {
     axum_extra::extract::cookie::Cookie::build((SESSION_COOKIE, token))
         .http_only(true)
+        .secure(secure)
         .same_site(axum_extra::extract::cookie::SameSite::Lax)
         .path("/")
         .max_age(time::Duration::seconds(ttl_secs.max(0)))
@@ -394,4 +433,194 @@ pub fn clear_cookie() -> axum_extra::extract::cookie::Cookie<'static> {
         .path("/")
         .max_age(time::Duration::ZERO)
         .build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use axum::body::Body;
+    use axum::http::{header, Method, Request, StatusCode};
+    use axum::Router;
+    use tower::ServiceExt;
+
+    use pierwave_domain::{repo, Db};
+
+    async fn router_with_tokens() -> (Router, String, String) {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let (_, read_token) =
+            repo::api_tokens::create(&db.pool, "read-ci", repo::api_tokens::SCOPE_READ, None)
+                .await
+                .unwrap();
+        let (_, admin_token) =
+            repo::api_tokens::create(&db.pool, "admin-ci", repo::api_tokens::SCOPE_ADMIN, None)
+                .await
+                .unwrap();
+        let state = crate::state::AppState::new(db, "web/dist");
+        (crate::app::router(state), read_token, admin_token)
+    }
+
+    async fn get(app: &Router, uri: &str, token: &str) -> StatusCode {
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri(uri)
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        app.clone().oneshot(request).await.unwrap().status()
+    }
+
+    #[test]
+    fn sensitive_read_paths_include_operator_aggregates() {
+        for path in [
+            "/api/v1/overview",
+            "/api/v1/stats/overview",
+            "/api/v1/stats/nodes",
+            "/api/v1/stats/nodes/server-1",
+            "/api/v1/enforcement/events",
+            "/api/v1/forward-traffic",
+        ] {
+            assert!(is_sensitive_read_path(path), "必须在纵深名单里：{path}");
+        }
+    }
+
+    /// 纵深名单本身不能误伤相邻路径；read scope 的实际主策略是 allowlist。
+    #[test]
+    fn sensitive_read_paths_do_not_overreach() {
+        for path in [
+            "/api/v1/health",
+            "/api/v1/public/status",
+            "/api/v1/agent-upgrades/batches",
+            "/api/v1/statsx",
+            "/api/v1/overviewx",
+        ] {
+            assert!(!is_sensitive_read_path(path), "不能误伤：{path}");
+        }
+        assert!(
+            is_sensitive_read_path("/api/v1/agent-upgrades/batches/batch-1"),
+            "批次详情仍必须拒绝 read token"
+        );
+    }
+
+    #[test]
+    fn read_scope_allowlist_is_only_health_and_public_status() {
+        for path in ["/api/v1/health", "/api/v1/public/status"] {
+            assert!(is_read_scope_allowed_path(path), "允许：{path}");
+        }
+        for path in [
+            "/api/v1/overview",
+            "/api/v1/stats/traffic",
+            "/api/v1/enforcement/events",
+            "/api/v1/forward-traffic",
+            "/api/v1/agent-upgrades/batches",
+            "/api/v1/rule-templates",
+            "/api/v1/settings",
+            "/api/v1/health/extra",
+            "/api/v1/public/status/extra",
+        ] {
+            assert!(!is_read_scope_allowed_path(path), "必须拒绝：{path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn read_token_cannot_read_overview_stats_or_enforcement() {
+        let (app, read_token, _) = router_with_tokens().await;
+        for path in [
+            "/api/v1/overview",
+            "/api/v1/stats/overview",
+            "/api/v1/stats/nodes",
+            "/api/v1/enforcement/events",
+        ] {
+            assert_eq!(
+                get(&app, path, &read_token).await,
+                StatusCode::FORBIDDEN,
+                "read token 不能访问 {path}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn read_scope_denies_forward_traffic() {
+        let (app, read_token, _) = router_with_tokens().await;
+        assert_eq!(
+            get(&app, "/api/v1/forward-traffic", &read_token).await,
+            StatusCode::FORBIDDEN,
+            "转发日流量含用户名与目标地址，read token 必须拒绝"
+        );
+    }
+
+    /// read scope 的定位是健康检查/监控探针：除 health/public status 外一律 403。
+    #[tokio::test]
+    async fn read_token_denies_everything_else() {
+        let (app, read_token, _) = router_with_tokens().await;
+        for path in [
+            "/api/v1/agent-upgrades/batches",
+            "/api/v1/rule-templates",
+            "/api/v1/settings",
+            "/api/v1/forward-traffic",
+        ] {
+            assert_eq!(
+                get(&app, path, &read_token).await,
+                StatusCode::FORBIDDEN,
+                "read token 不能访问 {path}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn read_token_keeps_health_and_public_status_readable() {
+        let (app, read_token, _) = router_with_tokens().await;
+        for path in ["/api/v1/health", "/api/v1/public/status"] {
+            assert_eq!(
+                get(&app, path, &read_token).await,
+                StatusCode::OK,
+                "read token 应能访问 {path}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn admin_token_still_reads_the_aggregates() {
+        let (app, _, admin_token) = router_with_tokens().await;
+        for path in [
+            "/api/v1/overview",
+            "/api/v1/stats/nodes",
+            "/api/v1/enforcement/events",
+            "/api/v1/forward-traffic",
+            "/api/v1/agent-upgrades/batches",
+        ] {
+            assert_eq!(
+                get(&app, path, &admin_token).await,
+                StatusCode::OK,
+                "admin token 应能访问 {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn request_is_https_reads_only_the_first_forwarded_proto() {
+        let mut headers = HeaderMap::new();
+        assert!(!request_is_https(&headers), "没有头时按 HTTP 处理");
+
+        headers.insert("x-forwarded-proto", "HTTPS".parse().unwrap());
+        assert!(request_is_https(&headers), "大小写不敏感");
+
+        headers.insert("x-forwarded-proto", "https, http".parse().unwrap());
+        assert!(request_is_https(&headers), "只看第一段");
+
+        headers.insert("x-forwarded-proto", "http".parse().unwrap());
+        assert!(!request_is_https(&headers));
+    }
+
+    #[test]
+    fn session_cookie_sets_secure_only_when_requested() {
+        let secure = session_cookie("token".into(), 3600, true).to_string();
+        assert!(secure.contains("Secure"), "{secure}");
+        assert!(secure.contains("HttpOnly"), "{secure}");
+        assert!(secure.contains("SameSite=Lax"), "{secure}");
+
+        let plain = session_cookie("token".into(), 3600, false).to_string();
+        assert!(!plain.contains("Secure"), "{plain}");
+    }
 }

@@ -888,11 +888,15 @@ async fn table_exists(bin: &Path) -> bool {
 
 fn write_script(path: &Path, content: &str) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+        pierwave_domain::fs_security::create_private_dir(parent)?;
     }
     let tmp = path.with_extension("nft.new");
-    std::fs::write(&tmp, content)?;
-    std::fs::rename(tmp, path)
+    pierwave_domain::fs_security::write_private_file(&tmp, content.as_bytes())?;
+    if let Err(error) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(error);
+    }
+    pierwave_domain::fs_security::ensure_private_file(path)
 }
 
 #[cfg(test)]
@@ -1516,6 +1520,19 @@ table inet pierwave {
         assert_eq!(status[0].target_ok, None, "内核转发无法做目标探测");
         let script = std::fs::read_to_string(dir.path().join(SCRIPT_FILE_NAME)).unwrap();
         assert!(script.contains("table inet pierwave"), "{script}");
+    }
+
+    /// nftables 脚本随期望态落盘，内容等价于本机转发规则；必须是 0600。
+    #[cfg(unix)]
+    #[test]
+    fn script_file_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new();
+        let path = dir.path().join(SCRIPT_FILE_NAME);
+        write_script(&path, "table inet pierwave {}\n").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "nftables 脚本必须是 0600");
     }
 
     /// `nft -c` 语法探测失败（nft 太旧 / 内核不支持 numgen/vmap）时必须给出

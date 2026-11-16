@@ -77,7 +77,7 @@ pub async fn list(
         .collect();
     let resolved = repo::rule_templates::resolve_for_users(&state.db.pool, &bindings).await?;
 
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Subscription).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Subscription).await?;
     let items: Vec<SubscriptionRow> = users
         .into_iter()
         .map(|view| {

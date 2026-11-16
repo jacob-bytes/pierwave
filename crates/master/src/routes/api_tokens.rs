@@ -340,7 +340,7 @@ mod http_tests {
             &app,
             Auth::Bearer(&plaintext),
             Method::GET,
-            "/api/v1/packages",
+            "/api/v1/health",
             None,
         )
         .await;
@@ -373,7 +373,7 @@ mod http_tests {
             &app,
             Auth::Bearer(&plaintext),
             Method::GET,
-            "/api/v1/packages",
+            "/api/v1/health",
             None,
         )
         .await;
@@ -395,7 +395,7 @@ mod http_tests {
             &app,
             Auth::Bearer(&plaintext),
             Method::GET,
-            "/api/v1/packages",
+            "/api/v1/health",
             None,
         )
         .await;
@@ -409,16 +409,16 @@ mod http_tests {
         let (read_token, _) = create_token(&app, &cookie, "read", "read", None).await;
         let (admin_token, _) = create_token(&app, &cookie, "admin", "admin", None).await;
 
-        // read scope：GET 通过，写接口 403 read_only。
+        // read scope：白名单内的 GET 通过，写接口 403 read_only。
         let (status, _, _) = request(
             &app,
             Auth::Bearer(&read_token),
             Method::GET,
-            "/api/v1/packages",
+            "/api/v1/health",
             None,
         )
         .await;
-        assert_eq!(status, StatusCode::OK, "read scope 应能读");
+        assert_eq!(status, StatusCode::OK, "read scope 应能读健康检查");
 
         let (status, body, _) = request(
             &app,
@@ -476,7 +476,7 @@ mod http_tests {
                 &app,
                 Auth::Bearer(&token),
                 Method::GET,
-                "/api/v1/packages",
+                "/api/v1/health",
                 None,
             )
             .await;
@@ -486,7 +486,7 @@ mod http_tests {
             &app,
             Auth::Bearer(&token),
             Method::GET,
-            "/api/v1/packages",
+            "/api/v1/health",
             None,
         )
         .await;
@@ -507,7 +507,7 @@ mod http_tests {
             &app,
             Auth::Bearer(&token),
             Method::GET,
-            "/api/v1/packages",
+            "/api/v1/health",
             None,
         )
         .await;
@@ -644,15 +644,14 @@ mod http_tests {
         assert!(crate::auth::is_sensitive_read_path(
             "/api/v1/agent-upgrades/batches/abc"
         ));
-        // 集合列表本身不含服务器名/版本，read token 仍可读。
+        // 纵深名单不含批次列表；read scope 的实际策略是 allowlist（只允许
+        // health/public status），所以 middleware 仍会拒绝这个路径。
         assert!(!crate::auth::is_sensitive_read_path(
             "/api/v1/agent-upgrades/batches"
         ));
-        assert!(!crate::auth::is_sensitive_read_path("/api/v1/overview"));
-        assert!(!crate::auth::is_sensitive_read_path(
-            "/api/v1/stats/traffic"
-        ));
-        assert!(!crate::auth::is_sensitive_read_path(
+        assert!(crate::auth::is_sensitive_read_path("/api/v1/overview"));
+        assert!(crate::auth::is_sensitive_read_path("/api/v1/stats/traffic"));
+        assert!(crate::auth::is_sensitive_read_path(
             "/api/v1/forward-traffic"
         ));
         assert!(!crate::auth::is_sensitive_read_path("/api/v1/serversX"));

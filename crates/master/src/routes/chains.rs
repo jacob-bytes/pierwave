@@ -2445,7 +2445,7 @@ pub async fn create(
     )
     .await;
 
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await?;
     mark_servers_dirty_and_apply(&state, &base, &chain_server_ids(&chain)).await;
 
     let statuses = load_status_map(&state, std::slice::from_ref(&chain)).await?;
@@ -2756,7 +2756,7 @@ pub async fn update(
 
     let mut affected = chain_server_ids(&existing);
     affected.extend(chain_server_ids(&updated));
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await?;
     mark_servers_dirty_and_apply(&state, &base, &affected).await;
 
     let statuses = load_status_map(&state, std::slice::from_ref(&updated)).await?;
@@ -2797,7 +2797,7 @@ pub async fn delete(
     )
     .await;
 
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await?;
     mark_servers_dirty_and_apply(&state, &base, &chain_server_ids(&existing)).await;
 
     Ok(Json(json!({ "ok": true })))
@@ -3148,7 +3148,7 @@ pub async fn me_create(
     )
     .await;
 
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await?;
     mark_servers_dirty_and_apply(&state, &base, &chain_server_ids(&chain)).await;
 
     let used_after = repo::chains::count_by_owner(&state.db.pool, &user.0.id).await?;
@@ -3480,7 +3480,7 @@ pub async fn me_update(
 
     let mut affected = chain_server_ids(&existing);
     affected.extend(chain_server_ids(&updated));
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await?;
     mark_servers_dirty_and_apply(&state, &base, &affected).await;
 
     let template_name = match updated.chain.template_id.as_deref() {
@@ -3533,7 +3533,7 @@ pub async fn me_delete(
     )
     .await;
 
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await?;
     mark_servers_dirty_and_apply(&state, &base, &chain_server_ids(&existing)).await;
 
     Ok(Json(json!({ "ok": true })))

@@ -132,7 +132,7 @@ pub async fn summary(
 
     let short_code = user.0.short_code.clone();
     let subscription_base =
-        public_url::resolve(&state, Some(&headers), PublicBaseKind::Subscription).await;
+        public_url::resolve_checked(&state, &headers, PublicBaseKind::Subscription).await?;
     let subscription_url = public_url::subscription_url(&subscription_base, &short_code);
     Ok(Json(json!({
         "user": {
@@ -297,7 +297,7 @@ pub async fn reset_subscription(
     )
     .await;
 
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Subscription).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Subscription).await?;
     Ok(Json(json!({
         "url": public_url::subscription_url(&base, &short_code),
         "updated_at": updated_at,
@@ -1225,6 +1225,27 @@ mod tests {
             let (status, _, rendered) = sub_get(&app, &code, Some(format)).await;
             assert_eq!(status, StatusCode::OK, "格式 {format} 应可用：{rendered}");
             assert!(!rendered.is_empty(), "格式 {format} 不应返回空内容");
+        }
+    }
+
+    /// `/me` 会拼订阅链接：非法 Host 必须 400，不能把注入内容原样塞进 URL。
+    #[tokio::test]
+    async fn summary_rejects_hosts_that_could_inject_shell() {
+        let (app, _, cookie, _) = setup().await;
+        for host in ["evil';id;#", "$(id)", "panel.example.com extra"] {
+            let request = Request::builder()
+                .method(Method::GET)
+                .uri("/api/v1/me/summary")
+                .header(header::HOST, host)
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap();
+            let response = app.clone().oneshot(request).await.unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::BAD_REQUEST,
+                "非法 Host 必须 400：{host:?}"
+            );
         }
     }
 

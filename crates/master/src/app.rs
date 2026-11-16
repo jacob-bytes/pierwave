@@ -1,4 +1,8 @@
+use axum::body::Body;
 use axum::extract::DefaultBodyLimit;
+use axum::http::{header, HeaderName, HeaderValue, Request, Uri};
+use axum::middleware::Next;
+use axum::response::Response;
 use axum::routing::{delete, get, patch, post};
 use axum::Router;
 use tower_http::services::{ServeDir, ServeFile};
@@ -6,6 +10,77 @@ use tower_http::trace::TraceLayer;
 
 use crate::routes;
 use crate::state::AppState;
+
+/// 所有响应都会带上的基础安全头。
+///
+/// 不启用完整的 CSP：当前 SPA 依赖 Vite 生成的资源与部分内联样式，
+/// 收紧 `script-src` / `style-src` 需要前端同步改造；本轮先只加
+/// `frame-ancestors`，阻止面板被任意站点 iframe 嵌入。
+fn apply_security_headers(headers: &mut axum::http::HeaderMap, secure: bool, no_store: bool) {
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("frame-ancestors 'none'"),
+    );
+    headers.insert(
+        HeaderName::from_static("permissions-policy"),
+        HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
+    );
+
+    if no_store {
+        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    }
+
+    if secure {
+        headers.insert(
+            header::STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static("max-age=31536000"),
+        );
+    }
+}
+
+/// 安全响应头中间件：API 不缓存，HTTPS 反代访问时补 HSTS。
+async fn security_headers(request: Request<Body>, next: Next) -> Response {
+    let secure = crate::auth::request_is_https(request.headers());
+    let no_store = request.uri().path().starts_with("/api/");
+    let mut response = next.run(request).await;
+    apply_security_headers(response.headers_mut(), secure, no_store);
+    response
+}
+
+/// 日志里的 URI 脱敏：订阅短码与 API query 中的凭据不能进 tracing。
+fn redact_uri(uri: &Uri) -> String {
+    let path = uri.path();
+    let path = match path.strip_prefix("/api/v1/sub/") {
+        Some(rest) if !rest.is_empty() => "/api/v1/sub/<redacted>".to_string(),
+        _ => path.to_string(),
+    };
+
+    match uri.query() {
+        Some(_) if path.starts_with("/api/") => format!("{path}?<redacted>"),
+        Some(query) => format!("{path}?{query}"),
+        None => path,
+    }
+}
+
+/// TraceLayer 的 span：只记录 method / 脱敏 URI / version，不记录 headers。
+fn make_span(request: &Request<Body>) -> tracing::Span {
+    tracing::info_span!(
+        "http",
+        method = %request.method(),
+        uri = %redact_uri(request.uri()),
+        version = ?request.version(),
+    )
+}
 
 pub fn router(state: AppState) -> Router {
     let index = state.web_dir.join("index.html");
@@ -292,5 +367,159 @@ pub fn router(state: AppState) -> Router {
         ))
         .with_state(state)
         .fallback_service(static_files)
-        .layer(TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn(security_headers))
+        .layer(TraceLayer::new_for_http().make_span_with(make_span))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use axum::http::{Method, StatusCode};
+    use tower::ServiceExt;
+
+    use pierwave_domain::Db;
+
+    struct TempDir(std::path::PathBuf);
+
+    impl TempDir {
+        fn new() -> Self {
+            let path =
+                std::env::temp_dir().join(format!("pierwave-app-test-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    async fn test_app(web_dir: impl Into<std::path::PathBuf>) -> Router {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let state = AppState::new(db, web_dir);
+        router(state)
+    }
+
+    async fn get(
+        app: &Router,
+        uri: &str,
+        forwarded_proto: Option<&str>,
+    ) -> axum::response::Response {
+        let mut builder = Request::builder().method(Method::GET).uri(uri);
+        if let Some(proto) = forwarded_proto {
+            builder = builder.header("x-forwarded-proto", proto);
+        }
+        app.clone()
+            .oneshot(builder.body(Body::empty()).unwrap())
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn api_responses_have_security_headers_and_no_store() {
+        let app = test_app("web/dist").await;
+        let response = get(&app, "/api/v1/health", None).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let headers = response.headers();
+
+        assert_eq!(
+            headers
+                .get(header::X_CONTENT_TYPE_OPTIONS)
+                .expect("缺少 nosniff"),
+            "nosniff"
+        );
+        assert_eq!(
+            headers
+                .get(header::REFERRER_POLICY)
+                .expect("缺少 Referrer-Policy"),
+            "no-referrer"
+        );
+        assert_eq!(
+            headers
+                .get(header::X_FRAME_OPTIONS)
+                .expect("缺少 X-Frame-Options"),
+            "DENY"
+        );
+        assert!(headers
+            .get(header::CONTENT_SECURITY_POLICY)
+            .expect("缺少 CSP")
+            .to_str()
+            .unwrap()
+            .contains("frame-ancestors 'none'"));
+        assert_eq!(
+            headers
+                .get(header::CACHE_CONTROL)
+                .expect("API 必须 no-store"),
+            "no-store"
+        );
+        assert_eq!(
+            headers.get(header::PRAGMA).expect("API 必须 Pragma"),
+            "no-cache"
+        );
+        assert!(headers.get(header::STRICT_TRANSPORT_SECURITY).is_none());
+    }
+
+    #[tokio::test]
+    async fn static_index_gets_security_headers_but_not_no_store() {
+        let dir = TempDir::new();
+        std::fs::write(dir.path().join("index.html"), "<html>panel</html>").unwrap();
+        let app = test_app(dir.path()).await;
+
+        let response = get(&app, "/some/spa/route", None).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let headers = response.headers();
+        assert_eq!(
+            headers
+                .get(header::X_CONTENT_TYPE_OPTIONS)
+                .expect("缺少 nosniff"),
+            "nosniff"
+        );
+        assert!(
+            headers.get(header::CACHE_CONTROL).is_none(),
+            "静态资源不能套用 API 的 no-store"
+        );
+    }
+
+    #[tokio::test]
+    async fn hsts_is_only_emitted_for_forwarded_https() {
+        let app = test_app("web/dist").await;
+
+        let plain = get(&app, "/api/v1/health", None).await;
+        assert!(plain
+            .headers()
+            .get(header::STRICT_TRANSPORT_SECURITY)
+            .is_none());
+
+        let https = get(&app, "/api/v1/health", Some("https")).await;
+        assert_eq!(
+            https
+                .headers()
+                .get(header::STRICT_TRANSPORT_SECURITY)
+                .expect("HTTPS 访问必须带 HSTS"),
+            "max-age=31536000"
+        );
+    }
+
+    #[test]
+    fn redact_uri_hides_subscription_code_and_api_query() {
+        let uri: Uri = "/api/v1/sub/abc123".parse().unwrap();
+        assert_eq!(redact_uri(&uri), "/api/v1/sub/<redacted>");
+
+        let uri: Uri = "/api/v1/sub/abc123?target=clash".parse().unwrap();
+        assert_eq!(redact_uri(&uri), "/api/v1/sub/<redacted>?<redacted>");
+
+        let uri: Uri = "/api/agent/install.sh?token=secret".parse().unwrap();
+        assert_eq!(redact_uri(&uri), "/api/agent/install.sh?<redacted>");
+
+        let uri: Uri = "/assets/app.js?v=1".parse().unwrap();
+        assert_eq!(redact_uri(&uri), "/assets/app.js?v=1");
+    }
 }

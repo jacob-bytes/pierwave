@@ -1374,17 +1374,19 @@ pub fn config_hash(content: &str) -> u64 {
 }
 
 /// 临时文件 + rename 的原子写：realm 读到的配置要么是旧的、要么是新的。
+///
+/// 配置里可能带 PSK / 证书路径，落盘权限固定 0600；state_dir 同步收紧到 0700。
 fn write_config_atomic(path: &Path, content: &str) -> io::Result<()> {
     if let Some(parent) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
-        std::fs::create_dir_all(parent)?;
+        pierwave_domain::fs_security::create_private_dir(parent)?;
     }
     let tmp = tmp_path(path);
-    std::fs::write(&tmp, content)?;
+    pierwave_domain::fs_security::write_private_file(&tmp, content.as_bytes())?;
     if let Err(error) = std::fs::rename(&tmp, path) {
         let _ = std::fs::remove_file(&tmp);
         return Err(error);
     }
-    Ok(())
+    pierwave_domain::fs_security::ensure_private_file(path)
 }
 
 fn tmp_path(path: &Path) -> PathBuf {
@@ -2028,6 +2030,19 @@ mod tests {
         write_config_atomic(&path, "new = true\n").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "new = true\n");
         assert!(!tmp_path(&path).exists());
+    }
+
+    /// realm.toml 里可能带 PSK / 证书路径，落盘必须是 0600。
+    #[cfg(unix)]
+    #[test]
+    fn writes_config_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new();
+        let path = dir.path().join(CONFIG_FILE_NAME);
+        write_config_atomic(&path, "secret = true\n").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "realm.toml 必须是 0600");
     }
 
     /// `no_tcp` / `use_udp` 只能出现在 `[network]`。

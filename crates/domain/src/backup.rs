@@ -98,6 +98,9 @@ pub async fn create_snapshot(pool: &SqlitePool, target: &Path) -> anyhow::Result
     repo::backup::vacuum_into(pool, target)
         .await
         .with_context(|| format!("生成数据库快照失败：{target}"))?;
+    // 快照就是完整业务数据：生成后立刻收紧，避免默认 umask 落成 0644。
+    crate::fs_security::ensure_private_file(Path::new(target))
+        .with_context(|| format!("收紧快照权限失败：{target}"))?;
     Ok(())
 }
 
@@ -201,6 +204,15 @@ pub async fn apply_pending_restore(db_path: &Path) -> anyhow::Result<RestoreOutc
         return Ok(RestoreOutcome::NoPending);
     }
 
+    // 先收紧：即使随后校验失败、文件被保留，也不该让 group/other 读到其中的数据。
+    if let Err(error) = crate::fs_security::ensure_private_file(&pending) {
+        tracing::warn!(
+            path = %pending.display(),
+            %error,
+            "收紧待恢复文件权限失败（继续校验）"
+        );
+    }
+
     if let Err(error) = validate_backup_file(&pending).await {
         return Ok(RestoreOutcome::Rejected {
             reason: format!("{error:#}"),
@@ -218,6 +230,10 @@ pub async fn apply_pending_restore(db_path: &Path) -> anyhow::Result<RestoreOutc
             )
         });
     }
+
+    // 待恢复文件可能是旧版本上传的 0644 副本；落位后主库必须立即收紧。
+    crate::fs_security::ensure_private_file(db_path)
+        .with_context(|| format!("收紧恢复后的数据库权限失败：{}", db_path.display()))?;
 
     Ok(RestoreOutcome::Applied { pending, previous })
 }
@@ -367,6 +383,60 @@ mod tests {
             "admin"
         );
         snapshot.pool.close().await;
+    }
+
+    /// 快照会被 gzip 后下载/上传到远端：文件本身必须只有属主可读。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn snapshot_file_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TestDir::new("snapshot-perm");
+        let db = open_db(&dir.db_path()).await;
+        db.migrate().await.unwrap();
+
+        let target = dir.file("snapshot.db");
+        create_snapshot(&db.pool, &target).await.unwrap();
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "VACUUM INTO 产物必须是 0600");
+        db.pool.close().await;
+    }
+
+    /// 待恢复文件同样含完整业务数据，落位后必须是 0600。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pending_restore_file_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TestDir::new("pending-perm");
+        let db_path = dir.db_path();
+        let current = open_db(&db_path).await;
+        current.migrate().await.unwrap();
+        current.pool.close().await;
+
+        // 用一份合法快照冒充上传成功后的落盘结果。
+        let source_path = dir.file("source.db");
+        let source = open_db(&source_path).await;
+        source.migrate().await.unwrap();
+        let snapshot = dir.file("snapshot.db");
+        create_snapshot(&source.pool, &snapshot).await.unwrap();
+        source.pool.close().await;
+
+        let pending = pending_path(&db_path);
+        std::fs::copy(&snapshot, &pending).unwrap();
+        let mode_before = std::fs::metadata(&pending).unwrap().permissions().mode() & 0o777;
+        // 模拟上传临时文件之前可能过宽的历史状态；启动应用恢复时必须收紧。
+        std::fs::set_permissions(&pending, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let outcome = apply_pending_restore(&db_path).await.unwrap();
+        assert!(
+            matches!(outcome, RestoreOutcome::Applied { .. }),
+            "{outcome:?}"
+        );
+        let mode = std::fs::metadata(&db_path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "恢复后的主库必须是 0600（之前是 {mode_before:04o} 的副本）"
+        );
     }
 
     #[tokio::test]

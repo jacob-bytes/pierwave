@@ -856,7 +856,7 @@ pub async fn apply(
     user.require_admin()?;
     let server = load_server(&state, &server_id).await?;
 
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await?;
     let outcome = super::desired::apply(&state, &server, &base).await?;
     let warning_count = outcome.warnings.len();
     crate::audit::record(

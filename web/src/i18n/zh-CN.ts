@@ -1693,7 +1693,7 @@ const zhCN = {
       errors: {
     "api_token.invalid": "API Token 无效、已过期或已吊销",
     "api_token.read_only": "只读 API Token 不能执行写操作",
-    "api_token.sensitive_endpoint": "该接口包含敏感数据，read scope 不可访问",
+    "api_token.sensitive_endpoint": "该接口不在 read scope 白名单内（read 仅用于健康检查/公开状态）",
     "api_token.admin_scope_required": "该操作需要 admin scope 的 API Token",
     "api_token.rate_limited": "API Token 请求过于频繁，请稍后再试",
     "api_token.scope_invalid": "scope 只能是 {allowed}",
@@ -1821,7 +1821,7 @@ const zhCN = {
       expiryInvalid: "请选择今天之后的日期",
       lastUsedNever: "从未使用",
       emptyTitle: "还没有 API Token",
-      emptyDesc: "创建后即可用于只读 API 与 MCP 接入。",
+      emptyDesc: "read 适合健康检查与监控探针；要读写业务数据或接入 MCP，请创建 admin scope。",
       emptyAction: "创建 Token",
       loadFailed: "Token 列表加载失败",
       loadError: "无法加载 API Token，请检查网络或主控是否已启动",
@@ -1835,7 +1835,7 @@ const zhCN = {
         read: "read（只读）",
         admin: "admin（管理员）",
         readHint:
-          "read 只能访问非敏感只读接口（REST GET）；写操作与敏感 GET 返回 403，也不能用于 MCP。",
+          "read 只能访问 /api/v1/health 与 /api/v1/public/status（后者本就无需登录）；其它接口一律 403，也不能用于 MCP。适合健康检查与监控探针，不适合读取业务数据。",
         adminHint: "admin 等同管理员，可以读写；请只发给可信的脚本。",
       },
     },
@@ -3302,7 +3302,7 @@ const zhCN = {
   errors: {
     "api_token.invalid": "API Token 无效、已过期或已吊销",
     "api_token.read_only": "只读 API Token 不能执行写操作",
-    "api_token.sensitive_endpoint": "该接口包含敏感数据，read scope 不可访问",
+    "api_token.sensitive_endpoint": "该接口不在 read scope 白名单内（read 仅用于健康检查/公开状态）",
     "api_token.admin_scope_required": "该操作需要 admin scope 的 API Token",
     "api_token.rate_limited": "API Token 请求过于频繁，请稍后再试",
     "api_token.scope_invalid": "scope 只能是 {allowed}",
@@ -3310,7 +3310,7 @@ const zhCN = {
     "api_token.expires_at_invalid": "过期时间必须晚于当前时间",
     "api_token.not_found": "API Token 不存在",
     "api_token.mcp_requires_admin":
-      "MCP 需要 admin scope 的 API Token；read scope 只能访问 REST 的非敏感 GET",
+      "MCP 需要 admin scope 的 API Token；read scope 仅允许 /api/v1/health 与 /api/v1/public/status",
     "me.forward_quota_exceeded":
       "自助转发配额不足（已用 {used} / 上限 {limit}）；请删除不再使用的转发，或联系管理员调整套餐",
     "me.forward_server_not_allowed":

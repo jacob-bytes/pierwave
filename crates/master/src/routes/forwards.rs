@@ -395,7 +395,7 @@ pub async fn create(
     )
     .await;
 
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await?;
     mark_dirty_and_apply(&state, &server, &base).await;
 
     Ok(Json(json!({ "forward": forward })))
@@ -592,7 +592,7 @@ pub async fn update(
     )
     .await;
 
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await?;
     mark_dirty_and_apply(&state, &server, &base).await;
 
     Ok(Json(json!({ "forward": forward })))
@@ -629,7 +629,7 @@ pub async fn delete(
     .await;
 
     let server = load_server(&state, &existing.server_id).await?;
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await?;
     mark_dirty_and_apply(&state, &server, &base).await;
 
     Ok(Json(json!({ "ok": true })))
@@ -863,7 +863,7 @@ pub async fn me_create(
     )
     .await;
 
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await?;
     mark_dirty_and_apply(&state, &server, &base).await;
 
     let used_after = repo::forwards::count_by_owner(&state.db.pool, &user.0.id).await?;
@@ -910,7 +910,7 @@ pub async fn me_update(
     .await?
     .ok_or_else(|| AppError::not_found("me.forward_not_found", None, "转发规则不存在"))?;
 
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await?;
     mark_dirty_and_apply(&state, &server, &base).await;
 
     Ok(Json(json!({
@@ -950,7 +950,7 @@ pub async fn me_delete(
     .await;
 
     let server = load_server(&state, &existing.server_id).await?;
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await?;
     mark_dirty_and_apply(&state, &server, &base).await;
 
     Ok(Json(json!({ "ok": true })))

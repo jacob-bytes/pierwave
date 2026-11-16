@@ -21,6 +21,7 @@ use tokio::io::AsyncWriteExt;
 
 use pierwave_domain::backup::{self, MAX_BACKUP_BYTES};
 use pierwave_domain::error::DomainError;
+use pierwave_domain::fs_security;
 use pierwave_domain::repo;
 
 use crate::audit;
@@ -58,6 +59,8 @@ impl BackupArchive {
 pub(crate) async fn create_backup_archive(state: &AppState) -> AppResult<BackupArchive> {
     let db_path = backup_db_path(state)?;
     let dir = parent_dir(&db_path);
+    // 备份目录（与数据库同目录）只允许属主进入；已存在的宽权限会被 warn + 收紧。
+    fs_security::create_private_dir(dir)?;
     let timestamp = backup::filename_timestamp();
     let token = uuid::Uuid::new_v4();
     let snapshot = dir.join(format!(".pierwave-backup-{timestamp}-{token}.tmp"));
@@ -130,6 +133,7 @@ pub async fn restore(
     user.require_admin()?;
     let db_path = backup_db_path(&state)?;
     let dir = parent_dir(&db_path);
+    fs_security::create_private_dir(dir)?;
     let pending = backup::pending_path(&db_path);
     let token = uuid::Uuid::new_v4();
 
@@ -162,6 +166,8 @@ pub async fn restore(
 
     // 原子写：校验通过的完整文件已经写盘并 sync，落位只做同目录 rename。
     std::fs::rename(&raw_path, &pending).map_err(|error| AppError::Internal(error.into()))?;
+    // 待恢复文件里是完整业务数据；上传临时文件已是 0600，这里再兜底一次。
+    fs_security::ensure_private_file(&pending)?;
 
     audit::record(
         &state,
@@ -444,7 +450,7 @@ fn is_gzip(path: &Path) -> AppResult<bool> {
 fn gzip_file_to(source: &Path, target: &Path) -> AppResult<()> {
     let result = (|| -> std::io::Result<()> {
         let mut input = std::fs::File::open(source)?;
-        let output = std::fs::File::create(target)?;
+        let output = fs_security::open_private_file(target)?;
         let mut encoder = GzEncoder::new(output, Compression::default());
         std::io::copy(&mut input, &mut encoder)?;
         let output = encoder.finish()?;
@@ -465,8 +471,8 @@ fn gunzip_file(source: &Path, target: &Path) -> Result<u64, String> {
     let input =
         std::fs::File::open(source).map_err(|error| format!("打开上传文件失败：{error}"))?;
     let mut decoder = GzDecoder::new(input);
-    let mut output =
-        std::fs::File::create(target).map_err(|error| format!("创建临时文件失败：{error}"))?;
+    let mut output = fs_security::open_private_file(target)
+        .map_err(|error| format!("创建临时文件失败：{error}"))?;
     let mut limited = (&mut decoder).take(MAX_BACKUP_BYTES + 1);
     let copied = std::io::copy(&mut limited, &mut output)
         .map_err(|error| format!("gzip 解压失败：{error}"))?;
@@ -481,7 +487,15 @@ fn gunzip_file(source: &Path, target: &Path) -> Result<u64, String> {
 
 /// 流式落盘，边写边计数，避免把 512 MB 上传体整个读进内存。
 async fn save_body(body: Body, target: &Path) -> AppResult<u64> {
-    let mut file = tokio::fs::File::create(target).await?;
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        options.mode(fs_security::PRIVATE_FILE_MODE);
+    }
+    let mut file = options.open(target).await?;
+    // `create(true)` 不会修改已存在文件的权限；落盘前先收紧，避免窗口期可读。
+    fs_security::ensure_private_file(target)?;
     let mut stream = body.into_data_stream();
     let mut total: u64 = 0;
     while let Some(chunk) = stream.next().await {
@@ -697,6 +711,23 @@ mod tests {
         db.pool.close().await;
     }
 
+    /// 备份链路上的临时文件都含完整业务数据：上传临时体、gzip 产物、待恢复文件。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn backup_temp_files_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TestDir::new("temp-perm");
+        let upload = dir.file("upload.tmp");
+        save_body(Body::from("payload"), &upload).await.unwrap();
+        let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&upload), 0o600, "上传临时文件必须是 0600");
+
+        let gz = dir.file("backup.db.gz");
+        gzip_file_to(&upload, &gz).unwrap();
+        assert_eq!(mode(&gz), 0o600, "gzip 产物必须是 0600");
+    }
+
     #[tokio::test]
     async fn rejects_bad_uploads_with_specific_reasons() {
         let (dir, app, _state, cookie) = setup("reject").await;
@@ -823,6 +854,13 @@ mod tests {
         assert!(std::fs::read(&pending)
             .unwrap()
             .starts_with(backup::SQLITE_MAGIC));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&pending).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, ".restore-pending 必须是 0600");
+        }
+
         assert!(
             leftover_temp_files(&dir.path).is_empty(),
             "上传落位后临时文件应被删除：{:?}",

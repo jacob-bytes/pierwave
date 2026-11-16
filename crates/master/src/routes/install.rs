@@ -63,12 +63,13 @@ pub async fn script(
         ));
     }
 
-    let base = super::public_url::resolve(
+    // Host 是客户端可控输入：先按对外地址规则校验，非法值直接 400，不生成脚本。
+    let base = super::public_url::resolve_checked(
         &state,
-        Some(&headers),
+        &headers,
         super::public_url::PublicBaseKind::Agent,
     )
-    .await;
+    .await?;
     let body = render_script(&base, token);
     Ok((
         StatusCode::OK,
@@ -78,15 +79,37 @@ pub async fn script(
         .into_response())
 }
 
+/// POSIX shell 单引号转义：`it's` -> `'it'\''s'`。
+///
+/// 安装脚本里的每个插值都必须经过这里：`Host` 头是客户端可控的，即使上层
+/// 已经校验，也不允许在模板里直接拼裸字符串（防御纵深）。
+fn shell_quote(value: &str) -> String {
+    let mut quoted = String::with_capacity(value.len() + 2);
+    quoted.push('\'');
+    for character in value.chars() {
+        if character == '\'' {
+            quoted.push_str("'\\''");
+        } else {
+            quoted.push(character);
+        }
+    }
+    quoted.push('\'');
+    quoted
+}
+
 fn render_script(base: &str, token: &str) -> String {
+    let base = base.trim_end_matches('/');
+    let token = shell_quote(token);
+    let master_url = shell_quote(base);
+    let download = shell_quote(&format!("{base}/api/agent/download"));
     format!(
         r#"#!/bin/sh
 # pierwave-agent 一键安装（由主控生成，token 只对一台服务器有效）
 set -eu
 
-TOKEN='{token}'
-MASTER_URL='{base}'
-DOWNLOAD='{base}/api/agent/download'
+TOKEN={token}
+MASTER_URL={master_url}
+DOWNLOAD={download}
 
 if [ "$(id -u)" != "0" ]; then
   echo "请用 root 运行：curl ... | sudo bash" >&2
@@ -134,9 +157,7 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now pierwave-agent
 echo "==> 完成，查看状态：systemctl status pierwave-agent"
-"#,
-        token = token,
-        base = base.trim_end_matches('/'),
+"#
     )
 }
 
@@ -489,6 +510,63 @@ mod tests {
         assert!(
             !body.contains("10.0.0.5"),
             "生成链接不能包含内网主机名：{body}"
+        );
+    }
+
+    /// Host 会被直接拼进安装脚本 / 对外链接：带 shell 元字符或空白的 Host 必须 400。
+    #[tokio::test]
+    async fn rejects_host_headers_that_could_inject_shell() {
+        let (app, token) = setup().await;
+        for host in [
+            "evil';id;#",
+            "$(id)",
+            "panel.example.com extra",
+            "evil;id",
+            "panel.example.com/x",
+            "user@panel.example.com",
+            "panel.example.com:70000",
+        ] {
+            let request = Request::builder()
+                .method(Method::GET)
+                .uri(format!("/api/agent/install.sh?token={token}"))
+                .header(header::HOST, host)
+                .body(Body::empty())
+                .unwrap();
+            let response = app.clone().oneshot(request).await.unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::BAD_REQUEST,
+                "非法 Host 必须 400：{host:?}"
+            );
+            let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+                .await
+                .unwrap();
+            let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert!(
+                body["code"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .starts_with("settings.base_url_"),
+                "错误码应复用对外地址校验：{body}"
+            );
+        }
+    }
+
+    /// 生成脚本时所有插值都走 POSIX 单引号转义（`'` → `'\''`）。
+    #[test]
+    fn render_script_shell_escapes_interpolated_values() {
+        let script = render_script("http://panel.example.com/';id;#", "tok'en");
+        assert!(
+            script.contains(r"MASTER_URL='http://panel.example.com/'\'';id;#'"),
+            "base 里的单引号必须被转义：\n{script}"
+        );
+        assert!(
+            script.contains(r"TOKEN='tok'\''en'"),
+            "token 里的单引号必须被转义：\n{script}"
+        );
+        assert!(
+            !script.contains("MASTER_URL='http://panel.example.com/';id;#"),
+            "不能残留可注入的原始单引号：\n{script}"
         );
     }
 

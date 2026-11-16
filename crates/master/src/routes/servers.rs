@@ -121,7 +121,7 @@ pub async fn list(
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
     let servers = repo::servers::list_with_node_stats(&state.db.pool).await?;
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await?;
     let items = servers
         .iter()
         .map(|row| {
@@ -263,7 +263,7 @@ pub async fn create(
     )
     .await;
     // 明文 token 只在这里出现一次
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await?;
     let command = install_command(&base, &token);
     let server = server_view(&server, &base, Some(&command))?;
     Ok(Json(json!({
@@ -573,7 +573,7 @@ pub async fn update(
     )
     .await;
 
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await?;
     Ok(Json(
         json!({ "server": server_view(&server, &base, None)? }),
     ))
@@ -605,7 +605,7 @@ pub async fn rotate_token(
     )
     .await;
 
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await?;
     Ok(Json(json!({
         "token": token,
         "install_command": install_command(&base, &token),
@@ -792,7 +792,7 @@ pub async fn trigger_agent_upgrade(
 
     // 前端拿不到版本列表，留空 = 使用最新 Release；结果缓存 5 分钟。
     let version = resolve_upgrade_version(&state, &req.version).await?;
-    let base = public_url::resolve(&state, Some(&headers), PublicBaseKind::Agent).await;
+    let base = public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await?;
     let upgrade = trigger_single_upgrade_with_base(&state, &id, &version, &base).await?;
 
     crate::audit::record(
