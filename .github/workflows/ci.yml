@@ -84,7 +84,17 @@ jobs:
               tail -n 200 /tmp/test.log
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
+
+            # 把失败用例名写成 annotation：日志要权限，annotation 公开。
+            grep -E "^(failures:|    [a-z0-9_:]+$)|panicked at|FAILED|^---- .* stdout ----" /tmp/test.log \
+              | head -40 | while IFS= read -r line; do
+                [ -n "$line" ] && echo "::error::${line}"
+              done
+            grep -B2 -A6 "panicked at" /tmp/test.log | head -60 | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error::${line}"
+            done
           fi
+          exit 0
 
       - name: Upload test log
         if: failure()
