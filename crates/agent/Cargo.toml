@@ -14,6 +14,10 @@ pierwave-proto = { path = "../proto" }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
+# nft spawn 的重试判定：EAGAIN / EINTR / EMFILE / ENFILE 的 errno 只有 libc
+# 能跨平台给出（Linux 与 macOS 的 EAGAIN 数值不同）。libc 早已在依赖图里
+# （if-addrs 在 unix 上依赖它），这里只是显式声明，不新增编译单元。
+libc = "0.2"
 tower-http = { workspace = true }
 # P17 网卡绑定：`if-addrs` 只是 getifaddrs 的薄封装，不引入 tokio/rustls 那类大依赖。
 # 体积实测（release + strip + thin LTO，同一台机器，macOS x86_64）：去掉依赖并让

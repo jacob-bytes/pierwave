@@ -27,7 +27,7 @@
 //! 失败时所有 nftables 规则上报 `listening=false`，native / realm 规则不受影响。
 
 use std::collections::{HashMap, HashSet};
-use std::io::Write;
+use std::io::{self, Write};
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -57,6 +57,9 @@ pub const STRATEGY_UNSUPPORTED: &str =
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const ERROR_LIMIT: usize = 500;
+
+/// 第一次 spawn 遇到「资源暂时不足」时的退避；只重试一次。
+const SPAWN_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 /// `nft -c` 探针：只检查语法与内核表达式可用性，不提交任何规则。
 ///
@@ -148,10 +151,11 @@ pub struct NftablesCleanup {
 impl NftablesCleanup {
     /// 同步删除自有表；表不存在、nft 不存在都只记日志。
     pub fn cleanup(&self) {
-        let _ = std::process::Command::new(&self.bin)
+        let mut command = std::process::Command::new(&self.bin);
+        command
             .args(["delete", "table", "inet", TABLE])
-            .stdin(Stdio::null())
-            .output();
+            .stdin(Stdio::null());
+        let _ = spawn_with_retry(command).and_then(|child| child.wait_with_output());
     }
 }
 
@@ -472,12 +476,14 @@ pub fn unavailable_reason(bin: &Path) -> Option<String> {
             return Some(NOT_AVAILABLE.to_string());
         }
     }
-    let listed = std::process::Command::new(bin)
+    let mut command = std::process::Command::new(bin);
+    command
         .args(["list", "tables"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
+        .stderr(Stdio::null());
+    let listed = spawn_with_retry(command)
+        .and_then(|mut child| child.wait())
         .map(|status| status.success())
         .unwrap_or(false);
     if !listed {
@@ -493,21 +499,22 @@ pub fn unavailable_reason(bin: &Path) -> Option<String> {
 ///
 /// 探针脚本通过 stdin 传入，不落盘、不依赖 state_dir；超时/启动失败都算不可用。
 fn syntax_available(bin: &Path) -> bool {
-    let mut child = match std::process::Command::new(bin)
+    let mut command = std::process::Command::new(bin);
+    command
         .args(["-c", "-f", "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-    {
+        .stderr(Stdio::null());
+    let mut child = match spawn_with_retry(command) {
         Ok(child) => child,
         Err(_) => return false,
     };
     if let Some(mut stdin) = child.stdin.take() {
-        if stdin.write_all(SYNTAX_PROBE.as_bytes()).is_err() {
-            let _ = child.wait();
-            return false;
-        }
+        // 写 stdin 失败不等于语法检查失败：子进程可能提前退出并关掉管道
+        // （EPIPE），此时结果要以退出码为准。否则一个很快退出的 nft 实现
+        // 会被误判成「不支持语法探测」，整批规则降级成未监听。
+        let _ = stdin.write_all(SYNTAX_PROBE.as_bytes());
+        drop(stdin);
     }
     child.wait().map(|status| status.success()).unwrap_or(false)
 }
@@ -780,19 +787,105 @@ pub async fn resolve_targets(rule: &DesiredForward) -> Result<Vec<ResolvedEndpoi
     Ok(resolved)
 }
 
+/// 首次 `spawn` 失败后是否值得重试一次。
+///
+/// 只认「资源暂时不足 / 系统调用被打断」这一类错误：
+///
+/// * `WouldBlock` / `EAGAIN`：fork 时进程表或内存瞬时不够（CI 上几百个
+///   测试并行 spawn 子进程的典型症状，重跑即恢复）；
+/// * `Interrupted` / `EINTR`：`posix_spawn` 被信号打断；
+/// * `EMFILE` / `ENFILE`：文件描述符瞬时耗尽，通常几十毫秒内就被回收。
+///
+/// 其余错误（路径不存在、无执行权限、ENOMEM 真没内存）重试也改变不了结果，
+/// 只会把「配置/环境错误」掩盖成一次更慢的失败，所以不重试。
+pub(crate) fn should_retry(error: &io::Error) -> bool {
+    if matches!(
+        error.kind(),
+        io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+    ) {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        use libc::{EAGAIN, EINTR, EMFILE, ENFILE};
+        if matches!(error.raw_os_error(), Some(code)
+            if code == EAGAIN || code == EINTR || code == EMFILE || code == ENFILE)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// 同步 spawn 的一次性重试：`attempt` 只被调用两次，第二次仍失败就原样返回。
+///
+/// 抽成泛型是为了单测能注入「首次失败、第二次成功」的假 spawn，而不依赖
+/// 真的把进程表打满；`backoff` 由调用方决定（生产路径是 50ms 睡眠）。
+fn retry_spawn<T>(
+    mut attempt: impl FnMut() -> io::Result<T>,
+    mut backoff: impl FnMut(),
+) -> io::Result<T> {
+    match attempt() {
+        Ok(value) => Ok(value),
+        Err(first) if should_retry(&first) => {
+            tracing::warn!(
+                error = %first,
+                delay_ms = SPAWN_RETRY_DELAY.as_millis() as u64,
+                "nft 首次 spawn 失败（可重试），退避后重试一次"
+            );
+            backoff();
+            attempt()
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// 同步命令的 spawn：首次遇到可重试错误时睡 50ms 再试一次。
+///
+/// `unavailable_reason` / `syntax_available` 是同步函数（也被 async 的
+/// apply/reconcile 调用），只在这条罕见的失败路径上阻塞 50ms。
+fn spawn_with_retry(mut command: std::process::Command) -> io::Result<std::process::Child> {
+    retry_spawn(|| command.spawn(), || std::thread::sleep(SPAWN_RETRY_DELAY))
+}
+
+/// 异步命令的 spawn：与 [`spawn_with_retry`] 同样的判定与退避。
+async fn spawn_with_retry_async(
+    mut command: tokio::process::Command,
+) -> io::Result<tokio::process::Child> {
+    match command.spawn() {
+        Ok(child) => Ok(child),
+        Err(first) if should_retry(&first) => {
+            tracing::warn!(
+                error = %first,
+                delay_ms = SPAWN_RETRY_DELAY.as_millis() as u64,
+                "nft 首次 spawn 失败（可重试），退避后重试一次"
+            );
+            tokio::time::sleep(SPAWN_RETRY_DELAY).await;
+            command.spawn()
+        }
+        Err(error) => Err(error),
+    }
+}
+
 async fn run_nft(bin: &Path, args: &[&str]) -> Result<(), String> {
     run_nft_capture(bin, args).await.map(|_| ())
 }
 
 /// 执行 nft 并返回 stdout（解析 `-j list table` 的计数器用）。
+///
+/// 先 `spawn` 再 `wait_with_output`，而不是一步 `output()`：只有 spawn 阶段
+/// 的 EAGAIN/EINTR 值得重试，子进程已经起来之后再失败重试反而会重复执行。
 async fn run_nft_capture(bin: &Path, args: &[&str]) -> Result<String, String> {
-    let output = tokio::time::timeout(
-        COMMAND_TIMEOUT,
-        tokio::process::Command::new(bin)
-            .args(args)
-            .stdin(Stdio::null())
-            .output(),
-    )
+    let mut command = tokio::process::Command::new(bin);
+    command
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = tokio::time::timeout(COMMAND_TIMEOUT, async move {
+        let child = spawn_with_retry_async(command).await?;
+        child.wait_with_output().await
+    })
     .await
     .map_err(|_| format!("nft {} 超时", args.join(" ")))?
     .map_err(|error| format!("执行 nft 失败：{error}"))?;
@@ -943,6 +1036,98 @@ mod tests {
                 weight: 1,
             },
         ]
+    }
+
+    /// 进程级闸门：本 crate 里所有会 spawn `nft` 的用例共用，最多 4 个并发。
+    ///
+    /// CI 上 350 个测试并行时会同时 fork 大量子进程，进程表/内存瞬时不足会让
+    /// `posix_spawn` 偶发 EAGAIN。生产侧已经有一次性重试，这里再加一道闸门，
+    /// 从源头压低 nft 子进程的并发数；不放大超时、不 `#[ignore]`、也不把
+    /// 整个测试套件改成串行。
+    static NFT_SPAWN_PERMITS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
+
+    async fn nft_permit() -> tokio::sync::SemaphorePermit<'static> {
+        NFT_SPAWN_PERMITS
+            .acquire()
+            .await
+            .expect("nft 测试信号量不会关闭")
+    }
+
+    /// 判定表：只有 EAGAIN / EINTR / EMFILE / ENFILE（以及对应的 ErrorKind）
+    /// 值得重试一次；ENOMEM、路径不存在、权限不足都不重试。
+    #[test]
+    fn only_transient_spawn_errors_are_retryable() {
+        let cases: [(&str, io::Error, bool); 11] = [
+            ("EAGAIN", io::Error::from_raw_os_error(libc::EAGAIN), true),
+            ("EINTR", io::Error::from_raw_os_error(libc::EINTR), true),
+            ("EMFILE", io::Error::from_raw_os_error(libc::EMFILE), true),
+            ("ENFILE", io::Error::from_raw_os_error(libc::ENFILE), true),
+            (
+                "WouldBlock",
+                io::Error::from(io::ErrorKind::WouldBlock),
+                true,
+            ),
+            (
+                "Interrupted",
+                io::Error::from(io::ErrorKind::Interrupted),
+                true,
+            ),
+            ("ENOMEM", io::Error::from_raw_os_error(libc::ENOMEM), false),
+            ("ENOENT", io::Error::from_raw_os_error(libc::ENOENT), false),
+            ("EACCES", io::Error::from_raw_os_error(libc::EACCES), false),
+            ("NotFound", io::Error::from(io::ErrorKind::NotFound), false),
+            ("Other", io::Error::other("boom"), false),
+        ];
+        for (name, error, expected) in cases {
+            assert_eq!(should_retry(&error), expected, "{name}");
+        }
+    }
+
+    /// 首次 spawn 失败且可重试 → 退避一次后重试；第二次成功就返回成功。
+    #[test]
+    fn retry_spawn_retries_once_after_a_transient_failure() {
+        let mut attempts = 0;
+        let mut backoffs = 0;
+        let result = retry_spawn(
+            || {
+                attempts += 1;
+                if attempts == 1 {
+                    Err(io::Error::from_raw_os_error(libc::EAGAIN))
+                } else {
+                    Ok(())
+                }
+            },
+            || backoffs += 1,
+        );
+        assert!(result.is_ok());
+        assert_eq!(attempts, 2, "首次 EAGAIN 后必须恰好重试一次");
+        assert_eq!(backoffs, 1, "重试前必须退避一次");
+    }
+
+    /// 连续两次可重试错误只重试一次（不无限重试）；不可重试错误一次都不重试。
+    #[test]
+    fn retry_spawn_is_single_attempt_and_skips_permanent_errors() {
+        let mut attempts = 0;
+        let result = retry_spawn(
+            || {
+                attempts += 1;
+                Err::<(), _>(io::Error::from_raw_os_error(libc::EAGAIN))
+            },
+            || {},
+        );
+        assert!(result.is_err());
+        assert_eq!(attempts, 2, "只重试一次，不进入循环");
+
+        let mut attempts = 0;
+        let result = retry_spawn(
+            || {
+                attempts += 1;
+                Err::<(), _>(io::Error::from_raw_os_error(libc::ENOENT))
+            },
+            || {},
+        );
+        assert!(result.is_err());
+        assert_eq!(attempts, 1, "ENOENT 不该重试");
     }
 
     #[test]
@@ -1509,6 +1694,7 @@ table inet pierwave {
     #[cfg(unix)]
     #[tokio::test]
     async fn apply_marks_rules_listening_when_nft_succeeds() {
+        let _permit = nft_permit().await;
         let dir = TempDir::new();
         let bin = fake_nft(dir.path(), "exit 0");
         let mut supervisor = NftablesSupervisor::new(bin, dir.path(), "0.0.0.0");
@@ -1540,6 +1726,7 @@ table inet pierwave {
     #[cfg(unix)]
     #[tokio::test]
     async fn syntax_probe_failure_reports_readable_error() {
+        let _permit = nft_permit().await;
         let dir = TempDir::new();
         let bin = fake_nft(
             dir.path(),
@@ -1566,6 +1753,7 @@ exit 0"#,
     #[cfg(unix)]
     #[tokio::test]
     async fn applies_multi_target_vmap_to_the_state_file() {
+        let _permit = nft_permit().await;
         let dir = TempDir::new();
         let bin = fake_nft(dir.path(), "exit 0");
         let mut supervisor = NftablesSupervisor::new(bin, dir.path(), "0.0.0.0");
@@ -1588,6 +1776,7 @@ exit 0"#,
     #[cfg(unix)]
     #[tokio::test]
     async fn syntax_probe_feeds_the_script_to_stdin() {
+        let _permit = nft_permit().await;
         let dir = TempDir::new();
         let log = dir.path().join("stdin");
         let bin = fake_nft(
@@ -1608,6 +1797,7 @@ exit 0"#,
     #[cfg(unix)]
     #[tokio::test]
     async fn heartbeat_reports_nftables_dnat_counters() {
+        let _permit = nft_permit().await;
         let dir = TempDir::new();
         let bin = fake_nft(
             dir.path(),
@@ -1655,6 +1845,7 @@ exit 0"#,
     #[cfg(unix)]
     #[tokio::test]
     async fn apply_marks_rules_failed_when_nft_is_unavailable() {
+        let _permit = nft_permit().await;
         let dir = TempDir::new();
         let bin = fake_nft(dir.path(), "exit 1");
         let mut supervisor = NftablesSupervisor::new(bin, dir.path(), "0.0.0.0");
@@ -1668,6 +1859,7 @@ exit 0"#,
     #[cfg(unix)]
     #[tokio::test]
     async fn empty_desired_state_cleans_the_table() {
+        let _permit = nft_permit().await;
         let dir = TempDir::new();
         let log = dir.path().join("calls");
         let bin = fake_nft(
