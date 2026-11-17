@@ -40,3 +40,5 @@ if-addrs = "0.13"
 
 [dev-dependencies]
 base64 = { workspace = true }
+# 真实 WebSocket 集成测试（首帧超时 / 大小限制 / 断开语义）。
+tokio-tungstenite = { workspace = true }

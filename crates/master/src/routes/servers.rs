@@ -592,6 +592,9 @@ pub async fn rotate_token(
     let Some((server, token)) = repo::servers::rotate_token(&state.db.pool, &id).await? else {
         return Err(AppError::not_found("server.not_found", None, "资源不存在"));
     };
+    // 旧 token 立即失效：已经建立的 Agent 连接也必须断开，否则它会继续收期望态
+    // 并发心跳，用户以为「换了 token 就安全」的预期都会落空。
+    state.hub.disconnect(&server.id);
     crate::audit::record(
         &state,
         &user.0,
@@ -858,6 +861,8 @@ pub async fn delete(
     if !repo::servers::delete(&state.db.pool, &id).await? {
         return Err(AppError::not_found("server.not_found", None, "资源不存在"));
     }
+    // 行已删除，但旧进程可能还握着连接：主动断开，避免它继续接收期望态。
+    state.hub.disconnect(&id);
     crate::audit::record(
         &state,
         &user.0,
@@ -877,12 +882,17 @@ pub async fn delete(
 mod tests {
     use super::*;
 
+    use std::net::SocketAddr;
     use std::path::PathBuf;
+    use std::time::Duration;
 
     use axum::body::Body;
     use axum::http::{Method, Request, StatusCode};
     use axum::Router;
+    use futures_util::{SinkExt, StreamExt};
     use serde_json::Value;
+    use tokio_tungstenite::tungstenite::Message as ClientMessage;
+    use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
     use tower::ServiceExt;
 
     use pierwave_domain::Db;
@@ -2341,5 +2351,175 @@ mod tests {
         assert_eq!(patched["server"]["nic_name"], "eth0");
         assert_eq!(patched["server"]["nic_unverified"], true);
         assert_eq!(patched["server"]["interfaces"], json!([]));
+    }
+
+    // ---- 重置 token / 删除服务器：断开已建立的 Agent 连接 ----
+
+    type WsClient = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
+
+    /// 用真实 HTTP 服务跑整张路由表，才能同时验证 HTTP 动作与 WS 连接。
+    struct LiveHttp {
+        addr: SocketAddr,
+        task: tokio::task::JoinHandle<()>,
+    }
+
+    impl LiveHttp {
+        async fn start(app: Router) -> Self {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let task = tokio::spawn(async move {
+                let _ = axum::serve(listener, app).await;
+            });
+            Self { addr, task }
+        }
+    }
+
+    impl Drop for LiveHttp {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    /// 连上 `/api/agent/ws` 并发 Hello；返回时 Ack 已经收到。
+    async fn ws_connect_and_hello(addr: SocketAddr, token: &str) -> WsClient {
+        let url = format!("ws://{addr}/api/agent/ws");
+        let (mut socket, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+        let hello = serde_json::to_string(&pierwave_proto::AgentMessage::Hello(
+            pierwave_proto::AgentHello {
+                token: token.into(),
+                hostname: "hk-1".into(),
+                agent_version: "0.14.2".into(),
+                xray_mode: "external".into(),
+                capabilities: Vec::new(),
+            },
+        ))
+        .unwrap();
+        socket.send(ClientMessage::Text(hello)).await.unwrap();
+
+        let message = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                match socket.next().await {
+                    Some(Ok(ClientMessage::Text(text))) => {
+                        return serde_json::from_str::<pierwave_proto::MasterMessage>(&text)
+                            .unwrap()
+                    }
+                    Some(Ok(ClientMessage::Close(_))) | None => {
+                        panic!("连接在 Ack 之前就关闭了")
+                    }
+                    Some(Ok(_)) => continue,
+                    Some(Err(error)) => panic!("socket error: {error}"),
+                }
+            }
+        })
+        .await
+        .expect("3s 内必须收到 Ack");
+        assert!(
+            matches!(message, pierwave_proto::MasterMessage::Ack(_)),
+            "expected ack, got {message:?}"
+        );
+        socket
+    }
+
+    async fn ws_expect_closed(socket: &mut WsClient, within: Duration) {
+        let closed = tokio::time::timeout(within, async {
+            loop {
+                match socket.next().await {
+                    Some(Ok(ClientMessage::Text(_)))
+                    | Some(Ok(ClientMessage::Ping(_)))
+                    | Some(Ok(ClientMessage::Pong(_))) => continue,
+                    Some(Ok(ClientMessage::Close(_))) | None | Some(Err(_)) => return,
+                    Some(Ok(_)) => continue,
+                }
+            }
+        })
+        .await;
+        assert!(closed.is_ok(), "连接应在 {within:?} 内被服务端关闭");
+    }
+
+    async fn wait_server_status(state: &AppState, id: &str, expected: &str) {
+        for _ in 0..200 {
+            if let Ok(row) = repo::servers::find_by_id(&state.db.pool, id).await {
+                if row.status == expected {
+                    return;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let row = repo::servers::find_by_id(&state.db.pool, id).await.unwrap();
+        panic!("等待服务器状态变为 {expected} 超时，当前 {}", row.status);
+    }
+
+    /// 重置 token 后，旧 token 建立的连接必须被断开；连接退出时仍能标离线。
+    #[tokio::test]
+    async fn rotating_token_closes_live_connection() {
+        let (app, state, cookie) = setup().await;
+        let (_, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            json!({"name":"hk-1","address":"1.2.3.4"}),
+        )
+        .await;
+        let id = created["server"]["id"].as_str().unwrap().to_string();
+        let old_token = created["token"].as_str().unwrap().to_string();
+
+        let live = LiveHttp::start(app.clone()).await;
+        let mut socket = ws_connect_and_hello(live.addr, &old_token).await;
+        wait_server_status(&state, &id, "online").await;
+
+        let (status, rotated) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            &format!("/api/v1/servers/{id}/token"),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{rotated}");
+        assert_ne!(rotated["token"].as_str().unwrap(), old_token);
+
+        ws_expect_closed(&mut socket, Duration::from_secs(3)).await;
+        // disconnect 只发信号、保留登记，旧连接退出时 is_current 仍为 true，
+        // 所以这里必须能看到 offline（漏标会一直显示 online）。
+        wait_server_status(&state, &id, "offline").await;
+    }
+
+    /// 删除服务器后，仍活着的 Agent 连接必须被断开。
+    #[tokio::test]
+    async fn deleting_server_closes_live_connection() {
+        let (app, state, cookie) = setup().await;
+        let (_, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            json!({"name":"hk-1","address":"1.2.3.4"}),
+        )
+        .await;
+        let id = created["server"]["id"].as_str().unwrap().to_string();
+        let token = created["token"].as_str().unwrap().to_string();
+
+        let live = LiveHttp::start(app.clone()).await;
+        let mut socket = ws_connect_and_hello(live.addr, &token).await;
+        wait_server_status(&state, &id, "online").await;
+
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::DELETE,
+            &format!("/api/v1/servers/{id}"),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+
+        ws_expect_closed(&mut socket, Duration::from_secs(3)).await;
+        assert!(
+            repo::servers::find_by_id(&state.db.pool, &id)
+                .await
+                .is_err(),
+            "服务器删除后不应还能查到"
+        );
     }
 }

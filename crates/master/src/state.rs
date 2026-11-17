@@ -8,7 +8,7 @@ use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 use pierwave_domain::Db;
 use pierwave_proto::MasterMessage;
 use serde_json::Value;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 
 use crate::alerts::Alerts;
 use crate::api_token::{ApiTokenRateLimiter, ApiTokenUsage};
@@ -185,15 +185,25 @@ impl PublicStatusCache {
 ///
 /// 主控只在 `apply` 时广播完整配置，Agent 收敛失败会回 `ApplyResult`，
 /// 不需要命令式 RPC。这里用 tokio 自带的 broadcast，避免额外依赖。
+///
+/// 每条登记还带一个 `watch` 断开信号：新连接顶替旧连接、重置 token、
+/// 删除服务器时用它通知旧连接主动退出，而不是等 TCP 自己断。
 #[derive(Clone, Default)]
 pub struct AgentHub {
-    senders: Arc<Mutex<HashMap<String, broadcast::Sender<MasterMessage>>>>,
+    registrations: Arc<Mutex<HashMap<String, AgentRegistration>>>,
+}
+
+struct AgentRegistration {
+    sender: broadcast::Sender<MasterMessage>,
+    disconnect: watch::Sender<()>,
 }
 
 /// 一次 Agent 连接的订阅凭证；Drop 时自动从 hub 注销。
 pub struct AgentSubscription {
     pub receiver: broadcast::Receiver<MasterMessage>,
     pub sender: broadcast::Sender<MasterMessage>,
+    /// 被新连接顶替 / token 重置 / 服务器删除时收到一次变更。
+    pub disconnect: watch::Receiver<()>,
     server_id: String,
     hub: AgentHub,
 }
@@ -206,15 +216,31 @@ impl Drop for AgentSubscription {
 
 impl AgentHub {
     /// 注册（或替换）某个服务器的 Agent 通道。
+    ///
+    /// 替换时向旧登记发断开信号，让旧连接主动退出；旧登记本身不会在这里删除，
+    /// 由旧连接的 [`AgentSubscription::drop`] 清理。
     pub fn subscribe(&self, server_id: &str) -> AgentSubscription {
         let (sender, receiver) = broadcast::channel(AGENT_CHANNEL_CAPACITY);
-        self.senders
+        let (disconnect, disconnect_rx) = watch::channel(());
+        let replaced = self
+            .registrations
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(server_id.to_string(), sender.clone());
+            .insert(
+                server_id.to_string(),
+                AgentRegistration {
+                    sender: sender.clone(),
+                    disconnect,
+                },
+            );
+        if let Some(old) = replaced {
+            // 接收者由旧连接的订阅持有；即便已经没了，send 返回 Err 也无害。
+            let _ = old.disconnect.send(());
+        }
         AgentSubscription {
             receiver,
             sender,
+            disconnect: disconnect_rx,
             server_id: server_id.to_string(),
             hub: self.clone(),
         }
@@ -222,27 +248,54 @@ impl AgentHub {
 
     /// 返回成功入队的 Agent 数量；0 表示当前没有 Agent 在线。
     pub fn publish(&self, server_id: &str, message: MasterMessage) -> usize {
-        let senders = self
-            .senders
+        let registrations = self
+            .registrations
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        senders
+        registrations
             .get(server_id)
-            .map(|sender| sender.send(message).unwrap_or(0))
+            .map(|registration| registration.sender.send(message).unwrap_or(0))
             .unwrap_or(0)
+    }
+
+    /// 通知某台服务器的当前连接退出（重置 token / 删除服务器）。
+    ///
+    /// **只发信号，不删除登记**：连接退出后要用 [`Self::is_current`] 判断自己是
+    /// 不是当前连接，登记被提前删掉会得到 false，从而漏掉 `mark_offline` 与离线
+    /// 告警，服务器会永远显示在线。登记留给旧连接的 Drop 清理。
+    pub fn disconnect(&self, server_id: &str) {
+        let registrations = self
+            .registrations
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(registration) = registrations.get(server_id) {
+            let _ = registration.disconnect.send(());
+        }
+    }
+
+    /// 这条连接是否仍是该服务器当前登记的那条。
+    ///
+    /// 连接退出时只有当前连接才允许把服务器标离线：被新连接顶替的旧连接如果
+    /// 也标离线，会把刚上线的新连接状态覆盖掉。
+    pub fn is_current(&self, server_id: &str, sender: &broadcast::Sender<MasterMessage>) -> bool {
+        self.registrations
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(server_id)
+            .is_some_and(|registration| registration.sender.same_channel(sender))
     }
 
     /// 只有当前登记的就是这条连接时才移除，避免旧连接断开时误删新连接。
     fn unsubscribe_if(&self, server_id: &str, sender: &broadcast::Sender<MasterMessage>) {
-        let mut senders = self
-            .senders
+        let mut registrations = self
+            .registrations
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if senders
+        if registrations
             .get(server_id)
-            .is_some_and(|current| current.same_channel(sender))
+            .is_some_and(|registration| registration.sender.same_channel(sender))
         {
-            senders.remove(server_id);
+            registrations.remove(server_id);
         }
     }
 }
@@ -342,5 +395,84 @@ mod tests {
 
         drop(new);
         assert_eq!(hub.publish("server-1", MasterMessage::Ping), 0);
+    }
+
+    /// 新连接登记同一台服务器时，旧连接必须收到断开信号；旧连接 Drop 也不能
+    /// 把新登记删掉。
+    #[tokio::test]
+    async fn replacing_subscription_signals_old_connection() {
+        let hub = AgentHub::default();
+        let mut old = hub.subscribe("server-1");
+        let new = hub.subscribe("server-1");
+
+        tokio::time::timeout(Duration::from_secs(1), old.disconnect.changed())
+            .await
+            .expect("1s 内必须收到断开信号，否则旧连接不会被顶下去")
+            .expect("旧连接必须收到断开信号");
+        assert!(
+            !hub.is_current("server-1", &old.sender),
+            "被顶替后旧连接不再是当前连接"
+        );
+        assert!(
+            hub.is_current("server-1", &new.sender),
+            "新连接才是当前连接"
+        );
+
+        drop(old);
+        assert_eq!(
+            hub.publish("server-1", MasterMessage::Ping),
+            1,
+            "旧连接 Drop 不能删掉新登记"
+        );
+        drop(new);
+        assert_eq!(hub.publish("server-1", MasterMessage::Ping), 0);
+    }
+
+    /// `disconnect` 只发信号，登记保留到连接自己 Drop：这样连接退出时
+    /// `is_current` 仍为 true，才能正确标离线。
+    #[tokio::test]
+    async fn disconnect_signals_current_connection() {
+        let hub = AgentHub::default();
+        let mut subscription = hub.subscribe("server-1");
+
+        hub.disconnect("server-1");
+        tokio::time::timeout(Duration::from_secs(1), subscription.disconnect.changed())
+            .await
+            .expect("1s 内必须收到断开信号")
+            .expect("当前连接必须收到断开信号");
+        assert!(
+            hub.is_current("server-1", &subscription.sender),
+            "disconnect 不能立即删登记，否则退出时判不出 is_current、会漏标离线"
+        );
+        assert_eq!(
+            hub.publish("server-1", MasterMessage::Ping),
+            1,
+            "发信号后登记仍然有效，直到连接 Drop"
+        );
+
+        // 没有登记的服务器 / 没有接收者时只是 no-op，不能 panic。
+        hub.disconnect("server-404");
+        drop(subscription);
+        assert_eq!(hub.publish("server-1", MasterMessage::Ping), 0);
+    }
+
+    /// 已登记的连接收到信号后即便再次 disconnect 也不该出问题。
+    #[tokio::test]
+    async fn repeated_disconnect_is_idempotent() {
+        let hub = AgentHub::default();
+        let mut subscription = hub.subscribe("server-1");
+
+        hub.disconnect("server-1");
+        hub.disconnect("server-1");
+        tokio::time::timeout(Duration::from_secs(1), subscription.disconnect.changed())
+            .await
+            .expect("1s 内必须收到断开信号")
+            .expect("信号只需要送达一次");
+
+        // 接收者仍在：Drop 之后登记才被清理。
+        assert!(hub.is_current("server-1", &subscription.sender));
+        let sender = subscription.sender.clone();
+        drop(subscription);
+        assert!(!hub.is_current("server-1", &sender));
     }
 }

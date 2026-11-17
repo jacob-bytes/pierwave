@@ -1,4 +1,6 @@
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use std::time::Duration;
+
+use axum::extract::ws::{close_code, CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::Response;
@@ -10,37 +12,96 @@ use pierwave_domain::models::{package_status_at, UserPackageView};
 use pierwave_domain::repo;
 use pierwave_domain::time;
 use pierwave_proto::{
-    AgentMessage, DesiredState, MasterMessage, ServerAck, TrafficReport, PROTOCOL_VERSION,
+    AgentHello, AgentMessage, DesiredState, MasterMessage, ServerAck, TrafficReport,
+    PROTOCOL_VERSION,
 };
 
 use crate::enforcement::RemovalCandidate;
 use crate::routes::public_url::{self, PublicBaseKind};
 use crate::state::AppState;
 
+/// Agent 连上后必须在此时限内发出 Hello，否则直接关闭。
+///
+/// 不设超时的话，一个只握手不发 Hello 的连接会长期占用 socket 与任务。
+const AGENT_HELLO_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// 单条 WS 消息的上限（1 MiB）。Agent 的心跳/上报远小于此。
+const AGENT_MAX_MESSAGE: usize = 1024 * 1024;
+
+/// 单个 WS 帧的上限（1 MiB），避免用分片绕开消息上限。
+const AGENT_MAX_FRAME: usize = 1024 * 1024;
+
+/// Hello 字段长度上限（字节）。在查库之前拒绝，超长输入不进入查询与日志。
+const AGENT_TOKEN_MAX_LEN: usize = 128;
+const AGENT_HOSTNAME_MAX_LEN: usize = 255;
+const AGENT_VERSION_MAX_LEN: usize = 64;
+
 pub async fn ws(
     ws: WebSocketUpgrade,
     headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Response {
-    ws.on_upgrade(move |socket| handle(socket, state, headers))
+    upgrade(ws, state, headers, AGENT_HELLO_TIMEOUT)
+}
+
+/// 握手：设置帧/消息上限，并在升级后按给定超时等待 Hello。
+///
+/// 超时参数拆出来是为了让测试用毫秒级超时，生产固定用 [`AGENT_HELLO_TIMEOUT`]。
+fn upgrade(
+    ws: WebSocketUpgrade,
+    state: AppState,
+    headers: HeaderMap,
+    hello_timeout: Duration,
+) -> Response {
+    ws.max_message_size(AGENT_MAX_MESSAGE)
+        .max_frame_size(AGENT_MAX_FRAME)
+        .on_upgrade(move |socket| handle_with_timeout(socket, state, headers, hello_timeout))
 }
 
 /// Agent 反向连入：第一条消息必须是 Hello(token)。
 /// token 校验通过后下发 Ack；之后 socket 与广播通道并行处理：
 /// 一边收心跳/上报，一边把主控 apply 产生的期望态推下去。
-async fn handle(mut socket: WebSocket, state: AppState, headers: HeaderMap) {
-    let Some(Ok(Message::Text(first))) = socket.recv().await else {
-        return;
-    };
-    let Ok(AgentMessage::Hello(hello)) = serde_json::from_str(&first) else {
-        let err = MasterMessage::Error {
-            message: "expected hello".into(),
-        };
-        if let Ok(payload) = serde_json::to_string(&err) {
-            let _ = socket.send(Message::Text(payload.into())).await;
+async fn handle_with_timeout(
+    mut socket: WebSocket,
+    state: AppState,
+    headers: HeaderMap,
+    hello_timeout: Duration,
+) {
+    let first = match tokio::time::timeout(hello_timeout, socket.recv()).await {
+        Ok(Some(Ok(Message::Text(text)))) => text,
+        // 客户端主动关闭 / 正常 EOF：还没登记，不查库也不标离线。
+        Ok(Some(Ok(Message::Close(_)))) | Ok(None) => return,
+        // 首帧必须是文本 Hello；二进制/控制帧直接拒绝。
+        Ok(Some(Ok(_))) => {
+            reject(&mut socket, "expected hello", close_code::POLICY).await;
+            return;
         }
+        Ok(Some(Err(e))) => {
+            tracing::warn!(error = %e, "agent socket error before hello");
+            return;
+        }
+        Err(_) => {
+            // 日志只包含超时值：此时还没有 token，也绝不回显任何客户端输入。
+            tracing::warn!(
+                timeout_ms = hello_timeout.as_millis(),
+                "agent hello timeout，关闭连接（未查库）"
+            );
+            close_socket(&mut socket, close_code::POLICY).await;
+            return;
+        }
+    };
+
+    let Ok(AgentMessage::Hello(hello)) = serde_json::from_str(&first) else {
+        reject(&mut socket, "expected hello", close_code::POLICY).await;
         return;
     };
+
+    // 长度校验必须在查库之前：超长字段不应进入 SQL 查询与日志。
+    if let Some((field, max)) = hello_field_overflow(&hello) {
+        tracing::warn!(field, max, "agent hello field too long，关闭连接（未查库）");
+        reject(&mut socket, "invalid hello", close_code::POLICY).await;
+        return;
+    }
 
     // 心跳会带上 agent 版本一起落库，后续重连以最新 hello 为准。
     let agent_version = hello.agent_version.clone();
@@ -48,12 +109,7 @@ async fn handle(mut socket: WebSocket, state: AppState, headers: HeaderMap) {
         Ok(Some(server)) => server,
         _ => {
             tracing::warn!(hostname = %hello.hostname, "agent auth failed");
-            let err = MasterMessage::Error {
-                message: "invalid token".into(),
-            };
-            if let Ok(payload) = serde_json::to_string(&err) {
-                let _ = socket.send(Message::Text(payload.into())).await;
-            }
+            reject(&mut socket, "invalid token", close_code::POLICY).await;
             return;
         }
     };
@@ -159,15 +215,37 @@ async fn handle(mut socket: WebSocket, state: AppState, headers: HeaderMap) {
                         );
                     }
                     Err(broadcast::error::RecvError::Closed) => {
-                        // 同一服务器被新连接替换时旧通道会关闭；此时继续读上报即可。
+                        // 同一服务器被新连接替换时旧通道会关闭；此时继续读上报即可，
+                        // 真正的退出由下面的断开信号负责。
                         hub_open = false;
                         tracing::warn!(server = %server.name, "agent hub channel closed");
                     }
                 }
             }
+            // 新连接顶替 / 重置 token / 删除服务器：主动 Close 并退出。
+            _ = subscription.disconnect.changed() => {
+                tracing::info!(
+                    server = %server.name,
+                    "agent connection revoked; closing"
+                );
+                close_socket(&mut socket, close_code::AWAY).await;
+                break;
+            }
         }
     }
+
+    // 只有当前登记的还是这条连接时，断开才代表「这台服务器离线」。
+    // 被新连接顶替的旧连接如果也标离线，会把刚上线的新连接状态覆盖掉。
+    let current = state.hub.is_current(&server.id, &subscription.sender);
     drop(subscription);
+
+    if !current {
+        tracing::info!(
+            server = %server.name,
+            "stale agent connection closed; skip offline marking"
+        );
+        return;
+    }
 
     if let Err(e) = repo::servers::mark_offline(&state.db.pool, &server.id).await {
         tracing::error!(error = %e, "mark_offline failed");
@@ -185,6 +263,43 @@ async fn handle(mut socket: WebSocket, state: AppState, headers: HeaderMap) {
         ),
     )
     .await;
+}
+
+/// Hello 字段长度（字节）超限时返回 `(字段名, 上限)`。
+///
+/// 只返回字段名与上限，不返回字段值：调用方据此拒绝，日志里也不会出现 token。
+fn hello_field_overflow(hello: &AgentHello) -> Option<(&'static str, usize)> {
+    [
+        ("token", hello.token.len(), AGENT_TOKEN_MAX_LEN),
+        ("hostname", hello.hostname.len(), AGENT_HOSTNAME_MAX_LEN),
+        (
+            "agent_version",
+            hello.agent_version.len(),
+            AGENT_VERSION_MAX_LEN,
+        ),
+    ]
+    .into_iter()
+    .find(|(_, len, max)| len > max)
+    .map(|(field, _, max)| (field, max))
+}
+
+/// 回一条 Error 后尽力关闭；对端已断开时忽略发送错误。
+async fn reject(socket: &mut WebSocket, message: &str, code: u16) {
+    let err = MasterMessage::Error {
+        message: message.into(),
+    };
+    if let Ok(payload) = serde_json::to_string(&err) {
+        let _ = socket.send(Message::Text(payload.into())).await;
+    }
+    close_socket(socket, code).await;
+}
+
+async fn close_socket(socket: &mut WebSocket, code: u16) {
+    let frame = CloseFrame {
+        code,
+        reason: "agent connection closed".into(),
+    };
+    let _ = socket.send(Message::Close(Some(frame))).await;
 }
 
 async fn send_json(socket: &mut WebSocket, message: &MasterMessage) -> bool {
@@ -3011,5 +3126,409 @@ mod upgrade_tests {
             "[{\"name\":\"eth0\",\"addresses\":[\"10.0.0.2\",\"2001:db8::2\"]},{\"name\":\"eth1\",\"addresses\":[]}]"
         );
         assert!(row.interfaces_reported_at.is_some());
+    }
+}
+
+/// 真实 WebSocket 集成测试：首帧超时、帧大小限制、断开语义。
+///
+/// 不 mock socket：用 axum 起一个只挂 `/api/agent/ws` 的本地服务，客户端用
+/// `tokio-tungstenite` 真连、真发帧，断言连接层面的行为。
+#[cfg(test)]
+mod ws_tests {
+    use std::net::SocketAddr;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use axum::extract::{State, WebSocketUpgrade};
+    use axum::http::HeaderMap;
+    use axum::response::Response;
+    use axum::routing::get;
+    use axum::Router;
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message as ClientMessage;
+    use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+
+    use pierwave_domain::repo;
+    use pierwave_domain::Db;
+    use pierwave_proto::AgentHello;
+
+    use crate::alerts::{Alerts, RecordingTransport};
+
+    use super::*;
+
+    type WsClient = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
+
+    struct TestServer {
+        addr: SocketAddr,
+        task: tokio::task::JoinHandle<()>,
+    }
+
+    impl TestServer {
+        async fn start(state: AppState, hello_timeout: Duration) -> Self {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            let app = Router::new()
+                .route("/api/agent/ws", get(test_ws))
+                .with_state((state, hello_timeout));
+            let task = tokio::spawn(async move {
+                let _ = axum::serve(listener, app).await;
+            });
+            Self { addr, task }
+        }
+
+        async fn connect(&self) -> WsClient {
+            let url = format!("ws://{}/api/agent/ws", self.addr);
+            let (socket, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+            socket
+        }
+    }
+
+    impl Drop for TestServer {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    async fn test_ws(
+        ws: WebSocketUpgrade,
+        headers: HeaderMap,
+        State((state, hello_timeout)): State<(AppState, Duration)>,
+    ) -> Response {
+        upgrade(ws, state, headers, hello_timeout)
+    }
+
+    fn hello_json(token: &str, hostname: &str, agent_version: &str) -> String {
+        serde_json::to_string(&AgentMessage::Hello(AgentHello {
+            token: token.into(),
+            hostname: hostname.into(),
+            agent_version: agent_version.into(),
+            xray_mode: "external".into(),
+            capabilities: Vec::new(),
+        }))
+        .unwrap()
+    }
+
+    async fn next_message(socket: &mut WsClient) -> Option<MasterMessage> {
+        loop {
+            match socket.next().await {
+                Some(Ok(ClientMessage::Text(text))) => {
+                    return Some(serde_json::from_str(&text).unwrap());
+                }
+                Some(Ok(ClientMessage::Ping(_))) | Some(Ok(ClientMessage::Pong(_))) => continue,
+                Some(Ok(ClientMessage::Close(_))) | None | Some(Err(_)) => return None,
+                Some(Ok(_)) => continue,
+            }
+        }
+    }
+
+    /// 等到对端 Close / EOF；期间忽略数据帧。
+    async fn wait_closed(socket: &mut WsClient) {
+        let closed = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                match socket.next().await {
+                    Some(Ok(ClientMessage::Text(_)))
+                    | Some(Ok(ClientMessage::Ping(_)))
+                    | Some(Ok(ClientMessage::Pong(_))) => continue,
+                    Some(Ok(ClientMessage::Close(_))) | None | Some(Err(_)) => return,
+                    Some(Ok(_)) => continue,
+                }
+            }
+        })
+        .await;
+        assert!(closed.is_ok(), "连接应在 3s 内关闭");
+    }
+
+    async fn wait_status(state: &AppState, server_id: &str, expected: &str) {
+        for _ in 0..200 {
+            if let Ok(row) = repo::servers::find_by_id(&state.db.pool, server_id).await {
+                if row.status == expected {
+                    return;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let row = repo::servers::find_by_id(&state.db.pool, server_id)
+            .await
+            .unwrap();
+        panic!("等待服务器状态变为 {expected} 超时，当前 {}", row.status);
+    }
+
+    async fn state_with_server() -> (AppState, String, String) {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let (server, token) = repo::servers::create(&db.pool, "hk-1", "1.2.3.4", "external")
+            .await
+            .unwrap();
+        (AppState::new(db, "web/dist"), server.id, token)
+    }
+
+    /// 给 state 装上可观测的告警投递器，并启用 offline 事件。
+    ///
+    /// 返回替换过投递器的 state（`AppState` 里的 `alerts` 是值，不是共享引用，
+    /// 必须用返回的副本启动服务，否则告警仍会走默认的无渠道实现）。
+    async fn with_offline_alerts(mut state: AppState) -> (AppState, Arc<RecordingTransport>) {
+        let transport = Arc::new(RecordingTransport::default());
+        state.alerts = Alerts::new(transport.clone());
+        repo::settings::set(&state.db.pool, "webhook_url", "https://example.test/hook")
+            .await
+            .unwrap();
+        repo::settings::set(&state.db.pool, "alert_events", "server_offline")
+            .await
+            .unwrap();
+        repo::settings::set(&state.db.pool, "alert_cooldown_secs", "0")
+            .await
+            .unwrap();
+        (state, transport)
+    }
+
+    /// 连上但不发 Hello：必须在 hello 超时后关闭，且 1 秒内看到 Close/EOF。
+    /// 池已关闭：任何一次查库都会失败并回文本错误，超时路径却不应发出任何文本帧。
+    #[tokio::test]
+    async fn hello_timeout_closes_connection_without_db_lookup() {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let state = AppState::new(db, "web/dist");
+        state.db.pool.close().await;
+
+        let server = TestServer::start(state, Duration::from_millis(200)).await;
+        let mut socket = server.connect().await;
+
+        let started = Instant::now();
+        let outcome = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                match socket.next().await {
+                    Some(Ok(ClientMessage::Text(text))) => {
+                        panic!("首帧超时不应发送任何文本消息：{text}")
+                    }
+                    Some(Ok(ClientMessage::Ping(_))) | Some(Ok(ClientMessage::Pong(_))) => continue,
+                    Some(Ok(ClientMessage::Close(_))) | None | Some(Err(_)) => return,
+                    Some(Ok(_)) => continue,
+                }
+            }
+        })
+        .await;
+
+        assert!(outcome.is_ok(), "首帧超时后 1s 内必须收到 Close/EOF");
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "关闭耗时 {:?}，超时参数只有 200ms",
+            started.elapsed()
+        );
+    }
+
+    /// 首帧是超大但**结构合法**的 Hello（> 1 MiB）：连接关闭，且不会把服务器
+    /// 标成在线。没有帧/消息上限时它会被当作普通 Hello 接受（Ack + mark_online），
+    /// 所以这个用例能真实区分上限有没有生效。
+    #[tokio::test]
+    async fn oversized_hello_is_rejected_without_touching_server_state() {
+        let (state, server_id, token) = state_with_server().await;
+        let server = TestServer::start(state.clone(), Duration::from_secs(5)).await;
+        let mut socket = server.connect().await;
+
+        // 用被忽略的 capabilities 填充：token/hostname/版本都合法，只有体积超限。
+        let padding = "y".repeat(AGENT_MAX_MESSAGE);
+        let hello = serde_json::json!({
+            "type": "hello",
+            "token": token,
+            "hostname": "hk-1",
+            "agent_version": "0.14.2",
+            "xray_mode": "external",
+            "capabilities": [padding],
+        })
+        .to_string();
+        assert!(
+            hello.len() > AGENT_MAX_MESSAGE,
+            "测试消息必须真的超过上限：{}",
+            hello.len()
+        );
+
+        // 客户端默认允许 16 MiB 帧，可以把超限消息真的发出去。
+        let _ = tokio::time::timeout(
+            Duration::from_secs(5),
+            socket.send(ClientMessage::Text(hello)),
+        )
+        .await;
+
+        // 超限时服务端不会把它当 Hello：既不能回 Ack，也不能回业务错误。
+        let message = next_message(&mut socket).await;
+        assert!(
+            message.is_none(),
+            "超大 Hello 不应得到任何响应：{message:?}"
+        );
+        wait_closed(&mut socket).await;
+
+        let row = repo::servers::find_by_id(&state.db.pool, &server_id)
+            .await
+            .unwrap();
+        assert_eq!(row.status, "offline", "超大帧不能把服务器标成在线");
+        assert_eq!(row.agent_version, None, "超大帧不能产生任何落库更新");
+        assert!(row.last_seen_at.is_none());
+    }
+
+    /// 超长 Hello 字段在查库之前就被拒绝。
+    ///
+    /// 池先关闭：若代码先查 token，`find_by_token` 会失败并回 `invalid token`；
+    /// 只有「先校验长度」的路径才可能回 `invalid hello`。
+    #[tokio::test]
+    async fn overlong_hello_field_is_rejected_before_db_lookup() {
+        let (state, server_id, token) = state_with_server().await;
+        state.db.pool.close().await;
+
+        let server = TestServer::start(state.clone(), Duration::from_secs(5)).await;
+        let mut socket = server.connect().await;
+        let hello = hello_json(&token, &"h".repeat(AGENT_HOSTNAME_MAX_LEN + 1), "0.14.2");
+        socket.send(ClientMessage::Text(hello)).await.unwrap();
+
+        let message = next_message(&mut socket).await.expect("必须回一条 Error");
+        match message {
+            MasterMessage::Error { message } => {
+                assert_eq!(
+                    message, "invalid hello",
+                    "超长字段必须先于查库被拒绝；invalid token 说明已经查过库"
+                );
+            }
+            other => panic!("expected error, got {other:?}"),
+        }
+        wait_closed(&mut socket).await;
+
+        // 关闭的池不可能写库，这里只是把「没有被标在线」写清楚。
+        assert!(
+            repo::servers::find_by_id(&state.db.pool, &server_id)
+                .await
+                .is_err(),
+            "池已关闭，不应有写入"
+        );
+    }
+
+    /// Hello 字段长度上限的边界：等于上限通过，多 1 字节拒绝。
+    #[test]
+    fn hello_field_limits_are_enforced_at_the_boundary() {
+        let hello = |token: usize, hostname: usize, version: usize| AgentHello {
+            token: "t".repeat(token),
+            hostname: "h".repeat(hostname),
+            agent_version: "v".repeat(version),
+            xray_mode: "external".into(),
+            capabilities: Vec::new(),
+        };
+
+        assert_eq!(
+            hello_field_overflow(&hello(
+                AGENT_TOKEN_MAX_LEN,
+                AGENT_HOSTNAME_MAX_LEN,
+                AGENT_VERSION_MAX_LEN
+            )),
+            None
+        );
+        assert_eq!(
+            hello_field_overflow(&hello(AGENT_TOKEN_MAX_LEN + 1, 0, 0)),
+            Some(("token", AGENT_TOKEN_MAX_LEN))
+        );
+        assert_eq!(
+            hello_field_overflow(&hello(0, AGENT_HOSTNAME_MAX_LEN + 1, 0)),
+            Some(("hostname", AGENT_HOSTNAME_MAX_LEN))
+        );
+        assert_eq!(
+            hello_field_overflow(&hello(0, 0, AGENT_VERSION_MAX_LEN + 1)),
+            Some(("agent_version", AGENT_VERSION_MAX_LEN))
+        );
+    }
+
+    /// 两个真实连接同一 token：新连接顶替旧连接后，旧连接关闭不能把新连接
+    /// 标成离线，也不能发 offline 告警。
+    #[tokio::test]
+    async fn stale_connection_close_does_not_mark_new_online_server_offline() {
+        let (state, server_id, token) = state_with_server().await;
+        let (state, transport) = with_offline_alerts(state).await;
+
+        let server = TestServer::start(state.clone(), Duration::from_secs(5)).await;
+
+        let mut old = server.connect().await;
+        old.send(ClientMessage::Text(hello_json(&token, "hk-old", "0.14.2")))
+            .await
+            .unwrap();
+        assert!(matches!(
+            next_message(&mut old).await,
+            Some(MasterMessage::Ack(_))
+        ));
+
+        let mut new = server.connect().await;
+        new.send(ClientMessage::Text(hello_json(&token, "hk-new", "0.14.2")))
+            .await
+            .unwrap();
+        assert!(matches!(
+            next_message(&mut new).await,
+            Some(MasterMessage::Ack(_))
+        ));
+
+        // 旧连接被 hub 主动断开。
+        wait_closed(&mut old).await;
+
+        // 新连接才是当前连接：服务器必须仍然在线。
+        wait_status(&state, &server_id, "online").await;
+        assert_eq!(state.hub.publish(&server_id, MasterMessage::Ping), 1);
+        assert!(matches!(
+            next_message(&mut new).await,
+            Some(MasterMessage::Ping)
+        ));
+
+        // 旧连接退出不能触发离线告警。
+        transport
+            .assert_no_more(0, Duration::from_millis(300))
+            .await;
+
+        // 收尾：新连接正常断开 → 标离线 + 一条离线告警。
+        new.close(None).await.unwrap();
+        wait_status(&state, &server_id, "offline").await;
+        let sent = transport.wait_for(1).await;
+        assert_eq!(sent[0].kind, "server_offline");
+        assert_eq!(sent[0].target, server_id);
+    }
+
+    /// 回归：正常 Hello → Ack；正常断开 → 标离线并发出离线告警。
+    #[tokio::test]
+    async fn normal_hello_acks_and_normal_close_marks_offline_with_alert() {
+        let (state, server_id, token) = state_with_server().await;
+        let (state, transport) = with_offline_alerts(state).await;
+        let server = TestServer::start(state.clone(), Duration::from_secs(5)).await;
+
+        let mut socket = server.connect().await;
+        socket
+            .send(ClientMessage::Text(hello_json(&token, "hk-1", "0.14.2")))
+            .await
+            .unwrap();
+        match next_message(&mut socket).await {
+            Some(MasterMessage::Ack(ack)) => {
+                assert_eq!(ack.server_id, server_id);
+                assert_eq!(ack.protocol_version, pierwave_proto::PROTOCOL_VERSION);
+            }
+            other => panic!("expected ack, got {other:?}"),
+        }
+        wait_status(&state, &server_id, "online").await;
+
+        socket.close(None).await.unwrap();
+        wait_status(&state, &server_id, "offline").await;
+
+        let sent = transport.wait_for(1).await;
+        assert_eq!(sent[0].kind, "server_offline");
+        assert_eq!(sent[0].target, server_id);
+    }
+
+    /// 首帧不是 Hello（二进制）时明确拒绝并关闭，不查库。
+    #[tokio::test]
+    async fn binary_first_frame_is_rejected() {
+        let (state, _server_id, _token) = state_with_server().await;
+        state.db.pool.close().await;
+        let server = TestServer::start(state, Duration::from_secs(5)).await;
+        let mut socket = server.connect().await;
+
+        socket
+            .send(ClientMessage::Binary(vec![0, 1, 2]))
+            .await
+            .unwrap();
+        match next_message(&mut socket).await {
+            Some(MasterMessage::Error { message }) => assert_eq!(message, "expected hello"),
+            other => panic!("expected error, got {other:?}"),
+        }
+        wait_closed(&mut socket).await;
     }
 }
