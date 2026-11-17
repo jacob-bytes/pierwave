@@ -56,6 +56,13 @@ struct EntryKey {
 /// 用户名最短 3 字符、IP 不可能是这个占位符，所以不会与真实键冲突。
 const AGGREGATE: &str = "*";
 
+/// map 条目硬上限。每个失败最多写 3 个桶，5000 个不同用户名就能写出 1 万条；
+/// 不设上限时，攻击者可以靠换用户名/换 IP 把主控内存打满。
+const MAX_ENTRIES: usize = 4096;
+
+/// 超过上限时一次淘汰到 3/4，避免每来一个请求就做一次全表排序。
+const EVICT_TARGET: usize = MAX_ENTRIES * 3 / 4;
+
 #[derive(Debug, Clone)]
 struct Entry {
     failures: u32,
@@ -79,6 +86,30 @@ impl Inner {
             let unlocked = entry.locked_until.is_none_or(|until| now >= until);
             !(unlocked && now.saturating_duration_since(entry.last_seen) > retain)
         });
+    }
+
+    /// 超过硬上限时按「最久未活动」淘汰到 3/4。
+    ///
+    /// 排序键先看锁定状态：**已锁定的条目排到最后淘汰**。否则攻击者只要灌满
+    /// 一堆新用户名，就能把 `admin` 的锁定记录挤掉，限流形同虚设。若表里全是
+    /// 锁定条目（极端情况），仍然淘汰最旧的，保证内存不会无界增长。
+    fn enforce_entry_limit(&mut self, now: Instant) {
+        if self.entries.len() <= MAX_ENTRIES {
+            return;
+        }
+        let mut candidates: Vec<(bool, Instant, EntryKey)> = self
+            .entries
+            .iter()
+            .map(|(key, entry)| {
+                let locked = entry.locked_until.is_some_and(|until| now < until);
+                (locked, entry.last_seen, key.clone())
+            })
+            .collect();
+        candidates.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+        let remove = self.entries.len().saturating_sub(EVICT_TARGET);
+        for (_, _, key) in candidates.into_iter().take(remove) {
+            self.entries.remove(&key);
+        }
     }
 }
 
@@ -131,6 +162,12 @@ impl LoginThrottle {
     /// 登录成功后清空与该账号/该 IP 相关的全部计数。
     pub fn clear(&self, key: &Key) {
         self.clear_at(key, Instant::now());
+    }
+
+    /// 当前 map 里的条目数；只给测试断言「表有上限」用。
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.lock().entries.len()
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -214,6 +251,8 @@ impl LoginThrottle {
                 entry.locked_until = Some(now + lock);
             }
         }
+
+        inner.enforce_entry_limit(now);
     }
 
     fn clear_at(&self, key: &Key, now: Instant) {
@@ -387,6 +426,23 @@ mod tests {
         assert!(
             throttle.lock().entries.is_empty(),
             "过期条目必须被清理，避免 map 无限增长"
+        );
+    }
+
+    /// 攻击者可以无限换用户名：map 必须有硬上限，否则内存会随请求数线性增长。
+    #[test]
+    fn entry_map_stays_bounded_under_a_username_flood() {
+        let throttle = LoginThrottle::new(5, 900);
+        let now = Instant::now();
+
+        for index in 0..5000 {
+            throttle.record_failure_at(&key(&format!("flood-{index}"), "10.0.0.1"), now);
+        }
+
+        assert!(
+            throttle.len() <= 4096,
+            "5000 个不同用户名后 map 仍有 {} 条，必须有硬上限",
+            throttle.len()
         );
     }
 

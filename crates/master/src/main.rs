@@ -7,6 +7,7 @@ mod enforcement;
 mod error;
 mod login_watch;
 mod nic;
+mod outbound;
 mod remote_backup;
 mod routes;
 mod scheduler;

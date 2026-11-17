@@ -39,7 +39,6 @@ import {
   alertTestOutcome,
   hasConfiguredAlertChannel,
   isTelegramIncomplete,
-  maskSecret,
   normalizeAlertTestResults,
   parseAlertEvents,
   serializeAlertEvents,
@@ -125,6 +124,7 @@ function toAlertFormValues(items: Settings): AlertsFormValues {
 function channelConfig(items: Settings): AlertChannelConfig {
   return {
     telegramBotToken: items.telegram_bot_token,
+    telegramBotTokenSaved: items.telegram_bot_has_token === true,
     telegramChatId: items.telegram_chat_id,
     webhookUrl: items.webhook_url,
   };
@@ -222,17 +222,18 @@ function AlertsForm({ initial }: { initial: Settings }) {
   }, [translate, form]);
 
   const events = form.watch("alert_events") ?? [];
+  const tokenInput = form.watch("telegram_bot_token") ?? "";
+  /** 后端只回 has_token；已保存但输入框为空时，凭据仍然是完整的。 */
+  const savedHasToken = savedConfig.telegramBotTokenSaved === true;
+  const savedTokenHint = savedHasToken
+    ? t("settings.alerts.telegram.savedHint")
+    : t("settings.alerts.telegram.tokenHint");
   const telegramIncomplete = isTelegramIncomplete({
-    telegramBotToken: form.watch("telegram_bot_token"),
+    telegramBotToken: tokenInput,
+    telegramBotTokenSaved: savedHasToken,
     telegramChatId: form.watch("telegram_chat_id"),
   });
   const savedHasChannel = hasConfiguredAlertChannel(savedConfig);
-  const savedTokenHint = (() => {
-    const masked = maskSecret(savedConfig.telegramBotToken ?? "");
-    return masked
-      ? t("settings.alerts.telegram.savedMask", { masked })
-      : t("settings.alerts.telegram.tokenHint");
-  })();
   const dirty = form.formState.isDirty;
 
   const toggleEvent = (event: AlertEvent, checked: boolean) => {
@@ -322,7 +323,11 @@ function AlertsForm({ initial }: { initial: Settings }) {
               type={showToken ? "text" : "password"}
               autoComplete="off"
               spellCheck={false}
-              placeholder="123456789:AA..."
+              placeholder={
+                savedHasToken && tokenInput.trim() === ""
+                  ? t("settings.alerts.telegram.savedPlaceholder")
+                  : "123456789:AA..."
+              }
               className="pr-10"
               disabled={updateSettings.isPending}
               aria-invalid={Boolean(

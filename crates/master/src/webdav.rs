@@ -179,6 +179,9 @@ impl WebDavClient {
             CONNECT_TIMEOUT.as_secs().to_string(),
             "--max-time".into(),
             REQUEST_TIMEOUT.as_secs().to_string(),
+            // 响应体上限：PROPFIND 目录列表可能被恶意/异常远端放大。
+            "--max-filesize".into(),
+            crate::outbound::max_filesize_arg(),
             "--write-out".into(),
             "\n%{http_code}".into(),
             "--config".into(),
@@ -219,6 +222,10 @@ impl WebDavClient {
             .map_err(|error| WebDavError::new(format!("等待 curl 退出失败：{error}")))?;
         let stderr = self.redact(&String::from_utf8_lossy(&output.stderr));
         if !output.status.success() {
+            // curl 63 = CURLE_FILESIZE_EXCEEDED（`--max-filesize` 触发）。
+            if output.status.code() == Some(63) {
+                return Err(WebDavError::new(crate::outbound::too_large("WebDAV 响应")));
+            }
             let detail: String = stderr.trim().chars().take(300).collect();
             return Err(WebDavError::new(if detail.is_empty() {
                 format!("curl 退出码 {:?}", output.status.code())
@@ -232,6 +239,10 @@ impl WebDavClient {
             let detail: String = stderr.trim().chars().take(300).collect();
             WebDavError::new(format!("无法解析 WebDAV 响应状态：{detail}"))
         })?;
+        // `--max-filesize` 对 chunked 响应不生效，读回后按实际字节数兜底。
+        if crate::outbound::exceeded(body.len() as u64) {
+            return Err(WebDavError::new(crate::outbound::too_large("WebDAV 响应")));
+        }
         Ok(CurlOutput { status, body })
     }
 
@@ -373,6 +384,30 @@ mod tests {
             .delete("pierwave-backup-20260101-000000.db.gz")
             .await
             .unwrap();
+    }
+
+    /// 恶意/异常远端返回超大 PROPFIND 时，客户端必须报错，不能把整段 XML 读进来当正常结果。
+    #[tokio::test]
+    async fn oversized_propfind_responses_are_rejected() {
+        let fake = FakeDav::start(FakeState {
+            oversized_propfind_bytes: (crate::outbound::MAX_OUTBOUND_BODY_BYTES + 1) as usize,
+            ..Default::default()
+        })
+        .await;
+        let client = client(&fake);
+
+        let error = client
+            .test_connection()
+            .await
+            .expect_err("17 MiB 的 PROPFIND 响应必须被拒绝");
+        assert!(
+            error.message().contains("16 MiB"),
+            "错误要可读并带上限：{error}"
+        );
+        assert!(
+            error.message().contains("超过") || error.message().contains("exceeds"),
+            "错误要说明是响应体超限：{error}"
+        );
     }
 
     #[tokio::test]

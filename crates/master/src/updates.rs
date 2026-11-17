@@ -71,12 +71,15 @@ pub trait ReleaseFetcher: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct CurlFetcher {
     pub url: String,
+    /// curl 可执行文件；生产固定是 `curl`，测试注入假脚本以伪造超大输出。
+    pub program: String,
 }
 
 impl Default for CurlFetcher {
     fn default() -> Self {
         Self {
             url: latest_url_from_env(),
+            program: "curl".to_string(),
         }
     }
 }
@@ -91,20 +94,29 @@ impl ReleaseFetcher for CurlFetcher {
                 ));
             }
             if !(url.starts_with("http://") || url.starts_with("https://")) {
-                return tokio::fs::read_to_string(url).await.map_err(|error| {
+                let bytes = tokio::fs::read(url).await.map_err(|error| {
+                    updates::UpdateError::Unavailable(truncate(&error.to_string()))
+                })?;
+                if crate::outbound::exceeded(bytes.len() as u64) {
+                    return Err(updates::UpdateError::TooLarge {
+                        limit_mib: crate::outbound::MAX_OUTBOUND_BODY_MIB,
+                    });
+                }
+                return String::from_utf8(bytes).map_err(|error| {
                     updates::UpdateError::Unavailable(truncate(&error.to_string()))
                 });
             }
-            fetch_over_curl(url).await
+            fetch_over_curl(&self.program, url).await
         })
     }
 }
 
-async fn fetch_over_curl(url: &str) -> Result<String, updates::UpdateError> {
+async fn fetch_over_curl(program: &str, url: &str) -> Result<String, updates::UpdateError> {
     let user_agent = format!("pierwave-master/{}", current_version());
+    let max_filesize = crate::outbound::max_filesize_arg();
     // `-w '\n%{http_code}'`：body 写 stdout，最后一行追加 HTTP 状态码。
     // 不用 `-f`：HTTP 错误也要能看到状态码，才能给出「HTTP 404」这种可读原因。
-    let output = tokio::process::Command::new("curl")
+    let output = tokio::process::Command::new(program)
         .args([
             "--silent",
             "--show-error",
@@ -114,6 +126,8 @@ async fn fetch_over_curl(url: &str) -> Result<String, updates::UpdateError> {
             FETCH_CONNECT_TIME_SECS,
             "--max-time",
             FETCH_MAX_TIME_SECS,
+            "--max-filesize",
+            &max_filesize,
             "-H",
             "Accept: application/vnd.github+json",
             "-H",
@@ -139,6 +153,12 @@ async fn fetch_over_curl(url: &str) -> Result<String, updates::UpdateError> {
         if output.status.code() == Some(28) {
             return Err(updates::UpdateError::Timeout);
         }
+        // curl 63 = CURLE_FILESIZE_EXCEEDED（--max-filesize 触发）。
+        if output.status.code() == Some(63) {
+            return Err(updates::UpdateError::TooLarge {
+                limit_mib: crate::outbound::MAX_OUTBOUND_BODY_MIB,
+            });
+        }
         let detail = if stderr.is_empty() {
             format!("curl 退出码 {:?}", output.status.code())
         } else {
@@ -148,9 +168,23 @@ async fn fetch_over_curl(url: &str) -> Result<String, updates::UpdateError> {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
+    let too_large = || updates::UpdateError::TooLarge {
+        limit_mib: crate::outbound::MAX_OUTBOUND_BODY_MIB,
+    };
     let (body, status) = match stdout.rsplit_once('\n') {
-        Some((body, status)) => (body.to_string(), status.trim().parse::<u16>().ok()),
-        None => (stdout.to_string(), None),
+        Some((body, status)) => {
+            // `--max-filesize` 只在有 Content-Length 时提前中止；chunked 响应只能读回后再判。
+            if crate::outbound::exceeded(body.len() as u64) {
+                return Err(too_large());
+            }
+            (body.to_string(), status.trim().parse::<u16>().ok())
+        }
+        None => {
+            if crate::outbound::exceeded(stdout.len() as u64) {
+                return Err(too_large());
+            }
+            (stdout.to_string(), None)
+        }
     };
     match status {
         Some(status) if (200..300).contains(&status) => Ok(body),
@@ -699,6 +733,67 @@ mod tests {
             .unwrap();
         state.updates.clear_cache();
         assert!(run_due_check(&state).await.unwrap().is_none());
+    }
+
+    /// 伪造一个输出 17 MiB 的 curl：必须报可读的超限错误，而不是把整个响应交给解析。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn oversized_curl_responses_are_rejected() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir =
+            std::env::temp_dir().join(format!("pierwave-update-oversize-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("fake-curl.sh");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\ndd if=/dev/zero bs=1024 count=17408 2>/dev/null\nprintf '\\n200'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let fetcher = CurlFetcher {
+            url: "http://example.invalid/releases/latest".to_string(),
+            program: script.to_string_lossy().into_owned(),
+        };
+        let error = fetcher.fetch().await.expect_err("17 MiB 响应必须被拒绝");
+        assert!(
+            error.message().contains("16 MiB"),
+            "错误要可读并带上限：{}",
+            error.message()
+        );
+        assert!(
+            error.message().contains("超过") || error.message().contains("exceeds"),
+            "错误要说明是响应体超限：{}",
+            error.message()
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// 正常大小的响应仍然能解析出状态码与 body。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn normal_curl_responses_still_pass() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir =
+            std::env::temp_dir().join(format!("pierwave-update-normal-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("fake-curl.sh");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\nprintf '{\"tag_name\":\"v9.9.9\"}'\nprintf '\\n200'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let fetcher = CurlFetcher {
+            url: "http://example.invalid/releases/latest".to_string(),
+            program: script.to_string_lossy().into_owned(),
+        };
+        let body = fetcher.fetch().await.unwrap();
+        assert_eq!(body, "{\"tag_name\":\"v9.9.9\"}");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

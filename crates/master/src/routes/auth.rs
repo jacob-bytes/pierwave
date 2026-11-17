@@ -9,7 +9,7 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use serde_json::json;
 
-use pierwave_domain::models::SessionUser;
+use pierwave_domain::models::{SessionUser, User};
 use pierwave_domain::{password, repo};
 
 use crate::auth::{clear_cookie, session_cookie, CurrentUser, SESSION_COOKIE};
@@ -23,6 +23,40 @@ use super::settings;
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
+}
+
+/// 登录输入上限（UTF-8 字节数）。超限直接 400，不进入限流表、也不跑 Argon2。
+pub const MAX_USERNAME_BYTES: usize = 128;
+pub const MAX_PASSWORD_BYTES: usize = 256;
+
+/// 未知用户也校验一次固定 Argon2 哈希，让两个分支的耗时接近。
+///
+/// 哈希参数与 `Argon2::default()` 一致（Argon2id / m=19456 / t=2 / p=1）；
+/// 明文是固定占位值，永远不会与任何用户密码匹配。
+const DUMMY_PASSWORD_HASH: &str =
+    "$argon2id$v=19$m=19456,t=2,p=1$hhAUHGk4U6vl32NSjMwJEw$1LtGMm6BVIeh1JMJY26qiPl/BntPvi+NduR7s+UL3Qo";
+
+/// 凭据校验的统一入口；`None` 表示用户名不存在。
+///
+/// 先抽出可注入的 `verify` 版本：测试可以在纯函数层面断言「未知用户也调用了一次
+/// 哈希校验」，不必依赖容易 flake 的耗时断言。
+fn verify_credentials_with(
+    user: Option<&User>,
+    password: &str,
+    verify: &mut dyn FnMut(&str, &str) -> bool,
+) -> bool {
+    match user {
+        Some(user) => verify(password, &user.password_hash),
+        // 未知用户也校验一次：耗时与「密码错误」接近，不能靠响应时间区分账号是否存在。
+        None => {
+            let _ = verify(password, DUMMY_PASSWORD_HASH);
+            false
+        }
+    }
+}
+
+fn verify_credentials(user: Option<&User>, password: &str) -> bool {
+    verify_credentials_with(user, password, &mut password::verify)
 }
 
 /// 客户端 IP：优先 `X-Forwarded-For` 第一段，其次 TCP 对端地址。
@@ -165,6 +199,26 @@ pub async fn login(
         settings.login_lock_secs.clamp(60, 86400) as u64,
     );
 
+    // 先按 UTF-8 字节数卡上限：超长输入既不进限流表，也不跑 Argon2。
+    if req.username.len() > MAX_USERNAME_BYTES {
+        return Err(AppError::coded(
+            "auth.username_too_long",
+            Some(json!({ "max_bytes": MAX_USERNAME_BYTES })),
+            format!(
+                "用户名最多 {MAX_USERNAME_BYTES} 字节 / Username must be at most {MAX_USERNAME_BYTES} bytes"
+            ),
+        ));
+    }
+    if req.password.len() > MAX_PASSWORD_BYTES {
+        return Err(AppError::coded(
+            "auth.password_too_long",
+            Some(json!({ "max_bytes": MAX_PASSWORD_BYTES })),
+            format!(
+                "密码最多 {MAX_PASSWORD_BYTES} 字节 / Password must be at most {MAX_PASSWORD_BYTES} bytes"
+            ),
+        ));
+    }
+
     let username = req.username.trim();
     let key = Key::new(username, ip.0.clone());
     if let Err(retry_after) = state.login_throttle.check(&key) {
@@ -173,22 +227,22 @@ pub async fn login(
         return Err(AppError::TooManyAttempts(retry_after));
     }
 
-    let user = match repo::users::find_by_username(&state.db.pool, username).await? {
-        Some(user) => user,
-        None => {
-            // 未知用户与密码错误走同一条失败路径，不泄露账号是否存在。
-            state.login_throttle.record_failure(&key);
-            audit_login_failure(&state, None, username, &ip.0, "unknown_user").await;
-            maybe_alert_login_failure(&state, max_attempts, username, &ip.0).await;
-            return Err(AppError::InvalidCredentials);
-        }
-    };
-    if !password::verify(&req.password, &user.password_hash) {
+    // 未知用户也要跑一次固定 dummy 哈希，避免通过响应耗时枚举用户名。
+    let user = repo::users::find_by_username(&state.db.pool, username).await?;
+    if !verify_credentials(user.as_ref(), &req.password) {
+        let (user_id, reason) = match user.as_ref() {
+            Some(user) => (Some(user.id.as_str()), "bad_password"),
+            None => (None, "unknown_user"),
+        };
         state.login_throttle.record_failure(&key);
-        audit_login_failure(&state, Some(&user.id), username, &ip.0, "bad_password").await;
+        audit_login_failure(&state, user_id, username, &ip.0, reason).await;
         maybe_alert_login_failure(&state, max_attempts, username, &ip.0).await;
         return Err(AppError::InvalidCredentials);
     }
+    let Some(user) = user else {
+        // `verify_credentials_with(None, ..)` 恒为 false，正常不会走到这里。
+        return Err(AppError::InvalidCredentials);
+    };
     if user.status != "active" {
         audit_login_failure(&state, Some(&user.id), username, &ip.0, "disabled").await;
         maybe_alert_login_failure(&state, max_attempts, username, &ip.0).await;
@@ -488,6 +542,100 @@ mod tests {
         let (status, _, body) = login(&app, "admin", "wrong-password", "192.0.2.99").await;
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         assert_eq!(body["error"], "用户名或密码错误");
+    }
+
+    /// 超长输入必须是 400，且不能进限流表（否则攻击者可以用超长用户名灌表）。
+    #[tokio::test]
+    async fn oversized_credentials_are_rejected_before_the_throttle() {
+        let (app, state) = setup().await;
+        let ip = "203.0.113.77";
+
+        let username = "u".repeat(MAX_USERNAME_BYTES + 1);
+        let (status, _, body) = login(&app, &username, "whatever", ip).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        let message = body["error"].as_str().unwrap();
+        assert!(message.contains("用户名"), "{message}");
+        assert!(
+            message.contains("Username"),
+            "错误信息要中英双语：{message}"
+        );
+        assert_eq!(state.login_throttle.len(), 0, "超长输入不能进限流表");
+
+        let password = "p".repeat(MAX_PASSWORD_BYTES + 1);
+        let (status, _, body) = login(&app, "admin", &password, ip).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        let message = body["error"].as_str().unwrap();
+        assert!(message.contains("密码"), "{message}");
+        assert!(
+            message.contains("Password"),
+            "错误信息要中英双语：{message}"
+        );
+        assert_eq!(state.login_throttle.len(), 0, "超长输入不能进限流表");
+
+        // 边界值本身合法：仍然走正常的「凭据错误」路径，而不是 400。
+        let username = "u".repeat(MAX_USERNAME_BYTES);
+        let (status, _, _) = login(&app, &username, "whatever", ip).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let password = "p".repeat(MAX_PASSWORD_BYTES);
+        let (status, _, _) = login(&app, "admin", &password, ip).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    /// 未知用户也必须跑一次哈希校验（用固定 dummy 哈希），避免靠响应耗时枚举用户名。
+    #[test]
+    fn unknown_users_still_run_one_password_verification() {
+        let mut calls: Vec<(String, String)> = Vec::new();
+        let accepted = verify_credentials_with(None, "guess", &mut |plain, hash| {
+            calls.push((plain.to_string(), hash.to_string()));
+            false
+        });
+
+        assert!(!accepted);
+        assert_eq!(calls.len(), 1, "未知用户必须校验且只校验一次");
+        assert_eq!(calls[0].0, "guess");
+        assert_eq!(
+            calls[0].1, DUMMY_PASSWORD_HASH,
+            "未知用户必须校验固定的 dummy 哈希"
+        );
+
+        // dummy 哈希本身是合法 Argon2 PHC 串，否则校验会立即返回、起不到等时作用。
+        assert!(
+            password::verify("pierwave-dummy-password", DUMMY_PASSWORD_HASH),
+            "dummy 哈希必须能被 Argon2 正常解析"
+        );
+        assert!(!password::verify("wrong-password", DUMMY_PASSWORD_HASH));
+    }
+
+    /// 已知用户仍然只校验自己的哈希，不能多跑一次 dummy。
+    #[test]
+    fn known_users_verify_their_own_hash_once() {
+        let user = User {
+            id: "user-1".into(),
+            username: "admin".into(),
+            password_hash: "stored-hash".into(),
+            role: "admin".into(),
+            status: "active".into(),
+            short_code: String::new(),
+            short_code_updated_at: 0,
+            quota_bytes: None,
+            used_bytes: 0,
+            rule_template_id: None,
+            subscription_template_id: None,
+            created_at: 0,
+            updated_at: 0,
+        };
+
+        let mut calls: Vec<(String, String)> = Vec::new();
+        let accepted = verify_credentials_with(Some(&user), "guess", &mut |plain, hash| {
+            calls.push((plain.to_string(), hash.to_string()));
+            true
+        });
+
+        assert!(accepted);
+        assert_eq!(
+            calls,
+            vec![("guess".to_string(), "stored-hash".to_string())]
+        );
     }
 
     #[test]

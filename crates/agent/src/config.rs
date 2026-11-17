@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -178,6 +178,66 @@ impl Config {
         };
         format!("{base}/api/agent/ws")
     }
+
+    /// 拒绝「明文 ws:// 连非回环主控」；`PIERWAVE_AGENT_ALLOW_INSECURE=1` 可显式覆盖。
+    ///
+    /// 回环（127.0.0.1 / ::1 / localhost）是本机/端口转发场景，明文不会出网卡；
+    /// 其余主机名或 IP 都按「公网」处理：ws:// 会把 Agent token 与全部业务流量
+    /// 以明文发出去，默认直接拒绝启动，必须由运维显式承担风险。
+    pub fn check_transport_security(&self, allow_insecure: bool) -> Result<()> {
+        let ws_url = self.ws_url();
+        let Some(host) = insecure_ws_host(&ws_url) else {
+            return Ok(());
+        };
+        if allow_insecure || is_loopback_host(&host) {
+            return Ok(());
+        }
+        bail!(
+            "拒绝以明文 ws:// 连接非回环主控 {host}：Agent Token 与全部流量都可能被中间人窃取。\
+             如确需在受信任网络中使用，请显式设置 {ALLOW_INSECURE_ENV}=1。\
+             / Refusing to connect to non-loopback master {host} over plaintext ws://: \
+             the agent token and all traffic can be intercepted. \
+             Set {ALLOW_INSECURE_ENV}=1 to override."
+        )
+    }
+}
+
+/// 覆盖明文 ws:// 限制的环境变量；只认显式的 `1`。
+pub const ALLOW_INSECURE_ENV: &str = "PIERWAVE_AGENT_ALLOW_INSECURE";
+
+pub fn allow_insecure_from_env() -> bool {
+    insecure_override(std::env::var(ALLOW_INSECURE_ENV).ok().as_deref())
+}
+
+fn insecure_override(value: Option<&str>) -> bool {
+    value == Some("1")
+}
+
+/// `ws://` URL 的主机部分（已转小写）；`wss://` 或其它 scheme 返回 `None`。
+fn insecure_ws_host(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("ws://")?;
+    let authority = rest
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default()
+        .rsplit('@')
+        .next()
+        .unwrap_or_default();
+    if let Some(rest) = authority.strip_prefix('[') {
+        // IPv6 字面量：ws://[::1]:8787
+        return rest.split(']').next().map(str::to_ascii_lowercase);
+    }
+    Some(
+        authority
+            .split(':')
+            .next()
+            .unwrap_or_default()
+            .to_ascii_lowercase(),
+    )
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    matches!(host, "localhost" | "127.0.0.1" | "::1")
 }
 
 #[cfg(test)]
@@ -371,6 +431,55 @@ mod tests {
         assert_eq!(parsed.realm_bin, "/opt/realm/bin/realm");
         assert_eq!(parsed.realm_log_level, "debug");
         assert_eq!(parsed.state_dir, "/tmp/pierwave-state");
+    }
+
+    /// 三种回环写法与 wss 都允许；公网明文 ws:// 默认拒绝。
+    #[test]
+    fn plaintext_ws_is_only_allowed_for_loopback_by_default() {
+        for url in [
+            "http://127.0.0.1:8787",
+            "http://localhost:8787",
+            "http://[::1]:8787",
+        ] {
+            assert!(
+                cfg(url).check_transport_security(false).is_ok(),
+                "回环地址应通过：{url}"
+            );
+        }
+        assert!(cfg("https://panel.example.com")
+            .check_transport_security(false)
+            .is_ok());
+        assert!(cfg("wss://panel.example.com")
+            .check_transport_security(false)
+            .is_ok());
+
+        for url in ["http://panel.example.com", "http://192.0.2.10:8787"] {
+            let error = cfg(url)
+                .check_transport_security(false)
+                .expect_err("公网明文 ws:// 必须拒绝启动");
+            let message = format!("{error:#}");
+            assert!(message.contains("明文"), "{message}");
+            assert!(message.contains("plaintext"), "错误要中英双语：{message}");
+            assert!(
+                message.contains(ALLOW_INSECURE_ENV),
+                "错误要告诉运维开关名：{message}"
+            );
+        }
+    }
+
+    #[test]
+    fn insecure_override_allows_public_plaintext_ws() {
+        assert!(cfg("http://panel.example.com")
+            .check_transport_security(true)
+            .is_ok());
+    }
+
+    #[test]
+    fn only_explicit_one_enables_the_insecure_override() {
+        assert!(insecure_override(Some("1")));
+        for value in [None, Some(""), Some("0"), Some("true"), Some("yes")] {
+            assert!(!insecure_override(value), "只有 1 才算显式打开：{value:?}");
+        }
     }
 
     #[test]

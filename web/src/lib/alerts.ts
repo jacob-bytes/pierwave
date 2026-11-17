@@ -5,7 +5,8 @@
  * - `alert_events` 是逗号分隔的白名单值，必须按契约顺序解析与序列化；
  *   「发现新版本」（`update_available`）也是其中一项，是版本通知的唯一开关；
  * - Webhook 只接受 http(s) 绝对地址；
- * - 已保存的 Bot Token 只用「掩码 + 末 4 位」回显，任何时候都不展示完整值；
+ * - 后端不回显 Bot Token，只返回 `telegram_bot_has_token`；
+ *   已保存的 Token 用布尔值参与「渠道是否完整」判断，从不进入前端；
  * - 测试结果按 telegram / webhook 固定顺序展示，未知渠道保留原样兜底。
  */
 
@@ -52,8 +53,18 @@ export interface AlertTestResult {
 
 export interface AlertChannelConfig {
   telegramBotToken?: string | null;
+  /**
+   * 后端只返回 `telegram_bot_has_token`，不回显 Token 本身；
+   * 已保存但未重新输入时，用这个布尔值判断「Telegram 凭据已就绪」。
+   */
+  telegramBotTokenSaved?: boolean;
   telegramChatId?: string | null;
   webhookUrl?: string | null;
+}
+
+/** 已保存的 Token 与「表单里刚输入的新 Token」都算已配置。 */
+function hasTelegramToken(config: AlertChannelConfig): boolean {
+  return hasText(config.telegramBotToken) || config.telegramBotTokenSaved === true;
 }
 
 function hasText(value: string | null | undefined): boolean {
@@ -153,12 +164,12 @@ export function maskSecret(raw: string): string {
 /** 是否至少配置了一个完整可用的渠道（Telegram 需要 Token + Chat ID 同时存在）。 */
 export function hasConfiguredAlertChannel(config: AlertChannelConfig): boolean {
   if (hasText(config.webhookUrl)) return true;
-  return hasText(config.telegramBotToken) && hasText(config.telegramChatId);
+  return hasTelegramToken(config) && hasText(config.telegramChatId);
 }
 
 /** 只填了 Telegram 两个字段之一：能保存，但不会真的发出消息，UI 需要提示。 */
 export function isTelegramIncomplete(config: AlertChannelConfig): boolean {
-  const hasToken = hasText(config.telegramBotToken);
+  const hasToken = hasTelegramToken(config);
   const hasChatId = hasText(config.telegramChatId);
   return hasToken !== hasChatId;
 }

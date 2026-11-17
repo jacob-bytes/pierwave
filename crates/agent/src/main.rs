@@ -30,7 +30,7 @@ use pierwave_proto::{
 };
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::config::Config;
+use crate::config::{allow_insecure_from_env, Config};
 use crate::traffic::TrafficSampler;
 
 const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -201,6 +201,10 @@ async fn main() -> Result<()> {
         .or_else(|| std::env::var("PIERWAVE_CONFIG").ok())
         .unwrap_or_else(|| "/etc/pierwave-agent/config.toml".into());
     let cfg = Config::load(std::path::Path::new(&path))?;
+    // 启动前拒绝「明文 ws:// 连非回环主控」，除非运维显式设置
+    // PIERWAVE_AGENT_ALLOW_INSECURE=1 承担风险。
+    cfg.check_transport_security(allow_insecure_from_env())
+        .with_context(|| format!("配置安全校验未通过：{path}"))?;
     tracing::info!(%path, master = %cfg.master_url, "agent starting");
 
     // 启动自检：升级前落下的秘密文件可能是 0644（旧版本按 umask 写），

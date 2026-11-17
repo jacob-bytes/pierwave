@@ -194,7 +194,9 @@ impl Settings {
             "public_status_enabled": self.public_status_enabled,
             "agent_base_url": self.agent_base_url,
             "subscription_base_url": self.subscription_base_url,
-            "telegram_bot_token": self.telegram_bot_token,
+            // Token 与 WebDAV 密码同一语义：永远不回显，只告诉前端「已保存」。
+            "telegram_bot_token": "",
+            "telegram_bot_has_token": !self.telegram_bot_token.is_empty(),
             "telegram_chat_id": self.telegram_chat_id,
             "telegram_admin_chat_ids": self.telegram_admin_chat_ids,
             "telegram_bot_enabled": self.telegram_bot_enabled,
@@ -496,15 +498,12 @@ pub async fn update(
             SUBSCRIPTION_BASE_URL_KEY => {
                 updates.push((SUBSCRIPTION_BASE_URL_KEY, validate_public_base_url(value)?))
             }
-            TELEGRAM_BOT_TOKEN_KEY => updates.push((
-                TELEGRAM_BOT_TOKEN_KEY,
-                validate_text(
-                    "Telegram Bot Token",
-                    value,
-                    "settings.telegram_bot_token_invalid",
-                    normalize_telegram_token,
-                )?,
-            )),
+            // 留空 = 保持不变：不把空串写库，避免一次保存清掉已保存的 Token。
+            TELEGRAM_BOT_TOKEN_KEY => {
+                if let Some(token) = validate_optional_telegram_token(value)? {
+                    updates.push((TELEGRAM_BOT_TOKEN_KEY, token));
+                }
+            }
             TELEGRAM_CHAT_ID_KEY => updates.push((
                 TELEGRAM_CHAT_ID_KEY,
                 validate_text(
@@ -742,6 +741,25 @@ fn normalize_telegram_token(raw: &str) -> Result<String, String> {
         return Err("Telegram Bot Token 不能包含空白或控制字符".to_string());
     }
     Ok(token.to_string())
+}
+
+/// Telegram Bot Token：空串（或纯空白）= 保持原值；否则按原规则规范化。
+///
+/// 与 WebDAV 密码一致：GET/PATCH 都不回显，留空保存不会清掉已保存的 Token。
+fn validate_optional_telegram_token(value: &Value) -> AppResult<Option<String>> {
+    let raw = value.as_str().ok_or_else(|| {
+        AppError::coded(
+            "settings.telegram_bot_token_invalid",
+            None,
+            "Telegram Bot Token 必须是字符串 / Telegram Bot Token must be a string",
+        )
+    })?;
+    if raw.trim().is_empty() {
+        return Ok(None);
+    }
+    normalize_telegram_token(raw)
+        .map(Some)
+        .map_err(|message| AppError::coded("settings.telegram_bot_token_invalid", None, message))
 }
 
 fn normalize_telegram_chat_id(raw: &str) -> Result<String, String> {
@@ -1500,7 +1518,12 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        assert_eq!(body["items"]["telegram_bot_token"], "123456:ABC-def_ghi");
+        assert_eq!(
+            body["items"]["telegram_bot_token"], "",
+            "Token 不回显，只给 has_token"
+        );
+        assert_eq!(body["items"]["telegram_bot_has_token"], true);
+        assert!(!body.to_string().contains("123456:ABC-def_ghi"), "{body}");
         assert_eq!(body["items"]["telegram_chat_id"], "-1001234567890");
         assert_eq!(
             body["items"]["webhook_url"],
@@ -1531,6 +1554,10 @@ mod tests {
         assert_eq!(body["items"]["alert_events"], "");
         assert_eq!(body["items"]["alert_cooldown_secs"], 86400);
         assert_eq!(body["items"]["webhook_url"], "");
+        assert_eq!(
+            body["items"]["telegram_bot_has_token"], true,
+            "留空 = 保持不变，已保存的 Token 不能被清掉"
+        );
     }
 
     #[tokio::test]
@@ -1726,6 +1753,98 @@ mod tests {
         assert_eq!(
             load(&state.db.pool).await.backup_webdav_password,
             "new-pass"
+        );
+    }
+
+    /// Telegram Token 与 WebDAV 密码同一语义：GET/PATCH 都不回显，留空保持不变。
+    #[tokio::test]
+    async fn telegram_token_is_masked_and_blank_keeps_the_saved_value() {
+        use std::sync::Arc;
+
+        use crate::alerts::{AlertKind, Alerts, RecordingTransport};
+
+        let (app, mut state, admin, _bob) = setup().await;
+        let secret = "123456:ABC-secret-token";
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({
+                "telegram_bot_token": secret,
+                "telegram_chat_id": "-1001234567890",
+                "alert_cooldown_secs": 0,
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body["items"]["telegram_bot_token"], "",
+            "PATCH 响应也不能回显 Token"
+        );
+        assert_eq!(body["items"]["telegram_bot_has_token"], true);
+        assert!(
+            !body.to_string().contains(secret),
+            "响应体任何位置都不能出现 Token：{body}"
+        );
+
+        let (status, _, body) =
+            request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["items"]["telegram_bot_token"], "");
+        assert_eq!(body["items"]["telegram_bot_has_token"], true);
+        assert!(
+            !body.to_string().contains(secret),
+            "GET 不能回显 Token：{body}"
+        );
+
+        // 留空 = 保持不变（不能把已保存的 Token 清掉）。
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({"telegram_bot_token": ""})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["items"]["telegram_bot_has_token"], true);
+        assert_eq!(load(&state.db.pool).await.telegram_bot_token, secret);
+
+        // 告警仍然使用库里的真实值（不是 GET 返回的掩码）。
+        let transport = Arc::new(RecordingTransport::default());
+        state.alerts = Alerts::new(transport.clone());
+        crate::alerts::notify(
+            &state,
+            AlertKind::LoginFailed,
+            "admin",
+            "连续登录失败 / Repeated login failures",
+            "test",
+        )
+        .await;
+        let sent = transport.wait_for(1).await;
+        assert!(
+            sent[0].url.contains(secret),
+            "Telegram 投递必须用库里的真实 Token：{}",
+            sent[0].url
+        );
+
+        // 新值生效；响应仍然只给 has_token。
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({"telegram_bot_token": "654321:NEW-token"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["items"]["telegram_bot_token"], "");
+        assert_eq!(body["items"]["telegram_bot_has_token"], true);
+        assert!(!body.to_string().contains("654321:NEW-token"), "{body}");
+        assert_eq!(
+            load(&state.db.pool).await.telegram_bot_token,
+            "654321:NEW-token"
         );
     }
 

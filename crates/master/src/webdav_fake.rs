@@ -22,6 +22,8 @@ pub(crate) struct FakeState {
     pub delay: Duration,
     pub requests: Vec<String>,
     pub authorization: Vec<String>,
+    /// 非 0 时 PROPFIND 返回这么多字节的填充体，用来测试出站响应上限。
+    pub oversized_propfind_bytes: usize,
 }
 
 pub(crate) struct FakeDav {
@@ -131,6 +133,14 @@ async fn handler(
             let guard = state
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if guard.oversized_propfind_bytes > 0 {
+                return (
+                    StatusCode::MULTI_STATUS,
+                    [("content-type", "application/xml; charset=utf-8")],
+                    " ".repeat(guard.oversized_propfind_bytes),
+                )
+                    .into_response();
+            }
             let mut xml = String::from(
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?><d:multistatus xmlns:d=\"DAV:\">",
             );

@@ -222,6 +222,29 @@ test("hasConfiguredAlertChannel requires a complete Telegram pair or a webhook",
   assert.equal(hasConfiguredAlertChannel({}), false);
 });
 
+test("a saved-but-masked telegram token counts as configured", () => {
+  // 后端不再回显 token，只返回 telegram_bot_has_token；前端必须据此判断已保存。
+  assert.equal(
+    hasConfiguredAlertChannel({
+      telegramBotTokenSaved: true,
+      telegramChatId: "-100123",
+    }),
+    true,
+  );
+  assert.equal(
+    hasConfiguredAlertChannel({ telegramBotTokenSaved: true }),
+    false,
+  );
+  assert.equal(
+    isTelegramIncomplete({
+      telegramBotTokenSaved: true,
+      telegramChatId: "-100123",
+    }),
+    false,
+  );
+  assert.equal(isTelegramIncomplete({ telegramBotTokenSaved: true }), true);
+});
+
 test("isTelegramIncomplete flags exactly one filled field", () => {
   assert.equal(
     isTelegramIncomplete({ telegramBotToken: "123:abc" }),
@@ -347,4 +370,25 @@ test("notification labels are renamed in both locales", () => {
   // 常规页「版本更新」卡不再有通知开关，旧文案随字段一起删除。
   assert.equal("notify" in zh.settings.updates, false);
   assert.equal("notify" in en.settings.updates, false);
+});
+
+test("the masked telegram token copy exists in both locales", () => {
+  for (const dictionary of [zh, en]) {
+    assert.equal(
+      typeof dictionary.settings.alerts.telegram.savedHint,
+      "string",
+    );
+    assert.equal(
+      typeof dictionary.settings.alerts.telegram.savedPlaceholder,
+      "string",
+    );
+  }
+  assert.ok(
+    zh.settings.alerts.telegram.savedHint.includes("留空"),
+    "中文提示要说明留空不改",
+  );
+  assert.ok(
+    en.settings.alerts.telegram.savedHint.toLowerCase().includes("blank"),
+    "英文提示要说明留空不改",
+  );
 });

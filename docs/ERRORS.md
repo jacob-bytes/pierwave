@@ -12,6 +12,8 @@
 | `auth.wrong_password` | 旧密码错误 | — |
 | `auth.forbidden` | 权限不足 | — |
 | `auth.account_disabled` | 账号已被禁用 | — |
+| `auth.username_too_long` | 用户名最多 {max_bytes} 字节 | max_bytes |
+| `auth.password_too_long` | 密码最多 {max_bytes} 字节 | max_bytes |
 | `auth.too_many_attempts` | 尝试过于频繁，请 {minutes} 分钟后再试 | minutes |
 | `common.resource_not_found` | 资源不存在 | — |
 | `common.enum_invalid` | 不支持的{field}：{value} | field, value |
@@ -130,6 +132,7 @@
 | `backup.restore_no_pending` | 没有待恢复的备份 | — |
 | `backup.in_memory_unsupported` | 当前数据库是内存库，不支持备份与恢复 | — |
 | `backup.restore_bad_header` | 备份文件不是有效的 SQLite 数据库 | — |
+| `backup.restore_corrupt` | 备份数据库完整性校验未通过（文件可能被截断或损坏） | detail |
 | `backup.restore_missing_tables` | 备份缺少必需的表 | — |
 | `backup.restore_migration_too_new` | 备份的迁移版本 {version} 高于当前程序支持的 {supported} | supported, version |
 | `backup.restore_too_large` | 备份文件超过 {max_mb} MB 上限 | max_mb |
@@ -151,6 +154,7 @@
 | `install.file_not_found` | 文件不存在 | — |
 | `install.release_not_found` | 发布版本不存在 | — |
 | `install.release_unavailable` | 主控回源失败且本地没有缓存：{file}（{version}） | file, version |
+| `install.release_too_large` | 回源产物超过出站响应体上限 | max_mib |
 | `stats.days_invalid` | days 必须在 {min}-{max} 之间 | max, min |
 | `stats.top_invalid` | top 必须在 {min}-{max} 之间 | max, min |
 | `settings.body_not_object` | 请求体必须是 JSON 对象 | — |

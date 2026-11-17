@@ -11370,6 +11370,17 @@ pub mod backup {
         Ok(count > 0)
     }
 
+    /// `PRAGMA quick_check`：逐页读取并检查页结构 / 行格式，但跳过索引与表内容的交叉校验。
+    ///
+    /// 返回 SQLite 的检查结果行；正常库返回单行 `ok`，损坏时返回若干可读问题描述。
+    /// 用 `quick_check` 而不是 `integrity_check`：前者同样能发现截断与页级损坏，
+    /// 而恢复前的目标是「能打开、读完不炸」，不需要为索引一致性多花数倍时间。
+    pub async fn quick_check(pool: &SqlitePool) -> anyhow::Result<Vec<String>> {
+        Ok(sqlx::query_scalar("PRAGMA quick_check")
+            .fetch_all(pool)
+            .await?)
+    }
+
     /// 备份里最高的迁移版本；表为空时返回 `None`。
     pub async fn max_migration_version(pool: &SqlitePool) -> anyhow::Result<Option<i64>> {
         Ok(

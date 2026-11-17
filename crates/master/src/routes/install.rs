@@ -231,32 +231,70 @@ fn release_response(file: &str, bytes: Vec<u8>) -> Response {
         .into_response()
 }
 
+/// 回源失败的两类原因：拿不到，或拿到了但超过出站上限。
+enum OriginError {
+    Unavailable,
+    TooLarge(u64),
+}
+
 /// 回源：`http(s)://` 走 curl，其它值按本地目录读取（离线镜像 / 测试）。
 ///
 /// 这里刻意不引入 HTTP 客户端依赖：主控只需要一个「把 URL 拉成字节」的能力，
 /// 而安装脚本本来就要求目标机有 curl；把它收敛在一个函数里，测试则完全走本地目录。
-async fn fetch_origin(version: &str, file: &str, source: &str) -> Option<Vec<u8>> {
+///
+/// 响应体统一受 [`crate::outbound::MAX_OUTBOUND_BODY_BYTES`] 约束：
+/// curl 侧加 `--max-filesize` 让带 `Content-Length` 的响应提前失败，
+/// 读回后再按实际字节数兜底（chunked 响应没有长度，`--max-filesize` 不生效）。
+async fn fetch_origin(version: &str, file: &str, source: &str) -> Result<Vec<u8>, OriginError> {
     let source = source.trim_end_matches('/');
     if source.starts_with("http://") || source.starts_with("https://") {
         let url = format!("{source}/{version}/{file}");
+        let max_filesize = crate::outbound::max_filesize_arg();
         let output = tokio::process::Command::new("curl")
-            .args(["-fsSL", "--max-time", "120", "-o", "-", &url])
+            .args([
+                "-fsSL",
+                "--max-time",
+                "120",
+                "--max-filesize",
+                &max_filesize,
+                "-o",
+                "-",
+                &url,
+            ])
             .output()
             .await
-            .ok()?;
+            .map_err(|error| {
+                tracing::warn!(url, %error, "无法执行 curl 回源 Agent 发布产物");
+                OriginError::Unavailable
+            })?;
         if output.status.success() {
-            Some(output.stdout)
+            let len = output.stdout.len() as u64;
+            if crate::outbound::exceeded(len) {
+                return Err(OriginError::TooLarge(len));
+            }
+            Ok(output.stdout)
+        } else if output.status.code() == Some(63) {
+            // curl 63 = CURLE_FILESIZE_EXCEEDED：`--max-filesize` 提前中止。
+            tracing::warn!(url, "回源产物超过出站响应体上限");
+            Err(OriginError::TooLarge(0))
         } else {
             tracing::warn!(
                 url,
                 status = ?output.status.code(),
                 "回源下载 Agent 发布产物失败"
             );
-            None
+            Err(OriginError::Unavailable)
         }
     } else {
         let path = PathBuf::from(source).join(version).join(file);
-        tokio::fs::read(&path).await.ok()
+        let bytes = tokio::fs::read(&path)
+            .await
+            .map_err(|_| OriginError::Unavailable)?;
+        let len = bytes.len() as u64;
+        if crate::outbound::exceeded(len) {
+            return Err(OriginError::TooLarge(len));
+        }
+        Ok(bytes)
     }
 }
 
@@ -395,15 +433,30 @@ pub async fn release(
         return Ok(release_response(file, bytes));
     }
 
-    let Some(bytes) = fetch_origin(version, file, &state.agent_release.source).await else {
-        return Err(AppError::service_unavailable(
-            "install.release_unavailable",
-            Some(json!({ "file": file, "version": version })),
-            format!(
-                "无法获取 Agent 发布产物 {file}（版本 {version}）：主控回源 GitHub 失败，且本地没有缓存。\
-                 请确认主控能访问外网，或稍后重试。"
-            ),
-        ));
+    let bytes = match fetch_origin(version, file, &state.agent_release.source).await {
+        Ok(bytes) => bytes,
+        Err(OriginError::TooLarge(len)) => {
+            let detail = if len == 0 {
+                crate::outbound::too_large("回源下载 Agent 发布产物")
+            } else {
+                crate::outbound::too_large(&format!("回源下载 Agent 发布产物（{len} 字节）"))
+            };
+            return Err(AppError::bad_gateway(
+                "install.release_too_large",
+                Some(json!({ "max_mib": crate::outbound::MAX_OUTBOUND_BODY_MIB })),
+                detail,
+            ));
+        }
+        Err(OriginError::Unavailable) => {
+            return Err(AppError::service_unavailable(
+                "install.release_unavailable",
+                Some(json!({ "file": file, "version": version })),
+                format!(
+                    "无法获取 Agent 发布产物 {file}（版本 {version}）：主控回源 GitHub 失败，且本地没有缓存。\
+                     请确认主控能访问外网，或稍后重试。"
+                ),
+            ));
+        }
     };
 
     cache_release(&cache_path, &bytes).await;
@@ -763,6 +816,49 @@ mod tests {
             let status = get_bytes(&app, &format!("{uri}?token={token}")).await.0;
             assert_eq!(status, StatusCode::NOT_FOUND, "应拒绝：{uri}");
         }
+    }
+
+    /// 回源产物超过出站上限时必须报错，不能把整个响应读进内存再原样返回。
+    #[tokio::test]
+    async fn release_rejects_origin_assets_over_the_body_limit() {
+        let cache = temp_dir("oversize-cache");
+        let source = temp_dir("oversize-source");
+        let file = "pierwave-agent-x86_64-unknown-linux-musl";
+        std::fs::create_dir_all(source.join("0.6.0")).unwrap();
+        // 稀疏文件：只占元数据，但读取时会产生超过上限的字节数。
+        let origin = source.join("0.6.0").join(file);
+        let disk_file = std::fs::File::create(&origin).unwrap();
+        disk_file
+            .set_len(crate::outbound::MAX_OUTBOUND_BODY_BYTES + 1)
+            .unwrap();
+        drop(disk_file);
+        let (app, token) = setup_release(&cache, &source).await;
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri(format!("/api/agent/release/0.6.0/{file}?token={token}"))
+            .header(header::HOST, "panel.example.com")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_GATEWAY,
+            "超限必须拒绝，而不是把 16 MiB 响应原样返回"
+        );
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let message = String::from_utf8_lossy(&bytes);
+        assert!(message.contains("16 MiB"), "错误要可读：{message}");
+        assert!(
+            message.contains("exceeds") || message.contains("超过"),
+            "错误要说明是响应体超限：{message}"
+        );
+        assert!(
+            !cache.join("0.6.0").join(file).exists(),
+            "超限响应不能落缓存"
+        );
     }
 
     #[tokio::test]

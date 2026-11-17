@@ -107,7 +107,7 @@ pub async fn create_snapshot(pool: &SqlitePool, target: &Path) -> anyhow::Result
 /// 校验一个**未压缩**的 SQLite 备份文件，返回文件字节数。
 ///
 /// 失败信息是面向用户的中文，直接展示在 400 响应里。校验顺序：
-/// 大小 -> 文件头魔数 -> 必需表 -> 迁移版本不高于当前二进制。
+/// 大小 -> 文件头魔数 -> `PRAGMA quick_check` -> 必需表 -> 迁移版本不高于当前二进制。
 pub async fn validate_backup_file(path: &Path) -> anyhow::Result<u64> {
     let meta =
         fs::metadata(path).with_context(|| format!("读取备份文件失败：{}", path.display()))?;
@@ -142,6 +142,34 @@ pub async fn validate_backup_file(path: &Path) -> anyhow::Result<u64> {
 }
 
 async fn inspect(pool: &SqlitePool) -> anyhow::Result<()> {
+    // 先做完整性检查：截断/损坏的库可能在 sqlite_master 里仍有表名，
+    // 但页链已经断了；直接往下查表会得到难以理解的 SQLite 内部错误。
+    let problems = match repo::backup::quick_check(pool).await {
+        Ok(problems) => problems,
+        Err(error) => {
+            return Err(DomainError::new(
+                "backup.restore_corrupt",
+                format!(
+                    "备份数据库完整性校验失败（文件可能被截断或损坏）：{error} / \
+                     The backup database failed its integrity check and may be truncated or corrupted"
+                ),
+            )
+            .into());
+        }
+    };
+    if problems.len() != 1 || problems[0].trim() != "ok" {
+        let detail: String = problems.join("; ").chars().take(300).collect();
+        return Err(DomainError::with_params(
+            "backup.restore_corrupt",
+            json!({ "detail": detail }),
+            format!(
+                "备份数据库完整性校验未通过（文件可能被截断或损坏）：{detail} / \
+                 The backup database failed its integrity check and may be truncated or corrupted"
+            ),
+        )
+        .into());
+    }
+
     let mut missing = Vec::new();
     for table in REQUIRED_TABLES {
         let exists = repo::backup::table_exists(pool, table)
@@ -470,6 +498,73 @@ mod tests {
         let reason = error.to_string();
         assert!(reason.contains("users"), "实际：{reason}");
         assert!(reason.contains("_sqlx_migrations"), "实际：{reason}");
+    }
+
+    /// 截断一页的 SQLite 文件：表还在 sqlite_master 里，但页链已经不完整。
+    /// 恢复前必须靠完整性校验拒绝，而不是等启动后查询才炸。
+    #[tokio::test]
+    async fn rejects_truncated_sqlite_backup() {
+        let dir = TestDir::new("truncated");
+        let db = open_db(&dir.db_path()).await;
+        db.migrate().await.unwrap();
+        create_user(&db, "admin").await;
+
+        let target = dir.file("truncated.db");
+        create_snapshot(&db.pool, &target).await.unwrap();
+        db.pool.close().await;
+
+        let len = fs::metadata(&target).unwrap().len();
+        assert!(len > 4096, "迁移后的库不止一页，才有截断空间");
+        let file = fs::OpenOptions::new().write(true).open(&target).unwrap();
+        file.set_len(len - 4096).unwrap();
+        drop(file);
+
+        let error = validate_backup_file(&target).await.unwrap_err();
+        let domain = domain_error(&error);
+        assert_eq!(
+            domain.code, "backup.restore_corrupt",
+            "截断的备份必须被判为损坏：{domain}"
+        );
+        let reason = error.to_string();
+        assert!(
+            reason.contains("完整性") || reason.contains("损坏") || reason.contains("截断"),
+            "错误要可读：{reason}"
+        );
+    }
+
+    /// quick_check 的耗时口径：在 ~20 MB 的合成库上测 `validate_backup_file`
+    /// 的墙钟时间。阈值刻意放宽到 10 秒，只防「随库大小爆炸」的回归，不做性能基准。
+    #[tokio::test]
+    async fn integrity_check_stays_fast_on_a_moderate_database() {
+        let dir = TestDir::new("integrity-perf");
+        let db = open_db(&dir.db_path()).await;
+        db.migrate().await.unwrap();
+        create_user(&db, "admin").await;
+        sqlx::query("CREATE TABLE synthetic (id INTEGER PRIMARY KEY, payload BLOB)")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "WITH RECURSIVE seq(x) AS (
+                 SELECT 1 UNION ALL SELECT x + 1 FROM seq WHERE x < 10000
+             )
+             INSERT INTO synthetic (payload) SELECT randomblob(2048) FROM seq",
+        )
+        .execute(&db.pool)
+        .await
+        .unwrap();
+
+        let target = dir.file("moderate.db");
+        create_snapshot(&db.pool, &target).await.unwrap();
+        db.pool.close().await;
+
+        let started = std::time::Instant::now();
+        validate_backup_file(&target).await.unwrap();
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(10),
+            "~20 MB 备份的校验耗时 {elapsed:?} 超出预期"
+        );
     }
 
     #[tokio::test]

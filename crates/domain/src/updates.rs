@@ -45,6 +45,8 @@ pub enum UpdateError {
     MissingTag,
     /// `tag_name` 不是合法版本号。
     InvalidVersion(String),
+    /// 响应体超过出站上限；`limit_mib` 是上限的 MiB 值。
+    TooLarge { limit_mib: u64 },
     /// 本地文件等离线版本源读取失败。
     Unavailable(String),
 }
@@ -59,6 +61,7 @@ impl UpdateError {
             UpdateError::InvalidJson(_) => "update.invalid_json",
             UpdateError::MissingTag => "update.missing_tag",
             UpdateError::InvalidVersion(_) => "update.invalid_version",
+            UpdateError::TooLarge { .. } => "update.too_large",
             UpdateError::Unavailable(_) => "update.unavailable",
         }
     }
@@ -83,6 +86,9 @@ impl UpdateError {
             }
             UpdateError::InvalidVersion(version) => format!(
                 "GitHub 返回的版本号不合法：{version} / GitHub returned an invalid version: {version}"
+            ),
+            UpdateError::TooLarge { limit_mib } => format!(
+                "GitHub 响应超过 {limit_mib} MiB 上限 / GitHub response exceeds the {limit_mib} MiB limit"
             ),
             UpdateError::Unavailable(detail) => format!(
                 "无法读取版本信息：{detail} / Failed to read release information: {detail}"

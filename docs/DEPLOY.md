@@ -90,6 +90,33 @@ cp target/x86_64-unknown-linux-musl/release/pierwave-agent \
    /srv/pierwave/dist/pierwave-agent-x86_64-unknown-linux-musl
 ```
 
+## 明文 `ws://` 限制
+
+Agent 支持 `http://`（内部转成 `ws://`）与 `https://`（`wss://`）。两者都能连，
+但 `ws://` **不加密**：Agent token 与全部业务流量在链路上是明文。
+
+因此从本版本起，Agent 启动时若 `master_url` 是 `http://` 且主机不是回环
+（`127.0.0.1` / `::1` / `localhost`），**默认拒绝启动**并打印中英双语错误。
+回环地址（本机反代 / 端口转发）不受影响。确需在受信任网络里用明文时，显式设置：
+
+```bash
+sudo systemctl edit pierwave-agent
+# [Service]
+# Environment=PIERWAVE_AGENT_ALLOW_INSECURE=1
+sudo systemctl daemon-reload && sudo systemctl restart pierwave-agent
+```
+
+生产部署请直接给主控配 HTTPS 域名，让 Agent 用 `wss://`；不要用这个开关把暴露在公网的
+主控降级成明文。
+
+> **Plaintext `ws://` is rejected by default.** An Agent whose `master_url` is `http://`
+> (which becomes `ws://`) and whose host is not loopback (`127.0.0.1`, `::1`, `localhost`)
+> refuses to start, because the Agent token and all traffic would travel in clear text.
+> Loopback setups (local reverse proxy / port forwarding) are unaffected. If you really
+> need plaintext on a trusted network, set `PIERWAVE_AGENT_ALLOW_INSECURE=1` for the
+> systemd unit as shown above. Production deployments should terminate TLS at the master
+> and use `wss://` instead of disabling this check.
+
 ## 连接令牌重置与服务器命令
 
 明文 token 只在创建与重置时返回一次。丢失后不必删服务器：管理员调用

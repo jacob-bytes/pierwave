@@ -2008,7 +2008,8 @@ const en = {
         token: "Bot Token",
         tokenHint:
           "Create a bot with @BotFather and paste its token, e.g. 123456789:AA….",
-        savedMask: "Saved: {masked}",
+        savedHint: "Saved; leave this blank to keep it.",
+        savedPlaceholder: "Saved",
         showToken: "Show Bot Token",
         hideToken: "Hide Bot Token",
         chatId: "Chat ID",

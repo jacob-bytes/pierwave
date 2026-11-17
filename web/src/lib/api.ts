@@ -2073,7 +2073,12 @@ export interface Settings {
    * P13：告警通知。旧版后端可能不返回这些键，设置页按空值 / 默认值处理。
    * Telegram 需要 Token 与 Chat ID 同时存在才会发送。
    */
+  /**
+   * 后端永远返回空串（不回显明文）；是否已保存看 `telegram_bot_has_token`，
+   * PATCH 时留空 = 保持不变。
+   */
   telegram_bot_token?: string | null;
+  telegram_bot_has_token?: boolean | null;
   telegram_chat_id?: string | null;
   /** 只接受 http(s) 绝对地址；空 = 不启用 Webhook。 */
   webhook_url?: string | null;

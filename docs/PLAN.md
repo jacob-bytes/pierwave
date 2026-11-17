@@ -334,7 +334,12 @@ GET   /api/v1/packages        items[] 含 node_ids / node_count
 - 维度：`(username, 客户端 IP)`，两者任一命中即限流（防单 IP 撞多账号、也防单账号被多 IP 撞）。
 - 默认：15 分钟窗口内失败 5 次 → 锁定 15 分钟；可用设置页调整。
 - 命中时返回 `429` + `Retry-After: <秒>`，body `{"error":"尝试过于频繁，请 N 分钟后再试"}`。
-- **不泄露账号是否存在**：未知用户名与密码错误的行为完全一致（都计数、都返回同样的 401）。
+- **不泄露账号是否存在**：未知用户名与密码错误的行为完全一致（都计数、都返回同样的 401）；
+  未知用户名也校验一个固定的 dummy Argon2 哈希，避免用响应耗时枚举账号。
+- 输入上限：`username` ≤ 128 字节、`password` ≤ 256 字节（UTF-8）；超限直接 400
+  （`auth.username_too_long` / `auth.password_too_long`），**不进限流表、也不跑 Argon2**。
+- 限流表有 4096 条硬上限：超过后按「最久未活动」淘汰到 3/4，已锁定的条目最后才被淘汰，
+  避免攻击者靠灌新用户名把别人的锁定记录挤掉。
 - 登录成功清零该 key 的计数。
 - 存储放内存（单主控），重启即清空——可接受，并在文档里写明。
 
@@ -752,6 +757,9 @@ DELETE /api/v1/backup/restore    -> 取消待恢复
 - 文件头必须是 `SQLite format 3\0`；
 - 必须含 `users` 与 `_sqlx_migrations` 表（不是随便一个 sqlite 文件）；
 - 备份里的迁移版本 **不能高于** 当前二进制支持的版本（防止把新库恢复到旧版）；
+- `PRAGMA quick_check` 必须返回单行 `ok`：逐页检查能发现截断/页损坏，又比
+  `integrity_check` 省掉索引与表内容的交叉校验；耗时口径是 `validate_backup_file`
+  在 ~20 MB 合成库上的墙钟时间（单测阈值 10 秒，只防爆炸式回归）；
 - 大小上限 512 MB。
 
 ### 前端
@@ -962,7 +970,7 @@ CREATE TABLE chain_hops (          -- 按 seq 升序；seq=0 是入口
 
 | key | 默认 | 说明 |
 |---|---|---|
-| `telegram_bot_token` | 空 | 空 = 不启用 |
+| `telegram_bot_token` | 空 | 不回显：`GET /settings` 只返回 `telegram_bot_has_token`；PATCH 留空 = 保持不变 |
 | `telegram_chat_id` | 空 | 群或个人 id |
 | `webhook_url` | 空 | POST JSON |
 | `alert_events` | `server_offline,user_exhausted,chain_degraded,backup_failed,update_available,login_failed,login_new_ip` | 逗号分隔；`update_available` = 发现新版本；`login_failed` / `login_new_ip` = 登录异常（见 `docs/SESSIONS.md`） |
@@ -1024,7 +1032,7 @@ POST /api/v1/alerts/test   -> 向已配置的渠道发一条测试消息（管�
 
 | key | 默认 | 说明 |
 |---|---|---|
-| `telegram_bot_token` | 空 | 与告警共用同一个 token |
+| `telegram_bot_token` | 空 | 与告警共用同一个 token；同样不回显，留空保存 = 保持不变 |
 | `telegram_admin_chat_ids` | 空 | 逗号分隔，trim / 去重，最多 10 个；空 = 不授权 |
 | `telegram_bot_enabled` | `false` | 布尔总开关；还要求 token 与管理员列表都非空 |
 
@@ -2401,6 +2409,8 @@ S3/OSS/B2 等对象存储不在本期范围。
 
 - 凭据通过 `--config -` 从 stdin 传入（不进 argv，`ps` 看不到密码）；
 - `--proto =http,https`；不传 `-k/--insecure`，HTTPS 证书校验保持开启；
+- 响应体上限 16 MiB（与 Agent 回源、版本检测共用同一个常量）：curl `--max-filesize`
+  对带 `Content-Length` 的响应提前中止，读回后再按实际字节数兜底（chunked 无长度）；
 - PROPFIND 的 XML 用容错解析（命名空间前缀无关、截断不 panic），只取
   `href/getcontentlength/getlastmodified`；
 - 非 2xx 映射成可读原因（401/403/404/405/507），所有错误先对密码打码；
