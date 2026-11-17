@@ -100,6 +100,90 @@ pub fn spawn_upgrade_sweep(state: AppState) -> tokio::task::JoinHandle<()> {
     })
 }
 
+/// 心跳超时巡检间隔：60 秒。
+///
+/// 阈值默认 90 秒（3 个 15 秒心跳周期），60 秒一轮意味着最坏晚 60 秒发现。
+const HEARTBEAT_WATCHDOG_INTERVAL: Duration = Duration::from_secs(60);
+
+/// 心跳超时默认阈值（秒）：按 30 秒心跳的 3 个周期取整；当前 Agent 心跳
+/// 15 秒一次，90 秒给足 6 个周期的余量。
+pub const DEFAULT_HEARTBEAT_TIMEOUT_SECS: i64 = 90;
+
+/// 覆盖心跳超时阈值的环境变量（正整数秒）。
+pub const HEARTBEAT_TIMEOUT_ENV: &str = "PIERWAVE_HEARTBEAT_TIMEOUT_SECS";
+
+/// 解析阈值：缺省/非数字/非正数一律回落到默认值，避免 0 秒把所有在线服务器秒杀。
+fn parse_heartbeat_timeout(raw: Option<&str>) -> i64 {
+    raw.and_then(|value| value.trim().parse::<i64>().ok())
+        .filter(|secs| *secs > 0)
+        .unwrap_or(DEFAULT_HEARTBEAT_TIMEOUT_SECS)
+}
+
+/// 当前生效的心跳超时阈值；每次巡检重新读环境变量（改 env 重启即生效）。
+fn heartbeat_timeout_secs() -> i64 {
+    parse_heartbeat_timeout(std::env::var(HEARTBEAT_TIMEOUT_ENV).ok().as_deref())
+}
+
+/// 执行一轮心跳超时巡检，返回本轮被标成离线的服务器 id。
+///
+/// 判定与幂等都在 [`repo::servers::mark_timed_out`] 里：只动 `online` 且有
+/// `last_seen_at` 的行，所以已离线的不重复告警、从未连过的不会被误判。
+/// 本函数只负责触发与发 `server_offline`（走现有渠道与冷却）。
+pub async fn run_heartbeat_watchdog(
+    state: &AppState,
+    now: i64,
+    timeout_secs: i64,
+) -> anyhow::Result<Vec<String>> {
+    let timeout = timeout_secs.max(1);
+    let cutoff = now.saturating_sub(timeout);
+    let timed_out = repo::servers::mark_timed_out(&state.db.pool, cutoff).await?;
+    for server in &timed_out {
+        tracing::warn!(
+            server = %server.name,
+            timeout_secs = timeout,
+            "心跳超时，已标记服务器离线"
+        );
+        // 告警是旁路：notify 内部吞掉所有错误，且投递在独立任务里。
+        crate::alerts::notify(
+            state,
+            crate::alerts::AlertKind::ServerOffline,
+            &server.id,
+            "服务器心跳超时 / Server heartbeat timed out",
+            &format!(
+                "服务器 {} 超过 {timeout} 秒没有心跳，已标记离线 / Server {} has not sent a heartbeat for more than {timeout} seconds and was marked offline",
+                server.name, server.name
+            ),
+        )
+        .await;
+    }
+    Ok(timed_out.into_iter().map(|server| server.id).collect())
+}
+
+/// 启动心跳超时巡检。
+///
+/// 第一次 tick 不执行：主控刚启动时，Agent 还没来得及重连，`last_seen_at`
+/// 可能停留在停机前的时间；等一轮（60 秒）再扫，避免每次重启都误报一轮离线。
+pub fn spawn_heartbeat_watchdog(state: AppState) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(HEARTBEAT_WATCHDOG_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            let timeout = heartbeat_timeout_secs();
+            match run_heartbeat_watchdog(&state, time::now(), timeout).await {
+                Ok(servers) if !servers.is_empty() => tracing::warn!(
+                    servers = servers.len(),
+                    timeout_secs = timeout,
+                    "心跳超时巡检完成，已标记离线"
+                ),
+                Ok(_) => tracing::debug!("心跳超时巡检：没有超时服务器"),
+                Err(error) => tracing::error!(error = %error, "心跳超时巡检失败"),
+            }
+        }
+    })
+}
+
 /// 批量升级 runner 间隔：10 秒足够让状态同步看起来是实时的，也不会太吵。
 const UPGRADE_BATCH_INTERVAL: Duration = Duration::from_secs(10);
 /// 遇错即停时给剩余 queued 的说明。
@@ -1191,6 +1275,166 @@ mod tests {
             0,
             "触发失败不应留下升级记录"
         );
+    }
+
+    // ---- 心跳超时巡检 ----
+
+    /// 装好可观测告警的 state（默认无渠道时 notify 是 no-op，断言会失真）。
+    async fn state_with_offline_alerts() -> (AppState, Arc<RecordingTransport>) {
+        let mut state = setup_batch_state().await;
+        let transport = Arc::new(RecordingTransport::default());
+        state.alerts = Alerts::new(transport.clone());
+        repo::settings::set(&state.db.pool, "webhook_url", "https://example.test/hook")
+            .await
+            .unwrap();
+        repo::settings::set(&state.db.pool, "alert_events", "server_offline")
+            .await
+            .unwrap();
+        repo::settings::set(&state.db.pool, "alert_cooldown_secs", "0")
+            .await
+            .unwrap();
+        (state, transport)
+    }
+
+    async fn server_status(state: &AppState, server_id: &str) -> String {
+        repo::servers::find_by_id(&state.db.pool, server_id)
+            .await
+            .unwrap()
+            .status
+    }
+
+    /// 把 `last_seen_at` 拨回过去，模拟「连接还在但心跳停了」。
+    async fn age_last_seen(state: &AppState, server_id: &str, secs: i64) {
+        sqlx::query("UPDATE servers SET last_seen_at = last_seen_at - ? WHERE id = ?")
+            .bind(secs)
+            .bind(server_id)
+            .execute(&state.db.pool)
+            .await
+            .unwrap();
+    }
+
+    /// 超过阈值未更新 → 标离线 + 一条 `server_offline`；再跑一轮不重复告警。
+    #[tokio::test]
+    async fn heartbeat_timeout_marks_a_stale_server_offline_exactly_once() {
+        let (state, transport) = state_with_offline_alerts().await;
+        let (server, _token) = repo::servers::create(&state.db.pool, "hk-1", "1.2.3.4", "external")
+            .await
+            .unwrap();
+        repo::servers::mark_online(&state.db.pool, &server.id)
+            .await
+            .unwrap();
+        assert_eq!(server_status(&state, &server.id).await, "online");
+        age_last_seen(&state, &server.id, 600).await;
+
+        let timed_out = run_heartbeat_watchdog(&state, time::now(), 90)
+            .await
+            .unwrap();
+        assert_eq!(timed_out, vec![server.id.clone()]);
+        assert_eq!(server_status(&state, &server.id).await, "offline");
+
+        let sent = transport.wait_for(1).await;
+        assert_eq!(sent[0].kind, "server_offline");
+        assert_eq!(sent[0].target, server.id);
+
+        // 已经是离线：不重复返回、也不重复告警。
+        assert!(
+            run_heartbeat_watchdog(&state, time::now(), 90)
+                .await
+                .unwrap()
+                .is_empty(),
+            "离线判定必须幂等"
+        );
+        transport
+            .assert_no_more(1, Duration::from_millis(150))
+            .await;
+    }
+
+    /// 恢复心跳（`update_health`）自动回到在线，下一轮巡检不会再判它超时。
+    #[tokio::test]
+    async fn heartbeat_after_a_timeout_brings_the_server_back_online() {
+        let (state, _transport) = state_with_offline_alerts().await;
+        let (server, _token) = repo::servers::create(&state.db.pool, "hk-1", "1.2.3.4", "external")
+            .await
+            .unwrap();
+        repo::servers::mark_online(&state.db.pool, &server.id)
+            .await
+            .unwrap();
+        age_last_seen(&state, &server.id, 600).await;
+        run_heartbeat_watchdog(&state, time::now(), 90)
+            .await
+            .unwrap();
+        assert_eq!(server_status(&state, &server.id).await, "offline");
+
+        repo::servers::update_health(
+            &state.db.pool,
+            &server.id,
+            "0.14.2",
+            &repo::servers::HealthSnapshot::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            server_status(&state, &server.id).await,
+            "online",
+            "恢复心跳必须自动回到在线"
+        );
+        assert!(
+            run_heartbeat_watchdog(&state, time::now(), 90)
+                .await
+                .unwrap()
+                .is_empty(),
+            "刚恢复心跳的服务器不能立刻又被判超时"
+        );
+    }
+
+    /// `last_seen_at IS NULL`（从未连过）永远不判超时，也不告警。
+    #[tokio::test]
+    async fn heartbeat_timeout_skips_a_server_that_never_connected() {
+        let (state, transport) = state_with_offline_alerts().await;
+        let (server, _token) =
+            repo::servers::create(&state.db.pool, "hk-new", "1.2.3.4", "external")
+                .await
+                .unwrap();
+        // 人为造出「online 但没有 last_seen_at」的脏数据，确保判定靠的是列本身。
+        sqlx::query("UPDATE servers SET status = 'online' WHERE id = ?")
+            .bind(&server.id)
+            .execute(&state.db.pool)
+            .await
+            .unwrap();
+
+        assert!(
+            run_heartbeat_watchdog(&state, time::now(), 90)
+                .await
+                .unwrap()
+                .is_empty(),
+            "从未连过的服务器不能被标成超时离线"
+        );
+        assert_eq!(server_status(&state, &server.id).await, "online");
+        transport
+            .assert_no_more(0, Duration::from_millis(150))
+            .await;
+    }
+
+    /// 环境变量解析：默认 90 秒，正整数值覆盖，0 / 非数字回落默认。
+    #[test]
+    fn heartbeat_timeout_env_parsing_defaults_and_overrides() {
+        assert_eq!(
+            parse_heartbeat_timeout(None),
+            DEFAULT_HEARTBEAT_TIMEOUT_SECS
+        );
+        assert_eq!(
+            DEFAULT_HEARTBEAT_TIMEOUT_SECS, 90,
+            "默认必须是 3 个 30 秒心跳周期"
+        );
+        assert_eq!(parse_heartbeat_timeout(Some("120")), 120);
+        assert_eq!(parse_heartbeat_timeout(Some(" 30 ")), 30);
+        for invalid in ["", "0", "-5", "abc"] {
+            assert_eq!(
+                parse_heartbeat_timeout(Some(invalid)),
+                DEFAULT_HEARTBEAT_TIMEOUT_SECS,
+                "非法值 {invalid:?} 必须回落默认"
+            );
+        }
     }
 
     // ---- 转发流量采样 ----

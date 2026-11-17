@@ -365,6 +365,11 @@ pub fn router(state: AppState) -> Router {
             state.clone(),
             crate::auth::api_token_middleware,
         ))
+        // 认证失败的 IP 维度锁定：必须包在 Bearer 中间件外层，锁定期内连鉴权都不做。
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::auth::ip_auth_throttle_middleware,
+        ))
         .with_state(state)
         .fallback_service(static_files)
         .layer(axum::middleware::from_fn(security_headers))

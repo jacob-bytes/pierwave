@@ -174,6 +174,8 @@ async fn main() -> anyhow::Result<()> {
     let _enforce_worker = enforcement::spawn_worker(state.clone());
     let _enforce_reconcile = scheduler::spawn_enforcement_reconcile(state.clone());
     let _upgrade_sweep = scheduler::spawn_upgrade_sweep(state.clone());
+    // 心跳超时巡检：每 60 秒扫一次 last_seen_at，假死/黑洞连接的服务器标离线并告警。
+    let _heartbeat_watchdog = scheduler::spawn_heartbeat_watchdog(state.clone());
     // 批量 Agent 升级：每 10 秒推进一步（只读写数据库，与单台升级共用触发逻辑）。
     let _upgrade_batch_runner = scheduler::spawn_upgrade_batch_runner(state.clone());
     // 探针采样：每 5 分钟把服务器状态与健康字段落一行，公开状态页由此聚合。

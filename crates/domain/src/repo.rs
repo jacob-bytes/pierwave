@@ -1848,6 +1848,34 @@ pub mod servers {
         Ok(())
     }
 
+    /// 心跳超时判定命中、且本轮真的被标成离线的服务器。
+    #[derive(Debug, Clone, sqlx::FromRow)]
+    pub struct TimedOutServer {
+        pub id: String,
+        pub name: String,
+    }
+
+    /// 把「在线但 `last_seen_at` 早于 cutoff」的服务器标成离线，返回本轮改动的行。
+    ///
+    /// * `last_seen_at IS NULL`（从未连过）永远不参与：新服务器不能被判成「超时离线」；
+    /// * 只更新 `status = 'online'` 的行，已离线的服务器不会被重复返回，调用方据此
+    ///   只发一次告警（幂等）；
+    /// * `UPDATE ... RETURNING` 让「改哪些行」与更新是一个原子操作，不存在先查后改
+    ///   之间被心跳插队的窗口。
+    pub async fn mark_timed_out(
+        pool: &SqlitePool,
+        cutoff: i64,
+    ) -> anyhow::Result<Vec<TimedOutServer>> {
+        Ok(sqlx::query_as(
+            "UPDATE servers SET status = 'offline'
+             WHERE status = 'online' AND last_seen_at IS NOT NULL AND last_seen_at < ?
+             RETURNING id, name",
+        )
+        .bind(cutoff)
+        .fetch_all(pool)
+        .await?)
+    }
+
     /// 心跳里的网卡累计计数 → 当前速率（只用于展示）。
     ///
     /// 纯计算在 [`crate::telemetry::net_rate`]：这里只负责读上一份基线、

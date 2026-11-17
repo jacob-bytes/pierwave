@@ -97,7 +97,7 @@ impl Inner {
         if self.entries.len() <= MAX_ENTRIES {
             return;
         }
-        let mut candidates: Vec<(bool, Instant, EntryKey)> = self
+        let candidates: Vec<(bool, Instant, EntryKey)> = self
             .entries
             .iter()
             .map(|(key, entry)| {
@@ -105,12 +105,23 @@ impl Inner {
                 (locked, entry.last_seen, key.clone())
             })
             .collect();
-        candidates.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
         let remove = self.entries.len().saturating_sub(EVICT_TARGET);
-        for (_, _, key) in candidates.into_iter().take(remove) {
+        for key in oldest_keys(candidates, remove) {
             self.entries.remove(&key);
         }
     }
+}
+
+/// 淘汰候选：先排「未锁定」，同组内按最久未活动。
+///
+/// [`LoginThrottle`] 与 [`IpThrottle`] 共用这一份排序，避免两处淘汰语义漂移。
+fn oldest_keys<K: Clone>(mut candidates: Vec<(bool, Instant, K)>, remove: usize) -> Vec<K> {
+    candidates.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+    candidates
+        .into_iter()
+        .take(remove)
+        .map(|(_, _, key)| key)
+        .collect()
 }
 
 /// 登录限流器；`Arc` 由 `AppState` 持有，所有请求共享同一份计数。
@@ -260,6 +271,179 @@ impl LoginThrottle {
         for entry_key in scopes_for(key) {
             inner.entries.remove(&entry_key);
         }
+        inner.purge(now);
+    }
+}
+
+/// 认证失败按 IP 限流的默认阈值：10 分钟内 20 次。
+pub const IP_MAX_FAILURES: u32 = 20;
+/// 计数窗口（同时是锁定时长）：10 分钟。
+pub const IP_WINDOW_SECS: u64 = 600;
+
+/// 单个 IP 的失败计数。
+#[derive(Debug, Clone)]
+struct IpEntry {
+    failures: u32,
+    window_started: Instant,
+    locked_until: Option<Instant>,
+    last_seen: Instant,
+}
+
+struct IpInner {
+    entries: HashMap<String, IpEntry>,
+    max_failures: u32,
+    window: Duration,
+}
+
+impl IpInner {
+    /// 清掉「已解锁且超过窗口 + 60 秒没活动」的条目，避免 map 无限增长。
+    fn purge(&mut self, now: Instant) {
+        let retain = self.window + Duration::from_secs(60);
+        self.entries.retain(|_, entry| {
+            let unlocked = entry.locked_until.is_none_or(|until| now >= until);
+            !(unlocked && now.saturating_duration_since(entry.last_seen) > retain)
+        });
+    }
+
+    /// 与 [`LoginThrottle`] 相同的淘汰策略：先淘汰未锁定、最久未活动的条目。
+    fn enforce_entry_limit(&mut self, now: Instant) {
+        if self.entries.len() <= MAX_ENTRIES {
+            return;
+        }
+        let candidates: Vec<(bool, Instant, String)> = self
+            .entries
+            .iter()
+            .map(|(ip, entry)| {
+                let locked = entry.locked_until.is_some_and(|until| now < until);
+                (locked, entry.last_seen, ip.clone())
+            })
+            .collect();
+        let remove = self.entries.len().saturating_sub(EVICT_TARGET);
+        for ip in oldest_keys(candidates, remove) {
+            self.entries.remove(&ip);
+        }
+    }
+}
+
+/// 认证失败按客户端 IP 限流。
+///
+/// 覆盖两类此前没有 IP 维度的入口：`Authorization: Bearer` 认证失败与 Agent
+/// WebSocket Hello 的 token 校验失败。与 [`LoginThrottle`] 同一套取舍：
+///
+/// * 只存进程内存，重启清零（单主控部署，重启也是管理员的自救手段）；
+/// * 表有 [`MAX_ENTRIES`] 硬上限，灌表不能挤掉已锁定的 IP；
+/// * 窗口与锁定时长一致，直到多打一次失败才重新开窗。
+pub struct IpThrottle {
+    inner: Mutex<IpInner>,
+}
+
+impl Default for IpThrottle {
+    fn default() -> Self {
+        Self::new(IP_MAX_FAILURES, IP_WINDOW_SECS)
+    }
+}
+
+impl IpThrottle {
+    pub fn new(max_failures: u32, window_secs: u64) -> Self {
+        let window = Duration::from_secs(window_secs.max(1));
+        Self {
+            inner: Mutex::new(IpInner {
+                entries: HashMap::new(),
+                max_failures: max_failures.max(1),
+                window,
+            }),
+        }
+    }
+
+    /// 已锁定时返回建议的重试秒数（`Retry-After`）。
+    pub fn check(&self, ip: &str) -> Result<(), u64> {
+        self.check_at(ip, Instant::now())
+    }
+
+    /// 记录一次认证失败；达到阈值时立即锁定该 IP。
+    pub fn record_failure(&self, ip: &str) {
+        self.record_failure_at(ip, Instant::now());
+    }
+
+    /// 认证成功后清空该 IP 的失败计数。
+    pub fn clear(&self, ip: &str) {
+        self.clear_at(ip, Instant::now());
+    }
+
+    /// 当前 map 里的条目数；只给测试断言「表有上限」用。
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.lock().entries.len()
+    }
+
+    fn lock(&self) -> MutexGuard<'_, IpInner> {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn check_at(&self, ip: &str, now: Instant) -> Result<(), u64> {
+        let mut inner = self.lock();
+        inner.purge(now);
+
+        let Some(entry) = inner.entries.get_mut(ip) else {
+            return Ok(());
+        };
+        let Some(until) = entry.locked_until else {
+            return Ok(());
+        };
+        if now >= until {
+            // 锁过期：计数归零，允许重新尝试。
+            entry.failures = 0;
+            entry.window_started = now;
+            entry.locked_until = None;
+            return Ok(());
+        }
+        Err(seconds_until(until, now))
+    }
+
+    fn record_failure_at(&self, ip: &str, now: Instant) {
+        let mut inner = self.lock();
+        let max_failures = inner.max_failures;
+        let window = inner.window;
+        inner.purge(now);
+
+        let entry = inner
+            .entries
+            .entry(ip.to_string())
+            .or_insert_with(|| IpEntry {
+                failures: 0,
+                window_started: now,
+                locked_until: None,
+                last_seen: now,
+            });
+        entry.last_seen = now;
+
+        if entry.locked_until.is_some_and(|until| now >= until) {
+            // 锁过期后的第一次失败：重新开一个窗口。
+            entry.failures = 0;
+            entry.window_started = now;
+            entry.locked_until = None;
+        }
+        if entry.locked_until.is_none()
+            && now.saturating_duration_since(entry.window_started) >= window
+        {
+            // 窗口已过：旧失败不再累计。
+            entry.failures = 0;
+            entry.window_started = now;
+        }
+
+        entry.failures = entry.failures.saturating_add(1);
+        if entry.failures >= max_failures {
+            entry.locked_until = Some(now + window);
+        }
+
+        inner.enforce_entry_limit(now);
+    }
+
+    fn clear_at(&self, ip: &str, now: Instant) {
+        let mut inner = self.lock();
+        inner.entries.remove(ip);
         inner.purge(now);
     }
 }
@@ -459,6 +643,140 @@ mod tests {
         assert!(
             throttle.check_at(&key, now).is_err(),
             "阈值调低后旧计数立即生效"
+        );
+    }
+
+    // ---- 按 IP 的认证失败限流（Bearer / Agent Hello） ----
+
+    #[test]
+    fn ip_throttle_locks_after_twenty_failures_within_the_window() {
+        let throttle = IpThrottle::new(IP_MAX_FAILURES, IP_WINDOW_SECS);
+        let now = Instant::now();
+        let ip = "203.0.113.5";
+
+        for _ in 0..IP_MAX_FAILURES - 1 {
+            throttle.record_failure_at(ip, now);
+        }
+        assert_eq!(
+            throttle.check_at(ip, now),
+            Ok(()),
+            "{} 次失败还不该锁",
+            IP_MAX_FAILURES - 1
+        );
+
+        throttle.record_failure_at(ip, now);
+        assert_eq!(
+            throttle.check_at(ip, now),
+            Err(IP_WINDOW_SECS),
+            "达到阈值后应立即锁定并提示完整窗口"
+        );
+        assert_eq!(
+            throttle.check_at(ip, at(now, 300)).unwrap_err(),
+            300,
+            "剩余时间必须递减"
+        );
+        assert_eq!(
+            throttle.check_at(ip, at(now, IP_WINDOW_SECS)),
+            Ok(()),
+            "窗口结束后自动解锁"
+        );
+    }
+
+    #[test]
+    fn ip_success_clears_the_counter_for_that_address_only() {
+        let throttle = IpThrottle::new(IP_MAX_FAILURES, IP_WINDOW_SECS);
+        let now = Instant::now();
+        let ip = "198.51.100.7";
+
+        for _ in 0..IP_MAX_FAILURES - 1 {
+            throttle.record_failure_at(ip, now);
+        }
+        throttle.clear_at(ip, now);
+        for _ in 0..IP_MAX_FAILURES - 1 {
+            throttle.record_failure_at(ip, now);
+        }
+        assert_eq!(
+            throttle.check_at(ip, now),
+            Ok(()),
+            "成功认证清零后必须从头计数"
+        );
+    }
+
+    #[test]
+    fn ip_failures_are_isolated_per_address() {
+        let throttle = IpThrottle::new(IP_MAX_FAILURES, IP_WINDOW_SECS);
+        let now = Instant::now();
+
+        for _ in 0..IP_MAX_FAILURES {
+            throttle.record_failure_at("10.0.0.1", now);
+        }
+        assert!(throttle.check_at("10.0.0.1", now).is_err(), "该 IP 应被锁");
+
+        assert_eq!(
+            throttle.check_at("10.0.0.2", now),
+            Ok(()),
+            "别的 IP 不受影响"
+        );
+        // 别的 IP 成功一次也不能把被锁的 IP 解开。
+        throttle.clear_at("10.0.0.2", now);
+        assert!(
+            throttle.check_at("10.0.0.1", now).is_err(),
+            "清零必须只作用于同一个 IP"
+        );
+    }
+
+    #[test]
+    fn ip_failures_spread_beyond_the_window_do_not_lock() {
+        let throttle = IpThrottle::new(IP_MAX_FAILURES, IP_WINDOW_SECS);
+        let now = Instant::now();
+        let ip = "192.0.2.9";
+
+        for _ in 0..IP_MAX_FAILURES - 1 {
+            throttle.record_failure_at(ip, now);
+        }
+        // 窗口过期后的又一次失败重新开窗，旧的 19 次不累计。
+        throttle.record_failure_at(ip, at(now, IP_WINDOW_SECS + 1));
+        assert_eq!(
+            throttle.check_at(ip, at(now, IP_WINDOW_SECS + 1)),
+            Ok(()),
+            "跨窗口的失败不应触发锁定"
+        );
+    }
+
+    /// 攻击者可以无限换 IP：map 必须有硬上限，否则内存随请求数线性增长。
+    #[test]
+    fn ip_entry_map_stays_bounded_under_a_flood() {
+        let throttle = IpThrottle::new(IP_MAX_FAILURES, IP_WINDOW_SECS);
+        let now = Instant::now();
+
+        for index in 0..5000 {
+            throttle.record_failure_at(&format!("flood-{index}"), now);
+        }
+
+        assert!(
+            throttle.len() <= 4096,
+            "5000 个不同 IP 后 map 仍有 {} 条，必须有硬上限",
+            throttle.len()
+        );
+    }
+
+    /// 灌表淘汰不能把已锁定的 IP 挤掉——否则限流形同虚设。
+    #[test]
+    fn ip_locked_entry_survives_an_address_flood() {
+        let throttle = IpThrottle::new(IP_MAX_FAILURES, IP_WINDOW_SECS);
+        let now = Instant::now();
+        let locked = "198.51.100.1";
+        for _ in 0..IP_MAX_FAILURES {
+            throttle.record_failure_at(locked, now);
+        }
+
+        for index in 0..5000 {
+            throttle.record_failure_at(&format!("flood-{index}"), now);
+        }
+
+        assert!(
+            throttle.check_at(locked, now).is_err(),
+            "已锁定的 IP 不能被灌表淘汰"
         );
     }
 }

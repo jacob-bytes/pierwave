@@ -112,6 +112,31 @@ WHERE key = 'alert_events' AND trim(value) <> ''
 - 管理员「踢掉某用户其它全部会话」：当前只支持单个会话；用户端的
   `?others=1` 只作用于自己。
 
+## 8. 认证失败按 IP 限流 / Per-IP auth failure throttling
+
+登录一直有「用户名 + IP」两个维度的限流，但 **Bearer / Agent 安装 token 的
+认证失败过去没有任何 IP 维度**：攻击者可以换着 token 无限猜。现在补上一张
+独立的 `IpThrottle`：
+
+- 计数对象：`Authorization: Bearer pwt_...` 认证失败（无效 / 过期 / 吊销），
+  以及 Agent WebSocket Hello 的 token 校验失败；
+- 阈值：同一 IP **10 分钟内 20 次**失败 → 该 IP 的受保护请求返回 **429**，
+  `Retry-After` 给出剩余秒数；锁定窗口与计数窗口一致（10 分钟），到点自动解锁；
+- 成功认证清零：合法的 Bearer、合法的 Agent Hello、成功登录都会删掉该 IP 的计数；
+- 清零点只覆盖「认证成功」本身，普通 Cookie 请求不清零：否则任何已登录用户都能
+  用一次正常请求把 IP 计数刷掉，再去暴力猜 Bearer；
+- 不锁公开入口：`/api/v1/health`、`/api/v1/public/status`、`/api/v1/auth/login`
+  与 `/api/v1/sub/{code}` 不参与 IP 锁定（登录自己的限流仍然生效），所以被锁的
+  管理员仍可重新登录，登录成功会清掉 IP 计数；
+- IP 来源：沿用 `ClientIp` 的信任边界——对端是公网就用真实地址，只有回环/内网
+  反代转发的 `X-Forwarded-For` 才采信；Agent WS 拿不到对端时回落到 XFF；
+- 内存取舍：计数只在进程内，**重启即清零**（与登录限流一致：单主控部署下没有
+  跨进程一致性问题，重启是管理员的自救手段）；表有 4096 条硬上限，超过后按
+  「已锁定条目最后淘汰、其次最久未活动」清到 3/4，攻击者无法用灌表挤掉锁定记录。
+
+被 429 时复用登录限流已有的 `auth.too_many_attempts` 错误码（前端已翻译），响应里带
+`retry_after_secs` / `minutes` 参数与 `Retry-After` 响应头。
+
 ---
 
 ## English
@@ -143,3 +168,17 @@ delivery path.
 
 Not included: a "remember this device" trust list, TOTP/2FA (not present in the
 codebase), and an admin action to sign out all of another user's sessions.
+
+Per-IP auth failure throttling: failed `Authorization: Bearer pwt_...`
+authentication (invalid, expired or revoked) and failed Agent WebSocket Hello
+token checks are counted per client IP. Twenty failures within ten minutes lock
+that IP: protected requests return **429** with `Retry-After`, and the lock
+expires with the ten-minute window. A successful Bearer authentication, a
+successful Agent Hello or a successful login clears the counter for that IP;
+ordinary cookie requests do not, otherwise any signed-in user could reset the
+counter between guesses. Public entry points (`/api/v1/health`,
+`/api/v1/public/status`, `/api/v1/auth/login`, `/api/v1/sub/{code}`) are not
+blocked by the IP lock, so a locked-out admin can still sign in and clear it.
+The table lives in memory only, is capped at 4096 entries (evicting unlocked,
+least-recently-seen entries first, down to 3/4), and is cleared by a process
+restart — the same trade-off as the existing login throttle.

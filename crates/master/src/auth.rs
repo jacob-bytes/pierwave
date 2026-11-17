@@ -318,6 +318,50 @@ pub fn is_sensitive_read_path(path: &str) -> bool {
         })
 }
 
+/// 公开的 `/api/v1` 入口：不需要登录，也不受 IP 认证失败锁定影响。
+///
+/// 被 Bearer / Agent Hello 失败锁住的 IP 仍要能访问健康检查、公开状态页、
+/// 订阅和登录入口。登录入口有自己的「用户名 + IP」限流；成功登录会清掉 IP
+/// 计数，管理员因此有自救路径，不会因为一条脚本写错 token 就彻底进不来。
+fn is_public_api_path(path: &str) -> bool {
+    matches!(
+        path,
+        "/api/v1/health" | "/api/v1/public/status" | "/api/v1/auth/login"
+    ) || path.starts_with("/api/v1/sub/")
+}
+
+/// 该路径是否受「按 IP 的认证失败锁定」保护。
+///
+/// 只覆盖 `/api/v1/*` 里需要登录的接口；`/mcp` 与 Agent WS 在自己的入口里
+/// 检查同一张表（错误形状不同，不能复用 HTTP 中间件）。
+pub fn is_ip_throttled_path(path: &str) -> bool {
+    path.starts_with("/api/v1/") && !is_public_api_path(path)
+}
+
+/// 认证失败按 IP 限流的中间件：被锁定的 IP 直接 429，不再进入鉴权与 handler。
+///
+/// 计数在 [`crate::throttle::IpThrottle`] 里，失败在 Bearer 校验与 Agent Hello
+/// 处记录；这里只负责「已锁定就拒绝」。
+pub async fn ip_auth_throttle_middleware(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if !is_ip_throttled_path(request.uri().path()) {
+        return next.run(request).await;
+    }
+
+    let ip = crate::routes::auth::client_ip(request.headers(), request.extensions());
+    if let Err(retry_after) = state.ip_throttle.check(&ip) {
+        tracing::warn!(ip = %ip, retry_after, "该 IP 认证失败次数过多，已临时拒绝");
+        // 复用登录限流已翻译好的 `auth.too_many_attempts`（带 Retry-After 与 minutes），
+        // 不新增一个前端词典里没有的错误码。
+        return AppError::TooManyAttempts(retry_after).into_response();
+    }
+
+    next.run(request).await
+}
+
 /// 对 `/api/v1/*` 生效的 Bearer 中间件：与 Cookie 会话并行。
 ///
 /// - 没有 `Authorization: Bearer pwt_...`：原样放行，交给 Cookie 提权器；
@@ -345,9 +389,16 @@ pub async fn api_token_middleware(
         return next.run(request).await;
     }
 
+    // 只对「真的尝试了 API Token 认证」的请求计数；其它 Bearer 方案不背锅。
+    let ip = crate::routes::auth::client_ip(request.headers(), request.extensions());
     let principal = match authenticate_api_token(&state, raw).await {
-        Ok(principal) => principal,
+        Ok(principal) => {
+            // 成功认证清零该 IP 的失败计数。
+            state.ip_throttle.clear(&ip);
+            principal
+        }
         Err(ApiTokenAuthError::Unauthorized) => {
+            state.ip_throttle.record_failure(&ip);
             return AppError::unauthorized(
                 "api_token.invalid",
                 None,
@@ -440,11 +491,13 @@ mod tests {
     use super::*;
 
     use axum::body::Body;
-    use axum::http::{header, Method, Request, StatusCode};
+    use axum::http::{header, HeaderMap, Method, Request, StatusCode};
     use axum::Router;
     use tower::ServiceExt;
 
     use pierwave_domain::{repo, Db};
+
+    use crate::throttle::{IP_MAX_FAILURES, IP_WINDOW_SECS};
 
     async fn router_with_tokens() -> (Router, String, String) {
         let db = Db::connect("sqlite::memory:").await.unwrap();
@@ -469,6 +522,140 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         app.clone().oneshot(request).await.unwrap().status()
+    }
+
+    /// 带 `X-Forwarded-For` 的请求：单测里没有 ConnectInfo，`ClientIp` 会采信 XFF。
+    async fn get_with_ip(
+        app: &Router,
+        uri: &str,
+        token: Option<&str>,
+        ip: &str,
+    ) -> (StatusCode, HeaderMap) {
+        let mut builder = Request::builder()
+            .method(Method::GET)
+            .uri(uri)
+            .header("x-forwarded-for", ip);
+        if let Some(token) = token {
+            builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
+        }
+        let response = app
+            .clone()
+            .oneshot(builder.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        (response.status(), response.headers().clone())
+    }
+
+    async fn bad_bearer(app: &Router, ip: &str) -> StatusCode {
+        get_with_ip(app, "/api/v1/overview", Some("pwt_definitely-invalid"), ip)
+            .await
+            .0
+    }
+
+    /// 伪造 / 失效 Bearer 按 IP 计数：20 次失败后该 IP 的受保护请求一律 429。
+    #[tokio::test]
+    async fn twenty_bad_bearers_lock_the_ip() {
+        let (app, read_token, _) = router_with_tokens().await;
+        let ip = "203.0.113.50";
+
+        for _ in 0..IP_MAX_FAILURES {
+            assert_eq!(bad_bearer(&app, ip).await, StatusCode::UNAUTHORIZED);
+        }
+
+        let (status, headers) =
+            get_with_ip(&app, "/api/v1/overview", Some("pwt_definitely-invalid"), ip).await;
+        assert_eq!(
+            status,
+            StatusCode::TOO_MANY_REQUESTS,
+            "第 21 次失败必须被限流"
+        );
+        let retry_after = headers
+            .get(header::RETRY_AFTER)
+            .expect("429 必须带 Retry-After")
+            .to_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        assert!(
+            (1..=IP_WINDOW_SECS).contains(&retry_after),
+            "Retry-After 不合理：{retry_after}"
+        );
+
+        // 锁定期内即使换成合法 token 也直接 429，不再走鉴权。
+        let (status, _) = get_with_ip(&app, "/api/v1/overview", Some(&read_token), ip).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+
+        // 不同 IP 互不影响：合法 read token 进到鉴权阶段后被 scope 拒绝（403），
+        // 而不是被 IP 限流拦成 429。
+        let (status, _) =
+            get_with_ip(&app, "/api/v1/overview", Some(&read_token), "203.0.113.51").await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    /// 成功认证一次必须清零该 IP 的失败计数。
+    #[tokio::test]
+    async fn successful_bearer_clears_the_ip_counter() {
+        let (app, _, admin_token) = router_with_tokens().await;
+        let ip = "198.51.100.23";
+
+        for _ in 0..IP_MAX_FAILURES - 1 {
+            assert_eq!(bad_bearer(&app, ip).await, StatusCode::UNAUTHORIZED);
+        }
+        let (status, _) = get_with_ip(&app, "/api/v1/overview", Some(&admin_token), ip).await;
+        assert_eq!(status, StatusCode::OK, "合法 token 必须放行");
+
+        // 清零后再失败 N-1 次仍不到阈值（不清零的话第一次就会累计到 20 被锁）。
+        for _ in 0..IP_MAX_FAILURES - 1 {
+            assert_eq!(
+                bad_bearer(&app, ip).await,
+                StatusCode::UNAUTHORIZED,
+                "成功认证应让计数从头开始"
+            );
+        }
+        let (status, _) = get_with_ip(&app, "/api/v1/overview", Some(&admin_token), ip).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    /// IP 锁定只作用于受保护接口：公开入口不被 429，管理员仍能登录自救。
+    #[tokio::test]
+    async fn ip_lock_does_not_block_public_entry_points() {
+        let (app, _, _) = router_with_tokens().await;
+        let ip = "192.0.2.77";
+
+        for _ in 0..IP_MAX_FAILURES {
+            assert_eq!(bad_bearer(&app, ip).await, StatusCode::UNAUTHORIZED);
+        }
+        assert_eq!(bad_bearer(&app, ip).await, StatusCode::TOO_MANY_REQUESTS);
+
+        for path in ["/api/v1/health", "/api/v1/public/status"] {
+            let (status, _) = get_with_ip(&app, path, None, ip).await;
+            assert_eq!(status, StatusCode::OK, "公开入口 {path} 不能被 IP 限流挡住");
+        }
+    }
+
+    /// 哪些路径受 IP 锁定保护：公开入口（健康检查 / 公开状态 / 登录 / 订阅）除外。
+    #[test]
+    fn ip_throttle_covers_only_protected_api_paths() {
+        for path in [
+            "/api/v1/overview",
+            "/api/v1/servers",
+            "/api/v1/users/abc",
+            "/api/v1/auth/me",
+            "/api/v1/auth/logout",
+        ] {
+            assert!(is_ip_throttled_path(path), "必须在 IP 限流范围内：{path}");
+        }
+        for path in [
+            "/api/v1/health",
+            "/api/v1/public/status",
+            "/api/v1/auth/login",
+            "/api/v1/sub/abc123",
+            "/mcp",
+            "/api/agent/ws",
+            "/",
+        ] {
+            assert!(!is_ip_throttled_path(path), "不能锁公开入口：{path}");
+        }
     }
 
     #[test]

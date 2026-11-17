@@ -31,7 +31,12 @@ pub const METHOD_NOT_ALLOWED: i64 = -32005;
 ///
 /// 通知没有 `id`，按 MCP 规范返回 202 + 空 body；请求返回 200 + JSON。
 /// 无状态实现：不返回 `Mcp-Session-Id`，也不要求握手顺序。
-pub async fn http(State(state): State<AppState>, headers: HeaderMap, body: Bytes) -> Response {
+pub async fn http(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    peer: Option<axum::extract::Extension<axum::extract::ConnectInfo<std::net::SocketAddr>>>,
+    body: Bytes,
+) -> Response {
     // 先解析一次只为拿到 id：认证失败时也要把同一个 id 带回 JSON-RPC error。
     let parsed = serde_json::from_slice::<Value>(&body);
     let id = parsed
@@ -57,9 +62,35 @@ pub async fn http(State(state): State<AppState>, headers: HeaderMap, body: Bytes
         );
     }
 
+    // 与 REST 共用同一张「按 IP 的认证失败」表：`/mcp` 也是 Bearer 入口，
+    // 不能成为绕过 IP 限流猜 token 的后门。生产有 ConnectInfo，测试里没有时按 XFF 取。
+    let ip = crate::routes::auth::client_ip_with_peer(
+        &headers,
+        peer.map(|axum::extract::Extension(axum::extract::ConnectInfo(addr))| addr.ip()),
+    );
+    if let Err(retry_after) = state.ip_throttle.check(&ip) {
+        let mut response = error_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            id,
+            RATE_LIMITED,
+            "该 IP 认证失败次数过多，请稍后再试 / too many failed authentication attempts from this IP; try again later",
+        );
+        if let Ok(value) = axum::http::HeaderValue::from_str(&retry_after.to_string()) {
+            response
+                .headers_mut()
+                .insert(axum::http::header::RETRY_AFTER, value);
+        }
+        return response;
+    }
+
     let principal = match authenticate_api_token(&state, raw).await {
-        Ok(principal) => principal,
+        Ok(principal) => {
+            // 成功认证清零该 IP 的失败计数。
+            state.ip_throttle.clear(&ip);
+            principal
+        }
         Err(ApiTokenAuthError::Unauthorized) => {
+            state.ip_throttle.record_failure(&ip);
             return error_response(
                 StatusCode::UNAUTHORIZED,
                 id,
@@ -413,6 +444,24 @@ mod tests {
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert!(!text.contains("<html"), "{text}");
         assert_eq!(body["error"]["code"], super::FORBIDDEN);
+    }
+
+    /// `/mcp` 与 REST 共用 IP 失败表：猜 token 到阈值后返回 JSON-RPC 形状的 429。
+    #[tokio::test]
+    async fn repeated_invalid_tokens_lock_the_ip_on_mcp() {
+        let (app, _state) = setup().await;
+        let body = json!({"jsonrpc": "2.0", "id": 9, "method": "ping"});
+
+        for _ in 0..crate::throttle::IP_MAX_FAILURES {
+            let (status, _, parsed) = post(&app, Some("pwt_invalid-token"), body.clone()).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+            assert_eq!(parsed["error"]["code"], super::UNAUTHORIZED);
+        }
+
+        let (status, text, parsed) = post(&app, Some("pwt_invalid-token"), body).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert!(!text.trim_start().starts_with('<'), "不能返回 HTML：{text}");
+        assert_eq!(parsed["error"]["code"], super::RATE_LIMITED);
     }
 
     #[tokio::test]

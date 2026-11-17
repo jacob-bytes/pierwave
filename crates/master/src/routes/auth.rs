@@ -90,11 +90,18 @@ fn is_trusted_proxy(ip: IpAddr) -> bool {
     }
 }
 
-fn client_ip(headers: &HeaderMap, extensions: &Extensions) -> String {
+pub(crate) fn client_ip(headers: &HeaderMap, extensions: &Extensions) -> String {
     let peer = extensions
         .get::<ConnectInfo<SocketAddr>>()
         .map(|ConnectInfo(addr)| addr.ip());
+    client_ip_with_peer(headers, peer)
+}
 
+/// 已知对端地址时的 IP 提取；WebSocket 升级拿不到 `ConnectInfo` 扩展时用。
+///
+/// 信任边界与 [`client_ip`] 完全一致：对端是公网就无视 XFF，只有回环/内网
+/// 反代转发的头才采信。
+pub(crate) fn client_ip_with_peer(headers: &HeaderMap, peer: Option<IpAddr>) -> String {
     if let Some(peer) = peer {
         if !is_trusted_proxy(peer) {
             return peer.to_string();
@@ -255,6 +262,8 @@ pub async fn login(
 
     state.login_throttle.clear(&key);
     state.login_watch.clear(username);
+    // 登录成功也是一次成功的认证：清掉该 IP 的 Bearer / Agent Hello 失败计数。
+    state.ip_throttle.clear(&ip.0);
 
     let ttl_secs = settings.session_ttl_secs();
     let secure_cookie = crate::auth::request_is_https(&headers);

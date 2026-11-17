@@ -56,8 +56,25 @@ PIERWAVE_ADMIN_PASSWORD='换成强密码' ./pierwave-master
 | `PIERWAVE_ENFORCE` | 开 | 设为 `0` 关闭超额断流 |
 | `PIERWAVE_CHAIN_AVAILABILITY_THRESHOLD` | `99` | 链可用率告警阈值（百分比 0–100）/ Chain availability alert threshold (percent, 0–100) |
 | `PIERWAVE_CHAIN_DEGRADED_STREAK` | `3` | 连续多少次心跳低于阈值才告警（1–100）/ Consecutive low-availability checks before alerting (1–100) |
+| `PIERWAVE_HEARTBEAT_TIMEOUT_SECS` | `90` | 心跳超时判定阈值（秒，正整数）：超过该时长没有心跳就把服务器标为离线并发 `server_offline` 告警 / Heartbeat timeout in seconds (positive integer); a server with no heartbeat for longer is marked offline and a `server_offline` alert is sent |
 
 登录限流的阈值、锁定时长、会话有效期、面板名称都在「设置」页里改（存 `settings` 表），不用重启。
+
+**心跳超时 / Heartbeat timeout**：Agent 心跳默认 15 秒一次，主控每 60 秒扫一次
+`servers.last_seen_at`，超过阈值（默认 90 秒）未更新就把仍在
+`online` 的服务器标成 `offline`，并发出一次 `server_offline` 告警（走现有渠道与冷却）。
+
+- 只处理 `status = 'online'` 的行：已经离线的服务器不会重复告警；
+- `last_seen_at IS NULL`（从未连过）的服务器永远跳过，不会被判成「超时离线」；
+- 心跳恢复后 `update_health` 会立刻把状态改回 `online`，无需人工介入；
+- 该判定只改 `status`，不会断开 Agent 的 WebSocket；连接真的断了仍由原有的断开路径处理。
+
+The master sweeps `servers.last_seen_at` every 60 seconds. A server that is still
+`online` but has not been updated for longer than the timeout (default 90 seconds) is marked `offline` and one `server_offline` alert is delivered
+through the existing channels and cooldown. Rows with `last_seen_at IS NULL` (never
+connected) are skipped, already-offline rows are never re-alerted, and a recovered
+heartbeat flips the server back to `online` automatically. The sweep only changes
+`status`; it never closes the Agent WebSocket.
 
 **反代要点**：`/api/agent/ws` 必须支持 WebSocket 升级；`X-Forwarded-Proto` 要透传——主控靠它生成安装命令里的 `https://`。
 

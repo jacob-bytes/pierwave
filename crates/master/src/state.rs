@@ -16,7 +16,7 @@ use crate::enforcement::Enforcer;
 use crate::login_watch::LoginWatch;
 use crate::session_touch::SessionTouch;
 use crate::tcping::Registry as TcpingRegistry;
-use crate::throttle::LoginThrottle;
+use crate::throttle::{IpThrottle, LoginThrottle};
 use crate::updates::UpdateService;
 
 /// 每台服务器一条广播通道；没有 Agent 在线时发送方仍在，消息自然丢弃。
@@ -309,6 +309,8 @@ pub struct AppState {
     pub enforcement: Enforcer,
     /// 登录失败限流；阈值每次登录时从设置表刷新。
     pub login_throttle: Arc<LoginThrottle>,
+    /// 认证失败的 IP 维度限流（Bearer / Agent Hello）；进程内计数。
+    pub ip_throttle: Arc<IpThrottle>,
     /// 连续失败计数（登录失败告警）；与限流分开，成功登录时清零。
     pub login_watch: LoginWatch,
     /// 会话 `last_seen_at` 的低频写回节流（默认 60 秒）。
@@ -341,6 +343,7 @@ impl AppState {
             hub: AgentHub::default(),
             enforcement: Enforcer::from_env(),
             login_throttle: Arc::new(LoginThrottle::default()),
+            ip_throttle: Arc::new(IpThrottle::default()),
             login_watch: LoginWatch::default(),
             session_touch: SessionTouch::default(),
             agent_release: AgentReleaseConfig::from_env(),

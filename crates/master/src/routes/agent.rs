@@ -1,14 +1,15 @@
+use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
 use axum::extract::ws::{close_code, CloseFrame, Message, WebSocket, WebSocketUpgrade};
-use axum::extract::State;
+use axum::extract::{ConnectInfo, Extension, State};
 use axum::http::HeaderMap;
 use axum::response::Response;
 use tokio::sync::broadcast;
 
 use pierwave_domain::enforcement as enforcement_rules;
 use pierwave_domain::metering;
-use pierwave_domain::models::{package_status_at, UserPackageView};
+use pierwave_domain::models::{package_status_at, Server, UserPackageView};
 use pierwave_domain::repo;
 use pierwave_domain::time;
 use pierwave_proto::{
@@ -39,9 +40,13 @@ const AGENT_VERSION_MAX_LEN: usize = 64;
 pub async fn ws(
     ws: WebSocketUpgrade,
     headers: HeaderMap,
+    // 生产由 `into_make_service_with_connect_info` 注入；测试里可以缺省，
+    // 缺省时按 XFF / `unknown` 处理（与 HTTP 的 ClientIp 规则一致）。
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     State(state): State<AppState>,
 ) -> Response {
-    upgrade(ws, state, headers, AGENT_HELLO_TIMEOUT)
+    let peer = peer.map(|Extension(ConnectInfo(addr))| addr.ip());
+    upgrade(ws, state, headers, peer, AGENT_HELLO_TIMEOUT)
 }
 
 /// 握手：设置帧/消息上限，并在升级后按给定超时等待 Hello。
@@ -51,11 +56,12 @@ fn upgrade(
     ws: WebSocketUpgrade,
     state: AppState,
     headers: HeaderMap,
+    peer: Option<IpAddr>,
     hello_timeout: Duration,
 ) -> Response {
     ws.max_message_size(AGENT_MAX_MESSAGE)
         .max_frame_size(AGENT_MAX_FRAME)
-        .on_upgrade(move |socket| handle_with_timeout(socket, state, headers, hello_timeout))
+        .on_upgrade(move |socket| handle_with_timeout(socket, state, headers, peer, hello_timeout))
 }
 
 /// Agent 反向连入：第一条消息必须是 Hello(token)。
@@ -65,8 +71,11 @@ async fn handle_with_timeout(
     mut socket: WebSocket,
     state: AppState,
     headers: HeaderMap,
+    peer: Option<IpAddr>,
     hello_timeout: Duration,
 ) {
+    // 与 HTTP 共用同一套 IP 信任边界：公网直连无视 XFF，只有回环/内网反代才采信。
+    let ip = super::auth::client_ip_with_peer(&headers, peer);
     let first = match tokio::time::timeout(hello_timeout, socket.recv()).await {
         Ok(Some(Ok(Message::Text(text)))) => text,
         // 客户端主动关闭 / 正常 EOF：还没登记，不查库也不标离线。
@@ -103,16 +112,33 @@ async fn handle_with_timeout(
         return;
     }
 
+    // 猜安装 token 的 IP 维度限流：与 Bearer 失败共用同一张表，查库之前就拒绝。
+    if let Err(retry_after) = state.ip_throttle.check(&ip) {
+        tracing::warn!(ip = %ip, retry_after, "agent hello rejected: too many auth failures");
+        reject(&mut socket, "too many auth failures", close_code::POLICY).await;
+        return;
+    }
+
     // 心跳会带上 agent 版本一起落库，后续重连以最新 hello 为准。
     let agent_version = hello.agent_version.clone();
     let mut server = match repo::servers::find_by_token(&state.db.pool, &hello.token).await {
         Ok(Some(server)) => server,
-        _ => {
+        Ok(None) => {
+            // 只有「token 不存在」才算认证失败；数据库抖动不能把 Agent 的 IP 拉黑。
+            state.ip_throttle.record_failure(&ip);
             tracing::warn!(hostname = %hello.hostname, "agent auth failed");
             reject(&mut socket, "invalid token", close_code::POLICY).await;
             return;
         }
+        Err(error) => {
+            // 查库失败时无法判断 token 是否有效，按临时故障拒绝（不计数）。
+            tracing::error!(error = %error, "agent token lookup failed");
+            reject(&mut socket, "temporary auth error", close_code::ERROR).await;
+            return;
+        }
     };
+    // 认证成功清零该 IP 的失败计数。
+    state.ip_throttle.clear(&ip);
 
     // 握手带的版本比库里的新（Agent 刚重启升级过）：先用于本次补发的比较，
     // 心跳落库后两端就一致了。
@@ -146,43 +172,8 @@ async fn handle_with_timeout(
 
     // 重连补发：Agent 按版本号幂等，只有比本地已应用版本新才会真正重启 xray。
     // 配置装配与 apply 共用 routes::desired，保证补发的 client 凭据和上次下发的完全一致。
-    if server.config_version > 0 {
-        // 每次补发都重新读设置：管理员改完对外地址后，已连接的 Agent 下一次重连
-        // 补发也会用新值，不把地址缓存到进程或连接上。
-        // 连接已经建立，不能在这里回 400；非法 Host 回退到默认对外地址并记日志，
-        // 避免把客户端可控字符串拼进升级下载地址。
-        let base_url =
-            match public_url::resolve_checked(&state, &headers, PublicBaseKind::Agent).await {
-                Ok(base) => base,
-                Err(error) => {
-                    tracing::warn!(%error, "非法 Host，期望态回退到默认对外地址");
-                    super::desired::default_base_url()
-                }
-            };
-        match super::desired::render(&state, &server, &base_url).await {
-            Ok(rendered) => {
-                let desired = MasterMessage::Desired(DesiredState {
-                    version: server.config_version,
-                    xray: rendered.xray,
-                    files: rendered.files,
-                    agent_upgrade: rendered.agent_upgrade,
-                    forwards: rendered.forwards,
-                    nodes: rendered.nodes,
-                });
-                if !send_json(&mut socket, &desired).await {
-                    return;
-                }
-                tracing::info!(
-                    server = %server.name,
-                    version = server.config_version,
-                    "resynced desired state on connect"
-                );
-            }
-            // 网卡未上报/无可用地址等阻断原因会走到这里：不补发任何配置，
-            // 等服务器信息修好后下一次 apply 再下发。
-            Err(e) => tracing::error!(error = %e, "render desired state for resync failed"),
-        }
-    }
+    // 渲染失败（网卡未上报等）不主动断开：连接仍可收心跳，等修好后下一次 apply 再补发。
+    let _ = send_current_desired(&state, &server, &headers, &mut socket).await;
 
     let mut hub_open = true;
     loop {
@@ -211,8 +202,21 @@ async fn handle_with_timeout(
                         tracing::warn!(
                             server = %server.name,
                             skipped,
-                            "desired state broadcast lagged"
+                            "desired state broadcast lagged；主动补发完整期望态"
                         );
+                        // 积压期间可能有多次 apply：补发必须重新读库拿最新版本，
+                        // 不能把连接建立时的旧快照再发一遍。
+                        if send_current_desired(&state, &server, &headers, &mut socket).await
+                            == ResendOutcome::Failed
+                        {
+                            // 补发失败就无法保证 Agent 收敛：关闭连接，让它重连后拿全量配置。
+                            tracing::warn!(
+                                server = %server.name,
+                                "补发期望态失败，关闭连接等待 Agent 重连"
+                            );
+                            close_socket(&mut socket, close_code::AWAY).await;
+                            break;
+                        }
                     }
                     Err(broadcast::error::RecvError::Closed) => {
                         // 同一服务器被新连接替换时旧通道会关闭；此时继续读上报即可，
@@ -263,6 +267,81 @@ async fn handle_with_timeout(
         ),
     )
     .await;
+}
+
+/// 一次补发的结果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResendOutcome {
+    /// 已下发完整期望态。
+    Sent,
+    /// 服务器还没有任何配置版本（从未 apply），没有可补发的内容。
+    NothingToSend,
+    /// 渲染或发送失败；调用方决定是否断开连接。
+    Failed,
+}
+
+/// 补发当前完整期望态：重连补偿与广播积压（`Lagged`）恢复共用。
+///
+/// 每次都重新读库：连接建立时的快照可能已经过期（积压期间 apply 会推进
+/// `config_version`），补发旧快照会让 Agent 长期停在旧配置。
+async fn send_current_desired(
+    state: &AppState,
+    server: &Server,
+    headers: &HeaderMap,
+    socket: &mut WebSocket,
+) -> ResendOutcome {
+    let server = match repo::servers::find_by_id(&state.db.pool, &server.id).await {
+        Ok(server) => server,
+        Err(error) => {
+            tracing::error!(
+                server_id = %server.id,
+                error = %error,
+                "读取服务器失败，无法补发期望态"
+            );
+            return ResendOutcome::Failed;
+        }
+    };
+    if server.config_version <= 0 {
+        return ResendOutcome::NothingToSend;
+    }
+
+    // 每次补发都重新解析对外地址：管理员改完设置后，已连接的 Agent 下一次补发
+    // 也会用新值，不把地址缓存到进程或连接上。连接已经建立，不能在这里回 400；
+    // 非法 Host 回退到默认对外地址并记日志，避免把客户端可控字符串拼进升级下载地址。
+    let base_url = match public_url::resolve_checked(state, headers, PublicBaseKind::Agent).await {
+        Ok(base) => base,
+        Err(error) => {
+            tracing::warn!(%error, "非法 Host，期望态回退到默认对外地址");
+            super::desired::default_base_url()
+        }
+    };
+    let rendered = match super::desired::render(state, &server, &base_url).await {
+        Ok(rendered) => rendered,
+        Err(error) => {
+            // 网卡未上报/无可用地址等阻断原因会走到这里。
+            tracing::error!(server = %server.name, error = %error, "render desired state for resync failed");
+            return ResendOutcome::Failed;
+        }
+    };
+
+    let desired = MasterMessage::Desired(DesiredState {
+        version: server.config_version,
+        xray: rendered.xray,
+        files: rendered.files,
+        agent_upgrade: rendered.agent_upgrade,
+        forwards: rendered.forwards,
+        nodes: rendered.nodes,
+    });
+    if !send_json(socket, &desired).await {
+        tracing::warn!(server = %server.name, "发送期望态失败，连接已不可用");
+        return ResendOutcome::Failed;
+    }
+    tracing::info!(
+        server = %server.name,
+        version = server.config_version,
+        "resynced desired state"
+    );
+    ResendOutcome::Sent
 }
 
 /// Hello 字段长度（字节）超限时返回 `(字段名, 上限)`。
@@ -3139,7 +3218,8 @@ mod ws_tests {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    use axum::extract::{State, WebSocketUpgrade};
+    use axum::extract::connect_info::ConnectInfo;
+    use axum::extract::{Extension, State, WebSocketUpgrade};
     use axum::http::HeaderMap;
     use axum::response::Response;
     use axum::routing::get;
@@ -3153,6 +3233,7 @@ mod ws_tests {
     use pierwave_proto::AgentHello;
 
     use crate::alerts::{Alerts, RecordingTransport};
+    use crate::throttle::IP_MAX_FAILURES;
 
     use super::*;
 
@@ -3169,6 +3250,12 @@ mod ws_tests {
             let addr = listener.local_addr().unwrap();
             let app = Router::new()
                 .route("/api/agent/ws", get(test_ws))
+                // 真实服务里由 `into_make_service_with_connect_info` 注入对端地址；
+                // 测试显式注入回环地址，保证 IP 限流拿到的是稳定值而不是 "unknown"。
+                .layer(Extension(ConnectInfo(SocketAddr::from((
+                    [127, 0, 0, 1],
+                    0,
+                )))))
                 .with_state((state, hello_timeout));
             let task = tokio::spawn(async move {
                 let _ = axum::serve(listener, app).await;
@@ -3192,9 +3279,11 @@ mod ws_tests {
     async fn test_ws(
         ws: WebSocketUpgrade,
         headers: HeaderMap,
+        peer: Option<Extension<ConnectInfo<SocketAddr>>>,
         State((state, hello_timeout)): State<(AppState, Duration)>,
     ) -> Response {
-        upgrade(ws, state, headers, hello_timeout)
+        let peer = peer.map(|Extension(ConnectInfo(addr))| addr.ip());
+        upgrade(ws, state, headers, peer, hello_timeout)
     }
 
     fn hello_json(token: &str, hostname: &str, agent_version: &str) -> String {
@@ -3530,5 +3619,125 @@ mod ws_tests {
             other => panic!("expected error, got {other:?}"),
         }
         wait_closed(&mut socket).await;
+    }
+
+    /// 广播积压（`Lagged`）时必须主动补发完整期望态，而不是只记一条 warn。
+    ///
+    /// 连接建立后才推进 `config_version`：握手时的快照还是 0，处理 `Lagged`
+    /// 的补发只有重新读库才能拿到新版本，因此这个用例能区分「真的补发」与
+    /// 「把连接建立时的旧快照再发一遍」。
+    #[tokio::test]
+    async fn broadcast_lag_resends_the_full_desired_state() {
+        let (state, server_id, token) = state_with_server().await;
+        let server = TestServer::start(state.clone(), Duration::from_secs(5)).await;
+
+        let mut socket = server.connect().await;
+        socket
+            .send(ClientMessage::Text(hello_json(&token, "hk-1", "0.14.2")))
+            .await
+            .unwrap();
+        assert!(matches!(
+            next_message(&mut socket).await,
+            Some(MasterMessage::Ack(_))
+        ));
+
+        let version = repo::servers::bump_config_version(&state.db.pool, &server_id)
+            .await
+            .unwrap();
+        assert_eq!(version, 1);
+
+        // 默认 current_thread 运行时：同步循环里没有 await，WS 任务不会被调度，
+        // 64 条容量的广播缓冲必然溢出 → 下一次 recv 一定是 Lagged。
+        for _ in 0..256 {
+            state.hub.publish(&server_id, MasterMessage::Ping);
+        }
+
+        let mut resent = None;
+        for _ in 0..512 {
+            // 必须带超时：没有补发时连接不会关闭，裸 await 会让测试永远挂着。
+            let message =
+                tokio::time::timeout(Duration::from_millis(500), next_message(&mut socket)).await;
+            match message {
+                Ok(Some(MasterMessage::Desired(desired))) => {
+                    resent = Some(desired);
+                    break;
+                }
+                Ok(Some(_)) => continue,
+                Ok(None) | Err(_) => break,
+            }
+        }
+        let desired = resent.expect("Lagged 后必须补发 DesiredState");
+        assert_eq!(
+            desired.version, version,
+            "补发必须用库里的最新版本，而不是连接建立时的旧快照"
+        );
+    }
+
+    /// 补发失败（这里让查库失败）必须关闭连接，Agent 重连后会重新拿全量配置。
+    #[tokio::test]
+    async fn failed_lag_resend_closes_the_connection() {
+        let (state, server_id, token) = state_with_server().await;
+        let server = TestServer::start(state.clone(), Duration::from_secs(5)).await;
+
+        let mut socket = server.connect().await;
+        socket
+            .send(ClientMessage::Text(hello_json(&token, "hk-1", "0.14.2")))
+            .await
+            .unwrap();
+        assert!(matches!(
+            next_message(&mut socket).await,
+            Some(MasterMessage::Ack(_))
+        ));
+
+        // 池已关闭：补发时读库必失败，必须走「关闭连接」而不是无声卡住。
+        state.db.pool.close().await;
+        for _ in 0..256 {
+            state.hub.publish(&server_id, MasterMessage::Ping);
+        }
+
+        wait_closed(&mut socket).await;
+    }
+
+    /// 猜安装 token 也按 IP 计数：同一 IP 失败 20 次后 Hello 直接以限流拒绝。
+    ///
+    /// 锁的是 IP 而不是 token：锁定期内即使拿正确 token 也进不来，证明防的是
+    /// 「暴力猜」而不是某一个 token。
+    #[tokio::test]
+    async fn repeated_bad_agent_tokens_lock_the_ip() {
+        let (state, _server_id, token) = state_with_server().await;
+        let server = TestServer::start(state, Duration::from_secs(5)).await;
+
+        for _ in 0..IP_MAX_FAILURES {
+            let mut socket = server.connect().await;
+            socket
+                .send(ClientMessage::Text(hello_json(
+                    "bogus-token",
+                    "hk-x",
+                    "0.14.2",
+                )))
+                .await
+                .unwrap();
+            match next_message(&mut socket).await {
+                Some(MasterMessage::Error { message }) => assert_eq!(message, "invalid token"),
+                other => panic!("expected invalid token, got {other:?}"),
+            }
+            wait_closed(&mut socket).await;
+        }
+
+        for candidate in ["bogus-token", token.as_str()] {
+            let mut socket = server.connect().await;
+            socket
+                .send(ClientMessage::Text(hello_json(candidate, "hk-x", "0.14.2")))
+                .await
+                .unwrap();
+            match next_message(&mut socket).await {
+                Some(MasterMessage::Error { message }) => assert_eq!(
+                    message, "too many auth failures",
+                    "锁定期内必须直接拒绝（token={candidate}）"
+                ),
+                other => panic!("expected throttle rejection, got {other:?}"),
+            }
+            wait_closed(&mut socket).await;
+        }
     }
 }
