@@ -1515,8 +1515,8 @@ table inet pierwave {
         supervisor.apply(&[rule("f1", 8080, "1.2.3.4", 80)]).await;
         let status = supervisor.status_handle().snapshot();
         assert_eq!(status.len(), 1);
-        assert!(status[0].listening);
-        assert!(status[0].error.is_empty());
+        assert!(status[0].listening, "apply 失败：{}", status[0].error);
+        assert!(status[0].error.is_empty(), "{}", status[0].error);
         assert_eq!(status[0].target_ok, None, "内核转发无法做目标探测");
         let script = std::fs::read_to_string(dir.path().join(SCRIPT_FILE_NAME)).unwrap();
         assert!(script.contains("table inet pierwave"), "{script}");
@@ -1572,7 +1572,8 @@ exit 0"#,
         let mut spec = rule("f1", 8080, "1.1.1.1", 80);
         spec.targets = multi_targets();
         supervisor.apply(&[spec]).await;
-        assert!(supervisor.status_handle().snapshot()[0].listening);
+        let status = supervisor.status_handle().snapshot();
+        assert!(status[0].listening, "apply 失败：{}", status[0].error);
         let script = std::fs::read_to_string(dir.path().join(SCRIPT_FILE_NAME)).unwrap();
         assert!(
             script.contains(
@@ -1631,7 +1632,13 @@ exit 0"#,
         let mut supervisor = NftablesSupervisor::new(bin, dir.path(), "0.0.0.0");
         supervisor.apply(&[rule("f1", 8080, "1.2.3.4", 80)]).await;
         let status = supervisor.status_handle().snapshot();
-        assert_eq!(status[0].traffic_in, Some(1_200), "tcp 1000 + udp 200");
+        assert_eq!(
+            status[0].traffic_in,
+            Some(1_200),
+            "tcp 1000 + udp 200；listening={} error={}",
+            status[0].listening,
+            status[0].error
+        );
         assert_eq!(
             status[0].traffic_out, None,
             "DNAT counter 只看一个方向，不能编造出方向"
