@@ -8654,9 +8654,10 @@ mod tests {
             set_tunnel_capability(&fixture.state, server_id, Some(true)).await;
         }
         let uri = "/api/v1/chains";
-        let master = credentials::master_secret(&fixture.state.db.pool)
-            .await
-            .unwrap();
+        let master =
+            credentials::master_secret(&fixture.state.db.pool, fixture.state.db.secret_key())
+                .await
+                .unwrap();
 
         let topologies: [(usize, Vec<&String>, Vec<i64>); 2] = [
             (

@@ -55,7 +55,7 @@ pub async fn get(
     // 规则模板与节点无关，先解析：指定的模板不存在要 404，即使 target=uri 也一样。
     let effective_rules = rules_for(&state.db.pool, &user, query.rule.as_deref()).await?;
 
-    let secret = credentials::master_secret(&state.db.pool).await?;
+    let secret = credentials::master_secret(&state.db.pool, state.db.secret_key()).await?;
     let nodes = subscription_nodes(&state.db.pool, &user.id, &secret).await?;
 
     // 订阅模板：用户级 > 最近绑定了模板的生效套餐 > 无模板（硬编码分组）。
@@ -875,9 +875,10 @@ mod tests {
         .unwrap();
 
         let alice = user_by_name(&state, "alice").await;
-        let secret = pierwave_domain::credentials::master_secret(&state.db.pool)
-            .await
-            .unwrap();
+        let secret =
+            pierwave_domain::credentials::master_secret(&state.db.pool, state.db.secret_key())
+                .await
+                .unwrap();
         let user_key =
             pierwave_domain::credentials::ss2022_user_key_len(&secret, &alice.id, &node.id, 16);
         assert_eq!(STANDARD.decode(&user_key).unwrap().len(), 16);

@@ -181,7 +181,7 @@ pub async fn resolve(
     headers: Option<&HeaderMap>,
     kind: PublicBaseKind,
 ) -> String {
-    let settings = settings::load(&state.db.pool).await;
+    let settings = settings::load(&state.db).await;
     public_base(headers, &settings, kind)
 }
 
@@ -194,7 +194,7 @@ pub async fn resolve_checked(
     headers: &HeaderMap,
     kind: PublicBaseKind,
 ) -> AppResult<String> {
-    let settings = settings::load(&state.db.pool).await;
+    let settings = settings::load(&state.db).await;
     public_base_checked(headers, &settings, kind)
         .map_err(|error: BaseUrlError| AppError::coded(error.code(), None, error.message()))
 }

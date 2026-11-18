@@ -196,11 +196,20 @@ export interface RemoteBackupFileView {
   modified: number | null;
 }
 
-/** 本产品文件名：`pierwave-backup-` + 8 位日期 + `-` + 6 位时间 + `.db.gz`。 */
+/**
+ * 本产品文件名：`pierwave-backup-` + 8 位日期 + `-` + 6 位时间 + `.db.gz`，
+ * 默认导出还会再带 `.enc`。两种都算本产品的备份，历史明文文件继续展示。
+ */
 export function isManagedRemoteBackupName(name: string): boolean {
   const prefix = `${REMOTE_BACKUP_PREFIX}-`;
-  if (!name.startsWith(prefix) || !name.endsWith(".db.gz")) return false;
-  const stamp = name.slice(prefix.length, -".db.gz".length);
+  if (!name.startsWith(prefix)) return false;
+  const suffix = name.endsWith(".db.gz.enc")
+    ? ".db.gz.enc"
+    : name.endsWith(".db.gz")
+      ? ".db.gz"
+      : null;
+  if (suffix === null) return false;
+  const stamp = name.slice(prefix.length, -suffix.length);
   return /^\d{8}-\d{6}$/.test(stamp);
 }
 

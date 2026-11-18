@@ -211,7 +211,7 @@ pub struct BatchRoundReport {
 /// 4. 未到并发上限就按顺序触发 queued（复用单台触发函数）；
 /// 5. 全部终态时收敛批次状态。
 pub async fn run_batch_round(state: &AppState) -> anyhow::Result<BatchRoundReport> {
-    let settings = crate::routes::settings::load(&state.db.pool).await;
+    let settings = crate::routes::settings::load(&state.db).await;
     let concurrency = settings.agent_upgrade_concurrency.clamp(
         crate::routes::settings::MIN_AGENT_UPGRADE_CONCURRENCY,
         crate::routes::settings::MAX_AGENT_UPGRADE_CONCURRENCY,
@@ -510,7 +510,7 @@ pub enum RemoteBackupRound {
 
 /// 执行一轮异地备份巡检：只在「已开启 + 已配置 + 到点 + 没人在传」时上传。
 pub async fn run_remote_backup_round(state: &AppState) -> anyhow::Result<RemoteBackupRound> {
-    let settings = crate::routes::settings::load(&state.db.pool).await;
+    let settings = crate::routes::settings::load(&state.db).await;
     if !settings.backup_webdav_enabled
         || settings.backup_webdav_url.is_empty()
         || settings.backup_webdav_password.is_empty()
@@ -566,7 +566,7 @@ pub fn spawn_remote_backup(state: AppState) -> tokio::task::JoinHandle<()> {
 pub fn spawn_update_check(state: AppState) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         // 启动先跑一轮；失败只落库成 error（不重试、不影响其它任务）。
-        let settings = crate::routes::settings::load(&state.db.pool).await;
+        let settings = crate::routes::settings::load(&state.db).await;
         if settings.update_check_enabled {
             match crate::updates::check_now(&state).await {
                 Ok(check) => tracing::info!(

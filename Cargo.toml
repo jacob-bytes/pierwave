@@ -39,6 +39,8 @@ x509-parser = "0.18"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 webpki-roots = "1"
+# 备份/设置的 AEAD 信封：只用已在依赖图里的 AES-256-GCM（ring），不引入新的密码学 crate。
+ring = "0.17"
 
 [profile.dev]
 debug = 1

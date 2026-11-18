@@ -1229,9 +1229,10 @@ mod tests {
             .as_array()
             .unwrap();
         assert_eq!(clients.len(), 1, "只有有套餐的用户被注入");
-        let secret = pierwave_domain::credentials::master_secret(&state.db.pool)
-            .await
-            .unwrap();
+        let secret =
+            pierwave_domain::credentials::master_secret(&state.db.pool, state.db.secret_key())
+                .await
+                .unwrap();
         assert_eq!(
             clients[0]["id"],
             pierwave_domain::credentials::sub_uuid(&secret, &eligible.id, &node_id)

@@ -331,7 +331,7 @@ async fn maybe_notify(
     if check.notified_version == release.version {
         return Ok(false);
     }
-    let settings = settings::load(&state.db.pool).await;
+    let settings = settings::load(&state.db).await;
     if !event_enabled(&settings, AlertKind::UpdateAvailable) {
         return Ok(false);
     }
@@ -372,7 +372,7 @@ pub fn is_due(last_checked_at: Option<i64>, now: i64, interval_hours: i64) -> bo
 ///
 /// 返回 `None` 表示本轮什么都没做（关闭或未到点）。
 pub async fn run_due_check(state: &AppState) -> anyhow::Result<Option<UpdateCheck>> {
-    let settings = settings::load(&state.db.pool).await;
+    let settings = settings::load(&state.db).await;
     if !settings.update_check_enabled {
         return Ok(None);
     }
@@ -609,7 +609,7 @@ mod tests {
         configure_webhook(&state).await;
         configure_events(&state, "server_offline,user_exhausted").await;
         // 旧开关保持默认开启：它不能再把通知强行打开。
-        assert!(settings::load(&state.db.pool).await.update_check_notify);
+        assert!(settings::load(&state.db).await.update_check_notify);
 
         check_now(&state).await.unwrap();
         transport

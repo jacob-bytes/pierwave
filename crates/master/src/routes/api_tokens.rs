@@ -764,20 +764,27 @@ mod http_tests {
             StatusCode::OK,
             "admin scope 必须能下载备份"
         );
+        // 默认导出是加密信封（不再是明文 gzip）；内容必须非空。
         assert_eq!(
             response.headers().get(header::CONTENT_TYPE).unwrap(),
-            "application/gzip"
+            "application/octet-stream"
         );
         let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
             .await
             .unwrap();
         assert!(!bytes.is_empty());
+        assert!(
+            bytes.starts_with(&pierwave_domain::secret_box::MAGIC),
+            "默认备份必须是加密信封"
+        );
 
         drop(app);
         state.db.pool.close().await;
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(path.with_extension("db-wal"));
         let _ = std::fs::remove_file(path.with_extension("db-shm"));
+        // 文件型库会在同目录生成主密钥；测试不能把 secret.key 留在仓库里。
+        let _ = std::fs::remove_file(path.with_file_name("secret.key"));
     }
 
     #[tokio::test]

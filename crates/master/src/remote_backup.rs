@@ -1,4 +1,5 @@
-//! 异地备份（WebDAV）：把一致性快照 gzip 后按保留策略上传到远端。
+//! 异地备份（WebDAV）：把一致性快照 gzip +（默认）AES-256-GCM 加密后，
+//! 按保留策略上传到远端；上传产物与下载导出完全一致，绝不单独上传明文。
 //!
 //! 职责边界：
 //! * 生成备份 → `crate::routes::backup::create_backup_archive`（与下载共用）；
@@ -190,7 +191,11 @@ pub async fn run_now(state: &AppState, trigger: Trigger) -> Result<UploadOutcome
     // 进程内互斥：拿不到就立刻返回 busy，不排队。
     let _guard = state.remote_backup.try_acquire().ok_or(RunError::Busy)?;
 
-    let settings = settings::load(&state.db.pool).await;
+    let settings = settings::load(&state.db).await;
+    // 密码解不开时不要误报成「未配置」：那是两件不同的事。
+    if let Some(message) = &settings.secret_error {
+        return Err(RunError::Failed(message.clone()));
+    }
     let Some(client) = client_for(&settings) else {
         return Err(RunError::NotConfigured(
             "请先保存 WebDAV 地址与密码 / WebDAV URL and password are required",

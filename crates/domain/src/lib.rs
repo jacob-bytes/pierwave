@@ -24,6 +24,7 @@ pub mod remote_backup;
 pub mod repo;
 pub mod reset;
 pub mod routing;
+pub mod secret_box;
 pub mod subscribe;
 pub mod subscription_template;
 pub mod telemetry;
@@ -54,6 +55,8 @@ pub struct Db {
     pub pool: SqlitePool,
     /// 文件型数据库的路径；`sqlite::memory:` 为 `None`。
     path: Option<PathBuf>,
+    /// 备份与设置项共用的主密钥；来源见 [`secret_box`]。
+    secret_key: secret_box::SecretKey,
 }
 
 impl Db {
@@ -75,6 +78,11 @@ impl Db {
         self.path.as_deref()
     }
 
+    /// 本进程使用的主密钥。**调用方不得把它写进日志或响应。**
+    pub fn secret_key(&self) -> &secret_box::SecretKey {
+        &self.secret_key
+    }
+
     /// `sqlite://data/pierwave.db?mode=rwc`；目录不存在会自动创建。
     ///
     /// 文件库落盘后立即收紧权限：数据库文件和父目录（也是备份目录）默认都是
@@ -82,6 +90,9 @@ impl Db {
     /// 这里自动修正并 `warn`，不需要用户手动 `chmod`。
     pub async fn connect(url: &str) -> anyhow::Result<Self> {
         let path = Self::database_path(url);
+        // 主密钥先于连接池加载：设置项解密/备份加密都依赖它。
+        // 环境变量优先；文件型库用同目录的 secret.key；内存库用临时随机密钥。
+        let secret_key = secret_box::SecretKey::for_database(path.as_deref())?;
         if let Some(path) = &path {
             if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
                 crate::fs_security::create_private_dir(dir)
@@ -113,14 +124,28 @@ impl Db {
         if let Some(path) = &path {
             tighten_database_files(path);
         }
-        Ok(Self { pool, path })
+        Ok(Self {
+            pool,
+            path,
+            secret_key,
+        })
     }
 
+    /// 执行迁移，并把已有的明文秘密就地加密（迁移 0058 的 Rust 侧）。
+    ///
+    /// 幂等：已带 `enc:v1:` 前缀的值会被跳过，所以重复调用不会重复加密。
     pub async fn migrate(&self) -> anyhow::Result<()> {
         MIGRATOR
             .run(&self.pool)
             .await
             .context("执行数据库迁移失败")?;
+        let encrypted = secret_box::encrypt_existing_settings(&self.pool, &self.secret_key)
+            .await
+            .context("加密已有设置项失败")?;
+        if !encrypted.is_empty() {
+            // 只记录键名，值可能是 Token / 密码。
+            tracing::info!(keys = ?encrypted, "已把历史明文秘密设置加密落库");
+        }
         Ok(())
     }
 

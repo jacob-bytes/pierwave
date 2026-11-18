@@ -144,6 +144,11 @@ test("only managed backup names are listed, newest first and capped", () => {
     isManagedRemoteBackupName("pierwave-backup-20261115-190533.db.gz"),
     true,
   );
+  assert.equal(
+    isManagedRemoteBackupName("pierwave-backup-20261115-190533.db.gz.enc"),
+    true,
+    "默认加密备份也要列出来",
+  );
   for (const name of [
     "notes.txt",
     "pierwave-backup-manual.db.gz",
@@ -151,6 +156,7 @@ test("only managed backup names are listed, newest first and capped", () => {
     "pierwave-backup-2026-1115-190533.db.gz",
     "other-20261115-190533.db.gz",
     "pierwave-backup-20261115-190533.db",
+    "pierwave-backup-20261115-190533.db.gz.enc.bak",
   ]) {
     assert.equal(isManagedRemoteBackupName(name), false, `不应展示 ${name}`);
   }
@@ -158,7 +164,11 @@ test("only managed backup names are listed, newest first and capped", () => {
   const files = [
     { name: "pierwave-backup-20260101-000000.db.gz", size: 1, modified: 1 },
     { name: "pierwave-backup-20260103-000000.db.gz", size: 3, modified: 3 },
-    { name: "pierwave-backup-20260102-000000.db.gz", size: 2, modified: null },
+    {
+      name: "pierwave-backup-20260102-000000.db.gz.enc",
+      size: 2,
+      modified: null,
+    },
     { name: "notes.txt", size: 9, modified: null },
   ];
   const selected = selectRemoteBackupFiles(files);
@@ -166,7 +176,7 @@ test("only managed backup names are listed, newest first and capped", () => {
     selected.map((file) => file.name),
     [
       "pierwave-backup-20260103-000000.db.gz",
-      "pierwave-backup-20260102-000000.db.gz",
+      "pierwave-backup-20260102-000000.db.gz.enc",
       "pierwave-backup-20260101-000000.db.gz",
     ],
   );

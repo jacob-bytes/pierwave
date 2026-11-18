@@ -2104,6 +2104,11 @@ export interface Settings {
   backup_webdav_has_password?: boolean | null;
   backup_webdav_interval_hours?: number | null;
   backup_webdav_keep?: number | null;
+  /**
+   * 备份是否加密，默认 true。关闭后导出与异地备份都是明文 `.db.gz`；
+   * 旧版后端可能不返回该键，UI 按 true 处理。
+   */
+  backup_encrypt?: boolean | null;
 }
 
 export type UpdateSettingsInput = Partial<Settings>;

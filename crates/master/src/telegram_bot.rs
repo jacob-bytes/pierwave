@@ -618,7 +618,7 @@ pub fn truncate_message(text: &str) -> String {
 
 /// 从设置表推导出应运行的 Bot 配置；`None` = 当前不应有长轮询任务。
 async fn desired_config(state: &AppState) -> Option<BotConfig> {
-    let settings = settings::load(&state.db.pool).await;
+    let settings = settings::load(&state.db).await;
     if !settings.telegram_bot_enabled {
         return None;
     }

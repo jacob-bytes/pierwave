@@ -85,7 +85,13 @@ KEEP=1 ./scripts/verify-backup.sh   # 保留现场：两份 DB、导出文件、
 1. 起临时主控 A（临时 DB）→ 造 2 台服务器、4 个节点（reality / ws / tls+证书 /
    shadowsocks）、1 个套餐（alice 已绑且改过 quota_override）、规则模板、两跳链、
    单跳转发、改过设置；
-2. `GET /api/v1/backup` 导出 `.db.gz`，校验 `Content-Type` / 文件名 / SQLite 文件头；
+2. `GET /api/v1/backup` 导出 `.db.gz.enc`（默认加密；关闭 `backup_encrypt` 才是
+   明文 `.db.gz`），校验 `Content-Type` / 文件名 / SQLite 文件头；
+   > 注意：`scripts/verify-backup.sh` 仍按旧的明文 `.db.gz` 断言，尚未跟进加密格式
+   > （见 `docs/BACKUP_ENCRYPTION.md` 的「未做」）。
+   > Note: `scripts/verify-backup.sh` still asserts the legacy plaintext `.db.gz`
+   > format and has not been updated for encryption (see
+   > `docs/BACKUP_ENCRYPTION.md`, "Not implemented").
 3. 停掉 A，起临时主控 B 指向**全新的空库**，确认 servers=0、users=1；
 4. 先用坏文件打 `POST /api/v1/backup/restore`，确认 400 + `backup.restore_bad_header`
    且不留下 pending；

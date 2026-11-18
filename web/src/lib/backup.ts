@@ -8,15 +8,20 @@
 /** 与后端一致的 512 MB 上限。 */
 export const BACKUP_MAX_BYTES = 512 * 1024 * 1024;
 
-/** `<input type="file" accept>` 的取值；`.db.gz` 以 `.gz` 结尾，已被覆盖。 */
-export const BACKUP_ACCEPT = ".db,.gz";
+/** `<input type="file" accept>` 的取值；`.db.gz` 以 `.gz` 结尾，`.enc` 单独列出。 */
+export const BACKUP_ACCEPT = ".db,.gz,.enc";
 
 export type BackupFileProblem = "unsupported" | "empty" | "tooLarge";
 
-/** 只按扩展名放行：`.db` 或 gzip 压缩后的 `.gz`（含 `.db.gz`）。 */
+/**
+ * 只按扩展名放行：`.db`、gzip 压缩后的 `.gz`（含 `.db.gz`）以及加密备份
+ * `.db.gz.enc`。真正的格式由后端按内容判断。
+ */
 export function isBackupFileName(name: string): boolean {
   const lower = name.trim().toLowerCase();
-  return lower.endsWith(".db") || lower.endsWith(".gz");
+  return (
+    lower.endsWith(".db") || lower.endsWith(".gz") || lower.endsWith(".enc")
+  );
 }
 
 /**

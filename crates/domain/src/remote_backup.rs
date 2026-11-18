@@ -5,8 +5,9 @@
 //! 领域层，是为了让保留策略能被单元测试覆盖，且永远不会因为远端目录里有
 //! 别人的文件而误删。
 //!
-//! 约定：本产品写入的文件名固定为 `{prefix}-{yyyyMMdd-HHmmss}.db.gz`。
-//! 保留策略只认这个形状、且前缀完全相同的文件名。
+//! 约定：本产品写入的文件名固定为 `{prefix}-{yyyyMMdd-HHmmss}.db.gz`（明文）
+//! 或 `{prefix}-{yyyyMMdd-HHmmss}.db.gz.enc`（默认，AES-256-GCM 加密）。
+//! 保留策略只认这两种形状、且前缀完全相同的文件名，历史明文备份仍可识别。
 
 use chrono::DateTime;
 
@@ -44,14 +45,24 @@ pub struct RemoteFile {
     pub modified: Option<i64>,
 }
 
-/// 生成本产品的远端文件名：`{prefix}-{yyyyMMdd-HHmmss}.db.gz`。
-pub fn remote_file_name(prefix: &str, timestamp: &str) -> String {
-    format!("{prefix}-{timestamp}.db.gz")
+/// 明文备份后缀；关闭 `backup_encrypt` 时的输出。
+pub const PLAIN_BACKUP_SUFFIX: &str = ".db.gz";
+
+/// 加密备份后缀；默认输出（gzip 后再用主密钥加密）。
+pub const ENCRYPTED_BACKUP_SUFFIX: &str = ".db.gz.enc";
+
+/// 生成本产品的远端文件名：`{prefix}-{yyyyMMdd-HHmmss}.db.gz[.enc]`。
+pub fn remote_file_name(prefix: &str, timestamp: &str, encrypted: bool) -> String {
+    if encrypted {
+        format!("{prefix}-{timestamp}{ENCRYPTED_BACKUP_SUFFIX}")
+    } else {
+        format!("{prefix}-{timestamp}{PLAIN_BACKUP_SUFFIX}")
+    }
 }
 
 /// 判断一个文件名是否是本产品写入的备份。
 ///
-/// 必须是 `{prefix}-` + 8 位日期 + `-` + 6 位时间 + `.db.gz`；
+/// 必须是 `{prefix}-` + 8 位日期 + `-` + 6 位时间 + `.db.gz` 或 `.db.gz.enc`；
 /// 别的文件名（哪怕前缀相同）一律返回 `false`，保留策略就不会碰它。
 pub fn is_managed_backup_name(name: &str, prefix: &str) -> bool {
     let Some(rest) = name.strip_prefix(prefix) else {
@@ -60,7 +71,11 @@ pub fn is_managed_backup_name(name: &str, prefix: &str) -> bool {
     let Some(rest) = rest.strip_prefix('-') else {
         return false;
     };
-    let Some(stamp) = rest.strip_suffix(".db.gz") else {
+    // `.db.gz.enc` 必须先匹配：它同时也是以 `.gz` 结尾的更长后缀。
+    let Some(stamp) = rest
+        .strip_suffix(ENCRYPTED_BACKUP_SUFFIX)
+        .or_else(|| rest.strip_suffix(PLAIN_BACKUP_SUFFIX))
+    else {
         return false;
     };
     let bytes = stamp.as_bytes();
@@ -418,11 +433,19 @@ mod tests {
     fn managed_file_names_are_strictly_matched() {
         let prefix = REMOTE_BACKUP_PREFIX;
         assert_eq!(
-            remote_file_name(prefix, "20261115-190533"),
+            remote_file_name(prefix, "20261115-190533", false),
             "pierwave-backup-20261115-190533.db.gz"
+        );
+        assert_eq!(
+            remote_file_name(prefix, "20261115-190533", true),
+            "pierwave-backup-20261115-190533.db.gz.enc"
         );
         assert!(is_managed_backup_name(
             "pierwave-backup-20261115-190533.db.gz",
+            prefix
+        ));
+        assert!(is_managed_backup_name(
+            "pierwave-backup-20261115-190533.db.gz.enc",
             prefix
         ));
         for name in [
@@ -432,6 +455,8 @@ mod tests {
             "pierwave-backup-latest.db.gz",
             "other-backup-20261115-190533.db.gz",
             "pierwave-backup-20261115-190533.db.gz.bak",
+            "pierwave-backup-20261115-190533.db.gz.enc.bak",
+            "pierwave-backup-20261115-190533.enc",
             "pierwave-backup-20261115-190533.db.gz ",
             "xpierwave-backup-20261115-190533.db.gz",
         ] {

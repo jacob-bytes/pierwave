@@ -21,6 +21,8 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 x25519-dalek = { workspace = true }
 x509-parser = { workspace = true }
+# AES-256-GCM：备份与设置项加密共用同一个主密钥。
+ring = { workspace = true }
 
 [dev-dependencies]
 serde_yaml = { workspace = true }

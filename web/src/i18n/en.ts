@@ -2102,15 +2102,15 @@ const en = {
       sizeHint:
         "Includes users, packages, nodes, certificates and all configuration.",
       download: "Download backup",
-      downloadHint: "The browser downloads a .db.gz snapshot directly.",
+      downloadHint: "The browser downloads an encrypted .db.gz.enc snapshot directly.",
       pendingTitle: "A restore is waiting for a restart",
       pendingDesc:
         "Uploaded {time} · database size {size}; current data is replaced only after the controller restarts.",
       restoreTitle: "Restore data",
       restoreDesc:
-        "Upload a .db or .db.gz file; it is staged on disk and replaces the current database only after the controller restarts.",
+        "Upload a .db, .db.gz or .db.gz.enc file; it is staged on disk and replaces the current database only after the controller restarts.",
       chooseFile: "Choose a backup file",
-      chooseHint: "Only .db or .db.gz, up to {size}.",
+      chooseHint: "Only .db, .db.gz or .db.gz.enc, up to {size}.",
       selectedFile: "{name} · {size}",
       clearFile: "Clear selection",
       confirmLabel:
@@ -2136,7 +2136,18 @@ const en = {
       tooLarge:
         "The file is larger than {size} and cannot be uploaded; compress or trim the backup first.",
       emptyFile: "This file is empty; choose a valid backup file.",
-      unsupportedFile: "Only .db or .db.gz files are supported.",
+      unsupportedFile: "Only .db, .db.gz or .db.gz.enc files are supported.",
+      encrypt: {
+        title: "Backup encryption",
+        label: "Encrypt backup files",
+        offWarning:
+          "Encryption is off: downloads and uploads are plaintext .db.gz files, and anyone who obtains one can read all business data.",
+        saved: "Backup encryption setting saved",
+        saveError: "Could not save the backup encryption setting. Please try again.",
+        loadFailed: "Backup encryption setting failed to load",
+        loadError:
+          "Could not load the backup encryption setting. Check your network, or whether the controller is running.",
+      },
       remote: {
         title: "Off-site backup",
         desc: "Upload backups to WebDAV on a schedule; only files written by this product are pruned.",
@@ -3766,6 +3777,10 @@ const en = {
     "backup.restore_too_large": "The backup file exceeds the {max_mb} MB limit",
     "backup.restore_invalid": "Backup file validation failed",
     "backup.restore_bad_gzip": "Failed to decompress the gzip backup",
+    "backup.restore_decrypt_failed":
+      "The backup could not be decrypted: the master key does not match, or the file is corrupted",
+    "settings.secret_decrypt_failed":
+      "Stored secrets cannot be decrypted; restore the master key used when they were written (data/secret.key or PIERWAVE_SECRET_KEY)",
     "backup.restore_read_failed": "Failed to read the uploaded content",
     "install.token_required": "Missing token parameter",
     "install.token_not_found": "Invalid token",

@@ -113,7 +113,7 @@ fn hour_bucket_starts(now: i64) -> Vec<i64> {
 }
 
 pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
-    let settings = crate::routes::settings::load(&state.db.pool).await;
+    let settings = crate::routes::settings::load(&state.db).await;
     if settings.public_status_enabled == 0 {
         return Err(AppError::not_found(
             "public_status.disabled",

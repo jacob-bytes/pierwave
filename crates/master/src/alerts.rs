@@ -362,7 +362,7 @@ pub fn event_enabled(settings: &Settings, kind: AlertKind) -> bool {
 ///
 /// 去抖、开关判断在调用任务里同步完成；真正的网络投递丢到独立任务里。
 pub async fn notify(state: &AppState, kind: AlertKind, target_id: &str, title: &str, body: &str) {
-    let settings = settings::load(&state.db.pool).await;
+    let settings = settings::load(&state.db).await;
     let channels = configured_channels(&settings);
     if channels.is_empty() {
         return;
@@ -402,7 +402,7 @@ pub async fn notify_custom(
     title: &str,
     body: &str,
 ) -> bool {
-    let settings = settings::load(&state.db.pool).await;
+    let settings = settings::load(&state.db).await;
     let channels = configured_channels(&settings);
     if channels.is_empty() {
         return false;
@@ -505,7 +505,7 @@ impl TestReport {
 
 /// 向所有已配置渠道各发一条测试消息；不进行去抖与 `alert_events` 过滤。
 pub async fn test_delivery(state: &AppState) -> TestReport {
-    let settings = settings::load(&state.db.pool).await;
+    let settings = settings::load(&state.db).await;
     let channels = configured_channels(&settings);
     if channels.is_empty() {
         return TestReport {

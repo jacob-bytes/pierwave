@@ -66,7 +66,7 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
     let rules = repo::routing_rules::list_enabled_by_server(&state.db.pool, &server.id).await?;
     let forwards = repo::forwards::list_enabled_by_server(&state.db.pool, &server.id).await?;
     let chains = repo::chains::list_enabled(&state.db.pool).await?;
-    let secret = credentials::master_secret(&state.db.pool).await?;
+    let secret = credentials::master_secret(&state.db.pool, state.db.secret_key()).await?;
     let pairs = repo::authorization::eligible_pairs(&state.db.pool, &server.id).await?;
 
     let mut seen = HashSet::new();
@@ -1515,7 +1515,9 @@ mod tests {
 
         // 两侧 hop_secret 必须一致且等于文档里的派生。
         assert_eq!(dialer.hop_secret, listener.hop_secret);
-        let secret = credentials::master_secret(&state.db.pool).await.unwrap();
+        let secret = credentials::master_secret(&state.db.pool, state.db.secret_key())
+            .await
+            .unwrap();
         let expected = base64::engine::general_purpose::STANDARD
             .encode(credentials::tunnel_hop_secret(&secret, &chain.chain.id, 1));
         assert_eq!(dialer.hop_secret, expected);

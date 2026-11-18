@@ -51,6 +51,7 @@ PIERWAVE_ADMIN_PASSWORD='换成强密码' ./pierwave-master
 | `PIERWAVE_ADDR` | `127.0.0.1:8787` | 监听地址；建议只监听回环，由 nginx/caddy 反代 |
 | `PIERWAVE_DB` | `sqlite://data/pierwave.db?mode=rwc` | 数据库 |
 | `PIERWAVE_WEB_DIR` | `web/dist` | 前端产物（`make web-build` 生成） |
+| `PIERWAVE_SECRET_KEY` | 未设置 | 备份/设置加密的主密钥，base64 的 32 字节；未设置时自动生成 `data/secret.key`（0600）。**必须备份**，丢失后已加密的备份与设置无法解密 / master key for backup and secret encryption; auto-generated as `data/secret.key` when unset. Back it up: losing it makes encrypted data unrecoverable |
 | `PIERWAVE_ADMIN_PASSWORD` | 随机 | 仅首次建库时生效，密码会打印在日志里 |
 | `PIERWAVE_AGENT_DIST` | 未设置 | agent 二进制目录；设置后 `/api/agent/download/*` 才可用 |
 | `PIERWAVE_ENFORCE` | 开 | 设为 `0` 关闭超额断流 |

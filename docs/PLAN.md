@@ -730,10 +730,10 @@ is_default = 1                4. 全局默认
 ### 接口（管理员）
 
 ```
-GET    /api/v1/backup            -> application/gzip
-                                    文件名 pierwave-backup-<YYYYmmdd-HHMMSS>.db.gz
-                                    内容：`VACUUM INTO` 的一致性快照再 gzip
-POST   /api/v1/backup/restore    -> body 为 .db 或 .db.gz（Content-Type: application/octet-stream）
+GET    /api/v1/backup            -> application/octet-stream（默认加密；关闭 backup_encrypt 为 application/gzip）
+                                    文件名 pierwave-backup-<YYYYmmdd-HHMMSS>.db.gz.enc（默认）或 .db.gz
+                                    内容：`VACUUM INTO` 的一致性快照 → gzip → AES-256-GCM
+POST   /api/v1/backup/restore    -> body 为 .db / .db.gz / .db.gz.enc（Content-Type: application/octet-stream）
                                     { restart_required: true, pending: {...} }
 GET    /api/v1/backup/info       -> { db_bytes, pending: null | { uploaded_at, bytes } }
 DELETE /api/v1/backup/restore    -> 取消待恢复
@@ -2386,19 +2386,26 @@ S3/OSS/B2 等对象存储不在本期范围。
 | `backup_webdav_username` | string | `""` | 可选；不能含冒号（Basic 认证分隔符） |
 | `backup_webdav_password` | string | `""` | 不回显；`GET /settings` 只返回 `backup_webdav_has_password`，保存留空 = 保持不变 |
 | `backup_webdav_interval_hours` | int | `24` | 1–168；调度器每 60 秒判断是否到点 |
-| `backup_webdav_keep` | int | `7` | 1–30；只删同前缀、时间戳格式合法的旧文件 |
+| `backup_webdav_keep` | int | `7` | 1–30；只删同前缀、时间戳格式合法的旧文件（`.db.gz` / `.db.gz.enc`） |
 
-密码与 Telegram Bot Token 一样明文存 `settings` 表，但**绝不回显、绝不进日志**。
+密码、Webhook 地址、Telegram Bot Token 与内部订阅 secret 落库为 `enc:v1:` 密文，
+主密钥机制见 [BACKUP_ENCRYPTION.md](BACKUP_ENCRYPTION.md)。它们**绝不回显、绝不进日志**。
+
+备份加密开关（P7 导出与异地备份共用）：
+
+| 键 | 类型 | 默认 | 范围 / 约束 |
+|---|---|---|---|
+| `backup_encrypt` | bool | `true` | 关闭后导出/上传明文 `.db.gz`；设置页常驻警告 |
 
 ### 行为
 
 - 调度器每 60 秒读一次设置；`last_attempt_at + interval` 到点才执行，改设置无需重启。
-- 备份走与下载相同的 `VACUUM INTO` → gzip 路径，文件名
-  `pierwave-backup-{yyyyMMdd-HHmmss}.db.gz`，PUT 到 `{url}/{name}`。
+- 备份走与下载相同的 `VACUUM INTO` → gzip →（默认）AES-256-GCM 路径，文件名
+  `pierwave-backup-{yyyyMMdd-HHmmss}.db.gz.enc`，PUT 到 `{url}/{name}`。
 - 失败按 2s → 4s 指数退避重试，最多 3 次；仍失败则记录 `last_failure_at` 与打码后的
   `last_error`，并走现有告警渠道发 `backup_failed`（默认开启）。手动触发失败只返回错误，
   不发告警。
-- 保留策略：PROPFIND 后只选 `pierwave-backup-YYYYMMDD-HHMMSS.db.gz`，按文件名倒序保留
+- 保留策略：PROPFIND 后只选 `pierwave-backup-YYYYMMDD-HHMMSS.db.gz[.enc]`，按文件名倒序保留
   最近 N 份，其余 DELETE；远端目录里其它文件（含相似前缀）永远不会被删除。
 - 并发：`AppState::RemoteBackupRuntime` 的进程内异步互斥锁，定时与「立即备份」同时只允许
   一个；拿不到锁立即返回 409 `backup.remote_busy`，不排队。

@@ -171,7 +171,7 @@ pub async fn create(
     }
 
     let version = super::servers::resolve_upgrade_version(&state, &req.version).await?;
-    let settings = super::settings::load(&state.db.pool).await;
+    let settings = super::settings::load(&state.db).await;
     let concurrency = batch_concurrency(&settings);
     let stop_on_failure = req.stop_on_failure.unwrap_or(true);
 

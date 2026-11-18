@@ -387,7 +387,7 @@ pub async fn preview(
     let subject =
         resolve_preview_subject(&state, req.user_id.as_deref(), req.package_id.as_deref()).await?;
 
-    let secret = credentials::master_secret(&state.db.pool).await?;
+    let secret = credentials::master_secret(&state.db.pool, state.db.secret_key()).await?;
     let (nodes, effective_rules, label) = match &subject {
         PreviewSubject::User(target_user) => {
             let nodes =

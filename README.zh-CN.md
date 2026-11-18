@@ -137,6 +137,7 @@ curl -fsSL https://<主控地址>/api/agent/install.sh?token=<token> | sudo bash
 ## 文档
 
 - [部署与运维](docs/DEPLOY.md)
+- [备份与秘密加密](docs/BACKUP_ENCRYPTION.md)
 - [施工计划](docs/PLAN.md)
 - [流量计量](docs/METERING.md)
 - [订阅与客户端格式](docs/SUBSCRIBE.md)

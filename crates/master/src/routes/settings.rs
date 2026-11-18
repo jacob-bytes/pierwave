@@ -10,6 +10,8 @@ use sqlx::SqlitePool;
 
 use pierwave_domain::remote_backup;
 use pierwave_domain::repo;
+use pierwave_domain::secret_box::{self, SecretKey};
+use pierwave_domain::Db;
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
@@ -91,6 +93,9 @@ pub const BACKUP_WEBDAV_USERNAME_KEY: &str = "backup_webdav_username";
 pub const BACKUP_WEBDAV_PASSWORD_KEY: &str = "backup_webdav_password";
 pub const BACKUP_WEBDAV_INTERVAL_HOURS_KEY: &str = "backup_webdav_interval_hours";
 pub const BACKUP_WEBDAV_KEEP_KEY: &str = "backup_webdav_keep";
+/// 备份是否加密（默认 true）；关闭后导出/上传明文 `.db.gz`。
+pub const BACKUP_ENCRYPT_KEY: &str = "backup_encrypt";
+pub const DEFAULT_BACKUP_ENCRYPT: bool = true;
 
 /// 设置页的白名单键；新增键必须同时改这里和 `docs/PLAN.md`。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -146,6 +151,11 @@ pub struct Settings {
     pub backup_webdav_interval_hours: i64,
     /// 远端保留份数，1–30，默认 7。
     pub backup_webdav_keep: i64,
+    /// 备份产物是否加密；默认 true。关闭后导出与异地备份都是明文 `.db.gz`。
+    pub backup_encrypt: bool,
+    /// 只在本进程内使用：秘密设置解密失败时的可读原因（不含密钥/密文）。
+    /// 不下发给前端（`as_json` 不包含），由 [`load_checked`] 转成接口错误。
+    pub secret_error: Option<String>,
 }
 
 impl Default for Settings {
@@ -175,6 +185,8 @@ impl Default for Settings {
             backup_webdav_password: String::new(),
             backup_webdav_interval_hours: DEFAULT_BACKUP_WEBDAV_INTERVAL_HOURS,
             backup_webdav_keep: DEFAULT_BACKUP_WEBDAV_KEEP,
+            backup_encrypt: DEFAULT_BACKUP_ENCRYPT,
+            secret_error: None,
         }
     }
 }
@@ -214,13 +226,63 @@ impl Settings {
             "backup_webdav_has_password": !self.backup_webdav_password.is_empty(),
             "backup_webdav_interval_hours": self.backup_webdav_interval_hours,
             "backup_webdav_keep": self.backup_webdav_keep,
+            // 关闭加密时前端需要明确提示：产物是明文，泄漏即可读全部业务数据。
+            "backup_encrypt": self.backup_encrypt,
         })
     }
 }
 
 /// 读取当前生效设置；任何单个键异常都只影响它自己。
-pub async fn load(pool: &SqlitePool) -> Settings {
+///
+/// 秘密设置（`telegram_bot_token` 等）在库里是 `enc:v1:` 密文，这里透明解密；
+/// 解密失败不会静默成空串，而是记录到 `secret_error`，由 [`load_checked`]
+/// 转成可读错误。内部后台任务仍可用 [`load`] 拿到其余设置继续工作。
+pub async fn load(db: &Db) -> Settings {
+    load_inner(&db.pool, db.secret_key()).await
+}
+
+/// 与 [`load`] 相同，但秘密设置无法解密时返回可读错误。
+pub async fn load_checked(db: &Db) -> AppResult<Settings> {
+    let settings = load_inner(&db.pool, db.secret_key()).await;
+    if let Some(message) = settings.secret_error.clone() {
+        return Err(AppError::coded(
+            "settings.secret_decrypt_failed",
+            None,
+            message,
+        ));
+    }
+    Ok(settings)
+}
+
+/// 解密失败的统一文案：只说明「主密钥不匹配或密文损坏」，不包含任何值。
+fn secret_decrypt_error() -> String {
+    "已保存的秘密设置无法用当前主密钥解密：请恢复写入时使用的 data/secret.key 或 \
+     PIERWAVE_SECRET_KEY / Stored secrets cannot be decrypted with the current master \
+     key; restore the original data/secret.key or PIERWAVE_SECRET_KEY"
+        .to_string()
+}
+
+async fn load_inner(pool: &SqlitePool, master: &SecretKey) -> Settings {
     let defaults = Settings::default();
+    // 三个用户可见秘密（以及内部 hmac secret 不走这里）需要透明解密。
+    let (telegram_bot_token, mut secret_error) = read_secret_text(
+        pool,
+        master,
+        TELEGRAM_BOT_TOKEN_KEY,
+        "",
+        normalize_telegram_token,
+    )
+    .await;
+    let (webhook_url, error) =
+        read_secret_text(pool, master, WEBHOOK_URL_KEY, "", normalize_webhook_url).await;
+    secret_error = secret_error.or(error);
+    let (backup_webdav_password, error) =
+        read_secret_text(pool, master, BACKUP_WEBDAV_PASSWORD_KEY, "", |raw| {
+            Ok(raw.to_string())
+        })
+        .await;
+    secret_error = secret_error.or(error);
+
     Settings {
         panel_name: read_panel_name(pool).await,
         login_max_attempts: read_int(
@@ -271,8 +333,7 @@ pub async fn load(pool: &SqlitePool) -> Settings {
             normalize_public_base_url,
         )
         .await,
-        telegram_bot_token: read_text(pool, TELEGRAM_BOT_TOKEN_KEY, "", normalize_telegram_token)
-            .await,
+        telegram_bot_token,
         telegram_chat_id: read_text(pool, TELEGRAM_CHAT_ID_KEY, "", normalize_telegram_chat_id)
             .await,
         telegram_admin_chat_ids: read_text(
@@ -283,7 +344,7 @@ pub async fn load(pool: &SqlitePool) -> Settings {
         )
         .await,
         telegram_bot_enabled: read_bool(pool, TELEGRAM_BOT_ENABLED_KEY, false).await,
-        webhook_url: read_text(pool, WEBHOOK_URL_KEY, "", normalize_webhook_url).await,
+        webhook_url,
         alert_events: read_text(
             pool,
             ALERT_EVENTS_KEY,
@@ -336,10 +397,7 @@ pub async fn load(pool: &SqlitePool) -> Settings {
         )
         .await,
         // 密码不做任何规范化：用户设置的原样保存，读回也原样使用。
-        backup_webdav_password: read_text(pool, BACKUP_WEBDAV_PASSWORD_KEY, "", |raw| {
-            Ok(raw.to_string())
-        })
-        .await,
+        backup_webdav_password,
         backup_webdav_interval_hours: read_int(
             pool,
             BACKUP_WEBDAV_INTERVAL_HOURS_KEY,
@@ -356,6 +414,8 @@ pub async fn load(pool: &SqlitePool) -> Settings {
             defaults.backup_webdav_keep,
         )
         .await,
+        backup_encrypt: read_bool(pool, BACKUP_ENCRYPT_KEY, defaults.backup_encrypt).await,
+        secret_error,
     }
 }
 
@@ -394,6 +454,40 @@ async fn read_text(
         Err(error) => {
             tracing::warn!(key, error = %error, "读取设置失败，使用默认值");
             default.to_string()
+        }
+    }
+}
+
+/// 读取秘密设置：库里是 `enc:v1:` 密文时透明解密，历史明文原样兼容。
+///
+/// 解密失败返回默认值 + 可读错误（不含密钥、密文或明文）；调用方优先用
+/// [`load_checked`] 把它变成接口错误。
+async fn read_secret_text(
+    pool: &SqlitePool,
+    master: &SecretKey,
+    key: &str,
+    default: &str,
+    normalize: fn(&str) -> Result<String, String>,
+) -> (String, Option<String>) {
+    match repo::settings::get(pool, key).await {
+        Ok(Some(raw)) => match secret_box::reveal_setting(master, &raw) {
+            Ok(plain) => (
+                normalize(&plain).unwrap_or_else(|error| {
+                    tracing::warn!(key, %error, "settings 值非法，使用默认值");
+                    default.to_string()
+                }),
+                None,
+            ),
+            Err(error) => {
+                // 日志只说「解不开」，不输出密文/密钥/明文。
+                tracing::error!(key, error = %error, "设置中的秘密无法用当前主密钥解密");
+                (default.to_string(), Some(secret_decrypt_error()))
+            }
+        },
+        Ok(None) => (default.to_string(), None),
+        Err(error) => {
+            tracing::warn!(key, error = %error, "读取设置失败，使用默认值");
+            (default.to_string(), None)
         }
     }
 }
@@ -439,7 +533,8 @@ async fn read_bool(pool: &SqlitePool, key: &str, default: bool) -> bool {
 
 pub async fn get(State(state): State<AppState>, user: CurrentUser) -> AppResult<Json<Value>> {
     user.require_admin()?;
-    let settings = load(&state.db.pool).await;
+    // 秘密解不开时给可读错误，而不是把空 Token/密码当成“未配置”回显。
+    let settings = load_checked(&state.db).await?;
     Ok(Json(json!({ "items": settings.as_json() })))
 }
 
@@ -449,6 +544,10 @@ pub async fn update(
     Json(body): Json<Value>,
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
+
+    // 先确认现有秘密可以用当前主密钥解开：否则“留空=保持不变”无法成立，
+    // 且任何写入都可能悄悄覆盖掉管理员以为还在的凭据。
+    let existing = load_checked(&state.db).await?;
 
     let object = body.as_object().ok_or_else(|| {
         AppError::coded("settings.body_not_object", None, "请求体必须是 JSON 对象")
@@ -616,6 +715,14 @@ pub async fn update(
                     updates.push((BACKUP_WEBDAV_PASSWORD_KEY, raw));
                 }
             }
+            BACKUP_ENCRYPT_KEY => updates.push((
+                BACKUP_ENCRYPT_KEY,
+                if validate_bool("备份加密开关", value)? {
+                    "1".to_string()
+                } else {
+                    "0".to_string()
+                },
+            )),
             BACKUP_WEBDAV_INTERVAL_HOURS_KEY => updates.push((
                 BACKUP_WEBDAV_INTERVAL_HOURS_KEY,
                 validate_int(
@@ -653,7 +760,7 @@ pub async fn update(
             BACKUP_WEBDAV_ENABLED_KEY | BACKUP_WEBDAV_URL_KEY | BACKUP_WEBDAV_PASSWORD_KEY
         )
     }) {
-        let mut effective = load(&state.db.pool).await;
+        let mut effective = existing;
         for (key, value) in &updates {
             match *key {
                 BACKUP_WEBDAV_ENABLED_KEY => effective.backup_webdav_enabled = value == "1",
@@ -683,7 +790,13 @@ pub async fn update(
     // 审计只记「改了哪些键」；值里可能有面板名等业务信息，一律不落 detail。
     let changed_keys: Vec<&str> = updates.iter().map(|(key, _)| *key).collect();
     for (key, value) in updates {
-        repo::settings::set(&state.db.pool, key, &value).await?;
+        // 秘密项落库前加密；空串保持为空（用于清空 webhook_url 这类可清空项）。
+        let stored = if secret_box::is_secret_setting(key) && !value.is_empty() {
+            secret_box::encrypt_setting(state.db.secret_key(), &value)
+        } else {
+            value
+        };
+        repo::settings::set(&state.db.pool, key, &stored).await?;
     }
 
     crate::audit::record(
@@ -695,7 +808,7 @@ pub async fn update(
     )
     .await;
 
-    let settings = load(&state.db.pool).await;
+    let settings = load_checked(&state.db).await?;
     Ok(Json(json!({ "items": settings.as_json() })))
 }
 
@@ -1210,7 +1323,7 @@ mod tests {
                 .unwrap();
         }
 
-        let settings = load(&state.db.pool).await;
+        let settings = load(&state.db).await;
         assert_eq!(settings.agent_base_url, "");
         assert_eq!(settings.subscription_base_url, "");
 
@@ -1314,7 +1427,7 @@ mod tests {
         repo::settings::set(&state.db.pool, "agent_upgrade_concurrency", "99")
             .await
             .unwrap();
-        assert_eq!(load(&state.db.pool).await.agent_upgrade_concurrency, 1);
+        assert_eq!(load(&state.db).await.agent_upgrade_concurrency, 1);
     }
 
     /// 版本更新检测：三项设置的默认值、范围校验与「手工改坏读取回落」。
@@ -1407,7 +1520,7 @@ mod tests {
         repo::settings::set(&state.db.pool, "update_check_enabled", "wat")
             .await
             .unwrap();
-        let loaded = load(&state.db.pool).await;
+        let loaded = load(&state.db).await;
         assert_eq!(loaded.update_check_interval_hours, 6);
         assert!(loaded.update_check_enabled);
     }
@@ -1611,7 +1724,7 @@ mod tests {
                 .unwrap();
         }
 
-        let settings = load(&state.db.pool).await;
+        let settings = load(&state.db).await;
         assert_eq!(settings.telegram_bot_token, "");
         assert_eq!(settings.telegram_chat_id, "");
         assert_eq!(settings.webhook_url, "");
@@ -1622,7 +1735,7 @@ mod tests {
         repo::settings::set(&state.db.pool, "alert_events", "")
             .await
             .unwrap();
-        assert_eq!(load(&state.db.pool).await.alert_events, "");
+        assert_eq!(load(&state.db).await.alert_events, "");
 
         let (_, _, body) = request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
         assert_eq!(body["items"]["alert_events"], "");
@@ -1671,7 +1784,7 @@ mod tests {
         repo::settings::set(&state.db.pool, "public_status_enabled", "9")
             .await
             .unwrap();
-        assert_eq!(load(&state.db.pool).await.public_status_enabled, 1);
+        assert_eq!(load(&state.db).await.public_status_enabled, 1);
     }
 
     /// 异地备份：默认值、地址规范化、密码不回显、留空保持不变。
@@ -1724,7 +1837,7 @@ mod tests {
         );
 
         // 密码已落库（客户端要用），但只存在服务端。
-        assert_eq!(load(&state.db.pool).await.backup_webdav_password, secret);
+        assert_eq!(load(&state.db).await.backup_webdav_password, secret);
 
         // 留空保存 = 保持不变，不能把已保存的密码清掉。
         let (status, _, body) = request(
@@ -1737,7 +1850,7 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(body["items"]["backup_webdav_has_password"], true);
-        assert_eq!(load(&state.db.pool).await.backup_webdav_password, secret);
+        assert_eq!(load(&state.db).await.backup_webdav_password, secret);
 
         // 显式换成新密码才覆盖。
         let (status, _, body) = request(
@@ -1750,10 +1863,7 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert!(!body.to_string().contains("new-pass"), "{body}");
-        assert_eq!(
-            load(&state.db.pool).await.backup_webdav_password,
-            "new-pass"
-        );
+        assert_eq!(load(&state.db).await.backup_webdav_password, "new-pass");
     }
 
     /// Telegram Token 与 WebDAV 密码同一语义：GET/PATCH 都不回显，留空保持不变。
@@ -1809,7 +1919,7 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(body["items"]["telegram_bot_has_token"], true);
-        assert_eq!(load(&state.db.pool).await.telegram_bot_token, secret);
+        assert_eq!(load(&state.db).await.telegram_bot_token, secret);
 
         // 告警仍然使用库里的真实值（不是 GET 返回的掩码）。
         let transport = Arc::new(RecordingTransport::default());
@@ -1842,10 +1952,7 @@ mod tests {
         assert_eq!(body["items"]["telegram_bot_token"], "");
         assert_eq!(body["items"]["telegram_bot_has_token"], true);
         assert!(!body.to_string().contains("654321:NEW-token"), "{body}");
-        assert_eq!(
-            load(&state.db.pool).await.telegram_bot_token,
-            "654321:NEW-token"
-        );
+        assert_eq!(load(&state.db).await.telegram_bot_token, "654321:NEW-token");
     }
 
     /// 异地备份：URL、间隔、保留份数、用户名/密码的校验与「开启前置条件」。
@@ -1957,7 +2064,7 @@ mod tests {
                 .await
                 .unwrap();
         }
-        let settings = load(&state.db.pool).await;
+        let settings = load(&state.db).await;
         assert!(!settings.backup_webdav_enabled);
         assert_eq!(settings.backup_webdav_url, "");
         assert_eq!(settings.backup_webdav_username, "");
@@ -1967,10 +2074,7 @@ mod tests {
         repo::settings::set(&state.db.pool, "backup_webdav_password", "raw-pass")
             .await
             .unwrap();
-        assert_eq!(
-            load(&state.db.pool).await.backup_webdav_password,
-            "raw-pass"
-        );
+        assert_eq!(load(&state.db).await.backup_webdav_password, "raw-pass");
     }
 
     #[tokio::test]
@@ -2048,9 +2152,165 @@ mod tests {
         repo::settings::set(&state.db.pool, "telegram_admin_chat_ids", &too_many)
             .await
             .unwrap();
-        let settings = load(&state.db.pool).await;
+        let settings = load(&state.db).await;
         assert!(!settings.telegram_bot_enabled);
         assert_eq!(settings.telegram_admin_chat_ids, "");
         assert!(parse_telegram_admin_chat_ids(" 1,2,1 ").unwrap() == vec!["1", "2"]);
+    }
+
+    /// 新写入的秘密项在库里必须是密文；读取路径透明解密。
+    #[tokio::test]
+    async fn secret_settings_are_encrypted_at_rest_and_readable() {
+        let (app, state, admin, _bob) = setup().await;
+        let token = "123456:ABC-at-rest";
+        let password = "webdav-pass-at-rest";
+        let webhook = "https://hooks.example.test/services/secret-path";
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({
+                "telegram_bot_token": token,
+                "backup_webdav_password": password,
+                "webhook_url": webhook,
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+
+        // 落盘值：带 enc:v1: 前缀、不含明文。
+        for (name, plaintext) in [
+            ("telegram_bot_token", token),
+            ("backup_webdav_password", password),
+            ("webhook_url", webhook),
+        ] {
+            let raw = repo::settings::get(&state.db.pool, name)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(
+                secret_box::is_encrypted_setting(&raw),
+                "{name} 必须落密文：{raw}"
+            );
+            assert!(!raw.contains(plaintext), "{name} 明文不能落库：{raw}");
+        }
+
+        // 读取路径：内存设置里是明文，API 只对 Token/密码做掩码。
+        let loaded = load(&state.db).await;
+        assert!(loaded.secret_error.is_none());
+        assert_eq!(loaded.telegram_bot_token, token);
+        assert_eq!(loaded.backup_webdav_password, password);
+        assert_eq!(loaded.webhook_url, webhook);
+
+        let (_, _, body) = request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(body["items"]["telegram_bot_token"], "");
+        assert_eq!(body["items"]["telegram_bot_has_token"], true);
+        assert_eq!(body["items"]["backup_webdav_password"], "");
+        assert_eq!(body["items"]["backup_webdav_has_password"], true);
+        assert_eq!(body["items"]["webhook_url"], webhook);
+        assert!(!body.to_string().contains(token), "{body}");
+        assert!(!body.to_string().contains(password), "{body}");
+    }
+
+    /// 升级前写下的明文秘密（没有前缀）仍然可用；迁移会把它们加密。
+    #[tokio::test]
+    async fn legacy_plaintext_secret_settings_stay_usable() {
+        let (_app, state, _admin, _bob) = setup().await;
+        repo::settings::set(&state.db.pool, "telegram_bot_token", "legacy:token")
+            .await
+            .unwrap();
+        repo::settings::set(&state.db.pool, "backup_webdav_password", "legacy-pass")
+            .await
+            .unwrap();
+
+        let loaded = load(&state.db).await;
+        assert!(loaded.secret_error.is_none());
+        assert_eq!(loaded.telegram_bot_token, "legacy:token");
+        assert_eq!(loaded.backup_webdav_password, "legacy-pass");
+
+        // 迁移的 Rust 侧：明文就地加密，迁移后仍可读；第二次不改写。
+        let changed = secret_box::encrypt_existing_settings(&state.db.pool, state.db.secret_key())
+            .await
+            .unwrap();
+        assert_eq!(changed.len(), 2, "{changed:?}");
+        let loaded = load(&state.db).await;
+        assert_eq!(loaded.telegram_bot_token, "legacy:token");
+        assert_eq!(loaded.backup_webdav_password, "legacy-pass");
+        let changed = secret_box::encrypt_existing_settings(&state.db.pool, state.db.secret_key())
+            .await
+            .unwrap();
+        assert!(changed.is_empty(), "迁移必须幂等：{changed:?}");
+    }
+
+    /// 主密钥不匹配：必须报可读错误，不能静默回显空 Token/密码。
+    #[tokio::test]
+    async fn wrong_master_key_is_reported_instead_of_silently_empty() {
+        let (app, state, admin, _bob) = setup().await;
+        let other = SecretKey::generate().unwrap();
+        let sealed = secret_box::encrypt_setting(&other, "123456:written-with-another-key");
+        repo::settings::set(&state.db.pool, "telegram_bot_token", &sealed)
+            .await
+            .unwrap();
+
+        let (status, _, body) =
+            request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "settings.secret_decrypt_failed");
+        let message = body["error"].as_str().unwrap();
+        assert!(message.contains("主密钥"), "错误要可读：{message}");
+        assert!(
+            !message.contains("written-with-another-key") && !message.contains(&sealed),
+            "错误不能泄露明文或密文：{message}"
+        );
+
+        // 内部读取仍能工作（空 Token + secret_error），只是 API 明确报错。
+        let settings = load(&state.db).await;
+        assert_eq!(settings.telegram_bot_token, "");
+        assert!(settings.secret_error.is_some());
+    }
+
+    /// 备份加密默认开启；关闭/重新开启都能往返，并且原始落库值正确。
+    #[tokio::test]
+    async fn backup_encrypt_defaults_true_and_round_trips() {
+        let (app, state, admin, _bob) = setup().await;
+        let (_, _, body) = request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(
+            body["items"]["backup_encrypt"], true,
+            "加密备份必须默认开启"
+        );
+
+        for (value, stored) in [(false, "0"), (true, "1")] {
+            let (status, _, body) = request(
+                &app,
+                Some(&admin),
+                Method::PATCH,
+                "/api/v1/settings",
+                Some(json!({ "backup_encrypt": value })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert_eq!(body["items"]["backup_encrypt"], value);
+            assert_eq!(
+                repo::settings::get(&state.db.pool, "backup_encrypt")
+                    .await
+                    .unwrap()
+                    .as_deref(),
+                Some(stored)
+            );
+        }
+
+        // 非布尔值直接 400。
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({"backup_encrypt": "off"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(!body["error"].as_str().unwrap().is_empty());
     }
 }

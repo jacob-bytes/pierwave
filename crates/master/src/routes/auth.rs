@@ -199,7 +199,7 @@ pub async fn login(
     Json(req): Json<LoginRequest>,
 ) -> AppResult<(CookieJar, Json<serde_json::Value>)> {
     // 阈值每次登录都从设置表取一次：设置页改完不需要重启。
-    let settings = settings::load(&state.db.pool).await;
+    let settings = settings::load(&state.db).await;
     let max_attempts = settings.login_max_attempts.clamp(1, 20) as u32;
     state.login_throttle.configure(
         max_attempts,

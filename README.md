@@ -140,7 +140,7 @@ certificates or capabilities are missing is rejected as a whole (fail closed), n
 
 ## Documentation
 
-- [Deployment](docs/DEPLOY.md) · [Plan](docs/PLAN.md) · [Metering](docs/METERING.md)
+- [Deployment](docs/DEPLOY.md) · [Backup encryption](docs/BACKUP_ENCRYPTION.md) · [Plan](docs/PLAN.md)
 - [Subscriptions](docs/SUBSCRIBE.md) · [Chain templates](docs/CHAIN-TEMPLATES.md) · [Telemetry](docs/TELEMETRY.md)
 - [Error codes](docs/ERRORS.md) · [MCP](docs/MCP.md) · [User forwards](docs/USER-FORWARDS.md)
 

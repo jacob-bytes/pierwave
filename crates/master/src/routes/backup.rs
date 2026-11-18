@@ -1,10 +1,11 @@
 //! 备份与恢复（管理员）。
 //!
-//! 导出用 `VACUUM INTO` 生成一致性快照再 gzip；恢复只把校验通过的文件落盘为
+//! 导出用 `VACUUM INTO` 生成一致性快照，gzip 后再用主密钥 AES-256-GCM 加密
+//! （设置项 `backup_encrypt` 可关闭）；恢复只把校验通过的文件落盘为
 //! `<db>.restore-pending`，真正替换发生在下次启动、打开连接池之前
 //! （见 `pierwave_domain::backup::apply_pending_restore`）。
 
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use axum::body::Body;
@@ -23,6 +24,7 @@ use pierwave_domain::backup::{self, MAX_BACKUP_BYTES};
 use pierwave_domain::error::DomainError;
 use pierwave_domain::fs_security;
 use pierwave_domain::repo;
+use pierwave_domain::secret_box::{self, SecretKey};
 
 use crate::audit;
 use crate::auth::CurrentUser;
@@ -35,6 +37,8 @@ pub(crate) struct BackupArchive {
     pub(crate) bytes: u64,
     pub(crate) db_bytes: u64,
     pub(crate) filename: String,
+    /// true = `.db.gz.enc`（默认）；false = 关闭加密后的明文 `.db.gz`。
+    pub(crate) encrypted: bool,
     _guard: TempFile,
 }
 
@@ -50,17 +54,25 @@ impl BackupArchive {
     pub(crate) fn filename(&self) -> &str {
         &self.filename
     }
+
+    pub(crate) fn encrypted(&self) -> bool {
+        self.encrypted
+    }
 }
 
-/// 生成一份 gzip 压缩的一致性快照并落盘。
+/// 生成一份 gzip 压缩的一致性快照并落盘（默认再加密成 `.db.gz.enc`）。
 ///
-/// 下载与异地上传共用同一条路径：`VACUUM INTO` 临时快照 → gzip 临时文件。
+/// 下载与异地上传共用同一条路径：`VACUUM INTO` 临时快照 → gzip 临时文件 →
+/// （默认）AES-256-GCM 加密。关闭设置项 `backup_encrypt` 时跳过最后一步，
+/// 输出历史兼容的明文 `.db.gz`。
 /// 返回的 [`BackupArchive`] 持有临时文件守卫，调用方用完即自动清理。
 pub(crate) async fn create_backup_archive(state: &AppState) -> AppResult<BackupArchive> {
     let db_path = backup_db_path(state)?;
     let dir = parent_dir(&db_path);
     // 备份目录（与数据库同目录）只允许属主进入；已存在的宽权限会被 warn + 收紧。
     fs_security::create_private_dir(dir)?;
+    let settings = crate::routes::settings::load(&state.db).await;
+    let encrypted = settings.backup_encrypt;
     let timestamp = backup::filename_timestamp();
     let token = uuid::Uuid::new_v4();
     let snapshot = dir.join(format!(".pierwave-backup-{timestamp}-{token}.tmp"));
@@ -70,7 +82,7 @@ pub(crate) async fn create_backup_archive(state: &AppState) -> AppResult<BackupA
     let db_bytes = std::fs::metadata(&snapshot)?.len();
 
     let gz_path = dir.join(format!(".pierwave-backup-{timestamp}-{token}.db.gz.tmp"));
-    let guard = TempFile::new(gz_path.clone());
+    let gz_guard = TempFile::new(gz_path.clone());
     let gzip_source = snapshot.clone();
     let gzip_target = gz_path.clone();
     tokio::task::spawn_blocking(move || gzip_file_to(&gzip_source, &gzip_target))
@@ -79,33 +91,57 @@ pub(crate) async fn create_backup_archive(state: &AppState) -> AppResult<BackupA
     // 快照只用于生成 gzip，落盘完成后立刻删掉（不依赖后续执行流）。
     drop(snapshot_guard);
 
-    let bytes = std::fs::metadata(&gz_path)?.len();
-    Ok(BackupArchive {
-        path: gz_path,
-        bytes,
-        db_bytes,
-        filename: format!(
-            "{}-{timestamp}.db.gz",
-            pierwave_domain::remote_backup::REMOTE_BACKUP_PREFIX
-        ),
-        _guard: guard,
-    })
+    let prefix = pierwave_domain::remote_backup::REMOTE_BACKUP_PREFIX;
+    if encrypted {
+        let enc_path = dir.join(format!(
+            ".pierwave-backup-{timestamp}-{token}.db.gz.enc.tmp"
+        ));
+        let guard = TempFile::new(enc_path.clone());
+        let key = state.db.secret_key().clone();
+        let source = gz_path.clone();
+        let target = enc_path.clone();
+        tokio::task::spawn_blocking(move || seal_file_to(&source, &target, &key))
+            .await
+            .map_err(|error| AppError::Internal(anyhow::anyhow!("加密备份失败：{error}")))??;
+        drop(gz_guard);
+
+        let bytes = std::fs::metadata(&enc_path)?.len();
+        Ok(BackupArchive {
+            path: enc_path,
+            bytes,
+            db_bytes,
+            filename: pierwave_domain::remote_backup::remote_file_name(prefix, &timestamp, true),
+            encrypted: true,
+            _guard: guard,
+        })
+    } else {
+        let bytes = std::fs::metadata(&gz_path)?.len();
+        Ok(BackupArchive {
+            path: gz_path,
+            bytes,
+            db_bytes,
+            filename: pierwave_domain::remote_backup::remote_file_name(prefix, &timestamp, false),
+            encrypted: false,
+            _guard: gz_guard,
+        })
+    }
 }
 
-/// `GET /api/v1/backup`：下载 gzip 压缩的一致性快照。
+/// `GET /api/v1/backup`：下载加密（默认）或明文 gzip 的一致性快照。
 pub async fn export(State(state): State<AppState>, user: CurrentUser) -> AppResult<Response> {
     user.require_admin()?;
     let archive = create_backup_archive(&state).await?;
     let gz = tokio::fs::read(archive.path()).await?;
     let filename = archive.filename().to_string();
     let db_bytes = archive.db_bytes;
+    let encrypted = archive.encrypted();
 
     audit::record(
         &state,
         &user.0,
         "backup.export",
         "backup",
-        json!({ "bytes": gz.len(), "db_bytes": db_bytes }),
+        json!({ "bytes": gz.len(), "db_bytes": db_bytes, "encrypted": encrypted }),
     )
     .await;
 
@@ -113,7 +149,11 @@ pub async fn export(State(state): State<AppState>, user: CurrentUser) -> AppResu
     *response.status_mut() = StatusCode::OK;
     response.headers_mut().insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_static("application/gzip"),
+        HeaderValue::from_static(if encrypted {
+            "application/octet-stream"
+        } else {
+            "application/gzip"
+        }),
     );
     let disposition = format!("attachment; filename=\"{filename}\"");
     let disposition =
@@ -124,7 +164,7 @@ pub async fn export(State(state): State<AppState>, user: CurrentUser) -> AppResu
     Ok(response)
 }
 
-/// `POST /api/v1/backup/restore`：上传 `.db` 或 `.db.gz`，落盘为待恢复文件。
+/// `POST /api/v1/backup/restore`：上传 `.db` / `.db.gz` / `.db.gz.enc`，落盘为待恢复文件。
 pub async fn restore(
     State(state): State<AppState>,
     user: CurrentUser,
@@ -142,22 +182,47 @@ pub async fn restore(
     let _upload_guard = TempFile::new(upload.clone());
     save_body(body, &upload).await?;
 
-    let compressed = is_gzip(&upload)?;
+    // 按内容判断：加密信封 / gzip / 裸 SQLite。历史明文备份继续可用。
+    let format = upload_format(&upload)?;
+    let compressed = format != UploadFormat::Raw;
     let raw_path: PathBuf;
     let _raw_guard: Option<TempFile>;
-    if compressed {
-        let raw = dir.join(format!(".pierwave-restore-raw-{token}.db"));
-        let source = upload.clone();
-        let target = raw.clone();
-        tokio::task::spawn_blocking(move || gunzip_file(&source, &target))
-            .await
-            .map_err(|error| AppError::Internal(anyhow::anyhow!("解压备份失败：{error}")))?
-            .map_err(restore_gunzip_error)?;
-        _raw_guard = Some(TempFile::new(raw.clone()));
-        raw_path = raw;
-    } else {
-        _raw_guard = None;
-        raw_path = upload.clone();
+    match format {
+        UploadFormat::Encrypted => {
+            let blob = std::fs::read(&upload)?;
+            let gzip_bytes = secret_box::open(state.db.secret_key(), &blob)
+                .map_err(|_| restore_decrypt_error())?;
+            // 解密后的内容是本产品写下的 gzip；先落盘再流式解压，避免把
+            // 解压后的数据库整个读进内存。
+            let gz_path = dir.join(format!(".pierwave-restore-gz-{token}.db.gz"));
+            let _gz_guard = TempFile::new(gz_path.clone());
+            write_private_bytes(&gz_path, &gzip_bytes)?;
+
+            let raw = dir.join(format!(".pierwave-restore-raw-{token}.db"));
+            let source = gz_path.clone();
+            let target = raw.clone();
+            tokio::task::spawn_blocking(move || gunzip_file(&source, &target))
+                .await
+                .map_err(|error| AppError::Internal(anyhow::anyhow!("解压备份失败：{error}")))?
+                .map_err(restore_gunzip_error)?;
+            _raw_guard = Some(TempFile::new(raw.clone()));
+            raw_path = raw;
+        }
+        UploadFormat::Gzip => {
+            let raw = dir.join(format!(".pierwave-restore-raw-{token}.db"));
+            let source = upload.clone();
+            let target = raw.clone();
+            tokio::task::spawn_blocking(move || gunzip_file(&source, &target))
+                .await
+                .map_err(|error| AppError::Internal(anyhow::anyhow!("解压备份失败：{error}")))?
+                .map_err(restore_gunzip_error)?;
+            _raw_guard = Some(TempFile::new(raw.clone()));
+            raw_path = raw;
+        }
+        UploadFormat::Raw => {
+            _raw_guard = None;
+            raw_path = upload.clone();
+        }
     }
 
     let raw_bytes = backup::validate_backup_file(&raw_path)
@@ -174,7 +239,11 @@ pub async fn restore(
         &user.0,
         "backup.restore.schedule",
         "backup",
-        json!({ "bytes": raw_bytes, "compressed": compressed }),
+        json!({
+            "bytes": raw_bytes,
+            "compressed": compressed,
+            "encrypted": format == UploadFormat::Encrypted,
+        }),
     )
     .await;
 
@@ -242,7 +311,7 @@ pub async fn remote_status(
     user: CurrentUser,
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
-    let settings = crate::routes::settings::load(&state.db.pool).await;
+    let settings = crate::routes::settings::load(&state.db).await;
     let meta = crate::remote_backup::load_meta(&state.db.pool).await;
     let files = crate::remote_backup::list_managed_files(&settings).await;
     Ok(Json(remote_status_json(&meta, &files)))
@@ -282,7 +351,7 @@ pub async fn remote_test(
     user: CurrentUser,
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
-    let settings = crate::routes::settings::load(&state.db.pool).await;
+    let settings = crate::routes::settings::load(&state.db).await;
     match crate::remote_backup::test_connection(&settings).await {
         Ok(()) => Ok(Json(json!({ "ok": true, "error": Value::Null }))),
         Err(crate::remote_backup::RunError::NotConfigured(message)) => Err(AppError::coded(
@@ -435,15 +504,53 @@ fn uploaded_at(path: &Path) -> i64 {
         .unwrap_or(0)
 }
 
-/// 按内容（gzip 魔数）而不是扩展名判断。
-fn is_gzip(path: &Path) -> AppResult<bool> {
-    let mut header = [0u8; 2];
+/// 上传体的真实格式；按内容判断，不看扩展名。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UploadFormat {
+    /// 本产品的 `MAGIC | VERSION | NONCE | CIPHERTEXT` 信封（默认导出格式）。
+    Encrypted,
+    /// 历史明文备份：gzip 压缩的 SQLite。
+    Gzip,
+    /// 更早的裸 `.db` 上传。
+    Raw,
+}
+
+fn upload_format(path: &Path) -> AppResult<UploadFormat> {
+    let mut header = [0u8; 4];
     let mut file = std::fs::File::open(path)?;
-    match file.read(&mut header) {
-        Ok(read) => Ok(read == header.len() && header == backup::GZIP_MAGIC),
-        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => Ok(false),
-        Err(error) => Err(error.into()),
+    let read = file.read(&mut header)?;
+    if read == header.len() && header == secret_box::MAGIC {
+        return Ok(UploadFormat::Encrypted);
     }
+    if read >= backup::GZIP_MAGIC.len() && header[..2] == backup::GZIP_MAGIC {
+        return Ok(UploadFormat::Gzip);
+    }
+    Ok(UploadFormat::Raw)
+}
+
+/// 解密失败对外的统一错误：不透露主密钥、密文细节或具体失败原因。
+fn restore_decrypt_error() -> AppError {
+    AppError::coded(
+        "backup.restore_decrypt_failed",
+        None,
+        "备份解密失败：主密钥与备份不匹配，或文件已损坏 / \
+         The backup cannot be decrypted: the master key does not match, or the file is corrupted",
+    )
+}
+
+/// 一次写入并 sync，权限走 `open_private_file`（0600）。
+fn write_private_bytes(path: &Path, bytes: &[u8]) -> AppResult<()> {
+    let mut file = fs_security::open_private_file(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    Ok(())
+}
+
+/// 读取 gzip 产物并封装成信封；只在 `spawn_blocking` 里调用。
+fn seal_file_to(source: &Path, target: &Path, key: &SecretKey) -> AppResult<()> {
+    let plaintext = std::fs::read(source)?;
+    let sealed = secret_box::seal(key, &plaintext);
+    write_private_bytes(target, &sealed)
 }
 
 /// gzip 到目标文件并 sync；失败时把半成品删掉，避免残留临时文件。
@@ -668,9 +775,10 @@ mod tests {
         body
     }
 
+    /// 默认导出必须是加密信封：不能是 gzip，更不能是明文 SQLite。
     #[tokio::test]
-    async fn export_returns_gzipped_sqlite_snapshot() {
-        let (dir, app, _state, cookie) = setup("export").await;
+    async fn export_returns_encrypted_gzipped_sqlite_snapshot() {
+        let (dir, app, state, cookie) = setup("export").await;
         let (status, headers, body) = request(
             &app,
             Some(&cookie),
@@ -682,7 +790,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
             headers.get(header::CONTENT_TYPE).unwrap().to_str().unwrap(),
-            "application/gzip"
+            "application/octet-stream"
         );
         let disposition = headers
             .get(header::CONTENT_DISPOSITION)
@@ -693,9 +801,27 @@ mod tests {
             disposition.starts_with("attachment; filename=\"pierwave-backup-"),
             "实际：{disposition}"
         );
-        assert!(disposition.ends_with(".db.gz\""), "实际：{disposition}");
+        assert!(
+            disposition.ends_with(".db.gz.enc\""),
+            "默认必须输出加密备份：{disposition}"
+        );
+        assert!(
+            body.starts_with(&secret_box::MAGIC),
+            "导出内容必须是加密信封"
+        );
+        assert!(
+            !gzip_magic(&body),
+            "加密备份不能以 gzip 魔数开头（那说明没加密）"
+        );
+        assert!(
+            !body.starts_with(backup::SQLITE_MAGIC),
+            "加密备份不能是明文 SQLite"
+        );
 
-        let raw = gunzip(&body);
+        // 用服务端主密钥解密后，得到 gzip → SQLite。
+        let gz = secret_box::open(state.db.secret_key(), &body).unwrap();
+        assert!(gzip_magic(&gz));
+        let raw = gunzip(&gz);
         assert!(raw.starts_with(backup::SQLITE_MAGIC));
         assert!(
             leftover_temp_files(&dir.path).is_empty(),
@@ -924,8 +1050,10 @@ mod tests {
 
     #[tokio::test]
     async fn raw_database_upload_is_accepted() {
-        let (dir, app, _state, cookie) = setup("raw").await;
-        let raw = gunzip(&export_bytes(&app, &cookie).await);
+        let (dir, app, state, cookie) = setup("raw").await;
+        let encrypted = export_bytes(&app, &cookie).await;
+        let gz = secret_box::open(state.db.secret_key(), &encrypted).unwrap();
+        let raw = gunzip(&gz);
 
         let (status, _, body) = request(
             &app,
@@ -937,6 +1065,120 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
         assert!(backup::pending_path(&dir.db_path()).exists());
+    }
+
+    /// 篡改加密备份的任意一字节：解密必须失败，错误可读且不泄露细节。
+    #[tokio::test]
+    async fn tampered_encrypted_backup_is_rejected_with_readable_error() {
+        let (dir, app, _state, cookie) = setup("tamper").await;
+        let mut body = export_bytes(&app, &cookie).await;
+        assert!(body.starts_with(&secret_box::MAGIC));
+        let last = body.len() - 1;
+        body[last] ^= 0x01;
+
+        let (status, _, response) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/restore",
+            body,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let payload = json(&response);
+        assert_eq!(payload["code"], "backup.restore_decrypt_failed");
+        let message = payload["error"].as_str().unwrap();
+        assert!(message.contains("解密失败"), "错误要可读：{message}");
+        assert!(
+            message.contains("主密钥") || message.contains("损坏"),
+            "错误要说明可能原因：{message}"
+        );
+        assert!(
+            !message.contains("PWSB") && !message.contains("tag"),
+            "错误不能透露密文/实现细节：{message}"
+        );
+        assert!(
+            !backup::pending_path(&dir.db_path()).exists(),
+            "解密失败不能留下待恢复文件"
+        );
+    }
+
+    /// 关闭 `backup_encrypt` 后：导出是明文 `.db.gz`，且这份旧格式仍可恢复。
+    #[tokio::test]
+    async fn disabling_backup_encryption_outputs_plaintext_and_still_restores() {
+        let (dir, app, state, cookie) = setup("plain-export").await;
+        repo::settings::set(&state.db.pool, "backup_encrypt", "0")
+            .await
+            .unwrap();
+
+        let (status, headers, body) = request(
+            &app,
+            Some(&cookie),
+            Method::GET,
+            "/api/v1/backup",
+            Vec::new(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE).unwrap().to_str().unwrap(),
+            "application/gzip"
+        );
+        let disposition = headers
+            .get(header::CONTENT_DISPOSITION)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(
+            disposition.ends_with(".db.gz\""),
+            "关闭加密后必须是 .db.gz：{disposition}"
+        );
+        assert!(gzip_magic(&body), "关闭加密后必须是明文 gzip");
+        assert!(!body.starts_with(&secret_box::MAGIC));
+
+        // 旧的明文 .db.gz 备份（这里就是关闭加密后的导出）仍然可以恢复。
+        let (status, _, response) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/restore",
+            body,
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "{}",
+            String::from_utf8_lossy(&response)
+        );
+        assert!(backup::pending_path(&dir.db_path()).exists());
+    }
+
+    /// 默认导出再原样上传：加密往返成功，落位文件是明文 SQLite。
+    #[tokio::test]
+    async fn encrypted_export_round_trips_through_restore() {
+        let (dir, app, _state, cookie) = setup("enc-roundtrip").await;
+        let body = export_bytes(&app, &cookie).await;
+
+        let (status, _, response) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/restore",
+            body,
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "{}",
+            String::from_utf8_lossy(&response)
+        );
+        let pending = backup::pending_path(&dir.db_path());
+        assert!(pending.exists());
+        assert!(std::fs::read(&pending)
+            .unwrap()
+            .starts_with(backup::SQLITE_MAGIC));
     }
 
     /// 刚初始化（迁移 + 建管理员）的库：数值不为 0，也不能是几十 MB。
@@ -1073,8 +1315,8 @@ mod tests {
         assert_eq!(payload["ok"], true);
         let name = payload["file"]["name"].as_str().unwrap();
         assert!(
-            name.starts_with("pierwave-backup-") && name.ends_with(".db.gz"),
-            "文件名必须符合契约：{name}"
+            name.starts_with("pierwave-backup-") && name.ends_with(".db.gz.enc"),
+            "默认上传的必须是加密备份：{name}"
         );
         assert!(payload["file"]["size"].as_u64().unwrap() > 0);
         assert_eq!(
@@ -1110,8 +1352,19 @@ mod tests {
                 .files
                 .contains_key("pierwave-backup-20260104-000000.db.gz"));
             let uploaded = &fake_state.files[name].0;
-            assert!(gzip_magic(uploaded), "上传的必须是 gzip");
-            let raw = gunzip(uploaded);
+            // 上传到假 WebDAV 的内容必须是密文：不是 gzip，也不是明文 SQLite。
+            assert!(
+                uploaded.starts_with(&secret_box::MAGIC),
+                "上传的必须是加密信封"
+            );
+            assert!(!gzip_magic(uploaded), "上传内容不能是明文 gzip");
+            assert!(
+                !uploaded.starts_with(backup::SQLITE_MAGIC),
+                "上传内容不能是明文 SQLite"
+            );
+            let gz = secret_box::open(state.db.secret_key(), uploaded).unwrap();
+            assert!(gzip_magic(&gz), "解密后应是本产品的 gzip");
+            let raw = gunzip(&gz);
             assert!(
                 raw.starts_with(backup::SQLITE_MAGIC),
                 "解压后必须是 SQLite 数据库"

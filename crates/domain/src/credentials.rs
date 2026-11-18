@@ -19,6 +19,7 @@ use sha2::Sha256;
 use sqlx::SqlitePool;
 
 use crate::repo;
+use crate::secret_box::{self, SecretKey};
 
 /// settings 表里 master secret 的键名；版本号写在键里，便于整体轮换。
 pub const MASTER_SECRET_KEY: &str = "hmac_secret_v1";
@@ -30,15 +31,19 @@ const SECRET_LEN: usize = 32;
 ///
 /// 并发首启时以先写入者为准（`INSERT ... ON CONFLICT DO NOTHING` + 回读），
 /// 否则同一实例上会出现两批互相不认的订阅。
-pub async fn master_secret(pool: &SqlitePool) -> anyhow::Result<String> {
+pub async fn master_secret(pool: &SqlitePool, key: &SecretKey) -> anyhow::Result<String> {
     if let Some(existing) = repo::settings::get(pool, MASTER_SECRET_KEY).await? {
-        return Ok(existing);
+        // 迁移 0058 之后这里是 `enc:v1:` 密文；更早的库仍是明文，读取侧兼容。
+        return secret_box::reveal_setting(key, &existing);
     }
 
     let mut secret = [0u8; SECRET_LEN];
     secret[..16].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
     secret[16..].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
-    repo::settings::get_or_init(pool, MASTER_SECRET_KEY, &hex::encode(secret)).await
+    // 新生成的 master secret 直接以密文落库；并发首启时先写入者胜出。
+    let sealed = secret_box::encrypt_setting(key, &hex::encode(secret));
+    let stored = repo::settings::get_or_init(pool, MASTER_SECRET_KEY, &sealed).await?;
+    secret_box::reveal_setting(key, &stored)
 }
 
 /// 某个用户在某节点上的子账户 UUID（稳定、可归因）。
