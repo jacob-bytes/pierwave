@@ -1,15 +1,10 @@
-import { LockKeyholeIcon, RefreshCwIcon, TriangleAlertIcon } from "lucide-react";
+import { LockKeyholeIcon } from "lucide-react";
 import { toast } from "sonner";
 import {
   SettingsGroup,
   SETTINGS_FULL_ROW,
 } from "@/components/settings/SettingsGroup";
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { ListError } from "@/components/common";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -59,29 +54,13 @@ export function BackupEncryptionCard() {
   if (settings.isError) {
     return (
       <Card>
-        <CardContent className="space-y-3">
-          <Alert
-            variant="destructive"
-            className="border-destructive/25 bg-destructive/10"
-          >
-            <TriangleAlertIcon />
-            <AlertTitle>{t("settings.backup.encrypt.loadFailed")}</AlertTitle>
-            <AlertDescription>
-              {errorText(settings.error, t("settings.backup.encrypt.loadError"))}
-            </AlertDescription>
-          </Alert>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void settings.refetch()}
-            disabled={settings.isFetching}
-          >
-            <RefreshCwIcon
-              className={settings.isFetching ? "animate-spin" : undefined}
-            />
-            {t("common.retry")}
-          </Button>
+        <CardContent>
+          <ListError
+            title={t("settings.backup.encrypt.loadFailed")}
+            message={errorText(settings.error, t("settings.backup.encrypt.loadError"))}
+            retrying={settings.isFetching}
+            onRetry={() => void settings.refetch()}
+          />
         </CardContent>
       </Card>
     );

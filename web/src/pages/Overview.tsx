@@ -20,12 +20,12 @@ import {
   ServerIcon,
   ServerOffIcon,
   Trash2Icon,
-  TriangleAlertIcon,
   UsersIcon,
   WaypointsIcon,
 } from "lucide-react";
 import {
   EmptyState,
+  ListError,
   PageHeader,
   SkeletonCard,
 } from "@/components/common";
@@ -257,25 +257,13 @@ function OverviewError({
 }) {
   return (
     <Card>
-      <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-        <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-          <TriangleAlertIcon className="icon-lg" />
-        </div>
-        <div>
-          <p className="text-sm font-medium">{t("overview.loadFailed")}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onRetry}
-          disabled={retrying}
-        >
-          <RefreshCwIcon
-            className={cn("icon-md", retrying && "animate-spin")}
-          />
-          {t("common.retry")}
-        </Button>
+      <CardContent>
+        <ListError
+          title={t("overview.loadFailed")}
+          message={message}
+          retrying={retrying}
+          onRetry={onRetry}
+        />
       </CardContent>
     </Card>
   );
@@ -316,24 +304,12 @@ function PanelError({
   onRetry: () => void;
 }) {
   return (
-    <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
-      <div className="grid size-9 place-items-center rounded-full bg-destructive/10 text-destructive">
-        <TriangleAlertIcon className="icon-md" />
-      </div>
-      <div>
-        <p className="text-sm font-medium">{t("overview.panelLoadFailed")}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-      </div>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={onRetry}
-        disabled={retrying}
-      >
-        <RefreshCwIcon className={cn("icon-md", retrying && "animate-spin")} />
-        {t("common.retry")}
-      </Button>
-    </div>
+    <ListError
+      title={t("overview.panelLoadFailed")}
+      message={message}
+      retrying={retrying}
+      onRetry={onRetry}
+    />
   );
 }
 
@@ -893,32 +869,13 @@ function TrendCard({
           {trafficPending ? (
             <Skeleton className="h-[248px] w-full" />
           ) : trafficError ? (
-            <div className="flex h-[248px] flex-col items-center justify-center gap-3 text-center">
-              <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-                <TriangleAlertIcon className="icon-lg" />
-              </div>
-              <div>
-                <p className="text-sm font-medium">
-                  {t("overview.trafficLoadFailed")}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {statsErrorText(trafficError)}
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onTrafficRetry}
-                disabled={trafficFetching}
-              >
-                <RefreshCwIcon
-                  className={cn(
-                    "icon-md",
-                    trafficFetching && "animate-spin",
-                  )}
-                />
-                {t("common.retry")}
-              </Button>
+            <div className="flex h-[248px] items-center justify-center">
+              <ListError
+                title={t("overview.trafficLoadFailed")}
+                message={statsErrorText(trafficError)}
+                retrying={trafficFetching}
+                onRetry={onTrafficRetry}
+              />
             </div>
           ) : (
             <Suspense fallback={<Skeleton className="h-[248px] w-full" />}>

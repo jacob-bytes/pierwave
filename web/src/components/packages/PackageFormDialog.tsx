@@ -211,8 +211,8 @@ export function PackageFormDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[88vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
+        <DialogHeader className="border-b border-border px-4 py-4 pr-12 sm:px-6">
           <DialogTitle>
             {editing ? t("packages.form.editTitle") : t("packages.form.createTitle")}
           </DialogTitle>
@@ -221,7 +221,11 @@ export function PackageFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form id="package-form" className="space-y-4" onSubmit={onSubmit}>
+        <form
+          id="package-form"
+          className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6"
+          onSubmit={onSubmit}
+        >
           <FormField
             label={t("packages.form.name")}
             htmlFor="package-name"
@@ -519,7 +523,7 @@ export function PackageFormDialog({
           <FormRootError message={form.formState.errors.root?.message} />
         </form>
 
-        <DialogFooter>
+        <DialogFooter className="mx-0 mb-0 rounded-none border-border px-4 py-3 sm:px-6">
           <Button
             type="button"
             variant="outline"

@@ -13,6 +13,7 @@ import { FormField } from "@/components/FormField";
 import {
   CopyButton,
   EmptyState,
+  ListErrorRow,
   SkeletonTable,
 } from "@/components/common";
 import {
@@ -289,37 +290,13 @@ export function ApiTokensCard() {
             </TableHeader>
             <TableBody>
               {showError ? (
-                <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-                    <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
-                      <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-                        <TriangleAlertIcon className="size-5" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">
-                          {t("settings.apiTokens.loadFailed")}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {errorMessage}
-                        </p>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void tokens.refetch()}
-                        disabled={tokens.isFetching}
-                      >
-                        <RefreshCwIcon
-                          className={cn(
-                            "size-3.5",
-                            tokens.isFetching && "animate-spin",
-                          )}
-                        />
-                        {t("common.retry")}
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
+                <ListErrorRow
+                  colSpan={COLUMN_COUNT}
+                  title={t("settings.apiTokens.loadFailed")}
+                  message={errorMessage}
+                  retrying={tokens.isFetching}
+                  onRetry={() => void tokens.refetch()}
+                />
               ) : items.length === 0 ? (
                 <TableRow className="hover:bg-transparent">
                   <TableCell colSpan={COLUMN_COUNT} className="px-4 py-8">

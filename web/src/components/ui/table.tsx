@@ -132,7 +132,10 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
     <tr
       data-slot="table-row"
       className={cn(
-        "border-b transition-colors duration-75 hover:bg-muted/40 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted",
+        // 行高基线 40px（docs/DESIGN.md「表格行高 40px」）：单元格用 py-1.5，
+        // 28px 的操作按钮 / 24px 的头像都正好落进 40px；单行文本由 h-10 补足。
+        // 多行内容应收进同一行（或收进 title），否则行高会突破基线。
+        "h-10 border-b transition-colors duration-75 hover:bg-muted/40 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted",
         className
       )}
       {...props}
@@ -183,7 +186,8 @@ function TableCell({
       data-slot="table-cell"
       data-sticky={sticky}
       className={cn(
-        "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
+        // 与 TableRow 的 40px 基线配套：28px 的按钮 + 12px 上下内边距 = 40px。
+        "px-2 py-1.5 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
         sticky && stickyClasses[sticky],
         className
       )}

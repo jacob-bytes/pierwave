@@ -26,6 +26,7 @@ import {
 import {
   EmptyState,
   ListError,
+  ListErrorRow,
   MobileDataCard,
   PageHeader,
   SkeletonCard,
@@ -116,6 +117,7 @@ import {
 import { copyText } from "@/lib/clipboard";
 import { isCountryCode } from "@/lib/country";
 import { errorText } from "@/lib/errors";
+import { missingRequiredLabels } from "@/lib/formRequired";
 import { formatBytes } from "@/lib/format";
 import { formatRatePairText, rateParts } from "@/lib/netRate";
 import { nicLabel, nicState } from "@/lib/nic";
@@ -136,6 +138,7 @@ import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 import { useIsDesktop } from "@/lib/useIsDesktop";
 import { CountrySelect } from "@/components/common/CountrySelect";
+import { FormField } from "@/components/FormField";
 
 const COLUMN_COUNT = 12;
 /** 心跳超过这个时长没有更新就不该再当作实时数据。 */
@@ -334,7 +337,7 @@ function MemoryCell({ server }: { server: Server }) {
 
   return (
     <div
-      className="flex items-center gap-2"
+      className="flex items-center justify-end gap-2"
       title={`${formatBytes(server.mem_used)} / ${formatBytes(server.mem_total)}`}
     >
       <Progress
@@ -398,7 +401,7 @@ function RateCell({ server }: { server: Server }) {
 
   return (
     <span
-      className="inline-flex flex-col items-start gap-0.5"
+      className="inline-flex items-center justify-end gap-2 whitespace-nowrap"
       title={t("servers.detail.rateHint")}
     >
       <span className="inline-flex items-center gap-1 whitespace-nowrap">
@@ -787,38 +790,6 @@ function FilterEmptyRow({ onClear }: { onClear: () => void }) {
   );
 }
 
-function ErrorRow({
-  message,
-  onRetry,
-  retrying,
-}: {
-  message: string;
-  onRetry: () => void;
-  retrying: boolean;
-}) {
-  return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-            <TriangleAlertIcon className="icon-lg" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{t("servers.loadFailed")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={onRetry} disabled={retrying}>
-            <RefreshCwIcon
-              className={cn("icon-md", retrying && "animate-spin")}
-            />
-            {t("common.retry")}
-          </Button>
-        </div>
-      </TableCell>
-    </TableRow>
-  );
-}
-
 export default function ServersPage() {
   const { t } = useI18n();
   const isDesktop = useIsDesktop();
@@ -986,6 +957,11 @@ export default function ServersPage() {
   const createError = create.isError
     ? errorText(create.error, t("servers.createError"))
     : null;
+  // 必填项与按钮禁用条件同源：缺哪个就列哪个，不写额外解释。
+  const createMissingLabels = missingRequiredLabels([
+    { label: t("servers.createDialog.name"), value: name },
+    { label: t("servers.createDialog.address"), value: address },
+  ]);
 
   function renderServerName(server: Server) {
     const serviceDown = isServiceDown(server);
@@ -1200,46 +1176,46 @@ export default function ServersPage() {
         <TableCell
           sticky="left"
           className={cn(
-            "w-10 px-2 py-2.5",
+            "w-10 px-2",
             highlighted && "border-l border-primary/40",
           )}
         >
           {renderServerCheckbox(server, selected)}
         </TableCell>
-        <TableCell className="max-w-56 px-2 py-2.5">
+        <TableCell className="max-w-56 px-2">
           {renderServerName(server)}
         </TableCell>
-        <TableCell className="hidden px-2 py-2.5 font-mono text-xs text-muted-foreground lg:table-cell">
+        <TableCell className="hidden px-2 font-mono text-xs text-muted-foreground lg:table-cell">
           {server.address}
         </TableCell>
-        <TableCell className="hidden px-2 py-2.5 text-xs text-muted-foreground 2xl:table-cell">
+        <TableCell className="hidden px-2 text-xs text-muted-foreground 2xl:table-cell">
           {renderServerMode(server)}
         </TableCell>
-        <TableCell className="px-2 py-2.5">
+        <TableCell className="px-2">
           <StatusBadge server={server} />
         </TableCell>
-        <TableCell className="px-2 py-2.5">
+        <TableCell className="px-2">
           <XrayStatus server={server} />
         </TableCell>
-        <TableCell className="px-2 py-2.5 text-xs text-muted-foreground">
+        <TableCell className="px-2 text-xs text-muted-foreground">
           <HeartbeatText healthAt={server.health_at} />
         </TableCell>
-        <TableCell className="hidden px-2 py-2.5 xl:table-cell">
+        <TableCell className="hidden px-2 xl:table-cell">
           <VersionCell server={server} />
         </TableCell>
-        <TableCell className="hidden px-2 py-2.5 xl:table-cell">
+        <TableCell className="hidden px-2 text-right xl:table-cell">
           {renderServerLoad(server)}
         </TableCell>
-        <TableCell className="hidden px-2 py-2.5 xl:table-cell">
+        <TableCell className="hidden px-2 text-right xl:table-cell">
           <MemoryCell server={server} />
         </TableCell>
-        <TableCell className="hidden whitespace-nowrap px-2 py-2.5 xl:table-cell">
+        <TableCell className="hidden whitespace-nowrap px-2 text-right xl:table-cell">
           <RateCell server={server} />
         </TableCell>
         <TableCell
           sticky="right"
           className={cn(
-            "px-2 py-2.5",
+            "px-2",
             highlighted && "border-r border-primary/40",
           )}
         >
@@ -1601,14 +1577,21 @@ export default function ServersPage() {
                 >
                   {t("servers.agentVersion")}
                 </TableHead>
-                <TableHead className={cn(HEAD_CLASS, "hidden xl:table-cell")}>
+                <TableHead
+                  className={cn(HEAD_CLASS, "hidden text-right xl:table-cell")}
+                >
                   {t("servers.detail.load")}
                 </TableHead>
-                <TableHead className={cn(HEAD_CLASS, "hidden xl:table-cell")}>
+                <TableHead
+                  className={cn(HEAD_CLASS, "hidden text-right xl:table-cell")}
+                >
                   {t("servers.detail.memory")}
                 </TableHead>
                 <TableHead
-                  className={cn(HEAD_CLASS, "hidden whitespace-nowrap xl:table-cell")}
+                  className={cn(
+                    HEAD_CLASS,
+                    "hidden whitespace-nowrap text-right xl:table-cell",
+                  )}
                 >
                   {t("servers.detail.rate")}
                 </TableHead>
@@ -1617,7 +1600,9 @@ export default function ServersPage() {
             </TableHeader>
             <TableBody>
               {showError ? (
-                <ErrorRow
+                <ListErrorRow
+                  colSpan={COLUMN_COUNT}
+                  title={t("servers.loadFailed")}
                   message={errorMessage}
                   retrying={servers.isFetching}
                   onRetry={() => void servers.refetch()}
@@ -1689,8 +1674,8 @@ export default function ServersPage() {
       </Card>
 
       <Dialog open={createOpen} onOpenChange={handleCreateOpenChange}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[88vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+          <DialogHeader className="border-b border-border px-4 py-4 pr-12 sm:px-6">
             <DialogTitle>{t("servers.createDialog.title")}</DialogTitle>
             <DialogDescription>
               {t("servers.createDialog.desc")}
@@ -1699,26 +1684,27 @@ export default function ServersPage() {
 
           <form
             id="create-server-form"
-            className="space-y-4"
+            className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6"
             onSubmit={handleCreate}
           >
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="server-name">
-                  {t("servers.createDialog.name")}
-                </Label>
+              <FormField
+                label={t("servers.createDialog.name")}
+                htmlFor="server-name"
+                required
+              >
                 <Input
                   id="server-name"
                   value={name}
                   onChange={(event) => setName(event.target.value)}
                   placeholder="hk-1"
                   autoComplete="off"
+                  required
                   disabled={create.isPending}
                 />
-              </div>
+              </FormField>
 
-              <div className="space-y-2">
-                <Label htmlFor="server-group">{t("servers.group")}</Label>
+              <FormField label={t("servers.group")} htmlFor="server-group">
                 <Input
                   id="server-group"
                   value={group}
@@ -1728,22 +1714,24 @@ export default function ServersPage() {
                   autoComplete="off"
                   disabled={create.isPending}
                 />
-              </div>
+              </FormField>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="server-address">
-                {t("servers.createDialog.address")}
-              </Label>
+            <FormField
+              label={t("servers.createDialog.address")}
+              htmlFor="server-address"
+              required
+            >
               <Input
                 id="server-address"
                 value={address}
                 onChange={(event) => setAddress(event.target.value)}
                 placeholder={t("servers.createDialog.addressPlaceholder")}
                 autoComplete="off"
+                required
                 disabled={create.isPending}
               />
-            </div>
+            </FormField>
 
             {/* 新服务器还没有上报过网卡：先占位并禁用，连入一次后即可编辑。 */}
             <NicField
@@ -1813,7 +1801,14 @@ export default function ServersPage() {
             ) : null}
           </form>
 
-          <DialogFooter>
+          <DialogFooter className="mx-0 mb-0 rounded-none border-border px-4 py-3 sm:px-6">
+            {createMissingLabels.length > 0 && !create.isPending ? (
+              <p className="mr-auto text-xs text-muted-foreground">
+                {t("form.missingFields", {
+                  fields: createMissingLabels.join(" · "),
+                })}
+              </p>
+            ) : null}
             <Button
               variant="outline"
               onClick={() => setCreateOpen(false)}
@@ -1825,7 +1820,7 @@ export default function ServersPage() {
               type="submit"
               form="create-server-form"
               disabled={
-                create.isPending || !name.trim() || !address.trim()
+                create.isPending || createMissingLabels.length > 0
               }
             >
               {create.isPending ? (

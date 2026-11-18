@@ -23,6 +23,7 @@ import {
   AlertTitle,
 } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { ListError } from "@/components/common";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -696,29 +697,13 @@ export function RemoteBackupCard() {
   if (settings.isError) {
     return (
       <Card>
-        <CardContent className="space-y-3">
-          <Alert
-            variant="destructive"
-            className="border-destructive/25 bg-destructive/10"
-          >
-            <TriangleAlertIcon />
-            <AlertTitle>{t("settings.backup.loadFailed")}</AlertTitle>
-            <AlertDescription>
-              {remoteErrorText(settings.error, t("settings.backup.loadError"))}
-            </AlertDescription>
-          </Alert>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void settings.refetch()}
-            disabled={settings.isFetching}
-          >
-            <RefreshCwIcon
-              className={settings.isFetching ? "animate-spin" : undefined}
-            />
-            {t("common.retry")}
-          </Button>
+        <CardContent>
+          <ListError
+            title={t("settings.backup.loadFailed")}
+            message={remoteErrorText(settings.error, t("settings.backup.loadError"))}
+            retrying={settings.isFetching}
+            onRetry={() => void settings.refetch()}
+          />
         </CardContent>
       </Card>
     );

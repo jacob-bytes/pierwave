@@ -59,13 +59,63 @@ fn verify_credentials(user: Option<&User>, password: &str) -> bool {
     verify_credentials_with(user, password, &mut password::verify)
 }
 
-/// 客户端 IP：优先 `X-Forwarded-For` 第一段，其次 TCP 对端地址。
+/// 规范化后的客户端地址。
 ///
-/// 信任策略见 `docs/PLAN.md`：主控默认只监听回环、生产部署在反向代理后面，
-/// 所以这里直接信任 XFF。若把主控直接暴露到公网，攻击者可以伪造 XFF
-/// 绕过 IP 维度；此时应让代理覆盖而非透传客户端自带的 XFF
-/// （账号维度仍会按用户名聚合，不会被 XFF 绕过）。
-pub struct ClientIp(pub String);
+/// - IPv4-mapped IPv6（`::ffff:1.2.3.4`）统一成 IPv4，避免同一地址被当成
+///   两个限流桶；
+/// - 审计、登录设备与告警用完整地址（[`ClientAddr::to_ip_string`]）；
+/// - 限流键对 IPv6 取 `/64` 前缀（[`ClientAddr::throttle_key`]）：一个 /64 里
+///   的单地址可以随意轮换，按单地址计数等于给攻击者无限个免费桶。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClientAddr(IpAddr);
+
+impl ClientAddr {
+    fn new(addr: IpAddr) -> Self {
+        let addr = match addr {
+            IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+                Some(v4) => IpAddr::V4(v4),
+                None => IpAddr::V6(v6),
+            },
+            IpAddr::V4(_) => addr,
+        };
+        Self(addr)
+    }
+
+    /// 审计、登录设备与告警里展示的地址（mapped 已转成 IPv4）。
+    pub fn to_ip_string(self) -> String {
+        self.0.to_string()
+    }
+
+    /// 限流键：IPv4 用地址本身；IPv6 聚合到 `/64` 前缀。
+    pub fn throttle_key(self) -> String {
+        match self.0 {
+            IpAddr::V4(v4) => v4.to_string(),
+            IpAddr::V6(v6) => {
+                let segments = v6.segments();
+                // 保留高 64 位、清零低 64 位，得到该地址所属的 /64 网络。
+                let network = std::net::Ipv6Addr::new(
+                    segments[0],
+                    segments[1],
+                    segments[2],
+                    segments[3],
+                    0,
+                    0,
+                    0,
+                    0,
+                );
+                format!("{network}/64")
+            }
+        }
+    }
+}
+
+/// 客户端地址：从 `X-Forwarded-For` 的**最右**端往左解析，跳过可信代理。
+///
+/// 信任策略：直连对端是公网就不采信任何 XFF（头可由它完全伪造）；只有对端是
+/// 回环/内网反代时才解析 XFF。`nginx $proxy_add_x_forwarded_for` 把真实地址
+/// **追加**在最右，客户端自带的伪造值只会留在左侧，因此取第一段等于直接采信
+/// 攻击者输入。
+pub struct ClientIp(pub Option<ClientAddr>);
 
 impl FromRequestParts<AppState> for ClientIp {
     type Rejection = Infallible;
@@ -90,7 +140,26 @@ fn is_trusted_proxy(ip: IpAddr) -> bool {
     }
 }
 
-pub(crate) fn client_ip(headers: &HeaderMap, extensions: &Extensions) -> String {
+/// 解析整条 XFF（可能有多条同名头），只返回能 `IpAddr::parse` 的段。
+///
+/// 解析失败的段直接忽略：它们既不能当限流键，也不能当审计 IP。
+fn forwarded_chain(headers: &HeaderMap) -> Vec<IpAddr> {
+    let mut chain = Vec::new();
+    for value in headers.get_all("x-forwarded-for") {
+        let Ok(raw) = value.to_str() else {
+            continue;
+        };
+        for segment in raw.split(',') {
+            let Ok(addr) = segment.trim().parse::<IpAddr>() else {
+                continue;
+            };
+            chain.push(ClientAddr::new(addr).0);
+        }
+    }
+    chain
+}
+
+pub(crate) fn client_ip(headers: &HeaderMap, extensions: &Extensions) -> Option<ClientAddr> {
     let peer = extensions
         .get::<ConnectInfo<SocketAddr>>()
         .map(|ConnectInfo(addr)| addr.ip());
@@ -101,25 +170,34 @@ pub(crate) fn client_ip(headers: &HeaderMap, extensions: &Extensions) -> String 
 ///
 /// 信任边界与 [`client_ip`] 完全一致：对端是公网就无视 XFF，只有回环/内网
 /// 反代转发的头才采信。
-pub(crate) fn client_ip_with_peer(headers: &HeaderMap, peer: Option<IpAddr>) -> String {
+pub(crate) fn client_ip_with_peer(headers: &HeaderMap, peer: Option<IpAddr>) -> Option<ClientAddr> {
+    let peer = peer.map(ClientAddr::new);
+
+    // 直连对端不可信：XFF 一律不采信。
     if let Some(peer) = peer {
-        if !is_trusted_proxy(peer) {
-            return peer.to_string();
+        if !is_trusted_proxy(peer.0) {
+            return Some(peer);
         }
     }
 
-    if let Some(first) = headers
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
-        .map(str::trim)
-        .filter(|first| !first.is_empty())
+    // 从右往左：跳过可信代理，第一个不可信地址就是真实客户端。
+    let chain = forwarded_chain(headers);
+    if let Some(addr) = chain
+        .iter()
+        .rev()
+        .copied()
+        .find(|addr| !is_trusted_proxy(*addr))
     {
-        return first.to_string();
+        return Some(ClientAddr::new(addr));
+    }
+    // 整条链都可信：取最左（更靠近客户端的一端）。
+    if let Some(addr) = chain.first().copied() {
+        return Some(ClientAddr::new(addr));
     }
 
-    peer.map(|ip| ip.to_string())
-        .unwrap_or_else(|| "unknown".to_string())
+    // XFF 全不可用：退回连接对端地址；连对端都没有就返回 None，
+    // 调用方据此跳过限流，而不是拿垃圾字符串当键。
+    peer
 }
 
 /// UA 存库上限：够区分设备，又不给审计表塞一整段离谱的请求头。
@@ -136,14 +214,10 @@ fn user_agent(headers: &HeaderMap) -> Option<String> {
     Some(raw.chars().take(MAX_USER_AGENT_CHARS).collect())
 }
 
-/// 写进 sessions.ip / 告警里的 IP：`unknown` 不落库，避免把占位符当真实 IP。
-fn stored_ip(ip: &str) -> Option<String> {
-    let ip = ip.trim();
-    if ip.is_empty() || ip == "unknown" {
-        None
-    } else {
-        Some(ip.to_string())
-    }
+/// 写进 sessions.ip / 告警里的 IP；没有可解析的地址时不落库，
+/// 避免把占位符当真实 IP。
+fn stored_ip(ip: Option<ClientAddr>) -> Option<String> {
+    ip.map(ClientAddr::to_ip_string)
 }
 
 /// 登录失败审计：记用户名（含未知用户）、原因分类与 IP，**绝不记密码**。
@@ -227,10 +301,18 @@ pub async fn login(
     }
 
     let username = req.username.trim();
-    let key = Key::new(username, ip.0.clone());
+    // 限流键用 /64 聚合后的地址；审计/设备用完整地址。两者都来自同一份
+    // 解析结果，伪造的 XFF 段既进不了计数，也写不进审计。
+    let ip_key =
+        ip.0.map(ClientAddr::throttle_key)
+            .unwrap_or_else(|| "unknown".to_string());
+    let ip_text =
+        ip.0.map(ClientAddr::to_ip_string)
+            .unwrap_or_else(|| "unknown".to_string());
+    let key = Key::new(username, ip_key.clone());
     if let Err(retry_after) = state.login_throttle.check(&key) {
-        audit_login_failure(&state, None, username, &ip.0, "rate_limited").await;
-        maybe_alert_login_failure(&state, max_attempts, username, &ip.0).await;
+        audit_login_failure(&state, None, username, &ip_text, "rate_limited").await;
+        maybe_alert_login_failure(&state, max_attempts, username, &ip_text).await;
         return Err(AppError::TooManyAttempts(retry_after));
     }
 
@@ -242,8 +324,8 @@ pub async fn login(
             None => (None, "unknown_user"),
         };
         state.login_throttle.record_failure(&key);
-        audit_login_failure(&state, user_id, username, &ip.0, reason).await;
-        maybe_alert_login_failure(&state, max_attempts, username, &ip.0).await;
+        audit_login_failure(&state, user_id, username, &ip_text, reason).await;
+        maybe_alert_login_failure(&state, max_attempts, username, &ip_text).await;
         return Err(AppError::InvalidCredentials);
     }
     let Some(user) = user else {
@@ -251,8 +333,8 @@ pub async fn login(
         return Err(AppError::InvalidCredentials);
     };
     if user.status != "active" {
-        audit_login_failure(&state, Some(&user.id), username, &ip.0, "disabled").await;
-        maybe_alert_login_failure(&state, max_attempts, username, &ip.0).await;
+        audit_login_failure(&state, Some(&user.id), username, &ip_text, "disabled").await;
+        maybe_alert_login_failure(&state, max_attempts, username, &ip_text).await;
         return Err(AppError::forbidden(
             "auth.account_disabled",
             None,
@@ -263,12 +345,14 @@ pub async fn login(
     state.login_throttle.clear(&key);
     state.login_watch.clear(username);
     // 登录成功也是一次成功的认证：清掉该 IP 的 Bearer / Agent Hello 失败计数。
-    state.ip_throttle.clear(&ip.0);
+    if ip.0.is_some() {
+        state.ip_throttle.clear(&ip_key);
+    }
 
     let ttl_secs = settings.session_ttl_secs();
     let secure_cookie = crate::auth::request_is_https(&headers);
     let agent = user_agent(&headers);
-    let ip_value = stored_ip(&ip.0);
+    let ip_value = stored_ip(ip.0);
     let (token, _) = repo::sessions::create_with_client(
         &state.db.pool,
         &user.id,
@@ -647,28 +731,35 @@ mod tests {
         );
     }
 
+    fn ip_text(ip: Option<ClientAddr>) -> Option<String> {
+        ip.map(ClientAddr::to_ip_string)
+    }
+
     #[test]
-    fn client_ip_prefers_the_first_forwarded_hop_then_connect_info() {
+    fn client_ip_parses_xff_then_falls_back_to_connect_info() {
         let mut headers = HeaderMap::new();
         headers.insert(
             "x-forwarded-for",
             HeaderValue::from_static(" 203.0.113.7 , 10.0.0.1"),
         );
         assert_eq!(
-            client_ip(&headers, &Extensions::new()),
-            "203.0.113.7",
-            "取第一段并 trim"
+            ip_text(client_ip(&headers, &Extensions::new())).as_deref(),
+            Some("203.0.113.7"),
+            "从右往左：10.0.0.1 是可信代理，落到真实客户端"
         );
 
-        // 空的 XFF 回落 TCP 对端地址。
+        // 整条 XFF 都不可用时回落 TCP 对端地址。
         let mut empty = HeaderMap::new();
-        empty.insert("x-forwarded-for", HeaderValue::from_static("  , 10.0.0.1"));
+        empty.insert("x-forwarded-for", HeaderValue::from_static("  , "));
         let mut extensions = Extensions::new();
         extensions.insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 54321))));
-        assert_eq!(client_ip(&empty, &extensions), "127.0.0.1");
+        assert_eq!(
+            ip_text(client_ip(&empty, &extensions)).as_deref(),
+            Some("127.0.0.1")
+        );
 
-        // 两者都没有时用固定占位符，保证限流仍有 key。
-        assert_eq!(client_ip(&HeaderMap::new(), &Extensions::new()), "unknown");
+        // 两者都没有时返回 None：调用方跳过限流，不能拿占位符当键。
+        assert_eq!(client_ip(&HeaderMap::new(), &Extensions::new()), None);
     }
 
     /// 直连方是公网 IP 时，XFF 一律不采信——否则 IP 维度的限流可以被伪造头绕过。
@@ -679,10 +770,16 @@ mod tests {
         let mut extensions = Extensions::new();
         let peer: SocketAddr = "198.51.100.7:44321".parse().unwrap();
         extensions.insert(ConnectInfo(peer));
-        assert_eq!(client_ip(&headers, &extensions), "198.51.100.7");
+        assert_eq!(
+            ip_text(client_ip(&headers, &extensions)).as_deref(),
+            Some("198.51.100.7")
+        );
 
         // 没有 peer 信息时（单测里直接构造请求）仍按 XFF 走，便于测试。
-        assert_eq!(client_ip(&headers, &Extensions::new()), "203.0.113.9");
+        assert_eq!(
+            ip_text(client_ip(&headers, &Extensions::new())).as_deref(),
+            Some("203.0.113.9")
+        );
     }
 
     /// 本机/内网反代转发的 XFF 才被采信。
@@ -693,6 +790,160 @@ mod tests {
         let mut extensions = Extensions::new();
         let peer: SocketAddr = "127.0.0.1:5555".parse().unwrap();
         extensions.insert(ConnectInfo(peer));
-        assert_eq!(client_ip(&headers, &extensions), "203.0.113.9");
+        assert_eq!(
+            ip_text(client_ip(&headers, &extensions)).as_deref(),
+            Some("203.0.113.9")
+        );
+    }
+
+    // ---- T1：从右往左解析 XFF ----
+
+    /// 从右往左遍历，跳过可信代理，取第一个不可信地址。
+    ///
+    /// `1.1.1.1` 是客户端伪造的，`2.2.2.2` 是代理追加的真实客户端，
+    /// `10.0.0.1` 是最内层代理自己的地址。从右往左第一个不可信者是 `2.2.2.2`。
+    #[test]
+    fn xff_is_walked_from_right_to_left() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-for",
+            "1.1.1.1, 2.2.2.2, 10.0.0.1".parse().unwrap(),
+        );
+        let mut extensions = Extensions::new();
+        let peer: SocketAddr = "127.0.0.1:5555".parse().unwrap();
+        extensions.insert(ConnectInfo(peer));
+        assert_eq!(
+            ip_text(client_ip(&headers, &extensions)).as_deref(),
+            Some("2.2.2.2"),
+            "必须跳过伪造段与可信代理，落到真实客户端"
+        );
+    }
+
+    /// 整条链都可信时取最左（更靠近客户端的一端）。
+    #[test]
+    fn all_trusted_chain_takes_the_leftmost_hop() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-for",
+            "10.0.0.1, 192.168.1.1, 127.0.0.1".parse().unwrap(),
+        );
+        let mut extensions = Extensions::new();
+        let peer: SocketAddr = "127.0.0.1:5555".parse().unwrap();
+        extensions.insert(ConnectInfo(peer));
+        assert_eq!(
+            ip_text(client_ip(&headers, &extensions)).as_deref(),
+            Some("10.0.0.1")
+        );
+    }
+
+    /// IPv4-mapped IPv6 规范化为 IPv4（限流键与审计使用同一结果）。
+    #[test]
+    fn mapped_ipv6_is_normalized_to_ipv4() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "::ffff:203.0.113.9".parse().unwrap());
+        let mut extensions = Extensions::new();
+        let peer: SocketAddr = "127.0.0.1:5555".parse().unwrap();
+        extensions.insert(ConnectInfo(peer));
+        assert_eq!(
+            ip_text(client_ip(&headers, &extensions)).as_deref(),
+            Some("203.0.113.9")
+        );
+    }
+
+    /// IPv6 限流键按 /64 聚合；审计展示仍是完整地址。
+    #[test]
+    fn ipv6_throttle_key_aggregates_by_64() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "2001:db8:1:2::1".parse().unwrap());
+        let mut extensions = Extensions::new();
+        let peer: SocketAddr = "127.0.0.1:5555".parse().unwrap();
+        extensions.insert(ConnectInfo(peer));
+
+        let addr = client_ip(&headers, &extensions).unwrap();
+        assert_eq!(addr.to_ip_string(), "2001:db8:1:2::1");
+        assert_eq!(addr.throttle_key(), "2001:db8:1:2::/64");
+
+        // 同一 /64 内的另一个地址共用限流键。
+        let mut sibling = HeaderMap::new();
+        sibling.insert("x-forwarded-for", "2001:db8:1:2:abcd::9".parse().unwrap());
+        assert_eq!(
+            client_ip(&sibling, &extensions).unwrap().throttle_key(),
+            addr.throttle_key()
+        );
+
+        // 不同 /64 不共用。
+        let mut other = HeaderMap::new();
+        other.insert("x-forwarded-for", "2001:db8:1:3::1".parse().unwrap());
+        assert_ne!(
+            client_ip(&other, &extensions).unwrap().throttle_key(),
+            addr.throttle_key()
+        );
+    }
+
+    /// 解析失败的 XFF 段被忽略；整条都不可用时返回 None。
+    #[test]
+    fn unparseable_xff_segments_are_ignored() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-for",
+            "not-an-ip, 203.0.113.9, also-not-an-ip".parse().unwrap(),
+        );
+        assert_eq!(
+            ip_text(client_ip(&headers, &Extensions::new())).as_deref(),
+            Some("203.0.113.9"),
+            "只保留能 parse 的段"
+        );
+
+        let mut garbage = HeaderMap::new();
+        garbage.insert("x-forwarded-for", "not-an-ip".parse().unwrap());
+        assert_eq!(client_ip(&garbage, &Extensions::new()), None);
+    }
+
+    /// 没有 XFF 时回落到连接对端地址。
+    #[test]
+    fn no_xff_falls_back_to_the_peer() {
+        let mut extensions = Extensions::new();
+        let peer: SocketAddr = "198.51.100.7:44321".parse().unwrap();
+        extensions.insert(ConnectInfo(peer));
+        // 对端是公网：XFF 不采信，直接用对端。
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "203.0.113.9".parse().unwrap());
+        assert_eq!(
+            ip_text(client_ip(&headers, &extensions)).as_deref(),
+            Some("198.51.100.7")
+        );
+        assert_eq!(
+            ip_text(client_ip(&HeaderMap::new(), &extensions)).as_deref(),
+            Some("198.51.100.7")
+        );
+    }
+
+    /// T1：登录设备与登录审计里记录的 IP 也必须是规范化后的地址。
+    #[tokio::test]
+    async fn login_stores_the_normalized_ip_in_devices_and_audit() {
+        let (app, state) = setup().await;
+        let (status, _, body) = login(&app, "admin", "devpass", "::ffff:203.0.113.82").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+
+        let user = repo::users::find_by_username(&state.db.pool, "admin")
+            .await
+            .unwrap()
+            .unwrap();
+        let sessions = repo::sessions::list_for_user(&state.db.pool, &user.id)
+            .await
+            .unwrap();
+        assert_eq!(
+            sessions.last().unwrap().ip.as_deref(),
+            Some("203.0.113.82"),
+            "登录设备里的 IP 必须是规范化后的 IPv4"
+        );
+        let logins = repo::audit::recent_logins(&state.db.pool, &user.id, 5)
+            .await
+            .unwrap();
+        assert_eq!(
+            logins[0].ip.as_deref(),
+            Some("203.0.113.82"),
+            "登录审计里的 IP 必须与设备记录一致"
+        );
     }
 }

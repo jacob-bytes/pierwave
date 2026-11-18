@@ -6,10 +6,9 @@ import {
   RefreshCwIcon,
   StarIcon,
   Trash2Icon,
-  TriangleAlertIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { EmptyState, SkeletonTable } from "@/components/common";
+import { EmptyState, ListErrorRow, SkeletonTable } from "@/components/common";
 import { DeleteRuleTemplateDialog } from "@/components/rules/DeleteRuleTemplateDialog";
 import { RuleTemplateFormDialog } from "@/components/rules/RuleTemplateFormDialog";
 import { Badge } from "@/components/ui/badge";
@@ -78,42 +77,6 @@ function EmptyRow({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-function ErrorRow({
-  message,
-  onRetry,
-  retrying,
-}: {
-  message: string;
-  onRetry: () => void;
-  retrying: boolean;
-}) {
-  return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-            <TriangleAlertIcon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{t("rules.loadFailed")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRetry}
-            disabled={retrying}
-          >
-            <RefreshCwIcon
-              className={cn("size-3.5", retrying && "animate-spin")}
-            />
-            {t("common.retry")}
-          </Button>
-        </div>
-      </TableCell>
-    </TableRow>
-  );
-}
 
 /** 设置页的「规则模板」tab：列表 + 新建/编辑/删除对话框，四态齐全。 */
 export function RuleTemplatesPanel() {
@@ -218,7 +181,9 @@ export function RuleTemplatesPanel() {
             </TableHeader>
             <TableBody>
               {showError ? (
-                <ErrorRow
+                <ListErrorRow
+                  colSpan={COLUMN_COUNT}
+                  title={t("rules.loadFailed")}
                   message={ruleTemplateErrorText(templates.error)}
                   retrying={templates.isFetching}
                   onRetry={() => void templates.refetch()}

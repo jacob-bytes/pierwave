@@ -338,28 +338,70 @@ pub fn is_ip_throttled_path(path: &str) -> bool {
     path.starts_with("/api/v1/") && !is_public_api_path(path)
 }
 
-/// 认证失败按 IP 限流的中间件：被锁定的 IP 直接 429，不再进入鉴权与 handler。
+/// 外层 IP 锁定中间件验证过 Cookie 会话后写入请求扩展。
 ///
-/// 计数在 [`crate::throttle::IpThrottle`] 里，失败在 Bearer 校验与 Agent Hello
-/// 处记录；这里只负责「已锁定就拒绝」。
+/// 内层 Bearer 中间件据此避免把「有效 Cookie + 坏 Bearer」的请求连坐成 429：
+/// 坏凭据仍然只回 401，已登录会话不受影响。
+#[derive(Debug, Clone, Copy)]
+struct ValidatedSessionCookie;
+
+/// 请求是否带着一个**有效**的 Cookie 会话。
+///
+/// 只在 IP 已锁定时调用（低频），用于把「有效会话」从锁定里豁免出来；
+/// 不写 `last_seen_at`，不改变任何会话状态。
+async fn has_valid_session_cookie(state: &AppState, headers: &HeaderMap) -> bool {
+    let jar = CookieJar::from_headers(headers);
+    let Some(cookie) = jar.get(SESSION_COOKIE) else {
+        return false;
+    };
+    matches!(
+        repo::sessions::authenticate(&state.db.pool, cookie.value()).await,
+        Ok(Some(_))
+    )
+}
+
+/// 认证失败按 IP 限流的中间件。
+///
+/// 锁定**只约束认证尝试**：带有效 Cookie 会话或有效 Bearer 的请求永远放行
+/// （否则同一 NAT 里有人打坏 Bearer 就能把管理员已登录的会话锁死）。无效
+/// 凭据的请求照旧 429；计数在 [`crate::throttle::IpThrottle`] 里，失败在
+/// Bearer 校验与 Agent Hello 处记录。
 pub async fn ip_auth_throttle_middleware(
     State(state): State<AppState>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     if !is_ip_throttled_path(request.uri().path()) {
         return next.run(request).await;
     }
 
-    let ip = crate::routes::auth::client_ip(request.headers(), request.extensions());
-    if let Err(retry_after) = state.ip_throttle.check(&ip) {
-        tracing::warn!(ip = %ip, retry_after, "该 IP 认证失败次数过多，已临时拒绝");
-        // 复用登录限流已翻译好的 `auth.too_many_attempts`（带 Retry-After 与 minutes），
-        // 不新增一个前端词典里没有的错误码。
-        return AppError::TooManyAttempts(retry_after).into_response();
+    let Some(ip) = crate::routes::auth::client_ip(request.headers(), request.extensions()) else {
+        // 没有可解析的客户端地址就没有限流键：跳过锁定，绝不能拿垃圾字符串当键。
+        return next.run(request).await;
+    };
+    let key = ip.throttle_key();
+    let Err(retry_after) = state.ip_throttle.check(&key) else {
+        return next.run(request).await;
+    };
+
+    // 1) 有效 Cookie 会话：放行，并让内层知道「这次会话是有效的」。
+    if has_valid_session_cookie(&state, request.headers()).await {
+        request.extensions_mut().insert(ValidatedSessionCookie);
+        return next.run(request).await;
+    }
+    // 2) Bearer：交给内层 `api_token_middleware` 真正认证。这里不预认证，
+    //    避免重复消耗 token 限流与 last_used_at；内层对**坏** Bearer 在锁定
+    //    期内返回 429，对**好** Bearer 认证成功并清零计数。
+    if let Some(raw) = bearer_token(request.headers()) {
+        if raw.starts_with(repo::api_tokens::PREFIX) {
+            return next.run(request).await;
+        }
     }
 
-    next.run(request).await
+    tracing::warn!(ip = %key, retry_after, "该 IP 认证失败次数过多，已临时拒绝");
+    // 复用登录限流已翻译好的 `auth.too_many_attempts`（带 Retry-After 与 minutes），
+    // 不新增一个前端词典里没有的错误码。
+    AppError::TooManyAttempts(retry_after).into_response()
 }
 
 /// 对 `/api/v1/*` 生效的 Bearer 中间件：与 Cookie 会话并行。
@@ -390,21 +432,48 @@ pub async fn api_token_middleware(
     }
 
     // 只对「真的尝试了 API Token 认证」的请求计数；其它 Bearer 方案不背锅。
-    let ip = crate::routes::auth::client_ip(request.headers(), request.extensions());
+    let ip_key = crate::routes::auth::client_ip(request.headers(), request.extensions())
+        .map(|addr| addr.throttle_key());
+    let throttled = is_ip_throttled_path(request.uri().path());
+    // 先记录「本次尝试之前」是否已锁定：认证失败时据此决定 429 还是 401，
+    // 并避免对已锁定的 IP 继续累加（锁期不会被无限延长）。
+    let existing_lock = ip_key
+        .as_deref()
+        .and_then(|key| state.ip_throttle.check(key).err());
+    let session_validated = request
+        .extensions()
+        .get::<ValidatedSessionCookie>()
+        .is_some();
+    let invalid_token = || {
+        AppError::unauthorized(
+            "api_token.invalid",
+            None,
+            "API Token 无效、已过期或已吊销 / Invalid, expired or revoked API token",
+        )
+        .into_response()
+    };
+
     let principal = match authenticate_api_token(&state, raw).await {
         Ok(principal) => {
-            // 成功认证清零该 IP 的失败计数。
-            state.ip_throttle.clear(&ip);
+            // 成功认证清零该 IP 的失败计数；有效 Bearer 永远不被 IP 锁连坐。
+            if let Some(key) = ip_key.as_deref() {
+                state.ip_throttle.clear(key);
+            }
             principal
         }
         Err(ApiTokenAuthError::Unauthorized) => {
-            state.ip_throttle.record_failure(&ip);
-            return AppError::unauthorized(
-                "api_token.invalid",
-                None,
-                "API Token 无效、已过期或已吊销 / Invalid, expired or revoked API token",
-            )
-            .into_response();
+            if let Some(retry_after) = existing_lock {
+                // 已锁定：受保护接口上的坏 Bearer 返回 429。公开入口不锁；
+                // 有效 Cookie 会话也不连坐（坏 Bearer 仍只是 401）。
+                if throttled && !session_validated {
+                    return AppError::TooManyAttempts(retry_after).into_response();
+                }
+                return invalid_token();
+            }
+            if let Some(key) = ip_key.as_deref() {
+                state.ip_throttle.record_failure(key);
+            }
+            return invalid_token();
         }
         Err(ApiTokenAuthError::RateLimited(retry_after)) => {
             return AppError::too_many_requests(
@@ -514,6 +583,60 @@ mod tests {
         (crate::app::router(state), read_token, admin_token)
     }
 
+    /// 带一个管理员 Cookie 会话与一个 admin Bearer 的路由。
+    async fn router_with_admin_session() -> (Router, String, String) {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let user = repo::users::create(
+            &db.pool,
+            repo::users::NewUser {
+                username: "admin".into(),
+                password: "devpass".into(),
+                role: "admin".into(),
+                quota_bytes: None,
+                rule_template_id: None,
+                subscription_template_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let (session_token, _) = repo::sessions::create(&db.pool, &user.id, 3600, None)
+            .await
+            .unwrap();
+        let (_, admin_token) =
+            repo::api_tokens::create(&db.pool, "admin-ci", repo::api_tokens::SCOPE_ADMIN, None)
+                .await
+                .unwrap();
+        let state = crate::state::AppState::new(db, "web/dist");
+        (crate::app::router(state), admin_token, session_token)
+    }
+
+    /// 同时可带 Cookie / Bearer / XFF 的 GET：用于验证「有效身份不被 IP 锁连坐」。
+    async fn get_as(
+        app: &Router,
+        uri: &str,
+        ip: &str,
+        bearer: Option<&str>,
+        session: Option<&str>,
+    ) -> (StatusCode, HeaderMap) {
+        let mut builder = Request::builder()
+            .method(Method::GET)
+            .uri(uri)
+            .header("x-forwarded-for", ip);
+        if let Some(token) = bearer {
+            builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
+        }
+        if let Some(token) = session {
+            builder = builder.header(header::COOKIE, format!("{SESSION_COOKIE}={token}"));
+        }
+        let response = app
+            .clone()
+            .oneshot(builder.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        (response.status(), response.headers().clone())
+    }
+
     async fn get(app: &Router, uri: &str, token: &str) -> StatusCode {
         let request = Request::builder()
             .method(Method::GET)
@@ -552,10 +675,11 @@ mod tests {
             .0
     }
 
-    /// 伪造 / 失效 Bearer 按 IP 计数：20 次失败后该 IP 的受保护请求一律 429。
+    /// 伪造 / 失效 Bearer 按 IP 计数：20 次失败后**无效凭据**的请求 429，
+    /// 但合法 Bearer 永远不被锁连坐（T2），认证成功还会清零计数。
     #[tokio::test]
     async fn twenty_bad_bearers_lock_the_ip() {
-        let (app, read_token, _) = router_with_tokens().await;
+        let (app, read_token, admin_token) = router_with_tokens().await;
         let ip = "203.0.113.50";
 
         for _ in 0..IP_MAX_FAILURES {
@@ -581,15 +705,174 @@ mod tests {
             "Retry-After 不合理：{retry_after}"
         );
 
-        // 锁定期内即使换成合法 token 也直接 429，不再走鉴权。
-        let (status, _) = get_with_ip(&app, "/api/v1/overview", Some(&read_token), ip).await;
-        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        // T2：锁定期内合法 Bearer 仍必须放行，且成功认证清零该 IP 的计数。
+        let (status, _) = get_with_ip(&app, "/api/v1/overview", Some(&admin_token), ip).await;
+        assert_eq!(status, StatusCode::OK, "合法 Bearer 不能被 IP 锁连坐");
+
+        // 计数已清零：坏 token 回到「认证失败 401」，而不是继续 429。
+        assert_eq!(bad_bearer(&app, ip).await, StatusCode::UNAUTHORIZED);
 
         // 不同 IP 互不影响：合法 read token 进到鉴权阶段后被 scope 拒绝（403），
         // 而不是被 IP 限流拦成 429。
         let (status, _) =
             get_with_ip(&app, "/api/v1/overview", Some(&read_token), "203.0.113.51").await;
         assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    async fn post_login(app: &Router, ip: &str, password: &str) -> StatusCode {
+        let body = format!("{{\"username\":\"admin\",\"password\":\"{password}\"}}");
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/auth/login")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header("x-forwarded-for", ip)
+            .body(Body::from(body))
+            .unwrap();
+        app.clone().oneshot(request).await.unwrap().status()
+    }
+
+    /// 攻击者连发错误登录只锁登录接口自己的「用户名 + IP」维度，不会喂
+    /// `IpThrottle`；同一 IP 上已登录的 Cookie 会话不受影响。
+    #[tokio::test]
+    async fn failed_logins_do_not_lock_out_an_existing_session() {
+        let (app, _admin_token, session_token) = router_with_admin_session().await;
+        let ip = "203.0.113.53";
+
+        for _ in 0..5 {
+            assert_eq!(
+                post_login(&app, ip, "wrong-password").await,
+                StatusCode::UNAUTHORIZED
+            );
+        }
+        // 第 6 次被登录自己的限流挡住（429），但这不是 IpThrottle。
+        assert_eq!(
+            post_login(&app, ip, "wrong-password").await,
+            StatusCode::TOO_MANY_REQUESTS
+        );
+
+        // 已登录会话不参与登录限流，仍然必须 200。
+        let (status, _) = get_as(&app, "/api/v1/overview", ip, None, Some(&session_token)).await;
+        assert_eq!(status, StatusCode::OK, "错误登录不能连带锁住已登录会话");
+    }
+
+    /// T2：同一 NAT 内的有效 Cookie 会话不被 IP 锁连坐。
+    #[tokio::test]
+    async fn valid_cookie_session_is_never_blocked_by_the_ip_lock() {
+        let (app, _admin_token, session_token) = router_with_admin_session().await;
+        let ip = "203.0.113.52";
+
+        for _ in 0..IP_MAX_FAILURES {
+            assert_eq!(bad_bearer(&app, ip).await, StatusCode::UNAUTHORIZED);
+        }
+        assert_eq!(bad_bearer(&app, ip).await, StatusCode::TOO_MANY_REQUESTS);
+
+        // 已登录会话：即使该 IP 已被别人打到锁定，也必须 200。
+        let (status, _) = get_as(&app, "/api/v1/overview", ip, None, Some(&session_token)).await;
+        assert_eq!(status, StatusCode::OK, "有效 Cookie 会话不能被 IP 锁连坐");
+
+        // Cookie 请求不能清零 IP 计数（否则任何已登录用户都能刷掉失败计数）。
+        assert_eq!(bad_bearer(&app, ip).await, StatusCode::TOO_MANY_REQUESTS);
+
+        // 无凭据的请求保持旧行为：仍在锁定期内 429。
+        let (status, _) = get_as(&app, "/api/v1/overview", ip, None, None).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    // ---- T1：X-Forwarded-For 解析与信任边界 ----
+
+    /// 追加语义（nginx `$proxy_add_x_forwarded_for`）：客户端伪造的第一段
+    /// 会留在最左，真实地址由代理追加到最右。限流键必须是右侧的真实地址，
+    /// 否则攻击者只要每次换一个伪造值就能无限绕过。
+    #[tokio::test]
+    async fn appended_xff_counts_the_rightmost_real_client_not_the_forged_first_hop() {
+        let (app, _, _) = router_with_tokens().await;
+        let real = "203.0.113.80";
+
+        for index in 0..IP_MAX_FAILURES {
+            // 客户端每次自带一个不同的私网伪造值，代理追加真实地址。
+            let xff = format!("10.9.9.{index}, {real}");
+            assert_eq!(
+                bad_bearer_with_xff(&app, &xff).await,
+                StatusCode::UNAUTHORIZED
+            );
+        }
+
+        assert_eq!(
+            bad_bearer_with_xff(&app, &format!("10.9.9.200, {real}")).await,
+            StatusCode::TOO_MANY_REQUESTS,
+            "追加语义下必须按真实客户端地址计数"
+        );
+    }
+
+    /// IPv4-mapped IPv6 与纯 IPv4 是同一个地址，必须共用计数。
+    #[tokio::test]
+    async fn mapped_ipv6_is_normalized_to_ipv4_for_throttling() {
+        let (app, _, _) = router_with_tokens().await;
+        let real = "203.0.113.81";
+
+        for _ in 0..IP_MAX_FAILURES {
+            assert_eq!(
+                bad_bearer_with_xff(&app, &format!("::ffff:{real}")).await,
+                StatusCode::UNAUTHORIZED
+            );
+        }
+
+        assert_eq!(
+            bad_bearer_with_xff(&app, real).await,
+            StatusCode::TOO_MANY_REQUESTS,
+            "mapped 地址必须与 IPv4 共用限流桶"
+        );
+    }
+
+    /// IPv6 按 /64 聚合：同一前缀内的单地址可以轮换，不能各算一个桶。
+    #[tokio::test]
+    async fn ipv6_throttling_aggregates_the_64_prefix() {
+        let (app, _, _) = router_with_tokens().await;
+
+        for _ in 0..IP_MAX_FAILURES {
+            assert_eq!(
+                bad_bearer_with_xff(&app, "2001:db8:1:2::1").await,
+                StatusCode::UNAUTHORIZED
+            );
+        }
+
+        assert_eq!(
+            bad_bearer_with_xff(&app, "2001:db8:1:2::99").await,
+            StatusCode::TOO_MANY_REQUESTS,
+            "同一 /64 内的其它地址必须命中同一把锁"
+        );
+        assert_eq!(
+            bad_bearer_with_xff(&app, "2001:db8:1:3::1").await,
+            StatusCode::UNAUTHORIZED,
+            "不同 /64 不应互相影响"
+        );
+    }
+
+    /// 解析失败的 XFF 段不能原样当限流键（否则垃圾字符串会成为共享桶/伪造面）。
+    #[tokio::test]
+    async fn unparseable_xff_is_never_used_as_a_throttle_key() {
+        let (app, _, _) = router_with_tokens().await;
+        let garbage = "not-an-ip, still-not-an-ip";
+
+        for _ in 0..IP_MAX_FAILURES {
+            assert_eq!(
+                bad_bearer_with_xff(&app, garbage).await,
+                StatusCode::UNAUTHORIZED
+            );
+        }
+
+        // 没有 ConnectInfo、整条 XFF 也不可用 → 没有可用的限流键，不应锁定。
+        assert_eq!(
+            bad_bearer_with_xff(&app, garbage).await,
+            StatusCode::UNAUTHORIZED,
+            "无法解析的 XFF 不能成为限流键"
+        );
+    }
+
+    async fn bad_bearer_with_xff(app: &Router, xff: &str) -> StatusCode {
+        get_with_ip(app, "/api/v1/overview", Some("pwt_definitely-invalid"), xff)
+            .await
+            .0
     }
 
     /// 成功认证一次必须清零该 IP 的失败计数。

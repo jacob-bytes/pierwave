@@ -3268,6 +3268,7 @@ const zhCN = {
   },
   form: {
     operationFailed: "操作失败",
+    missingFields: "缺少：{fields}",
   },
   updates: {
     title: "版本更新",

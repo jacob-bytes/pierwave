@@ -20,6 +20,7 @@ import {
   EmptyState,
   EngineBadge,
   ListError,
+  ListErrorRow,
   MobileDataCard,
   PageHeader,
   ProtocolBadge,
@@ -75,6 +76,7 @@ import {
   groupIsDegraded,
   groupKind,
   hopListeningState,
+  isChainStrategy,
   hopTargetState,
   orderGroups,
   orderMembers,
@@ -486,10 +488,41 @@ function ChainStatusCell({ chain }: { chain: Chain }) {
       ? t("chains.engine.missingTitle")
       : t(meta.titleKey);
 
+  // 降级详情可能有很多组：第一组压成同一行的短标签，其余收进 title。
+  const degradedText =
+    failing.length > 0
+      ? t("chains.list.degradedGroup", {
+          seq: failing[0].seq + 1,
+          name:
+            failing[0].name?.trim() || t("chains.detail.unnamedGroup"),
+        })
+      : t("chains.list.degradedHint");
+  const detailTitle = [
+    ...failing.map((group) =>
+      t("chains.list.degradedGroup", {
+        seq: group.seq + 1,
+        name: group.name?.trim() || t("chains.detail.unnamedGroup"),
+      }),
+    ),
+    ...(missingEngine ? [t("chains.engine.missingTitle")] : []),
+  ].join(" · ");
+  const compactDetail =
+    status === "degraded"
+      ? degradedText
+      : missingEngine
+        ? t("chains.engine.missing")
+        : null;
+
   return (
-    <div className="flex max-w-64 flex-col gap-0.5">
+    <div
+      className="flex max-w-64 items-center gap-1.5"
+      title={detailTitle || title}
+    >
       <span
-        className={cn("inline-flex items-center gap-1.5 text-xs", main.text)}
+        className={cn(
+          "inline-flex shrink-0 items-center gap-1.5 text-xs",
+          main.text,
+        )}
         title={title}
       >
         <StatusDot
@@ -500,34 +533,9 @@ function ChainStatusCell({ chain }: { chain: Chain }) {
         />
         {t(main.labelKey)}
       </span>
-      {status === "degraded" ? (
-        <span className="flex flex-col gap-0.5">
-          {failing.length > 0 ? (
-            failing.map((group) => (
-              <span
-                key={group.id || group.seq}
-                className="truncate type-micro text-warning"
-                title={t("chains.list.degradedHint")}
-              >
-                {t("chains.list.degradedGroup", {
-                  seq: group.seq + 1,
-                  name: group.name?.trim() || t("chains.detail.unnamedGroup"),
-                })}
-              </span>
-            ))
-          ) : (
-            <span className="type-micro text-warning">
-              {t("chains.list.degradedHint")}
-            </span>
-          )}
-        </span>
-      ) : null}
-      {missingEngine ? (
-        <span
-          className="truncate type-micro text-warning"
-          title={t("chains.engine.missingTitle")}
-        >
-          {t("chains.engine.missingHint")}
+      {compactDetail ? (
+        <span className="truncate type-micro text-warning">
+          {compactDetail}
         </span>
       ) : null}
     </div>
@@ -926,45 +934,6 @@ function ChainEnabledSwitch({ chain }: { chain: Chain }) {
   );
 }
 
-function ErrorRow({
-  message,
-  onRetry,
-  retrying,
-}: {
-  message: string;
-  onRetry: () => void;
-  retrying: boolean;
-}) {
-  const { t } = useI18n();
-
-  return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={CHAIN_COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-            <TriangleAlertIcon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{t("chains.list.loadFailed")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRetry}
-            disabled={retrying}
-          >
-            <RefreshCwIcon
-              className={cn("size-3.5", retrying && "animate-spin")}
-            />
-            {t("common.retry")}
-          </Button>
-        </div>
-      </TableCell>
-    </TableRow>
-  );
-}
-
 function EmptyRow({
   title,
   description,
@@ -1014,16 +983,32 @@ export default function ChainsPage() {
   const showError = chains.isError && !chains.data;
   const loadError = errorText(chains.error, t("chains.loadError"));
 
-  function renderChainName(chain: Chain) {
+  function renderChainName(chain: Chain, compact = false) {
     const blockedReason = chain.blocked_reason?.trim();
     return (
-      <div className="flex min-w-0 flex-col gap-1">
-        {/* 链名独占一行：徽标多的时候名字被挤成「港…」，悬停提示也容易被徽标挡住。
-            徽标下移到第二行，名字就能用满整列宽度。 */}
-        <span className="truncate font-medium" title={chain.name}>
+      <div
+        className={cn(
+          "flex min-w-0",
+          compact ? "items-center gap-1.5" : "flex-col gap-1",
+        )}
+      >
+        {/* 表格行（compact）里名字与徽标同排，行高保持在 40px 基线；
+            移动端卡片空间宽裕，仍让名字独占一行，徽标换行排列。 */}
+        <span
+          className={cn(
+            "truncate font-medium",
+            compact && "max-w-40 shrink-0",
+          )}
+          title={chain.name}
+        >
           {chain.name}
         </span>
-        <div className="flex min-w-0 flex-wrap items-center gap-1">
+        <div
+          className={cn(
+            "flex min-w-0 items-center gap-1",
+            !compact && "flex-wrap",
+          )}
+        >
             {chain.source === "user" ? (
               <Badge
                 variant="outline"
@@ -1077,8 +1062,65 @@ export default function ChainsPage() {
     );
   }
 
-  function renderChainGroups(chain: Chain, alignEnd = false) {
+  function renderChainGroups(
+    chain: Chain,
+    alignEnd = false,
+    compact = false,
+  ) {
     const summary = chainGroupSummary(chain.groups);
+    const countLabel = t(
+      groupCountKey(summary.groups, summary.members),
+      {
+        groups: summary.groups,
+        members: summary.members,
+      },
+    );
+    const ordered = orderGroups(chain.groups);
+    const badges = ordered.map((group) => (
+      <StrategyBadge
+        key={group.id || group.seq}
+        strategy={group.strategy}
+      />
+    ));
+
+    // 表格行：跳数 + 策略徽标同一行，行高不因组数增加而翻倍。
+    // 超过 2 组时只铺前两个徽标，其余收成 +N（完整策略在 title 里），
+    // 避免长链把「可用率 / 启用」列挤到横向滚动区外。
+    if (compact) {
+      const MAX_VISIBLE_BADGES = 2;
+      const hiddenCount = Math.max(0, badges.length - MAX_VISIBLE_BADGES);
+      const strategyTitle = ordered
+        .map((group) =>
+          t(
+            isChainStrategy(group.strategy)
+              ? `chains.strategy.${group.strategy}.label`
+              : "chains.strategy.unknown.label",
+          ),
+        )
+        .join(" · ");
+      return (
+        <div
+          className="flex items-center gap-1.5"
+          title={[countLabel, strategyTitle].filter(Boolean).join(" · ")}
+        >
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+            {countLabel}
+          </span>
+          <div className="flex items-center gap-1">
+            {badges.slice(0, MAX_VISIBLE_BADGES)}
+            {hiddenCount > 0 ? (
+              <Badge
+                variant="outline"
+                className="h-5 px-1.5 type-micro font-normal text-muted-foreground"
+              >
+                +{hiddenCount}
+              </Badge>
+            ) : null}
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div
         className={cn(
@@ -1087,13 +1129,7 @@ export default function ChainsPage() {
         )}
       >
         <span className="text-xs tabular-nums text-muted-foreground">
-          {t(
-            groupCountKey(summary.groups, summary.members),
-            {
-              groups: summary.groups,
-              members: summary.members,
-            },
-          )}
+          {countLabel}
         </span>
         <div
           className={cn(
@@ -1101,12 +1137,7 @@ export default function ChainsPage() {
             alignEnd && "justify-end",
           )}
         >
-          {orderGroups(chain.groups).map((group) => (
-            <StrategyBadge
-              key={group.id || group.seq}
-              strategy={group.strategy}
-            />
-          ))}
+          {badges}
         </div>
       </div>
     );
@@ -1196,28 +1227,28 @@ export default function ChainsPage() {
   function renderRow(chain: Chain) {
     return (
       <TableRow key={chain.id}>
-          <TableCell sticky="left" className="max-w-60 px-4 py-2.5">
-            {renderChainName(chain)}
+          <TableCell sticky="left" className="px-4">
+            {renderChainName(chain, true)}
           </TableCell>
-          <TableCell className="px-4 py-2.5">
-            {renderChainGroups(chain)}
+          <TableCell className="px-4">
+            {renderChainGroups(chain, false, true)}
           </TableCell>
-          <TableCell className="px-4 py-2.5">
+          <TableCell className="px-4">
             {renderChainEntry(chain)}
           </TableCell>
-          <TableCell className="px-4 py-2.5">
+          <TableCell className="px-4">
             {renderChainTarget(chain)}
           </TableCell>
-          <TableCell className="px-4 py-2.5">
+          <TableCell className="px-4">
             <ChainStatusCell chain={chain} />
           </TableCell>
-          <TableCell className="px-4 py-2.5">
+          <TableCell className="px-4 text-right">
             <AvailabilityCell chain={chain} />
           </TableCell>
-          <TableCell className="px-4 py-2.5">
+          <TableCell className="px-4">
             <ChainEnabledSwitch chain={chain} />
           </TableCell>
-          <TableCell sticky="right" className="px-4 py-2.5">
+          <TableCell sticky="right" className="px-4">
             {renderChainActions(chain)}
           </TableCell>
       </TableRow>
@@ -1355,7 +1386,11 @@ export default function ChainsPage() {
                           ? "right"
                           : undefined
                     }
-                    className={HEAD_CLASS}
+                    className={cn(
+                      HEAD_CLASS,
+                      // 可用率是百分比列：与数字同侧右对齐。
+                      index === 5 && "text-right",
+                    )}
                   >
                     {label}
                   </TableHead>
@@ -1364,10 +1399,12 @@ export default function ChainsPage() {
             </TableHeader>
             <TableBody>
               {showError ? (
-                <ErrorRow
+                <ListErrorRow
+                  colSpan={CHAIN_COLUMN_COUNT}
+                  title={t("chains.list.loadFailed")}
                   message={loadError}
-                  onRetry={() => void chains.refetch()}
                   retrying={chains.isFetching}
+                  onRetry={() => void chains.refetch()}
                 />
               ) : items.length === 0 ? (
                 <EmptyRow

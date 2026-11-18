@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from "react";
-import { RefreshCwIcon, TriangleAlertIcon } from "lucide-react";
 import type { UseQueryResult } from "@tanstack/react-query";
+import { ListError } from "@/components/common";
 import { meErrorText } from "@/lib/meError";
 import { useMeShellSummary } from "@/lib/meShell";
 import {
@@ -8,7 +8,6 @@ import {
   RecentLoginsCard,
 } from "@/components/me/LoginDevicesCard";
 import { ChangePasswordDialog } from "@/components/settings/ChangePasswordDialog";
-import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -75,30 +74,13 @@ function TrafficCard({ traffic }: { traffic: UseQueryResult<MeTraffic> }) {
         {traffic.isPending ? (
           <Skeleton className="h-[248px] w-full" />
         ) : traffic.isError ? (
-          <div className="flex h-[248px] flex-col items-center justify-center gap-3 text-center">
-            <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-              <TriangleAlertIcon className="size-5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium">{t("me.traffic.loadFailed")}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {meErrorText(traffic.error, t("me.traffic.loadError"))}
-              </p>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void traffic.refetch()}
-              disabled={traffic.isFetching}
-            >
-              <RefreshCwIcon
-                className={cn(
-                  "size-3.5",
-                  traffic.isFetching && "animate-spin",
-                )}
-              />
-              {t("common.retry")}
-            </Button>
+          <div className="flex h-[248px] items-center justify-center">
+            <ListError
+              title={t("me.traffic.loadFailed")}
+              message={meErrorText(traffic.error, t("me.traffic.loadError"))}
+              retrying={traffic.isFetching}
+              onRetry={() => void traffic.refetch()}
+            />
           </div>
         ) : (
           <Suspense fallback={<Skeleton className="h-[248px] w-full" />}>

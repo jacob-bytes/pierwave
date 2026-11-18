@@ -13,9 +13,9 @@ import {
   RouteIcon,
   SendIcon,
   Trash2Icon,
-  TriangleAlertIcon,
   WaypointsIcon,
 } from "lucide-react";
+import { ListErrorRow } from "@/components/common";
 import { DeleteOutboundDialog } from "@/components/outbounds/DeleteOutboundDialog";
 import { DeleteRoutingRuleDialog } from "@/components/outbounds/DeleteRoutingRuleDialog";
 import { OutboundFormDialog } from "@/components/outbounds/OutboundFormDialog";
@@ -237,49 +237,6 @@ function LoadingRows({
         </TableRow>
       ))}
     </>
-  );
-}
-
-function ErrorRow({
-  colSpan,
-  title,
-  message,
-  onRetry,
-  retrying,
-}: {
-  colSpan: number;
-  title: string;
-  message: string;
-  onRetry: () => void;
-  retrying: boolean;
-}) {
-  const { t } = useI18n();
-
-  return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={colSpan} className="px-4 py-16">
-        <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-            <TriangleAlertIcon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{title}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRetry}
-            disabled={retrying}
-          >
-            <RefreshCwIcon
-              className={cn("size-3.5", retrying && "animate-spin")}
-            />
-            {t("common.retry")}
-          </Button>
-        </div>
-      </TableCell>
-    </TableRow>
   );
 }
 
@@ -529,7 +486,7 @@ export default function OutboundsPage() {
               {outbounds.isPending ? (
                 <LoadingRows columns={OUTBOUND_COLUMN_COUNT} />
               ) : outboundShowError ? (
-                <ErrorRow
+                <ListErrorRow
                   colSpan={OUTBOUND_COLUMN_COUNT}
                   title={t("outbounds.outbounds.loadFailed")}
                   message={outboundError}
@@ -548,10 +505,10 @@ export default function OutboundsPage() {
               ) : (
                 outboundItems.map((outbound) => (
                   <TableRow key={outbound.id}>
-                    <TableCell className="px-4 py-2.5 font-mono text-xs font-medium">
+                    <TableCell className="px-4 font-mono text-xs font-medium">
                       {outbound.tag}
                     </TableCell>
-                    <TableCell className="px-4 py-2.5">
+                    <TableCell className="px-4">
                       <Badge
                         variant="outline"
                         className="font-mono type-micro font-normal text-muted-foreground"
@@ -559,18 +516,18 @@ export default function OutboundsPage() {
                         {outboundProtocolLabel(outbound.protocol)}
                       </Badge>
                     </TableCell>
-                    <TableCell className="px-4 py-2.5">
+                    <TableCell className="px-4">
                       <OutboundEnabledSwitch
                         serverId={serverId}
                         outbound={outbound}
                       />
                     </TableCell>
-                    <TableCell className="px-4 py-2.5 text-xs text-muted-foreground">
+                    <TableCell className="px-4 text-xs text-muted-foreground">
                       <span title={formatAbsoluteTime(outbound.created_at)}>
                         {formatRelativeTime(outbound.created_at)}
                       </span>
                     </TableCell>
-                    <TableCell className="px-4 py-2.5">
+                    <TableCell className="px-4">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
@@ -682,7 +639,7 @@ export default function OutboundsPage() {
               {rules.isPending ? (
                 <LoadingRows columns={RULE_COLUMN_COUNT} />
               ) : ruleShowError ? (
-                <ErrorRow
+                <ListErrorRow
                   colSpan={RULE_COLUMN_COUNT}
                   title={t("outbounds.rules.loadFailed")}
                   message={ruleError}
@@ -733,10 +690,10 @@ export default function OutboundsPage() {
                         </Button>
                       </div>
                     </TableCell>
-                    <TableCell className="px-4 py-2.5">
+                    <TableCell className="px-4">
                       <RuleMatch rule={rule} />
                     </TableCell>
-                    <TableCell className="px-4 py-2.5">
+                    <TableCell className="px-4">
                       <Badge
                         variant="outline"
                         className="font-mono type-micro font-normal"
@@ -744,10 +701,10 @@ export default function OutboundsPage() {
                         {rule.outbound_tag}
                       </Badge>
                     </TableCell>
-                    <TableCell className="px-4 py-2.5">
+                    <TableCell className="px-4">
                       <RuleEnabledSwitch serverId={serverId} rule={rule} />
                     </TableCell>
-                    <TableCell className="px-4 py-2.5">
+                    <TableCell className="px-4">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button

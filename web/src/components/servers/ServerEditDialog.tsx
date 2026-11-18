@@ -142,8 +142,8 @@ export function ServerEditDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[88vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+        <DialogHeader className="border-b border-border px-4 py-4 pr-12 sm:px-6">
           <DialogTitle className="flex items-center gap-2">
             <span className="grid size-7 place-items-center rounded-md bg-primary/10 text-primary">
               <SlidersHorizontalIcon className="size-3.5" />
@@ -157,9 +157,10 @@ export function ServerEditDialog({
 
         <form
           id="server-settings-form"
-          className="flex flex-col gap-4"
+          className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6"
           onSubmit={handleSubmit}
         >
+          <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs">
             <span className="text-muted-foreground">
               {t("servers.editDialog.currentVersion")}
@@ -269,9 +270,10 @@ export function ServerEditDialog({
               {error}
             </p>
           ) : null}
+          </div>
         </form>
 
-        <DialogFooter>
+        <DialogFooter className="mx-0 mb-0 rounded-none border-border px-4 py-3 sm:px-6">
           <Button
             type="button"
             variant="outline"

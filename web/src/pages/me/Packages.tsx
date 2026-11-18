@@ -3,16 +3,14 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import {
   HistoryIcon,
   PackageIcon,
-  RefreshCwIcon,
   ShieldCheckIcon,
   TriangleAlertIcon,
 } from "lucide-react";
 import { meErrorText } from "@/lib/meError";
 import { useMeShellSummary } from "@/lib/meShell";
 import { MeStatusBadge } from "@/components/me/MeStatus";
-import { EmptyState } from "@/components/common";
+import { EmptyState, ListError } from "@/components/common";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Card,
   CardAction,
@@ -220,28 +218,12 @@ function EventsCard({
             ))}
           </div>
         ) : events.isError ? (
-          <div className="flex flex-col items-center gap-3 py-8 text-center">
-            <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-              <TriangleAlertIcon className="size-5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium">{t("me.events.loadFailed")}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {meErrorText(events.error, t("me.events.loadError"))}
-              </p>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void events.refetch()}
-              disabled={events.isFetching}
-            >
-              <RefreshCwIcon
-                className={cn("size-3.5", events.isFetching && "animate-spin")}
-              />
-              {t("common.retry")}
-            </Button>
-          </div>
+          <ListError
+            title={t("me.events.loadFailed")}
+            message={meErrorText(events.error, t("me.events.loadError"))}
+            retrying={events.isFetching}
+            onRetry={() => void events.refetch()}
+          />
         ) : events.data && events.data.length > 0 ? (
           <ul className="divide-y divide-border">
             {events.data.map((event) => (

@@ -11,11 +11,11 @@ import {
   RefreshCwIcon,
   SendIcon,
   Trash2Icon,
-  TriangleAlertIcon,
 } from "lucide-react";
 import {
   EmptyState,
   EngineBadge,
+  ListErrorRow,
   ProtocolBadge,
   ProxyProtocolBadge,
   SkeletonTable,
@@ -225,47 +225,6 @@ function ForwardEnabledSwitch({
   );
 }
 
-function ErrorRow({
-  message,
-  onRetry,
-  retrying,
-}: {
-  message: string;
-  onRetry: () => void;
-  retrying: boolean;
-}) {
-  const { t } = useI18n();
-
-  return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={FORWARD_COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-            <TriangleAlertIcon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">
-              {t("forwards.list.loadFailed")}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRetry}
-            disabled={retrying}
-          >
-            <RefreshCwIcon
-              className={cn("size-3.5", retrying && "animate-spin")}
-            />
-            {t("common.retry")}
-          </Button>
-        </div>
-      </TableCell>
-    </TableRow>
-  );
-}
-
 function EmptyRow({
   title,
   description,
@@ -457,8 +416,11 @@ export default function ForwardsPage() {
                   t("forwards.list.columns.status"),
                   t("forwards.list.columns.enabled"),
                   t("common.actions"),
-                ].map((label) => (
-                  <TableHead key={label} className={HEAD_CLASS}>
+                ].map((label, index) => (
+                  <TableHead
+                    key={label}
+                    className={cn(HEAD_CLASS, index === 1 && "text-right")}
+                  >
                     {label}
                   </TableHead>
                 ))}
@@ -466,7 +428,9 @@ export default function ForwardsPage() {
             </TableHeader>
             <TableBody>
               {showError ? (
-                <ErrorRow
+                <ListErrorRow
+                  colSpan={FORWARD_COLUMN_COUNT}
+                  title={t("forwards.list.loadFailed")}
                   message={loadError}
                   onRetry={() => void forwards.refetch()}
                   retrying={forwards.isFetching}
@@ -487,7 +451,7 @@ export default function ForwardsPage() {
 
                   return (
                     <TableRow key={forward.id}>
-                      <TableCell className="max-w-56 px-4 py-2.5">
+                      <TableCell className="max-w-56 px-4">
                         <div className="flex min-w-0 items-center gap-1.5">
                           <span className="truncate font-medium">
                             {forward.name}
@@ -508,24 +472,24 @@ export default function ForwardsPage() {
                           />
                         </div>
                       </TableCell>
-                      <TableCell className="px-4 py-2.5 font-mono text-xs tabular-nums">
+                      <TableCell className="px-4 text-right font-mono text-xs tabular-nums">
                         {forward.listen_port}
                       </TableCell>
-                      <TableCell className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
+                      <TableCell className="px-4 font-mono text-xs text-muted-foreground">
                         <span className="break-all" title={target}>
                           {target}
                         </span>
                       </TableCell>
-                      <TableCell className="px-4 py-2.5">
+                      <TableCell className="px-4">
                         <ForwardStatusCell forward={forward} />
                       </TableCell>
-                      <TableCell className="px-4 py-2.5">
+                      <TableCell className="px-4">
                         <ForwardEnabledSwitch
                           serverId={serverId}
                           forward={forward}
                         />
                       </TableCell>
-                      <TableCell className="px-4 py-2.5">
+                      <TableCell className="px-4">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button

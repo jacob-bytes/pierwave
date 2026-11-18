@@ -4,9 +4,8 @@ import {
   PlusIcon,
   RefreshCwIcon,
   Trash2Icon,
-  TriangleAlertIcon,
 } from "lucide-react";
-import { EmptyState, SkeletonTable } from "@/components/common";
+import { EmptyState, ListErrorRow, SkeletonTable } from "@/components/common";
 import { CertificateFormDialog } from "@/components/certificates/CertificateFormDialog";
 import { DeleteCertificateDialog } from "@/components/certificates/DeleteCertificateDialog";
 import { Badge } from "@/components/ui/badge";
@@ -57,37 +56,6 @@ function EmptyRow({ onUpload }: { onUpload: () => void }) {
   );
 }
 
-function ErrorRow({
-  message,
-  onRetry,
-  retrying,
-}: {
-  message: string;
-  onRetry: () => void;
-  retrying: boolean;
-}) {
-  return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-            <TriangleAlertIcon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{t("certificates.loadFailed")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={onRetry} disabled={retrying}>
-            <RefreshCwIcon
-              className={cn("size-3.5", retrying && "animate-spin")}
-            />
-            {t("common.retry")}
-          </Button>
-        </div>
-      </TableCell>
-    </TableRow>
-  );
-}
 
 /** 剩余天数：<= 30 天走 warning，已过期走 destructive，文案固定为「已过期」。 */
 function DaysLeft({ days }: { days: number }) {
@@ -219,7 +187,9 @@ export function CertificatesPanel() {
             </TableHeader>
             <TableBody>
               {showError ? (
-                <ErrorRow
+                <ListErrorRow
+                  colSpan={COLUMN_COUNT}
+                  title={t("certificates.loadFailed")}
                   message={errorMessage}
                   retrying={certificates.isFetching}
                   onRetry={() => void certificates.refetch()}

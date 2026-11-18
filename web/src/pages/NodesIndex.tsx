@@ -4,9 +4,8 @@ import {
   NetworkIcon,
   RefreshCwIcon,
   ServerOffIcon,
-  TriangleAlertIcon,
 } from "lucide-react";
-import { EmptyState, SkeletonCard } from "@/components/common";
+import { EmptyState, ListError, SkeletonCard } from "@/components/common";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -197,33 +196,14 @@ export default function NodesIndexPage() {
       {servers.isPending ? (
         <LoadingCards />
       ) : showError ? (
-        <Card className="gap-0">
+        <Card className="gap-0 py-0">
           <CardContent className="p-0">
-            <div className="flex flex-col items-center gap-3 py-12 text-center">
-              <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-                <TriangleAlertIcon className="size-5" />
-              </div>
-              <div>
-                <p className="text-sm font-medium">{t("nodes.index.loadFailed")}</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {errorMessage}
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void servers.refetch()}
-                disabled={servers.isFetching}
-              >
-                <RefreshCwIcon
-                  className={cn(
-                    "size-3.5",
-                    servers.isFetching && "animate-spin",
-                  )}
-                />
-                {t("common.retry")}
-              </Button>
-            </div>
+            <ListError
+              title={t("nodes.index.loadFailed")}
+              message={errorMessage}
+              retrying={servers.isFetching}
+              onRetry={() => void servers.refetch()}
+            />
           </CardContent>
         </Card>
       ) : items.length === 0 ? (

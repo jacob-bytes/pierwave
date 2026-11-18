@@ -7,11 +7,10 @@ import {
   RefreshCwIcon,
   ScrollTextIcon,
   SearchIcon,
-  TriangleAlertIcon,
   XIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { EmptyState, SkeletonTable } from "@/components/common";
+import { EmptyState, ListErrorRow, SkeletonTable } from "@/components/common";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -451,42 +450,6 @@ function EmptyRow({
   );
 }
 
-function ErrorRow({
-  message,
-  onRetry,
-  retrying,
-}: {
-  message: string;
-  onRetry: () => void;
-  retrying: boolean;
-}) {
-  return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-            <TriangleAlertIcon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{t("audit.loadFailed")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRetry}
-            disabled={retrying}
-          >
-            <RefreshCwIcon
-              className={cn("size-3.5", retrying && "animate-spin")}
-            />
-            {t("common.retry")}
-          </Button>
-        </div>
-      </TableCell>
-    </TableRow>
-  );
-}
 
 function DetailDialog({
   entry,
@@ -838,10 +801,12 @@ export function AuditPanel() {
             </TableHeader>
             <TableBody>
               {showError ? (
-                <ErrorRow
+                <ListErrorRow
+                  colSpan={COLUMN_COUNT}
+                  title={t("audit.loadFailed")}
                   message={errorMessage}
-                  retrying={audit.isFetching}
                   onRetry={() => void audit.refetch()}
+                  retrying={audit.isFetching}
                 />
               ) : items.length === 0 ? (
                 <EmptyRow filtered={filtersActive} onClear={clearFilters} />

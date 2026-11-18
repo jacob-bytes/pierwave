@@ -56,6 +56,8 @@ interface UsageBarProps {
   label?: string | null;
   /** 超额时的颜色；默认 destructive，用户自助概览用 warning。 */
   overTone?: "destructive" | "warning";
+  /** 数字行是否靠右：数值列统一 `end`，卡片/详情保持默认 `start`。 */
+  align?: "start" | "end";
   className?: string;
 }
 
@@ -65,6 +67,7 @@ export function UsageBar({
   zeroAsUnlimited = false,
   label = t("usage.label"),
   overTone = "destructive",
+  align = "start",
   className,
 }: UsageBarProps) {
   const quota =
@@ -73,15 +76,26 @@ export function UsageBar({
   const overQuota = quota !== null && quota > 0 && usedBytes >= quota;
 
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div
+      className={cn(
+        "space-y-1.5",
+        // 数值列：整块（数字 + 进度条）贴右，进度条不会悬在列中间。
+        align === "end" && "ml-auto",
+        className,
+      )}
+    >
       <div
         className={cn(
           "flex items-center gap-3 text-xs",
-          label ? "justify-between" : "justify-start",
+          label
+            ? "justify-between"
+            : align === "end"
+              ? "justify-end"
+              : "justify-start",
         )}
       >
         {label ? <span className="text-muted-foreground">{label}</span> : null}
-        <span className="font-mono text-foreground/80">
+        <span className="font-mono tabular-nums text-foreground/80">
           {formatBytes(usedBytes)} /{" "}
           {formatBytes(quotaBytes, { zeroAsUnlimited })}
         </span>

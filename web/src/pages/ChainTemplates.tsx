@@ -7,12 +7,12 @@ import {
   PlusIcon,
   RefreshCwIcon,
   Trash2Icon,
-  TriangleAlertIcon,
 } from "lucide-react";
 import {
   EmptyState,
   EngineBadge,
   ListError,
+  ListErrorRow,
   MobileDataCard,
   PageHeader,
   ProtocolBadge,
@@ -395,37 +395,13 @@ export default function ChainTemplatesPage() {
                 </TableHeader>
                 <TableBody>
                   {showError ? (
-                    <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-                        <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
-                          <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-                            <TriangleAlertIcon className="size-5" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium">
-                              {t("chainTemplates.loadFailed")}
-                            </p>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {errorMessage}
-                            </p>
-                          </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void templates.refetch()}
-                            disabled={templates.isFetching}
-                          >
-                            <RefreshCwIcon
-                              className={cn(
-                                "size-3.5",
-                                templates.isFetching && "animate-spin",
-                              )}
-                            />
-                            {t("common.retry")}
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
+                    <ListErrorRow
+                      colSpan={COLUMN_COUNT}
+                      title={t("chainTemplates.loadFailed")}
+                      message={errorMessage}
+                      retrying={templates.isFetching}
+                      onRetry={() => void templates.refetch()}
+                    />
                   ) : items.length === 0 ? (
                     <TableRow className="hover:bg-transparent">
                       <TableCell colSpan={COLUMN_COUNT} className="px-4 py-8">

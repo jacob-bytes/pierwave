@@ -75,7 +75,8 @@ async fn handle_with_timeout(
     hello_timeout: Duration,
 ) {
     // 与 HTTP 共用同一套 IP 信任边界：公网直连无视 XFF，只有回环/内网反代才采信。
-    let ip = super::auth::client_ip_with_peer(&headers, peer);
+    // 限流键用规范化后的 /64（IPv6）或 IPv4 地址；没有可用地址时跳过 IP 限流。
+    let ip_key = super::auth::client_ip_with_peer(&headers, peer).map(|addr| addr.throttle_key());
     let first = match tokio::time::timeout(hello_timeout, socket.recv()).await {
         Ok(Some(Ok(Message::Text(text)))) => text,
         // 客户端主动关闭 / 正常 EOF：还没登记，不查库也不标离线。
@@ -112,20 +113,31 @@ async fn handle_with_timeout(
         return;
     }
 
-    // 猜安装 token 的 IP 维度限流：与 Bearer 失败共用同一张表，查库之前就拒绝。
-    if let Err(retry_after) = state.ip_throttle.check(&ip) {
-        tracing::warn!(ip = %ip, retry_after, "agent hello rejected: too many auth failures");
-        reject(&mut socket, "too many auth failures", close_code::POLICY).await;
-        return;
-    }
-
     // 心跳会带上 agent 版本一起落库，后续重连以最新 hello 为准。
     let agent_version = hello.agent_version.clone();
+    // T2：先做 token 校验。合法 token 不受 IP 锁影响；只有失败的认证尝试
+    // 才吃限流。先取「本次之前」的锁定状态，已锁定就不再继续累加。
+    let existing_lock = ip_key
+        .as_deref()
+        .and_then(|key| state.ip_throttle.check(key).err());
     let mut server = match repo::servers::find_by_token(&state.db.pool, &hello.token).await {
-        Ok(Some(server)) => server,
+        Ok(Some(server)) => {
+            // 认证成功清零该 IP 的失败计数。
+            if let Some(key) = ip_key.as_deref() {
+                state.ip_throttle.clear(key);
+            }
+            server
+        }
         Ok(None) => {
             // 只有「token 不存在」才算认证失败；数据库抖动不能把 Agent 的 IP 拉黑。
-            state.ip_throttle.record_failure(&ip);
+            if let Some(retry_after) = existing_lock {
+                tracing::warn!(retry_after, "agent hello rejected: too many auth failures");
+                reject(&mut socket, "too many auth failures", close_code::POLICY).await;
+                return;
+            }
+            if let Some(key) = ip_key.as_deref() {
+                state.ip_throttle.record_failure(key);
+            }
             tracing::warn!(hostname = %hello.hostname, "agent auth failed");
             reject(&mut socket, "invalid token", close_code::POLICY).await;
             return;
@@ -137,8 +149,6 @@ async fn handle_with_timeout(
             return;
         }
     };
-    // 认证成功清零该 IP 的失败计数。
-    state.ip_throttle.clear(&ip);
 
     // 握手带的版本比库里的新（Agent 刚重启升级过）：先用于本次补发的比较，
     // 心跳落库后两端就一致了。
@@ -3698,12 +3708,12 @@ mod ws_tests {
         wait_closed(&mut socket).await;
     }
 
-    /// 猜安装 token 也按 IP 计数：同一 IP 失败 20 次后 Hello 直接以限流拒绝。
+    /// 猜安装 token 也按 IP 计数：同一 IP 失败 20 次后**坏 token** 以限流拒绝。
     ///
-    /// 锁的是 IP 而不是 token：锁定期内即使拿正确 token 也进不来，证明防的是
-    /// 「暴力猜」而不是某一个 token。
+    /// T2：锁只约束「认证尝试」。合法 token 必须先校验、成功即放行，不能被
+    /// 同一 NAT 里别人打出来的 IP 锁连坐；成功认证还会清零该 IP 的计数。
     #[tokio::test]
-    async fn repeated_bad_agent_tokens_lock_the_ip() {
+    async fn repeated_bad_agent_tokens_lock_the_ip_but_not_valid_tokens() {
         let (state, _server_id, token) = state_with_server().await;
         let server = TestServer::start(state, Duration::from_secs(5)).await;
 
@@ -3724,20 +3734,53 @@ mod ws_tests {
             wait_closed(&mut socket).await;
         }
 
-        for candidate in ["bogus-token", token.as_str()] {
-            let mut socket = server.connect().await;
-            socket
-                .send(ClientMessage::Text(hello_json(candidate, "hk-x", "0.14.2")))
-                .await
-                .unwrap();
-            match next_message(&mut socket).await {
-                Some(MasterMessage::Error { message }) => assert_eq!(
-                    message, "too many auth failures",
-                    "锁定期内必须直接拒绝（token={candidate}）"
-                ),
-                other => panic!("expected throttle rejection, got {other:?}"),
-            }
-            wait_closed(&mut socket).await;
+        // 锁定后坏 token 直接以限流拒绝。
+        let mut socket = server.connect().await;
+        socket
+            .send(ClientMessage::Text(hello_json(
+                "bogus-token",
+                "hk-x",
+                "0.14.2",
+            )))
+            .await
+            .unwrap();
+        match next_message(&mut socket).await {
+            Some(MasterMessage::Error { message }) => assert_eq!(
+                message, "too many auth failures",
+                "锁定期内坏 token 必须直接拒绝"
+            ),
+            other => panic!("expected throttle rejection, got {other:?}"),
         }
+        wait_closed(&mut socket).await;
+
+        // 合法 token 不受 IP 锁影响：先做 token 校验，成功就下发 Ack。
+        let mut socket = server.connect().await;
+        socket
+            .send(ClientMessage::Text(hello_json(&token, "hk-ok", "0.14.2")))
+            .await
+            .unwrap();
+        assert!(
+            matches!(next_message(&mut socket).await, Some(MasterMessage::Ack(_))),
+            "合法 Agent token 不能被 IP 锁连坐"
+        );
+        socket.close(None).await.unwrap();
+
+        // 成功认证清零计数：坏 token 回到普通的 invalid token，而不是继续 429。
+        let mut socket = server.connect().await;
+        socket
+            .send(ClientMessage::Text(hello_json(
+                "bogus-token",
+                "hk-x",
+                "0.14.2",
+            )))
+            .await
+            .unwrap();
+        match next_message(&mut socket).await {
+            Some(MasterMessage::Error { message }) => {
+                assert_eq!(message, "invalid token", "成功认证后 IP 计数应清零")
+            }
+            other => panic!("expected invalid token after clear, got {other:?}"),
+        }
+        wait_closed(&mut socket).await;
     }
 }

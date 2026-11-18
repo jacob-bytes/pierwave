@@ -1,9 +1,8 @@
 import { lazy, Suspense, type ReactNode } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { Loader2Icon, RefreshCwIcon, TriangleAlertIcon } from "lucide-react";
+import { Loader2Icon } from "lucide-react";
 import AppShell from "@/components/AppShell";
-import { PageSkeleton } from "@/components/common";
-import { Button } from "@/components/ui/button";
+import { ListError, PageSkeleton } from "@/components/common";
 import { Card, CardContent } from "@/components/ui/card";
 import { isUnauthorized, useMe } from "@/lib/queries";
 import { isPublicStatusPath } from "@/lib/publicStatus";
@@ -113,23 +112,14 @@ function AuthenticatedApp() {
 
     return (
       <Centered>
-        <Card className="w-full max-w-md">
-          <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
-            <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-              <TriangleAlertIcon className="size-5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium">{t("app.cannotConnectTitle")}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void me.refetch()}
-            >
-              <RefreshCwIcon className="size-3.5" />
-              {t("app.retry")}
-            </Button>
+        <Card className="w-full max-w-md py-0">
+          <CardContent>
+            <ListError
+              title={t("app.cannotConnectTitle")}
+              message={message}
+              retrying={me.isFetching}
+              onRetry={() => void me.refetch()}
+            />
           </CardContent>
         </Card>
       </Centered>

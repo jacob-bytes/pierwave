@@ -4,8 +4,8 @@ import {
   ArrowRightIcon,
   HistoryIcon,
   RefreshCwIcon,
-  TriangleAlertIcon,
 } from "lucide-react";
+import { ListErrorRow } from "@/components/common";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -193,33 +193,13 @@ export function AgentUpgradeHistoryDialog({
               {history.isPending ? (
                 <LoadingRows />
               ) : history.isError ? (
-                <StatusRows>
-                  <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-                    <TriangleAlertIcon className="size-5" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">
-                      {t("servers.historyDialog.loadFailed")}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {errorMessage}
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void history.refetch()}
-                    disabled={history.isFetching}
-                  >
-                    <RefreshCwIcon
-                      className={cn(
-                        "size-3.5",
-                        history.isFetching && "animate-spin",
-                      )}
-                    />
-                    {t("common.retry")}
-                  </Button>
-                </StatusRows>
+                <ListErrorRow
+                  colSpan={COLUMN_COUNT}
+                  title={t("servers.historyDialog.loadFailed")}
+                  message={errorMessage ?? ""}
+                  retrying={history.isFetching}
+                  onRetry={() => void history.refetch()}
+                />
               ) : items.length === 0 ? (
                 <StatusRows>
                   <div className="grid size-10 place-items-center rounded-full bg-muted text-muted-foreground">

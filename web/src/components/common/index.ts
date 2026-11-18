@@ -25,7 +25,7 @@ export type {
   SkeletonLineProps,
   SkeletonTableProps,
 } from "./Skeleton";
-export { ListError } from "./ListError";
-export type { ListErrorProps } from "./ListError";
+export { ListError, ListErrorRow } from "./ListError";
+export type { ListErrorProps, ListErrorRowProps } from "./ListError";
 export { MobileDataCard } from "./MobileDataCard";
 export type { MobileDataCardProps, MobileDataField } from "./MobileDataCard";

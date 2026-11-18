@@ -5,7 +5,6 @@ import {
   DatabaseBackupIcon,
   DownloadIcon,
   Loader2Icon,
-  RefreshCwIcon,
   TriangleAlertIcon,
   Undo2Icon,
   UploadIcon,
@@ -29,6 +28,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { ListError } from "@/components/common";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -527,29 +527,13 @@ export function BackupCard() {
   if (info.isError) {
     return (
       <Card>
-        <CardContent className="space-y-3">
-          <Alert
-            variant="destructive"
-            className="border-destructive/25 bg-destructive/10"
-          >
-            <TriangleAlertIcon />
-            <AlertTitle>{t("settings.backup.loadFailed")}</AlertTitle>
-            <AlertDescription>
-              {backupErrorText(info.error, t("settings.backup.loadError"))}
-            </AlertDescription>
-          </Alert>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void info.refetch()}
-            disabled={info.isFetching}
-          >
-            <RefreshCwIcon
-              className={info.isFetching ? "animate-spin" : undefined}
-            />
-            {t("common.retry")}
-          </Button>
+        <CardContent>
+          <ListError
+            title={t("settings.backup.loadFailed")}
+            message={backupErrorText(info.error, t("settings.backup.loadError"))}
+            retrying={info.isFetching}
+            onRetry={() => void info.refetch()}
+          />
         </CardContent>
       </Card>
     );

@@ -10,7 +10,6 @@ import {
   QrCodeIcon,
   RefreshCwIcon,
   SearchIcon,
-  TriangleAlertIcon,
   UsersIcon,
   XIcon,
 } from "lucide-react";
@@ -24,6 +23,7 @@ import {
 import {
   EmptyState,
   ListError,
+  ListErrorRow,
   MobileDataCard,
   PageHeader,
   SkeletonCard,
@@ -175,43 +175,6 @@ function EmptyRow({
   );
 }
 
-function ErrorRow({
-  message,
-  onRetry,
-  retrying,
-}: {
-  message: string;
-  onRetry: () => void;
-  retrying: boolean;
-}) {
-  return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-            <TriangleAlertIcon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{t("subscriptions.loadFailed")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRetry}
-            disabled={retrying}
-          >
-            <RefreshCwIcon
-              className={cn("size-3.5", retrying && "animate-spin")}
-            />
-            {t("common.retry")}
-          </Button>
-        </div>
-      </TableCell>
-    </TableRow>
-  );
-}
-
 export default function SubscriptionsPage() {
   useI18n();
   const isDesktop = useIsDesktop();
@@ -343,17 +306,21 @@ export default function SubscriptionsPage() {
 
   function renderSubscriptionIdentity(user: Subscription) {
     return (
-      <div className="flex items-center gap-2.5">
+      // 40px 行高基线：名字与 short_code 同一行。
+      <div className="flex min-w-0 items-center gap-2.5">
         <Avatar size="sm">
           <AvatarFallback>
             {user.username.slice(0, 1).toUpperCase()}
           </AvatarFallback>
         </Avatar>
-        <div className="min-w-0">
-          <div className="truncate font-medium">{user.username}</div>
-          <div className="font-mono type-micro text-muted-foreground">
+        <div className="flex min-w-0 items-baseline gap-1.5">
+          <span className="truncate font-medium">{user.username}</span>
+          <span
+            className="shrink-0 font-mono type-micro text-muted-foreground"
+            title={user.short_code}
+          >
             {user.short_code}
-          </div>
+          </span>
         </div>
       </div>
     );
@@ -383,6 +350,7 @@ export default function SubscriptionsPage() {
         usedBytes={usage.usedBytes}
         quotaBytes={usage.quotaBytes}
         label={null}
+        align="end"
         className="w-48"
       />
     );
@@ -419,13 +387,13 @@ export default function SubscriptionsPage() {
     const url = buildSubscriptionUrl(user);
 
     return (
-      <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-1.5">
         <a
           href={url}
           target="_blank"
           rel="noreferrer"
           title={url}
-          className="block min-h-6 max-w-[220px] truncate py-1 font-mono text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground"
+          className="block min-w-0 max-w-[180px] truncate font-mono text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground"
         >
           {`…/sub/${user.short_code}`}
         </a>
@@ -498,22 +466,22 @@ export default function SubscriptionsPage() {
   function renderRow(user: Subscription) {
     return (
       <TableRow key={user.id}>
-        <TableCell sticky="left" className="px-4 py-2.5">
+        <TableCell sticky="left" className="px-4">
           {renderSubscriptionIdentity(user)}
         </TableCell>
-        <TableCell className="px-4 py-2.5">
+        <TableCell className="px-4">
           {renderSubscriptionPackages(user)}
         </TableCell>
-        <TableCell className="px-4 py-2.5">
+        <TableCell className="px-4 text-right">
           {renderSubscriptionTraffic(user)}
         </TableCell>
-        <TableCell className="px-4 py-2.5">
+        <TableCell className="px-4">
           {renderSubscriptionRuleTemplate(user)}
         </TableCell>
-        <TableCell className="px-4 py-2.5">
+        <TableCell className="px-4">
           {renderSubscriptionLink(user)}
         </TableCell>
-        <TableCell sticky="right" className="px-4 py-2.5">
+        <TableCell sticky="right" className="px-4">
           {renderSubscriptionActions(user)}
         </TableCell>
       </TableRow>
@@ -697,7 +665,10 @@ export default function SubscriptionsPage() {
                             ? "right"
                             : undefined
                       }
-                      className="h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground"
+                      className={cn(
+                        "h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground",
+                        index === 2 && "text-right",
+                      )}
                     >
                       {label}
                     </TableHead>
@@ -707,7 +678,9 @@ export default function SubscriptionsPage() {
             </TableHeader>
             <TableBody>
               {subscriptions.isError ? (
-                <ErrorRow
+                <ListErrorRow
+                  colSpan={COLUMN_COUNT}
+                  title={t("subscriptions.loadFailed")}
                   message={subscriptionListErrorText(subscriptions.error)}
                   retrying={subscriptions.isFetching}
                   onRetry={() => void subscriptions.refetch()}

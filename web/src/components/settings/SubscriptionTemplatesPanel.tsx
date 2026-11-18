@@ -7,13 +7,12 @@ import {
   PlusIcon,
   RefreshCwIcon,
   Trash2Icon,
-  TriangleAlertIcon,
   WorkflowIcon,
 } from "lucide-react";
 import { DeleteSubscriptionTemplateDialog } from "@/components/settings/DeleteSubscriptionTemplateDialog";
 import { SubscriptionTemplateFormDialog } from "@/components/settings/SubscriptionTemplateFormDialog";
 import { SubscriptionTemplatePreviewDialog } from "@/components/settings/SubscriptionTemplatePreviewDialog";
-import { EmptyState, SkeletonTable } from "@/components/common";
+import { EmptyState, ListErrorRow, SkeletonTable } from "@/components/common";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -103,44 +102,6 @@ function EmptyRow({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-function ErrorRow({
-  message,
-  onRetry,
-  retrying,
-}: {
-  message: string;
-  onRetry: () => void;
-  retrying: boolean;
-}) {
-  return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-            <TriangleAlertIcon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">
-              {t("subscriptionTemplates.loadFailed")}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRetry}
-            disabled={retrying}
-          >
-            <RefreshCwIcon
-              className={cn("size-3.5", retrying && "animate-spin")}
-            />
-            {t("common.retry")}
-          </Button>
-        </div>
-      </TableCell>
-    </TableRow>
-  );
-}
 
 /** 设置页的「订阅模板」tab：列表 + 新建/编辑/预览/删除，四态齐全。 */
 export function SubscriptionTemplatesPanel() {
@@ -220,14 +181,16 @@ export function SubscriptionTemplatesPanel() {
           </TableHeader>
           <TableBody>
             {showError ? (
-              <ErrorRow
-                message={errorText(
+              <ListErrorRow
+                  colSpan={COLUMN_COUNT}
+                  title={t("subscriptionTemplates.loadFailed")}
+                  message={errorText(
                   templates.error,
                   t("subscriptionTemplates.loadError"),
                 )}
-                onRetry={() => void templates.refetch()}
-                retrying={templates.isFetching}
-              />
+                  retrying={templates.isFetching}
+                  onRetry={() => void templates.refetch()}
+                />
             ) : items.length === 0 ? (
               <EmptyRow onCreate={() => setFormState({ mode: "create" })} />
             ) : (

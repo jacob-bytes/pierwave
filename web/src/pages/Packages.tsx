@@ -7,11 +7,11 @@ import {
   PlusIcon,
   RefreshCwIcon,
   Trash2Icon,
-  TriangleAlertIcon,
 } from "lucide-react";
 import {
   EmptyState,
   ListError,
+  ListErrorRow,
   MobileDataCard,
   PageHeader,
   SkeletonCard,
@@ -119,38 +119,6 @@ function EmptyRow({ onCreate }: { onCreate: () => void }) {
             </Button>
           }
         />
-      </TableCell>
-    </TableRow>
-  );
-}
-
-function ErrorRow({
-  message,
-  onRetry,
-  retrying,
-}: {
-  message: string;
-  onRetry: () => void;
-  retrying: boolean;
-}) {
-  return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-            <TriangleAlertIcon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{t("packages.loadFailed")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={onRetry} disabled={retrying}>
-            <RefreshCwIcon
-              className={cn("size-3.5", retrying && "animate-spin")}
-            />
-            {t("common.retry")}
-          </Button>
-        </div>
       </TableCell>
     </TableRow>
   );
@@ -326,28 +294,28 @@ export default function PackagesPage() {
   function renderRow(item: Package) {
     return (
       <TableRow key={item.id}>
-        <TableCell sticky="left" className="px-4 py-2.5">
+        <TableCell sticky="left" className="px-4">
           {renderPackageName(item)}
         </TableCell>
-        <TableCell className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
+        <TableCell className="px-4 text-right font-mono text-xs tabular-nums text-muted-foreground">
           {formatBytes(item.quota_bytes)}
         </TableCell>
-        <TableCell className="px-4 py-2.5 text-xs text-muted-foreground">
+        <TableCell className="px-4 text-right text-xs tabular-nums text-muted-foreground">
           {renderPackagePeriod(item)}
         </TableCell>
-        <TableCell className="px-4 py-2.5">
+        <TableCell className="px-4">
           {renderPackageDirection(item)}
         </TableCell>
-        <TableCell className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
+        <TableCell className="px-4 text-right font-mono text-xs tabular-nums text-muted-foreground">
           ×{item.node_ratio}
         </TableCell>
-        <TableCell className="px-4 py-2.5">
+        <TableCell className="px-4">
           <NodeScopeBadge item={item} />
         </TableCell>
-        <TableCell className="px-4 py-2.5">
+        <TableCell className="px-4">
           {renderPackageUserCount(item)}
         </TableCell>
-        <TableCell sticky="right" className="px-4 py-2.5">
+        <TableCell sticky="right" className="px-4">
           {renderPackageActions(item)}
         </TableCell>
       </TableRow>
@@ -482,7 +450,11 @@ export default function PackagesPage() {
                           ? "right"
                           : undefined
                     }
-                    className="h-9 px-4 text-xs font-[550] tracking-wide text-muted-foreground"
+                    className={cn(
+                      "h-9 px-4 text-xs font-[550] tracking-wide text-muted-foreground",
+                      // 额度 / 周期 / 倍率是数值列：表头与数字同侧右对齐。
+                      [1, 2, 4].includes(index) && "text-right",
+                    )}
                   >
                     {label}
                   </TableHead>
@@ -491,7 +463,9 @@ export default function PackagesPage() {
             </TableHeader>
             <TableBody>
               {showError ? (
-                <ErrorRow
+                <ListErrorRow
+                  colSpan={COLUMN_COUNT}
+                  title={t("packages.loadFailed")}
                   message={errorMessage}
                   retrying={packages.isFetching}
                   onRetry={() => void packages.refetch()}

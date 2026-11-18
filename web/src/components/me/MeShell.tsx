@@ -1,9 +1,10 @@
 import { Suspense, useEffect, useRef } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
-import { RefreshCwIcon, TriangleAlertIcon } from "lucide-react";
+import { RefreshCwIcon } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { ListError } from "@/components/common";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MeStatusBadge, StatusAlerts } from "@/components/me/MeStatus";
@@ -117,25 +118,13 @@ function MeError({
   const { t } = useI18n();
   return (
     <Card>
-      <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-        <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-          <TriangleAlertIcon className="size-5" />
-        </div>
-        <div>
-          <p className="text-sm font-medium">{t("me.loadFailed")}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onRetry}
-          disabled={retrying}
-        >
-          <RefreshCwIcon
-            className={cn("size-3.5", retrying && "animate-spin")}
-          />
-          {t("common.retry")}
-        </Button>
+      <CardContent>
+        <ListError
+          title={t("me.loadFailed")}
+          message={message}
+          retrying={retrying}
+          onRetry={onRetry}
+        />
       </CardContent>
     </Card>
   );

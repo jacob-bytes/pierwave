@@ -2,9 +2,8 @@ import { useState } from "react";
 import {
   HistoryIcon,
   RefreshCwIcon,
-  TriangleAlertIcon,
 } from "lucide-react";
-import { EmptyState, SkeletonTable } from "@/components/common";
+import { EmptyState, ListErrorRow, SkeletonTable } from "@/components/common";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -146,42 +145,6 @@ function EmptyRow({
   );
 }
 
-function ErrorRow({
-  message,
-  onRetry,
-  retrying,
-}: {
-  message: string;
-  onRetry: () => void;
-  retrying: boolean;
-}) {
-  return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-            <TriangleAlertIcon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{t("events.loadFailed")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onRetry}
-            disabled={retrying}
-          >
-            <RefreshCwIcon
-              className={cn("size-3.5", retrying && "animate-spin")}
-            />
-            {t("common.retry")}
-          </Button>
-        </div>
-      </TableCell>
-    </TableRow>
-  );
-}
 
 /**
  * 「系统事件」面板：由 `/logs` 的 tab 挂载。
@@ -294,11 +257,13 @@ export function EventsPanel() {
           </TableHeader>
           <TableBody>
             {showError ? (
-              <ErrorRow
-                message={errorMessage}
-                retrying={events.isFetching}
-                onRetry={() => void events.refetch()}
-              />
+              <ListErrorRow
+                  colSpan={COLUMN_COUNT}
+                  title={t("events.loadFailed")}
+                  message={errorMessage}
+                  onRetry={() => void events.refetch()}
+                  retrying={events.isFetching}
+                />
             ) : items.length === 0 ? (
               <EmptyRow filter="all" onReset={() => setFilter("all")} />
             ) : noFilteredResults ? (

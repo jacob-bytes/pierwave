@@ -120,19 +120,41 @@ WHERE key = 'alert_events' AND trim(value) <> ''
 
 - 计数对象：`Authorization: Bearer pwt_...` 认证失败（无效 / 过期 / 吊销），
   以及 Agent WebSocket Hello 的 token 校验失败；
-- 阈值：同一 IP **10 分钟内 20 次**失败 → 该 IP 的受保护请求返回 **429**，
+- 阈值：同一 IP **10 分钟内 20 次**失败 → 该 IP 的**认证尝试**返回 **429**，
   `Retry-After` 给出剩余秒数；锁定窗口与计数窗口一致（10 分钟），到点自动解锁；
+- **锁定只约束认证尝试**：带有效 Cookie 会话或有效 Bearer 的请求永不被 429
+  （同一 NAT 里有人打坏 Bearer 不会连坐管理员已登录的会话）；无效凭据的请求
+  照旧 429。Agent WS 先校验 token，成功即连接，失败才计数 / 拒绝；
 - 成功认证清零：合法的 Bearer、合法的 Agent Hello、成功登录都会删掉该 IP 的计数；
 - 清零点只覆盖「认证成功」本身，普通 Cookie 请求不清零：否则任何已登录用户都能
   用一次正常请求把 IP 计数刷掉，再去暴力猜 Bearer；
 - 不锁公开入口：`/api/v1/health`、`/api/v1/public/status`、`/api/v1/auth/login`
   与 `/api/v1/sub/{code}` 不参与 IP 锁定（登录自己的限流仍然生效），所以被锁的
   管理员仍可重新登录，登录成功会清掉 IP 计数；
-- IP 来源：沿用 `ClientIp` 的信任边界——对端是公网就用真实地址，只有回环/内网
-  反代转发的 `X-Forwarded-For` 才采信；Agent WS 拿不到对端时回落到 XFF；
 - 内存取舍：计数只在进程内，**重启即清零**（与登录限流一致：单主控部署下没有
-  跨进程一致性问题，重启是管理员的自救手段）；表有 4096 条硬上限，超过后按
-  「已锁定条目最后淘汰、其次最久未活动」清到 3/4，攻击者无法用灌表挤掉锁定记录。
+  跨进程一致性问题，重启是管理员的自救手段）；
+- 灌表保护：表有 4096 条硬上限；淘汰**只从未锁定条目中选**，未锁定条目不足以
+  腾出空间时**拒绝新键**（该次失败不记入）并记一次限频 warn，而不是淘汰锁定项；
+  锁定条目另有 4096 上限，超出后拒绝新的锁定。灌表因此无法解锁 `admin`。
+
+### X-Forwarded-For 解析 / XFF parsing
+
+IP 来源不再取 XFF 第一段：
+
+1. 直连对端是公网 → 不采信 XFF，直接用对端地址；
+2. 对端是回环 / 私网反代 → 解析整条 XFF（支持多条同名头），从**右往左**遍历，
+   跳过回环 / 私网可信代理，取第一个不可信地址；
+3. 整条链都可信 → 取最左（更靠近客户端的一端）；
+4. 每段必须能 `IpAddr::parse`，解析失败的段直接忽略；整条都不可用时返回
+   `None`，限流退回「按连接对端地址」，而不是拿垃圾字符串当键。
+
+规范化：IPv4-mapped IPv6（`::ffff:1.2.3.4`）统一成 IPv4；IPv6 的**限流键**
+取 `/64` 前缀（单个地址可轮换，按单地址计数等于无限免费桶），但审计、登录
+设备与 `login_ips` 记录完整地址。两者都来自同一份解析结果。
+
+`nginx $proxy_add_x_forwarded_for` 是追加语义，真实地址在最右；客户端自带的
+伪造值只能留在左侧，因此取第一段的旧实现可被用来绕过限流、伪造锁定任意 IP，
+也会把伪造值写进审计。
 
 被 429 时复用登录限流已有的 `auth.too_many_attempts` 错误码（前端已翻译），响应里带
 `retry_after_secs` / `minutes` 参数与 `Retry-After` 响应头。
@@ -172,13 +194,35 @@ codebase), and an admin action to sign out all of another user's sessions.
 Per-IP auth failure throttling: failed `Authorization: Bearer pwt_...`
 authentication (invalid, expired or revoked) and failed Agent WebSocket Hello
 token checks are counted per client IP. Twenty failures within ten minutes lock
-that IP: protected requests return **429** with `Retry-After`, and the lock
-expires with the ten-minute window. A successful Bearer authentication, a
-successful Agent Hello or a successful login clears the counter for that IP;
-ordinary cookie requests do not, otherwise any signed-in user could reset the
-counter between guesses. Public entry points (`/api/v1/health`,
-`/api/v1/public/status`, `/api/v1/auth/login`, `/api/v1/sub/{code}`) are not
-blocked by the IP lock, so a locked-out admin can still sign in and clear it.
-The table lives in memory only, is capped at 4096 entries (evicting unlocked,
-least-recently-seen entries first, down to 3/4), and is cleared by a process
-restart — the same trade-off as the existing login throttle.
+that IP: **failed authentication attempts** return **429** with `Retry-After`,
+and the lock expires with the ten-minute window. The lock only constrains
+authentication attempts: requests carrying a valid cookie session or a valid
+Bearer token are never 429 (a bad Bearer from the same NAT cannot lock out an
+already signed-in admin), while invalid credentials still return 429. The Agent
+WebSocket Hello now validates the token first, so a valid token connects even
+while the IP is locked; only failures are counted/rejected. A successful Bearer
+authentication, a successful Agent Hello or a successful login clears the
+counter for that IP; ordinary cookie requests do not, otherwise any signed-in
+user could reset the counter between guesses. Public entry points
+(`/api/v1/health`, `/api/v1/public/status`, `/api/v1/auth/login`,
+`/api/v1/sub/{code}`) are not blocked by the IP lock, so a locked-out admin can
+still sign in and clear it.
+
+XFF parsing: when the direct peer is public, `X-Forwarded-For` is ignored. Only a
+loopback/private reverse-proxy peer is trusted: the whole chain (including
+multiple same-name headers) is parsed right-to-left, skipping loopback/private
+trusted proxies, and the first untrusted hop is the client. If the entire chain
+is trusted, the leftmost hop is used. Every segment must parse as an `IpAddr`;
+unparseable segments are ignored, and an entirely unusable chain yields `None`
+so throttling falls back to the connection peer instead of a garbage string.
+IPv4-mapped IPv6 is normalized to IPv4; audit, session-device and `login_ips`
+records keep the full normalized address, while IPv6 throttle keys use the /64
+prefix because single addresses inside a /64 can be rotated freely.
+
+The table lives in memory only and is capped at 4096 entries. Eviction only
+considers unlocked entries; when there are not enough unlocked entries, new keys
+are rejected (the failure is not recorded) with a rate-limited warning instead of
+evicting a lock. Locked entries have their own 4096 cap and new locks are refused
+past it. Normal eviction of unlocked, least-recently-seen entries still happens,
+and a process restart still clears the table — the same trade-off as the
+existing login throttle.

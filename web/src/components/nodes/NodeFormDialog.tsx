@@ -418,8 +418,8 @@ export function NodeFormDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[88vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
+        <DialogHeader className="border-b border-border px-4 py-4 pr-12 sm:px-6">
           <DialogTitle>
             {isEdit ? t("nodes.form.editTitle") : t("nodes.form.createTitle")}
           </DialogTitle>
@@ -430,7 +430,11 @@ export function NodeFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form id="node-form" onSubmit={onSubmit}>
+        <form
+          id="node-form"
+          className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6"
+          onSubmit={onSubmit}
+        >
           <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
             <div className="space-y-4">
               <FormField
@@ -1002,7 +1006,7 @@ export function NodeFormDialog({
           <FormRootError message={form.formState.errors.root?.message} />
         </form>
 
-        <DialogFooter>
+        <DialogFooter className="mx-0 mb-0 rounded-none border-border px-4 py-3 sm:px-6">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}

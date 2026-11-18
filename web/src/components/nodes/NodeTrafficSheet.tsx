@@ -2,9 +2,9 @@ import { lazy, Suspense } from "react";
 import {
   ActivityIcon,
   RefreshCwIcon,
-  TriangleAlertIcon,
   UsersIcon,
 } from "lucide-react";
+import { ListError } from "@/components/common";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -149,27 +149,13 @@ function TrafficError({
 }) {
   return (
     <Card>
-      <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
-        <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-          <TriangleAlertIcon className="size-5" />
-        </div>
-        <div>
-          <p className="text-sm font-medium">{t("nodes.traffic.loadFailed")}</p>
-          <p className="mx-auto mt-1 max-w-sm text-xs text-muted-foreground">
-            {message}
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onRetry}
-          disabled={retrying}
-        >
-          <RefreshCwIcon
-            className={cn("size-3.5", retrying && "animate-spin")}
-          />
-          {t("common.retry")}
-        </Button>
+      <CardContent>
+        <ListError
+          title={t("nodes.traffic.loadFailed")}
+          message={message}
+          retrying={retrying}
+          onRetry={onRetry}
+        />
       </CardContent>
     </Card>
   );

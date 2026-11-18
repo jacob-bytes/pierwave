@@ -4,10 +4,10 @@ import {
   HistoryIcon,
   Loader2Icon,
   RefreshCwIcon,
-  TriangleAlertIcon,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { ListError } from "@/components/common";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -413,29 +413,13 @@ export function AgentBatchUpgradeProgressDialog({
             ))}
           </div>
         ) : latestError ? (
-          <div className="flex flex-col items-center gap-3 rounded-lg border border-border px-3 py-12 text-center">
-            <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-              <TriangleAlertIcon className="size-5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium">
-                {t("servers.batch.progress.loadFailed")}
-              </p>
-              <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-                {latestError}
-              </p>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void latest.refetch()}
-              disabled={latest.isFetching}
-            >
-              <RefreshCwIcon
-                className={cn("size-3.5", latest.isFetching && "animate-spin")}
-              />
-              {t("common.retry")}
-            </Button>
+          <div className="rounded-lg border border-border py-4">
+            <ListError
+              title={t("servers.batch.progress.loadFailed")}
+              message={latestError}
+              retrying={latest.isFetching}
+              onRetry={() => void latest.refetch()}
+            />
           </div>
         ) : noBatches ? (
           <div className="flex flex-col items-center gap-3 rounded-lg border border-border px-3 py-12 text-center">
@@ -452,29 +436,13 @@ export function AgentBatchUpgradeProgressDialog({
             </div>
           </div>
         ) : detailError ? (
-          <div className="flex flex-col items-center gap-3 rounded-lg border border-border px-3 py-12 text-center">
-            <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-              <TriangleAlertIcon className="size-5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium">
-                {t("servers.batch.progress.loadFailed")}
-              </p>
-              <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-                {detailError}
-              </p>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void detail.refetch()}
-              disabled={detail.isFetching}
-            >
-              <RefreshCwIcon
-                className={cn("size-3.5", detail.isFetching && "animate-spin")}
-              />
-              {t("common.retry")}
-            </Button>
+          <div className="rounded-lg border border-border py-4">
+            <ListError
+              title={t("servers.batch.progress.loadFailed")}
+              message={detailError}
+              retrying={detail.isFetching}
+              onRetry={() => void detail.refetch()}
+            />
           </div>
         ) : batch ? (
           <div className="flex flex-col gap-3">

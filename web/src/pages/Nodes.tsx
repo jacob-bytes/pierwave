@@ -13,7 +13,7 @@ import {
   TriangleAlertIcon,
   XIcon,
 } from "lucide-react";
-import { EmptyState, SkeletonTable } from "@/components/common";
+import { EmptyState, ListErrorRow, SkeletonTable } from "@/components/common";
 import { DeleteNodeDialog } from "@/components/nodes/DeleteNodeDialog";
 import { NodeFormDialog } from "@/components/nodes/NodeFormDialog";
 import {
@@ -106,6 +106,18 @@ function nodeChangedAt(node: Node): number {
   return node.updated_at ?? node.created_at;
 }
 
+/**
+ * 节点名称单元格的 title：名称 + 标签 / 地区 / 额外标签。
+ *
+ * 40px 行高里只保留名称与 tag 可见，地区与额外标签收进这里，
+ * 不额外占一行（信息仍可悬停查看）。
+ */
+function nodeMetaTitle(node: Node): string {
+  return [node.name, node.tag, node.region, ...(node.tags ?? [])]
+    .filter((part): part is string => Boolean(part && String(part).trim()))
+    .join(" · ");
+}
+
 /** 列表里的「7 天流量」单元格：点击打开详情 Sheet。 */
 function NodeTrafficCell({
   node,
@@ -143,7 +155,7 @@ function NodeTrafficCell({
       title={title}
       aria-label={t("nodes.traffic.openAria", { name: node.name })}
       onClick={onOpen}
-      className="-mx-2 flex min-w-32 flex-col items-start gap-0.5 rounded-md px-2 py-1 text-left transition-colors duration-150 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      className="-mx-2 ml-auto flex items-center justify-end gap-1.5 rounded-md px-2 py-1 text-right transition-colors duration-150 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
     >
       <span
         className={cn(
@@ -178,38 +190,6 @@ function EmptyRow({ onCreate }: { onCreate: () => void }) {
             </Button>
           }
         />
-      </TableCell>
-    </TableRow>
-  );
-}
-
-function ErrorRow({
-  message,
-  onRetry,
-  retrying,
-}: {
-  message: string;
-  onRetry: () => void;
-  retrying: boolean;
-}) {
-  return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-            <TriangleAlertIcon className="size-5" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{t("nodes.loadFailed")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={onRetry} disabled={retrying}>
-            <RefreshCwIcon
-              className={cn("size-3.5", retrying && "animate-spin")}
-            />
-            {t("common.retry")}
-          </Button>
-        </div>
       </TableCell>
     </TableRow>
   );
@@ -585,11 +565,15 @@ export default function NodesPage() {
                   { label: t("nodes.columns.enabled") },
                   { label: t("nodes.columns.updatedAt") },
                   { label: t("nodes.columns.actions") },
-                ].map(({ label, title }) => (
+                ].map(({ label, title }, index) => (
                   <TableHead
                     key={label}
                     title={title}
-                    className="h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground"
+                    className={cn(
+                      "h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground",
+                      // 端口与 7 天流量是数值列：与数字同侧右对齐。
+                      (index === 2 || index === 3) && "text-right",
+                    )}
                   >
                     {label}
                   </TableHead>
@@ -598,7 +582,9 @@ export default function NodesPage() {
             </TableHeader>
             <TableBody>
               {showError ? (
-                <ErrorRow
+                <ListErrorRow
+                  colSpan={COLUMN_COUNT}
+                  title={t("nodes.loadFailed")}
                   message={errorMessage}
                   retrying={nodes.isFetching}
                   onRetry={() => void nodes.refetch()}
@@ -630,39 +616,21 @@ export default function NodesPage() {
               ) : (
                 items.map((node) => (
                   <TableRow key={node.id}>
-                    <TableCell className="max-w-64 px-4 py-2.5">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <div className="min-w-0 flex-1 truncate font-medium">
+                    <TableCell className="max-w-72 px-4">
+                      {/* 40px 基线：名称 / 标签 / 徽标 / 探测按钮同一行；
+                          地区与额外标签收进 title，不再各占一行。 */}
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <div
+                          className="min-w-0 shrink truncate font-medium"
+                          title={nodeMetaTitle(node)}
+                        >
                           {node.name}
                         </div>
                         <SsMethodBadge node={node} />
                         <SpeedLimitBadge kbps={node.bandwidth_kbps} />
-                      </div>
-                      {/* 移动端行内空间不足：结果放到名称下方一行。 */}
-                      <NodeTcpingResult
-                        state={tcpingStates[node.id] ?? IDLE_TCPING}
-                        className="mt-0.5 md:hidden"
-                      />
-                      <div className="mt-0.5 flex items-center gap-1">
-                        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 font-mono type-micro text-muted-foreground">
-                          <span className="truncate">{node.tag}</span>
-                          {node.region ? (
-                            <Badge
-                              variant="outline"
-                              className="h-4 border-border/70 px-1 font-mono text-[10px] font-normal"
-                            >
-                              {node.region}
-                            </Badge>
-                          ) : null}
-                          {(node.tags ?? []).map((tag) => (
-                            <span
-                              key={tag}
-                              className="rounded-full bg-muted px-1.5 text-[10px]"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
+                        <span className="hidden shrink-0 truncate font-mono type-micro text-muted-foreground md:inline">
+                          {node.tag}
+                        </span>
                         <NodeTcpingAction
                           node={node}
                           state={tcpingStates[node.id] ?? IDLE_TCPING}
@@ -670,8 +638,33 @@ export default function NodesPage() {
                           className="shrink-0"
                         />
                       </div>
+                      {/* 移动端行内空间不足：tag / 地区 / 额外标签与探测结果放到下一行，
+                          md 以上收进同一行或 title，保持 40px 行高。 */}
+                      <div className="mt-0.5 flex items-center gap-1 font-mono type-micro text-muted-foreground md:hidden">
+                        <span className="truncate">{node.tag}</span>
+                        {node.region ? (
+                          <Badge
+                            variant="outline"
+                            className="h-4 border-border/70 px-1 font-mono text-[10px] font-normal"
+                          >
+                            {node.region}
+                          </Badge>
+                        ) : null}
+                        {(node.tags ?? []).map((tag) => (
+                          <span
+                            key={tag}
+                            className="rounded-full bg-muted px-1.5 text-[10px]"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                      <NodeTcpingResult
+                        state={tcpingStates[node.id] ?? IDLE_TCPING}
+                        className="mt-0.5 md:hidden"
+                      />
                     </TableCell>
-                    <TableCell className="px-4 py-2.5">
+                    <TableCell className="px-4">
                       <Badge
                         variant="outline"
                         className="font-mono type-micro font-normal text-muted-foreground"
@@ -683,7 +676,7 @@ export default function NodesPage() {
                         )}
                       </Badge>
                     </TableCell>
-                    <TableCell className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
+                    <TableCell className="px-4 text-right font-mono text-xs tabular-nums text-muted-foreground">
                       <span
                         title={
                           node.public_port == null
@@ -694,7 +687,7 @@ export default function NodesPage() {
                         {portPairLabel(node.port, node.public_port)}
                       </span>
                     </TableCell>
-                    <TableCell className="px-4 py-2.5">
+                    <TableCell className="px-4 text-right">
                       <NodeTrafficCell
                         node={node}
                         traffic={trafficByNode.get(node.id)}
@@ -703,15 +696,15 @@ export default function NodesPage() {
                         onOpen={() => setTrafficTarget(node)}
                       />
                     </TableCell>
-                    <TableCell className="px-4 py-2.5">
+                    <TableCell className="px-4">
                       <NodeEnabledSwitch serverId={serverId} node={node} />
                     </TableCell>
-                    <TableCell className="px-4 py-2.5 text-xs text-muted-foreground">
+                    <TableCell className="px-4 text-xs text-muted-foreground">
                       <span title={formatAbsoluteTime(nodeChangedAt(node))}>
                         {formatRelativeTime(nodeChangedAt(node))}
                       </span>
                     </TableCell>
-                    <TableCell className="px-4 py-2.5">
+                    <TableCell className="px-4">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
@@ -748,7 +741,7 @@ export default function NodesPage() {
             </TableBody>
           </Table>
           {nodes.data && !showError ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4">
               <p className="text-xs text-muted-foreground tabular-nums">
                 {t("nodes.pageRange", {
                   from: pageSummary.from,

@@ -5,12 +5,11 @@ import {
   CopyIcon,
   PencilIcon,
   PlusIcon,
-  RefreshCwIcon,
   Trash2Icon,
   TriangleAlertIcon,
   WaypointsIcon,
 } from "lucide-react";
-import { EmptyState } from "@/components/common";
+import { EmptyState, ListError } from "@/components/common";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,7 +43,6 @@ import {
   chainQuotaState,
 } from "@/lib/myChains";
 import { useDeleteMyChain, useMyChains, useMyChainTemplates } from "@/lib/queries";
-import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 import { MyChainEditDialog } from "@/components/me/MyChainEditDialog";
 import { MyChainFormDialog } from "@/components/me/MyChainFormDialog";
@@ -230,29 +228,12 @@ export function MyChainsCard() {
             ))}
           </div>
         ) : chains.isError ? (
-          <div className="flex flex-col items-center gap-3 py-8 text-center">
-            <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-              <TriangleAlertIcon className="size-5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium">{t("me.chains.loadFailed")}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{loadError}</p>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void chains.refetch()}
-              disabled={chains.isFetching}
-            >
-              <RefreshCwIcon
-                className={cn(
-                  "size-3.5",
-                  chains.isFetching && "animate-spin",
-                )}
-              />
-              {t("common.retry")}
-            </Button>
-          </div>
+          <ListError
+            title={t("me.chains.loadFailed")}
+            message={loadError}
+            retrying={chains.isFetching}
+            onRetry={() => void chains.refetch()}
+          />
         ) : state === "none" ? (
           <EmptyState
             icon={BracesIcon}

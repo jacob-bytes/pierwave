@@ -64,33 +64,44 @@ pub async fn http(
 
     // 与 REST 共用同一张「按 IP 的认证失败」表：`/mcp` 也是 Bearer 入口，
     // 不能成为绕过 IP 限流猜 token 的后门。生产有 ConnectInfo，测试里没有时按 XFF 取。
-    let ip = crate::routes::auth::client_ip_with_peer(
+    //
+    // T2：先做 token 校验。有效 Bearer 永远不被 IP 锁连坐，只有失败的认证
+    // 尝试才吃 429（且不会继续累加、延长锁期）。
+    let ip_key = crate::routes::auth::client_ip_with_peer(
         &headers,
         peer.map(|axum::extract::Extension(axum::extract::ConnectInfo(addr))| addr.ip()),
-    );
-    if let Err(retry_after) = state.ip_throttle.check(&ip) {
-        let mut response = error_response(
-            StatusCode::TOO_MANY_REQUESTS,
-            id,
-            RATE_LIMITED,
-            "该 IP 认证失败次数过多，请稍后再试 / too many failed authentication attempts from this IP; try again later",
-        );
-        if let Ok(value) = axum::http::HeaderValue::from_str(&retry_after.to_string()) {
-            response
-                .headers_mut()
-                .insert(axum::http::header::RETRY_AFTER, value);
-        }
-        return response;
-    }
+    )
+    .map(|addr| addr.throttle_key());
+    let existing_lock = ip_key
+        .as_deref()
+        .and_then(|key| state.ip_throttle.check(key).err());
 
     let principal = match authenticate_api_token(&state, raw).await {
         Ok(principal) => {
             // 成功认证清零该 IP 的失败计数。
-            state.ip_throttle.clear(&ip);
+            if let Some(key) = ip_key.as_deref() {
+                state.ip_throttle.clear(key);
+            }
             principal
         }
         Err(ApiTokenAuthError::Unauthorized) => {
-            state.ip_throttle.record_failure(&ip);
+            if let Some(retry_after) = existing_lock {
+                let mut response = error_response(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    id,
+                    RATE_LIMITED,
+                    "该 IP 认证失败次数过多，请稍后再试 / too many failed authentication attempts from this IP; try again later",
+                );
+                if let Ok(value) = axum::http::HeaderValue::from_str(&retry_after.to_string()) {
+                    response
+                        .headers_mut()
+                        .insert(axum::http::header::RETRY_AFTER, value);
+                }
+                return response;
+            }
+            if let Some(key) = ip_key.as_deref() {
+                state.ip_throttle.record_failure(key);
+            }
             return error_response(
                 StatusCode::UNAUTHORIZED,
                 id,
@@ -229,12 +240,24 @@ mod tests {
     }
 
     async fn post(app: &Router, bearer: Option<&str>, body: Value) -> (StatusCode, String, Value) {
+        post_from(app, bearer, body, None).await
+    }
+
+    async fn post_from(
+        app: &Router,
+        bearer: Option<&str>,
+        body: Value,
+        xff: Option<&str>,
+    ) -> (StatusCode, String, Value) {
         let mut builder = Request::builder()
             .method("POST")
             .uri("/mcp")
             .header("content-type", "application/json");
         if let Some(token) = bearer {
             builder = builder.header("authorization", format!("Bearer {token}"));
+        }
+        if let Some(ip) = xff {
+            builder = builder.header("x-forwarded-for", ip);
         }
         let response = app
             .clone()
@@ -446,22 +469,37 @@ mod tests {
         assert_eq!(body["error"]["code"], super::FORBIDDEN);
     }
 
-    /// `/mcp` 与 REST 共用 IP 失败表：猜 token 到阈值后返回 JSON-RPC 形状的 429。
+    /// `/mcp` 与 REST 共用 IP 失败表：猜 token 到阈值后返回 JSON-RPC 形状的 429；
+    /// 但合法 token 不被 IP 锁连坐（T2），且成功认证清零该 IP 的计数。
     #[tokio::test]
     async fn repeated_invalid_tokens_lock_the_ip_on_mcp() {
-        let (app, _state) = setup().await;
+        let (app, state) = setup().await;
+        let ip = "203.0.113.90";
+        let admin_token = token(&state, "admin").await;
         let body = json!({"jsonrpc": "2.0", "id": 9, "method": "ping"});
 
         for _ in 0..crate::throttle::IP_MAX_FAILURES {
-            let (status, _, parsed) = post(&app, Some("pwt_invalid-token"), body.clone()).await;
+            let (status, _, parsed) =
+                post_from(&app, Some("pwt_invalid-token"), body.clone(), Some(ip)).await;
             assert_eq!(status, StatusCode::UNAUTHORIZED);
             assert_eq!(parsed["error"]["code"], super::UNAUTHORIZED);
         }
 
-        let (status, text, parsed) = post(&app, Some("pwt_invalid-token"), body).await;
+        let (status, text, parsed) =
+            post_from(&app, Some("pwt_invalid-token"), body.clone(), Some(ip)).await;
         assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
         assert!(!text.trim_start().starts_with('<'), "不能返回 HTML：{text}");
         assert_eq!(parsed["error"]["code"], super::RATE_LIMITED);
+
+        // 合法 token：即使该 IP 已被别人打到锁定，也必须正常返回。
+        let (status, _, parsed) = post_from(&app, Some(&admin_token), body.clone(), Some(ip)).await;
+        assert_eq!(status, StatusCode::OK, "合法 Bearer 不能被 IP 锁连坐");
+        assert_eq!(parsed["id"], 9);
+
+        // 成功认证清零后，坏 token 回到普通的 401。
+        let (status, _, parsed) = post_from(&app, Some("pwt_invalid-token"), body, Some(ip)).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(parsed["error"]["code"], super::UNAUTHORIZED);
     }
 
     #[tokio::test]

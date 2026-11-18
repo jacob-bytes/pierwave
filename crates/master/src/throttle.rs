@@ -63,6 +63,16 @@ const MAX_ENTRIES: usize = 4096;
 /// 超过上限时一次淘汰到 3/4，避免每来一个请求就做一次全表排序。
 const EVICT_TARGET: usize = MAX_ENTRIES * 3 / 4;
 
+/// 锁定条目的独立上限。
+///
+/// 锁定条目不会被淘汰，所以必须单独限量：达到上限后拒绝把新条目转为锁定，
+/// 而不是让内存随攻击者换 IP / 用户名无限增长。当前与表上限相同；将来若单独
+/// 调大表上限，锁定条目不会跟着无界增长。
+const MAX_LOCKED_ENTRIES: usize = MAX_ENTRIES;
+
+/// 容量相关告警的最小间隔：灌表时每个请求都告警会刷爆日志。
+const WARN_INTERVAL: Duration = Duration::from_secs(60);
+
 #[derive(Debug, Clone)]
 struct Entry {
     failures: u32,
@@ -76,6 +86,10 @@ struct Inner {
     max_attempts: u32,
     window: Duration,
     lock: Duration,
+    /// 上一次「没有未锁定条目可淘汰」的 warn 时间（限频）。
+    last_capacity_warn: Option<Instant>,
+    /// 上一次「锁定条目达到上限」的 warn 时间（限频）。
+    last_lock_cap_warn: Option<Instant>,
 }
 
 impl Inner {
@@ -87,41 +101,54 @@ impl Inner {
             !(unlocked && now.saturating_duration_since(entry.last_seen) > retain)
         });
     }
-
-    /// 超过硬上限时按「最久未活动」淘汰到 3/4。
-    ///
-    /// 排序键先看锁定状态：**已锁定的条目排到最后淘汰**。否则攻击者只要灌满
-    /// 一堆新用户名，就能把 `admin` 的锁定记录挤掉，限流形同虚设。若表里全是
-    /// 锁定条目（极端情况），仍然淘汰最旧的，保证内存不会无界增长。
-    fn enforce_entry_limit(&mut self, now: Instant) {
-        if self.entries.len() <= MAX_ENTRIES {
-            return;
-        }
-        let candidates: Vec<(bool, Instant, EntryKey)> = self
-            .entries
-            .iter()
-            .map(|(key, entry)| {
-                let locked = entry.locked_until.is_some_and(|until| now < until);
-                (locked, entry.last_seen, key.clone())
-            })
-            .collect();
-        let remove = self.entries.len().saturating_sub(EVICT_TARGET);
-        for key in oldest_keys(candidates, remove) {
-            self.entries.remove(&key);
-        }
-    }
 }
 
-/// 淘汰候选：先排「未锁定」，同组内按最久未活动。
+/// 在写入 `missing` 个新条目之前腾出空间。
 ///
-/// [`LoginThrottle`] 与 [`IpThrottle`] 共用这一份排序，避免两处淘汰语义漂移。
-fn oldest_keys<K: Clone>(mut candidates: Vec<(bool, Instant, K)>, remove: usize) -> Vec<K> {
-    candidates.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
-    candidates
-        .into_iter()
-        .take(remove)
-        .map(|(_, _, key)| key)
-        .collect()
+/// **只淘汰未锁定条目**：锁定条目是限流的实际作用，被灌表挤掉就等于解锁。
+/// 未锁定条目不足以腾出空间时返回 `false`，调用方拒绝这次新失败（不写入），
+/// 而不是连锁定记录一起淘汰。返回 `true` 时保证
+/// `entries.len() + missing <= MAX_ENTRIES`。
+///
+/// [`LoginThrottle`] 与 [`IpThrottle`] 共用这一份逻辑，避免两处淘汰语义漂移。
+fn make_room<K, E>(
+    entries: &mut HashMap<K, E>,
+    missing: usize,
+    is_locked: impl Fn(&E) -> bool,
+    last_seen: impl Fn(&E) -> Instant,
+) -> bool
+where
+    K: Clone + Eq + std::hash::Hash,
+{
+    if entries.len() + missing <= MAX_ENTRIES {
+        return true;
+    }
+
+    // 需要腾到 3/4 以下（扣掉这次要新增的槽位），避免每来一个请求就全表排序。
+    let target = EVICT_TARGET.saturating_sub(missing);
+    if entries.len() > target {
+        let need = entries.len() - target;
+        let mut candidates: Vec<(Instant, K)> = entries
+            .iter()
+            .filter(|(_, entry)| !is_locked(entry))
+            .map(|(key, entry)| (last_seen(entry), key.clone()))
+            .collect();
+        candidates.sort_by_key(|(seen, _)| *seen);
+        for (_, key) in candidates.into_iter().take(need) {
+            entries.remove(&key);
+        }
+    }
+
+    entries.len() + missing <= MAX_ENTRIES
+}
+
+/// 限频告警：同一类容量问题一分钟最多记一次。
+fn should_warn(slot: &mut Option<Instant>, now: Instant) -> bool {
+    if slot.is_some_and(|at| now.saturating_duration_since(at) < WARN_INTERVAL) {
+        return false;
+    }
+    *slot = Some(now);
+    true
 }
 
 /// 登录限流器；`Arc` 由 `AppState` 持有，所有请求共享同一份计数。
@@ -145,6 +172,8 @@ impl LoginThrottle {
                 max_attempts: max_attempts.max(1),
                 window: lock,
                 lock,
+                last_capacity_warn: None,
+                last_lock_cap_warn: None,
             }),
         }
     }
@@ -193,7 +222,13 @@ impl LoginThrottle {
         let lock = inner.lock;
         inner.purge(now);
 
+        let mut locked_count = inner
+            .entries
+            .values()
+            .filter(|entry| entry.locked_until.is_some_and(|until| now < until))
+            .count();
         let mut retry_after = 0u64;
+        let mut lock_cap_hit = false;
         for entry_key in scopes_for(key) {
             let Some(entry) = inner.entries.get_mut(&entry_key) else {
                 continue;
@@ -213,11 +248,25 @@ impl LoginThrottle {
 
             // 设置页把阈值调低后，历史计数可能已经越线：下一轮直接锁。
             if entry.failures >= max_attempts {
-                let until = now + lock;
-                entry.locked_until = Some(until);
-                entry.last_seen = now;
-                retry_after = retry_after.max(seconds_until(until, now));
+                if locked_count < MAX_LOCKED_ENTRIES {
+                    let until = now + lock;
+                    entry.locked_until = Some(until);
+                    entry.last_seen = now;
+                    locked_count += 1;
+                    retry_after = retry_after.max(seconds_until(until, now));
+                } else {
+                    // 锁定条目已到上限：拒绝新锁定，避免锁定项无界增长。
+                    lock_cap_hit = true;
+                }
             }
+        }
+
+        if lock_cap_hit && should_warn(&mut inner.last_lock_cap_warn, now) {
+            tracing::warn!(
+                locked = locked_count,
+                max = MAX_LOCKED_ENTRIES,
+                "登录限流锁定条目已达上限，拒绝新的锁定"
+            );
         }
 
         if retry_after == 0 {
@@ -234,36 +283,87 @@ impl LoginThrottle {
         let window = inner.window;
         inner.purge(now);
 
-        for entry_key in scopes_for(key) {
-            let entry = inner.entries.entry(entry_key).or_insert_with(|| Entry {
-                failures: 0,
-                window_started: now,
-                locked_until: None,
-                last_seen: now,
-            });
-            entry.last_seen = now;
-
-            if entry.locked_until.is_some_and(|until| now >= until) {
-                // 锁过期后的第一次失败：重新开一个窗口。
-                entry.failures = 0;
-                entry.window_started = now;
-                entry.locked_until = None;
+        // 先腾空间再写：只淘汰未锁定条目。腾不出空间就拒绝这次失败，
+        // 不能为了容纳新键而把已锁定的 `admin` 挤掉。
+        let entry_keys = scopes_for(key);
+        let missing = entry_keys
+            .iter()
+            .filter(|entry_key| !inner.entries.contains_key(*entry_key))
+            .count();
+        let fits = make_room(
+            &mut inner.entries,
+            missing,
+            |entry| entry.locked_until.is_some_and(|until| now < until),
+            |entry| entry.last_seen,
+        );
+        if !fits {
+            if should_warn(&mut inner.last_capacity_warn, now) {
+                tracing::warn!(
+                    entries = inner.entries.len(),
+                    missing,
+                    "登录限流表已满且没有可淘汰的未锁定条目，拒绝记录新的失败"
+                );
             }
-            if entry.locked_until.is_none()
-                && now.saturating_duration_since(entry.window_started) >= window
+            return;
+        }
+
+        let mut locked_count = inner
+            .entries
+            .values()
+            .filter(|entry| entry.locked_until.is_some_and(|until| now < until))
+            .count();
+        let mut lock_cap_hit = false;
+        for entry_key in entry_keys {
+            let mut newly_locked = false;
             {
-                // 窗口已过：旧失败不再累计。
-                entry.failures = 0;
-                entry.window_started = now;
-            }
+                let entry = inner.entries.entry(entry_key).or_insert_with(|| Entry {
+                    failures: 0,
+                    window_started: now,
+                    locked_until: None,
+                    last_seen: now,
+                });
+                entry.last_seen = now;
 
-            entry.failures = entry.failures.saturating_add(1);
-            if entry.failures >= max_attempts {
-                entry.locked_until = Some(now + lock);
+                if entry.locked_until.is_some_and(|until| now >= until) {
+                    // 锁过期后的第一次失败：重新开一个窗口。
+                    entry.failures = 0;
+                    entry.window_started = now;
+                    entry.locked_until = None;
+                }
+                if entry.locked_until.is_none()
+                    && now.saturating_duration_since(entry.window_started) >= window
+                {
+                    // 窗口已过：旧失败不再累计。
+                    entry.failures = 0;
+                    entry.window_started = now;
+                }
+
+                entry.failures = entry.failures.saturating_add(1);
+                if entry.failures >= max_attempts {
+                    let already_locked = entry.locked_until.is_some_and(|until| now < until);
+                    if already_locked {
+                        // 已锁定：刷新锁定时间（与旧行为一致）。
+                        entry.locked_until = Some(now + lock);
+                    } else if locked_count < MAX_LOCKED_ENTRIES {
+                        entry.locked_until = Some(now + lock);
+                        newly_locked = true;
+                    } else {
+                        lock_cap_hit = true;
+                    }
+                }
+            }
+            if newly_locked {
+                locked_count += 1;
             }
         }
 
-        inner.enforce_entry_limit(now);
+        if lock_cap_hit && should_warn(&mut inner.last_lock_cap_warn, now) {
+            tracing::warn!(
+                locked = locked_count,
+                max = MAX_LOCKED_ENTRIES,
+                "登录限流锁定条目已达上限，拒绝新的锁定"
+            );
+        }
     }
 
     fn clear_at(&self, key: &Key, now: Instant) {
@@ -293,6 +393,10 @@ struct IpInner {
     entries: HashMap<String, IpEntry>,
     max_failures: u32,
     window: Duration,
+    /// 上一次「没有未锁定条目可淘汰」的 warn 时间（限频）。
+    last_capacity_warn: Option<Instant>,
+    /// 上一次「锁定条目达到上限」的 warn 时间（限频）。
+    last_lock_cap_warn: Option<Instant>,
 }
 
 impl IpInner {
@@ -303,25 +407,6 @@ impl IpInner {
             let unlocked = entry.locked_until.is_none_or(|until| now >= until);
             !(unlocked && now.saturating_duration_since(entry.last_seen) > retain)
         });
-    }
-
-    /// 与 [`LoginThrottle`] 相同的淘汰策略：先淘汰未锁定、最久未活动的条目。
-    fn enforce_entry_limit(&mut self, now: Instant) {
-        if self.entries.len() <= MAX_ENTRIES {
-            return;
-        }
-        let candidates: Vec<(bool, Instant, String)> = self
-            .entries
-            .iter()
-            .map(|(ip, entry)| {
-                let locked = entry.locked_until.is_some_and(|until| now < until);
-                (locked, entry.last_seen, ip.clone())
-            })
-            .collect();
-        let remove = self.entries.len().saturating_sub(EVICT_TARGET);
-        for ip in oldest_keys(candidates, remove) {
-            self.entries.remove(&ip);
-        }
     }
 }
 
@@ -351,6 +436,8 @@ impl IpThrottle {
                 entries: HashMap::new(),
                 max_failures: max_failures.max(1),
                 window,
+                last_capacity_warn: None,
+                last_lock_cap_warn: None,
             }),
         }
     }
@@ -408,37 +495,78 @@ impl IpThrottle {
         let window = inner.window;
         inner.purge(now);
 
-        let entry = inner
+        // 先腾空间再写：只淘汰未锁定条目，腾不出空间就拒绝新键。
+        let missing = usize::from(!inner.entries.contains_key(ip));
+        let fits = make_room(
+            &mut inner.entries,
+            missing,
+            |entry| entry.locked_until.is_some_and(|until| now < until),
+            |entry| entry.last_seen,
+        );
+        if !fits {
+            if should_warn(&mut inner.last_capacity_warn, now) {
+                tracing::warn!(
+                    entries = inner.entries.len(),
+                    ip,
+                    "IP 认证失败表已满且没有可淘汰的未锁定条目，拒绝记录新的失败"
+                );
+            }
+            return;
+        }
+
+        let locked_count = inner
             .entries
-            .entry(ip.to_string())
-            .or_insert_with(|| IpEntry {
-                failures: 0,
-                window_started: now,
-                locked_until: None,
-                last_seen: now,
-            });
-        entry.last_seen = now;
-
-        if entry.locked_until.is_some_and(|until| now >= until) {
-            // 锁过期后的第一次失败：重新开一个窗口。
-            entry.failures = 0;
-            entry.window_started = now;
-            entry.locked_until = None;
-        }
-        if entry.locked_until.is_none()
-            && now.saturating_duration_since(entry.window_started) >= window
+            .values()
+            .filter(|entry| entry.locked_until.is_some_and(|until| now < until))
+            .count();
+        let mut lock_cap_hit = false;
         {
-            // 窗口已过：旧失败不再累计。
-            entry.failures = 0;
-            entry.window_started = now;
+            let entry = inner
+                .entries
+                .entry(ip.to_string())
+                .or_insert_with(|| IpEntry {
+                    failures: 0,
+                    window_started: now,
+                    locked_until: None,
+                    last_seen: now,
+                });
+            entry.last_seen = now;
+
+            if entry.locked_until.is_some_and(|until| now >= until) {
+                // 锁过期后的第一次失败：重新开一个窗口。
+                entry.failures = 0;
+                entry.window_started = now;
+                entry.locked_until = None;
+            }
+            if entry.locked_until.is_none()
+                && now.saturating_duration_since(entry.window_started) >= window
+            {
+                // 窗口已过：旧失败不再累计。
+                entry.failures = 0;
+                entry.window_started = now;
+            }
+
+            entry.failures = entry.failures.saturating_add(1);
+            if entry.failures >= max_failures {
+                let already_locked = entry.locked_until.is_some_and(|until| now < until);
+                if already_locked {
+                    // 已锁定：刷新锁定时间（与旧行为一致）。
+                    entry.locked_until = Some(now + window);
+                } else if locked_count < MAX_LOCKED_ENTRIES {
+                    entry.locked_until = Some(now + window);
+                } else {
+                    lock_cap_hit = true;
+                }
+            }
         }
 
-        entry.failures = entry.failures.saturating_add(1);
-        if entry.failures >= max_failures {
-            entry.locked_until = Some(now + window);
+        if lock_cap_hit && should_warn(&mut inner.last_lock_cap_warn, now) {
+            tracing::warn!(
+                locked = locked_count,
+                max = MAX_LOCKED_ENTRIES,
+                "IP 认证失败锁定条目已达上限，拒绝新的锁定"
+            );
         }
-
-        inner.enforce_entry_limit(now);
     }
 
     fn clear_at(&self, ip: &str, now: Instant) {
@@ -777,6 +905,196 @@ mod tests {
         assert!(
             throttle.check_at(locked, now).is_err(),
             "已锁定的 IP 不能被灌表淘汰"
+        );
+    }
+
+    // ---- 锁定条目不能被灌表淘汰（T3） ----
+    //
+    // 只灌「未锁定」条目时旧实现会优先淘汰未锁定项，看起来没问题；真正的
+    // 漏洞是灌入**已锁定**条目：表满后所有条目都是锁定的，旧实现会按
+    // 「最久未活动」连锁定记录一起淘汰，攻击者因此能把 admin 的锁挤掉。
+    // 下面用直接构造的表精确覆盖这个边界，不必真的打 20 次失败。
+
+    fn seed_locked_ips(throttle: &IpThrottle, count: usize, now: Instant) {
+        let mut inner = throttle.lock();
+        for index in 0..count {
+            inner.entries.insert(
+                format!("locked-{index}"),
+                IpEntry {
+                    failures: IP_MAX_FAILURES,
+                    window_started: now,
+                    locked_until: Some(now + Duration::from_secs(IP_WINDOW_SECS)),
+                    last_seen: now + Duration::from_millis(index as u64),
+                },
+            );
+        }
+    }
+
+    /// 表里绝大多数条目已锁定时，灌表不能把 admin 的锁定记录挤掉。
+    #[test]
+    fn ip_admin_lock_survives_a_locked_address_flood() {
+        let throttle = IpThrottle::new(IP_MAX_FAILURES, IP_WINDOW_SECS);
+        let now = Instant::now();
+        let admin = "203.0.113.200";
+        for _ in 0..IP_MAX_FAILURES {
+            throttle.record_failure_at(admin, now);
+        }
+        assert!(throttle.check_at(admin, now).is_err(), "admin 应先被锁定");
+
+        // 把其余槽位全部填成锁定条目；admin 是最早的条目。
+        seed_locked_ips(&throttle, MAX_ENTRIES - 1, now);
+        assert_eq!(throttle.len(), MAX_ENTRIES);
+
+        for index in 0..200 {
+            for _ in 0..IP_MAX_FAILURES {
+                throttle.record_failure_at(&format!("flood-{index}"), now);
+            }
+        }
+
+        assert!(
+            throttle.check_at(admin, now).is_err(),
+            "灌表后 admin 的锁定必须仍在"
+        );
+        assert!(throttle.len() <= MAX_ENTRIES, "表大小不能超过上限");
+    }
+
+    /// 全锁定场景：没有可淘汰的未锁定条目时拒绝新键，而不是淘汰锁定项。
+    #[test]
+    fn ip_all_locked_table_rejects_new_keys_without_growing() {
+        let throttle = IpThrottle::new(IP_MAX_FAILURES, IP_WINDOW_SECS);
+        let now = Instant::now();
+        seed_locked_ips(&throttle, MAX_ENTRIES, now);
+        let before = throttle.len();
+
+        for index in 0..500 {
+            throttle.record_failure_at(&format!("new-{index}"), now);
+        }
+
+        assert_eq!(
+            throttle.len(),
+            before,
+            "全锁定时新失败不能写进表，表也不能增长"
+        );
+        assert!(
+            throttle.check_at("new-0", now).is_ok(),
+            "被拒绝的新键不能进入锁定状态"
+        );
+        assert!(
+            throttle.check_at("locked-0", now).is_err(),
+            "已有锁定项必须全部保留"
+        );
+        assert!(
+            throttle
+                .check_at(&format!("locked-{}", MAX_ENTRIES - 1), now)
+                .is_err(),
+            "最后一条锁定项也必须保留"
+        );
+    }
+
+    /// 正常淘汰仍然工作：表满且全是未锁定条目时，淘汰最久未活动的那条。
+    #[test]
+    fn ip_unlocked_entries_are_still_evicted_normally() {
+        // 阈值设到最大，失败永远到不了锁定，整张表都是未锁定条目。
+        let throttle = IpThrottle::new(u32::MAX, IP_WINDOW_SECS);
+        let now = Instant::now();
+        for index in 0..MAX_ENTRIES {
+            // 用毫秒递增 last_seen，保证「最久未活动」是可断言的确定值。
+            throttle.record_failure_at(
+                &format!("unlocked-{index}"),
+                now + Duration::from_millis(index as u64),
+            );
+        }
+        assert_eq!(throttle.len(), MAX_ENTRIES);
+
+        throttle.record_failure_at("fresh-entry", now + Duration::from_secs(10));
+
+        assert!(
+            throttle.len() <= MAX_ENTRIES,
+            "淘汰后仍必须有硬上限：{}",
+            throttle.len()
+        );
+        assert!(
+            throttle.lock().entries.contains_key("fresh-entry"),
+            "新键必须写入"
+        );
+        assert!(
+            !throttle.lock().entries.contains_key("unlocked-0"),
+            "最久未活动的未锁定条目应被淘汰"
+        );
+    }
+
+    fn seed_locked_accounts(throttle: &LoginThrottle, count: usize, now: Instant) {
+        let mut inner = throttle.lock();
+        for index in 0..count {
+            inner.entries.insert(
+                EntryKey {
+                    scope: Scope::Account,
+                    username: format!("locked-{index}"),
+                    ip: AGGREGATE.to_string(),
+                },
+                Entry {
+                    failures: 5,
+                    window_started: now,
+                    locked_until: Some(now + Duration::from_secs(900)),
+                    last_seen: now + Duration::from_millis(index as u64),
+                },
+            );
+        }
+    }
+
+    /// 登录限流同样不能把已锁定的 `admin` 账号挤掉。
+    #[test]
+    fn login_admin_lock_survives_a_locked_username_flood() {
+        let throttle = LoginThrottle::new(5, 900);
+        let now = Instant::now();
+        let admin = key("admin", "10.0.0.1");
+        for _ in 0..5 {
+            throttle.record_failure_at(&admin, now);
+        }
+        assert!(throttle.check_at(&admin, now).is_err(), "admin 应先被锁定");
+
+        seed_locked_accounts(&throttle, MAX_ENTRIES - throttle.len(), now);
+        assert_eq!(throttle.len(), MAX_ENTRIES);
+
+        for index in 0..200 {
+            let key = key(&format!("flood-{index}"), "10.0.0.2");
+            for _ in 0..5 {
+                throttle.record_failure_at(&key, now);
+            }
+        }
+
+        assert!(
+            throttle.check_at(&admin, now).is_err(),
+            "灌表后 admin 的登录锁定必须仍在"
+        );
+        assert!(throttle.len() <= MAX_ENTRIES, "表大小不能超过上限");
+    }
+
+    /// 登录表全是锁定时，新账号的失败不记入，表保持原大小。
+    #[test]
+    fn login_all_locked_table_rejects_new_keys() {
+        let throttle = LoginThrottle::new(5, 900);
+        let now = Instant::now();
+        seed_locked_accounts(&throttle, MAX_ENTRIES, now);
+        let before = throttle.len();
+
+        for index in 0..100 {
+            let key = key(&format!("new-{index}"), "10.0.0.3");
+            for _ in 0..5 {
+                throttle.record_failure_at(&key, now);
+            }
+        }
+
+        assert_eq!(throttle.len(), before, "全锁定时新失败不能写进表");
+        assert!(
+            throttle.check_at(&key("new-0", "10.0.0.3"), now).is_ok(),
+            "被拒绝的新账号不能进入锁定状态"
+        );
+        assert!(
+            throttle
+                .check_at(&key("locked-0", "10.0.0.3"), now)
+                .is_err(),
+            "已有锁定账号必须保留"
         );
     }
 }

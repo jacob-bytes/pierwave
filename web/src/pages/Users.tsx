@@ -21,6 +21,7 @@ import {
 import {
   EmptyState,
   ListError,
+  ListErrorRow,
   MobileDataCard,
   PageHeader,
   SkeletonCard,
@@ -287,38 +288,6 @@ function EmptyRow({
   );
 }
 
-function ErrorRow({
-  message,
-  onRetry,
-  retrying,
-}: {
-  message: string;
-  onRetry: () => void;
-  retrying: boolean;
-}) {
-  return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-16">
-        <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
-          <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-            <TriangleAlertIcon className="icon-lg" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{t("users.loadFailed")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{message}</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={onRetry} disabled={retrying}>
-            <RefreshCwIcon
-              className={cn("icon-md", retrying && "animate-spin")}
-            />
-            {t("common.retry")}
-          </Button>
-        </div>
-      </TableCell>
-    </TableRow>
-  );
-}
-
 function DeleteUserDialog({
   user,
   open,
@@ -472,17 +441,21 @@ export default function UsersPage() {
 
   function renderUserIdentity(user: UserView) {
     return (
-      <div className="flex items-center gap-2.5">
+      // 40px 行高基线：名字与 short_code 收进同一行，不再占两行。
+      <div className="flex min-w-0 items-center gap-2.5">
         <Avatar size="sm">
           <AvatarFallback>
             {user.username.slice(0, 1).toUpperCase()}
           </AvatarFallback>
         </Avatar>
-        <div className="min-w-0">
-          <div className="truncate font-medium">{user.username}</div>
-          <div className="font-mono type-micro text-muted-foreground">
+        <div className="flex min-w-0 items-baseline gap-1.5">
+          <span className="truncate font-medium">{user.username}</span>
+          <span
+            className="shrink-0 font-mono type-micro text-muted-foreground"
+            title={user.short_code}
+          >
             {user.short_code}
-          </div>
+          </span>
         </div>
       </div>
     );
@@ -525,6 +498,7 @@ export default function UsersPage() {
             usedBytes={user.package_used_bytes}
             quotaBytes={user.package_quota_bytes}
             label={null}
+            align="end"
             className="w-48"
           />
         )}
@@ -619,25 +593,25 @@ export default function UsersPage() {
   function renderRow(user: UserView) {
     return (
       <TableRow key={user.id}>
-        <TableCell sticky="left" className="px-4 py-2.5">
+        <TableCell sticky="left" className="px-4">
           {renderUserIdentity(user)}
         </TableCell>
-        <TableCell className="px-4 py-2.5">
+        <TableCell className="px-4">
           {renderUserRole(user)}
         </TableCell>
-        <TableCell className="px-4 py-2.5">
+        <TableCell className="px-4">
           {renderUserStatus(user)}
         </TableCell>
-        <TableCell className="px-4 py-2.5">
+        <TableCell className="px-4">
           <PackageBreakdownPopover user={user} />
         </TableCell>
-        <TableCell className="px-4 py-2.5">
+        <TableCell className="px-4 text-right">
           {renderUserTraffic(user)}
         </TableCell>
-        <TableCell className="px-4 py-2.5">
+        <TableCell className="px-4">
           {renderUserCreated(user)}
         </TableCell>
-        <TableCell sticky="right" className="px-4 py-2.5">
+        <TableCell sticky="right" className="px-4">
           {renderUserActions(user)}
         </TableCell>
       </TableRow>
@@ -777,10 +751,11 @@ export default function UsersPage() {
                     label: t("users.columns.packageTraffic"),
                     hint: t("users.columnTitles.trafficHint"),
                     title: t("users.columnTitles.traffic"),
+                    numeric: true,
                   },
                   { label: t("users.columns.createdAt") },
                   { label: t("users.columns.actions") },
-                ].map(({ label, hint, title }, index, columns) => (
+                ].map(({ label, hint, title, numeric }, index, columns) => (
                   <TableHead
                     key={label}
                     sticky={
@@ -794,6 +769,7 @@ export default function UsersPage() {
                     className={cn(
                       "px-4 text-xs font-medium tracking-wide text-muted-foreground",
                       hint ? "h-auto py-2" : "h-9",
+                      numeric && "text-right",
                     )}
                   >
                     <span className="block">{label}</span>
@@ -808,7 +784,9 @@ export default function UsersPage() {
             </TableHeader>
             <TableBody>
               {showError ? (
-                <ErrorRow
+                <ListErrorRow
+                  colSpan={COLUMN_COUNT}
+                  title={t("users.loadFailed")}
                   message={errorMessage}
                   retrying={users.isFetching}
                   onRetry={() => void users.refetch()}

@@ -16,6 +16,7 @@ import {
   WebhookIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ListError } from "@/components/common";
 import { FormField, FormRootError } from "@/components/FormField";
 import {
   SettingsGroup,
@@ -24,7 +25,6 @@ import {
 import {
   Alert,
   AlertDescription,
-  AlertTitle,
 } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -598,32 +598,16 @@ export function AlertsCard() {
   if (settings.isError) {
     return (
       <Card>
-        <CardContent className="space-y-3">
-          <Alert
-            variant="destructive"
-            className="border-destructive/25 bg-destructive/10"
-          >
-            <TriangleAlertIcon />
-            <AlertTitle>{t("settings.alerts.loadFailed")}</AlertTitle>
-            <AlertDescription>
-              {alertsSettingsErrorText(
-                settings.error,
-                t("settings.alerts.loadError"),
-              )}
-            </AlertDescription>
-          </Alert>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void settings.refetch()}
-            disabled={settings.isFetching}
-          >
-            <RefreshCwIcon
-              className={settings.isFetching ? "animate-spin" : undefined}
-            />
-            {t("common.retry")}
-          </Button>
+        <CardContent>
+          <ListError
+            title={t("settings.alerts.loadFailed")}
+            message={alertsSettingsErrorText(
+              settings.error,
+              t("settings.alerts.loadError"),
+            )}
+            retrying={settings.isFetching}
+            onRetry={() => void settings.refetch()}
+          />
         </CardContent>
       </Card>
     );

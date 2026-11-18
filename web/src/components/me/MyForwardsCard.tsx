@@ -4,12 +4,10 @@ import {
   ArrowRightLeftIcon,
   CopyIcon,
   PlusIcon,
-  RefreshCwIcon,
   Trash2Icon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { EmptyState } from "@/components/common";
-import { ProtocolBadge } from "@/components/common";
+import { EmptyState, ListError, ProtocolBadge } from "@/components/common";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -50,7 +48,6 @@ import {
   useMyForwards,
   useUpdateMyForward,
 } from "@/lib/queries";
-import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 import { MyForwardFormDialog } from "@/components/me/MyForwardFormDialog";
 
@@ -297,31 +294,12 @@ export function MyForwardsCard({ summary }: { summary: MeSummary }) {
             ))}
           </div>
         ) : forwards.isError ? (
-          <div className="flex flex-col items-center gap-3 py-8 text-center">
-            <div className="grid size-10 place-items-center rounded-full bg-destructive/10 text-destructive">
-              <TriangleAlertIcon className="size-5" />
-            </div>
-            <div>
-              <p className="text-sm font-medium">
-                {t("me.forwards.loadFailed")}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">{loadError}</p>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void forwards.refetch()}
-              disabled={forwards.isFetching}
-            >
-              <RefreshCwIcon
-                className={cn(
-                  "size-3.5",
-                  forwards.isFetching && "animate-spin",
-                )}
-              />
-              {t("common.retry")}
-            </Button>
-          </div>
+          <ListError
+            title={t("me.forwards.loadFailed")}
+            message={loadError}
+            retrying={forwards.isFetching}
+            onRetry={() => void forwards.refetch()}
+          />
         ) : state === "none" ? (
           <EmptyState
             icon={ArrowRightLeftIcon}

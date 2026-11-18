@@ -3,13 +3,11 @@ import {
   ArrowUpCircleIcon,
   Loader2Icon,
   RefreshCwIcon,
-  TriangleAlertIcon,
 } from "lucide-react";
 import type { UseFormReturn } from "react-hook-form";
 import { toast } from "sonner";
-import { CopyButton, InfoNote, InfoNoteRow } from "@/components/common";
+import { CopyButton, InfoNote, InfoNoteRow, ListError } from "@/components/common";
 import { FormField } from "@/components/FormField";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -119,31 +117,12 @@ export function UpdatesSection({
         </>
       ) : updates.isError || !updates.data ? (
         <div className={cn(SETTINGS_FULL_ROW, "space-y-3")} role="group">
-          <Alert
-            variant="destructive"
-            className="border-destructive/25 bg-destructive/10"
-          >
-            <TriangleAlertIcon />
-            <AlertTitle>{t("settings.updates.loadFailed")}</AlertTitle>
-            <AlertDescription>
-              {cardErrorText(updates.error, t("settings.updates.loadError"))}
-            </AlertDescription>
-          </Alert>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void updates.refetch()}
-            disabled={updates.isFetching}
-          >
-            <RefreshCwIcon
-              className={cn(
-                "size-3.5",
-                updates.isFetching && "animate-spin",
-              )}
-            />
-            {t("common.retry")}
-          </Button>
+          <ListError
+            title={t("settings.updates.loadFailed")}
+            message={cardErrorText(updates.error, t("settings.updates.loadError"))}
+            retrying={updates.isFetching}
+            onRetry={() => void updates.refetch()}
+          />
         </div>
       ) : (
         <>

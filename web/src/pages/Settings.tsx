@@ -10,7 +10,6 @@ import {
   SaveIcon,
   ShieldCheckIcon,
   SlidersHorizontalIcon,
-  TriangleAlertIcon,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
@@ -20,6 +19,7 @@ import {
   CopyButton,
   InfoNote,
   InfoNoteRow,
+  ListError,
   SkeletonCard,
 } from "@/components/common";
 import { AlertsCard } from "@/components/settings/AlertsCard";
@@ -244,13 +244,16 @@ function SettingsPanelState({
   if (query.isPending) return <SettingsSkeleton cards={cards} lines={lines} />;
   if (query.isError) {
     return (
-      <StateCard
-        icon={TriangleAlertIcon}
-        tone="destructive"
-        title={t("settings.loadFailed")}
-        description={settingsErrorText(query.error, t("settings.loadError"))}
-        action={<RetryButton query={query} />}
-      />
+      <Card className="py-0">
+        <CardContent>
+          <ListError
+            title={t("settings.loadFailed")}
+            message={settingsErrorText(query.error, t("settings.loadError"))}
+            retrying={query.isFetching}
+            onRetry={() => void query.refetch()}
+          />
+        </CardContent>
+      </Card>
     );
   }
   if (!query.data || Object.keys(query.data).length === 0) {
