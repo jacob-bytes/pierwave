@@ -9,7 +9,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use axum::body::Body;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::Response;
 use axum::Json;
@@ -17,6 +17,7 @@ use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use futures_util::StreamExt;
+use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::io::AsyncWriteExt;
 
@@ -164,10 +165,21 @@ pub async fn export(State(state): State<AppState>, user: CurrentUser) -> AppResu
     Ok(response)
 }
 
+/// 恢复请求的查询参数。
+///
+/// 上传体是原始文件字节，不能同时是 JSON，所以 `force` 只能走查询串：
+/// `POST /api/v1/backup/restore?force=true`。
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+pub struct RestoreOptions {
+    #[serde(default)]
+    pub force: bool,
+}
+
 /// `POST /api/v1/backup/restore`：上传 `.db` / `.db.gz` / `.db.gz.enc`，落盘为待恢复文件。
 pub async fn restore(
     State(state): State<AppState>,
     user: CurrentUser,
+    Query(options): Query<RestoreOptions>,
     body: Body,
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
@@ -229,6 +241,25 @@ pub async fn restore(
         .await
         .map_err(restore_validation_error)?;
 
+    // 结构校验通过后、rename 成 pending 之前，再校验秘密值能否被**当前主密钥**
+    // 解开。否则恢复会“成功”，但重启后设置页 / WebDAV / 告警 / 订阅全部坏掉。
+    // `force` 是管理员的显式覆盖：允许丢弃旧秘密，但响应必须带 warning。
+    let unreadable = backup::unreadable_encrypted_settings(&raw_path, state.db.secret_key())
+        .await
+        .map_err(|error| AppError::Internal(error.context("扫描备份中的秘密设置失败")))?;
+    if !unreadable.is_empty() && !options.force {
+        return Err(restore_key_mismatch_error(unreadable));
+    }
+    let secrets_match_current_key = unreadable.is_empty();
+    if options.force && !secrets_match_current_key {
+        // force = 丢弃旧秘密：删掉解不开的行，避免恢复后设置页 400 / 订阅 500，
+        // 同时让内部 hmac_secret_v1 在首次使用时重新生成（旧订阅链接随之失效）。
+        let discarded = backup::discard_unreadable_settings(&raw_path, state.db.secret_key())
+            .await
+            .map_err(|error| AppError::Internal(error.context("丢弃无法解密的旧秘密失败")))?;
+        debug_assert_eq!(discarded, unreadable);
+    }
+
     // 原子写：校验通过的完整文件已经写盘并 sync，落位只做同目录 rename。
     std::fs::rename(&raw_path, &pending).map_err(|error| AppError::Internal(error.into()))?;
     // 待恢复文件里是完整业务数据；上传临时文件已是 0600，这里再兜底一次。
@@ -243,17 +274,37 @@ pub async fn restore(
             "bytes": raw_bytes,
             "compressed": compressed,
             "encrypted": format == UploadFormat::Encrypted,
+            "forced": options.force,
+            "unreadable_secrets": unreadable,
         }),
     )
     .await;
 
-    Ok(Json(json!({
+    let mut response = json!({
         "restart_required": true,
         "pending": {
             "uploaded_at": uploaded_at(&pending),
             "bytes": raw_bytes,
         },
-    })))
+    });
+    if options.force {
+        response["warning"] = if secrets_match_current_key {
+            json!(
+                "已使用 force=true 恢复备份；备份中的秘密与当前主密钥一致，无需重新配置。 / \
+                 Restored with force=true; the backup secrets match the current master key."
+            )
+        } else {
+            json!(
+                "已按 force=true 恢复并丢弃了无法解密的旧秘密：恢复后 Telegram Token、\
+                 WebDAV 密码、Webhook 地址需要重新填写，订阅派生 secret 会重新生成\
+                 （旧订阅链接失效）。 / Restored with force=true and discarded unreadable \
+                 secrets: re-enter the Telegram token, WebDAV password and webhook URL; the \
+                 subscription derivation secret is regenerated, so old subscription links \
+                 stop working."
+            )
+        };
+    }
+    Ok(Json(response))
 }
 
 /// `GET /api/v1/backup/info`：当前库大小与待恢复状态。
@@ -351,7 +402,10 @@ pub async fn remote_test(
     user: CurrentUser,
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
-    let settings = crate::routes::settings::load(&state.db).await;
+    // 秘密解不开时不能回落成「未配置」：那会把密钥问题误导成填表问题。
+    let settings = crate::routes::settings::load_for_background(&state.db)
+        .await
+        .map_err(|error| crate::remote_backup::RunError::Secret(error).into_app_error())?;
     match crate::remote_backup::test_connection(&settings).await {
         Ok(()) => Ok(Json(json!({ "ok": true, "error": Value::Null }))),
         Err(crate::remote_backup::RunError::NotConfigured(message)) => Err(AppError::coded(
@@ -361,6 +415,9 @@ pub async fn remote_test(
         )),
         Err(crate::remote_backup::RunError::Failed(message)) => {
             Ok(Json(json!({ "ok": false, "error": message })))
+        }
+        Err(crate::remote_backup::RunError::Secret(error)) => {
+            Err(crate::remote_backup::RunError::Secret(error).into_app_error())
         }
         Err(crate::remote_backup::RunError::Busy) => Err(AppError::conflict(
             "backup.remote_busy",
@@ -419,7 +476,23 @@ fn backup_db_path(state: &AppState) -> AppResult<PathBuf> {
     })
 }
 
-/// 备份校验失败的错误码：文案保持原样（便于排障），只按原因归类。
+/// 备份里的秘密值来自另一把主密钥：拒绝恢复，并告诉管理员怎么带上原密钥。
+fn restore_key_mismatch_error(keys: Vec<String>) -> AppError {
+    let keys_text = keys.join(", ");
+    AppError::coded(
+        "backup.key_mismatch",
+        Some(json!({ "keys": keys })),
+        format!(
+            "备份来自另一把主密钥（无法解密：{keys_text}）。请同时提供原实例的 secret.key，\
+             或设置相同的 PIERWAVE_SECRET_KEY 后重试；确认要丢弃旧秘密可加 ?force=true。 / \
+             The backup was encrypted with another master key ({keys_text}). Provide the \
+             original secret.key or the same PIERWAVE_SECRET_KEY, or append ?force=true to \
+             discard the old secrets."
+        ),
+    )
+}
+
+/// 恢复校验失败的错误码：文案保持原样（便于排障），只按原因归类。
 ///
 /// 领域层现在会直接给出 `DomainError`（优先使用其 code/params）；字符串匹配
 /// 只作为旧错误链的兜底，行为与以前一致。
@@ -1065,6 +1138,151 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
         assert!(backup::pending_path(&dir.db_path()).exists());
+    }
+
+    /// 恢复别的实例导出的库（秘密用另一把密钥加密）必须在 rename 前拒绝；
+    /// `?force=true` 是显式覆盖，允许丢弃旧秘密但响应必须带 warning。
+    #[tokio::test]
+    async fn restore_rejects_another_master_key_and_force_is_explicit() {
+        let (dir, app, state, cookie) = setup("key-mismatch").await;
+
+        // 另一个目录里的实例：它有自己的 secret.key 和加密设置。
+        let other_dir = TestDir::new("key-mismatch-other");
+        let other = Db::connect(&format!(
+            "sqlite://{}?mode=rwc",
+            other_dir.db_path().display()
+        ))
+        .await
+        .unwrap();
+        other.migrate().await.unwrap();
+        let secret = "123456:belongs-to-another-instance";
+        for (key, value) in [
+            ("telegram_bot_token", secret),
+            ("hmac_secret_v1", "other-instance-hmac"),
+        ] {
+            repo::settings::set(
+                &other.pool,
+                key,
+                &secret_box::encrypt_setting(other.secret_key(), value),
+            )
+            .await
+            .unwrap();
+        }
+        let foreign = dir.file("foreign.db");
+        backup::create_snapshot(&other.pool, &foreign)
+            .await
+            .unwrap();
+        other.pool.close().await;
+        let bytes = std::fs::read(&foreign).unwrap();
+
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/restore",
+            bytes.clone(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body:?}");
+        let payload = json(&body);
+        assert_eq!(payload["code"], "backup.key_mismatch");
+        assert_eq!(
+            payload["params"]["keys"],
+            json!(["hmac_secret_v1", "telegram_bot_token"])
+        );
+        let message = payload["error"].as_str().unwrap();
+        assert!(
+            message.contains("另一把主密钥"),
+            "错误要说明原因：{message}"
+        );
+        assert!(
+            message.contains("secret.key") && message.contains("PIERWAVE_SECRET_KEY"),
+            "错误要给出可操作指引：{message}"
+        );
+        assert!(!message.contains(secret), "错误不能泄露旧秘密：{message}");
+        assert!(
+            !backup::pending_path(&dir.db_path()).exists(),
+            "校验失败不能留下待恢复文件"
+        );
+
+        // force：管理员确认丢弃旧秘密。
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/restore?force=true",
+            bytes,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body:?}");
+        let payload = json(&body);
+        assert_eq!(payload["restart_required"], true);
+        assert!(
+            payload["warning"].as_str().unwrap().contains("force=true"),
+            "force 必须在响应里带 warning：{payload}"
+        );
+        let pending = backup::pending_path(&dir.db_path());
+        assert!(pending.exists());
+        // force = 丢弃旧秘密：待恢复库里不应再有解不开的 enc:v1 行（含 hmac）。
+        assert!(
+            backup::unreadable_encrypted_settings(&pending, state.db.secret_key())
+                .await
+                .unwrap()
+                .is_empty(),
+            "force 后仍存在无法解密的秘密行"
+        );
+    }
+
+    /// 手动异地备份 / 测试连接遇到秘密解不开：400 + 明确错误码，不是 502/「未配置」。
+    #[tokio::test]
+    async fn remote_backup_secret_errors_are_not_misreported() {
+        let (_dir, app, state, cookie) = setup("remote-secret-error").await;
+        let other = SecretKey::generate().unwrap();
+        for (key, value) in [
+            ("backup_webdav_enabled", "1".to_string()),
+            (
+                "backup_webdav_url",
+                "https://dav.example.test/dav".to_string(),
+            ),
+        ] {
+            repo::settings::set(&state.db.pool, key, &value)
+                .await
+                .unwrap();
+        }
+        repo::settings::set(
+            &state.db.pool,
+            "backup_webdav_password",
+            &secret_box::encrypt_setting(&other, "webdav-secret-canary"),
+        )
+        .await
+        .unwrap();
+
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/remote/test",
+            Vec::new(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body:?}");
+        assert_eq!(json(&body)["code"], "settings.secret_decrypt_failed");
+        let message = json(&body)["error"].as_str().unwrap().to_string();
+        assert!(message.contains("主密钥"), "{message}");
+        assert!(!message.contains("未配置"), "不能误导成未配置：{message}");
+        assert!(!message.contains("webdav-secret-canary"));
+
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/remote/run",
+            Vec::new(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body:?}");
+        assert_eq!(json(&body)["code"], "settings.secret_decrypt_failed");
+        assert_ne!(status, StatusCode::BAD_GATEWAY, "秘密问题不能报 502");
     }
 
     /// 篡改加密备份的任意一字节：解密必须失败，错误可读且不泄露细节。

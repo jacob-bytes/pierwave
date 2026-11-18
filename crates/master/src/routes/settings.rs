@@ -3,6 +3,8 @@
 //! 读取侧统一走 [`load`]：缺省、类型错误、越界、数据库读取失败都回落到默认值，
 //! 保证设置表被手工改坏时登录等核心链路仍然可用。
 
+use std::fmt;
+
 use axum::extract::State;
 use axum::Json;
 use serde_json::{json, Value};
@@ -98,7 +100,7 @@ pub const BACKUP_ENCRYPT_KEY: &str = "backup_encrypt";
 pub const DEFAULT_BACKUP_ENCRYPT: bool = true;
 
 /// 设置页的白名单键；新增键必须同时改这里和 `docs/PLAN.md`。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Settings {
     pub panel_name: String,
     pub login_max_attempts: i64,
@@ -156,6 +158,10 @@ pub struct Settings {
     /// 只在本进程内使用：秘密设置解密失败时的可读原因（不含密钥/密文）。
     /// 不下发给前端（`as_json` 不包含），由 [`load_checked`] 转成接口错误。
     pub secret_error: Option<String>,
+    /// 只在本进程内使用：本次读取中解不开的秘密键名（不含值）。
+    ///
+    /// 设置页的逃生路径用它判断「哪些秘密可以重填」；同样不进 `as_json`。
+    pub secret_broken_keys: Vec<&'static str>,
 }
 
 impl Default for Settings {
@@ -187,7 +193,53 @@ impl Default for Settings {
             backup_webdav_keep: DEFAULT_BACKUP_WEBDAV_KEEP,
             backup_encrypt: DEFAULT_BACKUP_ENCRYPT,
             secret_error: None,
+            secret_broken_keys: Vec::new(),
         }
+    }
+}
+
+/// 手写 `Debug`：凭据/授权字段永远不进入日志、panic 信息或测试快照。
+impl fmt::Debug for Settings {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        const REDACTED: &str = "<redacted>";
+        formatter
+            .debug_struct("Settings")
+            .field("panel_name", &self.panel_name)
+            .field("login_max_attempts", &self.login_max_attempts)
+            .field("login_lock_secs", &self.login_lock_secs)
+            .field("session_ttl_hours", &self.session_ttl_hours)
+            .field("agent_upgrade_concurrency", &self.agent_upgrade_concurrency)
+            .field("public_status_enabled", &self.public_status_enabled)
+            .field("agent_base_url", &self.agent_base_url)
+            .field("subscription_base_url", &self.subscription_base_url)
+            // 四个秘密/授权字段：Token、WebDAV 密码、Webhook 地址（常带 token）、
+            // 管理员 chat id 列表（授权名单）。
+            .field("telegram_bot_token", &REDACTED)
+            .field("telegram_chat_id", &self.telegram_chat_id)
+            .field("telegram_admin_chat_ids", &REDACTED)
+            .field("telegram_bot_enabled", &self.telegram_bot_enabled)
+            .field("webhook_url", &REDACTED)
+            .field("alert_events", &self.alert_events)
+            .field("alert_cooldown_secs", &self.alert_cooldown_secs)
+            .field("update_check_enabled", &self.update_check_enabled)
+            .field(
+                "update_check_interval_hours",
+                &self.update_check_interval_hours,
+            )
+            .field("update_check_notify", &self.update_check_notify)
+            .field("backup_webdav_enabled", &self.backup_webdav_enabled)
+            .field("backup_webdav_url", &self.backup_webdav_url)
+            .field("backup_webdav_username", &self.backup_webdav_username)
+            .field("backup_webdav_password", &REDACTED)
+            .field(
+                "backup_webdav_interval_hours",
+                &self.backup_webdav_interval_hours,
+            )
+            .field("backup_webdav_keep", &self.backup_webdav_keep)
+            .field("backup_encrypt", &self.backup_encrypt)
+            .field("secret_error", &self.secret_error)
+            .field("secret_broken_keys", &self.secret_broken_keys)
+            .finish()
     }
 }
 
@@ -247,11 +299,45 @@ pub async fn load_checked(db: &Db) -> AppResult<Settings> {
     if let Some(message) = settings.secret_error.clone() {
         return Err(AppError::coded(
             "settings.secret_decrypt_failed",
-            None,
+            Some(json!({ "keys": settings.secret_broken_keys })),
             message,
         ));
     }
     Ok(settings)
+}
+
+/// 后台路径的秘密解密错误：带可读文案与**键名**（不含值）。
+///
+/// 定时备份、告警、Telegram Bot、手动异地备份都统一用它，避免每条路径
+/// 各自把「解不开」当成「未配置」或静默跳过。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretError {
+    pub message: String,
+    pub keys: Vec<&'static str>,
+}
+
+impl fmt::Display for SecretError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for SecretError {}
+
+/// 后台任务读取设置：任一秘密解不开就返回 [`SecretError`]。
+///
+/// 与 [`load`] 的区别只在契约：调用方不能把「解不开」当成默认值继续跑
+/// （那会把 WebDAV 静默停掉、把告警静默丢弃）。需要部分设置做优雅降级时，
+/// 调用方可以同时用 [`load`] 读取仍可用的字段，但必须记录这里的错误。
+pub async fn load_for_background(db: &Db) -> Result<Settings, SecretError> {
+    let settings = load_inner(&db.pool, db.secret_key()).await;
+    match settings.secret_error.clone() {
+        Some(message) => Err(SecretError {
+            message,
+            keys: settings.secret_broken_keys,
+        }),
+        None => Ok(settings),
+    }
 }
 
 /// 解密失败的统一文案：只说明「主密钥不匹配或密文损坏」，不包含任何值。
@@ -265,7 +351,7 @@ fn secret_decrypt_error() -> String {
 async fn load_inner(pool: &SqlitePool, master: &SecretKey) -> Settings {
     let defaults = Settings::default();
     // 三个用户可见秘密（以及内部 hmac secret 不走这里）需要透明解密。
-    let (telegram_bot_token, mut secret_error) = read_secret_text(
+    let (telegram_bot_token, mut secret_error, token_broken) = read_secret_text(
         pool,
         master,
         TELEGRAM_BOT_TOKEN_KEY,
@@ -273,15 +359,25 @@ async fn load_inner(pool: &SqlitePool, master: &SecretKey) -> Settings {
         normalize_telegram_token,
     )
     .await;
-    let (webhook_url, error) =
+    let (webhook_url, error, webhook_broken) =
         read_secret_text(pool, master, WEBHOOK_URL_KEY, "", normalize_webhook_url).await;
     secret_error = secret_error.or(error);
-    let (backup_webdav_password, error) =
+    let (backup_webdav_password, error, password_broken) =
         read_secret_text(pool, master, BACKUP_WEBDAV_PASSWORD_KEY, "", |raw| {
             Ok(raw.to_string())
         })
         .await;
     secret_error = secret_error.or(error);
+    let mut secret_broken_keys = Vec::new();
+    for (broken, key) in [
+        (token_broken, TELEGRAM_BOT_TOKEN_KEY),
+        (webhook_broken, WEBHOOK_URL_KEY),
+        (password_broken, BACKUP_WEBDAV_PASSWORD_KEY),
+    ] {
+        if broken {
+            secret_broken_keys.push(key);
+        }
+    }
 
     Settings {
         panel_name: read_panel_name(pool).await,
@@ -416,6 +512,7 @@ async fn load_inner(pool: &SqlitePool, master: &SecretKey) -> Settings {
         .await,
         backup_encrypt: read_bool(pool, BACKUP_ENCRYPT_KEY, defaults.backup_encrypt).await,
         secret_error,
+        secret_broken_keys,
     }
 }
 
@@ -460,15 +557,16 @@ async fn read_text(
 
 /// 读取秘密设置：库里是 `enc:v1:` 密文时透明解密，历史明文原样兼容。
 ///
-/// 解密失败返回默认值 + 可读错误（不含密钥、密文或明文）；调用方优先用
-/// [`load_checked`] 把它变成接口错误。
+/// 返回 `(value, error, broken)`：解密失败返回默认值 + 可读错误 + `true`
+/// （不含密钥、密文或明文）；调用方优先用 [`load_checked`] 把它变成接口错误，
+/// 或把 `broken` 汇总进 [`Settings::secret_broken_keys`] 供逃生路径使用。
 async fn read_secret_text(
     pool: &SqlitePool,
     master: &SecretKey,
-    key: &str,
+    key: &'static str,
     default: &str,
     normalize: fn(&str) -> Result<String, String>,
-) -> (String, Option<String>) {
+) -> (String, Option<String>, bool) {
     match repo::settings::get(pool, key).await {
         Ok(Some(raw)) => match secret_box::reveal_setting(master, &raw) {
             Ok(plain) => (
@@ -477,17 +575,18 @@ async fn read_secret_text(
                     default.to_string()
                 }),
                 None,
+                false,
             ),
             Err(error) => {
                 // 日志只说「解不开」，不输出密文/密钥/明文。
                 tracing::error!(key, error = %error, "设置中的秘密无法用当前主密钥解密");
-                (default.to_string(), Some(secret_decrypt_error()))
+                (default.to_string(), Some(secret_decrypt_error()), true)
             }
         },
-        Ok(None) => (default.to_string(), None),
+        Ok(None) => (default.to_string(), None, false),
         Err(error) => {
             tracing::warn!(key, error = %error, "读取设置失败，使用默认值");
-            (default.to_string(), None)
+            (default.to_string(), None, false)
         }
     }
 }
@@ -545,9 +644,10 @@ pub async fn update(
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
 
-    // 先确认现有秘密可以用当前主密钥解开：否则“留空=保持不变”无法成立，
-    // 且任何写入都可能悄悄覆盖掉管理员以为还在的凭据。
-    let existing = load_checked(&state.db).await?;
+    // 先读一次现有设置（允许部分秘密解不开）：逃生路径要能在主密钥不匹配时
+    // 只改非秘密键，或用新值覆盖解不开的秘密键。
+    let existing = load(&state.db).await;
+    let broken_secret_keys = existing.secret_broken_keys.clone();
 
     let object = body.as_object().ok_or_else(|| {
         AppError::coded("settings.body_not_object", None, "请求体必须是 JSON 对象")
@@ -778,6 +878,15 @@ pub async fn update(
                 ));
             }
             if effective.backup_webdav_password.is_empty() {
+                if broken_secret_keys.contains(&BACKUP_WEBDAV_PASSWORD_KEY) {
+                    return Err(AppError::coded(
+                        "settings.secret_overwrite",
+                        Some(json!({ "keys": [BACKUP_WEBDAV_PASSWORD_KEY] })),
+                        "已保存的 WebDAV 密码无法用当前主密钥解密；请重新填写密码，或关闭异地备份 / \
+                         The saved WebDAV password cannot be decrypted with the current master \
+                         key; re-enter it, or turn off off-site backup",
+                    ));
+                }
                 return Err(AppError::coded(
                     "settings.backup_webdav_password_required",
                     None,
@@ -785,6 +894,27 @@ pub async fn update(
                 ));
             }
         }
+    }
+
+    // 开启 Telegram Bot 时如果 Token 解不开，不能当成「没配置」静默成功；
+    // 保存新 Token 或在同一次请求里关闭 Bot 都可以自救。
+    let enables_telegram_bot = updates
+        .iter()
+        .any(|(key, value)| *key == TELEGRAM_BOT_ENABLED_KEY && value == "1");
+    let provides_telegram_token = updates
+        .iter()
+        .any(|(key, _)| *key == TELEGRAM_BOT_TOKEN_KEY);
+    if enables_telegram_bot
+        && !provides_telegram_token
+        && broken_secret_keys.contains(&TELEGRAM_BOT_TOKEN_KEY)
+    {
+        return Err(AppError::coded(
+            "settings.secret_overwrite",
+            Some(json!({ "keys": [TELEGRAM_BOT_TOKEN_KEY] })),
+            "已保存的 Telegram Bot Token 无法用当前主密钥解密；请重新填写 Token，或先关闭 Bot / \
+             The saved Telegram Bot token cannot be decrypted with the current master key; \
+             re-enter it, or turn the bot off first",
+        ));
     }
 
     // 审计只记「改了哪些键」；值里可能有面板名等业务信息，一律不落 detail。
@@ -808,8 +938,14 @@ pub async fn update(
     )
     .await;
 
-    let settings = load_checked(&state.db).await?;
-    Ok(Json(json!({ "items": settings.as_json() })))
+    // 秘密仍解不开时也返回 200：非秘密键已经保存成功，前端可以用 warning
+    // 提示管理员「哪些键需要重填」，而不是把整次保存吞成 400。
+    let settings = load(&state.db).await;
+    let mut response = json!({ "items": settings.as_json() });
+    if let Some(error) = settings.secret_error {
+        response["warning"] = json!(error);
+    }
+    Ok(Json(response))
 }
 
 fn validate_panel_name(value: &Value) -> AppResult<String> {
@@ -2312,5 +2448,152 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(!body["error"].as_str().unwrap().is_empty());
+    }
+
+    /// 主密钥不匹配时，管理员仍能自救：只改非秘密键、或用新值覆盖坏掉的秘密。
+    #[tokio::test]
+    async fn settings_patch_stays_usable_when_a_secret_cannot_be_decrypted() {
+        let (app, state, admin, _bob) = setup().await;
+        let other = SecretKey::generate().unwrap();
+        let old_secret = "123456:written-with-another-key";
+        let sealed = secret_box::encrypt_setting(&other, old_secret);
+        repo::settings::set(&state.db.pool, "telegram_bot_token", &sealed)
+            .await
+            .unwrap();
+        // 让 WebDAV 也处于「已开启但密码解不开」：这必须给出明确的覆盖错误。
+        for (key, value) in [
+            ("backup_webdav_enabled", "1"),
+            ("backup_webdav_url", "https://dav.example.test/dav"),
+        ] {
+            repo::settings::set(&state.db.pool, key, value)
+                .await
+                .unwrap();
+        }
+        let password = secret_box::encrypt_setting(&other, "webdav-secret");
+        repo::settings::set(&state.db.pool, "backup_webdav_password", &password)
+            .await
+            .unwrap();
+
+        // 只写非秘密键：200，值保存成功，并带 warning（秘密仍待修复）。
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({ "panel_name": "Rescue Panel" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["items"]["panel_name"], "Rescue Panel");
+        assert!(
+            body["warning"].as_str().unwrap().contains("主密钥"),
+            "{body}"
+        );
+        assert_eq!(
+            repo::settings::get(&state.db.pool, "panel_name")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("Rescue Panel")
+        );
+
+        // 开启 WebDAV 却没有提供新密码：给出 secret_overwrite，而不是误导成「未配置」。
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({ "backup_webdav_enabled": true })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "settings.secret_overwrite");
+        assert!(body["error"].as_str().unwrap().contains("WebDAV 密码"));
+
+        // 用新值覆盖坏掉的 Token：200；WebDAV 密码仍坏，所以响应继续带 warning。
+        let new_token = "654321:NEW-token";
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({ "telegram_bot_token": new_token })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(
+            body["warning"].as_str().unwrap().contains("主密钥"),
+            "{body}"
+        );
+
+        // 覆盖后的落盘值必须是新密钥加密的密文，旧明文不再存在。
+        let raw = repo::settings::get(&state.db.pool, "telegram_bot_token")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(secret_box::is_encrypted_setting(&raw));
+        assert!(!raw.contains(old_secret) && !raw.contains(new_token));
+        assert_eq!(
+            secret_box::reveal_setting(state.db.secret_key(), &raw).unwrap(),
+            new_token
+        );
+
+        // 再重填 WebDAV 密码：所有秘密都能解开后，GET 恢复正常。
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({ "backup_webdav_password": "new-webdav-pass" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.get("warning").is_none(), "秘密已全部修复：{body}");
+        let (status, _, body) =
+            request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(status, StatusCode::OK, "重填秘密后必须能读取设置：{body}");
+    }
+
+    /// 后台路径统一拿 `SecretError`：错误里只有键名，没有值。
+    #[tokio::test]
+    async fn load_for_background_reports_keys_but_never_values() {
+        let (_app, state, _admin, _bob) = setup().await;
+        let other = SecretKey::generate().unwrap();
+        let secret = "123456:background-leak-canary";
+        repo::settings::set(
+            &state.db.pool,
+            "telegram_bot_token",
+            &secret_box::encrypt_setting(&other, secret),
+        )
+        .await
+        .unwrap();
+
+        let error = load_for_background(&state.db).await.unwrap_err();
+        assert_eq!(error.keys, vec![TELEGRAM_BOT_TOKEN_KEY]);
+        assert!(error.message.contains("主密钥"));
+        assert!(!error.to_string().contains(secret));
+        assert!(!format!("{error:?}").contains(secret));
+    }
+
+    /// `Settings` 的 Debug 不能把凭据带进日志。
+    #[test]
+    fn settings_debug_redacts_secrets_and_authorization_lists() {
+        let settings = Settings {
+            telegram_bot_token: "123456:TOKEN-CANARY".into(),
+            telegram_admin_chat_ids: "-100999".into(),
+            webhook_url: "https://hooks.test/canary".into(),
+            backup_webdav_password: "PASSWORD-CANARY".into(),
+            ..Settings::default()
+        };
+        let debug = format!("{settings:?}");
+        for secret in [
+            "123456:TOKEN-CANARY",
+            "PASSWORD-CANARY",
+            "canary",
+            "-100999",
+        ] {
+            assert!(!debug.contains(secret), "Debug 泄露了 {secret}: {debug}");
+        }
+        assert_eq!(debug.matches("<redacted>").count(), 4, "{debug}");
     }
 }

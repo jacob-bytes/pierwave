@@ -171,13 +171,7 @@ impl SecretKey {
     /// 返回 `(key, generated)`。已存在的文件会被收紧到 0600（升级前可能是 0644）。
     pub fn load_or_create(path: &Path) -> anyhow::Result<(Self, bool)> {
         match std::fs::read(path) {
-            Ok(bytes) => {
-                crate::fs_security::ensure_private_file(path)
-                    .with_context(|| format!("收紧主密钥文件权限失败：{}", path.display()))?;
-                let key = Self::from_file_bytes(&bytes)
-                    .with_context(|| format!("解析主密钥文件失败：{}", path.display()))?;
-                Ok((key, false))
-            }
+            Ok(_) => Ok((Self::read_key_file(path)?, false)),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 if let Some(parent) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
                     crate::fs_security::create_private_dir(parent)
@@ -191,9 +185,46 @@ impl SecretKey {
         }
     }
 
-    /// `create_new` 保证并发首启时只有一方生成密钥；另一方读到先写入的文件。
+    /// 读密钥文件并解析；解析失败时给出**可操作**指引，绝不静默重建。
+    ///
+    /// 0 字节 / 半截文件是真实事故：重建会让已加密的备份与设置全部报废，
+    /// 所以这里只报错，由管理员从备份恢复或显式删除文件后重新配置。
+    fn read_key_file(path: &Path) -> anyhow::Result<Self> {
+        let bytes = std::fs::read(path)
+            .with_context(|| format!("读取主密钥文件失败：{}", path.display()))?;
+        crate::fs_security::ensure_private_file(path)
+            .with_context(|| format!("收紧主密钥文件权限失败：{}", path.display()))?;
+        Self::from_file_bytes(&bytes).with_context(|| {
+            format!(
+                "解析主密钥文件失败：{}；文件可能是写到一半；请从备份恢复 secret.key，或删除后重新配置 / \
+                 cannot parse the master key file {}; it may have been written partially. Restore \
+                 secret.key from backup, or delete it to reconfigure",
+                path.display(),
+                path.display()
+            )
+        })
+    }
+
+    /// 与目标同目录的临时文件：写入 + `fsync` 后再 `rename`，避免 0 字节/半截文件。
+    fn temp_key_path(path: &Path) -> PathBuf {
+        let mut name = path.as_os_str().to_os_string();
+        name.push(".tmp");
+        PathBuf::from(name)
+    }
+
+    /// 原子创建：`secret.key.tmp`（0600）→ `sync_all` → `rename` → `fsync` 父目录。
+    ///
+    /// 并发首启用固定的 `.tmp` 文件名做 `create_new` 竞争：
+    /// * 输的一方先等目标文件出现并读它；
+    /// * 如果对方写完却还没 rename（或死在这一步），临时文件已是完整密钥，
+    ///   直接接管它；半截的临时文件才删掉重试。
     fn create_key_file(path: &Path) -> anyhow::Result<(Self, bool)> {
+        Self::create_key_file_attempt(path, 0)
+    }
+
+    fn create_key_file_attempt(path: &Path, attempt: usize) -> anyhow::Result<(Self, bool)> {
         let key = Self::generate()?;
+        let temp = Self::temp_key_path(path);
         let mut options = std::fs::OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
@@ -201,7 +232,7 @@ impl SecretKey {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(crate::fs_security::PRIVATE_FILE_MODE);
         }
-        match options.open(path) {
+        match options.open(&temp) {
             Ok(mut file) => {
                 #[cfg(unix)]
                 {
@@ -212,7 +243,27 @@ impl SecretKey {
                 }
                 file.write_all(key.to_base64().as_bytes())?;
                 file.write_all(b"\n")?;
+                // 先落盘临时文件，再原子改名；崩溃只可能留下 .tmp，不会留下半截 secret.key。
                 file.sync_all()?;
+                drop(file);
+
+                // 另一个进程可能通过接管临时文件先完成了落位；此时以已落位的为准。
+                if path.exists() {
+                    let existing = Self::read_key_file(path)?;
+                    let _ = std::fs::remove_file(&temp);
+                    return Ok((existing, false));
+                }
+                if let Err(error) = std::fs::rename(&temp, path) {
+                    // 竞争失败的兜底：目标可能刚好被对方改名生成。
+                    if path.exists() {
+                        let existing = Self::read_key_file(path)?;
+                        let _ = std::fs::remove_file(&temp);
+                        return Ok((existing, false));
+                    }
+                    return Err(error)
+                        .with_context(|| format!("创建主密钥文件失败：{}", path.display()));
+                }
+                Self::sync_key_parent(path)?;
                 // 只记录路径，绝不记录密钥内容。
                 tracing::warn!(
                     path = %path.display(),
@@ -223,17 +274,51 @@ impl SecretKey {
                 Ok((key, true))
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                // 另一个进程抢先创建：读它写下的密钥，禁止覆盖。
-                let bytes = std::fs::read(path)
-                    .with_context(|| format!("读取主密钥文件失败：{}", path.display()))?;
-                let key = Self::from_file_bytes(&bytes)
-                    .with_context(|| format!("解析主密钥文件失败：{}", path.display()))?;
-                Ok((key, false))
+                // 另一个进程正在创建：先等它把 secret.key 落位。
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                while std::time::Instant::now() < deadline {
+                    if path.exists() {
+                        return Ok((Self::read_key_file(path)?, false));
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                // 对方写完但没 rename（或进程已死）：完整临时文件可以直接接管。
+                // 但超过 60 秒的旧 `.tmp` 更像上一次崩溃的残留；管理员删掉
+                // secret.key 想重新生成时，不能把旧密钥“复活”。
+                let stale = std::fs::metadata(&temp)
+                    .and_then(|metadata| metadata.modified())
+                    .ok()
+                    .and_then(|modified| modified.elapsed().ok())
+                    .is_some_and(|age| age > std::time::Duration::from_secs(60));
+                if !stale {
+                    if let Ok(key) = Self::read_key_file(&temp) {
+                        if std::fs::rename(&temp, path).is_ok() {
+                            Self::sync_key_parent(path)?;
+                            return Ok((key, false));
+                        }
+                    }
+                }
+                // 半截 / 过期临时文件：删掉重试一次；仍失败则报错，绝不覆盖已有密钥。
+                let _ = std::fs::remove_file(&temp);
+                if attempt == 0 {
+                    return Self::create_key_file_attempt(path, attempt + 1);
+                }
+                bail!(
+                    "另一个进程正在创建主密钥文件：{}；请稍后重试 / another process is \
+                     creating the master key file",
+                    temp.display()
+                )
             }
             Err(error) => {
                 Err(error).with_context(|| format!("创建主密钥文件失败：{}", path.display()))
             }
         }
+    }
+
+    fn sync_key_parent(path: &Path) -> anyhow::Result<()> {
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        crate::fs_security::sync_dir(parent)
+            .with_context(|| format!("同步主密钥目录失败：{}", parent.display()))
     }
 
     /// 文件内容既接受 base64 文本（本产品写入的格式），也接受裸 32 字节。
@@ -338,6 +423,23 @@ pub fn reveal_setting(key: &SecretKey, raw: &str) -> anyhow::Result<String> {
         .context("设置密文不是合法的 base64")?;
     let plaintext = open(key, &blob)?;
     String::from_utf8(plaintext).context("解密后的设置不是合法的 UTF-8")
+}
+
+/// 扫描 `settings` 里所有 `enc:v1:` 值，返回**当前密钥解不开**的键名。
+///
+/// 只返回键名，不返回值：恢复校验与启动日志都用它。排序固定（按 key 升序），
+/// 便于测试与错误信息稳定。
+pub async fn find_unreadable_settings(
+    pool: &SqlitePool,
+    key: &SecretKey,
+) -> anyhow::Result<Vec<String>> {
+    let mut unreadable = Vec::new();
+    for (name, raw) in repo::settings::list(pool).await? {
+        if is_encrypted_setting(&raw) && reveal_setting(key, &raw).is_err() {
+            unreadable.push(name);
+        }
+    }
+    Ok(unreadable)
 }
 
 /// 迁移 0058 的 Rust 侧：把已有明文秘密就地加密。
@@ -487,6 +589,12 @@ mod tests {
         assert!(generated);
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600, "secret.key 必须是 0600");
+        assert!(
+            !path
+                .with_file_name(format!("{SECRET_KEY_FILE_NAME}.tmp"))
+                .exists(),
+            "原子写完成后不能留下 secret.key.tmp"
+        );
 
         // 再次读取必须得到同一把密钥，且不会重新生成。
         let (second, generated) = SecretKey::load_or_create(&path).unwrap();
@@ -498,6 +606,107 @@ mod tests {
         let _ = SecretKey::load_or_create(&path).unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
+    }
+
+    /// 0 字节 / 15 字节 / base64 截断都要报可操作错误，且**不能静默重建**。
+    #[test]
+    fn unreadable_key_file_fails_with_actionable_guidance_and_is_not_rebuilt() {
+        let dir = TempDir::new("corrupt-keyfile");
+        let path = dir.0.join(SECRET_KEY_FILE_NAME);
+        let valid = base64::engine::general_purpose::STANDARD.encode([5u8; KEY_LEN]);
+        let truncated = valid.as_bytes()[..20].to_vec();
+        let cases: [(&str, Vec<u8>); 3] = [
+            ("empty", Vec::new()),
+            ("half", b"0123456789abcde".to_vec()),
+            ("truncated-base64", truncated),
+        ];
+        for (label, bytes) in cases {
+            std::fs::write(&path, &bytes).unwrap();
+            let error = SecretKey::load_or_create(&path).unwrap_err();
+            let message = format!("{error:#}");
+            assert!(
+                message.contains("写到一半"),
+                "{label}: 错误必须说明文件可能写了一半：{message}"
+            );
+            assert!(
+                message.contains("备份") && message.contains("删除"),
+                "{label}: 错误必须给出可操作指引：{message}"
+            );
+            assert_eq!(
+                std::fs::read(&path).unwrap(),
+                bytes,
+                "{label}: 解析失败时不能静默重建 secret.key"
+            );
+        }
+    }
+
+    /// 并发首启：只有一个线程生成密钥，另一个读同一份；不留临时文件。
+    #[test]
+    fn concurrent_first_start_converges_on_one_key() {
+        use std::sync::{Arc, Barrier};
+
+        let dir = TempDir::new("concurrent-keyfile");
+        let path = Arc::new(dir.0.join(SECRET_KEY_FILE_NAME));
+        let barrier = Arc::new(Barrier::new(2));
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                let path = Arc::clone(&path);
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    SecretKey::load_or_create(&path).unwrap().0
+                })
+            })
+            .collect();
+        let keys: Vec<SecretKey> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        assert_eq!(keys[0], keys[1], "两个线程必须拿到同一把密钥");
+        assert_eq!(
+            std::fs::read(path.as_ref()).unwrap(),
+            base64::engine::general_purpose::STANDARD
+                .encode(keys[0].0)
+                .into_bytes()
+                .into_iter()
+                .chain(std::iter::once(b'\n'))
+                .collect::<Vec<u8>>(),
+            "落盘内容必须是完整密钥"
+        );
+        assert!(
+            !path
+                .with_file_name(format!("{SECRET_KEY_FILE_NAME}.tmp"))
+                .exists(),
+            "并发首启后不能留下 secret.key.tmp"
+        );
+    }
+
+    /// 恢复前扫描：只报告键名，不报告值。
+    #[tokio::test]
+    async fn unreadable_encrypted_settings_are_reported_by_key_only() {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let other = SecretKey::from_bytes([0xAB; KEY_LEN]);
+        let sealed = encrypt_setting(&other, "123456:from-another-instance");
+        repo::settings::set(&db.pool, "telegram_bot_token", &sealed)
+            .await
+            .unwrap();
+        repo::settings::set(&db.pool, "backup_webdav_password", "plaintext-is-fine")
+            .await
+            .unwrap();
+
+        let unreadable = find_unreadable_settings(&db.pool, db.secret_key())
+            .await
+            .unwrap();
+        assert_eq!(unreadable, vec!["telegram_bot_token".to_string()]);
+        assert!(!format!("{unreadable:?}").contains("from-another-instance"));
+
+        // 当前密钥能解开时没有告警；迁移也不能因此失败。
+        assert!(find_unreadable_settings(&db.pool, &other)
+            .await
+            .unwrap()
+            .is_empty());
+        db.migrate().await.unwrap();
     }
 
     #[test]

@@ -134,8 +134,11 @@ impl ForwardEngines {
     }
 
     /// 本机 nftables 是否可用（心跳上报；旧 Agent 没有这个字段）。
-    fn nftables_available(&self) -> bool {
-        self.nftables.available()
+    ///
+    /// 探测本身是异步 + 2s 超时 + 60s 缓存：`reconcile()` 刚测过就命中缓存，
+    /// 不会在心跳任务里 spawn 子进程。
+    async fn nftables_available(&mut self) -> bool {
+        self.nftables.available().await
     }
 
     /// 退出信号清理 nftables 表用；nft 规则不会随进程退出自动消失。
@@ -303,10 +306,19 @@ async fn main() -> Result<()> {
         )
         .await
         {
-            Ok(()) => backoff = 1,
+            Ok(()) => {
+                // 没有 Close 帧的干净 EOF 也要退避：立即重连等于空转。
+                tracing::warn!(
+                    delay_secs = CLEAN_CLOSE_BACKOFF_SECS,
+                    "connection ended without a close frame; reconnecting with backoff"
+                );
+                backoff = 1;
+                tokio::time::sleep(Duration::from_secs(CLEAN_CLOSE_BACKOFF_SECS)).await;
+            }
             Err(e) => {
-                tracing::warn!(error = %e, backoff, "connection dropped");
-                tokio::time::sleep(Duration::from_secs(backoff)).await;
+                let delay = reconnect_delay(&e, backoff);
+                tracing::warn!(error = %e, backoff, delay_secs = delay, "connection dropped");
+                tokio::time::sleep(Duration::from_secs(delay)).await;
                 backoff = (backoff * 2).min(60);
             }
         }
@@ -370,6 +382,58 @@ fn rollback_args() -> Option<(PathBuf, PathBuf, Option<String>)> {
     ))
 }
 
+/// 干净关闭（EOF / 普通 Close）后的最小重连退避。
+///
+/// 之前 `Ok(())` 分支直接重连、不 sleep：主控用 Close 关闭连接时 Agent 会立刻
+/// 重新握手，两个共享同一 token 的实例会互相顶替成热循环。
+const CLEAN_CLOSE_BACKOFF_SECS: u64 = 1;
+
+/// 主控 Close(AWAY, 1001)：通常表示「这条连接被同 token 的新连接顶替」，
+/// 用更长的最小退避避免两个实例互相顶替。
+const AWAY_CLOSE_BACKOFF_SECS: u64 = 5;
+const AWAY_CLOSE_CODE: u16 = 1001;
+
+/// 主控主动 Close 时返回的错误；外层重连循环据此选择最小退避。
+#[derive(Debug)]
+struct MasterClosed {
+    code: Option<u16>,
+    reason: String,
+}
+
+impl std::fmt::Display for MasterClosed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let code = self
+            .code
+            .map(|code| code.to_string())
+            .unwrap_or_else(|| "none".into());
+        if self.reason.is_empty() {
+            write!(f, "master closed the connection (code {code})")
+        } else {
+            write!(
+                f,
+                "master closed the connection (code {code}): {}",
+                self.reason
+            )
+        }
+    }
+}
+
+impl std::error::Error for MasterClosed {}
+
+fn master_closed_error(code: Option<u16>, reason: String) -> anyhow::Error {
+    anyhow::Error::new(MasterClosed { code, reason })
+}
+
+/// 重连前至少等多久（秒）。Close 帧有下限，其它错误沿用指数退避。
+fn reconnect_delay(error: &anyhow::Error, backoff: u64) -> u64 {
+    let floor = match error.downcast_ref::<MasterClosed>() {
+        Some(closed) if closed.code == Some(AWAY_CLOSE_CODE) => AWAY_CLOSE_BACKOFF_SECS,
+        Some(_) => CLEAN_CLOSE_BACKOFF_SECS,
+        None => 0,
+    };
+    backoff.max(floor)
+}
+
 async fn run_once(
     cfg: &Config,
     context: &AgentContext,
@@ -407,6 +471,17 @@ async fn run_once(
             incoming = ws.next() => {
                 let Some(frame) = incoming else { return Ok(()) };
                 let frame = frame?;
+                // 主控主动 Close（顶替 / 重置 token / 补发失败）：识别出来走
+                // 带下限的重连退避，不能像 Ping/Pong 一样 continue。
+                if let Message::Close(frame) = &frame {
+                    let code = frame.as_ref().map(|frame| u16::from(frame.code));
+                    let reason = frame
+                        .as_ref()
+                        .map(|frame| frame.reason.to_string())
+                        .unwrap_or_default();
+                    tracing::warn!(?code, %reason, "master closed the connection");
+                    return Err(master_closed_error(code, reason));
+                }
                 let Message::Text(text) = frame else { continue };
                 // 任何主控消息都证明链路还活着，刷新 tc 安全阀。
                 tc_manager
@@ -535,6 +610,7 @@ async fn run_once(
                 forwards.reconcile().await;
                 seq += 1;
                 let realm_transport = forwards.realm_transport().await;
+                let nftables_available = forwards.nftables_available().await;
                 let interfaces = network::collect_or_warn();
                 let hb = AgentMessage::Heartbeat(sample_heartbeat(
                     seq,
@@ -546,7 +622,7 @@ async fn run_once(
                     EngineCapabilities {
                         realm_available: realm::is_available(Path::new(&cfg.realm_bin)),
                         realm_transport,
-                        nftables_available: forwards.nftables_available(),
+                        nftables_available,
                         tunnel_available: true,
                     },
                 ));
@@ -1544,6 +1620,27 @@ mod tests {
         assert!(should_apply(2, 1));
         assert!(!should_apply(1, 1), "同一版本重放不应重启 xray");
         assert!(!should_apply(0, 1), "旧版本不能被接受");
+    }
+
+    /// P2 回归：主控 Close(AWAY) 常发生在「同 token 的另一个连接顶替」，
+    /// 退避必须显著大于 1s，否则两个实例会互相顶替成热循环。
+    #[test]
+    fn close_frames_impose_a_minimum_reconnect_delay() {
+        assert_eq!(CLEAN_CLOSE_BACKOFF_SECS, 1, "干净关闭也要至少退避 1s");
+
+        let away = master_closed_error(Some(1001), String::new());
+        assert_eq!(reconnect_delay(&away, 1), 5, "AWAY 至少退避 5s");
+
+        let normal = master_closed_error(Some(1000), String::new());
+        assert_eq!(reconnect_delay(&normal, 1), 1, "普通 Close 至少退避 1s");
+
+        let no_code = master_closed_error(None, String::new());
+        assert_eq!(reconnect_delay(&no_code, 1), 1);
+
+        // 非 Close 的连接错误保持原有指数退避，不额外加下限。
+        let other = anyhow::anyhow!("connect failed");
+        assert_eq!(reconnect_delay(&other, 8), 8);
+        assert_eq!(reconnect_delay(&other, 1), 1);
     }
 
     #[test]

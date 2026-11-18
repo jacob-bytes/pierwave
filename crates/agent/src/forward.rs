@@ -1067,39 +1067,54 @@ async fn handle_connection(runtime: ForwardRuntime, client: TcpStream, peer: Soc
     }
 }
 
-/// 构造入口侧的 PROXY v2 头。
+/// 构造入口侧的 PROXY v2 头（拿不到就返回错误，由调用方关闭连接）。
 ///
 /// `source` 是客户端连接的 `peer_addr()`；`entry_local` 必须来自**同一条客户端
 /// 连接**的 `local_addr()`，即入口监听地址——v2 规范里的 dst 是「客户端原本
 /// 要连的地址」，不是后端 `upstream.peer_addr()`。
 ///
-/// 入口本地地址在极少数情况下取不到（连接已重置等）。这时返回 `None`，让
-/// 调用方跳过发送：宁可不发头，也不能发一个 dst 错误或全 0 的头，把落地端
-/// 对客户端来源的判断带偏。
-fn proxy_v2_header(source: SocketAddr, entry_local: io::Result<SocketAddr>) -> Option<Vec<u8>> {
+/// fail-closed：`proxy_protocol = true` 是用户显式打开的契约（落地端会按
+/// PROXY 头解析首包）。入口本地地址取不到（连接已重置等）时**不能**跳过头发
+/// 送，否则客户端载荷会被落地端当成 PROXY 头，连接必然错乱且用户毫无感知。
+/// 这里返回错误，`proxy()` 随之中止并关闭两端。
+fn proxy_v2_header(source: SocketAddr, entry_local: io::Result<SocketAddr>) -> io::Result<Vec<u8>> {
     let destination = match entry_local {
         Ok(destination) => destination,
         Err(error) => {
             tracing::warn!(
                 %source,
                 %error,
-                "无法读取入口连接的本地地址（local_addr），跳过 PROXY v2 头"
+                "无法读取入口连接的本地地址（local_addr），关闭连接（PROXY v2 头必须发送）"
             );
-            return None;
+            return Err(io::Error::new(
+                error.kind(),
+                format!("无法读取入口连接的本地地址（local_addr）：{error}"),
+            ));
         }
     };
     match crate::proxy_protocol::v2_header(source, destination) {
-        Ok(header) => Some(header),
+        Ok(header) => Ok(header),
         Err(error) => {
             tracing::warn!(
                 %source,
                 %destination,
                 %error,
-                "PROXY v2 头构造失败，跳过发送"
+                "PROXY v2 头构造失败，关闭连接"
             );
-            None
+            Err(error)
         }
     }
+}
+
+/// 写 PROXY 头；失败即中止连接（不进入双向拷贝）。
+async fn write_proxy_header(
+    source: SocketAddr,
+    entry_local: io::Result<SocketAddr>,
+    upstream: &mut TcpStream,
+) -> io::Result<()> {
+    let header = proxy_v2_header(source, entry_local)?;
+    upstream.write_all(&header).await?;
+    upstream.flush().await
 }
 
 /// 一条连接：连目标 →（可选）写 PROXY v2 头 → 双向拷贝。
@@ -1136,12 +1151,10 @@ async fn proxy(
     if proxy_protocol {
         // 源 = 入口连接的 peer；dst = 同一条客户端连接的 local_addr（入口监听
         // 地址），即客户端原本要连的目的地址，不能用 upstream.peer_addr()。
+        // 拿不到 local_addr / 写头失败都必须关闭连接（fail-closed），不能把
+        // 客户端载荷裸转给要求 PROXY 头的落地端。
         let source = client.peer_addr()?;
-        if let Some(header) = proxy_v2_header(source, client.local_addr()) {
-            // 只写一次；写失败说明目标已断开，交给上层按连接失败计数。
-            upstream.write_all(&header).await?;
-            upstream.flush().await?;
-        }
+        write_proxy_header(source, client.local_addr(), &mut upstream).await?;
     }
     copy_bidirectional(&mut client, &mut upstream).await
 }
@@ -2691,16 +2704,45 @@ mod tests {
         let _ = tokio::time::timeout(Duration::from_secs(3), proxy_task).await;
     }
 
-    /// 边界：入口连接的 `local_addr()` 取不到时，必须跳过发送并 warn，
-    /// 不能生成 dst 错误或全 0 的头。
+    /// 边界：入口连接的 `local_addr()` 取不到时必须返回 Err（fail-closed），
+    /// 由调用方关闭连接；不能跳过头发送、把载荷裸转给要求 PROXY 头的落地端。
     #[test]
-    fn proxy_v2_header_is_skipped_when_entry_local_addr_is_unavailable() {
+    fn proxy_v2_header_fails_closed_when_entry_local_addr_is_unavailable() {
         let source: SocketAddr = "192.0.2.1:12345".parse().unwrap();
         let error = io::Error::new(io::ErrorKind::NotConnected, "local_addr 不可用");
+        let error = proxy_v2_header(source, Err(error)).expect_err("必须返回错误并关闭连接");
+        assert!(error.to_string().contains("local_addr"), "{error}");
+    }
+
+    /// P2 回归：`local_addr()` 失败时连接必须直接关闭，目标端收到 0 字节。
+    #[tokio::test]
+    async fn local_addr_failure_closes_without_writing_to_target() {
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let target_addr = target.local_addr().unwrap();
+        let target_task = tokio::spawn(async move {
+            let (mut upstream, _) = target.accept().await.unwrap();
+            let mut buf = [0u8; 32];
+            match tokio::time::timeout(Duration::from_millis(300), upstream.read(&mut buf)).await {
+                Ok(Ok(read)) => read,
+                _ => 0,
+            }
+        });
+
+        let mut upstream = TcpStream::connect(target_addr).await.unwrap();
+        let source: SocketAddr = "192.0.2.1:12345".parse().unwrap();
+        let error = io::Error::new(io::ErrorKind::NotConnected, "local_addr 不可用");
+        let result = write_proxy_header(source, Err(error), &mut upstream).await;
         assert!(
-            proxy_v2_header(source, Err(error)).is_none(),
-            "local_addr 取不到时必须返回 None（调用方跳过发送）"
+            result.is_err(),
+            "local_addr 失败必须让连接失败，不能静默跳过"
         );
+        drop(upstream);
+
+        let received = tokio::time::timeout(Duration::from_secs(3), target_task)
+            .await
+            .expect("目标端应在连接关闭后返回")
+            .unwrap();
+        assert_eq!(received, 0, "fail-closed 时目标必须收到 0 字节");
     }
 
     /// 正常路径：dst 由传入的入口 local_addr 决定，与源地址相互独立。

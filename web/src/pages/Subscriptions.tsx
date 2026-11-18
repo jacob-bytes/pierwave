@@ -70,6 +70,7 @@ import {
 } from "@/lib/subscriptionFormats";
 import { useRuleTemplates, useSubscriptions } from "@/lib/queries";
 import { ruleTemplateErrorText } from "@/lib/ruleTemplates";
+import { subscriptionUsage } from "@/lib/subscriptionUsage";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 import { useIsDesktop } from "@/lib/useIsDesktop";
@@ -375,10 +376,12 @@ export default function SubscriptionsPage() {
   }
 
   function renderSubscriptionTraffic(user: Subscription) {
+    // 与 /users 的「套餐流量」同口径：优先套餐实例合计，无套餐才回落账户级。
+    const usage = subscriptionUsage(user);
     return (
       <UsageBar
-        usedBytes={user.used_bytes}
-        quotaBytes={user.quota_bytes}
+        usedBytes={usage.usedBytes}
+        quotaBytes={usage.quotaBytes}
         label={null}
         className="w-48"
       />

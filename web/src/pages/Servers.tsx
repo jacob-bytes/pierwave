@@ -141,7 +141,7 @@ const COLUMN_COUNT = 12;
 /** 心跳超过这个时长没有更新就不该再当作实时数据。 */
 const HEARTBEAT_STALE_MS = 90_000;
 const HEAD_CLASS =
-  "h-9 px-3 text-xs font-medium tracking-wide text-muted-foreground";
+  "h-9 px-2 text-xs font-medium tracking-wide text-muted-foreground";
 /** 分组筛选：`all` 不筛选，`__ungrouped__` 只看未分组。 */
 const GROUP_FILTER_ALL = "all";
 const GROUP_FILTER_UNGROUPED = "__ungrouped__";
@@ -452,11 +452,17 @@ function VersionCell({ server }: { server: Server }) {
           </Badge>
         ) : null}
       </div>
+      {/*
+        1440 下英文列头更宽，第二行完整写「Config v0 · 42 ms latency」会把
+        整张表撑出横向滚动；<2xl 只保留延迟，配置版本在更宽屏或详情里看。
+      */}
       <span className="font-mono type-micro text-muted-foreground">
-        {t("servers.configVersion", { version: server.config_version })}
+        <span className="hidden 2xl:inline">
+          {t("servers.configVersion", { version: server.config_version })}
+        </span>
         {latency !== null ? (
           <>
-            {" · "}
+            <span className="hidden 2xl:inline">{" · "}</span>
             <span
               className="tnum"
               title={t("servers.detail.latencyHint")}
@@ -1194,46 +1200,46 @@ export default function ServersPage() {
         <TableCell
           sticky="left"
           className={cn(
-            "w-10 px-3 py-2.5",
+            "w-10 px-2 py-2.5",
             highlighted && "border-l border-primary/40",
           )}
         >
           {renderServerCheckbox(server, selected)}
         </TableCell>
-        <TableCell className="max-w-56 px-3 py-2.5">
+        <TableCell className="max-w-56 px-2 py-2.5">
           {renderServerName(server)}
         </TableCell>
-        <TableCell className="hidden px-3 py-2.5 font-mono text-xs text-muted-foreground lg:table-cell">
+        <TableCell className="hidden px-2 py-2.5 font-mono text-xs text-muted-foreground lg:table-cell">
           {server.address}
         </TableCell>
-        <TableCell className="hidden px-3 py-2.5 text-xs text-muted-foreground lg:table-cell">
+        <TableCell className="hidden px-2 py-2.5 text-xs text-muted-foreground 2xl:table-cell">
           {renderServerMode(server)}
         </TableCell>
-        <TableCell className="px-3 py-2.5">
+        <TableCell className="px-2 py-2.5">
           <StatusBadge server={server} />
         </TableCell>
-        <TableCell className="px-3 py-2.5">
+        <TableCell className="px-2 py-2.5">
           <XrayStatus server={server} />
         </TableCell>
-        <TableCell className="px-3 py-2.5 text-xs text-muted-foreground">
+        <TableCell className="px-2 py-2.5 text-xs text-muted-foreground">
           <HeartbeatText healthAt={server.health_at} />
         </TableCell>
-        <TableCell className="hidden px-3 py-2.5 xl:table-cell">
+        <TableCell className="hidden px-2 py-2.5 xl:table-cell">
           <VersionCell server={server} />
         </TableCell>
-        <TableCell className="hidden px-3 py-2.5 xl:table-cell">
+        <TableCell className="hidden px-2 py-2.5 xl:table-cell">
           {renderServerLoad(server)}
         </TableCell>
-        <TableCell className="hidden px-3 py-2.5 xl:table-cell">
+        <TableCell className="hidden px-2 py-2.5 xl:table-cell">
           <MemoryCell server={server} />
         </TableCell>
-        <TableCell className="hidden px-3 py-2.5 xl:table-cell">
+        <TableCell className="hidden whitespace-nowrap px-2 py-2.5 xl:table-cell">
           <RateCell server={server} />
         </TableCell>
         <TableCell
           sticky="right"
           className={cn(
-            "px-3 py-2.5",
+            "px-2 py-2.5",
             highlighted && "border-r border-primary/40",
           )}
         >
@@ -1583,7 +1589,7 @@ export default function ServersPage() {
                 <TableHead className={cn(HEAD_CLASS, "hidden lg:table-cell")}>
                   {t("common.address")}
                 </TableHead>
-                <TableHead className={cn(HEAD_CLASS, "hidden lg:table-cell")}>
+                <TableHead className={cn(HEAD_CLASS, "hidden 2xl:table-cell")}>
                   {t("servers.mode.column")}
                 </TableHead>
                 <TableHead className={HEAD_CLASS}>{t("common.status")}</TableHead>
@@ -1601,7 +1607,9 @@ export default function ServersPage() {
                 <TableHead className={cn(HEAD_CLASS, "hidden xl:table-cell")}>
                   {t("servers.detail.memory")}
                 </TableHead>
-                <TableHead className={cn(HEAD_CLASS, "hidden xl:table-cell")}>
+                <TableHead
+                  className={cn(HEAD_CLASS, "hidden whitespace-nowrap xl:table-cell")}
+                >
                   {t("servers.detail.rate")}
                 </TableHead>
                 <TableHead sticky="right" className={HEAD_CLASS}>{t("common.actions")}</TableHead>

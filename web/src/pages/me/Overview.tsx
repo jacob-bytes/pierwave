@@ -11,7 +11,6 @@ import { ChangePasswordDialog } from "@/components/settings/ChangePasswordDialog
 import { Button } from "@/components/ui/button";
 import {
   Card,
-  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -44,15 +43,20 @@ function TrafficCard({ traffic }: { traffic: UseQueryResult<MeTraffic> }) {
 
   return (
     <Card className="gap-4">
-      <CardHeader>
-        <CardTitle className="text-sm font-medium">
-          {t("me.traffic.title")}
-        </CardTitle>
-        <CardDescription className="text-xs">
-          {t("me.traffic.desc")}
-        </CardDescription>
-        <CardAction>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      {/*
+        窄屏下标题与图例并排会把标题挤成一字一行（<md 时标题列只有约 37px）：
+        单列时把图例/总量放到标题下方，>=md 再恢复左标题右动作的两列。
+      */}
+      <CardHeader className="gap-2 md:grid-cols-[1fr_auto]">
+        <div className="min-w-0">
+          <CardTitle className="text-sm font-medium">
+            {t("me.traffic.title")}
+          </CardTitle>
+          <CardDescription className="text-xs">
+            {t("me.traffic.desc")}
+          </CardDescription>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:justify-end">
           <Suspense fallback={null}>
             <TrafficLegend showCumulative />
           </Suspense>
@@ -65,8 +69,7 @@ function TrafficCard({ traffic }: { traffic: UseQueryResult<MeTraffic> }) {
               ? "—"
               : t("me.traffic.total", { value: formatBytes(total) })}
           </span>
-          </div>
-        </CardAction>
+        </div>
       </CardHeader>
       <CardContent>
         {traffic.isPending ? (

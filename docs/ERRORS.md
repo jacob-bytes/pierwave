@@ -28,6 +28,8 @@
 | `settings.backup_webdav_password_invalid` | WebDAV 密码不合法 | — |
 | `settings.backup_webdav_url_required` | 启用异地备份前必须填写 WebDAV 地址 | — |
 | `settings.backup_webdav_password_required` | 启用异地备份前必须填写 WebDAV 密码 | — |
+| `settings.secret_decrypt_failed` | 已保存的秘密设置无法用当前主密钥解密（GET/PATCH 设置、后台任务、手动异地备份） | keys |
+| `settings.secret_overwrite` | 启用依赖秘密的功能前必须重填无法解密的秘密（如 WebDAV 密码） | keys |
 | `user.not_found` | 用户不存在 | — |
 | `user.username_length_invalid` | 用户名长度必须在 {min}-{max} 个字符之间 | max, min |
 | `user.password_too_short` | 密码至少 {min} 位 | min |
@@ -131,6 +133,7 @@
 | `routing_rule.match_required` | 路由规则至少要填写入站、域名、IP 中的一项 | — |
 | `backup.restore_no_pending` | 没有待恢复的备份 | — |
 | `backup.in_memory_unsupported` | 当前数据库是内存库，不支持备份与恢复 | — |
+| `backup.key_mismatch` | 备份来自另一把主密钥，请提供原 secret.key 或设置相同的 PIERWAVE_SECRET_KEY（或 `?force=true` 显式覆盖） | keys |
 | `backup.restore_bad_header` | 备份文件不是有效的 SQLite 数据库 | — |
 | `backup.restore_corrupt` | 备份数据库完整性校验未通过（文件可能被截断或损坏） | detail |
 | `backup.restore_missing_tables` | 备份缺少必需的表 | — |

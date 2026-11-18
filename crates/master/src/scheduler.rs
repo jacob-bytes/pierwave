@@ -509,8 +509,39 @@ pub enum RemoteBackupRound {
 }
 
 /// 执行一轮异地备份巡检：只在「已开启 + 已配置 + 到点 + 没人在传」时上传。
+///
+/// 秘密解不开时按 [`RemoteBackupRound::Failed`] 处理（不是 Disabled）：任务确实
+/// 存在，只是无法读取凭据；同时通过告警渠道发一条。渠道本身也解不开时由
+/// 告警模块记 error 日志（含键名，不含值）。
 pub async fn run_remote_backup_round(state: &AppState) -> anyhow::Result<RemoteBackupRound> {
-    let settings = crate::routes::settings::load(&state.db).await;
+    let settings = match crate::routes::settings::load_for_background(&state.db).await {
+        Ok(settings) => settings,
+        Err(error) => {
+            // 异地备份本来就没开：不要因为别的秘密坏了而每 60 秒告警一次。
+            let partial = crate::routes::settings::load(&state.db).await;
+            if !partial.backup_webdav_enabled {
+                return Ok(RemoteBackupRound::Disabled);
+            }
+            tracing::error!(
+                keys = ?error.keys,
+                "异地备份无法读取设置：秘密无法用当前主密钥解密"
+            );
+            crate::alerts::notify(
+                state,
+                crate::alerts::AlertKind::BackupFailed,
+                "backup",
+                "异地备份无法启动 / Off-site backup cannot start",
+                &format!(
+                    "异地备份已开启，但设置中的秘密无法解密，任务已标记失败：{} / \
+                     Off-site backup is enabled but a stored secret cannot be decrypted; \
+                     the task is marked failed: {}",
+                    error.message, error.message
+                ),
+            )
+            .await;
+            return Ok(RemoteBackupRound::Failed(error.message));
+        }
+    };
     if !settings.backup_webdav_enabled
         || settings.backup_webdav_url.is_empty()
         || settings.backup_webdav_password.is_empty()
@@ -525,6 +556,9 @@ pub async fn run_remote_backup_round(state: &AppState) -> anyhow::Result<RemoteB
         Ok(outcome) => Ok(RemoteBackupRound::Uploaded(outcome)),
         Err(crate::remote_backup::RunError::Busy) => Ok(RemoteBackupRound::Busy),
         Err(crate::remote_backup::RunError::NotConfigured(_)) => Ok(RemoteBackupRound::Disabled),
+        Err(crate::remote_backup::RunError::Secret(error)) => {
+            Ok(RemoteBackupRound::Failed(error.message))
+        }
         Err(crate::remote_backup::RunError::Failed(message)) => {
             Ok(RemoteBackupRound::Failed(message))
         }
@@ -761,6 +795,59 @@ mod tests {
             run_remote_backup_round(&state).await.unwrap(),
             RemoteBackupRound::NotDue
         );
+    }
+
+    #[tokio::test]
+    async fn scheduled_backup_with_broken_secret_is_failed_and_alerts() {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let transport = Arc::new(RecordingTransport::default());
+        let mut state = AppState::new(db, "web/dist");
+        state.alerts = Alerts::new(transport.clone());
+
+        // 告警渠道本身可读（webhook），失败原因只可能是 WebDAV 密码解不开。
+        for (key, value) in [
+            ("backup_webdav_enabled", "1".to_string()),
+            (
+                "backup_webdav_url",
+                "https://dav.example.test/dav".to_string(),
+            ),
+            ("backup_webdav_interval_hours", "24".to_string()),
+            (
+                "webhook_url",
+                "https://hooks.example.test/alert".to_string(),
+            ),
+            ("alert_events", "backup_failed".to_string()),
+            ("alert_cooldown_secs", "0".to_string()),
+        ] {
+            repo::settings::set(&state.db.pool, key, &value)
+                .await
+                .unwrap();
+        }
+        let other = pierwave_domain::secret_box::SecretKey::generate().unwrap();
+        let canary = "webdav-secret-canary";
+        repo::settings::set(
+            &state.db.pool,
+            "backup_webdav_password",
+            &pierwave_domain::secret_box::encrypt_setting(&other, canary),
+        )
+        .await
+        .unwrap();
+
+        let round = run_remote_backup_round(&state).await.unwrap();
+        match round {
+            RemoteBackupRound::Failed(message) => {
+                assert!(message.contains("主密钥"), "{message}");
+                assert!(!message.contains(canary), "失败原因不能泄露秘密：{message}");
+            }
+            other => panic!("秘密解不开时必须是 Failed，不是 Disabled：{other:?}"),
+        }
+
+        // 通过告警渠道发了一条；正文同样不能带秘密值。
+        let sent = transport.wait_for(1).await;
+        assert_eq!(sent[0].kind, "backup_failed");
+        assert!(sent[0].body.contains("无法解密"), "{}", sent[0].body);
+        assert!(!sent[0].body.contains(canary));
     }
 
     #[tokio::test]

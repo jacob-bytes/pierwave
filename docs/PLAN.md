@@ -734,7 +734,8 @@ GET    /api/v1/backup            -> application/octet-stream（默认加密；�
                                     文件名 pierwave-backup-<YYYYmmdd-HHMMSS>.db.gz.enc（默认）或 .db.gz
                                     内容：`VACUUM INTO` 的一致性快照 → gzip → AES-256-GCM
 POST   /api/v1/backup/restore    -> body 为 .db / .db.gz / .db.gz.enc（Content-Type: application/octet-stream）
-                                    { restart_required: true, pending: {...} }
+                                    ?force=true 可跳过主密钥一致性校验（响应带 warning）
+                                    { restart_required: true, pending: {...}, warning?: "..." }
 GET    /api/v1/backup/info       -> { db_bytes, pending: null | { uploaded_at, bytes } }
 DELETE /api/v1/backup/restore    -> 取消待恢复
 ```
@@ -760,7 +761,11 @@ DELETE /api/v1/backup/restore    -> 取消待恢复
 - `PRAGMA quick_check` 必须返回单行 `ok`：逐页检查能发现截断/页损坏，又比
   `integrity_check` 省掉索引与表内容的交叉校验；耗时口径是 `validate_backup_file`
   在 ~20 MB 合成库上的墙钟时间（单测阈值 10 秒，只防爆炸式回归）；
-- 大小上限 512 MB。
+- 大小上限 512 MB；
+- `settings` 里所有 `enc:v1:` 值必须能用**当前主密钥**解开（否则 400
+  `backup.key_mismatch`，详见 [BACKUP_ENCRYPTION.md](BACKUP_ENCRYPTION.md)）；
+  管理员确认丢弃旧秘密时用 `?force=true` 覆盖，候选库里解不开的 `enc:v1:`
+  行会被删除（`hmac_secret_v1` 重新生成，旧订阅链接失效）。
 
 ### 前端
 

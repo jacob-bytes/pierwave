@@ -617,8 +617,20 @@ pub fn truncate_message(text: &str) -> String {
 }
 
 /// 从设置表推导出应运行的 Bot 配置；`None` = 当前不应有长轮询任务。
+///
+/// 秘密解不开时必须记 error 并**停止轮询**：用空 Token 继续跑只会在日志里刷
+/// 「Unauthorized」，而且会把「配置坏了」伪装成「没启用」。
 async fn desired_config(state: &AppState) -> Option<BotConfig> {
-    let settings = settings::load(&state.db).await;
+    let settings = match settings::load_for_background(&state.db).await {
+        Ok(settings) => settings,
+        Err(error) => {
+            tracing::error!(
+                keys = ?error.keys,
+                "Telegram Bot 秘密设置无法解密，停止长轮询"
+            );
+            return None;
+        }
+    };
     if !settings.telegram_bot_enabled {
         return None;
     }
@@ -1202,5 +1214,25 @@ mod tests {
         set_setting(&state, settings::TELEGRAM_ADMIN_CHAT_IDS_KEY, ADMIN_CHAT).await;
         let desired = desired_config(&state).await.unwrap();
         assert_eq!(desired.admin_chat_ids, vec![ADMIN_CHAT.to_string()]);
+    }
+
+    /// Token 解不开时必须停止轮询（不能拿空 Token 静默跑），并留下 error 日志。
+    #[tokio::test]
+    async fn broken_token_stops_polling_instead_of_silently_disabling() {
+        let (state, transport) = setup().await;
+        enable_bot(&state).await;
+        let other = pierwave_domain::secret_box::SecretKey::generate().unwrap();
+        let sealed = pierwave_domain::secret_box::encrypt_setting(&other, TOKEN);
+        set_setting(&state, settings::TELEGRAM_BOT_TOKEN_KEY, &sealed).await;
+
+        assert!(
+            desired_config(&state).await.is_none(),
+            "秘密解不开时不能启动长轮询"
+        );
+
+        let handle = spawn_with(state.clone(), transport.clone(), Duration::from_millis(10));
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        assert_eq!(transport.polls(), 0, "秘密解不开后不应轮询");
+        handle.abort();
     }
 }

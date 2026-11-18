@@ -102,8 +102,9 @@ async fn main() -> anyhow::Result<()> {
 
     // 恢复必须在建连接池之前处理：池一旦打开就会持有旧数据库文件的 inode。
     // 校验失败只记日志并保留 `<db>.restore-pending`，主控照常启动。
-    let restore_outcome = match Db::database_path(&db_url) {
-        Some(path) => Some(backup::apply_pending_restore(&path).await?),
+    let db_path = Db::database_path(&db_url)?;
+    let restore_outcome = match db_path.as_deref() {
+        Some(path) => Some(backup::apply_pending_restore(path).await?),
         None => None,
     };
 
@@ -135,8 +136,9 @@ async fn main() -> anyhow::Result<()> {
             .await;
         }
         Some(RestoreOutcome::Rejected { reason }) => {
-            let pending = Db::database_path(&db_url)
-                .map(|path| backup::pending_path(&path).display().to_string())
+            let pending = db_path
+                .as_ref()
+                .map(|path| backup::pending_path(path).display().to_string())
                 .unwrap_or_default();
             tracing::error!(
                 pending = %pending,

@@ -25,6 +25,25 @@ This project protects two things with **one master key and AES-256-GCM**:
 > Generated the master key file. Back it up: losing it makes encrypted backups
 > and settings unrecoverable
 
+生成是原子的：先写 `secret.key.tmp`（0600）并 `fsync`，再 `rename` 到
+`secret.key`，最后 `fsync` 父目录。并发首启时用 `create_new` 竞争 `.tmp`，
+输的一方读取已落位的密钥，因此不会出现两把密钥或 0 字节文件。
+
+Generation is atomic: write `secret.key.tmp` (0600) and `fsync`, `rename` it to
+`secret.key`, then `fsync` the parent directory. Concurrent first starts race on
+the `.tmp` file with `create_new`; the loser reads the key that won, so there is
+never a second key or a zero-byte file.
+
+如果 `secret.key` 已存在但无法解析（0 字节、半截 base64、被截断），启动会
+失败并打印可操作指引：**服务不会静默重建它**——重建会让已有密文全部报废。
+请从备份恢复 `secret.key`，确认旧密钥无用后再删除文件重新配置。
+
+If an existing `secret.key` cannot be parsed (zero bytes, a truncated base64
+line, a cut-off file), startup fails with actionable guidance and **does not
+silently regenerate it** — regeneration would make every existing ciphertext
+unreadable. Restore `secret.key` from backup, and only delete it (to
+reconfigure) when the old key is truly expendable.
+
 ```bash
 # 可选：用环境变量提供密钥（多实例/容器部署时必须所有实例一致）
 # Optional: provide the key via env (all instances must share it)
@@ -55,6 +74,18 @@ make all existing ciphertext unreadable.
 
 In-memory databases (`sqlite::memory:`) use a per-process random key and never
 write `data/secret.key`.
+
+数据库 URL 按 sqlx 的解析规则处理：`sqlite:data/x.db`（单冒号）、
+`sqlite://data/x.db`、百分号编码与绝对路径都会落到同一个真实文件，
+`secret.key` 与权限收紧跟着该文件走。空文件名或非 `sqlite:` scheme 会在启动
+时报错，不会被当成内存库（否则会随机生成密钥并把备份误报成“内存库不支持”）。
+
+Database URLs are parsed by sqlx: `sqlite:data/x.db` (single colon),
+`sqlite://data/x.db`, percent-encoded and absolute paths all resolve to the same
+real file, and `secret.key` plus file-permission hardening follow that file. An
+empty filename or a non-`sqlite:` scheme is a startup error rather than an
+in-memory database (which would generate a random key and make backups fail as
+"in-memory unsupported").
 
 ## 2. 备份格式 / Backup format
 
@@ -130,7 +161,67 @@ When the master key does not match the ciphertext, `GET/PATCH
 (HTTP 400) instead of silently echoing an empty token/password. The message
 contains no key, ciphertext or plaintext.
 
-## 4. 迁移 / Migrations
+### 设置页的逃生路径 / Settings escape hatch
+
+`PATCH /api/v1/settings` 在主密钥不匹配时仍可自救：
+
+1. **只写非秘密键**（如 `panel_name`、`backup_encrypt`）会成功，响应带
+   `warning`（秘密仍未修复）；这保证管理员不会被一个坏 Token 锁在门外。
+2. **用新值覆盖解不开的秘密键**（`telegram_bot_token`、
+   `backup_webdav_password`、`webhook_url`）会成功；新值用当前主密钥加密。
+3. 若请求要开启依赖坏秘密的功能（例如开启异地备份但没重填 WebDAV 密码、
+   开启 Bot 但没重填 Token），返回 400 `settings.secret_overwrite`，
+   提示先重填或先关闭该功能。
+
+When the master key does not match, `PATCH /api/v1/settings` still allows
+recovery:
+
+1. **Writing only non-secret keys** (such as `panel_name` or `backup_encrypt`)
+   succeeds with a `warning` (the secrets are still broken), so one bad token
+   cannot lock the administrator out.
+2. **Overwriting an unreadable secret** (`telegram_bot_token`,
+   `backup_webdav_password`, `webhook_url`) succeeds; the new value is encrypted
+   with the current master key.
+3. Enabling a feature that depends on a broken secret (for example enabling
+   off-site backup without re-entering the WebDAV password, or enabling the bot
+   without re-entering the token) returns 400 `settings.secret_overwrite`.
+
+## 4. 恢复前校验 / Restore preflight
+
+`POST /api/v1/backup/restore` 在把上传文件 rename 成 `<db>.restore-pending`
+**之前**会打开候选库，扫描 `settings` 里所有 `enc:v1:` 值并用**当前主密钥**
+逐个解密：
+
+- 有解不开的：拒绝恢复，HTTP 400 `backup.key_mismatch`，文案提示「备份来自
+  另一把主密钥，请同时提供 secret.key 或设置相同的 PIERWAVE_SECRET_KEY」；
+  pending 文件不会落盘。
+- 管理员确认要丢弃旧秘密时，请求 `POST /api/v1/backup/restore?force=true`
+  （上传体是原始文件字节，`force` 只能放在查询串）可强制恢复；候选库里
+  **解不开的 `enc:v1:` 行会被删除**（能解开的与非秘密设置原样保留），响应带
+  `warning`。恢复后 Telegram / WebDAV / Webhook 需重新填写；内部
+  `hmac_secret_v1` 会在首次使用时重新生成，旧订阅链接随之失效。
+
+Before renaming the upload to `<db>.restore-pending`, the restore endpoint opens
+the candidate database, scans every `enc:v1:` value in `settings`, and decrypts
+each one with the **current master key**:
+
+- If any value cannot be decrypted, the restore is rejected with HTTP 400
+  `backup.key_mismatch` ("the backup comes from another master key; provide
+  secret.key or the same PIERWAVE_SECRET_KEY"). No pending file is written.
+- To explicitly discard the old secrets, `POST /api/v1/backup/restore?force=true`
+  (the body is the raw file, so `force` must be a query parameter) forces the
+  restore and **deletes the unreadable `enc:v1:` rows** in the candidate
+  database (readable secrets and all non-secret settings are preserved), then
+  returns a `warning`. Telegram / WebDAV / webhook must be re-entered afterwards;
+  the internal `hmac_secret_v1` is regenerated on first use, so old subscription
+  links stop working.
+
+`Db::migrate()` 也会扫描同样的 `enc:v1:` 值；解不开时按 **error** 级日志记录
+键名（不含值），不会静默跳过。 / `Db::migrate()` performs the same scan and
+logs an **error** with the key name (never the value) instead of skipping
+silently.
+
+## 5. 迁移 / Migrations
 
 `crates/domain/migrations/0058_secret_settings.sql`：
 
@@ -146,7 +237,7 @@ contains no key, ciphertext or plaintext.
   rewrite runs in `secret_box::encrypt_existing_settings` right after
   migrations (only non-empty, unprefixed values).
 
-## 5. 兼容性 / Compatibility
+## 6. 兼容性 / Compatibility
 
 | 场景 / Scenario | 行为 / Behavior |
 |---|---|
@@ -154,10 +245,10 @@ contains no key, ciphertext or plaintext.
 | 裸 `.db` 上传 / raw `.db` upload | 继续可恢复 / restores normally |
 | 旧明文设置值 / legacy plaintext settings | 可直接读取；下次迁移加密 / readable; encrypted by migration |
 | 未设环境变量 / no env var | 自动生成 `data/secret.key`（0600）/ generated automatically |
-| 换机恢复加密备份 / restore on another host | 必须同时带上原 `secret.key` 或用同样的 `PIERWAVE_SECRET_KEY` / must carry the same key |
+| 换机恢复加密备份 / restore on another host | 必须同时带上原 `secret.key` 或用同样的 `PIERWAVE_SECRET_KEY`；否则 400 `backup.key_mismatch` / must carry the same key, otherwise 400 `backup.key_mismatch` |
 | 多实例部署 / multiple instances | 所有实例必须共享同一把密钥 / all instances must share one key |
 
-## 6. 未做 / Not implemented
+## 7. 未做 / Not implemented
 
 - **主密钥轮换 / key rotation**：没有 `re-encrypt` 命令；换密钥会导致旧密文
   解不开。需要轮换时应同时保留旧密钥并一次性重写备份与 `settings`。

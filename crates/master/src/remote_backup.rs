@@ -65,6 +65,8 @@ pub enum RunError {
     Busy,
     /// 没有配置地址或密码。
     NotConfigured(&'static str),
+    /// 秘密设置（WebDAV 密码、Token 等）解不开：不是「未配置」，不能用 502 误导。
+    Secret(settings::SecretError),
     /// 生成本地备份或远端写入失败（消息已对密码打码）。
     Failed(String),
 }
@@ -81,6 +83,11 @@ impl RunError {
                 "backup.remote_not_configured",
                 None,
                 format!("{message} / WebDAV backup is not configured"),
+            ),
+            RunError::Secret(error) => AppError::coded(
+                "settings.secret_decrypt_failed",
+                Some(serde_json::json!({ "keys": error.keys })),
+                error.message,
             ),
             RunError::Failed(message) => AppError::bad_gateway(
                 "backup.remote_upload_failed",
@@ -191,11 +198,10 @@ pub async fn run_now(state: &AppState, trigger: Trigger) -> Result<UploadOutcome
     // 进程内互斥：拿不到就立刻返回 busy，不排队。
     let _guard = state.remote_backup.try_acquire().ok_or(RunError::Busy)?;
 
-    let settings = settings::load(&state.db).await;
-    // 密码解不开时不要误报成「未配置」：那是两件不同的事。
-    if let Some(message) = &settings.secret_error {
-        return Err(RunError::Failed(message.clone()));
-    }
+    let settings = settings::load_for_background(&state.db)
+        .await
+        .map_err(RunError::Secret)?;
+    // 解不开时不要误报成「未配置」：那是两件不同的事。
     let Some(client) = client_for(&settings) else {
         return Err(RunError::NotConfigured(
             "请先保存 WebDAV 地址与密码 / WebDAV URL and password are required",

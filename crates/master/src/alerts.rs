@@ -21,6 +21,7 @@ use serde_json::json;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
+use pierwave_domain::remote_backup;
 use pierwave_domain::time;
 
 use crate::routes::settings::{self, Settings};
@@ -206,7 +207,8 @@ impl AlertTransport for CurlTransport {
                 return Ok(());
             }
             let detail = String::from_utf8_lossy(&output.stderr);
-            let detail = detail.trim();
+            // Telegram 的 token 在 URL 里，curl 的 stderr 可能回显它：打码后再进错误。
+            let detail = redact_delivery_error(alert.channel, alert.url, detail.trim());
             let detail: String = detail.chars().take(300).collect();
             if detail.is_empty() {
                 Err(format!("curl 退出码 {:?}", output.status.code()))
@@ -214,6 +216,24 @@ impl AlertTransport for CurlTransport {
                 Err(format!("curl 退出码 {:?}：{detail}", output.status.code()))
             }
         })
+    }
+}
+
+/// 从 Telegram `sendMessage` 地址里取出 bot token（用于给 stderr 打码）。
+pub(crate) fn telegram_token_from_url(url: &str) -> &str {
+    url.split_once("/bot")
+        .and_then(|(_, rest)| rest.split('/').next())
+        .unwrap_or("")
+}
+
+/// 对投递失败的细节打码：Telegram 的 token 在 URL 里，curl 可能原样回显。
+///
+/// Webhook 地址本身也可能带 token，但它是管理员自己填的完整 URL；这里按
+/// 需求只处理 Telegram bot token，避免把整个 webhook 地址替换掉后无法排障。
+pub(crate) fn redact_delivery_error(channel: Channel, url: &str, detail: &str) -> String {
+    match channel {
+        Channel::Telegram => remote_backup::redact_secret(detail, telegram_token_from_url(url)),
+        Channel::Webhook => detail.to_string(),
     }
 }
 
@@ -362,7 +382,18 @@ pub fn event_enabled(settings: &Settings, kind: AlertKind) -> bool {
 ///
 /// 去抖、开关判断在调用任务里同步完成；真正的网络投递丢到独立任务里。
 pub async fn notify(state: &AppState, kind: AlertKind, target_id: &str, title: &str, body: &str) {
-    let settings = settings::load(&state.db).await;
+    let settings = match settings::load_for_background(&state.db).await {
+        Ok(settings) => settings,
+        Err(error) => {
+            // 某个渠道的秘密坏了不代表所有渠道都不可用：记 error 后继续用
+            // 仍可读的字段（例如 WebDAV 密码坏了，Telegram 仍应能收到告警）。
+            tracing::error!(
+                keys = ?error.keys,
+                "告警渠道的秘密设置无法解密；只使用仍可读的渠道"
+            );
+            settings::load(&state.db).await
+        }
+    };
     let channels = configured_channels(&settings);
     if channels.is_empty() {
         return;
@@ -402,7 +433,16 @@ pub async fn notify_custom(
     title: &str,
     body: &str,
 ) -> bool {
-    let settings = settings::load(&state.db).await;
+    let settings = match settings::load_for_background(&state.db).await {
+        Ok(settings) => settings,
+        Err(error) => {
+            tracing::error!(
+                keys = ?error.keys,
+                "告警渠道的秘密设置无法解密；只使用仍可读的渠道"
+            );
+            settings::load(&state.db).await
+        }
+    };
     let channels = configured_channels(&settings);
     if channels.is_empty() {
         return false;
@@ -505,7 +545,20 @@ impl TestReport {
 
 /// 向所有已配置渠道各发一条测试消息；不进行去抖与 `alert_events` 过滤。
 pub async fn test_delivery(state: &AppState) -> TestReport {
-    let settings = settings::load(&state.db).await;
+    let settings = match settings::load_for_background(&state.db).await {
+        Ok(settings) => settings,
+        Err(error) => {
+            tracing::error!(
+                keys = ?error.keys,
+                "告警测试无法读取秘密设置：秘密无法用当前主密钥解密"
+            );
+            return TestReport {
+                configured: 0,
+                results: Vec::new(),
+                message: Some(error.message),
+            };
+        }
+    };
     let channels = configured_channels(&settings);
     if channels.is_empty() {
         return TestReport {
@@ -1080,5 +1133,80 @@ mod tests {
         assert_eq!(escape_curl_config("abc"), "abc");
         assert_eq!(escape_curl_config(r#"a"b\c"#), r#"a\"b\\c"#);
         assert_eq!(escape_curl_config("a\nb"), "a\\nb");
+    }
+
+    /// 一个渠道的秘密坏了，不能把所有渠道都静默丢掉。
+    #[tokio::test]
+    async fn broken_telegram_secret_does_not_drop_readable_webhook_alerts() {
+        let (state, transport) = setup().await;
+        webhook_only(&state).await;
+        let other = pierwave_domain::secret_box::SecretKey::generate().unwrap();
+        let canary = "123456:BROKEN-TOKEN";
+        configure(
+            &state,
+            &[
+                (
+                    "telegram_bot_token",
+                    &pierwave_domain::secret_box::encrypt_setting(&other, canary),
+                ),
+                ("telegram_chat_id", CHAT_ID),
+            ],
+        )
+        .await;
+
+        notify(
+            &state,
+            AlertKind::ServerOffline,
+            "server-1",
+            "offline",
+            "down",
+        )
+        .await;
+        let sent = transport.wait_for(1).await;
+        assert_eq!(sent.len(), 1, "可读的 webhook 仍应收到告警：{sent:?}");
+        assert_eq!(sent[0].channel, Channel::Webhook);
+        assert!(!sent[0].body.contains(canary));
+    }
+
+    /// 测试连接不能说「未配置」，要明确告诉管理员秘密解不开。
+    #[tokio::test]
+    async fn alert_test_reports_secret_decrypt_failure_instead_of_no_channels() {
+        let (state, _transport) = setup().await;
+        let other = pierwave_domain::secret_box::SecretKey::generate().unwrap();
+        configure(
+            &state,
+            &[
+                (
+                    "telegram_bot_token",
+                    &pierwave_domain::secret_box::encrypt_setting(&other, "123456:BROKEN"),
+                ),
+                ("telegram_chat_id", CHAT_ID),
+            ],
+        )
+        .await;
+
+        let report = test_delivery(&state).await;
+        assert_eq!(report.configured, 0);
+        assert!(report.results.is_empty());
+        let message = report.message.unwrap();
+        assert!(message.contains("主密钥"), "{message}");
+        assert!(!message.contains("未配置"), "{message}");
+    }
+
+    /// curl stderr 里的 Telegram token 必须打码后再进入日志/错误。
+    #[test]
+    fn telegram_token_is_redacted_from_delivery_errors() {
+        let url = "https://api.telegram.org/bot123456:ABC-secret/sendMessage";
+        assert_eq!(telegram_token_from_url(url), "123456:ABC-secret");
+        let detail =
+            format!("curl: (22) The requested URL returned error: 401 for {url}?chat_id=1");
+        let redacted = redact_delivery_error(Channel::Telegram, url, &detail);
+        assert!(!redacted.contains("123456:ABC-secret"), "{redacted}");
+        assert!(redacted.contains("***"), "{redacted}");
+        assert_eq!(
+            redact_delivery_error(Channel::Webhook, WEBHOOK, "boom"),
+            "boom",
+            "webhook 错误不应被整体替换"
+        );
     }
 }

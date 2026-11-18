@@ -62,15 +62,14 @@ pub struct Db {
 impl Db {
     /// 从 `PIERWAVE_DB` 风格的 URL 解析出磁盘路径。
     ///
-    /// `sqlite::memory:` 与不支持的文件 URL 返回 `None`。备份/恢复只在
-    /// 文件型数据库上有意义。
-    pub fn database_path(url: &str) -> Option<PathBuf> {
-        let rest = url.strip_prefix("sqlite://")?;
-        let path = rest.split('?').next().unwrap_or(rest);
-        if path.is_empty() || path == ":memory:" {
-            return None;
-        }
-        Some(PathBuf::from(path))
+    /// 用 sqlx 自己的解析器（`SqliteConnectOptions::from_str`）而不是字符串
+    /// 切割：`sqlite://`、`sqlite:`、百分号编码、绝对/相对路径都按 sqlx 的
+    /// 规则落到同一个真实文件。`sqlite::memory:`（含 `?mode=memory`）返回
+    /// `None`；空文件名或非 SQLite scheme 返回错误，**绝不静默当内存库**。
+    pub fn database_path(url: &str) -> anyhow::Result<Option<PathBuf>> {
+        let options = SqliteConnectOptions::from_str(url)
+            .with_context(|| format!("数据库 URL 无法按 SQLite 解析：{url}"))?;
+        database_path_from_options(url, &options)
     }
 
     /// 文件型数据库的路径；内存库返回 `None`。
@@ -89,7 +88,11 @@ impl Db {
     /// 0600 / 0700，`-wal` / `-shm` 随主库一起收紧。升级前遗留的 0644 库会在
     /// 这里自动修正并 `warn`，不需要用户手动 `chmod`。
     pub async fn connect(url: &str) -> anyhow::Result<Self> {
-        let path = Self::database_path(url);
+        // 先按 sqlx 规则解析：单冒号 / 百分号编码都以这里为准，后续的路径、
+        // 权限收紧、备份与主密钥位置都跟着同一个文件名走。
+        let options = SqliteConnectOptions::from_str(url)
+            .with_context(|| format!("数据库 URL 无法按 SQLite 解析：{url}"))?;
+        let path = database_path_from_options(url, &options)?;
         // 主密钥先于连接池加载：设置项解密/备份加密都依赖它。
         // 环境变量优先；文件型库用同目录的 secret.key；内存库用临时随机密钥。
         let secret_key = secret_box::SecretKey::for_database(path.as_deref())?;
@@ -104,9 +107,7 @@ impl Db {
                 .with_context(|| format!("准备数据库文件失败：{}", path.display()))?;
         }
         // 外键打开到连接选项里：池里每条连接都生效，删用户时套餐实例才会级联清理。
-        let opts = SqliteConnectOptions::from_str(url)?
-            .create_if_missing(true)
-            .foreign_keys(true);
+        let opts = options.create_if_missing(true).foreign_keys(true);
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
             .connect_with(opts)
@@ -146,6 +147,19 @@ impl Db {
             // 只记录键名，值可能是 Token / 密码。
             tracing::info!(keys = ?encrypted, "已把历史明文秘密设置加密落库");
         }
+        // 已带 `enc:v1:` 但当前密钥解不开的值不能静默跳过：日志里只出现键名。
+        // 常见原因是恢复/迁移时换了主密钥；管理员需要据此恢复 secret.key。
+        for key in secret_box::find_unreadable_settings(&self.pool, &self.secret_key)
+            .await
+            .context("检查不可解密的秘密设置失败")?
+        {
+            tracing::error!(
+                key,
+                "秘密设置无法用当前主密钥解密；请恢复写入时使用的 data/secret.key 或 \
+                 PIERWAVE_SECRET_KEY / a stored secret cannot be decrypted with the current \
+                 master key"
+            );
+        }
         Ok(())
     }
 
@@ -178,6 +192,37 @@ impl Db {
         .await?;
         Ok(generated)
     }
+}
+
+/// 按 sqlx 解析出的文件名判断「是不是内存库」，并拒绝无法识别为空名的 URL。
+fn database_path_from_options(
+    url: &str,
+    options: &SqliteConnectOptions,
+) -> anyhow::Result<Option<PathBuf>> {
+    if !url.starts_with("sqlite:") {
+        anyhow::bail!("只支持 sqlite: 数据库 URL（当前：{url}）");
+    }
+    let memory_mode = url
+        .split_once('?')
+        .is_some_and(|(_, query)| query.split('&').any(|pair| pair == "mode=memory"));
+    let filename = options.get_filename();
+    let as_text = filename.to_string_lossy();
+    // sqlx 给 `sqlite::memory:` 生成 `file:sqlx-in-memory-<n>`；没有公开的
+    // `in_memory()` getter，只能按这个内部文件名识别。
+    if as_text.starts_with("file:sqlx-in-memory-") || memory_mode {
+        return Ok(None);
+    }
+    if as_text.is_empty() {
+        anyhow::bail!(
+            "数据库 URL 没有文件名，无法确定落盘位置：{url}。请使用 \
+             sqlite://data/pierwave.db?mode=rwc 这类形式，或用 sqlite::memory: \
+             明确指定内存库 / the database URL has no filename"
+        );
+    }
+    if as_text.starts_with("file:") {
+        anyhow::bail!("数据库 URL 的文件名不是普通文件路径：{url}");
+    }
+    Ok(Some(filename.to_path_buf()))
 }
 
 /// 主库与 SQLite 旁路文件（`-wal` / `-shm`）一起收紧到 0600。
@@ -229,6 +274,93 @@ mod tests {
     fn mode_of(path: &Path) -> u32 {
         use std::os::unix::fs::PermissionsExt;
         std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    /// 数据库 URL 必须按 sqlx 的规则解析，不能用字符串前缀切割。
+    ///
+    /// `sqlite:data/x.db`（单冒号）是 sqlx 合法写法；旧实现只认
+    /// `sqlite://`，会把它当成内存库：随机密钥、权限作用错路径、备份报 400。
+    #[test]
+    fn database_url_parsing_follows_sqlx_rules() {
+        for (url, expected) in [
+            (
+                "sqlite://data/pierwave.db?mode=rwc",
+                Some(PathBuf::from("data/pierwave.db")),
+            ),
+            (
+                "sqlite:data/pierwave.db?mode=rwc",
+                Some(PathBuf::from("data/pierwave.db")),
+            ),
+            (
+                "sqlite:///srv/pierwave/pierwave.db",
+                Some(PathBuf::from("/srv/pierwave/pierwave.db")),
+            ),
+        ] {
+            assert_eq!(
+                Db::database_path(url).unwrap(),
+                expected,
+                "URL 必须解析成真实文件路径：{url}"
+            );
+        }
+
+        // 百分号编码要解码后落到真实文件名，而不是带 `%20` 的目录。
+        assert_eq!(
+            Db::database_path("sqlite://data/pier%20wave.db?mode=rwc").unwrap(),
+            Some(PathBuf::from("data/pier wave.db"))
+        );
+
+        // 真正的内存库才返回 None。
+        for url in [
+            "sqlite::memory:",
+            "sqlite://:memory:",
+            "sqlite://?mode=memory",
+        ] {
+            assert_eq!(
+                Db::database_path(url).unwrap(),
+                None,
+                "内存库不应有文件路径：{url}"
+            );
+        }
+
+        // 空文件名与不认识的 scheme 必须报错，不能静默当内存库。
+        for url in ["sqlite://", "sqlite:", "postgres://localhost/pierwave"] {
+            let error = Db::database_path(url).unwrap_err();
+            let message = format!("{error:#}");
+            assert!(
+                message.contains("数据库 URL") || message.contains("SQLite"),
+                "错误要可读：{url} -> {message}"
+            );
+        }
+    }
+
+    /// 单冒号 URL 必须打开真实文件，并且两次 connect 复用同一个 `secret.key`。
+    #[tokio::test]
+    async fn single_colon_url_lands_on_disk_and_reuses_the_same_secret_key() {
+        let dir = TestDir::new("single-colon");
+        let path = dir.0.join("pier wave.db");
+        let url = format!("sqlite:{}?mode=rwc", path.display());
+
+        let first = Db::connect(&url).await.unwrap();
+        assert_eq!(first.file_path(), Some(path.as_path()));
+        first.migrate().await.unwrap();
+        let key = first.secret_key().clone();
+        first.pool.close().await;
+        assert!(path.exists(), "单冒号 URL 必须真的落盘：{}", path.display());
+
+        // 百分号编码形式指向同一个文件、同一把密钥。
+        let encoded = url.replace(' ', "%20");
+        let second = Db::connect(&encoded).await.unwrap();
+        assert_eq!(second.file_path(), Some(path.as_path()));
+        assert_eq!(
+            second.secret_key(),
+            &key,
+            "同一 URL 两次 connect 必须同一密钥"
+        );
+        second.pool.close().await;
+        assert!(
+            path.with_file_name("secret.key").exists(),
+            "文件型库必须生成同目录 secret.key"
+        );
     }
 
     async fn open_db(path: &Path) -> Db {

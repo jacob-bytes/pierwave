@@ -50,6 +50,16 @@ pub mod settings {
         )
     }
 
+    /// 全量读取（按 key 升序）；恢复校验与迁移巡检需要扫描所有 `enc:v1:` 值。
+    pub async fn list(pool: &SqlitePool) -> anyhow::Result<Vec<(String, String)>> {
+        let rows = sqlx::query_as::<_, (String, String)>(
+            "SELECT key, value FROM settings ORDER BY key ASC",
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    }
+
     /// 覆盖写入（设置页用）。
     pub async fn set(pool: &SqlitePool, key: &str, value: &str) -> anyhow::Result<()> {
         sqlx::query(
@@ -60,6 +70,15 @@ pub mod settings {
         .bind(value)
         .execute(pool)
         .await?;
+        Ok(())
+    }
+
+    /// 删除一个设置项；恢复的 `force` 路径用它丢弃无法解密的旧秘密。
+    pub async fn delete(pool: &SqlitePool, key: &str) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM settings WHERE key = ?")
+            .bind(key)
+            .execute(pool)
+            .await?;
         Ok(())
     }
 

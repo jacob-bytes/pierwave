@@ -27,12 +27,15 @@
 //! 失败时所有 nftables 规则上报 `listening=false`，native / realm 规则不受影响。
 
 use std::collections::{HashMap, HashSet};
-use std::io::{self, Write};
+use std::ffi::OsStr;
+use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+use tokio::io::AsyncWriteExt;
 
 use pierwave_proto::{DesiredForward, ForwardEngine, ForwardStatus, ForwardStrategy};
 
@@ -56,6 +59,11 @@ pub const STRATEGY_UNSUPPORTED: &str =
     "nftables 多目标不支持该选路策略 / nftables multi-target does not support this strategy";
 
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+/// 能力探测（`list tables` / `nft -c`）的单次预算：nft 卡住时不能把
+/// Agent 的心跳与 WebSocket 循环一起拖停。
+const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+/// 能力探测结果缓存：心跳 15 秒一轮，但没必要每轮都 spawn `nft`。
+const CAPABILITY_CACHE_TTL: Duration = Duration::from_secs(60);
 const ERROR_LIMIT: usize = 500;
 
 /// 第一次 spawn 遇到「资源暂时不足」时的退避；只重试一次。
@@ -169,6 +177,17 @@ pub struct NftablesSupervisor {
     status: NftablesStatusHandle,
     /// 上次 apply 有规则级失败（DNS/多目标）时为 true；reconcile 会重试。
     needs_retry: bool,
+    /// 能力探测缓存；`None` = 还没测过或已过期。
+    capability: Option<CapabilityCache>,
+    /// 单次能力探测的预算；生产固定 [`PROBE_TIMEOUT`]，测试可放宽以容忍 CI 负载。
+    probe_timeout: Duration,
+}
+
+/// [`NftablesSupervisor`] 的能力探测缓存：`None` 表示可用。
+#[derive(Debug, Clone)]
+struct CapabilityCache {
+    checked_at: Instant,
+    reason: Option<String>,
 }
 
 impl NftablesSupervisor {
@@ -190,6 +209,8 @@ impl NftablesSupervisor {
             rules: Vec::new(),
             status: NftablesStatusHandle::default(),
             needs_retry: false,
+            capability: None,
+            probe_timeout: PROBE_TIMEOUT,
         }
     }
 
@@ -204,8 +225,35 @@ impl NftablesSupervisor {
     }
 
     /// 心跳能力上报：`nft list tables` 成功才算可用。
-    pub fn available(&self) -> bool {
-        is_available(&self.bin)
+    ///
+    /// 结果缓存 [`CAPABILITY_CACHE_TTL`]：心跳与 reconcile 共用同一份缓存，
+    /// 避免每 15 秒都 spawn 两个 `nft` 子进程。
+    pub async fn available(&mut self) -> bool {
+        self.probe_capability().await.is_none()
+    }
+
+    /// 测试专用：放宽探测预算。CI 上 10 个测试线程并发 spawn 时，一个
+    /// `exit 0` 的 shell 脚本也可能几秒才被调度；逻辑测试不该因此误判，
+    /// 2 秒预算由 `capability_probe_times_out_instead_of_blocking_forever` 单独钉住。
+    #[cfg(test)]
+    pub fn with_probe_timeout(mut self, timeout: Duration) -> Self {
+        self.probe_timeout = timeout;
+        self
+    }
+
+    /// 当前能力（`None` = 可用）；60 秒内复用上一次结果。
+    async fn probe_capability(&mut self) -> Option<String> {
+        if let Some(cache) = &self.capability {
+            if cache.checked_at.elapsed() < CAPABILITY_CACHE_TTL {
+                return cache.reason.clone();
+            }
+        }
+        let reason = unavailable_reason_with_timeout(&self.bin, self.probe_timeout).await;
+        self.capability = Some(CapabilityCache {
+            checked_at: Instant::now(),
+            reason: reason.clone(),
+        });
+        reason
     }
 
     /// 收敛到期望列表。非 nftables 规则会被忽略（分流在调用方做，这里防御一次）。
@@ -230,7 +278,7 @@ impl NftablesSupervisor {
             return;
         }
 
-        let Some(reason) = unavailable_reason(&self.bin) else {
+        let Some(reason) = self.probe_capability().await else {
             return self.apply_resolved().await;
         };
         tracing::warn!(
@@ -352,19 +400,21 @@ impl NftablesSupervisor {
         if self.rules.is_empty() {
             return;
         }
-        if self.available() {
-            if self.needs_retry || !table_exists(&self.bin).await {
-                let rules = self.rules.clone();
-                self.apply(&rules).await;
-            } else {
-                // 表没变也要读一次 counter：流量持续增长，心跳必须看到最新值。
-                self.refresh_traffic().await;
+        match self.probe_capability().await {
+            None => {
+                if self.needs_retry || !table_exists(&self.bin).await {
+                    let rules = self.rules.clone();
+                    self.apply(&rules).await;
+                } else {
+                    // 表没变也要读一次 counter：流量持续增长，心跳必须看到最新值。
+                    self.refresh_traffic().await;
+                }
             }
-            return;
+            Some(reason) => {
+                let rules = self.rules.clone();
+                self.status.store(self.inactive_statuses(&reason, &rules));
+            }
         }
-        let reason = unavailable_reason(&self.bin).unwrap_or_else(|| NOT_AVAILABLE.to_string());
-        let rules = self.rules.clone();
-        self.status.store(self.inactive_statuses(&reason, &rules));
     }
 
     /// 读 `nft -j list table inet pierwave` 的计数器并写回状态句柄。
@@ -423,9 +473,10 @@ impl NftablesSupervisor {
     }
 
     async fn cleanup(&mut self) {
-        if self.bin.exists() {
-            let _ = run_nft(&self.bin, &["delete", "table", "inet", TABLE]).await;
-        }
+        // 无条件尝试删除：`bin` 可能只是裸命令名（走 PATH），也可能在运行期被
+        // 移走/替换；用 `exists()` 当门槛会让内核里的 DNAT 表永远留着。
+        // `nft` 不存在、表不存在都按成功处理（失败本来也不该阻断收尾）。
+        let _ = run_nft(&self.bin, &["delete", "table", "inet", TABLE]).await;
         self.needs_retry = false;
     }
 
@@ -448,75 +499,164 @@ impl NftablesSupervisor {
     }
 }
 
-/// `nft` 路径是否可用：可执行文件 + `nft list tables` + `nft -c` 语法探针。
+/// 不可用原因；`None` = 可用。心跳、apply、reconcile 共用同一套判定。
 ///
-/// `list tables` 不需要 root 吗？读表本身受 CAP_NET_ADMIN 限制；成功就说明
-/// 进程确实有权限，这比只看文件存在更准确。
+/// `timeout` 是单次探测预算：生产固定 [`PROBE_TIMEOUT`]，测试可放宽。
 ///
-/// 多目标规则依赖 `numgen` / `vmap` / `jhash`：nft 二进制能列表演示不代表
-/// 它能解析这些表达式（或内核不支持）。这里用 `nft -c` 跑一段探针脚本，
-/// 不提交任何规则；失败时整条 nftables 规则上报可读错误，而不是等到 apply
+/// 判定 = 可执行文件 + `nft list tables` + `nft -c` 语法探针。
+/// `list tables` 读表本身受 CAP_NET_ADMIN 限制；成功就说明进程确实有权限，
+/// 这比只看文件存在更准确。多目标规则依赖 `numgen` / `vmap` / `jhash`：
+/// nft 二进制能列表演示不代表它能解析这些表达式（或内核不支持），所以再用
+/// `nft -c` 跑一段不提交的探针脚本；失败时上报可读错误，而不是等到 apply
 /// 才炸掉内核对账。
-pub fn is_available(bin: &Path) -> bool {
-    unavailable_reason(bin).is_none()
+///
+/// **PATH 语义**：`nft_bin` 默认是裸命令名 `nft`，必须像 `execvp` 一样按
+/// PATH 解析后再 stat/执行。直接用 `fs::metadata("nft")` 只会看当前目录，
+/// 会把系统里已经装好的 nft 误判成「未安装」。
+async fn unavailable_reason_with_timeout(bin: &Path, timeout: Duration) -> Option<String> {
+    let path_var = std::env::var_os("PATH");
+    unavailable_reason_with_path(bin, path_var.as_deref(), timeout).await
 }
 
-/// 不可用原因；`None` = 可用。心跳、apply、reconcile 共用同一套判定。
-pub fn unavailable_reason(bin: &Path) -> Option<String> {
-    let Ok(metadata) = std::fs::metadata(bin) else {
+/// [`unavailable_reason_with_timeout`] 的可注入 PATH 版本：单测用临时目录伪造 PATH，
+/// 不必改写进程级环境变量（并行测试下改 env 会互相污染）。
+async fn unavailable_reason_with_path(
+    bin: &Path,
+    path_var: Option<&OsStr>,
+    timeout: Duration,
+) -> Option<String> {
+    let Some(bin) = resolve_executable(bin, path_var) else {
         return Some(NOT_AVAILABLE.to_string());
     };
-    if !metadata.is_file() {
+    if !probe_command(&bin, &["list", "tables"], timeout).await {
         return Some(NOT_AVAILABLE.to_string());
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if metadata.permissions().mode() & 0o111 == 0 {
-            return Some(NOT_AVAILABLE.to_string());
-        }
-    }
-    let mut command = std::process::Command::new(bin);
-    command
-        .args(["list", "tables"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    let listed = spawn_with_retry(command)
-        .and_then(|mut child| child.wait())
-        .map(|status| status.success())
-        .unwrap_or(false);
-    if !listed {
-        return Some(NOT_AVAILABLE.to_string());
-    }
-    if !syntax_available(bin) {
+    if !syntax_available(&bin, timeout).await {
         return Some(NOT_AVAILABLE_SYNTAX.to_string());
     }
     None
 }
 
+/// 解析可执行文件：带路径分隔符的值按原样；裸名按 PATH 逐目录查找。
+///
+/// 与 `execvp` 一致：PATH 中的空段表示当前目录；PATH 缺失时裸名无法解析。
+fn resolve_executable(bin: &Path, path_var: Option<&OsStr>) -> Option<PathBuf> {
+    if bin.is_absolute() || bin.components().count() > 1 {
+        return is_executable_file(bin).then(|| bin.to_path_buf());
+    }
+    let name = bin.file_name()?;
+    path_var
+        .map(std::env::split_paths)
+        .into_iter()
+        .flatten()
+        .map(|dir| dir.join(name))
+        .find(|candidate| is_executable_file(candidate))
+}
+
+/// 普通文件 +（unix）可执行位；目录、残缺文件都不算可用。
+fn is_executable_file(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o111 == 0 {
+            return false;
+        }
+    }
+    true
+}
+
+/// 探测轮询间隔：用 `try_wait()` 主动收尸，不依赖 SIGCHLD 驱动的 `wait()`。
+const PROBE_POLL_INTERVAL: Duration = Duration::from_millis(5);
+
+/// 在 deadline 内等子进程结束；超时返回 `None`（调用方负责 kill）。
+async fn wait_for_probe(
+    child: &mut tokio::process::Child,
+    deadline: Instant,
+) -> Option<std::process::ExitStatus> {
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status),
+            Ok(None) => {}
+            Err(_) => return None,
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        tokio::time::sleep(PROBE_POLL_INTERVAL).await;
+    }
+}
+
+/// 跑一次带超时的探测（stdin 置空）。启动失败 / 超时 / 非零退出都算失败。
+///
+/// * spawn 复用 [`spawn_with_retry_async`]：CI/高并发下 `posix_spawn` 的
+///   EAGAIN/EMFILE 是瞬时的，不重试会把「nft 已安装」误判成不可用；
+/// * 等待用 [`wait_for_probe`] 的 `try_wait` 轮询：直接 `waitpid(WNOHANG)`
+///   拿退出码，不依赖运行时的信号驱动，也便于用同一个 deadline 覆盖
+///   spawn 之后的全部执行时间；
+/// * `kill_on_drop(true)` 保证超时后子进程不会残留。
+async fn probe_command(bin: &Path, args: &[&str], timeout: Duration) -> bool {
+    let mut command = tokio::process::Command::new(bin);
+    command
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let mut child = match spawn_with_retry_async(command).await {
+        Ok(child) => child,
+        Err(error) => {
+            tracing::warn!(bin = %bin.display(), %error, "nft 探测启动失败");
+            return false;
+        }
+    };
+    // 预算从 spawn 之后开始算：spawn 本身受系统进程表影响，不能算进
+    // 「nft 跑多久」的预算里，否则高负载下会把可用误判成不可用。
+    match wait_for_probe(&mut child, Instant::now() + timeout).await {
+        Some(status) => status.success(),
+        None => {
+            let _ = child.start_kill();
+            false
+        }
+    }
+}
+
 /// `nft -c -f -`：只做语义/语法检查，不提交事务。
 ///
 /// 探针脚本通过 stdin 传入，不落盘、不依赖 state_dir；超时/启动失败都算不可用。
-fn syntax_available(bin: &Path) -> bool {
-    let mut command = std::process::Command::new(bin);
+/// 写 stdin 失败（EPIPE）不算失败：子进程可能提前退出并关掉管道，结果以退出码
+/// 为准；否则一个很快退出的 nft 实现会被误判成「不支持语法探测」。
+async fn syntax_available(bin: &Path, timeout: Duration) -> bool {
+    let mut command = tokio::process::Command::new(bin);
     command
         .args(["-c", "-f", "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    let mut child = match spawn_with_retry(command) {
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let mut child = match spawn_with_retry_async(command).await {
         Ok(child) => child,
-        Err(_) => return false,
+        Err(error) => {
+            tracing::warn!(bin = %bin.display(), %error, "nft 语法探测启动失败");
+            return false;
+        }
     };
     if let Some(mut stdin) = child.stdin.take() {
-        // 写 stdin 失败不等于语法检查失败：子进程可能提前退出并关掉管道
-        // （EPIPE），此时结果要以退出码为准。否则一个很快退出的 nft 实现
-        // 会被误判成「不支持语法探测」，整批规则降级成未监听。
-        let _ = stdin.write_all(SYNTAX_PROBE.as_bytes());
+        let _ = stdin.write_all(SYNTAX_PROBE.as_bytes()).await;
         drop(stdin);
     }
-    child.wait().map(|status| status.success()).unwrap_or(false)
+    match wait_for_probe(&mut child, Instant::now() + timeout).await {
+        Some(status) => status.success(),
+        None => {
+            let _ = child.start_kill();
+            false
+        }
+    }
 }
 
 /// 这条策略能否由内核 DNAT 实现多目标选路。
@@ -842,8 +982,8 @@ fn retry_spawn<T>(
 
 /// 同步命令的 spawn：首次遇到可重试错误时睡 50ms 再试一次。
 ///
-/// `unavailable_reason` / `syntax_available` 是同步函数（也被 async 的
-/// apply/reconcile 调用），只在这条罕见的失败路径上阻塞 50ms。
+/// 只在退出清理（[`NftablesCleanup::cleanup`]）这类同步路径上用；能力探测
+/// 与 apply 走异步版本，不能在 Agent 主循环里阻塞 50ms。
 fn spawn_with_retry(mut command: std::process::Command) -> io::Result<std::process::Child> {
     retry_spawn(|| command.spawn(), || std::thread::sleep(SPAWN_RETRY_DELAY))
 }
@@ -996,6 +1136,20 @@ fn write_script(path: &Path, content: &str) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use pierwave_proto::{ForwardStrategy, ForwardTarget};
+    use std::time::Instant;
+
+    /// 逻辑测试的探测预算：CI 上 10 个测试线程并发 spawn 时，即使 `exit 0`
+    /// 的 shell 脚本也可能几秒才被调度。2s 的生产预算由专门的超时测试钉住，
+    /// 这里放宽，避免把「机器慢」误判成「逻辑坏」。
+    const TEST_PROBE_TIMEOUT: Duration = Duration::from_secs(20);
+
+    fn test_supervisor(
+        bin: impl Into<PathBuf>,
+        state_dir: impl Into<PathBuf>,
+        bind: impl Into<String>,
+    ) -> NftablesSupervisor {
+        NftablesSupervisor::new(bin, state_dir, bind).with_probe_timeout(TEST_PROBE_TIMEOUT)
+    }
 
     fn rule(id: &str, port: i64, host: &str, target_port: i64) -> DesiredForward {
         DesiredForward {
@@ -1697,7 +1851,7 @@ table inet pierwave {
         let _permit = nft_permit().await;
         let dir = TempDir::new();
         let bin = fake_nft(dir.path(), "exit 0");
-        let mut supervisor = NftablesSupervisor::new(bin, dir.path(), "0.0.0.0");
+        let mut supervisor = test_supervisor(bin, dir.path(), "0.0.0.0");
         supervisor.apply(&[rule("f1", 8080, "1.2.3.4", 80)]).await;
         let status = supervisor.status_handle().snapshot();
         assert_eq!(status.len(), 1);
@@ -1736,8 +1890,11 @@ table inet pierwave {
 fi
 exit 0"#,
         );
-        let mut supervisor = NftablesSupervisor::new(bin, dir.path(), "0.0.0.0");
-        assert!(!supervisor.available(), "nft -c 失败时能力必须是不可用");
+        let mut supervisor = test_supervisor(bin, dir.path(), "0.0.0.0");
+        assert!(
+            !supervisor.available().await,
+            "nft -c 失败时能力必须是不可用"
+        );
         supervisor.apply(&[rule("f1", 8080, "1.2.3.4", 80)]).await;
         let status = supervisor.status_handle().snapshot();
         assert_eq!(status.len(), 1);
@@ -1756,7 +1913,7 @@ exit 0"#,
         let _permit = nft_permit().await;
         let dir = TempDir::new();
         let bin = fake_nft(dir.path(), "exit 0");
-        let mut supervisor = NftablesSupervisor::new(bin, dir.path(), "0.0.0.0");
+        let mut supervisor = test_supervisor(bin, dir.path(), "0.0.0.0");
         let mut spec = rule("f1", 8080, "1.1.1.1", 80);
         spec.targets = multi_targets();
         supervisor.apply(&[spec]).await;
@@ -1786,7 +1943,11 @@ exit 0"#,
                 log.display()
             ),
         );
-        assert!(is_available(&bin));
+        let mut supervisor = test_supervisor(bin, dir.path(), "0.0.0.0");
+        assert!(
+            supervisor.available().await,
+            "PATH 中有可执行 nft 时必须判定可用"
+        );
         let probe = std::fs::read_to_string(log).unwrap();
         assert!(probe.contains("numgen inc mod 2 vmap"), "{probe}");
         assert!(probe.contains("jhash ip saddr mod 2"), "{probe}");
@@ -1819,7 +1980,7 @@ JSON
 fi
 exit 0"#,
         );
-        let mut supervisor = NftablesSupervisor::new(bin, dir.path(), "0.0.0.0");
+        let mut supervisor = test_supervisor(bin, dir.path(), "0.0.0.0");
         supervisor.apply(&[rule("f1", 8080, "1.2.3.4", 80)]).await;
         let status = supervisor.status_handle().snapshot();
         assert_eq!(
@@ -1848,7 +2009,7 @@ exit 0"#,
         let _permit = nft_permit().await;
         let dir = TempDir::new();
         let bin = fake_nft(dir.path(), "exit 1");
-        let mut supervisor = NftablesSupervisor::new(bin, dir.path(), "0.0.0.0");
+        let mut supervisor = test_supervisor(bin, dir.path(), "0.0.0.0");
         supervisor.apply(&[rule("f1", 8080, "1.2.3.4", 80)]).await;
         let status = supervisor.status_handle().snapshot();
         assert_eq!(status.len(), 1);
@@ -1866,12 +2027,92 @@ exit 0"#,
             dir.path(),
             &format!("echo \"$@\" >> {}\nexit 0", log.display()),
         );
-        let mut supervisor = NftablesSupervisor::new(bin, dir.path(), "0.0.0.0");
+        let mut supervisor = test_supervisor(bin, dir.path(), "0.0.0.0");
         supervisor.apply(&[rule("f1", 8080, "1.2.3.4", 80)]).await;
         supervisor.apply(&[]).await;
         assert!(supervisor.status_handle().snapshot().is_empty());
         let calls = std::fs::read_to_string(log).unwrap();
         assert!(calls.contains("delete table inet pierwave"), "{calls}");
+    }
+
+    /// P0 回归：`nft_bin` 默认是裸名 `nft`（从 PATH 取）。探测必须按 PATH
+    /// 解析后执行，不能用 `fs::metadata("nft")` 去当前目录碰运气。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn bare_nft_name_is_resolved_through_path() {
+        let _permit = nft_permit().await;
+        let dir = TempDir::new();
+        fake_nft(dir.path(), "exit 0");
+        let reason = unavailable_reason_with_path(
+            Path::new("nft"),
+            Some(dir.path().as_os_str()),
+            TEST_PROBE_TIMEOUT,
+        )
+        .await;
+        assert!(
+            reason.is_none(),
+            "PATH 中有可执行 nft 时必须判定可用，实际：{reason:?}"
+        );
+    }
+
+    /// 裸名解析失败时按「未安装」处理；不能因为 cwd 里恰好有同名文件就误判。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn bare_nft_name_missing_from_path_is_unavailable() {
+        let dir = TempDir::new();
+        let reason = unavailable_reason_with_path(
+            Path::new("nft"),
+            Some(dir.path().as_os_str()),
+            TEST_PROBE_TIMEOUT,
+        )
+        .await;
+        assert_eq!(reason.as_deref(), Some(NOT_AVAILABLE));
+    }
+
+    /// 探测必须自己限时：假 nft 挂住时在 2s 预算内返回「不可用」，
+    /// 不能把 Agent 的主循环（心跳 / 读 WS）一起卡死。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn capability_probe_times_out_instead_of_blocking_forever() {
+        let _permit = nft_permit().await;
+        let dir = TempDir::new();
+        let bin = fake_nft(dir.path(), "exec sleep 30");
+        // 走心跳同一条路径（available → probe_capability），只是不让测试
+        // 放大预算：2s 是生产常量。
+        let mut supervisor =
+            NftablesSupervisor::new(bin, dir.path(), "0.0.0.0").with_probe_timeout(PROBE_TIMEOUT);
+        let started = Instant::now();
+        let available = supervisor.available().await;
+        let elapsed = started.elapsed();
+        assert!(!available, "挂住的 nft 必须判定不可用");
+        assert!(
+            elapsed < Duration::from_secs(4),
+            "探测必须按 2s 超时返回，实际耗时 {elapsed:?}"
+        );
+    }
+
+    /// 能力探测结果缓存 60s：心跳每 15s 读一次，不能每轮都 spawn。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn capability_probe_is_cached_between_heartbeats() {
+        let _permit = nft_permit().await;
+        let dir = TempDir::new();
+        let log = dir.path().join("calls");
+        let bin = fake_nft(
+            dir.path(),
+            &format!("echo \"$@\" >> {}\nexit 0", log.display()),
+        );
+        let mut supervisor = test_supervisor(bin, dir.path(), "0.0.0.0");
+        assert!(supervisor.available().await);
+        let first = std::fs::read_to_string(&log).unwrap().lines().count();
+        assert!(first >= 2, "首轮至少应探测 list tables 与 -c：{first}");
+
+        assert!(supervisor.available().await);
+        let second = std::fs::read_to_string(&log).unwrap().lines().count();
+        assert_eq!(
+            first, second,
+            "60s 缓存内不能重复 spawn nft（首轮 {first} 次，第二轮 {second} 次）"
+        );
     }
 
     /// 规则自带 listen_host 时，DNAT 只匹配该网卡地址，而不是所有本机地址。

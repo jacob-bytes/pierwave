@@ -1560,6 +1560,13 @@ export interface Subscription {
   quota_bytes: number | null;
   package_count: number;
   packages: UserPackageView[];
+  /**
+   * 名下套餐实例的额度合计；`null` = 其中至少一张不限量。
+   * 旧版后端可能不返回，展示层用订阅用量 helper 回落到账户级字段。
+   */
+  package_quota_bytes?: number | null;
+  /** 名下套餐实例的已用合计；旧版后端可能不返回。 */
+  package_used_bytes?: number;
   rule_template_id: string | null;
   rule_template_name: string | null;
 }

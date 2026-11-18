@@ -62,7 +62,7 @@ function ServerCard({ server }: { server: Server }) {
   return (
     <Link
       to={`/servers/${server.id}/nodes`}
-      className="group flex h-full flex-col rounded-xl border border-border bg-card p-4 transition-colors duration-150 hover:border-primary/40 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+      className="group flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card p-4 transition-colors duration-150 hover:border-primary/40 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">

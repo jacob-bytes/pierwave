@@ -181,8 +181,8 @@ export function ForwardFormDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[88vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-md">
+        <DialogHeader className="border-b border-border px-4 py-4 pr-12 sm:px-6">
           <DialogTitle>
             {isEdit
               ? t("forwards.form.editTitle")
@@ -195,7 +195,11 @@ export function ForwardFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form id="forward-form" className="space-y-4" onSubmit={onSubmit}>
+        <form
+          id="forward-form"
+          className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6"
+          onSubmit={onSubmit}
+        >
           <FormField
             label={t("forwards.form.name")}
             htmlFor="forward-name"
@@ -480,7 +484,7 @@ export function ForwardFormDialog({
           <FormRootError message={form.formState.errors.root?.message} />
         </form>
 
-        <DialogFooter>
+        <DialogFooter className="mx-0 mb-0 rounded-none border-border px-4 py-3 sm:px-6">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}

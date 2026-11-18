@@ -189,6 +189,30 @@ pub fn write_private_file(path: &Path, content: &[u8]) -> io::Result<()> {
     file.sync_all()
 }
 
+/// `fsync` 一个目录项：保证此前的 `rename` / 创建在崩溃后仍然可见。
+///
+/// 只需要在 Unix 上做（其它平台的目录 fsync 语义不同）；目录不存在或不是
+/// 目录时视为 no-op，避免把「目录被清理」误报成密钥写入失败。
+pub fn sync_dir(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        let metadata = match std::fs::metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        if !metadata.is_dir() {
+            return Ok(());
+        }
+        File::open(path)?.sync_all()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
 /// 为数据库准备主文件：不存在时先以 0600 创建，已存在时收紧。
 ///
 /// 先创建再交给 SQLite 有两个好处：SQLite 不会放宽已有文件的权限，WAL/SHM

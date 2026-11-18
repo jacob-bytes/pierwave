@@ -141,6 +141,49 @@ pub async fn validate_backup_file(path: &Path) -> anyhow::Result<u64> {
     Ok(meta.len())
 }
 
+/// 扫描备份库 `settings` 里所有 `enc:v1:` 值，返回**当前主密钥解不开**的键名。
+///
+/// 恢复接口在把上传文件 rename 成 `.restore-pending` 之前调用；返回空表示
+/// 备份里的秘密都能被当前实例读取。只读打开，不修改备份文件。
+pub async fn unreadable_encrypted_settings(
+    path: &Path,
+    key: &crate::secret_box::SecretKey,
+) -> anyhow::Result<Vec<String>> {
+    let pool = open_readonly(path).await?;
+    let result = crate::secret_box::find_unreadable_settings(&pool, key).await;
+    pool.close().await;
+    result
+}
+
+/// `force` 覆盖恢复时丢弃候选库里无法解密的秘密行。
+///
+/// 管理员已确认「丢弃旧秘密」：这些行留着只会让恢复后的设置页 400、订阅 500，
+/// 且没有任何入口能修复内部 `hmac_secret_v1`。只删**解不开**的 `enc:v1:` 行；
+/// 能解开的历史密文和所有非秘密设置原样保留。
+pub async fn discard_unreadable_settings(
+    path: &Path,
+    key: &crate::secret_box::SecretKey,
+) -> anyhow::Result<Vec<String>> {
+    let options = SqliteConnectOptions::new()
+        .filename(path)
+        .busy_timeout(std::time::Duration::from_secs(5));
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .with_context(|| format!("无法打开待恢复数据库以丢弃旧秘密：{}", path.display()))?;
+    let result = async {
+        let unreadable = crate::secret_box::find_unreadable_settings(&pool, key).await?;
+        for name in &unreadable {
+            repo::settings::delete(&pool, name).await?;
+        }
+        Ok(unreadable)
+    }
+    .await;
+    pool.close().await;
+    result
+}
+
 async fn inspect(pool: &SqlitePool) -> anyhow::Result<()> {
     // 先做完整性检查：截断/损坏的库可能在 sqlite_master 里仍有表名，
     // 但页链已经断了；直接往下查表会得到难以理解的 SQLite 内部错误。
@@ -411,6 +454,49 @@ mod tests {
             "admin"
         );
         snapshot.pool.close().await;
+    }
+
+    /// 恢复前必须能用当前主密钥解开备份里的每一个 `enc:v1:` 值。
+    #[tokio::test]
+    async fn detects_secret_settings_written_with_another_master_key() {
+        let dir = TestDir::new("key-mismatch");
+        let db = open_db(&dir.db_path()).await;
+        db.migrate().await.unwrap();
+        let other = crate::secret_box::SecretKey::from_bytes([0x5A; crate::secret_box::KEY_LEN]);
+        repo::settings::set(
+            &db.pool,
+            "telegram_bot_token",
+            &crate::secret_box::encrypt_setting(&other, "123456:other-instance"),
+        )
+        .await
+        .unwrap();
+        let snapshot = dir.file("other-key.db");
+        create_snapshot(&db.pool, &snapshot).await.unwrap();
+
+        let unreadable = unreadable_encrypted_settings(&snapshot, db.secret_key())
+            .await
+            .unwrap();
+        assert_eq!(unreadable, vec!["telegram_bot_token".to_string()]);
+        assert!(!format!("{unreadable:?}").contains("other-instance"));
+
+        assert!(
+            unreadable_encrypted_settings(&snapshot, &other)
+                .await
+                .unwrap()
+                .is_empty(),
+            "同一把密钥不应报告任何问题"
+        );
+
+        // force = 丢弃旧秘密：只删解不开的行，之后扫描为空。
+        let discarded = discard_unreadable_settings(&snapshot, db.secret_key())
+            .await
+            .unwrap();
+        assert_eq!(discarded, unreadable);
+        assert!(unreadable_encrypted_settings(&snapshot, db.secret_key())
+            .await
+            .unwrap()
+            .is_empty());
+        db.pool.close().await;
     }
 
     /// 快照会被 gzip 后下载/上传到远端：文件本身必须只有属主可读。
