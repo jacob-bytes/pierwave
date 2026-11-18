@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
-# 升级路径实测：用 v0.9.0 的 master 建库写数据，再用当前 HEAD 的 master 打开同一个库，
-# 断言「迁移成功、关键数据还在」，并报告跨了多少个迁移、耗时多少。
+# 升级路径实测：用当前 HEAD 的前一个 release（默认 v0.15.0）的 master 建库写数据，
+# 再用当前 HEAD 的 master 打开同一个库，断言「迁移成功、关键数据还在、
+# 旧的明文备份仍能在新版本恢复」，并报告跨了多少个迁移、耗时多少。
 #
 # 为什么要用两份源码而不是同一个二进制：升级问题几乎都出在
 # 「旧库结构 + 新二进制」这个组合上（新增 NOT NULL 列、索引重名、数据回填失败）。
 # 用 `git archive` 各导出一份，能保证跑的就是发布出去的那份源码。
 #
+# 为什么默认起点是 v0.15.0：它是加密备份（PWSB）落地前最后一个 release。
+# 这样升级路径自然覆盖两条兼容性：旧库升到新库、旧明文 `.db.gz` 备份在新版本恢复。
+#
 # 用法：
 #   ./scripts/verify-upgrade.sh
-#   FROM_TAG=v0.9.2 ./scripts/verify-upgrade.sh      # 换起点版本
-#   TO_REV=HEAD ./scripts/verify-upgrade.sh          # 终点（默认 HEAD）
+#   FROM_TAG=v0.9.0 ./scripts/verify-upgrade.sh      # 换起点版本（跨度更大、更慢）
+#   FROM_TAG=v0.14.0 TO_REV=v0.15.0 ./scripts/verify-upgrade.sh   # 只验证已发布版本之间
 #   KEEP=1 ./scripts/verify-upgrade.sh               # 保留临时目录（两份源码 + 库 + 日志）
 #   VERIFY_UPGRADE_TARGET_DIR=/path ./scripts/verify-upgrade.sh   # 复用编译缓存
 #
@@ -27,10 +31,17 @@ fi
 WORK="${UPGRADE_WORK:-$(mktemp -d "${TMPDIR:-/tmp}/pierwave-upgrade.XXXXXX")}"
 mkdir -p "$WORK"
 KEEP="${KEEP:-0}"
-FROM_TAG="${FROM_TAG:-v0.9.0}"
+# 当前 HEAD 的前一个 release：新格式（PWSB）在它之后才落地。
+FROM_TAG="${FROM_TAG:-v0.15.0}"
 TO_REV="${TO_REV:-HEAD}"
 ADMIN_PASSWORD="devpass"
 CURL_TIMEOUT="${CURL_TIMEOUT:-120}"
+
+# 新旧主控共用同一把测试主密钥：加密备份/设置跨实例可解。
+if [ -z "${PIERWAVE_SECRET_KEY:-}" ]; then
+  PIERWAVE_SECRET_KEY=$(python3 -c 'import base64,os;print(base64.b64encode(os.urandom(32)).decode())')
+  export PIERWAVE_SECRET_KEY
+fi
 # 两份源码共用一个 target 目录：依赖只编译一遍，脚本才不会跑成「编译测试」。
 TARGET="${VERIFY_UPGRADE_TARGET_DIR:-$WORK/target}"
 
@@ -152,6 +163,7 @@ start_master() {
   PIERWAVE_DB="sqlite://${DB}?mode=rwc" \
   PIERWAVE_WEB_DIR="$ROOT/web/dist" \
   PIERWAVE_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+  PIERWAVE_SECRET_KEY="$PIERWAVE_SECRET_KEY" \
     "$bin" >"$log_file" 2>&1 &
   MASTER_PID=$!
   MASTER_LOG=$log_file
@@ -214,6 +226,143 @@ login() {
     -H 'Content-Type: application/json' --data-binary @"$WORK/login.json" \
     -o "$WORK/resp.json" -w '%{http_code}' "$base/api/v1/auth/login") || code=000
   expect_json "$code" 200 "登录失败"
+}
+
+# 下载备份（GET），保留响应头供格式断言。
+download_backup() {
+  # download_backup <base> <输出文件> <响应头文件> <说明>
+  local base=$1 out=$2 headers=$3 what=$4 code
+  PHASE="导出备份（${what}）"
+  log "调用 GET ${base}/api/v1/backup（${what}）"
+  code=$(run_timeout $((CURL_TIMEOUT + 5)) \
+    curl -sS --max-time "$CURL_TIMEOUT" -b "$WORK/cookie.txt" \
+      -D "$headers" -o "$out" -w '%{http_code}' "$base/api/v1/backup") || code=000
+  [ "$code" = "200" ] || die "${what}：导出失败 HTTP ${code}"
+  [ -s "$out" ] || die "${what}：导出文件是空的"
+}
+
+# 上传备份（POST /backup/restore），状态码写入 resp.json。
+upload_restore() {
+  # upload_restore <base> <备份文件> <说明>
+  local base=$1 file=$2 what=$3 code
+  PHASE="上传备份（${what}）"
+  # 函数返回值就是 HTTP 状态码，进度日志必须走 stderr，不能混进 stdout。
+  log "调用 POST ${base}/api/v1/backup/restore（${what}，$(wc -c <"$file" | tr -d ' ') B）" >&2
+  code=$(run_timeout $((CURL_TIMEOUT + 5)) \
+    curl -sS --max-time "$CURL_TIMEOUT" -b "$WORK/cookie.txt" \
+      -X POST -H 'Content-Type: application/octet-stream' \
+      --data-binary @"$file" -o "$WORK/resp.json" -w '%{http_code}' \
+      "$base/api/v1/backup/restore") || code=000
+  printf '%s' "$code"
+}
+
+# 旧格式（升级前）导出：必须是 gzip → 解压后 SQLite。打印解压后字节数。
+assert_legacy_gzip_backup() {
+  # assert_legacy_gzip_backup <gz 文件> <解压输出文件> <说明>
+  local gz=$1 raw=$2 what=$3 bytes
+  bytes=$(python3 - "$gz" "$raw" <<'PY'
+import gzip, sys
+data = open(sys.argv[1], "rb").read()
+if not data.startswith(b"\x1f\x8b"):
+    raise SystemExit(f"不是 gzip：{data[:8]!r}")
+if data.startswith(b"PWSB"):
+    raise SystemExit("旧版本导出却是 PWSB 加密信封")
+raw = gzip.decompress(data)
+open(sys.argv[2], "wb").write(raw)
+if not raw.startswith(b"SQLite format 3\x00"):
+    raise SystemExit(f"解压后不是 SQLite：{raw[:16]!r}")
+print(len(raw))
+PY
+  ) || die "${what}：不是可解压的明文 gzip 备份"
+  printf '%s' "$bytes"
+}
+
+# 新格式（升级后）导出：PWSB 信封，且不是 gzip / 明文 SQLite。
+assert_pwsb_backup() {
+  local file=$1 what=$2
+  python3 - "$file" <<'PY' || die "${what}：新版本导出不是 PWSB 加密信封"
+import sys
+head = open(sys.argv[1], "rb").read(64)
+if len(head) < 5:
+    raise SystemExit(f"文件太短：{head!r}")
+if head[:2] == b"\x1f\x8b":
+    raise SystemExit("新版本导出仍是 gzip 明文")
+if head[:16] == b"SQLite format 3\x00":
+    raise SystemExit("新版本导出仍是明文 SQLite")
+if not head.startswith(b"PWSB"):
+    raise SystemExit(f"文件头不是 PWSB：{head[:8]!r}")
+if head[4] != 1:
+    raise SystemExit(f"信封版本不是 1：{head[4]}")
+PY
+  ok "${what}：PWSB 加密信封（非 gzip、非明文 SQLite）"
+}
+
+# 比对「升级前」与「当前快照」的 7 类关键数据和订阅凭据。
+compare_facts() {
+  # compare_facts <before.json> <after.json> <creds-before.json> <creds-after.json> <标签>
+  local before=$1 after=$2 cred_before=$3 cred_after=$4 label=$5
+  PHASE="比对数据（${label}）"
+  log "比对升级前 / ${label}的关键数据"
+  python3 - "$before" "$after" "$cred_before" "$cred_after" <<'PY'
+import json
+import sys
+
+before_path, after_path, cred_before_path, cred_after_path = sys.argv[1:5]
+before = json.load(open(before_path, encoding="utf-8"))
+after = json.load(open(after_path, encoding="utf-8"))
+cred_before = json.load(open(cred_before_path, encoding="utf-8"))
+cred_after = json.load(open(cred_after_path, encoding="utf-8"))
+
+LABELS = {
+    "users": "用户",
+    "servers": "服务器",
+    "nodes": "节点",
+    "packages": "套餐",
+    "chains": "转发链",
+    "forwards": "转发规则",
+    "rule_templates": "规则模板",
+}
+problems = []
+print(f"{'关键数据':<14}{'升级前':>8}{'升级后':>8}  结果")
+print("-" * 48)
+for key, label in LABELS.items():
+    left, right = before.get(key), after.get(key)
+    same = left == right
+    print(f"{label:<14}{len(left):>8}{len(right):>8}  {'OK' if same else 'DIFF'}")
+    if not same:
+        problems.append((label, left, right))
+
+print(f"\n订阅节点凭据（name → uuid/password）："
+      f"{'OK' if cred_before == cred_after else 'DIFF'}")
+if cred_before != cred_after:
+    print(f"  升级前：{json.dumps(cred_before, ensure_ascii=False)}", file=sys.stderr)
+    print(f"  升级后：{json.dumps(cred_after, ensure_ascii=False)}", file=sys.stderr)
+    problems.append(("订阅节点凭据", cred_before, cred_after))
+
+if problems:
+    print(f"\nFAIL: {len(problems)} 类数据不一致：", file=sys.stderr)
+    for label, left, right in problems:
+        print(f"  - {label}: 前={json.dumps(left, ensure_ascii=False)[:400]}", file=sys.stderr)
+        print(f"            后={json.dumps(right, ensure_ascii=False)[:400]}", file=sys.stderr)
+    raise SystemExit(1)
+PY
+  ok "${label}：关键数据完全一致（用户 / 服务器 / 节点 / 套餐 / 转发链 / 转发规则 / 规则模板 / 订阅凭据）"
+}
+
+# 行数下限：防止「两边都是空」的假绿。
+assert_row_counts() {
+  # assert_row_counts <facts.json> <标签>
+  local facts=$1 label=$2
+  python3 - "$facts" <<'PY' || die "${label}：关键表行数与造数不符（见上一行实际/期望）"
+import json, sys
+facts = json.load(open(sys.argv[1], encoding="utf-8"))
+# 迁移 0010 会插入一条默认规则模板，所以 1 条自建模板 + 1 条默认 = 2。
+expect = {"users": 3, "servers": 2, "nodes": 3, "packages": 1, "chains": 1,
+          "forwards": 1, "rule_templates": 2}
+wrong = {key: (len(facts[key]), want) for key, want in expect.items() if len(facts[key]) != want}
+if wrong:
+    raise SystemExit(f"关键表行数与造数不符（实际, 期望）：{wrong}")
+PY
 }
 
 # 升级前后共用的快照：只取两个版本都有的字段，避免「新版本多出来的字段」造成假差异。
@@ -457,6 +606,11 @@ git -C "$ROOT" archive "$TO_REV" | tar -x -C "$NEW_SRC" || die "git archive ${TO
 
 OLD_MIGRATIONS=$(ls "$OLD_SRC/crates/domain/migrations"/*.sql 2>/dev/null | wc -l | tr -d ' ')
 NEW_MIGRATIONS=$(ls "$NEW_SRC/crates/domain/migrations"/*.sql 2>/dev/null | wc -l | tr -d ' ')
+# 终点是否已经支持备份加密（PWSB）：支持才断言新格式，否则按旧明文格式断言。
+NEW_HAS_ENCRYPTION=0
+if grep -rq 'backup_encrypt' "$NEW_SRC/crates/master/src/routes" 2>/dev/null; then
+  NEW_HAS_ENCRYPTION=1
+fi
 NEW_ONLY=$(comm -13 \
   <(ls "$OLD_SRC/crates/domain/migrations" | sort) \
   <(ls "$NEW_SRC/crates/domain/migrations" | sort))
@@ -577,6 +731,16 @@ ok "单跳转发 1 条"
 BEFORE_SUMMARY=$(snapshot "$BASE_OLD" "$WORK/facts-before.json" "$WORK/creds-before.json" "$OLD_SESSION")
 ok "升级前快照：${BEFORE_SUMMARY}"
 
+# 升级前用旧版本导出一份明文备份：升级后要验证它仍能被新版本恢复。
+LEGACY_BACKUP="$WORK/backup-legacy.db.gz"
+download_backup "$BASE_OLD" "$LEGACY_BACKUP" "$WORK/export-legacy.headers" "旧版明文备份（${FROM_TAG}）"
+grep -qi '^content-type: application/gzip' "$WORK/export-legacy.headers" \
+  || die "旧版导出的 Content-Type 不是 application/gzip：$(grep -i '^content-type' "$WORK/export-legacy.headers" || true)"
+grep -qi 'content-disposition: attachment; filename="pierwave-backup-.*\.db\.gz"' "$WORK/export-legacy.headers" \
+  || die "旧版导出的文件名不是 .db.gz：$(grep -i '^content-disposition' "$WORK/export-legacy.headers" || true)"
+LEGACY_RAW_BYTES=$(assert_legacy_gzip_backup "$LEGACY_BACKUP" "$WORK/backup-legacy.db" "旧版明文备份")
+ok "旧版导出：$(wc -c <"$LEGACY_BACKUP" | tr -d ' ') B gzip → ${LEGACY_RAW_BYTES} B SQLite（升级后用它验证旧格式兼容）"
+
 close_old_meta=$(db_migrations)
 OLD_MIGRATION_ROWS=$(printf '%s\n' "$close_old_meta" | sed -n '1p')
 OLD_MIGRATION_MAX=$(printf '%s\n' "$close_old_meta" | sed -n '2p')
@@ -603,71 +767,38 @@ ok "新版专有接口 /api/v1/chain-templates → 200"
 AFTER_SUMMARY=$(snapshot "$BASE_NEW" "$WORK/facts-after.json" "$WORK/creds-after.json" "$NEW_SESSION")
 ok "升级后快照：${AFTER_SUMMARY}"
 
+# 新版本导出：支持加密就必须是 PWSB 信封（升级不只是「库能打开」，备份路径也要切到新格式）；
+# 目标版本还没加密时（例如 TO_REV=v0.15.0），按旧明文 gzip 断言。
+if [ "$NEW_HAS_ENCRYPTION" = "1" ]; then
+  NEW_BACKUP="$WORK/backup-new.db.gz.enc"
+  NEW_BACKUP_FORMAT="PWSB 加密"
+  download_backup "$BASE_NEW" "$NEW_BACKUP" "$WORK/export-new.headers" "新版加密备份（${TO_REV}）"
+  grep -qi '^content-type: application/octet-stream' "$WORK/export-new.headers" \
+    || die "新版导出的 Content-Type 不是 application/octet-stream：$(grep -i '^content-type' "$WORK/export-new.headers" || true)"
+  grep -qi 'content-disposition: attachment; filename="pierwave-backup-.*\.db\.gz\.enc"' "$WORK/export-new.headers" \
+    || die "新版导出的文件名不是 .db.gz.enc：$(grep -i '^content-disposition' "$WORK/export-new.headers" || true)"
+  assert_pwsb_backup "$NEW_BACKUP" "新版导出"
+else
+  NEW_BACKUP="$WORK/backup-new.db.gz"
+  NEW_BACKUP_FORMAT="明文 gzip"
+  download_backup "$BASE_NEW" "$NEW_BACKUP" "$WORK/export-new.headers" "新版明文备份（${TO_REV}）"
+  grep -qi '^content-type: application/gzip' "$WORK/export-new.headers" \
+    || die "新版导出的 Content-Type 不是 application/gzip：$(grep -i '^content-type' "$WORK/export-new.headers" || true)"
+  grep -qi 'content-disposition: attachment; filename="pierwave-backup-.*\.db\.gz"' "$WORK/export-new.headers" \
+    || die "新版导出的文件名不是 .db.gz：$(grep -i '^content-disposition' "$WORK/export-new.headers" || true)"
+  assert_legacy_gzip_backup "$NEW_BACKUP" "$WORK/backup-new.db" "新版明文导出" >/dev/null
+fi
+ok "新版导出：$(wc -c <"$NEW_BACKUP" | tr -d ' ') B（${NEW_BACKUP_FORMAT}）"
+
 stop_master
 new_meta=$(db_migrations)
 NEW_MIGRATION_ROWS=$(printf '%s\n' "$new_meta" | sed -n '1p')
 NEW_MIGRATION_MAX=$(printf '%s\n' "$new_meta" | sed -n '2p')
 
 # ------------------------------------------------------------------ 4. 断言与报告
-PHASE="比对升级前后数据"
-log "比对升级前 / 升级后的关键数据"
-python3 - "$WORK/facts-before.json" "$WORK/facts-after.json" \
-  "$WORK/creds-before.json" "$WORK/creds-after.json" <<'PY'
-import json
-import sys
-
-before_path, after_path, cred_before_path, cred_after_path = sys.argv[1:5]
-before = json.load(open(before_path, encoding="utf-8"))
-after = json.load(open(after_path, encoding="utf-8"))
-cred_before = json.load(open(cred_before_path, encoding="utf-8"))
-cred_after = json.load(open(cred_after_path, encoding="utf-8"))
-
-LABELS = {
-    "users": "用户",
-    "servers": "服务器",
-    "nodes": "节点",
-    "packages": "套餐",
-    "chains": "转发链",
-    "forwards": "转发规则",
-    "rule_templates": "规则模板",
-}
-problems = []
-print(f"{'关键数据':<14}{'升级前':>8}{'升级后':>8}  结果")
-print("-" * 48)
-for key, label in LABELS.items():
-    left, right = before.get(key), after.get(key)
-    same = left == right
-    print(f"{label:<14}{len(left):>8}{len(right):>8}  {'OK' if same else 'DIFF'}")
-    if not same:
-        problems.append((label, left, right))
-
-print(f"\n订阅节点凭据（name → uuid/password）："
-      f"{'OK' if cred_before == cred_after else 'DIFF'}")
-if cred_before != cred_after:
-    print(f"  升级前：{json.dumps(cred_before, ensure_ascii=False)}", file=sys.stderr)
-    print(f"  升级后：{json.dumps(cred_after, ensure_ascii=False)}", file=sys.stderr)
-    problems.append(("订阅节点凭据", cred_before, cred_after))
-
-if problems:
-    print(f"\nFAIL: {len(problems)} 类数据升级后不一致：", file=sys.stderr)
-    for label, left, right in problems:
-        print(f"  - {label}: 升级前={json.dumps(left, ensure_ascii=False)[:400]}", file=sys.stderr)
-        print(f"            升级后={json.dumps(right, ensure_ascii=False)[:400]}", file=sys.stderr)
-    raise SystemExit(1)
-PY
-ok "升级前后关键数据完全一致（用户 / 服务器 / 节点 / 套餐 / 转发链 / 转发规则 / 规则模板 / 订阅凭据）"
-
-# 行数下限：防止「两边都是空」的假绿。
-python3 - "$WORK/facts-after.json" <<'PY' || die "关键表行数与造数不符（见上一行实际/期望）"
-import json, sys
-facts = json.load(open(sys.argv[1], encoding="utf-8"))
-# 迁移 0010 会插入一条默认规则模板，所以 1 条自建模板 + 1 条默认 = 2。
-expect = {"users": 3, "servers": 2, "nodes": 3, "packages": 1, "chains": 1,
-          "forwards": 1, "rule_templates": 2}
-wrong = {key: (len(facts[key]), want) for key, want in expect.items() if len(facts[key]) != want}
-if wrong:
-    raise SystemExit(f"关键表行数与造数不符（实际, 期望）：{wrong}")
-PY
+compare_facts "$WORK/facts-before.json" "$WORK/facts-after.json" \
+  "$WORK/creds-before.json" "$WORK/creds-after.json" "升级后"
+assert_row_counts "$WORK/facts-after.json" "升级后"
 
 PHASE="校验迁移记录"
 if [ "$NEW_MIGRATION_ROWS" != "$NEW_MIGRATIONS" ]; then
@@ -677,6 +808,53 @@ if [ "$NEW_MIGRATION_MAX" -le "$OLD_MIGRATION_MAX" ]; then
   die "迁移版本没有前进：升级前 ${OLD_MIGRATION_MAX}，升级后 ${NEW_MIGRATION_MAX}"
 fi
 ok "迁移记录：${OLD_MIGRATION_ROWS} 条 → ${NEW_MIGRATION_ROWS} 条（version ${OLD_MIGRATION_MAX} → ${NEW_MIGRATION_MAX}）"
+
+# ------------------------------------------------------------------ 5. 旧明文备份在新版本恢复
+# 升级前用 v0.15.0 导出的 .db.gz 是最容易出问题的跨版本输入：新版本必须能解压、
+# 校验、落 pending，并在重启迁移后保持数据不变。
+PORT_RESTORE=$(pick_port 8901)
+BASE_RESTORE="http://127.0.0.1:${PORT_RESTORE}"
+log "阶段 3/3：用 ${TO_REV} 恢复升级前的明文备份（端口 ${PORT_RESTORE}）"
+start_master "$WORK/pierwave-master-new" "$PORT_RESTORE" "$WORK/master-restore-1.log" 120
+login "$BASE_RESTORE"
+
+RESTORE_CODE=$(upload_restore "$BASE_RESTORE" "$LEGACY_BACKUP" "旧版明文 .db.gz")
+expect_json "$RESTORE_CODE" 200 "新版本恢复旧版明文备份失败"
+RESTART_REQUIRED=$(jget '["restart_required"]')
+PENDING_BYTES=$(jget '["pending"]["bytes"]')
+[ "$RESTART_REQUIRED" = "True" ] || die "旧备份导入响应没有要求重启（restart_required=${RESTART_REQUIRED}）"
+[ "$PENDING_BYTES" = "$LEGACY_RAW_BYTES" ] \
+  || die "旧备份 pending 字节数不一致：pending=${PENDING_BYTES}，解压后=${LEGACY_RAW_BYTES}"
+expect_json "$(request "$BASE_RESTORE" GET /api/v1/backup/info)" 200 "读取待恢复状态"
+python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));sys.exit(0 if d.get("pending") else 1)' "$WORK/resp.json" \
+  || die "旧备份导入成功后 /backup/info 没有 pending"
+ok "旧版明文备份已被接受：restart_required=true，pending=${PENDING_BYTES} B"
+
+stop_master
+start_master "$WORK/pierwave-master-new" "$PORT_RESTORE" "$WORK/master-restore-2.log" 120
+grep -q "已应用待恢复的数据库备份" "$WORK/master-restore-2.log" \
+  || die "旧备份恢复后启动日志里没有「已应用待恢复的数据库备份」"
+grep -q "pre-restore" "$WORK/master-restore-2.log" \
+  || die "旧备份恢复后启动日志里没有 pre-restore 回滚副本"
+login "$BASE_RESTORE"
+RESTORED_SESSION=$(awk '$6 == "pierwave_session" { print $7 }' "$WORK/cookie.txt" | tail -1)
+[ -n "$RESTORED_SESSION" ] || die "旧备份恢复后登录成功但 cookie 里没有 pierwave_session"
+RESTORED_SUMMARY=$(snapshot "$BASE_RESTORE" "$WORK/facts-restored.json" "$WORK/creds-restored.json" "$RESTORED_SESSION")
+ok "旧备份恢复后快照：${RESTORED_SUMMARY}"
+
+compare_facts "$WORK/facts-before.json" "$WORK/facts-restored.json" \
+  "$WORK/creds-before.json" "$WORK/creds-restored.json" "旧明文备份恢复后"
+assert_row_counts "$WORK/facts-restored.json" "旧明文备份恢复后"
+
+stop_master
+RESTORED_META=$(db_migrations)
+RESTORED_MIGRATION_ROWS=$(printf '%s\n' "$RESTORED_META" | sed -n '1p')
+RESTORED_MIGRATION_MAX=$(printf '%s\n' "$RESTORED_META" | sed -n '2p')
+[ "$RESTORED_MIGRATION_ROWS" = "$NEW_MIGRATIONS" ] \
+  || die "旧备份恢复后迁移未全部应用：库里 ${RESTORED_MIGRATION_ROWS} 条，源码里 ${NEW_MIGRATIONS} 个"
+[ "$RESTORED_MIGRATION_MAX" -ge "$NEW_MIGRATION_MAX" ] \
+  || die "旧备份恢复后迁移版本回退：${RESTORED_MIGRATION_MAX} < ${NEW_MIGRATION_MAX}"
+ok "旧备份恢复后迁移仍完整：${RESTORED_MIGRATION_ROWS} 条（version ${RESTORED_MIGRATION_MAX}）"
 
 SCRIPT_END=$(python3 -c 'import time; print(f"{time.time():.3f}")')
 TOTAL_SECS=$(awk -v a="$SCRIPT_START" -v b="$SCRIPT_END" 'BEGIN { printf "%.1f", b - a }')
@@ -691,6 +869,10 @@ printf '  新增迁移文件：\n'
 printf '%s\n' "$NEW_ONLY" | sed 's/^/    /'
 printf '  升级耗时（新版启动到健康，含迁移）：%s s\n' "$STARTUP_NEW"
 printf '  旧版启动耗时（对照）：%s s\n' "$STARTUP_OLD"
+printf '  备份格式：%s 导出明文 gzip（解压后 %s B）→ %s 导出 %s（%s B）\n' \
+  "$FROM_TAG" "$LEGACY_RAW_BYTES" "$TO_REV" "$NEW_BACKUP_FORMAT" "$(wc -c <"$NEW_BACKUP" | tr -d ' ')"
+printf '  跨版本备份恢复：旧版明文备份在新版本恢复成功（pending %s B，迁移后 %s 条）\n' \
+  "$PENDING_BYTES" "$RESTORED_MIGRATION_ROWS"
 printf '  脚本总耗时（含两次编译）：%s s\n' "$TOTAL_SECS"
 echo
 printf '\033[32mPASS\033[0m 升级路径实测通过（库：%s；临时目录：%s）\n' "$DB" "$WORK"

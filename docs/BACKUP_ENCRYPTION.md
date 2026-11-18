@@ -163,7 +163,6 @@ contains no key, ciphertext or plaintext.
   解不开。需要轮换时应同时保留旧密钥并一次性重写备份与 `settings`。
 - 旧备份的重新加密 / re-encrypting existing backups。
 - 流式 AEAD：恢复加密备份时会先把 gzip 产物读进内存（仍受 512 MB 总上限约束）。
-- `scripts/verify-backup.sh` 仍按明文 `.db.gz` 断言，尚未跟进加密格式。
 
 - **Key rotation**: there is no `re-encrypt` command; changing the key makes old
   ciphertext unreadable. Rotation would need the old key kept alongside and a
@@ -171,5 +170,10 @@ contains no key, ciphertext or plaintext.
 - Re-encrypting existing backups.
 - Streaming AEAD: restoring an encrypted backup reads the gzip artifact into
   memory (still bounded by the 512 MB limit).
-- `scripts/verify-backup.sh` still asserts the legacy plaintext `.db.gz` format
-  and has not been updated for encryption.
+
+> `scripts/verify-backup.sh` 已覆盖加密与明文两条导出/恢复路径（见
+> `docs/QUALITY.md`）；`scripts/verify-upgrade.sh` 覆盖「旧版明文 `.db.gz`
+> 在新版本恢复」。 / `scripts/verify-backup.sh` now covers both the encrypted
+> and plaintext export/restore paths (see `docs/QUALITY.md`), and
+> `scripts/verify-upgrade.sh` covers restoring a pre-encryption `.db.gz` backup
+> on the upgraded version.

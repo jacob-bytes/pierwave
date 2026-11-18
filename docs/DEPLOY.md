@@ -186,7 +186,15 @@ sudo systemctl daemon-reload && sudo systemctl restart pierwave-agent
 
 - 日志走 stdout，交给 systemd/journald 或容器日志驱动；
 - 备份就是拷 `data/`（SQLite 用 WAL，拷之前先 `sqlite3 pierwave.db ".backup"`，不要直接 cp 主库）；
-- 证书私钥在库里，备份即包含私钥，注意存放权限。
+- 证书私钥在库里，备份即包含私钥，注意存放权限；
+- 主密钥：未设置 `PIERWAVE_SECRET_KEY` 时首次启动会生成 `data/secret.key`（0600），
+  **必须单独备份**，不要和数据库备份放在一起；恢复加密备份或迁移到新机时，要么带上原
+  `secret.key`，要么用同样的 `PIERWAVE_SECRET_KEY`（base64 的 32 字节）覆盖。丢失后已加密的
+  备份与 `settings` 里的秘密无法解密，详见 [BACKUP_ENCRYPTION.md](BACKUP_ENCRYPTION.md)。
+  / Master key: without `PIERWAVE_SECRET_KEY`, the first start creates `data/secret.key` (0600).
+  **Back it up separately** from the database: restoring encrypted backups or moving to a new
+  host requires either the original file or the same `PIERWAVE_SECRET_KEY` (32 bytes, base64).
+  Losing it makes encrypted backups and encrypted `settings` unrecoverable.
 
 ## 已知边界
 

@@ -2,17 +2,24 @@
 # 备份恢复实测：起临时主控 → 通过真实 HTTP 接口建数据 → 导出备份 →
 # 换一个全新的空库 → 通过 HTTP 接口导入 → 重启生效 → 断言关键数据一致。
 #
+# 默认导出加密备份（`PWSB` 信封 + AES-256-GCM），再关闭 `backup_encrypt`
+# 导出一次明文 `.db.gz`：两条路径都要真的恢复成功，数据也都要一致。
+#
 # 目标：把「备份能下载、恢复能上传」和「恢复后数据真的还在」分开验证。
 # 只走 `GET /api/v1/backup` 与 `POST /api/v1/backup/restore`，
 # 不复制 SQLite 文件、不直接写库——否则测的就是另一套逻辑。
 #
 # 为什么必须重启：恢复的设计是「上传阶段只落盘为 <db>.restore-pending，
 # 真正替换发生在下次启动、打开连接池之前」（见 crates/domain/src/backup.rs）。
-# 脚本严格遵守这个契约，因此会显式停/起两次主控。
+# 脚本严格遵守这个契约，因此每轮恢复都会显式停/起主控。
+#
+# 为什么必须固定主密钥：加密备份是用**导出端**的主密钥封装的，恢复端必须用
+# 同一把密钥才能解开。脚本给所有临时主控注入同一个 `PIERWAVE_SECRET_KEY`
+# （32 字节 base64），否则跨实例恢复会得到 backup.restore_decrypt_failed。
 #
 # 用法：
 #   ./scripts/verify-backup.sh
-#   KEEP=1 ./scripts/verify-backup.sh     # 保留临时目录（日志、导出文件、两份 DB）
+#   KEEP=1 ./scripts/verify-backup.sh     # 保留临时目录（日志、导出文件、三份 DB）
 #   BACKUP_WORK=/tmp/x ./scripts/verify-backup.sh
 #
 # 退出码：0 = 全部断言通过；1 = 有失败（会打印可读原因与 master 日志尾部）。
@@ -35,6 +42,12 @@ KEEP="${KEEP:-0}"
 MASTER_BIN="$ROOT/target/debug/pierwave-master"
 ADMIN_PASSWORD="devpass"
 CURL_TIMEOUT="${CURL_TIMEOUT:-120}"
+
+# 每轮主控共用同一把测试主密钥；不打印内容。
+if [ -z "${PIERWAVE_SECRET_KEY:-}" ]; then
+  PIERWAVE_SECRET_KEY=$(python3 -c 'import base64,os;print(base64.b64encode(os.urandom(32)).decode())')
+  export PIERWAVE_SECRET_KEY
+fi
 
 MASTER_PID=""
 PHASE="初始化"
@@ -149,6 +162,7 @@ start_master() {
   PIERWAVE_DB="sqlite://${db}?mode=rwc" \
   PIERWAVE_WEB_DIR="$ROOT/web/dist" \
   PIERWAVE_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+  PIERWAVE_SECRET_KEY="$PIERWAVE_SECRET_KEY" \
     "$MASTER_BIN" >"$log_file" 2>&1 &
   MASTER_PID=$!
   MASTER_LOG=$log_file
@@ -213,6 +227,143 @@ login() {
     -o "$WORK/resp.json" -w '%{http_code}' "$BASE/api/v1/auth/login") || code=000
   expect_json "$code" 200 "登录失败（备份里的管理员密码是否被改动？）"
   ok "登录成功（admin）"
+}
+
+# 导出备份到指定文件，并保存响应头。只走真实 HTTP。
+export_backup() {
+  # export_backup <输出文件> <请求头文件> <说明>
+  local out=$1 headers=$2 what=$3 code
+  PHASE="导出备份（${what}）"
+  log "调用 GET /api/v1/backup（${what}）"
+  code=$(run_timeout $((CURL_TIMEOUT + 5)) \
+    curl -sS --max-time "$CURL_TIMEOUT" -b "$WORK/cookie.txt" \
+      -D "$headers" -o "$out" \
+      -w '%{http_code}' "$BASE/api/v1/backup") || code=000
+  [ "$code" = "200" ] || die "导出失败：HTTP ${code}（文件头：$(head -c 200 "$out" 2>/dev/null | od -c | head -3)）"
+  [ -s "$out" ] || die "导出文件是空的：${out}"
+}
+
+# 加密备份的格式断言：PWSB 信封，且不能是 gzip / 明文 SQLite。
+assert_pwsb_backup() {
+  local file=$1 what=$2
+  python3 - "$file" <<'PY' || die "${what}不是加密信封（PWSB）"
+import sys
+head = open(sys.argv[1], "rb").read(64)
+if len(head) < 5:
+    raise SystemExit(f"文件太短：{head!r}")
+if head[:2] == b"\x1f\x8b":
+    raise SystemExit("文件以 gzip 魔数开头：这是明文备份，不是加密备份")
+if head[:16] == b"SQLite format 3\x00":
+    raise SystemExit("文件以 SQLite 文件头开头：这是明文数据库，不是加密备份")
+if not head.startswith(b"PWSB"):
+    raise SystemExit(f"文件头不是 PWSB：{head[:8]!r}")
+if head[4] != 1:
+    raise SystemExit(f"信封版本不是 1：{head[4]}")
+PY
+  ok "${what}是 PWSB 加密信封（非 gzip、非明文 SQLite）"
+}
+
+# 明文备份的格式断言：gzip 魔数 → 解压后必须是 SQLite 文件头。
+assert_gzip_sqlite_backup() {
+  # assert_gzip_sqlite_backup <gz 文件> <解压输出文件> <说明>；打印解压后字节数
+  local gz=$1 raw=$2 what=$3 bytes
+  bytes=$(python3 - "$gz" "$raw" <<'PY'
+import gzip, sys
+data = open(sys.argv[1], "rb").read()
+if not data.startswith(b"\x1f\x8b"):
+    raise SystemExit(f"不是 gzip：{data[:8]!r}")
+if data.startswith(b"PWSB"):
+    raise SystemExit("明文导出却是 PWSB 加密信封")
+raw = gzip.decompress(data)
+open(sys.argv[2], "wb").write(raw)
+if not raw.startswith(b"SQLite format 3\x00"):
+    raise SystemExit(f"解压后不是 SQLite：{raw[:16]!r}")
+print(len(raw))
+PY
+  ) || die "${what}不是可解压的明文 gzip 备份"
+  printf '%s' "$bytes"
+}
+
+# 全新的空库：servers=0，users=1（仅初始 admin）。
+assert_empty_db() {
+  local what=$1
+  expect_json "$(request GET "$BASE/api/v1/servers")" 200 "读取空库服务器列表"
+  local servers users
+  servers=$(python3 -c 'import json,sys;print(len(json.load(open(sys.argv[1]))["items"]))' "$WORK/resp.json")
+  expect_json "$(request GET "$BASE/api/v1/users")" 200 "读取空库用户列表"
+  users=$(python3 -c 'import json,sys;print(len(json.load(open(sys.argv[1]))["items"]))' "$WORK/resp.json")
+  [ "$servers" = "0" ] || die "${what}：新库不应该是空的：servers=${servers}"
+  [ "$users" = "1" ] || die "${what}：新库应只有初始 admin，实际 users=${users}"
+  ok "${what}：新库确认是空的（servers=0，users=1 仅 admin）"
+}
+
+# 比对「导出前」与「本轮恢复后」的关键数据；行数下限单独校验，防止空库对空库。
+compare_snapshot() {
+  # compare_snapshot <标签> <after.json> <after-sub.yaml> <导出前订阅哈希>
+  local label=$1 after=$2 sub_after=$3 sub_before_hash=$4 sub_after_hash counts
+  PHASE="比对数据（${label}）"
+  log "比对导出前 / ${label}恢复后的关键数据"
+  sub_after_hash=$(python3 -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$sub_after")
+  python3 - "$WORK/facts/before.json" "$after" "$sub_before_hash" "$sub_after_hash" <<'PY'
+import json
+import sys
+
+before_path, after_path, sub_before, sub_after = sys.argv[1:5]
+before = json.load(open(before_path, encoding="utf-8"))
+after = json.load(open(after_path, encoding="utf-8"))
+
+LABELS = {
+    "users": "用户",
+    "servers": "服务器",
+    "nodes": "节点",
+    "packages": "套餐",
+    "chains": "转发链",
+    "forwards": "转发规则",
+    "rule_templates": "规则模板",
+    "certificates": "证书",
+    "settings": "设置项",
+}
+problems = []
+print(f"{'关键数据':<14}{'导出前':>8}{'导入后':>8}  结果")
+print("-" * 48)
+for key, label in LABELS.items():
+    left = before.get(key)
+    right = after.get(key)
+    left_n = len(left) if isinstance(left, (list, dict)) else 0
+    right_n = len(right) if isinstance(right, (list, dict)) else 0
+    same = left == right
+    print(f"{label:<14}{left_n:>8}{right_n:>8}  {'OK' if same else 'DIFF'}")
+    if not same:
+        problems.append((label, left, right))
+
+print(f"\n订阅内容 SHA256 导出前 {sub_before[:16]}… / 导入后 {sub_after[:16]}…  "
+      f"{'OK' if sub_before == sub_after else 'DIFF'}")
+
+if problems:
+    print(f"\nFAIL: {len(problems)} 类关键数据不一致：", file=sys.stderr)
+    for label, left, right in problems:
+        print(f"  - {label}: 导出前={json.dumps(left, ensure_ascii=False)[:400]}", file=sys.stderr)
+        print(f"            导入后={json.dumps(right, ensure_ascii=False)[:400]}", file=sys.stderr)
+    raise SystemExit(1)
+if sub_before != sub_after:
+    print("\nFAIL: 恢复后订阅内容变了（用户客户端的节点凭据会失效）", file=sys.stderr)
+    raise SystemExit(1)
+PY
+  counts=$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(json.dumps({k:(len(v) if isinstance(v,(list,dict)) else 0) for k,v in d.items()},ensure_ascii=False))' "$after")
+  ok "${label}：恢复后 ${counts} 与导出前完全一致（含订阅渲染结果）"
+
+  # 行数至少要有内容，防止「空库对空库」这种假绿。
+  python3 - "$after" <<'PY' || die "${label}：恢复后的关键表是空的（对空断言没有意义）"
+import json, sys
+facts = json.load(open(sys.argv[1], encoding="utf-8"))
+# 数值是「造数 + 迁移自带的默认行」：迁移 0010 会插入一条默认规则模板，
+# 所以 1 条自建模板 + 1 条默认 = 2。其余都是脚本自己造的数量。
+expect = {"users": 3, "servers": 2, "nodes": 4, "packages": 1, "chains": 1,
+          "forwards": 1, "rule_templates": 2, "certificates": 1, "settings": 6}
+wrong = {key: (len(facts[key]), want) for key, want in expect.items() if len(facts[key]) != want}
+if wrong:
+    raise SystemExit(f"关键表行数与造数不符（实际, 期望）：{wrong}")
+PY
 }
 
 # JSON 事实快照：只取稳定字段（不含 status / runtime / last_seen 这类心跳态），
@@ -595,60 +746,113 @@ SUB_HASH_BEFORE=$(printf '%s\n' "$SNAP_BEFORE" | sed -n '1p')
 COUNTS_BEFORE=$(printf '%s\n' "$SNAP_BEFORE" | sed -n '2p')
 ok "导出前快照：${COUNTS_BEFORE}"
 
-# ---- 导出（真实 HTTP） ----
-PHASE="导出备份"
-log "调用 GET /api/v1/backup"
-EXPORT_CODE=$(run_timeout $((CURL_TIMEOUT + 5)) \
-  curl -sS --max-time "$CURL_TIMEOUT" -b "$WORK/cookie.txt" \
-    -D "$WORK/export.headers" -o "$WORK/backup.db.gz" \
-    -w '%{http_code}' "$BASE/api/v1/backup") || EXPORT_CODE=000
-[ "$EXPORT_CODE" = "200" ] || die "导出失败：HTTP ${EXPORT_CODE}（文件头：$(head -c 200 "$WORK/backup.db.gz" 2>/dev/null | od -c | head -3)）"
-[ -s "$WORK/backup.db.gz" ] || die "导出文件是空的"
+# 导入一份备份 → 校验 pending 字节数 → 重启生效 → 重新登录 → 与导出前快照比对。
+import_and_compare() {
+  # import_and_compare <备份文件> <标签> <期望 pending 字节> <db> <端口> <日志前缀>
+  local file=$1 label=$2 want_bytes=$3 db=$4 port=$5 prefix=$6
+  local code restart pending start end secs snap after sub_after
+  BASE="http://127.0.0.1:${port}"
+  PHASE="导入备份（${label}）"
+  log "调用 POST /api/v1/backup/restore（上传 $(wc -c <"$file" | tr -d ' ') B，${label}）"
+  code=$(request POST "$BASE/api/v1/backup/restore" "$file" "application/octet-stream")
+  expect_json "$code" 200 "导入${label}失败"
+  restart=$(jget '["restart_required"]')
+  pending=$(jget '["pending"]["bytes"]')
+  [ "$restart" = "True" ] || die "${label}：导入响应没有要求重启（restart_required=${restart}）"
+  if [ "$want_bytes" != "any" ]; then
+    [ "$pending" = "$want_bytes" ] \
+      || die "${label}：待恢复文件大小与预期不一致：pending=${pending}，预期=${want_bytes}"
+  fi
+  [ "$pending" -gt 0 ] || die "${label}：pending 字节数为 0"
+  [ $((pending % 4096)) -eq 0 ] \
+    || die "${label}：pending 字节数不是 SQLite 页大小的整数倍（${pending}）"
+  expect_json "$(request GET "$BASE/api/v1/backup/info")" 200 "读取待恢复状态"
+  python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));sys.exit(0 if d.get("pending") else 1)' "$WORK/resp.json" \
+    || die "${label}：导入成功后 /backup/info 没有 pending"
+  ok "${label}导入成功：restart_required=true，pending=${pending} B"
 
-grep -qi '^content-type: application/gzip' "$WORK/export.headers" \
-  || die "导出的 Content-Type 不是 application/gzip：$(grep -i '^content-type' "$WORK/export.headers" || true)"
-grep -qi 'content-disposition: attachment; filename="pierwave-backup-.*\.db\.gz"' "$WORK/export.headers" \
-  || die "导出的 Content-Disposition 不是预期文件名：$(grep -i '^content-disposition' "$WORK/export.headers" || true)"
+  PHASE="重启恢复（${label}）"
+  log "重启主控，让待恢复文件生效（${label}）"
+  stop_master
+  start=$(now_ms)
+  start_master "$db" "$port" "$WORK/${prefix}-2.log"
+  end=$(now_ms)
+  secs=$(awk -v a="$start" -v b="$end" 'BEGIN { printf "%.1f", b - a }')
+  grep -q "已应用待恢复的数据库备份" "$WORK/${prefix}-2.log" \
+    || die "${label}：启动日志里没有「已应用待恢复的数据库备份」，恢复可能没有生效"
+  grep -q "pre-restore" "$WORK/${prefix}-2.log" \
+    || die "${label}：启动日志里没有 pre-restore 回滚副本的记录"
+  ok "${label}：恢复已生效（启动到可用 ${secs}s；旧库保留为 pre-restore 文件）"
 
-# 解压校验：必须是 SQLite 文件头，且大小与 /backup/info 的 db_bytes 对得上。
-RAW_BYTES=$(python3 - "$WORK/backup.db.gz" "$WORK/backup.db" <<'PY'
-import gzip, sys
-raw = gzip.open(sys.argv[1], "rb").read()
-open(sys.argv[2], "wb").write(raw)
-print(len(raw))
-PY
-)
-python3 - "$WORK/backup.db" <<'PY' || die "导出的不是 SQLite 文件"
-import sys
-head = open(sys.argv[1], "rb").read(16)
-if head != b"SQLite format 3\x00":
-    raise SystemExit(f"文件头不是 SQLite format 3：{head!r}")
-PY
+  # 恢复后会话表也被替换，必须重新登录（这本身就是数据回来了的证据）。
+  login
+  SESSION=$(awk '$6 == "pierwave_session" { print $7 }' "$WORK/cookie.txt" | tail -1)
+  after="$WORK/facts/after-${prefix}.json"
+  sub_after="$WORK/facts/sub-after-${prefix}.yaml"
+  snap=$(snapshot "$after" "$sub_after")
+  compare_snapshot "$label" "$after" "$sub_after" "$SUB_HASH_BEFORE"
+}
+
+# ---- 导出（真实 HTTP）----
+PHASE="导出加密备份"
+log "确认 backup_encrypt 默认开启"
+expect_json "$(request GET "$BASE/api/v1/settings")" 200 "读取设置"
+python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));sys.exit(0 if d["items"]["backup_encrypt"] is True else 1)' "$WORK/resp.json" \
+  || die "backup_encrypt 默认不是 true"
+ok "backup_encrypt 默认开启"
+
 expect_json "$(request GET "$BASE/api/v1/backup/info")" 200 "读取备份信息"
 INFO_DB_BYTES=$(jget '["db_bytes"]')
-ok "导出成功：gz $(wc -c <"$WORK/backup.db.gz" | tr -d ' ') B → 解压 ${RAW_BYTES} B；/backup/info db_bytes=${INFO_DB_BYTES}"
+export_backup "$WORK/backup-enc.pwsb" "$WORK/export-enc.headers" "加密（默认）"
+grep -qi '^content-type: application/octet-stream' "$WORK/export-enc.headers" \
+  || die "加密导出的 Content-Type 不是 application/octet-stream：$(grep -i '^content-type' "$WORK/export-enc.headers" || true)"
+grep -qi 'content-disposition: attachment; filename="pierwave-backup-.*\.db\.gz\.enc"' "$WORK/export-enc.headers" \
+  || die "加密导出的 Content-Disposition 不是 .db.gz.enc：$(grep -i '^content-disposition' "$WORK/export-enc.headers" || true)"
+assert_pwsb_backup "$WORK/backup-enc.pwsb" "加密导出"
+ENC_FILE_BYTES=$(wc -c <"$WORK/backup-enc.pwsb" | tr -d ' ')
+ok "加密导出：${ENC_FILE_BYTES} B（PWSB + AES-256-GCM；/backup/info db_bytes=${INFO_DB_BYTES}）"
+
+# 篡改一个字节（GCM tag）：恢复必须明确拒绝，而不是把损坏文件当备份落盘。
+python3 - "$WORK/backup-enc.pwsb" "$WORK/backup-enc-tampered.bin" <<'PY'
+import sys
+data = bytearray(open(sys.argv[1], "rb").read())
+data[-1] ^= 0x01
+open(sys.argv[2], "wb").write(data)
+PY
+
+# ---- 关闭 backup_encrypt，导出明文 .db.gz ----
+PHASE="关闭备份加密并导出明文"
+printf '{"backup_encrypt":false}' >"$WORK/req.json"
+expect_json "$(request PATCH "$BASE/api/v1/settings" "$WORK/req.json")" 200 "关闭 backup_encrypt"
+python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));sys.exit(0 if d["items"]["backup_encrypt"] is False else 1)' "$WORK/resp.json" \
+  || die "PATCH backup_encrypt=false 后接口仍返回 true"
+ok "已通过 API 关闭 backup_encrypt"
+
+export_backup "$WORK/backup-plain.db.gz" "$WORK/export-plain.headers" "明文（backup_encrypt=0）"
+grep -qi '^content-type: application/gzip' "$WORK/export-plain.headers" \
+  || die "明文导出的 Content-Type 不是 application/gzip：$(grep -i '^content-type' "$WORK/export-plain.headers" || true)"
+grep -qi 'content-disposition: attachment; filename="pierwave-backup-.*\.db\.gz"' "$WORK/export-plain.headers" \
+  || die "明文导出的 Content-Disposition 不是 .db.gz：$(grep -i '^content-disposition' "$WORK/export-plain.headers" || true)"
+PLAIN_RAW_BYTES=$(assert_gzip_sqlite_backup "$WORK/backup-plain.db.gz" "$WORK/backup-plain.db" "明文导出")
+# 注意：不能用 /backup/info 的 db_bytes 断言解压后大小——VACUUM INTO 会压缩空闲页，
+# 而 db_bytes 是 page_count × page_size，两者可能差一页；恢复端 pending 用的是实际解压大小。
+ok "明文导出：gz $(wc -c <"$WORK/backup-plain.db.gz" | tr -d ' ') B → ${PLAIN_RAW_BYTES} B SQLite"
 
 stop_master
 ok "导出端主控已停止（库文件保持原样：${DB_A}）"
 
-# ------------------------------------------------------------------ 2. 全新的空库
+# ------------------------------------------------------------------ 2. 加密备份恢复
 PORT_B=$(pick_port 8861)
 BASE="http://127.0.0.1:${PORT_B}"
-DB_B="$WORK/db-target/pierwave.db"
-log "阶段 2/3：换一个全新空库启动主控（端口 ${PORT_B}）"
-start_master "$DB_B" "$PORT_B" "$WORK/master-b1.log"
+DB_B="$WORK/db-target-enc/pierwave.db"
+log "阶段 2/3：加密备份 → 全新空库恢复（端口 ${PORT_B}）"
+start_master "$DB_B" "$PORT_B" "$WORK/master-enc-1.log"
 login
 SESSION=$(awk '$6 == "pierwave_session" { print $7 }' "$WORK/cookie.txt" | tail -1)
-expect_json "$(request GET "$BASE/api/v1/servers")" 200 "读取空库服务器列表"
-FRESH_SERVERS=$(python3 -c 'import json,sys;print(len(json.load(open(sys.argv[1]))["items"]))' "$WORK/resp.json")
-expect_json "$(request GET "$BASE/api/v1/users")" 200 "读取空库用户列表"
-FRESH_USERS=$(python3 -c 'import json,sys;print(len(json.load(open(sys.argv[1]))["items"]))' "$WORK/resp.json")
-[ "$FRESH_SERVERS" = "0" ] || die "新库不应该是空的：servers=${FRESH_SERVERS}"
-[ "$FRESH_USERS" = "1" ] || die "新库应只有初始 admin，实际 users=${FRESH_USERS}"
-ok "新库确认是空的（servers=0，users=1 仅 admin）"
+assert_empty_db "加密备份"
 
-# ---- 导入前先用坏文件验证「失败原因可读」 ----
-PHASE="导入坏文件（校验拒绝路径）"
+# ---- 坏文件 / 篡改文件都应被拒绝，且不留下 pending ----
+PHASE="加密备份的拒绝路径"
 printf 'this is definitely not a sqlite database' >"$WORK/broken.bin"
 BAD_CODE=$(request POST "$BASE/api/v1/backup/restore" "$WORK/broken.bin" "application/octet-stream")
 [ "$BAD_CODE" = "400" ] || die "坏备份应该被拒绝（HTTP 400），实际 ${BAD_CODE}"
@@ -657,110 +861,34 @@ case "$BAD_MSG" in
   *backup.restore_bad_header*) ok "坏备份被拒绝且原因可读：${BAD_MSG}" ;;
   *) die "坏备份被拒绝了，但错误码不是 backup.restore_bad_header：${BAD_MSG}" ;;
 esac
+
+TAMPER_CODE=$(request POST "$BASE/api/v1/backup/restore" "$WORK/backup-enc-tampered.bin" "application/octet-stream")
+[ "$TAMPER_CODE" = "400" ] || die "被篡改的加密备份应该被拒绝（HTTP 400），实际 ${TAMPER_CODE}"
+TAMPER_MSG=$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(d.get("code",""),"|",d.get("error",""))' "$WORK/resp.json")
+case "$TAMPER_MSG" in
+  *backup.restore_decrypt_failed*) ok "篡改的加密备份被拒绝且原因可读：${TAMPER_MSG}" ;;
+  *) die "篡改的加密备份被拒绝了，但错误码不是 backup.restore_decrypt_failed：${TAMPER_MSG}" ;;
+esac
+
 expect_json "$(request GET "$BASE/api/v1/backup/info")" 200 "读取待恢复状态"
 python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));sys.exit(0 if d.get("pending") is None else 1)' "$WORK/resp.json" \
-  || die "坏文件被拒绝后不应留下 pending 文件"
+  || die "被拒绝的上传不应留下 pending 文件"
 
-# ---- 导入（真实 HTTP，上传 gzip） ----
-PHASE="导入备份"
-log "调用 POST /api/v1/backup/restore（上传 $(wc -c <"$WORK/backup.db.gz" | tr -d ' ') B gzip）"
-IMPORT_CODE=$(request POST "$BASE/api/v1/backup/restore" "$WORK/backup.db.gz" "application/octet-stream")
-expect_json "$IMPORT_CODE" 200 "导入备份失败"
-RESTART_REQUIRED=$(jget '["restart_required"]')
-PENDING_BYTES=$(jget '["pending"]["bytes"]')
-[ "$RESTART_REQUIRED" = "True" ] || die "导入响应没有要求重启（restart_required=${RESTART_REQUIRED}）"
-[ "$PENDING_BYTES" = "$RAW_BYTES" ] \
-  || die "待恢复文件大小与解压后备份不一致：pending=${PENDING_BYTES}，解压后=${RAW_BYTES}"
-expect_json "$(request GET "$BASE/api/v1/backup/info")" 200 "读取待恢复状态"
-python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));sys.exit(0 if d.get("pending") else 1)' "$WORK/resp.json" \
-  || die "导入成功后 /backup/info 没有 pending"
-ok "导入成功：restart_required=true，pending=${RAW_BYTES} B"
-
-# ------------------------------------------------------------------ 3. 重启生效
-log "阶段 3/3：重启主控，让待恢复文件生效（恢复契约：启动时替换）"
+import_and_compare "$WORK/backup-enc.pwsb" "加密备份" "any" "$DB_B" "$PORT_B" "enc"
 stop_master
-start=$(now_ms)
-start_master "$DB_B" "$PORT_B" "$WORK/master-b2.log"
-end=$(now_ms)
-RESTORE_SECS=$(awk -v a="$start" -v b="$end" 'BEGIN { printf "%.1f", b - a }')
-grep -q "已应用待恢复的数据库备份" "$WORK/master-b2.log" \
-  || die "启动日志里没有「已应用待恢复的数据库备份」，恢复可能没有生效"
-grep -q "pre-restore" "$WORK/master-b2.log" \
-  || die "启动日志里没有 pre-restore 回滚副本的记录"
-ok "恢复已生效（启动到可用 ${RESTORE_SECS}s；旧库保留为 pre-restore 文件）"
 
-# 恢复后会话表也被替换，必须重新登录（这本身就是数据回来了的证据）。
+# ------------------------------------------------------------------ 3. 明文备份恢复
+PORT_C=$(pick_port 8871)
+BASE="http://127.0.0.1:${PORT_C}"
+DB_C="$WORK/db-target-plain/pierwave.db"
+log "阶段 3/3：明文 .db.gz → 全新空库恢复（端口 ${PORT_C}）"
+start_master "$DB_C" "$PORT_C" "$WORK/master-plain-1.log"
 login
 SESSION=$(awk '$6 == "pierwave_session" { print $7 }' "$WORK/cookie.txt" | tail -1)
+assert_empty_db "明文备份"
 
-SNAP_AFTER=$(snapshot "$WORK/facts/after.json" "$WORK/facts/sub-after.yaml")
-SUB_HASH_AFTER=$(printf '%s\n' "$SNAP_AFTER" | sed -n '1p')
-COUNTS_AFTER=$(printf '%s\n' "$SNAP_AFTER" | sed -n '2p')
-
-# ------------------------------------------------------------------ 断言
-PHASE="比对数据"
-log "比对导出前 / 导入后的关键数据"
-python3 - "$WORK/facts/before.json" "$WORK/facts/after.json" \
-  "$SUB_HASH_BEFORE" "$SUB_HASH_AFTER" <<'PY'
-import json
-import sys
-
-before_path, after_path, sub_before, sub_after = sys.argv[1:5]
-before = json.load(open(before_path, encoding="utf-8"))
-after = json.load(open(after_path, encoding="utf-8"))
-
-LABELS = {
-    "users": "用户",
-    "servers": "服务器",
-    "nodes": "节点",
-    "packages": "套餐",
-    "chains": "转发链",
-    "forwards": "转发规则",
-    "rule_templates": "规则模板",
-    "certificates": "证书",
-    "settings": "设置项",
-}
-problems = []
-print(f"{'关键数据':<14}{'导出前':>8}{'导入后':>8}  结果")
-print("-" * 48)
-for key, label in LABELS.items():
-    left = before.get(key)
-    right = after.get(key)
-    left_n = len(left) if isinstance(left, (list, dict)) else 0
-    right_n = len(right) if isinstance(right, (list, dict)) else 0
-    same = left == right
-    print(f"{label:<14}{left_n:>8}{right_n:>8}  {'OK' if same else 'DIFF'}")
-    if not same:
-        problems.append((label, left, right))
-
-print(f"\n订阅内容 SHA256 导出前 {sub_before[:16]}… / 导入后 {sub_after[:16]}…  "
-      f"{'OK' if sub_before == sub_after else 'DIFF'}")
-
-if problems:
-    print(f"\nFAIL: {len(problems)} 类关键数据不一致：", file=sys.stderr)
-    for label, left, right in problems:
-        print(f"  - {label}: 导出前={json.dumps(left, ensure_ascii=False)[:400]}", file=sys.stderr)
-        print(f"            导入后={json.dumps(right, ensure_ascii=False)[:400]}", file=sys.stderr)
-    raise SystemExit(1)
-if sub_before != sub_after:
-    print("\nFAIL: 恢复后订阅内容变了（用户客户端的节点凭据会失效）", file=sys.stderr)
-    raise SystemExit(1)
-PY
-
-ok "恢复后 ${COUNTS_AFTER} 与导出前完全一致（含订阅渲染结果）"
-
-# 行数至少要有内容，防止「空库对空库」这种假绿。
-python3 - "$WORK/facts/after.json" <<'PY' || die "恢复后的关键表是空的（对空断言没有意义）"
-import json, sys
-facts = json.load(open(sys.argv[1], encoding="utf-8"))
-# 数值是「造数 + 迁移自带的默认行」：迁移 0010 会插入一条默认规则模板，
-# 所以 1 条自建模板 + 1 条默认 = 2。其余都是脚本自己造的数量。
-expect = {"users": 3, "servers": 2, "nodes": 4, "packages": 1, "chains": 1,
-          "forwards": 1, "rule_templates": 2, "certificates": 1, "settings": 6}
-wrong = {key: (len(facts[key]), want) for key, want in expect.items() if len(facts[key]) != want}
-if wrong:
-    raise SystemExit(f"关键表行数与造数不符（实际, 期望）：{wrong}")
-PY
+import_and_compare "$WORK/backup-plain.db.gz" "明文备份" "$PLAIN_RAW_BYTES" "$DB_C" "$PORT_C" "plain"
+stop_master
 
 echo
-printf '\033[32mPASS\033[0m 备份恢复实测通过（临时目录：%s）\n' "$WORK"
+printf '\033[32mPASS\033[0m 备份恢复实测通过（加密 + 明文两条路径；临时目录：%s）\n' "$WORK"

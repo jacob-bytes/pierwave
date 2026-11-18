@@ -4,6 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  # 手动触发时可以打开依赖扫描的阻塞开关（默认仍然只观察）。
+  workflow_dispatch:
+    inputs:
+      audit_blocking:
+        description: "依赖扫描发现漏洞时让 job 失败 / Fail the job on dependency audit findings"
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -103,6 +110,67 @@ jobs:
           name: test-log
           path: /tmp/test.log
           if-no-files-found: warn
+
+      # 依赖漏洞扫描：默认只观察（AUDIT_BLOCKING=0），发现漏洞也写 summary/annotation。
+      # 安装失败不阻塞本轮：脚本会把它记成 scanner error，阻塞模式再一并失败。
+      - name: Install cargo-audit
+        continue-on-error: true
+        run: |
+          # .cargo-home 已被 actions/cache 缓存：命中时直接复用上次编译的二进制，
+          # 避免每次都重新解析 index / 编译。
+          if [ -x "$CARGO_HOME/bin/cargo-audit" ]; then
+            echo "cargo-audit already present in the cargo cache"
+          else
+            cargo install cargo-audit --locked --root "$CARGO_HOME"
+          fi
+
+      - name: Dependency audit
+        id: audit
+        env:
+          AUDIT_SUMMARY: ${{ runner.temp }}/audit-summary.md
+          # 默认 0（观察期）。手动触发时勾选 audit_blocking 才变成 1。
+          AUDIT_BLOCKING: ${{ github.event_name == 'workflow_dispatch' && inputs.audit_blocking == true && '1' || '0' }}
+        run: |
+          set -o pipefail
+          rm -f "$AUDIT_SUMMARY" audit.log
+          set +e
+          ./scripts/audit.sh 2>&1 | tee audit.log
+          status=${PIPESTATUS[0]}
+          set -e
+
+          findings=0
+          if grep -q '^AUDIT_RESULT: findings' audit.log; then
+            findings=1
+          fi
+          blocking_findings=$(awk -F': ' '/^AUDIT_BLOCKING_FINDINGS:/{print $2; exit}' audit.log)
+          blocking_findings=${blocking_findings:-0}
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+          echo "findings=${findings}" >> "$GITHUB_OUTPUT"
+          echo "blocking_findings=${blocking_findings}" >> "$GITHUB_OUTPUT"
+
+          # 把发现写成 annotation：日志要权限，annotation 公开。
+          if grep -q '^AUDIT_FINDING:' audit.log; then
+            grep '^AUDIT_FINDING:' audit.log | head -20 | while IFS= read -r line; do
+              echo "::warning title=Dependency audit::${line#AUDIT_FINDING: }"
+            done || true
+          fi
+          if [ "$status" -ne 0 ]; then
+            echo "::warning title=Dependency audit::scanner exited with ${status}; see job summary"
+          fi
+
+          if [ -f "$AUDIT_SUMMARY" ]; then
+            cat "$AUDIT_SUMMARY" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### 依赖扫描没有生成摘要 / no audit summary (scanner exit ${status})" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # 默认不阻塞；是否失败由下一步按 AUDIT_BLOCKING 决定。
+          exit 0
+
+      - name: Enforce dependency audit
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.audit_blocking == true && (steps.audit.outputs.blocking_findings != '0' || steps.audit.outputs.status != '0') }}
+        run: |
+          echo "::error title=Dependency audit::AUDIT_BLOCKING=1 且依赖扫描发现漏洞或扫描失败，见 job summary"
+          exit 1
 
       # 安装脚本做的是卸载/升级/删数据这类破坏性操作，必须有自动化覆盖
       - name: Installer self-test
