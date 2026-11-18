@@ -798,13 +798,19 @@ export function useRunRemoteBackup() {
  *
  * 后端只保证 `restart_required`，所以先用文件大小乐观写入 pending，
  * 让卡片立即切到「已就绪」；info 刷新后再用后端的上传时间覆盖。
+ * `force` 只在 key_mismatch 后由管理员二次确认传入。
  */
+export interface RestoreBackupVariables {
+  file: File;
+  force?: boolean;
+}
+
 export function useRestoreBackup() {
   const queryClient = useQueryClient();
 
-  return useMutation<RestoreBackupResponse, Error, File>({
-    mutationFn: (file) => api.backup.restore(file),
-    onSuccess: (result, file) => {
+  return useMutation<RestoreBackupResponse, Error, RestoreBackupVariables>({
+    mutationFn: ({ file, force }) => api.backup.restore(file, { force }),
+    onSuccess: (result, { file }) => {
       if (result.restart_required) {
         queryClient.setQueryData<BackupInfo>(
           queryKeys.backupInfo,

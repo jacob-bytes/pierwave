@@ -2133,6 +2133,20 @@ const en = {
       cancelRestoreError:
         "Could not cancel the pending restore. Please try again.",
       uploadError: "Could not upload the backup. Please try again.",
+      forceTitle: "The backup uses another master key",
+      forceDesc:
+        "Continuing discards the secrets that cannot be decrypted and still replaces all current data with this backup.",
+      forceSecretConsequence:
+        "The Telegram token, WebDAV password and webhook URL are deleted and must be re-entered after the restore.",
+      forceHmacConsequence: "The subscription derivation secret is regenerated.",
+      forceLinksConsequence:
+        "All old subscription links stop working; users must fetch their links again.",
+      forceConfirmLabel:
+        "I understand that all old subscription links will stop working and the secrets above must be re-entered",
+      forceAction: "Force restore",
+      forceActionPending: "Forcing restore…",
+      forceError: "Forced restore failed. Please try again.",
+      forceWarningLabel: "Forced restore notice",
       tooLarge:
         "The file is larger than {size} and cannot be uploaded; compress or trim the backup first.",
       emptyFile: "This file is empty; choose a valid backup file.",
@@ -3508,6 +3522,13 @@ const en = {
       "{prefix}: near line {line}, column {column}; check brackets, quotes and commas",
     notObject: "config must be a JSON object (starting with { and ending with })",
   },
+  /** Readable labels for the `keys` error param; unknown keys fall through as-is. */
+  secretKeys: {
+    telegram_bot_token: "Telegram bot token",
+    backup_webdav_password: "WebDAV password",
+    webhook_url: "Webhook URL",
+    hmac_secret_v1: "Subscription derivation secret",
+  },
   errors: {
     "api_token.invalid": "Invalid, expired or revoked API token",
     "api_token.read_only": "A read-only API token cannot perform writes",
@@ -3771,6 +3792,8 @@ const en = {
       "A WebDAV password is required before enabling off-site backup",
     "backup.restore_no_pending": "There is no pending restore",
     "backup.in_memory_unsupported": "Backup and restore are not supported for in-memory databases",
+    "backup.key_mismatch":
+      "The backup's secrets were encrypted with another master key and cannot be decrypted: {keys}. Provide the original secret.key or set the same PIERWAVE_SECRET_KEY, then retry; use forced restore only if you accept discarding the old secrets.",
     "backup.restore_bad_header": "The backup file is not a valid SQLite database",
     "backup.restore_missing_tables": "The backup is missing required tables",
     "backup.restore_migration_too_new": "The backup's migration version {version} is newer than the supported version {supported}",
@@ -3780,7 +3803,9 @@ const en = {
     "backup.restore_decrypt_failed":
       "The backup could not be decrypted: the master key does not match, or the file is corrupted",
     "settings.secret_decrypt_failed":
-      "Stored secrets cannot be decrypted; restore the master key used when they were written (data/secret.key or PIERWAVE_SECRET_KEY)",
+      "These secrets cannot be decrypted with the current master key: {keys}. Restore the master key used when they were written (data/secret.key or PIERWAVE_SECRET_KEY), then retry.",
+    "settings.secret_overwrite":
+      "These secrets cannot be decrypted with the current master key: {keys}. Re-enter them, or turn off the features that depend on them before saving.",
     "backup.restore_read_failed": "Failed to read the uploaded content",
     "install.token_required": "Missing token parameter",
     "install.token_not_found": "Invalid token",

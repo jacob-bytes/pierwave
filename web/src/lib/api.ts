@@ -7,6 +7,7 @@ import type {
   AgentUpgradeBatchStatus,
 } from "@/lib/agentUpgradeBatch";
 import { ApiError } from "@/lib/apiError";
+import { restorePath } from "@/lib/backup";
 import type { ChainStrategy } from "@/lib/chains";
 import type { UpdatesResponse } from "@/lib/updates";
 
@@ -108,6 +109,11 @@ export interface RestoreBackupResponse {
   restart_required: boolean;
   /** 后端可能直接带回待恢复详情；没有时前端用文件大小兜底展示。 */
   pending?: BackupPending | null;
+  /**
+   * force=true 时后端返回的中英双语提醒（中 / 英）。前端按当前语言取一半，
+   * 常驻显示在待恢复提示里。
+   */
+  warning?: string | null;
 }
 
 /** 异地备份（WebDAV）远端目录里的一个文件。 */
@@ -2560,8 +2566,11 @@ export const api = {
     /** 同源直链：`<a download>` 直接指向它即可，无需 fetch。 */
     downloadUrl: "/api/v1/backup",
     info: () => request<BackupInfo>("/api/v1/backup/info"),
-    restore: (file: File) =>
-      uploadBinary<RestoreBackupResponse>("/api/v1/backup/restore", file),
+    restore: (file: File, options?: { force?: boolean }) =>
+      uploadBinary<RestoreBackupResponse>(
+        restorePath(options?.force),
+        file,
+      ),
     cancelRestore: () =>
       request<{ ok: true }>("/api/v1/backup/restore", { method: "DELETE" }),
     /** 异地备份（WebDAV）：状态、测试连接、立即上传。 */

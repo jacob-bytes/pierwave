@@ -4,9 +4,26 @@
  * 后端会再校验文件头、必要表与迁移版本；这里只挡掉明显不合法的输入，
  * 避免把 0 字节、错误扩展名或超过 512 MB 的文件发出去。
  */
+import { ApiError } from "./apiError.ts";
 
 /** 与后端一致的 512 MB 上限。 */
 export const BACKUP_MAX_BYTES = 512 * 1024 * 1024;
+
+/** 恢复上传接口；`force` 只能放在查询串（请求体是原始文件字节）。 */
+const RESTORE_PATH = "/api/v1/backup/restore";
+
+/** 恢复上传地址：只有管理员确认丢弃旧秘密时才带 `force=true`。 */
+export function restorePath(force = false): string {
+  return force ? `${RESTORE_PATH}?force=true` : RESTORE_PATH;
+}
+
+/**
+ * 只有 `backup.key_mismatch` 才提供强制恢复入口：普通恢复失败仍然只报错，
+ * 不给用户绕过校验的机会。
+ */
+export function needsForceRestore(error: unknown): boolean {
+  return error instanceof ApiError && error.code === "backup.key_mismatch";
+}
 
 /** `<input type="file" accept>` 的取值；`.db.gz` 以 `.gz` 结尾，`.enc` 单独列出。 */
 export const BACKUP_ACCEPT = ".db,.gz,.enc";

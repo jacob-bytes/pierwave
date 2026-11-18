@@ -176,6 +176,93 @@ test("hasErrorCode probes the dictionary without comparing translated text", () 
   });
 });
 
+test("master-key errors translate secret keys as readable comma-separated labels", () => {
+  const mismatch = () =>
+    new ApiError(
+      "备份来自另一把主密钥（无法解密：telegram_bot_token, hmac_secret_v1）",
+      400,
+      "backup.key_mismatch",
+      { keys: ["telegram_bot_token", "hmac_secret_v1"] },
+    );
+
+  withLocale("zh-CN", () => {
+    const text = errorText(mismatch(), "fallback");
+    assert.ok(text.includes("Telegram Bot Token, 订阅派生 secret"), text);
+    assert.ok(!text.includes("[\""), "不能直接渲染 JSON 数组");
+    assert.ok(!text.includes("telegram_bot_token"), "不能暴露原始键名");
+    assert.ok(text.includes("secret.key"), "要告诉用户下一步怎么做");
+    assert.ok(text.includes("强制恢复"), "要提示强制恢复这条逃生路径");
+  });
+
+  withLocale("en", () => {
+    const text = errorText(mismatch(), "fallback");
+    assert.ok(text.includes("Telegram bot token, Subscription derivation secret"), text);
+    assert.ok(!text.includes("[\""), "must not render a raw JSON array");
+    assert.ok(!text.includes("telegram_bot_token"), "must not leak raw keys");
+    assert.ok(text.includes("secret.key"), "must state the next step");
+    assert.ok(text.includes("forced restore"), "must mention forced restore");
+  });
+});
+
+test("settings.secret_overwrite and secret_decrypt_failed include readable keys", () => {
+  const overwrite = () =>
+    new ApiError(
+      "已保存的 WebDAV 密码无法用当前主密钥解密",
+      400,
+      "settings.secret_overwrite",
+      { keys: ["backup_webdav_password"] },
+    );
+  const decrypt = () =>
+    new ApiError(
+      "秘密设置无法解密",
+      400,
+      "settings.secret_decrypt_failed",
+      { keys: ["telegram_bot_token", "webhook_url"] },
+    );
+
+  withLocale("zh-CN", () => {
+    assert.equal(
+      errorText(overwrite(), "fallback"),
+      "以下秘密无法用当前主密钥解密：WebDAV 密码。请重新填写这些秘密，或先关闭依赖它们的功能后保存。",
+    );
+    assert.equal(
+      errorText(decrypt(), "fallback"),
+      "以下秘密设置无法用当前主密钥解密：Telegram Bot Token, Webhook 地址。请恢复写入时使用的主密钥（data/secret.key 或 PIERWAVE_SECRET_KEY）后重试。",
+    );
+  });
+
+  withLocale("en", () => {
+    assert.equal(
+      errorText(overwrite(), "fallback"),
+      "These secrets cannot be decrypted with the current master key: WebDAV password. Re-enter them, or turn off the features that depend on them before saving.",
+    );
+    assert.equal(
+      errorText(decrypt(), "fallback"),
+      "These secrets cannot be decrypted with the current master key: Telegram bot token, Webhook URL. Restore the master key used when they were written (data/secret.key or PIERWAVE_SECRET_KEY), then retry.",
+    );
+  });
+});
+
+test("unknown secret keys fall through as-is and missing keys fall back to backend text", () => {
+  withLocale("en", () => {
+    assert.equal(
+      errorText(
+        new ApiError("x", 400, "settings.secret_overwrite", {
+          keys: ["future_secret"],
+        }),
+        "fallback",
+      ),
+      "These secrets cannot be decrypted with the current master key: future_secret. Re-enter them, or turn off the features that depend on them before saving.",
+    );
+    const missing = errorText(
+      new ApiError("后端原文", 400, "settings.secret_decrypt_failed"),
+      "fallback",
+    );
+    assert.equal(missing, "后端原文");
+    assert.ok(!missing.includes("{"), "missing keys must not leak placeholders");
+  });
+});
+
 test("self-service forward errors translate in both languages with backend params", () => {
   const quota = () =>
     new ApiError(

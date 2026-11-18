@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { ApiError } from "./apiError.ts";
 import {
   BACKUP_MAX_BYTES,
   isBackupFileName,
+  needsForceRestore,
+  restorePath,
   validateBackupFile,
 } from "./backup.ts";
 
@@ -54,4 +57,40 @@ test("validateBackupFile rejects unsupported names, empty files and >512MB", () 
     validateBackupFile({ name: "pierwave.db", size: -1 }),
     "empty",
   );
+});
+
+test("restorePath only sends force=true after explicit confirmation", () => {
+  assert.equal(restorePath(), "/api/v1/backup/restore");
+  assert.equal(restorePath(false), "/api/v1/backup/restore");
+  assert.equal(
+    restorePath(true),
+    "/api/v1/backup/restore?force=true",
+    "force 只能放在查询串，和原始文件 body 分开",
+  );
+});
+
+test("needsForceRestore only opens the force dialog for backup.key_mismatch", () => {
+  assert.equal(
+    needsForceRestore(
+      new ApiError("备份来自另一把主密钥", 400, "backup.key_mismatch", {
+        keys: ["webhook_url"],
+      }),
+    ),
+    true,
+  );
+  // 其它恢复失败不能给用户绕过校验的入口。
+  assert.equal(
+    needsForceRestore(
+      new ApiError("备份文件校验失败", 400, "backup.restore_invalid"),
+    ),
+    false,
+  );
+  assert.equal(
+    needsForceRestore(
+      new ApiError("备份解密失败", 400, "backup.restore_decrypt_failed"),
+    ),
+    false,
+  );
+  assert.equal(needsForceRestore(new ApiError("服务器内部错误", 500)), false);
+  assert.equal(needsForceRestore(new Error("network down")), false);
 });

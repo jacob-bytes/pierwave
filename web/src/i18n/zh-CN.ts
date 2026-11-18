@@ -2021,6 +2021,19 @@ const zhCN = {
       cancelRestoreSuccess: "已取消待恢复",
       cancelRestoreError: "取消待恢复失败，请稍后重试",
       uploadError: "上传备份失败，请稍后重试",
+      forceTitle: "备份来自另一把主密钥",
+      forceDesc:
+        "继续会丢弃备份中这些无法解密的秘密，并仍以备份覆盖当前全部数据。",
+      forceSecretConsequence:
+        "Telegram Token、WebDAV 密码、Webhook 地址会被删除，恢复后需要重新填写。",
+      forceHmacConsequence: "订阅派生 secret 会重新生成。",
+      forceLinksConsequence: "旧订阅链接会全部失效，用户需要重新获取。",
+      forceConfirmLabel:
+        "我明白旧订阅链接会全部失效，且上述秘密需要重新填写",
+      forceAction: "强制恢复",
+      forceActionPending: "强制恢复中…",
+      forceError: "强制恢复失败，请稍后重试",
+      forceWarningLabel: "强制恢复提醒",
       tooLarge: "文件超过 {size}，无法上传；请先压缩或裁剪备份后再试。",
       emptyFile: "这个文件是空的，请选择有效的备份文件。",
       unsupportedFile: "只支持 .db、.db.gz 或 .db.gz.enc 文件。",
@@ -3310,6 +3323,13 @@ const zhCN = {
     atPosition: "{prefix}：第 {line} 行第 {column} 列附近，请检查括号、引号与逗号",
     notObject: "config 必须是 JSON 对象（以 { 开头、} 结尾）",
   },
+  /** 错误里 `keys` 参数的可读键名；未知键名原样显示。 */
+  secretKeys: {
+    telegram_bot_token: "Telegram Bot Token",
+    backup_webdav_password: "WebDAV 密码",
+    webhook_url: "Webhook 地址",
+    hmac_secret_v1: "订阅派生 secret",
+  },
   errors: {
     "api_token.invalid": "API Token 无效、已过期或已吊销",
     "api_token.read_only": "只读 API Token 不能执行写操作",
@@ -3564,6 +3584,8 @@ const zhCN = {
     "settings.backup_webdav_password_required": "启用异地备份前必须填写 WebDAV 密码",
     "backup.restore_no_pending": "没有待恢复的备份",
     "backup.in_memory_unsupported": "当前数据库是内存库，不支持备份与恢复",
+    "backup.key_mismatch":
+      "备份来自另一把主密钥，无法解密：{keys}。请同时提供原实例的 secret.key，或设置相同的 PIERWAVE_SECRET_KEY 后重试；确认丢弃旧秘密可使用强制恢复。",
     "backup.restore_bad_header": "备份文件不是有效的 SQLite 数据库",
     "backup.restore_missing_tables": "备份缺少必需的表",
     "backup.restore_migration_too_new": "备份的迁移版本 {version} 高于当前程序支持的 {supported}",
@@ -3572,7 +3594,9 @@ const zhCN = {
     "backup.restore_bad_gzip": "gzip 解压失败",
     "backup.restore_decrypt_failed": "备份解密失败：主密钥不匹配或文件已损坏",
     "settings.secret_decrypt_failed":
-      "已保存的秘密设置无法解密：请恢复写入时使用的主密钥（data/secret.key 或 PIERWAVE_SECRET_KEY）",
+      "以下秘密设置无法用当前主密钥解密：{keys}。请恢复写入时使用的主密钥（data/secret.key 或 PIERWAVE_SECRET_KEY）后重试。",
+    "settings.secret_overwrite":
+      "以下秘密无法用当前主密钥解密：{keys}。请重新填写这些秘密，或先关闭依赖它们的功能后保存。",
     "backup.restore_read_failed": "读取上传内容失败",
     "install.token_required": "缺少 token 参数",
     "install.token_not_found": "token 无效",

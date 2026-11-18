@@ -42,6 +42,7 @@ import { api, ApiError, type BackupPending } from "@/lib/api";
 import {
   BACKUP_ACCEPT,
   BACKUP_MAX_BYTES,
+  needsForceRestore,
   validateBackupFile,
   type BackupFileProblem,
 } from "@/lib/backup";
@@ -53,6 +54,7 @@ import {
   useRestoreBackup,
 } from "@/lib/queries";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
+import { pickBilingual } from "@/lib/updates";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
@@ -104,18 +106,38 @@ function BackupSkeleton() {
   );
 }
 
-function PendingNotice({ pending }: { pending: BackupPending }) {
+function PendingNotice({
+  pending,
+  warning,
+}: {
+  pending: BackupPending;
+  /** force=true 时后端返回的双语提醒；null 表示正常恢复。 */
+  warning: string | null;
+}) {
+  const { locale } = useI18n();
+
   return (
     <Alert className="border-warning/25 bg-warning/10 text-warning">
       <TriangleAlertIcon />
       <AlertTitle>{t("settings.backup.pendingTitle")}</AlertTitle>
       <AlertDescription className="text-warning/90">
-        <span title={formatRelativeTime(pending.uploaded_at)}>
+        <span
+          className="block"
+          title={formatRelativeTime(pending.uploaded_at)}
+        >
           {t("settings.backup.pendingDesc", {
             time: formatAbsoluteTime(pending.uploaded_at),
             size: formatBytes(pending.bytes, { unlimitedLabel: "—" }),
           })}
         </span>
+        {warning ? (
+          <span className="mt-1 block border-t border-warning/20 pt-1 text-xs">
+            <span className="font-medium">
+              {t("settings.backup.forceWarningLabel")}
+            </span>{" "}
+            {pickBilingual(warning, locale)}
+          </span>
+        ) : null}
       </AlertDescription>
     </Alert>
   );
@@ -127,7 +149,12 @@ function PendingNotice({ pending }: { pending: BackupPending }) {
  * 这样上传成功、或别的管理员安排了恢复后，选择/勾选状态随组件卸载一起丢弃，
  * 不需要用 effect 在 pending 出现时手动清空。
  */
-function RestoreForm() {
+function RestoreForm({
+  onWarning,
+}: {
+  /** 把 force 恢复的 warning 交给父组件，常驻显示在待恢复提示里。 */
+  onWarning: (warning: string | null) => void;
+}) {
   const restoreBackup = useRestoreBackup();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -135,12 +162,19 @@ function RestoreForm() {
   const [confirmed, setConfirmed] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  // 只有 key_mismatch 才会打开；正常情况下这条路径完全不存在。
+  const [forceOpen, setForceOpen] = useState(false);
+  const [forceConfirmed, setForceConfirmed] = useState(false);
+  const [forceError, setForceError] = useState<string | null>(null);
 
   const resetSelection = () => {
     setFile(null);
     setConfirmed(false);
     setFileError(null);
     setUploadError(null);
+    setForceOpen(false);
+    setForceConfirmed(false);
+    setForceError(null);
     if (inputRef.current) inputRef.current.value = "";
   };
 
@@ -148,6 +182,9 @@ function RestoreForm() {
     const next = event.target.files?.[0] ?? null;
     setUploadError(null);
     setFileError(null);
+    setForceOpen(false);
+    setForceConfirmed(false);
+    setForceError(null);
     setConfirmed(false);
 
     if (!next) {
@@ -167,8 +204,8 @@ function RestoreForm() {
     setFile(next);
   };
 
-  const handleUpload = () => {
-    if (!file || !confirmed || restoreBackup.isPending) return;
+  const submitRestore = (force: boolean) => {
+    if (!file || restoreBackup.isPending) return;
 
     // 第二步预检：选文件后文件可能被替换，提交前再挡一次 512 MB。
     const problem = validateBackupFile(file);
@@ -179,17 +216,47 @@ function RestoreForm() {
 
     setFileError(null);
     setUploadError(null);
-    restoreBackup.mutate(file, {
-      onSuccess: () => {
-        resetSelection();
-        toast.success(t("settings.backup.uploadedToast"));
+    setForceError(null);
+    restoreBackup.mutate(
+      { file, force },
+      {
+        onSuccess: (result) => {
+          resetSelection();
+          onWarning(result.warning ?? null);
+          toast.success(t("settings.backup.uploadedToast"));
+        },
+        onError: (error) => {
+          // key_mismatch 不直接报错：先让管理员看清 force 的破坏性后果。
+          if (needsForceRestore(error)) {
+            setForceOpen(true);
+            setForceConfirmed(false);
+            setForceError(null);
+            return;
+          }
+          const message = backupErrorText(
+            error,
+            force
+              ? t("settings.backup.forceError")
+              : t("settings.backup.uploadError"),
+          );
+          if (force) {
+            setForceError(message);
+          } else {
+            setUploadError(message);
+          }
+        },
       },
-      onError: (error) => {
-        setUploadError(
-          backupErrorText(error, t("settings.backup.uploadError")),
-        );
-      },
-    });
+    );
+  };
+
+  const handleUpload = () => {
+    if (!file || !confirmed || restoreBackup.isPending) return;
+    submitRestore(false);
+  };
+
+  const handleForceRestore = () => {
+    if (!file || !forceConfirmed || restoreBackup.isPending) return;
+    submitRestore(true);
   };
 
   const uploadDisabled = !file || !confirmed || restoreBackup.isPending;
@@ -314,6 +381,98 @@ function RestoreForm() {
             : t("settings.backup.upload")}
         </Button>
       </div>
+
+      {/*
+       * 只有后端返回 backup.key_mismatch 才打开。
+       * force 会删除备份中解不开的秘密并让旧订阅链接失效，必须逐条写清后果。
+       */}
+      <AlertDialog
+        open={forceOpen}
+        onOpenChange={(next) => {
+          if (!next && restoreBackup.isPending) return;
+          if (!next) {
+            setForceOpen(false);
+            setForceConfirmed(false);
+            setForceError(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia className="bg-destructive/10 text-destructive">
+              <TriangleAlertIcon className="size-5" />
+            </AlertDialogMedia>
+            <AlertDialogTitle>
+              {t("settings.backup.forceTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("settings.backup.forceDesc")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <ul className="space-y-1.5 text-sm text-muted-foreground">
+            <li className="flex gap-2">
+              <span aria-hidden="true">•</span>
+              <span>{t("settings.backup.forceSecretConsequence")}</span>
+            </li>
+            <li className="flex gap-2">
+              <span aria-hidden="true">•</span>
+              <span>{t("settings.backup.forceHmacConsequence")}</span>
+            </li>
+            <li className="flex gap-2 font-medium text-destructive">
+              <span aria-hidden="true">•</span>
+              <span>{t("settings.backup.forceLinksConsequence")}</span>
+            </li>
+          </ul>
+
+          {forceError ? (
+            <Alert variant="destructive">
+              <TriangleAlertIcon />
+              <AlertTitle>{t("settings.backup.forceError")}</AlertTitle>
+              <AlertDescription>{forceError}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          <div className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/5 p-3">
+            <Checkbox
+              id="settings-backup-force-confirm"
+              className="mt-0.5"
+              checked={forceConfirmed}
+              disabled={restoreBackup.isPending}
+              onCheckedChange={(checked) =>
+                setForceConfirmed(checked === true)
+              }
+            />
+            <Label
+              htmlFor="settings-backup-force-confirm"
+              className="block cursor-pointer text-xs leading-relaxed font-normal text-destructive"
+            >
+              {t("settings.backup.forceConfirmLabel")}
+            </Label>
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={restoreBackup.isPending}>
+              {t("common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={!forceConfirmed || restoreBackup.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                handleForceRestore();
+              }}
+            >
+              {restoreBackup.isPending ? (
+                <Loader2Icon className="animate-spin" />
+              ) : null}
+              {restoreBackup.isPending
+                ? t("settings.backup.forceActionPending")
+                : t("settings.backup.forceAction")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
@@ -334,6 +493,8 @@ export function BackupCard() {
 
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  // force 恢复返回的 warning：只属于当前待恢复文件，取消或重新上传后清空。
+  const [forceWarning, setForceWarning] = useState<string | null>(null);
 
   const pending = info.data?.pending ?? null;
 
@@ -342,6 +503,7 @@ export function BackupCard() {
     cancelRestore.mutate(undefined, {
       onSuccess: () => {
         setCancelOpen(false);
+        setForceWarning(null);
         toast.success(t("settings.backup.cancelRestoreSuccess"));
       },
       onError: (error) => {
@@ -428,7 +590,7 @@ export function BackupCard() {
         {pending ? (
           <>
             <div className={SETTINGS_FULL_ROW}>
-              <PendingNotice pending={pending} />
+              <PendingNotice pending={pending} warning={forceWarning} />
             </div>
             <div
               className={cn(
@@ -475,7 +637,7 @@ export function BackupCard() {
             </div>
           </>
         ) : (
-          <RestoreForm />
+          <RestoreForm onWarning={setForceWarning} />
         )}
       </SettingsGroup>
 

@@ -42,17 +42,37 @@ function translatedError(locale: Locale, code: string): string | undefined {
   );
 }
 
-function stringifyParam(value: unknown, locale: Locale): string | undefined {
+/**
+ * 错误参数里的秘密键名（`telegram_bot_token` 等）不直接暴露给用户：
+ * 用当前语言的可读键名，未知键名原样回落。
+ */
+function secretKeyLabel(locale: Locale, key: string): string {
+  const labels = dictionaries[locale].secretKeys as Record<string, string>;
+  return labels[key] ?? key;
+}
+
+function stringifyParam(
+  value: unknown,
+  locale: Locale,
+  paramName?: string,
+): string | undefined {
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
   if (Array.isArray(value)) {
-    const parts = value.map((item) => stringifyParam(item, locale));
+    const parts = value.map((item) => {
+      if (paramName === "keys" && typeof item === "string") {
+        return secretKeyLabel(locale, item);
+      }
+      return stringifyParam(item, locale);
+    });
     if (parts.some((part) => part === undefined)) return undefined;
-    // 后端会把 server_ids / servers / node_ids 这类列表直接放进 params；
-    // 列表分隔符跟着当前语言走，避免英文界面里出现「、」。
-    return parts.join(locale === "zh-CN" ? "、" : ", ");
+    // `keys` 统一用逗号分隔可读键名；其它列表（server_ids 等）跟语言走，
+    // 避免英文界面里出现「、」。
+    const separator =
+      paramName === "keys" ? ", " : locale === "zh-CN" ? "、" : ", ";
+    return parts.join(separator);
   }
   return undefined;
 }
@@ -68,7 +88,7 @@ function interpolateError(
 ): string | null {
   let missing = false;
   const text = template.replace(/\{(\w+)\}/g, (match, name: string) => {
-    const value = stringifyParam(params?.[name], locale);
+    const value = stringifyParam(params?.[name], locale, name);
     if (value === undefined) {
       missing = true;
       return match;
