@@ -32,16 +32,48 @@ assertion fails.
 
 ## 1. 登录页整屏光晕 / Login full-screen glow
 
-- 改前：`.auth-glow` 铺满 `inset-0`，页面顶部整片径向渐变。
-- 改后：删除整屏层，只在品牌标识行内保留 `240×240` 容器、`190px` 半径的
-  `radial-gradient`；页面与 `body` 的 `background-image` 均为 `none`。
+- 现状（项目所有者确认的唯一例外）：`.auth-glow` 覆盖 `inset-0`，由两层
+  `primary` 低透明度 `radial-gradient` 组成（顶部中央主光 + 右下角收尾），
+  深色下 24% / 9%、亮色下 11% / 4.5%，无动画；`pointer-events: none` +
+  `aria-hidden="true"`，不拦截交互，`prefers-contrast: more` 下整体降到 45%。
+- 规范：见 `docs/DESIGN.md`「例外：登录页允许整屏径向光晕 / Exception:
+  full-screen radial glow on the login page」；只允许出现在登录页。
+- 上一轮的「光晕收进品牌区」已被所有者要求撤回（整页渐变恢复为唯一例外）。
 
 | 亮 / light 1440 | 亮 / light 390 | 暗 / dark 1440 | 暗 / dark 390 |
 |---|---|---|---|
 | [before](before/login-light-1440.png) → [after](after/login-light-1440.png) | [before](before/login-light-390.png) → [after](after/login-light-390.png) | [before](before/login-dark-1440.png) → [after](after/login-dark-1440.png) | [before](before/login-dark-390.png) → [after](after/login-dark-390.png) |
 
-断言：`oldGlowPresent=false`、`glowWidth/Height=240`、`glowBackground` 含
-`radial-gradient(190px, …)`、页面容器与 `body` 的 `backgroundImage=none`。
+断言：`.auth-glow` 存在且 `getBoundingClientRect()` ≥ 视口（1440×900 / 390×844）；
+页面容器 `background-image` 为 `radial-gradient(…)` 而不是 `none`；
+`pointer-events=none`、`aria-hidden=true`；`body` 仍无渐变。
+
+Assertions: `.auth-glow` exists and its `getBoundingClientRect()` covers the
+viewport; the page container's `background-image` is a `radial-gradient(…)`,
+not `none`; `pointer-events=none` and `aria-hidden=true`; `body` still has no
+gradient.
+
+对比度实测（1440×900，headless Chrome 取渲染像素，文字色取自
+`getComputedStyle`，背景取截图像素）：
+
+Measured contrast (1440×900, rendered pixels sampled from headless Chrome;
+text colors from `getComputedStyle`, backgrounds from screenshot pixels):
+
+| 文字 / Text | 亮 / light | 暗 / dark |
+|---|---|---|
+| 表单标签 / form label | 15.88:1 | 17.14:1 |
+| 输入值 / typed input value | 15.88:1 | 15.84:1 |
+| placeholder | 5.51:1 | 6.54:1 |
+| 登录按钮（可用态）/ enabled button | 8.74:1 | 5.93:1 |
+| 品牌副标题（压在光晕上）/ brand subtitle over glow | 5.15:1 | 7.28:1 |
+| 底部提示（压在光晕上）/ hint over glow | 5.19:1 | 7.37:1 |
+
+全部 ≥ 4.5:1。禁用态按钮是整体 50% 不透明度（WCAG 1.4.3 对非活动控件豁免），
+填入密码后恢复为可用态；这不是本轮引入的行为。
+
+All values are ≥ 4.5:1. The disabled button is rendered at 50% opacity (WCAG
+1.4.3 exempts inactive controls) and returns to the enabled state once the
+password is filled; this behavior predates this change.
 
 ## 2. 概览双 Y 轴 / Overview dual Y axis
 

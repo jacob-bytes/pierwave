@@ -115,33 +115,53 @@ async function shootLogin(theme, width, height) {
   await shoot(page, `login-${theme}-${width}`);
   if (PHASE === "after") {
     const probe = await page.evaluate(() => {
-      const glow = document.querySelector(".auth-brand-glow");
-      const pageBox = document.querySelector(".auth-brand-glow")?.parentElement
-        ?.parentElement;
-      const body = getComputedStyle(document.body);
+      const glow = document.querySelector(".auth-glow");
       const glowStyle = glow ? getComputedStyle(glow) : null;
       const glowRect = glow?.getBoundingClientRect() ?? null;
+      const parentStyle = glow?.parentElement
+        ? getComputedStyle(glow.parentElement)
+        : null;
+      const body = getComputedStyle(document.body);
       return {
         glowPresent: Boolean(glow),
-        oldGlowPresent: Boolean(document.querySelector(".auth-glow")),
+        brandGlowPresent: Boolean(document.querySelector(".auth-brand-glow")),
         glowWidth: glowRect ? Math.round(glowRect.width) : null,
         glowHeight: glowRect ? Math.round(glowRect.height) : null,
+        glowTop: glowRect ? Math.round(glowRect.top) : null,
+        glowLeft: glowRect ? Math.round(glowRect.left) : null,
+        glowCoversViewport:
+          Boolean(glowRect) &&
+          glowRect.width >= window.innerWidth &&
+          glowRect.height >= window.innerHeight &&
+          glowRect.top <= 0 &&
+          glowRect.left <= 0,
         glowBackground: glowStyle?.backgroundImage ?? null,
-        pageBackground: pageBox ? getComputedStyle(pageBox).backgroundImage : null,
+        // 页面容器 = 覆盖整屏的 `.auth-glow` 层：它的 background-image 必须是
+        // radial-gradient，而不是上一轮「只剩品牌小圆」时的 none。
+        pageBackground: glowStyle?.backgroundImage ?? null,
+        parentBackground: parentStyle?.backgroundImage ?? null,
         bodyBackground: body.backgroundImage,
+        pointerEvents: glowStyle?.pointerEvents ?? null,
+        ariaHidden: glow?.getAttribute("aria-hidden") ?? null,
+        viewport: { width: window.innerWidth, height: window.innerHeight },
       };
     });
     METRICS.login = METRICS.login ?? {};
     METRICS.login[`${theme}-${width}`] = probe;
     if (theme === "light" && width === 1440) {
-      assert(probe.glowPresent, "登录页有品牌光晕");
-      assert(!probe.oldGlowPresent, "整屏 .auth-glow 已移除");
-      assert(probe.glowWidth <= 240 && probe.glowHeight <= 240, "品牌光晕容器 ≤ 240px");
+      assert(probe.glowPresent, "登录页存在整屏光晕 .auth-glow");
+      assert(!probe.brandGlowPresent, "只保留一层整屏光晕，无品牌小光晕");
+      assert(
+        probe.glowCoversViewport,
+        `整屏光晕覆盖视口（${probe.glowWidth}×${probe.glowHeight} vs ${probe.viewport.width}×${probe.viewport.height}）`,
+      );
       assert(
         (probe.glowBackground ?? "").includes("radial-gradient"),
-        "品牌光晕使用 radial-gradient",
+        "整屏光晕使用 radial-gradient",
       );
-      assert(probe.pageBackground === "none", "登录页容器平涂，无整屏渐变");
+      assert(probe.pageBackground !== "none", "页面容器 background-image 非 none");
+      assert(probe.pointerEvents === "none", "光晕不拦截交互");
+      assert(probe.ariaHidden === "true", "光晕对读屏隐藏");
       assert(probe.bodyBackground === "none", "body 无渐变");
     }
   }

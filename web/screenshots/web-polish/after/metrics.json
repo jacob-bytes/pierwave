@@ -2,39 +2,79 @@
   "login": {
     "light-1440": {
       "glowPresent": true,
-      "oldGlowPresent": false,
-      "glowWidth": 240,
-      "glowHeight": 240,
-      "glowBackground": "radial-gradient(190px, oklch(0.424 0.199 265.638 / 0.12), rgba(0, 0, 0, 0) 72%)",
-      "pageBackground": "none",
-      "bodyBackground": "none"
+      "brandGlowPresent": false,
+      "glowWidth": 1440,
+      "glowHeight": 900,
+      "glowTop": 0,
+      "glowLeft": 0,
+      "glowCoversViewport": true,
+      "glowBackground": "radial-gradient(80% 55% at 50% 0%, oklch(0.424 0.199 265.638 / 0.11), rgba(0, 0, 0, 0) 70%), radial-gradient(60% 45% at 85% 100%, oklch(0.424 0.199 265.638 / 0.045), rgba(0, 0, 0, 0) 70%)",
+      "pageBackground": "radial-gradient(80% 55% at 50% 0%, oklch(0.424 0.199 265.638 / 0.11), rgba(0, 0, 0, 0) 70%), radial-gradient(60% 45% at 85% 100%, oklch(0.424 0.199 265.638 / 0.045), rgba(0, 0, 0, 0) 70%)",
+      "parentBackground": "none",
+      "bodyBackground": "none",
+      "pointerEvents": "none",
+      "ariaHidden": "true",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      }
     },
     "light-390": {
       "glowPresent": true,
-      "oldGlowPresent": false,
-      "glowWidth": 240,
-      "glowHeight": 240,
-      "glowBackground": "radial-gradient(190px, oklch(0.424 0.199 265.638 / 0.12), rgba(0, 0, 0, 0) 72%)",
-      "pageBackground": "none",
-      "bodyBackground": "none"
+      "brandGlowPresent": false,
+      "glowWidth": 390,
+      "glowHeight": 844,
+      "glowTop": 0,
+      "glowLeft": 0,
+      "glowCoversViewport": true,
+      "glowBackground": "radial-gradient(80% 55% at 50% 0%, oklch(0.424 0.199 265.638 / 0.11), rgba(0, 0, 0, 0) 70%), radial-gradient(60% 45% at 85% 100%, oklch(0.424 0.199 265.638 / 0.045), rgba(0, 0, 0, 0) 70%)",
+      "pageBackground": "radial-gradient(80% 55% at 50% 0%, oklch(0.424 0.199 265.638 / 0.11), rgba(0, 0, 0, 0) 70%), radial-gradient(60% 45% at 85% 100%, oklch(0.424 0.199 265.638 / 0.045), rgba(0, 0, 0, 0) 70%)",
+      "parentBackground": "none",
+      "bodyBackground": "none",
+      "pointerEvents": "none",
+      "ariaHidden": "true",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      }
     },
     "dark-1440": {
       "glowPresent": true,
-      "oldGlowPresent": false,
-      "glowWidth": 240,
-      "glowHeight": 240,
-      "glowBackground": "radial-gradient(190px, oklch(0.662 0.179 264.6 / 0.26), rgba(0, 0, 0, 0) 72%)",
-      "pageBackground": "none",
-      "bodyBackground": "none"
+      "brandGlowPresent": false,
+      "glowWidth": 1440,
+      "glowHeight": 900,
+      "glowTop": 0,
+      "glowLeft": 0,
+      "glowCoversViewport": true,
+      "glowBackground": "radial-gradient(80% 55% at 50% 0%, oklch(0.662 0.179 264.6 / 0.24), rgba(0, 0, 0, 0) 70%), radial-gradient(60% 45% at 85% 100%, oklch(0.662 0.179 264.6 / 0.09), rgba(0, 0, 0, 0) 70%)",
+      "pageBackground": "radial-gradient(80% 55% at 50% 0%, oklch(0.662 0.179 264.6 / 0.24), rgba(0, 0, 0, 0) 70%), radial-gradient(60% 45% at 85% 100%, oklch(0.662 0.179 264.6 / 0.09), rgba(0, 0, 0, 0) 70%)",
+      "parentBackground": "none",
+      "bodyBackground": "none",
+      "pointerEvents": "none",
+      "ariaHidden": "true",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      }
     },
     "dark-390": {
       "glowPresent": true,
-      "oldGlowPresent": false,
-      "glowWidth": 240,
-      "glowHeight": 240,
-      "glowBackground": "radial-gradient(190px, oklch(0.662 0.179 264.6 / 0.26), rgba(0, 0, 0, 0) 72%)",
-      "pageBackground": "none",
-      "bodyBackground": "none"
+      "brandGlowPresent": false,
+      "glowWidth": 390,
+      "glowHeight": 844,
+      "glowTop": 0,
+      "glowLeft": 0,
+      "glowCoversViewport": true,
+      "glowBackground": "radial-gradient(80% 55% at 50% 0%, oklch(0.662 0.179 264.6 / 0.24), rgba(0, 0, 0, 0) 70%), radial-gradient(60% 45% at 85% 100%, oklch(0.662 0.179 264.6 / 0.09), rgba(0, 0, 0, 0) 70%)",
+      "pageBackground": "radial-gradient(80% 55% at 50% 0%, oklch(0.662 0.179 264.6 / 0.24), rgba(0, 0, 0, 0) 70%), radial-gradient(60% 45% at 85% 100%, oklch(0.662 0.179 264.6 / 0.09), rgba(0, 0, 0, 0) 70%)",
+      "parentBackground": "none",
+      "bodyBackground": "none",
+      "pointerEvents": "none",
+      "ariaHidden": "true",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      }
     }
   },
   "overview": {

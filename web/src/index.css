@@ -168,8 +168,12 @@
   --card-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.045),
     0 1px 2px rgb(0 0 0 / 0.35);
-  /* 登录页品牌标识周围的小范围光晕强度：深色底上可以更明显 */
-  --auth-glow-strong: 26%;
+  /*
+   * 登录页整屏光晕强度（设计规范里唯一允许的整屏渐变）：
+   * 深色底上可以更明显，但只到「一层氛围」为止，不压过卡片。
+   */
+  --auth-glow-strong: 24%;
+  --auth-glow-soft: 9%;
   --radius: 0.75rem;
   --sidebar: oklch(0.165 0.005 285);
   --sidebar-foreground: oklch(0.965 0.003 285);
@@ -220,8 +224,9 @@
   --chart-5: oklch(0.554 0.041 257.4);
   --overlay: oklch(0.253 0.03 267.4 / 40%);
   --skeleton: oklch(0.253 0.03 267.4 / 6%);
-  /* 亮色下主色本身更深，光晕要收着用，避免品牌区域发蓝 */
-  --auth-glow-strong: 12%;
+  /* 亮色下主色本身更深，光晕要收着用，避免整屏发蓝、吃掉次要文字对比度 */
+  --auth-glow-strong: 11%;
+  --auth-glow-soft: 4.5%;
   --sidebar: oklch(1 0 0);
   --sidebar-foreground: oklch(0.253 0.03 267.4);
   --sidebar-primary: oklch(0.424 0.199 265.638);
@@ -481,16 +486,38 @@
 }
 
 /*
- * 登录页品牌光晕：只在 logo 与品牌名周围 240px 的圆内使用 primary 的
- * 低透明度径向渐变。页面背景保持平涂 zinc；不做整屏渐变，也不做动画。
+ * 登录页整屏光晕：这是整套视觉规范里唯一允许的整屏渐变
+ * （见 docs/DESIGN.md「例外：登录页允许整屏径向光晕」）。
+ *
+ * 只用 primary 的低透明度径向渐变，不引入第二种颜色，也不做动画：
+ * 一层从顶部中央向下铺开，一层在右下角收尾。深色下略强、亮色下收着用，
+ * 避免整屏发蓝；卡片与输入框都是不透明底色，光晕不会改变表单文字的实际
+ * 对比度（实测见 web/screenshots/web-polish/README.md）。
+ *
+ * 纯装饰层：`pointer-events: none` + aria-hidden，不遮挡也不拦截交互。
+ * 静态渐变没有动画，因此不需要额外的 reduced-motion 分支；在高对比度偏好下
+ * 整体再压低一层，防止渐变削弱文字对比。
  */
-.auth-brand-glow {
-  background-image: radial-gradient(
-    circle 190px at 50% 50%,
-    color-mix(in oklch, var(--primary) var(--auth-glow-strong), transparent),
-    transparent 72%
-  );
+.auth-glow {
+  pointer-events: none;
+  background-image:
+    radial-gradient(
+      ellipse 80% 55% at 50% 0%,
+      color-mix(in oklch, var(--primary) var(--auth-glow-strong), transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 60% 45% at 85% 100%,
+      color-mix(in oklch, var(--primary) var(--auth-glow-soft), transparent),
+      transparent 70%
+    );
   background-repeat: no-repeat;
+}
+
+@media (prefers-contrast: more) {
+  .auth-glow {
+    opacity: 0.45;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

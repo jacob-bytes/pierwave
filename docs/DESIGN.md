@@ -42,6 +42,37 @@
 6. 骨架屏：shimmer 1.2s 循环。
 
 禁止：整屏渐变、发光、弹跳、超过 300ms 的过渡、滚动视差。
+唯一的例外见下（登录页整屏径向光晕）。
+
+### 例外：登录页允许整屏径向光晕 / Exception: full-screen radial glow on the login page
+
+**中文**：`/login` 是唯一允许整屏渐变（同时也就是唯一允许「发光」）的一屏。
+使用一到两层 `primary` 低透明度的 `radial-gradient`（`.auth-glow`，`inset-0`），
+不引入第二种颜色，不加动画。
+
+- 理由：登录页是用户进入产品的第一印象，需要一层品牌氛围；它是全站唯一
+  只承载品牌、不承载信息的页面，渐变不会与数据抢注意力。
+- 约束：**只此一处，不得扩散**到控制台或其它页面；光晕层必须
+  `pointer-events: none` + `aria-hidden="true"`，不遮挡、不拦截交互；亮/暗
+  主题各自取值（暗色不过亮、亮色不过蓝），表单文字与背景对比度不得低于
+  4.5:1；`prefers-contrast: more` 下降低不透明度；不新增动画，未来若加动效
+  必须尊重 `prefers-reduced-motion`。
+
+**English**: `/login` is the only screen allowed to use a full-viewport gradient
+(and therefore the only place where a "glow" is allowed). Use one or two
+low-opacity `primary` `radial-gradient` layers (`.auth-glow`, `inset-0`) with no
+second color and no animation.
+
+- Why: the login screen is the product's first impression and needs a layer of
+  brand atmosphere; it is the only screen that carries brand and no
+  information, so the gradient never competes with data.
+- Constraints: **this one place only — never spread it** to the console or any
+  other page; the glow layer must set `pointer-events: none` and
+  `aria-hidden="true"` so it never blocks or intercepts interaction; light and
+  dark themes get their own strength (not too bright in dark, not too blue in
+  light) and form text must stay at or above 4.5:1 against its background;
+  reduce opacity under `prefers-contrast: more`; add no animation, and any
+  future motion must respect `prefers-reduced-motion`.
 
 ## 四、组件策略
 
