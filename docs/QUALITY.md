@@ -6,7 +6,7 @@
 | 入口 | 用途 |
 |---|---|
 | `scripts/flaky-baseline.sh` | 同一份代码连跑 N 次测试，暴露偶发失败 |
-| `.github/workflows/ci.yml` | 前端与 Rust 测试拆成并行 job；flaky 基线只在手动触发时跑 |
+| `.github/workflows/ci.yml` | Rust / web / 依赖扫描拆成并行 job（flaky 基线不在 CI 里跑） |
 | `scripts/audit.sh` | Rust `cargo audit` + 前端 `npm audit`，默认只观察 |
 | `scripts/verify-backup.sh` | 真实 HTTP 导出/导入（加密 + 明文），断言关键数据一致 |
 | `scripts/verify-upgrade.sh` | v0.15.0 建库 → HEAD 打开同一个库，断言迁移、数据与旧备份恢复 |
@@ -26,62 +26,99 @@ KEEP_LOGS=1 ./scripts/flaky-baseline.sh                            # 全绿也�
 - 失败日志按 `run-<n>.log` 保留在临时目录（全绿时删除）；
 - 第一次失败后是否继续跑由 `FLAKY_FAIL_FAST` 控制，默认跑满 N 次，便于看「是不是每次都挂」。
 
-本机实测（HEAD `7239f04`，默认 10 线程）10 次全部失败，且每次都是同一批 5 个用例，
-说明这不是「偶发一次」而是可复现的并发问题（见「发现的问题」1）。
+本机实测（2026-11-19，HEAD `e0ed3f7`，`FLAKY_TEST_ARGS="-p pierwave-agent -- --test-threads=10"`）
+连跑 20 次**全部通过**，总耗时约 194s。此前 HEAD `7239f04` 上的 10 次全部失败是
+`realm::tests::*` 的探测竞态，本次基线已不再复现。
 
-CI 里是一个**手动触发**的 job（不拖慢 push/PR）：
+> 同一份代码用 32 线程加压（`--test-threads=32`，模拟少核 CI 的过订阅）会挂 3–4 个
+> `forward::tests::*`（端口复用假设），这是另一条链的已知问题，不在本轮 UDP 修复范围；
+> 隧道 UDP 用例自身的修复见下。
 
-```
-GitHub → Actions → CI → Run workflow → flaky_runs（默认 10）
-```
+### 隧道 UDP 用例的 flaky 根因与修复
 
-失败时会把汇总表写进 job summary、把失败行打成 annotation，并上传日志 artifact。
+历史失败用例：`tunnel::supervisor::tests::two_udp_clients_get_separate_sessions_and_replies`、
+`noise_udp_tunnel_echoes_three_datagrams_without_certificates`。
+
+- **根因（时序，不是端口）**：断言用「发一次 + 固定等 5s」。UDP 没有重传，握手期间
+  与首个会话建立前的数据报仍可能丢失（入口只缓存有限个），少核 CI 上握手本身也可能
+  超过 5s。统计计数此前已经改成 10s 轮询，但**首个数据报的收发仍是固定 5s**，
+  所以握手慢时必然超时。
+- **修复**：`udp_roundtrip` 改成在 15s 预算内轮询重发，每次探针带唯一序号（迟到的
+  旧回包不会被误认为本次成功）；两个客户端用例各自声明「别的客户端的载荷」，
+  收到即断言串包。等待预算统一为 15s，没有 `#[ignore]`，也没有分钟级超时。
+- **端口假设**：`free_port()` 现在要求 TCP 与 UDP **同时**空闲才返回（隧道会同时绑
+  两个协议），降低并行用例之间的端口抢占窗口。
+- **结果**：修复后同一条 `-p pierwave-agent -- --test-threads=10` 连跑 20 次全绿。
+
+CI 里**没有** flaky job（避免拖慢 push/PR）；需要时按上面的命令本地跑，
+`workflow_dispatch` 目前只暴露 `audit_blocking` 一个开关。
 
 ## 2. CI 时长与并行拆分
 
-拆分前（GitHub Actions run `43599754842`，commit `7239f04`，2026-11-14）：
+测法：用 GitHub Actions API 拉最近一次成功 CI run（run `44532732377`，commit
+`7d0fd1c`，2026-11-19）的 job/step 时间戳，只统计 step 自身耗时。
+
+拆分前（单个 `check` job，墙钟 654s）：
 
 | 步骤（`fmt + clippy + test + web build` job） | 耗时 |
 |---|---|
-| Cache cargo（恢复 target/.cargo-home） | 76s |
-| Frontend deps（`npm install`） | 6s |
-| Format | 2s |
-| Clippy（`-D warnings`） | 42s |
-| Tests（`cargo test --workspace`） | 116s |
+| Set up / checkout / rust toolchain / setup-node | 15s |
+| Cache cargo（恢复 target/.cargo-home） | 85s |
+| Cache npm | 3s |
+| Frontend deps（`npm install`） | 10s |
+| Format | 1s |
+| Clippy（`-D warnings`） | 53s |
+| Tests（`cargo test --workspace`） | 231s |
+| Install cargo-audit | 175s |
+| Dependency audit | 2s |
 | Installer self-test | 11s |
-| Web tests | 3s |
+| Web tests | 5s |
 | Web build | 3s |
-| Post Cache cargo（保存缓存） | 31s |
-| **该 job 墙钟** | **308s** |
-| e2e job（本来就并行） | 137s |
-| **workflow 墙钟** | **约 311s** |
+| Post Cache npm + Post Cache cargo（保存缓存） | 56s |
+| **该 job 墙钟** | **654s** |
+| e2e job（本来就并行） | 225s |
+| **workflow 墙钟** | **654s** |
 
-拆分后：
+拆分后（四个 job，其中三个与 e2e 并行）：
 
 | job | 内容 | 估计耗时 |
 |---|---|---|
-| `rust` | fmt + clippy + test + installer self-test | **约 294s** |
-| `web` | npm install + web-test + web-build（无 cargo 缓存） | **约 16s** |
-| `e2e` | 不变 | 137s |
+| `check`（名字保持不动） | checkout + fmt + clippy + test + installer self-test + cargo 缓存 | **约 455s** |
+| `web` | npm install + web-test + web-build | **约 28s** |
+| `audit` | cargo-audit + 依赖扫描（首次 192s；命中二进制缓存约 15s） | **约 15–192s** |
+| `e2e` | 不变（新增三条覆盖后约 240s，见下） | 约 240s |
 
-工作流墙钟从「一个 308s 的 job」变成「`max(294, 16, 137)` ≈ **294s**」，约省 14s（-4.5%）。
+`check` job 从 654s 降到约 455s（**-30%**），workflow 墙钟同样约 654s → 455s。
+没有删除或跳过任何检查项：`check` 少了的两段（web、audit）原样搬到并行 job，
+`make check` 仍覆盖 fmt/clippy/test/web-build/web-test。
 
-收益为什么只有十几秒：前端在缓存命中时本来就只有 3s/3s，真正的大头是 Rust 测试 116s
-和 cargo 缓存读写 76s+31s。拆分没有删任何测试——`rust` job 仍是 fmt/clippy/test/installer，
-`web` job 是 web-test/web-build，`e2e` 保持原样。主要收益是**失败定位更早、两个技术栈
-互不阻塞**（前端失败不用等 Rust 测试跑完，反之亦然），而不是这十几秒。
+收益最大的一笔是 cargo-audit：它原来串在 Tests 之后每次重编 175s。主 cargo 缓存
+的 key 是「`Cargo.lock` 哈希 + 只写一次」，某个 lock 早期保存的缓存里没有这个
+二进制，之后每次 run 都会重装。现在 `audit` job 用固定 key 单独缓存
+`.cargo-home/bin/cargo-audit`，安装前先 `--version` 验活；热缓存轮次这项从
+175s 降到几秒，而且它已经不在 `check` 的关键路径上。
 
-> 没有把 clippy 再拆一个 job：clippy 只有 42s，单独一个 job 还要再付一次 cargo 缓存
-> 恢复（30–80s），净收益大概率是负的。
+> 为什么 `check` job 不改名：分支保护按 job 名匹配 required check，改名会让 PR
+> 一直等一个永远不会出现的检查。名字里的 `web build` 现在由 `web` job 承担，
+> 这只是历史名称，不代表检查项缺失。
+>
+> 为什么不拆 clippy：只有 53s，单独 job 还要再付一次 cargo 缓存恢复（85s），
+> 净收益为负。
+
+**e2e 预期时长**：新增「WS 首帧超时（固定等 10s）」「加密备份导出 → 恢复 →
+重启」两段后，CI 上约 225s → **约 240s**；本地（10 核、已编译）约
+**45–60s**。e2e 仍与 `check` 并行，不进入关键路径。
+
 
 ## 3. 依赖漏洞扫描
 
-CI 的 `fmt + clippy + test + web build` job 在 Tests 之后跑 `scripts/audit.sh`：
+CI 里是独立的 `audit` job（与 `check` / `web` / `e2e` 并行，见第 2 节）跑
+`scripts/audit.sh`：
 
 - **Rust**：`cargo audit`。CI 先执行
   `cargo install cargo-audit --locked --root "$CARGO_HOME"`，二进制落在
-  `.cargo-home/bin/`——这个目录本来就在 cargo 缓存里，命中缓存时直接复用、
-  不再解析 index 或编译；
+  `.cargo-home/bin/`；`audit` job 用固定 key 单独缓存这个二进制，安装前先
+  `--version` 验活，命中时不再解析 index 或编译；
 - **前端**：在 `web/` 下执行 `npm audit --audit-level=high`，缓存走仓库内的
   `NPM_CONFIG_CACHE`（`.npm-cache`）。
 
@@ -107,14 +144,15 @@ RUSTSEC_DB=/path/to/advisory-db ./scripts/audit.sh   # GitHub 不可达时用本
 > `cargo install` 后调脚本更直接，也不需要额外信任一个第三方 action。
 > cargo-audit 安装失败时只记 scanner error：非阻塞轮次不红，阻塞模式再失败。
 
-当前发现（2026-11-18，HEAD `dddd1df`）：
+当前发现（2026-11-19，HEAD `e0ed3f7`；前端数据来自
+`npm audit --audit-level=high --json` 实测）：
 
 | 生态 | 结果 |
 |---|---|
-| Rust（`Cargo.lock`） | **2** 个漏洞（均为 moderate）+ 2 个 unmaintained 警告 |
-| npm（`web/`） | **13** 个：critical 0 / high 11 / moderate 2 / low 0 |
+| Rust（`Cargo.lock`） | **2** 个漏洞（均为 moderate）+ 2 个 unmaintained 警告（本轮未重新拉 RustSec，沿用上一次实测） |
+| npm（`web/`） | **4** 个：critical 0 / high 0 / moderate 4 / low 0 |
 
-Rust 两个漏洞：
+Rust 两个漏洞（未变化）：
 
 | 严重度 | 包 | Advisory | 说明 | 修复 |
 |---|---|---|---|---|
@@ -124,23 +162,36 @@ Rust 两个漏洞：
 另外 2 个 **unmaintained** 警告（不是漏洞，阻塞阈值不计）：`chrono` 0.4.45、
 `unsafe-libyaml` 0.2.11。
 
-npm Top 10（按严重度；11 个 high 基本是同一批构建工具链的传递依赖）：
+npm 当前 4 个 moderate 是**同一条链**（`shadcn` CLI 的 AST 工具链）：
 
-| # | 严重度 | 包 | 摘要 | 修复 |
-|---|---|---|---|---|
-| 1 | high | `picomatch` | ReDoS（GHSA-fc5q-39xc-vjpf，CVSS 7.5） | 升级 `vite` / `shadcn` 主版本 |
-| 2 | high | `vite` | 经由 `picomatch` / `tinyglobby` | `vite` 6.2.7+ |
-| 3 | high | `@vitejs/plugin-react` | 经由 `vite` | 主版本升级 |
-| 4 | high | `shadcn` | 经由 `@dotenvx/dotenvx` / `@shadcn/registry` | `shadcn` 2.10.0 |
-| 5 | high | `@shadcn/registry` | 经由 `@dotenvx/dotenvx` | 随 `shadcn` 升级 |
-| 6 | high | `@dotenvx/dotenvx` | 经由 `fdir` / `picomatch` | 随 `shadcn` 升级 |
-| 7 | high | `fast-glob` | 经由 `micromatch` / `picomatch` | 随 `shadcn` 升级 |
-| 8 | high | `micromatch` | 经由 `picomatch` | 随 `shadcn` 升级 |
-| 9 | high | `fdir` / `tinyglobby` | 经由 `picomatch` | 随工具链升级 |
-| 10 | moderate | `minimatch` | globparts 放大型 DoS（GHSA-g3hv-75wg-m249） | 升级到 11.0.1+ |
+| 严重度 | 包 | 摘要 | 修复 |
+|---|---|---|---|
+| moderate | `minimatch` 10.2.6 | globparts 放大型 DoS（GHSA-g3hv-75wg-m249，影响 7.0.0–11.0.0） | 升级到 11.0.1+ |
+| moderate | `@ts-morph/common` 0.27.0 | 经由 `minimatch`（影响 0.19.0–0.29.0） | 随 `ts-morph` 升级 |
+| moderate | `ts-morph` 26.0.0 | 经由 `@ts-morph/common`（影响 18.0.0–27.0.2） | 随 `shadcn` 升级 |
+| moderate | `shadcn` 4.23.0 | 经由 `ts-morph` / `@ts-morph/common` / `minimatch` | 只有 `npm audit fix --force` 会装 `shadcn@1.0.0`（降级，破坏性） |
 
-npm 这些基本都是 `shadcn` / `vite` 构建期依赖，不在生产运行时；修复需要跨主版本升级。
-所以先按「观察一轮」接入，等前端工具链和 sqlx 升级时再收紧为阻塞。
+### picomatch（上一轮的 11 个 high）根因与现状
+
+- **根因**：`picomatch` ReDoS（GHSA-fc5q-39xc-vjpf）随 `vite` / `@vitejs/plugin-react` /
+  `shadcn` / `fast-glob` / `fdir` / `tinyglobby` / `micromatch` 传递进锁文件；当时锁文件里
+  的版本低于修复版，所以同一条链被展开成 11 条 high。
+- **现状（2026-11-19）**：依赖树已经在之前的工具链升级里前滚，锁文件里只剩
+  `picomatch@2.3.2`（`fast-glob → micromatch`）与 `picomatch@4.0.7`
+  （`vite` / `tinyglobby` / `@dotenvx/dotenvx`），两者都在修复版之上；`npm audit`
+  已不再报告 picomatch，**不需要跨主版本修复**。
+- **影响面**：这些包只在构建/代码生成期使用（`shadcn` CLI 的 `ts-morph` 解析、
+  `minimatch` glob 匹配；`shadcn/tailwind.css` 只在构建期被 Tailwind/Vite 处理），
+  不进入 SPA 的运行时 JS 逻辑，也不出现在 `web/dist` 的 JS 产物里。
+- **跟踪方式**：`scripts/audit.sh` 里的 `npm audit` 保持**非阻塞**，每次 CI 的
+  `audit` job 写 job summary + annotation；达到 `critical` / `high` 才会在阻塞模式下变红。
+- **升级触发条件**：等上游发布修复版——`ts-morph > 27.0.2`（或
+  `@ts-morph/common > 0.29.0` 带 `minimatch >= 11.0.1`）进入 `shadcn` 的正式依赖；
+  届时升 `web/package.json` 的 `shadcn`，再跑 `npm audit`、`npm test`、`npm run build`。
+- **已尝试**：`npm audit fix`（非 force）实测输出 `up to date, audited 393 packages`，
+  没有可用的兼容修复；`npm audit fix --force` 会把 `shadcn` 降到 `1.0.0`，
+  属于破坏性降级。**结论：暂不修**（保持 0 high/0 critical，不与 `shadcn` 的
+  主版本升级硬绑在同一轮改动里）。
 
 > 本机实测受 GitHub 不可达影响：`cargo audit` 的 advisory DB 用
 > `RUSTSEC_DB=/path/to/advisory-db` 指向本地快照，脚本会自动加 `--no-fetch`；
@@ -239,16 +290,12 @@ PASS 升级路径实测通过
 
 ## 发现的问题
 
-1. **realm 能力探测在并发测试下失败（P1，crates/agent）**
-   `cargo test --workspace`（默认 10 线程）稳定挂 4–5 个用例（个别轮次 6–7 个）：
-   `realm::tests::*` 的 transport 三个用例 + `tests::heartbeat_reports_realm_transport_capability_from_binary`
-   （个别轮次还带 `capability_probe_reads_the_transport_feature`、
-   `exit_code_is_recorded_in_status`）。`--test-threads=1` 或单独跑这几个用例全绿；
-   `--test-threads=2` 全绿，`4/8/10` 线程至少挂 2 个。失败时的状态是
-   「无法判定 realm 是否支持跳间加密，已拒绝下发」——即 `detect_transport()`
-   返回了 `None`。该函数 2s 超时、spawn 失败都折叠成 `None`（= 不支持），
-   测试与生产都会把「探测失败」当成「不支持」。本 lane 不能改 `crates/`，仅报告。
-   这正是 flaky 基线要抓的东西：同一份代码，换并行度就变结果。
+1. **realm 能力探测在并发测试下失败（历史问题，当前 HEAD 不复现）**
+   在 HEAD `7239f04` 上 `cargo test --workspace`（默认 10 线程）稳定挂 4–5 个用例：
+   `realm::tests::*` 的 transport 三个用例 + `tests::heartbeat_reports_realm_transport_capability_from_binary`，
+   根因是 `detect_transport()` 把 2s 超时 / spawn 失败折叠成 `None`（= 不支持）。
+   2026-11-19 在 HEAD `e0ed3f7` 上用 `-p pierwave-agent -- --test-threads=10`
+   连跑 20 次全绿，该竞态已不再复现（对应改动不在本 lane 范围内）。
 2. **`/api/v1/backup/info` 的 `db_bytes` 在 WAL 模式下只算主库文件（P2，**已在 v0.11.3 修复**：改用 `page_count × page_size`）**
    实测 `db_bytes=4096`，而同一时刻导出的快照解压后是 `479232` 字节。前端设置页
    （`web/src/components/settings/BackupCard.tsx`）直接展示这个数字，用户会看到 4 KB。
@@ -269,7 +316,7 @@ in `scripts/`; the CI change is `.github/workflows/ci.yml`.
 | Entry point | Purpose |
 |---|---|
 | `scripts/flaky-baseline.sh` | Run the test suite N times on identical code to expose flakes |
-| `.github/workflows/ci.yml` | Split web and Rust work into parallel jobs; flaky baseline is manual-only |
+| `.github/workflows/ci.yml` | Rust, web and dependency audit run as parallel jobs (the flaky baseline is local-only) |
 | `scripts/audit.sh` | `cargo audit` + `npm audit`, non-blocking by default |
 | `scripts/verify-backup.sh` | Export/import (encrypted + plaintext) through the real HTTP API and assert the data survives |
 | `scripts/verify-upgrade.sh` | Build a DB with v0.15.0, open it with HEAD, assert migrations, data and legacy-backup restore |
@@ -287,37 +334,106 @@ KEEP_LOGS=1 ./scripts/flaky-baseline.sh
 
 It prints a summary table (pass/fail and duration per run), prints the failing test names of
 any failing run, keeps that run's log as `run-<n>.log`, and exits non-zero if any run fails.
-It runs on the CI `flaky` job, triggered manually via
-`Actions → CI → Run workflow → flaky_runs` (default 10); that job never runs on push/PR.
-On failure the summary is written to the job summary, failing lines become annotations, and
-the logs are uploaded as an artifact.
+
+Measured locally on 2026-11-19 (HEAD `e0ed3f7`,
+`FLAKY_TEST_ARGS="-p pierwave-agent -- --test-threads=10"`): 20/20 runs passed in ~194s.
+The 10/10 failures seen earlier on HEAD `7239f04` were the `realm::tests::*` probe race and
+no longer reproduce. Pushing the same binary to 32 threads (oversubscribing a small CI
+runner) still fails 3–4 `forward::tests::*` cases due to port-reuse assumptions — a
+different chain, out of scope here.
+
+### Tunnel UDP flake: root cause and fix
+
+Historical failures: `tunnel::supervisor::tests::two_udp_clients_get_separate_sessions_and_replies`
+and `noise_udp_tunnel_echoes_three_datagrams_without_certificates`.
+
+- **Root cause (timing, not ports)**: the assertions used "send once + wait a fixed 5s". UDP
+  has no retransmission: datagrams sent during the QUIC handshake or before the first
+  session is ready can still be lost (the ingress only buffers a limited number), and on a
+  small CI runner the handshake itself can take longer than 5s. The stats counters had
+  already moved to 10s polling, but the **first datagram** still used a fixed 5s wait, so a
+  slow handshake always timed out.
+- **Fix**: `udp_roundtrip` now polls and re-sends within a 15s budget, tagging every probe
+  with a unique sequence number (a late reply from an earlier probe cannot be mistaken for
+  success). Each two-client assertion declares the other client's payloads and fails on any
+  cross-talk. The wait budget is 15s, with no `#[ignore]` and no minute-level timeout.
+- **Port assumption**: `free_port()` now requires both TCP and UDP to be free before
+  returning (the tunnel binds both protocols on one port), shrinking the race window
+  between parallel tests.
+- **Result**: after the fix, the same `-p pierwave-agent -- --test-threads=10` baseline passed
+  20/20.
+
+CI has **no** flaky job (it would slow every push/PR); run the command above locally when
+needed. `workflow_dispatch` currently exposes only the `audit_blocking` input.
 
 ## 2. CI duration and job split
 
-Before (run `43599754842`, commit `7239f04`): a single `fmt + clippy + test + web build` job
-took **308s** wall (cache restore 76s, clippy 42s, tests 116s, installer 11s, npm 6s,
-web tests 3s, web build 3s, cache save 31s); the e2e job (137s) already ran in parallel,
-so the workflow took ~311s.
+Measured from the GitHub Actions API for the last successful CI run (`44532732377`, commit
+`7d0fd1c`, 2026-11-19), counting each step's own timestamps.
 
-After: `rust` (fmt/clippy/test/installer) ≈ **294s**, `web` (npm install + web-test +
-web-build, no cargo cache) ≈ **16s**, `e2e` unchanged at 137s. Workflow wall clock becomes
-`max(294, 16, 137)` ≈ **294s**, about 14s (-4.5%) shorter.
+Before — one `check` job, **654s** wall:
 
-The saving is small because the web steps are already cheap (3s each with a warm npm cache)
-while Rust tests and cargo cache I/O dominate. The real win is earlier, independent failure
-signals: a broken frontend no longer waits for three minutes of Rust tests. No test was
-removed — the `rust` job still runs fmt, clippy, the full test suite and the installer
-self-test; the `web` job runs web-test and web-build; `e2e` is untouched. Clippy was not
-split into its own job because it is only 42s and would need another 30–80s cache restore.
+| Step (`fmt + clippy + test + web build` job) | Duration |
+|---|---|
+| Set up / checkout / rust toolchain / setup-node | 15s |
+| Cache cargo (restore target/.cargo-home) | 85s |
+| Cache npm | 3s |
+| Frontend deps (`npm install`) | 10s |
+| Format | 1s |
+| Clippy (`-D warnings`) | 53s |
+| Tests (`cargo test --workspace`) | 231s |
+| Install cargo-audit | 175s |
+| Dependency audit | 2s |
+| Installer self-test | 11s |
+| Web tests | 5s |
+| Web build | 3s |
+| Post Cache npm + Post Cache cargo (save) | 56s |
+| **Job wall clock** | **654s** |
+| e2e job (already parallel) | 225s |
+| **Workflow wall clock** | **654s** |
+
+After — four jobs, three of them parallel with e2e:
+
+| Job | Contents | Estimated duration |
+|---|---|---|
+| `check` (name unchanged) | checkout + fmt + clippy + test + installer self-test + cargo cache | **~455s** |
+| `web` | npm install + web-test + web-build | **~28s** |
+| `audit` | cargo-audit + dependency scan (192s cold, ~15s with the binary cache) | **~15–192s** |
+| `e2e` | unchanged apart from the three new checks (~240s, see below) | ~240s |
+
+The `check` job goes 654s → ~455s (**-30%**), and the workflow wall clock follows,
+654s → ~455s. No check was removed or skipped: the two blocks the `check` job lost (web and
+audit) run verbatim in parallel jobs, and `make check` still covers fmt/clippy/test/
+web-build/web-test.
+
+The biggest single win is cargo-audit: it used to run serially after Tests and recompile for
+175s on every run. The main cargo cache key is "Cargo.lock hash + write once", and the cache
+saved for a given lock was created before this binary existed, so it was rebuilt every time.
+The `audit` job now caches just `.cargo-home/bin/cargo-audit` under a fixed key (validated
+with `--version` before use); on a warm cache that step drops to seconds and is no longer on
+the `check` critical path.
+
+> Why the `check` job keeps its name: branch protection matches required checks by job name,
+> so renaming it would leave PRs waiting for a check that never reports. Its old `web build`
+> suffix is a historical label; the web job now performs that work.
+>
+> Why clippy stays: it is only 53s, and a separate job would pay another 85s cargo cache
+> restore, a net loss.
+
+**Expected e2e duration**: with the new first-frame timeout (a fixed 10s wait) and the
+encrypted backup export/restore/restart, CI goes from ~225s to **~240s**; locally (10 cores,
+already compiled) it is **45–60s**. e2e still runs in parallel with `check`, so it is not on
+the critical path.
 
 ## 3. Dependency audit
 
-The CI `fmt + clippy + test + web build` job runs `scripts/audit.sh` right after the Tests
-step:
+CI runs `scripts/audit.sh` in its own `audit` job (parallel with `check` / `web` / `e2e`, see
+section 2):
 
 - **Rust**: `cargo audit`, installed by
   `cargo install cargo-audit --locked --root "$CARGO_HOME"`. The binary lands in
-  `.cargo-home/bin`, which is already part of the cargo cache, so later runs skip the build;
+  `.cargo-home/bin` and the `audit` job caches just that binary under a fixed key, validating
+  it with `--version` before reuse;
 - **Frontend**: `npm audit --audit-level=high` inside `web/`, with `NPM_CONFIG_CACHE`
   pointing at the repo-local `.npm-cache`.
 
@@ -344,14 +460,15 @@ RUSTSEC_DB=/path/to/advisory-db ./scripts/audit.sh   # local RustSec DB when Git
 > install is recorded as a scanner error: the observation round stays green, blocking mode
 > fails.
 
-Current findings (2026-11-18, HEAD `dddd1df`):
+Current findings (2026-11-19, HEAD `e0ed3f7`; the npm numbers are a fresh
+`npm audit --audit-level=high --json` run):
 
 | Ecosystem | Result |
 |---|---|
-| Rust (`Cargo.lock`) | **2** vulnerabilities (both moderate) + 2 unmaintained warnings |
-| npm (`web/`) | **13**: critical 0 / high 11 / moderate 2 / low 0 |
+| Rust (`Cargo.lock`) | **2** vulnerabilities (both moderate) + 2 unmaintained warnings (numbers carried over from the last RustSec run) |
+| npm (`web/`) | **4**: critical 0 / high 0 / moderate 4 / low 0 |
 
-The two Rust advisories:
+The two Rust advisories (unchanged):
 
 | Severity | Package | Advisory | Notes | Fix |
 |---|---|---|---|---|
@@ -361,10 +478,40 @@ The two Rust advisories:
 Two further **unmaintained** warnings (not vulnerabilities, not blocking): `chrono` 0.4.45
 and `unsafe-libyaml` 0.2.11.
 
-The 11 npm highs are essentially one build-tooling chain (`picomatch` ReDoS via `vite`,
-`shadcn`, `fast-glob`, `fdir`, `tinyglobby`, …), and the 2 moderates are `minimatch` /
-`ts-morph`. All of them are dev/build-time dependencies, not production runtime; fixing them
-requires major `vite` / `shadcn` upgrades, which is why the first round only observes.
+The 4 npm moderates are one chain (the `shadcn` CLI AST tooling):
+
+| Severity | Package | Summary | Fix |
+|---|---|---|---|
+| moderate | `minimatch` 10.2.6 | globparts amplification DoS (GHSA-g3hv-75wg-m249, affects 7.0.0–11.0.0) | upgrade to 11.0.1+ |
+| moderate | `@ts-morph/common` 0.27.0 | via `minimatch` (affects 0.19.0–0.29.0) | follow `ts-morph` |
+| moderate | `ts-morph` 26.0.0 | via `@ts-morph/common` (affects 18.0.0–27.0.2) | follow `shadcn` |
+| moderate | `shadcn` 4.23.0 | via `ts-morph` / `@ts-morph/common` / `minimatch` | only `npm audit fix --force` would install `shadcn@1.0.0` (a breaking downgrade) |
+
+### picomatch (the 11 highs from the previous round): root cause and current state
+
+- **Root cause**: the `picomatch` ReDoS (GHSA-fc5q-39xc-vjpf) reached the lockfile
+  transitively through `vite` / `@vitejs/plugin-react` / `shadcn` / `fast-glob` / `fdir` /
+  `tinyglobby` / `micromatch`. The locked versions were below the patched release, so one
+  chain expanded into 11 high findings.
+- **Current state (2026-11-19)**: the dependency tree rolled forward during earlier toolchain
+  upgrades. The lockfile now contains only `picomatch@2.3.2` (`fast-glob → micromatch`) and
+  `picomatch@4.0.7` (`vite` / `tinyglobby` / `@dotenvx/dotenvx`), both above the patched
+  release; `npm audit` no longer reports picomatch at all, so **no cross-major fix is needed**.
+- **Blast radius**: build/code-generation only (`shadcn` CLI's `ts-morph` parsing and
+  `minimatch` glob matching; `shadcn/tailwind.css` is only processed by Tailwind/Vite at
+  build time). It is not part of the SPA's runtime JS and does not appear in the `web/dist`
+  JS output.
+- **Tracking**: the `npm audit` inside `scripts/audit.sh` stays **non-blocking**; every CI
+  `audit` job writes the summary plus annotations, and only `critical` / `high` can fail the
+  opt-in blocking mode.
+- **Upgrade trigger**: when upstream ships the fix — `ts-morph > 27.0.2` (or
+  `@ts-morph/common > 0.29.0` with `minimatch >= 11.0.1`) in `shadcn`'s stable dependency
+  set. Then bump `shadcn` in `web/package.json` and run `npm audit`, `npm test`,
+  `npm run build`.
+- **Already tried**: `npm audit fix` (non-force) reports `up to date, audited 393 packages`
+  — there is no compatible fix; `npm audit fix --force` downgrades `shadcn` to `1.0.0`,
+  which is breaking. **Conclusion: not fixing now** (0 high / 0 critical; keep this separate
+  from the `shadcn` major upgrade).
 
 > In this sandbox GitHub is unreachable, so the local run pointed `RUSTSEC_DB` at a snapshot
 > of the advisory database (which makes the script add `--no-fetch`). CI leaves it unset and
@@ -419,13 +566,12 @@ startup-to-healthy 0.9s, legacy restore pending 565248 B, `PASS`.
 
 ## Findings
 
-1. **Realm capability probe is concurrency-sensitive (P1, crates/agent).**
-   `cargo test --workspace` fails 4–5 tests (occasionally 6–7) with the default thread count
-   (10), and at least 2 with `--test-threads=4/8`; it passes with 1 or 2 threads and when the
-   tests run alone. All 10 baseline runs failed with the same five tests. The failing state is "cannot determine whether realm supports hop TLS, refusing to
-   apply" — `detect_transport()` returned `None`, which is also what it returns on the 2s
-   timeout or a spawn error. Both the tests and production treat "probe failed" as
-   "unsupported". This lane may not touch `crates/`, so this is reported only.
+1. **Realm capability probe was concurrency-sensitive (historical; no longer reproduces on
+   HEAD).** On HEAD `7239f04`, `cargo test --workspace` failed 4–5 tests (occasionally 6–7)
+   with the default thread count (10) because `detect_transport()` folded the 2s timeout and
+   spawn errors into `None` (= unsupported). On 2026-11-19, HEAD `e0ed3f7`, running
+   `-p pierwave-agent -- --test-threads=10` 20 times passed every run, so the race no longer
+   reproduces (the change that fixed it is outside this lane's scope).
 2. **`/api/v1/backup/info` under-reports `db_bytes` in WAL mode (P2).**
    Observed `db_bytes=4096` while the exported snapshot was 479232 bytes after gunzip. The
    settings page (`web/src/components/settings/BackupCard.tsx`) shows this number. Suggest

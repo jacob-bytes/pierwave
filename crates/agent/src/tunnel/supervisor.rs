@@ -1000,8 +1000,22 @@ mod tests {
     }
 
     fn free_port() -> u16 {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("探测空闲端口");
-        listener.local_addr().expect("读取空闲端口").port()
+        // 隧道会**同时**在这个端口上绑 TCP 和 UDP。只探测 TCP 的话，并行用例
+        // 频繁建/拆端口的窗口里可能撞上别人的 UDP socket：端口检查通过，真正
+        // bind 时才是别人的监听端口。这里要求两个协议都空闲再返回。
+        for _ in 0..100 {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("探测空闲端口");
+            let port = listener.local_addr().expect("读取空闲端口").port();
+            match std::net::UdpSocket::bind(("127.0.0.1", port)) {
+                Ok(udp) => {
+                    drop(udp);
+                    drop(listener);
+                    return port;
+                }
+                Err(_) => continue,
+            }
+        }
+        panic!("找不到同时空闲的 TCP/UDP 端口");
     }
 
     fn base64_secret(secret: &[u8]) -> String {
@@ -1322,23 +1336,74 @@ mod tests {
     }
 
     /// 通过入口 UDP 端口发一个包并等回包。
-    async fn udp_roundtrip(client: &UdpSocket, dialer: SocketAddr, payload: &[u8]) -> Vec<u8> {
-        client
-            .send_to(payload, dialer)
-            .await
-            .expect("发送 UDP 数据报失败");
-        let mut reply = [0u8; 2048];
-        let (size, from) = timeout(Duration::from_secs(5), client.recv_from(&mut reply))
-            .await
-            .expect("等待 UDP 回包超时")
-            .expect("读取 UDP 回包失败");
-        assert_eq!(from, dialer, "回包必须来自入口的 UDP 端口");
-        reply[..size].to_vec()
+    ///
+    /// UDP 没有重传：QUIC 握手期间与首个会话建立前的数据报仍可能丢失
+    /// （入口只缓存有限个），握手在少核 CI 上也可能超过 5s。旧实现
+    /// 「发一次 + 固定等 5s」正是 flaky 的根因。这里改成在
+    /// [`TEST_WAIT_TIMEOUT`] 内轮询重发，并且每次探测都带**唯一序号**：
+    ///
+    /// * 只接受与本次探针完全一致的回包，迟到的旧回包不会被误认成本次成功；
+    /// * `foreign` 里的载荷属于别的客户端，收到就是真正的串包，立即失败。
+    async fn udp_roundtrip(
+        client: &UdpSocket,
+        dialer: SocketAddr,
+        payload: &[u8],
+        foreign: &[&[u8]],
+    ) -> Vec<u8> {
+        let deadline = Instant::now() + TEST_WAIT_TIMEOUT;
+        let mut attempts = 0u32;
+        loop {
+            let mut probe = payload.to_vec();
+            probe.push(b'#');
+            probe.extend_from_slice(attempts.to_string().as_bytes());
+            attempts += 1;
+            client
+                .send_to(&probe, dialer)
+                .await
+                .expect("发送 UDP 数据报失败");
+
+            // 单个探测窗口不设太长：握手没完成时包会丢，早一点重发比干等有效；
+            // 握手完成后，下一个窗口就能收到回包。
+            let window = Instant::now() + Duration::from_millis(300);
+            loop {
+                let remaining = window.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    break;
+                }
+                let mut reply = [0u8; 2048];
+                match timeout(remaining, client.recv_from(&mut reply)).await {
+                    Ok(Ok((size, from))) => {
+                        assert_eq!(from, dialer, "回包必须来自入口的 UDP 端口");
+                        let got = &reply[..size];
+                        for other in foreign {
+                            let mut foreign_probe = other.to_vec();
+                            foreign_probe.push(b'#');
+                            assert!(
+                                !got.starts_with(&foreign_probe),
+                                "串包：收到了别的客户端的回包（载荷 {got:?}）"
+                            );
+                        }
+                        if got == probe.as_slice() {
+                            return payload.to_vec();
+                        }
+                        // 本客户端早先探针的迟到回包：忽略，继续等本次的。
+                    }
+                    Ok(Err(error)) => panic!("读取 UDP 回包失败：{error}"),
+                    Err(_) => break,
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "{}s 内没有收到载荷 {payload:?} 的回包（已重发 {attempts} 次，入口 {dialer}）",
+                TEST_WAIT_TIMEOUT.as_secs(),
+            );
+        }
     }
 
     /// 轮询等待的预算：CI（少核、较慢）上一条 QUIC 链的首个数据报可能要等
-    /// 握手完成、排队处理，5s 以下本身就会变成新的抖动源。
-    const TEST_WAIT_TIMEOUT: Duration = Duration::from_secs(10);
+    /// 握手完成、排队处理。固定 sleep / 5s 超时本身就是抖动源；这里给 15s
+    /// 预算，正常路径仍然在毫秒级返回（轮询不是无条件等满）。
+    const TEST_WAIT_TIMEOUT: Duration = Duration::from_secs(15);
     /// 轮询间隔。
     const TEST_POLL_INTERVAL: Duration = Duration::from_millis(20);
     /// 「不该有回包」的负向观察窗口。这不是等待某个事件发生，而是给「绝不会
@@ -1655,7 +1720,7 @@ mod tests {
         let dialer_addr: SocketAddr = format!("127.0.0.1:{dialer_port}").parse().unwrap();
         for payload in [b"noise-first".as_slice(), b"noise-second", b"noise-third"] {
             assert_eq!(
-                udp_roundtrip(&client, dialer_addr, payload).await,
+                udp_roundtrip(&client, dialer_addr, payload, &[]).await,
                 payload,
                 "Noise 模式的 UDP 回显内容必须与发送一致"
             );
@@ -1847,7 +1912,7 @@ mod tests {
         let dialer_addr: SocketAddr = format!("127.0.0.1:{dialer_port}").parse().unwrap();
         for payload in [b"first".as_slice(), b"second", b"third"] {
             assert_eq!(
-                udp_roundtrip(&client, dialer_addr, payload).await,
+                udp_roundtrip(&client, dialer_addr, payload, &[]).await,
                 payload,
                 "UDP 回显内容必须与发送一致"
             );
@@ -1936,28 +2001,53 @@ mod tests {
         let client_b = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let dialer_addr: SocketAddr = format!("127.0.0.1:{dialer_port}").parse().unwrap();
 
-        // 先各发一个包（两个 QUIC 连接），再同时收；回包必须回到各自的 socket。
+        // 先各发一个包（两个 QUIC 连接），再各自收；回包必须回到各自的 socket。
+        // 收发都用会重发的 udp_roundtrip：首个数据报可能在 QUIC 握手完成前
+        // 被丢弃，固定 5s 等待在慢速 CI 上会直接超时。
         client_a.send_to(b"alpha-1", dialer_addr).await.unwrap();
         client_b.send_to(b"beta-1", dialer_addr).await.unwrap();
-        let mut buf = [0u8; 512];
-        let (size, _) = timeout(Duration::from_secs(5), client_a.recv_from(&mut buf))
-            .await
-            .expect("客户端 A 回包超时")
-            .unwrap();
-        assert_eq!(&buf[..size], b"alpha-1", "客户端 A 不能收到 B 的回包");
-        let (size, _) = timeout(Duration::from_secs(5), client_b.recv_from(&mut buf))
-            .await
-            .expect("客户端 B 回包超时")
-            .unwrap();
-        assert_eq!(&buf[..size], b"beta-1", "客户端 B 不能收到 A 的回包");
+        assert_eq!(
+            udp_roundtrip(
+                &client_a,
+                dialer_addr,
+                b"alpha-1",
+                &[b"beta-1".as_slice(), b"beta-2"],
+            )
+            .await,
+            b"alpha-1",
+            "客户端 A 不能收到 B 的回包"
+        );
+        assert_eq!(
+            udp_roundtrip(
+                &client_b,
+                dialer_addr,
+                b"beta-1",
+                &[b"alpha-1".as_slice(), b"alpha-2"],
+            )
+            .await,
+            b"beta-1",
+            "客户端 B 不能收到 A 的回包"
+        );
 
         // 各自继续发包，仍然回到自己。
         assert_eq!(
-            udp_roundtrip(&client_a, dialer_addr, b"alpha-2").await,
+            udp_roundtrip(
+                &client_a,
+                dialer_addr,
+                b"alpha-2",
+                &[b"beta-1".as_slice(), b"beta-2"],
+            )
+            .await,
             b"alpha-2"
         );
         assert_eq!(
-            udp_roundtrip(&client_b, dialer_addr, b"beta-2").await,
+            udp_roundtrip(
+                &client_b,
+                dialer_addr,
+                b"beta-2",
+                &[b"alpha-1".as_slice(), b"alpha-2"],
+            )
+            .await,
             b"beta-2"
         );
 

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # 端到端冒烟：主控 → 登录 → 建服务器/节点/用户/套餐 → apply → Agent 收敛 → 订阅闭环
 # 最后一条断言是本项目的核心不变量：订阅里发给用户的凭据，必须能在服务器 inbound 里找到同一条。
+#
+# 预期耗时：本地（二进制已编译）约 45–55s；CI 约 4 分钟。变长是有意的——
+# 「WS 首帧超时」必须真的等主控的 10s Hello 超时，「加密备份」会重启一次主控
+# 来应用待恢复文件。看到这两段停留时不要当成卡住。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$PWD
@@ -557,5 +561,276 @@ for payload in (b"one", b"two", b"three"):
     assert data == b"udp:" + payload, (payload, data)
 print("ok UDP 转发回环：3 个数据报全部回显")
 PY
+
+# ---------------------------------------------------------------- WS 首帧超时
+# 主控对 Agent WS 的 Hello 有 10s 硬超时（AGENT_HELLO_TIMEOUT）。这里用裸
+# WebSocket 客户端完成握手后**故意不发任何帧**，断言连接在 12s 内被主控关闭。
+# 不能只断言「连接断了」：必须先确认升级成功（101），否则测到的是 404/挂在
+# 握手阶段，而不是首帧超时；同时加 8s 下界，防止别的原因提前断开冒充超时。
+echo "--- WS 首帧超时：握手后不发 Hello，主控应在 10s 内关闭连接 ---"
+if ! python3 - "$BASE" <<'PY'
+import base64, os, socket, struct, sys, time
+
+base = sys.argv[1]
+host, port = base.split("//", 1)[1].split(":", 1)
+port = int(port)
+
+sock = socket.create_connection((host, port), timeout=5)
+key = base64.b64encode(os.urandom(16)).decode()
+sock.sendall(
+    (
+        f"GET /api/agent/ws HTTP/1.1\r\nHost: {host}:{port}\r\n"
+        "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+        f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
+    ).encode()
+)
+buf = b""
+while b"\r\n\r\n" not in buf:
+    chunk = sock.recv(4096)
+    if not chunk:
+        raise SystemExit("FAIL: 还没等首帧，WebSocket 握手阶段连接就被关闭了")
+    buf += chunk
+status_line = buf.split(b"\r\n", 1)[0].decode("latin-1")
+if "101" not in status_line:
+    raise SystemExit(f"FAIL: WebSocket 升级失败：{status_line}")
+
+# 握手完成后什么都不发，只等主控按 Hello 超时关闭连接。
+sock.settimeout(12)
+start = time.monotonic()
+closed_by = None
+try:
+    while True:
+        header = sock.recv(2)
+        if len(header) < 2:
+            closed_by = "EOF"
+            break
+        opcode = header[0] & 0x0F
+        length = header[1] & 0x7F
+        if length == 126:
+            length = struct.unpack(">H", sock.recv(2))[0]
+        elif length == 127:
+            length = struct.unpack(">Q", sock.recv(8))[0]
+        remaining = length
+        while remaining > 0:
+            chunk = sock.recv(remaining)
+            if not chunk:
+                break
+            remaining -= len(chunk)
+        if opcode == 0x8:
+            closed_by = "close 帧"
+            break
+except socket.timeout:
+    closed_by = None
+elapsed = time.monotonic() - start
+sock.close()
+
+if closed_by is None:
+    raise SystemExit(
+        f"FAIL: 12s 内没有收到关闭（首帧超时应为 10s；已等 {elapsed:.1f}s）"
+    )
+if elapsed < 8.0:
+    raise SystemExit(
+        f"FAIL: 连接在 {elapsed:.1f}s 就被关闭，早于 10s 首帧超时（走的不是超时路径）"
+    )
+print(f"ok WS 首帧超时：握手后不发消息，{elapsed:.1f}s 内被主控关闭（{closed_by}）")
+PY
+then
+  echo "FAIL: WS 首帧超时断言失败（见上）"
+  tail -10 "$WORK/master.log" || true
+  exit 1
+fi
+
+# ---------------------------------------------------------------- 加密备份
+# 覆盖「导出 → PWSB 信封 → 恢复 → 重启生效 → 数据一致」整条链路。
+# 快照只取稳定字段：status / last_seen / runtime 这类心跳态在重启后必然变化，
+# 拿它们比对会把「恢复成功」误测成失败。
+echo "--- 加密备份：导出 PWSB 信封 → 恢复并重启 → 数据一致 ---"
+snapshot_facts() {
+  python3 - "$BASE" "$WORK/cookie" "$1" "$2" "$ALICE_CODE" <<'PY'
+import hashlib, json, sys, urllib.request
+
+base, cookie_file, out_path, sub_path, code = sys.argv[1:6]
+session = ""
+for line in open(cookie_file, encoding="utf-8"):
+    fields = line.rstrip("\n").split("\t")
+    if len(fields) >= 7 and fields[5] == "pierwave_session":
+        session = fields[6]
+if not session:
+    raise SystemExit(f"FAIL: 从 {cookie_file} 里找不到 pierwave_session")
+cookie = f"pierwave_session={session}"
+
+
+def get_bytes(path):
+    request = urllib.request.Request(base + path, headers={"Cookie": cookie})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.read()
+    except Exception as error:  # 失败原因必须原样打印，不能只留一个 traceback
+        raise SystemExit(f"FAIL: GET {path} 失败：{error}")
+
+
+def get_json(path):
+    return json.loads(get_bytes(path))
+
+
+servers = get_json("/api/v1/servers")["items"]
+nodes, forwards = [], []
+for server in servers:
+    for node in get_json(f"/api/v1/servers/{server['id']}/nodes")["items"]:
+        nodes.append({
+            "server": server["id"], "id": node["id"], "tag": node["tag"],
+            "protocol": node["protocol"], "port": node["port"],
+        })
+    for forward in get_json(f"/api/v1/servers/{server['id']}/forwards")["items"]:
+        forwards.append({
+            "server": server["id"], "id": forward["id"], "name": forward["name"],
+            "listen_port": forward["listen_port"], "target_host": forward["target_host"],
+            "target_port": forward["target_port"], "engine": forward["engine"],
+            "udp": forward["udp"],
+        })
+
+users = get_json("/api/v1/users")["items"]
+packages = get_json("/api/v1/packages")["items"]
+templates = get_json("/api/v1/rule-templates")["items"]
+
+sub = get_bytes(f"/api/v1/sub/{code}")
+open(sub_path, "wb").write(sub)
+
+facts = {
+    "servers": sorted((s["id"], s["name"], s["address"]) for s in servers),
+    "nodes": sorted(nodes, key=lambda item: item["id"]),
+    "forwards": sorted(forwards, key=lambda item: item["id"]),
+    "users": sorted(
+        (u["id"], u["username"], int(u["used_bytes"]), u["short_code"]) for u in users
+    ),
+    "packages": sorted(
+        (p["id"], p["name"], p["quota_bytes"], p["period_days"], p["node_ratio"])
+        for p in packages
+    ),
+    "rule_templates": sorted((t["id"], t["name"]) for t in templates),
+    "subscription_sha256": hashlib.sha256(sub).hexdigest(),
+}
+# 防止「空库对空库」式的假绿：恢复必须真的带回了数据。
+assert len(facts["servers"]) >= 2, facts
+assert len(facts["nodes"]) >= 3, facts
+assert len(facts["users"]) >= 2, facts
+assert len(facts["forwards"]) >= 3, facts
+# 具体数值不在这里写死：前面已经断言过 9000，这一段只要求「确有计量数据」，
+# 避免之后新增上报轮次时把备份测试变成脆弱的数字断言。
+assert any(used > 0 for _, _, used, _ in facts["users"]), facts["users"]
+json.dump(
+    facts, open(out_path, "w", encoding="utf-8"),
+    ensure_ascii=False, sort_keys=True, indent=2,
+)
+print(
+    f"ok 快照：servers={len(facts['servers'])} nodes={len(facts['nodes'])} "
+    f"users={len(facts['users'])} forwards={len(facts['forwards'])} "
+    f"订阅 {facts['subscription_sha256'][:12]}…"
+)
+PY
+}
+
+snapshot_facts "$WORK/facts-before.json" "$WORK/sub-before.yaml" \
+  || { echo "FAIL: 导出前的数据快照失败（见上）"; exit 1; }
+
+CODE=$(curl -s -b "$WORK/cookie" -D "$WORK/backup.headers" -o "$WORK/backup.bin" \
+  -w '%{http_code}' "$BASE/api/v1/backup")
+[ "$CODE" = "200" ] || { echo "FAIL: 导出加密备份应 200，实际 ${CODE}"; exit 1; }
+grep -qi '^content-type: application/octet-stream' "$WORK/backup.headers" \
+  || { echo "FAIL: 加密备份的 Content-Type 应为 application/octet-stream"; grep -i '^content-type' "$WORK/backup.headers" || true; exit 1; }
+grep -qi 'filename="[^"]*\.db\.gz\.enc"' "$WORK/backup.headers" \
+  || { echo "FAIL: 加密备份的文件名应以 .db.gz.enc 结尾"; grep -i '^content-disposition' "$WORK/backup.headers" || true; exit 1; }
+if ! python3 - "$WORK/backup.bin" <<'PY'
+import sys
+path = sys.argv[1]
+blob = open(path, "rb").read()
+head = blob[:64]
+if not head.startswith(b"PWSB"):
+    raise SystemExit(f"文件头不是 PWSB：{head[:8]!r}")
+if head[:2] == b"\x1f\x8b" or head[:16] == b"SQLite format 3\x00":
+    raise SystemExit("加密备份不能是 gzip / 明文 SQLite")
+print(f"ok 导出是 PWSB 加密信封（信封版本 {head[4]}，{len(blob)} B）")
+PY
+then
+  echo "FAIL: 导出的备份不是 PWSB 加密信封（见上）"
+  exit 1
+fi
+
+CODE=$(curl -s -b "$WORK/cookie" -X POST "$BASE/api/v1/backup/restore" \
+  -H 'Content-Type: application/octet-stream' --data-binary @"$WORK/backup.bin" \
+  -o "$WORK/restore.json" -w '%{http_code}')
+[ "$CODE" = "200" ] || { echo "FAIL: 上传加密备份应 200，实际 ${CODE}"; head -c 400 "$WORK/restore.json"; echo; exit 1; }
+RESTART=$(jget '["restart_required"]' < "$WORK/restore.json")
+[ "$RESTART" = "True" ] || { echo "FAIL: 恢复响应 restart_required 应为 true，实际 ${RESTART}"; exit 1; }
+PENDING=$(jget '["pending"]["bytes"]' < "$WORK/restore.json")
+case "$PENDING" in
+  ''|*[!0-9]*) echo "FAIL: 恢复响应的 pending.bytes 非法：${PENDING}"; exit 1 ;;
+esac
+[ "$PENDING" -gt 0 ] || { echo "FAIL: 恢复响应的 pending.bytes 应大于 0，实际 ${PENDING}"; exit 1; }
+echo "ok 加密备份已落盘为待恢复文件（${PENDING} B），按契约重启后生效"
+
+# 恢复只在启动时替换数据库；真 Agent 先停掉，避免它在重启窗口里刷断线日志。
+kill "$AGENT_PID" 2>/dev/null || true
+wait "$AGENT_PID" 2>/dev/null || true
+AGENT_PID=""
+kill "$MASTER_PID" 2>/dev/null || true
+wait "$MASTER_PID" 2>/dev/null || true
+PIERWAVE_ADDR="127.0.0.1:$PORT" PIERWAVE_DB="sqlite://$WORK/db.sqlite?mode=rwc" \
+PIERWAVE_ADMIN_PASSWORD=devpass ./target/debug/pierwave-master >> "$WORK/master.log" 2>&1 &
+MASTER_PID=$!
+for _ in $(seq 1 100); do curl -sf "$BASE/api/v1/health" >/dev/null 2>&1 && break; sleep 0.2; done
+curl -sf "$BASE/api/v1/health" >/dev/null \
+  || { echo "FAIL: 恢复后主控没有重新就绪"; tail -30 "$WORK/master.log"; exit 1; }
+grep -q "已应用待恢复的数据库备份" "$WORK/master.log" \
+  || { echo "FAIL: 主控启动日志没有显示已应用恢复"; tail -30 "$WORK/master.log"; exit 1; }
+echo "ok 重启后主控应用了待恢复的数据库"
+
+curl -sf -c "$WORK/cookie" -X POST "$BASE/api/v1/auth/login" \
+  -H 'Content-Type: application/json' -d '{"username":"admin","password":"devpass"}' >/dev/null \
+  || { echo "FAIL: 恢复后无法用原管理员密码登录（恢复没有带回账号数据）"; exit 1; }
+snapshot_facts "$WORK/facts-after.json" "$WORK/sub-after.yaml" \
+  || { echo "FAIL: 恢复后的数据快照失败（见上）"; exit 1; }
+if ! python3 - "$WORK/facts-before.json" "$WORK/facts-after.json" <<'PY'
+import json, sys
+before = json.load(open(sys.argv[1], encoding="utf-8"))
+after = json.load(open(sys.argv[2], encoding="utf-8"))
+problems = [key for key in before if before[key] != after.get(key)]
+if problems:
+    for key in problems:
+        print(f"DIFF {key}:", file=sys.stderr)
+        print(f"  导出前: {json.dumps(before[key], ensure_ascii=False)[:600]}", file=sys.stderr)
+        print(f"  恢复后: {json.dumps(after.get(key), ensure_ascii=False)[:600]}", file=sys.stderr)
+    raise SystemExit(1)
+print("ok 恢复后数据逐项一致：" + ", ".join(sorted(before)))
+PY
+then
+  echo "FAIL: 加密备份恢复后数据不一致（见上）"
+  exit 1
+fi
+
+# ---------------------------------------------------------------- 认证失败限流
+# 主控按 IP 记录认证失败：20 次坏 Bearer 后第 21 次必须 429。
+# 同时守住「不连坐」：同一 IP 上已登录的合法 Cookie 会话仍要能访问。
+# 放在最后一段跑，避免 10 分钟锁定影响前面所有依赖坏凭据的断言。
+echo "--- 限流：20 次坏 Bearer → 第 21 次 429；合法 Cookie 会话不连坐 ---"
+BAD_BEARER="pwt_e2e_invalid_token"
+for i in $(seq 1 20); do
+  CODE=$(curl -s -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer ${BAD_BEARER}" "$BASE/api/v1/servers")
+  [ "$CODE" = "401" ] \
+    || { echo "FAIL: 第 ${i} 次坏 Bearer 应为 401（阈值 20 次），实际 ${CODE}"; exit 1; }
+done
+CODE=$(curl -s -D "$WORK/rate-limit.headers" -o "$WORK/rate-limit.json" -w '%{http_code}' \
+  -H "Authorization: Bearer ${BAD_BEARER}" "$BASE/api/v1/servers")
+[ "$CODE" = "429" ] \
+  || { echo "FAIL: 第 21 次坏 Bearer 应为 429，实际 ${CODE}"; head -c 400 "$WORK/rate-limit.json"; echo; exit 1; }
+grep -qi '^retry-after: [0-9][0-9]*' "$WORK/rate-limit.headers" \
+  || { echo "FAIL: 429 响应缺少 Retry-After 头"; head -20 "$WORK/rate-limit.headers"; exit 1; }
+echo "ok 20 次 401 之后第 21 次返回 429（带 Retry-After）"
+
+CODE=$(curl -s -b "$WORK/cookie" -o /dev/null -w '%{http_code}' "$BASE/api/v1/servers")
+[ "$CODE" = "200" ] \
+  || { echo "FAIL: IP 被限流后合法 Cookie 会话应仍 200（不连坐），实际 ${CODE}"; exit 1; }
+echo "ok 同一 IP 上合法 Cookie 会话仍 200（不连坐）"
 
 echo "PASS 全部通过（日志：$WORK/master.log, $WORK/agent.log）"

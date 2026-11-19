@@ -22,6 +22,10 @@ env:
   NPM_CONFIG_CACHE: ${{ github.workspace }}/.npm-cache
 
 jobs:
+  # 主检查链路：只保留 Rust 侧。web 与依赖扫描拆成并行 job（见下方 `web` /
+  # `audit`），这样前端或扫描慢/失败都不会拖住 Rust 测试的反馈。
+  # 名称保持不变：分支保护里要求的是这个名字，改名会让 PR 一直等一个不会出现
+  # 的检查。三个 job 加起来仍是原来 `make check` 的全套检查项，一项没删。
   check:
     name: fmt + clippy + test + web build
     runs-on: ubuntu-latest
@@ -32,10 +36,6 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -44,16 +44,6 @@ jobs:
             target
           key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: cargo-${{ runner.os }}-
-
-      - name: Cache npm
-        uses: actions/cache@v4
-        with:
-          path: .npm-cache
-          key: npm-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
-          restore-keys: npm-${{ runner.os }}-
-
-      - name: Frontend deps
-        run: make web-install
 
       # 拆成独立 step：CI 上失败时能一眼看出是哪一环，不用翻日志
       - name: Format
@@ -111,15 +101,67 @@ jobs:
           path: /tmp/test.log
           if-no-files-found: warn
 
-      # 依赖漏洞扫描：默认只观察（AUDIT_BLOCKING=0），发现漏洞也写 summary/annotation。
-      # 安装失败不阻塞本轮：脚本会把它记成 scanner error，阻塞模式再一并失败。
+      # 安装脚本做的是卸载/升级/删数据这类破坏性操作，必须有自动化覆盖
+      - name: Installer self-test
+        run: make test-install
+
+  # 前端检查：与 Rust 测试完全并行。缓存 key 只看 lock 文件，命中时
+  # npm install + test + build 合计只有十几秒。
+  web:
+    name: web tests + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: .npm-cache
+          key: npm-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
+      - name: Frontend deps
+        run: make web-install
+
+      - name: Web tests
+        run: make web-test
+
+      - name: Web build
+        run: make web-build
+
+  # 依赖漏洞扫描：默认只观察（AUDIT_BLOCKING=0），发现漏洞也写 summary/annotation。
+  # 单独一个 job 的原因：cargo-audit 首次编译约 3 分钟，留在 check 里每天都是
+  # 最长的一段串行等待。这里与 Rust 测试并行，再用独立缓存复用二进制。
+  audit:
+    name: dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # 独立缓存：主 cargo 缓存是「按 Cargo.lock 哈希 + 只写一次」的，某个
+      # lock 之前保存的缓存里没有 cargo-audit，之后每次都要重编 3 分钟。
+      # 这里用固定 key 只缓存一个二进制；--version 会先验证它真的能跑。
+      - name: Cache cargo-audit binary
+        uses: actions/cache@v4
+        with:
+          path: .cargo-home/bin/cargo-audit
+          key: cargo-audit-${{ runner.os }}-v1
+
       - name: Install cargo-audit
         continue-on-error: true
         run: |
-          # .cargo-home 已被 actions/cache 缓存：命中时直接复用上次编译的二进制，
-          # 避免每次都重新解析 index / 编译。
-          if [ -x "$CARGO_HOME/bin/cargo-audit" ]; then
-            echo "cargo-audit already present in the cargo cache"
+          if "$CARGO_HOME/bin/cargo-audit" --version >/dev/null 2>&1; then
+            echo "cargo-audit 已从缓存恢复 / restored from cache: $("$CARGO_HOME/bin/cargo-audit" --version)"
           else
             cargo install cargo-audit --locked --root "$CARGO_HOME"
           fi
@@ -171,16 +213,6 @@ jobs:
         run: |
           echo "::error title=Dependency audit::AUDIT_BLOCKING=1 且依赖扫描发现漏洞或扫描失败，见 job summary"
           exit 1
-
-      # 安装脚本做的是卸载/升级/删数据这类破坏性操作，必须有自动化覆盖
-      - name: Installer self-test
-        run: make test-install
-
-      - name: Web tests
-        run: make web-test
-
-      - name: Web build
-        run: make web-build
 
   e2e:
     name: end-to-end
