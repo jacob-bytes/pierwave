@@ -36,7 +36,7 @@ pub struct InstallQuery {
 fn throttle_key(
     headers: &HeaderMap,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
-) -> Option<String> {
+) -> Option<crate::throttle::ThrottleKey> {
     crate::routes::auth::client_ip_with_peer(
         headers,
         peer.map(|Extension(ConnectInfo(addr))| addr.ip()),
@@ -50,7 +50,7 @@ fn throttle_key(
 /// 429，不再累加（否则锁期会被无限延长）；`None` 表示本次失败已计入。
 fn record_auth_failure(
     state: &AppState,
-    ip_key: Option<&str>,
+    ip_key: Option<crate::throttle::ThrottleKey>,
     existing_lock: Option<u64>,
 ) -> Option<u64> {
     if let Some(retry_after) = existing_lock {
@@ -63,7 +63,7 @@ fn record_auth_failure(
 }
 
 /// 成功认证：清零该 IP 的失败计数。
-fn clear_auth_failures(state: &AppState, ip_key: Option<&str>) {
+fn clear_auth_failures(state: &AppState, ip_key: Option<crate::throttle::ThrottleKey>) {
     if let Some(key) = ip_key {
         state.ip_throttle.clear(key);
     }
@@ -94,8 +94,8 @@ pub async fn script(
 ) -> AppResult<Response> {
     let ip_key = throttle_key(&headers, peer);
     let existing_lock = ip_key
-        .as_deref()
-        .and_then(|key| state.ip_throttle.check(key).err());
+        .as_ref()
+        .and_then(|key| state.ip_throttle.check(*key).err());
 
     let token = query
         .token
@@ -108,7 +108,7 @@ pub async fn script(
         .await?
         .is_none()
     {
-        if let Some(retry_after) = record_auth_failure(&state, ip_key.as_deref(), existing_lock) {
+        if let Some(retry_after) = record_auth_failure(&state, ip_key, existing_lock) {
             tracing::warn!(retry_after, "安装脚本 token 认证失败次数过多，按 IP 拒绝");
             return Err(AppError::TooManyAttempts(retry_after));
         }
@@ -119,7 +119,7 @@ pub async fn script(
         ));
     }
     // 合法 token 不被同一 NAT 里别人的失败连坐；成功一次即清零该 IP 的计数。
-    clear_auth_failures(&state, ip_key.as_deref());
+    clear_auth_failures(&state, ip_key);
 
     // Host 是客户端可控输入：先按对外地址规则校验，非法值直接 400，不生成脚本。
     let base = super::public_url::resolve_checked(
@@ -453,8 +453,8 @@ pub async fn release(
 ) -> AppResult<Response> {
     let ip_key = throttle_key(&headers, peer);
     let existing_lock = ip_key
-        .as_deref()
-        .and_then(|key| state.ip_throttle.check(key).err());
+        .as_ref()
+        .and_then(|key| state.ip_throttle.check(*key).err());
 
     let token = request_token(&headers, &query)
         .ok_or_else(|| AppError::unauthorized("auth.unauthorized", None, "未登录"))?;
@@ -462,13 +462,13 @@ pub async fn release(
         .await?
         .is_none()
     {
-        if let Some(retry_after) = record_auth_failure(&state, ip_key.as_deref(), existing_lock) {
+        if let Some(retry_after) = record_auth_failure(&state, ip_key, existing_lock) {
             tracing::warn!(retry_after, "发布中转 token 认证失败次数过多，按 IP 拒绝");
             return Err(AppError::TooManyAttempts(retry_after));
         }
         return Err(AppError::unauthorized("auth.unauthorized", None, "未登录"));
     }
-    clear_auth_failures(&state, ip_key.as_deref());
+    clear_auth_failures(&state, ip_key);
 
     // 必须恰好是 `{version}/{file}` 两段。
     let mut segments = rest.split('/');

@@ -3145,24 +3145,65 @@ pub mod nodes {
 
     /// 单台服务器（或某台服务器下）的节点分页。
     ///
-    /// 筛选仍在内存里做：`nodes.tags` 是 JSON 数组文本，精确匹配标签需要
-    /// JSON1 解析，而节点总量很小；保持与旧版 `matches_filter` 完全一致的
-    /// 语义（精确标签、大小写不敏感地区）比多写几条动态 SQL 更不容易分叉。
+    /// 条件分成两段处理：
+    /// * `server_id` / `protocol` / `enabled` 能直接下推到 SQL，交给
+    ///   `nodes(server_id, created_at)` 等索引，避免每页都把整张 `nodes`
+    ///   读出来再丢；
+    /// * `tag`（`tags` 是 JSON 数组文本，需要 JSON1 解析）与 `region`
+    ///   （大小写不敏感）仍在内存里判断，保持与旧版 `matches_filter` 完全
+    ///   一致的语义，也不引入 JSON1 依赖。
+    ///
+    /// `total` 仍由同一份筛选结果 `len()` 得到：列表和 total 永远共用条件，
+    /// 不会出现「total 走 COUNT 另一套 WHERE」的偏差。分页是内存里的
+    /// `skip/take`，SQL 没有 `OFFSET`，所以翻到第 20 页和第一页的库内代价相同。
     pub async fn list_page(
         pool: &SqlitePool,
         filter: &NodeFilter,
         page: i64,
         per_page: i64,
     ) -> anyhow::Result<NodePage<Node>> {
-        let rows: Vec<Node> =
-            sqlx::query_as::<_, Node>("SELECT * FROM nodes ORDER BY created_at ASC, rowid ASC")
-                .fetch_all(pool)
-                .await?;
+        let rows = fetch_nodes(pool, filter).await?;
         let matched: Vec<Node> = rows
             .into_iter()
             .filter(|node| filter.matches(node))
             .collect();
         Ok(paginate(matched, page, per_page))
+    }
+
+    /// 把能下推的条件拼进 WHERE；片段全是静态字符串，值一律走绑定参数
+    /// （`enabled` 只拼 `0` / `<> 0` 两个字面量，没有用户输入）。
+    fn push_node_sql_filters(sql: &mut String, filter: &NodeFilter, alias: &str) {
+        if filter.server_id.is_some() {
+            sql.push_str(&format!(" AND {alias}.server_id = ?"));
+        }
+        if filter.protocol.is_some() {
+            sql.push_str(&format!(" AND {alias}.protocol = ?"));
+        }
+        if let Some(enabled) = filter.enabled {
+            // 与 NodeFilter::matches 的 `(enabled != 0) == enabled` 完全等价：
+            // 旧数据里万一出现 2 之类的非 0 值，仍按「启用」处理。
+            sql.push_str(" AND ");
+            sql.push_str(alias);
+            sql.push_str(if enabled {
+                ".enabled <> 0"
+            } else {
+                ".enabled = 0"
+            });
+        }
+    }
+
+    async fn fetch_nodes(pool: &SqlitePool, filter: &NodeFilter) -> anyhow::Result<Vec<Node>> {
+        let mut sql = String::from("SELECT * FROM nodes WHERE 1 = 1");
+        push_node_sql_filters(&mut sql, filter, "nodes");
+        sql.push_str(" ORDER BY created_at ASC, rowid ASC");
+        let mut query = sqlx::query_as::<_, Node>(&sql);
+        if let Some(server_id) = &filter.server_id {
+            query = query.bind(server_id);
+        }
+        if let Some(protocol) = &filter.protocol {
+            query = query.bind(protocol.to_ascii_lowercase());
+        }
+        Ok(query.fetch_all(pool).await?)
     }
 
     /// 跨服务器全局列表分页；每行额外带 `server_name` / `server_address`。
@@ -3172,8 +3213,26 @@ pub mod nodes {
         page: i64,
         per_page: i64,
     ) -> anyhow::Result<NodePage<crate::models::NodeListItem>> {
-        let matched: Vec<crate::models::NodeListItem> = list_all(pool)
-            .await?
+        let mut sql = String::from(
+            "SELECT n.*, s.name AS server_name, s.address AS server_address
+             FROM nodes n
+             JOIN servers s ON s.id = n.server_id
+             WHERE 1 = 1",
+        );
+        push_node_sql_filters(&mut sql, filter, "n");
+        sql.push_str(
+            " ORDER BY s.created_at ASC, s.rowid ASC,
+                      n.created_at ASC, n.rowid ASC",
+        );
+        let mut query = sqlx::query_as::<_, crate::models::NodeListItem>(&sql);
+        if let Some(server_id) = &filter.server_id {
+            query = query.bind(server_id);
+        }
+        if let Some(protocol) = &filter.protocol {
+            query = query.bind(protocol.to_ascii_lowercase());
+        }
+        let rows = query.fetch_all(pool).await?;
+        let matched: Vec<crate::models::NodeListItem> = rows
             .into_iter()
             .filter(|item| filter.matches(&item.node))
             .collect();
@@ -4784,21 +4843,30 @@ pub mod forward_traffic {
         let user_id = filter.user_id.filter(|value| !value.is_empty());
         let forward_id = filter.forward_id.filter(|value| !value.is_empty());
 
-        let (total_bytes, total_weighted): (i64, i64) = sqlx::query_as(
+        // 条件动态拼接：`(? IS NULL OR col = ?)` 会让 SQLite 放弃
+        // `forward_traffic_daily(user_id, day)` 索引，改为扫描整个日期窗口。
+        // 片段全是静态字符串，值仍走绑定参数。
+        let mut total_sql = String::from(
             "SELECT COALESCE(SUM(bytes), 0), COALESCE(SUM(weighted), 0)
              FROM forward_traffic_daily
-             WHERE day >= ? AND day <= ?
-               AND (? IS NULL OR user_id = ?)
-               AND (? IS NULL OR forward_id = ?)",
-        )
-        .bind(&start)
-        .bind(&end)
-        .bind(user_id)
-        .bind(user_id)
-        .bind(forward_id)
-        .bind(forward_id)
-        .fetch_one(pool)
-        .await?;
+             WHERE day >= ? AND day <= ?",
+        );
+        if user_id.is_some() {
+            total_sql.push_str(" AND user_id = ?");
+        }
+        if forward_id.is_some() {
+            total_sql.push_str(" AND forward_id = ?");
+        }
+        let mut total_query = sqlx::query_as::<_, (i64, i64)>(&total_sql)
+            .bind(&start)
+            .bind(&end);
+        if let Some(value) = user_id {
+            total_query = total_query.bind(value);
+        }
+        if let Some(value) = forward_id {
+            total_query = total_query.bind(value);
+        }
+        let (total_bytes, total_weighted) = total_query.fetch_one(pool).await?;
 
         #[derive(sqlx::FromRow)]
         struct DayRow {
@@ -4807,24 +4875,29 @@ pub mod forward_traffic {
             weighted: i64,
         }
 
-        let day_rows = sqlx::query_as::<_, DayRow>(
+        let mut day_sql = String::from(
             "SELECT day, COALESCE(SUM(bytes), 0) AS bytes,
                     COALESCE(SUM(weighted), 0) AS weighted
              FROM forward_traffic_daily
-             WHERE day >= ? AND day <= ?
-               AND (? IS NULL OR user_id = ?)
-               AND (? IS NULL OR forward_id = ?)
-             GROUP BY day
-             ORDER BY day ASC",
-        )
-        .bind(&start)
-        .bind(&end)
-        .bind(user_id)
-        .bind(user_id)
-        .bind(forward_id)
-        .bind(forward_id)
-        .fetch_all(pool)
-        .await?;
+             WHERE day >= ? AND day <= ?",
+        );
+        if user_id.is_some() {
+            day_sql.push_str(" AND user_id = ?");
+        }
+        if forward_id.is_some() {
+            day_sql.push_str(" AND forward_id = ?");
+        }
+        day_sql.push_str(" GROUP BY day ORDER BY day ASC");
+        let mut day_query = sqlx::query_as::<_, DayRow>(&day_sql)
+            .bind(&start)
+            .bind(&end);
+        if let Some(value) = user_id {
+            day_query = day_query.bind(value);
+        }
+        if let Some(value) = forward_id {
+            day_query = day_query.bind(value);
+        }
+        let day_rows = day_query.fetch_all(pool).await?;
         let mut by_day: HashMap<String, (i64, i64)> = day_rows
             .into_iter()
             .map(|row| (row.day, (row.bytes, row.weighted)))
@@ -4853,7 +4926,7 @@ pub mod forward_traffic {
             weighted: i64,
         }
 
-        let group_rows = sqlx::query_as::<_, GroupRow>(
+        let mut group_sql = String::from(
             "SELECT t.forward_id AS forward_id,
                     f.name AS forward_name,
                     t.user_id AS user_id,
@@ -4863,21 +4936,29 @@ pub mod forward_traffic {
              FROM forward_traffic_daily t
              LEFT JOIN forwards f ON f.id = t.forward_id
              LEFT JOIN users u ON u.id = t.user_id
-             WHERE t.day >= ? AND t.day <= ?
-               AND (? IS NULL OR t.user_id = ?)
-               AND (? IS NULL OR t.forward_id = ?)
-             GROUP BY t.forward_id, t.user_id
-             ORDER BY SUM(t.weighted) DESC, SUM(t.bytes) DESC,
-                      t.forward_id ASC, t.user_id ASC",
-        )
-        .bind(&start)
-        .bind(&end)
-        .bind(user_id)
-        .bind(user_id)
-        .bind(forward_id)
-        .bind(forward_id)
-        .fetch_all(pool)
-        .await?;
+             WHERE t.day >= ? AND t.day <= ?",
+        );
+        if user_id.is_some() {
+            group_sql.push_str(" AND t.user_id = ?");
+        }
+        if forward_id.is_some() {
+            group_sql.push_str(" AND t.forward_id = ?");
+        }
+        group_sql.push_str(
+            " GROUP BY t.forward_id, t.user_id
+              ORDER BY SUM(t.weighted) DESC, SUM(t.bytes) DESC,
+                       t.forward_id ASC, t.user_id ASC",
+        );
+        let mut group_query = sqlx::query_as::<_, GroupRow>(&group_sql)
+            .bind(&start)
+            .bind(&end);
+        if let Some(value) = user_id {
+            group_query = group_query.bind(value);
+        }
+        if let Some(value) = forward_id {
+            group_query = group_query.bind(value);
+        }
+        let group_rows = group_query.fetch_all(pool).await?;
 
         let by_forward = group_rows
             .into_iter()
@@ -9993,9 +10074,26 @@ pub mod overview {
         downlink: i64,
     }
 
-    /// 查询次数固定、与数据量无关（没有 N+1）：概览主体 13 条；
-    /// 有链时 `chains` 部分再追加 groups / members 各 1 条，
-    /// 链用到证书时再加 1 条证书批量查询（最多 16 条）。
+    /// 查询次数固定、与数据量无关（没有 N+1）：无链时概览主体 **9 条**，
+    /// 有链时 `count_blocked` 再追加链 / 组 / 成员 3 条与最多 1 条证书批量查询
+    /// （最多 12 条）。
+    ///
+    /// 合并方式（14 → 9）：
+    /// * KPI 的 5 个标量 + 24h 可用率（原来是 `uptime_all` 单独一条）→ 1 条；
+    /// * 链健康、转发总数 / 失败数、握手失败（原来 3 条）→ 1 条；
+    /// * Top 用户 / Top 节点 / 套餐分布（原来 3 条，窗口相同）→ 1 条 CTE，
+    ///   用 `kind` 区分后在 Rust 里拆回三个数组。
+    ///
+    /// 没有合并的：
+    /// * `traffic_trend`（按天一行）与 `protocol_traffic`（按天 × 协议）粒度
+    ///   不同，而且协议归属只覆盖 `traffic_node_daily` + 历史 `user@tag` 行，
+    ///   不能拿来替代总量趋势；
+    /// * `top_servers` 是「服务器驱动」的 LEFT JOIN（零流量服务器也要参与排序），
+    ///   与三个流量驱动的 Top 形状不同，且它要驱动随后按 server_id 批量取
+    ///   网速采样；
+    /// * `protocol_rows` 的节点数是多行 `GROUP BY protocol`，不能塞进标量 KPI；
+    /// * `count_blocked` 必须复用 `crate::chains::blocked_reason` 才算与链列表
+    ///   同口径，不改成 SQL 计数。
     pub async fn snapshot(
         pool: &SqlitePool,
         now: i64,
@@ -10005,13 +10103,16 @@ pub mod overview {
         let today = crate::time::business_date(now);
         let (month_start, month_end) = crate::time::business_month_bounds(now);
 
-        // 一条 SQL 拿齐四张表的标量，避免为每个数字各发一次查询。
-        let (servers_total, servers_online, nodes, traffic_today, traffic_month): (
+        // 一条 SQL 拿齐四张表的标量，顺带把 24h 可用率算出来：可用率 =
+        // 「每台有采样的服务器 24h 均值」再求平均，等价于原来的
+        // uptime_all + Rust 求和，空集合回落 0。
+        let (servers_total, servers_online, nodes, traffic_today, traffic_month, uptime_24h): (
             i64,
             i64,
             i64,
             i64,
             i64,
+            f64,
         ) = sqlx::query_as(
             "SELECT
                 (SELECT COUNT(*) FROM servers),
@@ -10019,11 +10120,20 @@ pub mod overview {
                 (SELECT COUNT(*) FROM nodes),
                 (SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily WHERE day = ?),
                 (SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily
-                  WHERE day >= ? AND day <= ?)",
+                  WHERE day >= ? AND day <= ?),
+                (SELECT COALESCE(AVG(u), 0.0) FROM (
+                    SELECT AVG(CASE WHEN ts >= ? THEN online END) AS u
+                    FROM server_samples
+                    WHERE ts >= ? AND ts <= ?
+                    GROUP BY server_id
+                ))",
         )
         .bind(&today)
         .bind(&month_start)
         .bind(&month_end)
+        .bind(now - 86_400)
+        .bind(now - super::server_samples::RETENTION_SECS)
+        .bind(now)
         .fetch_one(pool)
         .await?;
 
@@ -10039,6 +10149,7 @@ pub mod overview {
 
         // 协议归属只聚合一次：分布卡（7 天合计）与趋势卡（按天）共用。
         let protocol_traffic = protocol_traffic(pool, now, days).await?;
+        let (top_users, top_nodes, package_split) = top_cards(pool, now, days).await?;
 
         Ok(OverviewSnapshot {
             kpi: Kpi {
@@ -10047,35 +10158,16 @@ pub mod overview {
                 nodes,
                 traffic_today,
                 traffic_month,
-                uptime_24h: mean_uptime_24h(pool, now).await?,
+                uptime_24h,
             },
             series,
             protocol_series: protocol_series(&protocol_traffic, now, days),
             protocols: protocol_rows(pool, &protocol_traffic).await?,
             chains: chain_row(pool, now).await?,
             top: top_servers(pool, now, days).await?,
-            top_users: top_users(pool, now, days).await?,
-            top_nodes: top_nodes(pool, now, days).await?,
-            package_split: package_split(pool, now, days).await?,
-        })
-    }
-
-    /// 与 `/api/v1/public/status` 完全同口径：先用 `server_samples::uptime_all`
-    /// 取每台服务器 24h 的均值，再对「有采样」的服务器求均值。
-    async fn mean_uptime_24h(pool: &SqlitePool, now: i64) -> anyhow::Result<f64> {
-        let rows = super::server_samples::uptime_all(pool, now).await?;
-        let mut sum = 0.0;
-        let mut sampled = 0_u64;
-        for row in rows {
-            if let Some(value) = row.uptime_24h {
-                sum += value;
-                sampled += 1;
-            }
-        }
-        Ok(if sampled == 0 {
-            0.0
-        } else {
-            sum / sampled as f64
+            top_users,
+            top_nodes,
+            package_split,
         })
     }
 
@@ -10268,112 +10360,39 @@ pub mod overview {
             .collect()
     }
 
-    /// Top 用户：`traffic_daily.subject` 就是用户 id（不是 `user@tag`），直接
-    /// JOIN `users`；归因失败时回落的原始 email 自然 JOIN 不到，不参与排名。
-    async fn top_users(pool: &SqlitePool, now: i64, days: i64) -> anyhow::Result<Vec<TopUserRow>> {
-        let (start_date, end_date) = super::stats::day_window(now, days);
-
-        #[derive(sqlx::FromRow)]
-        struct Row {
-            user_id: String,
-            username: String,
-            traffic_7d: i64,
-        }
-        let rows = sqlx::query_as::<_, Row>(
-            "SELECT u.id AS user_id, u.username AS username,
-                    COALESCE(SUM(t.uplink + t.downlink), 0) AS traffic_7d
-             FROM traffic_daily t
-             JOIN users u ON u.id = t.subject
-             WHERE t.day >= ? AND t.day <= ?
-             GROUP BY u.id, u.username
-             HAVING SUM(t.uplink + t.downlink) > 0
-             ORDER BY traffic_7d DESC, u.id ASC
-             LIMIT ?",
-        )
-        .bind(&start_date)
-        .bind(&end_date)
-        .bind(TOP_USERS)
-        .fetch_all(pool)
-        .await?;
-
-        Ok(rows
-            .into_iter()
-            .map(|row| TopUserRow {
-                user_id: row.user_id,
-                username: row.username,
-                traffic_7d: row.traffic_7d,
-            })
-            .collect())
-    }
-
-    /// 节点流量 Top：窗口内按 `(server_id, node_tag)` 聚合，再按节点 id 汇总
-    /// （同一节点在多天的切片合并）。只返回窗口内真实有流量的节点：
-    /// 没流量的节点、已删除的节点都不补 0，直接不进榜。
-    async fn top_nodes(pool: &SqlitePool, now: i64, days: i64) -> anyhow::Result<Vec<TopNodeRow>> {
-        let (start_date, end_date) = super::stats::day_window(now, days);
-
-        #[derive(sqlx::FromRow)]
-        struct Row {
-            node_id: String,
-            name: String,
-            protocol: String,
-            server_name: String,
-            traffic_7d: i64,
-        }
-        let rows = sqlx::query_as::<_, Row>(
-            "SELECT n.id AS node_id, n.name AS name, n.protocol AS protocol,
-                    s.name AS server_name,
-                    COALESCE(SUM(t.uplink + t.downlink), 0) AS traffic_7d
-             FROM traffic_node_daily t
-             JOIN nodes n
-               ON n.server_id = t.server_id AND n.tag = t.node_tag
-             JOIN servers s ON s.id = n.server_id
-             WHERE t.day >= ? AND t.day <= ?
-             GROUP BY n.id, n.name, n.protocol, s.name
-             HAVING SUM(t.uplink + t.downlink) > 0
-             ORDER BY traffic_7d DESC, n.id ASC
-             LIMIT ?",
-        )
-        .bind(&start_date)
-        .bind(&end_date)
-        .bind(TOP_NODES)
-        .fetch_all(pool)
-        .await?;
-
-        Ok(rows
-            .into_iter()
-            .map(|row| TopNodeRow {
-                node_id: row.node_id,
-                name: row.name,
-                protocol: row.protocol,
-                server_name: row.server_name,
-                traffic_7d: row.traffic_7d,
-            })
-            .collect())
-    }
-
-    /// 套餐用量分布：先把每个用户归到「当前套餐实例」，再把窗口内
-    /// `traffic_daily`（subject = user id）的流量按套餐汇总。
+    /// Top 用户 / Top 节点 / 套餐分布：三者时间窗相同，合并成一条 CTE。
     ///
-    /// 一个用户可能同时持有新旧多张卡：这里固定取最近一条**生效**实例
-    /// （没有生效实例时回落到最近一条），保证同一份流量只归一个套餐，
-    /// 不会因为 JOIN 多实例被重复计数。
+    /// 每个分支各自聚合、各自 `ORDER BY ... LIMIT ?` 取前 N 条，再 UNION ALL；
+    /// Rust 侧按 `kind` 拆回三个数组。顺序 / 截断 / `HAVING > 0` 语义与拆开查
+    /// 时一致，且保留了单分支 top-N 排序的代价（不用窗口函数处理全部分组）。
     ///
-    /// 只返回有流量的套餐（`HAVING SUM > 0`），空库 / 无流量时是空数组。
-    async fn package_split(
+    /// * user：`traffic_daily.subject` 就是用户 id（不是 `user@tag`），JOIN
+    ///   `users`；归因失败的原始 email JOIN 不到，自然不参与排名；
+    /// * node：按 `(server_id, node_tag)` JOIN `nodes` / `servers`，已删除节点
+    ///   不进榜；
+    /// * package：先把每个用户归到「当前套餐实例」（同一用户多张卡只取最近
+    ///   一条生效实例），再按套餐汇总，保证同一份流量只归一个套餐。
+    async fn top_cards(
         pool: &SqlitePool,
         now: i64,
         days: i64,
-    ) -> anyhow::Result<Vec<PackageSplitRow>> {
+    ) -> anyhow::Result<(Vec<TopUserRow>, Vec<TopNodeRow>, Vec<PackageSplitRow>)> {
         let (start_date, end_date) = super::stats::day_window(now, days);
 
         #[derive(sqlx::FromRow)]
         struct Row {
-            package_id: String,
+            kind: String,
+            id: String,
             name: String,
+            sub: String,
+            protocol: String,
             users: i64,
-            traffic_7d: i64,
+            traffic: i64,
         }
+
+        // 每个分支在子查询里 `ORDER BY ... LIMIT ?`（top-N 排序），再把三个
+        // 小结果 UNION ALL。这样既只发一条 SQL，又保留原来「只排序前 5 条」
+        // 的代价；用 `ROW_NUMBER()` 排名会强制窗口函数处理全部分组，实测慢 3 倍。
         let rows = sqlx::query_as::<_, Row>(
             "WITH current_instance AS (
                  SELECT up.user_id AS user_id,
@@ -10393,37 +10412,116 @@ pub mod overview {
                  WHERE day >= ? AND day <= ?
                  GROUP BY subject
                  HAVING SUM(uplink + downlink) > 0
+             ),
+             top_user AS (
+                 SELECT 'user' AS kind, id, name, '' AS sub, '' AS protocol,
+                        0 AS users, traffic
+                 FROM (
+                     SELECT u.id AS id,
+                            u.username AS name,
+                            COALESCE(SUM(t.uplink + t.downlink), 0) AS traffic
+                     FROM traffic_daily t
+                     JOIN users u ON u.id = t.subject
+                     WHERE t.day >= ? AND t.day <= ?
+                     GROUP BY u.id, u.username
+                     HAVING SUM(t.uplink + t.downlink) > 0
+                     ORDER BY traffic DESC, u.id ASC
+                     LIMIT ?
+                 )
+             ),
+             top_node AS (
+                 SELECT 'node' AS kind, id, name, sub, protocol,
+                        0 AS users, traffic
+                 FROM (
+                     SELECT n.id AS id,
+                            n.name AS name,
+                            s.name AS sub,
+                            n.protocol AS protocol,
+                            COALESCE(SUM(t.uplink + t.downlink), 0) AS traffic
+                     FROM traffic_node_daily t
+                     JOIN nodes n
+                       ON n.server_id = t.server_id AND n.tag = t.node_tag
+                     JOIN servers s ON s.id = n.server_id
+                     WHERE t.day >= ? AND t.day <= ?
+                     GROUP BY n.id, n.name, n.protocol, s.name
+                     HAVING SUM(t.uplink + t.downlink) > 0
+                     ORDER BY traffic DESC, n.id ASC
+                     LIMIT ?
+                 )
+             ),
+             top_package AS (
+                 SELECT 'package' AS kind, id, name, '' AS sub, '' AS protocol,
+                        users, traffic
+                 FROM (
+                     SELECT p.id AS id,
+                            p.name AS name,
+                            COUNT(*) AS users,
+                            COALESCE(SUM(ut.bytes), 0) AS traffic
+                     FROM packages p
+                     JOIN current_instance c
+                       ON c.package_id = p.id AND c.rn = 1
+                     JOIN user_traffic ut ON ut.user_id = c.user_id
+                     GROUP BY p.id, p.name
+                     HAVING SUM(ut.bytes) > 0
+                     ORDER BY traffic DESC, p.id ASC
+                     LIMIT ?
+                 )
              )
-             SELECT p.id AS package_id, p.name AS name,
-                    COUNT(*) AS users,
-                    COALESCE(SUM(ut.bytes), 0) AS traffic_7d
-             FROM packages p
-             JOIN current_instance c ON c.package_id = p.id AND c.rn = 1
-             JOIN user_traffic ut ON ut.user_id = c.user_id
-             GROUP BY p.id, p.name
-             HAVING SUM(ut.bytes) > 0
-             ORDER BY traffic_7d DESC, p.id ASC
-             LIMIT ?",
+             SELECT kind, id, name, sub, protocol, users, traffic FROM top_user
+             UNION ALL
+             SELECT kind, id, name, sub, protocol, users, traffic FROM top_node
+             UNION ALL
+             SELECT kind, id, name, sub, protocol, users, traffic FROM top_package
+             ORDER BY kind ASC, traffic DESC, id ASC",
         )
         .bind(&start_date)
         .bind(&end_date)
+        .bind(&start_date)
+        .bind(&end_date)
+        .bind(TOP_USERS)
+        .bind(&start_date)
+        .bind(&end_date)
+        .bind(TOP_NODES)
         .bind(TOP_PACKAGES)
         .fetch_all(pool)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|row| PackageSplitRow {
-                package_id: row.package_id,
-                name: row.name,
-                users: row.users,
-                traffic_7d: row.traffic_7d,
-            })
-            .collect())
+        let mut top_users = Vec::new();
+        let mut top_nodes = Vec::new();
+        let mut package_split = Vec::new();
+        for row in rows {
+            match row.kind.as_str() {
+                "user" if top_users.len() < TOP_USERS as usize => top_users.push(TopUserRow {
+                    user_id: row.id,
+                    username: row.name,
+                    traffic_7d: row.traffic,
+                }),
+                "node" if top_nodes.len() < TOP_NODES as usize => top_nodes.push(TopNodeRow {
+                    node_id: row.id,
+                    name: row.name,
+                    protocol: row.protocol,
+                    server_name: row.sub,
+                    traffic_7d: row.traffic,
+                }),
+                "package" if package_split.len() < TOP_PACKAGES as usize => {
+                    package_split.push(PackageSplitRow {
+                        package_id: row.id,
+                        name: row.name,
+                        users: row.users,
+                        traffic_7d: row.traffic,
+                    })
+                }
+                _ => {}
+            }
+        }
+        Ok((top_users, top_nodes, package_split))
     }
 
     /// 链路健康：一次 CTE 把链 → 组 → 成员 → 心跳状态对齐，算降级；
-    /// 阻断数走与链列表完全相同的 [`crate::chains::blocked_reason`] 判定。
+    /// 转发总数 / 失败数、握手失败也作为标量子查询并在同一条 SQL 里取回。
+    ///
+    /// `blocked` 不走 SQL 计数：必须复用 `crate::chains::blocked_reason`，才能
+    /// 与链列表逐条对齐（证书过期、能力不足等），见 `count_blocked`。
     ///
     /// forward id 的格式必须与 `crate::chains::forward_id` 一致：单成员组用
     /// `chain-<id>-<seq>`，多成员组追加 `-<server_id>`。
@@ -10432,6 +10530,9 @@ pub mod overview {
         struct Health {
             total: i64,
             degraded: i64,
+            forwards_total: i64,
+            forwards_failing: i64,
+            handshake_failures: i64,
         }
         let health = sqlx::query_as::<_, Health>(
             "WITH group_sizes AS (
@@ -10453,28 +10554,20 @@ pub mod overview {
              )
              SELECT (SELECT COUNT(*) FROM chains) AS total,
                     COUNT(DISTINCT CASE WHEN fs.target_fail_count >= ? THEN d.chain_id END)
-                        AS degraded
+                        AS degraded,
+                    (SELECT COUNT(*) FROM forwards) AS forwards_total,
+                    (SELECT COUNT(*)
+                     FROM forwards f
+                     JOIN forward_status ffs
+                       ON ffs.server_id = f.server_id AND ffs.forward_id = f.id
+                     WHERE ffs.listening = 0) AS forwards_failing,
+                    (SELECT COUNT(*) FROM forward_status
+                     WHERE target_error IS NOT NULL) AS handshake_failures
              FROM derived d
              LEFT JOIN forward_status fs
                ON fs.server_id = d.server_id AND fs.forward_id = d.forward_id",
         )
         .bind(crate::chains::DEGRADED_AFTER_FAILURES)
-        .fetch_one(pool)
-        .await?;
-
-        let (forwards_total, forwards_failing): (i64, i64) = sqlx::query_as(
-            "SELECT (SELECT COUNT(*) FROM forwards),
-                    (SELECT COUNT(*)
-                     FROM forwards f
-                     JOIN forward_status fs
-                       ON fs.server_id = f.server_id AND fs.forward_id = f.id
-                     WHERE fs.listening = 0)",
-        )
-        .fetch_one(pool)
-        .await?;
-        let handshake_failures: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM forward_status WHERE target_error IS NOT NULL",
-        )
         .fetch_one(pool)
         .await?;
 
@@ -10484,9 +10577,9 @@ pub mod overview {
             total: health.total,
             degraded: health.degraded,
             blocked,
-            forwards_total,
-            forwards_failing,
-            handshake_failures,
+            forwards_total: health.forwards_total,
+            forwards_failing: health.forwards_failing,
+            handshake_failures: health.handshake_failures,
         })
     }
 

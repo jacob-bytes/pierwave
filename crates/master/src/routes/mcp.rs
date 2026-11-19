@@ -73,14 +73,14 @@ pub async fn http(
     )
     .map(|addr| addr.throttle_key());
     let existing_lock = ip_key
-        .as_deref()
-        .and_then(|key| state.ip_throttle.check(key).err());
+        .as_ref()
+        .and_then(|key| state.ip_throttle.check(*key).err());
 
     let principal = match authenticate_api_token(&state, raw).await {
         Ok(principal) => {
             // 成功认证清零该 IP 的失败计数。
-            if let Some(key) = ip_key.as_deref() {
-                state.ip_throttle.clear(key);
+            if let Some(key) = ip_key.as_ref() {
+                state.ip_throttle.clear(*key);
             }
             principal
         }
@@ -99,8 +99,8 @@ pub async fn http(
                 }
                 return response;
             }
-            if let Some(key) = ip_key.as_deref() {
-                state.ip_throttle.record_failure(key);
+            if let Some(key) = ip_key.as_ref() {
+                state.ip_throttle.record_failure(*key);
             }
             return error_response(
                 StatusCode::UNAUTHORIZED,

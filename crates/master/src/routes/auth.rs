@@ -15,7 +15,7 @@ use pierwave_domain::{password, repo};
 use crate::auth::{clear_cookie, session_cookie, CurrentUser, SESSION_COOKIE};
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
-use crate::throttle::Key;
+use crate::throttle::{Key, ThrottleKey};
 
 use super::settings;
 
@@ -87,25 +87,11 @@ impl ClientAddr {
     }
 
     /// 限流键：IPv4 用地址本身；IPv6 聚合到 `/64` 前缀。
-    pub fn throttle_key(self) -> String {
-        match self.0 {
-            IpAddr::V4(v4) => v4.to_string(),
-            IpAddr::V6(v6) => {
-                let segments = v6.segments();
-                // 保留高 64 位、清零低 64 位，得到该地址所属的 /64 网络。
-                let network = std::net::Ipv6Addr::new(
-                    segments[0],
-                    segments[1],
-                    segments[2],
-                    segments[3],
-                    0,
-                    0,
-                    0,
-                    0,
-                );
-                format!("{network}/64")
-            }
-        }
+    ///
+    /// 返回定长的 [`ThrottleKey`]（`IpAddr` 的紧凑表示），不再为每个请求
+    /// 分配 `String`；IPv6 只保留高 64 位。
+    pub fn throttle_key(self) -> ThrottleKey {
+        ThrottleKey::from_ip(self.0)
     }
 }
 
@@ -124,7 +110,10 @@ impl FromRequestParts<AppState> for ClientIp {
         parts: &mut Parts,
         _state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        Ok(ClientIp(client_ip(&parts.headers, &parts.extensions)))
+        let addr = client_ip(&parts.headers, &parts.extensions);
+        // 同一请求里可能还有别的代码要地址：缓存一次，避免重复解析 XFF。
+        parts.extensions.insert(ResolvedClientAddr(addr));
+        Ok(ClientIp(addr))
     }
 }
 
@@ -159,7 +148,18 @@ fn forwarded_chain(headers: &HeaderMap) -> Vec<IpAddr> {
     chain
 }
 
+/// 已解析的客户端地址，放在请求扩展里供同一请求内的后续中间件 / handler 复用。
+///
+/// 旧实现里 `ip_auth_throttle_middleware`、`api_token_middleware` 和
+/// `ClientIp` 提取器会各自把整条 `X-Forwarded-For` 解析一遍；把结果缓存到
+/// 扩展后，同一请求只解析一次。
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ResolvedClientAddr(pub Option<ClientAddr>);
+
 pub(crate) fn client_ip(headers: &HeaderMap, extensions: &Extensions) -> Option<ClientAddr> {
+    if let Some(cached) = extensions.get::<ResolvedClientAddr>() {
+        return cached.0;
+    }
     let peer = extensions
         .get::<ConnectInfo<SocketAddr>>()
         .map(|ConnectInfo(addr)| addr.ip());
@@ -305,11 +305,11 @@ pub async fn login(
     // 解析结果，伪造的 XFF 段既进不了计数，也写不进审计。
     let ip_key =
         ip.0.map(ClientAddr::throttle_key)
-            .unwrap_or_else(|| "unknown".to_string());
+            .unwrap_or(ThrottleKey::Unknown);
     let ip_text =
         ip.0.map(ClientAddr::to_ip_string)
             .unwrap_or_else(|| "unknown".to_string());
-    let key = Key::new(username, ip_key.clone());
+    let key = Key::new(username, ip_key);
     if let Err(retry_after) = state.login_throttle.check(&key) {
         audit_login_failure(&state, None, username, &ip_text, "rate_limited").await;
         maybe_alert_login_failure(&state, max_attempts, username, &ip_text).await;
@@ -346,7 +346,7 @@ pub async fn login(
     state.login_watch.clear(username);
     // 登录成功也是一次成功的认证：清掉该 IP 的 Bearer / Agent Hello 失败计数。
     if ip.0.is_some() {
-        state.ip_throttle.clear(&ip_key);
+        state.ip_throttle.clear(ip_key);
     }
 
     let ttl_secs = settings.session_ttl_secs();
@@ -861,7 +861,7 @@ mod tests {
 
         let addr = client_ip(&headers, &extensions).unwrap();
         assert_eq!(addr.to_ip_string(), "2001:db8:1:2::1");
-        assert_eq!(addr.throttle_key(), "2001:db8:1:2::/64");
+        assert_eq!(addr.throttle_key().to_string(), "2001:db8:1:2::/64");
 
         // 同一 /64 内的另一个地址共用限流键。
         let mut sibling = HeaderMap::new();
@@ -944,6 +944,60 @@ mod tests {
             logins[0].ip.as_deref(),
             Some("203.0.113.82"),
             "登录审计里的 IP 必须与设备记录一致"
+        );
+    }
+
+    /// 手工微基准：一次请求里 XFF 解析的代价（优化前会被调用 2–3 次）。
+    ///
+    /// 运行：CARGO_HOME=$PWD/.cargo-home cargo test -p pierwave-master --lib \
+    ///         routes::auth::tests::bench_client_ip -- --ignored --nocapture
+    #[test]
+    #[ignore = "manual microbenchmark"]
+    fn bench_client_ip_parsing() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-for",
+            HeaderValue::from_static("203.0.113.7, 10.0.0.2, 10.0.0.3, 10.0.0.4, 10.0.0.5"),
+        );
+        let extensions = Extensions::new();
+
+        let rounds = 200_000;
+        let start = std::time::Instant::now();
+        for _ in 0..rounds {
+            let addr = client_ip(&headers, &extensions).unwrap();
+            std::hint::black_box(addr);
+        }
+        let elapsed = start.elapsed();
+        println!(
+            "bench_client_ip_parsing: {rounds} parses in {:?} => {:.1} ns/parse",
+            elapsed,
+            elapsed.as_nanos() as f64 / rounds as f64
+        );
+    }
+
+    /// 同一请求内复用已解析地址的代价（优化后第 2、3 次调用走扩展缓存）。
+    #[test]
+    #[ignore = "manual microbenchmark"]
+    fn bench_client_ip_cached_lookup() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-for",
+            HeaderValue::from_static("203.0.113.7, 10.0.0.2, 10.0.0.3, 10.0.0.4, 10.0.0.5"),
+        );
+        let mut extensions = Extensions::new();
+        let addr = client_ip(&headers, &extensions);
+        extensions.insert(ResolvedClientAddr(addr));
+
+        let rounds = 1_000_000;
+        let start = std::time::Instant::now();
+        for _ in 0..rounds {
+            std::hint::black_box(client_ip(&headers, &extensions));
+        }
+        let elapsed = start.elapsed();
+        println!(
+            "bench_client_ip_cached_lookup: {rounds} lookups in {:?} => {:.1} ns/lookup",
+            elapsed,
+            elapsed.as_nanos() as f64 / rounds as f64
         );
     }
 }

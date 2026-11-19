@@ -9,10 +9,12 @@
 //! - 重启后锁自然解除，管理员可以通过重启自救（可接受，见 docs/PLAN.md §1）。
 //!
 //! 计数的窗口时长与锁定时长一致（设置项只有 `login_lock_secs`），
-//! 每条记录都带最后访问时间，超过「窗口 + 60 秒」且已解锁的条目会在
-//! 每次 `check` / `record_failure` 时被清掉，避免 map 无限增长。
+//! 每条记录都带最后访问时间，超过「窗口 + 60 秒」且已解锁的条目最多每
+//! 60 秒被清理一次，避免 map 无限增长；清理不再发生在每个请求上。
 
 use std::collections::HashMap;
+use std::fmt;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -21,18 +23,95 @@ pub const DEFAULT_MAX_ATTEMPTS: u32 = 5;
 /// 默认锁定 15 分钟。
 pub const DEFAULT_LOCK_SECS: u64 = 900;
 
+/// 限流键：用固定大小的地址表示，不再为每个请求分配 `String`。
+///
+/// * IPv4 直接存 4 字节；
+/// * IPv6 只存高 64 位（`/64` 前缀），一个 /64 内的地址共用一个桶；
+/// * [`ThrottleKey::Unknown`] 用于确实拿不到客户端地址的登录请求（旧行为里
+///   是字符串 `"unknown"`）；
+/// * [`ThrottleKey::Aggregate`] 只作为 `(用户, *)` / `(*, IP)` 聚合桶的占位。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ThrottleKey {
+    V4(Ipv4Addr),
+    V6([u8; 8]),
+    Unknown,
+    Aggregate,
+}
+
+impl ThrottleKey {
+    /// 从已解析的地址构造；IPv4-mapped IPv6 由调用方先归一成 IPv4。
+    pub fn from_ip(ip: IpAddr) -> Self {
+        match ip {
+            IpAddr::V4(v4) => Self::V4(v4),
+            IpAddr::V6(v6) => {
+                let segments = v6.segments();
+                let mut high = [0_u8; 8];
+                for (index, segment) in segments.iter().take(4).enumerate() {
+                    high[index * 2] = (segment >> 8) as u8;
+                    high[index * 2 + 1] = (segment & 0xff) as u8;
+                }
+                Self::V6(high)
+            }
+        }
+    }
+}
+
+impl fmt::Display for ThrottleKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::V4(v4) => write!(f, "{v4}"),
+            Self::V6(high) => {
+                let segment =
+                    |index: usize| u16::from_be_bytes([high[index * 2], high[index * 2 + 1]]);
+                let network =
+                    Ipv6Addr::new(segment(0), segment(1), segment(2), segment(3), 0, 0, 0, 0);
+                write!(f, "{network}/64")
+            }
+            Self::Unknown => f.write_str("unknown"),
+            Self::Aggregate => f.write_str("*"),
+        }
+    }
+}
+
+/// 测试与旧调用点的字符串入口：解析失败按 [`ThrottleKey::Unknown`] 处理。
+///
+/// 只在测试里编译，生产代码必须先把地址解析成 `IpAddr` 再走
+/// [`ThrottleKey::from_ip`]，避免把未校验的字符串当限流键。
+#[cfg(test)]
+impl From<&str> for ThrottleKey {
+    fn from(raw: &str) -> Self {
+        raw.parse::<IpAddr>()
+            .map(Self::from_ip)
+            .unwrap_or(Self::Unknown)
+    }
+}
+
+#[cfg(test)]
+impl From<String> for ThrottleKey {
+    fn from(raw: String) -> Self {
+        Self::from(raw.as_str())
+    }
+}
+
+#[cfg(test)]
+impl From<&String> for ThrottleKey {
+    fn from(raw: &String) -> Self {
+        Self::from(raw.as_str())
+    }
+}
+
 /// 一次登录尝试的限流键。
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Key {
     pub username: String,
-    pub ip: String,
+    pub ip: ThrottleKey,
 }
 
 impl Key {
-    pub fn new(username: impl Into<String>, ip: impl Into<String>) -> Self {
+    pub fn new(username: impl Into<String>, ip: ThrottleKey) -> Self {
         Self {
             username: username.into(),
-            ip: ip.into(),
+            ip,
         }
     }
 }
@@ -50,11 +129,18 @@ enum Scope {
 struct EntryKey {
     scope: Scope,
     username: String,
-    ip: String,
+    ip: ThrottleKey,
 }
 
 /// 用户名最短 3 字符、IP 不可能是这个占位符，所以不会与真实键冲突。
 const AGGREGATE: &str = "*";
+
+/// 清理过期条目的最小间隔。
+///
+/// 旧实现每次 `check` / `record_failure` 都对整张表做一次 `retain`；表满时
+/// 每个请求要扫 4096 条。过期条目只是内存卫生，不需要强实时，改成最多每
+/// 60 秒扫一次，写入 / 读取路径都回到 O(1)（容量淘汰另算）。
+const PURGE_INTERVAL: Duration = Duration::from_secs(60);
 
 /// map 条目硬上限。每个失败最多写 3 个桶，5000 个不同用户名就能写出 1 万条；
 /// 不设上限时，攻击者可以靠换用户名/换 IP 把主控内存打满。
@@ -86,6 +172,8 @@ struct Inner {
     max_attempts: u32,
     window: Duration,
     lock: Duration,
+    /// 上一次全表清理的时间；见 [`PURGE_INTERVAL`]。
+    last_purge: Instant,
     /// 上一次「没有未锁定条目可淘汰」的 warn 时间（限频）。
     last_capacity_warn: Option<Instant>,
     /// 上一次「锁定条目达到上限」的 warn 时间（限频）。
@@ -100,6 +188,15 @@ impl Inner {
             let unlocked = entry.locked_until.is_none_or(|until| now >= until);
             !(unlocked && now.saturating_duration_since(entry.last_seen) > retain)
         });
+        self.last_purge = now;
+    }
+
+    /// 按 [`PURGE_INTERVAL`] 节流后的清理；语义与每次清理相同，只是不会
+    /// 让每个请求都为整张表付出代价。
+    fn maybe_purge(&mut self, now: Instant) {
+        if now.saturating_duration_since(self.last_purge) >= PURGE_INTERVAL {
+            self.purge(now);
+        }
     }
 }
 
@@ -172,6 +269,7 @@ impl LoginThrottle {
                 max_attempts: max_attempts.max(1),
                 window: lock,
                 lock,
+                last_purge: Instant::now(),
                 last_capacity_warn: None,
                 last_lock_cap_warn: None,
             }),
@@ -220,16 +318,28 @@ impl LoginThrottle {
         let mut inner = self.lock();
         let max_attempts = inner.max_attempts;
         let lock = inner.lock;
-        inner.purge(now);
+        inner.maybe_purge(now);
 
-        let mut locked_count = inner
-            .entries
-            .values()
-            .filter(|entry| entry.locked_until.is_some_and(|until| now < until))
-            .count();
+        let entry_keys = scopes_for(key);
+        // 只有「计数已越线且当前未锁」的桶才可能新增锁定，也只有这时才需要
+        // 全表数锁定条目。常见路径（没有越线）保持 O(1)，不再每个请求扫全表。
+        let needs_lock = entry_keys.iter().any(|entry_key| {
+            inner.entries.get(entry_key).is_some_and(|entry| {
+                let unlocked = entry.locked_until.is_none_or(|until| now >= until);
+                unlocked && entry.failures >= max_attempts
+            })
+        });
+        let mut locked_count = if needs_lock {
+            count_locked(&inner.entries, |entry| {
+                entry.locked_until.is_some_and(|until| now < until)
+            })
+        } else {
+            0
+        };
+
         let mut retry_after = 0u64;
         let mut lock_cap_hit = false;
-        for entry_key in scopes_for(key) {
+        for entry_key in entry_keys {
             let Some(entry) = inner.entries.get_mut(&entry_key) else {
                 continue;
             };
@@ -281,7 +391,7 @@ impl LoginThrottle {
         let max_attempts = inner.max_attempts;
         let lock = inner.lock;
         let window = inner.window;
-        inner.purge(now);
+        inner.maybe_purge(now);
 
         // 先腾空间再写：只淘汰未锁定条目。腾不出空间就拒绝这次失败，
         // 不能为了容纳新键而把已锁定的 `admin` 挤掉。
@@ -307,11 +417,23 @@ impl LoginThrottle {
             return;
         }
 
-        let mut locked_count = inner
-            .entries
-            .values()
-            .filter(|entry| entry.locked_until.is_some_and(|until| now < until))
-            .count();
+        // 同 check_at：只有这次失败真的会把某个桶推到阈值时才数锁定条目。
+        let needs_lock = entry_keys
+            .iter()
+            .any(|entry_key| match inner.entries.get(entry_key) {
+                Some(entry) => {
+                    let already_locked = entry.locked_until.is_some_and(|until| now < until);
+                    !already_locked && entry.failures.saturating_add(1) >= max_attempts
+                }
+                None => max_attempts <= 1,
+            });
+        let mut locked_count = if needs_lock {
+            count_locked(&inner.entries, |entry| {
+                entry.locked_until.is_some_and(|until| now < until)
+            })
+        } else {
+            0
+        };
         let mut lock_cap_hit = false;
         for entry_key in entry_keys {
             let mut newly_locked = false;
@@ -371,7 +493,7 @@ impl LoginThrottle {
         for entry_key in scopes_for(key) {
             inner.entries.remove(&entry_key);
         }
-        inner.purge(now);
+        inner.maybe_purge(now);
     }
 }
 
@@ -390,9 +512,11 @@ struct IpEntry {
 }
 
 struct IpInner {
-    entries: HashMap<String, IpEntry>,
+    entries: HashMap<ThrottleKey, IpEntry>,
     max_failures: u32,
     window: Duration,
+    /// 上一次全表清理的时间；见 [`PURGE_INTERVAL`]。
+    last_purge: Instant,
     /// 上一次「没有未锁定条目可淘汰」的 warn 时间（限频）。
     last_capacity_warn: Option<Instant>,
     /// 上一次「锁定条目达到上限」的 warn 时间（限频）。
@@ -407,6 +531,13 @@ impl IpInner {
             let unlocked = entry.locked_until.is_none_or(|until| now >= until);
             !(unlocked && now.saturating_duration_since(entry.last_seen) > retain)
         });
+        self.last_purge = now;
+    }
+
+    fn maybe_purge(&mut self, now: Instant) {
+        if now.saturating_duration_since(self.last_purge) >= PURGE_INTERVAL {
+            self.purge(now);
+        }
     }
 }
 
@@ -436,6 +567,7 @@ impl IpThrottle {
                 entries: HashMap::new(),
                 max_failures: max_failures.max(1),
                 window,
+                last_purge: Instant::now(),
                 last_capacity_warn: None,
                 last_lock_cap_warn: None,
             }),
@@ -443,18 +575,21 @@ impl IpThrottle {
     }
 
     /// 已锁定时返回建议的重试秒数（`Retry-After`）。
-    pub fn check(&self, ip: &str) -> Result<(), u64> {
-        self.check_at(ip, Instant::now())
+    ///
+    /// 生产调用方传 [`ThrottleKey`]（`IpAddr` 的紧凑表示）；`Into` 参数保留
+    /// 测试里直接写地址字符串的写法，避免测试被类型转换淹没。
+    pub fn check(&self, ip: impl Into<ThrottleKey>) -> Result<(), u64> {
+        self.check_at(ip.into(), Instant::now())
     }
 
     /// 记录一次认证失败；达到阈值时立即锁定该 IP。
-    pub fn record_failure(&self, ip: &str) {
-        self.record_failure_at(ip, Instant::now());
+    pub fn record_failure(&self, ip: impl Into<ThrottleKey>) {
+        self.record_failure_at(ip.into(), Instant::now());
     }
 
     /// 认证成功后清空该 IP 的失败计数。
-    pub fn clear(&self, ip: &str) {
-        self.clear_at(ip, Instant::now());
+    pub fn clear(&self, ip: impl Into<ThrottleKey>) {
+        self.clear_at(ip.into(), Instant::now());
     }
 
     /// 当前 map 里的条目数；只给测试断言「表有上限」用。
@@ -469,11 +604,12 @@ impl IpThrottle {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn check_at(&self, ip: &str, now: Instant) -> Result<(), u64> {
+    fn check_at(&self, ip: impl Into<ThrottleKey>, now: Instant) -> Result<(), u64> {
+        let ip = ip.into();
         let mut inner = self.lock();
-        inner.purge(now);
+        inner.maybe_purge(now);
 
-        let Some(entry) = inner.entries.get_mut(ip) else {
+        let Some(entry) = inner.entries.get_mut(&ip) else {
             return Ok(());
         };
         let Some(until) = entry.locked_until else {
@@ -489,14 +625,15 @@ impl IpThrottle {
         Err(seconds_until(until, now))
     }
 
-    fn record_failure_at(&self, ip: &str, now: Instant) {
+    fn record_failure_at(&self, ip: impl Into<ThrottleKey>, now: Instant) {
+        let ip = ip.into();
         let mut inner = self.lock();
         let max_failures = inner.max_failures;
         let window = inner.window;
-        inner.purge(now);
+        inner.maybe_purge(now);
 
         // 先腾空间再写：只淘汰未锁定条目，腾不出空间就拒绝新键。
-        let missing = usize::from(!inner.entries.contains_key(ip));
+        let missing = usize::from(!inner.entries.contains_key(&ip));
         let fits = make_room(
             &mut inner.entries,
             missing,
@@ -507,29 +644,35 @@ impl IpThrottle {
             if should_warn(&mut inner.last_capacity_warn, now) {
                 tracing::warn!(
                     entries = inner.entries.len(),
-                    ip,
+                    ip = %ip,
                     "IP 认证失败表已满且没有可淘汰的未锁定条目，拒绝记录新的失败"
                 );
             }
             return;
         }
 
-        let locked_count = inner
-            .entries
-            .values()
-            .filter(|entry| entry.locked_until.is_some_and(|until| now < until))
-            .count();
+        let needs_lock = match inner.entries.get(&ip) {
+            Some(entry) => {
+                let already_locked = entry.locked_until.is_some_and(|until| now < until);
+                !already_locked && entry.failures.saturating_add(1) >= max_failures
+            }
+            None => max_failures <= 1,
+        };
+        let locked_count = if needs_lock {
+            count_locked(&inner.entries, |entry| {
+                entry.locked_until.is_some_and(|until| now < until)
+            })
+        } else {
+            0
+        };
         let mut lock_cap_hit = false;
         {
-            let entry = inner
-                .entries
-                .entry(ip.to_string())
-                .or_insert_with(|| IpEntry {
-                    failures: 0,
-                    window_started: now,
-                    locked_until: None,
-                    last_seen: now,
-                });
+            let entry = inner.entries.entry(ip).or_insert_with(|| IpEntry {
+                failures: 0,
+                window_started: now,
+                locked_until: None,
+                last_seen: now,
+            });
             entry.last_seen = now;
 
             if entry.locked_until.is_some_and(|until| now >= until) {
@@ -569,10 +712,11 @@ impl IpThrottle {
         }
     }
 
-    fn clear_at(&self, ip: &str, now: Instant) {
+    fn clear_at(&self, ip: impl Into<ThrottleKey>, now: Instant) {
+        let ip = ip.into();
         let mut inner = self.lock();
-        inner.entries.remove(ip);
-        inner.purge(now);
+        inner.entries.remove(&ip);
+        inner.maybe_purge(now);
     }
 }
 
@@ -581,19 +725,24 @@ fn scopes_for(key: &Key) -> [EntryKey; 3] {
         EntryKey {
             scope: Scope::Pair,
             username: key.username.clone(),
-            ip: key.ip.clone(),
+            ip: key.ip,
         },
         EntryKey {
             scope: Scope::Account,
             username: key.username.clone(),
-            ip: AGGREGATE.to_string(),
+            ip: ThrottleKey::Aggregate,
         },
         EntryKey {
             scope: Scope::Address,
             username: AGGREGATE.to_string(),
-            ip: key.ip.clone(),
+            ip: key.ip,
         },
     ]
+}
+
+/// 数当前处于锁定状态的条目；只在即将新增锁定时调用。
+fn count_locked<K, E>(entries: &HashMap<K, E>, is_locked: impl Fn(&E) -> bool) -> usize {
+    entries.values().filter(|entry| is_locked(entry)).count()
 }
 
 fn seconds_until(until: Instant, now: Instant) -> u64 {
@@ -606,11 +755,21 @@ mod tests {
     use super::*;
 
     fn key(username: &str, ip: &str) -> Key {
-        Key::new(username, ip)
+        Key::new(username, ThrottleKey::from(ip))
     }
 
     fn at(base: Instant, secs: u64) -> Instant {
         base + Duration::from_secs(secs)
+    }
+
+    /// 生成第 `index` 个测试地址（10.0.0.0/8 内），避免把非 IP 字符串当键。
+    fn ip(index: usize) -> ThrottleKey {
+        ThrottleKey::from_ip(IpAddr::V4(Ipv4Addr::new(
+            10,
+            ((index >> 16) & 0xff) as u8,
+            ((index >> 8) & 0xff) as u8,
+            (index & 0xff) as u8,
+        )))
     }
 
     #[test]
@@ -878,7 +1037,7 @@ mod tests {
         let now = Instant::now();
 
         for index in 0..5000 {
-            throttle.record_failure_at(&format!("flood-{index}"), now);
+            throttle.record_failure_at(ip(index), now);
         }
 
         assert!(
@@ -899,7 +1058,7 @@ mod tests {
         }
 
         for index in 0..5000 {
-            throttle.record_failure_at(&format!("flood-{index}"), now);
+            throttle.record_failure_at(ip(MAX_ENTRIES + index), now);
         }
 
         assert!(
@@ -919,7 +1078,7 @@ mod tests {
         let mut inner = throttle.lock();
         for index in 0..count {
             inner.entries.insert(
-                format!("locked-{index}"),
+                ip(index),
                 IpEntry {
                     failures: IP_MAX_FAILURES,
                     window_started: now,
@@ -947,7 +1106,7 @@ mod tests {
 
         for index in 0..200 {
             for _ in 0..IP_MAX_FAILURES {
-                throttle.record_failure_at(&format!("flood-{index}"), now);
+                throttle.record_failure_at(ip(MAX_ENTRIES + index), now);
             }
         }
 
@@ -967,7 +1126,7 @@ mod tests {
         let before = throttle.len();
 
         for index in 0..500 {
-            throttle.record_failure_at(&format!("new-{index}"), now);
+            throttle.record_failure_at(ip(MAX_ENTRIES + index), now);
         }
 
         assert_eq!(
@@ -976,17 +1135,15 @@ mod tests {
             "全锁定时新失败不能写进表，表也不能增长"
         );
         assert!(
-            throttle.check_at("new-0", now).is_ok(),
+            throttle.check_at(ip(MAX_ENTRIES), now).is_ok(),
             "被拒绝的新键不能进入锁定状态"
         );
         assert!(
-            throttle.check_at("locked-0", now).is_err(),
+            throttle.check_at(ip(0), now).is_err(),
             "已有锁定项必须全部保留"
         );
         assert!(
-            throttle
-                .check_at(&format!("locked-{}", MAX_ENTRIES - 1), now)
-                .is_err(),
+            throttle.check_at(ip(MAX_ENTRIES - 1), now).is_err(),
             "最后一条锁定项也必须保留"
         );
     }
@@ -999,14 +1156,11 @@ mod tests {
         let now = Instant::now();
         for index in 0..MAX_ENTRIES {
             // 用毫秒递增 last_seen，保证「最久未活动」是可断言的确定值。
-            throttle.record_failure_at(
-                &format!("unlocked-{index}"),
-                now + Duration::from_millis(index as u64),
-            );
+            throttle.record_failure_at(ip(index), now + Duration::from_millis(index as u64));
         }
         assert_eq!(throttle.len(), MAX_ENTRIES);
 
-        throttle.record_failure_at("fresh-entry", now + Duration::from_secs(10));
+        throttle.record_failure_at(ip(MAX_ENTRIES + 7), now + Duration::from_secs(10));
 
         assert!(
             throttle.len() <= MAX_ENTRIES,
@@ -1014,11 +1168,11 @@ mod tests {
             throttle.len()
         );
         assert!(
-            throttle.lock().entries.contains_key("fresh-entry"),
+            throttle.lock().entries.contains_key(&ip(MAX_ENTRIES + 7)),
             "新键必须写入"
         );
         assert!(
-            !throttle.lock().entries.contains_key("unlocked-0"),
+            !throttle.lock().entries.contains_key(&ip(0)),
             "最久未活动的未锁定条目应被淘汰"
         );
     }
@@ -1030,7 +1184,7 @@ mod tests {
                 EntryKey {
                     scope: Scope::Account,
                     username: format!("locked-{index}"),
-                    ip: AGGREGATE.to_string(),
+                    ip: ThrottleKey::Aggregate,
                 },
                 Entry {
                     failures: 5,
@@ -1095,6 +1249,62 @@ mod tests {
                 .check_at(&key("locked-0", "10.0.0.3"), now)
                 .is_err(),
             "已有锁定账号必须保留"
+        );
+    }
+
+    // ---- 手工微基准（不进 `make check`） ----
+    //
+    // 运行：CARGO_HOME=$PWD/.cargo-home cargo test -p pierwave-master --lib \
+    //         throttle::tests::bench_ -- --ignored --nocapture
+    //
+    // 目的是量化「每次 check 都全表 purge + 数锁定条目」的开销；优化后同样
+    // 的命令应显著变小。
+
+    #[test]
+    #[ignore = "manual microbenchmark"]
+    fn bench_ip_throttle_check_with_a_full_table() {
+        let throttle = IpThrottle::new(u32::MAX, IP_WINDOW_SECS);
+        let now = Instant::now();
+        for index in 0..MAX_ENTRIES {
+            throttle.record_failure_at(format!("10.0.{}.{}", index / 256, index % 256), now);
+        }
+        assert_eq!(throttle.len(), MAX_ENTRIES);
+
+        let rounds = 20_000;
+        let start = Instant::now();
+        for index in 0..rounds {
+            let ip = format!("10.0.{}.{}", index / 256, index % 256);
+            let _ = throttle.check_at(&ip, now);
+        }
+        let elapsed = start.elapsed();
+        println!(
+            "bench_ip_throttle_check_with_a_full_table: {rounds} checks in {:?} => {:.1} ns/check",
+            elapsed,
+            elapsed.as_nanos() as f64 / rounds as f64
+        );
+    }
+
+    #[test]
+    #[ignore = "manual microbenchmark"]
+    fn bench_login_throttle_check_with_a_full_table() {
+        let throttle = LoginThrottle::new(u32::MAX, 900);
+        let now = Instant::now();
+        for index in 0..MAX_ENTRIES / 3 {
+            throttle.record_failure_at(&key(&format!("user-{index}"), "10.0.0.1"), now);
+        }
+        assert!(throttle.len() > MAX_ENTRIES / 2);
+
+        let rounds = 20_000;
+        let start = Instant::now();
+        for index in 0..rounds {
+            let probe = key(&format!("user-{}", index % (MAX_ENTRIES / 3)), "10.0.0.1");
+            let _ = throttle.check_at(&probe, now);
+        }
+        let elapsed = start.elapsed();
+        println!(
+            "bench_login_throttle_check_with_a_full_table: {rounds} checks in {:?} => {:.1} ns/check",
+            elapsed,
+            elapsed.as_nanos() as f64 / rounds as f64
         );
     }
 }

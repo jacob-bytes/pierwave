@@ -375,12 +375,17 @@ pub async fn ip_auth_throttle_middleware(
         return next.run(request).await;
     }
 
-    let Some(ip) = crate::routes::auth::client_ip(request.headers(), request.extensions()) else {
+    let ip = crate::routes::auth::client_ip(request.headers(), request.extensions());
+    // 缓存解析结果：内层 Bearer 中间件与 handler 提取器不再重复解析 XFF。
+    request
+        .extensions_mut()
+        .insert(crate::routes::auth::ResolvedClientAddr(ip));
+    let Some(ip) = ip else {
         // 没有可解析的客户端地址就没有限流键：跳过锁定，绝不能拿垃圾字符串当键。
         return next.run(request).await;
     };
     let key = ip.throttle_key();
-    let Err(retry_after) = state.ip_throttle.check(&key) else {
+    let Err(retry_after) = state.ip_throttle.check(key) else {
         return next.run(request).await;
     };
 
@@ -438,8 +443,8 @@ pub async fn api_token_middleware(
     // 先记录「本次尝试之前」是否已锁定：认证失败时据此决定 429 还是 401，
     // 并避免对已锁定的 IP 继续累加（锁期不会被无限延长）。
     let existing_lock = ip_key
-        .as_deref()
-        .and_then(|key| state.ip_throttle.check(key).err());
+        .as_ref()
+        .and_then(|key| state.ip_throttle.check(*key).err());
     let session_validated = request
         .extensions()
         .get::<ValidatedSessionCookie>()
@@ -456,8 +461,8 @@ pub async fn api_token_middleware(
     let principal = match authenticate_api_token(&state, raw).await {
         Ok(principal) => {
             // 成功认证清零该 IP 的失败计数；有效 Bearer 永远不被 IP 锁连坐。
-            if let Some(key) = ip_key.as_deref() {
-                state.ip_throttle.clear(key);
+            if let Some(key) = ip_key.as_ref() {
+                state.ip_throttle.clear(*key);
             }
             principal
         }
@@ -470,8 +475,8 @@ pub async fn api_token_middleware(
                 }
                 return invalid_token();
             }
-            if let Some(key) = ip_key.as_deref() {
-                state.ip_throttle.record_failure(key);
+            if let Some(key) = ip_key.as_ref() {
+                state.ip_throttle.record_failure(*key);
             }
             return invalid_token();
         }

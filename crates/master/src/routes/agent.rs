@@ -118,13 +118,13 @@ async fn handle_with_timeout(
     // T2：先做 token 校验。合法 token 不受 IP 锁影响；只有失败的认证尝试
     // 才吃限流。先取「本次之前」的锁定状态，已锁定就不再继续累加。
     let existing_lock = ip_key
-        .as_deref()
-        .and_then(|key| state.ip_throttle.check(key).err());
+        .as_ref()
+        .and_then(|key| state.ip_throttle.check(*key).err());
     let mut server = match repo::servers::find_by_token(&state.db.pool, &hello.token).await {
         Ok(Some(server)) => {
             // 认证成功清零该 IP 的失败计数。
-            if let Some(key) = ip_key.as_deref() {
-                state.ip_throttle.clear(key);
+            if let Some(key) = ip_key.as_ref() {
+                state.ip_throttle.clear(*key);
             }
             server
         }
@@ -135,8 +135,8 @@ async fn handle_with_timeout(
                 reject(&mut socket, "too many auth failures", close_code::POLICY).await;
                 return;
             }
-            if let Some(key) = ip_key.as_deref() {
-                state.ip_throttle.record_failure(key);
+            if let Some(key) = ip_key.as_ref() {
+                state.ip_throttle.record_failure(*key);
             }
             tracing::warn!(hostname = %hello.hostname, "agent auth failed");
             reject(&mut socket, "invalid token", close_code::POLICY).await;
