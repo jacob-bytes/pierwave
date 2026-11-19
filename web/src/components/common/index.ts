@@ -23,6 +23,7 @@ export type {
   PageSkeletonProps,
   SkeletonCardProps,
   SkeletonLineProps,
+  SkeletonTableColumn,
   SkeletonTableProps,
 } from "./Skeleton";
 export { ListError, ListErrorRow } from "./ListError";

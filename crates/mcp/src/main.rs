@@ -40,6 +40,12 @@ async fn main() -> ExitCode {
 }
 
 async fn run() -> anyhow::Result<()> {
+    // stdout 只允许 JSON-RPC 帧；诊断与工具错误详情一律写 stderr。
+    let _ = tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_target(false)
+        .try_init();
+
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!("{USAGE}");

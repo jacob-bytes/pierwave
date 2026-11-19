@@ -123,10 +123,10 @@ function PendingNotice({
       <AlertDescription className="text-warning/90">
         <span
           className="block"
-          title={formatRelativeTime(pending.uploaded_at)}
+          title={formatAbsoluteTime(pending.uploaded_at)}
         >
           {t("settings.backup.pendingDesc", {
-            time: formatAbsoluteTime(pending.uploaded_at),
+            time: formatRelativeTime(pending.uploaded_at),
             size: formatBytes(pending.bytes, { unlimitedLabel: "—" }),
           })}
         </span>
@@ -593,10 +593,10 @@ export function BackupCard() {
                   </p>
                   <p
                     className="mt-1 text-xs text-muted-foreground"
-                    title={formatRelativeTime(pending.uploaded_at)}
+                    title={formatAbsoluteTime(pending.uploaded_at)}
                   >
                     {t("settings.backup.pendingDesc", {
-                      time: formatAbsoluteTime(pending.uploaded_at),
+                      time: formatRelativeTime(pending.uploaded_at),
                       size: formatBytes(pending.bytes, {
                         unlimitedLabel: "—",
                       }),

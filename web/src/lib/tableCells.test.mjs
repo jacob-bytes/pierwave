@@ -28,8 +28,8 @@ test("alignClass maps the three column kinds", () => {
 
 /** 数值列覆盖：每个页面至少有一处「右对齐 + 等宽数字」，且带对应的表头。 */
 const NUMERIC_FILES = {
-  "pages/Servers.tsx": [
-    // 负载 / 内存 / 速率三列表头右对齐
+  "lib/tableColumns.ts": [
+    // 负载 / 内存 / 速率三列表头右对齐（真实表头与骨架共用同一份元数据）
     "hidden text-right xl:table-cell",
     "text-right xl:table-cell",
   ],

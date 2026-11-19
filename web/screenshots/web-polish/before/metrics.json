@@ -1,0 +1,215 @@
+{
+  "overview": {
+    "light-1440": {
+      "yAxes": 2,
+      "rightAxisTicks": 0,
+      "hasVerticalCumulativeLabel": true,
+      "hasLegendChip": false
+    },
+    "light-390": {
+      "yAxes": 2,
+      "rightAxisTicks": 0,
+      "hasVerticalCumulativeLabel": true,
+      "hasLegendChip": false
+    },
+    "dark-1440": {
+      "yAxes": 2,
+      "rightAxisTicks": 0,
+      "hasVerticalCumulativeLabel": true,
+      "hasLegendChip": false
+    }
+  },
+  "empty": {
+    "servers": {
+      "visibleActionButtons": 2,
+      "hasPrimary": true
+    },
+    "packages": {
+      "visibleActionButtons": 2,
+      "hasPrimary": true
+    },
+    "chains": {
+      "visibleActionButtons": 2,
+      "hasPrimary": false
+    },
+    "chain-templates": {
+      "visibleActionButtons": 2,
+      "hasPrimary": true
+    },
+    "subscription-templates": {
+      "visibleActionButtons": 2,
+      "hasPrimary": true
+    }
+  },
+  "serversSkeleton": {
+    "light-1440": {
+      "loading": {
+        "columns": 12,
+        "visible": 12,
+        "widths": [
+          144,
+          112,
+          112,
+          112,
+          112,
+          112,
+          112,
+          112,
+          112,
+          112,
+          112,
+          96
+        ],
+        "filter": null,
+        "filterPresent": false
+      },
+      "real": {
+        "columns": 12,
+        "visible": 11,
+        "widths": [
+          40,
+          89,
+          162,
+          110,
+          82,
+          103,
+          124,
+          155,
+          64,
+          103,
+          120
+        ],
+        "filter": false,
+        "filterPresent": true
+      }
+    },
+    "light-390": {
+      "loading": {
+        "columns": 0,
+        "visible": 0,
+        "widths": [],
+        "filter": null,
+        "filterPresent": false
+      },
+      "real": {
+        "columns": 0,
+        "visible": 0,
+        "widths": [],
+        "filter": false,
+        "filterPresent": true
+      }
+    },
+    "dark-1440": {
+      "loading": {
+        "columns": 12,
+        "visible": 12,
+        "widths": [
+          144,
+          112,
+          112,
+          112,
+          112,
+          112,
+          112,
+          112,
+          112,
+          112,
+          112,
+          96
+        ],
+        "filter": null,
+        "filterPresent": false
+      },
+      "real": {
+        "columns": 12,
+        "visible": 11,
+        "widths": [
+          40,
+          89,
+          162,
+          110,
+          82,
+          103,
+          124,
+          155,
+          64,
+          103,
+          120
+        ],
+        "filter": false,
+        "filterPresent": true
+      }
+    }
+  },
+  "users": {
+    "light-1440": [
+      {
+        "username": "admin",
+        "text": "5 分钟前",
+        "title": "2026-11-19 20:19:02"
+      },
+      {
+        "username": "dave",
+        "text": "9 分钟前",
+        "title": "2026-11-19 20:14:51"
+      },
+      {
+        "username": "bob",
+        "text": "2 小时前",
+        "title": "2026-11-19 18:19:51"
+      },
+      {
+        "username": "alice",
+        "text": "2026-10-05",
+        "title": "2026-10-05 20:19:51"
+      },
+      {
+        "username": "carol",
+        "text": "2025-10-15",
+        "title": "2025-10-15 20:19:51"
+      }
+    ],
+    "light-390": [],
+    "dark-1440": [
+      {
+        "username": "admin",
+        "text": "5 分钟前",
+        "title": "2026-11-19 20:19:02"
+      },
+      {
+        "username": "dave",
+        "text": "9 分钟前",
+        "title": "2026-11-19 20:14:51"
+      },
+      {
+        "username": "bob",
+        "text": "2 小时前",
+        "title": "2026-11-19 18:19:51"
+      },
+      {
+        "username": "alice",
+        "text": "2026-10-05",
+        "title": "2026-10-05 20:19:51"
+      },
+      {
+        "username": "carol",
+        "text": "2025-10-15",
+        "title": "2025-10-15 20:19:51"
+      }
+    ]
+  },
+  "settingsSecret": {
+    "light-1440": {
+      "text": "PierWave\n\n资源\n\n概览\n服务器\n节点\n\n账号\n\n用户\n订阅\n套餐\n\n转发\n\n转发链\n链模板\n转发用量\n\n系统\n\n日志\n设置\nPierWave v0.15.3\n版本更新\nPierWave\n设置\n探针\nA\nadmin\n设置\n\n面板名称、对外地址、登录限流、会话有效期与升级并发；只有管理员可以修改。\n\n常规\n安全\n通知\n备份与恢复\n规则模板\n订阅模板\n证书\n\n面板名称、对外地址，以及批量升级 Agent 时的并发数。\n\n设置加载失败\n\n以下秘密设置无法用当前主密钥解密：Telegram Bot Token, WebDAV 密码。请恢复写入时使用的主密钥（data/secret.key 或 PIERWAVE_SECRET_KEY）后重试。\n\n重试",
+      "hasReenter": false
+    },
+    "light-390": {
+      "text": "设置\n探针\nA\n设置\n\n面板名称、对外地址、登录限流、会话有效期与升级并发；只有管理员可以修改。\n\n常规\n安全\n通知\n备份与恢复\n规则模板\n订阅模板\n证书\n\n面板名称、对外地址，以及批量升级 Agent 时的并发数。\n\n设置加载失败\n\n以下秘密设置无法用当前主密钥解密：Telegram Bot Token, WebDAV 密码。请恢复写入时使用的主密钥（data/secret.key 或 PIERWAVE_SECRET_KEY）后重试。\n\n重试",
+      "hasReenter": false
+    },
+    "dark-1440": {
+      "text": "PierWave\n\n资源\n\n概览\n服务器\n节点\n\n账号\n\n用户\n订阅\n套餐\n\n转发\n\n转发链\n链模板\n转发用量\n\n系统\n\n日志\n设置\nPierWave v0.15.3\n版本更新\nPierWave\n设置\n探针\nA\nadmin\n设置\n\n面板名称、对外地址、登录限流、会话有效期与升级并发；只有管理员可以修改。\n\n常规\n安全\n通知\n备份与恢复\n规则模板\n订阅模板\n证书\n\n面板名称、对外地址，以及批量升级 Agent 时的并发数。\n\n设置加载失败\n\n以下秘密设置无法用当前主密钥解密：Telegram Bot Token, WebDAV 密码。请恢复写入时使用的主密钥（data/secret.key 或 PIERWAVE_SECRET_KEY）后重试。\n\n重试",
+      "hasReenter": false
+    }
+  }
+}

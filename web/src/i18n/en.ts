@@ -1847,6 +1847,22 @@ const en = {
     loadFailed: "Settings failed to load",
     loadError:
       "Could not load settings. Check your network, or whether the controller is running.",
+    secretError: {
+      title: "Some secret settings cannot be decrypted",
+      description:
+        "The current master key does not match the stored ciphertext. These secrets cannot be decrypted; entering new values encrypts them with the current master key and restores this page.",
+      keysTitle: "Secrets that cannot be decrypted",
+      reenter: "Re-enter",
+      reenterPlaceholder: "Enter a new value; leaving it blank keeps the saved one",
+      save: "Save new values",
+      saving: "Saving…",
+      saved: "The secrets you entered were saved",
+      saveError: "Could not save the new values. Please try again later.",
+      internalHint:
+        "The internal subscription derivation secret cannot be re-entered here. Restore the master key used when it was written (data/secret.key or PIERWAVE_SECRET_KEY), or restore a backup made with that key.",
+      noEditable:
+        "None of these secrets can be re-entered here. Restore the master key used when they were written (data/secret.key or PIERWAVE_SECRET_KEY), then retry.",
+    },
     notReady404:
       "The settings API is not ready yet (the backend may still be deploying). Please try again later.",
     forbidden: "Only administrators can view or change settings",
@@ -3533,6 +3549,8 @@ const en = {
     hoursAgo: "{n} hours ago",
     dayAgo: "{n} day ago",
     daysAgo: "{n} days ago",
+    monthAgo: "{n} month ago",
+    monthsAgo: "{n} months ago",
   },
   format: {
     unlimited: "Unlimited",
@@ -3542,7 +3560,9 @@ const en = {
     uplink: "Upload",
     weighted: "Billed traffic",
     cumulative: "Cumulative",
-    cumulativeAxis: "Cumulative ({unit})",
+    cumulativeToDate: "Cumulative to date",
+    cumulativeChipTitle:
+      "Cumulative traffic on the last day in the window; hover a bar for that day's total",
     emptyTitle: "No traffic in the last 7 days",
     emptyDesc: "Once nodes carry traffic, the trend appears here automatically.",
     aria: "Bar chart of upload and download traffic over the last 7 days",

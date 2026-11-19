@@ -152,14 +152,19 @@ enc:v1:<base64 of the same MAGIC|VERSION|NONCE|CIPHERTEXT envelope>
 - **Idempotent**: migration only touches non-empty, unencrypted values; a second
   run rewrites nothing.
 
-主密钥与密文不匹配时，`GET/PATCH /api/v1/settings` 返回可读错误
-`settings.secret_decrypt_failed`（HTTP 400），不会静默回显空 Token/密码。
-错误信息不包含密钥、密文或明文。
+主密钥与密文不匹配时，秘密字段按空串处理，但 `GET /api/v1/settings` 仍返回
+**200**，响应里带 `secret_errors.keys`（例如
+`{"secret_errors":{"keys":["telegram_bot_token"]}}`），让设置页能整体打开并提示
+哪些键需要重填；同时服务端写一条 error 日志。`PATCH` 仍可能返回
+`settings.secret_overwrite`（见下节）。错误与标记都不包含密钥、密文或明文。
 
-When the master key does not match the ciphertext, `GET/PATCH
-/api/v1/settings` returns the readable `settings.secret_decrypt_failed` error
-(HTTP 400) instead of silently echoing an empty token/password. The message
-contains no key, ciphertext or plaintext.
+When the master key does not match the ciphertext, secret fields read as empty
+strings, but `GET /api/v1/settings` still returns **200** with
+`secret_errors.keys` (for example
+`{"secret_errors":{"keys":["telegram_bot_token"]}}`). The settings page stays
+usable and can show which keys need re-entry; the server also writes an error
+log. `PATCH` can still return `settings.secret_overwrite` (see below). Neither the
+marker nor any error message contains the key, ciphertext or plaintext.
 
 ### 设置页的逃生路径 / Settings escape hatch
 

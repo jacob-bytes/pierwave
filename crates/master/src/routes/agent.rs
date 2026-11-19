@@ -265,6 +265,28 @@ async fn handle_with_timeout(
         tracing::error!(error = %e, "mark_offline failed");
     }
     tracing::info!(server = %server.name, "agent disconnected");
+    // 删除服务器会先删行、再断开旧连接：此时「离线」已经无从谈起，
+    // 用户刚删掉机器却收到一条离线告警只会是噪音。行仍在（改 token、断网、
+    // 正常关闭）才告警；查库失败时保守地保留告警，不能因为一次查询失败
+    // 把真实的离线事件吞掉。
+    let row_exists = match repo::servers::exists(&state.db.pool, &server.id).await {
+        Ok(exists) => exists,
+        Err(error) => {
+            tracing::error!(
+                server = %server.name,
+                %error,
+                "检查服务器是否仍存在失败，按仍存在处理（照常发离线告警）"
+            );
+            true
+        }
+    };
+    if !row_exists {
+        tracing::info!(
+            server = %server.name,
+            "服务器行已被删除，跳过离线告警"
+        );
+        return;
+    }
     // 告警是旁路：notify 内部吞掉所有错误，且投递在独立任务里，不会影响断开流程。
     crate::alerts::notify(
         &state,
@@ -409,7 +431,7 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
             let health = repo::servers::HealthSnapshot {
                 arch: hb.arch,
                 // 0 = 旧 Agent 未上报；仓储只在 > 0 时覆盖已有值。
-                protocol_version: Some(hb.protocol_version as i64),
+                protocol_version: Some(i64::from(hb.protocol_version)),
                 os_name: hb.os_name,
                 os_version: hb.os_version,
                 virt: hb.virt,
@@ -420,11 +442,13 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
                 xray_running: hb.xray_running,
                 nginx_running: hb.nginx_running,
                 load1: hb.load1 as f64,
-                mem_used: hb.mem_used as i64,
-                mem_total: hb.mem_total as i64,
-                disk_used: hb.disk_used as i64,
-                disk_total: hb.disk_total as i64,
-                uptime_secs: hb.uptime_secs as i64,
+                // u64 → i64 必须饱和：`as i64` 会把 u64::MAX 变成 -1，前端会展示
+                // 负的内存/磁盘用量，计费边界也会跟着错。
+                mem_used: saturating_i64(hb.mem_used),
+                mem_total: saturating_i64(hb.mem_total),
+                disk_used: saturating_i64(hb.disk_used),
+                disk_total: saturating_i64(hb.disk_total),
+                uptime_secs: saturating_i64(hb.uptime_secs),
                 latency_ms: hb.latency_ms.map(i64::from),
                 interfaces_json,
                 interfaces_reported: hb.interfaces_reported,
@@ -3610,6 +3634,72 @@ mod ws_tests {
         let sent = transport.wait_for(1).await;
         assert_eq!(sent[0].kind, "server_offline");
         assert_eq!(sent[0].target, server_id);
+    }
+
+    /// 删除服务器会断开旧连接：这行已经不存在了，不能再发「服务器离线」告警。
+    #[tokio::test]
+    async fn deleted_server_disconnect_does_not_send_offline_alert() {
+        let (state, server_id, token) = state_with_server().await;
+        let (state, transport) = with_offline_alerts(state).await;
+        let server = TestServer::start(state.clone(), Duration::from_secs(5)).await;
+
+        let mut socket = server.connect().await;
+        socket
+            .send(ClientMessage::Text(hello_json(&token, "hk-1", "0.14.2")))
+            .await
+            .unwrap();
+        assert!(matches!(
+            next_message(&mut socket).await,
+            Some(MasterMessage::Ack(_))
+        ));
+        wait_status(&state, &server_id, "online").await;
+
+        // 与删除路由相同的顺序：先删行，再断开旧连接。
+        assert!(repo::servers::delete(&state.db.pool, &server_id)
+            .await
+            .unwrap());
+        state.hub.disconnect(&server_id);
+        wait_closed(&mut socket).await;
+
+        transport
+            .assert_no_more(0, Duration::from_millis(500))
+            .await;
+        assert!(
+            repo::servers::find_by_id(&state.db.pool, &server_id)
+                .await
+                .is_err(),
+            "服务器行已被删除"
+        );
+    }
+
+    /// 心跳里的 u64 字段（内存/磁盘/uptime）必须饱和到 i64::MAX，不能回绕成负数。
+    #[tokio::test]
+    async fn heartbeat_u64_fields_saturate_instead_of_wrapping_negative() {
+        let (state, server_id, _token) = state_with_server().await;
+        let heartbeat = serde_json::json!({
+            "type": "heartbeat",
+            "seq": u64::MAX,
+            "uptime_secs": u64::MAX,
+            "load1": 0.0,
+            "mem_used": u64::MAX,
+            "mem_total": u64::MAX,
+            "disk_used": u64::MAX,
+            "disk_total": u64::MAX,
+            "xray_running": false,
+            "nginx_running": false,
+        })
+        .to_string();
+
+        handle_agent_message(&state, &server_id, "0.15.3", &heartbeat).await;
+
+        let row = repo::servers::find_by_id(&state.db.pool, &server_id)
+            .await
+            .expect("server row");
+        assert_eq!(row.mem_used, Some(i64::MAX), "u64::MAX 必须饱和，不是 -1");
+        assert_eq!(row.mem_total, Some(i64::MAX));
+        assert_eq!(row.disk_used, Some(i64::MAX));
+        assert_eq!(row.disk_total, Some(i64::MAX));
+        assert_eq!(row.uptime_secs, Some(i64::MAX));
     }
 
     /// 首帧不是 Hello（二进制）时明确拒绝并关闭，不查库。

@@ -30,6 +30,7 @@ import { BackupEncryptionCard } from "@/components/settings/BackupEncryptionCard
 import { RemoteBackupCard } from "@/components/settings/RemoteBackupCard";
 import { CertificatesPanel } from "@/components/settings/CertificatesPanel";
 import { RuleTemplatesPanel } from "@/components/settings/RuleTemplatesPanel";
+import { SettingsSecretRecovery } from "@/components/settings/SettingsSecretRecovery";
 import { SubscriptionTemplatesPanel } from "@/components/settings/SubscriptionTemplatesPanel";
 import {
   SettingsGroup,
@@ -49,6 +50,7 @@ import { ApiError, type Settings } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { exampleUrls } from "@/lib/publicBase";
 import { useSettings, useUpdateSettings } from "@/lib/queries";
+import { secretRecoveryFromSettings } from "@/lib/settingsSecrets";
 import {
   settingsGeneralSchema,
   settingsSecuritySchema,
@@ -646,6 +648,9 @@ const SETTINGS_TABS = [
 export default function SettingsPage() {
   useI18n();
   const settings = useSettings();
+  // 后端始终 200：秘密解不开通过顶层 secret_errors 暴露（已在 useSettings
+  // 合并到 items 上），不再走 isError 分支。
+  const secretFailure = secretRecoveryFromSettings(settings.data);
   const [searchParams, setSearchParams] = useSearchParams();
   // URL 是 tab 的唯一来源：刷新、前进/后退、外部链接都保持在同一个 tab。
   const tab = resolveSettingsTab(searchParams.get("tab"));
@@ -671,6 +676,13 @@ export default function SettingsPage() {
           {t("settings.subtitle")}
         </p>
       </div>
+
+      {secretFailure ? (
+        <SettingsSecretRecovery
+          failure={secretFailure}
+          onRetried={() => void settings.refetch()}
+        />
+      ) : null}
 
       <Tabs value={tab} onValueChange={handleTabChange} className="gap-4">
         <ScrollFade className="max-w-full">

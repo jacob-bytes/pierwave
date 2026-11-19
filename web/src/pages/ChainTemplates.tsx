@@ -300,6 +300,8 @@ export default function ChainTemplatesPage() {
     );
   }
 
+  const isEmpty =
+    templates.data !== undefined && !templates.isError && items.length === 0;
   const createButton = (
     <Button onClick={() => setFormState({ mode: "create" })}>
       <PlusIcon className="size-4" />
@@ -312,7 +314,7 @@ export default function ChainTemplatesPage() {
       <PageHeader
         title={t("chainTemplates.title")}
         description={t("chainTemplates.subtitle")}
-        actions={createButton}
+        actions={isEmpty ? undefined : createButton}
       />
 
       <Card className="gap-0 overflow-hidden">
@@ -412,7 +414,6 @@ export default function ChainTemplatesPage() {
                           description={t("chainTemplates.emptyDesc")}
                           action={
                             <Button
-                              variant="outline"
                               size="sm"
                               onClick={() =>
                                 setFormState({ mode: "create" })
@@ -452,7 +453,6 @@ export default function ChainTemplatesPage() {
                   description={t("chainTemplates.emptyDesc")}
                   action={
                     <Button
-                      variant="outline"
                       size="sm"
                       onClick={() => setFormState({ mode: "create" })}
                     >

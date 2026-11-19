@@ -156,7 +156,8 @@ pub struct Settings {
     /// 备份产物是否加密；默认 true。关闭后导出与异地备份都是明文 `.db.gz`。
     pub backup_encrypt: bool,
     /// 只在本进程内使用：秘密设置解密失败时的可读原因（不含密钥/密文）。
-    /// 不下发给前端（`as_json` 不包含），由 [`load_checked`] 转成接口错误。
+    /// 不下发给前端（`as_json` 不包含）；GET /settings 把它转成 `secret_errors`
+    /// 标记，后台任务则转成 [`SecretError`]。
     pub secret_error: Option<String>,
     /// 只在本进程内使用：本次读取中解不开的秘密键名（不含值）。
     ///
@@ -287,23 +288,11 @@ impl Settings {
 /// 读取当前生效设置；任何单个键异常都只影响它自己。
 ///
 /// 秘密设置（`telegram_bot_token` 等）在库里是 `enc:v1:` 密文，这里透明解密；
-/// 解密失败不会静默成空串，而是记录到 `secret_error`，由 [`load_checked`]
-/// 转成可读错误。内部后台任务仍可用 [`load`] 拿到其余设置继续工作。
+/// 解密失败不会静默成空串，而是记录到 `secret_error` / `secret_broken_keys`，
+/// 由 [`get`] 在 200 响应里标记，后台任务则用 [`load_for_background`] 拿到
+/// [`SecretError`]。GET 不能因此整体 400：设置页要能看到并重填坏掉的键。
 pub async fn load(db: &Db) -> Settings {
     load_inner(&db.pool, db.secret_key()).await
-}
-
-/// 与 [`load`] 相同，但秘密设置无法解密时返回可读错误。
-pub async fn load_checked(db: &Db) -> AppResult<Settings> {
-    let settings = load_inner(&db.pool, db.secret_key()).await;
-    if let Some(message) = settings.secret_error.clone() {
-        return Err(AppError::coded(
-            "settings.secret_decrypt_failed",
-            Some(json!({ "keys": settings.secret_broken_keys })),
-            message,
-        ));
-    }
-    Ok(settings)
 }
 
 /// 后台路径的秘密解密错误：带可读文案与**键名**（不含值）。
@@ -558,8 +547,8 @@ async fn read_text(
 /// 读取秘密设置：库里是 `enc:v1:` 密文时透明解密，历史明文原样兼容。
 ///
 /// 返回 `(value, error, broken)`：解密失败返回默认值 + 可读错误 + `true`
-/// （不含密钥、密文或明文）；调用方优先用 [`load_checked`] 把它变成接口错误，
-/// 或把 `broken` 汇总进 [`Settings::secret_broken_keys`] 供逃生路径使用。
+/// （不含密钥、密文或明文）；调用方把 `broken` 汇总进
+/// [`Settings::secret_broken_keys`]，由 GET 标记、PATCH 走逃生路径。
 async fn read_secret_text(
     pool: &SqlitePool,
     master: &SecretKey,
@@ -632,9 +621,23 @@ async fn read_bool(pool: &SqlitePool, key: &str, default: bool) -> bool {
 
 pub async fn get(State(state): State<AppState>, user: CurrentUser) -> AppResult<Json<Value>> {
     user.require_admin()?;
-    // 秘密解不开时给可读错误，而不是把空 Token/密码当成“未配置”回显。
-    let settings = load_checked(&state.db).await?;
-    Ok(Json(json!({ "items": settings.as_json() })))
+    // 秘密解不开时仍然返回 200：设置页要能整体打开，管理员才知道哪些键坏了、
+    // 才能重填。坏掉的秘密字段已经是空串（`as_json` 从不回显秘密），这里额外用
+    // `secret_errors.keys` 明确标记，不能静默成功。
+    let settings = load(&state.db).await;
+    let broken_keys = settings.secret_broken_keys.clone();
+    if let Some(error) = settings.secret_error.as_deref() {
+        tracing::error!(
+            keys = ?broken_keys,
+            error,
+            "设置中的秘密无法解密；GET /settings 返回 200 并标记 secret_errors"
+        );
+    }
+    let mut body = json!({ "items": settings.as_json() });
+    if settings.secret_error.is_some() {
+        body["secret_errors"] = json!({ "keys": broken_keys });
+    }
+    Ok(Json(body))
 }
 
 pub async fn update(
@@ -2380,7 +2383,8 @@ mod tests {
         assert!(changed.is_empty(), "迁移必须幂等：{changed:?}");
     }
 
-    /// 主密钥不匹配：必须报可读错误，不能静默回显空 Token/密码。
+    /// 主密钥不匹配：GET 仍返回 200（设置页整体可用），坏掉的秘密字段为空，
+    /// 并用 `secret_errors.keys` 明确告诉前端哪些键需要重填。
     #[tokio::test]
     async fn wrong_master_key_is_reported_instead_of_silently_empty() {
         let (app, state, admin, _bob) = setup().await;
@@ -2392,16 +2396,21 @@ mod tests {
 
         let (status, _, body) =
             request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-        assert_eq!(body["code"], "settings.secret_decrypt_failed");
-        let message = body["error"].as_str().unwrap();
-        assert!(message.contains("主密钥"), "错误要可读：{message}");
+        assert_eq!(status, StatusCode::OK, "秘密损坏不能让整页不可用：{body}");
+        assert_eq!(body["items"]["telegram_bot_token"], "");
+        assert_eq!(body["items"]["telegram_bot_has_token"], false);
+        assert_eq!(
+            body["secret_errors"]["keys"],
+            json!(["telegram_bot_token"]),
+            "必须列出解不开的键：{body}"
+        );
+        let rendered = body.to_string();
         assert!(
-            !message.contains("written-with-another-key") && !message.contains(&sealed),
-            "错误不能泄露明文或密文：{message}"
+            !rendered.contains("written-with-another-key") && !rendered.contains(&sealed),
+            "响应不能泄露明文或密文：{rendered}"
         );
 
-        // 内部读取仍能工作（空 Token + secret_error），只是 API 明确报错。
+        // 内部读取仍能工作（空 Token + secret_error），只是 API 明确标记。
         let settings = load(&state.db).await;
         assert_eq!(settings.telegram_bot_token, "");
         assert!(settings.secret_error.is_some());

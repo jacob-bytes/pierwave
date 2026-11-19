@@ -86,6 +86,11 @@ Claude Desktop（`claude_desktop_config.json`）或 Cursor（`~/.cursor/mcp.json
 任何支持 stdio MCP 的客户端都可以直接启动该命令。传输格式是**一行一个 JSON 对象**，
 每个请求的响应也是一行。
 
+单行上限 **1 MiB**（含行尾换行符）。超限时服务端丢弃该行、返回一条
+`error.code = -32700`、`id = null` 的 JSON-RPC 错误，然后**继续服务**（不退出）：
+一条超大的通知不该杀死长期运行的 MCP 进程，客户端收到错误后可自行重试。
+错误详情（SQL、表名、列名等）只写 stderr，不会出现在协议响应里。
+
 ### HTTP 接入（Streamable HTTP）
 
 不能启动本地进程的 MCP 客户端可以直接连主控的 `POST /mcp`。它和 stdio 模式
@@ -190,7 +195,7 @@ get_status_summary
 
 | code | 场景 |
 |---|---|
-| `-32700` | 非法 JSON（Parse error） |
+| `-32700` | 非法 JSON（Parse error），或 stdio 单行超过 1 MiB |
 | `-32600` | 非法请求对象 / 缺少 `jsonrpc` 或 `method` |
 | `-32601` | 未知方法（Method not found） |
 | `-32602` | 未知工具、缺少/非法参数、未知用户名 |
@@ -201,6 +206,12 @@ get_status_summary
 ### 工具
 
 以下示例中的字节数均为整数；时间戳为 UTC Unix 秒；日期为 UTC+8 自然日。
+
+三个列表工具（`list_servers` / `list_users` / `list_chains`）单次最多返回
+**500 行**主记录（`list_users` 的一行是一个套餐实例）。`list_chains` 的组、
+成员、健康状态查询各自也有 500 行上限，避免一条链把整份拓扑放大到不可控。
+结果顶层带 `truncated` 布尔值：为 `true` 表示上述任一查询发生了截断，
+调用方不能把它当成完整清单。`get_user_traffic` 的 `days` 上限 90 天，不受此限制。
 
 #### 1. `list_servers`
 
@@ -522,6 +533,13 @@ Passing the path through the environment:
 Any MCP client that supports stdio can launch the command directly. The transport
 is one JSON object per line; each response is one line as well.
 
+Each line is capped at **1 MiB** (including the trailing newline). An oversized
+line is discarded: the server returns a JSON-RPC error with `error.code = -32700`
+and `id = null`, then **keeps serving** instead of exiting. One oversized
+notification must not kill a long-running MCP process, and the client can retry
+after seeing the error. Error details (SQL, table/column names) go to stderr only
+and never appear in protocol responses.
+
 ### HTTP access (Streamable HTTP)
 
 MCP clients that cannot launch a local process can talk to the master at
@@ -637,7 +655,7 @@ Every tool has an `inputSchema`; no-argument tools return
 
 | code | Meaning |
 |---|---|
-| `-32700` | Invalid JSON (parse error) |
+| `-32700` | Invalid JSON (parse error), or a stdio line over 1 MiB |
 | `-32600` | Invalid request object / missing `jsonrpc` or `method` |
 | `-32601` | Unknown method |
 | `-32602` | Unknown tool, missing/invalid arguments, unknown username |
@@ -650,6 +668,14 @@ lists the available tools.
 
 Byte counts are integers; timestamps are UTC Unix seconds; dates are UTC+8
 calendar days.
+
+The three list tools (`list_servers` / `list_users` / `list_chains`) return at
+most **500 primary rows** per call (`list_users` rows are package instances).
+`list_chains` also caps its groups, members and health rows at 500 each, so a
+single chain cannot blow up the whole topology response. Their top-level
+`truncated` boolean is `true` when any of those queries was cut, so callers must
+not treat such a result as the complete list. `get_user_traffic` is bounded by
+its `days` parameter (max 90) instead.
 
 #### 1. `list_servers`
 

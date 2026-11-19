@@ -1561,6 +1561,18 @@ pub mod servers {
         )
     }
 
+    /// 该服务器行是否仍然存在。
+    ///
+    /// 删除服务器会先删行、再断开旧 Agent 连接；旧连接退出时用它区分
+    /// 「真的离线」与「已经被管理员删除」，后者不该再发离线告警。
+    pub async fn exists(pool: &SqlitePool, id: &str) -> anyhow::Result<bool> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM servers WHERE id = ?")
+            .bind(id)
+            .fetch_one(pool)
+            .await?;
+        Ok(count > 0)
+    }
+
     pub async fn find_by_token(pool: &SqlitePool, token: &str) -> anyhow::Result<Option<Server>> {
         let hash = crate::password::sha256_hex(token);
         Ok(

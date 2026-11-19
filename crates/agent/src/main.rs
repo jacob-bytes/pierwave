@@ -684,7 +684,18 @@ async fn apply_state(
     forwards: &mut ForwardEngines,
 ) -> ApplyOutcome {
     if let Err(e) = apply_files(state, cfg) {
-        tracing::error!(version = state.version, error = %e, "apply files failed");
+        match e.downcast_ref::<ApplyFilesError>() {
+            Some(failure) => tracing::error!(
+                version = state.version,
+                stage = failure.stage.label(),
+                committed = failure.committed.len(),
+                total = failure.total,
+                partial = failure.partial(),
+                error = %e,
+                "apply files failed"
+            ),
+            None => tracing::error!(version = state.version, error = %e, "apply files failed"),
+        }
         return ApplyOutcome {
             result: ApplyResult {
                 version: state.version,
@@ -942,7 +953,103 @@ fn validate_managed_file(file: &pierwave_proto::ManagedFile, roots: &[PathBuf]) 
     Ok(normalized)
 }
 
-/// 其它受管文件同样「写临时文件 → rename」，但不参与 xray 校验。
+/// 受管文件落盘失败所处的阶段，用于排障。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ApplyFilesStage {
+    /// 写临时文件阶段：还没有任何线上文件被替换。
+    Prepare,
+    /// rename 提交阶段：失败点之前的文件可能已经生效。
+    Commit,
+}
+
+impl ApplyFilesStage {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Prepare => "写临时文件 / write-temp",
+            Self::Commit => "提交 rename / commit",
+        }
+    }
+}
+
+/// 受管文件应用失败：带阶段与已提交清单，调用方据此区分「全失败」与「部分成功」。
+///
+/// 错误文本里带稳定的机器可读标记（`[agent.apply_files.partial]` /
+/// `[agent.apply_files.write_failed]` / `[agent.apply_files.commit_failed]`），
+/// 因为 [`ApplyResult`] 只能回传字符串，主控侧靠标记与已生效路径列表判断。
+#[derive(Debug)]
+struct ApplyFilesError {
+    stage: ApplyFilesStage,
+    /// 已经 rename 成功、对线上生效的目标文件（按提交顺序）。
+    committed: Vec<PathBuf>,
+    /// 本轮期望落盘的文件总数。
+    total: usize,
+    cause: anyhow::Error,
+}
+
+impl ApplyFilesError {
+    /// 提交阶段失败且至少有一个文件已生效：这是「部分成功」，不是「全失败」。
+    fn partial(&self) -> bool {
+        self.stage == ApplyFilesStage::Commit && !self.committed.is_empty()
+    }
+}
+
+impl std::fmt::Display for ApplyFilesError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let stage = self.stage.label();
+        if self.partial() {
+            let committed = self
+                .committed
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            write!(
+                f,
+                "[agent.apply_files.partial] 受管文件部分生效（partial success），阶段: {stage}；\
+                 已生效 {}/{}: {committed}；其余文件未生效、临时文件已清理；失败原因: {:#}",
+                self.committed.len(),
+                self.total,
+                self.cause
+            )
+        } else {
+            let code = match self.stage {
+                ApplyFilesStage::Prepare => "write_failed",
+                ApplyFilesStage::Commit => "commit_failed",
+            };
+            write!(
+                f,
+                "[agent.apply_files.{code}] 受管文件应用失败（managed files apply failed），\
+                 阶段: {stage}；没有任何文件生效（no managed file was changed）；失败原因: {:#}",
+                self.cause
+            )
+        }
+    }
+}
+
+impl std::error::Error for ApplyFilesError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.cause.as_ref())
+    }
+}
+
+/// 清理临时文件；失败只记日志，避免覆盖真正要返回的错误。
+fn remove_temp_quietly(path: &Path) {
+    if let Err(error) = std::fs::remove_file(path) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            tracing::warn!(path = %path.display(), %error, "清理临时文件失败（继续返回原始错误）");
+        }
+    }
+}
+
+/// 其它受管文件按两阶段提交落盘，但不参与 xray 校验：
+/// 1. 先校验全部路径（任何一条不合法都整体失败，不动文件系统）；
+/// 2. 逐个写 `.new` 临时文件，全部成功后才进入提交；任一失败删掉全部 `.new`，
+///    线上文件一行都不动；
+/// 3. 逐个 rename 提交；提交阶段失败时，失败点之前的文件已经生效，错误里
+///    明确列出「已生效」清单（部分成功），失败点之后的临时文件全部清理。
+///
+/// 证书与私钥因此不会出现「证书新、私钥旧」的错配：最坏情况是全部旧，或
+/// 在提交阶段极窄的窗口内被报告为部分成功，而不是伪装成整体失败。
 ///
 /// 权限必须按 `ManagedFile.mode` 落：证书私钥是 0600，忽略 mode 会按 umask
 /// 写成 0644，同机其它用户就能读到。临时文件按目标 mode 创建，写完再校正
@@ -958,24 +1065,67 @@ fn apply_files_with_roots(state: &DesiredState, roots: &[PathBuf]) -> Result<()>
         .iter()
         .map(|file| validate_managed_file(file, roots))
         .collect::<Result<Vec<_>>>()?;
+    let total = targets.len();
+
+    // 阶段一：写全部临时文件。失败时删掉本轮已写的全部 `.new`，线上文件不动。
+    let mut staged: Vec<(PathBuf, PathBuf)> = Vec::with_capacity(total);
     for (f, path) in state.files.iter().zip(targets) {
-        let path = path.as_path();
-        let tmp = with_suffix(path, ".tmp");
+        let tmp = with_suffix(&path, ".new");
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("创建目录失败: {}", parent.display()))?;
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                remove_staged_temps(&staged);
+                return Err(ApplyFilesError {
+                    stage: ApplyFilesStage::Prepare,
+                    committed: Vec::new(),
+                    total,
+                    cause: anyhow::Error::new(e)
+                        .context(format!("创建目录失败: {}", parent.display())),
+                }
+                .into());
+            }
         }
         if let Err(e) = write_file_with_mode(&tmp, f.content.as_bytes(), f.mode) {
             // 写一半失败（ENOSPC 等）时不要留下半份临时文件。
-            let _ = std::fs::remove_file(&tmp);
-            return Err(e).with_context(|| format!("写入临时文件失败: {}", tmp.display()));
+            remove_temp_quietly(&tmp);
+            remove_staged_temps(&staged);
+            return Err(ApplyFilesError {
+                stage: ApplyFilesStage::Prepare,
+                committed: Vec::new(),
+                total,
+                cause: anyhow::Error::new(e)
+                    .context(format!("写入临时文件失败: {}", tmp.display())),
+            }
+            .into());
         }
-        if let Err(e) = std::fs::rename(&tmp, path) {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(anyhow::anyhow!("替换文件失败（{}）: {e}", path.display()));
+        staged.push((tmp, path));
+    }
+
+    // 阶段二：逐个 rename 提交。失败点之前的文件已生效，如实报告为部分成功。
+    for (index, (tmp, path)) in staged.iter().enumerate() {
+        if let Err(e) = std::fs::rename(tmp, path) {
+            remove_temp_quietly(tmp);
+            remove_staged_temps(&staged[index + 1..]);
+            let committed = staged[..index]
+                .iter()
+                .map(|(_, path)| path.clone())
+                .collect();
+            return Err(ApplyFilesError {
+                stage: ApplyFilesStage::Commit,
+                committed,
+                total,
+                cause: anyhow::anyhow!("替换文件失败（{}）: {e}", path.display()),
+            }
+            .into());
         }
     }
     Ok(())
+}
+
+/// 删除尚未提交的临时文件（失败只告警）。
+fn remove_staged_temps(staged: &[(PathBuf, PathBuf)]) {
+    for (tmp, _) in staged {
+        remove_temp_quietly(tmp);
+    }
 }
 
 /// 按目标权限写文件：创建时就带 mode，写完再精确校正并 fsync。
@@ -2153,8 +2303,8 @@ mod tests {
         let cert = dir.path().join("certs/server.crt");
         let key = dir.path().join("certs/server.key");
         std::fs::create_dir_all(cert.parent().unwrap()).unwrap();
-        // 旧实现只会 std::fs::write，残留文件大概率是 0644；这里先造出这个状态。
-        let stale_tmp = with_suffix(&key, ".tmp");
+        // 旧实现只会 std::fs::write，残留临时文件大概率是 0644；这里先造出这个状态。
+        let stale_tmp = with_suffix(&key, ".new");
         std::fs::write(&stale_tmp, "stale").unwrap();
         std::fs::set_permissions(&stale_tmp, std::fs::Permissions::from_mode(0o644)).unwrap();
 
@@ -2186,7 +2336,7 @@ mod tests {
         let key_mode = std::fs::metadata(&key).unwrap().permissions().mode() & 0o777;
         assert_eq!(cert_mode, 0o644, "证书应是 0644");
         assert_eq!(key_mode, 0o600, "私钥必须是 0600，不能受 umask/残留影响");
-        assert!(!stale_tmp.exists(), "rename 后不能残留 .tmp");
+        assert!(!stale_tmp.exists(), "rename 后不能残留 .new");
     }
 
     /// `ManagedFile.mode == 0`（旧主控没给）按最保守的 0600 处理，绝不写成世界可读。
@@ -2309,6 +2459,205 @@ mod tests {
         for (index, root) in roots.iter().enumerate() {
             assert_eq!(read(&root.join(format!("f{index}.pem"))), "DATA");
         }
+    }
+
+    /// 写临时文件阶段失败：第一个文件已写好 `.new`，第二个文件根本写不下去 →
+    /// 第一个文件保持旧内容、临时文件全部清理，绝不进入 rename。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn write_failure_rolls_back_all_temps_and_keeps_old_files() {
+        let dir = TempDir::new();
+        let cfg = cfg_with_state_dir(dir.path());
+        let cert = dir.path().join("certs/server.crt");
+        std::fs::create_dir_all(cert.parent().unwrap()).unwrap();
+        std::fs::write(&cert, "OLD-CERT").unwrap();
+        // 第二个文件的父路径是普通文件：create_dir_all 必然失败，与临时后缀无关。
+        let blocker = dir.path().join("blocked");
+        std::fs::write(&blocker, "not a directory").unwrap();
+        let key = blocker.join("server.key");
+
+        let state = desired_with_files(vec![
+            managed(cert.display().to_string(), "NEW-CERT", 0o644),
+            managed(key.display().to_string(), "NEW-KEY", 0o600),
+        ]);
+        let error = apply_files(&state, &cfg).unwrap_err();
+        let message = error.to_string();
+
+        assert!(
+            message.contains("写临时文件") && message.contains("write-temp"),
+            "错误里要标明失败阶段：{message}"
+        );
+        assert_eq!(read(&cert), "OLD-CERT", "写临时阶段失败不能动已有文件");
+        assert!(!key.exists(), "失败点之后的文件不能落盘");
+        assert!(
+            !with_suffix(&cert, ".new").exists(),
+            "第一个文件的 .new 必须被清理"
+        );
+        let failure = error
+            .downcast_ref::<ApplyFilesError>()
+            .expect("错误必须带阶段信息");
+        assert_eq!(failure.stage, ApplyFilesStage::Prepare);
+        assert!(!failure.partial(), "写临时阶段失败不是部分成功");
+        assert!(failure.committed.is_empty());
+    }
+
+    /// 全部临时文件写成功后才逐个提交：所有文件都更新，不残留 `.new`。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn all_files_are_updated_when_every_temp_write_succeeds() {
+        let dir = TempDir::new();
+        let cfg = cfg_with_state_dir(dir.path());
+        let files = [
+            ("certs/server.crt", "NEW-CERT", 0o644),
+            ("certs/server.key", "NEW-KEY", 0o600),
+            ("certs/ca.pem", "NEW-CA", 0o644),
+        ];
+        let mut managed_files = Vec::new();
+        for (name, content, mode) in files {
+            let path = dir.path().join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, "OLD").unwrap();
+            managed_files.push(managed(path.display().to_string(), content, mode));
+        }
+
+        apply_files(&desired_with_files(managed_files), &cfg).unwrap();
+
+        for (name, content, _) in files {
+            let path = dir.path().join(name);
+            assert_eq!(read(&path), content, "所有文件都必须更新：{name}");
+            assert!(
+                !with_suffix(&path, ".new").exists(),
+                "提交后不能残留 .new：{name}"
+            );
+        }
+    }
+
+    /// 提交阶段失败：失败点之前的文件已经生效，必须报告为「部分成功」并列出路径，
+    /// 不能伪装成整体失败；失败点之后的文件不能生效。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn commit_failure_reports_partial_success_with_effective_paths() {
+        let dir = TempDir::new();
+        let cfg = cfg_with_state_dir(dir.path());
+        let cert = dir.path().join("certs/server.crt");
+        let blocked = dir.path().join("certs/server.key");
+        let later = dir.path().join("certs/ca.pem");
+        std::fs::create_dir_all(cert.parent().unwrap()).unwrap();
+        std::fs::write(&cert, "OLD-CERT").unwrap();
+        // 目标位置是目录 → rename 覆盖必然失败（EISDIR）。
+        std::fs::create_dir_all(&blocked).unwrap();
+
+        let state = desired_with_files(vec![
+            managed(cert.display().to_string(), "NEW-CERT", 0o644),
+            managed(blocked.display().to_string(), "NEW-KEY", 0o600),
+            managed(later.display().to_string(), "NEW-CA", 0o644),
+        ]);
+        let error = apply_files(&state, &cfg).unwrap_err();
+        let message = error.to_string();
+
+        assert!(
+            message.contains("部分生效") && message.contains("partial success"),
+            "提交失败必须说明部分成功：{message}"
+        );
+        assert!(
+            message.contains(&cert.display().to_string()),
+            "错误里要列出已生效的文件：{message}"
+        );
+        assert!(
+            message.contains("提交 rename") && message.contains("commit"),
+            "错误里要标明提交阶段：{message}"
+        );
+        assert_eq!(read(&cert), "NEW-CERT", "已提交的文件确实已生效");
+        assert!(!later.exists(), "失败点之后的文件不能生效");
+        assert!(blocked.is_dir(), "被占用的目标目录不能被删掉");
+        assert!(!with_suffix(&cert, ".new").exists());
+        assert!(!with_suffix(&later, ".new").exists());
+        let failure = error
+            .downcast_ref::<ApplyFilesError>()
+            .expect("错误必须带阶段信息");
+        assert_eq!(failure.stage, ApplyFilesStage::Commit);
+        assert!(failure.partial(), "有已生效文件时必须标记为部分成功");
+        assert_eq!(failure.committed, vec![cert.clone()]);
+        assert_eq!(failure.total, 3);
+    }
+
+    /// 私钥与证书成对更新：成功时两份内容同属一对；失败时双双保持旧的一对，
+    /// 绝不能出现「证书新、私钥旧」的错配。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn certificate_and_key_are_never_left_mismatched() {
+        fn assert_pair(cert: &Path, key: &Path, tag: &str) {
+            assert_eq!(read(cert), format!("{tag}-cert"), "证书内容配对错误");
+            assert_eq!(read(key), format!("{tag}-key"), "私钥内容配对错误");
+        }
+
+        let dir = TempDir::new();
+        let cfg = cfg_with_state_dir(dir.path());
+
+        // 成功：旧的一对 A 换成新的一对 B。
+        let cert = dir.path().join("pair/ok/server.crt");
+        let key = dir.path().join("pair/ok/server.key");
+        std::fs::create_dir_all(cert.parent().unwrap()).unwrap();
+        std::fs::write(&cert, "A-cert").unwrap();
+        std::fs::write(&key, "A-key").unwrap();
+        let state = desired_with_files(vec![
+            managed(cert.display().to_string(), "B-cert", 0o644),
+            managed(key.display().to_string(), "B-key", 0o600),
+        ]);
+        apply_files(&state, &cfg).unwrap();
+        assert_pair(&cert, &key, "B");
+
+        // 失败：私钥临时文件写不下去（`.new`/`.tmp` 都占成目录，模拟写失败），
+        // 证书必须留在旧的一对 A，不能单独升到 B。
+        let cert = dir.path().join("pair/fail/server.crt");
+        let key = dir.path().join("pair/fail/server.key");
+        std::fs::create_dir_all(cert.parent().unwrap()).unwrap();
+        std::fs::write(&cert, "A-cert").unwrap();
+        std::fs::write(&key, "A-key").unwrap();
+        std::fs::create_dir_all(with_suffix(&key, ".new")).unwrap();
+        std::fs::create_dir_all(with_suffix(&key, ".tmp")).unwrap();
+        let state = desired_with_files(vec![
+            managed(cert.display().to_string(), "B-cert", 0o644),
+            managed(key.display().to_string(), "B-key", 0o600),
+        ]);
+        apply_files(&state, &cfg).unwrap_err();
+        assert_pair(&cert, &key, "A");
+        assert!(
+            !with_suffix(&cert, ".new").exists(),
+            "配对失败时不能留下新证书的临时文件"
+        );
+    }
+
+    /// `ApplyResult` 只能回传字符串：部分成功的标记与已生效路径必须透传到主控。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn apply_state_reports_partial_success_in_apply_result() {
+        let dir = TempDir::new();
+        let cfg = cfg_with_state_dir(dir.path());
+        let cert = dir.path().join("certs/server.crt");
+        let blocked = dir.path().join("certs/server.key");
+        std::fs::create_dir_all(cert.parent().unwrap()).unwrap();
+        std::fs::write(&cert, "OLD-CERT").unwrap();
+        std::fs::create_dir_all(&blocked).unwrap();
+        let state = desired_with_files(vec![
+            managed(cert.display().to_string(), "NEW-CERT", 0o644),
+            managed(blocked.display().to_string(), "NEW-KEY", 0o600),
+        ]);
+        let mut engines = ForwardEngines::new(&cfg);
+
+        let outcome = apply_state(&state, &cfg, &mut engines).await;
+
+        assert!(!outcome.result.ok);
+        let reported = outcome.result.error.expect("失败时必须带错误信息");
+        assert!(
+            reported.contains("[agent.apply_files.partial]"),
+            "机器可读标记必须透传：{reported}"
+        );
+        assert!(
+            reported.contains(&cert.display().to_string()),
+            "已生效路径必须透传：{reported}"
+        );
+        assert_eq!(read(&cert), "NEW-CERT");
     }
 
     /// 私钥类路径必须 ≤ 0600：group/other 可读或带执行位都拒绝。

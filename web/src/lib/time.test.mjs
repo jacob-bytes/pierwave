@@ -22,9 +22,38 @@ test("formatRelativeTime can include exact seconds for the member row", () => {
   assert.equal(formatRelativeTime(secondsAgo(59), NOW, true), "59 秒前");
   // 超过一分钟后仍走原有的分钟分支。
   assert.equal(formatRelativeTime(secondsAgo(60), NOW, true), "1 分钟前");
-  // 时钟偏差导致的未来时间不显示负数。
-  assert.equal(formatRelativeTime(secondsAgo(-5), NOW, true), "0 秒前");
+  // 未来时间没有「多久以前」，回退绝对时间而不是显示负数 / 0 秒。
+  assert.equal(
+    formatRelativeTime(secondsAgo(-5), NOW, true),
+    "2026-11-12 20:00:05",
+  );
   assert.equal(formatRelativeTime(null, NOW, true), "从未在线");
+});
+
+test("formatRelativeTime keeps month-scale timestamps relative within a year", () => {
+  // 30 天整：1 个月前；45 天：1 个月前；60 天：2 个月前。
+  assert.equal(formatRelativeTime(secondsAgo(30 * 86_400), NOW), "1 个月前");
+  assert.equal(formatRelativeTime(secondsAgo(45 * 86_400), NOW), "1 个月前");
+  assert.equal(formatRelativeTime(secondsAgo(60 * 86_400), NOW), "2 个月前");
+  // 364 天仍在一年内，继续用相对月份，不突然变成裸日期。
+  assert.equal(formatRelativeTime(secondsAgo(364 * 86_400), NOW), "12 个月前");
+});
+
+test("formatRelativeTime falls back to absolute time over a year or in the future", () => {
+  // 超过一年：相对时间失效，显示 UTC+8 绝对时间。
+  assert.equal(
+    formatRelativeTime(secondsAgo(400 * 86_400), NOW),
+    "2025-10-08 20:00:00",
+  );
+  assert.equal(
+    formatRelativeTime(secondsAgo(365 * 86_400), NOW),
+    "2025-11-12 20:00:00",
+  );
+  // 未来一分钟：绝对时间，且不出现「前 / ago」。
+  assert.equal(
+    formatRelativeTime(secondsAgo(-60), NOW),
+    "2026-11-12 20:01:00",
+  );
 });
 
 test("formatClockTime prints UTC+8 hours, minutes and seconds", () => {

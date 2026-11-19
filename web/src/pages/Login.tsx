@@ -48,22 +48,21 @@ export default function LoginPage() {
     : null;
 
   return (
-    <div className="relative grid min-h-full place-items-center overflow-hidden bg-background p-6">
-      {/* 主题色低透明度光晕：纯装饰，深色下更强，亮色下收着用 */}
-      <div
-        aria-hidden="true"
-        className="auth-glow pointer-events-none absolute inset-0"
-      />
-
+    <div className="relative grid min-h-full place-items-center bg-background p-6">
       <div className="animate-enter relative w-full max-w-sm">
         <div className="mb-7 flex flex-col items-center gap-4 text-center">
           {/* 品牌标识：logo 与两行文字等高（40px），两行之间只留 2px。
-              缩进由 flex 布局自然产生，不再用 pl-* 对齐文字。 */}
-          <div className="flex min-w-0 items-center gap-2.5">
-            <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
+              缩进由 flex 布局自然产生，不再用 pl-* 对齐文字。
+              光晕只覆盖这一行（240px 圆），不再铺满整屏。 */}
+          <div className="relative isolate flex min-w-0 items-center gap-2.5">
+            <div
+              aria-hidden="true"
+              className="auth-brand-glow pointer-events-none absolute top-1/2 left-1/2 -z-10 size-60 -translate-x-1/2 -translate-y-1/2 rounded-full"
+            />
+            <span className="relative grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
               <TerminalIcon className="icon-lg" aria-hidden="true" />
             </span>
-            <span className="flex min-w-0 flex-col text-left">
+            <span className="relative flex min-w-0 flex-col text-left">
               <span className="truncate text-base leading-tight font-semibold tracking-tight">
                 {panelName}
               </span>

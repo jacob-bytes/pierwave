@@ -1,0 +1,261 @@
+{
+  "login": {
+    "light-1440": {
+      "glowPresent": true,
+      "oldGlowPresent": false,
+      "glowWidth": 240,
+      "glowHeight": 240,
+      "glowBackground": "radial-gradient(190px, oklch(0.424 0.199 265.638 / 0.12), rgba(0, 0, 0, 0) 72%)",
+      "pageBackground": "none",
+      "bodyBackground": "none"
+    },
+    "light-390": {
+      "glowPresent": true,
+      "oldGlowPresent": false,
+      "glowWidth": 240,
+      "glowHeight": 240,
+      "glowBackground": "radial-gradient(190px, oklch(0.424 0.199 265.638 / 0.12), rgba(0, 0, 0, 0) 72%)",
+      "pageBackground": "none",
+      "bodyBackground": "none"
+    },
+    "dark-1440": {
+      "glowPresent": true,
+      "oldGlowPresent": false,
+      "glowWidth": 240,
+      "glowHeight": 240,
+      "glowBackground": "radial-gradient(190px, oklch(0.662 0.179 264.6 / 0.26), rgba(0, 0, 0, 0) 72%)",
+      "pageBackground": "none",
+      "bodyBackground": "none"
+    },
+    "dark-390": {
+      "glowPresent": true,
+      "oldGlowPresent": false,
+      "glowWidth": 240,
+      "glowHeight": 240,
+      "glowBackground": "radial-gradient(190px, oklch(0.662 0.179 264.6 / 0.26), rgba(0, 0, 0, 0) 72%)",
+      "pageBackground": "none",
+      "bodyBackground": "none"
+    }
+  },
+  "overview": {
+    "light-1440": {
+      "yAxes": 1,
+      "rightAxisTicks": 0,
+      "hasVerticalCumulativeLabel": false,
+      "hasLegendChip": true
+    },
+    "light-390": {
+      "yAxes": 1,
+      "rightAxisTicks": 0,
+      "hasVerticalCumulativeLabel": false,
+      "hasLegendChip": true
+    },
+    "dark-1440": {
+      "yAxes": 1,
+      "rightAxisTicks": 0,
+      "hasVerticalCumulativeLabel": false,
+      "hasLegendChip": true
+    }
+  },
+  "empty": {
+    "servers": {
+      "visibleActionButtons": 1,
+      "hasPrimary": true
+    },
+    "packages": {
+      "visibleActionButtons": 1,
+      "hasPrimary": true
+    },
+    "chains": {
+      "visibleActionButtons": 1,
+      "hasPrimary": true
+    },
+    "chain-templates": {
+      "visibleActionButtons": 1,
+      "hasPrimary": true
+    },
+    "subscription-templates": {
+      "visibleActionButtons": 1,
+      "hasPrimary": true
+    }
+  },
+  "serversSkeleton": {
+    "light-1440": {
+      "loading": {
+        "columns": 12,
+        "visible": 11,
+        "widths": [
+          48,
+          168,
+          152,
+          92,
+          80,
+          104,
+          136,
+          64,
+          104,
+          120,
+          84
+        ],
+        "filter": true,
+        "filterPresent": true
+      },
+      "real": {
+        "columns": 12,
+        "visible": 11,
+        "widths": [
+          40,
+          89,
+          162,
+          110,
+          82,
+          103,
+          124,
+          155,
+          64,
+          103,
+          120
+        ],
+        "filter": false,
+        "filterPresent": true
+      }
+    },
+    "light-390": {
+      "loading": {
+        "columns": 0,
+        "visible": 0,
+        "widths": [],
+        "filter": true,
+        "filterPresent": true
+      },
+      "real": {
+        "columns": 0,
+        "visible": 0,
+        "widths": [],
+        "filter": false,
+        "filterPresent": true
+      }
+    },
+    "dark-1440": {
+      "loading": {
+        "columns": 12,
+        "visible": 11,
+        "widths": [
+          48,
+          168,
+          152,
+          92,
+          80,
+          104,
+          136,
+          64,
+          104,
+          120,
+          84
+        ],
+        "filter": true,
+        "filterPresent": true
+      },
+      "real": {
+        "columns": 12,
+        "visible": 11,
+        "widths": [
+          40,
+          89,
+          162,
+          110,
+          82,
+          103,
+          124,
+          155,
+          64,
+          103,
+          120
+        ],
+        "filter": false,
+        "filterPresent": true
+      }
+    }
+  },
+  "users": {
+    "light-1440": [
+      {
+        "username": "admin",
+        "text": "1 分钟前",
+        "title": "2026-11-19 20:35:25"
+      },
+      {
+        "username": "dave",
+        "text": "6 分钟前",
+        "title": "2026-11-19 20:30:45"
+      },
+      {
+        "username": "bob",
+        "text": "2 小时前",
+        "title": "2026-11-19 18:35:45"
+      },
+      {
+        "username": "alice",
+        "text": "1 个月前",
+        "title": "2026-10-05 20:35:45"
+      },
+      {
+        "username": "carol",
+        "text": "2025-10-15 20:35:45",
+        "title": "2025-10-15 20:35:45"
+      }
+    ],
+    "light-390": [],
+    "dark-1440": [
+      {
+        "username": "admin",
+        "text": "1 分钟前",
+        "title": "2026-11-19 20:35:25"
+      },
+      {
+        "username": "dave",
+        "text": "6 分钟前",
+        "title": "2026-11-19 20:30:45"
+      },
+      {
+        "username": "bob",
+        "text": "2 小时前",
+        "title": "2026-11-19 18:35:45"
+      },
+      {
+        "username": "alice",
+        "text": "1 个月前",
+        "title": "2026-10-05 20:35:45"
+      },
+      {
+        "username": "carol",
+        "text": "2025-10-15 20:35:45",
+        "title": "2025-10-15 20:35:45"
+      }
+    ]
+  },
+  "settingsSecret": {
+    "light-1440": {
+      "text": "PierWave\n\n资源\n\n概览\n服务器\n节点\n\n账号\n\n用户\n订阅\n套餐\n\n转发\n\n转发链\n链模板\n转发用量\n\n系统\n\n日志\n设置\nPierWave v0.15.3\n版本更新\nPierWave\n设置\n探针\nA\nadmin\n设置\n\n面板名称、对外地址、登录限流、会话有效期与升级并发；只有管理员可以修改。\n\n部分秘密设置无法解密\n\n当前主密钥与已保存的密文不匹配。以下秘密无法解密；填写新值后会用当前主密钥重新加密，页面随即恢复。\n\nTelegram Bot Token\nWebDAV 密码\n重新填写\n常规\n安全\n通知\n备份与恢复\n规则模板\n订阅模板\n证书\n\n面板名称、对外地址，以及批量升级 Agent 时的并发数。\n\n面板\n显示在登录页与页面标题中的面板名称。\n面板名称\n*\n最多 64 个字符；保存后刷新页面即可看到新名称。\n版本更新\nmaster 与 Agent 的版本状态；版本源为 GitHub Releases。\n\n当前版本\n\n当前\nv0.15.3\n最新\nv0.15.3\n已是最新\n上次检测 1 分钟前\n·\n查看 Release\n\nAgent 版本分布\n\n还没有 Agent 上报版本\n\n协议 29 · 最低 16\n\n检测间隔（小时）\n*\n范围 1–168 小时，默认 6 小时。\n自动检测\n立即检测\n对外地址\nAgent 安装、升级与订阅链接都基于这里的地址。\nAgent 纳管地址\n留空则使用当前访问地址。\n订阅地址\n留空则使用 Agent 纳管地址。\n\n示例\n\n安装命令\n\nhttps://your-domain.com/api/agent/install.sh?token=<token>\n复制\n\n订阅链接\n\nhttps://your-domain.com/api/v1/sub/abc123\n复制\nAgent 升级\n批量升级的执行并发；保存后对新的批次立即生效。\n升级并发数\n*\n当前一次最多 1 台；并发越大，同时中断的节点越多；默认一次一台。\n\n修改后点击保存才会生效。\n\n保存",
+      "hasReenter": true
+    },
+    "light-390": {
+      "text": "设置\n探针\nA\n设置\n\n面板名称、对外地址、登录限流、会话有效期与升级并发；只有管理员可以修改。\n\n部分秘密设置无法解密\n\n当前主密钥与已保存的密文不匹配。以下秘密无法解密；填写新值后会用当前主密钥重新加密，页面随即恢复。\n\nTelegram Bot Token\nWebDAV 密码\n重新填写\n常规\n安全\n通知\n备份与恢复\n规则模板\n订阅模板\n证书\n\n面板名称、对外地址，以及批量升级 Agent 时的并发数。\n\n面板\n显示在登录页与页面标题中的面板名称。\n面板名称\n*\n最多 64 个字符；保存后刷新页面即可看到新名称。\n版本更新\nmaster 与 Agent 的版本状态；版本源为 GitHub Releases。\n\n当前版本\n\n当前\nv0.15.3\n最新\nv0.15.3\n已是最新\n上次检测 1 分钟前\n·\n查看 Release\n\nAgent 版本分布\n\n还没有 Agent 上报版本\n\n协议 29 · 最低 16\n\n检测间隔（小时）\n*\n范围 1–168 小时，默认 6 小时。\n自动检测\n立即检测\n对外地址\nAgent 安装、升级与订阅链接都基于这里的地址。\nAgent 纳管地址\n留空则使用当前访问地址。\n订阅地址\n留空则使用 Agent 纳管地址。\n\n示例\n\n安装命令\n\nhttps://your-domain.com/api/agent/install.sh?token=<token>\n复制\n\n订阅链接\n\nhttps://your-domain.com/api/v1/sub/abc123\n复制\nAgent 升级\n批量升级的执行并发；保存后对新的批次立即生效。\n升级并发数\n*\n当前一次最多 1 台；并发越大，同时中断的节点越多；默认一次一台。\n\n修改后点击保存才会生效。\n\n保存",
+      "hasReenter": true
+    },
+    "dark-1440": {
+      "text": "PierWave\n\n资源\n\n概览\n服务器\n节点\n\n账号\n\n用户\n订阅\n套餐\n\n转发\n\n转发链\n链模板\n转发用量\n\n系统\n\n日志\n设置\nPierWave v0.15.3\n版本更新\nPierWave\n设置\n探针\nA\nadmin\n设置\n\n面板名称、对外地址、登录限流、会话有效期与升级并发；只有管理员可以修改。\n\n部分秘密设置无法解密\n\n当前主密钥与已保存的密文不匹配。以下秘密无法解密；填写新值后会用当前主密钥重新加密，页面随即恢复。\n\nTelegram Bot Token\nWebDAV 密码\n重新填写\n常规\n安全\n通知\n备份与恢复\n规则模板\n订阅模板\n证书\n\n面板名称、对外地址，以及批量升级 Agent 时的并发数。\n\n面板\n显示在登录页与页面标题中的面板名称。\n面板名称\n*\n最多 64 个字符；保存后刷新页面即可看到新名称。\n版本更新\nmaster 与 Agent 的版本状态；版本源为 GitHub Releases。\n\n当前版本\n\n当前\nv0.15.3\n最新\nv0.15.3\n已是最新\n上次检测 1 分钟前\n·\n查看 Release\n\nAgent 版本分布\n\n还没有 Agent 上报版本\n\n协议 29 · 最低 16\n\n检测间隔（小时）\n*\n范围 1–168 小时，默认 6 小时。\n自动检测\n立即检测\n对外地址\nAgent 安装、升级与订阅链接都基于这里的地址。\nAgent 纳管地址\n留空则使用当前访问地址。\n订阅地址\n留空则使用 Agent 纳管地址。\n\n示例\n\n安装命令\n\nhttps://your-domain.com/api/agent/install.sh?token=<token>\n复制\n\n订阅链接\n\nhttps://your-domain.com/api/v1/sub/abc123\n复制\nAgent 升级\n批量升级的执行并发；保存后对新的批次立即生效。\n升级并发数\n*\n当前一次最多 1 台；并发越大，同时中断的节点越多；默认一次一台。\n\n修改后点击保存才会生效。\n\n保存",
+      "hasReenter": true
+    }
+  },
+  "settingsSecretForm": {
+    "token": true,
+    "password": true,
+    "saveDisabled": true,
+    "filledSaveDisabled": false
+  },
+  "healthySettings": {
+    "recoveryCards": 0,
+    "hasGenericLoadError": false
+  }
+}

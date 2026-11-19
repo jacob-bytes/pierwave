@@ -133,6 +133,7 @@ import {
   normalizeGroupName,
 } from "@/lib/serverGroups";
 import { isSpeedLimited } from "@/lib/speed";
+import { SERVER_TABLE_COLUMN_KEYS, serverTableColumns } from "@/lib/tableColumns";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
@@ -140,7 +141,7 @@ import { useIsDesktop } from "@/lib/useIsDesktop";
 import { CountrySelect } from "@/components/common/CountrySelect";
 import { FormField } from "@/components/FormField";
 
-const COLUMN_COUNT = 12;
+const COLUMN_COUNT = SERVER_TABLE_COLUMN_KEYS.length;
 /** 心跳超过这个时长没有更新就不该再当作实时数据。 */
 const HEARTBEAT_STALE_MS = 90_000;
 const HEAD_CLASS =
@@ -759,7 +760,7 @@ function EmptyRow({ onCreate }: { onCreate: () => void }) {
           title={t("servers.emptyTitle")}
           description={t("servers.emptyDesc")}
           action={
-            <Button variant="outline" size="sm" onClick={onCreate}>
+            <Button size="sm" onClick={onCreate}>
               <PlusIcon className="icon-md" />
               {t("servers.emptyAction")}
             </Button>
@@ -793,6 +794,7 @@ function FilterEmptyRow({ onClear }: { onClear: () => void }) {
 export default function ServersPage() {
   const { t } = useI18n();
   const isDesktop = useIsDesktop();
+  const tableColumns = serverTableColumns(t);
   const servers = useServers();
   const create = useCreateServer();
   const [searchParams] = useSearchParams();
@@ -950,6 +952,7 @@ export default function ServersPage() {
   ).length;
   const serviceDownCount = items.filter(isServiceDown).length;
   const showError = servers.isError && !servers.data;
+  const isEmpty = servers.data !== undefined && !servers.isError && items.length === 0;
   const errorMessage = errorText(
     servers.error,
     t("servers.loadError"),
@@ -1426,10 +1429,12 @@ export default function ServersPage() {
         title={t("servers.title")}
         description={t("servers.subtitle")}
         actions={
-          <Button onClick={openCreateDialog}>
-            <PlusIcon className="icon-md" />
-            {t("servers.add")}
-          </Button>
+          isEmpty ? undefined : (
+            <Button onClick={openCreateDialog}>
+              <PlusIcon className="icon-md" />
+              {t("servers.add")}
+            </Button>
+          )
         }
       />
 
@@ -1456,8 +1461,26 @@ export default function ServersPage() {
                   })}
                 </span>
               ) : null}
-              {servers.data &&
-              serverGroups.some((group) => group.name !== null) ? (
+              {/*
+                加载中也把筛选区画出来（禁用），避免骨架 → 数据两套结构来回跳。
+                没有任何分组时才真正隐藏。
+              */}
+              {servers.isPending ? (
+                <Select value={GROUP_FILTER_ALL} disabled>
+                  <SelectTrigger
+                    className="h-8 w-36 text-xs"
+                    aria-label={t("servers.groupFilterAria")}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={GROUP_FILTER_ALL}>
+                      {t("servers.groupFilterAll")}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : servers.data &&
+                serverGroups.some((group) => group.name !== null) ? (
                 <Select
                   value={activeGroupFilter}
                   onValueChange={setGroupFilter}
@@ -1539,7 +1562,14 @@ export default function ServersPage() {
 
         <CardContent className="p-0" aria-busy={servers.isPending}>
           {servers.isPending && isDesktop ? (
-            <SkeletonTable rows={5} columns={COLUMN_COUNT} />
+            <SkeletonTable
+              rows={5}
+              columns={tableColumns.map((column) => ({
+                className: column.skeletonClassName,
+                widthClassName: column.skeletonWidth,
+              }))}
+              tableClassName="min-w-[780px] xl:min-w-[1100px]"
+            />
           ) : null}
           {servers.isPending && !isDesktop ? (
             <div className="space-y-3 p-3">
@@ -1554,48 +1584,30 @@ export default function ServersPage() {
             <TableCaption className="sr-only">{t("servers.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
-                <TableHead sticky="left" className={cn(HEAD_CLASS, "w-10 pr-0")}>
-                  <SelectAllCheckbox
-                    state={selectAllState}
-                    disabled={eligibleIds.length === 0}
-                    onCheckedChange={handleSelectAll}
-                  />
-                </TableHead>
-                <TableHead className={HEAD_CLASS}>{t("common.name")}</TableHead>
-                <TableHead className={cn(HEAD_CLASS, "hidden lg:table-cell")}>
-                  {t("common.address")}
-                </TableHead>
-                <TableHead className={cn(HEAD_CLASS, "hidden 2xl:table-cell")}>
-                  {t("servers.mode.column")}
-                </TableHead>
-                <TableHead className={HEAD_CLASS}>{t("common.status")}</TableHead>
-                <TableHead className={HEAD_CLASS}>Xray</TableHead>
-                <TableHead className={HEAD_CLASS}>{t("servers.detail.lastHeartbeat")}</TableHead>
-                <TableHead
-                  className={cn(HEAD_CLASS, "hidden xl:table-cell")}
-                  title={t("servers.detail.configVersion")}
-                >
-                  {t("servers.agentVersion")}
-                </TableHead>
-                <TableHead
-                  className={cn(HEAD_CLASS, "hidden text-right xl:table-cell")}
-                >
-                  {t("servers.detail.load")}
-                </TableHead>
-                <TableHead
-                  className={cn(HEAD_CLASS, "hidden text-right xl:table-cell")}
-                >
-                  {t("servers.detail.memory")}
-                </TableHead>
-                <TableHead
-                  className={cn(
-                    HEAD_CLASS,
-                    "hidden whitespace-nowrap text-right xl:table-cell",
-                  )}
-                >
-                  {t("servers.detail.rate")}
-                </TableHead>
-                <TableHead sticky="right" className={HEAD_CLASS}>{t("common.actions")}</TableHead>
+                {tableColumns.map((column) =>
+                  column.key === "select" ? (
+                    <TableHead
+                      key={column.key}
+                      sticky={column.sticky}
+                      className={cn(HEAD_CLASS, column.headClassName)}
+                    >
+                      <SelectAllCheckbox
+                        state={selectAllState}
+                        disabled={eligibleIds.length === 0}
+                        onCheckedChange={handleSelectAll}
+                      />
+                    </TableHead>
+                  ) : (
+                    <TableHead
+                      key={column.key}
+                      sticky={column.sticky}
+                      title={column.title}
+                      className={cn(HEAD_CLASS, column.headClassName)}
+                    >
+                      {column.label}
+                    </TableHead>
+                  ),
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1639,11 +1651,7 @@ export default function ServersPage() {
                   title={t("servers.emptyTitle")}
                   description={t("servers.emptyDesc")}
                   action={
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={openCreateDialog}
-                    >
+                    <Button size="sm" onClick={openCreateDialog}>
                       <PlusIcon className="icon-md" />
                       {t("servers.emptyAction")}
                     </Button>

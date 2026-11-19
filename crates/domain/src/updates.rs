@@ -22,7 +22,11 @@ pub struct ReleaseInfo {
     /// 规范化后的版本号（去掉前导 `v`），例如 `0.12.0`。
     pub version: String,
     /// Release 页面；`html_url` 缺失时按 tag 拼一个。
-    pub url: String,
+    ///
+    /// **只接受 `https://`**：这个字段会被前端直接放进 `<a href>`，`javascript:`
+    /// / `data:` / `http:` 都可能变成脚本注入或降级链接。上游给了不安全的
+    /// scheme 时置 `None` 并 warn，不保留、也不做「清洗后猜测」。
+    pub url: Option<String>,
     /// `published_at`（Unix 秒），缺失或格式错误为 `None`。
     pub released_at: Option<i64>,
 }
@@ -129,13 +133,27 @@ pub fn parse_release(raw: &str) -> Result<ReleaseInfo, UpdateError> {
     let version =
         normalize_version(tag).ok_or_else(|| UpdateError::InvalidVersion(truncate(tag)))?;
 
-    let url = value
+    let fallback_url = || {
+        Some(format!(
+            "https://github.com/jacob-bytes/pierwave/releases/tag/{tag}"
+        ))
+    };
+    let url = match value
         .get("html_url")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|url| !url.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("https://github.com/jacob-bytes/pierwave/releases/tag/{tag}"));
+    {
+        Some(raw) => safe_release_url(raw).map(str::to_string).or_else(|| {
+            tracing::warn!(
+                url = %truncate(raw),
+                "GitHub Release 的 html_url 不是 https，已丢弃该字段"
+            );
+            None
+        }),
+        // 字段缺失时按 tag 拼一个固定 https 链接，保持原有行为。
+        None => fallback_url(),
+    };
 
     // 预发布字段理论上不会出现在 latest 接口里；写库时保留原值即可。
     let released_at = value
@@ -158,6 +176,33 @@ pub fn parse_release(raw: &str) -> Result<ReleaseInfo, UpdateError> {
 
 fn truncate(value: &str) -> String {
     value.chars().take(200).collect()
+}
+
+/// 只接受 `https://` 的绝对 URL。
+///
+/// 不引 `url` crate：这里只需要拒绝危险 scheme，规则越简单越不容易被绕过。
+/// * scheme 大小写不敏感（RFC 3986），但必须是 `https`；
+/// * scheme 之后必须有内容；
+/// * 不允许空白/控制字符（浏览器会容忍部分字符，导致「看起来是 https、
+///   实际被解释成别的」的歧义）。
+///
+/// 因此 `javascript:`、`data:`、`http:`（含自建镜像想用明文 HTTP 的情况）
+/// 一律拒绝。**不接受 http 镜像**：版本页链接只在设置页展示，没有必须用
+/// 明文的场景；为它开一个口子等于给上游一次降级/注入的机会。
+fn safe_release_url(raw: &str) -> Option<&str> {
+    let prefix = raw.get(..8)?;
+    if !prefix.eq_ignore_ascii_case("https://") {
+        return None;
+    }
+    let rest = &raw[8..];
+    if rest.is_empty()
+        || rest
+            .chars()
+            .any(|character| character.is_control() || character.is_whitespace())
+    {
+        return None;
+    }
+    Some(raw)
 }
 
 fn parse_rfc3339(raw: &str) -> Option<i64> {
@@ -288,8 +333,8 @@ mod tests {
         let release = parse_release(&json("")).unwrap();
         assert_eq!(release.version, "0.12.0");
         assert_eq!(
-            release.url,
-            "https://github.com/jacob-bytes/pierwave/releases/tag/v0.12.0"
+            release.url.as_deref(),
+            Some("https://github.com/jacob-bytes/pierwave/releases/tag/v0.12.0")
         );
         assert_eq!(release.released_at, Some(1_795_168_800));
     }
@@ -301,7 +346,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(release.version, "0.12.0");
-        assert_eq!(release.url, "https://example.test/r");
+        assert_eq!(release.url.as_deref(), Some("https://example.test/r"));
         assert_eq!(release.released_at, None, "published_at 为 null 时不能报错");
     }
 
@@ -310,9 +355,34 @@ mod tests {
         let release = parse_release(r#"{"tag_name":"v1.2.3"}"#).unwrap();
         assert_eq!(release.version, "1.2.3");
         assert_eq!(
-            release.url,
-            "https://github.com/jacob-bytes/pierwave/releases/tag/v1.2.3"
+            release.url.as_deref(),
+            Some("https://github.com/jacob-bytes/pierwave/releases/tag/v1.2.3")
         );
+    }
+
+    #[test]
+    fn rejects_release_urls_whose_scheme_is_not_https() {
+        // 只允许 https：js/data/http/协议相对地址都置 None，字段不会被前端
+        // 直接放进 <a href>。
+        for url in [
+            "javascript:alert(1)",
+            "JavaScript:alert(1)",
+            "http://github.com/jacob-bytes/pierwave/releases/tag/v1.2.3",
+            "data:text/html,<script>alert(1)</script>",
+            "//github.com/jacob-bytes/pierwave/releases/tag/v1.2.3",
+            "https://",
+            "https://evil.test/a b",
+        ] {
+            let payload = format!(r#"{{"tag_name":"v1.2.3","html_url":"{url}"}}"#);
+            let release = parse_release(&payload).unwrap();
+            assert_eq!(release.url, None, "不安全的 release URL 必须置 None：{url}");
+        }
+
+        // https 大小写不敏感；合法链接原样保留。
+        let release =
+            parse_release(r#"{"tag_name":"v1.2.3","html_url":"HTTPS://example.test/release"}"#)
+                .unwrap();
+        assert_eq!(release.url.as_deref(), Some("HTTPS://example.test/release"));
     }
 
     #[test]

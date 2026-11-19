@@ -954,7 +954,7 @@ function EmptyRow({
           title={title}
           description={description}
           action={
-            <Button variant="outline" size="sm" onClick={onAction}>
+            <Button size="sm" onClick={onAction}>
               <PlusIcon className="size-3.5" />
               {actionLabel}
             </Button>
@@ -981,6 +981,7 @@ export default function ChainsPage() {
 
   const items = chains.data ?? [];
   const showError = chains.isError && !chains.data;
+  const isEmpty = chains.data !== undefined && !chains.isError && items.length === 0;
   const loadError = errorText(chains.error, t("chains.loadError"));
 
   function renderChainName(chain: Chain, compact = false) {
@@ -1328,15 +1329,17 @@ export default function ChainsPage() {
                 />
                 {t("common.refresh")}
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setForm({ mode: "create" })}
-                disabled={servers.isPending}
-              >
-                <PlusIcon className="size-3.5" />
-                {t("chains.list.add")}
-              </Button>
+              {isEmpty ? null : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setForm({ mode: "create" })}
+                  disabled={servers.isPending}
+                >
+                  <PlusIcon className="size-3.5" />
+                  {t("chains.list.add")}
+                </Button>
+              )}
             </div>
           </div>
           <CardDescription className="text-xs">
@@ -1439,11 +1442,7 @@ export default function ChainsPage() {
                   title={t("chains.list.emptyTitle")}
                   description={t("chains.list.emptyDesc")}
                   action={
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setForm({ mode: "create" })}
-                    >
+                    <Button size="sm" onClick={() => setForm({ mode: "create" })}>
                       <PlusIcon className="size-3.5" />
                       {t("chains.list.emptyAction")}
                     </Button>

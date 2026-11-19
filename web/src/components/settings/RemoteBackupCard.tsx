@@ -60,7 +60,7 @@ import {
   useTestRemoteBackup,
   useUpdateSettings,
 } from "@/lib/queries";
-import { formatAbsoluteTime } from "@/lib/time";
+import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
@@ -125,7 +125,7 @@ function RemoteBackupSkeleton() {
 }
 
 function timeText(value: number | null | undefined, fallback: string): string {
-  return value ? formatAbsoluteTime(value) : fallback;
+  return value ? formatRelativeTime(value) : fallback;
 }
 
 /** 最近文件列表：加载 / 失败 / 空 / 正常四态。 */
@@ -202,9 +202,15 @@ function RemoteFiles({
           </span>
           <span className="flex shrink-0 items-center gap-3 tabular-nums text-muted-foreground">
             <span>{formatBytes(file.size, { unlimitedLabel: "—" })}</span>
-            <span>
+            <span
+              title={
+                file.modified
+                  ? formatAbsoluteTime(file.modified)
+                  : t("settings.backup.remote.unknownTime")
+              }
+            >
               {file.modified
-                ? formatAbsoluteTime(file.modified)
+                ? formatRelativeTime(file.modified)
                 : t("settings.backup.remote.unknownTime")}
             </span>
           </span>
@@ -572,7 +578,14 @@ function RemoteBackupForm({ initial }: { initial: Settings }) {
               <span className="text-muted-foreground">
                 {t("settings.backup.remote.lastSuccess")}
               </span>
-              <span className="truncate font-medium tabular-nums">
+              <span
+                className="truncate font-medium tabular-nums"
+                title={
+                  statusData?.last_success_at
+                    ? formatAbsoluteTime(statusData.last_success_at)
+                    : t("settings.backup.remote.never")
+                }
+              >
                 {timeText(
                   statusData?.last_success_at,
                   t("settings.backup.remote.never"),
@@ -588,6 +601,11 @@ function RemoteBackupForm({ initial }: { initial: Settings }) {
                   "truncate font-medium tabular-nums",
                   tone === "failed" && "text-destructive",
                 )}
+                title={
+                  statusData?.last_failure_at
+                    ? formatAbsoluteTime(statusData.last_failure_at)
+                    : t("settings.backup.remote.unknownTime")
+                }
               >
                 {timeText(
                   statusData?.last_failure_at,

@@ -2061,6 +2061,21 @@ export interface AlertTestResponse {
   results: AlertTestResult[];
 }
 
+/** 秘密解不开时后端在顶层返回的键名；PATCH / GET 都可能带。 */
+export interface SecretErrors {
+  /** 无法用当前主密钥解密的秘密键名。 */
+  keys: string[];
+}
+
+/**
+ * GET /api/v1/settings 的顶层字段：秘密解不开时后端仍返回 200，
+ * 额外带 `secret_errors.keys`。`items` 里对应秘密字段会为空。
+ */
+export interface SettingsResponse {
+  items: Settings;
+  secret_errors?: SecretErrors | null;
+}
+
 /** P1：运维基础设置，见 docs/PLAN.md「P1：运维基础」。 */
 export interface Settings {
   /** 面板名称；后端缺失该键时会回落到默认值。 */
@@ -2122,9 +2137,14 @@ export interface Settings {
    * 旧版后端可能不返回该键，UI 按 true 处理。
    */
   backup_encrypt?: boolean | null;
+  /**
+   * 前端把顶层 `secret_errors` 合并到 items 上，方便页面统一消费；
+   * 后端 PATCH / GET 的响应里它是与 `items` 同级的字段。
+   */
+  secret_errors?: SecretErrors | null;
 }
 
-export type UpdateSettingsInput = Partial<Settings>;
+export type UpdateSettingsInput = Partial<Omit<Settings, "secret_errors">>;
 
 /** 作用域化 API Token（管理端列表；永远不含明文/哈希）。 */
 export interface ApiTokenRow {
@@ -2524,9 +2544,9 @@ export const api = {
   },
 
   settings: {
-    get: () => request<{ items: Settings }>("/api/v1/settings"),
+    get: () => request<SettingsResponse>("/api/v1/settings"),
     patch: (input: UpdateSettingsInput) =>
-      request<{ items: Settings }>("/api/v1/settings", {
+      request<SettingsResponse>("/api/v1/settings", {
         method: "PATCH",
         body: JSON.stringify(input),
       }),

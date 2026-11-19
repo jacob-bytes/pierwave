@@ -28,7 +28,7 @@
 | `settings.backup_webdav_password_invalid` | WebDAV 密码不合法 | — |
 | `settings.backup_webdav_url_required` | 启用异地备份前必须填写 WebDAV 地址 | — |
 | `settings.backup_webdav_password_required` | 启用异地备份前必须填写 WebDAV 密码 | — |
-| `settings.secret_decrypt_failed` | 已保存的秘密设置无法用当前主密钥解密（GET/PATCH 设置、后台任务、手动异地备份） | keys |
+| `settings.secret_decrypt_failed` | 已保存的秘密设置无法用当前主密钥解密（PATCH 设置、后台任务、手动异地备份；GET 改为 200 + `secret_errors.keys`） | keys |
 | `settings.secret_overwrite` | 启用依赖秘密的功能前必须重填无法解密的秘密（如 WebDAV 密码） | keys |
 | `user.not_found` | 用户不存在 | — |
 | `user.username_length_invalid` | 用户名长度必须在 {min}-{max} 个字符之间 | max, min |

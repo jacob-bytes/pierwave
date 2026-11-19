@@ -18,6 +18,23 @@ use sqlx::SqlitePool;
 /// UTC+8 offset used for business days, matching `docs/PLAN.md`.
 const BUSINESS_UTC_OFFSET_SECS: i64 = 8 * 60 * 60;
 
+/// 单次列表工具最多返回的行数。
+///
+/// MCP 客户端（通常是模型）不需要、也消化不了整库；上限既保护主控内存，
+/// 也让响应大小可预期。超过上限时结果带 `truncated: true`，调用方据此提示
+/// 「还有更多行」，而不是把截断当成完整数据。
+pub const MAX_LIST_ROWS: i64 = 500;
+
+/// 把查询结果截到 [`MAX_LIST_ROWS`]，并返回是否发生了截断。
+///
+/// 查询统一 `LIMIT MAX_LIST_ROWS + 1`，多读一行即可判断是否还有数据，
+/// 不需要额外的 `COUNT(*)`。
+fn bounded_rows<T>(mut rows: Vec<T>) -> (Vec<T>, bool) {
+    let truncated = rows.len() > MAX_LIST_ROWS as usize;
+    rows.truncate(MAX_LIST_ROWS as usize);
+    (rows, truncated)
+}
+
 /// Consecutive target failures before a chain member is reported as degraded.
 ///
 /// Mirrors `pierwave_domain::chains::DEGRADED_AFTER_FAILURES` (2). The value is
@@ -128,10 +145,13 @@ impl Database {
             "SELECT id, name, address, status, xray_running, load1,
                     mem_used, mem_total, disk_used, disk_total, latency_ms, last_seen_at
              FROM servers
-             ORDER BY created_at ASC, rowid ASC",
+             ORDER BY created_at ASC, rowid ASC
+             LIMIT ?",
         )
+        .bind(MAX_LIST_ROWS + 1)
         .fetch_all(&self.pool)
         .await?;
+        let (rows, truncated) = bounded_rows(rows);
 
         let servers: Vec<Value> = rows
             .into_iter()
@@ -155,7 +175,7 @@ impl Database {
             })
             .collect();
 
-        Ok(json!({ "servers": servers }))
+        Ok(json!({ "servers": servers, "truncated": truncated }))
     }
 
     /// `list_users`: one row per package instance, plus one row per account
@@ -196,10 +216,13 @@ impl Database {
              FROM users u
              LEFT JOIN user_packages up ON up.user_id = u.id
              LEFT JOIN packages p ON p.id = up.package_id
-             ORDER BY u.username ASC, u.created_at ASC, up.created_at ASC",
+             ORDER BY u.username ASC, u.created_at ASC, up.created_at ASC
+             LIMIT ?",
         )
+        .bind(MAX_LIST_ROWS + 1)
         .fetch_all(&self.pool)
         .await?;
+        let (rows, truncated) = bounded_rows(rows);
 
         let now = Utc::now().timestamp();
         let users: Vec<Value> = rows
@@ -245,7 +268,7 @@ impl Database {
             })
             .collect();
 
-        Ok(json!({ "users": users }))
+        Ok(json!({ "users": users, "truncated": truncated }))
     }
 
     /// `get_user_traffic`: daily up/down/weighted bytes for one username.
@@ -385,36 +408,66 @@ impl Database {
         let chains = sqlx::query_as::<_, ChainRow>(
             "SELECT id, name, target_host, target_port, enabled, created_at, updated_at
              FROM chains
-             ORDER BY created_at ASC, rowid ASC",
+             ORDER BY created_at ASC, rowid ASC
+             LIMIT ?",
         )
+        .bind(MAX_LIST_ROWS + 1)
         .fetch_all(&self.pool)
         .await?;
+        let (chains, chains_truncated) = bounded_rows(chains);
 
+        // 只取「已返回的链」的组/成员：子查询与上面同序同上限，
+        // 避免链被截断后组数据属于另一批链、看起来像数据错乱。
         let groups = sqlx::query_as::<_, GroupRow>(
             "SELECT id, chain_id, seq, name, strategy
              FROM chain_groups
-             ORDER BY chain_id ASC, seq ASC, rowid ASC",
+             WHERE chain_id IN (
+                 SELECT id FROM chains ORDER BY created_at ASC, rowid ASC LIMIT ?
+             )
+             ORDER BY chain_id ASC, seq ASC, rowid ASC
+             LIMIT ?",
         )
+        .bind(MAX_LIST_ROWS + 1)
+        .bind(MAX_LIST_ROWS + 1)
         .fetch_all(&self.pool)
         .await?;
+        let (groups, groups_truncated) = bounded_rows(groups);
 
         let members = sqlx::query_as::<_, MemberRow>(
             "SELECT m.group_id, m.server_id, s.name AS server_name,
                     m.listen_port, m.priority, m.weight
              FROM chain_group_members m
              JOIN servers s ON s.id = m.server_id
-             ORDER BY m.group_id ASC, m.priority ASC, m.rowid ASC",
+             WHERE m.group_id IN (
+                 SELECT g.id FROM chain_groups g
+                 WHERE g.chain_id IN (
+                     SELECT id FROM chains ORDER BY created_at ASC, rowid ASC LIMIT ?
+                 )
+                 ORDER BY g.chain_id ASC, g.seq ASC, g.rowid ASC
+                 LIMIT ?
+             )
+             ORDER BY m.group_id ASC, m.priority ASC, m.rowid ASC
+             LIMIT ?",
         )
+        .bind(MAX_LIST_ROWS + 1)
+        .bind(MAX_LIST_ROWS + 1)
+        .bind(MAX_LIST_ROWS + 1)
         .fetch_all(&self.pool)
         .await?;
+        let (members, members_truncated) = bounded_rows(members);
 
         let statuses = sqlx::query_as::<_, StatusRow>(
             "SELECT server_id, forward_id, listening, target_ok,
                     target_fail_count, error, updated_at
-             FROM forward_status",
+             FROM forward_status
+             LIMIT ?",
         )
+        .bind(MAX_LIST_ROWS + 1)
         .fetch_all(&self.pool)
         .await?;
+        let (statuses, statuses_truncated) = bounded_rows(statuses);
+        let truncated =
+            chains_truncated || groups_truncated || members_truncated || statuses_truncated;
 
         let mut groups_by_chain: HashMap<String, Vec<GroupRow>> = HashMap::new();
         for group in groups {
@@ -505,7 +558,7 @@ impl Database {
             }));
         }
 
-        Ok(json!({ "chains": chain_views }))
+        Ok(json!({ "chains": chain_views, "truncated": truncated }))
     }
 }
 

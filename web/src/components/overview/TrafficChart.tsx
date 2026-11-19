@@ -3,7 +3,6 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Line,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -12,11 +11,7 @@ import {
 import { ChartColumnIcon } from "lucide-react";
 import type { TrafficDay } from "@/lib/api";
 import { formatBytes } from "@/lib/format";
-import {
-  cumulativeAxisUnit,
-  cumulativeSeries,
-  formatCumulativeTick,
-} from "@/lib/overview";
+import { cumulativeSeries } from "@/lib/overview";
 import { t } from "@/i18n";
 
 interface ChartDay extends TrafficDay {
@@ -40,8 +35,16 @@ function formatDayTick(value: string): string {
 
 /**
  * 图例：默认画在图表上方，也可以由调用方提到卡片头部（与总量徽标同一行）。
+ *
+ * 累计只保留一个 chip：显示窗口内最后一天的累计值。不再画累计线，也就
+ * 不需要第二根 Y 轴；逐日累计在 tooltip 里给。
  */
-export function TrafficLegend({ showCumulative }: { showCumulative: boolean }) {
+export function TrafficLegend({ days }: { days?: readonly TrafficDay[] }) {
+  const cumulative =
+    days && days.length > 1
+      ? cumulativeSeries(days)[days.length - 1]?.cumulative
+      : undefined;
+
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
       <LegendDot color="var(--primary)" label={t("trafficChart.downlink")} />
@@ -50,41 +53,46 @@ export function TrafficLegend({ showCumulative }: { showCumulative: boolean }) {
         label={t("trafficChart.uplink")}
         pattern
       />
-      {showCumulative ? (
-        <LegendLine label={t("trafficChart.cumulative")} />
+      {typeof cumulative === "number" ? (
+        <CumulativeChip value={cumulative} />
       ) : null}
     </div>
   );
 }
 
-function LegendLine({ label }: { label: string }) {
+/** 图例里的累计 chip：读末值不需要再对照右轴。 */
+function CumulativeChip({ value }: { value: number }) {
   return (
-    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 type-micro font-normal text-muted-foreground tabular-nums"
+      title={t("trafficChart.cumulativeChipTitle")}
+    >
       <svg
         aria-hidden="true"
-        width="16"
+        width="14"
         height="8"
-        viewBox="0 0 16 8"
+        viewBox="0 0 14 8"
         className="shrink-0"
       >
         <line
           x1="0"
           y1="4"
-          x2="16"
+          x2="14"
           y2="4"
           stroke="var(--foreground)"
           strokeWidth="1.5"
         />
         <circle
-          cx="8"
+          cx="7"
           cy="4"
-          r="2.5"
+          r="2.25"
           fill="var(--card)"
           stroke="var(--foreground)"
           strokeWidth="1.5"
         />
       </svg>
-      {label}
+      <span>{t("trafficChart.cumulative")}</span>
+      <span className="font-mono text-foreground">{formatBytes(value)}</span>
     </span>
   );
 }
@@ -230,7 +238,7 @@ function TrafficTooltip({ active, payload }: TrafficTooltipProps) {
           <>
             <div className="my-1 h-px bg-border" />
             <TooltipValue
-              label={t("trafficChart.cumulative")}
+              label={t("trafficChart.cumulativeToDate")}
               value={day.cumulative}
               color="var(--foreground)"
               marker="line"
@@ -260,15 +268,11 @@ export default function TrafficChart({
   const hasTraffic = days.some(
     (day) => day.downlink > 0 || day.uplink > 0,
   );
-  // 单点没有趋势可言：不写 cumulative，Line / 右轴 / tooltip 累计行都不渲染。
+  // 单点没有趋势可言：不写 cumulative，tooltip 累计行与图例 chip 都不渲染。
   const showCumulative = days.length > 1;
   const chartDays: ChartDay[] = showCumulative
     ? cumulativeSeries(days)
     : days;
-  const maxCumulative = showCumulative
-    ? chartDays.reduce((max, day) => Math.max(max, day.cumulative ?? 0), 0)
-    : 0;
-  const cumulativeUnit = cumulativeAxisUnit(maxCumulative);
 
   if (!days.length || !hasTraffic) {
     return (
@@ -284,13 +288,13 @@ export default function TrafficChart({
 
   return (
     <div className="flex flex-col gap-3">
-      {showLegend ? <TrafficLegend showCumulative={showCumulative} /> : null}
+      {showLegend ? <TrafficLegend days={days} /> : null}
 
       <div className="h-[220px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={chartDays}
-            margin={{ top: 4, right: showCumulative ? 12 : 4, bottom: 0, left: 0 }}
+            margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
             barCategoryGap="28%"
             // 保留有名称的 role=img（默认会是空名的 role=application）；
             // 同时打开 accessibilityLayer，键盘左右键可以在日期间移动并显示 tooltip。
@@ -342,31 +346,6 @@ export default function TrafficChart({
               width={64}
               tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
             />
-            {showCumulative ? (
-              <YAxis
-                yAxisId="cumulative"
-                orientation="right"
-                tickFormatter={(value: number) =>
-                  formatCumulativeTick(value, cumulativeUnit)
-                }
-                axisLine={false}
-                tickLine={false}
-                tickCount={4}
-                width={54}
-                tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
-                label={{
-                  value: t("trafficChart.cumulativeAxis", {
-                    unit: cumulativeUnit,
-                  }),
-                  angle: 90,
-                  position: "insideRight",
-                  style: {
-                    fill: "var(--muted-foreground)",
-                    fontSize: 10,
-                  },
-                }}
-              />
-            ) : null}
             <Tooltip
               cursor={<TrafficCursor />}
               content={<TrafficTooltip />}
@@ -389,24 +368,6 @@ export default function TrafficChart({
               radius={[2, 2, 0, 0]}
               isAnimationActive={false}
             />
-            {showCumulative ? (
-              <Line
-                yAxisId="cumulative"
-                type="monotone"
-                dataKey="cumulative"
-                name={t("trafficChart.cumulative")}
-                stroke="var(--foreground)"
-                strokeWidth={1.5}
-                dot={{
-                  r: 2.5,
-                  fill: "var(--card)",
-                  stroke: "var(--foreground)",
-                  strokeWidth: 1.5,
-                }}
-                activeDot={{ r: 4, fill: "var(--foreground)" }}
-                isAnimationActive={false}
-              />
-            ) : null}
           </BarChart>
         </ResponsiveContainer>
       </div>

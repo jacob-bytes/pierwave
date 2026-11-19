@@ -4,6 +4,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
@@ -88,48 +89,80 @@ export function SkeletonCard({ lines = 3, className }: SkeletonCardProps) {
   );
 }
 
+export type SkeletonTableColumn = {
+  /** 与真实列一致的响应式可见性 / 对齐；可同时带近似宽度。 */
+  className?: string;
+  /** 骨架条自身的宽度，例如 `w-28`。 */
+  widthClassName?: string;
+};
+
 export type SkeletonTableProps = {
   /** 数据行数，默认 5。 */
   rows?: number;
-  /** 列数，默认 4；与真实表格的列数保持一致，避免加载结束跳动。 */
-  columns?: number;
+  /**
+   * 列数（旧调用）或列元数据数组。传数组时顺序、响应式可见性与宽度都应
+   * 与真实表头同源，避免加载完成时列数 / 列宽跳变。
+   */
+  columns?: number | readonly SkeletonTableColumn[];
+  /** 追加到 Table 上的类，例如真实表格的 `min-w-[...]`。 */
+  tableClassName?: string;
   className?: string;
 };
 
 /**
  * 表格骨架：带表头的一整张表。
- * 直接用 shadcn 的 Table 原语，列宽 / 行高与真实表格一致。
+ *
+ * 用 `TableHead` 渲染表头（与真实表格同为 `th`），列数 / 行高与真实表格一致；
+ * 传列元数据时还复用真实列的响应式隐藏规则与近似宽度。
  */
 export function SkeletonTable({
   rows = 5,
   columns = 4,
+  tableClassName,
   className,
 }: SkeletonTableProps) {
   const safeRows = Math.max(0, rows);
-  const safeColumns = Math.max(1, columns);
+  const columnList: readonly SkeletonTableColumn[] =
+    typeof columns === "number"
+      ? Array.from({ length: Math.max(1, columns) }, () => ({}))
+      : columns.length > 0
+        ? columns
+        : [{}];
+
+  function barWidth(column: SkeletonTableColumn, index: number): string {
+    if (column.widthClassName) return column.widthClassName;
+    return index === 0
+      ? "w-28"
+      : index === columnList.length - 1
+        ? "w-14"
+        : "w-20";
+  }
 
   return (
     <div className={cn("w-full", className)} aria-hidden="true">
-      <Table>
+      <Table className={tableClassName}>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            {Array.from({ length: safeColumns }, (_, column) => (
-              <TableCell key={column} className="px-4 py-2.5">
-                <SkeletonLine className="h-3 w-16" />
-              </TableCell>
+            {columnList.map((column, index) => (
+              <TableHead
+                key={index}
+                className={cn("px-4 py-2.5", column.className)}
+              >
+                <SkeletonLine className={cn("h-3", barWidth(column, index))} />
+              </TableHead>
             ))}
           </TableRow>
         </TableHeader>
         <TableBody>
           {Array.from({ length: safeRows }, (_, row) => (
             <TableRow key={row} className="hover:bg-transparent">
-              {Array.from({ length: safeColumns }, (_, column) => (
-                <TableCell key={column} className="px-4 py-3">
+              {columnList.map((column, index) => (
+                <TableCell
+                  key={index}
+                  className={cn("px-4 py-3", column.className)}
+                >
                   <SkeletonLine
-                    className={cn(
-                      "h-3.5",
-                      column === 0 ? "w-28" : column === safeColumns - 1 ? "w-14" : "w-20",
-                    )}
+                    className={cn("h-3.5", barWidth(column, index))}
                   />
                 </TableCell>
               ))}

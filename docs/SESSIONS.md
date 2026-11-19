@@ -118,14 +118,20 @@ WHERE key = 'alert_events' AND trim(value) <> ''
 认证失败过去没有任何 IP 维度**：攻击者可以换着 token 无限猜。现在补上一张
 独立的 `IpThrottle`：
 
-- 计数对象：`Authorization: Bearer pwt_...` 认证失败（无效 / 过期 / 吊销），
-  以及 Agent WebSocket Hello 的 token 校验失败；
+- 计数对象：`Authorization: Bearer pwt_...` 认证失败（无效 / 过期 / 吊销）、
+  Agent WebSocket Hello 的 token 校验失败，以及 `/api/agent/install.sh?token=`
+  与 `/api/agent/release/...?...&token=`（或 Bearer）的 server token 校验失败；
 - 阈值：同一 IP **10 分钟内 20 次**失败 → 该 IP 的**认证尝试**返回 **429**，
   `Retry-After` 给出剩余秒数；锁定窗口与计数窗口一致（10 分钟），到点自动解锁；
 - **锁定只约束认证尝试**：带有效 Cookie 会话或有效 Bearer 的请求永不被 429
   （同一 NAT 里有人打坏 Bearer 不会连坐管理员已登录的会话）；无效凭据的请求
-  照旧 429。Agent WS 先校验 token，成功即连接，失败才计数 / 拒绝；
-- 成功认证清零：合法的 Bearer、合法的 Agent Hello、成功登录都会删掉该 IP 的计数；
+  照旧 429。Agent WS 先校验 token，成功即连接，失败才计数 / 拒绝；安装脚本与
+  发布中转同样先校验 server token，合法 token 不被锁连坐；
+- **共用一张表**：安装脚本 / 发布中转与 API Token、Agent Hello 共用同一个
+  `IpThrottle`。分开建表会让攻击者对每个入口重新获得 20 次额度，共用表才真正做到
+  「同一来源 IP 的猜凭据预算」；
+- 成功认证清零：合法的 Bearer、合法的 Agent Hello、成功登录、安装脚本 / 发布
+  中转的合法 server token 都会删掉该 IP 的计数；
 - 清零点只覆盖「认证成功」本身，普通 Cookie 请求不清零：否则任何已登录用户都能
   用一次正常请求把 IP 计数刷掉，再去暴力猜 Bearer；
 - 不锁公开入口：`/api/v1/health`、`/api/v1/public/status`、`/api/v1/auth/login`
@@ -192,21 +198,25 @@ Not included: a "remember this device" trust list, TOTP/2FA (not present in the
 codebase), and an admin action to sign out all of another user's sessions.
 
 Per-IP auth failure throttling: failed `Authorization: Bearer pwt_...`
-authentication (invalid, expired or revoked) and failed Agent WebSocket Hello
-token checks are counted per client IP. Twenty failures within ten minutes lock
-that IP: **failed authentication attempts** return **429** with `Retry-After`,
-and the lock expires with the ten-minute window. The lock only constrains
-authentication attempts: requests carrying a valid cookie session or a valid
-Bearer token are never 429 (a bad Bearer from the same NAT cannot lock out an
-already signed-in admin), while invalid credentials still return 429. The Agent
-WebSocket Hello now validates the token first, so a valid token connects even
+authentication (invalid, expired or revoked), failed Agent WebSocket Hello token
+checks, and failed server-token checks on `/api/agent/install.sh?token=` and
+`/api/agent/release/...?...&token=` (or Bearer) are counted per client IP. These
+entry points share the **same** `IpThrottle` table as REST and `/mcp`: separate
+tables would give an attacker a fresh 20-attempt budget per endpoint. Twenty
+failures within ten minutes lock that IP: **failed authentication attempts**
+return **429** with `Retry-After`, and the lock expires with the ten-minute
+window. The lock only constrains authentication attempts: requests carrying a
+valid cookie session or a valid Bearer/server token are never 429 (a bad Bearer
+from the same NAT cannot lock out an already signed-in admin), while invalid
+credentials still return 429. The Agent WebSocket Hello, the install script and
+the release relay all validate the token first, so a valid token succeeds even
 while the IP is locked; only failures are counted/rejected. A successful Bearer
-authentication, a successful Agent Hello or a successful login clears the
-counter for that IP; ordinary cookie requests do not, otherwise any signed-in
-user could reset the counter between guesses. Public entry points
-(`/api/v1/health`, `/api/v1/public/status`, `/api/v1/auth/login`,
-`/api/v1/sub/{code}`) are not blocked by the IP lock, so a locked-out admin can
-still sign in and clear it.
+authentication, a successful Agent Hello, a successful login, or a valid install
+/ release server token clears the counter for that IP; ordinary cookie requests
+do not, otherwise any signed-in user could reset the counter between guesses.
+Public entry points (`/api/v1/health`, `/api/v1/public/status`,
+`/api/v1/auth/login`, `/api/v1/sub/{code}`) are not blocked by the IP lock, so a
+locked-out admin can still sign in and clear it.
 
 XFF parsing: when the direct peer is public, `X-Forwarded-For` is ignored. Only a
 loopback/private reverse-proxy peer is trusted: the whole chain (including

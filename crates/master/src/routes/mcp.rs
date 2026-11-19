@@ -365,7 +365,8 @@ mod tests {
         let content = body["result"]["content"].as_array().unwrap();
         assert_eq!(content[0]["type"], "text");
         let payload: Value = serde_json::from_str(content[0]["text"].as_str().unwrap()).unwrap();
-        assert_eq!(payload, json!({ "servers": [] }));
+        // 列表工具统一带 `truncated`；空库时必须是 `false`，不能省略字段。
+        assert_eq!(payload, json!({ "servers": [], "truncated": false }));
 
         // 缺少必填参数 → -32602，而不是 200 空结果。
         let (status, _text, body) = post(

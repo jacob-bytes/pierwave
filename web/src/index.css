@@ -168,9 +168,8 @@
   --card-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.045),
     0 1px 2px rgb(0 0 0 / 0.35);
-  /* 登录页背景光晕强度：深色底上可以更明显 */
+  /* 登录页品牌标识周围的小范围光晕强度：深色底上可以更明显 */
   --auth-glow-strong: 26%;
-  --auth-glow-soft: 10%;
   --radius: 0.75rem;
   --sidebar: oklch(0.165 0.005 285);
   --sidebar-foreground: oklch(0.965 0.003 285);
@@ -221,9 +220,8 @@
   --chart-5: oklch(0.554 0.041 257.4);
   --overlay: oklch(0.253 0.03 267.4 / 40%);
   --skeleton: oklch(0.253 0.03 267.4 / 6%);
-  /* 亮色下主色本身更深，光晕要收着用，避免整屏发蓝 */
+  /* 亮色下主色本身更深，光晕要收着用，避免品牌区域发蓝 */
   --auth-glow-strong: 12%;
-  --auth-glow-soft: 5%;
   --sidebar: oklch(1 0 0);
   --sidebar-foreground: oklch(0.253 0.03 267.4);
   --sidebar-primary: oklch(0.424 0.199 265.638);
@@ -483,21 +481,15 @@
 }
 
 /*
- * 登录页背景光晕：只用 primary 的低透明度径向渐变，
- * 不引入第二种颜色，也不做整屏动画。
+ * 登录页品牌光晕：只在 logo 与品牌名周围 240px 的圆内使用 primary 的
+ * 低透明度径向渐变。页面背景保持平涂 zinc；不做整屏渐变，也不做动画。
  */
-.auth-glow {
-  background-image:
-    radial-gradient(
-      ellipse 80% 55% at 50% 0%,
-      color-mix(in oklch, var(--primary) var(--auth-glow-strong), transparent),
-      transparent 70%
-    ),
-    radial-gradient(
-      ellipse 60% 45% at 85% 100%,
-      color-mix(in oklch, var(--primary) var(--auth-glow-soft), transparent),
-      transparent 70%
-    );
+.auth-brand-glow {
+  background-image: radial-gradient(
+    circle 190px at 50% 50%,
+    color-mix(in oklch, var(--primary) var(--auth-glow-strong), transparent),
+    transparent 72%
+  );
   background-repeat: no-repeat;
 }
 

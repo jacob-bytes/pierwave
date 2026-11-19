@@ -22,7 +22,7 @@ import {
   ipLabel,
   sortSessions,
 } from "@/lib/sessions";
-import { formatAbsoluteTime } from "@/lib/time";
+import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
@@ -152,9 +152,12 @@ export function SessionList({
                       </Badge>
                     ) : null}
                   </div>
-                  <p className="text-xs text-muted-foreground">
+                  <p
+                    className="text-xs text-muted-foreground"
+                    title={formatAbsoluteTime(session.created_at)}
+                  >
                     {t("sessions.signedInAt", {
-                      time: formatAbsoluteTime(session.created_at),
+                      time: formatRelativeTime(session.created_at),
                     })}
                     {" · "}
                     {t("sessions.lastSeen", {

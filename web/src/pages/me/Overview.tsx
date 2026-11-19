@@ -57,7 +57,7 @@ function TrafficCard({ traffic }: { traffic: UseQueryResult<MeTraffic> }) {
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:justify-end">
           <Suspense fallback={null}>
-            <TrafficLegend showCumulative />
+            <TrafficLegend days={traffic.data?.days} />
           </Suspense>
           <span
             className={cn(

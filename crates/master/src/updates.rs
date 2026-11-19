@@ -280,7 +280,7 @@ pub async fn check_now(state: &AppState) -> anyhow::Result<UpdateCheck> {
                 repo::updates::save_success(
                     &state.db.pool,
                     &release.version,
-                    &release.url,
+                    release.url.as_deref().unwrap_or_default(),
                     release.released_at,
                     checked_at,
                 )
@@ -341,10 +341,17 @@ async fn maybe_notify(
         "发现新版本 v{} / New release v{}",
         release.version, release.version
     );
-    let body = format!(
-        "当前 v{current} → 最新 v{}\n{}\n当前 v{current} → latest v{}; release notes: {}",
-        release.version, release.url, release.version, release.url
-    );
+    // 不安全的 release URL 已被 domain 层丢弃：通知里只省略链接，版本号照常。
+    let body = match &release.url {
+        Some(url) => format!(
+            "当前 v{current} → 最新 v{}\n{url}\n当前 v{current} → latest v{}; release notes: {url}",
+            release.version, release.version
+        ),
+        None => format!(
+            "当前 v{current} → 最新 v{}\n当前 v{current} → latest v{}; release notes unavailable",
+            release.version, release.version
+        ),
+    };
     // 没有配置渠道时不要记「已通知」，否则管理员配好渠道后永远收不到。
     let delivered =
         crate::alerts::notify_custom(state, "update_available", "master", &title, &body).await;
@@ -525,6 +532,21 @@ mod tests {
             i64::from(pierwave_proto::PROTOCOL_VERSION)
         );
         assert_eq!(body["agents"]["min_supported"], 16);
+    }
+
+    /// 上游给了非 https 的 release 页：版本照常记录，`release_url` 必须为空，
+    /// 前端拿不到可注入的链接。
+    #[tokio::test]
+    async fn unsafe_release_url_is_dropped_from_the_snapshot() {
+        let payload = r#"{"tag_name":"v99.0.0","html_url":"javascript:alert(1)"}"#;
+        let (state, _transport) = setup(vec![Ok(payload.to_string())]).await;
+
+        let check = check_now(&state).await.unwrap();
+        assert_eq!(check.latest_version, "99.0.0");
+        assert_eq!(check.release_url, "", "不安全的链接不能落库");
+        let body = view(&state).await.unwrap();
+        assert_eq!(body["master"]["latest"], "99.0.0");
+        assert_eq!(body["master"]["release_url"], Value::Null);
     }
 
     #[tokio::test]

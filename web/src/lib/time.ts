@@ -1,6 +1,9 @@
 import { t } from "../i18n/index.ts";
 
 const MINUTE_MS = 60_000;
+const DAY_MS = 24 * 60 * 60 * 1_000;
+/** 一年按 365 天算：超过就不再用「N 个月前」硬撑，回退绝对时间。 */
+const YEAR_MS = 365 * DAY_MS;
 const UTC8_OFFSET_MS = 8 * 60 * 60 * 1_000;
 const UTC8_OFFSET_SECONDS = 8 * 60 * 60;
 
@@ -43,9 +46,12 @@ export function formatRelativeTime(
     return t("time.neverOnline");
 
   const diff = now - unixSeconds * 1_000;
+  // 未来时间（时钟偏差或数据写错）没有「多久以前」可言，直接给绝对时间。
+  if (diff < 0) return formatAbsoluteTime(unixSeconds);
+
   if (diff < MINUTE_MS) {
     if (!includeSeconds) return t("time.justNow");
-    const seconds = Math.max(0, Math.floor(diff / 1_000));
+    const seconds = Math.floor(diff / 1_000);
     return t(seconds === 1 ? "time.secondAgo" : "time.secondsAgo", {
       n: seconds,
     });
@@ -65,7 +71,16 @@ export function formatRelativeTime(
   if (days < 30)
     return t(days === 1 ? "time.dayAgo" : "time.daysAgo", { n: days });
 
-  return toDateInputValue(unixSeconds);
+  // 30 天到一年之间用「N 个月前」，避免同一列里突然冒出 `2026-07-21`
+  // 这样的裸日期；超过一年回退绝对时间（年数多了以后相对时间反而难读）。
+  if (diff < YEAR_MS) {
+    const months = Math.floor(days / 30);
+    return t(months === 1 ? "time.monthAgo" : "time.monthsAgo", {
+      n: months,
+    });
+  }
+
+  return formatAbsoluteTime(unixSeconds);
 }
 
 /**

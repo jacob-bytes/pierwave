@@ -684,7 +684,12 @@ export function useRevokeApiToken() {
 export function useSettings() {
   return useQuery<Settings>({
     queryKey: queryKeys.settings,
-    queryFn: async () => (await api.settings.get()).items,
+    queryFn: async () => {
+      const response = await api.settings.get();
+      // 秘密解不开时后端仍返回 200；把顶层 secret_errors 合并到 items，
+      // 页面不必区分「响应」和「设置值」两种形状。
+      return { ...response.items, secret_errors: response.secret_errors };
+    },
     retry: false,
     staleTime: 60_000,
   });
@@ -726,7 +731,10 @@ export function useUpdateSettings() {
   const queryClient = useQueryClient();
 
   return useMutation<Settings, Error, UpdateSettingsInput>({
-    mutationFn: async (input) => (await api.settings.patch(input)).items,
+    mutationFn: async (input) => {
+      const response = await api.settings.patch(input);
+      return { ...response.items, secret_errors: response.secret_errors };
+    },
     onSuccess: (items) => {
       // PATCH 的返回值就是权威值：直接覆盖缓存，页面再用它 reset 表单。
       queryClient.setQueryData(queryKeys.settings, items);

@@ -113,7 +113,7 @@ function EmptyRow({ onCreate }: { onCreate: () => void }) {
           title={t("packages.emptyTitle")}
           description={t("packages.emptyDesc")}
           action={
-            <Button variant="outline" size="sm" onClick={onCreate}>
+            <Button size="sm" onClick={onCreate}>
               <PlusIcon className="size-3.5" />
               {t("packages.emptyAction")}
             </Button>
@@ -196,6 +196,8 @@ export default function PackagesPage() {
 
   const items = packages.data ?? [];
   const showError = packages.isError;
+  const isEmpty =
+    packages.data !== undefined && !packages.isError && items.length === 0;
   const errorMessage = errorText(
     packages.error,
     t("packages.loadError"),
@@ -373,10 +375,12 @@ export default function PackagesPage() {
         title={t("packages.title")}
         description={t("packages.subtitle")}
         actions={
-          <Button onClick={() => setFormState({ mode: "create" })}>
-            <PlusIcon className="size-4" />
-            {t("packages.create")}
-          </Button>
+          isEmpty ? undefined : (
+            <Button onClick={() => setFormState({ mode: "create" })}>
+              <PlusIcon className="size-4" />
+              {t("packages.create")}
+            </Button>
+          )
         }
       />
 
@@ -499,7 +503,6 @@ export default function PackagesPage() {
                   description={t("packages.emptyDesc")}
                   action={
                     <Button
-                      variant="outline"
                       size="sm"
                       onClick={() => setFormState({ mode: "create" })}
                     >

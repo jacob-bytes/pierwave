@@ -5,8 +5,9 @@
 //! then reopens the file through the same read-only path used in production.
 
 use std::path::PathBuf;
+use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use chrono::Utc;
 use serde_json::{json, Value};
@@ -764,6 +765,171 @@ async fn missing_database_has_clear_error() {
     let message = error.to_string();
     assert!(message.contains("只读") || message.contains("read-only"));
     assert!(message.contains(&path.display().to_string()));
+}
+
+/// stdio 的每条请求行有 1 MiB 上限：超长行返回 JSON-RPC 错误、丢弃该行，
+/// 之后的正常请求仍然能被服务（进程不退出）。
+#[tokio::test]
+async fn stdio_rejects_a_line_over_one_mib_and_keeps_serving() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let fixture = Fixture::new().await;
+    let db_path = fixture.dir.db_path();
+    let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_pierwave-mcp"))
+        .arg("--db")
+        .arg(&db_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn pierwave-mcp");
+    let mut stdin = child.stdin.take().expect("child stdin");
+    let mut stdout = BufReader::new(child.stdout.take().expect("child stdout"));
+
+    // 2 MiB 的无效 JSON：如果先整行读进内存再解析，既没有上限也没有可读错误。
+    let oversized = vec![b'x'; 2 * 1024 * 1024];
+    stdin
+        .write_all(&oversized)
+        .await
+        .expect("write oversized line");
+    stdin
+        .write_all(b"\n")
+        .await
+        .expect("terminate oversized line");
+
+    let mut line = String::new();
+    let read = tokio::time::timeout(Duration::from_secs(10), stdout.read_line(&mut line))
+        .await
+        .expect("server must answer the oversized line")
+        .expect("read response line");
+    assert!(
+        read > 0,
+        "server closed stdout instead of returning an error"
+    );
+    let response: Value = serde_json::from_str(line.trim()).expect("JSON-RPC response");
+    assert_eq!(response["jsonrpc"], "2.0");
+    assert_eq!(response["id"], Value::Null);
+    assert_eq!(response["error"]["code"], -32700);
+    let message = response["error"]["message"]
+        .as_str()
+        .expect("error message");
+    assert!(
+        message.contains("1 MiB") || message.contains("1048576"),
+        "错误必须说明单行上限：{message}"
+    );
+
+    // 丢弃超长行而不是退出：后续请求照常处理。
+    stdin
+        .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n")
+        .await
+        .expect("write ping");
+    line.clear();
+    let read = tokio::time::timeout(Duration::from_secs(10), stdout.read_line(&mut line))
+        .await
+        .expect("server must still answer after an oversized line")
+        .expect("read ping response");
+    assert!(read > 0, "server closed stdout after an oversized line");
+    let response: Value = serde_json::from_str(line.trim()).expect("JSON-RPC response");
+    assert_eq!(response["id"], 1);
+    assert_eq!(response["result"], json!({}));
+
+    drop(stdin);
+    let _ = child.kill().await;
+}
+
+#[tokio::test]
+async fn list_servers_marks_truncation_after_the_row_limit() {
+    let fixture = Fixture::new().await;
+    for index in 0..501 {
+        seed_server(
+            &fixture.pool,
+            &format!("s{index}"),
+            &format!("server-{index}"),
+            "offline",
+            None,
+            None,
+            None,
+        )
+        .await;
+    }
+    let (_dir, server) = fixture.into_server().await;
+
+    let body = tool_text(&server, "list_servers", json!({})).await;
+    let servers = body["servers"].as_array().expect("servers array");
+    assert_eq!(servers.len(), 500, "单次最多返回 500 行");
+    assert_eq!(body["truncated"], true, "被截断时必须显式标记：{body}");
+}
+
+#[tokio::test]
+async fn list_users_marks_truncation_after_the_row_limit() {
+    let fixture = Fixture::new().await;
+    for index in 0..501 {
+        seed_user(
+            &fixture.pool,
+            &format!("u{index}"),
+            &format!("user-{index:04}"),
+            "active",
+        )
+        .await;
+    }
+    let (_dir, server) = fixture.into_server().await;
+
+    let body = tool_text(&server, "list_users", json!({})).await;
+    let users = body["users"].as_array().expect("users array");
+    assert_eq!(users.len(), 500, "单次最多返回 500 行");
+    assert_eq!(body["truncated"], true, "被截断时必须显式标记：{body}");
+}
+
+#[tokio::test]
+async fn list_chains_marks_truncation_after_the_row_limit() {
+    let fixture = Fixture::new().await;
+    for index in 0..501 {
+        seed_chain(
+            &fixture.pool,
+            &format!("c{index}"),
+            &format!("chain-{index}"),
+        )
+        .await;
+    }
+    let (_dir, server) = fixture.into_server().await;
+
+    let body = tool_text(&server, "list_chains", json!({})).await;
+    let chains = body["chains"].as_array().expect("chains array");
+    assert_eq!(chains.len(), 500, "单次最多返回 500 行");
+    assert_eq!(body["truncated"], true, "被截断时必须显式标记：{body}");
+}
+
+/// 工具执行失败只回通用消息：SQL 表名/列名与底层错误只进日志。
+#[tokio::test]
+async fn internal_errors_do_not_leak_sql_details() {
+    let fixture = Fixture::new().await;
+    // 让 `list_servers` 的查询真的失败，且失败原因里带表名。
+    sqlx::query("ALTER TABLE servers RENAME TO servers_hidden")
+        .execute(&fixture.pool)
+        .await
+        .expect("rename servers table");
+    let (_dir, server) = fixture.into_server().await;
+
+    let response = request(
+        &server,
+        "tools/call",
+        json!({ "name": "list_servers", "arguments": {} }),
+    )
+    .await;
+    assert_eq!(response["error"]["code"], -32603);
+    let message = response["error"]["message"]
+        .as_str()
+        .expect("error message");
+    assert!(
+        message.contains("query failed"),
+        "错误类别必须保留：{message}"
+    );
+    for leaked in ["servers", "servers_hidden", "SELECT", "no such table"] {
+        assert!(
+            !message.contains(leaked),
+            "响应不能泄露 SQL/表名/列名（{leaked}）：{message}"
+        );
+    }
 }
 
 #[test]

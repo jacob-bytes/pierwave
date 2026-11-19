@@ -3,10 +3,11 @@
 //! 面板给出的安装命令是 `curl -fsSL .../api/agent/install.sh?token=... | sudo bash`，
 //! 这个模块负责让它真的能跑：校验 token、按架构给下载地址、生成配置与 systemd 单元。
 
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use axum::body::Body;
-use axum::extract::{Path, Query, State};
+use axum::extract::{ConnectInfo, Extension, Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
@@ -21,6 +22,51 @@ use crate::state::{AgentReleaseConfig, AppState};
 #[derive(Deserialize)]
 pub struct InstallQuery {
     pub token: Option<String>,
+}
+
+/// 认证失败按 IP 计数用的键。
+///
+/// 信任边界与 API Token / Agent Hello 完全一致（[`crate::routes::auth::client_ip_with_peer`]）：
+/// 公网直连无视 XFF，只有回环/内网反代转发的头才采信；拿不到地址时返回
+/// `None`，不拿占位符当键。
+///
+/// 与 API Token 共用 `AppState::ip_throttle` 同一张表：安装脚本、发布中转、
+/// REST、`/mcp`、Agent Hello 都是同一类「猜凭据」入口。各建一张表会让攻击者
+/// 每个入口都重新获得满额度；成功一次清零也与现有语义保持一致。
+fn throttle_key(
+    headers: &HeaderMap,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+) -> Option<String> {
+    crate::routes::auth::client_ip_with_peer(
+        headers,
+        peer.map(|Extension(ConnectInfo(addr))| addr.ip()),
+    )
+    .map(|addr| addr.throttle_key())
+}
+
+/// 失败时统一的「是否已被锁」判断 + 计数。
+///
+/// 返回 `Some(retry_after)` 表示该 IP 在本次尝试之前就已经被锁：调用方回
+/// 429，不再累加（否则锁期会被无限延长）；`None` 表示本次失败已计入。
+fn record_auth_failure(
+    state: &AppState,
+    ip_key: Option<&str>,
+    existing_lock: Option<u64>,
+) -> Option<u64> {
+    if let Some(retry_after) = existing_lock {
+        return Some(retry_after);
+    }
+    if let Some(key) = ip_key {
+        state.ip_throttle.record_failure(key);
+    }
+    None
+}
+
+/// 成功认证：清零该 IP 的失败计数。
+fn clear_auth_failures(state: &AppState, ip_key: Option<&str>) {
+    if let Some(key) = ip_key {
+        state.ip_throttle.clear(key);
+    }
 }
 
 /// 未配置 `agent_base_url` / `subscription_base_url` 时的回退：从反向代理头或
@@ -43,8 +89,14 @@ pub fn external_base(headers: &HeaderMap) -> String {
 pub async fn script(
     State(state): State<AppState>,
     headers: HeaderMap,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     Query(query): Query<InstallQuery>,
 ) -> AppResult<Response> {
+    let ip_key = throttle_key(&headers, peer);
+    let existing_lock = ip_key
+        .as_deref()
+        .and_then(|key| state.ip_throttle.check(key).err());
+
     let token = query
         .token
         .as_deref()
@@ -56,12 +108,18 @@ pub async fn script(
         .await?
         .is_none()
     {
+        if let Some(retry_after) = record_auth_failure(&state, ip_key.as_deref(), existing_lock) {
+            tracing::warn!(retry_after, "安装脚本 token 认证失败次数过多，按 IP 拒绝");
+            return Err(AppError::TooManyAttempts(retry_after));
+        }
         return Err(AppError::not_found(
             "install.token_not_found",
             None,
             "资源不存在",
         ));
     }
+    // 合法 token 不被同一 NAT 里别人的失败连坐；成功一次即清零该 IP 的计数。
+    clear_auth_failures(&state, ip_key.as_deref());
 
     // Host 是客户端可控输入：先按对外地址规则校验，非法值直接 400，不生成脚本。
     let base = super::public_url::resolve_checked(
@@ -389,17 +447,28 @@ pub async fn fetch_latest_version(config: &AgentReleaseConfig) -> Option<String>
 pub async fn release(
     State(state): State<AppState>,
     headers: HeaderMap,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     Path(rest): Path<String>,
     Query(query): Query<InstallQuery>,
 ) -> AppResult<Response> {
+    let ip_key = throttle_key(&headers, peer);
+    let existing_lock = ip_key
+        .as_deref()
+        .and_then(|key| state.ip_throttle.check(key).err());
+
     let token = request_token(&headers, &query)
         .ok_or_else(|| AppError::unauthorized("auth.unauthorized", None, "未登录"))?;
     if repo::servers::find_by_token(&state.db.pool, token)
         .await?
         .is_none()
     {
+        if let Some(retry_after) = record_auth_failure(&state, ip_key.as_deref(), existing_lock) {
+            tracing::warn!(retry_after, "发布中转 token 认证失败次数过多，按 IP 拒绝");
+            return Err(AppError::TooManyAttempts(retry_after));
+        }
         return Err(AppError::unauthorized("auth.unauthorized", None, "未登录"));
     }
+    clear_auth_failures(&state, ip_key.as_deref());
 
     // 必须恰好是 `{version}/{file}` 两段。
     let mut segments = rest.split('/');
@@ -494,6 +563,23 @@ mod tests {
             .method(Method::GET)
             .uri(uri)
             .header(header::HOST, host)
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 22)
+            .await
+            .unwrap();
+        (status, String::from_utf8_lossy(&bytes).to_string())
+    }
+
+    /// 测试里没有 ConnectInfo：`client_ip` 会采信 `X-Forwarded-For`。
+    async fn get_from_ip(app: &Router, uri: &str, ip: &str) -> (StatusCode, String) {
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri(uri)
+            .header(header::HOST, "panel.example.com")
+            .header("x-forwarded-for", ip)
             .body(Body::empty())
             .unwrap();
         let response = app.clone().oneshot(request).await.unwrap();
@@ -630,6 +716,37 @@ mod tests {
         assert_eq!(status, StatusCode::NOT_FOUND);
         let (status, _) = get(&app, "/api/agent/install.sh", "p.example.com").await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    /// 安装脚本是认证入口：猜 token 的失败必须计入按 IP 的失败表，
+    /// 成功一次清零；合法 token 不被别的失败连坐。
+    #[tokio::test]
+    async fn install_script_failures_are_throttled_by_ip() {
+        let (app, token) = setup().await;
+        let ip = "203.0.113.61";
+        let bad = "/api/agent/install.sh?token=nope";
+
+        for _ in 0..crate::throttle::IP_MAX_FAILURES {
+            let (status, _) = get_from_ip(&app, bad, ip).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "阈值内是普通 404");
+        }
+        let (status, body) = get_from_ip(&app, bad, ip).await;
+        assert_eq!(
+            status,
+            StatusCode::TOO_MANY_REQUESTS,
+            "达到阈值后必须 429：{body}"
+        );
+
+        // 合法 token 不被 IP 锁连坐，并清零该 IP 的失败计数。
+        let (status, _) =
+            get_from_ip(&app, &format!("/api/agent/install.sh?token={token}"), ip).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = get_from_ip(&app, bad, ip).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "成功一次后计数必须清零");
+
+        // 其它 IP 不受影响。
+        let (status, _) = get_from_ip(&app, bad, "198.51.100.9").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
@@ -877,5 +994,37 @@ mod tests {
         let message = String::from_utf8_lossy(&body);
         assert!(message.contains("回源 GitHub 失败"), "{message}");
         assert!(message.contains("缓存"), "{message}");
+    }
+
+    /// 发布产物中转同样按 IP 计数认证失败，成功命中缓存后清零。
+    #[tokio::test]
+    async fn release_failures_are_throttled_by_ip() {
+        let cache = temp_dir("throttle-cache");
+        let source = temp_dir("throttle-source");
+        let file = "pierwave-agent-x86_64-unknown-linux-musl";
+        std::fs::create_dir_all(cache.join("0.6.0")).unwrap();
+        std::fs::write(cache.join("0.6.0").join(file), b"cached-binary").unwrap();
+        let (app, token) = setup_release(&cache, &source).await;
+        let ip = "203.0.113.62";
+        let uri = format!("/api/agent/release/0.6.0/{file}");
+        let bad = format!("{uri}?token=nope");
+
+        for _ in 0..crate::throttle::IP_MAX_FAILURES {
+            let (status, _) = get_from_ip(&app, &bad, ip).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED, "阈值内是普通 401");
+        }
+        let (status, body) = get_from_ip(&app, &bad, ip).await;
+        assert_eq!(
+            status,
+            StatusCode::TOO_MANY_REQUESTS,
+            "达到阈值后必须 429：{body}"
+        );
+
+        // 合法 token 命中缓存：200 且清零计数。
+        let (status, body) = get_from_ip(&app, &format!("{uri}?token={token}"), ip).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body.as_bytes(), b"cached-binary");
+        let (status, _) = get_from_ip(&app, &bad, ip).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "成功一次后计数必须清零");
     }
 }

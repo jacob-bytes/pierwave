@@ -1767,6 +1767,22 @@ const zhCN = {
     subtitle: "面板名称、对外地址、登录限流、会话有效期与升级并发；只有管理员可以修改。",
     loadFailed: "设置加载失败",
     loadError: "无法加载设置，请检查网络或主控是否已启动",
+    secretError: {
+      title: "部分秘密设置无法解密",
+      description:
+        "当前主密钥与已保存的密文不匹配。以下秘密无法解密；填写新值后会用当前主密钥重新加密，页面随即恢复。",
+      keysTitle: "无法解密的秘密",
+      reenter: "重新填写",
+      reenterPlaceholder: "输入新的值；留空不会覆盖已保存内容",
+      save: "保存新值",
+      saving: "保存中…",
+      saved: "已重新保存填写的秘密",
+      saveError: "保存新值失败，请稍后重试",
+      internalHint:
+        "内部订阅派生 secret 不能在设置页重填；请恢复写入时使用的主密钥（data/secret.key 或 PIERWAVE_SECRET_KEY），或从同一主密钥的备份恢复。",
+      noEditable:
+        "这些秘密都没有可在此重填的项。请恢复写入时使用的主密钥（data/secret.key 或 PIERWAVE_SECRET_KEY）后重试。",
+    },
     notReady404: "设置接口尚未就绪（后端可能还在部署），请稍后重试",
     forbidden: "只有管理员可以查看或修改设置",
     emptyTitle: "还没有可显示的设置项",
@@ -3335,6 +3351,8 @@ const zhCN = {
     hoursAgo: "{n} 小时前",
     dayAgo: "{n} 天前",
     daysAgo: "{n} 天前",
+    monthAgo: "{n} 个月前",
+    monthsAgo: "{n} 个月前",
   },
   format: {
     unlimited: "不限",
@@ -3344,7 +3362,8 @@ const zhCN = {
     uplink: "上行",
     weighted: "计费流量",
     cumulative: "累计",
-    cumulativeAxis: "累计（{unit}）",
+    cumulativeToDate: "当天累计",
+    cumulativeChipTitle: "窗口内最后一天的累计流量；悬停柱子可看当天累计",
     emptyTitle: "近 7 天还没有流量记录",
     emptyDesc: "节点产生流量后，这里会自动出现趋势。",
     aria: "近 7 天上下行流量柱状图",

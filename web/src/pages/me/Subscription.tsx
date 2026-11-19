@@ -51,7 +51,7 @@ import {
   withSubscriptionFormat,
   type SubscriptionFormat,
 } from "@/lib/subscriptionFormats";
-import { formatAbsoluteTime } from "@/lib/time";
+import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { useI18n, t } from "@/i18n";
 
 function SubscriptionCard({
@@ -123,9 +123,12 @@ function SubscriptionCard({
               </SelectContent>
             </Select>
           </div>
-          <p className="text-xs text-muted-foreground">
+          <p
+            className="text-xs text-muted-foreground"
+            title={formatAbsoluteTime(summary.subscription?.updated_at)}
+          >
             {t("me.subscription.updatedAt", {
-              time: formatAbsoluteTime(summary.subscription?.updated_at),
+              time: formatRelativeTime(summary.subscription?.updated_at),
             })}
           </p>
         </div>

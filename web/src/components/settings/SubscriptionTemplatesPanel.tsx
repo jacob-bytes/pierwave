@@ -91,7 +91,7 @@ function EmptyRow({ onCreate }: { onCreate: () => void }) {
           title={t("subscriptionTemplates.emptyTitle")}
           description={t("subscriptionTemplates.emptyDesc")}
           action={
-            <Button variant="outline" size="sm" onClick={onCreate}>
+            <Button size="sm" onClick={onCreate}>
               <PlusIcon className="size-3.5" />
               {t("subscriptionTemplates.emptyAction")}
             </Button>
@@ -115,6 +115,8 @@ export function SubscriptionTemplatesPanel() {
 
   const items = templates.data ?? [];
   const showError = templates.isError && !templates.data;
+  const isEmpty =
+    templates.data !== undefined && !templates.isError && items.length === 0;
 
   return (
     <Card>
@@ -133,10 +135,12 @@ export function SubscriptionTemplatesPanel() {
             </span>
           </CardTitle>
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" onClick={() => setFormState({ mode: "create" })}>
-              <PlusIcon className="size-3.5" />
-              {t("subscriptionTemplates.create")}
-            </Button>
+            {isEmpty ? null : (
+              <Button size="sm" onClick={() => setFormState({ mode: "create" })}>
+                <PlusIcon className="size-3.5" />
+                {t("subscriptionTemplates.create")}
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"

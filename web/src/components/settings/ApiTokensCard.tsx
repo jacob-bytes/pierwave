@@ -326,7 +326,9 @@ export function ApiTokensCard() {
                         <ScopeBadge scope={token.scope} />
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {formatAbsoluteTime(token.created_at)}
+                        <span title={formatAbsoluteTime(token.created_at)}>
+                          {formatRelativeTime(token.created_at)}
+                        </span>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {token.last_used_at === null
