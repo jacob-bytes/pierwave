@@ -131,18 +131,22 @@ mod tests {
         assert!(measured.unwrap() >= 1, "成功路径不能报告 0ms");
     }
 
+    /// 不可达目标必须返回 `None` 而不是 0。
+    ///
+    /// 这里刻意**不**用「bind 后立即释放」的端口：并行跑测试时那个端口可能
+    /// 立刻被别的用例占用，连接反而成功，断言就变成看运气。改用两个确定
+    /// 不可连接的目标：端口 0（不存在的端口）与 TEST-NET-1 地址。
     #[test]
-    fn measure_returns_none_for_a_refused_port() {
-        let addr = {
-            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            listener.local_addr().unwrap()
-            // listener 在这里 drop，端口没有进程监听，握手必然失败。
-        };
-
+    fn measure_returns_none_for_an_unreachable_target() {
         assert_eq!(
-            measure(&addr.to_string(), Duration::from_millis(500)),
+            measure("127.0.0.1:0", Duration::from_millis(500)),
             None,
-            "失败必须返回 None，不能是 0"
+            "端口 0 不可连接，失败必须返回 None，不能是 0"
+        );
+        assert_eq!(
+            measure("192.0.2.1:9", Duration::from_millis(200)),
+            None,
+            "TEST-NET-1 地址不可达，失败必须返回 None，不能是 0"
         );
     }
 
