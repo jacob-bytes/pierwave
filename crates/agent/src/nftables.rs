@@ -68,6 +68,8 @@ const ERROR_LIMIT: usize = 500;
 
 /// 第一次 spawn 遇到「资源暂时不足」时的退避；只重试一次。
 const SPAWN_RETRY_DELAY: Duration = Duration::from_millis(50);
+/// 探测/执行前的 spawn 最多尝试次数（含首次）。见 `spawn_with_retry_async`。
+const SPAWN_RETRY_ATTEMPTS: u32 = 3;
 
 /// `nft -c` 探针：只检查语法与内核表达式可用性，不提交任何规则。
 ///
@@ -992,19 +994,27 @@ fn spawn_with_retry(mut command: std::process::Command) -> io::Result<std::proce
 async fn spawn_with_retry_async(
     mut command: tokio::process::Command,
 ) -> io::Result<tokio::process::Child> {
-    match command.spawn() {
-        Ok(child) => Ok(child),
-        Err(first) if should_retry(&first) => {
-            tracing::warn!(
-                error = %first,
-                delay_ms = SPAWN_RETRY_DELAY.as_millis() as u64,
-                "nft 首次 spawn 失败（可重试），退避后重试一次"
-            );
-            tokio::time::sleep(SPAWN_RETRY_DELAY).await;
-            command.spawn()
+    // 探测在 CI/高负载机上偶发 fork 失败（EAGAIN）。只重试一次时，连续两次
+    // 失败就会把「装了 nft 的机器」判成不可用并缓存 60 秒——因此这里退避
+    // 重试到三次，仍失败才认输。
+    let mut delay = SPAWN_RETRY_DELAY;
+    for attempt in 1..=SPAWN_RETRY_ATTEMPTS {
+        match command.spawn() {
+            Ok(child) => return Ok(child),
+            Err(error) if should_retry(&error) && attempt < SPAWN_RETRY_ATTEMPTS => {
+                tracing::warn!(
+                    error = %error,
+                    attempt,
+                    delay_ms = delay.as_millis() as u64,
+                    "nft spawn 失败（可重试），退避后重试"
+                );
+                tokio::time::sleep(delay).await;
+                delay *= 2;
+            }
+            Err(error) => return Err(error),
         }
-        Err(error) => Err(error),
     }
+    unreachable!("循环最后一次尝试必然已返回")
 }
 
 async fn run_nft(bin: &Path, args: &[&str]) -> Result<(), String> {
