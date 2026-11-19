@@ -10,14 +10,17 @@ import {
   ShieldIcon,
   SunIcon,
 } from "lucide-react";
-import { EmptyState, ListError, SkeletonLine } from "@/components/common";
+import { EmptyState, ListError } from "@/components/common";
 import { ServerCard } from "@/components/status/ServerCard";
 import { ServerTable } from "@/components/status/ServerTable";
+import {
+  PAGE_CONTAINER,
+  StatusSkeleton,
+} from "@/components/status/StatusSkeleton";
 import { Summary } from "@/components/status/Summary";
 import { Toolbar } from "@/components/status/Toolbar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useDocumentTitle, useI18n } from "@/i18n";
 import type { PublicStatus } from "@/lib/api";
 import { errorText, isNotFound } from "@/lib/errors";
@@ -48,12 +51,6 @@ import { cn } from "@/lib/utils";
  * `GET /api/v1/public/status` 的白名单渲染 —— 公开 API 没有的丢包、
  * 运营商、单机流量和历史事件，这里一律不画。
  */
-
-/**
- * 页头与内容共用一条容器：同样的最大宽度和左右内边距，
- * 保证页头左边缘和下方卡片左边缘始终对齐。
- */
-const PAGE_CONTAINER = "mx-auto w-full max-w-[1400px] px-4 sm:px-6";
 
 /** 页头右侧的实时状态点：数据新鲜是主色，过期转 muted，断线仍用警告色。 */
 function LiveStatus({
@@ -185,110 +182,6 @@ function StatePanel({
 }) {
   return (
     <Card className={cn("rounded-xl py-0", className)}>{children}</Card>
-  );
-}
-
-/** 一个指标的骨架：标签 / 数值一行、4px 进度条、底部原始值。 */
-function MeterSkeleton() {
-  return (
-    <div className="min-w-0" aria-hidden="true">
-      <div className="flex items-baseline justify-between gap-2">
-        <SkeletonLine className="h-3 w-12" />
-        <SkeletonLine className="h-3 w-8" />
-      </div>
-      <Skeleton className="mt-2 h-1 w-full rounded-full" />
-      <SkeletonLine className="mt-1.5 h-3 w-20" />
-    </div>
-  );
-}
-
-/**
- * 与 `ServerCard` 同构的骨架：标题行 + 副行 + 2×2 指标 + 实时速率 + 底部点阵。
- * 结构一致，加载结束换成真数据时不会整块跳动。
- */
-function ServerCardSkeleton() {
-  return (
-    <Card
-      aria-hidden="true"
-      className="h-full min-w-0 gap-0 rounded-xl p-4 [--card-spacing:--spacing(4)]"
-    >
-      <div className="flex min-w-0 items-center gap-2">
-        <SkeletonLine className="h-4 w-1/2" />
-        <Skeleton className="ml-auto h-5 w-20 shrink-0 rounded-full" />
-      </div>
-      <SkeletonLine className="mt-1.5 h-3 w-3/5" />
-
-      <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-4">
-        {Array.from({ length: 4 }, (_, index) => (
-          <MeterSkeleton key={index} />
-        ))}
-      </div>
-
-      {/* 实时速率的四个格子（两行两列），与真实卡片同一个可换行栅格。 */}
-      <div className="mt-4 border-t border-border pt-2.5">
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-[repeat(auto-fit,minmax(7.5rem,1fr))]">
-          {Array.from({ length: 4 }, (_, index) => (
-            <div key={index} className="flex items-center gap-2">
-              {index % 2 === 0 ? (
-                <Skeleton className="size-3 shrink-0" />
-              ) : null}
-              <SkeletonLine
-                className={index % 2 === 0 ? "h-3 w-16" : "h-3 w-12"}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-3 border-t border-border" />
-      <div className="mt-auto pt-3">
-        <div className="grid grid-cols-[repeat(24,minmax(0,1fr))] gap-0.5">
-          {Array.from({ length: 24 }, (_, index) => (
-            <Skeleton key={index} className="h-1.5 rounded-[2px]" />
-          ))}
-        </div>
-        <div className="mt-2 flex items-baseline justify-between gap-2">
-          <SkeletonLine className="h-3 w-16" />
-          <SkeletonLine className="h-3 w-10" />
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-/**
- * 首屏骨架：四个汇总块 + 工具栏 + 四张服务器卡片。
- *
- * 摘要块只占位高度；服务器卡片按真实卡片的结构铺骨架，
- * 手机上是一列、桌面最多四列，与真实网格一致。
- */
-function StatusSkeleton({ label }: { label: string }) {
-  return (
-    <div aria-busy="true" aria-label={label}>
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {Array.from({ length: 4 }, (_, index) => (
-          <Card
-            key={index}
-            aria-hidden="true"
-            className="h-[86px] gap-0 rounded-xl p-3 [--card-spacing:--spacing(3)]"
-          >
-            <SkeletonLine className="h-3 w-16" />
-            <SkeletonLine className="mt-2 h-5 w-20" />
-            <SkeletonLine className="mt-auto h-3 w-24" />
-          </Card>
-        ))}
-      </div>
-      <div className="mt-4 flex items-center gap-2 px-1">
-        <Skeleton className="h-8 w-64 rounded-md" />
-        <div className="flex-1" />
-        <Skeleton className="h-8 w-40 rounded-md sm:w-52" />
-      </div>
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {Array.from({ length: 4 }, (_, index) => (
-          <ServerCardSkeleton key={index} />
-        ))}
-      </div>
-    </div>
   );
 }
 

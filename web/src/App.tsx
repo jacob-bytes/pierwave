@@ -3,13 +3,17 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Loader2Icon } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { ListError, PageSkeleton } from "@/components/common";
+import { StatusRouteSkeleton } from "@/components/status/StatusSkeleton";
 import { Card, CardContent } from "@/components/ui/card";
 import { isUnauthorized, useMe } from "@/lib/queries";
 import { isPublicStatusPath } from "@/lib/publicStatus";
 import { safeNextPath } from "@/lib/auth";
 import { errorText } from "@/lib/errors";
 import { useI18n } from "@/i18n";
-const LoginPage = lazy(() => import("@/pages/Login"));
+// 登录页是静态导入：它的依赖（queries / i18n / 表单组件）本来就随入口加载，
+// 单独切 chunk 只会让 /login 先闪一帧路由骨架。静态引入后表单随首帧渲染，
+// 不再有「骨架 → 表单」的形态跳变。
+import LoginPage, { LoginSkeleton } from "@/pages/Login";
 const StatusPage = lazy(() => import("@/pages/Status"));
 const OverviewPage = lazy(() => import("@/pages/Overview"));
 const ServersPage = lazy(() => import("@/pages/Servers"));
@@ -72,7 +76,9 @@ export default function App() {
 
   if (isPublicStatusPath(pathname)) {
     return (
-      <Suspense fallback={<RouteFallback label={t("publicStatus.loading")} />}>
+      <Suspense
+        fallback={<StatusRouteSkeleton label={t("publicStatus.loading")} />}
+      >
         <StatusPage />
       </Suspense>
     );
@@ -83,9 +89,16 @@ export default function App() {
 
 function AuthenticatedApp() {
   const { t } = useI18n();
+  const { pathname } = useLocation();
   const me = useMe();
 
   if (me.isPending) {
+    // `/login` 的会话校验态用登录页自己的骨架（同形、同背景光晕），
+    // 其它路由才用居中的会话校验提示。
+    if (pathname === "/login") {
+      return <LoginSkeleton label={t("app.verifyingSession")} />;
+    }
+
     return (
       <Centered>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -99,12 +112,10 @@ function AuthenticatedApp() {
   if (me.isError) {
     if (isUnauthorized(me.error)) {
       return (
-        <Suspense fallback={<RouteFallback label={t("app.loadingLogin")} />}>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="*" element={<Navigate to="/login" replace />} />
-          </Routes>
-        </Suspense>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
       );
     }
 
