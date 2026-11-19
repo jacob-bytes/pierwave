@@ -162,7 +162,7 @@ test("name-only edits do not pretend the target changed", () => {
 test("chain edit validation allows an empty target only while disabled", () => {
   setCurrentLocale("zh-CN");
   const base = editableChainFields(liveChain);
-  assert.equal(chainEditError({ ...base, name: "" }), "请输入链路名称");
+  assert.equal(chainEditError({ ...base, name: "" }), "请输入转发链名称");
   assert.equal(chainEditError({ ...base, targetHost: "" }), "请输入目标地址");
   assert.equal(chainEditError({ ...base, targetPort: "0" }), "目标端口需为 1–65535 的整数");
   assert.equal(chainEditError({ ...base, targetPort: "70000" }), "目标端口需为 1–65535 的整数");
@@ -176,15 +176,15 @@ test("chain edit validation allows an empty target only while disabled", () => {
 test("disable confirmation says the chain is removed and the port may change", () => {
   setCurrentLocale("zh-CN");
   const confirm = chainDisableConfirm();
-  assert.match(confirm.title, /停用链路/);
-  assert.match(confirm.description, /从服务器移除该链路/);
+  assert.match(confirm.title, /停用转发链/);
+  assert.match(confirm.description, /从服务器移除该转发链/);
   assert.match(confirm.description, /入口端口可能变化/);
   assert.match(chainEnableHint(), /重新分配入口端口/);
   assert.match(chainEnableHint(), /可能与之前不同/);
 
   setCurrentLocale("en");
   const english = chainDisableConfirm();
-  assert.match(english.description, /removes this chain from the server/i);
+  assert.match(english.description, /removes this forward chain from the server/i);
   assert.match(english.description, /entry port may change/i);
   assert.match(chainEnableHint(), /allocates a new entry port/i);
 });

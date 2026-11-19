@@ -160,7 +160,7 @@ export function Toolbar({
 }: {
   /** 已经按搜索与分组筛过的计数；标签上的数字与点下去看到的结果一致。 */
   counts: Record<StatusFilter, number>;
-  /** 服务器总数，只用于「已显示 / 总数」与「全部节点」的计数。 */
+  /** 服务器总数，只用于「已显示 / 总数」与「全部服务器」的计数。 */
   total: number;
   filter: StatusFilter;
   onFilter: (filter: StatusFilter) => void;

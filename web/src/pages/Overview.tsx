@@ -903,7 +903,7 @@ function TrendCard({
   );
 }
 
-/** 链路健康卡的状态样式；阻断用 destructive，降级用 warning，与链列表一致。 */
+/** 转发链健康卡的状态样式；阻断用 destructive，降级用 warning，与链列表一致。 */
 const CHAIN_HEALTH_META: Record<
   ChainHealthStatus,
   { labelKey: string; titleKey?: string; dot: string; text: string }
@@ -1139,7 +1139,7 @@ export default function OverviewPage() {
   const overview = useOverviewStats();
   const aggregate = useOverview(TRAFFIC_DAYS);
   const traffic = useTraffic(TRAFFIC_DAYS);
-  // 链路健康卡复用链列表接口，前端只做聚合，不新增后端契约。
+  // 转发链健康卡复用链列表接口，前端只做聚合，不新增后端契约。
   const chains = useChains();
   const events = useEnforcementEvents(50);
   const recentRemoved =

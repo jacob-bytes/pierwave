@@ -20,6 +20,7 @@ import {
   InfoNote,
   InfoNoteRow,
   ListError,
+  ScrollFade,
   SkeletonCard,
 } from "@/components/common";
 import { AlertsCard } from "@/components/settings/AlertsCard";
@@ -672,16 +673,18 @@ export default function SettingsPage() {
       </div>
 
       <Tabs value={tab} onValueChange={handleTabChange} className="gap-4">
-        <TabsList
-          aria-label={t("settings.tabs.ariaLabel")}
-          className="max-w-full overflow-x-auto"
-        >
-          {SETTINGS_TABS.map((option) => (
-            <TabsTrigger key={option.value} value={option.value}>
-              {t(option.labelKey)}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+        <ScrollFade className="max-w-full">
+          <TabsList
+            aria-label={t("settings.tabs.ariaLabel")}
+            className="w-max max-w-none"
+          >
+            {SETTINGS_TABS.map((option) => (
+              <TabsTrigger key={option.value} value={option.value}>
+                {t(option.labelKey)}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </ScrollFade>
 
         {/*
           forceMount：切走再切回时表单内容与告警/备份卡片的结果都保留，

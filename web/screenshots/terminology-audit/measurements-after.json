@@ -1,0 +1,365 @@
+{
+  "label": "after",
+  "logs": {
+    "page": {
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflowX": 0
+    },
+    "actor": {
+      "x": 40,
+      "w": 114.2,
+      "right": 154.2,
+      "h": 32
+    },
+    "target": {
+      "x": 162.2,
+      "w": 114.2,
+      "right": 276.4,
+      "h": 32
+    },
+    "refresh": {
+      "x": 284.4,
+      "w": 65.6,
+      "right": 350,
+      "h": 40
+    },
+    "categoryTabs": {
+      "count": 11,
+      "stripWidth": 580,
+      "rect": {
+        "x": 40,
+        "w": 580,
+        "right": 620,
+        "h": 48
+      },
+      "scroll": {
+        "rect": {
+          "x": 40,
+          "w": 310,
+          "right": 350,
+          "h": 48
+        },
+        "scrollWidth": 580,
+        "clientWidth": 310,
+        "clipped": 270,
+        "fadeRight": "true"
+      }
+    },
+    "table": null,
+    "cards": {
+      "count": 50,
+      "first": {
+        "x": 36,
+        "w": 318,
+        "right": 354
+      },
+      "overflowX": 0
+    }
+  },
+  "settings390": {
+    "page": {
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflowX": 0
+    },
+    "tabCount": 7,
+    "list": {
+      "x": 24,
+      "w": 398,
+      "right": 422,
+      "scrollWidth": 398,
+      "clientWidth": 398,
+      "clipped": 0
+    },
+    "lastVisible": false,
+    "container": {
+      "clientWidth": 342,
+      "scrollWidth": 398,
+      "clipped": 56,
+      "fadeRight": "true",
+      "fadeLeft": null
+    },
+    "fade": true
+  },
+  "settings768": {
+    "page": {
+      "scrollWidth": 768,
+      "clientWidth": 768,
+      "overflowX": 0
+    },
+    "tabCount": 7,
+    "list": {
+      "x": 264,
+      "w": 398,
+      "right": 662,
+      "scrollWidth": 398,
+      "clientWidth": 398,
+      "clipped": 0
+    },
+    "lastVisible": true,
+    "container": {
+      "clientWidth": 480,
+      "scrollWidth": 480,
+      "clipped": 0,
+      "fadeRight": null,
+      "fadeLeft": null
+    },
+    "fade": false
+  },
+  "colors": [
+    {
+      "text": "登录成功",
+      "color": "oklch(0.7 0.015 285)",
+      "background": "oklch(0.225 0.005 285)",
+      "className": "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! [a]:hover:bg-muted [a]:hover:text-muted-foreground border-transparent font-normal bg-muted text-muted-foreground"
+    },
+    {
+      "text": "登录成功",
+      "color": "oklch(0.7 0.015 285)",
+      "background": "oklch(0.225 0.005 285)",
+      "className": "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! [a]:hover:bg-muted [a]:hover:text-muted-foreground border-transparent font-normal bg-muted text-muted-foreground"
+    },
+    {
+      "text": "修改设置",
+      "color": "oklch(0.7 0.015 285)",
+      "background": "oklch(0.225 0.005 285)",
+      "className": "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! [a]:hover:bg-muted [a]:hover:text-muted-foreground border-transparent font-normal bg-muted text-muted-foreground"
+    },
+    {
+      "text": "创建规则模板",
+      "color": "oklch(0.7 0.015 285)",
+      "background": "oklch(0.225 0.005 285)",
+      "className": "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! [a]:hover:bg-muted [a]:hover:text-muted-foreground border-transparent font-normal bg-muted text-muted-foreground"
+    },
+    {
+      "text": "删除转发链",
+      "color": "oklch(0.62 0.2 25)",
+      "background": "oklab(0.62 0.181262 0.0845237 / 0.1)",
+      "className": "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! [a]:hover:bg-muted [a]:hover:text-muted-foreground border-transparent font-normal bg-destructive/10 text-destructive"
+    },
+    {
+      "text": "登录失败",
+      "color": "oklch(0.62 0.2 25)",
+      "background": "oklab(0.62 0.181262 0.0845237 / 0.1)",
+      "className": "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! [a]:hover:bg-muted [a]:hover:text-muted-foreground border-transparent font-normal bg-destructive/10 text-destructive"
+    },
+    {
+      "text": "轮换服务器 Token",
+      "color": "oklch(0.82 0.16 80)",
+      "background": "oklab(0.82 0.0277837 0.157569 / 0.1)",
+      "className": "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! [a]:hover:bg-muted [a]:hover:text-muted-foreground border-transparent font-normal bg-warning/10 text-warning"
+    },
+    {
+      "text": "登录成功",
+      "color": "oklch(0.7 0.015 285)",
+      "background": "oklch(0.225 0.005 285)",
+      "className": "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! [a]:hover:bg-muted [a]:hover:text-muted-foreground border-transparent font-normal bg-muted text-muted-foreground"
+    },
+    {
+      "text": "登录成功",
+      "color": "oklch(0.7 0.015 285)",
+      "background": "oklch(0.225 0.005 285)",
+      "className": "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! [a]:hover:bg-muted [a]:hover:text-muted-foreground border-transparent font-normal bg-muted text-muted-foreground"
+    },
+    {
+      "text": "登录成功",
+      "color": "oklch(0.7 0.015 285)",
+      "background": "oklch(0.225 0.005 285)",
+      "className": "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! [a]:hover:bg-muted [a]:hover:text-muted-foreground border-transparent font-normal bg-muted text-muted-foreground"
+    },
+    {
+      "text": "登录成功",
+      "color": "oklch(0.7 0.015 285)",
+      "background": "oklch(0.225 0.005 285)",
+      "className": "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! [a]:hover:bg-muted [a]:hover:text-muted-foreground border-transparent font-normal bg-muted text-muted-foreground"
+    },
+    {
+      "text": "登录成功",
+      "color": "oklch(0.7 0.015 285)",
+      "background": "oklch(0.225 0.005 285)",
+      "className": "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! [a]:hover:bg-muted [a]:hover:text-muted-foreground border-transparent font-normal bg-muted text-muted-foreground"
+    },
+    {
+      "text": "登录成功",
+      "color": "oklch(0.7 0.015 285)",
+      "background": "oklch(0.225 0.005 285)",
+      "className": "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! [a]:hover:bg-muted [a]:hover:text-muted-foreground border-transparent font-normal bg-muted text-muted-foreground"
+    },
+    {
+      "text": "登录成功",
+      "color": "oklch(0.7 0.015 285)",
+      "background": "oklch(0.225 0.005 285)",
+      "className": "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! [a]:hover:bg-muted [a]:hover:text-muted-foreground border-transparent font-normal bg-muted text-muted-foreground"
+    },
+    {
+      "text": "登录成功",
+      "color": "oklch(0.7 0.015 285)",
+      "background": "oklch(0.225 0.005 285)",
+      "className": "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! [a]:hover:bg-muted [a]:hover:text-muted-foreground border-transparent font-normal bg-muted text-muted-foreground"
+    },
+    {
+      "text": "登录成功",
+      "color": "oklch(0.7 0.015 285)",
+      "background": "oklch(0.225 0.005 285)",
+      "className": "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! [a]:hover:bg-muted [a]:hover:text-muted-foreground border-transparent font-normal bg-muted text-muted-foreground"
+    },
+    {
+      "text": "登录成功",
+      "color": "oklch(0.7 0.015 285)",
+      "background": "oklch(0.225 0.005 285)",
+      "className": "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! [a]:hover:bg-muted [a]:hover:text-muted-foreground border-transparent font-normal bg-muted text-muted-foreground"
+    },
+    {
+      "text": "登录成功",
+      "color": "oklch(0.7 0.015 285)",
+      "background": "oklch(0.225 0.005 285)",
+      "className": "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! [a]:hover:bg-muted [a]:hover:text-muted-foreground border-transparent font-normal bg-muted text-muted-foreground"
+    },
+    {
+      "text": "登录成功",
+      "color": "oklch(0.7 0.015 285)",
+      "background": "oklch(0.225 0.005 285)",
+      "className": "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border px-2 py-0.5 text-xs whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3! [a]:hover:bg-muted [a]:hover:text-muted-foreground border-transparent font-normal bg-muted text-muted-foreground"
+    }
+  ],
+  "touch": {
+    "subscriptions": [
+      {
+        "name": "复制订阅链接",
+        "rect": {
+          "w": 40,
+          "h": 40
+        },
+        "hit": {
+          "w": 40,
+          "h": 41
+        },
+        "aria": "复制 carol 的订阅链接",
+        "text": ""
+      },
+      {
+        "name": "二维码",
+        "rect": {
+          "w": 40,
+          "h": 40
+        },
+        "hit": {
+          "w": 40,
+          "h": 41
+        },
+        "aria": "查看 carol 的订阅二维码",
+        "text": ""
+      },
+      {
+        "name": "打开订阅链接",
+        "rect": {
+          "w": 40,
+          "h": 40
+        },
+        "hit": {
+          "w": 40,
+          "h": 41
+        },
+        "aria": "打开 carol 的订阅链接",
+        "text": ""
+      }
+    ],
+    "servers": [
+      {
+        "name": "详情",
+        "rect": {
+          "w": 65.6,
+          "h": 40
+        },
+        "hit": {
+          "w": 66,
+          "h": 41
+        },
+        "aria": "查看 美国-01 的详情",
+        "text": "详情"
+      },
+      {
+        "name": "更多",
+        "rect": {
+          "w": 40,
+          "h": 40
+        },
+        "hit": {
+          "w": 40,
+          "h": 41
+        },
+        "aria": "美国-01 的更多操作",
+        "text": ""
+      }
+    ],
+    "users": [
+      {
+        "name": "更多",
+        "rect": {
+          "w": 40,
+          "h": 40
+        },
+        "hit": {
+          "w": 40,
+          "h": 41
+        },
+        "aria": "操作 carol",
+        "text": ""
+      }
+    ],
+    "chains": [
+      {
+        "name": "拓扑",
+        "missing": true
+      },
+      {
+        "name": "更多",
+        "missing": true
+      }
+    ],
+    "settings": [
+      {
+        "name": "tab",
+        "rect": {
+          "w": 42,
+          "h": 41
+        },
+        "hit": {
+          "w": 42,
+          "h": 42
+        },
+        "aria": null,
+        "text": "常规"
+      }
+    ],
+    "logs": [
+      {
+        "name": "tab",
+        "rect": {
+          "w": 70,
+          "h": 41
+        },
+        "hit": {
+          "w": 70,
+          "h": 42
+        },
+        "aria": null,
+        "text": "系统事件"
+      },
+      {
+        "name": "刷新",
+        "rect": {
+          "w": 65.6,
+          "h": 40
+        },
+        "hit": {
+          "w": 66,
+          "h": 41
+        },
+        "aria": null,
+        "text": "刷新"
+      }
+    ]
+  }
+}

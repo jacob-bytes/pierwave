@@ -10,7 +10,14 @@ import {
   XIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { EmptyState, ListErrorRow, SkeletonTable } from "@/components/common";
+import {
+  EmptyState,
+  ListError,
+  ListErrorRow,
+  MobileDataCard,
+  SkeletonCard,
+  SkeletonTable,
+} from "@/components/common";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,6 +36,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { ScrollFade } from "@/components/common/ScrollFade";
 import {
   Select,
   SelectContent,
@@ -49,6 +57,16 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { AuditEntry } from "@/lib/api";
 import {
+  auditActionLabel,
+  auditActionTone,
+  resolveAuditTarget,
+} from "@/lib/audit";
+import type {
+  AuditNameResolver,
+  AuditTargetKind,
+  AuditTone,
+} from "@/lib/audit";
+import {
   formatChangeText,
   formatChanges,
   formatFieldLabel,
@@ -59,19 +77,24 @@ import { copyText } from "@/lib/clipboard";
 import { errorText } from "@/lib/errors";
 import { formatJsonObject } from "@/lib/json";
 import {
+  useAllNodes,
+  useApiTokens,
   useAuditLog,
+  useCertificates,
+  useChainTemplates,
+  useChains,
   usePackages,
   useRuleTemplates,
   useServers,
   useUsers,
 } from "@/lib/queries";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
+import { useIsDesktop } from "@/lib/useIsDesktop";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
 const COLUMN_COUNT = 6;
 const LIMIT_OPTIONS = [50, 200, 500] as const;
-const TARGET_PREVIEW_LENGTH = 8;
 const SUMMARY_LIMIT = 2;
 const HEAD_CLASS =
   "h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground";
@@ -88,8 +111,6 @@ type Category =
   | "forward"
   | "backup"
   | "system";
-
-type Tone = "primary" | "destructive" | "warning" | "muted";
 
 /**
  * 分类 → 服务端动作前缀。
@@ -125,88 +146,12 @@ const CATEGORIES: { value: Category; labelKey: string }[] = [
   { value: "system", labelKey: "audit.category.system" },
 ];
 
-/**
- * 动作 → 文案键。未知动作（后端新增、旧前端）原样展示，绝不吞掉。
- * 新增 action 时只需要在这里补一行，并在两个词典里补对应文案。
- */
-const actionLabelKeys: Record<string, string> = {
-  "agent.upgrade.batch": "audit.action.agent_upgrade_batch",
-  "agent.upgrade": "audit.action.agent_upgrade",
-  "backup.export": "audit.action.backup_export",
-  "backup.restore.schedule": "audit.action.backup_restore_schedule",
-  "backup.restore.cancel": "audit.action.backup_restore_cancel",
-  "backup.restore.apply": "audit.action.backup_restore_apply",
-  "chain.create": "audit.action.chain_create",
-  "chain.update": "audit.action.chain_update",
-  "chain.delete": "audit.action.chain_delete",
-  "forward.create": "audit.action.forward_create",
-  "forward.update": "audit.action.forward_update",
-  "forward.delete": "audit.action.forward_delete",
-  "user.create": "audit.action.userCreate",
-  "user.update": "audit.action.userUpdate",
-  "user.delete": "audit.action.userDelete",
-  "user.bulk_disable_over_quota": "audit.action.userBulkDisableOverQuota",
-  "user_package.bind": "audit.action.userPackageBind",
-  "user_package.update": "audit.action.userPackageUpdate",
-  "user_package.unbind": "audit.action.userPackageUnbind",
-  "package.create": "audit.action.packageCreate",
-  "package.update": "audit.action.packageUpdate",
-  "package.delete": "audit.action.packageDelete",
-  "server.create": "audit.action.serverCreate",
-  "server.update": "audit.action.serverUpdate",
-  "server.delete": "audit.action.serverDelete",
-  "node.create": "audit.action.nodeCreate",
-  "node.update": "audit.action.nodeUpdate",
-  "node.delete": "audit.action.nodeDelete",
-  "node.tcping": "audit.action.nodeTcping",
-  "certificate.upload": "audit.action.certificateUpload",
-  "certificate.delete": "audit.action.certificateDelete",
-  "rule_template.create": "audit.action.ruleTemplateCreate",
-  "rule_template.update": "audit.action.ruleTemplateUpdate",
-  "rule_template.delete": "audit.action.ruleTemplateDelete",
-  "settings.update": "audit.action.settingsUpdate",
-  "password.change": "audit.action.passwordChange",
-  "user.reset_subscription": "audit.action.userResetSubscription",
-  "auth.login": "audit.action.authLogin",
-  "auth.login_failed": "audit.action.authLoginFailed",
-  "auth.logout": "audit.action.authLogout",
-  "auth.session_kick": "audit.action.authSessionKick",
-  "auth.sessions_kick_others": "audit.action.authSessionsKickOthers",
-  "config.apply": "audit.action.configApply",
-};
-
-const toneClass: Record<Tone, string> = {
+const toneClass: Record<AuditTone, string> = {
   primary: "bg-primary/10 text-primary",
   destructive: "bg-destructive/10 text-destructive",
   warning: "bg-warning/10 text-warning",
   muted: "bg-muted text-muted-foreground",
 };
-
-/** 未知 action 原样显示；词典缺键时也由 `t()` 回落到原字符串。 */
-function actionLabel(action: string): string {
-  const key = actionLabelKeys[action];
-  return key ? t(key) : action;
-}
-
-function actionTone(action: string): Tone {
-  // 删除优先于分类：任何资源的 delete 都用 destructive，避免被 primary 抢走。
-  if (action.endsWith(".delete")) return "destructive";
-  // 登录失败是安全信号，单独用危险色；其它登录动作按系统类处理。
-  if (action === "auth.login_failed") return "destructive";
-  if (action.startsWith("auth.")) return "warning";
-  if (
-    action.startsWith("settings.") ||
-    action.startsWith("password.") ||
-    action === "config.apply"
-  ) {
-    return "warning";
-  }
-  if (action.startsWith("rule_template.")) return "warning";
-  if (action.startsWith("user.") || action.startsWith("user_package.")) {
-    return "primary";
-  }
-  return "muted";
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -308,53 +253,20 @@ function summarizeAudit(
   return items;
 }
 
+/**
+ * 审计页复用其它列表的缓存把 id 翻译成名称；只读，不额外造请求。
+ * 转发没有跨服务器的全局列表，由 detail.name 兜底（后端写操作都带）。
+ */
 interface LookupMaps {
   users: Map<string, string>;
   packages: Map<string, string>;
   servers: Map<string, string>;
   ruleTemplates: Map<string, string>;
-}
-
-interface ResolvedTarget {
-  label: string;
-  title?: string;
-  resolved: boolean;
-}
-
-/**
- * 对象列：按 action 选对应的缓存翻译 id；缓存里没有（对象已删除、或超出
- * 列表返回条数）时显示 id 前 8 位 + …，完整 id 放 title。
- */
-function resolveTarget(
-  action: string,
-  target: string | null,
-  maps: LookupMaps,
-): ResolvedTarget {
-  if (!target) return { label: "—", resolved: true };
-  if (target === "settings") {
-    return { label: t("audit.target.settings"), resolved: true };
-  }
-
-  const names = action.startsWith("user.") || action.startsWith("auth.")
-    ? maps.users
-    : action.startsWith("package.")
-      ? maps.packages
-      : action.startsWith("rule_template.")
-        ? maps.ruleTemplates
-        : action.startsWith("server.") || action === "config.apply"
-          ? maps.servers
-          : null;
-  const name = names?.get(target);
-  if (name) return { label: name, title: target, resolved: true };
-
-  return {
-    label:
-      target.length > TARGET_PREVIEW_LENGTH
-        ? `${target.slice(0, TARGET_PREVIEW_LENGTH)}…`
-        : target,
-    title: target,
-    resolved: false,
-  };
+  chains: Map<string, string>;
+  chainTemplates: Map<string, string>;
+  certificates: Map<string, string>;
+  apiTokens: Map<string, string>;
+  nodes: Map<string, string>;
 }
 
 function detailJsonText(detail: unknown): string {
@@ -370,10 +282,10 @@ function ActionBadge({ action }: { action: string }) {
       variant="outline"
       className={cn(
         "border-transparent font-normal",
-        toneClass[actionTone(action)],
+        toneClass[auditActionTone(action)],
       )}
     >
-      {actionLabel(action)}
+      {auditActionLabel(action)}
     </Badge>
   );
 }
@@ -494,7 +406,7 @@ function DetailDialog({
           <DialogDescription>
             {entry
               ? t("audit.detail.desc", {
-                  action: actionLabel(entry.action),
+                  action: auditActionLabel(entry.action),
                   actor: entry.actor_name?.trim() || "—",
                   time: formatAbsoluteTime(entry.created_at),
                 })
@@ -542,6 +454,11 @@ function useLookupMaps(): LookupMaps {
   const packages = usePackages();
   const servers = useServers();
   const ruleTemplates = useRuleTemplates();
+  const chains = useChains();
+  const chainTemplates = useChainTemplates();
+  const certificates = useCertificates();
+  const apiTokens = useApiTokens();
+  const nodes = useAllNodes();
 
   return useMemo(
     () => ({
@@ -555,9 +472,48 @@ function useLookupMaps(): LookupMaps {
       ruleTemplates: new Map(
         (ruleTemplates.data ?? []).map((item) => [item.id, item.name]),
       ),
+      chains: new Map((chains.data ?? []).map((item) => [item.id, item.name])),
+      chainTemplates: new Map(
+        (chainTemplates.data ?? []).map((item) => [item.id, item.name]),
+      ),
+      certificates: new Map(
+        (certificates.data ?? []).map((item) => [item.id, item.name]),
+      ),
+      apiTokens: new Map(
+        (apiTokens.data ?? []).map((item) => [item.id, item.name]),
+      ),
+      nodes: new Map((nodes.data ?? []).map((item) => [item.id, item.name])),
     }),
-    [users.data, packages.data, servers.data, ruleTemplates.data],
+    [
+      users.data,
+      packages.data,
+      servers.data,
+      ruleTemplates.data,
+      chains.data,
+      chainTemplates.data,
+      certificates.data,
+      apiTokens.data,
+      nodes.data,
+    ],
   );
+}
+
+/** 把缓存合成一个 `resolve(kind, id)`；未命中返回 undefined，由纯函数降级。 */
+function useAuditNameResolver(maps: LookupMaps): AuditNameResolver {
+  return useMemo(() => {
+    const tables: Partial<Record<AuditTargetKind, Map<string, string>>> = {
+      user: maps.users,
+      package: maps.packages,
+      server: maps.servers,
+      rule_template: maps.ruleTemplates,
+      chain: maps.chains,
+      chain_template: maps.chainTemplates,
+      certificate: maps.certificates,
+      api_token: maps.apiTokens,
+      node: maps.nodes,
+    };
+    return (kind, id) => tables[kind]?.get(id);
+  }, [maps]);
 }
 
 /** 把四份缓存合成一个 `resolve(kind, id)`；未命中返回 undefined，由纯函数降级。 */
@@ -587,7 +543,7 @@ function SearchField({
   ariaLabel: string;
 }) {
   return (
-    <div className="relative w-48 shrink-0">
+    <div className="relative min-w-[7.5rem] flex-1 sm:w-48 sm:flex-none">
       <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
       <Input
         value={value}
@@ -618,6 +574,7 @@ function SearchField({
  */
 export function AuditPanel() {
   useI18n();
+  const isDesktop = useIsDesktop();
   const [actorInput, setActorInput] = useState("");
   const [actorQuery, setActorQuery] = useState("");
   const [targetInput, setTargetInput] = useState("");
@@ -652,6 +609,7 @@ export function AuditPanel() {
   });
   const maps = useLookupMaps();
   const resolveChange = useChangeResolver(maps);
+  const resolveName = useAuditNameResolver(maps);
 
   const items = audit.data?.pages.flatMap((page) => page.items) ?? [];
   const filtersActive =
@@ -665,6 +623,72 @@ export function AuditPanel() {
     setTargetInput("");
     setTargetQuery("");
     setCategory("all");
+  }
+
+  /** 窄屏卡片：时间 / 操作者 / 动作 / 对象 / 摘要与桌面表格逐项对应。 */
+  function renderCard(entry: AuditEntry) {
+    const target = resolveAuditTarget(
+      entry.action,
+      entry.target,
+      resolveName,
+      entry.detail,
+    );
+    const actor = entry.actor_name?.trim() || "—";
+
+    return (
+      <MobileDataCard
+        key={entry.id}
+        title={<ActionBadge action={entry.action} />}
+        subtitle={
+          <span title={formatAbsoluteTime(entry.created_at)}>
+            {formatRelativeTime(entry.created_at)}
+          </span>
+        }
+        actions={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t("common.details")}
+            title={t("common.details")}
+            onClick={() => setDetailEntry(entry)}
+          >
+            <EyeIcon className="size-3.5" />
+          </Button>
+        }
+        fields={[
+          {
+            label: t("audit.columns.actor"),
+            value: (
+              <span title={entry.actor_id ?? undefined}>{actor}</span>
+            ),
+          },
+          {
+            label: t("audit.columns.target"),
+            value: (
+              <span
+                className={cn(
+                  "break-all",
+                  !target.resolved && "text-muted-foreground",
+                )}
+                title={target.title}
+              >
+                {target.label}
+              </span>
+            ),
+          },
+          {
+            label: t("audit.columns.summary"),
+            value: (
+              <SummaryCell
+                action={entry.action}
+                detail={entry.detail}
+                resolve={resolveChange}
+              />
+            ),
+          },
+        ]}
+      />
+    );
   }
 
   return (
@@ -684,8 +708,8 @@ export function AuditPanel() {
               ) : null}
             </CardTitle>
 
-            {/* 控件同行排列：标题在左、三个控件在右，窄屏才换行 */}
-            <div className="flex items-center gap-2">
+            {/* 控件同行排列：标题在左、三个控件在右；窄屏整体占满一行并自动换行 */}
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
               <SearchField
                 value={actorInput}
                 onChange={setActorInput}
@@ -728,12 +752,12 @@ export function AuditPanel() {
         </CardHeader>
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-2.5">
-          <div className="min-w-0 max-w-full overflow-x-auto">
+          <ScrollFade className="min-w-0 max-w-full">
             <Tabs
               value={category}
               onValueChange={(value) => setCategory(value as Category)}
             >
-              <TabsList>
+              <TabsList className="w-max max-w-none">
                 {CATEGORIES.map((option) => (
                   <TabsTrigger key={option.value} value={option.value}>
                     {t(option.labelKey)}
@@ -741,7 +765,7 @@ export function AuditPanel() {
                 ))}
               </TabsList>
             </Tabs>
-          </div>
+          </ScrollFade>
 
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">
@@ -768,6 +792,8 @@ export function AuditPanel() {
         </div>
 
         <CardContent className="p-0" aria-busy={audit.isPending}>
+          {isDesktop ? (
+            <>
           {audit.isPending ? (
             <SkeletonTable rows={5} columns={COLUMN_COUNT} />
           ) : null}
@@ -812,7 +838,12 @@ export function AuditPanel() {
                 <EmptyRow filtered={filtersActive} onClear={clearFilters} />
               ) : (
                 items.map((entry) => {
-                  const target = resolveTarget(entry.action, entry.target, maps);
+                  const target = resolveAuditTarget(
+                    entry.action,
+                    entry.target,
+                    resolveName,
+                    entry.detail,
+                  );
 
                   return (
                     <TableRow key={entry.id}>
@@ -837,8 +868,7 @@ export function AuditPanel() {
                         <span
                           className={cn(
                             "block truncate text-sm",
-                            !target.resolved &&
-                              "font-mono text-xs text-muted-foreground",
+                            !target.resolved && "text-muted-foreground",
                           )}
                           title={target.title}
                         >
@@ -868,6 +898,53 @@ export function AuditPanel() {
               )}
             </TableBody>
           </Table>
+            </>
+          ) : audit.isPending ? (
+            <div className="space-y-3 p-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <SkeletonCard key={index} lines={4} />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-3 p-3">
+              {showError ? (
+                <ListError
+                  title={t("audit.loadFailed")}
+                  message={errorMessage}
+                  onRetry={() => void audit.refetch()}
+                  retrying={audit.isFetching}
+                />
+              ) : items.length === 0 ? (
+                <EmptyState
+                  size="sm"
+                  icon={ScrollTextIcon}
+                  title={t(
+                    filtersActive
+                      ? "audit.empty.filtered"
+                      : "audit.empty.all",
+                  )}
+                  description={t(
+                    filtersActive
+                      ? "audit.empty.filteredDesc"
+                      : "audit.empty.allDesc",
+                  )}
+                  action={
+                    filtersActive ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={clearFilters}
+                      >
+                        {t("audit.empty.clearFilters")}
+                      </Button>
+                    ) : undefined
+                  }
+                />
+              ) : (
+                items.map(renderCard)
+              )}
+            </div>
+          )}
 
           {!audit.isPending && !showError && items.length > 0 ? (
             <div className="flex flex-col items-center gap-2 border-t border-border px-4 py-3">

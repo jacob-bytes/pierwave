@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
  * 顶部四块汇总，版式与参考项目的 `Summary` 对齐：
  * 图标 + 标签一行、大号数字一行、脚注贴底，四块等高 86px。
  *
- * 参考项目是「节点 x/y、最忙节点、累计流量、实时网速」；公开 API 没有实时
+ * 参考项目是「服务器 x/y、最忙服务器、累计流量、实时网速」；公开 API 没有实时
  * 网速，第四块换成语义对应的「平均可用率」，其余三块按我们能拿到的字段映射。
  */
 function Tile({
@@ -88,7 +88,7 @@ export function Summary({
   onFilter,
 }: {
   summary: PublicStatusSummary;
-  /** 逐台的负载与可用率，用于「最忙节点」和「平均可用率」两块。 */
+  /** 逐台的负载与可用率，用于「最忙服务器」和「平均可用率」两块。 */
   servers: PublicStatusServer[];
   filter: StatusFilter;
   onFilter: (filter: StatusFilter) => void;
@@ -98,7 +98,7 @@ export function Summary({
   const offlineActive = filter === "offline";
   const canFilter = offline > 0;
 
-  // 最忙节点只看在线机器的实时负载；离线机器的心跳残留不参与。
+  // 最忙服务器只看在线机器的实时负载；离线机器的心跳残留不参与。
   const busiest = busiestServer(servers);
   const busiestLoad =
     busiest && busiest.load1 !== null && Number.isFinite(busiest.load1)

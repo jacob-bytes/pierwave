@@ -265,7 +265,7 @@ export function useOverviewStats() {
 }
 
 /**
- * 概览聚合（P14）：图表、协议分布、链路告警与 Top 5。
+ * 概览聚合（P14）：图表、协议分布、转发链告警与 Top 5。
  *
  * 与 `useOverviewStats` 分开缓存：新接口尚未上线时只让新增卡片降级，
  * 既有 KPI / 告警卡仍可用。`days` 必须为正数。

@@ -29,3 +29,4 @@ export { ListError, ListErrorRow } from "./ListError";
 export type { ListErrorProps, ListErrorRowProps } from "./ListError";
 export { MobileDataCard } from "./MobileDataCard";
 export type { MobileDataCardProps, MobileDataField } from "./MobileDataCard";
+export { ScrollFade } from "./ScrollFade";
