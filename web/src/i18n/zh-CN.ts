@@ -209,6 +209,20 @@ const zhCN = {
       uptime24hHint: "近 24 小时",
       noSamples: "暂无采样",
     },
+    hero: {
+      aria: "服务概况",
+      allOnline: "全部 {total} 台服务器在线，服务正常",
+      allOnlineLow: "全部 {total} 台服务器在线，{low} 台可用率偏低",
+      partial: "{online} / {total} 台在线，{offline} 台离线",
+      partialLow:
+        "{online} / {total} 台在线，{offline} 台离线；{low} 台可用率偏低",
+      allOffline: "当前没有在线服务器",
+      allOfflineLow: "当前没有在线服务器；{low} 台可用率偏低",
+      onlineRate: "在线率",
+      averageUptime: "平均 24h 可用率",
+      totalRate: "当前总速率",
+      load: "负载 {value}",
+    },
     toolbar: {
       filter: "筛选服务器",
       searchPlaceholder: "搜索服务器",

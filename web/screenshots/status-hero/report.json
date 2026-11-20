@@ -1,0 +1,1326 @@
+{
+  "baseUrl": "http://localhost:4173",
+  "results": [
+    {
+      "state": "all-online",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "all-online-dark-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 161,
+      "verdict": "全部 8 台服务器在线，服务正常",
+      "stats": [
+        "在线率 8 / 8",
+        "平均 24h 可用率 100%",
+        "当前总速率 46.3 MB/s"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    },
+    {
+      "state": "all-online",
+      "theme": "dark",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "all-online-dark-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 3219,
+      "kb": 251,
+      "verdict": "全部 8 台服务器在线，服务正常",
+      "stats": [
+        "在线率 8 / 8",
+        "平均 24h 可用率 100%",
+        "当前总速率 46.3 MB/s"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    },
+    {
+      "state": "all-online",
+      "theme": "light",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "all-online-light-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 168,
+      "verdict": "全部 8 台服务器在线，服务正常",
+      "stats": [
+        "在线率 8 / 8",
+        "平均 24h 可用率 100%",
+        "当前总速率 46.3 MB/s"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    },
+    {
+      "state": "all-online",
+      "theme": "light",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "all-online-light-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 3219,
+      "kb": 267,
+      "verdict": "全部 8 台服务器在线，服务正常",
+      "stats": [
+        "在线率 8 / 8",
+        "平均 24h 可用率 100%",
+        "当前总速率 46.3 MB/s"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    },
+    {
+      "state": "all-online",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "en",
+      "file": "all-online-dark-1440-en.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 153,
+      "verdict": "All 8 servers online, service normal",
+      "stats": [
+        "Online 8 / 8",
+        "Avg 24h uptime 100%",
+        "Total rate 46.3 MB/s"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    },
+    {
+      "state": "partial",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "partial-dark-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 163,
+      "verdict": "7 / 8 台在线，1 台离线",
+      "stats": [
+        "在线率 7 / 8",
+        "平均 24h 可用率 100%",
+        "当前总速率 46.3 MB/s"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    },
+    {
+      "state": "partial",
+      "theme": "dark",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "partial-dark-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 3219,
+      "kb": 247,
+      "verdict": "7 / 8 台在线，1 台离线",
+      "stats": [
+        "在线率 7 / 8",
+        "平均 24h 可用率 100%",
+        "当前总速率 46.3 MB/s"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    },
+    {
+      "state": "partial",
+      "theme": "light",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "partial-light-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 175,
+      "verdict": "7 / 8 台在线，1 台离线",
+      "stats": [
+        "在线率 7 / 8",
+        "平均 24h 可用率 100%",
+        "当前总速率 46.3 MB/s"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    },
+    {
+      "state": "partial",
+      "theme": "light",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "partial-light-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 3219,
+      "kb": 263,
+      "verdict": "7 / 8 台在线，1 台离线",
+      "stats": [
+        "在线率 7 / 8",
+        "平均 24h 可用率 100%",
+        "当前总速率 46.3 MB/s"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    },
+    {
+      "state": "partial",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "en",
+      "file": "partial-dark-1440-en.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 156,
+      "verdict": "7 / 8 online, 1 offline",
+      "stats": [
+        "Online 7 / 8",
+        "Avg 24h uptime 100%",
+        "Total rate 46.3 MB/s"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    },
+    {
+      "state": "all-offline",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "all-offline-dark-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 128,
+      "verdict": "当前没有在线服务器",
+      "stats": [
+        "在线率 0 / 8",
+        "平均 24h 可用率 —",
+        "当前总速率 —"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    },
+    {
+      "state": "all-offline",
+      "theme": "dark",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "all-offline-dark-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 3197,
+      "kb": 208,
+      "verdict": "当前没有在线服务器",
+      "stats": [
+        "在线率 0 / 8",
+        "平均 24h 可用率 —",
+        "当前总速率 —"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    },
+    {
+      "state": "all-offline",
+      "theme": "light",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "all-offline-light-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 133,
+      "verdict": "当前没有在线服务器",
+      "stats": [
+        "在线率 0 / 8",
+        "平均 24h 可用率 —",
+        "当前总速率 —"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    },
+    {
+      "state": "all-offline",
+      "theme": "light",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "all-offline-light-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 3197,
+      "kb": 221,
+      "verdict": "当前没有在线服务器",
+      "stats": [
+        "在线率 0 / 8",
+        "平均 24h 可用率 —",
+        "当前总速率 —"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    },
+    {
+      "state": "all-offline",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "en",
+      "file": "all-offline-dark-1440-en.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 122,
+      "verdict": "No servers online right now",
+      "stats": [
+        "Online 0 / 8",
+        "Avg 24h uptime —",
+        "Total rate —"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    },
+    {
+      "state": "low",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "low-dark-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 163,
+      "verdict": "全部 8 台服务器在线，1 台可用率偏低",
+      "stats": [
+        "在线率 8 / 8",
+        "平均 24h 可用率 97%",
+        "当前总速率 46.3 MB/s"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    },
+    {
+      "state": "low",
+      "theme": "dark",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "low-dark-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 3219,
+      "kb": 252,
+      "verdict": "全部 8 台服务器在线，1 台可用率偏低",
+      "stats": [
+        "在线率 8 / 8",
+        "平均 24h 可用率 97%",
+        "当前总速率 46.3 MB/s"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    },
+    {
+      "state": "low",
+      "theme": "light",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "low-light-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 170,
+      "verdict": "全部 8 台服务器在线，1 台可用率偏低",
+      "stats": [
+        "在线率 8 / 8",
+        "平均 24h 可用率 97%",
+        "当前总速率 46.3 MB/s"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    },
+    {
+      "state": "low",
+      "theme": "light",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "low-light-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 3219,
+      "kb": 268,
+      "verdict": "全部 8 台服务器在线，1 台可用率偏低",
+      "stats": [
+        "在线率 8 / 8",
+        "平均 24h 可用率 97%",
+        "当前总速率 46.3 MB/s"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    },
+    {
+      "state": "low",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "en",
+      "file": "low-dark-1440-en.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 154,
+      "verdict": "All 8 servers online, 1 with low availability",
+      "stats": [
+        "Online 8 / 8",
+        "Avg 24h uptime 97%",
+        "Total rate 46.3 MB/s"
+      ],
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "东京-中转备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "新加坡-专线-长名称节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "首尔-亚太-新节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "洛杉矶-美洲-测试节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "圣何塞-美洲-备用入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "法兰克福-欧洲-备用节点",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        },
+        {
+          "name": "阿姆斯特丹-欧洲-入口",
+          "stripCells": 24,
+          "has7d": true,
+          "progressBars": 3
+        }
+      ]
+    }
+  ],
+  "failures": []
+}

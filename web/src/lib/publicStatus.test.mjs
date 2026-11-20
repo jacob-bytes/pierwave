@@ -8,6 +8,9 @@ import {
   availabilityTone,
   averageUptime24h,
   busiestServer,
+  statusHeadline,
+  statusHeadlineKey,
+  totalOnlineRate,
   DEFAULT_STATUS_VIEW,
   filterPublicServers,
   hasSamples,
@@ -259,6 +262,225 @@ test("averageUptime24h averages real samples only, clamping dirty ratios", () =>
   assert.equal(
     averageUptime24h([{ uptime_24h: 2 }, { uptime_24h: -1 }]),
     0.5,
+  );
+});
+
+const HEADLINE_SERVER = (online, uptime_24h = 1) => ({
+  online,
+  uptime_24h,
+});
+
+test("statusHeadline picks one verdict from the online count", () => {
+  assert.deepEqual(statusHeadline([]), {
+    kind: "empty",
+    total: 0,
+    online: 0,
+    offline: 0,
+    lowAvailability: 0,
+  });
+
+  const allOnline = statusHeadline(
+    Array.from({ length: 8 }, () => HEADLINE_SERVER(true)),
+  );
+  assert.deepEqual(allOnline, {
+    kind: "all-online",
+    total: 8,
+    online: 8,
+    offline: 0,
+    lowAvailability: 0,
+  });
+
+  const partial = statusHeadline([
+    ...Array.from({ length: 7 }, () => HEADLINE_SERVER(true)),
+    HEADLINE_SERVER(false),
+  ]);
+  assert.equal(partial.kind, "partial");
+  assert.equal(partial.online, 7);
+  assert.equal(partial.total, 8);
+  assert.equal(partial.offline, 1);
+
+  const allOffline = statusHeadline(
+    Array.from({ length: 8 }, () => HEADLINE_SERVER(false)),
+  );
+  assert.deepEqual(allOffline, {
+    kind: "all-offline",
+    total: 8,
+    online: 0,
+    offline: 8,
+    lowAvailability: 0,
+  });
+});
+
+test("statusHeadline counts abnormal agents as online and low uptime separately", () => {
+  // 心跳还在 = 在线；xray_running 不影响头部结论（卡片上另有「异常」）。
+  const headline = statusHeadline([
+    HEADLINE_SERVER(true, 0.8),
+    ...Array.from({ length: 7 }, () => HEADLINE_SERVER(true, 1)),
+  ]);
+  assert.equal(headline.kind, "all-online");
+  assert.equal(headline.online, 8);
+  assert.equal(headline.lowAvailability, 1, "低于 95% 的机器单独计数");
+});
+
+test("statusHeadline treats 95% as the low-availability boundary", () => {
+  const headline = statusHeadline([
+    HEADLINE_SERVER(true, 0.95),
+    HEADLINE_SERVER(true, 0.949),
+    HEADLINE_SERVER(true, null),
+    HEADLINE_SERVER(true, undefined),
+    HEADLINE_SERVER(true, Number.NaN),
+    HEADLINE_SERVER(true, Number.POSITIVE_INFINITY),
+  ]);
+  // 0.95 仍算达标；null / NaN / 无穷大都没有采样，不参与「偏低」计数。
+  assert.equal(headline.lowAvailability, 1);
+  assert.equal(headline.total, 6);
+  assert.equal(headline.online, 6);
+});
+
+test("statusHeadlineKey maps every verdict to a bilingual sentence", () => {
+  const pick = (dictionary, path) =>
+    path.split(".").reduce((node, part) => node?.[part], dictionary);
+  const interpolate = (text, values = {}) =>
+    text.replace(/\{(\w+)\}/g, (match, name) =>
+      values[name] === undefined ? match : String(values[name]),
+    );
+  const render = (dictionary, headline) => {
+    const { key, values } = statusHeadlineKey(headline);
+    return interpolate(
+      pick(dictionary, key.replace(/^publicStatus\./, "")),
+      values,
+    );
+  };
+
+  const allOnline = statusHeadline(
+    Array.from({ length: 8 }, () => HEADLINE_SERVER(true)),
+  );
+  const partial = statusHeadline([
+    ...Array.from({ length: 7 }, () => HEADLINE_SERVER(true)),
+    HEADLINE_SERVER(false),
+  ]);
+  const allOffline = statusHeadline(
+    Array.from({ length: 8 }, () => HEADLINE_SERVER(false)),
+  );
+  const low = statusHeadline([
+    HEADLINE_SERVER(true, 0.92),
+    ...Array.from({ length: 7 }, () => HEADLINE_SERVER(true, 1)),
+  ]);
+
+  assert.deepEqual(statusHeadlineKey(statusHeadline([])), {
+    key: "publicStatus.summary.noServers",
+  });
+  assert.deepEqual(statusHeadlineKey(allOnline), {
+    key: "publicStatus.hero.allOnline",
+    values: { total: 8 },
+  });
+  assert.deepEqual(statusHeadlineKey(partial), {
+    key: "publicStatus.hero.partial",
+    values: { total: 8, online: 7, offline: 1 },
+  });
+  assert.deepEqual(statusHeadlineKey(allOffline), {
+    key: "publicStatus.hero.allOffline",
+  });
+  assert.deepEqual(statusHeadlineKey(low), {
+    key: "publicStatus.hero.allOnlineLow",
+    values: { total: 8, low: 1 },
+  });
+
+  assert.equal(render(zh.publicStatus, allOnline), "全部 8 台服务器在线，服务正常");
+  assert.equal(
+    render(en.publicStatus, allOnline),
+    "All 8 servers online, service normal",
+  );
+  assert.equal(render(zh.publicStatus, partial), "7 / 8 台在线，1 台离线");
+  assert.equal(render(en.publicStatus, partial), "7 / 8 online, 1 offline");
+  assert.equal(render(zh.publicStatus, allOffline), "当前没有在线服务器");
+  assert.equal(
+    render(en.publicStatus, allOffline),
+    "No servers online right now",
+  );
+  assert.equal(
+    render(zh.publicStatus, low),
+    "全部 8 台服务器在线，1 台可用率偏低",
+  );
+  assert.equal(
+    render(en.publicStatus, low),
+    "All 8 servers online, 1 with low availability",
+  );
+});
+
+test("statusHeadlineKey appends the low-availability clause to every verdict", () => {
+  const partialLow = statusHeadline([
+    HEADLINE_SERVER(true, 0.9),
+    HEADLINE_SERVER(false, 1),
+  ]);
+  assert.deepEqual(statusHeadlineKey(partialLow), {
+    key: "publicStatus.hero.partialLow",
+    values: { total: 2, online: 1, offline: 1, low: 1 },
+  });
+
+  const allOfflineLow = statusHeadline([
+    HEADLINE_SERVER(false, 0.9),
+    HEADLINE_SERVER(false, 1),
+  ]);
+  assert.deepEqual(statusHeadlineKey(allOfflineLow), {
+    key: "publicStatus.hero.allOfflineLow",
+    values: { low: 1 },
+  });
+});
+
+test("totalOnlineRate sums both directions of online servers only", () => {
+  assert.equal(totalOnlineRate([]), null);
+  // 离线机器保留的是掉线前最后一次读数，不能算进「当前总速率」。
+  assert.equal(
+    totalOnlineRate([
+      { online: false, net_rx_bps: 1_000, net_tx_bps: 2_000 },
+    ]),
+    null,
+  );
+
+  assert.equal(
+    totalOnlineRate([
+      { online: true, net_rx_bps: 100, net_tx_bps: 50 },
+      { online: false, net_rx_bps: 9_999, net_tx_bps: 9_999 },
+      { online: true, net_rx_bps: 25, net_tx_bps: 5 },
+    ]),
+    180,
+  );
+});
+
+test("totalOnlineRate skips missing and dirty directions but keeps zero", () => {
+  // 只有一侧有数据：只加有数据的一侧。
+  assert.equal(
+    totalOnlineRate([{ online: true, net_rx_bps: null, net_tx_bps: 300 }]),
+    300,
+  );
+  // 两侧都没有数据才是 null（页面显示 —），不能把未知写成 0。
+  assert.equal(
+    totalOnlineRate([
+      { online: true, net_rx_bps: null, net_tx_bps: null },
+      { online: true },
+    ]),
+    null,
+  );
+  // 负数 / NaN / 无穷大是脏数据，不参与求和。
+  assert.equal(
+    totalOnlineRate([
+      { online: true, net_rx_bps: -1, net_tx_bps: Number.NaN },
+      { online: true, net_rx_bps: 10, net_tx_bps: 5 },
+    ]),
+    15,
+  );
+  // 真实测到的 0 是有效数据，显示 0 B/s，而不是 —。
+  assert.equal(
+    totalOnlineRate([{ online: true, net_rx_bps: 0, net_tx_bps: 0 }]),
+    0,
+  );
+  assert.equal(
+    totalOnlineRate([
+      { online: true, net_rx_bps: 0, net_tx_bps: 0 },
+      { online: true, net_rx_bps: 500, net_tx_bps: null },
+    ]),
+    500,
   );
 });
 
@@ -540,6 +762,17 @@ test("status page dynamic i18n keys exist in both locales", () => {
     "summary.averageUptime",
     "summary.uptime24hHint",
     "summary.today",
+    "hero.allOnline",
+    "hero.allOnlineLow",
+    "hero.partial",
+    "hero.partialLow",
+    "hero.allOffline",
+    "hero.allOfflineLow",
+    "hero.onlineRate",
+    "hero.averageUptime",
+    "hero.totalRate",
+    "hero.load",
+    "hero.aria",
     "availability.ok",
     "availability.warn",
     "availability.down",

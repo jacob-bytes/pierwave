@@ -1,0 +1,831 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>概念 A · 状态仪表盘 · PierWave 服务状态</title>
+<!--
+  概念 A：状态仪表盘 / Concept A — Status dashboard.
+
+  静态原型，无网络请求。数据是 README 里那份 8 台服务器的假数据；
+  `?state=offline|error|disabled` 切换无在线 / 加载失败 / 页面关闭三态，
+  `?theme=light` 切亮色（不传即暗色）。唯一真实可用的交互是主题切换。
+
+  颜色全部取自 web/src/index.css 的 token（深色 zinc + 单一 primary），
+  可用率三档复用产品里的 availabilityTone：>=99 primary、95–99 warning、
+  <95 destructive；第二信号是填充长度。90 天热力条是概念新增数据，
+  现有 API 只有 24h，见 README《数据缺口》。
+-->
+<style>
+@font-face {
+  font-family: "Geist Variable";
+  src: url("../../node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+  --background: oklch(0.145 0.004 285);
+  --foreground: oklch(0.965 0.003 285);
+  --card: oklch(0.175 0.005 285);
+  --popover: oklch(0.195 0.005 285);
+  --primary: oklch(0.662 0.179 264.6);
+  --primary-foreground: oklch(0.182 0.013 264.2);
+  --secondary: oklch(0.24 0.006 285);
+  --muted: oklch(0.225 0.005 285);
+  --muted-foreground: oklch(0.7 0.015 285);
+  --accent: oklch(0.245 0.006 285);
+  --destructive: oklch(0.62 0.2 25);
+  --warning: oklch(0.82 0.16 80);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.662 0.179 264.6);
+  --focus-ring: oklch(0.74 0.16 264.6);
+  --radius: 0.75rem;
+  --card-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045), 0 1px 2px rgb(0 0 0 / 0.35);
+  --card-ring: color-mix(in oklab, var(--foreground) 10%, transparent);
+}
+[data-theme="light"] {
+  color-scheme: light;
+  --background: oklch(0.979 0.003 264.5);
+  --foreground: oklch(0.253 0.03 267.4);
+  --card: oklch(1 0 0);
+  --popover: oklch(1 0 0);
+  --primary: oklch(0.424 0.199 265.638);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.967 0.006 264.5);
+  --muted: oklch(0.964 0.006 264.5);
+  --muted-foreground: oklch(0.52 0.035 265.1);
+  --accent: oklch(0.964 0.017 267.8);
+  --destructive: oklch(0.57 0.208 25.3);
+  --warning: oklch(0.53 0.146 49);
+  --border: oklch(0.94 0.009 264.5);
+  --input: oklch(0.94 0.009 264.5);
+  --ring: oklch(0.424 0.199 265.638);
+  --focus-ring: oklch(0.42 0.2 265.6);
+  --card-shadow: 0 1px 2px oklch(0.253 0.03 267.4 / 6%), 0 4px 12px oklch(0.253 0.03 267.4 / 4%);
+  --card-ring: color-mix(in oklab, var(--foreground) 10%, transparent);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  min-height: 100dvh;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; background: none; border: 0; }
+.tnum { font-variant-numeric: tabular-nums; }
+.micro { font-size: 11.5px; line-height: 1.35; letter-spacing: .01em; }
+.dim { color: var(--muted-foreground); }
+.icon { width: 16px; height: 16px; flex: none; display: block; }
+.icon-sm { width: 14px; height: 14px; }
+.icon-lg { width: 20px; height: 20px; }
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+.wrap { width: 100%; max-width: 1360px; margin: 0 auto; padding: 0 24px; }
+.page { display: flex; flex-direction: column; min-height: 100dvh; }
+
+/* ---------- 页头 / top bar ---------- */
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklab, var(--card) 80%, var(--background));
+}
+.topbar-in { display: flex; align-items: center; gap: 10px; height: 60px; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brand-logo {
+  width: 36px; height: 36px; border-radius: 10px; flex: none;
+  display: grid; place-items: center;
+  background: var(--primary); color: var(--primary-foreground);
+}
+.brand-text { display: flex; min-width: 0; flex-direction: column; justify-content: center; }
+.brand-name { font-size: 15px; font-weight: 600; letter-spacing: -.01em; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brand-tagline { font-size: 11.5px; line-height: 1.35; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.spacer { flex: 1; }
+.live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted-foreground); white-space: nowrap; }
+.live .dot { width: 6px; height: 6px; }
+.btn-ghost {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 32px; padding: 0 10px; border-radius: 8px;
+  font-size: 12px; color: var(--foreground); white-space: nowrap;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.btn-ghost:hover { background: var(--muted); }
+.btn-icon { width: 32px; padding: 0; }
+
+/* ---------- 状态点 / dots ---------- */
+.dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.dot.online { background: var(--primary); box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 25%, transparent); }
+.dot.offline { background: transparent; border: 1.5px solid color-mix(in oklab, var(--muted-foreground) 70%, transparent); }
+.dot.abnormal { background: var(--destructive); box-shadow: 0 0 0 2px color-mix(in oklab, var(--destructive) 25%, transparent); }
+.dot.warn { background: var(--warning); }
+
+/* ---------- 可用率：颜色 + 填充长度 ---------- */
+.av { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.av > b { font-weight: 500; font-size: 12px; font-variant-numeric: tabular-nums; }
+.av-ok > b { color: var(--foreground); }
+.av-warn > b { color: var(--warning); }
+.av-down > b { color: var(--destructive); }
+.av-unknown > b { color: var(--muted-foreground); }
+.mini {
+  display: block; width: 40px; height: 3px; flex: none; overflow: hidden;
+  border-radius: 999px; background: color-mix(in oklab, var(--muted-foreground) 20%, transparent);
+}
+.mini > i { display: block; height: 100%; border-radius: 999px; }
+.bar-ok { background: var(--primary); }
+.bar-warn { background: var(--warning); }
+.bar-down { background: var(--destructive); }
+.bar-unknown { background: color-mix(in oklab, var(--muted-foreground) 65%, transparent); }
+
+/* ---------- 汇总 hero ---------- */
+.hero {
+  margin-top: 16px; padding: 22px 24px 18px;
+  background: var(--card); border-radius: 12px;
+  box-shadow: var(--card-shadow); border: 1px solid var(--card-ring);
+}
+.hero-main { display: grid; grid-template-columns: minmax(280px, 1.05fr) minmax(0, 2fr); gap: 32px; align-items: center; }
+.verdict { display: flex; gap: 10px; min-width: 0; align-items: flex-start; }
+.verdict > .dot { margin-top: 9px; width: 9px; height: 9px; }
+.verdict h2 { font-size: 23px; line-height: 1.35; font-weight: 600; letter-spacing: -.015em; }
+.verdict p { margin-top: 5px; font-size: 12.5px; line-height: 1.6; color: var(--muted-foreground); }
+.verdict p .hot { color: var(--destructive); }
+.verdict .verdict-icon { color: var(--destructive); margin-top: 3px; }
+.kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.kpi { min-width: 0; padding: 2px 20px; border-left: 1px solid var(--border); }
+.kpi:first-child { border-left: 0; padding-left: 0; }
+.kpi-label { font-size: 11.5px; letter-spacing: .01em; color: var(--muted-foreground); white-space: nowrap; }
+.kpi-value { margin-top: 3px; font-size: 38px; line-height: 1.1; font-weight: 500; letter-spacing: -.025em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kpi-value .unit { margin-left: 3px; font-size: 14px; font-weight: 400; letter-spacing: 0; color: var(--muted-foreground); }
+.kpi-value.is-empty { color: var(--muted-foreground); }
+.kpi-foot { margin-top: 5px; font-size: 11.5px; line-height: 1.4; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi-foot .warn { color: var(--warning); }
+.kpi-foot .down { color: var(--destructive); }
+.hero-foot {
+  margin-top: 18px; padding-top: 13px; border-top: 1px solid var(--border);
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px;
+  font-size: 12px; color: var(--muted-foreground);
+}
+.hero-foot b { color: var(--foreground); font-weight: 500; }
+.hero-foot .sep { color: var(--border); }
+
+/* ---------- 控件 ---------- */
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 16px; padding: 0 2px; }
+.group-tabs { display: flex; align-items: center; gap: 14px; min-height: 32px; overflow-x: auto; scrollbar-width: none; }
+.group-tabs::-webkit-scrollbar { display: none; }
+.group-tab { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted-foreground); white-space: nowrap; transition: color 120ms ease-out; }
+.group-tab:hover { color: var(--foreground); }
+.group-tab[aria-pressed="true"] { color: var(--primary); }
+.count { min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--muted); color: var(--foreground); font-size: 10.5px; line-height: 17px; text-align: center; font-variant-numeric: tabular-nums; }
+.group-tab[aria-pressed="true"] .count { background: color-mix(in oklab, var(--primary) 15%, transparent); color: var(--primary); }
+.tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.seg {
+  display: inline-flex; align-items: center; gap: 2px; height: 32px; padding: 2px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--card);
+}
+.seg > button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 26px; padding: 0 8px; border-radius: 6px;
+  font-size: 12px; color: var(--muted-foreground); white-space: nowrap;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.seg > button:hover { color: var(--foreground); }
+.seg > button[aria-pressed="true"] { background: var(--accent); color: var(--primary); font-weight: 500; }
+.seg > button > .count { font-size: 10.5px; line-height: 16px; }
+.seg.view > button { width: 28px; padding: 0; }
+.search { position: relative; display: flex; align-items: center; height: 32px; }
+.search .icon { position: absolute; left: 9px; color: var(--muted-foreground); pointer-events: none; }
+.search input {
+  width: 196px; height: 32px; padding: 0 28px 0 29px;
+  border: 1px solid var(--input); border-radius: 8px; background: var(--card);
+  font-size: 12px; outline: none; transition: border-color 120ms ease-out, box-shadow 120ms ease-out;
+}
+.search input::placeholder { color: var(--muted-foreground); }
+.search input:focus { border-color: var(--ring); box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent); }
+.search .clear { position: absolute; right: 4px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; color: var(--muted-foreground); }
+
+.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin-top: 14px; padding: 0 2px; font-size: 11px; color: var(--muted-foreground); }
+.legend > span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.legend i { display: block; width: 14px; height: 6px; border-radius: 2px; }
+
+/* ---------- 分组与卡片 ---------- */
+.groups { margin-top: 18px; display: flex; flex-direction: column; gap: 22px; }
+.group-head { display: flex; align-items: baseline; gap: 8px; padding: 0 2px 10px; }
+.group-name { font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+.group-meta { font-size: 12px; color: var(--muted-foreground); }
+.group-av { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted-foreground); }
+.cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.card {
+  min-width: 0; padding: 16px; border-radius: 12px;
+  background: var(--card); border: 1px solid var(--card-ring); box-shadow: var(--card-shadow);
+}
+.srv { display: flex; flex-direction: column; }
+.srv.is-offline { background: color-mix(in oklab, var(--muted) 40%, var(--card)); }
+.heat-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 10.5px; line-height: 1.3; letter-spacing: .01em; color: var(--muted-foreground); }
+.heat { margin-top: 6px; display: grid; grid-template-columns: repeat(90, minmax(0, 1fr)); gap: 1px; height: 7px; }
+.heat > i { display: block; height: 100%; border-radius: 1px; min-width: 0; }
+.h-ok { background: var(--primary); opacity: .95; }
+.h-warn { background: var(--warning); }
+.h-down { background: var(--destructive); }
+.h-unknown { background: color-mix(in oklab, var(--muted-foreground) 55%, transparent); }
+.srv-head { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 12px; }
+.srv-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 500; line-height: 1.35; letter-spacing: -.005em; }
+.flag { flex: none; font-size: 14px; line-height: 1; }
+.pill {
+  margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 5px;
+  height: 22px; padding: 0 7px; border: 1px solid var(--border); border-radius: 999px;
+  background: var(--card); font-size: 10.5px; line-height: 1; color: var(--foreground); white-space: nowrap;
+}
+.pill .muted { color: var(--muted-foreground); }
+.pill.offline { color: var(--muted-foreground); }
+.srv-sub1 { margin-top: 4px; font-size: 11.5px; line-height: 1.4; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srv-sub2 { margin-top: 1px; display: flex; align-items: baseline; gap: 6px; font-size: 11.5px; line-height: 1.4; color: var(--muted-foreground); min-width: 0; }
+.srv-sub2 .spec { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srv-sub2 .lat { flex: none; font-variant-numeric: tabular-nums; }
+
+.meters { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; row-gap: 12px; }
+.meter { min-width: 0; }
+.meter-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.meter-label { font-size: 11px; line-height: 1.35; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meter-value { flex: none; font-size: 11.5px; line-height: 1.35; font-weight: 500; font-variant-numeric: tabular-nums; }
+.meter-value.muted { color: var(--muted-foreground); font-weight: 400; }
+.meter-value.ok { color: var(--foreground); }
+.meter-value.warn { color: var(--warning); }
+.meter-value.down { color: var(--destructive); }
+.meter-bar { margin-top: 6px; height: 3px; border-radius: 999px; overflow: hidden; background: color-mix(in oklab, var(--muted-foreground) 20%, transparent); }
+.meter-bar > i { display: block; height: 100%; border-radius: 999px; }
+.meter-foot { margin-top: 5px; font-size: 10.5px; line-height: 1.35; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.meter-spacer { height: 3px; margin-top: 6px; }
+
+.net { margin-top: 13px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 3px; }
+.net-line { display: flex; align-items: baseline; gap: 6px; min-width: 0; font-size: 11.5px; line-height: 1.4; }
+.net-line .icon { width: 12px; height: 12px; align-self: center; color: var(--muted-foreground); }
+.net-rate { color: var(--foreground); font-variant-numeric: tabular-nums; }
+.net-rate.muted { color: var(--muted-foreground); }
+.net-total { margin-left: auto; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+
+.srv-bottom { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.strip { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 2px; height: 6px; }
+.strip > i { display: block; height: 100%; border-radius: 2px; }
+.strip-foot { margin-top: 7px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.strip-foot .label { font-size: 10.5px; color: var(--muted-foreground); white-space: nowrap; }
+
+/* ---------- 页脚 / footer ---------- */
+.foot { margin-top: 28px; border-top: 1px solid var(--border); padding: 14px 2px 22px; display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; font-size: 11px; color: var(--muted-foreground); }
+.foot .right { margin-left: auto; display: flex; gap: 14px; flex-wrap: wrap; }
+.foot a { color: var(--muted-foreground); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+.foot a:hover { color: var(--foreground); }
+
+/* ---------- 空 / 错误 / 关闭 ---------- */
+.state-wrap { flex: 1; display: grid; place-items: center; padding: 56px 0 64px; }
+.panel {
+  width: 100%; max-width: 480px; padding: 40px 32px; text-align: center;
+  background: var(--card); border: 1px solid var(--card-ring); border-radius: 12px; box-shadow: var(--card-shadow);
+}
+.panel-icon { width: 44px; height: 44px; margin: 0 auto; border-radius: 12px; display: grid; place-items: center; background: var(--muted); color: var(--muted-foreground); }
+.panel-icon.bad { color: var(--destructive); background: color-mix(in oklab, var(--destructive) 10%, transparent); }
+.panel h2 { margin-top: 14px; font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+.panel p { margin-top: 6px; font-size: 12.5px; line-height: 1.6; color: var(--muted-foreground); }
+.panel .actions { margin-top: 18px; display: flex; justify-content: center; gap: 8px; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 32px; padding: 0 12px; border-radius: 8px; font-size: 12px;
+  background: var(--primary); color: var(--primary-foreground); font-weight: 500;
+  transition: opacity 120ms ease-out, transform 100ms ease-out;
+}
+.btn:hover { opacity: .9; }
+.btn:active { transform: scale(.98); }
+.btn-outline { background: transparent; color: var(--foreground); border: 1px solid var(--border); font-weight: 400; }
+.btn-outline:hover { background: var(--muted); opacity: 1; }
+.panel .hint { margin-top: 12px; font-size: 11px; color: var(--muted-foreground); }
+.offline-banner {
+  margin-top: 16px; display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px 14px; border-radius: 10px;
+  border: 1px solid color-mix(in oklab, var(--destructive) 35%, transparent);
+  background: color-mix(in oklab, var(--destructive) 8%, var(--card));
+  font-size: 12.5px; line-height: 1.6;
+}
+.offline-banner .icon { color: var(--destructive); margin-top: 2px; }
+.offline-banner b { font-weight: 500; }
+.offline-banner span { color: var(--muted-foreground); }
+
+[data-theme="light"] .theme-btn .icon-sun { display: block; }
+[data-theme="light"] .theme-btn .icon-moon { display: none; }
+.theme-btn .icon-sun { display: none; }
+
+@media (max-width: 1200px) {
+  .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hero-main { grid-template-columns: minmax(240px, .9fr) minmax(0, 2fr); gap: 24px; }
+  .kpi { padding: 2px 14px; }
+  .kpi-value { font-size: 32px; }
+}
+@media (max-width: 900px) {
+  .brand-tagline { display: none; }
+  .hero-main { grid-template-columns: 1fr; gap: 20px; }
+  .kpi:first-child { padding-left: 0; }
+  .kpi { padding-left: 14px; }
+  .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  .wrap { padding: 0 16px; }
+  .live-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .hero { padding: 18px 16px 14px; margin-top: 12px; }
+  .verdict h2 { font-size: 19px; }
+  .verdict p { font-size: 12px; }
+  .kpi { padding: 2px 10px; }
+  .kpi:first-child { padding-left: 0; }
+  .kpi-label { font-size: 10.5px; }
+  .kpi-value { font-size: 26px; }
+  .kpi-value .unit { font-size: 11px; }
+  .kpi-foot { font-size: 10px; white-space: nowrap; }
+  .kpi-foot .unit-suffix { display: none; }
+  .controls { gap: 10px; margin-top: 14px; }
+  .group-tabs { width: 100%; gap: 12px; padding-bottom: 2px; }
+  .tools { width: 100%; margin-left: 0; flex-wrap: wrap; gap: 8px; }
+  .search { order: -1; width: 100%; }
+  .search input { width: 100%; }
+  .seg.status { flex: 1; min-width: 0; overflow-x: auto; }
+  .seg.view { flex: none; }
+  .cards { grid-template-columns: 1fr; }
+  .group-head { flex-wrap: wrap; }
+  .group-av { margin-left: auto; }
+  .foot { padding-bottom: 18px; }
+  .panel { padding: 32px 20px; }
+}
+@media (max-width: 380px) {
+  .brand-name { font-size: 14px; }
+  .kpi-value { font-size: 23px; }
+}
+</style>
+</head>
+<body>
+<svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-activity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h.01"/><path d="M3 12h.01"/><path d="M3 19h.01"/><path d="M8 5h13"/><path d="M8 12h13"/><path d="M8 19h13"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></symbol>
+  <symbol id="i-server-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2h13a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-5"/><path d="M10 10 2.5 2.5C2 2 2 2.5 2 5v3a2 2 0 0 0 2 2h6z"/><path d="M22 17v-1a2 2 0 0 0-2-2h-1"/><path d="M4 14a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h16.5l1-.5.5.5-8-8H4z"/><path d="M6 18h.01"/><path d="m2 2 20 20"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+</svg>
+
+<div id="app"></div>
+
+<script>
+"use strict";
+
+/* ------------------------------------------------------------------
+   假数据：8 台服务器、3 个分组。和 b.html / c.html 是同一份 fixture。
+   所有字段都来自 GET /api/v1/public/status（见 web/src/lib/api.ts）。
+   heat90 是概念新增数据（现有 API 只有 buckets_24h），见 README。
+------------------------------------------------------------------- */
+const FIXTURES = [
+  {
+    id: "hk", name: "香港-亚太边缘入口", country: "HK", flag: "🇭🇰", countryName: "中国香港", group: "亚太",
+    online: true, xray: true, uptime: "14 天 3 小时", lastSeen: null,
+    os: "Debian GNU/Linux 12", virt: "kvm", arch: "x86_64", latency: 18,
+    load: 0.82, mem: [3.2, 8], disk: [42.6, 80],
+    uptime24h: 1, uptime7d: 1,
+    rx: "17.5 MB/s", tx: "2.19 MB/s", rxSum: 17.5, txSum: 2.19,
+    rxTotal: "1.24 TB", txTotal: "186 GB",
+    buckets: Array.from({ length: 24 }, () => 1),
+    heat: Array.from({ length: 90 }, () => 1),
+  },
+  {
+    id: "jp", name: "东京-中转备用入口", country: "JP", flag: "🇯🇵", countryName: "日本", group: "亚太",
+    online: true, xray: true, uptime: "15 天 8 小时", lastSeen: null,
+    os: "Debian GNU/Linux 12", virt: "kvm", arch: "x86_64", latency: 29,
+    load: 1.36, mem: [3.2, 8], disk: [42.6, 80],
+    uptime24h: 1, uptime7d: 0.99,
+    rx: "9.35 MB/s", tx: "1.05 MB/s", rxSum: 9.35, txSum: 1.05,
+    rxTotal: "684 GB", txTotal: "92 GB",
+    buckets: Array.from({ length: 24 }, () => 1),
+    heat: Array.from({ length: 90 }, (_, i) => (i === 12 || i === 13 ? 0.97 : 1)),
+  },
+  {
+    id: "sg", name: "新加坡-专线-长名称节点-新加坡", country: "SG", flag: "🇸🇬", countryName: "新加坡", group: "亚太",
+    online: true, xray: true, uptime: "16 天 2 小时", lastSeen: null,
+    os: "Debian GNU/Linux 12", virt: "kvm", arch: "x86_64", latency: 40,
+    load: 2.71, mem: [3.2, 8], disk: [42.6, 80],
+    uptime24h: 0.98, uptime7d: 0.96,
+    rx: "5.91 MB/s", tx: "957 KB/s", rxSum: 5.91, txSum: 0.957,
+    rxTotal: "412 GB", txTotal: "74 GB",
+    buckets: Array.from({ length: 24 }, (_, i) => (i === 9 || i === 10 ? 0.75 : 1)),
+    heat: Array.from({ length: 90 }, (_, i) => (i >= 30 && i < 36 ? 0.96 : 1)),
+  },
+  {
+    id: "kr", name: "首尔-亚太-新节点", country: "KR", flag: "🇰🇷", countryName: "韩国", group: "亚太",
+    online: false, xray: null, uptime: null, lastSeen: "3 小时前",
+    os: "Ubuntu 24.04", virt: "kvm", arch: "aarch64", latency: null,
+    load: null, mem: [1.1, 4], disk: [12.4, 40],
+    uptime24h: 0.88, uptime7d: 0.96,
+    rx: null, tx: null, rxSum: 0, txSum: 0,
+    rxTotal: "186 GB", txTotal: "21 GB",
+    buckets: Array.from({ length: 24 }, (_, i) => (i >= 21 ? 0 : 1)),
+    heat: Array.from({ length: 90 }, (_, i) => (i >= 89 ? 0.55 : i >= 60 ? 0.97 : 1)),
+  },
+  {
+    id: "us", name: "洛杉矶-美洲-测试节点", country: "US", flag: "🇺🇸", countryName: "美国", group: "美洲",
+    online: true, xray: true, uptime: "17 天 6 小时", lastSeen: null,
+    os: "Debian GNU/Linux 12", virt: "kvm", arch: "x86_64", latency: 51,
+    load: 5.92, mem: [6.4, 16], disk: [42.6, 80],
+    uptime24h: 0.92, uptime7d: 0.92,
+    rx: "3.24 MB/s", tx: "400 KB/s", rxSum: 3.24, txSum: 0.4,
+    rxTotal: "96 GB", txTotal: "12 GB",
+    buckets: Array.from({ length: 24 }, (_, i) => (i >= 13 && i <= 14 ? 0.6 : i === 15 ? 0.8 : 1)),
+    heat: Array.from({ length: 90 }, (_, i) => (i >= 78 ? 0.92 : i >= 40 ? 0.97 : 1)),
+  },
+  {
+    id: "sj", name: "圣何塞-美洲-备用入口", country: "US", flag: "🇺🇸", countryName: "美国", group: "美洲",
+    online: true, xray: true, uptime: "9 天 4 小时", lastSeen: null,
+    os: "Ubuntu 24.04", virt: "kvm", arch: "x86_64", latency: 62,
+    load: 0.44, mem: [3.2, 8], disk: [42.6, 80],
+    uptime24h: 1, uptime7d: 1,
+    rx: "812 KB/s", tx: "96 KB/s", rxSum: 0.812, txSum: 0.096,
+    rxTotal: "48 GB", txTotal: "6.2 GB",
+    buckets: Array.from({ length: 24 }, () => 1),
+    heat: Array.from({ length: 90 }, () => 1),
+  },
+  {
+    id: "de", name: "法兰克福-欧洲-备用节点", country: "DE", flag: "🇩🇪", countryName: "德国", group: "欧洲",
+    online: true, xray: true, uptime: "18 天 1 小时", lastSeen: null,
+    os: "Debian GNU/Linux 12", virt: "kvm", arch: "x86_64", latency: 62,
+    load: 4.12, mem: [5.1, 16], disk: [76, 160],
+    uptime24h: 1, uptime7d: 1,
+    rx: "1.81 MB/s", tx: "254 KB/s", rxSum: 1.81, txSum: 0.254,
+    rxTotal: "212 GB", txTotal: "38 GB",
+    buckets: Array.from({ length: 24 }, () => 1),
+    heat: Array.from({ length: 90 }, (_, i) => (i === 23 || i === 24 ? null : 1)),
+  },
+  {
+    id: "nl", name: "阿姆斯特丹-欧洲-入口", country: "NL", flag: "🇳🇱", countryName: "荷兰", group: "欧洲",
+    online: true, xray: true, uptime: "12 天 9 小时", lastSeen: null,
+    os: "Debian GNU/Linux 12", virt: "kvm", arch: "x86_64", latency: 58,
+    load: 0.67, mem: [2.6, 8], disk: [38, 80],
+    uptime24h: 1, uptime7d: 1,
+    rx: "2.42 MB/s", tx: "310 KB/s", rxSum: 2.42, txSum: 0.31,
+    rxTotal: "132 GB", txTotal: "19 GB",
+    buckets: Array.from({ length: 24 }, () => 1),
+    heat: Array.from({ length: 90 }, (_, i) => (i === 55 ? 0.96 : 1)),
+  },
+];
+
+const GROUPS = ["亚太", "美洲", "欧洲"];
+const PANEL = { name: "PierWave · 亚太边缘", tagline: "现在有一把钥匙，就在你面前" };
+const NOW_TEXT = "19:46:24";
+const SUMMARY = { trafficMonth: "2.92 TB", trafficToday: "472 GB" };
+
+/* ---------- 参数：主题 / 状态 ---------- */
+const params = new URLSearchParams(location.search);
+const STATE = params.get("state") || "normal";
+if (params.get("theme") === "light") document.documentElement.dataset.theme = "light";
+
+/* ---------- 纯函数（与 web/src/lib/publicStatus.ts 对齐） ---------- */
+const pct = (r) => (r === null || r === undefined || !Number.isFinite(r) ? "—" : Math.round(Math.min(1, Math.max(0, r)) * 100) + "%");
+const fill = (r) => (r === null || r === undefined || !Number.isFinite(r) ? 0 : Math.round(Math.min(1, Math.max(0, r)) * 100));
+const tone = (r) => (r === null || r === undefined || !Number.isFinite(r) ? "unknown" : r >= 0.99 ? "ok" : r >= 0.95 ? "warn" : "down");
+const st = (s) => (!s.online ? "offline" : s.xray === false ? "abnormal" : "online");
+const statusText = (k) => (k === "online" ? "在线" : k === "offline" ? "离线" : "异常");
+const heatClass = (v) => (v === null ? "h-unknown" : v >= 0.99 ? "h-ok" : v >= 0.95 ? "h-warn" : "h-down");
+const stripClass = (v) => (v === null ? "bar-unknown" : v >= 0.99 ? "bar-ok" : v >= 0.95 ? "bar-warn" : "bar-down");
+const fmtPctFrac = (r) => (r === null ? "—" : (() => { const p = Math.round(r * 100); return p < 100 ? p + "%" : "100%"; })());
+const specLine = (s) => [s.os, s.virt, s.arch].filter(Boolean).join(" · ");
+const avg = (list) => {
+  const nums = list.map((s) => s.uptime24h).filter((v) => typeof v === "number" && Number.isFinite(v));
+  return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
+};
+const sum = (list, key) => list.reduce((acc, s) => acc + (s.online && typeof s[key] === "number" ? s[key] : 0), 0);
+
+/* ---------- 状态派生的假数据 ---------- */
+function serversForState() {
+  if (STATE === "offline") {
+    return FIXTURES.map((s) => ({
+      ...s,
+      online: false,
+      xray: null,
+      uptime: null,
+      lastSeen: "3 小时前",
+      latency: null,
+      load: null,
+      rx: null,
+      tx: null,
+      rxSum: 0,
+      txSum: 0,
+      buckets: s.buckets.map((v, i) => (i >= 21 ? 0 : v)),
+    }));
+  }
+  return FIXTURES;
+}
+
+/* ---------- 小组件 ---------- */
+const icon = (name, cls = "") => `<svg class="icon ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+
+function dot(state) {
+  return `<span class="dot ${state}" aria-hidden="true"></span>`;
+}
+
+function availability(ratio, { label = "" } = {}) {
+  const t = tone(ratio);
+  return `<span class="av av-${t}"${label ? ` aria-label="${label}"` : ""}><b>${pct(ratio)}</b><span class="mini" aria-hidden="true"><i class="bar-${t}" style="width:${fill(ratio)}%;${fill(ratio) > 0 ? "min-width:2px" : ""}"></i></span></span>`;
+}
+
+function pill(s) {
+  const state = st(s);
+  return `<span class="pill ${state}"${state === "abnormal" ? ' title="Agent 在线，但 Xray 未运行"' : ""}>${dot(state)}${statusText(state)}</span>`;
+}
+
+function meter({ label, value, ratio, t, foot, muted, noBar }) {
+  const toneClass = t ? ` ${t}` : " ok";
+  const barClass = t ? `bar-${t}` : "bar-ok";
+  return `<div class="meter">
+    <div class="meter-top"><span class="meter-label">${label}</span><span class="meter-value${muted ? " muted" : toneClass}">${value}</span></div>
+    ${noBar
+      ? '<div class="meter-spacer" aria-hidden="true"></div>'
+      : `<div class="meter-bar" role="progressbar" aria-label="${label}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${ratio === null ? 0 : ratio}" aria-valuetext="${value}"><i class="${barClass}" style="width:${ratio === null ? 0 : ratio}%;${ratio > 0 ? "min-width:2px" : ""}"></i></div>`}
+    <div class="meter-foot">${foot}</div>
+  </div>`;
+}
+
+function heatStrip(heat) {
+  return `<div class="heat" role="img" aria-label="90 天可用率热力条">${heat
+    .map((v, i) => `<i class="${heatClass(v)}" title="${90 - i} 天前 · ${v === null ? "无数据" : pct(v)}"></i>`)
+    .join("")}</div>`;
+}
+
+function hourStrip(buckets) {
+  return `<div class="strip" role="img" aria-label="近 24 小时可用率，每格 1 小时">${buckets
+    .map((v, i) => `<i class="${stripClass(v)}" title="${24 - i} 小时前 · ${v === null ? "无数据" : pct(v)}"></i>`)
+    .join("")}</div>`;
+}
+
+function card(s) {
+  const state = st(s);
+  const online = state !== "offline";
+  const memPct = s.mem[1] > 0 ? Math.round((s.mem[0] / s.mem[1]) * 100) : null;
+  const diskPct = s.disk[1] > 0 ? Math.round((s.disk[0] / s.disk[1]) * 100) : null;
+
+  const sub1 = online
+    ? `${s.countryName} · ${s.group} · 已在线 ${s.uptime}`
+    : `${s.countryName} · ${s.group} · 最后心跳 ${s.lastSeen}`;
+
+  const latency = online && s.latency !== null ? `<span class="lat">延迟 ${s.latency} ms</span>` : "";
+
+  return `<article class="card srv ${online ? "" : "is-offline"}">
+    <div class="heat-label"><span>90 天可用率</span><span>每格 1 天</span></div>
+    ${heatStrip(s.heat)}
+
+    <div class="srv-head">
+      <h4 class="srv-name" title="${s.name}">${s.name}</h4>
+      <span class="flag" role="img" aria-label="${s.countryName}">${s.flag}</span>
+      ${pill(s)}
+    </div>
+    <p class="srv-sub1" title="${sub1}">${sub1}</p>
+    <p class="srv-sub2" title="${specLine(s)}${latency ? " · " + s.latency + " ms" : ""}">
+      <span class="spec">${specLine(s)}</span>${latency}
+    </p>
+
+    <div class="meters">
+      ${meter({ label: "24h 可用率", value: pct(s.uptime24h), ratio: fill(s.uptime24h), t: tone(s.uptime24h), foot: online ? "近 24 小时" : "近 24 小时" })}
+      ${meter({ label: "负载", value: s.load === null ? "—" : s.load.toFixed(2), ratio: null, foot: s.load === null ? "未上报" : "1 分钟平均", muted: s.load === null, noBar: true })}
+      ${meter({ label: "内存", value: memPct === null ? "—" : memPct + "%", ratio: memPct, foot: memPct === null ? "未上报" : s.mem[0] + " GB / " + s.mem[1] + " GB", muted: memPct === null })}
+      ${meter({ label: "硬盘", value: diskPct === null ? "—" : diskPct + "%", ratio: diskPct, foot: diskPct === null ? "未上报" : s.disk[0] + " GB / " + s.disk[1] + " GB", muted: diskPct === null })}
+    </div>
+
+    <div class="net">
+      <div class="net-line" title="最近两次心跳的累计字节差 / 时间差；只做展示，不参与计费">
+        ${icon("down")}<span class="net-rate${s.rx ? "" : " muted"}">${s.rx ?? "—"}</span>
+        <span class="net-total" title="Agent 自开机以来的非 lo 网卡累计字节，重启后归零；不是计费流量">${s.rxTotal}</span>
+      </div>
+      <div class="net-line" title="最近两次心跳的累计字节差 / 时间差；只做展示，不参与计费">
+        ${icon("up")}<span class="net-rate${s.tx ? "" : " muted"}">${s.tx ?? "—"}</span>
+        <span class="net-total" title="Agent 自开机以来的非 lo 网卡累计字节，重启后归零；不是计费流量">${s.txTotal}</span>
+      </div>
+    </div>
+
+    <div class="srv-bottom">
+      ${hourStrip(s.buckets)}
+      <div class="strip-foot">
+        <span class="label">近 24 小时</span>
+        <span class="label">7 天可用率 ${availability(s.uptime7d)}</span>
+      </div>
+    </div>
+  </article>`;
+}
+
+/* ---------- 页头 ---------- */
+function header({ liveBad = false } = {}) {
+  return `<header class="topbar">
+    <div class="wrap topbar-in">
+      <div class="brand">
+        <span class="brand-logo">${icon("activity", "icon-lg")}</span>
+        <div class="brand-text">
+          <span class="brand-name">${PANEL.name}</span>
+          <span class="brand-tagline">${PANEL.tagline}</span>
+        </div>
+      </div>
+      <div class="spacer"></div>
+      <span class="live" title="${liveBad ? "连接中断，每 30 秒自动重试" : "每 30 秒自动刷新"}">
+        <span class="dot ${liveBad ? "warn" : "online"}"></span>
+        <span class="live-text">${liveBad ? "连接中断" : "更新于 " + NOW_TEXT}</span>
+      </span>
+      <button class="btn-ghost" type="button" aria-label="进入后台">
+        ${icon("right")}<span class="admin-label">进入后台</span>
+      </button>
+      <button class="btn-ghost btn-icon theme-btn" type="button" aria-label="切换主题" title="切换主题">
+        ${icon("sun", "icon-sun")}${icon("moon", "icon-moon")}
+      </button>
+    </div>
+  </header>`;
+}
+
+/* ---------- 主视图 ---------- */
+function summaryView(servers) {
+  const online = servers.filter((s) => s.online);
+  const offline = servers.length - online.length;
+  const avgUptime = avg(servers);
+  const busy = online.filter((s) => typeof s.load === "number").sort((a, b) => b.load - a.load)[0] || null;
+  const rxSum = sum(servers, "rxSum");
+  const txSum = sum(servers, "txSum");
+
+  const verdict = online.length === 0
+    ? `<div class="verdict"><span class="dot abnormal"></span><div><h2>当前没有在线节点</h2><p>所有服务器均处于离线状态 · 最近心跳 <span class="hot">3 小时前</span></p></div></div>`
+    : `<div class="verdict"><span class="dot online"></span><div><h2>${online.length} / ${servers.length} 台在线，服务可用</h2><p>${offline > 0 ? `<span class="hot">首尔离线 3 小时</span> · ` : ""}洛杉矶近 24 小时可用率 92%</p></div></div>`;
+
+  return `<section class="hero" aria-label="总体状态">
+    <div class="hero-main">
+      ${verdict}
+      <div class="kpis">
+        <div class="kpi">
+          <div class="kpi-label">在线率</div>
+          <div class="kpi-value">${Math.round((online.length / servers.length) * 100)}<span class="unit">%</span></div>
+          <div class="kpi-foot">${online.length} / ${servers.length} 台${offline > 0 ? ` · <span class="down">${offline} 台离线</span>` : " · 全部在线"}</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">平均可用率</div>
+          <div class="kpi-value${avgUptime === null ? " is-empty" : ""}">${avgUptime === null ? "—" : Math.round(avgUptime * 100)}<span class="unit">%</span></div>
+          <div class="kpi-foot">近 24 小时${avgUptime === null ? " · 暂无采样" : ""}</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">总速率</div>
+          <div class="kpi-value${rxSum > 0 ? "" : " is-empty"}">${rxSum > 0 ? rxSum.toFixed(1) : "—"}${rxSum > 0 ? '<span class="unit">MB/s</span>' : ""}</div>
+          <div class="kpi-foot">${rxSum > 0 ? `↓ ${rxSum.toFixed(1)} · ↑ ${txSum.toFixed(2)}<span class="unit-suffix"> MB/s</span>` : "无在线服务器速率"}</div>
+        </div>
+      </div>
+    </div>
+    <div class="hero-foot">
+      <span>最忙服务器 <b>${busy ? busy.name : "—"}</b>${busy ? ` · 负载 ${busy.load.toFixed(2)}` : ""}${busy ? "" : " · 无在线服务器"}</span>
+      <span class="sep" aria-hidden="true">·</span>
+      <span>累计流量 <b>${SUMMARY.trafficMonth}</b> · 今日 ${SUMMARY.trafficToday}</span>
+    </div>
+  </section>`;
+}
+
+function controlsView(servers) {
+  const counts = {
+    all: servers.length,
+    online: servers.filter((s) => st(s) === "online").length,
+    offline: servers.filter((s) => st(s) === "offline").length,
+    abnormal: servers.filter((s) => st(s) === "abnormal").length,
+  };
+  const groupTabs = GROUPS.map((g) => {
+    const inGroup = servers.filter((s) => s.group === g);
+    return `<button class="group-tab" type="button" aria-pressed="false">${g}<span class="count">${inGroup.length}</span></button>`;
+  }).join("");
+
+  return `<div class="controls">
+    <div class="group-tabs" role="group" aria-label="服务器分组">
+      <button class="group-tab" type="button" aria-pressed="true">全部服务器<span class="count">${servers.length}</span></button>
+      ${groupTabs}
+    </div>
+    <div class="tools">
+      <div class="seg status" role="group" aria-label="筛选服务器">
+        <button type="button" aria-pressed="true">全部<span class="count">${counts.all}</span></button>
+        <button type="button" aria-pressed="false">在线<span class="count">${counts.online}</span></button>
+        <button type="button" aria-pressed="false">离线<span class="count">${counts.offline}</span></button>
+        <button type="button" aria-pressed="false">异常<span class="count">${counts.abnormal}</span></button>
+      </div>
+      <label class="search">
+        ${icon("search")}
+        <input type="search" placeholder="搜索服务器" aria-label="按名称搜索服务器">
+      </label>
+      <div class="seg view" role="group" aria-label="切换视图">
+        <button type="button" aria-pressed="true" aria-label="网格视图" title="网格视图">${icon("grid", "icon-sm")}</button>
+        <button type="button" aria-pressed="false" aria-label="列表视图" title="列表视图">${icon("list", "icon-sm")}</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function legendView() {
+  return `<div class="legend" aria-label="可用率图例">
+    <span><i class="bar-ok"></i>正常 ≥99%</span>
+    <span><i class="bar-warn"></i>可用性下降 95–99%</span>
+    <span><i class="bar-down"></i>可用性不足 &lt;95%</span>
+    <span><i class="bar-unknown"></i>无数据</span>
+  </div>`;
+}
+
+function groupsView(servers) {
+  return `<div class="groups">${GROUPS.map((g) => {
+    const inGroup = servers.filter((s) => s.group === g);
+    if (inGroup.length === 0) return "";
+    const online = inGroup.filter((s) => s.online).length;
+    const gAvg = avg(inGroup);
+    return `<section class="group" aria-label="${g}">
+      <div class="group-head">
+        <h3 class="group-name">${g}</h3>
+        <span class="group-meta">${inGroup.length} 台 · 在线 ${online}</span>
+        <span class="group-av">平均可用率 ${availability(gAvg)}</span>
+      </div>
+      <div class="cards">${inGroup.map(card).join("")}</div>
+    </section>`;
+  }).join("")}</div>`;
+}
+
+function offlineBanner() {
+  if (STATE !== "offline") return "";
+  return `<div class="offline-banner" role="status">
+    ${icon("alert")}
+    <div><b>当前没有在线节点</b><br><span>所有服务器均处于离线状态，最近一次心跳在 3 小时前。页面每 30 秒自动重试，恢复后会立即更新。</span></div>
+  </div>`;
+}
+
+function footView({ liveBad = false } = {}) {
+  return `<footer class="foot">
+    <span>${liveBad ? "每 30 秒自动重试" : "每 30 秒自动刷新"} · 无需登录</span>
+    <span class="right">${liveBad ? "" : `<span>更新于 ${NOW_TEXT}</span>`}<a href="#" onclick="return false">进入管理面板 ${icon("right", "icon-sm")}</a></span>
+  </footer>`;
+}
+
+function errorView() {
+  return `<main class="wrap state-wrap"><div class="panel" role="alert">
+    <div class="panel-icon bad">${icon("alert", "icon-lg")}</div>
+    <h2>无法加载状态</h2>
+    <p>连接中断，请检查网络后重试。页面每 30 秒会自动重试一次。</p>
+    <div class="actions">
+      <button class="btn" type="button">${icon("refresh", "icon-sm")}重试</button>
+    </div>
+    <div class="hint">上次成功更新：19:16:02</div>
+  </div></main>`;
+}
+
+function disabledView() {
+  return `<main class="wrap state-wrap"><div class="panel" role="status">
+    <div class="panel-icon">${icon("shield", "icon-lg")}</div>
+    <h2>状态页已关闭</h2>
+    <p>管理员已关闭公开状态页。登录后可在设置里重新开启。</p>
+    <div class="actions"><button class="btn btn-outline" type="button">进入后台 ${icon("right", "icon-sm")}</button></div>
+  </div></main>`;
+}
+
+function render() {
+  if (STATE === "error") {
+    document.getElementById("app").innerHTML = `<div class="page">${header({ liveBad: true })}${errorView()}${footView({ liveBad: true })}</div>`;
+    return;
+  }
+  if (STATE === "disabled") {
+    document.getElementById("app").innerHTML = `<div class="page">${header()}${disabledView()}${footView()}</div>`;
+    return;
+  }
+  const servers = serversForState();
+  document.getElementById("app").innerHTML = `<div class="page">
+    ${header()}
+    <main class="wrap">
+      ${summaryView(servers)}
+      ${controlsView(servers)}
+      ${legendView()}
+      ${offlineBanner()}
+      ${groupsView(servers)}
+      ${footView()}
+    </main>
+  </div>`;
+}
+
+render();
+
+document.querySelector(".theme-btn")?.addEventListener("click", () => {
+  const root = document.documentElement;
+  if (root.dataset.theme === "light") delete root.dataset.theme;
+  else root.dataset.theme = "light";
+});
+
+document.documentElement.dataset.ready = "1";
+</script>
+</body>
+</html>

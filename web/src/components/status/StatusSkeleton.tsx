@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
  * 而不是后台数据页那套「标题条 + 两张通栏卡片」。如果这里留在懒加载 chunk 内，
  * 加载阶段就只能回落到通用骨架，视觉上会先闪一屏后台页面。
  *
- * 形态与真实页面逐块对应：四块汇总、工具栏、服务器卡片，卡片内部指标
+ * 形态与真实页面逐块对应：总结区、工具栏、服务器卡片，卡片内部指标
  * 与实时速率格子同构，数据到位后不会整块跳变。
  */
 
@@ -91,7 +91,41 @@ function ServerCardSkeleton() {
 }
 
 /**
- * 首屏内容骨架：四个汇总块 + 工具栏 + 四张服务器卡片。
+ * 与 `Hero` 同构的骨架：一句结论 + 三个大数字 + 一条脚注。
+ * 旧的四个等宽汇总块已经不是真实形态，不能再按它铺占位，
+ * 否则数据到位后整块会从四列跳成一栏结论 + 三列数字。
+ */
+function HeroSkeleton() {
+  return (
+    <Card
+      aria-hidden="true"
+      className="min-w-0 gap-0 rounded-xl p-4 [--card-spacing:--spacing(4)] sm:p-5"
+    >
+      <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-center lg:justify-between lg:gap-8">
+        <div className="flex min-w-0 items-start gap-2.5 lg:flex-1">
+          <Skeleton className="mt-2 size-2 shrink-0 rounded-full" />
+          <SkeletonLine className="h-5 w-64 max-w-full" />
+        </div>
+        <div className="grid min-w-0 grid-cols-3 gap-3 border-t border-border pt-4 sm:gap-5 lg:w-[34rem] lg:shrink-0 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-8">
+          {Array.from({ length: 3 }, (_, index) => (
+            <div key={index} className="min-w-0">
+              <SkeletonLine className="h-3 w-12 max-w-full" />
+              <SkeletonLine className="mt-1.5 h-7 w-16 max-w-full" />
+              <Skeleton className="mt-2 h-1 w-full rounded-full" />
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-3">
+        <SkeletonLine className="h-3 w-40" />
+        <SkeletonLine className="h-3 w-24" />
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * 首屏内容骨架：总结区 + 工具栏 + 四张服务器卡片。
  *
  * 摘要块只占位高度；服务器卡片按真实卡片的结构铺骨架，
  * 手机上是一列、桌面最多四列，与真实网格一致。
@@ -99,19 +133,7 @@ function ServerCardSkeleton() {
 export function StatusSkeleton({ label }: { label: string }) {
   return (
     <div aria-busy="true" aria-label={label}>
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {Array.from({ length: 4 }, (_, index) => (
-          <Card
-            key={index}
-            aria-hidden="true"
-            className="h-[86px] gap-0 rounded-xl p-3 [--card-spacing:--spacing(3)]"
-          >
-            <SkeletonLine className="h-3 w-16" />
-            <SkeletonLine className="mt-2 h-5 w-20" />
-            <SkeletonLine className="mt-auto h-3 w-24" />
-          </Card>
-        ))}
-      </div>
+      <HeroSkeleton />
       <div className="mt-4 flex items-center gap-2 px-1">
         <Skeleton className="h-8 w-64 rounded-md" />
         <div className="flex-1" />

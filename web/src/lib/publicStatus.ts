@@ -301,6 +301,129 @@ export function averageUptime24h(
   return sampled === 0 ? null : total / sampled;
 }
 
+/**
+ * 顶部结论的四种形态。`lowAvailability` 是叠加在任一形态上的补充信息，
+ * 单独计数，不改变「有没有在线机器」这个主判断。
+ */
+export type StatusHeadlineKind =
+  | "empty"
+  | "all-offline"
+  | "all-online"
+  | "partial";
+
+export interface StatusHeadline {
+  kind: StatusHeadlineKind;
+  total: number;
+  online: number;
+  offline: number;
+  /** 24h 可用率有采样且低于 95% 的台数。 */
+  lowAvailability: number;
+}
+
+/**
+ * 公开页顶部的一句话结论。
+ *
+ * 优先级：没有服务器 → 全部离线 → 全部在线 → 部分离线。
+ * `online` 以心跳为准，和卡片一致：Agent 在线但 Xray 没跑仍算在线，
+ * 那是「异常」，不是「离线」。可用率只统计有采样的机器 —— 没数据
+ * 不等于 0%，也不该被算成「可用率偏低」。
+ */
+export function statusHeadline(
+  servers: readonly { online: boolean; uptime_24h: number | null }[],
+): StatusHeadline {
+  let online = 0;
+  let lowAvailability = 0;
+
+  for (const server of servers) {
+    if (server.online) online += 1;
+    const ratio = server.uptime_24h;
+    if (
+      ratio !== null &&
+      ratio !== undefined &&
+      Number.isFinite(ratio) &&
+      ratio < 0.95
+    ) {
+      lowAvailability += 1;
+    }
+  }
+
+  const total = servers.length;
+  const kind: StatusHeadlineKind =
+    total === 0
+      ? "empty"
+      : online === 0
+        ? "all-offline"
+        : online === total
+          ? "all-online"
+          : "partial";
+
+  return { kind, total, online, offline: total - online, lowAvailability };
+}
+
+/** 结论对应的 i18n 键与插值；组件不自己拼句子，标点留给翻译层。 */
+export interface HeadlineText {
+  key: string;
+  values?: Record<string, number>;
+}
+
+export function statusHeadlineKey(headline: StatusHeadline): HeadlineText {
+  const { kind, total, online, offline, lowAvailability: low } = headline;
+
+  if (kind === "empty") return { key: "publicStatus.summary.noServers" };
+
+  if (kind === "all-offline") {
+    return low > 0
+      ? { key: "publicStatus.hero.allOfflineLow", values: { low } }
+      : { key: "publicStatus.hero.allOffline" };
+  }
+
+  if (kind === "all-online") {
+    return low > 0
+      ? { key: "publicStatus.hero.allOnlineLow", values: { total, low } }
+      : { key: "publicStatus.hero.allOnline", values: { total } };
+  }
+
+  return low > 0
+    ? {
+        key: "publicStatus.hero.partialLow",
+        values: { total, online, offline, low },
+      }
+    : {
+        key: "publicStatus.hero.partial",
+        values: { total, online, offline },
+      };
+}
+
+/**
+ * 所有在线服务器的当前速率合计（`net_rx_bps + net_tx_bps`，字节/秒）。
+ *
+ * 离线机器保留的是掉线前最后一次读数，不能算进「当前」；某一方向缺数据时
+ * 只加另一方向。没有任何在线机器给出有效读数时返回 `null`，页面显示 `—`，
+ * 与 `0 B/s` 区分开：0 是「确实没有流量」，null 是「不知道」。
+ */
+export function totalOnlineRate(
+  servers: readonly {
+    online: boolean;
+    net_rx_bps?: number | null;
+    net_tx_bps?: number | null;
+  }[],
+): number | null {
+  let total = 0;
+  let sampled = false;
+
+  for (const server of servers) {
+    if (!server.online) continue;
+    for (const value of [server.net_rx_bps, server.net_tx_bps]) {
+      if (value === null || value === undefined) continue;
+      if (!Number.isFinite(value) || value < 0) continue;
+      total += value;
+      sampled = true;
+    }
+  }
+
+  return sampled ? total : null;
+}
+
 /** 状态标签与一台服务器是否匹配；`all` 永远匹配。 */
 export function matchesStatusFilter(
   server: StatusFields,

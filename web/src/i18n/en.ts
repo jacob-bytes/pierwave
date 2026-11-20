@@ -215,6 +215,20 @@ const en = {
       uptime24hHint: "Last 24 hours",
       noSamples: "No samples",
     },
+    hero: {
+      aria: "Service overview",
+      allOnline: "All {total} servers online, service normal",
+      allOnlineLow: "All {total} servers online, {low} with low availability",
+      partial: "{online} / {total} online, {offline} offline",
+      partialLow:
+        "{online} / {total} online, {offline} offline; {low} with low availability",
+      allOffline: "No servers online right now",
+      allOfflineLow: "No servers online right now; {low} with low availability",
+      onlineRate: "Online",
+      averageUptime: "Avg 24h uptime",
+      totalRate: "Total rate",
+      load: "Load {value}",
+    },
     toolbar: {
       filter: "Filter servers",
       searchPlaceholder: "Search servers",
