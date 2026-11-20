@@ -21,7 +21,10 @@ import {
   hasAnyBillingField,
   isCurrencyCode,
   isIsoDate,
+  isPaidUntilInRange,
   parsePriceYuan,
+  PAID_UNTIL_MAX,
+  PAID_UNTIL_MIN,
   PRICE_CENTS_MAX,
   sanitizeCurrencyInput,
   translateBillingErrors,
@@ -150,6 +153,20 @@ test("billingFormFromServer backfills valid fields and drops dirty ones", () => 
     cycle: "",
   });
 
+  // 年份越界的存量值也不进输入框（后端读路径同样按未填写处理）。
+  for (const date of ["1969-12-31", "2101-01-01"]) {
+    assert.equal(
+      billingFormFromServer({
+        paid_until: date,
+        price_cents: null,
+        currency: null,
+        billing_cycle: null,
+      }).paidUntil,
+      "",
+      date,
+    );
+  }
+
   // 0 元是有效值，不能被当成空。
   assert.equal(
     billingFormFromServer({ paid_until: null, price_cents: 0 }).price,
@@ -173,18 +190,8 @@ test("hasAnyBillingField ignores whitespace-only input", () => {
   }
 });
 
-test("validateBillingForm allows empty and partial values", () => {
+test("validateBillingForm allows empty and independent fields", () => {
   assert.deepEqual(validateBillingForm(EMPTY_BILLING_FORM), {});
-  assert.deepEqual(
-    validateBillingForm({
-      paidUntil: "",
-      price: "268",
-      currency: "",
-      cycle: "",
-    }),
-    {},
-    "只填价格合法",
-  );
   assert.deepEqual(
     validateBillingForm({
       paidUntil: "2026-12-31",
@@ -193,8 +200,114 @@ test("validateBillingForm allows empty and partial values", () => {
       cycle: "",
     }),
     {},
-    "只填到期合法",
+    "只填到期合法（与价格/币种独立）",
   );
+  assert.deepEqual(
+    validateBillingForm({
+      paidUntil: "",
+      price: "",
+      currency: "",
+      cycle: "yearly",
+    }),
+    {},
+    "只填周期合法",
+  );
+  assert.deepEqual(
+    validateBillingForm({
+      paidUntil: "",
+      price: "268",
+      currency: "CNY",
+      cycle: "",
+    }),
+    {},
+    "价格与币种成对合法",
+  );
+});
+
+test("validateBillingForm requires price and currency as a pair", () => {
+  // 只填价格：错误落在缺的币种上。
+  assert.deepEqual(
+    validateBillingForm({
+      paidUntil: "",
+      price: "268",
+      currency: "",
+      cycle: "",
+    }),
+    { currency: "servers.billing.errors.currencyPair" },
+  );
+  // 只填币种：错误落在缺的价格上。
+  assert.deepEqual(
+    validateBillingForm({
+      paidUntil: "",
+      price: "",
+      currency: "CNY",
+      cycle: "",
+    }),
+    { price_cents: "servers.billing.errors.pricePair" },
+  );
+  // 两边都空 / 两边都有：通过。
+  assert.deepEqual(
+    validateBillingForm({
+      paidUntil: "2026-12-31",
+      price: "",
+      currency: "",
+      cycle: "once",
+    }),
+    {},
+  );
+  // 价格本身非法时只报格式，不叠加「缺币种」，避免同一字段两条信息。
+  assert.deepEqual(
+    validateBillingForm({
+      paidUntil: "",
+      price: "abc",
+      currency: "",
+      cycle: "",
+    }),
+    { price_cents: "servers.billing.errors.price" },
+  );
+});
+
+test("isPaidUntilInRange enforces 1970-01-01..=2100-12-31", () => {
+  assert.equal(isPaidUntilInRange(PAID_UNTIL_MIN), true);
+  assert.equal(isPaidUntilInRange(PAID_UNTIL_MAX), true);
+  assert.equal(isPaidUntilInRange("2026-12-31"), true);
+  assert.equal(isPaidUntilInRange("1969-12-31"), false);
+  assert.equal(isPaidUntilInRange("2101-01-01"), false);
+  assert.equal(isPaidUntilInRange("0000-01-01"), false);
+  assert.equal(isPaidUntilInRange("9999-12-31"), false);
+  // 格式非法同样是「不合法」。
+  assert.equal(isPaidUntilInRange("2026-02-30"), false);
+  assert.equal(isPaidUntilInRange("2026-1-01"), false);
+  assert.equal(isPaidUntilInRange(""), false);
+  assert.equal(isPaidUntilInRange(null), false);
+});
+
+test("validateBillingForm rejects dates outside the allowed years", () => {
+  for (const date of ["1969-12-31", "2101-01-01", "9999-12-31"]) {
+    assert.deepEqual(
+      validateBillingForm({
+        paidUntil: date,
+        price: "",
+        currency: "",
+        cycle: "",
+      }),
+      { paid_until: "servers.billing.errors.paidUntil" },
+      date,
+    );
+  }
+  // 边界日期本身合法。
+  for (const date of [PAID_UNTIL_MIN, PAID_UNTIL_MAX]) {
+    assert.deepEqual(
+      validateBillingForm({
+        paidUntil: date,
+        price: "",
+        currency: "",
+        cycle: "",
+      }),
+      {},
+      date,
+    );
+  }
 });
 
 test("validateBillingForm points every bad field at its own message", () => {
@@ -258,9 +371,10 @@ test("billingPayload always sends four explicit values, empty = null", () => {
     },
   );
 
-  // 0 元是有效价格，必须提交 0 而不是 null。
+  // 0 元是有效价格，必须提交 0 而不是 null（需与币种成对）。
   assert.equal(
-    billingPayload({ ...EMPTY_BILLING_FORM, price: "0" }).price_cents,
+    billingPayload({ ...EMPTY_BILLING_FORM, price: "0", currency: "CNY" })
+      .price_cents,
     0,
   );
 
@@ -281,6 +395,71 @@ test("billingPayload always sends four explicit values, empty = null", () => {
   );
 });
 
+test("billingPayload never submits a half price/currency pair", () => {
+  // 只填价格 / 只填币种：整对清空（要么都清，要么都不清）。
+  assert.deepEqual(
+    billingPayload({
+      paidUntil: "",
+      price: "268",
+      currency: "",
+      cycle: "",
+    }),
+    {
+      paid_until: null,
+      price_cents: null,
+      currency: null,
+      billing_cycle: null,
+    },
+  );
+  assert.deepEqual(
+    billingPayload({
+      paidUntil: "",
+      price: "",
+      currency: "CNY",
+      cycle: "",
+    }),
+    {
+      paid_until: null,
+      price_cents: null,
+      currency: null,
+      billing_cycle: null,
+    },
+  );
+  // 成对时两个都保留。
+  assert.deepEqual(
+    billingPayload({
+      paidUntil: "",
+      price: "0",
+      currency: "eur",
+      cycle: "",
+    }),
+    {
+      paid_until: null,
+      price_cents: 0,
+      currency: "EUR",
+      billing_cycle: null,
+    },
+  );
+});
+
+test("billingPayload drops a date outside the allowed year range", () => {
+  assert.equal(
+    billingPayload({ ...EMPTY_BILLING_FORM, paidUntil: "1969-12-31" })
+      .paid_until,
+    null,
+  );
+  assert.equal(
+    billingPayload({ ...EMPTY_BILLING_FORM, paidUntil: "2101-01-01" })
+      .paid_until,
+    null,
+  );
+  assert.equal(
+    billingPayload({ ...EMPTY_BILLING_FORM, paidUntil: PAID_UNTIL_MAX })
+      .paid_until,
+    PAID_UNTIL_MAX,
+  );
+});
+
 test("billingFieldForError maps the four backend codes to form fields", () => {
   const cases = {
     "server.paid_until_invalid": "paid_until",
@@ -295,6 +474,31 @@ test("billingFieldForError maps the four backend codes to form fields", () => {
       code,
     );
   }
+
+  // 价格/币种成对：params.missing 指哪边缺，错误就落哪边。
+  assert.equal(
+    billingFieldForError(
+      new ApiError("bad", 400, "server.billing_pair_incomplete", {
+        missing: "currency",
+      }),
+    ),
+    "currency",
+  );
+  assert.equal(
+    billingFieldForError(
+      new ApiError("bad", 400, "server.billing_pair_incomplete", {
+        missing: "price_cents",
+      }),
+    ),
+    "price_cents",
+  );
+  // 缺参数时默认落到币种（价格已填的形状更常见）。
+  assert.equal(
+    billingFieldForError(
+      new ApiError("bad", 400, "server.billing_pair_incomplete"),
+    ),
+    "currency",
+  );
 
   // 旧后端只有 params.field：能对上就落字段。
   assert.equal(
@@ -369,7 +573,14 @@ test("billing i18n keys exist in both locales", () => {
       `en servers.billing.${key}`,
     );
   }
-  for (const key of ["paidUntil", "price", "currency", "cycle"]) {
+  for (const key of [
+    "paidUntil",
+    "price",
+    "currency",
+    "currencyPair",
+    "pricePair",
+    "cycle",
+  ]) {
     assert.equal(
       typeof zh.servers.billing.errors[key],
       "string",
@@ -383,12 +594,14 @@ test("billing i18n keys exist in both locales", () => {
   }
 });
 
-test("the four backend error codes are translated in both locales", () => {
+test("backend billing and request error codes are translated in both locales", () => {
   const codes = [
     "server.paid_until_invalid",
     "server.price_cents_invalid",
     "server.currency_invalid",
     "server.billing_cycle_invalid",
+    "server.billing_pair_incomplete",
+    "request.invalid_json",
   ];
   for (const code of codes) {
     assert.equal(typeof zh.errors[code], "string", `zh ${code}`);
@@ -411,9 +624,43 @@ test("the four backend error codes are translated in both locales", () => {
   });
 });
 
+test("request.invalid_json and the pair error have bilingual copy", () => {
+  assert.equal(zh.errors["request.invalid_json"], "请求格式不正确");
+  assert.equal(en.errors["request.invalid_json"], "Invalid request format");
+  assert.match(
+    zh.errors["server.billing_pair_incomplete"],
+    /价格与币种/,
+  );
+  assert.match(
+    en.errors["server.billing_pair_incomplete"],
+    /Price and currency/,
+  );
+
+  withLocale("zh-CN", () => {
+    assert.equal(
+      errorText(
+        new ApiError("invalid json", 400, "request.invalid_json", {
+          detail: "expected value at line 1",
+        }),
+        "fallback",
+      ),
+      "请求格式不正确",
+      "不应把 detail 展示给用户",
+    );
+  });
+  withLocale("en", () => {
+    assert.equal(
+      errorText(new ApiError("invalid json", 400, "request.invalid_json"), "fallback"),
+      "Invalid request format",
+    );
+  });
+});
+
 test("the shared billing form renders the four inputs and the public hint", () => {
   const source = read("../components/servers/BillingFields.tsx");
   assert.match(source, /type="date"/);
+  assert.match(source, /min=\{PAID_UNTIL_MIN\}/);
+  assert.match(source, /max=\{PAID_UNTIL_MAX\}/);
   assert.match(source, /inputMode="decimal"/);
   assert.match(source, /BILLING_CURRENCIES\.map/);
   assert.match(source, /CURRENCY_CUSTOM/);

@@ -60,6 +60,10 @@ export type BillingFieldErrors = Partial<Record<BillingField, string>>;
 /** 后端价格上界：999_999_999 分 = 9_999_999.99 元。 */
 export const PRICE_CENTS_MAX = 999_999_999;
 
+/** 到期日允许范围（含），与后端 `PAID_UNTIL_MIN/MAX` 一致。 */
+export const PAID_UNTIL_MIN = "1970-01-01";
+export const PAID_UNTIL_MAX = "2100-12-31";
+
 /** 币种下拉里「未填写」与「自定义」的哨兵值；不会提交给后端。 */
 export const CURRENCY_NONE = "none";
 export const CURRENCY_CUSTOM = "custom";
@@ -83,6 +87,20 @@ export function isIsoDate(value: string | null | undefined): boolean {
     date.getUTCMonth() === month - 1 &&
     date.getUTCDate() === day
   );
+}
+
+/**
+ * 到期日是否在允许范围内：格式合法且 `1970-01-01 <= value <= 2100-12-31`。
+ *
+ * 日期是零填充的 `YYYY-MM-DD`，字符串比较等价于按日期比较；范围与后端
+ * `PAID_UNTIL_MIN..=PAID_UNTIL_MAX` 一致，越界值在写路径会被 400 拒绝。
+ */
+export function isPaidUntilInRange(
+  value: string | null | undefined,
+): boolean {
+  if (!isIsoDate(value)) return false;
+  const date = (value as string).trim();
+  return date >= PAID_UNTIL_MIN && date <= PAID_UNTIL_MAX;
 }
 
 /** 恰好 3 位 ASCII 大写字母；与后端 `is_currency` 同一规则。 */
@@ -151,7 +169,7 @@ export function billingFormFromServer(
   const cycle = server.billing_cycle;
   return {
     paidUntil:
-      typeof paidUntil === "string" && isIsoDate(paidUntil)
+      typeof paidUntil === "string" && isPaidUntilInRange(paidUntil)
         ? paidUntil.trim()
         : "",
     price: formatPriceYuan(server.price_cents),
@@ -190,17 +208,19 @@ export function validateBillingForm(
   const errors: BillingFieldErrors = {};
 
   const paidUntil = form.paidUntil.trim();
-  if (paidUntil !== "" && !isIsoDate(paidUntil)) {
+  if (paidUntil !== "" && !isPaidUntilInRange(paidUntil)) {
     errors.paid_until = "servers.billing.errors.paidUntil";
   }
 
   const price = parsePriceYuan(form.price);
+  const priceFilled = form.price.trim() !== "";
   if (!price.ok) {
     errors.price_cents = "servers.billing.errors.price";
   }
 
   const currency = form.currency.trim();
-  if (currency !== "" && !isCurrencyCode(currency)) {
+  const currencyFilled = currency !== "";
+  if (currencyFilled && !isCurrencyCode(currency)) {
     errors.currency = "servers.billing.errors.currency";
   }
 
@@ -210,6 +230,15 @@ export function validateBillingForm(
     !(BILLING_CYCLES as readonly string[]).includes(cycle)
   ) {
     errors.billing_cycle = "servers.billing.errors.cycle";
+  }
+
+  // 价格与币种必须成对（后端 `server.billing_pair_incomplete`）：缺哪一侧，
+  // 错误就落在哪一侧。只在已填的那一侧本身合法时提示，避免同一个字段
+  // 同时报「格式不对」和「缺另一半」两条互相干扰的信息。
+  if (priceFilled && !currencyFilled && price.ok) {
+    errors.currency = "servers.billing.errors.currencyPair";
+  } else if (!priceFilled && currencyFilled && isCurrencyCode(currency)) {
+    errors.price_cents = "servers.billing.errors.pricePair";
   }
 
   return errors;
@@ -249,10 +278,19 @@ export function billingPayload(form: ServerBillingForm): BillingPayload {
   const currency = form.currency.trim().toUpperCase();
   const cycle = form.cycle.trim();
 
+  let priceCents = price.ok ? price.cents : null;
+  let currencyCode = isCurrencyCode(currency) ? currency : null;
+  // 后端要求价格与币种成对：只落单一个就整对清空（「要么都清，要么都不清」），
+  // 绝不提交半对字段换来 400。正常情况下 validateBillingForm 已经拦住。
+  if ((priceCents === null) !== (currencyCode === null)) {
+    priceCents = null;
+    currencyCode = null;
+  }
+
   return {
-    paid_until: isIsoDate(paidUntil) ? paidUntil : null,
-    price_cents: price.ok ? price.cents : null,
-    currency: isCurrencyCode(currency) ? currency : null,
+    paid_until: isPaidUntilInRange(paidUntil) ? paidUntil : null,
+    price_cents: priceCents,
+    currency: currencyCode,
     billing_cycle: (BILLING_CYCLES as readonly string[]).includes(cycle)
       ? (cycle as BillingCycle)
       : null,
@@ -272,6 +310,13 @@ export function billingFieldForError(error: unknown): BillingField | null {
       return "currency";
     case "server.billing_cycle_invalid":
       return "billing_cycle";
+    case "server.billing_pair_incomplete": {
+      // 后端用 params.missing 指明缺的那一半；缺币种就落到币种，缺价格就落到价格。
+      const missing = error.params?.missing;
+      if (missing === "currency") return "currency";
+      if (missing === "price_cents") return "price_cents";
+      return "currency";
+    }
     default:
       break;
   }

@@ -669,11 +669,15 @@ const en = {
       publicHint: "Shown on the public status page once filled in",
       errors: {
         paidUntil:
-          "Paid-until must be a real date (YYYY-MM-DD), or leave it empty",
+          "Paid-until must be a real date between 1970-01-01 and 2100-12-31 (YYYY-MM-DD), or leave it empty",
         price:
           "Price must be 0-9,999,999.99 yuan with at most two decimals",
         currency:
           "Currency must be a 3-letter uppercase code (e.g. CNY / USD / EUR)",
+        currencyPair:
+          "Price is set; choose a currency too (price and currency go together)",
+        pricePair:
+          "Currency is set; enter a price too (price and currency go together)",
         cycle: "Billing cycle must be monthly, yearly or one-time",
       },
     },
@@ -3722,13 +3726,16 @@ const en = {
     "chain.proxy_protocol_requires_native": "PROXY protocol v2 requires a native-engine chain (realm / nftables / tunnel cannot inject the header)",
     "server.nic_address_unavailable": "This server cannot be dispatched over the selected NIC (not reported, missing, or has no usable address)",
     "server.paid_until_invalid":
-      "Invalid paid-until date: it must be a real YYYY-MM-DD date (e.g. 2026-12-31), or leave it empty",
+      "Invalid paid-until date: it must be a real YYYY-MM-DD date between 1970-01-01 and 2100-12-31 (e.g. 2026-12-31), or leave it empty",
     "server.price_cents_invalid":
       "Invalid price: it must be 0-9,999,999.99 yuan (0-999,999,999 cents), or leave it empty",
     "server.currency_invalid":
       "Invalid currency: it must be a 3-letter uppercase code (e.g. CNY / USD / EUR), or leave it empty",
     "server.billing_cycle_invalid":
       "Invalid billing cycle: it must be monthly, yearly or one-time, or leave it empty",
+    "server.billing_pair_incomplete":
+      "Price and currency must be provided together or both left empty",
+    "request.invalid_json": "Invalid request format",
     "chain.entry_port_required": "The entry group (group 1) must provide a listen port",
     "chain.public_port_invalid": "Public port must be between {min} and {max}",
     "chain.latency_hours_invalid": "hours must be an integer between 1 and 168 (default 24)",

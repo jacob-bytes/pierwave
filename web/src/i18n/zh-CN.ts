@@ -646,9 +646,12 @@ const zhCN = {
       none: "未填写",
       publicHint: "填写后会在公开状态页展示",
       errors: {
-        paidUntil: "到期日需为真实存在的日期（YYYY-MM-DD），或留空",
+        paidUntil:
+          "到期日需为 1970-01-01 到 2100-12-31 之间的真实日期（YYYY-MM-DD），或留空",
         price: "价格需在 0–9,999,999.99 元之间，最多两位小数",
         currency: "币种需为 3 位大写字母（如 CNY / USD / EUR）",
+        currencyPair: "已填写价格，请同时选择币种（价格与币种必须成对）",
+        pricePair: "已填写币种，请同时填写价格（价格与币种必须成对）",
         cycle: "计费周期只能是 月 / 年 / 一次性",
       },
     },
@@ -3514,13 +3517,16 @@ const zhCN = {
     "chain.proxy_protocol_requires_native": "PROXY protocol v2 只能在 native 引擎的链上开启（realm / nftables / tunnel 无法注入首包）",
     "server.nic_address_unavailable": "无法按网卡下发该服务器（尚未上报网卡、网卡不存在或没有可用地址）",
     "server.paid_until_invalid":
-      "到期日不合法：需为真实存在的 YYYY-MM-DD 日期（如 2026-12-31），或留空",
+      "到期日不合法：需为 1970-01-01 到 2100-12-31 之间真实存在的 YYYY-MM-DD 日期（如 2026-12-31），或留空",
     "server.price_cents_invalid":
       "价格不合法：需在 0–9,999,999.99 元之间（0–999,999,999 分），或留空",
     "server.currency_invalid":
       "币种不合法：需为 3 位大写字母（如 CNY / USD / EUR），或留空",
     "server.billing_cycle_invalid":
       "计费周期不合法：只能是 月 / 年 / 一次性，或留空",
+    "server.billing_pair_incomplete":
+      "价格与币种必须同时填写或同时留空",
+    "request.invalid_json": "请求格式不正确",
     "chain.entry_port_required": "入口组（第 1 组）必须填写监听端口",
     "chain.public_port_invalid": "对外端口必须在 {min}-{max} 之间",
     "chain.latency_hours_invalid": "hours 必须是 1-168 之间的整数（默认 24）",

@@ -210,6 +210,15 @@ async function closeDialog(page, locale = "zh-CN") {
 // ---------------------------------------------------------------- 1440 dark
 {
   const { context, page } = await openPage({ theme: "dark", width: 1440, height: 1000 });
+  let createPosts = 0;
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      request.url().endsWith("/api/v1/servers")
+    ) {
+      createPosts += 1;
+    }
+  });
   try {
     await page.getByRole("button", { name: "添加服务器" }).first().click();
     const { dialog, group } = await dialogGroup(page);
@@ -245,6 +254,87 @@ async function closeDialog(page, locale = "zh-CN") {
       date: await dialog.locator("#server-create-billing-paid-until").inputValue(),
       price: await dialog.locator("#server-create-billing-price").inputValue(),
     });
+
+    // 只填价格、清空币种：前端拦下，错误落在缺的币种上，且不发请求。
+    const postsBeforePair = createPosts;
+    await dialog.locator("#server-create-billing-currency").click();
+    await page.getByRole("option", { name: "未填写", exact: true }).click();
+    await dialog.getByRole("button", { name: "创建服务器" }).click();
+    const currencyPairError = dialog.locator(
+      "#server-create-billing-currency-error",
+    );
+    await currencyPairError.waitFor();
+    const currencyPairText = (await currencyPairError.innerText()).trim();
+    assert.match(currencyPairText, /币种/);
+    assert.equal(
+      createPosts,
+      postsBeforePair,
+      "只填价格时不应发出创建请求",
+    );
+    await shot(dialog, "create-pair-price-only-dark-1440.png", group);
+    results.push({
+      file: "create-pair-price-only-dark-1440.png",
+      errorText: currencyPairText,
+      posts: createPosts - postsBeforePair,
+    });
+
+    // 反向：只填币种、清空价格，错误落在价格上。
+    await dialog.locator("#server-create-billing-currency").click();
+    await page.getByRole("option", { name: "CNY", exact: true }).click();
+    await dialog.locator("#server-create-billing-price").fill("");
+    await dialog.getByRole("button", { name: "创建服务器" }).click();
+    const pricePairError = dialog.locator("#server-create-billing-price-error");
+    await pricePairError.waitFor();
+    const pricePairText = (await pricePairError.innerText()).trim();
+    assert.match(pricePairText, /价格/);
+    assert.equal(
+      createPosts,
+      postsBeforePair,
+      "只填币种时不应发出创建请求",
+    );
+    await shot(dialog, "create-pair-currency-only-dark-1440.png", group);
+    results.push({
+      file: "create-pair-currency-only-dark-1440.png",
+      errorText: pricePairText,
+      posts: createPosts - postsBeforePair,
+    });
+
+    // 日期越界：选择器有 min/max，且一改就显示行内错误。
+    await dialog.locator("#server-create-billing-price").fill("268.00");
+    await dialog
+      .locator("#server-create-billing-paid-until")
+      .fill("1969-12-31");
+    const dateError = dialog.locator("#server-create-billing-paid-until-error");
+    await dateError.waitFor();
+    const dateRangeText = (await dateError.innerText()).trim();
+    assert.match(dateRangeText, /1970-01-01/);
+    assert.match(dateRangeText, /2100-12-31/);
+    const dateLimits = await dialog
+      .locator("#server-create-billing-paid-until")
+      .evaluate((input) => ({
+        min: input.min,
+        max: input.max,
+        value: input.value,
+        rangeUnderflow: input.validity.rangeUnderflow,
+        validationMessage: input.validationMessage,
+      }));
+    assert.equal(dateLimits.min, "1970-01-01");
+    assert.equal(dateLimits.max, "2100-12-31");
+    assert.equal(dateLimits.rangeUnderflow, true);
+    await shot(dialog, "create-date-range-dark-1440.png", group);
+    results.push({
+      file: "create-date-range-dark-1440.png",
+      errorText: dateRangeText,
+      dateLimits,
+    });
+    // 原生约束会先挡住这次提交：依旧不能有 POST。
+    await dialog.getByRole("button", { name: "创建服务器" }).click();
+    assert.equal(createPosts, postsBeforePair, "越界日期不应发出创建请求");
+    // 改回合法日期，错误消失，继续后面的价格格式用例。
+    await dialog
+      .locator("#server-create-billing-paid-until")
+      .fill("2026-12-31");
+    await dateError.waitFor({ state: "hidden" });
 
     // 行内错误：价格超上界，不弹 toast、不发请求。
     await dialog.locator("#server-create-billing-price").fill("10000000");
@@ -376,6 +466,9 @@ async function closeDialog(page, locale = "zh-CN") {
 
     // 后端错误码 → 行内错误：让 PATCH 返回 server.currency_invalid。
     // 前端能通过自己的校验，这条路径验证的是「后端权威错误落到对应字段」。
+    // 价格 + 币种一起填：通过前端成对校验，这样才会真的发出 PATCH，
+    // 让下面拦截到的后端错误码走到「字段行内」。
+    await reopened.dialog.locator("#server-edit-billing-price").fill("49.99");
     await reopened.dialog.locator("#server-edit-billing-currency").click();
     await page.getByRole("option", { name: "CNY", exact: true }).click();
     let intercepted = 0;
@@ -508,11 +601,77 @@ for (const job of [
     assert.equal(response.json.code, code);
     assert.ok(response.json.params?.field, `${code} params.field`);
   }
+  // 价格/币种成对：真实后端只放行「都有 / 都没有」。
+  const pairPrice = await api(cookie, "PATCH", `/api/v1/servers/${target.id}`, {
+    price_cents: 100,
+  });
+  assert.equal(pairPrice.status, 400);
+  assert.equal(pairPrice.json.code, "server.billing_pair_incomplete");
+  assert.equal(pairPrice.json.params.missing, "currency");
+  const pairCurrency = await api(
+    cookie,
+    "PATCH",
+    `/api/v1/servers/${target.id}`,
+    { currency: "CNY" },
+  );
+  assert.equal(pairCurrency.status, 400);
+  assert.equal(pairCurrency.json.code, "server.billing_pair_incomplete");
+  assert.equal(pairCurrency.json.params.missing, "price_cents");
+
+  // 到期日年份范围：越界 400，params 带 min/max。
+  for (const date of ["1969-12-31", "2101-01-01"]) {
+    const range = await api(
+      cookie,
+      "PATCH",
+      `/api/v1/servers/${target.id}`,
+      { paid_until: date },
+    );
+    assert.equal(range.status, 400, date);
+    assert.equal(range.json.code, "server.paid_until_invalid", date);
+    assert.equal(range.json.params.min, "1970-01-01", date);
+    assert.equal(range.json.params.max, "2100-12-31", date);
+  }
+
+  // 请求体类型错误（JSON 合法但字段类型不对）：统一映射成
+  // `request.invalid_json`（422，带 code），说明前端为什么需要这个翻译键。
+  const invalidJson = await fetch(`${BASE}/api/v1/servers`, {
+    method: "POST",
+    headers: {
+      Cookie: `${cookie.name}=${cookie.value}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      name: "billing-invalid-json",
+      address: "203.0.113.11",
+      price_cents: "",
+    }),
+  });
+  const invalidBody = await invalidJson.json();
+  assert.equal(invalidJson.status, 422);
+  assert.equal(invalidBody.code, "request.invalid_json");
+
+  results.push({
+    api: "contract",
+    pair: {
+      priceOnly: {
+        code: pairPrice.json.code,
+        missing: pairPrice.json.params.missing,
+      },
+      currencyOnly: {
+        code: pairCurrency.json.code,
+        missing: pairCurrency.json.params.missing,
+      },
+    },
+    invalidJson: { status: invalidJson.status, code: invalidBody.code },
+  });
+
   results.push({ api: "error codes", codes: [
     "server.paid_until_invalid",
     "server.price_cents_invalid",
     "server.currency_invalid",
     "server.billing_cycle_invalid",
+    "server.billing_pair_incomplete",
+    "request.invalid_json",
   ] });
 }
 

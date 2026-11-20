@@ -1,6 +1,6 @@
 {
   "base": "http://127.0.0.1:8796",
-  "generatedAt": "2026-11-20T14:05:20.165Z",
+  "generatedAt": "2026-11-20T14:41:39.118Z",
   "results": [
     {
       "file": "create-empty-dark-1440.png",
@@ -12,6 +12,27 @@
       "hint": true,
       "date": "2026-12-31",
       "price": "268.00"
+    },
+    {
+      "file": "create-pair-price-only-dark-1440.png",
+      "errorText": "已填写价格，请同时选择币种（价格与币种必须成对）",
+      "posts": 0
+    },
+    {
+      "file": "create-pair-currency-only-dark-1440.png",
+      "errorText": "已填写币种，请同时填写价格（价格与币种必须成对）",
+      "posts": 0
+    },
+    {
+      "file": "create-date-range-dark-1440.png",
+      "errorText": "到期日需为 1970-01-01 到 2100-12-31 之间的真实日期（YYYY-MM-DD），或留空",
+      "dateLimits": {
+        "min": "1970-01-01",
+        "max": "2100-12-31",
+        "value": "1969-12-31",
+        "rangeUnderflow": true,
+        "validationMessage": "指定的值不得早于1970/01/01。"
+      }
     },
     {
       "file": "create-inline-price-dark-1440.png",
@@ -94,12 +115,31 @@
       "hint": 1
     },
     {
+      "api": "contract",
+      "pair": {
+        "priceOnly": {
+          "code": "server.billing_pair_incomplete",
+          "missing": "currency"
+        },
+        "currencyOnly": {
+          "code": "server.billing_pair_incomplete",
+          "missing": "price_cents"
+        }
+      },
+      "invalidJson": {
+        "status": 422,
+        "code": "request.invalid_json"
+      }
+    },
+    {
       "api": "error codes",
       "codes": [
         "server.paid_until_invalid",
         "server.price_cents_invalid",
         "server.currency_invalid",
-        "server.billing_cycle_invalid"
+        "server.billing_cycle_invalid",
+        "server.billing_pair_incomplete",
+        "request.invalid_json"
       ]
     }
   ]

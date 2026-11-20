@@ -101,6 +101,18 @@ export function ServerEditDialog({
     billingFormFromServer(server),
   );
   const [billingErrors, setBillingErrors] = useState<BillingFieldErrors>({});
+  // 改哪一格就清哪一格的旧错误，避免「价格已经填了却还挂着缺价格」。
+  const updateBilling = (next: ServerBillingForm) => {
+    setBillingErrors((current) => {
+      const remaining = { ...current };
+      if (next.paidUntil !== billing.paidUntil) delete remaining.paid_until;
+      if (next.price !== billing.price) delete remaining.price_cents;
+      if (next.currency !== billing.currency) delete remaining.currency;
+      if (next.cycle !== billing.cycle) delete remaining.billing_cycle;
+      return remaining;
+    });
+    setBilling(next);
+  };
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -277,7 +289,7 @@ export function ServerEditDialog({
           <BillingFields
             idPrefix="server-edit-billing"
             value={billing}
-            onChange={setBilling}
+            onChange={updateBilling}
             errors={billingErrors}
             disabled={updateServer.isPending}
           />

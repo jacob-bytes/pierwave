@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { GlobeIcon } from "lucide-react";
 import { FormField } from "@/components/FormField";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,9 @@ import {
   currencySelectValue,
   EMPTY_BILLING_FORM,
   hasAnyBillingField,
+  isPaidUntilInRange,
+  PAID_UNTIL_MAX,
+  PAID_UNTIL_MIN,
   sanitizeCurrencyInput,
   type BillingFieldErrors,
   type ServerBillingForm,
@@ -54,6 +58,9 @@ export function BillingFields({
   const { t } = useI18n();
   const anyFilled = hasAnyBillingField(value);
   const currencyChoice = currencySelectValue(value.currency);
+  // 原生 `min`/`max` 会在提交前挡住越界日期，页面自己的校验因此没有机会跑；
+  // 日期一改就做同样的范围校验，错误能立刻落在字段下方。
+  const [dateRangeError, setDateRangeError] = useState<string | null>(null);
 
   const update = (patch: Partial<ServerBillingForm>) =>
     onChange({ ...value, ...patch });
@@ -64,6 +71,7 @@ export function BillingFields({
   const currencyCustomId = `${idPrefix}-currency-custom`;
   const cycleId = `${idPrefix}-cycle`;
 
+  const dateError = errors?.paid_until ?? dateRangeError ?? undefined;
   const currencyError = errors?.currency;
   const cycleError = errors?.billing_cycle;
 
@@ -84,7 +92,10 @@ export function BillingFields({
           type="button"
           variant="ghost"
           size="xs"
-          onClick={() => onChange(EMPTY_BILLING_FORM)}
+          onClick={() => {
+            setDateRangeError(null);
+            onChange(EMPTY_BILLING_FORM);
+          }}
           disabled={disabled || !anyFilled}
         >
           {t("servers.billing.clear")}
@@ -95,15 +106,23 @@ export function BillingFields({
         <FormField
           label={t("servers.billing.paidUntil")}
           htmlFor={paidUntilId}
-          error={errors?.paid_until}
+          error={dateError}
         >
           <Input
             id={paidUntilId}
             type="date"
+            min={PAID_UNTIL_MIN}
+            max={PAID_UNTIL_MAX}
             value={value.paidUntil}
-            onChange={(event) =>
-              update({ paidUntil: event.target.value })
-            }
+            onChange={(event) => {
+              const next = event.target.value;
+              update({ paidUntil: next });
+              setDateRangeError(
+                next !== "" && !isPaidUntilInRange(next)
+                  ? t("servers.billing.errors.paidUntil")
+                  : null,
+              );
+            }}
             disabled={disabled}
           />
         </FormField>

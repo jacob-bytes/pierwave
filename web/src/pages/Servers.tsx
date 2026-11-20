@@ -840,6 +840,19 @@ export default function ServersPage() {
   // 费用与到期：四个可选公开展示字段；空 = 提交 null（不填写 / 清空）。
   const [billing, setBilling] = useState<ServerBillingForm>(EMPTY_BILLING_FORM);
   const [billingErrors, setBillingErrors] = useState<BillingFieldErrors>({});
+  // 编辑任何一格就清掉该格的旧错误：否则改完价格后，上一次提交留下的
+  // 「请同时填写价格」会一直挂在那里，看起来像没改成功。
+  const updateBilling = (next: ServerBillingForm) => {
+    setBillingErrors((current) => {
+      const remaining = { ...current };
+      if (next.paidUntil !== billing.paidUntil) delete remaining.paid_until;
+      if (next.price !== billing.price) delete remaining.price_cents;
+      if (next.currency !== billing.currency) delete remaining.currency;
+      if (next.cycle !== billing.cycle) delete remaining.billing_cycle;
+      return remaining;
+    });
+    setBilling(next);
+  };
   const [groupFilter, setGroupFilter] = useState(GROUP_FILTER_ALL);
   const [xrayMode, setXrayMode] = useState("external");
   const [copied, setCopied] = useState<"token" | "command" | null>(null);
@@ -1867,7 +1880,7 @@ export default function ServersPage() {
             <BillingFields
               idPrefix="server-create-billing"
               value={billing}
-              onChange={setBilling}
+              onChange={updateBilling}
               errors={billingErrors}
               disabled={create.isPending}
             />
