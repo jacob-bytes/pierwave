@@ -37,6 +37,10 @@ import { AgentBatchUpgradeConfirmDialog } from "@/components/servers/AgentBatchU
 import { AgentBatchUpgradeProgressDialog } from "@/components/servers/AgentBatchUpgradeProgressDialog";
 import { AgentUpgradeDialog } from "@/components/servers/AgentUpgradeDialog";
 import { AgentUpgradeHistoryDialog } from "@/components/servers/AgentUpgradeHistoryDialog";
+import {
+  ApplyStatusBadge,
+  ApplyStatusSection,
+} from "@/components/servers/ApplyStatus";
 import { NicBadge } from "@/components/servers/NicBadge";
 import { NicField } from "@/components/servers/NicField";
 import { ServerCommandsDialog } from "@/components/servers/ServerCommandsDialog";
@@ -116,6 +120,7 @@ import {
 } from "@/lib/agentUpgradeBatch";
 import { copyText } from "@/lib/clipboard";
 import { isCountryCode } from "@/lib/country";
+import { applySummary } from "@/lib/applyStatus";
 import { errorText } from "@/lib/errors";
 import { missingRequiredLabels } from "@/lib/formRequired";
 import { formatBytes } from "@/lib/format";
@@ -556,7 +561,11 @@ function ServerDetailsPopover({ server }: { server: Server }) {
           {t("common.details")}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72">
+      <PopoverContent
+        align="end"
+        collisionPadding={8}
+        className="max-h-[var(--radix-popover-content-available-height)] w-72 overflow-y-auto"
+      >
         <PopoverHeader>
           <PopoverTitle className="text-sm">{server.name}</PopoverTitle>
           <PopoverDescription className="truncate font-mono text-xs">
@@ -668,6 +677,7 @@ function ServerDetailsPopover({ server }: { server: Server }) {
             value={formatRelativeTime(server.last_seen_at)}
           />
         </dl>
+        <ApplyStatusSection server={server} />
       </PopoverContent>
     </Popover>
   );
@@ -984,6 +994,8 @@ export default function ServersPage() {
           <div className="truncate font-medium" title={server.name}>
             {server.name}
           </div>
+          {/* 应用结果与在线/离线分列：它在身份列，不占状态列。ok / null 不渲染。 */}
+          <ApplyStatusBadge server={server} className="mt-0.5" />
           {groupName ? (
             <div
               title={groupName}
@@ -1328,6 +1340,14 @@ export default function ServersPage() {
               label: t("servers.agentVersion"),
               value: <VersionCell server={server} />,
             },
+            ...(applySummary(server)
+              ? [
+                  {
+                    label: t("servers.apply.title"),
+                    value: <ApplyStatusBadge server={server} />,
+                  },
+                ]
+              : []),
             {
               label: t("servers.detail.load"),
               value: renderServerLoad(server),

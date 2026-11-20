@@ -1,0 +1,122 @@
+{
+  "phase": "after",
+  "base": "http://127.0.0.1:8798",
+  "W6_desktop_dark": {
+    "viewportWidth": 1440,
+    "docScrollWidth": 1440,
+    "docClientWidth": 1440,
+    "mainScrollWidth": 1200,
+    "mainClientWidth": 1200,
+    "overflowX": false,
+    "scrollHeight": 844
+  },
+  "W6rows_dark": [
+    {
+      "text": "\t | 东京-中转-备用入口 | 应用失败 | 日本 | \tedge-jp-02.ap-northeast-1.prod.example.internal\t | 在线\t | 运行中\t | 3 分钟前\t | — | 延迟 29 ms | \t1.36\t | 40% | \t | ↓ | 9.35 | MB/s | ↑ | 1.05 | MB/s | \t",
+      "height": 74.8,
+      "applyButtons": 1,
+      "statusCell": "在线"
+    },
+    {
+      "text": "\t | 香港-亚太边缘入口-主节点-超长名称用于移动端截断验证 | 部分应用（2/3） | 香港 | \tedge-hk-01.asia-southeast1.prod.example.internal\t | 在线\t | 运行中\t | 3 分钟前\t | — | 延迟 18 ms | \t0.82\t | 40% | \t | ↓ | 17.5 | MB/s | ↑ | 2.19 | MB/s | \t",
+      "height": 75.3,
+      "applyButtons": 1,
+      "statusCell": "在线"
+    },
+    {
+      "text": "\t | 洛杉矶-美洲-测试节点 | 美洲 | \tlax-05.us-west-2.example.internal\t | 在线\t | 运行中\t | 3 分钟前\t | — | 延迟 51 ms | \t4.48\t | 40% | \t | ↓ | 3.24 | MB/s | ↑ | 400 | KB/s | \t",
+      "height": 50.91,
+      "applyButtons": 0,
+      "statusCell": "在线"
+    },
+    {
+      "text": "\t | 法兰克福-欧洲-备用节点 | 部分应用（1/2） | 欧洲 | \tfra-04.eu-central-1.example.internal\t | 在线\t | 运行中\t | 3 分钟前\t | — | 延迟 62 ms | \t5.92\t | 40% | \t | ↓ | 1.81 | MB/s | ↑ | 254 | KB/s | \t",
+      "height": 75.3,
+      "applyButtons": 1,
+      "statusCell": "在线"
+    },
+    {
+      "text": "\t | 新加坡-专线-长名称节点-二号 | 新加坡 | \tsg-03.ap-southeast-1.example.internal\t | 在线\t | 运行中\t | 3 分钟前\t | — | 延迟 40 ms | \t2.71\t | 40% | \t | ↓ | 5.91 | MB/s | ↑ | 957 | KB/s | \t",
+      "height": 50.41,
+      "applyButtons": 0,
+      "statusCell": "在线"
+    }
+  ],
+  "W6partial_dark": "应用结果\n部分应用（2/3）\n阶段\n提交 rename / commit\n已生效文件\n2 / 3\n/etc/pierwave/xray/server.crt\n/etc/pierwave/xray/server.key\n错误原文\n[agent.apply_files.partial] 受管文件部分生效（partial success），阶段: 提交 rename / commit；已生效 2/3: /etc/pierwave/xray/server.crt, /etc/pierwave/xray/server.key；其余文件未生效、临时文件已清理；失败原因: permission denied",
+  "W6failed_dark": "应用结果\n应用失败\n错误原文\ndial master: connection refused",
+  "W6_mobile_dark": {
+    "viewportWidth": 390,
+    "docScrollWidth": 390,
+    "docClientWidth": 390,
+    "mainScrollWidth": 390,
+    "mainClientWidth": 390,
+    "overflowX": false,
+    "scrollHeight": 2192
+  },
+  "W6card_dark": {
+    "text": "香港-亚太边缘入口-主节点-超长名称用于移动端截断验证 | edge-hk-01.asia-southeast1.prod.example.internal | 详情 | 分组 | 香港 | 内网地址 | 10.20.1.10 | 模式 | 外置 | 状态 | 在线 | Xray | 运行中 | 最后心跳 | 3 分钟前 | Agent 版本 | — | 延迟 18 ms | 应用结果 | 部分应用（2/3） | 负载（1 分钟） | 0.82 | 内存 | 40% | 当前速率 | ↓ | 17.5 | MB/s | ↑ | 2.19 | MB/s",
+    "applyButtons": 1,
+    "titleWidth": 76.390625,
+    "titleScrollWidth": 354
+  },
+  "W6detail_dark": "香港-亚太边缘入口-主节点-超长名称用于移动端截断验证\n\nedge-hk-01.asia-southeast1.prod.example.internal\n\nAgent 版本\n—\n配置版本\nv1\n内网地址\n10.20.1.10\n状态\n在线\nXray\n运行中\n负载（1 分钟）\n0.82\n网络延迟\n延迟 18 ms\n当前速率\n↓ 17.5 MB/s · ↑ 2.19 MB/s\n内存\n40% · 3.2 GB / 8 GB\n已限速节点\n0\n最后心跳\n3 分钟前\n最后在线\n3 分钟前\n应用结果\n部分应用（2/3）\n阶段\n提交 rename / commit\n/etc/pierwave/xray/server.crt\n/etc/pierwave/xray/server.key\n错误原文",
+  "W6_desktop_light": {
+    "viewportWidth": 1440,
+    "docScrollWidth": 1440,
+    "docClientWidth": 1440,
+    "mainScrollWidth": 1200,
+    "mainClientWidth": 1200,
+    "overflowX": false,
+    "scrollHeight": 844
+  },
+  "W6rows_light": [
+    {
+      "text": "\t | 东京-中转-备用入口 | 应用失败 | 日本 | \tedge-jp-02.ap-northeast-1.prod.example.internal\t | 在线\t | 运行中\t | 3 分钟前\t | — | 延迟 29 ms | \t1.36\t | 40% | \t | ↓ | 9.35 | MB/s | ↑ | 1.05 | MB/s | \t",
+      "height": 74.8,
+      "applyButtons": 1,
+      "statusCell": "在线"
+    },
+    {
+      "text": "\t | 香港-亚太边缘入口-主节点-超长名称用于移动端截断验证 | 部分应用（2/3） | 香港 | \tedge-hk-01.asia-southeast1.prod.example.internal\t | 在线\t | 运行中\t | 3 分钟前\t | — | 延迟 18 ms | \t0.82\t | 40% | \t | ↓ | 17.5 | MB/s | ↑ | 2.19 | MB/s | \t",
+      "height": 75.3,
+      "applyButtons": 1,
+      "statusCell": "在线"
+    },
+    {
+      "text": "\t | 洛杉矶-美洲-测试节点 | 美洲 | \tlax-05.us-west-2.example.internal\t | 在线\t | 运行中\t | 3 分钟前\t | — | 延迟 51 ms | \t4.48\t | 40% | \t | ↓ | 3.24 | MB/s | ↑ | 400 | KB/s | \t",
+      "height": 50.91,
+      "applyButtons": 0,
+      "statusCell": "在线"
+    },
+    {
+      "text": "\t | 法兰克福-欧洲-备用节点 | 部分应用（1/2） | 欧洲 | \tfra-04.eu-central-1.example.internal\t | 在线\t | 运行中\t | 3 分钟前\t | — | 延迟 62 ms | \t5.92\t | 40% | \t | ↓ | 1.81 | MB/s | ↑ | 254 | KB/s | \t",
+      "height": 75.3,
+      "applyButtons": 1,
+      "statusCell": "在线"
+    },
+    {
+      "text": "\t | 新加坡-专线-长名称节点-二号 | 新加坡 | \tsg-03.ap-southeast-1.example.internal\t | 在线\t | 运行中\t | 3 分钟前\t | — | 延迟 40 ms | \t2.71\t | 40% | \t | ↓ | 5.91 | MB/s | ↑ | 957 | KB/s | \t",
+      "height": 50.41,
+      "applyButtons": 0,
+      "statusCell": "在线"
+    }
+  ],
+  "W6partial_light": "应用结果\n部分应用（2/3）\n阶段\n提交 rename / commit\n已生效文件\n2 / 3\n/etc/pierwave/xray/server.crt\n/etc/pierwave/xray/server.key\n错误原文\n[agent.apply_files.partial] 受管文件部分生效（partial success），阶段: 提交 rename / commit；已生效 2/3: /etc/pierwave/xray/server.crt, /etc/pierwave/xray/server.key；其余文件未生效、临时文件已清理；失败原因: permission denied",
+  "W6failed_light": "应用结果\n应用失败\n错误原文\ndial master: connection refused",
+  "W6_mobile_light": {
+    "viewportWidth": 390,
+    "docScrollWidth": 390,
+    "docClientWidth": 390,
+    "mainScrollWidth": 390,
+    "mainClientWidth": 390,
+    "overflowX": false,
+    "scrollHeight": 2192
+  },
+  "W6card_light": {
+    "text": "香港-亚太边缘入口-主节点-超长名称用于移动端截断验证 | edge-hk-01.asia-southeast1.prod.example.internal | 详情 | 分组 | 香港 | 内网地址 | 10.20.1.10 | 模式 | 外置 | 状态 | 在线 | Xray | 运行中 | 最后心跳 | 3 分钟前 | Agent 版本 | — | 延迟 18 ms | 应用结果 | 部分应用（2/3） | 负载（1 分钟） | 0.82 | 内存 | 40% | 当前速率 | ↓ | 17.5 | MB/s | ↑ | 2.19 | MB/s",
+    "applyButtons": 1,
+    "titleWidth": 76.390625,
+    "titleScrollWidth": 354
+  },
+  "W6detail_light": "香港-亚太边缘入口-主节点-超长名称用于移动端截断验证\n\nedge-hk-01.asia-southeast1.prod.example.internal\n\nAgent 版本\n—\n配置版本\nv1\n内网地址\n10.20.1.10\n状态\n在线\nXray\n运行中\n负载（1 分钟）\n0.82\n网络延迟\n延迟 18 ms\n当前速率\n↓ 17.5 MB/s · ↑ 2.19 MB/s\n内存\n40% · 3.2 GB / 8 GB\n已限速节点\n0\n最后心跳\n3 分钟前\n最后在线\n3 分钟前\n应用结果\n部分应用（2/3）\n阶段\n提交 rename / commit\n/etc/pierwave/xray/server.crt\n/etc/pierwave/xray/server.key\n错误原文"
+}

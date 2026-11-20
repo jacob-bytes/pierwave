@@ -310,6 +310,17 @@ export interface ServerInterface {
   addresses: string[];
 }
 
+/** 最近一次受管文件应用结果；`ok` / `partial` / `failed`，NULL = 从未上报。 */
+export type ServerApplyStatus = "ok" | "partial" | "failed";
+
+/** `partial` 的结构化详情；`effective_count` 是后端派生值（= effective.length）。 */
+export interface ServerApplyPartial {
+  stage: string;
+  effective: string[];
+  effective_count: number;
+  total: number;
+}
+
 export interface Server {
   id: string;
   name: string;
@@ -319,6 +330,20 @@ export interface Server {
   last_seen_at: number | null;
   config_version: number;
   created_at: number;
+
+  /**
+   * 受管文件两阶段提交的最近一次结果。旧后端 / 从未上报时字段可能缺失或为
+   * null；`ok` 与 null 都不显示应用结果徽标。
+   */
+  apply_status?: ServerApplyStatus | null;
+  /** `ApplyResult.error` 原文；失败时原样展示，不加工。 */
+  apply_error?: string | null;
+  /** Agent 上报的配置版本。 */
+  apply_version?: number | null;
+  /** 主控收到结果的时间（Unix 秒）。 */
+  apply_at?: number | null;
+  /** 仅 `partial` 时非 null。 */
+  apply_partial?: ServerApplyPartial | null;
 
   /** 分组名；null = 未分组。旧后端可能不返回该字段。 */
   group_name?: string | null;

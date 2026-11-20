@@ -1,0 +1,116 @@
+{
+  "phase": "before",
+  "base": "http://127.0.0.1:8798",
+  "W6_desktop_dark": {
+    "viewportWidth": 1440,
+    "docScrollWidth": 1440,
+    "docClientWidth": 1440,
+    "mainScrollWidth": 1200,
+    "mainClientWidth": 1200,
+    "overflowX": false,
+    "scrollHeight": 844
+  },
+  "W6rows_dark": [
+    {
+      "text": "\t | 东京-中转-备用入口 | 日本 | \tedge-jp-02.ap-northeast-1.prod.example.internal\t | 在线\t | 运行中\t刚刚\t | — | 延迟 29 ms | \t1.36\t | 40% | \t | ↓ | 9.35 | MB/s | ↑ | 1.05 | MB/s | \t",
+      "height": 50.41,
+      "applyButtons": 0,
+      "statusCell": "在线"
+    },
+    {
+      "text": "\t | 香港-亚太边缘入口-主节点-超长名称用于移动端截断验证 | 香港 | \tedge-hk-01.asia-southeast1.prod.example.internal\t | 在线\t | 运行中\t刚刚\t | — | 延迟 18 ms | \t0.82\t | 40% | \t | ↓ | 17.5 | MB/s | ↑ | 2.19 | MB/s | \t",
+      "height": 50.91,
+      "applyButtons": 0,
+      "statusCell": "在线"
+    },
+    {
+      "text": "\t | 洛杉矶-美洲-测试节点 | 美洲 | \tlax-05.us-west-2.example.internal\t | 在线\t | 运行中\t刚刚\t | — | 延迟 51 ms | \t4.48\t | 40% | \t | ↓ | 3.24 | MB/s | ↑ | 400 | KB/s | \t",
+      "height": 50.91,
+      "applyButtons": 0,
+      "statusCell": "在线"
+    },
+    {
+      "text": "\t | 法兰克福-欧洲-备用节点 | 欧洲 | \tfra-04.eu-central-1.example.internal\t | 在线\t | 运行中\t刚刚\t | — | 延迟 62 ms | \t5.92\t | 40% | \t | ↓ | 1.81 | MB/s | ↑ | 254 | KB/s | \t",
+      "height": 50.91,
+      "applyButtons": 0,
+      "statusCell": "在线"
+    },
+    {
+      "text": "\t | 新加坡-专线-长名称节点-二号 | 新加坡 | \tsg-03.ap-southeast-1.example.internal\t | 在线\t | 运行中\t刚刚\t | — | 延迟 40 ms | \t2.71\t | 40% | \t | ↓ | 5.91 | MB/s | ↑ | 957 | KB/s | \t",
+      "height": 50.41,
+      "applyButtons": 0,
+      "statusCell": "在线"
+    }
+  ],
+  "W6_mobile_dark": {
+    "viewportWidth": 390,
+    "docScrollWidth": 390,
+    "docClientWidth": 390,
+    "mainScrollWidth": 390,
+    "mainClientWidth": 390,
+    "overflowX": false,
+    "scrollHeight": 2104
+  },
+  "W6card_dark": {
+    "text": "香港-亚太边缘入口-主节点-超长名称用于移动端截断验证 | edge-hk-01.asia-southeast1.prod.example.internal | 详情 | 分组 | 香港 | 内网地址 | 10.20.1.10 | 模式 | 外置 | 状态 | 在线 | Xray | 运行中 | 最后心跳 | 刚刚 | Agent 版本 | — | 延迟 18 ms | 负载（1 分钟） | 0.82 | 内存 | 40% | 当前速率 | ↓ | 17.5 | MB/s | ↑ | 2.19 | MB/s",
+    "applyButtons": 0,
+    "titleWidth": 76.390625,
+    "titleScrollWidth": 354
+  },
+  "W6_desktop_light": {
+    "viewportWidth": 1440,
+    "docScrollWidth": 1440,
+    "docClientWidth": 1440,
+    "mainScrollWidth": 1200,
+    "mainClientWidth": 1200,
+    "overflowX": false,
+    "scrollHeight": 844
+  },
+  "W6rows_light": [
+    {
+      "text": "\t | 东京-中转-备用入口 | 日本 | \tedge-jp-02.ap-northeast-1.prod.example.internal\t | 在线\t | 运行中\t刚刚\t | — | 延迟 29 ms | \t1.36\t | 40% | \t | ↓ | 9.35 | MB/s | ↑ | 1.05 | MB/s | \t",
+      "height": 50.41,
+      "applyButtons": 0,
+      "statusCell": "在线"
+    },
+    {
+      "text": "\t | 香港-亚太边缘入口-主节点-超长名称用于移动端截断验证 | 香港 | \tedge-hk-01.asia-southeast1.prod.example.internal\t | 在线\t | 运行中\t刚刚\t | — | 延迟 18 ms | \t0.82\t | 40% | \t | ↓ | 17.5 | MB/s | ↑ | 2.19 | MB/s | \t",
+      "height": 50.91,
+      "applyButtons": 0,
+      "statusCell": "在线"
+    },
+    {
+      "text": "\t | 洛杉矶-美洲-测试节点 | 美洲 | \tlax-05.us-west-2.example.internal\t | 在线\t | 运行中\t刚刚\t | — | 延迟 51 ms | \t4.48\t | 40% | \t | ↓ | 3.24 | MB/s | ↑ | 400 | KB/s | \t",
+      "height": 50.91,
+      "applyButtons": 0,
+      "statusCell": "在线"
+    },
+    {
+      "text": "\t | 法兰克福-欧洲-备用节点 | 欧洲 | \tfra-04.eu-central-1.example.internal\t | 在线\t | 运行中\t刚刚\t | — | 延迟 62 ms | \t5.92\t | 40% | \t | ↓ | 1.81 | MB/s | ↑ | 254 | KB/s | \t",
+      "height": 50.91,
+      "applyButtons": 0,
+      "statusCell": "在线"
+    },
+    {
+      "text": "\t | 新加坡-专线-长名称节点-二号 | 新加坡 | \tsg-03.ap-southeast-1.example.internal\t | 在线\t | 运行中\t刚刚\t | — | 延迟 40 ms | \t2.71\t | 40% | \t | ↓ | 5.91 | MB/s | ↑ | 957 | KB/s | \t",
+      "height": 50.41,
+      "applyButtons": 0,
+      "statusCell": "在线"
+    }
+  ],
+  "W6_mobile_light": {
+    "viewportWidth": 390,
+    "docScrollWidth": 390,
+    "docClientWidth": 390,
+    "mainScrollWidth": 390,
+    "mainClientWidth": 390,
+    "overflowX": false,
+    "scrollHeight": 2104
+  },
+  "W6card_light": {
+    "text": "香港-亚太边缘入口-主节点-超长名称用于移动端截断验证 | edge-hk-01.asia-southeast1.prod.example.internal | 详情 | 分组 | 香港 | 内网地址 | 10.20.1.10 | 模式 | 外置 | 状态 | 在线 | Xray | 运行中 | 最后心跳 | 刚刚 | Agent 版本 | — | 延迟 18 ms | 负载（1 分钟） | 0.82 | 内存 | 40% | 当前速率 | ↓ | 17.5 | MB/s | ↑ | 2.19 | MB/s",
+    "applyButtons": 0,
+    "titleWidth": 76.390625,
+    "titleScrollWidth": 354
+  }
+}

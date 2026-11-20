@@ -126,3 +126,20 @@ test("server mobile cards expose copy buttons for name and address", () => {
   assert.ok(servers.includes('title={server.name}'), "desktop name keeps a title");
   assert.ok(servers.includes('title={server.address}'), "desktop address keeps a title");
 });
+
+/** W6：应用结果徽标放在身份列 / 详情字段，不侵入在线-离线状态列。 */
+test("apply status lives in identity and detail, not the online status cell", () => {
+  const servers = read("../pages/Servers.tsx");
+  assert.ok(servers.includes("ApplyStatusBadge server={server}"), "table identity uses the badge");
+  assert.ok(servers.includes("ApplyStatusSection server={server}"), "detail popover uses the section");
+  assert.ok(servers.includes('label: t("servers.apply.title")'), "mobile cards put apply in a field");
+  assert.ok(
+    servers.includes('label: t("common.status"),\n              value: <StatusBadge server={server} />,'),
+    "status field stays exclusively online/offline",
+  );
+  const component = read("../components/servers/ApplyStatus.tsx");
+  assert.ok(component.includes("apply_error"), "failed keeps apply_error");
+  assert.ok(component.includes("summary.stage"), "partial shows stage");
+  assert.ok(component.includes("summary.effective"), "partial lists effective paths");
+  assert.ok(component.includes("data-slot=\"apply-status\""), "badge has a stable test hook");
+});
