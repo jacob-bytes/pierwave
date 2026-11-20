@@ -1643,7 +1643,15 @@ pub mod servers {
         Ok(())
     }
 
-    /// 覆盖「费用与到期」四列（迁移 0061）。四个值各自独立，`None` = 清空。
+    /// 按列更新「费用与到期」四列（迁移 0061 / 0062）。
+    ///
+    /// 每个参数是三态：[`Patch::Missing`] = 不改；[`Patch::Null`] = 清空为 NULL；
+    /// [`Patch::Value`] = 写入该值。SQL 用 `CASE WHEN ? THEN ? ELSE col END` 逐列
+    /// 写入，**只碰调用方声明改动的列**。
+    ///
+    /// 这是并发正确性的关键：PATCH 的「读快照 → 合并 → 校验」只用于校验，
+    /// 不能拿合并后的整份快照覆盖四列，否则两个并发的部分更新会互相抹掉，
+    /// 且本次没有修改的存量脏值会被顺带清成 NULL。
     ///
     /// 仓储层不重复校验：写路径先经 [`crate::billing::BillingMeta::validated`]，
     /// 读路径由 [`crate::billing::BillingMeta::from_server`] 容错；这里保持与
@@ -1651,20 +1659,31 @@ pub mod servers {
     pub async fn set_billing(
         pool: &SqlitePool,
         id: &str,
-        paid_until: Option<&str>,
-        price_cents: Option<i64>,
-        currency: Option<&str>,
-        billing_cycle: Option<&str>,
+        paid_until: Patch<Option<&str>>,
+        price_cents: Patch<Option<i64>>,
+        currency: Patch<Option<&str>>,
+        billing_cycle: Patch<Option<&str>>,
     ) -> anyhow::Result<()> {
+        let paid_until_set = paid_until.is_set();
+        let price_cents_set = price_cents.is_set();
+        let currency_set = currency.is_set();
+        let billing_cycle_set = billing_cycle.is_set();
         sqlx::query(
-            "UPDATE servers
-                SET paid_until = ?, price_cents = ?, currency = ?, billing_cycle = ?
+            "UPDATE servers SET
+                paid_until = CASE WHEN ? THEN ? ELSE paid_until END,
+                price_cents = CASE WHEN ? THEN ? ELSE price_cents END,
+                currency = CASE WHEN ? THEN ? ELSE currency END,
+                billing_cycle = CASE WHEN ? THEN ? ELSE billing_cycle END
               WHERE id = ?",
         )
-        .bind(paid_until)
-        .bind(price_cents)
-        .bind(currency)
-        .bind(billing_cycle)
+        .bind(paid_until_set)
+        .bind(paid_until.value().flatten())
+        .bind(price_cents_set)
+        .bind(price_cents.value().flatten())
+        .bind(currency_set)
+        .bind(currency.value().flatten())
+        .bind(billing_cycle_set)
+        .bind(billing_cycle.value().flatten())
         .bind(id)
         .execute(pool)
         .await?;
@@ -2274,6 +2293,82 @@ pub mod servers {
             let server = find_by_id(&pool, &id).await.unwrap();
             assert!((server.net_rx_bps.unwrap() - 100.0).abs() < 1e-6);
             assert!((server.net_tx_bps.unwrap() - 50.0).abs() < 1e-6);
+        }
+
+        /// 并发部分更新不能互相覆盖：A 改价格、B 改到期，两者都基于同一份旧快照。
+        ///
+        /// 旧实现把「读快照 → 合并 → 写四列」当成一次整体覆盖，后写的请求会把
+        /// 先写的列抹回旧值。新实现只写本次改动的列；合并值只用于校验。
+        #[tokio::test]
+        async fn billing_patch_only_writes_columns_it_changed() {
+            let pool = setup().await;
+            let id = create_server(&pool, "hk-1").await;
+
+            // A 与 B 都先读到「四列为空」的快照；各自只声明自己改动的列。
+            set_billing(
+                &pool,
+                &id,
+                Patch::Missing,
+                Patch::Value(Some(1200)),
+                Patch::Missing,
+                Patch::Missing,
+            )
+            .await
+            .unwrap();
+            set_billing(
+                &pool,
+                &id,
+                Patch::Value(Some("2027-01-01")),
+                Patch::Missing,
+                Patch::Missing,
+                Patch::Missing,
+            )
+            .await
+            .unwrap();
+
+            let server = find_by_id(&pool, &id).await.unwrap();
+            assert_eq!(
+                server.price_cents,
+                Some(1200),
+                "B 的 PATCH 不能把 A 写好的价格抹掉"
+            );
+            assert_eq!(server.paid_until.as_deref(), Some("2027-01-01"));
+        }
+
+        /// 本次 PATCH 没改的列必须原样保留：存量脏值不因为「顺带同步」被清成 NULL。
+        #[tokio::test]
+        async fn billing_patch_leaves_untouched_dirty_columns_alone() {
+            let pool = setup().await;
+            let id = create_server(&pool, "hk-1").await;
+            sqlx::query("UPDATE servers SET billing_cycle = 'weekly' WHERE id = ?")
+                .bind(&id)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            // 只改价格（仓储层不做成对校验，校验在 domain/master）。
+            set_billing(
+                &pool,
+                &id,
+                Patch::Missing,
+                Patch::Value(Some(1200)),
+                Patch::Missing,
+                Patch::Missing,
+            )
+            .await
+            .unwrap();
+
+            let cycle: Option<String> =
+                sqlx::query_scalar("SELECT billing_cycle FROM servers WHERE id = ?")
+                    .bind(&id)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(
+                cycle.as_deref(),
+                Some("weekly"),
+                "没有传 billing_cycle 的 PATCH 不能把存量脏值清成 NULL"
+            );
         }
     }
 }

@@ -268,6 +268,7 @@ mod tests {
     use serde_json::Value;
     use tower::ServiceExt;
 
+    use pierwave_domain::models::Patch;
     use pierwave_domain::repo;
     use pierwave_domain::Db;
 
@@ -297,6 +298,26 @@ mod tests {
             serde_json::from_slice(&bytes).unwrap_or(Value::Null),
             String::from_utf8_lossy(&bytes).into_owned(),
         )
+    }
+
+    /// 测试里整组写入四列（仓储层三态版本的便捷包装）。
+    async fn set_billing(
+        pool: &sqlx::SqlitePool,
+        id: &str,
+        paid_until: Option<&str>,
+        price_cents: Option<i64>,
+        currency: Option<&str>,
+        billing_cycle: Option<&str>,
+    ) -> anyhow::Result<()> {
+        repo::servers::set_billing(
+            pool,
+            id,
+            Patch::Value(paid_until),
+            Patch::Value(price_cents),
+            Patch::Value(currency),
+            Patch::Value(billing_cycle),
+        )
+        .await
     }
 
     async fn seed_server(state: &AppState, name: &str, address: &str) -> String {
@@ -867,7 +888,7 @@ mod tests {
 
         // 管理员填写后公开可见。
         state.public_status.clear();
-        repo::servers::set_billing(
+        set_billing(
             &state.db.pool,
             &id,
             Some("2026-12-31"),
@@ -888,7 +909,7 @@ mod tests {
         // 直接改库塞进非法值（模拟手工改库 / 旧版本脏数据）：接口仍然 200，
         // 非法字段逐个降级为 null，绝不能 panic 或整个 500。
         state.public_status.clear();
-        repo::servers::set_billing(
+        set_billing(
             &state.db.pool,
             &id,
             Some("2026-02-30"),
@@ -907,7 +928,7 @@ mod tests {
 
         // 混合：一列脏、一列合法，合法的那列照常展示。
         state.public_status.clear();
-        repo::servers::set_billing(
+        set_billing(
             &state.db.pool,
             &id,
             None,
@@ -924,5 +945,181 @@ mod tests {
         assert!(server["price_cents"].is_null(), "{body}");
         assert_eq!(server["currency"], "EUR");
         assert!(server["billing_cycle"].is_null(), "{body}");
+    }
+
+    /// 迁移 0062：一次性修复历史脏数据。
+    ///
+    /// 0061 的四个列没有 CHECK，手工改库可以把 TEXT 塞进 `price_cents`（INTEGER
+    /// 亲和性转换失败时按 TEXT 存），也可以写入越界价格 / 坏币种。这类行会让
+    /// `Server::from_row` 解码失败，公开页与管理端列表全部 500，管理员无法自救。
+    /// 0062 把「类型被写坏」与「值域非法」的列都置 NULL；修复后两个读接口都
+    /// 必须 200 且字段为 null。
+    #[tokio::test]
+    async fn migration_0062_repairs_dirty_billing_columns_for_public_and_admin_reads() {
+        use axum::http::header;
+        use pierwave_domain::{Db, MIGRATOR};
+
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        // 停在 0061：模拟一个「已经升级到 0061、但被手工改坏」的库。
+        for migration in MIGRATOR.iter().filter(|m| m.version <= 61) {
+            sqlx::raw_sql(&migration.sql)
+                .execute(&db.pool)
+                .await
+                .unwrap_or_else(|error| panic!("执行迁移 {} 失败：{error}", migration.version));
+        }
+
+        let admin = repo::users::create(
+            &db.pool,
+            repo::users::NewUser {
+                username: "admin".into(),
+                password: "devpass".into(),
+                role: "admin".into(),
+                quota_bytes: None,
+                rule_template_id: None,
+                subscription_template_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let (token, _) = repo::sessions::create(&db.pool, &admin.id, 3_600, None)
+            .await
+            .unwrap();
+        let (broken, _) = repo::servers::create(&db.pool, "edge-broken", "203.0.113.9", "external")
+            .await
+            .unwrap();
+        let (out_of_range, _) =
+            repo::servers::create(&db.pool, "edge-range", "203.0.113.10", "external")
+                .await
+                .unwrap();
+        let (clean, _) = repo::servers::create(&db.pool, "edge-clean", "203.0.113.11", "external")
+            .await
+            .unwrap();
+
+        // 三种脏法：TEXT 进 INTEGER 列（'abc' 无法按数值存储）、整数越界 + 坏币种、
+        // 到期日被写成整数。合法行必须原样保留，迁移不能把好数据一起清掉。
+        sqlx::query(
+            "UPDATE servers
+                SET price_cents = 'abc',
+                    paid_until = 12345,
+                    currency = 'cny',
+                    billing_cycle = 'weekly'
+              WHERE id = ?",
+        )
+        .bind(&broken.id)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE servers
+                SET price_cents = 1000000000,
+                    paid_until = '2026-13-01',
+                    currency = 'CN',
+                    billing_cycle = 'annual'
+              WHERE id = ?",
+        )
+        .bind(&out_of_range.id)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+        set_billing(
+            &db.pool,
+            &clean.id,
+            Some("2026-12-31"),
+            Some(4999),
+            Some("CNY"),
+            Some("monthly"),
+        )
+        .await
+        .unwrap();
+
+        let state = AppState::new(db, "web/dist");
+        let app = crate::app::router(state.clone());
+
+        // 修复前：`price_cents` 解码失败 → 500。这正是「整页 500、无法自救」。
+        let (status, _, raw) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(
+            status,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "脏列在修复前必须让读接口失败（本测试的前提）：{raw}"
+        );
+
+        let migration = MIGRATOR
+            .iter()
+            .find(|migration| migration.version == 62)
+            .expect("必须存在 0062 数据修复迁移");
+        sqlx::raw_sql(&migration.sql)
+            .execute(&state.db.pool)
+            .await
+            .unwrap();
+        // 文档承诺可重复执行：再跑一次不能把合法行改坏。
+        sqlx::raw_sql(&migration.sql)
+            .execute(&state.db.pool)
+            .await
+            .unwrap();
+
+        // 公开页：200，脏行四个字段全部降级为 null，合法行原样保留。
+        let (status, body, raw) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{raw}");
+        let by_name = |name: &str| -> &Value {
+            body["servers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["name"] == name)
+                .unwrap_or_else(|| panic!("公开页缺少服务器 {name}：{body}"))
+        };
+        for name in ["edge-broken", "edge-range"] {
+            for key in ["paid_until", "price_cents", "currency", "billing_cycle"] {
+                assert!(
+                    by_name(name)[key].is_null(),
+                    "{name}.{key} 的脏值必须被迁移清成 NULL：{body}"
+                );
+            }
+        }
+        let clean = by_name("edge-clean");
+        assert_eq!(clean["paid_until"], "2026-12-31", "{body}");
+        assert_eq!(clean["price_cents"], 4999, "{body}");
+        assert_eq!(clean["currency"], "CNY", "{body}");
+        assert_eq!(clean["billing_cycle"], "monthly", "{body}");
+
+        // 管理端列表：同样 200，脏行为 null、合法行保留。
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/api/v1/servers")
+            .header(
+                header::COOKIE,
+                format!("{}={token}", crate::auth::SESSION_COOKIE),
+            )
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "迁移后管理端列表必须可读：{}",
+            String::from_utf8_lossy(&bytes)
+        );
+        let by_name = |name: &str| -> &Value {
+            body["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["name"] == name)
+                .unwrap_or_else(|| panic!("管理端列表缺少服务器 {name}：{body}"))
+        };
+        for name in ["edge-broken", "edge-range"] {
+            for key in ["paid_until", "price_cents", "currency", "billing_cycle"] {
+                assert!(
+                    by_name(name)[key].is_null(),
+                    "{name}.{key} 的脏值必须被迁移清成 NULL：{body}"
+                );
+            }
+        }
+        assert_eq!(by_name("edge-clean")["price_cents"], 4999, "{body}");
     }
 }

@@ -185,22 +185,56 @@ sudo systemctl daemon-reload && sudo systemctl restart pierwave-agent
 ## 服务器费用与到期 / Server cost and expiry
 
 迁移 `0061` 给 `servers` 增加四个**可选**展示字段。它们不参与鉴权、期望态下发、限速或
-用户计费，改它们不会触发 Agent 下发；只是给公开探针页提供展示数据。
+用户计费，改它们不会触发 Agent 下发；只是给公开探针页提供展示数据。迁移 `0062` 是
+一次性数据修复（见下）。
 
 | 字段 | 类型 | 含义 |
 |---|---|---|
-| `paid_until` | `TEXT`，`YYYY-MM-DD` | 到期日（必须是真实存在的日期） |
-| `price_cents` | `INTEGER` | 价格（分）；`0` 合法，上限 `999_999_999`（约 1000 万元） |
+| `paid_until` | `TEXT`，`YYYY-MM-DD` | 到期日：`1970-01-01` 到 `2100-12-31` 之间真实存在的日期 |
+| `price_cents` | `INTEGER` | 价格（分）；`0` 合法，上限 `999_999_999`（约 1000 万元）；只接受整数或 `null` |
 | `currency` | `TEXT` | 3 位大写币种代码（`CNY` / `USD` / `EUR` ...） |
 | `billing_cycle` | `TEXT` | `monthly` / `yearly` / `once` |
 
-创建与 `PATCH /api/v1/servers[/{id}]` 接受这四个**扁平字段**（命名与列名一致）。
-四个字段可以任意组合填写：只填到期不填价格、或只填价格不填到期都合法。
-PATCH 不传 = 不改，传 `null` 或空串 = 清空。校验失败返回 400，错误码
-`server.paid_until_invalid` / `server.price_cents_invalid` / `server.currency_invalid` /
-`server.billing_cycle_invalid`，`params` 带 `field` 与允许范围（完整表见
-[ERRORS.md](ERRORS.md)）。管理员服务器列表与公开探针页都返回这四个字段；
-公开页对非法存量值（手工改库、旧版本脏数据）按 `null` 处理，不会 500。
+创建与 `PATCH /api/v1/servers[/{id}]` 接受这四个**扁平字段**（命名与列名一致）：
+
+- `paid_until` 与 `billing_cycle` 可以独立填写；
+- **`price_cents` 与 `currency` 必须成对**：同时有值或同时为空。只填一半返回 400
+  `server.billing_pair_incomplete`，`params.missing` 指明缺哪个（`price_cents` / `currency`）。
+  这样后端与前端契约一致：不会出现「管理员填了价格，公开页却因为缺币种整组隐藏」。
+- **`price_cents` 只接受整数或 `null`**；空串（`""`）不是合法整数，请发 `null`。JSON 类型
+  错误（例如把 `""` 发给整数字段）由全局映射返回 422 + `request.invalid_json`，
+  `params.detail` 带原始字段信息，前端可按 code 翻译。
+- PATCH 不传 = 不改，传 `null` 或空串 = 清空。PATCH **只写本次携带的列**，不覆盖未修改
+  的列（两个并发部分更新不会互相抹掉，存量脏列也不会被顺带清成 `NULL`）。
+- 校验失败返回 400，错误码 `server.paid_until_invalid` / `server.price_cents_invalid` /
+  `server.currency_invalid` / `server.billing_cycle_invalid` /
+  `server.billing_pair_incomplete`，`params` 带 `field` 与允许范围（完整表见
+  [ERRORS.md](ERRORS.md)）。管理员服务器列表与公开探针页都返回这四个字段。
+
+**脏数据承诺 / Dirty-data contract：值域非法按 `null` 处理；列类型被写坏由 `0062` 迁移
+一次性修复。** 读路径（公开页、管理端列表）始终容错：非法值逐字段降级为 `null`，不会让
+页面 500；但「TEXT 被写进 INTEGER 列」这类类型损坏会让 `Server::from_row` 解码失败，
+迁移 `0062` 在升级时把类型损坏与值域非法的列一次性置 `NULL`（可重复执行，只改这四列）。
+正常写入路径产生不了这类值。
+
+> **Server cost and expiry.** Migration `0061` adds four optional display columns to
+> `servers`; migration `0062` is a one-off repair of legacy dirty values in those columns.
+> They never affect auth, desired-state dispatch, rate limits or user billing.
+> `paid_until` is a real `YYYY-MM-DD` date between `1970-01-01` and `2100-12-31`.
+> `price_cents` accepts **only an integer or `null`** — send `null`, not `""`, to clear it;
+> a JSON type error is mapped globally to 422 + `request.invalid_json`. `paid_until` and
+> `billing_cycle` may be set independently, but **`price_cents` and `currency` must be
+> provided together** (both set or both empty), otherwise 400
+> `server.billing_pair_incomplete` with `params.missing`. PATCH is tri-state per field
+> (omitted = unchanged, `null`/empty = clear) and **writes only the columns it carried**, so
+> concurrent partial updates do not overwrite each other and untouched legacy dirty columns
+> are not nulled as a side effect. Invalid values return 400 (codes and params in
+> [ERRORS.md](ERRORS.md)). Admin lists and the public probe return all four fields.
+>
+> **Dirty-data contract: out-of-domain values read as `null`; wrong column storage classes
+> are repaired once by migration `0062`.** Reads never 500 on dirty values; `0062` resets
+> both wrong storage classes and out-of-domain values to `NULL` (idempotent, only these four
+> columns). The normal write path cannot produce such values.
 
 > **⚠️ 公开可见：探针页 `/status` 不需要登录。填写后价格与到期对所有人可见。
 > 不想公开就不要填。**
@@ -208,18 +242,6 @@ PATCH 不传 = 不改，传 `null` 或空串 = 清空。校验失败返回 400�
 > **⚠️ Public by design: the probe page `/status` needs no login. Once filled in,
 > the price and expiry date are visible to everyone. If you do not want them public,
 > leave them empty.**
-
-> **Server cost and expiry.** Migration `0061` adds four optional display columns to
-> `servers`: `paid_until` (`YYYY-MM-DD`), `price_cents` (integer cents, `0..=999_999_999`),
-> `currency` (three-letter uppercase code), and `billing_cycle` (`monthly` / `yearly` /
-> `once`). They never affect auth, desired-state dispatch, rate limits or user billing.
-> Create and `PATCH /api/v1/servers[/{id}]` accept them as flat fields; any combination may be
-> filled, omitting a field on PATCH leaves it unchanged, and `null`/empty clears it. Invalid
-> values return 400 (`server.paid_until_invalid`, `server.price_cents_invalid`,
-> `server.currency_invalid`, `server.billing_cycle_invalid`; params include `field` and the
-> allowed range — see [ERRORS.md](ERRORS.md)). Both the admin server list and the public probe
-> return the four fields; the public page sanitizes legacy invalid values to `null` instead of
-> failing.
 
 ## 日志与备份
 

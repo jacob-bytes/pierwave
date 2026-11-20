@@ -115,26 +115,50 @@ async fn save_port_policy(
     Ok(())
 }
 
-/// 把校验后的「费用与到期」写回服务器，并同步内存里的响应字段。
+/// 把校验后的「费用与到期」写回服务器，并同步内存里**本次实际改动**的字段。
+///
+/// 四个参数是三态：`Missing` = 本次没改该列，`Null` = 清空，`Value` = 写入。
+/// 合并后的快照只用于校验，不能整份覆盖：并发 PATCH 各自只写自己的列，
+/// 没改的存量脏值也不会被顺带清成 NULL。
 async fn save_billing(
     state: &AppState,
     server: &mut Server,
-    billing: &BillingMeta,
+    paid_until: Patch<Option<&str>>,
+    price_cents: Patch<Option<i64>>,
+    currency: Patch<Option<&str>>,
+    billing_cycle: Patch<Option<&str>>,
 ) -> AppResult<()> {
     repo::servers::set_billing(
         &state.db.pool,
         &server.id,
-        billing.paid_until.as_deref(),
-        billing.price_cents,
-        billing.currency.as_deref(),
-        billing.billing_cycle.as_deref(),
+        paid_until,
+        price_cents,
+        currency,
+        billing_cycle,
     )
     .await?;
-    server.paid_until = billing.paid_until.clone();
-    server.price_cents = billing.price_cents;
-    server.currency = billing.currency.clone();
-    server.billing_cycle = billing.billing_cycle.clone();
+    if paid_until.is_set() {
+        server.paid_until = paid_until.value().flatten().map(str::to_string);
+    }
+    if price_cents.is_set() {
+        server.price_cents = price_cents.value().flatten();
+    }
+    if currency.is_set() {
+        server.currency = currency.value().flatten().map(str::to_string);
+    }
+    if billing_cycle.is_set() {
+        server.billing_cycle = billing_cycle.value().flatten().map(str::to_string);
+    }
     Ok(())
+}
+
+/// 把一个费用字段转成仓储层的三态补丁：只有本次 PATCH 携带了该字段才写。
+fn billing_column<T: Copy>(changed: bool, value: Option<T>) -> Patch<Option<T>> {
+    if changed {
+        Patch::Value(value)
+    } else {
+        Patch::Missing
+    }
 }
 
 pub async fn list(
@@ -285,7 +309,15 @@ pub async fn create(
         server.nic_name = Some(name.clone());
     }
     if !billing.is_empty() {
-        save_billing(&state, &mut server, &billing).await?;
+        save_billing(
+            &state,
+            &mut server,
+            Patch::Value(billing.paid_until.as_deref()),
+            Patch::Value(billing.price_cents),
+            Patch::Value(billing.currency.as_deref()),
+            Patch::Value(billing.billing_cycle.as_deref()),
+        )
+        .await?;
     }
     // 明文 token 不落审计：它只该在创建响应里出现一次。
     crate::audit::record(
@@ -523,8 +555,13 @@ pub async fn update(
     }
 
     // 费用字段是三态 PATCH：先把「缺省沿用 / null 清空 / 值覆盖」合成最终值，
-    // 再整体校验，避免只改一半产生非法组合。存量非法值按未填写参与合并：
-    // 否则修价格会被另一列的脏数据永久卡住。
+    // 再整体校验，避免只改一半产生非法组合。存量非法值按未填写参与合并，
+    // 避免修一个字段被另一列的脏数据卡住；若两个价格字段因此落单，成对校验
+    // 会要求一次补齐或一次清空（见 F5 / `server.billing_pair_incomplete`）。
+    //
+    // 注意：合并结果**只用于校验**。落库时只写本次 PATCH 真正携带的列
+    // （`billing_column`），否则两个并发部分更新会互相覆盖，没改的脏列也会
+    // 被顺带清成 NULL。
     let billing = if billing_changed {
         let current = current.as_ref().expect("billing_changed 时必已读取服务器");
         let existing = BillingMeta::from_server(current);
@@ -601,7 +638,15 @@ pub async fn update(
         server.nic_name = nic_name;
     }
     if let Some(billing) = &billing {
-        save_billing(&state, &mut server, billing).await?;
+        save_billing(
+            &state,
+            &mut server,
+            billing_column(req.paid_until.is_set(), billing.paid_until.as_deref()),
+            billing_column(req.price_cents.is_set(), billing.price_cents),
+            billing_column(req.currency.is_set(), billing.currency.as_deref()),
+            billing_column(req.billing_cycle.is_set(), billing.billing_cycle.as_deref()),
+        )
+        .await?;
     }
 
     let changes = crate::audit::diff(vec![
@@ -2164,6 +2209,111 @@ mod tests {
 
     // ---- 服务器费用与到期（迁移 0061） ----
 
+    /// `price_cents: ""` 这类类型错误过去是 axum 的 422 纯文本，前端没有可翻译 code；
+    /// 现在统一映射成标准错误信封（状态仍是 422，语义不变）。
+    #[tokio::test]
+    async fn empty_string_price_gets_a_coded_json_error() {
+        let (app, _state, cookie) = setup().await;
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"hk-1","address":"1.2.3.4","price_cents":""}),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        assert_eq!(body["code"], "request.invalid_json", "{body}");
+        let message = body["error"].as_str().unwrap_or_default();
+        assert!(
+            message.contains("请求体") && message.contains("Request body"),
+            "错误文案必须中英双语：{message}"
+        );
+        assert!(
+            body["params"]["detail"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("price_cents"),
+            "params.detail 应保留具体字段信息：{body}"
+        );
+    }
+
+    /// PATCH 只写本次携带的费用列：并发/先后部分更新互不覆盖，
+    /// 未被本次修改的存量脏列也不会被「顺带同步」清成 NULL。
+    #[tokio::test]
+    async fn billing_patch_only_writes_its_own_columns() {
+        let (app, state, cookie) = setup().await;
+        let (_, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"hk-1","address":"1.2.3.4"}),
+        )
+        .await;
+        let id = created["server"]["id"].as_str().unwrap().to_string();
+
+        // A 改价格 + 币种，B 改到期：两次 PATCH 各自携带自己的字段。
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"price_cents": 1200, "currency": "CNY"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"paid_until": "2027-01-01"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        assert_eq!(
+            patched["server"]["price_cents"], 1200,
+            "B 的 PATCH 不能把 A 写好的价格抹掉：{patched}"
+        );
+        assert_eq!(patched["server"]["currency"], "CNY", "{patched}");
+        assert_eq!(patched["server"]["paid_until"], "2027-01-01", "{patched}");
+
+        // 手工改库留下的脏值（这里经仓储层写入，仓储不校验）：本次只改价格 /
+        // 币种，没传的 billing_cycle 必须保持原样，不能被清成 NULL。
+        repo::servers::set_billing(
+            &state.db.pool,
+            &id,
+            Patch::Missing,
+            Patch::Missing,
+            Patch::Missing,
+            Patch::Value(Some("weekly")),
+        )
+        .await
+        .unwrap();
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"price_cents": 1300, "currency": "CNY"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        let stored = repo::servers::find_by_id(&state.db.pool, &id)
+            .await
+            .unwrap();
+        assert_eq!(
+            stored.billing_cycle.as_deref(),
+            Some("weekly"),
+            "没传的列不能被本次 PATCH 重写成 NULL"
+        );
+        assert_eq!(stored.price_cents, Some(1300));
+        assert_eq!(stored.paid_until.as_deref(), Some("2027-01-01"));
+    }
+
     /// 创建 / PATCH / 列表都接受并返回四个字段；部分填写合法，空串与 null 清空。
     #[tokio::test]
     async fn billing_fields_are_accepted_returned_and_cleared() {
@@ -2200,7 +2350,7 @@ mod tests {
         assert_eq!(listed["items"][0]["currency"], "CNY");
         assert_eq!(listed["items"][0]["billing_cycle"], "monthly");
 
-        // 部分填写：只填到期、不填价格是允许的（反向亦然）。
+        // 部分填写：只填到期、不填价格是允许的（价格与币种必须成对，见下条）。
         let (status, patched) = send(
             &app,
             &cookie,
@@ -2422,6 +2572,113 @@ mod tests {
         assert_eq!(server["server"]["paid_until"], "2026-12-31");
         assert_eq!(server["server"]["currency"], "CNY");
         assert_eq!(server["server"]["billing_cycle"], "monthly");
+    }
+
+    /// 价格与币种必须成对：只填一半 400 `server.billing_pair_incomplete`，
+    /// `params.missing` 指明缺哪个；清空也必须一次清两个。
+    #[tokio::test]
+    async fn price_and_currency_must_be_provided_together() {
+        let (app, _state, cookie) = setup().await;
+
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"hk-1","address":"1.2.3.4","price_cents":1200}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "server.billing_pair_incomplete", "{body}");
+        assert_eq!(body["params"]["missing"], "currency", "{body}");
+
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"hk-1","address":"1.2.3.4","currency":"CNY"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["params"]["missing"], "price_cents", "{body}");
+
+        // 成对填写合法。
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({
+                "name":"hk-1",
+                "address":"1.2.3.4",
+                "price_cents":1200,
+                "currency":"CNY",
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let id = body["server"]["id"].as_str().unwrap().to_string();
+
+        // 只清一半会让币种/价格落单，同样拒绝。
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"currency": null}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "server.billing_pair_incomplete", "{body}");
+        assert_eq!(body["params"]["missing"], "currency", "{body}");
+
+        // 一次清两个是合法的。
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"price_cents": null, "currency": null}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body["server"]["price_cents"].is_null(), "{body}");
+        assert!(body["server"]["currency"].is_null(), "{body}");
+    }
+
+    /// 到期日年份边界：只接受 1970-01-01..=2100-12-31，越界 400。
+    #[tokio::test]
+    async fn paid_until_year_range_is_enforced() {
+        let (app, _state, cookie) = setup().await;
+
+        for date in ["0000-01-01", "9999-12-31"] {
+            let (status, body) = send(
+                &app,
+                &cookie,
+                Method::POST,
+                "/api/v1/servers",
+                serde_json::json!({"name":"hk-1","address":"1.2.3.4","paid_until": date}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{date}: {body}");
+            assert_eq!(body["code"], "server.paid_until_invalid", "{date}: {body}");
+            assert_eq!(body["params"]["min"], "1970-01-01", "{body}");
+            assert_eq!(body["params"]["max"], "2100-12-31", "{body}");
+        }
+
+        for date in ["1970-01-01", "2100-12-31"] {
+            let (status, body) = send(
+                &app,
+                &cookie,
+                Method::POST,
+                "/api/v1/servers",
+                serde_json::json!({"name":"hk-1","address":"1.2.3.4","paid_until": date}),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{date}: {body}");
+            assert_eq!(body["server"]["paid_until"], date, "{body}");
+        }
     }
 
     /// 价格变化必须留痕：`server.update` 的 changes 里有这四个字段的 from / to。

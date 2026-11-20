@@ -1,4 +1,7 @@
+use axum::body::Body;
+use axum::extract::Request;
 use axum::http::{header, HeaderValue, StatusCode};
+use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use pierwave_domain::error::DomainError;
@@ -309,6 +312,60 @@ impl IntoResponse for AppError {
 
 pub type AppResult<T> = Result<T, AppError>;
 
+/// 请求体 JSON 解析失败时的固定文案（中英双语，可直接展示）。
+const INVALID_JSON_MESSAGE: &str = "请求体不是合法的 JSON，或某个字段类型不匹配（例如整数 / 数字字段不能传空串；清空请发 null） / Request body is not valid JSON, or a field has the wrong type (e.g. an integer field cannot receive an empty string; send null to clear it)";
+
+/// 把 axum `Json` 提取器产生的 422 纯文本改写成统一错误信封。
+///
+/// 这是**全局通用**的一层（在 `app::router` 上以中间件注册），不是给某个端点
+/// 打的补丁：任何路由的请求体反序列化失败都会得到
+/// `{ error, code: "request.invalid_json", params.detail }`，前端可以按 code
+/// 翻译。HTTP 状态保持 422（axum 对「JSON 合法但类型不匹配」的既有语义），
+/// 已有客户端不需要改判断。
+///
+/// 只改写 `text/plain` 的 422：正常业务错误即使碰巧返回 422 也已经有自己的
+/// JSON body，不能被覆盖。
+pub async fn map_json_rejections(request: Request, next: Next) -> Response {
+    let response = next.run(request).await;
+    rewrite_json_rejection(response).await
+}
+
+async fn rewrite_json_rejection(response: Response) -> Response {
+    if response.status() != StatusCode::UNPROCESSABLE_ENTITY {
+        return response;
+    }
+    let is_plain_text = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("text/plain"));
+    if !is_plain_text {
+        return response;
+    }
+
+    // 原始 detail 放进 params：前端不需要翻译它，排查时能直接看到哪个字段出错。
+    let (mut parts, body) = response.into_parts();
+    let bytes = axum::body::to_bytes(body, 64 * 1024)
+        .await
+        .unwrap_or_default();
+    let detail = String::from_utf8_lossy(&bytes).trim().to_string();
+    let mut params = serde_json::Map::new();
+    if !detail.is_empty() {
+        params.insert("detail".to_string(), Value::String(detail));
+    }
+    let body = json!({
+        "error": INVALID_JSON_MESSAGE,
+        "code": "request.invalid_json",
+        "params": Value::Object(params),
+    });
+    parts.headers.remove(header::CONTENT_LENGTH);
+    parts.headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    Response::from_parts(parts, Body::from(body.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -445,5 +502,68 @@ mod tests {
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
         assert!(body.get("code").is_none(), "{body}");
         assert_eq!(body["error"], "服务器内部错误");
+    }
+
+    /// 任何路由的 `Json<T>` 反序列化失败都会落成这一个信封，而不是 422 纯文本。
+    #[tokio::test]
+    async fn json_rejection_422_is_rewritten_to_a_coded_envelope() {
+        let response = (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            [(
+                header::CONTENT_TYPE,
+                "text/plain; charset=utf-8".to_string(),
+            )],
+            "Failed to deserialize the JSON body into the target type: \
+             price_cents: invalid type: string \"\", expected i64",
+        )
+            .into_response();
+        let response = rewrite_json_rejection(response).await;
+
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("application/json"));
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["code"], "request.invalid_json", "{body}");
+        assert!(
+            body["error"].as_str().unwrap().contains("请求体")
+                && body["error"].as_str().unwrap().contains("Request body"),
+            "错误文案必须中英双语：{body}"
+        );
+        assert!(
+            body["params"]["detail"]
+                .as_str()
+                .unwrap()
+                .contains("price_cents"),
+            "原始 detail 必须保留：{body}"
+        );
+    }
+
+    /// 只改写 text/plain 的 422：其它状态与已是 JSON 的响应原样透传。
+    #[tokio::test]
+    async fn json_rejection_rewrite_leaves_other_responses_alone() {
+        let bad_request = (StatusCode::BAD_REQUEST, "bad request").into_response();
+        let response = rewrite_json_rejection(bad_request).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let json_422 = (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            axum::Json(json!({ "code": "custom.422" })),
+        )
+            .into_response();
+        let response = rewrite_json_rejection(json_422).await;
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["code"], "custom.422", "已有 JSON 不能被覆盖：{body}");
     }
 }

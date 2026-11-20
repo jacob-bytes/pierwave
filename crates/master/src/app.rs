@@ -372,6 +372,9 @@ pub fn router(state: AppState) -> Router {
         ))
         .with_state(state)
         .fallback_service(static_files)
+        // JSON 提取失败（422 纯文本）统一改写成 `request.invalid_json` 信封；
+        // 必须包在业务路由外层，才能覆盖所有端点的 `Json<T>` 提取。
+        .layer(axum::middleware::from_fn(crate::error::map_json_rejections))
         .layer(axum::middleware::from_fn(security_headers))
         .layer(TraceLayer::new_for_http().make_span_with(make_span))
 }
@@ -426,6 +429,25 @@ mod tests {
             .oneshot(builder.body(Body::empty()).unwrap())
             .await
             .unwrap()
+    }
+
+    /// JSON 提取失败的错误信封是全局的：任意端点的 `Json<T>` 都走同一层映射。
+    #[tokio::test]
+    async fn json_extractor_rejections_are_coded_for_any_route() {
+        let app = test_app("web/dist").await;
+        let request = Request::builder()
+            .method(Method::POST)
+            .uri("/api/v1/auth/login")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"username":1,"password":"devpass"}"#))
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["code"], "request.invalid_json", "{body}");
     }
 
     #[tokio::test]

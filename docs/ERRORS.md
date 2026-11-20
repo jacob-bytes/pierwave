@@ -22,6 +22,7 @@
 | `query.cursor_invalid` | before 游标无效 | — |
 | `event.cleanup_days_invalid` | 清理天数必须在 {min}-{max} 天之间，或选择全部 | max, min |
 | `request.no_update_fields` | 至少需要提供一个可更新字段 | — |
+| `request.invalid_json` | 请求体不是合法的 JSON，或某个字段类型不匹配（例如整数 / 数字字段不能传空串；清空请发 null） / Request body is not valid JSON, or a field has the wrong type | detail |
 | `request.busy` | 数据库繁忙，请稍后重试（并发写入未能在等待时间内完成） | — |
 | `settings.backup_webdav_url_invalid` | WebDAV 地址不合法 | — |
 | `settings.backup_webdav_username_invalid` | WebDAV 用户名不合法 | — |
@@ -194,6 +195,32 @@
 | `chain.enabled_without_groups` | 链没有成员组，也没有可恢复的停用快照，无法启用 | chain_id |
 | `chain.proxy_protocol_requires_single_hop` | PROXY protocol v2 只能在单跳链上开启 | hops |
 | `me.chain_groups_missing` | 链的拓扑信息已丢失，请删除后重新创建 | chain_id |
+
+## 请求体 JSON / Request body parsing
+
+所有 `Json<T>` 路由共享一层全局映射：请求体 JSON 合法但字段类型不匹配时，axum 原本
+返回 422 纯文本；现在统一返回标准错误信封，HTTP 状态保持 422：
+
+```json
+{
+  "error": "请求体不是合法的 JSON，或某个字段类型不匹配（例如整数 / 数字字段不能传空串；清空请发 null） / Request body is not valid JSON, or a field has the wrong type (e.g. an integer field cannot receive an empty string; send null to clear it)",
+  "code": "request.invalid_json",
+  "params": { "detail": "Failed to deserialize the JSON body into the target type: price_cents: ..." }
+}
+```
+
+- `params.detail` 是底层反序列化错误原文（英文技术信息），只用于排查，不需要翻译；
+- 这层映射是**所有端点通用**的，不只 servers；已是 JSON 的 422 与其它状态码原样透传；
+- 典型例子：`price_cents: ""` 不是整数。清空价格请发 `price_cents: null`（并且与
+  `currency` 一起清空，见费用与到期一节）。
+
+> Every `Json<T>` route shares one global mapping: a syntactically valid body whose field
+> types do not match used to return a plain-text 422. It now returns the standard error
+> envelope above, keeping HTTP 422. `params.detail` is the raw deserializer message (technical,
+> English) for debugging only. The mapping applies to **all** endpoints, not just servers;
+> JSON-shaped 422s and all other statuses pass through unchanged. Typical case:
+> `price_cents: ""` is not an integer — send `price_cents: null` to clear it (together with
+> `currency`, see below).
 
 ## API Token / API tokens
 
@@ -647,31 +674,49 @@ nftables 引擎的同一入口端口可以按策略把新连接分配到多个�
 > `uptime_24h` is the arithmetic mean of the member servers' 24h uptimes; it is `null` when the
 > group has no samples, never `0`.
 
-### 服务器费用与到期（迁移 0061）/ Server cost and expiry (migration 0061)
+### 服务器费用与到期（迁移 0061 / 0062）/ Server cost and expiry (migration 0061 / 0062)
 
 写路径（创建与 PATCH `/api/v1/servers`）对四个字段逐项校验，均为 400；错误文案中英双语，
 `params` 至少带 `field` 与允许范围，前端词典可以直接插值：
 
 | code | 中文 | English | params |
 |---|---|---|---|
-| `server.paid_until_invalid` | 到期日不合法：{value} 不是有效的 YYYY-MM-DD 日期，或留空 | Invalid paid-until date: {value} is not a real YYYY-MM-DD date, or leave it empty | field, format, value |
+| `server.paid_until_invalid` | 到期日不合法：{value} 必须是在 {min} 到 {max} 之间真实存在的 YYYY-MM-DD 日期，或留空 | Invalid paid-until date: {value} must be a real YYYY-MM-DD date between {min} and {max}, or leave it empty | field, format, max, min, value |
 | `server.price_cents_invalid` | 价格（分）不合法：{value} 超出 0-999999999，或留空 | Invalid price in cents: {value} is outside 0-999999999 (~10 million yuan), or leave it empty | field, max, min, value |
 | `server.currency_invalid` | 币种不合法：{value} 必须是 3 位大写字母（例如 CNY / USD / EUR），或留空 | Invalid currency: {value} must be a 3-letter uppercase code (e.g. CNY / USD / EUR), or leave it empty | field, length, pattern, value |
 | `server.billing_cycle_invalid` | 计费周期不合法：{value} 只能是 monthly / yearly / once，或留空 | Invalid billing cycle: {value} must be monthly, yearly or once, or leave it empty | allowed, field, value |
+| `server.billing_pair_incomplete` | 价格与币种必须同时填写或同时留空：缺少 {missing} | Price and currency must be provided together or both left empty: missing {missing} | missing |
 
 规则 / Rules:
 
 - `price_cents` 必须是 `0..=999_999_999` 的整数；`0` 是合法价格（免费），与 `null`（未填写）不同 /
   an integer within `0..=999_999_999`; `0` is a valid price, distinct from `null` (unfilled);
+- `price_cents` 只接受**整数或 `null`**；空串 `""` 请改发 `null`（类型错误返回 422
+  `request.invalid_json`，见上文）/ only an **integer or `null`**; send `null` instead of `""`
+  (type errors return 422 `request.invalid_json`, see above);
 - `currency` 恰好 3 位 ASCII 大写字母；小写不接受（与 `country_code` 一致）/ exactly three
   uppercase ASCII letters; lowercase is rejected, consistent with `country_code`;
+- **`price_cents` 与 `currency` 必须成对**：同时有值或同时为空，否则 400
+  `server.billing_pair_incomplete`，`params.missing` 指明缺哪个 / **`price_cents` and
+  `currency` must be provided together** (both set or both empty), otherwise 400
+  `server.billing_pair_incomplete` with `params.missing`;
 - `billing_cycle` 只能是 `monthly` / `yearly` / `once` / one of those three values;
-- `paid_until` 必须是 `YYYY-MM-DD` 且日期真实存在（`2026-02-30` 拒绝）/ a real calendar date in
-  `YYYY-MM-DD`;
-- 四个字段互相独立，允许只填其中一部分 / the four fields are independent; partial values are allowed;
-- PATCH 不传 = 不改，`null` / 空串 = 清空；存量非法值在编辑时按「未填写」参与合并，避免一列脏数据
-  卡住其它列 / omitting a field on PATCH leaves it unchanged, `null`/empty clears it, and legacy
-  invalid values are merged as "unfilled" so one dirty column cannot block editing another.
+- `paid_until` 必须是 `YYYY-MM-DD` 且日期真实存在，年份在 `1970-01-01`..=`2100-12-31`
+  之间（`0000-01-01` / `9999-12-31` / `2026-02-30` 拒绝）/ a real calendar date in
+  `YYYY-MM-DD` between `1970-01-01` and `2100-12-31` (`0000-01-01`, `9999-12-31` and
+  `2026-02-30` are rejected);
+- 到期日与计费周期可以独立填写；PATCH 不传 = 不改，`null` / 空串 = 清空 / `paid_until` and
+  `billing_cycle` may be set independently; omitting a field on PATCH leaves it unchanged,
+  `null`/empty clears it;
+- PATCH **只写本次携带的列**：合并后的快照只用于校验，不会拿整份快照覆盖四列，所以并发部分
+  更新不会互相抹掉，存量脏列也不会被无关 PATCH 清成 `NULL` / PATCH **writes only the columns
+  it carried**; the merged snapshot is for validation only, so concurrent partial updates do
+  not overwrite each other and untouched legacy dirty columns are not nulled as a side effect;
+- 存量非法值在编辑时按「未填写」参与合并，避免一列脏数据卡住其它列 / legacy invalid values
+  are merged as "unfilled" so one dirty column cannot block editing another;
+- 读路径始终容错：值域非法按 `null` 处理；列类型被写坏（如 TEXT 进 INTEGER 列）由迁移
+  `0062` 一次性修复 / reads stay tolerant: out-of-domain values read as `null`, and wrong
+  column storage classes are repaired once by migration `0062`.
 
 **公开提示 / Public visibility：探针页 `/status` 无需登录；填写后价格与到期对所有人可见，
 不想公开就不要填。The probe page `/status` is public; filled-in prices and expiry dates are

@@ -8,7 +8,8 @@
 //! [`BillingMeta::from_server`] 容错解析，旧的 / 手工改库的非法值按「未填写」
 //! 处理，绝不让一行脏数据把公开页变成 500。
 //!
-//! 四个字段互相独立：只填到期不填价格、或只填价格不填到期都是合法的。
+//! 到期日与计费周期可以独立填写；价格与币种必须成对出现（同时有值或同时为空），
+//! 否则公开页整组隐藏，管理员会以为「填了却没生效」。
 
 use chrono::NaiveDate;
 use serde_json::json;
@@ -26,8 +27,18 @@ pub const PRICE_CENTS_MAX: i64 = 999_999_999;
 pub const CURRENCY_LEN: usize = 3;
 /// 允许的计费周期；与迁移 0061 的注释一致。
 pub const BILLING_CYCLES: [&str; 3] = ["monthly", "yearly", "once"];
+/// 到期日允许的最早日期（含）：1970-01-01。
+pub const PAID_UNTIL_MIN: &str = "1970-01-01";
+/// 到期日允许的最晚日期（含）：2100-12-31。
+///
+/// 上限不是业务规则，而是给前端日期控件 / 排序一个确定范围：`0000-01-01`
+/// 或 `9999-12-31` 这类「格式合法但年份离谱」的值只会制造怪结果。
+pub const PAID_UNTIL_MAX: &str = "2100-12-31";
 
-/// 一台服务器的费用与到期（已规范化）。四个字段各自可以独立为空。
+/// 一台服务器的费用与到期（已规范化）。
+///
+/// `paid_until` / `billing_cycle` 可以独立为空；`price_cents` 与 `currency`
+/// 必须同时有值或同时为空。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BillingMeta {
     /// `YYYY-MM-DD`；`None` = 未填写。
@@ -43,32 +54,58 @@ pub struct BillingMeta {
 impl BillingMeta {
     /// 写路径校验：空白等于未填写，其余按字段规则校验。
     ///
-    /// 允许任意组合的部分填写；不要求「价格 + 币种」一起出现，因为需求明确
-    /// 允许只填到期或只填价格。
+    /// 到期日 / 计费周期可以独立填写；**价格与币种必须成对**（同时有值或同时
+    /// 为空）。只填一半会让前端整组隐藏，管理员以为填了、公开页却不显示，
+    /// 所以宁可在写路径 400。
     ///
     /// 错误码（均为 400，`params` 含 `field` 与允许范围）：
-    /// * `server.paid_until_invalid`：不是真实存在的 `YYYY-MM-DD` 日期；
+    /// * `server.paid_until_invalid`：不是真实存在且落在
+    ///   [`PAID_UNTIL_MIN`]..=[`PAID_UNTIL_MAX`] 的 `YYYY-MM-DD` 日期；
     /// * `server.price_cents_invalid`：负数或 >= 1_000_000_000；
     /// * `server.currency_invalid`：不是 3 位大写字母；
-    /// * `server.billing_cycle_invalid`：不在 [`BILLING_CYCLES`] 里。
+    /// * `server.billing_cycle_invalid`：不在 [`BILLING_CYCLES`] 里；
+    /// * `server.billing_pair_incomplete`：价格与币种只填了其中一个，
+    ///   `params.missing` 指明缺哪个（`price_cents` / `currency`）。
     pub fn validated(
         paid_until: Option<&str>,
         price_cents: Option<i64>,
         currency: Option<&str>,
         billing_cycle: Option<&str>,
     ) -> Result<Self, DomainError> {
-        Ok(Self {
+        let meta = Self {
             paid_until: normalize_paid_until(paid_until)?,
             price_cents: validate_price(price_cents)?,
             currency: normalize_currency(currency)?,
             billing_cycle: normalize_billing_cycle(billing_cycle)?,
-        })
+        };
+        meta.validate_pair()?;
+        Ok(meta)
+    }
+
+    /// 价格与币种必须同时有值或同时为空。
+    fn validate_pair(&self) -> Result<(), DomainError> {
+        if self.price_cents.is_some() == self.currency.is_some() {
+            return Ok(());
+        }
+        let missing = if self.price_cents.is_none() {
+            "price_cents"
+        } else {
+            "currency"
+        };
+        Err(DomainError::with_params(
+            "server.billing_pair_incomplete",
+            json!({ "missing": missing }),
+            format!(
+                "价格与币种必须同时填写或同时留空：缺少 {missing} / Price and currency must be provided together or both left empty: missing {missing}"
+            ),
+        ))
     }
 
     /// 读路径：从服务器行构造，非法/损坏的存量值按未填写处理。
     ///
     /// 这里刻意容错：输入可能是手工改库或旧版本写入的脏值。公开页只做展示，
-    /// 宁可少显示一个字段，也不能让整个接口 500。
+    /// 宁可少显示一个字段，也不能让整个接口 500。日期同时按年份范围过滤
+    /// （`0000-*` / `2101-*` 这类越界值也视为未填写）。
     pub fn from_server(server: &Server) -> Self {
         Self {
             paid_until: server
@@ -104,7 +141,8 @@ impl BillingMeta {
     }
 }
 
-/// 到期日：去首尾空白；空串 = 清空；否则必须是真实存在的 `YYYY-MM-DD`。
+/// 到期日：去首尾空白；空串 = 清空；否则必须是真实存在的 `YYYY-MM-DD`，
+/// 且年份落在 [`PAID_UNTIL_MIN`]..=[`PAID_UNTIL_MAX`]。
 fn normalize_paid_until(raw: Option<&str>) -> Result<Option<String>, DomainError> {
     let Some(raw) = raw else {
         return Ok(None);
@@ -118,9 +156,15 @@ fn normalize_paid_until(raw: Option<&str>) -> Result<Option<String>, DomainError
     }
     Err(DomainError::with_params(
         "server.paid_until_invalid",
-        json!({ "field": "paid_until", "format": "YYYY-MM-DD", "value": value }),
+        json!({
+            "field": "paid_until",
+            "format": "YYYY-MM-DD",
+            "min": PAID_UNTIL_MIN,
+            "max": PAID_UNTIL_MAX,
+            "value": value,
+        }),
         format!(
-            "到期日不合法：{value} 不是有效的 YYYY-MM-DD 日期（例如 2026-12-31），或留空 / Invalid paid-until date: {value} is not a real YYYY-MM-DD date (e.g. 2026-12-31), or leave it empty"
+            "到期日不合法：{value} 必须是 {PAID_UNTIL_MIN} 到 {PAID_UNTIL_MAX} 之间真实存在的 YYYY-MM-DD 日期（例如 2026-12-31），或留空 / Invalid paid-until date: {value} must be a real YYYY-MM-DD date between {PAID_UNTIL_MIN} and {PAID_UNTIL_MAX} (e.g. 2026-12-31), or leave it empty"
         ),
     ))
 }
@@ -200,7 +244,8 @@ fn normalize_billing_cycle(raw: Option<&str>) -> Result<Option<String>, DomainEr
     ))
 }
 
-/// 严格 `YYYY-MM-DD` 且日期真实存在（拒绝 2026-02-30、2026-2-01）。
+/// 严格 `YYYY-MM-DD`、日期真实存在（拒绝 2026-02-30、2026-2-01），
+/// 且年份落在 [`PAID_UNTIL_MIN`]..=[`PAID_UNTIL_MAX`]。
 fn is_iso_date(value: &str) -> bool {
     let bytes = value.as_bytes();
     if bytes.len() != 10 {
@@ -214,6 +259,11 @@ fn is_iso_date(value: &str) -> bool {
         if !ok {
             return false;
         }
+    }
+    // 固定宽度 ISO 字符串按字典序比较等价于按日期比较；范围检查放在解析前，
+    // 也顺便挡掉 `0000-01-01` 这类 chrono 能解析但业务不接受的年份。
+    if !(PAID_UNTIL_MIN..=PAID_UNTIL_MAX).contains(&value) {
+        return false;
     }
     NaiveDate::parse_from_str(value, "%Y-%m-%d").is_ok()
 }
@@ -309,22 +359,26 @@ mod tests {
             BillingMeta::validated(Some("2024-02-29"), Some(0), Some("USD"), Some("once")).is_ok()
         );
         assert!(
-            BillingMeta::validated(None, Some(PRICE_CENTS_MAX), None, None).is_ok(),
+            BillingMeta::validated(None, Some(PRICE_CENTS_MAX), Some("CNY"), None).is_ok(),
             "上界 999_999_999 必须合法"
         );
     }
 
-    /// 四个字段互相独立：只填到期或只填价格都必须通过。
+    /// 到期 / 周期可以独立填写；价格与币种必须成对（见下一个测试）。
     #[test]
-    fn allows_partial_values() {
+    fn allows_partial_values_except_the_price_currency_pair() {
         let only_until = BillingMeta::validated(Some("2027-01-31"), None, None, None).unwrap();
         assert_eq!(only_until.paid_until.as_deref(), Some("2027-01-31"));
         assert_eq!(only_until.price_cents, None);
         assert_eq!(only_until.currency, None);
 
-        let only_price = BillingMeta::validated(None, Some(1200), None, None).unwrap();
-        assert_eq!(only_price.price_cents, Some(1200));
-        assert_eq!(only_price.paid_until, None);
+        let only_cycle = BillingMeta::validated(None, None, None, Some("yearly")).unwrap();
+        assert_eq!(only_cycle.billing_cycle.as_deref(), Some("yearly"));
+
+        let price_with_currency =
+            BillingMeta::validated(Some("2027-01-31"), Some(1200), Some("CNY"), None).unwrap();
+        assert_eq!(price_with_currency.price_cents, Some(1200));
+        assert_eq!(price_with_currency.currency.as_deref(), Some("CNY"));
 
         assert!(BillingMeta::validated(None, None, None, None)
             .unwrap()
@@ -353,8 +407,8 @@ mod tests {
             assert_eq!(error.params["length"], 3);
             assert!(error.message.contains("Invalid currency"), "{error}");
         }
-        // 首尾空白会被去掉，大写三字母仍然合法。
-        let ok = BillingMeta::validated(None, None, Some(" CNY "), None).unwrap();
+        // 首尾空白会被去掉，大写三字母仍然合法（价格必须一起给）。
+        let ok = BillingMeta::validated(None, Some(1200), Some(" CNY "), None).unwrap();
         assert_eq!(ok.currency.as_deref(), Some("CNY"));
     }
 
@@ -388,6 +442,51 @@ mod tests {
         assert!(BillingMeta::validated(Some("   "), None, None, None)
             .unwrap()
             .is_empty());
+    }
+
+    /// 到期日只接受 1970-01-01..=2100-12-31：0000 与 9999 这类「格式合法但
+    /// 年份离谱」的值会让前端日期控件与排序出怪结果，必须在写路径拒绝。
+    #[test]
+    fn paid_until_is_limited_to_the_supported_year_range() {
+        for date in [PAID_UNTIL_MIN, PAID_UNTIL_MAX] {
+            let meta = BillingMeta::validated(Some(date), None, None, None).unwrap();
+            assert_eq!(meta.paid_until.as_deref(), Some(date), "{date} 必须合法");
+        }
+        for date in ["1969-12-31", "2101-01-01", "0000-01-01", "9999-12-31"] {
+            let error = BillingMeta::validated(Some(date), None, None, None).unwrap_err();
+            assert_eq!(error.code, "server.paid_until_invalid", "{date}");
+            assert_eq!(error.params["field"], "paid_until");
+            assert_eq!(error.params["min"], PAID_UNTIL_MIN, "{date}");
+            assert_eq!(error.params["max"], PAID_UNTIL_MAX, "{date}");
+        }
+
+        // 读路径同样按「未填写」处理越界存量值，公开页不会展示 9999 年。
+        let dirty = server_with(Some("9999-12-31"), None, None, None);
+        assert_eq!(BillingMeta::from_server(&dirty).paid_until, None);
+    }
+
+    /// 价格与币种必须成对：只填一半会被前端整组隐藏，管理员以为填了但公开页不显示。
+    #[test]
+    fn price_and_currency_must_be_provided_together() {
+        let error = BillingMeta::validated(None, Some(1200), None, None).unwrap_err();
+        assert_eq!(error.code, "server.billing_pair_incomplete");
+        assert_eq!(error.params["missing"], "currency");
+        assert!(error.message.contains("currency"), "{error}");
+
+        let error = BillingMeta::validated(None, None, Some("CNY"), None).unwrap_err();
+        assert_eq!(error.code, "server.billing_pair_incomplete");
+        assert_eq!(error.params["missing"], "price_cents");
+        assert!(error.message.contains("price_cents"), "{error}");
+
+        // 0 分是有效价格，不是「未填写」：没有币种仍然不完整。
+        let error = BillingMeta::validated(None, Some(0), None, None).unwrap_err();
+        assert_eq!(error.params["missing"], "currency");
+
+        // 成对填写合法；到期 / 周期仍可独立省略。
+        let ok = BillingMeta::validated(None, Some(0), Some("USD"), None).unwrap();
+        assert_eq!(ok.price_cents, Some(0));
+        assert_eq!(ok.currency.as_deref(), Some("USD"));
+        assert!(BillingMeta::validated(None, None, None, Some("monthly")).is_ok());
     }
 
     /// 读路径：合法值原样保留，非法存量值逐字段降级为 None，不 panic。
