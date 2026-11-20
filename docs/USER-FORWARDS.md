@@ -9,6 +9,9 @@
 ## 规则 / Rules
 
 - 条数 = 生效中套餐的 `forward_limit` **最大值**（多套餐不累加；无套餐 / 全部为 0 = 0）。
+- 保存套餐时：`forward_limit > 0` 必须同时给出至少一台授权服务器，否则 400
+  `package.forward_servers_required`。历史数据（升级前已有的空白名单）不强制迁移，
+  但下一次修改转发字段时会被要求补齐；`/me/summary` 会带上原因码。
 - 目标服务器必须出现在「生效中且 `forward_limit > 0`」的套餐
   `package_forward_servers` 并集里，否则 403 `me.forward_server_not_allowed`。
 - 监听端口由服务器端口策略自动分配（区间 ∪ 额外端口；未限制时用 20000-29999 池）；
@@ -19,7 +22,12 @@
 - 越权访问别人的规则返回 404 `me.forward_not_found`（不返回 403，避免枚举 id）。
 
 - The quota is the **maximum** `forward_limit` among active packages (no stacking;
-  no package = 0). The target server must be in the union of `package_forward_servers`
+  no package = 0).
+- Saving a package rejects `forward_limit > 0` with an empty server whitelist (400
+  `package.forward_servers_required`). Legacy rows are not migrated automatically;
+  the next PATCH that touches a forwarding field must supply a server, and
+  `/me/summary` exposes a reason code in the meantime.
+- The target server must be in the union of `package_forward_servers`
   of active packages with `forward_limit > 0`; otherwise 403.
 - Listen ports are allocated by the server port policy (allowed range ∪ extra ports;
   the legacy 20000-29999 pool when unrestricted). Any client-supplied `listen_port`
@@ -33,19 +41,34 @@
 
 ## 服务器下拉 / Server picker
 
-`GET /api/v1/me/summary` 顶层返回 `forward_servers`，与创建接口使用同一份额度快照：
-多套餐白名单并集、去重、按名称排序；配额为 0 时是空数组。
+`GET /api/v1/me/summary` 顶层返回：
+`forward_limit`（条数上限）、`forward_servers`（与创建接口同一份额度快照：多套餐
+白名单并集、去重、按名称排序），以及 `forward_servers_reason`：
 
-`GET /api/v1/me/summary` exposes `forward_servers` computed from the same allowance
+| `forward_servers_reason` | 含义 |
+|---|---|
+| `null` | 有可选服务器。 |
+| `package.forward_servers_empty` | 条数 > 0 但过滤后没有一台可用服务器（历史坏数据、或白名单里的服务器都已删除）——前端应提示管理员补授权，而不是只显示空下拉。 |
+| `package.forward_limit_zero` | 没有生效套餐，或所有套餐的 `forward_limit = 0`。 |
+
+`GET /api/v1/me/summary` exposes `forward_limit`, `forward_servers` (same allowance
 snapshot as creation: union of active package whitelists, de-duplicated, sorted by
-name; an empty array when the quota is 0.
+name) and `forward_servers_reason`:
+
+| `forward_servers_reason` | Meaning |
+|---|---|
+| `null` | At least one server is selectable. |
+| `package.forward_servers_empty` | The quota is positive but the filtered list is empty (legacy data, or every whitelisted server was deleted). Show an explanation instead of an empty picker. |
+| `package.forward_limit_zero` | No active package, or every active package has `forward_limit = 0`. |
 
 ```json
 {
+  "forward_limit": 2,
   "forward_servers": [
     { "id": "srv-b", "name": "香港-01" },
     { "id": "srv-a", "name": "日本-02" }
-  ]
+  ],
+  "forward_servers_reason": null
 }
 ```
 
@@ -194,7 +217,13 @@ quota checks stay unchanged.
 
 见 `docs/ERRORS.md` 的「用户自助转发 / User self-service forwarding」一节：
 `me.forward_quota_exceeded`、`me.forward_server_not_allowed`、`me.forward_not_found`，
-以及套餐侧的 `package.forward_limit_invalid` / `package.forward_server_*`。
+以及套餐侧的 `package.forward_limit_invalid` / `package.forward_servers_required` /
+`package.forward_server_*`。
 端口池耗尽复用 `chain.port_pool_exhausted` / `chain.port_allowed_exhausted`。
 
-See the “User self-service forwarding” section in `docs/ERRORS.md`.
+See the “User self-service forwarding” section in `docs/ERRORS.md` for
+`me.forward_quota_exceeded`, `me.forward_server_not_allowed`,
+`me.forward_not_found`, and the package-side
+`package.forward_limit_invalid` / `package.forward_servers_required` /
+`package.forward_server_*`. Port-pool exhaustion reuses
+`chain.port_pool_exhausted` / `chain.port_allowed_exhausted`.

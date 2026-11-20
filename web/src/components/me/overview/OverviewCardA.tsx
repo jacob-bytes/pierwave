@@ -155,30 +155,40 @@ export default function OverviewCardA({
               </p>
             </div>
 
-            {todayBytes === null && dailyAverageBytes === null ? null : (
-              <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2 sm:contents">
-                {todayBytes === null ? null : (
-                  <div>
-                    <p className="text-xs text-muted-foreground">
-                      {t("me.overview.todayUsage")}
-                    </p>
-                    <p className="mt-1 font-mono text-sm tabular-nums">
-                      {formatBytes(todayBytes)}
-                    </p>
-                  </div>
-                )}
-                {dailyAverageBytes === null ? null : (
-                  <div>
-                    <p className="text-xs text-muted-foreground">
-                      {t("me.overview.dailyAverage")}
-                    </p>
-                    <p className="mt-1 font-mono text-sm tabular-nums">
-                      {formatBytes(dailyAverageBytes)}
-                    </p>
-                  </div>
-                )}
+            {/*
+              未知与 0 分开：无采样时保留字段并显示 —（title 说明「暂无采样」），
+              不要让「没数据」看起来像「用量 0 B」。真实 0 仍由 formatBytes 显示 0 B。
+            */}
+            <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2 sm:contents">
+              <div>
+                <p className="text-xs text-muted-foreground">
+                  {t("me.overview.todayUsage")}
+                </p>
+                <p
+                  className="mt-1 font-mono text-sm tabular-nums"
+                  title={todayBytes === null ? t("me.noSamples") : undefined}
+                >
+                  {todayBytes === null ? "—" : formatBytes(todayBytes)}
+                </p>
               </div>
-            )}
+              <div>
+                <p className="text-xs text-muted-foreground">
+                  {t("me.overview.dailyAverage")}
+                </p>
+                <p
+                  className="mt-1 font-mono text-sm tabular-nums"
+                  title={
+                    dailyAverageBytes === null
+                      ? t("me.noSamples")
+                      : undefined
+                  }
+                >
+                  {dailyAverageBytes === null
+                    ? "—"
+                    : formatBytes(dailyAverageBytes)}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
 

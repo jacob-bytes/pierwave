@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canCreate, entryLabel, quotaState } from "./myForwards.ts";
+import {
+  canCreate,
+  createGate,
+  entryLabel,
+  forwardServersReason,
+  quotaState,
+} from "./myForwards.ts";
 
 test("quotaState reports none when there is no quota or the limit is zero", () => {
   assert.equal(quotaState(null), "none");
@@ -48,4 +54,113 @@ test("entryLabel trims the backend address and never invents one", () => {
   assert.equal(entryLabel({ entry_address: null, listen_port: 24123 }), "—");
   assert.equal(entryLabel({ listen_port: 24123 }), "—");
   assert.equal(entryLabel(null), "—");
+});
+
+// ---------------------------------------------------------------------------
+// U1：新建入口状态机（配额 × 存量 × 可用服务器/模板）
+// ---------------------------------------------------------------------------
+test("createGate keeps existing forwards manageable when the package no longer allows new ones", () => {
+  // limit = 0 但有 2 条存量：列表必须继续展示，只禁用新建，徽章改成「存量 2 条」。
+  const gate = createGate({
+    quota: { used: 2, limit: 0 },
+    itemCount: 2,
+    availableCount: 0,
+  });
+  assert.equal(gate.blocker, "stock");
+  assert.equal(gate.creatable, false);
+  assert.equal(gate.showList, true);
+  assert.equal(gate.badge, "stock");
+});
+
+test("createGate reports unsupported when the package has no quota and nothing exists", () => {
+  // limit = 0 且没有存量：隐藏新建按钮，配额徽章不能显示成 `0 / 0`。
+  const gate = createGate({
+    quota: { used: 0, limit: 0 },
+    itemCount: 0,
+    availableCount: 0,
+  });
+  assert.equal(gate.blocker, "unsupported");
+  assert.equal(gate.creatable, false);
+  assert.equal(gate.showList, false);
+  assert.equal(gate.badge, null);
+});
+
+test("createGate blocks create when no server is authorized", () => {
+  // 配额正常（1 / 5）但 forward_servers = []：禁用新建并给出可解释的原因。
+  const gate = createGate({
+    quota: { used: 1, limit: 5 },
+    itemCount: 1,
+    availableCount: 0,
+  });
+  assert.equal(gate.blocker, "no-availability");
+  assert.equal(gate.creatable, false);
+  assert.equal(gate.showList, true);
+  assert.equal(gate.badge, "ratio");
+});
+
+test("createGate allows create when quota and servers are both available", () => {
+  const gate = createGate({
+    quota: { used: 1, limit: 5 },
+    itemCount: 1,
+    availableCount: 2,
+  });
+  assert.equal(gate.blocker, null);
+  assert.equal(gate.creatable, true);
+  assert.equal(gate.showList, true);
+  assert.equal(gate.badge, "ratio");
+});
+
+test("createGate treats unknown availability as not blocking", () => {
+  // 服务器列表 / 模板还没返回时不能误判成「没有授权」。
+  const gate = createGate({ quota: { used: 0, limit: 2 }, itemCount: 0 });
+  assert.equal(gate.blocker, null);
+  assert.equal(gate.creatable, true);
+  assert.equal(
+    createGate({
+      quota: { used: 0, limit: 2 },
+      itemCount: 0,
+      availableCount: null,
+    }).creatable,
+    true,
+  );
+});
+
+test("createGate gives quota-exhausted precedence over missing availability", () => {
+  const gate = createGate({
+    quota: { used: 5, limit: 5 },
+    itemCount: 5,
+    availableCount: 0,
+  });
+  assert.equal(gate.blocker, "exhausted");
+  assert.equal(gate.badge, "ratio");
+});
+
+test("createGate tolerates invalid counts", () => {
+  const gate = createGate({
+    quota: null,
+    itemCount: Number.NaN,
+    availableCount: 0,
+  });
+  assert.equal(gate.blocker, "unsupported");
+  assert.equal(gate.showList, false);
+  assert.equal(gate.badge, null);
+});
+
+// ---------------------------------------------------------------------------
+// 后端新增的 forward_servers_reason（旧后端缺失时回落 servers.length）
+// ---------------------------------------------------------------------------
+test("forwardServersReason maps the backend explanation codes", () => {
+  assert.equal(
+    forwardServersReason("package.forward_servers_empty"),
+    "no-servers",
+  );
+  assert.equal(
+    forwardServersReason("package.forward_limit_zero"),
+    "no-limit",
+  );
+  // 旧后端 / 未知码：返回 null，调用方回落到 servers.length。
+  assert.equal(forwardServersReason(null), null);
+  assert.equal(forwardServersReason(undefined), null);
+  assert.equal(forwardServersReason("package.something_else"), null);
+  assert.equal(forwardServersReason(""), null);
 });

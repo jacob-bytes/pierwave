@@ -461,6 +461,21 @@ pub struct TrafficInfo {
     pub expire: Option<i64>,
 }
 
+/// 套餐额度与账户级总闸取较小值；`package_total = None` 表示套餐显式不限量。
+///
+/// 账户级 `quota_bytes` 是跨套餐的总闸（见 `docs/PLAN.md` P0-2），
+/// 所以 `total` 必须同时受两者约束：套餐合计更大时用账户闸，账户闸更大时用套餐。
+/// 两者都不限量时返回 `None`，调用方据此省略 `total`。
+pub fn clamped_total(package_total: Option<i64>, account_quota: Option<i64>) -> Option<u64> {
+    let total = match (package_total, account_quota) {
+        (None, None) => return None,
+        (None, Some(account)) => account,
+        (Some(total), None) => total,
+        (Some(total), Some(account)) => total.min(account),
+    };
+    u64::try_from(total).ok()
+}
+
 impl TrafficInfo {
     /// `upload=..; download=..; total=..; expire=..`，`total` / `expire` 缺失时省略该段。
     pub fn userinfo_header(&self) -> String {
@@ -3944,6 +3959,18 @@ mod tests {
             info.userinfo_header(),
             "upload=1; download=2; total=100; expire=1900000000"
         );
+    }
+
+    #[test]
+    fn clamped_total_takes_the_smaller_of_package_and_account() {
+        // 套餐合计 / 不限量 / 账户闸三者两两组合。
+        assert_eq!(clamped_total(Some(50_000), None), Some(50_000));
+        assert_eq!(clamped_total(Some(50_000), Some(30_000)), Some(30_000));
+        assert_eq!(clamped_total(Some(50_000), Some(80_000)), Some(50_000));
+        assert_eq!(clamped_total(None, Some(8_000)), Some(8_000));
+        assert_eq!(clamped_total(None, None), None);
+        // 脏数据（负数）不能写进响应头。
+        assert_eq!(clamped_total(Some(-1), None), None);
     }
 
     #[test]

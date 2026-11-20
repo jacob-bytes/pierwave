@@ -88,8 +88,41 @@ GET /api/v1/sub/{short_code}?target=singbox
 
 - 优先 `?target=`，其次 UA 嗅探（`clash|mihomo|stash|surge|sing-box|shadowrocket`），最后回落到 clash。
 - 响应头必带 `Subscription-Userinfo: upload=..; download=..; total=..; expire=..`（客户端会显示流量条）。
+- `total` / `expire` 都取**生效中套餐实例**，不能一个取套餐一个取账户：
+  - `total` = 实例额度合计（与用户列表的 `package_quota_bytes` 同一合计口径：多张卡累加，
+    任一张不限量则合计不限量），再与账户级 `users.quota_bytes` 总闸取较小值；
+  - `expire` = 同一批实例里最晚的 `expires_at`；
+  - 没有生效套餐时两段都省略——账户级额度不会冒充套餐额度，客户端按「不限量」显示。
 - 内容不允许缓存：`Cache-Control: no-store`。
 - `short_code` 不是密钥，但泄漏等于送人流量，所以支持一键重置短码。
+
+- The response always carries `Subscription-Userinfo: upload=..; download=..; total=..; expire=..`.
+- `total` and `expire` both come from **active package instances** (never one from the
+  package and the other from the account):
+  - `total` is the sum of instance quotas (same aggregation as the user list's
+    `package_quota_bytes`: multiple cards add up, any unlimited card makes the total
+    unlimited), clamped by the account-level `users.quota_bytes` gate;
+  - `expire` is the latest `expires_at` among the same instances;
+  - with no active package both segments are omitted; the account quota never
+    masquerades as a package quota and clients show "unlimited".
+- Responses must not be cached: `Cache-Control: no-store`.
+- `short_code` is not a secret key, but leaking it gives away traffic; resetting it
+  invalidates the old link immediately.
+
+## 4.1 节点计数 / Node counts
+
+`GET /api/v1/me/summary` 的 `nodes` 必须与订阅真实输出同一套过滤：缺 REALITY
+公钥、缺 SS 密码、服务器地址未上报的节点不会出现在订阅里，也不会计入 `nodes`；
+它们只计入新增的 `nodes_unavailable`。因此
+`nodes.len() + nodes_unavailable` 是范围内 enabled 节点的总数，而 `nodes.len()`
+与 `?target=uri` 输出的行数一致。
+
+`nodes` in `GET /api/v1/me/summary` uses the exact same filter as subscription
+rendering. Nodes missing a REALITY public key, an SS password, or a reported server
+address are skipped by the subscription and are not counted in `nodes`; they only
+count in the new `nodes_unavailable` field. So
+`nodes.len() + nodes_unavailable` is the number of enabled nodes in scope, and
+`nodes.len()` equals the number of lines rendered by `?target=uri`.
 
 ## 5. 本轮先做两个渲染器
 

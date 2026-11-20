@@ -53,7 +53,11 @@ export function TrafficLegend({ days }: { days?: readonly TrafficDay[] }) {
         label={t("trafficChart.uplink")}
         pattern
       />
-      {typeof cumulative === "number" ? (
+      {/*
+        累计 0 不是「有数据」：无采样时隐藏 chip，避免图例里出现「累计 0 B」，
+        与卡片上的 — / 「暂无采样」保持一致。
+      */}
+      {typeof cumulative === "number" && cumulative > 0 ? (
         <CumulativeChip value={cumulative} />
       ) : null}
     </div>

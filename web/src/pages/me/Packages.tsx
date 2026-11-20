@@ -15,7 +15,6 @@ import {
   Card,
   CardAction,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -110,7 +109,10 @@ function PackageListCard({
             variant="secondary"
             className="font-mono type-micro font-normal text-muted-foreground tabular-nums"
           >
-            {t("me.packagesValue", { n: count })}
+            {t(
+              count === 1 ? "me.packagesValueOne" : "me.packagesValue",
+              { n: count },
+            )}
           </Badge>
         </CardAction>
       </CardHeader>
@@ -206,9 +208,6 @@ function EventsCard({
           <HistoryIcon className="size-4 text-muted-foreground" />
           {t("me.events.title")}
         </CardTitle>
-        <CardDescription className="text-xs">
-          {t("me.events.desc")}
-        </CardDescription>
       </CardHeader>
       <CardContent>
         {events.isPending ? (
@@ -258,38 +257,43 @@ export default function MePackagesPage() {
 
   return (
     <div className="space-y-4">
-      <PackageListCard
-        titleKey="me.packagesPage.current"
-        count={current.length}
-        instances={current}
-        empty={
-          <EmptyState
-            icon={PackageIcon}
-            title={
-              instances.length === 0
-                ? t("me.emptyPackages")
-                : t("me.packagesPage.currentEmpty")
-            }
-            description={
-              instances.length === 0
-                ? t("me.emptyPackagesDesc")
-                : t("me.packagesPage.currentEmptyDesc")
+      {instances.length === 0 ? (
+        // 从未开通过套餐：两张空卡（已开通 / 历史）合并为一张页面级空态，
+        // 不再让「暂无历史套餐」占据半屏。
+        <Card>
+          <CardContent>
+            <EmptyState
+              icon={PackageIcon}
+              title={t("me.emptyPackages")}
+              description={t("me.emptyPackagesDesc")}
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <PackageListCard
+            titleKey="me.packagesPage.current"
+            count={current.length}
+            instances={current}
+            empty={
+              <EmptyState
+                icon={PackageIcon}
+                title={t("me.packagesPage.currentEmpty")}
+                description={t("me.packagesPage.currentEmptyDesc")}
+              />
             }
           />
-        }
-      />
-      <PackageListCard
-        titleKey="me.packagesPage.history"
-        count={history.length}
-        instances={history}
-        empty={
-          <EmptyState
-            icon={HistoryIcon}
-            title={t("me.packagesPage.historyEmpty")}
-            description={t("me.packagesPage.historyEmptyDesc")}
-          />
-        }
-      />
+          {/* 历史区只在真的有过历史套餐时出现；没有就不占一屏。 */}
+          {history.length > 0 ? (
+            <PackageListCard
+              titleKey="me.packagesPage.history"
+              count={history.length}
+              instances={history}
+              empty={null}
+            />
+          ) : null}
+        </>
+      )}
       <EventsCard events={events} />
     </div>
   );

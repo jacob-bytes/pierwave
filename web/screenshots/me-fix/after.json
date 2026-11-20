@@ -1,0 +1,231 @@
+{
+  "base": "http://127.0.0.1:8795",
+  "captured_at": "2026-11-20T16:19:53.934Z",
+  "u1": {
+    "stock": {
+      "visible_text": "我的转发\n入口端口由系统自动分配；关闭开关会暂停转发。\n存量 2 条\n新建转发\n当前套餐不再支持新建\n存量转发仍可管理。\n203.0.113.11:10001\nTCP\n目标 10.0.0.11:22\n香港-01\n启用\n计费中\n203.0.113.11:10002\nTCP\n目标 1.1.1.1:53\n香港-01\n启用\n计费中",
+      "quota_badge": true,
+      "has_bad_zero": false,
+      "add_disabled": true,
+      "rows": 2,
+      "dialog_opened": false,
+      "screenshot": "web/screenshots/me-fix/u1-a-stock-limit0-with-items.png"
+    },
+    "unsupported": {
+      "visible_text": "我的转发\n入口端口由系统自动分配；关闭开关会暂停转发。\n\n当前套餐不支持自助转发\n\n请联系管理员在套餐中设置自助转发条数。",
+      "unsupported": true,
+      "has_bad_zero": false,
+      "add_button_count": 0,
+      "screenshot": "web/screenshots/me-fix/u1-b-unsupported-limit0-empty.png"
+    },
+    "noServers": {
+      "visible_text": "我的转发\n入口端口由系统自动分配；关闭开关会暂停转发。\n配额\n3 / 5 条\n新建转发\n管理员尚未授权任何服务器\n暂时无法新建转发；请联系管理员授权服务器。\n203.0.113.11:10001\nTCP\n目标 10.0.0.11:22\n香港-01\n启用\n计费中\n203.0.113.11:10002\nTCP\n目标 1.1.1.1:53\n香港-01\n启用\n计费中\n192.0.2.31:10001\nTCP\n目标 10.0.0.31:5432\n新加坡-01\n启用\n计费中",
+      "inline_reason": true,
+      "add_disabled": true,
+      "aria_describedby": "my-forwards-create-reason",
+      "reason_element": 1,
+      "dialog_opened": false,
+      "screenshot": "web/screenshots/me-fix/u1-c-no-servers.png"
+    },
+    "available": {
+      "visible_text": "我的转发\n入口端口由系统自动分配；关闭开关会暂停转发。\n配额\n3 / 5 条\n新建转发\n203.0.113.11:10001\nTCP\n目标 10.0.0.11:22\n香港-01\n启用\n计费中\n203.0.113.11:10002\nTCP\n目标 1.1.1.1:53\n香港-01\n启用\n计费中\n192.0.2.31:10001\nTCP\n目标 10.0.0.31:5432\n新加坡-01\n启用\n计费中",
+      "quota_with_unit": true,
+      "add_enabled": true,
+      "dialog_opened": true,
+      "dialog_text": "新建转发\n\n选择服务器与目标。\n\n服务器\n*\n选择服务器\n香港-01\n日本-01\n只能选择当前套餐允许的服务器。\n目标地址\n*\n目标端口\n*\n协议\nTCP\nTCP + UDP\n\n入口端口由系统自动分配。\n\n取消\n创建转发\n关闭",
+      "screenshot": "web/screenshots/me-fix/u1-d-available-with-servers.png"
+    },
+    "chainStock": {
+      "visible_text": "我的转发链\n转发链模板与跳数由管理员定义；入口端口由系统自动分配。\n存量 2 条\n新建转发链\n当前套餐不再支持新建\n存量转发链仍可管理。\n203.0.113.7:20001\n港日两跳\n目标 10.0.0.8:443\n香港-01\n203.0.113.7:20002\n港日两跳\n目标 10.0.0.8:443\n香港-01",
+      "quota_badge": true,
+      "has_bad_zero": false,
+      "add_disabled": true,
+      "rows": 2,
+      "dialog_opened": false,
+      "screenshot": "web/screenshots/me-fix/u1-e-chains-stock-limit0-with-items.png"
+    }
+  },
+  "u2": {
+    "refresh": {
+      "x": 279.5,
+      "y": 145.4,
+      "w": 86.5,
+      "h": 40,
+      "right": 366
+    },
+    "refresh_right_gap": 0,
+    "title": {
+      "x": 40,
+      "y": 289.8,
+      "w": 310,
+      "h": 18.9,
+      "right": 350
+    },
+    "desc": {
+      "x": 40,
+      "y": 312.7,
+      "w": 310,
+      "h": 38.4,
+      "right": 350
+    },
+    "action": {
+      "x": 40,
+      "y": 355,
+      "w": 310,
+      "h": 40,
+      "right": 350
+    },
+    "header": {
+      "x": 24,
+      "y": 289.8,
+      "w": 342,
+      "h": 105.3,
+      "right": 366
+    },
+    "action_below_title": true,
+    "title_full_width": 310,
+    "tabs": {
+      "scroll_width": 372,
+      "client_width": 342,
+      "clipped_px": 30,
+      "overflowing": "true",
+      "fade_right": "true",
+      "mask": "linear-gradient(to right, rgba(0, 0, 0, 0) 0px, rgb(0, 0, 0) 0px, rgb(0, 0, 0) calc(100% - 20px), rgba(0, 0, 0, 0) 100%)"
+    },
+    "screenshot": "web/screenshots/me-fix/u2-en-390-forwards.png"
+  },
+  "u3": {
+    "noSamples": {
+      "today": "—",
+      "daily_average": "—",
+      "traffic_badge": "—",
+      "cumulative_zero": false,
+      "chart_no_samples": true,
+      "has_zero_b": false,
+      "visible_text": "跳到主内容\nPierWave\n\n自助\n\n我的\n\nPierWave v0.15.5\n\nPierWave\n我的\n探针\nK\nkenji\nK\n概览\n正常\n\nkenji · 这里只显示你自己的数据\n\n刷新\n概览\n我的订阅\n我的转发\n套餐\n27 GB\n剩余流量\n\n到期时间\n\n22\n天\n2026-12-12\n\n轻量 · 50G\n\n当前账号 kenji\n\n今日用量\n\n—\n\n近 7 天日均\n\n—\n\n近 7 天用量\n按 UTC+8 自然日统计。\n下行\n上行\n—\n\n暂无采样\n\n近 7 天没有采样到流量；产生流量后会自动出现趋势。\n\n登录设备\n\nmefix-measure\n\n当前设备\n\n登录于 刚刚 · 最后活跃 刚刚\n\nIP 未知\n\n退出登录\n最近登录\n\n暂无登录记录\n\n下次登录成功后，这里会出现记录。",
+      "screenshot": "web/screenshots/me-fix/u3-a-no-samples-overview-1440-dark.png"
+    },
+    "realZero": {
+      "today": "0 B",
+      "daily_average": "878 MB",
+      "traffic_badge": "7 天 6 GB",
+      "cumulative_zero": false,
+      "chart_no_samples": false,
+      "has_zero_b": true,
+      "visible_text": "跳到主内容\nPierWave\n\n自助\n\n我的\n\nPierWave v0.15.5\n\nPierWave\n我的\n探针\nK\nkenji\nK\n概览\n正常\n\nkenji · 这里只显示你自己的数据\n\n刷新\n概览\n我的订阅\n我的转发\n套餐\n27 GB\n剩余流量\n\n到期时间\n\n22\n天\n2026-12-12\n\n轻量 · 50G\n\n当前账号 kenji\n\n今日用量\n\n0 B\n\n近 7 天日均\n\n878 MB\n\n近 7 天用量\n按 UTC+8 自然日统计。\n下行\n上行\n累计\n6 GB\n7 天 6 GB\n11/15\n11/16\n11/17\n11/18\n11/19\n11/20\n11/21\n0 B\n381 MB\n763 MB\n1.12 GB\n近 7 天逐日上下行流量\n日期\t下行\t上行\t累计\n2026-11-15\t1 GB\t0 B\t1 GB\n2026-11-16\t1 GB\t0 B\t2 GB\n2026-11-17\t1 GB\t0 B\t3 GB\n2026-11",
+      "screenshot": "web/screenshots/me-fix/u3-b-real-zero-overview-1440-dark.png"
+    }
+  },
+  "u4": {
+    "dark": {
+      "found": true,
+      "focus_visible": true,
+      "outline_color": "oklch(0.74 0.16 264.6)",
+      "outline_style": "solid",
+      "outline_width": "2px",
+      "outline_offset": "2px",
+      "background_rgb": [
+        12,
+        12,
+        15
+      ],
+      "contrast_ratio": 8.16
+    },
+    "light": {
+      "found": true,
+      "focus_visible": true,
+      "outline_color": "oklch(0.42 0.2 265.6)",
+      "outline_style": "solid",
+      "outline_width": "2px",
+      "outline_offset": "2px",
+      "background_rgb": [
+        250,
+        251,
+        252
+      ],
+      "contrast_ratio": 8.67
+    }
+  },
+  "a11y": {
+    "skip": {
+      "tag": "A",
+      "text": "跳到主内容",
+      "href": "#main-content",
+      "visible": true,
+      "rect": {
+        "x": 16,
+        "y": 16,
+        "w": 96,
+        "h": 40.4
+      }
+    },
+    "afterEnter": {
+      "hash": "#main-content",
+      "active": "MAIN",
+      "main_id": "main-content"
+    },
+    "headings": {
+      "h1": [
+        "概览"
+      ],
+      "h2": [
+        "近 7 天用量",
+        "登录设备",
+        "最近登录"
+      ]
+    },
+    "navLabels": [
+      "主导航",
+      "面包屑",
+      "个人中心分页"
+    ]
+  },
+  "u6": {
+    "nodesActiveZero": {
+      "visible_text": "我的节点\n这些节点来自你当前可用的套餐；不显示服务器地址。\n0\n\n当前套餐没有可用节点\n\n请联系管理员检查套餐范围。\n\n另有 3 个节点暂无法生成配置",
+      "active_empty": true,
+      "wrong_premise": false,
+      "scope_hint": true,
+      "unavailable_count": true,
+      "screenshot": "web/screenshots/me-fix/u6-nodes-active-zero.png"
+    },
+    "packagesEmpty": {
+      "visible_text": "K\n套餐\n正常\n\nkenji · 这里只显示你自己的数据\n\n刷新\n概览\n我的订阅\n我的转发\n套餐\n\n还没有套餐\n\n请联系管理员开通套餐，开通后额度与订阅会自动显示在这里。\n\n最近事件\n\n暂无事件\n\n一切正常时这里不会出现记录；断流或恢复后会自动显示。",
+      "one_empty_state": true,
+      "no_history_card": true,
+      "cards": 2,
+      "screenshot": "web/screenshots/me-fix/u6-packages-page-empty.png"
+    },
+    "enPlural": {
+      "visible_text": "Active packages\n1 package\n轻量 · 50G\nActive\nExpires 2026-12-12\nUsed 23 GB / 50 GB\nReset Day 1 each month",
+      "singular": true,
+      "screenshot": "web/screenshots/me-fix/u6-en-packages-singular.png"
+    },
+    "chainWording": {
+      "visible_text": "我的转发链\n转发链模板与跳数由管理员定义；入口端口由系统自动分配。\n配额\n0 / 1 条\n新建转发链\n\n当前套餐没有可用转发链模板\n\n请联系管理员为套餐授权转发链模板。",
+      "template_wording": true,
+      "no_template_empty": true,
+      "screenshot": "web/screenshots/me-fix/u6-chain-template-wording.png"
+    }
+  },
+  "u5": {
+    "switch": {
+      "visual": {
+        "w": 24,
+        "h": 14
+      },
+      "hit": {
+        "w": 50,
+        "h": 40,
+        "extension_x": 13,
+        "extension_y": 13
+      },
+      "pseudo_inset": "-14px"
+    },
+    "formatSelect": {
+      "w": 150,
+      "h": 40
+    }
+  },
+  "ok": true
+}

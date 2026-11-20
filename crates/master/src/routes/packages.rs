@@ -83,6 +83,26 @@ pub(crate) fn validate_forward_limit(limit: i64) -> AppResult<()> {
     Ok(())
 }
 
+/// 允许自助转发就必须至少授权一台服务器。
+///
+/// `forward_limit > 0` 但白名单为空时，用户虽然能点「新建转发」，弹窗里却没有
+/// 任何可选服务器，永远无法提交。这是保存期错误，不是运行期错误。
+/// 历史数据（升级前已写入的组合）不走这个校验，由 `/me/summary` 的原因码解释；
+/// 只有在 PATCH 触及转发字段时才要求补齐服务器，避免把历史套餐锁死。
+pub(crate) fn validate_forward_servers(forward_limit: i64, server_ids: &[String]) -> AppResult<()> {
+    if forward_limit > 0 && server_ids.is_empty() {
+        return Err(AppError::coded(
+            "package.forward_servers_required",
+            Some(json!({ "forward_limit": forward_limit, "min_servers": 1 })),
+            format!(
+                "自助转发条数为 {forward_limit} 时必须至少授权一台服务器 / \
+                 A positive forward limit ({forward_limit}) requires at least one authorized server"
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// 自助建链配额：0 = 不允许，负数没有意义。
 pub(crate) fn validate_chain_limit(limit: i64) -> AppResult<()> {
     if limit < 0 {
@@ -378,6 +398,7 @@ pub async fn create(
     }
     let forward_server_ids = normalize_forward_server_ids(req.forward_server_ids)?;
     validate_forward_server_id_list(&state, &forward_server_ids).await?;
+    validate_forward_servers(req.forward_limit, &forward_server_ids)?;
     let chain_template_ids = normalize_chain_template_ids(req.chain_template_ids)?;
     validate_chain_template_id_list(&state, &chain_template_ids).await?;
     let rule_template_id =
@@ -591,6 +612,17 @@ pub async fn update(
 
     // 审计与「范围是否变化」都要变更前快照：一次查询同时拿到 node_scope/node_count。
     let before_package = repo::packages::find_by_id(&state.db.pool, &id).await?;
+    // 只有本次请求触及转发字段时才校验组合：历史坏数据允许继续改其它字段，
+    // 但任何一次改配额 / 白名单都必须把服务器补上。
+    if req.forward_limit.is_some() || forward_server_ids.is_some() {
+        if let Some(before) = &before_package {
+            let forward_limit = req.forward_limit.unwrap_or(before.forward_limit);
+            let server_ids = forward_server_ids
+                .as_deref()
+                .unwrap_or(before.forward_server_ids.as_slice());
+            validate_forward_servers(forward_limit, server_ids)?;
+        }
+    }
     let before_scope = before_package
         .as_ref()
         .map(|package| repo::packages::NodeScope {
@@ -1068,6 +1100,120 @@ mod tests {
         let error = body["error"].as_str().unwrap();
         assert!(error.contains("节点不存在"), "unexpected: {error}");
         assert!(error.contains("does-not-exist"), "unexpected: {error}");
+    }
+
+    /// 允许自助转发（`forward_limit > 0`）就必须至少授权一台服务器，
+    /// 否则用户在弹窗里永远没有可选项，只能卡在提交前。
+    ///
+    /// 历史数据（升级前已写入的空白名单）不在这里被强制修复：只改其它字段的
+    /// PATCH 仍然放行，但任何一次改转发相关字段都必须补上服务器。
+    #[tokio::test]
+    async fn forward_limit_requires_at_least_one_authorized_server() {
+        let (app, state, cookie, server_id, _nodes) = setup().await;
+
+        // 创建：正数条数 + 空白名单 → 400，带稳定 code / params / 双语文案。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/packages",
+            Some(json!({"name": "缺服务器", "forward_limit": 2})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "package.forward_servers_required");
+        assert_eq!(body["params"]["forward_limit"], 2);
+        let error = body["error"].as_str().unwrap();
+        assert!(error.contains("至少"), "unexpected: {error}");
+        assert!(error.contains("server"), "必须中英双语：{error}");
+
+        // 0 条 + 空白名单是「不支持自助转发」，必须继续允许。
+        let zero =
+            create_package(&app, &cookie, json!({"name": "无转发", "forward_limit": 0})).await;
+        assert!(!zero.is_empty());
+
+        // 正数 + 至少一台服务器 → 允许。
+        let package_id = create_package(
+            &app,
+            &cookie,
+            json!({
+                "name": "自助卡",
+                "forward_limit": 1,
+                "forward_server_ids": [server_id.clone()],
+            }),
+        )
+        .await;
+        let uri = format!("/api/v1/packages/{package_id}");
+
+        // 只改条数：沿用已有白名单。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &uri,
+            Some(json!({"forward_limit": 2})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["package"]["forward_server_ids"], json!([server_id]));
+
+        // 清空白名单但条数仍为正 → 400，且原值不变。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &uri,
+            Some(json!({"forward_server_ids": []})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "package.forward_servers_required");
+        assert_eq!(body["params"]["forward_limit"], 2);
+        let (_, body) = request(&app, Some(&cookie), Method::GET, "/api/v1/packages", None).await;
+        assert_eq!(
+            package_item(&body, &package_id)["forward_server_ids"],
+            json!([server_id])
+        );
+
+        // 同时关闭条数与白名单 → 允许。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &uri,
+            Some(json!({"forward_limit": 0, "forward_server_ids": []})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["package"]["forward_limit"], 0);
+        assert_eq!(body["package"]["forward_server_ids"], json!([]));
+
+        // 历史坏数据：绕过 API 直接写库，模拟升级前留下的组合。
+        repo::packages::set_forward_rules(&state.db.pool, &package_id, 2, &[])
+            .await
+            .unwrap();
+        // 只改名称不碰转发字段：放行，避免把历史套餐锁死。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &uri,
+            Some(json!({"name": "历史卡改名"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["package"]["forward_limit"], 2);
+        // 一旦再碰转发字段，就必须补齐服务器。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::PATCH,
+            &uri,
+            Some(json!({"forward_limit": 3})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "package.forward_servers_required");
     }
 
     #[tokio::test]

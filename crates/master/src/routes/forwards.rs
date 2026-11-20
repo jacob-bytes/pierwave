@@ -2853,7 +2853,7 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK, "unexpected: {body}");
 
-        // 清空白名单：即使还有条数也不允许再建（403 先于配额判定）。
+        // 清空白名单但仍有条数：保存校验直接 400（S3）。
         let (status, body) = request(
             &app,
             Some(&admin_cookie),
@@ -2862,8 +2862,14 @@ mod tests {
             Some(json!({"forward_server_ids": []})),
         )
         .await;
-        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
-        assert_eq!(body["package"]["forward_server_ids"], json!([]));
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "package.forward_servers_required");
+
+        // 历史数据（直接写库的空白名单）仍按运行期规则 403，
+        // 证明上面的 400 只挡新写入，不会让老的坏数据变成 500。
+        repo::packages::set_forward_rules(&state.db.pool, &package_id, 2, &[])
+            .await
+            .unwrap();
         let (status, body) = request(
             &app,
             Some(&alice_cookie),

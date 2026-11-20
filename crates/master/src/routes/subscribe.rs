@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde_json::json;
 use sqlx::SqlitePool;
 
-use pierwave_domain::models::{Package, User};
+use pierwave_domain::models::{aggregate_quota, NodeWithServer, Package, User};
 use pierwave_domain::subscribe::{self, SubContext, SubNode, TrafficInfo};
 use pierwave_domain::subscription_template;
 use pierwave_domain::{credentials, repo};
@@ -122,6 +122,21 @@ pub async fn get(
     Ok(response)
 }
 
+/// 一次订阅渲染的节点选择结果。
+///
+/// `nodes` 是**真正会出现在订阅里**的节点，`unavailable` 是同一范围内
+/// 但 `SubNode::from_node` 无法生成配置（缺 REALITY 公钥 / SS 密码 / 服务器地址等）
+/// 的数量。管理端与用户端的 `summary.nodes` 必须复用这份结果，不能再按
+/// 「enabled 且在范围内」自己数一遍。
+pub(crate) struct RenderedSubscriptionNodes {
+    /// 已去重、可直接渲染的节点。
+    pub nodes: Vec<SubNode>,
+    /// 与 [`Self::nodes`] 同序一一对应的库内节点行（不含配置，用于展示）。
+    pub sources: Vec<NodeWithServer>,
+    /// 范围内但无法生成配置的节点数。
+    pub unavailable: usize,
+}
+
 /// 订阅里该用户可见的节点（含跨服务器重名去重）。
 ///
 /// 抽出来给订阅端点和模板预览共用：预览必须与真实订阅看到同一批节点，
@@ -131,22 +146,59 @@ pub(crate) async fn subscription_nodes(
     user_id: &str,
     secret: &str,
 ) -> AppResult<Vec<SubNode>> {
-    let mut nodes = Vec::new();
+    Ok(subscription_nodes_report(pool, user_id, secret)
+        .await?
+        .nodes)
+}
+
+/// 与 [`subscription_nodes`] 同一套过滤，但额外返回节点行与不可用计数。
+///
+/// `/me/summary` 用它回答「页面上有多少节点」：数字必须与订阅真实输出一致，
+/// 不能再按 `eligible_node_ids_for_user` 的集合大小来数。
+pub(crate) async fn subscription_nodes_report(
+    pool: &SqlitePool,
+    user_id: &str,
+    secret: &str,
+) -> AppResult<RenderedSubscriptionNodes> {
     // 没有可用套餐、或套餐范围里一个节点都没有的用户仍然 200，但 proxies 为空
     // （与「未绑定套餐」的 FAQ 语义一致）。可见节点集合直接复用下发配置的
     // `authorization::eligible_pairs`，套餐节点范围不会在订阅端再写一遍。
     let allowed = repo::authorization::eligible_node_ids_for_user(pool, user_id).await?;
+    render_nodes(pool, &allowed, user_id, secret).await
+}
+
+/// 按「范围 ∩ enabled」选出节点，并记录无法渲染的数量。
+///
+/// 这是**唯一**的过滤实现：真实订阅、模板预览、`/me/summary` 的节点计数
+/// 都走这里，避免出现「页面 17、订阅 10」的两套口径。
+async fn render_nodes(
+    pool: &SqlitePool,
+    allowed: &HashSet<String>,
+    credential_user: &str,
+    secret: &str,
+) -> AppResult<RenderedSubscriptionNodes> {
+    let mut nodes = Vec::new();
+    let mut sources = Vec::new();
+    let mut unavailable = 0usize;
     for row in repo::nodes::list_enabled_with_server(pool).await? {
         if !allowed.contains(&row.node.id) {
             continue;
         }
         // 缺字段/脏片段的节点在这里被跳过并记 warn，订阅本身照常渲染。
-        if let Some(node) = SubNode::from_node(&row.node, &row.server_address, user_id, secret) {
-            nodes.push(node);
+        match SubNode::from_node(&row.node, &row.server_address, credential_user, secret) {
+            Some(node) => {
+                nodes.push(node);
+                sources.push(row);
+            }
+            None => unavailable += 1,
         }
     }
     dedupe_names(&mut nodes);
-    Ok(nodes)
+    Ok(RenderedSubscriptionNodes {
+        nodes,
+        sources,
+        unavailable,
+    })
 }
 
 /// 订阅规则的五级解析：
@@ -195,19 +247,9 @@ pub(crate) async fn subscription_nodes_for_package(
 ) -> AppResult<Vec<SubNode>> {
     let allowed = repo::authorization::eligible_node_ids_for_package(pool, package_id).await?;
     let preview_user = format!("package-preview:{package_id}");
-    let mut nodes = Vec::new();
-    for row in repo::nodes::list_enabled_with_server(pool).await? {
-        if !allowed.contains(&row.node.id) {
-            continue;
-        }
-        if let Some(node) =
-            SubNode::from_node(&row.node, &row.server_address, &preview_user, secret)
-        {
-            nodes.push(node);
-        }
-    }
-    dedupe_names(&mut nodes);
-    Ok(nodes)
+    Ok(render_nodes(pool, &allowed, &preview_user, secret)
+        .await?
+        .nodes)
 }
 
 /// 套餐自己的规则模板绑定（按套餐预览用）。
@@ -226,18 +268,31 @@ pub(crate) async fn rules_for_package(
 }
 
 /// 流量/额度/到期信息。拆不出上下行，`used_bytes` 记到 download 上。
+///
+/// `total` / `expire` **都取生效中的套餐实例**，与订阅节点资格同一口径：
+/// * 额度 = 套餐实例合计（与用户列表的 `package_quota_bytes` 同口径），
+///   再与账户级总闸取较小值；
+/// * 到期 = 同一批实例里最晚的 `expires_at`；
+/// * 没有生效套餐时两者都省略——账户级 `quota_bytes` 通常为空，不能拿它冒充
+///   套餐额度（否则客户端会显示「不限量」而页面显示具体额度）。
 async fn traffic_for(pool: &SqlitePool, user: &User) -> AppResult<TrafficInfo> {
     let packages = repo::user_packages::list_views_by_user(pool, &user.id).await?;
-    let expire = packages
+    let active: Vec<_> = packages
         .iter()
         .filter(|item| item.status == "active")
-        .filter_map(|item| item.expires_at)
-        .max();
+        .cloned()
+        .collect();
+    let expire = active.iter().filter_map(|item| item.expires_at).max();
+    let total = if active.is_empty() {
+        None
+    } else {
+        subscribe::clamped_total(aggregate_quota(&active), user.quota_bytes)
+    };
 
     Ok(TrafficInfo {
         upload: 0,
         download: user.used_bytes.max(0) as u64,
-        total: user.quota_bytes.and_then(|quota| u64::try_from(quota).ok()),
+        total,
         expire,
     })
 }
@@ -490,6 +545,154 @@ mod tests {
             "默认规则必须与升级前逐字节一致：{body}"
         );
         assert!(!body.contains("禁用节点"), "禁用节点不应导出");
+    }
+
+    async fn user_with_quota(state: &AppState, username: &str, quota_bytes: Option<i64>) -> User {
+        repo::users::create(
+            &state.db.pool,
+            NewUser {
+                username: username.into(),
+                password: "password123".into(),
+                role: "user".into(),
+                quota_bytes,
+                rule_template_id: None,
+                subscription_template_id: None,
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn create_quota_package(
+        state: &AppState,
+        name: &str,
+        quota_bytes: Option<i64>,
+    ) -> Package {
+        packages::create(
+            &state.db.pool,
+            packages::NewPackage {
+                name: name.into(),
+                quota_bytes,
+                period_days: None,
+                direction: "both".into(),
+                node_ratio: 1.0,
+                rule_template_id: None,
+                subscription_template_id: None,
+                speed_limit_kbps: None,
+                node_ids: None,
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    async fn bind_quota_package(
+        state: &AppState,
+        user_id: &str,
+        package: &Package,
+        expires_at: Option<i64>,
+    ) {
+        user_packages::create(
+            &state.db.pool,
+            user_id,
+            user_packages::NewUserPackage {
+                package_id: package.id.clone(),
+                quota_override: None,
+                expires_at,
+                reset_day: None,
+            },
+            package,
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn userinfo(app: &Router, short_code: &str) -> String {
+        let (status, headers, body) = get(app, &format!("/api/v1/sub/{short_code}"), None).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        header_str(&headers, "subscription-userinfo")
+            .expect("必须有流量头")
+            .to_string()
+    }
+
+    /// 单套餐：`total` 取套餐额度而不是账户级 `quota_bytes`（账户级通常为空），
+    /// `expire` 与 `total` 同源。
+    #[tokio::test]
+    async fn userinfo_total_and_expire_come_from_the_package() {
+        let (app, state, _short_code) = setup().await;
+        let expires = repo::now() + 86_400;
+        let user = user_with_quota(&state, "single-card", None).await;
+        let package = create_quota_package(&state, "单卡", Some(50_000)).await;
+        bind_quota_package(&state, &user.id, &package, Some(expires)).await;
+
+        let info = userinfo(&app, &user.short_code).await;
+        assert!(info.contains("total=50000"), "unexpected: {info}");
+        assert!(
+            info.contains(&format!("expire={expires}")),
+            "unexpected: {info}"
+        );
+    }
+
+    /// 多套餐：与用户列表的「套餐流量」一样按实例累加，而不是只取主套餐/最大值。
+    #[tokio::test]
+    async fn userinfo_total_sums_active_packages_like_the_page() {
+        let (app, state, _short_code) = setup().await;
+        let now = repo::now();
+        let user = user_with_quota(&state, "multi-card", None).await;
+        let first = create_quota_package(&state, "月卡", Some(50_000)).await;
+        let second = create_quota_package(&state, "加油包", Some(20_000)).await;
+        bind_quota_package(&state, &user.id, &first, Some(now + 86_400)).await;
+        bind_quota_package(&state, &user.id, &second, Some(now + 7 * 86_400)).await;
+
+        let info = userinfo(&app, &user.short_code).await;
+        assert!(info.contains("total=70000"), "多套餐应累加：{info}");
+        assert!(
+            info.contains(&format!("expire={}", now + 7 * 86_400)),
+            "到期取同一批套餐里最晚的一张：{info}"
+        );
+    }
+
+    /// 账户级 `quota_bytes` 是跨套餐总闸：与套餐额度取较小值；
+    /// 套餐不限量时总闸仍然生效。
+    #[tokio::test]
+    async fn userinfo_total_is_clamped_by_account_quota() {
+        let (app, state, _short_code) = setup().await;
+        let now = repo::now();
+
+        // 账户闸更小。
+        let clamped = user_with_quota(&state, "clamped", Some(30_000)).await;
+        let package = create_quota_package(&state, "大卡", Some(50_000)).await;
+        bind_quota_package(&state, &clamped.id, &package, Some(now + 86_400)).await;
+        let info = userinfo(&app, &clamped.short_code).await;
+        assert!(info.contains("total=30000"), "账户闸应封顶：{info}");
+
+        // 账户闸更大：以套餐合计为准。
+        let wider = user_with_quota(&state, "wider", Some(100_000)).await;
+        let small = create_quota_package(&state, "小卡", Some(20_000)).await;
+        bind_quota_package(&state, &wider.id, &small, None).await;
+        let info = userinfo(&app, &wider.short_code).await;
+        assert!(info.contains("total=20000"), "账户闸更大时取套餐：{info}");
+
+        // 套餐显式不限（0）+ 账户闸：总闸就是唯一上限。
+        let unlimited = user_with_quota(&state, "unlimited", Some(8_000)).await;
+        let unlimited_package = create_quota_package(&state, "不限量", Some(0)).await;
+        bind_quota_package(&state, &unlimited.id, &unlimited_package, None).await;
+        let info = userinfo(&app, &unlimited.short_code).await;
+        assert!(
+            info.contains("total=8000"),
+            "不限量套餐应回落到账户闸：{info}"
+        );
+    }
+
+    /// 无套餐时 `total` / `expire` 都省略：不能拿账户级 `quota_bytes` 冒充套餐额度。
+    #[tokio::test]
+    async fn userinfo_omits_total_and_expire_without_a_package() {
+        let (app, state, _short_code) = setup().await;
+        let user = user_with_quota(&state, "no-card", Some(8_000)).await;
+
+        let info = userinfo(&app, &user.short_code).await;
+        assert!(!info.contains("total="), "无套餐应省略 total：{info}");
+        assert!(!info.contains("expire="), "无套餐应省略 expire：{info}");
     }
 
     #[tokio::test]

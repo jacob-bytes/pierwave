@@ -1440,7 +1440,10 @@ pub struct EnforcementEvent {
 }
 
 /// 套餐实例额度合计：任意一张不限量（生效额度为 `None` 或 `0`）则整体不限。
-fn aggregate_quota(packages: &[UserPackageView]) -> Option<i64> {
+///
+/// 用户列表的 `package_quota_bytes` 与订阅 `Subscription-Userinfo` 的 `total`
+/// 共用这一口径：多张卡累加，任何一张不限量都会让合计失去上限。
+pub fn aggregate_quota(packages: &[UserPackageView]) -> Option<i64> {
     let mut total: i64 = 0;
     for package in packages {
         match package.quota_bytes {

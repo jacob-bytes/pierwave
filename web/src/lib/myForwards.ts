@@ -42,6 +42,128 @@ export function canCreate(
   return quotaState(quota) === "available";
 }
 
+/**
+ * 新建动作被拦下的原因。
+ *
+ * 与配额三态分开：`no-availability` 是「有配额，但没有可用的服务器 / 链模板」，
+ * 配额本身完全正常。拆开之后，界面才能给出一句准确的解释，而不是笼统地
+ * 把按钮置灰。
+ */
+export type CreateBlocker =
+  /** 套餐不支持（`limit <= 0`）且没有任何存量。 */
+  | "unsupported"
+  /** 套餐不再支持新建，但还有存量：列表继续展示，只禁用新建。 */
+  | "stock"
+  /** 配额用尽。 */
+  | "exhausted"
+  /** 有配额，但没有授权任何服务器（转发）或模板（转发链）。 */
+  | "no-availability";
+
+export interface CreateGate {
+  blocker: CreateBlocker | null;
+  creatable: boolean;
+  /** false 时整块只给「套餐不支持」空态；true 时保留列表（含存量）。 */
+  showList: boolean;
+  /**
+   * 顶部配额徽章形态：
+   * - `ratio`：`3 / 5 条`；
+   * - `stock`：`存量 2 条`（`limit <= 0` 的存量态，绝不显示 `2 / 0`）；
+   * - `null`：不显示（套餐不支持且没有存量）。
+   */
+  badge: "ratio" | "stock" | null;
+}
+
+/**
+ * 后端 `forward_servers_reason` 的解释码（旧后端没有该字段）。
+ *
+ * - `package.forward_servers_empty`：有额度，但套餐没授权服务器；
+ * - `package.forward_limit_zero`：套餐本身不支持自助转发。
+ *
+ * 未知值返回 null，调用方回落到 `servers.length` 判断（U1）。
+ */
+export type ForwardServersReason = "no-servers" | "no-limit";
+
+export function forwardServersReason(
+  reason: string | null | undefined,
+): ForwardServersReason | null {
+  if (reason === "package.forward_servers_empty") return "no-servers";
+  if (reason === "package.forward_limit_zero") return "no-limit";
+  return null;
+}
+
+export interface CreateGateInput {
+  quota?: ForwardQuotaLike | null;
+  itemCount?: number | null;
+  /**
+   * 允许新建的资源数量（转发的服务器 / 链的模板）。
+   * `null` / `undefined` 表示还不知道（请求未完成），此时不据此拦截，
+   * 避免在加载中误报「没有可用服务器」。
+   */
+  availableCount?: number | null;
+}
+
+function nonNegativeCount(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return 0;
+  }
+  return Math.floor(value);
+}
+
+/**
+ * 新建入口的统一判定（自助转发与转发链共用同一套口径）。
+ *
+ * 判定顺序有意如此：
+ * 1. `limit <= 0` 且有存量 → `stock`：保留存量列表，只禁用新建；
+ * 2. `limit <= 0` 且没有存量 → `unsupported`：隐藏新建按钮，空态说明不支持；
+ * 3. 配额用尽 → `exhausted`（优先于「没有服务器」，配额是主因）；
+ * 4. 有配额但没有可用资源 → `no-availability`：配额正常，只是没授权；
+ * 5. 其余 → 可新建。
+ */
+export function createGate({
+  quota,
+  itemCount,
+  availableCount,
+}: CreateGateInput): CreateGate {
+  const items = nonNegativeCount(itemCount);
+  const state = quotaState(quota);
+
+  if (state === "none") {
+    return items > 0
+      ? {
+          blocker: "stock",
+          creatable: false,
+          showList: true,
+          badge: "stock",
+        }
+      : {
+          blocker: "unsupported",
+          creatable: false,
+          showList: false,
+          badge: null,
+        };
+  }
+
+  if (state === "exhausted") {
+    return {
+      blocker: "exhausted",
+      creatable: false,
+      showList: true,
+      badge: "ratio",
+    };
+  }
+
+  if (availableCount === 0) {
+    return {
+      blocker: "no-availability",
+      creatable: false,
+      showList: true,
+      badge: "ratio",
+    };
+  }
+
+  return { blocker: null, creatable: true, showList: true, badge: "ratio" };
+}
+
 /** 入口地址的最小字段集：不要求完整 item，方便测试与骨架屏复用。 */
 export interface ForwardEntryLike {
   entry_address?: string | null;

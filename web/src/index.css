@@ -558,3 +558,26 @@
     animation: none;
   }
 }
+
+/*
+ * 卡片头部窄屏纵向堆叠（U2）。
+ *
+ * 英文 390 下「配额 + New forward」动作行约占 217px，把标题压到 88px。
+ * <sm 时把动作换到标题 / 说明下方，两段文字恢复整宽；>=sm 仍用 CardHeader
+ * 自带的两列网格（标题左、动作右）。
+ *
+ * 刻意放在所有 @layer 之外：CardHeader 的 `grid` 与
+ * `has-data-[slot=card-action]:grid-cols-[1fr_auto]` 都是工具类，
+ * 未分层规则才能稳定覆盖，不依赖 Tailwind 的生成顺序。
+ */
+@media (max-width: 39.999rem) {
+  .card-header-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .card-header-stack > [data-slot="card-action"] {
+    width: 100%;
+    justify-self: stretch;
+  }
+}

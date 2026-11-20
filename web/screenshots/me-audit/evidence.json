@@ -1,0 +1,216 @@
+{
+  "account": {
+    "username": "kenji",
+    "role": "user"
+  },
+  "summary": {
+    "package": {
+      "expires_at": 1797082271,
+      "name": "轻量 · 50G",
+      "traffic_limit": 53687091200
+    },
+    "usage": {
+      "days_left": 22,
+      "remaining_bytes": 28987091200,
+      "status": "active",
+      "used_bytes": 24700000000
+    },
+    "node_count": 17,
+    "forward_servers": [],
+    "subscription": {
+      "updated_at": 1793367071,
+      "url": "http://127.0.0.1:8795/api/v1/sub/d3adbeef01"
+    },
+    "traffic_today": {
+      "month_bytes": 0,
+      "today_bytes": 0
+    }
+  },
+  "forwards": {
+    "quota": {
+      "limit": 5,
+      "used": 3
+    },
+    "item_count": 3
+  },
+  "chains": {
+    "quota": {
+      "limit": 1,
+      "used": 0
+    },
+    "templates": 0
+  },
+  "traffic_7d": {
+    "days": [
+      {
+        "date": "2026-11-14",
+        "downlink": 0,
+        "uplink": 0,
+        "weighted": 0
+      },
+      {
+        "date": "2026-11-15",
+        "downlink": 0,
+        "uplink": 0,
+        "weighted": 0
+      },
+      {
+        "date": "2026-11-16",
+        "downlink": 0,
+        "uplink": 0,
+        "weighted": 0
+      },
+      {
+        "date": "2026-11-17",
+        "downlink": 0,
+        "uplink": 0,
+        "weighted": 0
+      },
+      {
+        "date": "2026-11-18",
+        "downlink": 0,
+        "uplink": 0,
+        "weighted": 0
+      },
+      {
+        "date": "2026-11-19",
+        "downlink": 0,
+        "uplink": 0,
+        "weighted": 0
+      },
+      {
+        "date": "2026-11-20",
+        "downlink": 0,
+        "uplink": 0,
+        "weighted": 0
+      }
+    ]
+  },
+  "subscription": {
+    "proxies": 10,
+    "proxy_names": [
+      "大阪-VMess",
+      "新加坡-Trojan",
+      "东京-H2",
+      "东京-Trojan",
+      "香港-WS",
+      "美西-VLESS",
+      "香港二-Trojan",
+      "香港三-VMess",
+      "东京二-VLESS",
+      "新加坡二-VMess"
+    ],
+    "missing_from_subscription": [
+      "新加坡-REALITY",
+      "东京-REALITY",
+      "香港-REALITY",
+      "香港-SS",
+      "香港二-REALITY",
+      "东京二-SS",
+      "探针-VLESS"
+    ],
+    "userinfo_header": [
+      "subscription-userinfo: upload=0; download=24700000000; expire=1797082271"
+    ]
+  },
+  "geometry": {
+    "page_overflow_x": {
+      "overview": 0,
+      "subscription": 0,
+      "forwards": 0,
+      "packages": 0
+    },
+    "switch": {
+      "w": 24,
+      "h": 14
+    },
+    "select_subscription_format_390": {
+      "w": 150,
+      "h": 28
+    },
+    "dialog_inputs_390": {
+      "w": 326,
+      "h": 32
+    },
+    "english_390_forwards_card": {
+      "title_w": 88.6,
+      "desc_w": 88.6,
+      "desc_h": 134.3,
+      "header_h": 176.1,
+      "action_w": 217.4
+    },
+    "english_390_refresh_x": 24,
+    "chinese_390_refresh_x": 300.4,
+    "english_390_tabs": {
+      "nav_w": 371.9,
+      "container_w": 342,
+      "clipped_px": 29.9
+    },
+    "session_rows_1440": [
+      82.9,
+      81.9
+    ],
+    "session_row_390": 134.9,
+    "cards_1440_login_row": {
+      "login_h": 269.7,
+      "recent_h": 225.3
+    },
+    "row_heights": {
+      "subscription_node": 43.4,
+      "package": 42.4,
+      "admin_table": 41.4,
+      "forwards_two_line": [
+        61,
+        73
+      ]
+    },
+    "contrast": {
+      "focus_ring_dark": 2.34,
+      "focus_ring_light": 2.59,
+      "muted_dark": 7.08,
+      "muted_light": 5.19,
+      "code_light": 4.96,
+      "primary_badge_dark": 6.25,
+      "primary_badge_light": 8.3
+    }
+  },
+  "a11y": {
+    "headings_per_page": {
+      "/me": [
+        "H1:概览"
+      ],
+      "/me/subscription": [
+        "H1:我的订阅"
+      ],
+      "/me/forwards": [
+        "H1:我的转发"
+      ],
+      "/me/packages": [
+        "H1:套餐"
+      ]
+    },
+    "nav_labels": [
+      null,
+      "面包屑",
+      "个人中心分页"
+    ],
+    "skip_link": false,
+    "focusable_counts": {
+      "/me": 13,
+      "/me/subscription": 16,
+      "/me/forwards": 25,
+      "/me/packages": 12
+    }
+  },
+  "dialog_no_servers": {
+    "submit_disabled": true,
+    "server_select_count": 0,
+    "alert": "没有可用的服务器 / 当前套餐没有授权任何服务器用于自助转发，请联系管理员。"
+  },
+  "quotas_zero_state": {
+    "used": 2,
+    "limit": 0,
+    "visible_text": "配额 2 / 0 + 当前套餐不支持自助转发"
+  },
+  "note": "会话由本地 preview.db 的 sessions 表注入（登录取 token 触发 5 次失败限流）；所有截图未改产品代码。"
+}

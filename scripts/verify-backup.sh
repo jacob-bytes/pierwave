@@ -701,7 +701,7 @@ done
 ok "节点 4 个（reality / ws / tls+证书 / shadowsocks）"
 
 # ---- 套餐 + 用户绑定 ----
-printf '{"name":"backup-月卡","quota_bytes":107374182400,"period_days":30,"direction":"both","node_ratio":2.5,"speed_limit_kbps":100000,"forward_limit":3,"chain_limit":2}' >"$WORK/req.json"
+printf '{"name":"backup-月卡","quota_bytes":107374182400,"period_days":30,"direction":"both","node_ratio":2.5,"speed_limit_kbps":100000,"forward_limit":0,"chain_limit":2}' >"$WORK/req.json"
 expect_json "$(request POST "$BASE/api/v1/packages" "$WORK/req.json")" 200 "建套餐 backup-月卡"
 PACKAGE_ID=$(jget '["package"]["id"]')
 

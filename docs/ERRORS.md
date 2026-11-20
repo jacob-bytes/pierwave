@@ -961,6 +961,9 @@ mechanism). Re-enabling is manual.
 用户只能管理 `owner_user_id = 会话用户` 的转发。条数取**生效中套餐**的
 `forward_limit` 最大值（无套餐 = 0，多套餐不累加）；目标服务器必须同时出现在
 「`forward_limit > 0` 且生效中」的套餐 `package_forward_servers` 并集里。
+保存套餐时，`forward_limit > 0` 且白名单为空会被 400
+`package.forward_servers_required` 拒绝；历史数据不迁移，只在下一次修改转发字段
+时要求补齐（`/me/summary` 用 `forward_servers_reason` 解释空态）。
 监听端口由服务器端口策略自动分配，请求里带 `listen_port` 会被忽略。
 端口池耗尽时复用链的分配错误码：不限制时是 `chain.port_pool_exhausted`，
 有范围/白名单时是 `chain.port_allowed_exhausted`。
@@ -968,7 +971,11 @@ mechanism). Re-enabling is manual.
 Users may only manage forwards whose `owner_user_id` equals the session user.
 The quota is the **maximum** `forward_limit` among active packages (no package = 0;
 multiple packages do not stack), and the target server must be in the union of the
-`package_forward_servers` of active packages with `forward_limit > 0`. The listen
+`package_forward_servers` of active packages with `forward_limit > 0`. Saving a
+package with `forward_limit > 0` and an empty whitelist is rejected with 400
+`package.forward_servers_required`. Legacy rows are not migrated; the next edit that
+touches a forwarding field must supply a server (`/me/summary` explains the empty
+state via `forward_servers_reason`). The listen
 port is allocated by the server port policy and any client-supplied `listen_port`
 is ignored. Port-pool exhaustion reuses the chain allocation codes:
 `chain.port_pool_exhausted` without a policy, `chain.port_allowed_exhausted` with one.
@@ -979,14 +986,25 @@ is ignored. Port-pool exhaustion reuses the chain allocation codes:
 | `me.forward_server_not_allowed` | 当前套餐不允许在服务器「{server_name}」上创建转发 | The current package does not allow forwarding on server "{server_name}" | server_id, server_name |
 | `me.forward_not_found` | 转发规则不存在（不存在或不属于当前用户） | Forward not found (missing or not owned by the current user) | — |
 | `package.forward_limit_invalid` | 自助转发条数不能为负数（0 表示不允许） | Forward limit must not be negative (0 means not allowed) | min |
+| `package.forward_servers_required` | 自助转发条数为 {forward_limit} 时必须至少授权一台服务器 | A positive forward limit ({forward_limit}) requires at least one authorized server | forward_limit, min_servers |
 | `package.forward_server_invalid` | 服务器 id 不能为空 | Server id must not be empty | — |
 | `package.forward_server_not_found` | 服务器不存在：{server_ids} | Server not found: {server_ids} | server_ids |
 
 接口 / Endpoints:
 
-- `GET /api/v1/me/summary` 顶层带 `forward_servers: [{ id, name }]`：与创建接口用
-  **同一份额度快照**（生效中且 `forward_limit > 0` 的套餐白名单并集、去重、按名称排序），
-  `forward_limit = 0` 时为空数组。前端据此渲染服务器下拉。
+- `GET /api/v1/me/summary` 顶层带 `forward_limit`、`forward_servers: [{ id, name }]`
+  与 `forward_servers_reason`：服务器列表与创建接口用**同一份额度快照**（生效中且
+  `forward_limit > 0` 的套餐白名单并集、去重、按名称排序）。列表为空时原因码是
+  `package.forward_servers_empty`（条数 > 0 但没有可用服务器，含历史数据）或
+  `package.forward_limit_zero`（无生效套餐 / 条数 0）；有服务器时为 `null`。
+  前端据此渲染下拉并解释空态。
+- `GET /api/v1/me/summary` exposes `forward_limit`, `forward_servers: [{ id, name }]`
+  and `forward_servers_reason`. The list uses the same allowance snapshot as
+  creation (union of active packages with `forward_limit > 0`, de-duplicated, sorted
+  by name). When empty, the reason is `package.forward_servers_empty` (positive quota
+  but no usable server, including legacy rows) or `package.forward_limit_zero` (no
+  active package / zero quota); it is `null` when at least one server is available.
+  The frontend uses it to render the picker and explain the empty state.
 - `GET /api/v1/me/forwards` → `{ items: [...], quota: { limit, used } }`；
   每项在转发字段之外带 `server_name`、`server_address`、`entry_address`（`地址:端口`）。
 - `POST /api/v1/me/forwards`，body `{ server_id, target_host, target_port, protocol? }`：

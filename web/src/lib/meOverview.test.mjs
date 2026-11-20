@@ -6,6 +6,8 @@ import {
   OVERVIEW_TEXT_CLASS,
   dailyAverage,
   daysTone,
+  hasTrafficSamples,
+  trafficWindowTotal,
   trafficTone,
 } from "./meOverview.ts";
 
@@ -107,4 +109,50 @@ test("dailyAverage skips corrupted entries instead of blanking the metric", () =
   );
   assert.equal(dailyAverage([{ weighted: Number.POSITIVE_INFINITY }]), null);
   assert.equal(dailyAverage([{ weighted: Number.NEGATIVE_INFINITY }]), null);
+});
+
+// ---------------------------------------------------------------------------
+// U3：无采样 vs 真实 0
+// ---------------------------------------------------------------------------
+test("hasTrafficSamples separates no samples from a real zero", () => {
+  // 没加载 / 查询失败 / 后端返回空窗口：无采样。
+  assert.equal(hasTrafficSamples([]), false);
+  assert.equal(hasTrafficSamples(null), false);
+  assert.equal(hasTrafficSamples(undefined), false);
+  // 后端会把缺失日补 0；整窗全 0 视为「没有采样」，界面显示 — 而不是 0 B。
+  assert.equal(hasTrafficSamples([{ weighted: 0 }]), false);
+  assert.equal(
+    hasTrafficSamples([
+      { weighted: 0, uplink: 0, downlink: 0 },
+      { weighted: 0, uplink: 0, downlink: 0 },
+    ]),
+    false,
+  );
+  // 任一天有真实流量 → 整窗有采样；其余天的 0 是真实 0，照常显示 0 B。
+  assert.equal(hasTrafficSamples([{ weighted: 0 }, { weighted: 1 }]), true);
+  assert.equal(hasTrafficSamples([{ weighted: 0, downlink: 5 }]), true);
+  assert.equal(hasTrafficSamples([{ weighted: 0, uplink: 7 }]), true);
+  // 脏数据不算采样。
+  assert.equal(hasTrafficSamples([{ weighted: Number.NaN }]), false);
+  assert.equal(
+    hasTrafficSamples([{ weighted: Number.POSITIVE_INFINITY }]),
+    false,
+  );
+});
+
+test("trafficWindowTotal hides an empty window and sums a sampled one", () => {
+  assert.equal(trafficWindowTotal([]), null);
+  assert.equal(trafficWindowTotal(null), null);
+  assert.equal(trafficWindowTotal(undefined), null);
+  assert.equal(trafficWindowTotal([{ weighted: 0 }, { weighted: 0 }]), null);
+  assert.equal(trafficWindowTotal([{ weighted: 0 }, { weighted: 1024 }]), 1024);
+  // 脏数据跳过，其余天仍能给出总量。
+  assert.equal(
+    trafficWindowTotal([
+      { weighted: 100 },
+      { weighted: Number.NaN },
+      { weighted: 300 },
+    ]),
+    400,
+  );
 });

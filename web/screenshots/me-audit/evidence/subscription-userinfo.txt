@@ -1,0 +1,27 @@
+# GET /api/v1/sub/d3adbeef01
+
+HTTP/1.1 200 OK
+content-type: text/yaml; charset=utf-8
+cache-control: no-store
+subscription-userinfo: upload=0; download=24700000000; expire=1797082271
+x-content-type-options: nosniff
+referrer-policy: no-referrer
+x-frame-options: DENY
+content-security-policy: frame-ancestors 'none'
+permissions-policy: camera=(), microphone=(), geolocation=()
+pragma: no-cache
+content-length: 3394
+date: Fri, 20 Nov 2026 16:01:13 GMT
+
+
+# proxies in body
+大阪-VMess
+新加坡-Trojan
+东京-H2
+东京-Trojan
+香港-WS
+美西-VLESS
+香港二-Trojan
+香港三-VMess
+东京二-VLESS
+新加坡二-VMess

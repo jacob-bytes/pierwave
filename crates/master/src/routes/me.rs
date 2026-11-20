@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use pierwave_domain::models::UserPackageView;
-use pierwave_domain::{password, repo};
+use pierwave_domain::{credentials, password, repo};
 
 use crate::auth::{CurrentUser, SESSION_COOKIE};
 use crate::error::{AppError, AppResult};
@@ -88,28 +88,31 @@ pub async fn summary(
         primary.map(|item| item.status_at(now)).unwrap_or("none")
     };
 
-    // 节点可见性与订阅端点走同一套授权 SQL，套餐节点范围不会两处漂移。
-    let allowed =
-        repo::authorization::eligible_node_ids_for_user(&state.db.pool, &user.0.id).await?;
+    // 节点可见性与订阅端点走同一套授权 SQL **以及同一套渲染过滤**：
+    // 缺 REALITY 公钥 / SS 密码 / 服务器地址的节点不会出现在订阅里，
+    // 也不能出现在这里的 `nodes` 中；它们只计入 `nodes_unavailable`。
+    let secret = credentials::master_secret(&state.db.pool, state.db.secret_key()).await?;
+    let rendered =
+        super::subscribe::subscription_nodes_report(&state.db.pool, &user.0.id, &secret).await?;
     let servers = repo::servers::list(&state.db.pool).await?;
     let server_names: std::collections::HashMap<String, String> = servers
         .iter()
         .map(|server| (server.id.clone(), server.name.clone()))
         .collect();
-    let mut nodes = Vec::new();
-    for row in repo::nodes::list_enabled_with_server(&state.db.pool).await? {
-        if !allowed.contains(&row.node.id) {
-            continue;
-        }
+    let nodes: Vec<Value> = rendered
+        .sources
+        .iter()
         // 只给名字，不给服务器地址 / 端口 / 配置。
-        nodes.push(json!({
-            "id": row.node.id,
-            "name": row.node.name,
-            "tag": row.node.tag,
-            "protocol": row.node.protocol,
-            "server_name": server_names.get(&row.node.server_id).cloned().unwrap_or_default(),
-        }));
-    }
+        .map(|row| {
+            json!({
+                "id": row.node.id,
+                "name": row.node.name,
+                "tag": row.node.tag,
+                "protocol": row.node.protocol,
+                "server_name": server_names.get(&row.node.server_id).cloned().unwrap_or_default(),
+            })
+        })
+        .collect();
 
     // 自助转发可选的服务器：与创建转发用**同一份**额度快照，避免出现
     // 「下拉里有服务器、但配额是 0」的矛盾状态。limit = 0 时一律返回空。
@@ -129,6 +132,15 @@ pub async fn summary(
         .into_iter()
         .map(|server| json!({ "id": server.id, "name": server.name }))
         .collect();
+    // 空下拉必须能解释原因：历史套餐可能出现「有额度但白名单为空」，
+    // 前端不能只看到一个空数组却没有任何可展示的理由。
+    let forward_servers_reason = if !forward_servers.is_empty() {
+        None
+    } else if forward_allowance.limit > 0 {
+        Some("package.forward_servers_empty")
+    } else {
+        Some("package.forward_limit_zero")
+    };
 
     let short_code = user.0.short_code.clone();
     let subscription_base =
@@ -154,8 +166,15 @@ pub async fn summary(
             "status": status,
         },
         "nodes": nodes,
+        // 在套餐/用户范围内、但无法生成订阅配置的节点数（缺 REALITY 公钥、
+        // 缺 SS 密码、服务器地址未上报等）。`nodes.len() + nodes_unavailable`
+        // 才是范围内 enabled 节点的总数。
+        "nodes_unavailable": rendered.unavailable,
         // 普通用户建自助转发时的服务器下拉；只含当前有权创建的服务器。
+        "forward_limit": forward_allowance.limit,
         "forward_servers": forward_servers,
+        // `null` = 有可选服务器；空数组时给出可翻译的原因码。
+        "forward_servers_reason": forward_servers_reason,
         "subscription": {
             "url": subscription_url,
             "updated_at": user.0.short_code_updated_at,
@@ -625,6 +644,42 @@ mod tests {
         (server.id, node.id)
     }
 
+    /// 建一个任意协议/配置的节点；返回 node_id。
+    ///
+    /// `transport` / `security` 列统一填 `tcp` / `none`，让 `config_json` 里的
+    /// `stream` 成为事实来源——这与 `SubNode::from_node` 的读取顺序一致。
+    async fn make_custom_node(
+        state: &AppState,
+        server_id: &str,
+        name: &str,
+        protocol: &str,
+        port: i64,
+        config: Value,
+    ) -> String {
+        node_repo::create(
+            &state.db.pool,
+            server_id,
+            node_repo::NewNode {
+                tag: Some(name.into()),
+                name: name.into(),
+                protocol: protocol.into(),
+                transport: "tcp".into(),
+                security: "none".into(),
+                port,
+                public_port: None,
+                config_json: config.to_string(),
+                enabled: true,
+                cert_id: None,
+                bandwidth_kbps: None,
+                tags: Vec::new(),
+                region: None,
+            },
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
     /// 建套餐模板 + 给用户绑一张卡；返回实例视图。
     async fn give_package(
         state: &AppState,
@@ -874,6 +929,192 @@ mod tests {
                 { "id": server_x, "name": "hk-b" },
             ]),
             "多套餐取并集、按名称排序，且不能泄漏未授权服务器：{body}"
+        );
+    }
+
+    /// 摘要里的节点数必须与订阅真实输出一致。
+    ///
+    /// 缺 REALITY 公钥、缺 SS 密码、服务器地址未上报的节点仍在套餐范围内，
+    /// 但订阅渲染会跳过它们：这些只计入 `nodes_unavailable`，不能计入 `nodes`。
+    #[tokio::test]
+    async fn summary_reports_renderable_nodes_and_unavailable_count() {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let state = AppState::new(db, "web/dist");
+        let (alice_id, alice_cookie) = make_user(&state, "alice", "user").await;
+
+        let (server, _token) = servers::create(&state.db.pool, "hk-1", "203.0.113.90", "external")
+            .await
+            .unwrap();
+        let (blank_server, _token) = servers::create(&state.db.pool, "blank", "", "external")
+            .await
+            .unwrap();
+
+        // 两个好节点。
+        make_custom_node(
+            &state,
+            &server.id,
+            "好-VLESS",
+            "vless",
+            443,
+            json!({"settings": {"clients": [], "decryption": "none"}}),
+        )
+        .await;
+        make_custom_node(
+            &state,
+            &server.id,
+            "好-Trojan",
+            "trojan",
+            8443,
+            json!({
+                "settings": {"clients": []},
+                "stream": {
+                    "network": "ws",
+                    "security": "tls",
+                    "tlsSettings": {"serverName": "jp.example.com"},
+                    "wsSettings": {"path": "/ws"}
+                }
+            }),
+        )
+        .await;
+
+        // 三个坏节点：缺 REALITY publicKey / 缺 SS 密码 / 服务器地址未上报。
+        make_custom_node(
+            &state,
+            &server.id,
+            "坏-REALITY",
+            "vless",
+            4443,
+            json!({
+                "settings": {"clients": [], "decryption": "none"},
+                "stream": {
+                    "network": "tcp",
+                    "security": "reality",
+                    "realitySettings": {"serverNames": ["www.example.com"]}
+                }
+            }),
+        )
+        .await;
+        make_custom_node(
+            &state,
+            &server.id,
+            "坏-SS",
+            "shadowsocks",
+            8388,
+            json!({"settings": {"method": "aes-256-gcm"}}),
+        )
+        .await;
+        make_custom_node(
+            &state,
+            &blank_server.id,
+            "未上报-VLESS",
+            "vless",
+            443,
+            json!({"settings": {"clients": [], "decryption": "none"}}),
+        )
+        .await;
+
+        // 套餐不设范围 = 覆盖所有 enabled 节点。
+        give_package(&state, &alice_id, "全部节点", Some(100_000), None, None).await;
+        let app = crate::app::router(state.clone());
+
+        let (status, body) = get(&app, Some(&alice_cookie), "/api/v1/me/summary").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let nodes = body["nodes"].as_array().unwrap();
+        assert_eq!(nodes.len(), 2, "只有可渲染节点计入 nodes：{body}");
+        assert_eq!(body["nodes_unavailable"], 3, "{body}");
+        let summary_names: Vec<&str> = nodes
+            .iter()
+            .map(|node| node["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(summary_names, vec!["好-VLESS", "好-Trojan"]);
+        for bad in ["坏-REALITY", "坏-SS", "未上报-VLESS"] {
+            assert!(
+                !body.to_string().contains(bad),
+                "坏节点不能出现在 summary：{body}"
+            );
+        }
+
+        // 订阅真实输出必须与 summary.nodes 数量一致。
+        let short_code = body["user"]["short_code"].as_str().unwrap().to_string();
+        let (status, _, rendered) = sub_get(&app, &short_code, Some("uri")).await;
+        assert_eq!(status, StatusCode::OK);
+        let rendered_lines = rendered.lines().filter(|line| !line.is_empty()).count();
+        assert_eq!(
+            rendered_lines,
+            nodes.len(),
+            "订阅输出数量必须等于 summary.nodes：{rendered}"
+        );
+        assert!(
+            rendered.contains("@203.0.113.90:443"),
+            "好-VLESS 必须出现在订阅：{rendered}"
+        );
+        assert!(
+            rendered.contains("@203.0.113.90:8443"),
+            "好-Trojan 必须出现在订阅：{rendered}"
+        );
+        for bad_port in [":4443", ":8388"] {
+            assert!(
+                !rendered.contains(bad_port),
+                "坏节点不能出现在订阅：{rendered}"
+            );
+        }
+        assert!(
+            !rendered.contains("@:"),
+            "空地址节点不能出现在订阅：{rendered}"
+        );
+    }
+
+    /// 历史数据允许「forward_limit > 0 但白名单为空」：summary 必须给出可解释的
+    /// 原因码，而不是只返回一个空数组让前端猜。
+    #[tokio::test]
+    async fn summary_explains_why_forward_servers_is_empty() {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let state = AppState::new(db, "web/dist");
+        let (alice_id, alice_cookie) = make_user(&state, "alice", "user").await;
+        let app = crate::app::router(state.clone());
+
+        // 无套餐：额度为 0。
+        let (status, body) = get(&app, Some(&alice_cookie), "/api/v1/me/summary").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["forward_limit"], 0);
+        assert_eq!(body["forward_servers"], json!([]));
+        assert_eq!(body["forward_servers_reason"], "package.forward_limit_zero");
+
+        // 历史坏数据：绕过 API 校验直接写库，模拟升级前已存在的组合。
+        let package = give_package(&state, &alice_id, "历史卡", Some(1_000), None, None).await;
+        repo::packages::set_forward_rules(&state.db.pool, &package.package_id, 2, &[])
+            .await
+            .unwrap();
+        let (status, body) = get(&app, Some(&alice_cookie), "/api/v1/me/summary").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["forward_limit"], 2);
+        assert_eq!(body["forward_servers"], json!([]));
+        assert_eq!(
+            body["forward_servers_reason"], "package.forward_servers_empty",
+            "空数组必须带原因码：{body}"
+        );
+
+        // 正常授权后原因码清空。
+        let (server, _node) = make_server_node(&state, "hk-a", "fwd").await;
+        repo::packages::set_forward_rules(
+            &state.db.pool,
+            &package.package_id,
+            2,
+            std::slice::from_ref(&server),
+        )
+        .await
+        .unwrap();
+        let (status, body) = get(&app, Some(&alice_cookie), "/api/v1/me/summary").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body["forward_servers"],
+            json!([{ "id": server, "name": "hk-a" }])
+        );
+        assert!(
+            body["forward_servers_reason"].is_null(),
+            "有可选服务器时不能带原因码：{body}"
         );
     }
 

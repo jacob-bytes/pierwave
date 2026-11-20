@@ -281,7 +281,10 @@ function SidebarBody({
         )}
       </Link>
 
-      <nav className="flex-1 overflow-y-auto overscroll-y-contain p-3">
+      <nav
+        aria-label={t("app.mainNav")}
+        className="flex-1 overflow-y-auto overscroll-y-contain p-3"
+      >
         {navGroups.map((group, index) => (
           <div key={group.titleKey}>
             {collapsed ? (
@@ -428,6 +431,13 @@ export default function AppShell({ user }: { user: SessionUser }) {
      * 根容器定位 + 裁剪后，这类逃逸元素被约束在 shell 内，文档高度恒等于视口。
      */
     <div className="relative flex h-full overflow-hidden bg-background text-foreground">
+      {/* 键盘用户跳过侧栏与分页，直达内容区（`main` 可聚焦但不进 Tab 序列）。 */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:rounded-md focus:border focus:border-border focus:bg-popover focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground"
+      >
+        {t("app.skipToContent")}
+      </a>
       <aside
         className={cn(
           // 侧栏跟页面底同色，内容区再抬一档（bg-card/40），形成「深 → 浅」两层。
@@ -669,7 +679,11 @@ export default function AppShell({ user }: { user: SessionUser }) {
           </DropdownMenu>
         </header>
 
-        <main className="relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-6">
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-6"
+        >
           {/*
             每个路由一个独立边界：渲染异常只影响当前页，切换路径时
             通过 key 重新挂载，上一页的错误状态不会残留。

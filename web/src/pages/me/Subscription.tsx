@@ -84,9 +84,6 @@ function SubscriptionCard({
           <Link2Icon className="size-4 text-muted-foreground" />
           {t("me.subscription.title")}
         </CardTitle>
-        <CardDescription className="text-xs">
-          {t("me.subscription.desc")}
-        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -100,7 +97,7 @@ function SubscriptionCard({
             >
               <SelectTrigger
                 size="sm"
-                className="h-8 w-[150px] text-xs"
+                className="h-10! w-[150px] text-xs"
                 aria-label={t("me.subscription.formatAria")}
                 title={t("me.subscription.formatHint")}
               >
@@ -182,10 +179,21 @@ function SubscriptionCard({
 
 function NodesCard({ summary }: { summary: MeSummary }) {
   useI18n();
-  // 断流/过期时授权集合为空：空态文案要说明「恢复后才有」，不能只说「没有套餐」。
+  // 三种「0 节点」的前提不同，文案必须跟着变：
+  // - 断流/过期/停用：恢复后才有；
+  // - 没有套餐：开通后才有；
+  // - 套餐 active 但节点为 0：套餐范围本身没有可用节点，要找管理员检查。
   const unavailable = ["exhausted", "expired", "disabled"].includes(
     summary.usage.status,
   );
+  const noPackage = summary.usage.status === "none";
+  // 新后端把「范围内但无法生成配置」的节点单独计数；旧后端缺字段按 0 处理。
+  const unavailableCount =
+    typeof summary.nodes_unavailable === "number" &&
+    Number.isFinite(summary.nodes_unavailable) &&
+    summary.nodes_unavailable > 0
+      ? Math.floor(summary.nodes_unavailable)
+      : 0;
 
   return (
     <Card className="gap-4">
@@ -211,12 +219,18 @@ function NodesCard({ summary }: { summary: MeSummary }) {
           <EmptyState
             icon={ServerIcon}
             title={
-              unavailable ? t("me.nodes.unavailable") : t("me.nodes.empty")
+              unavailable
+                ? t("me.nodes.unavailable")
+                : noPackage
+                  ? t("me.nodes.empty")
+                  : t("me.nodes.emptyActive")
             }
             description={
               unavailable
                 ? t("me.nodes.unavailableDesc")
-                : t("me.nodes.emptyDesc")
+                : noPackage
+                  ? t("me.nodes.emptyDesc")
+                  : t("me.nodes.emptyActiveDesc")
             }
           />
         ) : (
@@ -245,6 +259,16 @@ function NodesCard({ summary }: { summary: MeSummary }) {
             ))}
           </ul>
         )}
+        {unavailableCount > 0 ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            {t(
+              unavailableCount === 1
+                ? "me.nodes.unavailableCountOne"
+                : "me.nodes.unavailableCount",
+              { n: unavailableCount },
+            )}
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );

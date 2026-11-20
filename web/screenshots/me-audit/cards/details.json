@@ -1,0 +1,1112 @@
+[
+  {
+    "path": "/me",
+    "size": {
+      "width": 1440,
+      "height": 900,
+      "theme": "dark"
+    },
+    "cards": [
+      {
+        "file": "web/screenshots/me-audit/cards/overview__card1__1440__dark.png",
+        "box": {
+          "x": 264,
+          "y": 221.78125,
+          "width": 1152,
+          "height": 176
+        },
+        "text": "27 GB\n剩余流量\n\n到期时间\n\n22\n天\n2026-12-12\n\n轻量 · 50G\n\n当前账号 kenji\n\n今日用量\n\n0 B\n\n近 7 天日均\n\n0 B"
+      },
+      {
+        "file": "web/screenshots/me-audit/cards/overview__card2__1440__dark.png",
+        "box": {
+          "x": 264,
+          "y": 413.78125,
+          "width": 1152,
+          "height": 342.078125
+        },
+        "text": "近 7 天用量\n按 UTC+8 自然日统计，只包含你自己的流量。\n下行\n上行\n累计\n0 B\n7 天 0 B\n\n近 7 天还没有流量记录\n\n节点产生流量后，这里会自动出现趋势。"
+      },
+      {
+        "file": "web/screenshots/me-audit/cards/overview__card3__1440__dark.png",
+        "box": {
+          "x": 264,
+          "y": 771.859375,
+          "width": 568,
+          "height": 269.703125
+        },
+        "text": "登录设备\n退出其他设备\n\nme-audit\n\n当前设备\n\n登录于 6 分钟前 · 最后活跃 刚刚\n\n127.0.0.1\n\n退出登录\n\nme-audit\n\n登录于 6 分钟前 · 最后活跃 6 分钟前\n\n127.0.0.1\n\n退出"
+      },
+      {
+        "file": "web/screenshots/me-audit/cards/overview__card4__1440__dark.png",
+        "box": {
+          "x": 848,
+          "y": 629.859375,
+          "width": 568,
+          "height": 225.28125
+        },
+        "text": "最近登录\n\n暂无登录记录\n\n下次登录成功后，这里会出现记录。"
+      }
+    ],
+    "detail": {
+      "switches": [],
+      "labels": [],
+      "nodeRows": [
+        {
+          "text": "me-audit 当前设备 登录于 6 分钟前 · 最后活跃 刚刚 127.0.0.1 退出登录",
+          "x": 281,
+          "y": 717.8,
+          "w": 534,
+          "h": 82.9,
+          "right": 815,
+          "scrollWidth": 534,
+          "clientWidth": 534,
+          "childOverflow": 0
+        },
+        {
+          "text": "me-audit 登录于 6 分钟前 · 最后活跃 6 分钟前 127.0.0.1 退出",
+          "x": 281,
+          "y": 800.7,
+          "w": 534,
+          "h": 81.9,
+          "right": 815,
+          "scrollWidth": 534,
+          "clientWidth": 534,
+          "childOverflow": 0
+        }
+      ],
+      "main": {
+        "scrollHeight": 1010,
+        "clientHeight": 844,
+        "scrollWidth": 1200,
+        "clientWidth": 1200
+      }
+    }
+  },
+  {
+    "path": "/me",
+    "size": {
+      "width": 390,
+      "height": 844,
+      "theme": "dark"
+    },
+    "cards": [
+      {
+        "file": "web/screenshots/me-audit/cards/overview__card1__390__dark.png",
+        "box": {
+          "x": 24,
+          "y": 221.78125,
+          "width": 342,
+          "height": 386.171875
+        },
+        "text": "27 GB\n剩余流量\n\n到期时间\n\n22\n天\n2026-12-12\n\n轻量 · 50G\n\n当前账号 kenji\n\n今日用量\n\n0 B\n\n近 7 天日均\n\n0 B"
+      },
+      {
+        "file": "web/screenshots/me-audit/cards/overview__card2__390__dark.png",
+        "box": {
+          "x": 24,
+          "y": 623.953125,
+          "width": 342,
+          "height": 363.59375
+        },
+        "text": "近 7 天用量\n按 UTC+8 自然日统计，只包含你自己的流量。\n下行\n上行\n累计\n0 B\n7 天 0 B\n\n近 7 天还没有流量记录\n\n节点产生流量后，这里会自动出现趋势。"
+      },
+      {
+        "file": "web/screenshots/me-audit/cards/overview__card3__390__dark.png",
+        "box": {
+          "x": 24,
+          "y": 859.546875,
+          "width": 342,
+          "height": 385.703125
+        },
+        "text": "登录设备\n退出其他设备\n\nme-audit\n\n当前设备\n\n登录于 6 分钟前 · 最后活跃 刚刚\n\n127.0.0.1\n\n退出登录\n\nme-audit\n\n登录于 6 分钟前 · 最后活跃 6 分钟前\n\n127.0.0.1\n\n退出"
+      },
+      {
+        "file": "web/screenshots/me-audit/cards/overview__card4__390__dark.png",
+        "box": {
+          "x": 24,
+          "y": 659.25,
+          "width": 342,
+          "height": 225.28125
+        },
+        "text": "最近登录\n\n暂无登录记录\n\n下次登录成功后，这里会出现记录。"
+      }
+    ],
+    "detail": {
+      "switches": [],
+      "labels": [],
+      "nodeRows": [
+        {
+          "text": "me-audit 当前设备 登录于 6 分钟前 · 最后活跃 刚刚 127.0.0.1 退出登录",
+          "x": 41,
+          "y": 316.4,
+          "w": 308,
+          "h": 134.9,
+          "right": 349,
+          "scrollWidth": 308,
+          "clientWidth": 308,
+          "childOverflow": 0
+        },
+        {
+          "text": "me-audit 登录于 6 分钟前 · 最后活跃 6 分钟前 127.0.0.1 退出",
+          "x": 41,
+          "y": 451.3,
+          "w": 308,
+          "h": 133.9,
+          "right": 349,
+          "scrollWidth": 308,
+          "clientWidth": 308,
+          "childOverflow": 0
+        }
+      ],
+      "main": {
+        "scrollHeight": 1599,
+        "clientHeight": 788,
+        "scrollWidth": 390,
+        "clientWidth": 390
+      }
+    }
+  },
+  {
+    "path": "/me",
+    "size": {
+      "width": 390,
+      "height": 844,
+      "theme": "light"
+    },
+    "cards": [
+      {
+        "file": "web/screenshots/me-audit/cards/overview__card1__390__light.png",
+        "box": {
+          "x": 24,
+          "y": 221.78125,
+          "width": 342,
+          "height": 386.171875
+        },
+        "text": "27 GB\n剩余流量\n\n到期时间\n\n22\n天\n2026-12-12\n\n轻量 · 50G\n\n当前账号 kenji\n\n今日用量\n\n0 B\n\n近 7 天日均\n\n0 B"
+      },
+      {
+        "file": "web/screenshots/me-audit/cards/overview__card2__390__light.png",
+        "box": {
+          "x": 24,
+          "y": 623.953125,
+          "width": 342,
+          "height": 363.59375
+        },
+        "text": "近 7 天用量\n按 UTC+8 自然日统计，只包含你自己的流量。\n下行\n上行\n累计\n0 B\n7 天 0 B\n\n近 7 天还没有流量记录\n\n节点产生流量后，这里会自动出现趋势。"
+      },
+      {
+        "file": "web/screenshots/me-audit/cards/overview__card3__390__light.png",
+        "box": {
+          "x": 24,
+          "y": 859.546875,
+          "width": 342,
+          "height": 385.703125
+        },
+        "text": "登录设备\n退出其他设备\n\nme-audit\n\n当前设备\n\n登录于 6 分钟前 · 最后活跃 刚刚\n\n127.0.0.1\n\n退出登录\n\nme-audit\n\n登录于 6 分钟前 · 最后活跃 6 分钟前\n\n127.0.0.1\n\n退出"
+      },
+      {
+        "file": "web/screenshots/me-audit/cards/overview__card4__390__light.png",
+        "box": {
+          "x": 24,
+          "y": 659.25,
+          "width": 342,
+          "height": 225.28125
+        },
+        "text": "最近登录\n\n暂无登录记录\n\n下次登录成功后，这里会出现记录。"
+      }
+    ],
+    "detail": {
+      "switches": [],
+      "labels": [],
+      "nodeRows": [
+        {
+          "text": "me-audit 当前设备 登录于 6 分钟前 · 最后活跃 刚刚 127.0.0.1 退出登录",
+          "x": 41,
+          "y": 316.4,
+          "w": 308,
+          "h": 134.9,
+          "right": 349,
+          "scrollWidth": 308,
+          "clientWidth": 308,
+          "childOverflow": 0
+        },
+        {
+          "text": "me-audit 登录于 6 分钟前 · 最后活跃 6 分钟前 127.0.0.1 退出",
+          "x": 41,
+          "y": 451.3,
+          "w": 308,
+          "h": 133.9,
+          "right": 349,
+          "scrollWidth": 308,
+          "clientWidth": 308,
+          "childOverflow": 0
+        }
+      ],
+      "main": {
+        "scrollHeight": 1599,
+        "clientHeight": 788,
+        "scrollWidth": 390,
+        "clientWidth": 390
+      }
+    }
+  },
+  {
+    "path": "/me/subscription",
+    "size": {
+      "width": 390,
+      "height": 844,
+      "theme": "dark"
+    },
+    "cards": [
+      {
+        "file": "web/screenshots/me-audit/cards/subscription__card1__390__dark.png",
+        "box": {
+          "x": 24,
+          "y": 221.78125,
+          "width": 342,
+          "height": 364.65625
+        },
+        "text": "我的订阅\n导入订阅后，节点与套餐变化会自动同步，无需重复配置。\n格式\nClash / mihomo\n\n更新于 21 天前\n\nhttp://127.0.0.1:8795/api/v1/sub/d3adbeef01\n复制\n二维码\n\n修改套餐请联系管理员，调整后这里的额度与状态会自动更新。\n\n重置链接"
+      },
+      {
+        "file": "web/screenshots/me-audit/cards/subscription__card2__390__dark.png",
+        "box": {
+          "x": 24,
+          "y": 602.4375,
+          "width": 342,
+          "height": 825.90625
+        },
+        "text": "我的节点\n这些节点来自你当前可用的套餐；只显示名称，不暴露服务器地址。\n17\n大阪-VMess\nvmess\n大阪-01\n新加坡-REALITY\nvless\n新加坡-01\n新加坡-Trojan\ntrojan\n新加坡-01\n东京-REALITY\nvless\n东京-01\n东京-H2\nvmess\n东京-01\n东京-Trojan\ntrojan\n东京-01\n香港-REALITY\nvless\n香港-01\n香港-WS\nvmess\n香港-01\n香港-SS\nshadowsocks\n香港-01\n美西-VLESS\nvless\n美西-01\n香港二-REALITY\nvless\n香港-02\n香港二-Trojan\ntroja"
+      }
+    ],
+    "detail": {
+      "switches": [],
+      "labels": [],
+      "nodeRows": [
+        {
+          "text": "大阪-VMess vmess 大阪-01",
+          "x": 40,
+          "y": 149.7,
+          "w": 310,
+          "h": 33.4,
+          "right": 350,
+          "scrollWidth": 310,
+          "clientWidth": 310,
+          "childOverflow": 0
+        },
+        {
+          "text": "新加坡-REALITY vless 新加坡-01",
+          "x": 40,
+          "y": 183.1,
+          "w": 310,
+          "h": 43.4,
+          "right": 350,
+          "scrollWidth": 310,
+          "clientWidth": 310,
+          "childOverflow": 0
+        },
+        {
+          "text": "新加坡-Trojan trojan 新加坡-01",
+          "x": 40,
+          "y": 226.5,
+          "w": 310,
+          "h": 43.4,
+          "right": 350,
+          "scrollWidth": 310,
+          "clientWidth": 310,
+          "childOverflow": 0
+        },
+        {
+          "text": "东京-REALITY vless 东京-01",
+          "x": 40,
+          "y": 269.9,
+          "w": 310,
+          "h": 43.4,
+          "right": 350,
+          "scrollWidth": 310,
+          "clientWidth": 310,
+          "childOverflow": 0
+        },
+        {
+          "text": "东京-H2 vmess 东京-01",
+          "x": 40,
+          "y": 313.3,
+          "w": 310,
+          "h": 43.4,
+          "right": 350,
+          "scrollWidth": 310,
+          "clientWidth": 310,
+          "childOverflow": 0
+        },
+        {
+          "text": "东京-Trojan trojan 东京-01",
+          "x": 40,
+          "y": 356.7,
+          "w": 310,
+          "h": 43.4,
+          "right": 350,
+          "scrollWidth": 310,
+          "clientWidth": 310,
+          "childOverflow": 0
+        },
+        {
+          "text": "香港-REALITY vless 香港-01",
+          "x": 40,
+          "y": 400,
+          "w": 310,
+          "h": 43.4,
+          "right": 350,
+          "scrollWidth": 310,
+          "clientWidth": 310,
+          "childOverflow": 0
+        },
+        {
+          "text": "香港-WS vmess 香港-01",
+          "x": 40,
+          "y": 443.4,
+          "w": 310,
+          "h": 43.4,
+          "right": 350,
+          "scrollWidth": 310,
+          "clientWidth": 310,
+          "childOverflow": 0
+        },
+        {
+          "text": "香港-SS shadowsocks 香港-01",
+          "x": 40,
+          "y": 486.8,
+          "w": 310,
+          "h": 43.4,
+          "right": 350,
+          "scrollWidth": 310,
+          "clientWidth": 310,
+          "childOverflow": 0
+        },
+        {
+          "text": "美西-VLESS vless 美西-01",
+          "x": 40,
+          "y": 530.2,
+          "w": 310,
+          "h": 43.4,
+          "right": 350,
+          "scrollWidth": 310,
+          "clientWidth": 310,
+          "childOverflow": 0
+        },
+        {
+          "text": "香港二-REALITY vless 香港-02",
+          "x": 40,
+          "y": 573.6,
+          "w": 310,
+          "h": 43.4,
+          "right": 350,
+          "scrollWidth": 310,
+          "clientWidth": 310,
+          "childOverflow": 0
+        },
+        {
+          "text": "香港二-Trojan trojan 香港-02",
+          "x": 40,
+          "y": 617,
+          "w": 310,
+          "h": 43.4,
+          "right": 350,
+          "scrollWidth": 310,
+          "clientWidth": 310,
+          "childOverflow": 0
+        },
+        {
+          "text": "香港三-VMess vmess 香港-03",
+          "x": 40,
+          "y": 660.4,
+          "w": 310,
+          "h": 43.4,
+          "right": 350,
+          "scrollWidth": 310,
+          "clientWidth": 310,
+          "childOverflow": 0
+        },
+        {
+          "text": "东京二-VLESS vless 东京-02",
+          "x": 40,
+          "y": 703.8,
+          "w": 310,
+          "h": 43.4,
+          "right": 350,
+          "scrollWidth": 310,
+          "clientWidth": 310,
+          "childOverflow": 0
+        },
+        {
+          "text": "东京二-SS shadowsocks 东京-02",
+          "x": 40,
+          "y": 747.2,
+          "w": 310,
+          "h": 43.4,
+          "right": 350,
+          "scrollWidth": 310,
+          "clientWidth": 310,
+          "childOverflow": 0
+        },
+        {
+          "text": "新加坡二-VMess vmess 新加坡-02",
+          "x": 40,
+          "y": 790.6,
+          "w": 310,
+          "h": 43.4,
+          "right": 350,
+          "scrollWidth": 310,
+          "clientWidth": 310,
+          "childOverflow": 0
+        },
+        {
+          "text": "探针-VLESS vless 探针-待接入",
+          "x": 40,
+          "y": 834,
+          "w": 310,
+          "h": 32.4,
+          "right": 350,
+          "scrollWidth": 310,
+          "clientWidth": 310,
+          "childOverflow": 0
+        }
+      ],
+      "main": {
+        "scrollHeight": 1396,
+        "clientHeight": 788,
+        "scrollWidth": 390,
+        "clientWidth": 390
+      }
+    }
+  },
+  {
+    "path": "/me/subscription",
+    "size": {
+      "width": 1440,
+      "height": 900,
+      "theme": "light"
+    },
+    "cards": [
+      {
+        "file": "web/screenshots/me-audit/cards/subscription__card1__1440__light.png",
+        "box": {
+          "x": 264,
+          "y": 221.78125,
+          "width": 1152,
+          "height": 245.46875
+        },
+        "text": "我的订阅\n导入订阅后，节点与套餐变化会自动同步，无需重复配置。\n格式\nClash / mihomo\n\n更新于 21 天前\n\nhttp://127.0.0.1:8795/api/v1/sub/d3adbeef01\n复制\n二维码\n\n修改套餐请联系管理员，调整后这里的额度与状态会自动更新。\n\n重置链接"
+      },
+      {
+        "file": "web/screenshots/me-audit/cards/subscription__card2__1440__light.png",
+        "box": {
+          "x": 264,
+          "y": 483.25,
+          "width": 1152,
+          "height": 806.71875
+        },
+        "text": "我的节点\n这些节点来自你当前可用的套餐；只显示名称，不暴露服务器地址。\n17\n大阪-VMess\nvmess\n大阪-01\n新加坡-REALITY\nvless\n新加坡-01\n新加坡-Trojan\ntrojan\n新加坡-01\n东京-REALITY\nvless\n东京-01\n东京-H2\nvmess\n东京-01\n东京-Trojan\ntrojan\n东京-01\n香港-REALITY\nvless\n香港-01\n香港-WS\nvmess\n香港-01\n香港-SS\nshadowsocks\n香港-01\n美西-VLESS\nvless\n美西-01\n香港二-REALITY\nvless\n香港-02\n香港二-Trojan\ntroja"
+      }
+    ],
+    "detail": {
+      "switches": [],
+      "labels": [],
+      "nodeRows": [
+        {
+          "text": "大阪-VMess vmess 大阪-01",
+          "x": 280,
+          "y": 167.3,
+          "w": 1120,
+          "h": 33.4,
+          "right": 1400,
+          "scrollWidth": 1120,
+          "clientWidth": 1120,
+          "childOverflow": 0
+        },
+        {
+          "text": "新加坡-REALITY vless 新加坡-01",
+          "x": 280,
+          "y": 200.7,
+          "w": 1120,
+          "h": 43.4,
+          "right": 1400,
+          "scrollWidth": 1120,
+          "clientWidth": 1120,
+          "childOverflow": 0
+        },
+        {
+          "text": "新加坡-Trojan trojan 新加坡-01",
+          "x": 280,
+          "y": 244.1,
+          "w": 1120,
+          "h": 43.4,
+          "right": 1400,
+          "scrollWidth": 1120,
+          "clientWidth": 1120,
+          "childOverflow": 0
+        },
+        {
+          "text": "东京-REALITY vless 东京-01",
+          "x": 280,
+          "y": 287.5,
+          "w": 1120,
+          "h": 43.4,
+          "right": 1400,
+          "scrollWidth": 1120,
+          "clientWidth": 1120,
+          "childOverflow": 0
+        },
+        {
+          "text": "东京-H2 vmess 东京-01",
+          "x": 280,
+          "y": 330.9,
+          "w": 1120,
+          "h": 43.4,
+          "right": 1400,
+          "scrollWidth": 1120,
+          "clientWidth": 1120,
+          "childOverflow": 0
+        },
+        {
+          "text": "东京-Trojan trojan 东京-01",
+          "x": 280,
+          "y": 374.3,
+          "w": 1120,
+          "h": 43.4,
+          "right": 1400,
+          "scrollWidth": 1120,
+          "clientWidth": 1120,
+          "childOverflow": 0
+        },
+        {
+          "text": "香港-REALITY vless 香港-01",
+          "x": 280,
+          "y": 417.7,
+          "w": 1120,
+          "h": 43.4,
+          "right": 1400,
+          "scrollWidth": 1120,
+          "clientWidth": 1120,
+          "childOverflow": 0
+        },
+        {
+          "text": "香港-WS vmess 香港-01",
+          "x": 280,
+          "y": 461.1,
+          "w": 1120,
+          "h": 43.4,
+          "right": 1400,
+          "scrollWidth": 1120,
+          "clientWidth": 1120,
+          "childOverflow": 0
+        },
+        {
+          "text": "香港-SS shadowsocks 香港-01",
+          "x": 280,
+          "y": 504.5,
+          "w": 1120,
+          "h": 43.4,
+          "right": 1400,
+          "scrollWidth": 1120,
+          "clientWidth": 1120,
+          "childOverflow": 0
+        },
+        {
+          "text": "美西-VLESS vless 美西-01",
+          "x": 280,
+          "y": 547.8,
+          "w": 1120,
+          "h": 43.4,
+          "right": 1400,
+          "scrollWidth": 1120,
+          "clientWidth": 1120,
+          "childOverflow": 0
+        },
+        {
+          "text": "香港二-REALITY vless 香港-02",
+          "x": 280,
+          "y": 591.2,
+          "w": 1120,
+          "h": 43.4,
+          "right": 1400,
+          "scrollWidth": 1120,
+          "clientWidth": 1120,
+          "childOverflow": 0
+        },
+        {
+          "text": "香港二-Trojan trojan 香港-02",
+          "x": 280,
+          "y": 634.6,
+          "w": 1120,
+          "h": 43.4,
+          "right": 1400,
+          "scrollWidth": 1120,
+          "clientWidth": 1120,
+          "childOverflow": 0
+        },
+        {
+          "text": "香港三-VMess vmess 香港-03",
+          "x": 280,
+          "y": 678,
+          "w": 1120,
+          "h": 43.4,
+          "right": 1400,
+          "scrollWidth": 1120,
+          "clientWidth": 1120,
+          "childOverflow": 0
+        },
+        {
+          "text": "东京二-VLESS vless 东京-02",
+          "x": 280,
+          "y": 721.4,
+          "w": 1120,
+          "h": 43.4,
+          "right": 1400,
+          "scrollWidth": 1120,
+          "clientWidth": 1120,
+          "childOverflow": 0
+        },
+        {
+          "text": "东京二-SS shadowsocks 东京-02",
+          "x": 280,
+          "y": 764.8,
+          "w": 1120,
+          "h": 43.4,
+          "right": 1400,
+          "scrollWidth": 1120,
+          "clientWidth": 1120,
+          "childOverflow": 0
+        },
+        {
+          "text": "新加坡二-VMess vmess 新加坡-02",
+          "x": 280,
+          "y": 808.2,
+          "w": 1120,
+          "h": 43.4,
+          "right": 1400,
+          "scrollWidth": 1120,
+          "clientWidth": 1120,
+          "childOverflow": 0
+        },
+        {
+          "text": "探针-VLESS vless 探针-待接入",
+          "x": 280,
+          "y": 851.6,
+          "w": 1120,
+          "h": 32.4,
+          "right": 1400,
+          "scrollWidth": 1120,
+          "clientWidth": 1120,
+          "childOverflow": 0
+        }
+      ],
+      "main": {
+        "scrollHeight": 1258,
+        "clientHeight": 844,
+        "scrollWidth": 1200,
+        "clientWidth": 1200
+      }
+    }
+  },
+  {
+    "path": "/me/forwards",
+    "size": {
+      "width": 390,
+      "height": 844,
+      "theme": "dark"
+    },
+    "cards": [
+      {
+        "file": "web/screenshots/me-audit/cards/forwards__card1__390__dark.png",
+        "box": {
+          "x": 24,
+          "y": 221.78125,
+          "width": 342,
+          "height": 508.453125
+        },
+        "text": "我的转发\n入口端口由系统自动分配；关闭开关会暂停转发。\n配额\n3 / 5\n新建转发\n203.0.113.11:10001\nTCP\n目标 10.0.0.11:22\n香港-01\n启用\n计费中\n203.0.113.11:10002\nTCP\n目标 1.1.1.1:53\n香港-01\n启用\n计费中\n192.0.2.31:10001\nTCP\n目标 10.0.0.31:5432\n新加坡-01\n启用\n计费中"
+      },
+      {
+        "file": "web/screenshots/me-audit/cards/forwards__card2__390__dark.png",
+        "box": {
+          "x": 24,
+          "y": 746.234375,
+          "width": 342,
+          "height": 241.28125
+        },
+        "text": "近 7 天转发用量\n\n近 7 天没有转发用量\n\n开启计费的自助转发产生流量后，这里会显示明细。"
+      },
+      {
+        "file": "web/screenshots/me-audit/cards/forwards__card3__390__dark.png",
+        "box": {
+          "x": 24,
+          "y": 859.515625,
+          "width": 342,
+          "height": 326.84375
+        },
+        "text": "我的转发链\n模板与跳数由管理员定义；入口端口由系统自动分配。\n配额\n0 / 1\n新建转发链\n\n当前套餐没有可用模板\n\n请联系管理员为套餐授权链模板。"
+      }
+    ],
+    "detail": {
+      "switches": [
+        {
+          "text": "停用 203.0.113.11:10001",
+          "x": 40,
+          "y": -92.8,
+          "w": 24,
+          "h": 14,
+          "right": 64,
+          "track": "14px"
+        },
+        {
+          "text": "停止把 203.0.113.11:10001 的流量计入套餐",
+          "x": 112,
+          "y": -92.8,
+          "w": 24,
+          "h": 14,
+          "right": 136,
+          "track": "14px"
+        },
+        {
+          "text": "停用 203.0.113.11:10002",
+          "x": 40,
+          "y": 42.2,
+          "w": 24,
+          "h": 14,
+          "right": 64,
+          "track": "14px"
+        },
+        {
+          "text": "停止把 203.0.113.11:10002 的流量计入套餐",
+          "x": 112,
+          "y": 42.2,
+          "w": 24,
+          "h": 14,
+          "right": 136,
+          "track": "14px"
+        },
+        {
+          "text": "停用 192.0.2.31:10001",
+          "x": 40,
+          "y": 177.2,
+          "w": 24,
+          "h": 14,
+          "right": 64,
+          "track": "14px"
+        },
+        {
+          "text": "停止把 192.0.2.31:10001 的流量计入套餐",
+          "x": 112,
+          "y": 177.2,
+          "w": 24,
+          "h": 14,
+          "right": 136,
+          "track": "14px"
+        }
+      ],
+      "labels": [
+        {
+          "text": "启用",
+          "x": 72,
+          "y": -93.8,
+          "w": 32,
+          "h": 16,
+          "right": 104,
+          "scrollWidth": 32,
+          "clientWidth": 32
+        },
+        {
+          "text": "启用",
+          "x": 72,
+          "y": 41.2,
+          "w": 32,
+          "h": 16,
+          "right": 104,
+          "scrollWidth": 32,
+          "clientWidth": 32
+        },
+        {
+          "text": "启用",
+          "x": 72,
+          "y": 176.2,
+          "w": 32,
+          "h": 16,
+          "right": 104,
+          "scrollWidth": 32,
+          "clientWidth": 32
+        }
+      ],
+      "nodeRows": [],
+      "main": {
+        "scrollHeight": 1298,
+        "clientHeight": 788,
+        "scrollWidth": 390,
+        "clientWidth": 390
+      }
+    }
+  },
+  {
+    "path": "/me/forwards",
+    "size": {
+      "width": 1440,
+      "height": 900,
+      "theme": "light"
+    },
+    "cards": [
+      {
+        "file": "web/screenshots/me-audit/cards/forwards__card1__1440__light.png",
+        "box": {
+          "x": 264,
+          "y": 221.78125,
+          "width": 1152,
+          "height": 284.078125
+        },
+        "text": "我的转发\n入口端口由系统自动分配；关闭开关会暂停转发。\n配额\n3 / 5\n新建转发\n203.0.113.11:10001\nTCP\n目标 10.0.0.11:22\n香港-01\n启用\n计费中\n203.0.113.11:10002\nTCP\n目标 1.1.1.1:53\n香港-01\n启用\n计费中\n192.0.2.31:10001\nTCP\n目标 10.0.0.31:5432\n新加坡-01\n启用\n计费中"
+      },
+      {
+        "file": "web/screenshots/me-audit/cards/forwards__card2__1440__light.png",
+        "box": {
+          "x": 264,
+          "y": 521.859375,
+          "width": 1152,
+          "height": 225.28125
+        },
+        "text": "近 7 天转发用量\n\n近 7 天没有转发用量\n\n开启计费的自助转发产生流量后，这里会显示明细。"
+      },
+      {
+        "file": "web/screenshots/me-audit/cards/forwards__card3__1440__light.png",
+        "box": {
+          "x": 264,
+          "y": 763.140625,
+          "width": 1152,
+          "height": 288.46875
+        },
+        "text": "我的转发链\n模板与跳数由管理员定义；入口端口由系统自动分配。\n配额\n0 / 1\n新建转发链\n\n当前套餐没有可用模板\n\n请联系管理员为套餐授权链模板。"
+      }
+    ],
+    "detail": {
+      "switches": [
+        {
+          "text": "停用 203.0.113.11:10001",
+          "x": 1226,
+          "y": 160.9,
+          "w": 24,
+          "h": 14,
+          "right": 1250,
+          "track": "14px"
+        },
+        {
+          "text": "停止把 203.0.113.11:10001 的流量计入套餐",
+          "x": 1298,
+          "y": 160.9,
+          "w": 24,
+          "h": 14,
+          "right": 1322,
+          "track": "14px"
+        },
+        {
+          "text": "停用 203.0.113.11:10002",
+          "x": 1226,
+          "y": 233.9,
+          "w": 24,
+          "h": 14,
+          "right": 1250,
+          "track": "14px"
+        },
+        {
+          "text": "停止把 203.0.113.11:10002 的流量计入套餐",
+          "x": 1298,
+          "y": 233.9,
+          "w": 24,
+          "h": 14,
+          "right": 1322,
+          "track": "14px"
+        },
+        {
+          "text": "停用 192.0.2.31:10001",
+          "x": 1226,
+          "y": 306.9,
+          "w": 24,
+          "h": 14,
+          "right": 1250,
+          "track": "14px"
+        },
+        {
+          "text": "停止把 192.0.2.31:10001 的流量计入套餐",
+          "x": 1298,
+          "y": 306.9,
+          "w": 24,
+          "h": 14,
+          "right": 1322,
+          "track": "14px"
+        }
+      ],
+      "labels": [
+        {
+          "text": "启用",
+          "x": 1258,
+          "y": 159.9,
+          "w": 32,
+          "h": 16,
+          "right": 1290,
+          "scrollWidth": 32,
+          "clientWidth": 32
+        },
+        {
+          "text": "启用",
+          "x": 1258,
+          "y": 232.9,
+          "w": 32,
+          "h": 16,
+          "right": 1290,
+          "scrollWidth": 32,
+          "clientWidth": 32
+        },
+        {
+          "text": "启用",
+          "x": 1258,
+          "y": 305.9,
+          "w": 32,
+          "h": 16,
+          "right": 1290,
+          "scrollWidth": 32,
+          "clientWidth": 32
+        }
+      ],
+      "nodeRows": [],
+      "main": {
+        "scrollHeight": 1020,
+        "clientHeight": 844,
+        "scrollWidth": 1200,
+        "clientWidth": 1200
+      }
+    }
+  },
+  {
+    "path": "/me/packages",
+    "size": {
+      "width": 390,
+      "height": 844,
+      "theme": "dark"
+    },
+    "cards": [
+      {
+        "file": "web/screenshots/me-audit/cards/packages__card1__390__dark.png",
+        "box": {
+          "x": 24,
+          "y": 221.78125,
+          "width": 342,
+          "height": 113.28125
+        },
+        "text": "已开通套餐\n1 张\n轻量 · 50G\n正常\n到期 2026-12-12\n已用 23 GB / 50 GB\n重置 每月 1 日"
+      },
+      {
+        "file": "web/screenshots/me-audit/cards/packages__card2__390__dark.png",
+        "box": {
+          "x": 24,
+          "y": 351.0625,
+          "width": 342,
+          "height": 269.28125
+        },
+        "text": "历史套餐\n0 张\n\n暂无历史套餐\n\n套餐过期后会归入这里。"
+      },
+      {
+        "file": "web/screenshots/me-audit/cards/packages__card3__390__dark.png",
+        "box": {
+          "x": 24,
+          "y": 636.34375,
+          "width": 342,
+          "height": 310.859375
+        },
+        "text": "最近事件\n断流与恢复记录，只显示你自己的。\n\n暂无事件\n\n一切正常时这里不会出现记录；断流或恢复后会自动显示。"
+      }
+    ],
+    "detail": {
+      "switches": [],
+      "labels": [],
+      "nodeRows": [
+        {
+          "text": "轻量 · 50G 正常 到期 2026-12-12 已用 23 GB / 50 GB 重置 每月 1",
+          "x": 40,
+          "y": 173.7,
+          "w": 310,
+          "h": 42.4,
+          "right": 350,
+          "scrollWidth": 310,
+          "clientWidth": 310,
+          "childOverflow": 0
+        }
+      ],
+      "main": {
+        "scrollHeight": 915,
+        "clientHeight": 788,
+        "scrollWidth": 390,
+        "clientWidth": 390
+      }
+    }
+  },
+  {
+    "path": "/me/packages",
+    "size": {
+      "width": 1440,
+      "height": 900,
+      "theme": "light"
+    },
+    "cards": [
+      {
+        "file": "web/screenshots/me-audit/cards/packages__card1__1440__light.png",
+        "box": {
+          "x": 264,
+          "y": 221.78125,
+          "width": 1152,
+          "height": 113.28125
+        },
+        "text": "已开通套餐\n1 张\n轻量 · 50G\n正常\n到期 2026-12-12\n已用 23 GB / 50 GB\n重置 每月 1 日"
+      },
+      {
+        "file": "web/screenshots/me-audit/cards/packages__card2__1440__light.png",
+        "box": {
+          "x": 264,
+          "y": 351.0625,
+          "width": 1152,
+          "height": 269.28125
+        },
+        "text": "历史套餐\n0 张\n\n暂无历史套餐\n\n套餐过期后会归入这里。"
+      },
+      {
+        "file": "web/screenshots/me-audit/cards/packages__card3__1440__light.png",
+        "box": {
+          "x": 264,
+          "y": 636.34375,
+          "width": 1152,
+          "height": 288.46875
+        },
+        "text": "最近事件\n断流与恢复记录，只显示你自己的。\n\n暂无事件\n\n一切正常时这里不会出现记录；断流或恢复后会自动显示。"
+      }
+    ],
+    "detail": {
+      "switches": [],
+      "labels": [],
+      "nodeRows": [
+        {
+          "text": "轻量 · 50G 正常 到期 2026-12-12 已用 23 GB / 50 GB 重置 每月 1",
+          "x": 280,
+          "y": 251.7,
+          "w": 1120,
+          "h": 42.4,
+          "right": 1400,
+          "scrollWidth": 1120,
+          "clientWidth": 1120,
+          "childOverflow": 0
+        }
+      ],
+      "main": {
+        "scrollHeight": 893,
+        "clientHeight": 844,
+        "scrollWidth": 1200,
+        "clientWidth": 1200
+      }
+    }
+  }
+]

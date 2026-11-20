@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import {
   BracesIcon,
   CopyIcon,
+  InfoIcon,
   PencilIcon,
   PlusIcon,
   Trash2Icon,
@@ -36,19 +37,61 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { MeChain, MeChainQuota } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { errorText, isNotFound } from "@/lib/errors";
-import {
-  canCreateChain,
-  chainEntryLabel,
-  chainPath,
-  chainQuotaState,
-} from "@/lib/myChains";
+import { chainEntryLabel, chainPath } from "@/lib/myChains";
+import { createGate, type CreateBlocker } from "@/lib/myForwards";
 import { useDeleteMyChain, useMyChains, useMyChainTemplates } from "@/lib/queries";
 import { t, useI18n } from "@/i18n";
 import { MyChainEditDialog } from "@/components/me/MyChainEditDialog";
 import { MyChainFormDialog } from "@/components/me/MyChainFormDialog";
 
-function ChainQuotaBadge({ quota }: { quota: MeChainQuota }) {
+/**
+ * 与自助转发同一套 `CreateBlocker`，只是文案换成转发链的说法。
+ */
+const BLOCKER_KEYS: Record<CreateBlocker, { title: string; desc: string }> = {
+  unsupported: {
+    title: "me.chains.unsupportedTitle",
+    desc: "me.chains.unsupportedDesc",
+  },
+  stock: {
+    title: "me.chains.stockTitle",
+    desc: "me.chains.stockDesc",
+  },
+  exhausted: {
+    title: "me.chains.exhaustedTitle",
+    desc: "me.chains.exhaustedDesc",
+  },
+  "no-availability": {
+    title: "me.chains.noTemplateTitle",
+    desc: "me.chains.noTemplateDesc",
+  },
+};
+
+const CREATE_REASON_ID = "my-chains-create-reason";
+
+/** 配额徽章：`3 / 5 条`；存量态改写为「存量 2 条」，不出现 `2 / 0`。 */
+function ChainQuotaBadge({
+  quota,
+  kind,
+  itemCount,
+}: {
+  quota: MeChainQuota;
+  kind: "ratio" | "stock";
+  itemCount: number;
+}) {
   const { t } = useI18n();
+
+  if (kind === "stock") {
+    return (
+      <Badge
+        variant="secondary"
+        className="font-mono type-micro font-normal tabular-nums"
+        aria-label={t("me.chains.quotaStockAria", { used: itemCount })}
+      >
+        {t("me.chains.quotaStock", { used: itemCount })}
+      </Badge>
+    );
+  }
+
   return (
     <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
       {t("me.chains.quotaLabel")}
@@ -60,7 +103,10 @@ function ChainQuotaBadge({ quota }: { quota: MeChainQuota }) {
           limit: quota.limit,
         })}
       >
-        {quota.used} / {quota.limit}
+        {t("me.chains.quotaValue", {
+          used: quota.used,
+          limit: quota.limit,
+        })}
       </Badge>
     </span>
   );
@@ -161,9 +207,8 @@ function ChainRow({
 /**
  * 「我的转发链」区块：列表 + 配额 + 新建 / 删除。
  *
- * 四态：skeleton / 空态（没有配额或没有链）/ 错误 / 正常。
- * 配额为 0 时整块只保留「当前套餐不支持自助建链」空态并隐藏新建按钮；
- * 用尽时保留列表，新建按钮禁用。
+ * 配额状态机与自助转发完全一致（`createGate`）：套餐不再支持新建时保留
+ * 存量列表、只禁用新建；有配额但没有模板时在卡片内联说明原因。
  */
 export function MyChainsCard() {
   useI18n();
@@ -178,8 +223,16 @@ export function MyChainsCard() {
   const items = data?.items ?? [];
   const quota = data?.quota ?? templates.data?.quota ?? null;
   const availableTemplates = templates.data?.items ?? [];
-  const state = chainQuotaState(quota);
-  const creatable = canCreateChain(quota) && availableTemplates.length > 0;
+  // 模板请求未完成时传 null，避免加载中误报「没有可用模板」。
+  const templateCount = templates.isPending ? null : availableTemplates.length;
+  const gate = createGate({
+    quota,
+    itemCount: items.length,
+    availableCount: templateCount,
+  });
+  const creatable = gate.creatable && !templates.isPending;
+  const reason = gate.blocker ? BLOCKER_KEYS[gate.blocker] : null;
+  const reasonText = reason ? t(reason.desc) : null;
 
   const loadError = isNotFound(chains.error)
     ? t("me.apiNotReady")
@@ -187,7 +240,7 @@ export function MyChainsCard() {
 
   return (
     <Card className="gap-4">
-      <CardHeader>
+      <CardHeader className="card-header-stack">
         <CardTitle className="flex items-center gap-2 text-sm font-medium">
           <WaypointsIcon className="size-4 text-muted-foreground" />
           {t("me.chains.title")}
@@ -195,23 +248,27 @@ export function MyChainsCard() {
         <CardDescription className="text-xs">
           {t("me.chains.desc")}
         </CardDescription>
-        <CardAction className="flex items-center gap-2">
-          {data && quota ? <ChainQuotaBadge quota={quota} /> : null}
+        {/* <sm 时动作换到标题下方，标题 / 说明保持整宽（U2）。 */}
+        <CardAction className="flex flex-wrap items-center gap-2">
+          {data && quota && gate.badge ? (
+            <ChainQuotaBadge
+              quota={quota}
+              kind={gate.badge}
+              itemCount={items.length}
+            />
+          ) : null}
           {chains.isPending ? (
             <Skeleton className="h-8 w-24" />
-          ) : state === "none" ? null : (
+          ) : gate.blocker === "unsupported" ? null : (
             <Button
               size="sm"
               variant="outline"
               onClick={() => setFormOpen(true)}
               disabled={!creatable}
-              title={
-                creatable
-                  ? undefined
-                  : availableTemplates.length === 0
-                    ? t("me.chains.noTemplateDesc")
-                    : t("me.chains.exhaustedDesc")
+              aria-describedby={
+                gate.creatable ? undefined : CREATE_REASON_ID
               }
+              title={gate.creatable ? undefined : (reasonText ?? undefined)}
             >
               <PlusIcon className="size-3.5" />
               {t("me.chains.add")}
@@ -234,53 +291,63 @@ export function MyChainsCard() {
             retrying={chains.isFetching}
             onRetry={() => void chains.refetch()}
           />
-        ) : state === "none" ? (
+        ) : gate.blocker === "unsupported" ? (
           <EmptyState
             icon={BracesIcon}
             title={t("me.chains.unsupportedTitle")}
             description={t("me.chains.unsupportedDesc")}
           />
         ) : items.length === 0 ? (
-          <EmptyState
-            icon={BracesIcon}
-            tone={creatable ? "primary" : "muted"}
-            title={
-              creatable
-                ? t("me.chains.emptyTitle")
-                : availableTemplates.length === 0
-                  ? t("me.chains.noTemplateTitle")
-                  : t("me.chains.exhaustedTitle")
-            }
-            description={
-              creatable
-                ? t("me.chains.emptyDesc")
-                : availableTemplates.length === 0
-                  ? t("me.chains.noTemplateDesc")
-                  : t("me.chains.exhaustedDesc")
-            }
-            action={
-              creatable ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setFormOpen(true)}
-                >
-                  <PlusIcon className="size-3.5" />
-                  {t("me.chains.add")}
-                </Button>
-              ) : undefined
-            }
-          />
+          gate.blocker && reason ? (
+            <div id={CREATE_REASON_ID}>
+              <EmptyState
+                icon={BracesIcon}
+                tone="muted"
+                title={t(reason.title)}
+                description={t(reason.desc)}
+              />
+            </div>
+          ) : (
+            <EmptyState
+              icon={BracesIcon}
+              tone="primary"
+              title={t("me.chains.emptyTitle")}
+              description={t("me.chains.emptyDesc")}
+              action={
+                creatable ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setFormOpen(true)}
+                  >
+                    <PlusIcon className="size-3.5" />
+                    {t("me.chains.add")}
+                  </Button>
+                ) : undefined
+              }
+            />
+          )
         ) : (
           <div className="space-y-3">
-            {state === "exhausted" ? (
-              <Alert className="border-warning/25 bg-warning/10 text-warning">
-                <TriangleAlertIcon />
-                <AlertTitle>{t("me.chains.exhaustedTitle")}</AlertTitle>
-                <AlertDescription className="text-warning/90">
-                  {t("me.chains.exhaustedDesc")}
-                </AlertDescription>
-              </Alert>
+            {gate.blocker && reason ? (
+              gate.blocker === "exhausted" ? (
+                <Alert
+                  id={CREATE_REASON_ID}
+                  className="border-warning/25 bg-warning/10 text-warning"
+                >
+                  <TriangleAlertIcon />
+                  <AlertTitle>{t(reason.title)}</AlertTitle>
+                  <AlertDescription className="text-warning/90">
+                    {t(reason.desc)}
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <Alert id={CREATE_REASON_ID}>
+                  <InfoIcon />
+                  <AlertTitle>{t(reason.title)}</AlertTitle>
+                  <AlertDescription>{t(reason.desc)}</AlertDescription>
+                </Alert>
+              )
             ) : null}
             <ul className="divide-y divide-border">
               {items.map((chain) => (

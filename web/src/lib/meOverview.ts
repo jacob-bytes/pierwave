@@ -85,3 +85,51 @@ export function dailyAverage(
 
   return counted === 0 ? null : sum / counted;
 }
+
+/**
+ * 趋势窗口的「有没有采样」判定。
+ *
+ * 后端的 `/me/traffic` 会把窗口内缺数据的日期补 0，所以「查询成功」不等于
+ * 「有采样」：一个全是 0 的窗口既可能是用户真的没用流量，也可能是 Agent
+ * 从未上报。审计（U3）要求这种情况按「暂无采样」处理，显示 `—` 或
+ * 「暂无采样」，而不是和真实用量混在一起画成 `0 B`。
+ *
+ * 判定：窗口非空，且至少一天有正的上下行 / 计费流量。任一天有值后，
+ * 其余天的 0 就是真实 0，照常显示 `0 B`。
+ */
+export interface TrafficSampleDay {
+  uplink?: number;
+  downlink?: number;
+  weighted?: number;
+}
+
+function positive(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+export function hasTrafficSamples(
+  days: readonly TrafficSampleDay[] | null | undefined,
+): boolean {
+  if (!days || days.length === 0) return false;
+  return days.some(
+    (day) => positive(day?.uplink) || positive(day?.downlink) || positive(day?.weighted),
+  );
+}
+
+/**
+ * 趋势窗口的计费总量：无采样时为 `null`（界面显示 `—`），有采样时求和。
+ * 非有限值跳过，避免一行脏数据把整块指标变成 NaN。
+ */
+export function trafficWindowTotal(
+  days: readonly TrafficSampleDay[] | null | undefined,
+): number | null {
+  if (!hasTrafficSamples(days)) return null;
+
+  let sum = 0;
+  for (const day of days ?? []) {
+    const value = day?.weighted;
+    if (typeof value !== "number" || !Number.isFinite(value)) continue;
+    sum += value;
+  }
+  return sum;
+}

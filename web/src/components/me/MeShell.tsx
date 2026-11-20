@@ -4,7 +4,7 @@ import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { RefreshCwIcon } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { ListError } from "@/components/common";
+import { ListError, ScrollFade } from "@/components/common";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MeStatusBadge, StatusAlerts } from "@/components/me/MeStatus";
@@ -23,18 +23,20 @@ function MeTabs() {
   const { t } = useI18n();
   const { pathname } = useLocation();
   const active = activeSection(pathname);
-  const navRef = useRef<HTMLDivElement>(null);
+  const navRef = useRef<HTMLElement>(null);
   const activeRef = useRef<HTMLAnchorElement>(null);
 
   /*
    * 窄屏 + 英文标签会横向溢出：只把当前项滚进可视区，不带动整页滚动。
    * 与 TabsList 的处理一致，避免「收藏 /me/packages 后看不到当前标签」。
+   * 滚动容器是 `ScrollFade`（两侧渐隐，提示还有内容），nav 的父元素就是它。
    */
   useEffect(() => {
-    const nav = navRef.current;
     const current = activeRef.current;
-    if (!nav || !current || nav.scrollWidth <= nav.clientWidth + 1) return;
-    const navRect = nav.getBoundingClientRect();
+    const scroller = navRef.current?.parentElement;
+    if (!current || !scroller) return;
+    if (scroller.scrollWidth <= scroller.clientWidth + 1) return;
+    const navRect = scroller.getBoundingClientRect();
     const currentRect = current.getBoundingClientRect();
     if (currentRect.left < navRect.left || currentRect.right > navRect.right) {
       current.scrollIntoView({ inline: "nearest", block: "nearest" });
@@ -42,11 +44,9 @@ function MeTabs() {
   }, [pathname]);
 
   return (
-    <div
-      ref={navRef}
-      className="min-w-0 max-w-full overflow-x-auto overscroll-x-contain"
-    >
+    <ScrollFade>
       <nav
+        ref={navRef}
         aria-label={t("me.tabs.ariaLabel")}
         className="flex w-max min-w-full items-center gap-1 border-b border-border"
       >
@@ -71,7 +71,7 @@ function MeTabs() {
           );
         })}
       </nav>
-    </div>
+    </ScrollFade>
   );
 }
 
@@ -193,6 +193,7 @@ export default function MeShell() {
         <Button
           variant="outline"
           size="sm"
+          className="ml-auto shrink-0"
           onClick={refreshAll}
           disabled={fetching}
         >

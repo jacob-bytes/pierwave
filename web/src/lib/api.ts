@@ -2107,13 +2107,27 @@ export interface MeSummary {
   /** 没有任何套餐实例时为 null。 */
   package: MePackageSummary | null;
   usage: MeUsage;
+  /** 实际可输出订阅配置的节点；`nodes_unavailable` 只计数、不在这里。 */
   nodes: MeNode[];
+  /**
+   * 在套餐 / 用户范围内、但无法生成订阅配置的节点数（缺 REALITY 公钥 /
+   * SS 密码 / 服务器地址等）。旧后端不返回时按 0 处理。
+   */
+  nodes_unavailable?: number | null;
   subscription: MeSubscription;
+  /** 当前套餐允许自助转发的条数；旧后端不返回时以列表响应的 `quota` 为准。 */
+  forward_limit?: number | null;
   /**
    * 当前套餐允许自助转发的服务器。后端未返回时回落到
    * `GET /api/v1/me/forwards` 的 `servers` / `available_servers`。
    */
   forward_servers?: MeForwardServer[] | null;
+  /**
+   * `forward_servers` 为空时的原因码：
+   * `package.forward_servers_empty`（有额度但没授权服务器）/
+   * `package.forward_limit_zero`（套餐本身不允许）。旧后端不返回。
+   */
+  forward_servers_reason?: string | null;
   /** 兼容字段：套餐明细（quota_override=0 表示显式不限）。 */
   packages: UserPackageView[];
   /** 兼容字段：今日/本月流量。 */

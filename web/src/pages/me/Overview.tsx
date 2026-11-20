@@ -18,12 +18,18 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import type { MeTraffic } from "@/lib/api";
 import { formatBytes, usagePercent } from "@/lib/format";
-import { dailyAverage, daysTone, trafficTone } from "@/lib/meOverview";
+import {
+  dailyAverage,
+  daysTone,
+  hasTrafficSamples,
+  trafficTone,
+  trafficWindowTotal,
+} from "@/lib/meOverview";
 import { useMeTraffic } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import type { OverviewCardProps } from "@/components/me/overview/types";
 import OverviewCardA from "@/components/me/overview/OverviewCardA";
-import { t, useI18n } from "@/i18n";
+import { useI18n } from "@/i18n";
 
 /** recharts 仍然只通过 lazy() 加载，不会进入主 chunk。 */
 const TrafficChart = lazy(() => import("@/components/overview/TrafficChart"));
@@ -36,9 +42,9 @@ const TrafficLegend = lazy(() =>
 const TRAFFIC_DAYS = 7;
 
 function TrafficCard({ traffic }: { traffic: UseQueryResult<MeTraffic> }) {
-  useI18n();
-  const total =
-    traffic.data?.days.reduce((sum, day) => sum + day.weighted, 0) ?? null;
+  const { t } = useI18n();
+  // 查询成功但整窗没有采样时总量是 null（显示 —），不能把「没数据」画成 0 B。
+  const total = trafficWindowTotal(traffic.data?.days);
 
   return (
     <Card className="gap-4">
@@ -63,6 +69,7 @@ function TrafficCard({ traffic }: { traffic: UseQueryResult<MeTraffic> }) {
             className={cn(
               "inline-flex items-center rounded-full border border-border px-2 py-0.5 font-mono type-micro font-normal text-muted-foreground tabular-nums",
             )}
+            title={total === null ? t("me.noSamples") : undefined}
           >
             {total === null
               ? "—"
@@ -122,12 +129,19 @@ export default function MeOverviewPage() {
     usedPercent,
     remainingTone,
     expiryTone,
-    // 今日计费流量由 summary 直接给出；拿不到就隐藏该项，不画占位 0。
-    todayBytes: Number.isFinite(summary.traffic.today_bytes)
-      ? summary.traffic.today_bytes
+    /*
+     * 未知与 0 的区分（U3）：只有 7 天窗口真的有采样时，今日 / 日均 / 总量
+     * 才是可信的 0；整窗没有采样（后端把缺失日补 0）时一律给 —，与失败态一致。
+     * 窗口里任一天有流量后，今日的 0 就是真实 0，照常显示 `0 B`。
+     */
+    todayBytes:
+      hasTrafficSamples(traffic.data?.days) &&
+      Number.isFinite(summary.traffic.today_bytes)
+        ? summary.traffic.today_bytes
+        : null,
+    dailyAverageBytes: hasTrafficSamples(traffic.data?.days)
+      ? dailyAverage(traffic.data?.days)
       : null,
-    // 日均来自页面已请求的 7 天趋势；未加载 / 查询失败时为 null。
-    dailyAverageBytes: dailyAverage(traffic.data?.days),
   };
 
   return (
