@@ -40,10 +40,18 @@ export const DEFAULT_STATUS_VIEW: StatusView = "grid";
 /**
  * 页头「更新于」的新鲜窗口：2 分钟内算实时，之后数据点转 muted。
  *
- * 轮询本身是 30 秒一次；连续失败时页面仍挂着最后一次数据，时间戳超过
+ * 轮询本身是 20 秒一次；连续失败时页面仍挂着最后一次数据，时间戳超过
  * 两分钟就不该再被当成「刚刚」——参考实现同样只把新鲜数据画成实心点。
  */
 export const STATUS_STALE_SECONDS = 2 * 60;
+
+/**
+ * 探针页轮询间隔：20 秒。
+ *
+ * 页面隐藏时暂停（见 `usePublicStatus`），恢复可见时立即补拉一次；
+ * 查询的 staleTime 比它短（15 秒），切回页签时不会拿着旧缓存当权威值。
+ */
+export const PUBLIC_STATUS_POLL_MS = 20_000;
 
 /**
  * 公开页数据是否已过期。
@@ -408,20 +416,60 @@ export function totalOnlineRate(
     net_tx_bps?: number | null;
   }[],
 ): number | null {
-  let total = 0;
-  let sampled = false;
+  const rate = onlineRateByDirection(servers);
+  if (rate === null) return null;
+  if (rate.rx === null) return rate.tx;
+  if (rate.tx === null) return rate.rx;
+  return rate.rx + rate.tx;
+}
+
+/** 上下行各自的合计（字节/秒）；某方向没有任何有效读数时为 null。 */
+export interface OnlineRate {
+  rx: number | null;
+  tx: number | null;
+}
+
+/**
+ * 所有在线节点的上下行速率**分别**求和，供英雄区拆成 `↓ … ↑ …` 两个数字。
+ *
+ * 口径与 `totalOnlineRate` 相同：离线机器的读数是掉线前的残留，不参与；
+ * 脏数据（NaN / 负数 / 非有限值）跳过；真实测到的 0 是有效值。
+ * 只有一个方向有数据时，另一边返回 null（页面显示 `—`），不拿 0 冒充。
+ * 两个方向都没有数据时返回 null，整组显示一个 `—`。
+ */
+export function onlineRateByDirection(
+  servers: readonly {
+    online: boolean;
+    net_rx_bps?: number | null;
+    net_tx_bps?: number | null;
+  }[],
+): OnlineRate | null {
+  let rx = 0;
+  let tx = 0;
+  let rxSampled = false;
+  let txSampled = false;
 
   for (const server of servers) {
     if (!server.online) continue;
-    for (const value of [server.net_rx_bps, server.net_tx_bps]) {
-      if (value === null || value === undefined) continue;
-      if (!Number.isFinite(value) || value < 0) continue;
-      total += value;
-      sampled = true;
+
+    const down = server.net_rx_bps;
+    if (down !== null && down !== undefined && Number.isFinite(down) && down >= 0) {
+      rx += down;
+      rxSampled = true;
+    }
+
+    const up = server.net_tx_bps;
+    if (up !== null && up !== undefined && Number.isFinite(up) && up >= 0) {
+      tx += up;
+      txSampled = true;
     }
   }
 
-  return sampled ? total : null;
+  if (!rxSampled && !txSampled) return null;
+  return {
+    rx: rxSampled ? rx : null,
+    tx: txSampled ? tx : null,
+  };
 }
 
 /** 状态标签与一个节点是否匹配；`all` 永远匹配。 */
@@ -554,6 +602,178 @@ export function persistStatusView(
   } catch {
     // ignore storage access errors
   }
+}
+
+/**
+ * 公开状态页新增的账期字段（由后端另一条 lane 提供）。
+ *
+ * 旧后端不返回整组字段，所以四个都可选；前端必须容忍 undefined。
+ * 四个字段**任一**缺失或非法时整组不渲染——宁可少一组信息，也不画
+ * 「— / —」这种看起来像坏数据的占位。
+ */
+export interface PublicBillingFields {
+  /** 到期日，`YYYY-MM-DD`（UTC+8 业务日）。 */
+  paid_until?: string | null;
+  /** 价格，单位「分」。 */
+  price_cents?: number | null;
+  /** 币种代码，如 `CNY` / `USD` / `EUR` / `JPY`。 */
+  currency?: string | null;
+  /** 计费周期：`monthly` / `yearly` / `once`。 */
+  billing_cycle?: string | null;
+}
+
+/** 卡片底部「到期与价格」一组的渲染数据；整组要么完整，要么不出现。 */
+export interface PublicBilling {
+  /** 规范化后的到期日 `YYYY-MM-DD`。 */
+  paidUntil: string;
+  /** 距今 UTC+8 业务日：`> 0` 未来、`0` 今天、`< 0` 已过期。 */
+  days: number;
+  /** 含币种符号的价格，如 `¥268.00`；其它币种显示代码，如 `JPY 268.00`。 */
+  price: string;
+  /** 计费周期的 i18n key，如 `publicStatus.server.cycle.monthly`。 */
+  cycleKey: string;
+}
+
+const UTC8_OFFSET_MS = 8 * 60 * 60 * 1_000;
+const DAY_MS = 24 * 60 * 60 * 1_000;
+
+/** 已知币种才画符号；其它（含未来新增）一律显示代码，不猜符号。 */
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  CNY: "¥",
+  USD: "$",
+  EUR: "€",
+};
+
+/** 币种代码归一化：去空白、转大写；空串 / 非字符串是「没有数据」。 */
+export function normalizeCurrency(
+  currency: string | null | undefined,
+): string | null {
+  if (typeof currency !== "string") return null;
+  const code = currency.trim().toUpperCase();
+  return code.length > 0 ? code : null;
+}
+
+/** 分 → `268.00`，带千分位；无效价格返回 null。 */
+export function formatPriceCents(
+  priceCents: number | null | undefined,
+): string | null {
+  if (
+    priceCents === null ||
+    priceCents === undefined ||
+    !Number.isFinite(priceCents) ||
+    priceCents < 0
+  ) {
+    return null;
+  }
+  const [whole, fraction] = (priceCents / 100).toFixed(2).split(".");
+  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `${grouped}.${fraction}`;
+}
+
+/**
+ * 价格 + 币种：`¥268.00`、`$12.00`、`€9.90`；未知币种显示代码 `JPY 268.00`。
+ * 价格或币种任一无效都返回 null（整组隐藏），不拼出只有半截的文案。
+ */
+export function formatPrice(
+  priceCents: number | null | undefined,
+  currency: string | null | undefined,
+): string | null {
+  const amount = formatPriceCents(priceCents);
+  const code = normalizeCurrency(currency);
+  if (amount === null || code === null) return null;
+  const symbol = CURRENCY_SYMBOLS[code];
+  return symbol ? `${symbol}${amount}` : `${code} ${amount}`;
+}
+
+/** `YYYY-MM-DD` → UTC+8 业务日的序号；非法日期（含 2 月 30 日）返回 null。 */
+function parsedDayIndex(value: string): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  date.setUTCHours(0, 0, 0, 0);
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return Math.floor(date.getTime() / DAY_MS);
+}
+
+/** 浏览器时钟 → UTC+8 业务日序号；与 `parsedDayIndex` 同一把尺子。 */
+function todayDayIndex(nowMs: number): number {
+  return Math.floor((nowMs + UTC8_OFFSET_MS) / DAY_MS);
+}
+
+/**
+ * 距到期还有几天（UTC+8 业务日）：未来为正、今天为 0、已过期为负。
+ *
+ * 到期、重置、日账本都按 UTC+8 计算（见 `lib/time.ts`），探针页沿用同一
+ * 口径：东京和伦敦的管理员看到的是同一个日期，不会被浏览器时区改掉一天。
+ * 日期缺失 / 格式非法时返回 null，调用方整组隐藏。
+ */
+export function expiryDays(
+  paidUntil: string | null | undefined,
+  nowMs: number = Date.now(),
+): number | null {
+  if (typeof paidUntil !== "string") return null;
+  const deadline = parsedDayIndex(paidUntil);
+  if (deadline === null) return null;
+  return deadline - todayDayIndex(nowMs);
+}
+
+/** 到期文案：`{days} 天后到期` / `明天到期` / `今天到期` / `已过期`。 */
+export interface BillingText {
+  key: string;
+  values?: Record<string, number>;
+}
+
+export function expiryLabel(days: number): BillingText {
+  if (days < 0) return { key: "publicStatus.server.expired" };
+  if (days === 0) return { key: "publicStatus.server.expiresToday" };
+  // 只有一天时英文的 `1 days left` 是错的，单独给一条文案。
+  if (days === 1) return { key: "publicStatus.server.expiresTomorrow" };
+  return {
+    key: "publicStatus.server.expiresInDays",
+    values: { days },
+  };
+}
+
+/** 计费周期 → 文案 key；未知值返回 null（整组隐藏）。 */
+export function billingCycleKey(
+  cycle: string | null | undefined,
+): string | null {
+  if (typeof cycle !== "string") return null;
+  const value = cycle.trim().toLowerCase();
+  if (value === "monthly") return "publicStatus.server.cycle.monthly";
+  if (value === "yearly") return "publicStatus.server.cycle.yearly";
+  if (value === "once") return "publicStatus.server.cycle.once";
+  return null;
+}
+
+/**
+ * 卡片第三组「到期与价格」的完整数据。四个字段任一缺失 / 非法 → null。
+ *
+ * 这是「整组显示或不显示」的唯一判定点：调用方拿到 null 就不渲染这一组，
+ * 不去猜缺失字段的默认值。
+ */
+export function publicBilling(
+  fields: PublicBillingFields,
+  nowMs: number = Date.now(),
+): PublicBilling | null {
+  if (typeof fields.paid_until !== "string") return null;
+  const paidUntil = fields.paid_until.trim();
+  const days = expiryDays(paidUntil, nowMs);
+  const price = formatPrice(fields.price_cents, fields.currency);
+  const cycleKey = billingCycleKey(fields.billing_cycle);
+  if (days === null || price === null || cycleKey === null) return null;
+  return { paidUntil, days, price, cycleKey };
 }
 
 /**

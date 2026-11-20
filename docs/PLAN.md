@@ -871,6 +871,7 @@ GET /api/v1/public/status
                   disk_used, disk_total, uptime_secs, last_seen,
                   net_rx_bps, net_tx_bps,       // 当前速率（字节/秒），无数据 = null
                   net_rx_bytes, net_tx_bytes,   // 自开机以来的累计字节，无数据 = null
+                  paid_until, price_cents, currency, billing_cycle, // 费用与到期，未填/脏值 = null（迁移 0061）
                   uptime_24h, uptime_7d,           // 0..1，无采样时为 null
                   buckets_24h: [ { ts, online_ratio } ] } ] }
 ```
@@ -878,7 +879,11 @@ GET /api/v1/public/status
 - **不返回服务器地址、用户数、套餐等敏感信息**；
 - 速率与累计字节都是**只读展示**：速率来自相邻两次心跳的累计字节差；
   累计字节是 Agent 自开机以来的非 `lo` 网卡计数（重启归零），不参与计费；
-  没有数据时一律 `null`（前端 `—`），绝不写 0，更不暴露价格 / 续费 / 到期；
+  没有数据时一律 `null`（前端 `—`），绝不写 0；
+- **费用与到期是管理员主动填写的公开字段**（迁移 0061）：
+  `paid_until` / `price_cents` / `currency` / `billing_cycle` 填了就对所有访客可见，
+  没填或存量值非法时为 `null`。填之前必须知道：**这是公开页面，价格与到期对所有人可见**；
+  不想公开就不要填。详见 [DEPLOY.md](DEPLOY.md#服务器费用与到期--server-cost-and-expiry)。
 - 设置项 `public_status_enabled`（默认 1）可整体关闭，关闭时 404；
 - 结果缓存 30 秒，避免被打爆。
 

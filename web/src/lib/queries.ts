@@ -5,6 +5,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useEffect } from "react";
 import {
   api,
   ApiError,
@@ -109,6 +110,7 @@ import type { UpdatesResponse } from "@/lib/updates";
 import { compareRoutingRules } from "@/lib/outbounds";
 import { hasPendingAgentUpgrade } from "@/lib/agentUpgrade";
 import { shouldPollAgentBatch } from "@/lib/agentUpgradeBatch";
+import { PUBLIC_STATUS_POLL_MS } from "@/lib/publicStatus";
 
 /** P4：有升级在途时，服务器列表与升级历史的轮询间隔。 */
 const AGENT_UPGRADE_POLL_MS = 15_000;
@@ -242,17 +244,45 @@ export function useHealth() {
 /**
  * P10：公开状态页数据。
  *
- * 30 秒自动刷新与后端缓存窗口对齐；`retry: false` 让「开关关闭」的 404
- * 立刻落到「状态页已关闭」空态，而不是先转一圈重试。
+ * 每 20 秒自动刷新（`PUBLIC_STATUS_POLL_MS`），与页面「更新于 HH:MM:SS」同步；
+ * 页签隐藏时暂停，恢复可见时 `useRefetchWhenVisible` 立刻补拉一次。
+ * `retry: false` 让「开关关闭」的 404 立刻落到「状态页已关闭」空态，
+ * 而不是先转一圈重试。
  */
 export function usePublicStatus() {
-  return useQuery<PublicStatus>({
+  const query = useQuery<PublicStatus>({
     queryKey: queryKeys.publicStatus,
     queryFn: api.publicStatus,
     retry: false,
-    staleTime: 25_000,
-    refetchInterval: 30_000,
+    // 比轮询间隔短：切回页签时 15 秒前的数据已经算旧，不会拿着它当权威值。
+    staleTime: 15_000,
+    refetchInterval: PUBLIC_STATUS_POLL_MS,
+    // 页签隐藏时 React Query 本身就跳过这个 interval；显式写出来，
+    // 避免以后有人把全局默认改成 true 时悄悄恢复后台轮询。
+    refetchIntervalInBackground: false,
   });
+  useRefetchWhenVisible(query.refetch);
+  return query;
+}
+
+/**
+ * 页签重新可见时立刻补拉一次。
+ *
+ * 全局 `refetchOnWindowFocus: false`，且 staleTime 可能还没过，所以不能依赖
+ * React Query 的 focus 行为；探针页在后台待了一段时间后切回来，第一帧就该是
+ * 新数据，而不是再等下一个 20 秒。`refetch` 由 observer 提供，引用稳定，
+ * 监听只注册一次。
+ */
+function useRefetchWhenVisible(refetch: () => unknown) {
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void refetch();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [refetch]);
 }
 
 /** 既有概览统计：第一行 KPI 与告警计数。后端接口可能尚未上线，页面自行处理 404 文案。 */

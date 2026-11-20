@@ -273,6 +273,18 @@ export interface PublicStatusServer {
    * 所属分组；未分组为 null。旧后端不返回该字段（也能据此隐藏分组筛选）。
    */
   group_name?: string | null;
+  /**
+   * 套餐到期日 `YYYY-MM-DD`（UTC+8 业务日）；旧后端 / 未绑定套餐时为
+   * undefined 或 null。与 `price_cents` / `currency` / `billing_cycle`
+   * 一起决定卡片第三组是否渲染：任一缺失则整组不显示。
+   */
+  paid_until?: string | null;
+  /** 套餐价格（单位「分」）；旧后端可能缺失。 */
+  price_cents?: number | null;
+  /** 币种代码（`CNY` / `USD` / `EUR` …）；旧后端可能缺失。 */
+  currency?: string | null;
+  /** 计费周期：`monthly` / `yearly` / `once`；旧后端可能缺失。 */
+  billing_cycle?: string | null;
 }
 
 /** 公开状态页的分组聚合；`name = null` 是未分组。 */

@@ -272,11 +272,25 @@ const en = {
       rate: "Current rate",
       rateHint:
         "Cumulative byte delta between the last two heartbeats divided by elapsed time; display only, never billed",
+      trafficGroup: "Rate, total traffic, expiry and price",
       trafficTotal: "Total traffic",
       trafficTotalHint:
         "Cumulative non-loopback bytes since the agent booted (resets on reboot); not billing traffic",
       trafficRx: "Down",
       trafficTx: "Up",
+      /** Expiry and price: the whole group renders only when all four arrive. */
+      billingGroup: "Expiry and price",
+      expiry: "Expiry",
+      price: "Price",
+      expiresInDays: "{days} days left",
+      expiresTomorrow: "Expires tomorrow",
+      expiresToday: "Expires today",
+      expired: "Expired",
+      cycle: {
+        monthly: "mo",
+        yearly: "yr",
+        once: "one-time",
+      },
       xrayRunning: "Xray running",
       xrayStopped: "Xray stopped",
       latency: "Latency {ms} ms",

@@ -458,6 +458,31 @@
 }
 
 /*
+ * 数值更新：150ms 内从 0.55 透明回到 1，只播一次。
+ *
+ * 探针页每 20 秒轮询一次；只有数值真的变了（React `key` 变化导致重挂载）
+ * 才播放，拿回同样的数字时不闪。不做数字滚动 —— 那是计数器，不是状态。
+ * 减弱动效时直接呈现终态（全站 reduced-motion 规则已统一处理时长）。
+ */
+@keyframes value-settle {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.value-settle {
+  animation: value-settle 150ms ease-out both;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/*
  * 入场动效：透明度 0→1 + 上移 8px→0，160ms。
  *
  * 只用于页面主内容区首次进入（每页最多一层）。

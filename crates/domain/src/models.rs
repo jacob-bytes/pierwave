@@ -159,6 +159,20 @@ pub struct Server {
     ///
     /// 只是展示维度：公开探针页按它聚合，不参与鉴权或期望态下发。
     pub group_name: Option<String>,
+    /// 到期日，`YYYY-MM-DD` 文本；`None` = 未填写。
+    ///
+    /// 与下面三列一起构成「费用与到期」展示元数据（迁移 0061）：填写后
+    /// **公开探针页对所有人可见**，不参与鉴权或期望态下发。写路径校验见
+    /// [`crate::billing::BillingMeta::validated`]。
+    pub paid_until: Option<String>,
+    /// 价格（`currency` 的最小单位，通常为「分」）；`None` = 未填写。
+    ///
+    /// 写路径要求 `0 <= price_cents <= 999_999_999`（约 1000 万元上限）。
+    pub price_cents: Option<i64>,
+    /// 币种，3 位大写字母（CNY / USD / EUR ...）；`None` = 未填写。
+    pub currency: Option<String>,
+    /// 计费周期：`monthly` / `yearly` / `once`；`None` = 未填写。
+    pub billing_cycle: Option<String>,
     /// 允许的端口区间起点（含）；`None` = 该侧不设边界。
     ///
     /// 与 [`Server::port_end`]、[`Server::port_allow_json`] 一起构成允许集合：

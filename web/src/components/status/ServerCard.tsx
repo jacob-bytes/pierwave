@@ -1,6 +1,10 @@
 import {
   ArrowDownIcon,
+  ArrowDownToLineIcon,
   ArrowUpIcon,
+  ArrowUpToLineIcon,
+  CalendarClockIcon,
+  CoinsIcon,
   GlobeIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -20,6 +24,8 @@ import { formatRate, formatTrafficTotal } from "@/lib/netRate";
 import {
   availabilityPercent,
   availabilityTone,
+  expiryLabel,
+  publicBilling,
   reportedLatency,
   resourcePercent,
   serverSpecLine,
@@ -27,6 +33,7 @@ import {
   statusLabelKey,
   uptimeLabelKey,
   uptimeParts,
+  type PublicBilling,
   type ServerState,
 } from "@/lib/publicStatus";
 import { cn } from "@/lib/utils";
@@ -111,48 +118,91 @@ export function StatusChip({
   );
 }
 
-/** 实时速率区的一个格子：一个值（当前速率或累计值）。 */
-type TrafficStat = {
-  key: string;
-  /** 方向图标只挂在每个方向的第一格上，累计值跟着同一行走。 */
-  icon?: LucideIcon;
+/** 实时速率 / 累计流量的一个值；图标区分「方向」与「当前还是累计」。 */
+function TrafficCell({
+  icon: Icon,
+  label,
+  value,
+  hint,
+  muted,
+}: {
+  icon: LucideIcon;
   /** 无障碍名称（下行 / 下行累计流量）；图标本身对读屏隐藏。 */
   label: string;
   value: string | null;
   hint: string;
   /** 累计值用次要色；速率只有缺数据时才转次要色。 */
   muted?: boolean;
-};
-
-function TrafficCell({ stat }: { stat: TrafficStat }) {
-  const Icon = stat.icon;
-
+}) {
   return (
-    <div className="flex min-w-0 items-baseline gap-x-2">
-      {Icon ? (
-        <Icon
-          className="size-3 shrink-0 self-center text-muted-foreground"
-          aria-hidden="true"
-        />
-      ) : null}
-      <span className="sr-only">{stat.label}</span>
+    <span className="inline-flex min-w-0 items-baseline gap-x-2 text-xs">
+      <Icon
+        className="size-3 shrink-0 self-center text-muted-foreground"
+        aria-hidden="true"
+      />
+      <span className="sr-only">{label}</span>
       <span
         className={cn(
-          "tnum min-w-0 truncate text-xs",
-          stat.muted || stat.value === null
-            ? "text-muted-foreground"
-            : "text-foreground",
+          "tnum min-w-0 truncate",
+          muted || value === null ? "text-muted-foreground" : "text-foreground",
         )}
-        title={stat.hint}
+        title={hint}
       >
-        {stat.value ?? "—"}
+        {value ?? "—"}
       </span>
-    </div>
+    </span>
   );
 }
 
 /**
- * 实时速率与累计流量（`↓ 速率 累计 / ↑ 速率 累计`）。
+ * 到期日：`27 天后到期`，已过期转 warning。
+ *
+ * hover 给出后端原始的 `YYYY-MM-DD`（UTC+8 业务日），不用相对天数猜日期。
+ * 图标保持 muted，颜色只落在文字上 —— 一个染色的图标会把整格变成警报。
+ */
+function BillingExpiry({ billing }: { billing: PublicBilling }) {
+  const { t } = useI18n();
+  const label = expiryLabel(billing.days);
+  const expired = billing.days < 0;
+
+  return (
+    <span
+      className="inline-flex min-w-0 items-baseline gap-x-2 text-xs"
+      title={billing.paidUntil}
+    >
+      <CalendarClockIcon
+        className="size-3 shrink-0 self-center text-muted-foreground"
+        aria-hidden="true"
+      />
+      <span className="sr-only">{t("publicStatus.server.expiry")}</span>
+      <span
+        className={cn("truncate", expired ? "text-warning" : "text-muted-foreground")}
+      >
+        {t(label.key, label.values)}
+      </span>
+    </span>
+  );
+}
+
+/** 价格与周期：`¥268.00 / 月`；币种符号由 `formatPrice` 决定，这里只拼周期。 */
+function BillingPrice({ billing }: { billing: PublicBilling }) {
+  const { t } = useI18n();
+  const text = `${billing.price} / ${t(billing.cycleKey)}`;
+
+  return (
+    <span className="inline-flex min-w-0 items-baseline gap-x-2 text-xs" title={text}>
+      <CoinsIcon
+        className="size-3 shrink-0 self-center text-muted-foreground"
+        aria-hidden="true"
+      />
+      <span className="sr-only">{t("publicStatus.server.price")}</span>
+      <span className="tnum min-w-0 truncate text-muted-foreground">{text}</span>
+    </span>
+  );
+}
+
+/**
+ * 实时速率、累计流量与到期/价格（`↓ 速率 ↓ 累计 / ↑ 速率 ↑ 累计 / 到期 · 价格`）。
  *
  * 数据来源见 `docs/TELEMETRY.md`：速率是两次心跳的累计字节差 / 时间差；
  * 累计值是 Agent 自开机以来的非 lo 网卡计数（主机重启会归零）。
@@ -161,9 +211,11 @@ function TrafficCell({ stat }: { stat: TrafficStat }) {
  * 离线时速率不显示：`servers.net_rx_bps` 是掉线前最后一次算出的值，
  * 写在「离线」卡片上会被读成实时读数。累计值仍保留（它是历史计数）。
  *
- * 布局：每个值是一个格子，当前是两列（下行速率 / 下行累计、上行速率 /
- * 上行累计）；手机两列固定，sm 以上按可用宽度 auto-fit。以后加「连接数 /
- * 今日流量」只需要往 `stats` 里追加格子，行数会自然增长；不要把行数写死。
+ * 版式照参考卡片读下去是三列：速率、累计流量、到期与价格。md 以上三列并排，
+ * 第三列略宽（`¥1,111.00 / 年` 是最长的内容）；`<md` 收敛成两列，到期与价格
+ * 整组换到第三行并横跨两列，390 下不会把前两列挤扁。
+ * 账期四字段任一缺失时 `publicBilling` 返回 null，第三列整组不存在 ——
+ * 不留空列，也不画 `— / —`。
  */
 function TrafficFooter({ server }: { server: PublicStatusServer }) {
   const { t } = useI18n();
@@ -174,48 +226,65 @@ function TrafficFooter({ server }: { server: PublicStatusServer }) {
   const txRate = formatRate(online ? server.net_tx_bps : null);
   const rxTotal = formatTrafficTotal(server.net_rx_bytes);
   const txTotal = formatTrafficTotal(server.net_tx_bytes);
+  const billing = publicBilling(server);
 
-  const stats: TrafficStat[] = [
-    {
-      key: "rx-rate",
-      icon: ArrowDownIcon,
-      label: t("publicStatus.server.trafficRx"),
-      value: rxRate,
-      hint: rateHint,
-    },
-    {
-      key: "rx-total",
-      label: `${t("publicStatus.server.trafficRx")} ${t("publicStatus.server.trafficTotal")}`,
-      value: rxTotal,
-      hint: totalHint,
-      muted: true,
-    },
-    {
-      key: "tx-rate",
-      icon: ArrowUpIcon,
-      label: t("publicStatus.server.trafficTx"),
-      value: txRate,
-      hint: rateHint,
-    },
-    {
-      key: "tx-total",
-      label: `${t("publicStatus.server.trafficTx")} ${t("publicStatus.server.trafficTotal")}`,
-      value: txTotal,
-      hint: totalHint,
-      muted: true,
-    },
-  ];
+  const rxLabel = t("publicStatus.server.trafficRx");
+  const txLabel = t("publicStatus.server.trafficTx");
+  const totalLabel = t("publicStatus.server.trafficTotal");
 
   return (
     <div className="mt-4 border-t border-border pt-2.5">
       <div
         role="group"
-        aria-label={t("publicStatus.server.rate")}
-        className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-[repeat(auto-fit,minmax(7.5rem,1fr))]"
+        aria-label={t("publicStatus.server.trafficGroup")}
+        className={cn(
+          "grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs",
+          billing &&
+            "md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.35fr)] md:gap-y-2",
+        )}
       >
-        {stats.map((stat) => (
-          <TrafficCell key={stat.key} stat={stat} />
-        ))}
+        <div className="flex min-w-0 flex-col gap-y-1.5">
+          <TrafficCell
+            icon={ArrowDownIcon}
+            label={rxLabel}
+            value={rxRate}
+            hint={rateHint}
+          />
+          <TrafficCell
+            icon={ArrowUpIcon}
+            label={txLabel}
+            value={txRate}
+            hint={rateHint}
+          />
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-y-1.5">
+          <TrafficCell
+            icon={ArrowDownToLineIcon}
+            label={`${rxLabel} ${totalLabel}`}
+            value={rxTotal}
+            hint={totalHint}
+            muted
+          />
+          <TrafficCell
+            icon={ArrowUpToLineIcon}
+            label={`${txLabel} ${totalLabel}`}
+            value={txTotal}
+            hint={totalHint}
+            muted
+          />
+        </div>
+
+        {billing ? (
+          <div
+            className="col-span-2 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 md:col-span-1 md:flex-col md:items-start md:gap-y-1.5"
+            role="group"
+            aria-label={t("publicStatus.server.billingGroup")}
+          >
+            <BillingExpiry billing={billing} />
+            <BillingPrice billing={billing} />
+          </div>
+        ) : null}
       </div>
     </div>
   );

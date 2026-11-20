@@ -1643,6 +1643,34 @@ pub mod servers {
         Ok(())
     }
 
+    /// 覆盖「费用与到期」四列（迁移 0061）。四个值各自独立，`None` = 清空。
+    ///
+    /// 仓储层不重复校验：写路径先经 [`crate::billing::BillingMeta::validated`]，
+    /// 读路径由 [`crate::billing::BillingMeta::from_server`] 容错；这里保持与
+    /// `set_country_code` 一致的「只落库」职责，也方便测试直接写入非法存量值。
+    pub async fn set_billing(
+        pool: &SqlitePool,
+        id: &str,
+        paid_until: Option<&str>,
+        price_cents: Option<i64>,
+        currency: Option<&str>,
+        billing_cycle: Option<&str>,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE servers
+                SET paid_until = ?, price_cents = ?, currency = ?, billing_cycle = ?
+              WHERE id = ?",
+        )
+        .bind(paid_until)
+        .bind(price_cents)
+        .bind(currency)
+        .bind(billing_cycle)
+        .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
     /// 覆盖允许端口策略。`allow_json` 必须是规范化后的 JSON 数组文本
     /// （升序、去重；见 `crate::port_policy::PortPolicy::allow_json`）。
     pub async fn set_port_policy(

@@ -1,0 +1,407 @@
+{
+  "baseUrl": "http://localhost:4173",
+  "generatedAt": "2026-11-20T13:52:44.071Z",
+  "results": [
+    {
+      "section": "w1-w3",
+      "theme": "dark",
+      "width": 1440,
+      "rateText": "↓ 36 MB/s  ↑ 4.6 MB/s",
+      "settle": {
+        "animationName": "value-settle",
+        "animationDuration": "0.15s",
+        "text": "36MB/s"
+      },
+      "overflow": {
+        "scrollWidth": 1440,
+        "clientWidth": 1440
+      },
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "billing": {
+            "text": "到期 27 天后到期 价格 ¥268.00 / 月",
+            "width": 106,
+            "expiredWarning": false,
+            "iconCount": 2
+          },
+          "gridColumns": 3,
+          "trafficIcons": 6
+        },
+        {
+          "name": "东京-中转备用入口",
+          "billing": {
+            "text": "到期 120 天后到期 价格 ¥999.00 / 年",
+            "width": 106,
+            "expiredWarning": false,
+            "iconCount": 2
+          },
+          "gridColumns": 3,
+          "trafficIcons": 6
+        },
+        {
+          "name": "新加坡-专线节点",
+          "billing": {
+            "text": "到期 今天到期 价格 $199.00 / 一次性",
+            "width": 106,
+            "expiredWarning": false,
+            "iconCount": 2
+          },
+          "gridColumns": 3,
+          "trafficIcons": 6
+        },
+        {
+          "name": "洛杉矶-美洲测试节点",
+          "billing": {
+            "text": "到期 已过期 价格 JPY 1,280.00 / 月",
+            "width": 106,
+            "expiredWarning": true,
+            "iconCount": 2
+          },
+          "gridColumns": 3,
+          "trafficIcons": 6
+        }
+      ]
+    },
+    {
+      "section": "w1-w3",
+      "theme": "dark",
+      "width": 390,
+      "rateText": "↓ 36 MB/s  ↑ 4.6 MB/s",
+      "settle": {
+        "animationName": "value-settle",
+        "animationDuration": "0.15s",
+        "text": "36MB/s"
+      },
+      "overflow": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      },
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "billing": {
+            "text": "到期 27 天后到期 价格 ¥268.00 / 月",
+            "width": 326,
+            "expiredWarning": false,
+            "iconCount": 2
+          },
+          "gridColumns": 2,
+          "trafficIcons": 6
+        },
+        {
+          "name": "东京-中转备用入口",
+          "billing": {
+            "text": "到期 120 天后到期 价格 ¥999.00 / 年",
+            "width": 326,
+            "expiredWarning": false,
+            "iconCount": 2
+          },
+          "gridColumns": 2,
+          "trafficIcons": 6
+        },
+        {
+          "name": "新加坡-专线节点",
+          "billing": {
+            "text": "到期 今天到期 价格 $199.00 / 一次性",
+            "width": 326,
+            "expiredWarning": false,
+            "iconCount": 2
+          },
+          "gridColumns": 2,
+          "trafficIcons": 6
+        },
+        {
+          "name": "洛杉矶-美洲测试节点",
+          "billing": {
+            "text": "到期 已过期 价格 JPY 1,280.00 / 月",
+            "width": 326,
+            "expiredWarning": true,
+            "iconCount": 2
+          },
+          "gridColumns": 2,
+          "trafficIcons": 6
+        }
+      ]
+    },
+    {
+      "section": "w1-w3",
+      "theme": "light",
+      "width": 1440,
+      "rateText": "↓ 36 MB/s  ↑ 4.6 MB/s",
+      "settle": {
+        "animationName": "value-settle",
+        "animationDuration": "0.15s",
+        "text": "36MB/s"
+      },
+      "overflow": {
+        "scrollWidth": 1440,
+        "clientWidth": 1440
+      },
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "billing": {
+            "text": "到期 27 天后到期 价格 ¥268.00 / 月",
+            "width": 106,
+            "expiredWarning": false,
+            "iconCount": 2
+          },
+          "gridColumns": 3,
+          "trafficIcons": 6
+        },
+        {
+          "name": "东京-中转备用入口",
+          "billing": {
+            "text": "到期 120 天后到期 价格 ¥999.00 / 年",
+            "width": 106,
+            "expiredWarning": false,
+            "iconCount": 2
+          },
+          "gridColumns": 3,
+          "trafficIcons": 6
+        },
+        {
+          "name": "新加坡-专线节点",
+          "billing": {
+            "text": "到期 今天到期 价格 $199.00 / 一次性",
+            "width": 106,
+            "expiredWarning": false,
+            "iconCount": 2
+          },
+          "gridColumns": 3,
+          "trafficIcons": 6
+        },
+        {
+          "name": "洛杉矶-美洲测试节点",
+          "billing": {
+            "text": "到期 已过期 价格 JPY 1,280.00 / 月",
+            "width": 106,
+            "expiredWarning": true,
+            "iconCount": 2
+          },
+          "gridColumns": 3,
+          "trafficIcons": 6
+        }
+      ]
+    },
+    {
+      "section": "w1-w3",
+      "theme": "light",
+      "width": 390,
+      "rateText": "↓ 36 MB/s  ↑ 4.6 MB/s",
+      "settle": {
+        "animationName": "value-settle",
+        "animationDuration": "0.15s",
+        "text": "36MB/s"
+      },
+      "overflow": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      },
+      "cards": [
+        {
+          "name": "香港-亚太边缘入口",
+          "billing": {
+            "text": "到期 27 天后到期 价格 ¥268.00 / 月",
+            "width": 326,
+            "expiredWarning": false,
+            "iconCount": 2
+          },
+          "gridColumns": 2,
+          "trafficIcons": 6
+        },
+        {
+          "name": "东京-中转备用入口",
+          "billing": {
+            "text": "到期 120 天后到期 价格 ¥999.00 / 年",
+            "width": 326,
+            "expiredWarning": false,
+            "iconCount": 2
+          },
+          "gridColumns": 2,
+          "trafficIcons": 6
+        },
+        {
+          "name": "新加坡-专线节点",
+          "billing": {
+            "text": "到期 今天到期 价格 $199.00 / 一次性",
+            "width": 326,
+            "expiredWarning": false,
+            "iconCount": 2
+          },
+          "gridColumns": 2,
+          "trafficIcons": 6
+        },
+        {
+          "name": "洛杉矶-美洲测试节点",
+          "billing": {
+            "text": "到期 已过期 价格 JPY 1,280.00 / 月",
+            "width": 326,
+            "expiredWarning": true,
+            "iconCount": 2
+          },
+          "gridColumns": 2,
+          "trafficIcons": 6
+        }
+      ]
+    },
+    {
+      "section": "billing-missing",
+      "theme": "dark",
+      "width": 1440,
+      "cards": [
+        {
+          "name": "完整字段（对照）",
+          "billing": {
+            "text": "到期 27 天后到期 价格 ¥268.00 / 月",
+            "width": 106,
+            "expiredWarning": false,
+            "iconCount": 2
+          }
+        },
+        {
+          "name": "缺 paid_until",
+          "billing": null
+        },
+        {
+          "name": "缺 price_cents",
+          "billing": null
+        },
+        {
+          "name": "缺 currency",
+          "billing": null
+        },
+        {
+          "name": "缺 billing_cycle",
+          "billing": null
+        },
+        {
+          "name": "cycle 为 null",
+          "billing": null
+        }
+      ]
+    },
+    {
+      "section": "billing-missing",
+      "theme": "dark",
+      "width": 390,
+      "cards": [
+        {
+          "name": "完整字段（对照）",
+          "billing": {
+            "text": "到期 27 天后到期 价格 ¥268.00 / 月",
+            "width": 326,
+            "expiredWarning": false,
+            "iconCount": 2
+          }
+        },
+        {
+          "name": "缺 paid_until",
+          "billing": null
+        },
+        {
+          "name": "缺 price_cents",
+          "billing": null
+        },
+        {
+          "name": "缺 currency",
+          "billing": null
+        },
+        {
+          "name": "缺 billing_cycle",
+          "billing": null
+        },
+        {
+          "name": "cycle 为 null",
+          "billing": null
+        }
+      ]
+    },
+    {
+      "section": "billing-missing",
+      "theme": "light",
+      "width": 1440,
+      "cards": [
+        {
+          "name": "完整字段（对照）",
+          "billing": {
+            "text": "到期 27 天后到期 价格 ¥268.00 / 月",
+            "width": 106,
+            "expiredWarning": false,
+            "iconCount": 2
+          }
+        },
+        {
+          "name": "缺 paid_until",
+          "billing": null
+        },
+        {
+          "name": "缺 price_cents",
+          "billing": null
+        },
+        {
+          "name": "缺 currency",
+          "billing": null
+        },
+        {
+          "name": "缺 billing_cycle",
+          "billing": null
+        },
+        {
+          "name": "cycle 为 null",
+          "billing": null
+        }
+      ]
+    },
+    {
+      "section": "billing-missing",
+      "theme": "light",
+      "width": 390,
+      "cards": [
+        {
+          "name": "完整字段（对照）",
+          "billing": {
+            "text": "到期 27 天后到期 价格 ¥268.00 / 月",
+            "width": 326,
+            "expiredWarning": false,
+            "iconCount": 2
+          }
+        },
+        {
+          "name": "缺 paid_until",
+          "billing": null
+        },
+        {
+          "name": "缺 price_cents",
+          "billing": null
+        },
+        {
+          "name": "缺 currency",
+          "billing": null
+        },
+        {
+          "name": "缺 billing_cycle",
+          "billing": null
+        },
+        {
+          "name": "cycle 为 null",
+          "billing": null
+        }
+      ]
+    },
+    {
+      "section": "polling",
+      "pollIntervalMs": 20000,
+      "initialRequests": 1,
+      "requestsAfter21s": 2,
+      "hiddenWindowMs": 21000,
+      "requestsWhileHidden": 0,
+      "visibleRefetchMs": 53,
+      "sameValueRemount": true,
+      "changedValueRemount": false,
+      "rateBefore": "36MB/s 4.6MB/s",
+      "rateAfter": "41MB/s 4.6MB/s"
+    }
+  ]
+}

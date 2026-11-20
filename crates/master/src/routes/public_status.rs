@@ -11,6 +11,7 @@ use axum::Json;
 use serde::Serialize;
 use serde_json::Value;
 
+use pierwave_domain::billing::BillingMeta;
 use pierwave_domain::models::PublicSummary;
 use pierwave_domain::repo;
 
@@ -53,6 +54,16 @@ struct PublicServer {
     country_code: Option<String>,
     /// 管理员填写的分组名；未分组为 null。公开页用它做分组筛选，分组名本来就在 `groups` 里出现过。
     group_name: Option<String>,
+    /// 管理员填写的到期日（`YYYY-MM-DD`）；未填写或存量值非法为 null。
+    ///
+    /// 公开字段：填了就对所有人可见，所以文档明确提示「不想公开就不要填」。
+    paid_until: Option<String>,
+    /// 管理员填写的价格（分）；未填写或存量值非法为 null。
+    price_cents: Option<i64>,
+    /// 管理员填写的币种（3 位大写字母）；未填写或存量值非法为 null。
+    currency: Option<String>,
+    /// 管理员填写的计费周期（monthly / yearly / once）；未填写或存量值非法为 null。
+    billing_cycle: Option<String>,
     /// Agent 上报的发行版名称；旧 Agent 或读不到为 null。
     os_name: Option<String>,
     /// Agent 上报的发行版版本；旧 Agent 或读不到为 null。
@@ -170,6 +181,8 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
                 group.uptime_sum += value;
                 group.uptime_count += 1;
             }
+            // 存量脏值（手工改库 / 旧版本）一律按未填写处理：公开页不能 500。
+            let billing = BillingMeta::from_server(&server);
             let buckets_24h = starts
                 .iter()
                 .map(|ts| {
@@ -201,6 +214,10 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
                 latency_ms: server.latency_ms,
                 country_code: server.country_code.clone(),
                 group_name: server.group_name.clone(),
+                paid_until: billing.paid_until,
+                price_cents: billing.price_cents,
+                currency: billing.currency,
+                billing_cycle: billing.billing_cycle,
                 os_name: server.os_name,
                 os_version: server.os_version,
                 virt: server.virt,
@@ -636,6 +653,10 @@ mod tests {
             "latency_ms",
             "country_code",
             "group_name",
+            "paid_until",
+            "price_cents",
+            "currency",
+            "billing_cycle",
             "os_name",
             "os_version",
             "virt",
@@ -828,5 +849,80 @@ mod tests {
             assert!(server[key].is_null(), "{key} 必须是 null：{body}");
             assert_ne!(server[key], 0, "{key} 不能被写成 0：{body}");
         }
+    }
+
+    /// 费用与到期：填了公开可见、没填是 null、非法存量值降级为 null 且不 panic。
+    #[tokio::test]
+    async fn public_status_exposes_billing_and_sanitizes_dirty_values() {
+        let (app, state) = setup().await;
+        let id = seed_server(&state, "edge-1", "203.0.113.9").await;
+
+        // 没填：四个字段都是 null，不是空串或 0。
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let server = &body["servers"][0];
+        for key in ["paid_until", "price_cents", "currency", "billing_cycle"] {
+            assert!(server[key].is_null(), "{key} 必须是 null：{body}");
+        }
+
+        // 管理员填写后公开可见。
+        state.public_status.clear();
+        repo::servers::set_billing(
+            &state.db.pool,
+            &id,
+            Some("2026-12-31"),
+            Some(4999),
+            Some("CNY"),
+            Some("monthly"),
+        )
+        .await
+        .unwrap();
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let server = &body["servers"][0];
+        assert_eq!(server["paid_until"], "2026-12-31");
+        assert_eq!(server["price_cents"], 4999);
+        assert_eq!(server["currency"], "CNY");
+        assert_eq!(server["billing_cycle"], "monthly");
+
+        // 直接改库塞进非法值（模拟手工改库 / 旧版本脏数据）：接口仍然 200，
+        // 非法字段逐个降级为 null，绝不能 panic 或整个 500。
+        state.public_status.clear();
+        repo::servers::set_billing(
+            &state.db.pool,
+            &id,
+            Some("2026-02-30"),
+            Some(-1),
+            Some("cny"),
+            Some("weekly"),
+        )
+        .await
+        .unwrap();
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let server = &body["servers"][0];
+        for key in ["paid_until", "price_cents", "currency", "billing_cycle"] {
+            assert!(server[key].is_null(), "{key} 的脏值必须降级为 null：{body}");
+        }
+
+        // 混合：一列脏、一列合法，合法的那列照常展示。
+        state.public_status.clear();
+        repo::servers::set_billing(
+            &state.db.pool,
+            &id,
+            None,
+            Some(1_000_000_000),
+            Some("EUR"),
+            None,
+        )
+        .await
+        .unwrap();
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let server = &body["servers"][0];
+        assert!(server["paid_until"].is_null(), "{body}");
+        assert!(server["price_cents"].is_null(), "{body}");
+        assert_eq!(server["currency"], "EUR");
+        assert!(server["billing_cycle"].is_null(), "{body}");
     }
 }

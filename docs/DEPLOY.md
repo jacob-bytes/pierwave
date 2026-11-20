@@ -182,6 +182,45 @@ sudo systemctl daemon-reload && sudo systemctl restart pierwave-agent
 > name and ungrouped servers (`name: null`) last; `uptime_24h` is the mean member uptime and is `null`
 > when no samples exist.
 
+## 服务器费用与到期 / Server cost and expiry
+
+迁移 `0061` 给 `servers` 增加四个**可选**展示字段。它们不参与鉴权、期望态下发、限速或
+用户计费，改它们不会触发 Agent 下发；只是给公开探针页提供展示数据。
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `paid_until` | `TEXT`，`YYYY-MM-DD` | 到期日（必须是真实存在的日期） |
+| `price_cents` | `INTEGER` | 价格（分）；`0` 合法，上限 `999_999_999`（约 1000 万元） |
+| `currency` | `TEXT` | 3 位大写币种代码（`CNY` / `USD` / `EUR` ...） |
+| `billing_cycle` | `TEXT` | `monthly` / `yearly` / `once` |
+
+创建与 `PATCH /api/v1/servers[/{id}]` 接受这四个**扁平字段**（命名与列名一致）。
+四个字段可以任意组合填写：只填到期不填价格、或只填价格不填到期都合法。
+PATCH 不传 = 不改，传 `null` 或空串 = 清空。校验失败返回 400，错误码
+`server.paid_until_invalid` / `server.price_cents_invalid` / `server.currency_invalid` /
+`server.billing_cycle_invalid`，`params` 带 `field` 与允许范围（完整表见
+[ERRORS.md](ERRORS.md)）。管理员服务器列表与公开探针页都返回这四个字段；
+公开页对非法存量值（手工改库、旧版本脏数据）按 `null` 处理，不会 500。
+
+> **⚠️ 公开可见：探针页 `/status` 不需要登录。填写后价格与到期对所有人可见。
+> 不想公开就不要填。**
+>
+> **⚠️ Public by design: the probe page `/status` needs no login. Once filled in,
+> the price and expiry date are visible to everyone. If you do not want them public,
+> leave them empty.**
+
+> **Server cost and expiry.** Migration `0061` adds four optional display columns to
+> `servers`: `paid_until` (`YYYY-MM-DD`), `price_cents` (integer cents, `0..=999_999_999`),
+> `currency` (three-letter uppercase code), and `billing_cycle` (`monthly` / `yearly` /
+> `once`). They never affect auth, desired-state dispatch, rate limits or user billing.
+> Create and `PATCH /api/v1/servers[/{id}]` accept them as flat fields; any combination may be
+> filled, omitting a field on PATCH leaves it unchanged, and `null`/empty clears it. Invalid
+> values return 400 (`server.paid_until_invalid`, `server.price_cents_invalid`,
+> `server.currency_invalid`, `server.billing_cycle_invalid`; params include `field` and the
+> allowed range — see [ERRORS.md](ERRORS.md)). Both the admin server list and the public probe
+> return the four fields; the public page sanitizes legacy invalid values to `null` instead of
+> failing.
+
 ## 日志与备份
 
 - 日志走 stdout，交给 systemd/journald 或容器日志驱动；

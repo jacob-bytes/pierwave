@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ArrowDownIcon, ArrowUpIcon, type LucideIcon } from "lucide-react";
 import {
   AVAILABILITY_BAR_CLASS,
   AVAILABILITY_TEXT_CLASS,
@@ -7,16 +8,17 @@ import { Card } from "@/components/ui/card";
 import { useI18n } from "@/i18n";
 import type { PublicStatusServer, PublicStatusSummary } from "@/lib/api";
 import { formatBytes } from "@/lib/format";
-import { rateParts } from "@/lib/netRate";
+import { formatRatePairText, rateParts } from "@/lib/netRate";
 import {
   availabilityFill,
   availabilityPercent,
   availabilityTone,
   averageUptime24h,
   busiestServer,
+  onlineRateByDirection,
   statusHeadline,
   statusHeadlineKey,
-  totalOnlineRate,
+  type OnlineRate,
 } from "@/lib/publicStatus";
 import { cn } from "@/lib/utils";
 
@@ -47,10 +49,93 @@ function Stat({
   return (
     <div className="min-w-0">
       <div className="truncate text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1.5 flex h-8 items-baseline gap-1 whitespace-nowrap sm:h-9">
+      {/* `min-h` 而不是固定高度：速率要放上下两个数字，窄屏换行时让它自然长高，
+          另外两个数字仍从同一基线开始，底部的条不会错位。 */}
+      <div className="mt-1.5 flex min-h-8 flex-wrap items-baseline gap-1 whitespace-nowrap sm:min-h-9">
         {children}
       </div>
       <div className="mt-2 h-1">{foot}</div>
+    </div>
+  );
+}
+
+/**
+ * 一个方向的当前速率：`↓ 12.3 MB/s`。
+ *
+ * 数值变化时用 `key` 重挂载一次 `value-settle`（150ms 透明度 0.55→1），
+ * 只在这一格真的变了才播；20 秒轮询拿回同样的数字时 key 不变，不会闪。
+ */
+function RateValue({
+  icon: Icon,
+  label,
+  bps,
+}: {
+  icon: LucideIcon;
+  /** 无障碍名称（下行 / 上行）；图标本身对读屏隐藏。 */
+  label: string;
+  bps: number | null;
+}) {
+  const parts = rateParts(bps);
+
+  return (
+    <span className="inline-flex min-w-0 items-baseline gap-1">
+      <Icon
+        className="size-3 shrink-0 self-center text-muted-foreground"
+        aria-hidden="true"
+      />
+      <span className="sr-only">{label}</span>
+      {parts === null ? (
+        <span className="text-base leading-none font-semibold text-muted-foreground">
+          —
+        </span>
+      ) : (
+        <span
+          key={`${parts.value} ${parts.unit}`}
+          className="value-settle tnum inline-flex items-baseline gap-1 text-base leading-none font-semibold"
+        >
+          {parts.value}
+          <span className="text-xs font-normal text-muted-foreground">
+            {parts.unit}
+          </span>
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * 当前总速率拆成上下行：`↓ 12.3 MB/s  ↑ 3.1 MB/s`。
+ *
+ * 两个方向都有数据才并列（桌面）；390 下每列只有约 100px，flex 自动换行成
+ * 两行，不会把数字截断。两个方向都没有读数时整组只画一个 `—` —— 0 是
+ * 「确实没有流量」，`—` 是「不知道」，两者不能混。
+ */
+function RateFlow({ rate }: { rate: OnlineRate | null }) {
+  const { t } = useI18n();
+
+  if (rate === null) {
+    return (
+      <span className="text-xl leading-none font-semibold text-muted-foreground sm:text-3xl">
+        —
+      </span>
+    );
+  }
+
+  return (
+    <div
+      className="flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0.5"
+      title={formatRatePairText(rate.rx, rate.tx) ?? undefined}
+    >
+      <RateValue
+        icon={ArrowDownIcon}
+        label={t("publicStatus.server.trafficRx")}
+        bps={rate.rx}
+      />
+      <RateValue
+        icon={ArrowUpIcon}
+        label={t("publicStatus.server.trafficTx")}
+        bps={rate.tx}
+      />
     </div>
   );
 }
@@ -82,8 +167,8 @@ export function Hero({
   const averageTone = availabilityTone(averageUptime);
   const averageFill = availabilityFill(averageUptime);
 
-  // 当前总速率：所有在线机器的上下行之和；没有任何读数时 null → —。
-  const rate = rateParts(totalOnlineRate(servers));
+  // 当前总速率：所有在线机器的上下行分别求和；没有任何读数时 null → —。
+  const rate = onlineRateByDirection(servers);
 
   const busiest = busiestServer(servers);
   const busiestLoad =
@@ -162,20 +247,7 @@ export function Hero({
           </Stat>
 
           <Stat label={t("publicStatus.hero.totalRate")}>
-            {rate === null ? (
-              <span className="text-xl leading-none font-semibold text-muted-foreground sm:text-3xl">
-                —
-              </span>
-            ) : (
-              <>
-                <span className="tnum text-xl leading-none font-semibold sm:text-3xl">
-                  {rate.value}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {rate.unit}
-                </span>
-              </>
-            )}
+            <RateFlow rate={rate} />
           </Stat>
         </div>
       </div>

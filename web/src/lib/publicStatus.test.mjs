@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import en from "../i18n/en.ts";
 import zh from "../i18n/zh-CN.ts";
 import {
@@ -7,7 +9,15 @@ import {
   availabilityPercent,
   availabilityTone,
   averageUptime24h,
+  billingCycleKey,
   busiestServer,
+  expiryDays,
+  expiryLabel,
+  formatPrice,
+  formatPriceCents,
+  normalizeCurrency,
+  onlineRateByDirection,
+  publicBilling,
   statusHeadline,
   statusHeadlineKey,
   totalOnlineRate,
@@ -22,6 +32,7 @@ import {
   matchesStatusFilter,
   parseStatusView,
   persistStatusView,
+  PUBLIC_STATUS_POLL_MS,
   publicServerCounts,
   reportedLatency,
   resourcePercent,
@@ -35,6 +46,10 @@ import {
   uptimeLabelKey,
   uptimeParts,
 } from "./publicStatus.ts";
+
+function read(relative) {
+  return readFileSync(fileURLToPath(new URL(relative, import.meta.url)), "utf8");
+}
 
 test("serverState distinguishes offline, abnormal and online", () => {
   assert.equal(serverState({ online: false, xray_running: false }), "offline");
@@ -826,4 +841,241 @@ test("isStatusStale ignores a missing clock and future timestamps", () => {
   // 时钟偏差导致的未来时间戳同样不算过期。
   assert.equal(isStatusStale(1_800_000_000_000, 1_800_000_100), false);
   assert.equal(isStatusStale(1_800_000_000_000, Number.NaN), false);
+});
+
+test("onlineRateByDirection sums each direction of online servers only", () => {
+  // 没有任何在线节点：整组没有读数，页面画一个 —。
+  assert.equal(onlineRateByDirection([]), null);
+  assert.equal(
+    onlineRateByDirection([
+      { online: false, net_rx_bps: 1_000, net_tx_bps: 2_000 },
+    ]),
+    null,
+  );
+
+  assert.deepEqual(
+    onlineRateByDirection([
+      { online: true, net_rx_bps: 100, net_tx_bps: 50 },
+      { online: false, net_rx_bps: 9_999, net_tx_bps: 9_999 },
+      { online: true, net_rx_bps: 25, net_tx_bps: 5 },
+    ]),
+    { rx: 125, tx: 55 },
+  );
+});
+
+test("onlineRateByDirection keeps a missing direction apart from zero", () => {
+  // 只有一侧有数据：另一侧是 null（显示 —），不是 0 B/s。
+  assert.deepEqual(
+    onlineRateByDirection([{ online: true, net_rx_bps: null, net_tx_bps: 300 }]),
+    { rx: null, tx: 300 },
+  );
+  assert.deepEqual(
+    onlineRateByDirection([{ online: true, net_rx_bps: 300 }]),
+    { rx: 300, tx: null },
+  );
+  // 真实测到的 0 是有效数据。
+  assert.deepEqual(
+    onlineRateByDirection([{ online: true, net_rx_bps: 0, net_tx_bps: 0 }]),
+    { rx: 0, tx: 0 },
+  );
+});
+
+test("onlineRateByDirection skips dirty values per direction", () => {
+  assert.deepEqual(
+    onlineRateByDirection([
+      { online: true, net_rx_bps: -1, net_tx_bps: Number.NaN },
+      { online: true, net_rx_bps: 10, net_tx_bps: null },
+    ]),
+    { rx: 10, tx: null },
+  );
+  // 两个方向都被脏数据污染 = 没有数据。
+  assert.equal(
+    onlineRateByDirection([
+      { online: true, net_rx_bps: -5, net_tx_bps: Number.POSITIVE_INFINITY },
+    ]),
+    null,
+  );
+});
+
+test("totalOnlineRate stays the sum of the two directions", () => {
+  const servers = [
+    { online: true, net_rx_bps: 100, net_tx_bps: 50 },
+    { online: true, net_rx_bps: 25, net_tx_bps: null },
+  ];
+  const rate = onlineRateByDirection(servers);
+  assert.equal(totalOnlineRate(servers), rate.rx + rate.tx);
+});
+
+test("the public status page polls every 20s and pauses while hidden", () => {
+  assert.equal(PUBLIC_STATUS_POLL_MS, 20_000);
+  assert.ok(PUBLIC_STATUS_POLL_MS < STATUS_STALE_SECONDS * 1_000);
+
+  const queries = read("./queries.ts");
+  assert.match(
+    queries,
+    /refetchInterval:\s*PUBLIC_STATUS_POLL_MS/,
+    "usePublicStatus 必须用 20 秒的共享常量轮询",
+  );
+  assert.match(
+    queries,
+    /refetchIntervalInBackground:\s*false/,
+    "页签隐藏时必须暂停轮询",
+  );
+  assert.match(
+    queries,
+    /visibilitychange/,
+    "恢复可见必须由 visibilitychange 触发一次补拉",
+  );
+  assert.match(queries, /document\.visibilityState === "visible"/);
+});
+
+test("the hero splits the total rate into down/up with a settle pulse", () => {
+  const hero = read("../components/status/Hero.tsx");
+  assert.match(hero, /onlineRateByDirection\(servers\)/);
+  assert.match(hero, /ArrowDownIcon/);
+  assert.match(hero, /ArrowUpIcon/);
+  assert.match(hero, /value-settle/);
+  assert.match(hero, /formatRatePairText/);
+  assert.match(hero, /trafficRx/);
+  assert.match(hero, /trafficTx/);
+});
+
+test("card traffic row leads every figure with an icon and three columns", () => {
+  const card = read("../components/status/ServerCard.tsx");
+  // 速率用方向箭头，累计用「箭头压线」区分「当前」与「累计」。
+  assert.match(card, /ArrowDownIcon/);
+  assert.match(card, /ArrowUpIcon/);
+  assert.match(card, /ArrowDownToLineIcon/);
+  assert.match(card, /ArrowUpToLineIcon/);
+  // 第三列：到期 + 价格。
+  assert.match(card, /CalendarClockIcon/);
+  assert.match(card, /CoinsIcon/);
+  // md 三列；<md 两列，账期组横跨两列换到第三行。
+  assert.match(
+    card,
+    /md:grid-cols-\[minmax\(0,1fr\)_minmax\(0,1fr\)_minmax\(0,1\.35fr\)\]/,
+  );
+  assert.match(card, /col-span-2/);
+  assert.match(card, /publicBilling\(server\)/);
+});
+
+test("expiryDays counts UTC+8 business days", () => {
+  // 2026-11-20 12:00 (UTC+8)
+  const now = Date.UTC(2026, 10, 20, 4, 0, 0);
+  assert.equal(expiryDays("2026-12-17", now), 27);
+  assert.equal(expiryDays("2026-11-20", now), 0);
+  assert.equal(expiryDays("2026-11-19", now), -1);
+  assert.equal(expiryDays("2027-01-01", now), 42);
+});
+
+test("expiryDays follows the UTC+8 calendar across midnight", () => {
+  // 2026-11-20 00:30 (UTC+8) —— 浏览器在 UTC-8 仍是 11-19。
+  const justAfterMidnight = Date.UTC(2026, 10, 19, 16, 30, 0);
+  assert.equal(expiryDays("2026-11-20", justAfterMidnight), 0);
+  // 2026-11-19 23:59 (UTC+8) 还差一分钟到 20 日。
+  const beforeMidnight = Date.UTC(2026, 10, 19, 15, 59, 0);
+  assert.equal(expiryDays("2026-11-20", beforeMidnight), 1);
+  assert.equal(expiryDays("2026-11-19", beforeMidnight), 0);
+});
+
+test("expiryDays rejects missing and malformed dates", () => {
+  assert.equal(expiryDays(null), null);
+  assert.equal(expiryDays(undefined), null);
+  assert.equal(expiryDays(""), null);
+  assert.equal(expiryDays("   "), null);
+  assert.equal(expiryDays("2026-2-1"), null);
+  assert.equal(expiryDays("2026/12/17"), null);
+  assert.equal(expiryDays("2026-02-30"), null);
+  assert.equal(expiryDays("not-a-date"), null);
+  // 闰日是真日期。
+  assert.equal(expiryDays("2028-02-29", Date.UTC(2028, 1, 28, 4)), 1);
+});
+
+test("expiryLabel covers expired, today, tomorrow and N days", () => {
+  assert.deepEqual(expiryLabel(-1), { key: "publicStatus.server.expired" });
+  assert.deepEqual(expiryLabel(0), { key: "publicStatus.server.expiresToday" });
+  assert.deepEqual(expiryLabel(1), {
+    key: "publicStatus.server.expiresTomorrow",
+  });
+  assert.deepEqual(expiryLabel(27), {
+    key: "publicStatus.server.expiresInDays",
+    values: { days: 27 },
+  });
+});
+
+test("formatPrice maps known currencies to symbols and others to codes", () => {
+  assert.equal(formatPrice(26800, "CNY"), "¥268.00");
+  assert.equal(formatPrice(1200, "usd"), "$12.00");
+  assert.equal(formatPrice(990, "EUR"), "€9.90");
+  // 未知币种显示代码，不猜符号。
+  assert.equal(formatPrice(26800, "JPY"), "JPY 268.00");
+  assert.equal(formatPrice(123456789, "JPY"), "JPY 1,234,567.89");
+  // 0 是有效价格（免费额度），不能当成缺失。
+  assert.equal(formatPrice(0, "CNY"), "¥0.00");
+});
+
+test("formatPrice hides the whole group when price or currency is missing", () => {
+  assert.equal(formatPrice(null, "CNY"), null);
+  assert.equal(formatPrice(undefined, "CNY"), null);
+  assert.equal(formatPrice(Number.NaN, "CNY"), null);
+  assert.equal(formatPrice(-1, "CNY"), null);
+  assert.equal(formatPrice(100, null), null);
+  assert.equal(formatPrice(100, "   "), null);
+  assert.equal(normalizeCurrency(" cny "), "CNY");
+  assert.equal(normalizeCurrency(null), null);
+  assert.equal(formatPriceCents(26800), "268.00");
+});
+
+test("billingCycleKey maps the three cycles and rejects anything else", () => {
+  assert.equal(
+    billingCycleKey("monthly"),
+    "publicStatus.server.cycle.monthly",
+  );
+  assert.equal(billingCycleKey(" Yearly "), "publicStatus.server.cycle.yearly");
+  assert.equal(billingCycleKey("once"), "publicStatus.server.cycle.once");
+  assert.equal(billingCycleKey("weekly"), null);
+  assert.equal(billingCycleKey(null), null);
+  assert.equal(billingCycleKey(undefined), null);
+});
+
+test("publicBilling needs all four fields and formats the group", () => {
+  const now = Date.UTC(2026, 10, 20, 4, 0, 0);
+  const full = {
+    paid_until: "2026-12-17",
+    price_cents: 26800,
+    currency: "CNY",
+    billing_cycle: "monthly",
+  };
+  assert.deepEqual(publicBilling(full, now), {
+    paidUntil: "2026-12-17",
+    days: 27,
+    price: "¥268.00",
+    cycleKey: "publicStatus.server.cycle.monthly",
+  });
+
+  // 任一字段缺失 → 整组不显示（不出现「— / —」占位）。
+  assert.equal(publicBilling({ ...full, paid_until: null }, now), null);
+  assert.equal(publicBilling({ ...full, paid_until: undefined }, now), null);
+  assert.equal(publicBilling({ ...full, price_cents: null }, now), null);
+  assert.equal(publicBilling({ ...full, currency: null }, now), null);
+  assert.equal(publicBilling({ ...full, billing_cycle: null }, now), null);
+  assert.equal(publicBilling({}, now), null);
+
+  // 字段在但值非法，同样整组不显示。
+  assert.equal(publicBilling({ ...full, paid_until: "2026-02-30" }, now), null);
+  assert.equal(publicBilling({ ...full, billing_cycle: "weekly" }, now), null);
+  assert.equal(publicBilling({ ...full, price_cents: -100 }, now), null);
+});
+
+test("billing copy is bilingual and the cycles stay short", () => {
+  assert.equal(zh.publicStatus.server.cycle.monthly, "月");
+  assert.equal(zh.publicStatus.server.cycle.yearly, "年");
+  assert.equal(zh.publicStatus.server.cycle.once, "一次性");
+  assert.equal(en.publicStatus.server.cycle.monthly, "mo");
+  assert.equal(en.publicStatus.server.cycle.yearly, "yr");
+  assert.equal(en.publicStatus.server.cycle.once, "one-time");
+  assert.equal(zh.publicStatus.server.expiresToday, "今天到期");
+  assert.equal(zh.publicStatus.server.expired, "已过期");
+  assert.equal(en.publicStatus.server.expiresToday, "Expires today");
+  assert.equal(en.publicStatus.server.expired, "Expired");
 });

@@ -145,7 +145,7 @@ function StatusHeader({
         <div className="flex-1" />
 
         {/* 顺序按参考实现：更新时间在最左，然后「进入后台」，主题切换最右。
-            页面每 30 秒自己刷新，页头不再放刷新按钮。 */}
+            页面每 20 秒自己刷新（页签隐藏时暂停，切回立即补拉），页头不放刷新按钮。 */}
         <LiveStatus data={data} isError={isError} />
 
         <Button variant="ghost" asChild>

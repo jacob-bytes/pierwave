@@ -4,6 +4,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use pierwave_domain::billing::BillingMeta;
 use pierwave_domain::models::{AgentUpgrade, Patch, Server};
 use pierwave_domain::port_policy::{self, PortPolicy};
 use pierwave_domain::release;
@@ -114,6 +115,28 @@ async fn save_port_policy(
     Ok(())
 }
 
+/// 把校验后的「费用与到期」写回服务器，并同步内存里的响应字段。
+async fn save_billing(
+    state: &AppState,
+    server: &mut Server,
+    billing: &BillingMeta,
+) -> AppResult<()> {
+    repo::servers::set_billing(
+        &state.db.pool,
+        &server.id,
+        billing.paid_until.as_deref(),
+        billing.price_cents,
+        billing.currency.as_deref(),
+        billing.billing_cycle.as_deref(),
+    )
+    .await?;
+    server.paid_until = billing.paid_until.clone();
+    server.price_cents = billing.price_cents;
+    server.currency = billing.currency.clone();
+    server.billing_cycle = billing.billing_cycle.clone();
+    Ok(())
+}
+
 pub async fn list(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -148,6 +171,18 @@ pub struct CreateServer {
     /// 分组名；空串 = 未分组，最长 32 个字符。
     #[serde(default)]
     pub group_name: Option<String>,
+    /// 到期日（`YYYY-MM-DD`）；省略 / null / 空串 = 未填写。
+    #[serde(default)]
+    pub paid_until: Option<String>,
+    /// 价格（分）；省略 / null = 未填写。0..=999_999_999。
+    #[serde(default)]
+    pub price_cents: Option<i64>,
+    /// 币种（3 位大写字母）；省略 / null / 空串 = 未填写。
+    #[serde(default)]
+    pub currency: Option<String>,
+    /// 计费周期（monthly / yearly / once）；省略 / null / 空串 = 未填写。
+    #[serde(default)]
+    pub billing_cycle: Option<String>,
     /// 允许的端口区间起点（含）；省略 / null = 该侧不设边界。
     #[serde(default)]
     pub port_start: Option<i64>,
@@ -226,6 +261,13 @@ pub async fn create(
     )?;
     let internal_address = normalize_internal_address(req.internal_address.as_deref());
     let nic_name = crate::nic::normalize_nic_name(req.nic_name.as_deref());
+    // 先校验再建行：非法费用不能留下半成品服务器。
+    let billing = BillingMeta::validated(
+        req.paid_until.as_deref(),
+        req.price_cents,
+        req.currency.as_deref(),
+        req.billing_cycle.as_deref(),
+    )?;
     let (mut server, token) = repo::servers::create_with_country_and_group(
         &state.db.pool,
         name,
@@ -242,6 +284,9 @@ pub async fn create(
         repo::servers::set_nic_name(&state.db.pool, &server.id, Some(name)).await?;
         server.nic_name = Some(name.clone());
     }
+    if !billing.is_empty() {
+        save_billing(&state, &mut server, &billing).await?;
+    }
     // 明文 token 不落审计：它只该在创建响应里出现一次。
     crate::audit::record(
         &state,
@@ -253,6 +298,10 @@ pub async fn create(
             "address": &server.address,
             "xray_mode": &server.xray_mode,
             "group_name": &server.group_name,
+            "paid_until": &server.paid_until,
+            "price_cents": server.price_cents,
+            "currency": &server.currency,
+            "billing_cycle": &server.billing_cycle,
             "port_start": server.port_start,
             "port_end": server.port_end,
             "port_allow": serde_json::from_str::<Value>(&server.port_allow_json)
@@ -303,6 +352,18 @@ pub struct PatchServer {
     /// 限定网卡：缺省 = 不改，`null` / 空串 = 不限制，值 = 必须存在于最近上报列表。
     #[serde(default)]
     pub nic_name: Patch<String>,
+    /// 到期日：缺省 = 不改，`null` / 空串 = 清空，值 = 必须是真实 `YYYY-MM-DD`。
+    #[serde(default)]
+    pub paid_until: Patch<String>,
+    /// 价格（分）：缺省 = 不改，`null` = 清空，值 = 0..=999_999_999。
+    #[serde(default)]
+    pub price_cents: Patch<i64>,
+    /// 币种：缺省 = 不改，`null` / 空串 = 清空，值 = 3 位大写字母。
+    #[serde(default)]
+    pub currency: Patch<String>,
+    /// 计费周期：缺省 = 不改，`null` / 空串 = 清空。
+    #[serde(default)]
+    pub billing_cycle: Patch<String>,
 }
 
 fn deserialize_present_group_name<'de, D>(
@@ -369,11 +430,15 @@ pub async fn update(
         && !req.port_allow.is_set()
         && !req.internal_address.is_set()
         && !req.nic_name.is_set()
+        && !req.paid_until.is_set()
+        && !req.price_cents.is_set()
+        && !req.currency.is_set()
+        && !req.billing_cycle.is_set()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 name / address / xray_mode / allow_agent_upgrade / country_code / group_name / port_start / port_end / port_allow / internal_address / nic_name 之一",
+            "至少需要提供 name / address / xray_mode / allow_agent_upgrade / country_code / group_name / port_start / port_end / port_allow / internal_address / nic_name / paid_until / price_cents / currency / billing_cycle 之一",
         ));
     }
 
@@ -394,7 +459,11 @@ pub async fn update(
         req.port_start.is_set() || req.port_end.is_set() || req.port_allow.is_set();
     let internal_changed = req.internal_address.is_set();
     let nic_changed = req.nic_name.is_set();
-    let current = if policy_changed || internal_changed || nic_changed {
+    let billing_changed = req.paid_until.is_set()
+        || req.price_cents.is_set()
+        || req.currency.is_set()
+        || req.billing_cycle.is_set();
+    let current = if policy_changed || internal_changed || nic_changed || billing_changed {
         Some(
             repo::servers::find_by_id(&state.db.pool, &id)
                 .await
@@ -453,6 +522,42 @@ pub async fn update(
         )?;
     }
 
+    // 费用字段是三态 PATCH：先把「缺省沿用 / null 清空 / 值覆盖」合成最终值，
+    // 再整体校验，避免只改一半产生非法组合。存量非法值按未填写参与合并：
+    // 否则修价格会被另一列的脏数据永久卡住。
+    let billing = if billing_changed {
+        let current = current.as_ref().expect("billing_changed 时必已读取服务器");
+        let existing = BillingMeta::from_server(current);
+        let paid_until = match &req.paid_until {
+            Patch::Missing => existing.paid_until,
+            Patch::Null => None,
+            Patch::Value(raw) => Some(raw.clone()),
+        };
+        let price_cents = match req.price_cents {
+            Patch::Missing => existing.price_cents,
+            Patch::Null => None,
+            Patch::Value(price) => Some(price),
+        };
+        let currency = match &req.currency {
+            Patch::Missing => existing.currency,
+            Patch::Null => None,
+            Patch::Value(raw) => Some(raw.clone()),
+        };
+        let billing_cycle = match &req.billing_cycle {
+            Patch::Missing => existing.billing_cycle,
+            Patch::Null => None,
+            Patch::Value(raw) => Some(raw.clone()),
+        };
+        Some(BillingMeta::validated(
+            paid_until.as_deref(),
+            price_cents,
+            currency.as_deref(),
+            billing_cycle.as_deref(),
+        )?)
+    } else {
+        None
+    };
+
     let mut server = repo::servers::update(
         &state.db.pool,
         &id,
@@ -494,6 +599,9 @@ pub async fn update(
     if nic_changed {
         repo::servers::set_nic_name(&state.db.pool, &id, nic_name.as_deref()).await?;
         server.nic_name = nic_name;
+    }
+    if let Some(billing) = &billing {
+        save_billing(&state, &mut server, billing).await?;
     }
 
     let changes = crate::audit::diff(vec![
@@ -562,6 +670,32 @@ pub async fn update(
                 .as_ref()
                 .and_then(|server| server.nic_name.as_deref())),
             json!(server.nic_name.as_deref()),
+        ),
+        (
+            "paid_until",
+            json!(before
+                .as_ref()
+                .and_then(|server| server.paid_until.as_deref())),
+            json!(server.paid_until.as_deref()),
+        ),
+        (
+            "price_cents",
+            json!(before.as_ref().and_then(|server| server.price_cents)),
+            json!(server.price_cents),
+        ),
+        (
+            "currency",
+            json!(before
+                .as_ref()
+                .and_then(|server| server.currency.as_deref())),
+            json!(server.currency.as_deref()),
+        ),
+        (
+            "billing_cycle",
+            json!(before
+                .as_ref()
+                .and_then(|server| server.billing_cycle.as_deref())),
+            json!(server.billing_cycle.as_deref()),
         ),
     ]);
     crate::audit::record(
@@ -2026,6 +2160,352 @@ mod tests {
             send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
         assert_eq!(status, StatusCode::OK, "{listed}");
         assert_eq!(listed["items"][0]["group_name"], "香港");
+    }
+
+    // ---- 服务器费用与到期（迁移 0061） ----
+
+    /// 创建 / PATCH / 列表都接受并返回四个字段；部分填写合法，空串与 null 清空。
+    #[tokio::test]
+    async fn billing_fields_are_accepted_returned_and_cleared() {
+        let (app, _state, cookie) = setup().await;
+
+        let (status, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({
+                "name":"hk-1",
+                "address":"1.2.3.4",
+                "paid_until":"2026-12-31",
+                "price_cents":4999,
+                "currency":"CNY",
+                "billing_cycle":"monthly",
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{created}");
+        assert_eq!(created["server"]["paid_until"], "2026-12-31");
+        assert_eq!(created["server"]["price_cents"], 4999);
+        assert_eq!(created["server"]["currency"], "CNY");
+        assert_eq!(created["server"]["billing_cycle"], "monthly");
+        let id = created["server"]["id"].as_str().unwrap().to_string();
+
+        // 管理员列表同样带这四个字段（不只是创建响应）。
+        let (status, listed) =
+            send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{listed}");
+        assert_eq!(listed["items"][0]["paid_until"], "2026-12-31");
+        assert_eq!(listed["items"][0]["price_cents"], 4999);
+        assert_eq!(listed["items"][0]["currency"], "CNY");
+        assert_eq!(listed["items"][0]["billing_cycle"], "monthly");
+
+        // 部分填写：只填到期、不填价格是允许的（反向亦然）。
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({
+                "paid_until":"2027-01-31",
+                "price_cents": null,
+                "currency": null,
+                "billing_cycle": null,
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        assert_eq!(patched["server"]["paid_until"], "2027-01-31");
+        assert!(patched["server"]["price_cents"].is_null(), "{patched}");
+        assert!(patched["server"]["currency"].is_null(), "{patched}");
+        assert!(patched["server"]["billing_cycle"].is_null(), "{patched}");
+
+        // 只填价格：0 分是有效价格，不能当成「未填写」。
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"price_cents": 0, "currency":"USD", "billing_cycle":"once"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        assert_eq!(patched["server"]["price_cents"], 0);
+        assert_eq!(patched["server"]["currency"], "USD");
+        assert_eq!(patched["server"]["billing_cycle"], "once");
+        assert_eq!(
+            patched["server"]["paid_until"], "2027-01-31",
+            "没传的到期日不能丢"
+        );
+
+        // 空串 / null 都表示清空。
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({
+                "paid_until":"",
+                "price_cents": null,
+                "currency":"  ",
+                "billing_cycle": null,
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        for key in ["paid_until", "price_cents", "currency", "billing_cycle"] {
+            assert!(patched["server"][key].is_null(), "{key}: {patched}");
+        }
+    }
+
+    /// 四个字段的非法值都是 400，错误码带 field 与允许范围；非法创建不落行。
+    #[tokio::test]
+    async fn billing_invalid_values_are_rejected() {
+        let (app, _state, cookie) = setup().await;
+
+        let (status, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({
+                "name":"hk-1",
+                "address":"1.2.3.4",
+                "paid_until":"2026-12-31",
+                "price_cents":4999,
+                "currency":"CNY",
+                "billing_cycle":"monthly",
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{created}");
+        let id = created["server"]["id"].as_str().unwrap().to_string();
+
+        let cases = vec![
+            (
+                serde_json::json!({"price_cents": -1}),
+                "server.price_cents_invalid",
+            ),
+            (
+                serde_json::json!({"price_cents": 1_000_000_000}),
+                "server.price_cents_invalid",
+            ),
+            (
+                serde_json::json!({"currency": "cny"}),
+                "server.currency_invalid",
+            ),
+            (
+                serde_json::json!({"currency": "CN"}),
+                "server.currency_invalid",
+            ),
+            (
+                serde_json::json!({"currency": "CNYY"}),
+                "server.currency_invalid",
+            ),
+            (
+                serde_json::json!({"billing_cycle": "weekly"}),
+                "server.billing_cycle_invalid",
+            ),
+            (
+                serde_json::json!({"paid_until": "2026-02-30"}),
+                "server.paid_until_invalid",
+            ),
+            (
+                serde_json::json!({"paid_until": "2026-1-01"}),
+                "server.paid_until_invalid",
+            ),
+        ];
+        for (billing, code) in cases {
+            let mut body = serde_json::json!({"name":"bad","address":"9.9.9.9"});
+            body.as_object_mut()
+                .unwrap()
+                .extend(billing.as_object().unwrap().clone());
+            let (status, response) =
+                send(&app, &cookie, Method::POST, "/api/v1/servers", body).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{response}");
+            assert_eq!(response["code"], code, "{response}");
+        }
+
+        // 参数里要有字段名与允许范围，前端词典才能插值。
+        let (_, response) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"bad","address":"9.9.9.9","price_cents": -1}),
+        )
+        .await;
+        assert_eq!(response["params"]["field"], "price_cents");
+        assert_eq!(response["params"]["min"], 0);
+        assert_eq!(response["params"]["max"], 999_999_999);
+
+        let (_, response) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"bad","address":"9.9.9.9","currency":"cny"}),
+        )
+        .await;
+        assert_eq!(response["params"]["field"], "currency");
+        assert_eq!(response["params"]["length"], 3);
+
+        let (_, response) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"bad","address":"9.9.9.9","billing_cycle":"weekly"}),
+        )
+        .await;
+        assert_eq!(response["params"]["field"], "billing_cycle");
+        assert_eq!(
+            response["params"]["allowed"],
+            serde_json::json!(["monthly", "yearly", "once"])
+        );
+
+        let (_, response) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"bad","address":"9.9.9.9","paid_until":"2026-02-30"}),
+        )
+        .await;
+        assert_eq!(response["params"]["field"], "paid_until");
+        assert_eq!(response["params"]["format"], "YYYY-MM-DD");
+
+        // 非法创建不能留下服务器；非法 PATCH 也不能改动旧值。
+        let (status, listed) =
+            send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{listed}");
+        assert_eq!(listed["items"].as_array().unwrap().len(), 1);
+
+        for (billing, code) in [
+            (
+                serde_json::json!({"price_cents": -1}),
+                "server.price_cents_invalid",
+            ),
+            (
+                serde_json::json!({"currency": "cny"}),
+                "server.currency_invalid",
+            ),
+            (
+                serde_json::json!({"billing_cycle": "weekly"}),
+                "server.billing_cycle_invalid",
+            ),
+            (
+                serde_json::json!({"paid_until": "2026-02-30"}),
+                "server.paid_until_invalid",
+            ),
+        ] {
+            let (status, response) = send(
+                &app,
+                &cookie,
+                Method::PATCH,
+                &format!("/api/v1/servers/{id}"),
+                billing,
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{response}");
+            assert_eq!(response["code"], code, "{response}");
+        }
+        let (_, server) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"name":"hk-2"}),
+        )
+        .await;
+        assert_eq!(server["server"]["price_cents"], 4999);
+        assert_eq!(server["server"]["paid_until"], "2026-12-31");
+        assert_eq!(server["server"]["currency"], "CNY");
+        assert_eq!(server["server"]["billing_cycle"], "monthly");
+    }
+
+    /// 价格变化必须留痕：`server.update` 的 changes 里有这四个字段的 from / to。
+    #[tokio::test]
+    async fn billing_changes_are_audited() {
+        let (app, state, cookie) = setup().await;
+
+        let (_, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"hk-1","address":"1.2.3.4"}),
+        )
+        .await;
+        let id = created["server"]["id"].as_str().unwrap().to_string();
+
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({
+                "paid_until":"2026-12-31",
+                "price_cents":4999,
+                "currency":"CNY",
+                "billing_cycle":"monthly",
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+
+        let filter = repo::audit::Filter {
+            action_prefixes: vec!["server.update".into()],
+            ..Default::default()
+        };
+        let page = repo::audit::page(&state.db.pool, &filter, None, 10)
+            .await
+            .unwrap();
+        let item = page
+            .items
+            .iter()
+            .find(|item| item.target.as_deref() == Some(id.as_str()))
+            .expect("应有一条 server.update 审计");
+        let changes = &item.detail.as_ref().expect("审计 detail 应存在")["changes"];
+
+        assert_eq!(changes["paid_until"]["from"], Value::Null);
+        assert_eq!(changes["paid_until"]["to"], "2026-12-31");
+        assert_eq!(changes["price_cents"]["from"], Value::Null);
+        assert_eq!(changes["price_cents"]["to"], 4999);
+        assert_eq!(changes["currency"]["from"], Value::Null);
+        assert_eq!(changes["currency"]["to"], "CNY");
+        assert_eq!(changes["billing_cycle"]["from"], Value::Null);
+        assert_eq!(changes["billing_cycle"]["to"], "monthly");
+
+        // 再改一次价格：from 是上一版价格，价格变化必须留痕。
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"price_cents": 5999}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+
+        let page = repo::audit::page(&state.db.pool, &filter, None, 10)
+            .await
+            .unwrap();
+        // 同一秒内两条审计的排序不稳定，按内容找「5999 这次」。
+        let changes = page
+            .items
+            .iter()
+            .filter(|item| item.target.as_deref() == Some(id.as_str()))
+            .filter_map(|item| item.detail.as_ref())
+            .map(|detail| &detail["changes"])
+            .find(|changes| changes["price_cents"]["to"] == 5999)
+            .expect("应有一条记录价格 4999 → 5999 的审计");
+        assert_eq!(changes["price_cents"]["from"], 4999);
+        assert_eq!(changes["price_cents"]["to"], 5999);
+        assert!(
+            changes.get("paid_until").is_none(),
+            "没变的字段不应出现在 changes 里：{changes}"
+        );
     }
 
     /// 管理端列表复用 `servers.latency_ms`：有心跳值就是 number，没有就是 null。

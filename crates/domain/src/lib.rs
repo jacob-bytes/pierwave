@@ -3,6 +3,7 @@
 
 pub mod apply;
 pub mod backup;
+pub mod billing;
 pub mod certificate;
 pub mod chain_templates;
 pub mod chains;

@@ -647,6 +647,36 @@ nftables 引擎的同一入口端口可以按策略把新连接分配到多个�
 > `uptime_24h` is the arithmetic mean of the member servers' 24h uptimes; it is `null` when the
 > group has no samples, never `0`.
 
+### 服务器费用与到期（迁移 0061）/ Server cost and expiry (migration 0061)
+
+写路径（创建与 PATCH `/api/v1/servers`）对四个字段逐项校验，均为 400；错误文案中英双语，
+`params` 至少带 `field` 与允许范围，前端词典可以直接插值：
+
+| code | 中文 | English | params |
+|---|---|---|---|
+| `server.paid_until_invalid` | 到期日不合法：{value} 不是有效的 YYYY-MM-DD 日期，或留空 | Invalid paid-until date: {value} is not a real YYYY-MM-DD date, or leave it empty | field, format, value |
+| `server.price_cents_invalid` | 价格（分）不合法：{value} 超出 0-999999999，或留空 | Invalid price in cents: {value} is outside 0-999999999 (~10 million yuan), or leave it empty | field, max, min, value |
+| `server.currency_invalid` | 币种不合法：{value} 必须是 3 位大写字母（例如 CNY / USD / EUR），或留空 | Invalid currency: {value} must be a 3-letter uppercase code (e.g. CNY / USD / EUR), or leave it empty | field, length, pattern, value |
+| `server.billing_cycle_invalid` | 计费周期不合法：{value} 只能是 monthly / yearly / once，或留空 | Invalid billing cycle: {value} must be monthly, yearly or once, or leave it empty | allowed, field, value |
+
+规则 / Rules:
+
+- `price_cents` 必须是 `0..=999_999_999` 的整数；`0` 是合法价格（免费），与 `null`（未填写）不同 /
+  an integer within `0..=999_999_999`; `0` is a valid price, distinct from `null` (unfilled);
+- `currency` 恰好 3 位 ASCII 大写字母；小写不接受（与 `country_code` 一致）/ exactly three
+  uppercase ASCII letters; lowercase is rejected, consistent with `country_code`;
+- `billing_cycle` 只能是 `monthly` / `yearly` / `once` / one of those three values;
+- `paid_until` 必须是 `YYYY-MM-DD` 且日期真实存在（`2026-02-30` 拒绝）/ a real calendar date in
+  `YYYY-MM-DD`;
+- 四个字段互相独立，允许只填其中一部分 / the four fields are independent; partial values are allowed;
+- PATCH 不传 = 不改，`null` / 空串 = 清空；存量非法值在编辑时按「未填写」参与合并，避免一列脏数据
+  卡住其它列 / omitting a field on PATCH leaves it unchanged, `null`/empty clears it, and legacy
+  invalid values are merged as "unfilled" so one dirty column cannot block editing another.
+
+**公开提示 / Public visibility：探针页 `/status` 无需登录；填写后价格与到期对所有人可见，
+不想公开就不要填。The probe page `/status` is public; filled-in prices and expiry dates are
+visible to everyone — leave them empty if you do not want that.**
+
 ## 对外端口（NAT）/ Public-facing port (NAT)
 
 `nodes.public_port` 与 `chain_groups.public_port` 都**只影响展示与订阅**，不改变监听：
