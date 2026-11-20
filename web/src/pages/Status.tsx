@@ -50,6 +50,11 @@ import { cn } from "@/lib/utils";
  * 总结区、工具栏、卡片网格 / 列表视图，以及卡片内的 24 格可用率条。数据严格按
  * `GET /api/v1/public/status` 的白名单渲染 —— 公开 API 没有的丢包、
  * 运营商、单机流量和历史事件，这里一律不画。
+ *
+ * 术语：这一页把主机称为「节点」，与管理端 `/servers` 的「服务器」**刻意不同**。
+ * 探针页面向访客，他们看到的是「节点是否可用」，而不是一台需要运维的服务器；
+ * 「节点」更易懂。同一页面内必须统一，不得混用两种叫法 —— 分组、搜索、空态、
+ * 表格与无障碍标签都用「节点」。
  */
 
 /** 页头右侧的实时状态点：数据新鲜是主色，过期转 muted，断线仍用警告色。 */
@@ -216,8 +221,8 @@ function StatusContent({ data }: { data: PublicStatus }) {
   const counts = publicServerCounts(
     searched.filter((server) => matchesGroupFilter(server, group)),
   );
-  // 分组标签从全量服务器派生：计数是「该组服务器数」，不随搜索或状态标签缩水，
-  // 激活中的分组也不会因为搜索命中 0 而消失。
+  // 分组标签从全量节点派生：aria-label 里的计数是「该组节点数」，不随搜索或状态标签缩水，
+  // 激活中的分组也不会因为搜索命中 0 而消失。可见数量统一放在「清除筛选 x / y 台」。
   const groupTabs = statusGroupTabs(data.servers);
   const filtered = filterPublicServers(data.servers, filter, query, group);
   const narrowing =

@@ -94,8 +94,16 @@ function Segmented<T extends string>({
 }
 
 /**
- * 分组标签：纯文字 + 计数，不画边框；激活态只换成主色。
+ * 分组标签：纯文字，不画边框；激活态只换成主色。
  * 与参考项目一致 —— 分组是列表的「位置」，不是需要围起来的控件。
+ *
+ * 按钮上不再画数量：数量由工具栏右侧「清除筛选 x / y 台」承担。
+ * 屏幕阅读器仍需要知道每组有几台，所以数量放进 `aria-label`
+ * （如「新加坡，1 台」），视觉上不占位、可访问性不丢。
+ *
+ * 公开探针页刻意把主机称为「节点」而不是管理端的「服务器」：
+ * 访客只关心服务是否可用，「节点」更接近他们看到的对象；管理端
+ * `/servers` 仍叫「服务器」。同一页面内不得混用两种叫法。
  */
 function GroupTab({
   active,
@@ -108,13 +116,21 @@ function GroupTab({
   label: string;
   count: number;
 }) {
+  const { t } = useI18n();
+
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={active}
+      aria-label={t(
+        count === 1
+          ? "publicStatus.groups.countAriaOne"
+          : "publicStatus.groups.countAria",
+        { name: label, count },
+      )}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded text-xs font-medium whitespace-nowrap transition-colors max-sm:gap-1",
+        "inline-flex items-center rounded text-xs font-medium whitespace-nowrap transition-colors",
         // 手机上这一行是页面第一个控件，给 32px 的点击高度与左右 padding；
         // 桌面端保持纯文字行，靠容器的 14px 间距分隔。
         "max-sm:h-8 max-sm:px-1.5",
@@ -125,14 +141,6 @@ function GroupTab({
       )}
     >
       {label}
-      <span
-        className={cn(
-          "tnum min-w-[18px] rounded-full px-1 text-center type-micro font-medium",
-          active ? "bg-primary/15 text-primary" : "bg-muted text-foreground",
-        )}
-      >
-        {count}
-      </span>
     </button>
   );
 }
@@ -160,11 +168,17 @@ export function Toolbar({
 }: {
   /** 已经按搜索与分组筛过的计数；标签上的数字与点下去看到的结果一致。 */
   counts: Record<StatusFilter, number>;
-  /** 服务器总数，只用于「已显示 / 总数」与「全部服务器」的计数。 */
+  /**
+   * 节点总数，只用于「已显示 / 总数」与「全部节点」的 `aria-label`。
+   *
+   * 分组按钮不再画数量，右侧「清除筛选 x / y 台」是数量的唯一可见来源：
+   * 只选中分组时 `x` 就是该分组的节点数，`y` 是全部节点数；如果再叠加
+   * 状态或搜索，`x` 是三者叠加后实际显示的条数（和下方列表一致）。
+   */
   total: number;
   filter: StatusFilter;
   onFilter: (filter: StatusFilter) => void;
-  /** 由服务器列表派生；为空表示没有任何具名分组，整行不渲染。 */
+  /** 由节点列表派生；为空表示没有任何具名分组，整行不渲染。 */
   groups: StatusGroupTab[];
   group: StatusGroupFilter;
   onGroup: (group: StatusGroupFilter) => void;

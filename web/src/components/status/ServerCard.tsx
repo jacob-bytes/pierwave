@@ -155,7 +155,7 @@ function TrafficCell({ stat }: { stat: TrafficStat }) {
  * 实时速率与累计流量（`↓ 速率 累计 / ↑ 速率 累计`）。
  *
  * 数据来源见 `docs/TELEMETRY.md`：速率是两次心跳的累计字节差 / 时间差；
- * 累计值是 Agent 自开机以来的非 lo 网卡计数（服务器重启会归零）。
+ * 累计值是 Agent 自开机以来的非 lo 网卡计数（主机重启会归零）。
  * 没有数据一律显示 `—`，绝不用 0 冒充。
  *
  * 离线时速率不显示：`servers.net_rx_bps` 是掉线前最后一次算出的值，

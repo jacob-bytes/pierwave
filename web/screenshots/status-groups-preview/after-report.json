@@ -1,0 +1,186 @@
+[
+  {
+    "phase": "after",
+    "theme": "light",
+    "width": 1440,
+    "out": "/Users/jlthzy/Documents/mmrust/web/screenshots/status-groups-preview/after-group-light-1440.png",
+    "buttons": [
+      {
+        "text": "全部节点",
+        "ariaLabel": "全部节点，10 台",
+        "title": null
+      },
+      {
+        "text": "新加坡",
+        "ariaLabel": "新加坡，2 台",
+        "title": null
+      },
+      {
+        "text": "日本",
+        "ariaLabel": "日本，3 台",
+        "title": null
+      },
+      {
+        "text": "美西",
+        "ariaLabel": "美西，1 台",
+        "title": null
+      },
+      {
+        "text": "香港",
+        "ariaLabel": "香港，3 台",
+        "title": null
+      },
+      {
+        "text": "未分组",
+        "ariaLabel": "未分组，1 台",
+        "title": null
+      }
+    ],
+    "cardCount": 3,
+    "hasNeverReported": false,
+    "hasNoSamples": false,
+    "clearRowText": "全部节点新加坡日本美西香港未分组全部3在线2离线1异常0清除筛选3 / 10 台",
+    "docScrollWidth": 1440,
+    "bodyScrollWidth": 1440,
+    "innerWidth": 1440,
+    "pageHeight": 1000
+  },
+  {
+    "phase": "after",
+    "theme": "light",
+    "width": 390,
+    "out": "/Users/jlthzy/Documents/mmrust/web/screenshots/status-groups-preview/after-group-light-390.png",
+    "buttons": [
+      {
+        "text": "全部节点",
+        "ariaLabel": "全部节点，10 台",
+        "title": null
+      },
+      {
+        "text": "新加坡",
+        "ariaLabel": "新加坡，2 台",
+        "title": null
+      },
+      {
+        "text": "日本",
+        "ariaLabel": "日本，3 台",
+        "title": null
+      },
+      {
+        "text": "美西",
+        "ariaLabel": "美西，1 台",
+        "title": null
+      },
+      {
+        "text": "香港",
+        "ariaLabel": "香港，3 台",
+        "title": null
+      },
+      {
+        "text": "未分组",
+        "ariaLabel": "未分组，1 台",
+        "title": null
+      }
+    ],
+    "cardCount": 3,
+    "hasNeverReported": false,
+    "hasNoSamples": false,
+    "clearRowText": "全部节点新加坡日本美西香港未分组全部3在线2离线1异常0清除筛选3 / 10 台",
+    "docScrollWidth": 390,
+    "bodyScrollWidth": 390,
+    "innerWidth": 390,
+    "pageHeight": 1512
+  },
+  {
+    "phase": "after",
+    "theme": "dark",
+    "width": 1440,
+    "out": "/Users/jlthzy/Documents/mmrust/web/screenshots/status-groups-preview/after-group-dark-1440.png",
+    "buttons": [
+      {
+        "text": "全部节点",
+        "ariaLabel": "全部节点，10 台",
+        "title": null
+      },
+      {
+        "text": "新加坡",
+        "ariaLabel": "新加坡，2 台",
+        "title": null
+      },
+      {
+        "text": "日本",
+        "ariaLabel": "日本，3 台",
+        "title": null
+      },
+      {
+        "text": "美西",
+        "ariaLabel": "美西，1 台",
+        "title": null
+      },
+      {
+        "text": "香港",
+        "ariaLabel": "香港，3 台",
+        "title": null
+      },
+      {
+        "text": "未分组",
+        "ariaLabel": "未分组，1 台",
+        "title": null
+      }
+    ],
+    "cardCount": 3,
+    "hasNeverReported": false,
+    "hasNoSamples": false,
+    "clearRowText": "全部节点新加坡日本美西香港未分组全部3在线2离线1异常0清除筛选3 / 10 台",
+    "docScrollWidth": 1440,
+    "bodyScrollWidth": 1440,
+    "innerWidth": 1440,
+    "pageHeight": 1000
+  },
+  {
+    "phase": "after",
+    "theme": "dark",
+    "width": 390,
+    "out": "/Users/jlthzy/Documents/mmrust/web/screenshots/status-groups-preview/after-group-dark-390.png",
+    "buttons": [
+      {
+        "text": "全部节点",
+        "ariaLabel": "全部节点，10 台",
+        "title": null
+      },
+      {
+        "text": "新加坡",
+        "ariaLabel": "新加坡，2 台",
+        "title": null
+      },
+      {
+        "text": "日本",
+        "ariaLabel": "日本，3 台",
+        "title": null
+      },
+      {
+        "text": "美西",
+        "ariaLabel": "美西，1 台",
+        "title": null
+      },
+      {
+        "text": "香港",
+        "ariaLabel": "香港，3 台",
+        "title": null
+      },
+      {
+        "text": "未分组",
+        "ariaLabel": "未分组，1 台",
+        "title": null
+      }
+    ],
+    "cardCount": 3,
+    "hasNeverReported": false,
+    "hasNoSamples": false,
+    "clearRowText": "全部节点新加坡日本美西香港未分组全部3在线2离线1异常0清除筛选3 / 10 台",
+    "docScrollWidth": 390,
+    "bodyScrollWidth": 390,
+    "innerWidth": 390,
+    "pageHeight": 1512
+  }
+]

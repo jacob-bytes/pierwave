@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
  * - 在线 x/y 只在这里出现（旧汇总卡已删除）；
  * - 平均可用率只在这里出现（带三档色阶与填充条）；
  * - 当前总速率是新增数字，由在线机器的上下行速率现算；
- * - 旧汇总卡里的「最忙服务器」「累计流量 / 今日」没有被重复的数值，
+ * - 旧汇总卡里的「最忙节点」「累计流量 / 今日」没有被重复的数值，
  *   收进脚注，信息不丢、也不和三个大数字抢视觉。
  *
  * 卡片与点阵完全沿用 `ServerCard`，这里只负责页面顶部。
@@ -180,7 +180,7 @@ export function Hero({
         </div>
       </div>
 
-      {/* 脚注承接旧汇总卡里不重复的两项：最忙服务器与流量。 */}
+      {/* 脚注承接旧汇总卡里不重复的两项：最忙节点与流量。 */}
       <div className="mt-4 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border pt-3 text-xs text-muted-foreground">
         <span className="inline-flex min-w-0 items-center gap-1.5">
           <span className="shrink-0">

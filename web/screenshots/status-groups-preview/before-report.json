@@ -1,0 +1,154 @@
+[
+  {
+    "phase": "before",
+    "theme": "light",
+    "width": 1440,
+    "out": "/Users/jlthzy/Documents/mmrust/web/screenshots/status-groups-preview/before-group-light-1440.png",
+    "buttons": [
+      {
+        "text": "全部服务器4",
+        "ariaLabel": null,
+        "title": null
+      },
+      {
+        "text": "新加坡1",
+        "ariaLabel": null,
+        "title": null
+      },
+      {
+        "text": "日本1",
+        "ariaLabel": null,
+        "title": null
+      },
+      {
+        "text": "香港1",
+        "ariaLabel": null,
+        "title": null
+      },
+      {
+        "text": "未分组1",
+        "ariaLabel": null,
+        "title": null
+      }
+    ],
+    "clearRowText": "全部服务器4新加坡1日本1香港1未分组1全部1在线0离线1异常0清除筛选1 / 4 台",
+    "docScrollWidth": 1440,
+    "bodyScrollWidth": 1440,
+    "innerWidth": 1440,
+    "pageHeight": 1000
+  },
+  {
+    "phase": "before",
+    "theme": "light",
+    "width": 390,
+    "out": "/Users/jlthzy/Documents/mmrust/web/screenshots/status-groups-preview/before-group-light-390.png",
+    "buttons": [
+      {
+        "text": "全部服务器4",
+        "ariaLabel": null,
+        "title": null
+      },
+      {
+        "text": "新加坡1",
+        "ariaLabel": null,
+        "title": null
+      },
+      {
+        "text": "日本1",
+        "ariaLabel": null,
+        "title": null
+      },
+      {
+        "text": "香港1",
+        "ariaLabel": null,
+        "title": null
+      },
+      {
+        "text": "未分组1",
+        "ariaLabel": null,
+        "title": null
+      }
+    ],
+    "clearRowText": "全部服务器4新加坡1日本1香港1未分组1全部1在线0离线1异常0清除筛选1 / 4 台",
+    "docScrollWidth": 390,
+    "bodyScrollWidth": 390,
+    "innerWidth": 390,
+    "pageHeight": 844
+  },
+  {
+    "phase": "before",
+    "theme": "dark",
+    "width": 1440,
+    "out": "/Users/jlthzy/Documents/mmrust/web/screenshots/status-groups-preview/before-group-dark-1440.png",
+    "buttons": [
+      {
+        "text": "全部服务器4",
+        "ariaLabel": null,
+        "title": null
+      },
+      {
+        "text": "新加坡1",
+        "ariaLabel": null,
+        "title": null
+      },
+      {
+        "text": "日本1",
+        "ariaLabel": null,
+        "title": null
+      },
+      {
+        "text": "香港1",
+        "ariaLabel": null,
+        "title": null
+      },
+      {
+        "text": "未分组1",
+        "ariaLabel": null,
+        "title": null
+      }
+    ],
+    "clearRowText": "全部服务器4新加坡1日本1香港1未分组1全部1在线0离线1异常0清除筛选1 / 4 台",
+    "docScrollWidth": 1440,
+    "bodyScrollWidth": 1440,
+    "innerWidth": 1440,
+    "pageHeight": 1000
+  },
+  {
+    "phase": "before",
+    "theme": "dark",
+    "width": 390,
+    "out": "/Users/jlthzy/Documents/mmrust/web/screenshots/status-groups-preview/before-group-dark-390.png",
+    "buttons": [
+      {
+        "text": "全部服务器4",
+        "ariaLabel": null,
+        "title": null
+      },
+      {
+        "text": "新加坡1",
+        "ariaLabel": null,
+        "title": null
+      },
+      {
+        "text": "日本1",
+        "ariaLabel": null,
+        "title": null
+      },
+      {
+        "text": "香港1",
+        "ariaLabel": null,
+        "title": null
+      },
+      {
+        "text": "未分组1",
+        "ariaLabel": null,
+        "title": null
+      }
+    ],
+    "clearRowText": "全部服务器4新加坡1日本1香港1未分组1全部1在线0离线1异常0清除筛选1 / 4 台",
+    "docScrollWidth": 390,
+    "bodyScrollWidth": 390,
+    "innerWidth": 390,
+    "pageHeight": 844
+  }
+]

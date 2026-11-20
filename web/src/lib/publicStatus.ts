@@ -205,7 +205,7 @@ export function resourcePercent(
   return Math.min(100, Math.max(0, (used / total) * 100));
 }
 
-/** 一段服务器数据里够用来判断状态的字段。 */
+/** 一段节点数据里够用来判断状态的字段。 */
 type StatusFields = { online: boolean; xray_running: boolean | null };
 
 /**
@@ -255,7 +255,7 @@ export function uptimeLabelKey(parts: UptimeParts): string {
 }
 
 /**
- * 汇总卡里的「最忙服务器」：在线且上报过 `load1` 的服务器里取最大的一台。
+ * 汇总卡里的「最忙节点」：在线且上报过 `load1` 的节点里取最大的一台。
  *
  * 离线机器的负载是掉线前的残留，不参与评选；`load1` 为 null 或非有限值时
  * 同理。并列时保留列表里先出现的一台，避免刷新时名字来回跳。
@@ -280,9 +280,9 @@ export function busiestServer<
 }
 
 /**
- * 所有服务器 24 小时可用率的均值；没有一台有采样时返回 null。
+ * 所有节点 24 小时可用率的均值；没有一台有采样时返回 null。
  *
- * 没有采样的服务器不进分母 —— 把「没数据」当成 0% 会把均值拉垮；
+ * 没有采样的节点不进分母 —— 把「没数据」当成 0% 会把均值拉垮；
  * 越界的比例先夹到 0..1，脏数据不会让汇总出现 120%。
  */
 export function averageUptime24h(
@@ -323,7 +323,7 @@ export interface StatusHeadline {
 /**
  * 公开页顶部的一句话结论。
  *
- * 优先级：没有服务器 → 全部离线 → 全部在线 → 部分离线。
+ * 优先级：没有节点 → 全部离线 → 全部在线 → 部分离线。
  * `online` 以心跳为准，和卡片一致：Agent 在线但 Xray 没跑仍算在线，
  * 那是「异常」，不是「离线」。可用率只统计有采样的机器 —— 没数据
  * 不等于 0%，也不该被算成「可用率偏低」。
@@ -395,7 +395,7 @@ export function statusHeadlineKey(headline: StatusHeadline): HeadlineText {
 }
 
 /**
- * 所有在线服务器的当前速率合计（`net_rx_bps + net_tx_bps`，字节/秒）。
+ * 所有在线节点的当前速率合计（`net_rx_bps + net_tx_bps`，字节/秒）。
  *
  * 离线机器保留的是掉线前最后一次读数，不能算进「当前」；某一方向缺数据时
  * 只加另一方向。没有任何在线机器给出有效读数时返回 `null`，页面显示 `—`，
@@ -424,7 +424,7 @@ export function totalOnlineRate(
   return sampled ? total : null;
 }
 
-/** 状态标签与一台服务器是否匹配；`all` 永远匹配。 */
+/** 状态标签与一个节点是否匹配；`all` 永远匹配。 */
 export function matchesStatusFilter(
   server: StatusFields,
   filter: StatusFilter,
@@ -445,12 +445,12 @@ export function matchesServerQuery(
 }
 
 /**
- * 从服务器列表派生分组标签。
+ * 从节点列表派生分组标签。
  *
  * - 只有至少一个**具名分组**时才返回标签；全部未分组返回空数组，
- *   页面据此不渲染整行（一个「全部服务器 / 未分组」的切换没有意义）。
+ *   页面据此不渲染整行（一个「全部节点 / 未分组」的切换没有意义）。
  * - 具名分组按名称升序，未分组固定最后，与 `groupServers` 一致。
- * - 计数是该组服务器数，不是在线数；同一列表里的空白差异会合并。
+ * - 计数是该组节点数，不是在线数；同一列表里的空白差异会合并。
  */
 export function statusGroupTabs(
   servers: readonly { group_name?: string | null }[],
@@ -476,7 +476,7 @@ export function statusGroupTabs(
   return tabs;
 }
 
-/** 一台服务器是否落在选中的分组里；`null`（全部）永远匹配。 */
+/** 一个节点是否落在选中的分组里；`null`（全部）永远匹配。 */
 export function matchesGroupFilter(
   server: { group_name?: string | null },
   group: StatusGroupFilter,

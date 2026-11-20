@@ -386,25 +386,25 @@ test("statusHeadlineKey maps every verdict to a bilingual sentence", () => {
     values: { total: 8, low: 1 },
   });
 
-  assert.equal(render(zh.publicStatus, allOnline), "全部 8 台服务器在线，服务正常");
+  assert.equal(render(zh.publicStatus, allOnline), "全部 8 台在线，服务正常");
   assert.equal(
     render(en.publicStatus, allOnline),
-    "All 8 servers online, service normal",
+    "All 8 nodes online, service normal",
   );
   assert.equal(render(zh.publicStatus, partial), "7 / 8 台在线，1 台离线");
   assert.equal(render(en.publicStatus, partial), "7 / 8 online, 1 offline");
-  assert.equal(render(zh.publicStatus, allOffline), "当前没有在线服务器");
+  assert.equal(render(zh.publicStatus, allOffline), "当前没有在线节点");
   assert.equal(
     render(en.publicStatus, allOffline),
-    "No servers online right now",
+    "No nodes online right now",
   );
   assert.equal(
     render(zh.publicStatus, low),
-    "全部 8 台服务器在线，1 台可用率偏低",
+    "全部 8 台在线，1 台可用率偏低",
   );
   assert.equal(
     render(en.publicStatus, low),
-    "All 8 servers online, 1 with low availability",
+    "All 8 nodes online, 1 with low availability",
   );
 });
 
@@ -674,6 +674,22 @@ test("filterPublicServers intersects the group filter with status and search", (
     filterPublicServers(servers, "all", "").map((s) => s.id),
     ["a", "b", "c", "d"],
   );
+});
+
+test("selecting a group alone shows that group's count over the total", () => {
+  const servers = [
+    SERVER({ id: "a", name: "HK 01", group_name: "香港" }),
+    SERVER({ id: "b", name: "HK 02", group_name: "香港", online: false }),
+    SERVER({ id: "c", name: "JP 01", group_name: "日本" }),
+    SERVER({ id: "d", name: "U 01", group_name: null }),
+  ];
+  const [group] = statusGroupTabs(servers).filter((tab) => tab.name === "香港");
+
+  // 分组按钮不再显示数量，右侧「清除筛选 x / y 台」是可见来源：
+  // 只选中分组时 x = 该分组节点数，y = 全部节点数。
+  assert.equal(group.count, 2);
+  assert.equal(filterPublicServers(servers, "all", "", "香港").length, 2);
+  assert.equal(servers.length, 4);
 });
 
 test("parseStatusView only accepts the two known layouts", () => {
