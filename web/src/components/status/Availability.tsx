@@ -1,5 +1,6 @@
 import type { PublicStatusServer } from "@/lib/api";
 import {
+  availabilityFill,
   availabilityPercent,
   availabilityTone,
   hasSamples,
@@ -42,14 +43,35 @@ export function AvailabilityValue({ ratio }: { ratio: number | null }) {
       </span>
     );
   }
+  const tone = availabilityTone(ratio);
+  const filled = availabilityFill(ratio);
   return (
     <span
-      className={cn(
-        "tnum text-xs font-medium",
-        AVAILABILITY_TEXT_CLASS[availabilityTone(ratio)],
-      )}
+      data-availability-tone={tone}
+      className="inline-flex min-w-0 items-center gap-1.5"
     >
-      {percent}%
+      <span
+        className={cn(
+          "tnum text-xs font-medium",
+          AVAILABILITY_TEXT_CLASS[tone],
+        )}
+      >
+        {percent}%
+      </span>
+      {/* 色盲友好：颜色之外再用填充长度表达同一档数据；文本已经承载数值，
+          这条 1px 条对读屏隐藏，避免重复播报。 */}
+      <span
+        aria-hidden="true"
+        className="h-1 w-10 shrink-0 overflow-hidden rounded-full bg-muted-foreground/20"
+      >
+        <span
+          className={cn(
+            "block h-full rounded-full",
+            AVAILABILITY_BAR_CLASS[tone],
+          )}
+          style={{ width: `${filled}%`, minWidth: filled > 0 ? 2 : undefined }}
+        />
+      </span>
     </span>
   );
 }

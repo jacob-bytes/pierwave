@@ -558,7 +558,14 @@ function DistributionCard({
   );
 }
 
-/** 榜单行里的服务器：保留原来的趋势线、在线点、负载与 7 天流量。 */
+/**
+ * 榜单行里的服务器：保留原来的趋势线、在线点、负载与 7 天流量。
+ *
+ * `<md` 收敛成两行：名称 + 趋势线 / 负载与流量合并一行，390 下不再把
+ * 名称挤成一个词；`md` 以上用 `md:contents` 把两层包裹拆开，恢复原来的
+ * 单行顺序（名称、趋势、流量、状态点、负载、箭头），显式 order 保证
+ * 移动端重排不影响桌面顺序。
+ */
 function LeaderboardServerRow({ item }: { item: OverviewTopItem }) {
   const load =
     typeof item.load1 === "number" && Number.isFinite(item.load1)
@@ -567,42 +574,56 @@ function LeaderboardServerRow({ item }: { item: OverviewTopItem }) {
   const statusLabel = item.online
     ? t("servers.statusOnline")
     : t("servers.statusOffline");
+  const loadLabel = t("overview.loadValue", { value: load });
 
   return (
     <li>
       <Link
         to="/servers"
-        className="group flex items-center gap-2 rounded-md px-2.5 py-2.5 transition-colors duration-150 hover:bg-muted/40 sm:gap-3"
+        className="group flex flex-col gap-1 rounded-md px-2.5 py-2.5 transition-colors duration-150 hover:bg-muted/40 md:flex-row md:items-center md:gap-3"
       >
-        <span className="min-w-0 flex-1 truncate text-sm">{item.name}</span>
-        {/* 只用线型表达最近 1 小时的趋势；采样不足显示 —。 */}
-        <RateSparkline
-          name={item.name}
-          points={item.rates}
-          className="w-14 sm:w-[72px]"
-        />
-        <span className="shrink-0 font-mono text-xs tabular-nums">
-          {formatBytes(item.traffic_7d)}
+        <span className="flex min-w-0 items-center gap-2 md:contents">
+          <span className="min-w-0 flex-1 truncate text-sm" title={item.name}>
+            {item.name}
+          </span>
+          {/* 窄屏把状态点留在名称行；桌面 order 把它放回流量之后。 */}
+          <span
+            role="img"
+            aria-label={statusLabel}
+            title={statusLabel}
+            className={cn(
+              "size-2 shrink-0 rounded-full md:order-3",
+              item.online
+                ? "bg-primary status-breathe"
+                : "bg-muted-foreground/40",
+            )}
+          />
+          {/* 只用线型表达最近 1 小时的趋势；采样不足显示 —。 */}
+          <RateSparkline
+            name={item.name}
+            points={item.rates}
+            className="w-14 md:order-1 md:w-[72px]"
+          />
         </span>
-        <span
-          role="img"
-          aria-label={statusLabel}
-          title={statusLabel}
-          className={cn(
-            "size-2 shrink-0 rounded-full",
-            item.online
-              ? "bg-primary status-breathe"
-              : "bg-muted-foreground/40",
-          )}
-        />
-        {/* 窄屏优先保住名称与趋势：负载在手机上隐藏，桌面端仍显示。 */}
-        <span
-          title={t("overview.loadValue", { value: load })}
-          className="hidden w-12 shrink-0 text-right font-mono text-xs text-muted-foreground tabular-nums sm:block"
-        >
-          {load}
+
+        <span className="flex min-w-0 items-center gap-2 text-xs md:contents">
+          {/* 移动端把负载与流量并成一行；桌面 order 恢复「流量 → 点 → 负载」。 */}
+          <span
+            title={loadLabel}
+            className="shrink-0 font-mono text-muted-foreground tabular-nums md:order-4 md:w-12 md:text-right"
+          >
+            {/* 手机上把「负载」二字也带上，否则 0.82 · 925 GB 读不出哪个是负载。 */}
+            <span className="md:hidden">{loadLabel}</span>
+            <span className="hidden md:inline">{load}</span>
+          </span>
+          <span aria-hidden="true" className="text-muted-foreground md:hidden">
+            ·
+          </span>
+          <span className="shrink-0 font-mono tabular-nums md:order-2">
+            {formatBytes(item.traffic_7d)}
+          </span>
+          <ChevronRightIcon className="icon-sm ml-auto shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5 md:order-5" />
         </span>
-        <ChevronRightIcon className="icon-sm shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5" />
       </Link>
     </li>
   );

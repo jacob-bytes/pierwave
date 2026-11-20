@@ -1,6 +1,10 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { KeyRoundIcon, ShieldAlertIcon } from "lucide-react";
+import {
+  ExternalLinkIcon,
+  KeyRoundIcon,
+  ShieldAlertIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { FormField } from "@/components/FormField";
 import { Badge } from "@/components/ui/badge";
@@ -12,9 +16,11 @@ import type { UpdateSettingsInput } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { useUpdateSettings } from "@/lib/queries";
 import {
+  BACKUP_ENCRYPTION_DOC_URL,
   buildSecretPatch,
   EDITABLE_SECRET_FIELDS,
   secretKeyText,
+  SUBSCRIPTION_SECRET_KEY,
   type SecretDecryptFailure,
 } from "@/lib/settingsSecrets";
 import { t, useI18n } from "@/i18n";
@@ -41,6 +47,10 @@ export function SettingsSecretRecovery({
 
   const canSave = failure.editableKeys.some(
     (key) => (values[key] ?? "").trim().length > 0,
+  );
+  // 内部键单独成段：它们没有输入框，但必须给出「下一步」。
+  const badgeKeys = failure.keys.filter(
+    (key) => !failure.internalKeys.includes(key),
   );
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -83,25 +93,64 @@ export function SettingsSecretRecovery({
             <p className="mt-1 text-xs leading-normal text-muted-foreground">
               {t("settings.secretError.description")}
             </p>
-            <ul
-              aria-label={t("settings.secretError.keysTitle")}
-              className="mt-2 flex flex-wrap gap-1.5"
-            >
-              {failure.keys.map((key) => (
-                <li key={key}>
-                  <Badge
-                    variant="outline"
-                    className="border-warning/30 bg-background/40 font-normal text-warning"
-                  >
-                    {secretKeyText(key)}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
+            {badgeKeys.length > 0 ? (
+              <ul
+                aria-label={t("settings.secretError.keysTitle")}
+                className="mt-2 flex flex-wrap gap-1.5"
+              >
+                {badgeKeys.map((key) => (
+                  <li key={key}>
+                    <Badge
+                      variant="outline"
+                      className="border-warning/30 bg-background/40 font-normal text-warning"
+                    >
+                      {secretKeyText(key)}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+
+            {/* 内部键没有输入框，所以「下一步」必须写在这里；当前只有订阅
+                派生 secret（hmac_secret_v1），后端没有重新生成接口。 */}
             {failure.internalKeys.length > 0 ? (
-              <p className="mt-2 text-xs leading-normal text-muted-foreground">
-                {t("settings.secretError.internalHint")}
-              </p>
+              <ul className="mt-2 space-y-2 rounded-lg border border-warning/20 bg-background/40 p-2.5">
+                {failure.internalKeys.map((key) => {
+                  const subscription = key === SUBSCRIPTION_SECRET_KEY;
+                  return (
+                    <li key={key} className="space-y-1">
+                      <Badge
+                        variant="outline"
+                        className="border-warning/30 bg-background/40 font-normal text-warning"
+                      >
+                        {secretKeyText(key)}
+                      </Badge>
+                      <p className="text-xs leading-normal text-muted-foreground">
+                        {subscription
+                          ? t("settings.secretError.hmacConsequence")
+                          : t("settings.secretError.internalUnknown")}
+                      </p>
+                      {subscription ? (
+                        <Button
+                          asChild
+                          variant="link"
+                          size="sm"
+                          className="h-auto p-0 text-xs"
+                        >
+                          <a
+                            href={BACKUP_ENCRYPTION_DOC_URL}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {t("settings.secretError.hmacDoc")}
+                            <ExternalLinkIcon className="size-3" />
+                          </a>
+                        </Button>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
             ) : null}
           </div>
         </div>
@@ -191,11 +240,7 @@ export function SettingsSecretRecovery({
               </Button>
             </div>
           )
-        ) : (
-          <p className="text-xs leading-normal text-muted-foreground">
-            {t("settings.secretError.noEditable")}
-          </p>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );

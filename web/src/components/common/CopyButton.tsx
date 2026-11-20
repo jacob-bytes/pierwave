@@ -19,12 +19,15 @@ export function CopyButton({
   value,
   label,
   className,
+  iconOnly = false,
 }: {
   /** 要复制到剪贴板的完整文本。 */
   value: string;
   /** 给屏幕阅读器/日志用的对象名，例如「安装命令」。 */
   label?: string;
   className?: string;
+  /** 窄屏行内空间不足时只要图标；aria-label 仍带完整对象名。 */
+  iconOnly?: boolean;
 }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
@@ -54,13 +57,13 @@ export function CopyButton({
     <Button
       type="button"
       variant="ghost"
-      size="xs"
+      size={iconOnly ? "icon-xs" : "xs"}
       onClick={() => void handleCopy()}
       aria-label={label ? `${text} ${label}` : text}
       className={cn("text-muted-foreground", className)}
     >
       {copied ? <CheckIcon className="text-primary" /> : <CopyIcon />}
-      {copied ? t("common.copied") : text}
+      {iconOnly ? null : copied ? t("common.copied") : text}
     </Button>
   );
 }

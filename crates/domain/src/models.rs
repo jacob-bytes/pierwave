@@ -193,6 +193,43 @@ pub struct Server {
     /// 与 `interfaces_json` 配合区分三种状态：从未上报（NULL，前端提示
     /// 「尚未上报网卡」）、已上报但当前无网卡（空数组 + 时间戳）、已上报有网卡。
     pub interfaces_reported_at: Option<i64>,
+    /// 最近一次 Agent `ApplyResult` 的结论：`ok` / `partial` / `failed`。
+    ///
+    /// `None` = 从未上报（旧 Agent 或刚创建）。`partial` 表示受管文件
+    /// 两阶段提交在提交阶段失败：失败点之前的文件已经对线上生效。
+    pub apply_status: Option<String>,
+    /// 最近一次 `ApplyResult.error` 的原文；成功时为 `None`。
+    ///
+    /// 非 `partial` 的错误**直接展示这段原文**，主控不改写、不截断。
+    pub apply_error: Option<String>,
+    /// 最近一次 `ApplyResult.version`：Agent 已收敛（或尝试收敛）到的配置版本。
+    pub apply_version: Option<i64>,
+    /// 收到最近一次 `ApplyResult` 的时间（Unix 秒）。
+    pub apply_at: Option<i64>,
+    /// 部分成功的结构化详情，JSON 文本（`crate::apply::PartialApply`）；
+    /// `None` = 不是 partial。
+    ///
+    /// 对外序列化成 `apply_partial` 对象（含 `effective_count`）；
+    /// 损坏的值按 `null` 输出，避免一个坏字段把整台服务器的响应变成 500。
+    #[serde(
+        rename = "apply_partial",
+        serialize_with = "apply_partial_json_as_value"
+    )]
+    pub apply_partial_json: Option<String>,
+}
+
+/// `apply_partial` 的对外形态：解析后的 JSON 对象；`None` / 坏 JSON 一律 `null`。
+fn apply_partial_json_as_value<S>(raw: &Option<String>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match raw
+        .as_deref()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+    {
+        Some(value) => value.serialize(serializer),
+        None => serializer.serialize_none(),
+    }
 }
 
 /// 服务器 + 该服务器的节点统计（列表页只读聚合，不落库）。

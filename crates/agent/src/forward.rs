@@ -1165,9 +1165,12 @@ mod tests {
     use std::net::{IpAddr, SocketAddr};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    /// 测试统一用 `listen_port = 0`：让内核在 bind 的同一刻分配端口，
-    /// 再通过 `bound_port` 读回来。这样不会出现「先探测空闲端口、释放、
-    /// 再绑定」的窗口，多个测试并行跑也不会互相抢端口。
+    /// 测试用的规则构造器。
+    ///
+    /// `listen_port = 0` 交给内核分配，适合「只要一条能用的监听」的用例；
+    /// 一旦断言「端口被占 / 关闭后不可连 / 释放后能重新绑」，必须用
+    /// [`next_test_port`] 拿一个非 ephemeral 的独占端口 —— 内核会把刚释放的
+    /// ephemeral 端口随时分给并行用例，断言就会偶发翻车（--test-threads=32）。
     fn rule(id: &str, listen_port: u16, target: SocketAddr) -> DesiredForward {
         DesiredForward {
             id: id.into(),
@@ -1555,8 +1558,12 @@ mod tests {
         let target = spawn_tagged_echo(b'E').await;
         let mut supervisor = ForwardSupervisor::new("127.0.0.1");
 
-        supervisor.apply(&[rule("fwd", 0, target)]).await;
+        // 不能用 `0`：关闭后内核可能把同一个 ephemeral 端口分给并行用例，
+        // 「connect 失败」就不再成立。固定段位的端口没有别人会绑。
+        let port = next_test_port();
+        supervisor.apply(&[rule("fwd", port, target)]).await;
         let listen_port = supervisor.bound_port("fwd").unwrap();
+        assert_eq!(listen_port, port, "显式端口必须原样绑定");
         let (tag, _) = roundtrip(listen_port, b"hi").await;
         assert_eq!(tag, b'E');
 
@@ -1565,6 +1572,12 @@ mod tests {
         assert!(
             supervisor.status_handle().snapshot().is_empty(),
             "期望态为空时不再上报任何转发状态"
+        );
+        // 关闭监听与内核真正释放端口之间有窗口（已 accept 的连接还在收尾）。
+        // 固定段位的端口不会被并行用例抢走，这里等它释放后再断言「不可连」。
+        assert!(
+            wait_tcp_port_free(listen_port).await,
+            "删除规则后监听端口必须释放"
         );
         assert!(
             TcpStream::connect(("127.0.0.1", listen_port))
@@ -1615,9 +1628,12 @@ mod tests {
 
     #[tokio::test]
     async fn occupied_port_fails_only_its_own_rule() {
-        // 先占住一个端口，且保持 listener 存活到断言结束。
-        let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let occupied_port = occupied.local_addr().unwrap().port();
+        // 先占住一个固定段位的端口，且保持 listener 存活到断言结束。
+        // 不能用 `bind(:0)`：释放后内核可能立刻把它分给并行用例，重放期望态
+        // 时 `busy` 就永远等不到这个端口。
+        let occupied_port = next_test_port();
+        let occupied = std::net::TcpListener::bind(("127.0.0.1", occupied_port))
+            .expect("固定段位的端口应能被测试占住");
         let target = spawn_tagged_echo(b'E').await;
         let mut supervisor = ForwardSupervisor::new("127.0.0.1");
         let busy = rule("busy", occupied_port, target);
@@ -1645,11 +1661,15 @@ mod tests {
 
         // 释放占用后重新下发，同一 id 应自动恢复。
         drop(occupied);
+        assert!(
+            wait_tcp_port_free(occupied_port).await,
+            "释放占用后端口必须可绑定"
+        );
         supervisor.apply(&[busy, good]).await;
         let status = supervisor.status_handle().snapshot();
         assert!(
             status.iter().find(|s| s.id == "busy").unwrap().listening,
-            "端口释放后重放期望态应重试绑定并恢复"
+            "端口释放后重放期望态应重试绑定并恢复: {status:?}"
         );
     }
 
@@ -1659,8 +1679,14 @@ mod tests {
         let echo_b = spawn_tagged_echo(b'B').await;
         let mut supervisor = ForwardSupervisor::new("127.0.0.1");
 
-        supervisor.apply(&[rule("fwd", 0, echo_a)]).await;
+        // 两个端口都从固定段位取：旧端口在「关旧监听 → 绑新端口」之间必须
+        // 保持对其它用例不可用，否则并行的 `bind(:0)` 会把它抢走。
+        let old_spec_port = next_test_port();
+        supervisor
+            .apply(&[rule("fwd", old_spec_port, echo_a)])
+            .await;
         let old_port = supervisor.bound_port("fwd").unwrap();
+        assert_eq!(old_port, old_spec_port, "显式端口必须原样绑定");
         let (tag, _) = roundtrip(old_port, b"a").await;
         assert_eq!(tag, b'A');
         let old_task = supervisor
@@ -1673,7 +1699,16 @@ mod tests {
             .id();
 
         // 只换目标、监听端口不变：先关旧监听再绑同一端口，必须能重新绑上。
+        // 先等上一条连接收尾；已 accept 的 socket 还占着端口时，
+        // macOS 的同端口重绑会瞬时 EADDRINUSE。
+        wait_for_no_connections(&supervisor, "fwd").await;
         supervisor.apply(&[rule("fwd", old_port, echo_b)]).await;
+        assert_eq!(
+            supervisor.bound_port("fwd"),
+            Some(old_port),
+            "同端口换目标必须重新绑上；当前状态: {:?}",
+            supervisor.status_handle().snapshot()
+        );
         let same_port_task = supervisor
             .running
             .get("fwd")
@@ -1690,8 +1725,13 @@ mod tests {
         assert_eq!(echoed, b"b");
 
         // 再换监听端口：旧监听关闭，新端口可用。
-        supervisor.apply(&[rule("fwd", 0, echo_b)]).await;
+        let new_spec_port = next_test_port();
+        supervisor
+            .apply(&[rule("fwd", new_spec_port, echo_b)])
+            .await;
         let new_port = supervisor.bound_port("fwd").unwrap();
+        assert_eq!(new_port, new_spec_port, "显式端口必须原样绑定");
+        assert_ne!(new_port, old_port, "换端口用例必须拿到两个不同端口");
         let new_task = supervisor
             .running
             .get("fwd")
@@ -1704,13 +1744,14 @@ mod tests {
         let (tag, echoed) = roundtrip(new_port, b"c").await;
         assert_eq!(tag, b'B');
         assert_eq!(echoed, b"c");
-        // 内核可能把刚释放的旧端口又分回来；只有确实换了端口时才断言旧端口失效。
-        if new_port != old_port {
-            assert!(
-                TcpStream::connect(("127.0.0.1", old_port)).await.is_err(),
-                "换端口后旧端口必须被释放"
-            );
-        }
+        assert!(
+            wait_tcp_port_free(old_port).await,
+            "换端口后旧端口必须被释放"
+        );
+        assert!(
+            TcpStream::connect(("127.0.0.1", old_port)).await.is_err(),
+            "换端口后旧端口不能再接受连接"
+        );
     }
 
     /// 真跑 TCP：一条组规则两个 echo 目标，轮询游标必须跨连接保留。
@@ -1978,10 +2019,15 @@ mod tests {
     async fn udp_rule_forwards_datagrams_and_keeps_tcp_working() {
         let target = spawn_dual_echo().await;
         let mut supervisor = ForwardSupervisor::new("127.0.0.1");
-        supervisor.apply(&[udp_rule("fwd-udp", 0, target)]).await;
+        // TCP 与 UDP 同号：只探 TCP 的 `:0` 可能让 UDP 那一半撞上并行用例。
+        let spec_port = next_test_port();
+        supervisor
+            .apply(&[udp_rule("fwd-udp", spec_port, target)])
+            .await;
         let port = supervisor
             .bound_port("fwd-udp")
             .expect("UDP 规则同样要能被内核分配端口");
+        assert_eq!(port, spec_port, "显式端口必须原样绑定");
 
         let status = supervisor.status_handle().snapshot();
         assert_eq!(status.len(), 1);
@@ -2013,7 +2059,9 @@ mod tests {
     async fn rule_without_udp_does_not_listen_on_udp_port() {
         let target = spawn_tagged_echo(b'E').await;
         let mut supervisor = ForwardSupervisor::new("127.0.0.1");
-        supervisor.apply(&[rule("tcp-only", 0, target)]).await;
+        // 固定段位：UDP 探针要绑同一个号，不能被并行用例的 UDP `:0` 占住。
+        let port = next_test_port();
+        supervisor.apply(&[rule("tcp-only", port, target)]).await;
         let port = supervisor.bound_port("tcp-only").unwrap();
 
         // UDP 端口应该是空的：探针自己能绑上就说明没人监听。
@@ -2029,7 +2077,8 @@ mod tests {
     async fn udp_only_mode_binds_udp_and_leaves_tcp_free() {
         let target = spawn_dual_echo().await;
         let mut supervisor = ForwardSupervisor::new("127.0.0.1");
-        let mut spec = rule("fwd-udp-only", 0, target);
+        let spec_port = next_test_port();
+        let mut spec = rule("fwd-udp-only", spec_port, target);
         spec.protocol = pierwave_proto::ForwardProtocol::Udp;
         spec.udp = false;
         supervisor.apply(&[spec]).await;
@@ -2037,6 +2086,7 @@ mod tests {
         let port = supervisor
             .bound_port("fwd-udp-only")
             .expect("UDP 端口必须绑定");
+        assert_eq!(port, spec_port, "显式端口必须原样绑定");
         let status = supervisor.status_handle().snapshot();
         assert_eq!(status.len(), 1);
         assert!(status[0].listening, "仅 UDP 模式 UDP 绑定成功即 listening");
@@ -2081,12 +2131,15 @@ mod tests {
     async fn both_mode_binds_tcp_and_udp_on_the_same_port() {
         let target = spawn_dual_echo().await;
         let mut supervisor = ForwardSupervisor::new("127.0.0.1");
-        let mut spec = rule("fwd-both", 0, target);
+        // both 模式要求同号 TCP/UDP 都空闲；`bind(:0)` 只保证 TCP。
+        let spec_port = next_test_port();
+        let mut spec = rule("fwd-both", spec_port, target);
         spec.protocol = pierwave_proto::ForwardProtocol::Both;
         spec.udp = true;
         supervisor.apply(&[spec]).await;
 
         let port = supervisor.bound_port("fwd-both").unwrap();
+        assert_eq!(port, spec_port, "显式端口必须原样绑定");
         let status = supervisor.status_handle().snapshot();
         assert!(status[0].listening);
         assert!(
@@ -2132,9 +2185,15 @@ mod tests {
         supervisor.apply(&[udp_only]).await;
 
         let new_port = supervisor.bound_port("fwd").unwrap();
+        // 切换后旧 TCP 监听必须释放。关闭与内核收尾之间可能有窗口，
+        // 先等端口真正可绑定（等待不会让「仍被监听」的情况变绿）。
+        assert!(
+            wait_tcp_port_free(old_port).await,
+            "切到仅 UDP 后旧 TCP 监听必须释放"
+        );
         assert!(
             TcpStream::connect(("127.0.0.1", old_port)).await.is_err(),
-            "切到仅 UDP 后旧 TCP 监听必须释放"
+            "切到仅 UDP 后旧 TCP 端口不能再接受连接"
         );
         assert!(
             wait_tcp_port_free(new_port).await,
@@ -2143,15 +2202,63 @@ mod tests {
         assert!(supervisor.status_handle().snapshot()[0].listening);
     }
 
-    /// 取一个**不在内核 ephemeral 段**的端口给测试用（24000 起递增）。
+    /// 等一条规则的所有连接任务收尾。
     ///
-    /// 之前这些用例用 `listen_port = 0` 让内核分配，然后断言「端口已释放」——
-    /// 但内核随时可能把刚释放的端口分给并行测试里的另一个监听，
-    /// 于是断言偶发失败（CI 上就撞到过）。固定段位 + 递增避免这种抢端口。
+    /// 连接任务结束前，已 accept 的 socket 还占着监听端口；macOS 在
+    /// 「关闭监听后立刻绑同一端口」时可能瞬时 EADDRINUSE。换同端口之前先等
+    /// 连接归零，再让调度器跑一轮把 socket 真正 drop。
+    async fn wait_for_no_connections(supervisor: &ForwardSupervisor, id: &str) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if supervisor.active_connections(id) == Some(vec![0]) {
+                break;
+            }
+            assert!(Instant::now() < deadline, "等待 {id} 的连接收尾超时");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    /// 取一个**不在内核 ephemeral 段**、且同号 TCP + UDP 都空闲的端口。
+    ///
+    /// 为什么不能只 `bind(:0)` 再读回：内核随时会把刚释放的 ephemeral 端口
+    /// 分给并行的其它用例。`--test-threads=32` 下实测：
+    ///
+    /// * 删除规则后 `connect` 反而连上了（端口被另一个用例的 echo/转发占了）；
+    /// * 释放占用后重放期望态，`busy` 仍绑不上（端口被并行用例抢走）；
+    /// * 同端口换目标时旧监听一关，新绑定 EADDRINUSE。
+    ///
+    /// 固定段位 + 递增 + 同时探测 TCP/UDP 从根上避开这些共享假设：
+    ///
+    /// * 20000..32000 低于 Linux(32768+) 与 macOS(49152+) 的 ephemeral 段；
+    /// * 基址按进程号打散（每组 20 个号），`make check` 并行跑多个测试二进制
+    ///   时不会两个进程抢同一段；
+    /// * UDP 与 TCP 是两套端口空间：有的用例要求同号（both / UDP 切换），
+    ///   只探 TCP 会漏掉已被占住的 UDP。
+    ///
+    /// 探测后会释放端口；同进程没有别的用例会再用这个号，所以「探测→绑定」
+    /// 之间不存在竞争。
     fn next_test_port() -> u16 {
-        use std::sync::atomic::AtomicU16;
-        static NEXT: AtomicU16 = AtomicU16::new(24_000);
-        NEXT.fetch_add(1, Ordering::Relaxed)
+        use std::sync::atomic::{AtomicU16, Ordering};
+        static NEXT: AtomicU16 = AtomicU16::new(0);
+        let base = 20_000u16 + (std::process::id() % 500) as u16 * 20;
+        loop {
+            let candidate = base + NEXT.fetch_add(1, Ordering::Relaxed);
+            assert!(
+                candidate < 32_000,
+                "测试端口段耗尽（每个进程预留 20 个号），请检查 next_test_port 的调用数"
+            );
+            if test_port_pair_free(candidate) {
+                return candidate;
+            }
+        }
+    }
+
+    /// 同号 TCP + UDP 都能绑定成功才算空闲；两个 socket 同时持有再一起释放。
+    fn test_port_pair_free(port: u16) -> bool {
+        let tcp = std::net::TcpListener::bind(("127.0.0.1", port));
+        let udp = std::net::UdpSocket::bind(("127.0.0.1", port));
+        tcp.is_ok() && udp.is_ok()
     }
 
     /// 等 UDP 端口可绑定（最多 2 秒）。关闭监听与内核释放之间有窗口。
@@ -2184,8 +2291,12 @@ mod tests {
     async fn removing_udp_rule_releases_udp_port() {
         let target = spawn_dual_echo().await;
         let mut supervisor = ForwardSupervisor::new("127.0.0.1");
-        supervisor.apply(&[udp_rule("fwd-udp", 0, target)]).await;
+        let spec_port = next_test_port();
+        supervisor
+            .apply(&[udp_rule("fwd-udp", spec_port, target)])
+            .await;
         let port = supervisor.bound_port("fwd-udp").unwrap();
+        assert_eq!(port, spec_port, "显式端口必须原样绑定");
 
         assert!(
             tokio::net::UdpSocket::bind(("127.0.0.1", port))
@@ -2206,8 +2317,12 @@ mod tests {
     async fn turning_udp_off_releases_only_the_udp_port() {
         let target = spawn_dual_echo().await;
         let mut supervisor = ForwardSupervisor::new("127.0.0.1");
-        supervisor.apply(&[udp_rule("fwd", 0, target)]).await;
+        let spec_port = next_test_port();
+        supervisor
+            .apply(&[udp_rule("fwd", spec_port, target)])
+            .await;
         let port = supervisor.bound_port("fwd").unwrap();
+        assert_eq!(port, spec_port, "显式端口必须原样绑定");
         let tcp_task = supervisor
             .running
             .get("fwd")
@@ -2218,8 +2333,8 @@ mod tests {
             .id();
         let started_at = supervisor.running.get("fwd").unwrap().started_at;
 
-        // listen_port 保持 0（期望态与运行时一致），只有 udp 位变化。
-        supervisor.apply(&[rule("fwd", 0, target)]).await;
+        // listen_port 保持同一个值（期望态与运行时一致），只有 udp 位变化。
+        supervisor.apply(&[rule("fwd", spec_port, target)]).await;
 
         let running = supervisor.running.get("fwd").unwrap();
         assert_eq!(
@@ -2249,8 +2364,10 @@ mod tests {
     async fn turning_udp_on_adds_udp_without_interrupting_tcp() {
         let target = spawn_dual_echo().await;
         let mut supervisor = ForwardSupervisor::new("127.0.0.1");
-        supervisor.apply(&[rule("fwd", 0, target)]).await;
+        let spec_port = next_test_port();
+        supervisor.apply(&[rule("fwd", spec_port, target)]).await;
         let port = supervisor.bound_port("fwd").unwrap();
+        assert_eq!(port, spec_port, "显式端口必须原样绑定");
         let tcp_task = supervisor
             .running
             .get("fwd")
@@ -2269,7 +2386,9 @@ mod tests {
             .expect("读取 tag 失败");
         assert_eq!(tag[0], b'D');
 
-        supervisor.apply(&[udp_rule("fwd", 0, target)]).await;
+        supervisor
+            .apply(&[udp_rule("fwd", spec_port, target)])
+            .await;
 
         let running = supervisor.running.get("fwd").unwrap();
         assert_eq!(
@@ -2310,8 +2429,11 @@ mod tests {
     #[tokio::test]
     async fn udp_bind_failure_while_toggling_keeps_tcp_alive() {
         let target = spawn_dual_echo().await;
-        let occupied = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let port = occupied.local_addr().unwrap().port();
+        // 同号 UDP 被占住、TCP 仍空闲：固定段位保证「释放后」不会被并行用例抢走。
+        let port = next_test_port();
+        let occupied = tokio::net::UdpSocket::bind(("127.0.0.1", port))
+            .await
+            .expect("固定段位的 UDP 端口应能被测试占住");
         let mut supervisor = ForwardSupervisor::new("127.0.0.1");
 
         supervisor.apply(&[rule("fwd", port, target)]).await;
@@ -2353,10 +2475,19 @@ mod tests {
 
         // 释放占用后重放期望态：只补 UDP，TCP 任务仍不重建。
         drop(occupied);
+        assert!(
+            wait_udp_port_free(port).await,
+            "释放占用后 UDP 端口必须可绑定"
+        );
         supervisor.apply(&[udp_rule("fwd", port, target)]).await;
         let running = supervisor.running.get("fwd").unwrap();
         assert_eq!(running.task.as_ref().expect("TCP 任务").id(), tcp_task);
-        assert!(running.udp.is_some(), "端口释放后必须自动补上 UDP");
+        assert!(
+            running.udp.is_some(),
+            "端口释放后必须自动补上 UDP（port={port}, pid={}, status={:?}）",
+            std::process::id(),
+            supervisor.status_handle().snapshot()
+        );
         assert!(supervisor.status_handle().snapshot()[0].listening);
 
         let client = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
@@ -2376,8 +2507,12 @@ mod tests {
     /// 已经绑上的 TCP 监听也要一起释放；其它规则不受影响。
     #[tokio::test]
     async fn occupied_udp_port_fails_only_its_own_rule() {
-        let occupied = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let busy_port = i64::from(occupied.local_addr().unwrap().port());
+        // UDP 占住固定段位的号；TCP 那一半必须空出来，断言才不受并行用例影响。
+        let busy_port = next_test_port();
+        let occupied = tokio::net::UdpSocket::bind(("127.0.0.1", busy_port))
+            .await
+            .expect("固定段位的 UDP 端口应能被测试占住");
+        let busy_port = i64::from(busy_port);
         let target = spawn_dual_echo().await;
         let mut supervisor = ForwardSupervisor::new("127.0.0.1");
 

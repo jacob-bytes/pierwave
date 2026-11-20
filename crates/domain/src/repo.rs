@@ -1871,6 +1871,40 @@ pub mod servers {
         Ok(())
     }
 
+    /// 落库最近一次 Agent `ApplyResult`（整体覆盖上一条，不做历史表）。
+    ///
+    /// 解析在 [`crate::apply::ApplyReport`] 完成：partial 的结构化详情序列化成
+    /// JSON；其它错误只存原文，展示层照原样输出。
+    pub async fn save_apply_report(
+        pool: &SqlitePool,
+        id: &str,
+        report: &crate::apply::ApplyReport,
+    ) -> anyhow::Result<()> {
+        let partial_json = report
+            .partial
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
+        sqlx::query(
+            "UPDATE servers SET
+                apply_status = ?,
+                apply_error = ?,
+                apply_version = ?,
+                apply_at = ?,
+                apply_partial_json = ?
+             WHERE id = ?",
+        )
+        .bind(report.status.as_str())
+        .bind(&report.error)
+        .bind(report.version)
+        .bind(now())
+        .bind(partial_json)
+        .bind(id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn mark_offline(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
         sqlx::query("UPDATE servers SET status = 'offline' WHERE id = ?")
             .bind(id)

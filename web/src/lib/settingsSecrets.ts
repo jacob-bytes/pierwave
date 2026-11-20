@@ -11,6 +11,16 @@ import { t } from "../i18n/index.ts";
 
 export type SecretFieldKind = "password" | "url";
 
+/** 订阅凭据派生用的内部 master secret；只能恢复原密钥，不能在设置页重填。 */
+export const SUBSCRIPTION_SECRET_KEY = "hmac_secret_v1";
+
+/**
+ * 备份加密文档（含 secret.key 恢复步骤）。放在仓库 docs/ 下，随代码发布；
+ * 这里不复制一份正文，避免文档更新后 UI 还停在旧说法。
+ */
+export const BACKUP_ENCRYPTION_DOC_URL =
+  "https://github.com/jacob-bytes/pierwave/blob/main/docs/BACKUP_ENCRYPTION.md";
+
 export interface SecretFieldMeta {
   /** PATCH /settings 的字段名，与后端白名单一致。 */
   apiKey: "telegram_bot_token" | "backup_webdav_password" | "webhook_url";
@@ -35,8 +45,24 @@ export interface SecretDecryptFailure {
   keys: string[];
   /** 可以在设置页重新填写的键。 */
   editableKeys: string[];
-  /** 设置页无法重填的内部键（目前只有 hmac_secret_v1）。 */
+  /**
+   * 设置页无法重填的内部键（目前只有 hmac_secret_v1）。
+   *
+   * 后端 GET 只上报三个用户可见秘密，不会主动报告 hmac_secret_v1；但主密钥
+   * 不匹配是全局的，只要有一个 `enc:v1:` 解不开，已生成的订阅 secret 也一定
+   * 解不开。所以这里在 keys 非空时补上它，让恢复卡能给出可操作的下一步。
+   */
   internalKeys: string[];
+}
+
+/** 已生成的订阅 secret 是否与坏掉的秘密共享同一把主密钥。 */
+export function subscriptionSecretAtRisk(
+  failure: SecretDecryptFailure,
+): boolean {
+  return (
+    failure.keys.length > 0 ||
+    failure.internalKeys.includes(SUBSCRIPTION_SECRET_KEY)
+  );
 }
 
 /** 设置响应的最小结构：GET 的 items 与顶层 secret_errors 合并后即可传入。 */
@@ -66,10 +92,19 @@ export function secretRecoveryFromSettings(
   const keys = stringKeys(settings?.secret_errors?.keys);
   if (keys.length === 0) return null;
 
+  const internalKeys = keys.filter(
+    (key) => !(key in EDITABLE_SECRET_FIELDS),
+  );
+  // 主密钥不匹配时，内部订阅 secret 同样解不开；后端不上报它（设置页无法
+  // 重填，也没有 API 可读），这里按「同一把主密钥」的事实补上。
+  if (keys.length > 0 && !internalKeys.includes(SUBSCRIPTION_SECRET_KEY)) {
+    internalKeys.push(SUBSCRIPTION_SECRET_KEY);
+  }
+
   return {
     keys,
     editableKeys: keys.filter((key) => key in EDITABLE_SECRET_FIELDS),
-    internalKeys: keys.filter((key) => !(key in EDITABLE_SECRET_FIELDS)),
+    internalKeys,
   };
 }
 

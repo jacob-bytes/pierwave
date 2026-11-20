@@ -8,10 +8,16 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import {
+  AVAILABILITY_BAR_CLASS,
+  AVAILABILITY_TEXT_CLASS,
+} from "@/components/status/Availability";
 import { useI18n } from "@/i18n";
 import type { PublicStatusServer, PublicStatusSummary } from "@/lib/api";
 import {
+  availabilityFill,
   availabilityPercent,
+  availabilityTone,
   averageUptime24h,
   busiestServer,
   type StatusFilter,
@@ -108,6 +114,8 @@ export function Summary({
   // 没有一台有采样时是 null：脚注说明原因，大号数字显示 —，不写成 0%。
   const averageUptime = averageUptime24h(servers);
   const averagePercent = availabilityPercent(averageUptime);
+  const averageTone = availabilityTone(averageUptime);
+  const averageFill = availabilityFill(averageUptime);
 
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -189,11 +197,30 @@ export function Summary({
         <div
           className={cn(
             "tnum mt-0.5 text-xl leading-tight font-medium",
-            averagePercent === null && "text-muted-foreground",
+            averagePercent === null
+              ? "text-muted-foreground"
+              : AVAILABILITY_TEXT_CLASS[averageTone],
           )}
         >
           {averagePercent === null ? "—" : `${averagePercent}%`}
         </div>
+        {averagePercent === null ? null : (
+          <div
+            aria-hidden="true"
+            className="mt-0.5 h-0.5 w-full overflow-hidden rounded-full bg-muted-foreground/20"
+          >
+            <div
+              className={cn(
+                "h-full rounded-full",
+                AVAILABILITY_BAR_CLASS[averageTone],
+              )}
+              style={{
+                width: `${averageFill}%`,
+                minWidth: averageFill > 0 ? 2 : undefined,
+              }}
+            />
+          </div>
+        )}
         <div className="mt-auto truncate text-xs text-muted-foreground">
           {averagePercent === null
             ? t("publicStatus.summary.noSamples")

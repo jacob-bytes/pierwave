@@ -61,6 +61,11 @@ import {
   auditActionTone,
   resolveAuditTarget,
 } from "@/lib/audit";
+import {
+  AUDIT_CATEGORY_GROUPS,
+  auditCategoryAction,
+  type AuditCategory,
+} from "@/lib/auditCategories";
 import type {
   AuditNameResolver,
   AuditTargetKind,
@@ -98,53 +103,6 @@ const LIMIT_OPTIONS = [50, 200, 500] as const;
 const SUMMARY_LIMIT = 2;
 const HEAD_CLASS =
   "h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground";
-
-type Category =
-  | "all"
-  | "user"
-  | "package"
-  | "server"
-  | "node"
-  | "certificate"
-  | "rule_template"
-  | "chain"
-  | "forward"
-  | "backup"
-  | "system";
-
-/**
- * 分类 → 服务端动作前缀。
- *
- * 后端按前缀匹配（逗号分隔的多个前缀是 OR）：
- * - `user` 同时命中 `user.*` 与 `user_package.*`（没有点号，所以两者都覆盖）；
- * - `system` 覆盖设置、改密码、应用配置三类动作。
- */
-const CATEGORY_ACTION_PREFIX: Record<Exclude<Category, "all">, string> = {
-  user: "user",
-  package: "package",
-  server: "server",
-  node: "node",
-  certificate: "certificate",
-  rule_template: "rule_template",
-  chain: "chain",
-  forward: "forward",
-  backup: "backup",
-  system: "settings,password,config.apply,agent.upgrade,auth",
-};
-
-const CATEGORIES: { value: Category; labelKey: string }[] = [
-  { value: "all", labelKey: "audit.category.all" },
-  { value: "user", labelKey: "audit.category.user" },
-  { value: "package", labelKey: "audit.category.package" },
-  { value: "server", labelKey: "audit.category.server" },
-  { value: "node", labelKey: "audit.category.node" },
-  { value: "certificate", labelKey: "audit.category.certificate" },
-  { value: "rule_template", labelKey: "audit.category.ruleTemplate" },
-  { value: "chain", labelKey: "audit.category.chain" },
-  { value: "forward", labelKey: "audit.category.forward" },
-  { value: "backup", labelKey: "audit.category.backup" },
-  { value: "system", labelKey: "audit.category.system" },
-];
 
 const toneClass: Record<AuditTone, string> = {
   primary: "bg-primary/10 text-primary",
@@ -579,7 +537,7 @@ export function AuditPanel() {
   const [actorQuery, setActorQuery] = useState("");
   const [targetInput, setTargetInput] = useState("");
   const [targetQuery, setTargetQuery] = useState("");
-  const [category, setCategory] = useState<Category>("all");
+  const [category, setCategory] = useState<AuditCategory>("all");
   const [limit, setLimit] = useState<number>(LIMIT_OPTIONS[0]);
   const [detailEntry, setDetailEntry] = useState<AuditEntry | null>(null);
 
@@ -599,8 +557,7 @@ export function AuditPanel() {
   }, [targetInput]);
 
   // 分类/搜索/每页条数都进 queryKey：任一变化都会重置列表并回到第一页。
-  const action =
-    category === "all" ? undefined : CATEGORY_ACTION_PREFIX[category];
+  const action = auditCategoryAction(category);
   const audit = useAuditLog({
     limit,
     action,
@@ -755,10 +712,12 @@ export function AuditPanel() {
           <ScrollFade className="min-w-0 max-w-full">
             <Tabs
               value={category}
-              onValueChange={(value) => setCategory(value as Category)}
+              onValueChange={(value) =>
+                setCategory(value as AuditCategory)
+              }
             >
               <TabsList className="w-max max-w-none">
-                {CATEGORIES.map((option) => (
+                {AUDIT_CATEGORY_GROUPS.map((option) => (
                   <TabsTrigger key={option.value} value={option.value}>
                     {t(option.labelKey)}
                   </TabsTrigger>

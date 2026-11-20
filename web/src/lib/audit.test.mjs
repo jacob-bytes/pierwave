@@ -12,6 +12,12 @@ import {
   resolveAuditTarget,
   shortAuditId,
 } from "./audit.ts";
+import {
+  AUDIT_CATEGORY_GROUPS,
+  AUDIT_CATEGORY_IDS,
+  auditCategoryAction,
+  auditCategoryForAction,
+} from "./auditCategories.ts";
 
 const UUID = "80b918f8-6a7c-4b1d-9f02-3c5e8d7a1b64";
 
@@ -243,4 +249,55 @@ test("settings target and empty target keep readable labels", () => {
   });
   // 未知动作 + 目标 id：至少只显示短 id，不铺满整列。
   assert.equal(resolveAuditTarget("mystery.action", UUID, () => undefined).label, shortAuditId(UUID));
+});
+
+
+test("audit categories collapse twelve tabs into four groups + all", () => {
+  assert.equal(AUDIT_CATEGORY_IDS.length, 5);
+  assert.deepEqual(
+    AUDIT_CATEGORY_GROUPS.map((group) => group.value),
+    ["all", "account", "resource", "forwarding", "system"],
+  );
+  assert.equal(auditCategoryAction("all"), undefined);
+  assert.match(auditCategoryAction("account"), /user\./);
+  assert.match(auditCategoryAction("forwarding"), /chain\./);
+  // 每个非「全部」组都有前缀，否则点下去等于没筛。
+  for (const group of AUDIT_CATEGORY_GROUPS) {
+    if (group.value === "all") continue;
+    assert.ok(group.prefixes.length > 0, `${group.value} has no prefix`);
+    assert.equal(auditCategoryAction(group.value), group.prefixes.join(","));
+  }
+});
+
+test("audit category labels exist in both locales", () => {
+  for (const group of AUDIT_CATEGORY_GROUPS) {
+    assert.equal(typeof lookup(zh, group.labelKey), "string", `zh missing ${group.labelKey}`);
+    assert.equal(typeof lookup(en, group.labelKey), "string", `en missing ${group.labelKey}`);
+  }
+});
+
+test("every backend audit action belongs to exactly one visible group", () => {
+  const known = new Set(AUDIT_CATEGORY_GROUPS.map((group) => group.value));
+  for (const action of BACKEND_ACTIONS) {
+    const category = auditCategoryForAction(action);
+    assert.ok(category, `action ${action} does not match any group`);
+    assert.ok(known.has(category), `action ${action} got unknown group`);
+    // 后端是 LIKE 'prefix%'；用 startsWith 做同一断言，避免点开组是空列表。
+    const prefixes = AUDIT_CATEGORY_GROUPS.find(
+      (group) => group.value === category,
+    ).prefixes;
+    assert.ok(
+      prefixes.some((prefix) => action.startsWith(prefix)),
+      `${action} is not matched by ${category}`,
+    );
+  }
+  // 带点号的前缀必须把 user_chain / user_forward 归到转发，而不是账号。
+  assert.equal(auditCategoryForAction("user_chain.create"), "forwarding");
+  assert.equal(auditCategoryForAction("user_forward.delete"), "forwarding");
+  assert.equal(auditCategoryForAction("chain_template.update"), "forwarding");
+  assert.equal(auditCategoryForAction("user.create"), "account");
+  assert.equal(auditCategoryForAction("package_instance.batch_renew"), "account");
+  assert.equal(auditCategoryForAction("routing_rule.create"), "resource");
+  assert.equal(auditCategoryForAction("subscription_template.create"), "system");
+  assert.equal(auditCategoryForAction("mystery.action"), null);
 });

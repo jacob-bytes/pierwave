@@ -2066,6 +2066,65 @@ mod tests {
         );
     }
 
+    /// Agent 上报「部分应用」后，列表 API 返回结构化详情（阶段 + 已生效路径 +
+    /// 派生计数）；非 partial 的错误只按原文返回，不能被误判。
+    #[tokio::test]
+    async fn server_list_exposes_apply_status_and_partial_paths() {
+        use pierwave_domain::apply::ApplyReport;
+
+        let (app, state, cookie) = setup().await;
+        let id = seed_server(&state, true, "0.5.0").await;
+        let partial = concat!(
+            "[agent.apply_files.partial] 受管文件部分生效（partial success），",
+            "阶段: 提交 rename / commit；",
+            "已生效 2/3: /etc/pierwave/xray/server.crt, /etc/pierwave/xray/server.key；",
+            "其余文件未生效、临时文件已清理；失败原因: 替换文件失败: Is a directory"
+        );
+        repo::servers::save_apply_report(
+            &state.db.pool,
+            &id,
+            &ApplyReport::from_result(6, false, Some(partial)),
+        )
+        .await
+        .unwrap();
+
+        let (status, body) = send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let item = &body["items"][0];
+        assert_eq!(item["apply_status"], "partial");
+        assert_eq!(item["apply_version"], 6);
+        assert_eq!(item["apply_error"], partial, "原文必须返回");
+        assert_eq!(item["apply_partial"]["stage"], "提交 rename / commit");
+        assert_eq!(item["apply_partial"]["effective_count"], 2);
+        assert_eq!(item["apply_partial"]["total"], 3);
+        assert_eq!(
+            item["apply_partial"]["effective"],
+            serde_json::json!([
+                "/etc/pierwave/xray/server.crt",
+                "/etc/pierwave/xray/server.key"
+            ])
+        );
+
+        // 非 partial 错误：状态 failed、详情为空，错误原文一字不改。
+        let other = "dial master: connection refused";
+        repo::servers::save_apply_report(
+            &state.db.pool,
+            &id,
+            &ApplyReport::from_result(7, false, Some(other)),
+        )
+        .await
+        .unwrap();
+        let (status, body) = send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let item = &body["items"][0];
+        assert_eq!(item["apply_status"], "failed");
+        assert_eq!(item["apply_error"], other);
+        assert!(
+            item["apply_partial"].is_null(),
+            "非 partial 不能带详情：{body}"
+        );
+    }
+
     /// 端口策略与内网地址：创建/修改都校验，`port_allow` 对外是数组，
     /// PATCH 用三态区分「不改 / 清空 / 覆盖」。
     #[tokio::test]

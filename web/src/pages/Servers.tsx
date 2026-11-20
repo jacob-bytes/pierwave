@@ -981,7 +981,9 @@ export default function ServersPage() {
           )}
         />
         <div className="min-w-0">
-          <div className="truncate font-medium">{server.name}</div>
+          <div className="truncate font-medium" title={server.name}>
+            {server.name}
+          </div>
           {groupName ? (
             <div
               title={groupName}
@@ -1188,7 +1190,10 @@ export default function ServersPage() {
         <TableCell className="max-w-56 px-2">
           {renderServerName(server)}
         </TableCell>
-        <TableCell className="hidden px-2 font-mono text-xs text-muted-foreground lg:table-cell">
+        <TableCell
+          className="hidden px-2 font-mono text-xs text-muted-foreground lg:table-cell"
+          title={server.address}
+        >
           {server.address}
         </TableCell>
         <TableCell className="hidden px-2 text-xs text-muted-foreground 2xl:table-cell">
@@ -1241,7 +1246,9 @@ export default function ServersPage() {
       <div key={server.id} id={`server-row-${server.id}`}>
         <MobileDataCard
           title={server.name}
+          titleCopyValue={server.name}
           subtitle={server.address}
+          subtitleCopyValue={server.address}
           className={cn(
             serviceDown && "ring-destructive/30",
             highlighted &&

@@ -3,6 +3,7 @@ import test from "node:test";
 import en from "../i18n/en.ts";
 import zh from "../i18n/zh-CN.ts";
 import {
+  availabilityFill,
   availabilityPercent,
   availabilityTone,
   averageUptime24h,
@@ -106,10 +107,25 @@ test("availabilityTone keeps missing samples grey and bands the rest", () => {
   assert.equal(availabilityTone(Number.NaN), "unknown");
   assert.equal(availabilityTone(1), "ok");
   assert.equal(availabilityTone(0.99), "ok");
+  // 三档边界：99 / 95。96% 是 warning，71% 是 destructive。
   assert.equal(availabilityTone(0.989), "warn");
-  assert.equal(availabilityTone(0.5), "warn");
+  assert.equal(availabilityTone(0.96), "warn");
+  assert.equal(availabilityTone(0.95), "warn");
+  assert.equal(availabilityTone(0.949), "down");
+  assert.equal(availabilityTone(0.71), "down");
+  assert.equal(availabilityTone(0.5), "down");
   assert.equal(availabilityTone(0.49), "down");
   assert.equal(availabilityTone(0), "down");
+});
+
+test("availabilityFill is the clamped percentage, same source as the tone", () => {
+  assert.equal(availabilityFill(null), 0);
+  assert.equal(availabilityFill(Number.NaN), 0);
+  assert.equal(availabilityFill(1), 100);
+  assert.equal(availabilityFill(0.96), 96);
+  assert.equal(availabilityFill(0.71), 71);
+  assert.equal(availabilityFill(-0.2), 0);
+  assert.equal(availabilityFill(2), 100);
 });
 
 test("availabilityPercent rounds and clamps, null stays null", () => {

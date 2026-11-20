@@ -7,6 +7,7 @@ use axum::http::HeaderMap;
 use axum::response::Response;
 use tokio::sync::broadcast;
 
+use pierwave_domain::apply::{ApplyReport, ApplyStatus};
 use pierwave_domain::enforcement as enforcement_rules;
 use pierwave_domain::metering;
 use pierwave_domain::models::{package_status_at, Server, UserPackageView};
@@ -561,14 +562,34 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
             tracing::debug!(seq = hb.seq, xray = hb.xray_running, "heartbeat");
         }
         Ok(AgentMessage::ApplyResult(result)) => {
-            if result.ok {
-                tracing::info!(version = result.version, "agent applied desired state");
-            } else {
-                tracing::error!(
-                    version = result.version,
-                    error = result.error.unwrap_or_default(),
+            // `error` 只有文本：先按稳定标记解析成结构化结论，再落库。
+            // 非 partial 的错误原样保留，展示层直接显示原文。
+            let report =
+                ApplyReport::from_result(result.version, result.ok, result.error.as_deref());
+            match report.status {
+                ApplyStatus::Ok => {
+                    tracing::info!(version = report.version, "agent applied desired state")
+                }
+                ApplyStatus::Partial => {
+                    let partial = report.partial.as_ref();
+                    tracing::warn!(
+                        version = report.version,
+                        stage = partial.map(|p| p.stage.as_str()).unwrap_or_default(),
+                        effective = partial.map(|p| p.effective_count()).unwrap_or(0),
+                        total = partial.map(|p| p.total).unwrap_or(0),
+                        "agent partially applied desired state"
+                    )
+                }
+                ApplyStatus::Failed => tracing::error!(
+                    version = report.version,
+                    error = report.error.as_deref().unwrap_or_default(),
                     "agent failed to apply"
-                );
+                ),
+            }
+            if let Err(e) =
+                repo::servers::save_apply_report(&state.db.pool, server_id, &report).await
+            {
+                tracing::error!(server_id, error = %e, "apply result write failed");
             }
         }
         Ok(AgentMessage::Traffic(report)) => {
@@ -3015,6 +3036,139 @@ mod enforcement_tests {
             .await
             .unwrap();
         assert_eq!(row.latency_ms, Some(42));
+    }
+}
+
+/// Agent `ApplyResult` 的落库行为：partial 结构化保存，其它错误原文保存。
+#[cfg(test)]
+mod apply_result_tests {
+    use super::*;
+
+    use pierwave_domain::apply::PartialApply;
+    use pierwave_domain::Db;
+
+    const PARTIAL: &str = concat!(
+        "[agent.apply_files.partial] 受管文件部分生效（partial success），",
+        "阶段: 提交 rename / commit；",
+        "已生效 2/3: /etc/pierwave/xray/server.crt, /etc/pierwave/xray/server.key；",
+        "其余文件未生效、临时文件已清理；",
+        "失败原因: 替换文件失败（/etc/pierwave/xray/ca.pem）: Is a directory"
+    );
+
+    const WRITE_FAILED: &str = concat!(
+        "[agent.apply_files.write_failed] 受管文件应用失败（managed files apply failed），",
+        "阶段: 写临时文件 / write-temp；没有任何文件生效（no managed file was changed）；",
+        "失败原因: 创建目录失败: /etc/pierwave/xray"
+    );
+
+    async fn fixture() -> (AppState, String) {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let state = AppState::new(db, "web/dist");
+        let (server, _token) = repo::servers::create(&state.db.pool, "hk-1", "1.2.3.4", "external")
+            .await
+            .unwrap();
+        (state, server.id)
+    }
+
+    fn apply_result(version: i64, ok: bool, error: Option<&str>) -> String {
+        serde_json::json!({
+            "type": "apply_result",
+            "version": version,
+            "ok": ok,
+            "error": error,
+        })
+        .to_string()
+    }
+
+    /// 部分成功必须落成结构化字段：状态、原文、阶段、已生效路径、总数，
+    /// 并且服务器 JSON 里是对象而不是一段需要前端再解析的字符串。
+    #[tokio::test]
+    async fn partial_result_is_persisted_and_serialized_as_structure() {
+        let (state, server_id) = fixture().await;
+        handle_agent_message(
+            &state,
+            &server_id,
+            "0.9.5",
+            &apply_result(7, false, Some(PARTIAL)),
+        )
+        .await;
+
+        let row = repo::servers::find_by_id(&state.db.pool, &server_id)
+            .await
+            .unwrap();
+        assert_eq!(row.apply_status.as_deref(), Some("partial"));
+        assert_eq!(row.apply_error.as_deref(), Some(PARTIAL), "原文必须保留");
+        assert_eq!(row.apply_version, Some(7));
+        assert!(row.apply_at.is_some(), "必须记录收到时间");
+
+        let partial: PartialApply =
+            serde_json::from_str(row.apply_partial_json.as_deref().unwrap()).unwrap();
+        assert_eq!(partial.stage, "提交 rename / commit");
+        assert_eq!(partial.effective_count(), 2);
+        assert_eq!(partial.total, 3);
+        assert_eq!(
+            partial.effective,
+            vec![
+                "/etc/pierwave/xray/server.crt".to_string(),
+                "/etc/pierwave/xray/server.key".to_string()
+            ]
+        );
+
+        // 管理端服务器 JSON：结构化对象 + 派生计数。
+        let value = serde_json::to_value(&row).unwrap();
+        assert_eq!(value["apply_status"], "partial");
+        assert_eq!(value["apply_partial"]["effective_count"], 2);
+        assert_eq!(value["apply_partial"]["total"], 3);
+        assert_eq!(value["apply_partial"]["stage"], "提交 rename / commit");
+        assert_eq!(
+            value["apply_partial"]["effective"][0],
+            "/etc/pierwave/xray/server.crt"
+        );
+    }
+
+    /// 非 partial 错误不能被误判：状态 failed、partial 为空、错误一字不改。
+    #[tokio::test]
+    async fn non_partial_error_is_persisted_verbatim() {
+        let (state, server_id) = fixture().await;
+        handle_agent_message(
+            &state,
+            &server_id,
+            "0.9.5",
+            &apply_result(8, false, Some(WRITE_FAILED)),
+        )
+        .await;
+
+        let row = repo::servers::find_by_id(&state.db.pool, &server_id)
+            .await
+            .unwrap();
+        assert_eq!(row.apply_status.as_deref(), Some("failed"));
+        assert_eq!(row.apply_error.as_deref(), Some(WRITE_FAILED));
+        assert_eq!(row.apply_partial_json, None);
+        let value = serde_json::to_value(&row).unwrap();
+        assert_eq!(value["apply_partial"], serde_json::Value::Null);
+    }
+
+    /// 成功结果清空上一条错误：展示的是「最近一次结果」，不是历史。
+    #[tokio::test]
+    async fn success_clears_previous_failure() {
+        let (state, server_id) = fixture().await;
+        handle_agent_message(
+            &state,
+            &server_id,
+            "0.9.5",
+            &apply_result(7, false, Some(PARTIAL)),
+        )
+        .await;
+        handle_agent_message(&state, &server_id, "0.9.5", &apply_result(8, true, None)).await;
+
+        let row = repo::servers::find_by_id(&state.db.pool, &server_id)
+            .await
+            .unwrap();
+        assert_eq!(row.apply_status.as_deref(), Some("ok"));
+        assert_eq!(row.apply_error, None, "成功后不能残留上一条错误");
+        assert_eq!(row.apply_partial_json, None);
+        assert_eq!(row.apply_version, Some(8));
     }
 }
 

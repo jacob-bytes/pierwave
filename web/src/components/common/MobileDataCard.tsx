@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { CopyButton } from "@/components/common/CopyButton";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -12,8 +13,12 @@ export type MobileDataField = {
 export type MobileDataCardProps = {
   /** 主标识（名称 / 用户名 / 链名）。 */
   title: ReactNode;
-  /** 副标识（短码 / tag），可省略。 */
+  /** 主标识的完整文本：提供后窄屏行内出现复制按钮，并作为 title 提示。 */
+  titleCopyValue?: string;
+  /** 副标识（短码 / tag / 地址），可省略。 */
   subtitle?: ReactNode;
+  /** 副标识的完整文本：与 `titleCopyValue` 同理。 */
+  subtitleCopyValue?: string;
   /** 标题右侧的状态徽章等。 */
   badge?: ReactNode;
   /** 操作按钮 / `⋯` 菜单，与桌面行共用同一份回调。 */
@@ -30,7 +35,9 @@ export type MobileDataCardProps = {
  */
 export function MobileDataCard({
   title,
+  titleCopyValue,
   subtitle,
+  subtitleCopyValue,
   badge,
   actions,
   fields,
@@ -45,10 +52,38 @@ export function MobileDataCard({
     >
       <div className="flex items-start gap-2 border-b border-border px-3 py-2.5">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium">{title}</div>
+          <div className="flex min-w-0 items-center gap-1">
+            <div
+              className="min-w-0 flex-1 truncate text-sm font-medium"
+              title={titleCopyValue}
+            >
+              {title}
+            </div>
+            {titleCopyValue ? (
+              <CopyButton
+                value={titleCopyValue}
+                label={titleCopyValue}
+                iconOnly
+                className="shrink-0 max-sm:min-h-7 max-sm:min-w-7"
+              />
+            ) : null}
+          </div>
           {subtitle ? (
-            <div className="truncate font-mono type-micro text-muted-foreground">
-              {subtitle}
+            <div className="flex min-w-0 items-center gap-1">
+              <div
+                className="min-w-0 flex-1 truncate font-mono type-micro text-muted-foreground"
+                title={subtitleCopyValue}
+              >
+                {subtitle}
+              </div>
+              {subtitleCopyValue ? (
+                <CopyButton
+                  value={subtitleCopyValue}
+                  label={subtitleCopyValue}
+                  iconOnly
+                  className="shrink-0 max-sm:min-h-7 max-sm:min-w-7"
+                />
+              ) : null}
             </div>
           ) : null}
         </div>

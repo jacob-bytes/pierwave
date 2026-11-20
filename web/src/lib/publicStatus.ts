@@ -113,7 +113,10 @@ export function serverSpecLine(server: {
 
 /**
  * `null` / 非有限值都是「没有数据」。
- * 99% 以上算正常；一半以上算部分离线；其余算离线。
+ *
+ * 三档：`≥99%` 正常（primary）、`95–99%` 可用性下降（warning）、
+ * `<95%` 可用性不足（destructive）。之前 96% 与 71% 都落在 warning，
+ * 两档看起来一样；95% 把「掉了一点」和「掉了三成」分开。
  */
 export function availabilityTone(
   ratio: number | null | undefined,
@@ -126,8 +129,19 @@ export function availabilityTone(
     return "unknown";
   }
   if (ratio >= 0.99) return "ok";
-  if (ratio >= 0.5) return "warn";
+  if (ratio >= 0.95) return "warn";
   return "down";
+}
+
+/**
+ * 可用率进度条的填充长度（0..100）。与色阶同源：
+ * 色盲用户即使分不清 amber / destructive，也能从长度看出 96% 与 71% 的差别。
+ */
+export function availabilityFill(
+  ratio: number | null | undefined,
+): number {
+  const percent = availabilityPercent(ratio);
+  return percent === null ? 0 : Math.min(100, Math.max(0, percent));
 }
 
 /** 0..1 → 0..100 的整数百分比；没有数据返回 null。 */

@@ -1,0 +1,826 @@
+{
+  "phase": "after",
+  "base": "http://127.0.0.1:8798",
+  "W1_dark_1440": {
+    "viewportWidth": 1440,
+    "docScrollWidth": 1440,
+    "docClientWidth": 1440,
+    "mainScrollWidth": 1400,
+    "mainClientWidth": 1400,
+    "overflowX": false,
+    "scrollHeight": 859,
+    "tablists": []
+  },
+  "W1cards_dark_1440": {
+    "香港-亚太边缘入口-主节点-超长名称用于移动端截断验证": {
+      "text": "100%",
+      "color": "oklch(0.965 0.003 285)",
+      "fillWidth": "139px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-primary",
+      "ariaValueNow": "100",
+      "cardWidth": 326
+    },
+    "东京-中转-备用入口": {
+      "text": "99%",
+      "color": "oklch(0.965 0.003 285)",
+      "fillWidth": "137.609px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-primary",
+      "ariaValueNow": "99",
+      "cardWidth": 326
+    },
+    "新加坡-专线-长名称节点-二号": {
+      "text": "96%",
+      "color": "oklch(0.82 0.16 80)",
+      "fillWidth": "133.438px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-warning",
+      "ariaValueNow": "96",
+      "cardWidth": 326
+    },
+    "洛杉矶-美洲-测试节点": {
+      "text": "88%",
+      "color": "oklch(0.62 0.2 25)",
+      "fillWidth": "122.312px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-destructive",
+      "ariaValueNow": "88",
+      "cardWidth": 326
+    },
+    "法兰克福-欧洲-备用节点": {
+      "text": "71%",
+      "color": "oklch(0.62 0.2 25)",
+      "fillWidth": "98.6875px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-destructive",
+      "ariaValueNow": "71",
+      "cardWidth": 326
+    }
+  },
+  "W1summary_dark_1440": {
+    "text": "平均可用率\n91%\n近 24 小时"
+  },
+  "W2_dark_1440": {
+    "viewportWidth": 1440,
+    "docScrollWidth": 1440,
+    "docClientWidth": 1440,
+    "mainScrollWidth": 1200,
+    "mainClientWidth": 1200,
+    "overflowX": false,
+    "scrollHeight": 1296,
+    "tablists": [
+      {
+        "aria": "切换趋势维度",
+        "clientWidth": 104,
+        "scrollWidth": 104,
+        "tabs": 2
+      },
+      {
+        "aria": "切换分布维度",
+        "clientWidth": 90,
+        "scrollWidth": 90,
+        "tabs": 2
+      },
+      {
+        "aria": "切换榜单维度",
+        "clientWidth": 146,
+        "scrollWidth": 146,
+        "tabs": 3
+      }
+    ]
+  },
+  "W2rows_dark_1440": [
+    {
+      "text": "香港-亚太边缘入口-主节点-超长名称用于移动端截断验证 | 0.82 | 925 GB",
+      "height": 44,
+      "width": 746.67,
+      "linkClientWidth": 747,
+      "linkScrollWidth": 747,
+      "wrapped": false
+    },
+    {
+      "text": "东京-中转-备用入口 | 1.36 | 753 GB",
+      "height": 44,
+      "width": 746.67,
+      "linkClientWidth": 747,
+      "linkScrollWidth": 747,
+      "wrapped": false
+    },
+    {
+      "text": "新加坡-专线-长名称节点-二号 | 2.71 | 580 GB",
+      "height": 44,
+      "width": 746.67,
+      "linkClientWidth": 747,
+      "linkScrollWidth": 747,
+      "wrapped": false
+    },
+    {
+      "text": "洛杉矶-美洲-测试节点 | 4.48 | 408 GB",
+      "height": 44,
+      "width": 746.67,
+      "linkClientWidth": 747,
+      "linkScrollWidth": 747,
+      "wrapped": false
+    },
+    {
+      "text": "法兰克福-欧洲-备用节点 | 5.92 | 321 GB",
+      "height": 44,
+      "width": 746.67,
+      "linkClientWidth": 747,
+      "linkScrollWidth": 747,
+      "wrapped": false
+    }
+  ],
+  "W4_dark_1440": {
+    "viewportWidth": 1440,
+    "docScrollWidth": 1440,
+    "docClientWidth": 1440,
+    "mainScrollWidth": 1200,
+    "mainClientWidth": 1200,
+    "overflowX": false,
+    "scrollHeight": 1979,
+    "tablists": [
+      {
+        "aria": "日志类型",
+        "clientWidth": 146,
+        "scrollWidth": 146,
+        "tabs": 2
+      },
+      {
+        "aria": null,
+        "clientWidth": 0,
+        "scrollWidth": 0,
+        "tabs": 3
+      },
+      {
+        "aria": null,
+        "clientWidth": 216,
+        "scrollWidth": 216,
+        "tabs": 5
+      }
+    ]
+  },
+  "W4tabs_dark_1440": {
+    "labels": [
+      "全部",
+      "账号",
+      "资源",
+      "转发",
+      "系统"
+    ],
+    "clientWidth": 216,
+    "scrollWidth": 216,
+    "clipped": false
+  },
+  "W5_dark_1440": {
+    "viewportWidth": 1440,
+    "docScrollWidth": 1440,
+    "docClientWidth": 1440,
+    "mainScrollWidth": 1200,
+    "mainClientWidth": 1200,
+    "overflowX": false,
+    "scrollHeight": 1599,
+    "tablists": [
+      {
+        "aria": "设置分组",
+        "clientWidth": 398,
+        "scrollWidth": 398,
+        "tabs": 7
+      }
+    ]
+  },
+  "W5card_dark_1440": {
+    "text": "部分秘密设置无法解密\n\n当前主密钥与已保存的密文不匹配。以下秘密无法解密；填写新值后会用当前主密钥重新加密，页面随即恢复。\n\nTelegram Bot Token\nWebDAV 密码\n订阅派生 secret\n\n订阅派生 secret 与上面的秘密共用同一把主密钥：已生成的订阅链接也会失效，所有客户端需重新获取订阅链接。如需保留旧链接，请从备份恢复 secret.key（或设置相同的 PIERWAVE_SECRET_KEY）；服务端没有重新生成接口。\n\n查看备份加密与 secret.key 恢复步骤\n重新填写",
+    "links": [
+      {
+        "text": "查看备份加密与 secret.key 恢复步骤",
+        "href": "https://github.com/jacob-bytes/pierwave/blob/main/docs/BACKUP_ENCRYPTION.md"
+      }
+    ],
+    "buttons": [
+      "重新填写"
+    ],
+    "height": 272.734375
+  },
+  "W1_dark_390": {
+    "viewportWidth": 390,
+    "docScrollWidth": 390,
+    "docClientWidth": 390,
+    "mainScrollWidth": 390,
+    "mainClientWidth": 390,
+    "overflowX": false,
+    "scrollHeight": 2112,
+    "tablists": []
+  },
+  "W1cards_dark_390": {
+    "香港-亚太边缘入口-主节点-超长名称用于移动端截断验证": {
+      "text": "100%",
+      "color": "oklch(0.965 0.003 285)",
+      "fillWidth": "155px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-primary",
+      "ariaValueNow": "100",
+      "cardWidth": 358
+    },
+    "东京-中转-备用入口": {
+      "text": "99%",
+      "color": "oklch(0.965 0.003 285)",
+      "fillWidth": "153.438px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-primary",
+      "ariaValueNow": "99",
+      "cardWidth": 358
+    },
+    "新加坡-专线-长名称节点-二号": {
+      "text": "96%",
+      "color": "oklch(0.82 0.16 80)",
+      "fillWidth": "148.797px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-warning",
+      "ariaValueNow": "96",
+      "cardWidth": 358
+    },
+    "洛杉矶-美洲-测试节点": {
+      "text": "88%",
+      "color": "oklch(0.62 0.2 25)",
+      "fillWidth": "136.391px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-destructive",
+      "ariaValueNow": "88",
+      "cardWidth": 358
+    },
+    "法兰克福-欧洲-备用节点": {
+      "text": "71%",
+      "color": "oklch(0.62 0.2 25)",
+      "fillWidth": "110.047px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-destructive",
+      "ariaValueNow": "71",
+      "cardWidth": 358
+    }
+  },
+  "W1summary_dark_390": {
+    "text": "平均可用率\n91%\n近 24 小时"
+  },
+  "W2_dark_390": {
+    "viewportWidth": 390,
+    "docScrollWidth": 390,
+    "docClientWidth": 390,
+    "mainScrollWidth": 390,
+    "mainClientWidth": 390,
+    "overflowX": false,
+    "scrollHeight": 2100,
+    "tablists": [
+      {
+        "aria": "切换趋势维度",
+        "clientWidth": 104,
+        "scrollWidth": 104,
+        "tabs": 2
+      },
+      {
+        "aria": "切换分布维度",
+        "clientWidth": 90,
+        "scrollWidth": 90,
+        "tabs": 2
+      },
+      {
+        "aria": "切换榜单维度",
+        "clientWidth": 146,
+        "scrollWidth": 146,
+        "tabs": 3
+      }
+    ]
+  },
+  "W2rows_dark_390": [
+    {
+      "text": "香港-亚太边缘入口-主节点-超长名称用于移动端截断验证 | 负载 0.82 | · | 925 GB",
+      "height": 64,
+      "width": 326,
+      "linkClientWidth": 326,
+      "linkScrollWidth": 326,
+      "wrapped": false
+    },
+    {
+      "text": "东京-中转-备用入口 | 负载 1.36 | · | 753 GB",
+      "height": 64,
+      "width": 326,
+      "linkClientWidth": 326,
+      "linkScrollWidth": 326,
+      "wrapped": false
+    },
+    {
+      "text": "新加坡-专线-长名称节点-二号 | 负载 2.71 | · | 580 GB",
+      "height": 64,
+      "width": 326,
+      "linkClientWidth": 326,
+      "linkScrollWidth": 326,
+      "wrapped": false
+    },
+    {
+      "text": "洛杉矶-美洲-测试节点 | 负载 4.48 | · | 408 GB",
+      "height": 64,
+      "width": 326,
+      "linkClientWidth": 326,
+      "linkScrollWidth": 326,
+      "wrapped": false
+    },
+    {
+      "text": "法兰克福-欧洲-备用节点 | 负载 5.92 | · | 321 GB",
+      "height": 64,
+      "width": 326,
+      "linkClientWidth": 326,
+      "linkScrollWidth": 326,
+      "wrapped": false
+    }
+  ],
+  "W3_dark_390": {
+    "viewportWidth": 390,
+    "docScrollWidth": 390,
+    "docClientWidth": 390,
+    "mainScrollWidth": 390,
+    "mainClientWidth": 390,
+    "overflowX": false,
+    "scrollHeight": 2104,
+    "tablists": []
+  },
+  "W3card_dark_390": {
+    "text": "香港-亚太边缘入口-主节点-超长名称用于移动端截断验证 | edge-hk-01.asia-southeast1.prod.example.internal | 详情 | 分组 | 香港 | 内网地址 | 10.20.1.10 | 模式 | 外置 | 状态 | 在线 | Xray | 运行中 | 最后心跳 | 刚刚 | Agent 版本 | — | 延迟 18 ms | 负载（1 分钟） | 0.82 | 内存 | 40% | 当前速率 | ↓ | 17.5 | MB/s | ↑ | 2.19 | MB/s",
+    "title": "香港-亚太边缘入口-主节点-超长名称用于移动端截断验证",
+    "titleTruncated": true,
+    "copyButtons": 2
+  },
+  "W3toast_dark_390": "已复制",
+  "W4_dark_390": {
+    "viewportWidth": 390,
+    "docScrollWidth": 390,
+    "docClientWidth": 390,
+    "mainScrollWidth": 390,
+    "mainClientWidth": 390,
+    "overflowX": false,
+    "scrollHeight": 5466,
+    "tablists": [
+      {
+        "aria": "日志类型",
+        "clientWidth": 146,
+        "scrollWidth": 146,
+        "tabs": 2
+      },
+      {
+        "aria": null,
+        "clientWidth": 0,
+        "scrollWidth": 0,
+        "tabs": 3
+      },
+      {
+        "aria": null,
+        "clientWidth": 216,
+        "scrollWidth": 216,
+        "tabs": 5
+      }
+    ]
+  },
+  "W4tabs_dark_390": {
+    "labels": [
+      "全部",
+      "账号",
+      "资源",
+      "转发",
+      "系统"
+    ],
+    "clientWidth": 216,
+    "scrollWidth": 216,
+    "clipped": false
+  },
+  "W5_dark_390": {
+    "viewportWidth": 390,
+    "docScrollWidth": 390,
+    "docClientWidth": 390,
+    "mainScrollWidth": 390,
+    "mainClientWidth": 390,
+    "overflowX": false,
+    "scrollHeight": 2148,
+    "tablists": [
+      {
+        "aria": "设置分组",
+        "clientWidth": 398,
+        "scrollWidth": 398,
+        "tabs": 7
+      }
+    ]
+  },
+  "W5card_dark_390": {
+    "text": "部分秘密设置无法解密\n\n当前主密钥与已保存的密文不匹配。以下秘密无法解密；填写新值后会用当前主密钥重新加密，页面随即恢复。\n\nTelegram Bot Token\nWebDAV 密码\n订阅派生 secret\n\n订阅派生 secret 与上面的秘密共用同一把主密钥：已生成的订阅链接也会失效，所有客户端需重新获取订阅链接。如需保留旧链接，请从备份恢复 secret.key（或设置相同的 PIERWAVE_SECRET_KEY）；服务端没有重新生成接口。\n\n查看备份加密与 secret.key 恢复步骤\n重新填写",
+    "links": [
+      {
+        "text": "查看备份加密与 secret.key 恢复步骤",
+        "href": "https://github.com/jacob-bytes/pierwave/blob/main/docs/BACKUP_ENCRYPTION.md"
+      }
+    ],
+    "buttons": [
+      "重新填写"
+    ],
+    "height": 413.46875
+  },
+  "W1_light_1440": {
+    "viewportWidth": 1440,
+    "docScrollWidth": 1440,
+    "docClientWidth": 1440,
+    "mainScrollWidth": 1400,
+    "mainClientWidth": 1400,
+    "overflowX": false,
+    "scrollHeight": 859,
+    "tablists": []
+  },
+  "W1cards_light_1440": {
+    "香港-亚太边缘入口-主节点-超长名称用于移动端截断验证": {
+      "text": "100%",
+      "color": "oklch(0.253 0.03 267.4)",
+      "fillWidth": "139px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-primary",
+      "ariaValueNow": "100",
+      "cardWidth": 326
+    },
+    "东京-中转-备用入口": {
+      "text": "99%",
+      "color": "oklch(0.253 0.03 267.4)",
+      "fillWidth": "137.609px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-primary",
+      "ariaValueNow": "99",
+      "cardWidth": 326
+    },
+    "新加坡-专线-长名称节点-二号": {
+      "text": "96%",
+      "color": "oklch(0.53 0.146 49)",
+      "fillWidth": "133.438px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-warning",
+      "ariaValueNow": "96",
+      "cardWidth": 326
+    },
+    "洛杉矶-美洲-测试节点": {
+      "text": "88%",
+      "color": "oklch(0.57 0.208 25.3)",
+      "fillWidth": "122.312px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-destructive",
+      "ariaValueNow": "88",
+      "cardWidth": 326
+    },
+    "法兰克福-欧洲-备用节点": {
+      "text": "71%",
+      "color": "oklch(0.57 0.208 25.3)",
+      "fillWidth": "98.6875px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-destructive",
+      "ariaValueNow": "71",
+      "cardWidth": 326
+    }
+  },
+  "W1summary_light_1440": {
+    "text": "平均可用率\n91%\n近 24 小时"
+  },
+  "W2_light_1440": {
+    "viewportWidth": 1440,
+    "docScrollWidth": 1440,
+    "docClientWidth": 1440,
+    "mainScrollWidth": 1200,
+    "mainClientWidth": 1200,
+    "overflowX": false,
+    "scrollHeight": 1296,
+    "tablists": [
+      {
+        "aria": "切换趋势维度",
+        "clientWidth": 104,
+        "scrollWidth": 104,
+        "tabs": 2
+      },
+      {
+        "aria": "切换分布维度",
+        "clientWidth": 90,
+        "scrollWidth": 90,
+        "tabs": 2
+      },
+      {
+        "aria": "切换榜单维度",
+        "clientWidth": 146,
+        "scrollWidth": 146,
+        "tabs": 3
+      }
+    ]
+  },
+  "W2rows_light_1440": [
+    {
+      "text": "香港-亚太边缘入口-主节点-超长名称用于移动端截断验证 | 0.82 | 925 GB",
+      "height": 44,
+      "width": 746.67,
+      "linkClientWidth": 747,
+      "linkScrollWidth": 747,
+      "wrapped": false
+    },
+    {
+      "text": "东京-中转-备用入口 | 1.36 | 753 GB",
+      "height": 44,
+      "width": 746.67,
+      "linkClientWidth": 747,
+      "linkScrollWidth": 747,
+      "wrapped": false
+    },
+    {
+      "text": "新加坡-专线-长名称节点-二号 | 2.71 | 580 GB",
+      "height": 44,
+      "width": 746.67,
+      "linkClientWidth": 747,
+      "linkScrollWidth": 747,
+      "wrapped": false
+    },
+    {
+      "text": "洛杉矶-美洲-测试节点 | 4.48 | 408 GB",
+      "height": 44,
+      "width": 746.67,
+      "linkClientWidth": 747,
+      "linkScrollWidth": 747,
+      "wrapped": false
+    },
+    {
+      "text": "法兰克福-欧洲-备用节点 | 5.92 | 321 GB",
+      "height": 44,
+      "width": 746.67,
+      "linkClientWidth": 747,
+      "linkScrollWidth": 747,
+      "wrapped": false
+    }
+  ],
+  "W4_light_1440": {
+    "viewportWidth": 1440,
+    "docScrollWidth": 1440,
+    "docClientWidth": 1440,
+    "mainScrollWidth": 1200,
+    "mainClientWidth": 1200,
+    "overflowX": false,
+    "scrollHeight": 1979,
+    "tablists": [
+      {
+        "aria": "日志类型",
+        "clientWidth": 146,
+        "scrollWidth": 146,
+        "tabs": 2
+      },
+      {
+        "aria": null,
+        "clientWidth": 0,
+        "scrollWidth": 0,
+        "tabs": 3
+      },
+      {
+        "aria": null,
+        "clientWidth": 216,
+        "scrollWidth": 216,
+        "tabs": 5
+      }
+    ]
+  },
+  "W4tabs_light_1440": {
+    "labels": [
+      "全部",
+      "账号",
+      "资源",
+      "转发",
+      "系统"
+    ],
+    "clientWidth": 216,
+    "scrollWidth": 216,
+    "clipped": false
+  },
+  "W5_light_1440": {
+    "viewportWidth": 1440,
+    "docScrollWidth": 1440,
+    "docClientWidth": 1440,
+    "mainScrollWidth": 1200,
+    "mainClientWidth": 1200,
+    "overflowX": false,
+    "scrollHeight": 1599,
+    "tablists": [
+      {
+        "aria": "设置分组",
+        "clientWidth": 398,
+        "scrollWidth": 398,
+        "tabs": 7
+      }
+    ]
+  },
+  "W5card_light_1440": {
+    "text": "部分秘密设置无法解密\n\n当前主密钥与已保存的密文不匹配。以下秘密无法解密；填写新值后会用当前主密钥重新加密，页面随即恢复。\n\nTelegram Bot Token\nWebDAV 密码\n订阅派生 secret\n\n订阅派生 secret 与上面的秘密共用同一把主密钥：已生成的订阅链接也会失效，所有客户端需重新获取订阅链接。如需保留旧链接，请从备份恢复 secret.key（或设置相同的 PIERWAVE_SECRET_KEY）；服务端没有重新生成接口。\n\n查看备份加密与 secret.key 恢复步骤\n重新填写",
+    "links": [
+      {
+        "text": "查看备份加密与 secret.key 恢复步骤",
+        "href": "https://github.com/jacob-bytes/pierwave/blob/main/docs/BACKUP_ENCRYPTION.md"
+      }
+    ],
+    "buttons": [
+      "重新填写"
+    ],
+    "height": 272.734375
+  },
+  "W1_light_390": {
+    "viewportWidth": 390,
+    "docScrollWidth": 390,
+    "docClientWidth": 390,
+    "mainScrollWidth": 390,
+    "mainClientWidth": 390,
+    "overflowX": false,
+    "scrollHeight": 2112,
+    "tablists": []
+  },
+  "W1cards_light_390": {
+    "香港-亚太边缘入口-主节点-超长名称用于移动端截断验证": {
+      "text": "100%",
+      "color": "oklch(0.253 0.03 267.4)",
+      "fillWidth": "155px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-primary",
+      "ariaValueNow": "100",
+      "cardWidth": 358
+    },
+    "东京-中转-备用入口": {
+      "text": "99%",
+      "color": "oklch(0.253 0.03 267.4)",
+      "fillWidth": "153.438px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-primary",
+      "ariaValueNow": "99",
+      "cardWidth": 358
+    },
+    "新加坡-专线-长名称节点-二号": {
+      "text": "96%",
+      "color": "oklch(0.53 0.146 49)",
+      "fillWidth": "148.797px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-warning",
+      "ariaValueNow": "96",
+      "cardWidth": 358
+    },
+    "洛杉矶-美洲-测试节点": {
+      "text": "88%",
+      "color": "oklch(0.57 0.208 25.3)",
+      "fillWidth": "136.391px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-destructive",
+      "ariaValueNow": "88",
+      "cardWidth": 358
+    },
+    "法兰克福-欧洲-备用节点": {
+      "text": "71%",
+      "color": "oklch(0.57 0.208 25.3)",
+      "fillWidth": "110.047px",
+      "fillClass": "h-full rounded-full transition-[width] duration-200 min-w-[3px] bg-destructive",
+      "ariaValueNow": "71",
+      "cardWidth": 358
+    }
+  },
+  "W1summary_light_390": {
+    "text": "平均可用率\n91%\n近 24 小时"
+  },
+  "W2_light_390": {
+    "viewportWidth": 390,
+    "docScrollWidth": 390,
+    "docClientWidth": 390,
+    "mainScrollWidth": 390,
+    "mainClientWidth": 390,
+    "overflowX": false,
+    "scrollHeight": 2100,
+    "tablists": [
+      {
+        "aria": "切换趋势维度",
+        "clientWidth": 104,
+        "scrollWidth": 104,
+        "tabs": 2
+      },
+      {
+        "aria": "切换分布维度",
+        "clientWidth": 90,
+        "scrollWidth": 90,
+        "tabs": 2
+      },
+      {
+        "aria": "切换榜单维度",
+        "clientWidth": 146,
+        "scrollWidth": 146,
+        "tabs": 3
+      }
+    ]
+  },
+  "W2rows_light_390": [
+    {
+      "text": "香港-亚太边缘入口-主节点-超长名称用于移动端截断验证 | 负载 0.82 | · | 925 GB",
+      "height": 64,
+      "width": 326,
+      "linkClientWidth": 326,
+      "linkScrollWidth": 326,
+      "wrapped": false
+    },
+    {
+      "text": "东京-中转-备用入口 | 负载 1.36 | · | 753 GB",
+      "height": 64,
+      "width": 326,
+      "linkClientWidth": 326,
+      "linkScrollWidth": 326,
+      "wrapped": false
+    },
+    {
+      "text": "新加坡-专线-长名称节点-二号 | 负载 2.71 | · | 580 GB",
+      "height": 64,
+      "width": 326,
+      "linkClientWidth": 326,
+      "linkScrollWidth": 326,
+      "wrapped": false
+    },
+    {
+      "text": "洛杉矶-美洲-测试节点 | 负载 4.48 | · | 408 GB",
+      "height": 64,
+      "width": 326,
+      "linkClientWidth": 326,
+      "linkScrollWidth": 326,
+      "wrapped": false
+    },
+    {
+      "text": "法兰克福-欧洲-备用节点 | 负载 5.92 | · | 321 GB",
+      "height": 64,
+      "width": 326,
+      "linkClientWidth": 326,
+      "linkScrollWidth": 326,
+      "wrapped": false
+    }
+  ],
+  "W3_light_390": {
+    "viewportWidth": 390,
+    "docScrollWidth": 390,
+    "docClientWidth": 390,
+    "mainScrollWidth": 390,
+    "mainClientWidth": 390,
+    "overflowX": false,
+    "scrollHeight": 2104,
+    "tablists": []
+  },
+  "W3card_light_390": {
+    "text": "香港-亚太边缘入口-主节点-超长名称用于移动端截断验证 | edge-hk-01.asia-southeast1.prod.example.internal | 详情 | 分组 | 香港 | 内网地址 | 10.20.1.10 | 模式 | 外置 | 状态 | 在线 | Xray | 运行中 | 最后心跳 | 刚刚 | Agent 版本 | — | 延迟 18 ms | 负载（1 分钟） | 0.82 | 内存 | 40% | 当前速率 | ↓ | 17.5 | MB/s | ↑ | 2.19 | MB/s",
+    "title": "香港-亚太边缘入口-主节点-超长名称用于移动端截断验证",
+    "titleTruncated": true,
+    "copyButtons": 2
+  },
+  "W3toast_light_390": "已复制",
+  "W4_light_390": {
+    "viewportWidth": 390,
+    "docScrollWidth": 390,
+    "docClientWidth": 390,
+    "mainScrollWidth": 390,
+    "mainClientWidth": 390,
+    "overflowX": false,
+    "scrollHeight": 5466,
+    "tablists": [
+      {
+        "aria": "日志类型",
+        "clientWidth": 146,
+        "scrollWidth": 146,
+        "tabs": 2
+      },
+      {
+        "aria": null,
+        "clientWidth": 0,
+        "scrollWidth": 0,
+        "tabs": 3
+      },
+      {
+        "aria": null,
+        "clientWidth": 216,
+        "scrollWidth": 216,
+        "tabs": 5
+      }
+    ]
+  },
+  "W4tabs_light_390": {
+    "labels": [
+      "全部",
+      "账号",
+      "资源",
+      "转发",
+      "系统"
+    ],
+    "clientWidth": 216,
+    "scrollWidth": 216,
+    "clipped": false
+  },
+  "W5_light_390": {
+    "viewportWidth": 390,
+    "docScrollWidth": 390,
+    "docClientWidth": 390,
+    "mainScrollWidth": 390,
+    "mainClientWidth": 390,
+    "overflowX": false,
+    "scrollHeight": 2148,
+    "tablists": [
+      {
+        "aria": "设置分组",
+        "clientWidth": 398,
+        "scrollWidth": 398,
+        "tabs": 7
+      }
+    ]
+  },
+  "W5card_light_390": {
+    "text": "部分秘密设置无法解密\n\n当前主密钥与已保存的密文不匹配。以下秘密无法解密；填写新值后会用当前主密钥重新加密，页面随即恢复。\n\nTelegram Bot Token\nWebDAV 密码\n订阅派生 secret\n\n订阅派生 secret 与上面的秘密共用同一把主密钥：已生成的订阅链接也会失效，所有客户端需重新获取订阅链接。如需保留旧链接，请从备份恢复 secret.key（或设置相同的 PIERWAVE_SECRET_KEY）；服务端没有重新生成接口。\n\n查看备份加密与 secret.key 恢复步骤\n重新填写",
+    "links": [
+      {
+        "text": "查看备份加密与 secret.key 恢复步骤",
+        "href": "https://github.com/jacob-bytes/pierwave/blob/main/docs/BACKUP_ENCRYPTION.md"
+      }
+    ],
+    "buttons": [
+      "重新填写"
+    ],
+    "height": 413.46875
+  }
+}

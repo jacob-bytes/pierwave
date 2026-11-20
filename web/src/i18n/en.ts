@@ -283,9 +283,9 @@ const en = {
     availability: {
       noSamples: "No samples yet",
       legend: "One cell per hour",
-      ok: "Normal",
-      warn: "Partial outage",
-      down: "Offline",
+      ok: "Healthy",
+      warn: "Degraded",
+      down: "Low availability",
       unknown: "No data",
     },
     groups: {
@@ -1394,15 +1394,9 @@ const en = {
     },
     category: {
       all: "All",
-      user: "Users",
-      package: "Packages",
-      server: "Servers",
-      node: "Nodes",
-      certificate: "Certificates",
-      ruleTemplate: "Rule templates",
-      chain: "Forward chains",
-      forward: "Port forwarding",
-      backup: "Backup",
+      account: "Account",
+      resource: "Resources",
+      forwarding: "Forwarding",
       system: "System",
     },
     action: {
@@ -1858,10 +1852,11 @@ const en = {
       saving: "Saving…",
       saved: "The secrets you entered were saved",
       saveError: "Could not save the new values. Please try again later.",
-      internalHint:
-        "The internal subscription derivation secret cannot be re-entered here. Restore the master key used when it was written (data/secret.key or PIERWAVE_SECRET_KEY), or restore a backup made with that key.",
-      noEditable:
-        "None of these secrets can be re-entered here. Restore the master key used when they were written (data/secret.key or PIERWAVE_SECRET_KEY), then retry.",
+      hmacConsequence:
+        "The subscription derivation secret shares the master key with the secrets above: existing subscription links stop working, and every client must fetch a new subscription URL. To keep the old links, restore secret.key from backup (or set the same PIERWAVE_SECRET_KEY); the server has no regenerate endpoint.",
+      hmacDoc: "Backup encryption and secret.key recovery steps",
+      internalUnknown:
+        "This internal secret cannot be re-entered here. Restore the master key used when it was written (data/secret.key or PIERWAVE_SECRET_KEY), then retry.",
     },
     notReady404:
       "The settings API is not ready yet (the backend may still be deploying). Please try again later.",

@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { setCurrentLocale } from "../i18n/locale.ts";
 import {
+  BACKUP_ENCRYPTION_DOC_URL,
   buildSecretPatch,
   secretKeyText,
   secretRecoveryFromSettings,
+  subscriptionSecretAtRisk,
+  SUBSCRIPTION_SECRET_KEY,
 } from "./settingsSecrets.ts";
 
 test("secretRecoveryFromSettings hides the card when secret_errors is absent", () => {
@@ -59,7 +62,8 @@ test("secretRecoveryFromSettings keeps unknown keys visible as internal", () => 
   });
   assert.deepEqual(recovery.keys, ["telegram_bot_token", "future_secret"]);
   assert.deepEqual(recovery.editableKeys, ["telegram_bot_token"]);
-  assert.deepEqual(recovery.internalKeys, ["future_secret"]);
+  // 未知内部键原样保留；订阅 secret 按同一把主密钥补在末尾。
+  assert.deepEqual(recovery.internalKeys, ["future_secret", "hmac_secret_v1"]);
   assert.equal(secretKeyText("future_secret"), "future_secret");
 });
 
@@ -72,7 +76,7 @@ test("secretRecoveryFromSettings ignores non-string and duplicate-adjacent junk"
   // 只过滤非字符串；合法键保持后端顺序，不擅自去重。
   assert.deepEqual(recovery.keys, ["webhook_url", "webhook_url"]);
   assert.deepEqual(recovery.editableKeys, ["webhook_url", "webhook_url"]);
-  assert.deepEqual(recovery.internalKeys, []);
+  assert.deepEqual(recovery.internalKeys, ["hmac_secret_v1"]);
 });
 
 test("secretKeyText localizes known keys and falls back to raw names", () => {
@@ -104,4 +108,32 @@ test("buildSecretPatch trims values and only includes editable non-empty secrets
   );
   assert.deepEqual(buildSecretPatch({ hmac_secret_v1: "x" }), {});
   assert.deepEqual(buildSecretPatch({}), {});
+});
+
+
+test("the subscription secret is inferred when the master key is wrong", () => {
+  // 后端 GET 只上报三个可见秘密；hmac_secret_v1 不在 keys 里，但它和它们
+  // 共用同一把主密钥，恢复卡必须给出订阅链接的下一步。
+  const recovery = secretRecoveryFromSettings({
+    secret_errors: { keys: ["telegram_bot_token"] },
+  });
+  assert.deepEqual(recovery.keys, ["telegram_bot_token"]);
+  assert.deepEqual(recovery.internalKeys, [SUBSCRIPTION_SECRET_KEY]);
+  assert.equal(subscriptionSecretAtRisk(recovery), true);
+  assert.match(BACKUP_ENCRYPTION_DOC_URL, /docs\/BACKUP_ENCRYPTION\.md$/);
+
+  // 只有内部键时也成立；没有秘密错误时不会伪造恢复卡。
+  const internalOnly = secretRecoveryFromSettings({
+    secret_errors: { keys: ["hmac_secret_v1"] },
+  });
+  assert.deepEqual(internalOnly.internalKeys, ["hmac_secret_v1"]);
+  assert.equal(
+    subscriptionSecretAtRisk({
+      keys: [],
+      editableKeys: [],
+      internalKeys: [],
+    }),
+    false,
+  );
+  assert.equal(secretRecoveryFromSettings({ secret_errors: { keys: [] } }), null);
 });

@@ -277,8 +277,8 @@ const zhCN = {
       noSamples: "暂无采样数据",
       legend: "每格 1 小时",
       ok: "正常",
-      warn: "部分离线",
-      down: "离线",
+      warn: "可用性下降",
+      down: "可用性不足",
       unknown: "无数据",
     },
     groups: {
@@ -1327,15 +1327,9 @@ const zhCN = {
     },
     category: {
       all: "全部",
-      user: "用户",
-      package: "套餐",
-      server: "服务器",
-      node: "节点",
-      certificate: "证书",
-      ruleTemplate: "规则模板",
-      chain: "转发链",
-      forward: "端口转发",
-      backup: "备份恢复",
+      account: "账号",
+      resource: "资源",
+      forwarding: "转发",
       system: "系统",
     },
     action: {
@@ -1778,10 +1772,11 @@ const zhCN = {
       saving: "保存中…",
       saved: "已重新保存填写的秘密",
       saveError: "保存新值失败，请稍后重试",
-      internalHint:
-        "内部订阅派生 secret 不能在设置页重填；请恢复写入时使用的主密钥（data/secret.key 或 PIERWAVE_SECRET_KEY），或从同一主密钥的备份恢复。",
-      noEditable:
-        "这些秘密都没有可在此重填的项。请恢复写入时使用的主密钥（data/secret.key 或 PIERWAVE_SECRET_KEY）后重试。",
+      hmacConsequence:
+        "订阅派生 secret 与上面的秘密共用同一把主密钥：已生成的订阅链接也会失效，所有客户端需重新获取订阅链接。如需保留旧链接，请从备份恢复 secret.key（或设置相同的 PIERWAVE_SECRET_KEY）；服务端没有重新生成接口。",
+      hmacDoc: "查看备份加密与 secret.key 恢复步骤",
+      internalUnknown:
+        "这个内部密钥不能在设置页重填。请恢复写入时使用的主密钥（data/secret.key 或 PIERWAVE_SECRET_KEY）后重试。",
     },
     notReady404: "设置接口尚未就绪（后端可能还在部署），请稍后重试",
     forbidden: "只有管理员可以查看或修改设置",

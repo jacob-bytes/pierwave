@@ -91,3 +91,38 @@ test("multi-line tables were compacted into single-line rows", () => {
   assert.match(nodes, /items-center gap-1\.5/);
   assert.match(nodes, /nodeMetaTitle\(node\)/);
 });
+
+/** W2：390 下榜单服务器行收敛成两行，桌面顺序由 order 恢复。 */
+test("overview server leaderboard rows collapse to two lines below md", () => {
+  const source = read("../pages/Overview.tsx");
+  assert.ok(source.includes("md:flex-row"), "row switches to a single line at md");
+  assert.ok(source.includes("md:contents"), "the two mobile rows flatten at md");
+  assert.ok(source.includes("md:order-1"), "sparkline order is restored on desktop");
+  assert.ok(source.includes("md:order-2"), "traffic order is restored on desktop");
+  assert.ok(source.includes("md:order-3"), "status dot order is restored on desktop");
+  assert.ok(source.includes("md:order-4"), "load order is restored on desktop");
+  assert.ok(source.includes("md:order-5"), "chevron order is restored on desktop");
+  assert.ok(
+    !source.includes('className="hidden w-12 shrink-0 text-right font-mono'),
+    "load is no longer hidden on mobile",
+  );
+  assert.ok(
+    source.includes('className="min-w-0 flex-1 truncate text-sm" title={item.name}'),
+    "truncated name keeps a desktop title",
+  );
+});
+
+/** W3：移动端卡片提供行内复制，桌面表格保留 title。 */
+test("server mobile cards expose copy buttons for name and address", () => {
+  const mobile = read("../components/common/MobileDataCard.tsx");
+  assert.ok(mobile.includes("titleCopyValue"), "MobileDataCard takes a title copy value");
+  assert.ok(mobile.includes("subtitleCopyValue"), "MobileDataCard takes a subtitle copy value");
+  assert.ok(mobile.includes("CopyButton"), "copies reuse the shared CopyButton");
+  assert.ok(mobile.includes("iconOnly"), "copy buttons stay inline on narrow cards");
+
+  const servers = read("../pages/Servers.tsx");
+  assert.ok(servers.includes("titleCopyValue={server.name}"));
+  assert.ok(servers.includes("subtitleCopyValue={server.address}"));
+  assert.ok(servers.includes('title={server.name}'), "desktop name keeps a title");
+  assert.ok(servers.includes('title={server.address}'), "desktop address keeps a title");
+});
