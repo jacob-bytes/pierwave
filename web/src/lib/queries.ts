@@ -43,6 +43,7 @@ import {
   type CreateRoutingRuleInput,
   type CreateRuleTemplateInput,
   type CreateSubscriptionTemplateInput,
+  type CreateServerInput,
   type CreateServerResponse,
   type CreateUserInput,
   type EnforcementEvent,
@@ -1090,27 +1091,7 @@ export function useCancelAgentUpgradeBatch(batchId: string) {
 export function useCreateServer() {
   const queryClient = useQueryClient();
 
-  return useMutation<
-    CreateServerResponse,
-    Error,
-    {
-      name: string;
-      address: string;
-      xray_mode: string;
-      /** ISO 3166-1 alpha-2；省略或空串 = 不填。 */
-      country_code?: string;
-      /** 分组名；省略或 null = 未分组。 */
-      group_name?: string | null;
-      /** 端口范围起点；省略 / null = 不限制。 */
-      port_start?: number | null;
-      /** 端口范围终点；省略 / null = 不限制。 */
-      port_end?: number | null;
-      /** 额外允许的端口；省略 = 没有额外端口。 */
-      port_allow?: number[];
-      /** 网卡名；省略 / null = 不限制。 */
-      nic_name?: string | null;
-    }
-  >({
+  return useMutation<CreateServerResponse, Error, CreateServerInput>({
     mutationFn: api.createServer,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.servers });

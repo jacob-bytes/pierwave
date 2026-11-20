@@ -439,10 +439,44 @@ export interface Server {
    * 页面用 `lib/nic.ts` 统一归一化。
    */
   nic_name?: string | null;
+  /**
+   * 费用与到期（可选公开展示数据，见 `crates/domain/src/billing.rs`）：
+   * 填了会出现在公开状态页，四个字段互相独立。旧后端可能整组缺失。
+   */
+  paid_until?: string | null;
+  /** 价格（分）；0 是合法的「免费」，null = 未填写。 */
+  price_cents?: number | null;
+  /** 3 位大写币种代码（如 CNY / USD / EUR）。 */
+  currency?: string | null;
+  /** 计费周期：monthly / yearly / once。 */
+  billing_cycle?: string | null;
   /** Agent 最近一次上报的网卡；缺失 = 旧后端从未上报。 */
   interfaces?: ServerInterface[];
   /** 该服务器还未上报过网卡时为 true。 */
   nic_unverified?: boolean;
+}
+
+export interface CreateServerInput {
+  name: string;
+  address: string;
+  xray_mode: string;
+  /** ISO 3166-1 alpha-2；省略或空串 = 不填。 */
+  country_code?: string;
+  /** 分组名；省略或 null = 未分组。 */
+  group_name?: string | null;
+  /** 端口范围起点；省略 / null = 不限制。 */
+  port_start?: number | null;
+  /** 端口范围终点；省略 / null = 不限制。 */
+  port_end?: number | null;
+  /** 额外允许的端口；省略 = 没有额外端口。 */
+  port_allow?: number[];
+  /** 网卡名；省略 / null = 不限制。 */
+  nic_name?: string | null;
+  /** 费用与到期：省略 / null = 不填写；填了会公开在状态页。 */
+  paid_until?: string | null;
+  price_cents?: number | null;
+  currency?: string | null;
+  billing_cycle?: string | null;
 }
 
 export interface UpdateServerInput {
@@ -462,6 +496,14 @@ export interface UpdateServerInput {
   internal_address?: string | null;
   /** 网卡名；null = 不限制。 */
   nic_name?: string | null;
+  /** 到期日；缺省 = 不改，null = 清空，值 = 覆盖。 */
+  paid_until?: string | null;
+  /** 价格（分）；缺省 = 不改，null = 清空，值 = 覆盖。 */
+  price_cents?: number | null;
+  /** 币种；缺省 = 不改，null = 清空，值 = 覆盖。 */
+  currency?: string | null;
+  /** 计费周期；缺省 = 不改，null = 清空，值 = 覆盖。 */
+  billing_cycle?: string | null;
 }
 
 export interface CreateServerResponse {
@@ -2397,23 +2439,7 @@ export const api = {
       ),
   },
   servers: () => request<{ items: Server[] }>("/api/v1/servers"),
-  createServer: (input: {
-    name: string;
-    address: string;
-    xray_mode: string;
-    /** ISO 3166-1 alpha-2；省略或空串 = 不填。 */
-    country_code?: string;
-    /** 分组名；省略或 null = 未分组。 */
-    group_name?: string | null;
-    /** 端口范围起点；省略 / null = 不限制。 */
-    port_start?: number | null;
-    /** 端口范围终点；省略 / null = 不限制。 */
-    port_end?: number | null;
-    /** 额外允许的端口；省略 = 没有额外端口。 */
-    port_allow?: number[];
-    /** 网卡名；省略 / null = 不限制。 */
-    nic_name?: string | null;
-  }) =>
+  createServer: (input: CreateServerInput) =>
     request<CreateServerResponse>("/api/v1/servers", {
       method: "POST",
       body: JSON.stringify(input),

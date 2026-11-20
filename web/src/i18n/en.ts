@@ -650,6 +650,33 @@ const en = {
       aria: "Apply result: {label}",
     },
     loadTitle: "1-minute average load",
+    billing: {
+      title: "Cost and expiry",
+      clear: "Clear",
+      paidUntil: "Paid until",
+      price: "Price (yuan)",
+      pricePlaceholder: "e.g. 268.00",
+      currency: "Currency",
+      currencyPlaceholder: "Select a currency",
+      currencyCustom: "Custom",
+      currencyCustomPlaceholder: "e.g. JPY",
+      cycle: "Billing cycle",
+      cyclePlaceholder: "Select a cycle",
+      cycleMonthly: "Monthly",
+      cycleYearly: "Yearly",
+      cycleOnce: "One-time",
+      none: "Not set",
+      publicHint: "Shown on the public status page once filled in",
+      errors: {
+        paidUntil:
+          "Paid-until must be a real date (YYYY-MM-DD), or leave it empty",
+        price:
+          "Price must be 0-9,999,999.99 yuan with at most two decimals",
+        currency:
+          "Currency must be a 3-letter uppercase code (e.g. CNY / USD / EUR)",
+        cycle: "Billing cycle must be monthly, yearly or one-time",
+      },
+    },
     createDialog: {
       title: "Add server",
       desc: "A one-time pairing token is generated after creation; the Agent uses it to connect back to the controller.",
@@ -3694,6 +3721,14 @@ const en = {
     "forward.proxy_protocol_requires_native": "PROXY protocol v2 requires the native engine (realm / nftables / tunnel cannot inject the header)",
     "chain.proxy_protocol_requires_native": "PROXY protocol v2 requires a native-engine chain (realm / nftables / tunnel cannot inject the header)",
     "server.nic_address_unavailable": "This server cannot be dispatched over the selected NIC (not reported, missing, or has no usable address)",
+    "server.paid_until_invalid":
+      "Invalid paid-until date: it must be a real YYYY-MM-DD date (e.g. 2026-12-31), or leave it empty",
+    "server.price_cents_invalid":
+      "Invalid price: it must be 0-9,999,999.99 yuan (0-999,999,999 cents), or leave it empty",
+    "server.currency_invalid":
+      "Invalid currency: it must be a 3-letter uppercase code (e.g. CNY / USD / EUR), or leave it empty",
+    "server.billing_cycle_invalid":
+      "Invalid billing cycle: it must be monthly, yearly or one-time, or leave it empty",
     "chain.entry_port_required": "The entry group (group 1) must provide a listen port",
     "chain.public_port_invalid": "Public port must be between {min} and {max}",
     "chain.latency_hours_invalid": "hours must be an integer between 1 and 168 (default 24)",

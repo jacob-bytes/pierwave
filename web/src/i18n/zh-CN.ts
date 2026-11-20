@@ -628,6 +628,30 @@ const zhCN = {
       aria: "应用结果：{label}",
     },
     loadTitle: "1 分钟平均负载",
+    billing: {
+      title: "费用与到期",
+      clear: "清空",
+      paidUntil: "到期日",
+      price: "价格（元）",
+      pricePlaceholder: "如 268.00",
+      currency: "币种",
+      currencyPlaceholder: "选择币种",
+      currencyCustom: "自定义",
+      currencyCustomPlaceholder: "如 JPY",
+      cycle: "计费周期",
+      cyclePlaceholder: "选择周期",
+      cycleMonthly: "月",
+      cycleYearly: "年",
+      cycleOnce: "一次性",
+      none: "未填写",
+      publicHint: "填写后会在公开状态页展示",
+      errors: {
+        paidUntil: "到期日需为真实存在的日期（YYYY-MM-DD），或留空",
+        price: "价格需在 0–9,999,999.99 元之间，最多两位小数",
+        currency: "币种需为 3 位大写字母（如 CNY / USD / EUR）",
+        cycle: "计费周期只能是 月 / 年 / 一次性",
+      },
+    },
     createDialog: {
       title: "添加服务器",
       desc: "创建后会生成一次性配对 token，Agent 用它反向连入主控。",
@@ -3489,6 +3513,14 @@ const zhCN = {
     "forward.proxy_protocol_requires_native": "PROXY protocol v2 只能在 native 引擎下开启（realm / nftables / tunnel 无法注入首包）",
     "chain.proxy_protocol_requires_native": "PROXY protocol v2 只能在 native 引擎的链上开启（realm / nftables / tunnel 无法注入首包）",
     "server.nic_address_unavailable": "无法按网卡下发该服务器（尚未上报网卡、网卡不存在或没有可用地址）",
+    "server.paid_until_invalid":
+      "到期日不合法：需为真实存在的 YYYY-MM-DD 日期（如 2026-12-31），或留空",
+    "server.price_cents_invalid":
+      "价格不合法：需在 0–9,999,999.99 元之间（0–999,999,999 分），或留空",
+    "server.currency_invalid":
+      "币种不合法：需为 3 位大写字母（如 CNY / USD / EUR），或留空",
+    "server.billing_cycle_invalid":
+      "计费周期不合法：只能是 月 / 年 / 一次性，或留空",
     "chain.entry_port_required": "入口组（第 1 组）必须填写监听端口",
     "chain.public_port_invalid": "对外端口必须在 {min}-{max} 之间",
     "chain.latency_hours_invalid": "hours 必须是 1-168 之间的整数（默认 24）",

@@ -47,6 +47,7 @@ import { ServerCommandsDialog } from "@/components/servers/ServerCommandsDialog"
 import { ServerEditDialog } from "@/components/servers/ServerEditDialog";
 import { ServerTokenResetDialog } from "@/components/servers/ServerTokenResetDialog";
 import { PortPolicyFields } from "@/components/servers/PortPolicyFields";
+import { BillingFields } from "@/components/servers/BillingFields";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -132,6 +133,15 @@ import {
   portPolicySummary,
 } from "@/lib/portPolicy";
 import { useAllNodes, useCreateServer, useServers } from "@/lib/queries";
+import {
+  billingFieldForError,
+  billingPayload,
+  EMPTY_BILLING_FORM,
+  translateBillingErrors,
+  validateBillingForm,
+  type BillingFieldErrors,
+  type ServerBillingForm,
+} from "@/lib/serverBilling";
 import {
   GROUP_NAME_MAX_LENGTH,
   groupServers,
@@ -827,6 +837,9 @@ export default function ServersPage() {
   const [portStart, setPortStart] = useState("");
   const [portEnd, setPortEnd] = useState("");
   const [portAllow, setPortAllow] = useState<number[]>([]);
+  // 费用与到期：四个可选公开展示字段；空 = 提交 null（不填写 / 清空）。
+  const [billing, setBilling] = useState<ServerBillingForm>(EMPTY_BILLING_FORM);
+  const [billingErrors, setBillingErrors] = useState<BillingFieldErrors>({});
   const [groupFilter, setGroupFilter] = useState(GROUP_FILTER_ALL);
   const [xrayMode, setXrayMode] = useState("external");
   const [copied, setCopied] = useState<"token" | "command" | null>(null);
@@ -967,9 +980,14 @@ export default function ServersPage() {
     servers.error,
     t("servers.loadError"),
   );
-  const createError = create.isError
-    ? errorText(create.error, t("servers.createError"))
+  // 费用字段的错误已经落到对应输入框（行内），不再在表单底部重复一遍。
+  const createBillingField = create.isError
+    ? billingFieldForError(create.error)
     : null;
+  const createError =
+    create.isError && !createBillingField
+      ? errorText(create.error, t("servers.createError"))
+      : null;
   // 必填项与按钮禁用条件同源：缺哪个就列哪个，不写额外解释。
   const createMissingLabels = missingRequiredLabels([
     { label: t("servers.createDialog.name"), value: name },
@@ -1369,6 +1387,7 @@ export default function ServersPage() {
 
   function openCreateDialog() {
     create.reset();
+    setBillingErrors({});
     setCreateOpen(true);
   }
 
@@ -1393,6 +1412,14 @@ export default function ServersPage() {
       return;
     }
 
+    // 费用字段前端先校验：错误只落在字段下方，不弹 toast、不发请求。
+    const nextBillingErrors = validateBillingForm(billing);
+    if (Object.keys(nextBillingErrors).length > 0) {
+      setBillingErrors(translateBillingErrors(nextBillingErrors, t));
+      return;
+    }
+    setBillingErrors({});
+
     create.mutate(
       {
         name: name.trim(),
@@ -1403,6 +1430,8 @@ export default function ServersPage() {
         port_start: portRange.start,
         port_end: portRange.end,
         port_allow: portAllow,
+        // 四个字段始终显式提交：空 = null，创建即「不填写」。
+        ...billingPayload(billing),
       },
       {
         onSuccess: (data) => {
@@ -1414,11 +1443,21 @@ export default function ServersPage() {
           setPortStart("");
           setPortEnd("");
           setPortAllow([]);
+          setBilling(EMPTY_BILLING_FORM);
+          setBillingErrors({});
           setCreated(data);
           setTokenOpen(true);
           toast.success(t("servers.createdToast", { name: data.server.name }));
         },
         onError: (error) => {
+          // 后端权威校验失败时，把错误码映射回对应字段的行内错误。
+          const field = billingFieldForError(error);
+          if (field) {
+            setBillingErrors({
+              [field]: errorText(error, t("servers.createError")),
+            });
+            return;
+          }
           toast.error(errorText(error, t("servers.createError")));
         },
       },
@@ -1824,6 +1863,14 @@ export default function ServersPage() {
                 </p>
               </div>
             </div>
+
+            <BillingFields
+              idPrefix="server-create-billing"
+              value={billing}
+              onChange={setBilling}
+              errors={billingErrors}
+              disabled={create.isPending}
+            />
 
             {createError ? (
               <p

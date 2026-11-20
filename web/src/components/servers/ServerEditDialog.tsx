@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { CountrySelect } from "@/components/common/CountrySelect";
+import { BillingFields } from "@/components/servers/BillingFields";
 import { NicField } from "@/components/servers/NicField";
 import { PortPolicyFields } from "@/components/servers/PortPolicyFields";
 import { displayAgentVersion } from "@/lib/agentUpgrade";
@@ -29,6 +30,15 @@ import {
   normalizePortPolicy,
   parsePortRangeInput,
 } from "@/lib/portPolicy";
+import {
+  billingFieldForError,
+  billingFormFromServer,
+  billingPayload,
+  translateBillingErrors,
+  validateBillingForm,
+  type BillingFieldErrors,
+  type ServerBillingForm,
+} from "@/lib/serverBilling";
 import { useUpdateServer } from "@/lib/queries";
 import {
   GROUP_NAME_MAX_LENGTH,
@@ -86,6 +96,11 @@ export function ServerEditDialog({
   const [internalAddress, setInternalAddress] = useState(
     () => server.internal_address ?? "",
   );
+  // 编辑回填：后端读路径已把脏值降级为 null，这里再兜一层。
+  const [billing, setBilling] = useState<ServerBillingForm>(() =>
+    billingFormFromServer(server),
+  );
+  const [billingErrors, setBillingErrors] = useState<BillingFieldErrors>({});
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -104,6 +119,14 @@ export function ServerEditDialog({
       return;
     }
 
+    // 费用字段前端先校验：错误只落在字段下方，不弹 toast、不发请求。
+    const nextBillingErrors = validateBillingForm(billing);
+    if (Object.keys(nextBillingErrors).length > 0) {
+      setBillingErrors(translateBillingErrors(nextBillingErrors, t));
+      return;
+    }
+    setBillingErrors({});
+
     setError(null);
     try {
       await updateServer.mutateAsync({
@@ -121,11 +144,22 @@ export function ServerEditDialog({
           internal_address: internalAddress.trim() || null,
           // null = 不限制；不可校验时省略该字段，保留服务器上的原值。
           ...(nicEditable ? { nic_name: nicName } : {}),
+          // 四个费用字段始终显式提交：留空发 null 才是真的清空（PATCH 三态：
+          // 缺省 = 不改，null = 清空），不能省略。
+          ...billingPayload(billing),
         },
       });
       toast.success(t("servers.editDialog.saved"));
       onOpenChange(false);
     } catch (submitError) {
+      // 后端权威校验：错误码映射回对应字段，行内显示，不再重复 toast。
+      const field = billingFieldForError(submitError);
+      if (field) {
+        setBillingErrors({
+          [field]: errorText(submitError, t("servers.editDialog.error")),
+        });
+        return;
+      }
       const message = isNotFound(submitError)
         ? t("servers.editDialog.notReady404")
         : errorText(submitError, t("servers.editDialog.error"));
@@ -239,6 +273,14 @@ export function ServerEditDialog({
               className="font-mono"
             />
           </div>
+
+          <BillingFields
+            idPrefix="server-edit-billing"
+            value={billing}
+            onChange={setBilling}
+            errors={billingErrors}
+            disabled={updateServer.isPending}
+          />
 
           <div className="flex items-start justify-between gap-4 rounded-lg border border-border bg-muted/30 p-3">
             <div className="flex flex-col gap-1">

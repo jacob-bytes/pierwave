@@ -1,0 +1,106 @@
+{
+  "base": "http://127.0.0.1:8796",
+  "generatedAt": "2026-11-20T14:05:20.165Z",
+  "results": [
+    {
+      "file": "create-empty-dark-1440.png",
+      "hint": false,
+      "price": ""
+    },
+    {
+      "file": "create-filled-dark-1440.png",
+      "hint": true,
+      "date": "2026-12-31",
+      "price": "268.00"
+    },
+    {
+      "file": "create-inline-price-dark-1440.png",
+      "errorText": "价格需在 0–9,999,999.99 元之间，最多两位小数"
+    },
+    {
+      "api": "POST /api/v1/servers",
+      "created": {
+        "paid_until": "2026-12-31",
+        "price_cents": 26800,
+        "currency": "CNY",
+        "billing_cycle": "monthly"
+      }
+    },
+    {
+      "file": "edit-filled-dark-1440.png",
+      "backfill": {
+        "date": "2026-12-31",
+        "price": "268",
+        "currency": "CNY",
+        "cycle": "月"
+      }
+    },
+    {
+      "api": "PATCH … (clear)",
+      "cleared": {
+        "paid_until": null,
+        "price_cents": null,
+        "currency": null,
+        "billing_cycle": null
+      }
+    },
+    {
+      "file": "edit-inline-api-error-dark-1440.png",
+      "apiErrorText": "币种不合法：需为 3 位大写字母（如 CNY / USD / EUR），或留空",
+      "intercepted": 1
+    },
+    {
+      "file": "create-filled-light-1440.png",
+      "theme": "light",
+      "width": 1440,
+      "locale": "zh-CN",
+      "overflow": {
+        "scrollWidth": 1440,
+        "clientWidth": 1440
+      },
+      "hint": 1
+    },
+    {
+      "file": "create-filled-dark-390.png",
+      "theme": "dark",
+      "width": 390,
+      "locale": "zh-CN",
+      "overflow": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      },
+      "hint": 1
+    },
+    {
+      "file": "create-filled-light-390.png",
+      "theme": "light",
+      "width": 390,
+      "locale": "zh-CN",
+      "overflow": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      },
+      "hint": 1
+    },
+    {
+      "file": "create-filled-dark-1440-en.png",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "en",
+      "overflow": {
+        "scrollWidth": 1440,
+        "clientWidth": 1440
+      },
+      "hint": 1
+    },
+    {
+      "api": "error codes",
+      "codes": [
+        "server.paid_until_invalid",
+        "server.price_cents_invalid",
+        "server.currency_invalid",
+        "server.billing_cycle_invalid"
+      ]
+    }
+  ]
+}
