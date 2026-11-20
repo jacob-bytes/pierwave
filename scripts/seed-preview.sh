@@ -215,6 +215,28 @@ SELECT
 FROM seed;
 
 -- ------------------------------------------------------------
+-- 费用与到期：给部分服务器填上，用来展示探针页的第三组信息
+-- （其余保持未填，对照"整组不显示"的降级效果）
+-- 日期用相对 now 的偏移，重建预览后语义仍然成立：
+--   未来到期 / 今天附近到期 / 已过期，各有一台。
+-- ------------------------------------------------------------
+UPDATE servers SET paid_until = date('now', '+27 days'),
+                   price_cents = 26800, currency = 'CNY', billing_cycle = 'monthly'
+ WHERE name = '香港-01';
+UPDATE servers SET paid_until = date('now', '+3 days'),
+                   price_cents = 4999, currency = 'USD', billing_cycle = 'monthly'
+ WHERE name IN ('东京-01', '东京-02');
+UPDATE servers SET paid_until = date('now', '-1 day'),
+                   price_cents = 128000, currency = 'JPY', billing_cycle = 'monthly'
+ WHERE name = '大阪-01';
+UPDATE servers SET paid_until = date('now', '+101 days'),
+                   price_cents = 99900, currency = 'CNY', billing_cycle = 'yearly'
+ WHERE name = '新加坡-02';
+UPDATE servers SET paid_until = date('now', '+222 days'),
+                   price_cents = 199900, currency = 'CNY', billing_cycle = 'once'
+ WHERE name = '美西-01';
+
+-- ------------------------------------------------------------
 -- 节点：每台 1–3 个，共 18 个
 -- ------------------------------------------------------------
 WITH seed(
