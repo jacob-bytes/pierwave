@@ -269,6 +269,15 @@ for (const job of jobs()) {
         ...rect(element),
         text: element.innerText.replace(/\s+/g, " ").trim(),
       }));
+      const verdictStyle = getComputedStyle(verdictText);
+      const values = [
+        ...hero.querySelectorAll('[data-slot="hero-kpi-value"]'),
+      ].map((element) => ({
+        kpi: element.dataset.kpi,
+        fontSize: parseFloat(getComputedStyle(element).fontSize),
+        lineHeight: parseFloat(getComputedStyle(element).lineHeight),
+        bottom: round(element.getBoundingClientRect().bottom),
+      }));
       const charts = [
         ...hero.querySelectorAll('[data-slot="hero-sparkline"]'),
       ].map((element) => {
@@ -304,6 +313,9 @@ for (const job of jobs()) {
         textGap: round(stats.getBoundingClientRect().x - verdictText.getBoundingClientRect().right),
         stats: rect(stats),
         columns,
+        verdictWeight: verdictStyle.fontWeight,
+        verdictSize: parseFloat(verdictStyle.fontSize),
+        values,
         charts,
         scrollWidth: document.documentElement.scrollWidth,
         clientWidth: document.documentElement.clientWidth,
@@ -418,10 +430,27 @@ for (const job of jobs()) {
         metrics.gap >= 120,
         `结论与 KPI 之间仍太挤：${metrics.gap}px`,
       );
-      // hero 总高应从 213px 收到约 170px：图变小、间距收紧、去掉进度条。
+      assert.equal(metrics.verdictWeight, "600", "结论句应为 semibold（600）");
+      assert.equal(metrics.verdictSize, 20, "结论句字号不应改变");
       assert.ok(
-        metrics.hero.height <= 180,
-        `hero 仍太高：${metrics.hero.height}px（目标约 170px）`,
+        metrics.values.every(
+          (value) => value.fontSize === 28 && value.lineHeight === 28,
+        ),
+        `三 KPI 应为 28px / 28px：${metrics.values
+          .map((value) => `${value.kpi}:${value.fontSize}/${value.lineHeight}`)
+          .join(" ")}`,
+      );
+      const valueBottoms = ["latency", "uptime", "rate"].map(
+        (kpi) => metrics.values.find((value) => value.kpi === kpi)?.bottom,
+      );
+      assert.ok(
+        Math.max(...valueBottoms) - Math.min(...valueBottoms) <= 1,
+        `三列数字基线未对齐：${valueBottoms.join(" / ")}`,
+      );
+      // hero 总高不应变高（上一版 171px）。
+      assert.ok(
+        metrics.hero.height <= 171.5,
+        `hero 不应变高：实测 ${metrics.hero.height}px`,
       );
       for (const chart of metrics.charts) {
         assert.equal(chart.height, 24, `${chart.kind} 桌面高度应为 24px`);
@@ -440,6 +469,21 @@ for (const job of jobs()) {
       assert.ok(
         Math.abs(metrics.columns[0].width - metrics.columns[2].width) <= 1,
         "堆叠后三行应同宽",
+      );
+      assert.equal(metrics.verdictWeight, "600", "结论句应为 semibold（600）");
+      assert.equal(metrics.verdictSize, 18, "结论句字号不应改变");
+      assert.ok(
+        metrics.values.every(
+          (value) => value.fontSize === 19 && value.lineHeight === 19,
+        ),
+        `三 KPI 应为 19px / 19px：${metrics.values
+          .map((value) => `${value.kpi}:${value.fontSize}/${value.lineHeight}`)
+          .join(" ")}`,
+      );
+      // hero 总高不应变高（上一版 368.8px）。
+      assert.ok(
+        metrics.hero.height <= 369,
+        `hero 不应变高：实测 ${metrics.hero.height}px`,
       );
       for (const chart of metrics.charts) {
         assert.equal(chart.height, 20, `${chart.kind} 手机高度应为 20px`);
@@ -539,6 +583,9 @@ for (const job of jobs()) {
       hero: metrics.hero,
       verdict: metrics.verdict,
       verdictText: metrics.verdictText,
+      verdictWeight: metrics.verdictWeight,
+      verdictSize: metrics.verdictSize,
+      values: metrics.values,
       gap: metrics.gap,
       textGap: metrics.textGap,
       stats: metrics.stats,

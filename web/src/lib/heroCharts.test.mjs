@@ -119,19 +119,19 @@ test("hero tolerates an old backend without series", () => {
   assert.match(page, /series=\{data\.series \?\? null\}/);
 });
 
-test("all three KPI numbers share the 30/20px scale and 12px units", () => {
+test("all three KPI numbers share the 19/28px scale and 12px units", () => {
   const hero = read("../components/status/Hero.tsx");
-  // 速率不再是最小的 16px 数值；三个数字都走 20px（<640）/ 30px（≥640）。
+  // 速率不再是最小的 16px 数值；三个数字都走 19px（<640）/ 28px（≥640）。
   assert.doesNotMatch(hero, /text-base leading-none font-semibold/);
   assert.ok(
-    (hero.match(/text-xl leading-none font-semibold[^"]*sm:text-3xl/g) ?? [])
+    (hero.match(/text-\[19px\] leading-none font-semibold[^"]*sm:text-\[28px\]/g) ?? [])
       .length >= 3,
     "延迟 / 可用率 / 速率都要用同一档数值字号",
   );
   // 速率值整体不换行；放不下时让两个方向换行，而不是缩字号。
   assert.match(
     hero,
-    /text-xl leading-none font-semibold whitespace-nowrap sm:text-3xl/,
+    /text-\[19px\] leading-none font-semibold whitespace-nowrap sm:text-\[28px\]/,
   );
   // `%` 从 30px 数字里拆出来，和 ms / MB\/s 一样是 12px muted。
   assert.match(
@@ -187,4 +187,14 @@ test("empty label is readable: 11px, opaque muted", () => {
     spark,
     /bg-card px-1 text-\[11px\] leading-none text-muted-foreground/,
   );
+});
+
+test("the verdict is one weight step heavier without changing size", () => {
+  const hero = read("../components/status/Hero.tsx");
+  // 只提字重：字号、字距、颜色都不动。
+  assert.match(
+    hero,
+    /text-lg leading-snug font-semibold tracking-tight text-pretty sm:text-xl/,
+  );
+  assert.doesNotMatch(hero, /font-medium/);
 });

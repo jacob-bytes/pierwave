@@ -112,7 +112,7 @@ function RateValue({
         <span
           data-slot="hero-kpi-value"
           data-kpi="rate"
-          className="text-xl leading-none font-semibold text-muted-foreground sm:text-3xl"
+          className="text-[19px] leading-none font-semibold text-muted-foreground sm:text-[28px]"
         >
           —
         </span>
@@ -121,7 +121,7 @@ function RateValue({
           key={`${parts.value} ${parts.unit}`}
           data-slot="hero-kpi-value"
           data-kpi="rate"
-          className="value-settle tnum inline-flex items-baseline gap-1 text-xl leading-none font-semibold whitespace-nowrap sm:text-3xl"
+          className="value-settle tnum inline-flex items-baseline gap-1 text-[19px] leading-none font-semibold whitespace-nowrap sm:text-[28px]"
         >
           {parts.value}
           <span
@@ -151,7 +151,7 @@ function RateFlow({ rate }: { rate: OnlineRate | null }) {
       <span
         data-slot="hero-kpi-value"
         data-kpi="rate"
-        className="text-xl leading-none font-semibold text-muted-foreground sm:text-3xl"
+        className="text-[19px] leading-none font-semibold text-muted-foreground sm:text-[28px]"
       >
         —
       </span>
@@ -254,7 +254,7 @@ export function Hero({
               calm && "status-breathe",
             )}
           />
-          <p className="min-w-0 text-lg leading-snug font-medium tracking-tight text-pretty sm:text-xl">
+          <p className="min-w-0 text-lg leading-snug font-semibold tracking-tight text-pretty sm:text-xl">
             {t(headlineText.key, headlineText.values)}
           </p>
         </div>
@@ -272,7 +272,7 @@ export function Hero({
               <span
                 data-slot="hero-kpi-value"
                 data-kpi="latency"
-                className="text-xl leading-none font-semibold text-muted-foreground sm:text-3xl"
+                className="text-[19px] leading-none font-semibold text-muted-foreground sm:text-[28px]"
               >
                 —
               </span>
@@ -280,7 +280,7 @@ export function Hero({
               <span
                 data-slot="hero-kpi-value"
                 data-kpi="latency"
-                className="tnum inline-flex items-baseline gap-1 text-xl leading-none font-semibold sm:text-3xl"
+                className="tnum inline-flex items-baseline gap-1 text-[19px] leading-none font-semibold sm:text-[28px]"
               >
                 {averageLatencyMs}
                 <span
@@ -307,7 +307,7 @@ export function Hero({
               <span
                 data-slot="hero-kpi-value"
                 data-kpi="uptime"
-                className="text-xl leading-none font-semibold text-muted-foreground sm:text-3xl"
+                className="text-[19px] leading-none font-semibold text-muted-foreground sm:text-[28px]"
               >
                 —
               </span>
@@ -316,7 +316,7 @@ export function Hero({
                 data-slot="hero-kpi-value"
                 data-kpi="uptime"
                 className={cn(
-                  "tnum inline-flex items-baseline gap-1 text-xl leading-none font-semibold sm:text-3xl",
+                  "tnum inline-flex items-baseline gap-1 text-[19px] leading-none font-semibold sm:text-[28px]",
                   AVAILABILITY_TEXT_CLASS[averageTone],
                 )}
               >

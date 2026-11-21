@@ -33,9 +33,10 @@ BASE_URL=http://localhost:4173 node screenshots/kpi-fixes/shots.mjs
 
 ## 实测 / Measured
 
-- 数值：**30px / line-height 30px（1440）**、**20px / 20px（390）**；速率不再 16px。
+- 数值：**28px / line-height 28px（1440）**、**19px / 19px（390）**；速率不再 16px。
 - 单位：`ms` / `%` / `MB/s` / `GB/s` / `TB/s` 全部 **12px**、muted；`%` 已从数字 span 拆出。
-- 基线：1440 下三列数字 text bottom 全部 **153px**；三张图的 bottom 全部 **187px**。
+- 结论句：`font-weight: 600`（semibold），字号仍 20px（1440）/ 18px（390）。
+- 基线：1440 下三列数字 text bottom 全部 **151px**；三张图的 bottom 全部 **187px**。
 - 高度：hero 仍 **171px（1440）/ 368.75px（390）**，未因字号变大而撑高（速率在 1440 仍一行）。
 - 小值地板：`y=21` vs 0 的 `y=23`，桌面 **2px**、390 **1.67px**；0 仍贴底。
 - 空态：11px，暗色对比度 **7.08**、亮色 **5.51**（均 ≥4.5）。

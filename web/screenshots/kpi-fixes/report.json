@@ -20,50 +20,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 609,
           "y": 123,
-          "width": 58.08,
-          "height": 30,
-          "bottom": 153
+          "width": 55.58,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 871.33,
           "y": 123,
-          "width": 69.8,
-          "height": 30,
-          "bottom": 153
+          "width": 66.05,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "1.95 GB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 1149.66,
           "y": 123,
-          "width": 94.78,
-          "height": 30,
-          "bottom": 153
+          "width": 90.59,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "2 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
-          "x": 1266.44,
+          "x": 1262.25,
           "y": 123,
-          "width": 52.48,
-          "height": 30,
-          "bottom": 153
+          "width": 51.23,
+          "height": 28,
+          "bottom": 151
         }
       ],
       "units": [
@@ -89,9 +89,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 153,
-        "uptime": 153,
-        "rate": 153
+        "latency": 151,
+        "uptime": 151,
+        "rate": 151
       },
       "charts": [
         {
@@ -199,50 +199,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 176.75,
-          "width": 45.59,
-          "height": 21,
-          "bottom": 197.75
+          "width": 44.34,
+          "height": 20,
+          "bottom": 196.75
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 255.75,
-          "width": 51.08,
-          "height": 21,
-          "bottom": 276.75
+          "width": 49.2,
+          "height": 20,
+          "bottom": 275.75
         },
         {
           "kpi": "rate",
           "text": "1.95 GB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 48,
           "y": 334.75,
-          "width": 73.81,
-          "height": 21,
-          "bottom": 355.75
+          "width": 71.72,
+          "height": 20,
+          "bottom": 354.75
         },
         {
           "kpi": "rate",
           "text": "2 MB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
-          "x": 143.81,
+          "x": 141.72,
           "y": 334.75,
-          "width": 46.23,
-          "height": 21,
-          "bottom": 355.75
+          "width": 45.61,
+          "height": 20,
+          "bottom": 354.75
         }
       ],
       "units": [
@@ -268,9 +268,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 197.75,
-        "uptime": 276.75,
-        "rate": 355.75
+        "latency": 196.75,
+        "uptime": 275.75,
+        "rate": 354.75
       },
       "charts": [
         {
@@ -378,50 +378,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 609,
           "y": 123,
-          "width": 58.08,
-          "height": 30,
-          "bottom": 153
+          "width": 55.58,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 871.33,
           "y": 123,
-          "width": 69.8,
-          "height": 30,
-          "bottom": 153
+          "width": 66.05,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "1.95 GB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 1149.66,
           "y": 123,
-          "width": 94.78,
-          "height": 30,
-          "bottom": 153
+          "width": 90.59,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "2 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
-          "x": 1266.44,
+          "x": 1262.25,
           "y": 123,
-          "width": 52.48,
-          "height": 30,
-          "bottom": 153
+          "width": 51.23,
+          "height": 28,
+          "bottom": 151
         }
       ],
       "units": [
@@ -447,9 +447,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 153,
-        "uptime": 153,
-        "rate": 153
+        "latency": 151,
+        "uptime": 151,
+        "rate": 151
       },
       "charts": [
         {
@@ -557,50 +557,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 176.75,
-          "width": 45.59,
-          "height": 21,
-          "bottom": 197.75
+          "width": 44.34,
+          "height": 20,
+          "bottom": 196.75
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 255.75,
-          "width": 51.08,
-          "height": 21,
-          "bottom": 276.75
+          "width": 49.2,
+          "height": 20,
+          "bottom": 275.75
         },
         {
           "kpi": "rate",
           "text": "1.95 GB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 48,
           "y": 334.75,
-          "width": 73.81,
-          "height": 21,
-          "bottom": 355.75
+          "width": 71.72,
+          "height": 20,
+          "bottom": 354.75
         },
         {
           "kpi": "rate",
           "text": "2 MB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
-          "x": 143.81,
+          "x": 141.72,
           "y": 334.75,
-          "width": 46.23,
-          "height": 21,
-          "bottom": 355.75
+          "width": 45.61,
+          "height": 20,
+          "bottom": 354.75
         }
       ],
       "units": [
@@ -626,9 +626,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 197.75,
-        "uptime": 276.75,
-        "rate": 355.75
+        "latency": 196.75,
+        "uptime": 275.75,
+        "rate": 354.75
       },
       "charts": [
         {
@@ -715,7 +715,7 @@
       ],
       "emptyLabels": [],
       "firstCardText": "香港-亚太边缘入口 🇭🇰 在线 20 天 Debian GNU/Linux 12 · kvm · x86_64 · 延迟 25 ms 负载 0.40 1 分钟平均 内存 25% 4 GB / 16 GB 硬盘 50% 40 GB / 80 GB 24h 可用率 100% 近 24 小时 下行 1.95 GB/s 上行 2 MB/s 下行 累计流量 100 GB 上行 累计流量 20 GB 到期 未配置 价格 未配置 7 天可用率 100%",
-      "kb": 23
+      "kb": 22
     },
     {
       "fixture": "dual-gap-rx-high",
@@ -736,50 +736,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 609,
           "y": 123,
-          "width": 58.08,
-          "height": 30,
-          "bottom": 153
+          "width": 55.58,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 871.33,
           "y": 123,
-          "width": 69.8,
-          "height": 30,
-          "bottom": 153
+          "width": 66.05,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "1.95 GB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 1149.66,
           "y": 123,
-          "width": 94.78,
-          "height": 30,
-          "bottom": 153
+          "width": 90.59,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "2 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
-          "x": 1266.44,
+          "x": 1262.25,
           "y": 123,
-          "width": 52.48,
-          "height": 30,
-          "bottom": 153
+          "width": 51.23,
+          "height": 28,
+          "bottom": 151
         }
       ],
       "units": [
@@ -805,9 +805,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 153,
-        "uptime": 153,
-        "rate": 153
+        "latency": 151,
+        "uptime": 151,
+        "rate": 151
       },
       "charts": [
         {
@@ -929,50 +929,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 176.75,
-          "width": 45.59,
-          "height": 21,
-          "bottom": 197.75
+          "width": 44.34,
+          "height": 20,
+          "bottom": 196.75
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 255.75,
-          "width": 51.08,
-          "height": 21,
-          "bottom": 276.75
+          "width": 49.2,
+          "height": 20,
+          "bottom": 275.75
         },
         {
           "kpi": "rate",
           "text": "1.95 GB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 48,
           "y": 334.75,
-          "width": 73.81,
-          "height": 21,
-          "bottom": 355.75
+          "width": 71.72,
+          "height": 20,
+          "bottom": 354.75
         },
         {
           "kpi": "rate",
           "text": "2 MB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
-          "x": 143.81,
+          "x": 141.72,
           "y": 334.75,
-          "width": 46.23,
-          "height": 21,
-          "bottom": 355.75
+          "width": 45.61,
+          "height": 20,
+          "bottom": 354.75
         }
       ],
       "units": [
@@ -998,9 +998,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 197.75,
-        "uptime": 276.75,
-        "rate": 355.75
+        "latency": 196.75,
+        "uptime": 275.75,
+        "rate": 354.75
       },
       "charts": [
         {
@@ -1122,50 +1122,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 609,
           "y": 123,
-          "width": 58.08,
-          "height": 30,
-          "bottom": 153
+          "width": 55.58,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 871.33,
           "y": 123,
-          "width": 69.8,
-          "height": 30,
-          "bottom": 153
+          "width": 66.05,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "1.95 GB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 1149.66,
           "y": 123,
-          "width": 94.78,
-          "height": 30,
-          "bottom": 153
+          "width": 90.59,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "2 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
-          "x": 1266.44,
+          "x": 1262.25,
           "y": 123,
-          "width": 52.48,
-          "height": 30,
-          "bottom": 153
+          "width": 51.23,
+          "height": 28,
+          "bottom": 151
         }
       ],
       "units": [
@@ -1191,9 +1191,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 153,
-        "uptime": 153,
-        "rate": 153
+        "latency": 151,
+        "uptime": 151,
+        "rate": 151
       },
       "charts": [
         {
@@ -1315,50 +1315,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 176.75,
-          "width": 45.59,
-          "height": 21,
-          "bottom": 197.75
+          "width": 44.34,
+          "height": 20,
+          "bottom": 196.75
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 255.75,
-          "width": 51.08,
-          "height": 21,
-          "bottom": 276.75
+          "width": 49.2,
+          "height": 20,
+          "bottom": 275.75
         },
         {
           "kpi": "rate",
           "text": "1.95 GB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 48,
           "y": 334.75,
-          "width": 73.81,
-          "height": 21,
-          "bottom": 355.75
+          "width": 71.72,
+          "height": 20,
+          "bottom": 354.75
         },
         {
           "kpi": "rate",
           "text": "2 MB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
-          "x": 143.81,
+          "x": 141.72,
           "y": 334.75,
-          "width": 46.23,
-          "height": 21,
-          "bottom": 355.75
+          "width": 45.61,
+          "height": 20,
+          "bottom": 354.75
         }
       ],
       "units": [
@@ -1384,9 +1384,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 197.75,
-        "uptime": 276.75,
-        "rate": 355.75
+        "latency": 196.75,
+        "uptime": 275.75,
+        "rate": 354.75
       },
       "charts": [
         {
@@ -1487,7 +1487,7 @@
       ],
       "emptyLabels": [],
       "firstCardText": "香港-亚太边缘入口 🇭🇰 在线 20 天 Debian GNU/Linux 12 · kvm · x86_64 · 延迟 25 ms 负载 0.40 1 分钟平均 内存 25% 4 GB / 16 GB 硬盘 50% 40 GB / 80 GB 24h 可用率 100% 近 24 小时 下行 1.95 GB/s 上行 2 MB/s 下行 累计流量 100 GB 上行 累计流量 20 GB 到期 未配置 价格 未配置 7 天可用率 100%",
-      "kb": 23
+      "kb": 22
     },
     {
       "fixture": "uptime-9999",
@@ -1508,50 +1508,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 609,
           "y": 123,
-          "width": 58.08,
-          "height": 30,
-          "bottom": 153
+          "width": 55.58,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "uptime",
           "text": "99.99 %",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 871.33,
           "y": 123,
-          "width": 95.25,
-          "height": 30,
-          "bottom": 153
+          "width": 89.81,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "98.4 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 1149.66,
           "y": 123,
-          "width": 96.66,
-          "height": 30,
-          "bottom": 153
+          "width": 92.47,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "16.8 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
-          "x": 1268.31,
+          "x": 1264.13,
           "y": 123,
-          "width": 96.66,
-          "height": 30,
-          "bottom": 153
+          "width": 92.47,
+          "height": 28,
+          "bottom": 151
         }
       ],
       "units": [
@@ -1577,9 +1577,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 153,
-        "uptime": 153,
-        "rate": 153
+        "latency": 151,
+        "uptime": 151,
+        "rate": 151
       },
       "charts": [
         {
@@ -1694,57 +1694,57 @@
         "x": 16,
         "y": 81,
         "width": 358,
-        "height": 382.75,
-        "bottom": 463.75
+        "height": 380.75,
+        "bottom": 461.75
       },
       "values": [
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 176.75,
-          "width": 45.59,
-          "height": 21,
-          "bottom": 197.75
+          "width": 44.34,
+          "height": 20,
+          "bottom": 196.75
         },
         {
           "kpi": "uptime",
           "text": "99.99 %",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 255.75,
-          "width": 68.05,
-          "height": 21,
-          "bottom": 276.75
+          "width": 65.33,
+          "height": 20,
+          "bottom": 275.75
         },
         {
           "kpi": "rate",
           "text": "98.4 MB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 48,
           "y": 334.75,
-          "width": 75.69,
-          "height": 21,
-          "bottom": 355.75
+          "width": 73.59,
+          "height": 20,
+          "bottom": 354.75
         },
         {
           "kpi": "rate",
           "text": "16.8 MB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 48,
-          "y": 359.75,
-          "width": 75.69,
-          "height": 21,
-          "bottom": 380.75
+          "y": 358.75,
+          "width": 73.59,
+          "height": 20,
+          "bottom": 378.75
         }
       ],
       "units": [
@@ -1770,9 +1770,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 197.75,
-        "uptime": 276.75,
-        "rate": 355.75
+        "latency": 196.75,
+        "uptime": 275.75,
+        "rate": 354.75
       },
       "charts": [
         {
@@ -1837,7 +1837,7 @@
           "kind": "rate",
           "state": "ready",
           "height": 20,
-          "bottom": 356.75,
+          "bottom": 355.75,
           "pathCount": 2,
           "ys": [
             [
@@ -1873,7 +1873,7 @@
       ],
       "emptyLabels": [],
       "firstCardText": "香港-亚太边缘入口 🇭🇰 在线 20 天 Debian GNU/Linux 12 · kvm · x86_64 · 延迟 25 ms 负载 0.40 1 分钟平均 内存 25% 4 GB / 16 GB 硬盘 50% 40 GB / 80 GB 24h 可用率 99.99% 近 24 小时 下行 12.3 MB/s 上行 2.1 MB/s 下行 累计流量 100 GB 上行 累计流量 20 GB 到期 未配置 价格 未配置 7 天可用率 100%",
-      "kb": 22
+      "kb": 23
     },
     {
       "fixture": "uptime-9999",
@@ -1894,50 +1894,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 609,
           "y": 123,
-          "width": 58.08,
-          "height": 30,
-          "bottom": 153
+          "width": 55.58,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "uptime",
           "text": "99.99 %",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 871.33,
           "y": 123,
-          "width": 95.25,
-          "height": 30,
-          "bottom": 153
+          "width": 89.81,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "98.4 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 1149.66,
           "y": 123,
-          "width": 96.66,
-          "height": 30,
-          "bottom": 153
+          "width": 92.47,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "16.8 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
-          "x": 1268.31,
+          "x": 1264.13,
           "y": 123,
-          "width": 96.66,
-          "height": 30,
-          "bottom": 153
+          "width": 92.47,
+          "height": 28,
+          "bottom": 151
         }
       ],
       "units": [
@@ -1963,9 +1963,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 153,
-        "uptime": 153,
-        "rate": 153
+        "latency": 151,
+        "uptime": 151,
+        "rate": 151
       },
       "charts": [
         {
@@ -2080,57 +2080,57 @@
         "x": 16,
         "y": 81,
         "width": 358,
-        "height": 382.75,
-        "bottom": 463.75
+        "height": 380.75,
+        "bottom": 461.75
       },
       "values": [
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 176.75,
-          "width": 45.59,
-          "height": 21,
-          "bottom": 197.75
+          "width": 44.34,
+          "height": 20,
+          "bottom": 196.75
         },
         {
           "kpi": "uptime",
           "text": "99.99 %",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 255.75,
-          "width": 68.05,
-          "height": 21,
-          "bottom": 276.75
+          "width": 65.33,
+          "height": 20,
+          "bottom": 275.75
         },
         {
           "kpi": "rate",
           "text": "98.4 MB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 48,
           "y": 334.75,
-          "width": 75.69,
-          "height": 21,
-          "bottom": 355.75
+          "width": 73.59,
+          "height": 20,
+          "bottom": 354.75
         },
         {
           "kpi": "rate",
           "text": "16.8 MB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 48,
-          "y": 359.75,
-          "width": 75.69,
-          "height": 21,
-          "bottom": 380.75
+          "y": 358.75,
+          "width": 73.59,
+          "height": 20,
+          "bottom": 378.75
         }
       ],
       "units": [
@@ -2156,9 +2156,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 197.75,
-        "uptime": 276.75,
-        "rate": 355.75
+        "latency": 196.75,
+        "uptime": 275.75,
+        "rate": 354.75
       },
       "charts": [
         {
@@ -2223,7 +2223,7 @@
           "kind": "rate",
           "state": "ready",
           "height": 20,
-          "bottom": 356.75,
+          "bottom": 355.75,
           "pathCount": 2,
           "ys": [
             [
@@ -2280,50 +2280,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 609,
           "y": 123,
-          "width": 58.08,
-          "height": 30,
-          "bottom": 153
+          "width": 55.58,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 871.33,
           "y": 123,
-          "width": 69.8,
-          "height": 30,
-          "bottom": 153
+          "width": 66.05,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "98.4 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 1149.66,
           "y": 123,
-          "width": 96.66,
-          "height": 30,
-          "bottom": 153
+          "width": 92.47,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "16.8 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
-          "x": 1268.31,
+          "x": 1264.13,
           "y": 123,
-          "width": 96.66,
-          "height": 30,
-          "bottom": 153
+          "width": 92.47,
+          "height": 28,
+          "bottom": 151
         }
       ],
       "units": [
@@ -2349,9 +2349,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 153,
-        "uptime": 153,
-        "rate": 153
+        "latency": 151,
+        "uptime": 151,
+        "rate": 151
       },
       "charts": [
         {
@@ -2437,57 +2437,57 @@
         "x": 16,
         "y": 81,
         "width": 358,
-        "height": 382.75,
-        "bottom": 463.75
+        "height": 380.75,
+        "bottom": 461.75
       },
       "values": [
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 176.75,
-          "width": 45.59,
-          "height": 21,
-          "bottom": 197.75
+          "width": 44.34,
+          "height": 20,
+          "bottom": 196.75
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 255.75,
-          "width": 51.08,
-          "height": 21,
-          "bottom": 276.75
+          "width": 49.2,
+          "height": 20,
+          "bottom": 275.75
         },
         {
           "kpi": "rate",
           "text": "98.4 MB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 48,
           "y": 334.75,
-          "width": 75.69,
-          "height": 21,
-          "bottom": 355.75
+          "width": 73.59,
+          "height": 20,
+          "bottom": 354.75
         },
         {
           "kpi": "rate",
           "text": "16.8 MB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 48,
-          "y": 359.75,
-          "width": 75.69,
-          "height": 21,
-          "bottom": 380.75
+          "y": 358.75,
+          "width": 73.59,
+          "height": 20,
+          "bottom": 378.75
         }
       ],
       "units": [
@@ -2513,9 +2513,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 197.75,
-        "uptime": 276.75,
-        "rate": 355.75
+        "latency": 196.75,
+        "uptime": 275.75,
+        "rate": 354.75
       },
       "charts": [
         {
@@ -2565,7 +2565,7 @@
           "kind": "rate",
           "state": "empty",
           "height": 20,
-          "bottom": 356.75,
+          "bottom": 355.75,
           "pathCount": 0,
           "ys": []
         }
@@ -2587,7 +2587,7 @@
         }
       ],
       "firstCardText": "香港-亚太边缘入口 🇭🇰 在线 20 天 Debian GNU/Linux 12 · kvm · x86_64 · 延迟 25 ms 负载 0.40 1 分钟平均 内存 25% 4 GB / 16 GB 硬盘 50% 40 GB / 80 GB 24h 可用率 100% 近 24 小时 下行 12.3 MB/s 上行 2.1 MB/s 下行 累计流量 100 GB 上行 累计流量 20 GB 到期 未配置 价格 未配置 7 天可用率 100%",
-      "kb": 25
+      "kb": 24
     },
     {
       "fixture": "series-all-null",
@@ -2608,50 +2608,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 609,
           "y": 123,
-          "width": 58.08,
-          "height": 30,
-          "bottom": 153
+          "width": 55.58,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 871.33,
           "y": 123,
-          "width": 69.8,
-          "height": 30,
-          "bottom": 153
+          "width": 66.05,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "98.4 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 1149.66,
           "y": 123,
-          "width": 96.66,
-          "height": 30,
-          "bottom": 153
+          "width": 92.47,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "16.8 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
-          "x": 1268.31,
+          "x": 1264.13,
           "y": 123,
-          "width": 96.66,
-          "height": 30,
-          "bottom": 153
+          "width": 92.47,
+          "height": 28,
+          "bottom": 151
         }
       ],
       "units": [
@@ -2677,9 +2677,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 153,
-        "uptime": 153,
-        "rate": 153
+        "latency": 151,
+        "uptime": 151,
+        "rate": 151
       },
       "charts": [
         {
@@ -2765,57 +2765,57 @@
         "x": 16,
         "y": 81,
         "width": 358,
-        "height": 382.75,
-        "bottom": 463.75
+        "height": 380.75,
+        "bottom": 461.75
       },
       "values": [
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 176.75,
-          "width": 45.59,
-          "height": 21,
-          "bottom": 197.75
+          "width": 44.34,
+          "height": 20,
+          "bottom": 196.75
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 255.75,
-          "width": 51.08,
-          "height": 21,
-          "bottom": 276.75
+          "width": 49.2,
+          "height": 20,
+          "bottom": 275.75
         },
         {
           "kpi": "rate",
           "text": "98.4 MB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 48,
           "y": 334.75,
-          "width": 75.69,
-          "height": 21,
-          "bottom": 355.75
+          "width": 73.59,
+          "height": 20,
+          "bottom": 354.75
         },
         {
           "kpi": "rate",
           "text": "16.8 MB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 48,
-          "y": 359.75,
-          "width": 75.69,
-          "height": 21,
-          "bottom": 380.75
+          "y": 358.75,
+          "width": 73.59,
+          "height": 20,
+          "bottom": 378.75
         }
       ],
       "units": [
@@ -2841,9 +2841,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 197.75,
-        "uptime": 276.75,
-        "rate": 355.75
+        "latency": 196.75,
+        "uptime": 275.75,
+        "rate": 354.75
       },
       "charts": [
         {
@@ -2893,7 +2893,7 @@
           "kind": "rate",
           "state": "empty",
           "height": 20,
-          "bottom": 356.75,
+          "bottom": 355.75,
           "pathCount": 0,
           "ys": []
         }
@@ -2936,50 +2936,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 609,
           "y": 123,
-          "width": 58.08,
-          "height": 30,
-          "bottom": 153
+          "width": 55.58,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "uptime",
           "text": "—",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 871.33,
           "y": 123,
-          "width": 27.3,
-          "height": 30,
-          "bottom": 153
+          "width": 25.48,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "98.4 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 1149.66,
           "y": 123,
-          "width": 96.66,
-          "height": 30,
-          "bottom": 153
+          "width": 92.47,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "16.8 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
-          "x": 1268.31,
+          "x": 1264.13,
           "y": 123,
-          "width": 96.66,
-          "height": 30,
-          "bottom": 153
+          "width": 92.47,
+          "height": 28,
+          "bottom": 151
         }
       ],
       "units": [
@@ -3000,9 +3000,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 153,
-        "uptime": 153,
-        "rate": 153
+        "latency": 151,
+        "uptime": 151,
+        "rate": 151
       },
       "charts": [
         {
@@ -3098,57 +3098,57 @@
         "x": 16,
         "y": 81,
         "width": 358,
-        "height": 382.75,
-        "bottom": 463.75
+        "height": 380.75,
+        "bottom": 461.75
       },
       "values": [
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 176.75,
-          "width": 45.59,
-          "height": 21,
-          "bottom": 197.75
+          "width": 44.34,
+          "height": 20,
+          "bottom": 196.75
         },
         {
           "kpi": "uptime",
           "text": "—",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 255.75,
-          "width": 18.2,
-          "height": 20,
-          "bottom": 275.75
+          "width": 17.3,
+          "height": 19,
+          "bottom": 274.75
         },
         {
           "kpi": "rate",
           "text": "98.4 MB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 48,
           "y": 334.75,
-          "width": 75.69,
-          "height": 21,
-          "bottom": 355.75
+          "width": 73.59,
+          "height": 20,
+          "bottom": 354.75
         },
         {
           "kpi": "rate",
           "text": "16.8 MB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 48,
-          "y": 359.75,
-          "width": 75.69,
-          "height": 21,
-          "bottom": 380.75
+          "y": 358.75,
+          "width": 73.59,
+          "height": 20,
+          "bottom": 378.75
         }
       ],
       "units": [
@@ -3169,9 +3169,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 197.75,
-        "uptime": 275.75,
-        "rate": 355.75
+        "latency": 196.75,
+        "uptime": 274.75,
+        "rate": 354.75
       },
       "charts": [
         {
@@ -3209,7 +3209,7 @@
           "kind": "rate",
           "state": "ready",
           "height": 20,
-          "bottom": 356.75,
+          "bottom": 355.75,
           "pathCount": 2,
           "ys": [
             [
@@ -3274,50 +3274,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 609,
           "y": 123,
-          "width": 58.08,
-          "height": 30,
-          "bottom": 153
+          "width": 55.58,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "uptime",
           "text": "—",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 871.33,
           "y": 123,
-          "width": 27.3,
-          "height": 30,
-          "bottom": 153
+          "width": 25.48,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "98.4 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 1149.66,
           "y": 123,
-          "width": 96.66,
-          "height": 30,
-          "bottom": 153
+          "width": 92.47,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "16.8 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
-          "x": 1268.31,
+          "x": 1264.13,
           "y": 123,
-          "width": 96.66,
-          "height": 30,
-          "bottom": 153
+          "width": 92.47,
+          "height": 28,
+          "bottom": 151
         }
       ],
       "units": [
@@ -3338,9 +3338,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 153,
-        "uptime": 153,
-        "rate": 153
+        "latency": 151,
+        "uptime": 151,
+        "rate": 151
       },
       "charts": [
         {
@@ -3436,57 +3436,57 @@
         "x": 16,
         "y": 81,
         "width": 358,
-        "height": 382.75,
-        "bottom": 463.75
+        "height": 380.75,
+        "bottom": 461.75
       },
       "values": [
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 176.75,
-          "width": 45.59,
-          "height": 21,
-          "bottom": 197.75
+          "width": 44.34,
+          "height": 20,
+          "bottom": 196.75
         },
         {
           "kpi": "uptime",
           "text": "—",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 255.75,
-          "width": 18.2,
-          "height": 20,
-          "bottom": 275.75
+          "width": 17.3,
+          "height": 19,
+          "bottom": 274.75
         },
         {
           "kpi": "rate",
           "text": "98.4 MB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 48,
           "y": 334.75,
-          "width": 75.69,
-          "height": 21,
-          "bottom": 355.75
+          "width": 73.59,
+          "height": 20,
+          "bottom": 354.75
         },
         {
           "kpi": "rate",
           "text": "16.8 MB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 48,
-          "y": 359.75,
-          "width": 75.69,
-          "height": 21,
-          "bottom": 380.75
+          "y": 358.75,
+          "width": 73.59,
+          "height": 20,
+          "bottom": 378.75
         }
       ],
       "units": [
@@ -3507,9 +3507,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 197.75,
-        "uptime": 275.75,
-        "rate": 355.75
+        "latency": 196.75,
+        "uptime": 274.75,
+        "rate": 354.75
       },
       "charts": [
         {
@@ -3547,7 +3547,7 @@
           "kind": "rate",
           "state": "ready",
           "height": 20,
-          "bottom": 356.75,
+          "bottom": 355.75,
           "pathCount": 2,
           "ys": [
             [
@@ -3612,50 +3612,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 609,
           "y": 123,
-          "width": 58.08,
-          "height": 30,
-          "bottom": 153
+          "width": 55.58,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 871.33,
           "y": 123,
-          "width": 69.8,
-          "height": 30,
-          "bottom": 153
+          "width": 66.05,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "1 TB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 1149.66,
           "y": 123,
-          "width": 48.47,
-          "height": 30,
-          "bottom": 153
+          "width": 47.22,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "1 B/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
-          "x": 1220.13,
+          "x": 1218.88,
           "y": 123,
-          "width": 42.2,
-          "height": 30,
-          "bottom": 153
+          "width": 40.95,
+          "height": 28,
+          "bottom": 151
         }
       ],
       "units": [
@@ -3681,9 +3681,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 153,
-        "uptime": 153,
-        "rate": 153
+        "latency": 151,
+        "uptime": 151,
+        "rate": 151
       },
       "charts": [
         {
@@ -3784,7 +3784,7 @@
       ],
       "emptyLabels": [],
       "firstCardText": "香港-亚太边缘入口 🇭🇰 在线 20 天 Debian GNU/Linux 12 · kvm · x86_64 · 延迟 25 ms 负载 0.40 1 分钟平均 内存 25% 4 GB / 16 GB 硬盘 50% 40 GB / 80 GB 24h 可用率 100% 近 24 小时 下行 1 TB/s 上行 1 B/s 下行 累计流量 100 GB 上行 累计流量 20 GB 到期 未配置 价格 未配置 7 天可用率 100%",
-      "kb": 22
+      "kb": 23
     },
     {
       "fixture": "rate-1024",
@@ -3805,50 +3805,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 176.75,
-          "width": 45.59,
-          "height": 21,
-          "bottom": 197.75
+          "width": 44.34,
+          "height": 20,
+          "bottom": 196.75
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 255.75,
-          "width": 51.08,
-          "height": 21,
-          "bottom": 276.75
+          "width": 49.2,
+          "height": 20,
+          "bottom": 275.75
         },
         {
           "kpi": "rate",
           "text": "1 TB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 48,
           "y": 334.75,
-          "width": 42.22,
-          "height": 21,
-          "bottom": 355.75
+          "width": 41.59,
+          "height": 20,
+          "bottom": 354.75
         },
         {
           "kpi": "rate",
           "text": "1 B/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
-          "x": 112.22,
+          "x": 111.59,
           "y": 334.75,
-          "width": 35.95,
-          "height": 21,
-          "bottom": 355.75
+          "width": 35.33,
+          "height": 20,
+          "bottom": 354.75
         }
       ],
       "units": [
@@ -3874,9 +3874,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 197.75,
-        "uptime": 276.75,
-        "rate": 355.75
+        "latency": 196.75,
+        "uptime": 275.75,
+        "rate": 354.75
       },
       "charts": [
         {
@@ -3977,7 +3977,7 @@
       ],
       "emptyLabels": [],
       "firstCardText": "香港-亚太边缘入口 🇭🇰 在线 20 天 Debian GNU/Linux 12 · kvm · x86_64 · 延迟 25 ms 负载 0.40 1 分钟平均 内存 25% 4 GB / 16 GB 硬盘 50% 40 GB / 80 GB 24h 可用率 100% 近 24 小时 下行 1 TB/s 上行 1 B/s 下行 累计流量 100 GB 上行 累计流量 20 GB 到期 未配置 价格 未配置 7 天可用率 100%",
-      "kb": 20
+      "kb": 21
     },
     {
       "fixture": "rate-1024",
@@ -3998,50 +3998,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 609,
           "y": 123,
-          "width": 58.08,
-          "height": 30,
-          "bottom": 153
+          "width": 55.58,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 871.33,
           "y": 123,
-          "width": 69.8,
-          "height": 30,
-          "bottom": 153
+          "width": 66.05,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "1 TB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 1149.66,
           "y": 123,
-          "width": 48.47,
-          "height": 30,
-          "bottom": 153
+          "width": 47.22,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "1 B/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
-          "x": 1220.13,
+          "x": 1218.88,
           "y": 123,
-          "width": 42.2,
-          "height": 30,
-          "bottom": 153
+          "width": 40.95,
+          "height": 28,
+          "bottom": 151
         }
       ],
       "units": [
@@ -4067,9 +4067,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 153,
-        "uptime": 153,
-        "rate": 153
+        "latency": 151,
+        "uptime": 151,
+        "rate": 151
       },
       "charts": [
         {
@@ -4191,50 +4191,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 176.75,
-          "width": 45.59,
-          "height": 21,
-          "bottom": 197.75
+          "width": 44.34,
+          "height": 20,
+          "bottom": 196.75
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 255.75,
-          "width": 51.08,
-          "height": 21,
-          "bottom": 276.75
+          "width": 49.2,
+          "height": 20,
+          "bottom": 275.75
         },
         {
           "kpi": "rate",
           "text": "1 TB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 48,
           "y": 334.75,
-          "width": 42.22,
-          "height": 21,
-          "bottom": 355.75
+          "width": 41.59,
+          "height": 20,
+          "bottom": 354.75
         },
         {
           "kpi": "rate",
           "text": "1 B/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
-          "x": 112.22,
+          "x": 111.59,
           "y": 334.75,
-          "width": 35.95,
-          "height": 21,
-          "bottom": 355.75
+          "width": 35.33,
+          "height": 20,
+          "bottom": 354.75
         }
       ],
       "units": [
@@ -4260,9 +4260,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 197.75,
-        "uptime": 276.75,
-        "rate": 355.75
+        "latency": 196.75,
+        "uptime": 275.75,
+        "rate": 354.75
       },
       "charts": [
         {
@@ -4379,7 +4379,7 @@
           "tooltipId": "pw-hero-spark-tip-_r_2_",
           "tooltipLive": "polite",
           "tooltipHidden": null,
-          "tooltipText": "12:07:31 下行 1.95 GB/s 上行 —",
+          "tooltipText": "12:16:08 下行 1.95 GB/s 上行 —",
           "outlineWidth": "2px",
           "outlineStyle": "solid",
           "outlineColor": "oklch(0.74 0.16 264.6)"
@@ -4391,7 +4391,7 @@
           "tooltipId": "pw-hero-spark-tip-_r_2_",
           "tooltipLive": "polite",
           "tooltipHidden": null,
-          "tooltipText": "12:02:31 下行 2 MB/s 上行 —",
+          "tooltipText": "12:11:08 下行 2 MB/s 上行 —",
           "outlineWidth": "2px",
           "outlineStyle": "solid",
           "outlineColor": "oklch(0.74 0.16 264.6)"
@@ -4422,50 +4422,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 609,
           "y": 123,
-          "width": 58.08,
-          "height": 30,
-          "bottom": 153
+          "width": 55.58,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 871.33,
           "y": 123,
-          "width": 69.8,
-          "height": 30,
-          "bottom": 153
+          "width": 66.05,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "1.95 GB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 1149.66,
           "y": 123,
-          "width": 94.78,
-          "height": 30,
-          "bottom": 153
+          "width": 90.59,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "2 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
-          "x": 1266.44,
+          "x": 1262.25,
           "y": 123,
-          "width": 52.48,
-          "height": 30,
-          "bottom": 153
+          "width": 51.23,
+          "height": 28,
+          "bottom": 151
         }
       ],
       "units": [
@@ -4491,9 +4491,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 153,
-        "uptime": 153,
-        "rate": 153
+        "latency": 151,
+        "uptime": 151,
+        "rate": 151
       },
       "charts": [
         {
@@ -4601,50 +4601,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 609,
           "y": 123,
-          "width": 58.08,
-          "height": 30,
-          "bottom": 153
+          "width": 55.58,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 871.33,
           "y": 123,
-          "width": 69.8,
-          "height": 30,
-          "bottom": 153
+          "width": 66.05,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "—",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 1149.66,
           "y": 123,
-          "width": 27.3,
-          "height": 30,
-          "bottom": 153
+          "width": 25.48,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "98.4 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
-          "x": 1198.95,
+          "x": 1197.14,
           "y": 123,
-          "width": 96.66,
-          "height": 30,
-          "bottom": 153
+          "width": 92.47,
+          "height": 28,
+          "bottom": 151
         }
       ],
       "units": [
@@ -4665,9 +4665,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 153,
-        "uptime": 153,
-        "rate": 153
+        "latency": 151,
+        "uptime": 151,
+        "rate": 151
       },
       "charts": [
         {
@@ -4775,38 +4775,38 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 609,
           "y": 123,
-          "width": 58.08,
-          "height": 30,
-          "bottom": 153
+          "width": 55.58,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 871.33,
           "y": 123,
-          "width": 69.8,
-          "height": 30,
-          "bottom": 153
+          "width": 66.05,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "—",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 1133.66,
           "y": 123,
-          "width": 27.3,
-          "height": 30,
-          "bottom": 153
+          "width": 25.48,
+          "height": 28,
+          "bottom": 151
         }
       ],
       "units": [
@@ -4822,9 +4822,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 153,
-        "uptime": 153,
-        "rate": 153
+        "latency": 151,
+        "uptime": 151,
+        "rate": 151
       },
       "charts": [
         {
@@ -4904,7 +4904,7 @@
         }
       ],
       "firstCardText": "香港-亚太边缘入口 🇭🇰 在线 20 天 Debian GNU/Linux 12 · kvm · x86_64 · 延迟 25 ms 负载 0.40 1 分钟平均 内存 25% 4 GB / 16 GB 硬盘 50% 40 GB / 80 GB 24h 可用率 100% 近 24 小时 下行 — 上行 — 下行 累计流量 100 GB 上行 累计流量 20 GB 到期 未配置 价格 未配置 7 天可用率 100%",
-      "kb": 23
+      "kb": 22
     },
     {
       "fixture": "uptime-9999-full",
@@ -4925,50 +4925,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 609,
           "y": 123,
-          "width": 58.08,
-          "height": 30,
-          "bottom": 153
+          "width": 55.58,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "uptime",
           "text": "99.99 %",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 871.33,
           "y": 123,
-          "width": 95.25,
-          "height": 30,
-          "bottom": 153
+          "width": 89.81,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "98.4 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 1149.66,
           "y": 123,
-          "width": 96.66,
-          "height": 30,
-          "bottom": 153
+          "width": 92.47,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "16.8 MB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
-          "x": 1268.31,
+          "x": 1264.13,
           "y": 123,
-          "width": 96.66,
-          "height": 30,
-          "bottom": 153
+          "width": 92.47,
+          "height": 28,
+          "bottom": 151
         }
       ],
       "units": [
@@ -4994,9 +4994,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 153,
-        "uptime": 153,
-        "rate": 153
+        "latency": 151,
+        "uptime": 151,
+        "rate": 151
       },
       "charts": [
         {
@@ -5097,7 +5097,7 @@
       ],
       "emptyLabels": [],
       "firstCardText": "香港-亚太边缘入口 🇭🇰 在线 20 天 Debian GNU/Linux 12 · kvm · x86_64 · 延迟 25 ms 负载 0.40 1 分钟平均 内存 25% 4 GB / 16 GB 硬盘 50% 40 GB / 80 GB 24h 可用率 99.99% 近 24 小时 下行 12.3 MB/s 上行 2.1 MB/s 下行 累计流量 100 GB 上行 累计流量 20 GB 到期 未配置 价格 未配置 7 天可用率 100%",
-      "kb": 129
+      "kb": 130
     },
     {
       "fixture": "rate-tiny",
@@ -5118,50 +5118,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 609,
           "y": 123,
-          "width": 58.08,
-          "height": 30,
-          "bottom": 153
+          "width": 55.58,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 871.33,
           "y": 123,
-          "width": 69.8,
-          "height": 30,
-          "bottom": 153
+          "width": 66.05,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "<1 B/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 1149.66,
           "y": 123,
-          "width": 58.64,
-          "height": 30,
-          "bottom": 153
+          "width": 56.3,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "<1 B/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
-          "x": 1230.3,
+          "x": 1227.95,
           "y": 123,
-          "width": 58.64,
-          "height": 30,
-          "bottom": 153
+          "width": 56.3,
+          "height": 28,
+          "bottom": 151
         }
       ],
       "units": [
@@ -5187,9 +5187,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 153,
-        "uptime": 153,
-        "rate": 153
+        "latency": 151,
+        "uptime": 151,
+        "rate": 151
       },
       "charts": [
         {
@@ -5311,50 +5311,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 609,
           "y": 123,
-          "width": 58.08,
-          "height": 30,
-          "bottom": 153
+          "width": 55.58,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 871.33,
           "y": 123,
-          "width": 69.8,
-          "height": 30,
-          "bottom": 153
+          "width": 66.05,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "1 TB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
           "x": 1149.66,
           "y": 123,
-          "width": 48.47,
-          "height": 30,
-          "bottom": 153
+          "width": 47.22,
+          "height": 28,
+          "bottom": 151
         },
         {
           "kpi": "rate",
           "text": "1 TB/s",
-          "fontSize": 30,
-          "lineHeight": "30px",
+          "fontSize": 28,
+          "lineHeight": "28px",
           "direction": null,
-          "x": 1220.13,
+          "x": 1218.88,
           "y": 123,
-          "width": 48.47,
-          "height": 30,
-          "bottom": 153
+          "width": 47.22,
+          "height": 28,
+          "bottom": 151
         }
       ],
       "units": [
@@ -5380,9 +5380,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 153,
-        "uptime": 153,
-        "rate": 153
+        "latency": 151,
+        "uptime": 151,
+        "rate": 151
       },
       "charts": [
         {
@@ -5483,7 +5483,7 @@
       ],
       "emptyLabels": [],
       "firstCardText": "香港-亚太边缘入口 🇭🇰 在线 20 天 Debian GNU/Linux 12 · kvm · x86_64 · 延迟 25 ms 负载 0.40 1 分钟平均 内存 25% 4 GB / 16 GB 硬盘 50% 40 GB / 80 GB 24h 可用率 100% 近 24 小时 下行 1 TB/s 上行 1 TB/s 下行 累计流量 100 GB 上行 累计流量 20 GB 到期 未配置 价格 未配置 7 天可用率 100%",
-      "kb": 23
+      "kb": 22
     },
     {
       "fixture": "rate-1024-both",
@@ -5504,50 +5504,50 @@
         {
           "kpi": "latency",
           "text": "25 ms",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 176.75,
-          "width": 45.59,
-          "height": 21,
-          "bottom": 197.75
+          "width": 44.34,
+          "height": 20,
+          "bottom": 196.75
         },
         {
           "kpi": "uptime",
           "text": "100 %",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 32,
           "y": 255.75,
-          "width": 51.08,
-          "height": 21,
-          "bottom": 276.75
+          "width": 49.2,
+          "height": 20,
+          "bottom": 275.75
         },
         {
           "kpi": "rate",
           "text": "1 TB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
           "x": 48,
           "y": 334.75,
-          "width": 42.22,
-          "height": 21,
-          "bottom": 355.75
+          "width": 41.59,
+          "height": 20,
+          "bottom": 354.75
         },
         {
           "kpi": "rate",
           "text": "1 TB/s",
-          "fontSize": 20,
-          "lineHeight": "20px",
+          "fontSize": 19,
+          "lineHeight": "19px",
           "direction": null,
-          "x": 112.22,
+          "x": 111.59,
           "y": 334.75,
-          "width": 42.22,
-          "height": 21,
-          "bottom": 355.75
+          "width": 41.59,
+          "height": 20,
+          "bottom": 354.75
         }
       ],
       "units": [
@@ -5573,9 +5573,9 @@
         }
       ],
       "baselineBottoms": {
-        "latency": 197.75,
-        "uptime": 276.75,
-        "rate": 355.75
+        "latency": 196.75,
+        "uptime": 275.75,
+        "rate": 354.75
       },
       "charts": [
         {

@@ -353,8 +353,8 @@ for (const job of jobs()) {
     });
 
     // ---- 通用断言：字号 / 单位 / 基线 ------------------------------------------
-    const expectedValue = job.width === 1440 ? 30 : 20;
-    const expectedLine = job.width === 1440 ? 30 : 20;
+    const expectedValue = job.width === 1440 ? 28 : 19;
+    const expectedLine = job.width === 1440 ? 28 : 19;
     for (const value of metrics.values) {
       assert.equal(
         value.fontSize,

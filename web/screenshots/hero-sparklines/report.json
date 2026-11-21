@@ -43,6 +43,28 @@
         "width": 156,
         "height": 27.5
       },
+      "verdictWeight": "600",
+      "verdictSize": 20,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        }
+      ],
       "gap": 338,
       "textGap": 338,
       "stats": {
@@ -153,6 +175,28 @@
         "width": 140.4,
         "height": 24.8
       },
+      "verdictWeight": "600",
+      "verdictSize": 18,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 195.8
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 274.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 353.8
+        }
+      ],
       "gap": -326,
       "textGap": -158.4,
       "stats": {
@@ -263,6 +307,28 @@
         "width": 156,
         "height": 27.5
       },
+      "verdictWeight": "600",
+      "verdictSize": 20,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        }
+      ],
       "gap": 338,
       "textGap": 338,
       "stats": {
@@ -345,7 +411,7 @@
       "scrollHeight": 1037,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 140
+      "kb": 141
     },
     {
       "state": "empty",
@@ -373,6 +439,28 @@
         "width": 140.4,
         "height": 24.8
       },
+      "verdictWeight": "600",
+      "verdictSize": 18,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 195.8
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 274.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 353.8
+        }
+      ],
       "gap": -326,
       "textGap": -158.4,
       "stats": {
@@ -474,17 +562,45 @@
       "verdict": {
         "x": 64,
         "y": 130.3,
-        "width": 233.7,
+        "width": 233.8,
         "height": 27.5
       },
       "verdictText": {
         "x": 82,
         "y": 130.3,
-        "width": 215.7,
+        "width": 215.8,
         "height": 27.5
       },
-      "gap": 278.3,
-      "textGap": 278.3,
+      "verdictWeight": "600",
+      "verdictSize": 20,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        }
+      ],
+      "gap": 278.2,
+      "textGap": 278.2,
       "stats": {
         "x": 576,
         "y": 101,
@@ -592,11 +708,39 @@
       "verdictText": {
         "x": 50,
         "y": 97,
-        "width": 194.1,
+        "width": 194.2,
         "height": 24.8
       },
+      "verdictWeight": "600",
+      "verdictSize": 18,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 196.8
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 275.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 354.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 354.8
+        }
+      ],
       "gap": -326,
-      "textGap": -212.1,
+      "textGap": -212.2,
       "stats": {
         "x": 32,
         "y": 137.8,
@@ -698,17 +842,45 @@
       "verdict": {
         "x": 64,
         "y": 130.3,
-        "width": 233.7,
+        "width": 233.8,
         "height": 27.5
       },
       "verdictText": {
         "x": 82,
         "y": 130.3,
-        "width": 215.7,
+        "width": 215.8,
         "height": 27.5
       },
-      "gap": 278.3,
-      "textGap": 278.3,
+      "verdictWeight": "600",
+      "verdictSize": 20,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        }
+      ],
+      "gap": 278.2,
+      "textGap": 278.2,
       "stats": {
         "x": 576,
         "y": 101,
@@ -816,11 +988,39 @@
       "verdictText": {
         "x": 50,
         "y": 97,
-        "width": 194.1,
+        "width": 194.2,
         "height": 24.8
       },
+      "verdictWeight": "600",
+      "verdictSize": 18,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 196.8
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 275.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 354.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 354.8
+        }
+      ],
       "gap": -326,
-      "textGap": -212.1,
+      "textGap": -212.2,
       "stats": {
         "x": 32,
         "y": 137.8,
@@ -922,17 +1122,45 @@
       "verdict": {
         "x": 64,
         "y": 130.3,
-        "width": 233.7,
+        "width": 233.8,
         "height": 27.5
       },
       "verdictText": {
         "x": 82,
         "y": 130.3,
-        "width": 215.7,
+        "width": 215.8,
         "height": 27.5
       },
-      "gap": 278.3,
-      "textGap": 278.3,
+      "verdictWeight": "600",
+      "verdictSize": 20,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        }
+      ],
+      "gap": 278.2,
+      "textGap": 278.2,
       "stats": {
         "x": 576,
         "y": 101,
@@ -1045,11 +1273,39 @@
       "verdictText": {
         "x": 50,
         "y": 97,
-        "width": 194.1,
+        "width": 194.2,
         "height": 24.8
       },
+      "verdictWeight": "600",
+      "verdictSize": 18,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 196.8
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 275.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 354.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 354.8
+        }
+      ],
       "gap": -326,
-      "textGap": -212.1,
+      "textGap": -212.2,
       "stats": {
         "x": 32,
         "y": 137.8,
@@ -1137,7 +1393,7 @@
       "scrollHeight": 3541,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 271
+      "kb": 270
     },
     {
       "state": "partial",
@@ -1156,17 +1412,45 @@
       "verdict": {
         "x": 64,
         "y": 130.3,
-        "width": 233.7,
+        "width": 233.8,
         "height": 27.5
       },
       "verdictText": {
         "x": 82,
         "y": 130.3,
-        "width": 215.7,
+        "width": 215.8,
         "height": 27.5
       },
-      "gap": 278.3,
-      "textGap": 278.3,
+      "verdictWeight": "600",
+      "verdictSize": 20,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        }
+      ],
+      "gap": 278.2,
+      "textGap": 278.2,
       "stats": {
         "x": 576,
         "y": 101,
@@ -1254,7 +1538,7 @@
       "scrollHeight": 1009,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 172
+      "kb": 171
     },
     {
       "state": "partial",
@@ -1279,11 +1563,39 @@
       "verdictText": {
         "x": 50,
         "y": 97,
-        "width": 194.1,
+        "width": 194.2,
         "height": 24.8
       },
+      "verdictWeight": "600",
+      "verdictSize": 18,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 196.8
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 275.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 354.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 354.8
+        }
+      ],
       "gap": -326,
-      "textGap": -212.1,
+      "textGap": -212.2,
       "stats": {
         "x": 32,
         "y": 137.8,
@@ -1390,17 +1702,45 @@
       "verdict": {
         "x": 64,
         "y": 130.3,
-        "width": 233.7,
+        "width": 233.8,
         "height": 27.5
       },
       "verdictText": {
         "x": 82,
         "y": 130.3,
-        "width": 215.7,
+        "width": 215.8,
         "height": 27.5
       },
-      "gap": 278.3,
-      "textGap": 278.3,
+      "verdictWeight": "600",
+      "verdictSize": 20,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        }
+      ],
+      "gap": 278.2,
+      "textGap": 278.2,
       "stats": {
         "x": 576,
         "y": 101,
@@ -1513,11 +1853,39 @@
       "verdictText": {
         "x": 50,
         "y": 97,
-        "width": 194.1,
+        "width": 194.2,
         "height": 24.8
       },
+      "verdictWeight": "600",
+      "verdictSize": 18,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 196.8
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 275.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 354.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 354.8
+        }
+      ],
       "gap": -326,
-      "textGap": -212.1,
+      "textGap": -212.2,
       "stats": {
         "x": 32,
         "y": 137.8,
@@ -1605,7 +1973,7 @@
       "scrollHeight": 3541,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 271
+      "kb": 270
     },
     {
       "state": "full",
@@ -1624,17 +1992,45 @@
       "verdict": {
         "x": 64,
         "y": 130.3,
-        "width": 233.7,
+        "width": 233.8,
         "height": 27.5
       },
       "verdictText": {
         "x": 82,
         "y": 130.3,
-        "width": 215.7,
+        "width": 215.8,
         "height": 27.5
       },
-      "gap": 278.3,
-      "textGap": 278.3,
+      "verdictWeight": "600",
+      "verdictSize": 20,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        }
+      ],
+      "gap": 278.2,
+      "textGap": 278.2,
       "stats": {
         "x": 576,
         "y": 101,
@@ -1747,11 +2143,39 @@
       "verdictText": {
         "x": 50,
         "y": 97,
-        "width": 194.1,
+        "width": 194.2,
         "height": 24.8
       },
+      "verdictWeight": "600",
+      "verdictSize": 18,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 196.8
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 275.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 354.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 354.8
+        }
+      ],
       "gap": -326,
-      "textGap": -212.1,
+      "textGap": -212.2,
       "stats": {
         "x": 32,
         "y": 137.8,
@@ -1858,17 +2282,45 @@
       "verdict": {
         "x": 64,
         "y": 130.3,
-        "width": 289,
+        "width": 289.4,
         "height": 27.5
       },
       "verdictText": {
         "x": 82,
         "y": 130.3,
-        "width": 271,
+        "width": 271.4,
         "height": 27.5
       },
-      "gap": 223,
-      "textGap": 223,
+      "verdictWeight": "600",
+      "verdictSize": 20,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        }
+      ],
+      "gap": 222.6,
+      "textGap": 222.6,
       "stats": {
         "x": 576,
         "y": 101,
@@ -1981,11 +2433,39 @@
       "verdictText": {
         "x": 50,
         "y": 97,
-        "width": 243.9,
+        "width": 244.3,
         "height": 24.8
       },
+      "verdictWeight": "600",
+      "verdictSize": 18,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 196.8
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 275.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 354.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 354.8
+        }
+      ],
       "gap": -326,
-      "textGap": -261.9,
+      "textGap": -262.3,
       "stats": {
         "x": 32,
         "y": 137.8,
@@ -2073,7 +2553,7 @@
       "scrollHeight": 3541,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 249
+      "kb": 250
     },
     {
       "state": "zero",
@@ -2092,17 +2572,45 @@
       "verdict": {
         "x": 64,
         "y": 130.3,
-        "width": 289,
+        "width": 289.4,
         "height": 27.5
       },
       "verdictText": {
         "x": 82,
         "y": 130.3,
-        "width": 271,
+        "width": 271.4,
         "height": 27.5
       },
-      "gap": 223,
-      "textGap": 223,
+      "verdictWeight": "600",
+      "verdictSize": 20,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        }
+      ],
+      "gap": 222.6,
+      "textGap": 222.6,
       "stats": {
         "x": 576,
         "y": 101,
@@ -2215,11 +2723,39 @@
       "verdictText": {
         "x": 50,
         "y": 97,
-        "width": 243.9,
+        "width": 244.3,
         "height": 24.8
       },
+      "verdictWeight": "600",
+      "verdictSize": 18,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 196.8
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 275.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 354.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 354.8
+        }
+      ],
       "gap": -326,
-      "textGap": -261.9,
+      "textGap": -262.3,
       "stats": {
         "x": 32,
         "y": 137.8,
@@ -2307,7 +2843,7 @@
       "scrollHeight": 3541,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 264
+      "kb": 265
     },
     {
       "state": "full",
@@ -2326,17 +2862,45 @@
       "verdict": {
         "x": 64,
         "y": 130.3,
-        "width": 312.8,
+        "width": 320.6,
         "height": 27.5
       },
       "verdictText": {
         "x": 82,
         "y": 130.3,
-        "width": 294.8,
+        "width": 302.6,
         "height": 27.5
       },
-      "gap": 199.2,
-      "textGap": 199.2,
+      "verdictWeight": "600",
+      "verdictSize": 20,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        }
+      ],
+      "gap": 191.4,
+      "textGap": 191.4,
       "stats": {
         "x": 576,
         "y": 101,
@@ -2424,7 +2988,7 @@
       "scrollHeight": 1009,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 159
+      "kb": 158
     },
     {
       "state": "empty",
@@ -2443,17 +3007,39 @@
       "verdict": {
         "x": 64,
         "y": 130.3,
-        "width": 248.3,
+        "width": 253.1,
         "height": 27.5
       },
       "verdictText": {
         "x": 82,
         "y": 130.3,
-        "width": 230.3,
+        "width": 235.1,
         "height": 27.5
       },
-      "gap": 263.8,
-      "textGap": 263.8,
+      "verdictWeight": "600",
+      "verdictSize": 20,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        }
+      ],
+      "gap": 258.9,
+      "textGap": 258.9,
       "stats": {
         "x": 576,
         "y": 101,
@@ -2534,7 +3120,7 @@
       "scrollHeight": 1037,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 131
+      "kb": 130
     },
     {
       "state": "full",
@@ -2553,17 +3139,45 @@
       "verdict": {
         "x": 64,
         "y": 130.3,
-        "width": 233.7,
+        "width": 233.8,
         "height": 27.5
       },
       "verdictText": {
         "x": 82,
         "y": 130.3,
-        "width": 215.7,
+        "width": 215.8,
         "height": 27.5
       },
-      "gap": 278.3,
-      "textGap": 278.3,
+      "verdictWeight": "600",
+      "verdictSize": 20,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        }
+      ],
+      "gap": 278.2,
+      "textGap": 278.2,
       "stats": {
         "x": 576,
         "y": 101,
@@ -2649,7 +3263,7 @@
       ],
       "scrollWidth": 1440,
       "scrollHeight": 1009,
-      "tooltip": "11:53:38 下行 32.1 MB/s 上行 4.47 MB/s",
+      "tooltip": "12:02:03 下行 32.1 MB/s 上行 4.47 MB/s",
       "hoverRing": null,
       "kb": 166
     },
@@ -2670,17 +3284,45 @@
       "verdict": {
         "x": 64,
         "y": 130.3,
-        "width": 289,
+        "width": 289.4,
         "height": 27.5
       },
       "verdictText": {
         "x": 82,
         "y": 130.3,
-        "width": 271,
+        "width": 271.4,
         "height": 27.5
       },
-      "gap": 223,
-      "textGap": 223,
+      "verdictWeight": "600",
+      "verdictSize": 20,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        }
+      ],
+      "gap": 222.6,
+      "textGap": 222.6,
       "stats": {
         "x": 576,
         "y": 101,
@@ -2766,7 +3408,7 @@
       ],
       "scrollWidth": 1440,
       "scrollHeight": 1009,
-      "tooltip": "11:53:40 下行 0 B/s 上行 0 B/s",
+      "tooltip": "12:02:03 下行 0 B/s 上行 0 B/s",
       "hoverRing": null,
       "kb": 152
     },
@@ -2787,17 +3429,45 @@
       "verdict": {
         "x": 64,
         "y": 130.3,
-        "width": 233.7,
+        "width": 233.8,
         "height": 27.5
       },
       "verdictText": {
         "x": 82,
         "y": 130.3,
-        "width": 215.7,
+        "width": 215.8,
         "height": 27.5
       },
-      "gap": 278.3,
-      "textGap": 278.3,
+      "verdictWeight": "600",
+      "verdictSize": 20,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        }
+      ],
+      "gap": 278.2,
+      "textGap": 278.2,
       "stats": {
         "x": 576,
         "y": 101,
@@ -2914,17 +3584,45 @@
       "verdict": {
         "x": 64,
         "y": 130.3,
-        "width": 233.7,
+        "width": 233.8,
         "height": 27.5
       },
       "verdictText": {
         "x": 82,
         "y": 130.3,
-        "width": 215.7,
+        "width": 215.8,
         "height": 27.5
       },
-      "gap": 278.3,
-      "textGap": 278.3,
+      "verdictWeight": "600",
+      "verdictSize": 20,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 28,
+          "lineHeight": 28,
+          "bottom": 151
+        }
+      ],
+      "gap": 278.2,
+      "textGap": 278.2,
       "stats": {
         "x": 576,
         "y": 101,
@@ -3047,11 +3745,39 @@
       "verdictText": {
         "x": 50,
         "y": 97,
-        "width": 194.1,
+        "width": 194.2,
         "height": 24.8
       },
+      "verdictWeight": "600",
+      "verdictSize": 18,
+      "values": [
+        {
+          "kpi": "latency",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 196.8
+        },
+        {
+          "kpi": "uptime",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 275.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 354.8
+        },
+        {
+          "kpi": "rate",
+          "fontSize": 19,
+          "lineHeight": 19,
+          "bottom": 354.8
+        }
+      ],
       "gap": -326,
-      "textGap": -212.1,
+      "textGap": -212.2,
       "stats": {
         "x": 32,
         "y": 137.8,
