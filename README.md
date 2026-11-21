@@ -80,15 +80,21 @@ failure. Heartbeats carry facts only; the agent's single action is "converge to 
 
 | Public status | Servers |
 |---|---|
-| ![Public status page](docs/images/readme/en/status.png) | ![Server list](docs/images/readme/en/servers.png) |
+| ![Public status page: published nodes, uptime and live rates](docs/images/readme/en/status.png) | ![Server list: agents, Xray state, load and heartbeat](docs/images/readme/en/servers.png) |
+
+| Node detail | Settings |
+|---|---|
+| ![Node detail: availability, runtime and billing](docs/images/readme/en/status-detail.png) | ![Settings: public addresses, agent upgrades and the public status page](docs/images/readme/en/settings.png) |
 
 | Forward chains | Subscription templates |
 |---|---|
 | ![Forward chains](docs/images/readme/en/chains.png) | ![Subscription templates](docs/images/readme/en/subscription-templates.png) |
 
-The user view returns only the signed-in user's data: quota, subscription link, self-service forwards and packages.
+The user view returns only the signed-in user's data: quota, subscription link, self-service forwards, packages and sign-in devices.
 
-![User view](docs/images/readme/en/me.png)
+| User view | Sign-in |
+|---|---|
+| ![User view: quota, usage and sign-in devices](docs/images/readme/en/me.png) | ![Sign-in page](docs/images/readme/en/login.png) |
 
 ## Quick start
 

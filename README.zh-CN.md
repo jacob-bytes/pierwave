@@ -76,15 +76,21 @@
 
 | 公开探针 | 服务器 |
 |---|---|
-| ![公开探针页](docs/images/readme/zh/status.png) | ![服务器列表](docs/images/readme/zh/servers.png) |
+| ![公开探针页：公开节点、可用率与实时速率](docs/images/readme/zh/status.png) | ![服务器列表：Agent、Xray 状态、负载与心跳](docs/images/readme/zh/servers.png) |
+
+| 节点详情 | 设置 |
+|---|---|
+| ![节点详情：可用率、运行环境与费用](docs/images/readme/zh/status-detail.png) | ![设置：对外地址、Agent 升级与公开状态页](docs/images/readme/zh/settings.png) |
 
 | 转发链 | 订阅模板 |
 |---|---|
 | ![转发链](docs/images/readme/zh/chains.png) | ![订阅模板](docs/images/readme/zh/subscription-templates.png) |
 
-用户端只返回当前登录用户的数据：额度、订阅链接、自助转发与套餐。
+用户端只返回当前登录用户的数据：额度、订阅链接、自助转发、套餐与登录设备。
 
-![用户端](docs/images/readme/zh/me.png)
+| 用户端 | 登录页 |
+|---|---|
+| ![用户端：额度、用量与登录设备](docs/images/readme/zh/me.png) | ![登录页](docs/images/readme/zh/login.png) |
 
 ## 快速开始
 
