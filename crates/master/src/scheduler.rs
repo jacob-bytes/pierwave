@@ -591,6 +591,20 @@ pub async fn run_remote_backup_round(state: &AppState) -> anyhow::Result<RemoteB
         Err(crate::remote_backup::RunError::Secret(error)) => {
             Ok(RemoteBackupRound::Failed(error.message))
         }
+        Err(crate::remote_backup::RunError::TooLarge {
+            db_bytes,
+            max_bytes,
+            message,
+        }) => {
+            // 超限不是传输故障：任务判失败，但状态里要能读到具体原因。
+            crate::remote_backup::record_failure(&state.db.pool, &message).await;
+            tracing::error!(
+                db_bytes,
+                max_bytes,
+                "异地备份因数据库超过上限失败 / off-site backup skipped: database too large"
+            );
+            Ok(RemoteBackupRound::Failed(message))
+        }
         Err(crate::remote_backup::RunError::Failed(message)) => {
             Ok(RemoteBackupRound::Failed(message))
         }
@@ -830,6 +844,53 @@ mod tests {
             run_remote_backup_round(&state).await.unwrap(),
             RemoteBackupRound::NotDue
         );
+    }
+
+    /// 定时备份遇到库超限：任务判失败并写 last_error，且不尝试联网。
+    #[tokio::test]
+    async fn scheduled_backup_with_oversized_database_is_failed_with_reason() {
+        // 备份需要文件型数据库；内存库会在大小检查前就被拒绝。
+        let dir = std::env::temp_dir().join(format!(
+            "pierwave-scheduler-oversized-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = Db::connect(&format!(
+            "sqlite://{}?mode=rwc",
+            dir.join("pierwave.db").display()
+        ))
+        .await
+        .unwrap();
+        db.migrate().await.unwrap();
+        let mut state = AppState::new(db, "web/dist");
+        state.max_backup_bytes = 1;
+        for (key, value) in [
+            ("backup_webdav_enabled", "1"),
+            ("backup_webdav_url", "https://dav.example.test/dav"),
+            ("backup_webdav_password", "pass"),
+            ("backup_webdav_interval_hours", "24"),
+        ] {
+            repo::settings::set(&state.db.pool, key, value)
+                .await
+                .unwrap();
+        }
+
+        let round = run_remote_backup_round(&state).await.unwrap();
+        match round {
+            RemoteBackupRound::Failed(message) => {
+                assert!(message.contains("超过"), "{message}");
+                assert!(message.contains("上限"), "{message}");
+            }
+            other => panic!("库超限必须判 Failed，实际 {other:?}"),
+        }
+        let meta = crate::remote_backup::load_meta(&state.db.pool).await;
+        assert!(
+            meta.last_error.contains("超过"),
+            "last_error 要说明超限：{}",
+            meta.last_error
+        );
+        state.db.pool.close().await;
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

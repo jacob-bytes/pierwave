@@ -741,11 +741,15 @@ DELETE /api/v1/backup/restore    -> 取消待恢复
 ```
 
 导出与异地备份共用 512 MB 默认上限（`PIERWAVE_MAX_BACKUP_MB` 可调）；超过上限时
-导出返回 `backup.export_too_large`，`too_large=true` 让前端提前提示。
+导出与 `POST /backup/remote/run` 都返回 400 `backup.export_too_large`，
+`too_large=true` 让前端提前提示；传输/认证/磁盘失败仍是 502
+`backup.remote_upload_failed`。
 
 Export and off-site backup share the 512 MB default limit (configurable with
-`PIERWAVE_MAX_BACKUP_MB`). Above the limit export returns
-`backup.export_too_large`; `too_large=true` lets the UI warn in advance.
+`PIERWAVE_MAX_BACKUP_MB`). Above the limit both export and
+`POST /backup/remote/run` return 400 `backup.export_too_large`; `too_large=true`
+lets the UI warn in advance. Transport, authentication and disk failures stay
+502 `backup.remote_upload_failed`.
 
 `db_bytes` 是数据库的**逻辑大小** `PRAGMA page_count * page_size`（含 WAL 中已提交、
 尚未 checkpoint 的页），与下载的 `VACUUM INTO` 快照同一量级；不要用主库文件的

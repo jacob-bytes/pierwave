@@ -464,6 +464,11 @@ pub async fn remote_test(
         Err(crate::remote_backup::RunError::Secret(error)) => {
             Err(crate::remote_backup::RunError::Secret(error).into_app_error())
         }
+        Err(error @ crate::remote_backup::RunError::TooLarge { .. }) => {
+            // `test_connection` 不会产生这个分支，但保持映射完整：真出现时
+            // 也应是 400 超限，而不是逐层手写一个 500。
+            Err(error.into_app_error())
+        }
         Err(crate::remote_backup::RunError::Busy) => Err(AppError::conflict(
             "backup.remote_busy",
             None,
@@ -1628,12 +1633,48 @@ mod tests {
             Vec::new(),
         )
         .await;
-        assert_eq!(status, StatusCode::BAD_GATEWAY, "{body:?}");
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "超限与导出路径一致，必须是 400：{body:?}"
+        );
         let payload = json(&body);
-        assert_eq!(payload["code"], "backup.remote_upload_failed");
+        assert_eq!(payload["code"], "backup.export_too_large", "{payload}");
+        assert_eq!(payload["params"]["max_bytes"], 1);
         assert!(
             payload["error"].as_str().unwrap().contains("超过"),
             "异地备份也要给出大小原因：{payload}"
+        );
+        assert_ne!(status, StatusCode::BAD_GATEWAY, "超限不能报成 502");
+    }
+
+    /// 真正的网络 / 认证 / 磁盘错误仍是 502 `backup.remote_upload_failed`，
+    /// 不能因为超限改成 400 就把传输失败也吞成 400。
+    #[tokio::test]
+    async fn remote_transport_failure_stays_502() {
+        let fake = crate::webdav_fake::FakeDav::start(crate::webdav_fake::FakeState {
+            fail_requests: 99,
+            fail_status: 500,
+            ..Default::default()
+        })
+        .await;
+        let (_dir, app, state, cookie) = setup("remote-502").await;
+        configure_webdav(&state, &fake.base_url, "pass", 3).await;
+
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/remote/run",
+            Vec::new(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_GATEWAY, "{body:?}");
+        let payload = json(&body);
+        assert_eq!(payload["code"], "backup.remote_upload_failed", "{payload}");
+        assert!(
+            payload["params"]["detail"].as_str().is_some(),
+            "传输失败要带 detail：{payload}"
         );
     }
 

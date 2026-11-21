@@ -67,6 +67,12 @@ pub enum RunError {
     NotConfigured(&'static str),
     /// 秘密设置（WebDAV 密码、Token 等）解不开：不是「未配置」，不能用 502 误导。
     Secret(settings::SecretError),
+    /// 数据库超过导出/异地备份上限：与导出路径同一个 400 错误码，不是传输失败。
+    TooLarge {
+        db_bytes: u64,
+        max_bytes: u64,
+        message: String,
+    },
     /// 生成本地备份或远端写入失败（消息已对密码打码）。
     Failed(String),
 }
@@ -89,6 +95,21 @@ impl RunError {
                 Some(serde_json::json!({ "keys": error.keys })),
                 error.message,
             ),
+            // 超限是「请求前置条件不满足」，与导出路径统一成 400；只有真正的
+            // 传输/认证/磁盘失败才走下面的 502。
+            RunError::TooLarge {
+                db_bytes,
+                max_bytes,
+                message,
+            } => AppError::coded(
+                "backup.export_too_large",
+                Some(serde_json::json!({
+                    "db_bytes": db_bytes,
+                    "max_bytes": max_bytes,
+                    "max_mb": max_bytes / (1024 * 1024),
+                })),
+                message,
+            ),
             RunError::Failed(message) => AppError::bad_gateway(
                 "backup.remote_upload_failed",
                 Some(serde_json::json!({ "detail": message })),
@@ -96,6 +117,33 @@ impl RunError {
             ),
         }
     }
+}
+
+/// 把「生成本地备份」阶段的错误分类：超限保留 400 错误码，其余仍是传输失败。
+fn archive_error(error: AppError) -> RunError {
+    if let AppError::Coded {
+        code,
+        params,
+        message,
+        ..
+    } = &error
+    {
+        if *code == "backup.export_too_large" {
+            let number = |name: &str| {
+                params
+                    .as_ref()
+                    .and_then(|params| params.get(name))
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0)
+            };
+            return RunError::TooLarge {
+                db_bytes: number("db_bytes"),
+                max_bytes: number("max_bytes"),
+                message: message.clone(),
+            };
+        }
+    }
+    RunError::Failed(format!("生成本地备份失败：{error}"))
 }
 
 /// 读取持久化状态；任何单键读取失败都按缺省处理，不影响设置页其它内容。
@@ -188,11 +236,11 @@ pub async fn test_connection(settings: &Settings) -> Result<(), RunError> {
         .map_err(|error| RunError::Failed(error.message().to_string()))
 }
 
-/// 把一次「秘密解不开」记为任务失败状态，返回给调用方继续处理。
+/// 把一次失败写进任务状态（`last_failure_at` / `last_attempt_at` / `last_error`）。
 ///
 /// 设置页（`/backup/remote`）读的就是这几个键；只写日志会让管理员在界面上
-/// 看不到任何失败迹象。消息已不含秘密值。
-pub(crate) async fn record_secret_failure(pool: &SqlitePool, message: &str) {
+/// 看不到任何失败迹象。消息不得含秘密值。
+pub(crate) async fn record_failure(pool: &SqlitePool, message: &str) {
     let now = time::now();
     persist(
         pool,
@@ -203,6 +251,11 @@ pub(crate) async fn record_secret_failure(pool: &SqlitePool, message: &str) {
         ],
     )
     .await;
+}
+
+/// 把一次「秘密解不开」记为任务失败状态，返回给调用方继续处理。
+pub(crate) async fn record_secret_failure(pool: &SqlitePool, message: &str) {
+    record_failure(pool, message).await;
 }
 
 /// 立即执行一次上传（定时与手动共用）。
@@ -240,7 +293,7 @@ pub async fn run_now(state: &AppState, trigger: Trigger) -> Result<UploadOutcome
 
     let archive = backup::create_backup_archive(state)
         .await
-        .map_err(|error| RunError::Failed(format!("生成本地备份失败：{error}")))?;
+        .map_err(archive_error)?;
 
     let mut last_error = String::new();
     let mut uploaded = false;

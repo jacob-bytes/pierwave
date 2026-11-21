@@ -5,6 +5,17 @@
 
 新增错误时必须同时更新本表与 `web/src/i18n/{zh-CN,en}.ts` 的 `errors.*`。
 
+备份类两个错误码分工固定：**数据库超过大小上限统一用 `backup.export_too_large`
+（400，带 `db_bytes` / `max_bytes`）**，导出 `GET /backup` 与异地备份
+`POST /backup/remote/run` 共用；**`backup.remote_upload_failed`（502）只表示
+真正的传输、认证或磁盘错误**，不能用来表示超限。
+
+Backup errors have a fixed split: **an oversized database always uses
+`backup.export_too_large` (400, with `db_bytes` / `max_bytes`)**, for both
+`GET /backup` and `POST /backup/remote/run`; **`backup.remote_upload_failed`
+(502) means a real transport, authentication or disk failure only** and must not
+be used for the size limit.
+
 | code | 中文兜底 | params |
 |---|---|---|
 | `auth.unauthorized` | 未登录 | — |
@@ -140,13 +151,13 @@
 | `backup.restore_missing_tables` | 备份缺少必需的表（settings / servers / users / _sqlx_migrations） | — |
 | `backup.restore_migration_too_new` | 备份的迁移版本 {version} 高于当前程序支持的 {supported} | supported, version |
 | `backup.restore_too_large` | 备份文件超过 {max_mb} MB 上限 | max_mb |
-| `backup.export_too_large` | 当前数据库超过导出/异地备份上限；请清理数据或调大 PIERWAVE_MAX_BACKUP_MB | db_bytes, max_bytes, max_mb |
+| `backup.export_too_large` | 当前数据库超过导出/异地备份上限（400）；请清理数据或调大 PIERWAVE_MAX_BACKUP_MB | db_bytes, max_bytes, max_mb |
 | `backup.restore_invalid` | 备份文件校验失败 | — |
 | `backup.restore_bad_gzip` | gzip 解压失败 | — |
 | `backup.restore_read_failed` | 读取上传内容失败 | — |
 | `backup.remote_busy` | 已有备份正在上传，请稍后重试 | — |
 | `backup.remote_not_configured` | 尚未配置 WebDAV 地址或密码 | — |
-| `backup.remote_upload_failed` | 异地备份上传失败：{detail} | detail |
+| `backup.remote_upload_failed` | 异地备份传输/认证/磁盘写入失败（502）：{detail} | detail |
 | `release.key_length_invalid` | 密钥长度必须是 32 字节 | actual, expected |
 | `release.public_key_invalid` | 公钥格式不合法 | — |
 | `release.signature_length_invalid` | 签名长度不合法 | actual, expected |

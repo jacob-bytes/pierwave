@@ -319,7 +319,9 @@ master key:
 
 导出和异地备份共用 `VACUUM INTO` 快照路径。生成快照**之前**先用
 `PRAGMA page_count * page_size`（含 WAL 中已提交的页）检查数据库大小；超过上限
-直接返回可读错误 `backup.export_too_large`，不会先写一份同样大的临时库。
+直接返回可读错误 `backup.export_too_large`（400），不会先写一份同样大的临时库。
+导出与异地备份（`POST /api/v1/backup/remote/run`）共用这个错误码；只有真正的
+传输 / 认证 / 磁盘失败才是 502 `backup.remote_upload_failed`。
 
 - 默认上限与恢复相同：512 MB；
 - 可用 `PIERWAVE_MAX_BACKUP_MB` 调整（正整数，单位 MB）；
@@ -329,8 +331,10 @@ master key:
 Exports and off-site backups share the `VACUUM INTO` snapshot path. Before
 creating the snapshot, the database size is checked with
 `PRAGMA page_count * page_size` (including pages committed in the WAL). Above
-the limit the endpoint returns a readable `backup.export_too_large` error
-instead of first writing an equally large temporary file.
+the limit the endpoint returns a readable `backup.export_too_large` (400) error
+instead of first writing an equally large temporary file. Exports and off-site
+backup (`POST /api/v1/backup/remote/run`) share this code; only a real transport,
+authentication or disk failure is 502 `backup.remote_upload_failed`.
 
 - Default limit is the same 512 MB used by restore;
 - override with `PIERWAVE_MAX_BACKUP_MB` (positive integer, megabytes);
