@@ -39,10 +39,10 @@ const WIDTHS = [
   { width: 390, height: 844 },
 ];
 
-/** 改前实测（同一份 8 台机器 fixture，md 以下仍是三列）：只用于报告对比。 */
+/** 本轮改前实测（上一版 48/40px 的图，同一份 8 台机器 fixture）。 */
 const BASELINE = {
-  1440: { statsWidth: 544, columnWidth: 157, heroHeight: 155 },
-  390: { statsWidth: 326, columnWidth: 101, heroHeight: 227 },
+  1440: { statsWidth: 1046, columnWidth: 324, heroHeight: 213, chartHeight: 48 },
+  390: { statsWidth: 326, columnWidth: 326, heroHeight: 405, chartHeight: 40 },
 };
 
 const EMPTY_LABEL = {
@@ -365,8 +365,13 @@ for (const job of jobs()) {
         metrics.stats.width >= 850,
         `KPI 区应占满剩余宽度，实测 ${metrics.stats.width}px`,
       );
+      // hero 总高应从 213px 收到约 170px：图变小、间距收紧、去掉进度条。
+      assert.ok(
+        metrics.hero.height <= 180,
+        `hero 仍太高：${metrics.hero.height}px（目标约 170px）`,
+      );
       for (const chart of metrics.charts) {
-        assert.equal(chart.height, 48, `${chart.kind} 桌面高度应为 48px`);
+        assert.equal(chart.height, 24, `${chart.kind} 桌面高度应为 24px`);
         assert.ok(chart.width >= 200, `${chart.kind} 桌面宽度过窄`);
       }
     } else {
@@ -384,7 +389,7 @@ for (const job of jobs()) {
         "堆叠后三行应同宽",
       );
       for (const chart of metrics.charts) {
-        assert.equal(chart.height, 40, `${chart.kind} 手机高度应为 40px`);
+        assert.equal(chart.height, 20, `${chart.kind} 手机高度应为 20px`);
       }
     }
 

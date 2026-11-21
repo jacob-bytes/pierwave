@@ -229,7 +229,7 @@ const en = {
       allOffline: "No nodes online right now",
       allOfflineLow: "No nodes online right now; {low} with low availability",
       averageLatency: "Avg latency",
-      averageUptime: "Avg 24h uptime",
+      averageUptime: "24h uptime",
       totalRate: "Total rate",
       load: "Load {value}",
       chartEmpty: "Collecting data",

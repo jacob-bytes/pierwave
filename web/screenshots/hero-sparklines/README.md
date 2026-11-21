@@ -31,6 +31,10 @@ BASE_URL=http://localhost:4173 node screenshots/hero-sparklines/shots.mjs
 | `full` | 完整 12 点 | 完整（10–11 点一次小事故） | 三张完整折线 |
 | `zero` | 全部为 0（不是 null） | 全 0 | 三张图都画线；速率贴底，tooltip 读 `0 B/s` |
 
+本轮同时删掉「24h 可用率」下方的水平进度条（折线已经表达同一段历史），
+标签从「平均 24h 可用率」改为「24h 可用率」/「24h uptime」；数值仍是平均值。
+另外两张图没有任何进度条类装饰。
+
 `zero` 和 `empty` 放在一起就是「0 与 null 的区分证据」：
 
 - `empty-*`：`lineCount = 0`、虚线基线存在、aria-label 是「数据收集中」；
@@ -40,19 +44,21 @@ BASE_URL=http://localhost:4173 node screenshots/hero-sparklines/shots.mjs
 
 ## 布局实测 / Measured layout
 
-同一份 8 台机器 fixture，改前 / 改后（改前数字来自本次改动前的基线跑）。
+同一份 8 台机器 fixture。上一版是 48 / 40px 的图；本轮按所有者反馈收到
+24 / 20px，同时删掉可用率进度条、标签改为「24h 可用率」/「24h uptime」。
 
-| | 改前 1440 | 改后 1440 | 改前 390 | 改后 390 |
+| | 上一版 1440 | 本轮 1440 | 上一版 390 | 本轮 390 |
 |---|---|---|---|---|
-| KPI 区宽 | 544 | **1046–1106**（视结论长度） | 326（三列） | 326（三行堆叠） |
-| 单列宽 | 157 | **306–344** | 101（三列） | **326**（整行） |
-| 迷你图高 | — | 48 | — | 40 |
-| hero 高 | 155 | 213 | 227 | 383–405 |
-| 横向溢出 | 1440/1440 | 1440/1440 | 390/390 | 390/390 |
+| KPI 区宽 | 1046–1106 | **1046–1106**（视结论长度） | 326 | 326 |
+| 单列宽 | 306–344 | **306–344**（三列差 ≤0.1px） | 326（整行） | 326（整行） |
+| 迷你图高 | 48 | **24** | 40 | **20** |
+| hero 高 | 213 | **171** | 383–405 | **347–369** |
+| 横向溢出 | 无 | 无 | 无 | 无 |
 
-1440 三列宽度差 ≤ 0.1px；390 三行左边缘对齐、同宽，页面高度多出约 156–178px
-是「三列堆叠」的必然代价。768 / 1024 / 1280 也做过冒烟：无横向溢出，列宽
-分别是 213 / 199 / 284px。
+参考：加迷你图之前 hero 是 155（1440）/ 227（390）；上一版 48px 的图把它撑到
+213 / 405；本轮 24px 图 + 收紧间距 + 删除进度条后回到 171 / 369，1440 只比
+「还没有图」时高 16px。768 / 1024 / 1280 也做过冒烟：无横向溢出，列宽分别是
+213 / 199 / 284px。
 
 ## 文件 / Files
 
@@ -71,7 +77,9 @@ BASE_URL=http://localhost:4173 node screenshots/hero-sparklines/shots.mjs
 ## English summary
 
 This directory is the visual regression bed for the three hero sparklines:
-average latency, average 24h uptime, and current total rate.
+average latency, 24h uptime, and current total rate. The uptime KPI no longer
+renders a progress bar (the line already carries the history), and its label no
+longer says “average” — the number still is the average.
 
 **Run it** after `npm run build` plus `npx vite preview --port 4173`, with
 `BASE_URL=http://localhost:4173 node screenshots/hero-sparklines/shots.mjs`.
@@ -91,12 +99,12 @@ baseline each; `zero` charts have `lineCount >= 1`, every rate y equals 47 in a
 48-high viewBox, and hovering reads `0 B/s`. Both are recorded numerically in
 `report.json`.
 
-**Measured layout** (same 8-server fixture): KPI area 544 → 1046–1106 px at
-1440, one KPI column 157 → 306–344 px, charts 48 px tall; at 390 the three
-columns stack into three full-width rows (326 px each, 40 px charts), with no
-horizontal overflow at 1440 or 390 (also checked at 768 / 1024 / 1280). The hero
-grows from 155 to 213 px at 1440 and from 227 to 383–405 px at 390 — the cost of
-stacking three charts on a phone.
+**Measured layout** (same 8-server fixture): charts are now 24 px tall on
+desktop and 20 px below `md`, with 1 px lines and a fainter area gradient. The
+hero is 171 px at 1440 (was 213) and 347–369 px at 390 (was 383–405); the KPI
+columns stay 306–344 px wide at 1440 and full-width 326 px rows at 390, with no
+horizontal overflow (also checked at 768 / 1024 / 1280). The 1440 hero is only
+16 px taller than the pre-chart layout (155 px).
 
 Old `../status-hero/` screenshots predate this layout and their assertions still
 use the retired “online rate” label; they are kept as history, not as the

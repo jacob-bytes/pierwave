@@ -1,9 +1,6 @@
 import type { ReactNode } from "react";
 import { ArrowDownIcon, ArrowUpIcon, type LucideIcon } from "lucide-react";
-import {
-  AVAILABILITY_BAR_CLASS,
-  AVAILABILITY_TEXT_CLASS,
-} from "@/components/status/Availability";
+import { AVAILABILITY_TEXT_CLASS } from "@/components/status/Availability";
 import { HeroSparkline } from "@/components/status/HeroSparkline";
 import { Card } from "@/components/ui/card";
 import { useI18n } from "@/i18n";
@@ -22,7 +19,6 @@ import {
 } from "@/lib/heroSeries";
 import { formatRatePairText, rateParts } from "@/lib/netRate";
 import {
-  availabilityFill,
   availabilityPercent,
   availabilityTone,
   averageLatency,
@@ -47,27 +43,26 @@ import { cn } from "@/lib/utils";
  *
  * 卡片与点阵完全沿用 `ServerCard`，这里只负责页面顶部。
  *
- * 三个大数字下方各有一张 40–56px 高的迷你图：延迟与速率来自后端 `series`，
+ * 三个大数字下方各有一张 20–24px 高的迷你图：延迟与速率来自后端 `series`，
  * 可用率由每台机器的 `buckets_24h` 现算。迷你图无坐标轴 / 网格 / 图例，
  * 没有数据时画虚线基线而不是 0 的平线（详见 `HeroSparkline`）。
  */
 
 /**
- * 三个大数字共用一个骨架，保证标签、数值、条/占位与迷你图在同一基线上。
+ * 三个大数字共用一个骨架，保证标签、数值与迷你图在同一基线上。
  *
- * 宽屏是竖排（标签 → 数字 → 条 → 图）；<md 时三列堆叠成三行，图移到
- * 数字右侧、只占 42% 宽度，一行就能读完「标题 + 数字 + 趋势」，也不横滚。
+ * 宽屏是竖排（标签 → 数字 → 图）；<md 时三列堆叠成三行，图移到数字右侧、
+ * 只占 42% 宽度，一行就能读完「标题 + 数字 + 趋势」，也不横滚。
+ *
+ * 不再有进度条：可用率的折线已经表达同一段历史，1px 的条只剩重复。
  */
 function Stat({
   label,
   children,
-  foot,
   chart,
 }: {
   label: string;
   children: ReactNode;
-  /** 进度条或等高占位；空着也保留 4px 高度，三个数字底部不会错位。 */
-  foot?: ReactNode;
   /** KPI 下方的迷你图；无数据时由 `HeroSparkline` 自己画空态。 */
   chart: ReactNode;
 }) {
@@ -76,13 +71,12 @@ function Stat({
       <div className="min-w-0 flex-1 md:flex-none">
         <div className="truncate text-xs text-muted-foreground">{label}</div>
         {/* `min-h` 而不是固定高度：速率要放上下两个数字，窄屏换行时让它自然长高，
-            另外两个数字仍从同一基线开始，底部的条不会错位。 */}
+            另外两个数字仍从同一基线开始，下方的图不会错位。 */}
         <div className="mt-1.5 flex min-h-8 flex-wrap items-baseline gap-1 whitespace-nowrap sm:min-h-9">
           {children}
         </div>
-        <div className="mt-2 h-1">{foot}</div>
       </div>
-      <div className="w-[42%] max-w-44 shrink-0 md:mt-2.5 md:w-full md:max-w-none">
+      <div className="w-[42%] max-w-44 shrink-0 md:mt-1 md:w-full md:max-w-none">
         {chart}
       </div>
     </div>
@@ -208,7 +202,6 @@ export function Hero({
   const averageUptime = averageUptime24h(servers);
   const averagePercent = availabilityPercent(averageUptime);
   const averageTone = availabilityTone(averageUptime);
-  const averageFill = availabilityFill(averageUptime);
 
   // 当前总速率：所有在线机器的上下行分别求和；没有任何读数时 null → —。
   const rate = onlineRateByDirection(servers);
@@ -278,25 +271,6 @@ export function Hero({
                 data={uptimeChart}
                 tone={averageTone}
               />
-            }
-            foot={
-              averagePercent === null ? null : (
-                <div
-                  aria-hidden="true"
-                  className="h-1 w-full overflow-hidden rounded-full bg-muted-foreground/20"
-                >
-                  <div
-                    className={cn(
-                      "h-full rounded-full",
-                      AVAILABILITY_BAR_CLASS[averageTone],
-                    )}
-                    style={{
-                      width: `${averageFill}%`,
-                      minWidth: averageFill > 0 ? 2 : undefined,
-                    }}
-                  />
-                </div>
-              )
             }
           >
             <span

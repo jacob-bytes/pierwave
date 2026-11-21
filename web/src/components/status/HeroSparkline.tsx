@@ -18,8 +18,9 @@ import { cn } from "@/lib/utils";
 /**
  * hero 三个 KPI 下方的迷你图。
  *
- * 视觉克制是硬要求：线宽 1.5px、无坐标轴 / 网格 / 图例，只有一条零基线
- * 面积的淡渐变（速率图）。数值仍然由上方的大数字给，图只表达「趋势」。
+ * 视觉克制是硬要求：图高 20 / 24px、线宽 1px、无坐标轴 / 网格 / 图例，
+ * 只有一层很淡的面积渐变（速率图）。数值仍然由上方的大数字给，图只表达「趋势」，
+ * 更像数字的注脚而不是一张独立的图表。
  *
  * 空态与断线：
  * - 没有数据（旧后端没有 `series`，或整段全是 null）→ 虚线基线 +「数据收集中」，
@@ -27,12 +28,12 @@ import { cn } from "@/lib/utils";
  * - 部分 null → 抬笔断线，x 位置保留，时间轴不被压缩；
  * - 真实 0 → 贴底画线，和「没有数据」严格区分。
  *
- * 悬停稿只做读数，不做筛选 / 联动：一张 48px 高的图不该承载第二种交互。
+ * 悬停稿只做读数，不做筛选 / 联动：一张 24px 高的图不该承载第二种交互。
  */
 
 /** viewBox 宽度；实际显示宽度由容器决定（`preserveAspectRatio="none"`）。 */
 const WIDTH = 240;
-/** viewBox 高度；CSS 高度 40px（手机）/ 48px（桌面）。 */
+/** viewBox 高度；CSS 高度 20px（手机）/ 24px（桌面）。 */
 const HEIGHT = 48;
 
 type HeroSparklineProps =
@@ -192,15 +193,15 @@ export function HeroSparkline(props: HeroSparklineProps) {
         data-kind={kind}
         data-state="empty"
         className={cn(
-          "relative flex h-10 w-full items-center justify-center md:h-12",
+          "relative flex h-5 w-full items-center justify-center md:h-6",
           props.className,
         )}
       >
         <span
           aria-hidden="true"
-          className="absolute inset-x-0 top-1/2 border-t border-dashed border-border"
+          className="absolute inset-x-0 top-1/2 border-t border-dashed border-border/60"
         />
-        <span className="relative bg-card px-1.5 text-[10px] leading-none text-muted-foreground">
+        <span className="relative bg-card px-1 text-[9px] leading-none text-muted-foreground/70">
           {t("publicStatus.hero.chartEmpty")}
         </span>
       </div>
@@ -231,7 +232,7 @@ export function HeroSparkline(props: HeroSparklineProps) {
 
   return (
     <div
-      className={cn("relative h-10 w-full md:h-12", props.className)}
+      className={cn("relative h-5 w-full md:h-6", props.className)}
       data-slot="hero-sparkline"
       data-kind={kind}
       data-state="ready"
@@ -251,7 +252,7 @@ export function HeroSparkline(props: HeroSparklineProps) {
               <stop
                 offset="0%"
                 stopColor="var(--primary)"
-                stopOpacity="0.22"
+                stopOpacity="0.14"
               />
               <stop
                 offset="100%"
@@ -280,12 +281,9 @@ export function HeroSparkline(props: HeroSparklineProps) {
               d={line.path}
               fill="none"
               stroke="currentColor"
-              strokeWidth={1.5}
+              strokeWidth={1}
               strokeLinecap="round"
               strokeLinejoin="round"
-              strokeDasharray={
-                kind === "rate" && index === 1 ? "3 3" : undefined
-              }
               vectorEffect="non-scaling-stroke"
               className={lineClass(index)}
             />

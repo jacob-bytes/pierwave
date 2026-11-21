@@ -223,7 +223,7 @@ const zhCN = {
       allOffline: "当前没有在线节点",
       allOfflineLow: "当前没有在线节点；{low} 台可用率偏低",
       averageLatency: "平均延迟",
-      averageUptime: "平均 24h 可用率",
+      averageUptime: "24h 可用率",
       totalRate: "当前总速率",
       load: "负载 {value}",
       chartEmpty: "数据收集中",

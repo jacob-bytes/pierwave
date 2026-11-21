@@ -1158,6 +1158,8 @@ test("billing copy is bilingual and the cycles stay short", () => {
 test("the hero uses average latency as the first KPI in both languages", () => {
   assert.equal(zh.publicStatus.hero.averageLatency, "平均延迟");
   assert.equal(en.publicStatus.hero.averageLatency, "Avg latency");
-  assert.equal(zh.publicStatus.hero.averageUptime, "平均 24h 可用率");
+  // 数值仍是平均值，但标签不再写「平均」：与去掉进度条后的折线一致。
+  assert.equal(zh.publicStatus.hero.averageUptime, "24h 可用率");
+  assert.equal(en.publicStatus.hero.averageUptime, "24h uptime");
   assert.equal(zh.publicStatus.hero.totalRate, "当前总速率");
 });

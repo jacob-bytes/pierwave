@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
  * 这一层只钉住三件在 DOM 里才能看出来、但没有浏览器测试环境的事：
  * - 三个 KPI 下正好三张图，顺序与 KPI 一致；
  * - 布局在 1440 三列等宽、<md 堆叠；
- * - 图本身保持克制（1.5px、无坐标轴 / 网格 / 图例），空态用虚线而不是 0 平线。
+ * - 图本身保持克制（1px、20/24px、无坐标轴 / 网格 / 图例），空态用虚线而不是 0 平线。
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -43,13 +43,32 @@ test("hero keeps three flexible columns and stacks below md", () => {
   assert.doesNotMatch(hero, /34rem/);
 });
 
-test("mini charts stay restrained: 1.5px, no axes, grid or legend", () => {
+test("mini charts are footnotes: 1px line, 20/24px tall, no axes or legend", () => {
   const spark = read("../components/status/HeroSparkline.tsx");
-  assert.match(spark, /strokeWidth=\{1\.5\}/);
+  assert.match(spark, /strokeWidth=\{1\}/);
+  assert.doesNotMatch(spark, /strokeWidth=\{1\.5\}/);
   assert.doesNotMatch(spark, /recharts|CartesianGrid|XAxis|YAxis|Legend/);
-  // 40px（手机）/ 48px（桌面），都在需求给的 40–56px 内。
-  assert.match(spark, /h-10/);
-  assert.match(spark, /md:h-12/);
+  // 20px（手机）/ 24px（桌面）：是数字的注脚，不是独立图表。
+  assert.match(spark, /h-5/);
+  assert.match(spark, /md:h-6/);
+  assert.doesNotMatch(spark, /md:h-12/);
+  // 面积只在速率图出现，且保持很淡。
+  assert.match(spark, /stopOpacity="0\.14"/);
+});
+
+test("the uptime KPI drops its progress bar and the word \"average\"", () => {
+  const hero = read("../components/status/Hero.tsx");
+  // 进度条与折线表达同一段历史，删掉条，也不给另外两张图加装饰。
+  assert.doesNotMatch(hero, /AVAILABILITY_BAR_CLASS|availabilityFill/);
+  assert.doesNotMatch(hero, /role="progressbar"/);
+  assert.doesNotMatch(hero, /foot=/);
+  assert.doesNotMatch(hero, /mt-2 h-1/);
+
+  // 标签改为「24h 可用率」/「24h uptime」；数值仍是平均值，标签不再写「平均」。
+  assert.match(hero, /t\("publicStatus\.hero\.averageUptime"\)/);
+  assert.match(read("../i18n/zh-CN.ts"), /averageUptime: "24h 可用率"/);
+  assert.match(read("../i18n/en.ts"), /averageUptime: "24h uptime"/);
+  assert.doesNotMatch(read("../i18n/zh-CN.ts"), /平均 24h 可用率/);
 });
 
 test("no data renders a dashed baseline instead of a zero line", () => {

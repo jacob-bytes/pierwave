@@ -3,13 +3,15 @@
   "baseline": {
     "390": {
       "statsWidth": 326,
-      "columnWidth": 101,
-      "heroHeight": 227
+      "columnWidth": 326,
+      "heroHeight": 405,
+      "chartHeight": 40
     },
     "1440": {
-      "statsWidth": 544,
-      "columnWidth": 157,
-      "heroHeight": 155
+      "statsWidth": 1046,
+      "columnWidth": 324,
+      "heroHeight": 213,
+      "chartHeight": 48
     }
   },
   "results": [
@@ -24,34 +26,34 @@
         "x": 44,
         "y": 81,
         "width": 1352,
-        "height": 213
+        "height": 171
       },
       "stats": {
         "x": 270,
         "y": 101,
         "width": 1106,
-        "height": 128
+        "height": 86
       },
       "columns": [
         {
           "x": 303,
           "y": 101,
           "width": 344.3,
-          "height": 128,
+          "height": 86,
           "text": "平均延迟 — 数据收集中"
         },
         {
           "x": 667.3,
           "y": 101,
           "width": 344.3,
-          "height": 128,
-          "text": "平均 24h 可用率 — 数据收集中"
+          "height": 86,
+          "text": "24h 可用率 — 数据收集中"
         },
         {
           "x": 1031.7,
           "y": 101,
           "width": 344.3,
-          "height": 128,
+          "height": 86,
           "text": "当前总速率 — 数据收集中"
         }
       ],
@@ -60,9 +62,9 @@
           "kind": "latency",
           "state": "empty",
           "x": 303,
-          "y": 181,
+          "y": 163,
           "width": 344.3,
-          "height": 48,
+          "height": 24,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -75,9 +77,9 @@
           "kind": "uptime",
           "state": "empty",
           "x": 667.3,
-          "y": 181,
+          "y": 163,
           "width": 344.3,
-          "height": 48,
+          "height": 24,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -90,9 +92,9 @@
           "kind": "rate",
           "state": "empty",
           "x": 1031.7,
-          "y": 181,
+          "y": 163,
           "width": 344.3,
-          "height": 48,
+          "height": 24,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -103,9 +105,9 @@
         }
       ],
       "scrollWidth": 1440,
-      "scrollHeight": 1079,
+      "scrollHeight": 1037,
       "tooltip": null,
-      "kb": 134
+      "kb": 132
     },
     {
       "state": "empty",
@@ -118,34 +120,34 @@
         "x": 16,
         "y": 81,
         "width": 358,
-        "height": 382.8
+        "height": 346.8
       },
       "stats": {
         "x": 32,
         "y": 137.8,
         "width": 326,
-        "height": 265
+        "height": 229
       },
       "columns": [
         {
           "x": 32,
           "y": 154.8,
           "width": 326,
-          "height": 79,
+          "height": 67,
           "text": "平均延迟 — 数据收集中"
         },
         {
           "x": 32,
-          "y": 233.8,
+          "y": 221.8,
           "width": 326,
-          "height": 91,
-          "text": "平均 24h 可用率 — 数据收集中"
+          "height": 79,
+          "text": "24h 可用率 — 数据收集中"
         },
         {
           "x": 32,
-          "y": 324.8,
+          "y": 300.8,
           "width": 326,
-          "height": 78,
+          "height": 66,
           "text": "当前总速率 — 数据收集中"
         }
       ],
@@ -154,9 +156,9 @@
           "kind": "latency",
           "state": "empty",
           "x": 221.1,
-          "y": 167.8,
+          "y": 171.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -169,9 +171,9 @@
           "kind": "uptime",
           "state": "empty",
           "x": 221.1,
-          "y": 258.8,
+          "y": 250.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -184,9 +186,9 @@
           "kind": "rate",
           "state": "empty",
           "x": 221.1,
-          "y": 349.8,
+          "y": 329.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -197,9 +199,9 @@
         }
       ],
       "scrollWidth": 390,
-      "scrollHeight": 3583,
+      "scrollHeight": 3547,
       "tooltip": null,
-      "kb": 223
+      "kb": 222
     },
     {
       "state": "empty",
@@ -212,34 +214,34 @@
         "x": 44,
         "y": 81,
         "width": 1352,
-        "height": 213
+        "height": 171
       },
       "stats": {
         "x": 270,
         "y": 101,
         "width": 1106,
-        "height": 128
+        "height": 86
       },
       "columns": [
         {
           "x": 303,
           "y": 101,
           "width": 344.3,
-          "height": 128,
+          "height": 86,
           "text": "平均延迟 — 数据收集中"
         },
         {
           "x": 667.3,
           "y": 101,
           "width": 344.3,
-          "height": 128,
-          "text": "平均 24h 可用率 — 数据收集中"
+          "height": 86,
+          "text": "24h 可用率 — 数据收集中"
         },
         {
           "x": 1031.7,
           "y": 101,
           "width": 344.3,
-          "height": 128,
+          "height": 86,
           "text": "当前总速率 — 数据收集中"
         }
       ],
@@ -248,9 +250,9 @@
           "kind": "latency",
           "state": "empty",
           "x": 303,
-          "y": 181,
+          "y": 163,
           "width": 344.3,
-          "height": 48,
+          "height": 24,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -263,9 +265,9 @@
           "kind": "uptime",
           "state": "empty",
           "x": 667.3,
-          "y": 181,
+          "y": 163,
           "width": 344.3,
-          "height": 48,
+          "height": 24,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -278,9 +280,9 @@
           "kind": "rate",
           "state": "empty",
           "x": 1031.7,
-          "y": 181,
+          "y": 163,
           "width": 344.3,
-          "height": 48,
+          "height": 24,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -291,9 +293,9 @@
         }
       ],
       "scrollWidth": 1440,
-      "scrollHeight": 1079,
+      "scrollHeight": 1037,
       "tooltip": null,
-      "kb": 140
+      "kb": 139
     },
     {
       "state": "empty",
@@ -306,34 +308,34 @@
         "x": 16,
         "y": 81,
         "width": 358,
-        "height": 382.8
+        "height": 346.8
       },
       "stats": {
         "x": 32,
         "y": 137.8,
         "width": 326,
-        "height": 265
+        "height": 229
       },
       "columns": [
         {
           "x": 32,
           "y": 154.8,
           "width": 326,
-          "height": 79,
+          "height": 67,
           "text": "平均延迟 — 数据收集中"
         },
         {
           "x": 32,
-          "y": 233.8,
+          "y": 221.8,
           "width": 326,
-          "height": 91,
-          "text": "平均 24h 可用率 — 数据收集中"
+          "height": 79,
+          "text": "24h 可用率 — 数据收集中"
         },
         {
           "x": 32,
-          "y": 324.8,
+          "y": 300.8,
           "width": 326,
-          "height": 78,
+          "height": 66,
           "text": "当前总速率 — 数据收集中"
         }
       ],
@@ -342,9 +344,9 @@
           "kind": "latency",
           "state": "empty",
           "x": 221.1,
-          "y": 167.8,
+          "y": 171.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -357,9 +359,9 @@
           "kind": "uptime",
           "state": "empty",
           "x": 221.1,
-          "y": 258.8,
+          "y": 250.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -372,9 +374,9 @@
           "kind": "rate",
           "state": "empty",
           "x": 221.1,
-          "y": 349.8,
+          "y": 329.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -385,9 +387,9 @@
         }
       ],
       "scrollWidth": 390,
-      "scrollHeight": 3583,
+      "scrollHeight": 3547,
       "tooltip": null,
-      "kb": 236
+      "kb": 235
     },
     {
       "state": "legacy",
@@ -400,34 +402,34 @@
         "x": 44,
         "y": 81,
         "width": 1352,
-        "height": 213
+        "height": 171
       },
       "stats": {
         "x": 329.7,
         "y": 101,
         "width": 1046.3,
-        "height": 128
+        "height": 86
       },
       "columns": [
         {
           "x": 362.7,
           "y": 101,
           "width": 324.4,
-          "height": 128,
+          "height": 86,
           "text": "平均延迟 44 ms 数据收集中"
         },
         {
           "x": 707.1,
           "y": 101,
           "width": 324.4,
-          "height": 128,
-          "text": "平均 24h 可用率 96%"
+          "height": 86,
+          "text": "24h 可用率 96%"
         },
         {
           "x": 1051.6,
           "y": 101,
           "width": 324.4,
-          "height": 128,
+          "height": 86,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s 数据收集中"
         }
       ],
@@ -436,9 +438,9 @@
           "kind": "latency",
           "state": "empty",
           "x": 362.7,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -451,9 +453,9 @@
           "kind": "uptime",
           "state": "ready",
           "x": 707.1,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1
@@ -468,9 +470,9 @@
           "kind": "rate",
           "state": "empty",
           "x": 1051.6,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -481,9 +483,9 @@
         }
       ],
       "scrollWidth": 1440,
-      "scrollHeight": 1051,
+      "scrollHeight": 1009,
       "tooltip": null,
-      "kb": 163
+      "kb": 162
     },
     {
       "state": "legacy",
@@ -496,34 +498,34 @@
         "x": 16,
         "y": 81,
         "width": 358,
-        "height": 404.8
+        "height": 368.8
       },
       "stats": {
         "x": 32,
         "y": 137.8,
         "width": 326,
-        "height": 265
+        "height": 229
       },
       "columns": [
         {
           "x": 32,
           "y": 154.8,
           "width": 326,
-          "height": 79,
+          "height": 67,
           "text": "平均延迟 44 ms 数据收集中"
         },
         {
           "x": 32,
-          "y": 233.8,
+          "y": 221.8,
           "width": 326,
-          "height": 91,
-          "text": "平均 24h 可用率 96%"
+          "height": 79,
+          "text": "24h 可用率 96%"
         },
         {
           "x": 32,
-          "y": 324.8,
+          "y": 300.8,
           "width": 326,
-          "height": 78,
+          "height": 66,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s 数据收集中"
         }
       ],
@@ -532,9 +534,9 @@
           "kind": "latency",
           "state": "empty",
           "x": 221.1,
-          "y": 167.8,
+          "y": 171.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -547,9 +549,9 @@
           "kind": "uptime",
           "state": "ready",
           "x": 221.1,
-          "y": 258.8,
+          "y": 250.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             1
@@ -564,9 +566,9 @@
           "kind": "rate",
           "state": "empty",
           "x": 221.1,
-          "y": 349.8,
+          "y": 329.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -577,9 +579,9 @@
         }
       ],
       "scrollWidth": 390,
-      "scrollHeight": 3577,
+      "scrollHeight": 3541,
       "tooltip": null,
-      "kb": 266
+      "kb": 265
     },
     {
       "state": "legacy",
@@ -592,34 +594,34 @@
         "x": 44,
         "y": 81,
         "width": 1352,
-        "height": 213
+        "height": 171
       },
       "stats": {
         "x": 329.7,
         "y": 101,
         "width": 1046.3,
-        "height": 128
+        "height": 86
       },
       "columns": [
         {
           "x": 362.7,
           "y": 101,
           "width": 324.4,
-          "height": 128,
+          "height": 86,
           "text": "平均延迟 44 ms 数据收集中"
         },
         {
           "x": 707.1,
           "y": 101,
           "width": 324.4,
-          "height": 128,
-          "text": "平均 24h 可用率 96%"
+          "height": 86,
+          "text": "24h 可用率 96%"
         },
         {
           "x": 1051.6,
           "y": 101,
           "width": 324.4,
-          "height": 128,
+          "height": 86,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s 数据收集中"
         }
       ],
@@ -628,9 +630,9 @@
           "kind": "latency",
           "state": "empty",
           "x": 362.7,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -643,9 +645,9 @@
           "kind": "uptime",
           "state": "ready",
           "x": 707.1,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1
@@ -660,9 +662,9 @@
           "kind": "rate",
           "state": "empty",
           "x": 1051.6,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -673,9 +675,9 @@
         }
       ],
       "scrollWidth": 1440,
-      "scrollHeight": 1051,
+      "scrollHeight": 1009,
       "tooltip": null,
-      "kb": 170
+      "kb": 169
     },
     {
       "state": "legacy",
@@ -688,34 +690,34 @@
         "x": 16,
         "y": 81,
         "width": 358,
-        "height": 404.8
+        "height": 368.8
       },
       "stats": {
         "x": 32,
         "y": 137.8,
         "width": 326,
-        "height": 265
+        "height": 229
       },
       "columns": [
         {
           "x": 32,
           "y": 154.8,
           "width": 326,
-          "height": 79,
+          "height": 67,
           "text": "平均延迟 44 ms 数据收集中"
         },
         {
           "x": 32,
-          "y": 233.8,
+          "y": 221.8,
           "width": 326,
-          "height": 91,
-          "text": "平均 24h 可用率 96%"
+          "height": 79,
+          "text": "24h 可用率 96%"
         },
         {
           "x": 32,
-          "y": 324.8,
+          "y": 300.8,
           "width": 326,
-          "height": 78,
+          "height": 66,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s 数据收集中"
         }
       ],
@@ -724,9 +726,9 @@
           "kind": "latency",
           "state": "empty",
           "x": 221.1,
-          "y": 167.8,
+          "y": 171.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -739,9 +741,9 @@
           "kind": "uptime",
           "state": "ready",
           "x": 221.1,
-          "y": 258.8,
+          "y": 250.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             1
@@ -756,9 +758,9 @@
           "kind": "rate",
           "state": "empty",
           "x": 221.1,
-          "y": 349.8,
+          "y": 329.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": "数据收集中",
           "segments": [],
           "lineCount": 0,
@@ -769,9 +771,9 @@
         }
       ],
       "scrollWidth": 390,
-      "scrollHeight": 3577,
+      "scrollHeight": 3541,
       "tooltip": null,
-      "kb": 282
+      "kb": 281
     },
     {
       "state": "partial",
@@ -784,34 +786,34 @@
         "x": 44,
         "y": 81,
         "width": 1352,
-        "height": 213
+        "height": 171
       },
       "stats": {
         "x": 329.7,
         "y": 101,
         "width": 1046.3,
-        "height": 128
+        "height": 86
       },
       "columns": [
         {
           "x": 362.7,
           "y": 101,
           "width": 324.4,
-          "height": 128,
+          "height": 86,
           "text": "平均延迟 44 ms"
         },
         {
           "x": 707.1,
           "y": 101,
           "width": 324.4,
-          "height": 128,
-          "text": "平均 24h 可用率 95%"
+          "height": 86,
+          "text": "24h 可用率 95%"
         },
         {
           "x": 1051.6,
           "y": 101,
           "width": 324.4,
-          "height": 128,
+          "height": 86,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
         }
       ],
@@ -820,9 +822,9 @@
           "kind": "latency",
           "state": "ready",
           "x": 362.7,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             2
@@ -837,9 +839,9 @@
           "kind": "uptime",
           "state": "ready",
           "x": 707.1,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             2
@@ -854,9 +856,9 @@
           "kind": "rate",
           "state": "ready",
           "x": 1051.6,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             2,
@@ -870,9 +872,9 @@
         }
       ],
       "scrollWidth": 1440,
-      "scrollHeight": 1051,
+      "scrollHeight": 1009,
       "tooltip": null,
-      "kb": 163
+      "kb": 161
     },
     {
       "state": "partial",
@@ -885,34 +887,34 @@
         "x": 16,
         "y": 81,
         "width": 358,
-        "height": 404.8
+        "height": 368.8
       },
       "stats": {
         "x": 32,
         "y": 137.8,
         "width": 326,
-        "height": 265
+        "height": 229
       },
       "columns": [
         {
           "x": 32,
           "y": 154.8,
           "width": 326,
-          "height": 79,
+          "height": 67,
           "text": "平均延迟 44 ms"
         },
         {
           "x": 32,
-          "y": 233.8,
+          "y": 221.8,
           "width": 326,
-          "height": 91,
-          "text": "平均 24h 可用率 95%"
+          "height": 79,
+          "text": "24h 可用率 95%"
         },
         {
           "x": 32,
-          "y": 324.8,
+          "y": 300.8,
           "width": 326,
-          "height": 78,
+          "height": 66,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
         }
       ],
@@ -921,9 +923,9 @@
           "kind": "latency",
           "state": "ready",
           "x": 221.1,
-          "y": 167.8,
+          "y": 171.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             2
@@ -938,9 +940,9 @@
           "kind": "uptime",
           "state": "ready",
           "x": 221.1,
-          "y": 258.8,
+          "y": 250.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             2
@@ -955,9 +957,9 @@
           "kind": "rate",
           "state": "ready",
           "x": 221.1,
-          "y": 349.8,
+          "y": 329.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             2,
@@ -971,9 +973,9 @@
         }
       ],
       "scrollWidth": 390,
-      "scrollHeight": 3577,
+      "scrollHeight": 3541,
       "tooltip": null,
-      "kb": 265
+      "kb": 264
     },
     {
       "state": "partial",
@@ -986,34 +988,34 @@
         "x": 44,
         "y": 81,
         "width": 1352,
-        "height": 213
+        "height": 171
       },
       "stats": {
         "x": 329.7,
         "y": 101,
         "width": 1046.3,
-        "height": 128
+        "height": 86
       },
       "columns": [
         {
           "x": 362.7,
           "y": 101,
           "width": 324.4,
-          "height": 128,
+          "height": 86,
           "text": "平均延迟 44 ms"
         },
         {
           "x": 707.1,
           "y": 101,
           "width": 324.4,
-          "height": 128,
-          "text": "平均 24h 可用率 95%"
+          "height": 86,
+          "text": "24h 可用率 95%"
         },
         {
           "x": 1051.6,
           "y": 101,
           "width": 324.4,
-          "height": 128,
+          "height": 86,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
         }
       ],
@@ -1022,9 +1024,9 @@
           "kind": "latency",
           "state": "ready",
           "x": 362.7,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             2
@@ -1039,9 +1041,9 @@
           "kind": "uptime",
           "state": "ready",
           "x": 707.1,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             2
@@ -1056,9 +1058,9 @@
           "kind": "rate",
           "state": "ready",
           "x": 1051.6,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             2,
@@ -1072,9 +1074,9 @@
         }
       ],
       "scrollWidth": 1440,
-      "scrollHeight": 1051,
+      "scrollHeight": 1009,
       "tooltip": null,
-      "kb": 170
+      "kb": 168
     },
     {
       "state": "partial",
@@ -1087,34 +1089,34 @@
         "x": 16,
         "y": 81,
         "width": 358,
-        "height": 404.8
+        "height": 368.8
       },
       "stats": {
         "x": 32,
         "y": 137.8,
         "width": 326,
-        "height": 265
+        "height": 229
       },
       "columns": [
         {
           "x": 32,
           "y": 154.8,
           "width": 326,
-          "height": 79,
+          "height": 67,
           "text": "平均延迟 44 ms"
         },
         {
           "x": 32,
-          "y": 233.8,
+          "y": 221.8,
           "width": 326,
-          "height": 91,
-          "text": "平均 24h 可用率 95%"
+          "height": 79,
+          "text": "24h 可用率 95%"
         },
         {
           "x": 32,
-          "y": 324.8,
+          "y": 300.8,
           "width": 326,
-          "height": 78,
+          "height": 66,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
         }
       ],
@@ -1123,9 +1125,9 @@
           "kind": "latency",
           "state": "ready",
           "x": 221.1,
-          "y": 167.8,
+          "y": 171.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             2
@@ -1140,9 +1142,9 @@
           "kind": "uptime",
           "state": "ready",
           "x": 221.1,
-          "y": 258.8,
+          "y": 250.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             2
@@ -1157,9 +1159,9 @@
           "kind": "rate",
           "state": "ready",
           "x": 221.1,
-          "y": 349.8,
+          "y": 329.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             2,
@@ -1173,9 +1175,9 @@
         }
       ],
       "scrollWidth": 390,
-      "scrollHeight": 3577,
+      "scrollHeight": 3541,
       "tooltip": null,
-      "kb": 282
+      "kb": 280
     },
     {
       "state": "full",
@@ -1188,34 +1190,34 @@
         "x": 44,
         "y": 81,
         "width": 1352,
-        "height": 213
+        "height": 171
       },
       "stats": {
         "x": 329.7,
         "y": 101,
         "width": 1046.3,
-        "height": 128
+        "height": 86
       },
       "columns": [
         {
           "x": 362.7,
           "y": 101,
           "width": 324.4,
-          "height": 128,
+          "height": 86,
           "text": "平均延迟 44 ms"
         },
         {
           "x": 707.1,
           "y": 101,
           "width": 324.4,
-          "height": 128,
-          "text": "平均 24h 可用率 96%"
+          "height": 86,
+          "text": "24h 可用率 96%"
         },
         {
           "x": 1051.6,
           "y": 101,
           "width": 324.4,
-          "height": 128,
+          "height": 86,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
         }
       ],
@@ -1224,9 +1226,9 @@
           "kind": "latency",
           "state": "ready",
           "x": 362.7,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1
@@ -1241,9 +1243,9 @@
           "kind": "uptime",
           "state": "ready",
           "x": 707.1,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1
@@ -1258,9 +1260,9 @@
           "kind": "rate",
           "state": "ready",
           "x": 1051.6,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1,
@@ -1274,9 +1276,9 @@
         }
       ],
       "scrollWidth": 1440,
-      "scrollHeight": 1051,
+      "scrollHeight": 1009,
       "tooltip": null,
-      "kb": 163
+      "kb": 161
     },
     {
       "state": "full",
@@ -1289,34 +1291,34 @@
         "x": 16,
         "y": 81,
         "width": 358,
-        "height": 404.8
+        "height": 368.8
       },
       "stats": {
         "x": 32,
         "y": 137.8,
         "width": 326,
-        "height": 265
+        "height": 229
       },
       "columns": [
         {
           "x": 32,
           "y": 154.8,
           "width": 326,
-          "height": 79,
+          "height": 67,
           "text": "平均延迟 44 ms"
         },
         {
           "x": 32,
-          "y": 233.8,
+          "y": 221.8,
           "width": 326,
-          "height": 91,
-          "text": "平均 24h 可用率 96%"
+          "height": 79,
+          "text": "24h 可用率 96%"
         },
         {
           "x": 32,
-          "y": 324.8,
+          "y": 300.8,
           "width": 326,
-          "height": 78,
+          "height": 66,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
         }
       ],
@@ -1325,9 +1327,9 @@
           "kind": "latency",
           "state": "ready",
           "x": 221.1,
-          "y": 167.8,
+          "y": 171.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             1
@@ -1342,9 +1344,9 @@
           "kind": "uptime",
           "state": "ready",
           "x": 221.1,
-          "y": 258.8,
+          "y": 250.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             1
@@ -1359,9 +1361,9 @@
           "kind": "rate",
           "state": "ready",
           "x": 221.1,
-          "y": 349.8,
+          "y": 329.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             1,
@@ -1375,9 +1377,9 @@
         }
       ],
       "scrollWidth": 390,
-      "scrollHeight": 3577,
+      "scrollHeight": 3541,
       "tooltip": null,
-      "kb": 265
+      "kb": 264
     },
     {
       "state": "full",
@@ -1390,34 +1392,34 @@
         "x": 44,
         "y": 81,
         "width": 1352,
-        "height": 213
+        "height": 171
       },
       "stats": {
         "x": 329.7,
         "y": 101,
         "width": 1046.3,
-        "height": 128
+        "height": 86
       },
       "columns": [
         {
           "x": 362.7,
           "y": 101,
           "width": 324.4,
-          "height": 128,
+          "height": 86,
           "text": "平均延迟 44 ms"
         },
         {
           "x": 707.1,
           "y": 101,
           "width": 324.4,
-          "height": 128,
-          "text": "平均 24h 可用率 96%"
+          "height": 86,
+          "text": "24h 可用率 96%"
         },
         {
           "x": 1051.6,
           "y": 101,
           "width": 324.4,
-          "height": 128,
+          "height": 86,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
         }
       ],
@@ -1426,9 +1428,9 @@
           "kind": "latency",
           "state": "ready",
           "x": 362.7,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1
@@ -1443,9 +1445,9 @@
           "kind": "uptime",
           "state": "ready",
           "x": 707.1,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1
@@ -1460,9 +1462,9 @@
           "kind": "rate",
           "state": "ready",
           "x": 1051.6,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1,
@@ -1476,9 +1478,9 @@
         }
       ],
       "scrollWidth": 1440,
-      "scrollHeight": 1051,
+      "scrollHeight": 1009,
       "tooltip": null,
-      "kb": 170
+      "kb": 168
     },
     {
       "state": "full",
@@ -1491,34 +1493,34 @@
         "x": 16,
         "y": 81,
         "width": 358,
-        "height": 404.8
+        "height": 368.8
       },
       "stats": {
         "x": 32,
         "y": 137.8,
         "width": 326,
-        "height": 265
+        "height": 229
       },
       "columns": [
         {
           "x": 32,
           "y": 154.8,
           "width": 326,
-          "height": 79,
+          "height": 67,
           "text": "平均延迟 44 ms"
         },
         {
           "x": 32,
-          "y": 233.8,
+          "y": 221.8,
           "width": 326,
-          "height": 91,
-          "text": "平均 24h 可用率 96%"
+          "height": 79,
+          "text": "24h 可用率 96%"
         },
         {
           "x": 32,
-          "y": 324.8,
+          "y": 300.8,
           "width": 326,
-          "height": 78,
+          "height": 66,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
         }
       ],
@@ -1527,9 +1529,9 @@
           "kind": "latency",
           "state": "ready",
           "x": 221.1,
-          "y": 167.8,
+          "y": 171.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             1
@@ -1544,9 +1546,9 @@
           "kind": "uptime",
           "state": "ready",
           "x": 221.1,
-          "y": 258.8,
+          "y": 250.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             1
@@ -1561,9 +1563,9 @@
           "kind": "rate",
           "state": "ready",
           "x": 221.1,
-          "y": 349.8,
+          "y": 329.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             1,
@@ -1577,9 +1579,9 @@
         }
       ],
       "scrollWidth": 390,
-      "scrollHeight": 3577,
+      "scrollHeight": 3541,
       "tooltip": null,
-      "kb": 282
+      "kb": 280
     },
     {
       "state": "zero",
@@ -1592,34 +1594,34 @@
         "x": 44,
         "y": 81,
         "width": 1352,
-        "height": 213
+        "height": 171
       },
       "stats": {
         "x": 385,
         "y": 101,
         "width": 991,
-        "height": 128
+        "height": 86
       },
       "columns": [
         {
           "x": 418,
           "y": 101,
           "width": 306,
-          "height": 128,
+          "height": 86,
           "text": "平均延迟 0 ms"
         },
         {
           "x": 744,
           "y": 101,
           "width": 306,
-          "height": 128,
-          "text": "平均 24h 可用率 0%"
+          "height": 86,
+          "text": "24h 可用率 0%"
         },
         {
           "x": 1070,
           "y": 101,
           "width": 306,
-          "height": 128,
+          "height": 86,
           "text": "当前总速率 下行 0 B/s 上行 0 B/s"
         }
       ],
@@ -1628,9 +1630,9 @@
           "kind": "latency",
           "state": "ready",
           "x": 418,
-          "y": 181,
+          "y": 163,
           "width": 306,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1
@@ -1645,9 +1647,9 @@
           "kind": "uptime",
           "state": "ready",
           "x": 744,
-          "y": 181,
+          "y": 163,
           "width": 306,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1
@@ -1662,9 +1664,9 @@
           "kind": "rate",
           "state": "ready",
           "x": 1070,
-          "y": 181,
+          "y": 163,
           "width": 306,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1,
@@ -1678,9 +1680,9 @@
         }
       ],
       "scrollWidth": 1440,
-      "scrollHeight": 1051,
+      "scrollHeight": 1009,
       "tooltip": null,
-      "kb": 150
+      "kb": 149
     },
     {
       "state": "zero",
@@ -1693,34 +1695,34 @@
         "x": 16,
         "y": 81,
         "width": 358,
-        "height": 404.8
+        "height": 368.8
       },
       "stats": {
         "x": 32,
         "y": 137.8,
         "width": 326,
-        "height": 265
+        "height": 229
       },
       "columns": [
         {
           "x": 32,
           "y": 154.8,
           "width": 326,
-          "height": 79,
+          "height": 67,
           "text": "平均延迟 0 ms"
         },
         {
           "x": 32,
-          "y": 233.8,
+          "y": 221.8,
           "width": 326,
-          "height": 91,
-          "text": "平均 24h 可用率 0%"
+          "height": 79,
+          "text": "24h 可用率 0%"
         },
         {
           "x": 32,
-          "y": 324.8,
+          "y": 300.8,
           "width": 326,
-          "height": 78,
+          "height": 66,
           "text": "当前总速率 下行 0 B/s 上行 0 B/s"
         }
       ],
@@ -1729,9 +1731,9 @@
           "kind": "latency",
           "state": "ready",
           "x": 221.1,
-          "y": 167.8,
+          "y": 171.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             1
@@ -1746,9 +1748,9 @@
           "kind": "uptime",
           "state": "ready",
           "x": 221.1,
-          "y": 258.8,
+          "y": 250.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             1
@@ -1763,9 +1765,9 @@
           "kind": "rate",
           "state": "ready",
           "x": 221.1,
-          "y": 349.8,
+          "y": 329.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             1,
@@ -1779,7 +1781,7 @@
         }
       ],
       "scrollWidth": 390,
-      "scrollHeight": 3577,
+      "scrollHeight": 3541,
       "tooltip": null,
       "kb": 250
     },
@@ -1794,34 +1796,34 @@
         "x": 44,
         "y": 81,
         "width": 1352,
-        "height": 213
+        "height": 171
       },
       "stats": {
         "x": 385,
         "y": 101,
         "width": 991,
-        "height": 128
+        "height": 86
       },
       "columns": [
         {
           "x": 418,
           "y": 101,
           "width": 306,
-          "height": 128,
+          "height": 86,
           "text": "平均延迟 0 ms"
         },
         {
           "x": 744,
           "y": 101,
           "width": 306,
-          "height": 128,
-          "text": "平均 24h 可用率 0%"
+          "height": 86,
+          "text": "24h 可用率 0%"
         },
         {
           "x": 1070,
           "y": 101,
           "width": 306,
-          "height": 128,
+          "height": 86,
           "text": "当前总速率 下行 0 B/s 上行 0 B/s"
         }
       ],
@@ -1830,9 +1832,9 @@
           "kind": "latency",
           "state": "ready",
           "x": 418,
-          "y": 181,
+          "y": 163,
           "width": 306,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1
@@ -1847,9 +1849,9 @@
           "kind": "uptime",
           "state": "ready",
           "x": 744,
-          "y": 181,
+          "y": 163,
           "width": 306,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1
@@ -1864,9 +1866,9 @@
           "kind": "rate",
           "state": "ready",
           "x": 1070,
-          "y": 181,
+          "y": 163,
           "width": 306,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1,
@@ -1880,9 +1882,9 @@
         }
       ],
       "scrollWidth": 1440,
-      "scrollHeight": 1051,
+      "scrollHeight": 1009,
       "tooltip": null,
-      "kb": 157
+      "kb": 156
     },
     {
       "state": "zero",
@@ -1895,34 +1897,34 @@
         "x": 16,
         "y": 81,
         "width": 358,
-        "height": 404.8
+        "height": 368.8
       },
       "stats": {
         "x": 32,
         "y": 137.8,
         "width": 326,
-        "height": 265
+        "height": 229
       },
       "columns": [
         {
           "x": 32,
           "y": 154.8,
           "width": 326,
-          "height": 79,
+          "height": 67,
           "text": "平均延迟 0 ms"
         },
         {
           "x": 32,
-          "y": 233.8,
+          "y": 221.8,
           "width": 326,
-          "height": 91,
-          "text": "平均 24h 可用率 0%"
+          "height": 79,
+          "text": "24h 可用率 0%"
         },
         {
           "x": 32,
-          "y": 324.8,
+          "y": 300.8,
           "width": 326,
-          "height": 78,
+          "height": 66,
           "text": "当前总速率 下行 0 B/s 上行 0 B/s"
         }
       ],
@@ -1931,9 +1933,9 @@
           "kind": "latency",
           "state": "ready",
           "x": 221.1,
-          "y": 167.8,
+          "y": 171.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             1
@@ -1948,9 +1950,9 @@
           "kind": "uptime",
           "state": "ready",
           "x": 221.1,
-          "y": 258.8,
+          "y": 250.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             1
@@ -1965,9 +1967,9 @@
           "kind": "rate",
           "state": "ready",
           "x": 221.1,
-          "y": 349.8,
+          "y": 329.8,
           "width": 136.9,
-          "height": 40,
+          "height": 20,
           "aria": null,
           "segments": [
             1,
@@ -1981,9 +1983,9 @@
         }
       ],
       "scrollWidth": 390,
-      "scrollHeight": 3577,
+      "scrollHeight": 3541,
       "tooltip": null,
-      "kb": 266
+      "kb": 265
     },
     {
       "state": "full",
@@ -1996,34 +1998,34 @@
         "x": 44,
         "y": 81,
         "width": 1352,
-        "height": 213
+        "height": 171
       },
       "stats": {
         "x": 408.8,
         "y": 101,
         "width": 967.2,
-        "height": 128
+        "height": 86
       },
       "columns": [
         {
           "x": 441.8,
           "y": 101,
           "width": 298.1,
-          "height": 128,
+          "height": 86,
           "text": "Avg latency 44 ms"
         },
         {
           "x": 759.9,
           "y": 101,
           "width": 298.1,
-          "height": 128,
-          "text": "Avg 24h uptime 96%"
+          "height": 86,
+          "text": "24h uptime 96%"
         },
         {
           "x": 1077.9,
           "y": 101,
           "width": 298.1,
-          "height": 128,
+          "height": 86,
           "text": "Total rate Down 41 MB/s Up 5.26 MB/s"
         }
       ],
@@ -2032,9 +2034,9 @@
           "kind": "latency",
           "state": "ready",
           "x": 441.8,
-          "y": 181,
+          "y": 163,
           "width": 298.1,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1
@@ -2049,9 +2051,9 @@
           "kind": "uptime",
           "state": "ready",
           "x": 759.9,
-          "y": 181,
+          "y": 163,
           "width": 298.1,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1
@@ -2066,9 +2068,9 @@
           "kind": "rate",
           "state": "ready",
           "x": 1077.9,
-          "y": 181,
+          "y": 163,
           "width": 298.1,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1,
@@ -2082,9 +2084,9 @@
         }
       ],
       "scrollWidth": 1440,
-      "scrollHeight": 1051,
+      "scrollHeight": 1009,
       "tooltip": null,
-      "kb": 158
+      "kb": 156
     },
     {
       "state": "empty",
@@ -2097,34 +2099,34 @@
         "x": 44,
         "y": 81,
         "width": 1352,
-        "height": 213
+        "height": 171
       },
       "stats": {
         "x": 344.3,
         "y": 101,
         "width": 1031.8,
-        "height": 128
+        "height": 86
       },
       "columns": [
         {
           "x": 377.3,
           "y": 101,
           "width": 319.6,
-          "height": 128,
+          "height": 86,
           "text": "Avg latency — Collecting data"
         },
         {
           "x": 716.8,
           "y": 101,
           "width": 319.6,
-          "height": 128,
-          "text": "Avg 24h uptime — Collecting data"
+          "height": 86,
+          "text": "24h uptime — Collecting data"
         },
         {
           "x": 1056.4,
           "y": 101,
           "width": 319.6,
-          "height": 128,
+          "height": 86,
           "text": "Total rate — Collecting data"
         }
       ],
@@ -2133,9 +2135,9 @@
           "kind": "latency",
           "state": "empty",
           "x": 377.3,
-          "y": 181,
+          "y": 163,
           "width": 319.6,
-          "height": 48,
+          "height": 24,
           "aria": "Collecting data",
           "segments": [],
           "lineCount": 0,
@@ -2148,9 +2150,9 @@
           "kind": "uptime",
           "state": "empty",
           "x": 716.8,
-          "y": 181,
+          "y": 163,
           "width": 319.6,
-          "height": 48,
+          "height": 24,
           "aria": "Collecting data",
           "segments": [],
           "lineCount": 0,
@@ -2163,9 +2165,9 @@
           "kind": "rate",
           "state": "empty",
           "x": 1056.4,
-          "y": 181,
+          "y": 163,
           "width": 319.6,
-          "height": 48,
+          "height": 24,
           "aria": "Collecting data",
           "segments": [],
           "lineCount": 0,
@@ -2176,9 +2178,9 @@
         }
       ],
       "scrollWidth": 1440,
-      "scrollHeight": 1079,
+      "scrollHeight": 1037,
       "tooltip": null,
-      "kb": 130
+      "kb": 129
     },
     {
       "state": "full",
@@ -2191,34 +2193,34 @@
         "x": 44,
         "y": 81,
         "width": 1352,
-        "height": 213
+        "height": 171
       },
       "stats": {
         "x": 329.7,
         "y": 101,
         "width": 1046.3,
-        "height": 128
+        "height": 86
       },
       "columns": [
         {
           "x": 362.7,
           "y": 101,
           "width": 324.4,
-          "height": 128,
+          "height": 86,
           "text": "平均延迟 44 ms"
         },
         {
           "x": 707.1,
           "y": 101,
           "width": 324.4,
-          "height": 128,
-          "text": "平均 24h 可用率 96%"
+          "height": 86,
+          "text": "24h 可用率 96%"
         },
         {
           "x": 1051.6,
           "y": 101,
           "width": 324.4,
-          "height": 128,
+          "height": 86,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
         }
       ],
@@ -2227,9 +2229,9 @@
           "kind": "latency",
           "state": "ready",
           "x": 362.7,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1
@@ -2244,9 +2246,9 @@
           "kind": "uptime",
           "state": "ready",
           "x": 707.1,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1
@@ -2261,9 +2263,9 @@
           "kind": "rate",
           "state": "ready",
           "x": 1051.6,
-          "y": 181,
+          "y": 163,
           "width": 324.4,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1,
@@ -2277,9 +2279,9 @@
         }
       ],
       "scrollWidth": 1440,
-      "scrollHeight": 1051,
-      "tooltip": "10:56:26 下行 32.1 MB/s 上行 4.47 MB/s",
-      "kb": 167
+      "scrollHeight": 1009,
+      "tooltip": "11:03:05 下行 32.1 MB/s 上行 4.47 MB/s",
+      "kb": 165
     },
     {
       "state": "zero",
@@ -2292,34 +2294,34 @@
         "x": 44,
         "y": 81,
         "width": 1352,
-        "height": 213
+        "height": 171
       },
       "stats": {
         "x": 385,
         "y": 101,
         "width": 991,
-        "height": 128
+        "height": 86
       },
       "columns": [
         {
           "x": 418,
           "y": 101,
           "width": 306,
-          "height": 128,
+          "height": 86,
           "text": "平均延迟 0 ms"
         },
         {
           "x": 744,
           "y": 101,
           "width": 306,
-          "height": 128,
-          "text": "平均 24h 可用率 0%"
+          "height": 86,
+          "text": "24h 可用率 0%"
         },
         {
           "x": 1070,
           "y": 101,
           "width": 306,
-          "height": 128,
+          "height": 86,
           "text": "当前总速率 下行 0 B/s 上行 0 B/s"
         }
       ],
@@ -2328,9 +2330,9 @@
           "kind": "latency",
           "state": "ready",
           "x": 418,
-          "y": 181,
+          "y": 163,
           "width": 306,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1
@@ -2345,9 +2347,9 @@
           "kind": "uptime",
           "state": "ready",
           "x": 744,
-          "y": 181,
+          "y": 163,
           "width": 306,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1
@@ -2362,9 +2364,9 @@
           "kind": "rate",
           "state": "ready",
           "x": 1070,
-          "y": 181,
+          "y": 163,
           "width": 306,
-          "height": 48,
+          "height": 24,
           "aria": null,
           "segments": [
             1,
@@ -2378,9 +2380,9 @@
         }
       ],
       "scrollWidth": 1440,
-      "scrollHeight": 1051,
-      "tooltip": "10:56:28 下行 0 B/s 上行 0 B/s",
-      "kb": 153
+      "scrollHeight": 1009,
+      "tooltip": "11:03:06 下行 0 B/s 上行 0 B/s",
+      "kb": 152
     }
   ],
   "failures": []
