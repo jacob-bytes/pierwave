@@ -973,16 +973,19 @@ test("card traffic row leads every figure with an icon and three columns", () =>
   assert.match(card, /未配置|notSet/);
 });
 
-test("card selection uses a primary 1px ring and a soft shadow, not status color", () => {
+test("card selection is a thick primary ring plus a text badge, not status color", () => {
   const card = read("../components/status/ServerCard.tsx");
   assert.match(card, /role="button"/);
   assert.match(card, /tabIndex=\{0\}/);
   assert.match(card, /aria-pressed=\{selected\}/);
-  assert.match(card, /ring-primary shadow-sm/);
+  // 1px 边框在部分屏幕/缩放比例下会被看漏，用 2px + 主色底 + 文字徽标三重表达。
+  assert.match(card, /ring-2 ring-primary shadow-sm/);
+  assert.match(card, /bg-primary\/\[0\.04\]/);
+  assert.match(card, /publicStatus\.selected/);
   assert.match(card, /hover:ring-foreground\/20/);
   assert.match(card, /event\.key === "Enter"/);
   // 状态 chip / 状态点仍由 state 决定，选中态不参与。
-  assert.match(card, /<StatusChip state=\{state\}/);
+  assert.match(card, /<StatusChip[\s\S]{0,80}state=\{state\}/);
 });
 
 test("expiryDays counts UTC+8 business days", () => {

@@ -361,7 +361,7 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
       className={cn(
         "h-full min-w-0 cursor-pointer gap-0 rounded-xl p-4 transition-[box-shadow,background-color] duration-150 [--card-spacing:--spacing(4)] hover:ring-foreground/20 focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:shadow-sm focus-visible:outline-none",
         state !== "online" && "bg-muted/40",
-        selected && "ring-2 ring-primary shadow-sm hover:ring-2 hover:ring-primary",
+        selected && "bg-primary/[0.04] ring-2 ring-primary shadow-sm hover:ring-2 hover:ring-primary",
       )}
     >
       {/* 标题行：名称在左，状态 pill 在右。名称让位、pill 不换行，
@@ -392,7 +392,18 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
             />
           )}
         </span>
-        <StatusChip state={state} uptime={uptimeDuration} className="ml-auto" />
+        {selected ? (
+          // 选中态不只靠边框：加一个明确的文字标记，边框在某些显示器/缩放
+          // 比例下太细会被看漏。
+          <span className="ml-auto shrink-0 rounded-md bg-primary/15 px-1.5 py-0.5 text-[11px] leading-none font-medium text-primary">
+            {t("publicStatus.selected")}
+          </span>
+        ) : null}
+        <StatusChip
+          state={state}
+          uptime={uptimeDuration}
+          className={selected ? "shrink-0" : "ml-auto"}
+        />
       </div>
 
       {/* 副行：发行版 版本 · 虚拟化 · 架构（缺失项跳过）。延迟在最右，
