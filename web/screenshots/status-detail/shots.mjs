@@ -1,13 +1,11 @@
 #!/usr/bin/env node
 /**
- * `/status/:id` 服务器详情的截图与断言。
+ * `/status/:id` 方案 B 仪表盘的截图与断言。
  *
- * 覆盖 normal / offline / nodata / notfound / error / disabled 六态 × 1440/390
- * × 亮/暗，另加英文、加载骨架、列表点击/键盘/返回与深链接路径。
- *
- * 用法 / Usage:
- *   (cd web && npm run build && npx vite preview --port 4173 --strictPort)
- *   BASE_URL=http://localhost:4173 node web/screenshots/status-detail/shots.mjs
+ * 覆盖 healthy / incident / offline / nodata / notfound / error / disabled
+ * × 1440/390 × 亮/暗；另加英文、加载骨架、hover tooltip、列表入口与错误重试路径。
+ * 关键断言：null 不画成 100%、0% 贴基线、缺口断开、两栏对齐、无横向溢出、
+ * 页面高度 ≤1100（1440）/ ≤1500（390）、页底无 >24px 无用空白。
  */
 import assert from "node:assert/strict";
 import {
@@ -24,21 +22,28 @@ import { detailFixture } from "./fixtures.mjs";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "../../..");
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:4173";
-const STATES = ["normal", "offline", "nodata", "notfound", "error", "disabled"];
+const STATES = [
+  "healthy",
+  "incident",
+  "offline",
+  "nodata",
+  "notfound",
+  "error",
+  "disabled",
+];
 const THEMES = ["dark", "light"];
 const WIDTHS = [
   { width: 1440, height: 1000 },
   { width: 390, height: 844 },
 ];
 const TARGET_ID = "srv-hk";
+const DETAIL_STATES = ["healthy", "incident", "offline", "nodata"];
 
 mkdirSync(HERE, { recursive: true });
 
 async function loadPlaywright() {
   const candidates = [];
-  if (process.env.PLAYWRIGHT_MODULE) {
-    candidates.push(process.env.PLAYWRIGHT_MODULE);
-  }
+  if (process.env.PLAYWRIGHT_MODULE) candidates.push(process.env.PLAYWRIGHT_MODULE);
   const npxRoot = path.join(ROOT, ".npm-cache", "_npx");
   if (existsSync(npxRoot)) {
     for (const entry of readdirSync(npxRoot)) {
@@ -93,13 +98,13 @@ function jobs() {
     }
   }
   list.push({
-    state: "normal",
+    state: "healthy",
     theme: "dark",
     width: 1440,
     height: 1000,
     locale: "en",
-    out: path.join(HERE, "normal-dark-1440-en.png"),
-    label: "normal dark 1440 en",
+    out: path.join(HERE, "healthy-dark-1440-en.png"),
+    label: "healthy dark 1440 en",
   });
   list.push({
     state: "loading",
@@ -114,9 +119,10 @@ function jobs() {
 }
 
 function fixtureFor(state) {
+  if (state === "incident") return detailFixture("incident");
   if (state === "offline") return detailFixture("offline");
   if (state === "nodata") return detailFixture("nodata");
-  return detailFixture("normal");
+  return detailFixture("healthy");
 }
 
 const chromium = await loadPlaywright();
@@ -139,8 +145,6 @@ for (const job of jobs()) {
   );
   page.on("console", (message) => {
     if (message.type() !== "error") return;
-    // error / disabled 两种状态刻意让接口返回 500 / 404，浏览器控制台会记录
-    // 资源加载失败；这是被测状态本身，不是页面报错。
     const expectedHttpFailure =
       (job.state === "error" || job.state === "disabled") &&
       /Failed to load resource/.test(message.text());
@@ -204,15 +208,11 @@ for (const job of jobs()) {
       await page.waitForSelector('[aria-busy="true"]', { timeout: 5_000 });
       const loading = await page.evaluate(() => ({
         busy: Boolean(document.querySelector('[aria-busy="true"]')),
-        statSkeletons: document.querySelectorAll('[data-slot="skeleton"]').length,
         scrollWidth: document.documentElement.scrollWidth,
         clientWidth: document.documentElement.clientWidth,
       }));
       assert.equal(loading.busy, true, "加载中要有详情骨架");
-      assert.ok(
-        loading.scrollWidth <= loading.clientWidth + 1,
-        `横向溢出 ${loading.scrollWidth} > ${loading.clientWidth}`,
-      );
+      assert.ok(loading.scrollWidth <= loading.clientWidth + 1);
       await page.screenshot({
         path: job.out,
         fullPage: true,
@@ -222,34 +222,20 @@ for (const job of jobs()) {
         state: job.state,
         theme: job.theme,
         width: job.width,
-        locale: job.locale,
         file: path.relative(HERE, job.out),
         loading,
         kb: Math.round(statSync(job.out).size / 1024),
       });
-      console.log(`ok  ${path.basename(job.out).padEnd(30)} loading skeleton`);
+      console.log(`ok  ${path.basename(job.out).padEnd(32)} loading`);
       continue;
     }
 
     if (job.state === "error") {
-      await page.getByText(
-        job.locale === "zh-CN"
-          ? "暂时无法获取服务状态"
-          : "Service status is temporarily unavailable",
-        { exact: false },
-      ).waitFor({ timeout: 15_000 });
+      await page.getByText("暂时无法获取服务状态").waitFor({ timeout: 15_000 });
     } else if (job.state === "disabled") {
-      await page.getByText(
-        job.locale === "zh-CN" ? "状态页未开放" : "This status page is not public",
-        { exact: false },
-      ).waitFor({ timeout: 15_000 });
+      await page.getByText("状态页未开放").waitFor({ timeout: 15_000 });
     } else if (job.state === "notfound") {
-      await page.getByText(
-        job.locale === "zh-CN"
-          ? "该服务器不存在或已下线"
-          : "This server does not exist or is offline",
-        { exact: false },
-      ).waitFor({ timeout: 15_000 });
+      await page.getByText("该节点不存在或已下线").waitFor({ timeout: 15_000 });
     } else {
       await page.waitForSelector('[data-slot="detail-header"]', {
         timeout: 15_000,
@@ -265,71 +251,110 @@ for (const job of jobs()) {
 
     const metrics = await page.evaluate(() => {
       const round = (value) => Math.round(value * 100) / 100;
-      const rect = (element) => {
+      const rect = (selector) => {
+        const element =
+          typeof selector === "string"
+            ? document.querySelector(selector)
+            : selector;
+        if (!element) return null;
         const box = element.getBoundingClientRect();
         return {
           x: round(box.x),
           y: round(box.y),
           width: round(box.width),
           height: round(box.height),
+          bottom: round(box.bottom),
         };
       };
       const main = document.querySelector("main");
-      const header = main.querySelector('[data-slot="detail-header"]');
-      const stats = [...main.querySelectorAll('[data-slot="detail-stat"]')];
-      const byStat = {};
-      for (const stat of stats) {
-        byStat[stat.dataset.stat] = {
+      const chart = main.querySelector('[data-slot="detail-chart"]');
+      const stats = {};
+      for (const stat of main.querySelectorAll('[data-slot="detail-stat"]')) {
+        stats[stat.dataset.stat] = {
           text: stat.innerText.replace(/\s+/g, " ").trim(),
           ...rect(stat),
         };
       }
-      const bars = [...main.querySelectorAll('[data-slot="detail-bar"]')].map(
-        (bar) => ({
-          ratio: bar.dataset.ratio,
-          height: round(bar.getBoundingClientRect().height),
-          color: getComputedStyle(bar).backgroundColor,
-        }),
+      const steps = [
+        ...main.querySelectorAll('[data-slot="availability-step"]'),
+      ].map((element) => ({
+        index: Number(element.dataset.index),
+        ratio: Number(element.dataset.ratio),
+        tone: element.dataset.tone,
+        y1: Number(element.getAttribute("y1")),
+      }));
+      const missing = [
+        ...main.querySelectorAll('[data-slot="availability-missing"]'),
+      ].map((element) => Number(element.dataset.index));
+      const areas = [
+        ...main.querySelectorAll('[data-slot="availability-area"]'),
+      ].map((element) => Number(element.dataset.index));
+      const transitions = [
+        ...main.querySelectorAll('[data-slot="availability-transition"]'),
+      ].map((element) => ({
+        from: Number(element.dataset.from),
+        to: Number(element.dataset.to),
+      }));
+      const badge = main.querySelector(
+        '[data-slot="detail-header"] [data-slot="badge"]',
       );
-      const lowest = main.querySelector('[data-slot="detail-lowest"]');
-      const billing = main.querySelector('[data-slot="detail-billing"]');
-      const system = main.querySelector('[data-slot="detail-system"]');
-      const footer = main.querySelector('[data-slot="detail-footer"]');
+      const rings = [...main.querySelectorAll('[data-slot="detail-resources"] [role="img"]')];
       const back =
         main.querySelector('[data-slot="detail-back"]') ??
         main.querySelector('a[href="/status"]');
-      const badge = header?.querySelector('[data-slot="badge"]');
-      const sectionOrder = [
-        '[data-slot="detail-header"]',
-        '[data-slot="detail-key-numbers"]',
-        '[data-slot="detail-availability"]',
-        '[data-slot="detail-resources"]',
-        '[data-slot="detail-billing"]',
-        '[data-slot="detail-system"]',
-        '[data-slot="detail-footer"]',
+      const footer = main.querySelector('[data-slot="detail-footer"]');
+      const traffic = main.querySelector('[data-slot="detail-traffic"]');
+      const seven = main.querySelector('[data-slot="detail-7d"]');
+      const tooltip = main.querySelector('[data-slot="availability-tooltip"]');
+      const header = document.querySelector("header");
+      const srCount = chart
+        ? chart.querySelectorAll("ul.sr-only li").length
+        : 0;
+      const grid = main.querySelector('[data-slot="detail-grid"]');
+      const order = [
+        "detail-header",
+        "detail-key-numbers",
+        "detail-chart",
+        "detail-resources",
+        "detail-bottom",
+        "detail-traffic",
       ]
-        .map((selector) => main.querySelector(selector))
-        .filter(Boolean)
-        .map((element) => element.dataset.slot);
+        .map((slot) => {
+          const element = main.querySelector(`[data-slot="${slot}"]`);
+          return element ? { slot, ...rect(element) } : null;
+        })
+        .filter(Boolean);
 
       return {
         text: main.innerText.replace(/\s+/g, " ").trim(),
+        headerText: header?.innerText.replace(/\s+/g, " ").trim() ?? null,
         h1: main.querySelector("h1")?.textContent?.trim() ?? null,
-        header: header ? rect(header) : null,
         badge: badge?.textContent?.replace(/\s+/g, " ").trim() ?? null,
-        stats: byStat,
-        bars,
-        lowest: lowest?.innerText.replace(/\s+/g, " ").trim() ?? null,
-        billing: billing?.innerText.replace(/\s+/g, " ").trim() ?? null,
-        system: system?.innerText.replace(/\s+/g, " ").trim() ?? null,
-        footer: footer?.innerText.replace(/\s+/g, " ").trim() ?? null,
-        back: back
-          ? { href: back.getAttribute("href"), height: round(back.getBoundingClientRect().height) }
-          : null,
-        sectionOrder,
+        stats,
+        chart: rect(chart),
+        grid: rect(grid),
+        header: rect('[data-slot="detail-header"]'),
+        key: rect('[data-slot="detail-key-numbers"]'),
+        resources: rect('[data-slot="detail-resources"]'),
+        bottom: rect('[data-slot="detail-bottom"]'),
+        traffic: rect(traffic),
+        footer: rect(footer),
+        trafficText: traffic?.innerText.replace(/\s+/g, " ").trim() ?? null,
+        sevenText: seven?.innerText.replace(/\s+/g, " ").trim() ?? null,
+        back: back ? { href: back.getAttribute("href"), ...rect(back) } : null,
+        steps,
+        missing,
+        areas,
+        transitions,
+        srCount,
+        tooltip: tooltip?.innerText.replace(/\s+/g, " ").trim() ?? null,
+        ringCount: rings.length,
+        ringTexts: rings.map((ring) => ring.getAttribute("aria-label")),
+        order,
         scrollWidth: document.documentElement.scrollWidth,
         clientWidth: document.documentElement.clientWidth,
         scrollHeight: document.documentElement.scrollHeight,
+        viewportHeight: window.innerHeight,
       };
     });
 
@@ -338,108 +363,178 @@ for (const job of jobs()) {
       `横向溢出 ${metrics.scrollWidth} > ${metrics.clientWidth}`,
     );
 
-    if (job.state === "normal") {
-      assert.equal(metrics.h1, "香港-亚太边缘入口");
-      assert.match(
-        metrics.badge ?? "",
-        job.locale === "zh-CN" ? /在线/ : /Online/,
+    const near = (a, b, label) => {
+      assert.ok(
+        typeof a === "number" &&
+          typeof b === "number" &&
+          Math.abs(a - b) <= 1,
+        `${label}: ${a} vs ${b}`,
       );
-      assert.match(metrics.text, /亚太/);
-      assert.match(metrics.stats.latency?.text ?? "", /18\s*ms/);
-      assert.match(metrics.stats.uptime?.text ?? "", /9[78](\.\d+)?\s*%/);
-      assert.match(metrics.stats.rate?.text ?? "", /17\.5\s*MB\/s/);
-      assert.match(metrics.stats.rate?.text ?? "", /2\.19\s*MB\/s/);
-      assert.equal(metrics.bars.length, 24, "24 格竖条");
-      assert.match(metrics.lowest ?? "", /03:00–04:00/);
-      assert.match(metrics.lowest ?? "", /91%/);
+    };
+
+    if (DETAIL_STATES.includes(job.state)) {
+      assert.equal(metrics.ringCount, 2, "内存 / 硬盘两个环");
+      assert.equal(metrics.srCount, 24, "sr-only 逐小时文本 24 条");
+      assert.ok(
+        metrics.trafficText?.includes("自开机以来") ||
+          metrics.trafficText?.includes("Since boot"),
+      );
+      assert.ok((metrics.back?.height ?? 0) >= 40, "返回列表 ≥40px");
+      assert.ok(
+        metrics.headerText?.includes("更新于") ||
+          metrics.headerText?.includes("Updated"),
+        "顶栏保留「更新于」",
+      );
+      assert.ok(
+        /在线|离线|Online|Offline/.test(metrics.badge ?? ""),
+        "状态 pill",
+      );
+      assert.ok(metrics.footer?.height, "页脚存在");
       if (job.locale === "zh-CN") {
-        assert.match(metrics.billing ?? "", /27 天后到期/);
-        assert.match(metrics.billing ?? "", /¥268\.00\s*\/\s*月/);
+        assert.ok(metrics.stats.latency?.text.startsWith("延迟"), "延迟不写平均");
+        assert.match(metrics.stats.rate?.text ?? "", /当前速率/);
       } else {
-        assert.match(metrics.billing ?? "", /27 days left/);
-        assert.match(metrics.billing ?? "", /¥268\.00\s*\/\s*mo/);
+        assert.ok(metrics.stats.latency?.text.startsWith("Latency"));
+        assert.match(metrics.stats.rate?.text ?? "", /Current rate/);
       }
-      assert.match(metrics.system ?? "", /Debian GNU\/Linux 12/);
-      assert.match(metrics.system ?? "", /kvm/);
-      assert.match(metrics.system ?? "", /x86_64/);
+    }
+
+    if (job.state === "healthy") {
+      assert.equal(metrics.steps.length, 24);
+      assert.equal(metrics.missing.length, 0);
+      assert.ok(metrics.steps.every((step) => step.ratio === 1));
+      assert.ok(metrics.steps.every((step) => step.tone === "ok"));
+      assert.ok(
+        metrics.text.includes("24/24 采样") ||
+          metrics.text.includes("24/24 sampled"),
+      );
+      assert.ok(metrics.sevenText?.includes("100%"));
+      assert.equal(metrics.trafficText?.includes("1.42 TB"), true);
+      assert.ok(metrics.badge?.includes("在线") || metrics.badge?.includes("Online"));
+      assert.ok(metrics.footer && metrics.traffic);
       if (job.locale === "zh-CN") {
-        assert.match(metrics.footer ?? "", /数据每 20 秒刷新/);
-        assert.match(metrics.footer ?? "", /最后上报/);
+        assert.match(metrics.stats.uptime?.text ?? "", /24h 可用率/);
       } else {
-        assert.match(metrics.footer ?? "", /Refreshes every 20 seconds/);
-        assert.match(metrics.footer ?? "", /Last reported/);
+        assert.match(metrics.stats.latency?.text ?? "", /Latency/);
+        assert.match(metrics.stats.rate?.text ?? "", /Current rate/);
+        assert.ok(metrics.text.includes("Back to list"));
       }
-      assert.ok((metrics.back?.height ?? 0) >= 40, "返回列表触控目标 ≥40px");
-      assert.deepEqual(metrics.sectionOrder, [
-        "detail-header",
-        "detail-key-numbers",
-        "detail-availability",
-        "detail-resources",
-        "detail-billing",
-        "detail-system",
-        "detail-footer",
-      ]);
+    }
+
+    if (job.state === "incident") {
+      assert.deepEqual(metrics.missing.sort((a, b) => a - b), [2, 3, 18]);
+      for (const index of metrics.missing) {
+        assert.ok(
+          !metrics.steps.some((step) => step.index === index),
+          `缺失小时 ${index} 不画 step`,
+        );
+        assert.ok(
+          !metrics.areas.includes(index),
+          `缺失小时 ${index} 不画 area`,
+        );
+      }
+      assert.ok(
+        metrics.transitions.every(
+          (transition) =>
+            !metrics.missing.includes(transition.from) &&
+            !metrics.missing.includes(transition.to),
+        ),
+        "缺口两侧不连线",
+      );
+      const zeros = metrics.steps.filter((step) => step.ratio === 0);
+      assert.equal(zeros.length, 3);
+      assert.ok(zeros.every((step) => step.y1 === 96), "0% 落在基线");
+      assert.ok(metrics.steps.some((step) => step.ratio === 0.91 && step.tone === "down"));
+      assert.ok(metrics.text.includes("21/24 采样"));
     }
 
     if (job.state === "offline") {
-      assert.match(metrics.badge ?? "", /离线/);
-      assert.doesNotMatch(metrics.badge ?? "", /在线/);
-      // 离线前的最后已知值仍展示。
+      assert.ok(metrics.badge?.includes("离线"));
       assert.match(metrics.stats.latency?.text ?? "", /18\s*ms/);
-      assert.match(metrics.stats.uptime?.text ?? "", /9[78](\.\d+)?\s*%/);
-      assert.match(metrics.stats.rate?.text ?? "", /17\.5\s*MB\/s/);
-      assert.match(metrics.footer ?? "", /最后上报/);
+      assert.match(metrics.stats.uptime?.text ?? "", /86\s*%/);
     }
 
     if (job.state === "nodata") {
-      assert.match(metrics.badge ?? "", /在线/);
-      for (const stat of ["latency", "uptime", "rate"]) {
-        assert.match(
-          metrics.stats[stat]?.text ?? "",
-          /—/,
-          `${stat} 无数据应为 —`,
-        );
-      }
-      assert.equal(metrics.bars.length, 24);
-      assert.ok(metrics.bars.every((bar) => bar.ratio === "null"));
-      assert.equal(metrics.lowest, null, "无采样时不显示最低时段");
-      assert.equal(metrics.billing, null, "没有账期时不渲染费用卡");
-      assert.match(metrics.text, /未上报/);
-      assert.match(metrics.footer ?? "", /从未上报/);
+      assert.equal(metrics.steps.length, 0);
+      assert.equal(metrics.missing.length, 24);
+      assert.equal(metrics.areas.length, 0);
+      assert.equal(metrics.sevenText, "7 天可用率 —");
+      assert.match(metrics.stats.latency?.text ?? "", /—/);
+      assert.match(metrics.trafficText ?? "", /—/);
+      assert.ok(metrics.text.includes("未上报"));
     }
 
     if (job.state === "notfound") {
-      assert.match(metrics.text, /该服务器不存在或已下线/);
-      assert.ok(metrics.back, "未找到也要有返回列表");
-      assert.match(metrics.back?.href ?? "", /\/status$/);
+      assert.ok(metrics.text.includes("该节点不存在或已下线"));
+      assert.equal(metrics.back?.href, "/status");
     }
 
     if (job.state === "error") {
-      assert.match(metrics.text, /暂时无法获取服务状态/);
-      assert.match(metrics.text, /重试/);
-      assert.ok(metrics.back, "错误态也要有返回列表");
+      assert.ok(metrics.text.includes("暂时无法获取服务状态"));
+      assert.ok(metrics.text.includes("重试"));
+      assert.equal(metrics.back?.href, "/status");
     }
 
     if (job.state === "disabled") {
-      assert.match(metrics.text, /状态页未开放/);
+      assert.ok(metrics.text.includes("状态页未开放"));
     }
 
-    if (job.width === 390 && ["normal", "offline", "nodata"].includes(job.state)) {
-      const ys = ["latency", "uptime", "rate"].map(
-        (stat) => metrics.stats[stat]?.y,
-      );
+    let footerGap = null;
+    let bottomGap = null;
+
+    if (job.width === 1440) {
+      assert.ok(metrics.scrollHeight <= 1100, `页面高 ${metrics.scrollHeight}`);
+    } else {
+      assert.ok(metrics.scrollHeight <= 1500, `页面高 ${metrics.scrollHeight}`);
+    }
+
+    if (DETAIL_STATES.includes(job.state)) {
+      if (job.width === 1440) {
+        assert.equal(metrics.grid?.width, 1352, "1440 内容宽 1352");
+        assert.equal(metrics.header?.width, 420, "左栏 420");
+        assert.equal(metrics.chart?.width, 916, "右栏 916");
+        near(metrics.header?.y, metrics.chart?.y, "左栏首卡与曲线顶边");
+        near(metrics.key?.bottom, metrics.chart?.bottom, "左栏第二卡与曲线底边");
+        near(metrics.resources?.y, metrics.bottom?.y, "资源与费用/系统顶边");
+        near(
+          metrics.resources?.bottom,
+          metrics.bottom?.bottom,
+          "资源与费用/系统底边",
+        );
+        assert.equal(metrics.traffic?.x, metrics.grid?.x);
+        assert.equal(metrics.traffic?.width, metrics.grid?.width);
+      } else {
+        const order = metrics.order;
+        assert.ok(order.length === 6);
+        for (let index = 1; index < order.length; index += 1) {
+          assert.ok(
+            order[index].y > order[index - 1].y,
+            `390 顺序 ${order[index - 1].slot} → ${order[index].slot}`,
+          );
+        }
+        for (const entry of order) {
+          assert.ok(
+            Math.abs((entry.width ?? 0) - (order[0].width ?? 0)) <= 1,
+            `390 单列宽不一致：${entry.slot}`,
+          );
+        }
+      }
+      footerGap =
+        metrics.footer && metrics.traffic
+          ? metrics.footer.y - metrics.traffic.bottom
+          : null;
       assert.ok(
-        ys[0] < ys[1] && ys[1] < ys[2],
-        `390 下三个数字应单列堆叠：${ys.join(" / ")}`,
+        footerGap !== null && Math.abs(footerGap - 16) <= 1,
+        `页脚与流量带间距应 16px：${footerGap}`,
       );
-      assert.ok((metrics.back?.height ?? 0) >= 40);
-    }
-
-    if (job.locale === "en" && job.state === "normal") {
-      assert.match(metrics.text, /Back to list/);
-      assert.match(metrics.text, /Lowest hour/);
-      assert.match(metrics.text, /Refreshes every 20 seconds/);
-      assert.match(metrics.text, /Debian GNU\/Linux 12/);
+      bottomGap =
+        metrics.footer && typeof metrics.scrollHeight === "number"
+          ? metrics.scrollHeight - metrics.footer.bottom
+          : null;
+      assert.ok(
+        bottomGap !== null && bottomGap <= 24,
+        `页底空白应 ≤24px：${bottomGap}`,
+      );
     }
 
     await page.screenshot({
@@ -457,18 +552,29 @@ for (const job of jobs()) {
       h1: metrics.h1,
       badge: metrics.badge,
       stats: metrics.stats,
-      bars: metrics.bars.length,
-      lowest: metrics.lowest,
-      billing: metrics.billing,
-      system: metrics.system,
+      chart: metrics.chart,
+      grid: metrics.grid,
+      header: metrics.header,
+      key: metrics.key,
+      resources: metrics.resources,
+      bottom: metrics.bottom,
+      traffic: metrics.traffic,
       footer: metrics.footer,
-      back: metrics.back,
-      scrollWidth: metrics.scrollWidth,
+      steps: metrics.steps.length,
+      missing: metrics.missing,
+      zeros: metrics.steps.filter((step) => step.ratio === 0).length,
+      seven: metrics.sevenText,
+      ringTexts: metrics.ringTexts,
+      footerGap,
+      bottomGap,
       scrollHeight: metrics.scrollHeight,
+      scrollWidth: metrics.scrollWidth,
       kb: Math.round(statSync(job.out).size / 1024),
     });
     console.log(
-      `ok  ${path.basename(job.out).padEnd(30)} ${metrics.h1 ?? "state"}  ${metrics.scrollWidth}×${metrics.scrollHeight}`,
+      `ok  ${path.basename(job.out).padEnd(32)} ${metrics.h1 ?? "state"}  ` +
+        `steps=${metrics.steps.length} missing=${metrics.missing.length} ` +
+        `h=${metrics.scrollHeight} bottom=${bottomGap}`,
     );
   } catch (error) {
     failures.push(`${job.label}: ${error.message}`);
@@ -478,35 +584,75 @@ for (const job of jobs()) {
   }
 }
 
-// ---- 交互路径：列表点击 / 键盘 Enter / 深链接 / 返回列表 ----------------------
+// ---- 曲线 hover / 键盘 / 列表交互 -------------------------------------------
 const interactions = {};
 {
-  let failNext = false;
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   await page.addInitScript(() => {
     localStorage.setItem("pierwave.theme", "dark");
     localStorage.setItem("pierwave.locale", "zh-CN");
   });
+  let failNext = false;
   await page.route("**/api/**", async (route) => {
     if (route.request().url().includes("/api/v1/public/status")) {
       if (failNext) {
-        await route.fulfill({
-          status: 500,
-          contentType: "application/json",
-          body: "{}",
-        });
+        await route.fulfill({ status: 500, body: "{}" });
         return;
       }
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(detailFixture("normal")),
+        body: JSON.stringify(detailFixture("incident")),
       });
       return;
     }
     await route.fulfill({ status: 404, body: "{}" });
   });
   try {
+    await page.goto(`${BASE_URL}/status/${TARGET_ID}`, { waitUntil: "load" });
+    await page.waitForSelector('[data-slot="detail-header"]', { timeout: 15_000 });
+
+    const plot = page.locator('[data-slot="availability-plot"]');
+    const box = await plot.boundingBox();
+    assert.ok(box);
+    // 0% 小时（index 8）→ tooltip 显示 0% / 中断。
+    await page.mouse.move(box.x + box.width * ((8 + 0.5) / 24), box.y + box.height * 0.7);
+    const tooltip = page.locator('[data-slot="availability-tooltip"]');
+    await tooltip.waitFor({ timeout: 5_000 });
+    const zeroTooltip = (await tooltip.innerText()).replace(/\s+/g, " ").trim();
+    assert.match(zeroTooltip, /0%/);
+    assert.match(zeroTooltip, /中断/);
+
+    // 缺失小时（index 2）→ tooltip 显示无采样。
+    await page.mouse.move(box.x + box.width * ((2 + 0.5) / 24), box.y + box.height * 0.5);
+    await page.waitForTimeout(30);
+    const missingTooltip = (await tooltip.innerText()).replace(/\s+/g, " ").trim();
+    assert.match(missingTooltip, /无采样/);
+
+    await page.screenshot({
+      path: path.join(HERE, "incident-hover-dark-1440.png"),
+      fullPage: true,
+      animations: "disabled",
+    });
+
+    await page.locator('[data-slot="availability-plot"]').focus();
+    await page.waitForTimeout(50);
+    await page.keyboard.press("ArrowLeft");
+    await page.waitForTimeout(30);
+    const keyboardTooltip = (await tooltip.innerText()).replace(/\s+/g, " ").trim();
+    assert.ok(keyboardTooltip.length > 0);
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(30);
+    assert.equal(await tooltip.count(), 0);
+
+    interactions.chart = {
+      zeroTooltip,
+      missingTooltip,
+      keyboardTooltip,
+      srCount: await page.locator('[data-slot="detail-chart"] ul.sr-only li').count(),
+    };
+
+    // 列表入口 / 返回 / 键盘 Enter / 深链。
     await page.goto(`${BASE_URL}/status`, { waitUntil: "load" });
     await page.waitForFunction(
       () => document.querySelectorAll("main h3").length === 8,
@@ -514,12 +660,11 @@ const interactions = {};
       { timeout: 15_000 },
     );
     const cardLink = page.locator(`a[href="/status/${TARGET_ID}"]`).first();
-    assert.equal(await cardLink.count(), 1, "卡片要有详情链接");
+    assert.equal(await cardLink.count(), 1);
     await cardLink.click();
     await page.waitForURL(`**/status/${TARGET_ID}`, { timeout: 10_000 });
     await page.waitForSelector('[data-slot="detail-header"]');
-    interactions.fromList = { url: page.url(), h1: await page.locator("main h1").innerText() };
-
+    interactions.fromList = { url: page.url() };
     await page.locator('[data-slot="detail-back"]').click();
     await page.waitForURL("**/status", { timeout: 10_000 });
     await page.waitForFunction(
@@ -528,20 +673,14 @@ const interactions = {};
       { timeout: 15_000 },
     );
     interactions.backToList = { url: page.url(), cards: await page.locator("main h3").count() };
-
-    // 键盘 Enter：卡片是真实链接，不需要自造 role=link 的键盘处理。
     await cardLink.focus();
     await page.keyboard.press("Enter");
     await page.waitForURL(`**/status/${TARGET_ID}`, { timeout: 10_000 });
-    await page.waitForSelector('[data-slot="detail-header"]');
     interactions.keyboard = { url: page.url() };
-
-    // 深链接：直接打开详情 URL。
     await page.goto(`${BASE_URL}/status/${TARGET_ID}`, { waitUntil: "load" });
     await page.waitForSelector('[data-slot="detail-header"]', { timeout: 15_000 });
-    interactions.deepLink = { url: page.url(), h1: await page.locator("main h1").innerText() };
+    interactions.deepLink = { url: page.url() };
 
-    // 列表入口截图：保留卡片的 chevron 提示。
     await page.goto(`${BASE_URL}/status`, { waitUntil: "load" });
     await page.waitForFunction(
       () => document.querySelectorAll("main h3").length === 8,
@@ -555,7 +694,7 @@ const interactions = {};
     });
     interactions.listScreenshot = "list-entry-dark-1440.png";
 
-    // 先成功、后失败：错误面板要带「上次成功」时间。
+    // 先成功、再失败：错误面板要带「上次成功」。
     await page.goto(`${BASE_URL}/status/${TARGET_ID}`, { waitUntil: "load" });
     await page.waitForSelector('[data-slot="detail-header"]', { timeout: 15_000 });
     failNext = true;
@@ -567,24 +706,65 @@ const interactions = {};
       document.dispatchEvent(new Event("visibilitychange"));
     });
     await page.getByText("暂时无法获取服务状态").waitFor({ timeout: 10_000 });
-    const lastSuccessText = await page
-      .getByText(/上次成功/)
-      .innerText();
+    const lastSuccessText = await page.getByText(/上次成功/).innerText();
     assert.match(lastSuccessText, /上次成功/);
     await page.screenshot({
       path: path.join(HERE, "error-last-success-dark-1440.png"),
       fullPage: true,
       animations: "disabled",
     });
-    interactions.errorLastSuccess = {
-      text: lastSuccessText,
-      file: "error-last-success-dark-1440.png",
-    };
+    interactions.errorLastSuccess = { text: lastSuccessText, file: "error-last-success-dark-1440.png" };
   } catch (error) {
     failures.push(`interactions: ${error.message}`);
     console.error(`FAIL interactions: ${error.message}`);
   } finally {
     await page.close();
+  }
+
+  // 触摸点按：单独用 hasTouch 上下文，验证 tooltip 不会被 focus 覆盖成最后一小时。
+  const touchPage = await browser.newPage({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+  });
+  await touchPage.addInitScript(() => {
+    localStorage.setItem("pierwave.theme", "dark");
+    localStorage.setItem("pierwave.locale", "zh-CN");
+  });
+  await touchPage.route("**/api/**", async (route) => {
+    if (route.request().url().includes("/api/v1/public/status")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(detailFixture("incident")),
+      });
+      return;
+    }
+    await route.fulfill({ status: 404, body: "{}" });
+  });
+  try {
+    await touchPage.goto(`${BASE_URL}/status/${TARGET_ID}`, { waitUntil: "load" });
+    await touchPage.waitForSelector('[data-slot="detail-header"]', { timeout: 15_000 });
+    const touchPlot = touchPage.locator('[data-slot="availability-plot"]');
+    const touchBox = await touchPlot.boundingBox();
+    assert.ok(touchBox);
+    await touchPage.touchscreen.tap(
+      touchBox.x + touchBox.width * ((8 + 0.5) / 24),
+      touchBox.y + touchBox.height * 0.7,
+    );
+    const touchTooltip = await touchPage
+      .locator('[data-slot="availability-tooltip"]')
+      .innerText();
+    assert.match(touchTooltip, /0%/);
+    assert.match(touchTooltip, /中断/);
+    interactions.touch = {
+      tooltip: touchTooltip.replace(/\s+/g, " ").trim(),
+      viewport: 390,
+    };
+  } catch (error) {
+    failures.push(`touch: ${error.message}`);
+    console.error(`FAIL touch: ${error.message}`);
+  } finally {
+    await touchPage.close();
   }
 }
 
@@ -596,7 +776,7 @@ writeFileSync(
 );
 
 console.log(
-  `\n${results.length + 2} 张截图 → ${path.relative(process.cwd(), HERE) || "."}`,
+  `\n${results.length + 3} 张截图 → ${path.relative(process.cwd(), HERE) || "."}`,
 );
 if (failures.length > 0) {
   console.error(`\n${failures.length} 个任务失败：`);

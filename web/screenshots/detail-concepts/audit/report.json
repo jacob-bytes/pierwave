@@ -1,0 +1,2505 @@
+{
+  "baseUrl": "http://localhost:4180",
+  "fixture": "fixture.json",
+  "capturedAt": "2026-11-21T05:12:27.008Z",
+  "results": [
+    {
+      "kind": "normal",
+      "theme": "dark",
+      "width": 1440,
+      "height": 1000,
+      "file": "current-normal-dark-1440.png",
+      "viewport": 1440,
+      "doc": {
+        "scrollWidth": 1440,
+        "clientWidth": 1440,
+        "scrollHeight": 1000,
+        "innerHeight": 1000,
+        "overflowX": false
+      },
+      "wrapper": {
+        "x": 272,
+        "y": 81,
+        "width": 896,
+        "height": 766.78
+      },
+      "sectionInfo": [
+        {
+          "slot": "detail-header",
+          "rect": {
+            "x": 272,
+            "y": 81,
+            "width": 896,
+            "height": 80
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "20px"
+          },
+          "heading": null,
+          "headingStyle": null
+        },
+        {
+          "slot": "detail-key-numbers",
+          "rect": {
+            "x": 272,
+            "y": 177,
+            "width": 896,
+            "height": 92
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "20px"
+          },
+          "heading": null,
+          "headingStyle": null
+        },
+        {
+          "slot": "detail-availability",
+          "rect": {
+            "x": 272,
+            "y": 285,
+            "width": 896,
+            "height": 156
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "20px"
+          },
+          "heading": "24 小时可用率",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "slot": "detail-lowest",
+          "rect": {
+            "x": 292,
+            "y": 405,
+            "width": 856,
+            "height": 16
+          },
+          "style": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "heading": null,
+          "headingStyle": null
+        },
+        {
+          "slot": "detail-resources",
+          "rect": {
+            "x": 272,
+            "y": 457,
+            "width": 896,
+            "height": 122
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "20px"
+          },
+          "heading": "资源",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "slot": "detail-billing",
+          "rect": {
+            "x": 272,
+            "y": 595,
+            "width": 896,
+            "height": 90.39
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "20px"
+          },
+          "heading": "费用与到期",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "slot": "detail-system",
+          "rect": {
+            "x": 272,
+            "y": 701.39,
+            "width": 896,
+            "height": 114.39
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "20px"
+          },
+          "heading": "系统信息",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        }
+      ],
+      "gaps": [
+        {
+          "between": "detail-header → detail-key-numbers",
+          "gap": 16
+        },
+        {
+          "between": "detail-key-numbers → detail-availability",
+          "gap": 16
+        },
+        {
+          "between": "detail-availability → detail-lowest",
+          "gap": -36
+        },
+        {
+          "between": "detail-lowest → detail-resources",
+          "gap": 36
+        },
+        {
+          "between": "detail-resources → detail-billing",
+          "gap": 16
+        },
+        {
+          "between": "detail-billing → detail-system",
+          "gap": 16
+        }
+      ],
+      "stats": [
+        {
+          "name": "latency",
+          "rect": {
+            "x": 292,
+            "y": 197,
+            "width": 274.66,
+            "height": 52
+          },
+          "label": "平均延迟",
+          "labelStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueStyle": {
+            "fontSize": "28px",
+            "lineHeight": "28px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueText": "28ms"
+        },
+        {
+          "name": "uptime",
+          "rect": {
+            "x": 582.66,
+            "y": 197,
+            "width": 274.67,
+            "height": 52
+          },
+          "label": "24h 可用率",
+          "labelStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueStyle": {
+            "fontSize": "28px",
+            "lineHeight": "28px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueText": "100%"
+        },
+        {
+          "name": "rate",
+          "rect": {
+            "x": 873.33,
+            "y": 197,
+            "width": 274.66,
+            "height": 52
+          },
+          "label": "当前总速率",
+          "labelStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueStyle": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueText": "下行1.8MB/s上行512KB/s"
+        }
+      ],
+      "barsWrap": {
+        "x": 292,
+        "y": 337,
+        "width": 856,
+        "height": 56
+      },
+      "bars": {
+        "count": 24,
+        "width": 31.83,
+        "height": 56,
+        "gap": 4,
+        "radius": "2px",
+        "backgroundCounts": {
+          "oklch(0.662 0.179 264.6)": 22,
+          "oklab(0.7 0.00388229 -0.0144889 / 0.15)": 2
+        },
+        "heights": [
+          56
+        ],
+        "first": [
+          {
+            "rect": {
+              "x": 292,
+              "y": 337,
+              "width": 31.83,
+              "height": 56
+            },
+            "bg": "oklch(0.662 0.179 264.6)",
+            "title": "2026-11-20 14:00:00 · 100%",
+            "ratio": "1"
+          },
+          {
+            "rect": {
+              "x": 327.83,
+              "y": 337,
+              "width": 31.84,
+              "height": 56
+            },
+            "bg": "oklch(0.662 0.179 264.6)",
+            "title": "2026-11-20 15:00:00 · 100%",
+            "ratio": "1"
+          },
+          {
+            "rect": {
+              "x": 363.67,
+              "y": 337,
+              "width": 31.83,
+              "height": 56
+            },
+            "bg": "oklch(0.662 0.179 264.6)",
+            "title": "2026-11-20 16:00:00 · 100%",
+            "ratio": "1"
+          }
+        ],
+        "sampleTitles": [
+          "无数据",
+          "无数据"
+        ]
+      },
+      "h1s": [
+        {
+          "text": "PierWave",
+          "rect": {
+            "x": 94,
+            "y": 12.11,
+            "width": 156,
+            "height": 21.59
+          },
+          "style": {
+            "fontSize": "16px",
+            "lineHeight": "21.6px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "text": "香港-01",
+          "rect": {
+            "x": 292,
+            "y": 101,
+            "width": 67.88,
+            "height": 27
+          },
+          "style": {
+            "fontSize": "20px",
+            "lineHeight": "27px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        }
+      ],
+      "footer": {
+        "rect": {
+          "x": 272,
+          "y": 831.78,
+          "width": 896,
+          "height": 16
+        },
+        "text": "最后上报 2 分钟前 数据每 20 秒刷新"
+      },
+      "occurrences": {
+        "在线": 1,
+        "更新于": 1,
+        "最后上报": 1,
+        "20 秒": 1,
+        "24 小时": 1,
+        "24h": 1,
+        "资源": 1,
+        "可用率": 2,
+        "系统信息": 1,
+        "费用与到期": 1,
+        "刚刚": 0,
+        "返回列表": 1
+      },
+      "textSample": "PierWave 现在有一把钥匙，就在你面前 更新于 13:10:06 进入后台 香港-01 🇭🇰 香港 在线 13 天 返回列表 平均延迟 28 ms 24h 可用率 100 % 当前总速率 下行 1.8 MB/s 上行 512 KB/s 24 小时可用率 最低时段 14:00–15:00 · 100% 资源 负载 0.42 1 分钟平均 内存 42% 3.4 GB / 8 GB 硬盘 53% 42 GB / 80 GB 费用与到期 26 天后到期 · ¥268.00 / 月 系统信息 发行版 Debian GNU/Linux 12 虚拟化 kvm 架构 x86_64 最后上报 2 分钟前 数据每 20 秒刷新"
+    },
+    {
+      "kind": "normal",
+      "theme": "dark",
+      "width": 390,
+      "height": 844,
+      "file": "current-normal-dark-390.png",
+      "viewport": 390,
+      "doc": {
+        "scrollWidth": 390,
+        "clientWidth": 390,
+        "scrollHeight": 1245,
+        "innerHeight": 844,
+        "overflowX": false
+      },
+      "wrapper": {
+        "x": 16,
+        "y": 81,
+        "width": 358,
+        "height": 1147.86
+      },
+      "sectionInfo": [
+        {
+          "slot": "detail-header",
+          "rect": {
+            "x": 16,
+            "y": 81,
+            "width": 358,
+            "height": 108.3
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "16px"
+          },
+          "heading": null,
+          "headingStyle": null
+        },
+        {
+          "slot": "detail-key-numbers",
+          "rect": {
+            "x": 16,
+            "y": 205.3,
+            "width": 358,
+            "height": 228
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "16px"
+          },
+          "heading": null,
+          "headingStyle": null
+        },
+        {
+          "slot": "detail-availability",
+          "rect": {
+            "x": 16,
+            "y": 449.3,
+            "width": 358,
+            "height": 148
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "16px"
+          },
+          "heading": "24 小时可用率",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "slot": "detail-lowest",
+          "rect": {
+            "x": 32,
+            "y": 565.3,
+            "width": 326,
+            "height": 16
+          },
+          "style": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "heading": null,
+          "headingStyle": null
+        },
+        {
+          "slot": "detail-resources",
+          "rect": {
+            "x": 16,
+            "y": 613.3,
+            "width": 358,
+            "height": 254
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "16px"
+          },
+          "heading": "资源",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "slot": "detail-billing",
+          "rect": {
+            "x": 16,
+            "y": 883.3,
+            "width": 358,
+            "height": 82.39
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "16px"
+          },
+          "heading": "费用与到期",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "slot": "detail-system",
+          "rect": {
+            "x": 16,
+            "y": 981.69,
+            "width": 358,
+            "height": 215.17
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "16px"
+          },
+          "heading": "系统信息",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        }
+      ],
+      "gaps": [
+        {
+          "between": "detail-header → detail-key-numbers",
+          "gap": 16
+        },
+        {
+          "between": "detail-key-numbers → detail-availability",
+          "gap": 16
+        },
+        {
+          "between": "detail-availability → detail-lowest",
+          "gap": -32
+        },
+        {
+          "between": "detail-lowest → detail-resources",
+          "gap": 32
+        },
+        {
+          "between": "detail-resources → detail-billing",
+          "gap": 16
+        },
+        {
+          "between": "detail-billing → detail-system",
+          "gap": 16
+        }
+      ],
+      "stats": [
+        {
+          "name": "latency",
+          "rect": {
+            "x": 32,
+            "y": 221.3,
+            "width": 326,
+            "height": 52
+          },
+          "label": "平均延迟",
+          "labelStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueStyle": {
+            "fontSize": "19px",
+            "lineHeight": "19px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueText": "28ms"
+        },
+        {
+          "name": "uptime",
+          "rect": {
+            "x": 32,
+            "y": 293.3,
+            "width": 326,
+            "height": 52
+          },
+          "label": "24h 可用率",
+          "labelStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueStyle": {
+            "fontSize": "19px",
+            "lineHeight": "19px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueText": "100%"
+        },
+        {
+          "name": "rate",
+          "rect": {
+            "x": 32,
+            "y": 365.3,
+            "width": 326,
+            "height": 52
+          },
+          "label": "当前总速率",
+          "labelStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueStyle": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueText": "下行1.8MB/s上行512KB/s"
+        }
+      ],
+      "barsWrap": {
+        "x": 32,
+        "y": 497.3,
+        "width": 326,
+        "height": 56
+      },
+      "bars": {
+        "count": 24,
+        "width": 9.75,
+        "height": 56,
+        "gap": 4,
+        "radius": "2px",
+        "backgroundCounts": {
+          "oklch(0.662 0.179 264.6)": 22,
+          "oklab(0.7 0.00388229 -0.0144889 / 0.15)": 2
+        },
+        "heights": [
+          56
+        ],
+        "first": [
+          {
+            "rect": {
+              "x": 32,
+              "y": 497.3,
+              "width": 9.75,
+              "height": 56
+            },
+            "bg": "oklch(0.662 0.179 264.6)",
+            "title": "2026-11-20 14:00:00 · 100%",
+            "ratio": "1"
+          },
+          {
+            "rect": {
+              "x": 45.75,
+              "y": 497.3,
+              "width": 9.75,
+              "height": 56
+            },
+            "bg": "oklch(0.662 0.179 264.6)",
+            "title": "2026-11-20 15:00:00 · 100%",
+            "ratio": "1"
+          },
+          {
+            "rect": {
+              "x": 59.5,
+              "y": 497.3,
+              "width": 9.75,
+              "height": 56
+            },
+            "bg": "oklch(0.662 0.179 264.6)",
+            "title": "2026-11-20 16:00:00 · 100%",
+            "ratio": "1"
+          }
+        ],
+        "sampleTitles": [
+          "无数据",
+          "无数据"
+        ]
+      },
+      "h1s": [
+        {
+          "text": "PierWave",
+          "rect": {
+            "x": 66,
+            "y": 12.11,
+            "width": 130,
+            "height": 21.59
+          },
+          "style": {
+            "fontSize": "16px",
+            "lineHeight": "21.6px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "text": "香港-01",
+          "rect": {
+            "x": 32,
+            "y": 97,
+            "width": 61.08,
+            "height": 24.3
+          },
+          "style": {
+            "fontSize": "18px",
+            "lineHeight": "24.3px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        }
+      ],
+      "footer": {
+        "rect": {
+          "x": 16,
+          "y": 1212.86,
+          "width": 358,
+          "height": 16
+        },
+        "text": "最后上报 2 分钟前 数据每 20 秒刷新"
+      },
+      "occurrences": {
+        "在线": 1,
+        "更新于": 1,
+        "最后上报": 1,
+        "20 秒": 1,
+        "24 小时": 1,
+        "24h": 1,
+        "资源": 1,
+        "可用率": 2,
+        "系统信息": 1,
+        "费用与到期": 1,
+        "刚刚": 0,
+        "返回列表": 1
+      },
+      "textSample": "PierWave 现在有一把钥匙，就在你面前 更新于 13:10:06 进入后台 香港-01 🇭🇰 香港 在线 13 天 返回列表 平均延迟 28 ms 24h 可用率 100 % 当前总速率 下行 1.8 MB/s 上行 512 KB/s 24 小时可用率 最低时段 14:00–15:00 · 100% 资源 负载 0.42 1 分钟平均 内存 42% 3.4 GB / 8 GB 硬盘 53% 42 GB / 80 GB 费用与到期 26 天后到期 · ¥268.00 / 月 系统信息 发行版 Debian GNU/Linux 12 虚拟化 kvm 架构 x86_64 最后上报 2 分钟前 数据每 20 秒刷新"
+    },
+    {
+      "kind": "normal",
+      "theme": "light",
+      "width": 1440,
+      "height": 1000,
+      "file": "current-normal-light-1440.png",
+      "viewport": 1440,
+      "doc": {
+        "scrollWidth": 1440,
+        "clientWidth": 1440,
+        "scrollHeight": 1000,
+        "innerHeight": 1000,
+        "overflowX": false
+      },
+      "wrapper": {
+        "x": 272,
+        "y": 81,
+        "width": 896,
+        "height": 766.78
+      },
+      "sectionInfo": [
+        {
+          "slot": "detail-header",
+          "rect": {
+            "x": 272,
+            "y": 81,
+            "width": 896,
+            "height": 80
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "oklch(1 0 0)",
+            "borderRadius": "16.8px",
+            "padding": "20px"
+          },
+          "heading": null,
+          "headingStyle": null
+        },
+        {
+          "slot": "detail-key-numbers",
+          "rect": {
+            "x": 272,
+            "y": 177,
+            "width": 896,
+            "height": 92
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "oklch(1 0 0)",
+            "borderRadius": "16.8px",
+            "padding": "20px"
+          },
+          "heading": null,
+          "headingStyle": null
+        },
+        {
+          "slot": "detail-availability",
+          "rect": {
+            "x": 272,
+            "y": 285,
+            "width": 896,
+            "height": 156
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "oklch(1 0 0)",
+            "borderRadius": "16.8px",
+            "padding": "20px"
+          },
+          "heading": "24 小时可用率",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.52 0.035 265.1)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "slot": "detail-lowest",
+          "rect": {
+            "x": 292,
+            "y": 405,
+            "width": 856,
+            "height": 16
+          },
+          "style": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.52 0.035 265.1)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "heading": null,
+          "headingStyle": null
+        },
+        {
+          "slot": "detail-resources",
+          "rect": {
+            "x": 272,
+            "y": 457,
+            "width": 896,
+            "height": 122
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "oklch(1 0 0)",
+            "borderRadius": "16.8px",
+            "padding": "20px"
+          },
+          "heading": "资源",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.52 0.035 265.1)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "slot": "detail-billing",
+          "rect": {
+            "x": 272,
+            "y": 595,
+            "width": 896,
+            "height": 90.39
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "oklch(1 0 0)",
+            "borderRadius": "16.8px",
+            "padding": "20px"
+          },
+          "heading": "费用与到期",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.52 0.035 265.1)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "slot": "detail-system",
+          "rect": {
+            "x": 272,
+            "y": 701.39,
+            "width": 896,
+            "height": 114.39
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "oklch(1 0 0)",
+            "borderRadius": "16.8px",
+            "padding": "20px"
+          },
+          "heading": "系统信息",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.52 0.035 265.1)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        }
+      ],
+      "gaps": [
+        {
+          "between": "detail-header → detail-key-numbers",
+          "gap": 16
+        },
+        {
+          "between": "detail-key-numbers → detail-availability",
+          "gap": 16
+        },
+        {
+          "between": "detail-availability → detail-lowest",
+          "gap": -36
+        },
+        {
+          "between": "detail-lowest → detail-resources",
+          "gap": 36
+        },
+        {
+          "between": "detail-resources → detail-billing",
+          "gap": 16
+        },
+        {
+          "between": "detail-billing → detail-system",
+          "gap": 16
+        }
+      ],
+      "stats": [
+        {
+          "name": "latency",
+          "rect": {
+            "x": 292,
+            "y": 197,
+            "width": 274.66,
+            "height": 52
+          },
+          "label": "平均延迟",
+          "labelStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.52 0.035 265.1)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueStyle": {
+            "fontSize": "28px",
+            "lineHeight": "28px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueText": "28ms"
+        },
+        {
+          "name": "uptime",
+          "rect": {
+            "x": 582.66,
+            "y": 197,
+            "width": 274.67,
+            "height": 52
+          },
+          "label": "24h 可用率",
+          "labelStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.52 0.035 265.1)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueStyle": {
+            "fontSize": "28px",
+            "lineHeight": "28px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueText": "100%"
+        },
+        {
+          "name": "rate",
+          "rect": {
+            "x": 873.33,
+            "y": 197,
+            "width": 274.66,
+            "height": 52
+          },
+          "label": "当前总速率",
+          "labelStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.52 0.035 265.1)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueStyle": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueText": "下行1.8MB/s上行512KB/s"
+        }
+      ],
+      "barsWrap": {
+        "x": 292,
+        "y": 337,
+        "width": 856,
+        "height": 56
+      },
+      "bars": {
+        "count": 24,
+        "width": 31.83,
+        "height": 56,
+        "gap": 4,
+        "radius": "2px",
+        "backgroundCounts": {
+          "oklch(0.424 0.199 265.638)": 22,
+          "oklab(0.52 -0.0029896 -0.0348721 / 0.15)": 2
+        },
+        "heights": [
+          56
+        ],
+        "first": [
+          {
+            "rect": {
+              "x": 292,
+              "y": 337,
+              "width": 31.83,
+              "height": 56
+            },
+            "bg": "oklch(0.424 0.199 265.638)",
+            "title": "2026-11-20 14:00:00 · 100%",
+            "ratio": "1"
+          },
+          {
+            "rect": {
+              "x": 327.83,
+              "y": 337,
+              "width": 31.84,
+              "height": 56
+            },
+            "bg": "oklch(0.424 0.199 265.638)",
+            "title": "2026-11-20 15:00:00 · 100%",
+            "ratio": "1"
+          },
+          {
+            "rect": {
+              "x": 363.67,
+              "y": 337,
+              "width": 31.83,
+              "height": 56
+            },
+            "bg": "oklch(0.424 0.199 265.638)",
+            "title": "2026-11-20 16:00:00 · 100%",
+            "ratio": "1"
+          }
+        ],
+        "sampleTitles": [
+          "无数据",
+          "无数据"
+        ]
+      },
+      "h1s": [
+        {
+          "text": "PierWave",
+          "rect": {
+            "x": 94,
+            "y": 12.11,
+            "width": 156,
+            "height": 21.59
+          },
+          "style": {
+            "fontSize": "16px",
+            "lineHeight": "21.6px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "text": "香港-01",
+          "rect": {
+            "x": 292,
+            "y": 101,
+            "width": 67.88,
+            "height": 27
+          },
+          "style": {
+            "fontSize": "20px",
+            "lineHeight": "27px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        }
+      ],
+      "footer": {
+        "rect": {
+          "x": 272,
+          "y": 831.78,
+          "width": 896,
+          "height": 16
+        },
+        "text": "最后上报 2 分钟前 数据每 20 秒刷新"
+      },
+      "occurrences": {
+        "在线": 1,
+        "更新于": 1,
+        "最后上报": 1,
+        "20 秒": 1,
+        "24 小时": 1,
+        "24h": 1,
+        "资源": 1,
+        "可用率": 2,
+        "系统信息": 1,
+        "费用与到期": 1,
+        "刚刚": 0,
+        "返回列表": 1
+      },
+      "textSample": "PierWave 现在有一把钥匙，就在你面前 更新于 13:10:06 进入后台 香港-01 🇭🇰 香港 在线 13 天 返回列表 平均延迟 28 ms 24h 可用率 100 % 当前总速率 下行 1.8 MB/s 上行 512 KB/s 24 小时可用率 最低时段 14:00–15:00 · 100% 资源 负载 0.42 1 分钟平均 内存 42% 3.4 GB / 8 GB 硬盘 53% 42 GB / 80 GB 费用与到期 26 天后到期 · ¥268.00 / 月 系统信息 发行版 Debian GNU/Linux 12 虚拟化 kvm 架构 x86_64 最后上报 2 分钟前 数据每 20 秒刷新"
+    },
+    {
+      "kind": "normal",
+      "theme": "light",
+      "width": 390,
+      "height": 844,
+      "file": "current-normal-light-390.png",
+      "viewport": 390,
+      "doc": {
+        "scrollWidth": 390,
+        "clientWidth": 390,
+        "scrollHeight": 1245,
+        "innerHeight": 844,
+        "overflowX": false
+      },
+      "wrapper": {
+        "x": 16,
+        "y": 81,
+        "width": 358,
+        "height": 1147.86
+      },
+      "sectionInfo": [
+        {
+          "slot": "detail-header",
+          "rect": {
+            "x": 16,
+            "y": 81,
+            "width": 358,
+            "height": 108.3
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "oklch(1 0 0)",
+            "borderRadius": "16.8px",
+            "padding": "16px"
+          },
+          "heading": null,
+          "headingStyle": null
+        },
+        {
+          "slot": "detail-key-numbers",
+          "rect": {
+            "x": 16,
+            "y": 205.3,
+            "width": 358,
+            "height": 228
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "oklch(1 0 0)",
+            "borderRadius": "16.8px",
+            "padding": "16px"
+          },
+          "heading": null,
+          "headingStyle": null
+        },
+        {
+          "slot": "detail-availability",
+          "rect": {
+            "x": 16,
+            "y": 449.3,
+            "width": 358,
+            "height": 148
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "oklch(1 0 0)",
+            "borderRadius": "16.8px",
+            "padding": "16px"
+          },
+          "heading": "24 小时可用率",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.52 0.035 265.1)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "slot": "detail-lowest",
+          "rect": {
+            "x": 32,
+            "y": 565.3,
+            "width": 326,
+            "height": 16
+          },
+          "style": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.52 0.035 265.1)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "heading": null,
+          "headingStyle": null
+        },
+        {
+          "slot": "detail-resources",
+          "rect": {
+            "x": 16,
+            "y": 613.3,
+            "width": 358,
+            "height": 254
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "oklch(1 0 0)",
+            "borderRadius": "16.8px",
+            "padding": "16px"
+          },
+          "heading": "资源",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.52 0.035 265.1)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "slot": "detail-billing",
+          "rect": {
+            "x": 16,
+            "y": 883.3,
+            "width": 358,
+            "height": 82.39
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "oklch(1 0 0)",
+            "borderRadius": "16.8px",
+            "padding": "16px"
+          },
+          "heading": "费用与到期",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.52 0.035 265.1)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "slot": "detail-system",
+          "rect": {
+            "x": 16,
+            "y": 981.69,
+            "width": 358,
+            "height": 215.17
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "oklch(1 0 0)",
+            "borderRadius": "16.8px",
+            "padding": "16px"
+          },
+          "heading": "系统信息",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.52 0.035 265.1)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        }
+      ],
+      "gaps": [
+        {
+          "between": "detail-header → detail-key-numbers",
+          "gap": 16
+        },
+        {
+          "between": "detail-key-numbers → detail-availability",
+          "gap": 16
+        },
+        {
+          "between": "detail-availability → detail-lowest",
+          "gap": -32
+        },
+        {
+          "between": "detail-lowest → detail-resources",
+          "gap": 32
+        },
+        {
+          "between": "detail-resources → detail-billing",
+          "gap": 16
+        },
+        {
+          "between": "detail-billing → detail-system",
+          "gap": 16
+        }
+      ],
+      "stats": [
+        {
+          "name": "latency",
+          "rect": {
+            "x": 32,
+            "y": 221.3,
+            "width": 326,
+            "height": 52
+          },
+          "label": "平均延迟",
+          "labelStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.52 0.035 265.1)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueStyle": {
+            "fontSize": "19px",
+            "lineHeight": "19px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueText": "28ms"
+        },
+        {
+          "name": "uptime",
+          "rect": {
+            "x": 32,
+            "y": 293.3,
+            "width": 326,
+            "height": 52
+          },
+          "label": "24h 可用率",
+          "labelStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.52 0.035 265.1)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueStyle": {
+            "fontSize": "19px",
+            "lineHeight": "19px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueText": "100%"
+        },
+        {
+          "name": "rate",
+          "rect": {
+            "x": 32,
+            "y": 365.3,
+            "width": 326,
+            "height": 52
+          },
+          "label": "当前总速率",
+          "labelStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.52 0.035 265.1)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueStyle": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueText": "下行1.8MB/s上行512KB/s"
+        }
+      ],
+      "barsWrap": {
+        "x": 32,
+        "y": 497.3,
+        "width": 326,
+        "height": 56
+      },
+      "bars": {
+        "count": 24,
+        "width": 9.75,
+        "height": 56,
+        "gap": 4,
+        "radius": "2px",
+        "backgroundCounts": {
+          "oklch(0.424 0.199 265.638)": 22,
+          "oklab(0.52 -0.0029896 -0.0348721 / 0.15)": 2
+        },
+        "heights": [
+          56
+        ],
+        "first": [
+          {
+            "rect": {
+              "x": 32,
+              "y": 497.3,
+              "width": 9.75,
+              "height": 56
+            },
+            "bg": "oklch(0.424 0.199 265.638)",
+            "title": "2026-11-20 14:00:00 · 100%",
+            "ratio": "1"
+          },
+          {
+            "rect": {
+              "x": 45.75,
+              "y": 497.3,
+              "width": 9.75,
+              "height": 56
+            },
+            "bg": "oklch(0.424 0.199 265.638)",
+            "title": "2026-11-20 15:00:00 · 100%",
+            "ratio": "1"
+          },
+          {
+            "rect": {
+              "x": 59.5,
+              "y": 497.3,
+              "width": 9.75,
+              "height": 56
+            },
+            "bg": "oklch(0.424 0.199 265.638)",
+            "title": "2026-11-20 16:00:00 · 100%",
+            "ratio": "1"
+          }
+        ],
+        "sampleTitles": [
+          "无数据",
+          "无数据"
+        ]
+      },
+      "h1s": [
+        {
+          "text": "PierWave",
+          "rect": {
+            "x": 66,
+            "y": 12.11,
+            "width": 130,
+            "height": 21.59
+          },
+          "style": {
+            "fontSize": "16px",
+            "lineHeight": "21.6px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "text": "香港-01",
+          "rect": {
+            "x": 32,
+            "y": 97,
+            "width": 61.08,
+            "height": 24.3
+          },
+          "style": {
+            "fontSize": "18px",
+            "lineHeight": "24.3px",
+            "color": "oklch(0.253 0.03 267.4)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        }
+      ],
+      "footer": {
+        "rect": {
+          "x": 16,
+          "y": 1212.86,
+          "width": 358,
+          "height": 16
+        },
+        "text": "最后上报 2 分钟前 数据每 20 秒刷新"
+      },
+      "occurrences": {
+        "在线": 1,
+        "更新于": 1,
+        "最后上报": 1,
+        "20 秒": 1,
+        "24 小时": 1,
+        "24h": 1,
+        "资源": 1,
+        "可用率": 2,
+        "系统信息": 1,
+        "费用与到期": 1,
+        "刚刚": 0,
+        "返回列表": 1
+      },
+      "textSample": "PierWave 现在有一把钥匙，就在你面前 更新于 13:10:06 进入后台 香港-01 🇭🇰 香港 在线 13 天 返回列表 平均延迟 28 ms 24h 可用率 100 % 当前总速率 下行 1.8 MB/s 上行 512 KB/s 24 小时可用率 最低时段 14:00–15:00 · 100% 资源 负载 0.42 1 分钟平均 内存 42% 3.4 GB / 8 GB 硬盘 53% 42 GB / 80 GB 费用与到期 26 天后到期 · ¥268.00 / 月 系统信息 发行版 Debian GNU/Linux 12 虚拟化 kvm 架构 x86_64 最后上报 2 分钟前 数据每 20 秒刷新"
+    },
+    {
+      "kind": "offline",
+      "theme": "dark",
+      "width": 1440,
+      "height": 1000,
+      "file": "current-offline-dark-1440.png",
+      "viewport": 1440,
+      "doc": {
+        "scrollWidth": 1440,
+        "clientWidth": 1440,
+        "scrollHeight": 1000,
+        "innerHeight": 1000,
+        "overflowX": false
+      },
+      "wrapper": {
+        "x": 272,
+        "y": 81,
+        "width": 896,
+        "height": 660.39
+      },
+      "sectionInfo": [
+        {
+          "slot": "detail-header",
+          "rect": {
+            "x": 272,
+            "y": 81,
+            "width": 896,
+            "height": 80
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "20px"
+          },
+          "heading": null,
+          "headingStyle": null
+        },
+        {
+          "slot": "detail-key-numbers",
+          "rect": {
+            "x": 272,
+            "y": 177,
+            "width": 896,
+            "height": 92
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "20px"
+          },
+          "heading": null,
+          "headingStyle": null
+        },
+        {
+          "slot": "detail-availability",
+          "rect": {
+            "x": 272,
+            "y": 285,
+            "width": 896,
+            "height": 156
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "20px"
+          },
+          "heading": "24 小时可用率",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "slot": "detail-lowest",
+          "rect": {
+            "x": 292,
+            "y": 405,
+            "width": 856,
+            "height": 16
+          },
+          "style": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "heading": null,
+          "headingStyle": null
+        },
+        {
+          "slot": "detail-resources",
+          "rect": {
+            "x": 272,
+            "y": 457,
+            "width": 896,
+            "height": 122
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "20px"
+          },
+          "heading": "资源",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "slot": "detail-system",
+          "rect": {
+            "x": 272,
+            "y": 595,
+            "width": 896,
+            "height": 114.39
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "20px"
+          },
+          "heading": "系统信息",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        }
+      ],
+      "gaps": [
+        {
+          "between": "detail-header → detail-key-numbers",
+          "gap": 16
+        },
+        {
+          "between": "detail-key-numbers → detail-availability",
+          "gap": 16
+        },
+        {
+          "between": "detail-availability → detail-lowest",
+          "gap": -36
+        },
+        {
+          "between": "detail-lowest → detail-resources",
+          "gap": 36
+        },
+        {
+          "between": "detail-resources → detail-system",
+          "gap": 16
+        }
+      ],
+      "stats": [
+        {
+          "name": "latency",
+          "rect": {
+            "x": 292,
+            "y": 197,
+            "width": 274.66,
+            "height": 52
+          },
+          "label": "平均延迟",
+          "labelStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueStyle": {
+            "fontSize": "28px",
+            "lineHeight": "28px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueText": "35ms"
+        },
+        {
+          "name": "uptime",
+          "rect": {
+            "x": 582.66,
+            "y": 197,
+            "width": 274.67,
+            "height": 52
+          },
+          "label": "24h 可用率",
+          "labelStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueStyle": {
+            "fontSize": "28px",
+            "lineHeight": "28px",
+            "color": "oklch(0.62 0.2 25)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueText": "24.77%"
+        },
+        {
+          "name": "rate",
+          "rect": {
+            "x": 873.33,
+            "y": 197,
+            "width": 274.66,
+            "height": 52
+          },
+          "label": "当前总速率",
+          "labelStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueStyle": {
+            "fontSize": "28px",
+            "lineHeight": "28px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueText": "—"
+        }
+      ],
+      "barsWrap": {
+        "x": 292,
+        "y": 337,
+        "width": 856,
+        "height": 56
+      },
+      "bars": {
+        "count": 24,
+        "width": 31.83,
+        "height": 56,
+        "gap": 4,
+        "radius": "2px",
+        "backgroundCounts": {
+          "oklch(0.662 0.179 264.6)": 6,
+          "oklch(0.62 0.2 25)": 16,
+          "oklab(0.7 0.00388229 -0.0144889 / 0.15)": 2
+        },
+        "heights": [
+          56,
+          1.11
+        ],
+        "first": [
+          {
+            "rect": {
+              "x": 292,
+              "y": 337,
+              "width": 31.83,
+              "height": 56
+            },
+            "bg": "oklch(0.662 0.179 264.6)",
+            "title": "2026-11-20 14:00:00 · 100%",
+            "ratio": "1"
+          },
+          {
+            "rect": {
+              "x": 327.83,
+              "y": 337,
+              "width": 31.84,
+              "height": 56
+            },
+            "bg": "oklch(0.662 0.179 264.6)",
+            "title": "2026-11-20 15:00:00 · 100%",
+            "ratio": "1"
+          },
+          {
+            "rect": {
+              "x": 363.67,
+              "y": 337,
+              "width": 31.83,
+              "height": 56
+            },
+            "bg": "oklch(0.662 0.179 264.6)",
+            "title": "2026-11-20 16:00:00 · 100%",
+            "ratio": "1"
+          }
+        ],
+        "sampleTitles": [
+          "无数据",
+          "无数据"
+        ]
+      },
+      "h1s": [
+        {
+          "text": "PierWave",
+          "rect": {
+            "x": 94,
+            "y": 12.11,
+            "width": 156,
+            "height": 21.59
+          },
+          "style": {
+            "fontSize": "16px",
+            "lineHeight": "21.6px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "text": "香港-03",
+          "rect": {
+            "x": 292,
+            "y": 101,
+            "width": 72.27,
+            "height": 27
+          },
+          "style": {
+            "fontSize": "20px",
+            "lineHeight": "27px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        }
+      ],
+      "footer": {
+        "rect": {
+          "x": 272,
+          "y": 725.39,
+          "width": 896,
+          "height": 16
+        },
+        "text": "最后上报 17 小时前 数据每 20 秒刷新"
+      },
+      "occurrences": {
+        "在线": 0,
+        "更新于": 1,
+        "最后上报": 1,
+        "20 秒": 1,
+        "24 小时": 1,
+        "24h": 1,
+        "资源": 1,
+        "可用率": 2,
+        "系统信息": 1,
+        "费用与到期": 0,
+        "刚刚": 0,
+        "返回列表": 1
+      },
+      "textSample": "PierWave 现在有一把钥匙，就在你面前 更新于 13:10:06 进入后台 香港-03 🇭🇰 香港 离线 返回列表 平均延迟 35 ms 24h 可用率 24.77 % 当前总速率 — 24 小时可用率 最低时段 20:00–21:00 · 0% 资源 负载 0.18 1 分钟平均 内存 26% 2.1 GB / 8 GB 硬盘 39% 31 GB / 80 GB 系统信息 发行版 Debian GNU/Linux 12 虚拟化 kvm 架构 x86_64 最后上报 17 小时前 数据每 20 秒刷新"
+    },
+    {
+      "kind": "offline",
+      "theme": "dark",
+      "width": 390,
+      "height": 844,
+      "file": "current-offline-dark-390.png",
+      "viewport": 390,
+      "doc": {
+        "scrollWidth": 390,
+        "clientWidth": 390,
+        "scrollHeight": 1110,
+        "innerHeight": 844,
+        "overflowX": false
+      },
+      "wrapper": {
+        "x": 16,
+        "y": 81,
+        "width": 358,
+        "height": 1013.17
+      },
+      "sectionInfo": [
+        {
+          "slot": "detail-header",
+          "rect": {
+            "x": 16,
+            "y": 81,
+            "width": 358,
+            "height": 72
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "16px"
+          },
+          "heading": null,
+          "headingStyle": null
+        },
+        {
+          "slot": "detail-key-numbers",
+          "rect": {
+            "x": 16,
+            "y": 169,
+            "width": 358,
+            "height": 228
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "16px"
+          },
+          "heading": null,
+          "headingStyle": null
+        },
+        {
+          "slot": "detail-availability",
+          "rect": {
+            "x": 16,
+            "y": 413,
+            "width": 358,
+            "height": 148
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "16px"
+          },
+          "heading": "24 小时可用率",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "slot": "detail-lowest",
+          "rect": {
+            "x": 32,
+            "y": 529,
+            "width": 326,
+            "height": 16
+          },
+          "style": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "heading": null,
+          "headingStyle": null
+        },
+        {
+          "slot": "detail-resources",
+          "rect": {
+            "x": 16,
+            "y": 577,
+            "width": 358,
+            "height": 254
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "16px"
+          },
+          "heading": "资源",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "slot": "detail-system",
+          "rect": {
+            "x": 16,
+            "y": 847,
+            "width": 358,
+            "height": 215.17
+          },
+          "style": {
+            "fontSize": "14px",
+            "lineHeight": "22.4px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "oklch(0.175 0.005 285)",
+            "borderRadius": "16.8px",
+            "padding": "16px"
+          },
+          "heading": "系统信息",
+          "headingStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        }
+      ],
+      "gaps": [
+        {
+          "between": "detail-header → detail-key-numbers",
+          "gap": 16
+        },
+        {
+          "between": "detail-key-numbers → detail-availability",
+          "gap": 16
+        },
+        {
+          "between": "detail-availability → detail-lowest",
+          "gap": -32
+        },
+        {
+          "between": "detail-lowest → detail-resources",
+          "gap": 32
+        },
+        {
+          "between": "detail-resources → detail-system",
+          "gap": 16
+        }
+      ],
+      "stats": [
+        {
+          "name": "latency",
+          "rect": {
+            "x": 32,
+            "y": 185,
+            "width": 326,
+            "height": 52
+          },
+          "label": "平均延迟",
+          "labelStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueStyle": {
+            "fontSize": "19px",
+            "lineHeight": "19px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueText": "35ms"
+        },
+        {
+          "name": "uptime",
+          "rect": {
+            "x": 32,
+            "y": 257,
+            "width": 326,
+            "height": 52
+          },
+          "label": "24h 可用率",
+          "labelStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueStyle": {
+            "fontSize": "19px",
+            "lineHeight": "19px",
+            "color": "oklch(0.62 0.2 25)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueText": "24.77%"
+        },
+        {
+          "name": "rate",
+          "rect": {
+            "x": 32,
+            "y": 329,
+            "width": 326,
+            "height": 52
+          },
+          "label": "当前总速率",
+          "labelStyle": {
+            "fontSize": "12px",
+            "lineHeight": "16px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueStyle": {
+            "fontSize": "19px",
+            "lineHeight": "19px",
+            "color": "oklch(0.7 0.015 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          },
+          "valueText": "—"
+        }
+      ],
+      "barsWrap": {
+        "x": 32,
+        "y": 461,
+        "width": 326,
+        "height": 56
+      },
+      "bars": {
+        "count": 24,
+        "width": 9.75,
+        "height": 56,
+        "gap": 4,
+        "radius": "2px",
+        "backgroundCounts": {
+          "oklch(0.662 0.179 264.6)": 6,
+          "oklch(0.62 0.2 25)": 16,
+          "oklab(0.7 0.00388229 -0.0144889 / 0.15)": 2
+        },
+        "heights": [
+          56,
+          1.11
+        ],
+        "first": [
+          {
+            "rect": {
+              "x": 32,
+              "y": 461,
+              "width": 9.75,
+              "height": 56
+            },
+            "bg": "oklch(0.662 0.179 264.6)",
+            "title": "2026-11-20 14:00:00 · 100%",
+            "ratio": "1"
+          },
+          {
+            "rect": {
+              "x": 45.75,
+              "y": 461,
+              "width": 9.75,
+              "height": 56
+            },
+            "bg": "oklch(0.662 0.179 264.6)",
+            "title": "2026-11-20 15:00:00 · 100%",
+            "ratio": "1"
+          },
+          {
+            "rect": {
+              "x": 59.5,
+              "y": 461,
+              "width": 9.75,
+              "height": 56
+            },
+            "bg": "oklch(0.662 0.179 264.6)",
+            "title": "2026-11-20 16:00:00 · 100%",
+            "ratio": "1"
+          }
+        ],
+        "sampleTitles": [
+          "无数据",
+          "无数据"
+        ]
+      },
+      "h1s": [
+        {
+          "text": "PierWave",
+          "rect": {
+            "x": 66,
+            "y": 12.11,
+            "width": 130,
+            "height": 21.59
+          },
+          "style": {
+            "fontSize": "16px",
+            "lineHeight": "21.6px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        },
+        {
+          "text": "香港-03",
+          "rect": {
+            "x": 32,
+            "y": 97,
+            "width": 65.05,
+            "height": 24.3
+          },
+          "style": {
+            "fontSize": "18px",
+            "lineHeight": "24.3px",
+            "color": "oklch(0.965 0.003 285)",
+            "background": "rgba(0, 0, 0, 0)",
+            "borderRadius": "0px",
+            "padding": "0px"
+          }
+        }
+      ],
+      "footer": {
+        "rect": {
+          "x": 16,
+          "y": 1078.17,
+          "width": 358,
+          "height": 16
+        },
+        "text": "最后上报 17 小时前 数据每 20 秒刷新"
+      },
+      "occurrences": {
+        "在线": 0,
+        "更新于": 1,
+        "最后上报": 1,
+        "20 秒": 1,
+        "24 小时": 1,
+        "24h": 1,
+        "资源": 1,
+        "可用率": 2,
+        "系统信息": 1,
+        "费用与到期": 0,
+        "刚刚": 0,
+        "返回列表": 1
+      },
+      "textSample": "PierWave 现在有一把钥匙，就在你面前 更新于 13:10:06 进入后台 香港-03 🇭🇰 香港 离线 返回列表 平均延迟 35 ms 24h 可用率 24.77 % 当前总速率 — 24 小时可用率 最低时段 20:00–21:00 · 0% 资源 负载 0.18 1 分钟平均 内存 26% 2.1 GB / 8 GB 硬盘 39% 31 GB / 80 GB 系统信息 发行版 Debian GNU/Linux 12 虚拟化 kvm 架构 x86_64 最后上报 17 小时前 数据每 20 秒刷新"
+    },
+    {
+      "kind": "list",
+      "theme": "dark",
+      "width": 1440,
+      "height": 1000,
+      "file": "current-list-dark-1440.png",
+      "viewport": 1440,
+      "doc": {
+        "scrollWidth": 1440,
+        "clientWidth": 1440,
+        "scrollHeight": 1355
+      },
+      "cards": 10,
+      "cardRects": [
+        {
+          "x": 44,
+          "y": 316,
+          "width": 326,
+          "height": 330.39
+        },
+        {
+          "x": 386,
+          "y": 316,
+          "width": 326,
+          "height": 330.39
+        },
+        {
+          "x": 728,
+          "y": 316,
+          "width": 326,
+          "height": 330.39
+        },
+        {
+          "x": 1070,
+          "y": 316,
+          "width": 326,
+          "height": 330.39
+        }
+      ],
+      "firstCardText": "香港-01 🇭🇰 在线 13 天 Debian GNU/Linux 12 · kvm · x86_64 · 延迟 28 ms 负载 0.42 1 分钟平均 内存 42% 3.4 GB / 8 GB 硬盘 53% 42 GB / 80 GB 24h 可用率 100% 近 24 小时 下行 1.8 MB/s 上行 512 KB/s 下行 累计流量 170 GB 上行 累计流量 52.9 GB 到期 26 天后到期 价格 ¥268.00 / 月 7 天可用率 100%"
+    },
+    {
+      "kind": "list",
+      "theme": "light",
+      "width": 1440,
+      "height": 1000,
+      "file": "current-list-light-1440.png",
+      "viewport": 1440,
+      "doc": {
+        "scrollWidth": 1440,
+        "clientWidth": 1440,
+        "scrollHeight": 1355
+      },
+      "cards": 10,
+      "cardRects": [
+        {
+          "x": 44,
+          "y": 316,
+          "width": 326,
+          "height": 330.39
+        },
+        {
+          "x": 386,
+          "y": 316,
+          "width": 326,
+          "height": 330.39
+        },
+        {
+          "x": 728,
+          "y": 316,
+          "width": 326,
+          "height": 330.39
+        },
+        {
+          "x": 1070,
+          "y": 316,
+          "width": 326,
+          "height": 330.39
+        }
+      ],
+      "firstCardText": "香港-01 🇭🇰 在线 13 天 Debian GNU/Linux 12 · kvm · x86_64 · 延迟 28 ms 负载 0.42 1 分钟平均 内存 42% 3.4 GB / 8 GB 硬盘 53% 42 GB / 80 GB 24h 可用率 100% 近 24 小时 下行 1.8 MB/s 上行 512 KB/s 下行 累计流量 170 GB 上行 累计流量 52.9 GB 到期 26 天后到期 价格 ¥268.00 / 月 7 天可用率 100%"
+    }
+  ]
+}

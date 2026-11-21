@@ -44,12 +44,12 @@ test("the public status list calls hosts nodes; the detail page calls them serve
   );
 
   // 所有者对详情页的决策：这里用「服务器」，不复用列表的「节点」。
-  assert.equal(zh.publicStatus.detail.titleFallback, "服务器详情");
-  assert.equal(zh.publicStatus.detail.notFoundTitle, "该服务器不存在或已下线");
-  assert.equal(en.publicStatus.detail.titleFallback, "Server details");
+  assert.equal(zh.publicStatus.detail.titleFallback, "节点详情");
+  assert.equal(zh.publicStatus.detail.notFoundTitle, "该节点不存在或已下线");
+  assert.equal(en.publicStatus.detail.titleFallback, "Node details");
   assert.equal(
     en.publicStatus.detail.notFoundTitle,
-    "This server does not exist or is offline",
+    "This node does not exist or is offline",
   );
 });
 

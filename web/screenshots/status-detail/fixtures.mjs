@@ -1,8 +1,11 @@
 /**
- * `/status/:id` 截图用的公开状态 fixture。
+ * `/status/:id` 方案 B 截图用的公开状态 fixture。
  *
- * 8 台服务器，第一台是详情目标 `srv-hk`；只使用公开 API 已有的字段，
- * 不引入地址 / 节点 / 用户 / 流量明细。
+ * 8 台服务器，第一台是详情目标 `srv-hk`；只使用公开 API 已有的字段。
+ * 三种目标数据：
+ * - healthy：24 个桶全部 100%，用来检查健康态是否安静；
+ * - incident：包含 0%（中断）、91%（下降）与 null（无采样）小时；
+ * - nodata：所有数值与桶都是 null，检查 `—` / 斜线空桶。
  */
 import { kpiFixture } from "../kpi-audit/fixtures.mjs";
 
@@ -12,18 +15,32 @@ const NOW = Math.floor(Date.now() / 1000);
 const HOUR = 3_600;
 const UTC8 = 8 * HOUR;
 
-/** 今天 00:00（UTC+8）的 Unix 秒；只用于让最低时段固定落在 03:00–04:00。 */
+/** 今天 00:00（UTC+8）的 Unix 秒，桶从 00:00 开始，最低点可落在 03:00。 */
 function midnightUtc8(now = NOW) {
   return Math.floor((now + UTC8) / 86_400) * 86_400 - UTC8;
 }
 
-function buckets() {
+function healthyBuckets() {
   const start = midnightUtc8();
   return Array.from({ length: 24 }, (_, index) => ({
     ts: start + index * HOUR,
-    // 03:00–04:00 最低；12/13 小时没有采样；其余满格。
-    online_ratio: index === 3 ? 0.91 : index === 12 || index === 13 ? null : 1,
+    online_ratio: 1,
   }));
+}
+
+function incidentBuckets() {
+  const start = midnightUtc8();
+  return Array.from({ length: 24 }, (_, index) => {
+    const ts = start + index * HOUR;
+    if (index === 2 || index === 3) return null; // 缺口
+    if (index === 3) return null;
+    if (index >= 8 && index <= 10) {
+      return { ts, online_ratio: 0 }; // 三小时中断，0% 落在基线
+    }
+    if (index === 14) return { ts, online_ratio: 0.91 }; // 下降
+    if (index === 18) return null; // 第二个缺口
+    return { ts, online_ratio: 1 };
+  });
 }
 
 /** UTC+8 业务日 + N 天，`YYYY-MM-DD`。 */
@@ -55,9 +72,9 @@ function target(overrides) {
     os_version: "12",
     virt: "kvm",
     arch: "x86_64",
-    uptime_24h: 0.98,
-    uptime_7d: 0.995,
-    buckets_24h: buckets(),
+    uptime_24h: 1,
+    uptime_7d: 1,
+    buckets_24h: healthyBuckets(),
     group_name: "亚太",
     paid_until: utc8DayAfter(27),
     price_cents: 26_800,
@@ -80,15 +97,23 @@ function makeFixture(targetOverrides) {
   };
 }
 
-export const DETAIL_STATES = ["normal", "offline", "nodata"];
-
 export function detailFixture(state) {
+  if (state === "incident") {
+    return makeFixture({
+      uptime_24h: 0.86,
+      uptime_7d: 0.987,
+      buckets_24h: incidentBuckets(),
+    });
+  }
   if (state === "offline") {
     return makeFixture({
       online: false,
       xray_running: false,
       last_seen: NOW - 4 * 60,
       uptime_secs: null,
+      uptime_24h: 0.86,
+      uptime_7d: 0.987,
+      buckets_24h: incidentBuckets(),
     });
   }
   if (state === "nodata") {

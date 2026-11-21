@@ -1,0 +1,244 @@
+/* 概念原型共用基线：token 直接抄 web/src/index.css，不引入新色相。
+   Concept baseline: tokens copied from web/src/index.css, no new hues. */
+@font-face {
+  font-family: "Geist Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../../node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2")
+    format("woff2-variations");
+}
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+  --background: oklch(0.145 0.004 285);
+  --foreground: oklch(0.965 0.003 285);
+  --card: oklch(0.175 0.005 285);
+  --card-foreground: oklch(0.965 0.003 285);
+  --popover: oklch(0.195 0.005 285);
+  --primary: oklch(0.662 0.179 264.6);
+  --primary-foreground: oklch(0.182 0.013 264.2);
+  --secondary: oklch(0.24 0.006 285);
+  --muted: oklch(0.225 0.005 285);
+  --muted-foreground: oklch(0.7 0.015 285);
+  --accent: oklch(0.245 0.006 285);
+  --destructive: oklch(0.62 0.2 25);
+  --warning: oklch(0.82 0.16 80);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.662 0.179 264.6);
+  --focus-ring: oklch(0.74 0.16 264.6);
+  --card-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045), 0 1px 2px rgb(0 0 0 / 0.35);
+  --radius: 0.75rem;
+  --hatch: oklch(0.7 0.015 285 / 42%);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --background: oklch(0.979 0.003 264.5);
+  --foreground: oklch(0.253 0.03 267.4);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.253 0.03 267.4);
+  --popover: oklch(1 0 0);
+  --primary: oklch(0.424 0.199 265.638);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.967 0.006 264.5);
+  --muted: oklch(0.964 0.006 264.5);
+  --muted-foreground: oklch(0.52 0.035 265.1);
+  --accent: oklch(0.964 0.017 267.8);
+  --destructive: oklch(0.57 0.208 25.3);
+  --warning: oklch(0.53 0.146 49);
+  --border: oklch(0.94 0.009 264.5);
+  --input: oklch(0.94 0.009 264.5);
+  --ring: oklch(0.424 0.199 265.638);
+  --focus-ring: oklch(0.42 0.2 265.6);
+  --card-shadow: 0 1px 2px oklch(0.253 0.03 267.4 / 6%), 0 4px 12px oklch(0.253 0.03 267.4 / 4%);
+  --radius: 0.75rem;
+  --hatch: oklch(0.52 0.035 265.1 / 38%);
+}
+
+* {
+  box-sizing: border-box;
+  border-color: var(--border);
+}
+html {
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  margin: 0;
+  font-family: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+h1, h2, h3, h4, p, dl, dd, dt, figure {
+  margin: 0;
+}
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* ── 顶部状态栏 / shared status header ───────────────────────────── */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklab, var(--card) 82%, var(--background));
+  backdrop-filter: blur(10px);
+}
+.topbar-inner {
+  width: 100%;
+  max-width: 1400px;
+  height: 64px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.logo {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.brand-copy {
+  min-width: 0;
+}
+.brand-name {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+.brand-tagline {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.topbar-spacer {
+  flex: 1;
+}
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 40%, transparent);
+  animation: breathe 2.4s ease-in-out infinite;
+}
+@keyframes breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--muted-foreground);
+  transition: background-color 150ms ease-out, color 150ms ease-out;
+}
+.icon-btn:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.theme-btn {
+  width: 36px;
+  padding: 0;
+}
+@media (max-width: 640px) {
+  .topbar-inner {
+    height: 60px;
+    padding: 0 14px;
+    gap: 8px;
+  }
+  .logo {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+  }
+  .brand-name {
+    font-size: 15px;
+  }
+  .brand-tagline {
+    display: none;
+  }
+  .live-text {
+    display: none;
+  }
+  .admin-text {
+    display: none;
+  }
+  .icon-btn {
+    padding: 0 8px;
+  }
+}
+
+/* 状态色 text helper */
+.t-ok { color: var(--foreground); }
+.t-warn { color: var(--warning); }
+.t-down { color: var(--destructive); }
+.t-muted { color: var(--muted-foreground); }

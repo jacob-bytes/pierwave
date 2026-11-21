@@ -1,0 +1,1012 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>方案 A · 状态报告 / Server status report</title>
+<link rel="stylesheet" href="./concept.css" />
+<style>
+  /* ── 方案 A：一张状态报告 / one status report ───────────────────── */
+  .report {
+    width: 100%;
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 28px 24px 64px;
+  }
+  .sheet {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: clip;
+  }
+  .sheet-section {
+    padding: 26px 32px;
+  }
+  .sheet-section + .sheet-section,
+  .sheet-foot {
+    border-top: 1px solid var(--border);
+  }
+
+  /* 头部：返回、地点、名称、结论 */
+  .head {
+    padding: 22px 32px 26px;
+  }
+  .back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 40px;
+    margin-left: -8px;
+    padding: 0 8px;
+    border-radius: 7px;
+    font-size: 12.5px;
+    color: var(--muted-foreground);
+    transition: background-color 150ms ease-out, color 150ms ease-out;
+  }
+  .back:hover {
+    background: var(--accent);
+    color: var(--foreground);
+  }
+  .back svg {
+    width: 14px;
+    height: 14px;
+  }
+  .head-grid {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 28px;
+    margin-top: 14px;
+  }
+  .head-main {
+    min-width: 0;
+  }
+  .place {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 7px;
+    font-size: 12.5px;
+    color: var(--muted-foreground);
+  }
+  .place .flag {
+    font-size: 15px;
+    line-height: 1;
+  }
+  .place .sep {
+    opacity: 0.55;
+  }
+  .place .group {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .place svg {
+    width: 12px;
+    height: 12px;
+  }
+  .name {
+    margin-top: 9px;
+    font-size: 22px;
+    line-height: 1.25;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    overflow-wrap: anywhere;
+  }
+  .verdict {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 4px;
+  }
+  .verdict h2 {
+    font-size: 46px;
+    line-height: 1.08;
+    font-weight: 600;
+    letter-spacing: -0.035em;
+  }
+  .state-dot {
+    width: 12px;
+    height: 12px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--primary);
+    box-shadow: 0 0 0 5px color-mix(in oklab, var(--primary) 15%, transparent);
+    animation: breathe 2.4s ease-in-out infinite;
+  }
+  .verdict.is-abnormal h2 { color: var(--warning); }
+  .verdict.is-abnormal .state-dot {
+    background: var(--warning);
+    box-shadow: 0 0 0 5px color-mix(in oklab, var(--warning) 16%, transparent);
+  }
+  .verdict.is-offline h2 { color: var(--foreground); }
+  .verdict.is-offline .state-dot {
+    background: transparent;
+    border: 2px solid var(--muted-foreground);
+    box-shadow: none;
+    animation: none;
+  }
+  .sub {
+    margin-top: 7px;
+    font-size: 13.5px;
+    color: var(--muted-foreground);
+    line-height: 1.55;
+  }
+  .head-side {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding-bottom: 4px;
+    text-align: right;
+    font-size: 12px;
+    color: var(--muted-foreground);
+    white-space: nowrap;
+  }
+  .head-side strong {
+    color: var(--foreground);
+    font-weight: 500;
+  }
+  .head-side .side-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  /* 关键数字：一行，无卡片 */
+  .kpis {
+    display: grid;
+    grid-template-columns: 1.05fr 0.95fr 1.2fr;
+    gap: 0;
+    padding-top: 22px;
+    padding-bottom: 22px;
+    background: color-mix(in oklab, var(--muted) 22%, var(--card));
+  }
+  .kpi {
+    min-width: 0;
+    padding: 0 26px;
+  }
+  .kpi:first-child { padding-left: 0; }
+  .kpi:last-child { padding-right: 0; }
+  .kpi + .kpi {
+    border-left: 1px solid var(--border);
+  }
+  .kpi dt {
+    font-size: 11.5px;
+    letter-spacing: 0.02em;
+    color: var(--muted-foreground);
+    white-space: nowrap;
+  }
+  .kpi dd {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+    font-size: 28px;
+    line-height: 1.1;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+  }
+  .kpi dd .unit {
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0;
+    color: var(--muted-foreground);
+  }
+  .kpi dd.rate {
+    gap: 2px 14px;
+    font-size: 20px;
+  }
+  .kpi dd.rate .dir {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 3px;
+    white-space: nowrap;
+  }
+  .kpi dd.rate .dir svg {
+    width: 13px;
+    height: 13px;
+    align-self: center;
+    color: var(--muted-foreground);
+  }
+  .kpi dd .missing {
+    color: var(--muted-foreground);
+    font-weight: 500;
+  }
+
+  /* 24 小时色带 */
+  .ribbon-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px 28px;
+    flex-wrap: wrap;
+  }
+  .sec-kicker {
+    font-size: 11.5px;
+    letter-spacing: 0.02em;
+    color: var(--muted-foreground);
+  }
+  .ribbon-value {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+    margin-top: 3px;
+  }
+  .ribbon-value strong {
+    font-size: 30px;
+    line-height: 1.1;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+  }
+  .ribbon-value span {
+    font-size: 12px;
+    color: var(--muted-foreground);
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    padding-bottom: 5px;
+    font-size: 11.5px;
+    color: var(--muted-foreground);
+  }
+  .legend .item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+  }
+  .swatch {
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    flex: none;
+    background: var(--primary);
+  }
+  .swatch.warn { background: var(--warning); }
+  .swatch.down { background: var(--destructive); }
+  .swatch.unknown {
+    background-color: var(--muted);
+    background-image: repeating-linear-gradient(135deg, transparent 0 2px, var(--hatch) 2px 3px);
+    border: 1px solid var(--border);
+  }
+
+  .ribbon-shell {
+    position: relative;
+    margin-top: 16px;
+  }
+  .ribbon {
+    display: flex;
+    width: 100%;
+    height: 46px;
+    overflow: hidden;
+    border-radius: 5px;
+    background: var(--muted);
+    isolation: isolate;
+  }
+  .seg {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 100%;
+    position: relative;
+    background: var(--primary);
+    box-shadow: inset -1px 0 0 rgb(0 0 0 / 30%);
+    transition: filter 120ms ease-out;
+  }
+  .seg:last-child { box-shadow: none; }
+  .seg.ok { background: var(--primary); }
+  .seg.warn { background: var(--warning); }
+  .seg.down { background: var(--destructive); }
+  .seg.unknown {
+    background-color: var(--muted);
+    background-image: repeating-linear-gradient(135deg, transparent 0 4px, var(--hatch) 4px 5px);
+  }
+  .seg:hover,
+  .seg:focus-visible {
+    filter: brightness(1.14);
+    z-index: 2;
+  }
+  .seg:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: -2px;
+  }
+  .seg[data-now="1"]::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: color-mix(in oklab, var(--foreground) 55%, transparent);
+  }
+  .ribbon-axis {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 7px;
+    font-size: 10.5px;
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+  }
+  .ribbon-axis .now {
+    color: var(--foreground);
+  }
+  .ribbon-foot {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    margin-top: 9px;
+    font-size: 12px;
+    color: var(--muted-foreground);
+  }
+  .ribbon-foot strong {
+    color: var(--foreground);
+    font-weight: 500;
+  }
+  .ribbon-foot .dot-sep {
+    opacity: 0.55;
+  }
+
+  /* 悬停读数 */
+  .ribbon-tip {
+    position: absolute;
+    z-index: 8;
+    top: 0;
+    left: 0;
+    transform: translate(-50%, -100%);
+    min-width: 132px;
+    padding: 8px 10px 9px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--popover);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 100ms ease-out;
+  }
+  .ribbon-tip.show { opacity: 1; }
+  .ribbon-tip::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: -5px;
+    width: 8px;
+    height: 8px;
+    transform: translateX(-50%) rotate(45deg);
+    background: var(--popover);
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .tip-time {
+    font-size: 10.5px;
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .tip-line {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    margin-top: 3px;
+  }
+  .tip-value {
+    font-size: 19px;
+    line-height: 1.15;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .tip-state {
+    font-size: 11px;
+    color: var(--muted-foreground);
+  }
+  .tip-state.ok { color: var(--primary); }
+  .tip-state.warn { color: var(--warning); }
+  .tip-state.down { color: var(--destructive); }
+
+  /* 7 天概览条 */
+  .week {
+    margin-top: 24px;
+    padding-top: 19px;
+    border-top: 1px solid var(--border);
+  }
+  .week-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  .week-label {
+    font-size: 12px;
+    color: var(--muted-foreground);
+  }
+  .week-value {
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+  }
+  .week-bar {
+    height: 7px;
+    margin-top: 8px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--muted);
+  }
+  .week-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--primary);
+  }
+  .week-fill.warn { background: var(--warning); }
+  .week-fill.down { background: var(--destructive); }
+  .week-note {
+    display: block;
+    margin-top: 6px;
+    font-size: 10.5px;
+    color: var(--muted-foreground);
+  }
+  .week-note .api-gap {
+    border-bottom: 1px dashed color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+    cursor: help;
+  }
+
+  /* 资源：紧凑双列 */
+  .res-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  .sec-title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  .load {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    font-size: 12px;
+    color: var(--muted-foreground);
+  }
+  .load strong {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--foreground);
+    font-variant-numeric: tabular-nums;
+  }
+  .res-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 26px;
+    margin-top: 18px;
+  }
+  .res-item {
+    min-width: 0;
+  }
+  .res-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .res-name {
+    font-size: 12px;
+    color: var(--muted-foreground);
+  }
+  .res-pct {
+    font-size: 21px;
+    font-weight: 600;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .res-bar {
+    height: 6px;
+    margin-top: 8px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--muted);
+  }
+  .res-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--primary);
+  }
+  .res-fill.warn { background: var(--warning); }
+  .res-fill.down { background: var(--destructive); }
+  .res-foot {
+    margin-top: 6px;
+    font-size: 11.5px;
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 页脚：费用 / 流量 / 系统 */
+  .sheet-foot {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 20px 32px;
+    padding: 20px 32px 22px;
+    background: color-mix(in oklab, var(--muted) 30%, var(--card));
+  }
+  .fact dt {
+    font-size: 10.5px;
+    letter-spacing: 0.02em;
+    color: var(--muted-foreground);
+  }
+  .fact dd {
+    margin-top: 3px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+  .fact dd .muted {
+    color: var(--muted-foreground);
+  }
+  .fact dd strong {
+    font-weight: 500;
+  }
+  .fact .price {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (max-width: 900px) {
+    .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .kpi { padding: 0 18px; }
+    .head { padding: 20px 24px 22px; }
+    .sheet-section { padding: 22px 24px; }
+    .sheet-foot { padding: 18px 24px 20px; grid-template-columns: 1fr 1fr; }
+    .sheet-foot .fact:last-child { grid-column: 1 / -1; }
+    .verdict h2 { font-size: 40px; }
+  }
+  @media (max-width: 640px) {
+    .report { padding: 14px 12px 40px; }
+    .sheet { border-radius: 14px; }
+    .head { padding: 16px 18px 18px; }
+    .head-grid { display: block; margin-top: 8px; }
+    .name { font-size: 19px; margin-top: 6px; }
+    .verdict { gap: 9px; margin-top: 2px; }
+    .verdict h2 { font-size: 34px; letter-spacing: -0.03em; }
+    .state-dot { width: 10px; height: 10px; box-shadow: 0 0 0 4px color-mix(in oklab, var(--primary) 15%, transparent); }
+    .sub { font-size: 12.5px; margin-top: 6px; }
+    .head-side {
+      flex-direction: row;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+      gap: 4px 14px;
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+      text-align: left;
+    }
+    .head-side .side-row { justify-content: flex-start; }
+    .head-side .side-row:last-child { display: none; }
+    .kpis { padding-top: 16px; padding-bottom: 16px; }
+    .kpi { padding: 0 11px; }
+    .kpi:first-child { padding-left: 0; }
+    .kpi:last-child { padding-right: 0; }
+    .kpi dt { font-size: 10.5px; white-space: normal; }
+    .kpi dd { font-size: 21px; margin-top: 4px; }
+    .kpi dd.rate { font-size: 15px; gap: 2px 8px; }
+    .kpi dd.rate .dir svg { width: 11px; height: 11px; }
+    .kpi dd .unit { font-size: 10.5px; }
+    .sheet-section { padding: 18px; }
+    .ribbon-head { gap: 12px; }
+    .ribbon-value strong { font-size: 26px; }
+    .legend { gap: 5px 10px; font-size: 10.5px; padding-bottom: 2px; }
+    .ribbon { height: 38px; }
+    .ribbon-axis { font-size: 9.5px; }
+    .ribbon-foot { font-size: 11px; }
+    .week { margin-top: 18px; padding-top: 15px; }
+    .week-note { display: none; }
+    .res-grid { gap: 16px; margin-top: 14px; }
+    .res-pct { font-size: 18px; }
+    .res-foot { font-size: 10.5px; }
+    .sheet-foot {
+      grid-template-columns: 1fr;
+      gap: 12px;
+      padding: 16px 18px 18px;
+    }
+    .sheet-foot .fact:last-child { grid-column: auto; }
+    .fact dd { font-size: 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .state-dot, .live-dot { animation: none; }
+  }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3l2.5-6 4 12 3-9 2 3h3.5"/></svg>
+      </span>
+      <div class="brand-copy">
+        <div class="brand-name" id="panel-name">PierWave</div>
+        <div class="brand-tagline">现在有一把钥匙，就在你面前</div>
+      </div>
+    </div>
+    <div class="topbar-spacer"></div>
+    <span class="live"><span class="live-dot"></span><span class="live-text" id="live-text">更新于 13:10:06</span></span>
+    <a class="icon-btn" href="#" aria-label="进入后台">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      <span class="admin-text">进入后台</span>
+    </a>
+    <button class="icon-btn theme-btn" id="theme-toggle" type="button" aria-label="切换主题">
+      <svg id="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+    </button>
+  </div>
+</header>
+
+<main class="report">
+  <article class="sheet" aria-labelledby="server-name">
+    <section class="head">
+      <a class="back" href="#">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5m7-7-7 7 7 7"/></svg>
+        返回列表
+      </a>
+      <div class="head-grid">
+        <div class="head-main">
+          <div class="place" id="place"></div>
+          <h1 class="name" id="server-name"></h1>
+          <div class="verdict" id="verdict">
+            <span class="state-dot" aria-hidden="true"></span>
+            <h2 id="verdict-word"></h2>
+          </div>
+          <p class="sub" id="verdict-sub"></p>
+        </div>
+        <div class="head-side" id="head-side"></div>
+      </div>
+    </section>
+
+    <section class="sheet-section kpis" aria-label="关键数字" id="kpis"></section>
+
+    <section class="sheet-section" aria-labelledby="ribbon-title">
+      <div class="ribbon-head">
+        <div>
+          <div class="sec-kicker" id="ribbon-title">过去 24 小时</div>
+          <div class="ribbon-value">
+            <strong id="ribbon-pct"></strong>
+            <span id="ribbon-cap"></span>
+          </div>
+        </div>
+        <div class="legend" id="legend"></div>
+      </div>
+      <div class="ribbon-shell">
+        <div class="ribbon" id="ribbon" role="group" aria-label="过去 24 小时可用率，每格 1 小时"></div>
+        <div class="ribbon-tip" id="ribbon-tip" aria-hidden="true"></div>
+      </div>
+      <div class="ribbon-axis" id="ribbon-axis" aria-hidden="true"></div>
+      <p class="ribbon-foot" id="ribbon-foot"></p>
+
+      <div class="week">
+        <div class="week-head">
+          <span class="week-label">近 7 天概览</span>
+        </div>
+        <div class="week-bar"><span class="week-fill" id="week-fill"></span></div>
+        <span class="week-note">汇总值 · <span class="api-gap" title="当前公开接口只返回 7 天标量，逐日分桶需要新增接口">逐日明细需新增接口</span></span>
+      </div>
+    </section>
+
+    <section class="sheet-section" aria-labelledby="res-title">
+      <div class="res-head">
+        <h3 class="sec-title" id="res-title">资源</h3>
+        <div class="load" id="load-line"></div>
+      </div>
+      <div class="res-grid" id="res-grid"></div>
+    </section>
+
+    <footer class="sheet-foot" id="foot"></footer>
+  </article>
+</main>
+
+<script src="./fixture.js"></script>
+<script>
+(() => {
+  const params = new URLSearchParams(location.search);
+  const theme = params.get("theme") === "light" ? "light" : "dark";
+  document.documentElement.dataset.theme = theme;
+  const incident = params.get("variant") === "incident";
+  const fixture = window.PIERWAVE_FIXTURE;
+  const server = fixture.servers.find((s) => incident ? s.name === "香港-03" : s.name === "香港-01");
+  if (!server) throw new Error("fixture 里找不到目标服务器");
+  document.documentElement.dataset.variant = incident ? "incident" : "normal";
+  document.documentElement.dataset.server = server.id;
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const HOUR = 3600;
+  const GB = 1024 ** 3;
+  const MB = 1024 ** 2;
+  const KB = 1024;
+  const now = fixture.generated_at;
+
+  const flagOf = (code) => {
+    if (!code || !/^[A-Z]{2}$/.test(code)) return "";
+    return String.fromCodePoint(...[...code].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
+  };
+  const countryOf = (code) => ({ HK: "香港", JP: "日本", SG: "新加坡", US: "美国", TW: "台湾", DE: "德国" }[code] ?? code ?? "");
+  const rel = (ts) => {
+    if (ts === null || ts === undefined) return "从未上报";
+    const d = Math.max(0, now - ts);
+    if (d < 60) return `${d} 秒前`;
+    if (d < 3600) return `${Math.floor(d / 60)} 分钟前`;
+    if (d < 86400) return `${Math.floor(d / 3600)} 小时前`;
+    return `${Math.floor(d / 86400)} 天前`;
+  };
+  const clock = (ts) => {
+    const d = new Date(ts * 1000);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+  };
+  const hh = (ts) => `${String(new Date(ts * 1000).getHours()).padStart(2, "0")}:00`;
+  const day = (ts) => {
+    const d = new Date(ts * 1000);
+    return `${d.getMonth() + 1}月${d.getDate()}日`;
+  };
+  const range = (ts) => `${hh(ts)}–${hh(ts + HOUR)}`;
+  const pct = (ratio) => {
+    if (ratio === null || ratio === undefined || !Number.isFinite(ratio)) return null;
+    if (ratio >= 1) return "100";
+    if (ratio <= 0) return "0";
+    const t = Math.floor(ratio * 10000) / 100;
+    if (t <= 0) return "<0.01";
+    return t.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+  };
+  const tone = (ratio) => {
+    if (ratio === null || ratio === undefined || !Number.isFinite(ratio)) return "unknown";
+    if (ratio >= 0.99) return "ok";
+    if (ratio >= 0.95) return "warn";
+    return "down";
+  };
+  const toneClass = (t) => t === "ok" ? "" : t === "warn" ? "t-warn" : t === "down" ? "t-down" : "t-muted";
+  const toneName = { ok: "正常", warn: "可用性下降", down: "中断", unknown: "无采样" };
+  const bytes = (v) => {
+    if (v === null || v === undefined || !Number.isFinite(v)) return null;
+    if (v < 1024) return `${Math.round(v)} B`;
+    const e = Math.min(Math.floor(Math.log(Math.abs(v)) / Math.log(1024)), 5);
+    const s = Math.abs(v) / 1024 ** e;
+    const digits = s >= 100 ? 0 : s >= 10 ? 1 : 2;
+    const fixed = s.toFixed(digits);
+    return `${fixed.includes(".") ? fixed.replace(/0+$/, "").replace(/\.$/, "") : fixed} ${["B", "KB", "MB", "GB", "TB", "PB"][e]}`;
+  };
+  const rate = (v) => {
+    if (v === null || v === undefined || !Number.isFinite(v) || v < 0) return null;
+    if (v === 0) return { value: "0", unit: "B/s" };
+    if (v < 1) return { value: "<1", unit: "B/s" };
+    const e = Math.min(Math.floor(Math.log(v) / Math.log(1024)), 5);
+    let s = v / 1024 ** e;
+    let digits = s >= 100 ? 0 : s >= 10 ? 1 : 2;
+    let text = s.toFixed(digits);
+    if (Number(text) >= 1024 && e < 5) { e += 1; s = v / 1024 ** e; text = s.toFixed(s >= 100 ? 0 : s >= 10 ? 1 : 2); }
+    return { value: text.replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1"), unit: `${["B", "KB", "MB", "GB", "TB", "PB"][e]}/s` };
+  };
+  const resourcePct = (used, total) => {
+    if (used === null || used === undefined || total === null || total === undefined || !Number.isFinite(used) || !Number.isFinite(total) || total <= 0) return null;
+    return Math.min(100, Math.max(0, (used / total) * 100));
+  };
+  const uptime = (secs) => {
+    if (secs === null || secs === undefined || !Number.isFinite(secs) || secs < 0) return null;
+    const d = Math.floor(secs / 86400);
+    const h = Math.floor((secs % 86400) / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    if (d > 0) return h > 0 ? `${d} 天 ${h} 小时` : `${d} 天`;
+    if (h > 0) return m > 0 ? `${h} 小时 ${m} 分钟` : `${h} 小时`;
+    return `${m} 分钟`;
+  };
+  const billing = () => {
+    const hasPaid = Boolean(server.paid_until);
+    const hasPrice = server.price_cents !== null && server.price_cents !== undefined;
+    if (!hasPaid && !hasPrice) return null;
+    const days = hasPaid ? Math.ceil((Date.parse(`${server.paid_until}T00:00:00+08:00`) - now * 1000) / 86400000) : null;
+    const cycle = { monthly: "月", yearly: "年", once: "一次性" }[server.billing_cycle] ?? "";
+    const cur = { CNY: "¥", USD: "$", EUR: "€", JPY: "¥" }[server.currency] ?? (server.currency ? `${server.currency} ` : "¥");
+    const price = hasPrice ? `${cur}${(server.price_cents / 100).toFixed(2)}${cycle ? ` / ${cycle}` : ""}` : null;
+    const expiry = !hasPaid ? null : days < 0 ? "已过期" : days === 0 ? "今天到期" : days === 1 ? "明天到期" : `${days} 天后到期`;
+    return { expiry, price, days, paidUntil: server.paid_until };
+  };
+  const state = !server.online ? "offline" : server.xray_running === false ? "abnormal" : "online";
+  const stateWord = { online: "运行正常", abnormal: "服务降级", offline: "离线" }[state];
+  const subline = (() => {
+    const up = uptime(server.uptime_secs);
+    if (state === "online") return [up ? `已连续在线 ${up}` : null, server.xray_running === true ? "Xray 运行中" : null].filter(Boolean).join(" · ");
+    if (state === "abnormal") return [up ? `已连续在线 ${up}` : null, "Agent 在线，但 Xray 未运行"].filter(Boolean).join(" · ");
+    return "离线前的读数仅供参考，状态以最后一次心跳为准";
+  })();
+
+  /* 顶部栏 */
+  $("panel-name").textContent = fixture.panel_name || "PierWave";
+  $("live-text").textContent = `更新于 ${new Date(now * 1000).toTimeString().slice(0, 8)}`;
+  document.title = `${server.name} · ${fixture.panel_name || "PierWave"}`;
+
+  /* 头部 */
+  const code = server.country_code;
+  const group = (server.group_name || "").trim();
+  $("place").innerHTML = `
+    ${flagOf(code) ? `<span class="flag" aria-hidden="true">${flagOf(code)}</span>` : ""}
+    <span>${esc(countryOf(code))}</span>
+    ${group ? `<span class="sep">·</span><span class="group"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/></svg>分组 ${esc(group)}</span>` : ""}
+  `;
+  $("server-name").textContent = server.name;
+  $("verdict-word").textContent = stateWord;
+  $("verdict").className = `verdict ${state === "offline" ? "is-offline" : state === "abnormal" ? "is-abnormal" : ""}`;
+  $("verdict-sub").textContent = subline;
+  $("head-side").innerHTML = `
+    ${state === "offline" && uptime(server.uptime_secs) ? `<div class="side-row"><span>离线前在线</span><strong>${esc(uptime(server.uptime_secs))}</strong></div>` : ""}
+    <div class="side-row"><span>最后上报</span><strong title="${server.last_seen ? esc(clock(server.last_seen)) : ""}">${esc(rel(server.last_seen))}</strong></div>
+    <div class="side-row"><span>数据刷新</span><strong>每 20 秒</strong></div>
+  `;
+
+  /* 关键数字 */
+  const up7 = server.uptime_7d;
+  const lat = server.latency_ms;
+  const rx = rate(server.net_rx_bps);
+  const tx = rate(server.net_tx_bps);
+  const rateCell = state === "offline" || (!rx && !tx)
+    ? `<span class="missing">—</span>`
+    : `
+      ${rx ? `<span class="dir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14m-6-6 6 6 6-6"/></svg>${rx.value}<span class="unit">${rx.unit}</span></span>` : ""}
+      ${tx ? `<span class="dir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>${tx.value}<span class="unit">${tx.unit}</span></span>` : ""}
+    `;
+  $("kpis").innerHTML = `
+    <dl class="kpi">
+      <dt>7 天可用率</dt>
+      <dd class="${toneClass(tone(up7))}">${up7 === null ? `<span class="missing">—</span>` : `${pct(up7)}<span class="unit">%</span>`}</dd>
+    </dl>
+    <dl class="kpi">
+      <dt>延迟${state === "offline" ? "（最后值）" : ""}</dt>
+      <dd class="${state === "offline" ? "t-muted" : ""}">${lat === null ? `<span class="missing">—</span>` : `${Math.round(lat)}<span class="unit">ms</span>`}</dd>
+    </dl>
+    <dl class="kpi">
+      <dt>当前速率</dt>
+      <dd class="rate">${rateCell}</dd>
+    </dl>
+  `;
+
+  /* 24 小时色带 */
+  const buckets = Array.from({ length: 24 }, (_, i) => server.buckets_24h[i] ?? null);
+  const sampled = buckets.filter(Boolean);
+  const nullCount = 24 - sampled.length;
+  const ratios = sampled.map((b) => b.online_ratio);
+  const lowest = sampled.length ? sampled.reduce((a, b) => (b.online_ratio < a.online_ratio ? b : a)) : null;
+  const up24 = server.uptime_24h;
+  const t24 = tone(up24);
+  $("ribbon-pct").textContent = up24 === null || !sampled.length ? "—" : `${pct(up24)}%`;
+  $("ribbon-pct").className = toneClass(t24);
+  $("ribbon-cap").textContent = sampled.length ? `可用率 · ${sampled.length}/24 小时有采样` : "暂无采样";
+  $("legend").innerHTML = `
+    <span class="item"><span class="swatch"></span>正常</span>
+    <span class="item"><span class="swatch warn"></span>下降 95–99%</span>
+    <span class="item"><span class="swatch down"></span>中断 &lt;95%</span>
+    <span class="item"><span class="swatch unknown"></span>无采样</span>
+  `;
+  const ribbon = $("ribbon");
+  ribbon.innerHTML = buckets.map((b, i) => {
+    const ratio = b ? b.online_ratio : null;
+    const t = tone(ratio);
+    const label = b
+      ? `${day(b.ts)} ${range(b.ts)}，可用率 ${pct(ratio)}%，${toneName[t]}`
+      : `${hh(buckets[i - 1] ? buckets[i - 1].ts + HOUR : (sampled[0]?.ts ?? now))} 这一小时没有采样`;
+    return `<button class="seg ${t}" type="button" data-index="${i}" ${i === 23 ? 'data-now="1"' : ""} aria-label="${esc(label)}"></button>`;
+  }).join("");
+  const nonEmpty = buckets.map((b, i) => (b ? i : -1)).filter((i) => i >= 0);
+  const axisIdx = [nonEmpty[0] ?? 0, 6, 12, 18, 23].filter((v, i, a) => a.indexOf(v) === i);
+  $("ribbon-axis").innerHTML = axisIdx.map((i) => {
+    const b = buckets[i];
+    return `<span class="${i === 23 ? "now" : ""}">${i === 23 ? "现在" : b ? hh(b.ts) : hh((buckets[i - 1]?.ts ?? now) + HOUR)}</span>`;
+  }).join("");
+  const warnCount = sampled.filter((b) => tone(b.online_ratio) === "warn").length;
+  const downCount = sampled.filter((b) => tone(b.online_ratio) === "down").length;
+  let foot = "";
+  if (!sampled.length) foot = `<span>过去 24 小时没有采样数据</span>`;
+  else if (lowest && lowest.online_ratio < 1) {
+    foot = `<strong>最低 ${pct(lowest.online_ratio)}%</strong><span class="dot-sep">·</span><span>${range(lowest.ts)}</span>`;
+    if (downCount) foot += `<span class="dot-sep">·</span><span>${downCount} 小时中断</span>`;
+    else if (warnCount) foot += `<span class="dot-sep">·</span><span>${warnCount} 小时下降</span>`;
+  } else {
+    foot = `<strong>有采样的 ${sampled.length} 小时全部正常</strong>`;
+  }
+  if (nullCount) foot += `<span class="dot-sep">·</span><span>${nullCount} 小时无采样</span>`;
+  $("ribbon-foot").innerHTML = foot;
+
+  /* 7 天 */
+  const t7 = tone(up7);
+  $("week-fill").style.width = up7 === null ? "0%" : `${Math.max(0, Math.min(100, up7 * 100))}%`;
+  $("week-fill").className = `week-fill ${t7 === "ok" ? "" : t7 === "warn" ? "warn" : t7 === "down" ? "down" : ""}`;
+
+  /* 资源 */
+  const load = server.load1;
+  $("load-line").innerHTML = `<span>负载</span><strong>${load === null || !Number.isFinite(load) ? "—" : load.toFixed(2)}</strong><span>1 分钟平均</span>`;
+  const memPct = resourcePct(server.mem_used, server.mem_total);
+  const diskPct = resourcePct(server.disk_used, server.disk_total);
+  const resItem = (name, percent, used, total) => {
+    const fillClass = percent === null ? "" : percent >= 90 ? "down" : percent >= 75 ? "warn" : "";
+    const pctText = percent === null ? "—" : `${Math.round(percent)}%`;
+    return `
+      <div class="res-item">
+        <div class="res-top"><span class="res-name">${name}</span><span class="res-pct">${pctText}</span></div>
+        <div class="res-bar"><span class="res-fill ${fillClass}" style="width:${percent === null ? 0 : Math.max(2, percent)}%"></span></div>
+        <div class="res-foot">${used === null || total === null ? "未上报" : `${bytes(used)} / ${bytes(total)}`}</div>
+      </div>`;
+  };
+  $("res-grid").innerHTML = resItem("内存", memPct, server.mem_used, server.mem_total)
+    + resItem("硬盘", diskPct, server.disk_used, server.disk_total);
+
+  /* 页脚 */
+  const b = billing();
+  const os = [server.os_name, server.os_version].filter((v) => typeof v === "string" && v.trim()).join(" ") || "—";
+  const spec = [os, server.virt, server.arch].filter((v) => v && v !== "—").join(" · ") || "—";
+  const rxTotal = bytes(server.net_rx_bytes);
+  const txTotal = bytes(server.net_tx_bytes);
+  const facts = [];
+  if (b) {
+    const bits = [];
+    if (b.expiry) bits.push(`<strong>${esc(b.expiry)}</strong>`);
+    if (b.price) bits.push(`<span class="price">${esc(b.price)}</span>`);
+    facts.push(`<div class="fact"><dt>费用与到期</dt><dd title="${b.paidUntil ? esc(b.paidUntil) : ""}">${bits.join(' <span class="muted">·</span> ')}</dd></div>`);
+  }
+  facts.push(`<div class="fact"><dt>累计流量</dt><dd title="Agent 自开机以来的非 lo 网卡累计字节，重启后归零">${rxTotal === null && txTotal === null ? "未上报" : `<span class="muted">↓</span> ${rxTotal ?? "—"} <span class="muted">·</span> <span class="muted">↑</span> ${txTotal ?? "—"}`}</dd></div>`);
+  facts.push(`<div class="fact"><dt>系统</dt><dd>${esc(spec)}</dd></div>`);
+  $("foot").innerHTML = facts.join("");
+
+  /* 主题切换（原型可交互，不影响截图） */
+  const moon = `<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/>`;
+  const sun = `<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>`;
+  const syncIcon = () => { $("theme-icon").innerHTML = document.documentElement.dataset.theme === "light" ? sun : moon; };
+  syncIcon();
+  $("theme-toggle").addEventListener("click", () => {
+    document.documentElement.dataset.theme = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+    syncIcon();
+  });
+
+  /* 悬停读数：鼠标 / 键盘 / 触摸（触摸点按后短暂停留） */
+  const tip = $("ribbon-tip");
+  let hideTimer = 0;
+  const showTip = (index) => {
+    const bkt = buckets[index];
+    const t = bkt ? tone(bkt.online_ratio) : "unknown";
+    tip.className = `ribbon-tip show`;
+    tip.innerHTML = `
+      <div class="tip-time">${bkt ? `${day(bkt.ts)} ${range(bkt.ts)}` : "无采样"}</div>
+      <div class="tip-line"><span class="tip-value ${toneClass(t)}">${bkt ? `${pct(bkt.online_ratio)}%` : "—"}</span><span class="tip-state ${t}">${toneName[t]}</span></div>
+    `;
+    const seg = ribbon.querySelector(`[data-index="${index}"]`);
+    if (!seg) return;
+    const shell = ribbon.parentElement.getBoundingClientRect();
+    const r = seg.getBoundingClientRect();
+    const left = Math.min(Math.max(r.left - shell.left + r.width / 2, 76), shell.width - 76);
+    tip.style.left = `${left}px`;
+    tip.style.top = `${r.top - shell.top - 9}px`;
+    clearTimeout(hideTimer);
+  };
+  const hideTip = () => { tip.classList.remove("show"); };
+  ribbon.addEventListener("pointerover", (e) => {
+    const seg = e.target.closest(".seg");
+    if (seg) showTip(Number(seg.dataset.index));
+  });
+  ribbon.addEventListener("pointerleave", hideTip);
+  ribbon.addEventListener("focusin", (e) => {
+    const seg = e.target.closest(".seg");
+    if (seg) showTip(Number(seg.dataset.index));
+  });
+  ribbon.addEventListener("focusout", hideTip);
+  ribbon.addEventListener("click", (e) => {
+    const seg = e.target.closest(".seg");
+    if (!seg) return;
+    showTip(Number(seg.dataset.index));
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(hideTip, 2600);
+  });
+
+  document.documentElement.dataset.ready = "1";
+})();
+</script>
+</body>
+</html>

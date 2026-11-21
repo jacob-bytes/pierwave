@@ -1,0 +1,104 @@
+{
+  "generatedAt": "2026-11-21T05:28:47.378Z",
+  "fixture": "fixture.json (real /api/v1/public/status snapshot, timestamps normalised)",
+  "results": [
+    {
+      "file": "a-dark-1440.png",
+      "label": "a dark 1440",
+      "width": 1440,
+      "height": 1064,
+      "kb": 88
+    },
+    {
+      "file": "a-dark-390.png",
+      "label": "a dark 390",
+      "width": 390,
+      "height": 1050,
+      "kb": 61
+    },
+    {
+      "file": "a-light-1440.png",
+      "label": "a light 1440",
+      "width": 1440,
+      "height": 1064,
+      "kb": 90
+    },
+    {
+      "file": "a-light-390.png",
+      "label": "a light 390",
+      "width": 390,
+      "height": 1050,
+      "kb": 62
+    },
+    {
+      "file": "a-incident-dark-1440.png",
+      "label": "a incident dark 1440",
+      "width": 1440,
+      "height": 1064,
+      "kb": 89
+    },
+    {
+      "file": "a-incident-dark-390.png",
+      "label": "a incident dark 390",
+      "width": 390,
+      "height": 988,
+      "kb": 61
+    },
+    {
+      "file": "b-dark-1440.png",
+      "label": "b dark 1440",
+      "width": 1440,
+      "height": 1000,
+      "kb": 97
+    },
+    {
+      "file": "b-dark-390.png",
+      "label": "b dark 390",
+      "width": 390,
+      "height": 1396,
+      "kb": 76
+    },
+    {
+      "file": "b-light-1440.png",
+      "label": "b light 1440",
+      "width": 1440,
+      "height": 1000,
+      "kb": 99
+    },
+    {
+      "file": "b-light-390.png",
+      "label": "b light 390",
+      "width": 390,
+      "height": 1396,
+      "kb": 78
+    },
+    {
+      "file": "b-incident-dark-1440.png",
+      "label": "b incident dark 1440",
+      "width": 1440,
+      "height": 1000,
+      "kb": 95
+    },
+    {
+      "file": "b-incident-dark-390.png",
+      "label": "b incident dark 390",
+      "width": 390,
+      "height": 1306,
+      "kb": 71
+    },
+    {
+      "file": "a-hover-dark-1440.png",
+      "label": "a hover dark 1440",
+      "width": 1440,
+      "height": 1064,
+      "kb": 93
+    },
+    {
+      "file": "b-hover-incident-dark-1440.png",
+      "label": "b hover incident dark 1440",
+      "width": 1440,
+      "height": 1000,
+      "kb": 99
+    }
+  ]
+}

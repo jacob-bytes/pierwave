@@ -1,0 +1,1220 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>方案 B · 仪表盘 / Server dashboard</title>
+<link rel="stylesheet" href="./concept.css" />
+<style>
+  /* ── 方案 B：两栏仪表盘 / two-column dashboard ───────────────────── */
+  .dash-page {
+    width: 100%;
+    max-width: 1352px;
+    margin: 0 auto;
+    padding: 20px 24px 48px;
+  }
+  .detail-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    margin-bottom: 18px;
+  }
+  .back {
+    width: 36px;
+    height: 36px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    margin-left: -8px;
+    border-radius: 8px;
+    color: var(--muted-foreground);
+    transition: background-color 150ms ease-out, color 150ms ease-out;
+  }
+  .back:hover { background: var(--accent); color: var(--foreground); }
+  .back svg { width: 18px; height: 18px; }
+  .title-block { min-width: 0; }
+  .title-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .title-line h1 {
+    font-size: 22px;
+    line-height: 1.25;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .title-line .flag {
+    font-size: 15px;
+    line-height: 1;
+    flex: none;
+  }
+  .title-sub {
+    margin-top: 1px;
+    font-size: 12px;
+    color: var(--muted-foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .dash {
+    display: grid;
+    grid-template-columns: minmax(360px, 420px) minmax(0, 1fr);
+    grid-template-areas:
+      "status chart"
+      "kpi chart"
+      "res bottom";
+    gap: 18px;
+    align-items: start;
+  }
+  .bottom-pair {
+    grid-area: bottom;
+    display: grid;
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.25fr);
+    gap: 18px;
+    align-items: stretch;
+  }
+  .bottom-pair > :only-child { grid-column: 1 / -1; }
+
+  .card {
+    min-width: 0;
+    padding: 20px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--card);
+  }
+  .card-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .card-title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  .card-sub {
+    font-size: 11.5px;
+    color: var(--muted-foreground);
+  }
+
+  /* 状态卡 */
+  .status-card {
+    grid-area: status;
+    position: relative;
+    overflow: hidden;
+  }
+  .status-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .xray {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 22px;
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 10.5px;
+    color: var(--muted-foreground);
+    white-space: nowrap;
+  }
+  .xray .dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--primary);
+  }
+  .xray.is-down .dot { background: var(--destructive); }
+  .state-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .state-line h2 {
+    font-size: 42px;
+    line-height: 1.06;
+    font-weight: 600;
+    letter-spacing: -0.035em;
+  }
+  .state-dot {
+    width: 11px;
+    height: 11px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--primary);
+    box-shadow: 0 0 0 5px color-mix(in oklab, var(--primary) 15%, transparent);
+    animation: breathe 2.4s ease-in-out infinite;
+  }
+  .status-card.is-abnormal .state-line h2 { color: var(--warning); }
+  .status-card.is-abnormal .state-dot {
+    background: var(--warning);
+    box-shadow: 0 0 0 5px color-mix(in oklab, var(--warning) 16%, transparent);
+    animation: none;
+  }
+  .status-card.is-offline .state-line h2 { color: var(--foreground); }
+  .status-card.is-offline .state-dot {
+    background: transparent;
+    border: 2px solid var(--muted-foreground);
+    box-shadow: none;
+    animation: none;
+  }
+  .status-sub {
+    margin-top: 5px;
+    font-size: 12.5px;
+    color: var(--muted-foreground);
+  }
+  .status-sub:empty { display: none; }
+  .kpi-cell dd.uptime {
+    font-size: 22px;
+    letter-spacing: -0.02em;
+  }
+  .kpi-cell dd.uptime.long { font-size: 17px; }
+  .status-foot {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 11.5px;
+    color: var(--muted-foreground);
+  }
+  .status-foot strong {
+    color: var(--foreground);
+    font-weight: 500;
+  }
+
+  /* 三个大数字 */
+  .kpi-card { grid-area: kpi; padding: 0; }
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .kpi-cell {
+    min-width: 0;
+    padding: 16px 14px 17px;
+  }
+  .kpi-cell + .kpi-cell { border-left: 1px solid var(--border); }
+  .kpi-cell:first-child { padding-left: 20px; }
+  .kpi-cell:last-child { padding-right: 20px; }
+  .kpi-cell dt {
+    font-size: 10.5px;
+    color: var(--muted-foreground);
+    white-space: nowrap;
+  }
+  .kpi-cell dd {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 3px;
+    margin-top: 5px;
+    font-size: 28px;
+    line-height: 1.12;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+  }
+  .kpi-cell .unit {
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0;
+    color: var(--muted-foreground);
+  }
+  .kpi-cell dd.rate {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    font-size: 16px;
+    letter-spacing: -0.01em;
+  }
+  .kpi-cell dd.rate .dir {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 3px;
+    white-space: nowrap;
+  }
+  .kpi-cell dd.rate .dir svg {
+    width: 11px;
+    height: 11px;
+    align-self: center;
+    color: var(--muted-foreground);
+  }
+  .missing { color: var(--muted-foreground); font-weight: 500; }
+
+  /* 图表卡 */
+  .chart-card {
+    grid-area: chart;
+    display: flex;
+    flex-direction: column;
+    min-height: 342px;
+    padding-bottom: 16px;
+  }
+  .chart-top {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .chart-big {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .chart-big strong {
+    font-size: 30px;
+    line-height: 1.1;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+  }
+  .chart-big span {
+    font-size: 11.5px;
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  @media (max-width: 640px) {
+    .chart-big strong { font-size: 25px; }
+  }
+  .plot-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 210px;
+    margin-top: 14px;
+    padding-left: 34px;
+  }
+  .y-axis {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 30px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding: 1px 0;
+    font-size: 9.5px;
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+  }
+  .plot {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-height: 210px;
+  }
+  .plot svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+  .crosshair {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: color-mix(in oklab, var(--foreground) 35%, transparent);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 90ms ease-out;
+  }
+  .crosshair.show { opacity: 1; }
+  .chart-tip {
+    position: absolute;
+    z-index: 5;
+    transform: translate(-50%, -100%);
+    min-width: 122px;
+    padding: 7px 9px 8px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--popover);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 100ms ease-out;
+  }
+  .chart-tip.show { opacity: 1; }
+  .chart-tip .t {
+    font-size: 10.5px;
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .chart-tip .v {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-top: 2px;
+  }
+  .chart-tip .v strong {
+    font-size: 18px;
+    line-height: 1.15;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .chart-tip .v span {
+    font-size: 10.5px;
+    color: var(--muted-foreground);
+  }
+  .x-axis {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-left: 34px;
+    margin-top: 7px;
+    font-size: 9.5px;
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+  }
+  .x-axis .now { color: var(--foreground); }
+  .chart-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 18px;
+    flex-wrap: wrap;
+    margin-top: 11px;
+    padding-top: 11px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--muted-foreground);
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px 12px;
+  }
+  .legend .item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+  }
+  .swatch {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: var(--primary);
+  }
+  .swatch.warn { background: var(--warning); }
+  .swatch.down { background: var(--destructive); }
+  .swatch.unknown {
+    background-color: var(--muted);
+    background-image: repeating-linear-gradient(135deg, transparent 0 2px, var(--hatch) 2px 3px);
+    border: 1px solid var(--border);
+  }
+  .week-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+  }
+  .week-inline strong {
+    font-size: 12.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .mini-bar {
+    width: 64px;
+    height: 5px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--muted);
+  }
+  .mini-bar span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--primary);
+  }
+  .mini-bar span.warn { background: var(--warning); }
+  .mini-bar span.down { background: var(--destructive); }
+
+  /* 资源 */
+  .res-card { grid-area: res; }
+  .load {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--muted-foreground);
+  }
+  .load strong {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--foreground);
+    font-variant-numeric: tabular-nums;
+  }
+  .rings {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    margin-top: 14px;
+  }
+  .ring-item {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 6px 8px;
+    border-radius: 10px;
+    background: color-mix(in oklab, var(--muted) 24%, var(--card));
+  }
+  .ring {
+    position: relative;
+    width: 118px;
+    height: 118px;
+  }
+  .ring svg {
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+  }
+  .ring .track { stroke: var(--muted); stroke-width: 8; fill: none; }
+  .ring .fill {
+    stroke: var(--primary);
+    stroke-width: 8;
+    fill: none;
+    stroke-linecap: round;
+    transition: stroke-dasharray 400ms ease-out;
+  }
+  .ring .fill.warn { stroke: var(--warning); }
+  .ring .fill.down { stroke: var(--destructive); }
+  .ring-center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+  }
+  .ring-center strong {
+    font-size: 23px;
+    line-height: 1.1;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+  .ring-center span {
+    font-size: 10.5px;
+    color: var(--muted-foreground);
+  }
+  .ring-foot {
+    font-size: 10.5px;
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  /* 累计流量：真实字段，只表达上下行占比，不伪造总量目标 */
+  .traffic-band {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px 20px;
+    margin-top: 18px;
+    padding: 14px 20px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--card);
+  }
+  .traffic-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 11.5px;
+    color: var(--muted-foreground);
+    white-space: nowrap;
+  }
+  .traffic-head strong {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--foreground);
+    font-variant-numeric: tabular-nums;
+  }
+  .traffic-bar {
+    display: flex;
+    height: 7px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--muted);
+  }
+  .traffic-bar .rx { background: var(--primary); }
+  .traffic-bar .tx { background: color-mix(in oklab, var(--muted-foreground) 55%, var(--muted)); }
+  .traffic-legend {
+    display: flex;
+    gap: 16px;
+    font-size: 11px;
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .traffic-legend .dir { display: inline-flex; align-items: center; gap: 3px; }
+  .traffic-legend svg { width: 10px; height: 10px; }
+  @media (max-width: 760px) {
+    .traffic-band {
+      grid-template-columns: 1fr;
+      gap: 8px;
+      padding: 13px 16px;
+      margin-top: 14px;
+    }
+    .traffic-legend { justify-content: space-between; }
+  }
+
+  /* 费用 */
+  .bill-card { min-width: 0; }
+  .price-line {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    margin-top: 10px;
+  }
+  .price-line strong {
+    font-size: 28px;
+    line-height: 1.1;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    font-variant-numeric: tabular-nums;
+  }
+  .price-line span {
+    font-size: 11.5px;
+    color: var(--muted-foreground);
+  }
+  .expiry-line {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 7px;
+    font-size: 11.5px;
+    color: var(--muted-foreground);
+  }
+  .expiry-line strong {
+    font-weight: 500;
+    color: var(--foreground);
+  }
+  .expiry-line strong.warn { color: var(--warning); }
+  .expiry-line strong.down { color: var(--destructive); }
+
+  /* 系统 */
+  .sys-card { min-width: 0; }
+  .sys-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 18px;
+    margin-top: 11px;
+  }
+  .sys-grid .wide { grid-column: 1 / -1; }
+  .sys-grid dt {
+    font-size: 10.5px;
+    color: var(--muted-foreground);
+  }
+  .sys-grid dd {
+    margin-top: 1px;
+    font-size: 12px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+  .sys-grid dd .muted { color: var(--muted-foreground); }
+
+  @media (max-width: 1180px) {
+    .dash { grid-template-columns: minmax(340px, 390px) minmax(0, 1fr); }
+    .kpi-cell { padding: 14px 12px 15px; }
+    .kpi-cell dd { font-size: 25px; }
+    .kpi-cell dd.rate { font-size: 14px; }
+  }
+  @media (max-width: 980px) {
+    .dash {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .dash { align-items: stretch; }
+    .status-card { order: 1; }
+    .kpi-card { order: 2; }
+    .chart-card { order: 3; min-height: 0; }
+    .res-card { order: 4; }
+    .bottom-pair {
+      order: 5;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .chart-card { width: 100%; }
+  }
+  @media (max-width: 640px) {
+    .dash-page { padding: 14px 12px 36px; }
+    .detail-head { margin-bottom: 13px; gap: 6px; }
+    .back { width: 34px; height: 34px; }
+    .title-line h1 { font-size: 19px; }
+    .title-sub { font-size: 11px; }
+    .card { padding: 16px; border-radius: 12px; }
+    .state-line h2 { font-size: 36px; }
+    .state-sub { font-size: 12px; }
+    .status-foot { margin-top: 13px; padding-top: 10px; }
+    .kpi-cell { padding: 13px 10px 14px; }
+    .kpi-cell:first-child { padding-left: 16px; }
+    .kpi-cell:last-child { padding-right: 16px; }
+    .kpi-cell dt { font-size: 10px; }
+    .kpi-cell dd { font-size: 22px; }
+    .kpi-cell dd.rate { font-size: 12.5px; gap: 0; }
+    .kpi-cell dd.rate .dir svg { width: 10px; height: 10px; }
+    .kpi-cell .unit { font-size: 9.5px; }
+    .chart-card { padding: 16px 16px 14px; }
+    .plot-wrap { min-height: 176px; padding-left: 30px; margin-top: 10px; }
+    .plot { min-height: 176px; }
+    .x-axis { margin-left: 30px; font-size: 9px; }
+    .chart-foot { margin-top: 9px; padding-top: 9px; gap: 8px 12px; }
+    .legend { gap: 4px 9px; font-size: 10px; }
+    .week-inline strong { font-size: 11.5px; }
+    .mini-bar { width: 48px; }
+    .rings { gap: 10px; margin-top: 12px; }
+    .ring { width: 100px; height: 100px; }
+    .ring-center strong { font-size: 20px; }
+    .ring-item { padding: 8px 4px 7px; }
+    .sys-grid { gap: 9px 14px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .state-dot, .live-dot { animation: none; }
+  }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3l2.5-6 4 12 3-9 2 3h3.5"/></svg>
+      </span>
+      <div class="brand-copy">
+        <div class="brand-name" id="panel-name">PierWave</div>
+        <div class="brand-tagline">现在有一把钥匙，就在你面前</div>
+      </div>
+    </div>
+    <div class="topbar-spacer"></div>
+    <span class="live"><span class="live-dot"></span><span class="live-text" id="live-text">更新于 13:10:06</span></span>
+    <a class="icon-btn" href="#" aria-label="进入后台">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      <span class="admin-text">进入后台</span>
+    </a>
+    <button class="icon-btn theme-btn" id="theme-toggle" type="button" aria-label="切换主题">
+      <svg id="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></svg>
+    </button>
+  </div>
+</header>
+
+<main class="dash-page">
+  <header class="detail-head">
+    <a class="back" href="#" aria-label="返回列表">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5m7-7-7 7 7 7"/></svg>
+    </a>
+    <div class="title-block">
+      <div class="title-line">
+        <h1 id="server-name"></h1>
+        <span class="flag" id="flag" aria-hidden="true"></span>
+      </div>
+      <p class="title-sub" id="title-sub"></p>
+    </div>
+  </header>
+
+  <div class="dash">
+    <section class="card status-card" id="status-card" aria-labelledby="status-title">
+      <div class="status-top">
+        <h2 class="card-title" id="status-title">服务状态</h2>
+        <span class="xray" id="xray"></span>
+      </div>
+      <div class="state-line">
+        <span class="state-dot" aria-hidden="true"></span>
+        <h2 id="state-word"></h2>
+      </div>
+      <p class="status-sub" id="status-sub"></p>
+      <div class="status-foot">
+        <span>最后上报 <strong id="last-seen"></strong></span>
+        <span>每 20 秒刷新</span>
+      </div>
+    </section>
+
+    <section class="card kpi-card" aria-label="关键数字">
+      <dl class="kpi-grid" id="kpis"></dl>
+    </section>
+
+    <section class="card chart-card" aria-labelledby="chart-title">
+      <div class="chart-top">
+        <div>
+          <h2 class="card-title" id="chart-title">过去 24 小时</h2>
+          <div class="card-sub" id="chart-sub"></div>
+        </div>
+        <div class="chart-big">
+          <strong id="chart-pct"></strong>
+          <span id="chart-samples"></span>
+        </div>
+      </div>
+      <div class="plot-wrap">
+        <div class="y-axis" aria-hidden="true"><span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0%</span></div>
+        <div class="plot" id="plot" tabindex="0" aria-label="过去 24 小时可用率曲线，使用左右方向键查看每小时">
+          <svg id="chart" viewBox="0 0 1000 240" preserveAspectRatio="none" role="img" aria-label="过去 24 小时可用率曲线"></svg>
+          <div class="crosshair" id="crosshair"></div>
+          <div class="chart-tip" id="chart-tip" aria-hidden="true"></div>
+        </div>
+      </div>
+      <div class="x-axis" id="x-axis" aria-hidden="true"></div>
+      <ol class="sr-only" id="chart-a11y" aria-label="逐小时可用率"></ol>
+      <div class="chart-foot">
+        <div class="legend">
+          <span class="item"><span class="swatch"></span>正常</span>
+          <span class="item"><span class="swatch warn"></span>下降</span>
+          <span class="item"><span class="swatch down"></span>中断</span>
+          <span class="item"><span class="swatch unknown"></span>无采样</span>
+        </div>
+        <span class="week-inline">
+          <span>7 天可用率</span>
+          <strong id="week-value"></strong>
+          <span class="mini-bar"><span id="week-fill"></span></span>
+        </span>
+      </div>
+    </section>
+
+    <section class="card res-card" aria-labelledby="res-title">
+      <div class="card-head">
+        <h2 class="card-title" id="res-title">资源</h2>
+        <div class="load" id="load-line"></div>
+      </div>
+      <div class="rings" id="rings"></div>
+    </section>
+
+    <div class="bottom-pair">
+    <section class="card bill-card" id="bill-card" aria-labelledby="bill-title">
+      <div class="card-head">
+        <h2 class="card-title" id="bill-title">费用与到期</h2>
+      </div>
+      <div class="price-line"><strong id="price"></strong><span id="cycle"></span></div>
+      <div class="expiry-line"><strong id="expiry"></strong><span id="paid-until"></span></div>
+    </section>
+
+    <section class="card sys-card" aria-labelledby="sys-title">
+      <div class="card-head">
+        <h2 class="card-title" id="sys-title">系统信息</h2>
+      </div>
+      <dl class="sys-grid" id="sys-grid"></dl>
+    </section>
+    </div>
+  </div>
+  <section class="traffic-band" id="traffic" aria-label="累计流量"></section>
+</main>
+
+<script src="./fixture.js"></script>
+<script>
+(() => {
+  const params = new URLSearchParams(location.search);
+  const theme = params.get("theme") === "light" ? "light" : "dark";
+  document.documentElement.dataset.theme = theme;
+  const incident = params.get("variant") === "incident";
+  const fixture = window.PIERWAVE_FIXTURE;
+  const server = fixture.servers.find((s) => incident ? s.name === "香港-03" : s.name === "香港-01");
+  if (!server) throw new Error("fixture 里找不到目标服务器");
+  document.documentElement.dataset.variant = incident ? "incident" : "normal";
+  document.documentElement.dataset.server = server.id;
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const HOUR = 3600;
+  const now = fixture.generated_at;
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const flagOf = (code) => (!code || !/^[A-Z]{2}$/.test(code) ? "" : String.fromCodePoint(...[...code].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65)));
+  const countryOf = (code) => ({ HK: "香港", JP: "日本", SG: "新加坡", US: "美国", TW: "台湾", DE: "德国" }[code] ?? code ?? "");
+  const rel = (ts) => {
+    if (ts === null || ts === undefined) return "从未上报";
+    const d = Math.max(0, now - ts);
+    if (d < 60) return `${d} 秒前`;
+    if (d < 3600) return `${Math.floor(d / 60)} 分钟前`;
+    if (d < 86400) return `${Math.floor(d / 3600)} 小时前`;
+    return `${Math.floor(d / 86400)} 天前`;
+  };
+  const clock = (ts) => {
+    const d = new Date(ts * 1000);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+  };
+  const hh = (ts) => `${String(new Date(ts * 1000).getHours()).padStart(2, "0")}:00`;
+  const day = (ts) => { const d = new Date(ts * 1000); return `${d.getMonth() + 1}月${d.getDate()}日`; };
+  const range = (ts) => `${hh(ts)}–${hh(ts + HOUR)}`;
+  const pct = (ratio) => {
+    if (ratio === null || ratio === undefined || !Number.isFinite(ratio)) return null;
+    if (ratio >= 1) return "100";
+    if (ratio <= 0) return "0";
+    const t = Math.floor(ratio * 10000) / 100;
+    if (t <= 0) return "<0.01";
+    return t.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+  };
+  const tone = (ratio) => {
+    if (ratio === null || ratio === undefined || !Number.isFinite(ratio)) return "unknown";
+    if (ratio >= 0.99) return "ok";
+    if (ratio >= 0.95) return "warn";
+    return "down";
+  };
+  const toneClass = (t) => t === "ok" ? "" : t === "warn" ? "t-warn" : t === "down" ? "t-down" : "t-muted";
+  const toneName = { ok: "正常", warn: "可用性下降", down: "中断", unknown: "无采样" };
+  const colorOf = (t) => `var(--${t === "ok" ? "primary" : t === "warn" ? "warning" : t === "down" ? "destructive" : "muted-foreground"})`;
+  const bytes = (v) => {
+    if (v === null || v === undefined || !Number.isFinite(v)) return null;
+    if (v < 1024) return `${Math.round(v)} B`;
+    const e = Math.min(Math.floor(Math.log(Math.abs(v)) / Math.log(1024)), 5);
+    const s = Math.abs(v) / 1024 ** e;
+    const digits = s >= 100 ? 0 : s >= 10 ? 1 : 2;
+    const fixed = s.toFixed(digits);
+    return `${fixed.includes(".") ? fixed.replace(/0+$/, "").replace(/\.$/, "") : fixed} ${["B", "KB", "MB", "GB", "TB", "PB"][e]}`;
+  };
+  const rate = (v) => {
+    if (v === null || v === undefined || !Number.isFinite(v) || v < 0) return null;
+    if (v === 0) return { value: "0", unit: "B/s" };
+    if (v < 1) return { value: "<1", unit: "B/s" };
+    const e = Math.min(Math.floor(Math.log(v) / Math.log(1024)), 5);
+    const s = v / 1024 ** e;
+    const digits = s >= 100 ? 0 : s >= 10 ? 1 : 2;
+    const text = s.toFixed(digits);
+    return { value: text.replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1"), unit: `${["B", "KB", "MB", "GB", "TB", "PB"][e]}/s` };
+  };
+  const up = (secs) => {
+    if (secs === null || secs === undefined || !Number.isFinite(secs) || secs < 0) return null;
+    const d = Math.floor(secs / 86400), h = Math.floor((secs % 86400) / 3600), m = Math.floor((secs % 3600) / 60);
+    if (d > 0) return h > 0 ? `${d} 天 ${h} 小时` : `${d} 天`;
+    if (h > 0) return m > 0 ? `${h} 小时 ${m} 分钟` : `${h} 小时`;
+    return `${m} 分钟`;
+  };
+  const state = !server.online ? "offline" : server.xray_running === false ? "abnormal" : "online";
+  const code = server.country_code;
+  const group = (server.group_name || "").trim();
+  const title = server.name;
+  document.title = `${title} · ${fixture.panel_name || "PierWave"}`;
+
+  $("panel-name").textContent = fixture.panel_name || "PierWave";
+  $("live-text").textContent = `更新于 ${new Date(now * 1000).toTimeString().slice(0, 8)}`;
+  $("server-name").textContent = title;
+  $("flag").textContent = flagOf(code);
+  $("title-sub").textContent = [countryOf(code), group ? `分组 ${group}` : null].filter(Boolean).join(" · ");
+
+  /* 状态卡 */
+  const word = { online: "在线", abnormal: "服务降级", offline: "离线" }[state];
+  $("status-card").classList.add(state === "online" ? "is-online" : state === "abnormal" ? "is-abnormal" : "is-offline");
+  $("state-word").textContent = word;
+  const upText = up(server.uptime_secs);
+  $("status-sub").textContent = state === "online"
+    ? ""
+    : state === "abnormal"
+      ? "Agent 在线，但 Xray 未运行"
+      : "离线前的读数仅供参考";
+  const xray = $("xray");
+  if ((state === "online" || state === "abnormal") && typeof server.xray_running === "boolean") {
+    const stopped = server.xray_running === false;
+    xray.className = `xray${stopped ? " is-down" : ""}`;
+    xray.innerHTML = `<span class="dot"></span>${stopped ? "Xray 已停止" : "Xray 运行中"}`;
+  } else {
+    xray.remove();
+  }
+  $("last-seen").textContent = rel(server.last_seen);
+  $("last-seen").title = server.last_seen ? clock(server.last_seen) : "";
+
+  /* 三个大数字 */
+  const up24 = server.uptime_24h;
+  const lat = server.latency_ms;
+  const rx = rate(server.net_rx_bps);
+  const tx = rate(server.net_tx_bps);
+  const rateCell = state === "offline" || (!rx && !tx)
+    ? `<span class="missing">—</span>`
+    : `${rx ? `<span class="dir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14m-6-6 6 6 6-6"/></svg>${rx.value}<span class="unit">${rx.unit}</span></span>` : ""}
+       ${tx ? `<span class="dir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>${tx.value}<span class="unit">${tx.unit}</span></span>` : ""}`;
+  $("kpis").innerHTML = `
+    <div class="kpi-cell">
+      <dt>在线时长${state === "offline" ? "（最后值）" : ""}</dt>
+      <dd class="uptime ${upText && upText.length > 6 ? "long" : ""} ${state === "offline" ? "t-muted" : ""}">${upText ? upText : `<span class="missing">—</span>`}</dd>
+    </div>
+    <div class="kpi-cell">
+      <dt>延迟${state === "offline" ? "（最后值）" : ""}</dt>
+      <dd class="${state === "offline" ? "t-muted" : ""}">${lat === null ? `<span class="missing">—</span>` : `${Math.round(lat)}<span class="unit">ms</span>`}</dd>
+    </div>
+    <div class="kpi-cell">
+      <dt>当前速率</dt>
+      <dd class="rate">${rateCell}</dd>
+    </div>
+  `;
+
+  /* 图表数据 */
+  const buckets = Array.from({ length: 24 }, (_, i) => server.buckets_24h[i] ?? null);
+  const sampled = buckets.filter(Boolean);
+  const nullCount = 24 - sampled.length;
+  const ratios = sampled.map((b) => b.online_ratio);
+  const lowest = sampled.length ? sampled.reduce((a, b) => (b.online_ratio < a.online_ratio ? b : a)) : null;
+  const downCount = sampled.filter((b) => tone(b.online_ratio) === "down").length;
+  const warnCount = sampled.filter((b) => tone(b.online_ratio) === "warn").length;
+  const t24 = tone(up24);
+  $("chart-pct").textContent = up24 === null || !sampled.length ? "—" : `${pct(up24)}%`;
+  $("chart-pct").className = toneClass(t24);
+  $("chart-sub").textContent = sampled.length ? `可用率 · 每格 1 小时` : "暂无采样";
+  $("chart-samples").textContent = sampled.length ? `${sampled.length}/24 采样` : "";
+  const summary = !sampled.length
+    ? "过去 24 小时没有采样数据"
+    : lowest.online_ratio < 1
+      ? `最低 ${pct(lowest.online_ratio)}% · ${range(lowest.ts)}${downCount ? ` · ${downCount} 小时中断` : warnCount ? ` · ${warnCount} 小时下降` : ""}${nullCount ? ` · ${nullCount} 小时无采样` : ""}`
+      : `有采样的 ${sampled.length} 小时全部正常${nullCount ? ` · ${nullCount} 小时无采样` : ""}`;
+
+  /* SVG 曲线：24 个小时桶，缺失断开，颜色按档位分段 */
+  const W = 1000, H = 240, step = W / 24;
+  const yOf = (ratio) => H - Math.min(1, Math.max(0, ratio)) * H;
+  const svg = $("chart");
+  const mk = (tag, attrs, text) => {
+    const el = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+    if (text !== undefined) el.textContent = text;
+    return el;
+  };
+  const defs = mk("defs", {});
+  const grad = mk("linearGradient", { id: "area-fill", x1: "0", y1: "0", x2: "0", y2: "1" });
+  grad.append(mk("stop", { offset: "0%", "stop-color": "var(--primary)", "stop-opacity": "0.14" }));
+  grad.append(mk("stop", { offset: "100%", "stop-color": "var(--primary)", "stop-opacity": "0" }));
+  const hatch = mk("pattern", { id: "gap-hatch", width: "6", height: "6", patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" });
+  hatch.append(mk("rect", { width: "6", height: "6", fill: "var(--muted)", opacity: "0.55" }));
+  hatch.append(mk("line", { x1: "0", y1: "0", x2: "0", y2: "6", stroke: "var(--muted-foreground)", "stroke-opacity": "0.4", "stroke-width": "1" }));
+  defs.append(grad, hatch);
+  svg.append(defs);
+
+  for (let i = 0; i <= 4; i++) {
+    const y = (H / 4) * i;
+    svg.append(mk("line", { x1: 0, y1: y, x2: W, y2: y, stroke: "var(--border)", "stroke-width": 1, "stroke-dasharray": i === 4 ? "0" : "3 5" }));
+  }
+  for (let i = 1; i < 4; i++) {
+    const x = (W / 4) * i;
+    svg.append(mk("line", { x1: x, y1: 0, x2: x, y2: H, stroke: "var(--border)", "stroke-width": 1, "stroke-dasharray": "2 6" }));
+  }
+  // 缺失小时：斜线柱，明确区别于 0%
+  buckets.forEach((b, i) => {
+    if (b) return;
+    svg.append(mk("rect", { x: i * step, y: 0, width: step, height: H, fill: "url(#gap-hatch)", opacity: 0.7 }));
+  });
+  const colorFor = (ratio) => {
+    const t = tone(ratio);
+    return t === "ok" ? "var(--primary)" : t === "warn" ? "var(--warning)" : "var(--destructive)";
+  };
+  // 面积：连续采样段，按 0 基线闭合；缺失处断开
+  let run = [];
+  const flush = () => {
+    if (!run.length) return;
+    const start = run[0].i * step;
+    const end = (run[run.length - 1].i + 1) * step;
+    let d = `M ${start} ${H} L ${start} ${yOf(run[0].r)}`;
+    for (let k = 1; k < run.length; k++) {
+      d += ` H ${run[k].i * step} V ${yOf(run[k].r)}`;
+    }
+    d += ` H ${end} L ${end} ${H} Z`;
+    svg.append(mk("path", { d, fill: "url(#area-fill)" }));
+    run = [];
+  };
+  const hasVariation = sampled.some((b) => b.online_ratio < 1);
+  if (hasVariation) {
+    buckets.forEach((b, i) => { if (b) run.push({ i, r: b.online_ratio }); else flush(); });
+    flush();
+  }
+  // 折线：每格一段水平线 + 相邻采样之间的竖直连接；按档位着色
+  buckets.forEach((b, i) => {
+    if (!b) return;
+    const y = yOf(b.online_ratio);
+    svg.append(mk("line", { x1: i * step, y1: y, x2: (i + 1) * step, y2: y, stroke: colorFor(b.online_ratio), "stroke-width": 2.2, "vector-effect": "non-scaling-stroke", "stroke-linecap": "round" }));
+    const prev = buckets[i - 1];
+    if (prev) {
+      const yPrev = yOf(prev.online_ratio);
+      const worse = tone(prev.online_ratio) === "down" || tone(b.online_ratio) === "down" ? "down" : tone(prev.online_ratio) === "warn" || tone(b.online_ratio) === "warn" ? "warn" : "ok";
+      svg.append(mk("line", { x1: i * step, y1: yPrev, x2: i * step, y2: y, stroke: colorFor(worse === "ok" ? 1 : worse === "warn" ? 0.96 : 0), "stroke-width": 2.2, "vector-effect": "non-scaling-stroke", "stroke-linecap": "round" }));
+    }
+  });
+  // 变化点与末端小圆点，颜色同时也是第二编码
+  buckets.forEach((b, i) => {
+    if (!b) return;
+    const prev = buckets[i - 1];
+    const next = buckets[i + 1];
+    const changed = !prev || prev.online_ratio !== b.online_ratio || !next;
+    if (!changed) return;
+    const cx = i * step;
+    const cy = yOf(b.online_ratio);
+    svg.append(mk("circle", { cx, cy, r: 3.4, fill: colorFor(b.online_ratio), stroke: "var(--card)", "stroke-width": 1.5, "vector-effect": "non-scaling-stroke" }));
+  });
+
+  /* 逐小时读屏表 */
+  $("chart-a11y").innerHTML = buckets.map((b, i) => {
+    if (!b) return `<li>${hh((buckets[i - 1]?.ts ?? now) + HOUR)} 这一小时没有采样</li>`;
+    return `<li>${day(b.ts)} ${range(b.ts)}，可用率 ${pct(b.online_ratio)}%，${toneName[tone(b.online_ratio)]}</li>`;
+  }).join("");
+
+  /* 轴标签 */
+  const nonEmpty = buckets.map((b, i) => (b ? i : -1)).filter((i) => i >= 0);
+  const axisIdx = [nonEmpty[0] ?? 0, 6, 12, 18, 23].filter((v, i, a) => a.indexOf(v) === i);
+  $("x-axis").innerHTML = axisIdx.map((i) => {
+    const b = buckets[i];
+    return `<span class="${i === 23 ? "now" : ""}">${i === 23 ? "现在" : b ? hh(b.ts) : hh((buckets[i - 1]?.ts ?? now) + HOUR)}</span>`;
+  }).join("");
+
+  /* 7 天 */
+  const up7 = server.uptime_7d;
+  const t7 = tone(up7);
+  $("week-value").textContent = up7 === null ? "—" : `${pct(up7)}%`;
+  $("week-value").className = toneClass(t7);
+  $("week-fill").style.width = up7 === null ? "0%" : `${Math.max(0, Math.min(100, up7 * 100))}%`;
+  $("week-fill").className = t7 === "warn" ? "warn" : t7 === "down" ? "down" : "";
+
+  /* 资源环 */
+  const resource = (used, total) => {
+    if (used === null || used === undefined || total === null || total === undefined || !Number.isFinite(used) || !Number.isFinite(total) || total <= 0) return null;
+    return Math.min(100, Math.max(0, (used / total) * 100));
+  };
+  const ring = (name, percent, used, total) => {
+    const p = percent === null ? null : Math.round(percent);
+    const t = percent === null ? "unknown" : percent >= 90 ? "down" : percent >= 75 ? "warn" : "ok";
+    const C = 2 * Math.PI * 52;
+    const dash = p === null ? 0 : (p / 100) * C;
+    return `
+      <div class="ring-item">
+        <div class="ring">
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="track" cx="60" cy="60" r="52"></circle>
+            <circle class="fill ${t === "ok" ? "" : t}" cx="60" cy="60" r="52" stroke-dasharray="${dash} ${C}" stroke-dashoffset="0"></circle>
+          </svg>
+          <div class="ring-center"><strong>${p === null ? "—" : `${p}%`}</strong><span>${name}</span></div>
+        </div>
+        <div class="ring-foot">${used === null || total === null ? "未上报" : `${bytes(used)} / ${bytes(total)}`}</div>
+      </div>`;
+  };
+  const memPct = resource(server.mem_used, server.mem_total);
+  const diskPct = resource(server.disk_used, server.disk_total);
+  $("rings").innerHTML = ring("内存", memPct, server.mem_used, server.mem_total) + ring("硬盘", diskPct, server.disk_used, server.disk_total);
+  const load = server.load1;
+  $("load-line").innerHTML = `<span>负载</span><strong>${load === null || !Number.isFinite(load) ? "—" : load.toFixed(2)}</strong><span>1 分钟平均</span>`;
+  const rxTotal = bytes(server.net_rx_bytes);
+  const txTotal = bytes(server.net_tx_bytes);
+  if (rxTotal !== null || txTotal !== null) {
+    const rxN = Math.max(0, server.net_rx_bytes ?? 0);
+    const txN = Math.max(0, server.net_tx_bytes ?? 0);
+    const total = rxN + txN;
+    const rxWidth = total > 0 ? (rxN / total) * 100 : 50;
+    $("traffic").innerHTML = `
+      <div class="traffic-head"><span>累计流量 <span title="Agent 自开机以来的非 lo 网卡累计字节，重启后归零">· 自开机以来</span></span><strong>${bytes(rxN + txN)}</strong></div>
+      <div class="traffic-bar" aria-hidden="true"><span class="rx" style="width:${rxWidth}%"></span><span class="tx" style="width:${100 - rxWidth}%"></span></div>
+      <div class="traffic-legend">
+        <span class="dir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14m-6-6 6 6 6-6"/></svg>下行 ${rxTotal ?? "—"}</span>
+        <span class="dir"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>上行 ${txTotal ?? "—"}</span>
+      </div>`;
+  } else {
+    $("traffic").remove();
+  }
+
+  /* 费用 */
+  const hasPaid = Boolean(server.paid_until);
+  const hasPrice = server.price_cents !== null && server.price_cents !== undefined;
+  const b = hasPaid || hasPrice
+    ? (() => {
+        const days = hasPaid ? Math.ceil((Date.parse(`${server.paid_until}T00:00:00+08:00`) - now * 1000) / 86400000) : null;
+        const cycle = { monthly: "月", yearly: "年", once: "一次性" }[server.billing_cycle] ?? "";
+        const cur = { CNY: "¥", USD: "$", EUR: "€", JPY: "¥" }[server.currency] ?? (server.currency ? `${server.currency} ` : "¥");
+        return {
+          price: hasPrice ? `${cur}${(server.price_cents / 100).toFixed(2)}` : null,
+          cycle,
+          days,
+          paidUntil: server.paid_until,
+        };
+      })()
+    : null;
+  if (!b) {
+    $("bill-card").remove();
+  } else {
+    $("price").textContent = b.price ?? "未配置";
+    if (!b.price) $("price").className = "t-muted";
+    $("cycle").textContent = b.price && b.cycle ? `/ ${b.cycle}` : "";
+    const expiry = $("expiry");
+    expiry.textContent = b.days === null ? "到期日未配置" : b.days < 0 ? "已过期" : b.days === 0 ? "今天到期" : b.days === 1 ? "明天到期" : `${b.days} 天后到期`;
+    expiry.className = b.days === null ? "t-muted" : b.days < 0 ? "down" : b.days <= 7 ? "warn" : "";
+    $("paid-until").textContent = b.paidUntil ?? "—";
+  }
+
+  /* 系统信息 */
+  const os = [server.os_name, server.os_version].filter((v) => typeof v === "string" && v.trim()).join(" ") || "—";
+  const sys = [
+    { label: "发行版", value: os, wide: true },
+    { label: "虚拟化", value: server.virt || "—" },
+    { label: "架构", value: server.arch || "—" },
+  ];
+  $("sys-grid").innerHTML = sys.map((f) => `<div class="${f.wide ? "wide" : ""}" ${f.title ? `title="${esc(f.title)}"` : ""}><dt>${f.label}</dt><dd>${f.value}</dd></div>`).join("");
+
+  /* 主题 */
+  const moon = `<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/>`;
+  const sun = `<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>`;
+  const syncIcon = () => { $("theme-icon").innerHTML = document.documentElement.dataset.theme === "light" ? sun : moon; };
+  syncIcon();
+  $("theme-toggle").addEventListener("click", () => {
+    document.documentElement.dataset.theme = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+    syncIcon();
+  });
+
+  /* 悬停 / 点按读数 */
+  const plot = $("plot");
+  const cross = $("crosshair");
+  const tip = $("chart-tip");
+  let hideTimer = 0;
+  const showAt = (index) => {
+    const bkt = buckets[index];
+    const frac = (index + 0.5) / 24;
+    cross.style.left = `${frac * 100}%`;
+    cross.classList.add("show");
+    const t = bkt ? tone(bkt.online_ratio) : "unknown";
+    tip.innerHTML = `<div class="t">${bkt ? `${day(bkt.ts)} ${range(bkt.ts)}` : "无采样"}</div><div class="v"><strong class="${toneClass(t)}">${bkt ? `${pct(bkt.online_ratio)}%` : "—"}</strong><span>${toneName[t]}</span></div>`;
+    tip.style.left = `${Math.min(88, Math.max(12, frac * 100))}%`;
+    const pointY = bkt ? (1 - Math.max(0, Math.min(1, bkt.online_ratio))) * plot.clientHeight : plot.clientHeight;
+    tip.style.top = `${Math.min(plot.clientHeight - 10, Math.max(52, pointY - 10))}px`;
+    tip.classList.add("show");
+    clearTimeout(hideTimer);
+  };
+  const hide = () => { tip.classList.remove("show"); cross.classList.remove("show"); };
+  const indexAt = (clientX) => {
+    const r = plot.getBoundingClientRect();
+    const x = Math.min(Math.max(clientX - r.left, 0), r.width - 1);
+    return Math.min(23, Math.max(0, Math.floor((x / r.width) * 24)));
+  };
+  plot.addEventListener("pointermove", (e) => showAt(indexAt(e.clientX)));
+  plot.addEventListener("pointerleave", hide);
+  plot.addEventListener("click", (e) => {
+    showAt(indexAt(e.clientX));
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(hide, 2600);
+  });
+  /* 键盘：焦点进入时读出最后一格，左右键逐小时移动 */
+  let kbIndex = 23;
+  plot.addEventListener("focus", () => showAt(kbIndex));
+  plot.addEventListener("blur", hide);
+  plot.addEventListener("keydown", (e) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+    e.preventDefault();
+    if (e.key === "Home") kbIndex = 0;
+    else if (e.key === "End") kbIndex = 23;
+    else kbIndex = Math.min(23, Math.max(0, kbIndex + (e.key === "ArrowRight" ? 1 : -1)));
+    showAt(kbIndex);
+  });
+
+  document.documentElement.dataset.ready = "1";
+})();
+</script>
+</body>
+</html>
