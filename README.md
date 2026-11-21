@@ -149,7 +149,14 @@ certificates or capabilities are missing is rejected as a whole (fail closed), n
 ```bash
 make check    # fmt + clippy(-D warnings) + test + web build + web test
 make e2e      # real master + agent: delivery, metering and subscription loop
+make size     # what each build cache takes on disk
+make clean    # drop target/ and web/dist (keeps offline dependency caches)
 ```
+
+`target/` grows with every build and every cross target; if the checkout reaches
+tens of gigabytes, `make size` finds it and `make clean` reclaims it. Keep
+`.cargo-home/` — it holds the offline dependency cache and is not cheap to
+rebuild on a throttled network.
 
 ## License
 

@@ -151,7 +151,13 @@ curl -fsSL https://<主控地址>/api/agent/install.sh?token=<token> | sudo bash
 ```bash
 make check    # fmt + clippy(-D warnings) + test + web build + web test
 make e2e      # 起真实 master + agent，验证下发、计量、订阅闭环
+make size     # 查看各部分构建缓存占用
+make clean    # 删除 target/ 与 web/dist，保留离线依赖缓存
 ```
+
+`target/` 会随每次构建和每个交叉编译目标增长；工作区涨到几十 GB 时，先用
+`make size` 看是哪里，再用 `make clean` 回收。**保留 `.cargo-home/`**——它是
+离线依赖缓存，在受限网络下重建代价很高。
 
 工程约定见 [AGENTS.md](AGENTS.md)；用户自助转发见 [docs/USER-FORWARDS.md](docs/USER-FORWARDS.md)。
 

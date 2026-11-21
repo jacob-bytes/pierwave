@@ -2,7 +2,7 @@
 export CARGO_HOME := $(CURDIR)/.cargo-home
 export NPM_CONFIG_CACHE := $(CURDIR)/.npm-cache
 
-.PHONY: check fmt fmt-check clippy test build run web-install web-build web-test web-dev dev e2e verify-xray verify-runtime test-install clean
+.PHONY: check fmt fmt-check clippy test build run web-install web-build web-test web-dev dev e2e verify-xray verify-runtime test-install clean size
 
 check: fmt-check clippy test web-build web-test  ## 提交前跑这个（只校验格式，不改文件）
 
@@ -52,5 +52,11 @@ web-dev:
 dev:  ## 后端 + 前端并行（两个终端更稳）
 	cargo run -p pierwave-master
 
-clean:
-	cargo clean && rm -rf web/dist
+clean:  ## 删除构建产物（target/ 与 web/dist），不动 .cargo-home / .npm-cache / node_modules
+	cargo clean
+	rm -rf web/dist
+	@echo "已清理 target/ 与 web/dist；重新构建会再生成。"
+
+size:  ## 查看各部分占用的磁盘空间，便于发现构建产物膨胀
+	@du -sh target .cargo-home .npm-cache web/node_modules web/dist 2>/dev/null | sort -hr
+	@df -h . | tail -1
