@@ -185,53 +185,54 @@ spacing are listed above.
 
 ### 安全页 / Security tab
 
-- 顺序改为 `API 访问 → 安全`；实测 API 卡 y=257.39、安全卡 y=692.47（1440），
-  API 卡 y=301.78、安全卡 y=774.05（390）。
+- 顺序改为 `API 访问 → 安全`；实测 API 卡 y=257.39、安全卡 y=700.47（1440），
+  API 卡 y=301.78、安全卡 y=782.05（390）。
 
 API access now precedes the security card; measured y positions are above.
 
 ### 保存条 / Save bar
 
 三个表单 tab（常规 / 安全 / 通知）共用
-`components/settings/SettingsSaveBar.tsx`。结构是「滚动内容 + 滚动区外的
-底条」：`SettingsFormShell` 的滚动区负责表单卡片，`SettingsSaveBar` 是它的
-最后一个 flex 兄弟，不在任何 Card / form 里；因此条永远不会盖住卡片。
-按钮通过 `form` 属性提交外部表单。通知 tab 也换成同一组件，视觉与常规/安全一致。
+`components/settings/SettingsSaveBar.tsx`。结构就是「表单 → 保存条」的
+普通文档流：保存条是 `SettingsFormShell` 的最后一个块级兄弟，不 sticky、
+不 fixed，随页面一起滚动。只有滚到页面底部才会看到/点击它。
 
-All three form tabs use the shared `SettingsSaveBar`. The shell is
-"scroll area + footer outside it"; the bar is a flex sibling of the scroll
-area (not inside any Card or form), so it never covers a card. The button
-submits via the `form` attribute. The alerts tab now uses the same component.
+All three form tabs use the shared `SettingsSaveBar`. It is a normal block
+after the form in `SettingsFormShell` — not sticky, not fixed — so it scrolls
+with the page and is visible only at the bottom.
 
-| 指标 / Metric | 常规 1440 | 常规 390 | 安全 1440 | 安全 390 | 通知 1440 | 通知 390 |
+| 指标 / Metric | 常规 1440 | 安全 1440 | 通知 1440 | 常规 390 | 安全 390 | 通知 390 |
 |---|---:|---:|---:|---:|---:|---:|
-| 滚动区底 / scroller bottom | 919 | 755 | 919 | 755 | 919 | 755 |
-| bar top | 919 | 755 | 919 | 755 | 919 | 755 |
-| bar bottom | 976 | 820 | 976 | 820 | 976 | 820 |
-| bar height | 57 | 65 | 57 | 65 | 57 | 65 |
-| bar width | 1152 | 342 | 1152 | 342 | 1152 | 342 |
-| 页面底距 / page-bottom gap | 24 | 24 | 24 | 24 | 24 | 24 |
-| 滚到底卡→条 / card→bar gap | 24.06 | 24.17 | 23.67 | 24.2 | 24.06 | 24.66 |
-| 按钮高 / button height | 32 | **40** | 32 | **40** | 32 | **40** |
-| bar 在 Card 内 / inside Card | false | false | false | false | false | false |
+| position | static | static | static | static | static | static |
+| 中部 barTop / mid barTop | 1065.94 | 952.33* | 1099.94 | 1431.83 | 969.8 | 1342.34 |
+| 中部可见 / visible at mid | 否 / no | 是 / yes* | 否 / no | 否 / no | 否 / no | 否 / no |
+| 底部 barTop | 918.94 | 919.33 | 918.94 | 754.83 | 754.8 | 755.34 |
+| 底部 barBottom | 975.94 | 976.33 | 975.94 | 819.83 | 819.8 | 820.34 |
+| bar 高 / height | 57 | 57 | 57 | 65 | 65 | 65 |
+| bar 宽 / width | 1152 | 1152 | 1152 | 342 | 342 | 342 |
+| 卡→条 / card→bar | 24 | 24 | 24 | 24 | 24 | 24 |
+| 距页面底 / page-bottom gap | 24.06 | 23.67 | 24.06 | 24.17 | 24.2 | 23.66 |
+| 按钮高 / button height | 32 | 32 | 32 | **40** | **40** | **40** |
+| 在 Card 内 / inside Card | false | false | false | false | false | false |
 
 - 亮色条背景 `oklch(0.979 0.003 264.5)`，暗色 `oklch(0.145 0.004 285)`；
   顶部 1px 分隔线（亮色 `oklch(0.94 0.009 264.5)`，暗色 `oklch(1 0 0 / 0.08)`）。
-- 无圆角、无阴影、无 `backdrop-blur`；条背景不透明，条上方内容被滚动区裁剪，
-  不会透出，也不会压在任何卡片的可交互区域上。
-- 滚动区底部有 24px 内边距；滚到底时最后一张卡与条间距约 24px。
+- 无圆角、无阴影、无 blur、无 `sticky/fixed/bottom-0`；条是全宽实色块。
+- 页面不再额外留“底条高度”的 padding；条在文档流里，滚到底卡与条间距 24px。
 - 390 按钮 40px；四个 tab 均无横向溢出（scrollWidth=clientWidth=390）。
 
-The bar is opaque (`bg-background`) with a 1px top border, no rounded corners,
-no shadow, no blur. The scroll area clips content above it; the bar never
-overlaps a card. The scroll content has 24px bottom padding, leaving ~24px
-between the last card and the bar at the bottom. At 390 the button is 40px and
-no tab overflows horizontally.
+\* 安全页 1440 的内容高 1009px、视口 1000px，只多 9px，滚到“中部”时
+条仍在视口内；这是短页面的必然结果，没有为了隐藏它额外加空白。390 安全页
+内容高 1218px，中部滚动时条已在视口外。
+
+\* The 1440 security page is only 9px taller than the viewport, so the bar is
+still visible at the middle scroll position; no artificial blank was added to
+hide it. At 390 the security page is 1218px tall and the bar is below the
+viewport at mid-scroll.
 
 Screenshots:
 `settings-backup-{on,off}-{light,dark}-{1440,390}.png`、
-`settings-security-{top,bottom}-{light,dark}-{1440,390}.png`、
-`settings-{general,alerts}-{top,bottom}-{light,dark}-{1440,390}.png`；
+`settings-{general,security,alerts}-{mid,bottom}-{light,dark}-{1440,390}.png`；
 几何见 `settings-final-report.json`。
 
 ## 验证 / Verification

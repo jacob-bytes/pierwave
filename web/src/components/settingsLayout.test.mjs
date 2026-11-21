@@ -82,6 +82,12 @@ test("backup encryption is in the size card and save bars are page-level", () =>
   assert.match(saveBar, /border-t border-border bg-background/);
   assert.match(saveBar, /form=\{formId\}/);
   assert.doesNotMatch(saveBar, /<Card|CardContent|rounded-|shadow/);
+  // 普通文档流：不能 sticky / fixed / 贴底。
+  assert.doesNotMatch(saveBar, /className="[^"]*(sticky|fixed|bottom-0)/);
+  const shell = read("components/settings/SettingsSaveBar.tsx");
+  assert.doesNotMatch(shell, /overflow-y-auto/);
+  // 普通流：children 在前，footer 在后。
+  assert.match(shell, /\{children\}\s*\{footer\}/);
   for (const source of [
     settings,
     read("components/settings/AlertsCard.tsx"),

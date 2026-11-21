@@ -1,4 +1,4 @@
-// Settings backup/security/savebar screenshots + geometry (shared page bar).
+// Settings savebar in normal document flow: mid-page (bar offscreen) + bottom.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { chromium } from "/Users/jlthzy/Documents/mmrust/.npm-cache/_npx/e78b33305587cb7c/node_modules/playwright/index.mjs";
 
@@ -97,43 +97,32 @@ async function openPage(theme, size, { encryptOff = false } = {}) {
   return { context };
 }
 
-function savebarInfo(page) {
+function flowInfo(page) {
   return page.evaluate(() => {
     const round = (value) => Math.round(value * 100) / 100;
-    const panel = document.querySelector('[role="tabpanel"][data-state="active"]');
+    const main = document.querySelector("main");
     const bar = [...document.querySelectorAll('[data-slot="settings-savebar"]')]
       .find((el) => el.getBoundingClientRect().height > 0) ?? null;
-    const scroller = panel
-      ? [...panel.querySelectorAll(".overflow-y-auto")].find(
-          (el) => el.getBoundingClientRect().height > 0,
-        ) ?? null
-      : null;
-    const cards = scroller
-      ? [...scroller.querySelectorAll('[data-slot="card"]')].filter(
-          (el) => el.getBoundingClientRect().height > 0,
-        )
-      : [];
-    const lastCard = cards[cards.length - 1] ?? null;
     const barRect = bar?.getBoundingClientRect();
-    const scrollerRect = scroller?.getBoundingClientRect();
-    const lastRect = lastCard?.getBoundingClientRect();
     const style = bar ? getComputedStyle(bar) : null;
-    const button = bar?.querySelector("button");
-    const buttonRect = button?.getBoundingClientRect();
+    const cards = [...document.querySelectorAll('[data-slot="card"]')].filter(
+      (el) => el.getBoundingClientRect().height > 0,
+    );
+    const lastCard = cards[cards.length - 1] ?? null;
+    const lastRect = lastCard?.getBoundingClientRect();
+    const buttonRect = bar?.querySelector("button")?.getBoundingClientRect();
     return {
-      panelBottom: panel ? round(panel.getBoundingClientRect().bottom) : null,
-      scrollerTop: scrollerRect ? round(scrollerRect.top) : null,
-      scrollerBottom: scrollerRect ? round(scrollerRect.bottom) : null,
-      scrollerClientHeight: scroller?.clientHeight ?? null,
-      scrollerScrollHeight: scroller?.scrollHeight ?? null,
-      scrollerScrollTop: scroller?.scrollTop ?? null,
+      mainScrollHeight: main?.scrollHeight ?? null,
+      mainClientHeight: main?.clientHeight ?? null,
+      mainScrollTop: main?.scrollTop ?? null,
+      viewportHeight: window.innerHeight,
       barTop: barRect ? round(barRect.top) : null,
       barBottom: barRect ? round(barRect.bottom) : null,
       barHeight: barRect ? round(barRect.height) : null,
       barWidth: barRect ? round(barRect.width) : null,
+      barPosition: style?.position ?? null,
       barBackground: style?.backgroundColor ?? null,
       barBorderTop: style ? `${style.borderTopWidth} ${style.borderTopStyle} ${style.borderTopColor}` : null,
-      barPosition: style?.position ?? null,
       barInsideCard: bar ? Boolean(bar.closest('[data-slot="card"]')) : null,
       buttonHeight: buttonRect ? round(buttonRect.height) : null,
       lastCardTitle:
@@ -141,23 +130,23 @@ function savebarInfo(page) {
       lastCardBottom: lastRect ? round(lastRect.bottom) : null,
       cardToBarGap:
         lastRect && barRect ? round(barRect.top - lastRect.bottom) : null,
-      barToPageBottom: barRect ? round(window.innerHeight - barRect.bottom) : null,
+      barToViewportBottom: barRect ? round(window.innerHeight - barRect.bottom) : null,
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
+      barBelowViewport: barRect ? barRect.top > window.innerHeight : null,
     };
   });
 }
 
 for (const theme of THEMES) {
   for (const size of SIZES) {
-    // Backup: encryption switch inside the DB-size card, on/off warning.
     for (const encryptOff of [false, true]) {
       const { context } = await openPage(theme, size, { encryptOff });
       const page = await context.newPage();
       await page.goto(`${BASE}/settings?tab=backup`, { waitUntil: "networkidle" });
       await page.getByRole("heading", { name: "当前数据库大小" }).waitFor();
       await page.evaluate(() => document.fonts.ready);
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(250);
       const metrics = await page.evaluate(() => {
         const card = document
           .querySelector("#settings-backup-encrypt")
@@ -178,17 +167,6 @@ for (const theme of THEMES) {
           hasExportHint: (document.body.innerText ?? "").includes(
             "导出时使用当前加密设置",
           ),
-          pageHeight: document.querySelector("main")?.scrollHeight ?? null,
-          cards: [...document.querySelectorAll('[data-slot="card"]')]
-            .filter((el) => el.getBoundingClientRect().height > 0)
-            .map((el) => {
-              const rect = el.getBoundingClientRect();
-              return {
-                title: el.querySelector('[data-slot="card-title"]')?.textContent?.trim() ?? null,
-                y: Math.round(rect.y),
-                h: Math.round(rect.height),
-              };
-            }),
         };
       });
       const state = encryptOff ? "off" : "on";
@@ -216,12 +194,10 @@ for (const theme of THEMES) {
       });
       await page.screenshot({ path: file, fullPage: true, animations: "disabled" });
       console.log("backup", state, theme, size.width, JSON.stringify(metrics));
-      console.log(`saved ${file}`);
       report[`backup-${state}-${theme}-${size.width}`] = { ...metrics, file };
       await context.close();
     }
 
-    // Regular / security / alerts: shared page-level savebar at top and bottom.
     for (const tab of ["general", "security", "alerts"]) {
       const { context } = await openPage(theme, size);
       const page = await context.newPage();
@@ -232,22 +208,33 @@ for (const theme of THEMES) {
         .waitFor();
       await page.evaluate(() => document.fonts.ready);
       await page.waitForTimeout(300);
-      const topShot = `${OUT}/settings-${tab}-top-${theme}-${size.width}.png`;
-      await page.screenshot({ path: topShot, animations: "disabled" });
-      const top = await savebarInfo(page);
+
+      // 页面中部：条应该在视口之外。
       await page.evaluate(() => {
-        const panel = document.querySelector('[role="tabpanel"][data-state="active"]');
-        const scroller = panel
-          ? [...panel.querySelectorAll(".overflow-y-auto")].find(
-              (el) => el.getBoundingClientRect().height > 0,
-            ) ?? null
-          : null;
-        if (scroller) scroller.scrollTop = scroller.scrollHeight;
+        const main = document.querySelector("main");
+        if (main) main.scrollTop = Math.floor((main.scrollHeight - main.clientHeight) / 2);
       });
-      await page.waitForTimeout(250);
-      const bottom = await savebarInfo(page);
+      await page.waitForTimeout(200);
+      const mid = await flowInfo(page);
+      const midShot = `${OUT}/settings-${tab}-mid-${theme}-${size.width}.png`;
+      await page.screenshot({ path: midShot, animations: "disabled" });
+
+      // 页面最底部：条应完整可见。
+      await page.evaluate(() => {
+        const main = document.querySelector("main");
+        if (main) main.scrollTop = main.scrollHeight;
+      });
+      await page.waitForTimeout(200);
+      const bottom = await flowInfo(page);
       const bottomShot = `${OUT}/settings-${tab}-bottom-${theme}-${size.width}.png`;
       await page.screenshot({ path: bottomShot, animations: "disabled" });
+
+      // 回到顶部量安全页顺序。
+      await page.evaluate(() => {
+        const main = document.querySelector("main");
+        if (main) main.scrollTop = 0;
+      });
+      await page.waitForTimeout(150);
       const order = await page.evaluate(() => {
         const panel = document.querySelector('[role="tabpanel"][data-state="active"]');
         const titles = panel
@@ -265,8 +252,19 @@ for (const theme of THEMES) {
           apiBeforeSecurity: Boolean(api && security && api.y < security.y),
         };
       });
-      console.log(tab, theme, size.width, JSON.stringify({ top, bottom, order }));
-      report[`${tab}-${theme}-${size.width}`] = { top, bottom, order, topShot, bottomShot };
+      console.log(
+        tab,
+        theme,
+        size.width,
+        JSON.stringify({ mid, bottom, order }),
+      );
+      report[`${tab}-${theme}-${size.width}`] = {
+        mid,
+        bottom,
+        order,
+        midShot,
+        bottomShot,
+      };
       await context.close();
     }
   }

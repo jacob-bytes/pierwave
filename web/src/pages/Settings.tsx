@@ -595,7 +595,7 @@ function SecurityForm({
         />
       }
     >
-      {before ? <div className="mb-4">{before}</div> : null}
+      {before ?? null}
       <form
         id="settings-security-form"
         className="space-y-6"
@@ -719,10 +719,6 @@ export default function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   // URL 是 tab 的唯一来源：刷新、前进/后退、外部链接都保持在同一个 tab。
   const tab = resolveSettingsTab(searchParams.get("tab"));
-  // 常规 / 安全 / 通知有页面级保存条：这三个 tab 使用「滚动内容 + 固定条」。
-  const fillTab =
-    tab === "general" || tab === "security" || tab === "alerts";
-
   function handleTabChange(value: string) {
     const next = new URLSearchParams(searchParams);
     const param = settingsTabParam(resolveSettingsTab(value));
@@ -735,12 +731,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div
-      className={cn(
-        "animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150",
-        fillTab && "flex h-full min-h-0 flex-col",
-      )}
-    >
+    <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
       <div>
         <h1 className="text-xl leading-tight font-semibold tracking-tight">
           {t("settings.title")}
@@ -757,11 +748,7 @@ export default function SettingsPage() {
         />
       ) : null}
 
-      <Tabs
-        value={tab}
-        onValueChange={handleTabChange}
-        className={cn("gap-4", fillTab && "flex min-h-0 flex-1 flex-col")}
-      >
+      <Tabs value={tab} onValueChange={handleTabChange} className="gap-4">
         <ScrollFade className="max-w-full">
           <TabsList
             aria-label={t("settings.tabs.ariaLabel")}
@@ -783,7 +770,7 @@ export default function SettingsPage() {
           value="general"
           forceMount
           aria-label={t("settings.tabs.regular")}
-          className="flex min-h-0 flex-1 flex-col gap-4 data-[state=inactive]:hidden"
+          className="space-y-4 data-[state=inactive]:hidden"
         >
           <p className="text-xs text-muted-foreground">
             {t("settings.tabs.regularDesc")}
@@ -798,7 +785,7 @@ export default function SettingsPage() {
           value="security"
           forceMount
           aria-label={t("settings.tabs.security")}
-          className="flex min-h-0 flex-1 flex-col gap-4 data-[state=inactive]:hidden"
+          className="space-y-4 data-[state=inactive]:hidden"
         >
           <p className="text-xs text-muted-foreground">
             {t("settings.tabs.securityDesc")}
@@ -821,7 +808,7 @@ export default function SettingsPage() {
           value="alerts"
           forceMount
           aria-label={t("settings.tabs.alerts")}
-          className="flex min-h-0 flex-1 flex-col gap-4 data-[state=inactive]:hidden"
+          className="space-y-4 data-[state=inactive]:hidden"
         >
           <p className="text-xs text-muted-foreground">
             {t("settings.tabs.alertsDesc")}

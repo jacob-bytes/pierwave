@@ -6,10 +6,8 @@ import { cn } from "@/lib/utils";
 /**
  * 设置页三个表单 tab（常规 / 安全 / 通知）共用的页面级保存条。
  *
- * 它是内容滚动区之外的 flex 兄弟节点：上方滚动区负责内容，底部这条
- * 永远占住自己的高度，所以不会像 sticky 覆盖层那样压住卡片，也不会
- * 透出下方内容。`sticky bottom-0` 只是让它在极短内容时仍贴住底部；
- * 在正常结构里它本身就是最后一项。
+ * 它只是内容流里的最后一个普通块：卡片结束后出现，随页面一起滚动。
+ * 不 sticky / fixed，所以页面中部看不到它；只有滚到最底部才出现。
  */
 export function SettingsSaveBar({
   formId,
@@ -33,7 +31,7 @@ export function SettingsSaveBar({
   return (
     <div
       data-slot="settings-savebar"
-      className="sticky bottom-0 z-20 flex w-full shrink-0 items-center justify-end gap-3 border-t border-border bg-background py-3"
+      className="flex w-full items-center justify-end gap-3 border-t border-border bg-background py-3"
     >
       <p
         className={cn(
@@ -62,10 +60,8 @@ export function SettingsSaveBar({
 }
 
 /**
- * 表单 tab 的外壳：滚动内容 + 固定的保存条。
- *
- * 保存条在滚动容器之外，最后一张卡只需在滚动区底部留 24px 内边距；
- * 滚到底时与条之间保持 24px，不会被覆盖。
+ * 表单 tab 的外壳：表单内容之后接保存条，全部在正常文档流里。
+ * 两者之间留 24px，滚到底时最后一张卡不会贴住条。
  */
 export function SettingsFormShell({
   children,
@@ -75,10 +71,8 @@ export function SettingsFormShell({
   footer: ReactNode;
 }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="relative min-h-0 flex-1 overflow-y-auto">
-        <div className="pb-6">{children}</div>
-      </div>
+    <div className="space-y-6">
+      {children}
       {footer}
     </div>
   );

@@ -10,24 +10,6 @@
     "hasOffWarning": false,
     "encryptChecked": "true",
     "hasExportHint": true,
-    "pageHeight": 1397,
-    "cards": [
-      {
-        "title": "当前数据库大小",
-        "y": 237,
-        "h": 222
-      },
-      {
-        "title": "恢复数据",
-        "y": 483,
-        "h": 312
-      },
-      {
-        "title": "异地备份",
-        "y": 811,
-        "h": 618
-      }
-    ],
     "file": "web/screenshots/agent119/settings-backup-on-light-1440.png"
   },
   "backup-off-light-1440": {
@@ -41,233 +23,209 @@
     "hasOffWarning": true,
     "encryptChecked": "false",
     "hasExportHint": true,
-    "pageHeight": 1426,
-    "cards": [
-      {
-        "title": "当前数据库大小",
-        "y": 237,
-        "h": 251
-      },
-      {
-        "title": "恢复数据",
-        "y": 512,
-        "h": 312
-      },
-      {
-        "title": "异地备份",
-        "y": 840,
-        "h": 618
-      }
-    ],
     "file": "web/screenshots/agent119/settings-backup-off-light-1440.png"
   },
   "general-light-1440": {
-    "top": {
-      "panelBottom": 976,
-      "scrollerTop": 237.39,
-      "scrollerBottom": 919,
-      "scrollerClientHeight": 682,
-      "scrollerScrollHeight": 976,
-      "scrollerScrollTop": 0,
-      "barTop": 919,
-      "barBottom": 976,
+    "mid": {
+      "mainScrollHeight": 1238,
+      "mainClientHeight": 944,
+      "mainScrollTop": 147,
+      "viewportHeight": 1000,
+      "barTop": 1065.94,
+      "barBottom": 1122.94,
       "barHeight": 57,
       "barWidth": 1152,
+      "barPosition": "static",
       "barBackground": "oklch(0.979 0.003 264.5)",
       "barBorderTop": "1px solid oklch(0.94 0.009 264.5)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 32,
       "lastCardTitle": "公开状态页",
-      "lastCardBottom": 1188.94,
-      "cardToBarGap": -269.94,
-      "barToPageBottom": 24,
+      "lastCardBottom": 1041.94,
+      "cardToBarGap": 24,
+      "barToViewportBottom": -122.94,
       "scrollWidth": 1440,
-      "clientWidth": 1440
+      "clientWidth": 1440,
+      "barBelowViewport": true
     },
     "bottom": {
-      "panelBottom": 976,
-      "scrollerTop": 237.39,
-      "scrollerBottom": 919,
-      "scrollerClientHeight": 682,
-      "scrollerScrollHeight": 976,
-      "scrollerScrollTop": 294,
-      "barTop": 919,
-      "barBottom": 976,
+      "mainScrollHeight": 1238,
+      "mainClientHeight": 944,
+      "mainScrollTop": 294,
+      "viewportHeight": 1000,
+      "barTop": 918.94,
+      "barBottom": 975.94,
       "barHeight": 57,
       "barWidth": 1152,
+      "barPosition": "static",
       "barBackground": "oklch(0.979 0.003 264.5)",
       "barBorderTop": "1px solid oklch(0.94 0.009 264.5)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 32,
       "lastCardTitle": "公开状态页",
       "lastCardBottom": 894.94,
-      "cardToBarGap": 24.06,
-      "barToPageBottom": 24,
+      "cardToBarGap": 24,
+      "barToViewportBottom": 24.06,
       "scrollWidth": 1440,
-      "clientWidth": 1440
+      "clientWidth": 1440,
+      "barBelowViewport": false
     },
     "order": {
       "titles": [
         {
           "title": "面板",
-          "y": -40.609375
+          "y": 253.390625
         },
         {
           "title": "版本更新",
-          "y": 156.359375
+          "y": 450.359375
         },
         {
           "title": "对外地址",
-          "y": 156.359375
+          "y": 450.359375
         },
         {
           "title": "Agent 升级",
-          "y": 496.21875
+          "y": 790.21875
         },
         {
           "title": "公开状态页",
-          "y": 693.1875
+          "y": 987.1875
         }
       ],
       "apiBeforeSecurity": false
     },
-    "topShot": "web/screenshots/agent119/settings-general-top-light-1440.png",
+    "midShot": "web/screenshots/agent119/settings-general-mid-light-1440.png",
     "bottomShot": "web/screenshots/agent119/settings-general-bottom-light-1440.png"
   },
   "security-light-1440": {
-    "top": {
-      "panelBottom": 976,
-      "scrollerTop": 237.39,
-      "scrollerBottom": 919,
-      "scrollerClientHeight": 682,
-      "scrollerScrollHeight": 739,
-      "scrollerScrollTop": 0,
-      "barTop": 919,
-      "barBottom": 976,
+    "mid": {
+      "mainScrollHeight": 1009,
+      "mainClientHeight": 944,
+      "mainScrollTop": 32,
+      "viewportHeight": 1000,
+      "barTop": 952.33,
+      "barBottom": 1009.33,
       "barHeight": 57,
       "barWidth": 1152,
+      "barPosition": "static",
       "barBackground": "oklch(0.979 0.003 264.5)",
       "barBorderTop": "1px solid oklch(0.94 0.009 264.5)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 32,
       "lastCardTitle": "安全",
-      "lastCardBottom": 952.33,
-      "cardToBarGap": -33.33,
-      "barToPageBottom": 24,
+      "lastCardBottom": 928.33,
+      "cardToBarGap": 24,
+      "barToViewportBottom": -9.33,
       "scrollWidth": 1440,
-      "clientWidth": 1440
+      "clientWidth": 1440,
+      "barBelowViewport": false
     },
     "bottom": {
-      "panelBottom": 976,
-      "scrollerTop": 237.39,
-      "scrollerBottom": 919,
-      "scrollerClientHeight": 682,
-      "scrollerScrollHeight": 739,
-      "scrollerScrollTop": 57,
-      "barTop": 919,
-      "barBottom": 976,
+      "mainScrollHeight": 1009,
+      "mainClientHeight": 944,
+      "mainScrollTop": 65,
+      "viewportHeight": 1000,
+      "barTop": 919.33,
+      "barBottom": 976.33,
       "barHeight": 57,
       "barWidth": 1152,
+      "barPosition": "static",
       "barBackground": "oklch(0.979 0.003 264.5)",
       "barBorderTop": "1px solid oklch(0.94 0.009 264.5)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 32,
       "lastCardTitle": "安全",
       "lastCardBottom": 895.33,
-      "cardToBarGap": 23.67,
-      "barToPageBottom": 24,
+      "cardToBarGap": 24,
+      "barToViewportBottom": 23.67,
       "scrollWidth": 1440,
-      "clientWidth": 1440
+      "clientWidth": 1440,
+      "barBelowViewport": false
     },
     "order": {
       "titles": [
         {
           "title": "API 访问0",
-          "y": 200.390625
+          "y": 257.390625
         },
         {
           "title": "安全",
-          "y": 635.46875
+          "y": 700.46875
         }
       ],
       "apiBeforeSecurity": true
     },
-    "topShot": "web/screenshots/agent119/settings-security-top-light-1440.png",
+    "midShot": "web/screenshots/agent119/settings-security-mid-light-1440.png",
     "bottomShot": "web/screenshots/agent119/settings-security-bottom-light-1440.png"
   },
   "alerts-light-1440": {
-    "top": {
-      "panelBottom": 976,
-      "scrollerTop": 237.39,
-      "scrollerBottom": 919,
-      "scrollerClientHeight": 682,
-      "scrollerScrollHeight": 1043,
-      "scrollerScrollTop": 0,
-      "barTop": 919,
-      "barBottom": 976,
+    "mid": {
+      "mainScrollHeight": 1305,
+      "mainClientHeight": 944,
+      "mainScrollTop": 180,
+      "viewportHeight": 1000,
+      "barTop": 1099.94,
+      "barBottom": 1156.94,
       "barHeight": 57,
       "barWidth": 1152,
+      "barPosition": "static",
       "barBackground": "oklch(0.979 0.003 264.5)",
       "barBorderTop": "1px solid oklch(0.94 0.009 264.5)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 32,
       "lastCardTitle": "发送测试消息",
-      "lastCardBottom": 1255.94,
-      "cardToBarGap": -336.94,
-      "barToPageBottom": 24,
+      "lastCardBottom": 1075.94,
+      "cardToBarGap": 24,
+      "barToViewportBottom": -156.94,
       "scrollWidth": 1440,
-      "clientWidth": 1440
+      "clientWidth": 1440,
+      "barBelowViewport": true
     },
     "bottom": {
-      "panelBottom": 976,
-      "scrollerTop": 237.39,
-      "scrollerBottom": 919,
-      "scrollerClientHeight": 682,
-      "scrollerScrollHeight": 1043,
-      "scrollerScrollTop": 361,
-      "barTop": 919,
-      "barBottom": 976,
+      "mainScrollHeight": 1305,
+      "mainClientHeight": 944,
+      "mainScrollTop": 361,
+      "viewportHeight": 1000,
+      "barTop": 918.94,
+      "barBottom": 975.94,
       "barHeight": 57,
       "barWidth": 1152,
+      "barPosition": "static",
       "barBackground": "oklch(0.979 0.003 264.5)",
       "barBorderTop": "1px solid oklch(0.94 0.009 264.5)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 32,
       "lastCardTitle": "发送测试消息",
       "lastCardBottom": 894.94,
-      "cardToBarGap": 24.06,
-      "barToPageBottom": 24,
+      "cardToBarGap": 24,
+      "barToViewportBottom": 24.06,
       "scrollWidth": 1440,
-      "clientWidth": 1440
+      "clientWidth": 1440,
+      "barBelowViewport": false
     },
     "order": {
       "titles": [
         {
           "title": "Telegram",
-          "y": -107.609375
+          "y": 253.390625
         },
         {
           "title": "Webhook",
-          "y": 89.359375
+          "y": 450.359375
         },
         {
           "title": "事件",
-          "y": 286.328125
+          "y": 647.328125
         },
         {
           "title": "发送测试消息",
-          "y": 792.859375
+          "y": 1153.859375
         }
       ],
       "apiBeforeSecurity": false
     },
-    "topShot": "web/screenshots/agent119/settings-alerts-top-light-1440.png",
+    "midShot": "web/screenshots/agent119/settings-alerts-mid-light-1440.png",
     "bottomShot": "web/screenshots/agent119/settings-alerts-bottom-light-1440.png"
   },
   "backup-on-light-390": {
@@ -281,24 +239,6 @@
     "hasOffWarning": false,
     "encryptChecked": "true",
     "hasExportHint": true,
-    "pageHeight": 1777,
-    "cards": [
-      {
-        "title": "当前数据库大小",
-        "y": 276,
-        "h": 276
-      },
-      {
-        "title": "恢复数据",
-        "y": 576,
-        "h": 360
-      },
-      {
-        "title": "异地备份",
-        "y": 952,
-        "h": 857
-      }
-    ],
     "file": "web/screenshots/agent119/settings-backup-on-light-390.png"
   },
   "backup-off-light-390": {
@@ -312,233 +252,209 @@
     "hasOffWarning": true,
     "encryptChecked": "false",
     "hasExportHint": true,
-    "pageHeight": 1827,
-    "cards": [
-      {
-        "title": "当前数据库大小",
-        "y": 276,
-        "h": 326
-      },
-      {
-        "title": "恢复数据",
-        "y": 626,
-        "h": 360
-      },
-      {
-        "title": "异地备份",
-        "y": 1002,
-        "h": 857
-      }
-    ],
     "file": "web/screenshots/agent119/settings-backup-off-light-390.png"
   },
   "general-light-390": {
-    "top": {
-      "panelBottom": 820,
-      "scrollerTop": 275.78,
-      "scrollerBottom": 755,
-      "scrollerClientHeight": 479,
-      "scrollerScrollHeight": 1832,
-      "scrollerScrollTop": 0,
-      "barTop": 755,
-      "barBottom": 820,
+    "mid": {
+      "mainScrollHeight": 2141,
+      "mainClientHeight": 788,
+      "mainScrollTop": 676,
+      "viewportHeight": 844,
+      "barTop": 1431.83,
+      "barBottom": 1496.83,
       "barHeight": 65,
       "barWidth": 342,
+      "barPosition": "static",
       "barBackground": "oklch(0.979 0.003 264.5)",
       "barBorderTop": "1px solid oklch(0.94 0.009 264.5)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 40,
       "lastCardTitle": "公开状态页",
-      "lastCardBottom": 2083.83,
-      "cardToBarGap": -1328.83,
-      "barToPageBottom": 24,
+      "lastCardBottom": 1407.83,
+      "cardToBarGap": 24,
+      "barToViewportBottom": -652.83,
       "scrollWidth": 390,
-      "clientWidth": 390
+      "clientWidth": 390,
+      "barBelowViewport": true
     },
     "bottom": {
-      "panelBottom": 820,
-      "scrollerTop": 275.78,
-      "scrollerBottom": 755,
-      "scrollerClientHeight": 479,
-      "scrollerScrollHeight": 1832,
-      "scrollerScrollTop": 1353,
-      "barTop": 755,
-      "barBottom": 820,
+      "mainScrollHeight": 2141,
+      "mainClientHeight": 788,
+      "mainScrollTop": 1353,
+      "viewportHeight": 844,
+      "barTop": 754.83,
+      "barBottom": 819.83,
       "barHeight": 65,
       "barWidth": 342,
+      "barPosition": "static",
       "barBackground": "oklch(0.979 0.003 264.5)",
       "barBorderTop": "1px solid oklch(0.94 0.009 264.5)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 40,
       "lastCardTitle": "公开状态页",
       "lastCardBottom": 730.83,
-      "cardToBarGap": 24.17,
-      "barToPageBottom": 24,
+      "cardToBarGap": 24,
+      "barToViewportBottom": 24.17,
       "scrollWidth": 390,
-      "clientWidth": 390
+      "clientWidth": 390,
+      "barBelowViewport": false
     },
     "order": {
       "titles": [
         {
           "title": "面板",
-          "y": -1061.21875
+          "y": 291.78125
         },
         {
           "title": "版本更新",
-          "y": -864.25
+          "y": 488.75
         },
         {
           "title": "对外地址",
-          "y": -323.03125
+          "y": 1029.96875
         },
         {
           "title": "Agent 升级",
-          "y": 162.828125
+          "y": 1515.828125
         },
         {
           "title": "公开状态页",
-          "y": 375.796875
+          "y": 1728.796875
         }
       ],
       "apiBeforeSecurity": false
     },
-    "topShot": "web/screenshots/agent119/settings-general-top-light-390.png",
+    "midShot": "web/screenshots/agent119/settings-general-mid-light-390.png",
     "bottomShot": "web/screenshots/agent119/settings-general-bottom-light-390.png"
   },
   "security-light-390": {
-    "top": {
-      "panelBottom": 820,
-      "scrollerTop": 275.78,
-      "scrollerBottom": 755,
-      "scrollerClientHeight": 479,
-      "scrollerScrollHeight": 901,
-      "scrollerScrollTop": 0,
-      "barTop": 755,
-      "barBottom": 820,
+    "mid": {
+      "mainScrollHeight": 1218,
+      "mainClientHeight": 788,
+      "mainScrollTop": 215,
+      "viewportHeight": 844,
+      "barTop": 969.8,
+      "barBottom": 1034.8,
       "barHeight": 65,
       "barWidth": 342,
+      "barPosition": "static",
       "barBackground": "oklch(0.979 0.003 264.5)",
       "barBorderTop": "1px solid oklch(0.94 0.009 264.5)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 40,
       "lastCardTitle": "安全",
-      "lastCardBottom": 1152.8,
-      "cardToBarGap": -397.8,
-      "barToPageBottom": 24,
+      "lastCardBottom": 945.8,
+      "cardToBarGap": 24,
+      "barToViewportBottom": -190.8,
       "scrollWidth": 390,
-      "clientWidth": 390
+      "clientWidth": 390,
+      "barBelowViewport": true
     },
     "bottom": {
-      "panelBottom": 820,
-      "scrollerTop": 275.78,
-      "scrollerBottom": 755,
-      "scrollerClientHeight": 479,
-      "scrollerScrollHeight": 901,
-      "scrollerScrollTop": 422,
-      "barTop": 755,
-      "barBottom": 820,
+      "mainScrollHeight": 1218,
+      "mainClientHeight": 788,
+      "mainScrollTop": 430,
+      "viewportHeight": 844,
+      "barTop": 754.8,
+      "barBottom": 819.8,
       "barHeight": 65,
       "barWidth": 342,
+      "barPosition": "static",
       "barBackground": "oklch(0.979 0.003 264.5)",
       "barBorderTop": "1px solid oklch(0.94 0.009 264.5)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 40,
       "lastCardTitle": "安全",
       "lastCardBottom": 730.8,
-      "cardToBarGap": 24.2,
-      "barToPageBottom": 24,
+      "cardToBarGap": 24,
+      "barToViewportBottom": 24.2,
       "scrollWidth": 390,
-      "clientWidth": 390
+      "clientWidth": 390,
+      "barBelowViewport": false
     },
     "order": {
       "titles": [
         {
           "title": "API 访问0",
-          "y": -120.21875
+          "y": 301.78125
         },
         {
           "title": "安全",
-          "y": 352.046875
+          "y": 782.046875
         }
       ],
       "apiBeforeSecurity": true
     },
-    "topShot": "web/screenshots/agent119/settings-security-top-light-390.png",
+    "midShot": "web/screenshots/agent119/settings-security-mid-light-390.png",
     "bottomShot": "web/screenshots/agent119/settings-security-bottom-light-390.png"
   },
   "alerts-light-390": {
-    "top": {
-      "panelBottom": 820,
-      "scrollerTop": 291.78,
-      "scrollerBottom": 755,
-      "scrollerClientHeight": 463,
-      "scrollerScrollHeight": 1637,
-      "scrollerScrollTop": 0,
-      "barTop": 755,
-      "barBottom": 820,
+    "mid": {
+      "mainScrollHeight": 1961,
+      "mainClientHeight": 788,
+      "mainScrollTop": 586,
+      "viewportHeight": 844,
+      "barTop": 1342.34,
+      "barBottom": 1407.34,
       "barHeight": 65,
       "barWidth": 342,
+      "barPosition": "static",
       "barBackground": "oklch(0.979 0.003 264.5)",
       "barBorderTop": "1px solid oklch(0.94 0.009 264.5)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 40,
       "lastCardTitle": "发送测试消息",
-      "lastCardBottom": 1904.34,
-      "cardToBarGap": -1149.34,
-      "barToPageBottom": 24,
+      "lastCardBottom": 1318.34,
+      "cardToBarGap": 24,
+      "barToViewportBottom": -563.34,
       "scrollWidth": 390,
-      "clientWidth": 390
+      "clientWidth": 390,
+      "barBelowViewport": true
     },
     "bottom": {
-      "panelBottom": 820,
-      "scrollerTop": 291.78,
-      "scrollerBottom": 755,
-      "scrollerClientHeight": 463,
-      "scrollerScrollHeight": 1637,
-      "scrollerScrollTop": 1174,
-      "barTop": 755,
-      "barBottom": 820,
+      "mainScrollHeight": 1961,
+      "mainClientHeight": 788,
+      "mainScrollTop": 1173,
+      "viewportHeight": 844,
+      "barTop": 755.34,
+      "barBottom": 820.34,
       "barHeight": 65,
       "barWidth": 342,
+      "barPosition": "static",
       "barBackground": "oklch(0.979 0.003 264.5)",
       "barBorderTop": "1px solid oklch(0.94 0.009 264.5)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 40,
       "lastCardTitle": "发送测试消息",
-      "lastCardBottom": 730.34,
-      "cardToBarGap": 24.66,
-      "barToPageBottom": 24,
+      "lastCardBottom": 731.34,
+      "cardToBarGap": 24,
+      "barToViewportBottom": 23.66,
       "scrollWidth": 390,
-      "clientWidth": 390
+      "clientWidth": 390,
+      "barBelowViewport": false
     },
     "order": {
       "titles": [
         {
           "title": "Telegram",
-          "y": -866.21875
+          "y": 307.78125
         },
         {
           "title": "Webhook",
-          "y": -515.171875
+          "y": 658.828125
         },
         {
           "title": "事件",
-          "y": -299.015625
+          "y": 874.984375
         },
         {
           "title": "发送测试消息",
-          "y": 553.078125
+          "y": 1727.078125
         }
       ],
       "apiBeforeSecurity": false
     },
-    "topShot": "web/screenshots/agent119/settings-alerts-top-light-390.png",
+    "midShot": "web/screenshots/agent119/settings-alerts-mid-light-390.png",
     "bottomShot": "web/screenshots/agent119/settings-alerts-bottom-light-390.png"
   },
   "backup-on-dark-1440": {
@@ -552,24 +468,6 @@
     "hasOffWarning": false,
     "encryptChecked": "true",
     "hasExportHint": true,
-    "pageHeight": 1397,
-    "cards": [
-      {
-        "title": "当前数据库大小",
-        "y": 237,
-        "h": 222
-      },
-      {
-        "title": "恢复数据",
-        "y": 483,
-        "h": 312
-      },
-      {
-        "title": "异地备份",
-        "y": 811,
-        "h": 618
-      }
-    ],
     "file": "web/screenshots/agent119/settings-backup-on-dark-1440.png"
   },
   "backup-off-dark-1440": {
@@ -583,233 +481,209 @@
     "hasOffWarning": true,
     "encryptChecked": "false",
     "hasExportHint": true,
-    "pageHeight": 1426,
-    "cards": [
-      {
-        "title": "当前数据库大小",
-        "y": 237,
-        "h": 251
-      },
-      {
-        "title": "恢复数据",
-        "y": 512,
-        "h": 312
-      },
-      {
-        "title": "异地备份",
-        "y": 840,
-        "h": 618
-      }
-    ],
     "file": "web/screenshots/agent119/settings-backup-off-dark-1440.png"
   },
   "general-dark-1440": {
-    "top": {
-      "panelBottom": 976,
-      "scrollerTop": 237.39,
-      "scrollerBottom": 919,
-      "scrollerClientHeight": 682,
-      "scrollerScrollHeight": 976,
-      "scrollerScrollTop": 0,
-      "barTop": 919,
-      "barBottom": 976,
+    "mid": {
+      "mainScrollHeight": 1238,
+      "mainClientHeight": 944,
+      "mainScrollTop": 147,
+      "viewportHeight": 1000,
+      "barTop": 1065.94,
+      "barBottom": 1122.94,
       "barHeight": 57,
       "barWidth": 1152,
+      "barPosition": "static",
       "barBackground": "oklch(0.145 0.004 285)",
       "barBorderTop": "1px solid oklch(1 0 0 / 0.08)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 32,
       "lastCardTitle": "公开状态页",
-      "lastCardBottom": 1188.94,
-      "cardToBarGap": -269.94,
-      "barToPageBottom": 24,
+      "lastCardBottom": 1041.94,
+      "cardToBarGap": 24,
+      "barToViewportBottom": -122.94,
       "scrollWidth": 1440,
-      "clientWidth": 1440
+      "clientWidth": 1440,
+      "barBelowViewport": true
     },
     "bottom": {
-      "panelBottom": 976,
-      "scrollerTop": 237.39,
-      "scrollerBottom": 919,
-      "scrollerClientHeight": 682,
-      "scrollerScrollHeight": 976,
-      "scrollerScrollTop": 294,
-      "barTop": 919,
-      "barBottom": 976,
+      "mainScrollHeight": 1238,
+      "mainClientHeight": 944,
+      "mainScrollTop": 294,
+      "viewportHeight": 1000,
+      "barTop": 918.94,
+      "barBottom": 975.94,
       "barHeight": 57,
       "barWidth": 1152,
+      "barPosition": "static",
       "barBackground": "oklch(0.145 0.004 285)",
       "barBorderTop": "1px solid oklch(1 0 0 / 0.08)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 32,
       "lastCardTitle": "公开状态页",
       "lastCardBottom": 894.94,
-      "cardToBarGap": 24.06,
-      "barToPageBottom": 24,
+      "cardToBarGap": 24,
+      "barToViewportBottom": 24.06,
       "scrollWidth": 1440,
-      "clientWidth": 1440
+      "clientWidth": 1440,
+      "barBelowViewport": false
     },
     "order": {
       "titles": [
         {
           "title": "面板",
-          "y": -40.609375
+          "y": 253.390625
         },
         {
           "title": "版本更新",
-          "y": 156.359375
+          "y": 450.359375
         },
         {
           "title": "对外地址",
-          "y": 156.359375
+          "y": 450.359375
         },
         {
           "title": "Agent 升级",
-          "y": 496.21875
+          "y": 790.21875
         },
         {
           "title": "公开状态页",
-          "y": 693.1875
+          "y": 987.1875
         }
       ],
       "apiBeforeSecurity": false
     },
-    "topShot": "web/screenshots/agent119/settings-general-top-dark-1440.png",
+    "midShot": "web/screenshots/agent119/settings-general-mid-dark-1440.png",
     "bottomShot": "web/screenshots/agent119/settings-general-bottom-dark-1440.png"
   },
   "security-dark-1440": {
-    "top": {
-      "panelBottom": 976,
-      "scrollerTop": 237.39,
-      "scrollerBottom": 919,
-      "scrollerClientHeight": 682,
-      "scrollerScrollHeight": 739,
-      "scrollerScrollTop": 0,
-      "barTop": 919,
-      "barBottom": 976,
+    "mid": {
+      "mainScrollHeight": 1009,
+      "mainClientHeight": 944,
+      "mainScrollTop": 32,
+      "viewportHeight": 1000,
+      "barTop": 952.33,
+      "barBottom": 1009.33,
       "barHeight": 57,
       "barWidth": 1152,
+      "barPosition": "static",
       "barBackground": "oklch(0.145 0.004 285)",
       "barBorderTop": "1px solid oklch(1 0 0 / 0.08)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 32,
       "lastCardTitle": "安全",
-      "lastCardBottom": 952.33,
-      "cardToBarGap": -33.33,
-      "barToPageBottom": 24,
+      "lastCardBottom": 928.33,
+      "cardToBarGap": 24,
+      "barToViewportBottom": -9.33,
       "scrollWidth": 1440,
-      "clientWidth": 1440
+      "clientWidth": 1440,
+      "barBelowViewport": false
     },
     "bottom": {
-      "panelBottom": 976,
-      "scrollerTop": 237.39,
-      "scrollerBottom": 919,
-      "scrollerClientHeight": 682,
-      "scrollerScrollHeight": 739,
-      "scrollerScrollTop": 57,
-      "barTop": 919,
-      "barBottom": 976,
+      "mainScrollHeight": 1009,
+      "mainClientHeight": 944,
+      "mainScrollTop": 65,
+      "viewportHeight": 1000,
+      "barTop": 919.33,
+      "barBottom": 976.33,
       "barHeight": 57,
       "barWidth": 1152,
+      "barPosition": "static",
       "barBackground": "oklch(0.145 0.004 285)",
       "barBorderTop": "1px solid oklch(1 0 0 / 0.08)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 32,
       "lastCardTitle": "安全",
       "lastCardBottom": 895.33,
-      "cardToBarGap": 23.67,
-      "barToPageBottom": 24,
+      "cardToBarGap": 24,
+      "barToViewportBottom": 23.67,
       "scrollWidth": 1440,
-      "clientWidth": 1440
+      "clientWidth": 1440,
+      "barBelowViewport": false
     },
     "order": {
       "titles": [
         {
           "title": "API 访问0",
-          "y": 200.390625
+          "y": 257.390625
         },
         {
           "title": "安全",
-          "y": 635.46875
+          "y": 700.46875
         }
       ],
       "apiBeforeSecurity": true
     },
-    "topShot": "web/screenshots/agent119/settings-security-top-dark-1440.png",
+    "midShot": "web/screenshots/agent119/settings-security-mid-dark-1440.png",
     "bottomShot": "web/screenshots/agent119/settings-security-bottom-dark-1440.png"
   },
   "alerts-dark-1440": {
-    "top": {
-      "panelBottom": 976,
-      "scrollerTop": 237.39,
-      "scrollerBottom": 919,
-      "scrollerClientHeight": 682,
-      "scrollerScrollHeight": 1043,
-      "scrollerScrollTop": 0,
-      "barTop": 919,
-      "barBottom": 976,
+    "mid": {
+      "mainScrollHeight": 1305,
+      "mainClientHeight": 944,
+      "mainScrollTop": 180,
+      "viewportHeight": 1000,
+      "barTop": 1099.94,
+      "barBottom": 1156.94,
       "barHeight": 57,
       "barWidth": 1152,
+      "barPosition": "static",
       "barBackground": "oklch(0.145 0.004 285)",
       "barBorderTop": "1px solid oklch(1 0 0 / 0.08)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 32,
       "lastCardTitle": "发送测试消息",
-      "lastCardBottom": 1255.94,
-      "cardToBarGap": -336.94,
-      "barToPageBottom": 24,
+      "lastCardBottom": 1075.94,
+      "cardToBarGap": 24,
+      "barToViewportBottom": -156.94,
       "scrollWidth": 1440,
-      "clientWidth": 1440
+      "clientWidth": 1440,
+      "barBelowViewport": true
     },
     "bottom": {
-      "panelBottom": 976,
-      "scrollerTop": 237.39,
-      "scrollerBottom": 919,
-      "scrollerClientHeight": 682,
-      "scrollerScrollHeight": 1043,
-      "scrollerScrollTop": 361,
-      "barTop": 919,
-      "barBottom": 976,
+      "mainScrollHeight": 1305,
+      "mainClientHeight": 944,
+      "mainScrollTop": 361,
+      "viewportHeight": 1000,
+      "barTop": 918.94,
+      "barBottom": 975.94,
       "barHeight": 57,
       "barWidth": 1152,
+      "barPosition": "static",
       "barBackground": "oklch(0.145 0.004 285)",
       "barBorderTop": "1px solid oklch(1 0 0 / 0.08)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 32,
       "lastCardTitle": "发送测试消息",
       "lastCardBottom": 894.94,
-      "cardToBarGap": 24.06,
-      "barToPageBottom": 24,
+      "cardToBarGap": 24,
+      "barToViewportBottom": 24.06,
       "scrollWidth": 1440,
-      "clientWidth": 1440
+      "clientWidth": 1440,
+      "barBelowViewport": false
     },
     "order": {
       "titles": [
         {
           "title": "Telegram",
-          "y": -107.609375
+          "y": 253.390625
         },
         {
           "title": "Webhook",
-          "y": 89.359375
+          "y": 450.359375
         },
         {
           "title": "事件",
-          "y": 286.328125
+          "y": 647.328125
         },
         {
           "title": "发送测试消息",
-          "y": 792.859375
+          "y": 1153.859375
         }
       ],
       "apiBeforeSecurity": false
     },
-    "topShot": "web/screenshots/agent119/settings-alerts-top-dark-1440.png",
+    "midShot": "web/screenshots/agent119/settings-alerts-mid-dark-1440.png",
     "bottomShot": "web/screenshots/agent119/settings-alerts-bottom-dark-1440.png"
   },
   "backup-on-dark-390": {
@@ -823,24 +697,6 @@
     "hasOffWarning": false,
     "encryptChecked": "true",
     "hasExportHint": true,
-    "pageHeight": 1777,
-    "cards": [
-      {
-        "title": "当前数据库大小",
-        "y": 276,
-        "h": 276
-      },
-      {
-        "title": "恢复数据",
-        "y": 576,
-        "h": 360
-      },
-      {
-        "title": "异地备份",
-        "y": 952,
-        "h": 857
-      }
-    ],
     "file": "web/screenshots/agent119/settings-backup-on-dark-390.png"
   },
   "backup-off-dark-390": {
@@ -854,233 +710,209 @@
     "hasOffWarning": true,
     "encryptChecked": "false",
     "hasExportHint": true,
-    "pageHeight": 1827,
-    "cards": [
-      {
-        "title": "当前数据库大小",
-        "y": 276,
-        "h": 326
-      },
-      {
-        "title": "恢复数据",
-        "y": 626,
-        "h": 360
-      },
-      {
-        "title": "异地备份",
-        "y": 1002,
-        "h": 857
-      }
-    ],
     "file": "web/screenshots/agent119/settings-backup-off-dark-390.png"
   },
   "general-dark-390": {
-    "top": {
-      "panelBottom": 820,
-      "scrollerTop": 275.78,
-      "scrollerBottom": 755,
-      "scrollerClientHeight": 479,
-      "scrollerScrollHeight": 1832,
-      "scrollerScrollTop": 0,
-      "barTop": 755,
-      "barBottom": 820,
+    "mid": {
+      "mainScrollHeight": 2141,
+      "mainClientHeight": 788,
+      "mainScrollTop": 676,
+      "viewportHeight": 844,
+      "barTop": 1431.83,
+      "barBottom": 1496.83,
       "barHeight": 65,
       "barWidth": 342,
+      "barPosition": "static",
       "barBackground": "oklch(0.145 0.004 285)",
       "barBorderTop": "1px solid oklch(1 0 0 / 0.08)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 40,
       "lastCardTitle": "公开状态页",
-      "lastCardBottom": 2083.83,
-      "cardToBarGap": -1328.83,
-      "barToPageBottom": 24,
+      "lastCardBottom": 1407.83,
+      "cardToBarGap": 24,
+      "barToViewportBottom": -652.83,
       "scrollWidth": 390,
-      "clientWidth": 390
+      "clientWidth": 390,
+      "barBelowViewport": true
     },
     "bottom": {
-      "panelBottom": 820,
-      "scrollerTop": 275.78,
-      "scrollerBottom": 755,
-      "scrollerClientHeight": 479,
-      "scrollerScrollHeight": 1832,
-      "scrollerScrollTop": 1353,
-      "barTop": 755,
-      "barBottom": 820,
+      "mainScrollHeight": 2141,
+      "mainClientHeight": 788,
+      "mainScrollTop": 1353,
+      "viewportHeight": 844,
+      "barTop": 754.83,
+      "barBottom": 819.83,
       "barHeight": 65,
       "barWidth": 342,
+      "barPosition": "static",
       "barBackground": "oklch(0.145 0.004 285)",
       "barBorderTop": "1px solid oklch(1 0 0 / 0.08)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 40,
       "lastCardTitle": "公开状态页",
       "lastCardBottom": 730.83,
-      "cardToBarGap": 24.17,
-      "barToPageBottom": 24,
+      "cardToBarGap": 24,
+      "barToViewportBottom": 24.17,
       "scrollWidth": 390,
-      "clientWidth": 390
+      "clientWidth": 390,
+      "barBelowViewport": false
     },
     "order": {
       "titles": [
         {
           "title": "面板",
-          "y": -1061.21875
+          "y": 291.78125
         },
         {
           "title": "版本更新",
-          "y": -864.25
+          "y": 488.75
         },
         {
           "title": "对外地址",
-          "y": -323.03125
+          "y": 1029.96875
         },
         {
           "title": "Agent 升级",
-          "y": 162.828125
+          "y": 1515.828125
         },
         {
           "title": "公开状态页",
-          "y": 375.796875
+          "y": 1728.796875
         }
       ],
       "apiBeforeSecurity": false
     },
-    "topShot": "web/screenshots/agent119/settings-general-top-dark-390.png",
+    "midShot": "web/screenshots/agent119/settings-general-mid-dark-390.png",
     "bottomShot": "web/screenshots/agent119/settings-general-bottom-dark-390.png"
   },
   "security-dark-390": {
-    "top": {
-      "panelBottom": 820,
-      "scrollerTop": 275.78,
-      "scrollerBottom": 755,
-      "scrollerClientHeight": 479,
-      "scrollerScrollHeight": 901,
-      "scrollerScrollTop": 0,
-      "barTop": 755,
-      "barBottom": 820,
+    "mid": {
+      "mainScrollHeight": 1218,
+      "mainClientHeight": 788,
+      "mainScrollTop": 215,
+      "viewportHeight": 844,
+      "barTop": 969.8,
+      "barBottom": 1034.8,
       "barHeight": 65,
       "barWidth": 342,
+      "barPosition": "static",
       "barBackground": "oklch(0.145 0.004 285)",
       "barBorderTop": "1px solid oklch(1 0 0 / 0.08)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 40,
       "lastCardTitle": "安全",
-      "lastCardBottom": 1152.8,
-      "cardToBarGap": -397.8,
-      "barToPageBottom": 24,
+      "lastCardBottom": 945.8,
+      "cardToBarGap": 24,
+      "barToViewportBottom": -190.8,
       "scrollWidth": 390,
-      "clientWidth": 390
+      "clientWidth": 390,
+      "barBelowViewport": true
     },
     "bottom": {
-      "panelBottom": 820,
-      "scrollerTop": 275.78,
-      "scrollerBottom": 755,
-      "scrollerClientHeight": 479,
-      "scrollerScrollHeight": 901,
-      "scrollerScrollTop": 422,
-      "barTop": 755,
-      "barBottom": 820,
+      "mainScrollHeight": 1218,
+      "mainClientHeight": 788,
+      "mainScrollTop": 430,
+      "viewportHeight": 844,
+      "barTop": 754.8,
+      "barBottom": 819.8,
       "barHeight": 65,
       "barWidth": 342,
+      "barPosition": "static",
       "barBackground": "oklch(0.145 0.004 285)",
       "barBorderTop": "1px solid oklch(1 0 0 / 0.08)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 40,
       "lastCardTitle": "安全",
       "lastCardBottom": 730.8,
-      "cardToBarGap": 24.2,
-      "barToPageBottom": 24,
+      "cardToBarGap": 24,
+      "barToViewportBottom": 24.2,
       "scrollWidth": 390,
-      "clientWidth": 390
+      "clientWidth": 390,
+      "barBelowViewport": false
     },
     "order": {
       "titles": [
         {
           "title": "API 访问0",
-          "y": -120.21875
+          "y": 301.78125
         },
         {
           "title": "安全",
-          "y": 352.046875
+          "y": 782.046875
         }
       ],
       "apiBeforeSecurity": true
     },
-    "topShot": "web/screenshots/agent119/settings-security-top-dark-390.png",
+    "midShot": "web/screenshots/agent119/settings-security-mid-dark-390.png",
     "bottomShot": "web/screenshots/agent119/settings-security-bottom-dark-390.png"
   },
   "alerts-dark-390": {
-    "top": {
-      "panelBottom": 820,
-      "scrollerTop": 291.78,
-      "scrollerBottom": 755,
-      "scrollerClientHeight": 463,
-      "scrollerScrollHeight": 1637,
-      "scrollerScrollTop": 0,
-      "barTop": 755,
-      "barBottom": 820,
+    "mid": {
+      "mainScrollHeight": 1961,
+      "mainClientHeight": 788,
+      "mainScrollTop": 586,
+      "viewportHeight": 844,
+      "barTop": 1342.34,
+      "barBottom": 1407.34,
       "barHeight": 65,
       "barWidth": 342,
+      "barPosition": "static",
       "barBackground": "oklch(0.145 0.004 285)",
       "barBorderTop": "1px solid oklch(1 0 0 / 0.08)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 40,
       "lastCardTitle": "发送测试消息",
-      "lastCardBottom": 1904.34,
-      "cardToBarGap": -1149.34,
-      "barToPageBottom": 24,
+      "lastCardBottom": 1318.34,
+      "cardToBarGap": 24,
+      "barToViewportBottom": -563.34,
       "scrollWidth": 390,
-      "clientWidth": 390
+      "clientWidth": 390,
+      "barBelowViewport": true
     },
     "bottom": {
-      "panelBottom": 820,
-      "scrollerTop": 291.78,
-      "scrollerBottom": 755,
-      "scrollerClientHeight": 463,
-      "scrollerScrollHeight": 1637,
-      "scrollerScrollTop": 1174,
-      "barTop": 755,
-      "barBottom": 820,
+      "mainScrollHeight": 1961,
+      "mainClientHeight": 788,
+      "mainScrollTop": 1173,
+      "viewportHeight": 844,
+      "barTop": 755.34,
+      "barBottom": 820.34,
       "barHeight": 65,
       "barWidth": 342,
+      "barPosition": "static",
       "barBackground": "oklch(0.145 0.004 285)",
       "barBorderTop": "1px solid oklch(1 0 0 / 0.08)",
-      "barPosition": "sticky",
       "barInsideCard": false,
       "buttonHeight": 40,
       "lastCardTitle": "发送测试消息",
-      "lastCardBottom": 730.34,
-      "cardToBarGap": 24.66,
-      "barToPageBottom": 24,
+      "lastCardBottom": 731.34,
+      "cardToBarGap": 24,
+      "barToViewportBottom": 23.66,
       "scrollWidth": 390,
-      "clientWidth": 390
+      "clientWidth": 390,
+      "barBelowViewport": false
     },
     "order": {
       "titles": [
         {
           "title": "Telegram",
-          "y": -866.21875
+          "y": 307.78125
         },
         {
           "title": "Webhook",
-          "y": -515.171875
+          "y": 658.828125
         },
         {
           "title": "事件",
-          "y": -299.015625
+          "y": 874.984375
         },
         {
           "title": "发送测试消息",
-          "y": 553.078125
+          "y": 1727.078125
         }
       ],
       "apiBeforeSecurity": false
     },
-    "topShot": "web/screenshots/agent119/settings-alerts-top-dark-390.png",
+    "midShot": "web/screenshots/agent119/settings-alerts-mid-dark-390.png",
     "bottomShot": "web/screenshots/agent119/settings-alerts-bottom-dark-390.png"
   }
 }
