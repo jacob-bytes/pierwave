@@ -714,9 +714,9 @@ nftables 引擎的同一入口端口可以按策略把新连接分配到多个�
 > `uptime_24h` is the arithmetic mean of the member servers' 24h uptimes; it is `null` when the
 > group has no samples, never `0`.
 
-### 服务器费用与到期（迁移 0061 / 0062）/ Server cost and expiry (migration 0061 / 0062)
+### 服务器费用与到期（迁移 0061 / 0067）/ Server cost and expiry (migration 0061 / 0067)
 
-写路径（创建与 PATCH `/api/v1/servers`）对四个字段逐项校验，均为 400；错误文案中英双语，
+写路径（创建与 PATCH `/api/v1/servers`）对费用与计费周期逐项校验，均为 400；错误文案中英双语，
 `params` 至少带 `field` 与允许范围，前端词典可以直接插值：
 
 | code | 中文 | English | params |
@@ -724,7 +724,11 @@ nftables 引擎的同一入口端口可以按策略把新连接分配到多个�
 | `server.paid_until_invalid` | 到期日不合法：{value} 必须是在 {min} 到 {max} 之间真实存在的 YYYY-MM-DD 日期，或留空 | Invalid paid-until date: {value} must be a real YYYY-MM-DD date between {min} and {max}, or leave it empty | field, format, max, min, value |
 | `server.price_cents_invalid` | 价格（分）不合法：{value} 超出 0-999999999，或留空 | Invalid price in cents: {value} is outside 0-999999999 (~10 million yuan), or leave it empty | field, max, min, value |
 | `server.currency_invalid` | 币种不合法：{value} 必须是 3 位大写字母（例如 CNY / USD / EUR），或留空 | Invalid currency: {value} must be a 3-letter uppercase code (e.g. CNY / USD / EUR), or leave it empty | field, length, pattern, value |
-| `server.billing_cycle_invalid` | 计费周期不合法：{value} 只能是 monthly / yearly / once，或留空 | Invalid billing cycle: {value} must be monthly, yearly or once, or leave it empty | allowed, field, value |
+| `server.billing_cycle_count_invalid` | 计费周期数量不合法：{value} 必须在 {min}-{max} 之间（1 个月到 1200 个月，即 100 年），或留空 | Invalid billing cycle count: {value} must be between {min} and {max} (1 month to 1200 months, i.e. 100 years), or leave it empty | field, max, min, value |
+| `server.billing_cycle_unit_invalid` | 计费周期单位不合法：{value} 只能是 month / year / once，或留空 | Invalid billing cycle unit: {value} must be month, year or once, or leave it empty | allowed, field, value |
+| `server.billing_cycle_once_count_invalid` | 一次性计费的周期数量必须是 1：当前为 {value} | A one-time billing cycle must use count 1: got {value} | allowed, field, unit, value |
+| `server.billing_cycle_pair_incomplete` | 计费周期的数量与单位必须同时填写或同时留空：缺少 {missing} | Billing cycle count and unit must be provided together or both left empty: missing {missing} | field, missing, present |
+| `server.billing_cycle_invalid` | 旧字段计费周期不合法：{value} 只能是 monthly / yearly / once，或留空 | Invalid legacy billing cycle: {value} must be monthly, yearly or once, or leave it empty | allowed, field, value |
 | `server.billing_pair_incomplete` | 价格与币种必须同时填写或同时留空：缺少 {missing} | Price and currency must be provided together or both left empty: missing {missing} | missing |
 
 规则 / Rules:
@@ -740,22 +744,39 @@ nftables 引擎的同一入口端口可以按策略把新连接分配到多个�
   `server.billing_pair_incomplete`，`params.missing` 指明缺哪个 / **`price_cents` and
   `currency` must be provided together** (both set or both empty), otherwise 400
   `server.billing_pair_incomplete` with `params.missing`;
-- `billing_cycle` 只能是 `monthly` / `yearly` / `once` / one of those three values;
+- **`billing_cycle_count` 与 `billing_cycle_unit` 必须成对**：同时有值或同时为空，否则 400
+  `server.billing_cycle_pair_incomplete`。数量是 `1..=1200` 的整数，单位是
+  `month` / `year` / `once`；`unit = "once"` 时数量必须是 `1`（`2 + once` 返回 400
+  `server.billing_cycle_once_count_invalid`，不做静默归一）/ count and unit must be
+  provided together (both set or both empty), otherwise 400
+  `server.billing_cycle_pair_incomplete`. Count is `1..=1200`, unit is
+  `month` / `year` / `once`, and `once` requires count `1` (rejected, not silently
+  normalized);
+- 旧字段 `billing_cycle` 仍接受 `monthly` / `yearly` / `once` 作为**兼容输入**（映射成
+  1 个对应单位）；新字段同时出现时以新字段为准。响应里的 `billing_cycle` 是派生值，
+  3 个月 / 2 年这类新周期为 `null` / the legacy `billing_cycle` field is still accepted
+  as a compatibility input (mapped to one unit); new fields take precedence. In responses
+  `billing_cycle` is derived, so new cycles such as 3 months or 2 years are `null`;
 - `paid_until` 必须是 `YYYY-MM-DD` 且日期真实存在，年份在 `1970-01-01`..=`2100-12-31`
   之间（`0000-01-01` / `9999-12-31` / `2026-02-30` 拒绝）/ a real calendar date in
   `YYYY-MM-DD` between `1970-01-01` and `2100-12-31` (`0000-01-01`, `9999-12-31` and
   `2026-02-30` are rejected);
-- 到期日与计费周期可以独立填写；PATCH 不传 = 不改，`null` / 空串 = 清空 / `paid_until` and
-  `billing_cycle` may be set independently; omitting a field on PATCH leaves it unchanged,
-  `null`/empty clears it;
-- PATCH **只写本次携带的列**：合并后的快照只用于校验，不会拿整份快照覆盖四列，所以并发部分
-  更新不会互相抹掉，存量脏列也不会被无关 PATCH 清成 `NULL` / PATCH **writes only the columns
-  it carried**; the merged snapshot is for validation only, so concurrent partial updates do
-  not overwrite each other and untouched legacy dirty columns are not nulled as a side effect;
+- 到期日与计费周期可以独立填写；PATCH 不传 = 不改，`null` / 空串 = 清空；计费周期里
+  任意一个字段显式传 `null` 会把数量与单位一起清空 / `paid_until` and the billing cycle
+  may be set independently; omitting a field on PATCH leaves it unchanged,
+  `null`/empty clears it, and an explicit `null` on either cycle field clears the pair;
+- PATCH **只写本次携带的列**：合并后的快照只用于校验，不会拿整份快照覆盖所有列，所以并发部分
+  更新不会互相抹掉，存量脏列也不会被无关 PATCH 清成 `NULL`。计费周期的三列（数量 / 单位 /
+  派生旧列）作为一组写入 / PATCH **writes only the columns it carried**; the merged
+  snapshot is for validation only, so concurrent partial updates do not overwrite each
+  other and untouched legacy dirty columns are not nulled as a side effect. The cycle's
+  three columns (count / unit / derived legacy value) are written as one group;
 - 存量非法值在编辑时按「未填写」参与合并，避免一列脏数据卡住其它列 / legacy invalid values
   are merged as "unfilled" so one dirty column cannot block editing another;
-- 读路径始终容错：值域非法按 `null` 处理；列类型被写坏（如 TEXT 进 INTEGER 列）由迁移
-  `0062` 一次性修复 / reads stay tolerant: out-of-domain values read as `null`, and wrong
+- 读路径始终容错：值域非法按 `null` 处理；新列缺失 / 非法时回退旧列 `billing_cycle`
+  按 1 个对应单位展示；列类型被写坏（如 TEXT 进 INTEGER 列）由迁移 `0062` 一次性修复 /
+  reads stay tolerant: out-of-domain values read as `null`; when the new pair is missing
+  or invalid the read path falls back to the legacy `billing_cycle` as one unit; wrong
   column storage classes are repaired once by migration `0062`.
 
 **公开提示 / Public visibility：探针页 `/status` 无需登录；填写后价格与到期对所有人可见，

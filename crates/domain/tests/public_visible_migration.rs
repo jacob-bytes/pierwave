@@ -42,6 +42,13 @@ async fn public_visible_defaults_to_one_for_existing_servers() {
         .await
         .unwrap();
 
+    // `Server` 还包含 0067 的两个计费周期列；本测试只关心可见性，先把列补上。
+    let cycle = MIGRATOR
+        .iter()
+        .find(|migration| migration.version == 67)
+        .expect("必须存在 0067 计费周期数量 + 单位迁移");
+    sqlx::raw_sql(&cycle.sql).execute(&db.pool).await.unwrap();
+
     let server = repo::servers::find_by_id(&db.pool, "legacy-1")
         .await
         .unwrap();

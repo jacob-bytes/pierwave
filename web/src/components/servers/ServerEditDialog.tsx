@@ -108,7 +108,15 @@ export function ServerEditDialog({
       if (next.paidUntil !== billing.paidUntil) delete remaining.paid_until;
       if (next.price !== billing.price) delete remaining.price_cents;
       if (next.currency !== billing.currency) delete remaining.currency;
-      if (next.cycle !== billing.cycle) delete remaining.billing_cycle;
+      // 数量 / 单位是一对：改任何一半都清掉整对的行内错误。
+      if (next.cycleCount !== billing.cycleCount) {
+        delete remaining.billing_cycle_count;
+        delete remaining.billing_cycle_unit;
+      }
+      if (next.cycleUnit !== billing.cycleUnit) {
+        delete remaining.billing_cycle_unit;
+        delete remaining.billing_cycle_count;
+      }
       return remaining;
     });
     setBilling(next);

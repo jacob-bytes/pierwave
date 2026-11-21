@@ -837,7 +837,8 @@ export default function ServersPage() {
   const [portStart, setPortStart] = useState("");
   const [portEnd, setPortEnd] = useState("");
   const [portAllow, setPortAllow] = useState<number[]>([]);
-  // 费用与到期：四个可选公开展示字段；空 = 提交 null（不填写 / 清空）。
+  // 费用与到期：可选公开展示字段；空 = 提交 null（不填写 / 清空）。
+  // 新建表单默认全空：管理员没填过的周期不该被写进服务器。
   const [billing, setBilling] = useState<ServerBillingForm>(EMPTY_BILLING_FORM);
   const [billingErrors, setBillingErrors] = useState<BillingFieldErrors>({});
   // 编辑任何一格就清掉该格的旧错误：否则改完价格后，上一次提交留下的
@@ -848,7 +849,15 @@ export default function ServersPage() {
       if (next.paidUntil !== billing.paidUntil) delete remaining.paid_until;
       if (next.price !== billing.price) delete remaining.price_cents;
       if (next.currency !== billing.currency) delete remaining.currency;
-      if (next.cycle !== billing.cycle) delete remaining.billing_cycle;
+      if (next.cycleCount !== billing.cycleCount) {
+        delete remaining.billing_cycle_count;
+        // 「缺数量」错误在数量一改就该消失（包括补上或清空重来）。
+        delete remaining.billing_cycle_unit;
+      }
+      if (next.cycleUnit !== billing.cycleUnit) {
+        delete remaining.billing_cycle_unit;
+        delete remaining.billing_cycle_count;
+      }
       return remaining;
     });
     setBilling(next);
@@ -1400,6 +1409,7 @@ export default function ServersPage() {
 
   function openCreateDialog() {
     create.reset();
+    setBilling(EMPTY_BILLING_FORM);
     setBillingErrors({});
     setCreateOpen(true);
   }

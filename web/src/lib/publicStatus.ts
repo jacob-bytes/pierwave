@@ -961,6 +961,10 @@ export interface PublicBillingFields {
   currency?: string | null;
   /** 计费周期：`monthly` / `yearly` / `once`。 */
   billing_cycle?: string | null;
+  /** 计费周期数量（1–1200）；旧后端 / 旧数据缺失。 */
+  billing_cycle_count?: number | null;
+  /** 计费周期单位：`month` / `year` / `once`；与数量成对。 */
+  billing_cycle_unit?: string | null;
 }
 
 /**
@@ -1100,6 +1104,122 @@ export function billingCycleKey(
   if (value === "monthly") return "publicStatus.server.cycle.monthly";
   if (value === "yearly") return "publicStatus.server.cycle.yearly";
   if (value === "once") return "publicStatus.server.cycle.once";
+  return null;
+}
+
+/** 公开页的计费周期展示数据（数量 + 单位）。 */
+export interface PublicBillingCycle {
+  /** 规范化后的单位。 */
+  unit: "month" | "year" | "once";
+  /** 数量；`once` 固定 1。 */
+  count: number;
+  /** 独立文案 key：`1 个月` / `3 个月` / `2 年` / `一次性`。 */
+  labelKey: string;
+  labelValues?: Record<string, number>;
+  /** 价格行 `/` 后的后缀 key：数量为 1 时省略数字（`月` / `年` / `一次性`）。 */
+  suffixKey: string;
+  suffixValues?: Record<string, number>;
+  /** 一个周期折算的天数（月按 30、年按 365）；`once` 为 null。 */
+  days: number | null;
+}
+
+const CYCLE_UNIT_DAYS = { month: 30, year: 365 } as const;
+
+function cycleTextFor(
+  unit: "month" | "year" | "once",
+  count: number,
+): PublicBillingCycle {
+  if (unit === "once") {
+    return {
+      unit,
+      count: 1,
+      labelKey: "publicStatus.server.cycle.once",
+      suffixKey: "publicStatus.server.cycle.once",
+      days: null,
+    };
+  }
+  const values = { count };
+  if (count === 1) {
+    return {
+      unit,
+      count,
+      labelKey:
+        unit === "month"
+          ? "publicStatus.server.cycle.monthOne"
+          : "publicStatus.server.cycle.yearOne",
+      suffixKey:
+        unit === "month"
+          ? "publicStatus.server.cycle.monthly"
+          : "publicStatus.server.cycle.yearly",
+      days: CYCLE_UNIT_DAYS[unit],
+    };
+  }
+  return {
+    unit,
+    count,
+    labelKey:
+      unit === "month"
+        ? "publicStatus.server.cycle.months"
+        : "publicStatus.server.cycle.years",
+    labelValues: values,
+    suffixKey:
+      unit === "month"
+        ? "publicStatus.server.cycle.months"
+        : "publicStatus.server.cycle.years",
+    suffixValues: values,
+    days: CYCLE_UNIT_DAYS[unit] * count,
+  };
+}
+
+/** 新契约的周期单位；非法 / 缺失返回 null。 */
+function normalizedCycleUnit(
+  unit: string | null | undefined,
+): "month" | "year" | "once" | null {
+  if (typeof unit !== "string") return null;
+  const value = unit.trim().toLowerCase();
+  return value === "month" || value === "year" || value === "once"
+    ? value
+    : null;
+}
+
+/**
+ * 卡片与详情页的计费周期文案。
+ *
+ * 新契约优先：`billing_cycle_count` + `billing_cycle_unit` 同时合法才用；
+ * 缺一半、脏值或旧后端没有这两个字段时回落到 `billing_cycle`
+ * （`monthly → 1 个月`、`yearly → 1 年`、`once → 一次性`）。
+ * 两者都没有返回 null，由调用方显示「未配置」。
+ *
+ * 展示分两种：独立文案带数量（`1 个月`），价格后缀在数量为 1 时省略
+ * （`¥268.00 / 月`）—— 与截图里「1 个月」和「/ 月」并存一致。
+ */
+export function billingCycleText(
+  fields: PublicBillingFields,
+): PublicBillingCycle | null {
+  const unit = normalizedCycleUnit(fields.billing_cycle_unit);
+  const rawCount = fields.billing_cycle_count;
+  const count =
+    typeof rawCount === "number" &&
+    Number.isInteger(rawCount) &&
+    rawCount >= 1 &&
+    rawCount <= 1200
+      ? rawCount
+      : null;
+
+  if (unit === "once") return cycleTextFor("once", 1);
+  if (unit !== null && count !== null) return cycleTextFor(unit, count);
+
+  // 回落到旧派生字段；旧值只承载「一个周期」，数量按 1 处理。
+  const legacy = billingCycleKey(fields.billing_cycle);
+  if (legacy === "publicStatus.server.cycle.monthly") {
+    return cycleTextFor("month", 1);
+  }
+  if (legacy === "publicStatus.server.cycle.yearly") {
+    return cycleTextFor("year", 1);
+  }
+  if (legacy === "publicStatus.server.cycle.once") {
+    return cycleTextFor("once", 1);
+  }
   return null;
 }
 

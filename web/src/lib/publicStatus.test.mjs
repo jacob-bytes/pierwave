@@ -12,6 +12,7 @@ import {
   availabilityTone,
   averageUptime24h,
   billingCycleKey,
+  billingCycleText,
   busiestServer,
   expiryDays,
   expiryLabel,
@@ -1223,6 +1224,184 @@ test("billing copy is bilingual and the cycles stay short", () => {
   assert.equal(zh.publicStatus.server.expired, "已过期");
   assert.equal(en.publicStatus.server.expiresToday, "Expires today");
   assert.equal(en.publicStatus.server.expired, "Expired");
+});
+
+test("billingCycleText renders count + unit for the new contract", () => {
+  assert.deepEqual(
+    billingCycleText({ billing_cycle_count: 1, billing_cycle_unit: "month" }),
+    {
+      unit: "month",
+      count: 1,
+      labelKey: "publicStatus.server.cycle.monthOne",
+      suffixKey: "publicStatus.server.cycle.monthly",
+      days: 30,
+    },
+  );
+
+  assert.deepEqual(
+    billingCycleText({ billing_cycle_count: 3, billing_cycle_unit: "month" }),
+    {
+      unit: "month",
+      count: 3,
+      labelKey: "publicStatus.server.cycle.months",
+      labelValues: { count: 3 },
+      suffixKey: "publicStatus.server.cycle.months",
+      suffixValues: { count: 3 },
+      days: 90,
+    },
+  );
+
+  assert.deepEqual(
+    billingCycleText({ billing_cycle_count: 2, billing_cycle_unit: "year" }),
+    {
+      unit: "year",
+      count: 2,
+      labelKey: "publicStatus.server.cycle.years",
+      labelValues: { count: 2 },
+      suffixKey: "publicStatus.server.cycle.years",
+      suffixValues: { count: 2 },
+      days: 730,
+    },
+  );
+
+  assert.deepEqual(
+    billingCycleText({ billing_cycle_count: 1, billing_cycle_unit: "once" }),
+    {
+      unit: "once",
+      count: 1,
+      labelKey: "publicStatus.server.cycle.once",
+      suffixKey: "publicStatus.server.cycle.once",
+      days: null,
+    },
+  );
+
+  // 大写的单位也认；一次性忽略数量里的脏值。
+  assert.equal(
+    billingCycleText({ billing_cycle_count: 5, billing_cycle_unit: " MONTH " })
+      .count,
+    5,
+  );
+  assert.equal(
+    billingCycleText({ billing_cycle_count: 99, billing_cycle_unit: "once" })
+      .count,
+    1,
+  );
+});
+
+test("billingCycleText falls back to the legacy billing_cycle", () => {
+  const legacy = (cycle) => billingCycleText({ billing_cycle: cycle });
+
+  // 旧数据只承载「一个周期」：monthly → 1 个月。
+  assert.deepEqual(legacy("monthly"), {
+    unit: "month",
+    count: 1,
+    labelKey: "publicStatus.server.cycle.monthOne",
+    suffixKey: "publicStatus.server.cycle.monthly",
+    days: 30,
+  });
+  assert.equal(legacy(" Yearly ").unit, "year");
+  assert.equal(legacy(" Yearly ").suffixKey, "publicStatus.server.cycle.yearly");
+  assert.equal(legacy("once").suffixKey, "publicStatus.server.cycle.once");
+  assert.equal(legacy("weekly"), null);
+  assert.equal(legacy(null), null);
+  assert.equal(legacy(undefined), null);
+
+  // 新字段缺一半 / 脏值 → 回落到旧数据。
+  const fallback = {
+    billing_cycle: "yearly",
+    billing_cycle_count: 3,
+    billing_cycle_unit: null,
+  };
+  assert.deepEqual(billingCycleText(fallback), legacy("yearly"));
+  assert.deepEqual(
+    billingCycleText({
+      billing_cycle: "monthly",
+      billing_cycle_count: null,
+      billing_cycle_unit: "month",
+    }),
+    legacy("monthly"),
+  );
+  assert.deepEqual(
+    billingCycleText({
+      billing_cycle: "monthly",
+      billing_cycle_count: 0,
+      billing_cycle_unit: "month",
+    }),
+    legacy("monthly"),
+  );
+  assert.deepEqual(
+    billingCycleText({
+      billing_cycle: "monthly",
+      billing_cycle_count: 1201,
+      billing_cycle_unit: "month",
+    }),
+    legacy("monthly"),
+  );
+  assert.deepEqual(
+    billingCycleText({
+      billing_cycle: "monthly",
+      billing_cycle_count: 1.5,
+      billing_cycle_unit: "month",
+    }),
+    legacy("monthly"),
+  );
+  assert.deepEqual(
+    billingCycleText({
+      billing_cycle: "monthly",
+      billing_cycle_count: 3,
+      billing_cycle_unit: "week",
+    }),
+    legacy("monthly"),
+  );
+
+  // 新字段完整时优先于旧字段。
+  assert.equal(
+    billingCycleText({
+      billing_cycle: "monthly",
+      billing_cycle_count: 2,
+      billing_cycle_unit: "year",
+    }).unit,
+    "year",
+  );
+  // 两者都没有 = 未配置。
+  assert.deepEqual(billingCycleText({}), null);
+  assert.deepEqual(
+    billingCycleText({
+      billing_cycle: null,
+      billing_cycle_count: null,
+      billing_cycle_unit: null,
+    }),
+    null,
+  );
+});
+
+test("cycle copy covers singular, plural and one-time in both locales", () => {
+  assert.equal(zh.publicStatus.server.cycle.monthOne, "1 个月");
+  assert.equal(zh.publicStatus.server.cycle.months, "{count} 个月");
+  assert.equal(zh.publicStatus.server.cycle.yearOne, "1 年");
+  assert.equal(zh.publicStatus.server.cycle.years, "{count} 年");
+  assert.equal(en.publicStatus.server.cycle.monthOne, "1 month");
+  assert.equal(en.publicStatus.server.cycle.months, "{count} months");
+  assert.equal(en.publicStatus.server.cycle.yearOne, "1 year");
+  assert.equal(en.publicStatus.server.cycle.years, "{count} years");
+  // 价格后缀在数量 1 时省略数字，复用旧的短词。
+  assert.equal(zh.publicStatus.server.cycle.monthly, "月");
+  assert.equal(zh.publicStatus.server.cycle.yearly, "年");
+  assert.equal(en.publicStatus.server.cycle.monthly, "mo");
+  assert.equal(en.publicStatus.server.cycle.yearly, "yr");
+});
+
+test("card and detail render the cycle suffix from billingCycleText", () => {
+  const card = read("../components/status/ServerCard.tsx");
+  assert.match(card, /billingCycleText\(server\)/);
+  assert.match(card, /cycle\.suffixKey/);
+  assert.match(card, /cycle\.suffixValues/);
+
+  const detail = read("../pages/StatusDetail.tsx");
+  assert.match(detail, /billingCycleText\(server\)/);
+  assert.match(detail, /cycle\.suffixKey/);
+  // 周期天数跟着数量走（3 个月 = 90 天），不再写死 30 / 365。
+  assert.match(detail, /const cycleDays = cycle\?\.days \?\? null/);
 });
 
 test("the hero uses average latency as the first KPI in both languages", () => {

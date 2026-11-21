@@ -1,5 +1,13 @@
 # 服务器「费用与到期」管理表单 / Server cost & expiry form
 
+> **注意 / Note.** 本目录的截图对应旧版「三选一」计费周期（`billing_cycle`）。
+> 周期已改为「数量 + 单位」，新截图与断言见
+> [`../billing-cycle/`](../billing-cycle/README.md)。
+>
+> These screenshots predate the count + unit billing cycle. See
+> [`../billing-cycle/`](../billing-cycle/README.md) for the current form and
+> public-page evidence.
+
 新建与编辑服务器对话框里的一组可选公开字段。截图与断言跑在**真实主控**上
 （临时库、`admin / devpass`），不是 mock；「元 → 分」、成对校验、清空与后端
 错误码映射都按真实接口验证过。

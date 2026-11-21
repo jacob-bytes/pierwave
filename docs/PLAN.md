@@ -882,7 +882,9 @@ GET /api/v1/public/status
                   disk_used, disk_total, uptime_secs, last_seen,
                   net_rx_bps, net_tx_bps,       // 当前速率（字节/秒），无数据 = null
                   net_rx_bytes, net_tx_bytes,   // 自开机以来的累计字节，无数据 = null
-                  paid_until, price_cents, currency, billing_cycle, // 费用与到期，未填/脏值 = null（迁移 0061）
+                  paid_until, price_cents, currency,             // 费用与到期，未填/脏值 = null（迁移 0061）
+                  billing_cycle_count, billing_cycle_unit,       // 计费周期数量 + 单位（迁移 0067）
+                  billing_cycle,                                 // 旧值派生镜像：3 个月 / 2 年为 null
                   uptime_24h, uptime_7d,           // 0..1，无采样时为 null
                   buckets_24h: [ { ts, online_ratio } ] } ] }
 ```
@@ -891,8 +893,9 @@ GET /api/v1/public/status
 - 速率与累计字节都是**只读展示**：速率来自相邻两次心跳的累计字节差；
   累计字节是 Agent 自开机以来的非 `lo` 网卡计数（重启归零），不参与计费；
   没有数据时一律 `null`（前端 `—`），绝不写 0；
-- **费用与到期是管理员主动填写的展示字段**（迁移 0061）：
-  `paid_until` / `price_cents` / `currency` / `billing_cycle` 在
+- **费用与到期是管理员主动填写的展示字段**（迁移 0061 / 0067）：
+  `paid_until` / `price_cents` / `currency` / `billing_cycle_count` /
+  `billing_cycle_unit` / `billing_cycle` 在
   `public_billing_visible = 1`（默认）时对所有访客可见，没填或存量值非法时为 `null`；
   全部隐藏时返回 `null` 且顶层 `billing_hidden = true`。填之前必须知道：
   **公开页面默认会显示价格与到期**，不想公开可以关闭 `public_billing_visible`。
@@ -902,7 +905,8 @@ GET /api/v1/public/status
   `servers` / `groups` / `summary` / `series` 一起消失；管理端用
   `GET|PUT /api/v1/public-status/servers` 批量维护白名单；
 - 设置项 `public_billing_visible`（默认 1）控制费用与到期是否公开：为 0 时
-  `paid_until` / `price_cents` / `currency` / `billing_cycle` 全部为 `null`，
+  `paid_until` / `price_cents` / `currency` / `billing_cycle_count` /
+  `billing_cycle_unit` / `billing_cycle` 全部为 `null`，
   响应顶层 `billing_hidden = true`；为 1 时是 `false`；
 - 列表**不返回**逐台 `series_24h`：它拆到
   `GET /api/v1/public/status/{id}`（`{ server, series_24h }`），未知 id 与被

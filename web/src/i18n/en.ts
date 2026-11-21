@@ -399,6 +399,10 @@ const en = {
         monthly: "mo",
         yearly: "yr",
         once: "one-time",
+        monthOne: "1 month",
+        months: "{count} months",
+        yearOne: "1 year",
+        years: "{count} years",
       },
       xrayRunning: "Xray running",
       xrayStopped: "Xray stopped",
@@ -776,6 +780,12 @@ const en = {
       cycleMonthly: "Monthly",
       cycleYearly: "Yearly",
       cycleOnce: "One-time",
+      cycleCount: "Count",
+      cycleCountPlaceholder: "e.g. 3",
+      cycleUnit: "Unit",
+      cycleUnitMonth: "Months",
+      cycleUnitYear: "Years",
+      cycleUnitOnce: "One-time",
       none: "Not set",
       publicHint: "Shown on the public status page once filled in",
       errors: {
@@ -794,6 +804,12 @@ const en = {
         pricePair:
           "Currency is set; enter a price too (price and currency go together)",
         cycle: "Billing cycle must be monthly, yearly or one-time",
+        cycleCount: "Billing cycle count must be a whole number from 1 to 1200",
+        cycleUnit: "Billing unit must be months, years or one-time",
+        cycleCountPair:
+          "A billing unit is selected; enter a count from 1 to 1200",
+        cycleUnitPair:
+          "A billing count is set; choose a unit (months, years or one-time)",
       },
     },
     createDialog: {
@@ -3952,7 +3968,15 @@ const en = {
     "server.currency_invalid":
       "Invalid currency: it must be a 3-letter uppercase code (e.g. CNY / USD / EUR), or leave it empty",
     "server.billing_cycle_invalid":
-      "Invalid billing cycle: it must be monthly, yearly or one-time, or leave it empty",
+      "Invalid legacy billing cycle: it must be monthly, yearly or one-time, or leave it empty",
+    "server.billing_cycle_count_invalid":
+      "Invalid billing cycle count: it must be between 1 and 1200 (1 month to 1200 months, i.e. 100 years), or leave it empty",
+    "server.billing_cycle_unit_invalid":
+      "Invalid billing cycle unit: it must be month, year or once, or leave it empty",
+    "server.billing_cycle_once_count_invalid":
+      "A one-time billing cycle must use count 1: got {value}",
+    "server.billing_cycle_pair_incomplete":
+      "Billing cycle count and unit must be provided together or both left empty: missing {missing}",
     "server.billing_pair_incomplete":
       "Price and currency must be provided together or both left empty",
     "request.invalid_json": "Invalid request format",

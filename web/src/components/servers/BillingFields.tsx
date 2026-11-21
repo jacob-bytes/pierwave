@@ -17,12 +17,15 @@ import {
   CURRENCY_CUSTOM,
   CURRENCY_NONE,
   currencySelectValue,
+  cycleCountForUnit,
   EMPTY_BILLING_FORM,
   hasAnyBillingField,
+  isBillingCycleUnit,
   isPaidUntilInRange,
   PAID_UNTIL_MAX,
   PAID_UNTIL_MIN,
   sanitizeCurrencyInput,
+  sanitizeCycleCountInput,
   type BillingFieldErrors,
   type ServerBillingForm,
 } from "@/lib/serverBilling";
@@ -40,12 +43,16 @@ interface BillingFieldsProps {
 /**
  * 服务器「费用与到期」表单组（新建与编辑共用）。
  *
- * 四个字段都是可选的公开展示数据：填了会出现在公开探针页，因此只要有一个
+ * 字段都是可选的公开展示数据：填了会出现在公开探针页，因此只要有一个
  * 非空就显示一句「填写后会在公开状态页展示」。价格用「元」输入、提交转「分」；
- * 币种给出三个常用项 + 自定义（后端只要求 3 位大写字母）；周期可留空。
+ * 币种给出三个常用项 + 自定义（后端只要求 3 位大写字母）。
+ *
+ * 计费周期是「数量 + 单位」一行：数量 1–1200 的整数，单位 个月 / 年 / 一次性；
+ * 选「一次性」时数量固定 1 并禁用。两者都留空 = 未填写（提交两个 null），
+ * 只填一半会在行内报错。
  *
  * 错误只落在对应字段下方（`FormField` 的 error），不走全局 toast —— 用户能
- * 立刻知道是哪一格不对。清空按钮只在有内容时可点，清空后提交会把四个字段
+ * 立刻知道是哪一格不对。清空按钮只在有内容时可点，清空后提交会把所有字段
  * 一起发成 null，真正把旧值删掉。
  */
 export function BillingFields({
@@ -69,11 +76,15 @@ export function BillingFields({
   const priceId = `${idPrefix}-price`;
   const currencyId = `${idPrefix}-currency`;
   const currencyCustomId = `${idPrefix}-currency-custom`;
-  const cycleId = `${idPrefix}-cycle`;
+  const cycleCountId = `${idPrefix}-cycle-count`;
+  const cycleUnitId = `${idPrefix}-cycle-unit`;
 
   const dateError = errors?.paid_until ?? dateRangeError ?? undefined;
   const currencyError = errors?.currency;
-  const cycleError = errors?.billing_cycle;
+  // 数量 / 单位是一对：行内只显示一条，数量优先（缺数量时用户先看到它）。
+  const cycleError =
+    errors?.billing_cycle_count ?? errors?.billing_cycle_unit ?? undefined;
+  const cycleOnce = value.cycleUnit === "once";
 
   return (
     <div
@@ -223,40 +234,75 @@ export function BillingFields({
 
         <FormField
           label={t("servers.billing.cycle")}
-          htmlFor={cycleId}
+          htmlFor={cycleCountId}
           error={cycleError}
         >
-          <Select
-            value={value.cycle || BILLING_NONE}
-            onValueChange={(next) =>
-              update({ cycle: next === BILLING_NONE ? "" : next })
-            }
-            disabled={disabled}
-          >
-            <SelectTrigger
-              id={cycleId}
-              className="w-full"
-              aria-label={t("servers.billing.cycle")}
+          {/* 一行两个控件：数量 + 单位。选「一次性」时数量固定 1 并禁用，
+              宽度保持不变，避免整行跳动。 */}
+          <div className="flex items-center gap-2">
+            <Input
+              id={cycleCountId}
+              value={value.cycleCount}
+              onChange={(event) =>
+                update({
+                  cycleCount: sanitizeCycleCountInput(event.target.value),
+                })
+              }
+              placeholder={t("servers.billing.cycleCountPlaceholder")}
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={4}
+              aria-label={t("servers.billing.cycleCount")}
               aria-invalid={Boolean(cycleError)}
-              aria-describedby={cycleError ? `${cycleId}-error` : undefined}
+              className="tnum w-20 shrink-0"
+              disabled={disabled || cycleOnce}
+            />
+
+            <Select
+              value={value.cycleUnit || BILLING_NONE}
+              onValueChange={(next) => {
+                if (next === BILLING_NONE) {
+                  // 「未填写」= 两者一起清空，提交时两列都是 null。
+                  update({ cycleCount: "", cycleUnit: "" });
+                  return;
+                }
+                if (!isBillingCycleUnit(next)) return;
+                update({
+                  cycleUnit: next,
+                  cycleCount: cycleCountForUnit(next, value.cycleCount),
+                });
+              }}
+              disabled={disabled}
             >
-              <SelectValue placeholder={t("servers.billing.cyclePlaceholder")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={BILLING_NONE}>
-                {t("servers.billing.none")}
-              </SelectItem>
-              <SelectItem value="monthly">
-                {t("servers.billing.cycleMonthly")}
-              </SelectItem>
-              <SelectItem value="yearly">
-                {t("servers.billing.cycleYearly")}
-              </SelectItem>
-              <SelectItem value="once">
-                {t("servers.billing.cycleOnce")}
-              </SelectItem>
-            </SelectContent>
-          </Select>
+              <SelectTrigger
+                id={cycleUnitId}
+                className="min-w-0 flex-1"
+                aria-label={t("servers.billing.cycleUnit")}
+                aria-invalid={Boolean(cycleError)}
+                aria-describedby={
+                  cycleError ? `${cycleCountId}-error` : undefined
+                }
+              >
+                <SelectValue
+                  placeholder={t("servers.billing.cyclePlaceholder")}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={BILLING_NONE}>
+                  {t("servers.billing.none")}
+                </SelectItem>
+                <SelectItem value="month">
+                  {t("servers.billing.cycleUnitMonth")}
+                </SelectItem>
+                <SelectItem value="year">
+                  {t("servers.billing.cycleUnitYear")}
+                </SelectItem>
+                <SelectItem value="once">
+                  {t("servers.billing.cycleUnitOnce")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </FormField>
       </div>
 

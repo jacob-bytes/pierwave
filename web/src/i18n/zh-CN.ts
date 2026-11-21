@@ -390,6 +390,10 @@ const zhCN = {
         monthly: "月",
         yearly: "年",
         once: "一次性",
+        monthOne: "1 个月",
+        months: "{count} 个月",
+        yearOne: "1 年",
+        years: "{count} 年",
       },
       xrayRunning: "Xray 运行中",
       xrayStopped: "Xray 已停止",
@@ -751,6 +755,12 @@ const zhCN = {
       cycleMonthly: "月",
       cycleYearly: "年",
       cycleOnce: "一次性",
+      cycleCount: "数量",
+      cycleCountPlaceholder: "如 3",
+      cycleUnit: "单位",
+      cycleUnitMonth: "个月",
+      cycleUnitYear: "年",
+      cycleUnitOnce: "一次性",
       none: "未填写",
       publicHint: "填写后会在公开状态页展示",
       errors: {
@@ -765,6 +775,10 @@ const zhCN = {
         currencyPair: "已填写价格，请同时选择币种（价格与币种必须成对）",
         pricePair: "已填写币种，请同时填写价格（价格与币种必须成对）",
         cycle: "计费周期只能是 月 / 年 / 一次性",
+        cycleCount: "计费周期数量需为 1–1200 的整数",
+        cycleUnit: "计费单位只能是 个月 / 年 / 一次性",
+        cycleCountPair: "已选择计费单位，请填写数量（1–1200）",
+        cycleUnitPair: "已填写计费数量，请选择单位（个月 / 年 / 一次性）",
       },
     },
     createDialog: {
@@ -3738,7 +3752,15 @@ const zhCN = {
     "server.currency_invalid":
       "币种不合法：需为 3 位大写字母（如 CNY / USD / EUR），或留空",
     "server.billing_cycle_invalid":
-      "计费周期不合法：只能是 月 / 年 / 一次性，或留空",
+      "旧字段计费周期不合法：只能是 月 / 年 / 一次性，或留空",
+    "server.billing_cycle_count_invalid":
+      "计费周期数量不合法：必须在 1–1200 之间（1 个月到 1200 个月，即 100 年），或留空",
+    "server.billing_cycle_unit_invalid":
+      "计费周期单位不合法：只能是 month / year / once，或留空",
+    "server.billing_cycle_once_count_invalid":
+      "一次性计费的周期数量必须是 1：当前为 {value}",
+    "server.billing_cycle_pair_incomplete":
+      "计费周期的数量与单位必须同时填写或同时留空：缺少 {missing}",
     "server.billing_pair_incomplete":
       "价格与币种必须同时填写或同时留空",
     "request.invalid_json": "请求格式不正确",

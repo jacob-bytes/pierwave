@@ -87,7 +87,13 @@ struct PublicServer {
     price_cents: Option<i64>,
     /// 管理员填写的币种（3 位大写字母）；未填写或存量值非法为 null。
     currency: Option<String>,
-    /// 管理员填写的计费周期（monthly / yearly / once）；未填写或存量值非法为 null。
+    /// 管理员填写的计费周期数量（1..=1200）；未填写或存量值非法为 null。
+    billing_cycle_count: Option<i64>,
+    /// 管理员填写的计费周期单位（month / year / once）；未填写或存量值非法为 null。
+    billing_cycle_unit: Option<String>,
+    /// 旧版单值计费周期（monthly / yearly / once），由数量 + 单位派生。
+    ///
+    /// 只为旧客户端保留：`3 个月` / `2 年` 没有对应的旧值，这里就是 `null`。
     billing_cycle: Option<String>,
     /// Agent 上报的发行版名称；旧 Agent 或读不到为 null。
     os_name: Option<String>,
@@ -166,9 +172,10 @@ struct PublicStatus {
     generated_at: i64,
     /// 管理员是否整体隐藏了费用与到期（`settings.public_billing_visible = 0`）。
     ///
-    /// `true` 时 `paid_until` / `price_cents` / `currency` / `billing_cycle`
+    /// `true` 时 `paid_until` / `price_cents` / `currency` /
+    /// `billing_cycle_count` / `billing_cycle_unit` / `billing_cycle`
     /// 一律是 `null`，读者必须靠这个字段区分「不公开」与「没配置」；
-    /// `false` 时四字段的 `null` 只表示管理员没填。
+    /// `false` 时这些字段的 `null` 只表示管理员没填。
     billing_hidden: bool,
     summary: PublicSummary,
     servers: Vec<PublicServer>,
@@ -553,6 +560,16 @@ async fn build_snapshot(
                 } else {
                     billing.currency
                 },
+                billing_cycle_count: if billing_hidden {
+                    None
+                } else {
+                    billing.billing_cycle_count
+                },
+                billing_cycle_unit: if billing_hidden {
+                    None
+                } else {
+                    billing.billing_cycle_unit
+                },
                 billing_cycle: if billing_hidden {
                     None
                 } else {
@@ -826,22 +843,37 @@ mod tests {
         (app, state, admin, bob)
     }
 
-    /// 测试里整组写入四列（仓储层三态版本的便捷包装）。
+    /// 测试里整组写入费用列（仓储层三态版本的便捷包装）。
+    ///
+    /// 计费周期按新口径传数量 + 单位，旧列由 [`BillingMeta::derived_legacy_cycle`]
+    /// 派生后一起写，模拟真实写路径；需要构造「旧列有值、新列为空」的脏行时
+    /// 直接写 SQL。
     async fn set_billing(
         pool: &sqlx::SqlitePool,
         id: &str,
         paid_until: Option<&str>,
         price_cents: Option<i64>,
         currency: Option<&str>,
-        billing_cycle: Option<&str>,
+        billing_cycle_count: Option<i64>,
+        billing_cycle_unit: Option<&str>,
     ) -> anyhow::Result<()> {
+        let derived = pierwave_domain::billing::BillingMeta::validated(
+            None,
+            None,
+            None,
+            billing_cycle_count,
+            billing_cycle_unit,
+        )?
+        .billing_cycle;
         repo::servers::set_billing(
             pool,
             id,
             Patch::Value(paid_until),
             Patch::Value(price_cents),
             Patch::Value(currency),
-            Patch::Value(billing_cycle),
+            Patch::Value(billing_cycle_count),
+            Patch::Value(billing_cycle_unit),
+            Patch::Value(derived.as_deref()),
         )
         .await
     }
@@ -2135,6 +2167,8 @@ mod tests {
             "paid_until",
             "price_cents",
             "currency",
+            "billing_cycle_count",
+            "billing_cycle_unit",
             "billing_cycle",
             "os_name",
             "os_version",
@@ -2465,7 +2499,14 @@ mod tests {
         let (status, body, _) = get(&app, "/api/v1/public/status").await;
         assert_eq!(status, StatusCode::OK, "{body}");
         let server = &body["servers"][0];
-        for key in ["paid_until", "price_cents", "currency", "billing_cycle"] {
+        for key in [
+            "paid_until",
+            "price_cents",
+            "currency",
+            "billing_cycle_count",
+            "billing_cycle_unit",
+            "billing_cycle",
+        ] {
             assert!(server[key].is_null(), "{key} 必须是 null：{body}");
         }
 
@@ -2477,7 +2518,8 @@ mod tests {
             Some("2026-12-31"),
             Some(4999),
             Some("CNY"),
-            Some("monthly"),
+            Some(1),
+            Some("month"),
         )
         .await
         .unwrap();
@@ -2492,20 +2534,31 @@ mod tests {
         // 直接改库塞进非法值（模拟手工改库 / 旧版本脏数据）：接口仍然 200，
         // 非法字段逐个降级为 null，绝不能 panic 或整个 500。
         state.public_status.clear();
-        set_billing(
-            &state.db.pool,
-            &id,
-            Some("2026-02-30"),
-            Some(-1),
-            Some("cny"),
-            Some("weekly"),
+        sqlx::query(
+            "UPDATE servers
+                SET paid_until = '2026-02-30',
+                    price_cents = -1,
+                    currency = 'cny',
+                    billing_cycle_count = 0,
+                    billing_cycle_unit = 'week',
+                    billing_cycle = 'weekly'
+              WHERE id = ?",
         )
+        .bind(&id)
+        .execute(&state.db.pool)
         .await
         .unwrap();
         let (status, body, _) = get(&app, "/api/v1/public/status").await;
         assert_eq!(status, StatusCode::OK, "{body}");
         let server = &body["servers"][0];
-        for key in ["paid_until", "price_cents", "currency", "billing_cycle"] {
+        for key in [
+            "paid_until",
+            "price_cents",
+            "currency",
+            "billing_cycle_count",
+            "billing_cycle_unit",
+            "billing_cycle",
+        ] {
             assert!(server[key].is_null(), "{key} 的脏值必须降级为 null：{body}");
         }
 
@@ -2518,6 +2571,7 @@ mod tests {
             None,
             Some(1_000_000_000),
             Some("EUR"),
+            None,
             None,
         )
         .await
@@ -2532,6 +2586,75 @@ mod tests {
             "价格与币种必须整组成对降级：{body}"
         );
         assert!(server["billing_cycle"].is_null(), "{body}");
+    }
+
+    /// 公开页同样返回「数量 + 单位」，旧列 `billing_cycle` 保持旧语义：
+    /// 1 个月 → monthly；3 个月 → null（没有对应旧值）。
+    #[tokio::test]
+    async fn public_status_returns_cycle_pair_and_derives_the_legacy_field() {
+        let (app, state) = setup().await;
+        let id = seed_server(&state, "edge-cycle", "203.0.113.9").await;
+        set_billing(
+            &state.db.pool,
+            &id,
+            None,
+            None,
+            None,
+            Some(3),
+            Some("month"),
+        )
+        .await
+        .unwrap();
+
+        let (status, body, raw) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{raw}");
+        let server = &body["servers"][0];
+        assert_eq!(server["billing_cycle_count"], 3, "{body}");
+        assert_eq!(server["billing_cycle_unit"], "month", "{body}");
+        assert!(
+            server["billing_cycle"].is_null(),
+            "3 个月没有旧值对应，必须是 null：{body}"
+        );
+
+        // 旧数据：库里只有旧列（新列为空）时公开页仍按 1 个对应单位展示，
+        // 不能因为升级后新列为空就把「年付」变成「未填写」。
+        sqlx::query(
+            "UPDATE servers
+                SET billing_cycle_count = NULL,
+                    billing_cycle_unit = NULL,
+                    billing_cycle = 'yearly'
+              WHERE id = ?",
+        )
+        .bind(&id)
+        .execute(&state.db.pool)
+        .await
+        .unwrap();
+        state.public_status.clear();
+        let (status, body, raw) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{raw}");
+        let server = &body["servers"][0];
+        assert_eq!(server["billing_cycle_count"], 1, "{body}");
+        assert_eq!(server["billing_cycle_unit"], "year", "{body}");
+        assert_eq!(server["billing_cycle"], "yearly", "{body}");
+
+        // 隐藏时三个字段一起为 null（与其它费用字段同口径）。
+        repo::settings::set(&state.db.pool, "public_billing_visible", "0")
+            .await
+            .unwrap();
+        state.public_status.clear();
+        let (status, body, raw) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{raw}");
+        assert_eq!(body["billing_hidden"], true, "{body}");
+        for key in [
+            "paid_until",
+            "price_cents",
+            "currency",
+            "billing_cycle_count",
+            "billing_cycle_unit",
+            "billing_cycle",
+        ] {
+            assert!(body["servers"][0][key].is_null(), "{key} 必须隐藏：{body}");
+        }
     }
 
     /// 迁移 0062：一次性修复历史脏数据。
@@ -2564,6 +2687,13 @@ mod tests {
             .execute(&db.pool)
             .await
             .unwrap();
+        // `Server` 还包含 0067 的两个计费周期列；本测试的迁移脚本只修旧列，
+        // 先把列加上，否则 `repo::servers::create` 读不回行。
+        let cycle = MIGRATOR
+            .iter()
+            .find(|migration| migration.version == 67)
+            .expect("必须存在 0067 计费周期数量 + 单位迁移");
+        sqlx::raw_sql(&cycle.sql).execute(&db.pool).await.unwrap();
 
         let admin = repo::users::create(
             &db.pool,
@@ -2624,7 +2754,8 @@ mod tests {
             Some("2026-12-31"),
             Some(4999),
             Some("CNY"),
-            Some("monthly"),
+            Some(1),
+            Some("month"),
         )
         .await
         .unwrap();
@@ -2654,7 +2785,7 @@ mod tests {
             .await
             .unwrap();
 
-        // 公开页：200，脏行四个字段全部降级为 null，合法行原样保留。
+        // 公开页：200，脏行的费用字段全部降级为 null，合法行原样保留。
         let (status, body, raw) = get(&app, "/api/v1/public/status").await;
         assert_eq!(status, StatusCode::OK, "{raw}");
         let by_name = |name: &str| -> &Value {
@@ -2666,7 +2797,14 @@ mod tests {
                 .unwrap_or_else(|| panic!("公开页缺少服务器 {name}：{body}"))
         };
         for name in ["edge-broken", "edge-range"] {
-            for key in ["paid_until", "price_cents", "currency", "billing_cycle"] {
+            for key in [
+                "paid_until",
+                "price_cents",
+                "currency",
+                "billing_cycle_count",
+                "billing_cycle_unit",
+                "billing_cycle",
+            ] {
                 assert!(
                     by_name(name)[key].is_null(),
                     "{name}.{key} 的脏值必须被迁移清成 NULL：{body}"
@@ -2710,7 +2848,14 @@ mod tests {
                 .unwrap_or_else(|| panic!("管理端列表缺少服务器 {name}：{body}"))
         };
         for name in ["edge-broken", "edge-range"] {
-            for key in ["paid_until", "price_cents", "currency", "billing_cycle"] {
+            for key in [
+                "paid_until",
+                "price_cents",
+                "currency",
+                "billing_cycle_count",
+                "billing_cycle_unit",
+                "billing_cycle",
+            ] {
                 assert!(
                     by_name(name)[key].is_null(),
                     "{name}.{key} 的脏值必须被迁移清成 NULL：{body}"
@@ -2737,6 +2882,12 @@ mod tests {
                 .await
                 .unwrap_or_else(|error| panic!("执行迁移 {} 失败：{error}", migration.version));
         }
+        // `Server` 还包含 0067 的两个计费周期列，创建行前必须先加列。
+        let cycle = MIGRATOR
+            .iter()
+            .find(|migration| migration.version == 67)
+            .expect("必须存在 0067 计费周期数量 + 单位迁移");
+        sqlx::raw_sql(&cycle.sql).execute(&db.pool).await.unwrap();
 
         let (price_only, _) =
             repo::servers::create(&db.pool, "price-only", "203.0.113.1", "external")
@@ -2776,7 +2927,8 @@ mod tests {
             Some("2026-12-31"),
             Some(4999),
             Some("CNY"),
-            Some("monthly"),
+            Some(1),
+            Some("month"),
         )
         .await
         .unwrap();
@@ -2864,7 +3016,7 @@ mod tests {
     // ---- 公开状态页白名单 / 费用可见性（0064） ----
 
     /// 默认公开：没有设置 `public_billing_visible` 时 `billing_hidden = false`，
-    /// 费用字段照常返回；设为 "0" 后四个字段全部 null 且 `billing_hidden = true`。
+    /// 费用字段照常返回；设为 "0" 后所有费用字段 null 且 `billing_hidden = true`。
     #[tokio::test]
     async fn billing_visibility_hides_four_fields_and_sets_billing_hidden() {
         let (app, state) = setup().await;
@@ -2875,7 +3027,8 @@ mod tests {
             Some("2026-12-31"),
             Some(4999),
             Some("CNY"),
-            Some("monthly"),
+            Some(1),
+            Some("month"),
         )
         .await
         .unwrap();
@@ -2886,7 +3039,7 @@ mod tests {
         assert_eq!(body["billing_hidden"], false, "{body}");
         assert_eq!(body["servers"][0]["price_cents"], 4999, "{body}");
 
-        // 隐藏：四个字段 null，billing_hidden 明确告诉读者「不是没配置」。
+        // 隐藏：费用字段全部 null，billing_hidden 明确告诉读者「不是没配置」。
         repo::settings::set(&state.db.pool, "public_billing_visible", "0")
             .await
             .unwrap();
@@ -2894,7 +3047,14 @@ mod tests {
         let (status, body, _) = get(&app, "/api/v1/public/status").await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(body["billing_hidden"], true, "{body}");
-        for key in ["paid_until", "price_cents", "currency", "billing_cycle"] {
+        for key in [
+            "paid_until",
+            "price_cents",
+            "currency",
+            "billing_cycle_count",
+            "billing_cycle_unit",
+            "billing_cycle",
+        ] {
             assert!(body["servers"][0][key].is_null(), "{key} 必须隐藏：{body}");
         }
 
@@ -2909,6 +3069,8 @@ mod tests {
         assert_eq!(body["servers"][0]["paid_until"], "2026-12-31", "{body}");
         assert_eq!(body["servers"][0]["price_cents"], 4999, "{body}");
         assert_eq!(body["servers"][0]["currency"], "CNY", "{body}");
+        assert_eq!(body["servers"][0]["billing_cycle_count"], 1, "{body}");
+        assert_eq!(body["servers"][0]["billing_cycle_unit"], "month", "{body}");
         assert_eq!(body["servers"][0]["billing_cycle"], "monthly", "{body}");
     }
 

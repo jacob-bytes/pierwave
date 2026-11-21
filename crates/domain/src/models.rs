@@ -177,7 +177,18 @@ pub struct Server {
     pub price_cents: Option<i64>,
     /// 币种，3 位大写字母（CNY / USD / EUR ...）；`None` = 未填写。
     pub currency: Option<String>,
-    /// 计费周期：`monthly` / `yearly` / `once`；`None` = 未填写。
+    /// 计费周期数量（1..=1200，1200 个月 = 100 年）；`None` = 未填写。
+    ///
+    /// 与 [`Server::billing_cycle_unit`] 必须同时有值或同时为空。写路径由
+    /// [`crate::billing::BillingMeta::validated`] 校验。
+    pub billing_cycle_count: Option<i64>,
+    /// 计费周期单位（`month` / `year` / `once`）；`None` = 未填写。
+    pub billing_cycle_unit: Option<String>,
+    /// 旧版单值计费周期（`monthly` / `yearly` / `once`），由数量 + 单位派生。
+    ///
+    /// **只为旧客户端 / 旧备份保留**：写路径始终与上面两列一起维护，读接口
+    /// （管理端与公开页）返回派生值而不是直接回显这一列。`3 个月` 这类没有
+    /// 旧值对应的周期，这里就是 `null`。
     pub billing_cycle: Option<String>,
     /// 允许的端口区间起点（含）；`None` = 该侧不设边界。
     ///

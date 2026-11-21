@@ -28,6 +28,7 @@ import {
   availabilityPercent,
   availabilityPercentText,
   availabilityTone,
+  billingCycleText,
   expiryLabel,
   publicBilling,
   reportedLatency,
@@ -38,6 +39,7 @@ import {
   uptimeLabelKey,
   uptimeParts,
   type PublicBilling,
+  type PublicBillingCycle,
   type ServerState,
 } from "@/lib/publicStatus";
 import { billingHidden } from "@/lib/publicStatusSettings";
@@ -195,22 +197,34 @@ function BillingExpiry({ billing }: { billing: PublicBilling }) {
 }
 
 /**
- * 价格与周期：`¥268.00 / 月`；币种符号由 `formatPrice` 决定，这里只拼周期。
+ * 价格与周期：`¥268.00 / 月`、`¥268.00 / 3 个月`；币种符号由 `formatPrice`
+ * 决定，这里只拼周期。
  *
+ * 周期后缀在数量为 1 时省略数字（`/ 月`），与独立文案 `1 个月` 并存；
  * 价格 / 周期各自缺失时只把那半边写成「未配置」，整行仍然占位；
  * 两项都缺失时只写一个「未配置」，不重复两次。
  */
-function BillingPrice({ billing }: { billing: PublicBilling }) {
+function BillingPrice({
+  billing,
+  cycle,
+}: {
+  billing: PublicBilling;
+  cycle: PublicBillingCycle | null;
+}) {
   const { t } = useI18n();
   const notSet = t("publicStatus.server.notSet");
-  const cycle = billing.cycleKey === null ? null : t(billing.cycleKey);
+  // 有价格时用价格后缀（count=1 省略数字）；没有价格时用完整周期文案
+  // （`1 个月` / `3 个月`），否则「未配置 / 月」读不出周期长短。
+  const suffix =
+    cycle === null ? null : t(cycle.suffixKey, cycle.suffixValues);
+  const label = cycle === null ? null : t(cycle.labelKey, cycle.labelValues);
   const text =
-    billing.price !== null && cycle !== null
-      ? `${billing.price} / ${cycle}`
+    billing.price !== null && suffix !== null
+      ? `${billing.price} / ${suffix}`
       : billing.price !== null
         ? `${billing.price} / ${notSet}`
-        : cycle !== null
-          ? `${notSet} / ${cycle}`
+        : label !== null
+          ? `${notSet} / ${label}`
           : notSet;
 
   return (
@@ -274,6 +288,7 @@ function TrafficFooter({ server }: { server: PublicStatusServer }) {
   const rxTotal = formatTrafficTotal(server.net_rx_bytes);
   const txTotal = formatTrafficTotal(server.net_tx_bytes);
   const billing = publicBilling(server);
+  const cycle = billingCycleText(server);
   const hiddenBilling = billingHidden(server);
 
   const rxLabel = t("publicStatus.server.trafficRx");
@@ -329,7 +344,7 @@ function TrafficFooter({ server }: { server: PublicStatusServer }) {
           ) : (
             <>
               <BillingExpiry billing={billing} />
-              <BillingPrice billing={billing} />
+              <BillingPrice billing={billing} cycle={cycle} />
             </>
           )}
         </div>

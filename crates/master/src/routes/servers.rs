@@ -52,6 +52,13 @@ fn server_view(server: &Server, base: &str, install: Option<&str>) -> AppResult<
     // 前端据此提示「网卡尚未验证」：nic_name 已保存，但 Agent 还没上报过
     // 网卡列表，无法确认它存在（也无法据此下发配置）。
     value["nic_unverified"] = json!(crate::nic::is_unverified(server.interfaces_reported_at));
+    // 计费周期三列按读路径口径一起输出：旧列 `billing_cycle` 只作为派生镜像，
+    // 不回显库里可能过期的原始值（例如手工改库留下 count=3 但旧列仍是 monthly）。
+    // 非法 / 损坏的存量值按「未填写」处理，与公开页一致。
+    let billing = BillingMeta::from_server(server);
+    value["billing_cycle_count"] = json!(billing.billing_cycle_count);
+    value["billing_cycle_unit"] = json!(billing.billing_cycle_unit);
+    value["billing_cycle"] = json!(billing.billing_cycle);
     Ok(value)
 }
 
@@ -117,15 +124,21 @@ async fn save_port_policy(
 
 /// 把校验后的「费用与到期」写回服务器，并同步内存里**本次实际改动**的字段。
 ///
-/// 四个参数是三态：`Missing` = 本次没改该列，`Null` = 清空，`Value` = 写入。
+/// 参数是三态：`Missing` = 本次没改该列，`Null` = 清空，`Value` = 写入。
 /// 合并后的快照只用于校验，不能整份覆盖：并发 PATCH 各自只写自己的列，
 /// 没改的存量脏值也不会被顺带清成 NULL。
+///
+/// 计费周期的三列（数量 / 单位 / 旧列派生镜像）由调用方作为一组传入：
+/// 改动任意一列都要三列一起写，否则旧客户端会读到与新列矛盾的周期。
+#[allow(clippy::too_many_arguments)]
 async fn save_billing(
     state: &AppState,
     server: &mut Server,
     paid_until: Patch<Option<&str>>,
     price_cents: Patch<Option<i64>>,
     currency: Patch<Option<&str>>,
+    billing_cycle_count: Patch<Option<i64>>,
+    billing_cycle_unit: Patch<Option<&str>>,
     billing_cycle: Patch<Option<&str>>,
 ) -> AppResult<()> {
     repo::servers::set_billing(
@@ -134,6 +147,8 @@ async fn save_billing(
         paid_until,
         price_cents,
         currency,
+        billing_cycle_count,
+        billing_cycle_unit,
         billing_cycle,
     )
     .await?;
@@ -145,6 +160,12 @@ async fn save_billing(
     }
     if currency.is_set() {
         server.currency = currency.value().flatten().map(str::to_string);
+    }
+    if billing_cycle_count.is_set() {
+        server.billing_cycle_count = billing_cycle_count.value().flatten();
+    }
+    if billing_cycle_unit.is_set() {
+        server.billing_cycle_unit = billing_cycle_unit.value().flatten().map(str::to_string);
     }
     if billing_cycle.is_set() {
         server.billing_cycle = billing_cycle.value().flatten().map(str::to_string);
@@ -222,7 +243,16 @@ pub struct CreateServer {
     /// 币种（3 位大写字母）；省略 / null / 空串 = 未填写。
     #[serde(default)]
     pub currency: Option<String>,
-    /// 计费周期（monthly / yearly / once）；省略 / null / 空串 = 未填写。
+    /// 计费周期数量（1..=1200）；与 `billing_cycle_unit` 必须成对填写。
+    #[serde(default)]
+    pub billing_cycle_count: Option<i64>,
+    /// 计费周期单位（month / year / once）；与 `billing_cycle_count` 必须成对填写。
+    #[serde(default)]
+    pub billing_cycle_unit: Option<String>,
+    /// 旧版计费周期（monthly / yearly / once）；省略 / null / 空串 = 未填写。
+    ///
+    /// **兼容输入**：新客户端应改用 `billing_cycle_count` + `billing_cycle_unit`。
+    /// 只给这一列时按 1 个月 / 1 年 / 一次性映射；新字段同时出现时以新字段为准。
     #[serde(default)]
     pub billing_cycle: Option<String>,
     /// 允许的端口区间起点（含）；省略 / null = 该侧不设边界。
@@ -244,6 +274,26 @@ pub struct CreateServer {
 
 fn default_xray_mode() -> String {
     "external".into()
+}
+
+/// 创建请求里的计费周期解析：新字段（数量 + 单位）优先，旧字段兜底。
+///
+/// 新字段只要出现一个就按新字段校验（缺另一半会在 `BillingMeta::validated`
+/// 里报 `server.billing_cycle_pair_incomplete`）；两个新字段都没出现时才把
+/// 旧字段 `billing_cycle` 映射成 1 个对应单位，保证旧客户端仍能创建。
+fn resolve_create_cycle(
+    count: Option<i64>,
+    unit: Option<&str>,
+    legacy: Option<&str>,
+) -> Result<(Option<i64>, Option<String>), pierwave_domain::error::DomainError> {
+    let unit_present = unit.is_some_and(|value| !value.trim().is_empty());
+    if count.is_some() || unit_present {
+        return Ok((count, unit.map(str::to_owned)));
+    }
+    Ok(match pierwave_domain::billing::legacy_cycle_pair(legacy)? {
+        Some((count, unit)) => (Some(count), Some(unit.to_string())),
+        None => (None, None),
+    })
 }
 
 /// 国家/地区代码校验：空串 = 清空；否则必须是 ISO 3166-1 alpha-2 白名单内的
@@ -304,11 +354,17 @@ pub async fn create(
     let internal_address = normalize_internal_address(req.internal_address.as_deref());
     let nic_name = crate::nic::normalize_nic_name(req.nic_name.as_deref());
     // 先校验再建行：非法费用不能留下半成品服务器。
+    let (billing_cycle_count, billing_cycle_unit) = resolve_create_cycle(
+        req.billing_cycle_count,
+        req.billing_cycle_unit.as_deref(),
+        req.billing_cycle.as_deref(),
+    )?;
     let billing = BillingMeta::validated(
         req.paid_until.as_deref(),
         req.price_cents,
         req.currency.as_deref(),
-        req.billing_cycle.as_deref(),
+        billing_cycle_count,
+        billing_cycle_unit.as_deref(),
     )?;
     let (mut server, token) = repo::servers::create_with_country_and_group(
         &state.db.pool,
@@ -333,6 +389,8 @@ pub async fn create(
             Patch::Value(billing.paid_until.as_deref()),
             Patch::Value(billing.price_cents),
             Patch::Value(billing.currency.as_deref()),
+            Patch::Value(billing.billing_cycle_count),
+            Patch::Value(billing.billing_cycle_unit.as_deref()),
             Patch::Value(billing.billing_cycle.as_deref()),
         )
         .await?;
@@ -351,6 +409,8 @@ pub async fn create(
             "paid_until": &server.paid_until,
             "price_cents": server.price_cents,
             "currency": &server.currency,
+            "billing_cycle_count": server.billing_cycle_count,
+            "billing_cycle_unit": &server.billing_cycle_unit,
             "billing_cycle": &server.billing_cycle,
             "port_start": server.port_start,
             "port_end": server.port_end,
@@ -411,7 +471,15 @@ pub struct PatchServer {
     /// 币种：缺省 = 不改，`null` / 空串 = 清空，值 = 3 位大写字母。
     #[serde(default)]
     pub currency: Patch<String>,
-    /// 计费周期：缺省 = 不改，`null` / 空串 = 清空。
+    /// 计费周期数量：缺省 = 不改，`null` = 与单位一起清空，值 = 1..=1200。
+    #[serde(default)]
+    pub billing_cycle_count: Patch<i64>,
+    /// 计费周期单位：缺省 = 不改，`null` = 与数量一起清空，值 = month / year / once。
+    #[serde(default)]
+    pub billing_cycle_unit: Patch<String>,
+    /// 旧版计费周期：缺省 = 不改，`null` / 空串 = 清空，值 = monthly / yearly / once。
+    ///
+    /// 兼容旧客户端：新字段同时出现时以新字段为准；只给旧字段时按 1 个对应单位写。
     #[serde(default)]
     pub billing_cycle: Patch<String>,
     /// 是否在公开状态页显示（迁移 0064）：缺省 / `null` = 不改，布尔值 = 设置。
@@ -489,13 +557,15 @@ pub async fn update(
         && !req.paid_until.is_set()
         && !req.price_cents.is_set()
         && !req.currency.is_set()
+        && !req.billing_cycle_count.is_set()
+        && !req.billing_cycle_unit.is_set()
         && !req.billing_cycle.is_set()
         && req.public_visible.is_none()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 name / address / xray_mode / allow_agent_upgrade / country_code / group_name / port_start / port_end / port_allow / internal_address / nic_name / paid_until / price_cents / currency / billing_cycle / public_visible 之一",
+            "至少需要提供 name / address / xray_mode / allow_agent_upgrade / country_code / group_name / port_start / port_end / port_allow / internal_address / nic_name / paid_until / price_cents / currency / billing_cycle_count / billing_cycle_unit / billing_cycle / public_visible 之一",
         ));
     }
 
@@ -519,6 +589,11 @@ pub async fn update(
     let billing_changed = req.paid_until.is_set()
         || req.price_cents.is_set()
         || req.currency.is_set()
+        || req.billing_cycle_count.is_set()
+        || req.billing_cycle_unit.is_set()
+        || req.billing_cycle.is_set();
+    let cycle_changed = req.billing_cycle_count.is_set()
+        || req.billing_cycle_unit.is_set()
         || req.billing_cycle.is_set();
     let current = if policy_changed || internal_changed || nic_changed || billing_changed {
         Some(
@@ -587,6 +662,10 @@ pub async fn update(
     // 注意：合并结果**只用于校验**；但价格与币种是**一对**，只要本次携带了
     // 其中任意一列，就把两列按合并后的有效值一起写。只写一列会在并发清空
     // 时留下 `price_cents=200, currency=NULL` 的半对行。
+    //
+    // 计费周期（迁移 0067）同理：新字段是事实来源，旧 `billing_cycle` 只作
+    // 兼容输入。显式 null（数量或单位任意一个）= 两列一起清空；只传一个新
+    // 字段时从当前行补齐另一半，方便前端「只改单位 / 只改数量」。
     let billing = if billing_changed {
         let current = current.as_ref().expect("billing_changed 时必已读取服务器");
         let existing = BillingMeta::from_server(current);
@@ -605,16 +684,53 @@ pub async fn update(
             Patch::Null => None,
             Patch::Value(raw) => Some(raw.clone()),
         };
-        let billing_cycle = match &req.billing_cycle {
-            Patch::Missing => existing.billing_cycle,
-            Patch::Null => None,
-            Patch::Value(raw) => Some(raw.clone()),
-        };
+        let existing_count = existing.billing_cycle_count;
+        let existing_unit = existing.billing_cycle_unit;
+        let (billing_cycle_count, billing_cycle_unit) =
+            if req.billing_cycle_count.is_set() || req.billing_cycle_unit.is_set() {
+                let unit_empty =
+                    matches!(&req.billing_cycle_unit, Patch::Value(raw) if raw.trim().is_empty());
+                // 显式 null 表示「清空这一对」；空串只在不带数量时按清空处理，
+                // 否则 (3, "") 会被当成「只要单位为空」，由成对校验 400。
+                if matches!(req.billing_cycle_count, Patch::Null)
+                    || matches!(req.billing_cycle_unit, Patch::Null)
+                    || (!req.billing_cycle_count.is_set() && unit_empty)
+                {
+                    (None, None)
+                } else {
+                    let count = match req.billing_cycle_count {
+                        Patch::Missing => existing_count,
+                        Patch::Value(count) => Some(count),
+                        Patch::Null => None,
+                    };
+                    let unit = match &req.billing_cycle_unit {
+                        Patch::Missing => existing_unit,
+                        Patch::Value(raw) => Some(raw.clone()),
+                        Patch::Null => None,
+                    };
+                    (count, unit)
+                }
+            } else if req.billing_cycle.is_set() {
+                // 只有旧客户端字段：映射成 1 个对应单位；null / 空串 = 清空。
+                match &req.billing_cycle {
+                    Patch::Missing => (existing_count, existing_unit),
+                    Patch::Null => (None, None),
+                    Patch::Value(raw) => {
+                        match pierwave_domain::billing::legacy_cycle_pair(Some(raw))? {
+                            Some((count, unit)) => (Some(count), Some(unit.to_string())),
+                            None => (None, None),
+                        }
+                    }
+                }
+            } else {
+                (existing_count, existing_unit)
+            };
         Some(BillingMeta::validated(
             paid_until.as_deref(),
             price_cents,
             currency.as_deref(),
-            billing_cycle.as_deref(),
+            billing_cycle_count,
+            billing_cycle_unit.as_deref(),
         )?)
     } else {
         None
@@ -677,7 +793,9 @@ pub async fn update(
             billing_column(req.paid_until.is_set(), billing.paid_until.as_deref()),
             price_patch,
             currency_patch,
-            billing_column(req.billing_cycle.is_set(), billing.billing_cycle.as_deref()),
+            billing_column(cycle_changed, billing.billing_cycle_count),
+            billing_column(cycle_changed, billing.billing_cycle_unit.as_deref()),
+            billing_column(cycle_changed, billing.billing_cycle.as_deref()),
         )
         .await?;
     }
@@ -773,6 +891,20 @@ pub async fn update(
                 .as_ref()
                 .and_then(|server| server.currency.as_deref())),
             json!(server.currency.as_deref()),
+        ),
+        (
+            "billing_cycle_count",
+            json!(before
+                .as_ref()
+                .and_then(|server| server.billing_cycle_count)),
+            json!(server.billing_cycle_count),
+        ),
+        (
+            "billing_cycle_unit",
+            json!(before
+                .as_ref()
+                .and_then(|server| server.billing_cycle_unit.as_deref())),
+            json!(server.billing_cycle_unit.as_deref()),
         ),
         (
             "billing_cycle",
@@ -2420,6 +2552,8 @@ mod tests {
             Patch::Missing,
             Patch::Missing,
             Patch::Missing,
+            Patch::Missing,
+            Patch::Missing,
             Patch::Value(Some("weekly")),
         )
         .await
@@ -2507,6 +2641,8 @@ mod tests {
             Patch::Value(None),
             Patch::Value(None),
             Patch::Missing,
+            Patch::Missing,
+            Patch::Missing,
         )
         .await
         .unwrap();
@@ -2520,6 +2656,8 @@ mod tests {
             Patch::Missing,
             price_patch,
             currency_patch,
+            Patch::Missing,
+            Patch::Missing,
             Patch::Missing,
         )
         .await
@@ -2996,6 +3134,368 @@ mod tests {
             changes.get("paid_until").is_none(),
             "没变的字段不应出现在 changes 里：{changes}"
         );
+    }
+
+    /// 计费周期「数量 + 单位」的创建 / 列表 / 部分 PATCH / 清空往返。
+    ///
+    /// 旧列 `billing_cycle` 只在 count=1 的 month/year 或 once 时有派生值；
+    /// 「3 个月」「2 年」这类新周期旧客户端应看到 null，而不是被强行归成 monthly。
+    #[tokio::test]
+    async fn billing_cycle_quantity_and_unit_round_trip() {
+        let (app, _state, cookie) = setup().await;
+
+        for (name, count, unit, legacy) in [
+            ("three-months", 3, "month", Value::Null),
+            ("two-years", 2, "year", Value::Null),
+            ("hundred-years", 1200, "month", Value::Null),
+            ("one-off", 1, "once", serde_json::json!("once")),
+        ] {
+            let (status, created) = send(
+                &app,
+                &cookie,
+                Method::POST,
+                "/api/v1/servers",
+                serde_json::json!({
+                    "name": name,
+                    "address": "1.2.3.4",
+                    "billing_cycle_count": count,
+                    "billing_cycle_unit": unit,
+                }),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{name}: {created}");
+            assert_eq!(created["server"]["billing_cycle_count"], count, "{created}");
+            assert_eq!(created["server"]["billing_cycle_unit"], unit, "{created}");
+            assert_eq!(
+                created["server"]["billing_cycle"], legacy,
+                "{name}: {created}"
+            );
+        }
+
+        // 列表同样返回三列。
+        let (status, listed) =
+            send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{listed}");
+        let row = listed["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["name"] == "three-months")
+            .expect("列表应包含 three-months");
+        assert_eq!(row["billing_cycle_count"], 3, "{listed}");
+        assert_eq!(row["billing_cycle_unit"], "month", "{listed}");
+        assert!(row["billing_cycle"].is_null(), "{listed}");
+
+        let id = row["id"].as_str().unwrap().to_string();
+
+        // 只改单位：数量沿用当前行的 3，不能被误判成「缺一半」或被清空。
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"billing_cycle_unit": "year"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        assert_eq!(patched["server"]["billing_cycle_count"], 3, "{patched}");
+        assert_eq!(patched["server"]["billing_cycle_unit"], "year", "{patched}");
+        assert!(patched["server"]["billing_cycle"].is_null(), "{patched}");
+
+        // 显式 null 清空这一对：两列一起变 null，旧列也一起清空。
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"billing_cycle_count": null}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        for key in ["billing_cycle_count", "billing_cycle_unit", "billing_cycle"] {
+            assert!(patched["server"][key].is_null(), "{key}: {patched}");
+        }
+
+        // 空行只传数量：缺单位，400 且指明缺哪一列。
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"billing_cycle_count": 3}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(
+            body["code"], "server.billing_cycle_pair_incomplete",
+            "{body}"
+        );
+        assert_eq!(body["params"]["missing"], "billing_cycle_unit", "{body}");
+    }
+
+    /// 旧客户端：只读 `billing_cycle` 仍拿到 monthly / yearly / once；
+    /// 旧客户端只写 `billing_cycle` 时按 1 个对应单位落库。
+    #[tokio::test]
+    async fn legacy_billing_cycle_keeps_working_for_old_clients() {
+        let (app, state, cookie) = setup().await;
+
+        let (status, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"legacy","address":"1.2.3.4","billing_cycle":"monthly"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{created}");
+        assert_eq!(created["server"]["billing_cycle"], "monthly", "{created}");
+        assert_eq!(created["server"]["billing_cycle_count"], 1, "{created}");
+        assert_eq!(
+            created["server"]["billing_cycle_unit"], "month",
+            "{created}"
+        );
+        let id = created["server"]["id"].as_str().unwrap().to_string();
+
+        // 旧客户端 PATCH：只改 billing_cycle，仍然生效。
+        let (status, patched) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"billing_cycle": "yearly"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{patched}");
+        assert_eq!(patched["server"]["billing_cycle"], "yearly", "{patched}");
+        assert_eq!(patched["server"]["billing_cycle_count"], 1, "{patched}");
+        assert_eq!(patched["server"]["billing_cycle_unit"], "year", "{patched}");
+
+        // 旧客户端列表读取仍然可用（旧列是派生值，不是空）。
+        let (status, listed) =
+            send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{listed}");
+        assert_eq!(listed["items"][0]["billing_cycle"], "yearly", "{listed}");
+
+        // 旧客户端 null 清空：三列一起清空。
+        let (status, cleared) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"billing_cycle": null}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{cleared}");
+        for key in ["billing_cycle_count", "billing_cycle_unit", "billing_cycle"] {
+            assert!(cleared["server"][key].is_null(), "{key}: {cleared}");
+        }
+
+        // 库里旧列也必须是 NULL（只读派生列不能留旧值）。
+        let stored = repo::servers::find_by_id(&state.db.pool, &id)
+            .await
+            .unwrap();
+        assert_eq!(stored.billing_cycle_count, None);
+        assert_eq!(stored.billing_cycle_unit, None);
+        assert_eq!(stored.billing_cycle, None);
+    }
+
+    /// 校验矩阵：缺一半、0、1201、非法单位、once + count > 1。
+    #[tokio::test]
+    async fn billing_cycle_validation_matrix() {
+        let (app, _state, cookie) = setup().await;
+
+        let cases = vec![
+            (
+                serde_json::json!({"billing_cycle_count": 3}),
+                "server.billing_cycle_pair_incomplete",
+                "billing_cycle_unit",
+            ),
+            (
+                serde_json::json!({"billing_cycle_unit": "month"}),
+                "server.billing_cycle_pair_incomplete",
+                "billing_cycle_count",
+            ),
+            (
+                serde_json::json!({"billing_cycle_count": 0, "billing_cycle_unit": "month"}),
+                "server.billing_cycle_count_invalid",
+                "billing_cycle_count",
+            ),
+            (
+                serde_json::json!({"billing_cycle_count": 1201, "billing_cycle_unit": "month"}),
+                "server.billing_cycle_count_invalid",
+                "billing_cycle_count",
+            ),
+            (
+                serde_json::json!({"billing_cycle_count": 3, "billing_cycle_unit": "week"}),
+                "server.billing_cycle_unit_invalid",
+                "billing_cycle_unit",
+            ),
+            (
+                serde_json::json!({"billing_cycle_count": 2, "billing_cycle_unit": "once"}),
+                "server.billing_cycle_once_count_invalid",
+                "billing_cycle_count",
+            ),
+        ];
+
+        for (billing, code, field) in cases {
+            let mut body = serde_json::json!({"name":"bad","address":"9.9.9.9"});
+            body.as_object_mut()
+                .unwrap()
+                .extend(billing.as_object().unwrap().clone());
+            let (status, response) =
+                send(&app, &cookie, Method::POST, "/api/v1/servers", body).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{code}: {response}");
+            assert_eq!(response["code"], code, "{response}");
+            assert_eq!(response["params"]["field"], field, "{response}");
+        }
+
+        // params 带允许范围 / 白名单，前端词典可以插值。
+        let (_, response) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({
+                "name":"bad","address":"9.9.9.9",
+                "billing_cycle_count": 0, "billing_cycle_unit": "month",
+            }),
+        )
+        .await;
+        assert_eq!(response["params"]["min"], 1, "{response}");
+        assert_eq!(response["params"]["max"], 1200, "{response}");
+
+        let (_, response) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({
+                "name":"bad","address":"9.9.9.9",
+                "billing_cycle_count": 1, "billing_cycle_unit": "week",
+            }),
+        )
+        .await;
+        assert_eq!(
+            response["params"]["allowed"],
+            serde_json::json!(["month", "year", "once"]),
+            "{response}"
+        );
+
+        let (_, response) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({
+                "name":"bad","address":"9.9.9.9",
+                "billing_cycle_count": 2, "billing_cycle_unit": "once",
+            }),
+        )
+        .await;
+        assert_eq!(
+            response["params"]["allowed"],
+            serde_json::json!([1]),
+            "{response}"
+        );
+
+        // 非法创建不能留下服务器；非法 PATCH 不能改动旧值。
+        let (status, listed) =
+            send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{listed}");
+        assert_eq!(listed["items"].as_array().unwrap().len(), 0, "{listed}");
+
+        let (status, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({
+                "name":"keep","address":"1.2.3.4",
+                "billing_cycle_count": 3, "billing_cycle_unit": "month",
+            }),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{created}");
+        let id = created["server"]["id"].as_str().unwrap().to_string();
+        let (status, response) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"billing_cycle_count": 0, "billing_cycle_unit": "month"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{response}");
+        assert_eq!(response["code"], "server.billing_cycle_count_invalid");
+        let (_, after) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"name":"keep-2"}),
+        )
+        .await;
+        assert_eq!(after["server"]["billing_cycle_count"], 3, "{after}");
+        assert_eq!(after["server"]["billing_cycle_unit"], "month", "{after}");
+    }
+
+    /// 迁移 0067：三种旧值各一行 → 回填成 1 个对应单位；旧列为空的行保持为空。
+    #[tokio::test]
+    async fn migration_0067_backfills_count_and_unit_from_legacy_cycle() {
+        use pierwave_domain::{Db, MIGRATOR};
+
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        // 停在 0066：模拟升级前的库（还没有两个新列）。
+        for migration in MIGRATOR.iter().filter(|m| m.version <= 66) {
+            sqlx::raw_sql(&migration.sql)
+                .execute(&db.pool)
+                .await
+                .unwrap_or_else(|error| panic!("执行迁移 {} 失败：{error}", migration.version));
+        }
+        for (id, cycle) in [
+            ("cycle-monthly", Some("monthly")),
+            ("cycle-yearly", Some("yearly")),
+            ("cycle-once", Some("once")),
+            ("cycle-none", None),
+        ] {
+            sqlx::query(
+                "INSERT INTO servers
+                    (id, name, address, token_hash, created_at, billing_cycle)
+                 VALUES (?, ?, ?, ?, 1, ?)",
+            )
+            .bind(id)
+            .bind(id)
+            .bind("203.0.113.9")
+            .bind(format!("token-{id}"))
+            .bind(cycle)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        }
+
+        let migration = MIGRATOR
+            .iter()
+            .find(|migration| migration.version == 67)
+            .expect("必须存在 0067 计费周期数量 + 单位迁移");
+        sqlx::raw_sql(&migration.sql)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+
+        for (id, count, unit) in [
+            ("cycle-monthly", 1, "month"),
+            ("cycle-yearly", 1, "year"),
+            ("cycle-once", 1, "once"),
+        ] {
+            let server = repo::servers::find_by_id(&db.pool, id).await.unwrap();
+            assert_eq!(server.billing_cycle_count, Some(count), "{id}");
+            assert_eq!(server.billing_cycle_unit.as_deref(), Some(unit), "{id}");
+        }
+        let none = repo::servers::find_by_id(&db.pool, "cycle-none")
+            .await
+            .unwrap();
+        assert_eq!(none.billing_cycle_count, None);
+        assert_eq!(none.billing_cycle_unit, None);
     }
 
     /// 管理端列表复用 `servers.latency_ms`：有心跳值就是 number，没有就是 null。

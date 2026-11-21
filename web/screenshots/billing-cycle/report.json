@@ -1,0 +1,262 @@
+{
+  "base": "http://127.0.0.1:8797",
+  "generated_at": "2026-11-21T17:49:54.302Z",
+  "note": "全部数据来自真实主控：四台服务器直接写入 billing_cycle_count / billing_cycle_unit。 All data comes from the real master: four servers store count/unit directly.",
+  "variants": [
+    {
+      "name": "香港-01",
+      "label": "月",
+      "count": 1,
+      "unit": "month",
+      "legacy": "monthly"
+    },
+    {
+      "name": "新加坡-02",
+      "label": "2 年",
+      "count": 2,
+      "unit": "year",
+      "legacy": null
+    },
+    {
+      "name": "美西-01",
+      "label": "一次性",
+      "count": 1,
+      "unit": "once",
+      "legacy": "once"
+    },
+    {
+      "name": "东京-01",
+      "label": "3 个月",
+      "count": 3,
+      "unit": "month",
+      "legacy": null
+    }
+  ],
+  "results": [
+    {
+      "name": "真实 POST：3 个月同时写数量 + 单位，旧派生为 null",
+      "ok": true,
+      "detail": {
+        "id": "5895fac8-7ef2-49cf-ab4f-31b0527c0fd8"
+      }
+    },
+    {
+      "name": "真实 PATCH：2 年 + 旧派生 null；清空两列返回 null",
+      "ok": true
+    },
+    {
+      "name": "真实 PATCH：一次性 + 数量 2 被后端拒绝（once_count_invalid）",
+      "ok": true
+    },
+    {
+      "name": "默认空：数量 + 单位都未填写（dark-1440）",
+      "ok": true,
+      "detail": {
+        "count": "",
+        "unit": "未填写"
+      }
+    },
+    {
+      "name": "选择「个月」后数量默认 1（dark-1440）",
+      "ok": true
+    },
+    {
+      "name": "3 个月（数量 3 + 单位个月）",
+      "ok": true
+    },
+    {
+      "name": "2 年（数量 2 + 单位年）",
+      "ok": true
+    },
+    {
+      "name": "一次性禁止编辑数量",
+      "ok": true
+    },
+    {
+      "name": "清空后数量 + 单位都为空（未填写）",
+      "ok": true
+    },
+    {
+      "name": "缺单位：行内报错且不发请求",
+      "ok": true
+    },
+    {
+      "name": "缺数量：行内报错且不发请求",
+      "ok": true
+    },
+    {
+      "name": "数量 1201：行内范围错误",
+      "ok": true
+    },
+    {
+      "name": "提交载荷：26800 分 / CNY / 3 个月同时发两列",
+      "ok": true,
+      "detail": {
+        "name": "载荷校验",
+        "address": "10.10.0.98",
+        "xray_mode": "external",
+        "country_code": "",
+        "port_start": null,
+        "port_end": null,
+        "port_allow": [],
+        "paid_until": null,
+        "price_cents": 26800,
+        "currency": "CNY",
+        "billing_cycle": null,
+        "billing_cycle_count": 3,
+        "billing_cycle_unit": "month"
+      }
+    },
+    {
+      "name": "默认空：数量 + 单位都未填写（dark-390）",
+      "ok": true,
+      "detail": {
+        "count": "",
+        "unit": "未填写"
+      }
+    },
+    {
+      "name": "选择「个月」后数量默认 1（dark-390）",
+      "ok": true
+    },
+    {
+      "name": "默认空：数量 + 单位都未填写（light-1440）",
+      "ok": true,
+      "detail": {
+        "count": "",
+        "unit": "未填写"
+      }
+    },
+    {
+      "name": "选择「个月」后数量默认 1（light-1440）",
+      "ok": true
+    },
+    {
+      "name": "默认空：数量 + 单位都未填写（light-390）",
+      "ok": true,
+      "detail": {
+        "count": "",
+        "unit": "未填写"
+      }
+    },
+    {
+      "name": "选择「个月」后数量默认 1（light-390）",
+      "ok": true
+    },
+    {
+      "name": "新建默认空：不提交周期字段（三列都是 null）",
+      "ok": true,
+      "detail": {
+        "billing_cycle_count": null,
+        "billing_cycle_unit": null,
+        "billing_cycle": null
+      }
+    },
+    {
+      "name": "卡片四种展示（dark-1440）",
+      "ok": true,
+      "detail": "月 / 3 个月 / 2 年 / 一次性"
+    },
+    {
+      "name": "卡片四种展示（dark-390）",
+      "ok": true,
+      "detail": "月 / 3 个月 / 2 年 / 一次性"
+    },
+    {
+      "name": "卡片四种展示（light-1440）",
+      "ok": true,
+      "detail": "月 / 3 个月 / 2 年 / 一次性"
+    },
+    {
+      "name": "卡片四种展示（light-390）",
+      "ok": true,
+      "detail": "月 / 3 个月 / 2 年 / 一次性"
+    },
+    {
+      "name": "无价格时显示完整周期文案「未配置 / 1 个月」",
+      "ok": true,
+      "detail": "未配置 / 1 个月"
+    },
+    {
+      "name": "详情展示 月（dark-1440）",
+      "ok": true,
+      "detail": "费用与流量 费用与到期 ¥268.00 / 月 26 天后到期 2026-12-18 26 / 30 天 按月估算 累计流量 · 自开机以来 — — —"
+    },
+    {
+      "name": "详情展示 月（dark-390）",
+      "ok": true,
+      "detail": "费用与流量 费用与到期 ¥268.00 / 月 26 天后到期 2026-12-18 26 / 30 天 按月估算 累计流量 · 自开机以来 — — —"
+    },
+    {
+      "name": "详情展示 月（light-1440）",
+      "ok": true,
+      "detail": "费用与流量 费用与到期 ¥268.00 / 月 26 天后到期 2026-12-18 26 / 30 天 按月估算 累计流量 · 自开机以来 — — —"
+    },
+    {
+      "name": "详情展示 月（light-390）",
+      "ok": true,
+      "detail": "费用与流量 费用与到期 ¥268.00 / 月 26 天后到期 2026-12-18 26 / 30 天 按月估算 累计流量 · 自开机以来 — — —"
+    },
+    {
+      "name": "详情展示 2 年（dark-1440）",
+      "ok": true,
+      "detail": "费用与流量 费用与到期 ¥999.00 / 2 年 100 天后到期 2027-03-02 100 / 730 天 累计流量 · 自开机以来 — — —"
+    },
+    {
+      "name": "详情展示 2 年（dark-390）",
+      "ok": true,
+      "detail": "费用与流量 费用与到期 ¥999.00 / 2 年 100 天后到期 2027-03-02 100 / 730 天 累计流量 · 自开机以来 — — —"
+    },
+    {
+      "name": "详情展示 2 年（light-1440）",
+      "ok": true,
+      "detail": "费用与流量 费用与到期 ¥999.00 / 2 年 100 天后到期 2027-03-02 100 / 730 天 累计流量 · 自开机以来 — — —"
+    },
+    {
+      "name": "详情展示 2 年（light-390）",
+      "ok": true,
+      "detail": "费用与流量 费用与到期 ¥999.00 / 2 年 100 天后到期 2027-03-02 100 / 730 天 累计流量 · 自开机以来 — — —"
+    },
+    {
+      "name": "详情展示 一次性（dark-1440）",
+      "ok": true,
+      "detail": "费用与流量 费用与到期 ¥199.00 / 一次性 221 天后到期 2027-07-01 累计流量 · 自开机以来 — — —"
+    },
+    {
+      "name": "详情展示 一次性（dark-390）",
+      "ok": true,
+      "detail": "费用与流量 费用与到期 ¥199.00 / 一次性 221 天后到期 2027-07-01 累计流量 · 自开机以来 — — —"
+    },
+    {
+      "name": "详情展示 一次性（light-1440）",
+      "ok": true,
+      "detail": "费用与流量 费用与到期 ¥199.00 / 一次性 221 天后到期 2027-07-01 累计流量 · 自开机以来 — — —"
+    },
+    {
+      "name": "详情展示 一次性（light-390）",
+      "ok": true,
+      "detail": "费用与流量 费用与到期 ¥199.00 / 一次性 221 天后到期 2027-07-01 累计流量 · 自开机以来 — — —"
+    },
+    {
+      "name": "详情展示 3 个月（dark-1440）",
+      "ok": true,
+      "detail": "费用与流量 费用与到期 ¥268.00 / 3 个月 2 天后到期 2026-11-24 2 / 90 天 累计流量 · 自开机以来 — — —"
+    },
+    {
+      "name": "详情展示 3 个月（dark-390）",
+      "ok": true,
+      "detail": "费用与流量 费用与到期 ¥268.00 / 3 个月 2 天后到期 2026-11-24 2 / 90 天 累计流量 · 自开机以来 — — —"
+    },
+    {
+      "name": "详情展示 3 个月（light-1440）",
+      "ok": true,
+      "detail": "费用与流量 费用与到期 ¥268.00 / 3 个月 2 天后到期 2026-11-24 2 / 90 天 累计流量 · 自开机以来 — — —"
+    },
+    {
+      "name": "详情展示 3 个月（light-390）",
+      "ok": true,
+      "detail": "费用与流量 费用与到期 ¥268.00 / 3 个月 2 天后到期 2026-11-24 2 / 90 天 累计流量 · 自开机以来 — — —"
+    }
+  ],
+  "failures": []
+}

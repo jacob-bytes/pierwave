@@ -393,6 +393,13 @@ export interface PublicStatusServer {
   /** 计费周期：`monthly` / `yearly` / `once`；旧后端可能缺失。 */
   billing_cycle?: string | null;
   /**
+   * 计费周期数量（1–1200）；与 `billing_cycle_unit` 成对。
+   * 旧后端 / 旧数据没有这两个字段，前端回落到 `billing_cycle`。
+   */
+  billing_cycle_count?: number | null;
+  /** 计费周期单位：`month` / `year` / `once`；与数量成对。 */
+  billing_cycle_unit?: string | null;
+  /**
    * 管理员关闭了「公开到期与价格」。`true` 时卡片显示「未公开」，
    * 与「未配置」不同；旧后端不返回该字段，按未隐藏处理。
    */
@@ -601,14 +608,20 @@ export interface Server {
   /**
    * 费用与到期（可选公开展示数据，见 `crates/domain/src/billing.rs`）：
    * 填了会出现在公开状态页，四个字段互相独立。旧后端可能整组缺失。
+   *
+   * 计费周期拆成「数量 + 单位」；旧后端只有派生的 `billing_cycle`，前端回落。
    */
   paid_until?: string | null;
   /** 价格（分）；0 是合法的「免费」，null = 未填写。 */
   price_cents?: number | null;
   /** 3 位大写币种代码（如 CNY / USD / EUR）。 */
   currency?: string | null;
-  /** 计费周期：monthly / yearly / once。 */
+  /** 计费周期：monthly / yearly / once（旧派生字段，保留兼容）。 */
   billing_cycle?: string | null;
+  /** 计费周期数量（1–1200）；与 `billing_cycle_unit` 成对，旧后端缺失。 */
+  billing_cycle_count?: number | null;
+  /** 计费周期单位：month / year / once；旧后端缺失。 */
+  billing_cycle_unit?: string | null;
   /** Agent 最近一次上报的网卡；缺失 = 旧后端从未上报。 */
   interfaces?: ServerInterface[];
   /** 该服务器还未上报过网卡时为 true。 */
@@ -635,7 +648,12 @@ export interface CreateServerInput {
   paid_until?: string | null;
   price_cents?: number | null;
   currency?: string | null;
+  /** 旧派生字段；新契约同时发数量与单位，两者留空时一并发 null。 */
   billing_cycle?: string | null;
+  /** 计费周期数量（1–1200）；与 `billing_cycle_unit` 成对。 */
+  billing_cycle_count?: number | null;
+  /** 计费周期单位：month / year / once。 */
+  billing_cycle_unit?: string | null;
 }
 
 export interface UpdateServerInput {
@@ -663,6 +681,10 @@ export interface UpdateServerInput {
   currency?: string | null;
   /** 计费周期；缺省 = 不改，null = 清空，值 = 覆盖。 */
   billing_cycle?: string | null;
+  /** 计费周期数量；缺省 = 不改，null = 清空，值 = 覆盖。 */
+  billing_cycle_count?: number | null;
+  /** 计费周期单位；缺省 = 不改，null = 清空，值 = 覆盖。 */
+  billing_cycle_unit?: string | null;
 }
 
 export interface CreateServerResponse {

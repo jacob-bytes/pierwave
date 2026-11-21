@@ -90,13 +90,14 @@ used to enumerate hidden servers. The disabled check runs before the id lookup.
 |---|---|---|---|
 | `public_status_enabled` | `settings` 表（`"0"` / `"1"`） | `"1"` | 整页总开关；`"0"` 时接口 404（`public_status.disabled`）。 |
 | `servers.public_visible` | 每台服务器一列（迁移 `0064`） | `1` | 该服务器是否出现在公开页。 |
-| `public_billing_visible` | `settings` 表（`"0"` / `"1"`） | `"1"` | 费用与到期四列是否公开；`"0"` 时四列一律 `null`。 |
+| `public_billing_visible` | `settings` 表（`"0"` / `"1"`） | `"1"` | 费用与到期字段是否公开；`"0"` 时这些字段一律 `null`（含计费周期数量 / 单位 / 派生旧值）。 |
 
 两层配置都在**缓存之前**或写入时清缓存，改动立即生效，不会等 30 秒 TTL。
 
 English: two independent visibility layers. `public_status_enabled` is the
 whole-page switch (404 when `"0"`); `servers.public_visible` decides whether a
-single server appears; `public_billing_visible` hides the four billing columns
+single server appears; `public_billing_visible` hides the billing fields
+(including the billing-cycle count / unit pair and its derived legacy value)
 globally. Both settings are applied before the 30s response cache (and writes
 flush it), so changes take effect immediately.
 
@@ -194,11 +195,12 @@ The audit action is `settings.public_status_servers`, recording only the before
   "panel_name": "Pierwave",
   "billing_hidden": true,
   "servers": [{ "paid_until": null, "price_cents": null,
-                "currency": null, "billing_cycle": null, /* ... */ }]
+                "currency": null, "billing_cycle_count": null,
+                "billing_cycle_unit": null, "billing_cycle": null, /* ... */ }]
 }
 ```
 
-| `public_billing_visible` | `billing_hidden` | `paid_until` / `price_cents` / `currency` / `billing_cycle` |
+| `public_billing_visible` | `billing_hidden` | 费用字段（`paid_until` / `price_cents` / `currency` / `billing_cycle_count` / `billing_cycle_unit` / `billing_cycle`） |
 |---|---|---|
 | `"1"`（默认） | `false` | 管理员填了就返回真实值；没填 / 存量值非法是 `null`。 |
 | `"0"` | `true` | 一律 `null`，不看数据库里的实际值。 |
@@ -206,7 +208,7 @@ The audit action is `settings.public_status_servers`, recording only the before
 - 它解决的是**歧义**：`paid_until: null` 既可能是「没有配置」，也可能是
   「配置了但不公开」。`billing_hidden = true` 说明是后者，前端应显示
   「未公开」而不是「未填写」。
-- 隐藏是**服务端**行为：四个字段在 JSON 里根本不会出现真实值，不是前端
+- 隐藏是**服务端**行为：这些字段在 JSON 里根本不会出现真实值，不是前端
   不渲染。
 - 旧数据兼容：没有 `public_billing_visible` 键（升级前就存在的库）按默认
   `"1"` 处理，`billing_hidden = false`，公开页行为与升级前完全一致。旧客户端
@@ -215,12 +217,39 @@ The audit action is `settings.public_status_servers`, recording only the before
   `billing_hidden` 无关；迁移 `0062` 的修复逻辑不变。
 
 English: the top-level `billing_hidden` disambiguates `null`. With the default
-`"1"` it is `false` and the four fields carry real values when configured (or
-`null` when unset/invalid). With `"0"` it is `true` and all four are `null`
+`"1"` it is `false` and the billing fields carry real values when configured (or
+`null` when unset/invalid). With `"0"` it is `true` and all of them are `null`
 regardless of the stored values — hiding happens on the server, not in the
 client. Databases without the `public_billing_visible` key behave exactly like
 before the upgrade (`billing_hidden: false`); old clients can ignore the new
 field. Dirty legacy billing values still degrade to `null` as before.
+
+### 计费周期：数量 + 单位 / Billing cycle: count + unit
+
+迁移 `0067` 把计费周期从三选一改为「数量 + 单位」，公开行同时返回三列：
+
+| 字段 | 含义 |
+|---|---|
+| `billing_cycle_count` | 数量，`1..=1200` 的整数（1200 个月 = 100 年） |
+| `billing_cycle_unit` | 单位：`month` / `year` / `once` |
+| `billing_cycle` | 旧版单值周期，**派生镜像**，只为旧客户端保留 |
+
+- 数量与单位必须**同时有值或同时为 `null`**；`unit = "once"` 时数量必须是 `1`。
+- `billing_cycle` 的派生口径：`1 month → "monthly"`、`1 year → "yearly"`、
+  `once → "once"`，其它组合（例如 3 个月、2 年）为 `null`——不能为了兼容旧字段
+  把「3 个月」谎报成 `monthly`。
+- 升级兼容：迁移 `0067` 会把旧值回填成 `1 + 对应单位`；如果手工改库/旧二进制
+  只写了旧列，读路径会回退旧列按 1 个对应单位展示，公开页不会突然变成「未填写」。
+- `billing_hidden = true` 时上述三列**全部**为 `null`，与其它费用字段同口径。
+
+English: migration `0067` replaces the single-value cycle with a count + unit
+pair. `billing_cycle_count` is `1..=1200` and `billing_cycle_unit` is
+`month` / `year` / `once`; both are set together or both `null`, and `once`
+always uses count `1`. `billing_cycle` remains as a derived mirror for old
+clients: `1 month → "monthly"`, `1 year → "yearly"`, `once → "once"`, anything
+else (e.g. 3 months, 2 years) is `null`. `0067` backfills legacy rows; when the
+new columns are empty, the read path falls back to the legacy column as one
+unit. With `billing_hidden = true` all three are `null`.
 
 ## 节点详情字段 / Node detail fields
 
@@ -633,7 +662,7 @@ to the identity response.
 ### 1000 台基线（拆前 / 拆后、压缩前后）/ Baseline at 1000 servers
 
 测量方法：临时 SQLite，1000 台服务器，每台填满白名单字段（UUID、中文名、国家、
-分组、费用四列）、24 个小时桶（每小时 2 条采样，`online_ratio` 出现 0 / 0.5 / 1）、
+分组、费用字段）、24 个小时桶（每小时 2 条采样，`online_ratio` 出现 0 / 0.5 / 1）、
 7 个自然日桶；响应体是 gzip 前的原始 JSON 字节数。耗时是本机 loopback、debug
 构建、15 轮热缓存（30 秒缓存命中）的 p50；冷缓存 = 进程启动后第一次请求。
 复跑：`scripts/bench-public-status.sh`（造数与 curl 都在脚本里），单元级的
@@ -742,6 +771,9 @@ on write; the public page only reads the last 60 minutes.
   （`BillingMeta::validated`）本来就拒绝单边组合，所以这些行只可能来自旧版本 /
   手工改库。迁移只 `UPDATE` 这两列，可重复执行；同行的 `paid_until` /
   `billing_cycle` 不受影响。
+- 迁移 `0067` 新增 `billing_cycle_count` / `billing_cycle_unit` 两列，并把
+  `billing_cycle` 的三种旧值回填成 `1 + month/year/once`；旧列保留为只读派生
+  镜像，写路径同时维护三列，旧客户端与旧备份继续可用。
 - 采样行保留 7 天，正好覆盖 `buckets_7d` 的窗口；更早的行在写入时清理。
 
 English: `server_samples` was created by migration `0018`; `latency_ms` was added
@@ -757,7 +789,10 @@ is a **data repair**: it resets unpaired `price_cents` / `currency` rows to
 `NULL` and keeps complete pairs; the write path already rejects one-sided pairs,
 so these rows can only come from older versions or hand-edited databases. It
 only updates those two columns (idempotent; `paid_until` / `billing_cycle` are
-untouched). Samples are retained for 7 days, enough for `buckets_7d`; older rows
+untouched). Migration `0067` adds `billing_cycle_count` / `billing_cycle_unit`
+and backfills the three legacy `billing_cycle` values as `1 + month/year/once`;
+the legacy column stays as a read-only derived mirror maintained by the write
+path, so old clients and old backups keep working. Samples are retained for 7 days, enough for `buckets_7d`; older rows
 are pruned on write.
 
 ### 响应示例 / Example

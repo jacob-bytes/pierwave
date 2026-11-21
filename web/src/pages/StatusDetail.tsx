@@ -39,6 +39,7 @@ import {
   availabilityConclusion,
   availabilityPercentText,
   availabilityTone,
+  billingCycleText,
   expiryLabel,
   hasSamples,
   inboundCount,
@@ -857,17 +858,21 @@ function BillingTrafficCard({
 }) {
   const { t } = useI18n();
   const billing = publicBilling(server);
+  const cycle = billingCycleText(server);
   const hiddenBilling = billingHidden(server);
   const hasBilling =
     hiddenBilling ||
     billing.paidUntil !== null ||
     billing.price !== null ||
-    billing.cycleKey !== null;
+    cycle !== null;
   const expiry =
     billing.days === null ? null : expiryLabel(billing.days);
   const expiryText =
     expiry === null ? null : t(expiry.key, expiry.values);
-  const cycle = billing.cycleKey === null ? null : t(billing.cycleKey);
+  const cycleSuffix =
+    cycle === null ? null : t(cycle.suffixKey, cycle.suffixValues);
+  const cycleLabel =
+    cycle === null ? null : t(cycle.labelKey, cycle.labelValues);
   const expired = billing.days !== null && billing.days < 0;
 
   const rx =
@@ -891,12 +896,8 @@ function BillingTrafficCard({
       ? Math.min(100, Math.max(0, (rx / (rx + tx)) * 100))
       : null;
 
-  const cycleDays =
-    billing.cycleKey === "publicStatus.server.cycle.monthly"
-      ? 30
-      : billing.cycleKey === "publicStatus.server.cycle.yearly"
-        ? 365
-        : null;
+  // 一个周期的天数：1 个月 = 30 天、3 个月 = 90 天；一次性没有周期进度。
+  const cycleDays = cycle?.days ?? null;
   const remainingDays =
     billing.days === null || cycleDays === null
       ? null
@@ -905,12 +906,15 @@ function BillingTrafficCard({
     remainingDays === null || cycleDays === null
       ? null
       : (remainingDays / cycleDays) * 100;
+  // 「按月 / 按年估算」只在单个周期（数量 1）时成立；3 个月、2 年不猜单价。
   const cycleEstimate =
-    cycleDays === 30
-      ? t("publicStatus.detail.estimatedMonthly")
-      : cycleDays === 365
-        ? t("publicStatus.detail.estimatedYearly")
-        : null;
+    cycle === null || cycle.count !== 1
+      ? null
+      : cycle.unit === "month"
+        ? t("publicStatus.detail.estimatedMonthly")
+        : cycle.unit === "year"
+          ? t("publicStatus.detail.estimatedYearly")
+          : null;
 
   const uptimeHours =
     typeof server.uptime_secs === "number" &&
@@ -961,8 +965,10 @@ function BillingTrafficCard({
                       {billing.price}
                     </span>
                   )}
-                  {cycle === null ? null : (
-                    <span className={cn(UNIT_CLASS, "shrink-0")}>/ {cycle}</span>
+                  {cycleSuffix === null || cycleLabel === null ? null : (
+                    <span className={cn(UNIT_CLASS, "shrink-0")}>
+                      / {billing.price === null ? cycleLabel : cycleSuffix}
+                    </span>
                   )}
                 </div>
                 {expiryText === null ? null : (

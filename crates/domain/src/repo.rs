@@ -1708,36 +1708,48 @@ pub mod servers {
         )
     }
 
-    /// 按列更新「费用与到期」四列（迁移 0061 / 0062）。
+    /// 按列更新「费用与到期」六列（迁移 0061 / 0067）。
     ///
     /// 每个参数是三态：[`Patch::Missing`] = 不改；[`Patch::Null`] = 清空为 NULL；
     /// [`Patch::Value`] = 写入该值。SQL 用 `CASE WHEN ? THEN ? ELSE col END` 逐列
     /// 写入，**只碰调用方声明改动的列**。
     ///
+    /// `billing_cycle_count` / `billing_cycle_unit` / `billing_cycle` 是**一组**：
+    /// 前两列是事实来源，最后一列是迁移 0067 保留的派生镜像。调用方改动其中
+    /// 任意一列时都应把三列一起写，否则会留下「新列说 3 个月、旧列说 monthly」
+    /// 的不一致行。
+    ///
     /// 这是并发正确性的关键：PATCH 的「读快照 → 合并 → 校验」只用于校验，
-    /// 不能拿合并后的整份快照覆盖四列，否则两个并发的部分更新会互相抹掉，
+    /// 不能拿合并后的整份快照覆盖所有列，否则两个并发的部分更新会互相抹掉，
     /// 且本次没有修改的存量脏值会被顺带清成 NULL。
     ///
     /// 仓储层不重复校验：写路径先经 [`crate::billing::BillingMeta::validated`]，
     /// 读路径由 [`crate::billing::BillingMeta::from_server`] 容错；这里保持与
     /// `set_country_code` 一致的「只落库」职责，也方便测试直接写入非法存量值。
+    #[allow(clippy::too_many_arguments)]
     pub async fn set_billing(
         pool: &SqlitePool,
         id: &str,
         paid_until: Patch<Option<&str>>,
         price_cents: Patch<Option<i64>>,
         currency: Patch<Option<&str>>,
+        billing_cycle_count: Patch<Option<i64>>,
+        billing_cycle_unit: Patch<Option<&str>>,
         billing_cycle: Patch<Option<&str>>,
     ) -> anyhow::Result<()> {
         let paid_until_set = paid_until.is_set();
         let price_cents_set = price_cents.is_set();
         let currency_set = currency.is_set();
+        let billing_cycle_count_set = billing_cycle_count.is_set();
+        let billing_cycle_unit_set = billing_cycle_unit.is_set();
         let billing_cycle_set = billing_cycle.is_set();
         sqlx::query(
             "UPDATE servers SET
                 paid_until = CASE WHEN ? THEN ? ELSE paid_until END,
                 price_cents = CASE WHEN ? THEN ? ELSE price_cents END,
                 currency = CASE WHEN ? THEN ? ELSE currency END,
+                billing_cycle_count = CASE WHEN ? THEN ? ELSE billing_cycle_count END,
+                billing_cycle_unit = CASE WHEN ? THEN ? ELSE billing_cycle_unit END,
                 billing_cycle = CASE WHEN ? THEN ? ELSE billing_cycle END
               WHERE id = ?",
         )
@@ -1747,6 +1759,10 @@ pub mod servers {
         .bind(price_cents.value().flatten())
         .bind(currency_set)
         .bind(currency.value().flatten())
+        .bind(billing_cycle_count_set)
+        .bind(billing_cycle_count.value().flatten())
+        .bind(billing_cycle_unit_set)
+        .bind(billing_cycle_unit.value().flatten())
         .bind(billing_cycle_set)
         .bind(billing_cycle.value().flatten())
         .bind(id)
@@ -2400,6 +2416,8 @@ pub mod servers {
                 Patch::Value(Some(1200)),
                 Patch::Missing,
                 Patch::Missing,
+                Patch::Missing,
+                Patch::Missing,
             )
             .await
             .unwrap();
@@ -2407,6 +2425,8 @@ pub mod servers {
                 &pool,
                 &id,
                 Patch::Value(Some("2027-01-01")),
+                Patch::Missing,
+                Patch::Missing,
                 Patch::Missing,
                 Patch::Missing,
                 Patch::Missing,
@@ -2440,6 +2460,8 @@ pub mod servers {
                 &id,
                 Patch::Missing,
                 Patch::Value(Some(1200)),
+                Patch::Missing,
+                Patch::Missing,
                 Patch::Missing,
                 Patch::Missing,
             )

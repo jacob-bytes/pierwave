@@ -219,20 +219,31 @@ sudo systemctl daemon-reload && sudo systemctl restart pierwave-agent
 
 ## 服务器费用与到期 / Server cost and expiry
 
-迁移 `0061` 给 `servers` 增加四个**可选**展示字段。它们不参与鉴权、期望态下发、限速或
-用户计费，改它们不会触发 Agent 下发；只是给公开探针页提供展示数据。迁移 `0062` 是
-一次性数据修复（见下）。
+迁移 `0061` 给 `servers` 增加费用/到期展示字段，迁移 `0067` 把计费周期扩展为
+「数量 + 单位」并新增两列。它们都不参与鉴权、期望态下发、限速或用户计费，改它们
+不会触发 Agent 下发；只是给公开探针页提供展示数据。迁移 `0062` / `0065` 是一次性
+数据修复（见下）。
 
 | 字段 | 类型 | 含义 |
 |---|---|---|
 | `paid_until` | `TEXT`，`YYYY-MM-DD` | 到期日：`1970-01-01` 到 `2100-12-31` 之间真实存在的日期 |
 | `price_cents` | `INTEGER` | 价格（分）；`0` 合法，上限 `999_999_999`（约 1000 万元）；只接受整数或 `null` |
 | `currency` | `TEXT` | 3 位大写币种代码（`CNY` / `USD` / `EUR` ...） |
-| `billing_cycle` | `TEXT` | `monthly` / `yearly` / `once` |
+| `billing_cycle_count` | `INTEGER` | 计费周期数量：`1..=1200`（1200 个月 = 100 年）；与单位成对 |
+| `billing_cycle_unit` | `TEXT` | 计费周期单位：`month` / `year` / `once`；与数量成对 |
+| `billing_cycle` | `TEXT` | 旧版单值周期（`monthly` / `yearly` / `once`），**只读派生镜像**，兼容旧客户端 |
 
-创建与 `PATCH /api/v1/servers[/{id}]` 接受这四个**扁平字段**（命名与列名一致）：
+创建与 `PATCH /api/v1/servers[/{id}]` 接受这些**扁平字段**（命名与列名一致）：
 
-- `paid_until` 与 `billing_cycle` 可以独立填写；
+- `paid_until` 与计费周期可以独立填写；
+- **`billing_cycle_count` 与 `billing_cycle_unit` 必须成对**：同时有值或同时为空。
+  数量是 `1..=1200` 的整数，单位只能是 `month` / `year` / `once`；`once` 时数量
+  必须是 `1`（`2 + once` 返回 400，而不是静默改成 1）。只填一半返回 400
+  `server.billing_cycle_pair_incomplete`，`params.missing` 指明缺哪个。
+- 旧字段 `billing_cycle` 仍可作为**兼容输入**（按 1 个月 / 1 年 / 一次性映射）；
+  新字段同时出现时以新字段为准。响应里的 `billing_cycle` 永远是派生值：
+  `1 month → monthly`、`1 year → yearly`、`once → once`，其它组合（3 个月、2 年）
+  为 `null`，旧客户端读到的语义不变。
 - **`price_cents` 与 `currency` 必须成对**：同时有值或同时为空。只填一半返回 400
   `server.billing_pair_incomplete`，`params.missing` 指明缺哪个（`price_cents` / `currency`）。
   这样后端与前端契约一致：不会出现「管理员填了价格，公开页却因为缺币种整组隐藏」。
@@ -243,11 +254,13 @@ sudo systemctl daemon-reload && sudo systemctl restart pierwave-agent
   一个时，另一列用读取到的有效值一起写进同一条 `UPDATE`，两个并发部分更新不会留下
   「有价格没币种」的半对行；读路径遇到历史半对行时把两列整组降级为 `null`。
 - 校验失败返回 400，错误码 `server.paid_until_invalid` / `server.price_cents_invalid` /
-  `server.currency_invalid` / `server.billing_cycle_invalid` /
+  `server.currency_invalid` / `server.billing_cycle_count_invalid` /
+  `server.billing_cycle_unit_invalid` / `server.billing_cycle_once_count_invalid` /
+  `server.billing_cycle_pair_incomplete` / `server.billing_cycle_invalid`（旧字段）/
   `server.billing_pair_incomplete`，`params` 带 `field` 与允许范围（完整表见
-  [ERRORS.md](ERRORS.md)）。管理员服务器列表与公开探针页都返回这四个字段。
+  [ERRORS.md](ERRORS.md)）。管理员服务器列表与公开探针页都返回这些字段。
 - 公开页是否展示它们由设置项 `public_billing_visible`（默认 `"1"`）整体控制：设为
-  `"0"` 时四个字段一律返回 `null`，响应顶层 `billing_hidden = true`，前端据此显示
+  `"0"` 时费用字段（含计费周期三列）一律返回 `null`，响应顶层 `billing_hidden = true`，前端据此显示
   「未公开」而不是「未填写」。单个服务器是否出现在公开页由 `servers.public_visible`
   （迁移 `0064`，默认 `1`）控制，详见 [PUBLIC-STATUS.md](PUBLIC-STATUS.md)。
 
@@ -257,23 +270,29 @@ sudo systemctl daemon-reload && sudo systemctl restart pierwave-agent
 迁移 `0062` 在升级时把类型损坏与值域非法的列一次性置 `NULL`（可重复执行，只改这四列）。
 正常写入路径产生不了这类值。
 
-> **Server cost and expiry.** Migration `0061` adds four optional display columns to
-> `servers`; migration `0062` is a one-off repair of legacy dirty values in those columns.
-> They never affect auth, desired-state dispatch, rate limits or user billing.
+> **Server cost and expiry.** Migration `0061` adds optional display columns to
+> `servers`, and migration `0067` expands the billing cycle into a count + unit pair.
+> Migration `0062` is a one-off repair of legacy dirty values. None of them affect auth,
+> desired-state dispatch, rate limits or user billing.
 > `paid_until` is a real `YYYY-MM-DD` date between `1970-01-01` and `2100-12-31`.
 > `price_cents` accepts **only an integer or `null`** — send `null`, not `""`, to clear it;
-> a JSON type error is mapped globally to 422 + `request.invalid_json`. `paid_until` and
-> `billing_cycle` may be set independently, but **`price_cents` and `currency` must be
-> provided together** (both set or both empty), otherwise 400
-> `server.billing_pair_incomplete` with `params.missing`. PATCH is tri-state per field
-> (omitted = unchanged, `null`/empty = clear). Price and currency are written **as a pair**:
-> if either one is carried, the other is filled from the effective value and both go into
-> the same `UPDATE`, so concurrent partial updates cannot leave a price without a currency;
-> the read path degrades a legacy half pair to `null` for both. Invalid values return 400
-> (codes and params in [ERRORS.md](ERRORS.md)). Admin lists and the public probe return all
-> four fields.
+> a JSON type error is mapped globally to 422 + `request.invalid_json`. `paid_until` and the
+> billing cycle may be set independently, but **`price_cents` and `currency` must be
+> provided together**, and so must **`billing_cycle_count` and `billing_cycle_unit`**
+> (both set or both empty), otherwise 400 `server.billing_pair_incomplete` /
+> `server.billing_cycle_pair_incomplete` with `params.missing`. The count is `1..=1200`,
+> the unit is `month` / `year` / `once`, and `once` requires count `1` (rejected, not
+> silently normalized). PATCH is tri-state per field (omitted = unchanged, `null`/empty =
+> clear; an explicit `null` on either cycle field clears the pair). Price/currency are
+> written **as a pair**, and the cycle's three columns (count, unit, derived legacy
+> `billing_cycle`) are written together. The read path degrades legacy half pairs to
+> `null`. Invalid values return 400 (codes and params in [ERRORS.md](ERRORS.md)). Admin
+> lists and the public probe return the fields, including the derived legacy
+> `billing_cycle`: `1 month → "monthly"`, `1 year → "yearly"`, `once → "once"`, anything
+> else (3 months, 2 years) is `null`. The old `billing_cycle` input is still accepted as
+> a compatibility fallback (mapped to one unit); new fields take precedence.
 > Whether the public page shows them is controlled globally by
-> `public_billing_visible` (default `"1"`): when `"0"`, all four fields are `null`
+> `public_billing_visible` (default `"1"`): when `"0"`, all billing fields are `null`
 > and the top-level `billing_hidden` is `true`, so the UI can say "not public"
 > instead of "not set". Per-server page visibility is `servers.public_visible`
 > (migration `0064`, default `1`); see [PUBLIC-STATUS.md](PUBLIC-STATUS.md).
