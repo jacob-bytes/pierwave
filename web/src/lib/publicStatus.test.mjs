@@ -973,19 +973,18 @@ test("card traffic row leads every figure with an icon and three columns", () =>
   assert.match(card, /未配置|notSet/);
 });
 
-test("card selection is a thick primary ring plus a text badge, not status color", () => {
+test("card hover raises the edge without making the card a button", () => {
   const card = read("../components/status/ServerCard.tsx");
-  assert.match(card, /role="button"/);
-  assert.match(card, /tabIndex=\{0\}/);
-  assert.match(card, /aria-pressed=\{selected\}/);
-  // 1px 边框在部分屏幕/缩放比例下会被看漏，用 2px + 主色底 + 文字徽标三重表达。
-  assert.match(card, /ring-2 ring-primary shadow-sm/);
-  assert.match(card, /bg-primary\/\[0\.04\]/);
-  assert.match(card, /publicStatus\.selected/);
-  assert.match(card, /hover:ring-primary\/50/);
-  assert.match(card, /event\.key === "Enter"/);
-  // 状态 chip / 状态点仍由 state 决定，选中态不参与。
-  assert.match(card, /<StatusChip[\s\S]{0,80}state=\{state\}/);
+  // 悬停提示"可点/可看"，不做单选状态机：卡片不再可聚焦、没有 aria-pressed。
+  assert.match(card, /hover:ring-2/);
+  assert.match(card, /hover:ring-primary\/60/);
+  assert.match(card, /hover:shadow-sm/);
+  assert.doesNotMatch(card, /aria-pressed/);
+  assert.doesNotMatch(card, /toggleSelected/);
+  assert.doesNotMatch(card, /role="button"/);
+  assert.doesNotMatch(card, /cursor-pointer/);
+  // 状态 chip / 状态点仍由 state 决定。
+  assert.match(card, /<StatusChip state=\{state\}/);
 });
 
 test("expiryDays counts UTC+8 business days", () => {

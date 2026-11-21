@@ -198,7 +198,6 @@ const en = {
     loading: "Loading status…",
     updatedAt: "Updated {time}",
     autoRefreshHint: "Refreshes every 20 seconds",
-    selected: "Selected",
     allOfflineNote: "Last updated {time}",
     header: {
       connecting: "Connecting…",

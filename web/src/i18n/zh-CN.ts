@@ -192,7 +192,6 @@ const zhCN = {
     loading: "正在加载状态…",
     updatedAt: "更新于 {time}",
     autoRefreshHint: "每 20 秒自动刷新",
-    selected: "已选中",
     allOfflineNote: "最近一次更新 {time}",
     header: {
       connecting: "连接中…",
