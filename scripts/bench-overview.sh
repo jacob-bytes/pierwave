@@ -4,7 +4,9 @@
 #
 # English: overview-only benchmark. Seeds 10k users, 1000 nodes and 30 days of
 # traffic, then measures the first (cold) request plus steady-state p50 / p95
-# of GET /api/v1/overview and prints the query plans.
+# of GET /api/v1/overview and prints the query plans. Set WRITE_EVERY_MS=200 to
+# add a background traffic writer; INTERVAL_MS spaces requests apart (use 250
+# with REPEAT=50 to cross the 12 s cache TTL).
 #
 # 用法 / Usage:
 #   scripts/bench-overview.sh                 # 缓存开启（默认 TTL 12s），跑 20 轮
@@ -12,6 +14,10 @@
 #   CACHE=0 scripts/bench-overview.sh         # 关闭缓存，测「只读日汇总」的冷成本
 #   NO_SEED=1 scripts/bench-overview.sh       # 复用已有数据库
 #   PLAN=1 scripts/bench-overview.sh          # 额外打印 EXPLAIN QUERY PLAN
+#   WRITE_EVERY_MS=200 scripts/bench-overview.sh
+#                                             # 后台每 200ms 写一次流量（模拟 Agent 上报）
+#   INTERVAL_MS=250 REPEAT=50 WRITE_EVERY_MS=200 scripts/bench-overview.sh
+#                                             # 每 250ms 请求一次，跨过 12s TTL 看真实命中
 #   KEEP=1 scripts/bench-overview.sh          # 结束后保留 master 与数据
 #
 # 依赖 / Requires: cargo（仓库内 CARGO_HOME）、sqlite3、curl、python3。
@@ -26,6 +32,8 @@ REPEAT=${REPEAT:-20}
 WARMUP=${WARMUP:-3}
 CACHE=${CACHE:-1}
 PLAN=${PLAN:-0}
+WRITE_EVERY_MS=${WRITE_EVERY_MS:-0}
+INTERVAL_MS=${INTERVAL_MS:-0}
 ADMIN_PASSWORD=${ADMIN_PASSWORD:-benchpass}
 NO_SEED=${NO_SEED:-0}
 KEEP=${KEEP:-0}
@@ -50,13 +58,57 @@ DB_URL="sqlite://${DB}?mode=rwc"
 mkdir -p "$WORK"
 
 MASTER_PID=""
+WRITER_PID=""
 cleanup() {
+  stop_writer
   if [ -n "$MASTER_PID" ] && kill -0 "$MASTER_PID" 2>/dev/null; then
     kill "$MASTER_PID" 2>/dev/null || true
     wait "$MASTER_PID" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT
+
+# 后台写入：模拟生产里 Agent 持续上报。直接写 traffic_daily / traffic_node_daily，
+# 触发器会同步维护日汇总；每写成功一次就更新计数文件。
+start_writer() {
+  [ "$WRITE_EVERY_MS" -gt 0 ] || return 0
+  rm -f "$WORK/stop-writer" "$WORK/writer.count"
+  local interval_s
+  interval_s=$(awk "BEGIN { printf \"%.3f\", $WRITE_EVERY_MS / 1000 }")
+  (
+    count=0
+    while [ ! -f "$WORK/stop-writer" ]; do
+      if sqlite3 -cmd '.timeout 5000' "$DB" <<'SQL' >/dev/null 2>&1
+INSERT INTO traffic_daily (day, server_id, subject, uplink, downlink, weighted)
+VALUES (date('now','+8 hours'), 's-000', 'bench-writer', 1, 1, 2)
+ON CONFLICT(day, server_id, subject) DO UPDATE SET
+  uplink = traffic_daily.uplink + excluded.uplink,
+  downlink = traffic_daily.downlink + excluded.downlink,
+  weighted = traffic_daily.weighted + excluded.weighted;
+INSERT INTO traffic_node_daily (day, server_id, node_tag, user_id, uplink, downlink, weighted)
+VALUES (date('now','+8 hours'), 's-000', 'node0000', 'bench-writer', 1, 1, 2)
+ON CONFLICT(day, server_id, node_tag, user_id) DO UPDATE SET
+  uplink = traffic_node_daily.uplink + excluded.uplink,
+  downlink = traffic_node_daily.downlink + excluded.downlink,
+  weighted = traffic_node_daily.weighted + excluded.weighted;
+SQL
+      then
+        count=$((count + 1))
+        printf '%s\n' "$count" > "$WORK/writer.count"
+      fi
+      sleep "$interval_s"
+    done
+  ) &
+  WRITER_PID=$!
+}
+
+stop_writer() {
+  if [ -n "$WRITER_PID" ]; then
+    touch "$WORK/stop-writer"
+    wait "$WRITER_PID" 2>/dev/null || true
+    WRITER_PID=""
+  fi
+}
 
 start_master() {
   # CACHE=0 时显式把概览缓存 TTL 设为 0：只测日汇总本身的冷查询成本。
@@ -182,9 +234,10 @@ fi
 
 [ -f "$DB" ] || fail "数据库不存在：$DB（去掉 NO_SEED=1 可重建）"
 
-log "==> 启动 master（CACHE=${CACHE}，0=关闭概览缓存）"
+log "==> 启动 master（CACHE=${CACHE}，0=关闭概览缓存；WRITE_EVERY_MS=${WRITE_EVERY_MS}；INTERVAL_MS=${INTERVAL_MS}）"
 start_master
 login
+start_writer
 
 counts=$(sqlite3 "$DB" "SELECT (SELECT COUNT(*) FROM users)||' users, '||(SELECT COUNT(*) FROM nodes)||' nodes, '||(SELECT COUNT(*) FROM traffic_daily)||' traffic_daily, '||(SELECT COUNT(*) FROM traffic_node_daily)||' traffic_node_daily, '||(SELECT COUNT(*) FROM traffic_daily_rollup)||' rollup rows';")
 rollup_ok=$(sqlite3 "$DB" "SELECT CASE WHEN
@@ -202,10 +255,12 @@ export BENCH_WORK="$WORK"
 export BENCH_REPEAT="$REPEAT"
 export BENCH_WARMUP="$WARMUP"
 export BENCH_CACHE="$CACHE"
+export BENCH_WRITE_EVERY_MS="$WRITE_EVERY_MS"
+export BENCH_INTERVAL_MS="$INTERVAL_MS"
 export BENCH_COUNTS="$counts"
 
 python3 - "$WORK/raw-overview.json" <<'PY'
-import json, os, statistics, subprocess, sys
+import json, os, statistics, subprocess, sys, time
 
 base = os.environ["BENCH_BASE"]
 cookie = os.environ["BENCH_COOKIE"]
@@ -213,6 +268,8 @@ work = os.environ["BENCH_WORK"]
 repeat = int(os.environ["BENCH_REPEAT"])
 warmup = int(os.environ["BENCH_WARMUP"])
 cache = os.environ["BENCH_CACHE"]
+write_every_ms = int(os.environ["BENCH_WRITE_EVERY_MS"])
+interval_ms = int(os.environ["BENCH_INTERVAL_MS"])
 counts = os.environ["BENCH_COUNTS"]
 raw_path = sys.argv[1]
 path = "/api/v1/overview?days=7"
@@ -256,6 +313,9 @@ for _ in range(repeat):
     codes.add(code)
     markers[marker if marker in markers else "?"] += 1
     samples.append(ms)
+    if interval_ms > 0:
+        # 跨过 TTL 观察正常过期，而不是只测一段“永远命中”的窗口。
+        time.sleep(interval_ms / 1000.0)
 samples.sort()
 
 def pct(p):
@@ -266,6 +326,8 @@ def pct(p):
 result = {
     "counts": counts,
     "cache_enabled": cache == "1",
+    "write_every_ms": write_every_ms,
+    "interval_ms": interval_ms,
     "repeat": repeat,
     "cold_ms": round(cold_ms, 2),
     "cold_marker": cold_marker,
@@ -283,6 +345,10 @@ with open(raw_path, "w") as fh:
 print()
 print(f"数据集：{counts}")
 print(f"概览缓存：{'开启（12s TTL）' if cache == '1' else '关闭'}")
+if write_every_ms > 0:
+    print(f"后台写入：每 {write_every_ms}ms 一次；请求间隔：{interval_ms}ms")
+else:
+    print("后台写入：关闭")
 print()
 print("| 请求 | HTTP | 耗时 ms | 缓存头 |")
 print("|---|---:|---:|---|")
@@ -295,6 +361,12 @@ print(f"| 稳定态 mean / min / max | — | {result['mean_ms']} / "
 print()
 print(f"原始数据：{raw_path}")
 PY
+
+if [ "$WRITE_EVERY_MS" -gt 0 ]; then
+  stop_writer
+  writes=$(cat "$WORK/writer.count" 2>/dev/null || echo 0)
+  log "==> 测量期间后台写入：${writes} 次（每 ${WRITE_EVERY_MS}ms 一次）"
+fi
 
 if [ "$PLAN" = "1" ]; then
   log ""

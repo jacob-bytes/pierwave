@@ -1,4 +1,4 @@
-# 概览接口性能：日汇总 + 短缓存（p50 831.6 → 2.8 ms）
+# 概览接口性能：日汇总 + TTL 短缓存（p50 831.6 → 2.6 ms；带后台写入 4.5 ms）
 
 > 本轮只涉及 `crates/{domain,master}`、`scripts/` 与 `docs/`；迁移只追加
 > `0066_traffic_rollup.sql`，没有改历史迁移或响应 JSON 形状。
@@ -10,8 +10,8 @@
 - 数据：`scripts/bench-overview.sh` 造 10,001 用户、1,000 节点、10 台服务器、
   20 个套餐、30 天 `traffic_daily`（300,030 行）、30 天
   `traffic_node_daily`（30,000 行）、2,880 条服务器采样，然后 `ANALYZE`。
-- 查询：`GET /api/v1/overview?days=7`；预热 3 次，重复 20 次，nearest-rank
-  取 p50 / p95。
+- 查询：`GET /api/v1/overview?days=7`；预热 3 次，nearest-rank 取 p50 / p95。
+  静态场景重复 20 次；带后台写入场景重复 50 次、请求间隔 250ms（跨过 12s TTL）。
 - 构建：debug（与 `make check` / `make e2e` 一致）。debug 版 SQLite 的绝对
   耗时偏高，但前后使用同一构建，趋势可比。
 - 机器为共享开发机，p50 抖动约 ±5–10%。
@@ -21,6 +21,8 @@
 ```bash
 ./scripts/bench-overview.sh                 # 缓存开启（默认 12s TTL）
 CACHE=0 ./scripts/bench-overview.sh         # 关闭缓存，测日汇总冷成本
+WRITE_EVERY_MS=200 INTERVAL_MS=250 REPEAT=50 ./scripts/bench-overview.sh
+                                            # 后台每 200ms 写 + 每 250ms 请求，跨 TTL
 PLAN=1 ./scripts/bench-overview.sh          # 额外打印 EXPLAIN QUERY PLAN
 REPEAT=50 ./scripts/bench-overview.sh       # 更多轮次
 ```
@@ -30,14 +32,18 @@ REPEAT=50 ./scripts/bench-overview.sh       # 更多轮次
 | 场景 | 数据量 | p50 | p95 | 说明 |
 |---|---|---:|---:|---|
 | 优化前 | 1 万用户 / 1000 节点 / 30 天 | **831.6 ms** | 847.3 ms | `scripts/bench-api.sh`，原始表聚合 |
-| 优化后（默认缓存） | 同上 | **2.8 ms** | 3.1 ms | 命中 12s 短缓存；20/20 次 `X-Overview-Cache: hit` |
-| 优化后（`CACHE=0`，冷查询） | 同上 | 124.3 ms | 134.1 ms | 只读日汇总，无缓存；首次冷请求 112.5 ms |
+| 优化后（默认缓存，无并发写） | 同上 | **2.6 ms** | 3.1 ms | 命中 12s 短缓存；20/20 次 `X-Overview-Cache: hit` |
+| 优化后（**后台每 200ms 写一次**，50 次请求 / 250ms 间隔） | 同上 | **4.5 ms** | 6.5 ms | 49/50 命中；1 次正常 TTL 重建，max 113.2 ms |
+| 优化后（`CACHE=0` + 后台写入） | 同上 | 112.3 ms | 114.0 ms | 只读日汇总，无缓存 |
+| 优化后（`CACHE=0`，静态数据冷查询） | 同上 | 124.3 ms | 134.1 ms | 只读日汇总，无缓存；首次冷请求 112.5 ms |
 
 `bench-api.sh` 同轮其它接口不受影响：`stats/overview` 349.6 ms、`stats/traffic`
 513.5 ms、`stats/nodes` 137.9 ms、`users` 8.3 ms、`audit` 1.5 ms。
 
-验收目标「p50 ≤ 100 ms（debug）」在默认配置下余量很大；即使关掉缓存，冷查询
-也从 831.6 ms 降到约 124 ms（≈6.7×）。
+验收目标「p50 ≤ 100 ms（debug）」在默认配置下余量很大；即使**后台每 200ms
+持续写入**，TTL 缓存下 p50 仍为 4.5 ms（仅 TTL 正常过期时出现一次 ~113ms 的
+重建）。关掉缓存后，静态冷查询 124.3 ms、带写入 112.3 ms，仍比 831.6 ms 快
+约 7×。
 
 ## 3. 迁移 `0066_traffic_rollup.sql`
 
@@ -75,7 +81,8 @@ LEFT JOIN。
   `legacy` 三个 scope；
 - `traffic_node_daily` 的 INSERT / UPDATE / DELETE 维护 `node` scope；
 - UPDATE / DELETE 用负增量，显式修正或删除历史流量也会同步；
-- 每次写入 `traffic_rollup_meta.generation += 1`；
+- 每次写入 `traffic_rollup_meta.generation += 1`（仅诊断/测试用；
+  缓存不再以它作 key，见第 6 节）；
 - 迁移内一次性回填历史数据，之后由触发器增量维护。
 
 `legacy` scope 只收 `subject` 带 `@` 的历史行；协议归属查询用
@@ -110,10 +117,10 @@ Top 用户/套餐共用 `user_traffic` CTE：早期版本在 `top_user` 分支�
 
 `crates/domain/src/repo.rs` 的 `repo::traffic_rollup` 提供：
 
-- `generation(pool)`：读代际，供缓存 key；
+- `generation(pool)`：读代际；仅用于诊断/测试，不参与缓存 key；
 - `is_consistent(pool)`：把原始表与汇总表的 `uplink/downlink/weighted` 总和
   逐项比较（`server`、`subject`、`node`、`legacy` 四个 scope）；
-- `rebuild(pool)`：事务内从两张原始账本全量重建，成功后代际 +1；
+- `rebuild(pool)`：事务内从两张原始账本全量重建，成功后代际 +1（诊断用）；
 - `ensure_backfilled(pool)`：启动时校验，一致返回 `false`，不一致重建一次并
   再校验；仍不一致则让主控启动失败，避免长期展示错误账单。
 
@@ -126,51 +133,83 @@ Top 用户/套餐共用 `user_traffic` CTE：早期版本在 `top_user` 分支�
 3. **更新 / 删除历史流量**：显式 `UPDATE`、`DELETE` 原始行后，汇总用负增量
    跟上；节点汇总归零后行被删除；
 4. **回填幂等**：人为破坏汇总 → `ensure_backfilled` 重建 → 逐行等于触发器维护
-   的结果；连续两次 `rebuild` 结果相同，代际递增。
+   的结果；连续两次 `rebuild` 结果相同。
 
 `ensure_backfilled` 在主控 `main` 中于 `Db::migrate()` 之后调用一次；老库升级、
 备份恢复、或绕过触发器批量导入后都会自动补齐。
 
-## 6. 缓存策略与失效点
+## 6. 缓存策略与失效点（TTL 语义）
 
 `crates/master/src/state.rs` 的 `OverviewTrafficCache`：
 
 - 只缓存**流量派生**的 `TrafficSnapshot`（趋势、协议、Top 用户/节点/套餐、
   KPI 流量）；Top 服务器与网速采样每次现算，保持在线状态实时；
-- key = `(days, generation)`，默认 TTL 12 秒（`PIERWAVE_OVERVIEW_CACHE_SECS`
-  可覆盖，`0` 关闭）；
-- `generation` 由日汇总触发器在每次计费入账时 +1，因此写入后下一次请求一定
-  miss，不需要遍历缓存；
-- `put()` 会清掉旧代际条目，避免内存随写入增长；
-- `routes/agent.rs` 在整份流量报告处理完后额外调用 `clear()`，作为显式失效；
+- **key 只有 `days`**，默认 TTL 12 秒（`PIERWAVE_OVERVIEW_CACHE_SECS` 可覆盖，
+  `0` 关闭）；
+- **计费入账不参与缓存 key，也不主动清缓存**。生产里 Agent 持续上报，如果按
+  `generation` 作为 key（或每次写入都 `clear()`），缓存会几乎永远 miss；
+- `put()` 用同一 `days` 覆盖旧条目；
+- `clear()` 保留给管理员动作：`POST /api/v1/backup/restore` 落位待恢复文件后
+  会调用一次，避免重启前看到旧流量；常规 `record_traffic` 不再调用；
 - 响应带 `Vary: Cookie`（管理员专属；`/api/` 本身还有 `Cache-Control:
   no-store`）与 `X-Overview-Cache: hit|miss` 便于排障；
 - 非流量部分（节点/服务器计数、链路健康、24h 可用率）不进缓存，新建节点或
   链路状态变化立刻可见。
 
+### 6.1 持续写入场景实测
+
+测试 `overview_cache_holds_up_under_continuous_billing_writes`：
+
+- 后台每 200ms 写一次 `traffic_daily` + `traffic_node_daily`，同时连续请求
+  概览 50 次（每次间隔 250ms，整体跨过 12s TTL）；
+- 测试期间后台实际写入 **63 次**；
+- 旧策略（`(days, generation)` key，使用同一份 lookup 逻辑）：**0/50 命中**，
+  命中率 0%，证明生产里“每秒都有写入 → 缓存永远 miss”的问题真实存在；
+- 新策略（`days` + TTL）：**48/50 命中（96%）**，唯一的 miss 是 12 秒 TTL
+  正常过期后的重建。
+
+带后台写入的基准（`REPEAT=50 INTERVAL_MS=250 WRITE_EVERY_MS=200`）：
+
+| 场景 | p50 | p95 | max | 缓存头 |
+|---|---:|---:|---:|---|
+| TTL 缓存 + 每 200ms 写入 | **4.5 ms** | 6.5 ms | 113.2 ms | hit 49 / miss 1 |
+| 关闭缓存 + 每 200ms 写入 | 112.3 ms | 114.0 ms | 114.2 ms | miss 50 |
+
+**语义边界**：缓存是 TTL 语义，不是强一致。流量数字（KPI、趋势、Top）
+最多陈旧 **12 秒**；`traffic_daily`、计费扣费、订阅额度始终读原始账本/实例，
+不受缓存影响。若管理员要求立即看到最新数字，可调用 `clear()`（目前恢复备份
+路径已调用），或等待 TTL 过期。
+
 缓存测试：
 
-- `state::tests::overview_cache_hits_only_for_the_same_days_and_generation`：
-  命中 / days 不同 / generation 不同 / TTL 过期 / clear / 旧代际清理；
-- `overview_traffic_snapshot_is_cached_and_invalidated_by_writes`：第一次 miss、
-  第二次 hit、写入流量后 miss 且 `kpi.traffic_today` 立刻更新、不同 `days` 重建；
-- `overview_cache_with_zero_ttl_never_hits`：环境变量 `0` 的禁用语义。
+- `state::tests::overview_cache_is_keyed_by_days_and_expires_by_ttl`：命中 /
+  days 不同 / 覆盖 / TTL 过期 / `clear()`；
+- `state::tests::generation_keyed_lookup_misses_when_generation_changes`：锁定
+  旧 `(days, generation)` lookup 的 miss 语义，防止误改回；
+- `routes::overview::tests::overview_traffic_snapshot_is_ttl_cached_and_clear_invalidates_it`：
+  第一次 miss、第二次 hit、TTL 内写入仍命中（允许旧数字）、`clear()` 后立刻
+  重建、TTL 过期后重建、不同 `days` 重建；
+- `routes::overview::tests::overview_cache_holds_up_under_continuous_billing_writes`：
+  上述持续写入场景（0% vs 96%）；
+- `state::tests::overview_cache_with_zero_ttl_never_hits`：环境变量 `0` 的禁用语义。
 
 ## 7. 未做项与取舍
 
 - `/api/v1/stats/traffic`、`/api/v1/stats/overview` 仍读原始 `traffic_daily`，
   本轮没有改（目标只要求概览）；它们可以直接复用同一张日汇总，是下一步的
   低风险优化。
-- 概览缓存是**进程内**的；多实例部署时每个进程各自缓存，但 `generation` 来自
-  数据库，所以写后最多 12 秒内各实例都会失效，不会出现长期旧值。
-- 缓存对流量数字最多容忍 12 秒延迟；正常计费入账会通过代际立即失效。若运维
-  直接改原始表并绕过触发器，需要等启动时的 `ensure_backfilled` 或手动重启。
+- 概览缓存是**进程内、TTL 语义**的；多实例部署时每个进程各自缓存，写入不会
+  互相通知，最坏 12 秒陈旧。管理员动作（如恢复备份）只清当前进程的缓存，
+  恢复本身需要重启，重启后所有实例都是空的。
+- 写路径不主动清缓存；若要求“写完立刻可见”，需要管理员显式 `clear()` 或把
+  轮询间隔调到大于 TTL。若运维直接改原始表并绕过触发器，需要等启动时的
+  `ensure_backfilled` 或手动重启。
 - 日汇总表新增约 33 万行（本基准），换来概览冷查询 6.8× 加速；写入侧每次
   upsert 多维护 2–3 行汇总与一次 meta 更新，由触发器在同一条语句内完成。
 
 ---
 
-# Overview API performance: daily rollup + short cache (p50 831.6 → 2.8 ms)
+# Overview API performance: daily rollup + TTL cache (p50 831.6 → 2.6 ms; 4.5 ms under writes)
 
 This round only touches `crates/{domain,master}`, `scripts/` and `docs/`; the
 append-only migration `0066_traffic_rollup.sql` is added and the response JSON
@@ -181,18 +220,22 @@ shape is unchanged.
 `scripts/bench-overview.sh` seeds 10,001 users, 1,000 nodes, 10 servers, 20
 packages, 300,030 `traffic_daily` rows, 30,000 `traffic_node_daily` rows and
 2,880 server samples, then runs `ANALYZE`. It measures
-`GET /api/v1/overview?days=7` with 3 warmups and 20 repetitions on a debug
-build, reporting nearest-rank p50/p95. The machine is shared, so expect ±5–10%
-jitter.
+`GET /api/v1/overview?days=7` with 3 warmups, 20 repetitions for the static
+case, and 50 repetitions spaced 250 ms apart for the background-write case
+(crossing the 12 s TTL), reporting nearest-rank p50/p95 on a debug build. The
+machine is shared, so expect ±5–10% jitter.
 
-| Scenario | p50 | p95 |
-|---|---:|---:|
-| Before (raw-table aggregation) | **831.6 ms** | 847.3 ms |
-| After, default cache | **2.8 ms** | 3.1 ms |
-| After, `CACHE=0` (rollup-only, cold) | 124.3 ms | 134.1 ms |
+| Scenario | p50 | p95 | max |
+|---|---:|---:|---:|
+| Before (raw-table aggregation) | **831.6 ms** | 847.3 ms | — |
+| After, default cache (no concurrent writes) | **2.6 ms** | 3.1 ms | 3.6 ms |
+| After, **background write every 200 ms** (50 requests / 250 ms apart) | **4.5 ms** | 6.5 ms | 113.2 ms |
+| After, `CACHE=0` + background writes | 112.3 ms | 114.0 ms | 114.2 ms |
+| After, `CACHE=0` (rollup-only, cold) | 124.3 ms | 134.1 ms | — |
 
-The ≤100 ms target is comfortably met with the default configuration; even with
-the cache disabled the cold query is ~6.7× faster than before.
+The ≤100 ms target is comfortably met with the default configuration, including
+the background-write run (4.5 ms). With the cache disabled the cold query is
+~7× faster than before.
 
 ## Migration
 
@@ -205,8 +248,9 @@ serves per-server time windows. Scopes are `subject`, `server`, `node` and
 
 Triggers on `traffic_daily` and `traffic_node_daily` maintain the rollup in the
 same statement, applying negative deltas on `UPDATE`/`DELETE`, and bump
-`traffic_rollup_meta.generation` on every change. The migration backfills
-existing history once; after that the triggers keep it current.
+`traffic_rollup_meta.generation` on every change (diagnostics/tests only; the
+cache no longer keys on it). The migration backfills existing history once;
+after that the triggers keep it current.
 
 `repo::overview` is split into `traffic_snapshot()` (rollup-only: KPI traffic,
 daily series, protocol attribution, Top users/nodes/packages) and `compose()`
@@ -216,36 +260,55 @@ the uncached composition used by tests and internal callers.
 
 ## Consistency and backfill
 
-`repo::traffic_rollup` provides `generation()`, `is_consistent()` (checks the
-three sums across the four scopes against the raw ledgers), `rebuild()` (one
-transaction, idempotent, bumps generation) and `ensure_backfilled()` (called
-from master startup; rebuilds once on mismatch and fails startup if the second
-check still fails).
+`repo::traffic_rollup` provides `generation()` (diagnostics only),
+`is_consistent()` (checks the three sums across the four scopes against the raw
+ledgers), `rebuild()` (one transaction, idempotent) and `ensure_backfilled()`
+(called from master startup; rebuilds once on mismatch and fails startup if the
+second check still fails).
 
 Tests cover five pseudo-random days compared field-by-field with direct raw
 aggregation, the UTC+8 midnight boundary (`15:59:59Z` vs `16:00:00Z`), explicit
 history `UPDATE`/`DELETE`, and idempotent rebuild/repair.
 
-## Cache
+## Cache (TTL semantics)
 
 `OverviewTrafficCache` stores only the traffic-derived snapshot (trend,
-protocols, Top users/nodes/packages, KPI traffic), keyed by `(days, generation)`
-with a 12 s TTL (`PIERWAVE_OVERVIEW_CACHE_SECS`, `0` disables it). The Top
-servers card and rate samples are computed on every request to keep online
-state live. Because the rollup triggers bump `generation` on every billing
-write, the next request misses and sees fresh numbers without walking the
-cache; `put()` drops older generations, and `routes/agent.rs` also calls
-`clear()` after a traffic report. Responses carry `Vary: Cookie` and
-`X-Overview-Cache: hit|miss`. Non-traffic cards are never cached, so node and
-chain changes appear immediately.
+protocols, Top users/nodes/packages, KPI traffic). The key is **only `days`**;
+the 12 s TTL (`PIERWAVE_OVERVIEW_CACHE_SECS`, `0` disables it) is the only
+expiry mechanism. Billing writes neither enter the key nor call `clear()`:
+production agents report continuously, so a `(days, generation)` key or a
+clear-on-write would make the cache miss almost every time. `put()` overwrites
+the entry for the same `days`. `clear()` remains for explicit admin actions;
+the backup-restore handler calls it after staging a restore. The Top servers
+card and rate samples are computed on every request to keep online state live.
+Responses carry `Vary: Cookie` and `X-Overview-Cache: hit|miss`.
+
+### Concurrent-write measurement
+
+`overview_cache_holds_up_under_continuous_billing_writes` runs a background
+writer every 200 ms while issuing 50 overview requests 250 ms apart (crossing
+the 12 s TTL). With 63 background writes, the old `(days, generation)` lookup
+hit **0/50 (0%)**, while the TTL-only strategy hit **48/50 (96%)**; the single
+miss is a normal TTL refresh.
+
+Benchmark with background writes (`REPEAT=50 INTERVAL_MS=250
+WRITE_EVERY_MS=200`): p50 **4.5 ms**, p95 6.5 ms, max 113.2 ms (the one TTL
+refresh). With the cache disabled and the same writes, p50 112.3 ms.
+
+**Boundary**: the cache is TTL, not strongly consistent. Traffic numbers can be
+up to **12 seconds stale**; the raw ledger, billing and package quota always
+read the authoritative rows. Use `clear()` (or wait one TTL) when an immediate
+refresh is required.
 
 ## Not done
 
 - `/api/v1/stats/traffic` and `/api/v1/stats/overview` still read the raw
   ledger; they can reuse this rollup in a follow-up.
-- The cache is per process; multi-instance deployments share invalidation
-  through the database `generation`, with at most a 12 s staleness window.
+- The cache is per process and TTL-based; multi-instance deployments do not
+  coordinate invalidation and each may serve up to 12 s stale traffic. Admin
+  restores restart the process, so all instances start with an empty cache.
 - Direct raw-table edits that bypass the triggers need a restart (where
   `ensure_backfilled` repairs the rollup) or an explicit rebuild.
 - The rollup adds ~330k rows in this benchmark and 2–3 row upserts plus one meta
-  update per write, all inside the same statement.
+  update per write, all inside the same statement. The generation counter is
+  still maintained for diagnostics/tests but no longer drives cache keys.

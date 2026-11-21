@@ -3094,7 +3094,8 @@ pub mod traffic_rollup {
 
     /// 汇总代际：每次原始表写入（触发器）或全量重建都会 +1。
     ///
-    /// 概览缓存用它当 key，所以写路径不需要遍历缓存，旧结果自然不再命中。
+    /// 仅用于诊断与测试（例如验证重建确实更新了汇总）；概览缓存是 TTL 语义，
+    /// **不再**以它为 key，否则持续上报会让缓存几乎永远 miss。
     pub async fn generation(pool: &SqlitePool) -> anyhow::Result<i64> {
         Ok(
             sqlx::query_scalar("SELECT generation FROM traffic_rollup_meta WHERE id = 1")
@@ -3157,8 +3158,7 @@ pub mod traffic_rollup {
 
     /// 从两张原始日账本全量重建汇总（幂等：同一份原始数据重建结果相同）。
     ///
-    /// 重建在一个事务里完成；成功后 `generation + 1`，正在用旧代际缓存的
-    /// 请求不会把旧结果写回。
+    /// 重建在一个事务里完成；成功后 `generation + 1`（诊断/测试用）。
     pub async fn rebuild(pool: &SqlitePool) -> anyhow::Result<()> {
         let mut tx = pool.begin().await?;
         sqlx::query("DELETE FROM traffic_daily_rollup")
@@ -3628,7 +3628,7 @@ pub mod traffic_rollup {
             );
             assert!(
                 generation(&pool).await.unwrap() > generation_before,
-                "重建必须递增代际，让旧缓存失效"
+                "重建必须递增代际（诊断/测试）"
             );
 
             rebuild(&pool).await.unwrap();

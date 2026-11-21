@@ -266,6 +266,9 @@ pub async fn restore(
     std::fs::rename(&raw_path, &pending).map_err(|error| AppError::Internal(error.into()))?;
     // 待恢复文件里是完整业务数据；上传临时文件已是 0600，这里再兜底一次。
     fs_security::ensure_private_file(&pending)?;
+    // 恢复要重启才真正替换数据库；先清掉概览短缓存，避免管理员在重启前
+    // 看到旧流量数字。
+    state.overview_traffic.clear();
 
     audit::record(
         &state,

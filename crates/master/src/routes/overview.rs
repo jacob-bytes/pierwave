@@ -38,16 +38,14 @@ pub async fn overview(
     let now = repo::now();
     let pool = &state.db.pool;
 
-    // 流量派生的部分走 12 秒短缓存；`generation` 由日汇总触发器在每次计费
-    // 入账时 +1，所以写路径天然让旧结果失效，不需要遍历或主动失效。
-    let generation = repo::traffic_rollup::generation(pool).await?;
-    let (traffic, cache_hit) = match state.overview_traffic.get(days, generation) {
+    // 流量派生的部分走 12 秒短缓存：key 只有 `days`，计费入账不主动失效，
+    // 因此生产里持续上报也不会让缓存永远 miss。代价是最多 12 秒陈旧，
+    // 计费/账单仍直接读原始账本。
+    let (traffic, cache_hit) = match state.overview_traffic.get(days) {
         Some(traffic) => (traffic, true),
         None => {
             let traffic = repo::overview::traffic_snapshot(pool, now, days).await?;
-            state
-                .overview_traffic
-                .put(days, generation, traffic.clone());
+            state.overview_traffic.put(days, traffic.clone());
             (traffic, false)
         }
     };
@@ -91,6 +89,9 @@ mod tests {
     use axum::http::{header, HeaderMap, Method, Request, StatusCode};
     use axum::Router;
     use serde_json::Value;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
     use tower::ServiceExt;
 
     use pierwave_domain::repo::{
@@ -99,10 +100,16 @@ mod tests {
     use pierwave_domain::time;
     use pierwave_domain::Db;
 
-    use crate::state::AppState;
+    use crate::state::{AppState, OverviewTrafficCache, OVERVIEW_TRAFFIC_CACHE_TTL};
 
     async fn setup() -> (Router, AppState, String) {
-        let db = Db::connect("sqlite::memory:").await.unwrap();
+        setup_with("sqlite::memory:", OVERVIEW_TRAFFIC_CACHE_TTL).await
+    }
+
+    /// 指定数据库 URL 与概览缓存 TTL：真实写入场景用文件库 + 短 TTL，
+    /// 避免 SQLite 共享内存库的并发锁干扰。
+    async fn setup_with(db_url: &str, cache_ttl: Duration) -> (Router, AppState, String) {
+        let db = Db::connect(db_url).await.unwrap();
         db.migrate().await.unwrap();
         let admin = users::create(
             &db.pool,
@@ -120,7 +127,8 @@ mod tests {
         let (token, _) = sessions::create(&db.pool, &admin.id, 3600, None)
             .await
             .unwrap();
-        let state = AppState::new(db, "web/dist");
+        let mut state = AppState::new(db, "web/dist");
+        state.overview_traffic = OverviewTrafficCache::with_ttl(cache_ttl);
         let app = crate::app::router(state.clone());
         (
             app,
@@ -1098,13 +1106,14 @@ mod tests {
             .is_some_and(|reason| reason.contains("nft")));
     }
 
-    /// 概览的流量快照短缓存：同代际命中，计费入账后立刻失效。
+    /// 概览缓存是 TTL 语义：计费入账不参与 key，最多陈旧一个 TTL；
+    /// 只有管理员动作（恢复备份等）调用 `clear()` 才立即失效。
     ///
-    /// 非流量部分（节点/链路/服务器计数）不经过缓存，因此这里只断言
-    /// `kpi.traffic_today` 与 `X-Overview-Cache`，避免把两条路径混在一起。
+    /// 非流量部分不经过缓存，因此这里只断言 `kpi.traffic_today` 与
+    /// `X-Overview-Cache`，避免把两条路径混在一起。
     #[tokio::test]
-    async fn overview_traffic_snapshot_is_cached_and_invalidated_by_writes() {
-        let (app, state, admin) = setup().await;
+    async fn overview_traffic_snapshot_is_ttl_cached_and_clear_invalidates_it() {
+        let (app, state, admin) = setup_with("sqlite::memory:", Duration::from_secs(1)).await;
         let today = time::business_date(repo::now());
 
         let (status, headers, body) =
@@ -1127,7 +1136,7 @@ mod tests {
                 .get("x-overview-cache")
                 .and_then(|value| value.to_str().ok()),
             Some("hit"),
-            "同代际第二次请求必须命中缓存"
+            "第二次请求必须命中缓存"
         );
         assert_eq!(
             headers
@@ -1137,11 +1146,27 @@ mod tests {
             "响应必须带 Vary: Cookie"
         );
 
-        // 计费入账：触发 traffic_daily 的触发器 → 日汇总代际 +1。
+        // 计费入账只写账本/日汇总，不主动清缓存：TTL 内仍命中，数字是旧的。
         repo::traffic::accumulate_daily(&state.db.pool, &today, "server-1", "u-1", 10, 20, 30)
             .await
             .unwrap();
+        let (status, headers, body) =
+            request_full(&app, Some(&admin), "/api/v1/overview?days=7").await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(
+            headers
+                .get("x-overview-cache")
+                .and_then(|value| value.to_str().ok()),
+            Some("hit"),
+            "TTL 内写流量不应让缓存失效"
+        );
+        assert_eq!(
+            body["kpi"]["traffic_today"], 0,
+            "TTL 内允许旧数字；账本本身已是 30"
+        );
 
+        // 管理员动作显式 clear：下一次请求立刻重建并看到新数字。
+        state.overview_traffic.clear();
         let (status, headers, body) =
             request_full(&app, Some(&admin), "/api/v1/overview?days=7").await;
         assert_eq!(status, StatusCode::OK, "body: {body}");
@@ -1150,12 +1175,23 @@ mod tests {
                 .get("x-overview-cache")
                 .and_then(|value| value.to_str().ok()),
             Some("miss"),
-            "写入流量后必须失效，不能返回旧数字"
+            "clear 之后必须 miss"
         );
+        assert_eq!(body["kpi"]["traffic_today"], 30);
+
+        // TTL 过期后自动重建。
+        tokio::time::sleep(Duration::from_millis(1_100)).await;
+        let (status, headers, body) =
+            request_full(&app, Some(&admin), "/api/v1/overview?days=7").await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
         assert_eq!(
-            body["kpi"]["traffic_today"], 30,
-            "新流量必须立刻计入：{body}"
+            headers
+                .get("x-overview-cache")
+                .and_then(|value| value.to_str().ok()),
+            Some("miss"),
+            "超过 TTL 必须 miss"
         );
+        assert_eq!(body["kpi"]["traffic_today"], 30);
 
         // 不同 days 用不同的缓存 key，不能把 7 天的结果当成 90 天返回。
         let (_, headers, body) = request_full(&app, Some(&admin), "/api/v1/overview?days=90").await;
@@ -1167,5 +1203,96 @@ mod tests {
             "days 不同必须重建"
         );
         assert_eq!(body["series"].as_array().unwrap().len(), 90);
+    }
+
+    /// 真实写入场景：后台每 200ms 写一次 `traffic_daily`，同时连续请求概览 50 次。
+    ///
+    /// 旧策略把 `generation` 放进 key：每次写入代际都变，所以几乎每次都 miss。
+    /// 新策略 key 只有 `days` + TTL：写入不失效，命中率应该 >= 80%。
+    /// 请求间隔 250ms，整体跨过 12 秒 TTL，因此会包含至少一次正常的 TTL 重建。
+    #[tokio::test]
+    async fn overview_cache_holds_up_under_continuous_billing_writes() {
+        let dir = std::env::temp_dir().join(format!(
+            "pierwave-overview-cache-writes-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("db.sqlite");
+        let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
+        let (app, state, admin) = setup_with(&db_url, OVERVIEW_TRAFFIC_CACHE_TTL).await;
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let writer = tokio::spawn({
+            let pool = state.db.pool.clone();
+            let stop = stop.clone();
+            let today = time::business_date(repo::now());
+            async move {
+                let mut writes = 0u64;
+                while !stop.load(Ordering::SeqCst) {
+                    traffic::accumulate_daily(&pool, &today, "server-1", "bench-writer", 1, 1, 2)
+                        .await
+                        .expect("后台写入 traffic_daily 失败");
+                    writes += 1;
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                }
+                writes
+            }
+        });
+
+        // 旧策略的缓存实例：完全相同的 lookup 逻辑，只是 key 带 generation。
+        let legacy = OverviewTrafficCache::with_ttl(OVERVIEW_TRAFFIC_CACHE_TTL);
+        let mut new_hits = 0u32;
+        let mut legacy_hits = 0u32;
+
+        for _ in 0..50 {
+            let (status, headers, _) =
+                request_full(&app, Some(&admin), "/api/v1/overview?days=7").await;
+            assert_eq!(status, StatusCode::OK);
+            if headers
+                .get("x-overview-cache")
+                .and_then(|value| value.to_str().ok())
+                == Some("hit")
+            {
+                new_hits += 1;
+            }
+
+            let generation = repo::traffic_rollup::generation(&state.db.pool)
+                .await
+                .unwrap();
+            if legacy.get_generation_keyed(7, generation).is_none() {
+                let snapshot = repo::overview::traffic_snapshot(&state.db.pool, repo::now(), 7)
+                    .await
+                    .unwrap();
+                legacy.put_generation_keyed(7, generation, snapshot);
+            } else {
+                legacy_hits += 1;
+            }
+
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+
+        stop.store(true, Ordering::SeqCst);
+        let writes = writer.await.unwrap();
+        println!(
+            "持续写入场景：后台写入 {writes} 次，TTL-only 命中 {new_hits}/50，\
+             generation-keyed 命中 {legacy_hits}/50"
+        );
+
+        assert!(
+            writes >= 20,
+            "后台 200ms 写入在 12.5 秒内应至少 20 次，实际 {writes}"
+        );
+        assert!(
+            new_hits >= 40,
+            "TTL-only 缓存在持续写入下命中率应 >= 80%，实际 {new_hits}/50"
+        );
+        assert!(
+            legacy_hits <= 2,
+            "generation 作为 key 时持续写入下命中率应接近 0，实际 {legacy_hits}/50"
+        );
+
+        drop(app);
+        drop(state);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -260,17 +260,17 @@ Window/lock/eviction semantics and their tests are unchanged.
   noise, not a regression: those SQL statements are unchanged and the new indexes
   do not apply to them.
 
-## P5: overview 831.6 → 2.8 ms (2026-11 follow-up)
+## P5: overview 831.6 → 2.6 ms (2026-11 follow-up)
 
 A later round replaced the overview's raw 30-day aggregation with the
 append-only daily rollup `0066_traffic_rollup.sql` plus a 12-second snapshot
-cache: p50 831.6 → 2.8 ms (cache disabled: 124.3 ms), with backfill,
+cache: p50 831.6 → 2.6 ms (4.5 ms with a background write every 200 ms; cache disabled: 124.3 ms), with backfill,
 consistency and cache-invalidation tests. Details, SQL and English text:
 [OVERVIEW-PERF.md](OVERVIEW-PERF.md).
 
-## P5：概览 831.6 → 2.8 ms（2026-11 后续一轮）
+## P5：概览 831.6 → 2.6 ms（2026-11 后续一轮）
 
 概览不再扫 30 天原始账本，改为只读追加迁移 `0066_traffic_rollup.sql` 的日汇总，
-外加 12 秒快照缓存：p50 831.6 → 2.8 ms（关闭缓存：124.3 ms），并补了回填、
+外加 12 秒 TTL 快照缓存：p50 831.6 → 2.6 ms（后台每 200ms 写入时 4.5 ms；关闭缓存：124.3 ms），并补了回填、
 一致性校验与缓存失效测试。迁移 SQL、查询计划与英文说明见
 [OVERVIEW-PERF.md](OVERVIEW-PERF.md)。
