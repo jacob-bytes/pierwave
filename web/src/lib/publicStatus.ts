@@ -999,3 +999,139 @@ export function lowestAvailabilityBucket(
 
   return lowest;
 }
+
+/** 24h 可用率的逐小时明细；全部由 `buckets_24h` 在前端推导。 */
+export interface AvailabilityHour {
+  ts: number;
+  /** 0..1 */
+  ratio: number;
+}
+
+export interface AvailabilitySummary {
+  /** 期望的小时数（固定 24，但保留参数便于测试）。 */
+  total: number;
+  /** 有采样的桶数。 */
+  sampled: number;
+  /** sampled / total；无采样时为 null（避免把“不知道”当成 0）。 */
+  coverageRatio: number | null;
+  /** 连续 0% 段数；无采样时为 null（不能显示 0 次中断）。 */
+  outageCount: number | null;
+  /** 0% 桶数 = 按小时计的累计中断时长；无采样时为 null。 */
+  outageHours: number | null;
+  /** 最低的已采样小时（并列取更早）；无采样时为 null。 */
+  lowest: AvailabilityHour | null;
+  /** 最高的已采样小时（并列取更早）；无采样时为 null。 */
+  highest: AvailabilityHour | null;
+  /** 最长连续正常小时数（正常 = ≥99%）；无采样时为 null。 */
+  longestNormalHours: number | null;
+  /** 连续 0% 时段（最多保留全部，UI 取前 2）；无采样时为 null。 */
+  outagePeriods: AvailabilityPeriod[] | null;
+}
+
+export interface AvailabilityPeriod {
+  startTs: number;
+  /** 结束小时起点 + 1h，便于 formatHourRange 直接展示。 */
+  endTs: number;
+  hours: number;
+}
+
+/**
+ * 从 24 个公开小时桶推导详情页的可用性明细。
+ *
+ * 规则：
+ * - `online_ratio === 0` 才是中断小时；null 不是 0，也会打断连续段；
+ * - 连续 0 小时算一段，段数 = 中断次数；
+ * - 累计中断时长 = 0 桶数 × 1 小时（公开 API 只有小时粒度，实际中断
+ *   可能更短，UI 会注明）；
+ * - 覆盖度 = 非 null 桶数 / total；
+ * - 最低/最高只比较有采样的小时，并列取更早的一段；
+ * - 没有任何采样时，段数、时长、覆盖度、最低/最高全部为 null，让 UI
+ *   显示 `—`，而不是伪造 0。
+ */
+export function summarizeAvailability(
+  buckets:
+    | readonly ({ ts: number; online_ratio: number } | null)[]
+    | null
+    | undefined,
+  total = 24,
+): AvailabilitySummary {
+  const hours = Math.max(0, Math.floor(total));
+  const list = Array.isArray(buckets) ? buckets : [];
+  let sampled = 0;
+  let zeroHours = 0;
+  let outageCount = 0;
+  let previousZero = false;
+  let normalRun = 0;
+  let longestNormal = 0;
+  let currentOutageStart: number | null = null;
+  let currentOutageLast: number | null = null;
+  let currentOutageHours = 0;
+  const outagePeriods: AvailabilityPeriod[] = [];
+  let lowest: AvailabilityHour | null = null;
+  let highest: AvailabilityHour | null = null;
+
+  const closeOutage = () => {
+    if (currentOutageStart !== null && currentOutageLast !== null) {
+      outagePeriods.push({
+        startTs: currentOutageStart,
+        endTs: currentOutageLast + 3_600,
+        hours: currentOutageHours,
+      });
+    }
+    currentOutageStart = null;
+    currentOutageLast = null;
+    currentOutageHours = 0;
+  };
+
+  for (let index = 0; index < hours; index += 1) {
+    const bucket = list[index] ?? null;
+    const raw = bucket?.online_ratio;
+    if (typeof raw !== "number" || !Number.isFinite(raw)) {
+      // 缺失 / 非法值不是 0，且会打断“连续中断”和连续正常。
+      closeOutage();
+      previousZero = false;
+      normalRun = 0;
+      continue;
+    }
+    const ratio = Math.min(1, Math.max(0, raw));
+    sampled += 1;
+    if (ratio >= 0.99) {
+      normalRun += 1;
+      longestNormal = Math.max(longestNormal, normalRun);
+    } else {
+      normalRun = 0;
+    }
+    if (ratio === 0) {
+      zeroHours += 1;
+      if (!previousZero) {
+        outageCount += 1;
+        currentOutageStart = bucket.ts;
+      }
+      currentOutageLast = bucket.ts;
+      currentOutageHours += 1;
+      previousZero = true;
+    } else {
+      closeOutage();
+      previousZero = false;
+    }
+    if (lowest === null || ratio < lowest.ratio) {
+      lowest = { ts: bucket.ts, ratio };
+    }
+    if (highest === null || ratio > highest.ratio) {
+      highest = { ts: bucket.ts, ratio };
+    }
+  }
+  closeOutage();
+
+  return {
+    total: hours,
+    sampled,
+    coverageRatio: sampled === 0 ? null : sampled / hours,
+    outageCount: sampled === 0 ? null : outageCount,
+    outageHours: sampled === 0 ? null : zeroHours,
+    lowest,
+    highest,
+    longestNormalHours: sampled === 0 ? null : longestNormal,
+    outagePeriods: sampled === 0 ? null : outagePeriods,
+  };
+}

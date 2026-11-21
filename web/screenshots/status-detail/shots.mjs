@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * `/status/:id` 方案 B 仪表盘的截图与断言。
+ * `/status/:id` 四张卡的截图与断言。
  *
- * 覆盖 healthy / incident / offline / nodata / notfound / error / disabled
- * × 1440/390 × 亮/暗；另加英文、加载骨架、hover tooltip、列表入口与错误重试路径。
- * 关键断言：null 不画成 100%、0% 贴基线、缺口断开、两栏对齐、无横向溢出、
- * 页面高度 ≤1100（1440）/ ≤1500（390）、页底无 >24px 无用空白。
+ * 健康 / 有中断 / 离线 / 无数据 / 未找到 / 请求失败 / 未开放
+ * × 1440/390 × 亮/暗；另加英文、加载骨架、Xray 未运行、hover、列表入口、
+ * error-last-success。核心断言：4 张卡、中断次数/覆盖度与 fixture 一致、
+ * 无采样显示 — 而非 0、两行卡片 top/bottom 相等、页底 ≤24px、无横向溢出。
  */
 import assert from "node:assert/strict";
 import {
@@ -31,13 +31,13 @@ const STATES = [
   "error",
   "disabled",
 ];
+const DETAIL_STATES = ["healthy", "incident", "offline", "nodata", "xray"];
 const THEMES = ["dark", "light"];
 const WIDTHS = [
   { width: 1440, height: 1000 },
   { width: 390, height: 844 },
 ];
 const TARGET_ID = "srv-hk";
-const DETAIL_STATES = ["healthy", "incident", "offline", "nodata"];
 
 mkdirSync(HERE, { recursive: true });
 
@@ -115,6 +115,15 @@ function jobs() {
     out: path.join(HERE, "loading-dark-1440.png"),
     label: "loading dark 1440",
   });
+  list.push({
+    state: "xray",
+    theme: "dark",
+    width: 1440,
+    height: 1000,
+    locale: "zh-CN",
+    out: path.join(HERE, "xray-off-dark-1440.png"),
+    label: "xray off dark 1440",
+  });
   return list;
 }
 
@@ -122,6 +131,7 @@ function fixtureFor(state) {
   if (state === "incident") return detailFixture("incident");
   if (state === "offline") return detailFixture("offline");
   if (state === "nodata") return detailFixture("nodata");
+  if (state === "xray") return detailFixture("xray");
   return detailFixture("healthy");
 }
 
@@ -237,7 +247,7 @@ for (const job of jobs()) {
     } else if (job.state === "notfound") {
       await page.getByText("该节点不存在或已下线").waitFor({ timeout: 15_000 });
     } else {
-      await page.waitForSelector('[data-slot="detail-header"]', {
+      await page.waitForSelector('[data-slot="detail-overview"]', {
         timeout: 15_000,
       });
     }
@@ -266,14 +276,26 @@ for (const job of jobs()) {
           bottom: round(box.bottom),
         };
       };
+      const text = (element) =>
+        element?.innerText.replace(/\s+/g, " ").trim() ?? null;
       const main = document.querySelector("main");
+      const overview = main.querySelector('[data-slot="detail-overview"]');
+      const availability = main.querySelector('[data-slot="detail-availability"]');
+      const runtime = main.querySelector('[data-slot="detail-runtime"]');
+      const billing = main.querySelector('[data-slot="detail-billing"]');
       const chart = main.querySelector('[data-slot="detail-chart"]');
       const stats = {};
       for (const stat of main.querySelectorAll('[data-slot="detail-stat"]')) {
         stats[stat.dataset.stat] = {
-          text: stat.innerText.replace(/\s+/g, " ").trim(),
+          text: text(stat),
           ...rect(stat),
         };
+      }
+      const details = {};
+      for (const item of main.querySelectorAll(
+        '[data-slot="availability-detail"]',
+      )) {
+        details[item.dataset.detail] = text(item);
       }
       const steps = [
         ...main.querySelectorAll('[data-slot="availability-step"]'),
@@ -296,28 +318,39 @@ for (const job of jobs()) {
         to: Number(element.dataset.to),
       }));
       const badge = main.querySelector(
-        '[data-slot="detail-header"] [data-slot="badge"]',
+        '[data-slot="detail-overview"] [data-slot="badge"]',
       );
-      const rings = [...main.querySelectorAll('[data-slot="detail-resources"] [role="img"]')];
+      const innerBlank = (card, selector) => {
+        if (!card) return null;
+        const nodes = [...card.querySelectorAll(selector)].filter(
+          (node) => node.getBoundingClientRect().height > 0,
+        );
+        const last = nodes[nodes.length - 1];
+        if (!last) return null;
+        const cardRect = card.getBoundingClientRect();
+        const lastRect = last.getBoundingClientRect();
+        const padding = Number.parseFloat(
+          window.getComputedStyle(card).paddingBottom,
+        );
+        return round(Math.max(0, cardRect.bottom - lastRect.bottom - padding));
+      };
+      const rings = [...main.querySelectorAll('[data-slot="detail-runtime"] [role="img"]')];
       const back =
         main.querySelector('[data-slot="detail-back"]') ??
         main.querySelector('a[href="/status"]');
       const footer = main.querySelector('[data-slot="detail-footer"]');
       const traffic = main.querySelector('[data-slot="detail-traffic"]');
-      const seven = main.querySelector('[data-slot="detail-7d"]');
-      const tooltip = main.querySelector('[data-slot="availability-tooltip"]');
+      const xray = main.querySelector('[data-slot="xray-status"]');
       const header = document.querySelector("header");
       const srCount = chart
         ? chart.querySelectorAll("ul.sr-only li").length
         : 0;
       const grid = main.querySelector('[data-slot="detail-grid"]');
       const order = [
-        "detail-header",
-        "detail-key-numbers",
-        "detail-chart",
-        "detail-resources",
-        "detail-bottom",
-        "detail-traffic",
+        "detail-overview",
+        "detail-availability",
+        "detail-runtime",
+        "detail-billing",
       ]
         .map((slot) => {
           const element = main.querySelector(`[data-slot="${slot}"]`);
@@ -326,35 +359,47 @@ for (const job of jobs()) {
         .filter(Boolean);
 
       return {
-        text: main.innerText.replace(/\s+/g, " ").trim(),
-        headerText: header?.innerText.replace(/\s+/g, " ").trim() ?? null,
+        text: text(main),
+        headerText: text(header),
         h1: main.querySelector("h1")?.textContent?.trim() ?? null,
-        badge: badge?.textContent?.replace(/\s+/g, " ").trim() ?? null,
+        badge: text(badge),
         stats,
+        details,
+        detailsText: text(availability),
+        runtimeText: text(runtime),
+        billingText: text(billing),
+        chartText: text(chart),
+        xray: text(xray),
+        xrayState: xray?.dataset.xray ?? null,
+        innerBlank: {
+          overview: innerBlank(overview, '[data-slot="detail-chart"]'),
+          availability: innerBlank(
+            availability,
+            '[data-slot="availability-detail"]',
+          ),
+          runtime: innerBlank(runtime, '[data-slot="xray-status"]'),
+          billing: innerBlank(billing, '[data-slot="detail-traffic"]'),
+        },
         chart: rect(chart),
         grid: rect(grid),
-        header: rect('[data-slot="detail-header"]'),
-        key: rect('[data-slot="detail-key-numbers"]'),
-        resources: rect('[data-slot="detail-resources"]'),
-        bottom: rect('[data-slot="detail-bottom"]'),
+        overview: rect(overview),
+        availability: rect(availability),
+        runtime: rect(runtime),
+        billing: rect(billing),
         traffic: rect(traffic),
         footer: rect(footer),
-        trafficText: traffic?.innerText.replace(/\s+/g, " ").trim() ?? null,
-        sevenText: seven?.innerText.replace(/\s+/g, " ").trim() ?? null,
+        trafficText: text(traffic),
         back: back ? { href: back.getAttribute("href"), ...rect(back) } : null,
         steps,
         missing,
         areas,
         transitions,
         srCount,
-        tooltip: tooltip?.innerText.replace(/\s+/g, " ").trim() ?? null,
         ringCount: rings.length,
-        ringTexts: rings.map((ring) => ring.getAttribute("aria-label")),
         order,
         scrollWidth: document.documentElement.scrollWidth,
         clientWidth: document.documentElement.clientWidth,
         scrollHeight: document.documentElement.scrollHeight,
-        viewportHeight: window.innerHeight,
       };
     });
 
@@ -373,8 +418,20 @@ for (const job of jobs()) {
     };
 
     if (DETAIL_STATES.includes(job.state)) {
+      assert.equal(
+        [metrics.overview, metrics.availability, metrics.runtime, metrics.billing]
+          .filter(Boolean).length,
+        4,
+        "必须正好 4 张卡",
+      );
       assert.equal(metrics.ringCount, 2, "内存 / 硬盘两个环");
       assert.equal(metrics.srCount, 24, "sr-only 逐小时文本 24 条");
+      for (const [card, blank] of Object.entries(metrics.innerBlank)) {
+        assert.ok(
+          blank === null || blank <= 16,
+          `${card} 内部空白应 ≤16px：${blank}`,
+        );
+      }
       assert.ok(
         metrics.trafficText?.includes("自开机以来") ||
           metrics.trafficText?.includes("Since boot"),
@@ -386,7 +443,7 @@ for (const job of jobs()) {
         "顶栏保留「更新于」",
       );
       assert.ok(
-        /在线|离线|Online|Offline/.test(metrics.badge ?? ""),
+        /在线|离线|异常|Online|Offline|Degraded/.test(metrics.badge ?? ""),
         "状态 pill",
       );
       assert.ok(metrics.footer?.height, "页脚存在");
@@ -404,20 +461,37 @@ for (const job of jobs()) {
       assert.equal(metrics.missing.length, 0);
       assert.ok(metrics.steps.every((step) => step.ratio === 1));
       assert.ok(metrics.steps.every((step) => step.tone === "ok"));
-      assert.ok(
-        metrics.text.includes("24/24 采样") ||
-          metrics.text.includes("24/24 sampled"),
-      );
-      assert.ok(metrics.sevenText?.includes("100%"));
-      assert.equal(metrics.trafficText?.includes("1.42 TB"), true);
-      assert.ok(metrics.badge?.includes("在线") || metrics.badge?.includes("Online"));
-      assert.ok(metrics.footer && metrics.traffic);
+      assert.match(metrics.details.coverage, /24\/24/);
+      assert.match(metrics.details.compare, /100%/);
+      assert.match(metrics.details.compare, /0\.0 pp/);
+      assert.equal(metrics.xrayState, "running");
+      assert.ok(metrics.trafficText?.includes("1.42 TB"));
       if (job.locale === "zh-CN") {
-        assert.match(metrics.stats.uptime?.text ?? "", /24h 可用率/);
+        assert.match(metrics.details.outages, /0 次/);
+        assert.match(metrics.details.duration, /0 小时/);
+        assert.ok(metrics.xray?.includes("Xray 运行中"));
+        assert.ok(metrics.billingText?.includes("费用与到期"));
+        if (job.width === 1440) {
+          assert.match(metrics.details.longest, /24 小时/);
+          assert.match(metrics.details.periods, /无中断/);
+          assert.match(metrics.billingText ?? "", /27 \/ 30 天/);
+          assert.match(metrics.billingText ?? "", /按月估算/);
+          assert.match(metrics.billingText ?? "", /平均每小时/);
+          assert.match(metrics.billingText ?? "", /3\.75 GB\/h/);
+        }
+        assert.match(metrics.text ?? "", /24\/24 采样/);
       } else {
-        assert.match(metrics.stats.latency?.text ?? "", /Latency/);
-        assert.match(metrics.stats.rate?.text ?? "", /Current rate/);
-        assert.ok(metrics.text.includes("Back to list"));
+        assert.match(metrics.details.outages, /0 outages/);
+        assert.match(metrics.details.duration, /0 h/);
+        assert.ok(metrics.xray?.includes("Xray running"));
+        assert.ok(metrics.billingText?.includes("Billing and expiry"));
+        assert.match(metrics.details.longest, /24 h/);
+        assert.match(metrics.details.periods, /None/);
+        assert.match(metrics.billingText ?? "", /27 \/ 30 days/);
+        assert.match(metrics.billingText ?? "", /Estimated monthly/);
+        assert.match(metrics.billingText ?? "", /Avg\/hour/);
+        assert.match(metrics.billingText ?? "", /3\.75 GB\/h/);
+        assert.match(metrics.text ?? "", /24\/24 sampled/);
       }
     }
 
@@ -442,26 +516,61 @@ for (const job of jobs()) {
         "缺口两侧不连线",
       );
       const zeros = metrics.steps.filter((step) => step.ratio === 0);
-      assert.equal(zeros.length, 3);
+      assert.deepEqual(
+        zeros.map((step) => step.index).sort((a, b) => a - b),
+        [8, 9, 15],
+      );
       assert.ok(zeros.every((step) => step.y1 === 96), "0% 落在基线");
       assert.ok(metrics.steps.some((step) => step.ratio === 0.91 && step.tone === "down"));
-      assert.ok(metrics.text.includes("21/24 采样"));
+      assert.match(metrics.text ?? "", /21\/24 采样/);
+
+      // fixture: 8-9 一段 + 15 一段 = 2 次；3 个 0 桶 ×1h = 3h；21/24 覆盖
+      assert.match(metrics.details.outages, /2 次/);
+      assert.match(metrics.details.duration, /3 小时/);
+      assert.match(metrics.details.duration, /按小时采样/);
+      assert.match(metrics.details.coverage, /21\/24/);
+      assert.match(metrics.details.lowest, /08:00–09:00/);
+      assert.match(metrics.details.lowest, /0%/);
+      assert.match(metrics.details.highest, /00:00–01:00/);
+      assert.match(metrics.details.highest, /100%/);
+      assert.match(metrics.details.compare, /86%/);
+      assert.match(metrics.details.compare, /98\.7%/);
+      assert.match(metrics.details.compare, /−12\.7 pp/);
+      if (job.width === 1440) {
+        assert.match(metrics.details.longest, /5 小时/);
+        assert.match(metrics.details.periods, /08:00–10:00/);
+        assert.match(metrics.details.periods, /15:00–16:00/);
+      }
     }
 
     if (job.state === "offline") {
       assert.ok(metrics.badge?.includes("离线"));
       assert.match(metrics.stats.latency?.text ?? "", /18\s*ms/);
       assert.match(metrics.stats.uptime?.text ?? "", /86\s*%/);
+      assert.match(metrics.details.outages, /2 次/);
     }
 
     if (job.state === "nodata") {
       assert.equal(metrics.steps.length, 0);
       assert.equal(metrics.missing.length, 24);
       assert.equal(metrics.areas.length, 0);
-      assert.equal(metrics.sevenText, "7 天可用率 —");
+      assert.match(metrics.detailsText ?? "", /无采样/);
+      assert.match(metrics.details.outages ?? "", /—/);
+      assert.match(metrics.details.duration ?? "", /—/);
+      assert.match(metrics.details.coverage ?? "", /—/);
+      assert.match(metrics.details.compare ?? "", /—/);
+      assert.doesNotMatch(metrics.detailsText ?? "", /0 次/);
       assert.match(metrics.stats.latency?.text ?? "", /—/);
       assert.match(metrics.trafficText ?? "", /—/);
-      assert.ok(metrics.text.includes("未上报"));
+      assert.doesNotMatch(metrics.billingText ?? "", /费用与到期/);
+      assert.ok(metrics.billingText?.includes("累计流量"));
+    }
+
+    if (job.state === "xray") {
+      assert.match(metrics.xray ?? "", /Xray 未运行/);
+      assert.equal(metrics.xrayState, "not-running");
+      assert.match(metrics.badge ?? "", /异常/);
+      assert.equal(metrics.steps.length, 24);
     }
 
     if (job.state === "notfound") {
@@ -491,21 +600,21 @@ for (const job of jobs()) {
     if (DETAIL_STATES.includes(job.state)) {
       if (job.width === 1440) {
         assert.equal(metrics.grid?.width, 1352, "1440 内容宽 1352");
-        assert.equal(metrics.header?.width, 420, "左栏 420");
-        assert.equal(metrics.chart?.width, 916, "右栏 916");
-        near(metrics.header?.y, metrics.chart?.y, "左栏首卡与曲线顶边");
-        near(metrics.key?.bottom, metrics.chart?.bottom, "左栏第二卡与曲线底边");
-        near(metrics.resources?.y, metrics.bottom?.y, "资源与费用/系统顶边");
+        assert.equal(metrics.overview?.width, 420, "左栏 420");
+        assert.equal(metrics.runtime?.width, 420, "左栏 420");
+        assert.equal(metrics.availability?.width, 916, "右栏 916");
+        assert.equal(metrics.billing?.width, 916, "右栏 916");
+        near(metrics.overview?.y, metrics.availability?.y, "第一行顶边");
         near(
-          metrics.resources?.bottom,
-          metrics.bottom?.bottom,
-          "资源与费用/系统底边",
+          metrics.overview?.bottom,
+          metrics.availability?.bottom,
+          "第一行底边",
         );
-        assert.equal(metrics.traffic?.x, metrics.grid?.x);
-        assert.equal(metrics.traffic?.width, metrics.grid?.width);
+        near(metrics.runtime?.y, metrics.billing?.y, "第二行顶边");
+        near(metrics.runtime?.bottom, metrics.billing?.bottom, "第二行底边");
       } else {
         const order = metrics.order;
-        assert.ok(order.length === 6);
+        assert.ok(order.length === 4);
         for (let index = 1; index < order.length; index += 1) {
           assert.ok(
             order[index].y > order[index - 1].y,
@@ -520,12 +629,12 @@ for (const job of jobs()) {
         }
       }
       footerGap =
-        metrics.footer && metrics.traffic
-          ? metrics.footer.y - metrics.traffic.bottom
+        metrics.footer && metrics.grid
+          ? metrics.footer.y - metrics.grid.bottom
           : null;
       assert.ok(
         footerGap !== null && Math.abs(footerGap - 16) <= 1,
-        `页脚与流量带间距应 16px：${footerGap}`,
+        `页脚与卡片区间距应 16px：${footerGap}`,
       );
       bottomGap =
         metrics.footer && typeof metrics.scrollHeight === "number"
@@ -551,20 +660,18 @@ for (const job of jobs()) {
       file: path.relative(HERE, job.out),
       h1: metrics.h1,
       badge: metrics.badge,
-      stats: metrics.stats,
-      chart: metrics.chart,
-      grid: metrics.grid,
-      header: metrics.header,
-      key: metrics.key,
-      resources: metrics.resources,
-      bottom: metrics.bottom,
-      traffic: metrics.traffic,
+      details: metrics.details,
+      innerBlank: metrics.innerBlank,
+      xray: metrics.xray,
+      overview: metrics.overview,
+      availability: metrics.availability,
+      runtime: metrics.runtime,
+      billing: metrics.billing,
       footer: metrics.footer,
+      chart: metrics.chart,
       steps: metrics.steps.length,
       missing: metrics.missing,
       zeros: metrics.steps.filter((step) => step.ratio === 0).length,
-      seven: metrics.sevenText,
-      ringTexts: metrics.ringTexts,
       footerGap,
       bottomGap,
       scrollHeight: metrics.scrollHeight,
@@ -573,7 +680,7 @@ for (const job of jobs()) {
     });
     console.log(
       `ok  ${path.basename(job.out).padEnd(32)} ${metrics.h1 ?? "state"}  ` +
-        `steps=${metrics.steps.length} missing=${metrics.missing.length} ` +
+        `cards=4 steps=${metrics.steps.length} missing=${metrics.missing.length} ` +
         `h=${metrics.scrollHeight} bottom=${bottomGap}`,
     );
   } catch (error) {
@@ -610,12 +717,11 @@ const interactions = {};
   });
   try {
     await page.goto(`${BASE_URL}/status/${TARGET_ID}`, { waitUntil: "load" });
-    await page.waitForSelector('[data-slot="detail-header"]', { timeout: 15_000 });
+    await page.waitForSelector('[data-slot="detail-overview"]', { timeout: 15_000 });
 
     const plot = page.locator('[data-slot="availability-plot"]');
     const box = await plot.boundingBox();
     assert.ok(box);
-    // 0% 小时（index 8）→ tooltip 显示 0% / 中断。
     await page.mouse.move(box.x + box.width * ((8 + 0.5) / 24), box.y + box.height * 0.7);
     const tooltip = page.locator('[data-slot="availability-tooltip"]');
     await tooltip.waitFor({ timeout: 5_000 });
@@ -623,7 +729,6 @@ const interactions = {};
     assert.match(zeroTooltip, /0%/);
     assert.match(zeroTooltip, /中断/);
 
-    // 缺失小时（index 2）→ tooltip 显示无采样。
     await page.mouse.move(box.x + box.width * ((2 + 0.5) / 24), box.y + box.height * 0.5);
     await page.waitForTimeout(30);
     const missingTooltip = (await tooltip.innerText()).replace(/\s+/g, " ").trim();
@@ -663,7 +768,7 @@ const interactions = {};
     assert.equal(await cardLink.count(), 1);
     await cardLink.click();
     await page.waitForURL(`**/status/${TARGET_ID}`, { timeout: 10_000 });
-    await page.waitForSelector('[data-slot="detail-header"]');
+    await page.waitForSelector('[data-slot="detail-overview"]');
     interactions.fromList = { url: page.url() };
     await page.locator('[data-slot="detail-back"]').click();
     await page.waitForURL("**/status", { timeout: 10_000 });
@@ -678,7 +783,7 @@ const interactions = {};
     await page.waitForURL(`**/status/${TARGET_ID}`, { timeout: 10_000 });
     interactions.keyboard = { url: page.url() };
     await page.goto(`${BASE_URL}/status/${TARGET_ID}`, { waitUntil: "load" });
-    await page.waitForSelector('[data-slot="detail-header"]', { timeout: 15_000 });
+    await page.waitForSelector('[data-slot="detail-overview"]', { timeout: 15_000 });
     interactions.deepLink = { url: page.url() };
 
     await page.goto(`${BASE_URL}/status`, { waitUntil: "load" });
@@ -696,7 +801,7 @@ const interactions = {};
 
     // 先成功、再失败：错误面板要带「上次成功」。
     await page.goto(`${BASE_URL}/status/${TARGET_ID}`, { waitUntil: "load" });
-    await page.waitForSelector('[data-slot="detail-header"]', { timeout: 15_000 });
+    await page.waitForSelector('[data-slot="detail-overview"]', { timeout: 15_000 });
     failNext = true;
     await page.evaluate(() => {
       Object.defineProperty(document, "visibilityState", {
@@ -713,7 +818,10 @@ const interactions = {};
       fullPage: true,
       animations: "disabled",
     });
-    interactions.errorLastSuccess = { text: lastSuccessText, file: "error-last-success-dark-1440.png" };
+    interactions.errorLastSuccess = {
+      text: lastSuccessText,
+      file: "error-last-success-dark-1440.png",
+    };
   } catch (error) {
     failures.push(`interactions: ${error.message}`);
     console.error(`FAIL interactions: ${error.message}`);
@@ -743,7 +851,7 @@ const interactions = {};
   });
   try {
     await touchPage.goto(`${BASE_URL}/status/${TARGET_ID}`, { waitUntil: "load" });
-    await touchPage.waitForSelector('[data-slot="detail-header"]', { timeout: 15_000 });
+    await touchPage.waitForSelector('[data-slot="detail-overview"]', { timeout: 15_000 });
     const touchPlot = touchPage.locator('[data-slot="availability-plot"]');
     const touchBox = await touchPlot.boundingBox();
     assert.ok(touchBox);

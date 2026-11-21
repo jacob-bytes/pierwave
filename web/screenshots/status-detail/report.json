@@ -8,102 +8,74 @@
       "locale": "zh-CN",
       "file": "healthy-dark-1440.png",
       "h1": "香港-亚太边缘入口",
-      "badge": "在线14 天 3 小时",
-      "stats": {
-        "latency": {
-          "text": "延迟 18 ms",
-          "x": 64,
-          "y": 379.19,
-          "width": 118.66,
-          "height": 82,
-          "bottom": 461.19
-        },
-        "uptime": {
-          "text": "24h 可用率 100 %",
-          "x": 194.66,
-          "y": 379.19,
-          "width": 118.67,
-          "height": 82,
-          "bottom": 461.19
-        },
-        "rate": {
-          "text": "当前速率 下行 17.5 MB/s 上行 2.19 MB/s",
-          "x": 325.33,
-          "y": 379.19,
-          "width": 118.66,
-          "height": 82,
-          "bottom": 461.19
-        }
+      "badge": "在线 14 天 3 小时",
+      "details": {
+        "outages": "中断次数 0 次",
+        "duration": "累计中断 0 小时 按小时采样，实际可能更短",
+        "coverage": "采样覆盖 24/24",
+        "lowest": "最低时段 00:00–01:00 100%",
+        "highest": "最高时段 00:00–01:00 100%",
+        "compare": "24h / 7 天 24h 100% · 7 天 100% 差值 0.0 pp",
+        "longest": "最长连续正常 24 小时",
+        "periods": "中断时段 无中断"
       },
-      "chart": {
+      "innerBlank": {
+        "overview": 0,
+        "availability": 0,
+        "runtime": 0,
+        "billing": 0
+      },
+      "xray": "Xray 运行中",
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 472.34,
+        "bottom": 609.34
+      },
+      "availability": {
         "x": 480,
         "y": 137,
         "width": 916,
-        "height": 373.59,
-        "bottom": 510.59
+        "height": 472.34,
+        "bottom": 609.34
       },
-      "grid": {
+      "runtime": {
         "x": 44,
-        "y": 137,
-        "width": 1352,
-        "height": 815,
-        "bottom": 952
-      },
-      "header": {
-        "x": 44,
-        "y": 137,
+        "y": 625.34,
         "width": 420,
-        "height": 176.8,
-        "bottom": 313.8
+        "height": 329.56,
+        "bottom": 954.91
       },
-      "key": {
-        "x": 44,
-        "y": 329.8,
-        "width": 420,
-        "height": 180.8,
-        "bottom": 510.59
-      },
-      "resources": {
-        "x": 44,
-        "y": 526.59,
-        "width": 420,
-        "height": 285.89,
-        "bottom": 812.48
-      },
-      "bottom": {
+      "billing": {
         "x": 480,
-        "y": 526.59,
+        "y": 625.34,
         "width": 916,
-        "height": 285.89,
-        "bottom": 812.48
-      },
-      "traffic": {
-        "x": 44,
-        "y": 828.48,
-        "width": 1352,
-        "height": 123.52,
-        "bottom": 952
+        "height": 329.56,
+        "bottom": 954.91
       },
       "footer": {
         "x": 44,
-        "y": 968,
+        "y": 970.91,
         "width": 1352,
         "height": 16,
-        "bottom": 984
+        "bottom": 986.91
+      },
+      "chart": {
+        "x": 64,
+        "y": 333,
+        "width": 380,
+        "height": 256.34,
+        "bottom": 589.34
       },
       "steps": 24,
       "missing": [],
       "zeros": 0,
-      "seven": "7 天可用率 100%",
-      "ringTexts": [
-        "内存 40%",
-        "硬盘 53%"
-      ],
       "footerGap": 16,
-      "bottomGap": 16,
-      "scrollHeight": 1000,
+      "bottomGap": 16.090000000000032,
+      "scrollHeight": 1003,
       "scrollWidth": 1440,
-      "kb": 91
+      "kb": 117
     },
     {
       "state": "healthy",
@@ -112,102 +84,74 @@
       "locale": "zh-CN",
       "file": "healthy-dark-390.png",
       "h1": "香港-亚太边缘入口",
-      "badge": "在线14 天 3 小时",
-      "stats": {
-        "latency": {
-          "text": "延迟 18 ms",
-          "x": 32,
-          "y": 276.3,
-          "width": 100.66,
-          "height": 66,
-          "bottom": 342.3
-        },
-        "uptime": {
-          "text": "24h 可用率 100 %",
-          "x": 144.66,
-          "y": 276.3,
-          "width": 100.67,
-          "height": 66,
-          "bottom": 342.3
-        },
-        "rate": {
-          "text": "当前速率 下行 17.5 MB/s 上行 2.19 MB/s",
-          "x": 257.33,
-          "y": 276.3,
-          "width": 100.66,
-          "height": 66,
-          "bottom": 342.3
-        }
+      "badge": "在线 14 天 3 小时",
+      "details": {
+        "outages": "中断次数 0 次",
+        "duration": "累计中断 0 小时 按小时采样，实际可能更短",
+        "coverage": "采样覆盖 24/24",
+        "lowest": "最低时段 00:00–01:00 100%",
+        "highest": "最高时段 00:00–01:00 100%",
+        "compare": "24h / 7 天 24h 100% · 7 天 100% 差值 0.0 pp",
+        "longest": "最长连续正常24 小时",
+        "periods": "中断时段无中断"
       },
-      "chart": {
-        "x": 16,
-        "y": 374.3,
-        "width": 358,
-        "height": 278.59,
-        "bottom": 652.89
+      "innerBlank": {
+        "overview": 0,
+        "availability": 0,
+        "runtime": 0,
+        "billing": 0
       },
-      "grid": {
+      "xray": "Xray 运行中",
+      "overview": {
         "x": 16,
         "y": 137,
         "width": 358,
-        "height": 1150.45,
-        "bottom": 1287.45
+        "height": 424.89,
+        "bottom": 561.89
       },
-      "header": {
+      "availability": {
         "x": 16,
-        "y": 137,
+        "y": 577.89,
         "width": 358,
-        "height": 107.3,
-        "bottom": 244.3
+        "height": 276.16,
+        "bottom": 854.05
       },
-      "key": {
+      "runtime": {
         "x": 16,
-        "y": 260.3,
+        "y": 870.05,
         "width": 358,
-        "height": 98,
-        "bottom": 358.3
+        "height": 321.56,
+        "bottom": 1191.61
       },
-      "resources": {
+      "billing": {
         "x": 16,
-        "y": 668.89,
+        "y": 1207.61,
         "width": 358,
-        "height": 206.39,
-        "bottom": 875.28
-      },
-      "bottom": {
-        "x": 16,
-        "y": 891.28,
-        "width": 358,
-        "height": 274.17,
-        "bottom": 1165.45
-      },
-      "traffic": {
-        "x": 16,
-        "y": 1181.45,
-        "width": 358,
-        "height": 106,
-        "bottom": 1287.45
+        "height": 217,
+        "bottom": 1424.61
       },
       "footer": {
         "x": 16,
-        "y": 1303.45,
+        "y": 1440.61,
         "width": 358,
         "height": 16,
-        "bottom": 1319.45
+        "bottom": 1456.61
+      },
+      "chart": {
+        "x": 32,
+        "y": 310.3,
+        "width": 326,
+        "height": 235.59,
+        "bottom": 545.89
       },
       "steps": 24,
       "missing": [],
       "zeros": 0,
-      "seven": "7 天可用率 100%",
-      "ringTexts": [
-        "内存 40%",
-        "硬盘 53%"
-      ],
       "footerGap": 16,
-      "bottomGap": 15.549999999999955,
-      "scrollHeight": 1335,
+      "bottomGap": 16.3900000000001,
+      "scrollHeight": 1473,
       "scrollWidth": 390,
-      "kb": 77
+      "kb": 93
     },
     {
       "state": "healthy",
@@ -216,102 +160,74 @@
       "locale": "zh-CN",
       "file": "healthy-light-1440.png",
       "h1": "香港-亚太边缘入口",
-      "badge": "在线14 天 3 小时",
-      "stats": {
-        "latency": {
-          "text": "延迟 18 ms",
-          "x": 64,
-          "y": 379.19,
-          "width": 118.66,
-          "height": 82,
-          "bottom": 461.19
-        },
-        "uptime": {
-          "text": "24h 可用率 100 %",
-          "x": 194.66,
-          "y": 379.19,
-          "width": 118.67,
-          "height": 82,
-          "bottom": 461.19
-        },
-        "rate": {
-          "text": "当前速率 下行 17.5 MB/s 上行 2.19 MB/s",
-          "x": 325.33,
-          "y": 379.19,
-          "width": 118.66,
-          "height": 82,
-          "bottom": 461.19
-        }
+      "badge": "在线 14 天 3 小时",
+      "details": {
+        "outages": "中断次数 0 次",
+        "duration": "累计中断 0 小时 按小时采样，实际可能更短",
+        "coverage": "采样覆盖 24/24",
+        "lowest": "最低时段 00:00–01:00 100%",
+        "highest": "最高时段 00:00–01:00 100%",
+        "compare": "24h / 7 天 24h 100% · 7 天 100% 差值 0.0 pp",
+        "longest": "最长连续正常 24 小时",
+        "periods": "中断时段 无中断"
       },
-      "chart": {
+      "innerBlank": {
+        "overview": 0,
+        "availability": 0,
+        "runtime": 0,
+        "billing": 0
+      },
+      "xray": "Xray 运行中",
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 472.34,
+        "bottom": 609.34
+      },
+      "availability": {
         "x": 480,
         "y": 137,
         "width": 916,
-        "height": 373.59,
-        "bottom": 510.59
+        "height": 472.34,
+        "bottom": 609.34
       },
-      "grid": {
+      "runtime": {
         "x": 44,
-        "y": 137,
-        "width": 1352,
-        "height": 815,
-        "bottom": 952
-      },
-      "header": {
-        "x": 44,
-        "y": 137,
+        "y": 625.34,
         "width": 420,
-        "height": 176.8,
-        "bottom": 313.8
+        "height": 329.56,
+        "bottom": 954.91
       },
-      "key": {
-        "x": 44,
-        "y": 329.8,
-        "width": 420,
-        "height": 180.8,
-        "bottom": 510.59
-      },
-      "resources": {
-        "x": 44,
-        "y": 526.59,
-        "width": 420,
-        "height": 285.89,
-        "bottom": 812.48
-      },
-      "bottom": {
+      "billing": {
         "x": 480,
-        "y": 526.59,
+        "y": 625.34,
         "width": 916,
-        "height": 285.89,
-        "bottom": 812.48
-      },
-      "traffic": {
-        "x": 44,
-        "y": 828.48,
-        "width": 1352,
-        "height": 123.52,
-        "bottom": 952
+        "height": 329.56,
+        "bottom": 954.91
       },
       "footer": {
         "x": 44,
-        "y": 968,
+        "y": 970.91,
         "width": 1352,
         "height": 16,
-        "bottom": 984
+        "bottom": 986.91
+      },
+      "chart": {
+        "x": 64,
+        "y": 333,
+        "width": 380,
+        "height": 256.34,
+        "bottom": 589.34
       },
       "steps": 24,
       "missing": [],
       "zeros": 0,
-      "seven": "7 天可用率 100%",
-      "ringTexts": [
-        "内存 40%",
-        "硬盘 53%"
-      ],
       "footerGap": 16,
-      "bottomGap": 16,
-      "scrollHeight": 1000,
+      "bottomGap": 16.090000000000032,
+      "scrollHeight": 1003,
       "scrollWidth": 1440,
-      "kb": 97
+      "kb": 122
     },
     {
       "state": "healthy",
@@ -320,102 +236,74 @@
       "locale": "zh-CN",
       "file": "healthy-light-390.png",
       "h1": "香港-亚太边缘入口",
-      "badge": "在线14 天 3 小时",
-      "stats": {
-        "latency": {
-          "text": "延迟 18 ms",
-          "x": 32,
-          "y": 276.3,
-          "width": 100.66,
-          "height": 66,
-          "bottom": 342.3
-        },
-        "uptime": {
-          "text": "24h 可用率 100 %",
-          "x": 144.66,
-          "y": 276.3,
-          "width": 100.67,
-          "height": 66,
-          "bottom": 342.3
-        },
-        "rate": {
-          "text": "当前速率 下行 17.5 MB/s 上行 2.19 MB/s",
-          "x": 257.33,
-          "y": 276.3,
-          "width": 100.66,
-          "height": 66,
-          "bottom": 342.3
-        }
+      "badge": "在线 14 天 3 小时",
+      "details": {
+        "outages": "中断次数 0 次",
+        "duration": "累计中断 0 小时 按小时采样，实际可能更短",
+        "coverage": "采样覆盖 24/24",
+        "lowest": "最低时段 00:00–01:00 100%",
+        "highest": "最高时段 00:00–01:00 100%",
+        "compare": "24h / 7 天 24h 100% · 7 天 100% 差值 0.0 pp",
+        "longest": "最长连续正常24 小时",
+        "periods": "中断时段无中断"
       },
-      "chart": {
-        "x": 16,
-        "y": 374.3,
-        "width": 358,
-        "height": 278.59,
-        "bottom": 652.89
+      "innerBlank": {
+        "overview": 0,
+        "availability": 0,
+        "runtime": 0,
+        "billing": 0
       },
-      "grid": {
+      "xray": "Xray 运行中",
+      "overview": {
         "x": 16,
         "y": 137,
         "width": 358,
-        "height": 1150.45,
-        "bottom": 1287.45
+        "height": 424.89,
+        "bottom": 561.89
       },
-      "header": {
+      "availability": {
         "x": 16,
-        "y": 137,
+        "y": 577.89,
         "width": 358,
-        "height": 107.3,
-        "bottom": 244.3
+        "height": 276.16,
+        "bottom": 854.05
       },
-      "key": {
+      "runtime": {
         "x": 16,
-        "y": 260.3,
+        "y": 870.05,
         "width": 358,
-        "height": 98,
-        "bottom": 358.3
+        "height": 321.56,
+        "bottom": 1191.61
       },
-      "resources": {
+      "billing": {
         "x": 16,
-        "y": 668.89,
+        "y": 1207.61,
         "width": 358,
-        "height": 206.39,
-        "bottom": 875.28
-      },
-      "bottom": {
-        "x": 16,
-        "y": 891.28,
-        "width": 358,
-        "height": 274.17,
-        "bottom": 1165.45
-      },
-      "traffic": {
-        "x": 16,
-        "y": 1181.45,
-        "width": 358,
-        "height": 106,
-        "bottom": 1287.45
+        "height": 217,
+        "bottom": 1424.61
       },
       "footer": {
         "x": 16,
-        "y": 1303.45,
+        "y": 1440.61,
         "width": 358,
         "height": 16,
-        "bottom": 1319.45
+        "bottom": 1456.61
+      },
+      "chart": {
+        "x": 32,
+        "y": 310.3,
+        "width": 326,
+        "height": 235.59,
+        "bottom": 545.89
       },
       "steps": 24,
       "missing": [],
       "zeros": 0,
-      "seven": "7 天可用率 100%",
-      "ringTexts": [
-        "内存 40%",
-        "硬盘 53%"
-      ],
       "footerGap": 16,
-      "bottomGap": 15.549999999999955,
-      "scrollHeight": 1335,
+      "bottomGap": 16.3900000000001,
+      "scrollHeight": 1473,
       "scrollWidth": 390,
-      "kb": 85
+      "kb": 99
     },
     {
       "state": "incident",
@@ -424,88 +312,65 @@
       "locale": "zh-CN",
       "file": "incident-dark-1440.png",
       "h1": "香港-亚太边缘入口",
-      "badge": "在线14 天 3 小时",
-      "stats": {
-        "latency": {
-          "text": "延迟 18 ms",
-          "x": 64,
-          "y": 379.19,
-          "width": 118.66,
-          "height": 82,
-          "bottom": 461.19
-        },
-        "uptime": {
-          "text": "24h 可用率 86 %",
-          "x": 194.66,
-          "y": 379.19,
-          "width": 118.67,
-          "height": 82,
-          "bottom": 461.19
-        },
-        "rate": {
-          "text": "当前速率 下行 17.5 MB/s 上行 2.19 MB/s",
-          "x": 325.33,
-          "y": 379.19,
-          "width": 118.66,
-          "height": 82,
-          "bottom": 461.19
-        }
+      "badge": "在线 14 天 3 小时",
+      "details": {
+        "outages": "中断次数 2 次",
+        "duration": "累计中断 3 小时 按小时采样，实际可能更短",
+        "coverage": "采样覆盖 21/24",
+        "lowest": "最低时段 08:00–09:00 0%",
+        "highest": "最高时段 00:00–01:00 100%",
+        "compare": "24h / 7 天 24h 86% · 7 天 98.7% 差值 −12.7 pp",
+        "longest": "最长连续正常 5 小时",
+        "periods": "中断时段 08:00–10:00 · 15:00–16:00"
       },
-      "chart": {
+      "innerBlank": {
+        "overview": 0,
+        "availability": 0,
+        "runtime": 0,
+        "billing": 0
+      },
+      "xray": "Xray 运行中",
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 472.34,
+        "bottom": 609.34
+      },
+      "availability": {
         "x": 480,
         "y": 137,
         "width": 916,
-        "height": 373.59,
-        "bottom": 510.59
+        "height": 472.34,
+        "bottom": 609.34
       },
-      "grid": {
+      "runtime": {
         "x": 44,
-        "y": 137,
-        "width": 1352,
-        "height": 815,
-        "bottom": 952
-      },
-      "header": {
-        "x": 44,
-        "y": 137,
+        "y": 625.34,
         "width": 420,
-        "height": 176.8,
-        "bottom": 313.8
+        "height": 329.56,
+        "bottom": 954.91
       },
-      "key": {
-        "x": 44,
-        "y": 329.8,
-        "width": 420,
-        "height": 180.8,
-        "bottom": 510.59
-      },
-      "resources": {
-        "x": 44,
-        "y": 526.59,
-        "width": 420,
-        "height": 285.89,
-        "bottom": 812.48
-      },
-      "bottom": {
+      "billing": {
         "x": 480,
-        "y": 526.59,
+        "y": 625.34,
         "width": 916,
-        "height": 285.89,
-        "bottom": 812.48
-      },
-      "traffic": {
-        "x": 44,
-        "y": 828.48,
-        "width": 1352,
-        "height": 123.52,
-        "bottom": 952
+        "height": 329.56,
+        "bottom": 954.91
       },
       "footer": {
         "x": 44,
-        "y": 968,
+        "y": 970.91,
         "width": 1352,
         "height": 16,
-        "bottom": 984
+        "bottom": 986.91
+      },
+      "chart": {
+        "x": 64,
+        "y": 333,
+        "width": 380,
+        "height": 256.34,
+        "bottom": 589.34
       },
       "steps": 21,
       "missing": [
@@ -514,16 +379,11 @@
         18
       ],
       "zeros": 3,
-      "seven": "7 天可用率 98.7%",
-      "ringTexts": [
-        "内存 40%",
-        "硬盘 53%"
-      ],
       "footerGap": 16,
-      "bottomGap": 16,
-      "scrollHeight": 1000,
+      "bottomGap": 16.090000000000032,
+      "scrollHeight": 1003,
       "scrollWidth": 1440,
-      "kb": 99
+      "kb": 123
     },
     {
       "state": "incident",
@@ -532,88 +392,65 @@
       "locale": "zh-CN",
       "file": "incident-dark-390.png",
       "h1": "香港-亚太边缘入口",
-      "badge": "在线14 天 3 小时",
-      "stats": {
-        "latency": {
-          "text": "延迟 18 ms",
-          "x": 32,
-          "y": 276.3,
-          "width": 100.66,
-          "height": 66,
-          "bottom": 342.3
-        },
-        "uptime": {
-          "text": "24h 可用率 86 %",
-          "x": 144.66,
-          "y": 276.3,
-          "width": 100.67,
-          "height": 66,
-          "bottom": 342.3
-        },
-        "rate": {
-          "text": "当前速率 下行 17.5 MB/s 上行 2.19 MB/s",
-          "x": 257.33,
-          "y": 276.3,
-          "width": 100.66,
-          "height": 66,
-          "bottom": 342.3
-        }
+      "badge": "在线 14 天 3 小时",
+      "details": {
+        "outages": "中断次数 2 次",
+        "duration": "累计中断 3 小时 按小时采样，实际可能更短",
+        "coverage": "采样覆盖 21/24",
+        "lowest": "最低时段 08:00–09:00 0%",
+        "highest": "最高时段 00:00–01:00 100%",
+        "compare": "24h / 7 天 24h 86% · 7 天 98.7% 差值 −12.7 pp",
+        "longest": "最长连续正常5 小时",
+        "periods": "中断时段08:00–10:00 · 15:00–16:00"
       },
-      "chart": {
-        "x": 16,
-        "y": 374.3,
-        "width": 358,
-        "height": 278.59,
-        "bottom": 652.89
+      "innerBlank": {
+        "overview": 0,
+        "availability": 0,
+        "runtime": 0,
+        "billing": 0
       },
-      "grid": {
+      "xray": "Xray 运行中",
+      "overview": {
         "x": 16,
         "y": 137,
         "width": 358,
-        "height": 1150.45,
-        "bottom": 1287.45
+        "height": 424.89,
+        "bottom": 561.89
       },
-      "header": {
+      "availability": {
         "x": 16,
-        "y": 137,
+        "y": 577.89,
         "width": 358,
-        "height": 107.3,
-        "bottom": 244.3
+        "height": 276.16,
+        "bottom": 854.05
       },
-      "key": {
+      "runtime": {
         "x": 16,
-        "y": 260.3,
+        "y": 870.05,
         "width": 358,
-        "height": 98,
-        "bottom": 358.3
+        "height": 321.56,
+        "bottom": 1191.61
       },
-      "resources": {
+      "billing": {
         "x": 16,
-        "y": 668.89,
+        "y": 1207.61,
         "width": 358,
-        "height": 206.39,
-        "bottom": 875.28
-      },
-      "bottom": {
-        "x": 16,
-        "y": 891.28,
-        "width": 358,
-        "height": 274.17,
-        "bottom": 1165.45
-      },
-      "traffic": {
-        "x": 16,
-        "y": 1181.45,
-        "width": 358,
-        "height": 106,
-        "bottom": 1287.45
+        "height": 217,
+        "bottom": 1424.61
       },
       "footer": {
         "x": 16,
-        "y": 1303.45,
+        "y": 1440.61,
         "width": 358,
         "height": 16,
-        "bottom": 1319.45
+        "bottom": 1456.61
+      },
+      "chart": {
+        "x": 32,
+        "y": 310.3,
+        "width": 326,
+        "height": 235.59,
+        "bottom": 545.89
       },
       "steps": 21,
       "missing": [
@@ -622,16 +459,11 @@
         18
       ],
       "zeros": 3,
-      "seven": "7 天可用率 98.7%",
-      "ringTexts": [
-        "内存 40%",
-        "硬盘 53%"
-      ],
       "footerGap": 16,
-      "bottomGap": 15.549999999999955,
-      "scrollHeight": 1335,
+      "bottomGap": 16.3900000000001,
+      "scrollHeight": 1473,
       "scrollWidth": 390,
-      "kb": 80
+      "kb": 97
     },
     {
       "state": "incident",
@@ -640,88 +472,65 @@
       "locale": "zh-CN",
       "file": "incident-light-1440.png",
       "h1": "香港-亚太边缘入口",
-      "badge": "在线14 天 3 小时",
-      "stats": {
-        "latency": {
-          "text": "延迟 18 ms",
-          "x": 64,
-          "y": 379.19,
-          "width": 118.66,
-          "height": 82,
-          "bottom": 461.19
-        },
-        "uptime": {
-          "text": "24h 可用率 86 %",
-          "x": 194.66,
-          "y": 379.19,
-          "width": 118.67,
-          "height": 82,
-          "bottom": 461.19
-        },
-        "rate": {
-          "text": "当前速率 下行 17.5 MB/s 上行 2.19 MB/s",
-          "x": 325.33,
-          "y": 379.19,
-          "width": 118.66,
-          "height": 82,
-          "bottom": 461.19
-        }
+      "badge": "在线 14 天 3 小时",
+      "details": {
+        "outages": "中断次数 2 次",
+        "duration": "累计中断 3 小时 按小时采样，实际可能更短",
+        "coverage": "采样覆盖 21/24",
+        "lowest": "最低时段 08:00–09:00 0%",
+        "highest": "最高时段 00:00–01:00 100%",
+        "compare": "24h / 7 天 24h 86% · 7 天 98.7% 差值 −12.7 pp",
+        "longest": "最长连续正常 5 小时",
+        "periods": "中断时段 08:00–10:00 · 15:00–16:00"
       },
-      "chart": {
+      "innerBlank": {
+        "overview": 0,
+        "availability": 0,
+        "runtime": 0,
+        "billing": 0
+      },
+      "xray": "Xray 运行中",
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 472.34,
+        "bottom": 609.34
+      },
+      "availability": {
         "x": 480,
         "y": 137,
         "width": 916,
-        "height": 373.59,
-        "bottom": 510.59
+        "height": 472.34,
+        "bottom": 609.34
       },
-      "grid": {
+      "runtime": {
         "x": 44,
-        "y": 137,
-        "width": 1352,
-        "height": 815,
-        "bottom": 952
-      },
-      "header": {
-        "x": 44,
-        "y": 137,
+        "y": 625.34,
         "width": 420,
-        "height": 176.8,
-        "bottom": 313.8
+        "height": 329.56,
+        "bottom": 954.91
       },
-      "key": {
-        "x": 44,
-        "y": 329.8,
-        "width": 420,
-        "height": 180.8,
-        "bottom": 510.59
-      },
-      "resources": {
-        "x": 44,
-        "y": 526.59,
-        "width": 420,
-        "height": 285.89,
-        "bottom": 812.48
-      },
-      "bottom": {
+      "billing": {
         "x": 480,
-        "y": 526.59,
+        "y": 625.34,
         "width": 916,
-        "height": 285.89,
-        "bottom": 812.48
-      },
-      "traffic": {
-        "x": 44,
-        "y": 828.48,
-        "width": 1352,
-        "height": 123.52,
-        "bottom": 952
+        "height": 329.56,
+        "bottom": 954.91
       },
       "footer": {
         "x": 44,
-        "y": 968,
+        "y": 970.91,
         "width": 1352,
         "height": 16,
-        "bottom": 984
+        "bottom": 986.91
+      },
+      "chart": {
+        "x": 64,
+        "y": 333,
+        "width": 380,
+        "height": 256.34,
+        "bottom": 589.34
       },
       "steps": 21,
       "missing": [
@@ -730,16 +539,11 @@
         18
       ],
       "zeros": 3,
-      "seven": "7 天可用率 98.7%",
-      "ringTexts": [
-        "内存 40%",
-        "硬盘 53%"
-      ],
       "footerGap": 16,
-      "bottomGap": 16,
-      "scrollHeight": 1000,
+      "bottomGap": 16.090000000000032,
+      "scrollHeight": 1003,
       "scrollWidth": 1440,
-      "kb": 104
+      "kb": 129
     },
     {
       "state": "incident",
@@ -748,88 +552,65 @@
       "locale": "zh-CN",
       "file": "incident-light-390.png",
       "h1": "香港-亚太边缘入口",
-      "badge": "在线14 天 3 小时",
-      "stats": {
-        "latency": {
-          "text": "延迟 18 ms",
-          "x": 32,
-          "y": 276.3,
-          "width": 100.66,
-          "height": 66,
-          "bottom": 342.3
-        },
-        "uptime": {
-          "text": "24h 可用率 86 %",
-          "x": 144.66,
-          "y": 276.3,
-          "width": 100.67,
-          "height": 66,
-          "bottom": 342.3
-        },
-        "rate": {
-          "text": "当前速率 下行 17.5 MB/s 上行 2.19 MB/s",
-          "x": 257.33,
-          "y": 276.3,
-          "width": 100.66,
-          "height": 66,
-          "bottom": 342.3
-        }
+      "badge": "在线 14 天 3 小时",
+      "details": {
+        "outages": "中断次数 2 次",
+        "duration": "累计中断 3 小时 按小时采样，实际可能更短",
+        "coverage": "采样覆盖 21/24",
+        "lowest": "最低时段 08:00–09:00 0%",
+        "highest": "最高时段 00:00–01:00 100%",
+        "compare": "24h / 7 天 24h 86% · 7 天 98.7% 差值 −12.7 pp",
+        "longest": "最长连续正常5 小时",
+        "periods": "中断时段08:00–10:00 · 15:00–16:00"
       },
-      "chart": {
-        "x": 16,
-        "y": 374.3,
-        "width": 358,
-        "height": 278.59,
-        "bottom": 652.89
+      "innerBlank": {
+        "overview": 0,
+        "availability": 0,
+        "runtime": 0,
+        "billing": 0
       },
-      "grid": {
+      "xray": "Xray 运行中",
+      "overview": {
         "x": 16,
         "y": 137,
         "width": 358,
-        "height": 1150.45,
-        "bottom": 1287.45
+        "height": 424.89,
+        "bottom": 561.89
       },
-      "header": {
+      "availability": {
         "x": 16,
-        "y": 137,
+        "y": 577.89,
         "width": 358,
-        "height": 107.3,
-        "bottom": 244.3
+        "height": 276.16,
+        "bottom": 854.05
       },
-      "key": {
+      "runtime": {
         "x": 16,
-        "y": 260.3,
+        "y": 870.05,
         "width": 358,
-        "height": 98,
-        "bottom": 358.3
+        "height": 321.56,
+        "bottom": 1191.61
       },
-      "resources": {
+      "billing": {
         "x": 16,
-        "y": 668.89,
+        "y": 1207.61,
         "width": 358,
-        "height": 206.39,
-        "bottom": 875.28
-      },
-      "bottom": {
-        "x": 16,
-        "y": 891.28,
-        "width": 358,
-        "height": 274.17,
-        "bottom": 1165.45
-      },
-      "traffic": {
-        "x": 16,
-        "y": 1181.45,
-        "width": 358,
-        "height": 106,
-        "bottom": 1287.45
+        "height": 217,
+        "bottom": 1424.61
       },
       "footer": {
         "x": 16,
-        "y": 1303.45,
+        "y": 1440.61,
         "width": 358,
         "height": 16,
-        "bottom": 1319.45
+        "bottom": 1456.61
+      },
+      "chart": {
+        "x": 32,
+        "y": 310.3,
+        "width": 326,
+        "height": 235.59,
+        "bottom": 545.89
       },
       "steps": 21,
       "missing": [
@@ -838,16 +619,11 @@
         18
       ],
       "zeros": 3,
-      "seven": "7 天可用率 98.7%",
-      "ringTexts": [
-        "内存 40%",
-        "硬盘 53%"
-      ],
       "footerGap": 16,
-      "bottomGap": 15.549999999999955,
-      "scrollHeight": 1335,
+      "bottomGap": 16.3900000000001,
+      "scrollHeight": 1473,
       "scrollWidth": 390,
-      "kb": 88
+      "kb": 103
     },
     {
       "state": "offline",
@@ -857,87 +633,64 @@
       "file": "offline-dark-1440.png",
       "h1": "香港-亚太边缘入口",
       "badge": "离线",
-      "stats": {
-        "latency": {
-          "text": "延迟 18 ms",
-          "x": 64,
-          "y": 379.19,
-          "width": 118.66,
-          "height": 82,
-          "bottom": 461.19
-        },
-        "uptime": {
-          "text": "24h 可用率 86 %",
-          "x": 194.66,
-          "y": 379.19,
-          "width": 118.67,
-          "height": 82,
-          "bottom": 461.19
-        },
-        "rate": {
-          "text": "当前速率 下行 17.5 MB/s 上行 2.19 MB/s",
-          "x": 325.33,
-          "y": 379.19,
-          "width": 118.66,
-          "height": 82,
-          "bottom": 461.19
-        }
+      "details": {
+        "outages": "中断次数 2 次",
+        "duration": "累计中断 3 小时 按小时采样，实际可能更短",
+        "coverage": "采样覆盖 21/24",
+        "lowest": "最低时段 08:00–09:00 0%",
+        "highest": "最高时段 00:00–01:00 100%",
+        "compare": "24h / 7 天 24h 86% · 7 天 98.7% 差值 −12.7 pp",
+        "longest": "最长连续正常 5 小时",
+        "periods": "中断时段 08:00–10:00 · 15:00–16:00"
       },
-      "chart": {
+      "innerBlank": {
+        "overview": 0,
+        "availability": 0,
+        "runtime": 0,
+        "billing": 0
+      },
+      "xray": "Xray 未运行",
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 472.34,
+        "bottom": 609.34
+      },
+      "availability": {
         "x": 480,
         "y": 137,
         "width": 916,
-        "height": 373.59,
-        "bottom": 510.59
+        "height": 472.34,
+        "bottom": 609.34
       },
-      "grid": {
+      "runtime": {
         "x": 44,
-        "y": 137,
-        "width": 1352,
-        "height": 815,
-        "bottom": 952
-      },
-      "header": {
-        "x": 44,
-        "y": 137,
+        "y": 625.34,
         "width": 420,
-        "height": 176.8,
-        "bottom": 313.8
+        "height": 329.56,
+        "bottom": 954.91
       },
-      "key": {
-        "x": 44,
-        "y": 329.8,
-        "width": 420,
-        "height": 180.8,
-        "bottom": 510.59
-      },
-      "resources": {
-        "x": 44,
-        "y": 526.59,
-        "width": 420,
-        "height": 285.89,
-        "bottom": 812.48
-      },
-      "bottom": {
+      "billing": {
         "x": 480,
-        "y": 526.59,
+        "y": 625.34,
         "width": 916,
-        "height": 285.89,
-        "bottom": 812.48
-      },
-      "traffic": {
-        "x": 44,
-        "y": 828.48,
-        "width": 1352,
-        "height": 123.52,
-        "bottom": 952
+        "height": 329.56,
+        "bottom": 954.91
       },
       "footer": {
         "x": 44,
-        "y": 968,
+        "y": 970.91,
         "width": 1352,
         "height": 16,
-        "bottom": 984
+        "bottom": 986.91
+      },
+      "chart": {
+        "x": 64,
+        "y": 333,
+        "width": 380,
+        "height": 256.34,
+        "bottom": 589.34
       },
       "steps": 21,
       "missing": [
@@ -946,16 +699,11 @@
         18
       ],
       "zeros": 3,
-      "seven": "7 天可用率 98.7%",
-      "ringTexts": [
-        "内存 40%",
-        "硬盘 53%"
-      ],
       "footerGap": 16,
-      "bottomGap": 16,
-      "scrollHeight": 1000,
+      "bottomGap": 16.090000000000032,
+      "scrollHeight": 1003,
       "scrollWidth": 1440,
-      "kb": 99
+      "kb": 120
     },
     {
       "state": "offline",
@@ -965,87 +713,64 @@
       "file": "offline-dark-390.png",
       "h1": "香港-亚太边缘入口",
       "badge": "离线",
-      "stats": {
-        "latency": {
-          "text": "延迟 18 ms",
-          "x": 32,
-          "y": 276.3,
-          "width": 100.66,
-          "height": 66,
-          "bottom": 342.3
-        },
-        "uptime": {
-          "text": "24h 可用率 86 %",
-          "x": 144.66,
-          "y": 276.3,
-          "width": 100.67,
-          "height": 66,
-          "bottom": 342.3
-        },
-        "rate": {
-          "text": "当前速率 下行 17.5 MB/s 上行 2.19 MB/s",
-          "x": 257.33,
-          "y": 276.3,
-          "width": 100.66,
-          "height": 66,
-          "bottom": 342.3
-        }
+      "details": {
+        "outages": "中断次数 2 次",
+        "duration": "累计中断 3 小时 按小时采样，实际可能更短",
+        "coverage": "采样覆盖 21/24",
+        "lowest": "最低时段 08:00–09:00 0%",
+        "highest": "最高时段 00:00–01:00 100%",
+        "compare": "24h / 7 天 24h 86% · 7 天 98.7% 差值 −12.7 pp",
+        "longest": "最长连续正常5 小时",
+        "periods": "中断时段08:00–10:00 · 15:00–16:00"
       },
-      "chart": {
-        "x": 16,
-        "y": 374.3,
-        "width": 358,
-        "height": 278.59,
-        "bottom": 652.89
+      "innerBlank": {
+        "overview": 0,
+        "availability": 0,
+        "runtime": 0,
+        "billing": 0
       },
-      "grid": {
+      "xray": "Xray 未运行",
+      "overview": {
         "x": 16,
         "y": 137,
         "width": 358,
-        "height": 1150.45,
-        "bottom": 1287.45
+        "height": 424.89,
+        "bottom": 561.89
       },
-      "header": {
+      "availability": {
         "x": 16,
-        "y": 137,
+        "y": 577.89,
         "width": 358,
-        "height": 107.3,
-        "bottom": 244.3
+        "height": 276.16,
+        "bottom": 854.05
       },
-      "key": {
+      "runtime": {
         "x": 16,
-        "y": 260.3,
+        "y": 870.05,
         "width": 358,
-        "height": 98,
-        "bottom": 358.3
+        "height": 321.56,
+        "bottom": 1191.61
       },
-      "resources": {
+      "billing": {
         "x": 16,
-        "y": 668.89,
+        "y": 1207.61,
         "width": 358,
-        "height": 206.39,
-        "bottom": 875.28
-      },
-      "bottom": {
-        "x": 16,
-        "y": 891.28,
-        "width": 358,
-        "height": 274.17,
-        "bottom": 1165.45
-      },
-      "traffic": {
-        "x": 16,
-        "y": 1181.45,
-        "width": 358,
-        "height": 106,
-        "bottom": 1287.45
+        "height": 217,
+        "bottom": 1424.61
       },
       "footer": {
         "x": 16,
-        "y": 1303.45,
+        "y": 1440.61,
         "width": 358,
         "height": 16,
-        "bottom": 1319.45
+        "bottom": 1456.61
+      },
+      "chart": {
+        "x": 32,
+        "y": 310.3,
+        "width": 326,
+        "height": 235.59,
+        "bottom": 545.89
       },
       "steps": 21,
       "missing": [
@@ -1054,16 +779,11 @@
         18
       ],
       "zeros": 3,
-      "seven": "7 天可用率 98.7%",
-      "ringTexts": [
-        "内存 40%",
-        "硬盘 53%"
-      ],
       "footerGap": 16,
-      "bottomGap": 15.549999999999955,
-      "scrollHeight": 1335,
+      "bottomGap": 16.3900000000001,
+      "scrollHeight": 1473,
       "scrollWidth": 390,
-      "kb": 79
+      "kb": 96
     },
     {
       "state": "offline",
@@ -1073,87 +793,64 @@
       "file": "offline-light-1440.png",
       "h1": "香港-亚太边缘入口",
       "badge": "离线",
-      "stats": {
-        "latency": {
-          "text": "延迟 18 ms",
-          "x": 64,
-          "y": 379.19,
-          "width": 118.66,
-          "height": 82,
-          "bottom": 461.19
-        },
-        "uptime": {
-          "text": "24h 可用率 86 %",
-          "x": 194.66,
-          "y": 379.19,
-          "width": 118.67,
-          "height": 82,
-          "bottom": 461.19
-        },
-        "rate": {
-          "text": "当前速率 下行 17.5 MB/s 上行 2.19 MB/s",
-          "x": 325.33,
-          "y": 379.19,
-          "width": 118.66,
-          "height": 82,
-          "bottom": 461.19
-        }
+      "details": {
+        "outages": "中断次数 2 次",
+        "duration": "累计中断 3 小时 按小时采样，实际可能更短",
+        "coverage": "采样覆盖 21/24",
+        "lowest": "最低时段 08:00–09:00 0%",
+        "highest": "最高时段 00:00–01:00 100%",
+        "compare": "24h / 7 天 24h 86% · 7 天 98.7% 差值 −12.7 pp",
+        "longest": "最长连续正常 5 小时",
+        "periods": "中断时段 08:00–10:00 · 15:00–16:00"
       },
-      "chart": {
+      "innerBlank": {
+        "overview": 0,
+        "availability": 0,
+        "runtime": 0,
+        "billing": 0
+      },
+      "xray": "Xray 未运行",
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 472.34,
+        "bottom": 609.34
+      },
+      "availability": {
         "x": 480,
         "y": 137,
         "width": 916,
-        "height": 373.59,
-        "bottom": 510.59
+        "height": 472.34,
+        "bottom": 609.34
       },
-      "grid": {
+      "runtime": {
         "x": 44,
-        "y": 137,
-        "width": 1352,
-        "height": 815,
-        "bottom": 952
-      },
-      "header": {
-        "x": 44,
-        "y": 137,
+        "y": 625.34,
         "width": 420,
-        "height": 176.8,
-        "bottom": 313.8
+        "height": 329.56,
+        "bottom": 954.91
       },
-      "key": {
-        "x": 44,
-        "y": 329.8,
-        "width": 420,
-        "height": 180.8,
-        "bottom": 510.59
-      },
-      "resources": {
-        "x": 44,
-        "y": 526.59,
-        "width": 420,
-        "height": 285.89,
-        "bottom": 812.48
-      },
-      "bottom": {
+      "billing": {
         "x": 480,
-        "y": 526.59,
+        "y": 625.34,
         "width": 916,
-        "height": 285.89,
-        "bottom": 812.48
-      },
-      "traffic": {
-        "x": 44,
-        "y": 828.48,
-        "width": 1352,
-        "height": 123.52,
-        "bottom": 952
+        "height": 329.56,
+        "bottom": 954.91
       },
       "footer": {
         "x": 44,
-        "y": 968,
+        "y": 970.91,
         "width": 1352,
         "height": 16,
-        "bottom": 984
+        "bottom": 986.91
+      },
+      "chart": {
+        "x": 64,
+        "y": 333,
+        "width": 380,
+        "height": 256.34,
+        "bottom": 589.34
       },
       "steps": 21,
       "missing": [
@@ -1162,16 +859,11 @@
         18
       ],
       "zeros": 3,
-      "seven": "7 天可用率 98.7%",
-      "ringTexts": [
-        "内存 40%",
-        "硬盘 53%"
-      ],
       "footerGap": 16,
-      "bottomGap": 16,
-      "scrollHeight": 1000,
+      "bottomGap": 16.090000000000032,
+      "scrollHeight": 1003,
       "scrollWidth": 1440,
-      "kb": 104
+      "kb": 126
     },
     {
       "state": "offline",
@@ -1181,87 +873,64 @@
       "file": "offline-light-390.png",
       "h1": "香港-亚太边缘入口",
       "badge": "离线",
-      "stats": {
-        "latency": {
-          "text": "延迟 18 ms",
-          "x": 32,
-          "y": 276.3,
-          "width": 100.66,
-          "height": 66,
-          "bottom": 342.3
-        },
-        "uptime": {
-          "text": "24h 可用率 86 %",
-          "x": 144.66,
-          "y": 276.3,
-          "width": 100.67,
-          "height": 66,
-          "bottom": 342.3
-        },
-        "rate": {
-          "text": "当前速率 下行 17.5 MB/s 上行 2.19 MB/s",
-          "x": 257.33,
-          "y": 276.3,
-          "width": 100.66,
-          "height": 66,
-          "bottom": 342.3
-        }
+      "details": {
+        "outages": "中断次数 2 次",
+        "duration": "累计中断 3 小时 按小时采样，实际可能更短",
+        "coverage": "采样覆盖 21/24",
+        "lowest": "最低时段 08:00–09:00 0%",
+        "highest": "最高时段 00:00–01:00 100%",
+        "compare": "24h / 7 天 24h 86% · 7 天 98.7% 差值 −12.7 pp",
+        "longest": "最长连续正常5 小时",
+        "periods": "中断时段08:00–10:00 · 15:00–16:00"
       },
-      "chart": {
-        "x": 16,
-        "y": 374.3,
-        "width": 358,
-        "height": 278.59,
-        "bottom": 652.89
+      "innerBlank": {
+        "overview": 0,
+        "availability": 0,
+        "runtime": 0,
+        "billing": 0
       },
-      "grid": {
+      "xray": "Xray 未运行",
+      "overview": {
         "x": 16,
         "y": 137,
         "width": 358,
-        "height": 1150.45,
-        "bottom": 1287.45
+        "height": 424.89,
+        "bottom": 561.89
       },
-      "header": {
+      "availability": {
         "x": 16,
-        "y": 137,
+        "y": 577.89,
         "width": 358,
-        "height": 107.3,
-        "bottom": 244.3
+        "height": 276.16,
+        "bottom": 854.05
       },
-      "key": {
+      "runtime": {
         "x": 16,
-        "y": 260.3,
+        "y": 870.05,
         "width": 358,
-        "height": 98,
-        "bottom": 358.3
+        "height": 321.56,
+        "bottom": 1191.61
       },
-      "resources": {
+      "billing": {
         "x": 16,
-        "y": 668.89,
+        "y": 1207.61,
         "width": 358,
-        "height": 206.39,
-        "bottom": 875.28
-      },
-      "bottom": {
-        "x": 16,
-        "y": 891.28,
-        "width": 358,
-        "height": 274.17,
-        "bottom": 1165.45
-      },
-      "traffic": {
-        "x": 16,
-        "y": 1181.45,
-        "width": 358,
-        "height": 106,
-        "bottom": 1287.45
+        "height": 217,
+        "bottom": 1424.61
       },
       "footer": {
         "x": 16,
-        "y": 1303.45,
+        "y": 1440.61,
         "width": 358,
         "height": 16,
-        "bottom": 1319.45
+        "bottom": 1456.61
+      },
+      "chart": {
+        "x": 32,
+        "y": 310.3,
+        "width": 326,
+        "height": 235.59,
+        "bottom": 545.89
       },
       "steps": 21,
       "missing": [
@@ -1270,16 +939,11 @@
         18
       ],
       "zeros": 3,
-      "seven": "7 天可用率 98.7%",
-      "ringTexts": [
-        "内存 40%",
-        "硬盘 53%"
-      ],
       "footerGap": 16,
-      "bottomGap": 15.549999999999955,
-      "scrollHeight": 1335,
+      "bottomGap": 16.3900000000001,
+      "scrollHeight": 1473,
       "scrollWidth": 390,
-      "kb": 87
+      "kb": 102
     },
     {
       "state": "nodata",
@@ -1289,79 +953,49 @@
       "file": "nodata-dark-1440.png",
       "h1": "香港-亚太边缘入口",
       "badge": "在线",
-      "stats": {
-        "latency": {
-          "text": "延迟 —",
-          "x": 64,
-          "y": 401.69,
-          "width": 118.66,
-          "height": 52,
-          "bottom": 453.69
-        },
-        "uptime": {
-          "text": "24h 可用率 —",
-          "x": 194.66,
-          "y": 401.69,
-          "width": 118.67,
-          "height": 52,
-          "bottom": 453.69
-        },
-        "rate": {
-          "text": "当前速率 —",
-          "x": 325.33,
-          "y": 401.69,
-          "width": 118.66,
-          "height": 52,
-          "bottom": 453.69
-        }
+      "details": {
+        "outages": "中断次数 —",
+        "duration": "累计中断 —",
+        "coverage": "采样覆盖 —",
+        "lowest": "最低时段 —",
+        "highest": "最高时段 —",
+        "compare": "24h / 7 天 24h — · 7 天 — 差值 —",
+        "longest": "最长连续正常 —",
+        "periods": "中断时段 —"
       },
-      "chart": {
+      "innerBlank": {
+        "overview": 0,
+        "availability": 0,
+        "runtime": 0,
+        "billing": 0
+      },
+      "xray": "Xray 状态未知",
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 462.34,
+        "bottom": 599.34
+      },
+      "availability": {
         "x": 480,
         "y": 137,
         "width": 916,
-        "height": 373.59,
-        "bottom": 510.59
+        "height": 462.34,
+        "bottom": 599.34
       },
-      "grid": {
+      "runtime": {
         "x": 44,
-        "y": 137,
-        "width": 1352,
-        "height": 815,
+        "y": 615.34,
+        "width": 420,
+        "height": 336.66,
         "bottom": 952
       },
-      "header": {
-        "x": 44,
-        "y": 137,
-        "width": 420,
-        "height": 191.8,
-        "bottom": 328.8
-      },
-      "key": {
-        "x": 44,
-        "y": 344.8,
-        "width": 420,
-        "height": 165.8,
-        "bottom": 510.59
-      },
-      "resources": {
-        "x": 44,
-        "y": 526.59,
-        "width": 420,
-        "height": 285.89,
-        "bottom": 812.48
-      },
-      "bottom": {
+      "billing": {
         "x": 480,
-        "y": 526.59,
+        "y": 615.34,
         "width": 916,
-        "height": 285.89,
-        "bottom": 812.48
-      },
-      "traffic": {
-        "x": 44,
-        "y": 828.48,
-        "width": 1352,
-        "height": 123.52,
+        "height": 336.66,
         "bottom": 952
       },
       "footer": {
@@ -1370,6 +1004,13 @@
         "width": 1352,
         "height": 16,
         "bottom": 984
+      },
+      "chart": {
+        "x": 64,
+        "y": 303,
+        "width": 380,
+        "height": 276.34,
+        "bottom": 579.34
       },
       "steps": 0,
       "missing": [
@@ -1399,16 +1040,11 @@
         23
       ],
       "zeros": 0,
-      "seven": "7 天可用率 —",
-      "ringTexts": [
-        "内存 —",
-        "硬盘 —"
-      ],
       "footerGap": 16,
       "bottomGap": 16,
       "scrollHeight": 1000,
       "scrollWidth": 1440,
-      "kb": 77
+      "kb": 83
     },
     {
       "state": "nodata",
@@ -1418,87 +1054,64 @@
       "file": "nodata-dark-390.png",
       "h1": "香港-亚太边缘入口",
       "badge": "在线",
-      "stats": {
-        "latency": {
-          "text": "延迟 —",
-          "x": 32,
-          "y": 276.3,
-          "width": 100.66,
-          "height": 52,
-          "bottom": 328.3
-        },
-        "uptime": {
-          "text": "24h 可用率 —",
-          "x": 144.66,
-          "y": 276.3,
-          "width": 100.67,
-          "height": 52,
-          "bottom": 328.3
-        },
-        "rate": {
-          "text": "当前速率 —",
-          "x": 257.33,
-          "y": 276.3,
-          "width": 100.66,
-          "height": 52,
-          "bottom": 328.3
-        }
+      "details": {
+        "outages": "中断次数 —",
+        "duration": "累计中断 —",
+        "coverage": "采样覆盖 —",
+        "lowest": "最低时段 —",
+        "highest": "最高时段 —",
+        "compare": "24h / 7 天 24h — · 7 天 — 差值 —",
+        "longest": "最长连续正常—",
+        "periods": "中断时段—"
       },
-      "chart": {
-        "x": 16,
-        "y": 360.3,
-        "width": 358,
-        "height": 278.59,
-        "bottom": 638.89
+      "innerBlank": {
+        "overview": 0,
+        "availability": 0,
+        "runtime": 0,
+        "billing": 0
       },
-      "grid": {
+      "xray": "Xray 状态未知",
+      "overview": {
         "x": 16,
         "y": 137,
         "width": 358,
-        "height": 1013.45,
-        "bottom": 1150.45
+        "height": 410.89,
+        "bottom": 547.89
       },
-      "header": {
+      "availability": {
         "x": 16,
-        "y": 137,
+        "y": 563.89,
         "width": 358,
-        "height": 107.3,
-        "bottom": 244.3
+        "height": 259.06,
+        "bottom": 822.95
       },
-      "key": {
+      "runtime": {
         "x": 16,
-        "y": 260.3,
+        "y": 838.95,
         "width": 358,
-        "height": 84,
-        "bottom": 344.3
+        "height": 321.56,
+        "bottom": 1160.52
       },
-      "resources": {
+      "billing": {
         "x": 16,
-        "y": 654.89,
+        "y": 1176.52,
         "width": 358,
-        "height": 206.39,
-        "bottom": 861.28
-      },
-      "bottom": {
-        "x": 16,
-        "y": 877.28,
-        "width": 358,
-        "height": 151.17,
-        "bottom": 1028.45
-      },
-      "traffic": {
-        "x": 16,
-        "y": 1044.45,
-        "width": 358,
-        "height": 106,
-        "bottom": 1150.45
+        "height": 130,
+        "bottom": 1306.52
       },
       "footer": {
         "x": 16,
-        "y": 1166.45,
+        "y": 1322.52,
         "width": 358,
         "height": 16,
-        "bottom": 1182.45
+        "bottom": 1338.52
+      },
+      "chart": {
+        "x": 32,
+        "y": 296.3,
+        "width": 326,
+        "height": 235.59,
+        "bottom": 531.89
       },
       "steps": 0,
       "missing": [
@@ -1528,16 +1141,11 @@
         23
       ],
       "zeros": 0,
-      "seven": "7 天可用率 —",
-      "ringTexts": [
-        "内存 —",
-        "硬盘 —"
-      ],
       "footerGap": 16,
-      "bottomGap": 15.549999999999955,
-      "scrollHeight": 1198,
+      "bottomGap": 16.480000000000018,
+      "scrollHeight": 1355,
       "scrollWidth": 390,
-      "kb": 56
+      "kb": 66
     },
     {
       "state": "nodata",
@@ -1547,79 +1155,49 @@
       "file": "nodata-light-1440.png",
       "h1": "香港-亚太边缘入口",
       "badge": "在线",
-      "stats": {
-        "latency": {
-          "text": "延迟 —",
-          "x": 64,
-          "y": 401.69,
-          "width": 118.66,
-          "height": 52,
-          "bottom": 453.69
-        },
-        "uptime": {
-          "text": "24h 可用率 —",
-          "x": 194.66,
-          "y": 401.69,
-          "width": 118.67,
-          "height": 52,
-          "bottom": 453.69
-        },
-        "rate": {
-          "text": "当前速率 —",
-          "x": 325.33,
-          "y": 401.69,
-          "width": 118.66,
-          "height": 52,
-          "bottom": 453.69
-        }
+      "details": {
+        "outages": "中断次数 —",
+        "duration": "累计中断 —",
+        "coverage": "采样覆盖 —",
+        "lowest": "最低时段 —",
+        "highest": "最高时段 —",
+        "compare": "24h / 7 天 24h — · 7 天 — 差值 —",
+        "longest": "最长连续正常 —",
+        "periods": "中断时段 —"
       },
-      "chart": {
+      "innerBlank": {
+        "overview": 0,
+        "availability": 0,
+        "runtime": 0,
+        "billing": 0
+      },
+      "xray": "Xray 状态未知",
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 462.34,
+        "bottom": 599.34
+      },
+      "availability": {
         "x": 480,
         "y": 137,
         "width": 916,
-        "height": 373.59,
-        "bottom": 510.59
+        "height": 462.34,
+        "bottom": 599.34
       },
-      "grid": {
+      "runtime": {
         "x": 44,
-        "y": 137,
-        "width": 1352,
-        "height": 815,
+        "y": 615.34,
+        "width": 420,
+        "height": 336.66,
         "bottom": 952
       },
-      "header": {
-        "x": 44,
-        "y": 137,
-        "width": 420,
-        "height": 191.8,
-        "bottom": 328.8
-      },
-      "key": {
-        "x": 44,
-        "y": 344.8,
-        "width": 420,
-        "height": 165.8,
-        "bottom": 510.59
-      },
-      "resources": {
-        "x": 44,
-        "y": 526.59,
-        "width": 420,
-        "height": 285.89,
-        "bottom": 812.48
-      },
-      "bottom": {
+      "billing": {
         "x": 480,
-        "y": 526.59,
+        "y": 615.34,
         "width": 916,
-        "height": 285.89,
-        "bottom": 812.48
-      },
-      "traffic": {
-        "x": 44,
-        "y": 828.48,
-        "width": 1352,
-        "height": 123.52,
+        "height": 336.66,
         "bottom": 952
       },
       "footer": {
@@ -1629,6 +1207,13 @@
         "height": 16,
         "bottom": 984
       },
+      "chart": {
+        "x": 64,
+        "y": 303,
+        "width": 380,
+        "height": 276.34,
+        "bottom": 579.34
+      },
       "steps": 0,
       "missing": [
         0,
@@ -1657,16 +1242,11 @@
         23
       ],
       "zeros": 0,
-      "seven": "7 天可用率 —",
-      "ringTexts": [
-        "内存 —",
-        "硬盘 —"
-      ],
       "footerGap": 16,
       "bottomGap": 16,
       "scrollHeight": 1000,
       "scrollWidth": 1440,
-      "kb": 82
+      "kb": 86
     },
     {
       "state": "nodata",
@@ -1676,87 +1256,64 @@
       "file": "nodata-light-390.png",
       "h1": "香港-亚太边缘入口",
       "badge": "在线",
-      "stats": {
-        "latency": {
-          "text": "延迟 —",
-          "x": 32,
-          "y": 276.3,
-          "width": 100.66,
-          "height": 52,
-          "bottom": 328.3
-        },
-        "uptime": {
-          "text": "24h 可用率 —",
-          "x": 144.66,
-          "y": 276.3,
-          "width": 100.67,
-          "height": 52,
-          "bottom": 328.3
-        },
-        "rate": {
-          "text": "当前速率 —",
-          "x": 257.33,
-          "y": 276.3,
-          "width": 100.66,
-          "height": 52,
-          "bottom": 328.3
-        }
+      "details": {
+        "outages": "中断次数 —",
+        "duration": "累计中断 —",
+        "coverage": "采样覆盖 —",
+        "lowest": "最低时段 —",
+        "highest": "最高时段 —",
+        "compare": "24h / 7 天 24h — · 7 天 — 差值 —",
+        "longest": "最长连续正常—",
+        "periods": "中断时段—"
       },
-      "chart": {
-        "x": 16,
-        "y": 360.3,
-        "width": 358,
-        "height": 278.59,
-        "bottom": 638.89
+      "innerBlank": {
+        "overview": 0,
+        "availability": 0,
+        "runtime": 0,
+        "billing": 0
       },
-      "grid": {
+      "xray": "Xray 状态未知",
+      "overview": {
         "x": 16,
         "y": 137,
         "width": 358,
-        "height": 1013.45,
-        "bottom": 1150.45
+        "height": 410.89,
+        "bottom": 547.89
       },
-      "header": {
+      "availability": {
         "x": 16,
-        "y": 137,
+        "y": 563.89,
         "width": 358,
-        "height": 107.3,
-        "bottom": 244.3
+        "height": 259.06,
+        "bottom": 822.95
       },
-      "key": {
+      "runtime": {
         "x": 16,
-        "y": 260.3,
+        "y": 838.95,
         "width": 358,
-        "height": 84,
-        "bottom": 344.3
+        "height": 321.56,
+        "bottom": 1160.52
       },
-      "resources": {
+      "billing": {
         "x": 16,
-        "y": 654.89,
+        "y": 1176.52,
         "width": 358,
-        "height": 206.39,
-        "bottom": 861.28
-      },
-      "bottom": {
-        "x": 16,
-        "y": 877.28,
-        "width": 358,
-        "height": 151.17,
-        "bottom": 1028.45
-      },
-      "traffic": {
-        "x": 16,
-        "y": 1044.45,
-        "width": 358,
-        "height": 106,
-        "bottom": 1150.45
+        "height": 130,
+        "bottom": 1306.52
       },
       "footer": {
         "x": 16,
-        "y": 1166.45,
+        "y": 1322.52,
         "width": 358,
         "height": 16,
-        "bottom": 1182.45
+        "bottom": 1338.52
+      },
+      "chart": {
+        "x": 32,
+        "y": 296.3,
+        "width": 326,
+        "height": 235.59,
+        "bottom": 531.89
       },
       "steps": 0,
       "missing": [
@@ -1786,16 +1343,11 @@
         23
       ],
       "zeros": 0,
-      "seven": "7 天可用率 —",
-      "ringTexts": [
-        "内存 —",
-        "硬盘 —"
-      ],
       "footerGap": 16,
-      "bottomGap": 15.549999999999955,
-      "scrollHeight": 1198,
+      "bottomGap": 16.480000000000018,
+      "scrollHeight": 1355,
       "scrollWidth": 390,
-      "kb": 62
+      "kb": 71
     },
     {
       "state": "notfound",
@@ -1805,25 +1357,28 @@
       "file": "notfound-dark-1440.png",
       "h1": null,
       "badge": null,
-      "stats": {},
-      "chart": null,
-      "grid": null,
-      "header": null,
-      "key": null,
-      "resources": null,
-      "bottom": null,
-      "traffic": null,
+      "details": {},
+      "innerBlank": {
+        "overview": null,
+        "availability": null,
+        "runtime": null,
+        "billing": null
+      },
+      "xray": null,
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null,
       "footer": null,
+      "chart": null,
       "steps": 0,
       "missing": [],
       "zeros": 0,
-      "seven": null,
-      "ringTexts": [],
       "footerGap": null,
       "bottomGap": null,
       "scrollHeight": 1000,
       "scrollWidth": 1440,
-      "kb": 27
+      "kb": 26
     },
     {
       "state": "notfound",
@@ -1833,20 +1388,23 @@
       "file": "notfound-dark-390.png",
       "h1": null,
       "badge": null,
-      "stats": {},
-      "chart": null,
-      "grid": null,
-      "header": null,
-      "key": null,
-      "resources": null,
-      "bottom": null,
-      "traffic": null,
+      "details": {},
+      "innerBlank": {
+        "overview": null,
+        "availability": null,
+        "runtime": null,
+        "billing": null
+      },
+      "xray": null,
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null,
       "footer": null,
+      "chart": null,
       "steps": 0,
       "missing": [],
       "zeros": 0,
-      "seven": null,
-      "ringTexts": [],
       "footerGap": null,
       "bottomGap": null,
       "scrollHeight": 844,
@@ -1861,20 +1419,23 @@
       "file": "notfound-light-1440.png",
       "h1": null,
       "badge": null,
-      "stats": {},
-      "chart": null,
-      "grid": null,
-      "header": null,
-      "key": null,
-      "resources": null,
-      "bottom": null,
-      "traffic": null,
+      "details": {},
+      "innerBlank": {
+        "overview": null,
+        "availability": null,
+        "runtime": null,
+        "billing": null
+      },
+      "xray": null,
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null,
       "footer": null,
+      "chart": null,
       "steps": 0,
       "missing": [],
       "zeros": 0,
-      "seven": null,
-      "ringTexts": [],
       "footerGap": null,
       "bottomGap": null,
       "scrollHeight": 1000,
@@ -1889,20 +1450,23 @@
       "file": "notfound-light-390.png",
       "h1": null,
       "badge": null,
-      "stats": {},
-      "chart": null,
-      "grid": null,
-      "header": null,
-      "key": null,
-      "resources": null,
-      "bottom": null,
-      "traffic": null,
+      "details": {},
+      "innerBlank": {
+        "overview": null,
+        "availability": null,
+        "runtime": null,
+        "billing": null
+      },
+      "xray": null,
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null,
       "footer": null,
+      "chart": null,
       "steps": 0,
       "missing": [],
       "zeros": 0,
-      "seven": null,
-      "ringTexts": [],
       "footerGap": null,
       "bottomGap": null,
       "scrollHeight": 844,
@@ -1917,20 +1481,23 @@
       "file": "error-dark-1440.png",
       "h1": null,
       "badge": null,
-      "stats": {},
-      "chart": null,
-      "grid": null,
-      "header": null,
-      "key": null,
-      "resources": null,
-      "bottom": null,
-      "traffic": null,
+      "details": {},
+      "innerBlank": {
+        "overview": null,
+        "availability": null,
+        "runtime": null,
+        "billing": null
+      },
+      "xray": null,
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null,
       "footer": null,
+      "chart": null,
       "steps": 0,
       "missing": [],
       "zeros": 0,
-      "seven": null,
-      "ringTexts": [],
       "footerGap": null,
       "bottomGap": null,
       "scrollHeight": 1000,
@@ -1945,20 +1512,23 @@
       "file": "error-dark-390.png",
       "h1": null,
       "badge": null,
-      "stats": {},
-      "chart": null,
-      "grid": null,
-      "header": null,
-      "key": null,
-      "resources": null,
-      "bottom": null,
-      "traffic": null,
+      "details": {},
+      "innerBlank": {
+        "overview": null,
+        "availability": null,
+        "runtime": null,
+        "billing": null
+      },
+      "xray": null,
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null,
       "footer": null,
+      "chart": null,
       "steps": 0,
       "missing": [],
       "zeros": 0,
-      "seven": null,
-      "ringTexts": [],
       "footerGap": null,
       "bottomGap": null,
       "scrollHeight": 844,
@@ -1973,20 +1543,23 @@
       "file": "error-light-1440.png",
       "h1": null,
       "badge": null,
-      "stats": {},
-      "chart": null,
-      "grid": null,
-      "header": null,
-      "key": null,
-      "resources": null,
-      "bottom": null,
-      "traffic": null,
+      "details": {},
+      "innerBlank": {
+        "overview": null,
+        "availability": null,
+        "runtime": null,
+        "billing": null
+      },
+      "xray": null,
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null,
       "footer": null,
+      "chart": null,
       "steps": 0,
       "missing": [],
       "zeros": 0,
-      "seven": null,
-      "ringTexts": [],
       "footerGap": null,
       "bottomGap": null,
       "scrollHeight": 1000,
@@ -2001,20 +1574,23 @@
       "file": "error-light-390.png",
       "h1": null,
       "badge": null,
-      "stats": {},
-      "chart": null,
-      "grid": null,
-      "header": null,
-      "key": null,
-      "resources": null,
-      "bottom": null,
-      "traffic": null,
+      "details": {},
+      "innerBlank": {
+        "overview": null,
+        "availability": null,
+        "runtime": null,
+        "billing": null
+      },
+      "xray": null,
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null,
       "footer": null,
+      "chart": null,
       "steps": 0,
       "missing": [],
       "zeros": 0,
-      "seven": null,
-      "ringTexts": [],
       "footerGap": null,
       "bottomGap": null,
       "scrollHeight": 844,
@@ -2029,20 +1605,23 @@
       "file": "disabled-dark-1440.png",
       "h1": null,
       "badge": null,
-      "stats": {},
-      "chart": null,
-      "grid": null,
-      "header": null,
-      "key": null,
-      "resources": null,
-      "bottom": null,
-      "traffic": null,
+      "details": {},
+      "innerBlank": {
+        "overview": null,
+        "availability": null,
+        "runtime": null,
+        "billing": null
+      },
+      "xray": null,
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null,
       "footer": null,
+      "chart": null,
       "steps": 0,
       "missing": [],
       "zeros": 0,
-      "seven": null,
-      "ringTexts": [],
       "footerGap": null,
       "bottomGap": null,
       "scrollHeight": 1000,
@@ -2057,20 +1636,23 @@
       "file": "disabled-dark-390.png",
       "h1": null,
       "badge": null,
-      "stats": {},
-      "chart": null,
-      "grid": null,
-      "header": null,
-      "key": null,
-      "resources": null,
-      "bottom": null,
-      "traffic": null,
+      "details": {},
+      "innerBlank": {
+        "overview": null,
+        "availability": null,
+        "runtime": null,
+        "billing": null
+      },
+      "xray": null,
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null,
       "footer": null,
+      "chart": null,
       "steps": 0,
       "missing": [],
       "zeros": 0,
-      "seven": null,
-      "ringTexts": [],
       "footerGap": null,
       "bottomGap": null,
       "scrollHeight": 844,
@@ -2085,20 +1667,23 @@
       "file": "disabled-light-1440.png",
       "h1": null,
       "badge": null,
-      "stats": {},
-      "chart": null,
-      "grid": null,
-      "header": null,
-      "key": null,
-      "resources": null,
-      "bottom": null,
-      "traffic": null,
+      "details": {},
+      "innerBlank": {
+        "overview": null,
+        "availability": null,
+        "runtime": null,
+        "billing": null
+      },
+      "xray": null,
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null,
       "footer": null,
+      "chart": null,
       "steps": 0,
       "missing": [],
       "zeros": 0,
-      "seven": null,
-      "ringTexts": [],
       "footerGap": null,
       "bottomGap": null,
       "scrollHeight": 1000,
@@ -2113,20 +1698,23 @@
       "file": "disabled-light-390.png",
       "h1": null,
       "badge": null,
-      "stats": {},
-      "chart": null,
-      "grid": null,
-      "header": null,
-      "key": null,
-      "resources": null,
-      "bottom": null,
-      "traffic": null,
+      "details": {},
+      "innerBlank": {
+        "overview": null,
+        "availability": null,
+        "runtime": null,
+        "billing": null
+      },
+      "xray": null,
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null,
       "footer": null,
+      "chart": null,
       "steps": 0,
       "missing": [],
       "zeros": 0,
-      "seven": null,
-      "ringTexts": [],
       "footerGap": null,
       "bottomGap": null,
       "scrollHeight": 844,
@@ -2140,102 +1728,74 @@
       "locale": "en",
       "file": "healthy-dark-1440-en.png",
       "h1": "香港-亚太边缘入口",
-      "badge": "Online14d 3h",
-      "stats": {
-        "latency": {
-          "text": "Latency 18 ms",
-          "x": 64,
-          "y": 379.19,
-          "width": 118.66,
-          "height": 82,
-          "bottom": 461.19
-        },
-        "uptime": {
-          "text": "24h uptime 100 %",
-          "x": 194.66,
-          "y": 379.19,
-          "width": 118.67,
-          "height": 82,
-          "bottom": 461.19
-        },
-        "rate": {
-          "text": "Current rate Down 17.5 MB/s Up 2.19 MB/s",
-          "x": 325.33,
-          "y": 379.19,
-          "width": 118.66,
-          "height": 82,
-          "bottom": 461.19
-        }
+      "badge": "Online 14d 3h",
+      "details": {
+        "outages": "Outages 0 outages",
+        "duration": "Total outage 0 h Hourly samples; actual outage may be shorter",
+        "coverage": "Sample coverage 24/24",
+        "lowest": "Lowest hour 00:00–01:00 100%",
+        "highest": "Highest hour 00:00–01:00 100%",
+        "compare": "24h / 7d 24h 100% · 7d 100% Difference 0.0 pp",
+        "longest": "Longest normal run 24 h",
+        "periods": "Outage periods None"
       },
-      "chart": {
+      "innerBlank": {
+        "overview": 0,
+        "availability": 0,
+        "runtime": 0,
+        "billing": 0
+      },
+      "xray": "Xray running",
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 472.34,
+        "bottom": 609.34
+      },
+      "availability": {
         "x": 480,
         "y": 137,
         "width": 916,
-        "height": 373.59,
-        "bottom": 510.59
+        "height": 472.34,
+        "bottom": 609.34
       },
-      "grid": {
+      "runtime": {
         "x": 44,
-        "y": 137,
-        "width": 1352,
-        "height": 815,
-        "bottom": 952
-      },
-      "header": {
-        "x": 44,
-        "y": 137,
+        "y": 625.34,
         "width": 420,
-        "height": 176.8,
-        "bottom": 313.8
+        "height": 329.56,
+        "bottom": 954.91
       },
-      "key": {
-        "x": 44,
-        "y": 329.8,
-        "width": 420,
-        "height": 180.8,
-        "bottom": 510.59
-      },
-      "resources": {
-        "x": 44,
-        "y": 526.59,
-        "width": 420,
-        "height": 285.89,
-        "bottom": 812.48
-      },
-      "bottom": {
+      "billing": {
         "x": 480,
-        "y": 526.59,
+        "y": 625.34,
         "width": 916,
-        "height": 285.89,
-        "bottom": 812.48
-      },
-      "traffic": {
-        "x": 44,
-        "y": 828.48,
-        "width": 1352,
-        "height": 123.52,
-        "bottom": 952
+        "height": 329.56,
+        "bottom": 954.91
       },
       "footer": {
         "x": 44,
-        "y": 968,
+        "y": 970.91,
         "width": 1352,
         "height": 16,
-        "bottom": 984
+        "bottom": 986.91
+      },
+      "chart": {
+        "x": 64,
+        "y": 333,
+        "width": 380,
+        "height": 256.34,
+        "bottom": 589.34
       },
       "steps": 24,
       "missing": [],
       "zeros": 0,
-      "seven": "7d uptime 100%",
-      "ringTexts": [
-        "Memory 40%",
-        "Disk 53%"
-      ],
       "footerGap": 16,
-      "bottomGap": 16,
-      "scrollHeight": 1000,
+      "bottomGap": 16.090000000000032,
+      "scrollHeight": 1003,
       "scrollWidth": 1440,
-      "kb": 91
+      "kb": 116
     },
     {
       "state": "loading",
@@ -2248,6 +1808,82 @@
         "clientWidth": 1440
       },
       "kb": 18
+    },
+    {
+      "state": "xray",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "xray-off-dark-1440.png",
+      "h1": "香港-亚太边缘入口",
+      "badge": "异常 14 天 3 小时",
+      "details": {
+        "outages": "中断次数 0 次",
+        "duration": "累计中断 0 小时 按小时采样，实际可能更短",
+        "coverage": "采样覆盖 24/24",
+        "lowest": "最低时段 00:00–01:00 100%",
+        "highest": "最高时段 00:00–01:00 100%",
+        "compare": "24h / 7 天 24h 100% · 7 天 100% 差值 0.0 pp",
+        "longest": "最长连续正常 24 小时",
+        "periods": "中断时段 无中断"
+      },
+      "innerBlank": {
+        "overview": 0,
+        "availability": 0,
+        "runtime": 0,
+        "billing": 0
+      },
+      "xray": "Xray 未运行",
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 472.34,
+        "bottom": 609.34
+      },
+      "availability": {
+        "x": 480,
+        "y": 137,
+        "width": 916,
+        "height": 472.34,
+        "bottom": 609.34
+      },
+      "runtime": {
+        "x": 44,
+        "y": 625.34,
+        "width": 420,
+        "height": 329.56,
+        "bottom": 954.91
+      },
+      "billing": {
+        "x": 480,
+        "y": 625.34,
+        "width": 916,
+        "height": 329.56,
+        "bottom": 954.91
+      },
+      "footer": {
+        "x": 44,
+        "y": 970.91,
+        "width": 1352,
+        "height": 16,
+        "bottom": 986.91
+      },
+      "chart": {
+        "x": 64,
+        "y": 333,
+        "width": 380,
+        "height": 256.34,
+        "bottom": 589.34
+      },
+      "steps": 24,
+      "missing": [],
+      "zeros": 0,
+      "footerGap": 16,
+      "bottomGap": 16.090000000000032,
+      "scrollHeight": 1003,
+      "scrollWidth": 1440,
+      "kb": 117
     }
   ],
   "interactions": {
@@ -2272,7 +1908,7 @@
     },
     "listScreenshot": "list-entry-dark-1440.png",
     "errorLastSuccess": {
-      "text": "上次成功 13:52:11",
+      "text": "上次成功 14:25:18",
       "file": "error-last-success-dark-1440.png"
     },
     "touch": {

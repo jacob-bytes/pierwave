@@ -6,12 +6,8 @@ import {
 } from "react";
 import { useI18n } from "@/i18n";
 import type { PublicStatusServer } from "@/lib/api";
+import { AVAILABILITY_BAR_CLASS } from "@/components/status/Availability";
 import {
-  AVAILABILITY_BAR_CLASS,
-  AVAILABILITY_TEXT_CLASS,
-} from "@/components/status/Availability";
-import {
-  availabilityFill,
   availabilityPercentText,
   availabilityTone,
   type AvailabilityTone,
@@ -140,10 +136,6 @@ export function AvailabilityCurve({
       : activeCenter > 85
         ? "translateX(-100%)"
         : "translateX(-50%)";
-
-  const uptime7d = availabilityPercentText(server.uptime_7d);
-  const tone7d = availabilityTone(server.uptime_7d);
-  const fill7d = availabilityFill(server.uptime_7d);
 
   const moveActive = (delta: -1 | 1) => {
     setActive((current) => {
@@ -441,7 +433,7 @@ export function AvailabilityCurve({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border pt-3">
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-3">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
           {[
             ["ok", AVAILABILITY_BAR_CLASS.ok],
@@ -469,29 +461,6 @@ export function AvailabilityCurve({
           </span>
         </div>
 
-        <div
-          data-slot="detail-7d"
-          className="flex items-center gap-2 text-xs text-muted-foreground"
-        >
-          <span>{t("publicStatus.server.availability7d")}</span>
-          <span
-            className={cn(
-              "tnum font-medium",
-              AVAILABILITY_TEXT_CLASS[tone7d],
-            )}
-          >
-            {uptime7d === null ? "—" : `${uptime7d}%`}
-          </span>
-          <span
-            aria-hidden="true"
-            className="h-1 w-16 overflow-hidden rounded-full bg-muted-foreground/20"
-          >
-            <span
-              className={cn("block h-full rounded-full", AVAILABILITY_BAR_CLASS[tone7d])}
-              style={{ width: `${fill7d}%` }}
-            />
-          </span>
-        </div>
       </div>
 
       {/* 读屏逐小时文本；视觉隐藏，但每个小时的区间 / 比例 / 状态都可取。 */}

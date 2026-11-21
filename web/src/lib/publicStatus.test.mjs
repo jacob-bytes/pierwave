@@ -28,6 +28,7 @@ import {
   isPublicStatusPath,
   isStatusStale,
   lowestAvailabilityBucket,
+  summarizeAvailability,
   publicStatusServerId,
   loadStatusView,
   matchesGroupFilter,
@@ -1230,4 +1231,66 @@ test("the hero uses average latency as the first KPI in both languages", () => {
   assert.equal(zh.publicStatus.hero.averageUptime, "24h 可用率");
   assert.equal(en.publicStatus.hero.averageUptime, "24h uptime");
   assert.equal(zh.publicStatus.hero.totalRate, "当前总速率");
+});
+
+test("summarizeAvailability derives outages, coverage and extremes", () => {
+  const bucket = (ts, online_ratio) => ({ ts, online_ratio });
+  const fill = (hours) =>
+    Array.from({ length: 24 }, (_, index) =>
+      hours[index] === undefined ? bucket(index, 1) : hours[index],
+    );
+
+  const healthy = summarizeAvailability(fill({}));
+  assert.equal(healthy.sampled, 24);
+  assert.equal(healthy.coverageRatio, 1);
+  assert.equal(healthy.outageCount, 0);
+  assert.equal(healthy.outageHours, 0);
+  assert.deepEqual(healthy.lowest, { ts: 0, ratio: 1 });
+  assert.deepEqual(healthy.highest, { ts: 0, ratio: 1 });
+
+  const incident = fill({
+    2: null,
+    3: null,
+    8: bucket(8, 0),
+    9: bucket(9, 0),
+    10: bucket(10, 1),
+    15: bucket(15, 0),
+    18: null,
+  });
+  const summary = summarizeAvailability(incident);
+  assert.equal(summary.sampled, 21);
+  assert.equal(summary.coverageRatio, 21 / 24);
+  assert.equal(summary.outageCount, 2, "8-9 与 15 是两段");
+  assert.equal(summary.outageHours, 3);
+  assert.deepEqual(summary.lowest, { ts: 8, ratio: 0 });
+  assert.deepEqual(summary.highest, { ts: 0, ratio: 1 });
+  assert.equal(summary.longestNormalHours, 5, "19-23 是连续 5 小时");
+  assert.deepEqual(summary.outagePeriods, [
+    { startTs: 8, endTs: 3609, hours: 2 },
+    { startTs: 15, endTs: 3615, hours: 1 },
+  ]);
+
+  const gapped = summarizeAvailability(
+    fill({
+      4: bucket(4, 0),
+      5: null,
+      6: bucket(6, 0),
+    }),
+  );
+  assert.equal(gapped.outageCount, 2, "null 打断连续中断");
+  assert.equal(gapped.outageHours, 2);
+  assert.deepEqual(gapped.outagePeriods, [
+    { startTs: 4, endTs: 3604, hours: 1 },
+    { startTs: 6, endTs: 3606, hours: 1 },
+  ]);
+
+  const empty = summarizeAvailability(Array.from({ length: 24 }, () => null));
+  assert.equal(empty.sampled, 0);
+  assert.equal(empty.coverageRatio, null);
+  assert.equal(empty.outageCount, null, "无采样不能显示 0 次");
+  assert.equal(empty.outageHours, null);
+  assert.equal(empty.lowest, null);
+  assert.equal(empty.highest, null);
+  assert.equal(empty.longestNormalHours, null);
+  assert.equal(empty.outagePeriods, null);
 });

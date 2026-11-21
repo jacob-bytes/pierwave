@@ -5,11 +5,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 /**
- * `/status/:id` 方案 B 的源码形状守卫。
- *
- * 详情页不新增后端接口，只读现有公开状态响应；可以展示累计流量带，但仍
- * 不能展示地址、节点列表或用户数。可用率的 null / 0 语义单独由曲线组件
- * 的 `data-slot` 与 Playwright 断言锁定。
+ * `/status/:id` 四张卡（趋势 / 明细 / 运行环境 / 费用流量）的源码形状守卫。
+ * 只读现有公开状态响应；可以展示累计流量，但不能展示地址、节点列表或用户数。
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -25,16 +22,17 @@ test("the detail page is wired as a public route without a new API", () => {
   const page = read("../pages/StatusDetail.tsx");
   assert.match(page, /usePublicStatus\(\)/);
   assert.match(page, /buckets_24h/);
+  assert.match(page, /summarizeAvailability/);
   assert.doesNotMatch(page, /\bfetch\(|api\.[a-zA-Z]+\(/);
 });
 
-test("the dashboard has the required sections and states", () => {
+test("the dashboard is exactly four cards with the required sections and states", () => {
   const page = read("../pages/StatusDetail.tsx");
   const curve = read("../components/status/AvailabilityCurve.tsx");
   for (const key of [
-    "detail.sections.resources",
-    "detail.sections.billing",
-    "detail.sections.system",
+    "detail.availabilityDetails",
+    "detail.runtime",
+    "detail.billingTraffic",
     "detail.sinceBoot",
     "detail.lastReported",
     "detail.refreshHint",
@@ -42,6 +40,20 @@ test("the dashboard has the required sections and states", () => {
     "detail.back",
     "detail.latency",
     "detail.rate",
+    "detail.outageCount",
+    "detail.outageDuration",
+    "detail.coverage",
+    "detail.lowestHour",
+    "detail.highestHour",
+    "detail.compare",
+    "detail.longestNormal",
+    "detail.outagePeriods",
+    "detail.remainingDays",
+    "detail.averageHourly",
+    "detail.xrayNotRunning",
+    "detail.xrayUnknown",
+    "detail.sections.billing",
+    "detail.system.os",
   ]) {
     assert.match(page, new RegExp(key.replaceAll(".", "\\.")));
   }
@@ -55,6 +67,15 @@ test("the dashboard has the required sections and states", () => {
   ]) {
     assert.match(curve, new RegExp(key.replaceAll(".", "\\.")));
   }
+  for (const slot of [
+    "detail-overview",
+    "detail-availability",
+    "detail-runtime",
+    "detail-billing",
+  ]) {
+    assert.match(page, new RegExp(`data-slot="${slot}"`));
+  }
+  assert.doesNotMatch(page, /data-slot="detail-7d"/);
   assert.match(page, /publicStatus\.disabled\.title/);
   assert.match(page, /publicStatus\.error\.retry/);
   assert.match(page, /publicStatus\.error\.lastSuccess/);
@@ -68,13 +89,13 @@ test("the detail page never exposes addresses or users", () => {
   }
 });
 
-test("two-column grid and stretch alignment are explicit", () => {
+test("two-column 2x2 grid and stretch alignment are explicit", () => {
   const page = read("../pages/StatusDetail.tsx");
   assert.match(page, /lg:grid-cols-\[420px_minmax\(0,1fr\)\]/);
   assert.match(page, /items-stretch/);
   assert.doesNotMatch(page, /grid[^"\n]*items-start/);
-  assert.match(page, /lg:col-start-2 lg:row-span-2 lg:row-start-1/);
-  assert.match(page, /lg:col-span-2/);
+  assert.match(page, /lg:col-start-2 lg:row-start-1/);
+  assert.match(page, /lg:col-start-2 lg:row-start-2/);
   assert.match(page, /gap-4/);
 });
 
@@ -96,7 +117,7 @@ test("detail values use the hero 19/28px scale and a 12px unit", () => {
   assert.match(page, /text-\[19px\] leading-none font-semibold sm:text-\[28px\]/);
   assert.match(page, /text-xs font-normal text-muted-foreground/);
   assert.match(page, /expiryLabel\(billing\.days\)/);
-  assert.match(page, /billing\.days < 0 && "text-warning"|billing\.days !== null && billing\.days < 0[\s\S]{0,40}text-warning/);
+  assert.match(page, /billing\.days !== null && billing\.days < 0[\s\S]{0,40}text-warning/);
   assert.match(page, /net_rx_bytes/);
   assert.match(page, /net_tx_bytes/);
 });

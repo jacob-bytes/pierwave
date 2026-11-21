@@ -4,10 +4,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PAGE_CONTAINER } from "@/components/status/StatusSkeleton";
 import { cn } from "@/lib/utils";
 
-/**
- * `/status/:id` 方案 B 的加载骨架：与详情页同形（两栏 420 + 右栏、
- * 曲线、费用/系统、累计流量带），不是后台页面的通栏大骨架。
- */
+/** `/status/:id` 四张卡（①趋势 ②明细 ③运行环境 ④费用/流量）的骨架。 */
 
 function SkeletonCard({
   className,
@@ -45,13 +42,7 @@ export function StatusDetailSkeleton({ label }: { label: string }) {
             </div>
             <Skeleton className="h-5 w-20 rounded-full" />
           </div>
-          <div className="mt-auto border-t border-border pt-3">
-            <SkeletonLine className="h-3 w-40" />
-          </div>
-        </SkeletonCard>
-
-        <SkeletonCard className="order-2 lg:col-start-1 lg:row-start-2">
-          <div className="grid grid-cols-3 gap-3">
+          <div className="mt-4 grid grid-cols-3 gap-3 border-t border-border pt-3">
             {Array.from({ length: 3 }, (_, index) => (
               <div key={index}>
                 <SkeletonLine className="h-3 w-12" />
@@ -59,60 +50,60 @@ export function StatusDetailSkeleton({ label }: { label: string }) {
               </div>
             ))}
           </div>
+          <div className="mt-4 flex min-h-[160px] flex-1 flex-col border-t border-border pt-3">
+            <div className="flex justify-between">
+              <SkeletonLine className="h-3 w-28" />
+              <SkeletonLine className="h-3 w-14" />
+            </div>
+            <Skeleton className="mt-3 min-h-24 flex-1 rounded-md" />
+            <SkeletonLine className="mt-3 h-3 w-40" />
+          </div>
         </SkeletonCard>
 
-        <SkeletonCard className="order-3 flex flex-col lg:col-start-2 lg:row-span-2 lg:row-start-1">
-          <div className="flex items-baseline justify-between gap-3">
-            <SkeletonLine className="h-3 w-28" />
+        <SkeletonCard className="order-2 flex flex-col lg:col-start-2 lg:row-start-1">
+          <div className="flex justify-between">
+            <SkeletonLine className="h-3 w-24" />
             <SkeletonLine className="h-3 w-16" />
           </div>
-          <div className="mt-3 flex min-h-[150px] flex-1 gap-2">
-            <div className="flex w-8 shrink-0 flex-col justify-between">
-              {Array.from({ length: 5 }, (_, index) => (
-                <SkeletonLine key={index} className="h-2 w-6" />
-              ))}
-            </div>
-            <Skeleton className="min-h-24 flex-1 rounded-md" />
-          </div>
-          <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
-            <SkeletonLine className="h-3 w-40" />
-            <SkeletonLine className="h-3 w-20" />
+          <div className="mt-3 grid flex-1 auto-rows-fr grid-cols-2 gap-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }, (_, index) => (
+              <div
+                key={index}
+                className="flex flex-col justify-center gap-2 rounded-lg border border-border/60 p-3"
+              >
+                <SkeletonLine className="h-3 w-12" />
+                <SkeletonLine className="h-5 w-24 max-w-full" />
+              </div>
+            ))}
           </div>
         </SkeletonCard>
 
-        <SkeletonCard className="order-4 flex flex-col lg:col-start-1 lg:row-start-3">
-          <div className="flex items-baseline justify-between gap-3">
-            <SkeletonLine className="h-3 w-12" />
+        <SkeletonCard className="order-3 flex flex-col lg:col-start-1 lg:row-start-2">
+          <div className="flex justify-between">
+            <SkeletonLine className="h-3 w-20" />
             <SkeletonLine className="h-3 w-24" />
           </div>
-          <div className="grid flex-1 grid-cols-2 content-center gap-3 pt-4">
-            <Skeleton className="mx-auto size-24 rounded-full sm:size-28" />
-            <Skeleton className="mx-auto size-24 rounded-full sm:size-28" />
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <Skeleton className="mx-auto size-24 rounded-full" />
+            <Skeleton className="mx-auto size-24 rounded-full" />
           </div>
+          <div className="mt-3 space-y-2 border-t border-border pt-3">
+            {Array.from({ length: 3 }, (_, index) => (
+              <SkeletonLine key={index} className="h-3 w-full max-w-44" />
+            ))}
+          </div>
+          <SkeletonLine className="mt-auto h-3 w-28 border-t border-border pt-3" />
         </SkeletonCard>
 
-        <div className="order-5 grid items-stretch gap-4 lg:col-start-2 lg:row-start-3 lg:grid-cols-2">
-          <SkeletonCard className="flex flex-col">
-            <SkeletonLine className="h-3 w-20" />
-            <SkeletonLine className="mt-auto h-6 w-28" />
-            <SkeletonLine className="mt-2 h-3 w-36" />
-          </SkeletonCard>
-          <SkeletonCard className="flex flex-col">
-            <SkeletonLine className="h-3 w-20" />
-            <div className="mt-auto space-y-3">
-              {Array.from({ length: 3 }, (_, index) => (
-                <SkeletonLine key={index} className="h-3 w-32 max-w-full" />
-              ))}
+        <SkeletonCard className="order-4 flex flex-col lg:col-start-2 lg:row-start-2">
+          <SkeletonLine className="h-3 w-24" />
+          <div className="mt-3 grid flex-1 gap-4 lg:grid-cols-2">
+            <Skeleton className="min-h-20 rounded-lg" />
+            <div className="flex flex-col justify-center gap-3">
+              <SkeletonLine className="h-4 w-32" />
+              <Skeleton className="h-2 w-full rounded-full" />
+              <SkeletonLine className="h-3 w-40" />
             </div>
-          </SkeletonCard>
-        </div>
-
-        <SkeletonCard className="order-6 lg:col-span-2">
-          <div className="flex flex-wrap items-center gap-4">
-            <SkeletonLine className="h-5 w-24" />
-            <SkeletonLine className="h-6 w-20" />
-            <Skeleton className="h-1.5 min-w-32 flex-1 rounded-full" />
-            <SkeletonLine className="h-3 w-32" />
           </div>
         </SkeletonCard>
       </div>
