@@ -33,6 +33,20 @@ async fn assert_uses_index(pool: &SqlitePool, sql: &str, index: &str) {
     assert_no_full_table_scan(&details, sql);
 }
 
+/// 计划里出现指定索引，且没有「SCAN <table>」式整表扫描。
+///
+/// 用于 `GROUP BY` 走覆盖索引前缀的场景：SQLite 报告的是
+/// `SCAN <table> USING INDEX ...`，仍然按索引扫描，不是全表扫描。
+async fn assert_plan_uses_index(pool: &SqlitePool, sql: &str, index: &str) {
+    let details = plan(pool, sql).await;
+    let joined = details.join("\n");
+    assert!(
+        details.iter().any(|detail| detail.contains(index)),
+        "查询计划没有使用索引 {index}：\n{joined}\nSQL: {sql}"
+    );
+    assert_no_full_table_scan(&details, sql);
+}
+
 /// 不允许出现「SCAN <table>」这种整表扫描；`SCAN <table> USING INDEX` 是按索引
 /// 顺序扫描（例如全局列表按 created_at 排序），不算整表扫描。
 fn assert_no_full_table_scan(details: &[String], sql: &str) {
@@ -313,6 +327,58 @@ async fn legacy_combos_are_already_covered_by_the_primary_keys() {
         &pool,
         "SELECT id FROM audit_log WHERE created_at >= 1 AND created_at <= 2",
         "idx_audit_log_created_at_id",
+    )
+    .await;
+}
+
+/// 公开节点详情页的两条聚合都必须走 `idx_server_samples_ts(ts)`：
+/// 一次按 `server_id, UTC+8 日`，一次按 `server_id, 小时`，不按服务器循环。
+#[tokio::test]
+async fn public_status_detail_aggregates_use_the_sample_time_index() {
+    let pool = setup().await;
+
+    // buckets_7d：GROUP BY server_id, date(ts + 28800, 'unixepoch')。
+    assert_uses_index(
+        &pool,
+        "SELECT server_id,
+                date(ts + 28800, 'unixepoch') AS day,
+                AVG(online) AS online_ratio,
+                COUNT(*) AS samples
+         FROM server_samples
+         WHERE ts >= 1 AND ts <= 2
+         GROUP BY server_id, date(ts + 28800, 'unixepoch')",
+        "idx_server_samples_ts",
+    )
+    .await;
+
+    // series_24h + 中断计数：GROUP BY server_id, (ts / 3600) * 3600。
+    assert_uses_index(
+        &pool,
+        "SELECT server_id,
+                (ts / 3600) * 3600 AS ts,
+                AVG(CASE WHEN online = 1 THEN rx_bps END) AS rate_rx_bps,
+                AVG(CASE WHEN online = 1 THEN tx_bps END) AS rate_tx_bps,
+                CAST(ROUND(AVG(CASE WHEN online = 1 THEN latency_ms END)) AS INTEGER) AS latency_ms,
+                SUM(CASE WHEN online = 0 THEN 1 ELSE 0 END) AS outage_samples
+         FROM server_samples
+         WHERE ts >= 1 AND ts <= 2
+         GROUP BY server_id, (ts / 3600) * 3600",
+        "idx_server_samples_ts",
+    )
+    .await;
+}
+
+/// `inbound_count` 的计数走 `nodes(server_id)` 前缀索引，不是整表全扫。
+#[tokio::test]
+async fn inbound_counts_use_the_nodes_server_index() {
+    let pool = setup().await;
+    assert_plan_uses_index(
+        &pool,
+        "SELECT server_id, COUNT(*) AS inbound_count
+         FROM nodes
+         WHERE enabled = 1
+         GROUP BY server_id",
+        "idx_nodes_server_created",
     )
     .await;
 }

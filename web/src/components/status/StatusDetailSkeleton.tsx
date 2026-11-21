@@ -50,13 +50,13 @@ export function StatusDetailSkeleton({ label }: { label: string }) {
               </div>
             ))}
           </div>
-          <div className="mt-4 flex min-h-[160px] flex-1 flex-col border-t border-border pt-3">
+          <div className="mt-3 flex flex-col border-t border-border pt-3">
             <div className="flex justify-between">
               <SkeletonLine className="h-3 w-28" />
               <SkeletonLine className="h-3 w-14" />
             </div>
-            <Skeleton className="mt-3 min-h-24 flex-1 rounded-md" />
-            <SkeletonLine className="mt-3 h-3 w-40" />
+            <Skeleton className="mt-2.5 h-[112px] rounded-md" />
+            <SkeletonLine className="mt-2.5 h-3 w-40" />
           </div>
         </SkeletonCard>
 
@@ -65,11 +65,11 @@ export function StatusDetailSkeleton({ label }: { label: string }) {
             <SkeletonLine className="h-3 w-24" />
             <SkeletonLine className="h-3 w-16" />
           </div>
-          <div className="mt-3 grid flex-1 auto-rows-fr grid-cols-2 gap-2 lg:grid-cols-3">
+          <div className="mt-3 grid flex-1 auto-rows-fr grid-cols-2 gap-x-3">
             {Array.from({ length: 6 }, (_, index) => (
               <div
                 key={index}
-                className="flex flex-col justify-center gap-2 rounded-lg border border-border/60 p-3"
+                className="flex flex-col justify-center gap-2 border-b border-border py-3 even:pl-3 odd:border-r odd:border-border"
               >
                 <SkeletonLine className="h-3 w-12" />
                 <SkeletonLine className="h-5 w-24 max-w-full" />
@@ -83,9 +83,9 @@ export function StatusDetailSkeleton({ label }: { label: string }) {
             <SkeletonLine className="h-3 w-20" />
             <SkeletonLine className="h-3 w-24" />
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <Skeleton className="mx-auto size-24 rounded-full" />
-            <Skeleton className="mx-auto size-24 rounded-full" />
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-[56fr_44fr]">
+            <Skeleton className="mx-auto size-[70px] rounded-full sm:size-[82px]" />
+            <Skeleton className="mx-auto size-[70px] rounded-full sm:size-[82px]" />
           </div>
           <div className="mt-3 space-y-2 border-t border-border pt-3">
             {Array.from({ length: 3 }, (_, index) => (
@@ -97,7 +97,7 @@ export function StatusDetailSkeleton({ label }: { label: string }) {
 
         <SkeletonCard className="order-4 flex flex-col lg:col-start-2 lg:row-start-2">
           <SkeletonLine className="h-3 w-24" />
-          <div className="mt-3 grid flex-1 gap-4 lg:grid-cols-2">
+          <div className="mt-3 grid flex-1 gap-4 sm:grid-cols-[58fr_42fr]">
             <Skeleton className="min-h-20 rounded-lg" />
             <div className="flex flex-col justify-center gap-3">
               <SkeletonLine className="h-4 w-32" />

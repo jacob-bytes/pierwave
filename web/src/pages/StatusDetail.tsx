@@ -16,6 +16,8 @@ import { Link } from "react-router-dom";
 import { EmptyState } from "@/components/common";
 import { AVAILABILITY_TEXT_CLASS } from "@/components/status/Availability";
 import { AvailabilityCurve } from "@/components/status/AvailabilityCurve";
+import { AvailabilityDays } from "@/components/status/AvailabilityDays";
+import { RateTrend } from "@/components/status/RateTrend";
 import { StatusChip } from "@/components/status/ServerCard";
 import { StatusHeader } from "@/components/status/StatusHeader";
 import { StatusDetailSkeleton } from "@/components/status/StatusDetailSkeleton";
@@ -31,19 +33,24 @@ import {
 } from "@/lib/country";
 import { isNotFound } from "@/lib/errors";
 import { formatBytePair, formatBytes } from "@/lib/format";
-import { rateParts } from "@/lib/netRate";
+import { compactRatePair, formatRatePairText } from "@/lib/netRate";
 import {
   availabilityPercentText,
   availabilityTone,
   expiryLabel,
   hasSamples,
+  inboundCount,
+  latencyTrend,
+  outageMinutesParts,
   publicBilling,
   reportedLatency,
   resourcePercent,
   serverState,
+  serviceAgeLabel,
   summarizeAvailability,
   uptimeLabelKey,
   uptimeParts,
+  type OutageMinutesParts,
 } from "@/lib/publicStatus";
 import { normalizeGroupName } from "@/lib/serverGroups";
 import {
@@ -56,18 +63,25 @@ import { usePublicStatus } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 /**
- * 公开状态页的服务器详情 `/status/:id` · 四张卡。
+ * 公开状态页的服务器详情 `/status/:id` · 四张卡（方案 1「指标栅格」）。
  *
- * ① 状态与趋势（头部 + 三个数字 + 24h 曲线）
- * ② 可用性明细（前端由 buckets_24h 推导）
- * ③ 运行环境（资源环 + 负载 + 系统 + Xray）
- * ④ 费用与流量（有费用才显示费用块）
+ * ① 状态与趋势：头部 + 三个单行 KPI（速率改成 ↓/↑ 紧凑式，单位进 label）
+ *    + 112px 可用率曲线（y 轴 100/50/0）+ 当前速率下的 20px 24h 迷你趋势。
+ * ② 可用性明细：2×3 指标栅格（任何宽度都显示全部 6 格）+ 底部 2 条明细
+ *    + 近 7 天日条（`buckets_7d`，null 日斜线）。
+ * ③ 运行环境：82px 资源环（390 为 70px 且与用量并排）+ 系统信息 + Xray
+ *    + 入站数量 / 延迟趋势。
+ * ④ 费用与流量：58/42 分栏，去掉嵌套盒；390 堆叠且保留全部数值。
  *
- * 仍然只用 `GET /api/v1/public/status` 的现有字段，没有新接口；桌面
- * 420px + 右栏的 2×2 网格，同一行卡片 stretch 等高。
+ * 数据仍只来自 `GET /api/v1/public/status`；新增字段全部是可选，旧后端
+ * 缺失时按 `—` 或整项隐藏处理（见各字段旁的注释）。
  */
 
-const VALUE_CLASS = "text-[19px] leading-none font-semibold sm:text-[28px]";
+/** 主数字 28px（390 22px）；②/④ 的次要数字 16–18px；标签与单位 12px。 */
+const KPI_VALUE_CLASS = "tnum text-[22px] leading-none font-semibold sm:text-[28px]";
+const METRIC_VALUE_CLASS = "tnum text-[20px] leading-none font-semibold sm:text-[22px]";
+const SECONDARY_VALUE_CLASS = "tnum text-base leading-none font-semibold sm:text-[18px]";
+const UNIT_CLASS = "text-xs font-normal text-muted-foreground";
 const CARD_CLASS =
   "h-full min-w-0 gap-0 rounded-xl p-4 [--card-spacing:--spacing(4)] sm:p-5";
 
@@ -79,40 +93,25 @@ function SectionTitle({ children }: { children: ReactNode }) {
   );
 }
 
-function DetailStat({
-  name,
-  label,
-  children,
-}: {
-  name: string;
-  label: string;
-  children: ReactNode;
-}) {
+function Dash({ className = KPI_VALUE_CLASS }: { className?: string }) {
   return (
-    <div className="min-w-0" data-slot="detail-stat" data-stat={name}>
-      <div className="truncate text-xs text-muted-foreground">{label}</div>
-      <div className="mt-2 flex min-h-7 flex-wrap items-baseline gap-1">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function Dash() {
-  return (
-    <span className={cn(VALUE_CLASS, "text-muted-foreground")}>—</span>
-  );
-}
-
-function Unit({ children }: { children: ReactNode }) {
-  return (
-    <span className="text-xs font-normal text-muted-foreground">
-      {children}
+    <span className={cn("tnum font-semibold text-muted-foreground", className)}>
+      —
     </span>
   );
 }
 
-function OverviewHeader({ server }: { server: PublicStatusServer }) {
+function Unit({ children }: { children: ReactNode }) {
+  return <span className={UNIT_CLASS}>{children}</span>;
+}
+
+function OverviewHeader({
+  server,
+  generatedAt,
+}: {
+  server: PublicStatusServer;
+  generatedAt: number;
+}) {
   const { t, locale } = useI18n();
   const state = serverState(server);
   const uptime = (() => {
@@ -132,6 +131,9 @@ function OverviewHeader({ server }: { server: PublicStatusServer }) {
         code: country,
       })
     : t("publicStatus.server.countryUnset");
+  // 服务年龄来自 first_seen_at（不是会因重启归零的 uptime_secs）；旧后端缺失
+  // 时整项隐藏。generated_at 是服务端时间，避免浏览器时钟造成「已运行 46 天」。
+  const age = serviceAgeLabel(server.first_seen_at, generatedAt * 1_000);
 
   return (
     <div className="flex items-start justify-between gap-3">
@@ -161,7 +163,7 @@ function OverviewHeader({ server }: { server: PublicStatusServer }) {
             )}
           </span>
         </div>
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
           {countryName ? <span>{countryName}</span> : null}
           {group ? (
             <span
@@ -172,9 +174,44 @@ function OverviewHeader({ server }: { server: PublicStatusServer }) {
               <span className="truncate">{group}</span>
             </span>
           ) : null}
+          {age ? (
+            <span className="tnum">{t(age.key, age.values)}</span>
+          ) : null}
         </div>
       </div>
       <StatusChip state={state} uptime={uptime} />
+    </div>
+  );
+}
+
+function Kpi({
+  name,
+  label,
+  unit,
+  footer,
+  children,
+}: {
+  name: string;
+  label: string;
+  /** 单位放进 label（方案 1 的速率不再把单位写在数字后面）。 */
+  unit?: string | null;
+  footer?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      data-slot="detail-kpi"
+      data-kpi={name}
+      className="min-w-0 border-l border-border px-2.5 first:border-l-0 first:pl-0 last:pr-0 sm:px-3"
+    >
+      <div className="tnum flex min-w-0 items-baseline gap-1 text-xs whitespace-nowrap text-muted-foreground">
+        <span className="truncate">{label}</span>
+        {unit ? <span className={cn(UNIT_CLASS, "shrink-0")}>{unit}</span> : null}
+      </div>
+      <div className="mt-1.5 flex min-w-0 items-baseline gap-1 whitespace-nowrap">
+        {children}
+      </div>
+      {footer}
     </div>
   );
 }
@@ -187,75 +224,83 @@ function KeyNumbers({ server }: { server: PublicStatusServer }) {
     ? availabilityPercentText(server.uptime_24h)
     : null;
   const tone = availabilityTone(uptime === null ? null : server.uptime_24h);
-  const rx = rateParts(server.net_rx_bps);
-  const tx = rateParts(server.net_tx_bps);
+  const rate = compactRatePair(server.net_rx_bps, server.net_tx_bps);
+  const rateTitle = formatRatePairText(server.net_rx_bps, server.net_tx_bps);
 
   return (
     <div
       data-slot="detail-key-numbers"
-      className="mt-4 grid grid-cols-3 gap-3 border-t border-border pt-3"
+      className="mt-2.5 grid grid-cols-[minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1.2fr)] border-t border-border pt-2.5"
     >
-      <DetailStat name="latency" label={t("publicStatus.detail.latency")}>
+      <Kpi name="latency" label={t("publicStatus.detail.latency")}>
         {latency === null ? (
           <Dash />
         ) : (
-          <span className={cn("tnum inline-flex items-baseline gap-1", VALUE_CLASS)}>
-            {latency}
+          <span className="tnum inline-flex items-baseline gap-1">
+            <span className={KPI_VALUE_CLASS}>{latency}</span>
             <Unit>ms</Unit>
           </span>
         )}
-      </DetailStat>
+      </Kpi>
 
-      <DetailStat name="uptime" label={t("publicStatus.hero.averageUptime")}>
+      <Kpi name="uptime" label={t("publicStatus.hero.averageUptime")}>
         {uptime === null ? (
           <Dash />
         ) : (
           <span
-            className={cn(
-              "tnum inline-flex items-baseline gap-1",
-              VALUE_CLASS,
-              AVAILABILITY_TEXT_CLASS[tone],
-            )}
+            className={cn("tnum inline-flex items-baseline gap-1", AVAILABILITY_TEXT_CLASS[tone])}
           >
-            {uptime}
+            <span className={KPI_VALUE_CLASS}>{uptime}</span>
             <Unit>%</Unit>
           </span>
         )}
-      </DetailStat>
+      </Kpi>
 
-      <DetailStat name="rate" label={t("publicStatus.detail.rate")}>
-        {rx === null && tx === null ? (
+      <Kpi
+        name="rate"
+        label={t("publicStatus.detail.rate")}
+        unit={rate?.unit ?? null}
+        footer={
+          <RateTrend
+            series={server.series_24h}
+            className="mt-1 max-w-full"
+          />
+        }
+      >
+        {rate === null ? (
           <Dash />
         ) : (
-          <div className="flex min-w-0 flex-col gap-0.5">
-            {[
-              { icon: ArrowDownIcon, parts: rx, label: t("publicStatus.server.trafficRx") },
-              { icon: ArrowUpIcon, parts: tx, label: t("publicStatus.server.trafficTx") },
-            ].map(({ icon: Icon, parts, label }) => (
-              <span key={label} className="inline-flex min-w-0 items-baseline gap-1">
-                <Icon
-                  className="size-3 shrink-0 self-center text-muted-foreground"
-                  aria-hidden="true"
-                />
-                <span className="sr-only">{label}</span>
-                {parts === null ? (
-                  <Dash />
-                ) : (
-                  <span
-                    className={cn(
-                      "tnum inline-flex items-baseline gap-1 whitespace-nowrap",
-                      VALUE_CLASS,
-                    )}
-                  >
-                    {parts.value}
-                    <Unit>{parts.unit}</Unit>
-                  </span>
-                )}
+          <span
+            data-slot="detail-rate"
+            title={rateTitle ?? undefined}
+            className="tnum inline-flex min-w-0 items-baseline gap-1 text-base leading-none font-semibold sm:text-[18px]"
+          >
+            <span className="inline-flex items-baseline gap-0.5">
+              <ArrowDownIcon
+                className="size-3 shrink-0 self-center text-muted-foreground"
+                aria-hidden="true"
+              />
+              <span className="sr-only">
+                {t("publicStatus.server.trafficRx")}
               </span>
-            ))}
-          </div>
+              {rate.rx ?? "—"}
+            </span>
+            <span aria-hidden="true" className="text-muted-foreground/60">
+              ·
+            </span>
+            <span className="inline-flex items-baseline gap-0.5">
+              <ArrowUpIcon
+                className="size-3 shrink-0 self-center text-muted-foreground"
+                aria-hidden="true"
+              />
+              <span className="sr-only">
+                {t("publicStatus.server.trafficTx")}
+              </span>
+              {rate.tx ?? "—"}
+            </span>
+          </span>
         )}
-      </DetailStat>
+      </Kpi>
     </div>
   );
 }
@@ -274,11 +319,11 @@ function OverviewCard({
       data-slot="detail-overview"
       className={cn(CARD_CLASS, "flex flex-col", className)}
     >
-      <OverviewHeader server={server} />
+      <OverviewHeader server={server} generatedAt={generatedAt} />
       <KeyNumbers server={server} />
       <div
         data-slot="detail-chart"
-        className="mt-4 flex min-h-0 flex-1 flex-col border-t border-border pt-3"
+        className="mt-2.5 border-t border-border pt-2.5"
       >
         <AvailabilityCurve server={server} generatedAt={generatedAt} />
       </div>
@@ -286,44 +331,64 @@ function OverviewCard({
   );
 }
 
-function DetailRow({
-  detail,
+function DurationValue({ parts }: { parts: OutageMinutesParts }) {
+  const { t } = useI18n();
+  return (
+    <span className="tnum inline-flex min-w-0 flex-wrap items-baseline gap-x-1">
+      {parts.hours > 0 ? (
+        <span className="inline-flex items-baseline gap-0.5">
+          <span className={METRIC_VALUE_CLASS}>{parts.hours}</span>
+          <Unit>{t("publicStatus.detail.outageDurationHour")}</Unit>
+        </span>
+      ) : null}
+      {parts.hours === 0 || parts.minutes > 0 ? (
+        <span className="inline-flex items-baseline gap-0.5">
+          <span className={METRIC_VALUE_CLASS}>{parts.minutes}</span>
+          <Unit>{t("publicStatus.detail.outageDurationMinute")}</Unit>
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function Metric({
+  name,
   label,
-  value,
-  sub,
-  optional,
   tone,
+  sub,
+  className,
+  children,
 }: {
-  detail: string;
+  name: string;
   label: string;
-  value: ReactNode;
-  sub?: ReactNode;
-  optional?: boolean;
   tone?: "ok" | "warn" | "down" | "unknown";
+  sub?: ReactNode;
+  className?: string;
+  children: ReactNode;
 }) {
   return (
     <div
-      data-slot="availability-detail"
-      data-detail={detail}
+      data-slot="detail-metric"
+      data-metric={name}
       className={cn(
-        "flex min-w-0 items-baseline justify-between gap-4 border-b border-border/60 py-1 last:border-b-0 lg:py-3",
-        optional && "hidden lg:flex",
+        "flex min-w-0 flex-col justify-center py-3",
+        className,
       )}
     >
-      <dt className="shrink-0 text-[11px] text-muted-foreground">{label}</dt>
-      <dd
+      <div className="tnum truncate text-xs text-muted-foreground">{label}</div>
+      <div
         className={cn(
-          "tnum min-w-0 text-right text-base leading-tight font-semibold",
-          tone ? AVAILABILITY_TEXT_CLASS[tone] : "text-foreground",
+          "mt-1 flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0.5",
+          tone ? AVAILABILITY_TEXT_CLASS[tone] : undefined,
         )}
       >
-        <div className="break-words">{value}</div>
-        {sub ? (
-          <div className="mt-0.5 text-[10px] leading-tight font-normal text-muted-foreground">
-            {sub}
-          </div>
-        ) : null}
-      </dd>
+        {children}
+      </div>
+      {sub ? (
+        <div className="tnum mt-0.5 truncate text-[10px] leading-tight font-normal text-muted-foreground">
+          {sub}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -359,20 +424,22 @@ function AvailabilityDetailsCard({
   const percent = (hour: { ratio: number } | null) =>
     hour ? `${availabilityPercentText(hour.ratio)}%` : "—";
 
+  // 精确中断分钟优先。undefined = 旧后端（回落到按小时近似）；null = 后端
+  // 明确说没有数据，显示 —，绝不显示「0 分钟」。
+  const exactOutage =
+    server.outage_minutes_24h === undefined
+      ? null
+      : outageMinutesParts(server.outage_minutes_24h);
+  const exactOutageMissing =
+    server.outage_minutes_24h === null ||
+    (server.outage_minutes_24h !== undefined && exactOutage === null);
+  const fallbackOutageHours =
+    server.outage_minutes_24h === undefined
+      ? (summary.outageHours ?? null)
+      : null;
+
   const outageCount =
-    summary.outageCount === null
-      ? "—"
-      : summary.outageCount === 1
-        ? t("publicStatus.detail.outageCountOne")
-        : t("publicStatus.detail.outageCountMany", {
-            count: summary.outageCount,
-          });
-  const outageDuration =
-    summary.outageHours === null
-      ? "—"
-      : t("publicStatus.detail.outageDurationValue", {
-          hours: summary.outageHours,
-        });
+    summary.outageCount === null ? null : summary.outageCount;
   const coverage =
     summary.coverageRatio === null
       ? "—"
@@ -404,129 +471,166 @@ function AvailabilityDetailsCard({
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <SectionTitle>{t("publicStatus.detail.availabilityDetails")}</SectionTitle>
-        <span className="text-xs text-muted-foreground">
+        <span className="text-[11px] text-muted-foreground">
           {hasData ? null : t("publicStatus.detail.noSample")}
         </span>
       </div>
 
-      <dl className="mt-3 flex flex-1 flex-col justify-between">
-        <DetailRow
-          detail="outages"
+      <div
+        data-slot="detail-metric-grid"
+        className="mt-2.5 grid grid-cols-2 border-t border-border"
+      >
+        <Metric
+          name="outages"
           label={t("publicStatus.detail.outageCount")}
-          value={outageCount}
-        />
-        <DetailRow
-          detail="duration"
+          className="border-r border-border pr-3"
+        >
+          {outageCount === null ? (
+            <Dash className={METRIC_VALUE_CLASS} />
+          ) : (
+            <span className="tnum inline-flex items-baseline gap-0.5">
+              <span className={METRIC_VALUE_CLASS}>{outageCount}</span>
+              <Unit>
+                {outageCount === 1
+                  ? t("publicStatus.detail.outageUnitOne")
+                  : t("publicStatus.detail.outageUnitMany")}
+              </Unit>
+            </span>
+          )}
+        </Metric>
+
+        <Metric
+          name="duration"
           label={t("publicStatus.detail.outageDuration")}
-          value={outageDuration}
           sub={
-            summary.outageHours === null
+            fallbackOutageHours === null
               ? undefined
               : t("publicStatus.detail.outageDurationHint")
           }
-        />
-        <DetailRow
-          detail="coverage"
+          className="border-b border-border pl-3"
+        >
+          {exactOutage !== null ? (
+            <DurationValue parts={exactOutage} />
+          ) : exactOutageMissing ? (
+            <Dash className={METRIC_VALUE_CLASS} />
+          ) : fallbackOutageHours === null ? (
+            <Dash className={METRIC_VALUE_CLASS} />
+          ) : (
+            <span className="tnum inline-flex items-baseline gap-0.5">
+              <span className={METRIC_VALUE_CLASS}>{fallbackOutageHours}</span>
+              <Unit>{t("publicStatus.detail.outageDurationHour")}</Unit>
+            </span>
+          )}
+        </Metric>
+
+        <Metric
+          name="coverage"
           label={t("publicStatus.detail.coverage")}
-          value={coverage}
-        />
-        <DetailRow
-          detail="lowest"
+          className="border-r border-b border-border pr-3"
+        >
+          <span className={METRIC_VALUE_CLASS}>{coverage}</span>
+        </Metric>
+
+        <Metric
+          name="lowest"
           label={t("publicStatus.detail.lowestHour")}
-          value={
-            <span className="inline-flex flex-wrap items-baseline justify-end gap-x-2 gap-y-0.5">
-              <span>{range(summary.lowest)}</span>
-              {summary.lowest ? (
-                <span className="text-sm font-normal">
-                  {percent(summary.lowest)}
-                </span>
-              ) : null}
-            </span>
-          }
           tone={summary.lowest ? availabilityTone(summary.lowest.ratio) : "unknown"}
-        />
-        <DetailRow
-          detail="highest"
+          sub={summary.lowest ? range(summary.lowest) : "—"}
+          className="border-b border-border pl-3"
+        >
+          <span className={METRIC_VALUE_CLASS}>
+            {summary.lowest ? percent(summary.lowest) : "—"}
+          </span>
+        </Metric>
+
+        <Metric
+          name="highest"
           label={t("publicStatus.detail.highestHour")}
-          value={
-            <span className="inline-flex flex-wrap items-baseline justify-end gap-x-2 gap-y-0.5">
-              <span>{range(summary.highest)}</span>
-              {summary.highest ? (
-                <span className="text-sm font-normal">
-                  {percent(summary.highest)}
-                </span>
-              ) : null}
-            </span>
-          }
           tone={summary.highest ? availabilityTone(summary.highest.ratio) : "unknown"}
-        />
-        <DetailRow
-          detail="compare"
+          sub={summary.highest ? range(summary.highest) : "—"}
+          className="border-r border-border pr-3"
+        >
+          <span className={METRIC_VALUE_CLASS}>
+            {summary.highest ? percent(summary.highest) : "—"}
+          </span>
+        </Metric>
+
+        <Metric
+          name="compare"
           label={t("publicStatus.detail.compare")}
-          value={
-            <span className="inline-flex flex-wrap items-baseline justify-end gap-x-2 gap-y-0.5">
-              <span className="inline-flex items-baseline gap-1">
-                <span className="text-[10px] font-normal text-muted-foreground">
-                  {t("publicStatus.detail.compare24h")}
-                </span>
-                <span className={AVAILABILITY_TEXT_CLASS[tone24]}>
-                  {uptime24 === null ? "—" : `${uptime24}%`}
-                </span>
-              </span>
-              <span aria-hidden="true" className="text-muted-foreground">
-                ·
-              </span>
-              <span className="inline-flex items-baseline gap-1">
-                <span className="text-[10px] font-normal text-muted-foreground">
-                  {t("publicStatus.detail.compare7d")}
-                </span>
-                <span className={AVAILABILITY_TEXT_CLASS[tone7d]}>
-                  {uptime7d === null ? "—" : `${uptime7d}%`}
-                </span>
-              </span>
-            </span>
+          sub={
+            <>
+              {t("publicStatus.detail.difference")}{" "}
+              <span className="tnum">{deltaText}</span>
+            </>
           }
-          sub={`${t("publicStatus.detail.difference")} ${deltaText}`}
+          className="pl-3"
+        >
+          <span className={SECONDARY_VALUE_CLASS}>
+            <span className={AVAILABILITY_TEXT_CLASS[tone24]}>
+              {uptime24 === null ? "—" : `${uptime24}%`}
+            </span>
+            <span aria-hidden="true" className="px-1.5 text-muted-foreground/50">
+              ·
+            </span>
+            <span className={AVAILABILITY_TEXT_CLASS[tone7d]}>
+              {uptime7d === null ? "—" : `${uptime7d}%`}
+            </span>
+          </span>
+        </Metric>
+      </div>
+
+      <div
+        data-slot="detail-availability-foot"
+        className="mt-2.5 border-t border-border pt-2.5"
+      >
+        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-xs text-muted-foreground">
+          <span>
+            {t("publicStatus.detail.longestNormal")}{" "}
+            <b className="tnum font-medium text-foreground">{longestNormal}</b>
+          </span>
+          <span>
+            {t("publicStatus.detail.outagePeriods")}{" "}
+            <b className="tnum font-medium text-foreground">{outageTimes}</b>
+          </span>
+        </div>
+        <AvailabilityDays
+          buckets={server.buckets_7d}
+          className="mt-2"
         />
-        <DetailRow
-          detail="longest"
-          label={t("publicStatus.detail.longestNormal")}
-          value={longestNormal}
-          optional
-        />
-        <DetailRow
-          detail="periods"
-          label={t("publicStatus.detail.outagePeriods")}
-          value={outageTimes}
-          optional
-        />
-      </dl>
+      </div>
     </Card>
   );
 }
 
 function Ring({
+  name,
   label,
   percent,
   pair,
 }: {
+  name: string;
   label: string;
   percent: number | null;
   pair: string | null;
 }) {
   const { t } = useI18n();
-  const size = 92;
+  const size = 82;
   const stroke = 8;
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const fill = percent === null ? 0 : Math.min(100, Math.max(0, percent));
 
   return (
-    <div className="flex min-w-0 flex-col items-center gap-1.5 rounded-lg bg-muted/20 p-2">
+    <div
+      data-slot="detail-ring"
+      data-ring={name}
+      className="flex min-w-0 flex-1 items-center gap-2 sm:flex-col sm:justify-center sm:gap-1.5"
+    >
       <div
         role="img"
         aria-label={`${label} ${percent === null ? "—" : `${Math.round(percent)}%`}`}
-        className="relative size-24"
+        className="relative size-[70px] shrink-0 sm:size-[82px]"
       >
         <svg
           aria-hidden="true"
@@ -555,13 +659,13 @@ function Ring({
           ) : null}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5">
-          <strong className="tnum text-lg leading-none font-semibold">
+          <strong className="tnum text-sm leading-none font-semibold sm:text-base">
             {percent === null ? "—" : `${Math.round(percent)}%`}
           </strong>
           <span className="text-[10px] text-muted-foreground">{label}</span>
         </div>
       </div>
-      <span className="tnum max-w-full truncate text-[10px] text-muted-foreground">
+      <span className="tnum min-w-0 text-[10px] leading-tight text-muted-foreground sm:max-w-full sm:truncate">
         {pair ?? t("publicStatus.server.notReported")}
       </span>
     </div>
@@ -587,6 +691,17 @@ function RuntimeCard({
   const os = [server.os_name, server.os_version]
     .filter((part) => typeof part === "string" && part.trim().length > 0)
     .join(" ");
+  const inbounds = inboundCount(server.inbound_count);
+  const latency = latencyTrend(server.series_24h);
+  const latencyText =
+    latency === null
+      ? null
+      : latency.min === latency.max
+        ? t("publicStatus.detail.latencyTrendSingle", { value: latency.min })
+        : t("publicStatus.detail.latencyTrendRange", {
+            min: latency.min,
+            max: latency.max,
+          });
   const xray =
     server.xray_running === true
       ? {
@@ -629,49 +744,81 @@ function RuntimeCard({
         </span>
       </div>
 
-      <div className="mt-2 grid grid-cols-2 gap-3">
-        <Ring
-          label={t("publicStatus.server.memory")}
-          percent={memPercent}
-          pair={memPair}
-        />
-        <Ring
-          label={t("publicStatus.server.disk")}
-          percent={diskPercent}
-          pair={diskPair}
-        />
+      <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3 sm:flex-row sm:gap-4">
+        <div
+          data-slot="detail-rings"
+          className="flex min-w-0 gap-2 sm:basis-[56%] sm:flex-none"
+        >
+          <Ring
+            name="memory"
+            label={t("publicStatus.server.memory")}
+            percent={memPercent}
+            pair={memPair}
+          />
+          <Ring
+            name="disk"
+            label={t("publicStatus.server.disk")}
+            percent={diskPercent}
+            pair={diskPair}
+          />
+        </div>
+
+        <div className="flex min-w-0 flex-1 flex-col justify-center border-t border-border pt-2 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-4">
+          <dl className="grid min-w-0 grid-cols-2 gap-x-3 gap-y-1.5 sm:flex sm:flex-col sm:gap-1.5">
+            {[
+              { label: t("publicStatus.detail.system.os"), value: os || "—" },
+              { label: t("publicStatus.detail.system.virt"), value: server.virt || "—" },
+              { label: t("publicStatus.detail.system.arch"), value: server.arch || "—" },
+            ].map((row, index) => (
+              <div
+                key={row.label}
+                className={cn("min-w-0", index === 0 && "col-span-2 sm:col-auto")}
+              >
+                <dt className="text-[10px] leading-tight text-muted-foreground">
+                  {row.label}
+                </dt>
+                <dd
+                  className="tnum truncate text-xs leading-tight"
+                  title={row.value}
+                >
+                  {row.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
       </div>
 
-      <dl className="mt-2 flex flex-1 flex-col justify-center gap-2 border-t border-border pt-2 text-xs">
-        {[
-          { label: t("publicStatus.detail.system.os"), value: os || "—" },
-          { label: t("publicStatus.detail.system.virt"), value: server.virt || "—" },
-          { label: t("publicStatus.detail.system.arch"), value: server.arch || "—" },
-        ].map((row) => (
-          <div
-            key={row.label}
-            className="flex min-w-0 items-baseline justify-between gap-3"
-          >
-            <dt className="shrink-0 text-[10px] text-muted-foreground">
-              {row.label}
-            </dt>
-            <dd className="min-w-0 truncate text-right text-sm" title={row.value}>
-              {row.value}
-            </dd>
-          </div>
-        ))}
-      </dl>
-
       <div
-        data-slot="xray-status"
-        data-xray={xray.key}
-        className="mt-auto flex items-center gap-2 border-t border-border pt-2 text-xs"
+        data-slot="runtime-foot"
+        className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border pt-2 text-xs"
       >
         <span
-          aria-hidden="true"
-          className={cn("size-1.5 rounded-full", xray.className)}
-        />
-        <span className={xray.textClass}>{xray.text}</span>
+          data-slot="xray-status"
+          data-xray={xray.key}
+          className="inline-flex items-center gap-1.5"
+        >
+          <span
+            aria-hidden="true"
+            className={cn("size-1.5 rounded-full", xray.className)}
+          />
+          <span className={xray.textClass}>{xray.text}</span>
+        </span>
+        {inbounds === null ? null : (
+          <span className="text-[10px] text-muted-foreground">
+            {inbounds === 1
+              ? t("publicStatus.detail.inboundCountOne", { count: inbounds })
+              : t("publicStatus.detail.inboundCountMany", {
+                  count: inbounds,
+                })}
+          </span>
+        )}
+        {latencyText === null ? null : (
+          <span className="inline-flex items-baseline gap-1 text-[10px] text-muted-foreground">
+            <span>{t("publicStatus.detail.latencyTrend")}</span>
+            <span className="tnum text-foreground">{latencyText}</span>
+          </span>
+        )}
       </div>
     </Card>
   );
@@ -695,10 +842,7 @@ function BillingTrafficCard({
   const expiryText =
     expiry === null ? null : t(expiry.key, expiry.values);
   const cycle = billing.cycleKey === null ? null : t(billing.cycleKey);
-  const price =
-    billing.price === null
-      ? null
-      : `${billing.price}${cycle ? ` / ${cycle}` : ""}`;
+  const expired = billing.days !== null && billing.days < 0;
 
   const rx =
     typeof server.net_rx_bytes === "number" &&
@@ -764,59 +908,71 @@ function BillingTrafficCard({
 
       <div
         className={cn(
-          "mt-3 flex flex-1 flex-col gap-4",
-          hasBilling &&
-            "lg:grid lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:gap-6",
+          "mt-3 flex flex-1 flex-col gap-3",
+          hasBilling && "sm:flex-row sm:gap-5",
         )}
       >
         {hasBilling ? (
-          <section className="flex min-w-0 flex-col justify-center lg:justify-between lg:rounded-lg lg:border lg:border-border/60 lg:bg-muted/15 lg:p-4">
-            <SectionTitle>{t("publicStatus.detail.sections.billing")}</SectionTitle>
-            {price ? (
-              <p className="tnum mt-2 text-xl leading-tight font-semibold">
-                {price}
-              </p>
-            ) : null}
-            {expiryText ? (
+          <section
+            data-slot="billing-primary"
+            className="flex min-w-0 flex-col justify-center gap-1.5 sm:basis-[58%] sm:flex-none"
+          >
+            <div className="text-[11px] text-muted-foreground">
+              {t("publicStatus.detail.sections.billing")}
+            </div>
+            <div className="flex min-w-0 items-baseline gap-1">
+              {billing.price === null ? (
+                <Dash className="text-[22px] leading-none font-semibold sm:text-2xl" />
+              ) : (
+                <span className="tnum text-[22px] leading-none font-semibold sm:text-2xl">
+                  {billing.price}
+                </span>
+              )}
+              {cycle === null ? null : (
+                <span className={cn(UNIT_CLASS, "shrink-0")}>/ {cycle}</span>
+              )}
+            </div>
+            {expiryText === null ? null : (
               <p
                 className={cn(
-                  "mt-1 text-xs",
-                  billing.days !== null && billing.days < 0
-                    ? "text-warning"
-                    : "text-muted-foreground",
+                  "tnum flex min-w-0 flex-wrap items-baseline gap-x-2 text-base leading-tight font-semibold sm:text-[17px]",
+                  expired ? "text-warning" : "text-foreground",
                 )}
                 title={billing.paidUntil ?? undefined}
               >
-                {expiryText}
-                {billing.paidUntil ? (
-                  <span className="tnum ml-2">{billing.paidUntil}</span>
-                ) : null}
+                <span>{expiryText}</span>
+                {billing.paidUntil === null ? null : (
+                  <span className="text-[11px] font-normal text-muted-foreground">
+                    {billing.paidUntil}
+                  </span>
+                )}
               </p>
-            ) : null}
+            )}
             {remainingDays !== null && remainingPercent !== null ? (
-              <div className="mt-3 hidden lg:block">
-                <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
-                  <span>
+              <div className="mt-0.5">
+                <div
+                  aria-hidden="true"
+                  className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+                >
+                  <div
+                    className={cn(
+                      "h-full rounded-full",
+                      expired ? "bg-warning" : "bg-primary",
+                    )}
+                    style={{ width: `${remainingPercent}%` }}
+                  />
+                </div>
+                <div
+                  data-slot="billing-meta"
+                  className="mt-1 flex items-center justify-between gap-2 text-[10px] text-muted-foreground"
+                >
+                  <span className="tnum">
                     {t("publicStatus.detail.remainingDays", {
                       remaining: remainingDays,
                       total: cycleDays ?? 0,
                     })}
                   </span>
-                  <span>{cycleEstimate}</span>
-                </div>
-                <div
-                  aria-hidden="true"
-                  className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted"
-                >
-                  <div
-                    className={cn(
-                      "h-full rounded-full",
-                      billing.days !== null && billing.days < 0
-                        ? "bg-warning"
-                        : "bg-primary",
-                    )}
-                    style={{ width: `${remainingPercent}%` }}
-                  />
+                  {cycleEstimate === null ? null : <span>{cycleEstimate}</span>}
                 </div>
               </div>
             ) : null}
@@ -825,23 +981,27 @@ function BillingTrafficCard({
 
         <section
           data-slot="detail-traffic"
-          className="flex min-w-0 flex-1 flex-col justify-center lg:justify-between lg:rounded-lg lg:border lg:border-border/60 lg:bg-muted/15 lg:p-4"
+          className={cn(
+            "flex min-w-0 flex-1 flex-col justify-center gap-1.5",
+            hasBilling &&
+              "border-t border-border pt-3 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-5",
+          )}
         >
-          <div className="flex flex-wrap items-baseline gap-2">
-            <span className="text-xs text-muted-foreground">
-              {t("publicStatus.server.trafficTotal")}
+          <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+            <span className="text-[11px] text-muted-foreground">
+              {t("publicStatus.server.trafficTotal")}{" "}
+              <span className="text-muted-foreground/70">
+                · {t("publicStatus.detail.sinceBoot")}
+              </span>
             </span>
-            <span className="text-[10px] text-muted-foreground">
-              · {t("publicStatus.detail.sinceBoot")}
-            </span>
-            <strong className="tnum ml-auto text-lg font-semibold lg:ml-0">
+            <strong className="tnum text-lg leading-none font-semibold sm:text-xl">
               {totalText}
             </strong>
           </div>
 
           <div
             aria-hidden="true"
-            className="mt-3 flex h-1.5 w-full overflow-hidden rounded-full bg-muted"
+            className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted"
           >
             {rxShare === null ? null : (
               <>
@@ -857,7 +1017,7 @@ function BillingTrafficCard({
             )}
           </div>
 
-          <div className="tnum mt-2 flex items-center justify-between gap-4 text-xs text-muted-foreground">
+          <div className="tnum flex items-center justify-between gap-4 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1">
               <ArrowDownToLineIcon className="size-3" aria-hidden="true" />
               {rxText}
@@ -868,14 +1028,17 @@ function BillingTrafficCard({
             </span>
           </div>
 
-          {avgRx !== null || avgTx !== null ? (
-            <div className="mt-2 hidden items-center justify-between gap-3 text-[10px] text-muted-foreground lg:flex">
+          {avgRx === null && avgTx === null ? null : (
+            <div
+              data-slot="traffic-average"
+              className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground"
+            >
               <span>{t("publicStatus.detail.averageHourly")}</span>
               <span className="tnum">
                 ↓ {avgRxText}/h · ↑ {avgTxText}/h
               </span>
             </div>
-          ) : null}
+          )}
         </section>
       </div>
     </Card>
@@ -917,7 +1080,7 @@ function DetailContent({
     <div className="flex flex-1 flex-col">
       <div
         data-slot="detail-grid"
-        className="grid flex-1 items-stretch gap-4 lg:grid-cols-[420px_minmax(0,1fr)]"
+        className="grid items-stretch gap-4 lg:grid-cols-[420px_minmax(0,1fr)]"
       >
         <OverviewCard
           server={server}

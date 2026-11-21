@@ -92,6 +92,67 @@ export function formatRateExact(bps: number | null | undefined): string | null {
   return formatRate(bps);
 }
 
+/** 紧凑双行速率的拆解：两方向共用同一个 `unit`，单位放进 label。 */
+export interface CompactRatePair {
+  /** 下行数值（不带单位）；没有读数为 null。 */
+  rx: string | null;
+  /** 上行数值（不带单位）；没有读数为 null。 */
+  tx: string | null;
+  /** 两方向共用的单位，如 `MB/s`；两侧都没有数据时为 null。 */
+  unit: string | null;
+}
+
+/**
+ * 详情页 ① 的紧凑速率：`↓17.5 · ↑2.19`，单位统一提到 label 里。
+ *
+ * 两个方向的量级可能差一档（900 KB/s 与 2 MB/s）。如果各用各的单位，
+ * label 里只能写一个，另一个数字就会被读错；所以先按**较大的方向**选单位，
+ * 再把两个方向都换算过去。规则与 `rateParts` 一致：0 是有效值、非零但
+ * 不足 1 B/s 显示 `<1`、舍入顶到 1024 时进位。任一侧缺失就保持 null，
+ * 不拿 0 冒充；两侧都缺失时整组返回 null，由调用方渲染 `—`。
+ */
+export function compactRatePair(
+  rxBps: number | null | undefined,
+  txBps: number | null | undefined,
+): CompactRatePair | null {
+  const valid = (value: number | null | undefined): number | null =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0
+      ? value
+      : null;
+  const rx = valid(rxBps);
+  const tx = valid(txBps);
+  if (rx === null && tx === null) return null;
+
+  const largest = Math.max(rx ?? 0, tx ?? 0);
+  let exponent = 0;
+  if (largest >= 1024) {
+    exponent = unitExponent(largest);
+    // 与 `rateParts` 相同的进位保护：缩放后再舍入可能刚好顶到 1024。
+    const scaled = scaledText(largest / 1024 ** exponent);
+    if (Number(scaled) >= 1024 && exponent < RATE_UNITS.length - 1) {
+      exponent += 1;
+    }
+  }
+
+  const format = (bps: number | null): string | null => {
+    if (bps === null) return null;
+    if (exponent === 0) {
+      if (bps === 0) return "0";
+      if (bps < 1) return "<1";
+      return String(Math.round(bps));
+    }
+    const scaled = bps / 1024 ** exponent;
+    if (scaled > 0 && scaled < 0.01) return "<0.01";
+    return scaledText(scaled);
+  };
+
+  return {
+    rx: format(rx),
+    tx: format(tx),
+    unit: `${RATE_UNITS[exponent]}/s`,
+  };
+}
+
 /** 无障碍 / tooltip 文案：`↓ 12.3 MB/s · ↑ 1.2 MB/s`；两侧都没有数据时 `null`。 */
 export function formatRatePairText(
   rxBps: number | null | undefined,

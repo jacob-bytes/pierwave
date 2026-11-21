@@ -3179,6 +3179,24 @@ pub mod nodes {
             .await?)
     }
 
+    /// 每台服务器上**启用**的入站数量（公开节点详情页 `inbound_count`）。
+    ///
+    /// 一次 `GROUP BY server_id` 查完所有服务器（没有 N+1）；只读计数，
+    /// 不读协议 / 端口 / tag / 配置，公开页拿不到任何拓扑细节。
+    /// 命中 `idx_nodes_server_created(server_id)` 的前缀扫描，不做整表全扫。
+    pub async fn enabled_counts_by_server(
+        pool: &SqlitePool,
+    ) -> anyhow::Result<Vec<ServerInboundCount>> {
+        Ok(sqlx::query_as::<_, ServerInboundCount>(
+            "SELECT server_id, COUNT(*) AS inbound_count
+             FROM nodes
+             WHERE enabled = 1
+             GROUP BY server_id",
+        )
+        .fetch_all(pool)
+        .await?)
+    }
+
     pub async fn list_by_server(pool: &SqlitePool, server_id: &str) -> anyhow::Result<Vec<Node>> {
         Ok(sqlx::query_as::<_, Node>(
             "SELECT * FROM nodes WHERE server_id = ? ORDER BY created_at ASC, rowid ASC",
@@ -9603,6 +9621,67 @@ pub mod server_samples {
              WHERE ts >= ? AND ts < ? AND online = 1
              GROUP BY ts
              ORDER BY ts ASC",
+        )
+        .bind(since)
+        .bind(until)
+        .fetch_all(pool)
+        .await?)
+    }
+
+    /// `[since, until]` 内每台服务器按 UTC+8 自然日聚合的公开可用率。
+    ///
+    /// 一次 `GROUP BY server_id, 日` 查完整个窗口，不按服务器循环（没有 N+1）；
+    /// 只返回**有采样**的 (server, day)，空日子由接口层补 `null`。日期用
+    /// `date(ts + 28800, 'unixepoch')` 换算成 UTC+8，与 `traffic_daily.day`
+    /// 同口径（固定偏移，不引入 `chrono-tz`）。
+    pub async fn daily_buckets_all(
+        pool: &SqlitePool,
+        since: i64,
+        until: i64,
+    ) -> anyhow::Result<Vec<ServerDailyBucket>> {
+        Ok(sqlx::query_as::<_, ServerDailyBucket>(
+            "SELECT server_id,
+                    date(ts + 28800, 'unixepoch') AS day,
+                    AVG(online) AS online_ratio,
+                    COUNT(*) AS samples
+             FROM server_samples
+             WHERE ts >= ? AND ts <= ?
+             GROUP BY server_id, date(ts + 28800, 'unixepoch')",
+        )
+        .bind(since)
+        .bind(until)
+        .fetch_all(pool)
+        .await?)
+    }
+
+    /// `[since, until]` 内每台服务器按整点小时聚合的公开趋势 + 中断采样数。
+    ///
+    /// 一次 `GROUP BY server_id, ts / 3600` 查完整个窗口，不按服务器循环
+    /// （没有 N+1）；只返回**有采样**的 (server, 小时)，空小时由接口层补
+    /// `null`。
+    ///
+    /// * 速率取该小时**在线采样**的 `AVG(rx_bps)` / `AVG(tx_bps)`：SQLite 的
+    ///   `AVG` 自动跳过 NULL，因此旧 Agent 不会把均值拉低成 0；离线采样不参与
+    ///   ——它带的是掉线前最后一帧，算进去会画出「机器已离线、曲线还在跑流量」，
+    ///   与全局 `series`（只统计 `online = 1`）保持同一口径；
+    /// * 延迟取**在线采样**的 `ROUND(AVG(latency_ms))`，NULL 不参与平均；
+    /// * `outage_samples` 是该小时 `online = 0` 的采样行数，调用方 × 5 分钟
+    ///   得到中断分钟数。它与趋势用同一条 SQL 算出来，不再多扫一遍样本表。
+    pub async fn hourly_series_all(
+        pool: &SqlitePool,
+        since: i64,
+        until: i64,
+    ) -> anyhow::Result<Vec<ServerHourlySeriesBucket>> {
+        Ok(sqlx::query_as::<_, ServerHourlySeriesBucket>(
+            "SELECT server_id,
+                    (ts / 3600) * 3600 AS ts,
+                    AVG(CASE WHEN online = 1 THEN rx_bps END) AS rate_rx_bps,
+                    AVG(CASE WHEN online = 1 THEN tx_bps END) AS rate_tx_bps,
+                    CAST(ROUND(AVG(CASE WHEN online = 1 THEN latency_ms END)) AS INTEGER) AS latency_ms,
+                    SUM(CASE WHEN online = 0 THEN 1 ELSE 0 END) AS outage_samples
+             FROM server_samples
+             WHERE ts >= ? AND ts <= ?
+             GROUP BY server_id, (ts / 3600) * 3600",
         )
         .bind(since)
         .bind(until)

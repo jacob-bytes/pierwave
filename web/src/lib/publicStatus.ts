@@ -5,6 +5,10 @@
  * 页面只负责把返回值映射成 token 与文案。
  */
 
+import type {
+  PublicStatusDayBucket,
+  PublicStatusSeries,
+} from "./api.ts";
 import { normalizeGroupName } from "./serverGroups.ts";
 
 /** 卡片右上角的状态：离线优先于「异常」，因为离线时 Xray 字段本就不可信。 */
@@ -350,6 +354,183 @@ export function hasSamples(
   buckets: readonly (unknown | null | undefined)[],
 ): boolean {
   return buckets.some((bucket) => bucket !== null && bucket !== undefined);
+}
+
+/** 精确到分钟的 24h 中断时长拆成小时 / 分钟，供 ② 的指标格使用。 */
+export interface OutageMinutesParts {
+  hours: number;
+  minutes: number;
+}
+
+/**
+ * `outage_minutes_24h` → `{ hours, minutes }`。
+ *
+ * `null` / `undefined` / 负数 / 非有限值是「后端没给这个精确值」，返回
+ * `null`，由 UI 显示 `—`；**不能落到 0 分钟**。真实的 0 是有效数据，
+ * 显示「0 分钟」，与「不知道」严格区分。小数分钟向下取整。
+ */
+export function outageMinutesParts(
+  minutes: number | null | undefined,
+): OutageMinutesParts | null {
+  if (typeof minutes !== "number" || !Number.isFinite(minutes) || minutes < 0) {
+    return null;
+  }
+  const whole = Math.floor(minutes);
+  return { hours: Math.floor(whole / 60), minutes: whole % 60 };
+}
+
+/**
+ * 服务年龄（整天）：`first_seen_at` 是 Unix 秒，`nowMs` 是浏览器毫秒时钟。
+ *
+ * 与 `uptime_secs` 不同，这个值不会因为重启归零。未来时间戳按 0 天处理
+ * （时钟偏差不该显示「−3 天」）；缺失 / 非法值为 `null`，UI 整项隐藏。
+ */
+export function serviceAgeDays(
+  firstSeenAt: number | null | undefined,
+  nowMs: number,
+): number | null {
+  if (
+    typeof firstSeenAt !== "number" ||
+    !Number.isFinite(firstSeenAt) ||
+    firstSeenAt <= 0 ||
+    !Number.isFinite(nowMs) ||
+    nowMs <= 0
+  ) {
+    return null;
+  }
+  const elapsed = nowMs / 1_000 - firstSeenAt;
+  return Math.max(0, Math.floor(elapsed / 86_400));
+}
+
+export interface ServiceAgeText {
+  key: string;
+  values?: Record<string, number>;
+}
+
+/** ① 头部的「已运行 45 天」；不足一天时换一条不写 0 的文案。 */
+export function serviceAgeLabel(
+  firstSeenAt: number | null | undefined,
+  nowMs: number,
+): ServiceAgeText | null {
+  const days = serviceAgeDays(firstSeenAt, nowMs);
+  if (days === null) return null;
+  if (days === 1) return { key: "publicStatus.detail.runningOneDay" };
+  return days > 1
+    ? {
+        key: "publicStatus.detail.runningDays",
+        values: { days },
+      }
+    : { key: "publicStatus.detail.runningJustStarted" };
+}
+
+/** ② 的 7 天日条固定 7 格。 */
+export const WEEK_DAYS = 7;
+
+export interface DayAvailability {
+  /** `YYYY-MM-DD`；该格没有日期时为 null。 */
+  day: string | null;
+  /** 0..1；该日没有采样时为 null（画斜线，不画 0%）。 */
+  ratio: number | null;
+  /** 采样数；缺失或非法为 null。 */
+  samples: number | null;
+}
+
+/**
+ * `buckets_7d` → 固定 7 格（旧 → 新）。
+ *
+ * - 字段整个缺失（旧后端）或数组为空 → `null`，调用方整条隐藏；
+ * - 数组里的 `null` 日、非法比例都保留为空格，画斜线，不当成 0%；
+ * - 少于 7 天时向更早补 null，最新一天仍在最右；
+ * - 多于 7 天只取最后 7 天，日条永远不横向溢出。
+ */
+export function weekAvailability(
+  buckets:
+    | readonly (PublicStatusDayBucket | null | undefined)[]
+    | null
+    | undefined,
+): DayAvailability[] | null {
+  if (!Array.isArray(buckets) || buckets.length === 0) return null;
+  const recent = buckets.slice(-WEEK_DAYS);
+  const padding = WEEK_DAYS - recent.length;
+  return Array.from({ length: WEEK_DAYS }, (_, index) => {
+    if (index < padding) {
+      return { day: null, ratio: null, samples: null };
+    }
+    const raw = recent[index - padding];
+    if (!raw) return { day: null, ratio: null, samples: null };
+    const day =
+      typeof raw.day === "string" && raw.day.trim().length > 0
+        ? raw.day.trim()
+        : null;
+    const ratio =
+      typeof raw.online_ratio === "number" &&
+      Number.isFinite(raw.online_ratio)
+        ? Math.min(1, Math.max(0, raw.online_ratio))
+        : null;
+    const samples =
+      typeof raw.samples === "number" &&
+      Number.isFinite(raw.samples) &&
+      raw.samples >= 0
+        ? Math.floor(raw.samples)
+        : null;
+    return { day, ratio, samples };
+  });
+}
+
+export interface LatencyTrend {
+  min: number;
+  max: number;
+  avg: number;
+  samples: number;
+}
+
+/**
+ * `series_24h.latency_ms` 的 24 点摘要，供 ③ 的一行「延迟趋势」小字。
+ *
+ * null / 负数 / 非有限值跳过（探测失败不是 0 ms）；有效点不足一个时返回
+ * `null`，整行隐藏。只展示 min–max，不把这一行做成第二张图。
+ */
+export function latencyTrend(
+  series: Pick<PublicStatusSeries, "latency_ms"> | null | undefined,
+): LatencyTrend | null {
+  const values = Array.isArray(series?.latency_ms)
+    ? series.latency_ms
+    : [];
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  let total = 0;
+  let samples = 0;
+
+  for (const value of values) {
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+      continue;
+    }
+    min = Math.min(min, value);
+    max = Math.max(max, value);
+    total += value;
+    samples += 1;
+  }
+
+  if (samples === 0) return null;
+  return {
+    min: Math.round(min),
+    max: Math.round(max),
+    avg: Math.round(total / samples),
+    samples,
+  };
+}
+
+/**
+ * `inbound_count`：只接受非负有限数，向下取整；缺失 / 脏数据为 null。
+ * 0 是有效值（「承载 0 个入站」），不能当成未知。
+ */
+export function inboundCount(
+  value: number | null | undefined,
+): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return null;
+  }
+  return Math.floor(value);
 }
 
 /**

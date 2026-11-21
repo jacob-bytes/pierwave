@@ -242,6 +242,19 @@ export interface PublicStatusBucket {
 }
 
 /**
+ * 公开状态页的单日桶（`buckets_7d`）；整日没有采样时为 null。
+ * 后端另一条 lane 新增；旧后端不返回整个字段，前端必须容忍。
+ */
+export interface PublicStatusDayBucket {
+  /** 业务日 `YYYY-MM-DD`。 */
+  day: string;
+  /** 当天的在线比例，0..1；当天没有采样时为 null（不是 0）。 */
+  online_ratio: number | null;
+  /** 当天的采样数；没有采样是 0，旧后端可能缺失。 */
+  samples?: number | null;
+}
+
+/**
  * P10：公开状态页里的一台服务器。只包含白名单字段，不含地址与 token；
  * `load1` / `mem_*` / `disk_*` / `uptime_secs` / `last_seen` 可能在离线或
  * 从未上报时为 null。
@@ -293,6 +306,23 @@ export interface PublicStatusServer {
   uptime_7d: number | null;
   /** 固定 24 个元素，从最早的小时到当前小时。 */
   buckets_24h: (PublicStatusBucket | null)[];
+  /**
+   * 近 24 小时**精确**累计中断分钟数。`null` = 后端明确说没有数据；
+   * 字段缺失 = 旧后端，前端回落到按小时近似的 `buckets_24h`。
+   * 这条 lane 的契约：null 显示 `—`，绝不能显示「0 分钟」。
+   */
+  outage_minutes_24h?: number | null;
+  /** 首次接入时间（Unix 秒）；用于「已运行 N 天」。旧后端缺失。 */
+  first_seen_at?: number | null;
+  /** 承载的入站数量（只有数量，不含端口 / 协议 / tag）；旧后端缺失。 */
+  inbound_count?: number | null;
+  /** 近 7 个业务日的可用率（旧 → 新）；整日为 null 表示当天无采样。 */
+  buckets_7d?: (PublicStatusDayBucket | null)[];
+  /**
+   * 近 24 小时的逐小时趋势（1h 粒度），形状与 `series` 相同。
+   * ① 的当前速率下方画一条 20px 迷你趋势，③ 取 `latency_ms` 做延迟趋势小字。
+   */
+  series_24h?: PublicStatusSeries | null;
   /**
    * 所属分组；未分组为 null。旧后端不返回该字段（也能据此隐藏分组筛选）。
    */

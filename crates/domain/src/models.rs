@@ -1321,6 +1321,51 @@ pub struct ServerSeriesBucket {
     pub latency_ms: Option<i64>,
 }
 
+/// 一台服务器某个 UTC+8 自然日的公开可用率桶（公开节点详情页 `buckets_7d`）。
+///
+/// `online_ratio` 是当天的 `AVG(online)`；查询只返回有采样的日子，空日子由
+/// 接口层补 `null`，**不用 0 冒充「完美可用」**。`day` 与 `traffic_daily.day`
+/// 同口径（UTC+8），不是 UTC 日期。
+#[derive(Debug, Clone, PartialEq, FromRow)]
+pub struct ServerDailyBucket {
+    pub server_id: String,
+    /// UTC+8 自然日，`YYYY-MM-DD`。
+    pub day: String,
+    /// 当天 `AVG(online)`，0..1；有采样时不会为 NULL。
+    pub online_ratio: Option<f64>,
+    /// 当天采样行数（5 分钟粒度）；没有采样的日子不会出现在查询结果里。
+    pub samples: i64,
+}
+
+/// 一台服务器某个整点小时桶的公开趋势（公开节点详情页 `series_24h`）。
+///
+/// 四个数值列都是 `Option`：该小时内没有**在线**采样时是 `None`（接口序列化为
+/// `null`），不是 0。`outage_samples` 是该小时 `online = 0` 的采样行数，
+/// 调用方 × 5 分钟得到中断分钟数（不是「没有数据」）。
+#[derive(Debug, Clone, PartialEq, FromRow)]
+pub struct ServerHourlySeriesBucket {
+    pub server_id: String,
+    /// 小时起点（Unix 秒，整点）。
+    pub ts: i64,
+    /// 该小时在线采样的 `AVG(rx_bps)`（NULL 不参与平均）；没有在线采样时是 `None`。
+    pub rate_rx_bps: Option<f64>,
+    /// 同 [`ServerHourlySeriesBucket::rate_rx_bps`]，发送方向。
+    pub rate_tx_bps: Option<f64>,
+    /// 该小时在线采样的 `ROUND(AVG(latency_ms))`；没有有效值时为 `None`。
+    pub latency_ms: Option<i64>,
+    /// 该小时 `online = 0` 的采样行数；全在线是 0。
+    pub outage_samples: i64,
+}
+
+/// 一台服务器上启用的入站数量（公开节点详情页 `inbound_count`）。
+///
+/// 只暴露**数量**：不读协议、端口、tag、地址或配置，避免公开页泄露拓扑。
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
+pub struct ServerInboundCount {
+    pub server_id: String,
+    pub inbound_count: i64,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct UserStats {
     pub total: i64,

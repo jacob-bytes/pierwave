@@ -1,0 +1,91 @@
+{
+  "infoItems": {
+    "desktop": 36,
+    "mobileCurrent": 30,
+    "mobilePrototype": 36,
+    "byCard": {
+      "overview": 7,
+      "availability": 10,
+      "runtime": 9,
+      "billing": 11
+    }
+  },
+  "widths": {
+    "390": {
+      "current": {
+        "page": 1473,
+        "grid": 1287.61,
+        "cards": {
+          "overview": 424.89,
+          "availability": 276.16,
+          "runtime": 321.56,
+          "billing": 217
+        }
+      },
+      "p1": {
+        "page": 1442,
+        "grid": 1255.84,
+        "cards": {
+          "overview": 340.72,
+          "availability": 318.13,
+          "runtime": 283.98,
+          "billing": 265.02
+        },
+        "deltaPage": -31,
+        "deltaPagePct": -2.1,
+        "deltaGrid": -31.77
+      },
+      "p2": {
+        "page": 1475,
+        "grid": 1289.63,
+        "cards": {
+          "overview": 338.63,
+          "availability": 347.34,
+          "runtime": 291.98,
+          "billing": 263.67
+        },
+        "deltaPage": 2,
+        "deltaPagePct": 0.14,
+        "deltaGrid": 2.02
+      }
+    },
+    "1440": {
+      "current": {
+        "page": 1003,
+        "grid": 817.91,
+        "cards": {
+          "overview": 472.34,
+          "availability": 472.34,
+          "runtime": 329.56,
+          "billing": 329.56
+        }
+      },
+      "p1": {
+        "page": 769,
+        "grid": 583.36,
+        "cards": {
+          "overview": 368.38,
+          "availability": 368.38,
+          "runtime": 198.98,
+          "billing": 198.98
+        },
+        "deltaPage": -234,
+        "deltaPagePct": -23.33,
+        "deltaGrid": -234.55
+      },
+      "p2": {
+        "page": 772,
+        "grid": 586.02,
+        "cards": {
+          "overview": 361.03,
+          "availability": 361.03,
+          "runtime": 208.98,
+          "billing": 208.98
+        },
+        "deltaPage": -231,
+        "deltaPagePct": -23.03,
+        "deltaGrid": -231.89
+      }
+    }
+  }
+}

@@ -1,0 +1,7058 @@
+[
+  {
+    "label": "healthy-dark-1440",
+    "locale": "zh-CN",
+    "theme": "dark",
+    "state": "healthy",
+    "viewport": {
+      "width": 1440,
+      "height": 769,
+      "label": "1440"
+    },
+    "errors": [],
+    "pageHeight": 782,
+    "pageWidth": 1440,
+    "viewportWidth": 1440,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 372.59,
+        "right": 464,
+        "bottom": 509.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 157,
+            "width": 380,
+            "height": 47,
+            "right": 444,
+            "bottom": 204
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 64,
+            "y": 214,
+            "width": 380,
+            "height": 75,
+            "right": 444,
+            "bottom": 289
+          },
+          {
+            "slot": "detail-chart",
+            "x": 64,
+            "y": 299,
+            "width": 380,
+            "height": 190.59,
+            "right": 444,
+            "bottom": 489.59
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "availability": {
+        "x": 480,
+        "y": 137,
+        "width": 916,
+        "height": 372.59,
+        "right": 1396,
+        "bottom": 509.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 157,
+            "width": 876,
+            "height": 16,
+            "right": 1376,
+            "bottom": 173
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 500,
+            "y": 183,
+            "width": 876,
+            "height": 233,
+            "right": 1376,
+            "bottom": 416
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 500,
+            "y": 426,
+            "width": 876,
+            "height": 51,
+            "right": 1376,
+            "bottom": 477
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 12.59
+      },
+      "runtime": {
+        "x": 44,
+        "y": 525.59,
+        "width": 420,
+        "height": 208.89,
+        "right": 464,
+        "bottom": 734.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 545.59,
+            "width": 380,
+            "height": 22.39,
+            "right": 444,
+            "bottom": 567.98
+          },
+          {
+            "slot": null,
+            "x": 64,
+            "y": 579.98,
+            "width": 380,
+            "height": 101.5,
+            "right": 444,
+            "bottom": 681.48
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 64,
+            "y": 689.48,
+            "width": 380,
+            "height": 25,
+            "right": 444,
+            "bottom": 714.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 480,
+        "y": 525.59,
+        "width": 916,
+        "height": 208.89,
+        "right": 1396,
+        "bottom": 734.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 545.59,
+            "width": 876,
+            "height": 16,
+            "right": 1376,
+            "bottom": 561.59
+          },
+          {
+            "slot": null,
+            "x": 500,
+            "y": 573.59,
+            "width": 876,
+            "height": 140.89,
+            "right": 1376,
+            "bottom": 714.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 500,
+      "y": 183,
+      "width": 876,
+      "height": 233,
+      "right": 1376,
+      "bottom": 416
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 0 次",
+        "x": 500,
+        "y": 184,
+        "width": 438,
+        "height": 68,
+        "right": 938,
+        "bottom": 252
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 0 分钟",
+        "x": 938,
+        "y": 184,
+        "width": 438,
+        "height": 68,
+        "right": 1376,
+        "bottom": 252
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 24/24",
+        "x": 500,
+        "y": 252,
+        "width": 438,
+        "height": 82.5,
+        "right": 938,
+        "bottom": 334.5
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 100% 00:00–01:00",
+        "x": 938,
+        "y": 252,
+        "width": 438,
+        "height": 82.5,
+        "right": 1376,
+        "bottom": 334.5
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 100% 00:00–01:00",
+        "x": 500,
+        "y": 334.5,
+        "width": 438,
+        "height": 81.5,
+        "right": 938,
+        "bottom": 416
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 100%·100% 差值 0.0 pp",
+        "x": 938,
+        "y": 334.5,
+        "width": 438,
+        "height": 81.5,
+        "right": 1376,
+        "bottom": 416
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 24 小时 中断时段 无中断 近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 2026-11-18 · 100% 2026-11-19 · 100% 2026-11-20 · 99.72%",
+      "x": 500,
+      "y": 426,
+      "width": 876,
+      "height": 51,
+      "right": 1376,
+      "bottom": 477
+    },
+    "days": {
+      "visible": true,
+      "text": "近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 2026-11-18 · 100% 2026-11-19 · 100% 2026-11-20 · 99.72%",
+      "x": 500,
+      "y": 461,
+      "width": 876,
+      "height": 16,
+      "right": 1376,
+      "bottom": 477
+    },
+    "billingMeta": {
+      "visible": true,
+      "text": "27 / 30 天 按月估算",
+      "x": 500,
+      "y": 683.3,
+      "width": 508.08,
+      "height": 16,
+      "right": 1008.08,
+      "bottom": 699.3
+    },
+    "trafficAverage": {
+      "visible": true,
+      "text": "平均每小时 ↓ 3.75 GB/h · ↑ 562 MB/h",
+      "x": 1049.08,
+      "y": 667.33,
+      "width": 326.92,
+      "height": 16,
+      "right": 1376,
+      "bottom": 683.33
+    },
+    "rateTrend": {
+      "visible": true,
+      "x": 304.98,
+      "y": 269,
+      "width": 139,
+      "height": 20,
+      "right": 443.98,
+      "bottom": 289
+    },
+    "chart": {
+      "x": 64,
+      "y": 299,
+      "width": 380,
+      "height": 190.59,
+      "right": 444,
+      "bottom": 489.59
+    },
+    "plot": {
+      "x": 100,
+      "y": 337.59,
+      "width": 344,
+      "height": 112,
+      "right": 444,
+      "bottom": 449.59
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 44,
+      "y": 750.48,
+      "width": 1352,
+      "height": 16,
+      "right": 1396,
+      "bottom": 766.48
+    },
+    "pageBottomGap": 15.52,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 已运行 45 天 在线 14 天 3 小时 延迟 18 ms 24h 可用率 100 % 当前速率 MB/s 下行 17.5 · 上行 2.19 24 小时可用率 24/24 采样 100% 50% 0% 00:00 06:00 12:00 18:00 现在 正常 下降 中断 无采样 00:00–01:00 · 100% · 正常 01:00–02:00 · 100% · 正常 02:00–03:00 · 100% · 正常 03:00–04:00 · 100% · 正常 04:00–05:00 · 100% · 正常 05:00–06:00"
+  },
+  {
+    "label": "healthy-dark-390",
+    "locale": "zh-CN",
+    "theme": "dark",
+    "state": "healthy",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "label": "390"
+    },
+    "errors": [],
+    "pageHeight": 1464,
+    "pageWidth": 390,
+    "viewportWidth": 390,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 16,
+        "y": 137,
+        "width": 358,
+        "height": 359.89,
+        "right": 374,
+        "bottom": 496.89,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 153,
+            "width": 326,
+            "height": 44.3,
+            "right": 358,
+            "bottom": 197.3
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 32,
+            "y": 207.3,
+            "width": 326,
+            "height": 73,
+            "right": 358,
+            "bottom": 280.3
+          },
+          {
+            "slot": "detail-chart",
+            "x": 32,
+            "y": 290.3,
+            "width": 326,
+            "height": 190.59,
+            "right": 358,
+            "bottom": 480.89
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "availability": {
+        "x": 16,
+        "y": 512.89,
+        "width": 358,
+        "height": 346,
+        "right": 374,
+        "bottom": 858.89,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 528.89,
+            "width": 326,
+            "height": 16,
+            "right": 358,
+            "bottom": 544.89
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 32,
+            "y": 554.89,
+            "width": 326,
+            "height": 227,
+            "right": 358,
+            "bottom": 781.89
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 32,
+            "y": 791.89,
+            "width": 326,
+            "height": 51,
+            "right": 358,
+            "bottom": 842.89
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "runtime": {
+        "x": 16,
+        "y": 874.89,
+        "width": 358,
+        "height": 255.77,
+        "right": 374,
+        "bottom": 1130.66,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 890.89,
+            "width": 326,
+            "height": 22.39,
+            "right": 358,
+            "bottom": 913.28
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 925.28,
+            "width": 326,
+            "height": 156.38,
+            "right": 358,
+            "bottom": 1081.66
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 32,
+            "y": 1089.66,
+            "width": 326,
+            "height": 25,
+            "right": 358,
+            "bottom": 1114.66
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 16,
+        "y": 1146.66,
+        "width": 358,
+        "height": 269.78,
+        "right": 374,
+        "bottom": 1416.44,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1162.66,
+            "width": 326,
+            "height": 16,
+            "right": 358,
+            "bottom": 1178.66
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1190.66,
+            "width": 326,
+            "height": 209.78,
+            "right": 358,
+            "bottom": 1400.44
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 32,
+      "y": 554.89,
+      "width": 326,
+      "height": 227,
+      "right": 358,
+      "bottom": 781.89
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 0 次",
+        "x": 32,
+        "y": 555.89,
+        "width": 163,
+        "height": 66,
+        "right": 195,
+        "bottom": 621.89
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 0 分钟",
+        "x": 195,
+        "y": 555.89,
+        "width": 163,
+        "height": 66,
+        "right": 358,
+        "bottom": 621.89
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 24/24",
+        "x": 32,
+        "y": 621.89,
+        "width": 163,
+        "height": 80.5,
+        "right": 195,
+        "bottom": 702.39
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 100% 00:00–01:00",
+        "x": 195,
+        "y": 621.89,
+        "width": 163,
+        "height": 80.5,
+        "right": 358,
+        "bottom": 702.39
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 100% 00:00–01:00",
+        "x": 32,
+        "y": 702.39,
+        "width": 163,
+        "height": 79.5,
+        "right": 195,
+        "bottom": 781.89
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 100%·100% 差值 0.0 pp",
+        "x": 195,
+        "y": 702.39,
+        "width": 163,
+        "height": 79.5,
+        "right": 358,
+        "bottom": 781.89
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 24 小时 中断时段 无中断 近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 2026-11-18 · 100% 2026-11-19 · 100% 2026-11-20 · 99.72%",
+      "x": 32,
+      "y": 791.89,
+      "width": 326,
+      "height": 51,
+      "right": 358,
+      "bottom": 842.89
+    },
+    "days": {
+      "visible": true,
+      "text": "近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 2026-11-18 · 100% 2026-11-19 · 100% 2026-11-20 · 99.72%",
+      "x": 32,
+      "y": 826.89,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 842.89
+    },
+    "billingMeta": {
+      "visible": true,
+      "text": "27 / 30 天 按月估算",
+      "x": 32,
+      "y": 1282.84,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 1298.84
+    },
+    "trafficAverage": {
+      "visible": true,
+      "text": "平均每小时 ↓ 3.75 GB/h · ↑ 562 MB/h",
+      "x": 32,
+      "y": 1384.44,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 1400.44
+    },
+    "rateTrend": {
+      "visible": true,
+      "x": 238.59,
+      "y": 260.3,
+      "width": 119.41,
+      "height": 20,
+      "right": 358,
+      "bottom": 280.3
+    },
+    "chart": {
+      "x": 32,
+      "y": 290.3,
+      "width": 326,
+      "height": 190.59,
+      "right": 358,
+      "bottom": 480.89
+    },
+    "plot": {
+      "x": 68,
+      "y": 328.89,
+      "width": 290,
+      "height": 112,
+      "right": 358,
+      "bottom": 440.89
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 16,
+      "y": 1432.44,
+      "width": 358,
+      "height": 16,
+      "right": 374,
+      "bottom": 1448.44
+    },
+    "pageBottomGap": 15.56,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 已运行 45 天 在线 14 天 3 小时 延迟 18 ms 24h 可用率 100 % 当前速率 MB/s 下行 17.5 · 上行 2.19 24 小时可用率 24/24 采样 100% 50% 0% 00:00 06:00 12:00 18:00 现在 正常 下降 中断 无采样 00:00–01:00 · 100% · 正常 01:00–02:00 · 100% · 正常 02:00–03:00 · 100% · 正常 03:00–04:00 · 100% · 正常 04:00–05:00 · 100% · 正常 05:00–06:00"
+  },
+  {
+    "label": "healthy-light-1440",
+    "locale": "zh-CN",
+    "theme": "light",
+    "state": "healthy",
+    "viewport": {
+      "width": 1440,
+      "height": 769,
+      "label": "1440"
+    },
+    "errors": [],
+    "pageHeight": 782,
+    "pageWidth": 1440,
+    "viewportWidth": 1440,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 372.59,
+        "right": 464,
+        "bottom": 509.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 157,
+            "width": 380,
+            "height": 47,
+            "right": 444,
+            "bottom": 204
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 64,
+            "y": 214,
+            "width": 380,
+            "height": 75,
+            "right": 444,
+            "bottom": 289
+          },
+          {
+            "slot": "detail-chart",
+            "x": 64,
+            "y": 299,
+            "width": 380,
+            "height": 190.59,
+            "right": 444,
+            "bottom": 489.59
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "availability": {
+        "x": 480,
+        "y": 137,
+        "width": 916,
+        "height": 372.59,
+        "right": 1396,
+        "bottom": 509.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 157,
+            "width": 876,
+            "height": 16,
+            "right": 1376,
+            "bottom": 173
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 500,
+            "y": 183,
+            "width": 876,
+            "height": 233,
+            "right": 1376,
+            "bottom": 416
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 500,
+            "y": 426,
+            "width": 876,
+            "height": 51,
+            "right": 1376,
+            "bottom": 477
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 12.59
+      },
+      "runtime": {
+        "x": 44,
+        "y": 525.59,
+        "width": 420,
+        "height": 208.89,
+        "right": 464,
+        "bottom": 734.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 545.59,
+            "width": 380,
+            "height": 22.39,
+            "right": 444,
+            "bottom": 567.98
+          },
+          {
+            "slot": null,
+            "x": 64,
+            "y": 579.98,
+            "width": 380,
+            "height": 101.5,
+            "right": 444,
+            "bottom": 681.48
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 64,
+            "y": 689.48,
+            "width": 380,
+            "height": 25,
+            "right": 444,
+            "bottom": 714.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 480,
+        "y": 525.59,
+        "width": 916,
+        "height": 208.89,
+        "right": 1396,
+        "bottom": 734.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 545.59,
+            "width": 876,
+            "height": 16,
+            "right": 1376,
+            "bottom": 561.59
+          },
+          {
+            "slot": null,
+            "x": 500,
+            "y": 573.59,
+            "width": 876,
+            "height": 140.89,
+            "right": 1376,
+            "bottom": 714.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 500,
+      "y": 183,
+      "width": 876,
+      "height": 233,
+      "right": 1376,
+      "bottom": 416
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 0 次",
+        "x": 500,
+        "y": 184,
+        "width": 438,
+        "height": 68,
+        "right": 938,
+        "bottom": 252
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 0 分钟",
+        "x": 938,
+        "y": 184,
+        "width": 438,
+        "height": 68,
+        "right": 1376,
+        "bottom": 252
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 24/24",
+        "x": 500,
+        "y": 252,
+        "width": 438,
+        "height": 82.5,
+        "right": 938,
+        "bottom": 334.5
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 100% 00:00–01:00",
+        "x": 938,
+        "y": 252,
+        "width": 438,
+        "height": 82.5,
+        "right": 1376,
+        "bottom": 334.5
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 100% 00:00–01:00",
+        "x": 500,
+        "y": 334.5,
+        "width": 438,
+        "height": 81.5,
+        "right": 938,
+        "bottom": 416
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 100%·100% 差值 0.0 pp",
+        "x": 938,
+        "y": 334.5,
+        "width": 438,
+        "height": 81.5,
+        "right": 1376,
+        "bottom": 416
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 24 小时 中断时段 无中断 近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 2026-11-18 · 100% 2026-11-19 · 100% 2026-11-20 · 99.72%",
+      "x": 500,
+      "y": 426,
+      "width": 876,
+      "height": 51,
+      "right": 1376,
+      "bottom": 477
+    },
+    "days": {
+      "visible": true,
+      "text": "近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 2026-11-18 · 100% 2026-11-19 · 100% 2026-11-20 · 99.72%",
+      "x": 500,
+      "y": 461,
+      "width": 876,
+      "height": 16,
+      "right": 1376,
+      "bottom": 477
+    },
+    "billingMeta": {
+      "visible": true,
+      "text": "27 / 30 天 按月估算",
+      "x": 500,
+      "y": 683.3,
+      "width": 508.08,
+      "height": 16,
+      "right": 1008.08,
+      "bottom": 699.3
+    },
+    "trafficAverage": {
+      "visible": true,
+      "text": "平均每小时 ↓ 3.75 GB/h · ↑ 562 MB/h",
+      "x": 1049.08,
+      "y": 667.33,
+      "width": 326.92,
+      "height": 16,
+      "right": 1376,
+      "bottom": 683.33
+    },
+    "rateTrend": {
+      "visible": true,
+      "x": 304.98,
+      "y": 269,
+      "width": 139,
+      "height": 20,
+      "right": 443.98,
+      "bottom": 289
+    },
+    "chart": {
+      "x": 64,
+      "y": 299,
+      "width": 380,
+      "height": 190.59,
+      "right": 444,
+      "bottom": 489.59
+    },
+    "plot": {
+      "x": 100,
+      "y": 337.59,
+      "width": 344,
+      "height": 112,
+      "right": 444,
+      "bottom": 449.59
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 44,
+      "y": 750.48,
+      "width": 1352,
+      "height": 16,
+      "right": 1396,
+      "bottom": 766.48
+    },
+    "pageBottomGap": 15.52,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 已运行 45 天 在线 14 天 3 小时 延迟 18 ms 24h 可用率 100 % 当前速率 MB/s 下行 17.5 · 上行 2.19 24 小时可用率 24/24 采样 100% 50% 0% 00:00 06:00 12:00 18:00 现在 正常 下降 中断 无采样 00:00–01:00 · 100% · 正常 01:00–02:00 · 100% · 正常 02:00–03:00 · 100% · 正常 03:00–04:00 · 100% · 正常 04:00–05:00 · 100% · 正常 05:00–06:00"
+  },
+  {
+    "label": "healthy-light-390",
+    "locale": "zh-CN",
+    "theme": "light",
+    "state": "healthy",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "label": "390"
+    },
+    "errors": [],
+    "pageHeight": 1464,
+    "pageWidth": 390,
+    "viewportWidth": 390,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 16,
+        "y": 137,
+        "width": 358,
+        "height": 359.89,
+        "right": 374,
+        "bottom": 496.89,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 153,
+            "width": 326,
+            "height": 44.3,
+            "right": 358,
+            "bottom": 197.3
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 32,
+            "y": 207.3,
+            "width": 326,
+            "height": 73,
+            "right": 358,
+            "bottom": 280.3
+          },
+          {
+            "slot": "detail-chart",
+            "x": 32,
+            "y": 290.3,
+            "width": 326,
+            "height": 190.59,
+            "right": 358,
+            "bottom": 480.89
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "availability": {
+        "x": 16,
+        "y": 512.89,
+        "width": 358,
+        "height": 346,
+        "right": 374,
+        "bottom": 858.89,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 528.89,
+            "width": 326,
+            "height": 16,
+            "right": 358,
+            "bottom": 544.89
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 32,
+            "y": 554.89,
+            "width": 326,
+            "height": 227,
+            "right": 358,
+            "bottom": 781.89
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 32,
+            "y": 791.89,
+            "width": 326,
+            "height": 51,
+            "right": 358,
+            "bottom": 842.89
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "runtime": {
+        "x": 16,
+        "y": 874.89,
+        "width": 358,
+        "height": 255.77,
+        "right": 374,
+        "bottom": 1130.66,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 890.89,
+            "width": 326,
+            "height": 22.39,
+            "right": 358,
+            "bottom": 913.28
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 925.28,
+            "width": 326,
+            "height": 156.38,
+            "right": 358,
+            "bottom": 1081.66
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 32,
+            "y": 1089.66,
+            "width": 326,
+            "height": 25,
+            "right": 358,
+            "bottom": 1114.66
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 16,
+        "y": 1146.66,
+        "width": 358,
+        "height": 269.78,
+        "right": 374,
+        "bottom": 1416.44,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1162.66,
+            "width": 326,
+            "height": 16,
+            "right": 358,
+            "bottom": 1178.66
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1190.66,
+            "width": 326,
+            "height": 209.78,
+            "right": 358,
+            "bottom": 1400.44
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 32,
+      "y": 554.89,
+      "width": 326,
+      "height": 227,
+      "right": 358,
+      "bottom": 781.89
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 0 次",
+        "x": 32,
+        "y": 555.89,
+        "width": 163,
+        "height": 66,
+        "right": 195,
+        "bottom": 621.89
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 0 分钟",
+        "x": 195,
+        "y": 555.89,
+        "width": 163,
+        "height": 66,
+        "right": 358,
+        "bottom": 621.89
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 24/24",
+        "x": 32,
+        "y": 621.89,
+        "width": 163,
+        "height": 80.5,
+        "right": 195,
+        "bottom": 702.39
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 100% 00:00–01:00",
+        "x": 195,
+        "y": 621.89,
+        "width": 163,
+        "height": 80.5,
+        "right": 358,
+        "bottom": 702.39
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 100% 00:00–01:00",
+        "x": 32,
+        "y": 702.39,
+        "width": 163,
+        "height": 79.5,
+        "right": 195,
+        "bottom": 781.89
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 100%·100% 差值 0.0 pp",
+        "x": 195,
+        "y": 702.39,
+        "width": 163,
+        "height": 79.5,
+        "right": 358,
+        "bottom": 781.89
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 24 小时 中断时段 无中断 近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 2026-11-18 · 100% 2026-11-19 · 100% 2026-11-20 · 99.72%",
+      "x": 32,
+      "y": 791.89,
+      "width": 326,
+      "height": 51,
+      "right": 358,
+      "bottom": 842.89
+    },
+    "days": {
+      "visible": true,
+      "text": "近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 2026-11-18 · 100% 2026-11-19 · 100% 2026-11-20 · 99.72%",
+      "x": 32,
+      "y": 826.89,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 842.89
+    },
+    "billingMeta": {
+      "visible": true,
+      "text": "27 / 30 天 按月估算",
+      "x": 32,
+      "y": 1282.84,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 1298.84
+    },
+    "trafficAverage": {
+      "visible": true,
+      "text": "平均每小时 ↓ 3.75 GB/h · ↑ 562 MB/h",
+      "x": 32,
+      "y": 1384.44,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 1400.44
+    },
+    "rateTrend": {
+      "visible": true,
+      "x": 238.59,
+      "y": 260.3,
+      "width": 119.41,
+      "height": 20,
+      "right": 358,
+      "bottom": 280.3
+    },
+    "chart": {
+      "x": 32,
+      "y": 290.3,
+      "width": 326,
+      "height": 190.59,
+      "right": 358,
+      "bottom": 480.89
+    },
+    "plot": {
+      "x": 68,
+      "y": 328.89,
+      "width": 290,
+      "height": 112,
+      "right": 358,
+      "bottom": 440.89
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 16,
+      "y": 1432.44,
+      "width": 358,
+      "height": 16,
+      "right": 374,
+      "bottom": 1448.44
+    },
+    "pageBottomGap": 15.56,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 已运行 45 天 在线 14 天 3 小时 延迟 18 ms 24h 可用率 100 % 当前速率 MB/s 下行 17.5 · 上行 2.19 24 小时可用率 24/24 采样 100% 50% 0% 00:00 06:00 12:00 18:00 现在 正常 下降 中断 无采样 00:00–01:00 · 100% · 正常 01:00–02:00 · 100% · 正常 02:00–03:00 · 100% · 正常 03:00–04:00 · 100% · 正常 04:00–05:00 · 100% · 正常 05:00–06:00"
+  },
+  {
+    "label": "incident-dark-1440",
+    "locale": "zh-CN",
+    "theme": "dark",
+    "state": "incident",
+    "viewport": {
+      "width": 1440,
+      "height": 769,
+      "label": "1440"
+    },
+    "errors": [],
+    "pageHeight": 782,
+    "pageWidth": 1440,
+    "viewportWidth": 1440,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 372.59,
+        "right": 464,
+        "bottom": 509.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 157,
+            "width": 380,
+            "height": 47,
+            "right": 444,
+            "bottom": 204
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 64,
+            "y": 214,
+            "width": 380,
+            "height": 75,
+            "right": 444,
+            "bottom": 289
+          },
+          {
+            "slot": "detail-chart",
+            "x": 64,
+            "y": 299,
+            "width": 380,
+            "height": 190.59,
+            "right": 444,
+            "bottom": 489.59
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "availability": {
+        "x": 480,
+        "y": 137,
+        "width": 916,
+        "height": 372.59,
+        "right": 1396,
+        "bottom": 509.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 157,
+            "width": 876,
+            "height": 16,
+            "right": 1376,
+            "bottom": 173
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 500,
+            "y": 183,
+            "width": 876,
+            "height": 233,
+            "right": 1376,
+            "bottom": 416
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 500,
+            "y": 426,
+            "width": 876,
+            "height": 51,
+            "right": 1376,
+            "bottom": 477
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 12.59
+      },
+      "runtime": {
+        "x": 44,
+        "y": 525.59,
+        "width": 420,
+        "height": 208.89,
+        "right": 464,
+        "bottom": 734.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 545.59,
+            "width": 380,
+            "height": 22.39,
+            "right": 444,
+            "bottom": 567.98
+          },
+          {
+            "slot": null,
+            "x": 64,
+            "y": 579.98,
+            "width": 380,
+            "height": 101.5,
+            "right": 444,
+            "bottom": 681.48
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 64,
+            "y": 689.48,
+            "width": 380,
+            "height": 25,
+            "right": 444,
+            "bottom": 714.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 480,
+        "y": 525.59,
+        "width": 916,
+        "height": 208.89,
+        "right": 1396,
+        "bottom": 734.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 545.59,
+            "width": 876,
+            "height": 16,
+            "right": 1376,
+            "bottom": 561.59
+          },
+          {
+            "slot": null,
+            "x": 500,
+            "y": 573.59,
+            "width": 876,
+            "height": 140.89,
+            "right": 1376,
+            "bottom": 714.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 500,
+      "y": 183,
+      "width": 876,
+      "height": 233,
+      "right": 1376,
+      "bottom": 416
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 2 次",
+        "x": 500,
+        "y": 184,
+        "width": 438,
+        "height": 68,
+        "right": 938,
+        "bottom": 252
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 3 小时 12 分钟",
+        "x": 938,
+        "y": 184,
+        "width": 438,
+        "height": 68,
+        "right": 1376,
+        "bottom": 252
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 21/24",
+        "x": 500,
+        "y": 252,
+        "width": 438,
+        "height": 82.5,
+        "right": 938,
+        "bottom": 334.5
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 0% 08:00–09:00",
+        "x": 938,
+        "y": 252,
+        "width": 438,
+        "height": 82.5,
+        "right": 1376,
+        "bottom": 334.5
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 100% 00:00–01:00",
+        "x": 500,
+        "y": 334.5,
+        "width": 438,
+        "height": 81.5,
+        "right": 938,
+        "bottom": 416
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 86%·98.7% 差值 −12.7 pp",
+        "x": 938,
+        "y": 334.5,
+        "width": 438,
+        "height": 81.5,
+        "right": 1376,
+        "bottom": 416
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 5 小时 中断时段 08:00–10:00 · 15:00–16:00 近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 无采样 2026-11-19 · 91.23% 2026-11-20 · 99.72%",
+      "x": 500,
+      "y": 426,
+      "width": 876,
+      "height": 51,
+      "right": 1376,
+      "bottom": 477
+    },
+    "days": {
+      "visible": true,
+      "text": "近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 无采样 2026-11-19 · 91.23% 2026-11-20 · 99.72%",
+      "x": 500,
+      "y": 461,
+      "width": 876,
+      "height": 16,
+      "right": 1376,
+      "bottom": 477
+    },
+    "billingMeta": {
+      "visible": true,
+      "text": "27 / 30 天 按月估算",
+      "x": 500,
+      "y": 683.3,
+      "width": 508.08,
+      "height": 16,
+      "right": 1008.08,
+      "bottom": 699.3
+    },
+    "trafficAverage": {
+      "visible": true,
+      "text": "平均每小时 ↓ 3.75 GB/h · ↑ 562 MB/h",
+      "x": 1049.08,
+      "y": 667.33,
+      "width": 326.92,
+      "height": 16,
+      "right": 1376,
+      "bottom": 683.33
+    },
+    "rateTrend": {
+      "visible": true,
+      "x": 304.98,
+      "y": 269,
+      "width": 139,
+      "height": 20,
+      "right": 443.98,
+      "bottom": 289
+    },
+    "chart": {
+      "x": 64,
+      "y": 299,
+      "width": 380,
+      "height": 190.59,
+      "right": 444,
+      "bottom": 489.59
+    },
+    "plot": {
+      "x": 100,
+      "y": 337.59,
+      "width": 344,
+      "height": 112,
+      "right": 444,
+      "bottom": 449.59
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 44,
+      "y": 750.48,
+      "width": 1352,
+      "height": 16,
+      "right": 1396,
+      "bottom": 766.48
+    },
+    "pageBottomGap": 15.52,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 已运行 45 天 在线 14 天 3 小时 延迟 18 ms 24h 可用率 86 % 当前速率 MB/s 下行 17.5 · 上行 2.19 24 小时可用率 21/24 采样 100% 50% 0% 00:00 06:00 12:00 18:00 现在 正常 下降 中断 无采样 00:00–01:00 · 100% · 正常 01:00–02:00 · 100% · 正常 02:00–03:00 · 无采样 03:00–04:00 · 无采样 04:00–05:00 · 100% · 正常 05:00–06:00 · 100% · 正常 "
+  },
+  {
+    "label": "incident-dark-390",
+    "locale": "zh-CN",
+    "theme": "dark",
+    "state": "incident",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "label": "390"
+    },
+    "errors": [],
+    "pageHeight": 1484,
+    "pageWidth": 390,
+    "viewportWidth": 390,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 16,
+        "y": 137,
+        "width": 358,
+        "height": 359.89,
+        "right": 374,
+        "bottom": 496.89,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 153,
+            "width": 326,
+            "height": 44.3,
+            "right": 358,
+            "bottom": 197.3
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 32,
+            "y": 207.3,
+            "width": 326,
+            "height": 73,
+            "right": 358,
+            "bottom": 280.3
+          },
+          {
+            "slot": "detail-chart",
+            "x": 32,
+            "y": 290.3,
+            "width": 326,
+            "height": 190.59,
+            "right": 358,
+            "bottom": 480.89
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "availability": {
+        "x": 16,
+        "y": 512.89,
+        "width": 358,
+        "height": 366,
+        "right": 374,
+        "bottom": 878.89,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 528.89,
+            "width": 326,
+            "height": 16,
+            "right": 358,
+            "bottom": 544.89
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 32,
+            "y": 554.89,
+            "width": 326,
+            "height": 227,
+            "right": 358,
+            "bottom": 781.89
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 32,
+            "y": 791.89,
+            "width": 326,
+            "height": 71,
+            "right": 358,
+            "bottom": 862.89
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "runtime": {
+        "x": 16,
+        "y": 894.89,
+        "width": 358,
+        "height": 255.77,
+        "right": 374,
+        "bottom": 1150.66,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 910.89,
+            "width": 326,
+            "height": 22.39,
+            "right": 358,
+            "bottom": 933.28
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 945.28,
+            "width": 326,
+            "height": 156.38,
+            "right": 358,
+            "bottom": 1101.66
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 32,
+            "y": 1109.66,
+            "width": 326,
+            "height": 25,
+            "right": 358,
+            "bottom": 1134.66
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 16,
+        "y": 1166.66,
+        "width": 358,
+        "height": 269.78,
+        "right": 374,
+        "bottom": 1436.44,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1182.66,
+            "width": 326,
+            "height": 16,
+            "right": 358,
+            "bottom": 1198.66
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1210.66,
+            "width": 326,
+            "height": 209.78,
+            "right": 358,
+            "bottom": 1420.44
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 32,
+      "y": 554.89,
+      "width": 326,
+      "height": 227,
+      "right": 358,
+      "bottom": 781.89
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 2 次",
+        "x": 32,
+        "y": 555.89,
+        "width": 163,
+        "height": 66,
+        "right": 195,
+        "bottom": 621.89
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 3 小时 12 分钟",
+        "x": 195,
+        "y": 555.89,
+        "width": 163,
+        "height": 66,
+        "right": 358,
+        "bottom": 621.89
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 21/24",
+        "x": 32,
+        "y": 621.89,
+        "width": 163,
+        "height": 80.5,
+        "right": 195,
+        "bottom": 702.39
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 0% 08:00–09:00",
+        "x": 195,
+        "y": 621.89,
+        "width": 163,
+        "height": 80.5,
+        "right": 358,
+        "bottom": 702.39
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 100% 00:00–01:00",
+        "x": 32,
+        "y": 702.39,
+        "width": 163,
+        "height": 79.5,
+        "right": 195,
+        "bottom": 781.89
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 86%·98.7% 差值 −12.7 pp",
+        "x": 195,
+        "y": 702.39,
+        "width": 163,
+        "height": 79.5,
+        "right": 358,
+        "bottom": 781.89
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 5 小时 中断时段 08:00–10:00 · 15:00–16:00 近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 无采样 2026-11-19 · 91.23% 2026-11-20 · 99.72%",
+      "x": 32,
+      "y": 791.89,
+      "width": 326,
+      "height": 71,
+      "right": 358,
+      "bottom": 862.89
+    },
+    "days": {
+      "visible": true,
+      "text": "近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 无采样 2026-11-19 · 91.23% 2026-11-20 · 99.72%",
+      "x": 32,
+      "y": 846.89,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 862.89
+    },
+    "billingMeta": {
+      "visible": true,
+      "text": "27 / 30 天 按月估算",
+      "x": 32,
+      "y": 1302.84,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 1318.84
+    },
+    "trafficAverage": {
+      "visible": true,
+      "text": "平均每小时 ↓ 3.75 GB/h · ↑ 562 MB/h",
+      "x": 32,
+      "y": 1404.44,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 1420.44
+    },
+    "rateTrend": {
+      "visible": true,
+      "x": 238.59,
+      "y": 260.3,
+      "width": 119.41,
+      "height": 20,
+      "right": 358,
+      "bottom": 280.3
+    },
+    "chart": {
+      "x": 32,
+      "y": 290.3,
+      "width": 326,
+      "height": 190.59,
+      "right": 358,
+      "bottom": 480.89
+    },
+    "plot": {
+      "x": 68,
+      "y": 328.89,
+      "width": 290,
+      "height": 112,
+      "right": 358,
+      "bottom": 440.89
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 16,
+      "y": 1452.44,
+      "width": 358,
+      "height": 16,
+      "right": 374,
+      "bottom": 1468.44
+    },
+    "pageBottomGap": 15.56,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 已运行 45 天 在线 14 天 3 小时 延迟 18 ms 24h 可用率 86 % 当前速率 MB/s 下行 17.5 · 上行 2.19 24 小时可用率 21/24 采样 100% 50% 0% 00:00 06:00 12:00 18:00 现在 正常 下降 中断 无采样 00:00–01:00 · 100% · 正常 01:00–02:00 · 100% · 正常 02:00–03:00 · 无采样 03:00–04:00 · 无采样 04:00–05:00 · 100% · 正常 05:00–06:00 · 100% · 正常 "
+  },
+  {
+    "label": "incident-light-1440",
+    "locale": "zh-CN",
+    "theme": "light",
+    "state": "incident",
+    "viewport": {
+      "width": 1440,
+      "height": 769,
+      "label": "1440"
+    },
+    "errors": [],
+    "pageHeight": 782,
+    "pageWidth": 1440,
+    "viewportWidth": 1440,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 372.59,
+        "right": 464,
+        "bottom": 509.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 157,
+            "width": 380,
+            "height": 47,
+            "right": 444,
+            "bottom": 204
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 64,
+            "y": 214,
+            "width": 380,
+            "height": 75,
+            "right": 444,
+            "bottom": 289
+          },
+          {
+            "slot": "detail-chart",
+            "x": 64,
+            "y": 299,
+            "width": 380,
+            "height": 190.59,
+            "right": 444,
+            "bottom": 489.59
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "availability": {
+        "x": 480,
+        "y": 137,
+        "width": 916,
+        "height": 372.59,
+        "right": 1396,
+        "bottom": 509.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 157,
+            "width": 876,
+            "height": 16,
+            "right": 1376,
+            "bottom": 173
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 500,
+            "y": 183,
+            "width": 876,
+            "height": 233,
+            "right": 1376,
+            "bottom": 416
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 500,
+            "y": 426,
+            "width": 876,
+            "height": 51,
+            "right": 1376,
+            "bottom": 477
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 12.59
+      },
+      "runtime": {
+        "x": 44,
+        "y": 525.59,
+        "width": 420,
+        "height": 208.89,
+        "right": 464,
+        "bottom": 734.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 545.59,
+            "width": 380,
+            "height": 22.39,
+            "right": 444,
+            "bottom": 567.98
+          },
+          {
+            "slot": null,
+            "x": 64,
+            "y": 579.98,
+            "width": 380,
+            "height": 101.5,
+            "right": 444,
+            "bottom": 681.48
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 64,
+            "y": 689.48,
+            "width": 380,
+            "height": 25,
+            "right": 444,
+            "bottom": 714.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 480,
+        "y": 525.59,
+        "width": 916,
+        "height": 208.89,
+        "right": 1396,
+        "bottom": 734.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 545.59,
+            "width": 876,
+            "height": 16,
+            "right": 1376,
+            "bottom": 561.59
+          },
+          {
+            "slot": null,
+            "x": 500,
+            "y": 573.59,
+            "width": 876,
+            "height": 140.89,
+            "right": 1376,
+            "bottom": 714.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 500,
+      "y": 183,
+      "width": 876,
+      "height": 233,
+      "right": 1376,
+      "bottom": 416
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 2 次",
+        "x": 500,
+        "y": 184,
+        "width": 438,
+        "height": 68,
+        "right": 938,
+        "bottom": 252
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 3 小时 12 分钟",
+        "x": 938,
+        "y": 184,
+        "width": 438,
+        "height": 68,
+        "right": 1376,
+        "bottom": 252
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 21/24",
+        "x": 500,
+        "y": 252,
+        "width": 438,
+        "height": 82.5,
+        "right": 938,
+        "bottom": 334.5
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 0% 08:00–09:00",
+        "x": 938,
+        "y": 252,
+        "width": 438,
+        "height": 82.5,
+        "right": 1376,
+        "bottom": 334.5
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 100% 00:00–01:00",
+        "x": 500,
+        "y": 334.5,
+        "width": 438,
+        "height": 81.5,
+        "right": 938,
+        "bottom": 416
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 86%·98.7% 差值 −12.7 pp",
+        "x": 938,
+        "y": 334.5,
+        "width": 438,
+        "height": 81.5,
+        "right": 1376,
+        "bottom": 416
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 5 小时 中断时段 08:00–10:00 · 15:00–16:00 近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 无采样 2026-11-19 · 91.23% 2026-11-20 · 99.72%",
+      "x": 500,
+      "y": 426,
+      "width": 876,
+      "height": 51,
+      "right": 1376,
+      "bottom": 477
+    },
+    "days": {
+      "visible": true,
+      "text": "近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 无采样 2026-11-19 · 91.23% 2026-11-20 · 99.72%",
+      "x": 500,
+      "y": 461,
+      "width": 876,
+      "height": 16,
+      "right": 1376,
+      "bottom": 477
+    },
+    "billingMeta": {
+      "visible": true,
+      "text": "27 / 30 天 按月估算",
+      "x": 500,
+      "y": 683.3,
+      "width": 508.08,
+      "height": 16,
+      "right": 1008.08,
+      "bottom": 699.3
+    },
+    "trafficAverage": {
+      "visible": true,
+      "text": "平均每小时 ↓ 3.75 GB/h · ↑ 562 MB/h",
+      "x": 1049.08,
+      "y": 667.33,
+      "width": 326.92,
+      "height": 16,
+      "right": 1376,
+      "bottom": 683.33
+    },
+    "rateTrend": {
+      "visible": true,
+      "x": 304.98,
+      "y": 269,
+      "width": 139,
+      "height": 20,
+      "right": 443.98,
+      "bottom": 289
+    },
+    "chart": {
+      "x": 64,
+      "y": 299,
+      "width": 380,
+      "height": 190.59,
+      "right": 444,
+      "bottom": 489.59
+    },
+    "plot": {
+      "x": 100,
+      "y": 337.59,
+      "width": 344,
+      "height": 112,
+      "right": 444,
+      "bottom": 449.59
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 44,
+      "y": 750.48,
+      "width": 1352,
+      "height": 16,
+      "right": 1396,
+      "bottom": 766.48
+    },
+    "pageBottomGap": 15.52,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 已运行 45 天 在线 14 天 3 小时 延迟 18 ms 24h 可用率 86 % 当前速率 MB/s 下行 17.5 · 上行 2.19 24 小时可用率 21/24 采样 100% 50% 0% 00:00 06:00 12:00 18:00 现在 正常 下降 中断 无采样 00:00–01:00 · 100% · 正常 01:00–02:00 · 100% · 正常 02:00–03:00 · 无采样 03:00–04:00 · 无采样 04:00–05:00 · 100% · 正常 05:00–06:00 · 100% · 正常 "
+  },
+  {
+    "label": "incident-light-390",
+    "locale": "zh-CN",
+    "theme": "light",
+    "state": "incident",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "label": "390"
+    },
+    "errors": [],
+    "pageHeight": 1484,
+    "pageWidth": 390,
+    "viewportWidth": 390,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 16,
+        "y": 137,
+        "width": 358,
+        "height": 359.89,
+        "right": 374,
+        "bottom": 496.89,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 153,
+            "width": 326,
+            "height": 44.3,
+            "right": 358,
+            "bottom": 197.3
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 32,
+            "y": 207.3,
+            "width": 326,
+            "height": 73,
+            "right": 358,
+            "bottom": 280.3
+          },
+          {
+            "slot": "detail-chart",
+            "x": 32,
+            "y": 290.3,
+            "width": 326,
+            "height": 190.59,
+            "right": 358,
+            "bottom": 480.89
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "availability": {
+        "x": 16,
+        "y": 512.89,
+        "width": 358,
+        "height": 366,
+        "right": 374,
+        "bottom": 878.89,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 528.89,
+            "width": 326,
+            "height": 16,
+            "right": 358,
+            "bottom": 544.89
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 32,
+            "y": 554.89,
+            "width": 326,
+            "height": 227,
+            "right": 358,
+            "bottom": 781.89
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 32,
+            "y": 791.89,
+            "width": 326,
+            "height": 71,
+            "right": 358,
+            "bottom": 862.89
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "runtime": {
+        "x": 16,
+        "y": 894.89,
+        "width": 358,
+        "height": 255.77,
+        "right": 374,
+        "bottom": 1150.66,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 910.89,
+            "width": 326,
+            "height": 22.39,
+            "right": 358,
+            "bottom": 933.28
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 945.28,
+            "width": 326,
+            "height": 156.38,
+            "right": 358,
+            "bottom": 1101.66
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 32,
+            "y": 1109.66,
+            "width": 326,
+            "height": 25,
+            "right": 358,
+            "bottom": 1134.66
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 16,
+        "y": 1166.66,
+        "width": 358,
+        "height": 269.78,
+        "right": 374,
+        "bottom": 1436.44,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1182.66,
+            "width": 326,
+            "height": 16,
+            "right": 358,
+            "bottom": 1198.66
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1210.66,
+            "width": 326,
+            "height": 209.78,
+            "right": 358,
+            "bottom": 1420.44
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 32,
+      "y": 554.89,
+      "width": 326,
+      "height": 227,
+      "right": 358,
+      "bottom": 781.89
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 2 次",
+        "x": 32,
+        "y": 555.89,
+        "width": 163,
+        "height": 66,
+        "right": 195,
+        "bottom": 621.89
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 3 小时 12 分钟",
+        "x": 195,
+        "y": 555.89,
+        "width": 163,
+        "height": 66,
+        "right": 358,
+        "bottom": 621.89
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 21/24",
+        "x": 32,
+        "y": 621.89,
+        "width": 163,
+        "height": 80.5,
+        "right": 195,
+        "bottom": 702.39
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 0% 08:00–09:00",
+        "x": 195,
+        "y": 621.89,
+        "width": 163,
+        "height": 80.5,
+        "right": 358,
+        "bottom": 702.39
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 100% 00:00–01:00",
+        "x": 32,
+        "y": 702.39,
+        "width": 163,
+        "height": 79.5,
+        "right": 195,
+        "bottom": 781.89
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 86%·98.7% 差值 −12.7 pp",
+        "x": 195,
+        "y": 702.39,
+        "width": 163,
+        "height": 79.5,
+        "right": 358,
+        "bottom": 781.89
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 5 小时 中断时段 08:00–10:00 · 15:00–16:00 近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 无采样 2026-11-19 · 91.23% 2026-11-20 · 99.72%",
+      "x": 32,
+      "y": 791.89,
+      "width": 326,
+      "height": 71,
+      "right": 358,
+      "bottom": 862.89
+    },
+    "days": {
+      "visible": true,
+      "text": "近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 无采样 2026-11-19 · 91.23% 2026-11-20 · 99.72%",
+      "x": 32,
+      "y": 846.89,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 862.89
+    },
+    "billingMeta": {
+      "visible": true,
+      "text": "27 / 30 天 按月估算",
+      "x": 32,
+      "y": 1302.84,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 1318.84
+    },
+    "trafficAverage": {
+      "visible": true,
+      "text": "平均每小时 ↓ 3.75 GB/h · ↑ 562 MB/h",
+      "x": 32,
+      "y": 1404.44,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 1420.44
+    },
+    "rateTrend": {
+      "visible": true,
+      "x": 238.59,
+      "y": 260.3,
+      "width": 119.41,
+      "height": 20,
+      "right": 358,
+      "bottom": 280.3
+    },
+    "chart": {
+      "x": 32,
+      "y": 290.3,
+      "width": 326,
+      "height": 190.59,
+      "right": 358,
+      "bottom": 480.89
+    },
+    "plot": {
+      "x": 68,
+      "y": 328.89,
+      "width": 290,
+      "height": 112,
+      "right": 358,
+      "bottom": 440.89
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 16,
+      "y": 1452.44,
+      "width": 358,
+      "height": 16,
+      "right": 374,
+      "bottom": 1468.44
+    },
+    "pageBottomGap": 15.56,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 已运行 45 天 在线 14 天 3 小时 延迟 18 ms 24h 可用率 86 % 当前速率 MB/s 下行 17.5 · 上行 2.19 24 小时可用率 21/24 采样 100% 50% 0% 00:00 06:00 12:00 18:00 现在 正常 下降 中断 无采样 00:00–01:00 · 100% · 正常 01:00–02:00 · 100% · 正常 02:00–03:00 · 无采样 03:00–04:00 · 无采样 04:00–05:00 · 100% · 正常 05:00–06:00 · 100% · 正常 "
+  },
+  {
+    "label": "offline-dark-1440",
+    "locale": "zh-CN",
+    "theme": "dark",
+    "state": "offline",
+    "viewport": {
+      "width": 1440,
+      "height": 769,
+      "label": "1440"
+    },
+    "errors": [],
+    "pageHeight": 782,
+    "pageWidth": 1440,
+    "viewportWidth": 1440,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 372.59,
+        "right": 464,
+        "bottom": 509.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 157,
+            "width": 380,
+            "height": 47,
+            "right": 444,
+            "bottom": 204
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 64,
+            "y": 214,
+            "width": 380,
+            "height": 75,
+            "right": 444,
+            "bottom": 289
+          },
+          {
+            "slot": "detail-chart",
+            "x": 64,
+            "y": 299,
+            "width": 380,
+            "height": 190.59,
+            "right": 444,
+            "bottom": 489.59
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "availability": {
+        "x": 480,
+        "y": 137,
+        "width": 916,
+        "height": 372.59,
+        "right": 1396,
+        "bottom": 509.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 157,
+            "width": 876,
+            "height": 16,
+            "right": 1376,
+            "bottom": 173
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 500,
+            "y": 183,
+            "width": 876,
+            "height": 233,
+            "right": 1376,
+            "bottom": 416
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 500,
+            "y": 426,
+            "width": 876,
+            "height": 51,
+            "right": 1376,
+            "bottom": 477
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 12.59
+      },
+      "runtime": {
+        "x": 44,
+        "y": 525.59,
+        "width": 420,
+        "height": 208.89,
+        "right": 464,
+        "bottom": 734.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 545.59,
+            "width": 380,
+            "height": 22.39,
+            "right": 444,
+            "bottom": 567.98
+          },
+          {
+            "slot": null,
+            "x": 64,
+            "y": 579.98,
+            "width": 380,
+            "height": 101.5,
+            "right": 444,
+            "bottom": 681.48
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 64,
+            "y": 689.48,
+            "width": 380,
+            "height": 25,
+            "right": 444,
+            "bottom": 714.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 480,
+        "y": 525.59,
+        "width": 916,
+        "height": 208.89,
+        "right": 1396,
+        "bottom": 734.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 545.59,
+            "width": 876,
+            "height": 16,
+            "right": 1376,
+            "bottom": 561.59
+          },
+          {
+            "slot": null,
+            "x": 500,
+            "y": 573.59,
+            "width": 876,
+            "height": 140.89,
+            "right": 1376,
+            "bottom": 714.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 500,
+      "y": 183,
+      "width": 876,
+      "height": 233,
+      "right": 1376,
+      "bottom": 416
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 2 次",
+        "x": 500,
+        "y": 184,
+        "width": 438,
+        "height": 68,
+        "right": 938,
+        "bottom": 252
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 0 分钟",
+        "x": 938,
+        "y": 184,
+        "width": 438,
+        "height": 68,
+        "right": 1376,
+        "bottom": 252
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 21/24",
+        "x": 500,
+        "y": 252,
+        "width": 438,
+        "height": 82.5,
+        "right": 938,
+        "bottom": 334.5
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 0% 08:00–09:00",
+        "x": 938,
+        "y": 252,
+        "width": 438,
+        "height": 82.5,
+        "right": 1376,
+        "bottom": 334.5
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 100% 00:00–01:00",
+        "x": 500,
+        "y": 334.5,
+        "width": 438,
+        "height": 81.5,
+        "right": 938,
+        "bottom": 416
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 86%·98.7% 差值 −12.7 pp",
+        "x": 938,
+        "y": 334.5,
+        "width": 438,
+        "height": 81.5,
+        "right": 1376,
+        "bottom": 416
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 5 小时 中断时段 08:00–10:00 · 15:00–16:00 近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 2026-11-18 · 100% 2026-11-19 · 100% 2026-11-20 · 99.72%",
+      "x": 500,
+      "y": 426,
+      "width": 876,
+      "height": 51,
+      "right": 1376,
+      "bottom": 477
+    },
+    "days": {
+      "visible": true,
+      "text": "近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 2026-11-18 · 100% 2026-11-19 · 100% 2026-11-20 · 99.72%",
+      "x": 500,
+      "y": 461,
+      "width": 876,
+      "height": 16,
+      "right": 1376,
+      "bottom": 477
+    },
+    "billingMeta": {
+      "visible": true,
+      "text": "27 / 30 天 按月估算",
+      "x": 500,
+      "y": 683.3,
+      "width": 508.08,
+      "height": 16,
+      "right": 1008.08,
+      "bottom": 699.3
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": true,
+      "x": 304.98,
+      "y": 269,
+      "width": 139,
+      "height": 20,
+      "right": 443.98,
+      "bottom": 289
+    },
+    "chart": {
+      "x": 64,
+      "y": 299,
+      "width": 380,
+      "height": 190.59,
+      "right": 444,
+      "bottom": 489.59
+    },
+    "plot": {
+      "x": 100,
+      "y": 337.59,
+      "width": 344,
+      "height": 112,
+      "right": 444,
+      "bottom": 449.59
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 44,
+      "y": 750.48,
+      "width": 1352,
+      "height": 16,
+      "right": 1396,
+      "bottom": 766.48
+    },
+    "pageBottomGap": 15.52,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 已运行 45 天 离线 延迟 18 ms 24h 可用率 86 % 当前速率 MB/s 下行 17.5 · 上行 2.19 24 小时可用率 21/24 采样 100% 50% 0% 00:00 06:00 12:00 18:00 现在 正常 下降 中断 无采样 00:00–01:00 · 100% · 正常 01:00–02:00 · 100% · 正常 02:00–03:00 · 无采样 03:00–04:00 · 无采样 04:00–05:00 · 100% · 正常 05:00–06:00 · 100% · 正常 06:00–07:0"
+  },
+  {
+    "label": "offline-dark-390",
+    "locale": "zh-CN",
+    "theme": "dark",
+    "state": "offline",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "label": "390"
+    },
+    "errors": [],
+    "pageHeight": 1462,
+    "pageWidth": 390,
+    "viewportWidth": 390,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 16,
+        "y": 137,
+        "width": 358,
+        "height": 359.89,
+        "right": 374,
+        "bottom": 496.89,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 153,
+            "width": 326,
+            "height": 44.3,
+            "right": 358,
+            "bottom": 197.3
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 32,
+            "y": 207.3,
+            "width": 326,
+            "height": 73,
+            "right": 358,
+            "bottom": 280.3
+          },
+          {
+            "slot": "detail-chart",
+            "x": 32,
+            "y": 290.3,
+            "width": 326,
+            "height": 190.59,
+            "right": 358,
+            "bottom": 480.89
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "availability": {
+        "x": 16,
+        "y": 512.89,
+        "width": 358,
+        "height": 366,
+        "right": 374,
+        "bottom": 878.89,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 528.89,
+            "width": 326,
+            "height": 16,
+            "right": 358,
+            "bottom": 544.89
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 32,
+            "y": 554.89,
+            "width": 326,
+            "height": 227,
+            "right": 358,
+            "bottom": 781.89
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 32,
+            "y": 791.89,
+            "width": 326,
+            "height": 71,
+            "right": 358,
+            "bottom": 862.89
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "runtime": {
+        "x": 16,
+        "y": 894.89,
+        "width": 358,
+        "height": 255.77,
+        "right": 374,
+        "bottom": 1150.66,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 910.89,
+            "width": 326,
+            "height": 22.39,
+            "right": 358,
+            "bottom": 933.28
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 945.28,
+            "width": 326,
+            "height": 156.38,
+            "right": 358,
+            "bottom": 1101.66
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 32,
+            "y": 1109.66,
+            "width": 326,
+            "height": 25,
+            "right": 358,
+            "bottom": 1134.66
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 16,
+        "y": 1166.66,
+        "width": 358,
+        "height": 247.78,
+        "right": 374,
+        "bottom": 1414.44,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1182.66,
+            "width": 326,
+            "height": 16,
+            "right": 358,
+            "bottom": 1198.66
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1210.66,
+            "width": 326,
+            "height": 187.78,
+            "right": 358,
+            "bottom": 1398.44
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 32,
+      "y": 554.89,
+      "width": 326,
+      "height": 227,
+      "right": 358,
+      "bottom": 781.89
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 2 次",
+        "x": 32,
+        "y": 555.89,
+        "width": 163,
+        "height": 66,
+        "right": 195,
+        "bottom": 621.89
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 0 分钟",
+        "x": 195,
+        "y": 555.89,
+        "width": 163,
+        "height": 66,
+        "right": 358,
+        "bottom": 621.89
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 21/24",
+        "x": 32,
+        "y": 621.89,
+        "width": 163,
+        "height": 80.5,
+        "right": 195,
+        "bottom": 702.39
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 0% 08:00–09:00",
+        "x": 195,
+        "y": 621.89,
+        "width": 163,
+        "height": 80.5,
+        "right": 358,
+        "bottom": 702.39
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 100% 00:00–01:00",
+        "x": 32,
+        "y": 702.39,
+        "width": 163,
+        "height": 79.5,
+        "right": 195,
+        "bottom": 781.89
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 86%·98.7% 差值 −12.7 pp",
+        "x": 195,
+        "y": 702.39,
+        "width": 163,
+        "height": 79.5,
+        "right": 358,
+        "bottom": 781.89
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 5 小时 中断时段 08:00–10:00 · 15:00–16:00 近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 2026-11-18 · 100% 2026-11-19 · 100% 2026-11-20 · 99.72%",
+      "x": 32,
+      "y": 791.89,
+      "width": 326,
+      "height": 71,
+      "right": 358,
+      "bottom": 862.89
+    },
+    "days": {
+      "visible": true,
+      "text": "近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 2026-11-18 · 100% 2026-11-19 · 100% 2026-11-20 · 99.72%",
+      "x": 32,
+      "y": 846.89,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 862.89
+    },
+    "billingMeta": {
+      "visible": true,
+      "text": "27 / 30 天 按月估算",
+      "x": 32,
+      "y": 1302.84,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 1318.84
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": true,
+      "x": 238.59,
+      "y": 260.3,
+      "width": 119.41,
+      "height": 20,
+      "right": 358,
+      "bottom": 280.3
+    },
+    "chart": {
+      "x": 32,
+      "y": 290.3,
+      "width": 326,
+      "height": 190.59,
+      "right": 358,
+      "bottom": 480.89
+    },
+    "plot": {
+      "x": 68,
+      "y": 328.89,
+      "width": 290,
+      "height": 112,
+      "right": 358,
+      "bottom": 440.89
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 16,
+      "y": 1430.44,
+      "width": 358,
+      "height": 16,
+      "right": 374,
+      "bottom": 1446.44
+    },
+    "pageBottomGap": 15.56,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 已运行 45 天 离线 延迟 18 ms 24h 可用率 86 % 当前速率 MB/s 下行 17.5 · 上行 2.19 24 小时可用率 21/24 采样 100% 50% 0% 00:00 06:00 12:00 18:00 现在 正常 下降 中断 无采样 00:00–01:00 · 100% · 正常 01:00–02:00 · 100% · 正常 02:00–03:00 · 无采样 03:00–04:00 · 无采样 04:00–05:00 · 100% · 正常 05:00–06:00 · 100% · 正常 06:00–07:0"
+  },
+  {
+    "label": "offline-light-1440",
+    "locale": "zh-CN",
+    "theme": "light",
+    "state": "offline",
+    "viewport": {
+      "width": 1440,
+      "height": 769,
+      "label": "1440"
+    },
+    "errors": [],
+    "pageHeight": 782,
+    "pageWidth": 1440,
+    "viewportWidth": 1440,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 372.59,
+        "right": 464,
+        "bottom": 509.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 157,
+            "width": 380,
+            "height": 47,
+            "right": 444,
+            "bottom": 204
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 64,
+            "y": 214,
+            "width": 380,
+            "height": 75,
+            "right": 444,
+            "bottom": 289
+          },
+          {
+            "slot": "detail-chart",
+            "x": 64,
+            "y": 299,
+            "width": 380,
+            "height": 190.59,
+            "right": 444,
+            "bottom": 489.59
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "availability": {
+        "x": 480,
+        "y": 137,
+        "width": 916,
+        "height": 372.59,
+        "right": 1396,
+        "bottom": 509.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 157,
+            "width": 876,
+            "height": 16,
+            "right": 1376,
+            "bottom": 173
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 500,
+            "y": 183,
+            "width": 876,
+            "height": 233,
+            "right": 1376,
+            "bottom": 416
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 500,
+            "y": 426,
+            "width": 876,
+            "height": 51,
+            "right": 1376,
+            "bottom": 477
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 12.59
+      },
+      "runtime": {
+        "x": 44,
+        "y": 525.59,
+        "width": 420,
+        "height": 208.89,
+        "right": 464,
+        "bottom": 734.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 545.59,
+            "width": 380,
+            "height": 22.39,
+            "right": 444,
+            "bottom": 567.98
+          },
+          {
+            "slot": null,
+            "x": 64,
+            "y": 579.98,
+            "width": 380,
+            "height": 101.5,
+            "right": 444,
+            "bottom": 681.48
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 64,
+            "y": 689.48,
+            "width": 380,
+            "height": 25,
+            "right": 444,
+            "bottom": 714.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 480,
+        "y": 525.59,
+        "width": 916,
+        "height": 208.89,
+        "right": 1396,
+        "bottom": 734.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 545.59,
+            "width": 876,
+            "height": 16,
+            "right": 1376,
+            "bottom": 561.59
+          },
+          {
+            "slot": null,
+            "x": 500,
+            "y": 573.59,
+            "width": 876,
+            "height": 140.89,
+            "right": 1376,
+            "bottom": 714.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 500,
+      "y": 183,
+      "width": 876,
+      "height": 233,
+      "right": 1376,
+      "bottom": 416
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 2 次",
+        "x": 500,
+        "y": 184,
+        "width": 438,
+        "height": 68,
+        "right": 938,
+        "bottom": 252
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 0 分钟",
+        "x": 938,
+        "y": 184,
+        "width": 438,
+        "height": 68,
+        "right": 1376,
+        "bottom": 252
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 21/24",
+        "x": 500,
+        "y": 252,
+        "width": 438,
+        "height": 82.5,
+        "right": 938,
+        "bottom": 334.5
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 0% 08:00–09:00",
+        "x": 938,
+        "y": 252,
+        "width": 438,
+        "height": 82.5,
+        "right": 1376,
+        "bottom": 334.5
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 100% 00:00–01:00",
+        "x": 500,
+        "y": 334.5,
+        "width": 438,
+        "height": 81.5,
+        "right": 938,
+        "bottom": 416
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 86%·98.7% 差值 −12.7 pp",
+        "x": 938,
+        "y": 334.5,
+        "width": 438,
+        "height": 81.5,
+        "right": 1376,
+        "bottom": 416
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 5 小时 中断时段 08:00–10:00 · 15:00–16:00 近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 2026-11-18 · 100% 2026-11-19 · 100% 2026-11-20 · 99.72%",
+      "x": 500,
+      "y": 426,
+      "width": 876,
+      "height": 51,
+      "right": 1376,
+      "bottom": 477
+    },
+    "days": {
+      "visible": true,
+      "text": "近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 2026-11-18 · 100% 2026-11-19 · 100% 2026-11-20 · 99.72%",
+      "x": 500,
+      "y": 461,
+      "width": 876,
+      "height": 16,
+      "right": 1376,
+      "bottom": 477
+    },
+    "billingMeta": {
+      "visible": true,
+      "text": "27 / 30 天 按月估算",
+      "x": 500,
+      "y": 683.3,
+      "width": 508.08,
+      "height": 16,
+      "right": 1008.08,
+      "bottom": 699.3
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": true,
+      "x": 304.98,
+      "y": 269,
+      "width": 139,
+      "height": 20,
+      "right": 443.98,
+      "bottom": 289
+    },
+    "chart": {
+      "x": 64,
+      "y": 299,
+      "width": 380,
+      "height": 190.59,
+      "right": 444,
+      "bottom": 489.59
+    },
+    "plot": {
+      "x": 100,
+      "y": 337.59,
+      "width": 344,
+      "height": 112,
+      "right": 444,
+      "bottom": 449.59
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 44,
+      "y": 750.48,
+      "width": 1352,
+      "height": 16,
+      "right": 1396,
+      "bottom": 766.48
+    },
+    "pageBottomGap": 15.52,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 已运行 45 天 离线 延迟 18 ms 24h 可用率 86 % 当前速率 MB/s 下行 17.5 · 上行 2.19 24 小时可用率 21/24 采样 100% 50% 0% 00:00 06:00 12:00 18:00 现在 正常 下降 中断 无采样 00:00–01:00 · 100% · 正常 01:00–02:00 · 100% · 正常 02:00–03:00 · 无采样 03:00–04:00 · 无采样 04:00–05:00 · 100% · 正常 05:00–06:00 · 100% · 正常 06:00–07:0"
+  },
+  {
+    "label": "offline-light-390",
+    "locale": "zh-CN",
+    "theme": "light",
+    "state": "offline",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "label": "390"
+    },
+    "errors": [],
+    "pageHeight": 1462,
+    "pageWidth": 390,
+    "viewportWidth": 390,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 16,
+        "y": 137,
+        "width": 358,
+        "height": 359.89,
+        "right": 374,
+        "bottom": 496.89,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 153,
+            "width": 326,
+            "height": 44.3,
+            "right": 358,
+            "bottom": 197.3
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 32,
+            "y": 207.3,
+            "width": 326,
+            "height": 73,
+            "right": 358,
+            "bottom": 280.3
+          },
+          {
+            "slot": "detail-chart",
+            "x": 32,
+            "y": 290.3,
+            "width": 326,
+            "height": 190.59,
+            "right": 358,
+            "bottom": 480.89
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "availability": {
+        "x": 16,
+        "y": 512.89,
+        "width": 358,
+        "height": 366,
+        "right": 374,
+        "bottom": 878.89,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 528.89,
+            "width": 326,
+            "height": 16,
+            "right": 358,
+            "bottom": 544.89
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 32,
+            "y": 554.89,
+            "width": 326,
+            "height": 227,
+            "right": 358,
+            "bottom": 781.89
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 32,
+            "y": 791.89,
+            "width": 326,
+            "height": 71,
+            "right": 358,
+            "bottom": 862.89
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "runtime": {
+        "x": 16,
+        "y": 894.89,
+        "width": 358,
+        "height": 255.77,
+        "right": 374,
+        "bottom": 1150.66,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 910.89,
+            "width": 326,
+            "height": 22.39,
+            "right": 358,
+            "bottom": 933.28
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 945.28,
+            "width": 326,
+            "height": 156.38,
+            "right": 358,
+            "bottom": 1101.66
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 32,
+            "y": 1109.66,
+            "width": 326,
+            "height": 25,
+            "right": 358,
+            "bottom": 1134.66
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 16,
+        "y": 1166.66,
+        "width": 358,
+        "height": 247.78,
+        "right": 374,
+        "bottom": 1414.44,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1182.66,
+            "width": 326,
+            "height": 16,
+            "right": 358,
+            "bottom": 1198.66
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1210.66,
+            "width": 326,
+            "height": 187.78,
+            "right": 358,
+            "bottom": 1398.44
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 32,
+      "y": 554.89,
+      "width": 326,
+      "height": 227,
+      "right": 358,
+      "bottom": 781.89
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 2 次",
+        "x": 32,
+        "y": 555.89,
+        "width": 163,
+        "height": 66,
+        "right": 195,
+        "bottom": 621.89
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 0 分钟",
+        "x": 195,
+        "y": 555.89,
+        "width": 163,
+        "height": 66,
+        "right": 358,
+        "bottom": 621.89
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 21/24",
+        "x": 32,
+        "y": 621.89,
+        "width": 163,
+        "height": 80.5,
+        "right": 195,
+        "bottom": 702.39
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 0% 08:00–09:00",
+        "x": 195,
+        "y": 621.89,
+        "width": 163,
+        "height": 80.5,
+        "right": 358,
+        "bottom": 702.39
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 100% 00:00–01:00",
+        "x": 32,
+        "y": 702.39,
+        "width": 163,
+        "height": 79.5,
+        "right": 195,
+        "bottom": 781.89
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 86%·98.7% 差值 −12.7 pp",
+        "x": 195,
+        "y": 702.39,
+        "width": 163,
+        "height": 79.5,
+        "right": 358,
+        "bottom": 781.89
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 5 小时 中断时段 08:00–10:00 · 15:00–16:00 近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 2026-11-18 · 100% 2026-11-19 · 100% 2026-11-20 · 99.72%",
+      "x": 32,
+      "y": 791.89,
+      "width": 326,
+      "height": 71,
+      "right": 358,
+      "bottom": 862.89
+    },
+    "days": {
+      "visible": true,
+      "text": "近 7 天 2026-11-14 · 100% 2026-11-15 · 100% 2026-11-16 · 100% 2026-11-17 · 100% 2026-11-18 · 100% 2026-11-19 · 100% 2026-11-20 · 99.72%",
+      "x": 32,
+      "y": 846.89,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 862.89
+    },
+    "billingMeta": {
+      "visible": true,
+      "text": "27 / 30 天 按月估算",
+      "x": 32,
+      "y": 1302.84,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 1318.84
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": true,
+      "x": 238.59,
+      "y": 260.3,
+      "width": 119.41,
+      "height": 20,
+      "right": 358,
+      "bottom": 280.3
+    },
+    "chart": {
+      "x": 32,
+      "y": 290.3,
+      "width": 326,
+      "height": 190.59,
+      "right": 358,
+      "bottom": 480.89
+    },
+    "plot": {
+      "x": 68,
+      "y": 328.89,
+      "width": 290,
+      "height": 112,
+      "right": 358,
+      "bottom": 440.89
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 16,
+      "y": 1430.44,
+      "width": 358,
+      "height": 16,
+      "right": 374,
+      "bottom": 1446.44
+    },
+    "pageBottomGap": 15.56,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 已运行 45 天 离线 延迟 18 ms 24h 可用率 86 % 当前速率 MB/s 下行 17.5 · 上行 2.19 24 小时可用率 21/24 采样 100% 50% 0% 00:00 06:00 12:00 18:00 现在 正常 下降 中断 无采样 00:00–01:00 · 100% · 正常 01:00–02:00 · 100% · 正常 02:00–03:00 · 无采样 03:00–04:00 · 无采样 04:00–05:00 · 100% · 正常 05:00–06:00 · 100% · 正常 06:00–07:0"
+  },
+  {
+    "label": "nodata-dark-1440",
+    "locale": "zh-CN",
+    "theme": "dark",
+    "state": "nodata",
+    "viewport": {
+      "width": 1440,
+      "height": 769,
+      "label": "1440"
+    },
+    "errors": [],
+    "pageHeight": 770,
+    "pageWidth": 1440,
+    "viewportWidth": 1440,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 360.59,
+        "right": 464,
+        "bottom": 497.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 157,
+            "width": 380,
+            "height": 47,
+            "right": 444,
+            "bottom": 204
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 64,
+            "y": 214,
+            "width": 380,
+            "height": 61,
+            "right": 444,
+            "bottom": 275
+          },
+          {
+            "slot": "detail-chart",
+            "x": 64,
+            "y": 285,
+            "width": 380,
+            "height": 190.59,
+            "right": 444,
+            "bottom": 475.59
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 2
+      },
+      "availability": {
+        "x": 480,
+        "y": 137,
+        "width": 916,
+        "height": 360.59,
+        "right": 1396,
+        "bottom": 497.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 157,
+            "width": 876,
+            "height": 17.59,
+            "right": 1376,
+            "bottom": 174.59
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 500,
+            "y": 184.59,
+            "width": 876,
+            "height": 232,
+            "right": 1376,
+            "bottom": 416.59
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 500,
+            "y": 426.59,
+            "width": 876,
+            "height": 51,
+            "right": 1376,
+            "bottom": 477.59
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "runtime": {
+        "x": 44,
+        "y": 513.59,
+        "width": 420,
+        "height": 208.89,
+        "right": 464,
+        "bottom": 722.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 533.59,
+            "width": 380,
+            "height": 22.39,
+            "right": 444,
+            "bottom": 555.98
+          },
+          {
+            "slot": null,
+            "x": 64,
+            "y": 567.98,
+            "width": 380,
+            "height": 101.5,
+            "right": 444,
+            "bottom": 669.48
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 64,
+            "y": 677.48,
+            "width": 380,
+            "height": 25,
+            "right": 444,
+            "bottom": 702.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 480,
+        "y": 513.59,
+        "width": 916,
+        "height": 208.89,
+        "right": 1396,
+        "bottom": 722.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 533.59,
+            "width": 876,
+            "height": 16,
+            "right": 1376,
+            "bottom": 549.59
+          },
+          {
+            "slot": null,
+            "x": 500,
+            "y": 561.59,
+            "width": 876,
+            "height": 140.89,
+            "right": 1376,
+            "bottom": 702.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 500,
+      "y": 184.59,
+      "width": 876,
+      "height": 232,
+      "right": 1376,
+      "bottom": 416.59
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 —",
+        "x": 500,
+        "y": 185.59,
+        "width": 438,
+        "height": 67,
+        "right": 938,
+        "bottom": 252.59
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 —",
+        "x": 938,
+        "y": 185.59,
+        "width": 438,
+        "height": 67,
+        "right": 1376,
+        "bottom": 252.59
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 —",
+        "x": 500,
+        "y": 252.59,
+        "width": 438,
+        "height": 82.5,
+        "right": 938,
+        "bottom": 335.09
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 — —",
+        "x": 938,
+        "y": 252.59,
+        "width": 438,
+        "height": 82.5,
+        "right": 1376,
+        "bottom": 335.09
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 — —",
+        "x": 500,
+        "y": 335.09,
+        "width": 438,
+        "height": 81.5,
+        "right": 938,
+        "bottom": 416.59
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 —·— 差值 —",
+        "x": 938,
+        "y": 335.09,
+        "width": 438,
+        "height": 81.5,
+        "right": 1376,
+        "bottom": 416.59
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 — 中断时段 — 近 7 天 无采样 无采样 无采样 无采样 无采样 无采样 无采样",
+      "x": 500,
+      "y": 426.59,
+      "width": 876,
+      "height": 51,
+      "right": 1376,
+      "bottom": 477.59
+    },
+    "days": {
+      "visible": true,
+      "text": "近 7 天 无采样 无采样 无采样 无采样 无采样 无采样 无采样",
+      "x": 500,
+      "y": 461.59,
+      "width": 876,
+      "height": 16,
+      "right": 1376,
+      "bottom": 477.59
+    },
+    "billingMeta": {
+      "visible": false,
+      "text": null
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": {
+      "x": 64,
+      "y": 285,
+      "width": 380,
+      "height": 190.59,
+      "right": 444,
+      "bottom": 475.59
+    },
+    "plot": {
+      "x": 100,
+      "y": 323.59,
+      "width": 344,
+      "height": 112,
+      "right": 444,
+      "bottom": 435.59
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 44,
+      "y": 738.48,
+      "width": 1352,
+      "height": 16,
+      "right": 1396,
+      "bottom": 754.48
+    },
+    "pageBottomGap": 15.52,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 在线 延迟 — 24h 可用率 — 当前速率 — 24 小时可用率 0/24 采样 100% 50% 0% 16:00 22:00 04:00 10:00 现在 正常 下降 中断 无采样 16:00–17:00 · 无采样 17:00–18:00 · 无采样 18:00–19:00 · 无采样 19:00–20:00 · 无采样 20:00–21:00 · 无采样 21:00–22:00 · 无采样 22:00–23:00 · 无采样 23:00–00:00 · 无采样 00:00–01:00 · 无采样 01:00–02:00 · 无采样 "
+  },
+  {
+    "label": "nodata-dark-390",
+    "locale": "zh-CN",
+    "theme": "dark",
+    "state": "nodata",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "label": "390"
+    },
+    "errors": [],
+    "pageHeight": 1292,
+    "pageWidth": 390,
+    "viewportWidth": 390,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 16,
+        "y": 137,
+        "width": 358,
+        "height": 341.89,
+        "right": 374,
+        "bottom": 478.89,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 153,
+            "width": 326,
+            "height": 44.3,
+            "right": 358,
+            "bottom": 197.3
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 32,
+            "y": 207.3,
+            "width": 326,
+            "height": 55,
+            "right": 358,
+            "bottom": 262.3
+          },
+          {
+            "slot": "detail-chart",
+            "x": 32,
+            "y": 272.3,
+            "width": 326,
+            "height": 190.59,
+            "right": 358,
+            "bottom": 462.89
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "availability": {
+        "x": 16,
+        "y": 494.89,
+        "width": 358,
+        "height": 346.59,
+        "right": 374,
+        "bottom": 841.48,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 510.89,
+            "width": 326,
+            "height": 17.59,
+            "right": 358,
+            "bottom": 528.48
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 32,
+            "y": 538.48,
+            "width": 326,
+            "height": 226,
+            "right": 358,
+            "bottom": 764.48
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 32,
+            "y": 774.48,
+            "width": 326,
+            "height": 51,
+            "right": 358,
+            "bottom": 825.48
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "runtime": {
+        "x": 16,
+        "y": 857.48,
+        "width": 358,
+        "height": 255.77,
+        "right": 374,
+        "bottom": 1113.25,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 873.48,
+            "width": 326,
+            "height": 22.39,
+            "right": 358,
+            "bottom": 895.88
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 907.88,
+            "width": 326,
+            "height": 156.38,
+            "right": 358,
+            "bottom": 1064.25
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 32,
+            "y": 1072.25,
+            "width": 326,
+            "height": 25,
+            "right": 358,
+            "bottom": 1097.25
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 16,
+        "y": 1129.25,
+        "width": 358,
+        "height": 114.59,
+        "right": 374,
+        "bottom": 1243.84,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1145.25,
+            "width": 326,
+            "height": 16,
+            "right": 358,
+            "bottom": 1161.25
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1173.25,
+            "width": 326,
+            "height": 54.59,
+            "right": 358,
+            "bottom": 1227.84
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 32,
+      "y": 538.48,
+      "width": 326,
+      "height": 226,
+      "right": 358,
+      "bottom": 764.48
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 —",
+        "x": 32,
+        "y": 539.48,
+        "width": 163,
+        "height": 65,
+        "right": 195,
+        "bottom": 604.48
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 —",
+        "x": 195,
+        "y": 539.48,
+        "width": 163,
+        "height": 65,
+        "right": 358,
+        "bottom": 604.48
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 —",
+        "x": 32,
+        "y": 604.48,
+        "width": 163,
+        "height": 80.5,
+        "right": 195,
+        "bottom": 684.98
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 — —",
+        "x": 195,
+        "y": 604.48,
+        "width": 163,
+        "height": 80.5,
+        "right": 358,
+        "bottom": 684.98
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 — —",
+        "x": 32,
+        "y": 684.98,
+        "width": 163,
+        "height": 79.5,
+        "right": 195,
+        "bottom": 764.48
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 —·— 差值 —",
+        "x": 195,
+        "y": 684.98,
+        "width": 163,
+        "height": 79.5,
+        "right": 358,
+        "bottom": 764.48
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 — 中断时段 — 近 7 天 无采样 无采样 无采样 无采样 无采样 无采样 无采样",
+      "x": 32,
+      "y": 774.48,
+      "width": 326,
+      "height": 51,
+      "right": 358,
+      "bottom": 825.48
+    },
+    "days": {
+      "visible": true,
+      "text": "近 7 天 无采样 无采样 无采样 无采样 无采样 无采样 无采样",
+      "x": 32,
+      "y": 809.48,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 825.48
+    },
+    "billingMeta": {
+      "visible": false,
+      "text": null
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": {
+      "x": 32,
+      "y": 272.3,
+      "width": 326,
+      "height": 190.59,
+      "right": 358,
+      "bottom": 462.89
+    },
+    "plot": {
+      "x": 68,
+      "y": 310.89,
+      "width": 290,
+      "height": 112,
+      "right": 358,
+      "bottom": 422.89
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 16,
+      "y": 1259.84,
+      "width": 358,
+      "height": 16,
+      "right": 374,
+      "bottom": 1275.84
+    },
+    "pageBottomGap": 16.16,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 在线 延迟 — 24h 可用率 — 当前速率 — 24 小时可用率 0/24 采样 100% 50% 0% 16:00 22:00 04:00 10:00 现在 正常 下降 中断 无采样 16:00–17:00 · 无采样 17:00–18:00 · 无采样 18:00–19:00 · 无采样 19:00–20:00 · 无采样 20:00–21:00 · 无采样 21:00–22:00 · 无采样 22:00–23:00 · 无采样 23:00–00:00 · 无采样 00:00–01:00 · 无采样 01:00–02:00 · 无采样 "
+  },
+  {
+    "label": "nodata-light-1440",
+    "locale": "zh-CN",
+    "theme": "light",
+    "state": "nodata",
+    "viewport": {
+      "width": 1440,
+      "height": 769,
+      "label": "1440"
+    },
+    "errors": [],
+    "pageHeight": 770,
+    "pageWidth": 1440,
+    "viewportWidth": 1440,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 360.59,
+        "right": 464,
+        "bottom": 497.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 157,
+            "width": 380,
+            "height": 47,
+            "right": 444,
+            "bottom": 204
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 64,
+            "y": 214,
+            "width": 380,
+            "height": 61,
+            "right": 444,
+            "bottom": 275
+          },
+          {
+            "slot": "detail-chart",
+            "x": 64,
+            "y": 285,
+            "width": 380,
+            "height": 190.59,
+            "right": 444,
+            "bottom": 475.59
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 2
+      },
+      "availability": {
+        "x": 480,
+        "y": 137,
+        "width": 916,
+        "height": 360.59,
+        "right": 1396,
+        "bottom": 497.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 157,
+            "width": 876,
+            "height": 17.59,
+            "right": 1376,
+            "bottom": 174.59
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 500,
+            "y": 184.59,
+            "width": 876,
+            "height": 232,
+            "right": 1376,
+            "bottom": 416.59
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 500,
+            "y": 426.59,
+            "width": 876,
+            "height": 51,
+            "right": 1376,
+            "bottom": 477.59
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "runtime": {
+        "x": 44,
+        "y": 513.59,
+        "width": 420,
+        "height": 208.89,
+        "right": 464,
+        "bottom": 722.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 533.59,
+            "width": 380,
+            "height": 22.39,
+            "right": 444,
+            "bottom": 555.98
+          },
+          {
+            "slot": null,
+            "x": 64,
+            "y": 567.98,
+            "width": 380,
+            "height": 101.5,
+            "right": 444,
+            "bottom": 669.48
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 64,
+            "y": 677.48,
+            "width": 380,
+            "height": 25,
+            "right": 444,
+            "bottom": 702.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 480,
+        "y": 513.59,
+        "width": 916,
+        "height": 208.89,
+        "right": 1396,
+        "bottom": 722.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 533.59,
+            "width": 876,
+            "height": 16,
+            "right": 1376,
+            "bottom": 549.59
+          },
+          {
+            "slot": null,
+            "x": 500,
+            "y": 561.59,
+            "width": 876,
+            "height": 140.89,
+            "right": 1376,
+            "bottom": 702.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 500,
+      "y": 184.59,
+      "width": 876,
+      "height": 232,
+      "right": 1376,
+      "bottom": 416.59
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 —",
+        "x": 500,
+        "y": 185.59,
+        "width": 438,
+        "height": 67,
+        "right": 938,
+        "bottom": 252.59
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 —",
+        "x": 938,
+        "y": 185.59,
+        "width": 438,
+        "height": 67,
+        "right": 1376,
+        "bottom": 252.59
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 —",
+        "x": 500,
+        "y": 252.59,
+        "width": 438,
+        "height": 82.5,
+        "right": 938,
+        "bottom": 335.09
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 — —",
+        "x": 938,
+        "y": 252.59,
+        "width": 438,
+        "height": 82.5,
+        "right": 1376,
+        "bottom": 335.09
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 — —",
+        "x": 500,
+        "y": 335.09,
+        "width": 438,
+        "height": 81.5,
+        "right": 938,
+        "bottom": 416.59
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 —·— 差值 —",
+        "x": 938,
+        "y": 335.09,
+        "width": 438,
+        "height": 81.5,
+        "right": 1376,
+        "bottom": 416.59
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 — 中断时段 — 近 7 天 无采样 无采样 无采样 无采样 无采样 无采样 无采样",
+      "x": 500,
+      "y": 426.59,
+      "width": 876,
+      "height": 51,
+      "right": 1376,
+      "bottom": 477.59
+    },
+    "days": {
+      "visible": true,
+      "text": "近 7 天 无采样 无采样 无采样 无采样 无采样 无采样 无采样",
+      "x": 500,
+      "y": 461.59,
+      "width": 876,
+      "height": 16,
+      "right": 1376,
+      "bottom": 477.59
+    },
+    "billingMeta": {
+      "visible": false,
+      "text": null
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": {
+      "x": 64,
+      "y": 285,
+      "width": 380,
+      "height": 190.59,
+      "right": 444,
+      "bottom": 475.59
+    },
+    "plot": {
+      "x": 100,
+      "y": 323.59,
+      "width": 344,
+      "height": 112,
+      "right": 444,
+      "bottom": 435.59
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 44,
+      "y": 738.48,
+      "width": 1352,
+      "height": 16,
+      "right": 1396,
+      "bottom": 754.48
+    },
+    "pageBottomGap": 15.52,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 在线 延迟 — 24h 可用率 — 当前速率 — 24 小时可用率 0/24 采样 100% 50% 0% 16:00 22:00 04:00 10:00 现在 正常 下降 中断 无采样 16:00–17:00 · 无采样 17:00–18:00 · 无采样 18:00–19:00 · 无采样 19:00–20:00 · 无采样 20:00–21:00 · 无采样 21:00–22:00 · 无采样 22:00–23:00 · 无采样 23:00–00:00 · 无采样 00:00–01:00 · 无采样 01:00–02:00 · 无采样 "
+  },
+  {
+    "label": "nodata-light-390",
+    "locale": "zh-CN",
+    "theme": "light",
+    "state": "nodata",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "label": "390"
+    },
+    "errors": [],
+    "pageHeight": 1292,
+    "pageWidth": 390,
+    "viewportWidth": 390,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 16,
+        "y": 137,
+        "width": 358,
+        "height": 341.89,
+        "right": 374,
+        "bottom": 478.89,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 153,
+            "width": 326,
+            "height": 44.3,
+            "right": 358,
+            "bottom": 197.3
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 32,
+            "y": 207.3,
+            "width": 326,
+            "height": 55,
+            "right": 358,
+            "bottom": 262.3
+          },
+          {
+            "slot": "detail-chart",
+            "x": 32,
+            "y": 272.3,
+            "width": 326,
+            "height": 190.59,
+            "right": 358,
+            "bottom": 462.89
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "availability": {
+        "x": 16,
+        "y": 494.89,
+        "width": 358,
+        "height": 346.59,
+        "right": 374,
+        "bottom": 841.48,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 510.89,
+            "width": 326,
+            "height": 17.59,
+            "right": 358,
+            "bottom": 528.48
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 32,
+            "y": 538.48,
+            "width": 326,
+            "height": 226,
+            "right": 358,
+            "bottom": 764.48
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 32,
+            "y": 774.48,
+            "width": 326,
+            "height": 51,
+            "right": 358,
+            "bottom": 825.48
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "runtime": {
+        "x": 16,
+        "y": 857.48,
+        "width": 358,
+        "height": 255.77,
+        "right": 374,
+        "bottom": 1113.25,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 873.48,
+            "width": 326,
+            "height": 22.39,
+            "right": 358,
+            "bottom": 895.88
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 907.88,
+            "width": 326,
+            "height": 156.38,
+            "right": 358,
+            "bottom": 1064.25
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 32,
+            "y": 1072.25,
+            "width": 326,
+            "height": 25,
+            "right": 358,
+            "bottom": 1097.25
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 16,
+        "y": 1129.25,
+        "width": 358,
+        "height": 114.59,
+        "right": 374,
+        "bottom": 1243.84,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1145.25,
+            "width": 326,
+            "height": 16,
+            "right": 358,
+            "bottom": 1161.25
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1173.25,
+            "width": 326,
+            "height": 54.59,
+            "right": 358,
+            "bottom": 1227.84
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 32,
+      "y": 538.48,
+      "width": 326,
+      "height": 226,
+      "right": 358,
+      "bottom": 764.48
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 —",
+        "x": 32,
+        "y": 539.48,
+        "width": 163,
+        "height": 65,
+        "right": 195,
+        "bottom": 604.48
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 —",
+        "x": 195,
+        "y": 539.48,
+        "width": 163,
+        "height": 65,
+        "right": 358,
+        "bottom": 604.48
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 —",
+        "x": 32,
+        "y": 604.48,
+        "width": 163,
+        "height": 80.5,
+        "right": 195,
+        "bottom": 684.98
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 — —",
+        "x": 195,
+        "y": 604.48,
+        "width": 163,
+        "height": 80.5,
+        "right": 358,
+        "bottom": 684.98
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 — —",
+        "x": 32,
+        "y": 684.98,
+        "width": 163,
+        "height": 79.5,
+        "right": 195,
+        "bottom": 764.48
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 —·— 差值 —",
+        "x": 195,
+        "y": 684.98,
+        "width": 163,
+        "height": 79.5,
+        "right": 358,
+        "bottom": 764.48
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 — 中断时段 — 近 7 天 无采样 无采样 无采样 无采样 无采样 无采样 无采样",
+      "x": 32,
+      "y": 774.48,
+      "width": 326,
+      "height": 51,
+      "right": 358,
+      "bottom": 825.48
+    },
+    "days": {
+      "visible": true,
+      "text": "近 7 天 无采样 无采样 无采样 无采样 无采样 无采样 无采样",
+      "x": 32,
+      "y": 809.48,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 825.48
+    },
+    "billingMeta": {
+      "visible": false,
+      "text": null
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": {
+      "x": 32,
+      "y": 272.3,
+      "width": 326,
+      "height": 190.59,
+      "right": 358,
+      "bottom": 462.89
+    },
+    "plot": {
+      "x": 68,
+      "y": 310.89,
+      "width": 290,
+      "height": 112,
+      "right": 358,
+      "bottom": 422.89
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 16,
+      "y": 1259.84,
+      "width": 358,
+      "height": 16,
+      "right": 374,
+      "bottom": 1275.84
+    },
+    "pageBottomGap": 16.16,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 在线 延迟 — 24h 可用率 — 当前速率 — 24 小时可用率 0/24 采样 100% 50% 0% 16:00 22:00 04:00 10:00 现在 正常 下降 中断 无采样 16:00–17:00 · 无采样 17:00–18:00 · 无采样 18:00–19:00 · 无采样 19:00–20:00 · 无采样 20:00–21:00 · 无采样 21:00–22:00 · 无采样 22:00–23:00 · 无采样 23:00–00:00 · 无采样 00:00–01:00 · 无采样 01:00–02:00 · 无采样 "
+  },
+  {
+    "label": "old-backend-dark-1440",
+    "locale": "zh-CN",
+    "theme": "dark",
+    "state": "old-backend",
+    "viewport": {
+      "width": 1440,
+      "height": 769,
+      "label": "1440"
+    },
+    "errors": [],
+    "pageHeight": 769,
+    "pageWidth": 1440,
+    "viewportWidth": 1440,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 358.59,
+        "right": 464,
+        "bottom": 495.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 157,
+            "width": 380,
+            "height": 47,
+            "right": 444,
+            "bottom": 204
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 64,
+            "y": 214,
+            "width": 380,
+            "height": 61,
+            "right": 444,
+            "bottom": 275
+          },
+          {
+            "slot": "detail-chart",
+            "x": 64,
+            "y": 285,
+            "width": 380,
+            "height": 190.59,
+            "right": 444,
+            "bottom": 475.59
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "availability": {
+        "x": 480,
+        "y": 137,
+        "width": 916,
+        "height": 358.59,
+        "right": 1396,
+        "bottom": 495.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 157,
+            "width": 876,
+            "height": 16,
+            "right": 1376,
+            "bottom": 173
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 500,
+            "y": 183,
+            "width": 876,
+            "height": 248.5,
+            "right": 1376,
+            "bottom": 431.5
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 500,
+            "y": 441.5,
+            "width": 876,
+            "height": 27,
+            "right": 1376,
+            "bottom": 468.5
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 7.09
+      },
+      "runtime": {
+        "x": 44,
+        "y": 511.59,
+        "width": 420,
+        "height": 208.89,
+        "right": 464,
+        "bottom": 720.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 531.59,
+            "width": 380,
+            "height": 22.39,
+            "right": 444,
+            "bottom": 553.98
+          },
+          {
+            "slot": null,
+            "x": 64,
+            "y": 565.98,
+            "width": 380,
+            "height": 101.5,
+            "right": 444,
+            "bottom": 667.48
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 64,
+            "y": 675.48,
+            "width": 380,
+            "height": 25,
+            "right": 444,
+            "bottom": 700.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 480,
+        "y": 511.59,
+        "width": 916,
+        "height": 208.89,
+        "right": 1396,
+        "bottom": 720.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 531.59,
+            "width": 876,
+            "height": 16,
+            "right": 1376,
+            "bottom": 547.59
+          },
+          {
+            "slot": null,
+            "x": 500,
+            "y": 559.59,
+            "width": 876,
+            "height": 140.89,
+            "right": 1376,
+            "bottom": 700.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 500,
+      "y": 183,
+      "width": 876,
+      "height": 248.5,
+      "right": 1376,
+      "bottom": 431.5
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 0 次",
+        "x": 500,
+        "y": 184,
+        "width": 438,
+        "height": 83.5,
+        "right": 938,
+        "bottom": 267.5
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 0 小时 按小时采样，实际可能更短",
+        "x": 938,
+        "y": 184,
+        "width": 438,
+        "height": 83.5,
+        "right": 1376,
+        "bottom": 267.5
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 24/24",
+        "x": 500,
+        "y": 267.5,
+        "width": 438,
+        "height": 82.5,
+        "right": 938,
+        "bottom": 350
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 100% 00:00–01:00",
+        "x": 938,
+        "y": 267.5,
+        "width": 438,
+        "height": 82.5,
+        "right": 1376,
+        "bottom": 350
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 100% 00:00–01:00",
+        "x": 500,
+        "y": 350,
+        "width": 438,
+        "height": 81.5,
+        "right": 938,
+        "bottom": 431.5
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 100%·100% 差值 0.0 pp",
+        "x": 938,
+        "y": 350,
+        "width": 438,
+        "height": 81.5,
+        "right": 1376,
+        "bottom": 431.5
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 24 小时 中断时段 无中断",
+      "x": 500,
+      "y": 441.5,
+      "width": 876,
+      "height": 27,
+      "right": 1376,
+      "bottom": 468.5
+    },
+    "days": {
+      "visible": false,
+      "text": null
+    },
+    "billingMeta": {
+      "visible": true,
+      "text": "27 / 30 天 按月估算",
+      "x": 500,
+      "y": 669.3,
+      "width": 508.08,
+      "height": 16,
+      "right": 1008.08,
+      "bottom": 685.3
+    },
+    "trafficAverage": {
+      "visible": true,
+      "text": "平均每小时 ↓ 3.75 GB/h · ↑ 562 MB/h",
+      "x": 1049.08,
+      "y": 653.33,
+      "width": 326.92,
+      "height": 16,
+      "right": 1376,
+      "bottom": 669.33
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": {
+      "x": 64,
+      "y": 285,
+      "width": 380,
+      "height": 190.59,
+      "right": 444,
+      "bottom": 475.59
+    },
+    "plot": {
+      "x": 100,
+      "y": 323.59,
+      "width": 344,
+      "height": 112,
+      "right": 444,
+      "bottom": 435.59
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 44,
+      "y": 736.48,
+      "width": 1352,
+      "height": 16,
+      "right": 1396,
+      "bottom": 752.48
+    },
+    "pageBottomGap": 16.52,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 在线 14 天 3 小时 延迟 18 ms 24h 可用率 100 % 当前速率 MB/s 下行 17.5 · 上行 2.19 24 小时可用率 24/24 采样 100% 50% 0% 00:00 06:00 12:00 18:00 现在 正常 下降 中断 无采样 00:00–01:00 · 100% · 正常 01:00–02:00 · 100% · 正常 02:00–03:00 · 100% · 正常 03:00–04:00 · 100% · 正常 04:00–05:00 · 100% · 正常 05:00–06:00 · 100% ·"
+  },
+  {
+    "label": "old-backend-dark-390",
+    "locale": "zh-CN",
+    "theme": "dark",
+    "state": "old-backend",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "label": "390"
+    },
+    "errors": [],
+    "pageHeight": 1439,
+    "pageWidth": 390,
+    "viewportWidth": 390,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 16,
+        "y": 137,
+        "width": 358,
+        "height": 342.89,
+        "right": 374,
+        "bottom": 479.89,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 153,
+            "width": 326,
+            "height": 44.3,
+            "right": 358,
+            "bottom": 197.3
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 32,
+            "y": 207.3,
+            "width": 326,
+            "height": 56,
+            "right": 358,
+            "bottom": 263.3
+          },
+          {
+            "slot": "detail-chart",
+            "x": 32,
+            "y": 273.3,
+            "width": 326,
+            "height": 190.59,
+            "right": 358,
+            "bottom": 463.89
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "availability": {
+        "x": 16,
+        "y": 495.89,
+        "width": 358,
+        "height": 337.5,
+        "right": 374,
+        "bottom": 833.39,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 511.89,
+            "width": 326,
+            "height": 16,
+            "right": 358,
+            "bottom": 527.89
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 32,
+            "y": 537.89,
+            "width": 326,
+            "height": 242.5,
+            "right": 358,
+            "bottom": 780.39
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 32,
+            "y": 790.39,
+            "width": 326,
+            "height": 27,
+            "right": 358,
+            "bottom": 817.39
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "runtime": {
+        "x": 16,
+        "y": 849.39,
+        "width": 358,
+        "height": 255.77,
+        "right": 374,
+        "bottom": 1105.16,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 865.39,
+            "width": 326,
+            "height": 22.39,
+            "right": 358,
+            "bottom": 887.78
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 899.78,
+            "width": 326,
+            "height": 156.38,
+            "right": 358,
+            "bottom": 1056.16
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 32,
+            "y": 1064.16,
+            "width": 326,
+            "height": 25,
+            "right": 358,
+            "bottom": 1089.16
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 16,
+        "y": 1121.16,
+        "width": 358,
+        "height": 269.78,
+        "right": 374,
+        "bottom": 1390.94,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1137.16,
+            "width": 326,
+            "height": 16,
+            "right": 358,
+            "bottom": 1153.16
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1165.16,
+            "width": 326,
+            "height": 209.78,
+            "right": 358,
+            "bottom": 1374.94
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 32,
+      "y": 537.89,
+      "width": 326,
+      "height": 242.5,
+      "right": 358,
+      "bottom": 780.39
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 0 次",
+        "x": 32,
+        "y": 538.89,
+        "width": 163,
+        "height": 81.5,
+        "right": 195,
+        "bottom": 620.39
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 0 小时 按小时采样，实际可能更短",
+        "x": 195,
+        "y": 538.89,
+        "width": 163,
+        "height": 81.5,
+        "right": 358,
+        "bottom": 620.39
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 24/24",
+        "x": 32,
+        "y": 620.39,
+        "width": 163,
+        "height": 80.5,
+        "right": 195,
+        "bottom": 700.89
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 100% 00:00–01:00",
+        "x": 195,
+        "y": 620.39,
+        "width": 163,
+        "height": 80.5,
+        "right": 358,
+        "bottom": 700.89
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 100% 00:00–01:00",
+        "x": 32,
+        "y": 700.89,
+        "width": 163,
+        "height": 79.5,
+        "right": 195,
+        "bottom": 780.39
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 100%·100% 差值 0.0 pp",
+        "x": 195,
+        "y": 700.89,
+        "width": 163,
+        "height": 79.5,
+        "right": 358,
+        "bottom": 780.39
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 24 小时 中断时段 无中断",
+      "x": 32,
+      "y": 790.39,
+      "width": 326,
+      "height": 27,
+      "right": 358,
+      "bottom": 817.39
+    },
+    "days": {
+      "visible": false,
+      "text": null
+    },
+    "billingMeta": {
+      "visible": true,
+      "text": "27 / 30 天 按月估算",
+      "x": 32,
+      "y": 1257.34,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 1273.34
+    },
+    "trafficAverage": {
+      "visible": true,
+      "text": "平均每小时 ↓ 3.75 GB/h · ↑ 562 MB/h",
+      "x": 32,
+      "y": 1358.94,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 1374.94
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": {
+      "x": 32,
+      "y": 273.3,
+      "width": 326,
+      "height": 190.59,
+      "right": 358,
+      "bottom": 463.89
+    },
+    "plot": {
+      "x": 68,
+      "y": 311.89,
+      "width": 290,
+      "height": 112,
+      "right": 358,
+      "bottom": 423.89
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 16,
+      "y": 1406.94,
+      "width": 358,
+      "height": 16,
+      "right": 374,
+      "bottom": 1422.94
+    },
+    "pageBottomGap": 16.06,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 在线 14 天 3 小时 延迟 18 ms 24h 可用率 100 % 当前速率 MB/s 下行 17.5 · 上行 2.19 24 小时可用率 24/24 采样 100% 50% 0% 00:00 06:00 12:00 18:00 现在 正常 下降 中断 无采样 00:00–01:00 · 100% · 正常 01:00–02:00 · 100% · 正常 02:00–03:00 · 100% · 正常 03:00–04:00 · 100% · 正常 04:00–05:00 · 100% · 正常 05:00–06:00 · 100% ·"
+  },
+  {
+    "label": "old-backend-light-1440",
+    "locale": "zh-CN",
+    "theme": "light",
+    "state": "old-backend",
+    "viewport": {
+      "width": 1440,
+      "height": 769,
+      "label": "1440"
+    },
+    "errors": [],
+    "pageHeight": 769,
+    "pageWidth": 1440,
+    "viewportWidth": 1440,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 44,
+        "y": 137,
+        "width": 420,
+        "height": 358.59,
+        "right": 464,
+        "bottom": 495.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 157,
+            "width": 380,
+            "height": 47,
+            "right": 444,
+            "bottom": 204
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 64,
+            "y": 214,
+            "width": 380,
+            "height": 61,
+            "right": 444,
+            "bottom": 275
+          },
+          {
+            "slot": "detail-chart",
+            "x": 64,
+            "y": 285,
+            "width": 380,
+            "height": 190.59,
+            "right": 444,
+            "bottom": 475.59
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "availability": {
+        "x": 480,
+        "y": 137,
+        "width": 916,
+        "height": 358.59,
+        "right": 1396,
+        "bottom": 495.59,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 157,
+            "width": 876,
+            "height": 16,
+            "right": 1376,
+            "bottom": 173
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 500,
+            "y": 183,
+            "width": 876,
+            "height": 248.5,
+            "right": 1376,
+            "bottom": 431.5
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 500,
+            "y": 441.5,
+            "width": 876,
+            "height": 27,
+            "right": 1376,
+            "bottom": 468.5
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 7.09
+      },
+      "runtime": {
+        "x": 44,
+        "y": 511.59,
+        "width": 420,
+        "height": 208.89,
+        "right": 464,
+        "bottom": 720.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 64,
+            "y": 531.59,
+            "width": 380,
+            "height": 22.39,
+            "right": 444,
+            "bottom": 553.98
+          },
+          {
+            "slot": null,
+            "x": 64,
+            "y": 565.98,
+            "width": 380,
+            "height": 101.5,
+            "right": 444,
+            "bottom": 667.48
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 64,
+            "y": 675.48,
+            "width": 380,
+            "height": 25,
+            "right": 444,
+            "bottom": 700.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 480,
+        "y": 511.59,
+        "width": 916,
+        "height": 208.89,
+        "right": 1396,
+        "bottom": 720.48,
+        "paddingTop": 20,
+        "paddingBottom": 20,
+        "children": [
+          {
+            "slot": null,
+            "x": 500,
+            "y": 531.59,
+            "width": 876,
+            "height": 16,
+            "right": 1376,
+            "bottom": 547.59
+          },
+          {
+            "slot": null,
+            "x": 500,
+            "y": 559.59,
+            "width": 876,
+            "height": 140.89,
+            "right": 1376,
+            "bottom": 700.48
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 500,
+      "y": 183,
+      "width": 876,
+      "height": 248.5,
+      "right": 1376,
+      "bottom": 431.5
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 0 次",
+        "x": 500,
+        "y": 184,
+        "width": 438,
+        "height": 83.5,
+        "right": 938,
+        "bottom": 267.5
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 0 小时 按小时采样，实际可能更短",
+        "x": 938,
+        "y": 184,
+        "width": 438,
+        "height": 83.5,
+        "right": 1376,
+        "bottom": 267.5
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 24/24",
+        "x": 500,
+        "y": 267.5,
+        "width": 438,
+        "height": 82.5,
+        "right": 938,
+        "bottom": 350
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 100% 00:00–01:00",
+        "x": 938,
+        "y": 267.5,
+        "width": 438,
+        "height": 82.5,
+        "right": 1376,
+        "bottom": 350
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 100% 00:00–01:00",
+        "x": 500,
+        "y": 350,
+        "width": 438,
+        "height": 81.5,
+        "right": 938,
+        "bottom": 431.5
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 100%·100% 差值 0.0 pp",
+        "x": 938,
+        "y": 350,
+        "width": 438,
+        "height": 81.5,
+        "right": 1376,
+        "bottom": 431.5
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 24 小时 中断时段 无中断",
+      "x": 500,
+      "y": 441.5,
+      "width": 876,
+      "height": 27,
+      "right": 1376,
+      "bottom": 468.5
+    },
+    "days": {
+      "visible": false,
+      "text": null
+    },
+    "billingMeta": {
+      "visible": true,
+      "text": "27 / 30 天 按月估算",
+      "x": 500,
+      "y": 669.3,
+      "width": 508.08,
+      "height": 16,
+      "right": 1008.08,
+      "bottom": 685.3
+    },
+    "trafficAverage": {
+      "visible": true,
+      "text": "平均每小时 ↓ 3.75 GB/h · ↑ 562 MB/h",
+      "x": 1049.08,
+      "y": 653.33,
+      "width": 326.92,
+      "height": 16,
+      "right": 1376,
+      "bottom": 669.33
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": {
+      "x": 64,
+      "y": 285,
+      "width": 380,
+      "height": 190.59,
+      "right": 444,
+      "bottom": 475.59
+    },
+    "plot": {
+      "x": 100,
+      "y": 323.59,
+      "width": 344,
+      "height": 112,
+      "right": 444,
+      "bottom": 435.59
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 44,
+      "y": 736.48,
+      "width": 1352,
+      "height": 16,
+      "right": 1396,
+      "bottom": 752.48
+    },
+    "pageBottomGap": 16.52,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 在线 14 天 3 小时 延迟 18 ms 24h 可用率 100 % 当前速率 MB/s 下行 17.5 · 上行 2.19 24 小时可用率 24/24 采样 100% 50% 0% 00:00 06:00 12:00 18:00 现在 正常 下降 中断 无采样 00:00–01:00 · 100% · 正常 01:00–02:00 · 100% · 正常 02:00–03:00 · 100% · 正常 03:00–04:00 · 100% · 正常 04:00–05:00 · 100% · 正常 05:00–06:00 · 100% ·"
+  },
+  {
+    "label": "old-backend-light-390",
+    "locale": "zh-CN",
+    "theme": "light",
+    "state": "old-backend",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "label": "390"
+    },
+    "errors": [],
+    "pageHeight": 1439,
+    "pageWidth": 390,
+    "viewportWidth": 390,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": {
+        "x": 16,
+        "y": 137,
+        "width": 358,
+        "height": 342.89,
+        "right": 374,
+        "bottom": 479.89,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 153,
+            "width": 326,
+            "height": 44.3,
+            "right": 358,
+            "bottom": 197.3
+          },
+          {
+            "slot": "detail-key-numbers",
+            "x": 32,
+            "y": 207.3,
+            "width": 326,
+            "height": 56,
+            "right": 358,
+            "bottom": 263.3
+          },
+          {
+            "slot": "detail-chart",
+            "x": 32,
+            "y": 273.3,
+            "width": 326,
+            "height": 190.59,
+            "right": 358,
+            "bottom": 463.89
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "availability": {
+        "x": 16,
+        "y": 495.89,
+        "width": 358,
+        "height": 337.5,
+        "right": 374,
+        "bottom": 833.39,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 511.89,
+            "width": 326,
+            "height": 16,
+            "right": 358,
+            "bottom": 527.89
+          },
+          {
+            "slot": "detail-metric-grid",
+            "x": 32,
+            "y": 537.89,
+            "width": 326,
+            "height": 242.5,
+            "right": 358,
+            "bottom": 780.39
+          },
+          {
+            "slot": "detail-availability-foot",
+            "x": 32,
+            "y": 790.39,
+            "width": 326,
+            "height": 27,
+            "right": 358,
+            "bottom": 817.39
+          }
+        ],
+        "maxChildGap": 10,
+        "trailingBlank": 0
+      },
+      "runtime": {
+        "x": 16,
+        "y": 849.39,
+        "width": 358,
+        "height": 255.77,
+        "right": 374,
+        "bottom": 1105.16,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 865.39,
+            "width": 326,
+            "height": 22.39,
+            "right": 358,
+            "bottom": 887.78
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 899.78,
+            "width": 326,
+            "height": 156.38,
+            "right": 358,
+            "bottom": 1056.16
+          },
+          {
+            "slot": "runtime-foot",
+            "x": 32,
+            "y": 1064.16,
+            "width": 326,
+            "height": 25,
+            "right": 358,
+            "bottom": 1089.16
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      },
+      "billing": {
+        "x": 16,
+        "y": 1121.16,
+        "width": 358,
+        "height": 269.78,
+        "right": 374,
+        "bottom": 1390.94,
+        "paddingTop": 16,
+        "paddingBottom": 16,
+        "children": [
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1137.16,
+            "width": 326,
+            "height": 16,
+            "right": 358,
+            "bottom": 1153.16
+          },
+          {
+            "slot": null,
+            "x": 32,
+            "y": 1165.16,
+            "width": 326,
+            "height": 209.78,
+            "right": 358,
+            "bottom": 1374.94
+          }
+        ],
+        "maxChildGap": 12,
+        "trailingBlank": 0
+      }
+    },
+    "metricGrid": {
+      "x": 32,
+      "y": 537.89,
+      "width": 326,
+      "height": 242.5,
+      "right": 358,
+      "bottom": 780.39
+    },
+    "metrics": [
+      {
+        "name": "outages",
+        "visible": true,
+        "text": "中断次数 0 次",
+        "x": 32,
+        "y": 538.89,
+        "width": 163,
+        "height": 81.5,
+        "right": 195,
+        "bottom": 620.39
+      },
+      {
+        "name": "duration",
+        "visible": true,
+        "text": "累计中断 0 小时 按小时采样，实际可能更短",
+        "x": 195,
+        "y": 538.89,
+        "width": 163,
+        "height": 81.5,
+        "right": 358,
+        "bottom": 620.39
+      },
+      {
+        "name": "coverage",
+        "visible": true,
+        "text": "采样覆盖 24/24",
+        "x": 32,
+        "y": 620.39,
+        "width": 163,
+        "height": 80.5,
+        "right": 195,
+        "bottom": 700.89
+      },
+      {
+        "name": "lowest",
+        "visible": true,
+        "text": "最低时段 100% 00:00–01:00",
+        "x": 195,
+        "y": 620.39,
+        "width": 163,
+        "height": 80.5,
+        "right": 358,
+        "bottom": 700.89
+      },
+      {
+        "name": "highest",
+        "visible": true,
+        "text": "最高时段 100% 00:00–01:00",
+        "x": 32,
+        "y": 700.89,
+        "width": 163,
+        "height": 79.5,
+        "right": 195,
+        "bottom": 780.39
+      },
+      {
+        "name": "compare",
+        "visible": true,
+        "text": "24h / 7 天 100%·100% 差值 0.0 pp",
+        "x": 195,
+        "y": 700.89,
+        "width": 163,
+        "height": 79.5,
+        "right": 358,
+        "bottom": 780.39
+      }
+    ],
+    "foot": {
+      "visible": true,
+      "text": "最长连续正常 24 小时 中断时段 无中断",
+      "x": 32,
+      "y": 790.39,
+      "width": 326,
+      "height": 27,
+      "right": 358,
+      "bottom": 817.39
+    },
+    "days": {
+      "visible": false,
+      "text": null
+    },
+    "billingMeta": {
+      "visible": true,
+      "text": "27 / 30 天 按月估算",
+      "x": 32,
+      "y": 1257.34,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 1273.34
+    },
+    "trafficAverage": {
+      "visible": true,
+      "text": "平均每小时 ↓ 3.75 GB/h · ↑ 562 MB/h",
+      "x": 32,
+      "y": 1358.94,
+      "width": 326,
+      "height": 16,
+      "right": 358,
+      "bottom": 1374.94
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": {
+      "x": 32,
+      "y": 273.3,
+      "width": 326,
+      "height": 190.59,
+      "right": 358,
+      "bottom": 463.89
+    },
+    "plot": {
+      "x": 68,
+      "y": 311.89,
+      "width": 290,
+      "height": 112,
+      "right": 358,
+      "bottom": 423.89
+    },
+    "yTicks": [
+      "100%",
+      "50%",
+      "0%"
+    ],
+    "footer": {
+      "x": 16,
+      "y": 1406.94,
+      "width": 358,
+      "height": 16,
+      "right": 374,
+      "bottom": 1422.94
+    },
+    "pageBottomGap": 16.06,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "返回列表 香港-亚太边缘入口 🇭🇰 香港 亚太 在线 14 天 3 小时 延迟 18 ms 24h 可用率 100 % 当前速率 MB/s 下行 17.5 · 上行 2.19 24 小时可用率 24/24 采样 100% 50% 0% 00:00 06:00 12:00 18:00 现在 正常 下降 中断 无采样 00:00–01:00 · 100% · 正常 01:00–02:00 · 100% · 正常 02:00–03:00 · 100% · 正常 03:00–04:00 · 100% · 正常 04:00–05:00 · 100% · 正常 05:00–06:00 · 100% ·"
+  },
+  {
+    "label": "notfound-dark-1440",
+    "locale": "zh-CN",
+    "theme": "dark",
+    "state": "notfound",
+    "viewport": {
+      "width": 1440,
+      "height": 769,
+      "label": "1440"
+    },
+    "errors": [],
+    "pageHeight": 769,
+    "pageWidth": 1440,
+    "viewportWidth": 1440,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null
+    },
+    "metricGrid": null,
+    "metrics": [],
+    "foot": {
+      "visible": false,
+      "text": null
+    },
+    "days": {
+      "visible": false,
+      "text": null
+    },
+    "billingMeta": {
+      "visible": false,
+      "text": null
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": null,
+    "plot": null,
+    "yTicks": [],
+    "footer": null,
+    "pageBottomGap": null,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "该节点不存在或已下线 返回列表"
+  },
+  {
+    "label": "notfound-dark-390",
+    "locale": "zh-CN",
+    "theme": "dark",
+    "state": "notfound",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "label": "390"
+    },
+    "errors": [],
+    "pageHeight": 844,
+    "pageWidth": 390,
+    "viewportWidth": 390,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null
+    },
+    "metricGrid": null,
+    "metrics": [],
+    "foot": {
+      "visible": false,
+      "text": null
+    },
+    "days": {
+      "visible": false,
+      "text": null
+    },
+    "billingMeta": {
+      "visible": false,
+      "text": null
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": null,
+    "plot": null,
+    "yTicks": [],
+    "footer": null,
+    "pageBottomGap": null,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "该节点不存在或已下线 返回列表"
+  },
+  {
+    "label": "notfound-light-1440",
+    "locale": "zh-CN",
+    "theme": "light",
+    "state": "notfound",
+    "viewport": {
+      "width": 1440,
+      "height": 769,
+      "label": "1440"
+    },
+    "errors": [],
+    "pageHeight": 769,
+    "pageWidth": 1440,
+    "viewportWidth": 1440,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null
+    },
+    "metricGrid": null,
+    "metrics": [],
+    "foot": {
+      "visible": false,
+      "text": null
+    },
+    "days": {
+      "visible": false,
+      "text": null
+    },
+    "billingMeta": {
+      "visible": false,
+      "text": null
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": null,
+    "plot": null,
+    "yTicks": [],
+    "footer": null,
+    "pageBottomGap": null,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "该节点不存在或已下线 返回列表"
+  },
+  {
+    "label": "notfound-light-390",
+    "locale": "zh-CN",
+    "theme": "light",
+    "state": "notfound",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "label": "390"
+    },
+    "errors": [],
+    "pageHeight": 844,
+    "pageWidth": 390,
+    "viewportWidth": 390,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null
+    },
+    "metricGrid": null,
+    "metrics": [],
+    "foot": {
+      "visible": false,
+      "text": null
+    },
+    "days": {
+      "visible": false,
+      "text": null
+    },
+    "billingMeta": {
+      "visible": false,
+      "text": null
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": null,
+    "plot": null,
+    "yTicks": [],
+    "footer": null,
+    "pageBottomGap": null,
+    "heading": "PierWave · 亚太边缘",
+    "mainText": "该节点不存在或已下线 返回列表"
+  },
+  {
+    "label": "error-dark-1440",
+    "locale": "zh-CN",
+    "theme": "dark",
+    "state": "error",
+    "viewport": {
+      "width": 1440,
+      "height": 769,
+      "label": "1440"
+    },
+    "errors": [],
+    "pageHeight": 769,
+    "pageWidth": 1440,
+    "viewportWidth": 1440,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null
+    },
+    "metricGrid": null,
+    "metrics": [],
+    "foot": {
+      "visible": false,
+      "text": null
+    },
+    "days": {
+      "visible": false,
+      "text": null
+    },
+    "billingMeta": {
+      "visible": false,
+      "text": null
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": null,
+    "plot": null,
+    "yTicks": [],
+    "footer": null,
+    "pageBottomGap": null,
+    "heading": "服务状态",
+    "mainText": "暂时无法获取服务状态 请稍后再试。 重试 返回列表"
+  },
+  {
+    "label": "error-dark-390",
+    "locale": "zh-CN",
+    "theme": "dark",
+    "state": "error",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "label": "390"
+    },
+    "errors": [],
+    "pageHeight": 844,
+    "pageWidth": 390,
+    "viewportWidth": 390,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null
+    },
+    "metricGrid": null,
+    "metrics": [],
+    "foot": {
+      "visible": false,
+      "text": null
+    },
+    "days": {
+      "visible": false,
+      "text": null
+    },
+    "billingMeta": {
+      "visible": false,
+      "text": null
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": null,
+    "plot": null,
+    "yTicks": [],
+    "footer": null,
+    "pageBottomGap": null,
+    "heading": "服务状态",
+    "mainText": "暂时无法获取服务状态 请稍后再试。 重试 返回列表"
+  },
+  {
+    "label": "error-light-1440",
+    "locale": "zh-CN",
+    "theme": "light",
+    "state": "error",
+    "viewport": {
+      "width": 1440,
+      "height": 769,
+      "label": "1440"
+    },
+    "errors": [],
+    "pageHeight": 769,
+    "pageWidth": 1440,
+    "viewportWidth": 1440,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null
+    },
+    "metricGrid": null,
+    "metrics": [],
+    "foot": {
+      "visible": false,
+      "text": null
+    },
+    "days": {
+      "visible": false,
+      "text": null
+    },
+    "billingMeta": {
+      "visible": false,
+      "text": null
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": null,
+    "plot": null,
+    "yTicks": [],
+    "footer": null,
+    "pageBottomGap": null,
+    "heading": "服务状态",
+    "mainText": "暂时无法获取服务状态 请稍后再试。 重试 返回列表"
+  },
+  {
+    "label": "error-light-390",
+    "locale": "zh-CN",
+    "theme": "light",
+    "state": "error",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "label": "390"
+    },
+    "errors": [],
+    "pageHeight": 844,
+    "pageWidth": 390,
+    "viewportWidth": 390,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null
+    },
+    "metricGrid": null,
+    "metrics": [],
+    "foot": {
+      "visible": false,
+      "text": null
+    },
+    "days": {
+      "visible": false,
+      "text": null
+    },
+    "billingMeta": {
+      "visible": false,
+      "text": null
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": null,
+    "plot": null,
+    "yTicks": [],
+    "footer": null,
+    "pageBottomGap": null,
+    "heading": "服务状态",
+    "mainText": "暂时无法获取服务状态 请稍后再试。 重试 返回列表"
+  },
+  {
+    "label": "disabled-dark-1440",
+    "locale": "zh-CN",
+    "theme": "dark",
+    "state": "disabled",
+    "viewport": {
+      "width": 1440,
+      "height": 769,
+      "label": "1440"
+    },
+    "errors": [],
+    "pageHeight": 769,
+    "pageWidth": 1440,
+    "viewportWidth": 1440,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null
+    },
+    "metricGrid": null,
+    "metrics": [],
+    "foot": {
+      "visible": false,
+      "text": null
+    },
+    "days": {
+      "visible": false,
+      "text": null
+    },
+    "billingMeta": {
+      "visible": false,
+      "text": null
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": null,
+    "plot": null,
+    "yTicks": [],
+    "footer": null,
+    "pageBottomGap": null,
+    "heading": "服务状态",
+    "mainText": "状态页未开放 如需了解服务状态，请联系服务提供方。"
+  },
+  {
+    "label": "disabled-dark-390",
+    "locale": "zh-CN",
+    "theme": "dark",
+    "state": "disabled",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "label": "390"
+    },
+    "errors": [],
+    "pageHeight": 844,
+    "pageWidth": 390,
+    "viewportWidth": 390,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null
+    },
+    "metricGrid": null,
+    "metrics": [],
+    "foot": {
+      "visible": false,
+      "text": null
+    },
+    "days": {
+      "visible": false,
+      "text": null
+    },
+    "billingMeta": {
+      "visible": false,
+      "text": null
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": null,
+    "plot": null,
+    "yTicks": [],
+    "footer": null,
+    "pageBottomGap": null,
+    "heading": "服务状态",
+    "mainText": "状态页未开放 如需了解服务状态，请联系服务提供方。"
+  },
+  {
+    "label": "disabled-light-1440",
+    "locale": "zh-CN",
+    "theme": "light",
+    "state": "disabled",
+    "viewport": {
+      "width": 1440,
+      "height": 769,
+      "label": "1440"
+    },
+    "errors": [],
+    "pageHeight": 769,
+    "pageWidth": 1440,
+    "viewportWidth": 1440,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null
+    },
+    "metricGrid": null,
+    "metrics": [],
+    "foot": {
+      "visible": false,
+      "text": null
+    },
+    "days": {
+      "visible": false,
+      "text": null
+    },
+    "billingMeta": {
+      "visible": false,
+      "text": null
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": null,
+    "plot": null,
+    "yTicks": [],
+    "footer": null,
+    "pageBottomGap": null,
+    "heading": "服务状态",
+    "mainText": "状态页未开放 如需了解服务状态，请联系服务提供方。"
+  },
+  {
+    "label": "disabled-light-390",
+    "locale": "zh-CN",
+    "theme": "light",
+    "state": "disabled",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "label": "390"
+    },
+    "errors": [],
+    "pageHeight": 844,
+    "pageWidth": 390,
+    "viewportWidth": 390,
+    "horizontalOverflow": false,
+    "cards": {
+      "overview": null,
+      "availability": null,
+      "runtime": null,
+      "billing": null
+    },
+    "metricGrid": null,
+    "metrics": [],
+    "foot": {
+      "visible": false,
+      "text": null
+    },
+    "days": {
+      "visible": false,
+      "text": null
+    },
+    "billingMeta": {
+      "visible": false,
+      "text": null
+    },
+    "trafficAverage": {
+      "visible": false,
+      "text": null
+    },
+    "rateTrend": {
+      "visible": false
+    },
+    "chart": null,
+    "plot": null,
+    "yTicks": [],
+    "footer": null,
+    "pageBottomGap": null,
+    "heading": "服务状态",
+    "mainText": "状态页未开放 如需了解服务状态，请联系服务提供方。"
+  }
+]

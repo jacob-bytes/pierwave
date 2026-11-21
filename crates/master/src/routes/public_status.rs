@@ -2,9 +2,11 @@
 //!
 //! 响应形状与 `docs/PLAN.md`「P10：探针公开页」一致，只读、只暴露白名单字段。
 //! 采样聚合全部走 `pierwave_domain::repo::server_samples`，这里只负责把行拼成
-//! 24 个小时桶 / 12 个 5 分钟迷你图桶并做 30 秒进程内缓存。
+//! 24 个小时桶 / 12 个 5 分钟迷你图桶 / 7 个自然日桶并做 30 秒进程内缓存。
 //!
 //! `series` 是纯增量字段：窗口 60 分钟、12 个 5 分钟桶，缺桶补 `null`（不是 0）。
+//! 每台服务器上的 `outage_minutes_24h` / `buckets_7d` / `series_24h` /
+//! `first_seen_at` / `inbound_count` 也是纯增量字段，旧客户端忽略即可。
 //! 口径见 `docs/PUBLIC-STATUS.md`。
 
 use std::collections::{BTreeMap, HashMap};
@@ -15,14 +17,19 @@ use serde::Serialize;
 use serde_json::Value;
 
 use pierwave_domain::billing::BillingMeta;
-use pierwave_domain::models::PublicSummary;
+use pierwave_domain::models::{PublicSummary, ServerDailyBucket, ServerHourlySeriesBucket};
 use pierwave_domain::repo;
+use pierwave_domain::time;
 
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
 const HOUR_SECS: i64 = 3_600;
 const BUCKETS_24H: usize = 24;
+/// 一天的秒数。
+const DAY_SECS: i64 = 86_400;
+/// 公开节点详情页的自然日桶数：固定 7 天。
+const BUCKETS_7D: usize = 7;
 
 /// 公开页迷你图窗口：60 分钟。
 const SERIES_WINDOW_SECS: i64 = 3_600;
@@ -88,6 +95,53 @@ struct PublicServer {
     uptime_7d: Option<f64>,
     /// 固定 24 个元素，从最早的小时到当前小时；没有采样的小时为 null。
     buckets_24h: Vec<Option<PublicBucket>>,
+    /// 最近 24h 内 `online = 0` 的采样分钟数之和（采样粒度 5 分钟）。
+    ///
+    /// **没有任何采样时是 null，不是 0**：0 代表「有采样且全程在线」，
+    /// null 代表「未知」，两者不能混用。
+    outage_minutes_24h: Option<i64>,
+    /// 首次记录时间（`servers.created_at`，Unix 秒）；0 / 未知为 null。
+    first_seen_at: Option<i64>,
+    /// 该服务器上启用的入站数量；没有节点是 0。
+    ///
+    /// 公开字段只暴露**数量**，不含协议 / 端口 / tag / 地址 / 配置。
+    inbound_count: i64,
+    /// 固定 7 个 UTC+8 自然日，从最早到最新；无样本的日 `online_ratio` 为 null。
+    buckets_7d: Vec<PublicDailyBucket>,
+    /// 该服务器最近 24h 的逐小时趋势（纯增量字段）。
+    series_24h: PublicServerSeries,
+}
+
+/// 一个 UTC+8 自然日的公开可用率桶。
+#[derive(Debug, Serialize)]
+struct PublicDailyBucket {
+    /// `YYYY-MM-DD`（UTC+8，与 `traffic` 日账本同口径）。
+    day: String,
+    /// 当天 `AVG(online)`，0..1；当天没有任何采样时是 null（不是 0）。
+    online_ratio: Option<f64>,
+    /// 当天采样行数；没有采样是 0。
+    samples: i64,
+}
+
+/// 单台服务器最近 24h 的逐小时趋势。
+///
+/// 形状与全局 `series` 相同（`t` + 三条等长数组），口径也一致：只统计该小时
+/// `online = 1` 的采样，速率取 `AVG`、延迟取 `ROUND(AVG)`，没有在线采样的小时
+/// 补 `null`。离线采样带的是掉线前最后一帧，不能画进趋势。
+#[derive(Debug, Serialize)]
+struct PublicServerSeries {
+    /// 窗口长度（秒），固定 86400。
+    window_secs: i64,
+    /// 桶宽（秒），固定 3600（整点）。
+    step_secs: i64,
+    /// 24 个桶起点，升序；最后一个桶是当前小时。
+    t: Vec<i64>,
+    /// 该小时**在线**采样的 `AVG(rx_bps)`；没有在线采样时是 null，绝不是 0。
+    rate_rx_bps: Vec<Option<f64>>,
+    /// 同 [`PublicServerSeries::rate_rx_bps`]，发送方向。
+    rate_tx_bps: Vec<Option<f64>>,
+    /// 该小时在线采样的 `ROUND(AVG(latency_ms))`；没有有效延迟时是 null。
+    latency_ms: Vec<Option<i64>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -165,6 +219,28 @@ fn series_bucket_starts(now: i64) -> Vec<i64> {
         .collect()
 }
 
+/// 最近 7 个 UTC+8 自然日的日期（`YYYY-MM-DD`），升序：今天及之前 6 天。
+///
+/// 自然日按 UTC+8 切分，与 `traffic_daily.day` 口径一致；不做 UTC 日期，
+/// 否则东八区凌晨的样本会记到前一天。
+fn day_bucket_dates(now: i64) -> Vec<String> {
+    let today = time::business_day(now);
+    (0..BUCKETS_7D)
+        .rev()
+        .map(|back| time::business_date(time::business_day_start(today - back as i64)))
+        .collect()
+}
+
+/// `servers.created_at` 为 0 / 负数（未知或手工改库）时公开 null，不编造时间。
+fn first_seen_at(created_at: i64) -> Option<i64> {
+    (created_at > 0).then_some(created_at)
+}
+
+/// 一条 `online = 0` 采样代表的中断分钟数（采样粒度 5 分钟）。
+fn outage_minutes(samples: i64) -> i64 {
+    samples * repo::server_samples::SAMPLE_INTERVAL_SECS / 60
+}
+
 pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
     let settings = crate::routes::settings::load(&state.db).await;
     if settings.public_status_enabled == 0 {
@@ -237,6 +313,39 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
             .collect(),
     };
 
+    // 7 天可用率：一次 `GROUP BY server_id, UTC+8 日`，空日子在内存里补 null。
+    // 窗口从 6 天前的 UTC+8 00:00 到现在，正好覆盖 7 个自然日（含今天）。
+    let day_dates = day_bucket_dates(now);
+    let week_start = time::business_day_start(time::business_day(now) - (BUCKETS_7D as i64 - 1));
+    let mut daily: HashMap<String, HashMap<String, ServerDailyBucket>> = HashMap::new();
+    for row in repo::server_samples::daily_buckets_all(&state.db.pool, week_start, now).await? {
+        daily
+            .entry(row.server_id.clone())
+            .or_default()
+            .insert(row.day.clone(), row);
+    }
+
+    // 每台服务器的 24h 逐小时趋势 + 中断采样数：同一条 `GROUP BY server_id, 小时`
+    // 查询同时算出「仅在线采样」的趋势与「online = 0」计数，不再为中断单独扫
+    // 一遍样本表；离线采样的残留速率/延迟不进入趋势（与全局 `series` 同口径）。
+    let mut detail: HashMap<String, HashMap<i64, ServerHourlySeriesBucket>> = HashMap::new();
+    let mut outage_samples: HashMap<String, i64> = HashMap::new();
+    for row in repo::server_samples::hourly_series_all(&state.db.pool, now - DAY_SECS, now).await? {
+        *outage_samples.entry(row.server_id.clone()).or_default() += row.outage_samples;
+        detail
+            .entry(row.server_id.clone())
+            .or_default()
+            .insert(row.ts, row);
+    }
+
+    // 入站数量：一次 `GROUP BY server_id` 查完所有服务器（没有 N+1）。
+    let inbound_counts: HashMap<String, i64> =
+        repo::nodes::enabled_counts_by_server(&state.db.pool)
+            .await?
+            .into_iter()
+            .map(|row| (row.server_id, row.inbound_count))
+            .collect();
+
     let mut group_accumulators: BTreeMap<Option<String>, GroupAccumulator> = BTreeMap::new();
     let servers = servers
         .into_iter()
@@ -268,6 +377,56 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
                         })
                 })
                 .collect();
+            // 7 天桶固定 7 项；查询只返回有采样的日子，这里按日期补 null。
+            let day_rows = daily.get(&server.id);
+            let buckets_7d = day_dates
+                .iter()
+                .map(|day| {
+                    let row = day_rows.and_then(|rows| rows.get(day));
+                    PublicDailyBucket {
+                        day: day.clone(),
+                        online_ratio: row.and_then(|row| row.online_ratio),
+                        samples: row.map(|row| row.samples).unwrap_or(0),
+                    }
+                })
+                .collect();
+            // 24h 逐小时趋势：固定 24 项，空小时补 null（不是 0）。
+            let detail_rows = detail.get(&server.id);
+            let series_24h = PublicServerSeries {
+                window_secs: DAY_SECS,
+                step_secs: HOUR_SECS,
+                t: starts.clone(),
+                rate_rx_bps: starts
+                    .iter()
+                    .map(|ts| {
+                        detail_rows
+                            .and_then(|rows| rows.get(ts))
+                            .and_then(|row| row.rate_rx_bps)
+                    })
+                    .collect(),
+                rate_tx_bps: starts
+                    .iter()
+                    .map(|ts| {
+                        detail_rows
+                            .and_then(|rows| rows.get(ts))
+                            .and_then(|row| row.rate_tx_bps)
+                    })
+                    .collect(),
+                latency_ms: starts
+                    .iter()
+                    .map(|ts| {
+                        detail_rows
+                            .and_then(|rows| rows.get(ts))
+                            .and_then(|row| row.latency_ms)
+                    })
+                    .collect(),
+            };
+            // 没有任何采样 = null（未知）；有采样 = 实际中断分钟数（可能是 0）。
+            let outage_minutes_24h = outage_samples
+                .get(&server.id)
+                .map(|samples| outage_minutes(*samples));
+            let first_seen_at = first_seen_at(server.created_at);
+            let inbound_count = inbound_counts.get(&server.id).copied().unwrap_or(0);
             PublicServer {
                 id: server.id,
                 name: server.name,
@@ -298,6 +457,11 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
                 uptime_24h,
                 uptime_7d: uptime.and_then(|row| row.uptime_7d),
                 buckets_24h,
+                outage_minutes_24h,
+                first_seen_at,
+                inbound_count,
+                buckets_7d,
+                series_24h,
             }
         })
         .collect();
@@ -344,8 +508,10 @@ mod tests {
 
     use pierwave_domain::models::Patch;
     use pierwave_domain::repo;
+    use pierwave_domain::time;
     use pierwave_domain::Db;
 
+    use super::{day_bucket_dates, first_seen_at, outage_minutes};
     use crate::state::AppState;
 
     async fn setup() -> (Router, AppState) {
@@ -440,6 +606,31 @@ mod tests {
         }
     }
 
+    /// 在指定服务器上建一个入站节点；`enabled` 控制是否计入 `inbound_count`。
+    async fn seed_node(state: &AppState, server_id: &str, tag: &str, enabled: bool) {
+        repo::nodes::create(
+            &state.db.pool,
+            server_id,
+            repo::nodes::NewNode {
+                tag: Some(tag.into()),
+                name: tag.into(),
+                protocol: "vless".into(),
+                transport: "tcp".into(),
+                security: "none".into(),
+                port: 443,
+                public_port: None,
+                config_json: "{}".into(),
+                enabled,
+                cert_id: None,
+                bandwidth_kbps: None,
+                tags: Vec::new(),
+                region: None,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
     /// 迷你图固定 12 个桶、3 条等长数组，`t` 升序且步长 300。
     fn assert_series_shape(series: &Value) {
         assert_eq!(series["window_secs"], 3_600, "{series}");
@@ -457,6 +648,28 @@ mod tests {
             assert_eq!(
                 series[key].as_array().unwrap().len(),
                 12,
+                "{key} 的长度必须与 t 一致：{series}"
+            );
+        }
+    }
+
+    /// 24h 逐小时趋势固定 24 个桶、3 条等长数组，`t` 升序且步长 3600。
+    fn assert_detail_series_shape(series: &Value) {
+        assert_eq!(series["window_secs"], 86_400, "{series}");
+        assert_eq!(series["step_secs"], 3_600, "{series}");
+        let t = series["t"].as_array().unwrap();
+        assert_eq!(t.len(), 24, "{series}");
+        for pair in t.windows(2) {
+            assert_eq!(
+                pair[1].as_i64().unwrap() - pair[0].as_i64().unwrap(),
+                3_600,
+                "桶起点必须升序且步长 3600：{series}"
+            );
+        }
+        for key in ["rate_rx_bps", "rate_tx_bps", "latency_ms"] {
+            assert_eq!(
+                series[key].as_array().unwrap().len(),
+                24,
                 "{key} 的长度必须与 t 一致：{series}"
             );
         }
@@ -995,6 +1208,524 @@ mod tests {
         }
     }
 
+    /// 空数据：中断是 null（不是 0）、7 天桶全 null、24h 趋势全 null、
+    /// 入站数量是 0、首次记录来自 `servers.created_at`。
+    #[tokio::test]
+    async fn detail_fields_are_null_or_zero_without_samples() {
+        let (app, state) = setup().await;
+        let id = seed_server(&state, "edge-1", "203.0.113.9").await;
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let server = &body["servers"][0];
+
+        assert!(
+            server["outage_minutes_24h"].is_null(),
+            "没有采样时中断分钟数必须是 null，不能伪造 0：{body}"
+        );
+        assert_eq!(server["inbound_count"], 0, "{body}");
+        let created_at = repo::servers::find_by_id(&state.db.pool, &id)
+            .await
+            .unwrap()
+            .created_at;
+        assert_eq!(server["first_seen_at"], created_at, "首次记录取 created_at");
+
+        let generated_at = body["generated_at"].as_i64().unwrap();
+        let days = server["buckets_7d"].as_array().unwrap();
+        assert_eq!(days.len(), 7, "buckets_7d 必须固定 7 项：{body}");
+        let expected_days = day_bucket_dates(generated_at);
+        let actual_days: Vec<&str> = days
+            .iter()
+            .map(|day| day["day"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            actual_days,
+            expected_days.iter().map(String::as_str).collect::<Vec<_>>(),
+            "7 个自然日必须升序且以今天结尾：{body}"
+        );
+        for day in days {
+            assert!(
+                day["online_ratio"].is_null(),
+                "空日子的 online_ratio 必须是 null：{body}"
+            );
+            assert_eq!(day["samples"], 0, "{body}");
+        }
+
+        let series = &server["series_24h"];
+        assert_detail_series_shape(series);
+        let current = generated_at - generated_at.rem_euclid(3_600);
+        assert_eq!(
+            series["t"][23].as_i64().unwrap(),
+            current,
+            "最后一个桶是当前小时：{body}"
+        );
+        for key in ["rate_rx_bps", "rate_tx_bps", "latency_ms"] {
+            assert!(
+                series[key].as_array().unwrap().iter().all(Value::is_null),
+                "空数据时 {key} 必须全是 null：{body}"
+            );
+        }
+    }
+
+    /// 中断分钟数：每条 `online = 0` 的 5 分钟采样算 5 分钟；全程在线是 0，
+    /// 与「没有采样」的 null 严格区分。
+    #[tokio::test]
+    async fn outage_minutes_count_offline_samples_at_five_minute_granularity() {
+        let (app, state) = setup().await;
+        let a = seed_server(&state, "edge-a", "203.0.113.1").await;
+        let b = seed_server(&state, "edge-b", "203.0.113.2").await;
+        let now = repo::now();
+
+        // 两台都先在线：B 用作「全程在线 → 0 分钟」的对照。
+        repo::servers::mark_online(&state.db.pool, &a)
+            .await
+            .unwrap();
+        repo::servers::mark_online(&state.db.pool, &b)
+            .await
+            .unwrap();
+        repo::server_samples::record_round(&state.db.pool, now)
+            .await
+            .unwrap();
+
+        // A 连续 3 轮离线，每轮 5 分钟 → 15 分钟。
+        repo::servers::mark_offline(&state.db.pool, &a)
+            .await
+            .unwrap();
+        for minutes_ago in [5, 10, 15] {
+            repo::server_samples::record_round(&state.db.pool, now - minutes_ago * 60)
+                .await
+                .unwrap();
+        }
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let by_id = |id: &str| -> &Value {
+            body["servers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == id)
+                .unwrap_or_else(|| panic!("缺少服务器 {id}：{body}"))
+        };
+        assert_eq!(
+            by_id(&a)["outage_minutes_24h"],
+            15,
+            "3 条离线采样 × 5 分钟 = 15：{body}"
+        );
+        assert_eq!(
+            by_id(&b)["outage_minutes_24h"],
+            0,
+            "全程在线的服务器必须是 0，而不是 null：{body}"
+        );
+    }
+
+    /// 7 天桶按 UTC+8 自然日切分：UTC+8 午夜前的 5 分钟落在前一天，午夜的
+    /// 那一条落在当天。采样时间戳是 UTC，边界换算不能按 UTC 切。
+    #[tokio::test]
+    async fn buckets_7d_split_at_utc8_midnight() {
+        let (app, state) = setup().await;
+        seed_server(&state, "edge-1", "203.0.113.9").await;
+        let now = repo::now();
+        let today_start = time::business_day_start(time::business_day(now));
+
+        // 昨天 UTC+8 23:55 在线，今天 UTC+8 00:00 离线。
+        set_online(&state, true).await;
+        repo::server_samples::record_round(&state.db.pool, today_start - 300)
+            .await
+            .unwrap();
+        set_online(&state, false).await;
+        repo::server_samples::record_round(&state.db.pool, today_start)
+            .await
+            .unwrap();
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let days = body["servers"][0]["buckets_7d"].as_array().unwrap();
+        assert_eq!(days.len(), 7);
+
+        let today = &days[6];
+        assert_eq!(
+            today["day"],
+            time::business_date(today_start),
+            "最后一项是 UTC+8 今天：{body}"
+        );
+        assert_eq!(today["samples"], 1, "{body}");
+        assert_eq!(
+            today["online_ratio"], 0.0,
+            "UTC+8 午夜那条离线采样必须落在今天：{body}"
+        );
+
+        let yesterday = &days[5];
+        assert_eq!(
+            yesterday["day"],
+            time::business_date(today_start - 300),
+            "UTC+8 午夜前 5 分钟属于前一天：{body}"
+        );
+        assert_eq!(yesterday["samples"], 1, "{body}");
+        assert_eq!(
+            yesterday["online_ratio"], 1.0,
+            "前一天 23:55 的在线采样必须留在前一天：{body}"
+        );
+
+        // 其余 5 天没有采样：online_ratio 为 null，samples 为 0。
+        for day in &days[..5] {
+            assert!(day["online_ratio"].is_null(), "{body}");
+            assert_eq!(day["samples"], 0, "{body}");
+        }
+    }
+
+    /// 24h 逐小时趋势：速率取小时均值（跳过 NULL）、延迟四舍五入、空小时是
+    /// null 断点；同一个小时内的多条采样必须聚合成一个桶。
+    #[tokio::test]
+    async fn series_24h_averages_rates_and_latency_with_null_gaps() {
+        let (app, state) = setup().await;
+        let id = seed_server(&state, "edge-1", "203.0.113.9").await;
+        let now = repo::now();
+        let current_hour = now - now.rem_euclid(3_600);
+        let target = current_hour - 3 * 3_600;
+
+        // 目标小时两条采样：1000 / 3000 B/s，延迟 20 / 30 → 均值 2000 / 25。
+        repo::servers::mark_online(&state.db.pool, &id)
+            .await
+            .unwrap();
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.1.0",
+            &repo::servers::HealthSnapshot {
+                latency_ms: Some(20),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        repo::servers::update_net_counters(&state.db.pool, &id, 0, 0, target - 120)
+            .await
+            .unwrap();
+        repo::servers::update_net_counters(&state.db.pool, &id, 60_000, 60_000, target - 60)
+            .await
+            .unwrap();
+        repo::server_samples::record_round(&state.db.pool, target)
+            .await
+            .unwrap();
+
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.1.0",
+            &repo::servers::HealthSnapshot {
+                latency_ms: Some(30),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        repo::servers::update_net_counters(&state.db.pool, &id, 240_000, 240_000, target)
+            .await
+            .unwrap();
+        repo::server_samples::record_round(&state.db.pool, target + 300)
+            .await
+            .unwrap();
+
+        // 当前小时：2000 B/s、延迟 40。
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.1.0",
+            &repo::servers::HealthSnapshot {
+                latency_ms: Some(40),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        repo::servers::update_net_counters(&state.db.pool, &id, 360_000, 360_000, target + 60)
+            .await
+            .unwrap();
+        repo::server_samples::record_round(&state.db.pool, now)
+            .await
+            .unwrap();
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let series = &body["servers"][0]["series_24h"];
+        assert_detail_series_shape(series);
+        let t = series["t"].as_array().unwrap();
+        assert_eq!(t[23].as_i64().unwrap(), current_hour);
+        assert_eq!(t[20].as_i64().unwrap(), target, "目标小时是倒数第 4 个桶");
+
+        assert_eq!(series["rate_rx_bps"][20].as_f64().unwrap(), 2_000.0);
+        assert_eq!(series["rate_tx_bps"][20].as_f64().unwrap(), 2_000.0);
+        assert_eq!(
+            series["latency_ms"][20].as_i64().unwrap(),
+            25,
+            "20 与 30 的均值四舍五入是 25：{body}"
+        );
+        assert_eq!(series["rate_rx_bps"][23].as_f64().unwrap(), 2_000.0);
+        assert_eq!(series["latency_ms"][23].as_i64().unwrap(), 40);
+
+        for index in (0..24).filter(|index| *index != 20 && *index != 23) {
+            for key in ["rate_rx_bps", "rate_tx_bps", "latency_ms"] {
+                assert!(
+                    series[key][index].is_null(),
+                    "第 {index} 个桶的 {key} 没有采样，必须是 null 断点：{body}"
+                );
+            }
+        }
+        assert_eq!(body["servers"][0]["outage_minutes_24h"], 0);
+    }
+
+    /// 离线采样不参与 `series_24h` 的速率 / 延迟（与全局 `series` 同口径）：
+    ///
+    /// * 同一小时里「在线 1000 B/s + 离线残留 9000 B/s」→ 该小时仍是 1000；
+    /// * 只有离线采样的小时 → 三条序列都是 `null`，不能沿用掉线前的旧值；
+    /// * `outage_minutes_24h` 照旧统计 `online = 0`，不受此口径影响。
+    #[tokio::test]
+    async fn series_24h_ignores_offline_samples_even_with_stale_values() {
+        let (app, state) = setup().await;
+        let id = seed_server(&state, "edge-1", "203.0.113.9").await;
+        let now = repo::now();
+        let current_hour = now - now.rem_euclid(3_600);
+        let mixed_hour = current_hour - 3 * 3_600;
+        let offline_only_hour = current_hour - 5 * 3_600;
+
+        // 目标小时先写一条在线采样：1000 B/s、延迟 20ms。
+        repo::servers::mark_online(&state.db.pool, &id)
+            .await
+            .unwrap();
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.1.0",
+            &repo::servers::HealthSnapshot {
+                latency_ms: Some(20),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        repo::servers::update_net_counters(&state.db.pool, &id, 0, 0, mixed_hour - 120)
+            .await
+            .unwrap();
+        repo::servers::update_net_counters(&state.db.pool, &id, 60_000, 60_000, mixed_hour - 60)
+            .await
+            .unwrap();
+        repo::server_samples::record_round(&state.db.pool, mixed_hour)
+            .await
+            .unwrap();
+
+        // 掉线后同一小时再写一条：`record_round` 会把掉线前的 9000 B/s / 90ms
+        // 残留值一起抄进采样行（online = 0）。注意 `update_health` 会把状态改回
+        // online，所以先写健康值，最后再标离线。
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.1.0",
+            &repo::servers::HealthSnapshot {
+                latency_ms: Some(90),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        repo::servers::update_net_counters(&state.db.pool, &id, 600_000, 600_000, mixed_hour)
+            .await
+            .unwrap();
+        repo::servers::mark_offline(&state.db.pool, &id)
+            .await
+            .unwrap();
+        repo::server_samples::record_round(&state.db.pool, mixed_hour + 300)
+            .await
+            .unwrap();
+        // 另一个小时只有这一条离线采样。
+        repo::server_samples::record_round(&state.db.pool, offline_only_hour)
+            .await
+            .unwrap();
+
+        // 前提确认：离线采样行确实带着非 NULL 的残留速率与延迟。
+        let samples = repo::server_samples::list(&state.db.pool, &id, offline_only_hour)
+            .await
+            .unwrap();
+        let stale = samples
+            .iter()
+            .find(|sample| sample.ts == mixed_hour + 300)
+            .expect("离线采样应已落库");
+        assert!(!stale.online, "这一行必须是离线采样：{stale:?}");
+        assert!(
+            stale.rx_bps.is_some() && stale.latency_ms.is_some(),
+            "测试前提：离线行带着掉线前的残留值：{stale:?}"
+        );
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let series = &body["servers"][0]["series_24h"];
+        assert_detail_series_shape(series);
+        let t = series["t"].as_array().unwrap();
+        assert_eq!(t[20].as_i64().unwrap(), mixed_hour);
+        assert_eq!(t[18].as_i64().unwrap(), offline_only_hour);
+
+        // 混合小时：离线残留值被排除，只剩在线采样的 1000 B/s / 20ms。
+        assert_eq!(
+            series["rate_rx_bps"][20].as_f64().unwrap(),
+            1_000.0,
+            "离线采样的 9000 B/s 不能拉高该小时均值：{body}"
+        );
+        assert_eq!(series["rate_tx_bps"][20].as_f64().unwrap(), 1_000.0);
+        assert_eq!(
+            series["latency_ms"][20].as_i64().unwrap(),
+            20,
+            "离线采样的 90ms 不能进入延迟均值：{body}"
+        );
+
+        // 只有离线采样的小时：整个桶是 null 断点，不能沿用 9000 B/s / 90ms。
+        for key in ["rate_rx_bps", "rate_tx_bps", "latency_ms"] {
+            assert!(
+                series[key][18].is_null(),
+                "只有离线采样的小时 {key} 必须是 null，不能沿用旧值：{body}"
+            );
+        }
+
+        // 中断口径不变：两条离线采样 × 5 分钟。
+        assert_eq!(body["servers"][0]["outage_minutes_24h"], 10);
+    }
+
+    /// 旧 Agent 的采样没有速率 / 延迟（落库是 NULL）：24h 趋势必须是 null，
+    /// 不能是 0；中断计数仍是 0（采样存在且在线）。
+    #[tokio::test]
+    async fn old_agent_keeps_series_24h_null_not_zero() {
+        let (app, state) = setup().await;
+        let id = seed_server(&state, "edge-1", "203.0.113.9").await;
+        repo::servers::mark_online(&state.db.pool, &id)
+            .await
+            .unwrap();
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.1.0",
+            &repo::servers::HealthSnapshot::default(),
+        )
+        .await
+        .unwrap();
+        repo::server_samples::record_round(&state.db.pool, repo::now())
+            .await
+            .unwrap();
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let series = &body["servers"][0]["series_24h"];
+        assert_detail_series_shape(series);
+        for key in ["rate_rx_bps", "rate_tx_bps", "latency_ms"] {
+            for value in series[key].as_array().unwrap() {
+                assert!(
+                    value.is_null(),
+                    "旧 Agent 没有 {key} 数据时必须返回 null，不能写 0：{body}"
+                );
+            }
+        }
+        // 有采样且在线：中断是 0（不是 null），可与旧 Agent 的 null 趋势区分。
+        assert_eq!(body["servers"][0]["outage_minutes_24h"], 0);
+        // 当天的可用率来自同一条采样：1.0 / 1 条。
+        let today = &body["servers"][0]["buckets_7d"][6];
+        assert_eq!(today["online_ratio"], 1.0, "{body}");
+        assert_eq!(today["samples"], 1, "{body}");
+    }
+
+    /// `inbound_count` 只数 `enabled = 1` 的节点，按服务器分别计数；
+    /// 入站的 tag / 协议 / 端口不能出现在公开响应里。
+    #[tokio::test]
+    async fn inbound_count_counts_only_enabled_nodes_per_server() {
+        let (app, state) = setup().await;
+        let a = seed_server(&state, "edge-a", "203.0.113.1").await;
+        let b = seed_server(&state, "edge-b", "203.0.113.2").await;
+
+        seed_node(&state, &a, "a-enabled-1", true).await;
+        seed_node(&state, &a, "a-enabled-2", true).await;
+        seed_node(&state, &a, "a-disabled", false).await;
+        seed_node(&state, &b, "b-enabled-1", true).await;
+
+        let (status, body, raw) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let by_id = |id: &str| -> &Value {
+            body["servers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == id)
+                .unwrap_or_else(|| panic!("缺少服务器 {id}：{body}"))
+        };
+        assert_eq!(by_id(&a)["inbound_count"], 2, "停用节点不计入：{body}");
+        assert_eq!(by_id(&b)["inbound_count"], 1, "{body}");
+        assert!(
+            !raw.contains("a-enabled-1") && !raw.contains("vless"),
+            "公开响应不应出现入站 tag / 协议：{raw}"
+        );
+    }
+
+    /// 30 秒缓存：命中缓存的 5 个新增字段与首次响应完全一致（含 null 缺口）。
+    #[tokio::test]
+    async fn detail_fields_are_cached_with_the_same_shape() {
+        let (app, state) = setup().await;
+        let id = seed_server(&state, "edge-1", "203.0.113.9").await;
+
+        let (_, first, _) = get(&app, "/api/v1/public/status").await;
+        assert!(first["servers"][0]["outage_minutes_24h"].is_null());
+
+        // 缓存期内建节点 + 写离线采样：缓存命中必须原样返回首次结果。
+        seed_node(&state, &id, "edge-vless", true).await;
+        repo::server_samples::record_round(&state.db.pool, repo::now())
+            .await
+            .unwrap();
+        let (_, cached, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(cached["generated_at"], first["generated_at"]);
+        for key in [
+            "outage_minutes_24h",
+            "first_seen_at",
+            "inbound_count",
+            "buckets_7d",
+            "series_24h",
+        ] {
+            assert_eq!(
+                cached["servers"][0][key], first["servers"][0][key],
+                "缓存命中时 {key} 必须与首次响应一致"
+            );
+        }
+
+        // 清缓存后读到新数据：离线采样 5 分钟、入站 1 个。
+        state.public_status.clear();
+        let (_, fresh, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(fresh["servers"][0]["outage_minutes_24h"], 5);
+        assert_eq!(fresh["servers"][0]["inbound_count"], 1);
+    }
+
+    /// `first_seen_at`：0 / 负数（未知或手工改库）输出 null，不编造 1970 时间。
+    #[test]
+    fn first_seen_at_treats_unknown_timestamps_as_null() {
+        assert_eq!(first_seen_at(0), None);
+        assert_eq!(first_seen_at(-1), None);
+        assert_eq!(first_seen_at(1_763_000_000), Some(1_763_000_000));
+    }
+
+    /// 7 个自然日桶的日期按 UTC+8 切分，升序且以今天结尾。
+    #[test]
+    fn day_bucket_dates_are_seven_utc8_days_ending_today() {
+        // 2024-01-01 16:00:00 UTC = 2024-01-02 00:00:00 UTC+8
+        let days = day_bucket_dates(1_704_067_200 + 16 * 3_600);
+        assert_eq!(days.len(), 7);
+        assert_eq!(days[6], "2024-01-02");
+        assert_eq!(days[0], "2023-12-27");
+        // UTC 2024-01-01 15:59:59 仍属于 UTC+8 的 2024-01-01。
+        let just_before = day_bucket_dates(1_704_067_200 + 16 * 3_600 - 1);
+        assert_eq!(just_before[6], "2024-01-01");
+    }
+
+    /// 每条离线采样固定代表 5 分钟。
+    #[test]
+    fn outage_minutes_are_five_minutes_per_sample() {
+        assert_eq!(outage_minutes(0), 0);
+        assert_eq!(outage_minutes(1), 5);
+        assert_eq!(outage_minutes(36), 180);
+    }
+
     #[tokio::test]
     async fn response_never_contains_address_or_other_sensitive_keys() {
         let (app, state) = setup().await;
@@ -1065,12 +1796,50 @@ mod tests {
             "uptime_24h",
             "uptime_7d",
             "buckets_24h",
+            "outage_minutes_24h",
+            "first_seen_at",
+            "inbound_count",
+            "buckets_7d",
+            "series_24h",
         ];
         expected.sort_unstable();
         let mut actual = server_keys.clone();
         actual.sort_unstable();
         assert_eq!(actual, expected, "服务器行必须严格是白名单字段");
         assert_eq!(body["summary"]["nodes_total"], 1);
+
+        // 新增的两个嵌套结构也必须是白名单：数量 + 趋势，不带任何拓扑细节。
+        let mut daily_keys: Vec<&str> = body["servers"][0]["buckets_7d"][0]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        daily_keys.sort_unstable();
+        assert_eq!(
+            daily_keys,
+            vec!["day", "online_ratio", "samples"],
+            "buckets_7d 只能暴露日期、可用率与样本数"
+        );
+        let mut detail_keys: Vec<&str> = body["servers"][0]["series_24h"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        detail_keys.sort_unstable();
+        assert_eq!(
+            detail_keys,
+            vec![
+                "latency_ms",
+                "rate_rx_bps",
+                "rate_tx_bps",
+                "step_secs",
+                "t",
+                "window_secs",
+            ],
+            "series_24h 字段必须是白名单"
+        );
 
         // 迷你图只暴露三条序列 + 窗口元数据，不能顺手带出别的东西。
         let mut series_keys: Vec<&str> = body["series"]

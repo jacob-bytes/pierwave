@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>方案 1 · 指标栅格 / Metric grid</title>
+    <link rel="stylesheet" href="proto.css" />
+  </head>
+  <body class="p1">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 12h4l3-8 4 16 3-8h4" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </span>
+        <div>
+          <div class="brand-name">PierWave · 亚太边缘</div>
+          <div class="brand-sub">现在有一把钥匙，就在你面前</div>
+        </div>
+        <div class="topbar-right">
+          <span class="time">
+            <span class="dot"></span><span class="num">更新于 14:34:03</span>
+          </span>
+          <span class="hide-sm">
+            <svg class="ghost-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7" rx="1" />
+              <rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" />
+              <rect x="14" y="14" width="7" height="7" rx="1" />
+            </svg>
+            进入后台
+          </span>
+          <svg class="ghost-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" stroke-linecap="round" />
+          </svg>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <div class="back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M19 12H5M12 19l-7-7 7-7" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        返回列表
+      </div>
+
+      <div class="grid">
+        <!-- ① 状态与趋势 -->
+        <section class="card" data-card="overview">
+          <div class="card-head">
+            <div style="min-width: 0">
+              <h1><span data-bind="name">香港-亚太边缘入口</span><span class="flag" data-bind="flag">🇭🇰</span></h1>
+              <div class="meta">
+                <span data-bind="country">香港</span>
+                <span style="display: inline-flex; align-items: center; gap: 4px">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+                  </svg>
+                  <span data-bind="group">亚太</span>
+                </span>
+              </div>
+            </div>
+            <span class="pill"><span class="dot"></span><span>在线</span><span class="uptime" data-bind="uptimeOnly">14 天 3 小时</span></span>
+          </div>
+
+          <div class="kpi-grid">
+            <div class="kpi">
+              <div class="kpi-label">延迟</div>
+              <div class="kpi-value num"><span data-bind="latency">18</span><span class="unit">ms</span></div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-label">24h 可用率</div>
+              <div class="kpi-value num"><span data-bind="uptime24">100</span><span class="unit">%</span></div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-label">当前速率 <span class="unit" data-bind="rateUnit">MB/s</span></div>
+              <div class="kpi-value kpi-rate num">
+                <span class="arrow">↓</span><span data-bind="rxValue">17.5</span>
+                <span class="sep">·</span>
+                <span class="arrow">↑</span><span data-bind="txValue">2.19</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="chart" data-chart></div>
+        </section>
+
+        <!-- ② 可用性明细（2×3 指标栅格） -->
+        <section class="card" data-card="availability">
+          <div class="card-title"><h2>可用性明细</h2></div>
+
+          <div class="metric-grid">
+            <div class="metric">
+              <div class="metric-label">中断次数</div>
+              <div class="metric-value num"><span data-bind="outageCount">0 次</span></div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">累计中断</div>
+              <div class="metric-value num"><span data-bind="duration">0 小时</span></div>
+              <div class="metric-sub">按小时采样，实际可能更短</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">采样覆盖</div>
+              <div class="metric-value num"><span data-bind="coverage">24/24</span></div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">最低时段</div>
+              <div class="metric-value num"><span data-bind="lowestPct">100%</span></div>
+              <div class="metric-sub num" data-bind="lowestRange">00:00–01:00</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">最高时段</div>
+              <div class="metric-value num"><span data-bind="highestPct">100%</span></div>
+              <div class="metric-sub num" data-bind="highestRange">00:00–01:00</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">24h / 7 天</div>
+              <div class="metric-pair num">
+                <span data-bind="uptime24Pct">100%</span>
+                <span class="sep">·</span>
+                <span data-bind="uptime7dPct">100%</span>
+              </div>
+              <div class="metric-sub">差值 <span class="num" data-bind="delta">0.0 pp</span></div>
+            </div>
+          </div>
+
+          <div class="detail-strip">
+            <span>最长连续正常 <b class="num" data-bind="longest">24 小时</b></span>
+            <span>中断时段 <b class="num" data-bind="periods">无中断</b></span>
+          </div>
+        </section>
+
+        <!-- ③ 运行环境 -->
+        <section class="card" data-card="runtime">
+          <div class="card-title">
+            <h2>运行环境</h2>
+            <span class="badge-load">
+              负载 <strong class="num" data-bind="load">0.44</strong><em>1 分钟平均</em>
+            </span>
+          </div>
+
+          <div class="runtime">
+            <div class="rings">
+              <div class="ring-tile">
+                <div class="ring" data-ring data-ring-percent="memory" data-label="内存" aria-hidden="true"></div>
+                <div class="ring-pair num" data-bind="memoryPair">3.2 GB / 8 GB</div>
+              </div>
+              <div class="ring-tile">
+                <div class="ring" data-ring data-ring-percent="disk" data-label="硬盘" aria-hidden="true"></div>
+                <div class="ring-pair num" data-bind="diskPair">42.6 GB / 80 GB</div>
+              </div>
+            </div>
+            <div class="runtime-side">
+              <div class="sys-list">
+                <div class="sys-item"><span class="k">发行版</span><span class="v" data-bind="os">Debian GNU/Linux 12</span></div>
+                <div class="sys-item"><span class="k">虚拟化</span><span class="v" data-bind="virt">kvm</span></div>
+                <div class="sys-item"><span class="k">架构</span><span class="v num" data-bind="arch">x86_64</span></div>
+              </div>
+              <div class="xray" data-xray><span class="dot"></span><span data-bind="xray">Xray 运行中</span></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ④ 费用与流量 -->
+        <section class="card" data-card="billing">
+          <div class="card-title"><h2>费用与流量</h2></div>
+
+          <div class="split">
+            <section class="primary">
+              <div class="block-label">费用与到期</div>
+              <div class="price num"><span data-bind="price">¥268.00</span><span class="unit" data-bind="cycle">/ 月</span></div>
+              <div class="expiry">
+                <strong class="num" data-bind="remaining">27</strong>
+                <span class="unit">天剩余</span>
+                <span class="date"><span class="num" data-bind="paidUntil">2026-12-18</span> 到期</span>
+              </div>
+              <div class="bar" aria-hidden="true"><span data-fill="remaining"></span></div>
+              <div class="bar-meta">
+                <span class="num" data-bind="remainingMeta">27 / 30 天</span>
+                <span data-bind="estimate">按月估算</span>
+              </div>
+            </section>
+
+            <section class="secondary">
+              <div class="traffic-head">
+                <span class="label">累计流量 · 自开机以来</span>
+                <strong class="num" data-bind="total">1.42 TB</strong>
+              </div>
+              <div class="stack" aria-hidden="true">
+                <span class="rx" data-fill="rx"></span>
+                <span class="tx" style="flex: 1"></span>
+              </div>
+              <div class="traffic-rows">
+                <span><span aria-hidden="true">↓</span><span class="num" data-bind="rxBytes">1.24 TB</span></span>
+                <span><span aria-hidden="true">↑</span><span class="num" data-bind="txBytes">186 GB</span></span>
+              </div>
+              <div class="traffic-avg">
+                <span>平均每小时</span>
+                <span class="num">↓ <span data-bind="avgRx">3.75 GB</span>/h · ↑ <span data-bind="avgTx">562 MB</span>/h</span>
+              </div>
+            </section>
+          </div>
+        </section>
+      </div>
+
+      <div class="pagefoot">
+        <span class="num" data-bind="lastReport">最后上报 刚刚</span>
+        <span class="divider" aria-hidden="true"></span>
+        <span>数据每 20 秒刷新</span>
+      </div>
+    </main>
+
+    <script src="fixtures-data.js"></script>
+    <script src="proto.js"></script>
+  </body>
+</html>

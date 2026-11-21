@@ -30,6 +30,9 @@ import { cn } from "@/lib/utils";
 const HOURS = 24;
 const Y_TOP = 4;
 const Y_BOTTOM = 96;
+/** 方案 1：曲线固定 112px，纵轴只保留 100 / 50 / 0 三档。 */
+const PLOT_HEIGHT_CLASS = "h-[112px]";
+const Y_TICKS = [100, 50, 0] as const;
 
 const TONE_LINE: Record<AvailabilityTone, string> = {
   ok: "text-primary",
@@ -179,12 +182,12 @@ export function AvailabilityCurve({
   });
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <div className="flex min-w-0 flex-col">
       <div className="flex items-baseline justify-between gap-2">
         <h2 className="text-xs font-medium tracking-wide text-muted-foreground">
           {t("publicStatus.detail.sections.availability")}
         </h2>
-        <span className="tnum text-xs text-muted-foreground">
+        <span className="tnum text-[11px] text-muted-foreground">
           {t("publicStatus.detail.samples", {
             sampled: sampledCount,
             total: HOURS,
@@ -192,15 +195,17 @@ export function AvailabilityCurve({
         </span>
       </div>
 
-      <div className="mt-3 flex min-h-[150px] flex-1 gap-2">
-        {/* 0–100% 纵轴 */}
+      <div className="mt-2.5 flex gap-2">
+        {/* 0–100% 纵轴：只保留 100 / 50 / 0，避免 112px 里挤 5 条标签。 */}
         <div
+          data-slot="availability-yaxis"
           aria-hidden="true"
-          className="relative w-8 shrink-0 text-[10px] text-muted-foreground"
+          className="relative w-7 shrink-0 text-[10px] text-muted-foreground"
         >
-          {[100, 75, 50, 25, 0].map((value) => (
+          {Y_TICKS.map((value) => (
             <span
               key={value}
+              data-tick={value}
               className="absolute right-0 -translate-y-1/2"
               style={{ top: `${yFor(value / 100)}%` }}
             >
@@ -218,7 +223,10 @@ export function AvailabilityCurve({
               name: server.name,
             })}
             aria-describedby={active === null ? undefined : tooltipId}
-            className="relative h-full min-h-[130px] w-full touch-pan-y select-none"
+            className={cn(
+              "relative w-full touch-pan-y border-b border-border select-none",
+              PLOT_HEIGHT_CLASS,
+            )}
             onPointerDown={(event) => {
               setActive(indexFromPointer(event));
             }}
@@ -252,12 +260,12 @@ export function AvailabilityCurve({
             }}
             onKeyDown={onKeyDown}
           >
-            {/* 25 / 50 / 75 / 100% 网格线（0% 用基线，避免和 x 轴重叠） */}
-            {[25, 50, 75, 100].map((value) => (
+            {/* 50 / 100% 网格线（0% 用 plot 的下边框当基线） */}
+            {[50, 100].map((value) => (
               <span
                 key={value}
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-x-0 border-t border-border/50"
+                className="pointer-events-none absolute inset-x-0 border-t border-border/60"
                 style={{ top: `${yFor(value / 100)}%` }}
               />
             ))}
@@ -421,7 +429,7 @@ export function AvailabilityCurve({
 
           <div
             aria-hidden="true"
-            className="mt-1.5 flex justify-between text-[10px] text-muted-foreground"
+            className="mt-1.5 flex justify-between text-[10px] leading-none text-muted-foreground"
           >
             {tickLabels.map((label, index) => (
               <span key={`tick-${index}`} className="tnum">
@@ -433,8 +441,8 @@ export function AvailabilityCurve({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-3">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 leading-tight">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           {[
             ["ok", AVAILABILITY_BAR_CLASS.ok],
             ["warn", AVAILABILITY_BAR_CLASS.warn],
