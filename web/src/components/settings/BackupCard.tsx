@@ -34,6 +34,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import {
   SettingsGroup,
   SETTINGS_FULL_ROW,
@@ -67,6 +68,8 @@ import {
   useBackupInfo,
   useCancelRestore,
   useRestoreBackup,
+  useSettings,
+  useUpdateSettings,
 } from "@/lib/queries";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { pickBilingual } from "@/lib/updates";
@@ -520,6 +523,10 @@ export function BackupCard() {
   useI18n();
   const info = useBackupInfo();
   const cancelRestore = useCancelRestore();
+  // 加密开关与主设置共用缓存；开关本身不再单独占一张卡。
+  const settings = useSettings();
+  const updateSettings = useUpdateSettings();
+  const encryptionEnabled = settings.data?.backup_encrypt ?? true;
 
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
@@ -537,6 +544,19 @@ export function BackupCard() {
   // 超限时导出按钮必须真的不可点，而不是点了才由后端报错。
   const exportBlocked = isBackupExportBlocked(info.data);
   const exportLimitBytes = backupExportLimitBytes(info.data);
+
+  const handleEncryptionChange = (next: boolean) => {
+    updateSettings.mutate(
+      { backup_encrypt: next },
+      {
+        onSuccess: () => toast.success(t("settings.backup.encrypt.saved")),
+        onError: (error) =>
+          toast.error(
+            errorText(error, t("settings.backup.encrypt.saveError")),
+          ),
+      },
+    );
+  };
 
   /**
    * 导出成功后再触发浏览器下载；失败时把 `backup.export_too_large` 变成
@@ -650,6 +670,52 @@ export function BackupCard() {
           <p className="text-xs text-muted-foreground">
             {t("settings.backup.downloadHint")}
           </p>
+          <p className="text-xs text-muted-foreground">
+            {t("settings.backup.encrypt.exportHint")}
+          </p>
+        </div>
+
+        {/* 加密开关并入「当前数据库大小」卡：关闭时把明文风险留在旁边。 */}
+        <div
+          className={cn(
+            SETTINGS_FULL_ROW,
+            "space-y-2 border-t border-border pt-4",
+          )}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Label
+              htmlFor="settings-backup-encrypt"
+              className="cursor-pointer"
+            >
+              {t("settings.backup.encrypt.label")}
+            </Label>
+            <Switch
+              id="settings-backup-encrypt"
+              checked={encryptionEnabled}
+              disabled={
+                updateSettings.isPending ||
+                settings.isPending ||
+                settings.isError
+              }
+              onCheckedChange={handleEncryptionChange}
+            />
+          </div>
+          {encryptionEnabled ? null : (
+            <p className="text-xs leading-relaxed text-destructive">
+              {t("settings.backup.encrypt.offWarning")}
+            </p>
+          )}
+          {settings.isError ? (
+            <p
+              className="text-xs leading-relaxed text-destructive"
+              role="alert"
+            >
+              {errorText(
+                settings.error,
+                t("settings.backup.encrypt.loadError"),
+              )}
+            </p>
+          ) : null}
         </div>
 
         {exportBlocked ? (

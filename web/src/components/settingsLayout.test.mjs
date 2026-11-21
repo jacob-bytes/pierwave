@@ -51,3 +51,37 @@ test("the one paired row stretches and only those two cards are half width", () 
   assert.match(source, /md:items-stretch/);
   assert.doesNotMatch(source, /className="h-full md:row-start-1"/);
 });
+
+test("backup encryption is in the size card and save bars are page-level", () => {
+  const settings = read("pages/Settings.tsx");
+  // 独立加密卡已删除，开关移进「当前数据库大小」卡。
+  const deadCard = ["Backup", "EncryptionCard"].join("");
+  assert.doesNotMatch(settings, new RegExp(deadCard));
+  const backup = read("components/settings/BackupCard.tsx");
+  assert.match(backup, /backup_encrypt: next/);
+  assert.match(backup, /checked=\{encryptionEnabled\}/);
+  assert.match(backup, /settings\.backup\.encrypt\.offWarning/);
+  assert.match(backup, /settings\.backup\.encrypt\.exportHint/);
+
+  // 安全 tab：API 访问在安全卡之前。
+  const apiIndex = settings.indexOf("<ApiTokensCard />");
+  const securityIndex = settings.indexOf("<SecurityForm");
+  assert.ok(apiIndex >= 0 && securityIndex >= 0);
+  assert.ok(apiIndex < securityIndex, "API access must come before security");
+
+  // 保存条在 form 之外，且自身不是 Card；按钮通过 form 属性提交外部表单。
+  assert.match(
+    settings,
+    /<\/form>\s*<SaveBar\s+formId="settings-general-form"/,
+  );
+  assert.match(
+    settings,
+    /<\/form>\s*<SaveBar\s+formId="settings-security-form"/,
+  );
+  const saveBar = settings.slice(
+    settings.indexOf("function SaveBar"),
+    settings.indexOf("function GeneralForm"),
+  );
+  assert.doesNotMatch(saveBar, /<Card|CardContent|rounded-/);
+  assert.match(saveBar, /form=\{formId\}/);
+});

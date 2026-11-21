@@ -166,12 +166,70 @@ are full-width (1152/342px) with zero inner bottom blank.
 截图 / Screenshots：`me-overview-{before,after}-{light,dark}-{1440,390}.png`，
 几何见 `me-overview-{before,after}-report.json`。
 
+## 6. 设置页三处调整 / Three settings changes
+
+### 备份页 / Backup tab
+
+- `BackupEncryptionCard` 已删除；`backup_encrypt` 开关移入「当前数据库大小」卡，
+  与下载按钮同一张卡，状态仍走原 `PATCH /settings`。
+- 关闭时保留明文风险警告；下载按钮附近显示「导出时使用当前加密设置」。
+- 卡片标题只剩：当前数据库大小 / 恢复数据 / 异地备份。
+- 1440：开 222px / 关 251px，页面高 1397 / 1426px；下一张卡 y=483 / 512（间距 24px）。
+- 390：开 276px / 关 326px，页面高 1777 / 1827px；下一张卡 y=576 / 626（间距 24px）。
+
+The standalone encryption card is gone; the switch lives in the "Current
+database size" card and still writes `backup_encrypt`. The plaintext warning
+stays when off, and the export hint is next to the download button. Card
+titles are now only size / restore / off-site backup. Card heights and 24px
+spacing are listed above.
+
+### 安全页 / Security tab
+
+- 顺序改为 `API 访问 → 安全`；实测 API 卡 y=257.39、安全卡 y=692.47（1440），
+  API 卡 y=301.78、安全卡 y=774.05（390）。
+
+API access now precedes the security card; measured y positions are above.
+
+### 保存条 / Save bar
+
+常规与安全 tab 的保存条已移出表单和任何 Card，成为 TabsContent 的
+`sticky bottom-0` 页面级底条；按钮通过 `form` 属性提交外部表单。
+通知 tab 未改，保持基准。
+
+The regular/security save bars are now page-level `sticky bottom-0` siblings
+of the form (not inside a Card); the button submits via the `form` attribute.
+The alerts tab is unchanged.
+
+| 指标 / Metric | 常规 1440 | 常规 390 | 安全 1440 | 安全 390 | 通知 1440（基准） | 通知 390（基准） |
+|---|---:|---:|---:|---:|---:|---:|
+| bar top @ scroll bottom | 918.94 | 754.83 | 919 | 754.8 | 943.94 | 752.34 |
+| bar bottom @ scroll bottom | 975.94 | 819.83 | 976 | 819.8 | 975.94 | 820.34 |
+| bar height | 57 | 65 | 57 | 65 | 32 | 68 |
+| bar width | 1152 | 342 | 1152 | 342 | 1152 | 342 |
+| 与页面底距离 / distance to page bottom | 24 | 24 | 24 | 24 | 24 | 24 |
+| 滚到底遮挡 / bottom overlap | 0 | 0 | 0 | 0 | 0 | 0 |
+| 最后一张卡到条间距 / card→bar gap | 16 | 16 | 16 | 16 | 24 | 24 |
+| 按钮高 / button height | 32 | **40** | 32 | **40** | 32 | 40 |
+
+- `barInsideCard=false`，保存条不在任何 `Card` 里。
+- 滚动到最底：三张卡均无遮挡；常规/安全条与最后一张卡留 16px，页面底部留 24px。
+- 滚动过程中 sticky 条会覆盖下方内容（常规顶部 269.94px、安全顶部 33.33px），
+  这是吸底条的预期；滚到底后归零。
+- 390 按钮 40px；常规/安全/通知/备份四个 tab 均无横向溢出（scrollWidth=clientWidth=390）。
+
+Screenshots:
+`settings-backup-{on,off}-{light,dark}-{1440,390}.png`、
+`settings-security-{top,bottom}-{light,dark}-{1440,390}.png`、
+`settings-{general,alerts}-{top,bottom}-{light,dark}-{1440,390}.png`；
+几何见 `settings-final-report.json`。
+
 ## 验证 / Verification
+
 
 
 ```bash
 cd web
-npm test                 # green；基线 846 全绿（并行 lane 另有新增用例，当前总数 863）
+npm test                 # green；基线 863 全绿，本次 +1 断言后 864
 npx tsc -b --noEmit      # green
 npm run build            # green
 ```

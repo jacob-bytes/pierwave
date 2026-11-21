@@ -766,6 +766,305 @@ mod tests {
         }
     }
 
+    // ---- T2：错误响应的 gzip 等价性 ----
+
+    /// 建一个管理员与一个普通用户，返回路由、状态和两个会话 Cookie。
+    async fn auth_test_app() -> (Router, AppState, String, String) {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let mut cookies = Vec::new();
+        for (username, role) in [("admin", "admin"), ("bob", "user")] {
+            let user = pierwave_domain::repo::users::create(
+                &db.pool,
+                pierwave_domain::repo::users::NewUser {
+                    username: username.into(),
+                    password: "devpass".into(),
+                    role: role.into(),
+                    quota_bytes: None,
+                    rule_template_id: None,
+                    subscription_template_id: None,
+                },
+            )
+            .await
+            .unwrap();
+            let (token, _) =
+                pierwave_domain::repo::sessions::create(&db.pool, &user.id, 3_600, None)
+                    .await
+                    .unwrap();
+            cookies.push(format!("{}={token}", crate::auth::SESSION_COOKIE));
+        }
+        let state = AppState::new(db, "web/dist");
+        let app = router(state.clone());
+        let bob = cookies.pop().unwrap();
+        let admin = cookies.pop().unwrap();
+        (app, state, admin, bob)
+    }
+
+    /// 构造一次 API 请求；`accept_gzip` 控制是否声明 gzip，`xff` 用于可控限流键。
+    fn api_request(
+        method: Method,
+        uri: &str,
+        cookie: Option<&str>,
+        body: Option<&str>,
+        xff: Option<&str>,
+        accept_gzip: bool,
+    ) -> Request<Body> {
+        let mut builder = Request::builder().method(method).uri(uri);
+        if let Some(cookie) = cookie {
+            builder = builder.header(header::COOKIE, cookie);
+        }
+        if let Some(xff) = xff {
+            builder = builder.header("x-forwarded-for", xff);
+        }
+        if body.is_some() {
+            builder = builder.header(header::CONTENT_TYPE, "application/json");
+        }
+        if accept_gzip {
+            builder = builder.header(header::ACCEPT_ENCODING, "gzip");
+        }
+        builder
+            .body(
+                body.map(|body| Body::from(body.to_owned()))
+                    .unwrap_or_else(Body::empty),
+            )
+            .unwrap()
+    }
+
+    async fn read_response(
+        app: &Router,
+        request: Request<Body>,
+    ) -> (StatusCode, axum::http::HeaderMap, Vec<u8>) {
+        let response = app.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let headers = response.headers().clone();
+        let bytes = axum::body::to_bytes(response.into_body(), 4 * 1024 * 1024)
+            .await
+            .unwrap()
+            .to_vec();
+        (status, headers, bytes)
+    }
+
+    /// 同一请求在「不压缩 / 接受 gzip」两种情况下必须逐字节等价。
+    ///
+    /// 断言：状态码一致；只有声明 gzip 时才压缩；压缩响应带
+    /// `Vary: Accept-Encoding`；`/api/` 的 `Cache-Control: no-store` 在两种
+    /// 响应里都保留；gzip 体解压后与未压缩体完全一致。返回状态码与未压缩
+    /// 响应体，供调用方再断言具体错误类型。
+    async fn assert_gzip_equivalent(
+        app: &Router,
+        label: &str,
+        make: impl Fn(bool) -> Request<Body>,
+    ) -> (StatusCode, Vec<u8>) {
+        let (plain_status, plain_headers, plain_body) = read_response(app, make(false)).await;
+        let (gzip_status, gzip_headers, gzip_body) = read_response(app, make(true)).await;
+
+        assert_eq!(plain_status, gzip_status, "{label}: 压缩不能改变状态码");
+        assert!(
+            plain_headers.get(header::CONTENT_ENCODING).is_none(),
+            "{label}: 未声明 Accept-Encoding 时不能压缩"
+        );
+        assert_eq!(
+            gzip_headers
+                .get(header::CONTENT_ENCODING)
+                .and_then(|value| value.to_str().ok()),
+            Some("gzip"),
+            "{label}: 必须带 Content-Encoding: gzip"
+        );
+        let vary = gzip_headers
+            .get(header::VARY)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        assert!(
+            vary.contains("accept-encoding"),
+            "{label}: 压缩响应必须带 Vary: Accept-Encoding，实际 {vary}"
+        );
+        for (kind, headers) in [("plain", &plain_headers), ("gzip", &gzip_headers)] {
+            assert_eq!(
+                headers
+                    .get(header::CACHE_CONTROL)
+                    .and_then(|value| value.to_str().ok()),
+                Some("no-store"),
+                "{label}: {kind} 响应必须保留 /api/ 的 no-store"
+            );
+        }
+        let mut decoder = flate2::read::GzDecoder::new(&gzip_body[..]);
+        let mut decoded = Vec::new();
+        std::io::Read::read_to_end(&mut decoder, &mut decoded).unwrap();
+        assert_eq!(
+            decoded, plain_body,
+            "{label}: 解压后必须与未压缩响应逐字节一致"
+        );
+        (plain_status, plain_body)
+    }
+
+    /// 把错误响应体解析成 JSON，便于按 `code` 断言具体错误类型。
+    fn error_body(bytes: &[u8]) -> serde_json::Value {
+        serde_json::from_slice(bytes).expect("错误响应必须是 JSON 信封")
+    }
+
+    /// T2-400：设置校验错误（`settings.panel_name_length_invalid`）。
+    #[tokio::test]
+    async fn gzip_keeps_400_validation_error_byte_identical() {
+        let (app, _state, admin, _bob) = auth_test_app().await;
+        let (status, body) = assert_gzip_equivalent(&app, "400", |gzip| {
+            api_request(
+                Method::PATCH,
+                "/api/v1/settings",
+                Some(&admin),
+                Some(r#"{"panel_name":""}"#),
+                None,
+                gzip,
+            )
+        })
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            error_body(&body)["code"],
+            "settings.panel_name_length_invalid"
+        );
+    }
+
+    /// T2-401：未登录访问受保护接口。
+    #[tokio::test]
+    async fn gzip_keeps_401_unauthorized_error_byte_identical() {
+        let (app, _state, _admin, _bob) = auth_test_app().await;
+        let (status, body) = assert_gzip_equivalent(&app, "401", |gzip| {
+            api_request(Method::GET, "/api/v1/settings", None, None, None, gzip)
+        })
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(error_body(&body)["code"], "auth.unauthorized");
+    }
+
+    /// T2-403：普通用户访问管理员接口。
+    #[tokio::test]
+    async fn gzip_keeps_403_forbidden_error_byte_identical() {
+        let (app, _state, _admin, bob) = auth_test_app().await;
+        let (status, body) = assert_gzip_equivalent(&app, "403", |gzip| {
+            api_request(
+                Method::GET,
+                "/api/v1/settings",
+                Some(&bob),
+                None,
+                None,
+                gzip,
+            )
+        })
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(error_body(&body)["code"], "auth.forbidden");
+    }
+
+    /// T2-404：公开状态页请求不存在的服务器。
+    #[tokio::test]
+    async fn gzip_keeps_404_not_found_error_byte_identical() {
+        let (app, _state, _admin, _bob) = auth_test_app().await;
+        let (status, body) = assert_gzip_equivalent(&app, "404", |gzip| {
+            api_request(
+                Method::GET,
+                "/api/v1/public/status/does-not-exist",
+                None,
+                None,
+                None,
+                gzip,
+            )
+        })
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(error_body(&body)["code"], "public_status.not_found");
+    }
+
+    /// T2-422：JSON 字段类型不匹配（全局错误信封）。
+    #[tokio::test]
+    async fn gzip_keeps_422_json_type_error_byte_identical() {
+        let (app, _state, _admin, _bob) = auth_test_app().await;
+        let (status, body) = assert_gzip_equivalent(&app, "422", |gzip| {
+            api_request(
+                Method::POST,
+                "/api/v1/auth/login",
+                None,
+                Some(r#"{"username":1,"password":"devpass"}"#),
+                None,
+                gzip,
+            )
+        })
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(error_body(&body)["code"], "request.invalid_json");
+    }
+
+    /// T2-429：公开状态页限流（`public_status.rate_limited`）。
+    #[tokio::test]
+    async fn gzip_keeps_429_rate_limit_error_byte_identical() {
+        let (app, _state) = test_app_with_state(1).await;
+        let ip = "203.0.113.99";
+        // 先花掉唯一一次额度，让 plain / gzip 两次请求都拿到 429。
+        assert_eq!(
+            get_with_ip(&app, "/api/v1/public/status", ip).await.0,
+            StatusCode::OK
+        );
+        let (status, body) = assert_gzip_equivalent(&app, "429", |gzip| {
+            api_request(
+                Method::GET,
+                "/api/v1/public/status",
+                None,
+                None,
+                Some(ip),
+                gzip,
+            )
+        })
+        .await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(error_body(&body)["code"], "public_status.rate_limited");
+    }
+
+    /// T2-503：公开状态页快照单飞重建等待超时（`public_status.overloaded`）。
+    #[tokio::test]
+    async fn gzip_keeps_503_single_flight_timeout_byte_identical() {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let state = AppState::new(db, "web/dist")
+            .with_public_status_wait(std::time::Duration::from_millis(30));
+        let app = router(state.clone());
+
+        let started = std::sync::Arc::new(tokio::sync::Notify::new());
+        let release = std::sync::Arc::new(tokio::sync::Notify::new());
+        let leader = {
+            let cache = state.public_status.clone();
+            let started = started.clone();
+            let release = release.clone();
+            tokio::spawn(async move {
+                cache
+                    .get_or_build(|| async move {
+                        started.notify_one();
+                        // 一直占着单飞锁，直到两次 HTTP 请求都超时返回 503。
+                        release.notified().await;
+                        Ok::<_, AppError>(crate::state::PublicStatusSnapshot::default())
+                    })
+                    .await
+            })
+        };
+        started.notified().await;
+
+        let (status, body) = assert_gzip_equivalent(&app, "503", |gzip| {
+            api_request(Method::GET, "/api/v1/public/status", None, None, None, gzip)
+        })
+        .await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error_body(&body)["code"], "public_status.overloaded");
+
+        // 放行 leader：超时只影响等待者，不能把缓存永久锁死。
+        release.notify_one();
+        assert!(leader.await.unwrap().is_ok());
+        let response = get(&app, "/api/v1/public/status", None).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "leader 完成后必须恢复正常"
+        );
+    }
+
     #[test]
     fn redact_uri_hides_subscription_code_and_api_query() {
         let uri: Uri = "/api/v1/sub/abc123".parse().unwrap();

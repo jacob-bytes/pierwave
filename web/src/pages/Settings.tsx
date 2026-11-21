@@ -26,7 +26,6 @@ import {
 import { AlertsCard } from "@/components/settings/AlertsCard";
 import { ApiTokensCard } from "@/components/settings/ApiTokensCard";
 import { BackupCard } from "@/components/settings/BackupCard";
-import { BackupEncryptionCard } from "@/components/settings/BackupEncryptionCard";
 import { RemoteBackupCard } from "@/components/settings/RemoteBackupCard";
 import { CertificatesPanel } from "@/components/settings/CertificatesPanel";
 import { PublicStatusCard } from "@/components/settings/PublicStatusCard";
@@ -281,33 +280,29 @@ function SettingsPanelState({
   return <>{children(query.data)}</>;
 }
 
-/** 每个 tab 自己的保存条；提交键只由所在表单决定。 */
+/**
+ * 每个 tab 自己的页面级保存条。
+ *
+ * 它不在任何 Card / form 里：作为 TabsContent 的最后一个普通流子节点，
+ * `sticky bottom-0` 贴在内容区底部；滚到最底时回到正常流，最后一张卡
+ * 与保存条之间自然留出间距，不会被遮住。按钮用 `form` 属性提交外部表单。
+ */
 function SaveBar({
   pending,
   dirty,
-  className,
+  formId,
 }: {
   pending: boolean;
   dirty: boolean;
-  className?: string;
+  formId: string;
 }) {
   return (
-    /*
-     * 吸底：常规 tab 有 5 张卡，保存按钮原本在整页最底部，
-     * 改一个字段要滚到底才能提交。sticky bottom 让它在滚动全程贴在
-     * 视口底部；滚动到底时又回到正常流里，不遮挡最后一张卡。
-     * 卡片标题不做吸顶：同一滚动容器里会有多个 sticky 标题互相顶替，
-     * 小屏还会占掉本就紧张的高度。
-     */
     <div
       data-slot="settings-savebar"
-      className={cn(
-        "sticky bottom-0 z-20 flex flex-wrap items-center justify-end gap-3 border-t border-border bg-card/95 py-3 backdrop-blur-sm",
-        className,
-      )}
+      className="sticky bottom-0 z-20 flex w-full flex-wrap items-center justify-end gap-3 border-t border-border bg-background/95 py-3 backdrop-blur-sm"
     >
       <p className="text-xs text-muted-foreground">{t("settings.saveHint")}</p>
-      <Button type="submit" disabled={pending || !dirty}>
+      <Button type="submit" form={formId} disabled={pending || !dirty}>
         {pending ? (
           <Loader2Icon className="animate-spin" />
         ) : (
@@ -385,166 +380,170 @@ function GeneralForm({ initial }: { initial: Settings }) {
     : t("settings.agentUpgrade.concurrencyHintDefault");
 
   return (
-    <form
-      className="grid grid-cols-1 gap-6 md:grid-cols-2 md:items-stretch"
-      onSubmit={onSubmit}
-    >
-      {/*
-        顺序固定为：面板 → 版本更新 → 对外地址 → Agent 升级 → 公开状态页，
-        桌面端与 390 单列完全一致，不为并排调整卡片顺序。
-        ≥768px 时只把语义相邻、高度接近的「版本更新 + 对外地址」并排
-        （正文 222/221px < 260px；整卡 316/311px，并排后等高，差 5px）；
-        其余卡片保持整宽：面板、Agent 升级各占一行，公开状态页内部已经是
-        双列，外层再并排会过窄。
-        版本更新的两个设置项也在这里，由底部同一条保存栏统一提交。
-      */}
-      <SettingsGroup
-        icon={SlidersHorizontalIcon}
-        title={t("settings.panel.title")}
-        description={t("settings.panel.desc")}
-        className="md:col-span-2"
+    <>
+      <form
+        id="settings-general-form"
+        className="grid grid-cols-1 gap-6 md:grid-cols-2 md:items-stretch"
+        onSubmit={onSubmit}
       >
-        <FormField
-          label={t("settings.panel.name")}
-          htmlFor="settings-panel-name"
-          required
-          hint={t("settings.panel.nameHint")}
-          error={form.formState.errors.panel_name?.message}
+        {/*
+          顺序固定为：面板 → 版本更新 → 对外地址 → Agent 升级 → 公开状态页，
+          桌面端与 390 单列完全一致，不为并排调整卡片顺序。
+          ≥768px 时只把语义相邻、高度接近的「版本更新 + 对外地址」并排
+          （正文 222/221px < 260px；整卡 316/311px，并排后等高，差 5px）；
+          其余卡片保持整宽：面板、Agent 升级各占一行，公开状态页内部已经是
+          双列，外层再并排会过窄。
+          版本更新的两个设置项也在这里，由底部同一条保存栏统一提交。
+        */}
+        <SettingsGroup
+          icon={SlidersHorizontalIcon}
+          title={t("settings.panel.title")}
+          description={t("settings.panel.desc")}
+          className="md:col-span-2"
         >
-          <Input
-            id="settings-panel-name"
-            autoComplete="off"
-            placeholder={t("settings.panel.namePlaceholder")}
-            disabled={updateSettings.isPending}
-            aria-invalid={Boolean(form.formState.errors.panel_name)}
-            {...form.register("panel_name")}
-          />
-        </FormField>
-      </SettingsGroup>
+          <FormField
+            label={t("settings.panel.name")}
+            htmlFor="settings-panel-name"
+            required
+            hint={t("settings.panel.nameHint")}
+            error={form.formState.errors.panel_name?.message}
+          >
+            <Input
+              id="settings-panel-name"
+              autoComplete="off"
+              placeholder={t("settings.panel.namePlaceholder")}
+              disabled={updateSettings.isPending}
+              aria-invalid={Boolean(form.formState.errors.panel_name)}
+              {...form.register("panel_name")}
+            />
+          </FormField>
+        </SettingsGroup>
 
-      <UpdatesSection
-        form={form}
-        saving={updateSettings.isPending}
-        className="h-full md:col-start-1 md:row-start-2"
-      />
+        <UpdatesSection
+          form={form}
+          saving={updateSettings.isPending}
+          className="h-full md:col-start-1 md:row-start-2"
+        />
 
-      <SettingsGroup
-        icon={Link2Icon}
-        title={t("settings.publicBase.title")}
-        description={t("settings.publicBase.desc")}
-        className="h-full md:col-start-2 md:row-start-2"
-      >
-        <FormField
-          label={t("settings.publicBase.agent")}
-          htmlFor="settings-agent-base-url"
-          hint={t("settings.publicBase.agentHint")}
-          error={form.formState.errors.agent_base_url?.message}
+        <SettingsGroup
+          icon={Link2Icon}
+          title={t("settings.publicBase.title")}
+          description={t("settings.publicBase.desc")}
+          className="h-full md:col-start-2 md:row-start-2"
         >
-          <Input
-            id="settings-agent-base-url"
-            autoComplete="off"
-            placeholder={t("settings.publicBase.agentPlaceholder")}
-            disabled={updateSettings.isPending}
-            aria-invalid={Boolean(form.formState.errors.agent_base_url)}
-            {...form.register("agent_base_url")}
-          />
-        </FormField>
+          <FormField
+            label={t("settings.publicBase.agent")}
+            htmlFor="settings-agent-base-url"
+            hint={t("settings.publicBase.agentHint")}
+            error={form.formState.errors.agent_base_url?.message}
+          >
+            <Input
+              id="settings-agent-base-url"
+              autoComplete="off"
+              placeholder={t("settings.publicBase.agentPlaceholder")}
+              disabled={updateSettings.isPending}
+              aria-invalid={Boolean(form.formState.errors.agent_base_url)}
+              {...form.register("agent_base_url")}
+            />
+          </FormField>
 
-        <FormField
-          label={t("settings.publicBase.subscription")}
-          htmlFor="settings-subscription-base-url"
-          hint={t("settings.publicBase.subscriptionHint")}
-          error={form.formState.errors.subscription_base_url?.message}
+          <FormField
+            label={t("settings.publicBase.subscription")}
+            htmlFor="settings-subscription-base-url"
+            hint={t("settings.publicBase.subscriptionHint")}
+            error={form.formState.errors.subscription_base_url?.message}
+          >
+            <Input
+              id="settings-subscription-base-url"
+              autoComplete="off"
+              placeholder={t("settings.publicBase.subscriptionPlaceholder")}
+              disabled={updateSettings.isPending}
+              aria-invalid={Boolean(
+                form.formState.errors.subscription_base_url,
+              )}
+              {...form.register("subscription_base_url")}
+            />
+          </FormField>
+
+          {/* 示例链接是只读参考，不是输入项：独占一整行，用提示块与表单字段区分。 */}
+          <InfoNote
+            className={SETTINGS_FULL_ROW}
+            title={t("settings.publicBase.examples")}
+          >
+            <InfoNoteRow
+              label={t("settings.publicBase.agentPreview")}
+              code={examples.installCommand}
+              action={
+                <CopyButton
+                  value={examples.installCommand}
+                  label={t("settings.publicBase.agentPreview")}
+                />
+              }
+            />
+            <InfoNoteRow
+              label={t("settings.publicBase.subscriptionPreview")}
+              code={examples.subscriptionLink}
+              action={
+                <CopyButton
+                  value={examples.subscriptionLink}
+                  label={t("settings.publicBase.subscriptionPreview")}
+                />
+              }
+            />
+          </InfoNote>
+        </SettingsGroup>
+
+        <SettingsGroup
+          icon={ArrowUpCircleIcon}
+          title={t("settings.agentUpgrade.title")}
+          description={t("settings.agentUpgrade.desc")}
+          className="md:col-span-2"
         >
-          <Input
-            id="settings-subscription-base-url"
-            autoComplete="off"
-            placeholder={t("settings.publicBase.subscriptionPlaceholder")}
-            disabled={updateSettings.isPending}
-            aria-invalid={Boolean(
-              form.formState.errors.subscription_base_url,
-            )}
-            {...form.register("subscription_base_url")}
-          />
-        </FormField>
+          <FormField
+            label={t("settings.agentUpgrade.concurrency")}
+            htmlFor="settings-agent-upgrade-concurrency"
+            required
+            hint={concurrencyHint}
+            error={form.formState.errors.agent_upgrade_concurrency?.message}
+          >
+            <Input
+              id="settings-agent-upgrade-concurrency"
+              inputMode="numeric"
+              placeholder="1"
+              disabled={updateSettings.isPending}
+              aria-invalid={Boolean(
+                form.formState.errors.agent_upgrade_concurrency,
+              )}
+              {...form.register("agent_upgrade_concurrency")}
+            />
+          </FormField>
+        </SettingsGroup>
 
-        {/* 示例链接是只读参考，不是输入项：独占一整行，用提示块与表单字段区分。 */}
-        <InfoNote
-          className={SETTINGS_FULL_ROW}
-          title={t("settings.publicBase.examples")}
-        >
-          <InfoNoteRow
-            label={t("settings.publicBase.agentPreview")}
-            code={examples.installCommand}
-            action={
-              <CopyButton
-                value={examples.installCommand}
-                label={t("settings.publicBase.agentPreview")}
-              />
-            }
-          />
-          <InfoNoteRow
-            label={t("settings.publicBase.subscriptionPreview")}
-            code={examples.subscriptionLink}
-            action={
-              <CopyButton
-                value={examples.subscriptionLink}
-                label={t("settings.publicBase.subscriptionPreview")}
-              />
-            }
-          />
-        </InfoNote>
-      </SettingsGroup>
+        {/*
+          公开状态页：总开关、公开节点白名单、账期隐私开关。后两组只在总开关
+          开启时可编辑；白名单有独立对话框与 PUT，其余两项随底部保存栏提交。
+        */}
+        <PublicStatusCard
+          form={form}
+          saving={updateSettings.isPending}
+          billingSupported={billingSupported}
+          className="md:col-span-2"
+        />
 
-      <SettingsGroup
-        icon={ArrowUpCircleIcon}
-        title={t("settings.agentUpgrade.title")}
-        description={t("settings.agentUpgrade.desc")}
-        className="md:col-span-2"
-      >
-        <FormField
-          label={t("settings.agentUpgrade.concurrency")}
-          htmlFor="settings-agent-upgrade-concurrency"
-          required
-          hint={concurrencyHint}
-          error={form.formState.errors.agent_upgrade_concurrency?.message}
-        >
-          <Input
-            id="settings-agent-upgrade-concurrency"
-            inputMode="numeric"
-            placeholder="1"
-            disabled={updateSettings.isPending}
-            aria-invalid={Boolean(
-              form.formState.errors.agent_upgrade_concurrency,
-            )}
-            {...form.register("agent_upgrade_concurrency")}
-          />
-        </FormField>
-      </SettingsGroup>
+        {form.formState.errors.root?.message ? (
+          <div className="md:col-span-2">
+            <FormRootError message={form.formState.errors.root.message} />
+          </div>
+        ) : null}
 
-      {/*
-        公开状态页：总开关、公开节点白名单、账期隐私开关。后两组只在总开关
-        开启时可编辑；白名单有独立对话框与 PUT，其余两项随底部保存栏提交。
-      */}
-      <PublicStatusCard
-        form={form}
-        saving={updateSettings.isPending}
-        billingSupported={billingSupported}
-        className="md:col-span-2"
-      />
-
-      {form.formState.errors.root?.message ? (
-        <div className="md:col-span-2">
-          <FormRootError message={form.formState.errors.root.message} />
-        </div>
-      ) : null}
+      </form>
 
       <SaveBar
+        formId="settings-general-form"
         pending={updateSettings.isPending}
         dirty={form.formState.isDirty}
-        className="md:col-span-2"
       />
-    </form>
+    </>
   );
 }
 
@@ -602,74 +601,81 @@ function SecurityForm({ initial }: { initial: Settings }) {
     : t("settings.security.sessionHintDefault");
 
   return (
-    <form className="space-y-6" onSubmit={onSubmit}>
-      {/* 与常规 tab 同一套布局：每个分组一张独立卡片，组内两列、字段内部上下堆叠。 */}
-      <SettingsGroup
-        icon={ShieldCheckIcon}
-        title={t("settings.security.title")}
-        description={t("settings.security.desc")}
+    <>
+      <form
+        id="settings-security-form"
+        className="space-y-6"
+        onSubmit={onSubmit}
       >
-        {/* 失败上限与锁定时长是同一套登录限流策略，并排；会话有效期是另一件事，独占一行。 */}
-        <FormField
-          label={t("settings.security.attempts")}
-          htmlFor="settings-login-max-attempts"
-          required
-          hint={attemptsHint}
-          error={form.formState.errors.login_max_attempts?.message}
+        {/* 与常规 tab 同一套布局：每个分组一张独立卡片，组内两列、字段内部上下堆叠。 */}
+        <SettingsGroup
+          icon={ShieldCheckIcon}
+          title={t("settings.security.title")}
+          description={t("settings.security.desc")}
         >
-          <Input
-            id="settings-login-max-attempts"
-            inputMode="numeric"
-            placeholder="5"
-            disabled={updateSettings.isPending}
-            aria-invalid={Boolean(form.formState.errors.login_max_attempts)}
-            {...form.register("login_max_attempts")}
-          />
-        </FormField>
+          {/* 失败上限与锁定时长是同一套登录限流策略，并排；会话有效期是另一件事，独占一行。 */}
+          <FormField
+            label={t("settings.security.attempts")}
+            htmlFor="settings-login-max-attempts"
+            required
+            hint={attemptsHint}
+            error={form.formState.errors.login_max_attempts?.message}
+          >
+            <Input
+              id="settings-login-max-attempts"
+              inputMode="numeric"
+              placeholder="5"
+              disabled={updateSettings.isPending}
+              aria-invalid={Boolean(form.formState.errors.login_max_attempts)}
+              {...form.register("login_max_attempts")}
+            />
+          </FormField>
 
-        <FormField
-          label={t("settings.security.lock")}
-          htmlFor="settings-login-lock-secs"
-          required
-          hint={lockHint}
-          error={form.formState.errors.login_lock_secs?.message}
-        >
-          <Input
-            id="settings-login-lock-secs"
-            inputMode="numeric"
-            placeholder="900"
-            disabled={updateSettings.isPending}
-            aria-invalid={Boolean(form.formState.errors.login_lock_secs)}
-            {...form.register("login_lock_secs")}
-          />
-        </FormField>
+          <FormField
+            label={t("settings.security.lock")}
+            htmlFor="settings-login-lock-secs"
+            required
+            hint={lockHint}
+            error={form.formState.errors.login_lock_secs?.message}
+          >
+            <Input
+              id="settings-login-lock-secs"
+              inputMode="numeric"
+              placeholder="900"
+              disabled={updateSettings.isPending}
+              aria-invalid={Boolean(form.formState.errors.login_lock_secs)}
+              {...form.register("login_lock_secs")}
+            />
+          </FormField>
 
-        {/* 会话有效期与登录限流是两件事：不并排，自己占一行（右列留空）。 */}
-        <FormField
-          label={t("settings.security.session")}
-          htmlFor="settings-session-ttl-hours"
-          required
-          hint={sessionHint}
-          error={form.formState.errors.session_ttl_hours?.message}
-        >
-          <Input
-            id="settings-session-ttl-hours"
-            inputMode="numeric"
-            placeholder="24"
-            disabled={updateSettings.isPending}
-            aria-invalid={Boolean(form.formState.errors.session_ttl_hours)}
-            {...form.register("session_ttl_hours")}
-          />
-        </FormField>
-      </SettingsGroup>
+          {/* 会话有效期与登录限流是两件事：不并排，自己占一行（右列留空）。 */}
+          <FormField
+            label={t("settings.security.session")}
+            htmlFor="settings-session-ttl-hours"
+            required
+            hint={sessionHint}
+            error={form.formState.errors.session_ttl_hours?.message}
+          >
+            <Input
+              id="settings-session-ttl-hours"
+              inputMode="numeric"
+              placeholder="24"
+              disabled={updateSettings.isPending}
+              aria-invalid={Boolean(form.formState.errors.session_ttl_hours)}
+              {...form.register("session_ttl_hours")}
+            />
+          </FormField>
+        </SettingsGroup>
 
-      <FormRootError message={form.formState.errors.root?.message} />
+        <FormRootError message={form.formState.errors.root?.message} />
+      </form>
 
       <SaveBar
+        formId="settings-security-form"
         pending={updateSettings.isPending}
         dirty={form.formState.isDirty}
       />
-    </form>
+    </>
   );
 }
 
@@ -797,11 +803,11 @@ export default function SettingsPage() {
           <p className="text-xs text-muted-foreground">
             {t("settings.tabs.securityDesc")}
           </p>
+          {/* API Token 独立于设置表单：自己拉列表、自己创建/吊销。 */}
+          <ApiTokensCard />
           <SettingsPanelState query={settings} cards={1}>
             {(items) => <SecurityForm initial={items} />}
           </SettingsPanelState>
-          {/* API Token 独立于设置表单：自己拉列表、自己创建/吊销。 */}
-          <ApiTokensCard />
         </TabsContent>
 
         <TabsContent
@@ -828,8 +834,6 @@ export default function SettingsPage() {
           </p>
           {/* P7：备份与恢复独立于设置表单，自己拉 info 并处理四态。 */}
           <BackupCard />
-          {/* 备份加密开关：默认开启；关闭后导出/上传的都是明文 .db.gz。 */}
-          <BackupEncryptionCard />
           {/* 异地备份（WebDAV）：独立卡片，自己拉设置与远端状态。 */}
           <RemoteBackupCard />
         </TabsContent>

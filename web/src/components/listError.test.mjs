@@ -66,7 +66,6 @@ const COVERED_SURFACES = [
   "components/settings/AlertsCard.tsx",
   "components/settings/ApiTokensCard.tsx",
   "components/settings/BackupCard.tsx",
-  "components/settings/BackupEncryptionCard.tsx",
   "components/settings/RemoteBackupCard.tsx",
   "components/settings/UpdatesSection.tsx",
   "components/settings/RuleTemplatesPanel.tsx",

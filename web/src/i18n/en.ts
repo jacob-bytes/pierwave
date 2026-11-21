@@ -2397,7 +2397,7 @@ const en = {
       sizeHint:
         "Includes users, packages, nodes, certificates and all configuration.",
       download: "Download backup",
-      downloadHint: "The browser downloads an encrypted .db.gz.enc snapshot directly.",
+      downloadHint: "The browser downloads a .db.gz snapshot directly.",
       downloading: "Downloading…",
       downloadError: "Could not download the backup. Please try again.",
       exportBlocked:
@@ -2493,13 +2493,12 @@ const en = {
       emptyFile: "This file is empty; choose a valid backup file.",
       unsupportedFile: "Only .db, .db.gz or .db.gz.enc files are supported.",
       encrypt: {
-        title: "Backup encryption",
         label: "Encrypt backup files",
+        exportHint: "Exports use the current encryption setting.",
         offWarning:
           "Encryption is off: downloads and uploads are plaintext .db.gz files, and anyone who obtains one can read all business data.",
         saved: "Backup encryption setting saved",
         saveError: "Could not save the backup encryption setting. Please try again.",
-        loadFailed: "Backup encryption setting failed to load",
         loadError:
           "Could not load the backup encryption setting. Check your network, or whether the controller is running.",
       },

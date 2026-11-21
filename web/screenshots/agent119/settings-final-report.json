@@ -1,0 +1,758 @@
+{
+  "backup-on-light-1440": {
+    "titles": [
+      "当前数据库大小",
+      "恢复数据",
+      "异地备份"
+    ],
+    "encryptCardTitle": "当前数据库大小",
+    "hasEncryptCardTitle": false,
+    "hasOffWarning": false,
+    "encryptChecked": "true",
+    "hasExportHint": true,
+    "pageHeight": 1397,
+    "cards": [
+      {
+        "title": "当前数据库大小",
+        "y": 237,
+        "h": 222
+      },
+      {
+        "title": "恢复数据",
+        "y": 483,
+        "h": 312
+      },
+      {
+        "title": "异地备份",
+        "y": 811,
+        "h": 618
+      }
+    ],
+    "file": "web/screenshots/agent119/settings-backup-on-light-1440.png"
+  },
+  "backup-off-light-1440": {
+    "titles": [
+      "当前数据库大小",
+      "恢复数据",
+      "异地备份"
+    ],
+    "encryptCardTitle": "当前数据库大小",
+    "hasEncryptCardTitle": false,
+    "hasOffWarning": true,
+    "encryptChecked": "false",
+    "hasExportHint": true,
+    "pageHeight": 1426,
+    "cards": [
+      {
+        "title": "当前数据库大小",
+        "y": 237,
+        "h": 251
+      },
+      {
+        "title": "恢复数据",
+        "y": 512,
+        "h": 312
+      },
+      {
+        "title": "异地备份",
+        "y": 840,
+        "h": 618
+      }
+    ],
+    "file": "web/screenshots/agent119/settings-backup-off-light-1440.png"
+  },
+  "security-light-1440": {
+    "order": {
+      "titles": [
+        {
+          "title": "API 访问0",
+          "y": 257.390625
+        },
+        {
+          "title": "安全",
+          "y": 692.46875
+        }
+      ],
+      "apiBeforeSecurity": true
+    },
+    "top": {
+      "scrollHeight": 993,
+      "scrollTop": 0,
+      "clientHeight": 944,
+      "mainBottom": 1000,
+      "barTop": 919,
+      "barBottom": 976,
+      "barHeight": 57,
+      "lastCardTitle": "安全",
+      "lastCardBottom": 952.33,
+      "overlap": 33.33,
+      "barInsideCard": false,
+      "barPosition": "sticky",
+      "barWidth": 1152,
+      "mainWidth": 1200,
+      "bodyHasRecentLogin": false
+    },
+    "bottom": {
+      "scrollHeight": 993,
+      "scrollTop": 49,
+      "clientHeight": 944,
+      "mainBottom": 1000,
+      "barTop": 919,
+      "barBottom": 976,
+      "barHeight": 57,
+      "lastCardTitle": "安全",
+      "lastCardBottom": 903.33,
+      "overlap": 0,
+      "barInsideCard": false,
+      "barPosition": "sticky",
+      "barWidth": 1152,
+      "mainWidth": 1200,
+      "bodyHasRecentLogin": false
+    },
+    "topShot": "web/screenshots/agent119/settings-security-top-light-1440.png",
+    "bottomShot": "web/screenshots/agent119/settings-security-bottom-light-1440.png"
+  },
+  "general-light-1440": {
+    "top": {
+      "scrollHeight": 1230,
+      "scrollTop": 0,
+      "clientHeight": 944,
+      "mainBottom": 1000,
+      "barTop": 919,
+      "barBottom": 976,
+      "barHeight": 57,
+      "lastCardTitle": "公开状态页",
+      "lastCardBottom": 1188.94,
+      "overlap": 269.94,
+      "barInsideCard": false,
+      "barPosition": "sticky",
+      "barWidth": 1152,
+      "mainWidth": 1200,
+      "bodyHasRecentLogin": false
+    },
+    "bottom": {
+      "scrollHeight": 1230,
+      "scrollTop": 286,
+      "clientHeight": 944,
+      "mainBottom": 1000,
+      "barTop": 918.94,
+      "barBottom": 975.94,
+      "barHeight": 57,
+      "lastCardTitle": "公开状态页",
+      "lastCardBottom": 902.94,
+      "overlap": 0,
+      "barInsideCard": false,
+      "barPosition": "sticky",
+      "barWidth": 1152,
+      "mainWidth": 1200,
+      "bodyHasRecentLogin": false
+    },
+    "topShot": "web/screenshots/agent119/settings-general-top-light-1440.png",
+    "bottomShot": "web/screenshots/agent119/settings-general-bottom-light-1440.png"
+  },
+  "alerts-light-1440": {
+    "top": {
+      "scrollHeight": 1280,
+      "scrollTop": 0,
+      "clientHeight": 944,
+      "mainBottom": 1000,
+      "barTop": null,
+      "barBottom": null,
+      "barHeight": null,
+      "lastCardTitle": "发送测试消息",
+      "lastCardBottom": 1255.94,
+      "overlap": null,
+      "barInsideCard": null,
+      "barPosition": null,
+      "barWidth": null,
+      "mainWidth": 1200,
+      "bodyHasRecentLogin": false
+    },
+    "bottom": {
+      "scrollHeight": 1280,
+      "scrollTop": 336,
+      "clientHeight": 944,
+      "mainBottom": 1000,
+      "barTop": null,
+      "barBottom": null,
+      "barHeight": null,
+      "lastCardTitle": "发送测试消息",
+      "lastCardBottom": 919.94,
+      "overlap": null,
+      "barInsideCard": null,
+      "barPosition": null,
+      "barWidth": null,
+      "mainWidth": 1200,
+      "bodyHasRecentLogin": false
+    },
+    "topShot": "web/screenshots/agent119/settings-alerts-top-light-1440.png",
+    "bottomShot": "web/screenshots/agent119/settings-alerts-bottom-light-1440.png"
+  },
+  "backup-on-light-390": {
+    "titles": [
+      "当前数据库大小",
+      "恢复数据",
+      "异地备份"
+    ],
+    "encryptCardTitle": "当前数据库大小",
+    "hasEncryptCardTitle": false,
+    "hasOffWarning": false,
+    "encryptChecked": "true",
+    "hasExportHint": true,
+    "pageHeight": 1777,
+    "cards": [
+      {
+        "title": "当前数据库大小",
+        "y": 276,
+        "h": 276
+      },
+      {
+        "title": "恢复数据",
+        "y": 576,
+        "h": 360
+      },
+      {
+        "title": "异地备份",
+        "y": 952,
+        "h": 857
+      }
+    ],
+    "file": "web/screenshots/agent119/settings-backup-on-light-390.png"
+  },
+  "backup-off-light-390": {
+    "titles": [
+      "当前数据库大小",
+      "恢复数据",
+      "异地备份"
+    ],
+    "encryptCardTitle": "当前数据库大小",
+    "hasEncryptCardTitle": false,
+    "hasOffWarning": true,
+    "encryptChecked": "false",
+    "hasExportHint": true,
+    "pageHeight": 1827,
+    "cards": [
+      {
+        "title": "当前数据库大小",
+        "y": 276,
+        "h": 326
+      },
+      {
+        "title": "恢复数据",
+        "y": 626,
+        "h": 360
+      },
+      {
+        "title": "异地备份",
+        "y": 1002,
+        "h": 857
+      }
+    ],
+    "file": "web/screenshots/agent119/settings-backup-off-light-390.png"
+  },
+  "security-light-390": {
+    "order": {
+      "titles": [
+        {
+          "title": "API 访问0",
+          "y": 301.78125
+        },
+        {
+          "title": "安全",
+          "y": 774.046875
+        }
+      ],
+      "apiBeforeSecurity": true
+    },
+    "top": {
+      "scrollHeight": 1202,
+      "scrollTop": 0,
+      "clientHeight": 788,
+      "mainBottom": 844,
+      "barTop": 755,
+      "barBottom": 820,
+      "barHeight": 65,
+      "lastCardTitle": "安全",
+      "lastCardBottom": 1152.8,
+      "overlap": 397.8,
+      "barInsideCard": false,
+      "barPosition": "sticky",
+      "barWidth": 342,
+      "mainWidth": 390,
+      "bodyHasRecentLogin": false
+    },
+    "bottom": {
+      "scrollHeight": 1202,
+      "scrollTop": 414,
+      "clientHeight": 788,
+      "mainBottom": 844,
+      "barTop": 754.8,
+      "barBottom": 819.8,
+      "barHeight": 65,
+      "lastCardTitle": "安全",
+      "lastCardBottom": 738.8,
+      "overlap": 0,
+      "barInsideCard": false,
+      "barPosition": "sticky",
+      "barWidth": 342,
+      "mainWidth": 390,
+      "bodyHasRecentLogin": false
+    },
+    "topShot": "web/screenshots/agent119/settings-security-top-light-390.png",
+    "bottomShot": "web/screenshots/agent119/settings-security-bottom-light-390.png"
+  },
+  "general-light-390": {
+    "top": {
+      "scrollHeight": 2133,
+      "scrollTop": 0,
+      "clientHeight": 788,
+      "mainBottom": 844,
+      "barTop": 755,
+      "barBottom": 820,
+      "barHeight": 65,
+      "lastCardTitle": "公开状态页",
+      "lastCardBottom": 2083.83,
+      "overlap": 1328.83,
+      "barInsideCard": false,
+      "barPosition": "sticky",
+      "barWidth": 342,
+      "mainWidth": 390,
+      "bodyHasRecentLogin": false
+    },
+    "bottom": {
+      "scrollHeight": 2133,
+      "scrollTop": 1345,
+      "clientHeight": 788,
+      "mainBottom": 844,
+      "barTop": 754.83,
+      "barBottom": 819.83,
+      "barHeight": 65,
+      "lastCardTitle": "公开状态页",
+      "lastCardBottom": 738.83,
+      "overlap": 0,
+      "barInsideCard": false,
+      "barPosition": "sticky",
+      "barWidth": 342,
+      "mainWidth": 390,
+      "bodyHasRecentLogin": false
+    },
+    "topShot": "web/screenshots/agent119/settings-general-top-light-390.png",
+    "bottomShot": "web/screenshots/agent119/settings-general-bottom-light-390.png"
+  },
+  "alerts-light-390": {
+    "top": {
+      "scrollHeight": 1964,
+      "scrollTop": 0,
+      "clientHeight": 788,
+      "mainBottom": 844,
+      "barTop": null,
+      "barBottom": null,
+      "barHeight": null,
+      "lastCardTitle": "发送测试消息",
+      "lastCardBottom": 1904.34,
+      "overlap": null,
+      "barInsideCard": null,
+      "barPosition": null,
+      "barWidth": null,
+      "mainWidth": 390,
+      "bodyHasRecentLogin": false
+    },
+    "bottom": {
+      "scrollHeight": 1964,
+      "scrollTop": 1176,
+      "clientHeight": 788,
+      "mainBottom": 844,
+      "barTop": null,
+      "barBottom": null,
+      "barHeight": null,
+      "lastCardTitle": "发送测试消息",
+      "lastCardBottom": 728.34,
+      "overlap": null,
+      "barInsideCard": null,
+      "barPosition": null,
+      "barWidth": null,
+      "mainWidth": 390,
+      "bodyHasRecentLogin": false
+    },
+    "topShot": "web/screenshots/agent119/settings-alerts-top-light-390.png",
+    "bottomShot": "web/screenshots/agent119/settings-alerts-bottom-light-390.png"
+  },
+  "backup-on-dark-1440": {
+    "titles": [
+      "当前数据库大小",
+      "恢复数据",
+      "异地备份"
+    ],
+    "encryptCardTitle": "当前数据库大小",
+    "hasEncryptCardTitle": false,
+    "hasOffWarning": false,
+    "encryptChecked": "true",
+    "hasExportHint": true,
+    "pageHeight": 1397,
+    "cards": [
+      {
+        "title": "当前数据库大小",
+        "y": 237,
+        "h": 222
+      },
+      {
+        "title": "恢复数据",
+        "y": 483,
+        "h": 312
+      },
+      {
+        "title": "异地备份",
+        "y": 811,
+        "h": 618
+      }
+    ],
+    "file": "web/screenshots/agent119/settings-backup-on-dark-1440.png"
+  },
+  "backup-off-dark-1440": {
+    "titles": [
+      "当前数据库大小",
+      "恢复数据",
+      "异地备份"
+    ],
+    "encryptCardTitle": "当前数据库大小",
+    "hasEncryptCardTitle": false,
+    "hasOffWarning": true,
+    "encryptChecked": "false",
+    "hasExportHint": true,
+    "pageHeight": 1426,
+    "cards": [
+      {
+        "title": "当前数据库大小",
+        "y": 237,
+        "h": 251
+      },
+      {
+        "title": "恢复数据",
+        "y": 512,
+        "h": 312
+      },
+      {
+        "title": "异地备份",
+        "y": 840,
+        "h": 618
+      }
+    ],
+    "file": "web/screenshots/agent119/settings-backup-off-dark-1440.png"
+  },
+  "security-dark-1440": {
+    "order": {
+      "titles": [
+        {
+          "title": "API 访问0",
+          "y": 257.390625
+        },
+        {
+          "title": "安全",
+          "y": 692.46875
+        }
+      ],
+      "apiBeforeSecurity": true
+    },
+    "top": {
+      "scrollHeight": 993,
+      "scrollTop": 0,
+      "clientHeight": 944,
+      "mainBottom": 1000,
+      "barTop": 919,
+      "barBottom": 976,
+      "barHeight": 57,
+      "lastCardTitle": "安全",
+      "lastCardBottom": 952.33,
+      "overlap": 33.33,
+      "barInsideCard": false,
+      "barPosition": "sticky",
+      "barWidth": 1152,
+      "mainWidth": 1200,
+      "bodyHasRecentLogin": false
+    },
+    "bottom": {
+      "scrollHeight": 993,
+      "scrollTop": 49,
+      "clientHeight": 944,
+      "mainBottom": 1000,
+      "barTop": 919,
+      "barBottom": 976,
+      "barHeight": 57,
+      "lastCardTitle": "安全",
+      "lastCardBottom": 903.33,
+      "overlap": 0,
+      "barInsideCard": false,
+      "barPosition": "sticky",
+      "barWidth": 1152,
+      "mainWidth": 1200,
+      "bodyHasRecentLogin": false
+    },
+    "topShot": "web/screenshots/agent119/settings-security-top-dark-1440.png",
+    "bottomShot": "web/screenshots/agent119/settings-security-bottom-dark-1440.png"
+  },
+  "general-dark-1440": {
+    "top": {
+      "scrollHeight": 1230,
+      "scrollTop": 0,
+      "clientHeight": 944,
+      "mainBottom": 1000,
+      "barTop": 919,
+      "barBottom": 976,
+      "barHeight": 57,
+      "lastCardTitle": "公开状态页",
+      "lastCardBottom": 1188.94,
+      "overlap": 269.94,
+      "barInsideCard": false,
+      "barPosition": "sticky",
+      "barWidth": 1152,
+      "mainWidth": 1200,
+      "bodyHasRecentLogin": false
+    },
+    "bottom": {
+      "scrollHeight": 1230,
+      "scrollTop": 286,
+      "clientHeight": 944,
+      "mainBottom": 1000,
+      "barTop": 918.94,
+      "barBottom": 975.94,
+      "barHeight": 57,
+      "lastCardTitle": "公开状态页",
+      "lastCardBottom": 902.94,
+      "overlap": 0,
+      "barInsideCard": false,
+      "barPosition": "sticky",
+      "barWidth": 1152,
+      "mainWidth": 1200,
+      "bodyHasRecentLogin": false
+    },
+    "topShot": "web/screenshots/agent119/settings-general-top-dark-1440.png",
+    "bottomShot": "web/screenshots/agent119/settings-general-bottom-dark-1440.png"
+  },
+  "alerts-dark-1440": {
+    "top": {
+      "scrollHeight": 1280,
+      "scrollTop": 0,
+      "clientHeight": 944,
+      "mainBottom": 1000,
+      "barTop": null,
+      "barBottom": null,
+      "barHeight": null,
+      "lastCardTitle": "发送测试消息",
+      "lastCardBottom": 1255.94,
+      "overlap": null,
+      "barInsideCard": null,
+      "barPosition": null,
+      "barWidth": null,
+      "mainWidth": 1200,
+      "bodyHasRecentLogin": false
+    },
+    "bottom": {
+      "scrollHeight": 1280,
+      "scrollTop": 336,
+      "clientHeight": 944,
+      "mainBottom": 1000,
+      "barTop": null,
+      "barBottom": null,
+      "barHeight": null,
+      "lastCardTitle": "发送测试消息",
+      "lastCardBottom": 919.94,
+      "overlap": null,
+      "barInsideCard": null,
+      "barPosition": null,
+      "barWidth": null,
+      "mainWidth": 1200,
+      "bodyHasRecentLogin": false
+    },
+    "topShot": "web/screenshots/agent119/settings-alerts-top-dark-1440.png",
+    "bottomShot": "web/screenshots/agent119/settings-alerts-bottom-dark-1440.png"
+  },
+  "backup-on-dark-390": {
+    "titles": [
+      "当前数据库大小",
+      "恢复数据",
+      "异地备份"
+    ],
+    "encryptCardTitle": "当前数据库大小",
+    "hasEncryptCardTitle": false,
+    "hasOffWarning": false,
+    "encryptChecked": "true",
+    "hasExportHint": true,
+    "pageHeight": 1777,
+    "cards": [
+      {
+        "title": "当前数据库大小",
+        "y": 276,
+        "h": 276
+      },
+      {
+        "title": "恢复数据",
+        "y": 576,
+        "h": 360
+      },
+      {
+        "title": "异地备份",
+        "y": 952,
+        "h": 857
+      }
+    ],
+    "file": "web/screenshots/agent119/settings-backup-on-dark-390.png"
+  },
+  "backup-off-dark-390": {
+    "titles": [
+      "当前数据库大小",
+      "恢复数据",
+      "异地备份"
+    ],
+    "encryptCardTitle": "当前数据库大小",
+    "hasEncryptCardTitle": false,
+    "hasOffWarning": true,
+    "encryptChecked": "false",
+    "hasExportHint": true,
+    "pageHeight": 1827,
+    "cards": [
+      {
+        "title": "当前数据库大小",
+        "y": 276,
+        "h": 326
+      },
+      {
+        "title": "恢复数据",
+        "y": 626,
+        "h": 360
+      },
+      {
+        "title": "异地备份",
+        "y": 1002,
+        "h": 857
+      }
+    ],
+    "file": "web/screenshots/agent119/settings-backup-off-dark-390.png"
+  },
+  "security-dark-390": {
+    "order": {
+      "titles": [
+        {
+          "title": "API 访问0",
+          "y": 301.78125
+        },
+        {
+          "title": "安全",
+          "y": 774.046875
+        }
+      ],
+      "apiBeforeSecurity": true
+    },
+    "top": {
+      "scrollHeight": 1202,
+      "scrollTop": 0,
+      "clientHeight": 788,
+      "mainBottom": 844,
+      "barTop": 755,
+      "barBottom": 820,
+      "barHeight": 65,
+      "lastCardTitle": "安全",
+      "lastCardBottom": 1152.8,
+      "overlap": 397.8,
+      "barInsideCard": false,
+      "barPosition": "sticky",
+      "barWidth": 342,
+      "mainWidth": 390,
+      "bodyHasRecentLogin": false
+    },
+    "bottom": {
+      "scrollHeight": 1202,
+      "scrollTop": 414,
+      "clientHeight": 788,
+      "mainBottom": 844,
+      "barTop": 754.8,
+      "barBottom": 819.8,
+      "barHeight": 65,
+      "lastCardTitle": "安全",
+      "lastCardBottom": 738.8,
+      "overlap": 0,
+      "barInsideCard": false,
+      "barPosition": "sticky",
+      "barWidth": 342,
+      "mainWidth": 390,
+      "bodyHasRecentLogin": false
+    },
+    "topShot": "web/screenshots/agent119/settings-security-top-dark-390.png",
+    "bottomShot": "web/screenshots/agent119/settings-security-bottom-dark-390.png"
+  },
+  "general-dark-390": {
+    "top": {
+      "scrollHeight": 2133,
+      "scrollTop": 0,
+      "clientHeight": 788,
+      "mainBottom": 844,
+      "barTop": 755,
+      "barBottom": 820,
+      "barHeight": 65,
+      "lastCardTitle": "公开状态页",
+      "lastCardBottom": 2083.83,
+      "overlap": 1328.83,
+      "barInsideCard": false,
+      "barPosition": "sticky",
+      "barWidth": 342,
+      "mainWidth": 390,
+      "bodyHasRecentLogin": false
+    },
+    "bottom": {
+      "scrollHeight": 2133,
+      "scrollTop": 1345,
+      "clientHeight": 788,
+      "mainBottom": 844,
+      "barTop": 754.83,
+      "barBottom": 819.83,
+      "barHeight": 65,
+      "lastCardTitle": "公开状态页",
+      "lastCardBottom": 738.83,
+      "overlap": 0,
+      "barInsideCard": false,
+      "barPosition": "sticky",
+      "barWidth": 342,
+      "mainWidth": 390,
+      "bodyHasRecentLogin": false
+    },
+    "topShot": "web/screenshots/agent119/settings-general-top-dark-390.png",
+    "bottomShot": "web/screenshots/agent119/settings-general-bottom-dark-390.png"
+  },
+  "alerts-dark-390": {
+    "top": {
+      "scrollHeight": 1964,
+      "scrollTop": 0,
+      "clientHeight": 788,
+      "mainBottom": 844,
+      "barTop": null,
+      "barBottom": null,
+      "barHeight": null,
+      "lastCardTitle": "发送测试消息",
+      "lastCardBottom": 1904.34,
+      "overlap": null,
+      "barInsideCard": null,
+      "barPosition": null,
+      "barWidth": null,
+      "mainWidth": 390,
+      "bodyHasRecentLogin": false
+    },
+    "bottom": {
+      "scrollHeight": 1964,
+      "scrollTop": 1176,
+      "clientHeight": 788,
+      "mainBottom": 844,
+      "barTop": null,
+      "barBottom": null,
+      "barHeight": null,
+      "lastCardTitle": "发送测试消息",
+      "lastCardBottom": 728.34,
+      "overlap": null,
+      "barInsideCard": null,
+      "barPosition": null,
+      "barWidth": null,
+      "mainWidth": 390,
+      "bodyHasRecentLogin": false
+    },
+    "topShot": "web/screenshots/agent119/settings-alerts-top-dark-390.png",
+    "bottomShot": "web/screenshots/agent119/settings-alerts-bottom-dark-390.png"
+  }
+}

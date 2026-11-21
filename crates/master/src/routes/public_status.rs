@@ -3220,6 +3220,79 @@ mod tests {
             "非管理员不能改白名单：{body}"
         );
     }
+
+    /// T1：白名单审计只记可见 / 隐藏数量的前后值。
+    ///
+    /// 这条动作本身不接收设置值，但它是「会写审计」的管理动作之一；这里先在
+    /// 设置表里放进带 canary 的凭据，再执行白名单替换，确保 detail 既不带
+    /// 明文、也不带 `enc:v1:` 密文，且连服务器 id 都不落。
+    #[tokio::test]
+    async fn public_status_audit_detail_has_counts_but_no_secret_values() {
+        let (app, state, admin, _bob) = admin_setup().await;
+        let canaries = [
+            ("webhook_url", "https://hooks.example/T0KEN-canary"),
+            ("backup_webdav_password", "pass-canary"),
+            ("telegram_bot_token", "tok-canary"),
+        ];
+        for (key, value) in canaries {
+            repo::settings::set(
+                &state.db.pool,
+                key,
+                &pierwave_domain::secret_box::encrypt_setting(state.db.secret_key(), value),
+            )
+            .await
+            .unwrap();
+        }
+
+        let a = seed_server(&state, "a-1", "203.0.113.1").await;
+        let b = seed_server(&state, "b-1", "203.0.113.2").await;
+        let (status, body) = send(
+            &app,
+            Some(&admin),
+            Method::PUT,
+            "/api/v1/public-status/servers",
+            Some(json!({ "ids": [a] })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body, json!({ "visible": 1, "hidden": 1 }), "{body}");
+
+        let page = repo::audit::page(
+            &state.db.pool,
+            &repo::audit::Filter {
+                action_prefixes: vec!["settings.public_status_servers".into()],
+                ..Default::default()
+            },
+            None,
+            10,
+        )
+        .await
+        .unwrap();
+        assert_eq!(page.items.len(), 1, "白名单变更必须写审计");
+        let detail = page.items[0].detail.as_ref().expect("必须带 detail");
+        assert_eq!(
+            detail,
+            &json!({
+                "changes": {
+                    "visible": { "from": 2, "to": 1 },
+                    "hidden": { "from": 0, "to": 1 },
+                }
+            }),
+            "detail 只能是数量前后值"
+        );
+        let rendered = detail.to_string();
+        for (_, canary) in canaries {
+            assert!(!rendered.contains(canary), "审计泄露了明文：{rendered}");
+        }
+        assert!(
+            !rendered.contains("enc:v1:"),
+            "审计混入了可逆密文：{rendered}"
+        );
+        assert!(
+            !rendered.contains(&a) && !rendered.contains(&b),
+            "审计不能出现服务器 id：{rendered}"
+        );
+    }
 }
 
 /// 1000 台规模下的响应体积 / 耗时回归（见文件头注释）。

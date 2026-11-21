@@ -1488,6 +1488,113 @@ mod tests {
         );
     }
 
+    /// T1：恢复审计只列「解不开的秘密键名」，不落旧秘密的明文或密文。
+    ///
+    /// 用另一把主密钥加密的备份来触发非空的 `unreadable_secrets`：这是恢复
+    /// 审计里唯一会带秘密相关内容的字段，必须只有键名。
+    #[tokio::test]
+    async fn restore_audit_detail_lists_secret_keys_without_values() {
+        let (dir, app, state, cookie) = setup("restore-audit").await;
+
+        let other_dir = TestDir::new("restore-audit-other");
+        let other = Db::connect(&format!(
+            "sqlite://{}?mode=rwc",
+            other_dir.db_path().display()
+        ))
+        .await
+        .unwrap();
+        other.migrate().await.unwrap();
+        let token_canary = "123456:tok-canary";
+        let hmac_canary = "hmac-canary";
+        for (key, value) in [
+            ("telegram_bot_token", token_canary),
+            ("hmac_secret_v1", hmac_canary),
+        ] {
+            repo::settings::set(
+                &other.pool,
+                key,
+                &secret_box::encrypt_setting(other.secret_key(), value),
+            )
+            .await
+            .unwrap();
+        }
+        let foreign = dir.file("foreign.db");
+        backup::create_snapshot(&other.pool, &foreign)
+            .await
+            .unwrap();
+        other.pool.close().await;
+        let bytes = std::fs::read(&foreign).unwrap();
+        let uploaded_bytes = bytes.len() as u64;
+
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/restore?force=true",
+            bytes,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+
+        let entry = repo::audit::list(&state.db.pool, 50)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.action == "backup.restore.schedule")
+            .expect("恢复必须写审计");
+        assert_eq!(entry.target.as_deref(), Some("backup"));
+        let detail = entry.detail.expect("backup.restore.schedule 必须带 detail");
+        assert_eq!(detail["bytes"].as_u64(), Some(uploaded_bytes));
+        assert_eq!(detail["compressed"], false, "裸 SQLite 上传：{detail}");
+        assert_eq!(detail["encrypted"], false, "裸 SQLite 上传：{detail}");
+        assert_eq!(detail["forced"], true);
+        assert_eq!(
+            detail["unreadable_secrets"],
+            json!(["hmac_secret_v1", "telegram_bot_token"]),
+            "只能记录键名：{detail}"
+        );
+        assert!(
+            detail["settings_changed"].is_u64(),
+            "只记录变化数量：{detail}"
+        );
+        assert!(
+            detail["servers_needing_token_refresh"].is_u64(),
+            "只记录需要刷新的服务器数量：{detail}"
+        );
+        // 除上述字段外不能夹带别的内容（键名不许变成「键: 值」）。
+        assert_eq!(
+            detail
+                .as_object()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec![
+                "bytes",
+                "compressed",
+                "encrypted",
+                "forced",
+                "servers_needing_token_refresh",
+                "settings_changed",
+                "unreadable_secrets",
+            ],
+            "{detail}"
+        );
+        let rendered = detail.to_string();
+        assert!(
+            !rendered.contains(token_canary),
+            "审计泄露了 Token：{rendered}"
+        );
+        assert!(
+            !rendered.contains(hmac_canary),
+            "审计泄露了 hmac：{rendered}"
+        );
+        assert!(
+            !rendered.contains("enc:v1:"),
+            "审计混入了可逆密文：{rendered}"
+        );
+    }
+
     /// 手动异地备份 / 测试连接遇到秘密解不开：400 + 明确错误码，不是 502/「未配置」。
     #[tokio::test]
     async fn remote_backup_secret_errors_are_not_misreported() {
@@ -2201,6 +2308,89 @@ mod tests {
         assert!(
             actions.contains(&"backup.remote.upload".to_string()),
             "立即备份要进审计：{actions:?}"
+        );
+    }
+
+    /// T1：异地备份上传的审计只带文件名 / 字节数 / 删除数量。
+    ///
+    /// 上传过程会用到 WebDAV 密码等秘密；审计 detail 不能带出它们的明文或
+    /// `enc:v1:` 密文。
+    #[tokio::test]
+    async fn remote_upload_audit_detail_has_metadata_only() {
+        let fake =
+            crate::webdav_fake::FakeDav::start(crate::webdav_fake::FakeState::default()).await;
+        let (_dir, app, state, cookie) = setup("remote-audit").await;
+
+        let canaries = [
+            ("webhook_url", "https://hooks.example/T0KEN-canary"),
+            ("backup_webdav_password", "pass-canary"),
+            ("telegram_bot_token", "tok-canary"),
+        ];
+        for (key, value) in canaries {
+            repo::settings::set(
+                &state.db.pool,
+                key,
+                &secret_box::encrypt_setting(state.db.secret_key(), value),
+            )
+            .await
+            .unwrap();
+        }
+        for (key, value) in [
+            ("backup_webdav_enabled", "1".to_string()),
+            ("backup_webdav_url", fake.base_url.clone()),
+            ("backup_webdav_username", "pierwave".to_string()),
+            ("backup_webdav_interval_hours", "24".to_string()),
+            ("backup_webdav_keep", "2".to_string()),
+        ] {
+            repo::settings::set(&state.db.pool, key, &value)
+                .await
+                .unwrap();
+        }
+
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/remote/run",
+            Vec::new(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+
+        let entry = repo::audit::list(&state.db.pool, 50)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.action == "backup.remote.upload")
+            .expect("立即备份必须写审计");
+        assert_eq!(entry.target.as_deref(), Some("backup"));
+        let detail = entry.detail.expect("backup.remote.upload 必须带 detail");
+        assert_eq!(
+            detail
+                .as_object()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec!["bytes", "deleted", "file"],
+            "detail 只能有元数据：{detail}"
+        );
+        assert!(
+            detail["file"]
+                .as_str()
+                .unwrap()
+                .starts_with("pierwave-backup-"),
+            "{detail}"
+        );
+        assert!(detail["bytes"].as_u64().unwrap() > 0, "{detail}");
+        assert!(detail["deleted"].is_u64(), "{detail}");
+        let rendered = detail.to_string();
+        for (_, canary) in canaries {
+            assert!(!rendered.contains(canary), "审计泄露了明文：{rendered}");
+        }
+        assert!(
+            !rendered.contains("enc:v1:"),
+            "审计混入了可逆密文：{rendered}"
         );
     }
 

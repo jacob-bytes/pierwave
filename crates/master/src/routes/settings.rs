@@ -3146,4 +3146,74 @@ mod tests {
         }
         assert_eq!(debug.matches("<redacted>").count(), 4, "{debug}");
     }
+
+    /// T1：`settings.update` 的审计 detail 只记「改了哪些键」。
+    ///
+    /// 设置值里可能带凭据（Webhook URL 常带 token、WebDAV 密码、Bot Token）。
+    /// 审计是长期保留的排障数据，detail 里既不能出现明文，也不能出现可逆的
+    /// `enc:v1:` 密文——两者都等同于泄露。
+    #[tokio::test]
+    async fn settings_update_audit_detail_only_has_changed_keys() {
+        let (app, state, admin, _bob) = setup().await;
+        let canaries = [
+            (WEBHOOK_URL_KEY, "https://hooks.example/T0KEN-canary"),
+            (BACKUP_WEBDAV_PASSWORD_KEY, "pass-canary"),
+            (TELEGRAM_BOT_TOKEN_KEY, "tok-canary"),
+        ];
+        let (status, _, response) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({
+                WEBHOOK_URL_KEY: canaries[0].1,
+                BACKUP_WEBDAV_PASSWORD_KEY: canaries[1].1,
+                TELEGRAM_BOT_TOKEN_KEY: canaries[2].1,
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{response}");
+
+        // 先证明这次操作真的写入了三个秘密：落库值必须是密文，而不是被当成
+        // 空值忽略——否则下面的断言只是「没写过任何东西」的假通过。
+        for (key, canary) in canaries {
+            let stored = repo::settings::get(&state.db.pool, key)
+                .await
+                .unwrap()
+                .unwrap_or_else(|| panic!("{key} 应该已写入"));
+            assert!(
+                secret_box::is_encrypted_setting(&stored),
+                "{key} 必须以密文落库：{stored}"
+            );
+            assert!(!stored.contains(canary), "{key} 落库值不能含明文");
+        }
+
+        let entry = repo::audit::list(&state.db.pool, 50)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|entry| entry.action == "settings.update")
+            .expect("保存设置必须写审计");
+        assert_eq!(entry.target.as_deref(), Some("settings"));
+        let detail = entry.detail.expect("settings.update 必须带 detail");
+        assert_eq!(
+            detail,
+            json!({
+                "keys": [
+                    BACKUP_WEBDAV_PASSWORD_KEY,
+                    TELEGRAM_BOT_TOKEN_KEY,
+                    WEBHOOK_URL_KEY,
+                ]
+            }),
+            "detail 必须只有键名，不能带任何值"
+        );
+        let rendered = detail.to_string();
+        for (_, canary) in canaries {
+            assert!(!rendered.contains(canary), "审计泄露了明文：{rendered}");
+        }
+        assert!(
+            !rendered.contains("enc:v1:"),
+            "审计混入了可逆密文：{rendered}"
+        );
+    }
 }

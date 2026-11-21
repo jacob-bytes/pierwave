@@ -2283,7 +2283,7 @@ const zhCN = {
       sizeLabel: "当前数据库大小",
       sizeHint: "包含用户、套餐、节点、证书与全部配置。",
       download: "下载备份",
-      downloadHint: "浏览器会直接下载 .db.gz.enc 加密快照。",
+      downloadHint: "浏览器会直接下载 .db.gz 快照。",
       downloading: "下载中…",
       downloadError: "下载备份失败，请稍后重试",
       exportBlocked:
@@ -2369,13 +2369,12 @@ const zhCN = {
       emptyFile: "这个文件是空的，请选择有效的备份文件。",
       unsupportedFile: "只支持 .db、.db.gz 或 .db.gz.enc 文件。",
       encrypt: {
-        title: "备份加密",
         label: "加密备份文件",
+        exportHint: "导出时使用当前加密设置。",
         offWarning:
           "已关闭加密：下载与上传的备份是明文 .db.gz，任何拿到文件的人都能读取全部业务数据。",
         saved: "备份加密设置已保存",
         saveError: "保存备份加密设置失败，请稍后重试",
-        loadFailed: "备份加密设置加载失败",
         loadError: "无法加载备份加密设置，请检查网络或主控是否已启动。",
       },
       remote: {
