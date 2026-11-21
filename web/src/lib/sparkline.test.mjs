@@ -259,3 +259,14 @@ test("multi spark geometry honours a fixed domain", () => {
   assert.ok(fallbackPoints[0].y > fallbackPoints[1].y);
   assert.ok(fallbackPoints[0].y - fallbackPoints[1].y > 20);
 });
+
+test("multi spark geometry keeps nonzero rates off the zero baseline", () => {
+  const flat = multiSparkGeometry([{ values: [0, 1, 1000] }], 100, 24, {
+    zeroBased: true,
+    minNonZeroGap: 3,
+  });
+  const points = coords(flat.series[0].path);
+  assert.equal(points[0].y, 23, "0 仍然贴底");
+  assert.equal(points[1].y, 21, "非零值至少离底 2 个 CSS 像素（3 个 viewBox 单位）");
+  assert.equal(points[2].y, 1);
+});

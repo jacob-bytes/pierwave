@@ -265,6 +265,35 @@ export function availabilityPercent(
 }
 
 /**
+ * 可用率的展示文本（不含 `%`）：只有精确的 100% 才写 `100`。
+ *
+ * 99.99% / 99.9% 被整数四舍五入成 `100%` 是把「掉了 0.01%」说成完美，
+ * 属于数据错误。这里对小于 100% 的值**截断**到最多 2 位小数（不是四舍五入），
+ * 保证 `ratio !== 1` 永远不会打印成 `100`；小于 0.01% 的非零值显示
+ * `<0.01`，不写成 `0`。`0%` 仍然返回 `0`（红色档由 tone 决定）。
+ */
+export function availabilityPercentText(
+  ratio: number | null | undefined,
+): string | null {
+  if (ratio === null || ratio === undefined || !Number.isFinite(ratio)) {
+    return null;
+  }
+  if (ratio >= 1) return "100";
+  if (ratio <= 0) return "0";
+
+  const percent = Math.min(1, ratio) * 100;
+  // 截断而不是四舍五入：99.9999% 保留 99.99%，不会被说成 100。
+  const truncated = Math.floor(percent * 100) / 100;
+  if (truncated <= 0) return "<0.01";
+
+  // 最多 2 位小数，去掉末尾的 0：99.90 → 99.9，95.83 保留。
+  return truncated
+    .toFixed(2)
+    .replace(/0+$/, "")
+    .replace(/\.$/, "");
+}
+
+/**
  * 心跳上报的 RTT（毫秒）。null / undefined / 非有限值 / 负数都视为「没有数据」，
  * 页面据此整项隐藏；0 不特殊处理——后端已保证探测成功至少是 1。
  */

@@ -27,34 +27,69 @@ function scaledText(scaled: number): string {
     : fixed;
 }
 
+/** 展示用的单位下标：比 1024 小一档时用 B，其余按 1024 的幂。 */
+function unitExponent(bps: number): number {
+  return Math.min(
+    Math.floor(Math.log(bps) / Math.log(1024)),
+    RATE_UNITS.length - 1,
+  );
+}
+
 /**
  * 字节/秒 → `{ value, unit }`；没有有效数据时返回 `null`。
  *
- * 0 是有效值（确实没有流量），必须显示 `0 B/s`，不能被当成 `—`。
+ * 三条边界：
+ * - **0 是有效值**（确实没有流量），显示 `0 B/s`，不能被当成 `—`；
+ * - **非零但不足 1 B/s** 显示 `<1 B/s`，不能四舍五入成 `0 B/s`；
+ * - **舍入后达到 1024 要再进位**：`1024^4 - 1` 先缩放到 GB 再舍入会得到
+ *   `1024 GB/s`，必须再升一级成 `1 TB/s`。
  */
 export function rateParts(bps: number | null | undefined): RateParts | null {
   if (bps === null || bps === undefined) return null;
   if (!Number.isFinite(bps) || bps < 0) return null;
 
+  if (bps === 0) return { value: "0", unit: "B/s" };
+  if (bps < 1) return { value: "<1", unit: "B/s" };
+
   if (bps < 1024) {
     return { value: String(Math.round(bps)), unit: "B/s" };
   }
 
-  const exponent = Math.min(
-    Math.floor(Math.log(bps) / Math.log(1024)),
-    RATE_UNITS.length - 1,
-  );
-  const scaled = bps / 1024 ** exponent;
-  return {
-    value: scaledText(scaled),
-    unit: `${RATE_UNITS[exponent]}/s`,
-  };
+  let exponent = unitExponent(bps);
+  let value = scaledText(bps / 1024 ** exponent);
+
+  // 先缩放再四舍五入可能刚好顶到 1024（例如 1024^4 - 1 → 1024 GB/s）；
+  // 再检查一次，能升一级就升，不能升（已是 PB）则保留。
+  if (Number(value) >= 1024 && exponent < RATE_UNITS.length - 1) {
+    exponent += 1;
+    value = scaledText(bps / 1024 ** exponent);
+  }
+
+  return { value, unit: `${RATE_UNITS[exponent]}/s` };
 }
 
-/** `12.3 MB/s` / `0 B/s`；没有数据时 `null`（由调用方决定 `—` 的样式）。 */
+/** `12.3 MB/s` / `<1 B/s` / `0 B/s`；没有数据时 `null`。 */
 export function formatRate(bps: number | null | undefined): string | null {
   const parts = rateParts(bps);
   return parts ? `${parts.value} ${parts.unit}` : null;
+}
+
+/**
+ * tooltip / 读屏用的精确读数。
+ *
+ * 大数字会把 `0.4 B/s` 压成 `<1 B/s`（为了让「非零」在 24px 的图里也有意义），
+ * 但悬停读数不应该跟着丢掉精度：小于 1 B/s 时保留最多 3 位有效数字。
+ * 其余量级沿用展示格式，保证 tooltip 与大数字量级一致。
+ */
+export function formatRateExact(bps: number | null | undefined): string | null {
+  if (bps === null || bps === undefined) return null;
+  if (!Number.isFinite(bps) || bps < 0) return null;
+  if (bps === 0) return "0 B/s";
+  if (bps < 1) {
+    // 用最短往返表示而不是四舍五入：0.9999 不能变成 1 B/s。
+    return `${bps} B/s`;
+  }
+  return formatRate(bps);
 }
 
 /** 无障碍 / tooltip 文案：`↓ 12.3 MB/s · ↑ 1.2 MB/s`；两侧都没有数据时 `null`。 */

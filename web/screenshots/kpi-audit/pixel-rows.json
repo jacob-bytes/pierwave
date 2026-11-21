@@ -1,0 +1,1124 @@
+[
+  {
+    "fixture": "temporal-spike-rate",
+    "kind": "rate",
+    "theme": "dark",
+    "width": 1440,
+    "image": "shots/chart-temporal-spike-rate-rate-dark-1440.png",
+    "imagePx": {
+      "width": 486,
+      "height": 48
+    },
+    "cssSize": {
+      "width": 242.33,
+      "height": 24
+    },
+    "dpr": 2.0,
+    "background": [
+      16,
+      16,
+      19
+    ],
+    "lines": [
+      {
+        "index": 0,
+        "strokeRgb": [
+          91,
+          140,
+          255
+        ],
+        "stroke": "oklch(0.662 0.179 264.6)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 1,
+          "yMaxViewBox": 46.95,
+          "yMinCss": 0.5,
+          "yMaxCss": 23.48,
+          "rangeCss": 22.98,
+          "bottomGapCss": 0.52
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                46,
+                47
+              ],
+              "maxCount": 442
+            }
+          ],
+          "mainGroupCss": {
+            "top": 23.0,
+            "bottom": 24.0,
+            "center": 23.5
+          },
+          "thicknessCss": 1.0,
+          "bottomGapCss": 0.0,
+          "touchesBottom": true
+        }
+      }
+    ]
+  },
+  {
+    "fixture": "temporal-spike-rate",
+    "kind": "rate",
+    "theme": "dark",
+    "width": 390,
+    "image": "shots/chart-temporal-spike-rate-rate-dark-390.png",
+    "imagePx": {
+      "width": 274,
+      "height": 42
+    },
+    "cssSize": {
+      "width": 136.91,
+      "height": 20
+    },
+    "dpr": 2.1,
+    "background": [
+      16,
+      16,
+      19
+    ],
+    "lines": [
+      {
+        "index": 0,
+        "strokeRgb": [
+          91,
+          140,
+          255
+        ],
+        "stroke": "oklch(0.662 0.179 264.6)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 1,
+          "yMaxViewBox": 46.95,
+          "yMinCss": 0.42,
+          "yMaxCss": 19.56,
+          "rangeCss": 19.15,
+          "bottomGapCss": 0.44
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                40,
+                41
+              ],
+              "maxCount": 250
+            }
+          ],
+          "mainGroupCss": {
+            "top": 19.05,
+            "bottom": 20.0,
+            "center": 19.52
+          },
+          "thicknessCss": 0.95,
+          "bottomGapCss": 0.0,
+          "touchesBottom": true
+        }
+      }
+    ]
+  },
+  {
+    "fixture": "temporal-spike-rate",
+    "kind": "rate",
+    "theme": "light",
+    "width": 1440,
+    "image": "shots/chart-temporal-spike-rate-rate-light-1440.png",
+    "imagePx": {
+      "width": 486,
+      "height": 48
+    },
+    "cssSize": {
+      "width": 242.33,
+      "height": 24
+    },
+    "dpr": 2.0,
+    "background": [
+      255,
+      255,
+      255
+    ],
+    "lines": [
+      {
+        "index": 0,
+        "strokeRgb": [
+          25,
+          60,
+          184
+        ],
+        "stroke": "oklch(0.424 0.199 265.638)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 1,
+          "yMaxViewBox": 46.95,
+          "yMinCss": 0.5,
+          "yMaxCss": 23.48,
+          "rangeCss": 22.98,
+          "bottomGapCss": 0.52
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                46,
+                47
+              ],
+              "maxCount": 442
+            }
+          ],
+          "mainGroupCss": {
+            "top": 23.0,
+            "bottom": 24.0,
+            "center": 23.5
+          },
+          "thicknessCss": 1.0,
+          "bottomGapCss": 0.0,
+          "touchesBottom": true
+        }
+      }
+    ]
+  },
+  {
+    "fixture": "temporal-spike-latency",
+    "kind": "latency",
+    "theme": "dark",
+    "width": 1440,
+    "image": "shots/chart-temporal-spike-latency-latency-dark-1440.png",
+    "imagePx": {
+      "width": 486,
+      "height": 48
+    },
+    "cssSize": {
+      "width": 242.33,
+      "height": 24
+    },
+    "dpr": 2.0,
+    "background": [
+      16,
+      16,
+      19
+    ],
+    "lines": [
+      {
+        "index": 0,
+        "strokeRgb": [
+          91,
+          140,
+          255
+        ],
+        "stroke": "oklch(0.662 0.179 264.6)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 5.45,
+          "yMaxViewBox": 42.55,
+          "yMinCss": 2.73,
+          "yMaxCss": 21.28,
+          "rangeCss": 18.55,
+          "bottomGapCss": 2.73
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                42,
+                42
+              ],
+              "maxCount": 442
+            }
+          ],
+          "mainGroupCss": {
+            "top": 21.0,
+            "bottom": 21.5,
+            "center": 21.25
+          },
+          "thicknessCss": 0.5,
+          "bottomGapCss": 2.5,
+          "touchesBottom": false
+        }
+      }
+    ]
+  },
+  {
+    "fixture": "temporal-spike-latency",
+    "kind": "latency",
+    "theme": "dark",
+    "width": 390,
+    "image": "shots/chart-temporal-spike-latency-latency-dark-390.png",
+    "imagePx": {
+      "width": 274,
+      "height": 42
+    },
+    "cssSize": {
+      "width": 136.91,
+      "height": 20
+    },
+    "dpr": 2.1,
+    "background": [
+      16,
+      16,
+      19
+    ],
+    "lines": [
+      {
+        "index": 0,
+        "strokeRgb": [
+          91,
+          140,
+          255
+        ],
+        "stroke": "oklch(0.662 0.179 264.6)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 5.45,
+          "yMaxViewBox": 42.55,
+          "yMinCss": 2.27,
+          "yMaxCss": 17.73,
+          "rangeCss": 15.46,
+          "bottomGapCss": 2.27
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                37,
+                37
+              ],
+              "maxCount": 250
+            }
+          ],
+          "mainGroupCss": {
+            "top": 17.62,
+            "bottom": 18.1,
+            "center": 17.86
+          },
+          "thicknessCss": 0.48,
+          "bottomGapCss": 1.9,
+          "touchesBottom": false
+        }
+      }
+    ]
+  },
+  {
+    "fixture": "temporal-spike-latency",
+    "kind": "latency",
+    "theme": "light",
+    "width": 1440,
+    "image": "shots/chart-temporal-spike-latency-latency-light-1440.png",
+    "imagePx": {
+      "width": 486,
+      "height": 48
+    },
+    "cssSize": {
+      "width": 242.33,
+      "height": 24
+    },
+    "dpr": 2.0,
+    "background": [
+      255,
+      255,
+      255
+    ],
+    "lines": [
+      {
+        "index": 0,
+        "strokeRgb": [
+          25,
+          60,
+          184
+        ],
+        "stroke": "oklch(0.424 0.199 265.638)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 5.45,
+          "yMaxViewBox": 42.55,
+          "yMinCss": 2.73,
+          "yMaxCss": 21.28,
+          "rangeCss": 18.55,
+          "bottomGapCss": 2.73
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                42,
+                42
+              ],
+              "maxCount": 442
+            }
+          ],
+          "mainGroupCss": {
+            "top": 21.0,
+            "bottom": 21.5,
+            "center": 21.25
+          },
+          "thicknessCss": 0.5,
+          "bottomGapCss": 2.5,
+          "touchesBottom": false
+        }
+      }
+    ]
+  },
+  {
+    "fixture": "temporal-spike-uptime",
+    "kind": "uptime",
+    "theme": "dark",
+    "width": 1440,
+    "image": "shots/chart-temporal-spike-uptime-uptime-dark-1440.png",
+    "imagePx": {
+      "width": 486,
+      "height": 48
+    },
+    "cssSize": {
+      "width": 242.33,
+      "height": 24
+    },
+    "dpr": 2.0,
+    "background": [
+      16,
+      16,
+      19
+    ],
+    "lines": [
+      {
+        "index": 0,
+        "strokeRgb": [
+          250,
+          183,
+          42
+        ],
+        "stroke": "oklch(0.82 0.16 80)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 1,
+          "yMaxViewBox": 47,
+          "yMinCss": 0.5,
+          "yMaxCss": 23.5,
+          "rangeCss": 23,
+          "bottomGapCss": 0.5
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                0,
+                1
+              ],
+              "maxCount": 464
+            }
+          ],
+          "mainGroupCss": {
+            "top": 0.0,
+            "bottom": 1.0,
+            "center": 0.5
+          },
+          "thicknessCss": 1.0,
+          "bottomGapCss": 23.0,
+          "touchesBottom": false
+        }
+      }
+    ]
+  },
+  {
+    "fixture": "temporal-spike-uptime",
+    "kind": "uptime",
+    "theme": "dark",
+    "width": 390,
+    "image": "shots/chart-temporal-spike-uptime-uptime-dark-390.png",
+    "imagePx": {
+      "width": 274,
+      "height": 42
+    },
+    "cssSize": {
+      "width": 136.91,
+      "height": 20
+    },
+    "dpr": 2.1,
+    "background": [
+      16,
+      16,
+      19
+    ],
+    "lines": [
+      {
+        "index": 0,
+        "strokeRgb": [
+          250,
+          183,
+          42
+        ],
+        "stroke": "oklch(0.82 0.16 80)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 1,
+          "yMaxViewBox": 47,
+          "yMinCss": 0.42,
+          "yMaxCss": 19.58,
+          "rangeCss": 19.17,
+          "bottomGapCss": 0.42
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                2,
+                2
+              ],
+              "maxCount": 262
+            }
+          ],
+          "mainGroupCss": {
+            "top": 0.95,
+            "bottom": 1.43,
+            "center": 1.19
+          },
+          "thicknessCss": 0.48,
+          "bottomGapCss": 18.57,
+          "touchesBottom": false
+        }
+      }
+    ]
+  },
+  {
+    "fixture": "temporal-spike-uptime",
+    "kind": "uptime",
+    "theme": "light",
+    "width": 1440,
+    "image": "shots/chart-temporal-spike-uptime-uptime-light-1440.png",
+    "imagePx": {
+      "width": 486,
+      "height": 48
+    },
+    "cssSize": {
+      "width": 242.33,
+      "height": 24
+    },
+    "dpr": 2.0,
+    "background": [
+      255,
+      255,
+      255
+    ],
+    "lines": [
+      {
+        "index": 0,
+        "strokeRgb": [
+          172,
+          75,
+          0
+        ],
+        "stroke": "oklch(0.53 0.146 49)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 1,
+          "yMaxViewBox": 47,
+          "yMinCss": 0.5,
+          "yMaxCss": 23.5,
+          "rangeCss": 23,
+          "bottomGapCss": 0.5
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                0,
+                1
+              ],
+              "maxCount": 464
+            }
+          ],
+          "mainGroupCss": {
+            "top": 0.0,
+            "bottom": 1.0,
+            "center": 0.5
+          },
+          "thicknessCss": 1.0,
+          "bottomGapCss": 23.0,
+          "touchesBottom": false
+        }
+      }
+    ]
+  },
+  {
+    "fixture": "dual-gap-rx-high",
+    "kind": "rate",
+    "theme": "dark",
+    "width": 1440,
+    "image": "shots/chart-dual-gap-rx-high-rate-dark-1440.png",
+    "imagePx": {
+      "width": 486,
+      "height": 48
+    },
+    "cssSize": {
+      "width": 242.33,
+      "height": 24
+    },
+    "dpr": 2.0,
+    "background": [
+      91,
+      140,
+      255
+    ],
+    "lines": [
+      {
+        "index": 0,
+        "strokeRgb": [
+          91,
+          140,
+          255
+        ],
+        "stroke": "oklch(0.662 0.179 264.6)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 1,
+          "yMaxViewBox": 1,
+          "yMinCss": 0.5,
+          "yMaxCss": 0.5,
+          "rangeCss": 0,
+          "bottomGapCss": 23.5
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                0,
+                1
+              ],
+              "maxCount": 484
+            }
+          ],
+          "mainGroupCss": {
+            "top": 0.0,
+            "bottom": 1.0,
+            "center": 0.5
+          },
+          "thicknessCss": 1.0,
+          "bottomGapCss": 23.0,
+          "touchesBottom": false
+        }
+      },
+      {
+        "index": 1,
+        "strokeRgb": [
+          157,
+          157,
+          168
+        ],
+        "stroke": "oklch(0.7 0.015 285)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 46.95,
+          "yMaxViewBox": 46.95,
+          "yMinCss": 23.48,
+          "yMaxCss": 23.48,
+          "rangeCss": 0,
+          "bottomGapCss": 0.52
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                46,
+                47
+              ],
+              "maxCount": 484
+            }
+          ],
+          "mainGroupCss": {
+            "top": 23.0,
+            "bottom": 24.0,
+            "center": 23.5
+          },
+          "thicknessCss": 1.0,
+          "bottomGapCss": 0.0,
+          "touchesBottom": true
+        }
+      }
+    ]
+  },
+  {
+    "fixture": "dual-gap-rx-high",
+    "kind": "rate",
+    "theme": "dark",
+    "width": 390,
+    "image": "shots/chart-dual-gap-rx-high-rate-dark-390.png",
+    "imagePx": {
+      "width": 274,
+      "height": 42
+    },
+    "cssSize": {
+      "width": 136.91,
+      "height": 20
+    },
+    "dpr": 2.1,
+    "background": [
+      157,
+      157,
+      168
+    ],
+    "lines": [
+      {
+        "index": 0,
+        "strokeRgb": [
+          91,
+          140,
+          255
+        ],
+        "stroke": "oklch(0.662 0.179 264.6)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 1,
+          "yMaxViewBox": 1,
+          "yMinCss": 0.42,
+          "yMaxCss": 0.42,
+          "rangeCss": 0,
+          "bottomGapCss": 19.58
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                2,
+                2
+              ],
+              "maxCount": 274
+            }
+          ],
+          "mainGroupCss": {
+            "top": 0.95,
+            "bottom": 1.43,
+            "center": 1.19
+          },
+          "thicknessCss": 0.48,
+          "bottomGapCss": 18.57,
+          "touchesBottom": false
+        }
+      },
+      {
+        "index": 1,
+        "strokeRgb": [
+          157,
+          157,
+          168
+        ],
+        "stroke": "oklch(0.7 0.015 285)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 46.95,
+          "yMaxViewBox": 46.95,
+          "yMinCss": 19.56,
+          "yMaxCss": 19.56,
+          "rangeCss": 0,
+          "bottomGapCss": 0.44
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                40,
+                41
+              ],
+              "maxCount": 274
+            }
+          ],
+          "mainGroupCss": {
+            "top": 19.05,
+            "bottom": 20.0,
+            "center": 19.52
+          },
+          "thicknessCss": 0.95,
+          "bottomGapCss": 0.0,
+          "touchesBottom": true
+        }
+      }
+    ]
+  },
+  {
+    "fixture": "dual-gap-rx-high",
+    "kind": "rate",
+    "theme": "light",
+    "width": 1440,
+    "image": "shots/chart-dual-gap-rx-high-rate-light-1440.png",
+    "imagePx": {
+      "width": 486,
+      "height": 48
+    },
+    "cssSize": {
+      "width": 242.33,
+      "height": 24
+    },
+    "dpr": 2.0,
+    "background": [
+      25,
+      60,
+      184
+    ],
+    "lines": [
+      {
+        "index": 0,
+        "strokeRgb": [
+          25,
+          60,
+          184
+        ],
+        "stroke": "oklch(0.424 0.199 265.638)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 1,
+          "yMaxViewBox": 1,
+          "yMinCss": 0.5,
+          "yMaxCss": 0.5,
+          "rangeCss": 0,
+          "bottomGapCss": 23.5
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                0,
+                1
+              ],
+              "maxCount": 484
+            }
+          ],
+          "mainGroupCss": {
+            "top": 0.0,
+            "bottom": 1.0,
+            "center": 0.5
+          },
+          "thicknessCss": 1.0,
+          "bottomGapCss": 23.0,
+          "touchesBottom": false
+        }
+      },
+      {
+        "index": 1,
+        "strokeRgb": [
+          95,
+          105,
+          126
+        ],
+        "stroke": "oklch(0.52 0.035 265.1)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 46.95,
+          "yMaxViewBox": 46.95,
+          "yMinCss": 23.48,
+          "yMaxCss": 23.48,
+          "rangeCss": 0,
+          "bottomGapCss": 0.52
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                46,
+                47
+              ],
+              "maxCount": 484
+            }
+          ],
+          "mainGroupCss": {
+            "top": 23.0,
+            "bottom": 24.0,
+            "center": 23.5
+          },
+          "thicknessCss": 1.0,
+          "bottomGapCss": 0.0,
+          "touchesBottom": true
+        }
+      }
+    ]
+  },
+  {
+    "fixture": "dual-gap-tx-high",
+    "kind": "rate",
+    "theme": "dark",
+    "width": 1440,
+    "image": "shots/chart-dual-gap-tx-high-rate-dark-1440.png",
+    "imagePx": {
+      "width": 486,
+      "height": 48
+    },
+    "cssSize": {
+      "width": 242.33,
+      "height": 24
+    },
+    "dpr": 2.0,
+    "background": [
+      16,
+      16,
+      19
+    ],
+    "lines": [
+      {
+        "index": 0,
+        "strokeRgb": [
+          91,
+          140,
+          255
+        ],
+        "stroke": "oklch(0.662 0.179 264.6)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 46.95,
+          "yMaxViewBox": 46.95,
+          "yMinCss": 23.48,
+          "yMaxCss": 23.48,
+          "rangeCss": 0,
+          "bottomGapCss": 0.52
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                46,
+                47
+              ],
+              "maxCount": 484
+            }
+          ],
+          "mainGroupCss": {
+            "top": 23.0,
+            "bottom": 24.0,
+            "center": 23.5
+          },
+          "thicknessCss": 1.0,
+          "bottomGapCss": 0.0,
+          "touchesBottom": true
+        }
+      },
+      {
+        "index": 1,
+        "strokeRgb": [
+          157,
+          157,
+          168
+        ],
+        "stroke": "oklch(0.7 0.015 285)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 1,
+          "yMaxViewBox": 1,
+          "yMinCss": 0.5,
+          "yMaxCss": 0.5,
+          "rangeCss": 0,
+          "bottomGapCss": 23.5
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                0,
+                1
+              ],
+              "maxCount": 484
+            }
+          ],
+          "mainGroupCss": {
+            "top": 0.0,
+            "bottom": 1.0,
+            "center": 0.5
+          },
+          "thicknessCss": 1.0,
+          "bottomGapCss": 23.0,
+          "touchesBottom": false
+        }
+      }
+    ]
+  },
+  {
+    "fixture": "dual-gap-tx-high",
+    "kind": "rate",
+    "theme": "dark",
+    "width": 390,
+    "image": "shots/chart-dual-gap-tx-high-rate-dark-390.png",
+    "imagePx": {
+      "width": 274,
+      "height": 42
+    },
+    "cssSize": {
+      "width": 136.91,
+      "height": 20
+    },
+    "dpr": 2.1,
+    "background": [
+      16,
+      16,
+      19
+    ],
+    "lines": [
+      {
+        "index": 0,
+        "strokeRgb": [
+          91,
+          140,
+          255
+        ],
+        "stroke": "oklch(0.662 0.179 264.6)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 46.95,
+          "yMaxViewBox": 46.95,
+          "yMinCss": 19.56,
+          "yMaxCss": 19.56,
+          "rangeCss": 0,
+          "bottomGapCss": 0.44
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                40,
+                41
+              ],
+              "maxCount": 274
+            }
+          ],
+          "mainGroupCss": {
+            "top": 19.05,
+            "bottom": 20.0,
+            "center": 19.52
+          },
+          "thicknessCss": 0.95,
+          "bottomGapCss": 0.0,
+          "touchesBottom": true
+        }
+      },
+      {
+        "index": 1,
+        "strokeRgb": [
+          157,
+          157,
+          168
+        ],
+        "stroke": "oklch(0.7 0.015 285)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 1,
+          "yMaxViewBox": 1,
+          "yMinCss": 0.42,
+          "yMaxCss": 0.42,
+          "rangeCss": 0,
+          "bottomGapCss": 19.58
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                2,
+                2
+              ],
+              "maxCount": 274
+            }
+          ],
+          "mainGroupCss": {
+            "top": 0.95,
+            "bottom": 1.43,
+            "center": 1.19
+          },
+          "thicknessCss": 0.48,
+          "bottomGapCss": 18.57,
+          "touchesBottom": false
+        }
+      }
+    ]
+  },
+  {
+    "fixture": "dual-gap-tx-high",
+    "kind": "rate",
+    "theme": "light",
+    "width": 1440,
+    "image": "shots/chart-dual-gap-tx-high-rate-light-1440.png",
+    "imagePx": {
+      "width": 486,
+      "height": 48
+    },
+    "cssSize": {
+      "width": 242.33,
+      "height": 24
+    },
+    "dpr": 2.0,
+    "background": [
+      255,
+      255,
+      255
+    ],
+    "lines": [
+      {
+        "index": 0,
+        "strokeRgb": [
+          25,
+          60,
+          184
+        ],
+        "stroke": "oklch(0.424 0.199 265.638)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 46.95,
+          "yMaxViewBox": 46.95,
+          "yMinCss": 23.48,
+          "yMaxCss": 23.48,
+          "rangeCss": 0,
+          "bottomGapCss": 0.52
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                46,
+                47
+              ],
+              "maxCount": 484
+            }
+          ],
+          "mainGroupCss": {
+            "top": 23.0,
+            "bottom": 24.0,
+            "center": 23.5
+          },
+          "thicknessCss": 1.0,
+          "bottomGapCss": 0.0,
+          "touchesBottom": true
+        }
+      },
+      {
+        "index": 1,
+        "strokeRgb": [
+          95,
+          105,
+          126
+        ],
+        "stroke": "oklch(0.52 0.035 265.1)",
+        "strokeWidthCss": "1px",
+        "geometry": {
+          "yMinViewBox": 1,
+          "yMaxViewBox": 1,
+          "yMinCss": 0.5,
+          "yMaxCss": 0.5,
+          "rangeCss": 0,
+          "bottomGapCss": 23.5
+        },
+        "pixels": {
+          "rowGroups": [
+            {
+              "deviceRows": [
+                0,
+                1
+              ],
+              "maxCount": 484
+            }
+          ],
+          "mainGroupCss": {
+            "top": 0.0,
+            "bottom": 1.0,
+            "center": 0.5
+          },
+          "thicknessCss": 1.0,
+          "bottomGapCss": 23.0,
+          "touchesBottom": false
+        }
+      }
+    ]
+  }
+]

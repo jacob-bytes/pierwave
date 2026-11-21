@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   formatRate,
+  formatRateExact,
   formatRatePairText,
   formatTrafficTotal,
   rateParts,
@@ -22,6 +23,37 @@ test("rateParts formats bytes per second with 1024 steps", () => {
     unit: "MB/s",
   });
   assert.deepEqual(rateParts(1024 ** 3 * 1.5), { value: "1.5", unit: "GB/s" });
+});
+
+test("rateParts carries a rounded 1024 into the next unit", () => {
+  // 1024^4 - 1 B/s 先缩放到 GB 再四舍五入会得到 1024 GB/s；必须进位。
+  assert.deepEqual(rateParts(1024 ** 4 - 1), { value: "1", unit: "TB/s" });
+  assert.deepEqual(rateParts(1024 ** 5 - 1), { value: "1", unit: "PB/s" });
+  // 真正的 1024 GB/s 同样应显示 1 TB/s。
+  assert.deepEqual(rateParts(1024 ** 4), { value: "1", unit: "TB/s" });
+  // 没有超过阈值时不能乱进位。
+  assert.deepEqual(rateParts(1023 * 1024 ** 3), {
+    value: "1023",
+    unit: "GB/s",
+  });
+});
+
+test("rateParts distinguishes sub-byte nonzero from real zero", () => {
+  assert.equal(formatRate(0), "0 B/s", "真实 0 仍显示 0");
+  assert.equal(formatRate(0.4), "<1 B/s", "非零不能四舍五入成 0");
+  assert.equal(formatRate(0.001), "<1 B/s");
+  assert.deepEqual(rateParts(0.4), { value: "<1", unit: "B/s" });
+  // tooltip / 读屏读数保留非零小数，不跟着大数字写成 <1。
+  assert.equal(formatRateExact(0.4), "0.4 B/s");
+  assert.equal(formatRateExact(0.001), "0.001 B/s");
+  assert.equal(formatRateExact(0.0004), "0.0004 B/s");
+  assert.equal(
+    formatRateExact(0.9999),
+    "0.9999 B/s",
+    "tooltip 不能把 0.9999 四舍五入成 1 B/s",
+  );
+  assert.equal(formatRateExact(0), "0 B/s");
+  assert.equal(formatRateExact(null), null);
 });
 
 test("rateParts treats missing and invalid values as no data", () => {

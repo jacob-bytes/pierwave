@@ -118,3 +118,73 @@ test("hero tolerates an old backend without series", () => {
   // 根级 `series` 是契约位置；旧后端没有该字段时传 null → 空态。
   assert.match(page, /series=\{data\.series \?\? null\}/);
 });
+
+test("all three KPI numbers share the 30/20px scale and 12px units", () => {
+  const hero = read("../components/status/Hero.tsx");
+  // 速率不再是最小的 16px 数值；三个数字都走 20px（<640）/ 30px（≥640）。
+  assert.doesNotMatch(hero, /text-base leading-none font-semibold/);
+  assert.ok(
+    (hero.match(/text-xl leading-none font-semibold[^"]*sm:text-3xl/g) ?? [])
+      .length >= 3,
+    "延迟 / 可用率 / 速率都要用同一档数值字号",
+  );
+  // 速率值整体不换行；放不下时让两个方向换行，而不是缩字号。
+  assert.match(
+    hero,
+    /text-xl leading-none font-semibold whitespace-nowrap sm:text-3xl/,
+  );
+  // `%` 从 30px 数字里拆出来，和 ms / MB\/s 一样是 12px muted。
+  assert.match(
+    hero,
+    /text-xs font-normal text-muted-foreground[\s\S]{0,80}>\s*%\s*</,
+  );
+  assert.match(
+    hero,
+    /text-xs font-normal text-muted-foreground[\s\S]{0,80}>\s*ms\s*</,
+  );
+});
+
+test("uptime number and chart share one sample source", () => {
+  const hero = read("../components/status/Hero.tsx");
+  // buckets 全空时，数字也显示 —：不能出现「100% + 数据收集中」。
+  assert.match(hero, /const uptimeHasSamples = uptimeChart\.values\.some/);
+  assert.match(hero, /averagePercentText = uptimeHasSamples/);
+  assert.match(hero, /averageTone = uptimeHasSamples/);
+  assert.match(hero, /availabilityPercentText\(averageUptime\)/);
+});
+
+test("sparkline is keyboard reachable and exposes the tooltip to AT", () => {
+  const spark = read("../components/status/HeroSparkline.tsx");
+  assert.match(spark, /tabIndex=\{0\}/);
+  assert.match(spark, /onKeyDown=\{onKeyDown\}/);
+  assert.match(spark, /event\.key === "ArrowLeft"/);
+  assert.match(spark, /event\.key === "ArrowRight"/);
+  assert.match(spark, /event\.key === "Escape"/);
+  assert.match(
+    spark,
+    /aria-describedby=\{active === null \? undefined : tooltipId\}/,
+  );
+  assert.match(spark, /aria-live="polite"/);
+  assert.doesNotMatch(
+    spark,
+    /aria-hidden="true"\s+data-slot="hero-sparkline-tooltip"/,
+  );
+  // 全站统一焦点环会命中 [tabindex]，这里不另造焦点色。
+  assert.doesNotMatch(spark, /focus-visible:ring|outline-\[/);
+});
+
+test("rate chart floors nonzero values and keeps 0 on the baseline", () => {
+  const spark = read("../components/status/HeroSparkline.tsx");
+  assert.match(spark, /minNonZeroGap: 3/);
+  assert.match(spark, /const HEIGHT = 24/);
+});
+
+test("empty label is readable: 11px, opaque muted", () => {
+  const spark = read("../components/status/HeroSparkline.tsx");
+  assert.match(spark, /text-\[11px\]/);
+  assert.doesNotMatch(spark, /text-\[9px\]/);
+  assert.match(
+    spark,
+    /bg-card px-1 text-\[11px\] leading-none text-muted-foreground/,
+  );
+});

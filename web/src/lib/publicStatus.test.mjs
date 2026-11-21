@@ -7,6 +7,7 @@ import zh from "../i18n/zh-CN.ts";
 import {
   availabilityFill,
   availabilityPercent,
+  availabilityPercentText,
   availabilityTone,
   averageUptime24h,
   billingCycleKey,
@@ -144,6 +145,23 @@ test("availabilityFill is the clamped percentage, same source as the tone", () =
   assert.equal(availabilityFill(0.71), 71);
   assert.equal(availabilityFill(-0.2), 0);
   assert.equal(availabilityFill(2), 100);
+});
+
+test("availabilityPercentText keeps sub-100 values honest", () => {
+  assert.equal(availabilityPercentText(null), null);
+  assert.equal(availabilityPercentText(undefined), null);
+  assert.equal(availabilityPercentText(Number.NaN), null);
+  assert.equal(availabilityPercentText(1), "100", "只有精确 100% 才显示 100");
+  assert.equal(availabilityPercentText(0.9999), "99.99");
+  assert.equal(availabilityPercentText(0.999), "99.9");
+  // 四舍五入会让 99.9999 变成 100；这里用截断守住。
+  assert.equal(availabilityPercentText(0.99999), "99.99");
+  assert.equal(availabilityPercentText(0.9583), "95.83");
+  assert.equal(availabilityPercentText(0.5), "50");
+  assert.equal(availabilityPercentText(0.004), "0.4");
+  assert.equal(availabilityPercentText(0.00004), "<0.01");
+  assert.equal(availabilityPercentText(0), "0", "0% 仍然显示 0，颜色由 tone 决定");
+  assert.equal(availabilityPercentText(2), "100", "越界脏数据按 100 处理");
 });
 
 test("availabilityPercent rounds and clamps, null stays null", () => {

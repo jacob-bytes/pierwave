@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 export function Meter({
   label,
   percent,
+  percentLabel,
   value,
   foot,
   footTitle,
@@ -31,6 +32,11 @@ export function Meter({
   label: string;
   /** 0..100；`null` 表示没有采样。与 `value` 二选一。 */
   percent?: number | null;
+  /**
+   * 百分比的可选展示文本（不含 `%`），用于需要保留小数的可用率；
+   * 进度条仍用 `percent` 的整数比例。
+   */
+  percentLabel?: string | null;
   /** 直接展示的原始值（负载）；提供时不画进度条。 */
   value?: string;
   foot: string;
@@ -51,7 +57,9 @@ export function Meter({
   const busy = !missing && !tone && filled >= 75;
   const percentText = missing
     ? "—"
-    : `${filled < 10 ? filled.toFixed(1) : filled.toFixed(0)}%`;
+    : percentLabel !== undefined && percentLabel !== null
+      ? `${percentLabel}%`
+      : `${filled < 10 ? filled.toFixed(1) : filled.toFixed(0)}%`;
   const display = hasValue ? value : percentText;
 
   const valueClass = muted

@@ -383,17 +383,17 @@ for (const job of jobs()) {
       const rate = metrics.charts.find((chart) => chart.kind === "rate");
       assert.ok(rate.lineCount >= 2, "速率图应有上下行两条线");
       assert.equal(rate.areaCount, 1, "速率图应有一层面积");
-      // 零基线：viewBox 高度 48，0 落在 y = 47（贴底）。
+      // 零基线：viewBox 高度 24，0 落在 y = 23（贴底）。
       assert.equal(
         rate.yMin,
-        47,
+        23,
         "0 B/s 是有效数据，必须贴底画线而不是空态",
       );
-      assert.equal(rate.yMax, 47);
+      assert.equal(rate.yMax, 23);
 
       const uptime = metrics.charts.find((chart) => chart.kind === "uptime");
-      assert.equal(uptime.yMin, 47, "0% 可用率贴底");
-      assert.equal(uptime.yMax, 47);
+      assert.equal(uptime.yMin, 23, "0% 可用率贴底");
+      assert.equal(uptime.yMax, 23);
     }
 
     // 3) 布局：1440 三列大致等宽；390 三行堆叠、每行一张图。

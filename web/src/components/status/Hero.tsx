@@ -19,7 +19,7 @@ import {
 } from "@/lib/heroSeries";
 import { formatRatePairText, rateParts } from "@/lib/netRate";
 import {
-  availabilityPercent,
+  availabilityPercentText,
   availabilityTone,
   averageLatency,
   averageUptime24h,
@@ -109,16 +109,25 @@ function RateValue({
       />
       <span className="sr-only">{label}</span>
       {parts === null ? (
-        <span className="text-base leading-none font-semibold text-muted-foreground">
+        <span
+          data-slot="hero-kpi-value"
+          data-kpi="rate"
+          className="text-xl leading-none font-semibold text-muted-foreground sm:text-3xl"
+        >
           —
         </span>
       ) : (
         <span
           key={`${parts.value} ${parts.unit}`}
-          className="value-settle tnum inline-flex items-baseline gap-1 text-base leading-none font-semibold"
+          data-slot="hero-kpi-value"
+          data-kpi="rate"
+          className="value-settle tnum inline-flex items-baseline gap-1 text-xl leading-none font-semibold whitespace-nowrap sm:text-3xl"
         >
           {parts.value}
-          <span className="text-xs font-normal text-muted-foreground">
+          <span
+            data-slot="hero-kpi-unit"
+            className="text-xs font-normal text-muted-foreground"
+          >
             {parts.unit}
           </span>
         </span>
@@ -139,7 +148,11 @@ function RateFlow({ rate }: { rate: OnlineRate | null }) {
 
   if (rate === null) {
     return (
-      <span className="text-xl leading-none font-semibold text-muted-foreground sm:text-3xl">
+      <span
+        data-slot="hero-kpi-value"
+        data-kpi="rate"
+        className="text-xl leading-none font-semibold text-muted-foreground sm:text-3xl"
+      >
         —
       </span>
     );
@@ -147,7 +160,7 @@ function RateFlow({ rate }: { rate: OnlineRate | null }) {
 
   return (
     <div
-      className="flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0.5"
+      className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-1"
       title={formatRatePairText(rate.rx, rate.tx) ?? undefined}
     >
       <RateValue
@@ -198,18 +211,24 @@ export function Hero({
   // 平均延迟只算在线机器；没有读数时是 null，大数字显示 —，不写成 0 ms。
   const averageLatencyMs = averageLatency(servers);
 
-  // 平均可用率：没有一台有采样时是 null，大数字显示 —，不写成 0%。
-  const averageUptime = averageUptime24h(servers);
-  const averagePercent = availabilityPercent(averageUptime);
-  const averageTone = availabilityTone(averageUptime);
-
-  // 当前总速率：所有在线机器的上下行分别求和；没有任何读数时 null → —。
-  const rate = onlineRateByDirection(servers);
-
   // 三张迷你图的数据：延迟 / 速率来自后端 series，可用率由 24 个桶现算。
   const latencyChart = heroLatencySeries(series) ?? EMPTY_LINE_SERIES;
   const rateChart = heroRateSeries(series) ?? EMPTY_RATE_SERIES;
   const uptimeChart = heroUptimeSeries(servers);
+
+  // 平均可用率与图必须同源：24 个桶全空时，即使后端仍带着 uptime_24h，
+  // 也把数字显示为 —。否则会出现「100% + 数据收集中」的自相矛盾。
+  const uptimeHasSamples = uptimeChart.values.some((value) => value !== null);
+  const averageUptime = averageUptime24h(servers);
+  const averagePercentText = uptimeHasSamples
+    ? availabilityPercentText(averageUptime)
+    : null;
+  const averageTone = uptimeHasSamples
+    ? availabilityTone(averageUptime)
+    : "unknown";
+
+  // 当前总速率：所有在线机器的上下行分别求和；没有任何读数时 null → —。
+  const rate = onlineRateByDirection(servers);
 
   const busiest = busiestServer(servers);
   const busiestLoad =
@@ -250,13 +269,24 @@ export function Hero({
             }
           >
             {averageLatencyMs === null ? (
-              <span className="text-xl leading-none font-semibold text-muted-foreground sm:text-3xl">
+              <span
+                data-slot="hero-kpi-value"
+                data-kpi="latency"
+                className="text-xl leading-none font-semibold text-muted-foreground sm:text-3xl"
+              >
                 —
               </span>
             ) : (
-              <span className="tnum inline-flex items-baseline gap-1 text-xl leading-none font-semibold sm:text-3xl">
+              <span
+                data-slot="hero-kpi-value"
+                data-kpi="latency"
+                className="tnum inline-flex items-baseline gap-1 text-xl leading-none font-semibold sm:text-3xl"
+              >
                 {averageLatencyMs}
-                <span className="text-xs font-normal text-muted-foreground">
+                <span
+                  data-slot="hero-kpi-unit"
+                  className="text-xs font-normal text-muted-foreground"
+                >
                   ms
                 </span>
               </span>
@@ -273,16 +303,32 @@ export function Hero({
               />
             }
           >
-            <span
-              className={cn(
-                "tnum text-xl leading-none font-semibold sm:text-3xl",
-                averagePercent === null
-                  ? "text-muted-foreground"
-                  : AVAILABILITY_TEXT_CLASS[averageTone],
-              )}
-            >
-              {averagePercent === null ? "—" : `${averagePercent}%`}
-            </span>
+            {averagePercentText === null ? (
+              <span
+                data-slot="hero-kpi-value"
+                data-kpi="uptime"
+                className="text-xl leading-none font-semibold text-muted-foreground sm:text-3xl"
+              >
+                —
+              </span>
+            ) : (
+              <span
+                data-slot="hero-kpi-value"
+                data-kpi="uptime"
+                className={cn(
+                  "tnum inline-flex items-baseline gap-1 text-xl leading-none font-semibold sm:text-3xl",
+                  AVAILABILITY_TEXT_CLASS[averageTone],
+                )}
+              >
+                {averagePercentText}
+                <span
+                  data-slot="hero-kpi-unit"
+                  className="text-xs font-normal text-muted-foreground"
+                >
+                  %
+                </span>
+              </span>
+            )}
           </Stat>
 
           <Stat

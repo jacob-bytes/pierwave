@@ -1,4 +1,9 @@
-import { useId, useState, type PointerEvent } from "react";
+import {
+  useId,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from "react";
 import { AVAILABILITY_TEXT_CLASS } from "@/components/status/Availability";
 import { useI18n } from "@/i18n";
 import type {
@@ -6,9 +11,9 @@ import type {
   HeroRateSeries,
   NullableSeries,
 } from "@/lib/heroSeries";
-import { formatRate } from "@/lib/netRate";
+import { formatRateExact } from "@/lib/netRate";
 import {
-  availabilityPercent,
+  availabilityPercentText,
   type AvailabilityTone,
 } from "@/lib/publicStatus";
 import { multiSparkGeometry } from "@/lib/sparkline";
@@ -33,8 +38,8 @@ import { cn } from "@/lib/utils";
 
 /** viewBox 宽度；实际显示宽度由容器决定（`preserveAspectRatio="none"`）。 */
 const WIDTH = 240;
-/** viewBox 高度；CSS 高度 20px（手机）/ 24px（桌面）。 */
-const HEIGHT = 48;
+/** viewBox 高度；与桌面的 CSS 高度一致（20px 手机 / 24px 桌面）。 */
+const HEIGHT = 24;
 
 type HeroSparklineProps =
   | {
@@ -63,6 +68,7 @@ function chartAriaKey(kind: HeroSparklineProps["kind"]): string {
 
 /** 悬停读数：手机上不出现（没有 hover），桌面用极简两行。 */
 function HeroTooltip({
+  id,
   kind,
   index,
   count,
@@ -71,6 +77,7 @@ function HeroTooltip({
   rx,
   tx,
 }: {
+  id: string;
   kind: HeroSparklineProps["kind"];
   index: number;
   /** 采样点总数（与画线的 x 位置一致）。 */
@@ -88,11 +95,11 @@ function HeroTooltip({
     rows.push(
       {
         label: t("publicStatus.server.trafficRx"),
-        text: formatRate(rx[index]) ?? "—",
+        text: formatRateExact(rx[index]) ?? "—",
       },
       {
         label: t("publicStatus.server.trafficTx"),
-        text: formatRate(tx[index]) ?? "—",
+        text: formatRateExact(tx[index]) ?? "—",
       },
     );
   } else {
@@ -104,7 +111,7 @@ function HeroTooltip({
           : `${Math.round(value)} ms`
         : value === null
           ? "—"
-          : `${availabilityPercent(value) ?? "—"}%`;
+          : `${availabilityPercentText(value) ?? "—"}%`;
     rows.push({
       label: t(
         kind === "latency"
@@ -117,7 +124,9 @@ function HeroTooltip({
 
   return (
     <div
-      aria-hidden="true"
+      id={id}
+      aria-live="polite"
+      aria-atomic="true"
       data-slot="hero-sparkline-tooltip"
       className="pointer-events-none absolute bottom-full z-10 mb-1.5 min-w-24 rounded-md border border-border bg-popover px-2 py-1.5 text-[10px] leading-tight whitespace-nowrap text-popover-foreground shadow-lg/40"
       style={{
@@ -151,8 +160,12 @@ function HeroTooltip({
 export function HeroSparkline(props: HeroSparklineProps) {
   const { t } = useI18n();
   const [active, setActive] = useState<number | null>(null);
-  // 同一个页面理论上只有一个速率图；`useId` 仍然保证多实例时渐变不串。
-  const gradientId = `pw-hero-spark-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  // 鼠标移开时只在没有键盘焦点的情况下关闭读数，避免焦点态被 pointerleave 清掉。
+  const [focused, setFocused] = useState(false);
+  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, "");
+  // 同一个页面理论上只有一个速率图；`useId` 仍然保证多实例时渐变 / tooltip 不串。
+  const gradientId = `pw-hero-spark-${uid}`;
+  const tooltipId = `pw-hero-spark-tip-${uid}`;
 
   const { kind } = props;
   const rate = kind === "rate" ? props.data : null;
@@ -179,6 +192,9 @@ export function HeroSparkline(props: HeroSparklineProps) {
       // 可用率有绝对上限：固定 0–100%，100% 永远贴顶，不把 96% 与 98%
       // 的差别放大成满屏锯齿（延迟没有这种上限，仍用自适应）。
       ...(kind === "uptime" ? { domain: [0, 1] as const } : {}),
+      // 量级突变时给非零速率一个可见地板：viewBox 高 24、基线在 23，
+      // 3 个单位 = 桌面 2px / 手机 1.67px；0 仍然贴底。
+      ...(kind === "rate" ? { minNonZeroGap: 3 } : {}),
       minPoints: 2,
     },
   );
@@ -201,7 +217,7 @@ export function HeroSparkline(props: HeroSparklineProps) {
           aria-hidden="true"
           className="absolute inset-x-0 top-1/2 border-t border-dashed border-border/60"
         />
-        <span className="relative bg-card px-1 text-[9px] leading-none text-muted-foreground/70">
+        <span className="relative bg-card px-1 text-[11px] leading-none text-muted-foreground">
           {t("publicStatus.hero.chartEmpty")}
         </span>
       </div>
@@ -219,6 +235,30 @@ export function HeroSparkline(props: HeroSparklineProps) {
     );
     const next = Math.round(ratio * (length - 1));
     setActive((current) => (current === next ? current : next));
+  };
+
+  const moveActive = (delta: -1 | 1) => {
+    if (length < 1) return;
+    setActive((current) => {
+      const start = current ?? length - 1;
+      return Math.min(length - 1, Math.max(0, start + delta));
+    });
+  };
+
+  const onKeyDown = (event: KeyboardEvent<SVGSVGElement>) => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      moveActive(-1);
+      return;
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      moveActive(1);
+      return;
+    }
+    if (event.key === "Escape") {
+      setActive(null);
+    }
   };
 
   const uptimeTone = props.kind === "uptime" ? (props.tone ?? "unknown") : null;
@@ -239,12 +279,27 @@ export function HeroSparkline(props: HeroSparklineProps) {
     >
       <svg
         role="img"
+        tabIndex={0}
         aria-label={t(chartAriaKey(kind))}
+        aria-describedby={active === null ? undefined : tooltipId}
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         preserveAspectRatio="none"
         className="h-full w-full overflow-visible"
         onPointerMove={onPointerMove}
-        onPointerLeave={() => setActive(null)}
+        onPointerLeave={() => {
+          if (!focused) setActive(null);
+        }}
+        onFocus={() => {
+          setFocused(true);
+          setActive((current) =>
+            current ?? (length > 0 ? length - 1 : null),
+          );
+        }}
+        onBlur={() => {
+          setFocused(false);
+          setActive(null);
+        }}
+        onKeyDown={onKeyDown}
       >
         {kind === "rate" ? (
           <defs>
@@ -293,6 +348,7 @@ export function HeroSparkline(props: HeroSparklineProps) {
 
       {active === null ? null : (
         <HeroTooltip
+          id={tooltipId}
           kind={kind}
           index={active}
           count={length}

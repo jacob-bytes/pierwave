@@ -1,7 +1,7 @@
 import type { PublicStatusServer } from "@/lib/api";
 import {
   availabilityFill,
-  availabilityPercent,
+  availabilityPercentText,
   availabilityTone,
   hasSamples,
   type AvailabilityTone,
@@ -32,7 +32,7 @@ export const AVAILABILITY_TEXT_CLASS: Record<AvailabilityTone, string> = {
 /** 可用率的百分比；没有采样时只画一个破折号，不把「没有数据」写成 0%。 */
 export function AvailabilityValue({ ratio }: { ratio: number | null }) {
   const { t } = useI18n();
-  const percent = availabilityPercent(ratio);
+  const percent = availabilityPercentText(ratio);
   if (percent === null) {
     return (
       <span
@@ -108,7 +108,7 @@ export function AvailabilityStrip({
     >
       {server.buckets_24h.map((bucket, index) => {
         const ratio = bucket?.online_ratio ?? null;
-        const percent = availabilityPercent(ratio);
+        const percent = availabilityPercentText(ratio);
         return (
           <span
             // 固定 24 格，用下标做 key 是稳定的；桶本身可能为 null。

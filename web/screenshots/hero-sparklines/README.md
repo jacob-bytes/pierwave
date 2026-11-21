@@ -38,7 +38,7 @@ BASE_URL=http://localhost:4173 node screenshots/hero-sparklines/shots.mjs
 `zero` 和 `empty` 放在一起就是「0 与 null 的区分证据」：
 
 - `empty-*`：`lineCount = 0`、虚线基线存在、aria-label 是「数据收集中」；
-- `zero-*`：`lineCount >= 1`，速率图所有 y = 47（viewBox 高 48，0 贴底），
+- `zero-*`：`lineCount >= 1`，速率图所有 y = 23（viewBox 高 24，0 贴底），
   hover 读数是 `0 B/s`，KPI 也写 `0 B/s`；
 - 两者在 `report.json` 里各自有完整数字，不靠肉眼。
 
@@ -104,8 +104,8 @@ three lines and the rate chart sits flat on the baseline; its tooltip reads
 `0 B/s`.
 
 **Null vs 0 evidence.** `empty` charts have `lineCount = 0` and one dashed
-baseline each; `zero` charts have `lineCount >= 1`, every rate y equals 47 in a
-48-high viewBox, and hovering reads `0 B/s`. Both are recorded numerically in
+baseline each; `zero` charts have `lineCount >= 1`, every rate y equals 23 in a
+24-high viewBox, and hovering reads `0 B/s`. Both are recorded numerically in
 `report.json`.
 
 **Measured layout** (same 8-server fixture): the KPI block is capped at 50rem

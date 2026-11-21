@@ -23,6 +23,7 @@ import { formatBytePair } from "@/lib/format";
 import { formatRate, formatTrafficTotal } from "@/lib/netRate";
 import {
   availabilityPercent,
+  availabilityPercentText,
   availabilityTone,
   expiryLabel,
   publicBilling,
@@ -328,6 +329,7 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
   const memPair = formatBytePair(server.mem_used, server.mem_total);
   const diskPair = formatBytePair(server.disk_used, server.disk_total);
   const uptime24h = availabilityPercent(server.uptime_24h);
+  const uptime24hLabel = availabilityPercentText(server.uptime_24h);
   // 国旗三态：合法代码 → emoji；未设置 / 非法 → 地球图标（保持标题行对齐，
   // 也不猜测国家）。国家名用 Intl.DisplayNames 本地化，失败回落代码。
   const normalizedCountry = normalizeCountryCode(server.country_code);
@@ -438,6 +440,7 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
         <Meter
           label={t("publicStatus.server.availability24h")}
           percent={uptime24h}
+          percentLabel={uptime24hLabel}
           tone={availabilityTone(server.uptime_24h)}
           foot={t("publicStatus.server.availability24hHint")}
           footTitle={

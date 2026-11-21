@@ -125,7 +125,7 @@
       "scrollHeight": 1037,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 133
+      "kb": 134
     },
     {
       "state": "empty",
@@ -235,7 +235,7 @@
       "scrollHeight": 3547,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 222
+      "kb": 223
     },
     {
       "state": "empty",
@@ -345,7 +345,7 @@
       "scrollHeight": 1037,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 139
+      "kb": 140
     },
     {
       "state": "empty",
@@ -455,7 +455,7 @@
       "scrollHeight": 3547,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 235
+      "kb": 236
     },
     {
       "state": "legacy",
@@ -504,7 +504,7 @@
           "y": 101,
           "width": 242.3,
           "height": 86,
-          "text": "24h 可用率 96%"
+          "text": "24h 可用率 95.83 %"
         },
         {
           "x": 1133.7,
@@ -543,7 +543,7 @@
           ],
           "lineCount": 1,
           "yMin": 1,
-          "yMax": 24,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -567,7 +567,7 @@
       "scrollHeight": 1009,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 162
+      "kb": 166
     },
     {
       "state": "legacy",
@@ -616,7 +616,7 @@
           "y": 221.8,
           "width": 326,
           "height": 79,
-          "text": "24h 可用率 96%"
+          "text": "24h 可用率 95.83 %"
         },
         {
           "x": 32,
@@ -655,7 +655,7 @@
           ],
           "lineCount": 1,
           "yMin": 1,
-          "yMax": 24,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -679,7 +679,7 @@
       "scrollHeight": 3541,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 265
+      "kb": 272
     },
     {
       "state": "legacy",
@@ -728,7 +728,7 @@
           "y": 101,
           "width": 242.3,
           "height": 86,
-          "text": "24h 可用率 96%"
+          "text": "24h 可用率 95.83 %"
         },
         {
           "x": 1133.7,
@@ -767,7 +767,7 @@
           ],
           "lineCount": 1,
           "yMin": 1,
-          "yMax": 24,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -791,7 +791,7 @@
       "scrollHeight": 1009,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 169
+      "kb": 173
     },
     {
       "state": "legacy",
@@ -840,7 +840,7 @@
           "y": 221.8,
           "width": 326,
           "height": 79,
-          "text": "24h 可用率 96%"
+          "text": "24h 可用率 95.83 %"
         },
         {
           "x": 32,
@@ -879,7 +879,7 @@
           ],
           "lineCount": 1,
           "yMin": 1,
-          "yMax": 24,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -903,7 +903,7 @@
       "scrollHeight": 3541,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 281
+      "kb": 289
     },
     {
       "state": "partial",
@@ -952,7 +952,7 @@
           "y": 101,
           "width": 242.3,
           "height": 86,
-          "text": "24h 可用率 95%"
+          "text": "24h 可用率 95.23 %"
         },
         {
           "x": 1133.7,
@@ -975,8 +975,8 @@
             2
           ],
           "lineCount": 1,
-          "yMin": 5.45,
-          "yMax": 42.55,
+          "yMin": 3.13,
+          "yMax": 20.87,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -993,7 +993,7 @@
           ],
           "lineCount": 1,
           "yMin": 1,
-          "yMax": 24,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -1011,7 +1011,7 @@
           ],
           "lineCount": 2,
           "yMin": 1,
-          "yMax": 41.58,
+          "yMax": 20.41,
           "areaCount": 1,
           "dashedBaseline": 0
         }
@@ -1020,7 +1020,7 @@
       "scrollHeight": 1009,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 161
+      "kb": 164
     },
     {
       "state": "partial",
@@ -1069,7 +1069,7 @@
           "y": 221.8,
           "width": 326,
           "height": 79,
-          "text": "24h 可用率 95%"
+          "text": "24h 可用率 95.23 %"
         },
         {
           "x": 32,
@@ -1092,8 +1092,8 @@
             2
           ],
           "lineCount": 1,
-          "yMin": 5.45,
-          "yMax": 42.55,
+          "yMin": 3.13,
+          "yMax": 20.87,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -1110,7 +1110,7 @@
           ],
           "lineCount": 1,
           "yMin": 1,
-          "yMax": 24,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -1128,7 +1128,7 @@
           ],
           "lineCount": 2,
           "yMin": 1,
-          "yMax": 41.58,
+          "yMax": 20.41,
           "areaCount": 1,
           "dashedBaseline": 0
         }
@@ -1137,7 +1137,7 @@
       "scrollHeight": 3541,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 264
+      "kb": 271
     },
     {
       "state": "partial",
@@ -1186,7 +1186,7 @@
           "y": 101,
           "width": 242.3,
           "height": 86,
-          "text": "24h 可用率 95%"
+          "text": "24h 可用率 95.23 %"
         },
         {
           "x": 1133.7,
@@ -1209,8 +1209,8 @@
             2
           ],
           "lineCount": 1,
-          "yMin": 5.45,
-          "yMax": 42.55,
+          "yMin": 3.13,
+          "yMax": 20.87,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -1227,7 +1227,7 @@
           ],
           "lineCount": 1,
           "yMin": 1,
-          "yMax": 24,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -1245,7 +1245,7 @@
           ],
           "lineCount": 2,
           "yMin": 1,
-          "yMax": 41.58,
+          "yMax": 20.41,
           "areaCount": 1,
           "dashedBaseline": 0
         }
@@ -1254,7 +1254,7 @@
       "scrollHeight": 1009,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 168
+      "kb": 172
     },
     {
       "state": "partial",
@@ -1303,7 +1303,7 @@
           "y": 221.8,
           "width": 326,
           "height": 79,
-          "text": "24h 可用率 95%"
+          "text": "24h 可用率 95.23 %"
         },
         {
           "x": 32,
@@ -1326,8 +1326,8 @@
             2
           ],
           "lineCount": 1,
-          "yMin": 5.45,
-          "yMax": 42.55,
+          "yMin": 3.13,
+          "yMax": 20.87,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -1344,7 +1344,7 @@
           ],
           "lineCount": 1,
           "yMin": 1,
-          "yMax": 24,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -1362,7 +1362,7 @@
           ],
           "lineCount": 2,
           "yMin": 1,
-          "yMax": 41.58,
+          "yMax": 20.41,
           "areaCount": 1,
           "dashedBaseline": 0
         }
@@ -1371,7 +1371,7 @@
       "scrollHeight": 3541,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 280
+      "kb": 287
     },
     {
       "state": "full",
@@ -1420,7 +1420,7 @@
           "y": 101,
           "width": 242.3,
           "height": 86,
-          "text": "24h 可用率 96%"
+          "text": "24h 可用率 95.83 %"
         },
         {
           "x": 1133.7,
@@ -1443,8 +1443,8 @@
             1
           ],
           "lineCount": 1,
-          "yMin": 5.45,
-          "yMax": 42.55,
+          "yMin": 3.13,
+          "yMax": 20.87,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -1461,7 +1461,7 @@
           ],
           "lineCount": 1,
           "yMin": 1,
-          "yMax": 24,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -1479,7 +1479,7 @@
           ],
           "lineCount": 2,
           "yMin": 1,
-          "yMax": 41.58,
+          "yMax": 20.41,
           "areaCount": 1,
           "dashedBaseline": 0
         }
@@ -1488,7 +1488,7 @@
       "scrollHeight": 1009,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 161
+      "kb": 164
     },
     {
       "state": "full",
@@ -1537,7 +1537,7 @@
           "y": 221.8,
           "width": 326,
           "height": 79,
-          "text": "24h 可用率 96%"
+          "text": "24h 可用率 95.83 %"
         },
         {
           "x": 32,
@@ -1560,8 +1560,8 @@
             1
           ],
           "lineCount": 1,
-          "yMin": 5.45,
-          "yMax": 42.55,
+          "yMin": 3.13,
+          "yMax": 20.87,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -1578,7 +1578,7 @@
           ],
           "lineCount": 1,
           "yMin": 1,
-          "yMax": 24,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -1596,7 +1596,7 @@
           ],
           "lineCount": 2,
           "yMin": 1,
-          "yMax": 41.58,
+          "yMax": 20.41,
           "areaCount": 1,
           "dashedBaseline": 0
         }
@@ -1605,7 +1605,7 @@
       "scrollHeight": 3541,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 264
+      "kb": 271
     },
     {
       "state": "full",
@@ -1654,7 +1654,7 @@
           "y": 101,
           "width": 242.3,
           "height": 86,
-          "text": "24h 可用率 96%"
+          "text": "24h 可用率 95.83 %"
         },
         {
           "x": 1133.7,
@@ -1677,8 +1677,8 @@
             1
           ],
           "lineCount": 1,
-          "yMin": 5.45,
-          "yMax": 42.55,
+          "yMin": 3.13,
+          "yMax": 20.87,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -1695,7 +1695,7 @@
           ],
           "lineCount": 1,
           "yMin": 1,
-          "yMax": 24,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -1713,7 +1713,7 @@
           ],
           "lineCount": 2,
           "yMin": 1,
-          "yMax": 41.58,
+          "yMax": 20.41,
           "areaCount": 1,
           "dashedBaseline": 0
         }
@@ -1722,7 +1722,7 @@
       "scrollHeight": 1009,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 168
+      "kb": 171
     },
     {
       "state": "full",
@@ -1771,7 +1771,7 @@
           "y": 221.8,
           "width": 326,
           "height": 79,
-          "text": "24h 可用率 96%"
+          "text": "24h 可用率 95.83 %"
         },
         {
           "x": 32,
@@ -1794,8 +1794,8 @@
             1
           ],
           "lineCount": 1,
-          "yMin": 5.45,
-          "yMax": 42.55,
+          "yMin": 3.13,
+          "yMax": 20.87,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -1812,7 +1812,7 @@
           ],
           "lineCount": 1,
           "yMin": 1,
-          "yMax": 24,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -1830,7 +1830,7 @@
           ],
           "lineCount": 2,
           "yMin": 1,
-          "yMax": 41.58,
+          "yMax": 20.41,
           "areaCount": 1,
           "dashedBaseline": 0
         }
@@ -1839,7 +1839,7 @@
       "scrollHeight": 3541,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 280
+      "kb": 287
     },
     {
       "state": "zero",
@@ -1888,7 +1888,7 @@
           "y": 101,
           "width": 242.3,
           "height": 86,
-          "text": "24h 可用率 0%"
+          "text": "24h 可用率 0 %"
         },
         {
           "x": 1133.7,
@@ -1911,8 +1911,8 @@
             1
           ],
           "lineCount": 1,
-          "yMin": 24,
-          "yMax": 24,
+          "yMin": 12,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -1928,8 +1928,8 @@
             1
           ],
           "lineCount": 1,
-          "yMin": 47,
-          "yMax": 47,
+          "yMin": 23,
+          "yMax": 23,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -1946,8 +1946,8 @@
             1
           ],
           "lineCount": 2,
-          "yMin": 47,
-          "yMax": 47,
+          "yMin": 23,
+          "yMax": 23,
           "areaCount": 1,
           "dashedBaseline": 0
         }
@@ -2005,7 +2005,7 @@
           "y": 221.8,
           "width": 326,
           "height": 79,
-          "text": "24h 可用率 0%"
+          "text": "24h 可用率 0 %"
         },
         {
           "x": 32,
@@ -2028,8 +2028,8 @@
             1
           ],
           "lineCount": 1,
-          "yMin": 24,
-          "yMax": 24,
+          "yMin": 12,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -2045,8 +2045,8 @@
             1
           ],
           "lineCount": 1,
-          "yMin": 47,
-          "yMax": 47,
+          "yMin": 23,
+          "yMax": 23,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -2063,8 +2063,8 @@
             1
           ],
           "lineCount": 2,
-          "yMin": 47,
-          "yMax": 47,
+          "yMin": 23,
+          "yMax": 23,
           "areaCount": 1,
           "dashedBaseline": 0
         }
@@ -2073,7 +2073,7 @@
       "scrollHeight": 3541,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 250
+      "kb": 249
     },
     {
       "state": "zero",
@@ -2122,7 +2122,7 @@
           "y": 101,
           "width": 242.3,
           "height": 86,
-          "text": "24h 可用率 0%"
+          "text": "24h 可用率 0 %"
         },
         {
           "x": 1133.7,
@@ -2145,8 +2145,8 @@
             1
           ],
           "lineCount": 1,
-          "yMin": 24,
-          "yMax": 24,
+          "yMin": 12,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -2162,8 +2162,8 @@
             1
           ],
           "lineCount": 1,
-          "yMin": 47,
-          "yMax": 47,
+          "yMin": 23,
+          "yMax": 23,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -2180,8 +2180,8 @@
             1
           ],
           "lineCount": 2,
-          "yMin": 47,
-          "yMax": 47,
+          "yMin": 23,
+          "yMax": 23,
           "areaCount": 1,
           "dashedBaseline": 0
         }
@@ -2239,7 +2239,7 @@
           "y": 221.8,
           "width": 326,
           "height": 79,
-          "text": "24h 可用率 0%"
+          "text": "24h 可用率 0 %"
         },
         {
           "x": 32,
@@ -2262,8 +2262,8 @@
             1
           ],
           "lineCount": 1,
-          "yMin": 24,
-          "yMax": 24,
+          "yMin": 12,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -2279,8 +2279,8 @@
             1
           ],
           "lineCount": 1,
-          "yMin": 47,
-          "yMax": 47,
+          "yMin": 23,
+          "yMax": 23,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -2297,8 +2297,8 @@
             1
           ],
           "lineCount": 2,
-          "yMin": 47,
-          "yMax": 47,
+          "yMin": 23,
+          "yMax": 23,
           "areaCount": 1,
           "dashedBaseline": 0
         }
@@ -2307,7 +2307,7 @@
       "scrollHeight": 3541,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 265
+      "kb": 264
     },
     {
       "state": "full",
@@ -2356,7 +2356,7 @@
           "y": 101,
           "width": 242.3,
           "height": 86,
-          "text": "24h uptime 96%"
+          "text": "24h uptime 95.83 %"
         },
         {
           "x": 1133.7,
@@ -2379,8 +2379,8 @@
             1
           ],
           "lineCount": 1,
-          "yMin": 5.45,
-          "yMax": 42.55,
+          "yMin": 3.13,
+          "yMax": 20.87,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -2397,7 +2397,7 @@
           ],
           "lineCount": 1,
           "yMin": 1,
-          "yMax": 24,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -2415,7 +2415,7 @@
           ],
           "lineCount": 2,
           "yMin": 1,
-          "yMax": 41.58,
+          "yMax": 20.41,
           "areaCount": 1,
           "dashedBaseline": 0
         }
@@ -2424,7 +2424,7 @@
       "scrollHeight": 1009,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 156
+      "kb": 159
     },
     {
       "state": "empty",
@@ -2534,7 +2534,7 @@
       "scrollHeight": 1037,
       "tooltip": null,
       "hoverRing": null,
-      "kb": 130
+      "kb": 131
     },
     {
       "state": "full",
@@ -2583,7 +2583,7 @@
           "y": 101,
           "width": 242.3,
           "height": 86,
-          "text": "24h 可用率 96%"
+          "text": "24h 可用率 95.83 %"
         },
         {
           "x": 1133.7,
@@ -2606,8 +2606,8 @@
             1
           ],
           "lineCount": 1,
-          "yMin": 5.45,
-          "yMax": 42.55,
+          "yMin": 3.13,
+          "yMax": 20.87,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -2624,7 +2624,7 @@
           ],
           "lineCount": 1,
           "yMin": 1,
-          "yMax": 24,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -2642,16 +2642,16 @@
           ],
           "lineCount": 2,
           "yMin": 1,
-          "yMax": 41.58,
+          "yMax": 20.41,
           "areaCount": 1,
           "dashedBaseline": 0
         }
       ],
       "scrollWidth": 1440,
       "scrollHeight": 1009,
-      "tooltip": "11:11:25 下行 32.1 MB/s 上行 4.47 MB/s",
+      "tooltip": "11:53:38 下行 32.1 MB/s 上行 4.47 MB/s",
       "hoverRing": null,
-      "kb": 164
+      "kb": 166
     },
     {
       "state": "zero",
@@ -2700,7 +2700,7 @@
           "y": 101,
           "width": 242.3,
           "height": 86,
-          "text": "24h 可用率 0%"
+          "text": "24h 可用率 0 %"
         },
         {
           "x": 1133.7,
@@ -2723,8 +2723,8 @@
             1
           ],
           "lineCount": 1,
-          "yMin": 24,
-          "yMax": 24,
+          "yMin": 12,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -2740,8 +2740,8 @@
             1
           ],
           "lineCount": 1,
-          "yMin": 47,
-          "yMax": 47,
+          "yMin": 23,
+          "yMax": 23,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -2758,15 +2758,15 @@
             1
           ],
           "lineCount": 2,
-          "yMin": 47,
-          "yMax": 47,
+          "yMin": 23,
+          "yMax": 23,
           "areaCount": 1,
           "dashedBaseline": 0
         }
       ],
       "scrollWidth": 1440,
       "scrollHeight": 1009,
-      "tooltip": "11:11:26 下行 0 B/s 上行 0 B/s",
+      "tooltip": "11:53:40 下行 0 B/s 上行 0 B/s",
       "hoverRing": null,
       "kb": 152
     },
@@ -2817,7 +2817,7 @@
           "y": 101,
           "width": 242.3,
           "height": 86,
-          "text": "24h 可用率 96%"
+          "text": "24h 可用率 95.83 %"
         },
         {
           "x": 1133.7,
@@ -2840,8 +2840,8 @@
             1
           ],
           "lineCount": 1,
-          "yMin": 5.45,
-          "yMax": 42.55,
+          "yMin": 3.13,
+          "yMax": 20.87,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -2858,7 +2858,7 @@
           ],
           "lineCount": 1,
           "yMin": 1,
-          "yMax": 24,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -2876,7 +2876,7 @@
           ],
           "lineCount": 2,
           "yMin": 1,
-          "yMax": 41.58,
+          "yMax": 20.41,
           "areaCount": 1,
           "dashedBaseline": 0
         }
@@ -2944,7 +2944,7 @@
           "y": 101,
           "width": 242.3,
           "height": 86,
-          "text": "24h 可用率 96%"
+          "text": "24h 可用率 95.83 %"
         },
         {
           "x": 1133.7,
@@ -2967,8 +2967,8 @@
             1
           ],
           "lineCount": 1,
-          "yMin": 5.45,
-          "yMax": 42.55,
+          "yMin": 3.13,
+          "yMax": 20.87,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -2985,7 +2985,7 @@
           ],
           "lineCount": 1,
           "yMin": 1,
-          "yMax": 24,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -3003,7 +3003,7 @@
           ],
           "lineCount": 2,
           "yMin": 1,
-          "yMax": 41.58,
+          "yMax": 20.41,
           "areaCount": 1,
           "dashedBaseline": 0
         }
@@ -3022,7 +3022,7 @@
           "height": 330
         }
       },
-      "kb": 30
+      "kb": 31
     },
     {
       "state": "full",
@@ -3071,7 +3071,7 @@
           "y": 221.8,
           "width": 326,
           "height": 79,
-          "text": "24h 可用率 96%"
+          "text": "24h 可用率 95.83 %"
         },
         {
           "x": 32,
@@ -3094,8 +3094,8 @@
             1
           ],
           "lineCount": 1,
-          "yMin": 5.45,
-          "yMax": 42.55,
+          "yMin": 3.13,
+          "yMax": 20.87,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -3112,7 +3112,7 @@
           ],
           "lineCount": 1,
           "yMin": 1,
-          "yMax": 24,
+          "yMax": 12,
           "areaCount": 0,
           "dashedBaseline": 0
         },
@@ -3130,7 +3130,7 @@
           ],
           "lineCount": 2,
           "yMin": 1,
-          "yMax": 41.58,
+          "yMax": 20.41,
           "areaCount": 1,
           "dashedBaseline": 0
         }
@@ -3149,7 +3149,7 @@
           "height": 352
         }
       },
-      "kb": 28
+      "kb": 29
     }
   ],
   "failures": []

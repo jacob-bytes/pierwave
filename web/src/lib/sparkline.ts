@@ -155,6 +155,12 @@ export interface MultiSparkOptions {
   domain?: readonly [number, number];
   /** 至少多少个有效位置才返回几何；默认 2。 */
   minPoints?: number;
+  /**
+   * 非零值的最小可见高度（viewBox 单位）。30 倍、1000 倍的量级突变下，
+   * 小值会贴到 0 基线上；给一个 2px 的地板，才能区分「有流量 / 真 0」。
+   * 0 值不受影响，仍然贴底。
+   */
+  minNonZeroGap?: number;
 }
 
 export function multiSparkGeometry(
@@ -238,14 +244,23 @@ export function multiSparkGeometry(
   const innerHeight = Math.max(0, height - 2);
   const x = (index: number) =>
     length === 1 ? width / 2 : (index / (length - 1)) * width;
-  const y = (value: number) =>
-    Math.min(
+  const floorGap =
+    Number.isFinite(options.minNonZeroGap) && (options.minNonZeroGap ?? 0) > 0
+      ? Math.min(height - 2, options.minNonZeroGap as number)
+      : 0;
+  const y = (value: number) => {
+    const mapped = Math.min(
       height - 1,
       Math.max(
         1,
         height - 1 - ((value - bottom) / (top - bottom)) * innerHeight,
       ),
     );
+    // 只抬非零值：0 必须仍然贴底，否则「没有流量」会被画成有一条线。
+    return floorGap > 0 && value > 0
+      ? Math.min(mapped, height - floorGap)
+      : mapped;
+  };
   const round = (value: number) => value.toFixed(2);
 
   const built = values.map((line, lineIndex) => {
