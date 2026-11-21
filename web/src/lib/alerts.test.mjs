@@ -9,6 +9,8 @@ import {
   DEFAULT_ALERT_COOLDOWN_SECS,
   DEFAULT_ALERT_EVENTS,
   alertTestOutcome,
+  buildAlertSettingsPatch,
+  clearWebhookPatch,
   hasConfiguredAlertChannel,
   hasWhitespaceOrControl,
   isHttpUrl,
@@ -18,6 +20,7 @@ import {
   parseAlertEvents,
   serializeAlertEvents,
   toggleAlertEvent,
+  webhookFieldState,
 } from "./alerts.ts";
 
 test("defaults match the alert design", () => {
@@ -390,5 +393,105 @@ test("the masked telegram token copy exists in both locales", () => {
   assert.ok(
     en.settings.alerts.telegram.savedHint.toLowerCase().includes("blank"),
     "英文提示要说明留空不改",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// B13：Webhook 不再回显；has_url 决定状态提示，留空不改，null 才清空
+// ---------------------------------------------------------------------------
+
+test("webhook_has_url drives the saved state and the configured channel", () => {
+  assert.equal(webhookFieldState({ webhookHasUrl: true }), "saved");
+  assert.equal(webhookFieldState({ webhookHasUrl: false }), "empty");
+  assert.equal(webhookFieldState({}), "empty", "旧后端没有 has_url 时按未配置");
+  assert.equal(
+    webhookFieldState({ webhookUrl: "https://example.com/hook" }),
+    "saved",
+    "旧后端仍回显地址时也要认已配置",
+  );
+
+  assert.equal(hasConfiguredAlertChannel({ webhookHasUrl: true }), true);
+  assert.equal(
+    hasConfiguredAlertChannel({ webhookHasUrl: false, webhookUrl: "" }),
+    false,
+  );
+  // 已保存的 Webhook 参与「能不能发测试」的判断，与 Telegram 的 has_token 对齐。
+  assert.equal(
+    hasConfiguredAlertChannel({
+      webhookHasUrl: true,
+      telegramBotTokenSaved: false,
+    }),
+    true,
+  );
+});
+
+test("the webhook saved copy exists in both locales", () => {
+  for (const dictionary of [zh, en]) {
+    for (const key of [
+      "savedHint",
+      "savedPlaceholder",
+      "clear",
+      "clearTitle",
+      "clearDesc",
+      "clearConfirm",
+      "clearing",
+      "cleared",
+      "clearError",
+    ]) {
+      assert.equal(
+        typeof dictionary.settings.alerts.webhook[key],
+        "string",
+        key,
+      );
+    }
+  }
+  assert.ok(
+    zh.settings.alerts.webhook.savedHint.includes("留空"),
+    "中文提示要说明留空不修改",
+  );
+  assert.ok(
+    en.settings.alerts.webhook.savedHint.toLowerCase().includes("blank"),
+    "英文提示要说明留空不修改",
+  );
+  assert.ok(
+    zh.settings.alerts.webhook.savedPlaceholder.includes("留空"),
+    "placeholder 要说明留空保持现有地址",
+  );
+});
+
+test("saving with a blank webhook omits the field instead of clearing it", () => {
+  const base = {
+    telegram_bot_token: "123:abc",
+    telegram_chat_id: "-100123",
+    alert_events: ["server_offline"],
+    alert_cooldown_secs: "600",
+  };
+
+  for (const webhook_url of ["", "   "]) {
+    const payload = buildAlertSettingsPatch({ ...base, webhook_url });
+    assert.equal(
+      Object.hasOwn(payload, "webhook_url"),
+      false,
+      "留空必须不传 webhook_url（空串也是「不改动」）",
+    );
+    assert.equal(payload.webhook_url, undefined);
+  }
+
+  const filled = buildAlertSettingsPatch({
+    ...base,
+    webhook_url: "  https://example.com/hook  ",
+  });
+  assert.equal(filled.webhook_url, "https://example.com/hook");
+  assert.equal(filled.alert_events, "server_offline");
+  assert.equal(filled.alert_cooldown_secs, 600);
+});
+
+test("clearing the webhook is an explicit null PATCH", () => {
+  assert.deepEqual(clearWebhookPatch(), { webhook_url: null });
+  const payload = clearWebhookPatch();
+  assert.equal(
+    payload.webhook_url,
+    null,
+    "只有显式 null 才表示清空，空串会保留原地址",
   );
 });

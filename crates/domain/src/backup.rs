@@ -42,7 +42,12 @@ pub const SQLITE_MAGIC: &[u8] = b"SQLite format 3\0";
 pub const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
 /// 恢复前必须存在的表；`_sqlx_migrations` 用来判断备份的迁移版本。
-pub const REQUIRED_TABLES: [&str; 2] = ["users", "_sqlx_migrations"];
+///
+/// 只要求「没有它就无法作为一个 PierWave 库使用」的表：缺 `settings` 时
+/// 设置页/秘密扫描会直接炸；缺 `servers` / `users` 时核心列表与鉴权不可用。
+/// 版本较老的合法备份仍然包含这些表（迁移 0001 起就有），因此提高要求不会
+/// 误伤同产品的旧备份。
+pub const REQUIRED_TABLES: [&str; 4] = ["users", "servers", "settings", "_sqlx_migrations"];
 
 /// 待恢复文件后缀，直接拼在主库文件名后面。
 pub const PENDING_SUFFIX: &str = ".restore-pending";
@@ -278,6 +283,90 @@ pub const TEMP_FILE_PREFIXES: [&str; 2] = [".pierwave-restore-", ".pierwave-back
 /// 又不会误删另一个仍在进行中的请求写下的半成品。
 pub const STALE_TEMP_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(3_600);
 
+/// `.pre-restore-*` 回滚副本的默认保留期：7 天。
+///
+/// 这些文件是**完整的旧业务库**，可能含证书私钥、用户密码哈希与已加密设置；
+/// 恢复成功后它们只用于短期回滚，长时间堆在磁盘上既是泄露面也是空间浪费。
+pub const PRE_RESTORE_MAX_AGE: std::time::Duration =
+    std::time::Duration::from_secs(7 * 24 * 60 * 60);
+
+/// 启动时清理超过 `max_age` 的 `<db>.pre-restore-*` 回滚副本，返回删除的路径。
+///
+/// - 只匹配主库文件名 + `.pre-restore-` 前缀的普通文件；
+/// - 主文件与它的 `-wal` / `-shm` 旁路文件一起删除；
+/// - 删除失败只记 `warn`，不影响启动；
+/// - mtime 在「未来」（时钟回拨）时不当作过期。
+pub fn cleanup_stale_pre_restore_files(
+    db_path: &Path,
+    max_age: std::time::Duration,
+) -> Vec<PathBuf> {
+    let dir = db_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let db_name = db_path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if db_name.is_empty() {
+        return Vec::new();
+    }
+    let prefix = format!("{db_name}{PRE_RESTORE_INFIX}");
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let now = std::time::SystemTime::now();
+    let mut removed = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with(&prefix) {
+            continue;
+        }
+        // 旁路文件由主文件那次删除一起处理，避免重复或只删一半。
+        if name.ends_with("-wal") || name.ends_with("-shm") {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        let Ok(modified) = metadata.modified() else {
+            continue;
+        };
+        let Ok(age) = now.duration_since(modified) else {
+            continue;
+        };
+        if age <= max_age {
+            continue;
+        }
+        for suffix in ["-wal", "-shm"] {
+            let sidecar = append_suffix(&path, suffix);
+            if sidecar.exists() {
+                if let Err(error) = fs::remove_file(&sidecar) {
+                    tracing::warn!(
+                        path = %sidecar.display(),
+                        %error,
+                        "清理过期 pre-restore 旁路文件失败（继续启动）"
+                    );
+                }
+            }
+        }
+        match fs::remove_file(&path) {
+            Ok(()) => removed.push(path),
+            Err(error) => tracing::warn!(
+                path = %path.display(),
+                %error,
+                "清理过期 pre-restore 回滚副本失败（继续启动）"
+            ),
+        }
+    }
+    removed
+}
+
 /// 启动时清理上次崩溃/断电流下的临时文件，返回实际删除的路径。
 ///
 /// 只处理 [`TEMP_FILE_PREFIXES`] 开头、且修改时间早于 `max_age` 的**普通文件**；
@@ -331,16 +420,37 @@ pub fn cleanup_stale_temp_files(db_path: &Path, max_age: std::time::Duration) ->
     removed
 }
 
-/// 启动时应用 `<db>.restore-pending`。
+/// 启动时应用 `<db>.restore-pending`，用数据库同目录/环境变量推导出的当前
+/// 主密钥复核候选库。便捷入口；需要显式指定密钥（例如测试）时用
+/// [`apply_pending_restore_with_key`]。
+pub async fn apply_pending_restore(db_path: &Path) -> anyhow::Result<RestoreOutcome> {
+    if !pending_path(db_path).exists() {
+        return Ok(RestoreOutcome::NoPending);
+    }
+    let key = crate::secret_box::SecretKey::for_database(Some(db_path))?;
+    apply_pending_restore_with_key(db_path, &key).await
+}
+
+/// 同 [`apply_pending_restore`]，但由调用方提供**当前主密钥**。
+///
+/// 上传时已经用当时的密钥校验过；但管理员可能在文件落成 `.restore-pending`
+/// **之后**更换 `secret.key` / `PIERWAVE_SECRET_KEY`（手工放文件也会绕过上传
+/// 校验）。因此启动换库前必须再用**当前**主密钥扫一遍候选库：解不开就保留
+/// pending、拒绝应用，让主控带着可读原因继续启动，而不是换进一个秘密全部
+/// 报废的库。
 ///
 /// - 没有待恢复文件：返回 [`RestoreOutcome::NoPending`]；
-/// - 校验不通过：返回 [`RestoreOutcome::Rejected`]，**不替换**、文件保留；
+/// - 校验不通过（含秘密解不开）：返回 [`RestoreOutcome::Rejected`]，
+///   **不替换**、文件保留；
 /// - 校验通过：当前库（含 `-wal`/`-shm` 旁路文件）改名为
 ///   `<db>.pre-restore-<ts>`，待恢复文件改名为正式库。
 ///
 /// 任一步改名失败都会尽量回滚已经移动的文件并返回错误，避免出现
 /// 「主库没了、旧库也不知道在哪」的半完成状态。
-pub async fn apply_pending_restore(db_path: &Path) -> anyhow::Result<RestoreOutcome> {
+pub async fn apply_pending_restore_with_key(
+    db_path: &Path,
+    key: &crate::secret_box::SecretKey,
+) -> anyhow::Result<RestoreOutcome> {
     let pending = pending_path(db_path);
     if !pending.exists() {
         return Ok(RestoreOutcome::NoPending);
@@ -359,6 +469,38 @@ pub async fn apply_pending_restore(db_path: &Path) -> anyhow::Result<RestoreOutc
         return Ok(RestoreOutcome::Rejected {
             reason: format!("{error:#}"),
         });
+    }
+
+    // 结构合法还不够：恢复后主控会用当前主密钥解密 settings。若候选库里的
+    // enc:v1 值是用另一把密钥写的，换库就等于把设置页、WebDAV、告警、订阅
+    // 一起换坏。这里只报键名，不输出密文/明文。
+    match unreadable_encrypted_settings(&pending, key).await {
+        Ok(unreadable) if unreadable.is_empty() => {}
+        Ok(unreadable) => {
+            return Ok(RestoreOutcome::Rejected {
+                reason: format!(
+                    "待恢复备份中的秘密设置无法用当前主密钥解密（{}）；已保留 {}，未替换当前\
+                     数据库。请恢复写入该备份时使用的 secret.key 或 PIERWAVE_SECRET_KEY 后重启。 / \
+                     The pending backup contains secrets that the current master key cannot \
+                     decrypt ({}); the pending file was kept and the current database was not \
+                     replaced. Restore the original secret.key / PIERWAVE_SECRET_KEY and restart.",
+                    unreadable.join("、"),
+                    pending.display(),
+                    unreadable.join(", "),
+                ),
+            });
+        }
+        Err(error) => {
+            // 扫描失败同样不能赌运气换库：保留现场，由管理员处理。
+            return Ok(RestoreOutcome::Rejected {
+                reason: format!(
+                    "无法扫描待恢复备份中的秘密设置（{}），未替换当前数据库；请检查文件后重试。 / \
+                     Failed to scan secrets in the pending backup ({}); the current database was \
+                     not replaced.",
+                    error, error
+                ),
+            });
+        }
     }
 
     let previous = move_current_aside(db_path)?;
@@ -710,6 +852,8 @@ mod tests {
         assert_eq!(domain_error(&error).code, "backup.restore_missing_tables");
         let reason = error.to_string();
         assert!(reason.contains("users"), "实际：{reason}");
+        assert!(reason.contains("settings"), "实际：{reason}");
+        assert!(reason.contains("servers"), "实际：{reason}");
         assert!(reason.contains("_sqlx_migrations"), "实际：{reason}");
     }
 
@@ -960,6 +1104,128 @@ mod tests {
         let dir = TestDir::new("none");
         let outcome = apply_pending_restore(&dir.db_path()).await.unwrap();
         assert_eq!(outcome, RestoreOutcome::NoPending);
+    }
+
+    /// B11：手工放进去的 pending（或上传后换过密钥）在启动时必须被当前主密钥
+    /// 复核；解不开就拒绝换库，主库保持原样，pending 留给人工处理。
+    #[tokio::test]
+    async fn apply_rejects_pending_whose_secrets_need_another_master_key() {
+        let dir = TestDir::new("apply-key-mismatch");
+        let db_path = dir.db_path();
+        let current = open_db(&db_path).await;
+        current.migrate().await.unwrap();
+        create_user(&current, "old-admin").await;
+        current.pool.close().await;
+
+        let other_dir = TestDir::new("apply-key-mismatch-source");
+        let source = open_db(&other_dir.db_path()).await;
+        source.migrate().await.unwrap();
+        create_user(&source, "restored-admin").await;
+        let canary = "123456:from-another-instance";
+        repo::settings::set(
+            &source.pool,
+            "telegram_bot_token",
+            &crate::secret_box::encrypt_setting(source.secret_key(), canary),
+        )
+        .await
+        .unwrap();
+        let snapshot = other_dir.file("foreign.db");
+        create_snapshot(&source.pool, &snapshot).await.unwrap();
+        source.pool.close().await;
+
+        fs::copy(&snapshot, pending_path(&db_path)).unwrap();
+
+        let outcome = apply_pending_restore(&db_path).await.unwrap();
+        match outcome {
+            RestoreOutcome::Rejected { reason } => {
+                assert!(reason.contains("telegram_bot_token"), "实际：{reason}");
+                assert!(reason.contains("主密钥"), "实际：{reason}");
+                assert!(reason.contains("未替换当前数据库"), "实际：{reason}");
+                assert!(!reason.contains(canary), "原因不能泄露秘密：{reason}");
+            }
+            other => panic!("必须拒绝换库，实际 {other:?}"),
+        }
+
+        assert!(pending_path(&db_path).exists(), "拒绝时必须保留 pending");
+        let current = open_db(&db_path).await;
+        assert!(
+            users::find_by_username(&current.pool, "old-admin")
+                .await
+                .unwrap()
+                .is_some(),
+            "主库不能被换掉"
+        );
+        assert!(
+            users::find_by_username(&current.pool, "restored-admin")
+                .await
+                .unwrap()
+                .is_none(),
+            "候选库的数据不能出现"
+        );
+        current.pool.close().await;
+    }
+
+    /// B18：缺 settings / servers 这类必需表的库要在校验阶段拒绝，不能等扫描
+    /// 秘密或启动后才 500。
+    #[tokio::test]
+    async fn rejects_backup_without_settings_table() {
+        let dir = TestDir::new("missing-settings");
+        let path = dir.file("missing-settings.db");
+        let db = open_db(&path).await;
+        sqlx::query("CREATE TABLE users (id TEXT PRIMARY KEY)")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE servers (id TEXT PRIMARY KEY)")
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE TABLE _sqlx_migrations (
+                 version INTEGER PRIMARY KEY, description TEXT, success INTEGER,
+                 checksum BLOB, execution_time INTEGER)",
+        )
+        .execute(&db.pool)
+        .await
+        .unwrap();
+        db.pool.close().await;
+
+        let error = validate_backup_file(&path).await.unwrap_err();
+        let domain = domain_error(&error);
+        assert_eq!(domain.code, "backup.restore_missing_tables");
+        assert!(domain.message.contains("settings"), "{domain}");
+        assert!(domain.message.contains("必需的表"), "{domain}");
+    }
+
+    /// B15：启动清理只删超过保留期的 `.pre-restore-*`，新副本与无关文件不动。
+    #[test]
+    fn startup_cleanup_removes_expired_pre_restore_copies() {
+        let dir = TestDir::new("pre-restore-retention");
+        let db_path = dir.db_path();
+        let old = pre_restore_path(&db_path, "20200101-000000");
+        let new = pre_restore_path(&db_path, "20990101-000000");
+        let old_wal = append_suffix(&old, "-wal");
+        let unrelated = dir.file("notes.txt");
+        for path in [&old, &new, &old_wal, &unrelated] {
+            fs::write(path, b"x").unwrap();
+        }
+        let long_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(8 * 86_400);
+        for path in [&old, &old_wal, &unrelated] {
+            let file = fs::OpenOptions::new().write(true).open(path).unwrap();
+            file.set_times(
+                std::fs::FileTimes::new()
+                    .set_modified(long_ago)
+                    .set_accessed(long_ago),
+            )
+            .unwrap();
+        }
+
+        let removed = cleanup_stale_pre_restore_files(&db_path, PRE_RESTORE_MAX_AGE);
+        assert_eq!(removed, vec![old.clone()], "只删过期的回滚主文件");
+        assert!(!old.exists(), "过期的 pre-restore 主文件必须删除");
+        assert!(!old_wal.exists(), "旁路文件要跟主文件一起删除");
+        assert!(new.exists(), "未过期的新副本必须保留");
+        assert!(unrelated.exists(), "无关文件不能被删");
     }
 
     /// 刚初始化（只跑完迁移）的库不是 0 字节，也不该是几十 MB。

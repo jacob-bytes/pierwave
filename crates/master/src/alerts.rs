@@ -228,13 +228,37 @@ pub(crate) fn telegram_token_from_url(url: &str) -> &str {
 
 /// 对投递失败的细节打码：Telegram 的 token 在 URL 里，curl 可能原样回显。
 ///
-/// Webhook 地址本身也可能带 token，但它是管理员自己填的完整 URL；这里按
-/// 需求只处理 Telegram bot token，避免把整个 webhook 地址替换掉后无法排障。
+/// Webhook 地址也常把 token 放在 path/query 里；错误里只保留 scheme + host，
+/// 其余替换成 `***`，既不泄露凭据也不丢掉「打到哪台主机」的排障信息。
 pub(crate) fn redact_delivery_error(channel: Channel, url: &str, detail: &str) -> String {
     match channel {
         Channel::Telegram => remote_backup::redact_secret(detail, telegram_token_from_url(url)),
-        Channel::Webhook => detail.to_string(),
+        Channel::Webhook => {
+            let masked = masked_webhook_url(url);
+            let mut detail = detail.replace(url, &masked);
+            // curl 也可能只回显 path+query（例如 Location / 重定向提示）。
+            if let Some((_, rest)) = url.split_once("://") {
+                let host_len = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+                let path_and_query = &rest[host_len..];
+                if path_and_query.len() > 1 {
+                    detail = detail.replace(path_and_query, "/***");
+                }
+            }
+            detail
+        }
     }
+}
+
+/// 把 webhook URL 收敛成 `scheme://host/***`；无法解析时整体打码。
+pub(crate) fn masked_webhook_url(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return "***".to_string();
+    };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if host.is_empty() {
+        return "***".to_string();
+    }
+    format!("{scheme}://{host}/***")
 }
 
 /// curl 的 `--config` 内容。Telegram 用 `data-urlencode` 让 curl 负责转义，
@@ -545,18 +569,24 @@ impl TestReport {
 
 /// 向所有已配置渠道各发一条测试消息；不进行去抖与 `alert_events` 过滤。
 pub async fn test_delivery(state: &AppState) -> TestReport {
-    let settings = match settings::load_for_background(&state.db).await {
-        Ok(settings) => settings,
+    let (settings, secret_warning) = match settings::load_for_background(&state.db).await {
+        Ok(settings) => (settings, None),
         Err(error) => {
             tracing::error!(
                 keys = ?error.keys,
                 "告警测试无法读取秘密设置：秘密无法用当前主密钥解密"
             );
-            return TestReport {
-                configured: 0,
-                results: Vec::new(),
-                message: Some(error.message),
-            };
+            let partial = settings::load(&state.db).await;
+            // 没有任何仍可读的渠道时才整体报错；否则测试可读渠道，并在
+            // `message` 里说明哪部分秘密坏了（B12：可读渠道继续）。
+            if configured_channels(&partial).is_empty() {
+                return TestReport {
+                    configured: 0,
+                    results: Vec::new(),
+                    message: Some(error.message),
+                };
+            }
+            (partial, Some(error.message))
         }
     };
     let channels = configured_channels(&settings);
@@ -612,7 +642,13 @@ pub async fn test_delivery(state: &AppState) -> TestReport {
     TestReport {
         configured: results.len(),
         results,
-        message: None,
+        message: secret_warning.map(|error| {
+            format!(
+                "部分秘密无法用当前主密钥解密，仅测试了仍可读的渠道：{error} / Some secrets \
+                 cannot be decrypted with the current master key; only readable channels were \
+                 tested: {error}"
+            )
+        }),
     }
 }
 
@@ -1168,6 +1204,77 @@ mod tests {
         assert!(!sent[0].body.contains(canary));
     }
 
+    /// B12：Webhook 秘密坏了，不能把可读的 Telegram 渠道一起丢掉。
+    #[tokio::test]
+    async fn broken_webhook_secret_does_not_drop_readable_telegram_alerts() {
+        let (state, transport) = setup().await;
+        configure(
+            &state,
+            &[
+                ("telegram_bot_token", TOKEN),
+                ("telegram_chat_id", CHAT_ID),
+                ("alert_events", "server_offline"),
+                ("alert_cooldown_secs", "0"),
+            ],
+        )
+        .await;
+        let other = pierwave_domain::secret_box::SecretKey::generate().unwrap();
+        configure(
+            &state,
+            &[(
+                "webhook_url",
+                &pierwave_domain::secret_box::encrypt_setting(
+                    &other,
+                    "https://hooks.test/BROKEN-path",
+                ),
+            )],
+        )
+        .await;
+
+        notify(
+            &state,
+            AlertKind::ServerOffline,
+            "server-1",
+            "offline",
+            "down",
+        )
+        .await;
+        let sent = transport.wait_for(1).await;
+        assert_eq!(sent.len(), 1, "可读的 Telegram 仍应收到告警：{sent:?}");
+        assert_eq!(sent[0].channel, Channel::Telegram);
+    }
+
+    /// B12：部分秘密坏了时，告警测试仍应测试可读渠道，而不是整体报错。
+    #[tokio::test]
+    async fn alert_test_continues_with_readable_channels_when_another_secret_is_broken() {
+        let (state, _transport) = setup().await;
+        configure(
+            &state,
+            &[("telegram_bot_token", TOKEN), ("telegram_chat_id", CHAT_ID)],
+        )
+        .await;
+        let other = pierwave_domain::secret_box::SecretKey::generate().unwrap();
+        configure(
+            &state,
+            &[(
+                "webhook_url",
+                &pierwave_domain::secret_box::encrypt_setting(&other, "https://hooks.test/BROKEN"),
+            )],
+        )
+        .await;
+
+        let report = test_delivery(&state).await;
+        assert_eq!(report.configured, 1, "{report:?}");
+        assert_eq!(report.results[0].channel, Channel::Telegram);
+        assert!(report.results[0].ok, "{report:?}");
+        let message = report.message.unwrap();
+        assert!(message.contains("主密钥"), "{message}");
+        assert!(
+            message.contains("仍可读") || message.contains("readable"),
+            "{message}"
+        );
+    }
+
     /// 测试连接不能说「未配置」，要明确告诉管理员秘密解不开。
     #[tokio::test]
     async fn alert_test_reports_secret_decrypt_failure_instead_of_no_channels() {
@@ -1208,5 +1315,26 @@ mod tests {
             "boom",
             "webhook 错误不应被整体替换"
         );
+    }
+
+    /// B13：webhook URL 的 path / query 常带 token，错误细节只能保留 scheme+host。
+    #[test]
+    fn webhook_path_and_query_are_masked_from_delivery_errors() {
+        let url = "https://hooks.example.test/services/T0KEN-path?key=query-secret";
+        assert_eq!(masked_webhook_url(url), "https://hooks.example.test/***");
+        let detail =
+            format!("curl: (22) 404 for {url} (retry path /services/T0KEN-path?key=query-secret)");
+        let redacted = redact_delivery_error(Channel::Webhook, url, &detail);
+        assert!(
+            redacted.contains("https://hooks.example.test/***"),
+            "{redacted}"
+        );
+        for secret in ["T0KEN-path", "query-secret", "/services"] {
+            assert!(
+                !redacted.contains(secret),
+                "错误泄露了 {secret}：{redacted}"
+            );
+        }
+        assert_eq!(masked_webhook_url("not a url"), "***", "无法解析时整体打码");
     }
 }

@@ -7,6 +7,8 @@
  * - Webhook 只接受 http(s) 绝对地址；
  * - 后端不回显 Bot Token，只返回 `telegram_bot_has_token`；
  *   已保存的 Token 用布尔值参与「渠道是否完整」判断，从不进入前端；
+ * - Webhook 地址同理不回显（path/query 里常带 token），只返回
+ *   `webhook_has_url`；留空保存 = 不改动，清空必须显式发 `null`；
  * - 测试结果按 telegram / webhook 固定顺序展示，未知渠道保留原样兜底。
  */
 
@@ -59,7 +61,12 @@ export interface AlertChannelConfig {
    */
   telegramBotTokenSaved?: boolean;
   telegramChatId?: string | null;
+  /**
+   * 后端 GET 永远不回显 Webhook 地址（path/query 里常带 token），
+   * 只返回 `webhook_has_url`；留空保存表示保持不变。
+   */
   webhookUrl?: string | null;
+  webhookHasUrl?: boolean;
 }
 
 /** 已保存的 Token 与「表单里刚输入的新 Token」都算已配置。 */
@@ -163,9 +170,70 @@ export function maskSecret(raw: string): string {
 
 /** 是否至少配置了一个完整可用的渠道（Telegram 需要 Token + Chat ID 同时存在）。 */
 export function hasConfiguredAlertChannel(config: AlertChannelConfig): boolean {
-  if (hasText(config.webhookUrl)) return true;
+  if (config.webhookHasUrl === true || hasText(config.webhookUrl)) return true;
   return hasTelegramToken(config) && hasText(config.telegramChatId);
 }
+
+/**
+ * Webhook 输入框的两种状态。
+ *
+ * `saved` = 后端已有地址（`webhook_has_url`），输入框只显示占位提示，
+ * 留空保存不改动它；`empty` = 还没有地址，留空保存就是继续不配置。
+ * 组件据此切换 placeholder / hint，并只在 `saved` 时提供显式清除入口。
+ */
+export type WebhookFieldState = "saved" | "empty";
+
+export function webhookFieldState(
+  config: Pick<AlertChannelConfig, "webhookHasUrl" | "webhookUrl">,
+): WebhookFieldState {
+  return config.webhookHasUrl === true || hasText(config.webhookUrl)
+    ? "saved"
+    : "empty";
+}
+
+/**
+ * 告警设置 PATCH 的请求体。
+ *
+ * Webhook 是三态：字段缺席 / 空串 = 不改动；`null` = 清空；非空地址 = 覆盖。
+ * 所以输入框留空时**不能**把空串发出去，更不能发 `null`——前者会误导后端，
+ * 后者会把已配置的地址删掉。清空只能走 [`clearWebhookPatch`] 的显式动作。
+ */
+export interface AlertSettingsPatch {
+  telegram_bot_token: string;
+  telegram_chat_id: string;
+  webhook_url?: string | null;
+  alert_events: string;
+  alert_cooldown_secs: number;
+}
+
+export interface AlertSettingsFormValues {
+  telegram_bot_token: string;
+  telegram_chat_id: string;
+  webhook_url: string;
+  alert_events: readonly string[];
+  alert_cooldown_secs: number | string;
+}
+
+export function buildAlertSettingsPatch(
+  values: AlertSettingsFormValues,
+): AlertSettingsPatch {
+  const payload: AlertSettingsPatch = {
+    telegram_bot_token: values.telegram_bot_token,
+    telegram_chat_id: values.telegram_chat_id,
+    alert_events: serializeAlertEvents(values.alert_events),
+    alert_cooldown_secs: Number(values.alert_cooldown_secs),
+  };
+  const webhookUrl = values.webhook_url.trim();
+  // 留空 = 保持现有地址；字段缺席而不是空串，语义与后端契约完全一致。
+  if (webhookUrl !== "") payload.webhook_url = webhookUrl;
+  return payload;
+}
+
+/** 显式清除（`null`）；空串在契约里是「不改动」，不能拿来清空。 */
+export function clearWebhookPatch(): { webhook_url: null } {
+  return { webhook_url: null };
+}
+
 
 /** 只填了 Telegram 两个字段之一：能保存，但不会真的发出消息，UI 需要提示。 */
 export function isTelegramIncomplete(config: AlertChannelConfig): boolean {

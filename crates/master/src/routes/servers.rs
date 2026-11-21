@@ -161,6 +161,24 @@ fn billing_column<T: Copy>(changed: bool, value: Option<T>) -> Patch<Option<T>> 
     }
 }
 
+/// 价格 / 币种的成对补丁：只要本次携带任意一列，就把两列都写。
+///
+/// 两列在仓储层是同一条 `UPDATE` 的两个赋值，所以「同时写」= 同一事务内的
+/// 一条语句，不会留下 `price_cents=200, currency=NULL` 的半对行。单列写入
+/// 在并发清空交错时会产生这种行，因此这里是唯一的写入口。
+fn billing_pair_patches(
+    price_changed: bool,
+    currency_changed: bool,
+    price: Option<i64>,
+    currency: Option<&str>,
+) -> (Patch<Option<i64>>, Patch<Option<&str>>) {
+    let pair_changed = price_changed || currency_changed;
+    (
+        billing_column(pair_changed, price),
+        billing_column(pair_changed, currency),
+    )
+}
+
 pub async fn list(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -566,9 +584,9 @@ pub async fn update(
     // 避免修一个字段被另一列的脏数据卡住；若两个价格字段因此落单，成对校验
     // 会要求一次补齐或一次清空（见 F5 / `server.billing_pair_incomplete`）。
     //
-    // 注意：合并结果**只用于校验**。落库时只写本次 PATCH 真正携带的列
-    // （`billing_column`），否则两个并发部分更新会互相覆盖，没改的脏列也会
-    // 被顺带清成 NULL。
+    // 注意：合并结果**只用于校验**；但价格与币种是**一对**，只要本次携带了
+    // 其中任意一列，就把两列按合并后的有效值一起写。只写一列会在并发清空
+    // 时留下 `price_cents=200, currency=NULL` 的半对行。
     let billing = if billing_changed {
         let current = current.as_ref().expect("billing_changed 时必已读取服务器");
         let existing = BillingMeta::from_server(current);
@@ -645,12 +663,20 @@ pub async fn update(
         server.nic_name = nic_name;
     }
     if let Some(billing) = &billing {
+        // 价格与币种必须成对写：一次 UPDATE 同时设置两列（仓储层是同一条
+        // SQL），避免「A 清空、B 只写价格」交错后留下半对行。
+        let (price_patch, currency_patch) = billing_pair_patches(
+            req.price_cents.is_set(),
+            req.currency.is_set(),
+            billing.price_cents,
+            billing.currency.as_deref(),
+        );
         save_billing(
             &state,
             &mut server,
             billing_column(req.paid_until.is_set(), billing.paid_until.as_deref()),
-            billing_column(req.price_cents.is_set(), billing.price_cents),
-            billing_column(req.currency.is_set(), billing.currency.as_deref()),
+            price_patch,
+            currency_patch,
             billing_column(req.billing_cycle.is_set(), billing.billing_cycle.as_deref()),
         )
         .await?;
@@ -2417,6 +2443,108 @@ mod tests {
         );
         assert_eq!(stored.price_cents, Some(1300));
         assert_eq!(stored.paid_until.as_deref(), Some("2027-01-01"));
+    }
+
+    /// B16：价格与币种必须成对落库。并发交错时不能出现只有价格或只有币种的
+    /// 半对行；顺序更新只给一半时也必须被成对校验拒绝。
+    #[tokio::test]
+    async fn billing_pair_is_written_atomically_under_interleaving() {
+        let (app, state, cookie) = setup().await;
+        let (_, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"hk-1","address":"1.2.3.4"}),
+        )
+        .await;
+        let id = created["server"]["id"].as_str().unwrap().to_string();
+
+        // 顺序：只发价格、库里没有币种 → 成对校验拒绝，且不留下半对行。
+        let (status, response) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"price_cents": 200}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{response}");
+        assert_eq!(response["code"], "server.billing_pair_incomplete");
+        let stored = repo::servers::find_by_id(&state.db.pool, &id)
+            .await
+            .unwrap();
+        assert_eq!(
+            (stored.price_cents, stored.currency.as_deref()),
+            (None, None),
+            "拒绝后不能留下半对行"
+        );
+
+        // 并发：B 读到 (100, CNY)，A 随后清空两列；B 只携带 price_cents。
+        // 落库必须把 B 合并后的整对 (200, CNY) 一起写，而不是只写价格。
+        let (status, response) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"price_cents": 100, "currency": "CNY"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{response}");
+
+        let mut stale = repo::servers::find_by_id(&state.db.pool, &id)
+            .await
+            .unwrap();
+        assert_eq!(
+            (stale.price_cents, stale.currency.as_deref()),
+            (Some(100), Some("CNY"))
+        );
+        // A：清空两列。
+        repo::servers::set_billing(
+            &state.db.pool,
+            &id,
+            Patch::Missing,
+            Patch::Value(None),
+            Patch::Value(None),
+            Patch::Missing,
+        )
+        .await
+        .unwrap();
+        // B：用 A 之前的快照提交「只改价格」的结果（模拟交错）。走与路由相同
+        // 的成对补丁入口：即使只携带 price_cents，也要把 currency 一起写。
+        let (price_patch, currency_patch) =
+            billing_pair_patches(true, false, Some(200), Some("CNY"));
+        save_billing(
+            &state,
+            &mut stale,
+            Patch::Missing,
+            price_patch,
+            currency_patch,
+            Patch::Missing,
+        )
+        .await
+        .unwrap();
+
+        let stored = repo::servers::find_by_id(&state.db.pool, &id)
+            .await
+            .unwrap();
+        assert_eq!(
+            (stored.price_cents, stored.currency.as_deref()),
+            (Some(200), Some("CNY")),
+            "价格与币种必须成对落库，不能留下 (200, NULL)"
+        );
+
+        // 任意交错后读路径都能把半对行整组降级（手工改库兜底）。
+        sqlx::query("UPDATE servers SET price_cents = 300, currency = NULL WHERE id = ?")
+            .bind(&id)
+            .execute(&state.db.pool)
+            .await
+            .unwrap();
+        let dirty = repo::servers::find_by_id(&state.db.pool, &id)
+            .await
+            .unwrap();
+        let billing = pierwave_domain::billing::BillingMeta::from_server(&dirty);
+        assert_eq!((billing.price_cents, billing.currency), (None, None));
     }
 
     /// 创建 / PATCH / 列表都接受并返回四个字段；部分填写合法，空串与 null 清空。

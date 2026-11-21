@@ -277,7 +277,10 @@ impl Settings {
             "telegram_chat_id": self.telegram_chat_id,
             "telegram_admin_chat_ids": self.telegram_admin_chat_ids,
             "telegram_bot_enabled": self.telegram_bot_enabled,
-            "webhook_url": self.webhook_url,
+            // Webhook 地址常把 token 直接放在 path/query 里，和 Token/密码一样
+            // 永远不回显；只告诉前端「已保存」，留空保存表示保持不变。
+            "webhook_url": "",
+            "webhook_has_url": !self.webhook_url.is_empty(),
             "alert_events": self.alert_events,
             "alert_cooldown_secs": self.alert_cooldown_secs,
             "update_check_enabled": self.update_check_enabled,
@@ -315,6 +318,16 @@ pub async fn load(db: &Db) -> Settings {
 pub struct SecretError {
     pub message: String,
     pub keys: Vec<&'static str>,
+}
+
+impl SecretError {
+    /// 本次解不开的秘密里是否包含 `key`。
+    ///
+    /// 后台任务只应因**自己依赖的**键坏掉而失败：例如 Telegram Bot 只关心
+    /// `telegram_bot_token`，Webhook 或 WebDAV 密码坏了不该把它停掉。
+    pub fn has(&self, key: &str) -> bool {
+        self.keys.contains(&key)
+    }
 }
 
 impl fmt::Display for SecretError {
@@ -841,15 +854,13 @@ pub async fn update(
                     "0".to_string()
                 },
             )),
-            WEBHOOK_URL_KEY => updates.push((
-                WEBHOOK_URL_KEY,
-                validate_text(
-                    "Webhook URL",
-                    value,
-                    "settings.webhook_url_invalid",
-                    normalize_webhook_url,
-                )?,
-            )),
+            WEBHOOK_URL_KEY => {
+                // GET 不再回显 webhook_url：留空保存必须保持原值，否则设置页
+                // 每次保存都会把已配置的告警渠道清掉。显式 null 才表示清空。
+                if let Some(next) = validate_optional_webhook_url(value)? {
+                    updates.push((WEBHOOK_URL_KEY, next.unwrap_or_default()));
+                }
+            }
             ALERT_EVENTS_KEY => updates.push((
                 ALERT_EVENTS_KEY,
                 validate_text(
@@ -1234,6 +1245,28 @@ fn normalize_webhook_url(raw: &str) -> Result<String, String> {
         return Err("Webhook URL 缺少主机名".to_string());
     }
     Ok(url.to_string())
+}
+
+/// Webhook URL 的三态 PATCH：留空 = 不修改；`null` = 清空；其它按 URL 规则校验。
+///
+/// 返回值外层 `None` 表示「本次不写这一列」，内层 `Option<String>` 是落库值。
+fn validate_optional_webhook_url(value: &Value) -> AppResult<Option<Option<String>>> {
+    if value.is_null() {
+        return Ok(Some(None));
+    }
+    let raw = value.as_str().ok_or_else(|| {
+        AppError::coded(
+            "settings.webhook_url_invalid",
+            None,
+            "Webhook URL 必须是字符串 / Webhook URL must be a string",
+        )
+    })?;
+    if raw.trim().is_empty() {
+        return Ok(None);
+    }
+    normalize_webhook_url(raw)
+        .map(|url| Some(Some(url)))
+        .map_err(|message| AppError::coded("settings.webhook_url_invalid", None, message))
 }
 
 fn normalize_alert_events(raw: &str) -> Result<String, String> {
@@ -1867,6 +1900,10 @@ mod tests {
         assert_eq!(body["items"]["telegram_chat_id"], "");
         assert_eq!(body["items"]["webhook_url"], "");
         assert_eq!(
+            body["items"]["webhook_has_url"], false,
+            "没有 webhook 时只给 has_url 标记"
+        );
+        assert_eq!(
             body["items"]["alert_events"],
             "server_offline,user_exhausted,chain_degraded,backup_failed,update_available,login_failed,login_new_ip",
             "升级失败默认不开启；异地备份失败、发现新版本与两类登录告警默认开启"
@@ -1896,8 +1933,13 @@ mod tests {
         assert!(!body.to_string().contains("123456:ABC-def_ghi"), "{body}");
         assert_eq!(body["items"]["telegram_chat_id"], "-1001234567890");
         assert_eq!(
-            body["items"]["webhook_url"],
-            "https://example.test/hooks/pierwave"
+            body["items"]["webhook_url"], "",
+            "Webhook 地址可能带 token，GET 不回显"
+        );
+        assert_eq!(body["items"]["webhook_has_url"], true);
+        assert!(
+            !body.to_string().contains("example.test/hooks/pierwave"),
+            "响应不能泄露 webhook path：{body}"
         );
         assert_eq!(
             body["items"]["alert_events"], "server_offline,upgrade_failed",
@@ -1925,8 +1967,87 @@ mod tests {
         assert_eq!(body["items"]["alert_cooldown_secs"], 86400);
         assert_eq!(body["items"]["webhook_url"], "");
         assert_eq!(
+            body["items"]["webhook_has_url"], true,
+            "webhook_url 留空 = 保持不变，不能被清掉"
+        );
+        assert_eq!(
             body["items"]["telegram_bot_has_token"], true,
             "留空 = 保持不变，已保存的 Token 不能被清掉"
+        );
+    }
+
+    /// B13：webhook 地址不再明文回显；留空保存保持原值，显式 null 才清空。
+    #[tokio::test]
+    async fn webhook_is_never_echoed_and_empty_patch_keeps_it() {
+        let (app, state, admin, _bob) = setup().await;
+        let webhook = "https://hooks.example.test/services/T0KEN-in-path?key=query-secret";
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({ "webhook_url": webhook })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["items"]["webhook_url"], "");
+        assert_eq!(body["items"]["webhook_has_url"], true);
+        assert!(
+            !body.to_string().contains("T0KEN-in-path")
+                && !body.to_string().contains("query-secret"),
+            "响应不能泄露 path/query：{body}"
+        );
+
+        // 不携带 webhook_url 的部分更新：保持原值。
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({ "panel_name": "PierWave" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["items"]["webhook_has_url"], true);
+
+        // 显式空串 = 留空不改；显式 null = 清空。
+        let (status, _, _) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({ "webhook_url": "" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let stored = repo::settings::get(&state.db.pool, WEBHOOK_URL_KEY)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            secret_box::reveal_setting(state.db.secret_key(), &stored).unwrap(),
+            webhook,
+            "留空不能改写已保存的 webhook"
+        );
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({ "webhook_url": null })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["items"]["webhook_has_url"], false);
+        assert_eq!(
+            repo::settings::get(&state.db.pool, WEBHOOK_URL_KEY)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some(""),
+            "null 必须清空 webhook"
         );
     }
 
@@ -2513,9 +2634,14 @@ mod tests {
         assert_eq!(body["items"]["telegram_bot_has_token"], true);
         assert_eq!(body["items"]["backup_webdav_password"], "");
         assert_eq!(body["items"]["backup_webdav_has_password"], true);
-        assert_eq!(body["items"]["webhook_url"], webhook);
+        assert_eq!(body["items"]["webhook_url"], "");
+        assert_eq!(body["items"]["webhook_has_url"], true);
         assert!(!body.to_string().contains(token), "{body}");
         assert!(!body.to_string().contains(password), "{body}");
+        assert!(
+            !body.to_string().contains("secret-path"),
+            "webhook path 不能回显：{body}"
+        );
     }
 
     /// 升级前写下的明文秘密（没有前缀）仍然可用；迁移会把它们加密。

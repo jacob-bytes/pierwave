@@ -188,6 +188,23 @@ pub async fn test_connection(settings: &Settings) -> Result<(), RunError> {
         .map_err(|error| RunError::Failed(error.message().to_string()))
 }
 
+/// 把一次「秘密解不开」记为任务失败状态，返回给调用方继续处理。
+///
+/// 设置页（`/backup/remote`）读的就是这几个键；只写日志会让管理员在界面上
+/// 看不到任何失败迹象。消息已不含秘密值。
+pub(crate) async fn record_secret_failure(pool: &SqlitePool, message: &str) {
+    let now = time::now();
+    persist(
+        pool,
+        &[
+            (LAST_FAILURE_KEY, now.to_string()),
+            (LAST_ATTEMPT_KEY, now.to_string()),
+            (LAST_ERROR_KEY, truncate(message)),
+        ],
+    )
+    .await;
+}
+
 /// 立即执行一次上传（定时与手动共用）。
 ///
 /// 失败时：
@@ -198,9 +215,22 @@ pub async fn run_now(state: &AppState, trigger: Trigger) -> Result<UploadOutcome
     // 进程内互斥：拿不到就立刻返回 busy，不排队。
     let _guard = state.remote_backup.try_acquire().ok_or(RunError::Busy)?;
 
-    let settings = settings::load_for_background(&state.db)
-        .await
-        .map_err(RunError::Secret)?;
+    // 只有 WebDAV 密码解不开才是异地备份的故障；Webhook / Telegram / hmac
+    // 坏了不能把备份判死，用仍可读的设置继续。
+    let settings = match settings::load_for_background(&state.db).await {
+        Ok(settings) => settings,
+        Err(error) if error.has(settings::BACKUP_WEBDAV_PASSWORD_KEY) => {
+            record_secret_failure(&state.db.pool, &error.message).await;
+            return Err(RunError::Secret(error));
+        }
+        Err(error) => {
+            tracing::warn!(
+                keys = ?error.keys,
+                "其它秘密无法解密，但 WebDAV 密码可读；异地备份继续"
+            );
+            settings::load(&state.db).await
+        }
+    };
     // 解不开时不要误报成「未配置」：那是两件不同的事。
     let Some(client) = client_for(&settings) else {
         return Err(RunError::NotConfigured(

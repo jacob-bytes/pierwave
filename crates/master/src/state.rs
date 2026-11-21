@@ -295,6 +295,21 @@ fn overview_cache_ttl_from_env() -> Duration {
         .unwrap_or(OVERVIEW_TRAFFIC_CACHE_TTL)
 }
 
+/// 导出 / 异地备份的数据库大小上限：与恢复共用 512 MB 默认值。
+///
+/// 可用 `PIERWAVE_MAX_BACKUP_MB` 调整；非法值（0 / 非数字）回落默认值，
+/// 避免一个笔误让所有备份静默失败。
+pub const DEFAULT_MAX_BACKUP_BYTES: u64 = pierwave_domain::backup::MAX_BACKUP_BYTES;
+
+fn max_backup_bytes_from_env() -> u64 {
+    std::env::var("PIERWAVE_MAX_BACKUP_MB")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .filter(|mb| *mb > 0)
+        .map(|mb| mb.saturating_mul(1024 * 1024))
+        .unwrap_or(DEFAULT_MAX_BACKUP_BYTES)
+}
+
 /// 公开状态页的结果缓存：30 秒内重复请求直接复用，避免每次打库扫采样表。
 ///
 /// 放在 `AppState` 里而不是全局静态变量：每个进程/测试实例各自独立，
@@ -649,6 +664,10 @@ pub struct AppState {
     pub tcping: TcpingRegistry,
     /// 异地备份（WebDAV）的进程内互斥与重试参数。
     pub remote_backup: RemoteBackupRuntime,
+    /// 导出 / 异地备份允许的最大数据库字节数（默认 [`DEFAULT_MAX_BACKUP_BYTES`]）。
+    ///
+    /// 与恢复共用同一上限；测试可以直接改小，不必真的造一个 512 MB 的库。
+    pub max_backup_bytes: u64,
     /// API Token 每 token 每分钟限流（进程内）。
     pub api_token_throttle: Arc<ApiTokenRateLimiter>,
     /// API Token 的 `last_used_at` 写回缓冲；调度器批量落库。
@@ -675,6 +694,7 @@ impl AppState {
             updates: UpdateService::default(),
             tcping: TcpingRegistry::default(),
             remote_backup: RemoteBackupRuntime::default(),
+            max_backup_bytes: max_backup_bytes_from_env(),
             api_token_throttle: Arc::new(ApiTokenRateLimiter::default()),
             api_token_usage: Arc::new(ApiTokenUsage::default()),
         }

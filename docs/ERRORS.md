@@ -137,9 +137,10 @@
 | `backup.key_mismatch` | 备份来自另一把主密钥，请提供原 secret.key 或设置相同的 PIERWAVE_SECRET_KEY（或 `?force=true` 显式覆盖） | keys |
 | `backup.restore_bad_header` | 备份文件不是有效的 SQLite 数据库 | — |
 | `backup.restore_corrupt` | 备份数据库完整性校验未通过（文件可能被截断或损坏） | detail |
-| `backup.restore_missing_tables` | 备份缺少必需的表 | — |
+| `backup.restore_missing_tables` | 备份缺少必需的表（settings / servers / users / _sqlx_migrations） | — |
 | `backup.restore_migration_too_new` | 备份的迁移版本 {version} 高于当前程序支持的 {supported} | supported, version |
 | `backup.restore_too_large` | 备份文件超过 {max_mb} MB 上限 | max_mb |
+| `backup.export_too_large` | 当前数据库超过导出/异地备份上限；请清理数据或调大 PIERWAVE_MAX_BACKUP_MB | db_bytes, max_bytes, max_mb |
 | `backup.restore_invalid` | 备份文件校验失败 | — |
 | `backup.restore_bad_gzip` | gzip 解压失败 | — |
 | `backup.restore_read_failed` | 读取上传内容失败 | — |

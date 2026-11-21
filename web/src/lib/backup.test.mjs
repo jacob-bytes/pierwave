@@ -2,8 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ApiError } from "./apiError.ts";
 import {
+  BACKUP_EXPORT_TOO_LARGE,
   BACKUP_MAX_BYTES,
+  backupExportLimitBytes,
+  exportTooLargeLimitBytes,
+  isBackupExportBlocked,
   isBackupFileName,
+  isExportTooLarge,
   needsForceRestore,
   restorePath,
   validateBackupFile,
@@ -93,4 +98,70 @@ test("needsForceRestore only opens the force dialog for backup.key_mismatch", ()
   );
   assert.equal(needsForceRestore(new ApiError("服务器内部错误", 500)), false);
   assert.equal(needsForceRestore(new Error("network down")), false);
+});
+
+// ---------------------------------------------------------------------------
+// B14：导出/异地备份超限
+// ---------------------------------------------------------------------------
+
+test("too_large from /backup/info disables export and immediate upload", () => {
+  assert.equal(isBackupExportBlocked({ too_large: true }), true);
+  assert.equal(isBackupExportBlocked({ too_large: false }), false);
+  assert.equal(isBackupExportBlocked({}), false);
+  assert.equal(isBackupExportBlocked(null), false);
+  assert.equal(isBackupExportBlocked(undefined), false);
+});
+
+test("the export limit uses max_bytes and falls back to 512 MB", () => {
+  assert.equal(backupExportLimitBytes({ max_bytes: 64 * 1024 * 1024 }), 64 * 1024 * 1024);
+  assert.equal(backupExportLimitBytes({ max_bytes: 1 }), 1);
+  for (const info of [
+    {},
+    { max_bytes: 0 },
+    { max_bytes: -1 },
+    { max_bytes: Number.NaN },
+    { max_bytes: "1024" },
+    null,
+    undefined,
+  ]) {
+    assert.equal(backupExportLimitBytes(info), BACKUP_MAX_BYTES);
+  }
+});
+
+test("backup.export_too_large is recognized by its stable code only", () => {
+  const tooLarge = new ApiError(
+    "当前数据库超过导出上限",
+    400,
+    BACKUP_EXPORT_TOO_LARGE,
+    { db_bytes: 2_000, max_bytes: 1_024, max_mb: 0 },
+  );
+  assert.equal(isExportTooLarge(tooLarge), true);
+  assert.equal(exportTooLargeLimitBytes(tooLarge), 1_024);
+  // 参数缺失/非法时由调用方回落到 info 或 512 MB。
+  assert.equal(
+    exportTooLargeLimitBytes(
+      new ApiError("超限", 400, BACKUP_EXPORT_TOO_LARGE),
+    ),
+    null,
+  );
+  assert.equal(
+    exportTooLargeLimitBytes(
+      new ApiError("超限", 400, BACKUP_EXPORT_TOO_LARGE, { max_bytes: 0 }),
+    ),
+    null,
+  );
+
+  assert.equal(
+    isExportTooLarge(
+      new ApiError("文件过大", 400, "backup.restore_too_large"),
+    ),
+    false,
+    "恢复文件超限是另一个错误码",
+  );
+  assert.equal(
+    isExportTooLarge(new ApiError("服务器内部错误", 500)),
+    false,
+  );
+  assert.equal(isExportTooLarge(new Error("network down")), false);
+  assert.equal(exportTooLargeLimitBytes(new Error("network down")), null);
 });

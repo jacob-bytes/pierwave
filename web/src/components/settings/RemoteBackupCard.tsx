@@ -40,6 +40,13 @@ import {
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
 import {
+  BACKUP_MAX_BYTES,
+  backupExportLimitBytes,
+  exportTooLargeLimitBytes,
+  isBackupExportBlocked,
+  isExportTooLarge,
+} from "@/lib/backup";
+import {
   buildRemoteBackupPayload,
   hasRemoteBackupFormErrors,
   isRemoteBackupConfigured,
@@ -54,6 +61,7 @@ import {
   type WebdavUrlProblem,
 } from "@/lib/remoteBackup";
 import {
+  useBackupInfo,
   useRemoteBackupStatus,
   useRunRemoteBackup,
   useSettings,
@@ -95,8 +103,22 @@ const URL_PROBLEM_KEYS: Record<WebdavUrlProblem, string> = {
   port: "settings.backup.remote.validation.port",
 };
 
-function remoteErrorText(error: unknown, fallback: string): string {
+function remoteErrorText(
+  error: unknown,
+  fallback: string,
+  /** `/backup/info` 给的上限；错误参数缺失时用它显示可读单位。 */
+  exportLimitBytes?: number,
+): string {
   if (error instanceof ApiError) {
+    if (isExportTooLarge(error)) {
+      return t("settings.backup.exportTooLargeError", {
+        size: formatBytes(
+          exportTooLargeLimitBytes(error) ??
+            exportLimitBytes ??
+            BACKUP_MAX_BYTES,
+        ),
+      });
+    }
     if (error.status === 404) return t("settings.backup.notReady404");
     if (error.status === 403) return t("settings.backup.forbidden");
     if (error.code && Object.hasOwn(REMOTE_SETTINGS_ERROR_KEYS, error.code)) {
@@ -225,6 +247,8 @@ function RemoteBackupForm({ initial }: { initial: Settings }) {
   const testConnection = useTestRemoteBackup();
   const runBackup = useRunRemoteBackup();
   const status = useRemoteBackupStatus();
+  // 与「备份与恢复」卡共用 `backupInfo` 缓存：不额外发请求，导出超限时一起禁用。
+  const backupInfo = useBackupInfo();
 
   const [values, setValues] = useState<RemoteBackupFormValues>(() =>
     remoteBackupFormFromSettings(initial),
@@ -249,7 +273,11 @@ function RemoteBackupForm({ initial }: { initial: Settings }) {
     backup_webdav_has_password: savedHasPassword,
   };
   const configured = isRemoteBackupConfigured(savedSettings);
-  const canOperate = configured && !saving && !dirty;
+  const exportBlocked = isBackupExportBlocked(backupInfo.data);
+  const exportLimitBytes = backupExportLimitBytes(backupInfo.data);
+  // 测试连接与「立即备份」共用已保存配置；超限只挡真正的上传。
+  const canTest = configured && !saving && !dirty;
+  const canRun = canTest && !exportBlocked;
 
   const update = <Key extends keyof RemoteBackupFormValues>(
     key: Key,
@@ -358,8 +386,11 @@ function RemoteBackupForm({ initial }: { initial: Settings }) {
         const message = remoteErrorText(
           error,
           t("settings.backup.remote.runFailed"),
+          exportLimitBytes,
         );
         setRunError(message);
+        // 数据库可能刚超过上限：刷新 info，让按钮与原因同步变成禁用态。
+        void backupInfo.refetch();
         toast.error(message);
       },
     });
@@ -538,7 +569,7 @@ function RemoteBackupForm({ initial }: { initial: Settings }) {
                 variant="outline"
                 size="sm"
                 onClick={handleTest}
-                disabled={!canOperate || testConnection.isPending}
+                disabled={!canTest || testConnection.isPending}
               >
                 {testConnection.isPending ? (
                   <Loader2Icon className="animate-spin" />
@@ -553,7 +584,7 @@ function RemoteBackupForm({ initial }: { initial: Settings }) {
                 type="button"
                 size="sm"
                 onClick={handleRun}
-                disabled={!canOperate || runBackup.isPending}
+                disabled={!canRun || runBackup.isPending}
               >
                 {runBackup.isPending ? (
                   <Loader2Icon className="animate-spin" />
@@ -566,6 +597,17 @@ function RemoteBackupForm({ initial }: { initial: Settings }) {
               </Button>
             </div>
           </div>
+
+          {exportBlocked ? (
+            <p className="flex items-start gap-2 rounded-lg border border-warning/25 bg-warning/10 px-3 py-2 text-xs text-warning">
+              <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                {t("settings.backup.exportBlocked", {
+                  size: formatBytes(exportLimitBytes),
+                })}
+              </span>
+            </p>
+          ) : null}
 
           {dirty ? (
             <p className="text-xs text-muted-foreground">

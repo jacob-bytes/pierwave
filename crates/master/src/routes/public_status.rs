@@ -2509,7 +2509,8 @@ mod tests {
             assert!(server[key].is_null(), "{key} 的脏值必须降级为 null：{body}");
         }
 
-        // 混合：一列脏、一列合法，合法的那列照常展示。
+        // 混合：价格非法、币种合法。价格与币种是成对的，读路径整体降级，
+        // 不能只展示「EUR」却没有金额。
         state.public_status.clear();
         set_billing(
             &state.db.pool,
@@ -2526,7 +2527,10 @@ mod tests {
         let server = &body["servers"][0];
         assert!(server["paid_until"].is_null(), "{body}");
         assert!(server["price_cents"].is_null(), "{body}");
-        assert_eq!(server["currency"], "EUR");
+        assert!(
+            server["currency"].is_null(),
+            "价格与币种必须整组成对降级：{body}"
+        );
         assert!(server["billing_cycle"].is_null(), "{body}");
     }
 
@@ -2789,21 +2793,23 @@ mod tests {
                 .clone()
         };
 
-        // 修复前（这就是 bug）：单边行把「一半」原样暴露给公开页。
+        // 读路径（B16）对半对行整组降级：即使 0065 还没跑，公开页也不会暴露
+        // 「只有价格」或「只有币种」的半对行；库里的脏值仍在，由迁移清理。
         let (status, body, raw) = get(&app, "/api/v1/public/status").await;
         assert_eq!(status, StatusCode::OK, "{raw}");
         let before_price_only = by_name(&body, "price-only");
-        assert_eq!(before_price_only["price_cents"], 4999, "{body}");
-        assert!(
-            before_price_only["currency"].is_null(),
-            "修复前：只有价格没有币种：{body}"
-        );
+        assert!(before_price_only["price_cents"].is_null(), "{body}");
+        assert!(before_price_only["currency"].is_null(), "{body}");
         let before_currency_only = by_name(&body, "currency-only");
-        assert_eq!(before_currency_only["currency"], "CNY", "{body}");
-        assert!(
-            before_currency_only["price_cents"].is_null(),
-            "修复前：只有币种没有价格：{body}"
-        );
+        assert!(before_currency_only["price_cents"].is_null(), "{body}");
+        assert!(before_currency_only["currency"].is_null(), "{body}");
+        let raw_price: Option<i64> =
+            sqlx::query_scalar("SELECT price_cents FROM servers WHERE id = ?")
+                .bind(&price_only.id)
+                .fetch_one(&state.db.pool)
+                .await
+                .unwrap();
+        assert_eq!(raw_price, Some(4999), "迁移前库里的半对行仍然存在");
 
         // 修复：单边行整组清空；重复执行一次验证幂等。
         let migration = MIGRATOR
@@ -2825,6 +2831,20 @@ mod tests {
             assert!(row["price_cents"].is_null(), "{name}: {body}");
             assert!(row["currency"].is_null(), "{name}: {body}");
         }
+        let cleared_price: Option<i64> =
+            sqlx::query_scalar("SELECT price_cents FROM servers WHERE id = ?")
+                .bind(&price_only.id)
+                .fetch_one(&state.db.pool)
+                .await
+                .unwrap();
+        assert!(cleared_price.is_none(), "迁移后 price_cents 必须清空");
+        let cleared_currency: Option<String> =
+            sqlx::query_scalar("SELECT currency FROM servers WHERE id = ?")
+                .bind(&currency_only.id)
+                .fetch_one(&state.db.pool)
+                .await
+                .unwrap();
+        assert!(cleared_currency.is_none(), "迁移后 currency 必须清空");
         // 只清价格与币种，同行的到期日 / 周期不受影响。
         let price_only = by_name(&body, "price-only");
         assert_eq!(price_only["paid_until"], "2026-06-30", "{body}");

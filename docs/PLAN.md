@@ -736,9 +736,16 @@ GET    /api/v1/backup            -> application/octet-stream（默认加密；�
 POST   /api/v1/backup/restore    -> body 为 .db / .db.gz / .db.gz.enc（Content-Type: application/octet-stream）
                                     ?force=true 可跳过主密钥一致性校验（响应带 warning）
                                     { restart_required: true, pending: {...}, warning?: "..." }
-GET    /api/v1/backup/info       -> { db_bytes, pending: null | { uploaded_at, bytes } }
+GET    /api/v1/backup/info       -> { db_bytes, too_large, max_bytes, pending: null | { uploaded_at, bytes } }
 DELETE /api/v1/backup/restore    -> 取消待恢复
 ```
+
+导出与异地备份共用 512 MB 默认上限（`PIERWAVE_MAX_BACKUP_MB` 可调）；超过上限时
+导出返回 `backup.export_too_large`，`too_large=true` 让前端提前提示。
+
+Export and off-site backup share the 512 MB default limit (configurable with
+`PIERWAVE_MAX_BACKUP_MB`). Above the limit export returns
+`backup.export_too_large`; `too_large=true` lets the UI warn in advance.
 
 `db_bytes` 是数据库的**逻辑大小** `PRAGMA page_count * page_size`（含 WAL 中已提交、
 尚未 checkpoint 的页），与下载的 `VACUUM INTO` 快照同一量级；不要用主库文件的
@@ -1004,9 +1011,13 @@ CREATE TABLE chain_hops (          -- 按 seq 升序；seq=0 是入口
 |---|---|---|
 | `telegram_bot_token` | 空 | 不回显：`GET /settings` 只返回 `telegram_bot_has_token`；PATCH 留空 = 保持不变 |
 | `telegram_chat_id` | 空 | 群或个人 id |
-| `webhook_url` | 空 | POST JSON |
+| `webhook_url` | 空 | POST JSON；不回显：`GET /settings` 只返回 `webhook_has_url`，PATCH 留空 = 保持不变、`null` = 清空；投递失败的错误只保留 scheme+host |
 | `alert_events` | `server_offline,user_exhausted,chain_degraded,backup_failed,update_available,login_failed,login_new_ip` | 逗号分隔；`update_available` = 发现新版本；`login_failed` / `login_new_ip` = 登录异常（见 `docs/SESSIONS.md`） |
 | `alert_cooldown_secs` | `600` | 同类告警去抖 |
+
+English: `webhook_url` is never echoed by `GET /settings` (only
+`webhook_has_url: bool`); PATCH with an empty string keeps the stored value,
+`null` clears it, and delivery errors keep only the scheme and host.
 
 ### 事件与去抖
 

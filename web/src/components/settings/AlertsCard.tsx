@@ -12,6 +12,7 @@ import {
   SaveIcon,
   SendIcon,
   TimerIcon,
+  Trash2Icon,
   TriangleAlertIcon,
   WebhookIcon,
 } from "lucide-react";
@@ -26,6 +27,17 @@ import {
   Alert,
   AlertDescription,
 } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -37,12 +49,14 @@ import {
   ALERT_EVENTS,
   DEFAULT_ALERT_COOLDOWN_SECS,
   alertTestOutcome,
+  buildAlertSettingsPatch,
+  clearWebhookPatch,
   hasConfiguredAlertChannel,
   isTelegramIncomplete,
   normalizeAlertTestResults,
   parseAlertEvents,
-  serializeAlertEvents,
   toggleAlertEvent,
+  webhookFieldState,
   type AlertChannelConfig,
   type AlertEvent,
   type AlertTestResult,
@@ -127,6 +141,7 @@ function channelConfig(items: Settings): AlertChannelConfig {
     telegramBotTokenSaved: items.telegram_bot_has_token === true,
     telegramChatId: items.telegram_chat_id,
     webhookUrl: items.webhook_url,
+    webhookHasUrl: items.webhook_has_url === true,
   };
 }
 
@@ -215,6 +230,9 @@ function AlertsForm({ initial }: { initial: Settings }) {
   );
   const [testResults, setTestResults] = useState<AlertTestResult[] | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
+  /** 清除 Webhook 是独立于保存的显式动作：确认后才发 `null`。 */
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
 
   // 切换语言后重新校验，让已经显示的错误跟着换语言。
   useEffect(() => {
@@ -234,6 +252,7 @@ function AlertsForm({ initial }: { initial: Settings }) {
     telegramChatId: form.watch("telegram_chat_id"),
   });
   const savedHasChannel = hasConfiguredAlertChannel(savedConfig);
+  const savedHasWebhook = webhookFieldState(savedConfig) === "saved";
   const dirty = form.formState.isDirty;
 
   const toggleEvent = (event: AlertEvent, checked: boolean) => {
@@ -247,13 +266,9 @@ function AlertsForm({ initial }: { initial: Settings }) {
   const onSubmit = form.handleSubmit(async (values) => {
     form.clearErrors("root");
     try {
-      const items = await updateSettings.mutateAsync({
-        telegram_bot_token: values.telegram_bot_token,
-        telegram_chat_id: values.telegram_chat_id,
-        webhook_url: values.webhook_url,
-        alert_events: serializeAlertEvents(values.alert_events),
-        alert_cooldown_secs: Number(values.alert_cooldown_secs),
-      });
+      const items = await updateSettings.mutateAsync(
+        buildAlertSettingsPatch(values),
+      );
       // PATCH 返回的 items 是权威值：回填表单并清掉脏标记。
       form.reset(toAlertFormValues(items));
       setSavedConfig(channelConfig(items));
@@ -270,6 +285,35 @@ function AlertsForm({ initial }: { initial: Settings }) {
       toast.error(message);
     }
   });
+
+  /**
+   * 显式清除 Webhook：只有这里会发 `null`。
+   *
+   * 不走整表单保存，避免把用户还没保存的其它修改一起提交；成功后再用
+   * PATCH 返回的权威值刷新 `webhook_has_url`，输入框/占位提示立即切回未配置。
+   */
+  const handleClearWebhook = async () => {
+    setClearError(null);
+    try {
+      const items = await updateSettings.mutateAsync(clearWebhookPatch());
+      setSavedConfig(channelConfig(items));
+      form.setValue("webhook_url", "", {
+        shouldDirty: false,
+        shouldValidate: true,
+      });
+      setTestResults(null);
+      setTestError(null);
+      setClearOpen(false);
+      toast.success(t("settings.alerts.webhook.cleared"));
+    } catch (error) {
+      const message = alertsSettingsErrorText(
+        error,
+        t("settings.alerts.webhook.clearError"),
+      );
+      setClearError(message);
+      toast.error(message);
+    }
+  };
 
   /**
    * 测试走已保存的配置（后端只读数据库里的设置），未保存的修改不会生效。
@@ -397,7 +441,16 @@ function AlertsForm({ initial }: { initial: Settings }) {
         <FormField
           label={t("settings.alerts.webhook.url")}
           htmlFor="settings-alert-webhook-url"
-          hint={t("settings.alerts.webhook.urlHint")}
+          hint={
+            savedHasWebhook ? (
+              <span className="flex items-start gap-1.5">
+                <CircleCheckIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
+                <span>{t("settings.alerts.webhook.savedHint")}</span>
+              </span>
+            ) : (
+              t("settings.alerts.webhook.urlHint")
+            )
+          }
           error={form.formState.errors.webhook_url?.message}
         >
           <Input
@@ -406,13 +459,93 @@ function AlertsForm({ initial }: { initial: Settings }) {
             autoComplete="off"
             autoCapitalize="none"
             spellCheck={false}
-            placeholder={t("settings.alerts.webhook.placeholder")}
+            placeholder={
+              savedHasWebhook
+                ? t("settings.alerts.webhook.savedPlaceholder")
+                : t("settings.alerts.webhook.placeholder")
+            }
             disabled={updateSettings.isPending}
             aria-invalid={Boolean(form.formState.errors.webhook_url)}
             {...form.register("webhook_url")}
           />
         </FormField>
+
+        {/* 清空必须显式：空串在契约里是「不改动」，不能拿来清除已保存地址。 */}
+        {savedHasWebhook ? (
+          <div
+            className={cn(
+              SETTINGS_FULL_ROW,
+              "flex flex-wrap items-center justify-end gap-2",
+            )}
+          >
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              onClick={() => {
+                setClearError(null);
+                setClearOpen(true);
+              }}
+              disabled={updateSettings.isPending}
+            >
+              <Trash2Icon />
+              {t("settings.alerts.webhook.clear")}
+            </Button>
+          </div>
+        ) : null}
       </SettingsGroup>
+
+      <AlertDialog
+        open={clearOpen}
+        onOpenChange={(next) => {
+          if (!next && updateSettings.isPending) return;
+          if (!next) setClearError(null);
+          setClearOpen(next);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia className="bg-destructive/10 text-destructive">
+              <Trash2Icon className="size-5" />
+            </AlertDialogMedia>
+            <AlertDialogTitle>
+              {t("settings.alerts.webhook.clearTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("settings.alerts.webhook.clearDesc")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {clearError ? (
+            <Alert variant="destructive">
+              <TriangleAlertIcon />
+              <AlertDescription>{clearError}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={updateSettings.isPending}>
+              {t("common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={updateSettings.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleClearWebhook();
+              }}
+            >
+              {updateSettings.isPending ? (
+                <Loader2Icon className="animate-spin" />
+              ) : null}
+              {updateSettings.isPending
+                ? t("settings.alerts.webhook.clearing")
+                : t("settings.alerts.webhook.clearConfirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <SettingsGroup
         icon={BellRingIcon}

@@ -107,7 +107,7 @@ impl BillingMeta {
     /// 宁可少显示一个字段，也不能让整个接口 500。日期同时按年份范围过滤
     /// （`0000-*` / `2101-*` 这类越界值也视为未填写）。
     pub fn from_server(server: &Server) -> Self {
-        Self {
+        let mut meta = Self {
             paid_until: server
                 .paid_until
                 .as_deref()
@@ -129,7 +129,15 @@ impl BillingMeta {
                 .map(str::trim)
                 .filter(|value| BILLING_CYCLES.contains(value))
                 .map(str::to_owned),
+        };
+        // 半对行（只有价格或只有币种）在展示层整体降级为「未填写」：显示
+        // 「¥49.99」却没有币种、或「CNY」没有金额只会误导管理员。写路径已经
+        // 成对写入，这里只兜住手工改库 / 旧版本留下的脏行。
+        if meta.price_cents.is_some() != meta.currency.is_some() {
+            meta.price_cents = None;
+            meta.currency = None;
         }
+        meta
     }
 
     /// 四个字段是否都为空。创建时用它跳过一次无意义的 UPDATE。
@@ -507,10 +515,27 @@ mod tests {
             }
         );
 
-        // 只有一列脏不影响其它列。
+        // 只有一列脏不影响其它列；但价格/币种是成对的，丢掉一列后另一列也
+        // 整体降级，避免展示「只有币种没有金额」的半对行。
         let mixed = server_with(None, Some(1_000_000_000), Some("USD"), None);
         let meta = BillingMeta::from_server(&mixed);
         assert_eq!(meta.price_cents, None);
-        assert_eq!(meta.currency.as_deref(), Some("USD"));
+        assert_eq!(meta.currency, None);
+
+        // 手工改库留下的半对行（只有价格 / 只有币种）在读取时整组降级；
+        // 只影响这两列，到期日仍可展示。
+        for half in [
+            server_with(Some("2026-12-31"), Some(4999), None, None),
+            server_with(Some("2026-12-31"), None, Some("CNY"), None),
+        ] {
+            let meta = BillingMeta::from_server(&half);
+            assert!(meta.price_cents.is_none(), "{meta:?}");
+            assert!(meta.currency.is_none(), "{meta:?}");
+            assert_eq!(
+                meta.paid_until.as_deref(),
+                Some("2026-12-31"),
+                "半对行不能连累到期日"
+            );
+        }
     }
 }

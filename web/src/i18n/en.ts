@@ -2286,6 +2286,17 @@ const en = {
         url: "Webhook URL",
         urlHint: "Must start with http:// or https://.",
         placeholder: "https://example.com/hooks/pierwave",
+        savedHint:
+          "Configured (leave blank to keep it); enter a new address to replace it.",
+        savedPlaceholder: "Leave blank to keep the current URL",
+        clear: "Clear webhook",
+        clearTitle: "Clear webhook",
+        clearDesc:
+          "All webhook alerts stop until a new URL is entered and saved.",
+        clearConfirm: "Clear webhook",
+        clearing: "Clearing…",
+        cleared: "Webhook cleared",
+        clearError: "Could not clear the webhook. Please try again.",
       },
       events: {
         title: "Events",
@@ -2365,6 +2376,12 @@ const en = {
         "Includes users, packages, nodes, certificates and all configuration.",
       download: "Download backup",
       downloadHint: "The browser downloads an encrypted .db.gz.enc snapshot directly.",
+      downloading: "Downloading…",
+      downloadError: "Could not download the backup. Please try again.",
+      exportBlocked:
+        "The database exceeds the {size} export and off-site backup limit; clean up data or raise PIERWAVE_MAX_BACKUP_MB.",
+      exportTooLargeError:
+        "The database exceeds the {size} export and off-site backup limit; clean up data or raise PIERWAVE_MAX_BACKUP_MB and retry.",
       pendingTitle: "A restore is waiting for a restart",
       pendingDesc:
         "Uploaded {time} · database size {size}; current data is replaced only after the controller restarts.",
@@ -4087,6 +4104,8 @@ const en = {
     "backup.remote_busy": "An upload is already running; please try again later",
     "backup.remote_not_configured": "WebDAV URL or password is not configured",
     "backup.remote_upload_failed": "Off-site backup upload failed: {detail}",
+    "backup.export_too_large":
+      "The database exceeds the {max_mb} MB export and off-site backup limit; clean up data or raise PIERWAVE_MAX_BACKUP_MB and retry",
     "settings.backup_webdav_url_invalid": "Invalid WebDAV URL",
     "settings.backup_webdav_username_invalid": "Invalid WebDAV username",
     "settings.backup_webdav_password_invalid": "Invalid WebDAV password",

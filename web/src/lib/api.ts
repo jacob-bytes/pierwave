@@ -86,6 +86,37 @@ async function uploadBinary<T>(path: string, file: Blob): Promise<T> {
 }
 
 /**
+ * P7：下载备份文件。
+ *
+ * 不能只放一个 `<a download>`：数据库超过上限时后端返回 400 JSON，
+ * 浏览器会把它当成文件下下来（或跳到一个 JSON 页面），用户看不到
+ * `backup.export_too_large` 的可读原因。这里读成 Blob，成功后再触发下载，
+ * 失败则把 JSON 解析成 [`ApiError`] 交给卡片展示。
+ */
+async function downloadBinary(path: string): Promise<BackupDownload> {
+  const res = await fetch(path, { credentials: "include" });
+  if (!res.ok) {
+    const text = await res.text();
+    let body: ErrorBody | null = null;
+    if (text) {
+      try {
+        body = JSON.parse(text) as ErrorBody;
+      } catch {
+        body = null;
+      }
+    }
+    throw toApiError(body, res.status);
+  }
+
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const match = /filename="?([^";]+)"?/i.exec(disposition);
+  return {
+    blob: await res.blob(),
+    filename: match?.[1]?.trim() || null,
+  };
+}
+
+/**
  * P7：备份与恢复，见 docs/PLAN.md「P7：备份与恢复」。
  *
  * 备份 = 单个 SQLite 文件；恢复只落盘为待恢复文件，主控重启后才替换。
@@ -101,8 +132,19 @@ export interface BackupPending {
 export interface BackupInfo {
   /** 当前数据库文件大小（字节）。 */
   db_bytes: number;
+  /** 是否超过导出/异地备份上限；旧后端不返回，按 false 处理。 */
+  too_large?: boolean;
+  /** 导出/异地备份上限（字节）；旧后端不返回。 */
+  max_bytes?: number;
   /** 非空表示已经上传、等待重启生效。 */
   pending: BackupPending | null;
+}
+
+/** `GET /api/v1/backup` 的下载结果：文件字节 + 后端给的文件名。 */
+export interface BackupDownload {
+  blob: Blob;
+  /** `Content-Disposition` 里的文件名；缺失时由调用方兜底。 */
+  filename: string | null;
 }
 
 export interface RestoreBackupResponse {
@@ -2333,6 +2375,11 @@ export interface Settings {
   telegram_chat_id?: string | null;
   /** 只接受 http(s) 绝对地址；空 = 不启用 Webhook。 */
   webhook_url?: string | null;
+  /**
+   * GET 永远返回空串（地址可能带 token，不回显）；是否已保存看这个布尔值。
+   * PATCH 留空 / 不传 = 保持不变，显式 `null` = 清空。
+   */
+  webhook_has_url?: boolean | null;
   /** 逗号分隔的事件白名单；空串 = 不发送任何告警。 */
   alert_events?: string | null;
   /** 同类告警去抖秒数，0–86400，默认 600。 */
@@ -2817,12 +2864,12 @@ export const api = {
   /**
    * P7：备份与恢复，仅管理员可用；后端可能暂时 404。
    *
-   * 下载走同源直链，浏览器会带上会话 Cookie 并直接落盘；
-   * 恢复上传必须发原始字节，见 `uploadBinary`。
+   * 下载读成 Blob 后再落盘，这样 400 `backup.export_too_large` 能显示成
+   * 可读提示；恢复上传必须发原始字节，见 `uploadBinary`。
    */
   backup: {
-    /** 同源直链：`<a download>` 直接指向它即可，无需 fetch。 */
-    downloadUrl: "/api/v1/backup",
+    /** 下载快照；超限时抛带 `backup.export_too_large` code 的 ApiError。 */
+    download: () => downloadBinary("/api/v1/backup"),
     info: () => request<BackupInfo>("/api/v1/backup/info"),
     restore: (file: File, options?: { force?: boolean }) =>
       uploadBinary<RestoreBackupResponse>(

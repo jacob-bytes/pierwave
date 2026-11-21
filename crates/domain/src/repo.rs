@@ -10448,15 +10448,18 @@ pub mod stats {
 
         let today = crate::time::business_date(now);
         let (month_start, month_end) = crate::time::business_month_bounds(now);
+        // 与 `/api/v1/overview` 同一份读模型：`server` scope 的总和恒等于
+        // `traffic_daily` 全表同日总和，但只扫「服务器数 × 天数」行。
         let today_bytes: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily WHERE day = ?",
+            "SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily_rollup
+             WHERE scope = 'server' AND day = ?",
         )
         .bind(&today)
         .fetch_one(pool)
         .await?;
         let month_bytes: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily
-             WHERE day >= ? AND day <= ?",
+            "SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily_rollup
+             WHERE scope = 'server' AND day >= ? AND day <= ?",
         )
         .bind(&month_start)
         .bind(&month_end)
@@ -10750,16 +10753,16 @@ pub mod stats {
                     COALESCE(SUM(uplink), 0) AS uplink,
                     COALESCE(SUM(downlink), 0) AS downlink,
                     COALESCE(SUM(weighted), 0) AS weighted
-             FROM traffic_daily
-             WHERE day >= ? AND day <= ? AND subject = ?
+             FROM traffic_daily_rollup
+             WHERE scope = 'subject' AND day >= ? AND day <= ? AND key = ?
              GROUP BY day"
         } else {
             "SELECT day,
                     COALESCE(SUM(uplink), 0) AS uplink,
                     COALESCE(SUM(downlink), 0) AS downlink,
                     COALESCE(SUM(weighted), 0) AS weighted
-             FROM traffic_daily
-             WHERE day >= ? AND day <= ?
+             FROM traffic_daily_rollup
+             WHERE scope = 'server' AND day >= ? AND day <= ?
              GROUP BY day"
         };
         let mut query = sqlx::query_as::<_, DayRow>(sql)
@@ -10841,6 +10844,119 @@ pub mod stats {
         .fetch_all(pool)
         .await?;
         Ok(fill_days(now, days, rows))
+    }
+}
+
+#[cfg(test)]
+mod stats_rollup_tests {
+    use super::stats::{overview, traffic_trend, traffic_trend_for_subject};
+    use super::traffic;
+    use crate::Db;
+
+    /// `/stats/overview` 与 `/stats/traffic` 改读日汇总后，三个字段必须与
+    /// 原始账本逐字段相等（至少覆盖 3 天）。
+    #[tokio::test]
+    async fn stats_read_model_matches_raw_ledger_for_at_least_three_days() {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let pool = db.pool;
+        let now = crate::time::now();
+        let days: Vec<String> = (0..3)
+            .map(|offset| crate::time::business_date(now - offset * 86_400))
+            .collect();
+
+        for (index, day) in days.iter().enumerate() {
+            let value = index as u64 + 1;
+            traffic::accumulate_daily(
+                &pool,
+                day,
+                "server-a",
+                "user-a",
+                100 * value,
+                200 * value,
+                300 * value,
+            )
+            .await
+            .unwrap();
+            traffic::accumulate_daily(
+                &pool,
+                day,
+                "server-b",
+                "user-b",
+                10 * value,
+                20 * value,
+                30 * value,
+            )
+            .await
+            .unwrap();
+            traffic::accumulate_daily(&pool, day, "server-a", "user-b", 1, 2, 3)
+                .await
+                .unwrap();
+        }
+
+        let trend = traffic_trend(&pool, now, 7).await.unwrap();
+        assert_eq!(trend.len(), 7, "缺失日仍要补 0");
+        for day in &days {
+            let raw: (i64, i64, i64) = sqlx::query_as(
+                "SELECT COALESCE(SUM(uplink), 0), COALESCE(SUM(downlink), 0),
+                        COALESCE(SUM(weighted), 0)
+                 FROM traffic_daily WHERE day = ?",
+            )
+            .bind(day)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            let point = trend.iter().find(|point| &point.date == day).unwrap();
+            assert_eq!(
+                (point.uplink, point.downlink, point.weighted),
+                raw,
+                "{day} 的汇总与原始账本不一致"
+            );
+        }
+
+        let overview = overview(&pool, now).await.unwrap();
+        let today = crate::time::business_date(now);
+        let (month_start, month_end) = crate::time::business_month_bounds(now);
+        let raw_today: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily WHERE day = ?",
+        )
+        .bind(&today)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let raw_month: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily
+             WHERE day >= ? AND day <= ?",
+        )
+        .bind(&month_start)
+        .bind(&month_end)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(overview.traffic.today_bytes, raw_today);
+        assert_eq!(overview.traffic.month_bytes, raw_month);
+
+        // 单用户趋势同样来自 `subject` scope，逐字段一致。
+        let subject = traffic_trend_for_subject(&pool, now, 7, "user-a")
+            .await
+            .unwrap();
+        for day in &days {
+            let raw: (i64, i64, i64) = sqlx::query_as(
+                "SELECT COALESCE(SUM(uplink), 0), COALESCE(SUM(downlink), 0),
+                        COALESCE(SUM(weighted), 0)
+                 FROM traffic_daily WHERE day = ? AND subject = 'user-a'",
+            )
+            .bind(day)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            let point = subject.iter().find(|point| &point.date == day).unwrap();
+            assert_eq!(
+                (point.uplink, point.downlink, point.weighted),
+                raw,
+                "{day} 的用户趋势与原始账本不一致"
+            );
+        }
     }
 }
 

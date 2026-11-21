@@ -69,6 +69,18 @@ If the variable exists but is malformed (not base64 or not 32 bytes), startup
 fails instead of silently falling back to the file key: switching keys would
 make all existing ciphertext unreadable.
 
+**环境变量与文件同时存在 / Both env and file present：** 环境变量优先。若两把
+密钥不同，启动会 `warn` 说明「文件已被忽略」，并只记录两把密钥的**指纹**
+（SHA-256 前 4 字节，8 位十六进制）；密钥本身与 base64 片段不会进日志。若两把
+密钥相同则不告警。文件存在但无法解析时同样会 `warn`（文件被忽略），不会因此
+阻止启动。
+
+**Both sources present:** the environment variable wins. If the two keys differ,
+startup logs a `warn` saying the file is ignored and prints only **fingerprints**
+(the first 4 bytes of SHA-256, 8 hex chars); neither key nor any base64 fragment
+is logged. Identical keys produce no warning. An unparsable file also logs a
+`warn` and is ignored rather than blocking startup.
+
 内存库（`sqlite::memory:`）没有可持久化的位置，使用进程内随机密钥；测试与临时
 实例不会写入 `data/secret.key`。
 
@@ -166,6 +178,27 @@ usable and can show which keys need re-entry; the server also writes an error
 log. `PATCH` can still return `settings.secret_overwrite` (see below). Neither the
 marker nor any error message contains the key, ciphertext or plaintext.
 
+**后台任务的隔离 / Background task isolation：** 秘密解不开时，只有**依赖该键**
+的任务失败，其他任务继续：
+
+- 告警投递：只跳过坏掉的渠道，仍可读的渠道继续发；
+- Telegram Bot：只有 `telegram_bot_token` 坏掉才停止长轮询；
+- 定时/手动异地备份：只有 `backup_webdav_password` 坏掉才判 Failed，并把可读
+  原因写进任务的 `backup_webdav_last_error`；Webhook / Telegram / hmac 坏掉
+  时只 `warn`，备份照常执行。
+
+**Background task isolation:** when a secret cannot be decrypted, only tasks
+that depend on that key fail; others continue:
+
+- alert delivery skips only the broken channel and keeps sending on readable
+  ones;
+- the Telegram bot stops only when `telegram_bot_token` is broken;
+- scheduled/manual off-site backup fails only when `backup_webdav_password` is
+  broken, and writes the readable reason to `backup_webdav_last_error`; a broken
+  webhook / Telegram token / hmac secret only logs a `warn` and the backup still
+  runs.
+
+
 ### 设置页的逃生路径 / Settings escape hatch
 
 `PATCH /api/v1/settings` 在主密钥不匹配时仍可自救：
@@ -256,6 +289,86 @@ each one with the **current master key**:
 键名（不含值），不会静默跳过。 / `Db::migrate()` performs the same scan and
 logs an **error** with the key name (never the value) instead of skipping
 silently.
+
+### 4.1 启动换库前复核 / Re-check immediately before swapping
+
+上传时的校验只代表**上传那一刻**。管理员可能在文件落成 `.restore-pending`
+之后更换 `secret.key` / `PIERWAVE_SECRET_KEY`，也可能直接把别的实例的库手工
+放成 pending。因此真正换库前（打开连接池之前）还会用**当前主密钥**再扫一遍
+候选库的 `enc:v1:` 值：
+
+- 有解不开的：**保留 pending、不替换主库**，主控照常启动；日志 `error` 与
+  审计 `backup.restore.apply`（`result=rejected`）都会带上键名与可读原因；
+- 扫描失败（文件损坏 / 打不开）：同样拒绝应用，保留现场；
+- 只有全部可读时才把旧库改名为 `.pre-restore-*` 并落位 pending。
+
+The upload-time check only reflects the moment of upload. An operator can rotate
+`secret.key` / `PIERWAVE_SECRET_KEY` after the file becomes `.restore-pending`,
+or copy another instance's database there by hand. Right before the swap (before
+the connection pool opens) the candidate is scanned again with the **current**
+master key:
+
+- any unreadable `enc:v1:` value: **keep pending, do not replace the database**,
+  and continue starting; both the `error` log and the `backup.restore.apply`
+  audit (`result=rejected`) carry the key names and a readable reason;
+- scan failure (corrupt/unreadable file): also reject and keep the file in place;
+- only when every secret is readable is the old database renamed to
+  `.pre-restore-*` and the pending file moved into place.
+
+### 4.2 导出与异地备份的大小上限 / Export & off-site size limit
+
+导出和异地备份共用 `VACUUM INTO` 快照路径。生成快照**之前**先用
+`PRAGMA page_count * page_size`（含 WAL 中已提交的页）检查数据库大小；超过上限
+直接返回可读错误 `backup.export_too_large`，不会先写一份同样大的临时库。
+
+- 默认上限与恢复相同：512 MB；
+- 可用 `PIERWAVE_MAX_BACKUP_MB` 调整（正整数，单位 MB）；
+- `GET /api/v1/backup/info` 额外返回 `too_large: bool` 与 `max_bytes`，前端
+  可在管理员点击导出前提示。
+
+Exports and off-site backups share the `VACUUM INTO` snapshot path. Before
+creating the snapshot, the database size is checked with
+`PRAGMA page_count * page_size` (including pages committed in the WAL). Above
+the limit the endpoint returns a readable `backup.export_too_large` error
+instead of first writing an equally large temporary file.
+
+- Default limit is the same 512 MB used by restore;
+- override with `PIERWAVE_MAX_BACKUP_MB` (positive integer, megabytes);
+- `GET /api/v1/backup/info` also returns `too_large: bool` and `max_bytes` so the
+  UI can warn before the administrator clicks export.
+
+### 4.3 `.pre-restore-*` 回滚副本保留 / Pre-restore retention
+
+每次成功恢复都会把旧库改名为 `<db>.pre-restore-<timestamp>`（含 `-wal` /
+`-shm`）。这些文件是**完整的旧业务库**，可能包含证书私钥、用户密码哈希与已
+加密设置，只用于短期回滚：
+
+- 主控启动时自动删除修改时间超过 **7 天**的 `.pre-restore-*`（主文件与
+  旁路文件一起删）；未过期的副本保留；
+- 删除失败只记 `warn`，不影响启动；
+- 需要立即释放空间或确认不再回滚时，可以手动删除：
+
+```bash
+# 先停止主控，再删除；文件名以实际库名为准
+ls -l data/pierwave.db.pre-restore-*
+rm -f data/pierwave.db.pre-restore-*
+```
+
+Every successful restore renames the old database to
+`<db>.pre-restore-<timestamp>` (including `-wal` / `-shm`). These are **full old
+business databases** and may contain certificate private keys, password hashes
+and encrypted settings, so they are kept only for short-term rollback:
+
+- startup deletes `.pre-restore-*` files older than **7 days** (main file and
+  sidecars together); newer copies are kept;
+- deletion failures only log a `warn` and never block startup;
+- to free space immediately or when rollback is no longer needed, delete them
+  manually (stop the master first):
+
+```bash
+ls -l data/pierwave.db.pre-restore-*
+rm -f data/pierwave.db.pre-restore-*
+```
 
 ## 5. 迁移 / Migrations
 

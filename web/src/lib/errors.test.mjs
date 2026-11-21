@@ -308,3 +308,27 @@ test("self-service forward errors translate in both languages with backend param
     );
   });
 });
+
+test("backup.export_too_large maps to a readable, localized limit", () => {
+  const error = () =>
+    new ApiError(
+      "当前数据库 2 字节，超过导出/异地备份上限 1 字节",
+      400,
+      "backup.export_too_large",
+      { db_bytes: 2, max_bytes: 1_048_576, max_mb: 1 },
+    );
+  assert.equal(hasErrorCode("backup.export_too_large"), true);
+
+  withLocale("zh-CN", () => {
+    assert.equal(
+      errorText(error(), "fallback"),
+      "数据库超过导出与异地备份上限 1 MB；请先清理数据或调大 PIERWAVE_MAX_BACKUP_MB 后重试",
+    );
+  });
+  withLocale("en", () => {
+    assert.equal(
+      errorText(error(), "fallback"),
+      "The database exceeds the 1 MB export and off-site backup limit; clean up data or raise PIERWAVE_MAX_BACKUP_MB and retry",
+    );
+  });
+});

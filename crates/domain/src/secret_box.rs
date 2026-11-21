@@ -129,6 +129,50 @@ impl SecretKey {
         base64::engine::general_purpose::STANDARD.encode(self.0)
     }
 
+    /// 密钥指纹：SHA-256 的前 4 字节（8 位十六进制）。
+    ///
+    /// 只用于日志里区分「环境变量里的密钥」与「文件里的密钥」，**不是**密钥
+    /// 本身，也不足以用于解密。不要把它换成密钥前缀或 base64 片段。
+    pub fn fingerprint(&self) -> String {
+        crate::password::sha256_hex(&self.to_base64())[..8].to_string()
+    }
+
+    /// 环境变量与文件同时提供密钥时，判断文件是否被忽略。
+    ///
+    /// 返回 `Some(可读警告)` 表示两把密钥不同（或文件无法解析）；`None` 表示
+    /// 文件不存在、与 env 相同，或根本没有文件。警告里只出现**指纹**与路径，
+    /// 绝不出现任何一把密钥的明文 / base64。
+    fn ignored_file_key_warning(env: &Self, path: &Path) -> Option<String> {
+        let bytes = std::fs::read(path).ok()?;
+        let file_key = match Self::from_file_bytes(&bytes) {
+            Ok(key) => key,
+            Err(_) => {
+                return Some(format!(
+                    "同时设置了 {SECRET_KEY_ENV} 与主密钥文件 {}，但文件无法解析，文件已被忽略；\
+                     请确认使用的是哪一把密钥。 / Both {SECRET_KEY_ENV} and the key file {} are \
+                     present, but the file cannot be parsed and is ignored.",
+                    path.display(),
+                    path.display()
+                ));
+            }
+        };
+        if file_key == *env {
+            return None;
+        }
+        Some(format!(
+            "同时设置了 {SECRET_KEY_ENV} 与主密钥文件 {}，两把密钥不同，文件已被忽略；\
+             请确认使用的是哪一把密钥。指纹：env={} file={} / Both {SECRET_KEY_ENV} and the \
+             key file {} are present with different keys; the file is ignored. Fingerprints: \
+             env={} file={}",
+            path.display(),
+            env.fingerprint(),
+            file_key.fingerprint(),
+            path.display(),
+            env.fingerprint(),
+            file_key.fingerprint(),
+        ))
+    }
+
     /// 读取 `PIERWAVE_SECRET_KEY`；未设置返回 `Ok(None)`。
     ///
     /// 设置了但格式非法时返回错误而不是回落文件：静默换一把密钥会让已加密的
@@ -154,8 +198,17 @@ impl SecretKey {
     }
 
     /// 按「环境变量 > 文件 > 针对内存库的临时随机密钥」加载主密钥。
+    ///
+    /// 两者同时存在且不同时只 `warn`（文件被忽略），并只记录指纹：环境变量
+    /// 是显式覆盖，但管理员需要知道磁盘上还有另一把 key，否则会误以为它在生效。
     pub fn for_database(db_path: Option<&Path>) -> anyhow::Result<Self> {
         if let Some(key) = Self::load_from_env()? {
+            if let Some(path) = db_path {
+                let file = Self::key_file_path(Some(path));
+                if let Some(warning) = Self::ignored_file_key_warning(&key, &file) {
+                    tracing::warn!(path = %file.display(), "{warning}");
+                }
+            }
             return Ok(key);
         }
         match db_path {
@@ -891,5 +944,42 @@ mod tests {
                 Some("1")
             );
         });
+    }
+
+    /// B19：env 与文件同时存在时，不同密钥要警告「文件被忽略」，相同则不警告；
+    /// 警告只带 8 位指纹，不含任何一把密钥。
+    #[test]
+    fn env_and_file_key_conflict_is_reported_by_fingerprint_only() {
+        let dir = TempDir::new("env-file-conflict");
+        let path = dir.0.join(SECRET_KEY_FILE_NAME);
+        let file_key = SecretKey::from_bytes([0x31; KEY_LEN]);
+        let env_key = SecretKey::from_bytes([0x42; KEY_LEN]);
+        std::fs::write(&path, format!("{}\n", file_key.to_base64())).unwrap();
+
+        let warning =
+            SecretKey::ignored_file_key_warning(&env_key, &path).expect("两把不同的密钥必须警告");
+        assert!(warning.contains("文件已被忽略"), "{warning}");
+        assert!(
+            warning.contains(&format!("env={}", env_key.fingerprint())),
+            "{warning}"
+        );
+        assert!(
+            warning.contains(&format!("file={}", file_key.fingerprint())),
+            "{warning}"
+        );
+        assert_eq!(env_key.fingerprint().len(), 8);
+        assert_eq!(file_key.fingerprint().len(), 8);
+        for secret in [env_key.to_base64(), file_key.to_base64()] {
+            assert!(!warning.contains(&secret), "警告不能泄露密钥：{warning}");
+        }
+
+        assert!(
+            SecretKey::ignored_file_key_warning(&file_key, &path).is_none(),
+            "两把密钥相同不应警告"
+        );
+        assert!(
+            SecretKey::ignored_file_key_warning(&env_key, &dir.0.join("missing.key")).is_none(),
+            "没有文件时不应警告"
+        );
     }
 }

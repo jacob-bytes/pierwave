@@ -2184,6 +2184,16 @@ const zhCN = {
         url: "Webhook URL",
         urlHint: "必须以 http:// 或 https:// 开头。",
         placeholder: "https://example.com/hooks/pierwave",
+        savedHint: "已配置（留空不修改）；要更换请直接填写新地址。",
+        savedPlaceholder: "留空保持现有地址",
+        clear: "清除 Webhook",
+        clearTitle: "清除 Webhook",
+        clearDesc:
+          "清除后所有 Webhook 告警会停止发送，直到重新填写并保存地址。",
+        clearConfirm: "清除 Webhook",
+        clearing: "清除中…",
+        cleared: "Webhook 已清除",
+        clearError: "清除 Webhook 失败，请稍后重试",
       },
       events: {
         title: "事件",
@@ -2254,6 +2264,12 @@ const zhCN = {
       sizeHint: "包含用户、套餐、节点、证书与全部配置。",
       download: "下载备份",
       downloadHint: "浏览器会直接下载 .db.gz.enc 加密快照。",
+      downloading: "下载中…",
+      downloadError: "下载备份失败，请稍后重试",
+      exportBlocked:
+        "数据库已超过导出与异地备份上限 {size}；请先清理数据或调大 PIERWAVE_MAX_BACKUP_MB。",
+      exportTooLargeError:
+        "数据库超过导出与异地备份上限 {size}；请先清理数据或调大 PIERWAVE_MAX_BACKUP_MB 后重试。",
       pendingTitle: "有恢复正在等待重启",
       pendingDesc: "上传于 {time} · 数据库大小 {size}；重启主控后才会替换当前数据。",
       restoreTitle: "恢复数据",
@@ -3873,6 +3889,8 @@ const zhCN = {
     "backup.remote_busy": "已有备份正在上传，请稍后重试",
     "backup.remote_not_configured": "尚未配置 WebDAV 地址或密码",
     "backup.remote_upload_failed": "异地备份上传失败：{detail}",
+    "backup.export_too_large":
+      "数据库超过导出与异地备份上限 {max_mb} MB；请先清理数据或调大 PIERWAVE_MAX_BACKUP_MB 后重试",
     "settings.backup_webdav_url_invalid": "WebDAV 地址不合法",
     "settings.backup_webdav_username_invalid": "WebDAV 用户名不合法",
     "settings.backup_webdav_password_invalid": "WebDAV 密码不合法",

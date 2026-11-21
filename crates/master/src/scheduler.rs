@@ -516,6 +516,15 @@ pub enum RemoteBackupRound {
 pub async fn run_remote_backup_round(state: &AppState) -> anyhow::Result<RemoteBackupRound> {
     let settings = match crate::routes::settings::load_for_background(&state.db).await {
         Ok(settings) => settings,
+        // 只有 WebDAV 密码坏掉才是异地备份的故障；Webhook / Telegram / hmac
+        // 坏了与上传无关，记 warn 后用部分可读的设置继续。
+        Err(error) if !error.has(crate::routes::settings::BACKUP_WEBDAV_PASSWORD_KEY) => {
+            tracing::warn!(
+                keys = ?error.keys,
+                "其它秘密无法解密，但 WebDAV 密码可读；异地备份继续"
+            );
+            crate::routes::settings::load(&state.db).await
+        }
         Err(error) => {
             // 异地备份本来就没开：不要因为别的秘密坏了而每 60 秒告警一次。
             let partial = crate::routes::settings::load(&state.db).await;
@@ -524,8 +533,10 @@ pub async fn run_remote_backup_round(state: &AppState) -> anyhow::Result<RemoteB
             }
             tracing::error!(
                 keys = ?error.keys,
-                "异地备份无法读取设置：秘密无法用当前主密钥解密"
+                "异地备份无法读取设置：WebDAV 密码无法用当前主密钥解密"
             );
+            // 任务状态要有失败原因，不能只靠日志：设置页读的就是 last_error。
+            crate::remote_backup::record_secret_failure(&state.db.pool, &error.message).await;
             crate::alerts::notify(
                 state,
                 crate::alerts::AlertKind::BackupFailed,
@@ -872,6 +883,98 @@ mod tests {
         assert_eq!(sent[0].kind, "backup_failed");
         assert!(sent[0].body.contains("无法解密"), "{}", sent[0].body);
         assert!(!sent[0].body.contains(canary));
+
+        // B12：失败原因还要落到任务状态，设置页不能只靠日志。
+        let meta = crate::remote_backup::load_meta(&state.db.pool).await;
+        assert!(
+            meta.last_error.contains("主密钥"),
+            "last_error 要可读：{}",
+            meta.last_error
+        );
+        assert!(!meta.last_error.contains(canary));
+        assert!(meta.last_failure_at.is_some());
+        assert!(meta.last_attempt_at.is_some());
+    }
+
+    /// B12：Webhook 秘密坏掉只影响告警渠道，不能让定时备份变成 Failed。
+    #[tokio::test]
+    async fn unrelated_broken_webhook_does_not_fail_scheduled_backup() {
+        let state = setup_batch_state().await;
+        for (key, value) in [
+            ("backup_webdav_enabled", "1"),
+            ("backup_webdav_url", "https://dav.example.test/dav"),
+            ("backup_webdav_interval_hours", "24"),
+        ] {
+            repo::settings::set(&state.db.pool, key, value)
+                .await
+                .unwrap();
+        }
+        repo::settings::set(&state.db.pool, "backup_webdav_password", "pass")
+            .await
+            .unwrap();
+        // 刚尝试过：设置读取通过后直接判 NotDue，不联网。
+        repo::settings::set(
+            &state.db.pool,
+            crate::remote_backup::LAST_ATTEMPT_KEY,
+            &pierwave_domain::time::now().to_string(),
+        )
+        .await
+        .unwrap();
+
+        let other = pierwave_domain::secret_box::SecretKey::generate().unwrap();
+        repo::settings::set(
+            &state.db.pool,
+            "webhook_url",
+            &pierwave_domain::secret_box::encrypt_setting(&other, "https://hooks.test/broken"),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            run_remote_backup_round(&state).await.unwrap(),
+            RemoteBackupRound::NotDue,
+            "Webhook 坏了不能把 WebDAV 备份判死"
+        );
+    }
+
+    /// B12：Telegram Token 坏掉只影响 Bot，不能让定时备份变成 Failed。
+    #[tokio::test]
+    async fn unrelated_broken_telegram_token_does_not_fail_scheduled_backup() {
+        let state = setup_batch_state().await;
+        for (key, value) in [
+            ("backup_webdav_enabled", "1"),
+            ("backup_webdav_url", "https://dav.example.test/dav"),
+            ("backup_webdav_interval_hours", "24"),
+        ] {
+            repo::settings::set(&state.db.pool, key, value)
+                .await
+                .unwrap();
+        }
+        repo::settings::set(&state.db.pool, "backup_webdav_password", "pass")
+            .await
+            .unwrap();
+        repo::settings::set(
+            &state.db.pool,
+            crate::remote_backup::LAST_ATTEMPT_KEY,
+            &pierwave_domain::time::now().to_string(),
+        )
+        .await
+        .unwrap();
+
+        let other = pierwave_domain::secret_box::SecretKey::generate().unwrap();
+        repo::settings::set(
+            &state.db.pool,
+            "telegram_bot_token",
+            &pierwave_domain::secret_box::encrypt_setting(&other, "123456:BROKEN"),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            run_remote_backup_round(&state).await.unwrap(),
+            RemoteBackupRound::NotDue,
+            "Telegram Token 坏了不能把 WebDAV 备份判死"
+        );
     }
 
     /// `enabled=1` 但凭据为空是「任务失败」，不是「未启用」：必须告警。

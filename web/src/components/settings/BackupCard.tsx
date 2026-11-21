@@ -42,6 +42,10 @@ import { api, ApiError, type BackupPending } from "@/lib/api";
 import {
   BACKUP_ACCEPT,
   BACKUP_MAX_BYTES,
+  backupExportLimitBytes,
+  exportTooLargeLimitBytes,
+  isBackupExportBlocked,
+  isExportTooLarge,
   needsForceRestore,
   validateBackupFile,
   type BackupFileProblem,
@@ -59,8 +63,18 @@ import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
 /** 备份接口与后端并行开发：404/403/413 给中文说明，不写 mock 数据。 */
-function backupErrorText(error: unknown, fallback: string): string {
+function backupErrorText(
+  error: unknown,
+  fallback: string,
+  /** `/backup/info` 给的上限；错误参数缺失时用它显示可读单位。 */
+  exportLimitBytes: number = BACKUP_MAX_BYTES,
+): string {
   if (error instanceof ApiError) {
+    if (isExportTooLarge(error)) {
+      return t("settings.backup.exportTooLargeError", {
+        size: formatBytes(exportTooLargeLimitBytes(error) ?? exportLimitBytes),
+      });
+    }
     if (error.status === 404) {
       return t("settings.backup.notReady404");
     }
@@ -495,8 +509,45 @@ export function BackupCard() {
   const [cancelError, setCancelError] = useState<string | null>(null);
   // force 恢复返回的 warning：只属于当前待恢复文件，取消或重新上传后清空。
   const [forceWarning, setForceWarning] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const pending = info.data?.pending ?? null;
+  // 超限时导出按钮必须真的不可点，而不是点了才由后端报错。
+  const exportBlocked = isBackupExportBlocked(info.data);
+  const exportLimitBytes = backupExportLimitBytes(info.data);
+
+  /**
+   * 导出成功后再触发浏览器下载；失败时把 `backup.export_too_large` 变成
+   * 带可读上限的提示（info 可能滞后，上限优先取错误参数里的权威值）。
+   */
+  const handleDownload = async () => {
+    if (exportBlocked || downloading) return;
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      const { blob, filename } = await api.backup.download();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = filename ?? "pierwave-backup";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      // Safari/Firefox 需要等 click 处理完再回收。
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    } catch (error) {
+      const message = backupErrorText(
+        error,
+        t("settings.backup.downloadError"),
+        exportLimitBytes,
+      );
+      setDownloadError(message);
+      toast.error(message);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const handleCancelRestore = () => {
     setCancelError(null);
@@ -554,16 +605,50 @@ export function BackupCard() {
         </div>
 
         <div className="space-y-2">
-          <Button variant="outline" size="sm" asChild>
-            <a href={api.backup.downloadUrl} download>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void handleDownload()}
+            disabled={exportBlocked || downloading}
+          >
+            {downloading ? (
+              <Loader2Icon className="animate-spin" />
+            ) : (
               <DownloadIcon />
-              {t("settings.backup.download")}
-            </a>
+            )}
+            {downloading
+              ? t("settings.backup.downloading")
+              : t("settings.backup.download")}
           </Button>
           <p className="text-xs text-muted-foreground">
             {t("settings.backup.downloadHint")}
           </p>
         </div>
+
+        {exportBlocked ? (
+          <div
+            className={cn(
+              SETTINGS_FULL_ROW,
+              "flex items-start gap-2 rounded-lg border border-warning/25 bg-warning/10 px-3 py-2 text-xs text-warning",
+            )}
+          >
+            <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
+            <p>
+              {t("settings.backup.exportBlocked", {
+                size: formatBytes(exportLimitBytes),
+              })}
+            </p>
+          </div>
+        ) : null}
+
+        {downloadError ? (
+          <p
+            className={cn(SETTINGS_FULL_ROW, "text-xs text-destructive")}
+            role="alert"
+          >
+            {downloadError}
+          </p>
+        ) : null}
       </SettingsGroup>
 
       <SettingsGroup

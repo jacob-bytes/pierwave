@@ -37,8 +37,9 @@ REPEAT=50 ./scripts/bench-overview.sh       # 更多轮次
 | 优化后（`CACHE=0` + 后台写入） | 同上 | 112.3 ms | 114.0 ms | 只读日汇总，无缓存 |
 | 优化后（`CACHE=0`，静态数据冷查询） | 同上 | 124.3 ms | 134.1 ms | 只读日汇总，无缓存；首次冷请求 112.5 ms |
 
-`bench-api.sh` 同轮其它接口不受影响：`stats/overview` 349.6 ms、`stats/traffic`
-513.5 ms、`stats/nodes` 137.9 ms、`users` 8.3 ms、`audit` 1.5 ms。
+`bench-api.sh` 同轮其它接口：`stats/overview` 343.1 → 7.4 ms、`stats/traffic`
+506.0 → 1.0 ms（见第 7 节）、`stats/nodes` 116.8 ms、`users` 7.8 ms、
+`audit` 1.5 ms。
 
 验收目标「p50 ≤ 100 ms（debug）」在默认配置下余量很大；即使**后台每 200ms
 持续写入**，TTL 缓存下 p50 仍为 4.5 ms（仅 TTL 正常过期时出现一次 ~113ms 的
@@ -193,11 +194,49 @@ Top 用户/套餐共用 `user_traffic` CTE：早期版本在 `top_user` 分支�
   上述持续写入场景（0% vs 96%）；
 - `state::tests::overview_cache_with_zero_ttl_never_hits`：环境变量 `0` 的禁用语义。
 
-## 7. 未做项与取舍
+## 7. `/stats/*` 复用日汇总 / `/stats/*` reuses the rollup
 
-- `/api/v1/stats/traffic`、`/api/v1/stats/overview` 仍读原始 `traffic_daily`，
-  本轮没有改（目标只要求概览）；它们可以直接复用同一张日汇总，是下一步的
-  低风险优化。
+`repo::stats::overview` 的今日/本月流量与 `repo::stats::traffic` 的日趋势改为读
+`traffic_daily_rollup`：全局用 `scope='server'`（与 `/api/v1/overview` 的 KPI
+同一份），单用户趋势用 `scope='subject'`。响应 JSON 形状完全不变；没有新增
+缓存，只把读路径从「扫 30 天原始行」换成「扫服务器数 × 天数行」。
+
+同一轮 `scripts/bench-api.sh`（10,001 用户 / 1,000 节点 / 300,030 行
+`traffic_daily`，debug，30 轮）前后对比：
+
+| 接口 | 优化前 p50 | 优化后 p50 | 加速 | 优化前 p95 | 优化后 p95 |
+|---|---:|---:|---:|---:|---:|
+| `GET /api/v1/stats/overview` | 343.06 ms | **7.41 ms** | 46.3× | 358.58 ms | 7.62 ms |
+| `GET /api/v1/stats/traffic?days=30` | 506.00 ms | **0.97 ms** | 521.6× | 599.61 ms | 1.19 ms |
+
+一致性测试 `repo::stats_rollup_tests::stats_read_model_matches_raw_ledger_for_at_least_three_days`
+构造 3 天、两台服务器、两个用户的流量，逐日逐字段比较
+`traffic_trend` / `traffic_trend_for_subject` / `overview.traffic` 与原始
+`traffic_daily` 聚合，三者必须完全相等。
+
+`repo::stats::overview` now reads today/month traffic from
+`traffic_daily_rollup`, and `repo::stats::traffic` reads its daily trend from the
+same table: global rows use `scope='server'` (the exact read model behind
+`/api/v1/overview` KPI), per-subject rows use `scope='subject'`. The response
+JSON shape is unchanged. No extra cache was added; the read path simply scans
+`servers × days` rows instead of 30 days of raw ledger rows.
+
+Same `scripts/bench-api.sh` run (10,001 users / 1,000 nodes / 300,030
+`traffic_daily` rows, debug build, 30 rounds):
+
+| Endpoint | Before p50 | After p50 | Speedup | Before p95 | After p95 |
+|---|---:|---:|---:|---:|---:|
+| `GET /api/v1/stats/overview` | 343.06 ms | **7.41 ms** | 46.3× | 358.58 ms | 7.62 ms |
+| `GET /api/v1/stats/traffic?days=30` | 506.00 ms | **0.97 ms** | 521.6× | 599.61 ms | 1.19 ms |
+
+The consistency test
+`repo::stats_rollup_tests::stats_read_model_matches_raw_ledger_for_at_least_three_days`
+seeds three days for two servers and two users, then compares
+`traffic_trend` / `traffic_trend_for_subject` / `overview.traffic` field by field
+against aggregates over the raw `traffic_daily` rows; they must match exactly.
+
+## 8. 未做项与取舍
+
 - 概览缓存是**进程内、TTL 语义**的；多实例部署时每个进程各自缓存，写入不会
   互相通知，最坏 12 秒陈旧。管理员动作（如恢复备份）只清当前进程的缓存，
   恢复本身需要重启，重启后所有实例都是空的。
@@ -302,8 +341,6 @@ refresh is required.
 
 ## Not done
 
-- `/api/v1/stats/traffic` and `/api/v1/stats/overview` still read the raw
-  ledger; they can reuse this rollup in a follow-up.
 - The cache is per process and TTL-based; multi-instance deployments do not
   coordinate invalidation and each may serve up to 12 s stale traffic. Admin
   restores restart the process, so all instances start with an empty cache.

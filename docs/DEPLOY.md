@@ -239,8 +239,9 @@ sudo systemctl daemon-reload && sudo systemctl restart pierwave-agent
 - **`price_cents` 只接受整数或 `null`**；空串（`""`）不是合法整数，请发 `null`。JSON 类型
   错误（例如把 `""` 发给整数字段）由全局映射返回 422 + `request.invalid_json`，
   `params.detail` 带原始字段信息，前端可按 code 翻译。
-- PATCH 不传 = 不改，传 `null` 或空串 = 清空。PATCH **只写本次携带的列**，不覆盖未修改
-  的列（两个并发部分更新不会互相抹掉，存量脏列也不会被顺带清成 `NULL`）。
+- PATCH 不传 = 不改，传 `null` 或空串 = 清空。价格与币种按**成对写入**：只传其中
+  一个时，另一列用读取到的有效值一起写进同一条 `UPDATE`，两个并发部分更新不会留下
+  「有价格没币种」的半对行；读路径遇到历史半对行时把两列整组降级为 `null`。
 - 校验失败返回 400，错误码 `server.paid_until_invalid` / `server.price_cents_invalid` /
   `server.currency_invalid` / `server.billing_cycle_invalid` /
   `server.billing_pair_incomplete`，`params` 带 `field` 与允许范围（完整表见
@@ -265,10 +266,12 @@ sudo systemctl daemon-reload && sudo systemctl restart pierwave-agent
 > `billing_cycle` may be set independently, but **`price_cents` and `currency` must be
 > provided together** (both set or both empty), otherwise 400
 > `server.billing_pair_incomplete` with `params.missing`. PATCH is tri-state per field
-> (omitted = unchanged, `null`/empty = clear) and **writes only the columns it carried**, so
-> concurrent partial updates do not overwrite each other and untouched legacy dirty columns
-> are not nulled as a side effect. Invalid values return 400 (codes and params in
-> [ERRORS.md](ERRORS.md)). Admin lists and the public probe return all four fields.
+> (omitted = unchanged, `null`/empty = clear). Price and currency are written **as a pair**:
+> if either one is carried, the other is filled from the effective value and both go into
+> the same `UPDATE`, so concurrent partial updates cannot leave a price without a currency;
+> the read path degrades a legacy half pair to `null` for both. Invalid values return 400
+> (codes and params in [ERRORS.md](ERRORS.md)). Admin lists and the public probe return all
+> four fields.
 > Whether the public page shows them is controlled globally by
 > `public_billing_visible` (default `"1"`): when `"0"`, all four fields are `null`
 > and the top-level `billing_hidden` is `true`, so the UI can say "not public"
@@ -306,6 +309,15 @@ sudo systemctl daemon-reload && sudo systemctl restart pierwave-agent
   **Back it up separately** from the database: restoring encrypted backups or moving to a new
   host requires either the original file or the same `PIERWAVE_SECRET_KEY` (32 bytes, base64).
   Losing it makes encrypted backups and encrypted `settings` unrecoverable.
+
+- 恢复备份成功后，旧库会保留为 `<db>.pre-restore-<timestamp>` 以便回滚；这些文件是
+  **完整旧业务库**（含证书私钥与密码哈希），启动时自动清理超过 7 天的副本。确认不再
+  回滚后也可以停服手动删除：`rm -f data/pierwave.db.pre-restore-*`。
+  / After a successful restore, the old database is kept as
+  `<db>.pre-restore-<timestamp>` for rollback. These are **full old business databases**
+  (including certificate private keys and password hashes); startup removes copies older
+  than 7 days. Once rollback is no longer needed, stop the service and delete them with
+  `rm -f data/pierwave.db.pre-restore-*`.
 
 ## 已知边界
 

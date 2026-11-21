@@ -72,6 +72,15 @@ pub(crate) async fn create_backup_archive(state: &AppState) -> AppResult<BackupA
     let dir = parent_dir(&db_path);
     // 备份目录（与数据库同目录）只允许属主进入；已存在的宽权限会被 warn + 收紧。
     fs_security::create_private_dir(dir)?;
+    // 先量再快照：超限时不要先写一份同样大的临时库，既慢又可能把磁盘打满。
+    // `database_bytes` 含 WAL 中已提交的页，与 `VACUUM INTO` 的产物同量级。
+    let logical_bytes = repo::backup::database_bytes(&state.db.pool).await?;
+    if logical_bytes > state.max_backup_bytes {
+        return Err(backup_too_large_error(
+            logical_bytes,
+            state.max_backup_bytes,
+        ));
+    }
     let settings = crate::routes::settings::load(&state.db).await;
     let encrypted = settings.backup_encrypt;
     let timestamp = backup::filename_timestamp();
@@ -126,6 +135,28 @@ pub(crate) async fn create_backup_archive(state: &AppState) -> AppResult<BackupA
             _guard: gz_guard,
         })
     }
+}
+
+/// 数据库超过导出上限：可读错误 + 稳定 code + 供前端插值的字节/上限。
+fn backup_too_large_error(db_bytes: u64, max_bytes: u64) -> AppError {
+    let max_text = if max_bytes >= 1024 * 1024 {
+        format!("{max_bytes} 字节（{} MB）", max_bytes / (1024 * 1024))
+    } else {
+        format!("{max_bytes} 字节")
+    };
+    AppError::coded(
+        "backup.export_too_large",
+        Some(json!({
+            "db_bytes": db_bytes,
+            "max_bytes": max_bytes,
+            "max_mb": max_bytes / (1024 * 1024),
+        })),
+        format!(
+            "当前数据库 {db_bytes} 字节，超过导出/异地备份上限 {max_text}；请先清理数据或调大 \
+             PIERWAVE_MAX_BACKUP_MB 后重试 / The database is {db_bytes} bytes, above the export \
+             limit of {max_text}; clean up data or raise PIERWAVE_MAX_BACKUP_MB and retry"
+        ),
+    )
 }
 
 /// `GET /api/v1/backup`：下载加密（默认）或明文 gzip 的一致性快照。
@@ -324,6 +355,8 @@ pub async fn info(State(state): State<AppState>, user: CurrentUser) -> AppResult
     let db_bytes = repo::backup::database_bytes(&state.db.pool).await?;
     Ok(Json(json!({
         "db_bytes": db_bytes,
+        "too_large": db_bytes > state.max_backup_bytes,
+        "max_bytes": state.max_backup_bytes,
         "pending": pending_info(&db_path),
     })))
 }
@@ -408,9 +441,16 @@ pub async fn remote_test(
 ) -> AppResult<Json<Value>> {
     user.require_admin()?;
     // 秘密解不开时不能回落成「未配置」：那会把密钥问题误导成填表问题。
-    let settings = crate::routes::settings::load_for_background(&state.db)
-        .await
-        .map_err(|error| crate::remote_backup::RunError::Secret(error).into_app_error())?;
+    // 但只有 WebDAV 密码与这次测试有关；Webhook / Telegram 坏了仍应能测连接。
+    let settings = match crate::routes::settings::load_for_background(&state.db).await {
+        Ok(settings) => settings,
+        Err(error) if !error.has(crate::routes::settings::BACKUP_WEBDAV_PASSWORD_KEY) => {
+            crate::routes::settings::load(&state.db).await
+        }
+        Err(error) => {
+            return Err(crate::remote_backup::RunError::Secret(error).into_app_error());
+        }
+    };
     match crate::remote_backup::test_connection(&settings).await {
         Ok(()) => Ok(Json(json!({ "ok": true, "error": Value::Null }))),
         Err(crate::remote_backup::RunError::NotConfigured(message)) => Err(AppError::coded(
@@ -784,6 +824,14 @@ mod tests {
     }
 
     async fn setup(tag: &str) -> (TestDir, Router, AppState, String) {
+        setup_with_limit(tag, u64::MAX).await
+    }
+
+    /// 上限可注入：测试用很小的值覆盖超限路径，不必真的造 512 MB 的库。
+    async fn setup_with_limit(
+        tag: &str,
+        max_backup_bytes: u64,
+    ) -> (TestDir, Router, AppState, String) {
         let dir = TestDir::new(tag);
         let db = Db::connect(&format!("sqlite://{}?mode=rwc", dir.db_path().display()))
             .await
@@ -806,6 +854,7 @@ mod tests {
             .await
             .unwrap();
         let mut state = AppState::new(db, "web/dist");
+        state.max_backup_bytes = max_backup_bytes;
         // 重试退避压到毫秒级：单测不真的等 2s + 4s。
         state.remote_backup = crate::state::RemoteBackupRuntime::default().fast_retry();
         let app = crate::app::router(state.clone());
@@ -1012,6 +1061,51 @@ mod tests {
             !backup::pending_path(&dir.db_path()).exists(),
             "失败的上传不能留下待恢复文件"
         );
+    }
+
+    /// B18：缺 `settings` 等必需表要在恢复校验阶段返回 400 + code，
+    /// 而不是等秘密扫描 / 启动后才 500。
+    #[tokio::test]
+    async fn restore_rejects_backup_missing_settings_table() {
+        let (dir, app, _state, cookie) = setup("missing-settings").await;
+        let path = dir.file("missing-settings.db");
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true);
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
+        for sql in [
+            "CREATE TABLE users (id TEXT PRIMARY KEY)",
+            "CREATE TABLE servers (id TEXT PRIMARY KEY)",
+            "CREATE TABLE _sqlx_migrations (
+                 version INTEGER PRIMARY KEY, description TEXT, success INTEGER,
+                 checksum BLOB, execution_time INTEGER)",
+        ] {
+            sqlx::query(sql).execute(&pool).await.unwrap();
+        }
+        pool.close().await;
+
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/restore",
+            std::fs::read(&path).unwrap(),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+        assert_eq!(json(&body)["code"], "backup.restore_missing_tables");
+        let message = json(&body)["error"].as_str().unwrap().to_string();
+        assert!(message.contains("settings"), "实际：{message}");
+        assert!(!backup::pending_path(&dir.db_path()).exists());
     }
 
     #[tokio::test]
@@ -1487,6 +1581,59 @@ mod tests {
         assert!(
             db_bytes < 64 * 1024 * 1024,
             "刚初始化的库不应有几十 MB：{db_bytes}"
+        );
+    }
+
+    /// B14：数据库超过上限时导出必须可读地拒绝，`/backup/info` 要提前标记；
+    /// 异地备份走同一条快照路径，同样先被大小检查拦住（不联网）。
+    #[tokio::test]
+    async fn export_and_remote_backup_reject_oversized_database() {
+        let (_dir, app, state, cookie) = setup_with_limit("too-large", 1).await;
+
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::GET,
+            "/api/v1/backup/info",
+            Vec::new(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let info = json(&body);
+        assert_eq!(info["too_large"], true, "{info}");
+        assert_eq!(info["max_bytes"], 1);
+
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::GET,
+            "/api/v1/backup",
+            Vec::new(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let payload = json(&body);
+        assert_eq!(payload["code"], "backup.export_too_large", "{payload}");
+        let message = payload["error"].as_str().unwrap();
+        assert!(message.contains("超过"), "{message}");
+        assert!(message.contains("上限"), "{message}");
+        assert!(payload["params"]["max_bytes"].as_u64().is_some());
+
+        configure_webdav(&state, "https://dav.example.test/dav", "pass", 3).await;
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/remote/run",
+            Vec::new(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_GATEWAY, "{body:?}");
+        let payload = json(&body);
+        assert_eq!(payload["code"], "backup.remote_upload_failed");
+        assert!(
+            payload["error"].as_str().unwrap().contains("超过"),
+            "异地备份也要给出大小原因：{payload}"
         );
     }
 

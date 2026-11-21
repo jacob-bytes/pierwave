@@ -114,7 +114,25 @@ async fn main() -> anyhow::Result<()> {
                     "已清理启动残留的备份临时文件 / cleaned stale backup temp files"
                 );
             }
-            Some(backup::apply_pending_restore(path).await?)
+            // `.pre-restore-*` 是完整旧库（含证书私钥与密码哈希），只用于短期
+            // 回滚；超过保留期就清掉，避免无限堆积。
+            let expired =
+                backup::cleanup_stale_pre_restore_files(path, backup::PRE_RESTORE_MAX_AGE);
+            if !expired.is_empty() {
+                tracing::info!(
+                    files = expired.len(),
+                    "已清理过期 pre-restore 回滚副本 / removed expired pre-restore copies"
+                );
+            }
+            // 恢复必须在建连接池之前完成，且必须用**当前**主密钥复核候选库：
+            // 上传后换 key / 手工放 pending 都会在这里被拦下。
+            let outcome = if backup::pending_path(path).exists() {
+                let key = pierwave_domain::secret_box::SecretKey::for_database(Some(path))?;
+                backup::apply_pending_restore_with_key(path, &key).await?
+            } else {
+                RestoreOutcome::NoPending
+            };
+            Some(outcome)
         }
         None => None,
     };

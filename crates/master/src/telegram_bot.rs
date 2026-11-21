@@ -618,17 +618,26 @@ pub fn truncate_message(text: &str) -> String {
 
 /// 从设置表推导出应运行的 Bot 配置；`None` = 当前不应有长轮询任务。
 ///
-/// 秘密解不开时必须记 error 并**停止轮询**：用空 Token 继续跑只会在日志里刷
-/// 「Unauthorized」，而且会把「配置坏了」伪装成「没启用」。
+/// 只有 **Token 自己**解不开时才停止长轮询：Webhook / WebDAV 密码 / 内部
+/// hmac secret 坏了与 Bot 无关，用部分可读的设置继续跑即可（chat id 是明文，
+/// 不会出现在 [`SecretError::keys`] 里）。用空 Token 继续跑只会在日志里刷
+/// 「Unauthorized」，所以 Token 坏掉时仍要明确停止并记 error。
 async fn desired_config(state: &AppState) -> Option<BotConfig> {
     let settings = match settings::load_for_background(&state.db).await {
         Ok(settings) => settings,
-        Err(error) => {
+        Err(error) if error.has(settings::TELEGRAM_BOT_TOKEN_KEY) => {
             tracing::error!(
                 keys = ?error.keys,
-                "Telegram Bot 秘密设置无法解密，停止长轮询"
+                "Telegram Bot Token 无法解密，停止长轮询"
             );
             return None;
+        }
+        Err(error) => {
+            tracing::warn!(
+                keys = ?error.keys,
+                "其它秘密无法解密，但 Telegram Bot Token 可读；Bot 继续运行"
+            );
+            settings::load(&state.db).await
         }
     };
     if !settings.telegram_bot_enabled {
@@ -1213,6 +1222,31 @@ mod tests {
 
         set_setting(&state, settings::TELEGRAM_ADMIN_CHAT_IDS_KEY, ADMIN_CHAT).await;
         let desired = desired_config(&state).await.unwrap();
+        assert_eq!(desired.admin_chat_ids, vec![ADMIN_CHAT.to_string()]);
+    }
+
+    /// B12：Webhook / WebDAV 密码坏掉与 Bot 无关，不能把 Telegram 停掉。
+    #[tokio::test]
+    async fn unrelated_broken_secret_does_not_stop_bot() {
+        let (state, _transport) = setup().await;
+        enable_bot(&state).await;
+        let other = pierwave_domain::secret_box::SecretKey::generate().unwrap();
+        for (key, value) in [
+            ("webhook_url", "https://hooks.test/broken"),
+            ("backup_webdav_password", "broken-webdav"),
+        ] {
+            set_setting(
+                &state,
+                key,
+                &pierwave_domain::secret_box::encrypt_setting(&other, value),
+            )
+            .await;
+        }
+
+        let desired = desired_config(&state)
+            .await
+            .expect("Webhook / WebDAV 秘密坏了，Bot Token 仍可读时必须继续");
+        assert_eq!(desired.token, TOKEN);
         assert_eq!(desired.admin_chat_ids, vec![ADMIN_CHAT.to_string()]);
     }
 
