@@ -192,30 +192,41 @@ API access now precedes the security card; measured y positions are above.
 
 ### 保存条 / Save bar
 
-常规与安全 tab 的保存条已移出表单和任何 Card，成为 TabsContent 的
-`sticky bottom-0` 页面级底条；按钮通过 `form` 属性提交外部表单。
-通知 tab 未改，保持基准。
+三个表单 tab（常规 / 安全 / 通知）共用
+`components/settings/SettingsSaveBar.tsx`。结构是「滚动内容 + 滚动区外的
+底条」：`SettingsFormShell` 的滚动区负责表单卡片，`SettingsSaveBar` 是它的
+最后一个 flex 兄弟，不在任何 Card / form 里；因此条永远不会盖住卡片。
+按钮通过 `form` 属性提交外部表单。通知 tab 也换成同一组件，视觉与常规/安全一致。
 
-The regular/security save bars are now page-level `sticky bottom-0` siblings
-of the form (not inside a Card); the button submits via the `form` attribute.
-The alerts tab is unchanged.
+All three form tabs use the shared `SettingsSaveBar`. The shell is
+"scroll area + footer outside it"; the bar is a flex sibling of the scroll
+area (not inside any Card or form), so it never covers a card. The button
+submits via the `form` attribute. The alerts tab now uses the same component.
 
-| 指标 / Metric | 常规 1440 | 常规 390 | 安全 1440 | 安全 390 | 通知 1440（基准） | 通知 390（基准） |
+| 指标 / Metric | 常规 1440 | 常规 390 | 安全 1440 | 安全 390 | 通知 1440 | 通知 390 |
 |---|---:|---:|---:|---:|---:|---:|
-| bar top @ scroll bottom | 918.94 | 754.83 | 919 | 754.8 | 943.94 | 752.34 |
-| bar bottom @ scroll bottom | 975.94 | 819.83 | 976 | 819.8 | 975.94 | 820.34 |
-| bar height | 57 | 65 | 57 | 65 | 32 | 68 |
+| 滚动区底 / scroller bottom | 919 | 755 | 919 | 755 | 919 | 755 |
+| bar top | 919 | 755 | 919 | 755 | 919 | 755 |
+| bar bottom | 976 | 820 | 976 | 820 | 976 | 820 |
+| bar height | 57 | 65 | 57 | 65 | 57 | 65 |
 | bar width | 1152 | 342 | 1152 | 342 | 1152 | 342 |
-| 与页面底距离 / distance to page bottom | 24 | 24 | 24 | 24 | 24 | 24 |
-| 滚到底遮挡 / bottom overlap | 0 | 0 | 0 | 0 | 0 | 0 |
-| 最后一张卡到条间距 / card→bar gap | 16 | 16 | 16 | 16 | 24 | 24 |
-| 按钮高 / button height | 32 | **40** | 32 | **40** | 32 | 40 |
+| 页面底距 / page-bottom gap | 24 | 24 | 24 | 24 | 24 | 24 |
+| 滚到底卡→条 / card→bar gap | 24.06 | 24.17 | 23.67 | 24.2 | 24.06 | 24.66 |
+| 按钮高 / button height | 32 | **40** | 32 | **40** | 32 | **40** |
+| bar 在 Card 内 / inside Card | false | false | false | false | false | false |
 
-- `barInsideCard=false`，保存条不在任何 `Card` 里。
-- 滚动到最底：三张卡均无遮挡；常规/安全条与最后一张卡留 16px，页面底部留 24px。
-- 滚动过程中 sticky 条会覆盖下方内容（常规顶部 269.94px、安全顶部 33.33px），
-  这是吸底条的预期；滚到底后归零。
-- 390 按钮 40px；常规/安全/通知/备份四个 tab 均无横向溢出（scrollWidth=clientWidth=390）。
+- 亮色条背景 `oklch(0.979 0.003 264.5)`，暗色 `oklch(0.145 0.004 285)`；
+  顶部 1px 分隔线（亮色 `oklch(0.94 0.009 264.5)`，暗色 `oklch(1 0 0 / 0.08)`）。
+- 无圆角、无阴影、无 `backdrop-blur`；条背景不透明，条上方内容被滚动区裁剪，
+  不会透出，也不会压在任何卡片的可交互区域上。
+- 滚动区底部有 24px 内边距；滚到底时最后一张卡与条间距约 24px。
+- 390 按钮 40px；四个 tab 均无横向溢出（scrollWidth=clientWidth=390）。
+
+The bar is opaque (`bg-background`) with a 1px top border, no rounded corners,
+no shadow, no blur. The scroll area clips content above it; the bar never
+overlaps a card. The scroll content has 24px bottom padding, leaving ~24px
+between the last card and the bar at the bottom. At 390 the button is 40px and
+no tab overflows horizontally.
 
 Screenshots:
 `settings-backup-{on,off}-{light,dark}-{1440,390}.png`、

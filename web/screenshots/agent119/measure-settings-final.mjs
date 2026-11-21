@@ -1,4 +1,4 @@
-// Settings backup/security/savebar screenshots + geometry.
+// Settings backup/security/savebar screenshots + geometry (shared page bar).
 import { mkdirSync, writeFileSync } from "node:fs";
 import { chromium } from "/Users/jlthzy/Documents/mmrust/.npm-cache/_npx/e78b33305587cb7c/node_modules/playwright/index.mjs";
 
@@ -97,37 +97,53 @@ async function openPage(theme, size, { encryptOff = false } = {}) {
   return { context };
 }
 
-function overlapInfo(page) {
+function savebarInfo(page) {
   return page.evaluate(() => {
     const round = (value) => Math.round(value * 100) / 100;
-    const main = document.querySelector("main");
+    const panel = document.querySelector('[role="tabpanel"][data-state="active"]');
     const bar = [...document.querySelectorAll('[data-slot="settings-savebar"]')]
       .find((el) => el.getBoundingClientRect().height > 0) ?? null;
-    const cards = [...main.querySelectorAll('[data-slot="card"]')].filter(
-      (el) => el.getBoundingClientRect().height > 0,
-    );
+    const scroller = panel
+      ? [...panel.querySelectorAll(".overflow-y-auto")].find(
+          (el) => el.getBoundingClientRect().height > 0,
+        ) ?? null
+      : null;
+    const cards = scroller
+      ? [...scroller.querySelectorAll('[data-slot="card"]')].filter(
+          (el) => el.getBoundingClientRect().height > 0,
+        )
+      : [];
     const lastCard = cards[cards.length - 1] ?? null;
     const barRect = bar?.getBoundingClientRect();
+    const scrollerRect = scroller?.getBoundingClientRect();
     const lastRect = lastCard?.getBoundingClientRect();
-    const mainRect = main?.getBoundingClientRect();
+    const style = bar ? getComputedStyle(bar) : null;
+    const button = bar?.querySelector("button");
+    const buttonRect = button?.getBoundingClientRect();
     return {
-      scrollHeight: main?.scrollHeight ?? null,
-      scrollTop: main?.scrollTop ?? null,
-      clientHeight: main?.clientHeight ?? null,
-      mainBottom: mainRect ? round(mainRect.bottom) : null,
+      panelBottom: panel ? round(panel.getBoundingClientRect().bottom) : null,
+      scrollerTop: scrollerRect ? round(scrollerRect.top) : null,
+      scrollerBottom: scrollerRect ? round(scrollerRect.bottom) : null,
+      scrollerClientHeight: scroller?.clientHeight ?? null,
+      scrollerScrollHeight: scroller?.scrollHeight ?? null,
+      scrollerScrollTop: scroller?.scrollTop ?? null,
       barTop: barRect ? round(barRect.top) : null,
       barBottom: barRect ? round(barRect.bottom) : null,
       barHeight: barRect ? round(barRect.height) : null,
-      lastCardTitle:
-        lastCard?.querySelector('[data-slot="card-title"]')?.textContent?.trim() ??
-        null,
-      lastCardBottom: lastRect ? round(lastRect.bottom) : null,
-      overlap: barRect && lastRect ? round(Math.max(0, lastRect.bottom - barRect.top)) : null,
-      barInsideCard: bar ? Boolean(bar.closest('[data-slot="card"]')) : null,
-      barPosition: bar ? getComputedStyle(bar).position : null,
       barWidth: barRect ? round(barRect.width) : null,
-      mainWidth: mainRect ? round(mainRect.width) : null,
-      bodyHasRecentLogin: (document.body.innerText ?? "").includes("最近登录"),
+      barBackground: style?.backgroundColor ?? null,
+      barBorderTop: style ? `${style.borderTopWidth} ${style.borderTopStyle} ${style.borderTopColor}` : null,
+      barPosition: style?.position ?? null,
+      barInsideCard: bar ? Boolean(bar.closest('[data-slot="card"]')) : null,
+      buttonHeight: buttonRect ? round(buttonRect.height) : null,
+      lastCardTitle:
+        lastCard?.querySelector('[data-slot="card-title"]')?.textContent?.trim() ?? null,
+      lastCardBottom: lastRect ? round(lastRect.bottom) : null,
+      cardToBarGap:
+        lastRect && barRect ? round(barRect.top - lastRect.bottom) : null,
+      barToPageBottom: barRect ? round(window.innerHeight - barRect.bottom) : null,
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
     };
   });
 }
@@ -177,7 +193,6 @@ for (const theme of THEMES) {
       });
       const state = encryptOff ? "off" : "on";
       const file = `${OUT}/settings-backup-${state}-${theme}-${size.width}.png`;
-      // 展开内部滚动容器，截整页；备份 tab 没有保存条，不会盖住内容。
       await page.evaluate(() => {
         for (const el of [document.documentElement, document.body]) {
           el.style.height = "auto";
@@ -206,46 +221,8 @@ for (const theme of THEMES) {
       await context.close();
     }
 
-    // Security: API access above the security card; savebar at top/bottom.
-    {
-      const { context } = await openPage(theme, size);
-      const page = await context.newPage();
-      await page.goto(`${BASE}/settings?tab=security`, { waitUntil: "networkidle" });
-      await page.getByRole("heading", { name: "安全" }).waitFor();
-      await page.evaluate(() => document.fonts.ready);
-      await page.waitForTimeout(300);
-      const order = await page.evaluate(() => {
-        const titles = [...document.querySelectorAll('[data-slot="card-title"]')]
-          .filter((el) => el.getBoundingClientRect().height > 0)
-          .map((el) => ({
-            title: el.textContent?.trim(),
-            y: el.getBoundingClientRect().top,
-          }));
-        const api = titles.find((x) => x.title?.startsWith("API 访问"));
-        const security = titles.find((x) => x.title === "安全");
-        return {
-          titles,
-          apiBeforeSecurity: Boolean(api && security && api.y < security.y),
-        };
-      });
-      const topShot = `${OUT}/settings-security-top-${theme}-${size.width}.png`;
-      await page.screenshot({ path: topShot, animations: "disabled" });
-      const top = await overlapInfo(page);
-      await page.evaluate(() => {
-        const main = document.querySelector("main");
-        if (main) main.scrollTop = main.scrollHeight;
-      });
-      await page.waitForTimeout(250);
-      const bottom = await overlapInfo(page);
-      const bottomShot = `${OUT}/settings-security-bottom-${theme}-${size.width}.png`;
-      await page.screenshot({ path: bottomShot, animations: "disabled" });
-      console.log("security", theme, size.width, JSON.stringify({ order, top, bottom }));
-      report[`security-${theme}-${size.width}`] = { order, top, bottom, topShot, bottomShot };
-      await context.close();
-    }
-
-    // Regular + alerts: savebar comparison at top/bottom.
-    for (const tab of ["general", "alerts"]) {
+    // Regular / security / alerts: shared page-level savebar at top and bottom.
+    for (const tab of ["general", "security", "alerts"]) {
       const { context } = await openPage(theme, size);
       const page = await context.newPage();
       await page.goto(`${BASE}/settings?tab=${tab}`, { waitUntil: "networkidle" });
@@ -257,17 +234,39 @@ for (const theme of THEMES) {
       await page.waitForTimeout(300);
       const topShot = `${OUT}/settings-${tab}-top-${theme}-${size.width}.png`;
       await page.screenshot({ path: topShot, animations: "disabled" });
-      const top = await overlapInfo(page);
+      const top = await savebarInfo(page);
       await page.evaluate(() => {
-        const main = document.querySelector("main");
-        if (main) main.scrollTop = main.scrollHeight;
+        const panel = document.querySelector('[role="tabpanel"][data-state="active"]');
+        const scroller = panel
+          ? [...panel.querySelectorAll(".overflow-y-auto")].find(
+              (el) => el.getBoundingClientRect().height > 0,
+            ) ?? null
+          : null;
+        if (scroller) scroller.scrollTop = scroller.scrollHeight;
       });
       await page.waitForTimeout(250);
-      const bottom = await overlapInfo(page);
+      const bottom = await savebarInfo(page);
       const bottomShot = `${OUT}/settings-${tab}-bottom-${theme}-${size.width}.png`;
       await page.screenshot({ path: bottomShot, animations: "disabled" });
-      console.log(tab, theme, size.width, JSON.stringify({ top, bottom }));
-      report[`${tab}-${theme}-${size.width}`] = { top, bottom, topShot, bottomShot };
+      const order = await page.evaluate(() => {
+        const panel = document.querySelector('[role="tabpanel"][data-state="active"]');
+        const titles = panel
+          ? [...panel.querySelectorAll('[data-slot="card-title"]')]
+              .filter((el) => el.getBoundingClientRect().height > 0)
+              .map((el) => ({
+                title: el.textContent?.trim(),
+                y: el.getBoundingClientRect().top,
+              }))
+          : [];
+        const api = titles.find((x) => x.title?.startsWith("API 访问"));
+        const security = titles.find((x) => x.title === "安全");
+        return {
+          titles,
+          apiBeforeSecurity: Boolean(api && security && api.y < security.y),
+        };
+      });
+      console.log(tab, theme, size.width, JSON.stringify({ top, bottom, order }));
+      report[`${tab}-${theme}-${size.width}`] = { top, bottom, order, topShot, bottomShot };
       await context.close();
     }
   }

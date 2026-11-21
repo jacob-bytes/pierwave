@@ -63,25 +63,35 @@ test("backup encryption is in the size card and save bars are page-level", () =>
   assert.match(backup, /settings\.backup\.encrypt\.offWarning/);
   assert.match(backup, /settings\.backup\.encrypt\.exportHint/);
 
-  // 安全 tab：API 访问在安全卡之前。
-  const apiIndex = settings.indexOf("<ApiTokensCard />");
-  const securityIndex = settings.indexOf("<SecurityForm");
-  assert.ok(apiIndex >= 0 && securityIndex >= 0);
-  assert.ok(apiIndex < securityIndex, "API access must come before security");
+  // 安全 tab：API 访问卡随安全表单一起渲染，但排在安全卡之前。
+  assert.match(settings, /before=\{<ApiTokensCard \/>\}/);
+  const securityFormStart = settings.indexOf("function SecurityForm");
+  const securityForm = settings.slice(
+    securityFormStart,
+    settings.indexOf("\/** tab 顺序", securityFormStart),
+  );
+  assert.ok(
+    securityForm.indexOf("{before ?") <
+      securityForm.indexOf('id="settings-security-form"'),
+    "API access must come before the security form",
+  );
 
-  // 保存条在 form 之外，且自身不是 Card；按钮通过 form 属性提交外部表单。
-  assert.match(
-    settings,
-    /<\/form>\s*<SaveBar\s+formId="settings-general-form"/,
-  );
-  assert.match(
-    settings,
-    /<\/form>\s*<SaveBar\s+formId="settings-security-form"/,
-  );
-  const saveBar = settings.slice(
-    settings.indexOf("function SaveBar"),
-    settings.indexOf("function GeneralForm"),
-  );
-  assert.doesNotMatch(saveBar, /<Card|CardContent|rounded-/);
+  // 三个 tab 共用 SettingsSaveBar；条在滚动区之外，不是 Card，也没有圆角/阴影。
+  const saveBar = read("components/settings/SettingsSaveBar.tsx");
+  assert.match(saveBar, /data-slot="settings-savebar"/);
+  assert.match(saveBar, /border-t border-border bg-background/);
   assert.match(saveBar, /form=\{formId\}/);
+  assert.doesNotMatch(saveBar, /<Card|CardContent|rounded-|shadow/);
+  for (const source of [
+    settings,
+    read("components/settings/AlertsCard.tsx"),
+  ]) {
+    assert.match(source, /SettingsSaveBar/);
+  }
+  assert.match(settings, /id="settings-general-form"/);
+  assert.match(settings, /id="settings-security-form"/);
+  assert.match(
+    read("components/settings/AlertsCard.tsx"),
+    /id="settings-alerts-form"/,
+  );
 });

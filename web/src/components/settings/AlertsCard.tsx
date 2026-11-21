@@ -9,7 +9,6 @@ import {
   EyeOffIcon,
   Loader2Icon,
   RefreshCwIcon,
-  SaveIcon,
   SendIcon,
   TimerIcon,
   Trash2Icon,
@@ -23,6 +22,10 @@ import {
   SettingsGroup,
   SETTINGS_FULL_ROW,
 } from "@/components/settings/SettingsGroup";
+import {
+  SettingsFormShell,
+  SettingsSaveBar,
+} from "@/components/settings/SettingsSaveBar";
 import {
   Alert,
   AlertDescription,
@@ -349,8 +352,25 @@ function AlertsForm({ initial }: { initial: Settings }) {
   };
 
   return (
-    <form className="space-y-6" onSubmit={onSubmit}>
-      <SettingsGroup
+    <SettingsFormShell
+      footer={
+        <SettingsSaveBar
+          formId="settings-alerts-form"
+          pending={updateSettings.isPending}
+          dirty={dirty}
+          hint={t("settings.alerts.saveHint")}
+          dirtyHint={t("settings.alerts.dirtyHint")}
+          saveLabel={t("settings.alerts.save")}
+          savingLabel={t("settings.alerts.saving")}
+        />
+      }
+    >
+      <form
+        id="settings-alerts-form"
+        className="space-y-6"
+        onSubmit={onSubmit}
+      >
+        <SettingsGroup
         icon={SendIcon}
         title={t("settings.alerts.telegram.title")}
         description={t("settings.alerts.telegram.desc")}
@@ -677,33 +697,9 @@ function AlertsForm({ initial }: { initial: Settings }) {
         ) : null}
       </SettingsGroup>
 
-      <div className="space-y-3">
         <FormRootError message={form.formState.errors.root?.message} />
-
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          <p
-            className={cn(
-              "mr-auto text-xs",
-              dirty ? "text-warning" : "text-muted-foreground",
-            )}
-          >
-            {dirty
-              ? t("settings.alerts.dirtyHint")
-              : t("settings.alerts.saveHint")}
-          </p>
-          <Button type="submit" disabled={updateSettings.isPending}>
-            {updateSettings.isPending ? (
-              <Loader2Icon className="animate-spin" />
-            ) : (
-              <SaveIcon />
-            )}
-            {updateSettings.isPending
-              ? t("settings.alerts.saving")
-              : t("settings.alerts.save")}
-          </Button>
-        </div>
-      </div>
-    </form>
+      </form>
+    </SettingsFormShell>
   );
 }
 

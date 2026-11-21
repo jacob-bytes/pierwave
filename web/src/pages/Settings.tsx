@@ -5,9 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import {
   ArrowUpCircleIcon,
   Link2Icon,
-  Loader2Icon,
   RefreshCwIcon,
-  SaveIcon,
   ShieldCheckIcon,
   SlidersHorizontalIcon,
 } from "lucide-react";
@@ -36,6 +34,10 @@ import {
   SettingsGroup,
   SETTINGS_FULL_ROW,
 } from "@/components/settings/SettingsGroup";
+import {
+  SettingsFormShell,
+  SettingsSaveBar,
+} from "@/components/settings/SettingsSaveBar";
 import { UpdatesSection } from "@/components/settings/UpdatesSection";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -280,40 +282,6 @@ function SettingsPanelState({
   return <>{children(query.data)}</>;
 }
 
-/**
- * 每个 tab 自己的页面级保存条。
- *
- * 它不在任何 Card / form 里：作为 TabsContent 的最后一个普通流子节点，
- * `sticky bottom-0` 贴在内容区底部；滚到最底时回到正常流，最后一张卡
- * 与保存条之间自然留出间距，不会被遮住。按钮用 `form` 属性提交外部表单。
- */
-function SaveBar({
-  pending,
-  dirty,
-  formId,
-}: {
-  pending: boolean;
-  dirty: boolean;
-  formId: string;
-}) {
-  return (
-    <div
-      data-slot="settings-savebar"
-      className="sticky bottom-0 z-20 flex w-full flex-wrap items-center justify-end gap-3 border-t border-border bg-background/95 py-3 backdrop-blur-sm"
-    >
-      <p className="text-xs text-muted-foreground">{t("settings.saveHint")}</p>
-      <Button type="submit" form={formId} disabled={pending || !dirty}>
-        {pending ? (
-          <Loader2Icon className="animate-spin" />
-        ) : (
-          <SaveIcon />
-        )}
-        {pending ? t("settings.saving") : t("common.save")}
-      </Button>
-    </div>
-  );
-}
-
 function GeneralForm({ initial }: { initial: Settings }) {
   const { t: translate } = useI18n();
   const updateSettings = useUpdateSettings();
@@ -380,7 +348,19 @@ function GeneralForm({ initial }: { initial: Settings }) {
     : t("settings.agentUpgrade.concurrencyHintDefault");
 
   return (
-    <>
+    <SettingsFormShell
+      footer={
+        <SettingsSaveBar
+          formId="settings-general-form"
+          pending={updateSettings.isPending}
+          dirty={form.formState.isDirty}
+          hint={t("settings.saveHint")}
+          dirtyHint={t("settings.saveHint")}
+          saveLabel={t("common.save")}
+          savingLabel={t("settings.saving")}
+        />
+      }
+    >
       <form
         id="settings-general-form"
         className="grid grid-cols-1 gap-6 md:grid-cols-2 md:items-stretch"
@@ -537,17 +517,18 @@ function GeneralForm({ initial }: { initial: Settings }) {
         ) : null}
 
       </form>
-
-      <SaveBar
-        formId="settings-general-form"
-        pending={updateSettings.isPending}
-        dirty={form.formState.isDirty}
-      />
-    </>
+    </SettingsFormShell>
   );
 }
 
-function SecurityForm({ initial }: { initial: Settings }) {
+function SecurityForm({
+  initial,
+  before,
+}: {
+  initial: Settings;
+  /** 安全卡上方的 API 访问卡；跟表单一起滚动，底条才能固定在底部。 */
+  before?: ReactNode;
+}) {
   const { t: translate } = useI18n();
   const updateSettings = useUpdateSettings();
   const schema = useMemo(() => settingsSecuritySchema(translate), [translate]);
@@ -601,7 +582,20 @@ function SecurityForm({ initial }: { initial: Settings }) {
     : t("settings.security.sessionHintDefault");
 
   return (
-    <>
+    <SettingsFormShell
+      footer={
+        <SettingsSaveBar
+          formId="settings-security-form"
+          pending={updateSettings.isPending}
+          dirty={form.formState.isDirty}
+          hint={t("settings.saveHint")}
+          dirtyHint={t("settings.saveHint")}
+          saveLabel={t("common.save")}
+          savingLabel={t("settings.saving")}
+        />
+      }
+    >
+      {before ? <div className="mb-4">{before}</div> : null}
       <form
         id="settings-security-form"
         className="space-y-6"
@@ -669,13 +663,7 @@ function SecurityForm({ initial }: { initial: Settings }) {
 
         <FormRootError message={form.formState.errors.root?.message} />
       </form>
-
-      <SaveBar
-        formId="settings-security-form"
-        pending={updateSettings.isPending}
-        dirty={form.formState.isDirty}
-      />
-    </>
+    </SettingsFormShell>
   );
 }
 
@@ -731,6 +719,9 @@ export default function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   // URL 是 tab 的唯一来源：刷新、前进/后退、外部链接都保持在同一个 tab。
   const tab = resolveSettingsTab(searchParams.get("tab"));
+  // 常规 / 安全 / 通知有页面级保存条：这三个 tab 使用「滚动内容 + 固定条」。
+  const fillTab =
+    tab === "general" || tab === "security" || tab === "alerts";
 
   function handleTabChange(value: string) {
     const next = new URLSearchParams(searchParams);
@@ -744,7 +735,12 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
+    <div
+      className={cn(
+        "animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150",
+        fillTab && "flex h-full min-h-0 flex-col",
+      )}
+    >
       <div>
         <h1 className="text-xl leading-tight font-semibold tracking-tight">
           {t("settings.title")}
@@ -761,7 +757,11 @@ export default function SettingsPage() {
         />
       ) : null}
 
-      <Tabs value={tab} onValueChange={handleTabChange} className="gap-4">
+      <Tabs
+        value={tab}
+        onValueChange={handleTabChange}
+        className={cn("gap-4", fillTab && "flex min-h-0 flex-1 flex-col")}
+      >
         <ScrollFade className="max-w-full">
           <TabsList
             aria-label={t("settings.tabs.ariaLabel")}
@@ -783,7 +783,7 @@ export default function SettingsPage() {
           value="general"
           forceMount
           aria-label={t("settings.tabs.regular")}
-          className="space-y-4 data-[state=inactive]:hidden"
+          className="flex min-h-0 flex-1 flex-col gap-4 data-[state=inactive]:hidden"
         >
           <p className="text-xs text-muted-foreground">
             {t("settings.tabs.regularDesc")}
@@ -798,15 +798,22 @@ export default function SettingsPage() {
           value="security"
           forceMount
           aria-label={t("settings.tabs.security")}
-          className="space-y-4 data-[state=inactive]:hidden"
+          className="flex min-h-0 flex-1 flex-col gap-4 data-[state=inactive]:hidden"
         >
           <p className="text-xs text-muted-foreground">
             {t("settings.tabs.securityDesc")}
           </p>
-          {/* API Token 独立于设置表单：自己拉列表、自己创建/吊销。 */}
-          <ApiTokensCard />
+          {/* 设置未就绪时仍单独展示 API 卡；就绪后让它随安全表单一起滚动。 */}
+          {!settings.isPending &&
+          !settings.isError &&
+          settings.data &&
+          Object.keys(settings.data).length > 0 ? null : (
+            <ApiTokensCard />
+          )}
           <SettingsPanelState query={settings} cards={1}>
-            {(items) => <SecurityForm initial={items} />}
+            {(items) => (
+              <SecurityForm initial={items} before={<ApiTokensCard />} />
+            )}
           </SettingsPanelState>
         </TabsContent>
 
@@ -814,7 +821,7 @@ export default function SettingsPage() {
           value="alerts"
           forceMount
           aria-label={t("settings.tabs.alerts")}
-          className="space-y-4 data-[state=inactive]:hidden"
+          className="flex min-h-0 flex-1 flex-col gap-4 data-[state=inactive]:hidden"
         >
           <p className="text-xs text-muted-foreground">
             {t("settings.tabs.alertsDesc")}
