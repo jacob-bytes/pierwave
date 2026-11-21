@@ -976,8 +976,10 @@ test("card traffic row leads every figure with an icon and three columns", () =>
 test("card hover raises the edge without making the card a button", () => {
   const card = read("../components/status/ServerCard.tsx");
   // 悬停提示"可点/可看"，不做单选状态机：卡片不再可聚焦、没有 aria-pressed。
-  assert.match(card, /hover:ring-2/);
-  assert.match(card, /hover:ring-primary\/60/);
+  // 1px 的边缘 + 更高的主色透明度：比 2px 的"厚框"轻，但仍然看得见。
+  assert.match(card, /hover:ring-1/);
+  assert.doesNotMatch(card, /hover:ring-2/);
+  assert.match(card, /hover:ring-primary\/70/);
   assert.match(card, /hover:shadow-sm/);
   assert.doesNotMatch(card, /aria-pressed/);
   assert.doesNotMatch(card, /toggleSelected/);

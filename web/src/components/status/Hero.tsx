@@ -223,10 +223,10 @@ export function Hero({
       aria-label={t("publicStatus.hero.aria")}
       className="min-w-0 gap-0 rounded-xl p-4 [--card-spacing:--spacing(4)] sm:p-5"
     >
-      <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-center lg:gap-8">
+      <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-center lg:justify-between lg:gap-8">
         {/* 结论是这一屏的主句：左对齐、允许换行，永远不截断成看不懂的半句。
-            宽屏只按内容占宽（上限 24rem），剩余宽度全部让给右侧三列指标。 */}
-        <div className="flex min-w-0 items-start gap-2.5 lg:max-w-[24rem] lg:shrink-0">
+            宽屏最多到 32rem，不再强行占满；结论与 KPI 之间的空白是刻意留的。 */}
+        <div className="flex min-w-0 items-start gap-2.5 lg:max-w-[32rem] lg:shrink-0">
           <span
             aria-hidden="true"
             className={cn(
@@ -241,8 +241,8 @@ export function Hero({
         </div>
 
         {/* 三个大数字：<md 堆叠成三行（标题 + 数字 + 迷你图），md 起三列等宽；
-            宽屏用 `flex-1` 吃掉结论以外的全部宽度，列均分，和左侧用竖线分隔。 */}
-        <div className="grid min-w-0 grid-cols-1 divide-y divide-border border-t border-border pt-4 md:grid-cols-3 md:gap-5 md:divide-y-0 lg:flex-1 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-8">
+            宽屏封顶 50rem（1440 下每列约 243px）并靠右，把留白还给结论句。 */}
+        <div className="grid min-w-0 grid-cols-1 divide-y divide-border border-t border-border pt-4 md:grid-cols-3 md:gap-5 md:divide-y-0 lg:max-w-[50rem] lg:flex-1 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-8">
           <Stat
             label={t("publicStatus.hero.averageLatency")}
             chart={

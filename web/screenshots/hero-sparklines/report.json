@@ -4,14 +4,16 @@
     "390": {
       "statsWidth": 326,
       "columnWidth": 326,
-      "heroHeight": 405,
-      "chartHeight": 40
+      "heroHeight": 368.8,
+      "chartHeight": 20
     },
     "1440": {
       "statsWidth": 1046,
       "columnWidth": 324,
-      "heroHeight": 213,
-      "chartHeight": 48
+      "heroHeight": 171,
+      "chartHeight": 24,
+      "verdictWidth": 233.7,
+      "gap": 32
     }
   },
   "results": [
@@ -21,6 +23,7 @@
       "width": 1440,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "empty-dark-1440.png",
       "hero": {
         "x": 44,
@@ -28,31 +31,45 @@
         "width": 1352,
         "height": 171
       },
+      "verdict": {
+        "x": 64,
+        "y": 130.3,
+        "width": 174,
+        "height": 27.5
+      },
+      "verdictText": {
+        "x": 82,
+        "y": 130.3,
+        "width": 156,
+        "height": 27.5
+      },
+      "gap": 338,
+      "textGap": 338,
       "stats": {
-        "x": 270,
+        "x": 576,
         "y": 101,
-        "width": 1106,
+        "width": 800,
         "height": 86
       },
       "columns": [
         {
-          "x": 303,
+          "x": 609,
           "y": 101,
-          "width": 344.3,
+          "width": 242.3,
           "height": 86,
           "text": "平均延迟 — 数据收集中"
         },
         {
-          "x": 667.3,
+          "x": 871.3,
           "y": 101,
-          "width": 344.3,
+          "width": 242.3,
           "height": 86,
           "text": "24h 可用率 — 数据收集中"
         },
         {
-          "x": 1031.7,
+          "x": 1133.7,
           "y": 101,
-          "width": 344.3,
+          "width": 242.3,
           "height": 86,
           "text": "当前总速率 — 数据收集中"
         }
@@ -61,9 +78,9 @@
         {
           "kind": "latency",
           "state": "empty",
-          "x": 303,
+          "x": 609,
           "y": 163,
-          "width": 344.3,
+          "width": 242.3,
           "height": 24,
           "aria": "数据收集中",
           "segments": [],
@@ -76,9 +93,9 @@
         {
           "kind": "uptime",
           "state": "empty",
-          "x": 667.3,
+          "x": 871.3,
           "y": 163,
-          "width": 344.3,
+          "width": 242.3,
           "height": 24,
           "aria": "数据收集中",
           "segments": [],
@@ -91,9 +108,9 @@
         {
           "kind": "rate",
           "state": "empty",
-          "x": 1031.7,
+          "x": 1133.7,
           "y": 163,
-          "width": 344.3,
+          "width": 242.3,
           "height": 24,
           "aria": "数据收集中",
           "segments": [],
@@ -107,7 +124,8 @@
       "scrollWidth": 1440,
       "scrollHeight": 1037,
       "tooltip": null,
-      "kb": 132
+      "hoverRing": null,
+      "kb": 133
     },
     {
       "state": "empty",
@@ -115,6 +133,7 @@
       "width": 390,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "empty-dark-390.png",
       "hero": {
         "x": 16,
@@ -122,6 +141,20 @@
         "width": 358,
         "height": 346.8
       },
+      "verdict": {
+        "x": 32,
+        "y": 97,
+        "width": 326,
+        "height": 24.8
+      },
+      "verdictText": {
+        "x": 50,
+        "y": 97,
+        "width": 140.4,
+        "height": 24.8
+      },
+      "gap": -326,
+      "textGap": -158.4,
       "stats": {
         "x": 32,
         "y": 137.8,
@@ -201,6 +234,7 @@
       "scrollWidth": 390,
       "scrollHeight": 3547,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 222
     },
     {
@@ -209,6 +243,7 @@
       "width": 1440,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "empty-light-1440.png",
       "hero": {
         "x": 44,
@@ -216,31 +251,45 @@
         "width": 1352,
         "height": 171
       },
+      "verdict": {
+        "x": 64,
+        "y": 130.3,
+        "width": 174,
+        "height": 27.5
+      },
+      "verdictText": {
+        "x": 82,
+        "y": 130.3,
+        "width": 156,
+        "height": 27.5
+      },
+      "gap": 338,
+      "textGap": 338,
       "stats": {
-        "x": 270,
+        "x": 576,
         "y": 101,
-        "width": 1106,
+        "width": 800,
         "height": 86
       },
       "columns": [
         {
-          "x": 303,
+          "x": 609,
           "y": 101,
-          "width": 344.3,
+          "width": 242.3,
           "height": 86,
           "text": "平均延迟 — 数据收集中"
         },
         {
-          "x": 667.3,
+          "x": 871.3,
           "y": 101,
-          "width": 344.3,
+          "width": 242.3,
           "height": 86,
           "text": "24h 可用率 — 数据收集中"
         },
         {
-          "x": 1031.7,
+          "x": 1133.7,
           "y": 101,
-          "width": 344.3,
+          "width": 242.3,
           "height": 86,
           "text": "当前总速率 — 数据收集中"
         }
@@ -249,9 +298,9 @@
         {
           "kind": "latency",
           "state": "empty",
-          "x": 303,
+          "x": 609,
           "y": 163,
-          "width": 344.3,
+          "width": 242.3,
           "height": 24,
           "aria": "数据收集中",
           "segments": [],
@@ -264,9 +313,9 @@
         {
           "kind": "uptime",
           "state": "empty",
-          "x": 667.3,
+          "x": 871.3,
           "y": 163,
-          "width": 344.3,
+          "width": 242.3,
           "height": 24,
           "aria": "数据收集中",
           "segments": [],
@@ -279,9 +328,9 @@
         {
           "kind": "rate",
           "state": "empty",
-          "x": 1031.7,
+          "x": 1133.7,
           "y": 163,
-          "width": 344.3,
+          "width": 242.3,
           "height": 24,
           "aria": "数据收集中",
           "segments": [],
@@ -295,6 +344,7 @@
       "scrollWidth": 1440,
       "scrollHeight": 1037,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 139
     },
     {
@@ -303,6 +353,7 @@
       "width": 390,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "empty-light-390.png",
       "hero": {
         "x": 16,
@@ -310,6 +361,20 @@
         "width": 358,
         "height": 346.8
       },
+      "verdict": {
+        "x": 32,
+        "y": 97,
+        "width": 326,
+        "height": 24.8
+      },
+      "verdictText": {
+        "x": 50,
+        "y": 97,
+        "width": 140.4,
+        "height": 24.8
+      },
+      "gap": -326,
+      "textGap": -158.4,
       "stats": {
         "x": 32,
         "y": 137.8,
@@ -389,6 +454,7 @@
       "scrollWidth": 390,
       "scrollHeight": 3547,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 235
     },
     {
@@ -397,6 +463,7 @@
       "width": 1440,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "legacy-dark-1440.png",
       "hero": {
         "x": 44,
@@ -404,31 +471,45 @@
         "width": 1352,
         "height": 171
       },
+      "verdict": {
+        "x": 64,
+        "y": 130.3,
+        "width": 233.7,
+        "height": 27.5
+      },
+      "verdictText": {
+        "x": 82,
+        "y": 130.3,
+        "width": 215.7,
+        "height": 27.5
+      },
+      "gap": 278.3,
+      "textGap": 278.3,
       "stats": {
-        "x": 329.7,
+        "x": 576,
         "y": 101,
-        "width": 1046.3,
+        "width": 800,
         "height": 86
       },
       "columns": [
         {
-          "x": 362.7,
+          "x": 609,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "平均延迟 44 ms 数据收集中"
         },
         {
-          "x": 707.1,
+          "x": 871.3,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "24h 可用率 96%"
         },
         {
-          "x": 1051.6,
+          "x": 1133.7,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s 数据收集中"
         }
@@ -437,9 +518,9 @@
         {
           "kind": "latency",
           "state": "empty",
-          "x": 362.7,
+          "x": 609,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": "数据收集中",
           "segments": [],
@@ -452,9 +533,9 @@
         {
           "kind": "uptime",
           "state": "ready",
-          "x": 707.1,
+          "x": 871.3,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -469,9 +550,9 @@
         {
           "kind": "rate",
           "state": "empty",
-          "x": 1051.6,
+          "x": 1133.7,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": "数据收集中",
           "segments": [],
@@ -485,6 +566,7 @@
       "scrollWidth": 1440,
       "scrollHeight": 1009,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 162
     },
     {
@@ -493,6 +575,7 @@
       "width": 390,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "legacy-dark-390.png",
       "hero": {
         "x": 16,
@@ -500,6 +583,20 @@
         "width": 358,
         "height": 368.8
       },
+      "verdict": {
+        "x": 32,
+        "y": 97,
+        "width": 326,
+        "height": 24.8
+      },
+      "verdictText": {
+        "x": 50,
+        "y": 97,
+        "width": 194.1,
+        "height": 24.8
+      },
+      "gap": -326,
+      "textGap": -212.1,
       "stats": {
         "x": 32,
         "y": 137.8,
@@ -581,6 +678,7 @@
       "scrollWidth": 390,
       "scrollHeight": 3541,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 265
     },
     {
@@ -589,6 +687,7 @@
       "width": 1440,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "legacy-light-1440.png",
       "hero": {
         "x": 44,
@@ -596,31 +695,45 @@
         "width": 1352,
         "height": 171
       },
+      "verdict": {
+        "x": 64,
+        "y": 130.3,
+        "width": 233.7,
+        "height": 27.5
+      },
+      "verdictText": {
+        "x": 82,
+        "y": 130.3,
+        "width": 215.7,
+        "height": 27.5
+      },
+      "gap": 278.3,
+      "textGap": 278.3,
       "stats": {
-        "x": 329.7,
+        "x": 576,
         "y": 101,
-        "width": 1046.3,
+        "width": 800,
         "height": 86
       },
       "columns": [
         {
-          "x": 362.7,
+          "x": 609,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "平均延迟 44 ms 数据收集中"
         },
         {
-          "x": 707.1,
+          "x": 871.3,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "24h 可用率 96%"
         },
         {
-          "x": 1051.6,
+          "x": 1133.7,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s 数据收集中"
         }
@@ -629,9 +742,9 @@
         {
           "kind": "latency",
           "state": "empty",
-          "x": 362.7,
+          "x": 609,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": "数据收集中",
           "segments": [],
@@ -644,9 +757,9 @@
         {
           "kind": "uptime",
           "state": "ready",
-          "x": 707.1,
+          "x": 871.3,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -661,9 +774,9 @@
         {
           "kind": "rate",
           "state": "empty",
-          "x": 1051.6,
+          "x": 1133.7,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": "数据收集中",
           "segments": [],
@@ -677,6 +790,7 @@
       "scrollWidth": 1440,
       "scrollHeight": 1009,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 169
     },
     {
@@ -685,6 +799,7 @@
       "width": 390,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "legacy-light-390.png",
       "hero": {
         "x": 16,
@@ -692,6 +807,20 @@
         "width": 358,
         "height": 368.8
       },
+      "verdict": {
+        "x": 32,
+        "y": 97,
+        "width": 326,
+        "height": 24.8
+      },
+      "verdictText": {
+        "x": 50,
+        "y": 97,
+        "width": 194.1,
+        "height": 24.8
+      },
+      "gap": -326,
+      "textGap": -212.1,
       "stats": {
         "x": 32,
         "y": 137.8,
@@ -773,6 +902,7 @@
       "scrollWidth": 390,
       "scrollHeight": 3541,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 281
     },
     {
@@ -781,6 +911,7 @@
       "width": 1440,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "partial-dark-1440.png",
       "hero": {
         "x": 44,
@@ -788,31 +919,45 @@
         "width": 1352,
         "height": 171
       },
+      "verdict": {
+        "x": 64,
+        "y": 130.3,
+        "width": 233.7,
+        "height": 27.5
+      },
+      "verdictText": {
+        "x": 82,
+        "y": 130.3,
+        "width": 215.7,
+        "height": 27.5
+      },
+      "gap": 278.3,
+      "textGap": 278.3,
       "stats": {
-        "x": 329.7,
+        "x": 576,
         "y": 101,
-        "width": 1046.3,
+        "width": 800,
         "height": 86
       },
       "columns": [
         {
-          "x": 362.7,
+          "x": 609,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "平均延迟 44 ms"
         },
         {
-          "x": 707.1,
+          "x": 871.3,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "24h 可用率 95%"
         },
         {
-          "x": 1051.6,
+          "x": 1133.7,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
         }
@@ -821,9 +966,9 @@
         {
           "kind": "latency",
           "state": "ready",
-          "x": 362.7,
+          "x": 609,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -838,9 +983,9 @@
         {
           "kind": "uptime",
           "state": "ready",
-          "x": 707.1,
+          "x": 871.3,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -855,9 +1000,9 @@
         {
           "kind": "rate",
           "state": "ready",
-          "x": 1051.6,
+          "x": 1133.7,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -874,6 +1019,7 @@
       "scrollWidth": 1440,
       "scrollHeight": 1009,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 161
     },
     {
@@ -882,6 +1028,7 @@
       "width": 390,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "partial-dark-390.png",
       "hero": {
         "x": 16,
@@ -889,6 +1036,20 @@
         "width": 358,
         "height": 368.8
       },
+      "verdict": {
+        "x": 32,
+        "y": 97,
+        "width": 326,
+        "height": 24.8
+      },
+      "verdictText": {
+        "x": 50,
+        "y": 97,
+        "width": 194.1,
+        "height": 24.8
+      },
+      "gap": -326,
+      "textGap": -212.1,
       "stats": {
         "x": 32,
         "y": 137.8,
@@ -975,6 +1136,7 @@
       "scrollWidth": 390,
       "scrollHeight": 3541,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 264
     },
     {
@@ -983,6 +1145,7 @@
       "width": 1440,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "partial-light-1440.png",
       "hero": {
         "x": 44,
@@ -990,31 +1153,45 @@
         "width": 1352,
         "height": 171
       },
+      "verdict": {
+        "x": 64,
+        "y": 130.3,
+        "width": 233.7,
+        "height": 27.5
+      },
+      "verdictText": {
+        "x": 82,
+        "y": 130.3,
+        "width": 215.7,
+        "height": 27.5
+      },
+      "gap": 278.3,
+      "textGap": 278.3,
       "stats": {
-        "x": 329.7,
+        "x": 576,
         "y": 101,
-        "width": 1046.3,
+        "width": 800,
         "height": 86
       },
       "columns": [
         {
-          "x": 362.7,
+          "x": 609,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "平均延迟 44 ms"
         },
         {
-          "x": 707.1,
+          "x": 871.3,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "24h 可用率 95%"
         },
         {
-          "x": 1051.6,
+          "x": 1133.7,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
         }
@@ -1023,9 +1200,9 @@
         {
           "kind": "latency",
           "state": "ready",
-          "x": 362.7,
+          "x": 609,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -1040,9 +1217,9 @@
         {
           "kind": "uptime",
           "state": "ready",
-          "x": 707.1,
+          "x": 871.3,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -1057,9 +1234,9 @@
         {
           "kind": "rate",
           "state": "ready",
-          "x": 1051.6,
+          "x": 1133.7,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -1076,6 +1253,7 @@
       "scrollWidth": 1440,
       "scrollHeight": 1009,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 168
     },
     {
@@ -1084,6 +1262,7 @@
       "width": 390,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "partial-light-390.png",
       "hero": {
         "x": 16,
@@ -1091,6 +1270,20 @@
         "width": 358,
         "height": 368.8
       },
+      "verdict": {
+        "x": 32,
+        "y": 97,
+        "width": 326,
+        "height": 24.8
+      },
+      "verdictText": {
+        "x": 50,
+        "y": 97,
+        "width": 194.1,
+        "height": 24.8
+      },
+      "gap": -326,
+      "textGap": -212.1,
       "stats": {
         "x": 32,
         "y": 137.8,
@@ -1177,6 +1370,7 @@
       "scrollWidth": 390,
       "scrollHeight": 3541,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 280
     },
     {
@@ -1185,6 +1379,7 @@
       "width": 1440,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "full-dark-1440.png",
       "hero": {
         "x": 44,
@@ -1192,31 +1387,45 @@
         "width": 1352,
         "height": 171
       },
+      "verdict": {
+        "x": 64,
+        "y": 130.3,
+        "width": 233.7,
+        "height": 27.5
+      },
+      "verdictText": {
+        "x": 82,
+        "y": 130.3,
+        "width": 215.7,
+        "height": 27.5
+      },
+      "gap": 278.3,
+      "textGap": 278.3,
       "stats": {
-        "x": 329.7,
+        "x": 576,
         "y": 101,
-        "width": 1046.3,
+        "width": 800,
         "height": 86
       },
       "columns": [
         {
-          "x": 362.7,
+          "x": 609,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "平均延迟 44 ms"
         },
         {
-          "x": 707.1,
+          "x": 871.3,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "24h 可用率 96%"
         },
         {
-          "x": 1051.6,
+          "x": 1133.7,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
         }
@@ -1225,9 +1434,9 @@
         {
           "kind": "latency",
           "state": "ready",
-          "x": 362.7,
+          "x": 609,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -1242,9 +1451,9 @@
         {
           "kind": "uptime",
           "state": "ready",
-          "x": 707.1,
+          "x": 871.3,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -1259,9 +1468,9 @@
         {
           "kind": "rate",
           "state": "ready",
-          "x": 1051.6,
+          "x": 1133.7,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -1278,6 +1487,7 @@
       "scrollWidth": 1440,
       "scrollHeight": 1009,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 161
     },
     {
@@ -1286,6 +1496,7 @@
       "width": 390,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "full-dark-390.png",
       "hero": {
         "x": 16,
@@ -1293,6 +1504,20 @@
         "width": 358,
         "height": 368.8
       },
+      "verdict": {
+        "x": 32,
+        "y": 97,
+        "width": 326,
+        "height": 24.8
+      },
+      "verdictText": {
+        "x": 50,
+        "y": 97,
+        "width": 194.1,
+        "height": 24.8
+      },
+      "gap": -326,
+      "textGap": -212.1,
       "stats": {
         "x": 32,
         "y": 137.8,
@@ -1379,6 +1604,7 @@
       "scrollWidth": 390,
       "scrollHeight": 3541,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 264
     },
     {
@@ -1387,6 +1613,7 @@
       "width": 1440,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "full-light-1440.png",
       "hero": {
         "x": 44,
@@ -1394,31 +1621,45 @@
         "width": 1352,
         "height": 171
       },
+      "verdict": {
+        "x": 64,
+        "y": 130.3,
+        "width": 233.7,
+        "height": 27.5
+      },
+      "verdictText": {
+        "x": 82,
+        "y": 130.3,
+        "width": 215.7,
+        "height": 27.5
+      },
+      "gap": 278.3,
+      "textGap": 278.3,
       "stats": {
-        "x": 329.7,
+        "x": 576,
         "y": 101,
-        "width": 1046.3,
+        "width": 800,
         "height": 86
       },
       "columns": [
         {
-          "x": 362.7,
+          "x": 609,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "平均延迟 44 ms"
         },
         {
-          "x": 707.1,
+          "x": 871.3,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "24h 可用率 96%"
         },
         {
-          "x": 1051.6,
+          "x": 1133.7,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
         }
@@ -1427,9 +1668,9 @@
         {
           "kind": "latency",
           "state": "ready",
-          "x": 362.7,
+          "x": 609,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -1444,9 +1685,9 @@
         {
           "kind": "uptime",
           "state": "ready",
-          "x": 707.1,
+          "x": 871.3,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -1461,9 +1702,9 @@
         {
           "kind": "rate",
           "state": "ready",
-          "x": 1051.6,
+          "x": 1133.7,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -1480,6 +1721,7 @@
       "scrollWidth": 1440,
       "scrollHeight": 1009,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 168
     },
     {
@@ -1488,6 +1730,7 @@
       "width": 390,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "full-light-390.png",
       "hero": {
         "x": 16,
@@ -1495,6 +1738,20 @@
         "width": 358,
         "height": 368.8
       },
+      "verdict": {
+        "x": 32,
+        "y": 97,
+        "width": 326,
+        "height": 24.8
+      },
+      "verdictText": {
+        "x": 50,
+        "y": 97,
+        "width": 194.1,
+        "height": 24.8
+      },
+      "gap": -326,
+      "textGap": -212.1,
       "stats": {
         "x": 32,
         "y": 137.8,
@@ -1581,6 +1838,7 @@
       "scrollWidth": 390,
       "scrollHeight": 3541,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 280
     },
     {
@@ -1589,6 +1847,7 @@
       "width": 1440,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "zero-dark-1440.png",
       "hero": {
         "x": 44,
@@ -1596,31 +1855,45 @@
         "width": 1352,
         "height": 171
       },
+      "verdict": {
+        "x": 64,
+        "y": 130.3,
+        "width": 289,
+        "height": 27.5
+      },
+      "verdictText": {
+        "x": 82,
+        "y": 130.3,
+        "width": 271,
+        "height": 27.5
+      },
+      "gap": 223,
+      "textGap": 223,
       "stats": {
-        "x": 385,
+        "x": 576,
         "y": 101,
-        "width": 991,
+        "width": 800,
         "height": 86
       },
       "columns": [
         {
-          "x": 418,
+          "x": 609,
           "y": 101,
-          "width": 306,
+          "width": 242.3,
           "height": 86,
           "text": "平均延迟 0 ms"
         },
         {
-          "x": 744,
+          "x": 871.3,
           "y": 101,
-          "width": 306,
+          "width": 242.3,
           "height": 86,
           "text": "24h 可用率 0%"
         },
         {
-          "x": 1070,
+          "x": 1133.7,
           "y": 101,
-          "width": 306,
+          "width": 242.3,
           "height": 86,
           "text": "当前总速率 下行 0 B/s 上行 0 B/s"
         }
@@ -1629,9 +1902,9 @@
         {
           "kind": "latency",
           "state": "ready",
-          "x": 418,
+          "x": 609,
           "y": 163,
-          "width": 306,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -1646,9 +1919,9 @@
         {
           "kind": "uptime",
           "state": "ready",
-          "x": 744,
+          "x": 871.3,
           "y": 163,
-          "width": 306,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -1663,9 +1936,9 @@
         {
           "kind": "rate",
           "state": "ready",
-          "x": 1070,
+          "x": 1133.7,
           "y": 163,
-          "width": 306,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -1682,6 +1955,7 @@
       "scrollWidth": 1440,
       "scrollHeight": 1009,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 149
     },
     {
@@ -1690,6 +1964,7 @@
       "width": 390,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "zero-dark-390.png",
       "hero": {
         "x": 16,
@@ -1697,6 +1972,20 @@
         "width": 358,
         "height": 368.8
       },
+      "verdict": {
+        "x": 32,
+        "y": 97,
+        "width": 326,
+        "height": 24.8
+      },
+      "verdictText": {
+        "x": 50,
+        "y": 97,
+        "width": 243.9,
+        "height": 24.8
+      },
+      "gap": -326,
+      "textGap": -261.9,
       "stats": {
         "x": 32,
         "y": 137.8,
@@ -1783,6 +2072,7 @@
       "scrollWidth": 390,
       "scrollHeight": 3541,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 250
     },
     {
@@ -1791,6 +2081,7 @@
       "width": 1440,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "zero-light-1440.png",
       "hero": {
         "x": 44,
@@ -1798,31 +2089,45 @@
         "width": 1352,
         "height": 171
       },
+      "verdict": {
+        "x": 64,
+        "y": 130.3,
+        "width": 289,
+        "height": 27.5
+      },
+      "verdictText": {
+        "x": 82,
+        "y": 130.3,
+        "width": 271,
+        "height": 27.5
+      },
+      "gap": 223,
+      "textGap": 223,
       "stats": {
-        "x": 385,
+        "x": 576,
         "y": 101,
-        "width": 991,
+        "width": 800,
         "height": 86
       },
       "columns": [
         {
-          "x": 418,
+          "x": 609,
           "y": 101,
-          "width": 306,
+          "width": 242.3,
           "height": 86,
           "text": "平均延迟 0 ms"
         },
         {
-          "x": 744,
+          "x": 871.3,
           "y": 101,
-          "width": 306,
+          "width": 242.3,
           "height": 86,
           "text": "24h 可用率 0%"
         },
         {
-          "x": 1070,
+          "x": 1133.7,
           "y": 101,
-          "width": 306,
+          "width": 242.3,
           "height": 86,
           "text": "当前总速率 下行 0 B/s 上行 0 B/s"
         }
@@ -1831,9 +2136,9 @@
         {
           "kind": "latency",
           "state": "ready",
-          "x": 418,
+          "x": 609,
           "y": 163,
-          "width": 306,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -1848,9 +2153,9 @@
         {
           "kind": "uptime",
           "state": "ready",
-          "x": 744,
+          "x": 871.3,
           "y": 163,
-          "width": 306,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -1865,9 +2170,9 @@
         {
           "kind": "rate",
           "state": "ready",
-          "x": 1070,
+          "x": 1133.7,
           "y": 163,
-          "width": 306,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -1884,6 +2189,7 @@
       "scrollWidth": 1440,
       "scrollHeight": 1009,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 156
     },
     {
@@ -1892,6 +2198,7 @@
       "width": 390,
       "locale": "zh-CN",
       "hover": false,
+      "cardHover": false,
       "file": "zero-light-390.png",
       "hero": {
         "x": 16,
@@ -1899,6 +2206,20 @@
         "width": 358,
         "height": 368.8
       },
+      "verdict": {
+        "x": 32,
+        "y": 97,
+        "width": 326,
+        "height": 24.8
+      },
+      "verdictText": {
+        "x": 50,
+        "y": 97,
+        "width": 243.9,
+        "height": 24.8
+      },
+      "gap": -326,
+      "textGap": -261.9,
       "stats": {
         "x": 32,
         "y": 137.8,
@@ -1985,6 +2306,7 @@
       "scrollWidth": 390,
       "scrollHeight": 3541,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 265
     },
     {
@@ -1993,6 +2315,7 @@
       "width": 1440,
       "locale": "en",
       "hover": false,
+      "cardHover": false,
       "file": "full-dark-1440-en.png",
       "hero": {
         "x": 44,
@@ -2000,31 +2323,45 @@
         "width": 1352,
         "height": 171
       },
+      "verdict": {
+        "x": 64,
+        "y": 130.3,
+        "width": 312.8,
+        "height": 27.5
+      },
+      "verdictText": {
+        "x": 82,
+        "y": 130.3,
+        "width": 294.8,
+        "height": 27.5
+      },
+      "gap": 199.2,
+      "textGap": 199.2,
       "stats": {
-        "x": 408.8,
+        "x": 576,
         "y": 101,
-        "width": 967.2,
+        "width": 800,
         "height": 86
       },
       "columns": [
         {
-          "x": 441.8,
+          "x": 609,
           "y": 101,
-          "width": 298.1,
+          "width": 242.3,
           "height": 86,
           "text": "Avg latency 44 ms"
         },
         {
-          "x": 759.9,
+          "x": 871.3,
           "y": 101,
-          "width": 298.1,
+          "width": 242.3,
           "height": 86,
           "text": "24h uptime 96%"
         },
         {
-          "x": 1077.9,
+          "x": 1133.7,
           "y": 101,
-          "width": 298.1,
+          "width": 242.3,
           "height": 86,
           "text": "Total rate Down 41 MB/s Up 5.26 MB/s"
         }
@@ -2033,9 +2370,9 @@
         {
           "kind": "latency",
           "state": "ready",
-          "x": 441.8,
+          "x": 609,
           "y": 163,
-          "width": 298.1,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -2050,9 +2387,9 @@
         {
           "kind": "uptime",
           "state": "ready",
-          "x": 759.9,
+          "x": 871.3,
           "y": 163,
-          "width": 298.1,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -2067,9 +2404,9 @@
         {
           "kind": "rate",
           "state": "ready",
-          "x": 1077.9,
+          "x": 1133.7,
           "y": 163,
-          "width": 298.1,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -2086,6 +2423,7 @@
       "scrollWidth": 1440,
       "scrollHeight": 1009,
       "tooltip": null,
+      "hoverRing": null,
       "kb": 156
     },
     {
@@ -2094,6 +2432,7 @@
       "width": 1440,
       "locale": "en",
       "hover": false,
+      "cardHover": false,
       "file": "empty-dark-1440-en.png",
       "hero": {
         "x": 44,
@@ -2101,31 +2440,45 @@
         "width": 1352,
         "height": 171
       },
+      "verdict": {
+        "x": 64,
+        "y": 130.3,
+        "width": 248.3,
+        "height": 27.5
+      },
+      "verdictText": {
+        "x": 82,
+        "y": 130.3,
+        "width": 230.3,
+        "height": 27.5
+      },
+      "gap": 263.8,
+      "textGap": 263.8,
       "stats": {
-        "x": 344.3,
+        "x": 576,
         "y": 101,
-        "width": 1031.8,
+        "width": 800,
         "height": 86
       },
       "columns": [
         {
-          "x": 377.3,
+          "x": 609,
           "y": 101,
-          "width": 319.6,
+          "width": 242.3,
           "height": 86,
           "text": "Avg latency — Collecting data"
         },
         {
-          "x": 716.8,
+          "x": 871.3,
           "y": 101,
-          "width": 319.6,
+          "width": 242.3,
           "height": 86,
           "text": "24h uptime — Collecting data"
         },
         {
-          "x": 1056.4,
+          "x": 1133.7,
           "y": 101,
-          "width": 319.6,
+          "width": 242.3,
           "height": 86,
           "text": "Total rate — Collecting data"
         }
@@ -2134,9 +2487,9 @@
         {
           "kind": "latency",
           "state": "empty",
-          "x": 377.3,
+          "x": 609,
           "y": 163,
-          "width": 319.6,
+          "width": 242.3,
           "height": 24,
           "aria": "Collecting data",
           "segments": [],
@@ -2149,9 +2502,9 @@
         {
           "kind": "uptime",
           "state": "empty",
-          "x": 716.8,
+          "x": 871.3,
           "y": 163,
-          "width": 319.6,
+          "width": 242.3,
           "height": 24,
           "aria": "Collecting data",
           "segments": [],
@@ -2164,9 +2517,9 @@
         {
           "kind": "rate",
           "state": "empty",
-          "x": 1056.4,
+          "x": 1133.7,
           "y": 163,
-          "width": 319.6,
+          "width": 242.3,
           "height": 24,
           "aria": "Collecting data",
           "segments": [],
@@ -2180,7 +2533,8 @@
       "scrollWidth": 1440,
       "scrollHeight": 1037,
       "tooltip": null,
-      "kb": 129
+      "hoverRing": null,
+      "kb": 130
     },
     {
       "state": "full",
@@ -2188,6 +2542,7 @@
       "width": 1440,
       "locale": "zh-CN",
       "hover": true,
+      "cardHover": false,
       "file": "full-dark-1440-hover.png",
       "hero": {
         "x": 44,
@@ -2195,31 +2550,45 @@
         "width": 1352,
         "height": 171
       },
+      "verdict": {
+        "x": 64,
+        "y": 130.3,
+        "width": 233.7,
+        "height": 27.5
+      },
+      "verdictText": {
+        "x": 82,
+        "y": 130.3,
+        "width": 215.7,
+        "height": 27.5
+      },
+      "gap": 278.3,
+      "textGap": 278.3,
       "stats": {
-        "x": 329.7,
+        "x": 576,
         "y": 101,
-        "width": 1046.3,
+        "width": 800,
         "height": 86
       },
       "columns": [
         {
-          "x": 362.7,
+          "x": 609,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "平均延迟 44 ms"
         },
         {
-          "x": 707.1,
+          "x": 871.3,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "24h 可用率 96%"
         },
         {
-          "x": 1051.6,
+          "x": 1133.7,
           "y": 101,
-          "width": 324.4,
+          "width": 242.3,
           "height": 86,
           "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
         }
@@ -2228,9 +2597,9 @@
         {
           "kind": "latency",
           "state": "ready",
-          "x": 362.7,
+          "x": 609,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -2245,9 +2614,9 @@
         {
           "kind": "uptime",
           "state": "ready",
-          "x": 707.1,
+          "x": 871.3,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -2262,9 +2631,9 @@
         {
           "kind": "rate",
           "state": "ready",
-          "x": 1051.6,
+          "x": 1133.7,
           "y": 163,
-          "width": 324.4,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -2280,8 +2649,9 @@
       ],
       "scrollWidth": 1440,
       "scrollHeight": 1009,
-      "tooltip": "11:03:05 下行 32.1 MB/s 上行 4.47 MB/s",
-      "kb": 165
+      "tooltip": "11:11:25 下行 32.1 MB/s 上行 4.47 MB/s",
+      "hoverRing": null,
+      "kb": 164
     },
     {
       "state": "zero",
@@ -2289,6 +2659,7 @@
       "width": 1440,
       "locale": "zh-CN",
       "hover": true,
+      "cardHover": false,
       "file": "zero-dark-1440-hover.png",
       "hero": {
         "x": 44,
@@ -2296,31 +2667,45 @@
         "width": 1352,
         "height": 171
       },
+      "verdict": {
+        "x": 64,
+        "y": 130.3,
+        "width": 289,
+        "height": 27.5
+      },
+      "verdictText": {
+        "x": 82,
+        "y": 130.3,
+        "width": 271,
+        "height": 27.5
+      },
+      "gap": 223,
+      "textGap": 223,
       "stats": {
-        "x": 385,
+        "x": 576,
         "y": 101,
-        "width": 991,
+        "width": 800,
         "height": 86
       },
       "columns": [
         {
-          "x": 418,
+          "x": 609,
           "y": 101,
-          "width": 306,
+          "width": 242.3,
           "height": 86,
           "text": "平均延迟 0 ms"
         },
         {
-          "x": 744,
+          "x": 871.3,
           "y": 101,
-          "width": 306,
+          "width": 242.3,
           "height": 86,
           "text": "24h 可用率 0%"
         },
         {
-          "x": 1070,
+          "x": 1133.7,
           "y": 101,
-          "width": 306,
+          "width": 242.3,
           "height": 86,
           "text": "当前总速率 下行 0 B/s 上行 0 B/s"
         }
@@ -2329,9 +2714,9 @@
         {
           "kind": "latency",
           "state": "ready",
-          "x": 418,
+          "x": 609,
           "y": 163,
-          "width": 306,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -2346,9 +2731,9 @@
         {
           "kind": "uptime",
           "state": "ready",
-          "x": 744,
+          "x": 871.3,
           "y": 163,
-          "width": 306,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -2363,9 +2748,9 @@
         {
           "kind": "rate",
           "state": "ready",
-          "x": 1070,
+          "x": 1133.7,
           "y": 163,
-          "width": 306,
+          "width": 242.3,
           "height": 24,
           "aria": null,
           "segments": [
@@ -2381,8 +2766,390 @@
       ],
       "scrollWidth": 1440,
       "scrollHeight": 1009,
-      "tooltip": "11:03:06 下行 0 B/s 上行 0 B/s",
+      "tooltip": "11:11:26 下行 0 B/s 上行 0 B/s",
+      "hoverRing": null,
       "kb": 152
+    },
+    {
+      "state": "full",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "zh-CN",
+      "hover": false,
+      "cardHover": true,
+      "file": "card-hover-dark-1440.png",
+      "hero": {
+        "x": 44,
+        "y": 81,
+        "width": 1352,
+        "height": 171
+      },
+      "verdict": {
+        "x": 64,
+        "y": 130.3,
+        "width": 233.7,
+        "height": 27.5
+      },
+      "verdictText": {
+        "x": 82,
+        "y": 130.3,
+        "width": 215.7,
+        "height": 27.5
+      },
+      "gap": 278.3,
+      "textGap": 278.3,
+      "stats": {
+        "x": 576,
+        "y": 101,
+        "width": 800,
+        "height": 86
+      },
+      "columns": [
+        {
+          "x": 609,
+          "y": 101,
+          "width": 242.3,
+          "height": 86,
+          "text": "平均延迟 44 ms"
+        },
+        {
+          "x": 871.3,
+          "y": 101,
+          "width": 242.3,
+          "height": 86,
+          "text": "24h 可用率 96%"
+        },
+        {
+          "x": 1133.7,
+          "y": 101,
+          "width": 242.3,
+          "height": 86,
+          "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
+        }
+      ],
+      "charts": [
+        {
+          "kind": "latency",
+          "state": "ready",
+          "x": 609,
+          "y": 163,
+          "width": 242.3,
+          "height": 24,
+          "aria": null,
+          "segments": [
+            1
+          ],
+          "lineCount": 1,
+          "yMin": 5.45,
+          "yMax": 42.55,
+          "areaCount": 0,
+          "dashedBaseline": 0
+        },
+        {
+          "kind": "uptime",
+          "state": "ready",
+          "x": 871.3,
+          "y": 163,
+          "width": 242.3,
+          "height": 24,
+          "aria": null,
+          "segments": [
+            1
+          ],
+          "lineCount": 1,
+          "yMin": 1,
+          "yMax": 24,
+          "areaCount": 0,
+          "dashedBaseline": 0
+        },
+        {
+          "kind": "rate",
+          "state": "ready",
+          "x": 1133.7,
+          "y": 163,
+          "width": 242.3,
+          "height": 24,
+          "aria": null,
+          "segments": [
+            1,
+            1
+          ],
+          "lineCount": 2,
+          "yMin": 1,
+          "yMax": 41.58,
+          "areaCount": 1,
+          "dashedBaseline": 0
+        }
+      ],
+      "scrollWidth": 1440,
+      "scrollHeight": 1009,
+      "tooltip": null,
+      "hoverRing": {
+        "className": "group/card flex flex-col overflow-hidden bg-card text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl h-full min-w-0 gap-0 rounded-xl p-4 transition-[box-shadow,background-color] duration-150 [--card-spacing:--spacing(4)] hover:ring-1 hover:ring-primary/70 hover:shadow-sm focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:shadow-sm focus-visible:outline-none",
+        "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0.662 -0.0168454 -0.178206 / 0.7) 0px 0px 0px 1px, rgba(0, 0, 0, 0.1) 0px 1px 3px 0px, rgba(0, 0, 0, 0.1) 0px 1px 2px -1px",
+        "outline": "oklab(0.662 -0.0168454 -0.178206 / 0.5) none 3px",
+        "rect": {
+          "x": 44,
+          "y": 316,
+          "width": 326,
+          "height": 330
+        }
+      },
+      "kb": 29
+    },
+    {
+      "state": "full",
+      "theme": "light",
+      "width": 1440,
+      "locale": "zh-CN",
+      "hover": false,
+      "cardHover": true,
+      "file": "card-hover-light-1440.png",
+      "hero": {
+        "x": 44,
+        "y": 81,
+        "width": 1352,
+        "height": 171
+      },
+      "verdict": {
+        "x": 64,
+        "y": 130.3,
+        "width": 233.7,
+        "height": 27.5
+      },
+      "verdictText": {
+        "x": 82,
+        "y": 130.3,
+        "width": 215.7,
+        "height": 27.5
+      },
+      "gap": 278.3,
+      "textGap": 278.3,
+      "stats": {
+        "x": 576,
+        "y": 101,
+        "width": 800,
+        "height": 86
+      },
+      "columns": [
+        {
+          "x": 609,
+          "y": 101,
+          "width": 242.3,
+          "height": 86,
+          "text": "平均延迟 44 ms"
+        },
+        {
+          "x": 871.3,
+          "y": 101,
+          "width": 242.3,
+          "height": 86,
+          "text": "24h 可用率 96%"
+        },
+        {
+          "x": 1133.7,
+          "y": 101,
+          "width": 242.3,
+          "height": 86,
+          "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
+        }
+      ],
+      "charts": [
+        {
+          "kind": "latency",
+          "state": "ready",
+          "x": 609,
+          "y": 163,
+          "width": 242.3,
+          "height": 24,
+          "aria": null,
+          "segments": [
+            1
+          ],
+          "lineCount": 1,
+          "yMin": 5.45,
+          "yMax": 42.55,
+          "areaCount": 0,
+          "dashedBaseline": 0
+        },
+        {
+          "kind": "uptime",
+          "state": "ready",
+          "x": 871.3,
+          "y": 163,
+          "width": 242.3,
+          "height": 24,
+          "aria": null,
+          "segments": [
+            1
+          ],
+          "lineCount": 1,
+          "yMin": 1,
+          "yMax": 24,
+          "areaCount": 0,
+          "dashedBaseline": 0
+        },
+        {
+          "kind": "rate",
+          "state": "ready",
+          "x": 1133.7,
+          "y": 163,
+          "width": 242.3,
+          "height": 24,
+          "aria": null,
+          "segments": [
+            1,
+            1
+          ],
+          "lineCount": 2,
+          "yMin": 1,
+          "yMax": 41.58,
+          "areaCount": 1,
+          "dashedBaseline": 0
+        }
+      ],
+      "scrollWidth": 1440,
+      "scrollHeight": 1009,
+      "tooltip": null,
+      "hoverRing": {
+        "className": "group/card flex flex-col overflow-hidden bg-card text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl h-full min-w-0 gap-0 rounded-xl p-4 transition-[box-shadow,background-color] duration-150 [--card-spacing:--spacing(4)] hover:ring-1 hover:ring-primary/70 hover:shadow-sm focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:shadow-sm focus-visible:outline-none",
+        "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0.424 -0.0151355 -0.198424 / 0.7) 0px 0px 0px 1px, rgba(0, 0, 0, 0.1) 0px 1px 3px 0px, rgba(0, 0, 0, 0.1) 0px 1px 2px -1px",
+        "outline": "oklab(0.424 -0.0151355 -0.198424 / 0.5) none 3px",
+        "rect": {
+          "x": 44,
+          "y": 316,
+          "width": 326,
+          "height": 330
+        }
+      },
+      "kb": 30
+    },
+    {
+      "state": "full",
+      "theme": "dark",
+      "width": 390,
+      "locale": "zh-CN",
+      "hover": false,
+      "cardHover": true,
+      "file": "card-hover-dark-390.png",
+      "hero": {
+        "x": 16,
+        "y": 81,
+        "width": 358,
+        "height": 368.8
+      },
+      "verdict": {
+        "x": 32,
+        "y": 97,
+        "width": 326,
+        "height": 24.8
+      },
+      "verdictText": {
+        "x": 50,
+        "y": 97,
+        "width": 194.1,
+        "height": 24.8
+      },
+      "gap": -326,
+      "textGap": -212.1,
+      "stats": {
+        "x": 32,
+        "y": 137.8,
+        "width": 326,
+        "height": 229
+      },
+      "columns": [
+        {
+          "x": 32,
+          "y": 154.8,
+          "width": 326,
+          "height": 67,
+          "text": "平均延迟 44 ms"
+        },
+        {
+          "x": 32,
+          "y": 221.8,
+          "width": 326,
+          "height": 79,
+          "text": "24h 可用率 96%"
+        },
+        {
+          "x": 32,
+          "y": 300.8,
+          "width": 326,
+          "height": 66,
+          "text": "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
+        }
+      ],
+      "charts": [
+        {
+          "kind": "latency",
+          "state": "ready",
+          "x": 221.1,
+          "y": 171.8,
+          "width": 136.9,
+          "height": 20,
+          "aria": null,
+          "segments": [
+            1
+          ],
+          "lineCount": 1,
+          "yMin": 5.45,
+          "yMax": 42.55,
+          "areaCount": 0,
+          "dashedBaseline": 0
+        },
+        {
+          "kind": "uptime",
+          "state": "ready",
+          "x": 221.1,
+          "y": 250.8,
+          "width": 136.9,
+          "height": 20,
+          "aria": null,
+          "segments": [
+            1
+          ],
+          "lineCount": 1,
+          "yMin": 1,
+          "yMax": 24,
+          "areaCount": 0,
+          "dashedBaseline": 0
+        },
+        {
+          "kind": "rate",
+          "state": "ready",
+          "x": 221.1,
+          "y": 329.8,
+          "width": 136.9,
+          "height": 20,
+          "aria": null,
+          "segments": [
+            1,
+            1
+          ],
+          "lineCount": 2,
+          "yMin": 1,
+          "yMax": 41.58,
+          "areaCount": 1,
+          "dashedBaseline": 0
+        }
+      ],
+      "scrollWidth": 390,
+      "scrollHeight": 3541,
+      "tooltip": null,
+      "hoverRing": {
+        "className": "group/card flex flex-col overflow-hidden bg-card text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl h-full min-w-0 gap-0 rounded-xl p-4 transition-[box-shadow,background-color] duration-150 [--card-spacing:--spacing(4)] hover:ring-1 hover:ring-primary/70 hover:shadow-sm focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:shadow-sm focus-visible:outline-none",
+        "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0.662 -0.0168454 -0.178206 / 0.7) 0px 0px 0px 1px, rgba(0, 0, 0, 0.1) 0px 1px 3px 0px, rgba(0, 0, 0, 0.1) 0px 1px 2px -1px",
+        "outline": "oklab(0.662 -0.0168454 -0.178206 / 0.5) none 3px",
+        "rect": {
+          "x": 16,
+          "y": 492,
+          "width": 358,
+          "height": 352
+        }
+      },
+      "kb": 28
     }
   ],
   "failures": []

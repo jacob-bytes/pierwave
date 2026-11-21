@@ -29,18 +29,21 @@ test("hero renders exactly three mini charts, in KPI order", () => {
   assert.deepEqual(kinds, ["latency", "uptime", "rate"]);
 });
 
-test("hero keeps three flexible columns and stacks below md", () => {
+test("hero keeps three equal columns but leaves breathing room for the verdict", () => {
   const hero = read("../components/status/Hero.tsx");
-  // KPI 区吃掉结论以外的宽度，三列等分；结论只按内容占宽（上限 24rem）。
+  // KPI 区在 lg 上封顶 50rem（1440 下每列约 243px），靠右，不把整行塞满。
+  assert.match(hero, /lg:max-w-\[50rem\]/);
   assert.match(hero, /lg:flex-1/);
-  assert.match(hero, /lg:max-w-\[24rem\]/);
+  assert.match(hero, /lg:justify-between/);
+  // 结论句可以长到 32rem；旧的 24rem 上限和 34rem 固定 KPI 宽度都不能回来。
+  assert.match(hero, /lg:max-w-\[32rem\]/);
+  assert.doesNotMatch(hero, /lg:max-w-\[24rem\]/);
+  assert.doesNotMatch(hero, /34rem/);
   assert.match(hero, /md:grid-cols-3/);
   // <md：单列堆叠 + 行间分隔线，不再横向三列。
   assert.match(hero, /grid-cols-1/);
   assert.match(hero, /divide-y divide-border/);
   assert.match(hero, /md:divide-y-0/);
-  // 旧的固定宽度会把三列挤到 157px，不能回来。
-  assert.doesNotMatch(hero, /34rem/);
 });
 
 test("mini charts are footnotes: 1px line, 20/24px tall, no axes or legend", () => {

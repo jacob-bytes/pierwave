@@ -345,7 +345,7 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
   return (
     <Card
       className={cn(
-        "h-full min-w-0 gap-0 rounded-xl p-4 transition-[box-shadow,background-color] duration-150 [--card-spacing:--spacing(4)] hover:ring-2 hover:ring-primary/60 hover:shadow-sm focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:shadow-sm focus-visible:outline-none",
+        "h-full min-w-0 gap-0 rounded-xl p-4 transition-[box-shadow,background-color] duration-150 [--card-spacing:--spacing(4)] hover:ring-1 hover:ring-primary/70 hover:shadow-sm focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:shadow-sm focus-visible:outline-none",
         state !== "online" && "bg-muted/40",
       )}
     >

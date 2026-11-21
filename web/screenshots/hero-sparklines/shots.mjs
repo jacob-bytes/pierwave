@@ -12,7 +12,9 @@
  *   empty-dark-1440-en.png             英文空态（Collecting data）
  *   full-dark-1440-hover.png           速率图悬停 tooltip
  *   zero-dark-1440-hover.png          0 B/s 的悬停读数（证明 0 不是 null）
- *   report.json                       布局实测、路径段数、断言结果
+ *   card-hover-{dark,light}-1440.png  卡片 hover 特写（1px primary/70）
+ *   card-hover-dark-390.png           手机上的同一特写
+ *   report.json                       布局实测、路径段数、hover ring、断言结果
  *
  * 数据由 Playwright 拦截 `GET /api/v1/public/status` 返回，不启动后端、不写库。
  * 环境变量：BASE_URL、PLAYWRIGHT_MODULE、CHROME_PATH。
@@ -39,10 +41,17 @@ const WIDTHS = [
   { width: 390, height: 844 },
 ];
 
-/** 本轮改前实测（上一版 48/40px 的图，同一份 8 台机器 fixture）。 */
+/** 本轮改前实测（KPI 占满剩余宽度、24/20px 的图，同一份 8 台机器 fixture）。 */
 const BASELINE = {
-  1440: { statsWidth: 1046, columnWidth: 324, heroHeight: 213, chartHeight: 48 },
-  390: { statsWidth: 326, columnWidth: 326, heroHeight: 405, chartHeight: 40 },
+  1440: {
+    statsWidth: 1046,
+    columnWidth: 324,
+    heroHeight: 171,
+    chartHeight: 24,
+    verdictWidth: 233.7,
+    gap: 32,
+  },
+  390: { statsWidth: 326, columnWidth: 326, heroHeight: 368.8, chartHeight: 20 },
 };
 
 const EMPTY_LABEL = {
@@ -105,6 +114,7 @@ function jobs() {
           height,
           locale: "zh-CN",
           hover: false,
+          cardHover: false,
           out: path.join(HERE, `${state}-${theme}-${width}.png`),
           label: `${state} ${theme} ${width} zh`,
         });
@@ -121,6 +131,7 @@ function jobs() {
       height: 1000,
       locale: "en",
       hover: false,
+      cardHover: false,
       out: path.join(HERE, `${state}-dark-1440-en.png`),
       label: `${state} dark 1440 en`,
     });
@@ -135,10 +146,37 @@ function jobs() {
       height: 1000,
       locale: "zh-CN",
       hover: true,
+      cardHover: false,
       out: path.join(HERE, `${state}-dark-1440-hover.png`),
       label: `${state} dark 1440 hover`,
     });
   }
+
+  // 卡片 hover 特写：1px 主色边缘（不再用 2px 的厚框）。
+  for (const theme of ["dark", "light"]) {
+    list.push({
+      state: "full",
+      theme,
+      width: 1440,
+      height: 1000,
+      locale: "zh-CN",
+      hover: false,
+      cardHover: true,
+      out: path.join(HERE, `card-hover-${theme}-1440.png`),
+      label: `card hover ${theme} 1440`,
+    });
+  }
+  list.push({
+    state: "full",
+    theme: "dark",
+    width: 390,
+    height: 844,
+    locale: "zh-CN",
+    hover: false,
+    cardHover: true,
+    out: path.join(HERE, "card-hover-dark-390.png"),
+    label: "card hover dark 390",
+  });
 
   return list;
 }
@@ -223,6 +261,10 @@ for (const job of jobs()) {
         'main [data-slot="card"][role="group"]',
       );
       const stats = hero.querySelector("div.grid");
+      const row = stats.parentElement;
+      const verdictBlock = row.children[0];
+      const verdictText = verdictBlock.querySelector("p");
+      const verdict = rect(verdictBlock);
       const columns = [...stats.children].map((element) => ({
         ...rect(element),
         text: element.innerText.replace(/\s+/g, " ").trim(),
@@ -255,6 +297,11 @@ for (const job of jobs()) {
       });
       return {
         hero: rect(hero),
+        verdict,
+        verdictText: rect(verdictText),
+        // 两个 flex 子块之间的实际空白 / 从结论文字末尾到 KPI 边缘的距离。
+        gap: round(stats.getBoundingClientRect().x - verdictBlock.getBoundingClientRect().right),
+        textGap: round(stats.getBoundingClientRect().x - verdictText.getBoundingClientRect().right),
         stats: rect(stats),
         columns,
         charts,
@@ -357,13 +404,19 @@ for (const job of jobs()) {
         Math.max(...widths) - Math.min(...widths) <= 2,
         `三列应等宽，实测 ${widths.join(" / ")}`,
       );
+      // 本轮目标：KPI 区 720–800px，单列约 240–260px，靠右但不占满。
       assert.ok(
-        widths[0] >= 240,
-        `KPI 列应比改前 157px 更宽，实测 ${widths[0]}px`,
+        metrics.stats.width >= 720 && metrics.stats.width <= 810,
+        `KPI 区应收到约 720–800px，实测 ${metrics.stats.width}px`,
       );
       assert.ok(
-        metrics.stats.width >= 850,
-        `KPI 区应占满剩余宽度，实测 ${metrics.stats.width}px`,
+        widths[0] >= 235 && widths[0] <= 262,
+        `单列应约 240–260px，实测 ${widths[0]}px`,
+      );
+      // 结论与 KPI 之间要留出明显空白（上一版只有 32px 的 gap）。
+      assert.ok(
+        metrics.gap >= 120,
+        `结论与 KPI 之间仍太挤：${metrics.gap}px`,
       );
       // hero 总高应从 213px 收到约 170px：图变小、间距收紧、去掉进度条。
       assert.ok(
@@ -421,11 +474,58 @@ for (const job of jobs()) {
       }
     }
 
-    await page.screenshot({
-      path: job.out,
-      fullPage: true,
-      animations: "disabled",
-    });
+    let cardHover = null;
+    if (job.cardHover) {
+      // 第一张服务器卡（hero 也有 data-slot=card，但带 role=group，排除掉）。
+      const card = page
+        .locator('main [data-slot="card"]:not([role="group"])')
+        .first();
+      await card.scrollIntoViewIfNeeded();
+      await card.hover();
+      await page.waitForTimeout(220);
+      cardHover = await card.evaluate((element) => {
+        const style = getComputedStyle(element);
+        const box = element.getBoundingClientRect();
+        return {
+          className: element.className,
+          boxShadow: style.boxShadow,
+          outline: style.outline,
+          rect: {
+            x: Math.round(box.x),
+            y: Math.round(box.y),
+            width: Math.round(box.width),
+            height: Math.round(box.height),
+          },
+        };
+      });
+      // 1px 边缘：Tailwind ring 会写进 box-shadow；不允许再出现 2px 的 ring。
+      assert.match(cardHover.boxShadow, /0px 0px 0px 1px/);
+      assert.doesNotMatch(cardHover.boxShadow, /0px 0px 0px 2px/);
+      assert.match(cardHover.className, /hover:ring-1/);
+      assert.match(cardHover.className, /hover:ring-primary\/70/);
+      // 阴影保留（shadow-sm 的另一层仍在）。
+      assert.match(cardHover.className, /hover:shadow-sm/);
+
+      const box = await card.boundingBox();
+      assert.ok(box);
+      const pad = 18;
+      await page.screenshot({
+        path: job.out,
+        animations: "disabled",
+        clip: {
+          x: Math.max(0, box.x - pad),
+          y: Math.max(0, box.y - pad),
+          width: box.width + pad * 2,
+          height: box.height + pad * 2,
+        },
+      });
+    } else {
+      await page.screenshot({
+        path: job.out,
+        fullPage: true,
+        animations: "disabled",
+      });
+    }
 
     const bytes = statSync(job.out).size;
     results.push({
@@ -434,14 +534,20 @@ for (const job of jobs()) {
       width: job.width,
       locale: job.locale,
       hover: job.hover,
+      cardHover: job.cardHover,
       file: path.relative(HERE, job.out),
       hero: metrics.hero,
+      verdict: metrics.verdict,
+      verdictText: metrics.verdictText,
+      gap: metrics.gap,
+      textGap: metrics.textGap,
       stats: metrics.stats,
       columns: metrics.columns,
       charts: metrics.charts,
       scrollWidth: metrics.scrollWidth,
       scrollHeight: metrics.scrollHeight,
       tooltip: tooltipText,
+      hoverRing: cardHover,
       kb: Math.round(bytes / 1024),
     });
     console.log(
