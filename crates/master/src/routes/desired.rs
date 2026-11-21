@@ -66,7 +66,7 @@ pub async fn render(state: &AppState, server: &Server, base_url: &str) -> AppRes
     let rules = repo::routing_rules::list_enabled_by_server(&state.db.pool, &server.id).await?;
     let forwards = repo::forwards::list_enabled_by_server(&state.db.pool, &server.id).await?;
     let chains = repo::chains::list_enabled(&state.db.pool).await?;
-    let secret = credentials::master_secret(&state.db.pool, state.db.secret_key()).await?;
+    let secret = crate::routes::settings::subscription_secret(state).await?;
     let pairs = repo::authorization::eligible_pairs(&state.db.pool, &server.id).await?;
 
     let mut seen = HashSet::new();

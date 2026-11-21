@@ -234,18 +234,26 @@ impl SecretKey {
         }
         match options.open(&temp) {
             Ok(mut file) => {
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    file.set_permissions(std::fs::Permissions::from_mode(
-                        crate::fs_security::PRIVATE_FILE_MODE,
-                    ))?;
-                }
-                file.write_all(key.to_base64().as_bytes())?;
-                file.write_all(b"\n")?;
-                // 先落盘临时文件，再原子改名；崩溃只可能留下 .tmp，不会留下半截 secret.key。
-                file.sync_all()?;
+                let written = (|| -> anyhow::Result<()> {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        file.set_permissions(std::fs::Permissions::from_mode(
+                            crate::fs_security::PRIVATE_FILE_MODE,
+                        ))?;
+                    }
+                    file.write_all(key.to_base64().as_bytes())?;
+                    file.write_all(b"\n")?;
+                    // 先落盘临时文件，再原子改名；崩溃只可能留下 .tmp，不会留下半截 secret.key。
+                    file.sync_all()?;
+                    Ok(())
+                })();
                 drop(file);
+                if let Err(error) = written {
+                    // 写失败（磁盘满、权限变化等）留下的 .tmp 可能含半截密钥，
+                    // 必须在返回前删掉，否则下次启动可能误接管它。
+                    return Err(Self::cleanup_temp_on_error(&temp, error));
+                }
 
                 // 另一个进程可能通过接管临时文件先完成了落位；此时以已落位的为准。
                 if path.exists() {
@@ -260,10 +268,17 @@ impl SecretKey {
                         let _ = std::fs::remove_file(&temp);
                         return Ok((existing, false));
                     }
-                    return Err(error)
-                        .with_context(|| format!("创建主密钥文件失败：{}", path.display()));
+                    return Err(Self::cleanup_temp_on_error(
+                        &temp,
+                        anyhow::Error::new(error)
+                            .context(format!("创建主密钥文件失败：{}", path.display())),
+                    ));
                 }
                 Self::sync_key_parent(path)?;
+                // rename 成功后以磁盘上的文件为准：并发首启/外部进程可能在
+                // 这之间替换了 secret.key，返回内存里的 key 会让进程继续用
+                // 一把已经不在磁盘上的密钥。
+                let installed = Self::resolve_installed(path)?;
                 // 只记录路径，绝不记录密钥内容。
                 tracing::warn!(
                     path = %path.display(),
@@ -271,7 +286,7 @@ impl SecretKey {
                      Generated the master key file. Back it up: losing it makes encrypted \
                      backups and settings unrecoverable"
                 );
-                Ok((key, true))
+                Ok((installed, true))
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                 // 另一个进程正在创建：先等它把 secret.key 落位。
@@ -290,13 +305,12 @@ impl SecretKey {
                     .ok()
                     .and_then(|modified| modified.elapsed().ok())
                     .is_some_and(|age| age > std::time::Duration::from_secs(60));
-                if !stale {
-                    if let Ok(key) = Self::read_key_file(&temp) {
-                        if std::fs::rename(&temp, path).is_ok() {
-                            Self::sync_key_parent(path)?;
-                            return Ok((key, false));
-                        }
-                    }
+                if !stale
+                    && Self::read_key_file(&temp).is_ok()
+                    && std::fs::rename(&temp, path).is_ok()
+                {
+                    Self::sync_key_parent(path)?;
+                    return Ok((Self::resolve_installed(path)?, false));
                 }
                 // 半截 / 过期临时文件：删掉重试一次；仍失败则报错，绝不覆盖已有密钥。
                 let _ = std::fs::remove_file(&temp);
@@ -313,6 +327,17 @@ impl SecretKey {
                 Err(error).with_context(|| format!("创建主密钥文件失败：{}", path.display()))
             }
         }
+    }
+
+    /// rename 成功后重新读取落位文件；磁盘内容才是唯一可信来源。
+    fn resolve_installed(path: &Path) -> anyhow::Result<Self> {
+        Self::read_key_file(path)
+    }
+
+    /// 失败路径统一清理临时密钥文件；返回原始错误，便于调用方继续 `?`。
+    fn cleanup_temp_on_error(temp: &Path, error: anyhow::Error) -> anyhow::Error {
+        let _ = std::fs::remove_file(temp);
+        error
     }
 
     fn sync_key_parent(path: &Path) -> anyhow::Result<()> {
@@ -679,6 +704,42 @@ mod tests {
                 .exists(),
             "并发首启后不能留下 secret.key.tmp"
         );
+    }
+
+    /// rename 成功之后必须以磁盘上的文件为准，而不是自己生成的那把。
+    ///
+    /// 并发首启/外部进程可能在 rename 与返回之间替换 `secret.key`；返回内存里
+    /// 的 key 会让进程继续用一把已经不在磁盘上的密钥，下次重启就全部解不开。
+    #[test]
+    fn installed_key_file_is_read_back_instead_of_the_generated_key() {
+        let dir = TempDir::new("installed-key");
+        let path = dir.0.join(SECRET_KEY_FILE_NAME);
+        let installed = SecretKey::from_bytes([0x11; KEY_LEN]);
+        let generated = SecretKey::from_bytes([0x22; KEY_LEN]);
+        std::fs::write(&path, format!("{}\n", installed.to_base64())).unwrap();
+
+        let resolved = SecretKey::resolve_installed(&path).unwrap();
+        assert_eq!(resolved, installed, "必须返回落位文件的内容");
+        assert_ne!(resolved, generated, "不能返回自己生成的 key");
+
+        // 落位文件消失时必须报错，不能假装自己生成的 key 仍然有效。
+        let missing = dir.0.join("missing.key");
+        assert!(
+            SecretKey::resolve_installed(&missing).is_err(),
+            "文件不存在时不能回落到内存里的 key"
+        );
+    }
+
+    /// 写临时密钥文件失败时必须清掉 `.tmp`，不能留下半截密钥。
+    #[test]
+    fn failed_key_write_cleans_up_the_temp_file() {
+        let dir = TempDir::new("key-write-failure");
+        let temp = dir.0.join("secret.key.tmp");
+        std::fs::write(&temp, b"half-written").unwrap();
+
+        let error = SecretKey::cleanup_temp_on_error(&temp, anyhow::anyhow!("写入失败"));
+        assert_eq!(error.to_string(), "写入失败");
+        assert!(!temp.exists(), "失败路径必须删除 secret.key.tmp");
     }
 
     /// 恢复前扫描：只报告键名，不报告值。

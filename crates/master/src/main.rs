@@ -104,7 +104,18 @@ async fn main() -> anyhow::Result<()> {
     // 校验失败只记日志并保留 `<db>.restore-pending`，主控照常启动。
     let db_path = Db::database_path(&db_url)?;
     let restore_outcome = match db_path.as_deref() {
-        Some(path) => Some(backup::apply_pending_restore(path).await?),
+        Some(path) => {
+            // 上次崩溃/断电流下的明文临时库（上传、解压、压缩产物）不能一直留在
+            // 磁盘上；只清理超时的本产品文件，正在进行的请求不受影响。
+            let removed = backup::cleanup_stale_temp_files(path, backup::STALE_TEMP_MAX_AGE);
+            if !removed.is_empty() {
+                tracing::warn!(
+                    files = removed.len(),
+                    "已清理启动残留的备份临时文件 / cleaned stale backup temp files"
+                );
+            }
+            Some(backup::apply_pending_restore(path).await?)
+        }
         None => None,
     };
 

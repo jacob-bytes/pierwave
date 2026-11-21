@@ -1936,10 +1936,17 @@ const zhCN = {
       saved: "已重新保存填写的秘密",
       saveError: "保存新值失败，请稍后重试",
       hmacConsequence:
-        "订阅派生 secret 与上面的秘密共用同一把主密钥：已生成的订阅链接也会失效，所有客户端需重新获取订阅链接。如需保留旧链接，请从备份恢复 secret.key（或设置相同的 PIERWAVE_SECRET_KEY）；服务端没有重新生成接口。",
+        "订阅派生 secret 与上面的秘密共用同一把主密钥：重置后所有客户端需重新拉取订阅，旧凭据失效。如需保留旧订阅，请从备份恢复 secret.key（或设置相同的 PIERWAVE_SECRET_KEY）；否则可以用下面的重置入口。",
       hmacDoc: "查看备份加密与 secret.key 恢复步骤",
       internalUnknown:
         "这个内部密钥不能在设置页重填。请恢复写入时使用的主密钥（data/secret.key 或 PIERWAVE_SECRET_KEY）后重试。",
+      reset: "重置订阅派生 secret",
+      resetTitle: "重置订阅派生 secret？",
+      resetDesc:
+        "重置后所有客户端需重新拉取订阅，旧凭据立即失效；管理员和用户都无法恢复旧链接。",
+      resetAction: "确认重置",
+      resetSuccess: "订阅派生 secret 已重置；所有客户端需重新拉取订阅",
+      resetError: "重置失败，请稍后重试",
     },
     notReady404: "设置接口尚未就绪（后端可能还在部署），请稍后重试",
     forbidden: "只有管理员可以查看或修改设置",
@@ -2270,9 +2277,9 @@ const zhCN = {
       forceSecretConsequence:
         "Telegram Token、WebDAV 密码、Webhook 地址会被删除，恢复后需要重新填写。",
       forceHmacConsequence: "订阅派生 secret 会重新生成。",
-      forceLinksConsequence: "旧订阅链接会全部失效，用户需要重新获取。",
+      forceLinksConsequence: "所有客户端需重新拉取订阅，旧凭据失效。",
       forceConfirmLabel:
-        "我明白旧订阅链接会全部失效，且上述秘密需要重新填写",
+        "我明白所有客户端需重新拉取订阅、旧凭据会失效，且上述秘密需要重新填写",
       forceAction: "强制恢复",
       forceActionPending: "强制恢复中…",
       forceError: "强制恢复失败，请稍后重试",
@@ -3875,6 +3882,8 @@ const zhCN = {
       "以下秘密设置无法用当前主密钥解密：{keys}。请恢复写入时使用的主密钥（data/secret.key 或 PIERWAVE_SECRET_KEY）后重试。",
     "settings.secret_overwrite":
       "以下秘密无法用当前主密钥解密：{keys}。请重新填写这些秘密，或先关闭依赖它们的功能后保存。",
+    "settings.subscription_secret_reset":
+      "订阅派生 secret 已重置：所有客户端需重新拉取订阅，旧凭据失效。",
     "backup.restore_read_failed": "读取上传内容失败",
     "install.token_required": "缺少 token 参数",
     "install.token_not_found": "token 无效",

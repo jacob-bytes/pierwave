@@ -13,7 +13,6 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use pierwave_domain::credentials;
 use pierwave_domain::repo;
 use pierwave_domain::repo::subscription_templates::{
     NewSubscriptionTemplate, UpdateSubscriptionTemplate,
@@ -387,7 +386,7 @@ pub async fn preview(
     let subject =
         resolve_preview_subject(&state, req.user_id.as_deref(), req.package_id.as_deref()).await?;
 
-    let secret = credentials::master_secret(&state.db.pool, state.db.secret_key()).await?;
+    let secret = crate::routes::settings::subscription_secret(&state).await?;
     let (nodes, effective_rules, label) = match &subject {
         PreviewSubject::User(target_user) => {
             let nodes =

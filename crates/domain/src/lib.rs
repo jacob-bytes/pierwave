@@ -95,6 +95,18 @@ impl Db {
         let options = SqliteConnectOptions::from_str(url)
             .with_context(|| format!("数据库 URL 无法按 SQLite 解析：{url}"))?;
         let path = database_path_from_options(url, &options)?;
+        // `sqlite::memory:` / `sqlite://:memory:` 由 sqlx 生成共享的
+        // `file:sqlx-in-memory-N`，池里多条连接看到同一个库；而显式
+        // `?mode=memory`（含空文件名、百分号编码与 `cache=private`）的每条
+        // 连接都是独立库，必须锁成一条连接，且不能让它空闲超时被回收。
+        let has_memory_mode = url
+            .split_once('?')
+            .is_some_and(|(_, query)| query_has_param(query, "mode", "memory"));
+        let single_connection_memory = path.is_none()
+            && (has_memory_mode
+                || url
+                    .split_once('?')
+                    .is_some_and(|(_, query)| query_has_param(query, "cache", "private")));
         // 主密钥先于连接池加载：设置项解密/备份加密都依赖它。
         // 环境变量优先；文件型库用同目录的 secret.key；内存库用临时随机密钥。
         let secret_key = secret_box::SecretKey::for_database(path.as_deref())?;
@@ -110,8 +122,18 @@ impl Db {
         }
         // 外键打开到连接选项里：池里每条连接都生效，删用户时套餐实例才会级联清理。
         let opts = options.create_if_missing(true).foreign_keys(true);
-        let pool = SqlitePoolOptions::new()
-            .max_connections(5)
+        let pool_options = if single_connection_memory {
+            // 独立内存库只能有一条连接，且不能让它空闲超时被回收，否则
+            // migrate 写在一号连接、查询跑到二号连接会报 `no such table`。
+            SqlitePoolOptions::new()
+                .min_connections(1)
+                .max_connections(1)
+                .idle_timeout(None)
+                .max_lifetime(None)
+        } else {
+            SqlitePoolOptions::new().max_connections(5)
+        };
+        let pool = pool_options
             .connect_with(opts)
             .await
             .context("打开 SQLite 失败")?;
@@ -137,30 +159,42 @@ impl Db {
     /// 执行迁移，并把已有的明文秘密就地加密（迁移 0058 的 Rust 侧）。
     ///
     /// 幂等：已带 `enc:v1:` 前缀的值会被跳过，所以重复调用不会重复加密。
+    ///
+    /// **顺序很重要**：先扫描有没有解不开的密文，再决定要不要加密明文。反过来的
+    /// 话，混合状态（一个旧密钥写的密文 + 一些历史明文）会把明文用当前密钥重写，
+    /// 而当前密钥很可能就是错的；管理员恢复原来的 `secret.key` 后，这些明文也
+    /// 再也读不回来。发现异常时宁可这一轮不加密，把风险留给下一轮。
     pub async fn migrate(&self) -> anyhow::Result<()> {
         MIGRATOR
             .run(&self.pool)
             .await
             .context("执行数据库迁移失败")?;
+        // 已带 `enc:v1:` 但当前密钥解不开的值不能静默跳过：日志里只出现键名。
+        // 常见原因是恢复/迁移时换了主密钥；管理员需要据此恢复 secret.key。
+        let unreadable = secret_box::find_unreadable_settings(&self.pool, &self.secret_key)
+            .await
+            .context("检查不可解密的秘密设置失败")?;
+        if !unreadable.is_empty() {
+            for key in &unreadable {
+                tracing::error!(
+                    key,
+                    "秘密设置无法用当前主密钥解密；请恢复写入时使用的 data/secret.key 或 \
+                     PIERWAVE_SECRET_KEY / a stored secret cannot be decrypted with the current \
+                     master key"
+                );
+            }
+            tracing::error!(
+                keys = ?unreadable,
+                "存在无法解密的秘密设置，已跳过历史明文的就地加密，避免把明文锁死在错误的密钥上"
+            );
+            return Ok(());
+        }
         let encrypted = secret_box::encrypt_existing_settings(&self.pool, &self.secret_key)
             .await
             .context("加密已有设置项失败")?;
         if !encrypted.is_empty() {
             // 只记录键名，值可能是 Token / 密码。
             tracing::info!(keys = ?encrypted, "已把历史明文秘密设置加密落库");
-        }
-        // 已带 `enc:v1:` 但当前密钥解不开的值不能静默跳过：日志里只出现键名。
-        // 常见原因是恢复/迁移时换了主密钥；管理员需要据此恢复 secret.key。
-        for key in secret_box::find_unreadable_settings(&self.pool, &self.secret_key)
-            .await
-            .context("检查不可解密的秘密设置失败")?
-        {
-            tracing::error!(
-                key,
-                "秘密设置无法用当前主密钥解密；请恢复写入时使用的 data/secret.key 或 \
-                 PIERWAVE_SECRET_KEY / a stored secret cannot be decrypted with the current \
-                 master key"
-            );
         }
         Ok(())
     }
@@ -204,9 +238,12 @@ fn database_path_from_options(
     if !url.starts_with("sqlite:") {
         anyhow::bail!("只支持 sqlite: 数据库 URL（当前：{url}）");
     }
+    // sqlx 用 `url::form_urlencoded` 解析查询串并做 percent-decode，因此
+    // `mode=mem%6Fry` 与 `mode=memory` 等价。只比较原始字符串会把它当成
+    // 文件库，提前创建空数据库文件与 `secret.key`。
     let memory_mode = url
         .split_once('?')
-        .is_some_and(|(_, query)| query.split('&').any(|pair| pair == "mode=memory"));
+        .is_some_and(|(_, query)| query_has_param(query, "mode", "memory"));
     let filename = options.get_filename();
     let as_text = filename.to_string_lossy();
     // sqlx 给 `sqlite::memory:` 生成 `file:sqlx-in-memory-<n>`；没有公开的
@@ -225,6 +262,50 @@ fn database_path_from_options(
         anyhow::bail!("数据库 URL 的文件名不是普通文件路径：{url}");
     }
     Ok(Some(filename.to_path_buf()))
+}
+
+/// 查询串里是否存在 `key=value`（两者都先做 form 风格 percent-decode）。
+///
+/// 不做完整的 URL 解析：只需要回答「mode 是不是 memory」，而且必须与 sqlx
+/// 的解析口径一致（它用 `url::form_urlencoded::parse`）。
+fn query_has_param(query: &str, wanted_key: &str, wanted_value: &str) -> bool {
+    query.split('&').any(|pair| {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        percent_decode_form(key) == wanted_key && percent_decode_form(value) == wanted_value
+    })
+}
+
+/// 解码 form-urlencoded 组件：`+` 视为空格，非法 `%XX` 原样保留。
+fn percent_decode_form(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'+' => {
+                out.push(b' ');
+                index += 1;
+            }
+            b'%' if index + 2 < bytes.len() => {
+                let hex = raw.get(index + 1..index + 3).unwrap_or("");
+                match u8::from_str_radix(hex, 16) {
+                    Ok(byte) => {
+                        out.push(byte);
+                        index += 3;
+                    }
+                    Err(_) => {
+                        out.push(bytes[index]);
+                        index += 1;
+                    }
+                }
+            }
+            byte => {
+                out.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// 主库与 SQLite 旁路文件（`-wal` / `-shm`）一起收紧到 0600。
@@ -335,6 +416,77 @@ mod tests {
         }
     }
 
+    /// 内存库 URL 必须能完整跑通 connect + migrate + 读写。
+    ///
+    /// 空文件名 + `?mode=memory` 的每个连接都是独立内存库；连接池必须只开
+    /// 一条连接（且不能让它在空闲时被回收），否则迁移写在一号连接、查询跑到
+    /// 二号连接会报 `no such table`。
+    #[tokio::test]
+    async fn memory_urls_connect_migrate_and_read_write() {
+        for url in [
+            "sqlite://?mode=memory",
+            "sqlite:?mode=memory",
+            "sqlite://?mode=memory&cache=shared",
+            "sqlite://?mode=memory&cache=private",
+            "sqlite://?mode=mem%6Fry",
+        ] {
+            let db = Db::connect(url).await.unwrap();
+            assert!(db.file_path().is_none(), "内存库不应有文件路径：{url}");
+            db.migrate().await.unwrap();
+            repo::settings::set(&db.pool, "panel_name", "Memory Panel")
+                .await
+                .unwrap();
+            assert_eq!(
+                repo::settings::get(&db.pool, "panel_name")
+                    .await
+                    .unwrap()
+                    .as_deref(),
+                Some("Memory Panel"),
+                "迁移后的读写必须落在同一个内存库：{url}"
+            );
+            db.pool.close().await;
+        }
+    }
+
+    /// 百分号编码的 `mode=mem%6Fry` 也必须按内存库处理。
+    ///
+    /// sqlx 在解析 URL 时会 percent-decode 查询参数；只用原始字符串比较
+    /// `mode=memory` 会把它当成文件库，提前创建空数据库文件与 `secret.key`。
+    #[tokio::test]
+    async fn percent_encoded_memory_mode_never_creates_database_or_key_file() {
+        let dir = TestDir::new("pct-memory");
+        let path = dir.0.join("pierwave.db");
+        let url = format!("sqlite://{}?mode=mem%6Fry", path.display());
+
+        let db = Db::connect(&url).await.unwrap();
+        assert!(
+            db.file_path().is_none(),
+            "百分号编码的 mode 也是内存库：{url}"
+        );
+        db.migrate().await.unwrap();
+        repo::settings::set(&db.pool, "panel_name", "Pct Memory")
+            .await
+            .unwrap();
+        assert_eq!(
+            repo::settings::get(&db.pool, "panel_name")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("Pct Memory")
+        );
+        db.pool.close().await;
+
+        assert!(
+            !path.exists(),
+            "内存库 URL 不能创建数据库文件：{}",
+            path.display()
+        );
+        assert!(
+            !dir.0.join(secret_box::SECRET_KEY_FILE_NAME).exists(),
+            "内存库 URL 不能创建工作区 secret.key"
+        );
+    }
+
     /// 单冒号 URL 必须打开真实文件，并且两次 connect 复用同一个 `secret.key`。
     #[tokio::test]
     async fn single_colon_url_lands_on_disk_and_reuses_the_same_secret_key() {
@@ -369,6 +521,66 @@ mod tests {
         Db::connect(&format!("sqlite://{}?mode=rwc", path.display()))
             .await
             .unwrap()
+    }
+
+    /// 全部秘密都能解开时，迁移照常把历史明文加密。
+    #[tokio::test]
+    async fn migrate_encrypts_plaintext_when_every_secret_is_readable() {
+        let dir = TestDir::new("migrate-healthy");
+        let db = open_db(&dir.db_path()).await;
+        db.migrate().await.unwrap();
+        repo::settings::set(&db.pool, "backup_webdav_password", "legacy-plain")
+            .await
+            .unwrap();
+
+        db.migrate().await.unwrap();
+        let raw = repo::settings::get(&db.pool, "backup_webdav_password")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            secret_box::is_encrypted_setting(&raw),
+            "明文应被加密：{raw}"
+        );
+        assert_eq!(
+            secret_box::reveal_setting(db.secret_key(), &raw).unwrap(),
+            "legacy-plain"
+        );
+        db.pool.close().await;
+    }
+
+    /// 混合状态 + 错密钥：只要发现一个解不开的秘密，就不能再加密明文。
+    ///
+    /// 旧顺序是先 `encrypt_existing_settings` 再扫描：明文会被当前（错的）密钥
+    /// 锁死，管理员即使之后恢复原来的 `secret.key` 也读不回来。
+    #[tokio::test]
+    async fn migrate_skips_encryption_when_a_secret_is_unreadable() {
+        let dir = TestDir::new("migrate-mixed");
+        let db = open_db(&dir.db_path()).await;
+        db.migrate().await.unwrap();
+
+        let other = secret_box::SecretKey::generate().unwrap();
+        repo::settings::set(
+            &db.pool,
+            "telegram_bot_token",
+            &secret_box::encrypt_setting(&other, "written-with-another-key"),
+        )
+        .await
+        .unwrap();
+        repo::settings::set(&db.pool, "backup_webdav_password", "legacy-plain")
+            .await
+            .unwrap();
+
+        db.migrate().await.unwrap();
+        let raw = repo::settings::get(&db.pool, "backup_webdav_password")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            raw, "legacy-plain",
+            "存在解不开的秘密时不能把明文锁死在错的密钥上"
+        );
+        db.pool.close().await;
     }
 
     #[cfg(unix)]

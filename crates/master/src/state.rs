@@ -196,6 +196,9 @@ pub struct PublicStatusCache {
     /// 等待重建的上限，测试里可以缩短（见 [`Self::with_wait`]）。
     wait: Duration,
     stats: Arc<PublicStatusStats>,
+    /// 缓存代际：`clear()` 递增。重建开始前记下代际，写缓存前比对；
+    /// 期间发生过 clear 就丢弃这次结果，避免旧快照回填。
+    generation: Arc<AtomicU64>,
 }
 
 impl Default for PublicStatusCache {
@@ -212,6 +215,7 @@ impl PublicStatusCache {
             rebuild: Arc::new(AsyncMutex::new(())),
             wait,
             stats: Arc::new(PublicStatusStats::default()),
+            generation: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -226,11 +230,17 @@ impl PublicStatusCache {
             .map(|(_, snapshot)| snapshot.clone())
     }
 
-    fn put(&self, snapshot: PublicStatusSnapshot) {
-        *self
+    /// 只有代际未变时才写缓存；返回是否写入。
+    fn put_if_generation(&self, generation: u64, snapshot: PublicStatusSnapshot) -> bool {
+        let mut guard = self
             .inner
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((Instant::now(), snapshot));
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if self.generation.load(Ordering::SeqCst) != generation {
+            return false;
+        }
+        *guard = Some((Instant::now(), snapshot));
+        true
     }
 
     /// 缓存命中直接返回；未命中时**单飞**重建：只有一个请求真正执行
@@ -278,10 +288,15 @@ impl PublicStatusCache {
             return Ok(snapshot);
         }
 
+        // 聚合开始前记下代际：期间管理员 clear 过，结果就不能回填缓存。
+        let generation = self.generation.load(Ordering::SeqCst);
         let started = Instant::now();
         match build().await {
             Ok(snapshot) => {
-                self.put(snapshot.clone());
+                let cached = self.put_if_generation(generation, snapshot.clone());
+                if !cached {
+                    tracing::info!("公开状态页快照重建期间缓存被清空，丢弃本次结果不回填");
+                }
                 let rebuilds = self.stats.rebuilds.fetch_add(1, Ordering::Relaxed) + 1;
                 let waited_hits = self.stats.waited_hits.load(Ordering::Relaxed);
                 tracing::info!(
@@ -308,11 +323,16 @@ impl PublicStatusCache {
     }
 
     /// 立刻失效缓存：公开页的开关 / 白名单 / 费用可见性变化后必须马上生效。
+    ///
+    /// 递增代际与清空在同一个锁里完成：重建中的 leader 要么在 clear 之前写入
+    /// （随后被这里清掉），要么在之后发现代际变化而放弃写入。
     pub fn clear(&self) {
-        *self
+        let mut guard = self
             .inner
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        *guard = None;
     }
 
     /// (rebuilds, waited_hits, wait_timeouts, failures)；只给测试断言用。
@@ -649,6 +669,42 @@ mod tests {
             list: serde_json::json!({ "generated_at": generated_at }),
             series: HashMap::new(),
         }
+    }
+
+    /// 重建期间 `clear()`（例如管理员改了公开页开关）不能被旧结果覆盖。
+    ///
+    /// 单飞 leader 在聚合开始前拿到 generation；期间 clear 递增 generation，
+    /// leader 完成后发现 generation 变了就不写缓存。否则一次设置变更会被
+    /// 重建中的旧快照「回填」，隐私开关最多晚 30 秒才生效。
+    #[tokio::test]
+    async fn clear_during_rebuild_does_not_get_overwritten_by_the_stale_snapshot() {
+        let cache = PublicStatusCache::default();
+        let build_cache = cache.clone();
+
+        let stale = cache
+            .get_or_build(move || async move {
+                build_cache.clear();
+                Ok::<_, AppError>(snapshot(1))
+            })
+            .await
+            .expect("leader 仍能拿到自己构建的结果");
+        assert_eq!(stale.list["generated_at"], 1);
+        assert!(
+            cache.get().is_none(),
+            "重建期间的 clear 必须生效，旧快照不能回填缓存"
+        );
+
+        // 下一次请求重新构建并正常缓存。
+        let fresh = cache
+            .get_or_build(|| async { Ok::<_, AppError>(snapshot(2)) })
+            .await
+            .unwrap();
+        assert_eq!(fresh.list["generated_at"], 2);
+        assert_eq!(
+            cache.get().unwrap().list["generated_at"],
+            2,
+            "clear 之后的新构建必须能写入缓存"
+        );
     }
 
     /// 20 个并发请求只允许触发 **一次** 聚合；其余 19 个等同一个结果。

@@ -14,9 +14,9 @@ use serde_json::json;
 use sqlx::SqlitePool;
 
 use pierwave_domain::models::{aggregate_quota, NodeWithServer, Package, User};
+use pierwave_domain::repo;
 use pierwave_domain::subscribe::{self, SubContext, SubNode, TrafficInfo};
 use pierwave_domain::subscription_template;
-use pierwave_domain::{credentials, repo};
 
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -55,7 +55,7 @@ pub async fn get(
     // 规则模板与节点无关，先解析：指定的模板不存在要 404，即使 target=uri 也一样。
     let effective_rules = rules_for(&state.db.pool, &user, query.rule.as_deref()).await?;
 
-    let secret = credentials::master_secret(&state.db.pool, state.db.secret_key()).await?;
+    let secret = crate::routes::settings::subscription_secret(&state).await?;
     let nodes = subscription_nodes(&state.db.pool, &user.id, &secret).await?;
 
     // 订阅模板：用户级 > 最近绑定了模板的生效套餐 > 无模板（硬编码分组）。

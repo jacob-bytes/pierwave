@@ -177,6 +177,11 @@ marker nor any error message contains the key, ciphertext or plaintext.
 3. 若请求要开启依赖坏秘密的功能（例如开启异地备份但没重填 WebDAV 密码、
    开启 Bot 但没重填 Token），返回 400 `settings.secret_overwrite`，
    提示先重填或先关闭该功能。
+4. 内部 `hmac_secret_v1` 无法重填，但有专用逃生入口：
+   `POST /api/v1/settings/reset-subscription-secret`（仅管理员）删除该行，
+   首次使用订阅/摘要/期望态时重新生成随机 secret；响应 200 并提示
+   **所有客户端需重新拉取订阅，旧凭据失效**，审计动作
+   `settings.reset_subscription_secret`。
 
 When the master key does not match, `PATCH /api/v1/settings` still allows
 recovery:
@@ -190,6 +195,32 @@ recovery:
 3. Enabling a feature that depends on a broken secret (for example enabling
    off-site backup without re-entering the WebDAV password, or enabling the bot
    without re-entering the token) returns 400 `settings.secret_overwrite`.
+4. The internal `hmac_secret_v1` cannot be re-entered, so it has a dedicated
+   escape hatch: `POST /api/v1/settings/reset-subscription-secret`
+   (administrators only) deletes the row; the next subscription/summary/desired
+   read generates a fresh random secret. The 200 response tells the operator
+   that **every client must fetch its subscription again, and old credentials
+   no longer work**; the audit action is
+   `settings.reset_subscription_secret`.
+
+### 已知边界：没有 AAD / Known limitation: no AAD
+
+`settings` 里所有秘密共用同一把主密钥，且 GCM 的 AAD 为空。**能直接写数据库文件
+的人**可以把 `telegram_bot_token` 的密文复制到 `hmac_secret_v1`（或任意其它秘密键）
+而不破坏 GCM tag：服务端会照常解密，只是把值用在了错误的用途上。这不是「能恢复
+明文」——攻击者仍然要拥有数据库写权限——但意味着「按用途隔离」目前只靠应用层，
+不靠密码学绑定。彻底修复需要按用途绑定 AAD（例如
+`settings:<key>` / `backup`），属于主密钥格式变更，留给后续迁移。
+
+All secrets in `settings` share one master key and use an empty GCM AAD. **Anyone
+who can write the database file** can copy the `telegram_bot_token` ciphertext
+into `hmac_secret_v1` (or any other secret key) without breaking the GCM tag:
+the server decrypts it normally and simply uses the value for the wrong purpose.
+This is not plaintext recovery — the attacker still needs database write access —
+but it means per-purpose isolation is enforced only by the application, not
+cryptographically. A complete fix requires binding AAD per purpose (for example
+`settings:<key>` / `backup`), which changes the envelope format and is left for a
+later migration.
 
 ## 4. 恢复前校验 / Restore preflight
 
@@ -204,7 +235,7 @@ recovery:
   （上传体是原始文件字节，`force` 只能放在查询串）可强制恢复；候选库里
   **解不开的 `enc:v1:` 行会被删除**（能解开的与非秘密设置原样保留），响应带
   `warning`。恢复后 Telegram / WebDAV / Webhook 需重新填写；内部
-  `hmac_secret_v1` 会在首次使用时重新生成，旧订阅链接随之失效。
+  `hmac_secret_v1` 会在首次使用时重新生成，**所有客户端需重新拉取订阅，旧凭据失效**。
 
 Before renaming the upload to `<db>.restore-pending`, the restore endpoint opens
 the candidate database, scans every `enc:v1:` value in `settings`, and decrypts
@@ -218,8 +249,8 @@ each one with the **current master key**:
   restore and **deletes the unreadable `enc:v1:` rows** in the candidate
   database (readable secrets and all non-secret settings are preserved), then
   returns a `warning`. Telegram / WebDAV / webhook must be re-entered afterwards;
-  the internal `hmac_secret_v1` is regenerated on first use, so old subscription
-  links stop working.
+  the internal `hmac_secret_v1` is regenerated on first use, so **every client
+  must fetch its subscription again and the old credentials no longer work**.
 
 `Db::migrate()` 也会扫描同样的 `enc:v1:` 值；解不开时按 **error** 级日志记录
 键名（不含值），不会静默跳过。 / `Db::migrate()` performs the same scan and
@@ -233,6 +264,9 @@ silently.
 - 写入 `backup_encrypt` 的默认值 `1`（`WHERE NOT EXISTS`，重跑不覆盖用户选择）；
 - 作为版本锚点：SQL 不能做 AEAD，真正的明文→密文改写由
   `secret_box::encrypt_existing_settings` 在迁移之后执行（只处理非空且无前缀的值）。
+- 顺序：`Db::migrate` **先**扫描 `enc:v1:` 是否有当前密钥解不开的行；只要发现
+  一个，就跳过本轮明文加密并记 error 日志。否则混合状态（旧密钥密文 + 历史明文）
+  会把明文用错误的当前密钥锁死，之后即使恢复原 `secret.key` 也读不回来。
 
 `crates/domain/migrations/0058_secret_settings.sql`:
 
@@ -241,6 +275,11 @@ silently.
 - is the version anchor: SQL cannot do AEAD, so the actual plaintext→ciphertext
   rewrite runs in `secret_box::encrypt_existing_settings` right after
   migrations (only non-empty, unprefixed values).
+- Ordering: `Db::migrate` **first** scans for `enc:v1:` rows that the current key
+  cannot decrypt. If any is found it skips plaintext encryption for this run and
+  logs an error. Otherwise a mixed state (ciphertext from an old key plus legacy
+  plaintext) would lock the plaintext in with the wrong current key, and even
+  restoring the original `secret.key` would not bring it back.
 
 ## 6. 兼容性 / Compatibility
 

@@ -211,24 +211,26 @@ pub async fn restore(
             write_private_bytes(&gz_path, &gzip_bytes)?;
 
             let raw = dir.join(format!(".pierwave-restore-raw-{token}.db"));
+            // 守卫必须先于解压创建：坏 gzip / 超限会在写出半截文件后失败，
+            // 事后才建守卫就永远删不到它（明文业务数据留在磁盘上）。
+            _raw_guard = Some(TempFile::new(raw.clone()));
             let source = gz_path.clone();
             let target = raw.clone();
             tokio::task::spawn_blocking(move || gunzip_file(&source, &target))
                 .await
                 .map_err(|error| AppError::Internal(anyhow::anyhow!("解压备份失败：{error}")))?
                 .map_err(restore_gunzip_error)?;
-            _raw_guard = Some(TempFile::new(raw.clone()));
             raw_path = raw;
         }
         UploadFormat::Gzip => {
             let raw = dir.join(format!(".pierwave-restore-raw-{token}.db"));
+            _raw_guard = Some(TempFile::new(raw.clone()));
             let source = upload.clone();
             let target = raw.clone();
             tokio::task::spawn_blocking(move || gunzip_file(&source, &target))
                 .await
                 .map_err(|error| AppError::Internal(anyhow::anyhow!("解压备份失败：{error}")))?
                 .map_err(restore_gunzip_error)?;
-            _raw_guard = Some(TempFile::new(raw.clone()));
             raw_path = raw;
         }
         UploadFormat::Raw => {
@@ -253,7 +255,7 @@ pub async fn restore(
     let secrets_match_current_key = unreadable.is_empty();
     if options.force && !secrets_match_current_key {
         // force = 丢弃旧秘密：删掉解不开的行，避免恢复后设置页 400 / 订阅 500，
-        // 同时让内部 hmac_secret_v1 在首次使用时重新生成（旧订阅链接随之失效）。
+        // 同时让内部 hmac_secret_v1 在首次使用时重新生成（所有客户端需重新拉取订阅）。
         let discarded = backup::discard_unreadable_settings(&raw_path, state.db.secret_key())
             .await
             .map_err(|error| AppError::Internal(error.context("丢弃无法解密的旧秘密失败")))?;
@@ -297,10 +299,10 @@ pub async fn restore(
             json!(
                 "已按 force=true 恢复并丢弃了无法解密的旧秘密：恢复后 Telegram Token、\
                  WebDAV 密码、Webhook 地址需要重新填写，订阅派生 secret 会重新生成\
-                 （旧订阅链接失效）。 / Restored with force=true and discarded unreadable \
-                 secrets: re-enter the Telegram token, WebDAV password and webhook URL; the \
-                 subscription derivation secret is regenerated, so old subscription links \
-                 stop working."
+                 （所有客户端需重新拉取订阅，旧凭据失效）。 / Restored with force=true and \
+                 discarded unreadable secrets: re-enter the Telegram token, WebDAV password \
+                 and webhook URL; the subscription derivation secret is regenerated, so every \
+                 client must fetch its subscription again and old credentials no longer work."
             )
         };
     }
@@ -648,21 +650,38 @@ fn gzip_file_to(source: &Path, target: &Path) -> AppResult<()> {
 
 /// gzip 解压到临时文件，返回解压后字节数；超过上限直接拒绝（防 zip bomb）。
 fn gunzip_file(source: &Path, target: &Path) -> Result<u64, String> {
-    let input =
-        std::fs::File::open(source).map_err(|error| format!("打开上传文件失败：{error}"))?;
-    let mut decoder = GzDecoder::new(input);
-    let mut output = fs_security::open_private_file(target)
-        .map_err(|error| format!("创建临时文件失败：{error}"))?;
-    let mut limited = (&mut decoder).take(MAX_BACKUP_BYTES + 1);
-    let copied = std::io::copy(&mut limited, &mut output)
-        .map_err(|error| format!("gzip 解压失败：{error}"))?;
-    output
-        .sync_all()
-        .map_err(|error| format!("写入临时文件失败：{error}"))?;
-    if copied > MAX_BACKUP_BYTES {
-        return Err("解压后的数据库超过 512 MB 上限".into());
+    gunzip_file_with_limit(source, target, MAX_BACKUP_BYTES)
+}
+
+/// [`gunzip_file`] 的可测版本：上限可注入，便于用小样本覆盖超限路径。
+///
+/// 任何失败都删除 `target`：调用方即便忘了守卫，也不能把解压到一半的明文
+/// 业务数据库留在磁盘上。
+fn gunzip_file_with_limit(source: &Path, target: &Path, max_bytes: u64) -> Result<u64, String> {
+    let result = (|| -> Result<u64, String> {
+        let input =
+            std::fs::File::open(source).map_err(|error| format!("打开上传文件失败：{error}"))?;
+        let mut decoder = GzDecoder::new(input);
+        let mut output = fs_security::open_private_file(target)
+            .map_err(|error| format!("创建临时文件失败：{error}"))?;
+        let mut limited = (&mut decoder).take(max_bytes.saturating_add(1));
+        let copied = std::io::copy(&mut limited, &mut output)
+            .map_err(|error| format!("gzip 解压失败：{error}"))?;
+        output
+            .sync_all()
+            .map_err(|error| format!("写入临时文件失败：{error}"))?;
+        if copied > max_bytes {
+            return Err(format!(
+                "解压后的数据库超过 {} MB 上限",
+                max_bytes / (1024 * 1024)
+            ));
+        }
+        Ok(copied)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(target);
     }
-    Ok(copied)
+    result
 }
 
 /// 流式落盘，边写边计数，避免把 512 MB 上传体整个读进内存。
@@ -1119,6 +1138,53 @@ mod tests {
         ] {
             assert!(actions.contains(&action.to_string()), "缺少审计：{action}");
         }
+    }
+
+    /// 解压超限与解压失败走同一套清理逻辑：半成品临时库必须删掉。
+    #[test]
+    fn oversized_gunzip_removes_partial_target() {
+        let dir = TestDir::new("gunzip-limit");
+        let source = dir.file("bomb.gz");
+        let target = dir.file("raw.db");
+        {
+            let file = std::fs::File::create(&source).unwrap();
+            let mut encoder = GzEncoder::new(file, Compression::default());
+            encoder.write_all(&[0u8; 64]).unwrap();
+            encoder.finish().unwrap();
+        }
+
+        let error = gunzip_file_with_limit(&source, &target, 8).unwrap_err();
+        assert!(error.contains("超过"), "{error}");
+        assert!(!target.exists(), "超限时不能留下解压到一半的临时库");
+    }
+
+    /// 坏 gzip 在解压时就会失败：写了一半的明文临时库必须被守卫删掉。
+    #[tokio::test]
+    async fn failed_gzip_restore_leaves_no_temp_files() {
+        let (dir, app, _state, cookie) = setup("bad-gzip").await;
+        let malformed = vec![0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff];
+
+        let (status, _, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/restore",
+            malformed,
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "{}",
+            String::from_utf8_lossy(&body)
+        );
+        assert_eq!(json(&body)["code"], "backup.restore_bad_gzip");
+        assert!(
+            leftover_temp_files(&dir.path).is_empty(),
+            "解压失败后不能留下明文临时库：{:?}",
+            leftover_temp_files(&dir.path)
+        );
+        assert!(!backup::pending_path(&dir.db_path()).exists());
     }
 
     #[tokio::test]

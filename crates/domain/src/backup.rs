@@ -176,6 +176,17 @@ pub async fn discard_unreadable_settings(
         let unreadable = crate::secret_box::find_unreadable_settings(&pool, key).await?;
         for name in &unreadable {
             repo::settings::delete(&pool, name).await?;
+            // 依赖该秘密的开关必须一起关掉：否则恢复后会出现
+            // 「backup_webdav_enabled=1 但密码为空」这种悬空状态，任务只在
+            // 日志里静默失败，管理员以为备份还开着。
+            let dependent_switch = match name.as_str() {
+                "backup_webdav_password" => Some("backup_webdav_enabled"),
+                "telegram_bot_token" => Some("telegram_bot_enabled"),
+                _ => None,
+            };
+            if let Some(switch) = dependent_switch {
+                repo::settings::set(&pool, switch, "0").await?;
+            }
         }
         Ok(unreadable)
     }
@@ -258,6 +269,66 @@ async fn open_readonly(path: &Path) -> anyhow::Result<SqlitePool> {
         .connect_with(options)
         .await
         .with_context(|| format!("无法打开备份数据库：{}", path.display()))
+}
+
+/// 本产品在数据库目录写下的临时文件前缀。
+pub const TEMP_FILE_PREFIXES: [&str; 2] = [".pierwave-restore-", ".pierwave-backup-"];
+
+/// 启动清理只删超过这个年龄的临时文件：1 小时足够覆盖 512 MB 上传/解压，
+/// 又不会误删另一个仍在进行中的请求写下的半成品。
+pub const STALE_TEMP_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(3_600);
+
+/// 启动时清理上次崩溃/断电流下的临时文件，返回实际删除的路径。
+///
+/// 只处理 [`TEMP_FILE_PREFIXES`] 开头、且修改时间早于 `max_age` 的**普通文件**；
+/// 正在上传/解压的临时文件（mtime 很新）与其它文件一律不动。删除失败只记
+/// `warn`，不影响启动。
+pub fn cleanup_stale_temp_files(db_path: &Path, max_age: std::time::Duration) -> Vec<PathBuf> {
+    let dir = db_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let now = std::time::SystemTime::now();
+    let mut removed = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !TEMP_FILE_PREFIXES
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
+        {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        let Ok(modified) = metadata.modified() else {
+            continue;
+        };
+        // 时钟回拨（mtime 在“未来”）时 `duration_since` 返回 Err：不要当成过期。
+        let Ok(age) = now.duration_since(modified) else {
+            continue;
+        };
+        if age <= max_age {
+            continue;
+        }
+        match fs::remove_file(&path) {
+            Ok(()) => removed.push(path),
+            Err(error) => tracing::warn!(
+                path = %path.display(),
+                %error,
+                "清理启动残留临时文件失败（继续启动）"
+            ),
+        }
+    }
+    removed
 }
 
 /// 启动时应用 `<db>.restore-pending`。
@@ -497,6 +568,62 @@ mod tests {
             .unwrap()
             .is_empty());
         db.pool.close().await;
+    }
+
+    /// force 丢弃依赖秘密时，依赖它的开关必须一起关掉，不能留下悬空状态。
+    #[tokio::test]
+    async fn discarding_unreadable_secrets_turns_off_dependent_switches() {
+        let dir = TestDir::new("force-switches");
+        let db = open_db(&dir.db_path()).await;
+        db.migrate().await.unwrap();
+        for (key, value) in [
+            ("backup_webdav_enabled", "1"),
+            ("telegram_bot_enabled", "1"),
+        ] {
+            repo::settings::set(&db.pool, key, value).await.unwrap();
+        }
+        let other = crate::secret_box::SecretKey::generate().unwrap();
+        for key in [
+            "backup_webdav_password",
+            "telegram_bot_token",
+            "hmac_secret_v1",
+        ] {
+            repo::settings::set(
+                &db.pool,
+                key,
+                &crate::secret_box::encrypt_setting(&other, "other-instance"),
+            )
+            .await
+            .unwrap();
+        }
+        let snapshot = dir.file("force-switches.db");
+        create_snapshot(&db.pool, &snapshot).await.unwrap();
+        db.pool.close().await;
+
+        let discarded = discard_unreadable_settings(&snapshot, db.secret_key())
+            .await
+            .unwrap();
+        assert_eq!(
+            discarded,
+            vec![
+                "backup_webdav_password".to_string(),
+                "hmac_secret_v1".to_string(),
+                "telegram_bot_token".to_string(),
+            ]
+        );
+
+        let restored = open_db(&snapshot).await;
+        for key in ["backup_webdav_enabled", "telegram_bot_enabled"] {
+            assert_eq!(
+                repo::settings::get(&restored.pool, key)
+                    .await
+                    .unwrap()
+                    .as_deref(),
+                Some("0"),
+                "丢弃凭据后 {key} 必须关闭，不能留下 enabled=1 的悬空开关"
+            );
+        }
+        restored.pool.close().await;
     }
 
     /// 快照会被 gzip 后下载/上传到远端：文件本身必须只有属主可读。
@@ -782,6 +909,50 @@ mod tests {
             .unwrap()
             .is_some());
         current.pool.close().await;
+    }
+
+    /// 启动清理只删「超时的本产品临时文件」，正在上传的文件与无关文件不能动。
+    #[test]
+    fn startup_cleanup_removes_only_stale_pierwave_temp_files() {
+        let dir = TestDir::new("stale-temp");
+        let db_path = dir.db_path();
+        let stale_restore = dir.file(".pierwave-restore-upload-old.tmp");
+        let stale_backup = dir.file(".pierwave-backup-20260101-000000-old.tmp");
+        let fresh_restore = dir.file(".pierwave-restore-upload-active.tmp");
+        let unrelated = dir.file("other.tmp");
+        for path in [&stale_restore, &stale_backup, &fresh_restore, &unrelated] {
+            fs::write(path, b"x").unwrap();
+        }
+
+        let two_hours_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(7_200);
+        for path in [&stale_restore, &stale_backup, &unrelated] {
+            let file = fs::OpenOptions::new().write(true).open(path).unwrap();
+            file.set_times(
+                std::fs::FileTimes::new()
+                    .set_modified(two_hours_ago)
+                    .set_accessed(two_hours_ago),
+            )
+            .unwrap();
+        }
+
+        let removed = cleanup_stale_temp_files(&db_path, std::time::Duration::from_secs(3_600));
+        let mut removed: Vec<String> = removed
+            .iter()
+            .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        removed.sort();
+        assert_eq!(
+            removed,
+            vec![
+                ".pierwave-backup-20260101-000000-old.tmp".to_string(),
+                ".pierwave-restore-upload-old.tmp".to_string(),
+            ],
+            "只能清理超时的本产品临时文件"
+        );
+        assert!(!stale_restore.exists());
+        assert!(!stale_backup.exists());
+        assert!(fresh_restore.exists(), "正在上传的临时文件不能被删");
+        assert!(unrelated.exists(), "无关文件不能被删");
     }
 
     #[tokio::test]

@@ -10,6 +10,7 @@ use axum::Json;
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
 
+use pierwave_domain::credentials;
 use pierwave_domain::remote_backup;
 use pierwave_domain::repo;
 use pierwave_domain::secret_box::{self, SecretKey};
@@ -348,9 +349,32 @@ fn secret_decrypt_error() -> String {
         .to_string()
 }
 
+/// 读取当前实例的订阅派生 secret；解不开时映射成可翻译的 503。
+///
+/// `credentials::master_secret` 只会在 `hmac_secret_v1` 无法用当前主密钥解密
+/// （或数据库读写失败）时返回错误。前者是真实故障：订阅、`/me` 与期望态
+/// 都依赖它，不能把裸 500 甩给用户。错误里只出现键名，绝不带密文/明文。
+pub async fn subscription_secret(state: &AppState) -> AppResult<String> {
+    match credentials::master_secret(&state.db.pool, state.db.secret_key()).await {
+        Ok(secret) => Ok(secret),
+        Err(error) => {
+            tracing::error!(
+                key = credentials::MASTER_SECRET_KEY,
+                error = %error,
+                "订阅派生 secret 无法读取"
+            );
+            Err(AppError::service_unavailable(
+                "settings.secret_decrypt_failed",
+                Some(json!({ "keys": [credentials::MASTER_SECRET_KEY] })),
+                secret_decrypt_error(),
+            ))
+        }
+    }
+}
+
 async fn load_inner(pool: &SqlitePool, master: &SecretKey) -> Settings {
     let defaults = Settings::default();
-    // 三个用户可见秘密（以及内部 hmac secret 不走这里）需要透明解密。
+    // 三个用户可见秘密需要透明解密。
     let (telegram_bot_token, mut secret_error, token_broken) = read_secret_text(
         pool,
         master,
@@ -368,11 +392,17 @@ async fn load_inner(pool: &SqlitePool, master: &SecretKey) -> Settings {
         })
         .await;
     secret_error = secret_error.or(error);
+    // 内部 hmac_secret_v1 不返回给前端，但必须参与健康检查：否则它单独坏掉时
+    // 设置页显示健康，而订阅 / 用户摘要 / 期望态全部 500。
+    let (hmac_broken, error) =
+        probe_secret_setting(pool, master, credentials::MASTER_SECRET_KEY).await;
+    secret_error = secret_error.or(error);
     let mut secret_broken_keys = Vec::new();
     for (broken, key) in [
         (token_broken, TELEGRAM_BOT_TOKEN_KEY),
         (webhook_broken, WEBHOOK_URL_KEY),
         (password_broken, BACKUP_WEBDAV_PASSWORD_KEY),
+        (hmac_broken, credentials::MASTER_SECRET_KEY),
     ] {
         if broken {
             secret_broken_keys.push(key);
@@ -599,6 +629,31 @@ async fn read_secret_text(
     }
 }
 
+/// 只探测秘密能否解密，**不保留明文**。
+///
+/// 给内部 `hmac_secret_v1` 用：它不参与设置页回显，也不需要交给调用方；
+/// 这里只回答「能不能解开」，解不开时返回可读原因（不含值）。
+async fn probe_secret_setting(
+    pool: &SqlitePool,
+    master: &SecretKey,
+    key: &'static str,
+) -> (bool, Option<String>) {
+    match repo::settings::get(pool, key).await {
+        Ok(Some(raw)) => match secret_box::reveal_setting(master, &raw) {
+            Ok(_) => (false, None),
+            Err(error) => {
+                tracing::error!(key, error = %error, "设置中的秘密无法用当前主密钥解密");
+                (true, Some(secret_decrypt_error()))
+            }
+        },
+        Ok(None) => (false, None),
+        Err(error) => {
+            tracing::warn!(key, error = %error, "读取设置失败，使用默认值");
+            (false, None)
+        }
+    }
+}
+
 async fn read_int(pool: &SqlitePool, key: &str, min: i64, max: i64, default: i64) -> i64 {
     match repo::settings::get(pool, key).await {
         Ok(Some(raw)) => raw
@@ -657,6 +712,37 @@ pub async fn get(State(state): State<AppState>, user: CurrentUser) -> AppResult<
         body["secret_errors"] = json!({ "keys": broken_keys });
     }
     Ok(Json(body))
+}
+
+/// `POST /api/v1/settings/reset-subscription-secret`：删除内部订阅派生 secret。
+///
+/// 这是 `hmac_secret_v1` 损坏时唯一的自助入口：下一次读取订阅/摘要/期望态时
+/// 会重新生成随机 secret。代价是**所有已派生凭据失效**，客户端必须重新拉取
+/// 订阅；因此响应必须给出明确提示，并写审计。
+pub async fn reset_subscription_secret(
+    State(state): State<AppState>,
+    user: CurrentUser,
+) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+    repo::settings::delete(&state.db.pool, credentials::MASTER_SECRET_KEY).await?;
+
+    crate::audit::record(
+        &state,
+        &user.0,
+        "settings.reset_subscription_secret",
+        "settings",
+        json!({ "key": credentials::MASTER_SECRET_KEY }),
+    )
+    .await;
+
+    Ok(Json(json!({
+        "ok": true,
+        "code": "settings.subscription_secret_reset",
+        "message": "订阅派生 secret 已重置（下次使用时重新生成）：所有客户端需重新拉取订阅，\
+                    旧凭据失效 / The subscription derivation secret was reset (a new one is \
+                    generated on next use): every client must fetch its subscription again, \
+                    and old credentials no longer work",
+    })))
 }
 
 pub async fn update(
@@ -2640,6 +2726,129 @@ mod tests {
         let (status, _, body) =
             request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
         assert_eq!(status, StatusCode::OK, "重填秘密后必须能读取设置：{body}");
+    }
+
+    /// 内部 `hmac_secret_v1` 损坏必须可发现、可修：
+    /// * GET /settings 的 `secret_errors.keys` 包含它；
+    /// * `/me/summary` 返回可翻译的错误码，而不是裸 500；
+    /// * 管理员重置后订阅派生 secret 在首次使用时重新生成，摘要恢复 200。
+    #[tokio::test]
+    async fn broken_hmac_secret_is_reported_and_can_be_reset() {
+        let (app, state, admin, bob) = setup().await;
+        let other = SecretKey::generate().unwrap();
+        let sealed = secret_box::encrypt_setting(&other, "hmac-written-with-another-key");
+        repo::settings::set(&state.db.pool, "hmac_secret_v1", &sealed)
+            .await
+            .unwrap();
+
+        let (status, _, body) =
+            request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body["secret_errors"]["keys"],
+            json!(["hmac_secret_v1"]),
+            "hmac 单独坏掉也必须被标记：{body}"
+        );
+        assert!(!body.to_string().contains("hmac-written-with-another-key"));
+
+        // 用户摘要不能是裸 500：带 code + keys，前端可翻译并提示管理员处理。
+        let (status, _, body) =
+            request(&app, Some(&bob), Method::GET, "/api/v1/me/summary", None).await;
+        assert_eq!(
+            status,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "摘要要给出可恢复的错误而不是 500：{body}"
+        );
+        assert_eq!(body["code"], "settings.secret_decrypt_failed", "{body}");
+        assert_eq!(body["params"]["keys"], json!(["hmac_secret_v1"]), "{body}");
+        assert!(
+            !body.to_string().contains("hmac-written-with-another-key"),
+            "错误不能泄露明文：{body}"
+        );
+
+        // 订阅端点同样不能 500。
+        let bob_user = repo::users::find_by_username(&state.db.pool, "bob")
+            .await
+            .unwrap()
+            .unwrap();
+        let (status, _, body) = request(
+            &app,
+            None,
+            Method::GET,
+            &format!("/api/v1/sub/{}", bob_user.short_code),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+        assert_eq!(body["code"], "settings.secret_decrypt_failed", "{body}");
+
+        // 普通用户不能重置。
+        let (status, _, body) = request(
+            &app,
+            Some(&bob),
+            Method::POST,
+            "/api/v1/settings/reset-subscription-secret",
+            Some(json!({})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+
+        // 管理员重置：删行 + 审计 + 明确提示客户端需要重新拉取订阅。
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::POST,
+            "/api/v1/settings/reset-subscription-secret",
+            Some(json!({})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["code"], "settings.subscription_secret_reset", "{body}");
+        let message = body["message"].as_str().unwrap();
+        assert!(message.contains("重新拉取订阅"), "{message}");
+        assert!(
+            repo::settings::get(&state.db.pool, "hmac_secret_v1")
+                .await
+                .unwrap()
+                .is_none(),
+            "重置必须删掉旧的 hmac 行"
+        );
+
+        // 首次使用重新生成：摘要恢复 200，且新值以密文落库。
+        let (status, _, body) =
+            request(&app, Some(&bob), Method::GET, "/api/v1/me/summary", None).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let raw = repo::settings::get(&state.db.pool, "hmac_secret_v1")
+            .await
+            .unwrap()
+            .expect("首次使用必须重新生成 hmac_secret_v1");
+        assert!(
+            secret_box::is_encrypted_setting(&raw),
+            "新 secret 必须加密落库"
+        );
+        assert!(
+            secret_box::reveal_setting(state.db.secret_key(), &raw).is_ok(),
+            "新 secret 必须能被当前主密钥解密"
+        );
+
+        let (status, _, body) =
+            request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(
+            body.get("secret_errors").is_none(),
+            "重置后不应再标记秘密错误：{body}"
+        );
+
+        let actions: Vec<String> = repo::audit::list(&state.db.pool, 50)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.action)
+            .collect();
+        assert!(
+            actions.contains(&"settings.reset_subscription_secret".to_string()),
+            "重置必须进审计：{actions:?}"
+        );
     }
 
     /// 后台路径统一拿 `SecretError`：错误里只有键名，没有值。

@@ -2021,10 +2021,18 @@ const en = {
       saved: "The secrets you entered were saved",
       saveError: "Could not save the new values. Please try again later.",
       hmacConsequence:
-        "The subscription derivation secret shares the master key with the secrets above: existing subscription links stop working, and every client must fetch a new subscription URL. To keep the old links, restore secret.key from backup (or set the same PIERWAVE_SECRET_KEY); the server has no regenerate endpoint.",
+        "The subscription derivation secret shares the master key with the secrets above: after a reset every client must fetch its subscription again, and old credentials no longer work. To keep the old subscription, restore secret.key from backup (or set the same PIERWAVE_SECRET_KEY); otherwise use the reset action below.",
       hmacDoc: "Backup encryption and secret.key recovery steps",
       internalUnknown:
         "This internal secret cannot be re-entered here. Restore the master key used when it was written (data/secret.key or PIERWAVE_SECRET_KEY), then retry.",
+      reset: "Reset subscription derivation secret",
+      resetTitle: "Reset the subscription derivation secret?",
+      resetDesc:
+        "Every client must fetch its subscription again and old credentials stop working immediately; neither administrators nor users can recover the old links.",
+      resetAction: "Reset",
+      resetSuccess:
+        "The subscription derivation secret was reset; every client must fetch its subscription again",
+      resetError: "Could not reset the secret. Please try again later.",
     },
     notReady404:
       "The settings API is not ready yet (the backend may still be deploying). Please try again later.",
@@ -2388,9 +2396,9 @@ const en = {
         "The Telegram token, WebDAV password and webhook URL are deleted and must be re-entered after the restore.",
       forceHmacConsequence: "The subscription derivation secret is regenerated.",
       forceLinksConsequence:
-        "All old subscription links stop working; users must fetch their links again.",
+        "Every client must fetch its subscription again; old credentials no longer work.",
       forceConfirmLabel:
-        "I understand that all old subscription links will stop working and the secrets above must be re-entered",
+        "I understand that every client must fetch its subscription again, old credentials will stop working, and the secrets above must be re-entered",
       forceAction: "Force restore",
       forceActionPending: "Forcing restore…",
       forceError: "Forced restore failed. Please try again.",
@@ -4090,6 +4098,8 @@ const en = {
       "These secrets cannot be decrypted with the current master key: {keys}. Restore the master key used when they were written (data/secret.key or PIERWAVE_SECRET_KEY), then retry.",
     "settings.secret_overwrite":
       "These secrets cannot be decrypted with the current master key: {keys}. Re-enter them, or turn off the features that depend on them before saving.",
+    "settings.subscription_secret_reset":
+      "The subscription derivation secret was reset: every client must fetch its subscription again, and old credentials no longer work.",
     "backup.restore_read_failed": "Failed to read the uploaded content",
     "install.token_required": "Missing token parameter",
     "install.token_not_found": "Invalid token",

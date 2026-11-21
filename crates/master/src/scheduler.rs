@@ -542,11 +542,32 @@ pub async fn run_remote_backup_round(state: &AppState) -> anyhow::Result<RemoteB
             return Ok(RemoteBackupRound::Failed(error.message));
         }
     };
-    if !settings.backup_webdav_enabled
-        || settings.backup_webdav_url.is_empty()
-        || settings.backup_webdav_password.is_empty()
-    {
+    if !settings.backup_webdav_enabled {
         return Ok(RemoteBackupRound::Disabled);
+    }
+    // 开关开着但凭据为空 = 任务存在却跑不了，必须判 Failed 并告警。
+    // 当成 Disabled 会让管理员以为备份被正常关闭，实际上一次都没上传。
+    if settings.backup_webdav_url.is_empty() || settings.backup_webdav_password.is_empty() {
+        let missing = if settings.backup_webdav_url.is_empty() {
+            "WebDAV 地址"
+        } else {
+            "WebDAV 密码"
+        };
+        let message = format!(
+            "异地备份已开启，但缺少{missing}；请补全凭据或关闭异地备份 / \
+             Off-site backup is enabled but the {missing} is missing; fill it in or turn \
+             off-site backup off"
+        );
+        tracing::error!(missing, "异地备份缺少凭据，任务标记失败");
+        crate::alerts::notify(
+            state,
+            crate::alerts::AlertKind::BackupFailed,
+            "backup",
+            "异地备份无法启动 / Off-site backup cannot start",
+            &message,
+        )
+        .await;
+        return Ok(RemoteBackupRound::Failed(message));
     }
     let meta = crate::remote_backup::load_meta(&state.db.pool).await;
     if !crate::remote_backup::is_due(&meta, settings.backup_webdav_interval_hours, time::now()) {
@@ -765,13 +786,16 @@ mod tests {
             RemoteBackupRound::Disabled
         );
 
-        // 开启但缺地址/密码：仍按未配置处理（不会每 60 秒刷错误）。
+        // 开启但缺地址/密码：是 Failed（任务存在却跑不了），不是 Disabled。
         repo::settings::set(&state.db.pool, "backup_webdav_enabled", "1")
             .await
             .unwrap();
-        assert_eq!(
-            run_remote_backup_round(&state).await.unwrap(),
-            RemoteBackupRound::Disabled
+        assert!(
+            matches!(
+                run_remote_backup_round(&state).await.unwrap(),
+                RemoteBackupRound::Failed(_)
+            ),
+            "enabled=1 但缺凭据必须判失败"
         );
 
         for (key, value) in [
@@ -848,6 +872,57 @@ mod tests {
         assert_eq!(sent[0].kind, "backup_failed");
         assert!(sent[0].body.contains("无法解密"), "{}", sent[0].body);
         assert!(!sent[0].body.contains(canary));
+    }
+
+    /// `enabled=1` 但凭据为空是「任务失败」，不是「未启用」：必须告警。
+    ///
+    /// 把它当 Disabled 会让管理员以为备份正常关闭，实际上一次都没上传。
+    #[tokio::test]
+    async fn scheduled_backup_with_missing_credentials_is_failed_and_alerts() {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let transport = Arc::new(RecordingTransport::default());
+        let mut state = AppState::new(db, "web/dist");
+        state.alerts = Alerts::new(transport.clone());
+
+        for (key, value) in [
+            ("backup_webdav_enabled", "1".to_string()),
+            (
+                "backup_webdav_url",
+                "https://dav.example.test/dav".to_string(),
+            ),
+            ("backup_webdav_interval_hours", "24".to_string()),
+            (
+                "webhook_url",
+                "https://hooks.example.test/alert".to_string(),
+            ),
+            ("alert_events", "backup_failed".to_string()),
+            ("alert_cooldown_secs", "0".to_string()),
+        ] {
+            repo::settings::set(&state.db.pool, key, &value)
+                .await
+                .unwrap();
+        }
+        // 密码留空：这不是「没开启」，而是开启后无法执行。
+
+        let round = run_remote_backup_round(&state).await.unwrap();
+        match round {
+            RemoteBackupRound::Failed(message) => {
+                assert!(
+                    message.contains("密码") || message.contains("凭据"),
+                    "失败原因要说明缺什么：{message}"
+                );
+            }
+            other => panic!("enabled=1 且凭据为空必须是 Failed，不是 Disabled：{other:?}"),
+        }
+
+        let sent = transport.wait_for(1).await;
+        assert_eq!(sent[0].kind, "backup_failed");
+        assert!(
+            sent[0].body.contains("密码") || sent[0].body.contains("凭据"),
+            "{}",
+            sent[0].body
+        );
     }
 
     #[tokio::test]

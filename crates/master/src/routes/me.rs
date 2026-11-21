@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use pierwave_domain::models::UserPackageView;
-use pierwave_domain::{credentials, password, repo};
+use pierwave_domain::{password, repo};
 
 use crate::auth::{CurrentUser, SESSION_COOKIE};
 use crate::error::{AppError, AppResult};
@@ -91,7 +91,7 @@ pub async fn summary(
     // 节点可见性与订阅端点走同一套授权 SQL **以及同一套渲染过滤**：
     // 缺 REALITY 公钥 / SS 密码 / 服务器地址的节点不会出现在订阅里，
     // 也不能出现在这里的 `nodes` 中；它们只计入 `nodes_unavailable`。
-    let secret = credentials::master_secret(&state.db.pool, state.db.secret_key()).await?;
+    let secret = super::settings::subscription_secret(&state).await?;
     let rendered =
         super::subscribe::subscription_nodes_report(&state.db.pool, &user.0.id, &secret).await?;
     let servers = repo::servers::list(&state.db.pool).await?;

@@ -765,7 +765,7 @@ DELETE /api/v1/backup/restore    -> 取消待恢复
 - `settings` 里所有 `enc:v1:` 值必须能用**当前主密钥**解开（否则 400
   `backup.key_mismatch`，详见 [BACKUP_ENCRYPTION.md](BACKUP_ENCRYPTION.md)）；
   管理员确认丢弃旧秘密时用 `?force=true` 覆盖，候选库里解不开的 `enc:v1:`
-  行会被删除（`hmac_secret_v1` 重新生成，旧订阅链接失效）。
+  行会被删除（`hmac_secret_v1` 重新生成，所有客户端需重新拉取订阅，旧凭据失效）。
 
 ### 前端
 

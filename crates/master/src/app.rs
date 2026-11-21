@@ -427,6 +427,11 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/settings",
             get(routes::settings::get).patch(routes::settings::update),
         )
+        // 内部订阅派生 secret 损坏时的唯一自助入口（删除后首次使用重新生成）。
+        .route(
+            "/api/v1/settings/reset-subscription-secret",
+            post(routes::settings::reset_subscription_secret),
+        )
         .route("/api/v1/alerts/test", post(routes::alerts::test))
         // 版本更新：查询与手动检测，均仅管理员；版本源只认 GitHub Releases。
         .route("/api/v1/updates", get(routes::updates::get))
