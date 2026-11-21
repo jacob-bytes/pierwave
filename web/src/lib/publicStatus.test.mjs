@@ -27,6 +27,8 @@ import {
   hasSamples,
   isPublicStatusPath,
   isStatusStale,
+  lowestAvailabilityBucket,
+  publicStatusServerId,
   loadStatusView,
   matchesGroupFilter,
   matchesServerQuery,
@@ -517,13 +519,52 @@ test("totalOnlineRate skips missing and dirty directions but keeps zero", () => 
   );
 });
 
-test("isPublicStatusPath only allows the exact public route", () => {
+test("public status paths are the list and one-level detail routes", () => {
   assert.equal(isPublicStatusPath("/status"), true);
   assert.equal(isPublicStatusPath("/status/"), true);
-  assert.equal(isPublicStatusPath("/status/servers"), false);
+  assert.equal(isPublicStatusPath("/status/srv-hk"), true, "详情页是公开路由");
+  assert.equal(isPublicStatusPath("/status/srv-hk/"), true);
+  assert.equal(isPublicStatusPath("/status/srv-hk/nodes"), false);
   assert.equal(isPublicStatusPath("/statuses"), false);
   assert.equal(isPublicStatusPath("/"), false);
   assert.equal(isPublicStatusPath("/login"), false);
+
+  assert.equal(publicStatusServerId("/status/srv-hk"), "srv-hk");
+  assert.equal(publicStatusServerId("/status/srv-hk/"), "srv-hk");
+  assert.equal(
+    publicStatusServerId("/status/srv%2Fhk"),
+    "srv/hk",
+    "id 可能是编码过的",
+  );
+  assert.equal(publicStatusServerId("/status"), null);
+  assert.equal(publicStatusServerId("/status/"), null);
+  assert.equal(publicStatusServerId("/status/a/b"), null);
+  assert.equal(publicStatusServerId("/status/%"), null, "坏编码不崩");
+});
+
+test("lowestAvailabilityBucket finds the earliest lowest sampled hour", () => {
+  const bucket = (ts, online_ratio) => ({ ts, online_ratio });
+  assert.equal(lowestAvailabilityBucket([]), null);
+  assert.equal(lowestAvailabilityBucket(null), null);
+  assert.equal(
+    lowestAvailabilityBucket([null, { ts: 1, online_ratio: Number.NaN }]),
+    null,
+  );
+  assert.deepEqual(
+    lowestAvailabilityBucket([
+      bucket(1, 1),
+      bucket(2, 0.91),
+      bucket(3, 0.91),
+      bucket(4, 0.98),
+    ]),
+    { ts: 2, ratio: 0.91 },
+    "并列取更早的一段",
+  );
+  assert.deepEqual(
+    lowestAvailabilityBucket([bucket(1, 2), bucket(2, -1)]),
+    { ts: 2, ratio: 0 },
+    "越界比例先夹到 0..1",
+  );
 });
 
 const SERVER = (overrides = {}) => ({
@@ -991,14 +1032,21 @@ test("card traffic row leads every figure with an icon and three columns", () =>
   assert.match(card, /未配置|notSet/);
 });
 
-test("card hover raises the edge without making the card a button", () => {
+test("card is a link with the same hover edge, not a fake button", () => {
   const card = read("../components/status/ServerCard.tsx");
-  // 悬停提示"可点/可看"，不做单选状态机：卡片不再可聚焦、没有 aria-pressed。
-  // 1px 的边缘 + 更高的主色透明度：比 2px 的"厚框"轻，但仍然看得见。
-  assert.match(card, /hover:ring-1/);
-  assert.doesNotMatch(card, /hover:ring-2/);
-  assert.match(card, /hover:ring-primary\/70/);
-  assert.match(card, /hover:shadow-sm/);
+  // 整张卡进入详情：真实 <Link>，不是 role=button 的手写状态机。
+  assert.match(card, /<Link/);
+  assert.match(
+    card,
+    /to=\{`\/status\/\$\{encodeURIComponent\(server\.id\)\}`\}/,
+  );
+  assert.match(card, /publicStatus\.detail\.open/);
+  assert.match(card, /ChevronRightIcon/);
+  // 悬停仍只是 1px 主色 + 阴影，不做单选状态。
+  assert.match(card, /group-hover:ring-1/);
+  assert.match(card, /group-hover:ring-primary\/70/);
+  assert.match(card, /group-hover:shadow-sm/);
+  assert.doesNotMatch(card, /hover:ring-2|group-hover:ring-2/);
   assert.doesNotMatch(card, /aria-pressed/);
   assert.doesNotMatch(card, /toggleSelected/);
   assert.doesNotMatch(card, /role="button"/);

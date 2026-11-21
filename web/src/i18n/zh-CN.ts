@@ -256,6 +256,28 @@ const zhCN = {
       emptyFilteredTitle: "没有匹配的节点",
       emptyFilteredDescription: "换个关键词，或清除筛选。",
     },
+    detail: {
+      back: "返回列表",
+      open: "查看 {name} 详情",
+      groupTitle: "分组：{name}",
+      titleFallback: "服务器详情",
+      notFoundTitle: "该服务器不存在或已下线",
+      sections: {
+        availability: "24 小时可用率",
+        resources: "资源",
+        billing: "费用与到期",
+        system: "系统信息",
+      },
+      lowest: "最低时段 {range} · {percent}%",
+      lastReported: "最后上报 {time}",
+      refreshHint: "数据每 20 秒刷新",
+      system: {
+        os: "发行版",
+        virt: "虚拟化",
+        arch: "架构",
+      },
+      availabilityAria: "{name} 的 24 小时可用率",
+    },
     server: {
       online: "在线",
       offline: "离线",

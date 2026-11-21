@@ -943,10 +943,59 @@ export function publicBilling(
   };
 }
 
+/** 详情页路径里的服务器 id；不是 `/status/:id` 时返回 null。 */
+export function publicStatusServerId(pathname: string): string | null {
+  const match = /^\/status\/([^/]+)\/?$/.exec(pathname);
+  if (!match) return null;
+  try {
+    const id = decodeURIComponent(match[1]);
+    return id.length > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * `/status` 与 `/status/` 是公开路由，必须在 `useMe` 之前放行；
- * `/status/xxx` 不在白名单里，仍走登录守卫。
+ * 公开状态页的路径：`/status`、`/status/` 与 `/status/:id` 都在 `useMe`
+ * 之前放行；`/status/xxx/nodes` 这种多段路径仍走登录守卫。
  */
 export function isPublicStatusPath(pathname: string): boolean {
-  return pathname === "/status" || pathname === "/status/";
+  return (
+    pathname === "/status" ||
+    pathname === "/status/" ||
+    publicStatusServerId(pathname) !== null
+  );
+}
+
+/** 24 小时桶里可用率最低的一段；没有采样时返回 null。 */
+export interface LowestAvailabilityBucket {
+  ts: number;
+  /** 0..1 */
+  ratio: number;
+}
+
+/**
+ * 找 `buckets_24h` 里最低的一段（并列取更早的一段），供详情页脚注
+ * 「最低时段 03:00–04:00 · 91%」使用。null / 非有限值 / 负值都跳过。
+ */
+export function lowestAvailabilityBucket(
+  buckets:
+    | readonly ({ ts: number; online_ratio: number } | null)[]
+    | null
+    | undefined,
+): LowestAvailabilityBucket | null {
+  if (!Array.isArray(buckets)) return null;
+  let lowest: LowestAvailabilityBucket | null = null;
+
+  for (const bucket of buckets) {
+    if (!bucket) continue;
+    const raw = bucket.online_ratio;
+    if (typeof raw !== "number" || !Number.isFinite(raw)) continue;
+    const ratio = Math.min(1, Math.max(0, raw));
+    if (lowest === null || ratio < lowest.ratio) {
+      lowest = { ts: bucket.ts, ratio };
+    }
+  }
+
+  return lowest;
 }

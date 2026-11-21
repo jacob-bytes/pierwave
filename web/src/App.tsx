@@ -4,9 +4,10 @@ import { Loader2Icon } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { ListError, PageSkeleton } from "@/components/common";
 import { StatusRouteSkeleton } from "@/components/status/StatusSkeleton";
+import { StatusDetailRouteSkeleton } from "@/components/status/StatusDetailSkeleton";
 import { Card, CardContent } from "@/components/ui/card";
 import { isUnauthorized, useMe } from "@/lib/queries";
-import { isPublicStatusPath } from "@/lib/publicStatus";
+import { isPublicStatusPath, publicStatusServerId } from "@/lib/publicStatus";
 import { safeNextPath } from "@/lib/auth";
 import { errorText } from "@/lib/errors";
 import { useI18n } from "@/i18n";
@@ -15,6 +16,7 @@ import { useI18n } from "@/i18n";
 // 不再有「骨架 → 表单」的形态跳变。
 import LoginPage, { LoginSkeleton } from "@/pages/Login";
 const StatusPage = lazy(() => import("@/pages/Status"));
+const StatusDetailPage = lazy(() => import("@/pages/StatusDetail"));
 const OverviewPage = lazy(() => import("@/pages/Overview"));
 const ServersPage = lazy(() => import("@/pages/Servers"));
 const UsersPage = lazy(() => import("@/pages/Users"));
@@ -75,11 +77,18 @@ export default function App() {
   const { pathname } = useLocation();
 
   if (isPublicStatusPath(pathname)) {
+    const serverId = publicStatusServerId(pathname);
     return (
       <Suspense
-        fallback={<StatusRouteSkeleton label={t("publicStatus.loading")} />}
+        fallback={
+          serverId ? (
+            <StatusDetailRouteSkeleton label={t("publicStatus.loading")} />
+          ) : (
+            <StatusRouteSkeleton label={t("publicStatus.loading")} />
+          )
+        }
       >
-        <StatusPage />
+        {serverId ? <StatusDetailPage id={serverId} /> : <StatusPage />}
       </Suspense>
     );
   }

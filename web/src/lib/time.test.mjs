@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { setCurrentLocale } from "../i18n/locale.ts";
-import { formatClockTime, formatRelativeTime } from "./time.ts";
+import {
+  formatClockTime,
+  formatHourRange,
+  formatRelativeTime,
+} from "./time.ts";
 
 setCurrentLocale("zh-CN");
 
@@ -71,4 +75,15 @@ test("formatClockTime keeps a dash for missing or invalid timestamps", () => {
   assert.equal(formatClockTime(null), "—");
   assert.equal(formatClockTime(undefined), "—");
   assert.equal(formatClockTime(Number.NaN), "—");
+});
+
+test("formatHourRange prints a UTC+8 hour interval", () => {
+  // 2026-11-20 19:00 UTC = 2026-11-21 03:00 UTC+8
+  const start = Date.UTC(2026, 10, 20, 19, 0, 0) / 1_000;
+  assert.equal(formatHourRange(start), "03:00–04:00");
+  // 23:00 的下一段跨到 00:00，只写小时。
+  const late = Date.UTC(2026, 10, 20, 15, 0, 0) / 1_000;
+  assert.equal(formatHourRange(late), "23:00–00:00");
+  assert.equal(formatHourRange(null), "—");
+  assert.equal(formatHourRange(Number.NaN), "—");
 });

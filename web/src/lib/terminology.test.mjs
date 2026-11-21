@@ -29,15 +29,27 @@ function values(node) {
   return Object.values(node).flatMap(values);
 }
 
-test("the public status page never mixes servers and nodes", () => {
-  // 访客页面统一用「节点」：连「全部 {n} 台服务器在线」这类句子也改成不含名词。
+test("the public status list calls hosts nodes; the detail page calls them servers", () => {
+  // 列表仍然统一用「节点」：连「全部 {n} 台服务器在线」这类句子也改成不含名词。
+  const withoutDetail = (dictionary) => ({ ...dictionary, detail: undefined });
   assert.deepEqual(
-    values(zh.publicStatus).filter((text) => text.includes("服务器")),
+    values(withoutDetail(zh.publicStatus)).filter((text) => text.includes("服务器")),
     [],
   );
   assert.deepEqual(
-    values(en.publicStatus).filter((text) => /\bservers?\b/i.test(text)),
+    values(withoutDetail(en.publicStatus)).filter((text) =>
+      /\bservers?\b/i.test(text),
+    ),
     [],
+  );
+
+  // 所有者对详情页的决策：这里用「服务器」，不复用列表的「节点」。
+  assert.equal(zh.publicStatus.detail.titleFallback, "服务器详情");
+  assert.equal(zh.publicStatus.detail.notFoundTitle, "该服务器不存在或已下线");
+  assert.equal(en.publicStatus.detail.titleFallback, "Server details");
+  assert.equal(
+    en.publicStatus.detail.notFoundTitle,
+    "This server does not exist or is offline",
   );
 });
 

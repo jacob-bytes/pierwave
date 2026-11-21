@@ -1,9 +1,11 @@
+import { Link } from "react-router-dom";
 import {
   ArrowDownIcon,
   ArrowDownToLineIcon,
   ArrowUpIcon,
   ArrowUpToLineIcon,
   CalendarClockIcon,
+  ChevronRightIcon,
   CoinsIcon,
   GlobeIcon,
   type LucideIcon,
@@ -345,12 +347,17 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
   const spec = serverSpecLine(server);
 
   return (
-    <Card
-      className={cn(
-        "h-full min-w-0 gap-0 rounded-xl p-4 transition-[box-shadow,background-color] duration-150 [--card-spacing:--spacing(4)] hover:ring-1 hover:ring-primary/70 hover:shadow-sm focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:shadow-sm focus-visible:outline-none",
-        state !== "online" && "bg-muted/40",
-      )}
+    <Link
+      to={`/status/${encodeURIComponent(server.id)}`}
+      aria-label={t("publicStatus.detail.open", { name: server.name })}
+      className="group block h-full min-w-0 rounded-xl focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:outline-none"
     >
+      <Card
+        className={cn(
+          "h-full min-w-0 gap-0 rounded-xl p-4 transition-[box-shadow,background-color] duration-150 [--card-spacing:--spacing(4)] group-hover:ring-1 group-hover:ring-primary/70 group-hover:shadow-sm",
+          state !== "online" && "bg-muted/40",
+        )}
+      >
       {/* 标题行：名称在左，状态 pill 在右。名称让位、pill 不换行，
           长主机名在省略号处截断，而不是把状态挤出卡片。 */}
       <div className="flex min-w-0 items-center gap-2">
@@ -380,6 +387,11 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
           )}
         </span>
         <StatusChip state={state} uptime={uptimeDuration} className="ml-auto" />
+        {/* 可进入的极轻提示：图标常驻、不抢状态 pill；悬停时略提亮。 */}
+        <ChevronRightIcon
+          aria-hidden="true"
+          className="size-3.5 shrink-0 text-muted-foreground/50 transition-colors group-hover:text-muted-foreground"
+        />
       </div>
 
       {/* 副行：发行版 版本 · 虚拟化 · 架构（缺失项跳过）。延迟在最右，
@@ -466,6 +478,7 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
           <AvailabilityValue ratio={server.uptime_7d} />
         </div>
       </div>
-    </Card>
+      </Card>
+    </Link>
   );
 }

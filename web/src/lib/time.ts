@@ -100,6 +100,22 @@ export function formatClockTime(
   )}`;
 }
 
+/**
+ * Unix 秒 → UTC+8 的整点小时区间 `03:00–04:00`。
+ *
+ * 详情页的「最低时段」用它：桶起点就是整点，结束时间固定加一小时；
+ * 23:00 的下一段是次日 00:00，只写小时，不跨日期展开。
+ */
+export function formatHourRange(
+  unixSeconds: number | null | undefined,
+): string {
+  if (unixSeconds === null || unixSeconds === undefined) return "—";
+  const start = toUtc8WallClock(unixSeconds * 1_000);
+  if (Number.isNaN(start.getTime())) return "—";
+  const end = new Date(start.getTime() + 60 * 60 * 1_000);
+  return `${pad(start.getUTCHours())}:00–${pad(end.getUTCHours())}:00`;
+}
+
 /** Unix 秒 → UTC+8 的 `YYYY-MM-DD HH:mm:ss`，用于 hover 绝对时间。 */
 export function formatAbsoluteTime(
   unixSeconds: number | null | undefined,

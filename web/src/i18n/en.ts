@@ -262,6 +262,28 @@ const en = {
       emptyFilteredTitle: "No matching nodes",
       emptyFilteredDescription: "Try another keyword, or clear the filters.",
     },
+    detail: {
+      back: "Back to list",
+      open: "View {name} details",
+      groupTitle: "Group: {name}",
+      titleFallback: "Server details",
+      notFoundTitle: "This server does not exist or is offline",
+      sections: {
+        availability: "24h availability",
+        resources: "Resources",
+        billing: "Billing and expiry",
+        system: "System",
+      },
+      lowest: "Lowest hour {range} · {percent}%",
+      lastReported: "Last reported {time}",
+      refreshHint: "Refreshes every 20 seconds",
+      system: {
+        os: "OS",
+        virt: "Virtualization",
+        arch: "Architecture",
+      },
+      availabilityAria: "{name} 24h availability",
+    },
     server: {
       online: "Online",
       offline: "Offline",
