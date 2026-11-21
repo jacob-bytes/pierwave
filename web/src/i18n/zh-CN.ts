@@ -734,6 +734,10 @@ const zhCN = {
       none: "未填写",
       publicHint: "填写后会在公开状态页展示",
       errors: {
+    "public_status.rate_limited":
+      "访问过于频繁，请 {retry_after_secs} 秒后重试",
+    "public_status.overloaded":
+      "状态页正在生成，请稍后重试",
         paidUntil:
           "到期日需为 1970-01-01 到 2100-12-31 之间的真实日期（YYYY-MM-DD），或留空",
         price: "价格需在 0–9,999,999.99 元之间，最多两位小数",

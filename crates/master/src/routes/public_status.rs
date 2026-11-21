@@ -282,15 +282,13 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
     }
 
     // 开关判断必须在缓存之前：关闭后即使有旧缓存也必须立刻 404。
-    if let Some(cached) = state.public_status.get() {
-        return Ok(Json(cached.list));
-    }
-
-    let snapshot = build_snapshot(&state, &settings).await?;
-    // 先取列表再移动整个快照进缓存：缓存里同时留着每台服务器的趋势。
-    let list = snapshot.list.clone();
-    state.public_status.put(snapshot);
-    Ok(Json(list))
+    // 缓存未命中时走单飞重建：同一时刻只有一个请求真的聚合，其余等同一结果
+    // （见 `PublicStatusCache::get_or_build`）。
+    let snapshot = state
+        .public_status
+        .get_or_build(|| build_snapshot(&state, &settings))
+        .await?;
+    Ok(Json(snapshot.list))
 }
 
 /// 单台服务器的公开详情：`{ server, series_24h }`。
@@ -300,7 +298,8 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
 /// `public_status.not_found`；页面关闭时是 404 `public_status.disabled`。
 ///
 /// 缓存与列表共用：详情请求先看列表快照，未命中就做一次与列表相同的聚合再
-/// 缓存。详情不会单独维护一份会过期的趋势缓存。
+/// 缓存。详情不会单独维护一份会过期的趋势缓存。冷启动 / 过期瞬间的并发详情
+/// 请求同样走单飞，不会各自扫一遍采样表。
 pub async fn detail(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -310,14 +309,10 @@ pub async fn detail(
         return Err(disabled_error());
     }
 
-    let snapshot = match state.public_status.get() {
-        Some(snapshot) => snapshot,
-        None => {
-            let snapshot = build_snapshot(&state, &settings).await?;
-            state.public_status.put(snapshot.clone());
-            snapshot
-        }
-    };
+    let snapshot = state
+        .public_status
+        .get_or_build(|| build_snapshot(&state, &settings))
+        .await?;
 
     let server = snapshot
         .list

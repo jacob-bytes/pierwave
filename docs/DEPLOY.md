@@ -58,6 +58,7 @@ PIERWAVE_ADMIN_PASSWORD='换成强密码' ./pierwave-master
 | `PIERWAVE_CHAIN_AVAILABILITY_THRESHOLD` | `99` | 链可用率告警阈值（百分比 0–100）/ Chain availability alert threshold (percent, 0–100) |
 | `PIERWAVE_CHAIN_DEGRADED_STREAK` | `3` | 连续多少次心跳低于阈值才告警（1–100）/ Consecutive low-availability checks before alerting (1–100) |
 | `PIERWAVE_HEARTBEAT_TIMEOUT_SECS` | `90` | 心跳超时判定阈值（秒，正整数）：超过该时长没有心跳就把服务器标为离线并发 `server_offline` 告警 / Heartbeat timeout in seconds (positive integer); a server with no heartbeat for longer is marked offline and a `server_offline` alert is sent |
+| `PIERWAVE_PUBLIC_RATE_LIMIT_PER_MIN` | `60` | 公开状态页每 IP 每分钟读取上限（正整数；空串 / `0` / 负数 / 非数字等非法值回落 60 并打一条 warn）/ Per-IP reads per minute for the public status page (positive integer; invalid values such as empty, `0`, negative or non-numeric fall back to 60 with a warning) |
 
 登录限流的阈值、锁定时长、会话有效期、面板名称都在「设置」页里改（存 `settings` 表），不用重启。
 
@@ -82,6 +83,38 @@ heartbeat flips the server back to `online` automatically. The sweep only change
 **关于 `X-Forwarded-For`**：主控只在直连方是回环/内网地址时才采信它（用于登录限流的 IP 维度）。
 - 走 Nginx/Caddy 反代（master 监听 127.0.0.1）→ XFF 生效，建议用 `$remote_addr` 覆盖而不是透传客户端值；
 - 直接 `IP:port` 暴露 → XFF 被忽略，一律按真实对端 IP 计数，避免伪造头绕过限流。
+
+**公开状态页限流 / Public status rate limiting**：`GET /api/v1/public/status` 与
+`GET /api/v1/public/status/{id}` 按客户端 IP 限流，默认每 IP **每分钟 60 次**，
+超限返回 `429` + `Retry-After`（`code = public_status.rate_limited`）。
+
+- 列表与详情**共用同一个桶**；阈值用 `PIERWAVE_PUBLIC_RATE_LIMIT_PER_MIN` 调整，
+  空串 / `0` / 负数 / 非数字等非法值回落 60。
+- `/api/v1/health` **不限流**：监控探针通常按秒级轮询，把它和公开页塞进同一个桶
+  只会让面板被刷时变成监控误报。管理端 `/api/v1/public-status/*` 走鉴权，也不在这个桶里。
+- 与登录 / Bearer 认证失败限流是**两张独立的表**：读公开页再多也不会把登录或
+  Bearer 打成 `429`，撞库失败也不消耗公开页的额度。
+- 反代必须按上面的 XFF 规则传真实客户端地址（`$remote_addr` 覆盖最稳），否则
+  所有请求会落到同一个桶，或者被伪造头绕过。
+- 30 秒快照过期或冷启动时只允许一个请求重建（单飞），其余请求等同一结果；
+  等待超过 5 秒返回 `503`（`code = public_status.overloaded`）。细节与指标日志见
+  [PUBLIC-STATUS.md](PUBLIC-STATUS.md)。
+
+English: both public endpoints are rate-limited per client IP — 60 requests per
+minute by default, `429` + `Retry-After` (code `public_status.rate_limited`)
+when exceeded. The list and the detail share one bucket; tune the threshold with
+`PIERWAVE_PUBLIC_RATE_LIMIT_PER_MIN` (invalid values fall back to 60).
+`/api/v1/health` is deliberately **not** limited, because it is the monitoring
+probe and folding it into the same bucket would turn load on the public page
+into false alarms; the authenticated `/api/v1/public-status/*` admin endpoints
+are outside this bucket too. This limiter is fully separate from the
+login / Bearer auth-failure limiter in both directions. The reverse proxy must
+forward the real client address following the XFF rules above (`$remote_addr`
+overwrite is safest), otherwise every request lands in one bucket or forged
+hops bypass the limit. When the 30-second snapshot expires (or on cold start)
+only one request rebuilds it (single-flight); waiters share that result and get
+`503` (`public_status.overloaded`) after waiting 5 seconds. See
+[PUBLIC-STATUS.md](PUBLIC-STATUS.md) for details and the metric logs.
 
 ## Agent 一键安装
 

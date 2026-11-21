@@ -4,8 +4,13 @@
 
 | 接口 | 作用 | 缓存 |
 |---|---|---|
-| `GET /api/v1/public/status` | 列表 + 全站迷你图 + 分组 + 汇总 | 30 秒（进程内） |
+| `GET /api/v1/public/status` | 列表 + 全站迷你图 + 分组 + 汇总 | 30 秒（进程内，单飞重建） |
 | `GET /api/v1/public/status/{id}` | 单台服务器的完整行 + 24h 逐小时趋势 | 与列表共用同一份 30 秒快照 |
+
+两个接口都**按 IP 限流**（默认每分钟 60 次，超限 `429` + `Retry-After`），
+见下文「限流与单飞」/ Both endpoints are rate-limited per client IP (60
+requests per minute by default, `429` + `Retry-After` when exceeded); see
+"Rate limiting and single-flight" below.
 
 本文描述这两个接口、`series`（三张迷你图的历史序列）、每台服务器上的详情字段
 （`outage_minutes_24h` / `first_seen_at` / `inbound_count` / `buckets_7d` /
@@ -483,6 +488,125 @@ re-aggregating; the first detail request after expiry performs the same full
 aggregation as the list and re-caches it. The `public_status_enabled = 0` check
 runs before the cache (both endpoints 404 immediately), and whitelist / billing
 visibility writes flush the cache instead of waiting for the TTL.
+
+### 限流与单飞 / Rate limiting and single-flight
+
+这一节是防刷（S1）与缓存击穿（S2）的行为契约，**只影响匿名公开读取**：
+管理端接口 `/api/v1/public-status/*`（白名单）仍走鉴权，不受这里的限流约束。
+
+#### 公开读取限流 / Public read rate limit
+
+| 项 | 值 |
+|---|---|
+| 覆盖接口 | `GET /api/v1/public/status`、`GET /api/v1/public/status/{id}`（**共用同一个桶**） |
+| 维度 | 客户端 IP（复用 `ClientAddr`：XFF 信任边界 + IPv4-mapped 归一 + IPv6 `/64` 聚合） |
+| 默认阈值 | 每 IP **每分钟 60 次** |
+| 超限响应 | `429`，`code = public_status.rate_limited`，`params.retry_after_secs`，响应头 `Retry-After`（秒，`1..=60`） |
+| 窗口 | 固定 60 秒；窗口一过计数归零，**不会**因为继续请求而延长 |
+| 状态 | 进程内计数，主控重启即清零（与登录/认证失败限流同一取舍） |
+
+**为什么健康检查不限流**：`/api/v1/health` 是监控探针，通常按秒级轮询；
+把它和公开页塞进同一个桶，会让「面板被刷」直接变成「监控误报」。它只做一次
+内存检查、不打库聚合，保护它的收益远小于误伤成本。**故 `health` 不参与公开
+读取限流**。订阅入口 `/api/v1/sub/{short_code}` 也不在本限流范围内（它有自己的
+短码语义，本轮未改）。
+
+限流在 handler **之前**执行：被 429 的请求不读设置、不碰缓存、更不会触发聚合，
+这正是它要挡掉的成本。
+
+**与认证失败限流完全分开**：公开读取数的是「读得多」，认证失败（Bearer /
+Agent Hello / 登录）数的是「凭据错」。两张表互不写入——把公开页读爆不会让
+登录或 Bearer 被 429，撞库失败也不会消耗公开页的额度。公开读取**没有锁定
+状态**：不存在「被锁 N 分钟」，只有「本分钟剩余 0 次」。
+
+**绕过测试**：`X-Forwarded-For` 的伪造第一跳不生效（只采信右侧真实地址，
+信任边界见 [DEPLOY.md](DEPLOY.md) 的 XFF 一节）；`::ffff:1.2.3.4` 与
+`1.2.3.4` 共用桶；IPv6 同一 `/64` 内的地址轮换共用桶；列表与详情互不赠送额度。
+
+环境变量：
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `PIERWAVE_PUBLIC_RATE_LIMIT_PER_MIN` | `60` | 每 IP 每分钟读取上限（正整数）。空串 / `0` / 负数 / 非数字 / 带单位一律视为非法，**回落 60** 并打一条 warn——配置写错时应该退回安全默认，而不是关掉限流。 |
+
+English: both public endpoints share **one** per-IP bucket (60 requests per
+minute by default). Exceeding it returns `429` with `code =
+public_status.rate_limited`, `params.retry_after_secs` and a `Retry-After`
+header (1–60 seconds). It is a fixed 60-second window: the counter resets when
+the window ends and is never extended by hammering. Counters live in process
+memory and reset on restart (same trade-off as the login/auth-failure limiters).
+
+`/api/v1/health` is deliberately **not** rate-limited: it is the monitoring
+probe, polled every few seconds, and folding it into the same bucket would turn
+"the page is being hammered" into "monitoring is down". It only performs an
+in-memory check and never aggregates the database, so the protection is worth
+less than the false alarms. The rate limit runs **before** the handler: a 429
+request never loads settings, never touches the cache and never triggers an
+aggregation — that is the cost it exists to prevent.
+
+The table is completely separate from the auth-failure limiter (Bearer / Agent
+Hello / login): reading the public page heavily never locks out login or
+Bearer, and credential stuffing never consumes the public read budget. There is
+no lockout state here — only "0 requests left in this minute".
+
+Forged `X-Forwarded-For` first hops do not bypass the limit (only the rightmost
+real address is trusted; see the XFF section of [DEPLOY.md](DEPLOY.md));
+`::ffff:1.2.3.4` shares the bucket with `1.2.3.4`; addresses inside one IPv6
+`/64` share a bucket; the list and the detail do not grant each other extra
+budget. `PIERWAVE_PUBLIC_RATE_LIMIT_PER_MIN` overrides the threshold; any
+invalid value (empty, `0`, negative, non-numeric, with a unit) falls back to the
+default `60` and logs a warning.
+
+#### 单飞重建 / Single-flight rebuild
+
+30 秒缓存过期或冷启动时，**同一时刻只有一个请求**真正聚合（1000 台约 500ms），
+其余请求等它把快照写进缓存后直接复用：
+
+1. 缓存命中 → 直接返回，不加锁；
+2. 未命中 → 取一把 `tokio::sync::Mutex` 单飞锁（**不是**阻塞锁，不跨 `.await`
+   持 `std::sync::MutexGuard`）；
+3. 拿到锁后再看一次缓存：前一位重建者可能刚好写完 → 记为「等待命中」，直接复用；
+4. 仍然没有 → 由持有者聚合、写缓存、释放锁。
+
+**失败与超时语义**：
+
+| 情况 | 行为 |
+|---|---|
+| 聚合失败 | 错误原样返回给 leader，**不缓存错误**；锁随 guard 释放，下一次请求重新尝试（不会被一次失败卡 30 秒）。 |
+| 等待者等锁超过 **5 秒** | 返回 `503`，`code = public_status.overloaded`，`params.retry_after_secs = 1`；**不各自重算**（那正是缓存击穿本身）。 |
+| leader 写缓存后 | 排队的等待者依次拿到同一份结果，不再聚合。 |
+
+5 秒远大于 1000 台冷缓存的重建耗时（约 500ms），只有数据库卡死这类异常才会
+触发 503。这段等待窗口不额外读取数据库，也不持有任何 `std` 锁。
+
+**指标（只记日志，不接 Prometheus）**：`PublicStatusCache` 在进程内累计
+`rebuilds`（真实聚合次数）、`waited_hits`（等到锁后复用结果的次数）、
+`wait_timeouts`（503 次数）与 `failures`（聚合失败次数）。每次重建成功打一条
+`info` 日志 `公开状态页快照已重建 / public status snapshot rebuilt`，带
+`rebuilds` / `waited_hits` / `elapsed_ms`；等待命中打 `debug`；聚合失败打 `warn`；
+等待超时打 `warn`。并发回归：20 个并发请求只允许 1 次重建（单元测试与 HTTP
+测试各一份），见 `crates/master/src/state.rs` 与 `crates/master/src/app.rs`。
+
+English: when the 30-second snapshot expires (or on cold start) only **one**
+request actually aggregates (~500ms at 1000 servers); the rest wait for that
+result and reuse it. Cache hits take no lock. A miss takes a
+`tokio::sync::Mutex` single-flight lock (never a blocking lock; a
+`std::sync::MutexGuard` is never held across `.await`), re-checks the cache once
+the lock is acquired (a "waited hit" reuses the previous builder's result), and
+otherwise builds, stores and releases.
+
+A failed aggregation returns the error to the leader and is **not cached**; the
+guard is released so the next request retries instead of being stuck for 30
+seconds. A waiter that cannot get the lock within **5 seconds** gets `503`
+`public_status.overloaded` with `params.retry_after_secs = 1` instead of
+recomputing (recomputing is exactly the cache stampede this prevents). 5
+seconds is an order of magnitude above the ~500ms cold rebuild at 1000 servers,
+so only a stuck database triggers it. Log-only counters (`rebuilds`,
+`waited_hits`, `wait_timeouts`, `failures`) are kept in the cache; a successful
+rebuild logs `info` with `rebuilds` / `waited_hits` / `elapsed_ms`, waited hits
+log at `debug`, failures and wait timeouts at `warn`. Regression tests assert
+that 20 concurrent requests trigger exactly one rebuild, both at the cache layer
+and through HTTP.
 
 ### gzip 压缩 / gzip compression
 

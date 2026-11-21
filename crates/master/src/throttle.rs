@@ -1,3 +1,13 @@
+//! 进程内限流：登录失败限流、认证失败 IP 限流、公开读取 IP 限流。
+//!
+//! 三张表互不相干，**绝不共用一个计数**：
+//!
+//! * [`LoginThrottle`]：登录失败的「(用户名, IP) / 用户名 / IP」三维计数；
+//! * [`IpThrottle`]：Bearer / Agent Hello 认证失败的 IP 计数；
+//! * [`PublicReadThrottle`]：公开状态页的**成功读取**计数（每 IP 每分钟 N 次）。
+//!
+//! 共用失败计数表会让「正常读公开页」被「密码撞库」连坐，反之亦然。
+//!
 //! 登录失败限流：进程内计数，主控重启即清空。
 //!
 //! 维度同时看「账号」和「客户端 IP」：一次失败会同时计入
@@ -720,6 +730,195 @@ impl IpThrottle {
     }
 }
 
+/// 公开读取限流的默认阈值：每个 IP 每分钟 60 次。
+pub const PUBLIC_READ_LIMIT_PER_MIN: u32 = 60;
+/// 公开读取限流的窗口：固定 60 秒，与「每分钟」的说法一致。
+pub const PUBLIC_READ_WINDOW: Duration = Duration::from_secs(60);
+/// 覆盖默认阈值的环境变量（正整数；非法值回落默认）。
+pub const PUBLIC_READ_LIMIT_ENV: &str = "PIERWAVE_PUBLIC_RATE_LIMIT_PER_MIN";
+/// 环境变量允许的最大值：再大等价于关闭限流，按非法值回落默认。
+pub const PUBLIC_READ_LIMIT_MAX: u32 = 1_000_000;
+
+/// 解析 `PIERWAVE_PUBLIC_RATE_LIMIT_PER_MIN` 的值。
+///
+/// 只接受 `1..=PUBLIC_READ_LIMIT_MAX` 的十进制整数：空串、`0`、负数、
+/// 带单位（`60/min`）一律视为非法，由调用方回落默认值——配置写错时
+/// 应该退回**安全默认**，而不是把限流关掉或把所有人挡在门外。
+pub fn parse_public_read_limit(raw: &str) -> Option<u32> {
+    raw.trim()
+        .parse::<u32>()
+        .ok()
+        .filter(|limit| (1..=PUBLIC_READ_LIMIT_MAX).contains(limit))
+}
+
+/// 从环境变量读限流阈值；未设置或非法时用 [`PUBLIC_READ_LIMIT_PER_MIN`]。
+pub fn public_read_limit_from_env() -> u32 {
+    let Ok(raw) = std::env::var(PUBLIC_READ_LIMIT_ENV) else {
+        return PUBLIC_READ_LIMIT_PER_MIN;
+    };
+    match parse_public_read_limit(&raw) {
+        Some(limit) => limit,
+        None => {
+            tracing::warn!(
+                value = %raw,
+                default = PUBLIC_READ_LIMIT_PER_MIN,
+                env = PUBLIC_READ_LIMIT_ENV,
+                "公开读取限流阈值非法，回落到默认值"
+            );
+            PUBLIC_READ_LIMIT_PER_MIN
+        }
+    }
+}
+
+/// 单个 IP 在固定窗口内的公开读取计数。
+#[derive(Debug, Clone)]
+struct PublicReadEntry {
+    window_started: Instant,
+    count: u32,
+    last_seen: Instant,
+    /// 本窗口是否已经为「被限流」打过一次 warn：429 风暴时不能每个请求一行日志。
+    warned: bool,
+}
+
+struct PublicReadInner {
+    limit: u32,
+    entries: HashMap<ThrottleKey, PublicReadEntry>,
+    /// 上一次全表清理的时间；语义与 [`IpInner`] 一致。
+    last_purge: Instant,
+    /// 上一次「表满且腾不出空间」的 warn 时间（限频）。
+    last_capacity_warn: Option<Instant>,
+}
+
+impl PublicReadInner {
+    fn purge(&mut self, now: Instant) {
+        let retain = PUBLIC_READ_WINDOW + Duration::from_secs(60);
+        self.entries
+            .retain(|_, entry| now.saturating_duration_since(entry.last_seen) <= retain);
+        self.last_purge = now;
+    }
+
+    fn maybe_purge(&mut self, now: Instant) {
+        if now.saturating_duration_since(self.last_purge) >= PURGE_INTERVAL {
+            self.purge(now);
+        }
+    }
+}
+
+/// 公开读取限流：每个客户端 IP 每分钟最多 N 次（默认
+/// [`PUBLIC_READ_LIMIT_PER_MIN`]）。
+///
+/// 只保护**匿名可读**的公开状态页（列表 + 详情），与认证失败限流完全分开：
+/// 这里数的是「读得多」，不是「密码错」，所以没有锁定状态、不随时间延长，
+/// 窗口一过计数归零。键来自 [`ThrottleKey`]（`ClientAddr` 已做 XFF 规范化与
+/// IPv6 `/64` 聚合），不另写一套地址解析；IPv4-mapped 归一同理由
+/// `ClientAddr` 负责，HTTP 层的「伪造 / mapped 写法不绕过」由 `app.rs` 的
+/// 用例覆盖。
+///
+/// 与 [`IpThrottle`] 同一套内存取舍：进程内、重启清零、map 有
+/// [`MAX_ENTRIES`] 硬上限。表满时淘汰最久未活动的条目（这里没有「锁定」
+/// 条目需要保护）；真的腾不出空间就保守放行，而不是把正常读者挡在门外。
+pub struct PublicReadThrottle {
+    inner: Mutex<PublicReadInner>,
+}
+
+impl Default for PublicReadThrottle {
+    fn default() -> Self {
+        Self::new(PUBLIC_READ_LIMIT_PER_MIN)
+    }
+}
+
+impl PublicReadThrottle {
+    pub fn new(limit: u32) -> Self {
+        Self {
+            inner: Mutex::new(PublicReadInner {
+                // 0 会让第一个请求就 429；兜底成 1，至少还能用。
+                limit: limit.max(1),
+                entries: HashMap::new(),
+                last_purge: Instant::now(),
+                last_capacity_warn: None,
+            }),
+        }
+    }
+
+    /// 从环境变量构造；非法值回落默认值（见 [`public_read_limit_from_env`]）。
+    pub fn from_env() -> Self {
+        Self::new(public_read_limit_from_env())
+    }
+
+    /// 记一次公开读取；超限时返回建议的 `Retry-After` 秒数（>= 1）。
+    pub fn check(&self, ip: impl Into<ThrottleKey>) -> Result<(), u64> {
+        self.check_at(ip.into(), Instant::now())
+    }
+
+    /// 当前 map 里的条目数；只给测试断言「表有上限」用。
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.lock().entries.len()
+    }
+
+    fn lock(&self) -> MutexGuard<'_, PublicReadInner> {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn check_at(&self, ip: ThrottleKey, now: Instant) -> Result<(), u64> {
+        let mut inner = self.lock();
+        let limit = inner.limit;
+        inner.maybe_purge(now);
+
+        // 先腾空间再写：公开读取全是「未锁定」条目，淘汰最久未活动的即可。
+        let missing = usize::from(!inner.entries.contains_key(&ip));
+        if !make_room(
+            &mut inner.entries,
+            missing,
+            |_entry| false,
+            |entry| entry.last_seen,
+        ) {
+            if should_warn(&mut inner.last_capacity_warn, now) {
+                tracing::warn!(
+                    entries = inner.entries.len(),
+                    "公开读取限流表已满且腾不出空间，本条请求保守放行"
+                );
+            }
+            return Ok(());
+        }
+
+        let entry = inner.entries.entry(ip).or_insert_with(|| PublicReadEntry {
+            window_started: now,
+            count: 0,
+            last_seen: now,
+            warned: false,
+        });
+        entry.last_seen = now;
+        if now.saturating_duration_since(entry.window_started) >= PUBLIC_READ_WINDOW {
+            // 窗口已过：计数归零，正常读者立即恢复。
+            entry.window_started = now;
+            entry.count = 0;
+            entry.warned = false;
+        }
+
+        if entry.count >= limit {
+            let elapsed = now.saturating_duration_since(entry.window_started);
+            let remaining = PUBLIC_READ_WINDOW.saturating_sub(elapsed);
+            let retry_after = remaining.as_millis().div_ceil(1000).max(1) as u64;
+            // 每个 IP 每个窗口最多一行 warn：被刷时不能把日志打爆。
+            if !entry.warned {
+                entry.warned = true;
+                tracing::warn!(
+                    ip = %ip,
+                    limit,
+                    retry_after,
+                    "公开读取超过每 IP 每分钟阈值，已返回 429"
+                );
+            }
+            return Err(retry_after);
+        }
+        entry.count = entry.count.saturating_add(1);
+        Ok(())
+    }
+}
+
 fn scopes_for(key: &Key) -> [EntryKey; 3] {
     [
         EntryKey {
@@ -1249,6 +1448,130 @@ mod tests {
                 .check_at(&key("locked-0", "10.0.0.3"), now)
                 .is_err(),
             "已有锁定账号必须保留"
+        );
+    }
+
+    // ---- 公开读取限流（每 IP 每分钟 N 次） ----
+
+    #[test]
+    fn public_read_allows_the_limit_then_reports_retry_after() {
+        let throttle = PublicReadThrottle::new(PUBLIC_READ_LIMIT_PER_MIN);
+        let now = Instant::now();
+        let ip = "203.0.113.5";
+
+        for _ in 0..PUBLIC_READ_LIMIT_PER_MIN {
+            assert_eq!(throttle.check_at(ThrottleKey::from(ip), now), Ok(()));
+        }
+        let retry = throttle
+            .check_at(ThrottleKey::from(ip), now)
+            .expect_err("第 61 次必须被限流");
+        assert!(
+            (1..=PUBLIC_READ_WINDOW.as_secs()).contains(&retry),
+            "Retry-After 不合理：{retry}"
+        );
+    }
+
+    #[test]
+    fn public_read_window_resets_and_retry_after_shrinks() {
+        let throttle = PublicReadThrottle::new(2);
+        let now = Instant::now();
+        let ip = ThrottleKey::from("198.51.100.9");
+
+        assert_eq!(throttle.check_at(ip, now), Ok(()));
+        assert_eq!(throttle.check_at(ip, now), Ok(()));
+        assert!(throttle.check_at(ip, now).is_err());
+
+        // 窗口过半：Retry-After 必须跟着缩短，且仍拒绝。
+        let retry = throttle
+            .check_at(ip, at(now, 50))
+            .expect_err("窗口内仍应拒绝");
+        assert!(retry <= 10, "过了 50 秒，剩余应不超过 10 秒：{retry}");
+
+        // 窗口结束后立即恢复，新的窗口从头计数。
+        assert_eq!(throttle.check_at(ip, at(now, 60)), Ok(()));
+        assert_eq!(throttle.check_at(ip, at(now, 60)), Ok(()));
+        assert!(throttle.check_at(ip, at(now, 60)).is_err());
+    }
+
+    #[test]
+    fn public_read_is_isolated_per_address() {
+        let throttle = PublicReadThrottle::new(1);
+        let now = Instant::now();
+        assert_eq!(
+            throttle.check_at(ThrottleKey::from("10.0.0.1"), now),
+            Ok(())
+        );
+        assert!(throttle
+            .check_at(ThrottleKey::from("10.0.0.1"), now)
+            .is_err());
+        assert_eq!(
+            throttle.check_at(ThrottleKey::from("10.0.0.2"), now),
+            Ok(()),
+            "别的 IP 不受影响"
+        );
+    }
+
+    /// IPv6 按 /64 聚合：同一前缀里换地址不能换出新额度。
+    #[test]
+    fn public_read_ipv6_aggregates_the_64_prefix() {
+        let throttle = PublicReadThrottle::new(1);
+        let now = Instant::now();
+        assert_eq!(
+            throttle.check_at(ThrottleKey::from("2001:db8:1:2::1"), now),
+            Ok(())
+        );
+        assert!(
+            throttle
+                .check_at(ThrottleKey::from("2001:db8:1:2::99"), now)
+                .is_err(),
+            "同一 /64 内的其它地址必须命中同一个桶"
+        );
+        assert_eq!(
+            throttle.check_at(ThrottleKey::from("2001:db8:1:3::1"), now),
+            Ok(()),
+            "不同 /64 不应互相影响"
+        );
+    }
+
+    #[test]
+    fn public_read_threshold_env_parsing_rejects_invalid_values() {
+        assert_eq!(parse_public_read_limit("120"), Some(120));
+        assert_eq!(parse_public_read_limit(" 60 "), Some(60));
+        for invalid in [
+            "",
+            "   ",
+            "0",
+            "-5",
+            "abc",
+            "60/min",
+            "1.5",
+            "99999999999999999999",
+        ] {
+            assert_eq!(
+                parse_public_read_limit(invalid),
+                None,
+                "非法值必须回落默认：{invalid:?}"
+            );
+        }
+        assert_eq!(
+            parse_public_read_limit("1000001"),
+            None,
+            "超过上限按非法处理"
+        );
+    }
+
+    /// 攻击者可以无限换 IP：公开读取计数表也必须有硬上限。
+    #[test]
+    fn public_read_entry_map_stays_bounded_under_a_flood() {
+        let throttle = PublicReadThrottle::new(1_000);
+        let now = Instant::now();
+        for index in 0..5000 {
+            let _ = throttle.check_at(ip(index), now);
+        }
+        assert!(
+            throttle.len() <= MAX_ENTRIES,
+            "5000 个不同 IP 后 map 仍有 {} 条，必须有硬上限",
+            throttle.len()
         );
     }
 

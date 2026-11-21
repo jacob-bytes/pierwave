@@ -757,6 +757,10 @@ const en = {
       none: "Not set",
       publicHint: "Shown on the public status page once filled in",
       errors: {
+    "public_status.rate_limited":
+      "Too many requests, try again in {retry_after_secs}s",
+    "public_status.overloaded":
+      "The status page is rebuilding, try again shortly",
         paidUntil:
           "Paid-until must be a real date between 1970-01-01 and 2100-12-31 (YYYY-MM-DD), or leave it empty",
         price:

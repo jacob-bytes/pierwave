@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -13,10 +15,11 @@ use tokio::sync::{broadcast, watch};
 use crate::alerts::Alerts;
 use crate::api_token::{ApiTokenRateLimiter, ApiTokenUsage};
 use crate::enforcement::Enforcer;
+use crate::error::{AppError, AppResult};
 use crate::login_watch::LoginWatch;
 use crate::session_touch::SessionTouch;
 use crate::tcping::Registry as TcpingRegistry;
-use crate::throttle::{IpThrottle, LoginThrottle};
+use crate::throttle::{IpThrottle, LoginThrottle, PublicReadThrottle};
 use crate::updates::UpdateService;
 
 /// 每台服务器一条广播通道；没有 Agent 在线时发送方仍在，消息自然丢弃。
@@ -161,13 +164,58 @@ pub struct PublicStatusSnapshot {
     pub series: HashMap<String, Value>,
 }
 
-#[derive(Clone, Default)]
+/// 公开状态页快照的等待上限：重建期间的并发请求最多等这么久。
+///
+/// 1000 台冷缓存重建约 500ms，5 秒足够覆盖慢盘 / 慢查询；超过后返回 503
+/// 而不是让请求无限排队。**不让等待者自己再算一遍**：那正是缓存击穿
+/// （30 秒过期瞬间 N 个并发请求各扫一遍采样表）本身。
+pub const PUBLIC_STATUS_REBUILD_WAIT: Duration = Duration::from_secs(5);
+
+/// 公开状态页快照的单飞计数器；只用于日志与测试，不接 Prometheus。
+#[derive(Debug, Default)]
+struct PublicStatusStats {
+    /// 真正执行了聚合的次数。
+    rebuilds: AtomicU64,
+    /// 等到锁之后发现别人已经建好、直接复用结果的次数。
+    waited_hits: AtomicU64,
+    /// 等锁超过 [`PUBLIC_STATUS_REBUILD_WAIT`] 而返回 503 的次数。
+    wait_timeouts: AtomicU64,
+    /// 聚合失败（错误不缓存，下一次请求会重新尝试）的次数。
+    failures: AtomicU64,
+}
+
+#[derive(Clone)]
 pub struct PublicStatusCache {
     inner: Arc<Mutex<Option<(Instant, PublicStatusSnapshot)>>>,
+    /// 单飞锁：同一时刻只允许一个请求重建快照，其余等待并复用同一结果。
+    ///
+    /// 必须是 **tokio 的异步锁**：`std::sync::MutexGuard` 不是 `Send`，跨
+    /// `.await` 持有会让 handler 编不过，拿它硬锁还会把整个 runtime 卡住。
+    /// 计数器锁 `inner` 只在 `get` / `put` 里短暂持有，绝不跨越 `.await`。
+    rebuild: Arc<AsyncMutex<()>>,
+    /// 等待重建的上限，测试里可以缩短（见 [`Self::with_wait`]）。
+    wait: Duration,
+    stats: Arc<PublicStatusStats>,
+}
+
+impl Default for PublicStatusCache {
+    fn default() -> Self {
+        Self::with_wait(PUBLIC_STATUS_REBUILD_WAIT)
+    }
 }
 
 impl PublicStatusCache {
-    pub fn get(&self) -> Option<PublicStatusSnapshot> {
+    /// 指定等待上限；测试用它把 5 秒压到毫秒级。
+    pub fn with_wait(wait: Duration) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(None)),
+            rebuild: Arc::new(AsyncMutex::new(())),
+            wait,
+            stats: Arc::new(PublicStatusStats::default()),
+        }
+    }
+
+    fn get(&self) -> Option<PublicStatusSnapshot> {
         let guard = self
             .inner
             .lock()
@@ -178,11 +226,85 @@ impl PublicStatusCache {
             .map(|(_, snapshot)| snapshot.clone())
     }
 
-    pub fn put(&self, snapshot: PublicStatusSnapshot) {
+    fn put(&self, snapshot: PublicStatusSnapshot) {
         *self
             .inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((Instant::now(), snapshot));
+    }
+
+    /// 缓存命中直接返回；未命中时**单飞**重建：只有一个请求真正执行
+    /// `build`，其余请求等它把结果写进缓存后直接复用。
+    ///
+    /// 失败语义：
+    /// * 聚合失败 → 错误原样返回给 leader，**不写缓存**，因此下一次请求
+    ///   会重新尝试，不会被一次失败卡住 30 秒；
+    /// * 等待锁超过 [`Self::wait`] → 返回 503
+    ///   `public_status.overloaded`，不各自重算（避免等待者把数据库打穿）；
+    /// * leader 失败时锁随 guard 一起释放，排队的等待者中最早的那个会接手
+    ///   重建，不会永久卡住。
+    pub async fn get_or_build<F, Fut>(&self, build: F) -> AppResult<PublicStatusSnapshot>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = AppResult<PublicStatusSnapshot>>,
+    {
+        if let Some(snapshot) = self.get() {
+            return Ok(snapshot);
+        }
+
+        let guard = match tokio::time::timeout(self.wait, self.rebuild.clone().lock_owned()).await {
+            Ok(guard) => guard,
+            Err(_) => {
+                let timeouts = self.stats.wait_timeouts.fetch_add(1, Ordering::Relaxed) + 1;
+                tracing::warn!(
+                    wait_ms = self.wait.as_millis() as u64,
+                    timeouts,
+                    "等待公开状态页快照重建超时，返回 503"
+                );
+                return Err(AppError::service_unavailable(
+                    "public_status.overloaded",
+                    Some(serde_json::json!({ "retry_after_secs": 1 })),
+                    "公开状态页正在重建快照，请稍后重试 / The public status snapshot is being rebuilt, please retry shortly",
+                ));
+            }
+        };
+
+        // 拿到锁后再看一眼：前一位持有者可能刚好建好并写入缓存，
+        // 这时直接复用，不再跑第二遍聚合。
+        if let Some(snapshot) = self.get() {
+            let waited_hits = self.stats.waited_hits.fetch_add(1, Ordering::Relaxed) + 1;
+            tracing::debug!(waited_hits, "公开状态页快照等待命中，复用 leader 的结果");
+            drop(guard);
+            return Ok(snapshot);
+        }
+
+        let started = Instant::now();
+        match build().await {
+            Ok(snapshot) => {
+                self.put(snapshot.clone());
+                let rebuilds = self.stats.rebuilds.fetch_add(1, Ordering::Relaxed) + 1;
+                let waited_hits = self.stats.waited_hits.load(Ordering::Relaxed);
+                tracing::info!(
+                    rebuilds,
+                    waited_hits,
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    "公开状态页快照已重建 / public status snapshot rebuilt"
+                );
+                drop(guard);
+                Ok(snapshot)
+            }
+            Err(error) => {
+                let failures = self.stats.failures.fetch_add(1, Ordering::Relaxed) + 1;
+                tracing::warn!(
+                    failures,
+                    error = %error,
+                    "公开状态页快照重建失败（不缓存错误，下一次请求会重试）"
+                );
+                // guard 在这里释放，排队的等待者可以接手重建。
+                drop(guard);
+                Err(error)
+            }
+        }
     }
 
     /// 立刻失效缓存：公开页的开关 / 白名单 / 费用可见性变化后必须马上生效。
@@ -191,6 +313,17 @@ impl PublicStatusCache {
             .inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    }
+
+    /// (rebuilds, waited_hits, wait_timeouts, failures)；只给测试断言用。
+    #[cfg(test)]
+    pub(crate) fn stats(&self) -> (u64, u64, u64, u64) {
+        (
+            self.stats.rebuilds.load(Ordering::Relaxed),
+            self.stats.waited_hits.load(Ordering::Relaxed),
+            self.stats.wait_timeouts.load(Ordering::Relaxed),
+            self.stats.failures.load(Ordering::Relaxed),
+        )
     }
 }
 
@@ -324,6 +457,8 @@ pub struct AppState {
     pub login_throttle: Arc<LoginThrottle>,
     /// 认证失败的 IP 维度限流（Bearer / Agent Hello）；进程内计数。
     pub ip_throttle: Arc<IpThrottle>,
+    /// 公开状态页的按 IP 读取限流（与认证失败计数表完全分开）。
+    pub public_read_throttle: Arc<PublicReadThrottle>,
     /// 连续失败计数（登录失败告警）；与限流分开，成功登录时清零。
     pub login_watch: LoginWatch,
     /// 会话 `last_seen_at` 的低频写回节流（默认 60 秒）。
@@ -357,6 +492,7 @@ impl AppState {
             enforcement: Enforcer::from_env(),
             login_throttle: Arc::new(LoginThrottle::default()),
             ip_throttle: Arc::new(IpThrottle::default()),
+            public_read_throttle: Arc::new(PublicReadThrottle::from_env()),
             login_watch: LoginWatch::default(),
             session_touch: SessionTouch::default(),
             agent_release: AgentReleaseConfig::from_env(),
@@ -375,6 +511,20 @@ impl AppState {
     #[cfg(test)]
     pub fn with_enforcement(mut self, enabled: bool, window: Duration) -> Self {
         self.enforcement = Enforcer::new(enabled, window);
+        self
+    }
+
+    /// 测试：把公开读取限流固定成指定阈值，不受环境变量影响。
+    #[cfg(test)]
+    pub fn with_public_rate_limit(mut self, limit: u32) -> Self {
+        self.public_read_throttle = Arc::new(PublicReadThrottle::new(limit));
+        self
+    }
+
+    /// 测试：把公开状态页快照的等待上限压到毫秒级。
+    #[cfg(test)]
+    pub fn with_public_status_wait(mut self, wait: Duration) -> Self {
+        self.public_status = PublicStatusCache::with_wait(wait);
         self
     }
 }
@@ -490,5 +640,127 @@ mod tests {
         let sender = subscription.sender.clone();
         drop(subscription);
         assert!(!hub.is_current("server-1", &sender));
+    }
+
+    // ---- 公开状态页快照：单飞（single-flight） ----
+
+    fn snapshot(generated_at: i64) -> PublicStatusSnapshot {
+        PublicStatusSnapshot {
+            list: serde_json::json!({ "generated_at": generated_at }),
+            series: HashMap::new(),
+        }
+    }
+
+    /// 20 个并发请求只允许触发 **一次** 聚合；其余 19 个等同一个结果。
+    #[tokio::test]
+    async fn concurrent_requests_rebuild_the_public_status_snapshot_once() {
+        use std::sync::atomic::AtomicUsize;
+
+        let cache = PublicStatusCache::default();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let barrier = Arc::new(tokio::sync::Barrier::new(20));
+
+        let mut tasks = Vec::new();
+        for _ in 0..20 {
+            let cache = cache.clone();
+            let attempts = attempts.clone();
+            let barrier = barrier.clone();
+            tasks.push(tokio::spawn(async move {
+                barrier.wait().await;
+                cache
+                    .get_or_build(|| async move {
+                        attempts.fetch_add(1, Ordering::SeqCst);
+                        // 模拟 1000 台冷缓存聚合：故意让 leader 慢，
+                        // 等待者必须真的等同一个结果，而不是各自再算。
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        Ok::<_, AppError>(snapshot(42))
+                    })
+                    .await
+            }));
+        }
+
+        let mut results = Vec::new();
+        for task in tasks {
+            results.push(task.await.unwrap().expect("重建期间每个请求都要拿到结果"));
+        }
+
+        assert_eq!(
+            attempts.load(Ordering::SeqCst),
+            1,
+            "20 个并发请求只能触发 1 次重建"
+        );
+        let (rebuilds, waited_hits, timeouts, failures) = cache.stats();
+        assert_eq!(rebuilds, 1, "重建次数应为 1");
+        assert_eq!(waited_hits, 19, "其余 19 个请求必须命中 leader 的结果");
+        assert_eq!((timeouts, failures), (0, 0));
+        for result in &results {
+            assert_eq!(result.list["generated_at"], 42, "所有请求拿到同一份结果");
+        }
+    }
+
+    /// 重建失败不缓存错误：下一次请求必须能重新尝试并成功。
+    #[tokio::test]
+    async fn rebuild_failure_is_not_cached_and_the_next_attempt_succeeds() {
+        let cache = PublicStatusCache::default();
+
+        let failed = cache
+            .get_or_build(|| async {
+                Err::<PublicStatusSnapshot, _>(AppError::Internal(anyhow::anyhow!("聚合失败")))
+            })
+            .await;
+        assert!(failed.is_err(), "leader 必须收到真实错误");
+        assert!(cache.get().is_none(), "失败的聚合绝不能写进缓存");
+
+        let (rebuilds, waited_hits, timeouts, failures) = cache.stats();
+        assert_eq!((rebuilds, waited_hits, timeouts), (0, 0, 0));
+        assert_eq!(failures, 1, "失败次数必须计数");
+
+        let ok = cache
+            .get_or_build(|| async { Ok::<_, AppError>(snapshot(7)) })
+            .await;
+        assert!(ok.is_ok(), "失败之后的下一次请求仍要能成功");
+        assert_eq!(cache.stats().0, 1, "第二次请求才是一次真正的重建");
+        assert!(cache.get().is_some());
+    }
+
+    /// 等待者超时返回 503，而不是各自重算把数据库打穿；leader 完成后缓存照常可用。
+    #[tokio::test]
+    async fn waiter_times_out_with_503_instead_of_recomputing() {
+        let cache = PublicStatusCache::with_wait(Duration::from_millis(50));
+        let started = Arc::new(tokio::sync::Notify::new());
+
+        let leader = {
+            let cache = cache.clone();
+            let started = started.clone();
+            tokio::spawn(async move {
+                cache
+                    .get_or_build(|| async move {
+                        started.notify_one();
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+                        Ok::<_, AppError>(snapshot(1))
+                    })
+                    .await
+            })
+        };
+        started.notified().await;
+
+        let error = match cache
+            .get_or_build(|| async { Ok::<_, AppError>(snapshot(2)) })
+            .await
+        {
+            Ok(_) => panic!("leader 仍占着锁时，等待者必须超时返回 503"),
+            Err(error) => error,
+        };
+        match error {
+            AppError::Coded { status, code, .. } => {
+                assert_eq!(status, axum::http::StatusCode::SERVICE_UNAVAILABLE);
+                assert_eq!(code, "public_status.overloaded");
+            }
+            other => panic!("必须是 503 public_status.overloaded，实际 {other:?}"),
+        }
+        assert_eq!(cache.stats().2, 1, "必须记录一次等待超时");
+
+        assert!(leader.await.unwrap().is_ok());
+        assert!(cache.get().is_some(), "leader 完成后缓存必须可用");
     }
 }

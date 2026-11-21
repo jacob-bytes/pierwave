@@ -1,8 +1,8 @@
 use axum::body::Body;
-use axum::extract::DefaultBodyLimit;
+use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{header, HeaderName, HeaderValue, Request, Uri};
 use axum::middleware::Next;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use axum::Router;
 use tower_http::compression::predicate::{DefaultPredicate, Predicate};
@@ -10,6 +10,7 @@ use tower_http::compression::CompressionLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 
+use crate::error::AppError;
 use crate::routes;
 use crate::state::AppState;
 
@@ -126,18 +127,60 @@ fn make_span(request: &Request<Body>) -> tracing::Span {
     )
 }
 
+/// 公开读取限流：`GET /api/v1/public/status` 与 `GET /api/v1/public/status/{id}`。
+///
+/// 与认证失败限流（[`crate::auth::ip_auth_throttle_middleware`]）**完全分开**：
+/// 两张表互不写入。读公开页再多也不会把登录 / Bearer 认证打成 429，反过来
+/// 撞库失败也不会消耗公开页的读取额度。
+///
+/// 键复用 [`crate::routes::auth::client_ip`]：XFF 信任边界（只信回环/内网反代）、
+/// IPv4-mapped 归一、IPv6 `/64` 聚合都只有一套实现，这里不另写地址解析。
+///
+/// 健康检查 `/api/v1/health` 刻意**不**限流：监控探针按秒级轮询，面板被刷时
+/// 限流只会让监控误报；它只做一次内存检查，不打库。管理端白名单入口
+/// `/api/v1/public-status/*` 也不在这里——那是已鉴权的写读接口，有各自的锁。
+async fn public_read_throttle_middleware(
+    State(state): State<AppState>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let Some(ip) = crate::routes::auth::client_ip(request.headers(), request.extensions()) else {
+        // 拿不到客户端地址就没有限流键：放行。绝不能拿垃圾字符串当共享桶。
+        return next.run(request).await;
+    };
+    let key = ip.throttle_key();
+    let Err(retry_after) = state.public_read_throttle.check(key) else {
+        return next.run(request).await;
+    };
+
+    tracing::debug!(ip = %key, retry_after, "公开状态页读取超限，返回 429");
+    AppError::too_many_requests(
+        "public_status.rate_limited",
+        retry_after,
+        "公开状态页请求过于频繁，请稍后再试 / Too many requests to the public status page, please retry later",
+    )
+    .into_response()
+}
+
 pub fn router(state: AppState) -> Router {
     let index = state.web_dir.join("index.html");
     let static_files = ServeDir::new(state.web_dir.as_path()).fallback(ServeFile::new(index));
 
+    // 公开状态页的按 IP 读取限流：只包列表与详情两条路由。
+    let public_read_limit =
+        axum::middleware::from_fn_with_state(state.clone(), public_read_throttle_middleware);
+
     Router::new()
         .route("/api/v1/health", get(routes::system::health))
         // 公开状态页：无需登录；关闭开关由 handler 自身判断并返回 404。
-        .route("/api/v1/public/status", get(routes::public_status::status))
+        .route(
+            "/api/v1/public/status",
+            get(routes::public_status::status).layer(public_read_limit.clone()),
+        )
         // 单台服务器的详情（含 24h 趋势）：列表不再带上 `series_24h`。
         .route(
             "/api/v1/public/status/{id}",
-            get(routes::public_status::detail),
+            get(routes::public_status::detail).layer(public_read_limit),
         )
         // 公开状态页白名单（仅管理员）：读全量列表 / 用 id 列表整体替换。
         .route(
@@ -474,6 +517,42 @@ mod tests {
         router(state)
     }
 
+    /// 带固定公开读取阈值的路由 + state：测试不依赖环境变量。
+    async fn test_app_with_state(public_limit: u32) -> (Router, AppState) {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let state = AppState::new(db, "web/dist").with_public_rate_limit(public_limit);
+        (router(state.clone()), state)
+    }
+
+    /// 带 `X-Forwarded-For` 的 GET：单测里没有 `ConnectInfo`，`client_ip` 会采信 XFF。
+    async fn get_with_ip(
+        app: &Router,
+        uri: &str,
+        xff: &str,
+    ) -> (StatusCode, axum::http::HeaderMap) {
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri(uri)
+            .header("x-forwarded-for", xff)
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        (response.status(), response.headers().clone())
+    }
+
+    /// 带 `X-Forwarded-For` 与坏 Bearer 的 GET：验证两张限流表互不写入。
+    async fn bad_bearer_with_ip(app: &Router, ip: &str) -> StatusCode {
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/api/v1/overview")
+            .header("x-forwarded-for", ip)
+            .header(header::AUTHORIZATION, "Bearer pwt_definitely-invalid")
+            .body(Body::empty())
+            .unwrap();
+        app.clone().oneshot(request).await.unwrap().status()
+    }
+
     async fn get(
         app: &Router,
         uri: &str,
@@ -695,5 +774,256 @@ mod tests {
 
         let uri: Uri = "/assets/app.js?v=1".parse().unwrap();
         assert_eq!(redact_uri(&uri), "/assets/app.js?v=1");
+    }
+
+    // ---- S1：公开状态页的按 IP 读取限流 ----
+
+    /// 60 次内 200，第 61 次 429 + `Retry-After`；其它 IP 不受影响。
+    #[tokio::test]
+    async fn public_status_read_limit_allows_sixty_then_429() {
+        let (app, _state) = test_app_with_state(60).await;
+        let ip = "203.0.113.60";
+
+        for index in 0..60 {
+            let (status, _) = get_with_ip(&app, "/api/v1/public/status", ip).await;
+            assert_eq!(status, StatusCode::OK, "第 {} 次读取应当成功", index + 1);
+        }
+
+        let (status, headers) = get_with_ip(&app, "/api/v1/public/status", ip).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS, "第 61 次必须 429");
+        let retry_after = headers
+            .get(header::RETRY_AFTER)
+            .expect("429 必须带 Retry-After")
+            .to_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        assert!(
+            (1..=60).contains(&retry_after),
+            "Retry-After 不合理：{retry_after}"
+        );
+
+        let (status, _) = get_with_ip(&app, "/api/v1/public/status", "203.0.113.61").await;
+        assert_eq!(status, StatusCode::OK, "别的 IP 不受影响");
+    }
+
+    /// 列表与详情共用同一个 IP 桶：两个入口各拿一份额度等于限流无效。
+    #[tokio::test]
+    async fn public_status_list_and_detail_share_one_read_budget() {
+        let (app, state) = test_app_with_state(2).await;
+        let (server, _) = pierwave_domain::repo::servers::create(
+            &state.db.pool,
+            "edge-1",
+            "203.0.113.9",
+            "external",
+        )
+        .await
+        .unwrap();
+        let ip = "203.0.113.62";
+
+        assert_eq!(
+            get_with_ip(&app, "/api/v1/public/status", ip).await.0,
+            StatusCode::OK
+        );
+        assert_eq!(
+            get_with_ip(&app, &format!("/api/v1/public/status/{}", server.id), ip)
+                .await
+                .0,
+            StatusCode::OK,
+            "详情与列表共用同一个桶"
+        );
+        let (status, headers) = get_with_ip(&app, "/api/v1/public/status", ip).await;
+        assert_eq!(
+            status,
+            StatusCode::TOO_MANY_REQUESTS,
+            "列表 + 详情合计超限后一律 429"
+        );
+        assert!(headers.get(header::RETRY_AFTER).is_some());
+    }
+
+    /// 伪造 / 轮换 `X-Forwarded-For` 第一跳换不出新额度；mapped 写法也一样。
+    #[tokio::test]
+    async fn forged_xff_cannot_bypass_the_public_read_limit() {
+        let (app, _state) = test_app_with_state(3).await;
+        let real = "203.0.113.70";
+
+        for index in 0..3 {
+            // nginx `$proxy_add_x_forwarded_for`：客户端伪造的在左，真实地址在最右。
+            let xff = format!("10.9.9.{index}, {real}");
+            assert_eq!(
+                get_with_ip(&app, "/api/v1/public/status", &xff).await.0,
+                StatusCode::OK
+            );
+        }
+
+        let xff = format!("10.9.9.99, {real}");
+        assert_eq!(
+            get_with_ip(&app, "/api/v1/public/status", &xff).await.0,
+            StatusCode::TOO_MANY_REQUESTS,
+            "伪造左端不能换出新额度"
+        );
+
+        // IPv4-mapped IPv6 与纯 IPv4 是同一个地址，必须共用计数。
+        let mapped = format!("::ffff:{real}");
+        assert_eq!(
+            get_with_ip(&app, "/api/v1/public/status", &mapped).await.0,
+            StatusCode::TOO_MANY_REQUESTS,
+            "mapped 写法不能绕过限流"
+        );
+    }
+
+    /// 健康检查不限流；公开读取 429 不写认证失败表（两张表完全分开）。
+    #[tokio::test]
+    async fn public_read_limit_leaves_health_and_auth_failures_alone() {
+        let (app, _state) = test_app_with_state(2).await;
+        let ip = "203.0.113.71";
+
+        assert_eq!(
+            get_with_ip(&app, "/api/v1/public/status", ip).await.0,
+            StatusCode::OK
+        );
+        assert_eq!(
+            get_with_ip(&app, "/api/v1/public/status", ip).await.0,
+            StatusCode::OK
+        );
+        assert_eq!(
+            get_with_ip(&app, "/api/v1/public/status", ip).await.0,
+            StatusCode::TOO_MANY_REQUESTS
+        );
+
+        // 监控探针不能被公开页的 429 误伤。
+        assert_eq!(
+            get_with_ip(&app, "/api/v1/health", ip).await.0,
+            StatusCode::OK,
+            "健康检查不参与公开读取限流"
+        );
+
+        // 坏 Bearer 仍走认证失败表：401（而不是被公开读取的 429 挡住）。
+        assert_eq!(
+            bad_bearer_with_ip(&app, ip).await,
+            StatusCode::UNAUTHORIZED,
+            "公开读取限流不能写进认证失败表"
+        );
+    }
+
+    /// 反向：认证失败打满也不消耗公开读取额度（公开入口本来就不受 IP 锁定影响）。
+    #[tokio::test]
+    async fn auth_failures_do_not_consume_the_public_read_budget() {
+        let (app, _state) = test_app_with_state(2).await;
+        let ip = "203.0.113.72";
+
+        for _ in 0..crate::throttle::IP_MAX_FAILURES {
+            let _ = bad_bearer_with_ip(&app, ip).await;
+        }
+
+        assert_eq!(
+            get_with_ip(&app, "/api/v1/public/status", ip).await.0,
+            StatusCode::OK
+        );
+        assert_eq!(
+            get_with_ip(&app, "/api/v1/public/status", ip).await.0,
+            StatusCode::OK
+        );
+        assert_eq!(
+            get_with_ip(&app, "/api/v1/public/status", ip).await.0,
+            StatusCode::TOO_MANY_REQUESTS,
+            "公开读取额度必须是独立的一份"
+        );
+    }
+
+    // ---- S2：公开状态页快照的单飞重建 ----
+
+    /// 20 个并发请求只触发 1 次重建，且每个请求都拿到结果。
+    #[tokio::test]
+    async fn concurrent_public_status_requests_rebuild_the_snapshot_once() {
+        let (app, state) = test_app_with_state(1_000).await;
+        pierwave_domain::repo::servers::create(&state.db.pool, "edge-1", "203.0.113.9", "external")
+            .await
+            .unwrap();
+
+        let mut tasks = Vec::new();
+        for _ in 0..20 {
+            let app = app.clone();
+            tasks.push(tokio::spawn(async move {
+                let response = app
+                    .oneshot(
+                        Request::builder()
+                            .method(Method::GET)
+                            .uri("/api/v1/public/status")
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                let status = response.status();
+                let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+                    .await
+                    .unwrap();
+                (status, bytes)
+            }));
+        }
+
+        for task in tasks {
+            let (status, bytes) = task.await.unwrap();
+            assert_eq!(status, StatusCode::OK, "重建期间的请求都必须拿到结果");
+            let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(body["summary"]["servers_total"], 1, "{body}");
+        }
+
+        let (rebuilds, _waited_hits, timeouts, failures) = state.public_status.stats();
+        assert_eq!(rebuilds, 1, "20 个并发请求只能触发 1 次重建");
+        assert_eq!((timeouts, failures), (0, 0));
+    }
+
+    /// 等待超过上限时返回 503（而不是每个等待者各自重算），leader 完成后恢复。
+    #[tokio::test]
+    async fn public_status_returns_503_when_the_rebuild_wait_times_out() {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let state = AppState::new(db, "web/dist")
+            .with_public_status_wait(std::time::Duration::from_millis(30));
+        let app = router(state.clone());
+
+        let started = std::sync::Arc::new(tokio::sync::Notify::new());
+        let leader = {
+            let cache = state.public_status.clone();
+            let started = started.clone();
+            tokio::spawn(async move {
+                cache
+                    .get_or_build(|| async move {
+                        started.notify_one();
+                        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                        Ok::<_, crate::error::AppError>(
+                            crate::state::PublicStatusSnapshot::default(),
+                        )
+                    })
+                    .await
+            })
+        };
+        started.notified().await;
+
+        let response = get(&app, "/api/v1/public/status", None).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "等待重建超时必须 503"
+        );
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["code"], "public_status.overloaded", "{body}");
+        assert!(
+            body["error"].as_str().unwrap().contains("稍后重试"),
+            "错误文案必须是中文兜底：{body}"
+        );
+
+        assert!(leader.await.unwrap().is_ok());
+        let response = get(&app, "/api/v1/public/status", None).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "leader 完成后必须恢复正常"
+        );
     }
 }

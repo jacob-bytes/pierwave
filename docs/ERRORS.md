@@ -254,6 +254,33 @@ code in `error.data.code`; every other endpoint puts it in the response `code`.
 Clients must branch on the app code, not parse the bilingual message. See
 [MCP.md](./MCP.md#http-access-streamable-http) and [API-TOKENS.md](./API-TOKENS.md).
 
+## 公开状态页限流 / Public status rate limiting
+
+`GET /api/v1/public/status` 与 `GET /api/v1/public/status/{id}` 按客户端 IP 限流，
+默认每 IP 每分钟 60 次（`PIERWAVE_PUBLIC_RATE_LIMIT_PER_MIN` 可调），两个接口共用
+同一个桶。阈值、`Retry-After` 语义与单飞重建见
+[PUBLIC-STATUS.md](./PUBLIC-STATUS.md#限流与单飞--rate-limiting-and-single-flight)。
+
+| code | 中文 | English | params |
+|---|---|---|---|
+| `public_status.rate_limited` | 公开状态页请求过于频繁，请稍后再试 | Too many requests to the public status page, please retry later | retry_after_secs（同时写 `Retry-After` 头 / also sent as `Retry-After`） |
+| `public_status.overloaded` | 公开状态页正在重建快照，请稍后重试 | The public status snapshot is being rebuilt, please retry shortly | retry_after_secs |
+
+`429` 的 `Retry-After` 与 `params.retry_after_secs` 一致（`1..=60`）；`503`
+只给 `params.retry_after_secs = 1`，不带 `Retry-After` 头。这两个 code 目前
+**没有** `errors.*` 前端词典条目（本轮只改 `crates/master` 与 `docs/`），前端会
+按 `ERRORS.md` 开头的约定回落到响应里的双语文案 `error`。
+
+Both public endpoints share one per-IP bucket (60 requests per minute by default,
+configurable via `PIERWAVE_PUBLIC_RATE_LIMIT_PER_MIN`); see
+[PUBLIC-STATUS.md](./PUBLIC-STATUS.md#限流与单飞--rate-limiting-and-single-flight) for the
+`Retry-After` semantics and single-flight rebuild. The `429` header and
+`params.retry_after_secs` agree (`1..=60`); `503` only carries
+`params.retry_after_secs = 1` and no `Retry-After` header. Neither code has an
+`errors.*` frontend dictionary entry yet (this lane only touches `crates/master`
+and `docs/`), so the UI falls back to the bilingual `error` message as described
+at the top of this file.
+
 ## 转发链端口自动分配（中英对照）/ Automatic chain port allocation
 
 中间组（seq ≥ 1）可以省略监听端口：主控为每台服务器挑最小空闲端口，保存时落成
